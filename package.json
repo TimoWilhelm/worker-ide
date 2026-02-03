@@ -5,8 +5,8 @@
 	"type": "module",
 	"scripts": {
 		"dev": "wrangler dev",
-		"dev:vite": "vite dev",
-		"dev:programmatic": "tsx scripts/dev.ts",
+		"dev:preview": "tsx scripts/dev.ts",
+		"dev:all": "concurrently \"wrangler dev\" \"tsx scripts/dev.ts\"",
 		"build": "vite build",
 		"preview": "vite build && vite preview",
 		"deploy": "vite build && wrangler deploy",

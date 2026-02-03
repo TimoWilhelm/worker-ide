@@ -3,8 +3,16 @@ import { mount, withMounts } from 'worker-fs-mount';
 import { WorkerEntrypoint, DurableObject } from 'cloudflare:workers';
 import fs from 'node:fs/promises';
 import { transformCode, bundleCode } from './bundler.js';
+import { transformModule, processHTML, type FileSystem } from './vite-dev.js';
 
 export { DurableObjectFilesystem };
+
+// Module-level state for preview API (persists across requests within isolate)
+const previewTodos: Array<{ id: string; text: string; done: boolean }> = [
+	{ id: '1', text: 'Learn Cloudflare Workers', done: true },
+	{ id: '2', text: 'Build a full-stack app', done: false },
+	{ id: '3', text: 'Deploy to the edge', done: false },
+];
 
 interface HMRUpdate {
 	type: 'update' | 'full-reload';
@@ -76,33 +84,84 @@ export class HMRCoordinator extends DurableObject {
 }
 
 const EXAMPLE_PROJECT = {
-	'wrangler.jsonc': `{
+	'package.json': `{
   "name": "my-fullstack-app",
-  "main": "src/worker.ts",
-  "compatibility_date": "2024-01-01",
-  "assets": {
-    "directory": "./public",
-    "binding": "ASSETS",
-    "not_found_handling": "single-page-application"
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "deploy": "vite build && wrangler deploy"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.0.0",
+    "@cloudflare/workers-types": "^4.20240512.0",
+    "typescript": "^5.4.0",
+    "vite": "^6.0.0",
+    "wrangler": "^4.0.0"
   }
 }`,
-	'public/index.html': `<!DOCTYPE html>
+	'vite.config.ts': `import { defineConfig } from "vite";
+import { cloudflare } from "@cloudflare/vite-plugin";
+
+export default defineConfig({
+  plugins: [cloudflare()],
+});`,
+	'wrangler.jsonc': `{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "my-fullstack-app",
+  "compatibility_date": "2024-01-01",
+  "main": "./worker/index.ts",
+  "kv_namespaces": [
+    { "binding": "TODOS_KV", "id": "todos-kv" }
+  ],
+  "assets": {
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  }
+}`,
+	'tsconfig.json': `{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "skipLibCheck": true,
+    "types": ["vite/client"]
+  },
+  "include": ["src"],
+  "references": [{ "path": "./tsconfig.worker.json" }]
+}`,
+	'tsconfig.worker.json': `{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "skipLibCheck": true,
+    "types": ["@cloudflare/workers-types/2023-07-01"]
+  },
+  "include": ["worker"]
+}`,
+	'index.html': `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Cloudflare Workers Full-Stack App</title>
-  <script type="module" src="src/main.js"></script>
 </head>
 <body>
   <div id="app"></div>
+  <script type="module" src="src/main.ts"></script>
 </body>
 </html>`,
-	'public/src/main.js': `import { api } from './api.js';
+	'src/main.ts': `import { api } from './api';
 import './style.css';
 
 async function init() {
-  const app = document.querySelector('#app');
+  const app = document.querySelector<HTMLDivElement>('#app')!;
 
   app.innerHTML = \`
     <h1>⚡ Workers Full-Stack</h1>
@@ -114,15 +173,14 @@ async function init() {
       </div>
       <ul id="todo-list"></ul>
     </div>
-    <p class="hint">Data is stored in the Worker using Durable Objects</p>
+    <p class="hint">Edit <code>worker/index.ts</code> for API, <code>src/main.ts</code> for frontend</p>
   \`;
 
-  const status = app.querySelector('.status');
-  const input = document.querySelector('#todo-input');
-  const addBtn = document.querySelector('#add-btn');
-  const list = document.querySelector('#todo-list');
+  const status = app.querySelector<HTMLParagraphElement>('.status')!;
+  const input = document.querySelector<HTMLInputElement>('#todo-input')!;
+  const addBtn = document.querySelector<HTMLButtonElement>('#add-btn')!;
+  const list = document.querySelector<HTMLUListElement>('#todo-list')!;
 
-  // Fetch initial data from Worker API
   try {
     const data = await api.hello();
     status.textContent = data.message;
@@ -130,7 +188,6 @@ async function init() {
     status.textContent = 'Error connecting to API';
   }
 
-  // Load todos
   async function loadTodos() {
     const todos = await api.getTodos();
     list.innerHTML = todos.map(t => \`
@@ -144,7 +201,6 @@ async function init() {
 
   await loadTodos();
 
-  // Add todo
   addBtn.addEventListener('click', async () => {
     if (input.value.trim()) {
       await api.addTodo(input.value.trim());
@@ -157,13 +213,13 @@ async function init() {
     if (e.key === 'Enter') addBtn.click();
   });
 
-  // Toggle/Delete todos
   list.addEventListener('click', async (e) => {
-    const id = e.target.dataset.id;
+    const target = e.target as HTMLElement;
+    const id = target.dataset.id;
     if (!id) return;
-    if (e.target.classList.contains('toggle')) {
+    if (target.classList.contains('toggle')) {
       await api.toggleTodo(id);
-    } else if (e.target.classList.contains('delete')) {
+    } else if (target.classList.contains('delete')) {
       await api.deleteTodo(id);
     }
     await loadTodos();
@@ -171,20 +227,40 @@ async function init() {
 }
 
 init();`,
-	'public/src/api.js': `const BASE = '/api';
+	'src/api.ts': `interface Todo {
+  id: string;
+  text: string;
+  done: boolean;
+}
+
+interface HelloResponse {
+  message: string;
+  timestamp: string;
+}
+
+// Detect base URL from page location (handles /preview prefix)
+const getBaseUrl = () => {
+  const path = location.pathname;
+  if (path.startsWith('/preview')) {
+    return '/preview/api';
+  }
+  return '/api';
+};
+
+const BASE = getBaseUrl();
 
 export const api = {
-  async hello() {
+  async hello(): Promise<HelloResponse> {
     const res = await fetch(\`\${BASE}/hello\`);
     return res.json();
   },
 
-  async getTodos() {
+  async getTodos(): Promise<Todo[]> {
     const res = await fetch(\`\${BASE}/todos\`);
     return res.json();
   },
 
-  async addTodo(text) {
+  async addTodo(text: string): Promise<Todo> {
     const res = await fetch(\`\${BASE}/todos\`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -193,60 +269,37 @@ export const api = {
     return res.json();
   },
 
-  async toggleTodo(id) {
+  async toggleTodo(id: string): Promise<Todo> {
     const res = await fetch(\`\${BASE}/todos/\${id}/toggle\`, { method: 'POST' });
     return res.json();
   },
 
-  async deleteTodo(id) {
+  async deleteTodo(id: string): Promise<Todo> {
     const res = await fetch(\`\${BASE}/todos/\${id}\`, { method: 'DELETE' });
     return res.json();
   },
 };`,
-	'public/src/style.css': `:root {
+  'src/style.css': `:root {
   font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
   background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
   color: rgba(255, 255, 255, 0.87);
 }
 
-body {
-  margin: 0;
-  display: flex;
-  place-items: center;
-  min-width: 320px;
-  min-height: 100vh;
-}
+body { margin: 0; display: flex; place-items: center; min-width: 320px; min-height: 100vh; }
 
-#app {
-  max-width: 600px;
-  margin: 0 auto;
-  padding: 2rem;
-  text-align: center;
-}
+#app { max-width: 600px; margin: 0 auto; padding: 2rem; text-align: center; }
 
 h1 { font-size: 2.5em; margin-bottom: 0.5em; }
 
-.card {
-  background: rgba(255,255,255,0.05);
-  border-radius: 12px;
-  padding: 2em;
-  margin: 1em 0;
-}
+.card { background: rgba(255,255,255,0.05); border-radius: 12px; padding: 2em; margin: 1em 0; }
 
-.status {
-  color: #4ade80;
-  font-weight: 500;
-  margin-bottom: 1.5em;
-}
+.status { color: #4ade80; font-weight: 500; margin-bottom: 1.5em; }
 
-.todos {
-  display: flex;
-  gap: 0.5em;
-  margin-bottom: 1em;
-}
+.todos { display: flex; gap: 0.5em; margin-bottom: 1em; }
 
 .todos input {
-  flex: 1;
+  flex: 1; padding: 0.6em 1em; border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 6px; background: rgba(0,0,0,0.3); color: white; font-size: 1em;
   padding: 0.6em 1em;
   border: 1px solid rgba(255,255,255,0.2);
   border-radius: 6px;
@@ -307,7 +360,8 @@ button:hover { background-color: #535bf2; }
   font-size: 0.85em;
   opacity: 0.6;
 }`,
-	'src/worker.ts': `interface Env {
+	'worker/index.ts': `interface Env {
+  TODOS_KV: KVNamespace;
   ASSETS: Fetcher;
 }
 
@@ -317,63 +371,74 @@ interface Todo {
   done: boolean;
 }
 
-// In-memory store (use Durable Objects or KV for persistence)
-const todos: Todo[] = [
-  { id: '1', text: 'Learn Cloudflare Workers', done: true },
-  { id: '2', text: 'Build a full-stack app', done: false },
-  { id: '3', text: 'Deploy to the edge', done: false },
-];
+const TODOS_KEY = 'todos';
+
+async function getTodos(kv: KVNamespace): Promise<Todo[]> {
+  const data = await kv.get(TODOS_KEY);
+  if (!data) {
+    const defaults: Todo[] = [
+      { id: '1', text: 'Learn Cloudflare Workers', done: true },
+      { id: '2', text: 'Build a full-stack app', done: false },
+      { id: '3', text: 'Deploy to the edge', done: false },
+    ];
+    await kv.put(TODOS_KEY, JSON.stringify(defaults));
+    return defaults;
+  }
+  return JSON.parse(data);
+}
+
+async function saveTodos(kv: KVNamespace, todos: Todo[]): Promise<void> {
+  await kv.put(TODOS_KEY, JSON.stringify(todos));
+}
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     const path = url.pathname;
 
-    // API Routes
     if (path.startsWith('/api/')) {
-      return handleAPI(request, path);
+      return handleAPI(request, path, env);
     }
 
-    // Serve static assets
     return env.ASSETS.fetch(request);
   },
-};
+} satisfies ExportedHandler<Env>;
 
-async function handleAPI(request: Request, path: string): Promise<Response> {
+async function handleAPI(request: Request, path: string, env: Env): Promise<Response> {
   const method = request.method;
-  const headers = { 'Content-Type': 'application/json' };
 
   // GET /api/hello
   if (path === '/api/hello' && method === 'GET') {
     return Response.json({
-      message: 'Connected to Workers API! 🚀',
+      message: 'Hello from KV-backed API! 🚀',
       timestamp: new Date().toISOString(),
     });
   }
 
   // GET /api/todos
   if (path === '/api/todos' && method === 'GET') {
+    const todos = await getTodos(env.TODOS_KV);
     return Response.json(todos);
   }
 
   // POST /api/todos
   if (path === '/api/todos' && method === 'POST') {
     const body = await request.json() as { text: string };
-    const todo: Todo = {
-      id: crypto.randomUUID(),
-      text: body.text,
-      done: false,
-    };
+    const todos = await getTodos(env.TODOS_KV);
+    const todo: Todo = { id: crypto.randomUUID(), text: body.text, done: false };
     todos.push(todo);
+    await saveTodos(env.TODOS_KV, todos);
     return Response.json(todo);
   }
 
   // POST /api/todos/:id/toggle
   const toggleMatch = path.match(/^\\/api\\/todos\\/([^/]+)\\/toggle$/);
   if (toggleMatch && method === 'POST') {
+    const todos = await getTodos(env.TODOS_KV);
     const todo = todos.find(t => t.id === toggleMatch[1]);
     if (todo) {
       todo.done = !todo.done;
+      await saveTodos(env.TODOS_KV, todos);
       return Response.json(todo);
     }
     return Response.json({ error: 'Not found' }, { status: 404 });
@@ -382,9 +447,11 @@ async function handleAPI(request: Request, path: string): Promise<Response> {
   // DELETE /api/todos/:id
   const deleteMatch = path.match(/^\\/api\\/todos\\/([^/]+)$/);
   if (deleteMatch && method === 'DELETE') {
+    const todos = await getTodos(env.TODOS_KV);
     const idx = todos.findIndex(t => t.id === deleteMatch[1]);
     if (idx !== -1) {
       const [deleted] = todos.splice(idx, 1);
+      await saveTodos(env.TODOS_KV, todos);
       return Response.json(deleted);
     }
     return Response.json({ error: 'Not found' }, { status: 404 });
@@ -396,15 +463,10 @@ async function handleAPI(request: Request, path: string): Promise<Response> {
 
 async function ensureExampleProject(projectRoot: string) {
 	try {
-		await fs.access(`${projectRoot}/wrangler.jsonc`);
+		await fs.access(`${projectRoot}/vite.config.ts`);
 	} catch {
-		// Create all necessary directories
-		await fs.mkdir(`${projectRoot}/src`, { recursive: true });
-		await fs.mkdir(`${projectRoot}/public/src`, { recursive: true });
-
 		for (const [filePath, content] of Object.entries(EXAMPLE_PROJECT)) {
 			const fullPath = `${projectRoot}/${filePath}`;
-			// Ensure parent directory exists for nested paths
 			const dir = fullPath.substring(0, fullPath.lastIndexOf('/'));
 			await fs.mkdir(dir, { recursive: true });
 			await fs.writeFile(fullPath, content);
@@ -584,6 +646,11 @@ export default class extends WorkerEntrypoint<Env> {
 				return this.handleAPI(request);
 			}
 
+			// Handle preview API routes (example project's backend)
+			if (path.startsWith('/preview/api/')) {
+				return this.handlePreviewAPI(request, path.replace('/preview', ''));
+			}
+
 			// Serve project files under /preview path
 			if (path === '/preview' || path.startsWith('/preview/')) {
 				const previewPath = path === '/preview' ? '/' : path.replace(/^\/preview/, '');
@@ -702,7 +769,7 @@ export default class extends WorkerEntrypoint<Env> {
 			// POST /api/bundle - bundle project files with esbuild
 			if (path === '/api/bundle' && request.method === 'POST') {
 				const body = (await request.json()) as { entryPoint?: string; minify?: boolean };
-				const entryPoint = body.entryPoint || 'src/main.js';
+				const entryPoint = body.entryPoint || 'src/main.ts';
 
 				const files = await this.collectFilesForBundle(this.projectRoot);
 				const result = await bundleCode({
@@ -743,42 +810,80 @@ export default class extends WorkerEntrypoint<Env> {
 		// Strip query params for file lookup
 		filePath = filePath.split('?')[0];
 
-		try {
-			const fullPath = `${this.projectRoot}${filePath}`;
-			const content = await fs.readFile(fullPath);
-			let contentType = getContentType(filePath);
+		const baseUrl = options?.baseHref?.replace(/\/$/, '') || '';
 
-			let body: string | Uint8Array = content as unknown as Uint8Array;
+		// Create filesystem adapter for vite-dev
+		const viteFs: FileSystem = {
+			readFile: (path: string) => fs.readFile(path),
+			access: (path: string) => fs.access(path),
+		};
+
+		try {
+			// Resolve extensionless imports
+			let fullPath = `${this.projectRoot}${filePath}`;
+			const initialExt = getExtension(filePath);
+
+			if (!initialExt) {
+				const extensions = ['.ts', '.tsx', '.js', '.jsx', '.mts', '.mjs'];
+				let resolved = false;
+				for (const tryExt of extensions) {
+					try {
+						await fs.access(fullPath + tryExt);
+						fullPath = fullPath + tryExt;
+						filePath = filePath + tryExt;
+						resolved = true;
+						break;
+					} catch {
+						// Try next
+					}
+				}
+				if (!resolved) {
+					for (const tryExt of extensions) {
+						try {
+							await fs.access(fullPath + '/index' + tryExt);
+							fullPath = fullPath + '/index' + tryExt;
+							filePath = filePath + '/index' + tryExt;
+							resolved = true;
+							break;
+						} catch {
+							// Try next
+						}
+					}
+				}
+				if (!resolved) {
+					throw new Error(`ENOENT: no such file or directory, '${filePath}'`);
+				}
+			}
+
+			const content = await fs.readFile(fullPath);
+			const textContent = typeof content === 'string' ? content : new TextDecoder().decode(content as unknown as Uint8Array);
 			const ext = getExtension(filePath);
 
-			// Compile TypeScript/JSX to JavaScript
-			if (COMPILE_TO_JS.has(ext)) {
-				const textContent = typeof content === 'string' ? content : new TextDecoder().decode(content as unknown as Uint8Array);
-				const result = await transformCode(textContent, filePath, { sourcemap: true });
-				body = result.code;
-				contentType = 'application/javascript';
-			}
-			// Transform non-JS assets to JS modules (CSS, JSON, images, etc.)
-			else if (TRANSFORM_TO_JS_MODULE.has(ext)) {
-				const transformed = transformToJsModule(body, filePath, contentType);
-				body = transformed.body;
-				contentType = transformed.contentType;
-			}
-			// Inject HMR client and base href into HTML
-			else if (contentType === 'text/html') {
-				const textContent = typeof content === 'string' ? content : new TextDecoder().decode(content as unknown as Uint8Array);
+			// Handle HTML files - use processHTML for proper script/link rewriting
+			if (ext === '.html') {
 				const protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
-				const wsUrl = `${protocol}//${url.host}/__hmr`;
-				let html = injectHMRClient(textContent, wsUrl);
-				if (options?.baseHref) {
-					html = html.replace('<head>', `<head><base href="${options.baseHref}">`);
-				}
-				body = html;
+				const hmrUrl = `${protocol}//${url.host}/__hmr`;
+				const html = await processHTML(textContent, filePath, {
+					fs: viteFs,
+					projectRoot: this.projectRoot,
+					baseUrl,
+					hmrUrl,
+				});
+				return new Response(html, {
+					headers: { 'Content-Type': 'text/html', 'Cache-Control': 'no-cache' },
+				});
 			}
 
-			return new Response(body, {
+			// Handle JS/TS/CSS/JSON - use transformModule for import rewriting
+			const transformed = await transformModule(filePath, textContent, {
+				fs: viteFs,
+				projectRoot: this.projectRoot,
+				baseUrl,
+			});
+
+			return new Response(transformed.code, {
 				headers: {
-					'Content-Type': contentType,
+					'Content-Type': transformed.contentType,
 					'Cache-Control': 'no-cache',
 				},
 			});
@@ -786,6 +891,50 @@ export default class extends WorkerEntrypoint<Env> {
 			console.error('serveFile error:', err);
 			return new Response('Not found', { status: 404 });
 		}
+	}
+
+	private async handlePreviewAPI(request: Request, apiPath: string): Promise<Response> {
+		const method = request.method;
+
+		if (apiPath === '/api/hello' && method === 'GET') {
+			return Response.json({
+				message: 'Connected to Workers API! 🚀',
+				timestamp: new Date().toISOString(),
+			});
+		}
+
+		if (apiPath === '/api/todos' && method === 'GET') {
+			return Response.json(previewTodos);
+		}
+
+		if (apiPath === '/api/todos' && method === 'POST') {
+			const body = (await request.json()) as { text: string };
+			const todo = { id: crypto.randomUUID(), text: body.text, done: false };
+			previewTodos.push(todo);
+			return Response.json(todo);
+		}
+
+		const toggleMatch = apiPath.match(/^\/api\/todos\/([^/]+)\/toggle$/);
+		if (toggleMatch && method === 'POST') {
+			const todo = previewTodos.find((t) => t.id === toggleMatch[1]);
+			if (todo) {
+				todo.done = !todo.done;
+				return Response.json(todo);
+			}
+			return Response.json({ error: 'Not found' }, { status: 404 });
+		}
+
+		const deleteMatch = apiPath.match(/^\/api\/todos\/([^/]+)$/);
+		if (deleteMatch && method === 'DELETE') {
+			const idx = previewTodos.findIndex((t) => t.id === deleteMatch[1]);
+			if (idx !== -1) {
+				const [deleted] = previewTodos.splice(idx, 1);
+				return Response.json(deleted);
+			}
+			return Response.json({ error: 'Not found' }, { status: 404 });
+		}
+
+		return Response.json({ error: 'Not found' }, { status: 404 });
 	}
 
 	private async listFilesRecursive(dir: string, base = ''): Promise<string[]> {
