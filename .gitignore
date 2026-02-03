@@ -165,3 +165,6 @@ dist
 .env*
 !.env.example
 .wrangler/
+
+# Generated at build time
+src/esbuild.wasm

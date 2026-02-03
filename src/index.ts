@@ -3,7 +3,7 @@ import { mount, withMounts } from 'worker-fs-mount';
 import { WorkerEntrypoint, DurableObject } from 'cloudflare:workers';
 import fs from 'node:fs/promises';
 import { transformCode, bundleCode } from './bundler.js';
-import { transformModule, processHTML, type FileSystem } from './vite-dev.js';
+import { transformModule, processHTML, type FileSystem } from './transform.js';
 
 export { DurableObjectFilesystem };
 
@@ -89,37 +89,8 @@ const EXAMPLE_PROJECT = {
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview",
-    "deploy": "vite build && wrangler deploy"
-  },
   "devDependencies": {
-    "@cloudflare/vite-plugin": "^1.0.0",
-    "@cloudflare/workers-types": "^4.20240512.0",
-    "typescript": "^5.4.0",
-    "vite": "^6.0.0",
-    "wrangler": "^4.0.0"
-  }
-}`,
-	'vite.config.ts': `import { defineConfig } from "vite";
-import { cloudflare } from "@cloudflare/vite-plugin";
-
-export default defineConfig({
-  plugins: [cloudflare()],
-});`,
-	'wrangler.jsonc': `{
-  "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "my-fullstack-app",
-  "compatibility_date": "2024-01-01",
-  "main": "./worker/index.ts",
-  "kv_namespaces": [
-    { "binding": "TODOS_KV", "id": "todos-kv" }
-  ],
-  "assets": {
-    "not_found_handling": "single-page-application",
-    "run_worker_first": ["/api/*"]
+    "typescript": "^5.4.0"
   }
 }`,
 	'tsconfig.json': `{
@@ -128,22 +99,9 @@ export default defineConfig({
     "module": "ESNext",
     "moduleResolution": "bundler",
     "strict": true,
-    "skipLibCheck": true,
-    "types": ["vite/client"]
+    "skipLibCheck": true
   },
-  "include": ["src"],
-  "references": [{ "path": "./tsconfig.worker.json" }]
-}`,
-	'tsconfig.worker.json': `{
-  "compilerOptions": {
-    "target": "ES2022",
-    "module": "ESNext",
-    "moduleResolution": "bundler",
-    "strict": true,
-    "skipLibCheck": true,
-    "types": ["@cloudflare/workers-types/2023-07-01"]
-  },
-  "include": ["worker"]
+  "include": ["src"]
 }`,
 	'index.html': `<!DOCTYPE html>
 <html lang="en">
@@ -173,7 +131,7 @@ async function init() {
       </div>
       <ul id="todo-list"></ul>
     </div>
-    <p class="hint">Edit <code>worker/index.ts</code> for API, <code>src/main.ts</code> for frontend</p>
+    <p class="hint">Edit <code>src/main.ts</code> for frontend, <code>src/api.ts</code> for API calls</p>
   \`;
 
   const status = app.querySelector<HTMLParagraphElement>('.status')!;
@@ -359,105 +317,6 @@ button:hover { background-color: #535bf2; }
 .hint {
   font-size: 0.85em;
   opacity: 0.6;
-}`,
-	'worker/index.ts': `interface Env {
-  TODOS_KV: KVNamespace;
-  ASSETS: Fetcher;
-}
-
-interface Todo {
-  id: string;
-  text: string;
-  done: boolean;
-}
-
-const TODOS_KEY = 'todos';
-
-async function getTodos(kv: KVNamespace): Promise<Todo[]> {
-  const data = await kv.get(TODOS_KEY);
-  if (!data) {
-    const defaults: Todo[] = [
-      { id: '1', text: 'Learn Cloudflare Workers', done: true },
-      { id: '2', text: 'Build a full-stack app', done: false },
-      { id: '3', text: 'Deploy to the edge', done: false },
-    ];
-    await kv.put(TODOS_KEY, JSON.stringify(defaults));
-    return defaults;
-  }
-  return JSON.parse(data);
-}
-
-async function saveTodos(kv: KVNamespace, todos: Todo[]): Promise<void> {
-  await kv.put(TODOS_KEY, JSON.stringify(todos));
-}
-
-export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
-    const url = new URL(request.url);
-    const path = url.pathname;
-
-    if (path.startsWith('/api/')) {
-      return handleAPI(request, path, env);
-    }
-
-    return env.ASSETS.fetch(request);
-  },
-} satisfies ExportedHandler<Env>;
-
-async function handleAPI(request: Request, path: string, env: Env): Promise<Response> {
-  const method = request.method;
-
-  // GET /api/hello
-  if (path === '/api/hello' && method === 'GET') {
-    return Response.json({
-      message: 'Hello from KV-backed API! 🚀',
-      timestamp: new Date().toISOString(),
-    });
-  }
-
-  // GET /api/todos
-  if (path === '/api/todos' && method === 'GET') {
-    const todos = await getTodos(env.TODOS_KV);
-    return Response.json(todos);
-  }
-
-  // POST /api/todos
-  if (path === '/api/todos' && method === 'POST') {
-    const body = await request.json() as { text: string };
-    const todos = await getTodos(env.TODOS_KV);
-    const todo: Todo = { id: crypto.randomUUID(), text: body.text, done: false };
-    todos.push(todo);
-    await saveTodos(env.TODOS_KV, todos);
-    return Response.json(todo);
-  }
-
-  // POST /api/todos/:id/toggle
-  const toggleMatch = path.match(/^\\/api\\/todos\\/([^/]+)\\/toggle$/);
-  if (toggleMatch && method === 'POST') {
-    const todos = await getTodos(env.TODOS_KV);
-    const todo = todos.find(t => t.id === toggleMatch[1]);
-    if (todo) {
-      todo.done = !todo.done;
-      await saveTodos(env.TODOS_KV, todos);
-      return Response.json(todo);
-    }
-    return Response.json({ error: 'Not found' }, { status: 404 });
-  }
-
-  // DELETE /api/todos/:id
-  const deleteMatch = path.match(/^\\/api\\/todos\\/([^/]+)$/);
-  if (deleteMatch && method === 'DELETE') {
-    const todos = await getTodos(env.TODOS_KV);
-    const idx = todos.findIndex(t => t.id === deleteMatch[1]);
-    if (idx !== -1) {
-      const [deleted] = todos.splice(idx, 1);
-      await saveTodos(env.TODOS_KV, todos);
-      return Response.json(deleted);
-    }
-    return Response.json({ error: 'Not found' }, { status: 404 });
-  }
-
-  return Response.json({ error: 'Not found' }, { status: 404 });
 }`,
 };
 

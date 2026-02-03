@@ -1,6 +1,6 @@
 /**
- * Vite-like dev server that runs within the Worker using esbuild-wasm.
- * Handles import rewriting, module resolution, and transformation.
+ * Dev server module transform pipeline using esbuild-wasm.
+ * Handles import rewriting, module resolution, and TypeScript/JSX transformation.
  */
 
 import { transformCode } from './bundler';
@@ -12,7 +12,7 @@ export interface FileSystem {
 	access(path: string): Promise<void>;
 }
 
-export interface ViteDevOptions {
+export interface TransformOptions {
 	fs: FileSystem;
 	projectRoot: string;
 	baseUrl: string;
@@ -24,7 +24,62 @@ interface ResolvedImport {
 	isBare: boolean;
 }
 
+interface TsConfig {
+	compilerOptions?: {
+		baseUrl?: string;
+		paths?: Record<string, string[]>;
+	};
+}
+
 const EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx', '.mts', '.mjs'];
+
+/**
+ * Parse and cache tsconfig for a project
+ */
+async function loadTsConfig(fs: FileSystem, projectRoot: string): Promise<TsConfig | null> {
+	try {
+		const content = await fs.readFile(`${projectRoot}/tsconfig.json`);
+		const text = typeof content === 'string' ? content : new TextDecoder().decode(content);
+		return JSON.parse(text);
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * Resolve a path alias from tsconfig paths
+ */
+function resolvePathAlias(
+	specifier: string,
+	tsConfig: TsConfig | null,
+	projectRoot: string
+): string | null {
+	if (!tsConfig?.compilerOptions?.paths) return null;
+
+	const paths = tsConfig.compilerOptions.paths;
+	const baseUrl = tsConfig.compilerOptions.baseUrl || '.';
+
+	for (const [pattern, targets] of Object.entries(paths)) {
+		if (pattern.endsWith('/*')) {
+			const prefix = pattern.slice(0, -2);
+			if (specifier.startsWith(prefix + '/')) {
+				const rest = specifier.slice(prefix.length + 1);
+				for (const target of targets) {
+					if (target.endsWith('/*')) {
+						const targetBase = target.slice(0, -2);
+						return `/${baseUrl}/${targetBase}/${rest}`.replace(/\/+/g, '/');
+					}
+				}
+			}
+		} else if (specifier === pattern) {
+			for (const target of targets) {
+				return `/${baseUrl}/${target}`.replace(/\/+/g, '/');
+			}
+		}
+	}
+
+	return null;
+}
 
 /**
  * Resolve an import specifier to a file path or CDN URL
@@ -34,10 +89,49 @@ async function resolveImport(
 	importer: string,
 	fs: FileSystem,
 	projectRoot: string,
-	baseUrl: string
+	baseUrl: string,
+	tsConfig: TsConfig | null
 ): Promise<ResolvedImport> {
-	// Bare imports (packages) -> redirect to esm.sh CDN
+	// Check tsconfig paths first for non-relative imports
 	if (!specifier.startsWith('.') && !specifier.startsWith('/')) {
+		const aliasResolved = resolvePathAlias(specifier, tsConfig, projectRoot);
+		if (aliasResolved) {
+			// Resolve the alias path like a relative import
+			const ext = getExtension(aliasResolved);
+			if (!ext) {
+				for (const tryExt of EXTENSIONS) {
+					try {
+						await fs.access(`${projectRoot}${aliasResolved}${tryExt}`);
+						return {
+							original: specifier,
+							resolved: `${baseUrl}${aliasResolved}${tryExt}`,
+							isBare: false,
+						};
+					} catch {
+						// Try next
+					}
+				}
+				for (const tryExt of EXTENSIONS) {
+					try {
+						await fs.access(`${projectRoot}${aliasResolved}/index${tryExt}`);
+						return {
+							original: specifier,
+							resolved: `${baseUrl}${aliasResolved}/index${tryExt}`,
+							isBare: false,
+						};
+					} catch {
+						// Try next
+					}
+				}
+			}
+			return {
+				original: specifier,
+				resolved: `${baseUrl}${aliasResolved}`,
+				isBare: false,
+			};
+		}
+
+		// Bare imports (packages) -> redirect to esm.sh CDN
 		return {
 			original: specifier,
 			resolved: `${ESM_CDN}/${specifier}`,
@@ -118,7 +212,8 @@ async function rewriteImports(
 	filePath: string,
 	fs: FileSystem,
 	projectRoot: string,
-	baseUrl: string
+	baseUrl: string,
+	tsConfig: TsConfig | null
 ): Promise<string> {
 	// Match import statements
 	// Handles: import x from 'y', import 'y', import { x } from 'y', export * from 'y', etc.
@@ -151,7 +246,7 @@ async function rewriteImports(
 	const resolved = await Promise.all(
 		imports.map(async (imp) => ({
 			...imp,
-			resolution: await resolveImport(imp.specifier, filePath, fs, projectRoot, baseUrl),
+			resolution: await resolveImport(imp.specifier, filePath, fs, projectRoot, baseUrl, tsConfig),
 		}))
 	);
 
@@ -165,27 +260,38 @@ async function rewriteImports(
 	return result;
 }
 
+// Cache tsconfig per project root
+const tsConfigCache = new Map<string, TsConfig | null>();
+
+async function getTsConfig(fs: FileSystem, projectRoot: string): Promise<TsConfig | null> {
+	if (!tsConfigCache.has(projectRoot)) {
+		tsConfigCache.set(projectRoot, await loadTsConfig(fs, projectRoot));
+	}
+	return tsConfigCache.get(projectRoot) ?? null;
+}
+
 /**
- * Transform and serve a file with Vite-like behavior
+ * Transform and serve a module file
  */
 export async function transformModule(
 	filePath: string,
 	content: string,
-	options: ViteDevOptions
+	options: TransformOptions
 ): Promise<{ code: string; contentType: string }> {
 	const { fs, projectRoot, baseUrl } = options;
 	const ext = getExtension(filePath);
+	const tsConfig = await getTsConfig(fs, projectRoot);
 
 	// Transform TypeScript/JSX
 	if (['.ts', '.tsx', '.jsx', '.mts'].includes(ext)) {
 		const transformed = await transformCode(content, filePath, { sourcemap: true });
-		const rewritten = await rewriteImports(transformed.code, filePath, fs, projectRoot, baseUrl);
+		const rewritten = await rewriteImports(transformed.code, filePath, fs, projectRoot, baseUrl, tsConfig);
 		return { code: rewritten, contentType: 'application/javascript' };
 	}
 
 	// Transform JS files (just rewrite imports)
 	if (['.js', '.mjs'].includes(ext)) {
-		const rewritten = await rewriteImports(content, filePath, fs, projectRoot, baseUrl);
+		const rewritten = await rewriteImports(content, filePath, fs, projectRoot, baseUrl, tsConfig);
 		return { code: rewritten, contentType: 'application/javascript' };
 	}
 
@@ -195,7 +301,7 @@ export async function transformModule(
 		const code = `
 const css = ${cssContent};
 const style = document.createElement('style');
-style.setAttribute('data-vite-dev-id', ${JSON.stringify(filePath)});
+style.setAttribute('data-dev-id', ${JSON.stringify(filePath)});
 style.textContent = css;
 document.head.appendChild(style);
 export default css;
@@ -238,7 +344,7 @@ function getContentType(ext: string): string {
 export function generateHMRClient(wsUrl: string): string {
 	return `
 <script type="module">
-// Vite-like HMR client
+// HMR client
 const socket = new WebSocket('${wsUrl}');
 const modules = new Map();
 
@@ -252,16 +358,16 @@ socket.addEventListener('message', (event) => {
     data.updates?.forEach(update => {
       if (update.type === 'js-update') {
         import(update.path + '?t=' + update.timestamp).then(mod => {
-          console.log('[vite] hot updated:', update.path);
+          console.log('[hmr] hot updated:', update.path);
         });
       } else if (update.type === 'css-update') {
-        const style = document.querySelector(\`style[data-vite-dev-id="\${update.path}"]\`);
+        const style = document.querySelector(\`style[data-dev-id="\${update.path}"]\`);
         if (style) {
           fetch(update.path + '?t=' + update.timestamp)
             .then(r => r.text())
             .then(css => {
               style.textContent = css;
-              console.log('[vite] css hot updated:', update.path);
+              console.log('[hmr] css hot updated:', update.path);
             });
         }
       }
@@ -270,11 +376,11 @@ socket.addEventListener('message', (event) => {
 });
 
 socket.addEventListener('open', () => {
-  console.log('[vite] connected.');
+  console.log('[hmr] connected.');
 });
 
 socket.addEventListener('close', () => {
-  console.log('[vite] server connection lost. polling for restart...');
+  console.log('[hmr] server connection lost. polling for restart...');
   setInterval(() => {
     fetch(location.href).then(() => location.reload());
   }, 1000);
@@ -288,7 +394,7 @@ setInterval(() => {
 }, 30000);
 
 // Expose for HMR API
-window.__vite_hot_modules = modules;
+window.__hot_modules = modules;
 </script>`;
 }
 
@@ -298,7 +404,7 @@ window.__vite_hot_modules = modules;
 export async function processHTML(
 	html: string,
 	filePath: string,
-	options: ViteDevOptions & { hmrUrl: string }
+	options: TransformOptions & { hmrUrl: string }
 ): Promise<string> {
 	const { baseUrl, hmrUrl } = options;
 
