@@ -1,20 +1,88 @@
 <!DOCTYPE html>
 <html lang="en">
-	<head>
-		<meta charset="UTF-8" />
-		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-		<title>Hello, World!</title>
-	</head>
-	<body>
-		<h1 id="heading"></h1>
-		<p>This page comes from a static asset stored at `public/index.html` as configured in `wrangler.jsonc`.</p>
-		<script>
-			fetch('/message')
-				.then((resp) => resp.text())
-				.then((text) => {
-					const h1 = document.getElementById('heading');
-					h1.textContent = text;
-				});
-		</script>
-	</body>
+<head>
+	<meta charset="UTF-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+	<title>Vite Worker IDE</title>
+	<link rel="stylesheet" href="/styles.css" />
+	<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css" />
+	<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/dracula.min.css" />
+</head>
+<body>
+	<div class="app">
+		<header class="header">
+			<div class="logo">
+				<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+					<polygon points="12 2 22 8.5 22 15.5 12 22 2 15.5 2 8.5 12 2"></polygon>
+					<line x1="12" y1="22" x2="12" y2="15.5"></line>
+					<polyline points="22 8.5 12 15.5 2 8.5"></polyline>
+				</svg>
+				<span>Vite Worker IDE</span>
+			</div>
+			<div class="actions">
+				<button id="refreshBtn" class="btn btn-secondary" title="Refresh Preview">
+					<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<polyline points="23 4 23 10 17 10"></polyline>
+						<path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+					</svg>
+				</button>
+				<button id="bundleBtn" class="btn btn-primary">Bundle</button>
+			</div>
+		</header>
+		<main class="main">
+			<aside class="sidebar">
+				<div class="sidebar-header">
+					<span>Files</span>
+					<button id="newFileBtn" class="btn-icon" title="New File">
+						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+							<line x1="12" y1="5" x2="12" y2="19"></line>
+							<line x1="5" y1="12" x2="19" y2="12"></line>
+						</svg>
+					</button>
+				</div>
+				<div id="fileTree" class="file-tree"></div>
+			</aside>
+			<section class="editor-panel">
+				<div class="tabs" id="tabs"></div>
+				<div class="editor-container">
+					<textarea id="editor"></textarea>
+				</div>
+				<div class="status-bar">
+					<span id="fileStatus">No file selected</span>
+					<span id="saveStatus"></span>
+				</div>
+			</section>
+			<section class="preview-panel">
+				<div class="preview-header">
+					<span>Preview</span>
+					<span id="previewUrl" class="preview-url">/preview</span>
+				</div>
+				<iframe id="previewFrame" src="/preview" sandbox="allow-scripts allow-same-origin allow-forms allow-popups"></iframe>
+			</section>
+		</main>
+	</div>
+
+	<div id="modal" class="modal hidden">
+		<div class="modal-content">
+			<div class="modal-header">
+				<span id="modalTitle">New File</span>
+				<button id="modalClose" class="btn-icon">×</button>
+			</div>
+			<div class="modal-body">
+				<input type="text" id="modalInput" placeholder="Enter file path (e.g. /src/utils.js)" />
+			</div>
+			<div class="modal-footer">
+				<button id="modalCancel" class="btn btn-secondary">Cancel</button>
+				<button id="modalConfirm" class="btn btn-primary">Create</button>
+			</div>
+		</div>
+	</div>
+
+	<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+	<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/javascript/javascript.min.js"></script>
+	<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/css/css.min.js"></script>
+	<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/xml/xml.min.js"></script>
+	<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/htmlmixed/htmlmixed.min.js"></script>
+	<script src="/app.js"></script>
+</body>
 </html>

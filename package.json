@@ -2,14 +2,27 @@
 	"name": "vite-worker",
 	"version": "0.0.0",
 	"private": true,
+	"type": "module",
 	"scripts": {
-		"deploy": "wrangler deploy",
 		"dev": "wrangler dev",
-		"start": "wrangler dev",
+		"dev:vite": "vite dev",
+		"dev:programmatic": "tsx scripts/dev.ts",
+		"build": "vite build",
+		"preview": "vite build && vite preview",
+		"deploy": "vite build && wrangler deploy",
 		"cf-typegen": "wrangler types"
 	},
 	"devDependencies": {
+		"@cloudflare/vite-plugin": "^1.0.0",
+		"@types/node": "^22.0.0",
+		"tsx": "^4.0.0",
 		"typescript": "^5.5.2",
+		"vite": "^6.0.0",
 		"wrangler": "^4.62.0"
+	},
+	"dependencies": {
+		"worker-fs-mount": "^0.1.1",
+		"durable-object-fs": "^0.1.1",
+		"esbuild-wasm": "^0.27.0"
 	}
 }
