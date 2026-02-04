@@ -350,7 +350,7 @@ const modules = new Map();
 
 socket.addEventListener('message', (event) => {
   const data = JSON.parse(event.data);
-  
+
   if (data.type === 'full-reload') {
     location.reload();
   } else if (data.type === 'update') {
@@ -363,7 +363,7 @@ socket.addEventListener('message', (event) => {
       } else if (update.type === 'css-update') {
         const style = document.querySelector(\`style[data-dev-id="\${update.path}"]\`);
         if (style) {
-          fetch(update.path + '?t=' + update.timestamp)
+          fetch(update.path + '?raw&t=' + update.timestamp)
             .then(r => r.text())
             .then(css => {
               style.textContent = css;
@@ -399,7 +399,50 @@ window.__hot_modules = modules;
 }
 
 /**
- * Process HTML file - inject HMR client and rewrite script/link tags
+ * Generate fetch interceptor that rewrites API requests to include baseUrl prefix
+ */
+function generateFetchInterceptor(baseUrl: string): string {
+	if (!baseUrl) return '';
+
+	return `
+<script>
+// Fetch interceptor - rewrites /api/* requests to ${baseUrl}/api/*
+(function() {
+  const originalFetch = window.fetch;
+  window.fetch = function(input, init) {
+    let url = input;
+    if (typeof input === 'string') {
+      if (input.startsWith('/api/') || input === '/api') {
+        url = '${baseUrl}' + input;
+      }
+    } else if (input instanceof Request) {
+      const reqUrl = new URL(input.url);
+      if (reqUrl.pathname.startsWith('/api/') || reqUrl.pathname === '/api') {
+        reqUrl.pathname = '${baseUrl}' + reqUrl.pathname;
+        input = new Request(reqUrl.toString(), input);
+      }
+      url = input;
+    }
+    return originalFetch.call(this, url, init);
+  };
+
+  // Also intercept XMLHttpRequest for completeness
+  const originalXHROpen = XMLHttpRequest.prototype.open;
+  XMLHttpRequest.prototype.open = function(method, url, ...rest) {
+    let newUrl = url;
+    if (typeof url === 'string') {
+      if (url.startsWith('/api/') || url === '/api') {
+        newUrl = '${baseUrl}' + url;
+      }
+    }
+    return originalXHROpen.call(this, method, newUrl, ...rest);
+  };
+})();
+</script>`;
+}
+
+/**
+ * Process HTML file using HTMLRewriter - inject HMR client and rewrite script/link tags
  */
 export async function processHTML(
 	html: string,
@@ -408,31 +451,42 @@ export async function processHTML(
 ): Promise<string> {
 	const { baseUrl, hmrUrl } = options;
 
-	// Inject HMR client
+	const fetchInterceptor = generateFetchInterceptor(baseUrl);
 	const hmrClient = generateHMRClient(hmrUrl);
-	html = html.replace('</head>', `${hmrClient}</head>`);
 
-	// Rewrite script src to use base URL (for relative paths)
-	html = html.replace(
-		/<script([^>]*)\ssrc=["'](?!https?:\/\/)([^"']+)["']/gi,
-		(match, attrs, src) => {
-			if (src.startsWith('/')) {
-				return `<script${attrs} src="${baseUrl}${src}"`;
-			}
-			return `<script${attrs} src="${baseUrl}/${src}"`;
-		}
-	);
+	const rewriter = new HTMLRewriter()
+		.on('head', {
+			element(element) {
+				element.append(fetchInterceptor + hmrClient, { html: true });
+			},
+		})
+		.on('script[src]', {
+			element(element) {
+				const src = element.getAttribute('src');
+				if (!src || src.startsWith('http://') || src.startsWith('https://')) {
+					return;
+				}
+				const newSrc = src.startsWith('/') ? `${baseUrl}${src}` : `${baseUrl}/${src}`;
+				element.setAttribute('src', newSrc);
+			},
+		})
+		.on('link[href]', {
+			element(element) {
+				const href = element.getAttribute('href');
+				if (!href || href.startsWith('http://') || href.startsWith('https://')) {
+					return;
+				}
+				if (!href.endsWith('.css')) {
+					return;
+				}
+				const newHref = href.startsWith('/') ? `${baseUrl}${href}` : `${baseUrl}/${href}`;
+				element.setAttribute('href', newHref);
+			},
+		});
 
-	// Rewrite link href for CSS
-	html = html.replace(
-		/<link([^>]*)\shref=["'](?!https?:\/\/)([^"']+\.css)["']/gi,
-		(match, attrs, href) => {
-			if (href.startsWith('/')) {
-				return `<link${attrs} href="${baseUrl}${href}"`;
-			}
-			return `<link${attrs} href="${baseUrl}/${href}"`;
-		}
-	);
+	const response = rewriter.transform(new Response(html, {
+		headers: { 'Content-Type': 'text/html' },
+	}));
 
-	return html;
+	return response.text();
 }

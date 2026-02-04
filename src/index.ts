@@ -18,6 +18,7 @@ interface HMRUpdate {
 	type: 'update' | 'full-reload';
 	path: string;
 	timestamp: number;
+	isCSS?: boolean;
 }
 
 export class HMRCoordinator extends DurableObject {
@@ -48,11 +49,20 @@ export class HMRCoordinator extends DurableObject {
 	}
 
 	async broadcast(update: HMRUpdate) {
+		let updateType: string;
+		if (update.type === 'full-reload') {
+			updateType = 'full-reload';
+		} else if (update.isCSS) {
+			updateType = 'css-update';
+		} else {
+			updateType = 'js-update';
+		}
+
 		const message = JSON.stringify({
 			type: update.type,
 			updates: [
 				{
-					type: update.type === 'full-reload' ? 'full-reload' : 'js-update',
+					type: updateType,
 					path: update.path,
 					timestamp: update.timestamp,
 				},
@@ -196,30 +206,19 @@ interface HelloResponse {
   timestamp: string;
 }
 
-// Detect base URL from page location (handles /preview prefix)
-const getBaseUrl = () => {
-  const path = location.pathname;
-  if (path.startsWith('/preview')) {
-    return '/preview/api';
-  }
-  return '/api';
-};
-
-const BASE = getBaseUrl();
-
 export const api = {
   async hello(): Promise<HelloResponse> {
-    const res = await fetch(\`\${BASE}/hello\`);
+    const res = await fetch('/api/hello');
     return res.json();
   },
 
   async getTodos(): Promise<Todo[]> {
-    const res = await fetch(\`\${BASE}/todos\`);
+    const res = await fetch('/api/todos');
     return res.json();
   },
 
   async addTodo(text: string): Promise<Todo> {
-    const res = await fetch(\`\${BASE}/todos\`, {
+    const res = await fetch('/api/todos', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text }),
@@ -228,12 +227,12 @@ export const api = {
   },
 
   async toggleTodo(id: string): Promise<Todo> {
-    const res = await fetch(\`\${BASE}/todos/\${id}/toggle\`, { method: 'POST' });
+    const res = await fetch(\`/api/todos/\${id}/toggle\`, { method: 'POST' });
     return res.json();
   },
 
   async deleteTodo(id: string): Promise<Todo> {
-    const res = await fetch(\`\${BASE}/todos/\${id}\`, { method: 'DELETE' });
+    const res = await fetch(\`/api/todos/\${id}\`, { method: 'DELETE' });
     return res.json();
   },
 };`,
@@ -321,11 +320,11 @@ button:hover { background-color: #535bf2; }
 };
 
 async function ensureExampleProject(projectRoot: string) {
-	try {
-		await fs.access(`${projectRoot}/vite.config.ts`);
-	} catch {
-		for (const [filePath, content] of Object.entries(EXAMPLE_PROJECT)) {
-			const fullPath = `${projectRoot}/${filePath}`;
+	for (const [filePath, content] of Object.entries(EXAMPLE_PROJECT)) {
+		const fullPath = `${projectRoot}/${filePath}`;
+		try {
+			await fs.readFile(fullPath);
+		} catch {
 			const dir = fullPath.substring(0, fullPath.lastIndexOf('/'));
 			await fs.mkdir(dir, { recursive: true });
 			await fs.writeFile(fullPath, content);
@@ -584,8 +583,9 @@ export default class extends WorkerEntrypoint<Env> {
 						method: 'POST',
 						body: JSON.stringify({
 							type: isCSS ? 'update' : 'full-reload',
-							path: body.path,
+							path: `/preview${body.path}`,
 							timestamp: Date.now(),
+							isCSS,
 						}),
 					})
 				);
@@ -666,6 +666,9 @@ export default class extends WorkerEntrypoint<Env> {
 		const url = new URL(request.url);
 		let filePath = url.pathname === '/' ? '/index.html' : url.pathname;
 
+		// Check for raw query param (used by HMR for CSS)
+		const isRawRequest = url.searchParams.has('raw');
+
 		// Strip query params for file lookup
 		filePath = filePath.split('?')[0];
 
@@ -730,6 +733,16 @@ export default class extends WorkerEntrypoint<Env> {
 				});
 				return new Response(html, {
 					headers: { 'Content-Type': 'text/html', 'Cache-Control': 'no-cache' },
+				});
+			}
+
+			// Serve raw CSS for HMR updates (no transformation to JS module)
+			if (isRawRequest && ext === '.css') {
+				return new Response(textContent, {
+					headers: {
+						'Content-Type': 'text/css',
+						'Cache-Control': 'no-cache',
+					},
 				});
 			}
 
