@@ -1,6 +1,6 @@
 import { defineConfig, Plugin } from 'vite';
 import { cloudflare } from '@cloudflare/vite-plugin';
-import { copyFileSync, existsSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -10,10 +10,11 @@ function esbuildWasmPlugin(): Plugin {
 	return {
 		name: 'esbuild-wasm-plugin',
 		buildStart() {
-			// Copy esbuild.wasm to src/ at build time
 			const wasmSource = join(__dirname, 'node_modules/esbuild-wasm/esbuild.wasm');
-			const wasmDest = join(__dirname, 'src/esbuild.wasm');
+			const vendorDir = join(__dirname, 'vendor');
+			const wasmDest = join(vendorDir, 'esbuild.wasm');
 			if (existsSync(wasmSource) && !existsSync(wasmDest)) {
+				mkdirSync(vendorDir, { recursive: true });
 				copyFileSync(wasmSource, wasmDest);
 			}
 		},

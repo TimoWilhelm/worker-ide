@@ -7,12 +7,8 @@ import { transformModule, processHTML, type FileSystem } from './transform.js';
 
 export { DurableObjectFilesystem };
 
-// Module-level state for preview API (persists across requests within isolate)
-const previewTodos: Array<{ id: string; text: string; done: boolean }> = [
-	{ id: '1', text: 'Learn Cloudflare Workers', done: true },
-	{ id: '2', text: 'Build a full-stack app', done: false },
-	{ id: '3', text: 'Deploy to the edge', done: false },
-];
+// Cache for bundled server code
+let serverCodeCache: { code: string; hash: string; module: { fetch: (req: Request) => Promise<Response> } | null } | null = null;
 
 interface HMRUpdate {
 	type: 'update' | 'full-reload';
@@ -141,7 +137,7 @@ async function init() {
       </div>
       <ul id="todo-list"></ul>
     </div>
-    <p class="hint">Edit <code>src/main.ts</code> for frontend, <code>src/api.ts</code> for API calls</p>
+    <p class="hint">Edit <code>src/main.ts</code> for frontend, <code>server/api.ts</code> for backend</p>
   \`;
 
   const status = app.querySelector<HTMLParagraphElement>('.status')!;
@@ -317,6 +313,74 @@ button:hover { background-color: #535bf2; }
   font-size: 0.85em;
   opacity: 0.6;
 }`,
+	'server/api.ts': `// Server-side API handler - edit this to customize your backend!
+
+interface Todo {
+  id: string;
+  text: string;
+  done: boolean;
+}
+
+// In-memory storage (resets on worker restart)
+const todos: Todo[] = [
+  { id: '1', text: 'Learn Cloudflare Workers', done: true },
+  { id: '2', text: 'Build a full-stack app', done: false },
+  { id: '3', text: 'Deploy to the edge', done: false },
+];
+
+export default {
+  async fetch(request: Request): Promise<Response> {
+    const url = new URL(request.url);
+    const path = url.pathname;
+    const method = request.method;
+
+    // GET /api/hello
+    if (path === '/api/hello' && method === 'GET') {
+      return Response.json({
+        message: 'Connected to Workers API! 🚀',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    // GET /api/todos
+    if (path === '/api/todos' && method === 'GET') {
+      return Response.json(todos);
+    }
+
+    // POST /api/todos
+    if (path === '/api/todos' && method === 'POST') {
+      const body = await request.json() as { text: string };
+      const todo: Todo = { id: crypto.randomUUID(), text: body.text, done: false };
+      todos.push(todo);
+      return Response.json(todo);
+    }
+
+    // POST /api/todos/:id/toggle
+    const toggleMatch = path.match(/^\\/api\\/todos\\/([^/]+)\\/toggle$/);
+    if (toggleMatch && method === 'POST') {
+      const todo = todos.find(t => t.id === toggleMatch[1]);
+      if (todo) {
+        todo.done = !todo.done;
+        return Response.json(todo);
+      }
+      return Response.json({ error: 'Not found' }, { status: 404 });
+    }
+
+    // DELETE /api/todos/:id
+    const deleteMatch = path.match(/^\\/api\\/todos\\/([^/]+)$/);
+    if (deleteMatch && method === 'DELETE') {
+      const idx = todos.findIndex(t => t.id === deleteMatch[1]);
+      if (idx !== -1) {
+        const [deleted] = todos.splice(idx, 1);
+        return Response.json(deleted);
+      }
+      return Response.json({ error: 'Not found' }, { status: 404 });
+    }
+
+    return Response.json({ error: 'Not found' }, { status: 404 });
+  }
+};
+`,
 };
 
 async function ensureExampleProject(projectRoot: string) {
@@ -391,6 +455,7 @@ function transformToJsModule(content: string | Uint8Array, filePath: string, con
 		return {
 			body: `const css = ${cssContent};
 const style = document.createElement('style');
+style.setAttribute('data-dev-id', ${JSON.stringify(filePath)});
 style.textContent = css;
 document.head.appendChild(style);
 export default css;`,
@@ -583,7 +648,7 @@ export default class extends WorkerEntrypoint<Env> {
 						method: 'POST',
 						body: JSON.stringify({
 							type: isCSS ? 'update' : 'full-reload',
-							path: `/preview${body.path}`,
+							path: body.path,
 							timestamp: Date.now(),
 							isCSS,
 						}),
@@ -766,47 +831,68 @@ export default class extends WorkerEntrypoint<Env> {
 	}
 
 	private async handlePreviewAPI(request: Request, apiPath: string): Promise<Response> {
-		const method = request.method;
+		try {
+			// Collect files for bundling the server code
+			const files = await this.collectFilesForBundle(this.projectRoot);
 
-		if (apiPath === '/api/hello' && method === 'GET') {
-			return Response.json({
-				message: 'Connected to Workers API! 🚀',
-				timestamp: new Date().toISOString(),
-			});
-		}
+			// Check if server/api.ts exists
+			const serverEntry = Object.keys(files).find(f =>
+				f === 'server/api.ts' || f === 'server/api.js' ||
+				f === 'server/index.ts' || f === 'server/index.js'
+			);
 
-		if (apiPath === '/api/todos' && method === 'GET') {
-			return Response.json(previewTodos);
-		}
-
-		if (apiPath === '/api/todos' && method === 'POST') {
-			const body = (await request.json()) as { text: string };
-			const todo = { id: crypto.randomUUID(), text: body.text, done: false };
-			previewTodos.push(todo);
-			return Response.json(todo);
-		}
-
-		const toggleMatch = apiPath.match(/^\/api\/todos\/([^/]+)\/toggle$/);
-		if (toggleMatch && method === 'POST') {
-			const todo = previewTodos.find((t) => t.id === toggleMatch[1]);
-			if (todo) {
-				todo.done = !todo.done;
-				return Response.json(todo);
+			if (!serverEntry) {
+				return Response.json({ error: 'No server/api.ts found' }, { status: 500 });
 			}
-			return Response.json({ error: 'Not found' }, { status: 404 });
-		}
 
-		const deleteMatch = apiPath.match(/^\/api\/todos\/([^/]+)$/);
-		if (deleteMatch && method === 'DELETE') {
-			const idx = previewTodos.findIndex((t) => t.id === deleteMatch[1]);
-			if (idx !== -1) {
-				const [deleted] = previewTodos.splice(idx, 1);
-				return Response.json(deleted);
+			// Create a hash of the server files to detect changes
+			const serverFiles = Object.entries(files)
+				.filter(([path]) => path.startsWith('server/'))
+				.sort(([a], [b]) => a.localeCompare(b));
+			const contentHash = await this.hashContent(JSON.stringify(serverFiles));
+
+			// Re-bundle if cache is stale
+			if (!serverCodeCache || serverCodeCache.hash !== contentHash) {
+				const result = await bundleCode({
+					files,
+					entryPoint: serverEntry,
+					minify: false,
+					sourcemap: false,
+				});
+
+				// Execute the bundled code to get the module
+				const moduleFactory = new Function('exports', `
+					const module = { exports: {} };
+					${result.code.replace(/export\s*\{[^}]*\}\s*;?/g, '').replace(/export\s+default\s+/, 'module.exports.default = ')}
+					return module.exports.default || module.exports;
+				`);
+
+				const userModule = moduleFactory({});
+				serverCodeCache = { code: result.code, hash: contentHash, module: userModule };
 			}
-			return Response.json({ error: 'Not found' }, { status: 404 });
-		}
 
-		return Response.json({ error: 'Not found' }, { status: 404 });
+			if (!serverCodeCache.module?.fetch) {
+				return Response.json({ error: 'Server module must export default { fetch }' }, { status: 500 });
+			}
+
+			// Create a new request with the correct path (strip /preview prefix)
+			const apiUrl = new URL(request.url);
+			apiUrl.pathname = apiPath;
+			const apiRequest = new Request(apiUrl.toString(), request);
+
+			return await serverCodeCache.module.fetch(apiRequest);
+		} catch (err) {
+			console.error('Server code execution error:', err);
+			return Response.json({ error: String(err) }, { status: 500 });
+		}
+	}
+
+	private async hashContent(content: string): Promise<string> {
+		const encoder = new TextEncoder();
+		const data = encoder.encode(content);
+		const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+		const hashArray = Array.from(new Uint8Array(hashBuffer));
+		return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 	}
 
 	private async listFilesRecursive(dir: string, base = ''): Promise<string[]> {

@@ -363,7 +363,7 @@ socket.addEventListener('message', (event) => {
       } else if (update.type === 'css-update') {
         const style = document.querySelector(\`style[data-dev-id="\${update.path}"]\`);
         if (style) {
-          fetch(update.path + '?raw&t=' + update.timestamp)
+          fetch('/preview' + update.path + '?raw&t=' + update.timestamp)
             .then(r => r.text())
             .then(css => {
               style.textContent = css;

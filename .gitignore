@@ -167,4 +167,4 @@ dist
 .wrangler/
 
 # Generated at build time
-src/esbuild.wasm
+vendor/

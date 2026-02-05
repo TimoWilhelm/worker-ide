@@ -1,7 +1,7 @@
 import * as esbuild from 'esbuild-wasm';
 
 // @ts-expect-error - WASM module import
-import esbuildWasm from './esbuild.wasm';
+import esbuildWasm from '../vendor/esbuild.wasm';
 
 let esbuildInitialized = false;
 let esbuildInitializePromise: Promise<void> | null = null;
