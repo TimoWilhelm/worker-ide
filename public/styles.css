@@ -514,10 +514,11 @@ html, body {
 
 .toggle-terminal-icon {
 	transition: transform 0.15s ease;
+	transform: rotate(180deg);
 }
 
 .terminal-panel.expanded .toggle-terminal-icon {
-	transform: rotate(180deg);
+	transform: rotate(0deg);
 }
 
 ::-webkit-scrollbar {
