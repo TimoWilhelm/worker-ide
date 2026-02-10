@@ -513,8 +513,8 @@ html, body {
 }
 
 .terminal-entry-type.bundle {
-	background: rgba(210, 153, 34, 0.2);
-	color: var(--warning);
+	background: rgba(248, 81, 73, 0.2);
+	color: var(--error);
 }
 
 .terminal-entry-type.runtime {
