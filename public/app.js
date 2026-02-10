@@ -1,5 +1,7 @@
 (function() {
 	const PROJECT_STORAGE_KEY = 'worker-ide-project-id';
+	const RECENT_PROJECTS_KEY = 'worker-ide-recent-projects';
+	const MAX_RECENT_PROJECTS = 10;
 
 	// Parse project ID from URL: /p/:projectId
 	function getProjectIdFromUrl() {
@@ -13,20 +15,53 @@
 		return projectId ? `/p/${projectId}` : '';
 	}
 
+	function getRecentProjects() {
+		try {
+			const raw = localStorage.getItem(RECENT_PROJECTS_KEY);
+			if (raw) return JSON.parse(raw);
+		} catch {}
+		return [];
+	}
+
+	function saveRecentProjects(projects) {
+		localStorage.setItem(RECENT_PROJECTS_KEY, JSON.stringify(projects));
+	}
+
+	function trackProject(projectId) {
+		let projects = getRecentProjects();
+		projects = projects.filter(function(p) { return p.id !== projectId; });
+		projects.unshift({ id: projectId, timestamp: Date.now() });
+		if (projects.length > MAX_RECENT_PROJECTS) {
+			projects = projects.slice(0, MAX_RECENT_PROJECTS);
+		}
+		saveRecentProjects(projects);
+	}
+
+	function formatRelativeTime(timestamp) {
+		const seconds = Math.floor((Date.now() - timestamp) / 1000);
+		if (seconds < 60) return 'just now';
+		const minutes = Math.floor(seconds / 60);
+		if (minutes < 60) return minutes + 'm ago';
+		const hours = Math.floor(minutes / 60);
+		if (hours < 24) return hours + 'h ago';
+		const days = Math.floor(hours / 24);
+		if (days < 30) return days + 'd ago';
+		return new Date(timestamp).toLocaleDateString();
+	}
+
 	// Initialize project: check URL, localStorage, or create new
 	async function initProject() {
 		const urlProjectId = getProjectIdFromUrl();
 
 		if (urlProjectId) {
-			// We're on a project URL, save to localStorage
 			localStorage.setItem(PROJECT_STORAGE_KEY, urlProjectId);
+			trackProject(urlProjectId);
 			return urlProjectId;
 		}
 
 		// Check localStorage for a saved project
 		const savedProjectId = localStorage.getItem(PROJECT_STORAGE_KEY);
 		if (savedProjectId) {
-			// Redirect to the saved project
 			location.href = `/p/${savedProjectId}`;
 			return null; // Will redirect
 		}
@@ -36,6 +71,7 @@
 		const data = await res.json();
 		if (data.projectId) {
 			localStorage.setItem(PROJECT_STORAGE_KEY, data.projectId);
+			trackProject(data.projectId);
 			location.href = `/p/${data.projectId}`;
 			return null; // Will redirect
 		}
@@ -56,9 +92,9 @@
 	const saveStatusEl = document.getElementById('saveStatus');
 	const previewFrame = document.getElementById('previewFrame');
 	const refreshBtn = document.getElementById('refreshBtn');
-	const bundleBtn = document.getElementById('bundleBtn');
 	const newFileBtn = document.getElementById('newFileBtn');
 	const shareBtn = document.getElementById('shareBtn');
+	const downloadBtn = document.getElementById('downloadBtn');
 	const newProjectBtn = document.getElementById('newProjectBtn');
 	const modal = document.getElementById('modal');
 	const modalInput = document.getElementById('modalInput');
@@ -336,31 +372,6 @@
 		setTimeout(() => { refreshBtn.disabled = false; }, 5000);
 	}
 
-	async function bundle() {
-		bundleBtn.disabled = true;
-		bundleBtn.textContent = 'Bundling...';
-
-		try {
-			const res = await fetch(`${basePath}/api/bundle`, {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ minify: false })
-			});
-			const data = await res.json();
-
-			if (data.success) {
-				console.log('Bundle output:', data.code);
-				alert('Bundle complete! Check console for output.');
-			} else {
-				alert('Bundle failed: ' + (data.error || 'Unknown error'));
-			}
-		} catch (err) {
-			alert('Bundle failed: ' + err.message);
-		} finally {
-			bundleBtn.disabled = false;
-			bundleBtn.textContent = 'Bundle';
-		}
-	}
 
 	function showModal() {
 		modal.classList.remove('hidden');
@@ -401,17 +412,44 @@
 	}
 
 	refreshBtn.addEventListener('click', refreshPreview);
-	bundleBtn.addEventListener('click', bundle);
 	newFileBtn.addEventListener('click', showModal);
 
 	shareBtn.addEventListener('click', async () => {
 		const url = location.href;
 		try {
 			await navigator.clipboard.writeText(url);
-			shareBtn.title = 'Link copied!';
-			setTimeout(() => { shareBtn.title = 'Copy Share Link'; }, 2000);
 		} catch (err) {
 			prompt('Copy this link to share your project:', url);
+			return;
+		}
+		const existing = document.querySelector('.toast');
+		if (existing) existing.remove();
+		const toast = document.createElement('div');
+		toast.className = 'toast';
+		toast.textContent = 'Link copied to clipboard';
+		document.body.appendChild(toast);
+		setTimeout(() => toast.remove(), 1500);
+	});
+
+	downloadBtn.addEventListener('click', async () => {
+		downloadBtn.disabled = true;
+		try {
+			const res = await fetch(`${basePath}/api/download`);
+			if (!res.ok) throw new Error('Download failed');
+			const blob = await res.blob();
+			const url = URL.createObjectURL(blob);
+			const a = document.createElement('a');
+			a.href = url;
+			const match = (res.headers.get('Content-Disposition') || '').match(/filename="(.+)"/);
+			a.download = match ? match[1] : 'project.zip';
+			document.body.appendChild(a);
+			a.click();
+			document.body.removeChild(a);
+			URL.revokeObjectURL(url);
+		} catch (err) {
+			alert('Failed to download project: ' + err.message);
+		} finally {
+			downloadBtn.disabled = false;
 		}
 	});
 
@@ -425,6 +463,7 @@
 			const data = await res.json();
 			if (data.projectId) {
 				localStorage.setItem(PROJECT_STORAGE_KEY, data.projectId);
+				trackProject(data.projectId);
 				location.href = `/p/${data.projectId}`;
 			}
 		} catch (err) {
@@ -571,6 +610,44 @@
 		clearTerminal();
 	});
 	document.querySelector('.terminal-header').addEventListener('click', toggleTerminal);
+
+	// Recent projects dropdown
+	const recentProjectsBtn = document.getElementById('recentProjectsBtn');
+	const recentProjectsDropdown = document.getElementById('recentProjectsDropdown');
+
+	function renderRecentProjects() {
+		const projects = getRecentProjects();
+		const currentId = getProjectIdFromUrl();
+
+		if (projects.length <= 1) {
+			recentProjectsDropdown.innerHTML = '<div class="recent-empty">No other projects yet</div>';
+			return;
+		}
+
+		recentProjectsDropdown.innerHTML = projects.map(function(p) {
+			const shortId = p.id.substring(0, 8);
+			const isCurrent = p.id === currentId;
+			const activeClass = isCurrent ? ' recent-item-active' : '';
+			return '<a href="/p/' + p.id + '" class="recent-item' + activeClass + '">' +
+				'<span class="recent-item-id">' + shortId + (isCurrent ? ' (current)' : '') + '</span>' +
+				'<span class="recent-item-time">' + formatRelativeTime(p.timestamp) + '</span>' +
+				'</a>';
+		}).join('');
+	}
+
+	if (recentProjectsBtn) {
+		recentProjectsBtn.addEventListener('click', function(e) {
+			e.stopPropagation();
+			renderRecentProjects();
+			recentProjectsDropdown.classList.toggle('hidden');
+		});
+	}
+
+	document.addEventListener('click', function(e) {
+		if (recentProjectsDropdown && !recentProjectsDropdown.contains(e.target) && e.target !== recentProjectsBtn) {
+			recentProjectsDropdown.classList.add('hidden');
+		}
+	});
 
 	// Initialize the app
 	async function init() {

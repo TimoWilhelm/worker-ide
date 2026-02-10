@@ -2,7 +2,7 @@ import { DurableObjectFilesystem } from 'durable-object-fs';
 import { mount, withMounts } from 'worker-fs-mount';
 import { WorkerEntrypoint, DurableObject } from 'cloudflare:workers';
 import fs from 'node:fs/promises';
-import { transformCode, bundleCode } from './bundler.js';
+import { transformCode } from './bundler.js';
 import { transformModule, processHTML, type FileSystem } from './transform.js';
 import examplePackageJson from './example-project/package.json?raw';
 import exampleTsconfig from './example-project/tsconfig.json?raw';
@@ -267,6 +267,81 @@ export default css;`,
 	return { body: content, contentType };
 }
 
+const CRC32_TABLE = (() => {
+	const table = new Uint32Array(256);
+	for (let i = 0; i < 256; i++) {
+		let c = i;
+		for (let j = 0; j < 8; j++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+		table[i] = c;
+	}
+	return table;
+})();
+
+function crc32(data: Uint8Array): number {
+	let crc = 0xFFFFFFFF;
+	for (let i = 0; i < data.length; i++) crc = CRC32_TABLE[(crc ^ data[i]) & 0xFF] ^ (crc >>> 8);
+	return (crc ^ 0xFFFFFFFF) >>> 0;
+}
+
+function createZip(files: Record<string, string | Uint8Array>): Uint8Array {
+	const encoder = new TextEncoder();
+	const entries: { name: Uint8Array; data: Uint8Array; crc: number; offset: number }[] = [];
+	const parts: Uint8Array[] = [];
+	let offset = 0;
+
+	for (const [name, content] of Object.entries(files)) {
+		const nameBytes = encoder.encode(name);
+		const dataBytes = typeof content === 'string' ? encoder.encode(content) : content;
+		const fileCrc = crc32(dataBytes);
+
+		const header = new Uint8Array(30 + nameBytes.length);
+		const hv = new DataView(header.buffer);
+		hv.setUint32(0, 0x04034b50, true);
+		hv.setUint16(4, 20, true);
+		hv.setUint32(14, fileCrc, true);
+		hv.setUint32(18, dataBytes.length, true);
+		hv.setUint32(22, dataBytes.length, true);
+		hv.setUint16(26, nameBytes.length, true);
+		header.set(nameBytes, 30);
+
+		entries.push({ name: nameBytes, data: dataBytes, crc: fileCrc, offset });
+		parts.push(header, dataBytes);
+		offset += header.length + dataBytes.length;
+	}
+
+	const cdStart = offset;
+	for (const entry of entries) {
+		const cd = new Uint8Array(46 + entry.name.length);
+		const cv = new DataView(cd.buffer);
+		cv.setUint32(0, 0x02014b50, true);
+		cv.setUint16(4, 20, true);
+		cv.setUint16(6, 20, true);
+		cv.setUint32(16, entry.crc, true);
+		cv.setUint32(20, entry.data.length, true);
+		cv.setUint32(24, entry.data.length, true);
+		cv.setUint16(28, entry.name.length, true);
+		cv.setUint32(42, entry.offset, true);
+		cd.set(entry.name, 46);
+		parts.push(cd);
+		offset += cd.length;
+	}
+
+	const eocd = new Uint8Array(22);
+	const ev = new DataView(eocd.buffer);
+	ev.setUint32(0, 0x06054b50, true);
+	ev.setUint16(8, entries.length, true);
+	ev.setUint16(10, entries.length, true);
+	ev.setUint32(12, offset - cdStart, true);
+	ev.setUint32(16, cdStart, true);
+	parts.push(eocd);
+
+	const total = parts.reduce((s, p) => s + p.length, 0);
+	const result = new Uint8Array(total);
+	let pos = 0;
+	for (const part of parts) { result.set(part, pos); pos += part.length; }
+	return result;
+}
+
 function parseProjectRoute(path: string): { projectId: string; subPath: string } | null {
 	const match = path.match(/^\/p\/([a-f0-9]{64})(\/.*)$/i);
 	if (match) {
@@ -468,26 +543,6 @@ export default class extends WorkerEntrypoint<Env> {
 				return new Response(JSON.stringify({ success: true }), { headers });
 			}
 
-			// POST /api/bundle - bundle project files with esbuild
-			if (path === '/api/bundle' && request.method === 'POST') {
-				const body = (await request.json()) as { entryPoint?: string; minify?: boolean };
-				const entryPoint = body.entryPoint || 'src/main.ts';
-
-				const files = await this.collectFilesForBundle(this.projectRoot);
-				const result = await bundleCode({
-					files,
-					entryPoint,
-					minify: body.minify ?? false,
-					sourcemap: true,
-				});
-
-				return new Response(JSON.stringify({
-					success: true,
-					code: result.code,
-					warnings: result.warnings
-				}), { headers });
-			}
-
 			// POST /api/transform - transform a single file with esbuild
 			if (path === '/api/transform' && request.method === 'POST') {
 				const body = (await request.json()) as { code: string; filename: string };
@@ -497,6 +552,77 @@ export default class extends WorkerEntrypoint<Env> {
 					code: result.code,
 					map: result.map
 				}), { headers });
+			}
+
+			// GET /api/download - download project as deployable zip
+			if (path === '/api/download' && request.method === 'GET') {
+				const projectFiles = await this.collectFilesForBundle(this.projectRoot);
+				delete projectFiles['.initialized'];
+
+				let pkgJson: Record<string, unknown> = {};
+				let projectName = 'my-worker-app';
+				if (projectFiles['package.json']) {
+					try {
+						pkgJson = JSON.parse(projectFiles['package.json']);
+						if (typeof pkgJson.name === 'string') projectName = pkgJson.name;
+					} catch {}
+				}
+
+				pkgJson.scripts = {
+					...(pkgJson.scripts as Record<string, string> || {}),
+					dev: 'vite dev',
+					build: 'vite build',
+					deploy: 'vite build && wrangler deploy',
+				};
+				pkgJson.devDependencies = {
+					...(pkgJson.devDependencies as Record<string, string> || {}),
+					'@cloudflare/vite-plugin': '^1.0.0',
+					vite: '^6.0.0',
+					wrangler: '^4.0.0',
+				};
+
+				const prefix = `${projectName}/`;
+				const zipFiles: Record<string, string> = {};
+
+				for (const [filePath, content] of Object.entries(projectFiles)) {
+					if (filePath === 'package.json') continue;
+					zipFiles[`${prefix}${filePath}`] = content;
+				}
+
+				zipFiles[`${prefix}package.json`] = JSON.stringify(pkgJson, null, 2);
+
+				zipFiles[`${prefix}wrangler.jsonc`] = JSON.stringify({
+					$schema: 'node_modules/wrangler/config-schema.json',
+					name: projectName,
+					main: 'worker/index.ts',
+					compatibility_date: '2026-01-31',
+					assets: {
+						not_found_handling: 'single-page-application',
+						run_worker_first: ['/api/*'],
+					},
+					observability: {
+						enabled: true,
+					},
+				}, null, '\t');
+
+				zipFiles[`${prefix}vite.config.ts`] = [
+					'import { defineConfig } from \'vite\';',
+					'import { cloudflare } from \'@cloudflare/vite-plugin\';',
+					'',
+					'export default defineConfig({',
+					'\tplugins: [cloudflare()],',
+					'});',
+					'',
+				].join('\n');
+
+				const zip = createZip(zipFiles);
+				return new Response(zip, {
+					headers: {
+						'Content-Type': 'application/zip',
+						'Content-Disposition': `attachment; filename="${projectName}.zip"`,
+						'Access-Control-Allow-Origin': '*',
+					},
+				});
 			}
 
 			return new Response(JSON.stringify({ error: 'Not found' }), { status: 404, headers });

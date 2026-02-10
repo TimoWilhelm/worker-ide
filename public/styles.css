@@ -539,6 +539,99 @@ html, body {
 	transform: rotate(0deg);
 }
 
+.recent-projects-wrapper {
+	position: relative;
+}
+
+.recent-dropdown {
+	position: absolute;
+	top: 100%;
+	right: 0;
+	margin-top: 6px;
+	width: 240px;
+	max-height: 320px;
+	overflow-y: auto;
+	background: var(--bg-secondary);
+	border: 1px solid var(--border-color);
+	border-radius: 8px;
+	box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+	z-index: 1000;
+}
+
+.recent-dropdown.hidden {
+	display: none;
+}
+
+.recent-empty {
+	padding: 16px;
+	text-align: center;
+	color: var(--text-secondary);
+	font-size: 13px;
+}
+
+.recent-item {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: 8px 12px;
+	text-decoration: none;
+	color: var(--text-secondary);
+	font-size: 13px;
+	transition: background 0.1s ease;
+	border-bottom: 1px solid var(--border-color);
+}
+
+.recent-item:last-child {
+	border-bottom: none;
+}
+
+.recent-item:hover {
+	background: var(--bg-tertiary);
+	color: var(--text-primary);
+}
+
+.recent-item-active {
+	color: var(--accent);
+	background: rgba(88, 166, 255, 0.08);
+}
+
+.recent-item-id {
+	font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', Consolas, monospace;
+	font-size: 12px;
+}
+
+.recent-item-time {
+	font-size: 11px;
+	color: var(--text-secondary);
+	flex-shrink: 0;
+}
+
+.toast {
+	position: fixed;
+	top: 56px;
+	right: 16px;
+	padding: 8px 14px;
+	background: var(--bg-tertiary);
+	border: 1px solid var(--border-color);
+	border-radius: 6px;
+	color: var(--success);
+	font-size: 13px;
+	font-weight: 500;
+	z-index: 2000;
+	pointer-events: none;
+	animation: toast-in 0.15s ease, toast-out 0.15s ease 1.2s forwards;
+}
+
+@keyframes toast-in {
+	from { opacity: 0; transform: translateY(-8px); }
+	to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes toast-out {
+	from { opacity: 1; transform: translateY(0); }
+	to { opacity: 0; transform: translateY(-8px); }
+}
+
 ::-webkit-scrollbar {
 	width: 8px;
 	height: 8px;
