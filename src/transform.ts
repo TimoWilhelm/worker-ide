@@ -367,6 +367,8 @@ const socket = new WebSocket('${safeWsUrl}');
 const modules = new Map();
 const hmrBaseUrl = '${safeBaseUrl}';
 
+window.showErrorOverlay = showErrorOverlay;
+window.hideErrorOverlay = hideErrorOverlay;
 function showErrorOverlay(err) {
   hideErrorOverlay();
   const overlay = document.createElement('div');

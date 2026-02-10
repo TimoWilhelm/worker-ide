@@ -770,20 +770,24 @@ export default class extends WorkerEntrypoint<Env> {
 			});
 		} catch (err) {
 			console.error('serveFile error:', err);
+			const errMsg = String(err);
+			const locMatch = errMsg.match(/([^\s:]+):(\d+):(\d+):\s*ERROR:\s*(.*)/);
+			const serverErr: ServerError = {
+				timestamp: Date.now(),
+				type: 'bundle',
+				message: errMsg,
+				file: locMatch ? locMatch[1] : undefined,
+				line: locMatch ? Number(locMatch[2]) : undefined,
+				column: locMatch ? Number(locMatch[3]) : undefined,
+			};
 			if (options?.projectId) {
-				const errMsg = String(err);
-				const locMatch = errMsg.match(/([^\s:]+):(\d+):(\d+):\s*ERROR:\s*(.*)/);
-				const serverErr: ServerError = {
-					timestamp: Date.now(),
-					type: 'bundle',
-					message: errMsg,
-					file: locMatch ? locMatch[1] : undefined,
-					line: locMatch ? Number(locMatch[2]) : undefined,
-					column: locMatch ? Number(locMatch[3]) : undefined,
-				};
 				await this.broadcastMessage(options.projectId, { type: 'server-error', error: serverErr }).catch(() => {});
 			}
-			return new Response('Not found', { status: 404 });
+			const errJson = JSON.stringify(serverErr).replace(/</g, '\\u003c').replace(/>/g, '\\u003e');
+			const errorModule = `if (typeof showErrorOverlay === 'function') { showErrorOverlay(${errJson}); } else { console.error(${errJson}.message); }`;
+			return new Response(errorModule, {
+				headers: { 'Content-Type': 'application/javascript', 'Cache-Control': 'no-cache' },
+			});
 		}
 	}
 
