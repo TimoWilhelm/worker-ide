@@ -1,0 +1,9 @@
+{
+  "name": "my-fullstack-app",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "devDependencies": {
+    "typescript": "^5.4.0"
+  }
+}

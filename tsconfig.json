@@ -39,5 +39,6 @@
 		"types": [
 			"./worker-configuration.d.ts"
 		]
-	}
+	},
+	"exclude": ["src/example-project"]
 }

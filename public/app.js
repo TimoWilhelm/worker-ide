@@ -111,12 +111,14 @@
 	}
 
 	function renderFileTree() {
-		const sorted = [...files].sort((a, b) => {
-			const aDir = a.includes('/src/') || a.startsWith('/src');
-			const bDir = b.includes('/src/') || b.startsWith('/src');
-			if (aDir !== bDir) return bDir ? 1 : -1;
-			return a.localeCompare(b);
-		});
+		const sorted = [...files]
+			.filter(path => !path.endsWith('/.initialized'))
+			.sort((a, b) => {
+				const aDir = a.includes('/src/') || a.startsWith('/src');
+				const bDir = b.includes('/src/') || b.startsWith('/src');
+				if (aDir !== bDir) return bDir ? 1 : -1;
+				return a.localeCompare(b);
+			});
 
 		const tree = {};
 		sorted.forEach(path => {

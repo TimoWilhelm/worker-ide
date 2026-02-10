@@ -41,7 +41,4 @@
 			"binding": "LOADER"
 		}
 	],
-	"alias": {
-		"node:fs/promises": "worker-fs-mount/fs",
-	},
 }

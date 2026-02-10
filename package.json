@@ -4,7 +4,7 @@
 	"private": true,
 	"type": "module",
 	"scripts": {
-		"dev": "wrangler dev",
+		"dev": "vite dev",
 		"dev:preview": "tsx scripts/dev.ts",
 		"dev:all": "concurrently \"wrangler dev\" \"tsx scripts/dev.ts\"",
 		"build": "vite build",

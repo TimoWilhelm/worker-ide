@@ -11,6 +11,18 @@ A Cloudflare Worker that serves as a browser-based full-stack development enviro
 - **`scripts/dev.ts`** — Optional local Vite dev server that proxies files from the Worker's DO filesystem for a native HMR experience.
 - **`public/`** — Static frontend (editor UI) served via Workers Assets.
 
+## Dynamic Worker Isolates
+
+User-authored backend code (the `worker/` directory inside each project) is executed via Cloudflare's [Dynamic Worker Loader](https://developers.cloudflare.com/workers/runtime-apis/bindings/worker-loader/) API. Instead of bundling user code into the host Worker, the platform spawns a **separate V8 isolate on-demand** for each project's server-side logic.
+
+### How it works
+
+1. When a request hits `/p/:id/preview/api/*`, the host Worker reads the project's `worker/` files from the Durable Object filesystem and transforms them (TS → JS, import rewriting) via esbuild-wasm.
+2. The transformed modules are passed to `env.LOADER.get(id, callback)`, which returns a `WorkerStub` backed by a fresh isolate. The isolate ID is derived from a content hash of the worker source, so code changes automatically produce a new isolate while unchanged code reuses a cached one.
+3. The host Worker calls `worker.getEntrypoint().fetch(request)` to forward the API request into the dynamic isolate, which runs the user's `worker/index.ts` default export.
+
+See `src/index.ts` → `handlePreviewAPI` for the full implementation.
+
 ## Prerequisites
 
 - [Bun](https://bun.sh) (or Node ≥ 18)

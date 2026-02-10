@@ -4,6 +4,15 @@ import { WorkerEntrypoint, DurableObject } from 'cloudflare:workers';
 import fs from 'node:fs/promises';
 import { transformCode, bundleCode } from './bundler.js';
 import { transformModule, processHTML, type FileSystem } from './transform.js';
+import examplePackageJson from './example-project/package.json?raw';
+import exampleTsconfig from './example-project/tsconfig.json?raw';
+import exampleIndexHtml from './example-project/index.html?raw';
+import exampleMainTs from './example-project/src/main.ts?raw';
+import exampleApiTs from './example-project/src/api.ts?raw';
+import exampleStyleCss from './example-project/src/style.css?raw';
+import exampleWorkerDbTs from './example-project/worker/db.ts?raw';
+import exampleWorkerHandlersTs from './example-project/worker/handlers.ts?raw';
+import exampleWorkerIndexTs from './example-project/worker/index.ts?raw';
 
 export { DurableObjectFilesystem };
 
@@ -114,343 +123,16 @@ export class HMRCoordinator extends DurableObject {
 	}
 }
 
-const EXAMPLE_PROJECT = {
-	'package.json': `{
-  "name": "my-fullstack-app",
-  "private": true,
-  "version": "0.0.0",
-  "type": "module",
-  "devDependencies": {
-    "typescript": "^5.4.0"
-  }
-}`,
-	'tsconfig.json': `{
-  "compilerOptions": {
-    "target": "ES2022",
-    "module": "ESNext",
-    "moduleResolution": "bundler",
-    "strict": true,
-    "skipLibCheck": true
-  },
-  "include": ["src"]
-}`,
-	'index.html': `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Cloudflare Workers Full-Stack App</title>
-</head>
-<body>
-  <div id="app"></div>
-  <script type="module" src="src/main.ts"></script>
-</body>
-</html>`,
-	'src/main.ts': `import { api } from './api';
-import './style.css';
-
-async function init() {
-  const app = document.querySelector<HTMLDivElement>('#app')!;
-
-  app.innerHTML = \`
-    <h1>⚡ Workers Full-Stack</h1>
-    <div class="card">
-      <p class="status">Loading...</p>
-      <div class="todos">
-        <input type="text" id="todo-input" placeholder="Add a todo..." />
-        <button id="add-btn">Add</button>
-      </div>
-      <ul id="todo-list"></ul>
-    </div>
-    <p class="hint">Edit <code>src/main.ts</code> for frontend, <code>worker/index.ts</code> for backend</p>
-  \`;
-
-  const status = app.querySelector<HTMLParagraphElement>('.status')!;
-  const input = document.querySelector<HTMLInputElement>('#todo-input')!;
-  const addBtn = document.querySelector<HTMLButtonElement>('#add-btn')!;
-  const list = document.querySelector<HTMLUListElement>('#todo-list')!;
-
-  try {
-    const data = await api.hello();
-    status.textContent = data.message;
-  } catch (err) {
-    status.textContent = 'Error connecting to API';
-  }
-
-  let addingBusy = false;
-  const busyIds = new Set<string>();
-
-  async function loadTodos() {
-    const todos = await api.getTodos();
-    list.innerHTML = todos.map(t => \`
-      <li class="\${busyIds.has(t.id) ? 'busy' : ''}">
-        <span class="\${t.done ? 'done' : ''}">\${t.text}</span>
-        <button data-id="\${t.id}" class="toggle" \${busyIds.has(t.id) ? 'disabled' : ''}>\${t.done ? '\u21a9' : '\u2713'}</button>
-        <button data-id="\${t.id}" class="delete" \${busyIds.has(t.id) ? 'disabled' : ''}>\u00d7</button>
-      </li>
-    \`).join('');
-  }
-
-  await loadTodos();
-
-  addBtn.addEventListener('click', async () => {
-    if (input.value.trim() && !addingBusy) {
-      addingBusy = true;
-      addBtn.disabled = true;
-      input.disabled = true;
-      addBtn.textContent = 'Adding...';
-      try {
-        await api.addTodo(input.value.trim());
-        input.value = '';
-        await loadTodos();
-      } finally {
-        addingBusy = false;
-        addBtn.disabled = false;
-        input.disabled = false;
-        addBtn.textContent = 'Add';
-      }
-    }
-  });
-
-  input.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') addBtn.click();
-  });
-
-  list.addEventListener('click', async (e) => {
-    const target = e.target as HTMLElement;
-    const id = target.dataset.id;
-    if (!id || busyIds.has(id)) return;
-    busyIds.add(id);
-    target.setAttribute('disabled', '');
-    const li = target.closest('li');
-    if (li) li.style.opacity = '0.5';
-    try {
-      if (target.classList.contains('toggle')) {
-        await api.toggleTodo(id);
-      } else if (target.classList.contains('delete')) {
-        await api.deleteTodo(id);
-      }
-      await loadTodos();
-    } finally {
-      busyIds.delete(id);
-    }
-  });
-}
-
-init();`,
-	'src/api.ts': `interface Todo {
-  id: string;
-  text: string;
-  done: boolean;
-}
-
-interface HelloResponse {
-  message: string;
-  timestamp: string;
-}
-
-export const api = {
-  async hello(): Promise<HelloResponse> {
-    const res = await fetch('/api/hello');
-    return res.json();
-  },
-
-  async getTodos(): Promise<Todo[]> {
-    const res = await fetch('/api/todos');
-    return res.json();
-  },
-
-  async addTodo(text: string): Promise<Todo> {
-    const res = await fetch('/api/todos', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text }),
-    });
-    return res.json();
-  },
-
-  async toggleTodo(id: string): Promise<Todo> {
-    const res = await fetch(\`/api/todos/\${id}/toggle\`, { method: 'POST' });
-    return res.json();
-  },
-
-  async deleteTodo(id: string): Promise<Todo> {
-    const res = await fetch(\`/api/todos/\${id}\`, { method: 'DELETE' });
-    return res.json();
-  },
-};`,
-  'src/style.css': `:root {
-  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
-  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-  color: rgba(255, 255, 255, 0.87);
-}
-
-body { margin: 0; display: flex; place-items: center; min-width: 320px; min-height: 100vh; }
-
-#app { max-width: 600px; margin: 0 auto; padding: 2rem; text-align: center; }
-
-h1 { font-size: 2.5em; margin-bottom: 0.5em; }
-
-.card { background: rgba(255,255,255,0.05); border-radius: 12px; padding: 2em; margin: 1em 0; }
-
-.status { color: #4ade80; font-weight: 500; margin-bottom: 1.5em; }
-
-.todos { display: flex; gap: 0.5em; margin-bottom: 1em; }
-
-.todos input {
-  flex: 1; padding: 0.6em 1em; border: 1px solid rgba(255,255,255,0.2);
-  border-radius: 6px; background: rgba(0,0,0,0.3); color: white; font-size: 1em;
-  padding: 0.6em 1em;
-  border: 1px solid rgba(255,255,255,0.2);
-  border-radius: 6px;
-  background: rgba(0,0,0,0.3);
-  color: white;
-  font-size: 1em;
-}
-
-.todos input:focus {
-  outline: none;
-  border-color: #646cff;
-}
-
-button {
-  border-radius: 6px;
-  border: none;
-  padding: 0.6em 1em;
-  font-size: 1em;
-  font-weight: 500;
-  background-color: #646cff;
-  color: white;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-button:hover:not(:disabled) { background-color: #535bf2; }
-button:disabled { opacity: 0.5; cursor: not-allowed; }
-
-#todo-list {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  text-align: left;
-}
-
-#todo-list li {
-  display: flex;
-  align-items: center;
-  gap: 0.5em;
-  padding: 0.75em;
-  background: rgba(0,0,0,0.2);
-  border-radius: 6px;
-  margin-bottom: 0.5em;
-}
-
-#todo-list li span { flex: 1; }
-#todo-list li span.done { text-decoration: line-through; opacity: 0.5; }
-#todo-list li.busy { opacity: 0.5; pointer-events: none; }
-
-#todo-list button {
-  padding: 0.3em 0.6em;
-  font-size: 0.9em;
-  background: rgba(255,255,255,0.1);
-}
-
-#todo-list button.delete:hover:not(:disabled) { background: #ef4444; }
-#todo-list button.toggle:hover:not(:disabled) { background: #22c55e; }
-
-.hint {
-  font-size: 0.85em;
-  opacity: 0.6;
-}`,
-	'worker/db.ts': `// In-memory database module
-
-export interface Todo {
-  id: string;
-  text: string;
-  done: boolean;
-}
-
-// In-memory storage (resets on worker restart)
-export const todos: Todo[] = [
-  { id: '1', text: 'Learn Cloudflare Workers', done: true },
-  { id: '2', text: 'Build a full-stack app', done: false },
-  { id: '3', text: 'Deploy to the edge', done: false },
-];
-`,
-	'worker/handlers.ts': `// API request handlers
-import { todos, type Todo } from './db';
-
-export function hello(): Response {
-  return Response.json({
-    message: 'Connected to Workers API! 🚀',
-    timestamp: new Date().toISOString(),
-  });
-}
-
-export function listTodos(): Response {
-  return Response.json(todos);
-}
-
-export async function addTodo(request: Request): Promise<Response> {
-  const body = await request.json() as { text: string };
-  const todo: Todo = { id: crypto.randomUUID(), text: body.text, done: false };
-  todos.push(todo);
-  return Response.json(todo);
-}
-
-export function toggleTodo(id: string): Response {
-  const todo = todos.find(t => t.id === id);
-  if (todo) {
-    todo.done = !todo.done;
-    return Response.json(todo);
-  }
-  return Response.json({ error: 'Not found' }, { status: 404 });
-}
-
-export function deleteTodo(id: string): Response {
-  const idx = todos.findIndex(t => t.id === id);
-  if (idx !== -1) {
-    const [deleted] = todos.splice(idx, 1);
-    return Response.json(deleted);
-  }
-  return Response.json({ error: 'Not found' }, { status: 404 });
-}
-`,
-	'worker/index.ts': `// Worker entry point - routes requests to handlers
-import { hello, listTodos, addTodo, toggleTodo, deleteTodo } from './handlers';
-
-export default {
-  async fetch(request: Request): Promise<Response> {
-    const url = new URL(request.url);
-    const path = url.pathname;
-    const method = request.method;
-
-    if (path === '/api/hello' && method === 'GET') {
-      return hello();
-    }
-
-    if (path === '/api/todos' && method === 'GET') {
-      return listTodos();
-    }
-
-    if (path === '/api/todos' && method === 'POST') {
-      return addTodo(request);
-    }
-
-    const toggleMatch = path.match(/^\\/api\\/todos\\/([^/]+)\\/toggle$/);
-    if (toggleMatch && method === 'POST') {
-      return toggleTodo(toggleMatch[1]);
-    }
-
-    const deleteMatch = path.match(/^\\/api\\/todos\\/([^/]+)$/);
-    if (deleteMatch && method === 'DELETE') {
-      return deleteTodo(deleteMatch[1]);
-    }
-
-    return Response.json({ error: 'Not found' }, { status: 404 });
-  }
-};
-`,
+const EXAMPLE_PROJECT: Record<string, string> = {
+	'package.json': examplePackageJson,
+	'tsconfig.json': exampleTsconfig,
+	'index.html': exampleIndexHtml,
+	'src/main.ts': exampleMainTs,
+	'src/api.ts': exampleApiTs,
+	'src/style.css': exampleStyleCss,
+	'worker/db.ts': exampleWorkerDbTs,
+	'worker/handlers.ts': exampleWorkerHandlersTs,
+	'worker/index.ts': exampleWorkerIndexTs,
 };
 
 async function ensureExampleProject(projectRoot: string) {
@@ -597,26 +279,13 @@ function parseProjectRoute(path: string): { projectId: string; subPath: string }
 	return null;
 }
 
-const MAX_CACHED_PROJECTS = 50;
-
-function evictOldest<K, V>(map: Map<K, V>, max: number) {
-	while (map.size > max) {
-		const first = map.keys().next().value;
-		if (first !== undefined) map.delete(first);
-		else break;
-	}
-}
-
 export default class extends WorkerEntrypoint<Env> {
 	private projectRoot = '/project';
-	private workerModuleCacheMap = new Map<string, { hash: string; modules: Record<string, string>; lastBroadcastWasError: boolean }>();
+	private lastBroadcastWasErrorMap = new Map<string, boolean>();
 	private initializedProjectsCache = new Set<string>();
 
 	private setLastBroadcastWasError(projectId: string, value: boolean) {
-		const entry = this.workerModuleCacheMap.get(projectId);
-		if (entry) {
-			entry.lastBroadcastWasError = value;
-		}
+		this.lastBroadcastWasErrorMap.set(projectId, value);
 	}
 
 	private async broadcastMessage(projectId: string, message: object) {
@@ -957,65 +626,42 @@ export default class extends WorkerEntrypoint<Env> {
 				return Response.json({ error: err.message, serverError: err }, { status: 500 });
 			}
 
-			// Collect only worker/ files
+			// Collect only worker/ files for hashing (cheap)
 			const workerFiles = Object.entries(files)
 				.filter(([path]) => path.startsWith('worker/'))
 				.sort(([a], [b]) => a.localeCompare(b));
 			const contentHash = await this.hashContent(JSON.stringify(workerFiles));
 
-			// Only re-transform if worker code has changed
-			const cachedEntry = this.workerModuleCacheMap.get(projectId);
-			if (!cachedEntry || cachedEntry.hash !== contentHash) {
-				try {
-					const modules: Record<string, string> = {};
-					for (const [filePath, content] of workerFiles) {
-						// Convert .ts/.tsx/.jsx to .js for the module name
-						const jsPath = filePath.replace(/\.(ts|tsx|jsx|mts)$/, '.js');
-						const needsTransform = /\.(ts|tsx|jsx|mts)$/.test(filePath);
-						let code = content;
-						if (needsTransform) {
-							const result = await transformCode(code, filePath, { sourcemap: false });
-							code = result.code;
-						}
-						// Rewrite import specifiers to use .js extensions
-						code = code.replace(
-							/(from\s+['"])(\.\.\/|\.\/)([^'"]+?)(\.ts|\.tsx|\.jsx|\.mts)?(['"])/g,
-							(match, pre, rel, rest, ext, quote) => {
-								const hasJsExt = rest.endsWith('.js') || rest.endsWith('.mjs');
-								if (ext) return `${pre}${rel}${rest}.js${quote}`;
-								if (hasJsExt) return match;
-								return `${pre}${rel}${rest}.js${quote}`;
-							}
-						);
-						modules[jsPath] = code;
+			// Transform is deferred into getCode — only runs if no warm isolate exists for this hash
+			const worker = this.env.LOADER.get(`worker:${contentHash}`, async () => {
+				const modules: Record<string, string> = {};
+				for (const [filePath, content] of workerFiles) {
+					// Convert .ts/.tsx/.jsx to .js for the module name
+					const jsPath = filePath.replace(/\.(ts|tsx|jsx|mts)$/, '.js');
+					const needsTransform = /\.(ts|tsx|jsx|mts)$/.test(filePath);
+					let code = content;
+					if (needsTransform) {
+						const result = await transformCode(code, filePath, { sourcemap: false });
+						code = result.code;
 					}
-					this.workerModuleCacheMap.set(projectId, { hash: contentHash, modules, lastBroadcastWasError: false });
-					evictOldest(this.workerModuleCacheMap, MAX_CACHED_PROJECTS);
-				} catch (transformErr) {
-					this.workerModuleCacheMap.delete(projectId);
-					const errMsg = String(transformErr);
-					const locMatch = errMsg.match(/([^\s:]+):(\d+):(\d+):\s*ERROR:\s*(.*)/);
-					const serverErr: ServerError = {
-						timestamp: Date.now(),
-						type: 'bundle',
-						message: errMsg,
-						file: locMatch ? locMatch[1] : undefined,
-						line: locMatch ? Number(locMatch[2]) : undefined,
-						column: locMatch ? Number(locMatch[3]) : undefined,
-					};
-					this.setLastBroadcastWasError(projectId, true);
-					this.broadcastMessage(projectId, { type: 'server-error', error: serverErr }).catch(() => {});
-					console.error('Worker transform error:', transformErr);
-					return Response.json({ error: errMsg, serverError: serverErr }, { status: 500 });
+					// Rewrite import specifiers to use .js extensions
+					code = code.replace(
+						/(from\s+['"])(\.\.\/|\.\/)([^'"]+?)(\.ts|\.tsx|\.jsx|\.mts)?(['"])/g,
+						(match, pre, rel, rest, ext, quote) => {
+							const hasJsExt = rest.endsWith('.js') || rest.endsWith('.mjs');
+							if (ext) return `${pre}${rel}${rest}.js${quote}`;
+							if (hasJsExt) return match;
+							return `${pre}${rel}${rest}.js${quote}`;
+						}
+					);
+					modules[jsPath] = code;
 				}
-			}
-
-			const modules = this.workerModuleCacheMap.get(projectId)!.modules;
-			const worker = this.env.LOADER.get(`worker:${contentHash}`, async () => ({
-				compatibilityDate: '2026-01-31',
-				mainModule: 'worker/index.js',
-				modules,
-			}));
+				return {
+					compatibilityDate: '2026-01-31',
+					mainModule: 'worker/index.js',
+					modules,
+				};
+			});
 
 			// Create a new request with the correct path (strip /preview prefix)
 			const apiUrl = new URL(request.url);
@@ -1024,14 +670,23 @@ export default class extends WorkerEntrypoint<Env> {
 
 			const entrypoint = worker.getEntrypoint();
 			const response = await entrypoint.fetch(apiRequest);
-			if (this.workerModuleCacheMap.get(projectId)?.lastBroadcastWasError) {
+			if (this.lastBroadcastWasErrorMap.get(projectId)) {
 				this.setLastBroadcastWasError(projectId, false);
 				this.broadcastMessage(projectId, { type: 'server-ok' }).catch(() => {});
 			}
 			return response;
 		} catch (err) {
 			const errMsg = String(err);
-			const serverErr: ServerError = { timestamp: Date.now(), type: 'runtime', message: errMsg };
+			const isBundleError = errMsg.includes('ERROR:');
+			const locMatch = errMsg.match(/([^\s:]+):(\d+):(\d+):\s*ERROR:\s*(.*)/);
+			const serverErr: ServerError = {
+				timestamp: Date.now(),
+				type: isBundleError ? 'bundle' : 'runtime',
+				message: errMsg,
+				file: locMatch ? locMatch[1] : undefined,
+				line: locMatch ? Number(locMatch[2]) : undefined,
+				column: locMatch ? Number(locMatch[3]) : undefined,
+			};
 			this.setLastBroadcastWasError(projectId, true);
 			this.broadcastMessage(projectId, { type: 'server-error', error: serverErr }).catch(() => {});
 			console.error('Server code execution error:', err);

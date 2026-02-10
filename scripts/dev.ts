@@ -5,13 +5,13 @@
  * This creates a virtual filesystem where ALL files come from the Worker's
  * Durable Object storage. Vite handles transformation, HMR, and module resolution.
  *
- * Usage: WORKER_URL=http://localhost:8787 npx tsx scripts/dev.ts
+ * Usage: WORKER_URL=http://localhost:3000 npx tsx scripts/dev.ts
  */
 
 import { createServer, type Plugin, type ViteDevServer } from 'vite';
 import path from 'path';
 
-const WORKER_URL = process.env.WORKER_URL || 'http://localhost:8787';
+const WORKER_URL = process.env.WORKER_URL || 'http://localhost:3000';
 
 // In-memory cache of files fetched from Worker
 const fileCache = new Map<string, string>();
@@ -229,7 +229,7 @@ async function main() {
 		root: process.cwd(),
 		plugins: [doFilesystemPlugin()],
 		server: {
-			port: 5173,
+			port: 3000,
 			cors: true,
 			hmr: {
 				protocol: 'ws',

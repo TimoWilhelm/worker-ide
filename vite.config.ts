@@ -13,7 +13,7 @@ function esbuildWasmPlugin(): Plugin {
 			const wasmSource = join(__dirname, 'node_modules/esbuild-wasm/esbuild.wasm');
 			const vendorDir = join(__dirname, 'vendor');
 			const wasmDest = join(vendorDir, 'esbuild.wasm');
-			if (existsSync(wasmSource) && !existsSync(wasmDest)) {
+			if (existsSync(wasmSource)) {
 				mkdirSync(vendorDir, { recursive: true });
 				copyFileSync(wasmSource, wasmDest);
 			}
@@ -35,7 +35,7 @@ export default defineConfig({
 		},
 	},
 	server: {
-		port: 5173,
+		port: 3000,
 		hmr: {
 			protocol: 'ws',
 			host: 'localhost',
