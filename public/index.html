@@ -60,6 +60,30 @@
 				<iframe id="previewFrame" src="/preview" sandbox="allow-scripts allow-same-origin allow-forms allow-popups"></iframe>
 			</section>
 		</main>
+		<div class="terminal-panel" id="terminalPanel">
+			<div class="terminal-header">
+				<div class="terminal-tabs">
+					<span class="terminal-tab active">Server Console</span>
+				</div>
+				<div class="terminal-actions">
+					<span id="errorBadge" class="error-badge hidden">0</span>
+					<button id="clearTerminalBtn" class="btn-icon" title="Clear">
+						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+							<circle cx="12" cy="12" r="10"></circle>
+							<line x1="4.93" y1="4.93" x2="19.07" y2="19.07"></line>
+						</svg>
+					</button>
+					<button id="toggleTerminalBtn" class="btn-icon" title="Toggle Terminal">
+						<svg class="toggle-terminal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+							<polyline points="6 9 12 15 18 9"></polyline>
+						</svg>
+					</button>
+				</div>
+			</div>
+			<div class="terminal-body" id="terminalBody">
+				<div class="terminal-output" id="terminalOutput"></div>
+			</div>
+		</div>
 	</div>
 
 	<div id="modal" class="modal hidden">

@@ -36,6 +36,11 @@
 	"observability": {
 		"enabled": true,
 	},
+	"worker_loaders": [
+		{
+			"binding": "LOADER"
+		}
+	],
 	"alias": {
 		"node:fs/promises": "worker-fs-mount/fs",
 	},

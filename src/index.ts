@@ -7,8 +7,15 @@ import { transformModule, processHTML, type FileSystem } from './transform.js';
 
 export { DurableObjectFilesystem };
 
-// Cache for bundled server code
-let serverCodeCache: { code: string; hash: string; module: { fetch: (req: Request) => Promise<Response> } | null } | null = null;
+// Server error type for the UI terminal
+interface ServerError {
+	timestamp: number;
+	type: 'bundle' | 'runtime';
+	message: string;
+	file?: string;
+	line?: number;
+	column?: number;
+}
 
 interface HMRUpdate {
 	type: 'update' | 'full-reload';
@@ -41,6 +48,14 @@ export class HMRCoordinator extends DurableObject {
 			});
 		}
 
+		if (url.pathname === '/hmr/send' && request.method === 'POST') {
+			const message = await request.text();
+			this.broadcastRaw(message);
+			return new Response(JSON.stringify({ success: true }), {
+				headers: { 'Content-Type': 'application/json' },
+			});
+		}
+
 		return new Response('Not found', { status: 404 });
 	}
 
@@ -65,6 +80,16 @@ export class HMRCoordinator extends DurableObject {
 			],
 		});
 
+		for (const ws of this.ctx.getWebSockets()) {
+			try {
+				ws.send(message);
+			} catch {
+				this.sessions.delete(ws);
+			}
+		}
+	}
+
+	broadcastRaw(message: string) {
 		for (const ws of this.ctx.getWebSockets()) {
 			try {
 				ws.send(message);
@@ -137,7 +162,7 @@ async function init() {
       </div>
       <ul id="todo-list"></ul>
     </div>
-    <p class="hint">Edit <code>src/main.ts</code> for frontend, <code>server/api.ts</code> for backend</p>
+    <p class="hint">Edit <code>src/main.ts</code> for frontend, <code>worker/index.ts</code> for backend</p>
   \`;
 
   const status = app.querySelector<HTMLParagraphElement>('.status')!;
@@ -313,20 +338,62 @@ button:hover { background-color: #535bf2; }
   font-size: 0.85em;
   opacity: 0.6;
 }`,
-	'server/api.ts': `// Server-side API handler - edit this to customize your backend!
+	'worker/db.ts': `// In-memory database module
 
-interface Todo {
+export interface Todo {
   id: string;
   text: string;
   done: boolean;
 }
 
 // In-memory storage (resets on worker restart)
-const todos: Todo[] = [
+export const todos: Todo[] = [
   { id: '1', text: 'Learn Cloudflare Workers', done: true },
   { id: '2', text: 'Build a full-stack app', done: false },
   { id: '3', text: 'Deploy to the edge', done: false },
 ];
+`,
+	'worker/handlers.ts': `// API request handlers
+import { todos, type Todo } from './db';
+
+export function hello(): Response {
+  return Response.json({
+    message: 'Connected to Workers API! 🚀',
+    timestamp: new Date().toISOString(),
+  });
+}
+
+export function listTodos(): Response {
+  return Response.json(todos);
+}
+
+export async function addTodo(request: Request): Promise<Response> {
+  const body = await request.json() as { text: string };
+  const todo: Todo = { id: crypto.randomUUID(), text: body.text, done: false };
+  todos.push(todo);
+  return Response.json(todo);
+}
+
+export function toggleTodo(id: string): Response {
+  const todo = todos.find(t => t.id === id);
+  if (todo) {
+    todo.done = !todo.done;
+    return Response.json(todo);
+  }
+  return Response.json({ error: 'Not found' }, { status: 404 });
+}
+
+export function deleteTodo(id: string): Response {
+  const idx = todos.findIndex(t => t.id === id);
+  if (idx !== -1) {
+    const [deleted] = todos.splice(idx, 1);
+    return Response.json(deleted);
+  }
+  return Response.json({ error: 'Not found' }, { status: 404 });
+}
+`,
+	'worker/index.ts': `// Worker entry point - routes requests to handlers
+import { hello, listTodos, addTodo, toggleTodo, deleteTodo } from './handlers';
 
 export default {
   async fetch(request: Request): Promise<Response> {
@@ -334,47 +401,26 @@ export default {
     const path = url.pathname;
     const method = request.method;
 
-    // GET /api/hello
     if (path === '/api/hello' && method === 'GET') {
-      return Response.json({
-        message: 'Connected to Workers API! 🚀',
-        timestamp: new Date().toISOString(),
-      });
+      return hello();
     }
 
-    // GET /api/todos
     if (path === '/api/todos' && method === 'GET') {
-      return Response.json(todos);
+      return listTodos();
     }
 
-    // POST /api/todos
     if (path === '/api/todos' && method === 'POST') {
-      const body = await request.json() as { text: string };
-      const todo: Todo = { id: crypto.randomUUID(), text: body.text, done: false };
-      todos.push(todo);
-      return Response.json(todo);
+      return addTodo(request);
     }
 
-    // POST /api/todos/:id/toggle
     const toggleMatch = path.match(/^\\/api\\/todos\\/([^/]+)\\/toggle$/);
     if (toggleMatch && method === 'POST') {
-      const todo = todos.find(t => t.id === toggleMatch[1]);
-      if (todo) {
-        todo.done = !todo.done;
-        return Response.json(todo);
-      }
-      return Response.json({ error: 'Not found' }, { status: 404 });
+      return toggleTodo(toggleMatch[1]);
     }
 
-    // DELETE /api/todos/:id
     const deleteMatch = path.match(/^\\/api\\/todos\\/([^/]+)$/);
     if (deleteMatch && method === 'DELETE') {
-      const idx = todos.findIndex(t => t.id === deleteMatch[1]);
-      if (idx !== -1) {
-        const [deleted] = todos.splice(idx, 1);
-        return Response.json(deleted);
-      }
-      return Response.json({ error: 'Not found' }, { status: 404 });
+      return deleteTodo(deleteMatch[1]);
     }
 
     return Response.json({ error: 'Not found' }, { status: 404 });
@@ -543,6 +589,17 @@ setInterval(() => socket.send(JSON.stringify({ type: 'ping' })), 30000);
 
 export default class extends WorkerEntrypoint<Env> {
 	private projectRoot = '/project';
+	private workerModuleCache: { hash: string; modules: Record<string, string> } | null = null;
+	private lastBroadcastWasError = false;
+
+	private async broadcastMessage(message: object) {
+		const hmrId = this.env.DO_HMR_COORDINATOR.idFromName('main');
+		const hmrStub = this.env.DO_HMR_COORDINATOR.get(hmrId);
+		await hmrStub.fetch(new Request('http://internal/hmr/send', {
+			method: 'POST',
+			body: JSON.stringify(message),
+		}));
+	}
 
 	async fetch(request: Request) {
 		const url = new URL(request.url);
@@ -832,58 +889,97 @@ export default class extends WorkerEntrypoint<Env> {
 
 	private async handlePreviewAPI(request: Request, apiPath: string): Promise<Response> {
 		try {
-			// Collect files for bundling the server code
 			const files = await this.collectFilesForBundle(this.projectRoot);
 
-			// Check if server/api.ts exists
-			const serverEntry = Object.keys(files).find(f =>
-				f === 'server/api.ts' || f === 'server/api.js' ||
-				f === 'server/index.ts' || f === 'server/index.js'
+			// Check if worker/index.ts exists
+			const workerEntry = Object.keys(files).find(f =>
+				f === 'worker/index.ts' || f === 'worker/index.js'
 			);
 
-			if (!serverEntry) {
-				return Response.json({ error: 'No server/api.ts found' }, { status: 500 });
+			if (!workerEntry) {
+				const err: ServerError = { timestamp: Date.now(), type: 'bundle', message: 'No worker/index.ts found. Create a worker/index.ts file with a default export { fetch }.' };
+				this.lastBroadcastWasError = true;
+				this.broadcastMessage({ type: 'server-error', error: err }).catch(() => {});
+				return Response.json({ error: err.message, serverError: err }, { status: 500 });
 			}
 
-			// Create a hash of the server files to detect changes
-			const serverFiles = Object.entries(files)
-				.filter(([path]) => path.startsWith('server/'))
+			// Collect only worker/ files
+			const workerFiles = Object.entries(files)
+				.filter(([path]) => path.startsWith('worker/'))
 				.sort(([a], [b]) => a.localeCompare(b));
-			const contentHash = await this.hashContent(JSON.stringify(serverFiles));
+			const contentHash = await this.hashContent(JSON.stringify(workerFiles));
 
-			// Re-bundle if cache is stale
-			if (!serverCodeCache || serverCodeCache.hash !== contentHash) {
-				const result = await bundleCode({
-					files,
-					entryPoint: serverEntry,
-					minify: false,
-					sourcemap: false,
-				});
-
-				// Execute the bundled code to get the module
-				const moduleFactory = new Function('exports', `
-					const module = { exports: {} };
-					${result.code.replace(/export\s*\{[^}]*\}\s*;?/g, '').replace(/export\s+default\s+/, 'module.exports.default = ')}
-					return module.exports.default || module.exports;
-				`);
-
-				const userModule = moduleFactory({});
-				serverCodeCache = { code: result.code, hash: contentHash, module: userModule };
+			// Only re-transform if worker code has changed
+			if (!this.workerModuleCache || this.workerModuleCache.hash !== contentHash) {
+				try {
+					const modules: Record<string, string> = {};
+					for (const [filePath, content] of workerFiles) {
+						// Convert .ts/.tsx/.jsx to .js for the module name
+						const jsPath = filePath.replace(/\.(ts|tsx|jsx|mts)$/, '.js');
+						const needsTransform = /\.(ts|tsx|jsx|mts)$/.test(filePath);
+						let code = content;
+						if (needsTransform) {
+							const result = await transformCode(code, filePath, { sourcemap: false });
+							code = result.code;
+						}
+						// Rewrite import specifiers to use .js extensions
+						code = code.replace(
+							/(from\s+['"])(\.\.\/|\.\/)([^'"]+?)(\.ts|\.tsx|\.jsx|\.mts)?(['"])/g,
+							(match, pre, rel, rest, ext, quote) => {
+								const hasJsExt = rest.endsWith('.js') || rest.endsWith('.mjs');
+								if (ext) return `${pre}${rel}${rest}.js${quote}`;
+								if (hasJsExt) return match;
+								return `${pre}${rel}${rest}.js${quote}`;
+							}
+						);
+						modules[jsPath] = code;
+					}
+					this.workerModuleCache = { hash: contentHash, modules };
+				} catch (transformErr) {
+					this.workerModuleCache = null;
+					const errMsg = String(transformErr);
+					const locMatch = errMsg.match(/([^\s:]+):(\d+):(\d+):\s*ERROR:\s*(.*)/);
+					const serverErr: ServerError = {
+						timestamp: Date.now(),
+						type: 'bundle',
+						message: errMsg,
+						file: locMatch ? locMatch[1] : undefined,
+						line: locMatch ? Number(locMatch[2]) : undefined,
+						column: locMatch ? Number(locMatch[3]) : undefined,
+					};
+					this.lastBroadcastWasError = true;
+					this.broadcastMessage({ type: 'server-error', error: serverErr }).catch(() => {});
+					console.error('Worker transform error:', transformErr);
+					return Response.json({ error: errMsg, serverError: serverErr }, { status: 500 });
+				}
 			}
 
-			if (!serverCodeCache.module?.fetch) {
-				return Response.json({ error: 'Server module must export default { fetch }' }, { status: 500 });
-			}
+			const modules = this.workerModuleCache?.modules;
+			const worker = this.env.LOADER.get(`worker:${contentHash}`, async () => ({
+				compatibilityDate: '2026-01-31',
+				mainModule: 'worker/index.js',
+				modules,
+			}));
 
 			// Create a new request with the correct path (strip /preview prefix)
 			const apiUrl = new URL(request.url);
 			apiUrl.pathname = apiPath;
 			const apiRequest = new Request(apiUrl.toString(), request);
 
-			return await serverCodeCache.module.fetch(apiRequest);
+			const entrypoint = worker.getEntrypoint();
+			const response = await entrypoint.fetch(apiRequest);
+			if (this.lastBroadcastWasError) {
+				this.lastBroadcastWasError = false;
+				this.broadcastMessage({ type: 'server-ok' }).catch(() => {});
+			}
+			return response;
 		} catch (err) {
+			const errMsg = String(err);
+			const serverErr: ServerError = { timestamp: Date.now(), type: 'runtime', message: errMsg };
+			this.lastBroadcastWasError = true;
+			this.broadcastMessage({ type: 'server-error', error: serverErr }).catch(() => {});
 			console.error('Server code execution error:', err);
-			return Response.json({ error: String(err) }, { status: 500 });
+			return Response.json({ error: errMsg, serverError: serverErr }, { status: 500 });
 		}
 	}
 

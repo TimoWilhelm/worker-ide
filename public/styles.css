@@ -366,6 +366,160 @@ html, body {
 	border-top: 1px solid var(--border-color);
 }
 
+.terminal-panel {
+	display: flex;
+	flex-direction: column;
+	border-top: 1px solid var(--border-color);
+	background: var(--bg-secondary);
+	min-height: 32px;
+	max-height: 40vh;
+}
+
+.terminal-panel.expanded .terminal-body {
+	height: 180px;
+}
+
+.terminal-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: 0 8px;
+	height: 32px;
+	min-height: 32px;
+	background: var(--bg-secondary);
+	border-bottom: 1px solid var(--border-color);
+	cursor: pointer;
+	user-select: none;
+}
+
+.terminal-tabs {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+}
+
+.terminal-tab {
+	font-size: 11px;
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0.5px;
+	color: var(--text-secondary);
+}
+
+.terminal-tab.active {
+	color: var(--text-primary);
+}
+
+.terminal-actions {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+}
+
+.error-badge {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	min-width: 18px;
+	height: 18px;
+	padding: 0 5px;
+	border-radius: 9px;
+	background: var(--error);
+	color: #fff;
+	font-size: 11px;
+	font-weight: 600;
+}
+
+.error-badge.hidden {
+	display: none;
+}
+
+.terminal-body {
+	height: 0;
+	overflow: hidden;
+	transition: height 0.15s ease;
+}
+
+.terminal-panel.expanded .terminal-body {
+	overflow-y: auto;
+}
+
+.terminal-output {
+	padding: 8px 12px;
+	font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', Consolas, monospace;
+	font-size: 12px;
+	line-height: 1.6;
+	white-space: pre-wrap;
+	word-break: break-all;
+}
+
+.terminal-output:empty::before {
+	content: 'No server errors';
+	color: var(--text-secondary);
+	font-style: italic;
+}
+
+.terminal-entry {
+	padding: 4px 0;
+	border-bottom: 1px solid rgba(48, 54, 61, 0.5);
+}
+
+.terminal-entry:last-child {
+	border-bottom: none;
+}
+
+.terminal-entry-header {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin-bottom: 2px;
+}
+
+.terminal-entry-type {
+	font-size: 10px;
+	font-weight: 700;
+	text-transform: uppercase;
+	padding: 1px 5px;
+	border-radius: 3px;
+}
+
+.terminal-entry-type.bundle {
+	background: rgba(210, 153, 34, 0.2);
+	color: var(--warning);
+}
+
+.terminal-entry-type.runtime {
+	background: rgba(248, 81, 73, 0.2);
+	color: var(--error);
+}
+
+.terminal-entry-time {
+	font-size: 11px;
+	color: var(--text-secondary);
+}
+
+.terminal-entry-location {
+	font-size: 11px;
+	color: var(--accent);
+	cursor: pointer;
+}
+
+.terminal-entry-location:hover {
+	text-decoration: underline;
+}
+
+.terminal-entry-message {
+	color: var(--error);
+}
+
+.toggle-terminal-icon {
+	transition: transform 0.15s ease;
+}
+
+.terminal-panel.expanded .toggle-terminal-icon {
+	transform: rotate(180deg);
+}
+
 ::-webkit-scrollbar {
 	width: 8px;
 	height: 8px;

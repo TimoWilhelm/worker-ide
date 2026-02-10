@@ -19,6 +19,16 @@
 	const modalConfirm = document.getElementById('modalConfirm');
 	const modalCancel = document.getElementById('modalCancel');
 	const modalClose = document.getElementById('modalClose');
+	const terminalPanel = document.getElementById('terminalPanel');
+	const terminalBody = document.getElementById('terminalBody');
+	const terminalOutput = document.getElementById('terminalOutput');
+	const clearTerminalBtn = document.getElementById('clearTerminalBtn');
+	const toggleTerminalBtn = document.getElementById('toggleTerminalBtn');
+	const errorBadge = document.getElementById('errorBadge');
+
+	let terminalErrors = [];
+	let errorSocket = null;
+	let errorSocketReconnectDelay = 2000;
 
 	function getModeForFile(path) {
 		if (path.endsWith('.js') || path.endsWith('.mjs') || path.endsWith('.ts') || path.endsWith('.tsx') || path.endsWith('.jsx')) {
@@ -346,6 +356,134 @@
 		if (e.target === modal) hideModal();
 	});
 
+	// Terminal panel functions
+	function toggleTerminal() {
+		terminalPanel.classList.toggle('expanded');
+	}
+
+	function formatTime(ts) {
+		const d = new Date(ts);
+		return d.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+	}
+
+	function escapeHtml(str) {
+		return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+	}
+
+	function renderTerminalErrors() {
+		if (terminalErrors.length === 0) {
+			terminalOutput.innerHTML = '';
+			errorBadge.classList.add('hidden');
+			return;
+		}
+
+		errorBadge.textContent = terminalErrors.length;
+		errorBadge.classList.remove('hidden');
+
+		terminalOutput.innerHTML = terminalErrors.map(err => {
+			const safeType = escapeHtml(err.type || 'error');
+			const safeFile = err.file ? escapeHtml(err.file) : '';
+			const location = safeFile
+				? `<span class="terminal-entry-location" data-file="/${safeFile}" data-line="${parseInt(err.line, 10) || 1}">${safeFile}${err.line ? ':' + err.line : ''}${err.column ? ':' + err.column : ''}</span>`
+				: '';
+			const shortMsg = err.message.length > 500
+				? err.message.substring(0, 500) + '...'
+				: err.message;
+			return `<div class="terminal-entry">
+				<div class="terminal-entry-header">
+					<span class="terminal-entry-type ${safeType}">${safeType}</span>
+					<span class="terminal-entry-time">${formatTime(err.timestamp)}</span>
+					${location}
+				</div>
+				<div class="terminal-entry-message">${escapeHtml(shortMsg)}</div>
+			</div>`;
+		}).join('');
+
+		terminalBody.scrollTop = terminalBody.scrollHeight;
+	}
+
+	function addServerError(err) {
+		terminalErrors.push(err);
+		if (terminalErrors.length > 50) {
+			terminalErrors = terminalErrors.slice(-50);
+		}
+		renderTerminalErrors();
+		if (!terminalPanel.classList.contains('expanded')) {
+			toggleTerminal();
+		}
+	}
+
+	function connectErrorSocket() {
+		if (errorSocket) {
+			errorSocket.onclose = null;
+			errorSocket.onerror = null;
+			errorSocket.onmessage = null;
+			if (errorSocket.readyState === WebSocket.OPEN || errorSocket.readyState === WebSocket.CONNECTING) {
+				errorSocket.close();
+			}
+			errorSocket = null;
+		}
+		const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+		const ws = new WebSocket(`${protocol}//${location.host}/__hmr`);
+		errorSocket = ws;
+		ws.addEventListener('open', () => {
+			errorSocketReconnectDelay = 2000;
+		});
+		ws.addEventListener('message', (event) => {
+			try {
+				const data = JSON.parse(event.data);
+				if (data.type === 'server-error' && data.error) {
+					addServerError(data.error);
+				} else if (data.type === 'server-ok') {
+					if (terminalErrors.length > 0) {
+						terminalErrors = [];
+						renderTerminalErrors();
+					}
+				}
+			} catch (e) {
+				// ignore non-JSON messages
+			}
+		});
+		ws.addEventListener('close', () => {
+			if (errorSocket !== ws) return;
+			errorSocket = null;
+			const delay = errorSocketReconnectDelay;
+			errorSocketReconnectDelay = Math.min(errorSocketReconnectDelay * 1.5, 30000);
+			setTimeout(connectErrorSocket, delay);
+		});
+	}
+
+	function clearTerminal() {
+		terminalErrors = [];
+		renderTerminalErrors();
+	}
+
+	terminalOutput.addEventListener('click', (e) => {
+		const loc = e.target.closest('.terminal-entry-location');
+		if (loc) {
+			const filePath = loc.dataset.file;
+			const line = parseInt(loc.dataset.line, 10) || 1;
+			if (filePath) {
+				openFile(filePath).then(() => {
+					if (editor) {
+						editor.setCursor({ line: line - 1, ch: 0 });
+						editor.focus();
+					}
+				});
+			}
+		}
+	});
+
+	toggleTerminalBtn.addEventListener('click', (e) => {
+		e.stopPropagation();
+		toggleTerminal();
+	});
+	clearTerminalBtn.addEventListener('click', (e) => {
+		e.stopPropagation();
+		clearTerminal();
+	});
+	document.querySelector('.terminal-header').addEventListener('click', toggleTerminal);
+
 	initEditor();
 	loadFiles().then(() => {
 		const defaultFile = files.find(f => f.endsWith('main.js') || f.endsWith('index.js')) || files[0];
@@ -353,4 +491,7 @@
 			openFile(defaultFile);
 		}
 	});
+
+	// Connect WebSocket for server error notifications
+	connectErrorSocket();
 })();
