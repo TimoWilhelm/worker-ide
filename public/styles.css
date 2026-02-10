@@ -434,7 +434,7 @@ html, body {
 	gap: 4px;
 }
 
-.error-badge {
+.terminal-badge {
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
@@ -442,14 +442,27 @@ html, body {
 	height: 18px;
 	padding: 0 5px;
 	border-radius: 9px;
-	background: var(--error);
-	color: #fff;
 	font-size: 11px;
 	font-weight: 600;
 }
 
-.error-badge.hidden {
+.terminal-badge.hidden {
 	display: none;
+}
+
+.badge-error {
+	background: var(--error);
+	color: #fff;
+}
+
+.badge-warn {
+	background: var(--warning);
+	color: #1c2128;
+}
+
+.badge-log {
+	background: rgba(139, 148, 158, 0.3);
+	color: var(--text-secondary);
 }
 
 .terminal-body {
@@ -467,12 +480,10 @@ html, body {
 	font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', Consolas, monospace;
 	font-size: 12px;
 	line-height: 1.6;
-	white-space: pre-wrap;
-	word-break: break-all;
 }
 
 .terminal-output:empty::before {
-	content: 'No server errors';
+	content: 'No server logs';
 	color: var(--text-secondary);
 	font-style: italic;
 }
@@ -511,6 +522,31 @@ html, body {
 	color: var(--error);
 }
 
+.terminal-entry-type.log {
+	background: rgba(139, 148, 158, 0.2);
+	color: var(--text-secondary);
+}
+
+.terminal-entry-type.warn {
+	background: rgba(210, 153, 34, 0.2);
+	color: var(--warning);
+}
+
+.terminal-entry-type.error {
+	background: rgba(248, 81, 73, 0.2);
+	color: var(--error);
+}
+
+.terminal-entry-type.info {
+	background: rgba(56, 132, 255, 0.2);
+	color: var(--accent);
+}
+
+.terminal-entry-type.debug {
+	background: rgba(139, 148, 158, 0.15);
+	color: var(--text-secondary);
+}
+
 .terminal-entry-time {
 	font-size: 11px;
 	color: var(--text-secondary);
@@ -527,7 +563,9 @@ html, body {
 }
 
 .terminal-entry-message {
-	color: var(--error);
+	color: var(--text-primary);
+	white-space: pre-wrap;
+	word-break: break-all;
 }
 
 .toggle-terminal-icon {

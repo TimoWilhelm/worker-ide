@@ -16,6 +16,41 @@ import exampleWorkerIndexTs from './example-project/worker/index.ts?raw';
 
 export { DurableObjectFilesystem };
 
+interface LogEntry {
+	type: string;
+	timestamp: number;
+	level: string;
+	message: string;
+}
+
+export class LogTailer extends WorkerEntrypoint<Env> {
+	private async broadcastLogs(entries: LogEntry[]) {
+		if (entries.length === 0) return;
+		const projectId = (this.ctx.props as { projectId: string }).projectId;
+		const hmrId = this.env.DO_HMR_COORDINATOR.idFromName(`hmr:${projectId}`);
+		const hmrStub = this.env.DO_HMR_COORDINATOR.get(hmrId);
+		await hmrStub.fetch(new Request('http://internal/hmr/send', {
+			method: 'POST',
+			body: JSON.stringify({ type: 'server-logs', logs: entries }),
+		}));
+	}
+
+	async tail(events: TraceItem[]) {
+		for (const event of events) {
+			const entries: LogEntry[] = [];
+			for (const log of event.logs) {
+				entries.push({
+					type: 'server-log',
+					timestamp: log.timestamp,
+					level: log.level,
+					message: (log.message as unknown[]).map((m: unknown) => typeof m === 'string' ? m : JSON.stringify(m)).join(' '),
+				});
+			}
+			await this.broadcastLogs(entries);
+		}
+	}
+}
+
 // Server error type for the UI terminal
 interface ServerError {
 	timestamp: number;
@@ -430,7 +465,7 @@ export default class extends WorkerEntrypoint<Env> {
 				const previewPath = subPath === '/preview' ? '/' : subPath.replace(/^\/preview/, '');
 				const previewUrl = new URL(request.url);
 				previewUrl.pathname = previewPath;
-				return this.serveFile(new Request(previewUrl, request), { baseHref: `${basePrefix}/preview/` });
+				return this.serveFile(new Request(previewUrl, request), { baseHref: `${basePrefix}/preview/`, projectId });
 			}
 
 			// Serve the IDE HTML for the project root and any unknown sub-paths
@@ -631,7 +666,7 @@ export default class extends WorkerEntrypoint<Env> {
 		}
 	}
 
-	private async serveFile(request: Request, options?: { baseHref?: string }): Promise<Response> {
+	private async serveFile(request: Request, options?: { baseHref?: string; projectId?: string }): Promise<Response> {
 		const url = new URL(request.url);
 		let filePath = url.pathname === '/' ? '/index.html' : url.pathname;
 
@@ -657,30 +692,33 @@ export default class extends WorkerEntrypoint<Env> {
 			if (!initialExt) {
 				const extensions = ['.ts', '.tsx', '.js', '.jsx', '.mts', '.mjs'];
 				let resolved = false;
-				for (const tryExt of extensions) {
-					try {
-						await fs.access(fullPath + tryExt);
-						fullPath = fullPath + tryExt;
-						filePath = filePath + tryExt;
+
+				const directResults = await Promise.allSettled(
+					extensions.map(tryExt => fs.access(fullPath + tryExt).then(() => tryExt))
+				);
+				for (const result of directResults) {
+					if (result.status === 'fulfilled') {
+						fullPath = fullPath + result.value;
+						filePath = filePath + result.value;
 						resolved = true;
 						break;
-					} catch {
-						// Try next
 					}
 				}
+
 				if (!resolved) {
-					for (const tryExt of extensions) {
-						try {
-							await fs.access(fullPath + '/index' + tryExt);
-							fullPath = fullPath + '/index' + tryExt;
-							filePath = filePath + '/index' + tryExt;
+					const indexResults = await Promise.allSettled(
+						extensions.map(tryExt => fs.access(fullPath + '/index' + tryExt).then(() => tryExt))
+					);
+					for (const result of indexResults) {
+						if (result.status === 'fulfilled') {
+							fullPath = fullPath + '/index' + result.value;
+							filePath = filePath + '/index' + result.value;
 							resolved = true;
 							break;
-						} catch {
-							// Try next
 						}
 					}
 				}
+
 				if (!resolved) {
 					throw new Error(`ENOENT: no such file or directory, '${filePath}'`);
 				}
@@ -732,13 +770,26 @@ export default class extends WorkerEntrypoint<Env> {
 			});
 		} catch (err) {
 			console.error('serveFile error:', err);
+			if (options?.projectId) {
+				const errMsg = String(err);
+				const locMatch = errMsg.match(/([^\s:]+):(\d+):(\d+):\s*ERROR:\s*(.*)/);
+				const serverErr: ServerError = {
+					timestamp: Date.now(),
+					type: 'bundle',
+					message: errMsg,
+					file: locMatch ? locMatch[1] : undefined,
+					line: locMatch ? Number(locMatch[2]) : undefined,
+					column: locMatch ? Number(locMatch[3]) : undefined,
+				};
+				await this.broadcastMessage(options.projectId, { type: 'server-error', error: serverErr }).catch(() => {});
+			}
 			return new Response('Not found', { status: 404 });
 		}
 	}
 
 	private async handlePreviewAPI(request: Request, apiPath: string, projectId: string): Promise<Response> {
 		try {
-			const files = await this.collectFilesForBundle(this.projectRoot);
+			const files = await this.collectFilesForBundle(`${this.projectRoot}/worker`, 'worker');
 
 			// Check if worker/index.ts exists
 			const workerEntry = Object.keys(files).find(f =>
@@ -748,17 +799,21 @@ export default class extends WorkerEntrypoint<Env> {
 			if (!workerEntry) {
 				const err: ServerError = { timestamp: Date.now(), type: 'bundle', message: 'No worker/index.ts found. Create a worker/index.ts file with a default export { fetch }.' };
 				this.setLastBroadcastWasError(projectId, true);
-				this.broadcastMessage(projectId, { type: 'server-error', error: err }).catch(() => {});
+				await this.broadcastMessage(projectId, { type: 'server-error', error: err }).catch(() => {});
 				return Response.json({ error: err.message, serverError: err }, { status: 500 });
 			}
 
-			// Collect only worker/ files for hashing (cheap)
 			const workerFiles = Object.entries(files)
-				.filter(([path]) => path.startsWith('worker/'))
 				.sort(([a], [b]) => a.localeCompare(b));
 			const contentHash = await this.hashContent(JSON.stringify(workerFiles));
 
 			// Transform is deferred into getCode — only runs if no warm isolate exists for this hash
+			let logBinding: ReturnType<NonNullable<(typeof this.ctx.exports)['LogTailer']>> | null = null;
+			try {
+				logBinding = this.ctx.exports.LogTailer({ props: { projectId } });
+			} catch (e) {
+				console.warn('LogTailer binding unavailable, tail logs disabled:', e);
+			}
 			const worker = this.env.LOADER.get(`worker:${contentHash}`, async () => {
 				const modules: Record<string, string> = {};
 				for (const [filePath, content] of workerFiles) {
@@ -786,6 +841,7 @@ export default class extends WorkerEntrypoint<Env> {
 					compatibilityDate: '2026-01-31',
 					mainModule: 'worker/index.js',
 					modules,
+					...(logBinding ? { tails: [logBinding] } : {}),
 				};
 			});
 
@@ -798,23 +854,34 @@ export default class extends WorkerEntrypoint<Env> {
 			const response = await entrypoint.fetch(apiRequest);
 			if (this.lastBroadcastWasErrorMap.get(projectId)) {
 				this.setLastBroadcastWasError(projectId, false);
-				this.broadcastMessage(projectId, { type: 'server-ok' }).catch(() => {});
+				await this.broadcastMessage(projectId, { type: 'server-ok' }).catch(() => {});
 			}
 			return response;
 		} catch (err) {
 			const errMsg = String(err);
 			const isBundleError = errMsg.includes('ERROR:');
 			const locMatch = errMsg.match(/([^\s:]+):(\d+):(\d+):\s*ERROR:\s*(.*)/);
+			let file = locMatch ? locMatch[1] : undefined;
+			let line = locMatch ? Number(locMatch[2]) : undefined;
+			let column = locMatch ? Number(locMatch[3]) : undefined;
+			if (!file && err instanceof Error && err.stack) {
+				const stackMatch = err.stack.match(/at\s+.*?\(?([\w./\-]+\.(?:js|ts|mjs|tsx|jsx)):(\d+):(\d+)\)?/);
+				if (stackMatch) {
+					file = stackMatch[1];
+					line = Number(stackMatch[2]);
+					column = Number(stackMatch[3]);
+				}
+			}
 			const serverErr: ServerError = {
 				timestamp: Date.now(),
 				type: isBundleError ? 'bundle' : 'runtime',
 				message: errMsg,
-				file: locMatch ? locMatch[1] : undefined,
-				line: locMatch ? Number(locMatch[2]) : undefined,
-				column: locMatch ? Number(locMatch[3]) : undefined,
+				file,
+				line,
+				column,
 			};
 			this.setLastBroadcastWasError(projectId, true);
-			this.broadcastMessage(projectId, { type: 'server-error', error: serverErr }).catch(() => {});
+			await this.broadcastMessage(projectId, { type: 'server-error', error: serverErr }).catch(() => {});
 			console.error('Server code execution error:', err);
 			return Response.json({ error: errMsg, serverError: serverErr }, { status: 500 });
 		}
@@ -852,15 +919,20 @@ export default class extends WorkerEntrypoint<Env> {
 		const files: Record<string, string> = {};
 		try {
 			const entries = await fs.readdir(dir, { withFileTypes: true });
-			for (const entry of entries) {
-				const relativePath = base ? `${base}/${entry.name}` : entry.name;
-				const fullPath = `${dir}/${entry.name}`;
-				if (entry.isDirectory()) {
-					Object.assign(files, await this.collectFilesForBundle(fullPath, relativePath));
-				} else {
-					const content = await fs.readFile(fullPath, 'utf8');
-					files[relativePath] = content;
-				}
+			const results = await Promise.all(
+				entries.map(async (entry) => {
+					const relativePath = base ? `${base}/${entry.name}` : entry.name;
+					const fullPath = `${dir}/${entry.name}`;
+					if (entry.isDirectory()) {
+						return this.collectFilesForBundle(fullPath, relativePath);
+					} else {
+						const content = await fs.readFile(fullPath, 'utf8');
+						return { [relativePath]: content };
+					}
+				})
+			);
+			for (const result of results) {
+				Object.assign(files, result);
 			}
 		} catch (err) {
 			if (base === '') {

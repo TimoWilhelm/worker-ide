@@ -31,14 +31,15 @@
 		"directory": "./public",
 		"binding": "ASSETS",
 		"not_found_handling": "single-page-application",
-		"run_worker_first": ["/api/*", "/p/*"]
+		"run_worker_first": ["/api/*", "/p/*"],
 	},
 	"observability": {
-		"enabled": true,
+		"logs": { "enabled": true },
+		"traces": { "enabled": true },
 	},
 	"worker_loaders": [
 		{
-			"binding": "LOADER"
-		}
+			"binding": "LOADER",
+		},
 	],
 }

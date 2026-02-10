@@ -33,6 +33,20 @@ interface TsConfig {
 
 const EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx', '.mts', '.mjs'];
 
+async function probeExtensions(
+	fs: FileSystem,
+	basePath: string,
+	extensions: string[]
+): Promise<string | null> {
+	const results = await Promise.allSettled(
+		extensions.map(ext => fs.access(`${basePath}${ext}`).then(() => ext))
+	);
+	for (const result of results) {
+		if (result.status === 'fulfilled') return result.value;
+	}
+	return null;
+}
+
 /**
  * Parse and cache tsconfig for a project
  */
@@ -99,29 +113,21 @@ async function resolveImport(
 			// Resolve the alias path like a relative import
 			const ext = getExtension(aliasResolved);
 			if (!ext) {
-				for (const tryExt of EXTENSIONS) {
-					try {
-						await fs.access(`${projectRoot}${aliasResolved}${tryExt}`);
-						return {
-							original: specifier,
-							resolved: `${baseUrl}${aliasResolved}${tryExt}`,
-							isBare: false,
-						};
-					} catch {
-						// Try next
-					}
+				const directExt = await probeExtensions(fs, `${projectRoot}${aliasResolved}`, EXTENSIONS);
+				if (directExt) {
+					return {
+						original: specifier,
+						resolved: `${baseUrl}${aliasResolved}${directExt}`,
+						isBare: false,
+					};
 				}
-				for (const tryExt of EXTENSIONS) {
-					try {
-						await fs.access(`${projectRoot}${aliasResolved}/index${tryExt}`);
-						return {
-							original: specifier,
-							resolved: `${baseUrl}${aliasResolved}/index${tryExt}`,
-							isBare: false,
-						};
-					} catch {
-						// Try next
-					}
+				const indexExt = await probeExtensions(fs, `${projectRoot}${aliasResolved}/index`, EXTENSIONS);
+				if (indexExt) {
+					return {
+						original: specifier,
+						resolved: `${baseUrl}${aliasResolved}/index${indexExt}`,
+						isBare: false,
+					};
 				}
 			}
 			return {
@@ -163,31 +169,21 @@ async function resolveImport(
 	// Try to resolve with extensions if no extension provided
 	const ext = getExtension(targetPath);
 	if (!ext) {
-		// Try each extension
-		for (const tryExt of EXTENSIONS) {
-			try {
-				await fs.access(`${projectRoot}${targetPath}${tryExt}`);
-				return {
-					original: specifier,
-					resolved: `${baseUrl}${targetPath}${tryExt}`,
-					isBare: false,
-				};
-			} catch {
-				// Try next
-			}
+		const directExt = await probeExtensions(fs, `${projectRoot}${targetPath}`, EXTENSIONS);
+		if (directExt) {
+			return {
+				original: specifier,
+				resolved: `${baseUrl}${targetPath}${directExt}`,
+				isBare: false,
+			};
 		}
-		// Try index files
-		for (const tryExt of EXTENSIONS) {
-			try {
-				await fs.access(`${projectRoot}${targetPath}/index${tryExt}`);
-				return {
-					original: specifier,
-					resolved: `${baseUrl}${targetPath}/index${tryExt}`,
-					isBare: false,
-				};
-			} catch {
-				// Try next
-			}
+		const indexExt = await probeExtensions(fs, `${projectRoot}${targetPath}/index`, EXTENSIONS);
+		if (indexExt) {
+			return {
+				original: specifier,
+				resolved: `${baseUrl}${targetPath}/index${indexExt}`,
+				isBare: false,
+			};
 		}
 	}
 
@@ -371,11 +367,52 @@ const socket = new WebSocket('${safeWsUrl}');
 const modules = new Map();
 const hmrBaseUrl = '${safeBaseUrl}';
 
+function showErrorOverlay(err) {
+  hideErrorOverlay();
+  const overlay = document.createElement('div');
+  overlay.id = '__error-overlay';
+  const esc = (s) => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const loc = err.file ? esc(err.file + (err.line ? ':' + err.line : '') + (err.column ? ':' + err.column : '')) : '';
+  overlay.innerHTML = \`
+    <style>
+      #__error-overlay{position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,0.75);display:flex;align-items:center;justify-content:center;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,monospace}
+      .__eo-card{background:#1a1a2e;color:#e0e0e0;border-radius:12px;max-width:640px;width:90%;max-height:80vh;overflow:auto;box-shadow:0 8px 32px rgba(0,0,0,0.5);border:1px solid rgba(248,81,73,0.4)}
+      .__eo-header{padding:16px 20px;border-bottom:1px solid rgba(248,81,73,0.3);display:flex;align-items:center;gap:10px}
+      .__eo-badge{background:rgba(248,81,73,0.2);color:#f85149;font-size:11px;font-weight:700;text-transform:uppercase;padding:2px 8px;border-radius:4px}
+      .__eo-title{color:#f85149;font-size:14px;font-weight:600;flex:1}
+      .__eo-close{background:none;border:none;color:#8b949e;cursor:pointer;font-size:18px;padding:4px 8px;border-radius:4px}
+      .__eo-close:hover{background:rgba(255,255,255,0.1);color:#e0e0e0}
+      .__eo-body{padding:16px 20px}
+      .__eo-file{color:#58a6ff;font-size:13px;margin-bottom:12px}
+      .__eo-msg{background:#0d1117;border-radius:8px;padding:14px 16px;font-size:13px;line-height:1.6;white-space:pre-wrap;word-break:break-all;color:#f0f0f0;border:1px solid rgba(48,54,61,0.8)}
+    </style>
+    <div class="__eo-card">
+      <div class="__eo-header">
+        <span class="__eo-badge">\${esc(err.type || 'error')}</span>
+        <span class="__eo-title">Build Error</span>
+        <button class="__eo-close" onclick="document.getElementById('__error-overlay')?.remove()">&times;</button>
+      </div>
+      <div class="__eo-body">
+        \${loc ? '<div class="__eo-file">' + loc + '</div>' : ''}
+        <div class="__eo-msg">\${esc(err.message || 'Unknown error')}</div>
+      </div>
+    </div>\`;
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+}
+function hideErrorOverlay() {
+  document.getElementById('__error-overlay')?.remove();
+}
+
 socket.addEventListener('message', (event) => {
   const data = JSON.parse(event.data);
 
   if (data.type === 'full-reload') {
     location.reload();
+  } else if (data.type === 'server-error' && data.error) {
+    showErrorOverlay(data.error);
+  } else if (data.type === 'server-ok') {
+    hideErrorOverlay();
   } else if (data.type === 'update') {
     // Hot module update
     data.updates?.forEach(update => {

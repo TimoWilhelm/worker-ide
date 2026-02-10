@@ -107,6 +107,8 @@
 	const clearTerminalBtn = document.getElementById('clearTerminalBtn');
 	const toggleTerminalBtn = document.getElementById('toggleTerminalBtn');
 	const errorBadge = document.getElementById('errorBadge');
+	const warnBadge = document.getElementById('warnBadge');
+	const logBadge = document.getElementById('logBadge');
 
 	let terminalErrors = [];
 	let errorSocket = null;
@@ -497,15 +499,32 @@
 		return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 	}
 
+	function updateBadges() {
+		var errorCount = 0, warnCount = 0, logCount = 0;
+		for (var i = 0; i < terminalErrors.length; i++) {
+			var t = terminalErrors[i].type;
+			if (t === 'error' || t === 'runtime' || t === 'bundle') errorCount++;
+			else if (t === 'warn') warnCount++;
+			else logCount++;
+		}
+		if (errorCount > 0) { errorBadge.textContent = errorCount; errorBadge.classList.remove('hidden'); }
+		else { errorBadge.classList.add('hidden'); }
+		if (warnCount > 0) { warnBadge.textContent = warnCount; warnBadge.classList.remove('hidden'); }
+		else { warnBadge.classList.add('hidden'); }
+		if (logCount > 0) { logBadge.textContent = logCount; logBadge.classList.remove('hidden'); }
+		else { logBadge.classList.add('hidden'); }
+	}
+
 	function renderTerminalErrors() {
 		if (terminalErrors.length === 0) {
 			terminalOutput.innerHTML = '';
 			errorBadge.classList.add('hidden');
+			warnBadge.classList.add('hidden');
+			logBadge.classList.add('hidden');
 			return;
 		}
 
-		errorBadge.textContent = terminalErrors.length;
-		errorBadge.classList.remove('hidden');
+		updateBadges();
 
 		terminalOutput.innerHTML = terminalErrors.map(err => {
 			const safeType = escapeHtml(err.type || 'error');
@@ -516,14 +535,14 @@
 			const shortMsg = err.message.length > 500
 				? err.message.substring(0, 500) + '...'
 				: err.message;
-			return `<div class="terminal-entry">
-				<div class="terminal-entry-header">
-					<span class="terminal-entry-type ${safeType}">${safeType}</span>
-					<span class="terminal-entry-time">${formatTime(err.timestamp)}</span>
-					${location}
-				</div>
-				<div class="terminal-entry-message">${escapeHtml(shortMsg)}</div>
-			</div>`;
+			return '<div class="terminal-entry">' +
+				'<div class="terminal-entry-header">' +
+					'<span class="terminal-entry-type ' + safeType + '">' + safeType + '</span>' +
+					'<span class="terminal-entry-time">' + formatTime(err.timestamp) + '</span>' +
+					location +
+				'</div>' +
+				'<div class="terminal-entry-message">' + escapeHtml(shortMsg) + '</div>' +
+			'</div>';
 		}).join('');
 
 		terminalBody.scrollTop = terminalBody.scrollHeight;
@@ -538,6 +557,18 @@
 		if (!terminalPanel.classList.contains('expanded')) {
 			toggleTerminal();
 		}
+	}
+
+	function addServerLog(log) {
+		terminalErrors.push({
+			timestamp: log.timestamp,
+			type: log.level || 'log',
+			message: log.message,
+		});
+		if (terminalErrors.length > 100) {
+			terminalErrors = terminalErrors.slice(-100);
+		}
+		renderTerminalErrors();
 	}
 
 	function connectErrorSocket() {
@@ -561,9 +592,14 @@
 				const data = JSON.parse(event.data);
 				if (data.type === 'server-error' && data.error) {
 					addServerError(data.error);
+				} else if (data.type === 'server-logs' && data.logs) {
+					data.logs.forEach(function(log) { addServerLog(log); });
 				} else if (data.type === 'server-ok') {
-					if (terminalErrors.length > 0) {
-						terminalErrors = [];
+					var before = terminalErrors.length;
+					terminalErrors = terminalErrors.filter(function(e) {
+						return e.type !== 'runtime' && e.type !== 'bundle' && e.type !== 'error';
+					});
+					if (terminalErrors.length !== before) {
 						renderTerminalErrors();
 					}
 				}
