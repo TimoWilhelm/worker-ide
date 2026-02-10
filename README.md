@@ -1,4 +1,4 @@
-# vite-worker
+# Worker-IDE
 
 A Cloudflare Worker that serves as a browser-based full-stack development environment. User projects are stored in Durable Object-backed filesystems, transformed on-the-fly with esbuild-wasm, and previewed with HMR support.
 
