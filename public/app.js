@@ -530,7 +530,7 @@
 			const safeType = escapeHtml(err.type || 'error');
 			const safeFile = err.file ? escapeHtml(err.file) : '';
 			const location = safeFile
-				? `<span class="terminal-entry-location" data-file="/${safeFile}" data-line="${parseInt(err.line, 10) || 1}">${safeFile}${err.line ? ':' + err.line : ''}${err.column ? ':' + err.column : ''}</span>`
+				? `<span class="terminal-entry-location" data-file="/${safeFile}" data-line="${parseInt(err.line, 10) || 1}" data-column="${parseInt(err.column, 10) || 0}">${safeFile}${err.line ? ':' + err.line : ''}${err.column ? ':' + err.column : ''}</span>`
 				: '';
 			const shortMsg = err.message.length > 500
 				? err.message.substring(0, 500) + '...'
@@ -626,10 +626,27 @@
 		if (loc) {
 			const filePath = loc.dataset.file;
 			const line = parseInt(loc.dataset.line, 10) || 1;
+			const col = parseInt(loc.dataset.column, 10) || 0;
 			if (filePath) {
 				openFile(filePath).then(() => {
 					if (editor) {
-						editor.setCursor({ line: line - 1, ch: 0 });
+						editor.setCursor({ line: line - 1, ch: col });
+						editor.focus();
+					}
+				});
+			}
+		}
+	});
+
+	window.addEventListener('message', (event) => {
+		if (event.data && event.data.type === '__open-file') {
+			var filePath = event.data.file;
+			var line = event.data.line || 1;
+			var col = event.data.column || 0;
+			if (filePath) {
+				openFile(filePath).then(function() {
+					if (editor) {
+						editor.setCursor({ line: line - 1, ch: col });
 						editor.focus();
 					}
 				});

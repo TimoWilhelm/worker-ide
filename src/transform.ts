@@ -385,7 +385,8 @@ function showErrorOverlay(err) {
       .__eo-close{background:none;border:none;color:#8b949e;cursor:pointer;font-size:18px;padding:4px 8px;border-radius:4px}
       .__eo-close:hover{background:rgba(255,255,255,0.1);color:#e0e0e0}
       .__eo-body{padding:16px 20px}
-      .__eo-file{color:#58a6ff;font-size:13px;margin-bottom:12px}
+      .__eo-file{color:#58a6ff;font-size:13px;margin-bottom:12px;cursor:pointer;text-decoration:underline;text-decoration-color:transparent;transition:text-decoration-color 0.15s}
+      .__eo-file:hover{text-decoration-color:#58a6ff}
       .__eo-msg{background:#0d1117;border-radius:8px;padding:14px 16px;font-size:13px;line-height:1.6;white-space:pre-wrap;word-break:break-all;color:#f0f0f0;border:1px solid rgba(48,54,61,0.8)}
     </style>
     <div class="__eo-card">
@@ -395,12 +396,18 @@ function showErrorOverlay(err) {
         <button class="__eo-close" onclick="document.getElementById('__error-overlay')?.remove()">&times;</button>
       </div>
       <div class="__eo-body">
-        \${loc ? '<div class="__eo-file">' + loc + '</div>' : ''}
+        \${loc ? '<div class="__eo-file" data-file="/' + esc(err.file || '') + '" data-line="' + (err.line || 1) + '" data-column="' + (err.column || 0) + '">' + loc + '</div>' : ''}
         <div class="__eo-msg">\${esc(err.message || 'Unknown error')}</div>
       </div>
     </div>\`;
   document.body.appendChild(overlay);
   overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+  const fileEl = overlay.querySelector('.__eo-file');
+  if (fileEl) {
+    fileEl.addEventListener('click', () => {
+      window.parent.postMessage({ type: '__open-file', file: fileEl.dataset.file, line: parseInt(fileEl.dataset.line, 10) || 1, column: parseInt(fileEl.dataset.column, 10) || 0 }, '*');
+    });
+  }
 }
 function hideErrorOverlay() {
   document.getElementById('__error-overlay')?.remove();

@@ -869,11 +869,15 @@ export default class extends WorkerEntrypoint<Env> {
 			let line = locMatch ? Number(locMatch[2]) : undefined;
 			let column = locMatch ? Number(locMatch[3]) : undefined;
 			if (!file && err instanceof Error && err.stack) {
-				const stackMatch = err.stack.match(/at\s+.*?\(?([\w./\-]+\.(?:js|ts|mjs|tsx|jsx)):(\d+):(\d+)\)?/);
-				if (stackMatch) {
-					file = stackMatch[1];
-					line = Number(stackMatch[2]);
-					column = Number(stackMatch[3]);
+				const stackLines = err.stack.split('\n');
+				for (const stackLine of stackLines) {
+					const m = stackLine.match(/at\s+.*?\(?([\w./\-]+\.(?:js|ts|mjs|tsx|jsx)):(\d+):(\d+)\)?/);
+					if (m && /^worker\//.test(m[1])) {
+						file = m[1];
+						line = Number(m[2]);
+						column = Number(m[3]);
+						break;
+					}
 				}
 			}
 			const serverErr: ServerError = {
