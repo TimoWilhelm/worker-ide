@@ -120,6 +120,12 @@ html, body {
 	display: flex;
 	flex: 1;
 	overflow: hidden;
+	opacity: 0;
+	transition: opacity 0.15s ease;
+}
+
+.main.ready {
+	opacity: 1;
 }
 
 .sidebar {
@@ -277,6 +283,10 @@ html, body {
 
 #saveStatus.error {
 	color: var(--error);
+}
+
+#editor {
+	display: none;
 }
 
 .preview-panel {

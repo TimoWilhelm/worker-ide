@@ -599,6 +599,8 @@
 			openFile(defaultFile);
 		}
 
+		document.querySelector('.main').classList.add('ready');
+
 		// Connect WebSocket for server error notifications
 		connectErrorSocket();
 	}
