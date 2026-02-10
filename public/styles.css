@@ -76,8 +76,15 @@ html, body {
 	color: #fff;
 }
 
-.btn-primary:hover {
+.btn-primary:hover:not(:disabled) {
 	background: var(--accent-hover);
+}
+
+.btn:disabled,
+.btn-icon:disabled {
+	opacity: 0.5;
+	cursor: not-allowed;
+	pointer-events: none;
 }
 
 .btn-secondary {

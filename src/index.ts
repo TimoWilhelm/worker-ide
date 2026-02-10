@@ -177,13 +177,16 @@ async function init() {
     status.textContent = 'Error connecting to API';
   }
 
+  let addingBusy = false;
+  const busyIds = new Set<string>();
+
   async function loadTodos() {
     const todos = await api.getTodos();
     list.innerHTML = todos.map(t => \`
-      <li>
+      <li class="\${busyIds.has(t.id) ? 'busy' : ''}">
         <span class="\${t.done ? 'done' : ''}">\${t.text}</span>
-        <button data-id="\${t.id}" class="toggle">\${t.done ? '↩' : '✓'}</button>
-        <button data-id="\${t.id}" class="delete">×</button>
+        <button data-id="\${t.id}" class="toggle" \${busyIds.has(t.id) ? 'disabled' : ''}>\${t.done ? '\u21a9' : '\u2713'}</button>
+        <button data-id="\${t.id}" class="delete" \${busyIds.has(t.id) ? 'disabled' : ''}>\u00d7</button>
       </li>
     \`).join('');
   }
@@ -191,10 +194,21 @@ async function init() {
   await loadTodos();
 
   addBtn.addEventListener('click', async () => {
-    if (input.value.trim()) {
-      await api.addTodo(input.value.trim());
-      input.value = '';
-      await loadTodos();
+    if (input.value.trim() && !addingBusy) {
+      addingBusy = true;
+      addBtn.disabled = true;
+      input.disabled = true;
+      addBtn.textContent = 'Adding...';
+      try {
+        await api.addTodo(input.value.trim());
+        input.value = '';
+        await loadTodos();
+      } finally {
+        addingBusy = false;
+        addBtn.disabled = false;
+        input.disabled = false;
+        addBtn.textContent = 'Add';
+      }
     }
   });
 
@@ -205,13 +219,21 @@ async function init() {
   list.addEventListener('click', async (e) => {
     const target = e.target as HTMLElement;
     const id = target.dataset.id;
-    if (!id) return;
-    if (target.classList.contains('toggle')) {
-      await api.toggleTodo(id);
-    } else if (target.classList.contains('delete')) {
-      await api.deleteTodo(id);
+    if (!id || busyIds.has(id)) return;
+    busyIds.add(id);
+    target.setAttribute('disabled', '');
+    const li = target.closest('li');
+    if (li) li.style.opacity = '0.5';
+    try {
+      if (target.classList.contains('toggle')) {
+        await api.toggleTodo(id);
+      } else if (target.classList.contains('delete')) {
+        await api.deleteTodo(id);
+      }
+      await loadTodos();
+    } finally {
+      busyIds.delete(id);
     }
-    await loadTodos();
   });
 }
 
@@ -303,7 +325,8 @@ button {
   transition: all 0.2s;
 }
 
-button:hover { background-color: #535bf2; }
+button:hover:not(:disabled) { background-color: #535bf2; }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
 
 #todo-list {
   list-style: none;
@@ -324,6 +347,7 @@ button:hover { background-color: #535bf2; }
 
 #todo-list li span { flex: 1; }
 #todo-list li span.done { text-decoration: line-through; opacity: 0.5; }
+#todo-list li.busy { opacity: 0.5; pointer-events: none; }
 
 #todo-list button {
   padding: 0.3em 0.6em;
@@ -331,8 +355,8 @@ button:hover { background-color: #535bf2; }
   background: rgba(255,255,255,0.1);
 }
 
-#todo-list button.delete:hover { background: #ef4444; }
-#todo-list button.toggle:hover { background: #22c55e; }
+#todo-list button.delete:hover:not(:disabled) { background: #ef4444; }
+#todo-list button.toggle:hover:not(:disabled) { background: #22c55e; }
 
 .hint {
   font-size: 0.85em;
@@ -430,6 +454,13 @@ export default {
 };
 
 async function ensureExampleProject(projectRoot: string) {
+	const sentinelPath = `${projectRoot}/.initialized`;
+	try {
+		await fs.readFile(sentinelPath);
+		return;
+	} catch {
+		// not yet initialized
+	}
 	for (const [filePath, content] of Object.entries(EXAMPLE_PROJECT)) {
 		const fullPath = `${projectRoot}/${filePath}`;
 		try {
@@ -440,6 +471,7 @@ async function ensureExampleProject(projectRoot: string) {
 			await fs.writeFile(fullPath, content);
 		}
 	}
+	await fs.writeFile(sentinelPath, '1');
 }
 
 function isPathSafe(basePath: string, requestedPath: string): boolean {
@@ -578,7 +610,7 @@ function evictOldest<K, V>(map: Map<K, V>, max: number) {
 export default class extends WorkerEntrypoint<Env> {
 	private projectRoot = '/project';
 	private workerModuleCacheMap = new Map<string, { hash: string; modules: Record<string, string>; lastBroadcastWasError: boolean }>();
-	private initializedProjects = new Map<string, true>();
+	private initializedProjectsCache = new Set<string>();
 
 	private setLastBroadcastWasError(projectId: string, value: boolean) {
 		const entry = this.workerModuleCacheMap.get(projectId);
@@ -623,10 +655,9 @@ export default class extends WorkerEntrypoint<Env> {
 			const fsStub = this.env.DO_FILESYSTEM.get(fsId);
 			mount('/project', fsStub);
 
-			if (!this.initializedProjects.has(projectId)) {
+			if (!this.initializedProjectsCache.has(projectId)) {
 				await ensureExampleProject(this.projectRoot);
-				this.initializedProjects.set(projectId, true);
-				evictOldest(this.initializedProjects, MAX_CACHED_PROJECTS);
+				this.initializedProjectsCache.add(projectId);
 			}
 
 			const basePrefix = `/p/${projectId}`;

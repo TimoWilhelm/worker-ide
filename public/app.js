@@ -326,7 +326,12 @@
 	}
 
 	function refreshPreview() {
+		refreshBtn.disabled = true;
 		previewFrame.src = `${basePath}/preview?t=` + Date.now();
+		previewFrame.addEventListener('load', () => {
+			refreshBtn.disabled = false;
+		}, { once: true });
+		setTimeout(() => { refreshBtn.disabled = false; }, 5000);
 	}
 
 	async function bundle() {
@@ -373,6 +378,8 @@
 			return;
 		}
 
+		modalConfirm.disabled = true;
+		modalConfirm.textContent = 'Creating...';
 		try {
 			await fetch(`${basePath}/api/file`, {
 				method: 'PUT',
@@ -385,6 +392,9 @@
 			hideModal();
 		} catch (err) {
 			alert('Failed to create file: ' + err.message);
+		} finally {
+			modalConfirm.disabled = false;
+			modalConfirm.textContent = 'Create';
 		}
 	}
 
@@ -407,6 +417,7 @@
 		if (!confirm('Create a new project? Your current project will remain accessible via its URL.')) {
 			return;
 		}
+		newProjectBtn.disabled = true;
 		try {
 			const res = await fetch('/api/new-project', { method: 'POST' });
 			const data = await res.json();
@@ -416,6 +427,8 @@
 			}
 		} catch (err) {
 			alert('Failed to create new project: ' + err.message);
+		} finally {
+			newProjectBtn.disabled = false;
 		}
 	});
 	modalCancel.addEventListener('click', hideModal);
