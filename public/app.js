@@ -1,5 +1,5 @@
 (function() {
-	const PROJECT_STORAGE_KEY = 'vite-worker-project-id';
+	const PROJECT_STORAGE_KEY = 'worker-ide-project-id';
 
 	// Parse project ID from URL: /p/:projectId
 	function getProjectIdFromUrl() {
