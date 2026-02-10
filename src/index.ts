@@ -553,47 +553,42 @@ export default css;`,
 	return { body: content, contentType };
 }
 
-function injectHMRClient(html: string, wsUrl: string): string {
-	const hmrScript = `
-<script type="module">
-const socket = new WebSocket('${wsUrl}');
-socket.addEventListener('message', (event) => {
-  const data = JSON.parse(event.data);
-  if (data.type === 'full-reload') {
-    location.reload();
-  } else if (data.updates) {
-    data.updates.forEach(update => {
-      if (update.type === 'js-update') {
-        import(update.path + '?t=' + update.timestamp);
-      } else if (update.type === 'css-update') {
-        const links = document.querySelectorAll('link[rel="stylesheet"]');
-        links.forEach(link => {
-          if (link.href.includes(update.path)) {
-            link.href = update.path + '?t=' + update.timestamp;
-          }
-        });
-      }
-    });
-  }
-});
-setInterval(() => socket.send(JSON.stringify({ type: 'ping' })), 30000);
-</script>`;
-	if (html.includes('</head>')) {
-		return html.replace('</head>', `${hmrScript}</head>`);
-	} else if (html.includes('<body>')) {
-		return html.replace('<body>', `<body>${hmrScript}`);
-	} else {
-		return hmrScript + html;
+function parseProjectRoute(path: string): { projectId: string; subPath: string } | null {
+	const match = path.match(/^\/p\/([a-f0-9]{64})(\/.*)$/i);
+	if (match) {
+		return { projectId: match[1].toLowerCase(), subPath: match[2] };
+	}
+	const exactMatch = path.match(/^\/p\/([a-f0-9]{64})$/i);
+	if (exactMatch) {
+		return { projectId: exactMatch[1].toLowerCase(), subPath: '/' };
+	}
+	return null;
+}
+
+const MAX_CACHED_PROJECTS = 50;
+
+function evictOldest<K, V>(map: Map<K, V>, max: number) {
+	while (map.size > max) {
+		const first = map.keys().next().value;
+		if (first !== undefined) map.delete(first);
+		else break;
 	}
 }
 
 export default class extends WorkerEntrypoint<Env> {
 	private projectRoot = '/project';
-	private workerModuleCache: { hash: string; modules: Record<string, string> } | null = null;
-	private lastBroadcastWasError = false;
+	private workerModuleCacheMap = new Map<string, { hash: string; modules: Record<string, string>; lastBroadcastWasError: boolean }>();
+	private initializedProjects = new Map<string, true>();
 
-	private async broadcastMessage(message: object) {
-		const hmrId = this.env.DO_HMR_COORDINATOR.idFromName('main');
+	private setLastBroadcastWasError(projectId: string, value: boolean) {
+		const entry = this.workerModuleCacheMap.get(projectId);
+		if (entry) {
+			entry.lastBroadcastWasError = value;
+		}
+	}
+
+	private async broadcastMessage(projectId: string, message: object) {
+		const hmrId = this.env.DO_HMR_COORDINATOR.idFromName(`hmr:${projectId}`);
 		const hmrStub = this.env.DO_HMR_COORDINATOR.get(hmrId);
 		await hmrStub.fetch(new Request('http://internal/hmr/send', {
 			method: 'POST',
@@ -605,16 +600,40 @@ export default class extends WorkerEntrypoint<Env> {
 		const url = new URL(request.url);
 		const path = url.pathname;
 
+		// API to create a new project
+		if (path === '/api/new-project' && request.method === 'POST') {
+			const id = this.env.DO_FILESYSTEM.newUniqueId();
+			const projectId = id.toString();
+			return Response.json({ projectId, url: `/p/${projectId}` });
+		}
+
+		// Handle project-scoped routes: /p/:projectId/*
+		const projectRoute = parseProjectRoute(path);
+		if (projectRoute) {
+			return this.handleProjectRequest(request, projectRoute.projectId, projectRoute.subPath);
+		}
+
+		// All other routes serve the IDE HTML (SPA handles redirect to /p/:projectId)
+		return this.env.ASSETS.fetch(request);
+	}
+
+	private async handleProjectRequest(request: Request, projectId: string, subPath: string): Promise<Response> {
 		return withMounts(async () => {
-			const fsId = this.env.DO_FILESYSTEM.idFromName('shared');
+			const fsId = this.env.DO_FILESYSTEM.idFromString(projectId);
 			const fsStub = this.env.DO_FILESYSTEM.get(fsId);
 			mount('/project', fsStub);
 
-			await ensureExampleProject(this.projectRoot);
+			if (!this.initializedProjects.has(projectId)) {
+				await ensureExampleProject(this.projectRoot);
+				this.initializedProjects.set(projectId, true);
+				evictOldest(this.initializedProjects, MAX_CACHED_PROJECTS);
+			}
+
+			const basePrefix = `/p/${projectId}`;
 
 			// WebSocket HMR endpoint
-			if (path === '/__hmr' || path.startsWith('/__hmr')) {
-				const hmrId = this.env.DO_HMR_COORDINATOR.idFromName('main');
+			if (subPath === '/__hmr' || subPath.startsWith('/__hmr')) {
+				const hmrId = this.env.DO_HMR_COORDINATOR.idFromName(`hmr:${projectId}`);
 				const hmrStub = this.env.DO_HMR_COORDINATOR.get(hmrId);
 				const hmrUrl = new URL(request.url);
 				hmrUrl.pathname = '/hmr';
@@ -622,31 +641,33 @@ export default class extends WorkerEntrypoint<Env> {
 			}
 
 			// API endpoints for file modification
-			if (path.startsWith('/api/')) {
-				return this.handleAPI(request);
+			if (subPath.startsWith('/api/')) {
+				return this.handleAPI(request, projectId, basePrefix);
 			}
 
 			// Handle preview API routes (example project's backend)
-			if (path.startsWith('/preview/api/')) {
-				return this.handlePreviewAPI(request, path.replace('/preview', ''));
+			if (subPath.startsWith('/preview/api/')) {
+				return this.handlePreviewAPI(request, subPath.replace('/preview', ''), projectId);
 			}
 
 			// Serve project files under /preview path
-			if (path === '/preview' || path.startsWith('/preview/')) {
-				const previewPath = path === '/preview' ? '/' : path.replace(/^\/preview/, '');
+			if (subPath === '/preview' || subPath.startsWith('/preview/')) {
+				const previewPath = subPath === '/preview' ? '/' : subPath.replace(/^\/preview/, '');
 				const previewUrl = new URL(request.url);
 				previewUrl.pathname = previewPath;
-				return this.serveFile(new Request(previewUrl, request), { baseHref: '/preview/' });
+				return this.serveFile(new Request(previewUrl, request), { baseHref: `${basePrefix}/preview/` });
 			}
 
-			// Fallback - should not reach here due to static assets routing
-			return new Response('Not found', { status: 404 });
+			// Serve the IDE HTML for the project root and any unknown sub-paths
+			return this.env.ASSETS.fetch(new Request(new URL('/', request.url), request));
 		});
 	}
 
-	private async handleAPI(request: Request): Promise<Response> {
+	private async handleAPI(request: Request, projectId: string, basePrefix?: string): Promise<Response> {
 		const url = new URL(request.url);
-		const path = url.pathname;
+		// Strip basePrefix from path for matching
+		const fullPath = url.pathname;
+		const path = basePrefix && fullPath.startsWith(basePrefix) ? fullPath.slice(basePrefix.length) : fullPath;
 
 		const headers = {
 			'Content-Type': 'application/json',
@@ -697,7 +718,7 @@ export default class extends WorkerEntrypoint<Env> {
 				await fs.writeFile(`${this.projectRoot}${body.path}`, body.content);
 
 				// Trigger HMR update
-				const hmrId = this.env.DO_HMR_COORDINATOR.idFromName('main');
+				const hmrId = this.env.DO_HMR_COORDINATOR.idFromName(`hmr:${projectId}`);
 				const hmrStub = this.env.DO_HMR_COORDINATOR.get(hmrId);
 				const isCSS = body.path.endsWith('.css');
 				await hmrStub.fetch(
@@ -846,7 +867,9 @@ export default class extends WorkerEntrypoint<Env> {
 			// Handle HTML files - use processHTML for proper script/link rewriting
 			if (ext === '.html') {
 				const protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
-				const hmrUrl = `${protocol}//${url.host}/__hmr`;
+				// Extract project prefix from baseUrl (e.g., /p/abc123/preview -> /p/abc123)
+				const projectPrefix = baseUrl.replace(/\/preview\/?$/, '');
+				const hmrUrl = `${protocol}//${url.host}${projectPrefix}/__hmr`;
 				const html = await processHTML(textContent, filePath, {
 					fs: viteFs,
 					projectRoot: this.projectRoot,
@@ -887,7 +910,7 @@ export default class extends WorkerEntrypoint<Env> {
 		}
 	}
 
-	private async handlePreviewAPI(request: Request, apiPath: string): Promise<Response> {
+	private async handlePreviewAPI(request: Request, apiPath: string, projectId: string): Promise<Response> {
 		try {
 			const files = await this.collectFilesForBundle(this.projectRoot);
 
@@ -898,8 +921,8 @@ export default class extends WorkerEntrypoint<Env> {
 
 			if (!workerEntry) {
 				const err: ServerError = { timestamp: Date.now(), type: 'bundle', message: 'No worker/index.ts found. Create a worker/index.ts file with a default export { fetch }.' };
-				this.lastBroadcastWasError = true;
-				this.broadcastMessage({ type: 'server-error', error: err }).catch(() => {});
+				this.setLastBroadcastWasError(projectId, true);
+				this.broadcastMessage(projectId, { type: 'server-error', error: err }).catch(() => {});
 				return Response.json({ error: err.message, serverError: err }, { status: 500 });
 			}
 
@@ -910,7 +933,8 @@ export default class extends WorkerEntrypoint<Env> {
 			const contentHash = await this.hashContent(JSON.stringify(workerFiles));
 
 			// Only re-transform if worker code has changed
-			if (!this.workerModuleCache || this.workerModuleCache.hash !== contentHash) {
+			const cachedEntry = this.workerModuleCacheMap.get(projectId);
+			if (!cachedEntry || cachedEntry.hash !== contentHash) {
 				try {
 					const modules: Record<string, string> = {};
 					for (const [filePath, content] of workerFiles) {
@@ -934,9 +958,10 @@ export default class extends WorkerEntrypoint<Env> {
 						);
 						modules[jsPath] = code;
 					}
-					this.workerModuleCache = { hash: contentHash, modules };
+					this.workerModuleCacheMap.set(projectId, { hash: contentHash, modules, lastBroadcastWasError: false });
+					evictOldest(this.workerModuleCacheMap, MAX_CACHED_PROJECTS);
 				} catch (transformErr) {
-					this.workerModuleCache = null;
+					this.workerModuleCacheMap.delete(projectId);
 					const errMsg = String(transformErr);
 					const locMatch = errMsg.match(/([^\s:]+):(\d+):(\d+):\s*ERROR:\s*(.*)/);
 					const serverErr: ServerError = {
@@ -947,14 +972,14 @@ export default class extends WorkerEntrypoint<Env> {
 						line: locMatch ? Number(locMatch[2]) : undefined,
 						column: locMatch ? Number(locMatch[3]) : undefined,
 					};
-					this.lastBroadcastWasError = true;
-					this.broadcastMessage({ type: 'server-error', error: serverErr }).catch(() => {});
+					this.setLastBroadcastWasError(projectId, true);
+					this.broadcastMessage(projectId, { type: 'server-error', error: serverErr }).catch(() => {});
 					console.error('Worker transform error:', transformErr);
 					return Response.json({ error: errMsg, serverError: serverErr }, { status: 500 });
 				}
 			}
 
-			const modules = this.workerModuleCache?.modules;
+			const modules = this.workerModuleCacheMap.get(projectId)!.modules;
 			const worker = this.env.LOADER.get(`worker:${contentHash}`, async () => ({
 				compatibilityDate: '2026-01-31',
 				mainModule: 'worker/index.js',
@@ -968,16 +993,16 @@ export default class extends WorkerEntrypoint<Env> {
 
 			const entrypoint = worker.getEntrypoint();
 			const response = await entrypoint.fetch(apiRequest);
-			if (this.lastBroadcastWasError) {
-				this.lastBroadcastWasError = false;
-				this.broadcastMessage({ type: 'server-ok' }).catch(() => {});
+			if (this.workerModuleCacheMap.get(projectId)?.lastBroadcastWasError) {
+				this.setLastBroadcastWasError(projectId, false);
+				this.broadcastMessage(projectId, { type: 'server-ok' }).catch(() => {});
 			}
 			return response;
 		} catch (err) {
 			const errMsg = String(err);
 			const serverErr: ServerError = { timestamp: Date.now(), type: 'runtime', message: errMsg };
-			this.lastBroadcastWasError = true;
-			this.broadcastMessage({ type: 'server-error', error: serverErr }).catch(() => {});
+			this.setLastBroadcastWasError(projectId, true);
+			this.broadcastMessage(projectId, { type: 'server-error', error: serverErr }).catch(() => {});
 			console.error('Server code execution error:', err);
 			return Response.json({ error: errMsg, serverError: serverErr }, { status: 500 });
 		}

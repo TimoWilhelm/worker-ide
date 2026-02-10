@@ -260,14 +260,25 @@ async function rewriteImports(
 	return result;
 }
 
-// Cache tsconfig per project root
-const tsConfigCache = new Map<string, TsConfig | null>();
+// Cache tsconfig per project root with TTL to pick up edits
+const tsConfigCache = new Map<string, { config: TsConfig | null; expiry: number }>();
+const TSCONFIG_TTL_MS = 5000;
+const MAX_TSCONFIG_CACHE = 100;
 
-async function getTsConfig(fs: FileSystem, projectRoot: string): Promise<TsConfig | null> {
-	if (!tsConfigCache.has(projectRoot)) {
-		tsConfigCache.set(projectRoot, await loadTsConfig(fs, projectRoot));
+async function getTsConfig(fs: FileSystem, projectRoot: string, cacheKey?: string): Promise<TsConfig | null> {
+	const key = cacheKey || projectRoot;
+	const cached = tsConfigCache.get(key);
+	if (cached && Date.now() < cached.expiry) {
+		return cached.config;
 	}
-	return tsConfigCache.get(projectRoot) ?? null;
+	const config = await loadTsConfig(fs, projectRoot);
+	tsConfigCache.set(key, { config, expiry: Date.now() + TSCONFIG_TTL_MS });
+	while (tsConfigCache.size > MAX_TSCONFIG_CACHE) {
+		const first = tsConfigCache.keys().next().value;
+		if (first !== undefined) tsConfigCache.delete(first);
+		else break;
+	}
+	return config;
 }
 
 /**
@@ -280,7 +291,7 @@ export async function transformModule(
 ): Promise<{ code: string; contentType: string }> {
 	const { fs, projectRoot, baseUrl } = options;
 	const ext = getExtension(filePath);
-	const tsConfig = await getTsConfig(fs, projectRoot);
+	const tsConfig = await getTsConfig(fs, projectRoot, `${projectRoot}:${baseUrl}`);
 
 	// Transform TypeScript/JSX
 	if (['.ts', '.tsx', '.jsx', '.mts'].includes(ext)) {
@@ -341,12 +352,24 @@ function getContentType(ext: string): string {
 /**
  * Generate HMR client code to inject into HTML
  */
-export function generateHMRClient(wsUrl: string): string {
+function sanitizeJsString(s: string): string {
+	return s
+		.replace(/\\/g, '\\\\')
+		.replace(/'/g, "\\'")
+		.replace(/\n/g, '\\n')
+		.replace(/\r/g, '\\r')
+		.replace(/<\/(script)/gi, '<\\/$1');
+}
+
+export function generateHMRClient(wsUrl: string, baseUrl: string): string {
+	const safeWsUrl = sanitizeJsString(wsUrl);
+	const safeBaseUrl = sanitizeJsString(baseUrl);
 	return `
 <script type="module">
 // HMR client
-const socket = new WebSocket('${wsUrl}');
+const socket = new WebSocket('${safeWsUrl}');
 const modules = new Map();
+const hmrBaseUrl = '${safeBaseUrl}';
 
 socket.addEventListener('message', (event) => {
   const data = JSON.parse(event.data);
@@ -357,13 +380,13 @@ socket.addEventListener('message', (event) => {
     // Hot module update
     data.updates?.forEach(update => {
       if (update.type === 'js-update') {
-        import(update.path + '?t=' + update.timestamp).then(mod => {
+        import(hmrBaseUrl + update.path + '?t=' + update.timestamp).then(mod => {
           console.log('[hmr] hot updated:', update.path);
         });
       } else if (update.type === 'css-update') {
         const style = document.querySelector(\`style[data-dev-id="\${update.path}"]\`);
         if (style) {
-          fetch('/preview' + update.path + '?raw&t=' + update.timestamp)
+          fetch(hmrBaseUrl + update.path + '?raw&t=' + update.timestamp)
             .then(r => r.text())
             .then(css => {
               style.textContent = css;
@@ -399,26 +422,32 @@ window.__hot_modules = modules;
 }
 
 /**
- * Generate fetch interceptor that rewrites API requests to include baseUrl prefix
+ * Generate fetch interceptor that rewrites API requests to preview API path
+ * User's /api/* calls need to go to /p/:projectId/preview/api/* (not /p/:projectId/api/*)
  */
 function generateFetchInterceptor(baseUrl: string): string {
 	if (!baseUrl) return '';
 
+	// baseUrl is the preview base (e.g., /p/abc123/preview or /preview)
+	// User's API calls should go to baseUrl + /api/* (e.g., /p/abc123/preview/api/*)
+	const previewBase = sanitizeJsString(baseUrl.replace(/\/$/, ''));
+
 	return `
 <script>
-// Fetch interceptor - rewrites /api/* requests to ${baseUrl}/api/*
+// Fetch interceptor - rewrites /api/* requests to ${previewBase}/api/*
 (function() {
+  const previewBase = '${previewBase}';
   const originalFetch = window.fetch;
   window.fetch = function(input, init) {
     let url = input;
     if (typeof input === 'string') {
       if (input.startsWith('/api/') || input === '/api') {
-        url = '${baseUrl}' + input;
+        url = previewBase + input;
       }
     } else if (input instanceof Request) {
       const reqUrl = new URL(input.url);
       if (reqUrl.pathname.startsWith('/api/') || reqUrl.pathname === '/api') {
-        reqUrl.pathname = '${baseUrl}' + reqUrl.pathname;
+        reqUrl.pathname = previewBase + reqUrl.pathname;
         input = new Request(reqUrl.toString(), input);
       }
       url = input;
@@ -432,7 +461,7 @@ function generateFetchInterceptor(baseUrl: string): string {
     let newUrl = url;
     if (typeof url === 'string') {
       if (url.startsWith('/api/') || url === '/api') {
-        newUrl = '${baseUrl}' + url;
+        newUrl = previewBase + url;
       }
     }
     return originalXHROpen.call(this, method, newUrl, ...rest);
@@ -452,7 +481,7 @@ export async function processHTML(
 	const { baseUrl, hmrUrl } = options;
 
 	const fetchInterceptor = generateFetchInterceptor(baseUrl);
-	const hmrClient = generateHMRClient(hmrUrl);
+	const hmrClient = generateHMRClient(hmrUrl, baseUrl);
 
 	const rewriter = new HTMLRewriter()
 		.on('head', {

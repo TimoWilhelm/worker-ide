@@ -1,9 +1,53 @@
 (function() {
+	const PROJECT_STORAGE_KEY = 'vite-worker-project-id';
+
+	// Parse project ID from URL: /p/:projectId
+	function getProjectIdFromUrl() {
+		const match = location.pathname.match(/^\/p\/([a-f0-9]{64})/i);
+		return match ? match[1].toLowerCase() : null;
+	}
+
+	// Get the base path for API calls based on current project
+	function getBasePath() {
+		const projectId = getProjectIdFromUrl();
+		return projectId ? `/p/${projectId}` : '';
+	}
+
+	// Initialize project: check URL, localStorage, or create new
+	async function initProject() {
+		const urlProjectId = getProjectIdFromUrl();
+
+		if (urlProjectId) {
+			// We're on a project URL, save to localStorage
+			localStorage.setItem(PROJECT_STORAGE_KEY, urlProjectId);
+			return urlProjectId;
+		}
+
+		// Check localStorage for a saved project
+		const savedProjectId = localStorage.getItem(PROJECT_STORAGE_KEY);
+		if (savedProjectId) {
+			// Redirect to the saved project
+			location.href = `/p/${savedProjectId}`;
+			return null; // Will redirect
+		}
+
+		// No project found, create a new one
+		const res = await fetch('/api/new-project', { method: 'POST' });
+		const data = await res.json();
+		if (data.projectId) {
+			localStorage.setItem(PROJECT_STORAGE_KEY, data.projectId);
+			location.href = `/p/${data.projectId}`;
+			return null; // Will redirect
+		}
+		throw new Error('Failed to create project');
+	}
+
 	let editor = null;
 	let currentFile = null;
 	let openFiles = new Map();
 	let files = [];
 	let saveTimeout = null;
+	let basePath = '';
 
 	const fileTreeEl = document.getElementById('fileTree');
 	const tabsEl = document.getElementById('tabs');
@@ -14,6 +58,8 @@
 	const refreshBtn = document.getElementById('refreshBtn');
 	const bundleBtn = document.getElementById('bundleBtn');
 	const newFileBtn = document.getElementById('newFileBtn');
+	const shareBtn = document.getElementById('shareBtn');
+	const newProjectBtn = document.getElementById('newProjectBtn');
 	const modal = document.getElementById('modal');
 	const modalInput = document.getElementById('modalInput');
 	const modalConfirm = document.getElementById('modalConfirm');
@@ -55,7 +101,7 @@
 
 	async function loadFiles() {
 		try {
-			const res = await fetch('/api/files');
+			const res = await fetch(`${basePath}/api/files`);
 			const data = await res.json();
 			files = data.files || [];
 			renderFileTree();
@@ -131,7 +177,7 @@
 		}
 
 		try {
-			const res = await fetch(`/api/file?path=${encodeURIComponent(path)}`);
+			const res = await fetch(`${basePath}/api/file?path=${encodeURIComponent(path)}`);
 			if (!res.ok) {
 				const errorData = await res.json().catch(() => ({}));
 				console.error('Failed to open file:', errorData.error || res.statusText);
@@ -208,7 +254,7 @@
 			saveStatusEl.textContent = 'Saving...';
 			saveStatusEl.className = '';
 
-			const res = await fetch('/api/file', {
+			const res = await fetch(`${basePath}/api/file`, {
 				method: 'PUT',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ path, content })
@@ -280,7 +326,7 @@
 	}
 
 	function refreshPreview() {
-		previewFrame.src = '/preview?t=' + Date.now();
+		previewFrame.src = `${basePath}/preview?t=` + Date.now();
 	}
 
 	async function bundle() {
@@ -288,7 +334,7 @@
 		bundleBtn.textContent = 'Bundling...';
 
 		try {
-			const res = await fetch('/api/bundle', {
+			const res = await fetch(`${basePath}/api/bundle`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ minify: false })
@@ -328,7 +374,7 @@
 		}
 
 		try {
-			await fetch('/api/file', {
+			await fetch(`${basePath}/api/file`, {
 				method: 'PUT',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ path, content: '' })
@@ -345,6 +391,33 @@
 	refreshBtn.addEventListener('click', refreshPreview);
 	bundleBtn.addEventListener('click', bundle);
 	newFileBtn.addEventListener('click', showModal);
+
+	shareBtn.addEventListener('click', async () => {
+		const url = location.href;
+		try {
+			await navigator.clipboard.writeText(url);
+			shareBtn.title = 'Link copied!';
+			setTimeout(() => { shareBtn.title = 'Copy Share Link'; }, 2000);
+		} catch (err) {
+			prompt('Copy this link to share your project:', url);
+		}
+	});
+
+	newProjectBtn.addEventListener('click', async () => {
+		if (!confirm('Create a new project? Your current project will remain accessible via its URL.')) {
+			return;
+		}
+		try {
+			const res = await fetch('/api/new-project', { method: 'POST' });
+			const data = await res.json();
+			if (data.projectId) {
+				localStorage.setItem(PROJECT_STORAGE_KEY, data.projectId);
+				location.href = `/p/${data.projectId}`;
+			}
+		} catch (err) {
+			alert('Failed to create new project: ' + err.message);
+		}
+	});
 	modalCancel.addEventListener('click', hideModal);
 	modalClose.addEventListener('click', hideModal);
 	modalConfirm.addEventListener('click', () => createFile(modalInput.value));
@@ -424,7 +497,7 @@
 			errorSocket = null;
 		}
 		const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-		const ws = new WebSocket(`${protocol}//${location.host}/__hmr`);
+		const ws = new WebSocket(`${protocol}//${location.host}${basePath}/__hmr`);
 		errorSocket = ws;
 		ws.addEventListener('open', () => {
 			errorSocketReconnectDelay = 2000;
@@ -484,14 +557,38 @@
 	});
 	document.querySelector('.terminal-header').addEventListener('click', toggleTerminal);
 
-	initEditor();
-	loadFiles().then(() => {
-		const defaultFile = files.find(f => f.endsWith('main.js') || f.endsWith('index.js')) || files[0];
+	// Initialize the app
+	async function init() {
+		let projectId;
+		try {
+			projectId = await initProject();
+		} catch (err) {
+			console.error('Failed to initialize project:', err);
+			const safeMsg = String(err.message || err).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+			document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;color:#fff;font-family:system-ui;"><div style="text-align:center;"><h2>Failed to initialize project</h2><p>' + safeMsg + '</p><button onclick="location.reload()" style="padding:8px 16px;cursor:pointer;">Retry</button></div></div>';
+			return;
+		}
+		if (!projectId) {
+			// Redirecting, don't continue
+			return;
+		}
+
+		basePath = getBasePath();
+
+		// Update preview iframe src and URL display
+		previewFrame.src = `${basePath}/preview`;
+		document.getElementById('previewUrl').textContent = `${basePath}/preview`;
+
+		initEditor();
+		await loadFiles();
+		const defaultFile = files.find(f => f.endsWith('main.ts') || f.endsWith('main.js') || f.endsWith('index.js')) || files[0];
 		if (defaultFile) {
 			openFile(defaultFile);
 		}
-	});
 
-	// Connect WebSocket for server error notifications
-	connectErrorSocket();
+		// Connect WebSocket for server error notifications
+		connectErrorSocket();
+	}
+
+	init();
 })();
