@@ -3,6 +3,7 @@ import { mount, withMounts } from 'worker-fs-mount';
 import { WorkerEntrypoint, DurableObject } from 'cloudflare:workers';
 import fs from 'node:fs/promises';
 import Replicate from 'replicate';
+import { z } from 'zod';
 import { transformCode } from './bundler.js';
 import { transformModule, processHTML, type FileSystem } from './transform.js';
 import examplePackageJson from './example-project/package.json?raw';
@@ -17,6 +18,117 @@ import exampleWorkerIndexTs from './example-project/worker/index.ts?raw';
 import docsHtml from '../docs/index.html?raw';
 
 export { DurableObjectFilesystem };
+
+// Zod schemas for tool input validation
+const ListFilesInputSchema = z.object({});
+
+const ReadFileInputSchema = z.object({
+	path: z.string(),
+});
+
+const WriteFileInputSchema = z.object({
+	path: z.string(),
+	content: z.string(),
+});
+
+const DeleteFileInputSchema = z.object({
+	path: z.string(),
+});
+
+const MoveFileInputSchema = z.object({
+	from_path: z.string(),
+	to_path: z.string(),
+});
+
+// Union schema for all tool inputs
+const ToolInputSchemas = {
+	list_files: ListFilesInputSchema,
+	read_file: ReadFileInputSchema,
+	write_file: WriteFileInputSchema,
+	delete_file: DeleteFileInputSchema,
+	move_file: MoveFileInputSchema,
+} as const;
+
+type ToolName = keyof typeof ToolInputSchemas;
+
+// Inferred types from Zod schemas
+type ReadFileInput = z.infer<typeof ReadFileInputSchema>;
+type WriteFileInput = z.infer<typeof WriteFileInputSchema>;
+type DeleteFileInput = z.infer<typeof DeleteFileInputSchema>;
+type MoveFileInput = z.infer<typeof MoveFileInputSchema>;
+
+type ToolInput = {
+	list_files: Record<string, never>;
+	read_file: ReadFileInput;
+	write_file: WriteFileInput;
+	delete_file: DeleteFileInput;
+	move_file: MoveFileInput;
+};
+
+// Validation helper function
+function validateToolInput<T extends ToolName>(
+	toolName: T,
+	input: unknown,
+): { success: true; data: ToolInput[T] } | { success: false; error: string } {
+	const schema = ToolInputSchemas[toolName];
+	if (!schema) {
+		return { success: false, error: `Unknown tool: ${toolName}` };
+	}
+
+	const result = schema.safeParse(input);
+	if (!result.success) {
+		const pretty = z.prettifyError(result.error);
+		return { success: false, error: `Invalid input for ${toolName}: ${pretty}` };
+	}
+
+	return { success: true, data: result.data as ToolInput[T] };
+}
+
+function repairToolCallJson(raw: string): string | null {
+	let s = raw.trim();
+	// Strip markdown code fences the model sometimes wraps JSON in
+	s = s.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/, '');
+	try {
+		JSON.parse(s);
+		return s;
+	} catch {}
+	// Remove trailing commas before } or ]
+	s = s.replace(/,\s*([}\]])/g, '$1');
+	try {
+		JSON.parse(s);
+		return s;
+	} catch {}
+	// Close unclosed braces (only count braces outside of quoted strings)
+	let depth = 0;
+	let inString = false;
+	let escape = false;
+	for (const ch of s) {
+		if (escape) {
+			escape = false;
+			continue;
+		}
+		if (ch === '\\' && inString) {
+			escape = true;
+			continue;
+		}
+		if (ch === '"') {
+			inString = !inString;
+			continue;
+		}
+		if (!inString) {
+			if (ch === '{') depth++;
+			else if (ch === '}') depth--;
+		}
+	}
+	if (depth > 0) {
+		s += '}'.repeat(depth);
+		try {
+			JSON.parse(s);
+			return s;
+		} catch {}
+	}
+	return null;
+}
 
 // AI Agent Types
 interface AgentMessage {
@@ -1424,7 +1536,7 @@ export default class extends WorkerEntrypoint<Env> {
 						});
 
 						// Execute the tool
-						const result = await this.executeAgentTool(toolCall.name, toolCall.input, projectId, sendEvent);
+						const result = await this.executeAgentTool(toolCall.name, toolCall.input, projectId, sendEvent, apiToken);
 
 						await sendEvent('tool_result', {
 							tool: toolCall.name,
@@ -1524,10 +1636,16 @@ export default class extends WorkerEntrypoint<Env> {
 Available tools:
 ${toolsDescription}
 
-IMPORTANT: To use a tool, respond with a JSON block in this exact format:
+IMPORTANT: To use a tool, you MUST respond with a JSON block in this EXACT format:
 <tool_use>
 {"name": "tool_name", "input": {"param1": "value1"}}
 </tool_use>
+
+CRITICAL FORMAT RULES:
+- All parameters MUST be nested inside the "input" object
+- Example for write_file: {"name": "write_file", "input": {"path": "/file.txt", "content": "hello"}}
+- Example for read_file: {"name": "read_file", "input": {"path": "/file.txt"}}
+- NEVER put parameters at the top level like {"name": "write_file", "path": "..."} - this is WRONG
 
 You can use multiple tools in sequence. After using a tool, you will receive the result and can continue your response.
 When you're done and don't need to use any more tools, just provide your final response without any tool_use blocks.`;
@@ -1576,12 +1694,34 @@ When you're done and don't need to use any more tools, just provide your final r
 
 			// Parse and add the tool use
 			try {
-				const toolData = JSON.parse(jsonStr) as { name: string; input: Record<string, string> };
+				let parsed: string | null = null;
+				try {
+					JSON.parse(jsonStr);
+					parsed = jsonStr;
+				} catch {
+					parsed = repairToolCallJson(jsonStr);
+				}
+				if (parsed === null) {
+					throw new Error('Unrecoverable JSON');
+				}
+				const toolData = JSON.parse(parsed) as { name: string; input?: Record<string, unknown>; [key: string]: unknown };
+				// Handle both formats:
+				// 1. {"name": "tool", "input": {"param": "value"}} - expected format
+				// 2. {"name": "tool", "param": "value"} - flat format (model sometimes outputs this)
+				let input: Record<string, unknown>;
+				if (toolData.input != null && typeof toolData.input === 'object') {
+					input = toolData.input;
+				} else {
+					// Extract all properties except 'name' and 'input' as the input
+					const { name, input: _discard, ...rest } = toolData;
+					input = rest;
+				}
+
 				content.push({
 					type: 'tool_use',
 					id: `tool_${Date.now()}_${toolUseCount++}`,
 					name: toolData.name,
-					input: toolData.input,
+					input: input as Record<string, string>,
 				});
 			} catch (e) {
 				console.error('Failed to parse tool use:', jsonStr, e);
@@ -1615,15 +1755,80 @@ When you're done and don't need to use any more tools, just provide your final r
 		};
 	}
 
+	private async repairToolCall(
+		toolName: string,
+		rawInput: unknown,
+		error: string,
+		apiToken: string,
+	): Promise<Record<string, unknown> | null> {
+		const tool = AGENT_TOOLS.find((t) => t.name === toolName);
+		if (!tool) return null;
+
+		const prompt = [
+			`The model tried to call the tool "${toolName}" with the following input:`,
+			JSON.stringify(rawInput),
+			``,
+			`This failed with the error:`,
+			error,
+			``,
+			`The tool accepts the following schema:`,
+			JSON.stringify(tool.input_schema),
+			``,
+			`Respond with ONLY the corrected JSON input object. No explanation, no markdown, no wrapping.`,
+		].join('\n');
+
+		try {
+			const replicate = new Replicate({ auth: apiToken });
+			let output = '';
+			for await (const event of replicate.stream('anthropic/claude-4.5-haiku', {
+				input: {
+					prompt: `\n\nHuman: ${prompt}\n\nAssistant:`,
+					max_tokens: 512,
+					system_prompt: 'You are a JSON repair assistant. Output only valid JSON, nothing else.',
+				},
+			})) {
+				output += event.toString();
+			}
+
+			const trimmed = output.trim().replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/, '');
+			const repaired = JSON.parse(trimmed);
+			if (typeof repaired !== 'object' || repaired === null || Array.isArray(repaired)) return null;
+			return repaired as Record<string, unknown>;
+		} catch {
+			return null;
+		}
+	}
+
 	private async executeAgentTool(
 		toolName: string,
 		toolInput: Record<string, string>,
 		projectId: string,
 		sendEvent: (type: string, data: Record<string, unknown>) => Promise<void>,
+		apiToken: string,
 	): Promise<string | object> {
 		try {
+			// Validate tool input with Zod schema
+			if (toolName in ToolInputSchemas) {
+				let validation = validateToolInput(toolName as ToolName, toolInput);
+				if (!validation.success) {
+					try {
+						const repaired = await this.repairToolCall(toolName, toolInput, validation.error, apiToken);
+						if (repaired) {
+							validation = validateToolInput(toolName as ToolName, repaired);
+						}
+					} catch {
+						// Repair call failed (network, timeout, etc.) — fall through to error
+					}
+					if (!validation.success) {
+						return { error: validation.error };
+					}
+				}
+				toolInput = validation.data as unknown as Record<string, string>;
+			}
+
 			switch (toolName) {
 				case 'list_files': {
+					// Input already validated by Zod: ListFilesInput (empty object)
 					await sendEvent('status', { message: 'Listing files...' });
 					const files = await this.listFilesRecursive(this.projectRoot);
 					// Filter out .initialized
@@ -1632,8 +1837,9 @@ When you're done and don't need to use any more tools, just provide your final r
 				}
 
 				case 'read_file': {
-					const path = toolInput.path;
-					if (!path || !isPathSafe(this.projectRoot, path)) {
+					// Input already validated by Zod: ReadFileInput { path: string }
+					const { path } = toolInput as unknown as ReadFileInput;
+					if (!isPathSafe(this.projectRoot, path)) {
 						return { error: 'Invalid file path' };
 					}
 					await sendEvent('status', { message: `Reading ${path}...` });
@@ -1646,13 +1852,10 @@ When you're done and don't need to use any more tools, just provide your final r
 				}
 
 				case 'write_file': {
-					const path = toolInput.path;
-					const content = toolInput.content;
-					if (!path || !isPathSafe(this.projectRoot, path)) {
+					// Input already validated by Zod: WriteFileInput { path: string, content: string }
+					const { path, content } = toolInput as unknown as WriteFileInput;
+					if (!isPathSafe(this.projectRoot, path)) {
 						return { error: 'Invalid file path' };
-					}
-					if (content === undefined) {
-						return { error: 'Content is required' };
 					}
 					await sendEvent('status', { message: `Writing ${path}...` });
 
@@ -1694,8 +1897,9 @@ When you're done and don't need to use any more tools, just provide your final r
 				}
 
 				case 'delete_file': {
-					const path = toolInput.path;
-					if (!path || !isPathSafe(this.projectRoot, path)) {
+					// Input already validated by Zod: DeleteFileInput { path: string }
+					const { path } = toolInput as unknown as DeleteFileInput;
+					if (!isPathSafe(this.projectRoot, path)) {
 						return { error: 'Invalid file path' };
 					}
 					await sendEvent('status', { message: `Deleting ${path}...` });
@@ -1709,12 +1913,12 @@ When you're done and don't need to use any more tools, just provide your final r
 				}
 
 				case 'move_file': {
-					const fromPath = toolInput.from_path;
-					const toPath = toolInput.to_path;
-					if (!fromPath || !isPathSafe(this.projectRoot, fromPath)) {
+					// Input already validated by Zod: MoveFileInput { from_path: string, to_path: string }
+					const { from_path: fromPath, to_path: toPath } = toolInput as unknown as MoveFileInput;
+					if (!isPathSafe(this.projectRoot, fromPath)) {
 						return { error: 'Invalid source path' };
 					}
-					if (!toPath || !isPathSafe(this.projectRoot, toPath)) {
+					if (!isPathSafe(this.projectRoot, toPath)) {
 						return { error: 'Invalid destination path' };
 					}
 					await sendEvent('status', { message: `Moving ${fromPath} to ${toPath}...` });
