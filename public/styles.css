@@ -670,6 +670,69 @@ html, body {
 	to { opacity: 0; transform: translateY(-8px); }
 }
 
+/* Collaboration: participant indicator */
+.collab-indicator {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	padding: 0 12px;
+}
+
+.collab-dot {
+	width: 10px;
+	height: 10px;
+	border-radius: 50%;
+	border: 2px solid var(--bg-primary);
+	box-shadow: 0 0 0 1px rgba(255,255,255,0.15);
+	cursor: default;
+	transition: transform 0.15s ease;
+}
+
+.collab-dot:hover {
+	transform: scale(1.3);
+}
+
+.collab-dot-self {
+	box-shadow: 0 0 0 1px rgba(255,255,255,0.35);
+}
+
+.collab-count {
+	font-size: 11px;
+	color: var(--text-secondary);
+	white-space: nowrap;
+	margin-left: 2px;
+}
+
+/* Collaboration: remote cursor in CodeMirror */
+.remote-cursor {
+	position: relative;
+	border-left: 2px solid;
+	margin-left: -1px;
+	pointer-events: none;
+}
+
+.remote-cursor-flag {
+	position: absolute;
+	bottom: 100%;
+	left: -2px;
+	width: 6px;
+	height: 6px;
+	border-radius: 1px;
+	pointer-events: none;
+	opacity: 0.9;
+	z-index: 10;
+}
+
+/* File tree: show collab dot next to files with remote participants */
+.file-collab-dot {
+	width: 6px;
+	height: 6px;
+	border-radius: 50%;
+	display: inline-block;
+	margin-left: auto;
+	flex-shrink: 0;
+}
+
 ::-webkit-scrollbar {
 	width: 8px;
 	height: 8px;

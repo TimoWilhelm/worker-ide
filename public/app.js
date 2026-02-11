@@ -85,6 +85,15 @@
 	let saveTimeout = null;
 	let basePath = '';
 
+	// Collaboration state
+	let collabSelfId = null;
+	let collabSelfColor = null;
+	let collabParticipants = new Map();
+	let remoteCursors = new Map();
+	let remoteSelections = new Map();
+	let suppressRemoteEdit = false;
+	let collabEditTimeout = null;
+
 	const fileTreeEl = document.getElementById('fileTree');
 	const tabsEl = document.getElementById('tabs');
 	const editorEl = document.getElementById('editor');
@@ -194,9 +203,16 @@
 					const active = currentFile === value ? 'active' : '';
 					const escapedName = name.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 					const escapedValue = value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+					var fileDots = '';
+					collabParticipants.forEach(function(p) {
+						if (p.id !== collabSelfId && p.file === value) {
+							fileDots += '<span class="file-collab-dot" style="background:' + p.color + '"></span>';
+						}
+					});
 					html += `<div class="file-item indent-${indent} ${active}" data-path="${escapedValue}">
 						${getFileIcon(value)}
 						${escapedName}
+						${fileDots}
 					</div>`;
 				}
 			});
@@ -240,13 +256,17 @@
 		currentFile = path;
 		const fileData = openFiles.get(path);
 		if (fileData && editor) {
+			suppressRemoteEdit = true;
 			editor.setValue(fileData.content);
+			suppressRemoteEdit = false;
 			editor.setOption('mode', getModeForFile(path));
 			editor.clearHistory();
 		}
 		fileStatusEl.textContent = path;
 		renderTabs();
 		renderFileTree();
+		renderAllRemoteCursors();
+		sendCursorUpdate();
 	}
 
 	function renderTabs() {
@@ -346,6 +366,7 @@
 
 		editor.on('change', () => {
 			if (!currentFile) return;
+			if (suppressRemoteEdit) return;
 
 			const fileToSave = currentFile;
 			const fileData = openFiles.get(fileToSave);
@@ -353,6 +374,11 @@
 				const currentContent = editor.getValue();
 				fileData.modified = currentContent !== fileData.content;
 				renderTabs();
+
+				clearTimeout(collabEditTimeout);
+				collabEditTimeout = setTimeout(() => {
+					sendFileEdit(fileToSave, editor.getValue());
+				}, 150);
 
 				clearTimeout(saveTimeout);
 				saveTimeout = setTimeout(() => {
@@ -362,6 +388,10 @@
 					}
 				}, 1500);
 			}
+		});
+
+		editor.on('cursorActivity', () => {
+			sendCursorUpdate();
 		});
 	}
 
@@ -571,6 +601,190 @@
 		renderTerminalErrors();
 	}
 
+	// --- Collaboration functions ---
+
+	function collabSend(msg) {
+		if (errorSocket && errorSocket.readyState === WebSocket.OPEN) {
+			errorSocket.send(JSON.stringify(msg));
+		}
+	}
+
+	function sendCursorUpdate() {
+		if (!editor || !currentFile) return;
+		var cursor = editor.getCursor();
+		var anchor = editor.getCursor('anchor');
+		var head = editor.getCursor('head');
+		var hasSelection = anchor.line !== head.line || anchor.ch !== head.ch;
+		collabSend({
+			type: 'cursor-update',
+			file: currentFile,
+			cursor: { line: cursor.line, ch: cursor.ch },
+			selection: hasSelection ? { anchor: { line: anchor.line, ch: anchor.ch }, head: { line: head.line, ch: head.ch } } : null
+		});
+	}
+
+	function sendFileEdit(path, content) {
+		collabSend({ type: 'file-edit', path: path, content: content });
+	}
+
+	function clearRemoteCursors() {
+		remoteCursors.forEach(function(bookmark) {
+			if (bookmark) bookmark.clear();
+		});
+		remoteCursors.clear();
+		remoteSelections.forEach(function(mark) {
+			if (mark) mark.clear();
+		});
+		remoteSelections.clear();
+	}
+
+	function renderRemoteCursor(id, color, cursor, selection) {
+		var old = remoteCursors.get(id);
+		if (old) old.clear();
+		var oldSel = remoteSelections.get(id);
+		if (oldSel) oldSel.clear();
+
+		if (!editor || !cursor) {
+			remoteCursors.delete(id);
+			remoteSelections.delete(id);
+			return;
+		}
+
+		var el = document.createElement('span');
+		el.className = 'remote-cursor';
+		el.style.borderLeftColor = color;
+
+		var flag = document.createElement('span');
+		flag.className = 'remote-cursor-flag';
+		flag.style.background = color;
+		el.appendChild(flag);
+
+		var bookmark = editor.setBookmark(
+			{ line: cursor.line, ch: cursor.ch },
+			{ widget: el, insertLeft: true }
+		);
+		remoteCursors.set(id, bookmark);
+
+		if (selection && selection.anchor && selection.head) {
+			var from = selection.anchor;
+			var to = selection.head;
+			if (from.line > to.line || (from.line === to.line && from.ch > to.ch)) {
+				var tmp = from; from = to; to = tmp;
+			}
+			var r = parseInt(color.slice(1, 3), 16);
+			var g = parseInt(color.slice(3, 5), 16);
+			var b = parseInt(color.slice(5, 7), 16);
+			var mark = editor.markText(
+				{ line: from.line, ch: from.ch },
+				{ line: to.line, ch: to.ch },
+				{ css: 'background: rgba(' + r + ',' + g + ',' + b + ',0.25)' }
+			);
+			remoteSelections.set(id, mark);
+		} else {
+			remoteSelections.delete(id);
+		}
+	}
+
+	function renderAllRemoteCursors() {
+		clearRemoteCursors();
+		collabParticipants.forEach(function(p) {
+			if (p.id === collabSelfId) return;
+			if (p.file === currentFile && p.cursor) {
+				renderRemoteCursor(p.id, p.color, p.cursor, p.selection);
+			}
+		});
+	}
+
+	function renderParticipantsIndicator() {
+		var container = document.getElementById('collabIndicator');
+		if (!container) return;
+		var dots = '';
+		var count = 0;
+		collabParticipants.forEach(function(p) {
+			count++;
+			var activeFile = p.file ? p.file.split('/').pop() : '';
+			var isSelf = p.id === collabSelfId;
+			var title = (isSelf ? 'You' : 'Participant') + (activeFile ? ' — ' + activeFile : '');
+			dots += '<span class="collab-dot' + (isSelf ? ' collab-dot-self' : '') + '" style="background:' + p.color + '" title="' + title + '"></span>';
+		});
+		if (count > 1) {
+			dots += '<span class="collab-count">' + count + ' online</span>';
+		}
+		container.innerHTML = dots;
+		container.style.display = count >= 1 ? 'flex' : 'none';
+	}
+
+	function handleCollabState(data) {
+		collabSelfId = data.selfId;
+		collabSelfColor = data.selfColor;
+		collabParticipants.clear();
+		(data.participants || []).forEach(function(p) {
+			collabParticipants.set(p.id, p);
+		});
+		renderAllRemoteCursors();
+		renderParticipantsIndicator();
+		renderFileTree();
+	}
+
+	function handleParticipantJoined(data) {
+		collabParticipants.set(data.participant.id, data.participant);
+		renderAllRemoteCursors();
+		renderParticipantsIndicator();
+		renderFileTree();
+	}
+
+	function handleParticipantLeft(data) {
+		collabParticipants.delete(data.id);
+		var old = remoteCursors.get(data.id);
+		if (old) old.clear();
+		remoteCursors.delete(data.id);
+		var oldSel = remoteSelections.get(data.id);
+		if (oldSel) oldSel.clear();
+		remoteSelections.delete(data.id);
+		renderParticipantsIndicator();
+		renderFileTree();
+	}
+
+	function handleCursorUpdated(data) {
+		var p = collabParticipants.get(data.id);
+		if (p) {
+			p.file = data.file;
+			p.cursor = data.cursor;
+			p.color = data.color;
+			p.selection = data.selection || null;
+		} else {
+			collabParticipants.set(data.id, { id: data.id, color: data.color, file: data.file, cursor: data.cursor, selection: data.selection || null });
+		}
+		if (data.file === currentFile && data.cursor) {
+			renderRemoteCursor(data.id, data.color, data.cursor, data.selection);
+		} else {
+			var old = remoteCursors.get(data.id);
+			if (old) old.clear();
+			remoteCursors.delete(data.id);
+		}
+		renderParticipantsIndicator();
+		renderFileTree();
+	}
+
+	function handleFileEdited(data) {
+		var fileData = openFiles.get(data.path);
+		if (fileData) {
+			fileData.content = data.content;
+			fileData.modified = false;
+			if (data.path === currentFile && editor) {
+				var scrollInfo = editor.getScrollInfo();
+				var cursor = editor.getCursor();
+				suppressRemoteEdit = true;
+				editor.setValue(data.content);
+				editor.setCursor(cursor);
+				editor.scrollTo(scrollInfo.left, scrollInfo.top);
+				suppressRemoteEdit = false;
+				renderAllRemoteCursors();
+			}
+			renderTabs();
+		}
+	}
+
 	function connectErrorSocket() {
 		if (errorSocket) {
 			errorSocket.onclose = null;
@@ -581,11 +795,15 @@
 			}
 			errorSocket = null;
 		}
+		collabParticipants.clear();
+		clearRemoteCursors();
+
 		const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
 		const ws = new WebSocket(`${protocol}//${location.host}${basePath}/__hmr`);
 		errorSocket = ws;
 		ws.addEventListener('open', () => {
 			errorSocketReconnectDelay = 2000;
+			collabSend({ type: 'collab-join' });
 		});
 		ws.addEventListener('message', (event) => {
 			try {
@@ -602,6 +820,16 @@
 					if (terminalErrors.length !== before) {
 						renderTerminalErrors();
 					}
+				} else if (data.type === 'collab-state') {
+					handleCollabState(data);
+				} else if (data.type === 'participant-joined') {
+					handleParticipantJoined(data);
+				} else if (data.type === 'participant-left') {
+					handleParticipantLeft(data);
+				} else if (data.type === 'cursor-updated') {
+					handleCursorUpdated(data);
+				} else if (data.type === 'file-edited') {
+					handleFileEdited(data);
 				}
 			} catch (e) {
 				// ignore non-JSON messages
@@ -610,11 +838,20 @@
 		ws.addEventListener('close', () => {
 			if (errorSocket !== ws) return;
 			errorSocket = null;
+			collabParticipants.clear();
+			clearRemoteCursors();
+			renderParticipantsIndicator();
 			const delay = errorSocketReconnectDelay;
 			errorSocketReconnectDelay = Math.min(errorSocketReconnectDelay * 1.5, 30000);
 			setTimeout(connectErrorSocket, delay);
 		});
 	}
+
+	window.addEventListener('beforeunload', function() {
+		if (errorSocket && errorSocket.readyState === WebSocket.OPEN) {
+			errorSocket.close(1000, 'page unload');
+		}
+	});
 
 	function clearTerminal() {
 		terminalErrors = [];

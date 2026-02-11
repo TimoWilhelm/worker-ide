@@ -68,8 +68,62 @@ interface HMRUpdate {
 	isCSS?: boolean;
 }
 
+const COLLAB_COLORS = [
+	'#f97316', '#22d3ee', '#a78bfa', '#f472b6',
+	'#4ade80', '#facc15', '#fb923c', '#38bdf8',
+	'#c084fc', '#f87171', '#34d399', '#e879f9',
+];
+
+interface ParticipantAttachment {
+	id: string;
+	color: string;
+	file: string | null;
+	cursor: { line: number; ch: number } | null;
+	selection: { anchor: { line: number; ch: number }; head: { line: number; ch: number } } | null;
+}
+
 export class HMRCoordinator extends DurableObject {
-	private sessions: Map<WebSocket, { id: string }> = new Map();
+	private colorIndex = 0;
+
+	private getAttachment(ws: WebSocket): ParticipantAttachment | null {
+		try {
+			return ws.deserializeAttachment() as ParticipantAttachment;
+		} catch {
+			return null;
+		}
+	}
+
+	private setAttachment(ws: WebSocket, data: ParticipantAttachment) {
+		ws.serializeAttachment(data);
+	}
+
+	private nextColor(): string {
+		const color = COLLAB_COLORS[this.colorIndex % COLLAB_COLORS.length];
+		this.colorIndex++;
+		return color;
+	}
+
+	private getAllParticipants(): ParticipantAttachment[] {
+		const participants: ParticipantAttachment[] = [];
+		for (const ws of this.ctx.getWebSockets()) {
+			const att = this.getAttachment(ws);
+			if (att) participants.push(att);
+		}
+		return participants;
+	}
+
+	private sendToOthers(sender: WebSocket, message: string) {
+		for (const ws of this.ctx.getWebSockets()) {
+			if (ws === sender) continue;
+			try { ws.send(message); } catch { try { ws.close(1011, 'send failed'); } catch {} }
+		}
+	}
+
+	private sendToAll(message: string) {
+		for (const ws of this.ctx.getWebSockets()) {
+			try { ws.send(message); } catch { try { ws.close(1011, 'send failed'); } catch {} }
+		}
+	}
 
 	async fetch(request: Request): Promise<Response> {
 		const url = new URL(request.url);
@@ -78,8 +132,18 @@ export class HMRCoordinator extends DurableObject {
 			const pair = new WebSocketPair();
 			const [client, server] = Object.values(pair);
 
+			const participantId = crypto.randomUUID();
+			const color = this.nextColor();
+			const attachment: ParticipantAttachment = {
+				id: participantId,
+				color,
+				file: null,
+				cursor: null,
+				selection: null,
+			};
+
 			this.ctx.acceptWebSocket(server);
-			this.sessions.set(server, { id: crypto.randomUUID() });
+			this.setAttachment(server, attachment);
 
 			return new Response(null, { status: 101, webSocket: client });
 		}
@@ -94,7 +158,7 @@ export class HMRCoordinator extends DurableObject {
 
 		if (url.pathname === '/hmr/send' && request.method === 'POST') {
 			const message = await request.text();
-			this.broadcastRaw(message);
+			this.sendToAll(message);
 			return new Response(JSON.stringify({ success: true }), {
 				headers: { 'Content-Type': 'application/json' },
 			});
@@ -124,37 +188,86 @@ export class HMRCoordinator extends DurableObject {
 			],
 		});
 
-		for (const ws of this.ctx.getWebSockets()) {
-			try {
-				ws.send(message);
-			} catch {
-				this.sessions.delete(ws);
-			}
-		}
-	}
-
-	broadcastRaw(message: string) {
-		for (const ws of this.ctx.getWebSockets()) {
-			try {
-				ws.send(message);
-			} catch {
-				this.sessions.delete(ws);
-			}
-		}
+		this.sendToAll(message);
 	}
 
 	webSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
 		try {
 			const messageStr = typeof message === 'string' ? message : new TextDecoder().decode(message);
 			const data = JSON.parse(messageStr);
+
 			if (data.type === 'ping') {
 				ws.send(JSON.stringify({ type: 'pong' }));
+				return;
+			}
+
+			if (data.type === 'collab-join') {
+				const att = this.getAttachment(ws);
+				if (!att) return;
+				ws.send(JSON.stringify({
+					type: 'collab-state',
+					selfId: att.id,
+					selfColor: att.color,
+					participants: this.getAllParticipants(),
+				}));
+				this.sendToOthers(ws, JSON.stringify({
+					type: 'participant-joined',
+					participant: att,
+				}));
+				return;
+			}
+
+			if (data.type === 'cursor-update') {
+				const att = this.getAttachment(ws);
+				if (!att) return;
+				att.file = data.file ?? null;
+				att.cursor = data.cursor ?? null;
+				att.selection = data.selection ?? null;
+				this.setAttachment(ws, att);
+				this.sendToOthers(ws, JSON.stringify({
+					type: 'cursor-updated',
+					id: att.id,
+					color: att.color,
+					file: att.file,
+					cursor: att.cursor,
+					selection: att.selection,
+				}));
+				return;
+			}
+
+			if (data.type === 'file-edit') {
+				const att = this.getAttachment(ws);
+				if (!att) return;
+				this.sendToOthers(ws, JSON.stringify({
+					type: 'file-edited',
+					id: att.id,
+					path: data.path,
+					content: data.content,
+				}));
+				return;
 			}
 		} catch {}
 	}
 
 	webSocketClose(ws: WebSocket) {
-		this.sessions.delete(ws);
+		const att = this.getAttachment(ws);
+		if (att) {
+			this.sendToOthers(ws, JSON.stringify({
+				type: 'participant-left',
+				id: att.id,
+			}));
+		}
+	}
+
+	webSocketError(ws: WebSocket) {
+		const att = this.getAttachment(ws);
+		if (att) {
+			this.sendToOthers(ws, JSON.stringify({
+				type: 'participant-left',
+				id: att.id,
+			}));
+		}
+		try { ws.close(1011, 'WebSocket error'); } catch {}
 	}
 }
 
