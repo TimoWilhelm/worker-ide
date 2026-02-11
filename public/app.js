@@ -1327,20 +1327,56 @@
 		}
 
 		var errorEl = document.createElement('div');
-		var isRateLimit = errorInfo.code === 'RATE_LIMIT_EXCEEDED';
-		errorEl.className = 'ai-error' + (isRateLimit ? ' rate-limit' : '');
+		var code = errorInfo.code || null;
+		var isRetryable = code !== 'AUTH_ERROR' && code !== 'INVALID_REQUEST';
 
-		var icon = isRateLimit
-			? '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>'
-			: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>';
+		var clockIcon = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>';
+		var alertIcon = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>';
+		var lockIcon = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>';
+		var serverIcon = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect><line x1="6" y1="6" x2="6.01" y2="6"></line><line x1="6" y1="18" x2="6.01" y2="18"></line></svg>';
 
-		var title = isRateLimit ? 'Rate Limit Exceeded' : 'Error';
+		var icon, title;
+		switch (code) {
+			case 'OVERLOADED':
+				icon = clockIcon;
+				title = 'Model Overloaded';
+				errorEl.className = 'ai-error rate-limit';
+				break;
+			case 'RATE_LIMIT':
+			case 'RATE_LIMIT_EXCEEDED':
+				icon = clockIcon;
+				title = 'Rate Limit Exceeded';
+				errorEl.className = 'ai-error rate-limit';
+				break;
+			case 'AUTH_ERROR':
+				icon = lockIcon;
+				title = 'Authentication Error';
+				errorEl.className = 'ai-error';
+				break;
+			case 'SERVER_ERROR':
+				icon = serverIcon;
+				title = 'Server Error';
+				errorEl.className = 'ai-error';
+				break;
+			default:
+				icon = alertIcon;
+				title = 'Error';
+				errorEl.className = 'ai-error';
+				break;
+		}
+
 		var message = errorInfo.message || 'An unexpected error occurred.';
 
-		// Add helpful context for rate limits
-		if (isRateLimit) {
-			message += ' Please wait a moment before trying again.';
+		var actionsHtml = '<div class="ai-error-actions">';
+		if (isRetryable) {
+			actionsHtml +=
+				'<button class="ai-error-btn primary" data-action="retry">' +
+				'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>' +
+				'Retry' +
+				'</button>';
 		}
+		actionsHtml += '<button class="ai-error-btn secondary" data-action="dismiss">Dismiss</button>';
+		actionsHtml += '</div>';
 
 		errorEl.innerHTML =
 			'<div class="ai-error-header">' +
@@ -1351,26 +1387,23 @@
 			'<div class="ai-error-message">' +
 			escapeHtmlForAi(message) +
 			'</div>' +
-			'<div class="ai-error-actions">' +
-			'<button class="ai-error-btn primary" data-action="retry">' +
-			'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>' +
-			'Retry' +
-			'</button>' +
-			'<button class="ai-error-btn secondary" data-action="dismiss">Dismiss</button>' +
-			'</div>';
+			actionsHtml;
 
 		// Store the prompt for retry
 		errorEl.dataset.prompt = errorInfo.prompt || '';
 
 		// Add event listeners
-		errorEl.querySelector('[data-action="retry"]').addEventListener('click', function () {
-			var prompt = errorEl.dataset.prompt;
-			errorEl.remove();
-			if (prompt) {
-				aiPrompt.value = prompt;
-				sendAiPrompt();
-			}
-		});
+		var retryBtn = errorEl.querySelector('[data-action="retry"]');
+		if (retryBtn) {
+			retryBtn.addEventListener('click', function () {
+				var prompt = errorEl.dataset.prompt;
+				errorEl.remove();
+				if (prompt) {
+					aiPrompt.value = prompt;
+					sendAiPrompt();
+				}
+			});
+		}
 
 		errorEl.querySelector('[data-action="dismiss"]').addEventListener('click', function () {
 			errorEl.remove();
@@ -1436,6 +1469,15 @@
 			let buffer = '';
 
 			const processEvent = (data) => {
+				if (data.type === 'error') {
+					finalizeAiMessage();
+					addAiError({
+						message: data.message || 'An unexpected error occurred.',
+						code: data.code || null,
+						prompt: prompt,
+					});
+					return;
+				}
 				handleAiEvent(data, function (text) {
 					assistantMessage += text;
 					addAiMessage('assistant', assistantMessage, true);
@@ -1506,11 +1548,12 @@
 			}
 		} catch (err) {
 			if (err.name === 'AbortError') {
-				if (assistantMessage) {
-					addAiMessage('assistant', assistantMessage + '\n\n*[Interrupted]*', true);
-				} else {
-					addAiMessage('assistant', '*[Interrupted]*');
-				}
+				finalizeAiMessage();
+				var stoppedEl = document.createElement('div');
+				stoppedEl.className = 'ai-stopped-label';
+				stoppedEl.textContent = 'Response stopped';
+				aiMessages.appendChild(stoppedEl);
+				aiMessages.scrollTop = aiMessages.scrollHeight;
 			} else {
 				console.error('AI request failed:', err);
 				// Remove the user message from history and UI since the request failed before assistant responded
@@ -1598,7 +1641,7 @@
 				break;
 
 			case 'error':
-				appendMessage('\n\nError: ' + data.message);
+				// Handled in processEvent where prompt is available for retry
 				break;
 
 			case 'done':

@@ -1130,6 +1130,13 @@ body {
 	color: var(--warning);
 }
 
+.ai-stopped-label {
+	font-size: 12px;
+	color: var(--text-secondary);
+	padding: 4px 0;
+	text-align: center;
+}
+
 .ai-status {
 	display: flex;
 	align-items: center;

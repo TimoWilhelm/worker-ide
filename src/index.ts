@@ -1399,6 +1399,79 @@ export default class extends WorkerEntrypoint<Env> {
 		return files;
 	}
 
+	private parseApiError(err: unknown): { message: string; code: string | null } {
+		const raw = err instanceof Error ? err.message : String(err);
+
+		// Replicate SDK ApiError has a .response property
+		const response = (err as { response?: Response })?.response;
+		const status = response?.status;
+
+		// Try to extract a structured error from the message
+		// Replicate embeds the upstream JSON in the error message string
+		let upstreamType: string | null = null;
+		let upstreamMessage: string | null = null;
+		try {
+			// Match JSON embedded in the error message
+			const jsonMatch = raw.match(/\{[\s\S]*\}/);
+			if (jsonMatch) {
+				const parsed = JSON.parse(jsonMatch[0]);
+				// Handle {"detail": "Error code: 529 - {...}"} format
+				if (typeof parsed.detail === 'string') {
+					const innerMatch = parsed.detail.match(/\{[\s\S]*\}/);
+					if (innerMatch) {
+						const inner = JSON.parse(innerMatch[0].replace(/'/g, '"'));
+						upstreamType = inner?.error?.type || null;
+						upstreamMessage = inner?.error?.message || parsed.detail;
+					} else {
+						upstreamMessage = parsed.detail;
+					}
+				}
+				// Handle {"error": {"type": "...", "message": "..."}} format
+				if (parsed?.error?.type) {
+					upstreamType = parsed.error.type;
+					upstreamMessage = parsed.error.message || upstreamMessage;
+				}
+			}
+		} catch {}
+
+		// Determine error code from status, upstream type, or message patterns
+		if (upstreamType === 'overloaded_error' || status === 529 || /overloaded/i.test(raw) || /529/.test(raw)) {
+			return {
+				message: upstreamMessage || 'The AI model is currently overloaded. Please try again in a moment.',
+				code: 'OVERLOADED',
+			};
+		}
+		if (upstreamType === 'rate_limit_error' || status === 429 || /rate.?limit/i.test(raw)) {
+			return {
+				message: upstreamMessage || 'Rate limit exceeded. Please wait before trying again.',
+				code: 'RATE_LIMIT',
+			};
+		}
+		if (upstreamType === 'authentication_error' || status === 401 || status === 403) {
+			return {
+				message: upstreamMessage || 'Authentication failed. The API token may be invalid or expired.',
+				code: 'AUTH_ERROR',
+			};
+		}
+		if (upstreamType === 'invalid_request_error' || status === 400) {
+			return {
+				message: upstreamMessage || 'The request was invalid.',
+				code: 'INVALID_REQUEST',
+			};
+		}
+		if (status && status >= 500) {
+			return {
+				message: upstreamMessage || 'The AI service encountered an internal error. Please try again.',
+				code: 'SERVER_ERROR',
+			};
+		}
+		if (err instanceof Error && err.name === 'AbortError') {
+			return { message: 'Request was cancelled.', code: 'ABORTED' };
+		}
+
+		return { message: upstreamMessage || raw, code: null };
+	}
+
 	// AI Agent Chat Handler
 	private async handleAgentChat(request: Request, projectId: string): Promise<Response> {
 		// Check for API token
@@ -1456,9 +1529,14 @@ export default class extends WorkerEntrypoint<Env> {
 		// Run agent loop in background
 		const signal = request.signal;
 		this.runAgentLoop(writer, encoder, sendEvent, prompt, history, projectId, apiToken, signal).catch(async (err) => {
+			if (err instanceof Error && err.name === 'AbortError') {
+				try { await writer.close(); } catch {}
+				return;
+			}
 			console.error('Agent error:', err);
 			try {
-				await sendEvent('error', { message: String(err) });
+				const parsed = this.parseApiError(err);
+				await sendEvent('error', { message: parsed.message, code: parsed.code });
 				await writer.close();
 			} catch {}
 		});
@@ -1572,8 +1650,13 @@ export default class extends WorkerEntrypoint<Env> {
 			await sendEvent('done', {});
 			await writer.close();
 		} catch (err) {
+			if (err instanceof Error && err.name === 'AbortError') {
+				await writer.close();
+				return;
+			}
 			console.error('Agent loop error:', err);
-			await sendEvent('error', { message: String(err) });
+			const parsed = this.parseApiError(err);
+			await sendEvent('error', { message: parsed.message, code: parsed.code });
 			await writer.close();
 		}
 	}
