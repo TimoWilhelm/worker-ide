@@ -1,4 +1,4 @@
-(function() {
+(function () {
 	const PROJECT_STORAGE_KEY = 'worker-ide-project-id';
 	const RECENT_PROJECTS_KEY = 'worker-ide-recent-projects';
 	const MAX_RECENT_PROJECTS = 10;
@@ -29,7 +29,9 @@
 
 	function trackProject(projectId) {
 		let projects = getRecentProjects();
-		projects = projects.filter(function(p) { return p.id !== projectId; });
+		projects = projects.filter(function (p) {
+			return p.id !== projectId;
+		});
 		projects.unshift({ id: projectId, timestamp: Date.now() });
 		if (projects.length > MAX_RECENT_PROJECTS) {
 			projects = projects.slice(0, MAX_RECENT_PROJECTS);
@@ -160,7 +162,7 @@
 
 	function renderFileTree() {
 		const sorted = [...files]
-			.filter(path => !path.endsWith('/.initialized'))
+			.filter((path) => !path.endsWith('/.initialized'))
 			.sort((a, b) => {
 				const aDir = a.includes('/src/') || a.startsWith('/src');
 				const bDir = b.includes('/src/') || b.startsWith('/src');
@@ -169,7 +171,7 @@
 			});
 
 		const tree = {};
-		sorted.forEach(path => {
+		sorted.forEach((path) => {
 			const parts = path.split('/').filter(Boolean);
 			let current = tree;
 			parts.forEach((part, i) => {
@@ -205,7 +207,7 @@
 					const escapedName = name.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 					const escapedValue = value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 					var fileDots = '';
-					collabParticipants.forEach(function(p) {
+					collabParticipants.forEach(function (p) {
 						if (p.id !== collabSelfId && p.file === value) {
 							fileDots += '<span class="file-collab-dot" style="background:' + p.color + '"></span>';
 						}
@@ -222,7 +224,7 @@
 
 		fileTreeEl.innerHTML = renderNode(tree);
 
-		fileTreeEl.querySelectorAll('.file-item:not(.folder)').forEach(el => {
+		fileTreeEl.querySelectorAll('.file-item:not(.folder)').forEach((el) => {
 			el.addEventListener('click', () => openFile(el.dataset.path));
 		});
 	}
@@ -318,7 +320,7 @@
 			const res = await fetch(`${basePath}/api/file`, {
 				method: 'PUT',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ path, content })
+				body: JSON.stringify({ path, content }),
 			});
 
 			if (res.ok) {
@@ -329,7 +331,9 @@
 				}
 				saveStatusEl.textContent = 'Saved';
 				renderTabs();
-				setTimeout(() => { saveStatusEl.textContent = ''; }, 2000);
+				setTimeout(() => {
+					saveStatusEl.textContent = '';
+				}, 2000);
 			} else {
 				throw new Error('Save failed');
 			}
@@ -361,8 +365,8 @@
 					if (currentFile) {
 						saveFile(currentFile, editor.getValue());
 					}
-				}
-			}
+				},
+			},
 		});
 
 		editor.on('change', () => {
@@ -399,12 +403,17 @@
 	function refreshPreview() {
 		refreshBtn.disabled = true;
 		previewFrame.src = `${basePath}/preview?t=` + Date.now();
-		previewFrame.addEventListener('load', () => {
+		previewFrame.addEventListener(
+			'load',
+			() => {
+				refreshBtn.disabled = false;
+			},
+			{ once: true },
+		);
+		setTimeout(() => {
 			refreshBtn.disabled = false;
-		}, { once: true });
-		setTimeout(() => { refreshBtn.disabled = false; }, 5000);
+		}, 5000);
 	}
-
 
 	function showModal() {
 		modal.classList.remove('hidden');
@@ -430,7 +439,7 @@
 			await fetch(`${basePath}/api/file`, {
 				method: 'PUT',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ path, content: '' })
+				body: JSON.stringify({ path, content: '' }),
 			});
 
 			await loadFiles();
@@ -531,19 +540,33 @@
 	}
 
 	function updateBadges() {
-		var errorCount = 0, warnCount = 0, logCount = 0;
+		var errorCount = 0,
+			warnCount = 0,
+			logCount = 0;
 		for (var i = 0; i < terminalErrors.length; i++) {
 			var t = terminalErrors[i].type;
 			if (t === 'error' || t === 'runtime' || t === 'bundle') errorCount++;
 			else if (t === 'warn') warnCount++;
 			else logCount++;
 		}
-		if (errorCount > 0) { errorBadge.textContent = errorCount; errorBadge.classList.remove('hidden'); }
-		else { errorBadge.classList.add('hidden'); }
-		if (warnCount > 0) { warnBadge.textContent = warnCount; warnBadge.classList.remove('hidden'); }
-		else { warnBadge.classList.add('hidden'); }
-		if (logCount > 0) { logBadge.textContent = logCount; logBadge.classList.remove('hidden'); }
-		else { logBadge.classList.add('hidden'); }
+		if (errorCount > 0) {
+			errorBadge.textContent = errorCount;
+			errorBadge.classList.remove('hidden');
+		} else {
+			errorBadge.classList.add('hidden');
+		}
+		if (warnCount > 0) {
+			warnBadge.textContent = warnCount;
+			warnBadge.classList.remove('hidden');
+		} else {
+			warnBadge.classList.add('hidden');
+		}
+		if (logCount > 0) {
+			logBadge.textContent = logCount;
+			logBadge.classList.remove('hidden');
+		} else {
+			logBadge.classList.add('hidden');
+		}
 	}
 
 	function renderTerminalErrors() {
@@ -557,24 +580,34 @@
 
 		updateBadges();
 
-		terminalOutput.innerHTML = terminalErrors.map(err => {
-			const safeType = escapeHtml(err.type || 'error');
-			const safeFile = err.file ? escapeHtml(err.file) : '';
-			const location = safeFile
-				? `<span class="terminal-entry-location" data-file="/${safeFile}" data-line="${parseInt(err.line, 10) || 1}" data-column="${parseInt(err.column, 10) || 0}">${safeFile}${err.line ? ':' + err.line : ''}${err.column ? ':' + err.column : ''}</span>`
-				: '';
-			const shortMsg = err.message.length > 500
-				? err.message.substring(0, 500) + '...'
-				: err.message;
-			return '<div class="terminal-entry">' +
-				'<div class="terminal-entry-header">' +
-					'<span class="terminal-entry-type ' + safeType + '">' + safeType + '</span>' +
-					'<span class="terminal-entry-time">' + formatTime(err.timestamp) + '</span>' +
+		terminalOutput.innerHTML = terminalErrors
+			.map((err) => {
+				const safeType = escapeHtml(err.type || 'error');
+				const safeFile = err.file ? escapeHtml(err.file) : '';
+				const location = safeFile
+					? `<span class="terminal-entry-location" data-file="/${safeFile}" data-line="${parseInt(err.line, 10) || 1}" data-column="${parseInt(err.column, 10) || 0}">${safeFile}${err.line ? ':' + err.line : ''}${err.column ? ':' + err.column : ''}</span>`
+					: '';
+				const shortMsg = err.message.length > 500 ? err.message.substring(0, 500) + '...' : err.message;
+				return (
+					'<div class="terminal-entry">' +
+					'<div class="terminal-entry-header">' +
+					'<span class="terminal-entry-type ' +
+					safeType +
+					'">' +
+					safeType +
+					'</span>' +
+					'<span class="terminal-entry-time">' +
+					formatTime(err.timestamp) +
+					'</span>' +
 					location +
-				'</div>' +
-				'<div class="terminal-entry-message">' + escapeHtml(shortMsg) + '</div>' +
-			'</div>';
-		}).join('');
+					'</div>' +
+					'<div class="terminal-entry-message">' +
+					escapeHtml(shortMsg) +
+					'</div>' +
+					'</div>'
+				);
+			})
+			.join('');
 
 		terminalBody.scrollTop = terminalBody.scrollHeight;
 	}
@@ -620,7 +653,7 @@
 			type: 'cursor-update',
 			file: currentFile,
 			cursor: { line: cursor.line, ch: cursor.ch },
-			selection: hasSelection ? { anchor: { line: anchor.line, ch: anchor.ch }, head: { line: head.line, ch: head.ch } } : null
+			selection: hasSelection ? { anchor: { line: anchor.line, ch: anchor.ch }, head: { line: head.line, ch: head.ch } } : null,
 		});
 	}
 
@@ -629,11 +662,11 @@
 	}
 
 	function clearRemoteCursors() {
-		remoteCursors.forEach(function(bookmark) {
+		remoteCursors.forEach(function (bookmark) {
 			if (bookmark) bookmark.clear();
 		});
 		remoteCursors.clear();
-		remoteSelections.forEach(function(mark) {
+		remoteSelections.forEach(function (mark) {
 			if (mark) mark.clear();
 		});
 		remoteSelections.clear();
@@ -660,17 +693,16 @@
 		flag.style.background = color;
 		el.appendChild(flag);
 
-		var bookmark = editor.setBookmark(
-			{ line: cursor.line, ch: cursor.ch },
-			{ widget: el, insertLeft: true }
-		);
+		var bookmark = editor.setBookmark({ line: cursor.line, ch: cursor.ch }, { widget: el, insertLeft: true });
 		remoteCursors.set(id, bookmark);
 
 		if (selection && selection.anchor && selection.head) {
 			var from = selection.anchor;
 			var to = selection.head;
 			if (from.line > to.line || (from.line === to.line && from.ch > to.ch)) {
-				var tmp = from; from = to; to = tmp;
+				var tmp = from;
+				from = to;
+				to = tmp;
 			}
 			var r = parseInt(color.slice(1, 3), 16);
 			var g = parseInt(color.slice(3, 5), 16);
@@ -678,7 +710,7 @@
 			var mark = editor.markText(
 				{ line: from.line, ch: from.ch },
 				{ line: to.line, ch: to.ch },
-				{ css: 'background: rgba(' + r + ',' + g + ',' + b + ',0.25)' }
+				{ css: 'background: rgba(' + r + ',' + g + ',' + b + ',0.25)' },
 			);
 			remoteSelections.set(id, mark);
 		} else {
@@ -688,7 +720,7 @@
 
 	function renderAllRemoteCursors() {
 		clearRemoteCursors();
-		collabParticipants.forEach(function(p) {
+		collabParticipants.forEach(function (p) {
 			if (p.id === collabSelfId) return;
 			if (p.file === currentFile && p.cursor) {
 				renderRemoteCursor(p.id, p.color, p.cursor, p.selection);
@@ -701,12 +733,19 @@
 		if (!container) return;
 		var dots = '';
 		var count = 0;
-		collabParticipants.forEach(function(p) {
+		collabParticipants.forEach(function (p) {
 			count++;
 			var activeFile = p.file ? p.file.split('/').pop() : '';
 			var isSelf = p.id === collabSelfId;
 			var title = (isSelf ? 'You' : 'Participant') + (activeFile ? ' — ' + activeFile : '');
-			dots += '<span class="collab-dot' + (isSelf ? ' collab-dot-self' : '') + '" style="background:' + p.color + '" title="' + title + '"></span>';
+			dots +=
+				'<span class="collab-dot' +
+				(isSelf ? ' collab-dot-self' : '') +
+				'" style="background:' +
+				p.color +
+				'" title="' +
+				title +
+				'"></span>';
 		});
 		if (count > 1) {
 			dots += '<span class="collab-count">' + count + ' online</span>';
@@ -719,7 +758,7 @@
 		collabSelfId = data.selfId;
 		collabSelfColor = data.selfColor;
 		collabParticipants.clear();
-		(data.participants || []).forEach(function(p) {
+		(data.participants || []).forEach(function (p) {
 			collabParticipants.set(p.id, p);
 		});
 		renderAllRemoteCursors();
@@ -754,7 +793,13 @@
 			p.color = data.color;
 			p.selection = data.selection || null;
 		} else {
-			collabParticipants.set(data.id, { id: data.id, color: data.color, file: data.file, cursor: data.cursor, selection: data.selection || null });
+			collabParticipants.set(data.id, {
+				id: data.id,
+				color: data.color,
+				file: data.file,
+				cursor: data.cursor,
+				selection: data.selection || null,
+			});
 		}
 		if (data.file === currentFile && data.cursor) {
 			renderRemoteCursor(data.id, data.color, data.cursor, data.selection);
@@ -812,10 +857,12 @@
 				if (data.type === 'server-error' && data.error) {
 					addServerError(data.error);
 				} else if (data.type === 'server-logs' && data.logs) {
-					data.logs.forEach(function(log) { addServerLog(log); });
+					data.logs.forEach(function (log) {
+						addServerLog(log);
+					});
 				} else if (data.type === 'server-ok') {
 					var before = terminalErrors.length;
-					terminalErrors = terminalErrors.filter(function(e) {
+					terminalErrors = terminalErrors.filter(function (e) {
 						return e.type !== 'runtime' && e.type !== 'bundle' && e.type !== 'error';
 					});
 					if (terminalErrors.length !== before) {
@@ -848,7 +895,7 @@
 		});
 	}
 
-	window.addEventListener('beforeunload', function() {
+	window.addEventListener('beforeunload', function () {
 		if (errorSocket && errorSocket.readyState === WebSocket.OPEN) {
 			errorSocket.close(1000, 'page unload');
 		}
@@ -882,7 +929,7 @@
 			var line = event.data.line || 1;
 			var col = event.data.column || 0;
 			if (filePath) {
-				openFile(filePath).then(function() {
+				openFile(filePath).then(function () {
 					if (editor) {
 						editor.setCursor({ line: line - 1, ch: col });
 						editor.focus();
@@ -907,7 +954,7 @@
 		if (!btn) return;
 		const panel = btn.dataset.panel;
 		const mainEl = document.querySelector('.main');
-		mobileToggle.querySelectorAll('.mobile-toggle-btn').forEach(b => b.classList.remove('active'));
+		mobileToggle.querySelectorAll('.mobile-toggle-btn').forEach((b) => b.classList.remove('active'));
 		btn.classList.add('active');
 		mainEl.classList.remove('show-editor', 'show-preview', 'show-ai');
 		mainEl.classList.add('show-' + panel);
@@ -933,26 +980,39 @@
 			return;
 		}
 
-		recentProjectsDropdown.innerHTML = projects.map(function(p) {
-			const shortId = p.id.substring(0, 8);
-			const isCurrent = p.id === currentId;
-			const activeClass = isCurrent ? ' recent-item-active' : '';
-			return '<a href="/p/' + p.id + '" class="recent-item' + activeClass + '">' +
-				'<span class="recent-item-id">' + shortId + (isCurrent ? ' (current)' : '') + '</span>' +
-				'<span class="recent-item-time">' + formatRelativeTime(p.timestamp) + '</span>' +
-				'</a>';
-		}).join('');
+		recentProjectsDropdown.innerHTML = projects
+			.map(function (p) {
+				const shortId = p.id.substring(0, 8);
+				const isCurrent = p.id === currentId;
+				const activeClass = isCurrent ? ' recent-item-active' : '';
+				return (
+					'<a href="/p/' +
+					p.id +
+					'" class="recent-item' +
+					activeClass +
+					'">' +
+					'<span class="recent-item-id">' +
+					shortId +
+					(isCurrent ? ' (current)' : '') +
+					'</span>' +
+					'<span class="recent-item-time">' +
+					formatRelativeTime(p.timestamp) +
+					'</span>' +
+					'</a>'
+				);
+			})
+			.join('');
 	}
 
 	if (recentProjectsBtn) {
-		recentProjectsBtn.addEventListener('click', function(e) {
+		recentProjectsBtn.addEventListener('click', function (e) {
 			e.stopPropagation();
 			renderRecentProjects();
 			recentProjectsDropdown.classList.toggle('hidden');
 		});
 	}
 
-	document.addEventListener('click', function(e) {
+	document.addEventListener('click', function (e) {
 		if (recentProjectsDropdown && !recentProjectsDropdown.contains(e.target) && e.target !== recentProjectsBtn) {
 			recentProjectsDropdown.classList.add('hidden');
 		}
@@ -988,7 +1048,7 @@
 			label: 'New chat',
 			history: [],
 			messagesHtml: '',
-			createdAt: Date.now()
+			createdAt: Date.now(),
 		};
 		aiSessions.unshift(session);
 		return session;
@@ -999,12 +1059,18 @@
 			var s = createSession();
 			activeSessionId = s.id;
 		}
-		return aiSessions.find(function(s) { return s.id === activeSessionId; }) || aiSessions[0];
+		return (
+			aiSessions.find(function (s) {
+				return s.id === activeSessionId;
+			}) || aiSessions[0]
+		);
 	}
 
 	function switchToSession(sessionId) {
 		// Save current session's messages HTML
-		var current = aiSessions.find(function(s) { return s.id === activeSessionId; });
+		var current = aiSessions.find(function (s) {
+			return s.id === activeSessionId;
+		});
 		if (current) {
 			current.messagesHtml = aiMessages.innerHTML;
 		}
@@ -1022,7 +1088,9 @@
 			stopAgent();
 		}
 		// Save current session
-		var current = aiSessions.find(function(s) { return s.id === activeSessionId; });
+		var current = aiSessions.find(function (s) {
+			return s.id === activeSessionId;
+		});
 		if (current) {
 			current.messagesHtml = aiMessages.innerHTML;
 		}
@@ -1034,21 +1102,22 @@
 	}
 
 	function renderWelcomeMessage() {
-		aiMessages.innerHTML = '<div class="ai-welcome">' +
+		aiMessages.innerHTML =
+			'<div class="ai-welcome">' +
 			'<div class="ai-welcome-icon">' +
-				'<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">' +
-					'<path d="M12 2a2 2 0 0 1 2 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 0 1 7 7h1a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1v1a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-1H2a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h1a7 7 0 0 1 7-7h1V5.73c-.6-.34-1-.99-1-1.73a2 2 0 0 1 2-2z"></path>' +
-					'<circle cx="7.5" cy="14.5" r="1.5"></circle>' +
-					'<circle cx="16.5" cy="14.5" r="1.5"></circle>' +
-				'</svg>' +
+			'<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">' +
+			'<path d="M12 2a2 2 0 0 1 2 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 0 1 7 7h1a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1v1a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-1H2a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h1a7 7 0 0 1 7-7h1V5.73c-.6-.34-1-.99-1-1.73a2 2 0 0 1 2-2z"></path>' +
+			'<circle cx="7.5" cy="14.5" r="1.5"></circle>' +
+			'<circle cx="16.5" cy="14.5" r="1.5"></circle>' +
+			'</svg>' +
 			'</div>' +
 			'<p>Ask me to help with your code. I can read, create, edit, and delete files in your project.</p>' +
 			'<div class="ai-suggestions">' +
-				'<button class="ai-suggestion" data-prompt="Add a dark mode toggle to the app">Add dark mode</button>' +
-				'<button class="ai-suggestion" data-prompt="Explain what this project does">Explain project</button>' +
-				'<button class="ai-suggestion" data-prompt="Add form validation to the input fields">Add validation</button>' +
+			'<button class="ai-suggestion" data-prompt="Add a dark mode toggle to the app">Add dark mode</button>' +
+			'<button class="ai-suggestion" data-prompt="Explain what this project does">Explain project</button>' +
+			'<button class="ai-suggestion" data-prompt="Add form validation to the input fields">Add validation</button>' +
 			'</div>' +
-		'</div>';
+			'</div>';
 	}
 
 	function renderSessionDropdown() {
@@ -1056,15 +1125,27 @@
 			aiSessionDropdown.innerHTML = '<div class="ai-session-empty">No sessions yet</div>';
 			return;
 		}
-		aiSessionDropdown.innerHTML = aiSessions.map(function(s) {
-			var activeClass = s.id === activeSessionId ? ' active' : '';
-			var label = escapeHtml(s.label);
-			var time = formatRelativeTime(s.createdAt);
-			return '<button class="ai-session-item' + activeClass + '" data-session-id="' + s.id + '">' +
-				'<span class="ai-session-item-label">' + label + '</span>' +
-				'<span class="ai-session-item-time">' + time + '</span>' +
-			'</button>';
-		}).join('');
+		aiSessionDropdown.innerHTML = aiSessions
+			.map(function (s) {
+				var activeClass = s.id === activeSessionId ? ' active' : '';
+				var label = escapeHtml(s.label);
+				var time = formatRelativeTime(s.createdAt);
+				return (
+					'<button class="ai-session-item' +
+					activeClass +
+					'" data-session-id="' +
+					s.id +
+					'">' +
+					'<span class="ai-session-item-label">' +
+					label +
+					'</span>' +
+					'<span class="ai-session-item-time">' +
+					time +
+					'</span>' +
+					'</button>'
+				);
+			})
+			.join('');
 	}
 
 	function stopAgent() {
@@ -1116,7 +1197,7 @@
 		let html = escapeHtmlForAi(content);
 
 		// Code blocks
-		html = html.replace(/```(\w*)\n([\s\S]*?)```/g, function(match, lang, code) {
+		html = html.replace(/```(\w*)\n([\s\S]*?)```/g, function (match, lang, code) {
 			return '<pre><code>' + code.trim() + '</code></pre>';
 		});
 
@@ -1154,8 +1235,14 @@
 			const msgEl = document.createElement('div');
 			msgEl.className = 'ai-message ' + role + (isStreaming ? ' streaming' : '');
 			msgEl.innerHTML =
-				'<div class="ai-message-role ' + role + '">' + (role === 'user' ? 'You' : 'AI') + '</div>' +
-				'<div class="ai-message-content">' + formatAiMessage(content) + '</div>';
+				'<div class="ai-message-role ' +
+				role +
+				'">' +
+				(role === 'user' ? 'You' : 'AI') +
+				'</div>' +
+				'<div class="ai-message-content">' +
+				formatAiMessage(content) +
+				'</div>';
 			aiMessages.appendChild(msgEl);
 		}
 
@@ -1180,7 +1267,10 @@
 
 		var pill = document.createElement('span');
 		pill.className = 'ai-tool-pill';
-		pill.innerHTML = '<span class="ai-tool-name">' + escapeHtmlForAi(toolName) + '</span>' +
+		pill.innerHTML =
+			'<span class="ai-tool-name">' +
+			escapeHtmlForAi(toolName) +
+			'</span>' +
 			(details ? '<span class="ai-tool-details">' + escapeHtmlForAi(details) + '</span>' : '');
 
 		// Group consecutive tool calls into a single container
@@ -1191,7 +1281,8 @@
 		} else {
 			group = document.createElement('div');
 			group.className = 'ai-tool-group';
-			group.innerHTML = '<svg class="ai-tool-group-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path></svg>';
+			group.innerHTML =
+				'<svg class="ai-tool-group-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path></svg>';
 			aiMessages.appendChild(group);
 		}
 		group.appendChild(pill);
@@ -1206,21 +1297,86 @@
 		let label;
 
 		if (action === 'create') {
-			icon = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="12" y1="18" x2="12" y2="12"></line><line x1="9" y1="15" x2="15" y2="15"></line></svg>';
+			icon =
+				'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="12" y1="18" x2="12" y2="12"></line><line x1="9" y1="15" x2="15" y2="15"></line></svg>';
 			label = 'Created ' + path;
 		} else if (action === 'edit') {
-			icon = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>';
+			icon =
+				'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>';
 			label = 'Modified ' + path;
 		} else if (action === 'delete') {
-			icon = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>';
+			icon =
+				'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>';
 			label = 'Deleted ' + path;
 		} else {
-			icon = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle></svg>';
+			icon =
+				'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle></svg>';
 			label = action + ' ' + path;
 		}
 
 		changeEl.innerHTML = icon + '<span>' + escapeHtmlForAi(label) + '</span>';
 		aiMessages.appendChild(changeEl);
+		aiMessages.scrollTop = aiMessages.scrollHeight;
+	}
+
+	function addAiError(errorInfo) {
+		// Remove welcome message if present
+		const welcome = aiMessages.querySelector('.ai-welcome');
+		if (welcome) {
+			welcome.remove();
+		}
+
+		var errorEl = document.createElement('div');
+		var isRateLimit = errorInfo.code === 'RATE_LIMIT_EXCEEDED';
+		errorEl.className = 'ai-error' + (isRateLimit ? ' rate-limit' : '');
+
+		var icon = isRateLimit
+			? '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>'
+			: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>';
+
+		var title = isRateLimit ? 'Rate Limit Exceeded' : 'Error';
+		var message = errorInfo.message || 'An unexpected error occurred.';
+
+		// Add helpful context for rate limits
+		if (isRateLimit) {
+			message += ' Please wait a moment before trying again.';
+		}
+
+		errorEl.innerHTML =
+			'<div class="ai-error-header">' +
+			icon +
+			'<span>' +
+			escapeHtmlForAi(title) +
+			'</span></div>' +
+			'<div class="ai-error-message">' +
+			escapeHtmlForAi(message) +
+			'</div>' +
+			'<div class="ai-error-actions">' +
+			'<button class="ai-error-btn primary" data-action="retry">' +
+			'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>' +
+			'Retry' +
+			'</button>' +
+			'<button class="ai-error-btn secondary" data-action="dismiss">Dismiss</button>' +
+			'</div>';
+
+		// Store the prompt for retry
+		errorEl.dataset.prompt = errorInfo.prompt || '';
+
+		// Add event listeners
+		errorEl.querySelector('[data-action="retry"]').addEventListener('click', function () {
+			var prompt = errorEl.dataset.prompt;
+			errorEl.remove();
+			if (prompt) {
+				aiPrompt.value = prompt;
+				sendAiPrompt();
+			}
+		});
+
+		errorEl.querySelector('[data-action="dismiss"]').addEventListener('click', function () {
+			errorEl.remove();
+		});
+
+		aiMessages.appendChild(errorEl);
 		aiMessages.scrollTop = aiMessages.scrollHeight;
 	}
 
@@ -1258,14 +1414,20 @@
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
 					prompt: prompt,
-					history: session.history.slice(0, -1)
+					history: session.history.slice(0, -1),
 				}),
-				signal: currentAbortController.signal
+				signal: currentAbortController.signal,
 			});
 
 			if (!response.ok) {
-				const err = await response.json().catch(function() { return {}; });
-				throw new Error(err.error || 'Request failed');
+				const err = await response.json().catch(function () {
+					return {};
+				});
+				// Create structured error with code for special handling
+				var error = new Error(err.error || 'Request failed');
+				error.code = err.code || null;
+				error.status = response.status;
+				throw error;
 			}
 
 			// Process SSE stream
@@ -1274,7 +1436,7 @@
 			let buffer = '';
 
 			const processEvent = (data) => {
-				handleAiEvent(data, function(text) {
+				handleAiEvent(data, function (text) {
 					assistantMessage += text;
 					addAiMessage('assistant', assistantMessage, true);
 				});
@@ -1292,13 +1454,13 @@
 						type: 'tool_use',
 						id: data.id,
 						name: data.tool,
-						input: data.args
+						input: data.args,
 					});
 				} else if (data.type === 'tool_result') {
 					currentToolResults.push({
 						type: 'tool_result',
 						tool_use_id: data.tool_use_id,
-						content: data.result
+						content: data.result,
 					});
 				} else if (data.type === 'turn_complete') {
 					// Commit current turn
@@ -1342,7 +1504,6 @@
 					// Ignore incomplete data
 				}
 			}
-
 		} catch (err) {
 			if (err.name === 'AbortError') {
 				if (assistantMessage) {
@@ -1352,7 +1513,23 @@
 				}
 			} else {
 				console.error('AI request failed:', err);
-				addAiMessage('assistant', 'Error: ' + err.message);
+				// Remove the user message from history and UI since the request failed before assistant responded
+				if (session.history.length > 0 && session.history[session.history.length - 1].role === 'user') {
+					session.history.pop();
+				}
+				// Remove the last user message from UI if no assistant response yet
+				if (!assistantMessage) {
+					var lastUserMsg = aiMessages.querySelector('.ai-message.user:last-of-type');
+					if (lastUserMsg && !lastUserMsg.nextElementSibling) {
+						lastUserMsg.remove();
+					}
+				}
+				// Show error with retry option
+				addAiError({
+					message: err.message,
+					code: err.code || (err.status === 429 ? 'RATE_LIMIT_EXCEEDED' : null),
+					prompt: prompt,
+				});
 			}
 		} finally {
 			currentAbortController = null;
@@ -1465,26 +1642,26 @@
 	}
 
 	if (aiSidebarClose) {
-		aiSidebarClose.addEventListener('click', function() {
+		aiSidebarClose.addEventListener('click', function () {
 			aiSidebar.classList.add('hidden');
 			aiToggleBtn.classList.remove('active');
 		});
 	}
 
 	if (aiStopBtn) {
-		aiStopBtn.addEventListener('click', function() {
+		aiStopBtn.addEventListener('click', function () {
 			stopAgent();
 		});
 	}
 
 	if (aiNewSessionBtn) {
-		aiNewSessionBtn.addEventListener('click', function() {
+		aiNewSessionBtn.addEventListener('click', function () {
 			startNewSession();
 		});
 	}
 
 	if (aiSessionListBtn) {
-		aiSessionListBtn.addEventListener('click', function(e) {
+		aiSessionListBtn.addEventListener('click', function (e) {
 			e.stopPropagation();
 			renderSessionDropdown();
 			aiSessionDropdown.classList.toggle('hidden');
@@ -1492,7 +1669,7 @@
 	}
 
 	if (aiSessionDropdown) {
-		aiSessionDropdown.addEventListener('click', function(e) {
+		aiSessionDropdown.addEventListener('click', function (e) {
 			var item = e.target.closest('.ai-session-item');
 			if (item && item.dataset.sessionId) {
 				switchToSession(item.dataset.sessionId);
@@ -1500,7 +1677,7 @@
 		});
 	}
 
-	document.addEventListener('click', function(e) {
+	document.addEventListener('click', function (e) {
 		if (aiSessionDropdown && !aiSessionDropdown.contains(e.target) && e.target !== aiSessionListBtn) {
 			aiSessionDropdown.classList.add('hidden');
 		}
@@ -1511,7 +1688,7 @@
 	}
 
 	if (aiPrompt) {
-		aiPrompt.addEventListener('keydown', function(e) {
+		aiPrompt.addEventListener('keydown', function (e) {
 			if (e.key === 'Enter' && !e.shiftKey) {
 				e.preventDefault();
 				sendAiPrompt();
@@ -1519,14 +1696,14 @@
 		});
 
 		// Auto-resize textarea
-		aiPrompt.addEventListener('input', function() {
+		aiPrompt.addEventListener('input', function () {
 			this.style.height = 'auto';
 			this.style.height = Math.min(this.scrollHeight, 120) + 'px';
 		});
 	}
 
 	// Handle suggestion buttons
-	aiMessages.addEventListener('click', function(e) {
+	aiMessages.addEventListener('click', function (e) {
 		const suggestion = e.target.closest('.ai-suggestion');
 		if (suggestion && suggestion.dataset.prompt) {
 			aiPrompt.value = suggestion.dataset.prompt;
@@ -1541,8 +1718,14 @@
 			projectId = await initProject();
 		} catch (err) {
 			console.error('Failed to initialize project:', err);
-			const safeMsg = String(err.message || err).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-			document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;color:#fff;font-family:system-ui;"><div style="text-align:center;"><h2>Failed to initialize project</h2><p>' + safeMsg + '</p><button onclick="location.reload()" style="padding:8px 16px;cursor:pointer;">Retry</button></div></div>';
+			const safeMsg = String(err.message || err)
+				.replace(/&/g, '&amp;')
+				.replace(/</g, '&lt;')
+				.replace(/>/g, '&gt;');
+			document.body.innerHTML =
+				'<div style="display:flex;align-items:center;justify-content:center;height:100vh;color:#fff;font-family:system-ui;"><div style="text-align:center;"><h2>Failed to initialize project</h2><p>' +
+				safeMsg +
+				'</p><button onclick="location.reload()" style="padding:8px 16px;cursor:pointer;">Retry</button></div></div>';
 			return;
 		}
 		if (!projectId) {
@@ -1558,7 +1741,7 @@
 
 		initEditor();
 		await loadFiles();
-		const defaultFile = files.find(f => f.endsWith('main.ts') || f.endsWith('main.js') || f.endsWith('index.js')) || files[0];
+		const defaultFile = files.find((f) => f.endsWith('main.ts') || f.endsWith('main.js') || f.endsWith('index.js')) || files[0];
 		if (defaultFile) {
 			openFile(defaultFile);
 		}

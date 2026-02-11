@@ -1,616 +1,786 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Worker IDE — Architecture</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-  <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>Worker IDE — Architecture</title>
+		<link rel="preconnect" href="https://fonts.googleapis.com" />
+		<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+		<link
+			href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap"
+			rel="stylesheet"
+		/>
+		<style>
+			*,
+			*::before,
+			*::after {
+				box-sizing: border-box;
+				margin: 0;
+				padding: 0;
+			}
 
-    :root {
-      --bg: #0a0a0f;
-      --bg-surface: #111119;
-      --bg-card: #16161f;
-      --border: rgba(255,255,255,0.06);
-      --border-bright: rgba(255,255,255,0.1);
-      --text: #e8e8f0;
-      --text-muted: #8b8ba0;
-      --text-dim: #55556a;
-      --asset: #38bdf8;
-      --asset-dim: rgba(56,189,248,0.08);
-      --asset-glow: rgba(56,189,248,0.4);
-      --worker: #a78bfa;
-      --worker-dim: rgba(167,139,250,0.08);
-      --worker-glow: rgba(167,139,250,0.4);
-      --ws: #4ade80;
-      --ws-dim: rgba(74,222,128,0.08);
-      --ws-glow: rgba(74,222,128,0.4);
-      --orange: #fb923c;
-      --magenta: #f472b6;
-      --yellow: #facc15;
-      --red: #f87171;
-    }
+			:root {
+				--bg: #0a0a0f;
+				--bg-surface: #111119;
+				--bg-card: #16161f;
+				--border: rgba(255, 255, 255, 0.06);
+				--border-bright: rgba(255, 255, 255, 0.1);
+				--text: #e8e8f0;
+				--text-muted: #8b8ba0;
+				--text-dim: #55556a;
+				--asset: #38bdf8;
+				--asset-dim: rgba(56, 189, 248, 0.08);
+				--asset-glow: rgba(56, 189, 248, 0.4);
+				--worker: #a78bfa;
+				--worker-dim: rgba(167, 139, 250, 0.08);
+				--worker-glow: rgba(167, 139, 250, 0.4);
+				--ws: #4ade80;
+				--ws-dim: rgba(74, 222, 128, 0.08);
+				--ws-glow: rgba(74, 222, 128, 0.4);
+				--orange: #fb923c;
+				--magenta: #f472b6;
+				--yellow: #facc15;
+				--red: #f87171;
+			}
 
-    html { scroll-behavior: smooth; }
+			html {
+				scroll-behavior: smooth;
+			}
 
-    body {
-      font-family: 'Inter', system-ui, -apple-system, sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      line-height: 1.6;
-      overflow-x: hidden;
-      min-height: 100vh;
-    }
+			body {
+				font-family:
+					'Inter',
+					system-ui,
+					-apple-system,
+					sans-serif;
+				background: var(--bg);
+				color: var(--text);
+				line-height: 1.6;
+				overflow-x: hidden;
+				min-height: 100vh;
+			}
 
-    body::before {
-      content: '';
-      position: fixed; inset: 0;
-      background-image: radial-gradient(circle at 1px 1px, rgba(255,255,255,0.02) 1px, transparent 0);
-      background-size: 32px 32px;
-      pointer-events: none; z-index: 0;
-    }
+			body::before {
+				content: '';
+				position: fixed;
+				inset: 0;
+				background-image: radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.02) 1px, transparent 0);
+				background-size: 32px 32px;
+				pointer-events: none;
+				z-index: 0;
+			}
 
-    .page { position: relative; z-index: 1; }
-    .container { max-width: 1200px; margin: 0 auto; padding: 0 32px; }
+			.page {
+				position: relative;
+				z-index: 1;
+			}
+			.container {
+				max-width: 1200px;
+				margin: 0 auto;
+				padding: 0 32px;
+			}
 
-    nav {
-      position: fixed; top: 0; left: 0; right: 0; z-index: 100;
-      background: rgba(10,10,15,0.85); backdrop-filter: blur(16px) saturate(1.5);
-      border-bottom: 1px solid var(--border);
-    }
-    nav .container { display: flex; align-items: center; justify-content: space-between; height: 56px; }
-    .logo {
-      font-family: 'JetBrains Mono', monospace;
-      font-weight: 600; font-size: 15px; color: var(--asset);
-      text-decoration: none; letter-spacing: 0.02em;
-    }
-    .nav-links { display: flex; gap: 24px; }
-    .nav-links a {
-      font-size: 14px; color: var(--text-muted); text-decoration: none;
-      font-weight: 500; transition: color 0.2s;
-    }
-    .nav-links a:hover { color: var(--text); }
+			nav {
+				position: fixed;
+				top: 0;
+				left: 0;
+				right: 0;
+				z-index: 100;
+				background: rgba(10, 10, 15, 0.85);
+				backdrop-filter: blur(16px) saturate(1.5);
+				border-bottom: 1px solid var(--border);
+			}
+			nav .container {
+				display: flex;
+				align-items: center;
+				justify-content: space-between;
+				height: 56px;
+			}
+			.logo {
+				font-family: 'JetBrains Mono', monospace;
+				font-weight: 600;
+				font-size: 15px;
+				color: var(--asset);
+				text-decoration: none;
+				letter-spacing: 0.02em;
+			}
+			.nav-links {
+				display: flex;
+				gap: 24px;
+			}
+			.nav-links a {
+				font-size: 14px;
+				color: var(--text-muted);
+				text-decoration: none;
+				font-weight: 500;
+				transition: color 0.2s;
+			}
+			.nav-links a:hover {
+				color: var(--text);
+			}
 
-    .hero { padding: 120px 0 48px; text-align: center; }
-    .hero h1 {
-      font-size: clamp(32px, 4.5vw, 56px); font-weight: 800;
-      letter-spacing: -0.04em; line-height: 1.1; margin-bottom: 16px;
-    }
-    .hero h1 .grad {
-      background: linear-gradient(135deg, var(--asset) 0%, var(--worker) 50%, var(--ws) 100%);
-      -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
-    }
-    .hero p { color: var(--text-muted); font-size: 17px; max-width: 620px; margin: 0 auto 36px; line-height: 1.7; }
+			.hero {
+				padding: 120px 0 48px;
+				text-align: center;
+			}
+			.hero h1 {
+				font-size: clamp(32px, 4.5vw, 56px);
+				font-weight: 800;
+				letter-spacing: -0.04em;
+				line-height: 1.1;
+				margin-bottom: 16px;
+			}
+			.hero h1 .grad {
+				background: linear-gradient(135deg, var(--asset) 0%, var(--worker) 50%, var(--ws) 100%);
+				-webkit-background-clip: text;
+				-webkit-text-fill-color: transparent;
+				background-clip: text;
+			}
+			.hero p {
+				color: var(--text-muted);
+				font-size: 17px;
+				max-width: 620px;
+				margin: 0 auto 36px;
+				line-height: 1.7;
+			}
 
-    .legend { display: flex; justify-content: center; gap: 20px; flex-wrap: wrap; margin-bottom: 8px; }
-    .legend-item {
-      display: flex; align-items: center; gap: 8px;
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 13px; font-weight: 500; letter-spacing: 0.04em;
-      padding: 6px 16px; border-radius: 100px;
-    }
-    .legend-item .dot { width: 8px; height: 8px; border-radius: 50%; }
-    .legend-item.asset  { color: var(--asset);  background: var(--asset-dim);  border: 1px solid rgba(56,189,248,0.2); }
-    .legend-item.asset .dot  { background: var(--asset); }
-    .legend-item.worker { color: var(--worker); background: var(--worker-dim); border: 1px solid rgba(167,139,250,0.2); }
-    .legend-item.worker .dot { background: var(--worker); }
-    .legend-item.ws     { color: var(--ws);     background: var(--ws-dim);     border: 1px solid rgba(74,222,128,0.2); }
-    .legend-item.ws .dot     { background: var(--ws); }
+			.legend {
+				display: flex;
+				justify-content: center;
+				gap: 20px;
+				flex-wrap: wrap;
+				margin-bottom: 8px;
+			}
+			.legend-item {
+				display: flex;
+				align-items: center;
+				gap: 8px;
+				font-family: 'JetBrains Mono', monospace;
+				font-size: 13px;
+				font-weight: 500;
+				letter-spacing: 0.04em;
+				padding: 6px 16px;
+				border-radius: 100px;
+			}
+			.legend-item .dot {
+				width: 8px;
+				height: 8px;
+				border-radius: 50%;
+			}
+			.legend-item.asset {
+				color: var(--asset);
+				background: var(--asset-dim);
+				border: 1px solid rgba(56, 189, 248, 0.2);
+			}
+			.legend-item.asset .dot {
+				background: var(--asset);
+			}
+			.legend-item.worker {
+				color: var(--worker);
+				background: var(--worker-dim);
+				border: 1px solid rgba(167, 139, 250, 0.2);
+			}
+			.legend-item.worker .dot {
+				background: var(--worker);
+			}
+			.legend-item.ws {
+				color: var(--ws);
+				background: var(--ws-dim);
+				border: 1px solid rgba(74, 222, 128, 0.2);
+			}
+			.legend-item.ws .dot {
+				background: var(--ws);
+			}
 
-    .diagram-section { padding: 0 0 80px; }
+			.diagram-section {
+				padding: 0 0 80px;
+			}
 
-    /* ── Lane container ── */
-    .lane {
-      background: rgba(12, 12, 20, 0.6);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 24px 28px 28px;
-      margin-bottom: 24px;
-      position: relative;
-    }
-    .lane-header {
-      display: flex; align-items: center; gap: 12px;
-      margin-bottom: 28px; padding-bottom: 16px;
-      border-bottom: 1px solid var(--border);
-    }
-    .lane-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
-    .lane-title {
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 16px; font-weight: 600; letter-spacing: 0.02em;
-    }
-    .lane-desc {
-      font-size: 14px; color: var(--text-muted); margin-left: auto;
-      font-family: 'Inter', sans-serif;
-    }
+			/* ── Lane container ── */
+			.lane {
+				background: rgba(12, 12, 20, 0.6);
+				border: 1px solid var(--border);
+				border-radius: 12px;
+				padding: 24px 28px 28px;
+				margin-bottom: 24px;
+				position: relative;
+			}
+			.lane-header {
+				display: flex;
+				align-items: center;
+				gap: 12px;
+				margin-bottom: 28px;
+				padding-bottom: 16px;
+				border-bottom: 1px solid var(--border);
+			}
+			.lane-dot {
+				width: 10px;
+				height: 10px;
+				border-radius: 50%;
+				flex-shrink: 0;
+			}
+			.lane-title {
+				font-family: 'JetBrains Mono', monospace;
+				font-size: 16px;
+				font-weight: 600;
+				letter-spacing: 0.02em;
+			}
+			.lane-desc {
+				font-size: 14px;
+				color: var(--text-muted);
+				margin-left: auto;
+				font-family: 'Inter', sans-serif;
+			}
 
-    /* ── Flow label above a grid ── */
-    .flow-label {
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 13px;
-      font-weight: 600;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      margin: 24px 0 14px;
-      padding-left: 2px;
-    }
-    .flow-label:first-child { margin-top: 0; }
+			/* ── Flow label above a grid ── */
+			.flow-label {
+				font-family: 'JetBrains Mono', monospace;
+				font-size: 13px;
+				font-weight: 600;
+				letter-spacing: 0.08em;
+				text-transform: uppercase;
+				margin: 24px 0 14px;
+				padding-left: 2px;
+			}
+			.flow-label:first-child {
+				margin-top: 0;
+			}
 
-    /* ── Grid flow layout ── */
-    .flow-grid {
-      display: grid;
-      grid-template-columns: 1fr minmax(60px, auto) 1fr minmax(60px, auto) 1fr;
-      align-items: center;
-      gap: 0;
-      padding: 4px 0;
-    }
+			/* ── Grid flow layout ── */
+			.flow-grid {
+				display: grid;
+				grid-template-columns: 1fr minmax(60px, auto) 1fr minmax(60px, auto) 1fr;
+				align-items: center;
+				gap: 0;
+				padding: 4px 0;
+			}
 
-    /* Column utilities for serpentine layout */
-    .col-1 { grid-column: 1; }
-    .col-2 { grid-column: 2; }
-    .col-3 { grid-column: 3; }
-    .col-4 { grid-column: 4; }
-    .col-5 { grid-column: 5; }
+			/* Column utilities for serpentine layout */
+			.col-1 {
+				grid-column: 1;
+			}
+			.col-2 {
+				grid-column: 2;
+			}
+			.col-3 {
+				grid-column: 3;
+			}
+			.col-4 {
+				grid-column: 4;
+			}
+			.col-5 {
+				grid-column: 5;
+			}
 
-    /* ── Node card ── */
-    .node {
-      background: rgba(10, 10, 20, 0.7);
-      border: 1px dashed var(--node-color, var(--border-bright));
-      border-radius: 3px;
-      padding: 8px 6px;
-      text-align: center;
-      position: relative;
-      min-width: 0;
-      z-index: 1;
-    }
-    .node::before {
-      content: '';
-      position: absolute;
-      inset: -3px;
-      pointer-events: none;
-      background:
-        linear-gradient(var(--node-color, var(--border-bright)), var(--node-color, var(--border-bright))) 0 0 / 5px 5px no-repeat,
-        linear-gradient(var(--node-color, var(--border-bright)), var(--node-color, var(--border-bright))) 100% 0 / 5px 5px no-repeat,
-        linear-gradient(var(--node-color, var(--border-bright)), var(--node-color, var(--border-bright))) 0 100% / 5px 5px no-repeat,
-        linear-gradient(var(--node-color, var(--border-bright)), var(--node-color, var(--border-bright))) 100% 100% / 5px 5px no-repeat;
-      opacity: 0.4;
-    }
-    .node-name {
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 12px;
-      font-weight: 600;
-      color: var(--node-color, var(--text));
-      line-height: 1.3;
-      margin-bottom: 2px;
-      white-space: nowrap;
-    }
-    .node-detail {
-      font-family: 'Inter', sans-serif;
-      font-size: 11px;
-      color: var(--text-muted);
-      line-height: 1.3;
-      white-space: nowrap;
-    }
+			/* ── Node card ── */
+			.node {
+				background: rgba(10, 10, 20, 0.7);
+				border: 1px dashed var(--node-color, var(--border-bright));
+				border-radius: 3px;
+				padding: 8px 6px;
+				text-align: center;
+				position: relative;
+				min-width: 0;
+				z-index: 1;
+			}
+			.node::before {
+				content: '';
+				position: absolute;
+				inset: -3px;
+				pointer-events: none;
+				background:
+					linear-gradient(var(--node-color, var(--border-bright)), var(--node-color, var(--border-bright))) 0 0 / 5px 5px no-repeat,
+					linear-gradient(var(--node-color, var(--border-bright)), var(--node-color, var(--border-bright))) 100% 0 / 5px 5px no-repeat,
+					linear-gradient(var(--node-color, var(--border-bright)), var(--node-color, var(--border-bright))) 0 100% / 5px 5px no-repeat,
+					linear-gradient(var(--node-color, var(--border-bright)), var(--node-color, var(--border-bright))) 100% 100% / 5px 5px no-repeat;
+				opacity: 0.4;
+			}
+			.node-name {
+				font-family: 'JetBrains Mono', monospace;
+				font-size: 12px;
+				font-weight: 600;
+				color: var(--node-color, var(--text));
+				line-height: 1.3;
+				margin-bottom: 2px;
+				white-space: nowrap;
+			}
+			.node-detail {
+				font-family: 'Inter', sans-serif;
+				font-size: 11px;
+				color: var(--text-muted);
+				line-height: 1.3;
+				white-space: nowrap;
+			}
 
-    /* ── Horizontal arrow (sits between two node columns) ── */
-    .h-arrow {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      padding: 0 2px;
-      position: relative;
-      min-width: 48px;
-    }
-    .h-arrow-label {
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 8px;
-      font-weight: 500;
-      color: var(--arrow-color, var(--text-muted));
-      white-space: nowrap;
-      opacity: 0.85;
-      margin-bottom: 4px;
-    }
-    .h-arrow-line {
-      width: 100%;
-      height: 0;
-      border-top: 1px dashed var(--arrow-color, var(--text-dim));
-      position: relative;
-    }
-    /* Default: Right pointing arrow */
-    .h-arrow-line::after {
-      content: '';
-      position: absolute;
-      right: -1px;
-      top: -4px;
-      border-left: 6px solid var(--arrow-color, var(--text-dim));
-      border-top: 4px solid transparent;
-      border-bottom: 4px solid transparent;
-    }
-    /* Reverse: Left pointing arrow */
-    .h-arrow.reverse .h-arrow-line::after {
-      right: auto;
-      left: -1px;
-      border-left: none;
-      border-right: 6px solid var(--arrow-color, var(--text-dim));
-    }
+			/* ── Horizontal arrow (sits between two node columns) ── */
+			.h-arrow {
+				display: flex;
+				flex-direction: column;
+				align-items: center;
+				justify-content: center;
+				padding: 0 2px;
+				position: relative;
+				min-width: 48px;
+			}
+			.h-arrow-label {
+				font-family: 'JetBrains Mono', monospace;
+				font-size: 8px;
+				font-weight: 500;
+				color: var(--arrow-color, var(--text-muted));
+				white-space: nowrap;
+				opacity: 0.85;
+				margin-bottom: 4px;
+			}
+			.h-arrow-line {
+				width: 100%;
+				height: 0;
+				border-top: 1px dashed var(--arrow-color, var(--text-dim));
+				position: relative;
+			}
+			/* Default: Right pointing arrow */
+			.h-arrow-line::after {
+				content: '';
+				position: absolute;
+				right: -1px;
+				top: -4px;
+				border-left: 6px solid var(--arrow-color, var(--text-dim));
+				border-top: 4px solid transparent;
+				border-bottom: 4px solid transparent;
+			}
+			/* Reverse: Left pointing arrow */
+			.h-arrow.reverse .h-arrow-line::after {
+				right: auto;
+				left: -1px;
+				border-left: none;
+				border-right: 6px solid var(--arrow-color, var(--text-dim));
+			}
 
-    /* ── Vertical connector between grid rows ── */
-    .v-connector {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 12px;
-      padding: 0;
-      min-height: 32px;
-      grid-column: 1 / -1; /* Default span, override with .col-N */
-    }
-    .v-connector.right {
-      flex-direction: row-reverse;
-    }
-    .v-connector-line {
-      width: 0;
-      height: 32px;
-      border-left: 1px dashed var(--arrow-color, var(--text-dim));
-      position: relative;
-    }
-    .v-connector-line::after {
-      content: '';
-      position: absolute;
-      bottom: -1px;
-      left: -4px;
-      border-top: 6px solid var(--arrow-color, var(--text-dim));
-      border-left: 4px solid transparent;
-      border-right: 4px solid transparent;
-    }
-    .v-connector-label {
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 9px;
-      font-weight: 500;
-      color: var(--arrow-color, var(--text-muted));
-      opacity: 0.85;
-      white-space: nowrap;
-    }
+			/* ── Vertical connector between grid rows ── */
+			.v-connector {
+				display: flex;
+				align-items: center;
+				justify-content: center;
+				gap: 12px;
+				padding: 0;
+				min-height: 32px;
+				grid-column: 1 / -1; /* Default span, override with .col-N */
+			}
+			.v-connector.right {
+				flex-direction: row-reverse;
+			}
+			.v-connector-line {
+				width: 0;
+				height: 32px;
+				border-left: 1px dashed var(--arrow-color, var(--text-dim));
+				position: relative;
+			}
+			.v-connector-line::after {
+				content: '';
+				position: absolute;
+				bottom: -1px;
+				left: -4px;
+				border-top: 6px solid var(--arrow-color, var(--text-dim));
+				border-left: 4px solid transparent;
+				border-right: 4px solid transparent;
+			}
+			.v-connector-label {
+				font-family: 'JetBrains Mono', monospace;
+				font-size: 9px;
+				font-weight: 500;
+				color: var(--arrow-color, var(--text-muted));
+				opacity: 0.85;
+				white-space: nowrap;
+			}
 
-    /* ── Connector note between flow grids ── */
-    .flow-connector {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      margin: 12px 0 4px 2px;
-    }
-    .flow-connector-icon {
-      color: var(--text-dim);
-      font-size: 18px;
-      line-height: 1;
-    }
-    .flow-connector-text {
-      font-family: 'Inter', sans-serif;
-      font-size: 14px;
-      color: var(--text-muted);
-    }
+			/* ── Connector note between flow grids ── */
+			.flow-connector {
+				display: flex;
+				align-items: center;
+				gap: 10px;
+				margin: 12px 0 4px 2px;
+			}
+			.flow-connector-icon {
+				color: var(--text-dim);
+				font-size: 18px;
+				line-height: 1;
+			}
+			.flow-connector-text {
+				font-family: 'Inter', sans-serif;
+				font-size: 14px;
+				color: var(--text-muted);
+			}
 
-    /* ── Lane footnote ── */
-    .lane-note {
-      font-family: 'Inter', sans-serif;
-      font-size: 14px;
-      color: var(--text-muted);
-      margin-top: 20px;
-      line-height: 1.5;
-    }
+			/* ── Lane footnote ── */
+			.lane-note {
+				font-family: 'Inter', sans-serif;
+				font-size: 14px;
+				color: var(--text-muted);
+				margin-top: 20px;
+				line-height: 1.5;
+			}
 
-    /* Column utilities for serpentine layout (must be last to override) */
-    .col-1 { grid-column: 1 !important; }
-    .col-2 { grid-column: 2 !important; }
-    .col-3 { grid-column: 3 !important; }
-    .col-4 { grid-column: 4 !important; }
-    .col-5 { grid-column: 5 !important; }
+			/* Column utilities for serpentine layout (must be last to override) */
+			.col-1 {
+				grid-column: 1 !important;
+			}
+			.col-2 {
+				grid-column: 2 !important;
+			}
+			.col-3 {
+				grid-column: 3 !important;
+			}
+			.col-4 {
+				grid-column: 4 !important;
+			}
+			.col-5 {
+				grid-column: 5 !important;
+			}
 
-    .col-span-3 { grid-column: 2 / span 3 !important; }
+			.col-span-3 {
+				grid-column: 2 / span 3 !important;
+			}
 
-    footer {
-      padding: 48px 0; border-top: 1px solid var(--border); text-align: center;
-    }
-    footer p { color: var(--text-dim); font-size: 14px; }
-    footer a { color: var(--text-muted); text-decoration: none; }
-    footer a:hover { color: var(--text); }
+			footer {
+				padding: 48px 0;
+				border-top: 1px solid var(--border);
+				text-align: center;
+			}
+			footer p {
+				color: var(--text-dim);
+				font-size: 14px;
+			}
+			footer a {
+				color: var(--text-muted);
+				text-decoration: none;
+			}
+			footer a:hover {
+				color: var(--text);
+			}
 
-    @media (max-width: 768px) {
-      .hero { padding: 100px 0 24px; }
-      .lane { padding: 16px 12px 16px; border-radius: 10px; }
-      .container { padding: 0 12px; }
-      .lane-desc { display: none; }
-      .flow-grid { grid-template-columns: 1fr minmax(40px, auto) 1fr minmax(40px, auto) 1fr; }
-      .node { padding: 6px 8px; }
-      .node-name { font-size: 10px; }
-      .node-detail { font-size: 9px; }
-      .h-arrow { min-width: 32px; }
-      .h-arrow-label { font-size: 8px; }
-    }
-  </style>
-</head>
-<body>
+			@media (max-width: 768px) {
+				.hero {
+					padding: 100px 0 24px;
+				}
+				.lane {
+					padding: 16px 12px 16px;
+					border-radius: 10px;
+				}
+				.container {
+					padding: 0 12px;
+				}
+				.lane-desc {
+					display: none;
+				}
+				.flow-grid {
+					grid-template-columns: 1fr minmax(40px, auto) 1fr minmax(40px, auto) 1fr;
+				}
+				.node {
+					padding: 6px 8px;
+				}
+				.node-name {
+					font-size: 10px;
+				}
+				.node-detail {
+					font-size: 9px;
+				}
+				.h-arrow {
+					min-width: 32px;
+				}
+				.h-arrow-label {
+					font-size: 8px;
+				}
+			}
+		</style>
+	</head>
+	<body>
+		<div class="page">
+			<nav>
+				<div class="container">
+					<a href="/" class="logo">worker-ide</a>
+					<div class="nav-links">
+						<a href="https://github.com/TimoWilhelm/worker-ide" target="_blank">GitHub</a>
+						<a href="https://github.com/TimoWilhelm/worker-ide#readme" target="_blank">Docs</a>
+					</div>
+				</div>
+			</nav>
 
-<div class="page">
+			<section class="hero">
+				<div class="container">
+					<h1>How <span class="grad">Worker IDE</span> works</h1>
+					<p>
+						A browser-based development environment running entirely on Cloudflare's edge — Durable Objects for storage, esbuild-wasm for
+						transforms, and dynamic V8 isolates for user code.
+					</p>
+					<div class="legend">
+						<span class="legend-item asset"><span class="dot"></span>Asset Pipeline + HMR</span>
+						<span class="legend-item worker"><span class="dot"></span>Worker Execution</span>
+						<span class="legend-item ws"><span class="dot"></span>WebSocket Feedback</span>
+					</div>
+				</div>
+			</section>
 
-<nav>
-  <div class="container">
-    <a href="/" class="logo">worker-ide</a>
-    <div class="nav-links">
-      <a href="https://github.com/TimoWilhelm/worker-ide" target="_blank">GitHub</a>
-      <a href="https://github.com/TimoWilhelm/worker-ide#readme" target="_blank">Docs</a>
-    </div>
-  </div>
-</nav>
-
-<section class="hero">
-  <div class="container">
-    <h1>How <span class="grad">Worker IDE</span> works</h1>
-    <p>A browser-based development environment running entirely on Cloudflare's edge — Durable Objects for storage, esbuild-wasm for transforms, and dynamic V8 isolates for user code.</p>
-    <div class="legend">
-      <span class="legend-item asset"><span class="dot"></span>Asset Pipeline + HMR</span>
-      <span class="legend-item worker"><span class="dot"></span>Worker Execution</span>
-      <span class="legend-item ws"><span class="dot"></span>WebSocket Feedback</span>
-    </div>
-  </div>
-</section>
-
-<section class="diagram-section">
-  <div class="container">
-
-    <!-- ═══════════════════════════════════════════════
+			<section class="diagram-section">
+				<div class="container">
+					<!-- ═══════════════════════════════════════════════
          LANE 1: ASSET PIPELINE + HMR
          ═══════════════════════════════════════════════ -->
-    <div class="lane">
-      <div class="lane-header">
-        <span class="lane-dot" style="background:var(--asset)"></span>
-        <span class="lane-title" style="color:var(--asset)">Asset Pipeline + HMR</span>
-        <span class="lane-desc">Save triggers HMR, then Preview fetches assets on-demand through esbuild</span>
-      </div>
+					<div class="lane">
+						<div class="lane-header">
+							<span class="lane-dot" style="background: var(--asset)"></span>
+							<span class="lane-title" style="color: var(--asset)">Asset Pipeline + HMR</span>
+							<span class="lane-desc">Save triggers HMR, then Preview fetches assets on-demand through esbuild</span>
+						</div>
 
-      <div class="flow-label" style="color:var(--asset)">Save + HMR Path</div>
-      <div class="flow-grid">
-        <!-- Row 1: Editor writes to Host, Host writes to DO -->
-        <div class="node col-1" style="--node-color:var(--text)">
-          <div class="node-name">Editor UI</div>
-          <div class="node-detail">edit &amp; save</div>
-        </div>
-        <div class="h-arrow col-2" style="--arrow-color:var(--asset)">
-          <span class="h-arrow-label">PUT /api/file</span>
-          <div class="h-arrow-line"></div>
-        </div>
-        <div class="node col-3" style="--node-color:var(--orange)">
-          <div class="node-name">Host Worker</div>
-          <div class="node-detail">handleAPI()</div>
-        </div>
-        <div class="h-arrow col-4" style="--arrow-color:var(--magenta)">
-          <span class="h-arrow-label">fs.writeFile()</span>
-          <div class="h-arrow-line"></div>
-        </div>
-        <div class="node col-5" style="--node-color:var(--magenta)">
-          <div class="node-name">DO Filesystem</div>
-          <div class="node-detail">Durable Object</div>
-        </div>
+						<div class="flow-label" style="color: var(--asset)">Save + HMR Path</div>
+						<div class="flow-grid">
+							<!-- Row 1: Editor writes to Host, Host writes to DO -->
+							<div class="node col-1" style="--node-color: var(--text)">
+								<div class="node-name">Editor UI</div>
+								<div class="node-detail">edit &amp; save</div>
+							</div>
+							<div class="h-arrow col-2" style="--arrow-color: var(--asset)">
+								<span class="h-arrow-label">PUT /api/file</span>
+								<div class="h-arrow-line"></div>
+							</div>
+							<div class="node col-3" style="--node-color: var(--orange)">
+								<div class="node-name">Host Worker</div>
+								<div class="node-detail">handleAPI()</div>
+							</div>
+							<div class="h-arrow col-4" style="--arrow-color: var(--magenta)">
+								<span class="h-arrow-label">fs.writeFile()</span>
+								<div class="h-arrow-line"></div>
+							</div>
+							<div class="node col-5" style="--node-color: var(--magenta)">
+								<div class="node-name">DO Filesystem</div>
+								<div class="node-detail">Durable Object</div>
+							</div>
 
-        <!-- Connector: Host Worker triggers HMR -->
-        <div class="v-connector col-3" style="--arrow-color:var(--asset)">
-          <div class="v-connector-line"></div>
-          <span class="v-connector-label">triggers HMR</span>
-        </div>
+							<!-- Connector: Host Worker triggers HMR -->
+							<div class="v-connector col-3" style="--arrow-color: var(--asset)">
+								<div class="v-connector-line"></div>
+								<span class="v-connector-label">triggers HMR</span>
+							</div>
 
-        <!-- Row 2: HMR broadcast -->
-        <div class="node col-3" style="--node-color:var(--ws)">
-          <div class="node-name">HMR Coordinator</div>
-          <div class="node-detail">broadcast()</div>
-        </div>
-        <div class="h-arrow col-4" style="--arrow-color:var(--ws)">
-          <span class="h-arrow-label">WS message</span>
-          <div class="h-arrow-line"></div>
-        </div>
-        <div class="node col-5" style="--node-color:var(--text)">
-          <div class="node-name">Preview</div>
-          <div class="node-detail">update / reload</div>
-        </div>
-      </div>
+							<!-- Row 2: HMR broadcast -->
+							<div class="node col-3" style="--node-color: var(--ws)">
+								<div class="node-name">HMR Coordinator</div>
+								<div class="node-detail">broadcast()</div>
+							</div>
+							<div class="h-arrow col-4" style="--arrow-color: var(--ws)">
+								<span class="h-arrow-label">WS message</span>
+								<div class="h-arrow-line"></div>
+							</div>
+							<div class="node col-5" style="--node-color: var(--text)">
+								<div class="node-name">Preview</div>
+								<div class="node-detail">update / reload</div>
+							</div>
+						</div>
 
-      <div class="flow-connector">
-        <span class="flow-connector-icon">↓</span>
-        <span class="flow-connector-text">Reload triggers on-demand asset fetches</span>
-      </div>
+						<div class="flow-connector">
+							<span class="flow-connector-icon">↓</span>
+							<span class="flow-connector-text">Reload triggers on-demand asset fetches</span>
+						</div>
 
-      <div class="flow-label" style="color:var(--orange)">On-Demand Fetch Path</div>
-      <div class="flow-grid">
-        <!-- Row 1: Request & Read -->
-        <div class="node col-1" style="--node-color:var(--text)">
-          <div class="node-name">Preview</div>
-          <div class="node-detail">GET /src/main.ts</div>
-        </div>
-        <div class="h-arrow col-2" style="--arrow-color:var(--orange)">
-          <span class="h-arrow-label">HTTP request</span>
-          <div class="h-arrow-line"></div>
-        </div>
-        <div class="node col-3" style="--node-color:var(--orange)">
-          <div class="node-name">Host Worker</div>
-          <div class="node-detail">serveFile()</div>
-        </div>
-        <div class="h-arrow col-4" style="--arrow-color:var(--magenta)">
-          <span class="h-arrow-label">fs.readFile()</span>
-          <div class="h-arrow-line"></div>
-        </div>
-        <div class="node col-5" style="--node-color:var(--magenta)">
-          <div class="node-name">DO Filesystem</div>
-          <div class="node-detail">read source</div>
-        </div>
+						<div class="flow-label" style="color: var(--orange)">On-Demand Fetch Path</div>
+						<div class="flow-grid">
+							<!-- Row 1: Request & Read -->
+							<div class="node col-1" style="--node-color: var(--text)">
+								<div class="node-name">Preview</div>
+								<div class="node-detail">GET /src/main.ts</div>
+							</div>
+							<div class="h-arrow col-2" style="--arrow-color: var(--orange)">
+								<span class="h-arrow-label">HTTP request</span>
+								<div class="h-arrow-line"></div>
+							</div>
+							<div class="node col-3" style="--node-color: var(--orange)">
+								<div class="node-name">Host Worker</div>
+								<div class="node-detail">serveFile()</div>
+							</div>
+							<div class="h-arrow col-4" style="--arrow-color: var(--magenta)">
+								<span class="h-arrow-label">fs.readFile()</span>
+								<div class="h-arrow-line"></div>
+							</div>
+							<div class="node col-5" style="--node-color: var(--magenta)">
+								<div class="node-name">DO Filesystem</div>
+								<div class="node-detail">read source</div>
+							</div>
 
-        <!-- Connector: Host transforms -->
-        <div class="v-connector col-3" style="--arrow-color:var(--yellow)">
-          <div class="v-connector-line"></div>
-          <span class="v-connector-label">transformModule()</span>
-        </div>
+							<!-- Connector: Host transforms -->
+							<div class="v-connector col-3" style="--arrow-color: var(--yellow)">
+								<div class="v-connector-line"></div>
+								<span class="v-connector-label">transformModule()</span>
+							</div>
 
-        <!-- Row 2: Transform -->
-        <div class="node col-3" style="--node-color:var(--yellow)">
-          <div class="node-name">esbuild-wasm</div>
-          <div class="node-detail">TS→JS transform</div>
-        </div>
+							<!-- Row 2: Transform -->
+							<div class="node col-3" style="--node-color: var(--yellow)">
+								<div class="node-name">esbuild-wasm</div>
+								<div class="node-detail">TS→JS transform</div>
+							</div>
 
-        <!-- Connector: Return response -->
-        <div class="v-connector col-3" style="--arrow-color:var(--asset)">
-          <div class="v-connector-line"></div>
-          <span class="v-connector-label">returns JS</span>
-        </div>
+							<!-- Connector: Return response -->
+							<div class="v-connector col-3" style="--arrow-color: var(--asset)">
+								<div class="v-connector-line"></div>
+								<span class="v-connector-label">returns JS</span>
+							</div>
 
-        <!-- Row 3: Response -->
-        <div class="node col-1" style="--node-color:var(--text)">
-          <div class="node-name">Preview</div>
-          <div class="node-detail">receives JS</div>
-        </div>
-        <div class="h-arrow reverse col-2" style="--arrow-color:var(--asset)">
-          <span class="h-arrow-label">200 OK</span>
-          <div class="h-arrow-line"></div>
-        </div>
-        <div class="node col-3" style="--node-color:var(--orange)">
-          <div class="node-name">Host Worker</div>
-          <div class="node-detail">proxies response</div>
-        </div>
-      </div>
-    </div>
+							<!-- Row 3: Response -->
+							<div class="node col-1" style="--node-color: var(--text)">
+								<div class="node-name">Preview</div>
+								<div class="node-detail">receives JS</div>
+							</div>
+							<div class="h-arrow reverse col-2" style="--arrow-color: var(--asset)">
+								<span class="h-arrow-label">200 OK</span>
+								<div class="h-arrow-line"></div>
+							</div>
+							<div class="node col-3" style="--node-color: var(--orange)">
+								<div class="node-name">Host Worker</div>
+								<div class="node-detail">proxies response</div>
+							</div>
+						</div>
+					</div>
 
-    <!-- ═══════════════════════════════════════════════
+					<!-- ═══════════════════════════════════════════════
          LANE 2: WORKER EXECUTION
          ═══════════════════════════════════════════════ -->
-    <div class="lane">
-      <div class="lane-header">
-        <span class="lane-dot" style="background:var(--worker)"></span>
-        <span class="lane-title" style="color:var(--worker)">Worker Execution</span>
-        <span class="lane-desc">API request → read &amp; bundle worker/ → spawn V8 isolate → return response</span>
-      </div>
+					<div class="lane">
+						<div class="lane-header">
+							<span class="lane-dot" style="background: var(--worker)"></span>
+							<span class="lane-title" style="color: var(--worker)">Worker Execution</span>
+							<span class="lane-desc">API request → read &amp; bundle worker/ → spawn V8 isolate → return response</span>
+						</div>
 
-      <div class="flow-grid">
-        <!-- Row 1: Request & Read -->
-        <div class="node col-1" style="--node-color:var(--text)">
-          <div class="node-name">Preview</div>
-          <div class="node-detail">fetch('/api/items')</div>
-        </div>
-        <div class="h-arrow col-2" style="--arrow-color:var(--worker)">
-          <span class="h-arrow-label">/preview/api/*</span>
-          <div class="h-arrow-line"></div>
-        </div>
-        <div class="node col-3" style="--node-color:var(--orange)">
-          <div class="node-name">Host Worker</div>
-          <div class="node-detail">handlePreviewAPI()</div>
-        </div>
-        <div class="h-arrow col-4" style="--arrow-color:var(--magenta)">
-          <span class="h-arrow-label">collectFiles()</span>
-          <div class="h-arrow-line"></div>
-        </div>
-        <div class="node col-5" style="--node-color:var(--magenta)">
-          <div class="node-name">DO Filesystem</div>
-          <div class="node-detail">read worker/ files</div>
-        </div>
+						<div class="flow-grid">
+							<!-- Row 1: Request & Read -->
+							<div class="node col-1" style="--node-color: var(--text)">
+								<div class="node-name">Preview</div>
+								<div class="node-detail">fetch('/api/items')</div>
+							</div>
+							<div class="h-arrow col-2" style="--arrow-color: var(--worker)">
+								<span class="h-arrow-label">/preview/api/*</span>
+								<div class="h-arrow-line"></div>
+							</div>
+							<div class="node col-3" style="--node-color: var(--orange)">
+								<div class="node-name">Host Worker</div>
+								<div class="node-detail">handlePreviewAPI()</div>
+							</div>
+							<div class="h-arrow col-4" style="--arrow-color: var(--magenta)">
+								<span class="h-arrow-label">collectFiles()</span>
+								<div class="h-arrow-line"></div>
+							</div>
+							<div class="node col-5" style="--node-color: var(--magenta)">
+								<div class="node-name">DO Filesystem</div>
+								<div class="node-detail">read worker/ files</div>
+							</div>
 
-        <!-- Connector: Host bundles code -->
-        <div class="v-connector col-3" style="--arrow-color:var(--yellow)">
-          <div class="v-connector-line"></div>
-          <span class="v-connector-label">bundles code</span>
-        </div>
+							<!-- Connector: Host bundles code -->
+							<div class="v-connector col-3" style="--arrow-color: var(--yellow)">
+								<div class="v-connector-line"></div>
+								<span class="v-connector-label">bundles code</span>
+							</div>
 
-        <!-- Row 2: Bundle -->
-        <div class="node col-3" style="--node-color:var(--yellow)">
-          <div class="node-name">esbuild-wasm</div>
-          <div class="node-detail">transformCode()</div>
-        </div>
+							<!-- Row 2: Bundle -->
+							<div class="node col-3" style="--node-color: var(--yellow)">
+								<div class="node-name">esbuild-wasm</div>
+								<div class="node-detail">transformCode()</div>
+							</div>
 
-        <!-- Connector: Run in isolate -->
-        <div class="v-connector col-3" style="--arrow-color:var(--worker)">
-          <div class="v-connector-line"></div>
-          <span class="v-connector-label">runs in isolate</span>
-        </div>
+							<!-- Connector: Run in isolate -->
+							<div class="v-connector col-3" style="--arrow-color: var(--worker)">
+								<div class="v-connector-line"></div>
+								<span class="v-connector-label">runs in isolate</span>
+							</div>
 
-        <!-- Row 3: Load & Respond -->
-        <div class="node col-1" style="--node-color:var(--text)">
-          <div class="node-name">Preview</div>
-          <div class="node-detail">receives JSON</div>
-        </div>
-        <div class="h-arrow reverse col-2" style="--arrow-color:var(--worker)">
-          <span class="h-arrow-label">200 OK</span>
-          <div class="h-arrow-line"></div>
-        </div>
-        <div class="node col-3" style="--node-color:var(--worker)">
-          <div class="node-name">Worker Loader</div>
-          <div class="node-detail">dynamic V8 isolate</div>
-        </div>
-      </div>
+							<!-- Row 3: Load & Respond -->
+							<div class="node col-1" style="--node-color: var(--text)">
+								<div class="node-name">Preview</div>
+								<div class="node-detail">receives JSON</div>
+							</div>
+							<div class="h-arrow reverse col-2" style="--arrow-color: var(--worker)">
+								<span class="h-arrow-label">200 OK</span>
+								<div class="h-arrow-line"></div>
+							</div>
+							<div class="node col-3" style="--node-color: var(--worker)">
+								<div class="node-name">Worker Loader</div>
+								<div class="node-detail">dynamic V8 isolate</div>
+							</div>
+						</div>
 
-      <p class="lane-note">Editor UI writes worker/ files to DO Filesystem via Host Worker (same as Asset Pipeline save path).</p>
-    </div>
+						<p class="lane-note">Editor UI writes worker/ files to DO Filesystem via Host Worker (same as Asset Pipeline save path).</p>
+					</div>
 
-    <!-- ═══════════════════════════════════════════════
+					<!-- ═══════════════════════════════════════════════
          LANE 3: WEBSOCKET FEEDBACK
          ═══════════════════════════════════════════════ -->
-    <div class="lane">
-      <div class="lane-header">
-        <span class="lane-dot" style="background:var(--ws)"></span>
-        <span class="lane-title" style="color:var(--ws)">WebSocket Feedback</span>
-        <span class="lane-desc">Logs &amp; errors flow from Sources (Left) → HMR (Right) → Editor (Bottom)</span>
-      </div>
+					<div class="lane">
+						<div class="lane-header">
+							<span class="lane-dot" style="background: var(--ws)"></span>
+							<span class="lane-title" style="color: var(--ws)">WebSocket Feedback</span>
+							<span class="lane-desc">Logs &amp; errors flow from Sources (Left) → HMR (Right) → Editor (Bottom)</span>
+						</div>
 
-      <div class="flow-grid">
-        <!-- Row 1: Logs Path -->
-        <div class="node col-1" style="grid-row: 1; --node-color:var(--worker)">
-          <div class="node-name">Worker Loader</div>
-          <div class="node-detail">console.log()</div>
-        </div>
-        <div class="h-arrow col-2" style="grid-row: 1; --arrow-color:var(--ws)">
-          <span class="h-arrow-label">tail binding</span>
-          <div class="h-arrow-line"></div>
-        </div>
-        <div class="node col-3" style="grid-row: 1; --node-color:var(--ws)">
-          <div class="node-name">LogTailer</div>
-          <div class="node-detail">tail() handler</div>
-        </div>
-        <div class="h-arrow col-4" style="grid-row: 1; --arrow-color:var(--ws)">
-          <span class="h-arrow-label">HMREvent</span>
-          <div class="h-arrow-line"></div>
-        </div>
+						<div class="flow-grid">
+							<!-- Row 1: Logs Path -->
+							<div class="node col-1" style="grid-row: 1; --node-color: var(--worker)">
+								<div class="node-name">Worker Loader</div>
+								<div class="node-detail">console.log()</div>
+							</div>
+							<div class="h-arrow col-2" style="grid-row: 1; --arrow-color: var(--ws)">
+								<span class="h-arrow-label">tail binding</span>
+								<div class="h-arrow-line"></div>
+							</div>
+							<div class="node col-3" style="grid-row: 1; --node-color: var(--ws)">
+								<div class="node-name">LogTailer</div>
+								<div class="node-detail">tail() handler</div>
+							</div>
+							<div class="h-arrow col-4" style="grid-row: 1; --arrow-color: var(--ws)">
+								<span class="h-arrow-label">HMREvent</span>
+								<div class="h-arrow-line"></div>
+							</div>
 
-        <!-- Row 2: Error Path (Host in Col 1) -->
-        <div class="node col-1" style="grid-row: 2; margin-top: 12px; --node-color:var(--orange)">
-          <div class="node-name">Host Worker</div>
-          <div class="node-detail">catch error</div>
-        </div>
-        <!-- Long arrow spanning Col 2-4 -->
-        <div class="h-arrow col-span-3" style="grid-row: 2; margin-top: 12px; --arrow-color:var(--red)">
-          <span class="h-arrow-label">HMREvent (broadcast)</span>
-          <div class="h-arrow-line"></div>
-        </div>
+							<!-- Row 2: Error Path (Host in Col 1) -->
+							<div class="node col-1" style="grid-row: 2; margin-top: 12px; --node-color: var(--orange)">
+								<div class="node-name">Host Worker</div>
+								<div class="node-detail">catch error</div>
+							</div>
+							<!-- Long arrow spanning Col 2-4 -->
+							<div class="h-arrow col-span-3" style="grid-row: 2; margin-top: 12px; --arrow-color: var(--red)">
+								<span class="h-arrow-label">HMREvent (broadcast)</span>
+								<div class="h-arrow-line"></div>
+							</div>
 
-        <!-- Aggregator: HMR Coordinator (Spans Rows 1-2) -->
-        <div class="node col-5" style="grid-row: 1 / span 2; align-self: center; height: 100%; display: flex; flex-direction: column; justify-content: center; --node-color:var(--ws); z-index: 2;">
-          <div class="node-name">HMR Coordinator</div>
-          <div class="node-detail">sendToAll()</div>
-        </div>
+							<!-- Aggregator: HMR Coordinator (Spans Rows 1-2) -->
+							<div
+								class="node col-5"
+								style="
+									grid-row: 1 / span 2;
+									align-self: center;
+									height: 100%;
+									display: flex;
+									flex-direction: column;
+									justify-content: center;
+									--node-color: var(--ws);
+									z-index: 2;
+								"
+							>
+								<div class="node-name">HMR Coordinator</div>
+								<div class="node-detail">sendToAll()</div>
+							</div>
 
-        <!-- Connector: Broadcast -->
-        <div class="v-connector col-5" style="grid-row: 3; --arrow-color:var(--ws)">
-          <div class="v-connector-line"></div>
-          <span class="v-connector-label">WS broadcast</span>
-        </div>
+							<!-- Connector: Broadcast -->
+							<div class="v-connector col-5" style="grid-row: 3; --arrow-color: var(--ws)">
+								<div class="v-connector-line"></div>
+								<span class="v-connector-label">WS broadcast</span>
+							</div>
 
-        <!-- Destination: Editor UI -->
-        <div class="node col-5" style="grid-row: 4; --node-color:var(--text)">
-          <div class="node-name">Editor UI</div>
-          <div class="node-detail">console / overlay</div>
-        </div>
-      </div>
-    </div>
-
-  </div>
-</section>
-
-</div>
-
-</body>
+							<!-- Destination: Editor UI -->
+							<div class="node col-5" style="grid-row: 4; --node-color: var(--text)">
+								<div class="node-name">Editor UI</div>
+								<div class="node-detail">console / overlay</div>
+							</div>
+						</div>
+					</div>
+				</div>
+			</section>
+		</div>
+	</body>
 </html>

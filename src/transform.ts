@@ -33,14 +33,8 @@ interface TsConfig {
 
 const EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx', '.mts', '.mjs'];
 
-async function probeExtensions(
-	fs: FileSystem,
-	basePath: string,
-	extensions: string[]
-): Promise<string | null> {
-	const results = await Promise.allSettled(
-		extensions.map(ext => fs.access(`${basePath}${ext}`).then(() => ext))
-	);
+async function probeExtensions(fs: FileSystem, basePath: string, extensions: string[]): Promise<string | null> {
+	const results = await Promise.allSettled(extensions.map((ext) => fs.access(`${basePath}${ext}`).then(() => ext)));
 	for (const result of results) {
 		if (result.status === 'fulfilled') return result.value;
 	}
@@ -63,11 +57,7 @@ async function loadTsConfig(fs: FileSystem, projectRoot: string): Promise<TsConf
 /**
  * Resolve a path alias from tsconfig paths
  */
-function resolvePathAlias(
-	specifier: string,
-	tsConfig: TsConfig | null,
-	projectRoot: string
-): string | null {
+function resolvePathAlias(specifier: string, tsConfig: TsConfig | null, projectRoot: string): string | null {
 	if (!tsConfig?.compilerOptions?.paths) return null;
 
 	const paths = tsConfig.compilerOptions.paths;
@@ -104,7 +94,7 @@ async function resolveImport(
 	fs: FileSystem,
 	projectRoot: string,
 	baseUrl: string,
-	tsConfig: TsConfig | null
+	tsConfig: TsConfig | null,
 ): Promise<ResolvedImport> {
 	// Check tsconfig paths first for non-relative imports
 	if (!specifier.startsWith('.') && !specifier.startsWith('/')) {
@@ -209,7 +199,7 @@ async function rewriteImports(
 	fs: FileSystem,
 	projectRoot: string,
 	baseUrl: string,
-	tsConfig: TsConfig | null
+	tsConfig: TsConfig | null,
 ): Promise<string> {
 	// Match import statements
 	// Handles: import x from 'y', import 'y', import { x } from 'y', export * from 'y', etc.
@@ -243,7 +233,7 @@ async function rewriteImports(
 		imports.map(async (imp) => ({
 			...imp,
 			resolution: await resolveImport(imp.specifier, filePath, fs, projectRoot, baseUrl, tsConfig),
-		}))
+		})),
 	);
 
 	// Rewrite from end to start to preserve positions
@@ -283,7 +273,7 @@ async function getTsConfig(fs: FileSystem, projectRoot: string, cacheKey?: strin
 export async function transformModule(
 	filePath: string,
 	content: string,
-	options: TransformOptions
+	options: TransformOptions,
 ): Promise<{ code: string; contentType: string }> {
 	const { fs, projectRoot, baseUrl } = options;
 	const ext = getExtension(filePath);
@@ -519,11 +509,7 @@ function generateFetchInterceptor(baseUrl: string): string {
 /**
  * Process HTML file using HTMLRewriter - inject HMR client and rewrite script/link tags
  */
-export async function processHTML(
-	html: string,
-	filePath: string,
-	options: TransformOptions & { hmrUrl: string }
-): Promise<string> {
+export async function processHTML(html: string, filePath: string, options: TransformOptions & { hmrUrl: string }): Promise<string> {
 	const { baseUrl, hmrUrl } = options;
 
 	const fetchInterceptor = generateFetchInterceptor(baseUrl);
@@ -559,9 +545,11 @@ export async function processHTML(
 			},
 		});
 
-	const response = rewriter.transform(new Response(html, {
-		headers: { 'Content-Type': 'text/html' },
-	}));
+	const response = rewriter.transform(
+		new Response(html, {
+			headers: { 'Content-Type': 'text/html' },
+		}),
+	);
 
 	return response.text();
 }

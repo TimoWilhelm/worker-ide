@@ -18,7 +18,6 @@ import docsHtml from '../docs/index.html?raw';
 
 export { DurableObjectFilesystem };
 
-
 // AI Agent Types
 interface AgentMessage {
 	role: 'user' | 'assistant';
@@ -153,10 +152,12 @@ export class LogTailer extends WorkerEntrypoint<Env> {
 		const projectId = (this.ctx.props as { projectId: string }).projectId;
 		const hmrId = this.env.DO_HMR_COORDINATOR.idFromName(`hmr:${projectId}`);
 		const hmrStub = this.env.DO_HMR_COORDINATOR.get(hmrId);
-		await hmrStub.fetch(new Request('http://internal/hmr/send', {
-			method: 'POST',
-			body: JSON.stringify({ type: 'server-logs', logs: entries }),
-		}));
+		await hmrStub.fetch(
+			new Request('http://internal/hmr/send', {
+				method: 'POST',
+				body: JSON.stringify({ type: 'server-logs', logs: entries }),
+			}),
+		);
 	}
 
 	async tail(events: TraceItem[]) {
@@ -167,7 +168,7 @@ export class LogTailer extends WorkerEntrypoint<Env> {
 					type: 'server-log',
 					timestamp: log.timestamp,
 					level: log.level,
-					message: (log.message as unknown[]).map((m: unknown) => typeof m === 'string' ? m : JSON.stringify(m)).join(' '),
+					message: (log.message as unknown[]).map((m: unknown) => (typeof m === 'string' ? m : JSON.stringify(m))).join(' '),
 				});
 			}
 			await this.broadcastLogs(entries);
@@ -193,9 +194,18 @@ interface HMRUpdate {
 }
 
 const COLLAB_COLORS = [
-	'#f97316', '#22d3ee', '#a78bfa', '#f472b6',
-	'#4ade80', '#facc15', '#fb923c', '#38bdf8',
-	'#c084fc', '#f87171', '#34d399', '#e879f9',
+	'#f97316',
+	'#22d3ee',
+	'#a78bfa',
+	'#f472b6',
+	'#4ade80',
+	'#facc15',
+	'#fb923c',
+	'#38bdf8',
+	'#c084fc',
+	'#f87171',
+	'#34d399',
+	'#e879f9',
 ];
 
 interface ParticipantAttachment {
@@ -239,13 +249,25 @@ export class HMRCoordinator extends DurableObject {
 	private sendToOthers(sender: WebSocket, message: string) {
 		for (const ws of this.ctx.getWebSockets()) {
 			if (ws === sender) continue;
-			try { ws.send(message); } catch { try { ws.close(1011, 'send failed'); } catch {} }
+			try {
+				ws.send(message);
+			} catch {
+				try {
+					ws.close(1011, 'send failed');
+				} catch {}
+			}
 		}
 	}
 
 	private sendToAll(message: string) {
 		for (const ws of this.ctx.getWebSockets()) {
-			try { ws.send(message); } catch { try { ws.close(1011, 'send failed'); } catch {} }
+			try {
+				ws.send(message);
+			} catch {
+				try {
+					ws.close(1011, 'send failed');
+				} catch {}
+			}
 		}
 	}
 
@@ -328,16 +350,21 @@ export class HMRCoordinator extends DurableObject {
 			if (data.type === 'collab-join') {
 				const att = this.getAttachment(ws);
 				if (!att) return;
-				ws.send(JSON.stringify({
-					type: 'collab-state',
-					selfId: att.id,
-					selfColor: att.color,
-					participants: this.getAllParticipants(),
-				}));
-				this.sendToOthers(ws, JSON.stringify({
-					type: 'participant-joined',
-					participant: att,
-				}));
+				ws.send(
+					JSON.stringify({
+						type: 'collab-state',
+						selfId: att.id,
+						selfColor: att.color,
+						participants: this.getAllParticipants(),
+					}),
+				);
+				this.sendToOthers(
+					ws,
+					JSON.stringify({
+						type: 'participant-joined',
+						participant: att,
+					}),
+				);
 				return;
 			}
 
@@ -348,26 +375,32 @@ export class HMRCoordinator extends DurableObject {
 				att.cursor = data.cursor ?? null;
 				att.selection = data.selection ?? null;
 				this.setAttachment(ws, att);
-				this.sendToOthers(ws, JSON.stringify({
-					type: 'cursor-updated',
-					id: att.id,
-					color: att.color,
-					file: att.file,
-					cursor: att.cursor,
-					selection: att.selection,
-				}));
+				this.sendToOthers(
+					ws,
+					JSON.stringify({
+						type: 'cursor-updated',
+						id: att.id,
+						color: att.color,
+						file: att.file,
+						cursor: att.cursor,
+						selection: att.selection,
+					}),
+				);
 				return;
 			}
 
 			if (data.type === 'file-edit') {
 				const att = this.getAttachment(ws);
 				if (!att) return;
-				this.sendToOthers(ws, JSON.stringify({
-					type: 'file-edited',
-					id: att.id,
-					path: data.path,
-					content: data.content,
-				}));
+				this.sendToOthers(
+					ws,
+					JSON.stringify({
+						type: 'file-edited',
+						id: att.id,
+						path: data.path,
+						content: data.content,
+					}),
+				);
 				return;
 			}
 		} catch {}
@@ -376,22 +409,30 @@ export class HMRCoordinator extends DurableObject {
 	webSocketClose(ws: WebSocket) {
 		const att = this.getAttachment(ws);
 		if (att) {
-			this.sendToOthers(ws, JSON.stringify({
-				type: 'participant-left',
-				id: att.id,
-			}));
+			this.sendToOthers(
+				ws,
+				JSON.stringify({
+					type: 'participant-left',
+					id: att.id,
+				}),
+			);
 		}
 	}
 
 	webSocketError(ws: WebSocket) {
 		const att = this.getAttachment(ws);
 		if (att) {
-			this.sendToOthers(ws, JSON.stringify({
-				type: 'participant-left',
-				id: att.id,
-			}));
+			this.sendToOthers(
+				ws,
+				JSON.stringify({
+					type: 'participant-left',
+					id: att.id,
+				}),
+			);
 		}
-		try { ws.close(1011, 'WebSocket error'); } catch {}
+		try {
+			ws.close(1011, 'WebSocket error');
+		} catch {}
 	}
 }
 
@@ -476,9 +517,39 @@ interface TransformResult {
 	contentType: string;
 }
 
-const TRANSFORM_TO_JS_MODULE = new Set(['.css', '.json', '.svg', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.ico', '.woff', '.woff2', '.ttf', '.txt', '.md']);
+const TRANSFORM_TO_JS_MODULE = new Set([
+	'.css',
+	'.json',
+	'.svg',
+	'.png',
+	'.jpg',
+	'.jpeg',
+	'.gif',
+	'.webp',
+	'.ico',
+	'.woff',
+	'.woff2',
+	'.ttf',
+	'.txt',
+	'.md',
+]);
 const COMPILE_TO_JS = new Set(['.ts', '.tsx', '.jsx', '.mts']);
-const BINARY_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.ico', '.woff', '.woff2', '.ttf', '.eot', '.mp3', '.wav', '.mp4', '.webm']);
+const BINARY_EXTENSIONS = new Set([
+	'.png',
+	'.jpg',
+	'.jpeg',
+	'.gif',
+	'.webp',
+	'.ico',
+	'.woff',
+	'.woff2',
+	'.ttf',
+	'.eot',
+	'.mp3',
+	'.wav',
+	'.mp4',
+	'.webm',
+]);
 
 function getExtension(path: string): string {
 	const match = path.match(/\.[^.]+$/);
@@ -549,16 +620,16 @@ const CRC32_TABLE = (() => {
 	const table = new Uint32Array(256);
 	for (let i = 0; i < 256; i++) {
 		let c = i;
-		for (let j = 0; j < 8; j++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+		for (let j = 0; j < 8; j++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
 		table[i] = c;
 	}
 	return table;
 })();
 
 function crc32(data: Uint8Array): number {
-	let crc = 0xFFFFFFFF;
-	for (let i = 0; i < data.length; i++) crc = CRC32_TABLE[(crc ^ data[i]) & 0xFF] ^ (crc >>> 8);
-	return (crc ^ 0xFFFFFFFF) >>> 0;
+	let crc = 0xffffffff;
+	for (let i = 0; i < data.length; i++) crc = CRC32_TABLE[(crc ^ data[i]) & 0xff] ^ (crc >>> 8);
+	return (crc ^ 0xffffffff) >>> 0;
 }
 
 function createZip(files: Record<string, string | Uint8Array>): Uint8Array {
@@ -616,7 +687,10 @@ function createZip(files: Record<string, string | Uint8Array>): Uint8Array {
 	const total = parts.reduce((s, p) => s + p.length, 0);
 	const result = new Uint8Array(total);
 	let pos = 0;
-	for (const part of parts) { result.set(part, pos); pos += part.length; }
+	for (const part of parts) {
+		result.set(part, pos);
+		pos += part.length;
+	}
 	return result;
 }
 
@@ -644,10 +718,12 @@ export default class extends WorkerEntrypoint<Env> {
 	private async broadcastMessage(projectId: string, message: object) {
 		const hmrId = this.env.DO_HMR_COORDINATOR.idFromName(`hmr:${projectId}`);
 		const hmrStub = this.env.DO_HMR_COORDINATOR.get(hmrId);
-		await hmrStub.fetch(new Request('http://internal/hmr/send', {
-			method: 'POST',
-			body: JSON.stringify(message),
-		}));
+		await hmrStub.fetch(
+			new Request('http://internal/hmr/send', {
+				method: 'POST',
+				body: JSON.stringify(message),
+			}),
+		);
 	}
 
 	async fetch(request: Request) {
@@ -790,7 +866,7 @@ export default class extends WorkerEntrypoint<Env> {
 							timestamp: Date.now(),
 							isCSS,
 						}),
-					})
+					}),
 				);
 
 				return new Response(JSON.stringify({ success: true, path: body.path }), { headers });
@@ -832,11 +908,14 @@ export default class extends WorkerEntrypoint<Env> {
 			if (path === '/api/transform' && request.method === 'POST') {
 				const body = (await request.json()) as { code: string; filename: string };
 				const result = await transformCode(body.code, body.filename, { sourcemap: true });
-				return new Response(JSON.stringify({
-					success: true,
-					code: result.code,
-					map: result.map
-				}), { headers });
+				return new Response(
+					JSON.stringify({
+						success: true,
+						code: result.code,
+						map: result.map,
+					}),
+					{ headers },
+				);
 			}
 
 			// GET /api/download - download project as deployable zip
@@ -854,13 +933,13 @@ export default class extends WorkerEntrypoint<Env> {
 				}
 
 				pkgJson.scripts = {
-					...(pkgJson.scripts as Record<string, string> || {}),
+					...((pkgJson.scripts as Record<string, string>) || {}),
 					dev: 'vite dev',
 					build: 'vite build',
 					deploy: 'vite build && wrangler deploy',
 				};
 				pkgJson.devDependencies = {
-					...(pkgJson.devDependencies as Record<string, string> || {}),
+					...((pkgJson.devDependencies as Record<string, string>) || {}),
 					'@cloudflare/vite-plugin': '^1.0.0',
 					vite: '^6.0.0',
 					wrangler: '^4.0.0',
@@ -876,23 +955,27 @@ export default class extends WorkerEntrypoint<Env> {
 
 				zipFiles[`${prefix}package.json`] = JSON.stringify(pkgJson, null, 2);
 
-				zipFiles[`${prefix}wrangler.jsonc`] = JSON.stringify({
-					$schema: 'node_modules/wrangler/config-schema.json',
-					name: projectName,
-					main: 'worker/index.ts',
-					compatibility_date: '2026-01-31',
-					assets: {
-						not_found_handling: 'single-page-application',
-						run_worker_first: ['/api/*'],
+				zipFiles[`${prefix}wrangler.jsonc`] = JSON.stringify(
+					{
+						$schema: 'node_modules/wrangler/config-schema.json',
+						name: projectName,
+						main: 'worker/index.ts',
+						compatibility_date: '2026-01-31',
+						assets: {
+							not_found_handling: 'single-page-application',
+							run_worker_first: ['/api/*'],
+						},
+						observability: {
+							enabled: true,
+						},
 					},
-					observability: {
-						enabled: true,
-					},
-				}, null, '\t');
+					null,
+					'\t',
+				);
 
 				zipFiles[`${prefix}vite.config.ts`] = [
-					'import { defineConfig } from \'vite\';',
-					'import { cloudflare } from \'@cloudflare/vite-plugin\';',
+					"import { defineConfig } from 'vite';",
+					"import { cloudflare } from '@cloudflare/vite-plugin';",
 					'',
 					'export default defineConfig({',
 					'\tplugins: [cloudflare()],',
@@ -948,9 +1031,7 @@ export default class extends WorkerEntrypoint<Env> {
 				const extensions = ['.ts', '.tsx', '.js', '.jsx', '.mts'];
 				let resolved = false;
 
-				const directResults = await Promise.allSettled(
-					extensions.map(tryExt => fs.access(fullPath + tryExt).then(() => tryExt))
-				);
+				const directResults = await Promise.allSettled(extensions.map((tryExt) => fs.access(fullPath + tryExt).then(() => tryExt)));
 				for (const result of directResults) {
 					if (result.status === 'fulfilled') {
 						fullPath = fullPath + result.value;
@@ -962,7 +1043,7 @@ export default class extends WorkerEntrypoint<Env> {
 
 				if (!resolved) {
 					const indexResults = await Promise.allSettled(
-						extensions.map(tryExt => fs.access(fullPath + '/index' + tryExt).then(() => tryExt))
+						extensions.map((tryExt) => fs.access(fullPath + '/index' + tryExt).then(() => tryExt)),
 					);
 					for (const result of indexResults) {
 						if (result.status === 'fulfilled') {
@@ -1051,19 +1132,20 @@ export default class extends WorkerEntrypoint<Env> {
 			const files = await this.collectFilesForBundle(`${this.projectRoot}/worker`, 'worker');
 
 			// Check if worker/index.ts exists
-			const workerEntry = Object.keys(files).find(f =>
-				f === 'worker/index.ts' || f === 'worker/index.js'
-			);
+			const workerEntry = Object.keys(files).find((f) => f === 'worker/index.ts' || f === 'worker/index.js');
 
 			if (!workerEntry) {
-				const err: ServerError = { timestamp: Date.now(), type: 'bundle', message: 'No worker/index.ts found. Create a worker/index.ts file with a default export { fetch }.' };
+				const err: ServerError = {
+					timestamp: Date.now(),
+					type: 'bundle',
+					message: 'No worker/index.ts found. Create a worker/index.ts file with a default export { fetch }.',
+				};
 				this.setLastBroadcastWasError(projectId, true);
 				await this.broadcastMessage(projectId, { type: 'server-error', error: err }).catch(() => {});
 				return Response.json({ error: err.message, serverError: err }, { status: 500 });
 			}
 
-			const workerFiles = Object.entries(files)
-				.sort(([a], [b]) => a.localeCompare(b));
+			const workerFiles = Object.entries(files).sort(([a], [b]) => a.localeCompare(b));
 			const contentHash = await this.hashContent(JSON.stringify(workerFiles));
 
 			// Transform is deferred into getCode — only runs if no warm isolate exists for this hash
@@ -1092,7 +1174,7 @@ export default class extends WorkerEntrypoint<Env> {
 							if (ext) return `${pre}${rel}${rest}.js${quote}`;
 							if (hasJsExt) return match;
 							return `${pre}${rel}${rest}.js${quote}`;
-						}
+						},
 					);
 					modules[jsPath] = code;
 				}
@@ -1155,7 +1237,7 @@ export default class extends WorkerEntrypoint<Env> {
 		const data = encoder.encode(content);
 		const hashBuffer = await crypto.subtle.digest('SHA-256', data);
 		const hashArray = Array.from(new Uint8Array(hashBuffer));
-		return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+		return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
 	}
 
 	private async listFilesRecursive(dir: string, base = ''): Promise<string[]> {
@@ -1192,7 +1274,7 @@ export default class extends WorkerEntrypoint<Env> {
 						const content = await fs.readFile(fullPath, 'utf8');
 						return { [relativePath]: content };
 					}
-				})
+				}),
 			);
 			for (const result of results) {
 				Object.assign(files, result);
@@ -1210,13 +1292,36 @@ export default class extends WorkerEntrypoint<Env> {
 		// Check for API token
 		const apiToken = this.env.REPLICATE_API_TOKEN;
 		if (!apiToken) {
-			return new Response(JSON.stringify({ error: 'REPLICATE_API_TOKEN not configured. Please set it using: wrangler secret put REPLICATE_API_TOKEN' }), {
-				status: 500,
-				headers: { 'Content-Type': 'application/json' },
-			});
+			return new Response(
+				JSON.stringify({ error: 'REPLICATE_API_TOKEN not configured. Please set it using: wrangler secret put REPLICATE_API_TOKEN' }),
+				{
+					status: 500,
+					headers: { 'Content-Type': 'application/json' },
+				},
+			);
 		}
 
-		const body = await request.json() as { prompt: string; history?: AgentMessage[] };
+		// Rate limit check - use projectId as the key to limit per-project
+		if (this.env.REPLICATE_RATE_LIMITER) {
+			const { success } = await this.env.REPLICATE_RATE_LIMITER.limit({ key: projectId });
+			if (!success) {
+				return new Response(
+					JSON.stringify({
+						error: 'Rate limit exceeded. Please wait before making more AI requests.',
+						code: 'RATE_LIMIT_EXCEEDED',
+					}),
+					{
+						status: 429,
+						headers: {
+							'Content-Type': 'application/json',
+							'Retry-After': '60',
+						},
+					},
+				);
+			}
+		}
+
+		const body = (await request.json()) as { prompt: string; history?: AgentMessage[] };
 		const { prompt, history = [] } = body;
 
 		if (!prompt || typeof prompt !== 'string') {
@@ -1250,7 +1355,7 @@ export default class extends WorkerEntrypoint<Env> {
 			headers: {
 				'Content-Type': 'text/event-stream',
 				'Cache-Control': 'no-cache',
-				'Connection': 'keep-alive',
+				Connection: 'keep-alive',
 				'Access-Control-Allow-Origin': '*',
 			},
 		});
@@ -1264,7 +1369,7 @@ export default class extends WorkerEntrypoint<Env> {
 		history: AgentMessage[],
 		projectId: string,
 		apiToken: string,
-		signal?: AbortSignal
+		signal?: AbortSignal,
 	): Promise<void> {
 		try {
 			await sendEvent('status', { message: 'Starting...' });
@@ -1315,7 +1420,7 @@ export default class extends WorkerEntrypoint<Env> {
 						await sendEvent('tool_call', {
 							tool: toolCall.name,
 							id: toolCall.id,
-							args: toolCall.input
+							args: toolCall.input,
 						});
 
 						// Execute the tool
@@ -1324,7 +1429,7 @@ export default class extends WorkerEntrypoint<Env> {
 						await sendEvent('tool_result', {
 							tool: toolCall.name,
 							tool_use_id: toolCall.id,
-							result: typeof result === 'string' ? result : JSON.stringify(result)
+							result: typeof result === 'string' ? result : JSON.stringify(result),
 						});
 
 						toolResults.push({
@@ -1364,7 +1469,7 @@ export default class extends WorkerEntrypoint<Env> {
 	private async callClaude(
 		messages: Array<{ role: string; content: string | ContentBlock[] }>,
 		apiToken: string,
-		signal?: AbortSignal
+		signal?: AbortSignal,
 	): Promise<ClaudeResponse | null> {
 		if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
 		const replicate = new Replicate({ auth: apiToken });
@@ -1380,9 +1485,12 @@ export default class extends WorkerEntrypoint<Env> {
 					const toolResults = msg.content as unknown as Array<{ type: 'tool_result'; tool_use_id: string; content: string }>;
 					let resultsText = '';
 					for (const result of toolResults) {
-						const resultContent = typeof result.content === 'string'
-							? (result.content.length > 2000 ? result.content.slice(0, 2000) + '\n... (truncated)' : result.content)
-							: JSON.stringify(result.content);
+						const resultContent =
+							typeof result.content === 'string'
+								? result.content.length > 2000
+									? result.content.slice(0, 2000) + '\n... (truncated)'
+									: result.content
+								: JSON.stringify(result.content);
 						resultsText += `\n[Tool Result for ${result.tool_use_id}]:\n${resultContent}\n[/Tool Result]`;
 					}
 					formattedPrompt += `\n\nHuman: ${resultsText}`;
@@ -1407,8 +1515,8 @@ export default class extends WorkerEntrypoint<Env> {
 		formattedPrompt += '\n\nAssistant:';
 
 		// Build the full prompt with system instructions and tool definitions
-		const toolsDescription = AGENT_TOOLS.map(t =>
-			`- ${t.name}: ${t.description}\n  Parameters: ${JSON.stringify(t.input_schema.properties)}`
+		const toolsDescription = AGENT_TOOLS.map(
+			(t) => `- ${t.name}: ${t.description}\n  Parameters: ${JSON.stringify(t.input_schema.properties)}`,
 		).join('\n');
 
 		const fullSystemPrompt = `${AGENT_SYSTEM_PROMPT}
@@ -1495,7 +1603,7 @@ When you're done and don't need to use any more tools, just provide your final r
 			content.push({ type: 'text', text: output });
 		}
 
-		const hasToolUse = content.some(c => c.type === 'tool_use');
+		const hasToolUse = content.some((c) => c.type === 'tool_use');
 
 		return {
 			id: `resp_${Date.now()}`,
@@ -1511,7 +1619,7 @@ When you're done and don't need to use any more tools, just provide your final r
 		toolName: string,
 		toolInput: Record<string, string>,
 		projectId: string,
-		sendEvent: (type: string, data: Record<string, unknown>) => Promise<void>
+		sendEvent: (type: string, data: Record<string, unknown>) => Promise<void>,
 	): Promise<string | object> {
 		try {
 			switch (toolName) {
@@ -1519,7 +1627,7 @@ When you're done and don't need to use any more tools, just provide your final r
 					await sendEvent('status', { message: 'Listing files...' });
 					const files = await this.listFilesRecursive(this.projectRoot);
 					// Filter out .initialized
-					const filtered = files.filter(f => !f.endsWith('/.initialized') && f !== '/.initialized');
+					const filtered = files.filter((f) => !f.endsWith('/.initialized') && f !== '/.initialized');
 					return { files: filtered };
 				}
 
@@ -1569,15 +1677,17 @@ When you're done and don't need to use any more tools, just provide your final r
 					const hmrId = this.env.DO_HMR_COORDINATOR.idFromName(`hmr:${projectId}`);
 					const hmrStub = this.env.DO_HMR_COORDINATOR.get(hmrId);
 					const isCSS = path.endsWith('.css');
-					await hmrStub.fetch(new Request('http://internal/hmr/trigger', {
-						method: 'POST',
-						body: JSON.stringify({
-							type: isCSS ? 'update' : 'full-reload',
-							path,
-							timestamp: Date.now(),
-							isCSS,
+					await hmrStub.fetch(
+						new Request('http://internal/hmr/trigger', {
+							method: 'POST',
+							body: JSON.stringify({
+								type: isCSS ? 'update' : 'full-reload',
+								path,
+								timestamp: Date.now(),
+								isCSS,
+							}),
 						}),
-					}));
+					);
 
 					await sendEvent('file_changed', { path, action });
 					return { success: true, path, action };

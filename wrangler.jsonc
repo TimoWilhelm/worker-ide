@@ -42,7 +42,14 @@
 			"binding": "LOADER",
 		},
 	],
-	// AI Agent Configuration
-	// Set the Replicate API token as a secret:
-	// wrangler secret put REPLICATE_API_TOKEN
+	"ratelimits": [
+		{
+			"name": "REPLICATE_RATE_LIMITER",
+			"namespace_id": "1001",
+			"simple": {
+				"limit": 100,
+				"period": 60,
+			},
+		},
+	],
 }

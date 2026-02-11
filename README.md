@@ -43,20 +43,20 @@ bun run dev:all
 
 ## Scripts
 
-| Script | Description |
-|---|---|
-| `dev` | Run the Worker locally with `wrangler dev` |
+| Script        | Description                                             |
+| ------------- | ------------------------------------------------------- |
+| `dev`         | Run the Worker locally with `wrangler dev`              |
 | `dev:preview` | Start the Vite dev server that reads from DO filesystem |
-| `dev:all` | Run both concurrently |
-| `build` | Vite production build |
-| `deploy` | Build and deploy to Cloudflare |
-| `cf-typegen` | Generate Worker type bindings |
+| `dev:all`     | Run both concurrently                                   |
+| `build`       | Vite production build                                   |
+| `deploy`      | Build and deploy to Cloudflare                          |
+| `cf-typegen`  | Generate Worker type bindings                           |
 
 ## Key Bindings (wrangler)
 
-| Binding | Type | Purpose |
-|---|---|---|
-| `DO_FILESYSTEM` | Durable Object | Per-project file storage |
-| `DO_HMR_COORDINATOR` | Durable Object | WebSocket HMR broadcast |
-| `ASSETS` | Assets | Static frontend assets |
-| `LOADER` | Worker Loader | Worker module loading |
+| Binding              | Type           | Purpose                  |
+| -------------------- | -------------- | ------------------------ |
+| `DO_FILESYSTEM`      | Durable Object | Per-project file storage |
+| `DO_HMR_COORDINATOR` | Durable Object | WebSocket HMR broadcast  |
+| `ASSETS`             | Assets         | Static frontend assets   |
+| `LOADER`             | Worker Loader  | Worker module loading    |

@@ -10,11 +10,13 @@
 		"build": "vite build",
 		"preview": "vite build && vite preview",
 		"deploy": "vite build && wrangler deploy",
-		"cf-typegen": "wrangler types"
+		"cf-typegen": "wrangler types",
+		"format": "prettier --write ."
 	},
 	"devDependencies": {
 		"@cloudflare/vite-plugin": "^1.0.0",
 		"@types/node": "^22.0.0",
+		"prettier": "^3.8.1",
 		"tsx": "^4.0.0",
 		"typescript": "^5.5.2",
 		"vite": "^6.0.0",
