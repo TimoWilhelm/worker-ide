@@ -1284,7 +1284,31 @@
 		return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 	}
 
-	function formatAiMessage(content) {
+	function stripToolMarkup(text) {
+		// Remove raw tool-call-like XML tags the model sometimes outputs as plain text
+		// e.g. <function_calls>, </function_calls>, <tool_invoke ...>, </invoke>, <result>...</result>
+		var cleaned = text;
+		// Remove <function_calls> and </function_calls> tags (with any whitespace)
+		cleaned = cleaned.replace(/<\/?function_calls>\s*/g, '');
+		// Remove <tool_invoke ...> and </tool_invoke> opening/closing tags
+		cleaned = cleaned.replace(/<tool_invoke[^>]*>\s*/g, '');
+		cleaned = cleaned.replace(/<\/tool_invoke>\s*/g, '');
+		// Remove </invoke> closing tags
+		cleaned = cleaned.replace(/<\/invoke>\s*/g, '');
+		// Remove <result>...</result> blocks entirely
+		cleaned = cleaned.replace(/<result>[\s\S]*?<\/result>\s*/g, '');
+		// Remove <tool_use>...</tool_use> blocks (already handled by backend, but just in case)
+		cleaned = cleaned.replace(/<tool_use>[\s\S]*?<\/tool_use>\s*/g, '');
+		// Remove standalone <parameter ...>...</parameter> tags
+		cleaned = cleaned.replace(/<parameter[^>]*>[\s\S]*?<\/parameter>\s*/g, '');
+		return cleaned.trim();
+	}
+
+	function formatAiMessage(content, isStreaming) {
+		// Strip raw tool markup only on finalized messages to avoid flicker of partial tags
+		if (!isStreaming) {
+			content = stripToolMarkup(content);
+		}
 		// Simple markdown-like formatting
 		let html = escapeHtmlForAi(content);
 
@@ -1322,15 +1346,19 @@
 		}
 
 		if (existingMsg) {
-			existingMsg.querySelector('.ai-message-content').innerHTML = formatAiMessage(content);
+			existingMsg.querySelector('.ai-message-content').innerHTML = formatAiMessage(content, true);
 		} else {
 			// For assistant streaming messages, only show the role label on the first bubble
 			let showRole = true;
 			if (role === 'assistant' && isStreaming) {
-				// Check if there's already a finalized assistant message (from before tool calls)
+				// Check if there's already a finalized assistant message, tool call, or collapsed partial text
 				let prev = aiMessages.lastElementChild;
 				while (prev) {
 					if (prev.classList.contains('ai-message') && prev.classList.contains('assistant')) {
+						showRole = false;
+						break;
+					}
+					if (prev.classList.contains('ai-partial-text') || prev.classList.contains('ai-tool-inline')) {
 						showRole = false;
 						break;
 					}
@@ -1345,7 +1373,7 @@
 			msgEl.innerHTML =
 				(showRole ? '<div class="ai-message-role ' + role + '">' + (role === 'user' ? 'You' : 'AI') + '</div>' : '') +
 				'<div class="ai-message-content">' +
-				formatAiMessage(content) +
+				formatAiMessage(content, isStreaming) +
 				'</div>';
 			aiMessages.appendChild(msgEl);
 		}
@@ -1362,8 +1390,40 @@
 	}
 
 	function addAiToolCall(toolName, args, toolUseId) {
-		// Finalize any in-progress streaming message so the tool call appears after it
-		finalizeAiMessage();
+		// Collapse any preceding partial text message into a summary
+		var streamingMsg = aiMessages.querySelector('.ai-message.streaming');
+		var wasStreaming = !!streamingMsg;
+		if (streamingMsg) {
+			streamingMsg.classList.remove('streaming');
+		}
+		// Only collapse the last assistant message if it was the in-progress streaming
+		// message. If it was already finalized (e.g. a final answer), leave it visible.
+		var lastChild = aiMessages.lastElementChild;
+		if (wasStreaming && lastChild && lastChild.classList.contains('ai-message') && lastChild.classList.contains('assistant')) {
+			var contentEl = lastChild.querySelector('.ai-message-content');
+			var rawText = contentEl ? contentEl.textContent.trim() : '';
+			if (rawText.length > 0) {
+				// Convert to a collapsible partial-text block
+				var collapsed = document.createElement('div');
+				collapsed.className = 'ai-partial-text collapsed';
+				var toggleBar = document.createElement('div');
+				toggleBar.className = 'ai-partial-text-toggle';
+				toggleBar.innerHTML = '<svg class="ai-partial-text-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>' +
+					'<span class="ai-partial-text-label">Show reasoning</span>';
+				var body = document.createElement('div');
+				body.className = 'ai-partial-text-body';
+				body.innerHTML = contentEl.innerHTML;
+				collapsed.appendChild(toggleBar);
+				collapsed.appendChild(body);
+				lastChild.replaceWith(collapsed);
+			} else {
+				// Empty message, just remove it
+				lastChild.remove();
+			}
+		} else {
+			// Finalize any in-progress streaming message so the tool call appears after it
+			finalizeAiMessage();
+		}
 
 		let details = '';
 		if (args.path) {
@@ -1909,6 +1969,18 @@
 		if (suggestion && suggestion.dataset.prompt) {
 			aiPrompt.value = suggestion.dataset.prompt;
 			sendAiPrompt();
+			return;
+		}
+		var partialToggle = e.target.closest('.ai-partial-text-toggle');
+		if (partialToggle) {
+			var partialEl = partialToggle.closest('.ai-partial-text');
+			if (partialEl) {
+				partialEl.classList.toggle('collapsed');
+				var label = partialEl.querySelector('.ai-partial-text-label');
+				if (label) {
+					label.textContent = partialEl.classList.contains('collapsed') ? 'Show reasoning' : 'Hide reasoning';
+				}
+			}
 			return;
 		}
 		var toolHeader = e.target.closest('.ai-tool-inline-header');
