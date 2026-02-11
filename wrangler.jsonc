@@ -42,4 +42,7 @@
 			"binding": "LOADER",
 		},
 	],
+	// AI Agent Configuration
+	// Set the Replicate API token as a secret:
+	// wrangler secret put REPLICATE_API_TOKEN
 }

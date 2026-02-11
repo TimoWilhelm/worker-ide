@@ -909,10 +909,14 @@
 		const mainEl = document.querySelector('.main');
 		mobileToggle.querySelectorAll('.mobile-toggle-btn').forEach(b => b.classList.remove('active'));
 		btn.classList.add('active');
-		mainEl.classList.remove('show-editor', 'show-preview');
+		mainEl.classList.remove('show-editor', 'show-preview', 'show-ai');
 		mainEl.classList.add('show-' + panel);
 		if (panel === 'editor' && editor) {
 			editor.refresh();
+		}
+		if (panel === 'ai') {
+			aiSidebar.classList.remove('hidden');
+			aiPrompt.focus();
 		}
 	});
 
@@ -951,6 +955,582 @@
 	document.addEventListener('click', function(e) {
 		if (recentProjectsDropdown && !recentProjectsDropdown.contains(e.target) && e.target !== recentProjectsBtn) {
 			recentProjectsDropdown.classList.add('hidden');
+		}
+	});
+
+	// =====================
+	// AI Sidebar Functions
+	// =====================
+
+	const aiSidebar = document.getElementById('aiSidebar');
+	const aiToggleBtn = document.getElementById('aiToggleBtn');
+	const aiSidebarClose = document.getElementById('aiSidebarClose');
+	const aiMessages = document.getElementById('aiMessages');
+	const aiStatus = document.getElementById('aiStatus');
+	const aiPrompt = document.getElementById('aiPrompt');
+	const aiSend = document.getElementById('aiSend');
+	const aiStopBtn = document.getElementById('aiStopBtn');
+	const aiNewSessionBtn = document.getElementById('aiNewSessionBtn');
+	const aiSessionListBtn = document.getElementById('aiSessionListBtn');
+	const aiSessionDropdown = document.getElementById('aiSessionDropdown');
+
+	let aiIsProcessing = false;
+	let currentAbortController = null;
+
+	// Session management
+	let aiSessions = [];
+	let activeSessionId = null;
+
+	function createSession() {
+		var id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+		var session = {
+			id: id,
+			label: 'New chat',
+			history: [],
+			messagesHtml: '',
+			createdAt: Date.now()
+		};
+		aiSessions.unshift(session);
+		return session;
+	}
+
+	function getActiveSession() {
+		if (!activeSessionId && aiSessions.length === 0) {
+			var s = createSession();
+			activeSessionId = s.id;
+		}
+		return aiSessions.find(function(s) { return s.id === activeSessionId; }) || aiSessions[0];
+	}
+
+	function switchToSession(sessionId) {
+		// Save current session's messages HTML
+		var current = aiSessions.find(function(s) { return s.id === activeSessionId; });
+		if (current) {
+			current.messagesHtml = aiMessages.innerHTML;
+		}
+		activeSessionId = sessionId;
+		var target = getActiveSession();
+		aiMessages.innerHTML = target.messagesHtml || '';
+		if (!target.messagesHtml) {
+			renderWelcomeMessage();
+		}
+		aiSessionDropdown.classList.add('hidden');
+	}
+
+	function startNewSession() {
+		if (aiIsProcessing) {
+			stopAgent();
+		}
+		// Save current session
+		var current = aiSessions.find(function(s) { return s.id === activeSessionId; });
+		if (current) {
+			current.messagesHtml = aiMessages.innerHTML;
+		}
+		var session = createSession();
+		activeSessionId = session.id;
+		aiMessages.innerHTML = '';
+		renderWelcomeMessage();
+		aiPrompt.focus();
+	}
+
+	function renderWelcomeMessage() {
+		aiMessages.innerHTML = '<div class="ai-welcome">' +
+			'<div class="ai-welcome-icon">' +
+				'<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">' +
+					'<path d="M12 2a2 2 0 0 1 2 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 0 1 7 7h1a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1v1a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-1H2a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h1a7 7 0 0 1 7-7h1V5.73c-.6-.34-1-.99-1-1.73a2 2 0 0 1 2-2z"></path>' +
+					'<circle cx="7.5" cy="14.5" r="1.5"></circle>' +
+					'<circle cx="16.5" cy="14.5" r="1.5"></circle>' +
+				'</svg>' +
+			'</div>' +
+			'<p>Ask me to help with your code. I can read, create, edit, and delete files in your project.</p>' +
+			'<div class="ai-suggestions">' +
+				'<button class="ai-suggestion" data-prompt="Add a dark mode toggle to the app">Add dark mode</button>' +
+				'<button class="ai-suggestion" data-prompt="Explain what this project does">Explain project</button>' +
+				'<button class="ai-suggestion" data-prompt="Add form validation to the input fields">Add validation</button>' +
+			'</div>' +
+		'</div>';
+	}
+
+	function renderSessionDropdown() {
+		if (aiSessions.length === 0) {
+			aiSessionDropdown.innerHTML = '<div class="ai-session-empty">No sessions yet</div>';
+			return;
+		}
+		aiSessionDropdown.innerHTML = aiSessions.map(function(s) {
+			var activeClass = s.id === activeSessionId ? ' active' : '';
+			var label = escapeHtml(s.label);
+			var time = formatRelativeTime(s.createdAt);
+			return '<button class="ai-session-item' + activeClass + '" data-session-id="' + s.id + '">' +
+				'<span class="ai-session-item-label">' + label + '</span>' +
+				'<span class="ai-session-item-time">' + time + '</span>' +
+			'</button>';
+		}).join('');
+	}
+
+	function stopAgent() {
+		if (currentAbortController) {
+			currentAbortController.abort();
+			currentAbortController = null;
+		}
+	}
+
+	function setProcessingState(processing) {
+		aiIsProcessing = processing;
+		if (processing) {
+			aiSend.classList.add('hidden');
+			aiStopBtn.classList.remove('hidden');
+		} else {
+			aiSend.classList.remove('hidden');
+			aiStopBtn.classList.add('hidden');
+			aiSend.disabled = false;
+		}
+	}
+
+	function toggleAiSidebar() {
+		const isHidden = aiSidebar.classList.contains('hidden');
+		if (isHidden) {
+			aiSidebar.classList.remove('hidden');
+			aiToggleBtn.classList.add('active');
+			aiPrompt.focus();
+		} else {
+			aiSidebar.classList.add('hidden');
+			aiToggleBtn.classList.remove('active');
+		}
+	}
+
+	function showAiStatus(message) {
+		aiStatus.classList.remove('hidden');
+		aiStatus.querySelector('.ai-status-text').textContent = message;
+	}
+
+	function hideAiStatus() {
+		aiStatus.classList.add('hidden');
+	}
+
+	function escapeHtmlForAi(str) {
+		return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+	}
+
+	function formatAiMessage(content) {
+		// Simple markdown-like formatting
+		let html = escapeHtmlForAi(content);
+
+		// Code blocks
+		html = html.replace(/```(\w*)\n([\s\S]*?)```/g, function(match, lang, code) {
+			return '<pre><code>' + code.trim() + '</code></pre>';
+		});
+
+		// Inline code
+		html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+
+		// Bold
+		html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+
+		// Italic
+		html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+
+		// Line breaks
+		html = html.replace(/\n/g, '<br>');
+
+		return html;
+	}
+
+	function addAiMessage(role, content, isStreaming) {
+		// Remove welcome message if present
+		const welcome = aiMessages.querySelector('.ai-welcome');
+		if (welcome) {
+			welcome.remove();
+		}
+
+		// Check if we're updating an existing streaming message
+		let existingMsg = null;
+		if (isStreaming) {
+			existingMsg = aiMessages.querySelector('.ai-message.streaming');
+		}
+
+		if (existingMsg) {
+			existingMsg.querySelector('.ai-message-content').innerHTML = formatAiMessage(content);
+		} else {
+			const msgEl = document.createElement('div');
+			msgEl.className = 'ai-message ' + role + (isStreaming ? ' streaming' : '');
+			msgEl.innerHTML =
+				'<div class="ai-message-role ' + role + '">' + (role === 'user' ? 'You' : 'AI') + '</div>' +
+				'<div class="ai-message-content">' + formatAiMessage(content) + '</div>';
+			aiMessages.appendChild(msgEl);
+		}
+
+		// Scroll to bottom
+		aiMessages.scrollTop = aiMessages.scrollHeight;
+	}
+
+	function finalizeAiMessage() {
+		const streaming = aiMessages.querySelector('.ai-message.streaming');
+		if (streaming) {
+			streaming.classList.remove('streaming');
+		}
+	}
+
+	function addAiToolCall(toolName, args) {
+		var details = '';
+		if (args.path) {
+			details = args.path;
+		} else if (toolName === 'move_file' && args.from_path && args.to_path) {
+			details = args.from_path + ' → ' + args.to_path;
+		}
+
+		var pill = document.createElement('span');
+		pill.className = 'ai-tool-pill';
+		pill.innerHTML = '<span class="ai-tool-name">' + escapeHtmlForAi(toolName) + '</span>' +
+			(details ? '<span class="ai-tool-details">' + escapeHtmlForAi(details) + '</span>' : '');
+
+		// Group consecutive tool calls into a single container
+		var lastChild = aiMessages.lastElementChild;
+		var group;
+		if (lastChild && lastChild.classList.contains('ai-tool-group')) {
+			group = lastChild;
+		} else {
+			group = document.createElement('div');
+			group.className = 'ai-tool-group';
+			group.innerHTML = '<svg class="ai-tool-group-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path></svg>';
+			aiMessages.appendChild(group);
+		}
+		group.appendChild(pill);
+		aiMessages.scrollTop = aiMessages.scrollHeight;
+	}
+
+	function addAiFileChange(path, action) {
+		const changeEl = document.createElement('div');
+		changeEl.className = 'ai-file-change' + (action === 'delete' ? ' delete' : '');
+
+		let icon;
+		let label;
+
+		if (action === 'create') {
+			icon = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="12" y1="18" x2="12" y2="12"></line><line x1="9" y1="15" x2="15" y2="15"></line></svg>';
+			label = 'Created ' + path;
+		} else if (action === 'edit') {
+			icon = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>';
+			label = 'Modified ' + path;
+		} else if (action === 'delete') {
+			icon = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>';
+			label = 'Deleted ' + path;
+		} else {
+			icon = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle></svg>';
+			label = action + ' ' + path;
+		}
+
+		changeEl.innerHTML = icon + '<span>' + escapeHtmlForAi(label) + '</span>';
+		aiMessages.appendChild(changeEl);
+		aiMessages.scrollTop = aiMessages.scrollHeight;
+	}
+
+	async function sendAiPrompt() {
+		const prompt = aiPrompt.value.trim();
+		if (!prompt || aiIsProcessing) return;
+
+		var session = getActiveSession();
+
+		setProcessingState(true);
+		aiPrompt.value = '';
+		aiPrompt.style.height = 'auto';
+
+		// Update session label from first prompt
+		if (session.history.length === 0) {
+			session.label = prompt.length > 40 ? prompt.substring(0, 40) + '...' : prompt;
+		}
+
+		// Add user message
+		addAiMessage('user', prompt);
+		session.history.push({ role: 'user', content: prompt });
+
+		let assistantMessage = '';
+		showAiStatus('Starting...');
+
+		// Track current turn reconstruction
+		let currentAssistantContent = [];
+		let currentToolResults = [];
+		let tempHistory = [];
+
+		try {
+			currentAbortController = new AbortController();
+			const response = await fetch(basePath + '/api/agent/chat', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					prompt: prompt,
+					history: session.history.slice(0, -1)
+				}),
+				signal: currentAbortController.signal
+			});
+
+			if (!response.ok) {
+				const err = await response.json().catch(function() { return {}; });
+				throw new Error(err.error || 'Request failed');
+			}
+
+			// Process SSE stream
+			const reader = response.body.getReader();
+			const decoder = new TextDecoder();
+			let buffer = '';
+
+			const processEvent = (data) => {
+				handleAiEvent(data, function(text) {
+					assistantMessage += text;
+					addAiMessage('assistant', assistantMessage, true);
+				});
+
+				// Reconstruct history
+				if (data.type === 'message' && data.content) {
+					// Append text block
+					if (currentAssistantContent.length > 0 && currentAssistantContent[currentAssistantContent.length - 1].type === 'text') {
+						currentAssistantContent[currentAssistantContent.length - 1].text += data.content;
+					} else {
+						currentAssistantContent.push({ type: 'text', text: data.content });
+					}
+				} else if (data.type === 'tool_call') {
+					currentAssistantContent.push({
+						type: 'tool_use',
+						id: data.id,
+						name: data.tool,
+						input: data.args
+					});
+				} else if (data.type === 'tool_result') {
+					currentToolResults.push({
+						type: 'tool_result',
+						tool_use_id: data.tool_use_id,
+						content: data.result
+					});
+				} else if (data.type === 'turn_complete') {
+					// Commit current turn
+					if (currentAssistantContent.length > 0) {
+						tempHistory.push({ role: 'assistant', content: [...currentAssistantContent] });
+						currentAssistantContent = [];
+					}
+					if (currentToolResults.length > 0) {
+						tempHistory.push({ role: 'user', content: [...currentToolResults] });
+						currentToolResults = [];
+					}
+				}
+			};
+
+			while (true) {
+				const { done, value } = await reader.read();
+				if (done) break;
+
+				buffer += decoder.decode(value, { stream: true });
+				const lines = buffer.split('\n');
+				buffer = lines.pop() || '';
+
+				for (const line of lines) {
+					if (line.startsWith('data: ')) {
+						try {
+							const data = JSON.parse(line.slice(6));
+							processEvent(data);
+						} catch (e) {
+							console.error('Failed to parse SSE data:', e);
+						}
+					}
+				}
+			}
+
+			// Process any remaining buffer
+			if (buffer.startsWith('data: ')) {
+				try {
+					const data = JSON.parse(buffer.slice(6));
+					processEvent(data);
+				} catch (e) {
+					// Ignore incomplete data
+				}
+			}
+
+		} catch (err) {
+			if (err.name === 'AbortError') {
+				if (assistantMessage) {
+					addAiMessage('assistant', assistantMessage + '\n\n*[Interrupted]*', true);
+				} else {
+					addAiMessage('assistant', '*[Interrupted]*');
+				}
+			} else {
+				console.error('AI request failed:', err);
+				addAiMessage('assistant', 'Error: ' + err.message);
+			}
+		} finally {
+			currentAbortController = null;
+			finalizeAiMessage();
+			hideAiStatus();
+			setProcessingState(false);
+
+			// Commit any remaining accumulation (e.g. if turn_complete was missing or stream ended early)
+			if (currentAssistantContent.length > 0) {
+				tempHistory.push({ role: 'assistant', content: [...currentAssistantContent] });
+			}
+			if (currentToolResults.length > 0) {
+				tempHistory.push({ role: 'user', content: [...currentToolResults] });
+			}
+
+			// Append accumulated history to session
+			if (tempHistory.length > 0) {
+				session.history.push(...tempHistory);
+			} else if (assistantMessage && session.history[session.history.length - 1].role === 'user') {
+				// Fallback for simple text-only responses if something went wrong with reconstruction
+				session.history.push({ role: 'assistant', content: assistantMessage });
+			}
+
+			// Keep history manageable, ensure it starts on a user message
+			// Note: structured history can be large, so limit by number of turns (messages)
+			if (session.history.length > 20) {
+				session.history = session.history.slice(-20);
+				while (session.history.length > 0 && session.history[0].role !== 'user') {
+					session.history.shift();
+				}
+			}
+
+			// Save messages HTML to session
+			session.messagesHtml = aiMessages.innerHTML;
+		}
+	}
+
+	function handleAiEvent(data, appendMessage) {
+		switch (data.type) {
+			case 'status':
+				showAiStatus(data.message);
+				break;
+
+			case 'message':
+				if (data.content) {
+					appendMessage(data.content);
+				}
+				break;
+
+			case 'tool_call':
+				addAiToolCall(data.tool, data.args || {});
+				break;
+
+			case 'tool_result':
+				// Tool results are processed internally, no need to show
+				break;
+
+			case 'file_changed':
+				addAiFileChange(data.path, data.action);
+				// Refresh file tree and potentially update editor
+				loadFiles();
+				if (data.path === currentFile) {
+					// Reload the current file if it was modified
+					reloadCurrentFile();
+				}
+				break;
+
+			case 'error':
+				appendMessage('\n\nError: ' + data.message);
+				break;
+
+			case 'done':
+				hideAiStatus();
+				break;
+		}
+	}
+
+	async function reloadCurrentFile() {
+		if (!currentFile) return;
+		try {
+			const res = await fetch(basePath + '/api/file?path=' + encodeURIComponent(currentFile));
+			if (res.ok) {
+				const data = await res.json();
+				if (data.content !== undefined) {
+					const fileData = openFiles.get(currentFile);
+					if (fileData) {
+						fileData.content = data.content;
+						fileData.modified = false;
+						if (editor) {
+							suppressRemoteEdit = true;
+							var scrollInfo = editor.getScrollInfo();
+							var cursor = editor.getCursor();
+							editor.setValue(data.content);
+							editor.setCursor(cursor);
+							editor.scrollTo(scrollInfo.left, scrollInfo.top);
+							suppressRemoteEdit = false;
+						}
+						renderTabs();
+					}
+				}
+			}
+		} catch (e) {
+			console.error('Failed to reload file:', e);
+		}
+	}
+
+	// AI sidebar event listeners
+	if (aiToggleBtn) {
+		aiToggleBtn.addEventListener('click', toggleAiSidebar);
+	}
+
+	if (aiSidebarClose) {
+		aiSidebarClose.addEventListener('click', function() {
+			aiSidebar.classList.add('hidden');
+			aiToggleBtn.classList.remove('active');
+		});
+	}
+
+	if (aiStopBtn) {
+		aiStopBtn.addEventListener('click', function() {
+			stopAgent();
+		});
+	}
+
+	if (aiNewSessionBtn) {
+		aiNewSessionBtn.addEventListener('click', function() {
+			startNewSession();
+		});
+	}
+
+	if (aiSessionListBtn) {
+		aiSessionListBtn.addEventListener('click', function(e) {
+			e.stopPropagation();
+			renderSessionDropdown();
+			aiSessionDropdown.classList.toggle('hidden');
+		});
+	}
+
+	if (aiSessionDropdown) {
+		aiSessionDropdown.addEventListener('click', function(e) {
+			var item = e.target.closest('.ai-session-item');
+			if (item && item.dataset.sessionId) {
+				switchToSession(item.dataset.sessionId);
+			}
+		});
+	}
+
+	document.addEventListener('click', function(e) {
+		if (aiSessionDropdown && !aiSessionDropdown.contains(e.target) && e.target !== aiSessionListBtn) {
+			aiSessionDropdown.classList.add('hidden');
+		}
+	});
+
+	if (aiSend) {
+		aiSend.addEventListener('click', sendAiPrompt);
+	}
+
+	if (aiPrompt) {
+		aiPrompt.addEventListener('keydown', function(e) {
+			if (e.key === 'Enter' && !e.shiftKey) {
+				e.preventDefault();
+				sendAiPrompt();
+			}
+		});
+
+		// Auto-resize textarea
+		aiPrompt.addEventListener('input', function() {
+			this.style.height = 'auto';
+			this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+		});
+	}
+
+	// Handle suggestion buttons
+	aiMessages.addEventListener('click', function(e) {
+		const suggestion = e.target.closest('.ai-suggestion');
+		if (suggestion && suggestion.dataset.prompt) {
+			aiPrompt.value = suggestion.dataset.prompt;
+			sendAiPrompt();
 		}
 	});
 

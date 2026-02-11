@@ -64,12 +64,20 @@
 					<line x1="5" y1="12" x2="19" y2="12"></line>
 				</svg>
 			</button>
-				<button id="refreshBtn" class="btn btn-primary" title="Refresh Preview">
-					<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-						<polyline points="23 4 23 10 17 10"></polyline>
-						<path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
-					</svg>
-				</button>
+			<button id="refreshBtn" class="btn btn-secondary" title="Refresh Preview">
+				<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+					<polyline points="23 4 23 10 17 10"></polyline>
+					<path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+				</svg>
+			</button>
+			<button id="aiToggleBtn" class="btn btn-primary" title="AI Assistant">
+				<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+					<path d="M12 2a2 2 0 0 1 2 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 0 1 7 7h1a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1v1a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-1H2a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h1a7 7 0 0 1 7-7h1V5.73c-.6-.34-1-.99-1-1.73a2 2 0 0 1 2-2z"></path>
+					<circle cx="7.5" cy="14.5" r="1.5"></circle>
+					<circle cx="16.5" cy="14.5" r="1.5"></circle>
+				</svg>
+				<span class="ai-btn-label">AI</span>
+			</button>
 			</div>
 		</header>
 		<main class="main">
@@ -88,6 +96,7 @@
 			<div class="mobile-toggle" id="mobileToggle">
 				<button class="mobile-toggle-btn active" data-panel="editor">Editor</button>
 				<button class="mobile-toggle-btn" data-panel="preview">Preview</button>
+				<button class="mobile-toggle-btn" data-panel="ai">AI</button>
 			</div>
 			<section class="editor-panel">
 				<div class="tabs" id="tabs"></div>
@@ -106,6 +115,73 @@
 				</div>
 				<iframe id="previewFrame" src="about:blank" sandbox="allow-scripts allow-same-origin allow-forms allow-popups"></iframe>
 			</section>
+			<aside class="ai-sidebar hidden" id="aiSidebar">
+				<div class="ai-sidebar-header">
+					<span>AI Assistant</span>
+					<div class="ai-header-actions">
+						<div class="ai-session-switcher">
+							<button id="aiSessionListBtn" class="btn-icon" title="Sessions">
+								<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+									<line x1="8" y1="6" x2="21" y2="6"></line>
+									<line x1="8" y1="12" x2="21" y2="12"></line>
+									<line x1="8" y1="18" x2="21" y2="18"></line>
+									<line x1="3" y1="6" x2="3.01" y2="6"></line>
+									<line x1="3" y1="12" x2="3.01" y2="12"></line>
+									<line x1="3" y1="18" x2="3.01" y2="18"></line>
+								</svg>
+							</button>
+							<div id="aiSessionDropdown" class="ai-session-dropdown hidden"></div>
+						</div>
+						<button id="aiNewSessionBtn" class="btn-icon" title="New session">
+							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<line x1="12" y1="5" x2="12" y2="19"></line>
+								<line x1="5" y1="12" x2="19" y2="12"></line>
+							</svg>
+						</button>
+						<button id="aiSidebarClose" class="btn-icon" title="Close">
+							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<line x1="18" y1="6" x2="6" y2="18"></line>
+								<line x1="6" y1="6" x2="18" y2="18"></line>
+							</svg>
+						</button>
+					</div>
+				</div>
+				<div class="ai-messages" id="aiMessages">
+					<div class="ai-welcome">
+						<div class="ai-welcome-icon">
+							<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+								<path d="M12 2a2 2 0 0 1 2 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 0 1 7 7h1a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1v1a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-1H2a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h1a7 7 0 0 1 7-7h1V5.73c-.6-.34-1-.99-1-1.73a2 2 0 0 1 2-2z"></path>
+								<circle cx="7.5" cy="14.5" r="1.5"></circle>
+								<circle cx="16.5" cy="14.5" r="1.5"></circle>
+							</svg>
+						</div>
+						<p>Ask me to help with your code. I can read, create, edit, and delete files in your project.</p>
+						<div class="ai-suggestions">
+							<button class="ai-suggestion" data-prompt="Add a dark mode toggle to the app">Add dark mode</button>
+							<button class="ai-suggestion" data-prompt="Explain what this project does">Explain project</button>
+							<button class="ai-suggestion" data-prompt="Add form validation to the input fields">Add validation</button>
+						</div>
+					</div>
+				</div>
+				<div class="ai-status hidden" id="aiStatus">
+					<span class="ai-status-dot"></span>
+					<span class="ai-status-text"></span>
+				</div>
+				<div class="ai-input-container">
+					<textarea id="aiPrompt" placeholder="Ask the AI to help..." rows="1"></textarea>
+					<button id="aiSend" class="btn btn-primary" title="Send">
+						<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+							<line x1="22" y1="2" x2="11" y2="13"></line>
+							<polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+						</svg>
+					</button>
+					<button id="aiStopBtn" class="btn btn-stop hidden" title="Stop">
+						<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+							<rect x="6" y="6" width="12" height="12" rx="2"></rect>
+						</svg>
+					</button>
+				</div>
+			</aside>
 		</main>
 		<div class="terminal-panel" id="terminalPanel">
 			<div class="terminal-header">

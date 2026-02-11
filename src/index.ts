@@ -2,6 +2,7 @@ import { DurableObjectFilesystem } from 'durable-object-fs';
 import { mount, withMounts } from 'worker-fs-mount';
 import { WorkerEntrypoint, DurableObject } from 'cloudflare:workers';
 import fs from 'node:fs/promises';
+import Replicate from 'replicate';
 import { transformCode } from './bundler.js';
 import { transformModule, processHTML, type FileSystem } from './transform.js';
 import examplePackageJson from './example-project/package.json?raw';
@@ -16,6 +17,128 @@ import exampleWorkerIndexTs from './example-project/worker/index.ts?raw';
 import docsHtml from '../docs/index.html?raw';
 
 export { DurableObjectFilesystem };
+
+
+// AI Agent Types
+interface AgentMessage {
+	role: 'user' | 'assistant';
+	content: any;
+}
+
+interface AgentTool {
+	name: string;
+	description: string;
+	input_schema: {
+		type: 'object';
+		properties: Record<string, { type: string; description: string }>;
+		required?: string[];
+	};
+}
+
+interface ToolUseBlock {
+	type: 'tool_use';
+	id: string;
+	name: string;
+	input: Record<string, string>;
+}
+
+interface TextBlock {
+	type: 'text';
+	text: string;
+}
+
+type ContentBlock = TextBlock | ToolUseBlock;
+
+interface ClaudeResponse {
+	id: string;
+	type: string;
+	role: string;
+	content: ContentBlock[];
+	stop_reason: string | null;
+	stop_sequence: string | null;
+}
+
+// Agent tool definitions
+const AGENT_TOOLS: AgentTool[] = [
+	{
+		name: 'list_files',
+		description: 'List all files in the project. Returns an array of file paths.',
+		input_schema: {
+			type: 'object',
+			properties: {},
+		},
+	},
+	{
+		name: 'read_file',
+		description: 'Read the contents of a file. Use this to understand existing code before making changes.',
+		input_schema: {
+			type: 'object',
+			properties: {
+				path: { type: 'string', description: 'File path starting with /, e.g., /src/main.ts' },
+			},
+			required: ['path'],
+		},
+	},
+	{
+		name: 'write_file',
+		description: 'Create a new file or overwrite an existing file with new content.',
+		input_schema: {
+			type: 'object',
+			properties: {
+				path: { type: 'string', description: 'File path starting with /, e.g., /src/utils.ts' },
+				content: { type: 'string', description: 'The complete file content to write' },
+			},
+			required: ['path', 'content'],
+		},
+	},
+	{
+		name: 'delete_file',
+		description: 'Delete a file from the project.',
+		input_schema: {
+			type: 'object',
+			properties: {
+				path: { type: 'string', description: 'File path to delete, starting with /' },
+			},
+			required: ['path'],
+		},
+	},
+	{
+		name: 'move_file',
+		description: 'Move or rename a file.',
+		input_schema: {
+			type: 'object',
+			properties: {
+				from_path: { type: 'string', description: 'Current file path' },
+				to_path: { type: 'string', description: 'New file path' },
+			},
+			required: ['from_path', 'to_path'],
+		},
+	},
+];
+
+const AGENT_SYSTEM_PROMPT = `You are an AI coding assistant integrated into a web-based IDE. Your role is to help users modify their codebase by reading, creating, editing, and deleting files.
+
+IMPORTANT GUIDELINES:
+1. Always read relevant files first before making changes to understand the existing code structure
+2. When modifying files, preserve existing code style and patterns
+3. Explain what you're doing and why before making changes
+4. Make targeted, minimal changes - don't rewrite entire files unless necessary
+5. After making changes, summarize what was modified
+
+You have access to a virtual filesystem with the following tools:
+- list_files: See all files in the project
+- read_file: Read a file's contents
+- write_file: Create or update a file
+- delete_file: Remove a file
+- move_file: Rename or move a file
+
+The project is a TypeScript/JavaScript web application with:
+- /src/ - Frontend source code
+- /worker/ - Cloudflare Worker backend code
+- /index.html - Main HTML entry point
+- /package.json - Project dependencies
+
+Be concise but helpful. Focus on making the requested changes efficiently.`;
 
 interface LogEntry {
 	type: string;
@@ -306,8 +429,14 @@ async function ensureExampleProject(projectRoot: string) {
 }
 
 function isPathSafe(basePath: string, requestedPath: string): boolean {
-	const normalizedPath = requestedPath.replace(/\/+/g, '/').replace(/\.\.\/|\.\.$/g, '');
-	if (requestedPath !== normalizedPath || requestedPath.includes('..')) {
+	if (!requestedPath.startsWith('/')) {
+		return false;
+	}
+	if (requestedPath.includes('..')) {
+		return false;
+	}
+	const normalizedPath = requestedPath.replace(/\/+/g, '/');
+	if (requestedPath !== normalizedPath) {
 		return false;
 	}
 	return true;
@@ -781,6 +910,11 @@ export default class extends WorkerEntrypoint<Env> {
 				});
 			}
 
+			// POST /api/agent/chat - AI coding agent with SSE streaming
+			if (path === '/api/agent/chat' && request.method === 'POST') {
+				return this.handleAgentChat(request, projectId);
+			}
+
 			return new Response(JSON.stringify({ error: 'Not found' }), { status: 404, headers });
 		} catch (err) {
 			return new Response(JSON.stringify({ error: String(err) }), { status: 500, headers });
@@ -811,7 +945,7 @@ export default class extends WorkerEntrypoint<Env> {
 			const initialExt = getExtension(filePath);
 
 			if (!initialExt) {
-				const extensions = ['.ts', '.tsx', '.js', '.jsx', '.mts', '.mjs'];
+				const extensions = ['.ts', '.tsx', '.js', '.jsx', '.mts'];
 				let resolved = false;
 
 				const directResults = await Promise.allSettled(
@@ -1069,5 +1203,443 @@ export default class extends WorkerEntrypoint<Env> {
 			}
 		}
 		return files;
+	}
+
+	// AI Agent Chat Handler
+	private async handleAgentChat(request: Request, projectId: string): Promise<Response> {
+		// Check for API token
+		const apiToken = this.env.REPLICATE_API_TOKEN;
+		if (!apiToken) {
+			return new Response(JSON.stringify({ error: 'REPLICATE_API_TOKEN not configured. Please set it using: wrangler secret put REPLICATE_API_TOKEN' }), {
+				status: 500,
+				headers: { 'Content-Type': 'application/json' },
+			});
+		}
+
+		const body = await request.json() as { prompt: string; history?: AgentMessage[] };
+		const { prompt, history = [] } = body;
+
+		if (!prompt || typeof prompt !== 'string') {
+			return new Response(JSON.stringify({ error: 'prompt is required' }), {
+				status: 400,
+				headers: { 'Content-Type': 'application/json' },
+			});
+		}
+
+		// Create SSE stream
+		const encoder = new TextEncoder();
+		const { readable, writable } = new TransformStream();
+		const writer = writable.getWriter();
+
+		const sendEvent = async (type: string, data: Record<string, unknown>) => {
+			const event = `data: ${JSON.stringify({ type, ...data })}\n\n`;
+			await writer.write(encoder.encode(event));
+		};
+
+		// Run agent loop in background
+		const signal = request.signal;
+		this.runAgentLoop(writer, encoder, sendEvent, prompt, history, projectId, apiToken, signal).catch(async (err) => {
+			console.error('Agent error:', err);
+			try {
+				await sendEvent('error', { message: String(err) });
+				await writer.close();
+			} catch {}
+		});
+
+		return new Response(readable, {
+			headers: {
+				'Content-Type': 'text/event-stream',
+				'Cache-Control': 'no-cache',
+				'Connection': 'keep-alive',
+				'Access-Control-Allow-Origin': '*',
+			},
+		});
+	}
+
+	private async runAgentLoop(
+		writer: WritableStreamDefaultWriter<Uint8Array>,
+		encoder: TextEncoder,
+		sendEvent: (type: string, data: Record<string, unknown>) => Promise<void>,
+		prompt: string,
+		history: AgentMessage[],
+		projectId: string,
+		apiToken: string,
+		signal?: AbortSignal
+	): Promise<void> {
+		try {
+			await sendEvent('status', { message: 'Starting...' });
+
+			// Build messages array for Claude
+			const messages: Array<{ role: string; content: string | ContentBlock[] }> = [];
+
+			// Add history
+			for (const msg of history) {
+				messages.push({ role: msg.role, content: msg.content });
+			}
+
+			// Add current prompt
+			messages.push({ role: 'user', content: prompt });
+
+			let continueLoop = true;
+			let maxIterations = 10; // Prevent infinite loops
+			let iteration = 0;
+			let assistantResponse = '';
+
+			while (continueLoop && iteration < maxIterations) {
+				if (signal?.aborted) {
+					await sendEvent('status', { message: 'Interrupted' });
+					break;
+				}
+				iteration++;
+				await sendEvent('status', { message: 'Thinking...' });
+
+				// Call Claude via Replicate API
+				const response = await this.callClaude(messages, apiToken, signal);
+
+				if (!response) {
+					throw new Error('Failed to get response from Claude');
+				}
+
+				// Process the response
+				let hasToolUse = false;
+				const toolResults: Array<{ type: 'tool_result'; tool_use_id: string; content: string }> = [];
+
+				for (const block of response.content) {
+					if (block.type === 'text') {
+						assistantResponse += block.text;
+						await sendEvent('message', { content: block.text });
+					} else if (block.type === 'tool_use') {
+						hasToolUse = true;
+						const toolCall = block as ToolUseBlock;
+
+						await sendEvent('tool_call', {
+							tool: toolCall.name,
+							id: toolCall.id,
+							args: toolCall.input
+						});
+
+						// Execute the tool
+						const result = await this.executeAgentTool(toolCall.name, toolCall.input, projectId, sendEvent);
+
+						await sendEvent('tool_result', {
+							tool: toolCall.name,
+							tool_use_id: toolCall.id,
+							result: typeof result === 'string' ? result : JSON.stringify(result)
+						});
+
+						toolResults.push({
+							type: 'tool_result',
+							tool_use_id: toolCall.id,
+							content: typeof result === 'string' ? result : JSON.stringify(result),
+						});
+					}
+				}
+
+				// If there were tool uses, add assistant response and tool results, then continue
+				if (hasToolUse) {
+					messages.push({ role: 'assistant', content: response.content });
+					messages.push({ role: 'user', content: toolResults as unknown as ContentBlock[] });
+				} else {
+					// No tool use, we're done
+					continueLoop = false;
+				}
+
+				// Check stop reason
+				if (response.stop_reason === 'end_turn' && !hasToolUse) {
+					continueLoop = false;
+				}
+
+				await sendEvent('turn_complete', {});
+			}
+
+			await sendEvent('done', {});
+			await writer.close();
+		} catch (err) {
+			console.error('Agent loop error:', err);
+			await sendEvent('error', { message: String(err) });
+			await writer.close();
+		}
+	}
+
+	private async callClaude(
+		messages: Array<{ role: string; content: string | ContentBlock[] }>,
+		apiToken: string,
+		signal?: AbortSignal
+	): Promise<ClaudeResponse | null> {
+		if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+		const replicate = new Replicate({ auth: apiToken });
+
+		// Format the conversation for Replicate's Claude model
+		let formattedPrompt = '';
+		for (const msg of messages) {
+			if (msg.role === 'user') {
+				if (typeof msg.content === 'string') {
+					formattedPrompt += `\n\nHuman: ${msg.content}`;
+				} else {
+					// Handle tool results
+					const toolResults = msg.content as unknown as Array<{ type: 'tool_result'; tool_use_id: string; content: string }>;
+					let resultsText = '';
+					for (const result of toolResults) {
+						const resultContent = typeof result.content === 'string'
+							? (result.content.length > 2000 ? result.content.slice(0, 2000) + '\n... (truncated)' : result.content)
+							: JSON.stringify(result.content);
+						resultsText += `\n[Tool Result for ${result.tool_use_id}]:\n${resultContent}\n[/Tool Result]`;
+					}
+					formattedPrompt += `\n\nHuman: ${resultsText}`;
+				}
+			} else if (msg.role === 'assistant') {
+				if (typeof msg.content === 'string') {
+					formattedPrompt += `\n\nAssistant: ${msg.content}`;
+				} else {
+					// Handle assistant content blocks
+					let assistantText = '';
+					for (const block of msg.content as ContentBlock[]) {
+						if (block.type === 'text') {
+							assistantText += block.text;
+						} else if (block.type === 'tool_use') {
+							assistantText += `\n<tool_use>\n{"name": "${block.name}", "input": ${JSON.stringify(block.input)}}\n</tool_use>`;
+						}
+					}
+					formattedPrompt += `\n\nAssistant: ${assistantText}`;
+				}
+			}
+		}
+		formattedPrompt += '\n\nAssistant:';
+
+		// Build the full prompt with system instructions and tool definitions
+		const toolsDescription = AGENT_TOOLS.map(t =>
+			`- ${t.name}: ${t.description}\n  Parameters: ${JSON.stringify(t.input_schema.properties)}`
+		).join('\n');
+
+		const fullSystemPrompt = `${AGENT_SYSTEM_PROMPT}
+
+Available tools:
+${toolsDescription}
+
+IMPORTANT: To use a tool, respond with a JSON block in this exact format:
+<tool_use>
+{"name": "tool_name", "input": {"param1": "value1"}}
+</tool_use>
+
+You can use multiple tools in sequence. After using a tool, you will receive the result and can continue your response.
+When you're done and don't need to use any more tools, just provide your final response without any tool_use blocks.`;
+
+		const fullPrompt = `${fullSystemPrompt}${formattedPrompt}`;
+
+		// Use Replicate client with streaming
+		let output = '';
+		for await (const event of replicate.stream('anthropic/claude-4.5-haiku', {
+			input: {
+				prompt: fullPrompt,
+				max_tokens: 4096,
+				system_prompt: '',
+			},
+		})) {
+			if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+			output += event.toString();
+		}
+
+		// Parse the output to extract tool uses and text
+		const content: ContentBlock[] = [];
+
+		// Check for tool_use blocks using balanced brace extraction
+		let lastIndex = 0;
+		let toolUseCount = 0;
+		const openTag = '<tool_use>';
+		const closeTag = '</tool_use>';
+		let searchFrom = 0;
+
+		while (searchFrom < output.length) {
+			const tagStart = output.indexOf(openTag, searchFrom);
+			if (tagStart === -1) break;
+
+			const jsonStart = tagStart + openTag.length;
+			const tagEnd = output.indexOf(closeTag, jsonStart);
+			if (tagEnd === -1) break;
+
+			const jsonStr = output.slice(jsonStart, tagEnd).trim();
+			const blockEnd = tagEnd + closeTag.length;
+
+			// Add text before the tool use
+			const textBefore = output.slice(lastIndex, tagStart).trim();
+			if (textBefore) {
+				content.push({ type: 'text', text: textBefore });
+			}
+
+			// Parse and add the tool use
+			try {
+				const toolData = JSON.parse(jsonStr) as { name: string; input: Record<string, string> };
+				content.push({
+					type: 'tool_use',
+					id: `tool_${Date.now()}_${toolUseCount++}`,
+					name: toolData.name,
+					input: toolData.input,
+				});
+			} catch (e) {
+				console.error('Failed to parse tool use:', jsonStr, e);
+				content.push({ type: 'text', text: output.slice(tagStart, blockEnd) });
+			}
+
+			lastIndex = blockEnd;
+			searchFrom = blockEnd;
+		}
+
+		// Add remaining text
+		const remainingText = output.slice(lastIndex).trim();
+		if (remainingText) {
+			content.push({ type: 'text', text: remainingText });
+		}
+
+		// If no content was parsed, add the whole output as text
+		if (content.length === 0) {
+			content.push({ type: 'text', text: output });
+		}
+
+		const hasToolUse = content.some(c => c.type === 'tool_use');
+
+		return {
+			id: `resp_${Date.now()}`,
+			type: 'message',
+			role: 'assistant',
+			content,
+			stop_reason: hasToolUse ? 'tool_use' : 'end_turn',
+			stop_sequence: null,
+		};
+	}
+
+	private async executeAgentTool(
+		toolName: string,
+		toolInput: Record<string, string>,
+		projectId: string,
+		sendEvent: (type: string, data: Record<string, unknown>) => Promise<void>
+	): Promise<string | object> {
+		try {
+			switch (toolName) {
+				case 'list_files': {
+					await sendEvent('status', { message: 'Listing files...' });
+					const files = await this.listFilesRecursive(this.projectRoot);
+					// Filter out .initialized
+					const filtered = files.filter(f => !f.endsWith('/.initialized') && f !== '/.initialized');
+					return { files: filtered };
+				}
+
+				case 'read_file': {
+					const path = toolInput.path;
+					if (!path || !isPathSafe(this.projectRoot, path)) {
+						return { error: 'Invalid file path' };
+					}
+					await sendEvent('status', { message: `Reading ${path}...` });
+					try {
+						const content = await fs.readFile(`${this.projectRoot}${path}`, 'utf8');
+						return { path, content };
+					} catch (err) {
+						return { error: `File not found: ${path}` };
+					}
+				}
+
+				case 'write_file': {
+					const path = toolInput.path;
+					const content = toolInput.content;
+					if (!path || !isPathSafe(this.projectRoot, path)) {
+						return { error: 'Invalid file path' };
+					}
+					if (content === undefined) {
+						return { error: 'Content is required' };
+					}
+					await sendEvent('status', { message: `Writing ${path}...` });
+
+					// Ensure directory exists
+					const dir = path.substring(0, path.lastIndexOf('/'));
+					if (dir) {
+						await fs.mkdir(`${this.projectRoot}${dir}`, { recursive: true });
+					}
+
+					// Check if file exists (for action type)
+					let action: 'create' | 'edit' = 'create';
+					try {
+						await fs.access(`${this.projectRoot}${path}`);
+						action = 'edit';
+					} catch {
+						action = 'create';
+					}
+
+					await fs.writeFile(`${this.projectRoot}${path}`, content);
+
+					// Trigger HMR
+					const hmrId = this.env.DO_HMR_COORDINATOR.idFromName(`hmr:${projectId}`);
+					const hmrStub = this.env.DO_HMR_COORDINATOR.get(hmrId);
+					const isCSS = path.endsWith('.css');
+					await hmrStub.fetch(new Request('http://internal/hmr/trigger', {
+						method: 'POST',
+						body: JSON.stringify({
+							type: isCSS ? 'update' : 'full-reload',
+							path,
+							timestamp: Date.now(),
+							isCSS,
+						}),
+					}));
+
+					await sendEvent('file_changed', { path, action });
+					return { success: true, path, action };
+				}
+
+				case 'delete_file': {
+					const path = toolInput.path;
+					if (!path || !isPathSafe(this.projectRoot, path)) {
+						return { error: 'Invalid file path' };
+					}
+					await sendEvent('status', { message: `Deleting ${path}...` });
+					try {
+						await fs.unlink(`${this.projectRoot}${path}`);
+						await sendEvent('file_changed', { path, action: 'delete' });
+						return { success: true, path, action: 'delete' };
+					} catch (err) {
+						return { error: `Failed to delete: ${path}` };
+					}
+				}
+
+				case 'move_file': {
+					const fromPath = toolInput.from_path;
+					const toPath = toolInput.to_path;
+					if (!fromPath || !isPathSafe(this.projectRoot, fromPath)) {
+						return { error: 'Invalid source path' };
+					}
+					if (!toPath || !isPathSafe(this.projectRoot, toPath)) {
+						return { error: 'Invalid destination path' };
+					}
+					await sendEvent('status', { message: `Moving ${fromPath} to ${toPath}...` });
+
+					try {
+						// Read source file
+						const content = await fs.readFile(`${this.projectRoot}${fromPath}`);
+
+						// Ensure destination directory exists
+						const destDir = toPath.substring(0, toPath.lastIndexOf('/'));
+						if (destDir) {
+							await fs.mkdir(`${this.projectRoot}${destDir}`, { recursive: true });
+						}
+
+						// Write to destination (preserve binary content)
+						await fs.writeFile(`${this.projectRoot}${toPath}`, content);
+
+						// Delete source
+						await fs.unlink(`${this.projectRoot}${fromPath}`);
+
+						await sendEvent('file_changed', { path: fromPath, action: 'delete' });
+						await sendEvent('file_changed', { path: toPath, action: 'create' });
+
+						return { success: true, from: fromPath, to: toPath };
+					} catch (err) {
+						return { error: `Failed to move file: ${String(err)}` };
+					}
+				}
+
+				default:
+					return { error: `Unknown tool: ${toolName}` };
+			}
+		} catch (err) {
+			console.error(`Tool execution error (${toolName}):`, err);
+			return { error: String(err) };
+		}
 	}
 }
