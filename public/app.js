@@ -94,6 +94,7 @@
 	let suppressRemoteEdit = false;
 	let collabEditTimeout = null;
 
+	const mobileToggle = document.getElementById('mobileToggle');
 	const fileTreeEl = document.getElementById('fileTree');
 	const tabsEl = document.getElementById('tabs');
 	const editorEl = document.getElementById('editor');
@@ -901,6 +902,20 @@
 	});
 	document.querySelector('.terminal-header').addEventListener('click', toggleTerminal);
 
+	mobileToggle.addEventListener('click', (e) => {
+		const btn = e.target.closest('.mobile-toggle-btn');
+		if (!btn) return;
+		const panel = btn.dataset.panel;
+		const mainEl = document.querySelector('.main');
+		mobileToggle.querySelectorAll('.mobile-toggle-btn').forEach(b => b.classList.remove('active'));
+		btn.classList.add('active');
+		mainEl.classList.remove('show-editor', 'show-preview');
+		mainEl.classList.add('show-' + panel);
+		if (panel === 'editor' && editor) {
+			editor.refresh();
+		}
+	});
+
 	// Recent projects dropdown
 	const recentProjectsBtn = document.getElementById('recentProjectsBtn');
 	const recentProjectsDropdown = document.getElementById('recentProjectsDropdown');
@@ -968,7 +983,9 @@
 			openFile(defaultFile);
 		}
 
-		document.querySelector('.main').classList.add('ready');
+		var mainEl = document.querySelector('.main');
+		mainEl.classList.add('ready');
+		mainEl.classList.add('show-editor');
 
 		// Connect WebSocket for server error notifications
 		connectErrorSocket();
