@@ -1041,6 +1041,58 @@
 	let aiSessions = [];
 	let activeSessionId = null;
 
+	function saveSessionToBackend(session) {
+		if (!session || !session.id) return;
+		fetch(basePath + '/api/ai-session', {
+			method: 'PUT',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({
+				id: session.id,
+				label: session.label,
+				history: session.history,
+				messagesHtml: session.messagesHtml,
+				createdAt: session.createdAt,
+			}),
+		}).catch(function (err) {
+			console.error('Failed to save AI session:', err);
+		});
+	}
+
+	async function loadSessionsFromBackend() {
+		try {
+			var res = await fetch(basePath + '/api/ai-sessions');
+			if (!res.ok) return;
+			var data = await res.json();
+			if (!data.sessions || data.sessions.length === 0) return;
+			aiSessions = data.sessions.map(function (s) {
+				return { id: s.id, label: s.label, history: [], messagesHtml: '', createdAt: s.createdAt, _loaded: false };
+			});
+			activeSessionId = aiSessions[0].id;
+			await loadFullSession(aiSessions[0]);
+			aiMessages.innerHTML = aiSessions[0].messagesHtml || '';
+			if (!aiSessions[0].messagesHtml) {
+				renderWelcomeMessage();
+			}
+		} catch (err) {
+			console.error('Failed to load AI sessions:', err);
+		}
+	}
+
+	async function loadFullSession(session) {
+		if (session._loaded) return;
+		try {
+			var res = await fetch(basePath + '/api/ai-session?id=' + encodeURIComponent(session.id));
+			if (!res.ok) { session._loaded = true; return; }
+			var data = await res.json();
+			session.history = data.history || [];
+			session.messagesHtml = data.messagesHtml || '';
+			session._loaded = true;
+		} catch (err) {
+			console.error('Failed to load AI session:', err);
+			session._loaded = true;
+		}
+	}
+
 	function createSession() {
 		var id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 		var session = {
@@ -1049,6 +1101,7 @@
 			history: [],
 			messagesHtml: '',
 			createdAt: Date.now(),
+			_loaded: true,
 		};
 		aiSessions.unshift(session);
 		return session;
@@ -1066,16 +1119,18 @@
 		);
 	}
 
-	function switchToSession(sessionId) {
+	async function switchToSession(sessionId) {
 		// Save current session's messages HTML
 		var current = aiSessions.find(function (s) {
 			return s.id === activeSessionId;
 		});
 		if (current) {
 			current.messagesHtml = aiMessages.innerHTML;
+			saveSessionToBackend(current);
 		}
 		activeSessionId = sessionId;
 		var target = getActiveSession();
+		await loadFullSession(target);
 		aiMessages.innerHTML = target.messagesHtml || '';
 		if (!target.messagesHtml) {
 			renderWelcomeMessage();
@@ -1093,6 +1148,7 @@
 		});
 		if (current) {
 			current.messagesHtml = aiMessages.innerHTML;
+			saveSessionToBackend(current);
 		}
 		var session = createSession();
 		activeSessionId = session.id;
@@ -1607,6 +1663,7 @@
 
 			// Save messages HTML to session
 			session.messagesHtml = aiMessages.innerHTML;
+			saveSessionToBackend(session);
 		}
 	}
 
@@ -1792,6 +1849,9 @@
 		var mainEl = document.querySelector('.main');
 		mainEl.classList.add('ready');
 		mainEl.classList.add('show-editor');
+
+		// Load AI sessions from backend
+		await loadSessionsFromBackend();
 
 		// Connect WebSocket for server error notifications
 		connectErrorSocket();

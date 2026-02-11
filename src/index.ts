@@ -1105,6 +1105,65 @@ export default class extends WorkerEntrypoint<Env> {
 				});
 			}
 
+			// GET /api/ai-sessions - list all saved AI sessions
+			if (path === '/api/ai-sessions' && request.method === 'GET') {
+				const sessionsDir = `${this.projectRoot}/.ai-sessions`;
+				try {
+					const entries = await fs.readdir(sessionsDir);
+					const sessions = [];
+					for (const name of entries) {
+						if (!name.endsWith('.json')) continue;
+						try {
+							const raw = await fs.readFile(`${sessionsDir}/${name}`, 'utf8');
+							const session = JSON.parse(raw);
+							sessions.push({ id: session.id, label: session.label, createdAt: session.createdAt });
+						} catch {}
+					}
+					sessions.sort((a: { createdAt: number }, b: { createdAt: number }) => b.createdAt - a.createdAt);
+					return new Response(JSON.stringify({ sessions }), { headers });
+				} catch {
+					return new Response(JSON.stringify({ sessions: [] }), { headers });
+				}
+			}
+
+			// GET /api/ai-session?id=X - load a single AI session
+			if (path === '/api/ai-session' && request.method === 'GET') {
+				const sessionId = url.searchParams.get('id');
+				if (!sessionId || !/^[a-z0-9]+$/.test(sessionId)) {
+					return new Response(JSON.stringify({ error: 'invalid session id' }), { status: 400, headers });
+				}
+				try {
+					const raw = await fs.readFile(`${this.projectRoot}/.ai-sessions/${sessionId}.json`, 'utf8');
+					return new Response(raw, { headers });
+				} catch {
+					return new Response(JSON.stringify({ error: 'session not found' }), { status: 404, headers });
+				}
+			}
+
+			// PUT /api/ai-session - save an AI session
+			if (path === '/api/ai-session' && request.method === 'PUT') {
+				const body = (await request.json()) as { id: string; label: string; history: unknown[]; createdAt: number };
+				if (!body.id || !/^[a-z0-9]+$/.test(body.id)) {
+					return new Response(JSON.stringify({ error: 'invalid session id' }), { status: 400, headers });
+				}
+				const sessionsDir = `${this.projectRoot}/.ai-sessions`;
+				await fs.mkdir(sessionsDir, { recursive: true });
+				await fs.writeFile(`${sessionsDir}/${body.id}.json`, JSON.stringify(body));
+				return new Response(JSON.stringify({ success: true }), { headers });
+			}
+
+			// DELETE /api/ai-session?id=X - delete an AI session
+			if (path === '/api/ai-session' && request.method === 'DELETE') {
+				const sessionId = url.searchParams.get('id');
+				if (!sessionId || !/^[a-z0-9]+$/.test(sessionId)) {
+					return new Response(JSON.stringify({ error: 'invalid session id' }), { status: 400, headers });
+				}
+				try {
+					await fs.unlink(`${this.projectRoot}/.ai-sessions/${sessionId}.json`);
+				} catch {}
+				return new Response(JSON.stringify({ success: true }), { headers });
+			}
+
 			// POST /api/agent/chat - AI coding agent with SSE streaming
 			if (path === '/api/agent/chat' && request.method === 'POST') {
 				return this.handleAgentChat(request, projectId);
@@ -1357,6 +1416,7 @@ export default class extends WorkerEntrypoint<Env> {
 		try {
 			const entries = await fs.readdir(dir, { withFileTypes: true });
 			for (const entry of entries) {
+				if (entry.name === '.ai-sessions') continue;
 				const relativePath = base ? `${base}/${entry.name}` : `/${entry.name}`;
 				if (entry.isDirectory()) {
 					files.push(...(await this.listFilesRecursive(`${dir}/${entry.name}`, relativePath)));
@@ -1377,7 +1437,7 @@ export default class extends WorkerEntrypoint<Env> {
 		try {
 			const entries = await fs.readdir(dir, { withFileTypes: true });
 			const results = await Promise.all(
-				entries.map(async (entry) => {
+				entries.filter((entry) => entry.name !== '.ai-sessions').map(async (entry) => {
 					const relativePath = base ? `${base}/${entry.name}` : entry.name;
 					const fullPath = `${dir}/${entry.name}`;
 					if (entry.isDirectory()) {
