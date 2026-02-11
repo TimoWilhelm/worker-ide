@@ -326,6 +326,7 @@ interface ParticipantAttachment {
 	file: string | null;
 	cursor: { line: number; ch: number } | null;
 	selection: { anchor: { line: number; ch: number }; head: { line: number; ch: number } } | null;
+	joined: boolean;
 }
 
 export class HMRCoordinator extends DurableObject {
@@ -349,11 +350,12 @@ export class HMRCoordinator extends DurableObject {
 		return color;
 	}
 
-	private getAllParticipants(): ParticipantAttachment[] {
+	private getAllParticipants(excludeId?: string): ParticipantAttachment[] {
 		const participants: ParticipantAttachment[] = [];
 		for (const ws of this.ctx.getWebSockets()) {
+			if (ws.readyState !== WebSocket.READY_STATE_OPEN) continue;
 			const att = this.getAttachment(ws);
-			if (att) participants.push(att);
+			if (att && att.joined && att.id !== excludeId) participants.push(att);
 		}
 		return participants;
 	}
@@ -361,6 +363,21 @@ export class HMRCoordinator extends DurableObject {
 	private sendToOthers(sender: WebSocket, message: string) {
 		for (const ws of this.ctx.getWebSockets()) {
 			if (ws === sender) continue;
+			try {
+				ws.send(message);
+			} catch {
+				try {
+					ws.close(1011, 'send failed');
+				} catch {}
+			}
+		}
+	}
+
+	private sendToOthersJoined(sender: WebSocket, message: string) {
+		for (const ws of this.ctx.getWebSockets()) {
+			if (ws === sender) continue;
+			const att = this.getAttachment(ws);
+			if (!att?.joined) continue;
 			try {
 				ws.send(message);
 			} catch {
@@ -398,6 +415,7 @@ export class HMRCoordinator extends DurableObject {
 				file: null,
 				cursor: null,
 				selection: null,
+				joined: false,
 			};
 
 			this.ctx.acceptWebSocket(server);
@@ -462,15 +480,17 @@ export class HMRCoordinator extends DurableObject {
 			if (data.type === 'collab-join') {
 				const att = this.getAttachment(ws);
 				if (!att) return;
+				att.joined = true;
+				this.setAttachment(ws, att);
 				ws.send(
 					JSON.stringify({
 						type: 'collab-state',
 						selfId: att.id,
 						selfColor: att.color,
-						participants: this.getAllParticipants(),
+						participants: this.getAllParticipants(att.id),
 					}),
 				);
-				this.sendToOthers(
+				this.sendToOthersJoined(
 					ws,
 					JSON.stringify({
 						type: 'participant-joined',
@@ -482,12 +502,12 @@ export class HMRCoordinator extends DurableObject {
 
 			if (data.type === 'cursor-update') {
 				const att = this.getAttachment(ws);
-				if (!att) return;
+				if (!att?.joined) return;
 				att.file = data.file ?? null;
 				att.cursor = data.cursor ?? null;
 				att.selection = data.selection ?? null;
 				this.setAttachment(ws, att);
-				this.sendToOthers(
+				this.sendToOthersJoined(
 					ws,
 					JSON.stringify({
 						type: 'cursor-updated',
@@ -503,8 +523,8 @@ export class HMRCoordinator extends DurableObject {
 
 			if (data.type === 'file-edit') {
 				const att = this.getAttachment(ws);
-				if (!att) return;
-				this.sendToOthers(
+				if (!att?.joined) return;
+				this.sendToOthersJoined(
 					ws,
 					JSON.stringify({
 						type: 'file-edited',
@@ -518,10 +538,10 @@ export class HMRCoordinator extends DurableObject {
 		} catch {}
 	}
 
-	webSocketClose(ws: WebSocket) {
+	webSocketClose(ws: WebSocket, code: number, reason: string) {
 		const att = this.getAttachment(ws);
-		if (att) {
-			this.sendToOthers(
+		if (att?.joined) {
+			this.sendToOthersJoined(
 				ws,
 				JSON.stringify({
 					type: 'participant-left',
@@ -529,12 +549,15 @@ export class HMRCoordinator extends DurableObject {
 				}),
 			);
 		}
+		try {
+			ws.close(code, reason);
+		} catch {}
 	}
 
 	webSocketError(ws: WebSocket) {
 		const att = this.getAttachment(ws);
-		if (att) {
-			this.sendToOthers(
+		if (att?.joined) {
+			this.sendToOthersJoined(
 				ws,
 				JSON.stringify({
 					type: 'participant-left',

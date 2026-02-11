@@ -747,7 +747,7 @@
 				title +
 				'"></span>';
 		});
-		if (count > 1) {
+		if (count > 0) {
 			dots += '<span class="collab-count">' + count + ' online</span>';
 		}
 		container.innerHTML = dots;
