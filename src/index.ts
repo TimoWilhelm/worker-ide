@@ -13,6 +13,7 @@ import exampleStyleCss from './example-project/src/style.css?raw';
 import exampleWorkerDbTs from './example-project/worker/db.ts?raw';
 import exampleWorkerHandlersTs from './example-project/worker/handlers.ts?raw';
 import exampleWorkerIndexTs from './example-project/worker/index.ts?raw';
+import docsHtml from '../docs/index.html?raw';
 
 export { DurableObjectFilesystem };
 
@@ -523,6 +524,13 @@ export default class extends WorkerEntrypoint<Env> {
 	async fetch(request: Request) {
 		const url = new URL(request.url);
 		const path = url.pathname;
+
+		// Serve documentation
+		if (path === '/about' || path === '/about/') {
+			return new Response(docsHtml, {
+				headers: { 'Content-Type': 'text/html' },
+			});
+		}
 
 		// API to create a new project
 		if (path === '/api/new-project' && request.method === 'POST') {
