@@ -6,6 +6,7 @@ import Replicate from 'replicate';
 import { z } from 'zod';
 import { transformCode } from './bundler.js';
 import { transformModule, processHTML, type FileSystem } from './transform.js';
+import { ExpiringFilesystem } from './expiring-filesystem.js';
 import examplePackageJson from './example-project/package.json?raw';
 import exampleTsconfig from './example-project/tsconfig.json?raw';
 import exampleIndexHtml from './example-project/index.html?raw';
@@ -17,7 +18,8 @@ import exampleWorkerHandlersTs from './example-project/worker/handlers.ts?raw';
 import exampleWorkerIndexTs from './example-project/worker/index.ts?raw';
 import docsHtml from '../docs/index.html?raw';
 
-export { DurableObjectFilesystem };
+// Re-export ExpiringFilesystem as the Durable Object class for wrangler
+export { ExpiringFilesystem as DurableObjectFilesystem };
 
 // Zod schemas for tool input validation
 const ListFilesInputSchema = z.object({});
@@ -911,9 +913,12 @@ export default class extends WorkerEntrypoint<Env> {
 				return hmrStub.fetch(new Request(hmrUrl, request));
 			}
 
+			// Refresh expiration timer on every project access
+			await fsStub.refreshExpiration();
+
 			// API endpoints for file modification
 			if (subPath.startsWith('/api/')) {
-				return this.handleAPI(request, projectId, basePrefix);
+				return this.handleAPI(request, projectId, basePrefix, fsStub);
 			}
 
 			// Handle preview API routes (example project's backend)
@@ -934,7 +939,7 @@ export default class extends WorkerEntrypoint<Env> {
 		});
 	}
 
-	private async handleAPI(request: Request, projectId: string, basePrefix?: string): Promise<Response> {
+	private async handleAPI(request: Request, projectId: string, basePrefix: string, fsStub: DurableObjectStub<ExpiringFilesystem>): Promise<Response> {
 		const url = new URL(request.url);
 		// Strip basePrefix from path for matching
 		const fullPath = url.pathname;
@@ -952,6 +957,18 @@ export default class extends WorkerEntrypoint<Env> {
 		}
 
 		try {
+			// GET /api/expiration - get project expiration info
+			if (path === '/api/expiration' && request.method === 'GET') {
+				const expirationTime = await fsStub.getExpirationTime();
+				return new Response(
+					JSON.stringify({
+						expiresAt: expirationTime,
+						expiresIn: expirationTime ? expirationTime - Date.now() : null,
+					}),
+					{ headers },
+				);
+			}
+
 			// GET /api/files - list all files
 			if (path === '/api/files' && request.method === 'GET') {
 				const files = await this.listFilesRecursive(this.projectRoot);
@@ -1098,7 +1115,6 @@ export default class extends WorkerEntrypoint<Env> {
 						compatibility_date: '2026-01-31',
 						assets: {
 							not_found_handling: 'single-page-application',
-							run_worker_first: ['/api/*'],
 						},
 						observability: {
 							enabled: true,
@@ -1460,16 +1476,18 @@ export default class extends WorkerEntrypoint<Env> {
 		try {
 			const entries = await fs.readdir(dir, { withFileTypes: true });
 			const results = await Promise.all(
-				entries.filter((entry) => entry.name !== '.ai-sessions').map(async (entry) => {
-					const relativePath = base ? `${base}/${entry.name}` : entry.name;
-					const fullPath = `${dir}/${entry.name}`;
-					if (entry.isDirectory()) {
-						return this.collectFilesForBundle(fullPath, relativePath);
-					} else {
-						const content = await fs.readFile(fullPath, 'utf8');
-						return { [relativePath]: content };
-					}
-				}),
+				entries
+					.filter((entry) => entry.name !== '.ai-sessions')
+					.map(async (entry) => {
+						const relativePath = base ? `${base}/${entry.name}` : entry.name;
+						const fullPath = `${dir}/${entry.name}`;
+						if (entry.isDirectory()) {
+							return this.collectFilesForBundle(fullPath, relativePath);
+						} else {
+							const content = await fs.readFile(fullPath, 'utf8');
+							return { [relativePath]: content };
+						}
+					}),
 			);
 			for (const result of results) {
 				Object.assign(files, result);
@@ -1613,7 +1631,9 @@ export default class extends WorkerEntrypoint<Env> {
 		const signal = request.signal;
 		this.runAgentLoop(writer, encoder, sendEvent, prompt, history, projectId, apiToken, signal).catch(async (err) => {
 			if (err instanceof Error && err.name === 'AbortError') {
-				try { await writer.close(); } catch {}
+				try {
+					await writer.close();
+				} catch {}
 				return;
 			}
 			console.error('Agent error:', err);
@@ -1956,7 +1976,10 @@ When you're done and don't need to use any more tools, just provide your final r
 				output += event.toString();
 			}
 
-			const trimmed = output.trim().replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/, '');
+			const trimmed = output
+				.trim()
+				.replace(/^```(?:json)?\s*\n?/i, '')
+				.replace(/\n?```\s*$/, '');
 			const repaired = JSON.parse(trimmed);
 			if (typeof repaired !== 'object' || repaired === null || Array.isArray(repaired)) return null;
 			return repaired as Record<string, unknown>;
