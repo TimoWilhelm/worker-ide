@@ -1140,8 +1140,8 @@ export default class extends WorkerEntrypoint<Env> {
 				}
 			}
 
-			// PUT /api/ai-session - save an AI session
-			if (path === '/api/ai-session' && request.method === 'PUT') {
+			// PUT|POST /api/ai-session - save an AI session (POST needed for sendBeacon)
+			if (path === '/api/ai-session' && (request.method === 'PUT' || request.method === 'POST')) {
 				const body = (await request.json()) as { id: string; label: string; history: unknown[]; createdAt: number };
 				if (!body.id || !/^[a-z0-9]+$/.test(body.id)) {
 					return new Response(JSON.stringify({ error: 'invalid session id' }), { status: 400, headers });
@@ -1674,7 +1674,7 @@ export default class extends WorkerEntrypoint<Env> {
 						});
 
 						// Execute the tool
-						const result = await this.executeAgentTool(toolCall.name, toolCall.input, projectId, sendEvent, apiToken);
+						const result = await this.executeAgentTool(toolCall.name, toolCall.input, projectId, sendEvent, apiToken, toolCall.id);
 
 						await sendEvent('tool_result', {
 							tool: toolCall.name,
@@ -1948,6 +1948,7 @@ When you're done and don't need to use any more tools, just provide your final r
 		projectId: string,
 		sendEvent: (type: string, data: Record<string, unknown>) => Promise<void>,
 		apiToken: string,
+		toolUseId?: string,
 	): Promise<string | object> {
 		try {
 			// Validate tool input with Zod schema
@@ -2035,7 +2036,7 @@ When you're done and don't need to use any more tools, just provide your final r
 						}),
 					);
 
-					await sendEvent('file_changed', { path, action });
+					await sendEvent('file_changed', { path, action, tool_use_id: toolUseId });
 					return { success: true, path, action };
 				}
 
@@ -2048,7 +2049,7 @@ When you're done and don't need to use any more tools, just provide your final r
 					await sendEvent('status', { message: `Deleting ${path}...` });
 					try {
 						await fs.unlink(`${this.projectRoot}${path}`);
-						await sendEvent('file_changed', { path, action: 'delete' });
+						await sendEvent('file_changed', { path, action: 'delete', tool_use_id: toolUseId });
 						return { success: true, path, action: 'delete' };
 					} catch (err) {
 						return { error: `Failed to delete: ${path}` };
@@ -2082,8 +2083,8 @@ When you're done and don't need to use any more tools, just provide your final r
 						// Delete source
 						await fs.unlink(`${this.projectRoot}${fromPath}`);
 
-						await sendEvent('file_changed', { path: fromPath, action: 'delete' });
-						await sendEvent('file_changed', { path: toPath, action: 'create' });
+						await sendEvent('file_changed', { path: fromPath, action: 'delete', tool_use_id: toolUseId });
+						await sendEvent('file_changed', { path: toPath, action: 'create', tool_use_id: toolUseId });
 
 						return { success: true, from: fromPath, to: toPath };
 					} catch (err) {

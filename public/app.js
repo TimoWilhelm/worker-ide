@@ -1041,22 +1041,58 @@
 	let aiSessions = [];
 	let activeSessionId = null;
 
+	const _saveTimers = {};
 	function saveSessionToBackend(session) {
 		if (!session || !session.id) return;
-		fetch(basePath + '/api/ai-session', {
-			method: 'PUT',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({
-				id: session.id,
-				label: session.label,
-				history: session.history,
-				messagesHtml: session.messagesHtml,
-				createdAt: session.createdAt,
-			}),
-		}).catch(function (err) {
-			console.error('Failed to save AI session:', err);
-		});
+		session._dirty = true;
+		if (_saveTimers[session.id]) clearTimeout(_saveTimers[session.id]);
+		_saveTimers[session.id] = setTimeout(function () {
+			delete _saveTimers[session.id];
+			_flushSession(session);
+		}, 1000);
 	}
+
+	function _flushSession(session, useBeacon) {
+		if (!session || !session.id) return;
+		const payload = JSON.stringify({
+			id: session.id,
+			label: session.label,
+			history: session.history,
+			messagesHtml: session.messagesHtml,
+			createdAt: session.createdAt,
+		});
+		if (useBeacon && navigator.sendBeacon) {
+			navigator.sendBeacon(basePath + '/api/ai-session', new Blob([payload], { type: 'application/json' }));
+		} else {
+			session._dirty = false;
+			fetch(basePath + '/api/ai-session', {
+				method: 'PUT',
+				headers: { 'Content-Type': 'application/json' },
+				body: payload,
+			}).catch(function (err) {
+				session._dirty = true;
+				console.error('Failed to save AI session:', err);
+			});
+		}
+	}
+
+	window.addEventListener('beforeunload', function () {
+		const current = aiSessions.find(function (s) { return s.id === activeSessionId; });
+		if (current) {
+			current.messagesHtml = aiMessages.innerHTML;
+			current._dirty = true;
+		}
+		aiSessions.forEach(function (session) {
+			if (_saveTimers[session.id]) {
+				clearTimeout(_saveTimers[session.id]);
+				delete _saveTimers[session.id];
+				session._dirty = true;
+			}
+			if (session._dirty) {
+				_flushSession(session, true);
+			}
+		});
+	});
 
 	async function loadSessionsFromBackend() {
 		try {
@@ -1288,14 +1324,26 @@
 		if (existingMsg) {
 			existingMsg.querySelector('.ai-message-content').innerHTML = formatAiMessage(content);
 		} else {
+			// For assistant streaming messages, only show the role label on the first bubble
+			let showRole = true;
+			if (role === 'assistant' && isStreaming) {
+				// Check if there's already a finalized assistant message (from before tool calls)
+				let prev = aiMessages.lastElementChild;
+				while (prev) {
+					if (prev.classList.contains('ai-message') && prev.classList.contains('assistant')) {
+						showRole = false;
+						break;
+					}
+					if (prev.classList.contains('ai-message') && prev.classList.contains('user')) {
+						break;
+					}
+					prev = prev.previousElementSibling;
+				}
+			}
 			const msgEl = document.createElement('div');
 			msgEl.className = 'ai-message ' + role + (isStreaming ? ' streaming' : '');
 			msgEl.innerHTML =
-				'<div class="ai-message-role ' +
-				role +
-				'">' +
-				(role === 'user' ? 'You' : 'AI') +
-				'</div>' +
+				(showRole ? '<div class="ai-message-role ' + role + '">' + (role === 'user' ? 'You' : 'AI') + '</div>' : '') +
 				'<div class="ai-message-content">' +
 				formatAiMessage(content) +
 				'</div>';
@@ -1313,65 +1361,85 @@
 		}
 	}
 
-	function addAiToolCall(toolName, args) {
-		var details = '';
+	function addAiToolCall(toolName, args, toolUseId) {
+		// Finalize any in-progress streaming message so the tool call appears after it
+		finalizeAiMessage();
+
+		let details = '';
 		if (args.path) {
 			details = args.path;
 		} else if (toolName === 'move_file' && args.from_path && args.to_path) {
-			details = args.from_path + ' → ' + args.to_path;
+			details = args.from_path + ' \u2192 ' + args.to_path;
 		}
 
-		var pill = document.createElement('span');
-		pill.className = 'ai-tool-pill';
-		pill.innerHTML =
-			'<span class="ai-tool-name">' +
-			escapeHtmlForAi(toolName) +
-			'</span>' +
-			(details ? '<span class="ai-tool-details">' + escapeHtmlForAi(details) + '</span>' : '');
-
-		// Group consecutive tool calls into a single container
-		var lastChild = aiMessages.lastElementChild;
-		var group;
-		if (lastChild && lastChild.classList.contains('ai-tool-group')) {
-			group = lastChild;
+		let toolIcon = '';
+		if (toolName === 'read_file' || toolName === 'list_files') {
+			toolIcon = '<svg class="ai-tool-inline-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>';
+		} else if (toolName === 'write_file') {
+			toolIcon = '<svg class="ai-tool-inline-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>';
+		} else if (toolName === 'delete_file') {
+			toolIcon = '<svg class="ai-tool-inline-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>';
+		} else if (toolName === 'move_file') {
+			toolIcon = '<svg class="ai-tool-inline-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>';
 		} else {
-			group = document.createElement('div');
-			group.className = 'ai-tool-group';
-			group.innerHTML =
-				'<svg class="ai-tool-group-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path></svg>';
-			aiMessages.appendChild(group);
+			toolIcon = '<svg class="ai-tool-inline-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path></svg>';
 		}
-		group.appendChild(pill);
+
+		const el = document.createElement('div');
+		el.className = 'ai-tool-inline';
+		if (toolUseId) el.dataset.toolId = toolUseId;
+		el.innerHTML =
+			'<div class="ai-tool-inline-header">' +
+			toolIcon +
+			'<span class="ai-tool-inline-name">' + escapeHtmlForAi(toolName.replace(/_/g, ' ')) + '</span>' +
+			(details ? '<span class="ai-tool-inline-path">' + escapeHtmlForAi(details) + '</span>' : '') +
+			'<svg class="ai-tool-inline-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>' +
+			'</div>' +
+			'<div class="ai-tool-inline-body"></div>';
+
+		aiMessages.appendChild(el);
 		aiMessages.scrollTop = aiMessages.scrollHeight;
 	}
 
-	function addAiFileChange(path, action) {
-		const changeEl = document.createElement('div');
-		changeEl.className = 'ai-file-change' + (action === 'delete' ? ' delete' : '');
-
-		let icon;
+	function addAiFileChange(path, action, toolUseId) {
 		let label;
-
+		let changeClass = '';
 		if (action === 'create') {
-			icon =
-				'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="12" y1="18" x2="12" y2="12"></line><line x1="9" y1="15" x2="15" y2="15"></line></svg>';
 			label = 'Created ' + path;
+			changeClass = 'created';
 		} else if (action === 'edit') {
-			icon =
-				'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>';
 			label = 'Modified ' + path;
+			changeClass = 'modified';
 		} else if (action === 'delete') {
-			icon =
-				'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>';
 			label = 'Deleted ' + path;
+			changeClass = 'deleted';
 		} else {
-			icon =
-				'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle></svg>';
 			label = action + ' ' + path;
 		}
 
-		changeEl.innerHTML = icon + '<span>' + escapeHtmlForAi(label) + '</span>';
-		aiMessages.appendChild(changeEl);
+		// Find the matching inline tool call by ID, falling back to the most recent
+		let lastTool = toolUseId ? aiMessages.querySelector('.ai-tool-inline[data-tool-id="' + toolUseId + '"]') : null;
+		if (!lastTool) {
+			const toolEls = aiMessages.querySelectorAll('.ai-tool-inline');
+			lastTool = toolEls.length > 0 ? toolEls[toolEls.length - 1] : null;
+		}
+		if (lastTool) {
+			const body = lastTool.querySelector('.ai-tool-inline-body');
+			const changeEl = document.createElement('div');
+			changeEl.className = 'ai-tool-inline-change ' + changeClass;
+			changeEl.textContent = label;
+			body.appendChild(changeEl);
+			// Auto-expand to show the result
+			lastTool.classList.add('expanded');
+			// Update header to show completion state
+			lastTool.classList.add('completed');
+		} else {
+			// Fallback: render standalone if no tool call to attach to
+			const standalone = document.createElement('div');
+			standalone.className = 'ai-tool-inline-change standalone ' + changeClass;
+			standalone.textContent = label;
+			aiMessages.appendChild(standalone);
+		}
 		aiMessages.scrollTop = aiMessages.scrollHeight;
 	}
 
@@ -1534,6 +1602,10 @@
 					});
 					return;
 				}
+				// Reset text accumulator on tool_call so the next text bubble starts fresh
+				if (data.type === 'tool_call') {
+					assistantMessage = '';
+				}
 				handleAiEvent(data, function (text) {
 					assistantMessage += text;
 					addAiMessage('assistant', assistantMessage, true);
@@ -1680,19 +1752,48 @@
 				break;
 
 			case 'tool_call':
-				addAiToolCall(data.tool, data.args || {});
+				addAiToolCall(data.tool, data.args || {}, data.id);
 				break;
 
-			case 'tool_result':
-				// Tool results are processed internally, no need to show
+			case 'tool_result': {
+				// Mark the matching tool call as completed and optionally show result summary
+				let matchedToolEl = data.tool_use_id ? aiMessages.querySelector('.ai-tool-inline[data-tool-id="' + data.tool_use_id + '"]') : null;
+				if (!matchedToolEl) {
+					const toolEls = aiMessages.querySelectorAll('.ai-tool-inline');
+					matchedToolEl = toolEls.length > 0 ? toolEls[toolEls.length - 1] : null;
+				}
+				if (matchedToolEl) {
+					matchedToolEl.classList.add('completed');
+					const toolBody = matchedToolEl.querySelector('.ai-tool-inline-body');
+					// For read-only tools, show a brief result summary in the body
+					if (data.tool === 'list_files' || data.tool === 'read_file') {
+						try {
+							const parsed = typeof data.result === 'string' ? JSON.parse(data.result) : data.result;
+							let summary = '';
+							if (parsed.files) {
+								summary = parsed.files.length + ' file' + (parsed.files.length !== 1 ? 's' : '') + ' found';
+							} else if (parsed.content !== undefined) {
+								const lines = parsed.content.split('\n').length;
+								summary = lines + ' line' + (lines !== 1 ? 's' : '');
+							} else if (parsed.error) {
+								summary = parsed.error;
+							}
+							if (summary) {
+								const sumEl = document.createElement('div');
+								sumEl.className = 'ai-tool-inline-summary';
+								sumEl.textContent = summary;
+								toolBody.appendChild(sumEl);
+							}
+						} catch (e) {}
+					}
+				}
 				break;
+			}
 
 			case 'file_changed':
-				addAiFileChange(data.path, data.action);
-				// Refresh file tree and potentially update editor
+				addAiFileChange(data.path, data.action, data.tool_use_id);
 				loadFiles();
 				if (data.path === currentFile) {
-					// Reload the current file if it was modified
 					reloadCurrentFile();
 				}
 				break;
@@ -1802,12 +1903,20 @@
 		});
 	}
 
-	// Handle suggestion buttons
+	// Handle suggestion buttons and inline tool call expand/collapse
 	aiMessages.addEventListener('click', function (e) {
 		const suggestion = e.target.closest('.ai-suggestion');
 		if (suggestion && suggestion.dataset.prompt) {
 			aiPrompt.value = suggestion.dataset.prompt;
 			sendAiPrompt();
+			return;
+		}
+		var toolHeader = e.target.closest('.ai-tool-inline-header');
+		if (toolHeader) {
+			var toolEl = toolHeader.closest('.ai-tool-inline');
+			if (toolEl) {
+				toolEl.classList.toggle('expanded');
+			}
 		}
 	});
 
