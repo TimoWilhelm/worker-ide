@@ -1,5 +1,50 @@
 {
+	"typescript.tsdk": "node_modules/typescript/lib",
+	"typescript.enablePromptUseWorkspaceTsdk": true,
 	"files.associations": {
-		"wrangler.json": "jsonc"
-	}
+		"wrangler.json": "jsonc",
+		"*.css": "tailwindcss"
+	},
+	"editor.inlineSuggest.enabled": true,
+	"editor.quickSuggestions": {
+		"strings": true,
+		"comments": false,
+		"other": true
+	},
+	"[javascript]": {
+		"editor.defaultFormatter": "esbenp.prettier-vscode"
+	},
+	"[typescript]": {
+		"editor.defaultFormatter": "esbenp.prettier-vscode"
+	},
+	"[javascriptreact]": {
+		"editor.defaultFormatter": "esbenp.prettier-vscode"
+	},
+	"[typescriptreact]": {
+		"editor.defaultFormatter": "esbenp.prettier-vscode"
+	},
+	"[html]": {
+		"editor.defaultFormatter": "esbenp.prettier-vscode"
+	},
+	"[tailwindcss]": {
+		"editor.defaultFormatter": "esbenp.prettier-vscode"
+	},
+	"editor.codeActionsOnSave": {
+		"source.fixAll": "explicit"
+	},
+	"eslint.runtime": "bun",
+	"eslint.validate": ["javascript", "javascriptreact", "typescript", "typescriptreact"],
+	"eslint.workingDirectories": [
+		{
+			"mode": "auto"
+		}
+	],
+	"json.schemas": [
+		{
+			"fileMatch": ["*.jsonc"],
+			"schema": {
+				"allowTrailingCommas": true
+			}
+		}
+	]
 }

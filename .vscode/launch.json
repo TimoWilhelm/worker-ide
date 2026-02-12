@@ -1,0 +1,36 @@
+{
+	"version": "0.2.0",
+	"configurations": [
+		{
+			"name": "Attach to Dev Server (Worker)",
+			"type": "node",
+			"request": "attach",
+			"port": 9229,
+			"restart": true,
+			"localRoot": "${workspaceFolder}",
+			"remoteRoot": "${workspaceFolder}",
+			"skipFiles": ["<node_internals>/**"]
+		},
+		{
+			"name": "Debug in Chrome (Client)",
+			"type": "chrome",
+			"request": "launch",
+			"url": "http://localhost:3000",
+			"webRoot": "${workspaceFolder}/src",
+			"sourceMaps": true
+		},
+		{
+			"name": "Storybook",
+			"type": "chrome",
+			"request": "launch",
+			"url": "http://localhost:6006",
+			"preLaunchTask": "storybook"
+		}
+	],
+	"compounds": [
+		{
+			"name": "Full Stack Debug",
+			"configurations": ["Attach to Dev Server (Worker)", "Debug in Chrome (Client)"]
+		}
+	]
+}

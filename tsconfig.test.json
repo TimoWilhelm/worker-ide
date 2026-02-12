@@ -1,0 +1,9 @@
+{
+	"extends": "./tsconfig.worker.json",
+	"compilerOptions": {
+		"noEmit": true,
+		"types": ["vitest/globals"]
+	},
+	"include": ["worker/**/*.test.ts", "shared/**/*.test.ts"],
+	"exclude": []
+}

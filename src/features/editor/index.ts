@@ -1,0 +1,23 @@
+/**
+ * Editor Feature Barrel Export
+ *
+ * Re-exports all editor-related components, hooks, and utilities.
+ */
+
+// Components
+export { CodeEditor, type CodeEditorProperties, useEditorReference } from './components/code-editor';
+export { FileTabs, type FileTab, type FileTabsProperties } from './components/file-tabs';
+
+// Hooks
+export { useFileContent, useFileList } from './hooks/use-file-content';
+
+// Extensions (for advanced usage)
+export {
+	darkTheme,
+	darkHighlightStyle,
+	getLanguageExtension,
+	getBaseExtensions,
+	createEditorExtensions,
+	readonlyExtension,
+	createTabSizeExtension,
+} from './lib/extensions';

@@ -1,0 +1,15 @@
+/**
+ * Worker services barrel export.
+ */
+
+export { AIAgentService } from './ai-agent-service';
+export { transformCode, bundleCode, type TransformResult, type BundleResult, type BundleOptions } from './bundler-service';
+export { PreviewService } from './preview-service';
+export {
+	transformModule,
+	processHTML,
+	generateHMRClient,
+	toEsbuildTsconfigRaw,
+	type FileSystem,
+	type TransformOptions,
+} from './transform-service';

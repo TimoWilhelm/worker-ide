@@ -1,0 +1,46 @@
+{
+	"$schema": "https://turbo.build/schema.json",
+	"tasks": {
+		"build:worker-types": {
+			"outputs": ["dist/worker/**"],
+			"inputs": ["worker/**/*.ts", "shared/**/*.ts", "tsconfig.worker.json", "tsconfig.json"]
+		},
+		"build:vite": {
+			"dependsOn": ["build:worker-types"],
+			"outputs": ["dist/**"],
+			"inputs": ["src/**", "worker/**", "shared/**", "public/**", "index.html", "vite.config.ts", "tsconfig.*.json"],
+			"env": ["NODE_ENV"]
+		},
+		"typecheck:app": {
+			"dependsOn": ["build:worker-types"],
+			"inputs": ["src/**", "shared/**", "tsconfig.app.json", "tsconfig.json"],
+			"cache": true
+		},
+		"typecheck:node": {
+			"inputs": ["vite.config.ts", "tsconfig.node.json", "tsconfig.json"],
+			"cache": true
+		},
+		"typecheck:worker": {
+			"dependsOn": ["build:worker-types"],
+			"inputs": ["worker/**", "shared/**", "tsconfig.worker.json", "tsconfig.json"],
+			"cache": true
+		},
+		"lint": {
+			"inputs": ["src/**", "worker/**", "shared/**", "test/**", "eslint.config.js"],
+			"cache": true
+		},
+		"format:check": {
+			"inputs": ["**/*.{ts,tsx,js,json,md,css}"],
+			"cache": true
+		},
+		"test": {
+			"inputs": ["src/**", "worker/**", "shared/**"],
+			"cache": true
+		},
+		"test:e2e": {
+			"inputs": ["src/**", "worker/**", "shared/**", "test/e2e/**", "playwright.config.ts"],
+			"env": ["CI"],
+			"cache": false
+		}
+	}
+}

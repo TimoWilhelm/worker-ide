@@ -1,0 +1,31 @@
+{
+	"compilerOptions": {
+		"target": "ES2024",
+		"lib": ["ES2024"],
+		"module": "ESNext",
+		"moduleResolution": "bundler",
+		"moduleDetection": "force",
+		"strict": true,
+		"noEmit": true,
+		"isolatedModules": true,
+		"skipLibCheck": true,
+		"noUnusedLocals": true,
+		"noUnusedParameters": true,
+		"noFallthroughCasesInSwitch": true,
+		"noUncheckedSideEffectImports": true,
+		"allowJs": true,
+		"paths": {
+			"@shared/*": ["./shared/*"]
+		},
+		"types": ["./worker-configuration.d.ts", "vite/client"]
+	},
+	"include": [
+		"vite.config.ts",
+		"vitest.config.ts",
+		"playwright.config.ts",
+		"eslint.config.js",
+		"lint-staged.config.js",
+		".storybook/**/*.ts",
+		"test/**/*.ts"
+	]
+}

@@ -1,0 +1,236 @@
+@import 'tailwindcss';
+
+/* Design tokens using CSS variables for theming */
+@theme {
+	/* Colors - GitHub-inspired dark theme */
+	--color-bg-primary: #0d1117;
+	--color-bg-secondary: #161b22;
+	--color-bg-tertiary: #21262d;
+	--color-border: #30363d;
+	--color-text-primary: #e6edf3;
+	--color-text-secondary: #8b949e;
+	--color-accent: #58a6ff;
+	--color-accent-hover: #79b8ff;
+	--color-success: #3fb950;
+	--color-warning: #d29922;
+	--color-error: #f85149;
+
+	/* Collaboration colors */
+	--color-collab-orange: #f97316;
+	--color-collab-cyan: #22d3ee;
+	--color-collab-purple: #a78bfa;
+	--color-collab-pink: #f472b6;
+	--color-collab-green: #4ade80;
+	--color-collab-yellow: #facc15;
+
+	/* Font families */
+	--font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+	--font-mono: 'SF Mono', Menlo, Monaco, 'Courier New', monospace;
+
+	/* Font sizes */
+	--text-xs: 0.6875rem;
+	--text-sm: 0.8125rem;
+	--text-base: 0.875rem;
+
+	/* Spacing */
+	--spacing-sidebar: 220px;
+	--spacing-header: 48px;
+	--spacing-tabs: 38px;
+	--spacing-terminal: 200px;
+}
+
+/* Base styles */
+* {
+	margin: 0;
+	padding: 0;
+	box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+	height: 100%;
+}
+
+body {
+	font-family: var(--font-sans);
+	background: var(--color-bg-primary);
+	color: var(--color-text-primary);
+	font-size: var(--text-base);
+	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
+}
+
+/* Scrollbar styles */
+::-webkit-scrollbar {
+	width: 8px;
+	height: 8px;
+}
+
+::-webkit-scrollbar-track {
+	background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+	background: var(--color-border);
+	border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+	background: var(--color-text-secondary);
+}
+
+/* CodeMirror theme overrides */
+.cm-editor {
+	height: 100%;
+	font-size: var(--text-base);
+}
+
+.cm-editor .cm-scroller {
+	font-family: var(--font-mono);
+}
+
+.cm-editor.cm-focused {
+	outline: none;
+}
+
+.cm-gutters {
+	background: var(--color-bg-secondary) !important;
+	border-right: 1px solid var(--color-border) !important;
+	color: var(--color-text-secondary) !important;
+}
+
+.cm-activeLineGutter {
+	background: var(--color-bg-tertiary) !important;
+}
+
+.cm-line {
+	padding-left: 4px;
+}
+
+.cm-activeLine {
+	background: rgba(88, 166, 255, 0.05) !important;
+}
+
+/* Remote cursor styles for collaboration */
+.remote-cursor {
+	position: absolute;
+	width: 2px;
+	pointer-events: none;
+	z-index: 10;
+}
+
+.remote-cursor-flag {
+	position: absolute;
+	top: -18px;
+	left: 0;
+	padding: 2px 6px;
+	font-size: 10px;
+	font-weight: 500;
+	border-radius: 3px;
+	white-space: nowrap;
+	color: white;
+}
+
+.remote-selection {
+	position: absolute;
+	pointer-events: none;
+	opacity: 0.3;
+}
+
+/* Animation utilities */
+@keyframes spin {
+	from {
+		transform: rotate(0deg);
+	}
+	to {
+		transform: rotate(360deg);
+	}
+}
+
+@keyframes pulse {
+	0%,
+	100% {
+		opacity: 1;
+	}
+	50% {
+		opacity: 0.5;
+	}
+}
+
+@keyframes fadeIn {
+	from {
+		opacity: 0;
+	}
+	to {
+		opacity: 1;
+	}
+}
+
+.animate-spin {
+	animation: spin 1s linear infinite;
+}
+
+.animate-pulse {
+	animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.animate-fade-in {
+	animation: fadeIn 0.15s ease-out;
+}
+
+/* Diff viewer styles */
+.diff-line-added {
+	background: rgba(63, 185, 80, 0.15);
+}
+
+.diff-line-removed {
+	background: rgba(248, 81, 73, 0.15);
+}
+
+.diff-line-context {
+	background: transparent;
+}
+
+/* Error overlay styles */
+.error-overlay {
+	position: fixed;
+	inset: 0;
+	z-index: 9999;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	background: rgba(0, 0, 0, 0.8);
+	backdrop-filter: blur(4px);
+}
+
+.error-overlay-content {
+	max-width: 600px;
+	max-height: 80vh;
+	overflow: auto;
+	padding: 24px;
+	background: var(--color-bg-secondary);
+	border: 1px solid var(--color-error);
+	border-radius: 8px;
+}
+
+/* Utility classes for specific components */
+.truncate-path {
+	max-width: 200px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	direction: rtl;
+	text-align: left;
+}
+
+/* Focus visible styles */
+:focus-visible {
+	outline: 2px solid var(--color-accent);
+	outline-offset: 2px;
+}
+
+/* Selection styles */
+::selection {
+	background: rgba(88, 166, 255, 0.3);
+}

@@ -1,0 +1,32 @@
+{
+	"$schema": "https://unpkg.com/knip@5/schema.json",
+	"ignoreExportsUsedInFile": {
+		"interface": true,
+		"type": true
+	},
+	"exclude": ["exports", "types"],
+	"entry": ["worker/index.ts"],
+	"project": ["src/**", "worker/**", "shared/**", "test/**"],
+	"ignoreDependencies": [
+		"cloudflare",
+		"@cloudflare/vitest-pool-workers",
+		"@types/diff",
+		"codemirror",
+		"devalue",
+		"diff",
+		"react-router-dom",
+		"zod-validation-error"
+	],
+	"ignoreFiles": [
+		"src/vite-env.d.ts",
+		"playwright.config.ts",
+		"shared/index.ts",
+		"shared/errors.ts",
+		"shared/ws-messages.ts",
+		"src/components/index.ts",
+		"src/components/ui/index.ts",
+		"worker/lib/index.ts",
+		"worker/services/index.ts",
+		"worker/lib/content-type.ts"
+	]
+}
