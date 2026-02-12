@@ -171,6 +171,55 @@ interface ClaudeResponse {
 	stop_sequence: string | null;
 }
 
+// Snapshot and file change tracking types
+interface FileChange {
+	path: string;
+	action: 'create' | 'edit' | 'delete';
+	beforeContent: string | Uint8Array | null; // null for created files
+	afterContent: string | Uint8Array | null; // null for deleted files
+	isBinary: boolean;
+}
+
+interface SnapshotMetadata {
+	id: string;
+	timestamp: number;
+	label: string;
+	changes: Array<{ path: string; action: 'create' | 'edit' | 'delete' }>;
+}
+
+// Binary file extensions for snapshot handling
+const SNAPSHOT_BINARY_EXTENSIONS = new Set([
+	'.png',
+	'.jpg',
+	'.jpeg',
+	'.gif',
+	'.webp',
+	'.ico',
+	'.svg',
+	'.woff',
+	'.woff2',
+	'.ttf',
+	'.eot',
+	'.otf',
+	'.pdf',
+	'.zip',
+	'.tar',
+	'.gz',
+	'.mp3',
+	'.mp4',
+	'.webm',
+	'.ogg',
+	'.wav',
+	'.bin',
+	'.exe',
+	'.dll',
+]);
+
+function isBinaryFilePath(path: string): boolean {
+	const ext = path.match(/\.[^.]+$/)?.[0]?.toLowerCase() || '';
+	return SNAPSHOT_BINARY_EXTENSIONS.has(ext);
+}
+
 // Agent tool definitions
 const AGENT_TOOLS: AgentTool[] = [
 	{
@@ -939,7 +988,12 @@ export default class extends WorkerEntrypoint<Env> {
 		});
 	}
 
-	private async handleAPI(request: Request, projectId: string, basePrefix: string, fsStub: DurableObjectStub<ExpiringFilesystem>): Promise<Response> {
+	private async handleAPI(
+		request: Request,
+		projectId: string,
+		basePrefix: string,
+		fsStub: DurableObjectStub<ExpiringFilesystem>,
+	): Promise<Response> {
 		const url = new URL(request.url);
 		// Strip basePrefix from path for matching
 		const fullPath = url.pathname;
@@ -1203,6 +1257,48 @@ export default class extends WorkerEntrypoint<Env> {
 				return new Response(JSON.stringify({ success: true }), { headers });
 			}
 
+			// GET /api/snapshots - list all snapshots
+			if (path === '/api/snapshots' && request.method === 'GET') {
+				const snapshots = await this.listSnapshots();
+				return new Response(JSON.stringify({ snapshots }), { headers });
+			}
+
+			// GET /api/snapshot/:id - get snapshot details
+			const snapshotGetMatch = path.match(/^\/api\/snapshot\/([a-f0-9]+)$/);
+			if (snapshotGetMatch && request.method === 'GET') {
+				const metadata = await this.getSnapshotMetadata(snapshotGetMatch[1]);
+				if (!metadata) {
+					return new Response(JSON.stringify({ error: 'Snapshot not found' }), { status: 404, headers });
+				}
+				return new Response(JSON.stringify(metadata), { headers });
+			}
+
+			// POST /api/snapshot/:id/revert - revert all files to snapshot state
+			const snapshotRevertMatch = path.match(/^\/api\/snapshot\/([a-f0-9]+)\/revert$/);
+			if (snapshotRevertMatch && request.method === 'POST') {
+				const success = await this.revertSnapshot(snapshotRevertMatch[1], projectId);
+				if (!success) {
+					return new Response(JSON.stringify({ error: 'Failed to revert snapshot' }), { status: 500, headers });
+				}
+				return new Response(JSON.stringify({ success: true }), { headers });
+			}
+
+			// POST /api/file/revert - revert a single file from a snapshot
+			if (path === '/api/file/revert' && request.method === 'POST') {
+				const body = (await request.json()) as { path: string; snapshotId: string };
+				if (!body.path || !body.snapshotId) {
+					return new Response(JSON.stringify({ error: 'path and snapshotId required' }), { status: 400, headers });
+				}
+				if (!isPathSafe(this.projectRoot, body.path)) {
+					return new Response(JSON.stringify({ error: 'invalid path' }), { status: 400, headers });
+				}
+				const success = await this.revertFileFromSnapshot(body.path, body.snapshotId, projectId);
+				if (!success) {
+					return new Response(JSON.stringify({ error: 'Failed to revert file' }), { status: 500, headers });
+				}
+				return new Response(JSON.stringify({ success: true }), { headers });
+			}
+
 			// POST /api/agent/chat - AI coding agent with SSE streaming
 			if (path === '/api/agent/chat' && request.method === 'POST') {
 				return this.handleAgentChat(request, projectId);
@@ -1455,7 +1551,8 @@ export default class extends WorkerEntrypoint<Env> {
 		try {
 			const entries = await fs.readdir(dir, { withFileTypes: true });
 			for (const entry of entries) {
-				if (entry.name === '.ai-sessions') continue;
+				// Skip internal directories
+				if (entry.name === '.ai-sessions' || entry.name === '.snapshots') continue;
 				const relativePath = base ? `${base}/${entry.name}` : `/${entry.name}`;
 				if (entry.isDirectory()) {
 					files.push(...(await this.listFilesRecursive(`${dir}/${entry.name}`, relativePath)));
@@ -1477,7 +1574,7 @@ export default class extends WorkerEntrypoint<Env> {
 			const entries = await fs.readdir(dir, { withFileTypes: true });
 			const results = await Promise.all(
 				entries
-					.filter((entry) => entry.name !== '.ai-sessions')
+					.filter((entry) => entry.name !== '.ai-sessions' && entry.name !== '.snapshots')
 					.map(async (entry) => {
 						const relativePath = base ? `${base}/${entry.name}` : entry.name;
 						const fullPath = `${dir}/${entry.name}`;
@@ -1664,6 +1761,9 @@ export default class extends WorkerEntrypoint<Env> {
 		apiToken: string,
 		signal?: AbortSignal,
 	): Promise<void> {
+		// Track all file changes made during this query for snapshot creation
+		const queryChanges: FileChange[] = [];
+
 		try {
 			await sendEvent('status', { message: 'Starting...' });
 
@@ -1716,8 +1816,16 @@ export default class extends WorkerEntrypoint<Env> {
 							args: toolCall.input,
 						});
 
-						// Execute the tool
-						const result = await this.executeAgentTool(toolCall.name, toolCall.input, projectId, sendEvent, apiToken, toolCall.id);
+						// Execute the tool, passing queryChanges to track file modifications
+						const result = await this.executeAgentTool(
+							toolCall.name,
+							toolCall.input,
+							projectId,
+							sendEvent,
+							apiToken,
+							toolCall.id,
+							queryChanges,
+						);
 
 						await sendEvent('tool_result', {
 							tool: toolCall.name,
@@ -1750,14 +1858,35 @@ export default class extends WorkerEntrypoint<Env> {
 				await sendEvent('turn_complete', {});
 			}
 
+			// Create snapshot if any files were modified during this query
+			if (queryChanges.length > 0) {
+				await this.createSnapshot(prompt, queryChanges, sendEvent);
+			}
+
 			await sendEvent('done', {});
 			await writer.close();
 		} catch (err) {
 			if (err instanceof Error && err.name === 'AbortError') {
+				// Still create snapshot for partial changes if interrupted
+				if (queryChanges.length > 0) {
+					try {
+						await this.createSnapshot(prompt, queryChanges, sendEvent);
+					} catch {
+						// Ignore snapshot errors during abort
+					}
+				}
 				await writer.close();
 				return;
 			}
 			console.error('Agent loop error:', err);
+			// Still create snapshot for partial changes on error
+			if (queryChanges.length > 0) {
+				try {
+					await this.createSnapshot(prompt, queryChanges, sendEvent);
+				} catch {
+					// Ignore snapshot errors during error handling
+				}
+			}
 			const parsed = this.parseApiError(err);
 			await sendEvent('error', { message: parsed.message, code: parsed.code });
 			await writer.close();
@@ -1988,6 +2117,249 @@ When you're done and don't need to use any more tools, just provide your final r
 		}
 	}
 
+	/**
+	 * Create a snapshot of the files that were modified during an agent query.
+	 * The snapshot stores the BEFORE content of each file for reverting.
+	 */
+	private async createSnapshot(
+		prompt: string,
+		changes: FileChange[],
+		sendEvent: (type: string, data: Record<string, unknown>) => Promise<void>,
+	): Promise<void> {
+		const snapshotId = crypto.randomUUID().slice(0, 8);
+		const snapshotDir = `${this.projectRoot}/.snapshots/${snapshotId}`;
+
+		// Create snapshot directory
+		await fs.mkdir(snapshotDir, { recursive: true });
+
+		// Write BEFORE content for edit/delete actions (for reverting)
+		for (const change of changes) {
+			if (change.action !== 'create' && change.beforeContent !== null) {
+				const filePath = `${snapshotDir}${change.path}`;
+				const dir = filePath.substring(0, filePath.lastIndexOf('/'));
+				if (dir && dir !== snapshotDir) {
+					await fs.mkdir(dir, { recursive: true });
+				}
+				// Write as-is (string or Uint8Array)
+				await fs.writeFile(filePath, change.beforeContent);
+			}
+		}
+
+		// Write metadata
+		const metadata: SnapshotMetadata = {
+			id: snapshotId,
+			timestamp: Date.now(),
+			label: prompt.slice(0, 50) + (prompt.length > 50 ? '...' : ''),
+			changes: changes.map((c) => ({ path: c.path, action: c.action })),
+		};
+		await fs.writeFile(`${snapshotDir}/metadata.json`, JSON.stringify(metadata, null, 2));
+
+		// Cleanup old snapshots (keep last 10)
+		await this.cleanupOldSnapshots(10);
+
+		// Notify client
+		await sendEvent('snapshot_created', {
+			id: snapshotId,
+			label: metadata.label,
+			timestamp: metadata.timestamp,
+			changes: metadata.changes,
+		});
+	}
+
+	/**
+	 * Clean up old snapshots, keeping only the most recent `keepCount`.
+	 */
+	private async cleanupOldSnapshots(keepCount: number): Promise<void> {
+		const snapshotsDir = `${this.projectRoot}/.snapshots`;
+
+		try {
+			const entries = await fs.readdir(snapshotsDir);
+			const snapshots: Array<{ id: string; timestamp: number }> = [];
+
+			for (const entry of entries) {
+				try {
+					const metadataPath = `${snapshotsDir}/${entry}/metadata.json`;
+					const metadataRaw = await fs.readFile(metadataPath, 'utf8');
+					const metadata = JSON.parse(metadataRaw) as SnapshotMetadata;
+					snapshots.push({ id: entry, timestamp: metadata.timestamp });
+				} catch {
+					// Skip invalid snapshot directories
+				}
+			}
+
+			// Sort by timestamp descending (newest first)
+			snapshots.sort((a, b) => b.timestamp - a.timestamp);
+
+			// Delete snapshots beyond keepCount
+			for (let i = keepCount; i < snapshots.length; i++) {
+				await this.deleteDirectoryRecursive(`${snapshotsDir}/${snapshots[i].id}`);
+			}
+		} catch {
+			// Snapshots directory may not exist yet
+		}
+	}
+
+	/**
+	 * Recursively delete a directory and all its contents.
+	 */
+	private async deleteDirectoryRecursive(dirPath: string): Promise<void> {
+		try {
+			const entries = await fs.readdir(dirPath, { withFileTypes: true });
+			for (const entry of entries) {
+				const fullPath = `${dirPath}/${entry.name}`;
+				if (entry.isDirectory()) {
+					await this.deleteDirectoryRecursive(fullPath);
+				} else {
+					await fs.unlink(fullPath);
+				}
+			}
+			await fs.rmdir(dirPath);
+		} catch {
+			// Ignore errors during cleanup
+		}
+	}
+
+	/**
+	 * List all available snapshots with their metadata.
+	 */
+	private async listSnapshots(): Promise<Array<{ id: string; timestamp: number; label: string; changeCount: number }>> {
+		const snapshotsDir = `${this.projectRoot}/.snapshots`;
+		const snapshots: Array<{ id: string; timestamp: number; label: string; changeCount: number }> = [];
+
+		try {
+			const entries = await fs.readdir(snapshotsDir);
+			for (const entry of entries) {
+				try {
+					const metadataPath = `${snapshotsDir}/${entry}/metadata.json`;
+					const metadataRaw = await fs.readFile(metadataPath, 'utf8');
+					const metadata = JSON.parse(metadataRaw) as SnapshotMetadata;
+					snapshots.push({
+						id: metadata.id,
+						timestamp: metadata.timestamp,
+						label: metadata.label,
+						changeCount: metadata.changes.length,
+					});
+				} catch {
+					// Skip invalid snapshot directories
+				}
+			}
+		} catch {
+			// Snapshots directory may not exist yet
+		}
+
+		return snapshots.sort((a, b) => b.timestamp - a.timestamp);
+	}
+
+	/**
+	 * Get full metadata for a specific snapshot.
+	 */
+	private async getSnapshotMetadata(snapshotId: string): Promise<SnapshotMetadata | null> {
+		try {
+			const metadataPath = `${this.projectRoot}/.snapshots/${snapshotId}/metadata.json`;
+			const metadataRaw = await fs.readFile(metadataPath, 'utf8');
+			return JSON.parse(metadataRaw) as SnapshotMetadata;
+		} catch {
+			return null;
+		}
+	}
+
+	/**
+	 * Revert all files in a snapshot to their previous state.
+	 */
+	private async revertSnapshot(snapshotId: string, projectId: string): Promise<boolean> {
+		const snapshotDir = `${this.projectRoot}/.snapshots/${snapshotId}`;
+
+		try {
+			const metadata = await this.getSnapshotMetadata(snapshotId);
+			if (!metadata) return false;
+
+			for (const change of metadata.changes) {
+				await this.revertSingleFile(change.path, change.action, snapshotDir, projectId);
+			}
+
+			return true;
+		} catch (err) {
+			console.error('Failed to revert snapshot:', err);
+			return false;
+		}
+	}
+
+	/**
+	 * Revert a single file to its state in a snapshot.
+	 */
+	private async revertSingleFile(
+		path: string,
+		action: 'create' | 'edit' | 'delete',
+		snapshotDir: string,
+		projectId: string,
+	): Promise<void> {
+		const isBinary = isBinaryFilePath(path);
+
+		if (action === 'create') {
+			// File was created by the agent, delete it to revert
+			try {
+				await fs.unlink(`${this.projectRoot}${path}`);
+			} catch {
+				// File may already be deleted
+			}
+		} else {
+			// File was edited or deleted, restore from snapshot
+			const snapshotFilePath = `${snapshotDir}${path}`;
+			try {
+				const beforeContent = isBinary ? await fs.readFile(snapshotFilePath) : await fs.readFile(snapshotFilePath, 'utf8');
+
+				// Ensure directory exists
+				const dir = path.substring(0, path.lastIndexOf('/'));
+				if (dir) {
+					await fs.mkdir(`${this.projectRoot}${dir}`, { recursive: true });
+				}
+
+				await fs.writeFile(`${this.projectRoot}${path}`, beforeContent);
+			} catch (err) {
+				console.error(`Failed to restore file ${path} from snapshot:`, err);
+			}
+		}
+
+		// Trigger HMR for the reverted file
+		try {
+			const hmrId = this.env.DO_HMR_COORDINATOR.idFromName(`hmr:${projectId}`);
+			const hmrStub = this.env.DO_HMR_COORDINATOR.get(hmrId);
+			await hmrStub.fetch(
+				new Request('http://internal/hmr/trigger', {
+					method: 'POST',
+					body: JSON.stringify({
+						type: 'full-reload',
+						path,
+						timestamp: Date.now(),
+					}),
+				}),
+			);
+		} catch {
+			// HMR trigger failure is non-fatal
+		}
+	}
+
+	/**
+	 * Revert a single file from a specific snapshot.
+	 */
+	private async revertFileFromSnapshot(path: string, snapshotId: string, projectId: string): Promise<boolean> {
+		const snapshotDir = `${this.projectRoot}/.snapshots/${snapshotId}`;
+
+		try {
+			const metadata = await this.getSnapshotMetadata(snapshotId);
+			if (!metadata) return false;
+
+			const change = metadata.changes.find((c) => c.path === path);
+			if (!change) return false;
+
+			await this.revertSingleFile(path, change.action, snapshotDir, projectId);
+			return true;
+		} catch (err) {
+			console.error('Failed to revert file from snapshot:', err);
+			return false;
+		}
+	}
+
 	private async executeAgentTool(
 		toolName: string,
 		toolInput: Record<string, string>,
@@ -1995,6 +2367,7 @@ When you're done and don't need to use any more tools, just provide your final r
 		sendEvent: (type: string, data: Record<string, unknown>) => Promise<void>,
 		apiToken: string,
 		toolUseId?: string,
+		queryChanges?: FileChange[],
 	): Promise<string | object> {
 		try {
 			// Validate tool input with Zod schema
@@ -2021,8 +2394,8 @@ When you're done and don't need to use any more tools, just provide your final r
 					// Input already validated by Zod: ListFilesInput (empty object)
 					await sendEvent('status', { message: 'Listing files...' });
 					const files = await this.listFilesRecursive(this.projectRoot);
-					// Filter out .initialized
-					const filtered = files.filter((f) => !f.endsWith('/.initialized') && f !== '/.initialized');
+					// Filter out .initialized and .snapshots
+					const filtered = files.filter((f) => !f.endsWith('/.initialized') && f !== '/.initialized' && !f.startsWith('/.snapshots/'));
 					return { files: filtered };
 				}
 
@@ -2055,16 +2428,34 @@ When you're done and don't need to use any more tools, just provide your final r
 						await fs.mkdir(`${this.projectRoot}${dir}`, { recursive: true });
 					}
 
-					// Check if file exists (for action type)
+					// Capture before content and determine action
+					const isBinary = isBinaryFilePath(path);
+					let beforeContent: string | Uint8Array | null = null;
 					let action: 'create' | 'edit' = 'create';
 					try {
-						await fs.access(`${this.projectRoot}${path}`);
+						if (isBinary) {
+							const buffer = await fs.readFile(`${this.projectRoot}${path}`);
+							beforeContent = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer as ArrayBuffer);
+						} else {
+							beforeContent = await fs.readFile(`${this.projectRoot}${path}`, 'utf8');
+						}
 						action = 'edit';
 					} catch {
 						action = 'create';
 					}
 
 					await fs.writeFile(`${this.projectRoot}${path}`, content);
+
+					// Track change for snapshot
+					if (queryChanges) {
+						queryChanges.push({
+							path,
+							action,
+							beforeContent,
+							afterContent: content,
+							isBinary,
+						});
+					}
 
 					// Trigger HMR
 					const hmrId = this.env.DO_HMR_COORDINATOR.idFromName(`hmr:${projectId}`);
@@ -2082,7 +2473,15 @@ When you're done and don't need to use any more tools, just provide your final r
 						}),
 					);
 
-					await sendEvent('file_changed', { path, action, tool_use_id: toolUseId });
+					// Enhanced file_changed event with diff data (only for text files)
+					await sendEvent('file_changed', {
+						path,
+						action,
+						tool_use_id: toolUseId,
+						beforeContent: isBinary ? null : beforeContent,
+						afterContent: isBinary ? null : content,
+						isBinary,
+					});
 					return { success: true, path, action };
 				}
 
@@ -2093,9 +2492,43 @@ When you're done and don't need to use any more tools, just provide your final r
 						return { error: 'Invalid file path' };
 					}
 					await sendEvent('status', { message: `Deleting ${path}...` });
+
+					// Capture before content
+					const isBinary = isBinaryFilePath(path);
+					let beforeContent: string | Uint8Array | null = null;
+					try {
+						if (isBinary) {
+							const buffer = await fs.readFile(`${this.projectRoot}${path}`);
+							beforeContent = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer as ArrayBuffer);
+						} else {
+							beforeContent = await fs.readFile(`${this.projectRoot}${path}`, 'utf8');
+						}
+					} catch {
+						// File doesn't exist or can't be read
+					}
+
 					try {
 						await fs.unlink(`${this.projectRoot}${path}`);
-						await sendEvent('file_changed', { path, action: 'delete', tool_use_id: toolUseId });
+
+						// Track change for snapshot
+						if (queryChanges) {
+							queryChanges.push({
+								path,
+								action: 'delete',
+								beforeContent,
+								afterContent: null,
+								isBinary,
+							});
+						}
+
+						await sendEvent('file_changed', {
+							path,
+							action: 'delete',
+							tool_use_id: toolUseId,
+							beforeContent: isBinary ? null : beforeContent,
+							afterContent: null,
+							isBinary,
+						});
 						return { success: true, path, action: 'delete' };
 					} catch (err) {
 						return { error: `Failed to delete: ${path}` };
@@ -2114,8 +2547,16 @@ When you're done and don't need to use any more tools, just provide your final r
 					await sendEvent('status', { message: `Moving ${fromPath} to ${toPath}...` });
 
 					try {
-						// Read source file
-						const content = await fs.readFile(`${this.projectRoot}${fromPath}`);
+						// Read source file (binary-aware)
+						const isBinaryFrom = isBinaryFilePath(fromPath);
+						const isBinaryTo = isBinaryFilePath(toPath);
+						let content: string | Uint8Array;
+						if (isBinaryFrom) {
+							const buffer = await fs.readFile(`${this.projectRoot}${fromPath}`);
+							content = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer as ArrayBuffer);
+						} else {
+							content = await fs.readFile(`${this.projectRoot}${fromPath}`, 'utf8');
+						}
 
 						// Ensure destination directory exists
 						const destDir = toPath.substring(0, toPath.lastIndexOf('/'));
@@ -2129,8 +2570,42 @@ When you're done and don't need to use any more tools, just provide your final r
 						// Delete source
 						await fs.unlink(`${this.projectRoot}${fromPath}`);
 
-						await sendEvent('file_changed', { path: fromPath, action: 'delete', tool_use_id: toolUseId });
-						await sendEvent('file_changed', { path: toPath, action: 'create', tool_use_id: toolUseId });
+						// Track both changes for snapshot
+						if (queryChanges) {
+							// Deletion of source
+							queryChanges.push({
+								path: fromPath,
+								action: 'delete',
+								beforeContent: content,
+								afterContent: null,
+								isBinary: isBinaryFrom,
+							});
+							// Creation of destination
+							queryChanges.push({
+								path: toPath,
+								action: 'create',
+								beforeContent: null,
+								afterContent: content,
+								isBinary: isBinaryTo,
+							});
+						}
+
+						await sendEvent('file_changed', {
+							path: fromPath,
+							action: 'delete',
+							tool_use_id: toolUseId,
+							beforeContent: isBinaryFrom ? null : content,
+							afterContent: null,
+							isBinary: isBinaryFrom,
+						});
+						await sendEvent('file_changed', {
+							path: toPath,
+							action: 'create',
+							tool_use_id: toolUseId,
+							beforeContent: null,
+							afterContent: isBinaryTo ? null : content,
+							isBinary: isBinaryTo,
+						});
 
 						return { success: true, from: fromPath, to: toPath };
 					} catch (err) {

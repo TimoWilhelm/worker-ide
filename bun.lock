@@ -5,6 +5,7 @@
     "": {
       "name": "worker-ide",
       "dependencies": {
+        "diff": "^8.0.3",
         "durable-object-fs": "^0.1.1",
         "esbuild-wasm": "^0.27.0",
         "replicate": "^1.4.0",
@@ -229,6 +230,8 @@
     "cookie": ["cookie@1.1.1", "", {}, "sha512-ei8Aos7ja0weRpFzJnEA9UHJ/7XQmqglbRwnf2ATjcB9Wq874VKH9kfjjirM6UhU2/E5fFYadylyhFldcqSidQ=="],
 
     "detect-libc": ["detect-libc@2.1.2", "", {}, "sha512-Btj2BOOO83o3WyH59e8MgXsxEQVcarkUOpEYrubB0urwnN10yQ364rsiByU11nZlqWYZm05i/of7io4mzihBtQ=="],
+
+    "diff": ["diff@8.0.3", "", {}, "sha512-qejHi7bcSD4hQAZE0tNAawRK1ZtafHDmMTMkrrIGgSLl7hTnQHmKCeB45xAcbfTqK2zowkM3j3bHt/4b/ARbYQ=="],
 
     "durable-object-fs": ["durable-object-fs@0.1.1", "", { "peerDependencies": { "worker-fs-mount": "workspace:*" } }, "sha512-z5AtfaOXwP20OrWqXr2tl9a5Tq3XjJnKqxxcCzIREtJsU5fc5j7oMehnWPQFpVIeV95AXUqkbKhkMEYHwarH/Q=="],
 

@@ -96,6 +96,9 @@
 	let suppressRemoteEdit = false;
 	let collabEditTimeout = null;
 
+	// Snapshot/undo state - tracks the current query's snapshot ID for undo functionality
+	let currentSnapshotId = null;
+
 	const mobileToggle = document.getElementById('mobileToggle');
 	const fileTreeEl = document.getElementById('fileTree');
 	const tabsEl = document.getElementById('tabs');
@@ -1077,7 +1080,9 @@
 	}
 
 	window.addEventListener('beforeunload', function () {
-		const current = aiSessions.find(function (s) { return s.id === activeSessionId; });
+		const current = aiSessions.find(function (s) {
+			return s.id === activeSessionId;
+		});
 		if (current) {
 			current.messagesHtml = aiMessages.innerHTML;
 			current._dirty = true;
@@ -1118,7 +1123,10 @@
 		if (session._loaded) return;
 		try {
 			var res = await fetch(basePath + '/api/ai-session?id=' + encodeURIComponent(session.id));
-			if (!res.ok) { session._loaded = true; return; }
+			if (!res.ok) {
+				session._loaded = true;
+				return;
+			}
 			var data = await res.json();
 			session.history = data.history || [];
 			session.messagesHtml = data.messagesHtml || '';
@@ -1408,7 +1416,8 @@
 				collapsed.className = 'ai-partial-text collapsed';
 				var toggleBar = document.createElement('div');
 				toggleBar.className = 'ai-partial-text-toggle';
-				toggleBar.innerHTML = '<svg class="ai-partial-text-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>' +
+				toggleBar.innerHTML =
+					'<svg class="ai-partial-text-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>' +
 					'<span class="ai-partial-text-label">Show reasoning</span>';
 				var body = document.createElement('div');
 				body.className = 'ai-partial-text-body';
@@ -1434,15 +1443,20 @@
 
 		let toolIcon = '';
 		if (toolName === 'read_file' || toolName === 'list_files') {
-			toolIcon = '<svg class="ai-tool-inline-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>';
+			toolIcon =
+				'<svg class="ai-tool-inline-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>';
 		} else if (toolName === 'write_file') {
-			toolIcon = '<svg class="ai-tool-inline-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>';
+			toolIcon =
+				'<svg class="ai-tool-inline-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>';
 		} else if (toolName === 'delete_file') {
-			toolIcon = '<svg class="ai-tool-inline-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>';
+			toolIcon =
+				'<svg class="ai-tool-inline-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>';
 		} else if (toolName === 'move_file') {
-			toolIcon = '<svg class="ai-tool-inline-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>';
+			toolIcon =
+				'<svg class="ai-tool-inline-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>';
 		} else {
-			toolIcon = '<svg class="ai-tool-inline-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path></svg>';
+			toolIcon =
+				'<svg class="ai-tool-inline-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path></svg>';
 		}
 
 		const el = document.createElement('div');
@@ -1451,7 +1465,9 @@
 		el.innerHTML =
 			'<div class="ai-tool-inline-header">' +
 			toolIcon +
-			'<span class="ai-tool-inline-name">' + escapeHtmlForAi(toolName.replace(/_/g, ' ')) + '</span>' +
+			'<span class="ai-tool-inline-name">' +
+			escapeHtmlForAi(toolName.replace(/_/g, ' ')) +
+			'</span>' +
 			(details ? '<span class="ai-tool-inline-path">' + escapeHtmlForAi(details) + '</span>' : '') +
 			'<svg class="ai-tool-inline-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>' +
 			'</div>' +
@@ -1461,45 +1477,359 @@
 		aiMessages.scrollTop = aiMessages.scrollHeight;
 	}
 
-	function addAiFileChange(path, action, toolUseId) {
-		let label;
-		let changeClass = '';
-		if (action === 'create') {
-			label = 'Created ' + path;
-			changeClass = 'created';
-		} else if (action === 'edit') {
-			label = 'Modified ' + path;
-			changeClass = 'modified';
-		} else if (action === 'delete') {
-			label = 'Deleted ' + path;
-			changeClass = 'deleted';
-		} else {
-			label = action + ' ' + path;
+	/**
+	 * Render a diff between two strings using the jsdiff library.
+	 * Returns a DOM element containing the formatted diff.
+	 */
+	function renderDiff(beforeContent, afterContent) {
+		var container = document.createElement('div');
+		container.className = 'diff-content';
+
+		// Use the global Diff object from jsdiff library
+		var diff = Diff.diffLines(beforeContent || '', afterContent || '');
+
+		diff.forEach(function (part) {
+			var lines = part.value.split('\n');
+			// Remove last empty line from split (trailing newline)
+			if (lines.length > 0 && lines[lines.length - 1] === '') {
+				lines.pop();
+			}
+
+			lines.forEach(function (line) {
+				var lineEl = document.createElement('div');
+				lineEl.className = part.added ? 'diff-line diff-added' : part.removed ? 'diff-line diff-removed' : 'diff-line diff-context';
+
+				var prefix = part.added ? '+' : part.removed ? '-' : ' ';
+				lineEl.textContent = prefix + line;
+				container.appendChild(lineEl);
+			});
+		});
+
+		return container;
+	}
+
+	/**
+	 * Get the CodeMirror mode for a file based on its extension.
+	 */
+	function getModeForFilePath(path) {
+		if (path.endsWith('.ts') || path.endsWith('.tsx')) return 'text/typescript';
+		if (path.endsWith('.js') || path.endsWith('.jsx') || path.endsWith('.mjs')) return 'javascript';
+		if (path.endsWith('.css')) return 'css';
+		if (path.endsWith('.html') || path.endsWith('.htm')) return 'htmlmixed';
+		if (path.endsWith('.json')) return 'application/json';
+		if (path.endsWith('.xml')) return 'xml';
+		return 'text/plain';
+	}
+
+	/**
+	 * Open a temporary editor view modal to show file changes.
+	 * Allows switching between Current, Original, and Diff views.
+	 */
+	function openTempEditorView(path, beforeContent, afterContent, action) {
+		// Create modal overlay
+		var modal = document.createElement('div');
+		modal.className = 'temp-editor-modal';
+
+		var showOriginalTab = beforeContent !== null && action !== 'create';
+
+		modal.innerHTML =
+			'<div class="temp-editor-content">' +
+			'<div class="temp-editor-header">' +
+			'<span class="temp-editor-path">' +
+			escapeHtmlForAi(path) +
+			'</span>' +
+			'<div class="temp-editor-tabs">' +
+			'<button class="temp-editor-tab active" data-view="after">Current</button>' +
+			(showOriginalTab ? '<button class="temp-editor-tab" data-view="before">Original</button>' : '') +
+			'<button class="temp-editor-tab" data-view="diff">Diff</button>' +
+			'</div>' +
+			'<button class="temp-editor-close">&times;</button>' +
+			'</div>' +
+			'<div class="temp-editor-body">' +
+			'<div class="temp-editor-code"></div>' +
+			'<div class="temp-editor-diff-view hidden"></div>' +
+			'</div>' +
+			'</div>';
+
+		var codeContainer = modal.querySelector('.temp-editor-code');
+		var diffView = modal.querySelector('.temp-editor-diff-view');
+
+		// Create CodeMirror instance
+		var textarea = document.createElement('textarea');
+		codeContainer.appendChild(textarea);
+
+		var tempEditor = CodeMirror.fromTextArea(textarea, {
+			mode: getModeForFilePath(path),
+			theme: 'dracula',
+			readOnly: true,
+			lineNumbers: true,
+			lineWrapping: true,
+		});
+		tempEditor.setValue(afterContent || '');
+
+		// Tab switching
+		modal.querySelectorAll('.temp-editor-tab').forEach(function (tab) {
+			tab.onclick = function () {
+				modal.querySelectorAll('.temp-editor-tab').forEach(function (t) {
+					t.classList.remove('active');
+				});
+				tab.classList.add('active');
+
+				var view = tab.dataset.view;
+				if (view === 'diff') {
+					codeContainer.classList.add('hidden');
+					diffView.classList.remove('hidden');
+					diffView.innerHTML = '';
+					diffView.appendChild(renderDiff(beforeContent || '', afterContent || ''));
+				} else {
+					codeContainer.classList.remove('hidden');
+					diffView.classList.add('hidden');
+					tempEditor.setValue(view === 'before' ? beforeContent || '' : afterContent || '');
+					tempEditor.refresh();
+				}
+			};
+		});
+
+		// Close handlers
+		modal.querySelector('.temp-editor-close').onclick = function () {
+			modal.remove();
+		};
+		modal.onclick = function (e) {
+			if (e.target === modal) modal.remove();
+		};
+
+		// ESC to close
+		var escHandler = function (e) {
+			if (e.key === 'Escape') {
+				modal.remove();
+				document.removeEventListener('keydown', escHandler);
+			}
+		};
+		document.addEventListener('keydown', escHandler);
+
+		document.body.appendChild(modal);
+
+		// Refresh CodeMirror after modal is visible
+		setTimeout(function () {
+			tempEditor.refresh();
+		}, 10);
+	}
+
+	/**
+	 * Undo a single file change by reverting it to the snapshot state.
+	 */
+	async function undoSingleFile(path, snapshotId, changeEl) {
+		try {
+			var res = await fetch(basePath + '/api/file/revert', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ path: path, snapshotId: snapshotId }),
+			});
+
+			if (res.ok) {
+				changeEl.classList.add('undone');
+				var undoBtn = changeEl.querySelector('.change-undo-btn');
+				if (undoBtn) {
+					undoBtn.disabled = true;
+					undoBtn.textContent = 'Undone';
+				}
+
+				loadFiles();
+				if (path === currentFile) {
+					reloadCurrentFile();
+				}
+			} else {
+				console.error('Failed to undo file:', await res.text());
+			}
+		} catch (err) {
+			console.error('Failed to undo file:', err);
+		}
+	}
+
+	/**
+	 * Revert all changes from a snapshot (undo entire query).
+	 */
+	async function revertSnapshot(snapshotId, indicatorEl) {
+		if (!confirm('Undo all changes from this query? This will restore files to their previous state.')) {
+			return;
 		}
 
-		// Find the matching inline tool call by ID, falling back to the most recent
-		let lastTool = toolUseId ? aiMessages.querySelector('.ai-tool-inline[data-tool-id="' + toolUseId + '"]') : null;
+		try {
+			var res = await fetch(basePath + '/api/snapshot/' + snapshotId + '/revert', {
+				method: 'POST',
+			});
+
+			if (res.ok) {
+				// Mark indicator as reverted
+				indicatorEl.classList.add('reverted');
+				var undoBtn = indicatorEl.querySelector('.snapshot-undo-btn');
+				if (undoBtn) {
+					undoBtn.disabled = true;
+					undoBtn.textContent = 'Reverted';
+				}
+
+				// Mark all file changes with this snapshot as undone
+				document.querySelectorAll('.ai-file-change[data-snapshot-id="' + snapshotId + '"]').forEach(function (el) {
+					el.classList.add('undone');
+					var btn = el.querySelector('.change-undo-btn');
+					if (btn) {
+						btn.disabled = true;
+						btn.textContent = 'Undone';
+					}
+				});
+
+				loadFiles();
+				reloadCurrentFile();
+			} else {
+				console.error('Failed to revert snapshot:', await res.text());
+			}
+		} catch (err) {
+			console.error('Failed to revert snapshot:', err);
+		}
+	}
+
+	/**
+	 * Add a snapshot indicator element to the AI chat.
+	 * Shows after a query completes with file changes.
+	 * Also updates any file change elements that were created before the snapshot.
+	 */
+	function addSnapshotIndicator(data) {
+		// Update all file change elements that don't have a snapshot ID yet
+		// (they were created during the query before the snapshot was finalized)
+		document.querySelectorAll('.ai-file-change:not([data-snapshot-id])').forEach(function (el) {
+			el.dataset.snapshotId = data.id;
+		});
+
+		var el = document.createElement('div');
+		el.className = 'ai-snapshot-indicator';
+		el.dataset.snapshotId = data.id;
+
+		var fileCount = data.changes ? data.changes.length : 0;
+		var label = fileCount + ' file' + (fileCount !== 1 ? 's' : '') + ' changed';
+
+		el.innerHTML =
+			'<div class="snapshot-icon">' +
+			'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">' +
+			'<circle cx="12" cy="12" r="10"></circle>' +
+			'<polyline points="12 6 12 12 16 14"></polyline>' +
+			'</svg>' +
+			'</div>' +
+			'<span class="snapshot-label">Snapshot</span>' +
+			'<span class="snapshot-info">' +
+			label +
+			'</span>' +
+			'<button class="snapshot-undo-btn">Undo All</button>';
+
+		el.querySelector('.snapshot-undo-btn').onclick = function () {
+			revertSnapshot(data.id, el);
+		};
+
+		aiMessages.appendChild(el);
+		aiMessages.scrollTop = aiMessages.scrollHeight;
+	}
+
+	/**
+	 * Enhanced addAiFileChange - shows file changes with diff view and undo capability.
+	 */
+	function addAiFileChange(data) {
+		var path = data.path;
+		var action = data.action;
+		var toolUseId = data.tool_use_id;
+		var beforeContent = data.beforeContent;
+		var afterContent = data.afterContent;
+		var isBinary = data.isBinary;
+
+		var label, changeClass;
+		if (action === 'create') {
+			label = 'Created';
+			changeClass = 'created';
+		} else if (action === 'edit') {
+			label = 'Modified';
+			changeClass = 'modified';
+		} else if (action === 'delete') {
+			label = 'Deleted';
+			changeClass = 'deleted';
+		} else {
+			label = action;
+			changeClass = '';
+		}
+
+		// Find the matching inline tool call
+		var lastTool = toolUseId ? aiMessages.querySelector('.ai-tool-inline[data-tool-id="' + toolUseId + '"]') : null;
 		if (!lastTool) {
-			const toolEls = aiMessages.querySelectorAll('.ai-tool-inline');
+			var toolEls = aiMessages.querySelectorAll('.ai-tool-inline');
 			lastTool = toolEls.length > 0 ? toolEls[toolEls.length - 1] : null;
 		}
+
+		// Create enhanced change element
+		var changeEl = document.createElement('div');
+		changeEl.className = 'ai-file-change ' + changeClass;
+		changeEl.dataset.path = path;
+		if (currentSnapshotId) {
+			changeEl.dataset.snapshotId = currentSnapshotId;
+		}
+
+		var hasDiff = !isBinary && (beforeContent !== null || afterContent !== null);
+
+		changeEl.innerHTML =
+			'<div class="ai-file-change-header">' +
+			'<span class="change-indicator"></span>' +
+			'<span class="change-path">' +
+			escapeHtmlForAi(path) +
+			'</span>' +
+			'<span class="change-label">' +
+			label +
+			'</span>' +
+			'<div class="change-actions">' +
+			(hasDiff ? '<button class="change-btn change-view-btn" title="View full file">View</button>' : '') +
+			(hasDiff ? '<button class="change-btn change-diff-btn" title="Toggle diff">Diff</button>' : '') +
+			'<button class="change-btn change-undo-btn" title="Undo this change">Undo</button>' +
+			'</div>' +
+			'</div>' +
+			(hasDiff ? '<div class="ai-file-change-diff collapsed"></div>' : '');
+
+		// Render diff if available
+		if (hasDiff) {
+			var diffContainer = changeEl.querySelector('.ai-file-change-diff');
+			diffContainer.appendChild(renderDiff(beforeContent || '', afterContent || ''));
+
+			// Toggle diff visibility
+			changeEl.querySelector('.change-diff-btn').onclick = function (e) {
+				e.stopPropagation();
+				diffContainer.classList.toggle('collapsed');
+				this.textContent = diffContainer.classList.contains('collapsed') ? 'Diff' : 'Hide';
+			};
+
+			// View full file
+			changeEl.querySelector('.change-view-btn').onclick = function (e) {
+				e.stopPropagation();
+				openTempEditorView(path, beforeContent, afterContent, action);
+			};
+		}
+
+		// Undo button
+		changeEl.querySelector('.change-undo-btn').onclick = function (e) {
+			e.stopPropagation();
+			var snapshotId = changeEl.dataset.snapshotId;
+			if (snapshotId) {
+				undoSingleFile(path, snapshotId, changeEl);
+			} else {
+				// No snapshot yet - this shouldn't happen in normal flow
+				console.warn('No snapshot ID available for undo');
+			}
+		};
+
+		// Attach to tool call body or append standalone
 		if (lastTool) {
-			const body = lastTool.querySelector('.ai-tool-inline-body');
-			const changeEl = document.createElement('div');
-			changeEl.className = 'ai-tool-inline-change ' + changeClass;
-			changeEl.textContent = label;
+			var body = lastTool.querySelector('.ai-tool-inline-body');
 			body.appendChild(changeEl);
-			// Auto-expand to show the result
 			lastTool.classList.add('expanded');
-			// Update header to show completion state
 			lastTool.classList.add('completed');
 		} else {
-			// Fallback: render standalone if no tool call to attach to
-			const standalone = document.createElement('div');
-			standalone.className = 'ai-tool-inline-change standalone ' + changeClass;
-			standalone.textContent = label;
-			aiMessages.appendChild(standalone);
+			changeEl.classList.add('standalone');
+			aiMessages.appendChild(changeEl);
 		}
+
 		aiMessages.scrollTop = aiMessages.scrollHeight;
 	}
 
@@ -1514,10 +1844,14 @@
 		var code = errorInfo.code || null;
 		var isRetryable = code !== 'AUTH_ERROR' && code !== 'INVALID_REQUEST';
 
-		var clockIcon = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>';
-		var alertIcon = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>';
-		var lockIcon = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>';
-		var serverIcon = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect><line x1="6" y1="6" x2="6.01" y2="6"></line><line x1="6" y1="18" x2="6.01" y2="18"></line></svg>';
+		var clockIcon =
+			'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>';
+		var alertIcon =
+			'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>';
+		var lockIcon =
+			'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>';
+		var serverIcon =
+			'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect><line x1="6" y1="6" x2="6.01" y2="6"></line><line x1="6" y1="18" x2="6.01" y2="18"></line></svg>';
 
 		var icon, title;
 		switch (code) {
@@ -1600,6 +1934,9 @@
 	async function sendAiPrompt() {
 		const prompt = aiPrompt.value.trim();
 		if (!prompt || aiIsProcessing) return;
+
+		// Reset snapshot ID for new query
+		currentSnapshotId = null;
 
 		var session = getActiveSession();
 
@@ -1851,11 +2188,18 @@
 			}
 
 			case 'file_changed':
-				addAiFileChange(data.path, data.action, data.tool_use_id);
+				// Pass full data object for enhanced file change display with diffs
+				addAiFileChange(data);
 				loadFiles();
 				if (data.path === currentFile) {
 					reloadCurrentFile();
 				}
+				break;
+
+			case 'snapshot_created':
+				// Store snapshot ID for undo functionality
+				currentSnapshotId = data.id;
+				addSnapshotIndicator(data);
 				break;
 
 			case 'error':

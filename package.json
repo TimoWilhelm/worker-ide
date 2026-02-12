@@ -23,6 +23,7 @@
 		"wrangler": "^4.62.0"
 	},
 	"dependencies": {
+		"diff": "^8.0.3",
 		"durable-object-fs": "^0.1.1",
 		"esbuild-wasm": "^0.27.0",
 		"replicate": "^1.4.0",
