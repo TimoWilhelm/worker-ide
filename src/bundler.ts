@@ -47,7 +47,11 @@ export interface TransformResult {
 	map?: string;
 }
 
-export async function transformCode(code: string, filename: string, options?: { sourcemap?: boolean }): Promise<TransformResult> {
+export async function transformCode(
+	code: string,
+	filename: string,
+	options?: { sourcemap?: boolean; tsconfigRaw?: string },
+): Promise<TransformResult> {
 	await initializeEsbuild();
 
 	const loader = getLoader(filename);
@@ -58,6 +62,7 @@ export async function transformCode(code: string, filename: string, options?: { 
 		sourcemap: options?.sourcemap ? 'inline' : false,
 		format: 'esm',
 		target: 'es2022',
+		tsconfigRaw: options?.tsconfigRaw,
 	});
 
 	return {
@@ -72,6 +77,7 @@ export interface BundleOptions {
 	externals?: string[];
 	minify?: boolean;
 	sourcemap?: boolean;
+	tsconfigRaw?: string;
 }
 
 export interface BundleResult {
@@ -119,7 +125,7 @@ function resolveRelativePath(resolveDir: string, relativePath: string, files: Re
 export async function bundleCode(options: BundleOptions): Promise<BundleResult> {
 	await initializeEsbuild();
 
-	const { files, entryPoint, externals = [], minify = false, sourcemap = false } = options;
+	const { files, entryPoint, externals = [], minify = false, sourcemap = false, tsconfigRaw } = options;
 
 	const virtualFsPlugin: esbuild.Plugin = {
 		name: 'virtual-fs',
@@ -176,6 +182,7 @@ export async function bundleCode(options: BundleOptions): Promise<BundleResult> 
 		sourcemap: sourcemap ? 'inline' : false,
 		plugins: [virtualFsPlugin],
 		outfile: 'bundle.js',
+		tsconfigRaw,
 	});
 
 	const output = result.outputFiles?.[0];

@@ -139,6 +139,14 @@
 		return 'javascript';
 	}
 
+	function isWorkerEntryPoint(path) {
+		return path === '/worker/index.ts' || path === '/worker/index.js';
+	}
+
+	function isProtectedFile(path) {
+		return isWorkerEntryPoint(path) || path === '/index.html';
+	}
+
 	function getFileIcon(path) {
 		if (path.endsWith('.js') || path.endsWith('.mjs') || path.endsWith('.ts')) {
 			return '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#f7df1e" stroke-width="2"><path d="M12 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>';
@@ -187,7 +195,7 @@
 			});
 		});
 
-		function renderNode(node, indent = 0) {
+		function renderNode(node, indent = 0, parentPath = '') {
 			let html = '';
 			const entries = Object.entries(node).sort(([a, va], [b, vb]) => {
 				const aIsDir = typeof va === 'object';
@@ -198,15 +206,29 @@
 
 			entries.forEach(([name, value]) => {
 				if (typeof value === 'object') {
-					html += `<div class="file-item folder indent-${indent}">
+					const folderPath = parentPath + '/' + name;
+					const escapedFolderPath = folderPath.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+					html += `<div class="file-item folder indent-${indent}" data-folder-path="${escapedFolderPath}">
 						<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 							<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
 						</svg>
 						${name}
+						<span class="file-item-actions">
+							<button class="folder-add-btn" data-folder-path="${escapedFolderPath}" title="New file in ${name}">
+								<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+									<line x1="12" y1="5" x2="12" y2="19"></line>
+									<line x1="5" y1="12" x2="19" y2="12"></line>
+								</svg>
+							</button>
+						</span>
 					</div>`;
-					html += renderNode(value, indent + 1);
+					html += renderNode(value, indent + 1, folderPath);
 				} else {
 					const active = currentFile === value ? 'active' : '';
+					const isEntryPoint = isWorkerEntryPoint(value);
+					const isProtected = isProtectedFile(value);
+					const entryPointClass = isEntryPoint ? ' entry-point' : '';
+					const protectedClass = isProtected ? ' protected' : '';
 					const escapedName = name.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 					const escapedValue = value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 					var fileDots = '';
@@ -215,10 +237,21 @@
 							fileDots += '<span class="file-collab-dot" style="background:' + p.color + '"></span>';
 						}
 					});
-					html += `<div class="file-item indent-${indent} ${active}" data-path="${escapedValue}">
+					const entryPointBadge = isEntryPoint ? '<span class="entry-point-badge" title="Worker entry point">entry</span>' : '';
+					const deleteBtn = `<span class="file-item-actions">
+						<button class="file-delete-btn" data-delete-path="${escapedValue}" title="${isProtected ? 'Cannot delete protected file' : 'Delete file'}">
+							<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<polyline points="3 6 5 6 21 6"></polyline>
+								<path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+							</svg>
+						</button>
+					</span>`;
+					html += `<div class="file-item indent-${indent} ${active}${entryPointClass}${protectedClass}" data-path="${escapedValue}">
 						${getFileIcon(value)}
 						${escapedName}
+						${entryPointBadge}
 						${fileDots}
+						${deleteBtn}
 					</div>`;
 				}
 			});
@@ -228,8 +261,62 @@
 		fileTreeEl.innerHTML = renderNode(tree);
 
 		fileTreeEl.querySelectorAll('.file-item:not(.folder)').forEach((el) => {
-			el.addEventListener('click', () => openFile(el.dataset.path));
+			el.addEventListener('click', (e) => {
+				// Don't open file if clicking delete button
+				if (e.target.closest('.file-delete-btn')) return;
+				openFile(el.dataset.path);
+			});
 		});
+
+		fileTreeEl.querySelectorAll('.file-delete-btn').forEach((btn) => {
+			btn.addEventListener('click', (e) => {
+				e.stopPropagation();
+				const path = btn.dataset.deletePath;
+				if (isProtectedFile(path)) return;
+				confirmDeleteFile(path);
+			});
+		});
+
+		fileTreeEl.querySelectorAll('.folder-add-btn').forEach((btn) => {
+			btn.addEventListener('click', (e) => {
+				e.stopPropagation();
+				const folderPath = btn.dataset.folderPath;
+				showModal(folderPath);
+			});
+		});
+	}
+
+	function confirmDeleteFile(path) {
+		const fileName = path.split('/').pop();
+		if (confirm(`Delete "${fileName}"?\n\nThis action cannot be undone.`)) {
+			deleteFile(path);
+		}
+	}
+
+	async function deleteFile(path) {
+		try {
+			const res = await fetch(`${basePath}/api/file?path=${encodeURIComponent(path)}`, {
+				method: 'DELETE',
+			});
+
+			if (!res.ok) {
+				const errorData = await res.json().catch(() => ({}));
+				alert(`Failed to delete file: ${errorData.error || res.statusText}`);
+				return;
+			}
+
+			// Close the file if it's open
+			if (openFiles.has(path)) {
+				closeFile(path);
+			}
+
+			// Remove from files list and re-render
+			files = files.filter((f) => f !== path);
+			renderFileTree();
+		} catch (err) {
+			console.error('Failed to delete file:', err);
+			alert('Failed to delete file');
+		}
 	}
 
 	async function openFile(path) {
@@ -418,11 +505,12 @@
 		}, 5000);
 	}
 
-	function showModal() {
+	function showModal(folderPath = '/') {
 		modal.classList.remove('hidden');
-		modalInput.value = '/src/';
+		const prefix = folderPath.endsWith('/') ? folderPath : folderPath + '/';
+		modalInput.value = prefix;
 		modalInput.focus();
-		modalInput.setSelectionRange(5, 5);
+		modalInput.setSelectionRange(prefix.length, prefix.length);
 	}
 
 	function hideModal() {
@@ -2362,7 +2450,7 @@
 
 		// Update preview iframe src and URL display
 		previewFrame.src = `${basePath}/preview`;
-		document.getElementById('previewUrl').textContent = `${basePath}/preview`;
+		document.getElementById('previewUrl').href = `${basePath}/preview`;
 
 		initEditor();
 		await loadFiles();

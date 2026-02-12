@@ -3,6 +3,7 @@
 	<head>
 		<meta charset="UTF-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
 		<title>Worker IDE</title>
 		<link rel="stylesheet" href="/styles.css" />
 		<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css" />
@@ -130,7 +131,14 @@
 				<section class="preview-panel">
 					<div class="preview-header">
 						<span>Preview</span>
-						<span id="previewUrl" class="preview-url">/preview</span>
+						<a id="previewUrl" class="preview-url" href="/preview" target="_blank" rel="noopener noreferrer">
+							Open in new tab
+							<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+								<polyline points="15 3 21 3 21 9"></polyline>
+								<line x1="10" y1="14" x2="21" y2="3"></line>
+							</svg>
+						</a>
 					</div>
 					<iframe id="previewFrame" src="about:blank" sandbox="allow-scripts allow-same-origin allow-forms allow-popups"></iframe>
 				</section>

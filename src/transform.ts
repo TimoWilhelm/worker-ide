@@ -24,11 +24,66 @@ interface ResolvedImport {
 	isBare: boolean;
 }
 
+interface TsConfigCompilerOptions {
+	baseUrl?: string;
+	paths?: Record<string, string[]>;
+	// Options passed to esbuild
+	target?: string;
+	jsx?: 'preserve' | 'react' | 'react-jsx' | 'react-jsxdev' | 'react-native';
+	jsxFactory?: string;
+	jsxFragmentFactory?: string;
+	jsxImportSource?: string;
+	experimentalDecorators?: boolean;
+	useDefineForClassFields?: boolean;
+	verbatimModuleSyntax?: boolean;
+	alwaysStrict?: boolean;
+}
+
 interface TsConfig {
-	compilerOptions?: {
-		baseUrl?: string;
-		paths?: Record<string, string[]>;
-	};
+	compilerOptions?: TsConfigCompilerOptions;
+}
+
+/**
+ * Convert tsconfig compilerOptions to esbuild's tsconfigRaw format
+ */
+export function toEsbuildTsconfigRaw(tsConfig: TsConfig | null): string | undefined {
+	if (!tsConfig?.compilerOptions) return undefined;
+
+	const opts = tsConfig.compilerOptions;
+	const esbuildCompilerOptions: Record<string, unknown> = {};
+
+	// Map tsconfig jsx values to esbuild-compatible values
+	if (opts.jsx) {
+		esbuildCompilerOptions.jsx = opts.jsx;
+	}
+	if (opts.jsxFactory) {
+		esbuildCompilerOptions.jsxFactory = opts.jsxFactory;
+	}
+	if (opts.jsxFragmentFactory) {
+		esbuildCompilerOptions.jsxFragmentFactory = opts.jsxFragmentFactory;
+	}
+	if (opts.jsxImportSource) {
+		esbuildCompilerOptions.jsxImportSource = opts.jsxImportSource;
+	}
+	if (opts.experimentalDecorators !== undefined) {
+		esbuildCompilerOptions.experimentalDecorators = opts.experimentalDecorators;
+	}
+	if (opts.useDefineForClassFields !== undefined) {
+		esbuildCompilerOptions.useDefineForClassFields = opts.useDefineForClassFields;
+	}
+	if (opts.verbatimModuleSyntax !== undefined) {
+		esbuildCompilerOptions.verbatimModuleSyntax = opts.verbatimModuleSyntax;
+	}
+	if (opts.alwaysStrict !== undefined) {
+		esbuildCompilerOptions.alwaysStrict = opts.alwaysStrict;
+	}
+
+	// Only return if we have options to pass
+	if (Object.keys(esbuildCompilerOptions).length === 0) {
+		return undefined;
+	}
+
+	return JSON.stringify({ compilerOptions: esbuildCompilerOptions });
 }
 
 const EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx', '.mts', '.mjs'];
@@ -281,7 +336,8 @@ export async function transformModule(
 
 	// Transform TypeScript/JSX
 	if (['.ts', '.tsx', '.jsx', '.mts'].includes(ext)) {
-		const transformed = await transformCode(content, filePath, { sourcemap: true });
+		const tsconfigRaw = toEsbuildTsconfigRaw(tsConfig);
+		const transformed = await transformCode(content, filePath, { sourcemap: true, tsconfigRaw });
 		const rewritten = await rewriteImports(transformed.code, filePath, fs, projectRoot, baseUrl, tsConfig);
 		return { code: rewritten, contentType: 'application/javascript' };
 	}

@@ -7,7 +7,6 @@ import { z } from 'zod';
 import { transformCode } from './bundler.js';
 import { transformModule, processHTML, type FileSystem } from './transform.js';
 import { ExpiringFilesystem } from './expiring-filesystem.js';
-import examplePackageJson from './example-project/package.json?raw';
 import exampleTsconfig from './example-project/tsconfig.json?raw';
 import exampleIndexHtml from './example-project/index.html?raw';
 import exampleMainTs from './example-project/src/main.ts?raw';
@@ -298,7 +297,6 @@ The project is a TypeScript/JavaScript web application with:
 - /src/ - Frontend source code
 - /worker/ - Cloudflare Worker backend code
 - /index.html - Main HTML entry point
-- /package.json - Project dependencies
 
 Be concise but helpful. Focus on making the requested changes efficiently.`;
 
@@ -623,7 +621,6 @@ export class HMRCoordinator extends DurableObject {
 }
 
 const EXAMPLE_PROJECT: Record<string, string> = {
-	'package.json': examplePackageJson,
 	'tsconfig.json': exampleTsconfig,
 	'index.html': exampleIndexHtml,
 	'src/main.ts': exampleMainTs,
@@ -667,6 +664,13 @@ function isPathSafe(basePath: string, requestedPath: string): boolean {
 		return false;
 	}
 	return true;
+}
+
+// Protected files that cannot be deleted (entry points and config)
+const PROTECTED_FILES = new Set(['/worker/index.ts', '/worker/index.js', '/tsconfig.json']);
+
+function isProtectedFile(path: string): boolean {
+	return PROTECTED_FILES.has(path);
 }
 
 function getContentType(path: string): string {
@@ -1090,6 +1094,12 @@ export default class extends WorkerEntrypoint<Env> {
 				if (!isPathSafe(this.projectRoot, filePath)) {
 					return new Response(JSON.stringify({ error: 'invalid path' }), {
 						status: 400,
+						headers,
+					});
+				}
+				if (isProtectedFile(filePath)) {
+					return new Response(JSON.stringify({ error: 'Cannot delete protected file' }), {
+						status: 403,
 						headers,
 					});
 				}
@@ -2490,6 +2500,9 @@ When you're done and don't need to use any more tools, just provide your final r
 					const { path } = toolInput as unknown as DeleteFileInput;
 					if (!isPathSafe(this.projectRoot, path)) {
 						return { error: 'Invalid file path' };
+					}
+					if (isProtectedFile(path)) {
+						return { error: 'Cannot delete worker entry point - this file is required for the application to run' };
 					}
 					await sendEvent('status', { message: `Deleting ${path}...` });
 

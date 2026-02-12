@@ -211,6 +211,93 @@ body {
 	padding-left: 48px;
 }
 
+.file-item.entry-point {
+	font-weight: 500;
+}
+
+.entry-point-badge {
+	font-size: 9px;
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0.5px;
+	padding: 1px 4px;
+	border-radius: 3px;
+	background: rgba(249, 115, 22, 0.15);
+	color: #f97316;
+	margin-left: auto;
+	flex-shrink: 0;
+}
+
+.file-item-actions {
+	display: flex;
+	align-items: center;
+	gap: 2px;
+	margin-left: auto;
+	opacity: 0;
+	transition: opacity 0.1s ease;
+}
+
+.file-item:hover .file-item-actions {
+	opacity: 1;
+}
+
+.file-item.entry-point .file-item-actions {
+	margin-left: 8px;
+}
+
+.file-delete-btn {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 18px;
+	height: 18px;
+	border-radius: 4px;
+	border: none;
+	background: transparent;
+	color: var(--text-secondary);
+	cursor: pointer;
+	padding: 0;
+}
+
+.file-delete-btn:hover {
+	background: rgba(239, 68, 68, 0.15);
+	color: #ef4444;
+}
+
+.file-delete-btn svg {
+	width: 12px;
+	height: 12px;
+}
+
+.file-item.entry-point .file-delete-btn,
+.file-item.protected .file-delete-btn {
+	display: none;
+}
+
+.folder-add-btn {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 18px;
+	height: 18px;
+	border-radius: 4px;
+	border: none;
+	background: transparent;
+	color: var(--text-secondary);
+	cursor: pointer;
+	padding: 0;
+}
+
+.folder-add-btn:hover {
+	background: rgba(88, 166, 255, 0.15);
+	color: var(--accent);
+}
+
+.folder-add-btn svg {
+	width: 12px;
+	height: 12px;
+}
+
 .editor-panel {
 	flex: 1;
 	display: flex;
@@ -336,12 +423,21 @@ body {
 }
 
 .preview-url {
-	font-family: monospace;
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
 	font-size: 11px;
 	color: var(--text-secondary);
 	background: var(--bg-tertiary);
-	padding: 2px 8px;
+	padding: 4px 8px;
 	border-radius: 4px;
+	text-decoration: none;
+	transition: all 0.15s ease;
+}
+
+.preview-url:hover {
+	background: var(--border-color);
+	color: var(--accent);
 }
 
 #previewFrame {
