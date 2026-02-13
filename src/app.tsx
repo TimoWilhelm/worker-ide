@@ -10,6 +10,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, useS
 import { Group as PanelGroup, Panel, Separator as ResizeHandle } from 'react-resizable-panels';
 
 import { ErrorBoundary } from '@/components/error-boundary';
+import { BorderBeam } from '@/components/ui/border-beam';
 import { Button } from '@/components/ui/button';
 import {
 	DropdownMenu,
@@ -26,7 +27,7 @@ import { FileTree, useFileTree } from '@/features/file-tree';
 import { getLogSnapshot, subscribeToLogs } from '@/features/terminal/lib/log-buffer';
 import { hmrSendReference, useHMR } from '@/hooks';
 import { createProject, downloadProject, fetchProjectMeta, updateProjectMeta } from '@/lib/api-client';
-import { useStore } from '@/lib/store';
+import { selectIsProcessing, useStore } from '@/lib/store';
 import { cn, formatRelativeTime } from '@/lib/utils';
 
 // Eager import — registers global event listeners for log accumulation
@@ -230,6 +231,9 @@ function IDEShell({ projectId }: { projectId: string }) {
 		participants,
 		cursorPosition,
 	} = useStore();
+
+	// Read AI processing state via a dedicated selector to limit re-renders
+	const isAiProcessing = useStore(selectIsProcessing);
 
 	// Project name state
 	const [projectName, setProjectName] = useState<string | undefined>();
@@ -533,26 +537,26 @@ function IDEShell({ projectId }: { projectId: string }) {
 						{/* Recent projects */}
 						<RecentProjectsDropdown currentProjectId={projectId} onNewProject={handleNewProject} />
 
-						<div className="mx-1 h-4 w-px bg-border" />
-
-						{/* AI toggle - prominent */}
-						<Button
-							variant={aiPanelVisible ? 'default' : 'outline'}
-							size="sm"
-							aria-label="Toggle AI panel"
-							onClick={toggleAIPanel}
-							className="gap-1.5"
-						>
-							<Bot className="size-4" />
-						</Button>
-
-						<div className="mx-1 h-4 w-px bg-border" />
+						{/* AI toggle */}
+						<Tooltip content="Toggle AI panel">
+							<div className="relative">
+								<Button
+									variant="ghost"
+									size="icon"
+									aria-label="Toggle AI panel"
+									onClick={toggleAIPanel}
+									className={cn(aiPanelVisible && 'text-accent')}
+								>
+									<Bot className="size-4" />
+								</Button>
+								{isAiProcessing && !aiPanelVisible && <BorderBeam duration={1.5} />}
+							</div>
+						</Tooltip>
 
 						{/* Download */}
 						<Tooltip content="Download project">
-							<Button variant="ghost" size="sm" aria-label="Download project" onClick={handleDownload}>
-								<Download className="mr-1 size-4" />
-								Download
+							<Button variant="ghost" size="icon" aria-label="Download project" onClick={handleDownload}>
+								<Download className="size-4" />
 							</Button>
 						</Tooltip>
 					</div>

@@ -33,11 +33,11 @@
 	--font-mono: 'SF Mono', Menlo, Monaco, 'Courier New', monospace;
 
 	/* Font sizes */
-	--text-3xs: 0.4375rem;
-	--text-2xs: 0.5rem;
-	--text-xs: 0.5625rem;
-	--text-sm: 0.65625rem;
-	--text-base: 0.6875rem;
+	--text-3xs: 0.5rem;
+	--text-2xs: 0.5625rem;
+	--text-xs: 0.6875rem;
+	--text-sm: 0.75rem;
+	--text-base: 0.8125rem;
 
 	/* Spacing */
 	--spacing-sidebar: 220px;
@@ -296,4 +296,20 @@ textarea:focus-visible,
 	background: var(--color-bg-primary);
 	padding: 2px 5px;
 	border-radius: 3px;
+}
+
+/* Border beam animation — used by the BorderBeam component (inline styles) */
+@keyframes borderBeam {
+	from {
+		--border-beam-angle: 0deg;
+	}
+	to {
+		--border-beam-angle: 360deg;
+	}
+}
+
+@property --border-beam-angle {
+	syntax: '<angle>';
+	inherits: false;
+	initial-value: 0deg;
 }

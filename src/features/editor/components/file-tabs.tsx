@@ -8,7 +8,7 @@
 
 import { File, X } from 'lucide-react';
 import { Tabs } from 'radix-ui';
-import { useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 
 import { Tooltip } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
@@ -123,6 +123,50 @@ function getDuplicateBasenames(tabs: FileTab[]): Set<string> {
  */
 export function FileTabs({ tabs, activeTab, onSelect, onClose, participants = [], className }: FileTabsProperties) {
 	const duplicates = useMemo(() => getDuplicateBasenames(tabs), [tabs]);
+	const listReference = useRef<HTMLDivElement>(null);
+
+	// Scroll the active tab into view when it changes
+	useEffect(() => {
+		if (!activeTab || !listReference.current) return;
+		const activeElement = listReference.current.querySelector<HTMLElement>(`[data-state="active"]`);
+		if (activeElement) {
+			activeElement.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+		}
+	}, [activeTab]);
+
+	// Allow horizontal scrolling with the mouse wheel
+	const handleWheel = useCallback((event: React.WheelEvent) => {
+		if (listReference.current && event.deltaY !== 0) {
+			listReference.current.scrollLeft += event.deltaY;
+		}
+	}, []);
+
+	// Pointer drag-to-scroll (mouse + touch, like VS Code)
+	const dragState = useRef<{ isDown: boolean; startX: number; scrollLeft: number }>({
+		isDown: false,
+		startX: 0,
+		scrollLeft: 0,
+	});
+
+	const handlePointerDown = useCallback((event: React.PointerEvent) => {
+		const list = listReference.current;
+		if (!list) return;
+		// Only drag on primary button (left click / single touch)
+		if (event.button !== 0) return;
+		dragState.current = { isDown: true, startX: event.clientX, scrollLeft: list.scrollLeft };
+		list.setPointerCapture(event.pointerId);
+	}, []);
+
+	const handlePointerMove = useCallback((event: React.PointerEvent) => {
+		if (!dragState.current.isDown || !listReference.current) return;
+		const deltaX = event.clientX - dragState.current.startX;
+		listReference.current.scrollLeft = dragState.current.scrollLeft - deltaX;
+	}, []);
+
+	const handlePointerUp = useCallback((event: React.PointerEvent) => {
+		dragState.current.isDown = false;
+		listReference.current?.releasePointerCapture(event.pointerId);
+	}, []);
 
 	if (tabs.length === 0) {
 		return (
@@ -135,10 +179,17 @@ export function FileTabs({ tabs, activeTab, onSelect, onClose, participants = []
 	return (
 		<Tabs.Root value={activeTab} onValueChange={onSelect} className={cn('shrink-0', className)}>
 			<Tabs.List
+				ref={listReference}
+				onWheel={handleWheel}
+				onPointerDown={handlePointerDown}
+				onPointerMove={handlePointerMove}
+				onPointerUp={handlePointerUp}
+				onPointerCancel={handlePointerUp}
 				className="
 					flex h-tabs items-end gap-0 overflow-x-auto border-b border-border
 					bg-bg-secondary select-none
 				"
+				style={{ scrollbarWidth: 'none' }}
 			>
 				{tabs.map((tab) => (
 					<FileTabItem

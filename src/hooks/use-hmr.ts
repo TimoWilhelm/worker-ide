@@ -6,6 +6,7 @@
 
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 
 import { connectHMR } from '@/lib/api-client';
 import { useStore } from '@/lib/store';
@@ -40,15 +41,17 @@ export const hmrSendReference: { current: ((data: ClientMessage) => void) | unde
 
 export function useHMR({ projectId, enabled = true }: UseHMROptions) {
 	const queryClient = useQueryClient();
-	const storeActions = useStore((state) => ({
-		setParticipants: state.setParticipants,
-		addParticipant: state.addParticipant,
-		removeParticipant: state.removeParticipant,
-		updateParticipant: state.updateParticipant,
-		setLocalParticipantId: state.setLocalParticipantId,
-		setConnected: state.setConnected,
-		activeFile: state.activeFile,
-	}));
+	const storeActions = useStore(
+		useShallow((state) => ({
+			setParticipants: state.setParticipants,
+			addParticipant: state.addParticipant,
+			removeParticipant: state.removeParticipant,
+			updateParticipant: state.updateParticipant,
+			setLocalParticipantId: state.setLocalParticipantId,
+			setConnected: state.setConnected,
+			activeFile: state.activeFile,
+		})),
+	);
 
 	// All mutable state in refs — none of these cause re-connection
 	const reconnectTimeoutReference = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);

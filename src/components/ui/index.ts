@@ -2,6 +2,7 @@
  * UI Components barrel export.
  */
 
+export { BorderBeam, type BorderBeamProperties } from './border-beam';
 export { Button, buttonVariants, type ButtonProps } from './button';
 export { ConfirmDialog, type ConfirmDialogProperties } from './confirm-dialog';
 export {
