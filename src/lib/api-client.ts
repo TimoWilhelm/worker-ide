@@ -8,6 +8,7 @@
 import { hc } from 'hono/client';
 
 import type { ApiRoutes } from '@server/routes';
+import type { AiSession, AiSessionSummary } from '@shared/types';
 import type { ServerMessage } from '@shared/ws-messages';
 
 /**
@@ -91,6 +92,46 @@ export async function downloadProject(projectId: string): Promise<Blob> {
 		throw new Error('Failed to download project');
 	}
 	return response.blob();
+}
+
+// =============================================================================
+// AI Session Management
+// =============================================================================
+
+/**
+ * List all saved AI sessions for a project.
+ */
+export async function listAiSessions(projectId: string): Promise<AiSessionSummary[]> {
+	const response = await fetch(`/p/${projectId}/api/ai-sessions`);
+	if (!response.ok) {
+		throw new Error('Failed to list AI sessions');
+	}
+	const data: { sessions: AiSessionSummary[] } = await response.json();
+	return data.sessions;
+}
+
+/**
+ * Load a single AI session by ID.
+ */
+export async function loadAiSession(projectId: string, sessionId: string): Promise<AiSession | undefined> {
+	const response = await fetch(`/p/${projectId}/api/ai-session?id=${encodeURIComponent(sessionId)}`);
+	if (!response.ok) return undefined;
+	const data: AiSession = await response.json();
+	return data;
+}
+
+/**
+ * Save an AI session to the backend.
+ */
+export async function saveAiSession(projectId: string, session: AiSession): Promise<void> {
+	const response = await fetch(`/p/${projectId}/api/ai-session`, {
+		method: 'PUT',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify(session),
+	});
+	if (!response.ok) {
+		throw new Error('Failed to save AI session');
+	}
 }
 
 // =============================================================================

@@ -62,7 +62,7 @@ test.describe('Panel Toggling', () => {
 		await gotoIDE(page);
 
 		// AI panel is hidden by default, AI button should be visible
-		const aiButton = page.getByRole('button', { name: 'AI', exact: true });
+		const aiButton = page.getByLabel('Toggle AI panel');
 		await expect(aiButton).toBeVisible();
 
 		await aiButton.click();

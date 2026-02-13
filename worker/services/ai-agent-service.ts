@@ -328,6 +328,7 @@ export class AIAgentService {
 			let continueLoop = true;
 			const maxIterations = 10;
 			let iteration = 0;
+			let hitIterationLimit = false;
 
 			while (continueLoop && iteration < maxIterations) {
 				if (signal?.aborted) {
@@ -386,8 +387,18 @@ export class AIAgentService {
 				await sendEvent('turn_complete', {});
 			}
 
+			// Detect whether the loop was cut short by the iteration limit
+			// while the model still wanted to use tools (circuit breaker).
+			if (continueLoop && iteration >= maxIterations && !signal?.aborted) {
+				hitIterationLimit = true;
+			}
+
 			if (queryChanges.length > 0) {
 				await this.createSnapshot(prompt, queryChanges, sendEvent);
+			}
+
+			if (hitIterationLimit) {
+				await sendEvent('max_iterations_reached', { iterations: maxIterations });
 			}
 
 			await sendEvent('done', {});
@@ -937,7 +948,18 @@ When you're done and don't need to use any more tools, just provide your final r
 
 		await fs.mkdir(snapshotDirectory, { recursive: true });
 
+		// Deduplicate changes by path: if the same file is modified multiple
+		// times in one agent turn, only the FIRST change captures the true
+		// original state. Later changes would record intermediate AI content
+		// as "beforeContent", which breaks revert.
+		const savedPaths = new Set<string>();
+		const deduplicatedChanges: Array<{ path: string; action: 'create' | 'edit' | 'delete' }> = [];
+
 		for (const change of changes) {
+			if (savedPaths.has(change.path)) continue;
+			savedPaths.add(change.path);
+
+			// Save beforeContent to the snapshot directory (only for edit/delete)
 			if (change.action !== 'create' && change.beforeContent !== null) {
 				const filePath = `${snapshotDirectory}${change.path}`;
 				const directory = filePath.slice(0, filePath.lastIndexOf('/'));
@@ -946,13 +968,15 @@ When you're done and don't need to use any more tools, just provide your final r
 				}
 				await fs.writeFile(filePath, change.beforeContent);
 			}
+
+			deduplicatedChanges.push({ path: change.path, action: change.action });
 		}
 
 		const metadata: SnapshotMetadata = {
 			id: snapshotId,
 			timestamp: Date.now(),
 			label: prompt.slice(0, 50) + (prompt.length > 50 ? '...' : ''),
-			changes: changes.map((c) => ({ path: c.path, action: c.action })),
+			changes: deduplicatedChanges,
 		};
 		// eslint-disable-next-line unicorn/no-null -- JSON.stringify requires null as replacer argument
 		await fs.writeFile(`${snapshotDirectory}/metadata.json`, JSON.stringify(metadata, null, 2));

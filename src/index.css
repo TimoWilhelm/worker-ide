@@ -47,6 +47,7 @@
 
 	/* Animations */
 	--animate-fade-in: fadeIn 0.15s ease-out;
+	--animate-chat-item: chatReveal 0.12s ease-out;
 }
 
 /* Base styles — margin/padding/box-sizing are handled by Tailwind preflight */
@@ -180,6 +181,17 @@ body {
 	}
 	to {
 		opacity: 1;
+	}
+}
+
+@keyframes chatReveal {
+	from {
+		opacity: 0;
+		transform: translateY(4px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
 	}
 }
 

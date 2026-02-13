@@ -13,6 +13,7 @@ import {
 	ChevronDown,
 	Clock,
 	Eye,
+	FastForward,
 	FileText,
 	Loader2,
 	MoveRight,
@@ -36,10 +37,13 @@ import { useStore } from '@/lib/store';
 import { cn, formatRelativeTime } from '@/lib/utils';
 
 import { FileMentionDropdown } from './file-mention-dropdown';
+import { FileReference } from './file-reference';
 import { MarkdownContent } from './markdown-content';
+import { RevertConfirmDialog } from './revert-confirm-dialog';
 import { RichTextInput, type RichTextInputHandle } from './rich-text-input';
+import { useAiSessions } from '../hooks/use-ai-sessions';
 import { useFileMention } from '../hooks/use-file-mention';
-import { segmentsHaveContent, segmentsToPlainText, type InputSegment } from '../lib/input-segments';
+import { parseTextToSegments, segmentsHaveContent, segmentsToPlainText, type InputSegment } from '../lib/input-segments';
 
 import type { AgentContent, AgentMessage, ToolName } from '@shared/types';
 
@@ -125,6 +129,8 @@ const AI_SUGGESTIONS = [
 export function AIPanel({ projectId, className }: { projectId: string; className?: string }) {
 	const [segments, setSegments] = useState<InputSegment[]>([]);
 	const [cursorPosition, setCursorPosition] = useState(0);
+	const [streamingContent, setStreamingContent] = useState<AgentContent[] | undefined>();
+	const [needsContinuation, setNeedsContinuation] = useState(false);
 	const inputReference = useRef<RichTextInputHandle>(null);
 	const scrollReference = useRef<HTMLDivElement>(null);
 	const abortControllerReference = useRef<AbortController | undefined>(undefined);
@@ -135,24 +141,25 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	const inputPlainText = useMemo(() => segmentsToPlainText(segments), [segments]);
 	const hasContent = useMemo(() => segmentsHaveContent(segments), [segments]);
 
+	// Revert confirmation dialog state
+	const [pendingRevert, setPendingRevert] = useState<{ snapshotId: string; messageIndex: number } | undefined>();
+
 	// Store state
 	const {
 		history,
 		isProcessing,
 		statusMessage,
 		aiError,
-		savedSessions,
-		sessionId,
 		messageSnapshots,
 		files,
 		addMessage,
 		clearHistory,
-		loadSession,
 		setProcessing,
 		setStatusMessage,
 		setAiError,
 		setMessageSnapshot,
 		removeMessagesAfter,
+		removeMessagesFrom,
 	} = useStore();
 
 	// File mention autocomplete
@@ -174,15 +181,18 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		onSelect: handleFileMentionSelect,
 	});
 
+	// Session persistence
+	const { savedSessions, handleLoadSession, saveCurrentSession } = useAiSessions({ projectId });
+
 	// Snapshot hook for revert
-	const { revertSnapshot, isReverting } = useSnapshots({ projectId });
+	const { revertSnapshotAsync, isReverting } = useSnapshots({ projectId });
 
 	// Auto-scroll to bottom
 	useEffect(() => {
 		if (scrollReference.current) {
 			scrollReference.current.scrollTop = scrollReference.current.scrollHeight;
 		}
-	}, [history, statusMessage, aiError]);
+	}, [history, statusMessage, aiError, streamingContent, needsContinuation]);
 
 	// Focus input on mount
 	useEffect(() => {
@@ -198,8 +208,9 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 			const messageText = messageOverride ?? inputPlainText.trim();
 			if (!messageText || isProcessing) return;
 
-			// Clear any previous error
+			// Clear any previous error or continuation prompt
 			setAiError(undefined);
+			setNeedsContinuation(false);
 
 			const userMessage: AgentMessage = {
 				role: 'user',
@@ -219,6 +230,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 
 			const assistantContent: AgentContent[] = [];
 			assistantContentReference.current = assistantContent;
+			setStreamingContent([]);
 			let wasCancelled = false;
 
 			try {
@@ -244,6 +256,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 							const text = getEventStringField(event, 'content');
 							if (text) {
 								assistantContent.push({ type: 'text', text });
+								setStreamingContent([...assistantContent]);
 								setStatusMessage(undefined);
 							}
 							break;
@@ -258,6 +271,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 								name: toolName,
 								input: getEventObjectField(event, 'args'),
 							});
+							setStreamingContent([...assistantContent]);
 							break;
 						}
 						case 'tool_result': {
@@ -268,6 +282,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 								content: getEventStringField(event, 'result'),
 								is_error: getEventBooleanField(event, 'is_error'),
 							});
+							setStreamingContent([...assistantContent]);
 							break;
 						}
 						case 'snapshot_created': {
@@ -281,6 +296,11 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 						case 'turn_complete':
 						case 'done': {
 							// Turn or stream complete — no action needed
+							break;
+						}
+						case 'max_iterations_reached': {
+							// Agent hit the iteration circuit breaker — prompt user to continue
+							setNeedsContinuation(true);
 							break;
 						}
 						case 'error': {
@@ -324,14 +344,32 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 			} finally {
 				setProcessing(false);
 				setStatusMessage(undefined);
+				setStreamingContent(undefined);
 				abortControllerReference.current = undefined;
 				assistantContentReference.current = [];
 				if (!wasCancelled) {
 					userMessageIndexReference.current = -1;
 				}
+
+				// Auto-save the session after each AI response
+				// Use a microtask so the store updates from addMessage() are committed first
+				queueMicrotask(() => {
+					void saveCurrentSession();
+				});
 			}
 		},
-		[inputPlainText, isProcessing, history, projectId, addMessage, setProcessing, setStatusMessage, setAiError, setMessageSnapshot],
+		[
+			inputPlainText,
+			isProcessing,
+			history,
+			projectId,
+			addMessage,
+			setProcessing,
+			setStatusMessage,
+			setAiError,
+			setMessageSnapshot,
+			saveCurrentSession,
+		],
 	);
 
 	// Handle keyboard shortcuts
@@ -382,16 +420,50 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		setAiError(undefined);
 	}, [setAiError]);
 
-	// Revert to a snapshot (from a user message)
-	const handleRevert = useCallback(
-		(snapshotId: string) => {
+	// Open revert confirmation dialog
+	const handleRevert = useCallback((snapshotId: string, messageIndex: number) => {
+		setPendingRevert({ snapshotId, messageIndex });
+	}, []);
+
+	// Confirm revert (called from the dialog)
+	const handleConfirmRevert = useCallback(
+		async (snapshotId: string, messageIndex: number) => {
 			// Cancel any ongoing generation first
 			if (isProcessing) {
 				abortControllerReference.current?.abort();
 			}
-			revertSnapshot(snapshotId);
+
+			// Extract the user prompt text before removing messages
+			const userMessage = history[messageIndex];
+			const promptText =
+				userMessage?.content
+					.filter((block): block is AgentContent & { type: 'text' } => block.type === 'text')
+					.map((block) => block.text)
+					.join('\n') ?? '';
+
+			try {
+				await revertSnapshotAsync(snapshotId);
+
+				// Remove the user message and all subsequent messages, clean up snapshot associations
+				removeMessagesFrom(messageIndex);
+
+				// Restore the prompt text into the input
+				if (promptText) {
+					setSegments([{ type: 'text', value: promptText }]);
+					requestAnimationFrame(() => {
+						inputReference.current?.focus();
+					});
+				}
+
+				// Save the updated session
+				queueMicrotask(() => {
+					void saveCurrentSession();
+				});
+			} finally {
+				setPendingRevert(undefined);
+			}
 		},
-		[isProcessing, revertSnapshot],
+		[isProcessing, history, revertSnapshotAsync, removeMessagesFrom, saveCurrentSession],
 	);
 
 	// Handle suggestion click
@@ -427,11 +499,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 								<div className="px-3 py-2 text-xs text-text-secondary">No saved sessions</div>
 							) : (
 								savedSessions.map((session) => (
-									<DropdownMenuItem
-										key={session.id}
-										onSelect={() => loadSession([], session.id)}
-										className={cn(sessionId === session.id && 'bg-bg-tertiary')}
-									>
+									<DropdownMenuItem key={session.id} onSelect={() => handleLoadSession(session.id)}>
 										<div className="flex w-full items-center justify-between">
 											<span className="truncate text-sm">{session.label}</span>
 											<span className="ml-2 shrink-0 text-2xs text-text-secondary">{formatRelativeTime(session.createdAt)}</span>
@@ -469,10 +537,21 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 								/>
 							))
 						)}
+						{/* Streaming assistant message (shown while AI is responding) */}
+						{streamingContent && streamingContent.length > 0 && <AssistantMessage content={streamingContent} />}
+						{/* Continuation prompt — shown when the agent hit the iteration limit */}
+						{needsContinuation && !isProcessing && (
+							<ContinuationPrompt onContinue={() => void handleSend('continue')} onDismiss={() => setNeedsContinuation(false)} />
+						)}
 						{/* AI Error display */}
 						{aiError && <AIError message={aiError.message} code={aiError.code} onRetry={handleRetry} onDismiss={handleDismissError} />}
 						{statusMessage ? (
-							<div className="flex items-center gap-2 px-1 text-xs text-text-secondary">
+							<div
+								className="
+									flex animate-chat-item items-center gap-2 px-1 text-xs
+									text-text-secondary
+								"
+							>
 								<Loader2 className="size-3 animate-spin" />
 								{statusMessage}
 							</div>
@@ -546,6 +625,21 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 					</div>
 				</div>
 			</div>
+
+			{/* Revert confirmation dialog */}
+			{pendingRevert && (
+				<RevertConfirmDialog
+					open={!!pendingRevert}
+					onOpenChange={(open) => {
+						if (!open) setPendingRevert(undefined);
+					}}
+					snapshotId={pendingRevert.snapshotId}
+					messageIndex={pendingRevert.messageIndex}
+					projectId={projectId}
+					onConfirm={handleConfirmRevert}
+					isReverting={isReverting}
+				/>
+			)}
 		</div>
 	);
 }
@@ -591,6 +685,7 @@ function WelcomeScreen({ onSuggestionClick }: { onSuggestionClick: (prompt: stri
 
 function MessageBubble({
 	message,
+	messageIndex,
 	snapshotId,
 	isReverting,
 	onRevert,
@@ -599,11 +694,13 @@ function MessageBubble({
 	messageIndex: number;
 	snapshotId?: string;
 	isReverting: boolean;
-	onRevert: (snapshotId: string) => void;
+	onRevert: (snapshotId: string, messageIndex: number) => void;
 }) {
 	if (message.role === 'user') {
 		const textBlocks = message.content.filter((block) => block.type === 'text');
-		return <UserMessage content={textBlocks} snapshotId={snapshotId} isReverting={isReverting} onRevert={onRevert} />;
+		return (
+			<UserMessage content={textBlocks} messageIndex={messageIndex} snapshotId={snapshotId} isReverting={isReverting} onRevert={onRevert} />
+		);
 	}
 
 	return <AssistantMessage content={message.content} />;
@@ -615,28 +712,35 @@ function MessageBubble({
 
 function UserMessage({
 	content,
+	messageIndex,
 	snapshotId,
 	isReverting,
 	onRevert,
 }: {
 	content: AgentContent[];
+	messageIndex: number;
 	snapshotId?: string;
 	isReverting: boolean;
-	onRevert: (snapshotId: string) => void;
+	onRevert: (snapshotId: string, messageIndex: number) => void;
 }) {
 	const text = content
 		.filter((block): block is AgentContent & { type: 'text' } => block.type === 'text')
 		.map((block) => block.text)
 		.join('\n');
 
+	// Build a set of known file paths to identify file mentions
+	const files = useStore((state) => state.files);
+	const knownPaths = useMemo(() => new Set(files.map((file) => file.path)), [files]);
+	const segments = useMemo(() => parseTextToSegments(text, knownPaths), [text, knownPaths]);
+
 	return (
-		<div className="flex flex-col gap-1">
+		<div className="flex animate-chat-item flex-col gap-1">
 			<div className="flex items-center justify-between">
 				<div className="text-2xs font-semibold tracking-wider text-accent uppercase">You</div>
 				{snapshotId && (
 					<Tooltip content="Revert files to before this message">
 						<button
-							onClick={() => onRevert(snapshotId)}
+							onClick={() => onRevert(snapshotId, messageIndex)}
 							disabled={isReverting}
 							className={cn(
 								'inline-flex cursor-pointer items-center gap-1 rounded-md px-1.5 py-0.5',
@@ -652,7 +756,11 @@ function UserMessage({
 				)}
 			</div>
 			<div className={cn(`rounded-lg border border-accent/20 bg-accent/10 px-3 py-2.5`, `text-sm/relaxed text-text-primary`)}>
-				<span className="whitespace-pre-wrap">{text}</span>
+				<span className="whitespace-pre-wrap">
+					{segments.map((segment, index) =>
+						segment.type === 'mention' ? <FileReference key={index} path={segment.path} /> : <span key={index}>{segment.value}</span>,
+					)}
+				</span>
 			</div>
 		</div>
 	);
@@ -702,7 +810,7 @@ function AssistantMessage({ content }: { content: AgentContent[] }) {
 	const segments = buildRenderSegments(content);
 
 	return (
-		<div className="flex flex-col gap-2">
+		<div className="flex animate-chat-item flex-col gap-2">
 			<div className="text-2xs font-semibold tracking-wider text-success uppercase">AI</div>
 			{segments.map((segment, index) =>
 				segment.kind === 'text' ? (
@@ -766,14 +874,17 @@ function InlineToolCall({ toolUse, toolResult }: { toolUse: AgentContent; toolRe
 	const isCompleted = toolResult !== undefined;
 	const isError = toolResult?.type === 'tool_result' && toolResult.is_error;
 
-	// Extract file path from tool input
+	// Extract file paths from tool input
 	const input = toolUse.input;
-	let details = '';
+	let singlePath: string | undefined;
+	let fromPath: string | undefined;
+	let toPath: string | undefined;
 	if (isRecord(input)) {
 		if (typeof input.path === 'string') {
-			details = input.path;
+			singlePath = input.path;
 		} else if (typeof input.from_path === 'string' && typeof input.to_path === 'string') {
-			details = `${input.from_path} → ${input.to_path}`;
+			fromPath = input.from_path;
+			toPath = input.to_path;
 		}
 	}
 
@@ -786,7 +897,7 @@ function InlineToolCall({ toolUse, toolResult }: { toolUse: AgentContent; toolRe
 	return (
 		<div
 			className={cn(
-				'flex items-center gap-2 rounded-md px-3 py-1.5 text-xs',
+				'flex animate-chat-item items-center gap-2 rounded-md px-3 py-1.5 text-xs',
 				isCompleted && !isError && 'bg-success/5 text-text-secondary',
 				isError && 'bg-error/5 text-error',
 				!isCompleted && 'bg-bg-tertiary text-text-secondary',
@@ -796,8 +907,67 @@ function InlineToolCall({ toolUse, toolResult }: { toolUse: AgentContent; toolRe
 				<ToolIcon name={toolName} />
 			</span>
 			<span className="shrink-0 font-medium capitalize">{toolName.replaceAll('_', ' ')}</span>
-			{details && <span className="min-w-0 truncate font-mono text-accent">{details}</span>}
+			{singlePath && <FileReference path={singlePath} className="min-w-0 truncate" />}
+			{fromPath && toPath && (
+				<span className="flex min-w-0 items-center gap-1 truncate">
+					<FileReference path={fromPath} />
+					<span className="text-text-secondary">→</span>
+					<FileReference path={toPath} />
+				</span>
+			)}
 			{resultSummary && <span className="ml-auto shrink-0 text-text-secondary">{resultSummary}</span>}
+		</div>
+	);
+}
+
+// =============================================================================
+// AI Error Component
+// =============================================================================
+
+function ContinuationPrompt({ onContinue, onDismiss }: { onContinue: () => void; onDismiss: () => void }) {
+	return (
+		<div
+			className="
+				flex animate-chat-item flex-col gap-2.5 rounded-lg border border-accent/25
+				bg-accent/5 p-3
+			"
+		>
+			<div className="flex items-center gap-2 text-xs font-semibold text-accent">
+				<FastForward className="size-4" />
+				<span>Iteration Limit Reached</span>
+			</div>
+			<div className="text-sm/relaxed text-text-primary">
+				The AI has reached the maximum number of tool iterations. You can continue where it left off or start a new prompt.
+			</div>
+			<div className="flex gap-2">
+				<button
+					onClick={onContinue}
+					className={cn(
+						`
+							inline-flex cursor-pointer items-center gap-1.5 rounded-md bg-accent px-3
+							py-1.5
+						`,
+						'text-xs font-medium text-white transition-colors',
+						'hover:bg-accent-hover',
+					)}
+				>
+					<FastForward className="size-3" />
+					Continue
+				</button>
+				<button
+					onClick={onDismiss}
+					className={cn(
+						`
+							inline-flex cursor-pointer items-center rounded-md border border-border
+							bg-bg-tertiary
+						`,
+						'px-3 py-1.5 text-xs font-medium text-text-secondary transition-colors',
+						'hover:bg-border hover:text-text-primary',
+					)}
+				>
+					Dismiss
+				</button>
+			</div>
 		</div>
 	);
 }
@@ -813,7 +983,7 @@ function AIError({ message, code, onRetry, onDismiss }: { message: string; code?
 	return (
 		<div
 			className={cn(
-				'flex flex-col gap-2.5 rounded-lg border p-3',
+				'flex animate-chat-item flex-col gap-2.5 rounded-lg border p-3',
 				isRateLimit ? 'border-warning/25 bg-warning/10' : 'border-error/25 bg-error/10',
 			)}
 		>

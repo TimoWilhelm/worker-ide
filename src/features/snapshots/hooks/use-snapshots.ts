@@ -31,7 +31,7 @@ interface UseSnapshotsOptions {
 export function useSnapshots({ projectId, enabled = true }: UseSnapshotsOptions) {
 	const queryClient = useQueryClient();
 	const api = createApiClient(projectId);
-	const { setSnapshots, setActiveSnapshot } = useStore();
+	const { setSnapshots } = useStore();
 
 	// List all snapshots
 	const listQuery = useQuery({
@@ -70,9 +70,12 @@ export function useSnapshots({ projectId, enabled = true }: UseSnapshotsOptions)
 			return response.json();
 		},
 		onSuccess: async () => {
-			// Invalidate file queries to refresh content
-			await queryClient.invalidateQueries({ queryKey: ['files', projectId] });
-			await queryClient.invalidateQueries({ queryKey: ['file', projectId] });
+			// Force refetch (not just invalidate) so files that the HMR hook
+			// skips (e.g. the active editor file) still get fresh content.
+			await queryClient.refetchQueries({ queryKey: ['files', projectId] });
+			await queryClient.refetchQueries({ queryKey: ['file', projectId] });
+			// Also refresh the snapshot list itself
+			await queryClient.invalidateQueries({ queryKey: ['snapshots', projectId] });
 		},
 	});
 
@@ -88,8 +91,9 @@ export function useSnapshots({ projectId, enabled = true }: UseSnapshotsOptions)
 			return response.json();
 		},
 		onSuccess: async () => {
-			await queryClient.invalidateQueries({ queryKey: ['files', projectId] });
-			await queryClient.invalidateQueries({ queryKey: ['file', projectId] });
+			await queryClient.refetchQueries({ queryKey: ['files', projectId] });
+			await queryClient.refetchQueries({ queryKey: ['file', projectId] });
+			await queryClient.invalidateQueries({ queryKey: ['snapshots', projectId] });
 		},
 	});
 
@@ -109,10 +113,9 @@ export function useSnapshots({ projectId, enabled = true }: UseSnapshotsOptions)
 		// Actions
 		refetch: listQuery.refetch,
 		getSnapshotDetail,
-		selectSnapshot: setActiveSnapshot,
 
 		// Mutations
-		revertSnapshot: revertSnapshotMutation.mutate,
+		revertSnapshotAsync: revertSnapshotMutation.mutateAsync,
 		revertFile: revertFileMutation.mutate,
 		isReverting: revertSnapshotMutation.isPending || revertFileMutation.isPending,
 	};

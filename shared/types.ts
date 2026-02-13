@@ -142,6 +142,8 @@ export interface AiSession {
 	label: string;
 	createdAt: number;
 	history: AgentMessage[];
+	/** Maps message index (as string key) to snapshot ID for revert buttons */
+	messageSnapshots?: Record<string, string>;
 }
 
 /**

@@ -7,8 +7,11 @@ import fs from 'node:fs/promises';
 
 import { zValidator } from '@hono/zod-validator';
 import { Hono } from 'hono';
+import { z } from 'zod';
 
 import { sessionIdSchema, saveSessionSchema } from '@shared/validation';
+
+const sessionIdQuerySchema = z.object({ id: sessionIdSchema });
 
 import type { AppEnvironment } from '../types';
 
@@ -43,24 +46,17 @@ export const sessionRoutes = new Hono<AppEnvironment>()
 	})
 
 	// GET /api/ai-session?id=X - Load a single AI session
-	.get(
-		'/ai-session',
-		zValidator(
-			'query',
-			sessionIdSchema.transform((id) => ({ id })),
-		),
-		async (c) => {
-			const projectRoot = c.get('projectRoot');
-			const { id } = c.req.valid('query');
+	.get('/ai-session', zValidator('query', sessionIdQuerySchema), async (c) => {
+		const projectRoot = c.get('projectRoot');
+		const { id } = c.req.valid('query');
 
-			try {
-				const raw = await fs.readFile(`${projectRoot}/.ai-sessions/${id}.json`, 'utf8');
-				return c.json(JSON.parse(raw));
-			} catch {
-				return c.json({ error: 'Session not found' }, 404);
-			}
-		},
-	)
+		try {
+			const raw = await fs.readFile(`${projectRoot}/.ai-sessions/${id}.json`, 'utf8');
+			return c.json(JSON.parse(raw));
+		} catch {
+			return c.json({ error: 'Session not found' }, 404);
+		}
+	})
 
 	// PUT /api/ai-session - Save an AI session
 	.put('/ai-session', zValidator('json', saveSessionSchema), async (c) => {
@@ -87,23 +83,16 @@ export const sessionRoutes = new Hono<AppEnvironment>()
 	})
 
 	// DELETE /api/ai-session?id=X - Delete an AI session
-	.delete(
-		'/ai-session',
-		zValidator(
-			'query',
-			sessionIdSchema.transform((id) => ({ id })),
-		),
-		async (c) => {
-			const projectRoot = c.get('projectRoot');
-			const { id } = c.req.valid('query');
+	.delete('/ai-session', zValidator('query', sessionIdQuerySchema), async (c) => {
+		const projectRoot = c.get('projectRoot');
+		const { id } = c.req.valid('query');
 
-			try {
-				await fs.unlink(`${projectRoot}/.ai-sessions/${id}.json`);
-			} catch {
-				// Ignore errors if file doesn't exist
-			}
-			return c.json({ success: true });
-		},
-	);
+		try {
+			await fs.unlink(`${projectRoot}/.ai-sessions/${id}.json`);
+		} catch {
+			// Ignore errors if file doesn't exist
+		}
+		return c.json({ success: true });
+	});
 
 export type SessionRoutes = typeof sessionRoutes;

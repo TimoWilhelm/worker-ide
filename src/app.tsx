@@ -37,7 +37,6 @@ import type { LogCounts } from '@/features/terminal';
 // Lazy-loaded feature panels for code splitting
 const AIPanel = lazy(() => import('@/features/ai-assistant'));
 const PreviewPanel = lazy(() => import('@/features/preview'));
-const SnapshotPanel = lazy(() => import('@/features/snapshots'));
 const TerminalPanel = lazy(() => import('@/features/terminal'));
 
 // =============================================================================
@@ -281,10 +280,6 @@ function IDEShell({ projectId }: { projectId: string }) {
 	const handleCancelRename = useCallback(() => {
 		setIsEditingName(false);
 	}, []);
-
-	// Snapshot panel toggle (lives inside AI sidebar area)
-	const [snapshotPanelVisible, setSnapshotPanelVisible] = useState(false);
-	const toggleSnapshotPanel = useCallback(() => setSnapshotPanelVisible((previous) => !previous), []);
 
 	// Terminal log counts — derived from the global log buffer
 	const logs = useSyncExternalStore(subscribeToLogs, getLogSnapshot);
@@ -534,9 +529,14 @@ function IDEShell({ projectId }: { projectId: string }) {
 						<div className="mx-1 h-4 w-px bg-border" />
 
 						{/* AI toggle - prominent */}
-						<Button variant={aiPanelVisible ? 'default' : 'outline'} size="sm" onClick={toggleAIPanel} className="gap-1.5">
+						<Button
+							variant={aiPanelVisible ? 'default' : 'outline'}
+							size="sm"
+							aria-label="Toggle AI panel"
+							onClick={toggleAIPanel}
+							className="gap-1.5"
+						>
 							<Bot className="size-4" />
-							<span>AI</span>
 						</Button>
 
 						<div className="mx-1 h-4 w-px bg-border" />
@@ -770,26 +770,6 @@ function IDEShell({ projectId }: { projectId: string }) {
 					</Panel>
 
 					{/* Snapshot panel (part of AI sidebar area) */}
-					{snapshotPanelVisible && (
-						<>
-							<ResizeHandle
-								className="
-									w-1 bg-border transition-colors
-									hover:bg-accent
-									data-[separator=active]:bg-accent
-									data-[separator=hover]:bg-accent
-								"
-							/>
-							<Panel id="snapshots" defaultSize="15%" minSize="10%" maxSize="25%">
-								<aside className="flex h-full flex-col border-l border-border">
-									<Suspense fallback={<PanelSkeleton label="Loading snapshots..." />}>
-										<SnapshotPanel projectId={projectId} className="h-full" onClose={toggleSnapshotPanel} />
-									</Suspense>
-								</aside>
-							</Panel>
-						</>
-					)}
-
 					{/* AI Assistant panel */}
 					{aiPanelVisible && (
 						<>

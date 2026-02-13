@@ -170,6 +170,7 @@ export const saveSessionSchema = z.object({
 	label: z.string().min(1).max(LIMITS.LABEL_MAX_LENGTH),
 	history: z.array(z.unknown()),
 	createdAt: z.number(),
+	messageSnapshots: z.record(z.string(), z.string()).optional(),
 });
 
 export type SaveSessionInput = z.infer<typeof saveSessionSchema>;

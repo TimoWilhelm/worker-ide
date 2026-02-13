@@ -97,9 +97,10 @@ interface AIActions {
 	setAiError: (error: AIError | undefined) => void;
 	setSessionId: (id: string | undefined) => void;
 	setSavedSessions: (sessions: Array<{ id: string; label: string; createdAt: number }>) => void;
-	loadSession: (history: AgentMessage[], sessionId: string) => void;
+	loadSession: (history: AgentMessage[], sessionId: string, messageSnapshots?: Map<number, string>) => void;
 	setMessageSnapshot: (messageIndex: number, snapshotId: string) => void;
 	removeMessagesAfter: (index: number) => void;
+	removeMessagesFrom: (index: number) => void;
 }
 
 // =============================================================================
@@ -316,7 +317,8 @@ export const useStore = create<StoreState>()(
 
 				setSavedSessions: (sessions) => set({ savedSessions: sessions }),
 
-				loadSession: (history, sessionId) => set({ history, sessionId, messageSnapshots: new Map() }),
+				loadSession: (history, sessionId, messageSnapshots) =>
+					set({ history, sessionId, messageSnapshots: messageSnapshots ?? new Map(), aiError: undefined }),
 
 				setMessageSnapshot: (messageIndex, snapshotId) =>
 					set((state) => {
@@ -329,6 +331,19 @@ export const useStore = create<StoreState>()(
 					set((state) => ({
 						history: state.history.slice(0, index + 1),
 					})),
+				removeMessagesFrom: (index) =>
+					set((state) => {
+						const newSnapshots = new Map<number, string>();
+						for (const [key, value] of state.messageSnapshots) {
+							if (key < index) {
+								newSnapshots.set(key, value);
+							}
+						}
+						return {
+							history: state.history.slice(0, index),
+							messageSnapshots: newSnapshots,
+						};
+					}),
 
 				// =============================================================================
 				// Collaboration State & Actions
