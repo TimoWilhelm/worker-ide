@@ -114,6 +114,11 @@ function getDuplicateBasenames(tabs: FileTab[]): Set<string> {
 	return duplicates;
 }
 
+/** Prevent pointerdown from bubbling to Tabs.Trigger (which activates on pointerdown). */
+function handleClosePointerDown(event: React.PointerEvent) {
+	event.stopPropagation();
+}
+
 // =============================================================================
 // Component
 // =============================================================================
@@ -294,6 +299,7 @@ function FileTabItem({ tab, isActive, showDirectory, participants, onClose }: Fi
 					role="button"
 					aria-label="Close"
 					tabIndex={0}
+					onPointerDown={handleClosePointerDown}
 					onClick={handleClose}
 					onKeyDown={handleCloseKeyDown}
 					className={cn(

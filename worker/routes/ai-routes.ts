@@ -8,7 +8,7 @@ import { Hono } from 'hono';
 
 import { aiChatMessageSchema } from '@shared/validation';
 
-import { AIAgentService } from '../services/ai-agent-service';
+import { AIAgentService } from '../services/ai-agent';
 
 import type { AppEnvironment } from '../types';
 
