@@ -2,8 +2,6 @@ node_modules
 .wrangler
 .turbo
 dist
-.env.*
-!.env.example
 *.tsbuildinfo
 .eslintcache
 
@@ -15,3 +13,5 @@ playwright-report
 
 .dev.vars*
 !.dev.vars.example
+.env.*
+!.env.example
