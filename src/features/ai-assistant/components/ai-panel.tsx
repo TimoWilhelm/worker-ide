@@ -25,7 +25,7 @@ import {
 	Trash2,
 } from 'lucide-react';
 import { ScrollArea } from 'radix-ui';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
@@ -34,6 +34,12 @@ import { useSnapshots } from '@/features/snapshots';
 import { startAIChat, type AIStreamEvent } from '@/lib/api-client';
 import { useStore } from '@/lib/store';
 import { cn, formatRelativeTime } from '@/lib/utils';
+
+import { FileMentionDropdown } from './file-mention-dropdown';
+import { MarkdownContent } from './markdown-content';
+import { RichTextInput, type RichTextInputHandle } from './rich-text-input';
+import { useFileMention } from '../hooks/use-file-mention';
+import { segmentsHaveContent, segmentsToPlainText, type InputSegment } from '../lib/input-segments';
 
 import type { AgentContent, AgentMessage, ToolName } from '@shared/types';
 
@@ -72,33 +78,6 @@ function getEventObjectField(event: AIStreamEvent, field: string): Record<string
 function getEventBooleanField(event: AIStreamEvent, field: string): boolean | undefined {
 	const value = event[field];
 	return typeof value === 'boolean' ? value : undefined;
-}
-
-function escapeHtml(string_: string): string {
-	return string_.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
-}
-
-function formatAiText(content: string): string {
-	let html = escapeHtml(content);
-
-	// Code blocks
-	html = html.replaceAll(/```(\w*)\n([\s\S]*?)```/g, (_match, _language, code) => {
-		return `<pre class="ai-code-block"><code>${code.trim()}</code></pre>`;
-	});
-
-	// Inline code
-	html = html.replaceAll(/`([^`]+)`/g, '<code class="ai-inline-code">$1</code>');
-
-	// Bold
-	html = html.replaceAll(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-
-	// Italic
-	html = html.replaceAll(/\*([^*]+)\*/g, '<em>$1</em>');
-
-	// Line breaks
-	html = html.replaceAll('\n', '<br>');
-
-	return html;
 }
 
 // =============================================================================
@@ -144,12 +123,17 @@ const AI_SUGGESTIONS = [
  * AI assistant panel with chat interface.
  */
 export function AIPanel({ projectId, className }: { projectId: string; className?: string }) {
-	const [input, setInput] = useState('');
-	const inputReference = useRef<HTMLTextAreaElement>(null);
+	const [segments, setSegments] = useState<InputSegment[]>([]);
+	const [cursorPosition, setCursorPosition] = useState(0);
+	const inputReference = useRef<RichTextInputHandle>(null);
 	const scrollReference = useRef<HTMLDivElement>(null);
 	const abortControllerReference = useRef<AbortController | undefined>(undefined);
 	const assistantContentReference = useRef<AgentContent[]>([]);
 	const userMessageIndexReference = useRef<number>(-1);
+
+	// Derived plain text for the file mention hook
+	const inputPlainText = useMemo(() => segmentsToPlainText(segments), [segments]);
+	const hasContent = useMemo(() => segmentsHaveContent(segments), [segments]);
 
 	// Store state
 	const {
@@ -160,6 +144,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		savedSessions,
 		sessionId,
 		messageSnapshots,
+		files,
 		addMessage,
 		clearHistory,
 		loadSession,
@@ -169,6 +154,25 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		setMessageSnapshot,
 		removeMessagesAfter,
 	} = useStore();
+
+	// File mention autocomplete
+	const handleFileMentionSelect = useCallback((path: string, triggerIndex: number, queryLength: number) => {
+		inputReference.current?.insertMention(path, triggerIndex, queryLength);
+	}, []);
+
+	const {
+		isOpen: isFileMentionOpen,
+		results: fileMentionResults,
+		selectedIndex: fileMentionSelectedIndex,
+		handleKeyDown: handleFileMentionKeyDown,
+		selectFile: selectMentionFile,
+	} = useFileMention({
+		files,
+		segments,
+		inputValue: inputPlainText,
+		cursorPosition,
+		onSelect: handleFileMentionSelect,
+	});
 
 	// Snapshot hook for revert
 	const { revertSnapshot, isReverting } = useSnapshots({ projectId });
@@ -182,13 +186,16 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 
 	// Focus input on mount
 	useEffect(() => {
-		inputReference.current?.focus();
+		// Small delay to let contentEditable mount
+		requestAnimationFrame(() => {
+			inputReference.current?.focus();
+		});
 	}, []);
 
 	// Send message
 	const handleSend = useCallback(
 		async (messageOverride?: string) => {
-			const messageText = messageOverride ?? input.trim();
+			const messageText = messageOverride ?? inputPlainText.trim();
 			if (!messageText || isProcessing) return;
 
 			// Clear any previous error
@@ -202,7 +209,8 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 			addMessage(userMessage);
 			// Track the index of this user message for snapshot association
 			userMessageIndexReference.current = history.length; // index of the user message we just added
-			setInput('');
+			setSegments([]);
+			inputReference.current?.clear();
 			setProcessing(true);
 			setStatusMessage('Thinking...');
 
@@ -222,43 +230,42 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 
 				await startAIChat(projectId, messageText, apiHistory, abortControllerReference.current.signal, (event: AIStreamEvent) => {
 					switch (event.type) {
-						case 'content_block_start': {
-							// New content block starting
+						case 'status': {
+							const statusText = getEventStringField(event, 'message');
+							if (statusText) {
+								setStatusMessage(statusText);
+							}
 							break;
 						}
-						case 'content_block_delta': {
-							if (event.delta && typeof event.delta === 'object' && 'text' in event.delta) {
-								const delta = event.delta;
-								const textValue = 'text' in delta ? delta.text : undefined;
-								const deltaText = typeof textValue === 'string' ? textValue : '';
-								// Accumulate text
-								const lastContent = assistantContent.at(-1);
-								if (lastContent && lastContent.type === 'text') {
-									lastContent.text += deltaText;
-								} else {
-									assistantContent.push({ type: 'text', text: deltaText });
-								}
+						case 'message': {
+							// Each message event is a distinct text chunk from the server.
+							// Always push a new text block so interleaving with tool
+							// calls is preserved in the rendered output.
+							const text = getEventStringField(event, 'content');
+							if (text) {
+								assistantContent.push({ type: 'text', text });
 								setStatusMessage(undefined);
 							}
 							break;
 						}
-						case 'tool_use': {
-							// Tool being used
-							const toolName = getEventToolName(event, 'name');
+						case 'tool_call': {
+							// Server sends: { type: 'tool_call', tool, id, args }
+							const toolName = getEventToolName(event, 'tool');
 							setStatusMessage(`Using tool: ${toolName}`);
 							assistantContent.push({
 								type: 'tool_use',
 								id: getEventStringField(event, 'id'),
 								name: toolName,
-								input: getEventObjectField(event, 'input'),
+								input: getEventObjectField(event, 'args'),
 							});
 							break;
 						}
 						case 'tool_result': {
+							// Server sends: { type: 'tool_result', tool, tool_use_id, result }
 							assistantContent.push({
 								type: 'tool_result',
 								tool_use_id: getEventStringField(event, 'tool_use_id'),
-								content: getEventStringField(event, 'content'),
+								content: getEventStringField(event, 'result'),
 								is_error: getEventBooleanField(event, 'is_error'),
 							});
 							break;
@@ -271,8 +278,9 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 							}
 							break;
 						}
-						case 'message_stop': {
-							// Message complete
+						case 'turn_complete':
+						case 'done': {
+							// Turn or stream complete — no action needed
 							break;
 						}
 						case 'error': {
@@ -323,18 +331,21 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 				}
 			}
 		},
-		[input, isProcessing, history, projectId, addMessage, setProcessing, setStatusMessage, setAiError, setMessageSnapshot],
+		[inputPlainText, isProcessing, history, projectId, addMessage, setProcessing, setStatusMessage, setAiError, setMessageSnapshot],
 	);
 
 	// Handle keyboard shortcuts
 	const handleKeyDown = useCallback(
 		(event: React.KeyboardEvent) => {
+			// Let file mention dropdown handle keys first
+			if (handleFileMentionKeyDown(event)) return;
+
 			if (event.key === 'Enter' && !event.shiftKey) {
 				event.preventDefault();
 				void handleSend();
 			}
 		},
-		[handleSend],
+		[handleSend, handleFileMentionKeyDown],
 	);
 
 	// Cancel current request
@@ -477,32 +488,28 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 			<div className="shrink-0 border-t border-border p-2">
 				<div
 					className={cn(
-						'overflow-hidden rounded-lg border bg-bg-primary transition-colors',
+						'relative rounded-lg border bg-bg-primary transition-colors',
 						'focus-within:border-accent',
 						isProcessing ? 'border-warning/40' : 'border-border',
 					)}
 				>
-					<textarea
+					{/* File mention autocomplete dropdown */}
+					{isFileMentionOpen && (
+						<FileMentionDropdown results={fileMentionResults} selectedIndex={fileMentionSelectedIndex} onSelect={selectMentionFile} />
+					)}
+					<RichTextInput
 						ref={inputReference}
-						value={input}
-						onChange={(event) => setInput(event.target.value)}
+						segments={segments}
+						onSegmentsChange={setSegments}
 						onKeyDown={handleKeyDown}
-						placeholder={isProcessing ? 'AI is responding...' : 'Ask the AI to help...'}
-						className={cn(
-							'block w-full resize-none bg-transparent px-2.5 pt-2 pb-0',
-							'text-sm/relaxed text-text-primary',
-							'placeholder:text-text-secondary',
-							`
-								focus:outline-none
-								focus-visible:outline-none
-							`,
-							'disabled:opacity-50',
-						)}
-						rows={2}
+						onCursorChange={setCursorPosition}
+						placeholder={isProcessing ? 'AI is responding...' : 'Ask the AI to help... (@ to mention files)'}
 						disabled={isProcessing}
 					/>
 					<div className="flex items-center justify-between px-1.5 py-1">
-						<span className="pl-0.5 text-xs text-text-secondary">{isProcessing ? 'Press Stop to cancel' : 'Enter to send'}</span>
+						<span className="pl-0.5 text-xs text-text-secondary">
+							{isProcessing ? 'Press Stop to cancel' : 'Enter to send · @ to mention files'}
+						</span>
 						{isProcessing ? (
 							<button
 								onClick={handleCancel}
@@ -520,11 +527,11 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 						) : (
 							<button
 								onClick={() => void handleSend()}
-								disabled={!input.trim()}
+								disabled={!hasContent}
 								className={cn(
 									'inline-flex items-center gap-1.5 rounded-md px-2.5 py-1',
 									'text-xs font-medium transition-colors',
-									input.trim()
+									hasContent
 										? `
 											cursor-pointer bg-accent text-white
 											hover:bg-accent-hover
@@ -594,25 +601,12 @@ function MessageBubble({
 	isReverting: boolean;
 	onRevert: (snapshotId: string) => void;
 }) {
-	const isUser = message.role === 'user';
-
-	// Separate text content from tool content
-	const textBlocks: AgentContent[] = [];
-	const toolBlocks: AgentContent[] = [];
-
-	for (const block of message.content) {
-		if (block.type === 'text') {
-			textBlocks.push(block);
-		} else {
-			toolBlocks.push(block);
-		}
-	}
-
-	if (isUser) {
+	if (message.role === 'user') {
+		const textBlocks = message.content.filter((block) => block.type === 'text');
 		return <UserMessage content={textBlocks} snapshotId={snapshotId} isReverting={isReverting} onRevert={onRevert} />;
 	}
 
-	return <AssistantMessage textBlocks={textBlocks} toolBlocks={toolBlocks} />;
+	return <AssistantMessage content={message.content} />;
 }
 
 // =============================================================================
@@ -668,88 +662,61 @@ function UserMessage({
 // Assistant Message
 // =============================================================================
 
-function AssistantMessage({ textBlocks, toolBlocks }: { textBlocks: AgentContent[]; toolBlocks: AgentContent[] }) {
-	const hasTools = toolBlocks.length > 0;
-	const text = textBlocks
-		.filter((block): block is AgentContent & { type: 'text' } => block.type === 'text')
-		.map((block) => block.text)
-		.join('\n')
-		.trim();
+/**
+ * Build a list of renderable segments from content blocks, preserving order.
+ * Groups adjacent text blocks, pairs tool_use with their tool_result.
+ */
+type RenderSegment = { kind: 'text'; text: string } | { kind: 'tool'; toolUse: AgentContent; toolResult?: AgentContent };
 
-	// Pair tool_use with their tool_result
-	const toolPairs: Array<{ toolUse: AgentContent; toolResult?: AgentContent }> = [];
-	for (const block of toolBlocks) {
-		if (block.type === 'tool_use') {
-			toolPairs.push({ toolUse: block });
-		} else if (block.type === 'tool_result') {
-			// Find the matching tool_use
-			const matching = toolPairs.find(
-				(pair) => !pair.toolResult && pair.toolUse.type === 'tool_use' && pair.toolUse.id === block.tool_use_id,
-			);
-			if (matching) {
-				matching.toolResult = block;
-			}
+function buildRenderSegments(content: AgentContent[]): RenderSegment[] {
+	const segments: RenderSegment[] = [];
+	// Collect tool_results into a lookup so we can pair them with tool_use
+	const resultsByUseId = new Map<string, AgentContent>();
+	for (const block of content) {
+		if (block.type === 'tool_result' && block.tool_use_id) {
+			resultsByUseId.set(block.tool_use_id, block);
 		}
 	}
+
+	for (const block of content) {
+		if (block.type === 'text') {
+			const trimmed = block.text.trim();
+			if (!trimmed) continue;
+			// Merge consecutive text segments
+			const last = segments.at(-1);
+			if (last?.kind === 'text') {
+				last.text += '\n' + trimmed;
+			} else {
+				segments.push({ kind: 'text', text: trimmed });
+			}
+		} else if (block.type === 'tool_use') {
+			const result = block.id ? resultsByUseId.get(block.id) : undefined;
+			segments.push({ kind: 'tool', toolUse: block, toolResult: result });
+		}
+		// tool_result blocks are consumed via the lookup above
+	}
+	return segments;
+}
+
+function AssistantMessage({ content }: { content: AgentContent[] }) {
+	const segments = buildRenderSegments(content);
 
 	return (
 		<div className="flex flex-col gap-2">
 			<div className="text-2xs font-semibold tracking-wider text-success uppercase">AI</div>
-
-			{/* Text before tool calls - collapsible if tools follow */}
-			{text && hasTools && <CollapsibleReasoning text={text} />}
-
-			{/* Tool calls */}
-			{toolPairs.map((pair, index) => (
-				<InlineToolCall key={index} toolUse={pair.toolUse} toolResult={pair.toolResult} />
-			))}
-
-			{/* Final text (no tools, or text after tools) */}
-			{text && !hasTools && (
-				<div
-					className={cn(`
-						rounded-lg bg-bg-tertiary px-3 py-2.5 text-sm/relaxed
-						text-text-primary
-					`)}
-					dangerouslySetInnerHTML={{ __html: formatAiText(text) }}
-				/>
-			)}
-		</div>
-	);
-}
-
-// =============================================================================
-// Collapsible Reasoning
-// =============================================================================
-
-function CollapsibleReasoning({ text }: { text: string }) {
-	const [isExpanded, setIsExpanded] = useState(false);
-
-	return (
-		<div className="overflow-hidden rounded-md border border-border bg-bg-primary">
-			<button
-				onClick={() => setIsExpanded(!isExpanded)}
-				className={cn(
-					`
-						flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-xs
-						text-text-secondary
-					`,
-					`
-						transition-colors
-						hover:bg-bg-tertiary
-					`,
-				)}
-			>
-				<ChevronDown className={cn('size-3 transition-transform', !isExpanded && '-rotate-90')} />
-				<span className="font-medium">Show reasoning</span>
-			</button>
-			{isExpanded && (
-				<div
-					className={cn(`
-						border-t border-border px-3 py-2 text-sm/relaxed text-text-primary
-					`)}
-					dangerouslySetInnerHTML={{ __html: formatAiText(text) }}
-				/>
+			{segments.map((segment, index) =>
+				segment.kind === 'text' ? (
+					<div
+						key={index}
+						className="
+							rounded-lg bg-bg-tertiary px-3 py-2.5 text-sm/relaxed text-text-primary
+						"
+					>
+						<MarkdownContent content={segment.text} />
+					</div>
+				) : (
+					<InlineToolCall key={index} toolUse={segment.toolUse} toolResult={segment.toolResult} />
+				),
 			)}
 		</div>
 	);
@@ -759,9 +726,40 @@ function CollapsibleReasoning({ text }: { text: string }) {
 // Inline Tool Call
 // =============================================================================
 
-function InlineToolCall({ toolUse, toolResult }: { toolUse: AgentContent; toolResult?: AgentContent }) {
-	const [isExpanded, setIsExpanded] = useState(false);
+/**
+ * Parse a tool result string into a brief human-readable summary.
+ * Tool results are JSON strings from the server; we extract just
+ * enough info to show in the collapsed/expanded view.
+ */
+function summarizeToolResult(toolName: ToolName, rawResult: string): string {
+	try {
+		const parsed: unknown = JSON.parse(rawResult);
+		if (!isRecord(parsed)) return rawResult.slice(0, 200);
 
+		if (toolName === 'list_files' && Array.isArray(parsed.files)) {
+			const files: unknown[] = parsed.files;
+			return `${files.length} file${files.length === 1 ? '' : 's'}`;
+		}
+
+		if (toolName === 'read_file' && typeof parsed.content === 'string') {
+			const lineCount = parsed.content.split('\n').length;
+			return `${lineCount} line${lineCount === 1 ? '' : 's'}`;
+		}
+
+		if (parsed.error && typeof parsed.error === 'string') {
+			return parsed.error;
+		}
+
+		if (parsed.success) {
+			return 'Success';
+		}
+	} catch {
+		// Not valid JSON — return truncated raw string
+	}
+	return rawResult.length > 200 ? rawResult.slice(0, 200) + '...' : rawResult;
+}
+
+function InlineToolCall({ toolUse, toolResult }: { toolUse: AgentContent; toolResult?: AgentContent }) {
 	if (toolUse.type !== 'tool_use') return;
 
 	const toolName = toolUse.name;
@@ -779,94 +777,27 @@ function InlineToolCall({ toolUse, toolResult }: { toolUse: AgentContent; toolRe
 		}
 	}
 
-	// Determine change type for the result summary
-	let changeAction = '';
-	switch (toolName) {
-		case 'write_file': {
-			changeAction = 'Modified';
-			break;
-		}
-		case 'delete_file': {
-			changeAction = 'Deleted';
-			break;
-		}
-		case 'read_file': {
-			changeAction = 'Read';
-			break;
-		}
-		case 'list_files': {
-			changeAction = 'Listed files';
-			break;
-		}
-		case 'move_file': {
-			{
-				changeAction = 'Moved';
-				// No default
-			}
-			break;
-		}
-	}
+	// Build summary text for the result
+	const resultSummary =
+		toolResult?.type === 'tool_result' && typeof toolResult.content === 'string'
+			? summarizeToolResult(toolName, toolResult.content)
+			: undefined;
 
 	return (
 		<div
 			className={cn(
-				`
-					overflow-hidden rounded-md border border-border bg-bg-primary
-					transition-colors
-				`,
-				isCompleted && !isError && 'border-success/30',
-				isError && 'border-error/30',
+				'flex items-center gap-2 rounded-md px-3 py-1.5 text-xs',
+				isCompleted && !isError && 'bg-success/5 text-text-secondary',
+				isError && 'bg-error/5 text-error',
+				!isCompleted && 'bg-bg-tertiary text-text-secondary',
 			)}
 		>
-			<button
-				onClick={() => setIsExpanded(!isExpanded)}
-				className={cn(
-					`
-						flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left text-xs
-						text-text-secondary
-					`,
-					`
-						transition-colors
-						hover:bg-bg-tertiary
-					`,
-				)}
-			>
-				<span className={cn(isCompleted && !isError && 'text-success', isError && 'text-error')}>
-					<ToolIcon name={toolName} />
-				</span>
-				<span className="text-xs font-semibold capitalize">{toolName.replaceAll('_', ' ')}</span>
-				{details && <span className="min-w-0 truncate font-mono text-xs text-accent">{details}</span>}
-				<ChevronDown className={cn('ml-auto size-3 shrink-0 opacity-40 transition-transform', isExpanded && 'rotate-180')} />
-			</button>
-			{isExpanded && (
-				<div className="border-t border-border px-3 py-2">
-					{isCompleted && (
-						<div
-							className={cn(
-								'font-mono text-xs',
-								isError
-									? 'text-error'
-									: toolName === 'delete_file'
-										? 'text-error'
-										: toolName === 'write_file'
-											? 'text-warning'
-											: 'text-text-secondary',
-							)}
-						>
-							{changeAction} {details}
-						</div>
-					)}
-					{toolResult?.type === 'tool_result' && toolResult.content && (
-						<pre className="mt-1 max-h-32 overflow-auto text-xs text-text-secondary">
-							{typeof toolResult.content === 'string'
-								? toolResult.content.length > 500
-									? toolResult.content.slice(0, 500) + '...'
-									: toolResult.content
-								: JSON.stringify(toolResult.content, undefined, 2)}
-						</pre>
-					)}
-				</div>
-			)}
+			<span className={cn('shrink-0', isCompleted && !isError && 'text-success', isError && 'text-error')}>
+				<ToolIcon name={toolName} />
+			</span>
+			<span className="shrink-0 font-medium capitalize">{toolName.replaceAll('_', ' ')}</span>
+			{details && <span className="min-w-0 truncate font-mono text-accent">{details}</span>}
+			{resultSummary && <span className="ml-auto shrink-0 text-text-secondary">{resultSummary}</span>}
 		</div>
 	);
 }

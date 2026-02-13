@@ -250,7 +250,8 @@ body {
 	outline: none;
 }
 
-textarea:focus-visible {
+textarea:focus-visible,
+[contenteditable]:focus-visible {
 	outline: none;
 }
 
@@ -260,7 +261,7 @@ textarea:focus-visible {
 	color: var(--color-selection-text);
 }
 
-/* AI panel styles */
+/* AI panel styles (used by error overlay / legacy code) */
 .ai-code-block {
 	background: var(--color-bg-primary);
 	padding: 10px;
