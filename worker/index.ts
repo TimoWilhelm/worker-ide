@@ -29,6 +29,20 @@ import { PreviewService } from './services/preview-service';
 
 import type { AppEnvironment } from './types';
 
+/**
+ * Cache PreviewService instances per projectId so that error deduplication
+ * (lastErrorMessage) works across requests within the same isolate.
+ */
+const previewServiceCache = new Map<string, PreviewService>();
+function getPreviewService(projectRoot: string, projectId: string): PreviewService {
+	let service = previewServiceCache.get(projectId);
+	if (!service) {
+		service = new PreviewService(projectRoot, projectId);
+		previewServiceCache.set(projectId, service);
+	}
+	return service;
+}
+
 // Re-export Durable Objects for wrangler
 export { DurableObjectFilesystem, HMRCoordinator } from './durable';
 
@@ -48,11 +62,10 @@ const EXAMPLE_PROJECT: Record<string, string> = {
 	'worker/index.ts': exampleWorkerIndexTs,
 };
 
-// Cache for initialized projects
-const initializedProjectsCache = new Set<string>();
-
 /**
  * Initialize example project files if not already present.
+ * Uses a sentinel file on disk as the source of truth so that
+ * re-initialization happens correctly after a DO storage wipe.
  */
 async function ensureExampleProject(projectRoot: string): Promise<void> {
 	// Dynamic import to allow alias resolution at build time
@@ -132,11 +145,8 @@ app.all('/p/:projectId/*', async (c) => {
 		const fsStub = c.env.DO_FILESYSTEM.get(fsId);
 		mount(PROJECT_ROOT, fsStub);
 
-		// Initialize project if needed
-		if (!initializedProjectsCache.has(projectId)) {
-			await ensureExampleProject(PROJECT_ROOT);
-			initializedProjectsCache.add(projectId);
-		}
+		// Initialize project if needed (always checks sentinel file on disk)
+		await ensureExampleProject(PROJECT_ROOT);
 
 		// Refresh expiration timer
 		await fsStub.refreshExpiration();
@@ -175,7 +185,7 @@ app.all('/p/:projectId/*', async (c) => {
 
 		// Handle preview API routes (user's backend code)
 		if (subPath.startsWith('/preview/api/')) {
-			const previewService = new PreviewService(PROJECT_ROOT, projectId);
+			const previewService = getPreviewService(PROJECT_ROOT, projectId);
 			const apiPath = subPath.replace('/preview', '');
 			return previewService.handlePreviewAPI(c.req.raw, apiPath);
 		}
@@ -183,7 +193,7 @@ app.all('/p/:projectId/*', async (c) => {
 		// Handle preview routes (serve user's frontend files)
 		if (subPath === '/preview' || subPath.startsWith('/preview/')) {
 			const basePrefix = `/p/${projectId}`;
-			const previewService = new PreviewService(PROJECT_ROOT, projectId);
+			const previewService = getPreviewService(PROJECT_ROOT, projectId);
 			const previewPath = subPath === '/preview' ? '/' : subPath.replace(/^\/preview/, '');
 			const previewUrl = new URL(c.req.url);
 			previewUrl.pathname = previewPath;

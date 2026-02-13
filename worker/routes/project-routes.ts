@@ -90,6 +90,7 @@ export const projectRoutes = new Hono<AppEnvironment>()
 		const projectRoot = c.get('projectRoot');
 		const projectFiles = await collectFilesForBundle(projectRoot);
 		delete projectFiles['.initialized'];
+		delete projectFiles['.project-meta.json'];
 
 		let packageJson: Record<string, unknown> = {};
 		let projectName = 'my-worker-app';

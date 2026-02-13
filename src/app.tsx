@@ -322,9 +322,11 @@ function IDEShell({ projectId }: { projectId: string }) {
 	// Track local editor edits
 	const [localEditorContent, setLocalEditorContent] = useState<string>();
 
-	// Reset local edits when server content changes
+	// Reset local edits when server content changes, but only when the
+	// query has finished loading. While loading, `content` is '' (the
+	// default) which would incorrectly wipe in-progress edits.
 	const [previousContent, setPreviousContent] = useState(content);
-	if (content !== previousContent) {
+	if (!isLoadingContent && content !== previousContent) {
 		setPreviousContent(content);
 		setLocalEditorContent(undefined);
 	}
@@ -349,10 +351,14 @@ function IDEShell({ projectId }: { projectId: string }) {
 	);
 
 	// Handle save
-	const handleSave = useCallback(() => {
+	const handleSave = useCallback(async () => {
 		if (activeFile && unsavedChanges.get(activeFile)) {
-			saveFile(editorContent);
-			markFileChanged(activeFile, false);
+			try {
+				await saveFile(editorContent);
+				markFileChanged(activeFile, false);
+			} catch {
+				// Save failed — keep the dirty flag so the user knows
+			}
 		}
 	}, [activeFile, unsavedChanges, saveFile, editorContent, markFileChanged]);
 
@@ -364,13 +370,13 @@ function IDEShell({ projectId }: { projectId: string }) {
 
 	// Auto-save when the editor loses focus (onFocusChange, like VS Code)
 	const handleEditorBlur = useCallback(() => {
-		handleSaveReference.current();
+		void handleSaveReference.current();
 	}, []);
 
 	// Wrap selectFile: autosave current file before switching
 	const handleSelectFile = useCallback(
 		(path: string) => {
-			handleSaveReference.current();
+			void handleSaveReference.current();
 			selectFile(path);
 		},
 		[selectFile],
@@ -379,7 +385,7 @@ function IDEShell({ projectId }: { projectId: string }) {
 	// Wrap closeFile: autosave current file before closing
 	const handleCloseFile = useCallback(
 		(path: string) => {
-			handleSaveReference.current();
+			void handleSaveReference.current();
 			closeFile(path);
 		},
 		[closeFile],
@@ -434,7 +440,8 @@ function IDEShell({ projectId }: { projectId: string }) {
 					type: 'cursor-update',
 					file: activeFile ?? '',
 					cursor: { line: position.line, ch: position.column },
-					selection: undefined,
+					// eslint-disable-next-line unicorn/no-null -- WebSocket wire format uses null
+					selection: null,
 				});
 			}, 100);
 		},
@@ -461,13 +468,13 @@ function IDEShell({ projectId }: { projectId: string }) {
 		const handleKeyDown = (event: KeyboardEvent) => {
 			if ((event.ctrlKey || event.metaKey) && event.key === 's') {
 				event.preventDefault();
-				handleSave();
+				void handleSaveReference.current();
 			}
 		};
 
 		globalThis.addEventListener('keydown', handleKeyDown);
 		return () => globalThis.removeEventListener('keydown', handleKeyDown);
-	}, [handleSave]);
+	}, []);
 
 	return (
 		<TooltipProvider>

@@ -38,21 +38,29 @@ export const hmrSendReference: { current: ((data: Record<string, unknown>) => vo
 
 export function useHMR({ projectId, enabled = true }: UseHMROptions) {
 	const queryClient = useQueryClient();
-	const store = useStore();
+	const storeActions = useStore((state) => ({
+		setParticipants: state.setParticipants,
+		addParticipant: state.addParticipant,
+		removeParticipant: state.removeParticipant,
+		updateParticipant: state.updateParticipant,
+		setLocalParticipantId: state.setLocalParticipantId,
+		setConnected: state.setConnected,
+		activeFile: state.activeFile,
+	}));
 
 	// All mutable state in refs — none of these cause re-connection
 	const reconnectTimeoutReference = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 	const reconnectAttemptsReference = useRef(0);
 	const connectionReference = useRef<import('@/lib/api-client').HMRConnection | undefined>(undefined);
 	const queryClientReference = useRef(queryClient);
-	const storeReference = useRef(store);
+	const storeActionsReference = useRef(storeActions);
 	const projectIdReference = useRef(projectId);
 	const isMountedReference = useRef(true);
 
 	// Keep refs in sync (runs every render but does NOT trigger effects)
 	useEffect(() => {
 		queryClientReference.current = queryClient;
-		storeReference.current = store;
+		storeActionsReference.current = storeActions;
 		projectIdReference.current = projectId;
 	});
 
@@ -77,7 +85,8 @@ export function useHMR({ projectId, enabled = true }: UseHMROptions) {
 				projectId,
 				// onMessage — reads latest refs each invocation
 				(message) => {
-					const { setParticipants, addParticipant, removeParticipant, updateParticipant, setLocalParticipantId } = storeReference.current;
+					const { setParticipants, addParticipant, removeParticipant, updateParticipant, setLocalParticipantId } =
+						storeActionsReference.current;
 					const queryClientCurrent = queryClientReference.current;
 					const projectIdCurrent = projectIdReference.current;
 
@@ -88,7 +97,7 @@ export function useHMR({ projectId, enabled = true }: UseHMROptions) {
 							// the currently active file — its content is managed
 							// locally by the editor and refetching would race with
 							// unsaved edits.
-							const activeFilePath = storeReference.current.activeFile;
+							const activeFilePath = storeActionsReference.current.activeFile;
 							for (const update of message.updates) {
 								if (update.path === activeFilePath) continue;
 								void queryClientCurrent.invalidateQueries({
@@ -149,7 +158,7 @@ export function useHMR({ projectId, enabled = true }: UseHMROptions) {
 				() => {
 					if (!isMountedReference.current) return;
 
-					storeReference.current.setConnected(false);
+					storeActionsReference.current.setConnected(false);
 					const maxAttempts = 10;
 					const baseDelay = 2000;
 					if (reconnectAttemptsReference.current < maxAttempts) {
@@ -162,7 +171,7 @@ export function useHMR({ projectId, enabled = true }: UseHMROptions) {
 				},
 				// onOpen
 				() => {
-					storeReference.current.setConnected(true);
+					storeActionsReference.current.setConnected(true);
 					reconnectAttemptsReference.current = 0;
 					hmrSendReference.current = connectionReference.current?.send;
 				},
@@ -180,7 +189,7 @@ export function useHMR({ projectId, enabled = true }: UseHMROptions) {
 				clearTimeout(reconnectTimeoutReference.current);
 				reconnectTimeoutReference.current = undefined;
 			}
-			storeReference.current.setConnected(false);
+			storeActionsReference.current.setConnected(false);
 		};
 		// Intentionally only depends on projectId and enabled.
 		// All other values are read from refs inside the closures.

@@ -51,7 +51,7 @@ export function useFileContent({ projectId, path, enabled = true }: UseFileConte
 			return data;
 		},
 		enabled: enabled && !!path,
-		staleTime: 0, // Always fetch fresh content
+		staleTime: 0, // Always fetch fresh content — file data must never be stale
 	});
 
 	// Mutation for saving file content
@@ -76,11 +76,11 @@ export function useFileContent({ projectId, path, enabled = true }: UseFileConte
 		},
 	});
 
-	// Convenience save function
+	// Convenience save function (returns a promise so callers can handle success/failure)
 	const saveFile = useCallback(
-		(content: string) => {
+		async (content: string) => {
 			if (!path) return;
-			saveMutation.mutate({ path, content });
+			await saveMutation.mutateAsync({ path, content });
 		},
 		[path, saveMutation],
 	);

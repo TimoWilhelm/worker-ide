@@ -601,7 +601,7 @@ When you're done and don't need to use any more tools, just provide your final r
 	}
 
 	private isContentBlockArray(content: ContentBlock[] | ToolResultBlock[]): content is ContentBlock[] {
-		return content.length === 0 || 'type' in content[0];
+		return content.length === 0 || !('tool_use_id' in content[0]);
 	}
 
 	private async repairToolCall(
@@ -922,7 +922,13 @@ When you're done and don't need to use any more tools, just provide your final r
 		try {
 			const entries = await fs.readdir(directory, { withFileTypes: true });
 			for (const entry of entries) {
-				if (entry.name === '.ai-sessions' || entry.name === '.snapshots') continue;
+				if (
+					entry.name === '.ai-sessions' ||
+					entry.name === '.snapshots' ||
+					entry.name === '.initialized' ||
+					entry.name === '.project-meta.json'
+				)
+					continue;
 				const relativePath = base ? `${base}/${entry.name}` : `/${entry.name}`;
 				if (entry.isDirectory()) {
 					files.push(...(await this.listFilesRecursive(`${directory}/${entry.name}`, relativePath)));
