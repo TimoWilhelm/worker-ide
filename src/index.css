@@ -2,49 +2,54 @@
 
 /* Design tokens using CSS variables for theming */
 @theme {
-	/* Colors - GitHub-inspired dark theme */
-	--color-bg-primary: #0d1117;
-	--color-bg-secondary: #161b22;
-	--color-bg-tertiary: #21262d;
-	--color-border: #30363d;
-	--color-text-primary: #e6edf3;
-	--color-text-secondary: #8b949e;
-	--color-accent: #58a6ff;
-	--color-accent-hover: #79b8ff;
-	--color-success: #3fb950;
-	--color-warning: #d29922;
-	--color-error: #f85149;
+	/* Colors - Cloudflare Workers dark theme */
+	--color-bg-primary: #121212;
+	--color-bg-secondary: #191817;
+	--color-bg-tertiary: #2a2927;
+	--color-border: #f0e3de20;
+	--color-border-solid: #302c2a;
+	--color-text-primary: #f0e3de;
+	--color-text-secondary: #fffdfb90;
+	--color-accent: #f14602;
+	--color-accent-hover: #ff6d33;
+	--color-success: #5eff3a;
+	--color-warning: #ffc84d;
+	--color-error: #ff5e5e;
+
+	/* Selection colors */
+	--color-selection-bg: #3d1f0f;
+	--color-selection-text: #ff7038;
 
 	/* Collaboration colors */
-	--color-collab-orange: #f97316;
-	--color-collab-cyan: #22d3ee;
-	--color-collab-purple: #a78bfa;
-	--color-collab-pink: #f472b6;
-	--color-collab-green: #4ade80;
-	--color-collab-yellow: #facc15;
+	--color-collab-orange: #ff7038;
+	--color-collab-cyan: #4db8ff;
+	--color-collab-purple: #b866ff;
+	--color-collab-pink: #ff5ef0;
+	--color-collab-green: #5eff3a;
+	--color-collab-yellow: #ffc84d;
 
 	/* Font families */
 	--font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
 	--font-mono: 'SF Mono', Menlo, Monaco, 'Courier New', monospace;
 
 	/* Font sizes */
-	--text-xs: 0.6875rem;
-	--text-sm: 0.8125rem;
-	--text-base: 0.875rem;
+	--text-3xs: 0.4375rem;
+	--text-2xs: 0.5rem;
+	--text-xs: 0.5625rem;
+	--text-sm: 0.65625rem;
+	--text-base: 0.6875rem;
 
 	/* Spacing */
 	--spacing-sidebar: 220px;
 	--spacing-header: 48px;
-	--spacing-tabs: 38px;
+	--spacing-tabs: 36px;
 	--spacing-terminal: 200px;
+
+	/* Animations */
+	--animate-fade-in: fadeIn 0.15s ease-out;
 }
 
-/* Base styles */
-* {
-	margin: 0;
-	padding: 0;
-	box-sizing: border-box;
-}
+/* Base styles — margin/padding/box-sizing are handled by Tailwind preflight */
 
 html,
 body,
@@ -63,8 +68,8 @@ body {
 
 /* Scrollbar styles */
 ::-webkit-scrollbar {
-	width: 8px;
-	height: 8px;
+	width: 6px;
+	height: 6px;
 }
 
 ::-webkit-scrollbar-track {
@@ -72,12 +77,22 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-	background: var(--color-border);
-	border-radius: 4px;
+	background: var(--color-border-solid);
+	border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-	background: var(--color-text-secondary);
+	background: #4a4544;
+}
+
+::-webkit-scrollbar-corner {
+	background: transparent;
+}
+
+/* Firefox scrollbar */
+* {
+	scrollbar-width: thin;
+	scrollbar-color: var(--color-border-solid) transparent;
 }
 
 /* CodeMirror theme overrides */
@@ -105,11 +120,12 @@ body {
 }
 
 .cm-line {
-	padding-left: 4px;
+	padding-left: 8px;
+	padding-right: 8px;
 }
 
 .cm-activeLine {
-	background: rgba(88, 166, 255, 0.05) !important;
+	background: rgba(241, 70, 2, 0.06) !important;
 }
 
 /* Remote cursor styles for collaboration */
@@ -125,7 +141,7 @@ body {
 	top: -18px;
 	left: 0;
 	padding: 2px 6px;
-	font-size: 10px;
+	font-size: var(--text-2xs);
 	font-weight: 500;
 	border-radius: 3px;
 	white-space: nowrap;
@@ -181,11 +197,11 @@ body {
 
 /* Diff viewer styles */
 .diff-line-added {
-	background: rgba(63, 185, 80, 0.15);
+	background: rgba(94, 255, 58, 0.1);
 }
 
 .diff-line-removed {
-	background: rgba(248, 81, 73, 0.15);
+	background: rgba(255, 94, 94, 0.1);
 }
 
 .diff-line-context {
@@ -226,11 +242,45 @@ body {
 
 /* Focus visible styles */
 :focus-visible {
-	outline: 2px solid var(--color-accent);
+	outline: 2px solid var(--color-accent-hover);
 	outline-offset: 2px;
+}
+
+[data-separator]:focus-visible {
+	outline: none;
+}
+
+textarea:focus-visible {
+	outline: none;
 }
 
 /* Selection styles */
 ::selection {
-	background: rgba(88, 166, 255, 0.3);
+	background: var(--color-selection-bg);
+	color: var(--color-selection-text);
+}
+
+/* AI panel styles */
+.ai-code-block {
+	background: var(--color-bg-primary);
+	padding: 10px;
+	border-radius: 6px;
+	overflow-x: auto;
+	margin: 8px 0;
+	font-family: var(--font-mono);
+	font-size: var(--text-xs);
+	line-height: 1.6;
+}
+
+.ai-code-block code {
+	background: none;
+	padding: 0;
+}
+
+.ai-inline-code {
+	font-family: var(--font-mono);
+	font-size: var(--text-xs);
+	background: var(--color-bg-primary);
+	padding: 2px 5px;
+	border-radius: 3px;
 }

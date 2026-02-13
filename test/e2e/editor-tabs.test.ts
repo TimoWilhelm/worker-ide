@@ -59,9 +59,8 @@ test.describe('Editor Tabs', () => {
 		// index.html tab should now be active
 		await expect(indexTab).toHaveAttribute('data-state', 'active');
 
-		// Status bar should show the active file path
-		const footer = page.locator('footer');
-		await expect(footer).toContainText('index.html');
+		// The terminal header shows the active file path
+		await expect(page.getByText('/index.html')).toBeVisible();
 	});
 
 	test('closing a tab removes it', async ({ page }) => {

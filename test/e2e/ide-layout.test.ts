@@ -9,21 +9,21 @@ import { expect, test } from 'playwright/test';
 import { gotoIDE } from './helpers';
 
 test.describe('IDE Layout', () => {
-	test('renders the header with project info', async ({ page }) => {
-		const projectId = await gotoIDE(page);
-
-		// Header should show "Worker IDE" title
-		await expect(page.getByRole('heading', { name: 'Worker IDE' })).toBeVisible();
-
-		// Project ID snippet should be visible (first 8 chars)
-		await expect(page.getByText(`Project: ${projectId.slice(0, 8)}...`)).toBeVisible();
-	});
-
-	test('renders the sidebar with explorer label', async ({ page }) => {
+	test('renders the header with project name', async ({ page }) => {
 		await gotoIDE(page);
 
-		// Explorer label in sidebar header
-		await expect(page.getByText('Explorer')).toBeVisible();
+		// Header should show a project name (human-readable ID like "jade-crow-63")
+		const heading = page.locator('h1');
+		await expect(heading).toBeVisible();
+		// Human IDs follow the pattern: adjective-noun-number
+		await expect(heading).toHaveText(/^[\w]+-[\w]+-\d+$/);
+	});
+
+	test('renders the sidebar with files label', async ({ page }) => {
+		await gotoIDE(page);
+
+		// Files label in sidebar header
+		await expect(page.getByText('Files', { exact: true })).toBeVisible();
 	});
 
 	test('shows empty editor placeholder when no file is open', async ({ page }) => {

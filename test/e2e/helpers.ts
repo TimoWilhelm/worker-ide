@@ -43,9 +43,9 @@ export async function gotoIDE(page: Page): Promise<string> {
 
 	await page.goto(url);
 
-	// Wait for the IDE to fully load — the header "Worker IDE" is rendered
-	// only after the IDEShell mounts (project ID parsed, file tree loaded)
-	await page.getByRole('heading', { name: 'Worker IDE' }).waitFor({ timeout: 15_000 });
+	// Wait for the IDE to fully load — the header shows the project name
+	// (a human-readable ID like "jade-crow-63") once IDEShell mounts
+	await page.locator('h1').waitFor({ timeout: 15_000 });
 
 	return projectId;
 }
@@ -55,7 +55,7 @@ export async function gotoIDE(page: Page): Promise<string> {
  * and at least one file entry.
  */
 export async function waitForFileTree(page: Page): Promise<void> {
-	await page.getByText('Explorer').waitFor({ timeout: 10_000 });
+	await page.getByText('Files', { exact: true }).waitFor({ timeout: 10_000 });
 	// The example project always has an index.html at root
 	await page.getByText('index.html').waitFor({ timeout: 10_000 });
 }

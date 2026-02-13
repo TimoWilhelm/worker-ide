@@ -5,6 +5,8 @@
 
 import fs from 'node:fs/promises';
 
+import { env, exports } from 'cloudflare:workers';
+
 import { transformCode } from './bundler-service';
 import { transformModule, processHTML, type FileSystem } from './transform-service';
 
@@ -26,12 +28,11 @@ interface ServerError {
 // =============================================================================
 
 export class PreviewService {
-	private lastBroadcastWasError = false;
+	private lastErrorMessage: string | undefined;
 
 	constructor(
 		private projectRoot: string,
 		private projectId: string,
-		private environment: Env,
 	) {}
 
 	/**
@@ -148,7 +149,7 @@ export class PreviewService {
 				line: locMatch ? Number(locMatch[2]) : undefined,
 				column: locMatch ? Number(locMatch[3]) : undefined,
 			};
-			await this.broadcastMessage({ type: 'server-error', error: serverError }).catch(() => {});
+			await this.broadcastError(serverError).catch(() => {});
 			const errorJson = JSON.stringify(serverError)
 				.replaceAll('<', String.raw`\u003c`)
 				.replaceAll('>', String.raw`\u003e`);
@@ -174,15 +175,17 @@ export class PreviewService {
 					type: 'bundle',
 					message: 'No worker/index.ts found. Create a worker/index.ts file with a default export { fetch }.',
 				};
-				this.lastBroadcastWasError = true;
-				await this.broadcastMessage({ type: 'server-error', error: error }).catch(() => {});
+				await this.broadcastError(error).catch(() => {});
 				return Response.json({ error: error.message, serverError: error }, { status: 500 });
 			}
 
 			const workerFiles = Object.entries(files).toSorted(([a], [b]) => a.localeCompare(b));
 			const contentHash = await this.hashContent(JSON.stringify(workerFiles));
 
-			const worker = this.environment.LOADER.get(`worker:${contentHash}`, async () => {
+			// Create a tail consumer to capture console.log output from the sandbox
+			const logTailer = exports.LogTailer({ props: { projectId: this.projectId } });
+
+			const worker = env.LOADER.get(`worker:${contentHash}`, async () => {
 				const modules: Record<string, string> = {};
 				for (const [filePath, content] of workerFiles) {
 					const jsPath = filePath.replace(/\.(ts|tsx|jsx|mts)$/, '.js');
@@ -204,10 +207,12 @@ export class PreviewService {
 					);
 					modules[jsPath] = code;
 				}
+
 				return {
 					compatibilityDate: '2026-01-31',
 					mainModule: 'worker/index.js',
 					modules,
+					tails: [logTailer],
 				};
 			});
 
@@ -219,10 +224,9 @@ export class PreviewService {
 			const entrypoint = worker.getEntrypoint();
 			const response = await entrypoint.fetch(apiRequest);
 
-			if (this.lastBroadcastWasError) {
-				this.lastBroadcastWasError = false;
-				await this.broadcastMessage({ type: 'server-ok' }).catch(() => {});
-			}
+			// Clear error state on successful request so the next error
+			// is not deduped against a stale message.
+			this.lastErrorMessage = undefined;
 
 			return response;
 		} catch (error) {
@@ -231,7 +235,8 @@ export class PreviewService {
 			const locMatch = errorMessage.match(/([^\s:]+):(\d+):(\d+):\s*ERROR:\s*(.*)/);
 			let file = locMatch ? locMatch[1] : undefined;
 			let line = locMatch ? Number(locMatch[2]) : undefined;
-			let column = locMatch ? Number(locMatch[3]) : undefined;
+			// esbuild columns are 0-indexed; convert to 1-indexed
+			let column = locMatch ? Number(locMatch[3]) + 1 : undefined;
 
 			if (!file && error instanceof Error && error.stack) {
 				const stackLines = error.stack.split('\n');
@@ -239,6 +244,7 @@ export class PreviewService {
 					const m = stackLine.match(/at\s+.*?\(?([\w./-]+\.(?:js|ts|mjs|tsx|jsx)):(\d+):(\d+)\)?/);
 					if (m && /^worker\//.test(m[1])) {
 						file = m[1];
+						// V8 stack traces are already 1-indexed
 						line = Number(m[2]);
 						column = Number(m[3]);
 						break;
@@ -255,8 +261,7 @@ export class PreviewService {
 				column,
 			};
 
-			this.lastBroadcastWasError = true;
-			await this.broadcastMessage({ type: 'server-error', error: serverError }).catch(() => {});
+			await this.broadcastError(serverError).catch(() => {});
 			console.error('Server code execution error:', error);
 			return Response.json({ error: errorMessage, serverError: serverError }, { status: 500 });
 		}
@@ -271,9 +276,20 @@ export class PreviewService {
 		return match ? match[0].toLowerCase() : '';
 	}
 
+	/**
+	 * Broadcast a server-error, skipping if it's a duplicate of the last error.
+	 * This prevents the same build error from being shown N times when
+	 * the preview page makes N parallel API requests that all fail.
+	 */
+	private async broadcastError(error: ServerError): Promise<void> {
+		if (this.lastErrorMessage === error.message) return;
+		this.lastErrorMessage = error.message;
+		await this.broadcastMessage({ type: 'server-error', error });
+	}
+
 	private async broadcastMessage(message: object): Promise<void> {
-		const hmrId = this.environment.DO_HMR_COORDINATOR.idFromName(`hmr:${this.projectId}`);
-		const hmrStub = this.environment.DO_HMR_COORDINATOR.get(hmrId);
+		const hmrId = env.DO_HMR_COORDINATOR.idFromName(`hmr:${this.projectId}`);
+		const hmrStub = env.DO_HMR_COORDINATOR.get(hmrId);
 		await hmrStub.fetch(
 			new Request('http://internal/hmr/send', {
 				method: 'POST',

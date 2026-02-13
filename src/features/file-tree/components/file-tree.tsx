@@ -4,11 +4,18 @@
  * Hierarchical file explorer with expand/collapse support.
  */
 
-import { ChevronDown, ChevronRight, File, Folder, FolderOpen } from 'lucide-react';
+import { ChevronDown, ChevronRight, File, FilePlus, Folder, FolderOpen, Trash2 } from 'lucide-react';
 import { ScrollArea } from 'radix-ui';
-import { useMemo } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 
+import { Button } from '@/components/ui/button';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { Modal, ModalBody, ModalFooter } from '@/components/ui/modal';
+import { Tooltip } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
+import { PROTECTED_FILES } from '@shared/constants';
+
+import type { Participant } from '@shared/types';
 
 // =============================================================================
 // Types
@@ -32,6 +39,12 @@ export interface FileTreeProperties {
 	onFileSelect: (path: string) => void;
 	/** Called when a directory is toggled */
 	onDirectoryToggle: (path: string) => void;
+	/** Called when a file should be created */
+	onCreateFile?: (path: string) => void;
+	/** Called when a file should be deleted */
+	onDeleteFile?: (path: string) => void;
+	/** Connected collaborators for showing presence dots */
+	participants?: Participant[];
 	/** CSS class name */
 	className?: string;
 }
@@ -108,30 +121,158 @@ function buildFileTree(files: string[]): FileTreeItem[] {
 /**
  * File tree component for the sidebar.
  */
-export function FileTree({ files, selectedFile, expandedDirectories, onFileSelect, onDirectoryToggle, className }: FileTreeProperties) {
+export function FileTree({
+	files,
+	selectedFile,
+	expandedDirectories,
+	onFileSelect,
+	onDirectoryToggle,
+	onCreateFile,
+	onDeleteFile,
+	participants = [],
+	className,
+}: FileTreeProperties) {
 	const tree = useMemo(() => buildFileTree(files), [files]);
+	const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+	const [newFilePath, setNewFilePath] = useState('');
+	const [deleteTarget, setDeleteTarget] = useState<string | undefined>();
+
+	const handleCreateSubmit = useCallback(() => {
+		const trimmed = newFilePath.trim();
+		if (trimmed && onCreateFile) {
+			const path = trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
+			onCreateFile(path);
+		}
+		setIsCreateModalOpen(false);
+		setNewFilePath('');
+	}, [newFilePath, onCreateFile]);
+
+	const handleOpenCreateModal = useCallback((prefillPath?: string) => {
+		setNewFilePath(prefillPath ?? '');
+		setIsCreateModalOpen(true);
+	}, []);
+
+	const handleDeleteRequest = useCallback((path: string) => {
+		setDeleteTarget(path);
+	}, []);
+
+	const handleDeleteConfirm = useCallback(() => {
+		if (deleteTarget && onDeleteFile) {
+			onDeleteFile(deleteTarget);
+		}
+		setDeleteTarget(undefined);
+	}, [deleteTarget, onDeleteFile]);
 
 	return (
-		<ScrollArea.Root className={cn('h-full overflow-hidden', className)}>
-			<ScrollArea.Viewport className="size-full">
-				<div className="p-2">
-					{tree.map((item) => (
-						<FileTreeNode
-							key={item.path}
-							item={item}
-							depth={0}
-							selectedFile={selectedFile}
-							expandedDirectories={expandedDirectories}
-							onFileSelect={onFileSelect}
-							onDirectoryToggle={onDirectoryToggle}
-						/>
-					))}
+		<>
+			<div className={cn('flex h-full flex-col', className)}>
+				{/* Files header */}
+				<div className="flex items-center justify-between px-3 pt-1.5 pb-0.5">
+					<span
+						className="
+							text-xs font-semibold tracking-wider text-text-secondary uppercase
+						"
+					>
+						Files
+					</span>
+					{onCreateFile && (
+						<Tooltip content="New file">
+							<button
+								onClick={() => handleOpenCreateModal()}
+								className={cn(
+									`
+										flex size-6 cursor-pointer items-center justify-center rounded-sm
+										text-text-secondary
+									`,
+									`
+										transition-colors
+										hover:bg-bg-tertiary hover:text-text-primary
+									`,
+								)}
+								aria-label="New file"
+							>
+								<FilePlus className="size-3.5" />
+							</button>
+						</Tooltip>
+					)}
 				</div>
-			</ScrollArea.Viewport>
-			<ScrollArea.Scrollbar className="flex w-2 touch-none bg-transparent p-0.5 select-none" orientation="vertical">
-				<ScrollArea.Thumb className="relative flex-1 rounded-full bg-border" />
-			</ScrollArea.Scrollbar>
-		</ScrollArea.Root>
+
+				{/* File tree */}
+				<ScrollArea.Root className="flex-1 overflow-hidden">
+					<ScrollArea.Viewport className="size-full">
+						<div className="py-1">
+							{tree.map((item) => (
+								<FileTreeNode
+									key={item.path}
+									item={item}
+									depth={0}
+									selectedFile={selectedFile}
+									expandedDirectories={expandedDirectories}
+									onFileSelect={onFileSelect}
+									onDirectoryToggle={onDirectoryToggle}
+									onDeleteFile={onDeleteFile ? handleDeleteRequest : undefined}
+									onCreateFileInDirectory={onCreateFile ? handleOpenCreateModal : undefined}
+									participants={participants}
+								/>
+							))}
+						</div>
+					</ScrollArea.Viewport>
+					<ScrollArea.Scrollbar className="flex w-2 touch-none bg-transparent p-0.5 select-none" orientation="vertical">
+						<ScrollArea.Thumb className="relative flex-1 rounded-full bg-border" />
+					</ScrollArea.Scrollbar>
+				</ScrollArea.Root>
+			</div>
+
+			{/* New File Modal */}
+			<Modal open={isCreateModalOpen} onOpenChange={setIsCreateModalOpen} title="New File">
+				<ModalBody>
+					<input
+						autoFocus
+						type="text"
+						value={newFilePath}
+						onChange={(event) => setNewFilePath(event.target.value)}
+						onKeyDown={(event) => {
+							if (event.key === 'Enter') handleCreateSubmit();
+						}}
+						placeholder="Enter file path (e.g. /src/utils.js)"
+						className={cn(
+							`w-full rounded-md border border-border bg-bg-primary px-3 py-2 text-sm`,
+							`
+								text-text-primary
+								placeholder:text-text-secondary
+							`,
+							`focus:border-accent focus:outline-none`,
+						)}
+					/>
+				</ModalBody>
+				<ModalFooter>
+					<Button variant="secondary" size="sm" onClick={() => setIsCreateModalOpen(false)}>
+						Cancel
+					</Button>
+					<Button variant="default" size="sm" onClick={handleCreateSubmit} disabled={!newFilePath.trim()}>
+						Create
+					</Button>
+				</ModalFooter>
+			</Modal>
+
+			{/* Delete Confirmation Dialog */}
+			<ConfirmDialog
+				open={deleteTarget !== undefined}
+				onOpenChange={(open) => {
+					if (!open) setDeleteTarget(undefined);
+				}}
+				title="Delete File"
+				description={
+					<>
+						Are you sure you want to delete <strong className="text-text-primary">{deleteTarget}</strong>? This action cannot be undone.
+					</>
+				}
+				confirmLabel="Delete"
+				cancelLabel="Cancel"
+				variant="danger"
+				onConfirm={handleDeleteConfirm}
+			/>
+		</>
 	);
 }
 
@@ -146,12 +287,27 @@ interface FileTreeNodeProperties {
 	expandedDirectories: Set<string>;
 	onFileSelect: (path: string) => void;
 	onDirectoryToggle: (path: string) => void;
+	onDeleteFile?: (path: string) => void;
+	onCreateFileInDirectory?: (prefillPath: string) => void;
+	participants: Participant[];
 }
 
-function FileTreeNode({ item, depth, selectedFile, expandedDirectories, onFileSelect, onDirectoryToggle }: FileTreeNodeProperties) {
+function FileTreeNode({
+	item,
+	depth,
+	selectedFile,
+	expandedDirectories,
+	onFileSelect,
+	onDirectoryToggle,
+	onDeleteFile,
+	onCreateFileInDirectory,
+	participants,
+}: FileTreeNodeProperties) {
 	const isExpanded = expandedDirectories.has(item.path);
 	const isSelected = selectedFile === item.path;
-	const paddingLeft = `${depth * 12 + 4}px`;
+	const isProtected = !item.isDirectory && PROTECTED_FILES.has(item.path);
+	const paddingLeft = `${depth * 12 + 12}px`;
+	const fileParticipants = item.isDirectory ? [] : participants.filter((participant) => participant.file === item.path);
 
 	const handleClick = () => {
 		if (item.isDirectory) {
@@ -168,6 +324,20 @@ function FileTreeNode({ item, depth, selectedFile, expandedDirectories, onFileSe
 		}
 	};
 
+	const handleDelete = (event: React.MouseEvent) => {
+		event.stopPropagation();
+		if (onDeleteFile && !isProtected) {
+			onDeleteFile(item.path);
+		}
+	};
+
+	const handleCreateInFolder = (event: React.MouseEvent) => {
+		event.stopPropagation();
+		if (onCreateFileInDirectory) {
+			onCreateFileInDirectory(`${item.path}/`);
+		}
+	};
+
 	return (
 		<div>
 			<div
@@ -180,14 +350,14 @@ function FileTreeNode({ item, depth, selectedFile, expandedDirectories, onFileSe
 				style={{ paddingLeft }}
 				className={cn(
 					`
-						group flex cursor-pointer items-center gap-1 rounded-sm px-1 py-0.5
-						text-sm
+						group flex cursor-pointer items-center gap-1.5 py-1 pr-2 text-sm
+						select-none
 					`,
 					`
 						hover:bg-bg-tertiary
 						focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none
 					`,
-					isSelected && 'bg-bg-tertiary text-text-primary',
+					isSelected && 'bg-accent/15 text-accent',
 					!isSelected && 'text-text-secondary',
 				)}
 			>
@@ -204,7 +374,46 @@ function FileTreeNode({ item, depth, selectedFile, expandedDirectories, onFileSe
 						<FileIcon filename={item.name} />
 					</>
 				)}
-				<span className="truncate">{item.name}</span>
+				<Tooltip content={item.path}>
+					<span className="flex-1 truncate">{item.name}</span>
+				</Tooltip>
+				{/* Collaborator presence dots — always visible, positioned before hover buttons */}
+				{fileParticipants.length > 0 && (
+					<div className="flex shrink-0 items-center gap-0.5">
+						{fileParticipants.slice(0, 3).map((participant) => (
+							<span key={participant.id} className="size-1.5 rounded-full" style={{ backgroundColor: participant.color }} />
+						))}
+						{fileParticipants.length > 3 && <span className="text-3xs text-text-secondary">+{fileParticipants.length - 3}</span>}
+					</div>
+				)}
+				{item.isDirectory && onCreateFileInDirectory && (
+					<button
+						onClick={handleCreateInFolder}
+						className="
+							flex size-4 shrink-0 cursor-pointer items-center justify-center
+							rounded-sm text-text-secondary opacity-0 transition-colors
+							group-hover:opacity-100
+							hover:text-accent
+						"
+						aria-label={`New file in ${item.name}`}
+					>
+						<FilePlus className="size-3" />
+					</button>
+				)}
+				{!item.isDirectory && !isProtected && onDeleteFile && (
+					<button
+						onClick={handleDelete}
+						className="
+							flex size-4 shrink-0 cursor-pointer items-center justify-center
+							rounded-sm text-text-secondary opacity-0 transition-colors
+							group-hover:opacity-100
+							hover:text-error
+						"
+						aria-label={`Delete ${item.name}`}
+					>
+						<Trash2 className="size-3" />
+					</button>
+				)}
 			</div>
 			{item.isDirectory && isExpanded && item.children && (
 				<div role="group">
@@ -217,6 +426,9 @@ function FileTreeNode({ item, depth, selectedFile, expandedDirectories, onFileSe
 							expandedDirectories={expandedDirectories}
 							onFileSelect={onFileSelect}
 							onDirectoryToggle={onDirectoryToggle}
+							onDeleteFile={onDeleteFile}
+							onCreateFileInDirectory={onCreateFileInDirectory}
+							participants={participants}
 						/>
 					))}
 				</div>

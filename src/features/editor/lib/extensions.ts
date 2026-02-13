@@ -56,12 +56,13 @@ export const darkTheme = EditorView.theme(
 			caretColor: 'var(--color-accent)',
 			fontFamily: 'var(--font-mono)',
 			fontSize: 'var(--text-base)',
+			padding: '4px 0',
 		},
 		'.cm-cursor, .cm-dropCursor': {
 			borderLeftColor: 'var(--color-accent)',
 		},
 		'&.cm-focused .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection': {
-			backgroundColor: 'rgba(88, 166, 255, 0.2)',
+			backgroundColor: 'rgba(241, 70, 2, 0.2)',
 		},
 		'.cm-panels': {
 			backgroundColor: 'var(--color-bg-tertiary)',
@@ -74,21 +75,21 @@ export const darkTheme = EditorView.theme(
 			borderTop: '1px solid var(--color-border)',
 		},
 		'.cm-searchMatch': {
-			backgroundColor: 'rgba(88, 166, 255, 0.3)',
-			outline: '1px solid rgba(88, 166, 255, 0.5)',
+			backgroundColor: 'rgba(241, 70, 2, 0.25)',
+			outline: '1px solid rgba(241, 70, 2, 0.5)',
 		},
 		'.cm-searchMatch.cm-searchMatch-selected': {
-			backgroundColor: 'rgba(88, 166, 255, 0.5)',
+			backgroundColor: 'rgba(241, 70, 2, 0.45)',
 		},
 		'.cm-activeLine': {
-			backgroundColor: 'rgba(88, 166, 255, 0.05)',
+			backgroundColor: 'rgba(241, 70, 2, 0.06)',
 		},
 		'.cm-selectionMatch': {
-			backgroundColor: 'rgba(88, 166, 255, 0.15)',
+			backgroundColor: 'rgba(241, 70, 2, 0.12)',
 		},
 		'&.cm-focused .cm-matchingBracket, &.cm-focused .cm-nonmatchingBracket': {
-			backgroundColor: 'rgba(88, 166, 255, 0.3)',
-			outline: '1px solid rgba(88, 166, 255, 0.5)',
+			backgroundColor: 'rgba(241, 70, 2, 0.25)',
+			outline: '1px solid rgba(241, 70, 2, 0.5)',
 		},
 		'.cm-gutters': {
 			backgroundColor: 'var(--color-bg-secondary)',
@@ -134,22 +135,22 @@ export const darkTheme = EditorView.theme(
  * Syntax highlighting colors for dark theme.
  */
 export const darkHighlightStyle = HighlightStyle.define([
-	{ tag: t.keyword, color: '#ff7b72' },
-	{ tag: [t.name, t.deleted, t.character, t.propertyName, t.macroName], color: '#79c0ff' },
-	{ tag: [t.function(t.variableName), t.labelName], color: '#d2a8ff' },
-	{ tag: [t.color, t.constant(t.name), t.standard(t.name)], color: '#79c0ff' },
-	{ tag: [t.definition(t.name), t.separator], color: '#e6edf3' },
-	{ tag: [t.typeName, t.className, t.number, t.changed, t.annotation, t.modifier, t.self, t.namespace], color: '#ffa657' },
-	{ tag: [t.operator, t.operatorKeyword, t.url, t.escape, t.regexp, t.link, t.special(t.string)], color: '#79c0ff' },
-	{ tag: [t.meta, t.comment], color: '#8b949e' },
+	{ tag: t.keyword, color: '#ff7038' },
+	{ tag: [t.name, t.deleted, t.character, t.propertyName, t.macroName], color: '#4db8ff' },
+	{ tag: [t.function(t.variableName), t.labelName], color: '#b866ff' },
+	{ tag: [t.color, t.constant(t.name), t.standard(t.name)], color: '#4db8ff' },
+	{ tag: [t.definition(t.name), t.separator], color: '#f0e3de' },
+	{ tag: [t.typeName, t.className, t.number, t.changed, t.annotation, t.modifier, t.self, t.namespace], color: '#ffc84d' },
+	{ tag: [t.operator, t.operatorKeyword, t.url, t.escape, t.regexp, t.link, t.special(t.string)], color: '#4db8ff' },
+	{ tag: [t.meta, t.comment], color: '#6b6562' },
 	{ tag: t.strong, fontWeight: 'bold' },
 	{ tag: t.emphasis, fontStyle: 'italic' },
 	{ tag: t.strikethrough, textDecoration: 'line-through' },
-	{ tag: t.link, color: '#58a6ff', textDecoration: 'underline' },
-	{ tag: t.heading, fontWeight: 'bold', color: '#79c0ff' },
-	{ tag: [t.atom, t.bool, t.special(t.variableName)], color: '#79c0ff' },
-	{ tag: [t.processingInstruction, t.string, t.inserted], color: '#a5d6ff' },
-	{ tag: t.invalid, color: '#f85149' },
+	{ tag: t.link, color: '#ff6d33', textDecoration: 'underline' },
+	{ tag: t.heading, fontWeight: 'bold', color: '#4db8ff' },
+	{ tag: [t.atom, t.bool, t.special(t.variableName)], color: '#4db8ff' },
+	{ tag: [t.processingInstruction, t.string, t.inserted], color: '#5eff3a' },
+	{ tag: t.invalid, color: '#ff5e5e' },
 ]);
 
 // =============================================================================
@@ -225,7 +226,6 @@ export function getBaseExtensions(): Extension[] {
 			indentWithTab,
 		]),
 		darkTheme,
-		EditorView.lineWrapping,
 	];
 }
 

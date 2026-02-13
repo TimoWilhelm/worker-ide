@@ -13,11 +13,11 @@ import type { ButtonHTMLAttributes, Ref } from 'react';
 
 const buttonVariants = cva(
 	`
-		inline-flex items-center justify-center gap-2 rounded-sm font-medium
-		transition-colors
+		inline-flex cursor-pointer items-center justify-center gap-2 rounded-sm
+		font-medium transition-colors
 		focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2
 		focus-visible:ring-offset-bg-primary focus-visible:outline-none
-		disabled:pointer-events-none disabled:opacity-50
+		disabled:pointer-events-none disabled:cursor-default disabled:opacity-50
 	`,
 	{
 		variants: {

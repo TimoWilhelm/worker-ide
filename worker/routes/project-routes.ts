@@ -7,9 +7,13 @@ import fs from 'node:fs/promises';
 
 import { Hono } from 'hono';
 
+import { generateHumanId } from '@shared/human-id';
+import { projectMetaSchema } from '@shared/validation';
+
 import { createZip } from '../lib/zip';
 
 import type { AppEnvironment } from '../types';
+import type { ProjectMeta } from '@shared/types';
 
 /**
  * Type guard to check if a value is a string record (e.g. scripts or devDependencies from package.json).
@@ -27,7 +31,48 @@ export const projectRoutes = new Hono<AppEnvironment>()
 		const environment = c.env;
 		const id = environment.DO_FILESYSTEM.newUniqueId();
 		const projectId = id.toString();
-		return c.json({ projectId, url: `/p/${projectId}` });
+		const humanId = generateHumanId();
+		return c.json({ projectId, url: `/p/${projectId}`, name: humanId });
+	})
+
+	// GET /api/project/meta - Get project metadata
+	.get('/project/meta', async (c) => {
+		const projectRoot = c.get('projectRoot');
+		const metaPath = `${projectRoot}/.project-meta.json`;
+		try {
+			const raw = await fs.readFile(metaPath, 'utf8');
+			const meta: ProjectMeta = JSON.parse(raw);
+			return c.json(meta);
+		} catch {
+			// No meta file yet — generate one
+			const humanId = generateHumanId();
+			const meta: ProjectMeta = { name: humanId, humanId };
+			await fs.writeFile(metaPath, JSON.stringify(meta));
+			return c.json(meta);
+		}
+	})
+
+	// PUT /api/project/meta - Update project metadata (rename)
+	.put('/project/meta', async (c) => {
+		const projectRoot = c.get('projectRoot');
+		const metaPath = `${projectRoot}/.project-meta.json`;
+		const body = await c.req.json();
+		const parsed = projectMetaSchema.safeParse(body);
+		if (!parsed.success) {
+			return c.json({ error: parsed.error.message }, 400);
+		}
+
+		let meta: ProjectMeta;
+		try {
+			const raw = await fs.readFile(metaPath, 'utf8');
+			meta = JSON.parse(raw);
+			meta.name = parsed.data.name;
+		} catch {
+			const humanId = generateHumanId();
+			meta = { name: parsed.data.name, humanId };
+		}
+		await fs.writeFile(metaPath, JSON.stringify(meta));
+		return c.json(meta);
 	})
 
 	// GET /api/expiration - Get project expiration info

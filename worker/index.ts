@@ -13,6 +13,8 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { mount, withMounts } from 'worker-fs-mount';
 
+import { generateHumanId } from '@shared/human-id';
+
 import documentationHtml from './fixtures/docs.html?raw';
 import exampleIndexHtml from './fixtures/example-project/index.html?raw';
 import exampleApiTs from './fixtures/example-project/src/api.ts?raw';
@@ -29,6 +31,9 @@ import type { AppEnvironment } from './types';
 
 // Re-export Durable Objects for wrangler
 export { DurableObjectFilesystem, HMRCoordinator } from './durable';
+
+// Re-export LogTailer so it's available on ctx.exports for WorkerLoader tails
+export { LogTailer } from './services/log-tailer';
 
 const PROJECT_ROOT = '/project';
 
@@ -107,7 +112,8 @@ app.post('/api/new-project', async (c) => {
 	const environment = c.env;
 	const id = environment.DO_FILESYSTEM.newUniqueId();
 	const projectId = id.toString();
-	return c.json({ projectId, url: `/p/${projectId}` });
+	const humanId = generateHumanId();
+	return c.json({ projectId, url: `/p/${projectId}`, name: humanId });
 });
 
 // Project-scoped routes
@@ -169,7 +175,7 @@ app.all('/p/:projectId/*', async (c) => {
 
 		// Handle preview API routes (user's backend code)
 		if (subPath.startsWith('/preview/api/')) {
-			const previewService = new PreviewService(PROJECT_ROOT, projectId, c.env);
+			const previewService = new PreviewService(PROJECT_ROOT, projectId);
 			const apiPath = subPath.replace('/preview', '');
 			return previewService.handlePreviewAPI(c.req.raw, apiPath);
 		}
@@ -177,7 +183,7 @@ app.all('/p/:projectId/*', async (c) => {
 		// Handle preview routes (serve user's frontend files)
 		if (subPath === '/preview' || subPath.startsWith('/preview/')) {
 			const basePrefix = `/p/${projectId}`;
-			const previewService = new PreviewService(PROJECT_ROOT, projectId, c.env);
+			const previewService = new PreviewService(PROJECT_ROOT, projectId);
 			const previewPath = subPath === '/preview' ? '/' : subPath.replace(/^\/preview/, '');
 			const previewUrl = new URL(c.req.url);
 			previewUrl.pathname = previewPath;

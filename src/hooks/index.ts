@@ -4,4 +4,4 @@
  * Re-exports all shared React hooks.
  */
 
-export { useHMR } from './use-hmr';
+export { useHMR, hmrSendReference } from './use-hmr';

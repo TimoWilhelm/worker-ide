@@ -5,13 +5,22 @@
 import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
+import { TooltipProvider } from '@/components/ui/tooltip';
+
 import { FileTree } from './file-tree';
+
+/**
+ * Helper to wrap component in required providers.
+ */
+function renderWithProviders(ui: React.ReactElement) {
+	return render(<TooltipProvider>{ui}</TooltipProvider>);
+}
 
 const SAMPLE_FILES = ['/src/main.ts', '/src/app.tsx', '/src/lib/utils.ts', '/styles/index.css', '/index.html'];
 
 describe('FileTree', () => {
 	it('renders file tree from flat paths', () => {
-		render(
+		renderWithProviders(
 			<FileTree
 				files={SAMPLE_FILES}
 				selectedFile={undefined}
@@ -34,7 +43,7 @@ describe('FileTree', () => {
 	});
 
 	it('hides children when directory is collapsed', () => {
-		render(
+		renderWithProviders(
 			<FileTree
 				files={SAMPLE_FILES}
 				selectedFile={undefined}
@@ -56,7 +65,7 @@ describe('FileTree', () => {
 
 	it('calls onFileSelect when a file is clicked', () => {
 		const onFileSelect = vi.fn();
-		render(
+		renderWithProviders(
 			<FileTree
 				files={SAMPLE_FILES}
 				selectedFile={undefined}
@@ -72,7 +81,7 @@ describe('FileTree', () => {
 
 	it('calls onDirectoryToggle when a directory is clicked', () => {
 		const onDirectoryToggle = vi.fn();
-		render(
+		renderWithProviders(
 			<FileTree
 				files={SAMPLE_FILES}
 				selectedFile={undefined}
@@ -87,7 +96,7 @@ describe('FileTree', () => {
 	});
 
 	it('highlights the selected file', () => {
-		render(
+		renderWithProviders(
 			<FileTree
 				files={SAMPLE_FILES}
 				selectedFile="/src/main.ts"
@@ -102,7 +111,7 @@ describe('FileTree', () => {
 	});
 
 	it('sorts directories before files', () => {
-		render(
+		renderWithProviders(
 			<FileTree
 				files={SAMPLE_FILES}
 				selectedFile={undefined}
@@ -126,7 +135,7 @@ describe('FileTree', () => {
 
 	it('supports keyboard navigation with Enter', () => {
 		const onFileSelect = vi.fn();
-		render(
+		renderWithProviders(
 			<FileTree
 				files={SAMPLE_FILES}
 				selectedFile={undefined}
@@ -142,7 +151,7 @@ describe('FileTree', () => {
 	});
 
 	it('renders empty tree for empty files list', () => {
-		const { container } = render(
+		const { container } = renderWithProviders(
 			<FileTree files={[]} selectedFile={undefined} expandedDirectories={new Set()} onFileSelect={vi.fn()} onDirectoryToggle={vi.fn()} />,
 		);
 

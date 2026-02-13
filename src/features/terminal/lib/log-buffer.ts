@@ -1,0 +1,131 @@
+/**
+ * Log Buffer
+ *
+ * Module-level log accumulator that listens for server-error, rebuild,
+ * and server-logs CustomEvents. Persists across terminal component
+ * mount/unmount cycles so no log entries are lost.
+ *
+ * Logs are cleared on each rebuild by default unless "Preserve Logs"
+ * is enabled.
+ */
+
+import type { LogEntry } from '../types';
+import type { ServerError, ServerLogEntry } from '@shared/types';
+
+// =============================================================================
+// State
+// =============================================================================
+
+let idCounter = 0;
+let entries: LogEntry[] = [];
+let preserveLogs = false;
+const listeners = new Set<() => void>();
+
+function nextId(): string {
+	idCounter++;
+	return `log-${idCounter}`;
+}
+
+function notify() {
+	for (const listener of listeners) {
+		listener();
+	}
+}
+
+function append(...newEntries: LogEntry[]) {
+	entries = [...entries, ...newEntries];
+	notify();
+}
+
+// =============================================================================
+// Event Listeners (always active once this module is imported)
+// =============================================================================
+
+globalThis.addEventListener('server-error', (event: Event) => {
+	if (event instanceof CustomEvent) {
+		const error: ServerError = event.detail;
+		const parts = [error.message];
+		if (error.file) {
+			parts.push(`  at ${error.file}${error.line ? `:${error.line}` : ''}${error.column ? `:${error.column}` : ''}`);
+		}
+		append({
+			id: nextId(),
+			timestamp: error.timestamp,
+			level: 'error',
+			message: parts.join('\n'),
+			source: 'server',
+		});
+	}
+});
+
+globalThis.addEventListener('rebuild', () => {
+	// Clear logs on rebuild unless preserving
+	if (!preserveLogs) {
+		entries = [];
+		notify();
+	}
+});
+
+globalThis.addEventListener('server-logs', (event: Event) => {
+	if (event instanceof CustomEvent) {
+		const logs: ServerLogEntry[] = event.detail;
+		append(
+			...logs.map((log) => ({
+				id: nextId(),
+				timestamp: log.timestamp,
+				level: log.level,
+				message: log.message,
+				source: 'server' as const,
+			})),
+		);
+	}
+});
+
+/**
+ * Listen for __console-log messages from the preview iframe.
+ * The HMR client injects a console interceptor that forwards all
+ * console.log/info/warn/error/debug calls via window.parent.postMessage.
+ */
+globalThis.addEventListener('message', (event: MessageEvent) => {
+	if (event.data?.type !== '__console-log') return;
+
+	const { level, message, timestamp } = event.data;
+	if (typeof message !== 'string' || typeof timestamp !== 'number') return;
+
+	const validLevels = new Set(['log', 'info', 'warn', 'error', 'debug']);
+	const resolvedLevel: LogEntry['level'] = validLevels.has(level) ? level : 'log';
+
+	append({
+		id: nextId(),
+		timestamp,
+		level: resolvedLevel,
+		message,
+		source: 'client',
+	});
+});
+
+// =============================================================================
+// Public API (useSyncExternalStore compatible)
+// =============================================================================
+
+export function subscribeToLogs(listener: () => void): () => void {
+	listeners.add(listener);
+	return () => listeners.delete(listener);
+}
+
+export function getLogSnapshot(): LogEntry[] {
+	return entries;
+}
+
+export function clearLogs(): void {
+	entries = [];
+	notify();
+}
+
+export function getPreserveLogs(): boolean {
+	return preserveLogs;
+}
+
+export function setPreserveLogs(value: boolean): void {
+	preserveLogs = value;
+}

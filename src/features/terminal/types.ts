@@ -16,3 +16,9 @@ export interface LogEntry {
 	message: string;
 	source?: 'server' | 'client' | 'system';
 }
+
+export interface LogCounts {
+	errors: number;
+	warnings: number;
+	logs: number;
+}

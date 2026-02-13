@@ -5,38 +5,96 @@
  */
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { PanelLeftClose, PanelLeftOpen, Download, WifiOff, Wifi, Terminal, Bot, History } from 'lucide-react';
-import { Suspense, useCallback, useEffect, useState } from 'react';
+import { Bot, ChevronDown, ChevronUp, Clock, Download, Hexagon, Pencil, Plus } from 'lucide-react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { Group as PanelGroup, Panel, Separator as ResizeHandle } from 'react-resizable-panels';
 
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Button } from '@/components/ui/button';
-import { ResizablePanel } from '@/components/ui/resizable-panel';
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuSeparator,
+	DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { PanelSkeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
 import { Tooltip, TooltipProvider } from '@/components/ui/tooltip';
-import { AIPanel } from '@/features/ai-assistant';
 import { CodeEditor, FileTabs, useFileContent } from '@/features/editor';
 import { FileTree, useFileTree } from '@/features/file-tree';
-import { PreviewPanel } from '@/features/preview';
-import { SnapshotPanel } from '@/features/snapshots';
-import { TerminalPanel } from '@/features/terminal';
-import { useHMR } from '@/hooks';
-import { downloadProject } from '@/lib/api-client';
+import { getLogSnapshot, subscribeToLogs } from '@/features/terminal/lib/log-buffer';
+import { hmrSendReference, useHMR } from '@/hooks';
+import { createProject, downloadProject, fetchProjectMeta, updateProjectMeta } from '@/lib/api-client';
 import { useStore } from '@/lib/store';
+import { cn, formatRelativeTime } from '@/lib/utils';
 
-// Create a stable QueryClient instance
+// Eager import — registers global event listeners for log accumulation
+// before any WebSocket messages arrive
+
+import type { LogCounts } from '@/features/terminal';
+
+// Lazy-loaded feature panels for code splitting
+const AIPanel = lazy(() => import('@/features/ai-assistant'));
+const PreviewPanel = lazy(() => import('@/features/preview'));
+const SnapshotPanel = lazy(() => import('@/features/snapshots'));
+const TerminalPanel = lazy(() => import('@/features/terminal'));
+
+// =============================================================================
+// Query Client
+// =============================================================================
+
 const queryClient = new QueryClient({
 	defaultOptions: {
 		queries: {
-			staleTime: 1000 * 60, // 1 minute
+			staleTime: 1000 * 60,
 			retry: 1,
 			refetchOnWindowFocus: false,
 		},
 	},
 });
 
-/**
- * Loading fallback component for Suspense boundaries.
- */
+// =============================================================================
+// Recent Projects (localStorage)
+// =============================================================================
+
+const RECENT_PROJECTS_KEY = 'worker-ide-recent-projects';
+const MAX_RECENT_PROJECTS = 10;
+
+interface RecentProject {
+	id: string;
+	timestamp: number;
+	name?: string;
+}
+
+function getRecentProjects(): RecentProject[] {
+	try {
+		const raw = localStorage.getItem(RECENT_PROJECTS_KEY);
+		if (raw) {
+			const parsed: unknown = JSON.parse(raw);
+			if (Array.isArray(parsed)) return parsed;
+		}
+	} catch {
+		// ignore
+	}
+	return [];
+}
+
+function trackProject(projectId: string, name?: string): void {
+	let projects = getRecentProjects();
+	const existing = projects.find((project) => project.id === projectId);
+	projects = projects.filter((project) => project.id !== projectId);
+	projects.unshift({ id: projectId, timestamp: Date.now(), name: name ?? existing?.name });
+	if (projects.length > MAX_RECENT_PROJECTS) {
+		projects = projects.slice(0, MAX_RECENT_PROJECTS);
+	}
+	localStorage.setItem(RECENT_PROJECTS_KEY, JSON.stringify(projects));
+}
+
+// =============================================================================
+// Loading / Error Fallbacks
+// =============================================================================
+
 function LoadingFallback() {
 	return (
 		<div className="flex h-screen items-center justify-center bg-bg-primary">
@@ -48,27 +106,28 @@ function LoadingFallback() {
 	);
 }
 
-/**
- * Error fallback component for error boundaries.
- */
 function ErrorFallback({ error, resetErrorBoundary }: { error: Error; resetErrorBoundary: () => void }) {
 	return (
-		<div className="flex h-screen items-center justify-center bg-bg-primary">
-			<div className="max-w-md rounded-lg border border-error bg-bg-secondary p-6">
-				<h1 className="mb-2 text-lg font-semibold text-error">Something went wrong</h1>
+		<div className="flex h-screen items-center justify-center bg-bg-primary p-4">
+			<div
+				className="
+					max-w-lg rounded-xl border border-error/50 bg-bg-secondary p-10 shadow-lg
+				"
+			>
+				<h1 className="mb-4 text-xl font-semibold text-error">Something went wrong</h1>
 				<pre
-					className={`
-						mb-4 overflow-auto rounded-sm bg-bg-tertiary p-3 font-mono text-sm
-						text-text-secondary
-					`}
+					className="
+						mb-8 max-h-48 overflow-auto rounded-md bg-bg-tertiary p-5 font-mono
+						text-sm/relaxed text-text-secondary
+					"
 				>
 					{error.message}
 				</pre>
 				<button
 					onClick={resetErrorBoundary}
 					className="
-						rounded-sm bg-accent px-4 py-2 text-sm font-medium text-white
-						transition-colors
+						cursor-pointer rounded-md bg-accent px-5 py-2.5 text-sm font-medium
+						text-white transition-colors
 						hover:bg-accent-hover
 					"
 				>
@@ -79,10 +138,10 @@ function ErrorFallback({ error, resetErrorBoundary }: { error: Error; resetError
 	);
 }
 
-/**
- * Main application content.
- * This component handles routing and renders the appropriate page.
- */
+// =============================================================================
+// Routing
+// =============================================================================
+
 function getProjectIdFromUrl(): string | undefined {
 	const path = globalThis.location.pathname;
 	const match = path.match(/^\/p\/([a-f0-9]{64})/i);
@@ -101,13 +160,20 @@ function AppContent() {
 	const [projectId] = useState(getProjectIdFromUrl);
 	const [isCreatingProject, setIsCreatingProject] = useState(shouldCreateNewProject);
 
+	// Track current project in recent list
+	useEffect(() => {
+		if (projectId) {
+			trackProject(projectId);
+		}
+	}, [projectId]);
+
 	// Redirect to a new project if no project ID in URL
 	useEffect(() => {
 		if (!isCreatingProject) return;
 		void (async () => {
 			try {
-				const response = await fetch('/api/new-project', { method: 'POST' });
-				const data: { projectId: string; url: string } = await response.json();
+				const data = await createProject();
+				trackProject(data.projectId, data.name);
 				globalThis.location.href = data.url;
 			} catch (error) {
 				console.error('Failed to create project:', error);
@@ -131,7 +197,6 @@ function AppContent() {
 		return <LoadingFallback />;
 	}
 
-	// Lazy load the IDE component
 	return (
 		<Suspense fallback={<LoadingFallback />}>
 			<IDEShell projectId={projectId} />
@@ -139,18 +204,16 @@ function AppContent() {
 	);
 }
 
-/**
- * IDE Shell - Main layout component.
- * Contains the header, sidebar (file tree), editor, and future panels.
- */
+// =============================================================================
+// IDE Shell
+// =============================================================================
+
 function IDEShell({ projectId }: { projectId: string }) {
 	// HMR connection
 	useHMR({ projectId });
 
 	// Store state
 	const {
-		sidebarVisible,
-		toggleSidebar,
 		terminalVisible,
 		toggleTerminal,
 		aiPanelVisible,
@@ -161,34 +224,116 @@ function IDEShell({ projectId }: { projectId: string }) {
 		closeFile,
 		markFileChanged,
 		setCursorPosition,
+		goToFilePosition,
+		clearPendingGoTo,
+		pendingGoTo,
 		isConnected,
-		sidebarWidth,
-		terminalHeight,
-		setTerminalHeight,
+		participants,
 		cursorPosition,
 	} = useStore();
 
-	// Snapshot panel toggle (local state, not persisted)
+	// Project name state
+	const [projectName, setProjectName] = useState<string | undefined>();
+	const [isEditingName, setIsEditingName] = useState(false);
+	const [editNameValue, setEditNameValue] = useState('');
+	const nameInputReference = useRef<HTMLInputElement>(null);
+
+	// Fetch project meta on mount
+	useEffect(() => {
+		void (async () => {
+			try {
+				const meta = await fetchProjectMeta(projectId);
+				setProjectName(meta.name);
+				trackProject(projectId, meta.name);
+			} catch {
+				// Project meta not available, use fallback
+			}
+		})();
+	}, [projectId]);
+
+	// Focus name input when editing starts
+	useEffect(() => {
+		if (isEditingName) {
+			nameInputReference.current?.focus();
+			nameInputReference.current?.select();
+		}
+	}, [isEditingName]);
+
+	const handleStartRename = useCallback(() => {
+		setEditNameValue(projectName ?? '');
+		setIsEditingName(true);
+	}, [projectName]);
+
+	const handleSaveRename = useCallback(async () => {
+		const trimmed = editNameValue.trim();
+		if (trimmed && trimmed !== projectName) {
+			try {
+				await updateProjectMeta(projectId, trimmed);
+				setProjectName(trimmed);
+				trackProject(projectId, trimmed);
+			} catch {
+				// Rename failed, silently revert
+			}
+		}
+		setIsEditingName(false);
+	}, [editNameValue, projectName, projectId]);
+
+	const handleCancelRename = useCallback(() => {
+		setIsEditingName(false);
+	}, []);
+
+	// Snapshot panel toggle (lives inside AI sidebar area)
 	const [snapshotPanelVisible, setSnapshotPanelVisible] = useState(false);
 	const toggleSnapshotPanel = useCallback(() => setSnapshotPanelVisible((previous) => !previous), []);
 
-	// File tree hook
-	const { files, selectedFile, expandedDirectories, selectFile, toggleDirectory, isLoading: isLoadingFiles } = useFileTree({ projectId });
+	// Terminal log counts — derived from the global log buffer
+	const logs = useSyncExternalStore(subscribeToLogs, getLogSnapshot);
+	const logCounts = useMemo<LogCounts>(() => {
+		let errors = 0;
+		let warnings = 0;
+		let logCount = 0;
+		for (const entry of logs) {
+			if (entry.level === 'error') errors++;
+			else if (entry.level === 'warn') warnings++;
+			else logCount++;
+		}
+		return { errors, warnings, logs: logCount };
+	}, [logs]);
 
-	// File content hook (for active file)
+	// Auto-open terminal when errors arrive
+	const previousErrorCount = useRef(0);
+	useEffect(() => {
+		if (logCounts.errors > previousErrorCount.current && !terminalVisible) {
+			toggleTerminal();
+		}
+		previousErrorCount.current = logCounts.errors;
+	}, [logCounts.errors, terminalVisible, toggleTerminal]);
+
+	// File tree hook
+	const {
+		files,
+		selectedFile,
+		expandedDirectories,
+		selectFile,
+		toggleDirectory,
+		isLoading: isLoadingFiles,
+		createFile,
+		deleteFile,
+	} = useFileTree({ projectId });
+
+	// File content hook
 	const { content, isLoading: isLoadingContent, saveFile, isSaving } = useFileContent({ projectId, path: activeFile });
 
-	// Track local editor edits (undefined = no local edits, use server content)
+	// Track local editor edits
 	const [localEditorContent, setLocalEditorContent] = useState<string>();
 
-	// Reset local edits when server content changes (new file loaded)
+	// Reset local edits when server content changes
 	const [previousContent, setPreviousContent] = useState(content);
 	if (content !== previousContent) {
 		setPreviousContent(content);
 		setLocalEditorContent(undefined);
 	}
 
-	// Effective editor content: local edits take priority over server content
 	const editorContent = localEditorContent ?? content ?? '';
 
 	// Build tabs data
@@ -208,13 +353,42 @@ function IDEShell({ projectId }: { projectId: string }) {
 		[activeFile, content, markFileChanged],
 	);
 
-	// Handle save (Ctrl+S)
+	// Handle save
 	const handleSave = useCallback(() => {
 		if (activeFile && unsavedChanges.get(activeFile)) {
 			saveFile(editorContent);
 			markFileChanged(activeFile, false);
 		}
 	}, [activeFile, unsavedChanges, saveFile, editorContent, markFileChanged]);
+
+	// Ref to keep handleSave stable
+	const handleSaveReference = useRef(handleSave);
+	useEffect(() => {
+		handleSaveReference.current = handleSave;
+	}, [handleSave]);
+
+	// Auto-save when the editor loses focus (onFocusChange, like VS Code)
+	const handleEditorBlur = useCallback(() => {
+		handleSaveReference.current();
+	}, []);
+
+	// Wrap selectFile: autosave current file before switching
+	const handleSelectFile = useCallback(
+		(path: string) => {
+			handleSaveReference.current();
+			selectFile(path);
+		},
+		[selectFile],
+	);
+
+	// Wrap closeFile: autosave current file before closing
+	const handleCloseFile = useCallback(
+		(path: string) => {
+			handleSaveReference.current();
+			closeFile(path);
+		},
+		[closeFile],
+	);
 
 	// Handle download
 	const handleDownload = useCallback(async () => {
@@ -223,7 +397,7 @@ function IDEShell({ projectId }: { projectId: string }) {
 			const url = URL.createObjectURL(blob);
 			const a = document.createElement('a');
 			a.href = url;
-			a.download = `project-${projectId.slice(0, 8)}.zip`;
+			a.download = `${projectName ?? `project-${projectId.slice(0, 8)}`}.zip`;
 			document.body.append(a);
 			a.click();
 			a.remove();
@@ -231,7 +405,61 @@ function IDEShell({ projectId }: { projectId: string }) {
 		} catch (error) {
 			console.error('Failed to download project:', error);
 		}
-	}, [projectId]);
+	}, [projectId, projectName]);
+
+	// Handle file creation
+	const handleCreateFile = useCallback(
+		(path: string) => {
+			createFile({ path, content: '' });
+		},
+		[createFile],
+	);
+
+	// Handle new project
+	const handleNewProject = useCallback(async () => {
+		try {
+			const data = await createProject();
+			trackProject(data.projectId, data.name);
+			globalThis.location.href = data.url;
+		} catch (error) {
+			console.error('Failed to create new project:', error);
+		}
+	}, []);
+
+	// Send cursor updates to collaborators (debounced)
+	const cursorUpdateTimeoutReference = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+	const handleCursorChange = useCallback(
+		(position: { line: number; column: number }) => {
+			setCursorPosition(position);
+
+			// Debounce WebSocket cursor update
+			clearTimeout(cursorUpdateTimeoutReference.current);
+			cursorUpdateTimeoutReference.current = setTimeout(() => {
+				hmrSendReference.current?.({
+					type: 'cursor-update',
+					file: activeFile ?? '',
+					cursor: { line: position.line, ch: position.column },
+					selection: undefined,
+				});
+			}, 100);
+		},
+		[setCursorPosition, activeFile],
+	);
+
+	// Listen for __open-file messages from the preview iframe (error overlay)
+	useEffect(() => {
+		const handleMessage = (event: MessageEvent) => {
+			if (event.data?.type === '__open-file' && typeof event.data.file === 'string') {
+				const file: string = event.data.file;
+				const line = typeof event.data.line === 'number' ? event.data.line : 1;
+				const column = typeof event.data.column === 'number' ? event.data.column : 1;
+				goToFilePosition(file, { line, column });
+			}
+		};
+
+		globalThis.addEventListener('message', handleMessage);
+		return () => globalThis.removeEventListener('message', handleMessage);
+	}, [goToFilePosition]);
 
 	// Keyboard shortcuts
 	useEffect(() => {
@@ -248,60 +476,72 @@ function IDEShell({ projectId }: { projectId: string }) {
 
 	return (
 		<TooltipProvider>
-			<div className="flex h-screen flex-col bg-bg-primary">
+			<div className="flex h-screen flex-col overflow-hidden bg-bg-primary">
 				{/* Header */}
 				<header
-					className={`
-						flex h-12 shrink-0 items-center justify-between border-b border-border
-						bg-bg-secondary px-4
-					`}
+					className="
+						flex h-10 shrink-0 items-center justify-between border-b border-border
+						bg-bg-secondary px-3
+					"
 				>
-					<div className="flex items-center gap-4">
-						<Tooltip content={sidebarVisible ? 'Hide sidebar' : 'Show sidebar'}>
-							<Button variant="ghost" size="icon" aria-label={sidebarVisible ? 'Hide sidebar' : 'Show sidebar'} onClick={toggleSidebar}>
-								{sidebarVisible ? <PanelLeftClose className="size-4" /> : <PanelLeftOpen className="size-4" />}
-							</Button>
-						</Tooltip>
-						<h1 className="font-semibold text-text-primary">Worker IDE</h1>
-						<span className="font-mono text-xs text-text-secondary">Project: {projectId.slice(0, 8)}...</span>
+					<div className="flex items-center gap-2">
+						<Hexagon className="size-4 text-accent" />
+						{isEditingName ? (
+							<div className="flex items-center gap-1">
+								<input
+									ref={nameInputReference}
+									value={editNameValue}
+									onChange={(event) => setEditNameValue(event.target.value)}
+									onKeyDown={(event) => {
+										if (event.key === 'Enter') void handleSaveRename();
+										if (event.key === 'Escape') handleCancelRename();
+									}}
+									onBlur={() => void handleSaveRename()}
+									className="
+										h-6 w-40 rounded-sm border border-accent bg-bg-primary px-1.5 text-sm
+										text-text-primary
+										focus:outline-none
+									"
+									maxLength={60}
+								/>
+							</div>
+						) : (
+							<div className="group flex items-center gap-1.5">
+								<h1 className="text-sm font-semibold text-text-primary">{projectName ?? 'Worker IDE'}</h1>
+								<Tooltip content="Rename project">
+									<button
+										onClick={handleStartRename}
+										className="
+											cursor-pointer text-text-secondary opacity-0 transition-opacity
+											group-hover:opacity-100
+											hover:text-accent
+										"
+										aria-label="Rename project"
+									>
+										<Pencil className="size-3" />
+									</button>
+								</Tooltip>
+							</div>
+						)}
 					</div>
 					<div className="flex items-center gap-2">
-						{/* Connection status */}
-						<Tooltip content={isConnected ? 'Connected' : 'Disconnected'}>
-							<div className="flex items-center gap-1 text-xs text-text-secondary" aria-label={isConnected ? 'Connected' : 'Disconnected'}>
-								{isConnected ? <Wifi className="size-3 text-success" /> : <WifiOff className="h-3 w-3 text-error" />}
-							</div>
-						</Tooltip>
 						{/* Save indicator */}
 						{isSaving && <span className="text-xs text-text-secondary">Saving...</span>}
 
-						<div className="mx-2 h-4 w-px bg-border" />
+						{/* Recent projects */}
+						<RecentProjectsDropdown currentProjectId={projectId} onNewProject={handleNewProject} />
 
-						{/* Toggle buttons */}
-						<Tooltip content={terminalVisible ? 'Hide terminal' : 'Show terminal'}>
-							<Button variant="ghost" size="icon" aria-label={terminalVisible ? 'Hide terminal' : 'Show terminal'} onClick={toggleTerminal}>
-								<Terminal className={terminalVisible ? 'size-4 text-accent' : 'size-4'} />
-							</Button>
-						</Tooltip>
-						<Tooltip content={snapshotPanelVisible ? 'Hide snapshots' : 'Show snapshots'}>
-							<Button
-								variant="ghost"
-								size="icon"
-								aria-label={snapshotPanelVisible ? 'Hide snapshots' : 'Show snapshots'}
-								onClick={toggleSnapshotPanel}
-							>
-								<History className={snapshotPanelVisible ? 'size-4 text-accent' : 'size-4'} />
-							</Button>
-						</Tooltip>
-						<Tooltip content={aiPanelVisible ? 'Hide AI' : 'Show AI'}>
-							<Button variant="ghost" size="icon" aria-label={aiPanelVisible ? 'Hide AI' : 'Show AI'} onClick={toggleAIPanel}>
-								<Bot className={aiPanelVisible ? 'size-4 text-accent' : 'size-4'} />
-							</Button>
-						</Tooltip>
+						<div className="mx-1 h-4 w-px bg-border" />
 
-						<div className="mx-2 h-4 w-px bg-border" />
+						{/* AI toggle - prominent */}
+						<Button variant={aiPanelVisible ? 'default' : 'outline'} size="sm" onClick={toggleAIPanel} className="gap-1.5">
+							<Bot className="size-4" />
+							<span>AI</span>
+						</Button>
 
-						{/* Download button */}
+						<div className="mx-1 h-4 w-px bg-border" />
+
+						{/* Download */}
 						<Tooltip content="Download project">
 							<Button variant="ghost" size="sm" aria-label="Download project" onClick={handleDownload}>
 								<Download className="mr-1 size-4" />
@@ -311,114 +551,291 @@ function IDEShell({ projectId }: { projectId: string }) {
 					</div>
 				</header>
 
-				{/* Main content */}
-				<main className="flex flex-1 overflow-hidden">
-					{/* Sidebar - File Tree */}
-					{sidebarVisible && (
-						<aside className="flex shrink-0 flex-col border-r border-border bg-bg-secondary" style={{ width: sidebarWidth }}>
-							<div className="flex h-9 shrink-0 items-center border-b border-border px-3">
-								<span className="text-xs font-medium text-text-secondary uppercase">Explorer</span>
-							</div>
+				{/* Main content — fully resizable panel layout */}
+				<PanelGroup orientation="horizontal" id="ide-main" className="min-h-0 flex-1">
+					{/* Sidebar — file explorer */}
+					<Panel id="sidebar" defaultSize="15%" minSize="180px" maxSize="25%">
+						<aside className="flex h-full flex-col border-r border-border bg-bg-secondary">
 							{isLoadingFiles ? (
 								<div className="flex flex-1 items-center justify-center">
 									<Spinner size="sm" />
 								</div>
 							) : (
 								<FileTree
+									participants={participants}
 									files={files}
 									selectedFile={selectedFile}
 									expandedDirectories={expandedDirectories}
-									onFileSelect={selectFile}
+									onFileSelect={handleSelectFile}
 									onDirectoryToggle={toggleDirectory}
+									onCreateFile={handleCreateFile}
+									onDeleteFile={deleteFile}
 									className="flex-1"
 								/>
 							)}
 						</aside>
-					)}
+					</Panel>
 
-					{/* Center area - Editor + Terminal */}
-					<div className="flex flex-1 flex-col overflow-hidden">
-						{/* Editor area */}
-						<div className="flex flex-1 flex-col overflow-hidden">
-							{/* File tabs */}
-							<FileTabs tabs={tabs} activeTab={activeFile} onSelect={selectFile} onClose={closeFile} />
+					<ResizeHandle
+						className="
+							w-1 bg-border transition-colors
+							hover:bg-accent
+							data-[separator=active]:bg-accent
+							data-[separator=hover]:bg-accent
+						"
+					/>
 
-							{/* Editor */}
-							<div className="flex-1 overflow-hidden">
-								{activeFile ? (
-									isLoadingContent ? (
-										<div className="flex h-full items-center justify-center">
-											<Spinner size="md" />
-										</div>
-									) : (
-										<CodeEditor
-											value={editorContent}
-											filename={activeFile}
-											onChange={handleEditorChange}
-											onCursorChange={setCursorPosition}
+					{/* Editor + Terminal column */}
+					<Panel id="editor-col" defaultSize="45%" minSize="20%">
+						<div className="flex h-full flex-col overflow-hidden">
+							<PanelGroup orientation="vertical" id="ide-editor-terminal" className="flex-1">
+								{/* Editor area */}
+								<Panel id="editor" defaultSize={terminalVisible ? '70%' : '100%'} minSize="30%">
+									<div className="flex h-full flex-col overflow-hidden">
+										<FileTabs
+											tabs={tabs}
+											activeTab={activeFile}
+											onSelect={handleSelectFile}
+											onClose={handleCloseFile}
+											participants={participants}
 										/>
-									)
-								) : (
+										<div className="flex-1 overflow-hidden">
+											{activeFile ? (
+												isLoadingContent ? (
+													<div className="flex h-full items-center justify-center">
+														<Spinner size="md" />
+													</div>
+												) : (
+													<CodeEditor
+														value={editorContent}
+														filename={activeFile}
+														onChange={handleEditorChange}
+														onCursorChange={handleCursorChange}
+														onBlur={handleEditorBlur}
+														goToPosition={pendingGoTo}
+														onGoToPositionConsumed={clearPendingGoTo}
+													/>
+												)
+											) : (
+												<div
+													className="
+														flex h-full items-center justify-center text-text-secondary
+													"
+												>
+													<p>Select a file to edit</p>
+												</div>
+											)}
+										</div>
+									</div>
+								</Panel>
+
+								{/* Terminal panel (resizable) */}
+								{terminalVisible && (
+									<>
+										<ResizeHandle
+											className="
+												h-1 bg-border transition-colors
+												hover:bg-accent
+												data-[separator=active]:bg-accent
+												data-[separator=hover]:bg-accent
+											"
+										/>
+										<Panel id="terminal" defaultSize="30%" minSize="10%" maxSize="60%">
+											<div className="flex h-full flex-col overflow-hidden">
+												{/* Terminal header */}
+												<button
+													type="button"
+													onClick={toggleTerminal}
+													className={cn(
+														`
+															flex h-8 w-full shrink-0 cursor-pointer items-center
+															justify-between
+														`,
+														'border-b border-border bg-bg-secondary px-2 transition-colors',
+														'hover:bg-bg-tertiary',
+													)}
+													aria-label="Hide terminal"
+												>
+													<div className="flex items-center gap-2">
+														<ChevronDown className="size-3 text-text-secondary" />
+														<span className="text-xs font-medium text-text-secondary">Terminal</span>
+														{logCounts.errors > 0 && (
+															<span
+																className="
+																	inline-flex items-center rounded-full bg-red-500/15 px-1.5
+																	py-0.5 text-2xs leading-none font-medium text-red-400
+																"
+															>
+																{logCounts.errors}
+															</span>
+														)}
+														{logCounts.warnings > 0 && (
+															<span
+																className="
+																	inline-flex items-center rounded-full bg-yellow-500/15 px-1.5
+																	py-0.5 text-2xs leading-none font-medium text-yellow-400
+																"
+															>
+																{logCounts.warnings}
+															</span>
+														)}
+													</div>
+													<div className="flex items-center gap-3 text-xs text-text-secondary">
+														{activeFile && <span className="truncate">{activeFile}</span>}
+														{cursorPosition && (
+															<span>
+																Ln {cursorPosition.line}, Col {cursorPosition.column}
+															</span>
+														)}
+													</div>
+												</button>
+												<div className="flex-1 overflow-hidden">
+													<Suspense fallback={<PanelSkeleton label="Loading terminal..." />}>
+														<TerminalPanel projectId={projectId} className="h-full" />
+													</Suspense>
+												</div>
+											</div>
+										</Panel>
+									</>
+								)}
+							</PanelGroup>
+
+							{/* Terminal toggle bar when terminal is hidden */}
+							{!terminalVisible && (
+								<button
+									type="button"
+									onClick={toggleTerminal}
+									className={cn(
+										'flex h-7 w-full shrink-0 cursor-pointer items-center',
+										'border-t border-border bg-bg-secondary px-2 transition-colors',
+										'hover:bg-bg-tertiary',
+									)}
+									aria-label="Show terminal"
+								>
+									<div className="flex items-center gap-2">
+										<ChevronUp className="size-3 text-text-secondary" />
+										<span className="text-xs font-medium text-text-secondary">Terminal</span>
+										{logCounts.errors > 0 && (
+											<span
+												className="
+													inline-flex items-center rounded-full bg-red-500/15 px-1.5 py-0.5
+													text-2xs leading-none font-medium text-red-400
+												"
+											>
+												{logCounts.errors}
+											</span>
+										)}
+										{logCounts.warnings > 0 && (
+											<span
+												className="
+													inline-flex items-center rounded-full bg-yellow-500/15 px-1.5
+													py-0.5 text-2xs leading-none font-medium text-yellow-400
+												"
+											>
+												{logCounts.warnings}
+											</span>
+										)}
+									</div>
 									<div
 										className="
-											flex h-full items-center justify-center text-text-secondary
+											ml-auto flex items-center gap-3 text-xs text-text-secondary
 										"
 									>
-										<p>Select a file to edit</p>
+										{activeFile && <span className="truncate">{activeFile}</span>}
+										{cursorPosition && (
+											<span>
+												Ln {cursorPosition.line}, Col {cursorPosition.column}
+											</span>
+										)}
 									</div>
-								)}
-							</div>
+								</button>
+							)}
 						</div>
+					</Panel>
 
-						{/* Terminal panel */}
-						{terminalVisible && (
-							<ResizablePanel
-								direction="vertical"
-								defaultSize={terminalHeight}
-								minSize={100}
-								maxSize={400}
-								onSizeChange={setTerminalHeight}
-								handlePosition="start"
-							>
-								<TerminalPanel projectId={projectId} className="h-full" />
-							</ResizablePanel>
-						)}
-					</div>
+					<ResizeHandle
+						className="
+							w-1 bg-border transition-colors
+							hover:bg-accent
+							data-[separator=active]:bg-accent
+							data-[separator=hover]:bg-accent
+						"
+					/>
 
-					{/* Right panel - Preview */}
-					<div className="flex w-[45%] shrink-0 flex-col border-l border-border">
-						<PreviewPanel projectId={projectId} className="flex-1" />
-					</div>
+					{/* Preview panel */}
+					<Panel id="preview" defaultSize={aiPanelVisible ? '20%' : '40%'} minSize="15%">
+						<Suspense fallback={<PanelSkeleton label="Loading preview..." />}>
+							<PreviewPanel projectId={projectId} className="h-full" />
+						</Suspense>
+					</Panel>
 
-					{/* Snapshot panel */}
+					{/* Snapshot panel (part of AI sidebar area) */}
 					{snapshotPanelVisible && (
-						<aside className="flex w-72 shrink-0 flex-col border-l border-border">
-							<SnapshotPanel projectId={projectId} className="h-full" onClose={toggleSnapshotPanel} />
-						</aside>
+						<>
+							<ResizeHandle
+								className="
+									w-1 bg-border transition-colors
+									hover:bg-accent
+									data-[separator=active]:bg-accent
+									data-[separator=hover]:bg-accent
+								"
+							/>
+							<Panel id="snapshots" defaultSize="15%" minSize="10%" maxSize="25%">
+								<aside className="flex h-full flex-col border-l border-border">
+									<Suspense fallback={<PanelSkeleton label="Loading snapshots..." />}>
+										<SnapshotPanel projectId={projectId} className="h-full" onClose={toggleSnapshotPanel} />
+									</Suspense>
+								</aside>
+							</Panel>
+						</>
 					)}
 
 					{/* AI Assistant panel */}
 					{aiPanelVisible && (
-						<aside className="flex w-80 shrink-0 flex-col border-l border-border">
-							<AIPanel projectId={projectId} className="h-full" />
-						</aside>
+						<>
+							<ResizeHandle
+								className="
+									w-1 bg-border transition-colors
+									hover:bg-accent
+									data-[separator=active]:bg-accent
+									data-[separator=hover]:bg-accent
+								"
+							/>
+							<Panel id="ai-panel" defaultSize="20%" minSize="15%" maxSize="35%">
+								<aside className="flex h-full flex-col border-l border-border">
+									<Suspense fallback={<PanelSkeleton label="Loading AI assistant..." />}>
+										<AIPanel projectId={projectId} className="h-full" />
+									</Suspense>
+								</aside>
+							</Panel>
+						</>
 					)}
-				</main>
+				</PanelGroup>
 
 				{/* Status bar */}
 				<footer
-					className={`
+					className="
 						flex h-6 shrink-0 items-center justify-between border-t border-border
-						bg-bg-secondary px-4 text-xs text-text-secondary
-					`}
+						bg-bg-secondary px-3 text-xs text-text-secondary
+					"
 				>
-					<div className="flex items-center gap-4">{activeFile && <span>{activeFile}</span>}</div>
 					<div className="flex items-center gap-4">
-						{cursorPosition && (
-							<span>
-								Ln {cursorPosition.line}, Col {cursorPosition.column}
+						{isConnected ? (
+							<span className="flex items-center gap-1.5">
+								<span className="size-1.5 rounded-full bg-success" />
+								Connected
+								{participants.length > 0 && <span className="text-text-secondary">&middot; {participants.length} online</span>}
+							</span>
+						) : (
+							<span className="flex items-center gap-1.5">
+								<span className="size-1.5 rounded-full bg-error" />
+								Disconnected
 							</span>
 						)}
+					</div>
+					<div className="flex items-center gap-4">
+						{isSaving && <span>Saving...</span>}
+						<span>Worker IDE</span>
 					</div>
 				</footer>
 			</div>
@@ -426,9 +843,67 @@ function IDEShell({ projectId }: { projectId: string }) {
 	);
 }
 
-/**
- * Root App component with all providers.
- */
+// =============================================================================
+// Recent Projects Dropdown
+// =============================================================================
+
+function RecentProjectsDropdown({ currentProjectId, onNewProject }: { currentProjectId: string; onNewProject: () => void }) {
+	const [projects, setProjects] = useState<RecentProject[]>([]);
+
+	const handleOpenChange = useCallback((open: boolean) => {
+		if (open) {
+			setProjects(getRecentProjects());
+		}
+	}, []);
+
+	return (
+		<DropdownMenu onOpenChange={handleOpenChange}>
+			<DropdownMenuTrigger asChild>
+				<Button variant="ghost" size="icon" title="Recent Projects">
+					<Clock className="size-4" />
+				</Button>
+			</DropdownMenuTrigger>
+			<DropdownMenuContent align="end" className="w-60">
+				{projects.length <= 1 ? (
+					<div className="px-3 py-2 text-center text-xs text-text-secondary">No other projects yet</div>
+				) : (
+					projects.map((project) => {
+						const isCurrent = project.id === currentProjectId;
+						return (
+							<DropdownMenuItem
+								key={project.id}
+								onSelect={() => {
+									if (!isCurrent) {
+										globalThis.location.href = `/p/${project.id}`;
+									}
+								}}
+								className={cn(isCurrent && 'bg-accent/10 text-accent')}
+							>
+								<div className="flex w-full items-center justify-between">
+									<span className="truncate text-xs">
+										{project.name ?? project.id.slice(0, 8)}
+										{isCurrent && ' (current)'}
+									</span>
+									<span className="ml-2 shrink-0 text-xs text-text-secondary">{formatRelativeTime(project.timestamp)}</span>
+								</div>
+							</DropdownMenuItem>
+						);
+					})
+				)}
+				<DropdownMenuSeparator />
+				<DropdownMenuItem onSelect={onNewProject}>
+					<Plus className="size-3.5" />
+					<span>New Project</span>
+				</DropdownMenuItem>
+			</DropdownMenuContent>
+		</DropdownMenu>
+	);
+}
+
+// =============================================================================
+// Root App Component
+// =============================================================================
+
 export function App() {
 	return (
 		<ErrorBoundary fallback={ErrorFallback}>

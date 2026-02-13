@@ -1,18 +1,70 @@
 /**
  * Terminal Panel Component
  *
- * Displays server logs and console output.
+ * Displays server logs and console output from the module-level log buffer.
+ * The buffer persists across mount/unmount cycles so logs are never lost.
  */
 
-import { Circle, Trash2 } from 'lucide-react';
+import { Ban, Circle } from 'lucide-react';
 import { ScrollArea } from 'radix-ui';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 
-import { Button } from '@/components/ui/button';
 import { Tooltip } from '@/components/ui/tooltip';
+import { useStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 
+import { clearLogs, getLogSnapshot, getPreserveLogs, setPreserveLogs, subscribeToLogs } from '../lib/log-buffer';
+
 import type { LogEntry, TerminalPanelProperties } from '../types';
+
+// =============================================================================
+// File Link Parsing
+// =============================================================================
+
+/**
+ * Regex to match file references like `worker/database.ts:10:26` or
+ * `at worker/database.ts:10:26` in log messages.
+ */
+const FILE_REFERENCE_PATTERN = /(?:at\s+)?(\S+\.(?:ts|tsx|js|jsx|mts|css|html)):(\d+)(?::(\d+))?/g;
+
+interface MessageSegment {
+	type: 'text' | 'file-link';
+	value: string;
+	file?: string;
+	line?: number;
+	column?: number;
+}
+
+/**
+ * Parse a log message into segments of plain text and clickable file links.
+ */
+function parseMessage(message: string): MessageSegment[] {
+	const segments: MessageSegment[] = [];
+	let lastIndex = 0;
+
+	for (const match of message.matchAll(FILE_REFERENCE_PATTERN)) {
+		const matchStart = match.index;
+		// Add preceding text
+		if (matchStart > lastIndex) {
+			segments.push({ type: 'text', value: message.slice(lastIndex, matchStart) });
+		}
+		segments.push({
+			type: 'file-link',
+			value: match[0],
+			file: match[1],
+			line: Number(match[2]),
+			column: match[3] ? Number(match[3]) : undefined,
+		});
+		lastIndex = matchStart + match[0].length;
+	}
+
+	// Add trailing text
+	if (lastIndex < message.length) {
+		segments.push({ type: 'text', value: message.slice(lastIndex) });
+	}
+
+	return segments.length > 0 ? segments : [{ type: 'text', value: message }];
+}
 
 // =============================================================================
 // Component
@@ -21,17 +73,10 @@ import type { LogEntry, TerminalPanelProperties } from '../types';
 /**
  * Terminal panel showing logs and console output.
  */
-export function TerminalPanel({ projectId, className }: TerminalPanelProperties) {
-	const [logs, setLogs] = useState<LogEntry[]>(() => [
-		{
-			id: '1',
-			timestamp: Date.now(),
-			level: 'info',
-			message: `Terminal connected for project ${projectId.slice(0, 8)}...`,
-			source: 'system',
-		},
-	]);
+export function TerminalPanel({ className }: TerminalPanelProperties) {
+	const logs = useSyncExternalStore(subscribeToLogs, getLogSnapshot);
 	const [filter, setFilter] = useState<'all' | 'server' | 'client'>('all');
+	const [preserve, setPreserve] = useState(getPreserveLogs);
 	const scrollReference = useRef<HTMLDivElement>(null);
 	const autoScrollReference = useRef(true);
 
@@ -42,9 +87,16 @@ export function TerminalPanel({ projectId, className }: TerminalPanelProperties)
 		}
 	}, [logs]);
 
-	// Clear logs
 	const handleClear = useCallback(() => {
-		setLogs([]);
+		clearLogs();
+	}, []);
+
+	const handleTogglePreserve = useCallback(() => {
+		setPreserve((previous) => {
+			const next = !previous;
+			setPreserveLogs(next);
+			return next;
+		});
 	}, []);
 
 	// Filter logs
@@ -57,29 +109,45 @@ export function TerminalPanel({ projectId, className }: TerminalPanelProperties)
 		<div className={cn('flex h-full flex-col bg-bg-secondary', className)}>
 			{/* Toolbar */}
 			<div
-				className={`
-					flex h-8 shrink-0 items-center justify-between border-b border-border px-2
-				`}
+				className="
+					flex h-6 shrink-0 items-center justify-between border-b border-border px-2
+				"
 			>
-				<div className="flex items-center gap-2">
-					<span className="text-xs font-medium text-text-secondary">Terminal</span>
-					<div className="flex items-center gap-1">
-						<FilterButton active={filter === 'all'} onClick={() => setFilter('all')}>
-							All
-						</FilterButton>
-						<FilterButton active={filter === 'server'} onClick={() => setFilter('server')}>
-							Server
-						</FilterButton>
-						<FilterButton active={filter === 'client'} onClick={() => setFilter('client')}>
-							Client
-						</FilterButton>
-					</div>
+				<div className="flex items-center gap-0.5">
+					<FilterButton active={filter === 'all'} onClick={() => setFilter('all')}>
+						All
+					</FilterButton>
+					<FilterButton active={filter === 'server'} onClick={() => setFilter('server')}>
+						Server
+					</FilterButton>
+					<FilterButton active={filter === 'client'} onClick={() => setFilter('client')}>
+						Client
+					</FilterButton>
 				</div>
-				<div className="flex items-center gap-1">
+				<div className="flex items-center gap-1.5">
+					<Tooltip content={preserve ? 'Logs persist across rebuilds' : 'Logs clear on rebuild'}>
+						<button
+							onClick={handleTogglePreserve}
+							className={cn(
+								'cursor-pointer rounded-sm px-1.5 py-px text-xs transition-colors',
+								preserve ? 'bg-accent/15 text-accent' : 'text-text-secondary hover:text-text-primary',
+							)}
+						>
+							Preserve
+						</button>
+					</Tooltip>
 					<Tooltip content="Clear logs">
-						<Button variant="ghost" size="icon" className="size-6" onClick={handleClear}>
-							<Trash2 className="size-3" />
-						</Button>
+						<button
+							onClick={handleClear}
+							className="
+								flex size-5 cursor-pointer items-center justify-center rounded-sm
+								text-text-secondary transition-colors
+								hover:bg-bg-tertiary hover:text-text-primary
+							"
+							aria-label="Clear logs"
+						>
+							<Ban className="size-3" />
+						</button>
 					</Tooltip>
 				</div>
 			</div>
@@ -87,13 +155,21 @@ export function TerminalPanel({ projectId, className }: TerminalPanelProperties)
 			{/* Log output */}
 			<ScrollArea.Root className="flex-1 overflow-hidden">
 				<ScrollArea.Viewport ref={scrollReference} className="size-full">
-					<div className="p-2 font-mono text-xs">
-						{filteredLogs.length === 0 ? (
-							<div className="flex items-center justify-center py-4 text-text-secondary">No logs yet</div>
-						) : (
-							filteredLogs.map((log) => <LogLine key={log.id} log={log} />)
-						)}
-					</div>
+					{filteredLogs.length === 0 ? (
+						<div
+							className="
+								flex h-full items-center justify-center py-2 text-xs text-text-secondary
+							"
+						>
+							No logs yet
+						</div>
+					) : (
+						<div className="px-3 py-2 font-mono text-xs">
+							{filteredLogs.map((log) => (
+								<LogLine key={log.id} log={log} />
+							))}
+						</div>
+					)}
 				</ScrollArea.Viewport>
 				<ScrollArea.Scrollbar className="flex w-2 touch-none bg-transparent p-0.5 select-none" orientation="vertical">
 					<ScrollArea.Thumb className="relative flex-1 rounded-full bg-border" />
@@ -112,7 +188,7 @@ function FilterButton({ active, onClick, children }: { active: boolean; onClick:
 		<button
 			onClick={onClick}
 			className={cn(
-				'rounded-sm px-1.5 py-0.5 text-xs transition-colors',
+				'cursor-pointer rounded-sm px-1.5 py-px text-xs transition-colors',
 				active ? 'bg-bg-tertiary text-text-primary' : 'text-text-secondary hover:text-text-primary',
 			)}
 		>
@@ -129,6 +205,11 @@ const LEVEL_COLORS: Record<LogEntry['level'], string> = {
 	debug: 'text-gray-500',
 };
 
+const SOURCE_BADGE_STYLES: Record<string, string> = {
+	server: 'bg-purple-500/15 text-purple-400',
+	client: 'bg-cyan-500/15 text-cyan-400',
+};
+
 function LogLine({ log }: { log: LogEntry }) {
 	const time = new Date(log.timestamp).toLocaleTimeString('en-US', {
 		hour12: false,
@@ -137,16 +218,64 @@ function LogLine({ log }: { log: LogEntry }) {
 		second: '2-digit',
 	});
 
+	const segments = parseMessage(log.message);
+
 	return (
 		<div
-			className={`
-				flex items-start gap-2 py-0.5
+			className="
+				flex items-start gap-2 rounded-sm px-1 py-1
 				hover:bg-bg-tertiary/50
-			`}
+			"
 		>
 			<span className="shrink-0 text-text-secondary">{time}</span>
+			{log.source && log.source !== 'system' && (
+				<span
+					className={cn(
+						`
+							mt-px shrink-0 rounded-sm px-1 py-px text-3xs leading-none font-medium
+							uppercase
+						`,
+						SOURCE_BADGE_STYLES[log.source],
+					)}
+				>
+					{log.source === 'server' ? 'worker' : 'client'}
+				</span>
+			)}
 			<Circle className={cn('mt-1 size-2 shrink-0', LEVEL_COLORS[log.level])} fill="currentColor" />
-			<span className="break-all text-text-primary">{log.message}</span>
+			<span className="break-all whitespace-pre-wrap text-text-primary">
+				{segments.map((segment, index) =>
+					segment.type === 'file-link' ? (
+						<FileLink key={index} file={segment.file!} line={segment.line!} column={segment.column}>
+							{segment.value}
+						</FileLink>
+					) : (
+						<span key={index}>{segment.value}</span>
+					),
+				)}
+			</span>
 		</div>
+	);
+}
+
+function FileLink({ file, line, column, children }: { file: string; line: number; column?: number; children: React.ReactNode }) {
+	const goToFilePosition = useStore((state) => state.goToFilePosition);
+
+	const handleClick = useCallback(() => {
+		// Ensure path starts with /
+		const path = file.startsWith('/') ? file : `/${file}`;
+		goToFilePosition(path, { line, column: column ?? 1 });
+	}, [file, line, column, goToFilePosition]);
+
+	return (
+		<button
+			type="button"
+			onClick={handleClick}
+			className="
+				cursor-pointer text-accent underline decoration-accent/40 transition-colors
+				hover:text-accent-hover hover:decoration-accent-hover
+			"
+		>
+			{children}
+		</button>
 	);
 }

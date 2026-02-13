@@ -432,6 +432,30 @@ const socket = new WebSocket('${safeWsUrl}');
 const modules = new Map();
 const hmrBaseUrl = '${safeBaseUrl}';
 
+// Console interceptor — forward logs to the parent IDE frame
+(function() {
+  const levels = ['log', 'info', 'warn', 'error', 'debug'];
+  for (const level of levels) {
+    const original = console[level];
+    console[level] = function(...args) {
+      original.apply(console, args);
+      try {
+        const message = args.map(a => typeof a === 'string' ? a : JSON.stringify(a)).join(' ');
+        // Skip HMR-internal messages
+        if (message.startsWith('[hmr]')) return;
+        window.parent.postMessage({
+          type: '__console-log',
+          level,
+          message,
+          timestamp: Date.now()
+        }, '*');
+      } catch {
+        // Ignore serialization errors
+      }
+    };
+  }
+})();
+
 window.showErrorOverlay = showErrorOverlay;
 window.hideErrorOverlay = hideErrorOverlay;
 function showErrorOverlay(err) {
@@ -461,7 +485,7 @@ function showErrorOverlay(err) {
         <button class="__eo-close" onclick="document.getElementById('__error-overlay')?.remove()">&times;</button>
       </div>
       <div class="__eo-body">
-        \${loc ? '<div class="__eo-file" data-file="/' + esc(err.file || '') + '" data-line="' + (err.line || 1) + '" data-column="' + (err.column || 0) + '">' + loc + '</div>' : ''}
+        \${loc ? '<div class="__eo-file" data-file="/' + esc(err.file || '') + '" data-line="' + (err.line || 1) + '" data-column="' + (err.column || 1) + '">' + loc + '</div>' : ''}
         <div class="__eo-msg">\${esc(err.message || 'Unknown error')}</div>
       </div>
     </div>\`;
@@ -470,7 +494,7 @@ function showErrorOverlay(err) {
   const fileEl = overlay.querySelector('.__eo-file');
   if (fileEl) {
     fileEl.addEventListener('click', () => {
-      window.parent.postMessage({ type: '__open-file', file: fileEl.dataset.file, line: parseInt(fileEl.dataset.line, 10) || 1, column: parseInt(fileEl.dataset.column, 10) || 0 }, '*');
+      window.parent.postMessage({ type: '__open-file', file: fileEl.dataset.file, line: parseInt(fileEl.dataset.line, 10) || 1, column: parseInt(fileEl.dataset.column, 10) || 1 }, '*');
     });
   }
 }
@@ -485,9 +509,8 @@ socket.addEventListener('message', (event) => {
     location.reload();
   } else if (data.type === 'server-error' && data.error) {
     showErrorOverlay(data.error);
-  } else if (data.type === 'server-ok') {
-    hideErrorOverlay();
   } else if (data.type === 'update') {
+    hideErrorOverlay();
     data.updates?.forEach(update => {
       if (update.type === 'js-update') {
         import(hmrBaseUrl + update.path + '?t=' + update.timestamp).then(mod => {

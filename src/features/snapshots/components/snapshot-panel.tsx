@@ -201,7 +201,7 @@ function SnapshotListItem({
 				hover:border-accent/50
 			`}
 		>
-			<button type="button" onClick={onSelect} className="flex flex-col items-start gap-1 text-left">
+			<button type="button" onClick={onSelect} className="flex cursor-pointer flex-col items-start gap-1 text-left">
 				<span className="text-sm font-medium text-text-primary">{snapshot.label}</span>
 				<div className="flex items-center gap-3 text-xs text-text-secondary">
 					<span className="flex items-center gap-1">

@@ -2,13 +2,18 @@
  * File Tabs Component
  *
  * Horizontal tab bar for open files with close buttons.
+ * Supports: long file name tooltips, directory disambiguation for duplicates,
+ * collaborator presence dots per file.
  */
 
-import { X } from 'lucide-react';
+import { File, X } from 'lucide-react';
 import { Tabs } from 'radix-ui';
+import { useMemo } from 'react';
 
 import { Tooltip } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
+
+import type { Participant } from '@shared/types';
 
 // =============================================================================
 // Types
@@ -28,6 +33,8 @@ export interface FileTabsProperties {
 	onSelect: (path: string) => void;
 	/** Called when a tab close button is clicked */
 	onClose: (path: string) => void;
+	/** Connected collaborators for showing presence dots */
+	participants?: Participant[];
 	/** CSS class name */
 	className?: string;
 }
@@ -45,35 +52,66 @@ function getFilename(path: string): string {
 }
 
 /**
- * Get file icon based on extension.
+ * Get parent directory name from path.
  */
-function getFileIcon(path: string): string {
+function getParentDirectory(path: string): string {
+	const parts = path.split('/').filter(Boolean);
+	return parts.length > 1 ? (parts.at(-2) ?? '') : '';
+}
+
+/**
+ * Get file icon color based on extension.
+ */
+function getFileIconColor(path: string): string {
 	const extension = path.split('.').pop()?.toLowerCase();
 	switch (extension) {
 		case 'ts':
 		case 'tsx': {
-			return '📘';
+			return 'text-blue-400';
 		}
 		case 'js':
 		case 'jsx': {
-			return '📙';
+			return 'text-yellow-400';
 		}
 		case 'css': {
-			return '🎨';
+			return 'text-purple-400';
 		}
 		case 'html': {
-			return '🌐';
+			return 'text-orange-400';
 		}
 		case 'json': {
-			return '📋';
+			return 'text-green-400';
 		}
 		case 'md': {
-			return '📝';
+			return 'text-gray-400';
 		}
 		default: {
-			return '📄';
+			return 'text-text-secondary';
 		}
 	}
+}
+
+/**
+ * Build a map of filenames that appear multiple times across open tabs.
+ * Returns a set of paths that need disambiguation (parent directory shown).
+ */
+function getDuplicateBasenames(tabs: FileTab[]): Set<string> {
+	const basenameCount = new Map<string, string[]>();
+	for (const tab of tabs) {
+		const basename = getFilename(tab.path);
+		const existing = basenameCount.get(basename) ?? [];
+		existing.push(tab.path);
+		basenameCount.set(basename, existing);
+	}
+	const duplicates = new Set<string>();
+	for (const paths of basenameCount.values()) {
+		if (paths.length > 1) {
+			for (const path of paths) {
+				duplicates.add(path);
+			}
+		}
+	}
+	return duplicates;
 }
 
 // =============================================================================
@@ -83,7 +121,9 @@ function getFileIcon(path: string): string {
 /**
  * File tabs component for the editor.
  */
-export function FileTabs({ tabs, activeTab, onSelect, onClose, className }: FileTabsProperties) {
+export function FileTabs({ tabs, activeTab, onSelect, onClose, participants = [], className }: FileTabsProperties) {
+	const duplicates = useMemo(() => getDuplicateBasenames(tabs), [tabs]);
+
 	if (tabs.length === 0) {
 		return (
 			<div className={cn('flex h-tabs items-center border-b border-border bg-bg-secondary px-4', className)}>
@@ -97,11 +137,18 @@ export function FileTabs({ tabs, activeTab, onSelect, onClose, className }: File
 			<Tabs.List
 				className="
 					flex h-tabs items-end gap-0 overflow-x-auto border-b border-border
-					bg-bg-secondary
+					bg-bg-secondary select-none
 				"
 			>
 				{tabs.map((tab) => (
-					<FileTabItem key={tab.path} tab={tab} isActive={tab.path === activeTab} onClose={() => onClose(tab.path)} />
+					<FileTabItem
+						key={tab.path}
+						tab={tab}
+						isActive={tab.path === activeTab}
+						showDirectory={duplicates.has(tab.path)}
+						participants={participants.filter((participant) => participant.file === tab.path)}
+						onClose={() => onClose(tab.path)}
+					/>
 				))}
 			</Tabs.List>
 		</Tabs.Root>
@@ -115,12 +162,15 @@ export function FileTabs({ tabs, activeTab, onSelect, onClose, className }: File
 interface FileTabItemProperties {
 	tab: FileTab;
 	isActive: boolean;
+	showDirectory: boolean;
+	participants: Participant[];
 	onClose: () => void;
 }
 
-function FileTabItem({ tab, isActive, onClose }: FileTabItemProperties) {
+function FileTabItem({ tab, isActive, showDirectory, participants, onClose }: FileTabItemProperties) {
 	const filename = getFilename(tab.path);
-	const icon = getFileIcon(tab.path);
+	const iconColor = getFileIconColor(tab.path);
+	const parentDirectory = showDirectory ? getParentDirectory(tab.path) : '';
 
 	const handleClose = (event: React.SyntheticEvent) => {
 		event.stopPropagation();
@@ -147,7 +197,7 @@ function FileTabItem({ tab, isActive, onClose }: FileTabItemProperties) {
 			onMouseDown={handleMiddleClick}
 			className={cn(
 				`
-					group relative flex h-[37px] items-center gap-2 border-r border-border px-3
+					group relative flex h-9 items-center gap-2 border-r border-border px-4
 					text-sm transition-colors
 				`,
 				`
@@ -167,11 +217,25 @@ function FileTabItem({ tab, isActive, onClose }: FileTabItemProperties) {
 					`,
 			)}
 		>
-			<span className="text-xs">{icon}</span>
-			<span className="max-w-[120px] truncate">{filename}</span>
+			<File className={cn('size-3.5 shrink-0', iconColor)} />
+			<Tooltip content={tab.path}>
+				<span className="max-w-terminal truncate">
+					{filename}
+					{parentDirectory && <span className="ml-1 text-text-secondary opacity-60">&#8249;{parentDirectory}&#8250;</span>}
+				</span>
+			</Tooltip>
+			{/* Collaborator presence dots */}
+			{participants.length > 0 && (
+				<div className="flex shrink-0 items-center gap-0.5">
+					{participants.slice(0, 3).map((participant) => (
+						<span key={participant.id} className="size-1.5 rounded-full" style={{ backgroundColor: participant.color }} />
+					))}
+					{participants.length > 3 && <span className="text-3xs text-text-secondary">+{participants.length - 3}</span>}
+				</div>
+			)}
 			{tab.hasUnsavedChanges && (
 				<Tooltip content="Unsaved changes">
-					<span className="size-2 rounded-full bg-accent" />
+					<span className="size-2 shrink-0 rounded-full bg-accent" />
 				</Tooltip>
 			)}
 			<Tooltip content="Close">
@@ -183,7 +247,8 @@ function FileTabItem({ tab, isActive, onClose }: FileTabItemProperties) {
 					onKeyDown={handleCloseKeyDown}
 					className={cn(
 						`
-							ml-1 flex size-4 items-center justify-center rounded-sm transition-colors
+							ml-1 flex size-4 shrink-0 items-center justify-center rounded-sm
+							transition-colors
 						`,
 						`
 							opacity-0

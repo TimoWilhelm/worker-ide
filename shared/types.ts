@@ -288,4 +288,13 @@ export interface ExpirationResponse {
 export interface NewProjectResponse {
 	projectId: string;
 	url: string;
+	name: string;
+}
+
+/**
+ * Project metadata stored in .project-meta.json
+ */
+export interface ProjectMeta {
+	name: string;
+	humanId: string;
 }

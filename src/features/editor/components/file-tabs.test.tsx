@@ -68,9 +68,8 @@ describe('FileTabs', () => {
 	it('shows file type icons', () => {
 		renderWithProviders(<FileTabs tabs={SAMPLE_TABS} activeTab="/src/main.ts" onSelect={vi.fn()} onClose={vi.fn()} />);
 
-		// Both .ts and .tsx files use the 📘 emoji icon
-		expect(screen.getAllByText('📘')).toHaveLength(2);
-		// CSS uses a different emoji
-		expect(screen.getAllByText('🎨')).toHaveLength(1);
+		// Each tab should render a Lucide File icon (svg with lucide-file class)
+		const fileIcons = document.querySelectorAll('.lucide-file');
+		expect(fileIcons).toHaveLength(3);
 	});
 });

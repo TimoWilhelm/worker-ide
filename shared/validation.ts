@@ -198,6 +198,19 @@ export const revertFileSchema = z.object({
 export type RevertFileInput = z.infer<typeof revertFileSchema>;
 
 // =============================================================================
+// Project Meta Schemas
+// =============================================================================
+
+/**
+ * Schema for updating project metadata (name)
+ */
+export const projectMetaSchema = z.object({
+	name: z.string().min(1, 'Name is required').max(60, 'Name must be at most 60 characters'),
+});
+
+export type ProjectMetaInput = z.infer<typeof projectMetaSchema>;
+
+// =============================================================================
 // Transform Schemas
 // =============================================================================
 

@@ -222,7 +222,7 @@ export const PROJECT_EXPIRATION_DAYS = 14;
 /**
  * Hidden directories that should be excluded from file listings
  */
-export const HIDDEN_DIRECTORIES = new Set(['.ai-sessions', '.snapshots', '.initialized']);
+export const HIDDEN_DIRECTORIES = new Set(['.ai-sessions', '.snapshots', '.initialized', '.project-meta.json']);
 
 // =============================================================================
 // API Constants

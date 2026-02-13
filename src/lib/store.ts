@@ -20,6 +20,8 @@ interface EditorState {
 	openFiles: string[];
 	/** Cursor position in active file */
 	cursorPosition: { line: number; column: number } | undefined;
+	/** Pending navigation target — set externally (e.g. terminal link, error overlay) and consumed by the editor */
+	pendingGoTo: { line: number; column: number } | undefined;
 	/** Unsaved changes per file */
 	unsavedChanges: Map<string, boolean>;
 }
@@ -29,6 +31,10 @@ interface EditorActions {
 	openFile: (path: string) => void;
 	closeFile: (path: string) => void;
 	setCursorPosition: (position: { line: number; column: number } | undefined) => void;
+	/** Navigate the editor to a specific file and position (consumed once by the editor) */
+	goToFilePosition: (path: string, position: { line: number; column: number }) => void;
+	/** Clear pending navigation after the editor has consumed it */
+	clearPendingGoTo: () => void;
 	markFileChanged: (path: string, changed: boolean) => void;
 	closeAllFiles: () => void;
 }
@@ -61,6 +67,11 @@ interface FileTreeActions {
 // AI Assistant State
 // =============================================================================
 
+interface AIError {
+	message: string;
+	code?: string;
+}
+
 interface AIState {
 	/** Current conversation history */
 	history: AgentMessage[];
@@ -68,10 +79,14 @@ interface AIState {
 	isProcessing: boolean;
 	/** Current status message */
 	statusMessage: string | undefined;
+	/** Current error state */
+	aiError: AIError | undefined;
 	/** Session ID for persistence */
 	sessionId: string | undefined;
 	/** List of saved sessions */
 	savedSessions: Array<{ id: string; label: string; createdAt: number }>;
+	/** Maps message index to snapshot ID (for revert buttons on user messages) */
+	messageSnapshots: Map<number, string>;
 }
 
 interface AIActions {
@@ -79,9 +94,12 @@ interface AIActions {
 	clearHistory: () => void;
 	setProcessing: (processing: boolean) => void;
 	setStatusMessage: (message: string | undefined) => void;
+	setAiError: (error: AIError | undefined) => void;
 	setSessionId: (id: string | undefined) => void;
 	setSavedSessions: (sessions: Array<{ id: string; label: string; createdAt: number }>) => void;
 	loadSession: (history: AgentMessage[], sessionId: string) => void;
+	setMessageSnapshot: (messageIndex: number, snapshotId: string) => void;
+	removeMessagesAfter: (index: number) => void;
 }
 
 // =============================================================================
@@ -134,18 +152,12 @@ interface UIState {
 	terminalVisible: boolean;
 	/** Whether AI panel is visible */
 	aiPanelVisible: boolean;
-	/** Terminal height in pixels */
-	terminalHeight: number;
-	/** Sidebar width in pixels */
-	sidebarWidth: number;
 }
 
 interface UIActions {
 	toggleSidebar: () => void;
 	toggleTerminal: () => void;
 	toggleAIPanel: () => void;
-	setTerminalHeight: (height: number) => void;
-	setSidebarWidth: (width: number) => void;
 }
 
 // =============================================================================
@@ -187,6 +199,7 @@ export const useStore = create<StoreState>()(
 				activeFile: undefined,
 				openFiles: [],
 				cursorPosition: undefined,
+				pendingGoTo: undefined,
 				unsavedChanges: new Map(),
 
 				setActiveFile: (path) => set({ activeFile: path }),
@@ -210,6 +223,15 @@ export const useStore = create<StoreState>()(
 					}),
 
 				setCursorPosition: (position) => set({ cursorPosition: position }),
+
+				goToFilePosition: (path, position) =>
+					set((state) => ({
+						openFiles: state.openFiles.includes(path) ? state.openFiles : [...state.openFiles, path],
+						activeFile: path,
+						pendingGoTo: position,
+					})),
+
+				clearPendingGoTo: () => set({ pendingGoTo: undefined }),
 
 				markFileChanged: (path, changed) =>
 					set((state) => {
@@ -272,25 +294,41 @@ export const useStore = create<StoreState>()(
 				history: [],
 				isProcessing: false,
 				statusMessage: undefined,
+				aiError: undefined,
 				sessionId: undefined,
 				savedSessions: [],
+				messageSnapshots: new Map(),
 
 				addMessage: (message) =>
 					set((state) => ({
 						history: [...state.history, message],
 					})),
 
-				clearHistory: () => set({ history: [], sessionId: undefined }),
+				clearHistory: () => set({ history: [], sessionId: undefined, messageSnapshots: new Map(), aiError: undefined }),
 
 				setProcessing: (processing) => set({ isProcessing: processing }),
 
 				setStatusMessage: (message) => set({ statusMessage: message }),
 
+				setAiError: (error) => set({ aiError: error }),
+
 				setSessionId: (id) => set({ sessionId: id }),
 
 				setSavedSessions: (sessions) => set({ savedSessions: sessions }),
 
-				loadSession: (history, sessionId) => set({ history, sessionId }),
+				loadSession: (history, sessionId) => set({ history, sessionId, messageSnapshots: new Map() }),
+
+				setMessageSnapshot: (messageIndex, snapshotId) =>
+					set((state) => {
+						const newMap = new Map(state.messageSnapshots);
+						newMap.set(messageIndex, snapshotId);
+						return { messageSnapshots: newMap };
+					}),
+
+				removeMessagesAfter: (index) =>
+					set((state) => ({
+						history: state.history.slice(0, index + 1),
+					})),
 
 				// =============================================================================
 				// Collaboration State & Actions
@@ -341,18 +379,11 @@ export const useStore = create<StoreState>()(
 				sidebarVisible: true,
 				terminalVisible: true,
 				aiPanelVisible: false,
-				terminalHeight: 200,
-				sidebarWidth: 220,
-
 				toggleSidebar: () => set((state) => ({ sidebarVisible: !state.sidebarVisible })),
 
 				toggleTerminal: () => set((state) => ({ terminalVisible: !state.terminalVisible })),
 
 				toggleAIPanel: () => set((state) => ({ aiPanelVisible: !state.aiPanelVisible })),
-
-				setTerminalHeight: (height) => set({ terminalHeight: Math.max(100, Math.min(500, height)) }),
-
-				setSidebarWidth: (width) => set({ sidebarWidth: Math.max(150, Math.min(400, width)) }),
 			}),
 			{
 				name: 'worker-ide-store',
@@ -361,8 +392,6 @@ export const useStore = create<StoreState>()(
 					sidebarVisible: state.sidebarVisible,
 					terminalVisible: state.terminalVisible,
 					aiPanelVisible: state.aiPanelVisible,
-					terminalHeight: state.terminalHeight,
-					sidebarWidth: state.sidebarWidth,
 					expandedDirs: [...state.expandedDirs],
 				}),
 				// Rehydrate expandedDirs as Set

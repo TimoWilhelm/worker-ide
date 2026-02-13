@@ -30,8 +30,6 @@ beforeEach(() => {
 		sidebarVisible: true,
 		terminalVisible: true,
 		aiPanelVisible: false,
-		terminalHeight: 200,
-		sidebarWidth: 240,
 	});
 });
 
@@ -244,25 +242,5 @@ describe('UI slice', () => {
 		expect(useStore.getState().aiPanelVisible).toBe(false);
 		useStore.getState().toggleAIPanel();
 		expect(useStore.getState().aiPanelVisible).toBe(true);
-	});
-
-	it('sets terminal height within bounds', () => {
-		useStore.getState().setTerminalHeight(300);
-		expect(useStore.getState().terminalHeight).toBe(300);
-	});
-
-	it('clamps terminal height to minimum', () => {
-		useStore.getState().setTerminalHeight(50);
-		expect(useStore.getState().terminalHeight).toBe(100);
-	});
-
-	it('clamps terminal height to maximum', () => {
-		useStore.getState().setTerminalHeight(1000);
-		expect(useStore.getState().terminalHeight).toBe(500);
-	});
-
-	it('sets sidebar width', () => {
-		useStore.getState().setSidebarWidth(300);
-		expect(useStore.getState().sidebarWidth).toBe(300);
 	});
 });

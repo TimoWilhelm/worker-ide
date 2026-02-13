@@ -132,13 +132,6 @@ export interface ServerErrorMessage {
 }
 
 /**
- * Server OK message (clears error state)
- */
-export interface ServerOkMessage {
-	type: 'server-ok';
-}
-
-/**
  * Server logs message
  */
 export interface ServerLogsMessage {
@@ -155,7 +148,6 @@ export type ServerMessage =
 	| FileEditedMessage
 	| HmrUpdateMessage
 	| ServerErrorMessage
-	| ServerOkMessage
 	| ServerLogsMessage;
 
 // =============================================================================
@@ -262,7 +254,6 @@ export const serverMessageSchema = z.discriminatedUnion('type', [
 		type: z.literal('server-error'),
 		error: serverErrorSchema,
 	}),
-	z.object({ type: z.literal('server-ok') }),
 	z.object({
 		type: z.literal('server-logs'),
 		logs: z.array(serverLogSchema),

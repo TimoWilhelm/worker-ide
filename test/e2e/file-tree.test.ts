@@ -72,8 +72,7 @@ test.describe('File Tree', () => {
 		// Click on index.html
 		await page.getByText('index.html').click();
 
-		// Status bar (footer) should show the file path
-		const footer = page.locator('footer');
-		await expect(footer).toContainText('index.html');
+		// The terminal header shows the active file path
+		await expect(page.getByText('/index.html')).toBeVisible();
 	});
 });

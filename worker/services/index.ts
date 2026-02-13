@@ -4,6 +4,7 @@
 
 export { AIAgentService } from './ai-agent-service';
 export { transformCode, bundleCode, type TransformResult, type BundleResult, type BundleOptions } from './bundler-service';
+export { LogTailer } from './log-tailer';
 export { PreviewService } from './preview-service';
 export {
 	transformModule,
