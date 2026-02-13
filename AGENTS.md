@@ -8,9 +8,9 @@ This document is a collection of guidelines for agents working on the project.
 - [ ] You ran `bun run format` to format the code and it passes with no errors.
 - [ ] You ran `bun run typecheck` to check for type errors and it passes with no errors.
 - [ ] You ran `bun run knip` to check for unused dependencies, exports and files and it passes with no errors.
-- [ ] You ran `bun run test:unit` to run unit tests and it passes with no errors.
-- [ ] You ran `bun run test:react` to run React component tests and it passes with no errors.
-- [ ] You ran `bun run test:e2e` to run end-to-end tests and it passes with no errors.
+- [ ] You ran `bun run test:unit --run` to run unit tests and it passes with no errors.
+- [ ] You ran `bun run test:react --run` to run React component tests and it passes with no errors.
+- [ ] You ran `bun run test:e2e --run` to run end-to-end tests and it passes with no errors.
 - [ ] You checked the `README.md` to make sure it is up to date.
 
 ## Coding Conventions
@@ -85,9 +85,9 @@ This document is a collection of guidelines for agents working on the project.
 
 ## Testing & Quality
 
-- Unit tests: Vitest (`bun run test:unit`).
-- React component tests: Vitest + jsdom (`bun run test:react`).
-- E2E tests: Playwright (`bun run test:e2e`).
+- Unit tests: Vitest (`bun run test:unit --run`).
+- React component tests: Vitest + jsdom (`bun run test:react --run`).
+- E2E tests: Playwright (`bun run test:e2e --run`).
 - Storybook: Component documentation (`bun run storybook`).
 - Linting: ESLint (`bun run lint`).
 - Formatting: Prettier (`bun run format`).

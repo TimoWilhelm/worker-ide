@@ -117,6 +117,7 @@ export function useSnapshots({ projectId, enabled = true }: UseSnapshotsOptions)
 		// Mutations
 		revertSnapshotAsync: revertSnapshotMutation.mutateAsync,
 		revertFile: revertFileMutation.mutate,
+		revertFileAsync: revertFileMutation.mutateAsync,
 		isReverting: revertSnapshotMutation.isPending || revertFileMutation.isPending,
 	};
 }

@@ -11,6 +11,10 @@ export { FileTabs, type FileTab, type FileTabsProperties } from './components/fi
 // Hooks
 export { useFileContent, useFileList } from './hooks/use-file-content';
 
+// Diff utilities
+export { computeDiffData, type DiffData, type DiffHunk } from './lib/diff-decorations';
+export { createDiffExtensions, type DiffExtensionConfig } from './lib/diff-extension';
+
 // Extensions (for advanced usage)
 export {
 	darkTheme,

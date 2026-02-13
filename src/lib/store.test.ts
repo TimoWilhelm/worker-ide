@@ -27,6 +27,7 @@ beforeEach(() => {
 		isConnected: false,
 		snapshots: [],
 		activeSnapshot: undefined,
+		pendingChanges: new Map(),
 		sidebarVisible: true,
 		terminalVisible: true,
 		aiPanelVisible: false,
@@ -216,6 +217,139 @@ describe('Collaboration slice', () => {
 	it('sets connected state', () => {
 		useStore.getState().setConnected(true);
 		expect(useStore.getState().isConnected).toBe(true);
+	});
+});
+
+// =============================================================================
+// Pending Changes slice
+// =============================================================================
+
+describe('Pending Changes slice', () => {
+	const sampleChange = {
+		path: '/src/main.ts',
+		action: 'edit' as const,
+		beforeContent: 'old content',
+		afterContent: 'new content',
+		snapshotId: undefined,
+	};
+
+	it('adds a pending change', () => {
+		useStore.getState().addPendingChange(sampleChange);
+
+		const change = useStore.getState().pendingChanges.get('/src/main.ts');
+		expect(change).toBeDefined();
+		expect(change?.status).toBe('pending');
+		expect(change?.action).toBe('edit');
+	});
+
+	it('deduplicates by keeping first beforeContent', () => {
+		useStore.getState().addPendingChange(sampleChange);
+		useStore.getState().addPendingChange({
+			...sampleChange,
+			beforeContent: 'intermediate content',
+			afterContent: 'final content',
+		});
+
+		const change = useStore.getState().pendingChanges.get('/src/main.ts');
+		expect(change?.beforeContent).toBe('old content');
+		expect(change?.afterContent).toBe('final content');
+	});
+
+	it('approves a change', () => {
+		useStore.getState().addPendingChange(sampleChange);
+		useStore.getState().approveChange('/src/main.ts');
+
+		expect(useStore.getState().pendingChanges.get('/src/main.ts')?.status).toBe('approved');
+	});
+
+	it('rejects a change', () => {
+		useStore.getState().addPendingChange(sampleChange);
+		useStore.getState().rejectChange('/src/main.ts');
+
+		expect(useStore.getState().pendingChanges.get('/src/main.ts')?.status).toBe('rejected');
+	});
+
+	it('approves all pending changes', () => {
+		useStore.getState().addPendingChange(sampleChange);
+		useStore.getState().addPendingChange({ ...sampleChange, path: '/src/app.tsx' });
+		useStore.getState().approveAllChanges();
+
+		for (const change of useStore.getState().pendingChanges.values()) {
+			expect(change.status).toBe('approved');
+		}
+	});
+
+	it('rejects all pending changes', () => {
+		useStore.getState().addPendingChange(sampleChange);
+		useStore.getState().addPendingChange({ ...sampleChange, path: '/src/app.tsx' });
+		useStore.getState().rejectAllChanges();
+
+		for (const change of useStore.getState().pendingChanges.values()) {
+			expect(change.status).toBe('rejected');
+		}
+	});
+
+	it('does not change already-approved items when rejecting all', () => {
+		useStore.getState().addPendingChange(sampleChange);
+		useStore.getState().addPendingChange({ ...sampleChange, path: '/src/app.tsx' });
+		useStore.getState().approveChange('/src/main.ts');
+		useStore.getState().rejectAllChanges();
+
+		expect(useStore.getState().pendingChanges.get('/src/main.ts')?.status).toBe('approved');
+		expect(useStore.getState().pendingChanges.get('/src/app.tsx')?.status).toBe('rejected');
+	});
+
+	it('clears all pending changes', () => {
+		useStore.getState().addPendingChange(sampleChange);
+		useStore.getState().clearPendingChanges();
+
+		expect(useStore.getState().pendingChanges.size).toBe(0);
+	});
+
+	it('associates snapshot with pending changes', () => {
+		useStore.getState().addPendingChange(sampleChange);
+		useStore.getState().associateSnapshotWithPending('snap-123');
+
+		expect(useStore.getState().pendingChanges.get('/src/main.ts')?.snapshotId).toBe('snap-123');
+	});
+
+	it('does not overwrite existing snapshotId when associating', () => {
+		useStore.getState().addPendingChange({ ...sampleChange, snapshotId: 'snap-old' });
+		useStore.getState().associateSnapshotWithPending('snap-new');
+
+		expect(useStore.getState().pendingChanges.get('/src/main.ts')?.snapshotId).toBe('snap-old');
+	});
+
+	it('preserves snapshotId when re-adding a change for the same file', () => {
+		useStore.getState().addPendingChange(sampleChange);
+		useStore.getState().associateSnapshotWithPending('snap-123');
+		useStore.getState().addPendingChange({
+			...sampleChange,
+			afterContent: 'final content',
+			snapshotId: undefined,
+		});
+
+		const change = useStore.getState().pendingChanges.get('/src/main.ts');
+		expect(change?.snapshotId).toBe('snap-123');
+		expect(change?.beforeContent).toBe('old content');
+		expect(change?.afterContent).toBe('final content');
+	});
+});
+
+// =============================================================================
+// Plan mode
+// =============================================================================
+
+describe('Plan mode', () => {
+	it('defaults planMode to false', () => {
+		expect(useStore.getState().planMode).toBe(false);
+	});
+
+	it('toggles planMode', () => {
+		useStore.getState().togglePlanMode();
+		expect(useStore.getState().planMode).toBe(true);
+		useStore.getState().togglePlanMode();
+		expect(useStore.getState().planMode).toBe(false);
 	});
 });
 

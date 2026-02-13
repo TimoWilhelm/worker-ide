@@ -102,7 +102,15 @@ export interface ToolResultContent {
 /**
  * Available tools for the AI agent
  */
-export type ToolName = 'list_files' | 'read_file' | 'write_file' | 'delete_file' | 'move_file';
+export type ToolName =
+	| 'list_files'
+	| 'read_file'
+	| 'write_file'
+	| 'delete_file'
+	| 'move_file'
+	| 'search_cloudflare_docs'
+	| 'get_todos'
+	| 'update_todos';
 
 /**
  * Tool input types
@@ -127,12 +135,27 @@ export interface MoveFileInput {
 	to_path: string;
 }
 
+export interface SearchCloudflareDocumentationInput {
+	query: string;
+}
+
+export interface GetTodosInput {
+	sessionId?: string;
+}
+
+export interface UpdateTodosInput {
+	todos: TodoItem[];
+}
+
 export type ToolInput =
 	| { name: 'list_files'; input: ListFilesInput }
 	| { name: 'read_file'; input: ReadFileInput }
 	| { name: 'write_file'; input: WriteFileInput }
 	| { name: 'delete_file'; input: DeleteFileInput }
-	| { name: 'move_file'; input: MoveFileInput };
+	| { name: 'move_file'; input: MoveFileInput }
+	| { name: 'search_cloudflare_docs'; input: SearchCloudflareDocumentationInput }
+	| { name: 'get_todos'; input: GetTodosInput }
+	| { name: 'update_todos'; input: UpdateTodosInput };
 
 /**
  * A saved AI chat session
@@ -153,6 +176,38 @@ export interface AiSessionSummary {
 	id: string;
 	label: string;
 	createdAt: number;
+}
+
+// =============================================================================
+// TODO Item Types
+// =============================================================================
+
+/**
+ * A TODO item tracked by the AI agent for a session
+ */
+export interface TodoItem {
+	id: string;
+	content: string;
+	status: 'pending' | 'in_progress' | 'completed';
+	priority: 'high' | 'medium' | 'low';
+}
+
+// =============================================================================
+// Pending AI Change Types
+// =============================================================================
+
+/**
+ * A file change made by the AI that is pending user review.
+ * The AI writes files immediately (for HMR preview), but the user
+ * can approve (keep) or reject (revert) each change.
+ */
+export interface PendingFileChange {
+	path: string;
+	action: 'create' | 'edit' | 'delete';
+	beforeContent: string | undefined;
+	afterContent: string | undefined;
+	snapshotId: string | undefined;
+	status: 'pending' | 'approved' | 'rejected';
 }
 
 // =============================================================================

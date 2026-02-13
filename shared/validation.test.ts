@@ -10,6 +10,7 @@ import {
 	aiChatMessageSchema,
 	sessionIdSchema,
 	snapshotIdSchema,
+	todoItemSchema,
 	isPathSafe,
 	validateToolInput,
 	LIMITS,
@@ -208,5 +209,150 @@ describe('validateToolInput', () => {
 			to_path: '/src/new.ts',
 		});
 		expect(result.success).toBe(true);
+	});
+
+	it('validates search_cloudflare_docs input', () => {
+		const result = validateToolInput('search_cloudflare_docs', { query: 'Workers KV' });
+		expect(result.success).toBe(true);
+	});
+
+	it('rejects search_cloudflare_docs with empty query', () => {
+		const result = validateToolInput('search_cloudflare_docs', { query: '' });
+		expect(result.success).toBe(false);
+	});
+
+	it('validates get_todos input (empty object)', () => {
+		const result = validateToolInput('get_todos', {});
+		expect(result.success).toBe(true);
+	});
+
+	it('validates update_todos input', () => {
+		const result = validateToolInput('update_todos', {
+			todos: [
+				{ id: '1', content: 'Fix bug', status: 'pending', priority: 'high' },
+				{ id: '2', content: 'Add tests', status: 'in_progress', priority: 'medium' },
+			],
+		});
+		expect(result.success).toBe(true);
+	});
+
+	it('rejects update_todos with invalid status', () => {
+		const result = validateToolInput('update_todos', {
+			todos: [{ id: '1', content: 'Fix bug', status: 'unknown', priority: 'high' }],
+		});
+		expect(result.success).toBe(false);
+	});
+
+	it('rejects update_todos with invalid priority', () => {
+		const result = validateToolInput('update_todos', {
+			todos: [{ id: '1', content: 'Fix bug', status: 'pending', priority: 'critical' }],
+		});
+		expect(result.success).toBe(false);
+	});
+
+	it('rejects update_todos with missing fields', () => {
+		const result = validateToolInput('update_todos', {
+			todos: [{ id: '1', content: 'Fix bug' }],
+		});
+		expect(result.success).toBe(false);
+	});
+});
+
+// =============================================================================
+// todoItemSchema
+// =============================================================================
+
+describe('todoItemSchema', () => {
+	it('accepts a valid TODO item', () => {
+		const result = todoItemSchema.safeParse({
+			id: 'task-1',
+			content: 'Implement feature',
+			status: 'pending',
+			priority: 'high',
+		});
+		expect(result.success).toBe(true);
+	});
+
+	it('accepts all valid statuses', () => {
+		for (const status of ['pending', 'in_progress', 'completed']) {
+			const result = todoItemSchema.safeParse({
+				id: '1',
+				content: 'Task',
+				status,
+				priority: 'low',
+			});
+			expect(result.success).toBe(true);
+		}
+	});
+
+	it('accepts all valid priorities', () => {
+		for (const priority of ['high', 'medium', 'low']) {
+			const result = todoItemSchema.safeParse({
+				id: '1',
+				content: 'Task',
+				status: 'pending',
+				priority,
+			});
+			expect(result.success).toBe(true);
+		}
+	});
+
+	it('rejects empty id', () => {
+		const result = todoItemSchema.safeParse({
+			id: '',
+			content: 'Task',
+			status: 'pending',
+			priority: 'high',
+		});
+		expect(result.success).toBe(false);
+	});
+
+	it('rejects empty content', () => {
+		const result = todoItemSchema.safeParse({
+			id: '1',
+			content: '',
+			status: 'pending',
+			priority: 'high',
+		});
+		expect(result.success).toBe(false);
+	});
+});
+
+// =============================================================================
+// aiChatMessageSchema — plan mode and session ID
+// =============================================================================
+
+describe('aiChatMessageSchema plan mode fields', () => {
+	it('accepts planMode boolean', () => {
+		const result = aiChatMessageSchema.safeParse({
+			message: 'Create a plan',
+			planMode: true,
+		});
+		expect(result.success).toBe(true);
+	});
+
+	it('accepts sessionId string', () => {
+		const result = aiChatMessageSchema.safeParse({
+			message: 'Hello',
+			sessionId: 'abc123',
+		});
+		expect(result.success).toBe(true);
+	});
+
+	it('accepts both planMode and sessionId', () => {
+		const result = aiChatMessageSchema.safeParse({
+			message: 'Plan this feature',
+			planMode: true,
+			sessionId: 'session1',
+		});
+		expect(result.success).toBe(true);
+	});
+
+	it('rejects sessionId exceeding max length', () => {
+		const result = aiChatMessageSchema.safeParse({
+			message: 'Hello',
+			sessionId: 'a'.repeat(LIMITS.SESSION_ID_MAX_LENGTH + 1),
+		});
+		expect(result.success).toBe(false);
 	});
 });

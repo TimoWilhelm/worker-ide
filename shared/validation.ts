@@ -127,6 +127,35 @@ export const moveFileInputSchema = z.object({
 });
 
 /**
+ * Schema for AI tool: search_cloudflare_docs
+ */
+export const searchCloudflareDocumentationInputSchema = z.object({
+	query: z.string().min(1, 'Query is required'),
+});
+
+/**
+ * Schema for a single TODO item
+ */
+export const todoItemSchema = z.object({
+	id: z.string().min(1),
+	content: z.string().min(1),
+	status: z.enum(['pending', 'in_progress', 'completed']),
+	priority: z.enum(['high', 'medium', 'low']),
+});
+
+/**
+ * Schema for AI tool: get_todos
+ */
+export const getTodosInputSchema = z.object({});
+
+/**
+ * Schema for AI tool: update_todos
+ */
+export const updateTodosInputSchema = z.object({
+	todos: z.array(todoItemSchema),
+});
+
+/**
  * Union of all tool input schemas
  */
 export const toolInputSchemas = {
@@ -135,6 +164,9 @@ export const toolInputSchemas = {
 	write_file: writeFileInputSchema,
 	delete_file: deleteFileInputSchema,
 	move_file: moveFileInputSchema,
+	search_cloudflare_docs: searchCloudflareDocumentationInputSchema,
+	get_todos: getTodosInputSchema,
+	update_todos: updateTodosInputSchema,
 } as const;
 
 export type ToolName = keyof typeof toolInputSchemas;
@@ -145,6 +177,8 @@ export type ToolName = keyof typeof toolInputSchemas;
 export const aiChatMessageSchema = z.object({
 	message: z.string().min(1, 'Message is required').max(LIMITS.AI_MESSAGE_MAX_LENGTH, 'Message is too long'),
 	history: z.array(z.unknown()).optional(),
+	planMode: z.boolean().optional(),
+	sessionId: z.string().max(LIMITS.SESSION_ID_MAX_LENGTH).optional(),
 });
 
 export type AiChatInput = z.infer<typeof aiChatMessageSchema>;

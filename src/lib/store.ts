@@ -7,7 +7,7 @@
 import { create } from 'zustand';
 import { devtools, persist } from 'zustand/middleware';
 
-import type { FileInfo, AgentMessage, Participant, SnapshotSummary } from '@shared/types';
+import type { FileInfo, AgentMessage, Participant, PendingFileChange, SnapshotSummary } from '@shared/types';
 
 // =============================================================================
 // Editor State
@@ -87,6 +87,8 @@ interface AIState {
 	savedSessions: Array<{ id: string; label: string; createdAt: number }>;
 	/** Maps message index to snapshot ID (for revert buttons on user messages) */
 	messageSnapshots: Map<number, string>;
+	/** Whether plan mode is active (read-only research + plan output) */
+	planMode: boolean;
 }
 
 interface AIActions {
@@ -101,6 +103,7 @@ interface AIActions {
 	setMessageSnapshot: (messageIndex: number, snapshotId: string) => void;
 	removeMessagesAfter: (index: number) => void;
 	removeMessagesFrom: (index: number) => void;
+	togglePlanMode: () => void;
 }
 
 // =============================================================================
@@ -143,6 +146,25 @@ interface SnapshotActions {
 }
 
 // =============================================================================
+// Pending AI Changes State
+// =============================================================================
+
+interface PendingChangesState {
+	/** AI file changes awaiting user review, keyed by file path */
+	pendingChanges: Map<string, PendingFileChange>;
+}
+
+interface PendingChangesActions {
+	addPendingChange: (change: Omit<PendingFileChange, 'status'>) => void;
+	approveChange: (path: string) => void;
+	rejectChange: (path: string) => void;
+	approveAllChanges: () => void;
+	rejectAllChanges: () => void;
+	clearPendingChanges: () => void;
+	associateSnapshotWithPending: (snapshotId: string) => void;
+}
+
+// =============================================================================
 // UI State
 // =============================================================================
 
@@ -170,12 +192,14 @@ type StoreState = EditorState &
 	AIState &
 	CollaborationState &
 	SnapshotState &
+	PendingChangesState &
 	UIState &
 	EditorActions &
 	FileTreeActions &
 	AIActions &
 	CollaborationActions &
 	SnapshotActions &
+	PendingChangesActions &
 	UIActions;
 
 /**
@@ -299,6 +323,7 @@ export const useStore = create<StoreState>()(
 				sessionId: undefined,
 				savedSessions: [],
 				messageSnapshots: new Map(),
+				planMode: false,
 
 				addMessage: (message) =>
 					set((state) => ({
@@ -331,6 +356,8 @@ export const useStore = create<StoreState>()(
 					set((state) => ({
 						history: state.history.slice(0, index + 1),
 					})),
+				togglePlanMode: () => set((state) => ({ planMode: !state.planMode })),
+
 				removeMessagesFrom: (index) =>
 					set((state) => {
 						const newSnapshots = new Map<number, string>();
@@ -389,6 +416,83 @@ export const useStore = create<StoreState>()(
 				setActiveSnapshot: (id) => set({ activeSnapshot: id }),
 
 				// =============================================================================
+				// Pending AI Changes State & Actions
+				// =============================================================================
+				pendingChanges: new Map(),
+
+				addPendingChange: (change) =>
+					set((state) => {
+						const newMap = new Map(state.pendingChanges);
+						const existing = newMap.get(change.path);
+						// Keep the first beforeContent and existing snapshotId for dedup (multiple edits to same file)
+						const beforeContent = existing ? existing.beforeContent : change.beforeContent;
+						const snapshotId = existing?.snapshotId ?? change.snapshotId;
+						newMap.set(change.path, { ...change, beforeContent, snapshotId, status: 'pending' });
+						return { pendingChanges: newMap };
+					}),
+
+				approveChange: (path) =>
+					set((state) => {
+						const newMap = new Map(state.pendingChanges);
+						const change = newMap.get(path);
+						if (change) {
+							newMap.set(path, { ...change, status: 'approved' });
+						}
+						return { pendingChanges: newMap };
+					}),
+
+				rejectChange: (path) =>
+					set((state) => {
+						const newMap = new Map(state.pendingChanges);
+						const change = newMap.get(path);
+						if (change) {
+							newMap.set(path, { ...change, status: 'rejected' });
+						}
+						return { pendingChanges: newMap };
+					}),
+
+				approveAllChanges: () =>
+					set((state) => {
+						const newMap = new Map<string, PendingFileChange>();
+						for (const [key, value] of state.pendingChanges) {
+							if (value.status === 'pending') {
+								newMap.set(key, { ...value, status: 'approved' });
+							} else {
+								newMap.set(key, value);
+							}
+						}
+						return { pendingChanges: newMap };
+					}),
+
+				rejectAllChanges: () =>
+					set((state) => {
+						const newMap = new Map<string, PendingFileChange>();
+						for (const [key, value] of state.pendingChanges) {
+							if (value.status === 'pending') {
+								newMap.set(key, { ...value, status: 'rejected' });
+							} else {
+								newMap.set(key, value);
+							}
+						}
+						return { pendingChanges: newMap };
+					}),
+
+				clearPendingChanges: () => set({ pendingChanges: new Map() }),
+
+				associateSnapshotWithPending: (snapshotId) =>
+					set((state) => {
+						const newMap = new Map<string, PendingFileChange>();
+						for (const [key, value] of state.pendingChanges) {
+							if (value.snapshotId) {
+								newMap.set(key, value);
+							} else {
+								newMap.set(key, { ...value, snapshotId });
+							}
+						}
+						return { pendingChanges: newMap };
+					}),
+
+				// =============================================================================
 				// UI State & Actions
 				// =============================================================================
 				sidebarVisible: true,
@@ -427,3 +531,10 @@ export const selectFiles = (state: StoreState) => state.files;
 export const selectIsProcessing = (state: StoreState) => state.isProcessing;
 export const selectParticipants = (state: StoreState) => state.participants;
 export const selectSnapshots = (state: StoreState) => state.snapshots;
+export const selectPendingChanges = (state: StoreState) => state.pendingChanges;
+export const selectHasPendingChanges = (state: StoreState) => {
+	for (const change of state.pendingChanges.values()) {
+		if (change.status === 'pending') return true;
+	}
+	return false;
+};

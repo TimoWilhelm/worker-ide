@@ -10,14 +10,21 @@
 import {
 	AlertCircle,
 	Bot,
+	CheckCircle2,
+	CheckSquare,
 	ChevronDown,
+	Circle,
 	Clock,
 	Eye,
 	FastForward,
 	FileText,
+	Globe,
+	ListTodo,
 	Loader2,
+	Map as MapIcon,
 	MoveRight,
 	Pencil,
+	PlayCircle,
 	Plus,
 	RefreshCw,
 	RotateCcw,
@@ -51,7 +58,16 @@ import type { AgentContent, AgentMessage, ToolName } from '@shared/types';
 // Helper functions
 // =============================================================================
 
-const VALID_TOOL_NAMES: ReadonlySet<string> = new Set<ToolName>(['list_files', 'read_file', 'write_file', 'delete_file', 'move_file']);
+const VALID_TOOL_NAMES: ReadonlySet<string> = new Set<ToolName>([
+	'list_files',
+	'read_file',
+	'write_file',
+	'delete_file',
+	'move_file',
+	'search_cloudflare_docs',
+	'get_todos',
+	'update_todos',
+]);
 
 function isToolName(value: unknown): value is ToolName {
 	return typeof value === 'string' && VALID_TOOL_NAMES.has(value);
@@ -103,6 +119,15 @@ function ToolIcon({ name, className }: { name: ToolName; className?: string }) {
 		case 'move_file': {
 			return <MoveRight className={cn('size-3', className)} />;
 		}
+		case 'search_cloudflare_docs': {
+			return <Globe className={cn('size-3', className)} />;
+		}
+		case 'get_todos': {
+			return <ListTodo className={cn('size-3', className)} />;
+		}
+		case 'update_todos': {
+			return <CheckSquare className={cn('size-3', className)} />;
+		}
 		default: {
 			return <FileText className={cn('size-3', className)} />;
 		}
@@ -131,6 +156,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	const [cursorPosition, setCursorPosition] = useState(0);
 	const [streamingContent, setStreamingContent] = useState<AgentContent[] | undefined>();
 	const [needsContinuation, setNeedsContinuation] = useState(false);
+	const [planPath, setPlanPath] = useState<string | undefined>();
 	const inputReference = useRef<RichTextInputHandle>(null);
 	const scrollReference = useRef<HTMLDivElement>(null);
 	const abortControllerReference = useRef<AbortController | undefined>(undefined);
@@ -152,6 +178,8 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		aiError,
 		messageSnapshots,
 		files,
+		planMode,
+		sessionId,
 		addMessage,
 		clearHistory,
 		setProcessing,
@@ -160,6 +188,8 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		setMessageSnapshot,
 		removeMessagesAfter,
 		removeMessagesFrom,
+		togglePlanMode,
+		openFile,
 	} = useStore();
 
 	// File mention autocomplete
@@ -240,78 +270,92 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 					content: message.content,
 				}));
 
-				await startAIChat(projectId, messageText, apiHistory, abortControllerReference.current.signal, (event: AIStreamEvent) => {
-					switch (event.type) {
-						case 'status': {
-							const statusText = getEventStringField(event, 'message');
-							if (statusText) {
-								setStatusMessage(statusText);
+				await startAIChat(
+					projectId,
+					messageText,
+					apiHistory,
+					abortControllerReference.current.signal,
+					(event: AIStreamEvent) => {
+						switch (event.type) {
+							case 'plan_created': {
+								const path = getEventStringField(event, 'path');
+								if (path) {
+									setPlanPath(path);
+								}
+								break;
 							}
-							break;
-						}
-						case 'message': {
-							// Each message event is a distinct text chunk from the server.
-							// Always push a new text block so interleaving with tool
-							// calls is preserved in the rendered output.
-							const text = getEventStringField(event, 'content');
-							if (text) {
-								assistantContent.push({ type: 'text', text });
+							case 'status': {
+								const statusText = getEventStringField(event, 'message');
+								if (statusText) {
+									setStatusMessage(statusText);
+								}
+								break;
+							}
+							case 'message': {
+								// Each message event is a distinct text chunk from the server.
+								// Always push a new text block so interleaving with tool
+								// calls is preserved in the rendered output.
+								const text = getEventStringField(event, 'content');
+								if (text) {
+									assistantContent.push({ type: 'text', text });
+									setStreamingContent([...assistantContent]);
+									setStatusMessage(undefined);
+								}
+								break;
+							}
+							case 'tool_call': {
+								// Server sends: { type: 'tool_call', tool, id, args }
+								const toolName = getEventToolName(event, 'tool');
+								setStatusMessage(`Using tool: ${toolName}`);
+								assistantContent.push({
+									type: 'tool_use',
+									id: getEventStringField(event, 'id'),
+									name: toolName,
+									input: getEventObjectField(event, 'args'),
+								});
 								setStreamingContent([...assistantContent]);
-								setStatusMessage(undefined);
+								break;
 							}
-							break;
-						}
-						case 'tool_call': {
-							// Server sends: { type: 'tool_call', tool, id, args }
-							const toolName = getEventToolName(event, 'tool');
-							setStatusMessage(`Using tool: ${toolName}`);
-							assistantContent.push({
-								type: 'tool_use',
-								id: getEventStringField(event, 'id'),
-								name: toolName,
-								input: getEventObjectField(event, 'args'),
-							});
-							setStreamingContent([...assistantContent]);
-							break;
-						}
-						case 'tool_result': {
-							// Server sends: { type: 'tool_result', tool, tool_use_id, result }
-							assistantContent.push({
-								type: 'tool_result',
-								tool_use_id: getEventStringField(event, 'tool_use_id'),
-								content: getEventStringField(event, 'result'),
-								is_error: getEventBooleanField(event, 'is_error'),
-							});
-							setStreamingContent([...assistantContent]);
-							break;
-						}
-						case 'snapshot_created': {
-							// Associate this snapshot with the user message that triggered it
-							const snapshotId = getEventStringField(event, 'id');
-							if (snapshotId && userMessageIndexReference.current >= 0) {
-								setMessageSnapshot(userMessageIndexReference.current, snapshotId);
+							case 'tool_result': {
+								// Server sends: { type: 'tool_result', tool, tool_use_id, result }
+								assistantContent.push({
+									type: 'tool_result',
+									tool_use_id: getEventStringField(event, 'tool_use_id'),
+									content: getEventStringField(event, 'result'),
+									is_error: getEventBooleanField(event, 'is_error'),
+								});
+								setStreamingContent([...assistantContent]);
+								break;
 							}
-							break;
+							case 'snapshot_created': {
+								// Associate this snapshot with the user message that triggered it
+								const snapshotId = getEventStringField(event, 'id');
+								if (snapshotId && userMessageIndexReference.current >= 0) {
+									setMessageSnapshot(userMessageIndexReference.current, snapshotId);
+								}
+								break;
+							}
+							case 'turn_complete':
+							case 'done': {
+								// Turn or stream complete — no action needed
+								break;
+							}
+							case 'max_iterations_reached': {
+								// Agent hit the iteration circuit breaker — prompt user to continue
+								setNeedsContinuation(true);
+								break;
+							}
+							case 'error': {
+								// Surface SSE errors to the UI
+								const errorMessage = getEventStringField(event, 'message') || 'An unknown error occurred';
+								const errorCode = getEventStringField(event, 'code');
+								setAiError({ message: errorMessage, code: errorCode || undefined });
+								break;
+							}
 						}
-						case 'turn_complete':
-						case 'done': {
-							// Turn or stream complete — no action needed
-							break;
-						}
-						case 'max_iterations_reached': {
-							// Agent hit the iteration circuit breaker — prompt user to continue
-							setNeedsContinuation(true);
-							break;
-						}
-						case 'error': {
-							// Surface SSE errors to the UI
-							const errorMessage = getEventStringField(event, 'message') || 'An unknown error occurred';
-							const errorCode = getEventStringField(event, 'code');
-							setAiError({ message: errorMessage, code: errorCode || undefined });
-							break;
-						}
-					}
-				});
+					},
+					{ planMode, sessionId },
+				);
 
 				// Add complete assistant message
 				if (assistantContent.length > 0) {
@@ -363,6 +407,8 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 			isProcessing,
 			history,
 			projectId,
+			planMode,
+			sessionId,
 			addMessage,
 			setProcessing,
 			setStatusMessage,
@@ -588,13 +634,50 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 						onSegmentsChange={setSegments}
 						onKeyDown={handleKeyDown}
 						onCursorChange={setCursorPosition}
-						placeholder={isProcessing ? 'AI is responding...' : 'Ask the AI to help... (@ to mention files)'}
+						placeholder={
+							isProcessing
+								? 'AI is responding...'
+								: planMode
+									? 'Describe what to plan... (read-only mode)'
+									: 'Ask the AI to help... (@ to mention files)'
+						}
 						disabled={isProcessing}
 					/>
+					{planPath && (
+						<button
+							onClick={() => openFile(planPath)}
+							className="
+								flex w-full items-center gap-1.5 border-t border-border/50 px-2.5 py-1
+								text-xs text-accent transition-colors
+								hover:bg-accent/5
+							"
+						>
+							<MapIcon className="size-3 shrink-0" />
+							<span className="truncate">View plan: {planPath.split('/').pop()}</span>
+						</button>
+					)}
 					<div className="flex items-center justify-between px-1.5 py-1">
-						<span className="pl-0.5 text-xs text-text-secondary">
-							{isProcessing ? 'Press Stop to cancel' : 'Enter to send · @ to mention files'}
-						</span>
+						<div className="flex items-center gap-2">
+							<span className="pl-0.5 text-xs text-text-secondary">
+								{isProcessing ? 'Press Stop to cancel' : 'Enter to send · @ to mention files'}
+							</span>
+							<button
+								onClick={togglePlanMode}
+								disabled={isProcessing}
+								title={planMode ? 'Plan mode active: read-only research + plan output' : 'Enable plan mode'}
+								className={cn(
+									`
+										inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs
+										font-medium transition-colors
+									`,
+									planMode ? 'bg-accent/15 text-accent' : 'text-text-secondary hover:bg-bg-tertiary hover:text-text-primary',
+									isProcessing && 'cursor-not-allowed opacity-40',
+								)}
+							>
+								<MapIcon className="size-3" />
+								Plan
+							</button>
+						</div>
 						{isProcessing ? (
 							<button
 								onClick={handleCancel}
@@ -873,6 +956,96 @@ function summarizeToolResult(toolName: ToolName, rawResult: string): string {
 	return rawResult.length > 200 ? rawResult.slice(0, 200) + '...' : rawResult;
 }
 
+interface TodoItemDisplay {
+	id: string;
+	content: string;
+	status: 'pending' | 'in_progress' | 'completed';
+	priority: 'high' | 'medium' | 'low';
+}
+
+function TodoStatusIcon({ status }: { status: TodoItemDisplay['status'] }) {
+	switch (status) {
+		case 'completed': {
+			return <CheckCircle2 className="size-3.5 text-success" />;
+		}
+		case 'in_progress': {
+			return <PlayCircle className="size-3.5 text-accent" />;
+		}
+		default: {
+			return <Circle className="size-3.5 text-text-secondary" />;
+		}
+	}
+}
+
+const PRIORITY_STYLES: Record<TodoItemDisplay['priority'], string> = {
+	high: 'bg-error/10 text-error',
+	medium: 'bg-warning/10 text-warning',
+	low: 'bg-bg-tertiary text-text-secondary',
+};
+
+function InlineTodoList({ todos }: { todos: TodoItemDisplay[] }) {
+	return (
+		<div
+			className="
+				animate-chat-item rounded-lg border border-border bg-bg-secondary p-2
+			"
+		>
+			<div
+				className="
+					mb-1.5 flex items-center gap-1.5 text-2xs font-semibold tracking-wider
+					text-text-secondary uppercase
+				"
+			>
+				<ListTodo className="size-3.5" />
+				TODOs
+			</div>
+			<div className="flex flex-col gap-1">
+				{todos.map((item) => (
+					<div
+						key={item.id}
+						className="
+							flex items-start gap-2 rounded-md bg-bg-primary px-2.5 py-1.5 text-xs
+						"
+					>
+						<span className="mt-0.5 shrink-0">
+							<TodoStatusIcon status={item.status} />
+						</span>
+						<span className={cn('flex-1 text-text-primary', item.status === 'completed' && 'text-text-secondary line-through')}>
+							{item.content}
+						</span>
+						<span className={cn('shrink-0 rounded-full px-1.5 py-0.5 text-2xs font-medium', PRIORITY_STYLES[item.priority])}>
+							{item.priority}
+						</span>
+					</div>
+				))}
+			</div>
+		</div>
+	);
+}
+
+/**
+ * Try to extract a TODO list from a tool result JSON string.
+ */
+function extractTodosFromResult(toolName: ToolName, rawResult: string): TodoItemDisplay[] | undefined {
+	if (toolName !== 'get_todos' && toolName !== 'update_todos') return undefined;
+	try {
+		const parsed: unknown = JSON.parse(rawResult);
+		if (!isRecord(parsed) || !Array.isArray(parsed.todos)) return undefined;
+		const todos: unknown[] = parsed.todos;
+		if (todos.length === 0) return undefined;
+		return todos.filter(
+			(item): item is TodoItemDisplay =>
+				isRecord(item) &&
+				typeof item.id === 'string' &&
+				typeof item.content === 'string' &&
+				typeof item.status === 'string' &&
+				typeof item.priority === 'string',
+		);
+	} catch {
+		return undefined;
+	}
+}
+
 function InlineToolCall({ toolUse, toolResult }: { toolUse: AgentContent; toolResult?: AgentContent }) {
 	if (toolUse.type !== 'tool_use') return;
 
@@ -894,6 +1067,12 @@ function InlineToolCall({ toolUse, toolResult }: { toolUse: AgentContent; toolRe
 		}
 	}
 
+	// Extract TODOs from get_todos / update_todos results
+	const todos =
+		toolResult?.type === 'tool_result' && typeof toolResult.content === 'string'
+			? extractTodosFromResult(toolName, toolResult.content)
+			: undefined;
+
 	// Build summary text for the result
 	const resultSummary =
 		toolResult?.type === 'tool_result' && typeof toolResult.content === 'string'
@@ -901,27 +1080,30 @@ function InlineToolCall({ toolUse, toolResult }: { toolUse: AgentContent; toolRe
 			: undefined;
 
 	return (
-		<div
-			className={cn(
-				'flex animate-chat-item items-center gap-2 rounded-md px-3 py-1.5 text-xs',
-				isCompleted && !isError && 'bg-success/5 text-text-secondary',
-				isError && 'bg-error/5 text-error',
-				!isCompleted && 'bg-bg-tertiary text-text-secondary',
-			)}
-		>
-			<span className={cn('shrink-0', isCompleted && !isError && 'text-success', isError && 'text-error')}>
-				<ToolIcon name={toolName} />
-			</span>
-			<span className="shrink-0 font-medium capitalize">{toolName.replaceAll('_', ' ')}</span>
-			{singlePath && <FileReference path={singlePath} className="min-w-0 truncate" />}
-			{fromPath && toPath && (
-				<span className="flex min-w-0 items-center gap-1 truncate">
-					<FileReference path={fromPath} />
-					<span className="text-text-secondary">→</span>
-					<FileReference path={toPath} />
+		<div className="flex animate-chat-item flex-col gap-1.5">
+			<div
+				className={cn(
+					'flex items-center gap-2 rounded-md px-3 py-1.5 text-xs',
+					isCompleted && !isError && 'bg-success/5 text-text-secondary',
+					isError && 'bg-error/5 text-error',
+					!isCompleted && 'bg-bg-tertiary text-text-secondary',
+				)}
+			>
+				<span className={cn('shrink-0', isCompleted && !isError && 'text-success', isError && 'text-error')}>
+					<ToolIcon name={toolName} />
 				</span>
-			)}
-			{resultSummary && <span className="ml-auto shrink-0 text-text-secondary">{resultSummary}</span>}
+				<span className="shrink-0 font-medium capitalize">{toolName.replaceAll('_', ' ')}</span>
+				{singlePath && <FileReference path={singlePath} className="min-w-0 truncate" />}
+				{fromPath && toPath && (
+					<span className="flex min-w-0 items-center gap-1 truncate">
+						<FileReference path={fromPath} />
+						<span className="text-text-secondary">→</span>
+						<FileReference path={toPath} />
+					</span>
+				)}
+				{resultSummary && <span className="ml-auto shrink-0 text-text-secondary">{resultSummary}</span>}
+			</div>
+			{todos && todos.length > 0 && <InlineTodoList todos={todos} />}
 		</div>
 	);
 }

@@ -164,11 +164,12 @@ export async function startAIChat(
 	history: AIChatMessage[],
 	signal: AbortSignal,
 	onEvent: (event: AIStreamEvent) => void,
+	options?: { planMode?: boolean; sessionId?: string },
 ): Promise<void> {
 	const response = await fetch(`/p/${projectId}/api/ai/chat`, {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify({ message, history }),
+		body: JSON.stringify({ message, history, planMode: options?.planMode, sessionId: options?.sessionId }),
 		signal,
 	});
 

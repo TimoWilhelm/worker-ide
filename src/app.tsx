@@ -22,7 +22,7 @@ import {
 import { PanelSkeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
 import { Tooltip, TooltipProvider } from '@/components/ui/tooltip';
-import { CodeEditor, FileTabs, useFileContent } from '@/features/editor';
+import { CodeEditor, computeDiffData, FileTabs, useFileContent } from '@/features/editor';
 import { FileTree, useFileTree } from '@/features/file-tree';
 import { getLogSnapshot, subscribeToLogs } from '@/features/terminal/lib/log-buffer';
 import { hmrSendReference, useHMR } from '@/hooks';
@@ -230,6 +230,8 @@ function IDEShell({ projectId }: { projectId: string }) {
 		isConnected,
 		participants,
 		cursorPosition,
+		pendingChanges,
+		approveChange,
 	} = useStore();
 
 	// Read AI processing state via a dedicated selector to limit re-renders
@@ -337,6 +339,16 @@ function IDEShell({ projectId }: { projectId: string }) {
 
 	const editorContent = localEditorContent ?? content ?? '';
 
+	// Compute inline diff data for the active file (if it has a pending AI change).
+	// Uses the actual editor content (not stored afterContent) so decorations
+	// stay accurate when the user makes local edits.
+	const activeDiffData = useMemo(() => {
+		if (!activeFile) return;
+		const pendingChange = pendingChanges.get(activeFile);
+		if (!pendingChange || pendingChange.status !== 'pending') return;
+		return computeDiffData(pendingChange.beforeContent, editorContent);
+	}, [activeFile, pendingChanges, editorContent]);
+
 	// Build tabs data
 	const tabs = openFiles.map((path) => ({
 		path,
@@ -349,9 +361,14 @@ function IDEShell({ projectId }: { projectId: string }) {
 			setLocalEditorContent(newContent);
 			if (activeFile && newContent !== content) {
 				markFileChanged(activeFile, true);
+				// Auto-approve pending AI change when user manually edits the file
+				const pending = pendingChanges.get(activeFile);
+				if (pending?.status === 'pending') {
+					approveChange(activeFile);
+				}
 			}
 		},
-		[activeFile, content, markFileChanged],
+		[activeFile, content, markFileChanged, pendingChanges, approveChange],
 	);
 
 	// Handle save
@@ -625,6 +642,7 @@ function IDEShell({ projectId }: { projectId: string }) {
 														onBlur={handleEditorBlur}
 														goToPosition={pendingGoTo}
 														onGoToPositionConsumed={clearPendingGoTo}
+														diffData={activeDiffData}
 													/>
 												)
 											) : (

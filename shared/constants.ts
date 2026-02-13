@@ -121,6 +121,27 @@ export const COLLAB_COLORS = [
 ] as const;
 
 // =============================================================================
+// Agent Internal Constants
+// =============================================================================
+
+/**
+ * Maximum characters to read from an AGENTS.md file for context injection
+ */
+export const AGENTS_MD_MAX_CHARACTERS = 16_000;
+
+/**
+ * Hardcoded MCP server configurations.
+ * Users cannot add their own servers.
+ */
+export const MCP_SERVERS = [
+	{
+		id: 'cloudflare-docs',
+		name: 'Cloudflare Documentation',
+		endpoint: 'https://docs.mcp.cloudflare.com/mcp',
+	},
+] as const;
+
+// =============================================================================
 // AI Agent Constants
 // =============================================================================
 
@@ -148,7 +169,11 @@ The project is a TypeScript/JavaScript web application with:
 - /worker/ - Cloudflare Worker backend code
 - /index.html - Main HTML entry point
 
-Be concise but helpful. Focus on making the requested changes efficiently.`;
+Be concise but helpful. Focus on making the requested changes efficiently.
+
+You can also search the Cloudflare documentation when you need information about Cloudflare products, Workers, Pages, D1, KV, R2, Durable Objects, or any other Cloudflare feature.
+
+You can track your work using TODO items. Use get_todos to check your current task list and update_todos to create or update it.`;
 
 /**
  * Tool definitions for the AI agent
@@ -208,7 +233,86 @@ export const AGENT_TOOLS = [
 			required: ['from_path', 'to_path'],
 		},
 	},
+	{
+		name: 'search_cloudflare_docs',
+		description:
+			'Search the Cloudflare documentation for information about Cloudflare products and features including Workers, Pages, R2, D1, KV, Durable Objects, Queues, AI, Zero Trust, DNS, CDN, and more. Returns relevant documentation chunks.',
+		input_schema: {
+			type: 'object',
+			properties: {
+				query: { type: 'string', description: 'Search query for Cloudflare documentation' },
+			},
+			required: ['query'],
+		},
+	},
+	{
+		name: 'get_todos',
+		description:
+			'Get the current TODO list for this session. Returns an array of TODO items with id, content, status (pending/in_progress/completed), and priority (high/medium/low).',
+		input_schema: {
+			type: 'object',
+			properties: {},
+		},
+	},
+	{
+		name: 'update_todos',
+		description:
+			'Create or update the TODO list for this session. Provide the full list of TODO items. Each item must have id, content, status (pending/in_progress/completed), and priority (high/medium/low).',
+		input_schema: {
+			type: 'object',
+			properties: {
+				todos: {
+					type: 'array',
+					description: 'The full list of TODO items',
+					items: {
+						type: 'object',
+						properties: {
+							id: { type: 'string', description: 'Unique identifier for the TODO item' },
+							content: { type: 'string', description: 'Description of the task' },
+							status: {
+								type: 'string',
+								enum: ['pending', 'in_progress', 'completed'],
+								description: 'Current status of the task',
+							},
+							priority: {
+								type: 'string',
+								enum: ['high', 'medium', 'low'],
+								description: 'Priority level of the task',
+							},
+						},
+						required: ['id', 'content', 'status', 'priority'],
+					},
+				},
+			},
+			required: ['todos'],
+		},
+	},
 ] as const;
+
+/**
+ * Tools available in Plan mode (read-only + MCP search)
+ */
+export const PLAN_MODE_TOOLS = AGENT_TOOLS.filter((tool) =>
+	['list_files', 'read_file', 'search_cloudflare_docs', 'get_todos', 'update_todos'].includes(tool.name),
+);
+
+/**
+ * Additional system prompt appended when Plan mode is active
+ */
+export const PLAN_MODE_SYSTEM_PROMPT = `
+
+You are currently in PLAN MODE. In this mode:
+- You CANNOT create, edit, delete, or move files.
+- You CAN read files, list files, search Cloudflare documentation, and manage TODOs.
+- Your goal is to thoroughly research the codebase and produce a detailed implementation plan.
+- Read all relevant files to understand the existing code structure, patterns, and dependencies.
+- Your final response MUST be a well-structured markdown implementation plan that includes:
+  1. A summary of the current state of the code
+  2. Step-by-step implementation instructions
+  3. Files to create or modify (with specific details)
+  4. Potential risks or considerations
+  5. Testing recommendations
+- Be thorough and specific. The plan should be actionable by a developer or AI agent.`;
 
 // =============================================================================
 // Project Constants
@@ -222,7 +326,7 @@ export const PROJECT_EXPIRATION_DAYS = 14;
 /**
  * Hidden entries (directories and files) that should be excluded from file listings
  */
-export const HIDDEN_ENTRIES = new Set(['.ai-sessions', '.snapshots', '.initialized', '.project-meta.json']);
+export const HIDDEN_ENTRIES = new Set(['.ai-sessions', '.snapshots', '.initialized', '.project-meta.json', '.agent']);
 
 // =============================================================================
 // API Constants

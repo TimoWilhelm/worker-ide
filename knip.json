@@ -7,7 +7,7 @@
 	"exclude": ["exports", "types"],
 	"entry": ["worker/index.ts"],
 	"project": ["src/**", "worker/**", "shared/**", "test/**"],
-	"ignoreDependencies": ["cloudflare", "codemirror", "diff"],
+	"ignoreDependencies": ["cloudflare", "codemirror"],
 	"ignoreFiles": [
 		"src/vite-env.d.ts",
 		"playwright.config.ts",
@@ -18,6 +18,8 @@
 		"src/components/ui/index.ts",
 		"worker/lib/index.ts",
 		"worker/services/index.ts",
-		"worker/lib/content-type.ts"
+		"worker/lib/content-type.ts",
+		"src/features/ai-assistant/components/changed-files-summary.tsx",
+		"src/features/ai-assistant/hooks/use-change-review.ts"
 	]
 }

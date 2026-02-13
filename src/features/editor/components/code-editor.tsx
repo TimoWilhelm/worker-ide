@@ -8,7 +8,10 @@ import { Compartment, EditorState, type Extension } from '@codemirror/state';
 import { EditorView, type ViewUpdate } from '@codemirror/view';
 import { useCallback, useEffect, useRef } from 'react';
 
+import { createDiffExtensions } from '../lib/diff-extension';
 import { createEditorExtensions, createTabSizeExtension, getLanguageExtension, readonlyExtension } from '../lib/extensions';
+
+import type { DiffData } from '../lib/diff-decorations';
 
 // =============================================================================
 // Types
@@ -33,19 +36,13 @@ export interface CodeEditorProperties {
 	readonly?: boolean;
 	/** Tab size (default: 2) */
 	tabSize?: number;
+	/** Inline diff data for AI change review */
+	diffData?: DiffData;
 	/** Additional extensions */
 	extensions?: Extension[];
 	/** CSS class name */
 	className?: string;
 }
-
-// =============================================================================
-// Compartments for dynamic reconfiguration
-// =============================================================================
-
-const languageCompartment = new Compartment();
-const readonlyCompartment = new Compartment();
-const tabSizeCompartment = new Compartment();
 
 // =============================================================================
 // Component
@@ -64,11 +61,18 @@ export function CodeEditor({
 	onGoToPositionConsumed,
 	readonly = false,
 	tabSize = 2,
+	diffData,
 	extensions: additionalExtensions = [],
 	className,
 }: CodeEditorProperties) {
 	const containerReference = useRef<HTMLDivElement>(null);
 	const viewReference = useRef<EditorView | undefined>(undefined);
+
+	// Per-instance compartments for dynamic reconfiguration
+	const languageCompartment = useRef(new Compartment()).current;
+	const readonlyCompartment = useRef(new Compartment()).current;
+	const tabSizeCompartment = useRef(new Compartment()).current;
+	const diffCompartment = useRef(new Compartment()).current;
 
 	// Use refs for all callbacks so the CodeMirror extension (created once
 	// at mount) always calls the latest version without needing to
@@ -110,11 +114,14 @@ export function CodeEditor({
 		const baseExtensions = createEditorExtensions(filename, [createUpdateListener(), ...additionalExtensions]);
 
 		// Remove language from base extensions since we'll use compartment
+		const diffExtensions = diffData ? createDiffExtensions({ hunks: diffData.hunks }) : [];
+
 		const extensions = [
 			...baseExtensions,
 			languageCompartment.of(langExtension ?? []),
 			readonlyCompartment.of(readonly ? readonlyExtension : []),
 			tabSizeCompartment.of(createTabSizeExtension(tabSize)),
+			diffCompartment.of(diffExtensions),
 		];
 
 		const state = EditorState.create({
@@ -161,7 +168,7 @@ export function CodeEditor({
 		viewReference.current.dispatch({
 			effects: languageCompartment.reconfigure(langExtension ?? []),
 		});
-	}, [filename]);
+	}, [filename, languageCompartment]);
 
 	// Update readonly state
 	useEffect(() => {
@@ -170,7 +177,7 @@ export function CodeEditor({
 		viewReference.current.dispatch({
 			effects: readonlyCompartment.reconfigure(readonly ? readonlyExtension : []),
 		});
-	}, [readonly]);
+	}, [readonly, readonlyCompartment]);
 
 	// Update tab size
 	useEffect(() => {
@@ -179,7 +186,17 @@ export function CodeEditor({
 		viewReference.current.dispatch({
 			effects: tabSizeCompartment.reconfigure(createTabSizeExtension(tabSize)),
 		});
-	}, [tabSize]);
+	}, [tabSize, tabSizeCompartment]);
+
+	// Update diff decorations
+	useEffect(() => {
+		if (!viewReference.current) return;
+
+		const diffExtensions = diffData ? createDiffExtensions({ hunks: diffData.hunks }) : [];
+		viewReference.current.dispatch({
+			effects: diffCompartment.reconfigure(diffExtensions),
+		});
+	}, [diffData, diffCompartment]);
 
 	// Navigate to a specific position when goToPosition is set
 	useEffect(() => {

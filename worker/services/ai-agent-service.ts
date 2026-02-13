@@ -5,12 +5,24 @@
 
 import fs from 'node:fs/promises';
 
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import Replicate from 'replicate';
 
-import { AGENT_TOOLS, AGENT_SYSTEM_PROMPT, BINARY_EXTENSIONS } from '@shared/constants';
-import { toolInputSchemas, type ToolName } from '@shared/validation';
+import {
+	AGENT_TOOLS,
+	AGENT_SYSTEM_PROMPT,
+	AGENTS_MD_MAX_CHARACTERS,
+	BINARY_EXTENSIONS,
+	MCP_SERVERS,
+	PLAN_MODE_SYSTEM_PROMPT,
+	PLAN_MODE_TOOLS,
+} from '@shared/constants';
+import { todoItemSchema, toolInputSchemas, type ToolName } from '@shared/validation';
 
 import { isPathSafe, isProtectedFile } from '../lib/path-utilities';
+
+type TodoItem = { id: string; content: string; status: 'pending' | 'in_progress' | 'completed'; priority: 'high' | 'medium' | 'low' };
 
 // =============================================================================
 // Types
@@ -264,10 +276,14 @@ function parseApiError(error: unknown): { message: string; code: string | null }
 // =============================================================================
 
 export class AIAgentService {
+	private mcpClients = new Map<string, Client>();
+
 	constructor(
 		private projectRoot: string,
 		private projectId: string,
 		private environment: Env,
+		private sessionId?: string,
+		private planMode = false,
 	) {}
 
 	/**
@@ -319,6 +335,9 @@ export class AIAgentService {
 		try {
 			await sendEvent('status', { message: 'Starting...' });
 
+			// Read AGENTS.md context if available
+			const agentsContext = await this.readAgentsContext();
+
 			const messages: Array<{ role: string; content: string | ContentBlock[] | ToolResultBlock[] }> = [];
 			for (const message of history) {
 				messages.push({ role: message.role, content: message.content });
@@ -329,6 +348,8 @@ export class AIAgentService {
 			const maxIterations = 10;
 			let iteration = 0;
 			let hitIterationLimit = false;
+			// Collect the final assistant text for plan mode
+			let lastAssistantText = '';
 
 			while (continueLoop && iteration < maxIterations) {
 				if (signal?.aborted) {
@@ -336,9 +357,9 @@ export class AIAgentService {
 					break;
 				}
 				iteration++;
-				await sendEvent('status', { message: 'Thinking...' });
+				await sendEvent('status', { message: this.planMode ? 'Researching...' : 'Thinking...' });
 
-				const response = await this.callClaude(messages, apiToken, signal);
+				const response = await this.callClaude(messages, apiToken, signal, agentsContext);
 				if (!response) {
 					throw new Error('Failed to get response from Claude');
 				}
@@ -349,6 +370,7 @@ export class AIAgentService {
 				for (const block of response.content) {
 					if (block.type === 'text') {
 						await sendEvent('message', { content: block.text });
+						lastAssistantText = block.text;
 					} else if (block.type === 'tool_use') {
 						hasToolUse = true;
 
@@ -397,6 +419,11 @@ export class AIAgentService {
 				await this.createSnapshot(prompt, queryChanges, sendEvent);
 			}
 
+			// In plan mode, save the plan to the filesystem
+			if (this.planMode && lastAssistantText.trim()) {
+				await this.savePlan(lastAssistantText, prompt, sendEvent);
+			}
+
 			if (hitIterationLimit) {
 				await sendEvent('max_iterations_reached', { iterations: maxIterations });
 			}
@@ -426,6 +453,8 @@ export class AIAgentService {
 			const parsed = parseApiError(error);
 			await sendEvent('error', { message: parsed.message, code: parsed.code });
 			await writer.close();
+		} finally {
+			await this.closeMcpClients();
 		}
 	}
 
@@ -433,6 +462,7 @@ export class AIAgentService {
 		messages: Array<{ role: string; content: string | ContentBlock[] | ToolResultBlock[] }>,
 		apiToken: string,
 		signal?: AbortSignal,
+		agentsContext?: string,
 	): Promise<ClaudeResponse | undefined> {
 		if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
 		const replicate = new Replicate({ auth: apiToken });
@@ -473,11 +503,23 @@ export class AIAgentService {
 		}
 		formattedPrompt += '\n\nAssistant:';
 
-		const toolsDescription = AGENT_TOOLS.map(
-			(t) => `- ${t.name}: ${t.description}\n  Parameters: ${JSON.stringify(t.input_schema.properties)}`,
-		).join('\n');
+		// Select tools based on plan mode
+		const activeTools = this.planMode ? PLAN_MODE_TOOLS : AGENT_TOOLS;
 
-		const fullSystemPrompt = `${AGENT_SYSTEM_PROMPT}
+		const toolsDescription = activeTools
+			.map((t) => `- ${t.name}: ${t.description}\n  Parameters: ${JSON.stringify(t.input_schema.properties)}`)
+			.join('\n');
+
+		// Build system prompt with optional AGENTS.md context and plan mode addendum
+		let systemPrompt = AGENT_SYSTEM_PROMPT;
+		if (agentsContext) {
+			systemPrompt += `\n\n## Project Guidelines (from AGENTS.md)\n${agentsContext}`;
+		}
+		if (this.planMode) {
+			systemPrompt += PLAN_MODE_SYSTEM_PROMPT;
+		}
+
+		const fullSystemPrompt = `${systemPrompt}
 
 Available tools:
 ${toolsDescription}
@@ -681,6 +723,11 @@ When you're done and don't need to use any more tools, just provide your final r
 					data[key] = String(value);
 				}
 				validatedInput = data;
+			}
+
+			// Plan mode defense-in-depth: reject editing tools
+			if (this.planMode && ['write_file', 'delete_file', 'move_file'].includes(toolName)) {
+				return { error: 'File editing tools are not available in Plan mode. Use read-only tools to research and produce a plan.' };
 			}
 
 			switch (toolName) {
@@ -924,6 +971,56 @@ When you're done and don't need to use any more tools, just provide your final r
 					}
 				}
 
+				case 'search_cloudflare_docs': {
+					const query = validatedInput.query;
+					if (!query) {
+						return { error: 'Query is required for search_cloudflare_docs' };
+					}
+					await sendEvent('status', { message: 'Searching Cloudflare docs...' });
+					try {
+						const result = await this.callMcpTool('cloudflare-docs', 'search_cloudflare_documentation', { query });
+						return { result };
+					} catch (error) {
+						return { error: `Failed to search Cloudflare docs: ${String(error)}` };
+					}
+				}
+
+				case 'get_todos': {
+					await sendEvent('status', { message: 'Reading TODOs...' });
+					const todos = await this.readTodos();
+					return { todos };
+				}
+
+				case 'update_todos': {
+					await sendEvent('status', { message: 'Updating TODOs...' });
+					try {
+						// The input may come as a stringified JSON from the model
+						let todosRaw: unknown = toolInput.todos;
+						if (typeof todosRaw === 'string') {
+							try {
+								todosRaw = JSON.parse(todosRaw);
+							} catch {
+								return { error: 'Invalid JSON for todos field' };
+							}
+						}
+						if (!Array.isArray(todosRaw)) {
+							return { error: 'todos must be an array' };
+						}
+						const validated: TodoItem[] = [];
+						for (const item of todosRaw) {
+							const parsed = todoItemSchema.safeParse(item);
+							if (!parsed.success) {
+								return { error: `Invalid TODO item: ${parsed.error.issues.map((issue) => issue.message).join(', ')}` };
+							}
+							validated.push(parsed.data);
+						}
+						await this.writeTodos(validated);
+						return { success: true, count: validated.length, todos: validated };
+					} catch (error) {
+						return { error: `Failed to update TODOs: ${String(error)}` };
+					}
+				}
+
 				default: {
 					return { error: `Unknown tool: ${toolName}` };
 				}
@@ -943,7 +1040,8 @@ When you're done and don't need to use any more tools, just provide your final r
 					entry.name === '.ai-sessions' ||
 					entry.name === '.snapshots' ||
 					entry.name === '.initialized' ||
-					entry.name === '.project-meta.json'
+					entry.name === '.project-meta.json' ||
+					entry.name === '.agent'
 				)
 					continue;
 				const relativePath = base ? `${base}/${entry.name}` : `/${entry.name}`;
@@ -1053,5 +1151,141 @@ When you're done and don't need to use any more tools, just provide your final r
 		} catch {
 			// No-op
 		}
+	}
+
+	// =============================================================================
+	// AGENTS.md Context
+	// =============================================================================
+
+	private async readAgentsContext(): Promise<string | undefined> {
+		try {
+			const entries = await fs.readdir(this.projectRoot);
+			const agentsFile = entries.find((entry) => entry.toLowerCase() === 'agents.md');
+			if (!agentsFile) return undefined;
+
+			let content = await fs.readFile(`${this.projectRoot}/${agentsFile}`, 'utf8');
+			if (content.length > AGENTS_MD_MAX_CHARACTERS) {
+				content = content.slice(0, AGENTS_MD_MAX_CHARACTERS) + '\n...(truncated)';
+			}
+			return content;
+		} catch {
+			return undefined;
+		}
+	}
+
+	// =============================================================================
+	// Plan Mode
+	// =============================================================================
+
+	private async savePlan(
+		planContent: string,
+		prompt: string,
+		sendEvent: (type: string, data: Record<string, unknown>) => Promise<void>,
+	): Promise<void> {
+		try {
+			const plansDirectory = `${this.projectRoot}/.agent/plans`;
+			await fs.mkdir(plansDirectory, { recursive: true });
+
+			const timestamp = Date.now();
+			const planFileName = `${timestamp}-plan.md`;
+			const planPath = `${plansDirectory}/${planFileName}`;
+
+			const header = `# Plan: ${prompt.slice(0, 80)}${prompt.length > 80 ? '...' : ''}\n\n_Generated at ${new Date(timestamp).toISOString()}_\n\n---\n\n`;
+			await fs.writeFile(planPath, header + planContent);
+
+			await sendEvent('plan_created', {
+				path: `/.agent/plans/${planFileName}`,
+				content: planContent,
+			});
+		} catch (error) {
+			console.error('Failed to save plan:', error);
+		}
+	}
+
+	// =============================================================================
+	// MCP Client
+	// =============================================================================
+
+	private async getMcpClient(serverId: string): Promise<Client> {
+		const existing = this.mcpClients.get(serverId);
+		if (existing) return existing;
+
+		const serverConfig = MCP_SERVERS.find((server) => server.id === serverId);
+		if (!serverConfig) {
+			throw new Error(`Unknown MCP server: ${serverId}`);
+		}
+
+		const client = new Client({ name: 'worker-ide-agent', version: '1.0.0' });
+		const transport = new StreamableHTTPClientTransport(new URL(serverConfig.endpoint));
+		await client.connect(transport);
+
+		this.mcpClients.set(serverId, client);
+		return client;
+	}
+
+	private async callMcpTool(serverId: string, toolName: string, arguments_: Record<string, unknown>): Promise<string> {
+		const client = await this.getMcpClient(serverId);
+		const result = await client.callTool({ name: toolName, arguments: arguments_ });
+
+		// Extract text content from the MCP result
+		if (result.content && Array.isArray(result.content)) {
+			const textParts: string[] = [];
+			for (const item of result.content) {
+				if (isRecordObject(item) && item.type === 'text' && typeof item.text === 'string') {
+					textParts.push(item.text);
+				}
+			}
+			if (textParts.length > 0) {
+				return textParts.join('\n');
+			}
+		}
+
+		return JSON.stringify(result.content);
+	}
+
+	private async closeMcpClients(): Promise<void> {
+		for (const [serverId, client] of this.mcpClients) {
+			try {
+				await client.close();
+			} catch {
+				// No-op
+			}
+			this.mcpClients.delete(serverId);
+		}
+	}
+
+	// =============================================================================
+	// TODO Management
+	// =============================================================================
+
+	private getTodoFilePath(): string {
+		const sessionId = this.sessionId || 'default';
+		return `${this.projectRoot}/.agent/todo/${sessionId}.json`;
+	}
+
+	private async readTodos(): Promise<TodoItem[]> {
+		try {
+			const content = await fs.readFile(this.getTodoFilePath(), 'utf8');
+			const parsed: unknown = JSON.parse(content);
+			if (!Array.isArray(parsed)) return [];
+			const validated: TodoItem[] = [];
+			for (const item of parsed) {
+				const result = todoItemSchema.safeParse(item);
+				if (result.success) {
+					validated.push(result.data);
+				}
+			}
+			return validated;
+		} catch {
+			return [];
+		}
+	}
+
+	private async writeTodos(todos: TodoItem[]): Promise<void> {
+		const filePath = this.getTodoFilePath();
+		const directory = filePath.slice(0, filePath.lastIndexOf('/'));
+		await fs.mkdir(directory, { recursive: true });
+		// eslint-disable-next-line unicorn/no-null -- JSON.stringify requires null as replacer argument
+		await fs.writeFile(filePath, JSON.stringify(todos, null, 2));
 	}
 }
