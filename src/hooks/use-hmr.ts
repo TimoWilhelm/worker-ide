@@ -10,6 +10,8 @@ import { useEffect, useRef } from 'react';
 import { connectHMR } from '@/lib/api-client';
 import { useStore } from '@/lib/store';
 
+import type { ClientMessage } from '@shared/ws-messages';
+
 // =============================================================================
 // Types
 // =============================================================================
@@ -34,7 +36,7 @@ interface UseHMROptions {
  * Global ref for the WebSocket send function.
  * Used by the editor to send cursor updates without prop drilling.
  */
-export const hmrSendReference: { current: ((data: Record<string, unknown>) => void) | undefined } = { current: undefined };
+export const hmrSendReference: { current: ((data: ClientMessage) => void) | undefined } = { current: undefined };
 
 export function useHMR({ projectId, enabled = true }: UseHMROptions) {
 	const queryClient = useQueryClient();

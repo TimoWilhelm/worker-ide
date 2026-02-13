@@ -266,7 +266,6 @@ export const serverMessageSchema = z.discriminatedUnion('type', [
 
 /**
  * Serialize a message for sending over WebSocket
- * Uses devalue for safe serialization of complex objects
  */
 export function serializeMessage(message: ClientMessage | ServerMessage): string {
 	return devalue.stringify(message);
@@ -277,7 +276,7 @@ export function serializeMessage(message: ClientMessage | ServerMessage): string
  */
 export function parseClientMessage(data: string): { success: true; data: ClientMessage } | { success: false; error: string } {
 	try {
-		const parsed = devalue.parse(data);
+		const parsed: unknown = devalue.parse(data);
 		const result = clientMessageSchema.safeParse(parsed);
 
 		if (!result.success) {
@@ -289,25 +288,10 @@ export function parseClientMessage(data: string): { success: true; data: ClientM
 
 		return { success: true, data: result.data };
 	} catch (error) {
-		// Fallback to JSON parse for simple messages
-		try {
-			const parsed = JSON.parse(data);
-			const result = clientMessageSchema.safeParse(parsed);
-
-			if (!result.success) {
-				return {
-					success: false,
-					error: result.error.issues.map((issue) => issue.message).join(', '),
-				};
-			}
-
-			return { success: true, data: result.data };
-		} catch {
-			return {
-				success: false,
-				error: error instanceof Error ? error.message : 'Failed to parse message',
-			};
-		}
+		return {
+			success: false,
+			error: error instanceof Error ? error.message : 'Failed to parse message',
+		};
 	}
 }
 
@@ -316,7 +300,7 @@ export function parseClientMessage(data: string): { success: true; data: ClientM
  */
 export function parseServerMessage(data: string): { success: true; data: ServerMessage } | { success: false; error: string } {
 	try {
-		const parsed = devalue.parse(data);
+		const parsed: unknown = devalue.parse(data);
 		const result = serverMessageSchema.safeParse(parsed);
 
 		if (!result.success) {
@@ -328,24 +312,9 @@ export function parseServerMessage(data: string): { success: true; data: ServerM
 
 		return { success: true, data: result.data };
 	} catch (error) {
-		// Fallback to JSON parse for simple messages
-		try {
-			const parsed = JSON.parse(data);
-			const result = serverMessageSchema.safeParse(parsed);
-
-			if (!result.success) {
-				return {
-					success: false,
-					error: result.error.issues.map((issue) => issue.message).join(', '),
-				};
-			}
-
-			return { success: true, data: result.data };
-		} catch {
-			return {
-				success: false,
-				error: error instanceof Error ? error.message : 'Failed to parse message',
-			};
-		}
+		return {
+			success: false,
+			error: error instanceof Error ? error.message : 'Failed to parse message',
+		};
 	}
 }

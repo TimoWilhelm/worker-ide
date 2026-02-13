@@ -7,6 +7,8 @@ import fs from 'node:fs/promises';
 
 import { env, exports } from 'cloudflare:workers';
 
+import { serializeMessage, type ServerMessage } from '@shared/ws-messages';
+
 import { transformCode } from './bundler-service';
 import { transformModule, processHTML, type FileSystem } from './transform-service';
 
@@ -287,13 +289,13 @@ export class PreviewService {
 		await this.broadcastMessage({ type: 'server-error', error });
 	}
 
-	private async broadcastMessage(message: object): Promise<void> {
+	private async broadcastMessage(message: ServerMessage): Promise<void> {
 		const hmrId = env.DO_HMR_COORDINATOR.idFromName(`hmr:${this.projectId}`);
 		const hmrStub = env.DO_HMR_COORDINATOR.get(hmrId);
 		await hmrStub.fetch(
 			new Request('http://internal/hmr/send', {
 				method: 'POST',
-				body: JSON.stringify(message),
+				body: serializeMessage(message),
 			}),
 		);
 	}

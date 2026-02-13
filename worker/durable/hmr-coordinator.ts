@@ -1,6 +1,7 @@
 import { DurableObject } from 'cloudflare:workers';
 
 import { COLLAB_COLORS } from '@shared/constants';
+import { serializeMessage, parseClientMessage } from '@shared/ws-messages';
 
 import type { HmrUpdate, Participant } from '@shared/types';
 
@@ -153,7 +154,7 @@ export class HMRCoordinator extends DurableObject {
 	}
 
 	async broadcast(update: HmrUpdate): Promise<void> {
-		let updateType: string;
+		let updateType: 'css-update' | 'js-update' | 'full-reload';
 		if (update.type === 'full-reload') {
 			updateType = 'full-reload';
 		} else if (update.isCSS) {
@@ -162,7 +163,7 @@ export class HMRCoordinator extends DurableObject {
 			updateType = 'js-update';
 		}
 
-		const message = JSON.stringify({
+		const message = serializeMessage({
 			type: update.type,
 			updates: [
 				{
@@ -179,17 +180,12 @@ export class HMRCoordinator extends DurableObject {
 	webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): void {
 		try {
 			const messageString = typeof message === 'string' ? message : new TextDecoder().decode(message);
-			const data: {
-				type: string;
-				file?: string;
-				cursor?: { line: number; ch: number };
-				selection?: { anchor: { line: number; ch: number }; head: { line: number; ch: number } };
-				path?: string;
-				content?: string;
-			} = JSON.parse(messageString);
+			const parsed = parseClientMessage(messageString);
+			if (!parsed.success) return;
+			const data = parsed.data;
 
 			if (data.type === 'ping') {
-				ws.send(JSON.stringify({ type: 'pong' }));
+				ws.send(serializeMessage({ type: 'pong' }));
 				return;
 			}
 
@@ -199,7 +195,7 @@ export class HMRCoordinator extends DurableObject {
 				att.joined = true;
 				this.setAttachment(ws, att);
 				ws.send(
-					JSON.stringify({
+					serializeMessage({
 						type: 'collab-state',
 						selfId: att.id,
 						selfColor: att.color,
@@ -208,7 +204,7 @@ export class HMRCoordinator extends DurableObject {
 				);
 				this.sendToOthersJoined(
 					ws,
-					JSON.stringify({
+					serializeMessage({
 						type: 'participant-joined',
 						participant: {
 							id: att.id,
@@ -234,7 +230,7 @@ export class HMRCoordinator extends DurableObject {
 				this.setAttachment(ws, att);
 				this.sendToOthersJoined(
 					ws,
-					JSON.stringify({
+					serializeMessage({
 						type: 'cursor-updated',
 						id: att.id,
 						color: att.color,
@@ -251,7 +247,7 @@ export class HMRCoordinator extends DurableObject {
 				if (!att?.joined) return;
 				this.sendToOthersJoined(
 					ws,
-					JSON.stringify({
+					serializeMessage({
 						type: 'file-edited',
 						id: att.id,
 						path: data.path,
@@ -270,7 +266,7 @@ export class HMRCoordinator extends DurableObject {
 		if (att?.joined) {
 			this.sendToOthersJoined(
 				ws,
-				JSON.stringify({
+				serializeMessage({
 					type: 'participant-left',
 					id: att.id,
 				}),
@@ -288,7 +284,7 @@ export class HMRCoordinator extends DurableObject {
 		if (att?.joined) {
 			this.sendToOthersJoined(
 				ws,
-				JSON.stringify({
+				serializeMessage({
 					type: 'participant-left',
 					id: att.id,
 				}),

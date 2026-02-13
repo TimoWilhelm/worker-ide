@@ -314,6 +314,14 @@ const tsConfigCache = new Map<string, { config: TsConfig | undefined; expiry: nu
 const TSCONFIG_TTL_MS = 5000;
 const MAX_TSCONFIG_CACHE = 100;
 
+/**
+ * Invalidate cached tsconfig for a project so the next transform picks up changes.
+ */
+export function invalidateTsConfigCache(projectRoot: string, baseUrl?: string): void {
+	const key = baseUrl ? `${projectRoot}:${baseUrl}` : projectRoot;
+	tsConfigCache.delete(key);
+}
+
 async function getTsConfig(fs: FileSystem, projectRoot: string, cacheKey?: string): Promise<TsConfig | undefined> {
 	const key = cacheKey || projectRoot;
 	const cached = tsConfigCache.get(key);

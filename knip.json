@@ -7,16 +7,7 @@
 	"exclude": ["exports", "types"],
 	"entry": ["worker/index.ts"],
 	"project": ["src/**", "worker/**", "shared/**", "test/**"],
-	"ignoreDependencies": [
-		"cloudflare",
-		"@cloudflare/vitest-pool-workers",
-		"@types/diff",
-		"codemirror",
-		"devalue",
-		"diff",
-		"react-router-dom",
-		"zod-validation-error"
-	],
+	"ignoreDependencies": ["cloudflare", "codemirror", "diff"],
 	"ignoreFiles": [
 		"src/vite-env.d.ts",
 		"playwright.config.ts",

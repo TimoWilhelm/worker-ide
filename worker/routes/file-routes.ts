@@ -9,10 +9,11 @@ import { zValidator } from '@hono/zod-validator';
 import { Hono } from 'hono';
 import { z } from 'zod';
 
-import { HIDDEN_DIRECTORIES } from '@shared/constants';
+import { HIDDEN_ENTRIES } from '@shared/constants';
 import { filePathSchema, writeFileSchema, mkdirSchema } from '@shared/validation';
 
 import { isPathSafe, isProtectedFile } from '../lib/path-utilities';
+import { invalidateTsConfigCache } from '../services/transform-service';
 
 import type { AppEnvironment } from '../types';
 
@@ -63,6 +64,11 @@ export const fileRoutes = new Hono<AppEnvironment>()
 		}
 
 		await fs.writeFile(`${projectRoot}${path}`, content);
+
+		// Invalidate tsconfig cache when tsconfig.json is modified
+		if (path === '/tsconfig.json') {
+			invalidateTsConfigCache(projectRoot);
+		}
 
 		// Trigger HMR update
 		const hmrId = environment.DO_HMR_COORDINATOR.idFromName(`hmr:${projectId}`);
@@ -125,8 +131,8 @@ async function listFilesRecursive(directory: string, base = ''): Promise<string[
 	try {
 		const entries = await fs.readdir(directory, { withFileTypes: true });
 		for (const entry of entries) {
-			// Skip hidden directories
-			if (HIDDEN_DIRECTORIES.has(entry.name)) continue;
+			// Skip hidden entries (internal directories and files)
+			if (HIDDEN_ENTRIES.has(entry.name)) continue;
 
 			const relativePath = base ? `${base}/${entry.name}` : `/${entry.name}`;
 			if (entry.isDirectory()) {

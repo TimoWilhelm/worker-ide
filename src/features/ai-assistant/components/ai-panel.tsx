@@ -405,10 +405,16 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		// Clear the error
 		setAiError(undefined);
 
-		// Remove the errored assistant message (if any) — the last message might be an assistant error
+		// Remove the errored assistant message and/or the last user message to
+		// avoid duplicating it when handleSend adds it back.
 		const lastMessage = history.at(-1);
 		if (lastMessage && lastMessage.role === 'assistant') {
+			// Remove both the assistant reply and the user message before it
 			removeMessagesAfter(history.length - 2);
+		} else if (lastMessage && lastMessage.role === 'user') {
+			// Error occurred before an assistant message was added — remove the
+			// dangling user message so handleSend doesn't duplicate it.
+			removeMessagesAfter(history.length - 1);
 		}
 
 		// Re-send

@@ -9,6 +9,10 @@
 
 import { env, WorkerEntrypoint } from 'cloudflare:workers';
 
+import { serializeMessage } from '@shared/ws-messages';
+
+import type { ServerLogEntry } from '@shared/types';
+
 interface LogTailerProperties {
 	projectId: string;
 }
@@ -21,7 +25,7 @@ export class LogTailer extends WorkerEntrypoint<Env, LogTailerProperties> {
 	async tail(events: TraceItem[]): Promise<void> {
 		const { projectId } = this.ctx.props;
 
-		const logs: Array<{ type: string; timestamp: number; level: string; message: string }> = [];
+		const logs: ServerLogEntry[] = [];
 
 		for (const event of events) {
 			for (const log of event.logs) {
@@ -55,7 +59,7 @@ export class LogTailer extends WorkerEntrypoint<Env, LogTailerProperties> {
 			await hmrStub.fetch(
 				new Request('http://internal/hmr/send', {
 					method: 'POST',
-					body: JSON.stringify({ type: 'server-logs', logs }),
+					body: serializeMessage({ type: 'server-logs', logs }),
 				}),
 			);
 		} catch {
@@ -64,7 +68,7 @@ export class LogTailer extends WorkerEntrypoint<Env, LogTailerProperties> {
 	}
 }
 
-function mapLogLevel(level: string): string {
+function mapLogLevel(level: string): 'log' | 'warn' | 'error' | 'debug' | 'info' {
 	switch (level) {
 		case 'log':
 		case 'warn':

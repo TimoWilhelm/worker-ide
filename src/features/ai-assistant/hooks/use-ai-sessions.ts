@@ -78,6 +78,8 @@ export function useAiSessions({ projectId }: { projectId: string }) {
 
 	// Track whether a save is already in flight to avoid overlapping saves
 	const isSavingReference = useRef(false);
+	// Preserve the original creation timestamp across saves
+	const createdAtReference = useRef<number | undefined>(undefined);
 
 	// =========================================================================
 	// List sessions
@@ -105,6 +107,7 @@ export function useAiSessions({ projectId }: { projectId: string }) {
 		onSuccess: (data) => {
 			if (!data) return;
 			const restoredSnapshots = snapshotsRecordToMap(data.messageSnapshots);
+			createdAtReference.current = data.createdAt;
 			loadSession(data.history, data.id, restoredSnapshots);
 		},
 	});
@@ -124,12 +127,13 @@ export function useAiSessions({ projectId }: { projectId: string }) {
 			if (!currentSessionId) {
 				currentSessionId = generateSessionId();
 				setSessionId(currentSessionId);
+				createdAtReference.current = Date.now();
 			}
 
 			await saveAiSession(projectId, {
 				id: currentSessionId,
 				label: deriveLabel(history),
-				createdAt: Date.now(),
+				createdAt: createdAtReference.current ?? Date.now(),
 				history,
 				messageSnapshots: snapshotsMapToRecord(messageSnapshots),
 			});

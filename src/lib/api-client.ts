@@ -7,9 +7,10 @@
 
 import { hc } from 'hono/client';
 
+import { serializeMessage, parseServerMessage, type ClientMessage, type ServerMessage } from '@shared/ws-messages';
+
 import type { ApiRoutes } from '@server/routes';
 import type { AiSession, AiSessionSummary } from '@shared/types';
-import type { ServerMessage } from '@shared/ws-messages';
 
 /**
  * Create a typed API client for a specific project.
@@ -229,7 +230,7 @@ export async function startAIChat(
  */
 export interface HMRConnection {
 	cleanup: () => void;
-	send: (data: Record<string, unknown>) => void;
+	send: (data: ClientMessage) => void;
 }
 
 export function connectHMR(
@@ -246,16 +247,16 @@ export function connectHMR(
 
 	socket.addEventListener('open', () => {
 		// Send collab-join immediately on connection (matching old behaviour)
-		socket.send(JSON.stringify({ type: 'collab-join' }));
+		socket.send(serializeMessage({ type: 'collab-join' }));
 		onOpen?.();
 	});
 
 	socket.addEventListener('message', (event) => {
-		try {
-			const parsed: ServerMessage = JSON.parse(String(event.data));
-			onMessage(parsed);
-		} catch {
-			console.warn('Failed to parse HMR message:', event.data);
+		const result = parseServerMessage(String(event.data));
+		if (result.success) {
+			onMessage(result.data);
+		} else {
+			console.warn('Failed to parse HMR message:', result.error);
 		}
 	});
 
@@ -274,13 +275,13 @@ export function connectHMR(
 	// Keep connection alive
 	const pingInterval = setInterval(() => {
 		if (socket.readyState === WebSocket.OPEN) {
-			socket.send(JSON.stringify({ type: 'ping' }));
+			socket.send(serializeMessage({ type: 'ping' }));
 		}
 	}, 30_000);
 
-	const send = (data: Record<string, unknown>) => {
+	const send = (data: ClientMessage) => {
 		if (socket.readyState === WebSocket.OPEN) {
-			socket.send(JSON.stringify(data));
+			socket.send(serializeMessage(data));
 		}
 	};
 

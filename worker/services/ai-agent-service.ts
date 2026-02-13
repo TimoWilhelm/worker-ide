@@ -838,6 +838,9 @@ When you're done and don't need to use any more tools, just provide your final r
 					if (!isPathSafe(this.projectRoot, toPath)) {
 						return { error: 'Invalid destination path' };
 					}
+					if (isProtectedFile(fromPath)) {
+						return { error: 'Cannot move protected file - this file is required for the application to run' };
+					}
 					await sendEvent('status', { message: `Moving ${fromPath} to ${toPath}...` });
 
 					try {
@@ -900,6 +903,20 @@ When you're done and don't need to use any more tools, just provide your final r
 							afterContent: isBinaryTo ? null : content,
 							isBinary: isBinaryTo,
 						});
+
+						// Trigger HMR for the moved file
+						const hmrId = this.environment.DO_HMR_COORDINATOR.idFromName(`hmr:${this.projectId}`);
+						const hmrStub = this.environment.DO_HMR_COORDINATOR.get(hmrId);
+						await hmrStub.fetch(
+							new Request('http://internal/hmr/trigger', {
+								method: 'POST',
+								body: JSON.stringify({
+									type: 'full-reload',
+									path: toPath,
+									timestamp: Date.now(),
+								}),
+							}),
+						);
 
 						return { success: true, from: fromPath, to: toPath };
 					} catch (error) {
