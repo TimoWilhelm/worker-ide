@@ -6,7 +6,8 @@ export default {
 		const url = new URL(request.url);
 		const path = url.pathname;
 		const method = request.method;
-		console.log(`[worker] ${method} ${path}`);
+
+		console.log(`${method} ${path}`);
 
 		if (path === '/api/hello' && method === 'GET') {
 			return hello();

@@ -8,6 +8,7 @@
 import { Code, Map as MapIcon, MessageCircleQuestion } from 'lucide-react';
 
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { Pill, type PillProperties } from '@/components/ui/pill';
 import { cn } from '@/lib/utils';
 
 import type { AgentMode } from '@shared/types';
@@ -21,7 +22,7 @@ interface ModeConfig {
 	description: string;
 	icon: typeof Code;
 	colorClass: string;
-	activeBackground: string;
+	pillColor: NonNullable<PillProperties['color']>;
 }
 
 const MODE_CONFIG: Record<AgentMode, ModeConfig> = {
@@ -29,22 +30,22 @@ const MODE_CONFIG: Record<AgentMode, ModeConfig> = {
 		label: 'Code',
 		description: 'Full tool access — edit files, run searches',
 		icon: Code,
-		colorClass: 'text-emerald-400',
-		activeBackground: 'bg-emerald-400/15',
+		colorClass: 'text-emerald-600 dark:text-emerald-400',
+		pillColor: 'emerald',
 	},
 	plan: {
 		label: 'Plan',
 		description: 'Read-only research — produces an implementation plan',
 		icon: MapIcon,
-		colorClass: 'text-amber-400',
-		activeBackground: 'bg-amber-400/15',
+		colorClass: 'text-amber-600 dark:text-amber-400',
+		pillColor: 'amber',
 	},
 	ask: {
 		label: 'Ask',
 		description: 'No tools — conversational Q&A only',
 		icon: MessageCircleQuestion,
-		colorClass: 'text-sky-400',
-		activeBackground: 'bg-sky-400/15',
+		colorClass: 'text-sky-600 dark:text-sky-400',
+		pillColor: 'sky',
 	},
 };
 
@@ -67,20 +68,14 @@ export function AgentModeSelector({ mode, onModeChange, disabled }: AgentModeSel
 	return (
 		<DropdownMenu>
 			<DropdownMenuTrigger asChild disabled={disabled}>
-				<button
-					className={cn(
-						`
-							inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs
-							font-medium transition-colors
-						`,
-						config.activeBackground,
-						config.colorClass,
-						disabled && 'cursor-not-allowed opacity-40',
-					)}
+				<Pill
+					size="md"
+					color={config.pillColor}
+					className={cn('cursor-pointer transition-colors', disabled && 'cursor-not-allowed opacity-40')}
 				>
 					<Icon className="size-3" />
 					{config.label}
-				</button>
+				</Pill>
 			</DropdownMenuTrigger>
 			<DropdownMenuContent align="start" className="w-56">
 				{MODES.map((modeOption) => {

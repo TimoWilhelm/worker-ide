@@ -445,20 +445,20 @@ function getFileColor(extension: string | undefined): string {
 	switch (extension) {
 		case 'ts':
 		case 'tsx': {
-			return 'text-blue-400';
+			return 'text-blue-600 dark:text-blue-400';
 		}
 		case 'js':
 		case 'jsx': {
-			return 'text-yellow-400';
+			return 'text-yellow-600 dark:text-yellow-400';
 		}
 		case 'css': {
-			return 'text-purple-400';
+			return 'text-purple-600 dark:text-purple-400';
 		}
 		case 'html': {
-			return 'text-orange-400';
+			return 'text-orange-600 dark:text-orange-400';
 		}
 		case 'json': {
-			return 'text-green-400';
+			return 'text-green-600 dark:text-green-400';
 		}
 		case 'md': {
 			return 'text-gray-400';

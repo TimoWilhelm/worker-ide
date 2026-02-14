@@ -17,6 +17,7 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { Pill } from '@/components/ui/pill';
 import { PanelSkeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
 import { Tooltip, TooltipProvider } from '@/components/ui/tooltip';
@@ -558,26 +559,8 @@ export function IDEShell({ projectId }: { projectId: string }) {
 													<div className="flex items-center gap-2">
 														<ChevronDown className="size-3 text-text-secondary" />
 														<span className="text-xs font-medium text-text-secondary">Terminal</span>
-														{logCounts.errors > 0 && (
-															<span
-																className="
-																	inline-flex items-center rounded-full bg-red-500/15 px-1.5
-																	py-0.5 text-2xs leading-none font-medium text-red-400
-																"
-															>
-																{logCounts.errors}
-															</span>
-														)}
-														{logCounts.warnings > 0 && (
-															<span
-																className="
-																	inline-flex items-center rounded-full bg-yellow-500/15 px-1.5
-																	py-0.5 text-2xs leading-none font-medium text-yellow-400
-																"
-															>
-																{logCounts.warnings}
-															</span>
-														)}
+														{logCounts.errors > 0 && <Pill color="red">{logCounts.errors}</Pill>}
+														{logCounts.warnings > 0 && <Pill color="yellow">{logCounts.warnings}</Pill>}
 													</div>
 													<div className="flex items-center gap-3 text-xs text-text-secondary">
 														{activeFile && <span className="truncate">{activeFile}</span>}
@@ -614,26 +597,8 @@ export function IDEShell({ projectId }: { projectId: string }) {
 									<div className="flex items-center gap-2">
 										<ChevronUp className="size-3 text-text-secondary" />
 										<span className="text-xs font-medium text-text-secondary">Terminal</span>
-										{logCounts.errors > 0 && (
-											<span
-												className="
-													inline-flex items-center rounded-full bg-red-500/15 px-1.5 py-0.5
-													text-2xs leading-none font-medium text-red-400
-												"
-											>
-												{logCounts.errors}
-											</span>
-										)}
-										{logCounts.warnings > 0 && (
-											<span
-												className="
-													inline-flex items-center rounded-full bg-yellow-500/15 px-1.5
-													py-0.5 text-2xs leading-none font-medium text-yellow-400
-												"
-											>
-												{logCounts.warnings}
-											</span>
-										)}
+										{logCounts.errors > 0 && <Pill color="red">{logCounts.errors}</Pill>}
+										{logCounts.warnings > 0 && <Pill color="yellow">{logCounts.warnings}</Pill>}
 									</div>
 									<div
 										className="
@@ -727,7 +692,9 @@ export function IDEShell({ projectId }: { projectId: string }) {
 					</div>
 					<div className="flex items-center gap-4">
 						{isSaving && <span>Saving...</span>}
-						<span>Worker IDE</span>
+						<a href="/docs" target="_blank" rel="noopener noreferrer" className="transition-colors hover:text-accent">
+							Worker IDE
+						</a>
 					</div>
 				</footer>
 			</div>

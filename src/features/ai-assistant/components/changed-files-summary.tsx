@@ -8,6 +8,7 @@
 import { Check, ChevronDown, ChevronRight, FileMinus, FilePen, FilePlus, X } from 'lucide-react';
 import { useCallback, useMemo, useState } from 'react';
 
+import { Pill } from '@/components/ui/pill';
 import { useStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 
@@ -217,40 +218,17 @@ function ChangedFileRow({
 // Action Badge
 // =============================================================================
 
+const ACTION_BADGE_CONFIG: Record<'create' | 'edit' | 'delete', { icon: typeof FilePlus; color: 'success' | 'warning' | 'error' }> = {
+	create: { icon: FilePlus, color: 'success' },
+	edit: { icon: FilePen, color: 'warning' },
+	delete: { icon: FileMinus, color: 'error' },
+};
+
 function ActionBadge({ action }: { action: 'create' | 'edit' | 'delete' }) {
-	switch (action) {
-		case 'create': {
-			return (
-				<span
-					className="
-						inline-flex items-center rounded-sm bg-success/15 px-1 py-px text-success
-					"
-				>
-					<FilePlus className="size-3" />
-				</span>
-			);
-		}
-		case 'edit': {
-			return (
-				<span
-					className="
-						inline-flex items-center rounded-sm bg-warning/15 px-1 py-px text-warning
-					"
-				>
-					<FilePen className="size-3" />
-				</span>
-			);
-		}
-		case 'delete': {
-			return (
-				<span
-					className="
-						inline-flex items-center rounded-sm bg-error/15 px-1 py-px text-error
-					"
-				>
-					<FileMinus className="size-3" />
-				</span>
-			);
-		}
-	}
+	const { icon: Icon, color } = ACTION_BADGE_CONFIG[action];
+	return (
+		<Pill size="xs" rounded="sm" color={color}>
+			<Icon className="size-3" />
+		</Pill>
+	);
 }

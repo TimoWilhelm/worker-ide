@@ -31,6 +31,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
+import { Pill, type PillProperties } from '@/components/ui/pill';
 import { Tooltip } from '@/components/ui/tooltip';
 import { useStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
@@ -478,10 +479,10 @@ function TodoStatusIcon({ status }: { status: TodoItemDisplay['status'] }) {
 	}
 }
 
-const PRIORITY_STYLES: Record<TodoItemDisplay['priority'], string> = {
-	high: 'bg-error/10 text-error',
-	medium: 'bg-warning/10 text-warning',
-	low: 'bg-bg-tertiary text-text-secondary',
+const PRIORITY_PILL_COLOR: Record<TodoItemDisplay['priority'], NonNullable<PillProperties['color']>> = {
+	high: 'error',
+	medium: 'warning',
+	low: 'muted',
 };
 
 function InlineTodoList({ todos }: { todos: TodoItemDisplay[] }) {
@@ -514,9 +515,9 @@ function InlineTodoList({ todos }: { todos: TodoItemDisplay[] }) {
 						<span className={cn('flex-1 text-text-primary', item.status === 'completed' && 'text-text-secondary line-through')}>
 							{item.content}
 						</span>
-						<span className={cn('shrink-0 rounded-full px-1.5 py-0.5 text-2xs font-medium', PRIORITY_STYLES[item.priority])}>
+						<Pill color={PRIORITY_PILL_COLOR[item.priority]} className="shrink-0">
 							{item.priority}
-						</span>
+						</Pill>
 					</div>
 				))}
 			</div>

@@ -93,3 +93,4 @@ async function init() {
 }
 
 await init();
+console.log('Init complete');

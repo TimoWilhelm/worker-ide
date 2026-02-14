@@ -14,9 +14,9 @@
 	--color-text-secondary: #52100090;
 	--color-accent: #ff4801;
 	--color-accent-hover: #ff7038;
-	--color-success: #19e306;
-	--color-warning: #ffb10a;
-	--color-error: #ff5e5e;
+	--color-success: #15a800;
+	--color-warning: #d97706;
+	--color-error: #e93e3e;
 
 	/* Selection colors */
 	--color-selection-bg: #ffe9e0;
@@ -27,8 +27,8 @@
 	--color-collab-cyan: #0a95ff;
 	--color-collab-purple: #9616ff;
 	--color-collab-pink: #ee0ddb;
-	--color-collab-green: #19e306;
-	--color-collab-yellow: #ffb10a;
+	--color-collab-green: #15a800;
+	--color-collab-yellow: #d97706;
 
 	/* Font families */
 	--font-sans: 'Space Grotesk', sans-serif;

@@ -15,7 +15,6 @@ import { mount, withMounts } from 'worker-fs-mount';
 
 import { generateHumanId } from '@shared/human-id';
 
-import documentationHtml from './fixtures/docs.html?raw';
 import exampleIndexHtml from './fixtures/example-project/index.html?raw';
 import exampleApiTs from './fixtures/example-project/src/api.ts?raw';
 import exampleMainTs from './fixtures/example-project/src/main.ts?raw';
@@ -114,11 +113,6 @@ const app = new Hono<{ Bindings: Env }>();
 // CORS middleware for API routes
 app.use('/api/*', cors());
 app.use('/p/*/api/*', cors());
-
-// Documentation page
-app.get('/about', (c) => {
-	return c.html(documentationHtml);
-});
 
 // Create new project (needs to be outside project context)
 app.post('/api/new-project', async (c) => {

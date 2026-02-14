@@ -9,6 +9,7 @@ import { Ban, Circle } from 'lucide-react';
 import { ScrollArea } from 'radix-ui';
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 
+import { Pill } from '@/components/ui/pill';
 import { Tooltip } from '@/components/ui/tooltip';
 import { useStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
@@ -199,15 +200,15 @@ function FilterButton({ active, onClick, children }: { active: boolean; onClick:
 
 const LEVEL_COLORS: Record<LogEntry['level'], string> = {
 	log: 'text-text-secondary',
-	info: 'text-blue-400',
-	warn: 'text-yellow-400',
-	error: 'text-red-400',
+	info: 'text-blue-600 dark:text-blue-400',
+	warn: 'text-yellow-600 dark:text-yellow-400',
+	error: 'text-red-600 dark:text-red-400',
 	debug: 'text-gray-500',
 };
 
-const SOURCE_BADGE_STYLES: Record<string, string> = {
-	server: 'bg-purple-500/15 text-purple-400',
-	client: 'bg-cyan-500/15 text-cyan-400',
+const SOURCE_PILL_COLOR: Record<string, 'purple' | 'cyan'> = {
+	server: 'purple',
+	client: 'cyan',
 };
 
 function LogLine({ log }: { log: LogEntry }) {
@@ -229,17 +230,9 @@ function LogLine({ log }: { log: LogEntry }) {
 		>
 			<span className="shrink-0 text-text-secondary">{time}</span>
 			{log.source && log.source !== 'system' && (
-				<span
-					className={cn(
-						`
-							mt-px shrink-0 rounded-sm px-1 py-px text-3xs leading-none font-medium
-							uppercase
-						`,
-						SOURCE_BADGE_STYLES[log.source],
-					)}
-				>
+				<Pill size="xs" rounded="sm" color={SOURCE_PILL_COLOR[log.source]} className="mt-px shrink-0 uppercase">
 					{log.source === 'server' ? 'worker' : 'client'}
-				</span>
+				</Pill>
 			)}
 			<Circle className={cn('mt-1 size-2 shrink-0', LEVEL_COLORS[log.level])} fill="currentColor" />
 			<span className="break-all whitespace-pre-wrap text-text-primary">
