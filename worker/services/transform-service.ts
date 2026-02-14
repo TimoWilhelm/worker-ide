@@ -415,225 +415,69 @@ export default css;
 }
 
 // =============================================================================
-// HMR Client Generation
-// =============================================================================
-
-function sanitizeJsString(s: string): string {
-	return s
-		.replaceAll('\\', '\\\\')
-		.replaceAll("'", String.raw`\'`)
-		.replaceAll('\n', String.raw`\n`)
-		.replaceAll('\r', String.raw`\r`)
-		.replaceAll(/<\/(script)/gi, String.raw`<\/$1`);
-}
-
-/**
- * Generate HMR client code to inject into HTML.
- */
-export function generateHMRClient(wsUrl: string, baseUrl: string): string {
-	const safeWsUrl = sanitizeJsString(wsUrl);
-	const safeBaseUrl = sanitizeJsString(baseUrl);
-	return `
-<script type="module">
-// HMR client
-const socket = new WebSocket('${safeWsUrl}');
-const modules = new Map();
-const hmrBaseUrl = '${safeBaseUrl}';
-
-// Console interceptor — forward logs to the parent IDE frame
-(function() {
-  const levels = ['log', 'info', 'warn', 'error', 'debug'];
-  for (const level of levels) {
-    const original = console[level];
-    console[level] = function(...args) {
-      original.apply(console, args);
-      try {
-        const message = args.map(a => typeof a === 'string' ? a : JSON.stringify(a)).join(' ');
-        // Skip HMR-internal messages
-        if (message.startsWith('[hmr]')) return;
-        window.parent.postMessage({
-          type: '__console-log',
-          level,
-          message,
-          timestamp: Date.now()
-        }, '*');
-      } catch {
-        // Ignore serialization errors
-      }
-    };
-  }
-})();
-
-window.showErrorOverlay = showErrorOverlay;
-window.hideErrorOverlay = hideErrorOverlay;
-function showErrorOverlay(err) {
-  hideErrorOverlay();
-  const overlay = document.createElement('div');
-  overlay.id = '__error-overlay';
-  const esc = (s) => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-  const loc = err.file ? esc(err.file + (err.line ? ':' + err.line : '') + (err.column ? ':' + err.column : '')) : '';
-  overlay.innerHTML = \`
-    <style>
-      #__error-overlay{position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,0.75);display:flex;align-items:center;justify-content:center;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,monospace}
-      .__eo-card{background:#1a1a2e;color:#e0e0e0;border-radius:12px;max-width:640px;width:90%;max-height:80vh;overflow:auto;box-shadow:0 8px 32px rgba(0,0,0,0.5);border:1px solid rgba(248,81,73,0.4)}
-      .__eo-header{padding:16px 20px;border-bottom:1px solid rgba(248,81,73,0.3);display:flex;align-items:center;gap:10px}
-      .__eo-badge{background:rgba(248,81,73,0.2);color:#f85149;font-size:11px;font-weight:700;text-transform:uppercase;padding:2px 8px;border-radius:4px}
-      .__eo-title{color:#f85149;font-size:14px;font-weight:600;flex:1}
-      .__eo-close{background:none;border:none;color:#8b949e;cursor:pointer;font-size:18px;padding:4px 8px;border-radius:4px}
-      .__eo-close:hover{background:rgba(255,255,255,0.1);color:#e0e0e0}
-      .__eo-body{padding:16px 20px}
-      .__eo-file{color:#58a6ff;font-size:13px;margin-bottom:12px;cursor:pointer;text-decoration:underline;text-decoration-color:transparent;transition:text-decoration-color 0.15s}
-      .__eo-file:hover{text-decoration-color:#58a6ff}
-      .__eo-msg{background:#0d1117;border-radius:8px;padding:14px 16px;font-size:13px;line-height:1.6;white-space:pre-wrap;word-break:break-all;color:#f0f0f0;border:1px solid rgba(48,54,61,0.8)}
-    </style>
-    <div class="__eo-card">
-      <div class="__eo-header">
-        <span class="__eo-badge">\${esc(err.type || 'error')}</span>
-        <span class="__eo-title">Build Error</span>
-        <button class="__eo-close" onclick="document.getElementById('__error-overlay')?.remove()">&times;</button>
-      </div>
-      <div class="__eo-body">
-        \${loc ? '<div class="__eo-file" data-file="/' + esc(err.file || '') + '" data-line="' + (err.line || 1) + '" data-column="' + (err.column || 1) + '">' + loc + '</div>' : ''}
-        <div class="__eo-msg">\${esc(err.message || 'Unknown error')}</div>
-      </div>
-    </div>\`;
-  document.body.appendChild(overlay);
-  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
-  const fileEl = overlay.querySelector('.__eo-file');
-  if (fileEl) {
-    fileEl.addEventListener('click', () => {
-      window.parent.postMessage({ type: '__open-file', file: fileEl.dataset.file, line: parseInt(fileEl.dataset.line, 10) || 1, column: parseInt(fileEl.dataset.column, 10) || 1 }, '*');
-    });
-  }
-}
-function hideErrorOverlay() {
-  document.getElementById('__error-overlay')?.remove();
-}
-
-socket.addEventListener('message', (event) => {
-  const data = JSON.parse(event.data);
-
-  if (data.type === 'full-reload') {
-    location.reload();
-  } else if (data.type === 'server-error' && data.error) {
-    showErrorOverlay(data.error);
-  } else if (data.type === 'update') {
-    hideErrorOverlay();
-    data.updates?.forEach(update => {
-      if (update.type === 'js-update') {
-        import(hmrBaseUrl + update.path + '?t=' + update.timestamp).then(mod => {
-          console.log('[hmr] hot updated:', update.path);
-        });
-      } else if (update.type === 'css-update') {
-        const style = document.querySelector(\`style[data-dev-id="\${update.path}"]\`);
-        if (style) {
-          fetch(hmrBaseUrl + update.path + '?raw&t=' + update.timestamp)
-            .then(r => r.text())
-            .then(css => {
-              style.textContent = css;
-              console.log('[hmr] css hot updated:', update.path);
-            });
-        }
-      }
-    });
-  }
-});
-
-socket.addEventListener('open', () => {
-  console.log('[hmr] connected.');
-});
-
-socket.addEventListener('close', () => {
-  console.log('[hmr] server connection lost. polling for restart...');
-  setInterval(() => {
-    fetch(location.href).then(() => location.reload());
-  }, 1000);
-});
-
-// Keep connection alive
-setInterval(() => {
-  if (socket.readyState === WebSocket.OPEN) {
-    socket.send(JSON.stringify({ type: 'ping' }));
-  }
-}, 30000);
-
-// Expose for HMR API
-window.__hot_modules = modules;
-</script>`;
-}
-
-// =============================================================================
-// Fetch Interceptor
-// =============================================================================
-
-/**
- * Generate fetch interceptor that rewrites API requests to preview API path.
- */
-function generateFetchInterceptor(baseUrl: string): string {
-	if (!baseUrl) return '';
-
-	const previewBase = sanitizeJsString(baseUrl.replace(/\/$/, ''));
-
-	return `
-<script>
-// Fetch interceptor - rewrites /api/* requests to ${previewBase}/api/*
-(function() {
-  const previewBase = '${previewBase}';
-  const originalFetch = window.fetch;
-  window.fetch = function(input, init) {
-    let url = input;
-    if (typeof input === 'string') {
-      if (input.startsWith('/api/') || input === '/api') {
-        url = previewBase + input;
-      }
-    } else if (input instanceof Request) {
-      const reqUrl = new URL(input.url);
-      if (reqUrl.pathname.startsWith('/api/') || reqUrl.pathname === '/api') {
-        reqUrl.pathname = previewBase + reqUrl.pathname;
-        input = new Request(reqUrl.toString(), input);
-      }
-      url = input;
-    }
-    return originalFetch.call(this, url, init);
-  };
-
-  const originalXHROpen = XMLHttpRequest.prototype.open;
-  XMLHttpRequest.prototype.open = function(method, url, ...rest) {
-    let newUrl = url;
-    if (typeof url === 'string') {
-      if (url.startsWith('/api/') || url === '/api') {
-        newUrl = previewBase + url;
-      }
-    }
-    return originalXHROpen.call(this, method, newUrl, ...rest);
-  };
-})();
-</script>`;
-}
-
-// =============================================================================
 // HTML Processing
 // =============================================================================
 
 /**
- * Process HTML file using HTMLRewriter - inject HMR client and rewrite script/link tags.
+ * Escape a string for safe embedding inside a JSON value within a <script> tag.
  */
-export async function processHTML(html: string, _filePath: string, options: TransformOptions & { hmrUrl: string }): Promise<string> {
-	const { baseUrl, hmrUrl } = options;
+function escapeForScriptTag(s: string): string {
+	return s
+		.replaceAll('\\', '\\\\')
+		.replaceAll("'", String.raw`\'`)
+		.replaceAll(/<\/(script)/gi, String.raw`<\/$1`);
+}
 
-	const fetchInterceptor = generateFetchInterceptor(baseUrl);
-	const hmrClient = generateHMRClient(hmrUrl, baseUrl);
+/**
+ * Generate the tiny inline config script that external preview scripts read.
+ * This is the ONLY inline JS injected into the preview HTML.
+ */
+function generatePreviewConfig(wsUrl: string, baseUrl: string): string {
+	const safeWsUrl = escapeForScriptTag(wsUrl);
+	const safeBaseUrl = escapeForScriptTag(baseUrl);
+	return `<script>window.__PREVIEW_CONFIG={wsUrl:'${safeWsUrl}',baseUrl:'${safeBaseUrl}'};</script>`;
+}
+
+/**
+ * Generate the external script tags for preview infrastructure.
+ * All logic lives in separate .js files served by preview-service at /__*.js.
+ * Uses relative paths (no leading /) so the browser resolves them relative
+ * to the current preview URL (e.g. /p/:projectId/preview/__hmr-client.js).
+ */
+function generatePreviewScriptTags(integrityHashes?: Record<string, string>): string {
+	const scripts = ['__fetch-interceptor.js', '__error-overlay.js', '__hmr-client.js', '__chobitsu.js', '__chobitsu-init.js'];
+	return scripts
+		.map((source) => {
+			const hash = integrityHashes?.[source];
+			const integrity = hash ? ` integrity="${hash}" crossorigin="anonymous"` : '';
+			return `<script src="${source}"${integrity}></script>`;
+		})
+		.join('\n');
+}
+
+/**
+ * Process HTML file using HTMLRewriter - inject preview config and rewrite script/link tags.
+ */
+export async function processHTML(
+	html: string,
+	_filePath: string,
+	options: TransformOptions & { hmrUrl: string; scriptIntegrityHashes?: Record<string, string> },
+): Promise<string> {
+	const { baseUrl, hmrUrl, scriptIntegrityHashes } = options;
+
+	const previewConfig = generatePreviewConfig(hmrUrl, baseUrl);
+	const previewScripts = generatePreviewScriptTags(scriptIntegrityHashes);
 
 	const rewriter = new HTMLRewriter()
 		.on('head', {
 			element(element) {
-				element.append(fetchInterceptor + hmrClient, { html: true });
+				element.append(previewConfig + previewScripts, { html: true });
 			},
 		})
 		.on('script[src]', {
 			element(element) {
 				const source = element.getAttribute('src');
-				if (!source || source.startsWith('http://') || source.startsWith('https://')) {
+				if (!source || source.startsWith('http://') || source.startsWith('https://') || source.startsWith('__')) {
 					return;
 				}
 				const newSource = source.startsWith('/') ? `${baseUrl}${source}` : `${baseUrl}/${source}`;

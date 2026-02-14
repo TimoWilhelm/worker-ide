@@ -5,11 +5,12 @@
  * Simple responsive preview without device emulation.
  */
 
-import { ExternalLink, RefreshCw } from 'lucide-react';
-import { useCallback, useRef, useState } from 'react';
+import { ExternalLink, RefreshCw, Wrench } from 'lucide-react';
+import { useCallback, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Tooltip } from '@/components/ui/tooltip';
+import { useStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 
 // =============================================================================
@@ -19,6 +20,8 @@ import { cn } from '@/lib/utils';
 export interface PreviewPanelProperties {
 	/** Project ID for constructing preview URL */
 	projectId: string;
+	/** Shared iframe ref for CDP message relay with DevTools */
+	iframeReference: React.RefObject<HTMLIFrameElement | null>;
 	/** CSS class name */
 	className?: string;
 }
@@ -30,10 +33,11 @@ export interface PreviewPanelProperties {
 /**
  * Preview panel component showing live preview of the project.
  */
-export function PreviewPanel({ projectId, className }: PreviewPanelProperties) {
-	const iframeReference = useRef<HTMLIFrameElement>(null);
+export function PreviewPanel({ projectId, iframeReference, className }: PreviewPanelProperties) {
 	const [isLoading, setIsLoading] = useState(true);
 	const [previewKey, setPreviewKey] = useState(0);
+	const devtoolsVisible = useStore((state) => state.devtoolsVisible);
+	const toggleDevtools = useStore((state) => state.toggleDevtools);
 
 	// Preview URL — must match the worker route at /p/:projectId/preview/
 	const previewUrl = `/p/${projectId}/preview/`;
@@ -56,7 +60,7 @@ export function PreviewPanel({ projectId, className }: PreviewPanelProperties) {
 
 	// The preview iframe has its own HMR WebSocket client (injected by
 	// processHTML) that handles full-reload and CSS hot-swap internally.
-	// No postMessage listener is needed here.
+	// Chobitsu (CDP implementation) is also injected for DevTools support.
 
 	return (
 		<div className={cn('flex h-full flex-col bg-bg-secondary', className)}>
@@ -68,17 +72,14 @@ export function PreviewPanel({ projectId, className }: PreviewPanelProperties) {
 			>
 				<div className="flex items-center gap-1.5">
 					<span className="text-xs font-medium text-text-secondary">Preview</span>
-					<span
-						className="
-							rounded-sm bg-bg-tertiary px-1.5 py-0.5 font-mono text-xs
-							text-text-secondary
-						"
-					>
-						/preview
-					</span>
 				</div>
 
 				<div className="flex items-center gap-1">
+					<Tooltip content="Toggle DevTools">
+						<Button variant="ghost" size="icon" className={cn('size-7', devtoolsVisible && 'text-accent')} onClick={toggleDevtools}>
+							<Wrench className="size-3.5" />
+						</Button>
+					</Tooltip>
 					<Tooltip content="Refresh">
 						<Button variant="ghost" size="icon" className="size-7" onClick={handleRefresh}>
 							<RefreshCw className={cn('size-3.5', isLoading && 'animate-spin')} />

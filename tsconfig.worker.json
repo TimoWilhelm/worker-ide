@@ -12,7 +12,7 @@
 		"paths": {
 			"@shared/*": ["./shared/*"]
 		},
-		"types": ["./worker-configuration.d.ts", "vite/client", "node"]
+		"types": ["./worker-configuration.d.ts", "./raw-minified.d.ts", "vite/client", "node"]
 	},
 	"include": ["worker", "shared"],
 	"exclude": ["worker/fixtures", "worker/**/*.test.ts", "shared/**/*.test.ts"]

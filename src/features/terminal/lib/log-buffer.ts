@@ -82,28 +82,49 @@ globalThis.addEventListener('server-logs', (event: Event) => {
 });
 
 /**
- * Listen for __console-log messages from the preview iframe.
- * The HMR client injects a console interceptor that forwards all
- * console.log/info/warn/error/debug calls via window.parent.postMessage.
+ * Listen for postMessage events from the preview iframe:
+ * - __console-log: forwarded by chobitsu CDP Runtime.consoleAPICalled events
+ * - __server-error: forwarded by the HMR client when the preview receives a server error
  */
 globalThis.addEventListener('message', (event: MessageEvent) => {
 	// Only accept messages from same origin (preview iframe)
 	if (event.origin !== globalThis.location.origin) return;
-	if (event.data?.type !== '__console-log') return;
 
-	const { level, message, timestamp } = event.data;
-	if (typeof message !== 'string' || typeof timestamp !== 'number') return;
+	const { type } = event.data ?? {};
 
-	const validLevels = new Set(['log', 'info', 'warn', 'error', 'debug']);
-	const resolvedLevel: LogEntry['level'] = validLevels.has(level) ? level : 'log';
+	if (type === '__console-log') {
+		const { level, message, timestamp } = event.data;
+		if (typeof message !== 'string' || typeof timestamp !== 'number') return;
 
-	append({
-		id: nextId(),
-		timestamp,
-		level: resolvedLevel,
-		message,
-		source: 'client',
-	});
+		const validLevels = new Set(['log', 'info', 'warn', 'error', 'debug']);
+		const resolvedLevel: LogEntry['level'] = validLevels.has(level) ? level : 'log';
+
+		append({
+			id: nextId(),
+			timestamp,
+			level: resolvedLevel,
+			message,
+			source: 'client',
+		});
+		return;
+	}
+
+	if (type === '__server-error') {
+		const error = event.data.error;
+		if (!error || typeof error.message !== 'string') return;
+
+		const parts = [error.message];
+		if (error.file) {
+			parts.push(`  at ${error.file}${error.line ? `:${error.line}` : ''}${error.column ? `:${error.column}` : ''}`);
+		}
+		append({
+			id: nextId(),
+			timestamp: error.timestamp ?? Date.now(),
+			level: 'error',
+			message: parts.join('\n'),
+			source: 'client',
+		});
+	}
 });
 
 // =============================================================================

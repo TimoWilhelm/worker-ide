@@ -5,12 +5,25 @@
 
 import fs from 'node:fs/promises';
 
+import { source as chobitsuSource, hash as chobitsuHash } from 'chobitsu?raw-minified';
 import { env, exports } from 'cloudflare:workers';
 
 import { serializeMessage, type ServerMessage } from '@shared/ws-messages';
 
 import { transformCode } from './bundler-service';
 import { transformModule, processHTML, type FileSystem } from './transform-service';
+import { source as chobitsuInitSource, hash as chobitsuInitHash } from '../lib/preview-scripts/chobitsu-init.js?raw-minified';
+import { source as errorOverlaySource, hash as errorOverlayHash } from '../lib/preview-scripts/error-overlay.js?raw-minified';
+import { source as fetchInterceptorSource, hash as fetchInterceptorHash } from '../lib/preview-scripts/fetch-interceptor.js?raw-minified';
+import { source as hmrClientSource, hash as hmrClientHash } from '../lib/preview-scripts/hmr-client.js?raw-minified';
+
+const scriptIntegrityHashes: Record<string, string> = {
+	'__chobitsu.js': chobitsuHash,
+	'__chobitsu-init.js': chobitsuInitHash,
+	'__error-overlay.js': errorOverlayHash,
+	'__fetch-interceptor.js': fetchInterceptorHash,
+	'__hmr-client.js': hmrClientHash,
+};
 
 // =============================================================================
 // Types
@@ -43,6 +56,24 @@ export class PreviewService {
 	async serveFile(request: Request, baseUrl: string): Promise<Response> {
 		const url = new URL(request.url);
 		let filePath = url.pathname === '/' ? '/index.html' : url.pathname;
+
+		// Serve internal preview scripts (same-origin, avoids CDN issues in sandboxed iframes)
+		const internalScripts: Record<string, string> = {
+			'/__chobitsu.js': chobitsuSource,
+			'/__chobitsu-init.js': chobitsuInitSource,
+			'/__error-overlay.js': errorOverlaySource,
+			'/__hmr-client.js': hmrClientSource,
+			'/__fetch-interceptor.js': fetchInterceptorSource,
+		};
+		const internalScript = internalScripts[filePath];
+		if (internalScript !== undefined) {
+			return new Response(internalScript, {
+				headers: { 'Content-Type': 'application/javascript', 'Cache-Control': 'public, max-age=86400' },
+			});
+		}
+		if (filePath === '/chobitsu.js.map') {
+			return new Response(undefined, { status: 204 });
+		}
 
 		// Check for raw query param (used by HMR for CSS)
 		const isRawRequest = url.searchParams.has('raw');
@@ -110,6 +141,7 @@ export class PreviewService {
 					projectRoot: this.projectRoot,
 					baseUrl,
 					hmrUrl,
+					scriptIntegrityHashes,
 				});
 				return new Response(html, {
 					headers: { 'Content-Type': 'text/html', 'Cache-Control': 'no-cache' },
@@ -155,7 +187,7 @@ export class PreviewService {
 			const errorJson = JSON.stringify(serverError)
 				.replaceAll('<', String.raw`\u003c`)
 				.replaceAll('>', String.raw`\u003e`);
-			const errorModule = `if (typeof showErrorOverlay === 'function') { showErrorOverlay(${errorJson}); } else { console.error(${errorJson}.message); }`;
+			const errorModule = `if(typeof showErrorOverlay==='function'){showErrorOverlay(${errorJson})}else{console.error(${errorJson}.message)}`;
 			return new Response(errorModule, {
 				headers: { 'Content-Type': 'application/javascript', 'Cache-Control': 'no-cache' },
 			});

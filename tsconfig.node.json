@@ -17,9 +17,10 @@
 		"paths": {
 			"@shared/*": ["./shared/*"]
 		},
-		"types": ["./worker-configuration.d.ts", "vite/client"]
+		"types": ["./worker-configuration.d.ts", "./raw-minified.d.ts", "vite/client", "node"]
 	},
 	"include": [
+		"raw-minified.d.ts",
 		"vite.config.ts",
 		"vitest.config.ts",
 		"playwright.config.ts",

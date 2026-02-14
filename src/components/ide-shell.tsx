@@ -35,6 +35,7 @@ import type { LogCounts } from '@/features/terminal';
 
 // Lazy-loaded feature panels for code splitting
 const AIPanel = lazy(() => import('@/features/ai-assistant'));
+const DevelopmentToolsPanel = lazy(() => import('@/features/devtools'));
 const PreviewPanel = lazy(() => import('@/features/preview'));
 const TerminalPanel = lazy(() => import('@/features/terminal'));
 
@@ -56,6 +57,7 @@ export function IDEShell({ projectId }: { projectId: string }) {
 		toggleTerminal,
 		aiPanelVisible,
 		toggleAIPanel,
+		devtoolsVisible,
 		activeFile,
 		openFiles,
 		unsavedChanges,
@@ -151,6 +153,9 @@ export function IDEShell({ projectId }: { projectId: string }) {
 		}
 		previousErrorCount.current = logCounts.errors;
 	}, [logCounts.errors, terminalVisible, toggleTerminal]);
+
+	// Shared preview iframe ref for CDP message relay with DevTools
+	const previewIframeReference = useRef<HTMLIFrameElement>(null);
 
 	// File tree hook
 	const {
@@ -317,10 +322,9 @@ export function IDEShell({ projectId }: { projectId: string }) {
 	// Listen for __open-file messages from the preview iframe (error overlay)
 	useEffect(() => {
 		const handleMessage = (event: MessageEvent) => {
-			// Only accept messages from same origin (preview iframe)
 			if (event.origin !== globalThis.location.origin) return;
 			if (event.data?.type === '__open-file' && typeof event.data.file === 'string') {
-				const file: string = event.data.file;
+				const file: string = event.data.file.startsWith('/') ? event.data.file : `/${event.data.file}`;
 				const line = typeof event.data.line === 'number' ? event.data.line : 1;
 				const column = typeof event.data.column === 'number' ? event.data.column : 1;
 				goToFilePosition(file, { line, column });
@@ -330,6 +334,19 @@ export function IDEShell({ projectId }: { projectId: string }) {
 		globalThis.addEventListener('message', handleMessage);
 		return () => globalThis.removeEventListener('message', handleMessage);
 	}, [goToFilePosition]);
+
+	// Forward bundle errors to the preview iframe so the error overlay shows
+	useEffect(() => {
+		const handleServerError = (event: Event) => {
+			if (!(event instanceof CustomEvent)) return;
+			const error = event.detail;
+			if (error?.type !== 'bundle') return;
+			previewIframeReference.current?.contentWindow?.postMessage({ type: '__show-error-overlay', error }, globalThis.location.origin);
+		};
+
+		globalThis.addEventListener('server-error', handleServerError);
+		return () => globalThis.removeEventListener('server-error', handleServerError);
+	}, [previewIframeReference]);
 
 	// Clean up cursor debounce timeout on unmount
 	useEffect(() => {
@@ -636,11 +653,35 @@ export function IDEShell({ projectId }: { projectId: string }) {
 						"
 					/>
 
-					{/* Preview panel */}
-					<Panel id="preview" defaultSize={aiPanelVisible ? '20%' : '40%'} minSize="15%">
-						<Suspense fallback={<PanelSkeleton label="Loading preview..." />}>
-							<PreviewPanel projectId={projectId} className="h-full" />
-						</Suspense>
+					{/* Preview + DevTools column */}
+					<Panel id="preview-col" defaultSize={aiPanelVisible ? '20%' : '40%'} minSize="15%">
+						<PanelGroup orientation="vertical" id="ide-preview-devtools">
+							{/* Preview panel */}
+							<Panel id="preview" defaultSize={devtoolsVisible ? '50%' : '100%'} minSize="20%">
+								<Suspense fallback={<PanelSkeleton label="Loading preview..." />}>
+									<PreviewPanel projectId={projectId} iframeReference={previewIframeReference} className="h-full" />
+								</Suspense>
+							</Panel>
+
+							{/* DevTools panel (resizable) */}
+							{devtoolsVisible && (
+								<>
+									<ResizeHandle
+										className="
+											h-1 bg-border transition-colors
+											hover:bg-accent
+											data-[separator=active]:bg-accent
+											data-[separator=hover]:bg-accent
+										"
+									/>
+									<Panel id="devtools" defaultSize="50%" minSize="15%" maxSize="80%">
+										<Suspense fallback={<PanelSkeleton label="Loading DevTools..." />}>
+											<DevelopmentToolsPanel previewIframeReference={previewIframeReference} className="h-full" />
+										</Suspense>
+									</Panel>
+								</>
+							)}
+						</PanelGroup>
 					</Panel>
 
 					{/* Snapshot panel (part of AI sidebar area) */}

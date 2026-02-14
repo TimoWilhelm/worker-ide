@@ -180,6 +180,8 @@ interface UIState {
 	terminalVisible: boolean;
 	/** Whether AI panel is visible */
 	aiPanelVisible: boolean;
+	/** Whether DevTools panel is visible below the preview */
+	devtoolsVisible: boolean;
 	/** Color scheme preference */
 	colorScheme: ColorScheme;
 }
@@ -188,6 +190,7 @@ interface UIActions {
 	toggleSidebar: () => void;
 	toggleTerminal: () => void;
 	toggleAIPanel: () => void;
+	toggleDevtools: () => void;
 	setColorScheme: (scheme: ColorScheme) => void;
 }
 
@@ -551,12 +554,15 @@ export const useStore = create<StoreState>()(
 				sidebarVisible: true,
 				terminalVisible: true,
 				aiPanelVisible: false,
+				devtoolsVisible: false,
 				colorScheme: 'dark',
 				toggleSidebar: () => set((state) => ({ sidebarVisible: !state.sidebarVisible })),
 
 				toggleTerminal: () => set((state) => ({ terminalVisible: !state.terminalVisible })),
 
 				toggleAIPanel: () => set((state) => ({ aiPanelVisible: !state.aiPanelVisible })),
+
+				toggleDevtools: () => set((state) => ({ devtoolsVisible: !state.devtoolsVisible })),
 
 				setColorScheme: (scheme) => set({ colorScheme: scheme }),
 			}),
@@ -568,6 +574,7 @@ export const useStore = create<StoreState>()(
 					sidebarVisible: state.sidebarVisible,
 					terminalVisible: state.terminalVisible,
 					aiPanelVisible: state.aiPanelVisible,
+					devtoolsVisible: state.devtoolsVisible,
 					colorScheme: state.colorScheme,
 					expandedDirs: [...state.expandedDirs],
 					sessionId: state.sessionId,

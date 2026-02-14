@@ -1,0 +1,83 @@
+/**
+ * HMR Client for Preview
+ *
+ * Connects to the HMR WebSocket and handles:
+ * - Full page reloads
+ * - CSS hot-swap updates
+ * - JS hot-swap updates
+ * - Server error forwarding to parent IDE
+ *
+ * Reads config from window.__PREVIEW_CONFIG set by a tiny inline script:
+ *   { wsUrl: string, baseUrl: string }
+ */
+(function () {
+	var config = window.__PREVIEW_CONFIG;
+	if (!config || !config.wsUrl) return;
+
+	var socket = new WebSocket(config.wsUrl);
+	var hmrBaseUrl = config.baseUrl || '';
+
+	socket.addEventListener('message', function (event) {
+		var data = JSON.parse(event.data);
+
+		if (data.type === 'full-reload') {
+			location.reload();
+		} else if (data.type === 'server-error' && data.error) {
+			// Show overlay only for bundle errors, not runtime errors
+			if (data.error.type === 'bundle' && typeof window.showErrorOverlay === 'function') {
+				window.showErrorOverlay(data.error);
+			}
+			window.parent.postMessage(
+				{
+					type: '__server-error',
+					error: data.error,
+				},
+				'*',
+			);
+		} else if (data.type === 'update') {
+			if (typeof window.hideErrorOverlay === 'function') {
+				window.hideErrorOverlay();
+			}
+			data.updates &&
+				data.updates.forEach(function (update) {
+					if (update.type === 'js-update') {
+						import(hmrBaseUrl + update.path + '?t=' + update.timestamp).then(function () {
+							console.log('[hmr] hot updated:', update.path);
+						});
+					} else if (update.type === 'css-update') {
+						var style = document.querySelector('style[data-dev-id="' + update.path + '"]');
+						if (style) {
+							fetch(hmrBaseUrl + update.path + '?raw&t=' + update.timestamp)
+								.then(function (r) {
+									return r.text();
+								})
+								.then(function (css) {
+									style.textContent = css;
+									console.log('[hmr] css hot updated:', update.path);
+								});
+						}
+					}
+				});
+		}
+	});
+
+	socket.addEventListener('open', function () {
+		console.log('[hmr] connected.');
+	});
+
+	socket.addEventListener('close', function () {
+		console.log('[hmr] server connection lost. polling for restart...');
+		setInterval(function () {
+			fetch(location.href).then(function () {
+				location.reload();
+			});
+		}, 1000);
+	});
+
+	// Keep connection alive
+	setInterval(function () {
+		if (socket.readyState === WebSocket.OPEN) {
+			socket.send(JSON.stringify({ type: 'ping' }));
+		}
+	}, 30000);
+})();

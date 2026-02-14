@@ -19,6 +19,7 @@
 		"worker/lib/index.ts",
 		"worker/services/index.ts",
 		"worker/lib/content-type.ts",
+		"worker/lib/preview-scripts/*.js",
 		"src/features/ai-assistant/components/changed-files-summary.tsx",
 		"src/features/ai-assistant/hooks/use-change-review.ts"
 	]
