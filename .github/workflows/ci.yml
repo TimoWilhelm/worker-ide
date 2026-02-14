@@ -1,0 +1,278 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash -Eeuxo pipefail {0}
+
+env:
+  DO_NOT_TRACK: 1
+
+jobs:
+  setup:
+    name: Setup
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      playwright-version: ${{ steps.playwright-version.outputs.PLAYWRIGHT_VERSION }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Cache node_modules
+        id: cache-modules
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: ${{ runner.os }}-modules-${{ hashFiles('bun.lock') }}
+
+      - name: Install dependencies
+        if: steps.cache-modules.outputs.cache-hit != 'true'
+        run: bun install --frozen-lockfile
+
+      - name: Get Playwright version
+        id: playwright-version
+        run: |
+          PLAYWRIGHT_VERSION=$(bun pm pkg get devDependencies.playwright)
+          echo "Playwright Version: $PLAYWRIGHT_VERSION"
+          echo "PLAYWRIGHT_VERSION=$PLAYWRIGHT_VERSION" >> "$GITHUB_OUTPUT"
+
+  lint:
+    name: Lint
+    needs: setup
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Restore node_modules
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: ${{ runner.os }}-modules-${{ hashFiles('bun.lock') }}
+          fail-on-cache-miss: true
+
+      - name: Run lint
+        run: bun run lint
+
+  typecheck:
+    name: Typecheck
+    needs: setup
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Restore node_modules
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: ${{ runner.os }}-modules-${{ hashFiles('bun.lock') }}
+          fail-on-cache-miss: true
+
+      - name: Cache turbo
+        uses: actions/cache@v4
+        with:
+          path: .turbo
+          key: ${{ runner.os }}-turbo-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-turbo-
+
+      - name: Run Typecheck
+        run: bun run typecheck
+
+  knip:
+    name: Knip
+    needs: setup
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Restore node_modules
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: ${{ runner.os }}-modules-${{ hashFiles('bun.lock') }}
+          fail-on-cache-miss: true
+
+      - name: Run Knip
+        run: bun run knip
+
+  test:
+    name: Unit Tests
+    needs: setup
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Node.js is required for Vitest - https://github.com/oven-sh/bun/issues/4145
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Restore node_modules
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: ${{ runner.os }}-modules-${{ hashFiles('bun.lock') }}
+          fail-on-cache-miss: true
+
+      - name: Create dist directory
+        run: mkdir -p dist
+
+      - name: Run unit tests
+        run: bun run test:unit
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+  test-react:
+    name: React Tests
+    needs: setup
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Node.js is required for Vitest
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Restore node_modules
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: ${{ runner.os }}-modules-${{ hashFiles('bun.lock') }}
+          fail-on-cache-miss: true
+
+      - name: Run React tests
+        run: bun run test:react
+
+  e2e:
+    name: E2E Tests
+    needs: setup
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Restore node_modules
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: ${{ runner.os }}-modules-${{ hashFiles('bun.lock') }}
+          fail-on-cache-miss: true
+
+      - name: Cache Playwright
+        uses: actions/cache@v4
+        id: playwright-cache
+        with:
+          path: '~/.cache/ms-playwright'
+          key: playwright-${{ runner.os }}-${{ needs.setup.outputs.playwright-version }}
+
+      - name: Install Playwright browsers
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: bunx playwright install chromium
+
+      - name: Start dev server
+        run: |
+          bun run dev &
+          echo "DEV_SERVER_PID=$!" >> $GITHUB_ENV
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Wait for server to be ready
+        run: |
+          echo "Waiting for server..."
+          timeout 60 bash -c 'until curl -sf http://localhost:3000/api/health > /dev/null 2>&1; do sleep 2; done'
+          echo "Server is ready!"
+
+      - name: Run E2E tests
+        id: e2e
+        run: |
+          xvfb-run --auto-servernum -- bun run test:e2e
+
+      - name: Stop dev server
+        if: always()
+        run: |
+          if [ -n "$DEV_SERVER_PID" ]; then
+            kill $DEV_SERVER_PID || true
+          fi
+
+      - name: Upload Playwright Test Report
+        uses: actions/upload-artifact@v4
+        if: ${{ failure() && steps.e2e.conclusion == 'failure' }}
+        with:
+          name: playwright-e2e
+          path: |
+            playwright-report/
+            playwright-artifacts/
+          if-no-files-found: error

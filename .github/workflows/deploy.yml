@@ -1,0 +1,100 @@
+name: Deploy
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash -Eeuxo pipefail {0}
+
+env:
+  DO_NOT_TRACK: 1
+
+jobs:
+  deploy:
+    name: Deploy to Cloudflare Workers
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      - name: Cache turbo
+        uses: actions/cache@v4
+        with:
+          path: .turbo
+          key: ${{ runner.os }}-turbo-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-turbo-
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build application
+        run: bun run build
+
+      - name: Deploy to Cloudflare Workers
+        run: |
+          bunx wrangler deploy --no-bundle
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+      - name: Deployment summary
+        run: |
+          echo "## Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Environment:** production" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Deployed by:** ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+
+  post-deploy-smoke-test:
+    name: Post-Deploy Smoke Test
+    runs-on: ubuntu-latest
+    needs: deploy
+    timeout-minutes: 5
+
+    steps:
+      - name: Wait for deployment to propagate
+        run: sleep 10
+
+      - name: Health check
+        run: |
+          PRODUCTION_URL="${{ vars.PRODUCTION_URL }}"
+          if [ -z "$PRODUCTION_URL" ]; then
+            echo "PRODUCTION_URL not set, skipping health check"
+            exit 0
+          fi
+
+          echo "Checking health endpoint..."
+          response=$(curl -sf "$PRODUCTION_URL/api/health" || echo "failed")
+
+          if [ "$response" = "failed" ]; then
+            echo "::error::Health check failed!"
+            exit 1
+          fi
+
+          echo "Health check passed!"
+          echo "Response: $response"

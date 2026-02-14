@@ -1,0 +1,32 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "storybook",
+			"type": "shell",
+			"command": "bunx",
+			"args": ["storybook", "dev", "--port=6006", "--ci"],
+			"group": {
+				"kind": "build"
+			},
+			"presentation": {
+				"group": "run",
+				"reveal": "always",
+				"focus": false,
+				"panel": "dedicated"
+			},
+			"isBackground": true,
+			"problemMatcher": {
+				"owner": "custom",
+				"pattern": {
+					"regexp": "^$"
+				},
+				"background": {
+					"activeOnStart": true,
+					"beginsPattern": ".*Starting.*",
+					"endsPattern": ".*Storybook ready!.*"
+				}
+			}
+		}
+	]
+}

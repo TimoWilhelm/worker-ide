@@ -1,0 +1,355 @@
+@import 'tailwindcss';
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Design tokens using CSS variables for theming */
+@theme {
+	/* Colors — light mode (warm cream/orange) */
+	--color-bg-primary: #fffdfb;
+	--color-bg-secondary: #fffbf5;
+	--color-bg-tertiary: #fef7ed;
+	--color-border: #ebd5c180;
+	--color-border-solid: #ebd5c1;
+	--color-text-primary: #521000;
+	--color-text-secondary: #52100090;
+	--color-accent: #ff4801;
+	--color-accent-hover: #ff7038;
+	--color-success: #19e306;
+	--color-warning: #ffb10a;
+	--color-error: #ff5e5e;
+
+	/* Selection colors */
+	--color-selection-bg: #ffe9e0;
+	--color-selection-text: #ff500a;
+
+	/* Collaboration colors */
+	--color-collab-orange: #ff5010;
+	--color-collab-cyan: #0a95ff;
+	--color-collab-purple: #9616ff;
+	--color-collab-pink: #ee0ddb;
+	--color-collab-green: #19e306;
+	--color-collab-yellow: #ffb10a;
+
+	/* Font families */
+	--font-sans: 'Space Grotesk', sans-serif;
+	--font-mono: 'Space Mono', monospace;
+
+	/* Font sizes */
+	--text-3xs: 0.5625rem;
+	--text-2xs: 0.625rem;
+	--text-xs: 0.75rem;
+	--text-sm: 0.8125rem;
+	--text-base: 0.875rem;
+
+	/* Spacing */
+	--spacing-sidebar: 220px;
+	--spacing-header: 48px;
+	--spacing-tabs: 36px;
+	--spacing-terminal: 200px;
+
+	/* Animations */
+	--animate-fade-in: fadeIn 0.15s ease-out;
+	--animate-chat-item: chatReveal 0.12s ease-out;
+}
+
+/* Dark mode overrides */
+.dark {
+	--color-bg-primary: #121212;
+	--color-bg-secondary: #191817;
+	--color-bg-tertiary: #2a2927;
+	--color-border: #f0e3de20;
+	--color-border-solid: #302c2a;
+	--color-text-primary: #f0e3de;
+	--color-text-secondary: #fffdfb90;
+	--color-accent: #f14602;
+	--color-accent-hover: #ff6d33;
+	--color-success: #5eff3a;
+	--color-warning: #ffc84d;
+	--color-error: #ff5e5e;
+
+	--color-selection-bg: #3d1f0f;
+	--color-selection-text: #ff7038;
+
+	--color-collab-orange: #ff7038;
+	--color-collab-cyan: #4db8ff;
+	--color-collab-purple: #b866ff;
+	--color-collab-pink: #ff5ef0;
+	--color-collab-green: #5eff3a;
+	--color-collab-yellow: #ffc84d;
+}
+
+/* Base styles — margin/padding/box-sizing are handled by Tailwind preflight */
+
+html,
+body,
+#root {
+	height: 100%;
+}
+
+body {
+	font-family: var(--font-sans);
+	background: var(--color-bg-primary);
+	color: var(--color-text-primary);
+	font-size: var(--text-base);
+	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
+}
+
+/* Scrollbar styles */
+::-webkit-scrollbar {
+	width: 6px;
+	height: 6px;
+}
+
+::-webkit-scrollbar-track {
+	background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+	background: var(--color-border-solid);
+	border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+	background: var(--color-text-secondary);
+}
+
+::-webkit-scrollbar-corner {
+	background: transparent;
+}
+
+/* Firefox scrollbar */
+* {
+	scrollbar-width: thin;
+	scrollbar-color: var(--color-border-solid) transparent;
+}
+
+/* CodeMirror theme overrides */
+.cm-editor {
+	height: 100%;
+	font-size: var(--text-base);
+}
+
+.cm-editor .cm-scroller {
+	font-family: var(--font-mono);
+}
+
+.cm-editor.cm-focused {
+	outline: none;
+}
+
+.cm-gutters {
+	background: var(--color-bg-secondary) !important;
+	border-right: 1px solid var(--color-border) !important;
+	color: var(--color-text-secondary) !important;
+}
+
+.cm-activeLineGutter {
+	background: var(--color-bg-tertiary) !important;
+}
+
+.cm-line {
+	padding-left: 8px;
+	padding-right: 8px;
+}
+
+.cm-activeLine {
+	background: color-mix(in srgb, var(--color-accent) 6%, transparent) !important;
+}
+
+/* Remote cursor styles for collaboration */
+.remote-cursor {
+	position: absolute;
+	width: 2px;
+	pointer-events: none;
+	z-index: 10;
+}
+
+.remote-cursor-flag {
+	position: absolute;
+	top: -18px;
+	left: 0;
+	padding: 2px 6px;
+	font-size: var(--text-2xs);
+	font-weight: 500;
+	border-radius: 3px;
+	white-space: nowrap;
+	color: white;
+}
+
+.remote-selection {
+	position: absolute;
+	pointer-events: none;
+	opacity: 0.3;
+}
+
+/* Animation utilities */
+@keyframes spin {
+	from {
+		transform: rotate(0deg);
+	}
+	to {
+		transform: rotate(360deg);
+	}
+}
+
+@keyframes pulse {
+	0%,
+	100% {
+		opacity: 1;
+	}
+	50% {
+		opacity: 0.5;
+	}
+}
+
+@keyframes fadeIn {
+	from {
+		opacity: 0;
+	}
+	to {
+		opacity: 1;
+	}
+}
+
+@keyframes chatReveal {
+	from {
+		opacity: 0;
+		transform: translateY(4px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
+/* Streaming typing cursor */
+@keyframes typingBlink {
+	0%,
+	50% {
+		opacity: 1;
+	}
+	51%,
+	100% {
+		opacity: 0;
+	}
+}
+
+.animate-spin {
+	animation: spin 1s linear infinite;
+}
+
+.animate-pulse {
+	animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.animate-fade-in {
+	animation: fadeIn 0.15s ease-out;
+}
+
+/* Diff viewer styles */
+.diff-line-added {
+	background: rgba(94, 255, 58, 0.1);
+}
+
+.diff-line-removed {
+	background: rgba(255, 94, 94, 0.1);
+}
+
+.diff-line-context {
+	background: transparent;
+}
+
+/* Error overlay styles */
+.error-overlay {
+	position: fixed;
+	inset: 0;
+	z-index: 9999;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	background: rgba(0, 0, 0, 0.8);
+	backdrop-filter: blur(4px);
+}
+
+.error-overlay-content {
+	max-width: 600px;
+	max-height: 80vh;
+	overflow: auto;
+	padding: 24px;
+	background: var(--color-bg-secondary);
+	border: 1px solid var(--color-error);
+	border-radius: 8px;
+}
+
+/* Utility classes for specific components */
+.truncate-path {
+	max-width: 200px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	direction: rtl;
+	text-align: left;
+}
+
+/* Focus visible styles */
+:focus-visible {
+	outline: 2px solid var(--color-accent-hover);
+	outline-offset: 2px;
+}
+
+[data-separator]:focus-visible {
+	outline: none;
+}
+
+textarea:focus-visible,
+[contenteditable]:focus-visible {
+	outline: none;
+}
+
+/* Selection styles */
+::selection {
+	background: var(--color-selection-bg);
+	color: var(--color-selection-text);
+}
+
+/* AI panel styles (used by error overlay / legacy code) */
+.ai-code-block {
+	background: var(--color-bg-primary);
+	padding: 10px;
+	border-radius: 6px;
+	overflow-x: auto;
+	margin: 8px 0;
+	font-family: var(--font-mono);
+	font-size: var(--text-xs);
+	line-height: 1.6;
+}
+
+.ai-code-block code {
+	background: none;
+	padding: 0;
+}
+
+.ai-inline-code {
+	font-family: var(--font-mono);
+	font-size: var(--text-xs);
+	background: var(--color-bg-primary);
+	padding: 2px 5px;
+	border-radius: 3px;
+}
+
+/* Border beam animation — used by the BorderBeam component (inline styles) */
+@keyframes borderBeam {
+	from {
+		--border-beam-angle: 0deg;
+	}
+	to {
+		--border-beam-angle: 360deg;
+	}
+}
+
+@property --border-beam-angle {
+	syntax: '<angle>';
+	inherits: false;
+	initial-value: 0deg;
+}
