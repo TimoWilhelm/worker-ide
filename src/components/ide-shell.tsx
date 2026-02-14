@@ -66,6 +66,7 @@ export function IDEShell({ projectId }: { projectId: string }) {
 		clearPendingGoTo,
 		pendingGoTo,
 		isConnected,
+		localParticipantColor,
 		participants,
 		cursorPosition,
 		pendingChanges,
@@ -675,7 +676,7 @@ export function IDEShell({ projectId }: { projectId: string }) {
 					<div className="flex items-center gap-4">
 						{isConnected ? (
 							<span className="flex items-center gap-1.5">
-								<span className="size-1.5 rounded-full bg-success" />
+								<span className="size-1.5 rounded-full" style={{ backgroundColor: localParticipantColor ?? 'var(--color-success)' }} />
 								Connected
 								{participants.length > 0 && (
 									<span className="flex items-center gap-1">
@@ -691,6 +692,11 @@ export function IDEShell({ projectId }: { projectId: string }) {
 										<span className="text-text-secondary">{participants.length} online</span>
 									</span>
 								)}
+							</span>
+						) : localParticipantColor ? (
+							<span className="flex items-center gap-1.5">
+								<span className="size-1.5 animate-pulse rounded-full" style={{ backgroundColor: localParticipantColor }} />
+								Reconnecting
 							</span>
 						) : (
 							<span className="flex items-center gap-1.5">

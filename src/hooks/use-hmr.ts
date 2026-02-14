@@ -48,6 +48,7 @@ export function useHMR({ projectId, enabled = true }: UseHMROptions) {
 			removeParticipant: state.removeParticipant,
 			updateParticipant: state.updateParticipant,
 			setLocalParticipantId: state.setLocalParticipantId,
+			setLocalParticipantColor: state.setLocalParticipantColor,
 			setConnected: state.setConnected,
 			activeFile: state.activeFile,
 		})),
@@ -90,7 +91,7 @@ export function useHMR({ projectId, enabled = true }: UseHMROptions) {
 				projectId,
 				// onMessage — reads latest refs each invocation
 				(message) => {
-					const { setParticipants, addParticipant, removeParticipant, updateParticipant, setLocalParticipantId } =
+					const { setParticipants, addParticipant, removeParticipant, updateParticipant, setLocalParticipantId, setLocalParticipantColor } =
 						storeActionsReference.current;
 					const queryClientCurrent = queryClientReference.current;
 					const projectIdCurrent = projectIdReference.current;
@@ -125,6 +126,9 @@ export function useHMR({ projectId, enabled = true }: UseHMROptions) {
 							setParticipants(message.participants);
 							if ('selfId' in message && typeof message.selfId === 'string') {
 								setLocalParticipantId(message.selfId);
+							}
+							if ('selfColor' in message && typeof message.selfColor === 'string') {
+								setLocalParticipantColor(message.selfColor);
 							}
 							break;
 						}

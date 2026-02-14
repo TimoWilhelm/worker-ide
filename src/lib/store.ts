@@ -115,6 +115,8 @@ interface CollaborationState {
 	participants: Participant[];
 	/** Local participant ID */
 	localParticipantId: string | undefined;
+	/** Local participant color (assigned by the server) */
+	localParticipantColor: string | undefined;
 	/** Connection status */
 	isConnected: boolean;
 }
@@ -125,6 +127,7 @@ interface CollaborationActions {
 	removeParticipant: (id: string) => void;
 	updateParticipant: (id: string, updates: Partial<Participant>) => void;
 	setLocalParticipantId: (id: string) => void;
+	setLocalParticipantColor: (color: string) => void;
 	setConnected: (connected: boolean) => void;
 }
 
@@ -382,6 +385,7 @@ export const useStore = create<StoreState>()(
 				// =============================================================================
 				participants: [],
 				localParticipantId: undefined,
+				localParticipantColor: undefined,
 				isConnected: false,
 
 				setParticipants: (participants) => set({ participants }),
@@ -402,6 +406,8 @@ export const useStore = create<StoreState>()(
 					})),
 
 				setLocalParticipantId: (id) => set({ localParticipantId: id }),
+
+				setLocalParticipantColor: (color) => set({ localParticipantColor: color }),
 
 				setConnected: (connected) => set({ isConnected: connected }),
 

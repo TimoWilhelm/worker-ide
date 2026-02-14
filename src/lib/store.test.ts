@@ -24,6 +24,7 @@ beforeEach(() => {
 		savedSessions: [],
 		participants: [],
 		localParticipantId: undefined,
+		localParticipantColor: undefined,
 		isConnected: false,
 		snapshots: [],
 		activeSnapshot: undefined,

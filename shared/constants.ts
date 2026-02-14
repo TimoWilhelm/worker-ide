@@ -115,7 +115,6 @@ export const COLLAB_COLORS = [
 	'#fb923c', // orange-400
 	'#38bdf8', // sky
 	'#c084fc', // violet
-	'#f87171', // red
 	'#34d399', // emerald
 	'#e879f9', // fuchsia
 ] as const;
