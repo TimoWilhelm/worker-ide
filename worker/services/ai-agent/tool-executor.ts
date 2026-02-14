@@ -23,14 +23,7 @@ export async function listFilesRecursive(directory: string, base: string = ''): 
 	try {
 		const entries = await fs.readdir(directory, { withFileTypes: true });
 		for (const entry of entries) {
-			if (
-				entry.name === '.ai-sessions' ||
-				entry.name === '.snapshots' ||
-				entry.name === '.initialized' ||
-				entry.name === '.project-meta.json' ||
-				entry.name === '.agent'
-			)
-				continue;
+			if (entry.name === '.initialized' || entry.name === '.project-meta.json' || entry.name === '.agent') continue;
 			const relativePath = base ? `${base}/${entry.name}` : `/${entry.name}`;
 			if (entry.isDirectory()) {
 				files.push(...(await listFilesRecursive(`${directory}/${entry.name}`, relativePath)));

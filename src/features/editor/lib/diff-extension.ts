@@ -5,21 +5,10 @@
  * added lines, red widget decorations for removed lines, and gutter markers.
  */
 
-import { RangeSetBuilder } from '@codemirror/state';
-import {
-	Decoration,
-	EditorView,
-	GutterMarker,
-	ViewPlugin,
-	WidgetType,
-	gutter,
-	type DecorationSet,
-	type PluginValue,
-	type ViewUpdate,
-} from '@codemirror/view';
+import { RangeSetBuilder, StateField, type Extension, type Text, type Transaction } from '@codemirror/state';
+import { Decoration, EditorView, GutterMarker, WidgetType, gutter, type DecorationSet } from '@codemirror/view';
 
 import type { DiffHunk } from './diff-decorations';
-import type { Extension } from '@codemirror/state';
 
 // =============================================================================
 // Types
@@ -171,13 +160,12 @@ class RemovedLinesWidget extends WidgetType {
 // =============================================================================
 
 function buildDecorations(
-	view: EditorView,
+	document_: Text,
 	hunks: DiffHunk[],
 	onApprove: (() => void) | undefined,
 	onReject: (() => void) | undefined,
 ): DecorationSet {
 	const builder = new RangeSetBuilder<Decoration>();
-	const document_ = view.state.doc;
 
 	// Collect all decorations, sorted by position
 	const decorations: Array<{ from: number; to: number; decoration: Decoration }> = [];
@@ -228,24 +216,22 @@ function buildDecorations(
 	return builder.finish();
 }
 
-function createDiffPlugin(
-	hunks: DiffHunk[],
-	onApprove: (() => void) | undefined,
-	onReject: (() => void) | undefined,
-): ViewPlugin<PluginValue & { decorations: DecorationSet }> {
-	return ViewPlugin.define(
-		(view) => ({
-			decorations: buildDecorations(view, hunks, onApprove, onReject),
-			update(update: ViewUpdate) {
-				if (update.docChanged || update.viewportChanged) {
-					this.decorations = buildDecorations(update.view, hunks, onApprove, onReject);
-				}
-			},
-		}),
-		{
-			decorations: (value) => value.decorations,
+function createDiffField(hunks: DiffHunk[], onApprove: (() => void) | undefined, onReject: (() => void) | undefined): Extension {
+	const field = StateField.define<DecorationSet>({
+		create(state) {
+			return buildDecorations(state.doc, hunks, onApprove, onReject);
 		},
-	);
+		update(decorations: DecorationSet, transaction: Transaction) {
+			if (transaction.docChanged) {
+				return buildDecorations(transaction.state.doc, hunks, onApprove, onReject);
+			}
+			return decorations;
+		},
+		provide(field) {
+			return EditorView.decorations.from(field);
+		},
+	});
+	return field;
 }
 
 // =============================================================================
@@ -380,5 +366,5 @@ const diffTheme = EditorView.baseTheme({
 export function createDiffExtensions(config: DiffExtensionConfig): Extension[] {
 	if (config.hunks.length === 0) return [];
 
-	return [diffTheme, createDiffGutter(config.hunks), createDiffPlugin(config.hunks, config.onApprove, config.onReject)];
+	return [diffTheme, createDiffGutter(config.hunks), createDiffField(config.hunks, config.onApprove, config.onReject)];
 }

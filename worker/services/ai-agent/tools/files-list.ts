@@ -11,7 +11,7 @@ export const DESCRIPTION = `List all files in the project recursively. Returns a
 
 Usage:
 - Returns every file in the project tree.
-- Hidden system directories (.ai-sessions, .snapshots, .agent) are excluded automatically.
+- Hidden system directories (.agent) are excluded automatically.
 - For listing a single directory with sizes, use file_list instead.`;
 
 export const definition: ToolDefinition = {
@@ -32,6 +32,6 @@ export async function execute(
 
 	await sendEvent('status', { message: 'Listing files...' });
 	const files = await listFilesRecursive(projectRoot);
-	const filtered = files.filter((f) => !f.endsWith('/.initialized') && f !== '/.initialized' && !f.startsWith('/.snapshots/'));
+	const filtered = files.filter((f) => !f.endsWith('/.initialized') && f !== '/.initialized');
 	return { files: filtered };
 }

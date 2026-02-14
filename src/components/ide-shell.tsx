@@ -373,7 +373,7 @@ export function IDEShell({ projectId }: { projectId: string }) {
 							</div>
 						) : (
 							<div className="group flex items-center gap-1.5">
-								<h1 className="text-sm font-semibold text-text-primary">{projectName ?? 'Worker IDE'}</h1>
+								<h1 className="font-semibold text-text-primary">{projectName ?? 'Worker IDE'}</h1>
 								<Tooltip content="Rename project">
 									<button
 										onClick={handleStartRename}
@@ -756,32 +756,28 @@ function RecentProjectsDropdown({ currentProjectId, onNewProject }: { currentPro
 				</Button>
 			</DropdownMenuTrigger>
 			<DropdownMenuContent align="end" className="w-60">
-				{projects.length <= 1 ? (
-					<div className="px-3 py-2 text-center text-xs text-text-secondary">No other projects yet</div>
-				) : (
-					projects.map((project) => {
-						const isCurrent = project.id === currentProjectId;
-						return (
-							<DropdownMenuItem
-								key={project.id}
-								onSelect={() => {
-									if (!isCurrent) {
-										globalThis.location.href = `/p/${project.id}`;
-									}
-								}}
-								className={cn(isCurrent && 'bg-accent/10 text-accent')}
-							>
-								<div className="flex w-full items-center justify-between">
-									<span className="truncate text-xs">
-										{project.name ?? project.id.slice(0, 8)}
-										{isCurrent && ' (current)'}
-									</span>
-									<span className="ml-2 shrink-0 text-xs text-text-secondary">{formatRelativeTime(project.timestamp)}</span>
-								</div>
-							</DropdownMenuItem>
-						);
-					})
-				)}
+				{projects.map((project) => {
+					const isCurrent = project.id === currentProjectId;
+					return (
+						<DropdownMenuItem
+							key={project.id}
+							onSelect={() => {
+								if (!isCurrent) {
+									globalThis.location.href = `/p/${project.id}`;
+								}
+							}}
+							className={cn(isCurrent && 'bg-accent/10 text-accent')}
+						>
+							<div className="flex w-full items-center justify-between">
+								<span className="truncate text-xs">
+									{project.name ?? project.id.slice(0, 8)}
+									{isCurrent && ' (current)'}
+								</span>
+								<span className="ml-2 shrink-0 text-xs text-text-secondary">{formatRelativeTime(project.timestamp)}</span>
+							</div>
+						</DropdownMenuItem>
+					);
+				})}
 				<DropdownMenuSeparator />
 				<DropdownMenuItem onSelect={onNewProject}>
 					<Plus className="size-3.5" />

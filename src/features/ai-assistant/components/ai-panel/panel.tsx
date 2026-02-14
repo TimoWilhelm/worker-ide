@@ -51,6 +51,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	const abortControllerReference = useRef<AbortController | undefined>(undefined);
 	const assistantContentReference = useRef<AgentContent[]>([]);
 	const userMessageIndexReference = useRef<number>(-1);
+	const activeSnapshotIdReference = useRef<string | undefined>(undefined);
 
 	// Derived plain text for the file mention hook
 	const inputPlainText = useMemo(() => segmentsToPlainText(segments), [segments]);
@@ -237,6 +238,21 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 								setStreamingContent([...assistantContent]);
 								break;
 							}
+							case 'snapshot_created': {
+								// Snapshot is created eagerly at prompt submission.
+								// Store the ID so subsequent file_changed events can
+								// associate directly with this snapshot.
+								const snapshotId = getEventStringField(event, 'id');
+								if (snapshotId) {
+									activeSnapshotIdReference.current = snapshotId;
+									if (userMessageIndexReference.current >= 0) {
+										setMessageSnapshot(userMessageIndexReference.current, snapshotId);
+									}
+									// Link any already-pending changes (e.g. from a previous turn)
+									associateSnapshotWithPending(snapshotId);
+								}
+								break;
+							}
 							case 'file_changed': {
 								const path = getEventStringField(event, 'path');
 								const action = getEventStringField(event, 'action');
@@ -248,22 +264,10 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 										action,
 										beforeContent: beforeContent || undefined,
 										afterContent: afterContent || undefined,
-										snapshotId: undefined,
+										snapshotId: activeSnapshotIdReference.current,
 									});
 									// Open the file so the user sees the diff immediately
 									openFile(path);
-								}
-								break;
-							}
-							case 'snapshot_created': {
-								// Associate this snapshot with the user message that triggered it
-								const snapshotId = getEventStringField(event, 'id');
-								if (snapshotId && userMessageIndexReference.current >= 0) {
-									setMessageSnapshot(userMessageIndexReference.current, snapshotId);
-								}
-								// Link all pending changes without a snapshot to this one
-								if (snapshotId) {
-									associateSnapshotWithPending(snapshotId);
 								}
 								break;
 							}
@@ -323,6 +327,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 				setStreamingContent(undefined);
 				abortControllerReference.current = undefined;
 				assistantContentReference.current = [];
+				activeSnapshotIdReference.current = undefined;
 				if (!wasCancelled) {
 					userMessageIndexReference.current = -1;
 				}
@@ -511,8 +516,8 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 
 			{/* Messages */}
 			<ScrollArea.Root className="flex-1 overflow-hidden">
-				<ScrollArea.Viewport ref={scrollReference} className="size-full">
-					<div className="flex flex-col gap-3 p-2">
+				<ScrollArea.Viewport ref={scrollReference} className="size-full [&>div]:block!">
+					<div className="flex min-w-0 flex-col gap-3 p-2">
 						{history.length === 0 ? (
 							<WelcomeScreen onSuggestionClick={handleSuggestion} />
 						) : (

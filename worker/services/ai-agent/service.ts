@@ -19,7 +19,7 @@ import {
 
 import { executeAgentTool } from './tool-executor';
 import { AGENT_TOOLS, ASK_MODE_TOOLS, PLAN_MODE_TOOLS } from './tools';
-import { isRecordObject, parseApiError, repairToolCallJson } from './utilities';
+import { isRecordObject, normalizeFunctionCallsFormat, parseApiError, repairToolCallJson } from './utilities';
 
 import type { AgentMessage, ClaudeResponse, ContentBlock, FileChange, SnapshotMetadata, ToolResultBlock } from './types';
 
@@ -84,6 +84,13 @@ export class AIAgentService {
 	): Promise<void> {
 		const queryChanges: FileChange[] = [];
 
+		// Eagerly create a snapshot directory for code mode so the revert
+		// button appears immediately and file changes are captured in real-time.
+		let snapshotContext: { id: string; directory: string; savedPaths: Set<string> } | undefined;
+		if (this.mode === 'code') {
+			snapshotContext = await this.initSnapshot(prompt, sendEvent);
+		}
+
 		try {
 			await sendEvent('status', { message: 'Starting...' });
 
@@ -135,6 +142,7 @@ export class AIAgentService {
 							args: block.input,
 						});
 
+						const changeCountBefore = queryChanges.length;
 						const result = await executeAgentTool(
 							block.name,
 							block.input,
@@ -154,6 +162,13 @@ export class AIAgentService {
 							block.id,
 							queryChanges,
 						);
+
+						// Incrementally persist new file changes to the snapshot
+						if (snapshotContext && queryChanges.length > changeCountBefore) {
+							for (let index = changeCountBefore; index < queryChanges.length; index++) {
+								await this.addFileToSnapshot(snapshotContext, queryChanges[index]);
+							}
+						}
 
 						await sendEvent('tool_result', {
 							tool: block.name,
@@ -188,8 +203,9 @@ export class AIAgentService {
 				hitIterationLimit = true;
 			}
 
-			if (queryChanges.length > 0) {
-				await this.createSnapshot(prompt, queryChanges, sendEvent);
+			// Clean up empty snapshots (no files were changed)
+			if (snapshotContext && queryChanges.length === 0) {
+				await this.deleteDirectoryRecursive(snapshotContext.directory);
 			}
 
 			// In plan mode, save the plan to the filesystem
@@ -205,9 +221,10 @@ export class AIAgentService {
 			await writer.close();
 		} catch (error) {
 			if (error instanceof Error && error.name === 'AbortError') {
-				if (queryChanges.length > 0) {
+				// Clean up empty snapshots on abort
+				if (snapshotContext && queryChanges.length === 0) {
 					try {
-						await this.createSnapshot(prompt, queryChanges, sendEvent);
+						await this.deleteDirectoryRecursive(snapshotContext.directory);
 					} catch {
 						// No-op
 					}
@@ -216,9 +233,10 @@ export class AIAgentService {
 				return;
 			}
 			console.error('Agent loop error:', error);
-			if (queryChanges.length > 0) {
+			// Clean up empty snapshots on error
+			if (snapshotContext && queryChanges.length === 0) {
 				try {
-					await this.createSnapshot(prompt, queryChanges, sendEvent);
+					await this.deleteDirectoryRecursive(snapshotContext.directory);
 				} catch {
 					// No-op
 				}
@@ -330,6 +348,9 @@ When you're done and don't need to use any more tools, just provide your final r
 			if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
 			output += event.toString();
 		}
+
+		// Normalize alternative tool-call formats before parsing
+		output = normalizeFunctionCallsFormat(output);
 
 		const content: ContentBlock[] = [];
 		let lastIndex = 0;
@@ -472,45 +493,25 @@ When you're done and don't need to use any more tools, just provide your final r
 		}
 	}
 
-	private async createSnapshot(
+	/**
+	 * Create a snapshot directory and metadata eagerly at the start of an
+	 * agent turn. Emits `snapshot_created` immediately so the frontend can
+	 * show the revert button right away.
+	 */
+	private async initSnapshot(
 		prompt: string,
-		changes: FileChange[],
 		sendEvent: (type: string, data: Record<string, unknown>) => Promise<void>,
-	): Promise<void> {
+	): Promise<{ id: string; directory: string; savedPaths: Set<string> }> {
 		const snapshotId = crypto.randomUUID().slice(0, 8);
-		const snapshotDirectory = `${this.projectRoot}/.snapshots/${snapshotId}`;
+		const snapshotDirectory = `${this.projectRoot}/.agent/snapshots/${snapshotId}`;
 
 		await fs.mkdir(snapshotDirectory, { recursive: true });
-
-		// Deduplicate changes by path: if the same file is modified multiple
-		// times in one agent turn, only the FIRST change captures the true
-		// original state. Later changes would record intermediate AI content
-		// as "beforeContent", which breaks revert.
-		const savedPaths = new Set<string>();
-		const deduplicatedChanges: Array<{ path: string; action: 'create' | 'edit' | 'delete' }> = [];
-
-		for (const change of changes) {
-			if (savedPaths.has(change.path)) continue;
-			savedPaths.add(change.path);
-
-			// Save beforeContent to the snapshot directory (only for edit/delete)
-			if (change.action !== 'create' && change.beforeContent !== null) {
-				const filePath = `${snapshotDirectory}${change.path}`;
-				const directory = filePath.slice(0, filePath.lastIndexOf('/'));
-				if (directory && directory !== snapshotDirectory) {
-					await fs.mkdir(directory, { recursive: true });
-				}
-				await fs.writeFile(filePath, change.beforeContent);
-			}
-
-			deduplicatedChanges.push({ path: change.path, action: change.action });
-		}
 
 		const metadata: SnapshotMetadata = {
 			id: snapshotId,
 			timestamp: Date.now(),
 			label: prompt.slice(0, 50) + (prompt.length > 50 ? '...' : ''),
-			changes: deduplicatedChanges,
+			changes: [],
 		};
 		// eslint-disable-next-line unicorn/no-null -- JSON.stringify requires null as replacer argument
 		await fs.writeFile(`${snapshotDirectory}/metadata.json`, JSON.stringify(metadata, null, 2));
@@ -521,12 +522,46 @@ When you're done and don't need to use any more tools, just provide your final r
 			id: snapshotId,
 			label: metadata.label,
 			timestamp: metadata.timestamp,
-			changes: metadata.changes,
+			changes: [],
 		});
+
+		return { id: snapshotId, directory: snapshotDirectory, savedPaths: new Set() };
+	}
+
+	/**
+	 * Incrementally add a file change to an existing snapshot.
+	 * Deduplicates by path so only the first change per file is recorded
+	 * (preserving the true original content for revert).
+	 */
+	private async addFileToSnapshot(context: { id: string; directory: string; savedPaths: Set<string> }, change: FileChange): Promise<void> {
+		if (context.savedPaths.has(change.path)) return;
+		context.savedPaths.add(change.path);
+
+		// Save beforeContent to the snapshot directory (only for edit/delete)
+		if (change.action !== 'create' && change.beforeContent !== null) {
+			const filePath = `${context.directory}${change.path}`;
+			const directory = filePath.slice(0, filePath.lastIndexOf('/'));
+			if (directory && directory !== context.directory) {
+				await fs.mkdir(directory, { recursive: true });
+			}
+			await fs.writeFile(filePath, change.beforeContent);
+		}
+
+		// Update metadata.json with the new change entry
+		try {
+			const metadataPath = `${context.directory}/metadata.json`;
+			const raw = await fs.readFile(metadataPath, 'utf8');
+			const metadata: SnapshotMetadata = JSON.parse(raw);
+			metadata.changes.push({ path: change.path, action: change.action });
+			// eslint-disable-next-line unicorn/no-null -- JSON.stringify requires null as replacer argument
+			await fs.writeFile(metadataPath, JSON.stringify(metadata, null, 2));
+		} catch {
+			// Non-fatal: snapshot metadata update failed
+		}
 	}
 
 	private async cleanupOldSnapshots(keepCount: number): Promise<void> {
-		const snapshotsDirectory = `${this.projectRoot}/.snapshots`;
+		const snapshotsDirectory = `${this.projectRoot}/.agent/snapshots`;
 
 		try {
 			const entries = await fs.readdir(snapshotsDirectory);

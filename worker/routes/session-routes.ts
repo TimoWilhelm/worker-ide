@@ -22,7 +22,7 @@ export const sessionRoutes = new Hono<AppEnvironment>()
 	// GET /api/ai-sessions - List all saved AI sessions
 	.get('/ai-sessions', async (c) => {
 		const projectRoot = c.get('projectRoot');
-		const sessionsDirectory = `${projectRoot}/.ai-sessions`;
+		const sessionsDirectory = `${projectRoot}/.agent/sessions`;
 		try {
 			const entries = await fs.readdir(sessionsDirectory);
 			const sessions: Array<{ id: string; label: string; createdAt: number }> = [];
@@ -51,7 +51,7 @@ export const sessionRoutes = new Hono<AppEnvironment>()
 		const { id } = c.req.valid('query');
 
 		try {
-			const raw = await fs.readFile(`${projectRoot}/.ai-sessions/${id}.json`, 'utf8');
+			const raw = await fs.readFile(`${projectRoot}/.agent/sessions/${id}.json`, 'utf8');
 			return c.json(JSON.parse(raw));
 		} catch {
 			return c.json({ error: 'Session not found' }, 404);
@@ -63,7 +63,7 @@ export const sessionRoutes = new Hono<AppEnvironment>()
 		const projectRoot = c.get('projectRoot');
 		const body = c.req.valid('json');
 
-		const sessionsDirectory = `${projectRoot}/.ai-sessions`;
+		const sessionsDirectory = `${projectRoot}/.agent/sessions`;
 		await fs.mkdir(sessionsDirectory, { recursive: true });
 		await fs.writeFile(`${sessionsDirectory}/${body.id}.json`, JSON.stringify(body));
 
@@ -75,7 +75,7 @@ export const sessionRoutes = new Hono<AppEnvironment>()
 		const projectRoot = c.get('projectRoot');
 		const body = c.req.valid('json');
 
-		const sessionsDirectory = `${projectRoot}/.ai-sessions`;
+		const sessionsDirectory = `${projectRoot}/.agent/sessions`;
 		await fs.mkdir(sessionsDirectory, { recursive: true });
 		await fs.writeFile(`${sessionsDirectory}/${body.id}.json`, JSON.stringify(body));
 
@@ -88,7 +88,7 @@ export const sessionRoutes = new Hono<AppEnvironment>()
 		const { id } = c.req.valid('query');
 
 		try {
-			await fs.unlink(`${projectRoot}/.ai-sessions/${id}.json`);
+			await fs.unlink(`${projectRoot}/.agent/sessions/${id}.json`);
 		} catch {
 			// Ignore errors if file doesn't exist
 		}

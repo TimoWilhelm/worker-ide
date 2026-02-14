@@ -514,13 +514,15 @@ export const useStore = create<StoreState>()(
 			}),
 			{
 				name: 'worker-ide-store',
-				// Only persist UI preferences
+				// Persist UI preferences and the active session ID so the
+				// session can be restored after a page refresh.
 				partialize: (state) => ({
 					sidebarVisible: state.sidebarVisible,
 					terminalVisible: state.terminalVisible,
 					aiPanelVisible: state.aiPanelVisible,
 					colorScheme: state.colorScheme,
 					expandedDirs: [...state.expandedDirs],
+					sessionId: state.sessionId,
 				}),
 				// Rehydrate expandedDirs as Set
 				onRehydrateStorage: () => rehydrateExpandedDirectories,

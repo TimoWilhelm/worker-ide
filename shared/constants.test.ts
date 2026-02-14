@@ -64,7 +64,7 @@ describe('HIDDEN_ENTRIES', () => {
 		expect(HIDDEN_ENTRIES.has('.agent')).toBe(true);
 	});
 
-	it('includes .snapshots directory', () => {
-		expect(HIDDEN_ENTRIES.has('.snapshots')).toBe(true);
+	it('does not include .snapshots separately (now under .agent)', () => {
+		expect(HIDDEN_ENTRIES.has('.snapshots')).toBe(false);
 	});
 });

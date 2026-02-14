@@ -9,7 +9,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef } from 'react';
 
-import { listAiSessions, loadAiSession, saveAiSession } from '@/lib/api-client';
+import { createApiClient, listAiSessions, loadAiSession, saveAiSession } from '@/lib/api-client';
 import { useStore } from '@/lib/store';
 
 import type { AgentMessage } from '@shared/types';
@@ -74,7 +74,7 @@ function snapshotsRecordToMap(record: Record<string, string> | undefined): Map<n
 
 export function useAiSessions({ projectId }: { projectId: string }) {
 	const queryClient = useQueryClient();
-	const { history, sessionId, messageSnapshots, setSavedSessions, setSessionId, loadSession } = useStore();
+	const { setSavedSessions, setSessionId, loadSession } = useStore();
 
 	// Track whether a save is already in flight to avoid overlapping saves
 	const isSavingReference = useRef(false);
@@ -113,10 +113,37 @@ export function useAiSessions({ projectId }: { projectId: string }) {
 	});
 
 	// =========================================================================
+	// Auto-restore the active session on mount
+	// =========================================================================
+
+	const hasRestoredReference = useRef(false);
+
+	useEffect(() => {
+		if (hasRestoredReference.current) return;
+		hasRestoredReference.current = true;
+
+		const { sessionId, history } = useStore.getState();
+		// If we have a persisted sessionId but no in-memory history,
+		// reload the session from the backend.
+		if (sessionId && history.length === 0) {
+			void loadAiSession(projectId, sessionId).then((data) => {
+				if (!data) return;
+				const restoredSnapshots = snapshotsRecordToMap(data.messageSnapshots);
+				createdAtReference.current = data.createdAt;
+				loadSession(data.history, data.id, restoredSnapshots);
+			});
+		}
+	}, [projectId, loadSession]);
+
+	// =========================================================================
 	// Save current session to the backend
 	// =========================================================================
 
 	const saveCurrentSession = useCallback(async () => {
+		// Read directly from the store so we always get the latest state,
+		// even when called from a microtask before React re-renders.
+		const { history, sessionId, messageSnapshots } = useStore.getState();
+
 		if (history.length === 0) return;
 		if (isSavingReference.current) return;
 
@@ -145,7 +172,52 @@ export function useAiSessions({ projectId }: { projectId: string }) {
 		} finally {
 			isSavingReference.current = false;
 		}
-	}, [history, sessionId, messageSnapshots, projectId, setSessionId, queryClient]);
+	}, [projectId, setSessionId, queryClient]);
+
+	// =========================================================================
+	// Save on page unload / tab switch
+	// =========================================================================
+
+	const saveCurrentSessionReference = useRef(saveCurrentSession);
+	useEffect(() => {
+		saveCurrentSessionReference.current = saveCurrentSession;
+	}, [saveCurrentSession]);
+
+	useEffect(() => {
+		const api = createApiClient(projectId);
+
+		const saveViaBeacon = () => {
+			const { history, sessionId, messageSnapshots } = useStore.getState();
+			if (history.length === 0 || !sessionId) return;
+
+			const payload = JSON.stringify({
+				id: sessionId,
+				label: deriveLabel(history),
+				createdAt: createdAtReference.current ?? Date.now(),
+				history,
+				messageSnapshots: snapshotsMapToRecord(messageSnapshots),
+			});
+
+			// sendBeacon is fire-and-forget and survives page unload
+			const url = api['ai-session'].$url().toString();
+			navigator.sendBeacon(url, new Blob([payload], { type: 'application/json' }));
+		};
+
+		const handleBeforeUnload = () => saveViaBeacon();
+		const handleVisibilityChange = () => {
+			if (document.visibilityState === 'hidden') {
+				saveViaBeacon();
+			}
+		};
+
+		globalThis.addEventListener('beforeunload', handleBeforeUnload);
+		document.addEventListener('visibilitychange', handleVisibilityChange);
+
+		return () => {
+			globalThis.removeEventListener('beforeunload', handleBeforeUnload);
+			document.removeEventListener('visibilitychange', handleVisibilityChange);
+		};
+	}, [projectId]);
 
 	// =========================================================================
 	// Public API

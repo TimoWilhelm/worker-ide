@@ -314,7 +314,7 @@ export class PreviewService {
 			const entries = await fs.readdir(directory, { withFileTypes: true });
 			const results = await Promise.all(
 				entries
-					.filter((entry: { name: string }) => entry.name !== '.ai-sessions' && entry.name !== '.snapshots')
+					.filter((entry: { name: string }) => entry.name !== '.agent')
 					.map(async (entry: { name: string; isDirectory(): boolean }) => {
 						const relativePath = base ? `${base}/${entry.name}` : entry.name;
 						const fullPath = `${directory}/${entry.name}`;

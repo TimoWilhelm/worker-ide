@@ -96,7 +96,7 @@ export const snapshotRoutes = new Hono<AppEnvironment>()
 			const { id } = c.req.valid('param');
 			const { path } = c.req.valid('query');
 
-			const snapshotDirectory = `${projectRoot}/.snapshots/${id}`;
+			const snapshotDirectory = `${projectRoot}/.agent/snapshots/${id}`;
 			const metadata = await getSnapshotMetadata(projectRoot, id);
 
 			if (!metadata) {
@@ -132,7 +132,7 @@ export const snapshotRoutes = new Hono<AppEnvironment>()
  * List all available snapshots with their metadata.
  */
 async function listSnapshots(projectRoot: string): Promise<Array<{ id: string; timestamp: number; label: string; changeCount: number }>> {
-	const snapshotsDirectory = `${projectRoot}/.snapshots`;
+	const snapshotsDirectory = `${projectRoot}/.agent/snapshots`;
 	const snapshots: Array<{ id: string; timestamp: number; label: string; changeCount: number }> = [];
 
 	try {
@@ -164,7 +164,7 @@ async function listSnapshots(projectRoot: string): Promise<Array<{ id: string; t
  */
 async function getSnapshotMetadata(projectRoot: string, snapshotId: string): Promise<SnapshotMetadata | undefined> {
 	try {
-		const metadataPath = `${projectRoot}/.snapshots/${snapshotId}/metadata.json`;
+		const metadataPath = `${projectRoot}/.agent/snapshots/${snapshotId}/metadata.json`;
 		const metadataRaw = await fs.readFile(metadataPath, 'utf8');
 		const metadata: SnapshotMetadata = JSON.parse(metadataRaw);
 		return metadata;
@@ -239,7 +239,7 @@ async function revertSnapshot(
 	projectId: string,
 	environment: AppEnvironment['Bindings'],
 ): Promise<boolean> {
-	const snapshotDirectory = `${projectRoot}/.snapshots/${snapshotId}`;
+	const snapshotDirectory = `${projectRoot}/.agent/snapshots/${snapshotId}`;
 
 	try {
 		const metadata = await getSnapshotMetadata(projectRoot, snapshotId);
@@ -266,7 +266,7 @@ async function revertFileFromSnapshot(
 	projectId: string,
 	environment: AppEnvironment['Bindings'],
 ): Promise<boolean> {
-	const snapshotDirectory = `${projectRoot}/.snapshots/${snapshotId}`;
+	const snapshotDirectory = `${projectRoot}/.agent/snapshots/${snapshotId}`;
 
 	try {
 		const metadata = await getSnapshotMetadata(projectRoot, snapshotId);

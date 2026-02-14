@@ -9,6 +9,7 @@ import {
 	Bot,
 	CheckCircle2,
 	CheckSquare,
+	ChevronRight,
 	Circle,
 	Clock,
 	Eye,
@@ -28,7 +29,7 @@ import {
 	Search,
 	Trash2,
 } from 'lucide-react';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 
 import { Tooltip } from '@/components/ui/tooltip';
 import { useStore } from '@/lib/store';
@@ -181,7 +182,7 @@ function UserMessage({
 	const segments = useMemo(() => parseTextToSegments(text, knownPaths), [text, knownPaths]);
 
 	return (
-		<div className="flex animate-chat-item flex-col gap-1">
+		<div className="flex min-w-0 animate-chat-item flex-col gap-1">
 			<div className="flex items-center justify-between">
 				<div className="text-2xs font-semibold tracking-wider text-accent uppercase">You</div>
 				{snapshotId && (
@@ -257,7 +258,7 @@ export function AssistantMessage({ content }: { content: AgentContent[] }) {
 	const segments = buildRenderSegments(content);
 
 	return (
-		<div className="flex animate-chat-item flex-col gap-2">
+		<div className="flex min-w-0 animate-chat-item flex-col gap-2">
 			<div className="text-2xs font-semibold tracking-wider text-success uppercase">AI</div>
 			{segments.map((segment, index) =>
 				segment.kind === 'text' ? (
@@ -403,7 +404,32 @@ function extractTodosFromResult(toolName: ToolName, rawResult: string): TodoItem
 	}
 }
 
+/**
+ * Format raw tool result content for the expandable detail view.
+ * Tries to pretty-print JSON; falls back to the raw string.
+ */
+function formatToolResultDetail(rawResult: string): string {
+	try {
+		const parsed: unknown = JSON.parse(rawResult);
+		return JSON.stringify(parsed, undefined, 2);
+	} catch {
+		return rawResult;
+	}
+}
+
+/**
+ * Determine whether a tool result is large enough to warrant a
+ * collapsible detail section (rather than showing everything inline).
+ */
+function hasExpandableDetail(toolName: ToolName, rawResult: string): boolean {
+	// TODOs have their own dedicated inline widget
+	if (toolName === 'todos_get' || toolName === 'todos_update') return false;
+	return rawResult.length > 200;
+}
+
 function InlineToolCall({ toolUse, toolResult }: { toolUse: AgentContent; toolResult?: AgentContent }) {
+	const [isExpanded, setIsExpanded] = useState(false);
+
 	if (toolUse.type !== 'tool_use') return;
 
 	const toolName = toolUse.name;
@@ -431,21 +457,28 @@ function InlineToolCall({ toolUse, toolResult }: { toolUse: AgentContent; toolRe
 			: undefined;
 
 	// Build summary text for the result
-	const resultSummary =
-		toolResult?.type === 'tool_result' && typeof toolResult.content === 'string'
-			? summarizeToolResult(toolName, toolResult.content)
-			: undefined;
+	const rawResultContent = toolResult?.type === 'tool_result' && typeof toolResult.content === 'string' ? toolResult.content : undefined;
+	const resultSummary = rawResultContent ? summarizeToolResult(toolName, rawResultContent) : undefined;
+	const expandable = rawResultContent ? hasExpandableDetail(toolName, rawResultContent) : false;
 
 	return (
-		<div className="flex animate-chat-item flex-col gap-1.5">
-			<div
+		<div className="flex min-w-0 animate-chat-item flex-col gap-1.5">
+			<button
+				type="button"
+				onClick={() => expandable && setIsExpanded((previous) => !previous)}
 				className={cn(
-					'flex items-center gap-2 rounded-md px-3 py-1.5 text-xs',
+					'flex items-center gap-2 overflow-x-auto rounded-md px-3 py-1.5 text-xs',
 					isCompleted && !isError && 'bg-success/5 text-text-secondary',
 					isError && 'bg-error/5 text-error',
 					!isCompleted && 'bg-bg-tertiary text-text-secondary',
+					expandable &&
+						`
+							cursor-pointer transition-colors
+							hover:bg-bg-tertiary
+						`,
 				)}
 			>
+				{expandable && <ChevronRight className={cn('size-3 shrink-0 transition-transform', isExpanded && 'rotate-90')} />}
 				<span className={cn('shrink-0', isCompleted && !isError && 'text-success', isError && 'text-error')}>
 					<ToolIcon name={toolName} />
 				</span>
@@ -459,7 +492,17 @@ function InlineToolCall({ toolUse, toolResult }: { toolUse: AgentContent; toolRe
 					</span>
 				)}
 				{resultSummary && <span className="ml-auto shrink-0 text-text-secondary">{resultSummary}</span>}
-			</div>
+			</button>
+			{isExpanded && rawResultContent && (
+				<pre
+					className="
+						max-h-60 overflow-auto rounded-md bg-bg-primary p-2.5 font-mono
+						text-2xs/relaxed text-text-secondary
+					"
+				>
+					{formatToolResultDetail(rawResultContent)}
+				</pre>
+			)}
 			{todos && todos.length > 0 && <InlineTodoList todos={todos} />}
 		</div>
 	);

@@ -158,6 +158,25 @@ export function validateToolInput(
 }
 
 // =============================================================================
+// Function Call Format Normalization
+// =============================================================================
+
+/**
+ * Normalize alternative function call formats to the canonical `<tool_use>` format.
+ * Some models emit `<function_calls><invoke>...</invoke></function_calls>` instead of `<tool_use>`.
+ */
+export function normalizeFunctionCallsFormat(output: string): string {
+	return output.replaceAll(
+		/<function_calls>\s*<invoke>\s*<parameter\s+name="name">([\s\S]*?)<\/parameter>\s*<parameter\s+name="input">([\s\S]*?)<\/parameter>\s*<\/invoke>\s*<\/function_calls>/g,
+		(_match, name: string, inputJson: string) => {
+			const toolName = name.trim();
+			const input = inputJson.trim();
+			return `<tool_use>\n{"name": "${toolName}", "input": ${input}}\n</tool_use>`;
+		},
+	);
+}
+
+// =============================================================================
 // JSON Repair
 // =============================================================================
 
