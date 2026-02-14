@@ -320,6 +320,69 @@ describe('Pending Changes slice', () => {
 		expect(useStore.getState().pendingChanges.get('/src/main.ts')?.snapshotId).toBe('snap-old');
 	});
 
+	it('removes entry when create followed by delete (net no-op)', () => {
+		useStore.getState().addPendingChange({
+			path: '/src/new-file.ts',
+			action: 'create',
+			beforeContent: undefined,
+			afterContent: 'new content',
+			snapshotId: 'snap-1',
+		});
+		useStore.getState().addPendingChange({
+			path: '/src/new-file.ts',
+			action: 'delete',
+			beforeContent: 'new content',
+			afterContent: undefined,
+			snapshotId: 'snap-1',
+		});
+
+		expect(useStore.getState().pendingChanges.has('/src/new-file.ts')).toBe(false);
+	});
+
+	it('keeps action as create when create followed by edit', () => {
+		useStore.getState().addPendingChange({
+			path: '/src/new-file.ts',
+			action: 'create',
+			beforeContent: undefined,
+			afterContent: 'initial content',
+			snapshotId: 'snap-1',
+		});
+		useStore.getState().addPendingChange({
+			path: '/src/new-file.ts',
+			action: 'edit',
+			beforeContent: 'initial content',
+			afterContent: 'updated content',
+			snapshotId: 'snap-1',
+		});
+
+		const change = useStore.getState().pendingChanges.get('/src/new-file.ts');
+		expect(change?.action).toBe('create');
+		expect(change?.beforeContent).toBeUndefined();
+		expect(change?.afterContent).toBe('updated content');
+	});
+
+	it('treats delete followed by create as an edit', () => {
+		useStore.getState().addPendingChange({
+			path: '/src/main.ts',
+			action: 'delete',
+			beforeContent: 'original content',
+			afterContent: undefined,
+			snapshotId: 'snap-1',
+		});
+		useStore.getState().addPendingChange({
+			path: '/src/main.ts',
+			action: 'create',
+			beforeContent: undefined,
+			afterContent: 'recreated content',
+			snapshotId: 'snap-1',
+		});
+
+		const change = useStore.getState().pendingChanges.get('/src/main.ts');
+		expect(change?.action).toBe('edit');
+		expect(change?.beforeContent).toBe('original content');
+		expect(change?.afterContent).toBe('recreated content');
+	});
+
 	it('preserves snapshotId when re-adding a change for the same file', () => {
 		useStore.getState().addPendingChange(sampleChange);
 		useStore.getState().associateSnapshotWithPending('snap-123');

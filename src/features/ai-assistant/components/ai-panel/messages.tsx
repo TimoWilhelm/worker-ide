@@ -29,7 +29,7 @@ import {
 	Search,
 	Trash2,
 } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { Tooltip } from '@/components/ui/tooltip';
 import { useStore } from '@/lib/store';
@@ -254,27 +254,137 @@ function buildRenderSegments(content: AgentContent[]): RenderSegment[] {
 	return segments;
 }
 
-export function AssistantMessage({ content }: { content: AgentContent[] }) {
+export function AssistantMessage({ content, streaming }: { content: AgentContent[]; streaming?: boolean }) {
 	const segments = buildRenderSegments(content);
+	const [expandedThinking, setExpandedThinking] = useState<Set<number>>(new Set());
+	const scrollReference = useRef<HTMLDivElement>(null);
 
+	const hasToolCalls = segments.some((segment) => segment.kind === 'tool');
+	const lastTextIndex = segments.findLastIndex((segment) => segment.kind === 'text');
+
+	// Auto-scroll the active streaming thinking box
+	useEffect(() => {
+		if (streaming && scrollReference.current) {
+			scrollReference.current.scrollTop = scrollReference.current.scrollHeight;
+		}
+	}, [streaming, content]);
+
+	const toggleThinking = (index: number) => {
+		setExpandedThinking((previous) => {
+			const next = new Set(previous);
+			if (next.has(index)) {
+				next.delete(index);
+			} else {
+				next.add(index);
+			}
+			return next;
+		});
+	};
+
+	// Simple Q&A mode: no tool calls and not streaming — render text normally
+	if (!hasToolCalls && !streaming) {
+		return (
+			<div className="flex min-w-0 animate-chat-item flex-col gap-2">
+				<div className="text-2xs font-semibold tracking-wider text-success uppercase">AI</div>
+				{segments.map((segment, index) =>
+					segment.kind === 'text' ? (
+						<div
+							key={index}
+							className="
+								overflow-hidden rounded-lg bg-bg-tertiary px-3 py-2.5 text-sm/relaxed
+								text-text-primary
+							"
+						>
+							<MarkdownContent content={segment.text} />
+						</div>
+					) : undefined,
+				)}
+			</div>
+		);
+	}
+
+	// Interleaved thinking + tool calls + summary layout
 	return (
 		<div className="flex min-w-0 animate-chat-item flex-col gap-2">
 			<div className="text-2xs font-semibold tracking-wider text-success uppercase">AI</div>
-			{segments.map((segment, index) =>
-				segment.kind === 'text' ? (
-					<div
-						key={index}
-						className="
-							overflow-hidden rounded-lg bg-bg-tertiary px-3 py-2.5 text-sm/relaxed
-							text-text-primary
-						"
-					>
-						<MarkdownContent content={segment.text} />
+			{segments.map((segment, index) => {
+				// Tool calls — always rendered inline
+				if (segment.kind === 'tool') {
+					return <InlineToolCall key={index} toolUse={segment.toolUse} toolResult={segment.toolResult} />;
+				}
+
+				const isLastText = index === lastTextIndex;
+
+				// Summary: last text segment of a completed (non-streaming) message
+				if (isLastText && !streaming) {
+					return (
+						<div
+							key={index}
+							className="
+								overflow-hidden rounded-lg bg-bg-tertiary px-3 py-2.5 text-sm/relaxed
+								text-text-primary
+							"
+						>
+							<MarkdownContent content={segment.text} />
+						</div>
+					);
+				}
+
+				// Active streaming thinking box: constrained height + typing cursor
+				if (isLastText && streaming) {
+					return (
+						<div
+							key={index}
+							ref={scrollReference}
+							className="
+								max-h-48 overflow-y-auto rounded-lg border border-accent/20
+								bg-bg-tertiary
+							"
+						>
+							<div className="flex flex-col gap-2 p-2.5">
+								<div className="overflow-hidden text-sm/relaxed text-text-primary">
+									<MarkdownContent content={segment.text} />
+								</div>
+								<span className="text-sm" style={{ animation: 'typingBlink 0.8s step-end infinite', color: 'var(--color-accent)' }}>
+									▌
+								</span>
+							</div>
+						</div>
+					);
+				}
+
+				// Earlier text segments: collapsible thinking pill
+				const isExpanded = expandedThinking.has(index);
+				return (
+					<div key={index} className="flex flex-col gap-1.5">
+						<button
+							type="button"
+							onClick={() => toggleThinking(index)}
+							className={cn(
+								'flex items-center gap-2 overflow-hidden rounded-md px-3 py-1.5 text-xs',
+								`
+									cursor-pointer bg-bg-tertiary font-medium text-text-secondary
+									transition-colors
+									hover:bg-border
+								`,
+							)}
+						>
+							<ChevronRight className={cn('size-3 shrink-0 transition-transform', isExpanded && 'rotate-90')} />
+							Show thinking
+						</button>
+						{isExpanded && (
+							<div
+								className="
+									overflow-hidden rounded-lg bg-bg-tertiary px-3 py-2.5 text-sm/relaxed
+									text-text-primary
+								"
+							>
+								<MarkdownContent content={segment.text} />
+							</div>
+						)}
 					</div>
-				) : (
-					<InlineToolCall key={index} toolUse={segment.toolUse} toolResult={segment.toolResult} />
-				),
-			)}
+				);
+			})}
 		</div>
 	);
 }
@@ -299,6 +409,33 @@ function summarizeToolResult(toolName: ToolName, rawResult: string): string {
 		if (toolName === 'file_read' && typeof parsed.content === 'string') {
 			const lineCount = parsed.content.split('\n').length;
 			return `${lineCount} line${lineCount === 1 ? '' : 's'}`;
+		}
+
+		if (toolName === 'file_list' && Array.isArray(parsed.entries)) {
+			const entries: unknown[] = parsed.entries;
+			return `${entries.length} entr${entries.length === 1 ? 'y' : 'ies'}`;
+		}
+
+		if (toolName === 'file_glob' && Array.isArray(parsed.files)) {
+			const files: unknown[] = parsed.files;
+			return `${files.length} match${files.length === 1 ? '' : 'es'}`;
+		}
+
+		if (toolName === 'file_grep' && Array.isArray(parsed.results)) {
+			const results: unknown[] = parsed.results;
+			return `${results.length} file${results.length === 1 ? '' : 's'} matched`;
+		}
+
+		if (toolName === 'user_question' && typeof parsed.question === 'string') {
+			return parsed.question.length > 60 ? parsed.question.slice(0, 60) + '…' : parsed.question;
+		}
+
+		if (toolName === 'web_fetch' && typeof parsed.length === 'number') {
+			return `${parsed.length} chars`;
+		}
+
+		if (toolName === 'docs_search' && typeof parsed.results === 'string') {
+			return `Results fetched`;
 		}
 
 		if (parsed.error && typeof parsed.error === 'string') {
@@ -441,12 +578,23 @@ function InlineToolCall({ toolUse, toolResult }: { toolUse: AgentContent; toolRe
 	let singlePath: string | undefined;
 	let fromPath: string | undefined;
 	let toPath: string | undefined;
+	let pattern: string | undefined;
+	let extraLabel: string | undefined;
 	if (isRecord(input)) {
 		if (typeof input.path === 'string') {
 			singlePath = input.path;
 		} else if (typeof input.from_path === 'string' && typeof input.to_path === 'string') {
 			fromPath = input.from_path;
 			toPath = input.to_path;
+		}
+		if (typeof input.pattern === 'string') {
+			pattern = input.pattern;
+		}
+		if (typeof input.url === 'string') {
+			extraLabel = input.url;
+		}
+		if (typeof input.query === 'string') {
+			extraLabel = input.query;
 		}
 	}
 
@@ -467,7 +615,7 @@ function InlineToolCall({ toolUse, toolResult }: { toolUse: AgentContent; toolRe
 				type="button"
 				onClick={() => expandable && setIsExpanded((previous) => !previous)}
 				className={cn(
-					'flex items-center gap-2 overflow-x-auto rounded-md px-3 py-1.5 text-xs',
+					'flex items-center gap-2 overflow-hidden rounded-md px-3 py-1.5 text-xs',
 					isCompleted && !isError && 'bg-success/5 text-text-secondary',
 					isError && 'bg-error/5 text-error',
 					!isCompleted && 'bg-bg-tertiary text-text-secondary',
@@ -491,19 +639,85 @@ function InlineToolCall({ toolUse, toolResult }: { toolUse: AgentContent; toolRe
 						<FileReference path={toPath} />
 					</span>
 				)}
+				{pattern && (
+					<span className="min-w-0 truncate font-mono text-text-secondary" title={pattern}>
+						{pattern}
+					</span>
+				)}
+				{!singlePath && !fromPath && !pattern && extraLabel && (
+					<span className="min-w-0 truncate text-text-secondary" title={extraLabel}>
+						{extraLabel.length > 60 ? extraLabel.slice(0, 60) + '…' : extraLabel}
+					</span>
+				)}
 				{resultSummary && <span className="ml-auto shrink-0 text-text-secondary">{resultSummary}</span>}
 			</button>
 			{isExpanded && rawResultContent && (
 				<pre
 					className="
 						max-h-60 overflow-auto rounded-md bg-bg-primary p-2.5 font-mono
-						text-2xs/relaxed text-text-secondary
+						text-2xs/relaxed break-all whitespace-pre-wrap text-text-secondary
 					"
 				>
 					{formatToolResultDetail(rawResultContent)}
 				</pre>
 			)}
 			{todos && todos.length > 0 && <InlineTodoList todos={todos} />}
+		</div>
+	);
+}
+
+// =============================================================================
+// User Question Prompt
+// =============================================================================
+
+export function UserQuestionPrompt({
+	question,
+	options,
+	onOptionClick,
+}: {
+	question: string;
+	options: string;
+	onOptionClick: (option: string) => void;
+}) {
+	const parsedOptions = options
+		? options
+				.split(',')
+				.map((option) => option.trim())
+				.filter(Boolean)
+		: [];
+
+	return (
+		<div
+			className="
+				flex animate-chat-item flex-col gap-2.5 rounded-lg border border-accent/25
+				bg-accent/5 p-3
+			"
+		>
+			<div className="flex items-center gap-2 text-xs font-semibold text-accent">
+				<HelpCircle className="size-4" />
+				<span>Question</span>
+			</div>
+			<div className="text-sm/relaxed text-text-primary">{question}</div>
+			{parsedOptions.length > 0 && (
+				<div className="flex flex-wrap gap-2">
+					{parsedOptions.map((option) => (
+						<button
+							key={option}
+							onClick={() => onOptionClick(option)}
+							className={cn(
+								`
+									inline-flex cursor-pointer items-center rounded-md border border-border
+									bg-bg-tertiary
+								`,
+								'px-3 py-1.5 text-xs font-medium text-text-secondary transition-colors',
+								'hover:border-accent hover:text-text-primary',
+							)}
+						>
+							{option}
+						</button>
+					))}
+				</div>
+			)}
 		</div>
 	);
 }

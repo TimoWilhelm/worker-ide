@@ -223,6 +223,18 @@ body {
 	}
 }
 
+/* Streaming typing cursor */
+@keyframes typingBlink {
+	0%,
+	50% {
+		opacity: 1;
+	}
+	51%,
+	100% {
+		opacity: 0;
+	}
+}
+
 .animate-spin {
 	animation: spin 1s linear infinite;
 }

@@ -21,7 +21,7 @@ import { executeAgentTool } from './tool-executor';
 import { AGENT_TOOLS, ASK_MODE_TOOLS, PLAN_MODE_TOOLS } from './tools';
 import { isRecordObject, normalizeFunctionCallsFormat, parseApiError, repairToolCallJson } from './utilities';
 
-import type { AgentMessage, ClaudeResponse, ContentBlock, FileChange, SnapshotMetadata, ToolResultBlock } from './types';
+import type { AgentMessage, ClaudeResponse, ContentBlock, FileChange, SnapshotMetadata, ToolResultBlock, ToolUseBlock } from './types';
 
 // =============================================================================
 // AI Agent Service Class
@@ -184,8 +184,21 @@ export class AIAgentService {
 					}
 				}
 
+				// Stop the loop when user_question is used — the user needs to reply
+				const questionBlock = response.content.find(
+					(block): block is ToolUseBlock => block.type === 'tool_use' && block.name === 'user_question',
+				);
+
 				if (hasToolUse) {
 					messages.push({ role: 'assistant', content: response.content }, { role: 'user', content: toolResults });
+					if (questionBlock) {
+						continueLoop = false;
+						// Emit a dedicated event so the frontend can display the question prominently
+						await sendEvent('user_question', {
+							question: questionBlock.input.question ?? '',
+							options: questionBlock.input.options ?? '',
+						});
+					}
 				} else {
 					continueLoop = false;
 				}

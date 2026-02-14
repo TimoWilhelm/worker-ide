@@ -750,11 +750,13 @@ function RecentProjectsDropdown({ currentProjectId, onNewProject }: { currentPro
 
 	return (
 		<DropdownMenu onOpenChange={handleOpenChange}>
-			<DropdownMenuTrigger asChild>
-				<Button variant="ghost" size="icon" title="Recent Projects">
-					<Clock className="size-4" />
-				</Button>
-			</DropdownMenuTrigger>
+			<Tooltip content="Recent Projects" side="bottom">
+				<DropdownMenuTrigger asChild>
+					<Button variant="ghost" size="icon">
+						<Clock className="size-4" />
+					</Button>
+				</DropdownMenuTrigger>
+			</Tooltip>
 			<DropdownMenuContent align="end" className="w-60">
 				{projects.map((project) => {
 					const isCurrent = project.id === currentProjectId;

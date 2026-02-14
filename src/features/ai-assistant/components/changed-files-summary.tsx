@@ -80,10 +80,10 @@ export function ChangedFilesSummary({
 				<div className="flex items-center gap-2">
 					{isExpanded ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
 					<span>
-						{pendingEntries.length} changed file{pendingEntries.length === 1 ? '' : 's'}
+						{pendingEntries.length} file{pendingEntries.length === 1 ? '' : 's'}
 					</span>
 				</div>
-				<div className="flex items-center gap-1">
+				<div className="flex shrink-0 items-center gap-1">
 					<button
 						type="button"
 						onClick={(event) => {
@@ -99,7 +99,7 @@ export function ChangedFilesSummary({
 						)}
 					>
 						<Check className="size-3" />
-						Accept All
+						<span className="whitespace-nowrap">Accept All</span>
 					</button>
 					<button
 						type="button"
@@ -116,14 +116,14 @@ export function ChangedFilesSummary({
 						)}
 					>
 						<X className="size-3" />
-						Reject All
+						<span className="whitespace-nowrap">Reject All</span>
 					</button>
 				</div>
 			</button>
 
 			{/* File list */}
 			{isExpanded && (
-				<div className="border-t border-accent/15">
+				<div className="max-h-40 overflow-y-auto border-t border-accent/15">
 					{pendingEntries.map(([path, change]) => (
 						<ChangedFileRow
 							key={path}

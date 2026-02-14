@@ -429,9 +429,51 @@ export const useStore = create<StoreState>()(
 					set((state) => {
 						const newMap = new Map(state.pendingChanges);
 						const existing = newMap.get(change.path);
-						// Keep the first beforeContent and existing snapshotId for dedup (multiple edits to same file)
-						const beforeContent = existing ? existing.beforeContent : change.beforeContent;
-						const snapshotId = existing?.snapshotId ?? change.snapshotId;
+
+						if (!existing) {
+							newMap.set(change.path, { ...change, status: 'pending' });
+							return { pendingChanges: newMap };
+						}
+
+						// Keep the first beforeContent and existing snapshotId for dedup
+						const beforeContent = existing.beforeContent;
+						const snapshotId = existing.snapshotId ?? change.snapshotId;
+
+						// Resolve combined action based on original + new action
+						const originalAction = existing.action;
+						const newAction = change.action;
+
+						// create → delete = net no-op (file never existed in snapshot)
+						if (originalAction === 'create' && newAction === 'delete') {
+							newMap.delete(change.path);
+							return { pendingChanges: newMap };
+						}
+
+						// create → edit = still a create (with updated content)
+						if (originalAction === 'create' && newAction === 'edit') {
+							newMap.set(change.path, {
+								...change,
+								action: 'create',
+								beforeContent,
+								snapshotId,
+								status: 'pending',
+							});
+							return { pendingChanges: newMap };
+						}
+
+						// delete → create = effectively an edit (file was replaced)
+						if (originalAction === 'delete' && newAction === 'create') {
+							newMap.set(change.path, {
+								...change,
+								action: 'edit',
+								beforeContent,
+								snapshotId,
+								status: 'pending',
+							});
+							return { pendingChanges: newMap };
+						}
+
+						// All other cases: keep original beforeContent, use new action & afterContent
 						newMap.set(change.path, { ...change, beforeContent, snapshotId, status: 'pending' });
 						return { pendingChanges: newMap };
 					}),

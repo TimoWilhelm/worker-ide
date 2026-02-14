@@ -20,7 +20,7 @@ import { useStore } from '@/lib/store';
 import { cn, formatRelativeTime } from '@/lib/utils';
 
 import { getEventBooleanField, getEventObjectField, getEventStringField, getEventToolName } from './helpers';
-import { AIError, AssistantMessage, ContinuationPrompt, MessageBubble, WelcomeScreen } from './messages';
+import { AIError, AssistantMessage, ContinuationPrompt, MessageBubble, UserQuestionPrompt, WelcomeScreen } from './messages';
 import { useAiSessions } from '../../hooks/use-ai-sessions';
 import { useChangeReview } from '../../hooks/use-change-review';
 import { useFileMention } from '../../hooks/use-file-mention';
@@ -45,6 +45,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	const [cursorPosition, setCursorPosition] = useState(0);
 	const [streamingContent, setStreamingContent] = useState<AgentContent[] | undefined>();
 	const [needsContinuation, setNeedsContinuation] = useState(false);
+	const [pendingQuestion, setPendingQuestion] = useState<{ question: string; options: string } | undefined>();
 	const [planPath, setPlanPath] = useState<string | undefined>();
 	const inputReference = useRef<RichTextInputHandle>(null);
 	const scrollReference = useRef<HTMLDivElement>(null);
@@ -133,7 +134,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		if (scrollReference.current) {
 			scrollReference.current.scrollTop = scrollReference.current.scrollHeight;
 		}
-	}, [history, statusMessage, aiError, streamingContent, needsContinuation]);
+	}, [history, statusMessage, aiError, streamingContent, needsContinuation, pendingQuestion]);
 
 	// Focus input on mount
 	useEffect(() => {
@@ -149,9 +150,10 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 			const messageText = messageOverride ?? inputPlainText.trim();
 			if (!messageText || isProcessing) return;
 
-			// Clear any previous error or continuation prompt
+			// Clear any previous error, continuation prompt, or pending question
 			setAiError(undefined);
 			setNeedsContinuation(false);
+			setPendingQuestion(undefined);
 
 			const userMessage: AgentMessage = {
 				role: 'user',
@@ -267,7 +269,19 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 										snapshotId: activeSnapshotIdReference.current,
 									});
 									// Open the file so the user sees the diff immediately
-									openFile(path);
+									// (skip for deletes — the file no longer exists on disk)
+									if (action !== 'delete') {
+										openFile(path);
+									}
+								}
+								break;
+							}
+							case 'user_question': {
+								// AI asked a clarifying question — display it prominently
+								const question = getEventStringField(event, 'question');
+								const options = getEventStringField(event, 'options');
+								if (question) {
+									setPendingQuestion({ question, options });
 								}
 								break;
 							}
@@ -521,19 +535,29 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 						{history.length === 0 ? (
 							<WelcomeScreen onSuggestionClick={handleSuggestion} />
 						) : (
-							history.map((message, index) => (
-								<MessageBubble
-									key={index}
-									message={message}
-									messageIndex={index}
-									snapshotId={messageSnapshots.get(index)}
-									isReverting={isReverting}
-									onRevert={handleRevert}
-								/>
-							))
+							<>
+								{history.map((message, index) => (
+									<MessageBubble
+										key={index}
+										message={message}
+										messageIndex={index}
+										snapshotId={messageSnapshots.get(index)}
+										isReverting={isReverting}
+										onRevert={handleRevert}
+									/>
+								))}
+							</>
 						)}
-						{/* Streaming assistant message (shown while AI is responding) */}
-						{streamingContent && streamingContent.length > 0 && <AssistantMessage content={streamingContent} />}
+						{/* Streaming assistant message */}
+						{streamingContent && streamingContent.length > 0 && <AssistantMessage content={streamingContent} streaming />}
+						{/* User question prompt — shown when the AI asks a clarifying question */}
+						{pendingQuestion && !isProcessing && (
+							<UserQuestionPrompt
+								question={pendingQuestion.question}
+								options={pendingQuestion.options}
+								onOptionClick={(option) => void handleSend(option)}
+							/>
+						)}
 						{/* Continuation prompt — shown when the agent hit the iteration limit */}
 						{needsContinuation && !isProcessing && (
 							<ContinuationPrompt onContinue={() => void handleSend('continue')} onDismiss={() => setNeedsContinuation(false)} />
