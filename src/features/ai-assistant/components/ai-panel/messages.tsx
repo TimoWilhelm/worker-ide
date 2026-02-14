@@ -40,7 +40,7 @@ import { parseTextToSegments } from '../../lib/input-segments';
 import { FileReference } from '../file-reference';
 import { MarkdownContent } from '../markdown-content';
 
-import type { AgentContent, AgentMessage, ToolName } from '@shared/types';
+import type { AgentContent, AgentMessage, AgentMode, ToolName } from '@shared/types';
 
 // =============================================================================
 // Tool icon helper
@@ -96,7 +96,13 @@ function ToolIcon({ name, className }: { name: ToolName; className?: string }) {
 // Welcome Screen
 // =============================================================================
 
-export function WelcomeScreen({ onSuggestionClick }: { onSuggestionClick: (prompt: string) => void }) {
+export function WelcomeScreen({
+	onSuggestionClick,
+	onModeChange,
+}: {
+	onSuggestionClick: (prompt: string) => void;
+	onModeChange: (mode: AgentMode) => void;
+}) {
 	return (
 		<div className="flex flex-col items-center justify-center py-8 text-center">
 			<div className="mb-3 text-accent opacity-70">
@@ -109,7 +115,10 @@ export function WelcomeScreen({ onSuggestionClick }: { onSuggestionClick: (promp
 				{AI_SUGGESTIONS.map((suggestion) => (
 					<button
 						key={suggestion.label}
-						onClick={() => onSuggestionClick(suggestion.prompt)}
+						onClick={() => {
+							onModeChange(suggestion.mode);
+							onSuggestionClick(suggestion.prompt);
+						}}
 						className={cn(
 							`
 								cursor-pointer rounded-full border border-border bg-bg-tertiary px-3
@@ -341,13 +350,10 @@ export function AssistantMessage({ content, streaming }: { content: AgentContent
 								bg-bg-tertiary
 							"
 						>
-							<div className="flex flex-col gap-2 p-2.5">
+							<div className="p-2.5">
 								<div className="overflow-hidden text-sm/relaxed text-text-primary">
 									<MarkdownContent content={segment.text} />
 								</div>
-								<span className="text-sm" style={{ animation: 'typingBlink 0.8s step-end infinite', color: 'var(--color-accent)' }}>
-									▌
-								</span>
 							</div>
 						</div>
 					);

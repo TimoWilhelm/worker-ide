@@ -3,7 +3,7 @@
  */
 
 import type { AIStreamEvent } from '@/lib/api-client';
-import type { ToolName } from '@shared/types';
+import type { AgentMode, ToolName } from '@shared/types';
 
 // =============================================================================
 // Helper functions
@@ -63,8 +63,8 @@ export function getEventBooleanField(event: AIStreamEvent, field: string): boole
 // AI Suggestion presets
 // =============================================================================
 
-export const AI_SUGGESTIONS = [
-	{ label: 'Add dark mode', prompt: 'Add a dark mode toggle to the app' },
-	{ label: 'Explain project', prompt: 'Explain what this project does' },
-	{ label: 'Add validation', prompt: 'Add form validation to the input fields' },
+export const AI_SUGGESTIONS: ReadonlyArray<{ label: string; prompt: string; mode: AgentMode }> = [
+	{ label: 'Add dark mode', prompt: 'Add a dark mode toggle to the app', mode: 'code' },
+	{ label: 'Explain project', prompt: 'Explain what this project does', mode: 'ask' },
+	{ label: 'Add validation', prompt: 'Add form validation to the input fields', mode: 'code' },
 ];

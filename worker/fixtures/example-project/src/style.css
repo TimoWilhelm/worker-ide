@@ -1,7 +1,7 @@
 :root {
 	font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
-	background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-	color: rgba(255, 255, 255, 0.87);
+	background: #f8f9fa;
+	color: #1a1a2e;
 }
 
 body {
@@ -25,14 +25,15 @@ h1 {
 }
 
 .card {
-	background: rgba(255, 255, 255, 0.05);
+	background: #ffffff;
+	box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 	border-radius: 12px;
 	padding: 2em;
 	margin: 1em 0;
 }
 
 .status {
-	color: #4ade80;
+	color: #16a34a;
 	font-weight: 500;
 	margin-bottom: 1.5em;
 }
@@ -46,10 +47,10 @@ h1 {
 .todos input {
 	flex: 1;
 	padding: 0.6em 1em;
-	border: 1px solid rgba(255, 255, 255, 0.2);
+	border: 1px solid #d1d5db;
 	border-radius: 6px;
-	background: rgba(0, 0, 0, 0.3);
-	color: white;
+	background: #ffffff;
+	color: #1a1a2e;
 	font-size: 1em;
 }
 
@@ -90,7 +91,7 @@ button:disabled {
 	align-items: center;
 	gap: 0.5em;
 	padding: 0.75em;
-	background: rgba(0, 0, 0, 0.2);
+	background: #f1f5f9;
 	border-radius: 6px;
 	margin-bottom: 0.5em;
 	transition: opacity 0.2s;
@@ -111,7 +112,8 @@ button:disabled {
 #todo-list button {
 	padding: 0.3em 0.6em;
 	font-size: 0.9em;
-	background: rgba(255, 255, 255, 0.1);
+	background: #e2e8f0;
+	color: #1a1a2e;
 }
 
 #todo-list button.delete:hover:not(:disabled) {

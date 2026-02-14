@@ -533,7 +533,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 				<ScrollArea.Viewport ref={scrollReference} className="size-full [&>div]:block!">
 					<div className="flex min-w-0 flex-col gap-3 p-2">
 						{history.length === 0 ? (
-							<WelcomeScreen onSuggestionClick={handleSuggestion} />
+							<WelcomeScreen onSuggestionClick={handleSuggestion} onModeChange={setAgentMode} />
 						) : (
 							<>
 								{history.map((message, index) => (
@@ -641,9 +641,6 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 					)}
 					<div className="flex items-center justify-between px-1.5 py-1">
 						<div className="flex items-center gap-2">
-							<span className="pl-0.5 text-xs text-text-secondary">
-								{isProcessing ? 'Press Stop to cancel' : 'Enter to send · @ to mention files'}
-							</span>
 							<AgentModeSelector mode={agentMode} onModeChange={setAgentMode} disabled={isProcessing} />
 						</div>
 						{isProcessing ? (
