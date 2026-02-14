@@ -222,8 +222,7 @@ export function getLanguageExtension(filename: string): Extension | undefined {
 /**
  * Basic editor extensions for all files.
  */
-export function getBaseExtensions(resolvedTheme: 'light' | 'dark' = 'dark'): Extension[] {
-	const isDark = resolvedTheme === 'dark';
+export function getBaseExtensions(): Extension[] {
 	return [
 		lineNumbers(),
 		highlightActiveLineGutter(),
@@ -235,7 +234,6 @@ export function getBaseExtensions(resolvedTheme: 'light' | 'dark' = 'dark'): Ext
 		EditorState.allowMultipleSelections.of(true),
 		indentOnInput(),
 		syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
-		syntaxHighlighting(isDark ? darkHighlightStyle : lightHighlightStyle),
 		bracketMatching(),
 		closeBrackets(),
 		autocompletion(),
@@ -253,24 +251,14 @@ export function getBaseExtensions(resolvedTheme: 'light' | 'dark' = 'dark'): Ext
 			...lintKeymap,
 			indentWithTab,
 		]),
-		isDark ? darkTheme : lightTheme,
 	];
 }
 
 /**
  * Create a complete set of extensions for a file.
  */
-export function createEditorExtensions(
-	filename: string,
-	additionalExtensions: Extension[] = [],
-	resolvedTheme: 'light' | 'dark' = 'dark',
-): Extension[] {
-	const extensions = getBaseExtensions(resolvedTheme);
-
-	const langExtension = getLanguageExtension(filename);
-	if (langExtension) {
-		extensions.push(langExtension);
-	}
+export function createEditorExtensions(additionalExtensions: Extension[] = []): Extension[] {
+	const extensions = getBaseExtensions();
 
 	extensions.push(...additionalExtensions);
 

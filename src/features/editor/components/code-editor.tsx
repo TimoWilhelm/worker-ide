@@ -135,7 +135,7 @@ export function CodeEditor({
 		if (!containerReference.current || viewReference.current) return;
 
 		const langExtension = getLanguageExtension(filename);
-		const baseExtensions = createEditorExtensions(filename, [createUpdateListener(), ...additionalExtensions], resolvedTheme);
+		const baseExtensions = createEditorExtensions([createUpdateListener(), ...additionalExtensions]);
 
 		// Remove language from base extensions since we'll use compartment
 		const diffExtensions = diffData
