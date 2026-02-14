@@ -17,6 +17,35 @@ import { source as errorOverlaySource, hash as errorOverlayHash } from '../lib/p
 import { source as fetchInterceptorSource, hash as fetchInterceptorHash } from '../lib/preview-scripts/fetch-interceptor.js?raw-minified';
 import { source as hmrClientSource, hash as hmrClientHash } from '../lib/preview-scripts/hmr-client.js?raw-minified';
 
+// Content-Security-Policy for preview HTML responses.
+// Even though the iframe has sandbox="allow-scripts allow-same-origin", which
+// technically allows sandbox escape, CSP headers on the *response* cannot be
+// removed by JavaScript. This ensures the preview page remains restricted even
+// if script code attempts to remove the sandbox attribute from the iframe element.
+const PREVIEW_CSP = [
+	// Only allow scripts from the same origin (preview route) and inline scripts
+	// (needed for the injected HMR config). Block eval() and external scripts.
+	"script-src 'self' 'unsafe-inline'",
+	// Only allow styles from same origin and inline styles (user CSS, error overlay)
+	"style-src 'self' 'unsafe-inline'",
+	// Allow images/media/fonts from anywhere (user projects may reference CDNs)
+	'img-src * data: blob:',
+	'media-src * data: blob:',
+	'font-src * data:',
+	// Allow fetch/XHR to same origin (preview API) and WebSocket for HMR
+	"connect-src 'self' ws: wss:",
+	// Prevent the preview from framing other pages
+	"frame-src 'none'",
+	// Prevent the preview from being embedded outside this app
+	"frame-ancestors 'self'",
+	// Block all object/embed
+	"object-src 'none'",
+	// Restrict form submissions to same origin
+	"form-action 'self'",
+	// Restrict base-uri to prevent base tag hijacking
+	"base-uri 'self'",
+].join('; ');
+
 const scriptIntegrityHashes: Record<string, string> = {
 	'__chobitsu.js': chobitsuHash,
 	'__chobitsu-init.js': chobitsuInitHash,
@@ -149,7 +178,11 @@ export class PreviewService {
 					scriptIntegrityHashes,
 				});
 				return new Response(html, {
-					headers: { 'Content-Type': 'text/html', 'Cache-Control': 'no-cache' },
+					headers: {
+						'Content-Type': 'text/html',
+						'Cache-Control': 'no-cache',
+						'Content-Security-Policy': PREVIEW_CSP,
+					},
 				});
 			}
 
