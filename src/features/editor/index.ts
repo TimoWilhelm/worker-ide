@@ -19,6 +19,8 @@ export { createDiffExtensions, type DiffExtensionConfig } from './lib/diff-exten
 export {
 	darkTheme,
 	darkHighlightStyle,
+	lightTheme,
+	lightHighlightStyle,
 	getLanguageExtension,
 	getBaseExtensions,
 	createEditorExtensions,

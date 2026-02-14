@@ -168,6 +168,8 @@ interface PendingChangesActions {
 // UI State
 // =============================================================================
 
+type ColorScheme = 'light' | 'dark' | 'system';
+
 interface UIState {
 	/** Whether sidebar is visible */
 	sidebarVisible: boolean;
@@ -175,12 +177,15 @@ interface UIState {
 	terminalVisible: boolean;
 	/** Whether AI panel is visible */
 	aiPanelVisible: boolean;
+	/** Color scheme preference */
+	colorScheme: ColorScheme;
 }
 
 interface UIActions {
 	toggleSidebar: () => void;
 	toggleTerminal: () => void;
 	toggleAIPanel: () => void;
+	setColorScheme: (scheme: ColorScheme) => void;
 }
 
 // =============================================================================
@@ -498,11 +503,14 @@ export const useStore = create<StoreState>()(
 				sidebarVisible: true,
 				terminalVisible: true,
 				aiPanelVisible: false,
+				colorScheme: 'dark',
 				toggleSidebar: () => set((state) => ({ sidebarVisible: !state.sidebarVisible })),
 
 				toggleTerminal: () => set((state) => ({ terminalVisible: !state.terminalVisible })),
 
 				toggleAIPanel: () => set((state) => ({ aiPanelVisible: !state.aiPanelVisible })),
+
+				setColorScheme: (scheme) => set({ colorScheme: scheme }),
 			}),
 			{
 				name: 'worker-ide-store',
@@ -511,6 +519,7 @@ export const useStore = create<StoreState>()(
 					sidebarVisible: state.sidebarVisible,
 					terminalVisible: state.terminalVisible,
 					aiPanelVisible: state.aiPanelVisible,
+					colorScheme: state.colorScheme,
 					expandedDirs: [...state.expandedDirs],
 				}),
 				// Rehydrate expandedDirs as Set
@@ -532,6 +541,7 @@ export const selectIsProcessing = (state: StoreState) => state.isProcessing;
 export const selectParticipants = (state: StoreState) => state.participants;
 export const selectSnapshots = (state: StoreState) => state.snapshots;
 export const selectPendingChanges = (state: StoreState) => state.pendingChanges;
+export const selectColorScheme = (state: StoreState) => state.colorScheme;
 export const selectHasPendingChanges = (state: StoreState) => {
 	for (const change of state.pendingChanges.values()) {
 		if (change.status === 'pending') return true;

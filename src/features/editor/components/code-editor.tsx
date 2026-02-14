@@ -4,12 +4,22 @@
  * React wrapper for CodeMirror 6 with language support and theme.
  */
 
+import { syntaxHighlighting } from '@codemirror/language';
 import { Compartment, EditorState, type Extension } from '@codemirror/state';
 import { EditorView, type ViewUpdate } from '@codemirror/view';
 import { useCallback, useEffect, useRef } from 'react';
 
 import { createDiffExtensions } from '../lib/diff-extension';
-import { createEditorExtensions, createTabSizeExtension, getLanguageExtension, readonlyExtension } from '../lib/extensions';
+import {
+	createEditorExtensions,
+	createTabSizeExtension,
+	darkHighlightStyle,
+	darkTheme,
+	getLanguageExtension,
+	lightHighlightStyle,
+	lightTheme,
+	readonlyExtension,
+} from '../lib/extensions';
 
 import type { DiffData } from '../lib/diff-decorations';
 
@@ -38,6 +48,8 @@ export interface CodeEditorProperties {
 	tabSize?: number;
 	/** Inline diff data for AI change review */
 	diffData?: DiffData;
+	/** Resolved color theme */
+	resolvedTheme?: 'light' | 'dark';
 	/** Additional extensions */
 	extensions?: Extension[];
 	/** CSS class name */
@@ -62,6 +74,7 @@ export function CodeEditor({
 	readonly = false,
 	tabSize = 2,
 	diffData,
+	resolvedTheme = 'dark',
 	extensions: additionalExtensions = [],
 	className,
 }: CodeEditorProperties) {
@@ -73,6 +86,7 @@ export function CodeEditor({
 	const readonlyCompartment = useRef(new Compartment()).current;
 	const tabSizeCompartment = useRef(new Compartment()).current;
 	const diffCompartment = useRef(new Compartment()).current;
+	const themeCompartment = useRef(new Compartment()).current;
 
 	// Use refs for all callbacks so the CodeMirror extension (created once
 	// at mount) always calls the latest version without needing to
@@ -111,10 +125,11 @@ export function CodeEditor({
 		if (!containerReference.current || viewReference.current) return;
 
 		const langExtension = getLanguageExtension(filename);
-		const baseExtensions = createEditorExtensions(filename, [createUpdateListener(), ...additionalExtensions]);
+		const baseExtensions = createEditorExtensions(filename, [createUpdateListener(), ...additionalExtensions], resolvedTheme);
 
 		// Remove language from base extensions since we'll use compartment
 		const diffExtensions = diffData ? createDiffExtensions({ hunks: diffData.hunks }) : [];
+		const isDark = resolvedTheme === 'dark';
 
 		const extensions = [
 			...baseExtensions,
@@ -122,6 +137,7 @@ export function CodeEditor({
 			readonlyCompartment.of(readonly ? readonlyExtension : []),
 			tabSizeCompartment.of(createTabSizeExtension(tabSize)),
 			diffCompartment.of(diffExtensions),
+			themeCompartment.of([isDark ? darkTheme : lightTheme, syntaxHighlighting(isDark ? darkHighlightStyle : lightHighlightStyle)]),
 		];
 
 		const state = EditorState.create({
@@ -187,6 +203,19 @@ export function CodeEditor({
 			effects: tabSizeCompartment.reconfigure(createTabSizeExtension(tabSize)),
 		});
 	}, [tabSize, tabSizeCompartment]);
+
+	// Update theme
+	useEffect(() => {
+		if (!viewReference.current) return;
+
+		const isDark = resolvedTheme === 'dark';
+		viewReference.current.dispatch({
+			effects: themeCompartment.reconfigure([
+				isDark ? darkTheme : lightTheme,
+				syntaxHighlighting(isDark ? darkHighlightStyle : lightHighlightStyle),
+			]),
+		});
+	}, [resolvedTheme, themeCompartment]);
 
 	// Update diff decorations
 	useEffect(() => {

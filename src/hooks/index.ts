@@ -5,3 +5,4 @@
  */
 
 export { useHMR, hmrSendReference } from './use-hmr';
+export { useTheme } from './use-theme';

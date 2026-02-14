@@ -4,7 +4,7 @@
  * Main IDE layout with resizable panels: file tree, editor, terminal, preview, and AI assistant.
  */
 
-import { Bot, ChevronDown, ChevronUp, Clock, Download, Hexagon, Pencil, Plus } from 'lucide-react';
+import { Bot, ChevronDown, ChevronUp, Clock, Download, Hexagon, Moon, Pencil, Plus, Sun } from 'lucide-react';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { Group as PanelGroup, Panel, Separator as ResizeHandle } from 'react-resizable-panels';
 
@@ -23,7 +23,7 @@ import { Tooltip, TooltipProvider } from '@/components/ui/tooltip';
 import { CodeEditor, computeDiffData, FileTabs, useFileContent } from '@/features/editor';
 import { FileTree, useFileTree } from '@/features/file-tree';
 import { getLogSnapshot, subscribeToLogs } from '@/features/terminal/lib/log-buffer';
-import { hmrSendReference, useHMR } from '@/hooks';
+import { hmrSendReference, useHMR, useTheme } from '@/hooks';
 import { createProject, downloadProject, fetchProjectMeta, updateProjectMeta } from '@/lib/api-client';
 import { getRecentProjects, trackProject, type RecentProject } from '@/lib/recent-projects';
 import { selectIsProcessing, useStore } from '@/lib/store';
@@ -43,6 +43,10 @@ const TerminalPanel = lazy(() => import('@/features/terminal'));
 export function IDEShell({ projectId }: { projectId: string }) {
 	// HMR connection
 	useHMR({ projectId });
+
+	// Theme
+	const resolvedTheme = useTheme();
+	const setColorScheme = useStore((state) => state.setColorScheme);
 
 	// Store state
 	const {
@@ -402,6 +406,18 @@ export function IDEShell({ projectId }: { projectId: string }) {
 							</div>
 						</Tooltip>
 
+						{/* Theme toggle */}
+						<Tooltip content={resolvedTheme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}>
+							<Button
+								variant="ghost"
+								size="icon"
+								aria-label="Toggle color theme"
+								onClick={() => setColorScheme(resolvedTheme === 'dark' ? 'light' : 'dark')}
+							>
+								{resolvedTheme === 'dark' ? <Sun className="size-4" /> : <Moon className="size-4" />}
+							</Button>
+						</Tooltip>
+
 						{/* Download */}
 						<Tooltip content="Download project">
 							<Button variant="ghost" size="icon" aria-label="Download project" onClick={handleDownload}>
@@ -475,6 +491,7 @@ export function IDEShell({ projectId }: { projectId: string }) {
 														goToPosition={pendingGoTo}
 														onGoToPositionConsumed={clearPendingGoTo}
 														diffData={activeDiffData}
+														resolvedTheme={resolvedTheme}
 													/>
 												)
 											) : (
@@ -665,7 +682,20 @@ export function IDEShell({ projectId }: { projectId: string }) {
 							<span className="flex items-center gap-1.5">
 								<span className="size-1.5 rounded-full bg-success" />
 								Connected
-								{participants.length > 0 && <span className="text-text-secondary">&middot; {participants.length} online</span>}
+								{participants.length > 0 && (
+									<span className="flex items-center gap-1">
+										<span className="text-text-secondary">&middot;</span>
+										{participants.map((participant) => (
+											<span
+												key={participant.id}
+												className="size-2 rounded-full"
+												style={{ backgroundColor: participant.color }}
+												title={`Collaborator (${participant.id.slice(0, 6)})`}
+											/>
+										))}
+										<span className="text-text-secondary">{participants.length} online</span>
+									</span>
+								)}
 							</span>
 						) : (
 							<span className="flex items-center gap-1.5">
