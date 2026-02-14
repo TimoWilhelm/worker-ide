@@ -322,13 +322,23 @@ describe('todoItemSchema', () => {
 // aiChatMessageSchema — plan mode and session ID
 // =============================================================================
 
-describe('aiChatMessageSchema plan mode fields', () => {
-	it('accepts planMode boolean', () => {
+describe('aiChatMessageSchema mode and session fields', () => {
+	it('accepts mode enum values', () => {
+		for (const mode of ['code', 'plan', 'ask']) {
+			const result = aiChatMessageSchema.safeParse({
+				message: 'Create a plan',
+				mode,
+			});
+			expect(result.success).toBe(true);
+		}
+	});
+
+	it('rejects invalid mode value', () => {
 		const result = aiChatMessageSchema.safeParse({
-			message: 'Create a plan',
-			planMode: true,
+			message: 'Hello',
+			mode: 'invalid',
 		});
-		expect(result.success).toBe(true);
+		expect(result.success).toBe(false);
 	});
 
 	it('accepts sessionId string', () => {
@@ -339,10 +349,10 @@ describe('aiChatMessageSchema plan mode fields', () => {
 		expect(result.success).toBe(true);
 	});
 
-	it('accepts both planMode and sessionId', () => {
+	it('accepts both mode and sessionId', () => {
 		const result = aiChatMessageSchema.safeParse({
 			message: 'Plan this feature',
-			planMode: true,
+			mode: 'plan',
 			sessionId: 'session1',
 		});
 		expect(result.success).toBe(true);

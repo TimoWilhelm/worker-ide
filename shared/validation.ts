@@ -252,7 +252,7 @@ export type ToolName = keyof typeof toolInputSchemas;
 export const aiChatMessageSchema = z.object({
 	message: z.string().min(1, 'Message is required').max(LIMITS.AI_MESSAGE_MAX_LENGTH, 'Message is too long'),
 	history: z.array(z.unknown()).optional(),
-	planMode: z.boolean().optional(),
+	mode: z.enum(['code', 'plan', 'ask']).optional(),
 	sessionId: z.string().max(LIMITS.SESSION_ID_MAX_LENGTH).optional(),
 });
 

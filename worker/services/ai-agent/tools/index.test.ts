@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { AGENT_TOOLS, PLAN_MODE_TOOLS } from './index';
+import { AGENT_TOOLS, ASK_MODE_TOOLS, PLAN_MODE_TOOLS } from './index';
 
 // =============================================================================
 // PLAN_MODE_TOOLS
@@ -39,6 +39,16 @@ describe('PLAN_MODE_TOOLS', () => {
 		for (const tool of PLAN_MODE_TOOLS) {
 			expect(agentToolNames.has(tool.name)).toBe(true);
 		}
+	});
+});
+
+// =============================================================================
+// ASK_MODE_TOOLS
+// =============================================================================
+
+describe('ASK_MODE_TOOLS', () => {
+	it('has no tools (conversational only)', () => {
+		expect(ASK_MODE_TOOLS).toHaveLength(0);
 	});
 });
 

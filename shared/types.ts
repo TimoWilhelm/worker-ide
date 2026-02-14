@@ -68,6 +68,14 @@ export interface SelectionRange {
 // =============================================================================
 
 /**
+ * Agent operating mode.
+ * - code: Full tool access — reads, writes, edits, deletes files (default).
+ * - plan: Read-only research + produces an implementation plan.
+ * - ask: No tools — conversational Q&A only.
+ */
+export type AgentMode = 'code' | 'plan' | 'ask';
+
+/**
  * A message in the AI chat conversation
  */
 export interface AgentMessage {

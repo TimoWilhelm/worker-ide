@@ -115,9 +115,9 @@ export async function executeAgentTool(
 			validatedInput = data;
 		}
 
-		// Plan mode defense-in-depth: reject editing tools
-		if (context.planMode && EDITING_TOOLS.has(toolName)) {
-			return { error: 'File editing tools are not available in Plan mode. Use read-only tools to research and produce a plan.' };
+		// Plan/Ask mode defense-in-depth: reject editing tools
+		if (context.mode !== 'code' && EDITING_TOOLS.has(toolName)) {
+			return { error: 'File editing tools are not available in this mode. Switch to Code mode to make changes.' };
 		}
 
 		// Dispatch to the tool module

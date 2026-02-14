@@ -68,7 +68,7 @@ export interface ToolExecutorContext {
 	projectRoot: string;
 	projectId: string;
 	environment: Env;
-	planMode: boolean;
+	mode: 'code' | 'plan' | 'ask';
 	sessionId?: string;
 	callMcpTool: (serverId: string, toolName: string, arguments_: Record<string, unknown>) => Promise<string>;
 	repairToolCall: (toolName: string, rawInput: unknown, error: string, apiToken: string) => Promise<Record<string, unknown> | undefined>;

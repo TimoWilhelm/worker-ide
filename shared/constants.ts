@@ -211,6 +211,18 @@ You are currently in PLAN MODE. In this mode:
   5. Testing recommendations
 - Be thorough and specific. The plan should be actionable by a developer or AI agent.`;
 
+/**
+ * Additional system prompt appended when Ask mode is active
+ */
+export const ASK_MODE_SYSTEM_PROMPT = `
+
+You are currently in ASK MODE. In this mode:
+- You have NO tools available. You cannot read, write, or search files.
+- Your role is to answer questions, explain concepts, and have a conversation.
+- Draw on your training knowledge to help the user.
+- If the user asks you to make code changes, suggest they switch to Code mode.
+- Be concise, helpful, and conversational.`;
+
 // =============================================================================
 // Project Constants
 // =============================================================================

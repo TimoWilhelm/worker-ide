@@ -9,10 +9,16 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import Replicate from 'replicate';
 
-import { AGENT_SYSTEM_PROMPT, AGENTS_MD_MAX_CHARACTERS, MCP_SERVERS, PLAN_MODE_SYSTEM_PROMPT } from '@shared/constants';
+import {
+	AGENT_SYSTEM_PROMPT,
+	AGENTS_MD_MAX_CHARACTERS,
+	ASK_MODE_SYSTEM_PROMPT,
+	MCP_SERVERS,
+	PLAN_MODE_SYSTEM_PROMPT,
+} from '@shared/constants';
 
 import { executeAgentTool } from './tool-executor';
-import { AGENT_TOOLS, PLAN_MODE_TOOLS } from './tools';
+import { AGENT_TOOLS, ASK_MODE_TOOLS, PLAN_MODE_TOOLS } from './tools';
 import { isRecordObject, parseApiError, repairToolCallJson } from './utilities';
 
 import type { AgentMessage, ClaudeResponse, ContentBlock, FileChange, SnapshotMetadata, ToolResultBlock } from './types';
@@ -29,7 +35,7 @@ export class AIAgentService {
 		private projectId: string,
 		private environment: Env,
 		private sessionId?: string,
-		private planMode = false,
+		private mode: 'code' | 'plan' | 'ask' = 'code',
 	) {}
 
 	/**
@@ -85,7 +91,7 @@ export class AIAgentService {
 			const agentsContext = await this.readAgentsContext();
 
 			// Read the latest plan so implementation steps can reference it
-			const latestPlan = this.planMode ? undefined : await this.readLatestPlan();
+			const latestPlan = this.mode === 'plan' ? undefined : await this.readLatestPlan();
 
 			const messages: Array<{ role: string; content: string | ContentBlock[] | ToolResultBlock[] }> = [];
 			for (const message of history) {
@@ -106,7 +112,7 @@ export class AIAgentService {
 					break;
 				}
 				iteration++;
-				await sendEvent('status', { message: this.planMode ? 'Researching...' : 'Thinking...' });
+				await sendEvent('status', { message: this.mode === 'plan' ? 'Researching...' : 'Thinking...' });
 
 				const response = await this.callClaude(messages, apiToken, signal, agentsContext, latestPlan);
 				if (!response) {
@@ -138,7 +144,7 @@ export class AIAgentService {
 								projectRoot: this.projectRoot,
 								projectId: this.projectId,
 								environment: this.environment,
-								planMode: this.planMode,
+								mode: this.mode,
 								sessionId: this.sessionId,
 								callMcpTool: (serverId: string, toolName: string, arguments_: Record<string, unknown>) =>
 									this.callMcpTool(serverId, toolName, arguments_),
@@ -187,7 +193,7 @@ export class AIAgentService {
 			}
 
 			// In plan mode, save the plan to the filesystem
-			if (this.planMode && lastAssistantText.trim()) {
+			if (this.mode === 'plan' && lastAssistantText.trim()) {
 				await this.savePlan(lastAssistantText, prompt, sendEvent);
 			}
 
@@ -272,7 +278,7 @@ export class AIAgentService {
 		formattedPrompt += '\n\nAssistant:';
 
 		// Select tools based on plan mode
-		const activeTools = this.planMode ? PLAN_MODE_TOOLS : AGENT_TOOLS;
+		const activeTools = this.mode === 'ask' ? ASK_MODE_TOOLS : this.mode === 'plan' ? PLAN_MODE_TOOLS : AGENT_TOOLS;
 
 		const toolsDescription = activeTools
 			.map((t) => `- ${t.name}: ${t.description}\n  Parameters: ${JSON.stringify(t.input_schema.properties)}`)
@@ -283,8 +289,10 @@ export class AIAgentService {
 		if (agentsContext) {
 			systemPrompt += `\n\n## Project Guidelines (from AGENTS.md)\n${agentsContext}`;
 		}
-		if (this.planMode) {
+		if (this.mode === 'plan') {
 			systemPrompt += PLAN_MODE_SYSTEM_PROMPT;
+		} else if (this.mode === 'ask') {
+			systemPrompt += ASK_MODE_SYSTEM_PROMPT;
 		}
 		if (latestPlan) {
 			systemPrompt += `\n\n## Active Implementation Plan\nFollow this plan for all implementation steps. Reference it to decide what to do next and mark steps as complete when done.\n\n${latestPlan}`;

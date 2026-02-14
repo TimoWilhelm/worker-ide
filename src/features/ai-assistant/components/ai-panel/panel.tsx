@@ -25,6 +25,7 @@ import { useAiSessions } from '../../hooks/use-ai-sessions';
 import { useChangeReview } from '../../hooks/use-change-review';
 import { useFileMention } from '../../hooks/use-file-mention';
 import { segmentsHaveContent, segmentsToPlainText, type InputSegment } from '../../lib/input-segments';
+import { AgentModeSelector } from '../agent-mode-selector';
 import { ChangedFilesSummary } from '../changed-files-summary';
 import { FileMentionDropdown } from '../file-mention-dropdown';
 import { RevertConfirmDialog } from '../revert-confirm-dialog';
@@ -66,7 +67,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		aiError,
 		messageSnapshots,
 		files,
-		planMode,
+		agentMode,
 		sessionId,
 		addMessage,
 		clearHistory: storeClearHistory,
@@ -76,7 +77,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		setMessageSnapshot,
 		removeMessagesAfter,
 		removeMessagesFrom,
-		togglePlanMode,
+		setAgentMode,
 		openFile,
 		addPendingChange,
 		associateSnapshotWithPending,
@@ -285,7 +286,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 							}
 						}
 					},
-					{ planMode, sessionId },
+					{ mode: agentMode, sessionId },
 				);
 
 				// Add complete assistant message
@@ -338,7 +339,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 			isProcessing,
 			history,
 			projectId,
-			planMode,
+			agentMode,
 			sessionId,
 			addMessage,
 			setProcessing,
@@ -585,7 +586,15 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 						onSegmentsChange={setSegments}
 						onKeyDown={handleKeyDown}
 						onCursorChange={setCursorPosition}
-						placeholder={isProcessing ? 'AI is responding...' : planMode ? 'Describe what to plan...' : 'Ask the AI to help...'}
+						placeholder={
+							isProcessing
+								? 'AI is responding...'
+								: agentMode === 'plan'
+									? 'Describe what to plan...'
+									: agentMode === 'ask'
+										? 'Ask a question...'
+										: 'Ask the AI to help...'
+						}
 						disabled={isProcessing}
 					/>
 					{planPath && (
@@ -606,22 +615,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 							<span className="pl-0.5 text-xs text-text-secondary">
 								{isProcessing ? 'Press Stop to cancel' : 'Enter to send · @ to mention files'}
 							</span>
-							<button
-								onClick={togglePlanMode}
-								disabled={isProcessing}
-								title={planMode ? 'Plan mode active: read-only research + plan output' : 'Enable plan mode'}
-								className={cn(
-									`
-										inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs
-										font-medium transition-colors
-									`,
-									planMode ? 'bg-accent/15 text-accent' : 'text-text-secondary hover:bg-bg-tertiary hover:text-text-primary',
-									isProcessing && 'cursor-not-allowed opacity-40',
-								)}
-							>
-								<MapIcon className="size-3" />
-								Plan
-							</button>
+							<AgentModeSelector mode={agentMode} onModeChange={setAgentMode} disabled={isProcessing} />
 						</div>
 						{isProcessing ? (
 							<button

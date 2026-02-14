@@ -340,16 +340,18 @@ describe('Pending Changes slice', () => {
 // Plan mode
 // =============================================================================
 
-describe('Plan mode', () => {
-	it('defaults planMode to false', () => {
-		expect(useStore.getState().planMode).toBe(false);
+describe('Agent mode', () => {
+	it('defaults agentMode to code', () => {
+		expect(useStore.getState().agentMode).toBe('code');
 	});
 
-	it('toggles planMode', () => {
-		useStore.getState().togglePlanMode();
-		expect(useStore.getState().planMode).toBe(true);
-		useStore.getState().togglePlanMode();
-		expect(useStore.getState().planMode).toBe(false);
+	it('sets agentMode', () => {
+		useStore.getState().setAgentMode('plan');
+		expect(useStore.getState().agentMode).toBe('plan');
+		useStore.getState().setAgentMode('ask');
+		expect(useStore.getState().agentMode).toBe('ask');
+		useStore.getState().setAgentMode('code');
+		expect(useStore.getState().agentMode).toBe('code');
 	});
 });
 

@@ -87,3 +87,9 @@ const PLAN_MODE_TOOL_NAMES = new Set([
 ]);
 
 export const PLAN_MODE_TOOLS: readonly ToolDefinition[] = AGENT_TOOLS.filter((tool) => PLAN_MODE_TOOL_NAMES.has(tool.name));
+
+// =============================================================================
+// Ask mode tools (no tools — conversational only)
+// =============================================================================
+
+export const ASK_MODE_TOOLS: readonly ToolDefinition[] = [];

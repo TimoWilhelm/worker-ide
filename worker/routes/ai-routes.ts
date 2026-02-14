@@ -46,9 +46,9 @@ export const aiRoutes = new Hono<AppEnvironment>()
 			}
 		}
 
-		const { message, history = [], planMode, sessionId } = c.req.valid('json');
+		const { message, history = [], mode, sessionId } = c.req.valid('json');
 
-		const agentService = new AIAgentService(projectRoot, projectId, environment, sessionId, planMode);
+		const agentService = new AIAgentService(projectRoot, projectId, environment, sessionId, mode);
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		const chatHistory: any[] = history;
 		const stream = await agentService.runAgentChat(message, chatHistory, apiToken, c.req.raw.signal);

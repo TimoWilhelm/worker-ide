@@ -7,7 +7,7 @@
 import { create } from 'zustand';
 import { devtools, persist } from 'zustand/middleware';
 
-import type { FileInfo, AgentMessage, Participant, PendingFileChange, SnapshotSummary } from '@shared/types';
+import type { AgentMode, FileInfo, AgentMessage, Participant, PendingFileChange, SnapshotSummary } from '@shared/types';
 
 // =============================================================================
 // Editor State
@@ -87,8 +87,8 @@ interface AIState {
 	savedSessions: Array<{ id: string; label: string; createdAt: number }>;
 	/** Maps message index to snapshot ID (for revert buttons on user messages) */
 	messageSnapshots: Map<number, string>;
-	/** Whether plan mode is active (read-only research + plan output) */
-	planMode: boolean;
+	/** Current agent operating mode */
+	agentMode: AgentMode;
 }
 
 interface AIActions {
@@ -103,7 +103,7 @@ interface AIActions {
 	setMessageSnapshot: (messageIndex: number, snapshotId: string) => void;
 	removeMessagesAfter: (index: number) => void;
 	removeMessagesFrom: (index: number) => void;
-	togglePlanMode: () => void;
+	setAgentMode: (mode: AgentMode) => void;
 }
 
 // =============================================================================
@@ -328,7 +328,7 @@ export const useStore = create<StoreState>()(
 				sessionId: undefined,
 				savedSessions: [],
 				messageSnapshots: new Map(),
-				planMode: false,
+				agentMode: 'code',
 
 				addMessage: (message) =>
 					set((state) => ({
@@ -361,7 +361,7 @@ export const useStore = create<StoreState>()(
 					set((state) => ({
 						history: state.history.slice(0, index + 1),
 					})),
-				togglePlanMode: () => set((state) => ({ planMode: !state.planMode })),
+				setAgentMode: (mode) => set({ agentMode: mode }),
 
 				removeMessagesFrom: (index) =>
 					set((state) => {
