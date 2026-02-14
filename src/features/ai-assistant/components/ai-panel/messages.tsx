@@ -14,7 +14,9 @@ import {
 	Eye,
 	FastForward,
 	FileText,
+	FolderSearch,
 	Globe,
+	HelpCircle,
 	ListTodo,
 	Loader2,
 	Map as MapIcon,
@@ -23,6 +25,7 @@ import {
 	PlayCircle,
 	RefreshCw,
 	RotateCcw,
+	Search,
 	Trash2,
 } from 'lucide-react';
 import { useMemo } from 'react';
@@ -44,29 +47,42 @@ import type { AgentContent, AgentMessage, ToolName } from '@shared/types';
 
 function ToolIcon({ name, className }: { name: ToolName; className?: string }) {
 	switch (name) {
-		case 'read_file':
-		case 'list_files': {
+		case 'file_read':
+		case 'files_list': {
 			return <Eye className={cn('size-3', className)} />;
 		}
-		case 'write_file': {
+		case 'file_edit':
+		case 'file_write':
+		case 'file_patch': {
 			return <Pencil className={cn('size-3', className)} />;
 		}
-		case 'delete_file': {
+		case 'file_delete': {
 			return <Trash2 className={cn('size-3', className)} />;
 		}
-		case 'move_file': {
+		case 'file_move': {
 			return <MoveRight className={cn('size-3', className)} />;
 		}
-		case 'search_cloudflare_docs': {
+		case 'file_grep': {
+			return <Search className={cn('size-3', className)} />;
+		}
+		case 'file_glob':
+		case 'file_list': {
+			return <FolderSearch className={cn('size-3', className)} />;
+		}
+		case 'user_question': {
+			return <HelpCircle className={cn('size-3', className)} />;
+		}
+		case 'web_fetch':
+		case 'docs_search': {
 			return <Globe className={cn('size-3', className)} />;
 		}
-		case 'get_todos': {
+		case 'todos_get': {
 			return <ListTodo className={cn('size-3', className)} />;
 		}
-		case 'update_todos': {
+		case 'todos_update': {
 			return <CheckSquare className={cn('size-3', className)} />;
 		}
-		case 'update_plan': {
+		case 'plan_update': {
 			return <MapIcon className={cn('size-3', className)} />;
 		}
 		default: {
@@ -274,12 +290,12 @@ function summarizeToolResult(toolName: ToolName, rawResult: string): string {
 		const parsed: unknown = JSON.parse(rawResult);
 		if (!isRecord(parsed)) return rawResult.slice(0, 200);
 
-		if (toolName === 'list_files' && Array.isArray(parsed.files)) {
+		if (toolName === 'files_list' && Array.isArray(parsed.files)) {
 			const files: unknown[] = parsed.files;
 			return `${files.length} file${files.length === 1 ? '' : 's'}`;
 		}
 
-		if (toolName === 'read_file' && typeof parsed.content === 'string') {
+		if (toolName === 'file_read' && typeof parsed.content === 'string') {
 			const lineCount = parsed.content.split('\n').length;
 			return `${lineCount} line${lineCount === 1 ? '' : 's'}`;
 		}
@@ -368,7 +384,7 @@ function InlineTodoList({ todos }: { todos: TodoItemDisplay[] }) {
  * Try to extract a TODO list from a tool result JSON string.
  */
 function extractTodosFromResult(toolName: ToolName, rawResult: string): TodoItemDisplay[] | undefined {
-	if (toolName !== 'get_todos' && toolName !== 'update_todos') return undefined;
+	if (toolName !== 'todos_get' && toolName !== 'todos_update') return undefined;
 	try {
 		const parsed: unknown = JSON.parse(rawResult);
 		if (!isRecord(parsed) || !Array.isArray(parsed.todos)) return undefined;
@@ -408,7 +424,7 @@ function InlineToolCall({ toolUse, toolResult }: { toolUse: AgentContent; toolRe
 		}
 	}
 
-	// Extract TODOs from get_todos / update_todos results
+	// Extract TODOs from todos_get / todos_update results
 	const todos =
 		toolResult?.type === 'tool_result' && typeof toolResult.content === 'string'
 			? extractTodosFromResult(toolName, toolResult.content)

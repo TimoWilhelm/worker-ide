@@ -163,18 +163,85 @@ export const updateTodosInputSchema = z.object({
 });
 
 /**
+ * Schema for AI tool: edit (exact string replacement)
+ */
+export const editInputSchema = z.object({
+	path: filePathSchema,
+	old_string: z.string().min(1, 'old_string is required'),
+	new_string: z.string(),
+	replace_all: z.string().optional(),
+});
+
+/**
+ * Schema for AI tool: grep (regex search)
+ */
+export const grepInputSchema = z.object({
+	pattern: z.string().min(1, 'Pattern is required'),
+	path: z.string().optional(),
+	include: z.string().optional(),
+	fixed_strings: z.string().optional(),
+});
+
+/**
+ * Schema for AI tool: glob (find files by pattern)
+ */
+export const globInputSchema = z.object({
+	pattern: z.string().min(1, 'Pattern is required'),
+	path: z.string().optional(),
+});
+
+/**
+ * Schema for AI tool: list (directory listing)
+ */
+export const listInputSchema = z.object({
+	path: z.string().optional(),
+	pattern: z.string().optional(),
+});
+
+/**
+ * Schema for AI tool: patch (apply unified diff)
+ */
+export const patchInputSchema = z.object({
+	path: filePathSchema,
+	patch: z.string().min(1, 'Patch content is required'),
+});
+
+/**
+ * Schema for AI tool: question (ask the user)
+ */
+export const questionInputSchema = z.object({
+	question: z.string().min(1, 'Question is required'),
+	options: z.string().optional(),
+});
+
+/**
+ * Schema for AI tool: webfetch (fetch web content)
+ */
+export const webfetchInputSchema = z.object({
+	url: z.string().url('Must be a valid URL'),
+	max_length: z.string().optional(),
+});
+
+/**
  * Union of all tool input schemas
  */
 export const toolInputSchemas = {
-	list_files: listFilesInputSchema,
-	read_file: readFileInputSchema,
-	write_file: writeFileInputSchema,
-	delete_file: deleteFileInputSchema,
-	move_file: moveFileInputSchema,
-	search_cloudflare_docs: searchCloudflareDocumentationInputSchema,
-	get_todos: getTodosInputSchema,
-	update_todos: updateTodosInputSchema,
-	update_plan: updatePlanInputSchema,
+	file_edit: editInputSchema,
+	file_write: writeFileInputSchema,
+	file_read: readFileInputSchema,
+	file_grep: grepInputSchema,
+	file_glob: globInputSchema,
+	file_list: listInputSchema,
+	files_list: listFilesInputSchema,
+	file_patch: patchInputSchema,
+	file_delete: deleteFileInputSchema,
+	file_move: moveFileInputSchema,
+	user_question: questionInputSchema,
+	web_fetch: webfetchInputSchema,
+	docs_search: searchCloudflareDocumentationInputSchema,
+	plan_update: updatePlanInputSchema,
+	todos_get: getTodosInputSchema,
+	todos_update: updateTodosInputSchema,
 } as const;
 
 export type ToolName = keyof typeof toolInputSchemas;

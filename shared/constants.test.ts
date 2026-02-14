@@ -4,36 +4,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { AGENT_TOOLS, PLAN_MODE_TOOLS, PLAN_MODE_SYSTEM_PROMPT, AGENTS_MD_MAX_CHARACTERS, MCP_SERVERS, HIDDEN_ENTRIES } from './constants';
-
-// =============================================================================
-// PLAN_MODE_TOOLS
-// =============================================================================
-
-describe('PLAN_MODE_TOOLS', () => {
-	it('only includes read-only and research tools', () => {
-		const toolNames = PLAN_MODE_TOOLS.map((tool) => tool.name);
-		expect(toolNames).toContain('list_files');
-		expect(toolNames).toContain('read_file');
-		expect(toolNames).toContain('search_cloudflare_docs');
-		expect(toolNames).toContain('get_todos');
-		expect(toolNames).toContain('update_todos');
-	});
-
-	it('excludes file-editing tools', () => {
-		const toolNames = PLAN_MODE_TOOLS.map((tool) => tool.name);
-		expect(toolNames).not.toContain('write_file');
-		expect(toolNames).not.toContain('delete_file');
-		expect(toolNames).not.toContain('move_file');
-	});
-
-	it('is a subset of AGENT_TOOLS', () => {
-		const agentToolNames = new Set(AGENT_TOOLS.map((tool) => tool.name));
-		for (const tool of PLAN_MODE_TOOLS) {
-			expect(agentToolNames.has(tool.name)).toBe(true);
-		}
-	});
-});
+import { PLAN_MODE_SYSTEM_PROMPT, AGENTS_MD_MAX_CHARACTERS, MCP_SERVERS, HIDDEN_ENTRIES } from './constants';
 
 // =============================================================================
 // PLAN_MODE_SYSTEM_PROMPT

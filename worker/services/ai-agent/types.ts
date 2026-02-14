@@ -63,3 +63,36 @@ export type TodoItem = {
 };
 
 export type SendEventFunction = (type: string, data: Record<string, unknown>) => Promise<void>;
+
+export interface ToolExecutorContext {
+	projectRoot: string;
+	projectId: string;
+	environment: Env;
+	planMode: boolean;
+	sessionId?: string;
+	callMcpTool: (serverId: string, toolName: string, arguments_: Record<string, unknown>) => Promise<string>;
+	repairToolCall: (toolName: string, rawInput: unknown, error: string, apiToken: string) => Promise<Record<string, unknown> | undefined>;
+}
+
+export type ToolExecuteFunction = (
+	input: Record<string, string>,
+	sendEvent: SendEventFunction,
+	context: ToolExecutorContext,
+	toolUseId?: string,
+	queryChanges?: FileChange[],
+) => Promise<string | object>;
+
+export interface ToolDefinition {
+	name: string;
+	description: string;
+	input_schema: {
+		type: string;
+		properties: Record<string, unknown>;
+		required?: string[];
+	};
+}
+
+export interface ToolModule {
+	definition: ToolDefinition;
+	execute: ToolExecuteFunction;
+}

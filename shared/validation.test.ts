@@ -175,59 +175,59 @@ describe('isPathSafe', () => {
 // =============================================================================
 
 describe('validateToolInput', () => {
-	it('validates read_file input', () => {
-		const result = validateToolInput('read_file', { path: '/src/main.ts' });
+	it('validates file_read input', () => {
+		const result = validateToolInput('file_read', { path: '/src/main.ts' });
 		expect(result.success).toBe(true);
 	});
 
-	it('rejects invalid read_file input', () => {
-		const result = validateToolInput('read_file', { path: 'invalid' });
+	it('rejects invalid file_read input', () => {
+		const result = validateToolInput('file_read', { path: 'invalid' });
 		expect(result.success).toBe(false);
 	});
 
-	it('validates write_file input', () => {
-		const result = validateToolInput('write_file', {
+	it('validates file_write input', () => {
+		const result = validateToolInput('file_write', {
 			path: '/src/main.ts',
 			content: 'hello',
 		});
 		expect(result.success).toBe(true);
 	});
 
-	it('validates list_files input (empty object)', () => {
-		const result = validateToolInput('list_files', {});
+	it('validates files_list input (empty object)', () => {
+		const result = validateToolInput('files_list', {});
 		expect(result.success).toBe(true);
 	});
 
-	it('validates delete_file input', () => {
-		const result = validateToolInput('delete_file', { path: '/src/old.ts' });
+	it('validates file_delete input', () => {
+		const result = validateToolInput('file_delete', { path: '/src/old.ts' });
 		expect(result.success).toBe(true);
 	});
 
-	it('validates move_file input', () => {
-		const result = validateToolInput('move_file', {
+	it('validates file_move input', () => {
+		const result = validateToolInput('file_move', {
 			from_path: '/src/old.ts',
 			to_path: '/src/new.ts',
 		});
 		expect(result.success).toBe(true);
 	});
 
-	it('validates search_cloudflare_docs input', () => {
-		const result = validateToolInput('search_cloudflare_docs', { query: 'Workers KV' });
+	it('validates docs_search input', () => {
+		const result = validateToolInput('docs_search', { query: 'Workers KV' });
 		expect(result.success).toBe(true);
 	});
 
-	it('rejects search_cloudflare_docs with empty query', () => {
-		const result = validateToolInput('search_cloudflare_docs', { query: '' });
+	it('rejects docs_search with empty query', () => {
+		const result = validateToolInput('docs_search', { query: '' });
 		expect(result.success).toBe(false);
 	});
 
-	it('validates get_todos input (empty object)', () => {
-		const result = validateToolInput('get_todos', {});
+	it('validates todos_get input (empty object)', () => {
+		const result = validateToolInput('todos_get', {});
 		expect(result.success).toBe(true);
 	});
 
-	it('validates update_todos input', () => {
-		const result = validateToolInput('update_todos', {
+	it('validates todos_update input', () => {
+		const result = validateToolInput('todos_update', {
 			todos: [
 				{ id: '1', content: 'Fix bug', status: 'pending', priority: 'high' },
 				{ id: '2', content: 'Add tests', status: 'in_progress', priority: 'medium' },
@@ -236,22 +236,22 @@ describe('validateToolInput', () => {
 		expect(result.success).toBe(true);
 	});
 
-	it('rejects update_todos with invalid status', () => {
-		const result = validateToolInput('update_todos', {
+	it('rejects todos_update with invalid status', () => {
+		const result = validateToolInput('todos_update', {
 			todos: [{ id: '1', content: 'Fix bug', status: 'unknown', priority: 'high' }],
 		});
 		expect(result.success).toBe(false);
 	});
 
-	it('rejects update_todos with invalid priority', () => {
-		const result = validateToolInput('update_todos', {
+	it('rejects todos_update with invalid priority', () => {
+		const result = validateToolInput('todos_update', {
 			todos: [{ id: '1', content: 'Fix bug', status: 'pending', priority: 'critical' }],
 		});
 		expect(result.success).toBe(false);
 	});
 
-	it('rejects update_todos with missing fields', () => {
-		const result = validateToolInput('update_todos', {
+	it('rejects todos_update with missing fields', () => {
+		const result = validateToolInput('todos_update', {
 			todos: [{ id: '1', content: 'Fix bug' }],
 		});
 		expect(result.success).toBe(false);

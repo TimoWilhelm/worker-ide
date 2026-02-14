@@ -19,7 +19,7 @@ export default defineConfig({
 			{
 				test: {
 					name: 'unit',
-					include: ['shared/**/*.test.ts', 'src/lib/**/*.test.ts'],
+					include: ['shared/**/*.test.ts', 'src/lib/**/*.test.ts', 'worker/**/*.test.ts'],
 					environment: 'node',
 				},
 				resolve: {

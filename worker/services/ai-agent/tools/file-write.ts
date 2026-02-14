@@ -1,0 +1,106 @@
+/**
+ * Tool: file_write
+ * Create new files or overwrite existing ones.
+ */
+
+import fs from 'node:fs/promises';
+
+import { isPathSafe } from '../../../lib/path-utilities';
+import { isBinaryFilePath, toUint8Array } from '../utilities';
+
+import type { FileChange, SendEventFunction, ToolDefinition, ToolExecutorContext } from '../types';
+
+export const DESCRIPTION = `Create a new file or overwrite an existing file with complete content. For modifying existing files, prefer the edit tool instead.
+
+Usage:
+- Use this to create brand-new files or when you need to completely rewrite a file.
+- For small targeted changes to existing files, use the edit tool instead — it's safer and produces smaller diffs.
+- Parent directories are created automatically if they don't exist.
+- The content parameter must contain the complete file content.`;
+
+export const definition: ToolDefinition = {
+	name: 'file_write',
+	description: DESCRIPTION,
+	input_schema: {
+		type: 'object',
+		properties: {
+			path: { type: 'string', description: 'File path starting with /, e.g., /src/utils.ts' },
+			content: { type: 'string', description: 'The complete file content to write' },
+		},
+		required: ['path', 'content'],
+	},
+};
+
+export async function execute(
+	input: Record<string, string>,
+	sendEvent: SendEventFunction,
+	context: ToolExecutorContext,
+	toolUseId?: string,
+	queryChanges?: FileChange[],
+): Promise<string | object> {
+	const { projectRoot, projectId, environment } = context;
+	const writePath = input.path;
+	const writeContent = input.content;
+
+	if (!isPathSafe(projectRoot, writePath)) {
+		return { error: 'Invalid file path' };
+	}
+
+	await sendEvent('status', { message: `Writing ${writePath}...` });
+
+	const writeDirectory = writePath.slice(0, writePath.lastIndexOf('/'));
+	if (writeDirectory) {
+		await fs.mkdir(`${projectRoot}${writeDirectory}`, { recursive: true });
+	}
+
+	const writeIsBinary = isBinaryFilePath(writePath);
+	// eslint-disable-next-line unicorn/no-null -- JSON wire format for SSE events
+	let beforeContent: string | Uint8Array | null = null;
+	let action: 'create' | 'edit' = 'create';
+	try {
+		if (writeIsBinary) {
+			const buffer = await fs.readFile(`${projectRoot}${writePath}`);
+			beforeContent = toUint8Array(buffer);
+		} else {
+			beforeContent = await fs.readFile(`${projectRoot}${writePath}`, 'utf8');
+		}
+		action = 'edit';
+	} catch {
+		action = 'create';
+	}
+
+	await fs.writeFile(`${projectRoot}${writePath}`, writeContent);
+
+	if (queryChanges) {
+		queryChanges.push({
+			path: writePath,
+			action,
+			beforeContent,
+			afterContent: writeContent,
+			isBinary: writeIsBinary,
+		});
+	}
+
+	const hmrId = environment.DO_HMR_COORDINATOR.idFromName(`hmr:${projectId}`);
+	const hmrStub = environment.DO_HMR_COORDINATOR.get(hmrId);
+	const isCSS = writePath.endsWith('.css');
+	await hmrStub.fetch(
+		new Request('http://internal/hmr/trigger', {
+			method: 'POST',
+			body: JSON.stringify({ type: isCSS ? 'update' : 'full-reload', path: writePath, timestamp: Date.now(), isCSS }),
+		}),
+	);
+
+	await sendEvent('file_changed', {
+		path: writePath,
+		action,
+		tool_use_id: toolUseId,
+		// eslint-disable-next-line unicorn/no-null -- JSON wire format for SSE events
+		beforeContent: writeIsBinary ? null : beforeContent,
+		// eslint-disable-next-line unicorn/no-null -- JSON wire format for SSE events
+		afterContent: writeIsBinary ? null : writeContent,
+		isBinary: writeIsBinary,
+	});
+
+	return { success: true, path: writePath, action };
+}

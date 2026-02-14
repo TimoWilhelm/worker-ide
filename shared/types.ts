@@ -103,15 +103,22 @@ export interface ToolResultContent {
  * Available tools for the AI agent
  */
 export type ToolName =
-	| 'list_files'
-	| 'read_file'
-	| 'write_file'
-	| 'delete_file'
-	| 'move_file'
-	| 'search_cloudflare_docs'
-	| 'get_todos'
-	| 'update_todos'
-	| 'update_plan';
+	| 'file_edit'
+	| 'file_write'
+	| 'file_read'
+	| 'file_grep'
+	| 'file_glob'
+	| 'file_list'
+	| 'files_list'
+	| 'file_patch'
+	| 'file_delete'
+	| 'file_move'
+	| 'user_question'
+	| 'web_fetch'
+	| 'docs_search'
+	| 'plan_update'
+	| 'todos_get'
+	| 'todos_update';
 
 /**
  * Tool input types
@@ -152,7 +159,55 @@ export interface UpdatePlanInput {
 	content: string;
 }
 
+export interface EditInput {
+	path: string;
+	old_string: string;
+	new_string: string;
+	replace_all?: string;
+}
+
+export interface GrepInput {
+	pattern: string;
+	path?: string;
+	include?: string;
+	fixed_strings?: string;
+}
+
+export interface GlobInput {
+	pattern: string;
+	path?: string;
+}
+
+export interface ListInput {
+	path?: string;
+	pattern?: string;
+}
+
+export interface PatchInput {
+	path: string;
+	patch: string;
+}
+
+export interface QuestionInput {
+	question: string;
+	options?: string;
+}
+
+export interface WebfetchInput {
+	url: string;
+	max_length?: string;
+}
+
 export type ToolInput =
+	| { name: 'edit'; input: EditInput }
+	| { name: 'write'; input: WriteFileInput }
+	| { name: 'read'; input: ReadFileInput }
+	| { name: 'grep'; input: GrepInput }
+	| { name: 'glob'; input: GlobInput }
+	| { name: 'list'; input: ListInput }
+	| { name: 'patch'; input: PatchInput }
+	| { name: 'question'; input: QuestionInput }
+	| { name: 'webfetch'; input: WebfetchInput }
 	| { name: 'list_files'; input: ListFilesInput }
 	| { name: 'read_file'; input: ReadFileInput }
 	| { name: 'write_file'; input: WriteFileInput }

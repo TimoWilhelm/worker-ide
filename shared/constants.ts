@@ -154,159 +154,44 @@ IMPORTANT GUIDELINES:
 1. Always read relevant files first before making changes to understand the existing code structure
 2. When modifying files, preserve existing code style and patterns
 3. Explain what you're doing and why before making changes
-4. Make targeted, minimal changes - don't rewrite entire files unless necessary
+4. Make targeted, minimal changes — prefer \`file_edit\` over \`file_write\` for existing files
 5. After making changes, summarize what was modified
+6. Use \`file_grep\` and \`file_glob\` to discover relevant files before making changes
+7. Use \`file_read\` with offset/limit for large files instead of reading the entire file
+8. Use \`user_question\` when the user's intent is ambiguous or you need a decision
 
-You have access to a virtual filesystem with the following tools:
-- list_files: See all files in the project
-- read_file: Read a file's contents
-- write_file: Create or update a file
-- delete_file: Remove a file
-- move_file: Rename or move a file
+You have access to these tools:
+
+FILE OPERATIONS:
+- file_edit: Modify existing files using exact string replacements (preferred for targeted changes)
+- file_write: Create new files or overwrite existing ones with complete content
+- file_read: Read file contents, optionally a specific line range
+- file_delete: Remove a file from the project
+- file_move: Rename or move a file
+
+SEARCH & DISCOVERY:
+- file_grep: Search file contents using regular expressions or fixed strings
+- file_glob: Find files by glob pattern (e.g., **/*.ts, src/**/*.tsx)
+- file_list: List files and directories in a given path, with optional glob filtering
+- files_list: List all files in the project recursively
+
+CODE CHANGES:
+- file_patch: Apply a unified diff patch to a file
+
+RESEARCH & PLANNING:
+- docs_search: Search Cloudflare documentation
+- web_fetch: Fetch and read web page content
+- user_question: Ask the user a clarifying question (they will answer in their next message)
+- plan_update: Update the current implementation plan
+- todos_get: Get the current TODO list
+- todos_update: Create or update the TODO list
 
 The project is a TypeScript/JavaScript web application with:
 - /src/ - Frontend source code
 - /worker/ - Cloudflare Worker backend code
 - /index.html - Main HTML entry point
 
-Be concise but helpful. Focus on making the requested changes efficiently.
-
-You can also search the Cloudflare documentation when you need information about Cloudflare products, Workers, Pages, D1, KV, R2, Durable Objects, or any other Cloudflare feature.
-
-You can track your work using TODO items. Use get_todos to check your current task list and update_todos to create or update it.`;
-
-/**
- * Tool definitions for the AI agent
- */
-export const AGENT_TOOLS = [
-	{
-		name: 'list_files',
-		description: 'List all files in the project. Returns an array of file paths.',
-		input_schema: {
-			type: 'object',
-			properties: {},
-		},
-	},
-	{
-		name: 'read_file',
-		description: 'Read the contents of a file. Use this to understand existing code before making changes.',
-		input_schema: {
-			type: 'object',
-			properties: {
-				path: { type: 'string', description: 'File path starting with /, e.g., /src/main.ts' },
-			},
-			required: ['path'],
-		},
-	},
-	{
-		name: 'write_file',
-		description: 'Create a new file or overwrite an existing file with new content.',
-		input_schema: {
-			type: 'object',
-			properties: {
-				path: { type: 'string', description: 'File path starting with /, e.g., /src/utils.ts' },
-				content: { type: 'string', description: 'The complete file content to write' },
-			},
-			required: ['path', 'content'],
-		},
-	},
-	{
-		name: 'delete_file',
-		description: 'Delete a file from the project.',
-		input_schema: {
-			type: 'object',
-			properties: {
-				path: { type: 'string', description: 'File path to delete, starting with /' },
-			},
-			required: ['path'],
-		},
-	},
-	{
-		name: 'move_file',
-		description: 'Move or rename a file.',
-		input_schema: {
-			type: 'object',
-			properties: {
-				from_path: { type: 'string', description: 'Current file path' },
-				to_path: { type: 'string', description: 'New file path' },
-			},
-			required: ['from_path', 'to_path'],
-		},
-	},
-	{
-		name: 'search_cloudflare_docs',
-		description:
-			'Search the Cloudflare documentation for information about Cloudflare products and features including Workers, Pages, R2, D1, KV, Durable Objects, Queues, AI, Zero Trust, DNS, CDN, and more. Returns relevant documentation chunks.',
-		input_schema: {
-			type: 'object',
-			properties: {
-				query: { type: 'string', description: 'Search query for Cloudflare documentation' },
-			},
-			required: ['query'],
-		},
-	},
-	{
-		name: 'update_plan',
-		description:
-			'Update the current implementation plan. Use this to mark steps as complete, add new steps, or revise the plan as you make progress. Provide the full updated plan content in markdown format.',
-		input_schema: {
-			type: 'object',
-			properties: {
-				content: { type: 'string', description: 'The full updated plan content in markdown format' },
-			},
-			required: ['content'],
-		},
-	},
-	{
-		name: 'get_todos',
-		description:
-			'Get the current TODO list for this session. Returns an array of TODO items with id, content, status (pending/in_progress/completed), and priority (high/medium/low).',
-		input_schema: {
-			type: 'object',
-			properties: {},
-		},
-	},
-	{
-		name: 'update_todos',
-		description:
-			'Create or update the TODO list for this session. Provide the full list of TODO items. Each item must have id, content, status (pending/in_progress/completed), and priority (high/medium/low).',
-		input_schema: {
-			type: 'object',
-			properties: {
-				todos: {
-					type: 'array',
-					description: 'The full list of TODO items',
-					items: {
-						type: 'object',
-						properties: {
-							id: { type: 'string', description: 'Unique identifier for the TODO item' },
-							content: { type: 'string', description: 'Description of the task' },
-							status: {
-								type: 'string',
-								enum: ['pending', 'in_progress', 'completed'],
-								description: 'Current status of the task',
-							},
-							priority: {
-								type: 'string',
-								enum: ['high', 'medium', 'low'],
-								description: 'Priority level of the task',
-							},
-						},
-						required: ['id', 'content', 'status', 'priority'],
-					},
-				},
-			},
-			required: ['todos'],
-		},
-	},
-] as const;
-
-/**
- * Tools available in Plan mode (read-only + MCP search)
- */
-export const PLAN_MODE_TOOLS = AGENT_TOOLS.filter((tool) =>
-	['list_files', 'read_file', 'search_cloudflare_docs', 'get_todos', 'update_todos'].includes(tool.name),
-);
+Be concise but helpful. Focus on making the requested changes efficiently.`;
 
 /**
  * Additional system prompt appended when Plan mode is active

@@ -9,16 +9,10 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import Replicate from 'replicate';
 
-import {
-	AGENT_TOOLS,
-	AGENT_SYSTEM_PROMPT,
-	AGENTS_MD_MAX_CHARACTERS,
-	MCP_SERVERS,
-	PLAN_MODE_SYSTEM_PROMPT,
-	PLAN_MODE_TOOLS,
-} from '@shared/constants';
+import { AGENT_SYSTEM_PROMPT, AGENTS_MD_MAX_CHARACTERS, MCP_SERVERS, PLAN_MODE_SYSTEM_PROMPT } from '@shared/constants';
 
 import { executeAgentTool } from './tool-executor';
+import { AGENT_TOOLS, PLAN_MODE_TOOLS } from './tools';
 import { isRecordObject, parseApiError, repairToolCallJson } from './utilities';
 
 import type { AgentMessage, ClaudeResponse, ContentBlock, FileChange, SnapshotMetadata, ToolResultBlock } from './types';
@@ -146,8 +140,10 @@ export class AIAgentService {
 								environment: this.environment,
 								planMode: this.planMode,
 								sessionId: this.sessionId,
-								callMcpTool: (serverId, toolName, arguments_) => this.callMcpTool(serverId, toolName, arguments_),
-								repairToolCall: (toolName, rawInput, error, token) => this.repairToolCall(toolName, rawInput, error, token),
+								callMcpTool: (serverId: string, toolName: string, arguments_: Record<string, unknown>) =>
+									this.callMcpTool(serverId, toolName, arguments_),
+								repairToolCall: (toolName: string, rawInput: unknown, error: string, token: string) =>
+									this.repairToolCall(toolName, rawInput, error, token),
 							},
 							block.id,
 							queryChanges,

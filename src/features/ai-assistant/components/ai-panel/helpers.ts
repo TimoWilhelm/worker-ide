@@ -10,14 +10,22 @@ import type { ToolName } from '@shared/types';
 // =============================================================================
 
 const VALID_TOOL_NAMES: ReadonlySet<string> = new Set<ToolName>([
-	'list_files',
-	'read_file',
-	'write_file',
-	'delete_file',
-	'move_file',
-	'search_cloudflare_docs',
-	'get_todos',
-	'update_todos',
+	'file_edit',
+	'file_write',
+	'file_read',
+	'file_grep',
+	'file_glob',
+	'file_list',
+	'files_list',
+	'file_patch',
+	'file_delete',
+	'file_move',
+	'user_question',
+	'web_fetch',
+	'docs_search',
+	'plan_update',
+	'todos_get',
+	'todos_update',
 ]);
 
 export function isToolName(value: unknown): value is ToolName {
@@ -34,7 +42,7 @@ export function getEventToolName(event: AIStreamEvent, field: string): ToolName 
 	if (isToolName(value)) {
 		return value;
 	}
-	return 'list_files';
+	return 'files_list';
 }
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
