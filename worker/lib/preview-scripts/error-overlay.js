@@ -96,7 +96,7 @@
 					line: parseInt(el.dataset.line, 10) || 1,
 					column: parseInt(el.dataset.column, 10) || 1,
 				},
-				'*',
+				location.origin,
 			);
 		}
 		var fileEl = overlay.querySelector('.__eo-file');

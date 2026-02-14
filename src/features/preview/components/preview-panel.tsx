@@ -51,6 +51,7 @@ export function PreviewPanel({ projectId, iframeReference, className }: PreviewP
 	const handleRefresh = useCallback(() => {
 		setIsLoading(true);
 		setPreviewKey((previous) => previous + 1);
+		globalThis.dispatchEvent(new CustomEvent('preview-refresh'));
 	}, []);
 
 	// Open in new tab

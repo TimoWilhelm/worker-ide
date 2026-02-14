@@ -425,6 +425,8 @@ function escapeForScriptTag(s: string): string {
 	return s
 		.replaceAll('\\', '\\\\')
 		.replaceAll("'", String.raw`\'`)
+		.replaceAll('\n', String.raw`\n`)
+		.replaceAll('\r', String.raw`\r`)
 		.replaceAll(/<\/(script)/gi, String.raw`<\/$1`);
 }
 
@@ -449,8 +451,11 @@ function generatePreviewScriptTags(integrityHashes?: Record<string, string>): st
 	return scripts
 		.map((source) => {
 			const hash = integrityHashes?.[source];
-			const integrity = hash ? ` integrity="${hash}" crossorigin="anonymous"` : '';
-			return `<script src="${source}"${integrity}></script>`;
+			// Use hash as cache-buster query param to avoid stale scripts after deploy.
+			// SRI integrity is same-origin so no crossorigin attribute needed.
+			const cacheBuster = hash ? `?v=${hash.slice(7, 15)}` : '';
+			const integrity = hash ? ` integrity="${hash}"` : '';
+			return `<script src="${source}${cacheBuster}"${integrity}></script>`;
 		})
 		.join('\n');
 }

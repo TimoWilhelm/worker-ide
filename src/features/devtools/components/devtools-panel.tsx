@@ -30,6 +30,30 @@ export interface DevelopmentToolsPanelProperties {
 }
 
 // =============================================================================
+// Helpers
+// =============================================================================
+
+/**
+ * Send navigation reset CDP events to the DevTools frontend so it
+ * refreshes Elements/Console/Network after a preview reload.
+ */
+function notifyDevtoolsOfNavigation(devtoolsWindow: Window, previewWindow: Window | undefined | null): void {
+	const url = previewWindow ? String(previewWindow.location.href) : globalThis.location.origin;
+	devtoolsWindow.postMessage(
+		JSON.stringify({
+			method: 'Page.frameNavigated',
+			params: {
+				frame: { id: '1', mimeType: 'text/html', securityOrigin: globalThis.location.origin, url },
+				type: 'Navigation',
+			},
+		}),
+		'*',
+	);
+	devtoolsWindow.postMessage(JSON.stringify({ method: 'Runtime.executionContextsCleared' }), '*');
+	devtoolsWindow.postMessage(JSON.stringify({ method: 'DOM.documentUpdated' }), '*');
+}
+
+// =============================================================================
 // Component
 // =============================================================================
 
@@ -75,10 +99,12 @@ export function DevelopmentToolsPanel({ previewIframeReference, className }: Dev
 			const isFromDevtools = event.source === devtoolsWindow;
 
 			// Chobitsu ready — preview (re)loaded and chobitsu initialized.
-			// Send LOADED only once the DevTools frontend iframe is also ready.
+			// Send LOADED to trigger the CDP init sequence, and notify the
+			// DevTools frontend that the page has navigated so it refreshes.
 			if (isFromPreview && typeof event.data === 'object' && event.data?.type === '__chobitsu-ready') {
-				if (devtoolsReadyReference.current) {
+				if (devtoolsReadyReference.current && devtoolsWindow) {
 					previewWindow?.postMessage({ event: 'LOADED' }, globalThis.location.origin);
+					notifyDevtoolsOfNavigation(devtoolsWindow, previewWindow);
 				}
 				return;
 			}

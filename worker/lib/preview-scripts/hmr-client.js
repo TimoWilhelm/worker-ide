@@ -32,7 +32,7 @@
 					type: '__server-error',
 					error: data.error,
 				},
-				'*',
+				location.origin,
 			);
 		} else if (data.type === 'update') {
 			if (typeof window.hideErrorOverlay === 'function') {
@@ -67,11 +67,16 @@
 
 	socket.addEventListener('close', function () {
 		console.log('[hmr] server connection lost. polling for restart...');
-		setInterval(function () {
-			fetch(location.href).then(function () {
-				location.reload();
-			});
-		}, 1000);
+		function poll() {
+			fetch(location.href, { method: 'HEAD' })
+				.then(function () {
+					location.reload();
+				})
+				.catch(function () {
+					setTimeout(poll, 1000);
+				});
+		}
+		setTimeout(poll, 1000);
 	});
 
 	// Keep connection alive

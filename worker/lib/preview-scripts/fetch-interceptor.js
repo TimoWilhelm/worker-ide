@@ -42,7 +42,8 @@
 								if (body.serverError.type === 'bundle' && typeof window.showErrorOverlay === 'function') {
 									window.showErrorOverlay(body.serverError);
 								}
-								window.parent.postMessage({ type: '__server-error', error: body.serverError }, '*');
+								// Error forwarding to the parent IDE is handled by the HMR
+								// client which receives the same error via WebSocket broadcast.
 							}
 						})
 						.catch(function () {

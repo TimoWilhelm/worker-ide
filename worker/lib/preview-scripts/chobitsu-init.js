@@ -4,8 +4,9 @@
  * Initializes chobitsu (Chrome DevTools Protocol in JS) and sets up
  * the message relay between the preview iframe and the parent IDE frame.
  *
- * Also intercepts Runtime.consoleAPICalled CDP events and forwards them
- * as __console-log messages to the parent IDE for the terminal panel.
+ * Runtime.enable is called immediately so that Runtime.consoleAPICalled
+ * CDP events fire regardless of whether the DevTools panel is open.
+ * The remaining CDP domains are enabled when the DevTools panel sends LOADED.
  *
  * Must be loaded after __chobitsu.js (which defines the global `chobitsu`).
  */
@@ -24,6 +25,10 @@
 		message.id = 'tmp' + ++id;
 		chobitsu.sendRawMessage(JSON.stringify(message));
 	}
+
+	// Enable Runtime immediately so console logs are captured even
+	// when the DevTools panel is not open.
+	sendToChobitsu({ method: 'Runtime.enable' });
 
 	function handleInit() {
 		sendToDevtools(
@@ -71,7 +76,7 @@
 								message: text,
 								timestamp: parsed.params.timestamp ? Math.floor(parsed.params.timestamp) : Date.now(),
 							},
-							'*',
+							location.origin,
 						);
 					}
 				}
@@ -97,5 +102,5 @@
 	});
 
 	// Notify parent that chobitsu is ready
-	window.parent.postMessage({ type: '__chobitsu-ready' }, '*');
+	window.parent.postMessage({ type: '__chobitsu-ready' }, location.origin);
 })();

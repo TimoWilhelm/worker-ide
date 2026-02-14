@@ -82,6 +82,16 @@ globalThis.addEventListener('server-logs', (event: Event) => {
 });
 
 /**
+ * Clear logs on manual preview refresh unless preserving.
+ */
+globalThis.addEventListener('preview-refresh', () => {
+	if (!preserveLogs) {
+		entries = [];
+		notify();
+	}
+});
+
+/**
  * Listen for postMessage events from the preview iframe:
  * - __console-log: forwarded by chobitsu CDP Runtime.consoleAPICalled events
  * - __server-error: forwarded by the HMR client when the preview receives a server error

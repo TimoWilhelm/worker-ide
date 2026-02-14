@@ -65,10 +65,15 @@ export class PreviewService {
 			'/__hmr-client.js': hmrClientSource,
 			'/__fetch-interceptor.js': fetchInterceptorSource,
 		};
-		const internalScript = internalScripts[filePath];
+		// Strip query params for internal script lookup (cache-buster ?v=... in URL)
+		const scriptLookupPath = filePath.split('?')[0];
+		const internalScript = internalScripts[scriptLookupPath];
 		if (internalScript !== undefined) {
 			return new Response(internalScript, {
-				headers: { 'Content-Type': 'application/javascript', 'Cache-Control': 'public, max-age=86400' },
+				headers: {
+					'Content-Type': 'application/javascript',
+					'Cache-Control': 'public, max-age=31536000, immutable',
+				},
 			});
 		}
 		if (filePath === '/chobitsu.js.map') {

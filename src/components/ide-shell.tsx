@@ -346,7 +346,7 @@ export function IDEShell({ projectId }: { projectId: string }) {
 
 		globalThis.addEventListener('server-error', handleServerError);
 		return () => globalThis.removeEventListener('server-error', handleServerError);
-	}, [previewIframeReference]);
+	}, []);
 
 	// Clean up cursor debounce timeout on unmount
 	useEffect(() => {
