@@ -104,6 +104,23 @@ export const fileRoutes = new Hono<AppEnvironment>()
 
 		try {
 			await fs.unlink(`${projectRoot}${path}`);
+
+			// Trigger HMR so the frontend refreshes the file list
+			const projectId = c.get('projectId');
+			const environment = c.env;
+			const hmrId = environment.DO_HMR_COORDINATOR.idFromName(`hmr:${projectId}`);
+			const hmrStub = environment.DO_HMR_COORDINATOR.get(hmrId);
+			await hmrStub.fetch(
+				new Request('http://internal/hmr/trigger', {
+					method: 'POST',
+					body: JSON.stringify({
+						type: 'full-reload',
+						path,
+						timestamp: Date.now(),
+					}),
+				}),
+			);
+
 			return c.json({ success: true });
 		} catch {
 			return c.json({ error: 'Failed to delete file' }, 500);

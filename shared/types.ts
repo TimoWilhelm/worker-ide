@@ -110,7 +110,8 @@ export type ToolName =
 	| 'move_file'
 	| 'search_cloudflare_docs'
 	| 'get_todos'
-	| 'update_todos';
+	| 'update_todos'
+	| 'update_plan';
 
 /**
  * Tool input types
@@ -147,6 +148,10 @@ export interface UpdateTodosInput {
 	todos: TodoItem[];
 }
 
+export interface UpdatePlanInput {
+	content: string;
+}
+
 export type ToolInput =
 	| { name: 'list_files'; input: ListFilesInput }
 	| { name: 'read_file'; input: ReadFileInput }
@@ -155,7 +160,8 @@ export type ToolInput =
 	| { name: 'move_file'; input: MoveFileInput }
 	| { name: 'search_cloudflare_docs'; input: SearchCloudflareDocumentationInput }
 	| { name: 'get_todos'; input: GetTodosInput }
-	| { name: 'update_todos'; input: UpdateTodosInput };
+	| { name: 'update_todos'; input: UpdateTodosInput }
+	| { name: 'update_plan'; input: UpdatePlanInput };
 
 /**
  * A saved AI chat session

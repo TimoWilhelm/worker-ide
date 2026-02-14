@@ -63,7 +63,6 @@
 		"clsx": "^2.1.1",
 		"codemirror": "^6.0.1",
 		"concurrently": "^9.2.1",
-		"devalue": "^5.1.1",
 		"diff": "^8.0.3",
 		"durable-object-fs": "^0.1.1",
 		"esbuild-wasm": "^0.27.0",

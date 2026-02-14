@@ -109,10 +109,14 @@ export function useHMR({ projectId, enabled = true }: UseHMROptions) {
 									queryKey: ['file', projectIdCurrent, update.path],
 								});
 							}
-							if (message.type === 'full-reload') {
-								const iframe = document.querySelector<HTMLIFrameElement>('iframe[data-preview]');
-								iframe?.contentWindow?.postMessage({ type: 'hmr:reload' }, '*');
-							}
+							// Refresh the file list so newly created/deleted files
+							// by the AI agent or collaborators appear immediately.
+							void queryClientCurrent.invalidateQueries({
+								queryKey: ['files', projectIdCurrent],
+							});
+							// The preview iframe has its own HMR WebSocket client
+							// that handles full-reload and CSS hot-swap internally,
+							// so no postMessage is needed here.
 							// Notify the log buffer that a rebuild occurred
 							globalThis.dispatchEvent(new CustomEvent('rebuild'));
 							break;

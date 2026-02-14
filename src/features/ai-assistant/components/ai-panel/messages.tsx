@@ -17,6 +17,7 @@ import {
 	Globe,
 	ListTodo,
 	Loader2,
+	Map as MapIcon,
 	MoveRight,
 	Pencil,
 	PlayCircle,
@@ -64,6 +65,9 @@ function ToolIcon({ name, className }: { name: ToolName; className?: string }) {
 		}
 		case 'update_todos': {
 			return <CheckSquare className={cn('size-3', className)} />;
+		}
+		case 'update_plan': {
+			return <MapIcon className={cn('size-3', className)} />;
 		}
 		default: {
 			return <FileText className={cn('size-3', className)} />;
@@ -244,7 +248,8 @@ export function AssistantMessage({ content }: { content: AgentContent[] }) {
 					<div
 						key={index}
 						className="
-							rounded-lg bg-bg-tertiary px-3 py-2.5 text-sm/relaxed text-text-primary
+							overflow-hidden rounded-lg bg-bg-tertiary px-3 py-2.5 text-sm/relaxed
+							text-text-primary
 						"
 					>
 						<MarkdownContent content={segment.text} />

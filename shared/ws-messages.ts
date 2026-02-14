@@ -3,7 +3,6 @@
  * Handles HMR updates and collaboration messages.
  */
 
-import * as devalue from 'devalue';
 import { z } from 'zod';
 
 import type { CursorPosition, Participant, SelectionRange, ServerError, ServerLogEntry } from './types';
@@ -268,7 +267,7 @@ export const serverMessageSchema = z.discriminatedUnion('type', [
  * Serialize a message for sending over WebSocket
  */
 export function serializeMessage(message: ClientMessage | ServerMessage): string {
-	return devalue.stringify(message);
+	return JSON.stringify(message);
 }
 
 /**
@@ -276,7 +275,7 @@ export function serializeMessage(message: ClientMessage | ServerMessage): string
  */
 export function parseClientMessage(data: string): { success: true; data: ClientMessage } | { success: false; error: string } {
 	try {
-		const parsed: unknown = devalue.parse(data);
+		const parsed: unknown = JSON.parse(data);
 		const result = clientMessageSchema.safeParse(parsed);
 
 		if (!result.success) {
@@ -300,7 +299,7 @@ export function parseClientMessage(data: string): { success: true; data: ClientM
  */
 export function parseServerMessage(data: string): { success: true; data: ServerMessage } | { success: false; error: string } {
 	try {
-		const parsed: unknown = devalue.parse(data);
+		const parsed: unknown = JSON.parse(data);
 		const result = serverMessageSchema.safeParse(parsed);
 
 		if (!result.success) {

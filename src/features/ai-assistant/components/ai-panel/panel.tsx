@@ -520,13 +520,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 						onSegmentsChange={setSegments}
 						onKeyDown={handleKeyDown}
 						onCursorChange={setCursorPosition}
-						placeholder={
-							isProcessing
-								? 'AI is responding...'
-								: planMode
-									? 'Describe what to plan... (read-only mode)'
-									: 'Ask the AI to help... (@ to mention files)'
-						}
+						placeholder={isProcessing ? 'AI is responding...' : planMode ? 'Describe what to plan...' : 'Ask the AI to help...'}
 						disabled={isProcessing}
 					/>
 					{planPath && (

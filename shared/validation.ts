@@ -144,6 +144,13 @@ export const todoItemSchema = z.object({
 });
 
 /**
+ * Schema for AI tool: update_plan
+ */
+export const updatePlanInputSchema = z.object({
+	content: z.string().min(1, 'Plan content is required'),
+});
+
+/**
  * Schema for AI tool: get_todos
  */
 export const getTodosInputSchema = z.object({});
@@ -167,6 +174,7 @@ export const toolInputSchemas = {
 	search_cloudflare_docs: searchCloudflareDocumentationInputSchema,
 	get_todos: getTodosInputSchema,
 	update_todos: updateTodosInputSchema,
+	update_plan: updatePlanInputSchema,
 } as const;
 
 export type ToolName = keyof typeof toolInputSchemas;

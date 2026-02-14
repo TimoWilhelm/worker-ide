@@ -90,6 +90,9 @@ export class AIAgentService {
 			// Read AGENTS.md context if available
 			const agentsContext = await this.readAgentsContext();
 
+			// Read the latest plan so implementation steps can reference it
+			const latestPlan = this.planMode ? undefined : await this.readLatestPlan();
+
 			const messages: Array<{ role: string; content: string | ContentBlock[] | ToolResultBlock[] }> = [];
 			for (const message of history) {
 				messages.push({ role: message.role, content: message.content });
@@ -111,7 +114,7 @@ export class AIAgentService {
 				iteration++;
 				await sendEvent('status', { message: this.planMode ? 'Researching...' : 'Thinking...' });
 
-				const response = await this.callClaude(messages, apiToken, signal, agentsContext);
+				const response = await this.callClaude(messages, apiToken, signal, agentsContext, latestPlan);
 				if (!response) {
 					throw new Error('Failed to get response from Claude');
 				}
@@ -231,6 +234,7 @@ export class AIAgentService {
 		apiToken: string,
 		signal?: AbortSignal,
 		agentsContext?: string,
+		latestPlan?: string,
 	): Promise<ClaudeResponse | undefined> {
 		if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
 		const replicate = new Replicate({ auth: apiToken });
@@ -285,6 +289,9 @@ export class AIAgentService {
 		}
 		if (this.planMode) {
 			systemPrompt += PLAN_MODE_SYSTEM_PROMPT;
+		}
+		if (latestPlan) {
+			systemPrompt += `\n\n## Active Implementation Plan\nFollow this plan for all implementation steps. Reference it to decide what to do next and mark steps as complete when done.\n\n${latestPlan}`;
 		}
 
 		const fullSystemPrompt = `${systemPrompt}
@@ -569,6 +576,29 @@ When you're done and don't need to use any more tools, just provide your final r
 			if (content.length > AGENTS_MD_MAX_CHARACTERS) {
 				content = content.slice(0, AGENTS_MD_MAX_CHARACTERS) + '\n...(truncated)';
 			}
+			return content;
+		} catch {
+			return undefined;
+		}
+	}
+
+	// =============================================================================
+	// Plan Context
+	// =============================================================================
+
+	private async readLatestPlan(): Promise<string | undefined> {
+		try {
+			const plansDirectory = `${this.projectRoot}/.agent/plans`;
+			const entries = await fs.readdir(plansDirectory);
+			const planFiles = entries.filter((entry) => entry.endsWith('-plan.md')).toSorted();
+			if (planFiles.length === 0) return undefined;
+
+			const latestFile = planFiles.at(-1);
+			if (!latestFile) return undefined;
+
+			const content = await fs.readFile(`${plansDirectory}/${latestFile}`, 'utf8');
+			if (!content.trim()) return undefined;
+
 			return content;
 		} catch {
 			return undefined;

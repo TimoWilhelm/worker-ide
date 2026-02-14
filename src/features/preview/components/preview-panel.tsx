@@ -6,7 +6,7 @@
  */
 
 import { ExternalLink, RefreshCw } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Tooltip } from '@/components/ui/tooltip';
@@ -54,17 +54,9 @@ export function PreviewPanel({ projectId, className }: PreviewPanelProperties) {
 		window.open(previewUrl, '_blank');
 	}, [previewUrl]);
 
-	// Listen for HMR reload messages
-	useEffect(() => {
-		const handleMessage = (event: MessageEvent) => {
-			if (event.data?.type === 'hmr:reload') {
-				handleRefresh();
-			}
-		};
-
-		window.addEventListener('message', handleMessage);
-		return () => window.removeEventListener('message', handleMessage);
-	}, [handleRefresh]);
+	// The preview iframe has its own HMR WebSocket client (injected by
+	// processHTML) that handles full-reload and CSS hot-swap internally.
+	// No postMessage listener is needed here.
 
 	return (
 		<div className={cn('flex h-full flex-col bg-bg-secondary', className)}>

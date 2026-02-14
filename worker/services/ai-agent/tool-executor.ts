@@ -276,6 +276,21 @@ export async function executeAgentTool(
 						afterContent: null,
 						isBinary,
 					});
+
+					// Trigger HMR so the frontend refreshes the file list
+					const hmrId = environment.DO_HMR_COORDINATOR.idFromName(`hmr:${projectId}`);
+					const hmrStub = environment.DO_HMR_COORDINATOR.get(hmrId);
+					await hmrStub.fetch(
+						new Request('http://internal/hmr/trigger', {
+							method: 'POST',
+							body: JSON.stringify({
+								type: 'full-reload',
+								path,
+								timestamp: Date.now(),
+							}),
+						}),
+					);
+
 					return { success: true, path, action: 'delete' };
 				} catch {
 					return { error: `Failed to delete: ${path}` };
@@ -388,6 +403,32 @@ export async function executeAgentTool(
 					return { result };
 				} catch (error) {
 					return { error: `Failed to search Cloudflare docs: ${String(error)}` };
+				}
+			}
+
+			case 'update_plan': {
+				await sendEvent('status', { message: 'Updating plan...' });
+				try {
+					const planContent = validatedInput.content;
+					if (!planContent) {
+						return { error: 'Plan content is required' };
+					}
+					const plansDirectory = `${projectRoot}/.agent/plans`;
+					const entries: string[] = await fs.readdir(plansDirectory).catch(() => []);
+					const planFiles = entries.filter((entry) => entry.endsWith('-plan.md')).toSorted();
+					const latestFile = planFiles.at(-1);
+					if (!latestFile) {
+						// No existing plan — create a new one
+						await fs.mkdir(plansDirectory, { recursive: true });
+						const timestamp = Date.now();
+						const planFileName = `${timestamp}-plan.md`;
+						await fs.writeFile(`${plansDirectory}/${planFileName}`, planContent);
+						return { success: true, action: 'created', path: `/.agent/plans/${planFileName}` };
+					}
+					await fs.writeFile(`${plansDirectory}/${latestFile}`, planContent);
+					return { success: true, action: 'updated', path: `/.agent/plans/${latestFile}` };
+				} catch (error) {
+					return { error: `Failed to update plan: ${String(error)}` };
 				}
 			}
 

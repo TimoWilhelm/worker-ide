@@ -246,6 +246,18 @@ export const AGENT_TOOLS = [
 		},
 	},
 	{
+		name: 'update_plan',
+		description:
+			'Update the current implementation plan. Use this to mark steps as complete, add new steps, or revise the plan as you make progress. Provide the full updated plan content in markdown format.',
+		input_schema: {
+			type: 'object',
+			properties: {
+				content: { type: 'string', description: 'The full updated plan content in markdown format' },
+			},
+			required: ['content'],
+		},
+	},
+	{
 		name: 'get_todos',
 		description:
 			'Get the current TODO list for this session. Returns an array of TODO items with id, content, status (pending/in_progress/completed), and priority (high/medium/low).',
