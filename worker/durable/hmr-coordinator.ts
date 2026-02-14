@@ -27,8 +27,6 @@ interface ParticipantAttachment {
  * Each project has its own HMRCoordinator instance (keyed by `hmr:${projectId}`).
  */
 export class HMRCoordinator extends DurableObject {
-	private colorIndex = 0;
-
 	private getAttachment(ws: WebSocket): ParticipantAttachment | undefined {
 		try {
 			const attachment: ParticipantAttachment = ws.deserializeAttachment();
@@ -43,9 +41,9 @@ export class HMRCoordinator extends DurableObject {
 	}
 
 	private nextColor(): string {
-		const color = COLLAB_COLORS[this.colorIndex % COLLAB_COLORS.length];
-		this.colorIndex++;
-		return color;
+		// Derive color index from current WebSocket count so it survives DO hibernation
+		const currentCount = this.ctx.getWebSockets().length;
+		return COLLAB_COLORS[currentCount % COLLAB_COLORS.length];
 	}
 
 	private getAllParticipants(excludeId?: string): Participant[] {

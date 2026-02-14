@@ -32,13 +32,25 @@ import type { AppEnvironment } from './types';
  * Cache PreviewService instances per projectId so that error deduplication
  * (lastErrorMessage) works across requests within the same isolate.
  */
+const MAX_PREVIEW_SERVICE_CACHE_SIZE = 100;
 const previewServiceCache = new Map<string, PreviewService>();
 function getPreviewService(projectRoot: string, projectId: string): PreviewService {
 	let service = previewServiceCache.get(projectId);
-	if (!service) {
-		service = new PreviewService(projectRoot, projectId);
+	if (service) {
+		// Move to end (most recently used)
+		previewServiceCache.delete(projectId);
 		previewServiceCache.set(projectId, service);
+		return service;
 	}
+	// Evict oldest entry if cache is full
+	if (previewServiceCache.size >= MAX_PREVIEW_SERVICE_CACHE_SIZE) {
+		const oldestKey = previewServiceCache.keys().next().value;
+		if (oldestKey !== undefined) {
+			previewServiceCache.delete(oldestKey);
+		}
+	}
+	service = new PreviewService(projectRoot, projectId);
+	previewServiceCache.set(projectId, service);
 	return service;
 }
 

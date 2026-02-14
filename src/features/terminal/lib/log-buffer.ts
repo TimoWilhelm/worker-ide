@@ -87,6 +87,8 @@ globalThis.addEventListener('server-logs', (event: Event) => {
  * console.log/info/warn/error/debug calls via window.parent.postMessage.
  */
 globalThis.addEventListener('message', (event: MessageEvent) => {
+	// Only accept messages from same origin (preview iframe)
+	if (event.origin !== globalThis.location.origin) return;
 	if (event.data?.type !== '__console-log') return;
 
 	const { level, message, timestamp } = event.data;

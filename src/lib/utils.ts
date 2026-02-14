@@ -18,11 +18,12 @@ export function cn(...inputs: ClassValue[]): string {
  * Format file size in human readable format.
  */
 export function formatFileSize(bytes: number): string {
+	if (!Number.isFinite(bytes) || bytes < 0) return '0 B';
 	if (bytes === 0) return '0 B';
 
 	const k = 1024;
 	const sizes = ['B', 'KB', 'MB', 'GB'];
-	const index = Math.floor(Math.log(bytes) / Math.log(k));
+	const index = Math.min(Math.floor(Math.log(bytes) / Math.log(k)), sizes.length - 1);
 
 	return `${Number.parseFloat((bytes / Math.pow(k, index)).toFixed(1))} ${sizes[index]}`;
 }

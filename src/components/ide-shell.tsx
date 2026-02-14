@@ -181,8 +181,8 @@ export function IDEShell({ projectId }: { projectId: string }) {
 	const editorContent = localEditorContent ?? content ?? '';
 
 	// Compute inline diff data for the active file (if it has a pending AI change).
-	// Uses the actual editor content (not stored afterContent) so decorations
-	// stay accurate when the user makes local edits.
+	// Uses the stored afterContent so decorations accurately reflect the AI's
+	// proposed change, falling back to editorContent if afterContent is unavailable.
 	const activePendingChange = activeFile ? pendingChanges.get(activeFile) : undefined;
 	const hasActiveDiff = activePendingChange?.status === 'pending';
 
@@ -190,7 +190,7 @@ export function IDEShell({ projectId }: { projectId: string }) {
 		if (!activeFile) return;
 		const pendingChange = pendingChanges.get(activeFile);
 		if (!pendingChange || pendingChange.status !== 'pending') return;
-		return computeDiffData(pendingChange.beforeContent, editorContent);
+		return computeDiffData(pendingChange.beforeContent, pendingChange.afterContent ?? editorContent);
 	}, [activeFile, pendingChanges, editorContent]);
 
 	// Build tabs data
@@ -316,6 +316,8 @@ export function IDEShell({ projectId }: { projectId: string }) {
 	// Listen for __open-file messages from the preview iframe (error overlay)
 	useEffect(() => {
 		const handleMessage = (event: MessageEvent) => {
+			// Only accept messages from same origin (preview iframe)
+			if (event.origin !== globalThis.location.origin) return;
 			if (event.data?.type === '__open-file' && typeof event.data.file === 'string') {
 				const file: string = event.data.file;
 				const line = typeof event.data.line === 'number' ? event.data.line : 1;
@@ -327,6 +329,13 @@ export function IDEShell({ projectId }: { projectId: string }) {
 		globalThis.addEventListener('message', handleMessage);
 		return () => globalThis.removeEventListener('message', handleMessage);
 	}, [goToFilePosition]);
+
+	// Clean up cursor debounce timeout on unmount
+	useEffect(() => {
+		return () => {
+			clearTimeout(cursorUpdateTimeoutReference.current);
+		};
+	}, []);
 
 	// Keyboard shortcuts
 	useEffect(() => {

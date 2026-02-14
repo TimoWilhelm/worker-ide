@@ -7,7 +7,7 @@
  */
 
 import { useQueryClient } from '@tanstack/react-query';
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useRef } from 'react';
 
 import { useSnapshots } from '@/features/snapshots';
 import { createApiClient } from '@/lib/api-client';
@@ -21,7 +21,7 @@ export function useChangeReview({ projectId }: { projectId: string }) {
 	const queryClient = useQueryClient();
 	const { pendingChanges, approveChange, rejectChange, approveAllChanges, rejectAllChanges } = useStore();
 	const { revertFile, revertFileAsync, isReverting } = useSnapshots({ projectId });
-	const api = createApiClient(projectId);
+	const apiReference = useRef(createApiClient(projectId));
 
 	// Derive list of pending (unresolved) changes
 	const unresolvedChanges = useMemo(() => {
@@ -72,22 +72,34 @@ export function useChangeReview({ projectId }: { projectId: string }) {
 				);
 			} else if (change.action === 'edit' && change.beforeContent !== undefined) {
 				// Fallback: write back the original content
-				void api.file.$put({ json: { path, content: change.beforeContent } }).then(() => {
-					rejectChange(path);
-					void queryClient.refetchQueries({ queryKey: ['file', projectId] });
-				});
+				void apiReference.current.file.$put({ json: { path, content: change.beforeContent } }).then(
+					() => {
+						rejectChange(path);
+						void queryClient.refetchQueries({ queryKey: ['file', projectId] });
+					},
+					(error) => {
+						console.error('Failed to revert file edit:', error);
+						rejectChange(path);
+					},
+				);
 			} else if (change.action === 'create') {
 				// Created file with no snapshot — delete it
-				void api.file.$delete({ query: { path } }).then(() => {
-					rejectChange(path);
-					void queryClient.refetchQueries({ queryKey: ['files', projectId] });
-				});
+				void apiReference.current.file.$delete({ query: { path } }).then(
+					() => {
+						rejectChange(path);
+						void queryClient.refetchQueries({ queryKey: ['files', projectId] });
+					},
+					(error) => {
+						console.error('Failed to delete created file:', error);
+						rejectChange(path);
+					},
+				);
 			} else {
 				// No snapshot and no beforeContent — just mark as rejected
 				rejectChange(path);
 			}
 		},
-		[pendingChanges, revertFile, rejectChange, api.file, queryClient, projectId],
+		[pendingChanges, revertFile, rejectChange, queryClient, projectId],
 	);
 
 	// Approve all pending changes
@@ -97,18 +109,25 @@ export function useChangeReview({ projectId }: { projectId: string }) {
 
 	// Reject all pending changes (revert each file individually)
 	const handleRejectAll = useCallback(async () => {
-		// Collect pending files that have a snapshot to revert
-		const pendingPaths: Array<{ path: string; snapshotId: string }> = [];
+		const revertPromises: Promise<unknown>[] = [];
+
 		for (const change of pendingChanges.values()) {
-			if (change.status === 'pending' && change.snapshotId) {
-				pendingPaths.push({ path: change.path, snapshotId: change.snapshotId });
+			if (change.status !== 'pending') continue;
+
+			if (change.snapshotId) {
+				// Preferred: revert through snapshot API
+				revertPromises.push(revertFileAsync({ path: change.path, snapshotId: change.snapshotId }));
+			} else if (change.action === 'edit' && change.beforeContent !== undefined) {
+				// Fallback: write back the original content
+				revertPromises.push(apiReference.current.file.$put({ json: { path: change.path, content: change.beforeContent } }));
+			} else if (change.action === 'create') {
+				// Created file with no snapshot — delete it
+				revertPromises.push(apiReference.current.file.$delete({ query: { path: change.path } }));
 			}
 		}
 
 		// Await all reverts before updating state
-		if (pendingPaths.length > 0) {
-			await Promise.allSettled(pendingPaths.map(({ path, snapshotId }) => revertFileAsync({ path, snapshotId })));
-		}
+		await Promise.allSettled(revertPromises);
 
 		// Mark only pending changes as rejected (preserves already-approved entries)
 		rejectAllChanges();
