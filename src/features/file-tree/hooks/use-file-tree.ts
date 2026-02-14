@@ -106,8 +106,10 @@ export function useFileTree({ projectId, enabled = true }: UseFileTreeOptions) {
 
 			return response.json();
 		},
-		onSuccess: async () => {
+		onSuccess: async (_data, variables) => {
 			await queryClient.invalidateQueries({ queryKey: ['files', projectId] });
+			setSelectedFile(variables.path);
+			openFile(variables.path);
 		},
 	});
 

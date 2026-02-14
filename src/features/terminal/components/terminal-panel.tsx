@@ -223,7 +223,7 @@ function LogLine({ log }: { log: LogEntry }) {
 	return (
 		<div
 			className="
-				flex items-start gap-2 rounded-sm px-1 py-1
+				flex items-start gap-2 rounded-sm p-1
 				hover:bg-bg-tertiary/50
 			"
 		>

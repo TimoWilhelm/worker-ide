@@ -15,7 +15,7 @@ test.describe('New File', () => {
 		await waitForFileTree(page);
 
 		// Click the "New file" button in the sidebar header
-		const newFileButton = page.getByLabel('New file');
+		const newFileButton = page.getByLabel('New file', { exact: true });
 		await expect(newFileButton).toBeVisible();
 		await newFileButton.click();
 
@@ -28,16 +28,16 @@ test.describe('New File', () => {
 		await waitForFileTree(page);
 
 		// Open new file dialog
-		await page.getByLabel('New file').click();
+		await page.getByLabel('New file', { exact: true }).click();
 		await expect(page.getByText('New File')).toBeVisible();
 
 		// Type a file name and submit
-		const input = page.getByPlaceholder('e.g. src/utils.ts');
+		const input = page.getByPlaceholder('e.g. /src/utils.js');
 		await input.fill('hello.txt');
 		await page.getByRole('button', { name: 'Create' }).click();
 
 		// File should appear in the tree
-		await expect(page.getByText('hello.txt')).toBeVisible();
+		await expect(page.getByRole('treeitem', { name: /hello\.txt/i })).toBeVisible();
 
 		// A tab should open for the new file
 		await expect(page.getByRole('tab', { name: /hello\.txt/i })).toBeVisible();

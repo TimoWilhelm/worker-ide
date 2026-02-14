@@ -17,7 +17,7 @@ test.describe('Panel Toggling', () => {
 	test('sidebar with file tree is visible', async ({ page }) => {
 		await gotoIDE(page);
 
-		await expect(page.getByText('Files')).toBeVisible();
+		await expect(page.getByText('Files', { exact: true })).toBeVisible();
 	});
 
 	test('terminal is visible by default', async ({ page }) => {

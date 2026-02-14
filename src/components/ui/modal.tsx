@@ -40,7 +40,7 @@ export function Modal({ open, onOpenChange, title, children, className }: ModalP
 				<Dialog.Content
 					className={cn(
 						`fixed top-1/2 left-1/2 z-50 w-[400px] max-w-[90vw] animate-fade-in`,
-						`-translate-x-1/2 -translate-y-1/2 rounded-lg border border-border`,
+						`-translate-1/2 rounded-lg border border-border`,
 						`bg-bg-secondary shadow-lg`,
 						className,
 					)}
@@ -76,7 +76,7 @@ export function Modal({ open, onOpenChange, title, children, className }: ModalP
 
 export function ModalBody({ children, className, ref }: { children: ReactNode; className?: string; ref?: Ref<HTMLDivElement> }) {
 	return (
-		<div ref={ref} className={cn('px-4 py-4', className)}>
+		<div ref={ref} className={cn('p-4', className)}>
 			{children}
 		</div>
 	);

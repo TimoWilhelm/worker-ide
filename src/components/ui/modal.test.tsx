@@ -51,7 +51,7 @@ describe('ModalBody', () => {
 		);
 
 		expect(screen.getByText('Body content')).toBeInTheDocument();
-		expect(container.firstChild).toHaveClass('px-4', 'py-4');
+		expect(container.firstChild).toHaveClass('p-4');
 	});
 
 	it('applies custom className', () => {
