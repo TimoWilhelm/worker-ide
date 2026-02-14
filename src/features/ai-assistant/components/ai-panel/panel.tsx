@@ -22,8 +22,10 @@ import { cn, formatRelativeTime } from '@/lib/utils';
 import { getEventBooleanField, getEventObjectField, getEventStringField, getEventToolName } from './helpers';
 import { AIError, AssistantMessage, ContinuationPrompt, MessageBubble, WelcomeScreen } from './messages';
 import { useAiSessions } from '../../hooks/use-ai-sessions';
+import { useChangeReview } from '../../hooks/use-change-review';
 import { useFileMention } from '../../hooks/use-file-mention';
 import { segmentsHaveContent, segmentsToPlainText, type InputSegment } from '../../lib/input-segments';
+import { ChangedFilesSummary } from '../changed-files-summary';
 import { FileMentionDropdown } from '../file-mention-dropdown';
 import { RevertConfirmDialog } from '../revert-confirm-dialog';
 import { RichTextInput, type RichTextInputHandle } from '../rich-text-input';
@@ -67,7 +69,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		planMode,
 		sessionId,
 		addMessage,
-		clearHistory,
+		clearHistory: storeClearHistory,
 		setProcessing,
 		setStatusMessage,
 		setAiError,
@@ -76,6 +78,9 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		removeMessagesFrom,
 		togglePlanMode,
 		openFile,
+		addPendingChange,
+		associateSnapshotWithPending,
+		clearPendingChanges,
 	} = useStore();
 
 	// File mention autocomplete
@@ -98,10 +103,28 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	});
 
 	// Session persistence
-	const { savedSessions, handleLoadSession, saveCurrentSession } = useAiSessions({ projectId });
+	const { savedSessions, handleLoadSession: loadSession, saveCurrentSession } = useAiSessions({ projectId });
 
 	// Snapshot hook for revert
 	const { revertSnapshotAsync, isReverting } = useSnapshots({ projectId });
+
+	// Change review hook for accept/reject UI
+	const changeReview = useChangeReview({ projectId });
+
+	// Wrap clearHistory to also clear pending changes
+	const clearHistory = useCallback(() => {
+		storeClearHistory();
+		clearPendingChanges();
+	}, [storeClearHistory, clearPendingChanges]);
+
+	// Wrap handleLoadSession to also clear pending changes
+	const handleLoadSession = useCallback(
+		(sessionId: string) => {
+			clearPendingChanges();
+			loadSession(sessionId);
+		},
+		[clearPendingChanges, loadSession],
+	);
 
 	// Auto-scroll to bottom
 	useEffect(() => {
@@ -213,11 +236,33 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 								setStreamingContent([...assistantContent]);
 								break;
 							}
+							case 'file_changed': {
+								const path = getEventStringField(event, 'path');
+								const action = getEventStringField(event, 'action');
+								const beforeContent = getEventStringField(event, 'beforeContent');
+								const afterContent = getEventStringField(event, 'afterContent');
+								if (path && (action === 'create' || action === 'edit' || action === 'delete')) {
+									addPendingChange({
+										path,
+										action,
+										beforeContent: beforeContent || undefined,
+										afterContent: afterContent || undefined,
+										snapshotId: undefined,
+									});
+									// Open the file so the user sees the diff immediately
+									openFile(path);
+								}
+								break;
+							}
 							case 'snapshot_created': {
 								// Associate this snapshot with the user message that triggered it
 								const snapshotId = getEventStringField(event, 'id');
 								if (snapshotId && userMessageIndexReference.current >= 0) {
 									setMessageSnapshot(userMessageIndexReference.current, snapshotId);
+								}
+								// Link all pending changes without a snapshot to this one
+								if (snapshotId) {
+									associateSnapshotWithPending(snapshotId);
 								}
 								break;
 							}
@@ -301,6 +346,9 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 			setAiError,
 			setMessageSnapshot,
 			saveCurrentSession,
+			addPendingChange,
+			associateSnapshotWithPending,
+			openFile,
 		],
 	);
 
@@ -385,6 +433,9 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 				// Remove the user message and all subsequent messages, clean up snapshot associations
 				removeMessagesFrom(messageIndex);
 
+				// Clear all pending changes since files are restored
+				clearPendingChanges();
+
 				// Restore the prompt text into the input
 				if (promptText) {
 					setSegments([{ type: 'text', value: promptText }]);
@@ -401,7 +452,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 				setPendingRevert(undefined);
 			}
 		},
-		[isProcessing, history, revertSnapshotAsync, removeMessagesFrom, saveCurrentSession],
+		[isProcessing, history, revertSnapshotAsync, removeMessagesFrom, clearPendingChanges, saveCurrentSession],
 	);
 
 	// Handle suggestion click
@@ -500,6 +551,20 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 					<ScrollArea.Thumb className="relative flex-1 rounded-full bg-border" />
 				</ScrollArea.Scrollbar>
 			</ScrollArea.Root>
+
+			{/* Changed files summary — shown when AI has pending edits */}
+			{changeReview.pendingCount > 0 && (
+				<div className="shrink-0 border-t border-border px-2 pt-2">
+					<ChangedFilesSummary
+						onApproveChange={changeReview.handleApproveChange}
+						onRejectChange={changeReview.handleRejectChange}
+						onApproveAll={changeReview.handleApproveAll}
+						onRejectAll={changeReview.handleRejectAll}
+						isReverting={changeReview.isReverting}
+						canReject={changeReview.canReject}
+					/>
+				</div>
+			)}
 
 			{/* Input */}
 			<div className="shrink-0 border-t border-border p-2">

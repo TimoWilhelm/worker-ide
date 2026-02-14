@@ -6,6 +6,7 @@
 
 // Components
 export { CodeEditor, type CodeEditorProperties, useEditorReference } from './components/code-editor';
+export { DiffToolbar, type DiffToolbarProperties } from './components/diff-toolbar';
 export { FileTabs, type FileTab, type FileTabsProperties } from './components/file-tabs';
 
 // Hooks

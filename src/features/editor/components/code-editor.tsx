@@ -48,6 +48,10 @@ export interface CodeEditorProperties {
 	tabSize?: number;
 	/** Inline diff data for AI change review */
 	diffData?: DiffData;
+	/** Called when the user accepts the diff via inline action bar */
+	onDiffApprove?: () => void;
+	/** Called when the user rejects the diff via inline action bar */
+	onDiffReject?: () => void;
 	/** Resolved color theme */
 	resolvedTheme?: 'light' | 'dark';
 	/** Additional extensions */
@@ -74,6 +78,8 @@ export function CodeEditor({
 	readonly = false,
 	tabSize = 2,
 	diffData,
+	onDiffApprove,
+	onDiffReject,
 	resolvedTheme = 'dark',
 	extensions: additionalExtensions = [],
 	className,
@@ -97,6 +103,10 @@ export function CodeEditor({
 	onCursorChangeReference.current = onCursorChange;
 	const onBlurReference = useRef(onBlur);
 	onBlurReference.current = onBlur;
+	const onDiffApproveReference = useRef(onDiffApprove);
+	onDiffApproveReference.current = onDiffApprove;
+	const onDiffRejectReference = useRef(onDiffReject);
+	onDiffRejectReference.current = onDiffReject;
 
 	// Create update listener extension — uses refs so it never goes stale
 	const createUpdateListener = useCallback(() => {
@@ -128,7 +138,13 @@ export function CodeEditor({
 		const baseExtensions = createEditorExtensions(filename, [createUpdateListener(), ...additionalExtensions], resolvedTheme);
 
 		// Remove language from base extensions since we'll use compartment
-		const diffExtensions = diffData ? createDiffExtensions({ hunks: diffData.hunks }) : [];
+		const diffExtensions = diffData
+			? createDiffExtensions({
+					hunks: diffData.hunks,
+					onApprove: () => onDiffApproveReference.current?.(),
+					onReject: () => onDiffRejectReference.current?.(),
+				})
+			: [];
 		const isDark = resolvedTheme === 'dark';
 
 		const extensions = [
@@ -221,7 +237,13 @@ export function CodeEditor({
 	useEffect(() => {
 		if (!viewReference.current) return;
 
-		const diffExtensions = diffData ? createDiffExtensions({ hunks: diffData.hunks }) : [];
+		const diffExtensions = diffData
+			? createDiffExtensions({
+					hunks: diffData.hunks,
+					onApprove: () => onDiffApproveReference.current?.(),
+					onReject: () => onDiffRejectReference.current?.(),
+				})
+			: [];
 		viewReference.current.dispatch({
 			effects: diffCompartment.reconfigure(diffExtensions),
 		});

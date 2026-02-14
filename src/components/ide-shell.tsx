@@ -20,7 +20,8 @@ import {
 import { PanelSkeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
 import { Tooltip, TooltipProvider } from '@/components/ui/tooltip';
-import { CodeEditor, computeDiffData, FileTabs, useFileContent } from '@/features/editor';
+import { useChangeReview } from '@/features/ai-assistant/hooks/use-change-review';
+import { CodeEditor, computeDiffData, DiffToolbar, FileTabs, useFileContent } from '@/features/editor';
 import { FileTree, useFileTree } from '@/features/file-tree';
 import { getLogSnapshot, subscribeToLogs } from '@/features/terminal/lib/log-buffer';
 import { hmrSendReference, useHMR, useTheme } from '@/hooks';
@@ -72,6 +73,9 @@ export function IDEShell({ projectId }: { projectId: string }) {
 
 	// Read AI processing state via a dedicated selector to limit re-renders
 	const isAiProcessing = useStore(selectIsProcessing);
+
+	// Change review for diff toolbar
+	const changeReview = useChangeReview({ projectId });
 
 	// Project name state
 	const [projectName, setProjectName] = useState<string | undefined>();
@@ -178,6 +182,9 @@ export function IDEShell({ projectId }: { projectId: string }) {
 	// Compute inline diff data for the active file (if it has a pending AI change).
 	// Uses the actual editor content (not stored afterContent) so decorations
 	// stay accurate when the user makes local edits.
+	const activePendingChange = activeFile ? pendingChanges.get(activeFile) : undefined;
+	const hasActiveDiff = activePendingChange?.status === 'pending';
+
 	const activeDiffData = useMemo(() => {
 		if (!activeFile) return;
 		const pendingChange = pendingChanges.get(activeFile);
@@ -475,6 +482,18 @@ export function IDEShell({ projectId }: { projectId: string }) {
 											onClose={handleCloseFile}
 											participants={participants}
 										/>
+										{hasActiveDiff && activeFile && activePendingChange && (
+											<DiffToolbar
+												path={activeFile}
+												action={activePendingChange.action}
+												onApprove={changeReview.handleApproveChange}
+												onReject={changeReview.handleRejectChange}
+												onApproveAll={changeReview.handleApproveAll}
+												onRejectAll={changeReview.handleRejectAll}
+												isReverting={changeReview.isReverting}
+												canReject={changeReview.canReject}
+											/>
+										)}
 										<div className="flex-1 overflow-hidden">
 											{activeFile ? (
 												isLoadingContent ? (
@@ -491,6 +510,8 @@ export function IDEShell({ projectId }: { projectId: string }) {
 														goToPosition={pendingGoTo}
 														onGoToPositionConsumed={clearPendingGoTo}
 														diffData={activeDiffData}
+														onDiffApprove={hasActiveDiff && activeFile ? () => changeReview.handleApproveChange(activeFile) : undefined}
+														onDiffReject={hasActiveDiff && activeFile ? () => changeReview.handleRejectChange(activeFile) : undefined}
 														resolvedTheme={resolvedTheme}
 													/>
 												)

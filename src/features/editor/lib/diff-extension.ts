@@ -27,8 +27,8 @@ import type { Extension } from '@codemirror/state';
 
 export interface DiffExtensionConfig {
 	hunks: DiffHunk[];
-	onApproveHunk?: (hunkIndex: number) => void;
-	onRejectHunk?: (hunkIndex: number) => void;
+	onApprove?: () => void;
+	onReject?: () => void;
 }
 
 // =============================================================================
@@ -65,6 +65,72 @@ const removedMarker = new RemovedGutterMarker();
 // =============================================================================
 // Removed lines widget
 // =============================================================================
+
+// =============================================================================
+// Inline action bar widget (file-level accept/reject at first hunk)
+// =============================================================================
+
+class DiffActionBarWidget extends WidgetType {
+	constructor(
+		readonly onApprove: (() => void) | undefined,
+		readonly onReject: (() => void) | undefined,
+	) {
+		super();
+	}
+
+	toDOM(): HTMLElement {
+		const container = document.createElement('div');
+		container.className = 'cm-diff-action-bar';
+
+		const label = document.createElement('span');
+		label.className = 'cm-diff-action-label';
+		label.textContent = 'AI Change';
+		container.append(label);
+
+		const buttonGroup = document.createElement('span');
+		buttonGroup.className = 'cm-diff-action-buttons';
+
+		if (this.onApprove) {
+			const acceptButton = document.createElement('button');
+			acceptButton.className = 'cm-diff-action-accept';
+			acceptButton.textContent = '\u2713 Accept';
+			acceptButton.addEventListener('click', (event) => {
+				event.preventDefault();
+				event.stopPropagation();
+				this.onApprove?.();
+			});
+			buttonGroup.append(acceptButton);
+		}
+
+		if (this.onReject) {
+			const rejectButton = document.createElement('button');
+			rejectButton.className = 'cm-diff-action-reject';
+			rejectButton.textContent = '\u2717 Reject';
+			rejectButton.addEventListener('click', (event) => {
+				event.preventDefault();
+				event.stopPropagation();
+				this.onReject?.();
+			});
+			buttonGroup.append(rejectButton);
+		}
+
+		container.append(buttonGroup);
+		return container;
+	}
+
+	override eq(other: WidgetType): boolean {
+		if (!(other instanceof DiffActionBarWidget)) return false;
+		return this.onApprove === other.onApprove && this.onReject === other.onReject;
+	}
+
+	override get estimatedHeight(): number {
+		return 28;
+	}
+
+	override ignoreEvent(): boolean {
+		return false;
+	}
+}
 
 class RemovedLinesWidget extends WidgetType {
 	constructor(readonly lines: string[]) {
@@ -104,14 +170,33 @@ class RemovedLinesWidget extends WidgetType {
 // View plugin — builds decorations from hunks
 // =============================================================================
 
-function buildDecorations(view: EditorView, hunks: DiffHunk[]): DecorationSet {
+function buildDecorations(
+	view: EditorView,
+	hunks: DiffHunk[],
+	onApprove: (() => void) | undefined,
+	onReject: (() => void) | undefined,
+): DecorationSet {
 	const builder = new RangeSetBuilder<Decoration>();
 	const document_ = view.state.doc;
 
 	// Collect all decorations, sorted by position
 	const decorations: Array<{ from: number; to: number; decoration: Decoration }> = [];
+	let actionBarInserted = false;
 
 	for (const hunk of hunks) {
+		// Insert action bar above the first hunk
+		if (!actionBarInserted && (onApprove || onReject)) {
+			const hunkLine = Math.min(hunk.startLine, document_.lines);
+			const line = document_.line(hunkLine);
+			const actionWidget = Decoration.widget({
+				widget: new DiffActionBarWidget(onApprove, onReject),
+				block: true,
+				side: -2, // before removed-lines widgets (-1)
+			});
+			decorations.push({ from: line.from, to: line.from, decoration: actionWidget });
+			actionBarInserted = true;
+		}
+
 		if (hunk.type === 'added') {
 			// Highlight added lines with green background
 			for (let index = 0; index < hunk.lineCount; index++) {
@@ -143,13 +228,17 @@ function buildDecorations(view: EditorView, hunks: DiffHunk[]): DecorationSet {
 	return builder.finish();
 }
 
-function createDiffPlugin(hunks: DiffHunk[]): ViewPlugin<PluginValue & { decorations: DecorationSet }> {
+function createDiffPlugin(
+	hunks: DiffHunk[],
+	onApprove: (() => void) | undefined,
+	onReject: (() => void) | undefined,
+): ViewPlugin<PluginValue & { decorations: DecorationSet }> {
 	return ViewPlugin.define(
 		(view) => ({
-			decorations: buildDecorations(view, hunks),
+			decorations: buildDecorations(view, hunks, onApprove, onReject),
 			update(update: ViewUpdate) {
 				if (update.docChanged || update.viewportChanged) {
-					this.decorations = buildDecorations(update.view, hunks);
+					this.decorations = buildDecorations(update.view, hunks, onApprove, onReject);
 				}
 			},
 		}),
@@ -234,6 +323,50 @@ const diffTheme = EditorView.baseTheme({
 		fontWeight: 'bold',
 		fontSize: '12px',
 	},
+	'.cm-diff-action-bar': {
+		display: 'flex',
+		alignItems: 'center',
+		gap: '8px',
+		padding: '2px 8px',
+		backgroundColor: 'rgba(94, 160, 255, 0.08)',
+		borderBottom: '1px solid rgba(94, 160, 255, 0.2)',
+		fontFamily: 'system-ui, sans-serif',
+		fontSize: '11px',
+	},
+	'.cm-diff-action-label': {
+		color: 'rgba(94, 160, 255, 0.8)',
+		fontWeight: '600',
+	},
+	'.cm-diff-action-buttons': {
+		display: 'flex',
+		gap: '4px',
+	},
+	'.cm-diff-action-accept': {
+		cursor: 'pointer',
+		padding: '1px 8px',
+		borderRadius: '3px',
+		border: 'none',
+		backgroundColor: 'rgba(94, 255, 58, 0.12)',
+		color: 'rgba(94, 255, 58, 0.9)',
+		fontSize: '11px',
+		fontWeight: '500',
+		'&:hover': {
+			backgroundColor: 'rgba(94, 255, 58, 0.2)',
+		},
+	},
+	'.cm-diff-action-reject': {
+		cursor: 'pointer',
+		padding: '1px 8px',
+		borderRadius: '3px',
+		border: 'none',
+		backgroundColor: 'rgba(255, 94, 94, 0.12)',
+		color: 'rgba(255, 94, 94, 0.9)',
+		fontSize: '11px',
+		fontWeight: '500',
+		'&:hover': {
+			backgroundColor: 'rgba(255, 94, 94, 0.2)',
+		},
+	},
 });
 
 // =============================================================================
@@ -247,5 +380,5 @@ const diffTheme = EditorView.baseTheme({
 export function createDiffExtensions(config: DiffExtensionConfig): Extension[] {
 	if (config.hunks.length === 0) return [];
 
-	return [diffTheme, createDiffGutter(config.hunks), createDiffPlugin(config.hunks)];
+	return [diffTheme, createDiffGutter(config.hunks), createDiffPlugin(config.hunks, config.onApprove, config.onReject)];
 }
