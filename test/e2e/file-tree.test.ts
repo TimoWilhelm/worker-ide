@@ -33,8 +33,8 @@ test.describe('File Tree', () => {
 		await waitForFileTree(page);
 
 		// Directories start expanded — child files should already be visible
-		await expect(page.getByText('main.ts')).toBeVisible();
-		await expect(page.getByText('api.ts')).toBeVisible();
+		await expect(page.getByText('main.tsx')).toBeVisible();
+		await expect(page.getByText('app.tsx')).toBeVisible();
 		await expect(page.getByText('style.css')).toBeVisible();
 
 		// Click on the "src" directory to collapse it
@@ -42,13 +42,13 @@ test.describe('File Tree', () => {
 		await sourceDirectory.click();
 
 		// After collapse, child files should be hidden
-		await expect(page.getByText('main.ts')).not.toBeVisible();
+		await expect(page.getByText('main.tsx')).not.toBeVisible();
 
 		// Click again to re-expand
 		await sourceDirectory.click();
 
 		// Child files should be visible again
-		await expect(page.getByText('main.ts')).toBeVisible();
+		await expect(page.getByText('main.tsx')).toBeVisible();
 	});
 
 	test('clicking a file opens it in the editor', async ({ page }) => {

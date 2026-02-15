@@ -47,9 +47,13 @@ describe('isProtectedFile', () => {
 		expect(isProtectedFile('/package.json')).toBe(true);
 	});
 
+	it('returns true for index.html', () => {
+		expect(isProtectedFile('/index.html')).toBe(true);
+	});
+
 	it('returns false for non-protected files', () => {
 		expect(isProtectedFile('/src/main.ts')).toBe(false);
-		expect(isProtectedFile('/index.html')).toBe(false);
+		expect(isProtectedFile('/src/app.tsx')).toBe(false);
 	});
 });
 

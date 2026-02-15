@@ -123,8 +123,8 @@ export function useFileList({ projectId, enabled = true }: UseFileListOptions) {
 				throw new Error('Failed to load files');
 			}
 
-			const data: { files: FileInfo[] } = (await response.json()) as any;
-			return data.files.map((f) => f.path);
+			const data = await response.json();
+			return (data.files satisfies FileInfo[]).map((f) => f.path);
 		},
 		enabled,
 		staleTime: 1000 * 30, // 30 seconds

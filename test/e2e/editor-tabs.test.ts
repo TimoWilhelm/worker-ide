@@ -35,8 +35,9 @@ test.describe('Editor Tabs', () => {
 		await page.getByText('tsconfig.json').click();
 		await expect(page.getByRole('tab', { name: /tsconfig\.json/i })).toBeVisible();
 
-		// Both tabs should be present
-		const tabs = page.getByRole('tab');
+		// Both tabs should be present (scope to the file tab bar, not the utility panel)
+		const fileTabBar = page.getByRole('tablist').first();
+		const tabs = fileTabBar.getByRole('tab');
 		await expect(tabs).toHaveCount(2);
 	});
 

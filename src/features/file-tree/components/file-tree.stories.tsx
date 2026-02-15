@@ -2,7 +2,16 @@ import { fn } from '@storybook/test';
 
 import { FileTree } from './file-tree';
 
+import type { FileInfo } from '@shared/types';
 import type { Meta, StoryObj } from '@storybook/react';
+
+function toFileInfo(paths: string[]): FileInfo[] {
+	return paths.map((path) => ({
+		path,
+		name: path.split('/').pop()!,
+		isDirectory: false,
+	}));
+}
 
 const meta = {
 	title: 'Features/FileTree',
@@ -23,7 +32,7 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-const sampleFiles = [
+const sampleFiles = toFileInfo([
 	'/src/main.ts',
 	'/src/app.tsx',
 	'/src/index.css',
@@ -42,7 +51,7 @@ const sampleFiles = [
 	'/index.html',
 	'/package.json',
 	'/tsconfig.json',
-];
+]);
 
 export const Default: Story = {
 	args: {
@@ -89,7 +98,7 @@ export const Empty: Story = {
 
 export const FlatFiles: Story = {
 	args: {
-		files: ['/index.html', '/package.json', '/tsconfig.json', '/vite.config.ts', '/README.md'],
+		files: toFileInfo(['/index.html', '/package.json', '/tsconfig.json', '/vite.config.ts', '/README.md']),
 		selectedFile: '/package.json',
 		expandedDirectories: new Set(),
 	},
@@ -97,7 +106,7 @@ export const FlatFiles: Story = {
 
 export const DeeplyNested: Story = {
 	args: {
-		files: [
+		files: toFileInfo([
 			'/src/features/editor/components/code-editor.tsx',
 			'/src/features/editor/components/file-tabs.tsx',
 			'/src/features/editor/hooks/use-file-content.ts',
@@ -107,7 +116,7 @@ export const DeeplyNested: Story = {
 			'/src/features/ai-assistant/index.ts',
 			'/src/features/preview/components/preview-panel.tsx',
 			'/src/features/preview/index.ts',
-		],
+		]),
 		selectedFile: '/src/features/editor/components/code-editor.tsx',
 		expandedDirectories: new Set([
 			'/src',

@@ -26,6 +26,7 @@ import { Tooltip, TooltipProvider } from '@/components/ui/tooltip';
 import { useChangeReview } from '@/features/ai-assistant/hooks/use-change-review';
 import { CodeEditor, computeDiffData, DiffToolbar, FileTabs, useFileContent } from '@/features/editor';
 import { DependencyPanel, FileTree, useFileTree } from '@/features/file-tree';
+import { getLogSnapshot, subscribeToLogs } from '@/features/output/lib/log-buffer';
 import { projectSocketSendReference, useIsMobile, useProjectSocket, useTheme } from '@/hooks';
 import { createProject, downloadProject, fetchProjectMeta, updateProjectMeta } from '@/lib/api-client';
 import { getRecentProjects, trackProject, type RecentProject } from '@/lib/recent-projects';
@@ -33,8 +34,6 @@ import { selectIsProcessing, useStore } from '@/lib/store';
 import { cn, formatRelativeTime } from '@/lib/utils';
 
 import type { LogCounts } from '@/features/output';
-
-import { getLogSnapshot, subscribeToLogs } from '@/features/output/lib/log-buffer';
 
 // Lazy-loaded feature panels for code splitting
 const AIPanel = lazy(() => import('@/features/ai-assistant'));
@@ -716,7 +715,9 @@ export function IDEShell({ projectId }: { projectId: string }) {
 									className="flex-1"
 								/>
 							)}
-							<DependencyPanel projectId={projectId} />
+							<div className="max-h-[40%] shrink-0 overflow-auto border-t border-border">
+								<DependencyPanel projectId={projectId} />
+							</div>
 						</MobileFileDrawer>
 					</>
 				) : (

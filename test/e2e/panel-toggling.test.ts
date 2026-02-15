@@ -20,42 +20,42 @@ test.describe('Panel Toggling', () => {
 		await expect(page.getByText('Files', { exact: true })).toBeVisible();
 	});
 
-	test('terminal is visible by default', async ({ page }) => {
+	test('utility panel is visible by default', async ({ page }) => {
 		await gotoIDE(page);
 
-		// Terminal is shown by default (store default: terminalVisible: true)
-		// The toggle button should say "Hide terminal"
-		await expect(page.getByLabel('Hide terminal')).toBeVisible();
+		// Utility panel is shown by default
+		// The collapse button should say "Hide utility panel"
+		await expect(page.getByLabel('Hide utility panel')).toBeVisible();
 
-		// Terminal filter buttons should be visible
-		await expect(page.getByRole('button', { name: 'All' })).toBeVisible();
+		// The Output tab should be visible
+		await expect(page.getByRole('tab', { name: 'Output' })).toBeVisible();
 	});
 
-	test('clicking terminal toggle hides the terminal', async ({ page }) => {
+	test('clicking utility panel toggle hides it', async ({ page }) => {
 		await gotoIDE(page);
 
-		// Terminal is visible by default
-		await expect(page.getByRole('button', { name: 'All' })).toBeVisible();
+		// Utility panel is visible by default
+		await expect(page.getByRole('tab', { name: 'Output' })).toBeVisible();
 
-		// Hide terminal
-		await page.getByLabel('Hide terminal').click();
+		// Hide utility panel
+		await page.getByLabel('Hide utility panel').click();
 
-		// Filter buttons should be gone
-		await expect(page.getByRole('button', { name: 'All' })).not.toBeVisible();
-		// Toggle should now say "Show terminal"
-		await expect(page.getByLabel('Show terminal')).toBeVisible();
+		// Output tab should be gone
+		await expect(page.getByRole('tab', { name: 'Output' })).not.toBeVisible();
+		// Toggle should now say "Show output"
+		await expect(page.getByLabel('Show output')).toBeVisible();
 	});
 
-	test('clicking terminal toggle again shows it', async ({ page }) => {
+	test('clicking utility panel toggle again shows it', async ({ page }) => {
 		await gotoIDE(page);
 
-		// Hide terminal
-		await page.getByLabel('Hide terminal').click();
-		await expect(page.getByRole('button', { name: 'All' })).not.toBeVisible();
+		// Hide utility panel
+		await page.getByLabel('Hide utility panel').click();
+		await expect(page.getByRole('tab', { name: 'Output' })).not.toBeVisible();
 
-		// Show terminal
-		await page.getByLabel('Show terminal').click();
-		await expect(page.getByRole('button', { name: 'All' })).toBeVisible();
+		// Show utility panel
+		await page.getByLabel('Show output').click();
+		await expect(page.getByRole('tab', { name: 'Output' })).toBeVisible();
 	});
 
 	test('clicking AI toggle shows the AI panel', async ({ page }) => {

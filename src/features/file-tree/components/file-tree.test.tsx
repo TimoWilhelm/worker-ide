@@ -371,7 +371,7 @@ describe('FileTree', () => {
 		fireEvent.keyDown(fileItem, { key: 'Delete' });
 
 		// Should open the confirmation dialog
-		expect(screen.getByText('Delete File')).toBeInTheDocument();
+		expect(screen.getByText('Delete Item')).toBeInTheDocument();
 	});
 
 	it('enters rename mode with F2 key on a non-protected file', () => {
