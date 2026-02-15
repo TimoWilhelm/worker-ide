@@ -9,6 +9,7 @@ import { source as chobitsuSource, hash as chobitsuHash } from 'chobitsu?raw-min
 import { env, exports } from 'cloudflare:workers';
 
 import { bundleWithCdn, BundleDependencyError } from './bundler-service';
+import { parseDependencyErrorsFromMessage } from './dependency-error-parser';
 import { transformModule, processHTML, toEsbuildTsconfigRaw, type FileSystem } from './transform-service';
 import { source as chobitsuInitSource, hash as chobitsuInitHash } from '../lib/preview-scripts/chobitsu-init.js?raw-minified';
 import { source as errorOverlaySource, hash as errorOverlayHash } from '../lib/preview-scripts/error-overlay.js?raw-minified';
@@ -60,8 +61,6 @@ const scriptIntegrityHashes: Record<string, string> = {
 // =============================================================================
 
 export class PreviewService {
-	private lastErrorMessage: string | undefined;
-
 	constructor(
 		private projectRoot: string,
 		private projectId: string,
@@ -232,13 +231,15 @@ export class PreviewService {
 			const errorMessage = error instanceof Error ? error.message : String(error);
 			const locMatch = errorMessage.match(/([^\s:]+):(\d+):(\d+):\s*ERROR:\s*(.*)/);
 			const serverError: ServerError = {
+				id: crypto.randomUUID(),
 				timestamp: Date.now(),
 				type: 'bundle',
 				message: errorMessage,
 				file: locMatch ? locMatch[1] : undefined,
 				line: locMatch ? Number(locMatch[2]) : undefined,
 				column: locMatch ? Number(locMatch[3]) : undefined,
-				dependencyErrors: error instanceof BundleDependencyError ? error.dependencyErrors : undefined,
+				dependencyErrors:
+					(error instanceof BundleDependencyError ? error.dependencyErrors : undefined) ?? parseDependencyErrorsFromMessage(errorMessage),
 			};
 			await this.broadcastError(serverError).catch(() => {});
 			const errorJson = JSON.stringify(serverError)
@@ -262,6 +263,7 @@ export class PreviewService {
 
 			if (!workerEntry) {
 				const error: ServerError = {
+					id: crypto.randomUUID(),
 					timestamp: Date.now(),
 					type: 'bundle',
 					message: 'No worker/index.ts found. Create a worker/index.ts file with a default export { fetch }.',
@@ -304,10 +306,6 @@ export class PreviewService {
 			const entrypoint = worker.getEntrypoint();
 			const response = await entrypoint.fetch(apiRequest);
 
-			// Clear error state on successful request so the next error
-			// is not deduped against a stale message.
-			this.lastErrorMessage = undefined;
-
 			return response;
 		} catch (error) {
 			const errorMessage = error instanceof Error ? error.message : String(error);
@@ -333,13 +331,15 @@ export class PreviewService {
 			}
 
 			const serverError: ServerError = {
+				id: crypto.randomUUID(),
 				timestamp: Date.now(),
 				type: isBundleError ? 'bundle' : 'runtime',
 				message: errorMessage,
 				file,
 				line,
 				column,
-				dependencyErrors: error instanceof BundleDependencyError ? error.dependencyErrors : undefined,
+				dependencyErrors:
+					(error instanceof BundleDependencyError ? error.dependencyErrors : undefined) ?? parseDependencyErrorsFromMessage(errorMessage),
 			};
 
 			await this.broadcastError(serverError).catch(() => {});
@@ -386,14 +386,7 @@ export class PreviewService {
 		return new Map();
 	}
 
-	/**
-	 * Broadcast a server-error, skipping if it's a duplicate of the last error.
-	 * This prevents the same build error from being shown N times when
-	 * the preview page makes N parallel API requests that all fail.
-	 */
 	private async broadcastError(error: ServerError): Promise<void> {
-		if (this.lastErrorMessage === error.message) return;
-		this.lastErrorMessage = error.message;
 		await this.broadcastMessage({ type: 'server-error', error });
 	}
 

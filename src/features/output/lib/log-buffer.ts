@@ -20,6 +20,7 @@ let idCounter = 0;
 let entries: LogEntry[] = [];
 let preserveLogs = false;
 const listeners = new Set<() => void>();
+const seenErrorIds = new Set<string>();
 
 function nextId(): string {
 	idCounter++;
@@ -44,6 +45,8 @@ function append(...newEntries: LogEntry[]) {
 globalThis.addEventListener('server-error', (event: Event) => {
 	if (event instanceof CustomEvent) {
 		const error: ServerError = event.detail;
+		if (error.id && seenErrorIds.has(error.id)) return;
+		if (error.id) seenErrorIds.add(error.id);
 		const parts = [error.message];
 		if (error.file) {
 			parts.push(`  at ${error.file}${error.line ? `:${error.line}` : ''}${error.column ? `:${error.column}` : ''}`);
@@ -62,6 +65,7 @@ globalThis.addEventListener('rebuild', () => {
 	// Clear logs on rebuild unless preserving
 	if (!preserveLogs) {
 		entries = [];
+		seenErrorIds.clear();
 		notify();
 	}
 });
@@ -87,6 +91,7 @@ globalThis.addEventListener('server-logs', (event: Event) => {
 globalThis.addEventListener('preview-refresh', () => {
 	if (!preserveLogs) {
 		entries = [];
+		seenErrorIds.clear();
 		notify();
 	}
 });
@@ -122,6 +127,8 @@ globalThis.addEventListener('message', (event: MessageEvent) => {
 	if (type === '__server-error') {
 		const error = event.data.error;
 		if (!error || typeof error.message !== 'string') return;
+		if (error.id && seenErrorIds.has(error.id)) return;
+		if (error.id) seenErrorIds.add(error.id);
 
 		const parts = [error.message];
 		if (error.file) {
@@ -152,6 +159,7 @@ export function getLogSnapshot(): LogEntry[] {
 
 export function clearLogs(): void {
 	entries = [];
+	seenErrorIds.clear();
 	notify();
 }
 

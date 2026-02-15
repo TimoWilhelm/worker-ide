@@ -203,6 +203,7 @@ const dependencyErrorSchema = z.object({
 });
 
 const serverErrorSchema = z.object({
+	id: z.string(),
 	timestamp: z.number(),
 	type: z.enum(['bundle', 'runtime']),
 	message: z.string(),
