@@ -7,10 +7,17 @@
  *
  * Clicking the file location sends an __open-file postMessage to the
  * parent IDE frame so it can open the file at the error position.
+ * When opened full-screen (no parent frame), it uses BroadcastChannel
+ * to reach an existing IDE tab, or opens a new IDE tab with a #goto hash.
  */
 (function () {
 	function esc(s) {
 		return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+	}
+
+	function getProjectIdFromPath() {
+		var m = location.pathname.match(/^\/p\/([a-f0-9]{64})/i);
+		return m ? m[1].toLowerCase() : null;
 	}
 
 	function linkifyFiles(escaped) {
@@ -89,16 +96,40 @@
 			if (e.target === overlay) overlay.remove();
 		});
 		function handleFileClick(el) {
-			window.parent.postMessage(
-				{
-					type: '__open-file',
-					file: el.dataset.file,
-					line: parseInt(el.dataset.line, 10) || 1,
-					column: parseInt(el.dataset.column, 10) || 1,
-				},
-				location.origin,
-			);
+			var file = el.dataset.file;
+			var line = parseInt(el.dataset.line, 10) || 1;
+			var column = parseInt(el.dataset.column, 10) || 1;
+			var payload = { type: '__open-file', file: file, line: line, column: column };
+
+			// When inside the IDE iframe, postMessage to the parent frame
+			if (window.parent !== window) {
+				window.parent.postMessage(payload, location.origin);
+				return;
+			}
+
+			// Full-screen preview: focus the existing IDE tab (or open a new one).
+			// window.open() with a named target focuses the tab from the *calling* tab,
+			// which browsers allow (unlike window.focus() in a background tab).
+			var projectId = getProjectIdFromPath();
+			if (!projectId) return;
+
+			var ideUrl = '/p/' + projectId;
+			var windowName = 'worker-ide:' + projectId;
+			var hash = '#goto=' + encodeURIComponent(file) + ':' + line + ':' + column;
+
+			// Send file position via BroadcastChannel for an already-open IDE tab
+			var channelName = 'worker-ide:' + projectId;
+			var bc = new BroadcastChannel(channelName);
+			bc.postMessage(payload);
+			// Close after a short delay to allow delivery
+			setTimeout(function () {
+				bc.close();
+			}, 500);
+
+			// Focus the existing IDE tab by name, or open a new one with goto hash
+			window.open(ideUrl + hash, windowName);
 		}
+
 		var fileEl = overlay.querySelector('.__eo-file');
 		if (fileEl) {
 			fileEl.addEventListener('click', function () {

@@ -335,6 +335,52 @@ export function IDEShell({ projectId }: { projectId: string }) {
 		return () => globalThis.removeEventListener('message', handleMessage);
 	}, [goToFilePosition]);
 
+	// Set a known window name so full-screen preview can focus this tab via window.open()
+	useEffect(() => {
+		window.name = `worker-ide:${projectId}`;
+	}, [projectId]);
+
+	// Listen for __open-file via BroadcastChannel (full-screen preview in another tab)
+	useEffect(() => {
+		const channelName = `worker-ide:${projectId}`;
+		const broadcastChannel = new BroadcastChannel(channelName);
+
+		const handleBroadcast = (event: MessageEvent) => {
+			if (event.data?.type === '__open-file' && typeof event.data.file === 'string') {
+				const file: string = event.data.file.startsWith('/') ? event.data.file : `/${event.data.file}`;
+				const line = typeof event.data.line === 'number' ? event.data.line : 1;
+				const column = typeof event.data.column === 'number' ? event.data.column : 1;
+				goToFilePosition(file, { line, column });
+				broadcastChannel.postMessage({ type: '__open-file-ack' });
+			}
+		};
+
+		broadcastChannel.addEventListener('message', handleBroadcast);
+
+		return () => {
+			broadcastChannel.removeEventListener('message', handleBroadcast);
+			broadcastChannel.close();
+		};
+	}, [projectId, goToFilePosition]);
+
+	// Handle #goto=<file>:<line>:<col> hash when IDE tab is opened from full-screen preview
+	useEffect(() => {
+		const hash = globalThis.location.hash;
+		if (!hash.startsWith('#goto=')) return;
+
+		const gotoValue = hash.slice('#goto='.length);
+		const match = gotoValue.match(/^(.+):(\d+):(\d+)$/);
+		if (!match) return;
+
+		const file = decodeURIComponent(match[1]);
+		const line = Number(match[2]);
+		const column = Number(match[3]);
+		goToFilePosition(file, { line, column });
+
+		// Clear the hash so it doesn't re-trigger on HMR or navigation
+		history.replaceState(undefined, '', globalThis.location.pathname + globalThis.location.search);
+	}, [goToFilePosition]);
+
 	// Forward bundle errors to the preview iframe so the error overlay shows
 	useEffect(() => {
 		const handleServerError = (event: Event) => {
