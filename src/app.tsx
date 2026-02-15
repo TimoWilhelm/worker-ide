@@ -33,7 +33,7 @@ const queryClient = new QueryClient({
 
 function LoadingFallback() {
 	return (
-		<div className="flex h-screen items-center justify-center bg-bg-primary">
+		<div className="flex h-dvh items-center justify-center bg-bg-primary">
 			<div className="flex flex-col items-center gap-4">
 				<Spinner size="lg" />
 				<p className="text-text-secondary">Loading Worker IDE...</p>
@@ -44,7 +44,7 @@ function LoadingFallback() {
 
 function ErrorFallback({ error, resetErrorBoundary }: { error: Error; resetErrorBoundary: () => void }) {
 	return (
-		<div className="flex h-screen items-center justify-center bg-bg-primary p-4">
+		<div className="flex h-dvh items-center justify-center bg-bg-primary p-4">
 			<div
 				className="
 					max-w-lg rounded-xl border border-error/50 bg-bg-secondary p-10 shadow-lg
@@ -120,7 +120,7 @@ function AppContent() {
 
 	if (isCreatingProject) {
 		return (
-			<div className="flex h-screen items-center justify-center bg-bg-primary">
+			<div className="flex h-dvh items-center justify-center bg-bg-primary">
 				<div className="flex flex-col items-center gap-4">
 					<Spinner size="lg" />
 					<p className="text-text-secondary">Creating new project...</p>

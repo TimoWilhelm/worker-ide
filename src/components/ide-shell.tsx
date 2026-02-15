@@ -465,7 +465,7 @@ export function IDEShell({ projectId }: { projectId: string }) {
 
 	return (
 		<TooltipProvider>
-			<div className="flex h-screen flex-col overflow-hidden bg-bg-primary">
+			<div className="flex h-dvh flex-col overflow-hidden bg-bg-primary">
 				{/* Header */}
 				<header
 					className="
