@@ -10,6 +10,7 @@ import { Suspense, useEffect, useState } from 'react';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { IDEShell } from '@/components/ide-shell';
 import { Spinner } from '@/components/ui/spinner';
+import { Toaster } from '@/components/ui/toast';
 import { createProject } from '@/lib/api-client';
 import { trackProject } from '@/lib/recent-projects';
 
@@ -149,6 +150,7 @@ export function App() {
 		<ErrorBoundary fallback={ErrorFallback}>
 			<QueryClientProvider client={queryClient}>
 				<AppContent />
+				<Toaster />
 			</QueryClientProvider>
 		</ErrorBoundary>
 	);

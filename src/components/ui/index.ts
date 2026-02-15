@@ -19,4 +19,6 @@ export { Pill, pillVariants, type PillProperties } from './pill';
 export { ResizablePanel, PanelGroup, type ResizablePanelProperties, type PanelGroupProperties } from './resizable-panel';
 export { Skeleton, FileTreeSkeleton, EditorSkeleton, PanelSkeleton } from './skeleton';
 export { Spinner } from './spinner';
+export { toast } from './toast-store';
+export { Toaster } from './toast';
 export { Tooltip, TooltipProvider } from './tooltip';

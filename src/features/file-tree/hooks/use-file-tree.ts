@@ -7,6 +7,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 
+import { toast } from '@/components/ui/toast-store';
 import { createApiClient } from '@/lib/api-client';
 import { useStore } from '@/lib/store';
 
@@ -83,10 +84,27 @@ export function useFileTree({ projectId, enabled = true }: UseFileTreeOptions) {
 
 			return response.json();
 		},
-		onSuccess: async (_data, variables) => {
-			await queryClient.invalidateQueries({ queryKey: ['files', projectId] });
+		onMutate: async (variables) => {
+			await queryClient.cancelQueries({ queryKey: ['files', projectId] });
+			const previous = queryClient.getQueryData<FileInfo[]>(['files', projectId]);
+			if (previous) {
+				queryClient.setQueryData<FileInfo[]>(
+					['files', projectId],
+					[...previous, { path: variables.path, name: variables.path.split('/').pop() ?? '', isDirectory: false }],
+				);
+			}
 			setSelectedFile(variables.path);
 			openFile(variables.path);
+			return { previous };
+		},
+		onError: (_error, _variables, context) => {
+			if (context?.previous) {
+				queryClient.setQueryData(['files', projectId], context.previous);
+			}
+			toast.error('Failed to create file');
+		},
+		onSettled: () => {
+			void queryClient.invalidateQueries({ queryKey: ['files', projectId] });
 		},
 	});
 
@@ -103,8 +121,25 @@ export function useFileTree({ projectId, enabled = true }: UseFileTreeOptions) {
 
 			return response.json();
 		},
-		onSuccess: async () => {
-			await queryClient.invalidateQueries({ queryKey: ['files', projectId] });
+		onMutate: async (path) => {
+			await queryClient.cancelQueries({ queryKey: ['files', projectId] });
+			const previous = queryClient.getQueryData<FileInfo[]>(['files', projectId]);
+			if (previous) {
+				queryClient.setQueryData<FileInfo[]>(
+					['files', projectId],
+					previous.filter((f) => f.path !== path && !f.path.startsWith(path + '/')),
+				);
+			}
+			return { previous };
+		},
+		onError: (_error, _path, context) => {
+			if (context?.previous) {
+				queryClient.setQueryData(['files', projectId], context.previous);
+			}
+			toast.error('Failed to delete file');
+		},
+		onSettled: () => {
+			void queryClient.invalidateQueries({ queryKey: ['files', projectId] });
 		},
 	});
 
@@ -121,13 +156,38 @@ export function useFileTree({ projectId, enabled = true }: UseFileTreeOptions) {
 
 			return response.json();
 		},
-		onSuccess: async (_data, variables) => {
-			await queryClient.invalidateQueries({ queryKey: ['files', projectId] });
+		onMutate: async (variables) => {
+			await queryClient.cancelQueries({ queryKey: ['files', projectId] });
+			const previous = queryClient.getQueryData<FileInfo[]>(['files', projectId]);
+			if (previous) {
+				queryClient.setQueryData<FileInfo[]>(
+					['files', projectId],
+					previous.map((f) => {
+						if (f.path === variables.fromPath) {
+							return { ...f, path: variables.toPath, name: variables.toPath.split('/').pop() ?? '' };
+						}
+						if (f.path.startsWith(variables.fromPath + '/')) {
+							return { ...f, path: f.path.replace(variables.fromPath, variables.toPath) };
+						}
+						return f;
+					}),
+				);
+			}
 			// If the renamed file was selected, update the selection
 			if (selectedFile === variables.fromPath) {
 				setSelectedFile(variables.toPath);
 				openFile(variables.toPath);
 			}
+			return { previous };
+		},
+		onError: (_error, _variables, context) => {
+			if (context?.previous) {
+				queryClient.setQueryData(['files', projectId], context.previous);
+			}
+			toast.error('Failed to rename file');
+		},
+		onSettled: () => {
+			void queryClient.invalidateQueries({ queryKey: ['files', projectId] });
 		},
 	});
 
@@ -144,8 +204,25 @@ export function useFileTree({ projectId, enabled = true }: UseFileTreeOptions) {
 
 			return response.json();
 		},
-		onSuccess: async () => {
-			await queryClient.invalidateQueries({ queryKey: ['files', projectId] });
+		onMutate: async (path) => {
+			await queryClient.cancelQueries({ queryKey: ['files', projectId] });
+			const previous = queryClient.getQueryData<FileInfo[]>(['files', projectId]);
+			if (previous) {
+				queryClient.setQueryData<FileInfo[]>(
+					['files', projectId],
+					[...previous, { path, name: path.split('/').pop() ?? '', isDirectory: true }],
+				);
+			}
+			return { previous };
+		},
+		onError: (_error, _path, context) => {
+			if (context?.previous) {
+				queryClient.setQueryData(['files', projectId], context.previous);
+			}
+			toast.error('Failed to create folder');
+		},
+		onSettled: () => {
+			void queryClient.invalidateQueries({ queryKey: ['files', projectId] });
 		},
 	});
 

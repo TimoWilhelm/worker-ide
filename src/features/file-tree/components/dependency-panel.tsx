@@ -7,6 +7,7 @@
 import { AlertTriangle, ChevronDown, ChevronUp, Package, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { toast } from '@/components/ui/toast-store';
 import { fetchProjectMeta, updateDependencies } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
 import { validateDependencyName, validateDependencyVersion } from '@shared/validation';
@@ -153,6 +154,8 @@ function DependencyPanel({ projectId, collapsed = false, onToggle, className }: 
 
 	const saveDependencies = useCallback(
 		async (entries: DependencyEntry[]) => {
+			const previousDependencies = dependencies;
+			setDependencies(entries.toSorted((a, b) => a.name.localeCompare(b.name)));
 			setIsLoading(true);
 			try {
 				const record: Record<string, string> = {};
@@ -160,15 +163,14 @@ function DependencyPanel({ projectId, collapsed = false, onToggle, className }: 
 					record[entry.name] = entry.version;
 				}
 				await updateDependencies(projectId, record);
-				setDependencies(entries.toSorted((a, b) => a.name.localeCompare(b.name)));
 			} catch {
-				// Revert on error
-				await loadDependencies();
+				setDependencies(previousDependencies);
+				toast.error('Failed to update dependencies');
 			} finally {
 				setIsLoading(false);
 			}
 		},
-		[projectId, loadDependencies],
+		[projectId, dependencies],
 	);
 
 	const parseAddInput = useCallback((input: string): { name: string; version: string } | undefined => {

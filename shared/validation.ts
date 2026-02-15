@@ -337,7 +337,7 @@ export function validateDependencyName(name: string): string | undefined {
 		return 'Dependency name must be at most 214 characters';
 	}
 	if (!NPM_PACKAGE_NAME_PATTERN.test(trimmed)) {
-		return `Invalid package name "${trimmed}". Names must be lowercase and can contain hyphens, dots, and underscores.`;
+		return `Invalid package name`;
 	}
 	return undefined;
 }
@@ -351,7 +351,7 @@ export function validateDependencyVersion(version: string): string | undefined {
 		return 'Version is required';
 	}
 	if (!DEPENDENCY_VERSION_PATTERN.test(trimmed)) {
-		return `Invalid version "${trimmed}". Use a valid semver version (e.g. 1.0.0), range (e.g. ^1.0.0), or * for latest.`;
+		return `Invalid version, use * for latest.`;
 	}
 	return undefined;
 }

@@ -72,6 +72,9 @@
 	--animate-fade-in: fadeIn 0.15s ease-out;
 	--animate-chat-item: chatReveal 0.12s ease-out;
 	--animate-slide-in-left: slideInLeft 0.2s ease-out;
+	--animate-toast-slide-in: toastSlideIn 0.2s ease-out;
+	--animate-toast-fade-out: toastFadeOut 0.15s ease-in forwards;
+	--animate-toast-swipe-out: toastSwipeOut 0.15s ease-out forwards;
 }
 
 /* Dark mode overrides */
@@ -359,6 +362,38 @@ textarea:focus-visible,
 	background: var(--color-bg-primary);
 	padding: 2px 5px;
 	border-radius: 3px;
+}
+
+/* Toast animations */
+@keyframes toastSlideIn {
+	from {
+		opacity: 0;
+		transform: translateX(100%);
+	}
+	to {
+		opacity: 1;
+		transform: translateX(0);
+	}
+}
+
+@keyframes toastFadeOut {
+	from {
+		opacity: 1;
+	}
+	to {
+		opacity: 0;
+	}
+}
+
+@keyframes toastSwipeOut {
+	from {
+		opacity: 1;
+		transform: translateX(var(--radix-toast-swipe-end-x));
+	}
+	to {
+		opacity: 0;
+		transform: translateX(100%);
+	}
 }
 
 /* Mobile drawer slide-in animation */

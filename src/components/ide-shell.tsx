@@ -22,6 +22,7 @@ import {
 import { Pill } from '@/components/ui/pill';
 import { PanelSkeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
+import { toast } from '@/components/ui/toast-store';
 import { Tooltip, TooltipProvider } from '@/components/ui/tooltip';
 import { useChangeReview } from '@/features/ai-assistant/hooks/use-change-review';
 import { CodeEditor, computeDiffData, DiffToolbar, FileTabs, useFileContent } from '@/features/editor';
@@ -128,12 +129,14 @@ export function IDEShell({ projectId }: { projectId: string }) {
 	const handleSaveRename = useCallback(async () => {
 		const trimmed = editNameValue.trim();
 		if (trimmed && trimmed !== projectName) {
+			const previousName = projectName;
+			setProjectName(trimmed);
+			trackProject(projectId, trimmed);
 			try {
 				await updateProjectMeta(projectId, trimmed);
-				setProjectName(trimmed);
-				trackProject(projectId, trimmed);
 			} catch {
-				// Rename failed, silently revert
+				setProjectName(previousName);
+				toast.error('Failed to rename project');
 			}
 		}
 		setIsEditingName(false);
