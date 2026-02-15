@@ -7,11 +7,16 @@ import { readTodos } from '../tool-executor';
 
 import type { SendEventFunction, ToolDefinition, ToolExecutorContext } from '../types';
 
-export const DESCRIPTION = `Get the current TODO list for this session. Returns an array of TODO items with id, content, status (pending/in_progress/completed), and priority (high/medium/low).
+export const DESCRIPTION = `Read the current TODO list for this session. Returns an array of TODO items with id, content, status (pending/in_progress/completed), and priority (high/medium/low). Use this tool proactively and frequently to stay aware of the current task list.
 
 Usage:
-- Call this to check your current task list before starting work.
-- Use update_todos to modify the list.`;
+- At the beginning of conversations to see what's pending.
+- Before starting new tasks to prioritize work.
+- When the user asks about previous tasks or plans.
+- Whenever you are uncertain about what to do next.
+- After completing tasks to update your understanding of remaining work.
+- After every few messages to ensure you are on track.
+- Use todos_update to modify the list.`;
 
 export const definition: ToolDefinition = {
 	name: 'todos_get',

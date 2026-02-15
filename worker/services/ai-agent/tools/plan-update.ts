@@ -7,12 +7,13 @@ import fs from 'node:fs/promises';
 
 import type { SendEventFunction, ToolDefinition, ToolExecutorContext } from '../types';
 
-export const DESCRIPTION = `Update the current implementation plan. Use this to mark steps as complete, add new steps, or revise the plan as you make progress. Provide the full updated plan content in markdown format.
+export const DESCRIPTION = `Update the current implementation plan. Use this to mark steps as complete, add new steps, or revise the plan as you make progress. The plan helps the user understand your approach and track progress.
 
 Usage:
 - Provide the full updated plan content, not just the changes.
 - Use markdown format for structure (headings, lists, checkboxes).
-- Update the plan as you progress through implementation.`;
+- Update the plan as you progress through implementation.
+- Keep the plan concise and actionable — avoid unnecessary detail.`;
 
 export const definition: ToolDefinition = {
 	name: 'plan_update',

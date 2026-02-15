@@ -9,12 +9,12 @@ import { isPathSafe, isProtectedFile } from '../../../lib/path-utilities';
 
 import type { FileChange, SendEventFunction, ToolDefinition, ToolExecutorContext } from '../types';
 
-export const DESCRIPTION = `Delete a file from the project.
+export const DESCRIPTION = `Delete a file from the project. Use with caution — this action is irreversible.
 
 Usage:
 - The file must exist. Returns an error if the file is not found.
 - Protected system files cannot be deleted.
-- Triggers HMR after deletion so the preview updates.`;
+- Triggers a full reload after deletion so the preview updates.`;
 
 export const definition: ToolDefinition = {
 	name: 'file_delete',

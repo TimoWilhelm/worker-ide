@@ -9,13 +9,17 @@ import { isPathSafe } from '../../../lib/path-utilities';
 
 import type { SendEventFunction, ToolDefinition, ToolExecutorContext } from '../types';
 
-export const DESCRIPTION = `Read file contents. Supports optional line ranges for large files. Returns line-numbered content.
+export const DESCRIPTION = `Read a file from the project. Returns line-numbered content.
 
 Usage:
 - Always read relevant files before making changes to understand the existing code structure.
-- Use offset and limit for large files instead of reading the entire file.
+- By default returns the full file. Use offset and limit for large files to read specific sections.
 - offset is 1-indexed (first line is 1). limit is the number of lines to return.
-- Returns content with line numbers in "N<tab><content>" format for easy reference.`;
+- Returns content with each line prefixed by its line number as "N<tab><content>".
+- Call this tool in parallel when you know there are multiple files you want to read.
+- Avoid tiny repeated slices. If you need more context, read a larger window.
+- Use the file_grep tool to find specific content in large files.
+- If you are unsure of the correct file path, use the file_glob tool to look up filenames by pattern.`;
 
 export const definition: ToolDefinition = {
 	name: 'file_read',

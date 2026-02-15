@@ -7,12 +7,13 @@ import { listFilesRecursive } from '../tool-executor';
 
 import type { SendEventFunction, ToolDefinition, ToolExecutorContext } from '../types';
 
-export const DESCRIPTION = `Find files matching a glob pattern. Returns matching file paths sorted by modification time. Results are capped at 100 files.
+export const DESCRIPTION = `Fast file pattern matching tool that works with any codebase size. Returns matching file paths sorted by modification time. Results are capped at 100 files.
 
 Usage:
-- Use glob patterns like **/*.ts, src/**/*.tsx, or *.json.
+- Supports glob patterns like "**/*.ts", "src/**/*.tsx", or "*.json".
 - path defaults to the project root. Use it to narrow the search directory.
-- Use this to discover files before reading or editing them.`;
+- Use this tool when you need to find files by name or extension patterns.
+- You have the capability to call multiple tools in a single response. It is always better to speculatively perform multiple searches as a batch that are potentially useful.`;
 
 export const definition: ToolDefinition = {
 	name: 'file_glob',

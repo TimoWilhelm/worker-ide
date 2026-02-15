@@ -10,15 +10,16 @@ import { isBinaryFilePath } from '../utilities';
 
 import type { SendEventFunction, ToolDefinition, ToolExecutorContext } from '../types';
 
-export const DESCRIPTION = `Search file contents using regular expressions. Returns matching file paths with line numbers and context. Results are capped at 50 files.
+export const DESCRIPTION = String.raw`Fast content search tool that works with any codebase size. Searches file contents using regular expressions. Returns matching file paths with line numbers sorted by modification time. Results are capped at 50 files.
 
 Usage:
 - Use this to find relevant code before making changes.
-- pattern is a JavaScript regular expression by default (case-insensitive).
+- Supports full regex syntax (e.g. "log.*Error", "function\\s+\\w+", etc.).
 - Set fixed_strings to "true" to treat pattern as a literal string (no regex).
-- Use include to filter by file extension, e.g., "*.ts" or "*.tsx".
+- Filter files by pattern with the include parameter (e.g. "*.ts", "*.tsx").
 - path defaults to the project root. Use it to narrow the search directory.
-- Returns up to 10 matches per file, 50 files total.`;
+- Returns up to 10 matches per file, 50 files total.
+- You have the capability to call multiple tools in a single response. It is always better to speculatively perform multiple searches as a batch that are potentially useful.`;
 
 export const definition: ToolDefinition = {
 	name: 'file_grep',

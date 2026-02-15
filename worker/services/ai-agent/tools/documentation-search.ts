@@ -8,6 +8,7 @@ import type { SendEventFunction, ToolDefinition, ToolExecutorContext } from '../
 export const DESCRIPTION = `Search the Cloudflare documentation for information about Cloudflare products and features including Workers, Pages, R2, D1, KV, Durable Objects, Queues, AI, Zero Trust, DNS, CDN, and more.
 
 Usage:
+- Prefer this tool over web_fetch when looking up Cloudflare-specific information.
 - Use a specific, focused query for best results.
 - Returns relevant documentation chunks from the Cloudflare docs.
 - Useful when you need to look up API details, configuration options, or best practices.`;

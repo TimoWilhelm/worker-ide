@@ -5,12 +5,14 @@
 
 import type { SendEventFunction, ToolDefinition, ToolExecutorContext } from '../types';
 
-export const DESCRIPTION = `Fetch and read web page content from a URL. Prefers markdown when the server supports it, otherwise extracts readable content from HTML. Useful for looking up documentation or online resources.
+export const DESCRIPTION = `Fetch and read web page content from a URL. Returns content in markdown format when the server supports it, otherwise extracts readable content from HTML.
 
 Usage:
-- Only http:// and https:// URLs are supported.
+- IMPORTANT: If another tool is available that offers more targeted information (e.g. docs_search for Cloudflare documentation), prefer using that tool instead of this one.
+- The URL must be a fully-formed valid URL. Only http:// and https:// URLs are supported.
 - Returns markdown when available, otherwise extracts headings, paragraphs, lists, and code blocks from HTML.
 - Content is truncated to max_length characters (default: 8000).
+- This tool is read-only and does not modify any files.
 - Requests have a 10-second timeout.`;
 
 export const definition: ToolDefinition = {

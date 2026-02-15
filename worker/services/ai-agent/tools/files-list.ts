@@ -7,12 +7,13 @@ import { listFilesRecursive } from '../tool-executor';
 
 import type { SendEventFunction, ToolDefinition, ToolExecutorContext } from '../types';
 
-export const DESCRIPTION = `List all files in the project recursively. Returns a flat array of file paths.
+export const DESCRIPTION = `List all files in the project recursively. Returns a flat array of all file paths in the project tree.
 
 Usage:
-- Returns every file in the project tree.
+- Returns every file in the project tree as a flat list.
 - Hidden system directories (.agent) are excluded automatically.
-- For listing a single directory with sizes, use file_list instead.`;
+- Use this to get a complete overview of the project structure.
+- For listing a single directory with sizes, use the file_list tool instead.`;
 
 export const definition: ToolDefinition = {
 	name: 'files_list',

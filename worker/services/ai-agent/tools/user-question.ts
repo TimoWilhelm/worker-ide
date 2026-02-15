@@ -5,10 +5,11 @@
 
 import type { SendEventFunction, ToolDefinition, ToolExecutorContext } from '../types';
 
-export const DESCRIPTION = `Ask the user a clarifying question. The question will be displayed to the user and they will answer in their next message. Use this when you need user input to proceed.
+export const DESCRIPTION = `Ask the user a question that ONLY they can answer. Do NOT use this tool for questions you could resolve by reading files, searching the codebase, or using any other tool. Exhaust all other research options first.
 
 Usage:
-- Use this when the user's intent is ambiguous or you need a decision.
+- ONLY use this when the answer requires human judgment, preference, or information not available in the project (e.g. choosing between design alternatives, confirming destructive actions, or requesting credentials/config values).
+- Do NOT ask the user questions that can be answered by reading code, grepping, globbing, fetching docs, or any other tool.
 - Provide suggested options as a comma-separated string to help guide the user.
 - The user can pick from the options or provide a custom answer.
 - The answer will arrive in the user's next message, so plan accordingly.`;

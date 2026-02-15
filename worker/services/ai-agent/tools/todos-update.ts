@@ -9,12 +9,23 @@ import { todoItemSchema } from '@shared/validation';
 
 import type { SendEventFunction, TodoItem, ToolDefinition, ToolExecutorContext } from '../types';
 
-export const DESCRIPTION = `Create or update the TODO list for this session. Provide the full list of TODO items. Each item must have id, content, status (pending/in_progress/completed), and priority (high/medium/low).
+export const DESCRIPTION = `Create or update the TODO list for this session. Use this to track progress, organize complex tasks, and help the user understand overall progress. Provide the full list of TODO items. Each item must have id, content, status (pending/in_progress/completed), and priority (high/medium/low).
 
-Usage:
+When to use:
+- Complex multistep tasks that require 3 or more distinct steps.
+- When the user provides multiple tasks or a list of things to be done.
+- After receiving new instructions — immediately capture requirements as todos.
+- After completing a task — mark it complete and add any follow-up tasks.
+
+When NOT to use:
+- There is only a single, straightforward task.
+- The task is trivial and can be completed in fewer than 3 steps.
+- The task is purely conversational or informational.
+
+Task management:
 - Provide the complete list of TODO items (not just changes).
-- Mark items as in_progress when you start working on them.
-- Mark items as completed when done.
+- Only have ONE task as in_progress at a time. Complete existing tasks before starting new ones.
+- Mark tasks as completed IMMEDIATELY after finishing — do not batch completions.
 - Use high priority for blocking tasks, medium for normal, low for nice-to-have.`;
 
 export const definition: ToolDefinition = {

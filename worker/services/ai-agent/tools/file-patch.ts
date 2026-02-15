@@ -9,13 +9,14 @@ import { isPathSafe } from '../../../lib/path-utilities';
 
 import type { FileChange, SendEventFunction, ToolDefinition, ToolExecutorContext } from '../types';
 
-export const DESCRIPTION = `Apply a unified diff patch to a file. The patch should be in standard unified diff format.
+export const DESCRIPTION = `Apply a unified diff patch to a file. Use this for larger multi-line changes where a full diff is clearer than individual edit operations.
 
 Usage:
 - The patch must be in unified diff format with @@ hunk headers.
 - Context lines (starting with space) help locate the correct position.
 - Lines starting with - are removed, lines starting with + are added.
-- The file must already exist. Use write to create new files.`;
+- The file must already exist. Use file_write to create new files.
+- For small targeted changes, prefer the file_edit tool instead.`;
 
 export const definition: ToolDefinition = {
 	name: 'file_patch',

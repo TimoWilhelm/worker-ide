@@ -9,15 +9,15 @@ import { isPathSafe } from '../../../lib/path-utilities';
 
 import type { FileChange, SendEventFunction, ToolDefinition, ToolExecutorContext } from '../types';
 
-export const DESCRIPTION = `Modify an existing file using exact string replacement. Finds old_string in the file and replaces it with new_string. Fails if old_string is not found or matches multiple times (unless replace_all is "true"). Prefer this over write for targeted changes.
+export const DESCRIPTION = `Performs exact string replacements in files. Finds old_string in the file and replaces it with new_string.
 
 Usage:
-- Always read the file first before editing to understand the existing code structure.
-- Preserve exact indentation (tabs/spaces) as it appears in the file.
+- You MUST use the file_read tool at least once before editing a file. This tool will error if you attempt an edit without reading the file first.
+- When editing text from file_read output, preserve the exact indentation (tabs/spaces) as it appears AFTER the line number prefix. The line number prefix format is: number + tab. Everything after that tab is the actual file content to match. Never include any part of the line number prefix in old_string or new_string.
+- ALWAYS prefer editing existing files in the codebase. NEVER write new files unless explicitly required.
 - The edit will FAIL if old_string is not found in the file.
-- The edit will FAIL if old_string matches multiple times (unless replace_all is "true").
-- Use replace_all for renaming variables or replacing repeated strings across the file.
-- Prefer edit over write for modifying existing files — it produces smaller, less error-prone changes.`;
+- The edit will FAIL if old_string matches multiple times. Either provide a larger string with more surrounding context to make it unique, or use replace_all: "true" to change every instance.
+- Use replace_all for replacing and renaming strings across the file. This is useful for renaming a variable, for instance.`;
 
 export const definition: ToolDefinition = {
 	name: 'file_edit',

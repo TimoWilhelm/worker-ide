@@ -10,11 +10,13 @@ import { isBinaryFilePath, toUint8Array } from '../utilities';
 
 import type { FileChange, SendEventFunction, ToolDefinition, ToolExecutorContext } from '../types';
 
-export const DESCRIPTION = `Create a new file or overwrite an existing file with complete content. For modifying existing files, prefer the edit tool instead.
+export const DESCRIPTION = `Write a file to the project. Creates a new file or overwrites an existing file with the provided content.
 
 Usage:
-- Use this to create brand-new files or when you need to completely rewrite a file.
-- For small targeted changes to existing files, use the edit tool instead — it's safer and produces smaller diffs.
+- This tool will overwrite the existing file if there is one at the provided path.
+- If this is an existing file, you MUST use the file_read tool first to read the file's contents. This tool will fail if you did not read the file first.
+- ALWAYS prefer editing existing files in the codebase using the file_edit tool. NEVER write new files unless explicitly required.
+- NEVER proactively create documentation files (*.md) or README files. Only create documentation files if explicitly requested by the user.
 - Parent directories are created automatically if they don't exist.
 - The content parameter must contain the complete file content.`;
 

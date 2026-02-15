@@ -9,12 +9,13 @@ import { HIDDEN_ENTRIES } from '@shared/constants';
 
 import type { SendEventFunction, ToolDefinition, ToolExecutorContext } from '../types';
 
-export const DESCRIPTION = `List files and directories in a given path. Returns entries with type and size. Accepts an optional glob pattern to filter results.
+export const DESCRIPTION = `List files and directories in a given path. Returns immediate children with type and size information.
 
 Usage:
 - path defaults to /. Lists immediate children (files and directories) with sizes.
 - Use pattern to filter entries by glob, e.g., "*.ts".
-- For recursive listing of all files, use the files_list tool instead.`;
+- For recursive listing of all files in the project, use the files_list tool instead.
+- For finding files by name pattern across the tree, use the file_glob tool instead.`;
 
 export const definition: ToolDefinition = {
 	name: 'file_list',

@@ -9,13 +9,14 @@ import { isPathSafe, isProtectedFile } from '../../../lib/path-utilities';
 
 import type { FileChange, SendEventFunction, ToolDefinition, ToolExecutorContext } from '../types';
 
-export const DESCRIPTION = `Move or rename a file.
+export const DESCRIPTION = `Move or rename a file within the project.
 
 Usage:
 - Both from_path and to_path must start with /.
 - Parent directories for the destination are created automatically.
 - Protected system files cannot be moved.
-- Triggers HMR after the move so the preview updates.`;
+- Triggers a full reload after the move so the preview updates.
+- Remember to update any import paths in other files that reference the moved file.`;
 
 export const definition: ToolDefinition = {
 	name: 'file_move',
