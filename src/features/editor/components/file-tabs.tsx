@@ -270,7 +270,7 @@ function FileTabItem({ tab, isActive, showDirectory, participants, onClose }: Fi
 		>
 			<File className={cn('size-3.5 shrink-0', iconColor)} />
 			<Tooltip content={tab.path}>
-				<span className="max-w-terminal truncate">
+				<span className="max-w-utility-panel truncate">
 					{filename}
 					{parentDirectory && <span className="ml-1 text-text-secondary opacity-60">&#8249;{parentDirectory}&#8250;</span>}
 				</span>

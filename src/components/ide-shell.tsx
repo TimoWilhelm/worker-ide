@@ -4,7 +4,7 @@
  * Main IDE layout with resizable panels: file tree, editor, terminal, preview, and AI assistant.
  */
 
-import { Bot, ChevronDown, ChevronUp, Clock, Download, FolderOpen, Hexagon, Moon, Pencil, Plus, Sun } from 'lucide-react';
+import { Bot, ChevronUp, Clock, Download, FolderOpen, Hexagon, Moon, Pencil, Plus, Sun } from 'lucide-react';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { Group as PanelGroup, Panel, Separator as ResizeHandle } from 'react-resizable-panels';
 
@@ -26,20 +26,20 @@ import { Tooltip, TooltipProvider } from '@/components/ui/tooltip';
 import { useChangeReview } from '@/features/ai-assistant/hooks/use-change-review';
 import { CodeEditor, computeDiffData, DiffToolbar, FileTabs, useFileContent } from '@/features/editor';
 import { DependencyPanel, FileTree, useFileTree } from '@/features/file-tree';
-import { getLogSnapshot, subscribeToLogs } from '@/features/terminal/lib/log-buffer';
+import { getLogSnapshot, subscribeToLogs } from '@/features/output/lib/log-buffer';
 import { projectSocketSendReference, useIsMobile, useProjectSocket, useTheme } from '@/hooks';
 import { createProject, downloadProject, fetchProjectMeta, updateProjectMeta } from '@/lib/api-client';
 import { getRecentProjects, trackProject, type RecentProject } from '@/lib/recent-projects';
 import { selectIsProcessing, useStore } from '@/lib/store';
 import { cn, formatRelativeTime } from '@/lib/utils';
 
-import type { LogCounts } from '@/features/terminal';
+import type { LogCounts } from '@/features/output';
 
 // Lazy-loaded feature panels for code splitting
 const AIPanel = lazy(() => import('@/features/ai-assistant'));
 const DevelopmentToolsPanel = lazy(() => import('@/features/devtools'));
 const PreviewPanel = lazy(() => import('@/features/preview'));
-const TerminalPanel = lazy(() => import('@/features/terminal'));
+const UtilityPanel = lazy(() => import('@/features/utility-panel'));
 
 // =============================================================================
 // IDE Shell
@@ -65,8 +65,8 @@ export function IDEShell({ projectId }: { projectId: string }) {
 
 	// Store state
 	const {
-		terminalVisible,
-		toggleTerminal,
+		utilityPanelVisible,
+		toggleUtilityPanel,
 		aiPanelVisible,
 		toggleAIPanel,
 		devtoolsVisible,
@@ -157,14 +157,14 @@ export function IDEShell({ projectId }: { projectId: string }) {
 		return { errors, warnings, logs: logCount };
 	}, [logs]);
 
-	// Auto-open terminal when errors arrive
+	// Auto-open utility panel when errors arrive
 	const previousErrorCount = useRef(0);
 	useEffect(() => {
-		if (logCounts.errors > previousErrorCount.current && !terminalVisible) {
-			toggleTerminal();
+		if (logCounts.errors > previousErrorCount.current && !utilityPanelVisible) {
+			toggleUtilityPanel();
 		}
 		previousErrorCount.current = logCounts.errors;
-	}, [logCounts.errors, terminalVisible, toggleTerminal]);
+	}, [logCounts.errors, utilityPanelVisible, toggleUtilityPanel]);
 
 	// Shared preview iframe ref for CDP message relay with DevTools
 	const previewIframeReference = useRef<HTMLIFrameElement>(null);
@@ -618,49 +618,27 @@ export function IDEShell({ projectId }: { projectId: string }) {
 											</div>
 										)}
 									</div>
-									{/* Terminal toggle bar */}
-									{terminalVisible ? (
+									{/* Utility panel toggle bar */}
+									{utilityPanelVisible ? (
 										<div className="flex h-48 shrink-0 flex-col border-t border-border">
-											<button
-												type="button"
-												onClick={toggleTerminal}
-												className={cn(
-													`
-														flex h-8 w-full shrink-0 cursor-pointer items-center
-														justify-between
-													`,
-													'border-b border-border bg-bg-secondary px-2 transition-colors',
-													'hover:bg-bg-tertiary',
-												)}
-												aria-label="Hide terminal"
-											>
-												<div className="flex items-center gap-2">
-													<ChevronDown className="size-3 text-text-secondary" />
-													<span className="text-xs font-medium text-text-secondary">Terminal</span>
-													{logCounts.errors > 0 && <Pill color="red">{logCounts.errors}</Pill>}
-													{logCounts.warnings > 0 && <Pill color="yellow">{logCounts.warnings}</Pill>}
-												</div>
-											</button>
-											<div className="flex-1 overflow-hidden">
-												<Suspense fallback={<PanelSkeleton label="Loading terminal..." />}>
-													<TerminalPanel projectId={projectId} className="h-full" />
-												</Suspense>
-											</div>
+											<Suspense fallback={<PanelSkeleton label="Loading output..." />}>
+												<UtilityPanel projectId={projectId} onToggle={toggleUtilityPanel} logCounts={logCounts} className="h-full" />
+											</Suspense>
 										</div>
 									) : (
 										<button
 											type="button"
-											onClick={toggleTerminal}
+											onClick={toggleUtilityPanel}
 											className={cn(
 												'flex h-7 w-full shrink-0 cursor-pointer items-center',
 												'border-t border-border bg-bg-secondary px-2 transition-colors',
 												'hover:bg-bg-tertiary',
 											)}
-											aria-label="Show terminal"
+											aria-label="Show output"
 										>
 											<div className="flex items-center gap-2">
 												<ChevronUp className="size-3 text-text-secondary" />
-												<span className="text-xs font-medium text-text-secondary">Terminal</span>
+												<span className="text-xs font-medium text-text-secondary">Output</span>
 												{logCounts.errors > 0 && <Pill color="red">{logCounts.errors}</Pill>}
 												{logCounts.warnings > 0 && <Pill color="yellow">{logCounts.warnings}</Pill>}
 											</div>
@@ -786,7 +764,7 @@ export function IDEShell({ projectId }: { projectId: string }) {
 								<div className="flex h-full flex-col overflow-hidden">
 									<PanelGroup orientation="vertical" id="ide-editor-terminal" className="flex-1">
 										{/* Editor area */}
-										<Panel id="editor" defaultSize={terminalVisible ? '70%' : '100%'} minSize="30%">
+										<Panel id="editor" defaultSize={utilityPanelVisible ? '70%' : '100%'} minSize="30%">
 											<div className="flex h-full flex-col overflow-hidden">
 												<FileTabs
 													tabs={tabs}
@@ -841,8 +819,8 @@ export function IDEShell({ projectId }: { projectId: string }) {
 											</div>
 										</Panel>
 
-										{/* Terminal panel (resizable) */}
-										{terminalVisible && (
+										{/* Utility panel (resizable) */}
+										{utilityPanelVisible && (
 											<>
 												<ResizeHandle
 													className="
@@ -852,63 +830,45 @@ export function IDEShell({ projectId }: { projectId: string }) {
 														data-[separator=hover]:bg-accent
 													"
 												/>
-												<Panel id="terminal" defaultSize="30%" minSize="10%" maxSize="60%">
-													<div className="flex h-full flex-col overflow-hidden">
-														{/* Terminal header */}
-														<button
-															type="button"
-															onClick={toggleTerminal}
-															className={cn(
-																`
-																	flex h-8 w-full shrink-0 cursor-pointer items-center
-																	justify-between
-																`,
-																'border-b border-border bg-bg-secondary px-2 transition-colors',
-																'hover:bg-bg-tertiary',
-															)}
-															aria-label="Hide terminal"
-														>
-															<div className="flex items-center gap-2">
-																<ChevronDown className="size-3 text-text-secondary" />
-																<span className="text-xs font-medium text-text-secondary">Terminal</span>
-																{logCounts.errors > 0 && <Pill color="red">{logCounts.errors}</Pill>}
-																{logCounts.warnings > 0 && <Pill color="yellow">{logCounts.warnings}</Pill>}
-															</div>
-															<div className="flex items-center gap-3 text-xs text-text-secondary">
-																{activeFile && <span className="truncate">{activeFile}</span>}
-																{cursorPosition && (
-																	<span>
-																		Ln {cursorPosition.line}, Col {cursorPosition.column}
-																	</span>
-																)}
-															</div>
-														</button>
-														<div className="flex-1 overflow-hidden">
-															<Suspense fallback={<PanelSkeleton label="Loading terminal..." />}>
-																<TerminalPanel projectId={projectId} className="h-full" />
-															</Suspense>
-														</div>
-													</div>
+												<Panel id="utility-panel" defaultSize="30%" minSize="10%" maxSize="60%">
+													<Suspense fallback={<PanelSkeleton label="Loading output..." />}>
+														<UtilityPanel
+															projectId={projectId}
+															onToggle={toggleUtilityPanel}
+															logCounts={logCounts}
+															headerRight={
+																<div className="flex items-center gap-3 text-xs text-text-secondary">
+																	{activeFile && <span className="truncate">{activeFile}</span>}
+																	{cursorPosition && (
+																		<span>
+																			Ln {cursorPosition.line}, Col {cursorPosition.column}
+																		</span>
+																	)}
+																</div>
+															}
+															className="h-full"
+														/>
+													</Suspense>
 												</Panel>
 											</>
 										)}
 									</PanelGroup>
 
-									{/* Terminal toggle bar when terminal is hidden */}
-									{!terminalVisible && (
+									{/* Utility panel toggle bar when panel is hidden */}
+									{!utilityPanelVisible && (
 										<button
 											type="button"
-											onClick={toggleTerminal}
+											onClick={toggleUtilityPanel}
 											className={cn(
 												'flex h-7 w-full shrink-0 cursor-pointer items-center',
 												'border-t border-border bg-bg-secondary px-2 transition-colors',
 												'hover:bg-bg-tertiary',
 											)}
-											aria-label="Show terminal"
+											aria-label="Show output"
 										>
 											<div className="flex items-center gap-2">
 												<ChevronUp className="size-3 text-text-secondary" />
-												<span className="text-xs font-medium text-text-secondary">Terminal</span>
+												<span className="text-xs font-medium text-text-secondary">Output</span>
 												{logCounts.errors > 0 && <Pill color="red">{logCounts.errors}</Pill>}
 												{logCounts.warnings > 0 && <Pill color="yellow">{logCounts.warnings}</Pill>}
 											</div>
@@ -942,7 +902,7 @@ export function IDEShell({ projectId }: { projectId: string }) {
 							<Panel id="preview-col" defaultSize={aiPanelVisible ? '20%' : '40%'} minSize="15%">
 								<PanelGroup orientation="vertical" id="ide-preview-devtools">
 									{/* Preview panel */}
-									<Panel id="preview" defaultSize={devtoolsVisible ? '50%' : '100%'} minSize="20%">
+									<Panel id="preview" defaultSize={devtoolsVisible ? '70%' : '100%'} minSize="20%">
 										<Suspense fallback={<PanelSkeleton label="Loading preview..." />}>
 											<PreviewPanel projectId={projectId} iframeReference={previewIframeReference} className="h-full" />
 										</Suspense>
@@ -959,7 +919,7 @@ export function IDEShell({ projectId }: { projectId: string }) {
 													data-[separator=hover]:bg-accent
 												"
 											/>
-											<Panel id="devtools" defaultSize="50%" minSize="15%" maxSize="80%">
+											<Panel id="devtools" defaultSize="30%" minSize="15%" maxSize="80%">
 												<Suspense fallback={<PanelSkeleton label="Loading DevTools..." />}>
 													<DevelopmentToolsPanel previewIframeReference={previewIframeReference} className="h-full" />
 												</Suspense>

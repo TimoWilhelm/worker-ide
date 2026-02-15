@@ -1,8 +1,8 @@
 /**
- * Terminal Feature Types
+ * Output Feature Types
  */
 
-export interface TerminalPanelProperties {
+export interface OutputPanelProperties {
 	/** Project ID for log subscription */
 	projectId: string;
 	/** CSS class name */

@@ -1,5 +1,5 @@
 /**
- * Component tests for TerminalPanel accessibility.
+ * Component tests for OutputPanel accessibility.
  */
 
 import { render, screen } from '@testing-library/react';
@@ -30,22 +30,22 @@ vi.mock('@/lib/store', () => ({
 	useStore: () => noopFunction,
 }));
 
-import { TerminalPanel } from './terminal-panel';
+import { OutputPanel } from './output-panel';
 
 function renderWithProviders(ui: React.ReactElement) {
 	return render(<TooltipProvider>{ui}</TooltipProvider>);
 }
 
-describe('TerminalPanel accessibility', () => {
+describe('OutputPanel accessibility', () => {
 	it('renders filter buttons inside a radiogroup', () => {
-		renderWithProviders(<TerminalPanel projectId="test" />);
+		renderWithProviders(<OutputPanel projectId="test" />);
 
 		const radiogroup = screen.getByRole('radiogroup', { name: 'Log filter' });
 		expect(radiogroup).toBeInTheDocument();
 	});
 
 	it('filter buttons have role="radio" and aria-checked', () => {
-		renderWithProviders(<TerminalPanel projectId="test" />);
+		renderWithProviders(<OutputPanel projectId="test" />);
 
 		const radios = screen.getAllByRole('radio');
 		expect(radios).toHaveLength(3);
@@ -61,7 +61,7 @@ describe('TerminalPanel accessibility', () => {
 	});
 
 	it('clicking a filter button updates aria-checked', async () => {
-		renderWithProviders(<TerminalPanel projectId="test" />);
+		renderWithProviders(<OutputPanel projectId="test" />);
 
 		const serverButton = screen.getByRole('radio', { name: 'Server' });
 		await userEvent.click(serverButton);
@@ -73,14 +73,14 @@ describe('TerminalPanel accessibility', () => {
 	});
 
 	it('preserve button has aria-pressed', () => {
-		renderWithProviders(<TerminalPanel projectId="test" />);
+		renderWithProviders(<OutputPanel projectId="test" />);
 
 		const preserveButton = screen.getByRole('button', { name: 'Preserve' });
 		expect(preserveButton).toHaveAttribute('aria-pressed', 'false');
 	});
 
 	it('clear logs button has an accessible name', () => {
-		renderWithProviders(<TerminalPanel projectId="test" />);
+		renderWithProviders(<OutputPanel projectId="test" />);
 
 		expect(screen.getByLabelText('Clear logs')).toBeInTheDocument();
 	});

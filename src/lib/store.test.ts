@@ -30,7 +30,7 @@ beforeEach(() => {
 		activeSnapshot: undefined,
 		pendingChanges: new Map(),
 		sidebarVisible: true,
-		terminalVisible: true,
+		utilityPanelVisible: true,
 		aiPanelVisible: false,
 	});
 });
@@ -509,10 +509,10 @@ describe('UI slice', () => {
 		expect(useStore.getState().sidebarVisible).toBe(true);
 	});
 
-	it('toggles terminal', () => {
-		expect(useStore.getState().terminalVisible).toBe(true);
-		useStore.getState().toggleTerminal();
-		expect(useStore.getState().terminalVisible).toBe(false);
+	it('toggles utility panel', () => {
+		expect(useStore.getState().utilityPanelVisible).toBe(true);
+		useStore.getState().toggleUtilityPanel();
+		expect(useStore.getState().utilityPanelVisible).toBe(false);
 	});
 
 	it('toggles AI panel', () => {

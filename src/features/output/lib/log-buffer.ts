@@ -2,7 +2,7 @@
  * Log Buffer
  *
  * Module-level log accumulator that listens for server-error, rebuild,
- * and server-logs CustomEvents. Persists across terminal component
+ * and server-logs CustomEvents. Persists across output panel component
  * mount/unmount cycles so no log entries are lost.
  *
  * Logs are cleared on each rebuild by default unless "Preserve Logs"

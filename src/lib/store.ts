@@ -20,7 +20,7 @@ interface EditorState {
 	openFiles: string[];
 	/** Cursor position in active file */
 	cursorPosition: { line: number; column: number } | undefined;
-	/** Pending navigation target — set externally (e.g. terminal link, error overlay) and consumed by the editor */
+	/** Pending navigation target — set externally (e.g. output link, error overlay) and consumed by the editor */
 	pendingGoTo: { line: number; column: number } | undefined;
 	/** Unsaved changes per file */
 	unsavedChanges: Map<string, boolean>;
@@ -178,8 +178,8 @@ export type MobilePanel = 'editor' | 'preview' | 'agent';
 interface UIState {
 	/** Whether sidebar is visible */
 	sidebarVisible: boolean;
-	/** Whether terminal is visible */
-	terminalVisible: boolean;
+	/** Whether utility panel is visible */
+	utilityPanelVisible: boolean;
 	/** Whether AI panel is visible */
 	aiPanelVisible: boolean;
 	/** Whether DevTools panel is visible below the preview */
@@ -194,7 +194,7 @@ interface UIState {
 
 interface UIActions {
 	toggleSidebar: () => void;
-	toggleTerminal: () => void;
+	toggleUtilityPanel: () => void;
 	toggleAIPanel: () => void;
 	toggleDevtools: () => void;
 	setColorScheme: (scheme: ColorScheme) => void;
@@ -580,7 +580,7 @@ export const useStore = create<StoreState>()(
 				// UI State & Actions
 				// =============================================================================
 				sidebarVisible: true,
-				terminalVisible: true,
+				utilityPanelVisible: true,
 				aiPanelVisible: false,
 				devtoolsVisible: false,
 				colorScheme: 'dark',
@@ -588,7 +588,7 @@ export const useStore = create<StoreState>()(
 				mobileFileTreeOpen: false,
 				toggleSidebar: () => set((state) => ({ sidebarVisible: !state.sidebarVisible })),
 
-				toggleTerminal: () => set((state) => ({ terminalVisible: !state.terminalVisible })),
+				toggleUtilityPanel: () => set((state) => ({ utilityPanelVisible: !state.utilityPanelVisible })),
 
 				toggleAIPanel: () => set((state) => ({ aiPanelVisible: !state.aiPanelVisible })),
 
@@ -606,7 +606,7 @@ export const useStore = create<StoreState>()(
 				// session can be restored after a page refresh.
 				partialize: (state) => ({
 					sidebarVisible: state.sidebarVisible,
-					terminalVisible: state.terminalVisible,
+					utilityPanelVisible: state.utilityPanelVisible,
 					aiPanelVisible: state.aiPanelVisible,
 					devtoolsVisible: state.devtoolsVisible,
 					colorScheme: state.colorScheme,

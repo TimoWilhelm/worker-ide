@@ -1,10 +1,10 @@
-import { TerminalPanel } from './terminal-panel';
+import { OutputPanel } from './output-panel';
 
 import type { Meta, StoryObj } from '@storybook/react';
 
 const meta = {
-	title: 'Features/TerminalPanel',
-	component: TerminalPanel,
+	title: 'Features/OutputPanel',
+	component: OutputPanel,
 	args: {
 		projectId: 'abc12345-mock-project-id',
 	},
@@ -15,7 +15,7 @@ const meta = {
 			</div>
 		),
 	],
-} satisfies Meta<typeof TerminalPanel>;
+} satisfies Meta<typeof OutputPanel>;
 
 export default meta;
 type Story = StoryObj<typeof meta>;

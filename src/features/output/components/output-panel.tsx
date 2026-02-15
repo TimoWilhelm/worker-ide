@@ -1,5 +1,5 @@
 /**
- * Terminal Panel Component
+ * Output Panel Component
  *
  * Displays server logs and console output from the module-level log buffer.
  * The buffer persists across mount/unmount cycles so logs are never lost.
@@ -16,7 +16,7 @@ import { cn } from '@/lib/utils';
 
 import { clearLogs, getLogSnapshot, getPreserveLogs, setPreserveLogs, subscribeToLogs } from '../lib/log-buffer';
 
-import type { LogEntry, TerminalPanelProperties } from '../types';
+import type { LogEntry, OutputPanelProperties } from '../types';
 
 // =============================================================================
 // File Link Parsing
@@ -72,9 +72,9 @@ function parseMessage(message: string): MessageSegment[] {
 // =============================================================================
 
 /**
- * Terminal panel showing logs and console output.
+ * Output panel showing logs and console output.
  */
-export function TerminalPanel({ className }: TerminalPanelProperties) {
+export function OutputPanel({ className }: OutputPanelProperties) {
 	const logs = useSyncExternalStore(subscribeToLogs, getLogSnapshot);
 	const [filter, setFilter] = useState<'all' | 'server' | 'client'>('all');
 	const [preserve, setPreserve] = useState(getPreserveLogs);
