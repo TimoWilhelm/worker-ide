@@ -755,7 +755,7 @@ export function IDEShell({ projectId }: { projectId: string }) {
 											<>
 												<ResizeHandle
 													className="
-														h-1 bg-border transition-colors
+														h-0.5 bg-border transition-colors
 														hover:bg-accent
 														data-[separator=active]:bg-accent
 														data-[separator=hover]:bg-accent
@@ -775,7 +775,7 @@ export function IDEShell({ projectId }: { projectId: string }) {
 
 							<ResizeHandle
 								className="
-									w-1 bg-border transition-colors
+									w-0.5 bg-border transition-colors
 									hover:bg-accent
 									data-[separator=active]:bg-accent
 									data-[separator=hover]:bg-accent
@@ -847,7 +847,7 @@ export function IDEShell({ projectId }: { projectId: string }) {
 											<>
 												<ResizeHandle
 													className="
-														h-1 bg-border transition-colors
+														h-0.5 bg-border transition-colors
 														hover:bg-accent
 														data-[separator=active]:bg-accent
 														data-[separator=hover]:bg-accent
@@ -914,7 +914,7 @@ export function IDEShell({ projectId }: { projectId: string }) {
 
 							<ResizeHandle
 								className="
-									w-1 bg-border transition-colors
+									w-0.5 bg-border transition-colors
 									hover:bg-accent
 									data-[separator=active]:bg-accent
 									data-[separator=hover]:bg-accent
@@ -936,7 +936,7 @@ export function IDEShell({ projectId }: { projectId: string }) {
 										<>
 											<ResizeHandle
 												className="
-													h-1 bg-border transition-colors
+													h-0.5 bg-border transition-colors
 													hover:bg-accent
 													data-[separator=active]:bg-accent
 													data-[separator=hover]:bg-accent
@@ -957,7 +957,7 @@ export function IDEShell({ projectId }: { projectId: string }) {
 								<>
 									<ResizeHandle
 										className="
-											w-1 bg-border transition-colors
+											w-0.5 bg-border transition-colors
 											hover:bg-accent
 											data-[separator=active]:bg-accent
 											data-[separator=hover]:bg-accent
