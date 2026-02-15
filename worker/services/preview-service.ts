@@ -8,13 +8,14 @@ import fs from 'node:fs/promises';
 import { source as chobitsuSource, hash as chobitsuHash } from 'chobitsu?raw-minified';
 import { env, exports } from 'cloudflare:workers';
 
-import { bundleWithCdn } from './bundler-service';
+import { bundleWithCdn, BundleDependencyError } from './bundler-service';
 import { transformModule, processHTML, toEsbuildTsconfigRaw, type FileSystem } from './transform-service';
 import { source as chobitsuInitSource, hash as chobitsuInitHash } from '../lib/preview-scripts/chobitsu-init.js?raw-minified';
 import { source as errorOverlaySource, hash as errorOverlayHash } from '../lib/preview-scripts/error-overlay.js?raw-minified';
 import { source as fetchInterceptorSource, hash as fetchInterceptorHash } from '../lib/preview-scripts/fetch-interceptor.js?raw-minified';
 import { source as hmrClientSource, hash as hmrClientHash } from '../lib/preview-scripts/hmr-client.js?raw-minified';
 
+import type { ServerError } from '@shared/types';
 import type { ServerMessage } from '@shared/ws-messages';
 
 // Content-Security-Policy for preview HTML responses.
@@ -53,19 +54,6 @@ const scriptIntegrityHashes: Record<string, string> = {
 	'__fetch-interceptor.js': fetchInterceptorHash,
 	'__hmr-client.js': hmrClientHash,
 };
-
-// =============================================================================
-// Types
-// =============================================================================
-
-interface ServerError {
-	timestamp: number;
-	type: 'bundle' | 'runtime';
-	message: string;
-	file?: string;
-	line?: number;
-	column?: number;
-}
 
 // =============================================================================
 // Preview Service
@@ -241,7 +229,7 @@ export class PreviewService {
 			});
 		} catch (error) {
 			console.error('serveFile error:', error);
-			const errorMessage = String(error);
+			const errorMessage = error instanceof Error ? error.message : String(error);
 			const locMatch = errorMessage.match(/([^\s:]+):(\d+):(\d+):\s*ERROR:\s*(.*)/);
 			const serverError: ServerError = {
 				timestamp: Date.now(),
@@ -250,6 +238,7 @@ export class PreviewService {
 				file: locMatch ? locMatch[1] : undefined,
 				line: locMatch ? Number(locMatch[2]) : undefined,
 				column: locMatch ? Number(locMatch[3]) : undefined,
+				dependencyErrors: error instanceof BundleDependencyError ? error.dependencyErrors : undefined,
 			};
 			await this.broadcastError(serverError).catch(() => {});
 			const errorJson = JSON.stringify(serverError)
@@ -321,7 +310,7 @@ export class PreviewService {
 
 			return response;
 		} catch (error) {
-			const errorMessage = String(error);
+			const errorMessage = error instanceof Error ? error.message : String(error);
 			const isBundleError = errorMessage.includes('ERROR:');
 			const locMatch = errorMessage.match(/([^\s:]+):(\d+):(\d+):\s*ERROR:\s*(.*)/);
 			let file = locMatch ? locMatch[1] : undefined;
@@ -350,6 +339,7 @@ export class PreviewService {
 				file,
 				line,
 				column,
+				dependencyErrors: error instanceof BundleDependencyError ? error.dependencyErrors : undefined,
 			};
 
 			await this.broadcastError(serverError).catch(() => {});

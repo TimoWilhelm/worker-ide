@@ -8,6 +8,8 @@ import * as esbuild from 'esbuild-wasm';
 // @ts-expect-error - WASM module import
 import esbuildWasm from '../../vendor/esbuild.wasm';
 
+import type { DependencyError } from '@shared/types';
+
 let esbuildInitialized = false;
 let esbuildInitializePromise: Promise<void> | undefined;
 
@@ -105,6 +107,8 @@ export interface BundleResult {
 	code: string;
 	map?: string;
 	warnings?: string[];
+	/** Structured dependency errors collected during bundling */
+	dependencyErrors?: DependencyError[];
 }
 
 // =============================================================================
@@ -117,15 +121,49 @@ const ESM_CDN = 'https://esm.sh';
 const esmCdnCache = new Map<string, string>();
 
 /**
- * Fetch a module from esm.sh, following redirects, and cache the result.
+ * Error class that carries structured dependency errors alongside the original build error.
+ * The preview service checks for this to populate ServerError.dependencyErrors.
  */
-async function fetchFromCdn(url: string): Promise<string> {
+export class BundleDependencyError extends Error {
+	readonly dependencyErrors: DependencyError[];
+	constructor(originalError: unknown, dependencyErrors: DependencyError[]) {
+		super(originalError instanceof Error ? originalError.message : String(originalError));
+		this.name = 'BundleDependencyError';
+		this.dependencyErrors = dependencyErrors;
+	}
+}
+
+/**
+ * Extract package name from an esm.sh URL path, stripping version and subpath.
+ */
+function extractPackageName(urlPath: string): string {
+	const parts = urlPath.split('/');
+	const scopedName = parts[0].startsWith('@') ? `${parts[0]}/${parts[1]}` : parts[0];
+	// Strip version suffix (e.g. "react@19.0.0" → "react")
+	const atIndex = scopedName.startsWith('@') ? scopedName.indexOf('@', 1) : scopedName.indexOf('@');
+	return atIndex > 0 ? scopedName.slice(0, atIndex) : scopedName;
+}
+
+/**
+ * Fetch a module from esm.sh, following redirects, and cache the result.
+ * Pushes structured errors into the collector when a package cannot be resolved.
+ */
+async function fetchFromCdn(url: string, dependencyErrors?: DependencyError[]): Promise<string> {
 	const cached = esmCdnCache.get(url);
 	if (cached !== undefined) return cached;
 
 	const response = await fetch(url, { redirect: 'follow' });
 	if (!response.ok) {
-		throw new Error(`Failed to fetch ${url}: ${response.status} ${response.statusText}`);
+		const urlPath = url.replace(ESM_CDN + '/', '');
+		const packageName = extractPackageName(urlPath);
+		if (response.status === 404) {
+			const message = `Package not found: "${packageName}". Check that the package name and version are correct.`;
+			dependencyErrors?.push({ packageName, code: 'not-found', message });
+			throw new Error(message);
+		}
+		const message = `Failed to resolve "${packageName}" from CDN (${response.status} ${response.statusText}). The package or version may be invalid.`;
+		dependencyErrors?.push({ packageName, code: 'resolve-failed', message });
+		throw new Error(message);
 	}
 	const text = await response.text();
 
@@ -153,7 +191,7 @@ function resolveUrl(base: string, relative: string): string {
  * esbuild plugin that resolves bare package imports via esm.sh CDN.
  * Fetches and inlines the module source at bundle time.
  */
-function createEsmCdnPlugin(): esbuild.Plugin {
+function createEsmCdnPlugin(dependencyErrors?: DependencyError[]): esbuild.Plugin {
 	return {
 		name: 'esm-cdn',
 		setup(build) {
@@ -175,7 +213,7 @@ function createEsmCdnPlugin(): esbuild.Plugin {
 
 			// Load modules from esm.sh
 			build.onLoad({ filter: /.*/, namespace: 'esm-cdn' }, async (arguments_) => {
-				const source = await fetchFromCdn(arguments_.path);
+				const source = await fetchFromCdn(arguments_.path, dependencyErrors);
 				return { contents: source, loader: 'js' };
 			});
 		},
@@ -232,6 +270,7 @@ function createVirtualFsPlugin(
 	externals: string[],
 	resolveBareFromCdn: boolean,
 	knownDependencies?: Map<string, string>,
+	dependencyErrors?: DependencyError[],
 ): esbuild.Plugin {
 	return {
 		name: 'virtual-fs',
@@ -266,12 +305,10 @@ function createVirtualFsPlugin(
 						if (knownDependencies) {
 							const version = knownDependencies.get(packageName);
 							if (version === undefined) {
+								const errorMessage = `Unregistered dependency "${packageName}". Add it to project dependencies using the Dependencies panel.`;
+								dependencyErrors?.push({ packageName, code: 'unregistered', message: errorMessage });
 								return {
-									errors: [
-										{
-											text: `Unregistered dependency "${packageName}". Add it to project dependencies using the Dependencies panel.`,
-										},
-									],
+									errors: [{ text: errorMessage }],
 								};
 							}
 							// Use the registered version in the esm.sh URL
@@ -396,21 +433,32 @@ export async function bundleWithCdn(options: BundleWithCdnOptions): Promise<Bund
 		knownDependencies,
 	} = options;
 
-	const virtualFsPlugin = createVirtualFsPlugin(files, externals, true, knownDependencies);
+	const collectedDependencyErrors: DependencyError[] = [];
+	const virtualFsPlugin = createVirtualFsPlugin(files, externals, true, knownDependencies, collectedDependencyErrors);
 
-	const result = await esbuild.build({
-		entryPoints: [entryPoint],
-		bundle: true,
-		write: false,
-		format: 'esm',
-		platform,
-		target: 'es2022',
-		minify,
-		sourcemap: sourcemap ? 'inline' : false,
-		plugins: [virtualFsPlugin, createEsmCdnPlugin()],
-		outfile: 'bundle.js',
-		tsconfigRaw,
-	});
+	let result: esbuild.BuildResult;
+	try {
+		result = await esbuild.build({
+			entryPoints: [entryPoint],
+			bundle: true,
+			write: false,
+			format: 'esm',
+			platform,
+			target: 'es2022',
+			minify,
+			sourcemap: sourcemap ? 'inline' : false,
+			plugins: [virtualFsPlugin, createEsmCdnPlugin(collectedDependencyErrors)],
+			outfile: 'bundle.js',
+			tsconfigRaw,
+		});
+	} catch (error) {
+		// Re-throw with collected dependency errors attached so the preview service can use them
+		if (collectedDependencyErrors.length > 0) {
+			// Safe to assert non-undefined: we checked length > 0
+			throw new BundleDependencyError(error, deduplicateDependencyErrors(collectedDependencyErrors)!);
+		}
+		throw error;
+	}
 
 	const output = result.outputFiles?.[0];
 	if (!output) {
@@ -420,5 +468,19 @@ export async function bundleWithCdn(options: BundleWithCdnOptions): Promise<Bund
 	return {
 		code: output.text,
 		warnings: result.warnings.map((w) => w.text),
+		dependencyErrors: deduplicateDependencyErrors(collectedDependencyErrors),
 	};
+}
+
+/**
+ * Deduplicate dependency errors by package name (same package may be imported multiple times).
+ */
+function deduplicateDependencyErrors(errors: DependencyError[]): DependencyError[] | undefined {
+	if (errors.length === 0) return undefined;
+	const seen = new Set<string>();
+	return errors.filter((error) => {
+		if (seen.has(error.packageName)) return false;
+		seen.add(error.packageName);
+		return true;
+	});
 }

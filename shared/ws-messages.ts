@@ -196,6 +196,12 @@ const participantSchema = z.object({
 	selection: selectionRangeSchema.nullable(),
 });
 
+const dependencyErrorSchema = z.object({
+	packageName: z.string(),
+	code: z.enum(['unregistered', 'not-found', 'resolve-failed']),
+	message: z.string(),
+});
+
 const serverErrorSchema = z.object({
 	timestamp: z.number(),
 	type: z.enum(['bundle', 'runtime']),
@@ -203,6 +209,7 @@ const serverErrorSchema = z.object({
 	file: z.string().optional(),
 	line: z.number().optional(),
 	column: z.number().optional(),
+	dependencyErrors: z.array(dependencyErrorSchema).optional(),
 });
 
 const serverLogSchema = z.object({

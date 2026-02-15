@@ -353,6 +353,18 @@ export interface HmrUpdate {
 // =============================================================================
 
 /**
+ * A structured dependency resolution error.
+ */
+export interface DependencyError {
+	/** The npm package name (e.g. "react", "@scope/pkg") */
+	packageName: string;
+	/** The kind of dependency problem */
+	code: 'unregistered' | 'not-found' | 'resolve-failed';
+	/** Human-readable description */
+	message: string;
+}
+
+/**
  * An error from the server-side code execution
  */
 export interface ServerError {
@@ -362,6 +374,8 @@ export interface ServerError {
 	file?: string;
 	line?: number;
 	column?: number;
+	/** Structured dependency errors extracted from the build, if any */
+	dependencyErrors?: DependencyError[];
 }
 
 /**

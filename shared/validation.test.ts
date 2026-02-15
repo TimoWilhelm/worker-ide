@@ -13,6 +13,8 @@ import {
 	todoItemSchema,
 	isPathSafe,
 	validateToolInput,
+	validateDependencyName,
+	validateDependencyVersion,
 	LIMITS,
 } from './validation';
 
@@ -364,5 +366,105 @@ describe('aiChatMessageSchema mode and session fields', () => {
 			sessionId: 'a'.repeat(LIMITS.SESSION_ID_MAX_LENGTH + 1),
 		});
 		expect(result.success).toBe(false);
+	});
+});
+
+// =============================================================================
+// validateDependencyName
+// =============================================================================
+
+describe('validateDependencyName', () => {
+	it('accepts valid unscoped package names', () => {
+		expect(validateDependencyName('react')).toBeUndefined();
+		expect(validateDependencyName('lodash')).toBeUndefined();
+		expect(validateDependencyName('my-package')).toBeUndefined();
+		expect(validateDependencyName('my_package')).toBeUndefined();
+		expect(validateDependencyName('my.package')).toBeUndefined();
+	});
+
+	it('accepts valid scoped package names', () => {
+		expect(validateDependencyName('@scope/package')).toBeUndefined();
+		expect(validateDependencyName('@cloudflare/workers-types')).toBeUndefined();
+		expect(validateDependencyName('@types/react')).toBeUndefined();
+	});
+
+	it('rejects empty names', () => {
+		expect(validateDependencyName('')).toBeDefined();
+		expect(validateDependencyName('  ')).toBeDefined();
+	});
+
+	it('rejects names with uppercase letters', () => {
+		expect(validateDependencyName('React')).toBeDefined();
+		expect(validateDependencyName('MyPackage')).toBeDefined();
+	});
+
+	it('rejects names with spaces', () => {
+		expect(validateDependencyName('my package')).toBeDefined();
+	});
+
+	it('rejects names with special characters', () => {
+		expect(validateDependencyName('my!package')).toBeDefined();
+		expect(validateDependencyName('my@package')).toBeDefined();
+	});
+
+	it('rejects names exceeding 214 characters', () => {
+		expect(validateDependencyName('a'.repeat(215))).toBeDefined();
+	});
+});
+
+// =============================================================================
+// validateDependencyVersion
+// =============================================================================
+
+describe('validateDependencyVersion', () => {
+	it('accepts wildcard version', () => {
+		expect(validateDependencyVersion('*')).toBeUndefined();
+	});
+
+	it('accepts latest', () => {
+		expect(validateDependencyVersion('latest')).toBeUndefined();
+	});
+
+	it('accepts exact versions', () => {
+		expect(validateDependencyVersion('1.0.0')).toBeUndefined();
+		expect(validateDependencyVersion('19.0.0')).toBeUndefined();
+		expect(validateDependencyVersion('0.1.2')).toBeUndefined();
+	});
+
+	it('accepts caret ranges', () => {
+		expect(validateDependencyVersion('^1.0.0')).toBeUndefined();
+		expect(validateDependencyVersion('^0.1.0')).toBeUndefined();
+	});
+
+	it('accepts tilde ranges', () => {
+		expect(validateDependencyVersion('~1.0.0')).toBeUndefined();
+		expect(validateDependencyVersion('~0.1.0')).toBeUndefined();
+	});
+
+	it('accepts comparison ranges', () => {
+		expect(validateDependencyVersion('>=1.0.0')).toBeUndefined();
+		expect(validateDependencyVersion('>2.0.0')).toBeUndefined();
+		expect(validateDependencyVersion('<=3.0.0')).toBeUndefined();
+	});
+
+	it('accepts x-ranges', () => {
+		expect(validateDependencyVersion('1.x')).toBeUndefined();
+		expect(validateDependencyVersion('1.2.x')).toBeUndefined();
+	});
+
+	it('accepts pre-release versions', () => {
+		expect(validateDependencyVersion('1.0.0-beta.1')).toBeUndefined();
+		expect(validateDependencyVersion('2.0.0-rc.0')).toBeUndefined();
+	});
+
+	it('rejects empty version', () => {
+		expect(validateDependencyVersion('')).toBeDefined();
+		expect(validateDependencyVersion('  ')).toBeDefined();
+	});
+
+	it('rejects invalid version strings', () => {
+		expect(validateDependencyVersion('not a version')).toBeDefined();
+		expect(validateDependencyVersion('abc')).toBeDefined();
+		expect(validateDependencyVersion('v1.0.0')).toBeDefined();
 	});
 });

@@ -11,6 +11,8 @@
  * to reach an existing IDE tab, or opens a new IDE tab with a #goto hash.
  */
 (function () {
+	var lastError = null;
+
 	function esc(s) {
 		return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 	}
@@ -45,8 +47,47 @@
 		);
 	}
 
+	function showErrorPill() {
+		hideErrorPill();
+		if (!lastError) return;
+		var pill = document.createElement('div');
+		pill.id = '__error-pill';
+		pill.innerHTML =
+			'<style>' +
+			'#__error-pill{position:fixed;bottom:12px;left:50%;transform:translateX(-50%);z-index:99998;cursor:pointer;' +
+			'background:rgba(248,81,73,0.15);border:1px solid rgba(248,81,73,0.5);border-radius:20px;padding:6px 14px;' +
+			'display:flex;align-items:center;gap:6px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,monospace;' +
+			'backdrop-filter:blur(8px);transition:background 0.15s}' +
+			'#__error-pill:hover{background:rgba(248,81,73,0.25)}' +
+			'#__error-pill .__ep-dot{width:8px;height:8px;border-radius:50%;background:#f85149;flex-shrink:0}' +
+			'#__error-pill .__ep-label{color:#f85149;font-size:12px;font-weight:600;white-space:nowrap}' +
+			'</style>' +
+			'<span class="__ep-dot"></span>' +
+			'<span class="__ep-label">Build Error</span>';
+		document.body.appendChild(pill);
+		pill.addEventListener('click', function () {
+			if (lastError) showErrorOverlay(lastError);
+		});
+	}
+
+	function hideErrorPill() {
+		var el = document.getElementById('__error-pill');
+		if (el) el.remove();
+	}
+
+	function dismissOverlay() {
+		var el = document.getElementById('__error-overlay');
+		if (el) el.remove();
+		showErrorPill();
+	}
+
 	function showErrorOverlay(err) {
 		hideErrorOverlay();
+		lastError = err;
+		// Notify the parent IDE frame so panels (e.g. dependency panel) can react
+		if (window.parent !== window) {
+			window.parent.postMessage({ type: '__server-error', error: err }, location.origin);
+		}
 		var overlay = document.createElement('div');
 		overlay.id = '__error-overlay';
 		var loc = err.file ? esc(err.file + (err.line ? ':' + err.line : '') + (err.column ? ':' + err.column : '')) : '';
@@ -72,7 +113,7 @@
 			esc(err.type || 'error') +
 			'</span>' +
 			'<span class="__eo-title">Build Error</span>' +
-			'<button class="__eo-close" onclick="document.getElementById(\'__error-overlay\')?.remove()">&times;</button>' +
+			'<button class="__eo-close" id="__eo-close-btn">&times;</button>' +
 			'</div>' +
 			'<div class="__eo-body">' +
 			(loc
@@ -92,8 +133,12 @@
 			'</div>' +
 			'</div>';
 		document.body.appendChild(overlay);
+		hideErrorPill();
+		overlay.querySelector('#__eo-close-btn').addEventListener('click', function () {
+			dismissOverlay();
+		});
 		overlay.addEventListener('click', function (e) {
-			if (e.target === overlay) overlay.remove();
+			if (e.target === overlay) dismissOverlay();
 		});
 		function handleFileClick(el) {
 			var file = el.dataset.file;
@@ -144,8 +189,10 @@
 	}
 
 	function hideErrorOverlay() {
+		lastError = null;
 		var el = document.getElementById('__error-overlay');
 		if (el) el.remove();
+		hideErrorPill();
 	}
 
 	window.showErrorOverlay = showErrorOverlay;

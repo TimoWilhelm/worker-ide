@@ -308,6 +308,55 @@ export const revertFileSchema = z.object({
 export type RevertFileInput = z.infer<typeof revertFileSchema>;
 
 // =============================================================================
+// Dependency Validation
+// =============================================================================
+
+/**
+ * Regex for valid npm package names (scoped and unscoped).
+ * Based on the npm naming rules: https://docs.npmjs.com/cli/v10/configuring-npm/package-json#name
+ */
+const NPM_PACKAGE_NAME_PATTERN = /^(?:@[\da-z~-][\d._a-z~-]*\/)?[\da-z~-][\d._a-z~-]*$/;
+
+/**
+ * Regex for valid semver-ish version specifiers accepted by esm.sh / npm.
+ * Allows: *, latest, exact versions (1.2.3), ranges (^1.0.0, ~1.0.0, >=1.0.0),
+ * pre-release tags (1.0.0-beta.1), and x-ranges (1.x, 1.2.x).
+ */
+const DEPENDENCY_VERSION_PATTERN =
+	/^(?:\*|latest|(?:[~^]|[<>]=?)?(?:0|[1-9]\d*)(?:\.(?:0|[1-9]\d*|x))?(?:\.(?:0|[1-9]\d*|x))?(?:-[\d.a-z-]+)?(?:\+[\d.a-z-]+)?)$/;
+
+/**
+ * Validate a dependency name. Returns an error message or undefined if valid.
+ */
+export function validateDependencyName(name: string): string | undefined {
+	const trimmed = name.trim();
+	if (trimmed.length === 0) {
+		return 'Dependency name is required';
+	}
+	if (trimmed.length > 214) {
+		return 'Dependency name must be at most 214 characters';
+	}
+	if (!NPM_PACKAGE_NAME_PATTERN.test(trimmed)) {
+		return `Invalid package name "${trimmed}". Names must be lowercase and can contain hyphens, dots, and underscores.`;
+	}
+	return undefined;
+}
+
+/**
+ * Validate a dependency version specifier. Returns an error message or undefined if valid.
+ */
+export function validateDependencyVersion(version: string): string | undefined {
+	const trimmed = version.trim();
+	if (trimmed.length === 0) {
+		return 'Version is required';
+	}
+	if (!DEPENDENCY_VERSION_PATTERN.test(trimmed)) {
+		return `Invalid version "${trimmed}". Use a valid semver version (e.g. 1.0.0), range (e.g. ^1.0.0), or * for latest.`;
+	}
+	return undefined;
+}
+
+// =============================================================================
 // Project Meta Schemas
 // =============================================================================
 

@@ -9,6 +9,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { fetchProjectMeta, updateDependencies } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
+import { validateDependencyName, validateDependencyVersion } from '@shared/validation';
+
+import type { DependencyError } from '@shared/types';
 
 // =============================================================================
 // Types
@@ -40,27 +43,78 @@ function DependencyPanel({ projectId, collapsed = false, onToggle, className }: 
 	const [editVersion, setEditVersion] = useState('');
 	const [isLoading, setIsLoading] = useState(false);
 	const [missingDependencies, setMissingDependencies] = useState<Set<string>>(new Set());
+	const [invalidDependencies, setInvalidDependencies] = useState<Map<string, string>>(new Map());
+	const [addError, setAddError] = useState<string | undefined>();
+	const [editError, setEditError] = useState<string | undefined>();
 	const nameInputReference = useRef<HTMLInputElement>(null);
 	const editInputReference = useRef<HTMLInputElement>(null);
 
-	// Listen for server-error events to detect missing dependencies
+	// Listen for server-error events to detect missing or invalid dependencies.
+	// Errors arrive via two channels:
+	//   1. WebSocket server-error → CustomEvent('server-error')
+	//   2. Preview iframe postMessage → MessageEvent with type '__server-error'
+	// The WebSocket path deduplicates, so on refresh the same error may only
+	// arrive via the iframe postMessage path.
 	useEffect(() => {
-		const pattern = /Unregistered dependency "([^"]+)"/;
+		const ERROR_MESSAGES: Record<DependencyError['code'], string> = {
+			unregistered: 'Not registered. Add it via the Dependencies panel.',
+			'not-found': 'Package not found. Check the name and version.',
+			'resolve-failed': 'Failed to resolve from CDN. The version may be invalid.',
+		};
+
+		function processDependencyErrors(errors: DependencyError[]) {
+			let hasChanges = false;
+			for (const depError of errors) {
+				if (depError.code === 'unregistered') {
+					setMissingDependencies((previous) => {
+						const next = new Set(previous);
+						next.add(depError.packageName);
+						return next;
+					});
+					hasChanges = true;
+				} else {
+					setInvalidDependencies((previous) => {
+						const next = new Map(previous);
+						next.set(depError.packageName, ERROR_MESSAGES[depError.code]);
+						return next;
+					});
+					hasChanges = true;
+				}
+			}
+			if (hasChanges && collapsed && onToggle) onToggle();
+		}
+
+		function extractDependencyErrors(errorObject: unknown): DependencyError[] | undefined {
+			if (typeof errorObject !== 'object' || errorObject === undefined || errorObject === null) {
+				return undefined;
+			}
+			if (!('dependencyErrors' in errorObject)) return undefined;
+			const { dependencyErrors } = errorObject;
+			if (!Array.isArray(dependencyErrors)) return undefined;
+			return dependencyErrors;
+		}
+
+		// Channel 1: WebSocket server-error dispatched as CustomEvent
 		const handleServerError = (event: Event) => {
 			if (!(event instanceof CustomEvent)) return;
-			const message: string = event.detail?.message ?? '';
-			const match = pattern.exec(message);
-			if (match?.[1]) {
-				setMissingDependencies((previous) => {
-					const next = new Set(previous);
-					next.add(match[1]);
-					return next;
-				});
-				if (collapsed && onToggle) onToggle();
-			}
+			const errors = extractDependencyErrors(event.detail);
+			if (errors) processDependencyErrors(errors);
 		};
+
+		// Channel 2: Preview iframe postMessage (__server-error)
+		const handleMessage = (event: MessageEvent) => {
+			if (event.origin !== globalThis.location.origin) return;
+			if (event.data?.type !== '__server-error') return;
+			const errors = extractDependencyErrors(event.data?.error);
+			if (errors) processDependencyErrors(errors);
+		};
+
 		globalThis.addEventListener('server-error', handleServerError);
-		return () => globalThis.removeEventListener('server-error', handleServerError);
+		globalThis.addEventListener('message', handleMessage);
+		return () => {
+			globalThis.removeEventListener('server-error', handleServerError);
+			globalThis.removeEventListener('message', handleMessage);
+		};
 	}, [collapsed, onToggle]);
 
 	// Load dependencies from project meta
@@ -130,13 +184,37 @@ function DependencyPanel({ projectId, collapsed = false, onToggle, className }: 
 	const handleAdd = useCallback(async () => {
 		const parsed = parseAddInput(addInput);
 		if (!parsed) return;
-		if (dependencies.some((d) => d.name === parsed.name)) return;
+
+		// Validate name
+		const nameError = validateDependencyName(parsed.name);
+		if (nameError) {
+			setAddError(nameError);
+			return;
+		}
+
+		// Validate version
+		const versionError = validateDependencyVersion(parsed.version);
+		if (versionError) {
+			setAddError(versionError);
+			return;
+		}
+
+		if (dependencies.some((d) => d.name === parsed.name)) {
+			setAddError(`"${parsed.name}" is already added. Edit its version instead.`);
+			return;
+		}
 
 		const updated = [...dependencies, parsed];
 		setIsAdding(false);
 		setAddInput('');
+		setAddError(undefined);
 		setMissingDependencies((previous) => {
 			const next = new Set(previous);
+			next.delete(parsed.name);
+			return next;
+		});
+		setInvalidDependencies((previous) => {
+			const next = new Map(previous);
 			next.delete(parsed.name);
 			return next;
 		});
@@ -185,9 +263,24 @@ function DependencyPanel({ projectId, collapsed = false, onToggle, className }: 
 
 	const handleEditSave = useCallback(async () => {
 		if (!editingName) return;
-		const updated = dependencies.map((d) => (d.name === editingName ? { ...d, version: editVersion.trim() || '*' } : d));
+		const version = editVersion.trim() || '*';
+
+		// Validate version
+		const versionError = validateDependencyVersion(version);
+		if (versionError) {
+			setEditError(versionError);
+			return;
+		}
+
+		const updated = dependencies.map((d) => (d.name === editingName ? { ...d, version } : d));
 		setEditingName(undefined);
 		setEditVersion('');
+		setEditError(undefined);
+		setInvalidDependencies((previous) => {
+			const next = new Map(previous);
+			next.delete(editingName);
+			return next;
+		});
 		await saveDependencies(updated);
 	}, [editingName, editVersion, dependencies, saveDependencies]);
 
@@ -198,6 +291,7 @@ function DependencyPanel({ projectId, collapsed = false, onToggle, className }: 
 			} else if (event.key === 'Escape') {
 				setIsAdding(false);
 				setAddInput('');
+				setAddError(undefined);
 			}
 		},
 		[handleAdd],
@@ -210,6 +304,7 @@ function DependencyPanel({ projectId, collapsed = false, onToggle, className }: 
 			} else if (event.key === 'Escape') {
 				setEditingName(undefined);
 				setEditVersion('');
+				setEditError(undefined);
 			}
 		},
 		[handleEditSave],
@@ -258,24 +353,39 @@ function DependencyPanel({ projectId, collapsed = false, onToggle, className }: 
 			<div className="flex flex-col gap-0.5 px-1 pb-1.5">
 				{/* Add dependency — inline input or button */}
 				{isAdding ? (
-					<input
-						ref={nameInputReference}
-						type="text"
-						value={addInput}
-						onChange={(event) => setAddInput(event.target.value)}
-						onKeyDown={handleAddKeyDown}
-						onBlur={() => {
-							if (!addInput.trim()) {
-								setIsAdding(false);
-								setAddInput('');
-							}
-						}}
-						placeholder="name or name@version"
-						className={`
-							h-6 rounded-sm border border-accent bg-bg-primary px-1.5 text-2xs
-							text-text-primary outline-none
-						`}
-					/>
+					<div className="flex flex-col gap-0.5">
+						<input
+							ref={nameInputReference}
+							type="text"
+							value={addInput}
+							onChange={(event) => {
+								setAddInput(event.target.value);
+								setAddError(undefined);
+							}}
+							onKeyDown={handleAddKeyDown}
+							onBlur={() => {
+								if (!addInput.trim()) {
+									setIsAdding(false);
+									setAddInput('');
+									setAddError(undefined);
+								}
+							}}
+							placeholder="name or name@version"
+							aria-invalid={addError !== undefined}
+							className={cn(
+								`
+									h-6 rounded-sm border bg-bg-primary px-1.5 text-2xs text-text-primary
+									outline-none
+								`,
+								addError ? 'border-error' : 'border-accent',
+							)}
+						/>
+						{addError && (
+							<span role="alert" className="px-1 text-3xs/tight text-error">
+								{addError}
+							</span>
+						)}
+					</div>
 				) : (
 					<button
 						type="button"
@@ -327,104 +437,130 @@ function DependencyPanel({ projectId, collapsed = false, onToggle, className }: 
 				)}
 
 				{/* Dependency list */}
-				{dependencies.map((entry, index) => (
-					<div
-						key={entry.name}
-						role="option"
-						tabIndex={index === 0 ? 0 : -1}
-						aria-selected={editingName === entry.name}
-						onKeyDown={(event) => {
-							const row = event.currentTarget;
-							switch (event.key) {
-								case 'ArrowDown': {
-									event.preventDefault();
-									const next = row.nextElementSibling;
-									if (next instanceof HTMLElement) next.focus();
-									break;
-								}
-								case 'ArrowUp': {
-									event.preventDefault();
-									const previous = row.previousElementSibling;
-									if (previous instanceof HTMLElement) previous.focus();
-									break;
-								}
-								case 'Enter':
-								case 'F2': {
-									event.preventDefault();
-									handleEditStart(entry.name);
-									break;
-								}
-								case 'Delete': {
-									event.preventDefault();
-									void handleRemove(entry.name);
-									break;
-								}
-								default: {
-									break;
-								}
-							}
-						}}
-						className={`
-							group flex h-6 items-center gap-1 rounded-sm px-1.5 text-2xs
-							hover:bg-bg-tertiary
-							focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none
-						`}
-					>
-						{editingName === entry.name ? (
-							<>
-								<span className="shrink-0 text-text-primary">{entry.name}@</span>
-								<input
-									ref={editInputReference}
-									type="text"
-									value={editVersion}
-									onChange={(event) => setEditVersion(event.target.value)}
-									onKeyDown={handleEditKeyDown}
-									onBlur={() => void handleEditSave()}
-									className={`
-										h-5 min-w-0 flex-1 rounded-sm border border-border bg-bg-primary px-1
-										text-2xs text-text-primary outline-none
-										focus:border-accent
-									`}
-								/>
-							</>
-						) : (
-							<>
-								<span className="min-w-0 flex-1 truncate text-text-primary">
-									{entry.name}
-									<span className="text-text-secondary">@{entry.version}</span>
+				{dependencies.map((entry, index) => {
+					const dependencyError = invalidDependencies.get(entry.name);
+					const isInvalid = dependencyError !== undefined;
+					return (
+						<div key={entry.name} className="flex flex-col">
+							<div
+								role="option"
+								tabIndex={index === 0 ? 0 : -1}
+								aria-selected={editingName === entry.name}
+								aria-invalid={isInvalid}
+								onKeyDown={(event) => {
+									const row = event.currentTarget;
+									switch (event.key) {
+										case 'ArrowDown': {
+											event.preventDefault();
+											const next = row.parentElement?.nextElementSibling?.querySelector('[role="option"]');
+											if (next instanceof HTMLElement) next.focus();
+											break;
+										}
+										case 'ArrowUp': {
+											event.preventDefault();
+											const previous = row.parentElement?.previousElementSibling?.querySelector('[role="option"]');
+											if (previous instanceof HTMLElement) previous.focus();
+											break;
+										}
+										case 'Enter':
+										case 'F2': {
+											event.preventDefault();
+											handleEditStart(entry.name);
+											break;
+										}
+										case 'Delete': {
+											event.preventDefault();
+											void handleRemove(entry.name);
+											break;
+										}
+										default: {
+											break;
+										}
+									}
+								}}
+								className={cn(
+									'group flex h-6 items-center gap-1 rounded-sm px-1.5 text-2xs',
+									'hover:bg-bg-tertiary',
+									`
+										focus-visible:ring-1 focus-visible:ring-accent
+										focus-visible:outline-none
+									`,
+									isInvalid && 'bg-error/5',
+								)}
+							>
+								{editingName === entry.name ? (
+									<>
+										<span className="shrink-0 text-text-primary">{entry.name}@</span>
+										<input
+											ref={editInputReference}
+											type="text"
+											value={editVersion}
+											onChange={(event) => {
+												setEditVersion(event.target.value);
+												setEditError(undefined);
+											}}
+											onKeyDown={handleEditKeyDown}
+											onBlur={() => void handleEditSave()}
+											aria-invalid={editError !== undefined}
+											className={cn(
+												'h-5 min-w-0 flex-1 rounded-sm border bg-bg-primary px-1',
+												'text-2xs text-text-primary outline-none',
+												editError
+													? 'border-error'
+													: `
+														border-border
+														focus:border-accent
+													`,
+											)}
+										/>
+									</>
+								) : (
+									<>
+										{isInvalid && <AlertTriangle className="size-3 shrink-0 text-error" />}
+										<span className={cn('min-w-0 flex-1 truncate', isInvalid ? 'text-error' : 'text-text-primary')}>
+											{entry.name}
+											<span className={cn(isInvalid ? 'text-error/70' : 'text-text-secondary')}>@{entry.version}</span>
+										</span>
+										<button
+											type="button"
+											tabIndex={-1}
+											onClick={() => handleEditStart(entry.name)}
+											aria-label={`Edit version for ${entry.name}`}
+											className={`
+												flex size-4 shrink-0 cursor-pointer items-center justify-center
+												rounded-sm text-text-secondary opacity-0 transition-colors
+												hover-always:text-text-primary
+												group-hover-always:opacity-100
+											`}
+										>
+											<Pencil className="size-2.5" />
+										</button>
+										<button
+											type="button"
+											tabIndex={-1}
+											onClick={() => void handleRemove(entry.name)}
+											aria-label={`Remove ${entry.name}`}
+											className={`
+												flex size-4 shrink-0 cursor-pointer items-center justify-center
+												rounded-sm text-text-secondary opacity-0 transition-colors
+												hover-always:text-error
+												group-hover-always:opacity-100
+											`}
+										>
+											<Trash2 className="size-2.5" />
+										</button>
+									</>
+								)}
+							</div>
+							{editingName === entry.name && editError && (
+								<span role="alert" className="px-1.5 text-3xs/tight text-error">
+									{editError}
 								</span>
-								<button
-									type="button"
-									tabIndex={-1}
-									onClick={() => handleEditStart(entry.name)}
-									aria-label={`Edit version for ${entry.name}`}
-									className={`
-										flex size-4 shrink-0 cursor-pointer items-center justify-center
-										rounded-sm text-text-secondary opacity-0 transition-colors
-										hover-always:text-text-primary
-										group-hover-always:opacity-100
-									`}
-								>
-									<Pencil className="size-2.5" />
-								</button>
-								<button
-									type="button"
-									tabIndex={-1}
-									onClick={() => void handleRemove(entry.name)}
-									aria-label={`Remove ${entry.name}`}
-									className={`
-										flex size-4 shrink-0 cursor-pointer items-center justify-center
-										rounded-sm text-text-secondary opacity-0 transition-colors
-										hover-always:text-error
-										group-hover-always:opacity-100
-									`}
-								>
-									<Trash2 className="size-2.5" />
-								</button>
-							</>
-						)}
-					</div>
-				))}
+							)}
+							{isInvalid && editingName !== entry.name && <span className="px-1.5 text-3xs/tight text-error">{dependencyError}</span>}
+						</div>
+					);
+				})}
 			</div>
 		</div>
 	);
