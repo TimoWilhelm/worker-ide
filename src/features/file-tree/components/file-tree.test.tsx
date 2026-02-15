@@ -157,4 +157,212 @@ describe('FileTree', () => {
 
 		expect(container.querySelectorAll('[role="treeitem"]')).toHaveLength(0);
 	});
+
+	it('has a role="tree" container', () => {
+		renderWithProviders(
+			<FileTree
+				files={SAMPLE_FILES}
+				selectedFile={undefined}
+				expandedDirectories={new Set()}
+				onFileSelect={vi.fn()}
+				onDirectoryToggle={vi.fn()}
+			/>,
+		);
+
+		expect(screen.getByRole('tree')).toBeInTheDocument();
+	});
+
+	it('uses roving tabindex — only one treeitem has tabIndex 0', () => {
+		renderWithProviders(
+			<FileTree
+				files={SAMPLE_FILES}
+				selectedFile={undefined}
+				expandedDirectories={new Set(['/src', '/styles'])}
+				onFileSelect={vi.fn()}
+				onDirectoryToggle={vi.fn()}
+			/>,
+		);
+
+		const treeItems = screen.getAllByRole('treeitem');
+		const focusableItems = treeItems.filter((item) => item.tabIndex === 0);
+		expect(focusableItems).toHaveLength(1);
+
+		const nonFocusableItems = treeItems.filter((item) => item.tabIndex === -1);
+		expect(nonFocusableItems.length).toBe(treeItems.length - 1);
+	});
+
+	it('sets aria-level on treeitems', () => {
+		renderWithProviders(
+			<FileTree
+				files={SAMPLE_FILES}
+				selectedFile={undefined}
+				expandedDirectories={new Set(['/src'])}
+				onFileSelect={vi.fn()}
+				onDirectoryToggle={vi.fn()}
+			/>,
+		);
+
+		const sourceDirectory = screen.getByText('src').closest('[role="treeitem"]');
+		expect(sourceDirectory).toHaveAttribute('aria-level', '1');
+
+		const mainFile = screen.getByText('main.ts').closest('[role="treeitem"]');
+		expect(mainFile).toHaveAttribute('aria-level', '2');
+	});
+
+	it('navigates with ArrowDown and ArrowUp keys', () => {
+		renderWithProviders(
+			<FileTree
+				files={SAMPLE_FILES}
+				selectedFile={undefined}
+				expandedDirectories={new Set()}
+				onFileSelect={vi.fn()}
+				onDirectoryToggle={vi.fn()}
+			/>,
+		);
+
+		const treeItems = screen.getAllByRole('treeitem');
+		const firstItem = treeItems[0];
+		firstItem.focus();
+
+		fireEvent.keyDown(firstItem, { key: 'ArrowDown' });
+		expect(document.activeElement).toBe(treeItems[1]);
+
+		fireEvent.keyDown(treeItems[1], { key: 'ArrowUp' });
+		expect(document.activeElement).toBe(firstItem);
+	});
+
+	it('expands a collapsed directory with ArrowRight', () => {
+		const onDirectoryToggle = vi.fn();
+		renderWithProviders(
+			<FileTree
+				files={SAMPLE_FILES}
+				selectedFile={undefined}
+				expandedDirectories={new Set()}
+				onFileSelect={vi.fn()}
+				onDirectoryToggle={onDirectoryToggle}
+			/>,
+		);
+
+		const sourceItem = screen.getByText('src').closest<HTMLElement>('[role="treeitem"]')!;
+		sourceItem.focus();
+		fireEvent.keyDown(sourceItem, { key: 'ArrowRight' });
+		expect(onDirectoryToggle).toHaveBeenCalledWith('/src');
+	});
+
+	it('collapses an expanded directory with ArrowLeft', () => {
+		const onDirectoryToggle = vi.fn();
+		renderWithProviders(
+			<FileTree
+				files={SAMPLE_FILES}
+				selectedFile={undefined}
+				expandedDirectories={new Set(['/src'])}
+				onFileSelect={vi.fn()}
+				onDirectoryToggle={onDirectoryToggle}
+			/>,
+		);
+
+		const sourceItem = screen.getByText('src').closest<HTMLElement>('[role="treeitem"]')!;
+		sourceItem.focus();
+		fireEvent.keyDown(sourceItem, { key: 'ArrowLeft' });
+		expect(onDirectoryToggle).toHaveBeenCalledWith('/src');
+	});
+
+	it('exposes aria-expanded on directories', () => {
+		renderWithProviders(
+			<FileTree
+				files={SAMPLE_FILES}
+				selectedFile={undefined}
+				expandedDirectories={new Set(['/src'])}
+				onFileSelect={vi.fn()}
+				onDirectoryToggle={vi.fn()}
+			/>,
+		);
+
+		const expandedDirectory = screen.getByText('src').closest('[role="treeitem"]');
+		expect(expandedDirectory).toHaveAttribute('aria-expanded', 'true');
+
+		const collapsedDirectory = screen.getByText('styles').closest('[role="treeitem"]');
+		expect(collapsedDirectory).toHaveAttribute('aria-expanded', 'false');
+
+		const fileItem = screen.getByText('main.ts').closest('[role="treeitem"]');
+		expect(fileItem).not.toHaveAttribute('aria-expanded');
+	});
+
+	it('toggles directory with Space key', () => {
+		const onDirectoryToggle = vi.fn();
+		renderWithProviders(
+			<FileTree
+				files={SAMPLE_FILES}
+				selectedFile={undefined}
+				expandedDirectories={new Set()}
+				onFileSelect={vi.fn()}
+				onDirectoryToggle={onDirectoryToggle}
+			/>,
+		);
+
+		const sourceItem = screen.getByText('src').closest<HTMLElement>('[role="treeitem"]')!;
+		sourceItem.focus();
+		fireEvent.keyDown(sourceItem, { key: ' ' });
+		expect(onDirectoryToggle).toHaveBeenCalledWith('/src');
+	});
+
+	it('selects a file with Space key', () => {
+		const onFileSelect = vi.fn();
+		renderWithProviders(
+			<FileTree
+				files={SAMPLE_FILES}
+				selectedFile={undefined}
+				expandedDirectories={new Set(['/src'])}
+				onFileSelect={onFileSelect}
+				onDirectoryToggle={vi.fn()}
+			/>,
+		);
+
+		const fileItem = screen.getByText('main.ts').closest<HTMLElement>('[role="treeitem"]')!;
+		fileItem.focus();
+		fireEvent.keyDown(fileItem, { key: ' ' });
+		expect(onFileSelect).toHaveBeenCalledWith('/src/main.ts');
+	});
+
+	it('ArrowLeft on a child node moves focus to parent directory', () => {
+		renderWithProviders(
+			<FileTree
+				files={SAMPLE_FILES}
+				selectedFile={undefined}
+				expandedDirectories={new Set(['/src'])}
+				onFileSelect={vi.fn()}
+				onDirectoryToggle={vi.fn()}
+			/>,
+		);
+
+		const childItem = screen.getByText('main.ts').closest<HTMLElement>('[role="treeitem"]')!;
+		childItem.focus();
+		fireEvent.keyDown(childItem, { key: 'ArrowLeft' });
+
+		const parentItem = screen.getByText('src').closest<HTMLElement>('[role="treeitem"]')!;
+		expect(document.activeElement).toBe(parentItem);
+	});
+
+	it('navigates to first and last items with Home and End', () => {
+		renderWithProviders(
+			<FileTree
+				files={SAMPLE_FILES}
+				selectedFile={undefined}
+				expandedDirectories={new Set()}
+				onFileSelect={vi.fn()}
+				onDirectoryToggle={vi.fn()}
+			/>,
+		);
+
+		const treeItems = screen.getAllByRole('treeitem');
+		const lastItem = treeItems.at(-1)!;
+		const firstItem = treeItems[0];
+
+		firstItem.focus();
+		fireEvent.keyDown(firstItem, { key: 'End' });
+		expect(document.activeElement).toBe(lastItem);
+
+		fireEvent.keyDown(lastItem, { key: 'Home' });
+		expect(document.activeElement).toBe(firstItem);
+	});
 });

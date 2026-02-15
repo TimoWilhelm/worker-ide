@@ -361,11 +361,15 @@ function DependencyPanel({ projectId, collapsed = false, onToggle, className }: 
 								<button
 									type="button"
 									onClick={() => handleEditStart(entry.name)}
+									aria-label={`Edit version for ${entry.name}`}
 									className={`
-										hidden size-4 shrink-0 cursor-pointer items-center justify-center
-										rounded-sm text-text-secondary
-										group-hover:flex
+										flex size-4 shrink-0 cursor-pointer items-center justify-center
+										rounded-sm text-text-secondary opacity-0 transition-colors
+										group-hover:opacity-100
 										hover:text-text-primary
+										focus-visible:opacity-100 focus-visible:ring-1
+										focus-visible:ring-accent focus-visible:outline-none
+										focus-visible:ring-inset
 									`}
 								>
 									<Pencil className="size-2.5" />
@@ -373,11 +377,15 @@ function DependencyPanel({ projectId, collapsed = false, onToggle, className }: 
 								<button
 									type="button"
 									onClick={() => void handleRemove(entry.name)}
+									aria-label={`Remove ${entry.name}`}
 									className={`
-										hidden size-4 shrink-0 cursor-pointer items-center justify-center
-										rounded-sm text-text-secondary
-										group-hover:flex
+										flex size-4 shrink-0 cursor-pointer items-center justify-center
+										rounded-sm text-text-secondary opacity-0 transition-colors
+										group-hover:opacity-100
 										hover:text-error
+										focus-visible:opacity-100 focus-visible:ring-1
+										focus-visible:ring-accent focus-visible:outline-none
+										focus-visible:ring-inset
 									`}
 								>
 									<Trash2 className="size-2.5" />

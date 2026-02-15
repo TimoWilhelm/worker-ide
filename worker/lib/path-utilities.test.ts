@@ -44,12 +44,12 @@ describe('isProtectedFile', () => {
 		expect(isProtectedFile('/worker/index.ts')).toBe(true);
 		expect(isProtectedFile('/worker/index.js')).toBe(true);
 		expect(isProtectedFile('/tsconfig.json')).toBe(true);
+		expect(isProtectedFile('/package.json')).toBe(true);
 	});
 
 	it('returns false for non-protected files', () => {
 		expect(isProtectedFile('/src/main.ts')).toBe(false);
 		expect(isProtectedFile('/index.html')).toBe(false);
-		expect(isProtectedFile('/package.json')).toBe(false);
 	});
 });
 

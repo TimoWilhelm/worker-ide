@@ -114,7 +114,7 @@ export function TerminalPanel({ className }: TerminalPanelProperties) {
 					flex h-6 shrink-0 items-center justify-between border-b border-border px-2
 				"
 			>
-				<div className="flex items-center gap-0.5">
+				<div role="radiogroup" aria-label="Log filter" className="flex items-center gap-0.5">
 					<FilterButton active={filter === 'all'} onClick={() => setFilter('all')}>
 						All
 					</FilterButton>
@@ -128,6 +128,8 @@ export function TerminalPanel({ className }: TerminalPanelProperties) {
 				<div className="flex items-center gap-1.5">
 					<Tooltip content={preserve ? 'Logs persist across rebuilds' : 'Logs clear on rebuild'}>
 						<button
+							type="button"
+							aria-pressed={preserve}
 							onClick={handleTogglePreserve}
 							className={cn(
 								'cursor-pointer rounded-sm px-1.5 py-px text-xs transition-colors',
@@ -187,6 +189,9 @@ export function TerminalPanel({ className }: TerminalPanelProperties) {
 function FilterButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
 	return (
 		<button
+			type="button"
+			role="radio"
+			aria-checked={active}
 			onClick={onClick}
 			className={cn(
 				'cursor-pointer rounded-sm px-1.5 py-px text-xs transition-colors',

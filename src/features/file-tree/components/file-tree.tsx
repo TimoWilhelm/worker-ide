@@ -6,7 +6,7 @@
 
 import { ChevronDown, ChevronRight, File, FilePlus, Folder, FolderOpen, Trash2 } from 'lucide-react';
 import { ScrollArea } from 'radix-ui';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useId, useMemo, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
@@ -26,6 +26,25 @@ export interface FileTreeItem {
 	path: string;
 	isDirectory: boolean;
 	children?: FileTreeItem[];
+}
+
+function buildVisibleNodes(items: FileTreeItem[], expandedDirectories: Set<string>, depth = 0, parentPath?: string): VisibleTreeNode[] {
+	const nodes: VisibleTreeNode[] = [];
+	for (const item of items) {
+		const isExpanded = item.isDirectory && expandedDirectories.has(item.path);
+		nodes.push({
+			path: item.path,
+			name: item.name,
+			isDirectory: item.isDirectory,
+			depth,
+			parentPath,
+			isExpanded,
+		});
+		if (item.isDirectory && isExpanded && item.children) {
+			nodes.push(...buildVisibleNodes(item.children, expandedDirectories, depth + 1, item.path));
+		}
+	}
+	return nodes;
 }
 
 export interface FileTreeProperties {
@@ -58,6 +77,15 @@ interface TreeNode {
 	path: string;
 	isDirectory: boolean;
 	children?: Record<string, TreeNode>;
+}
+
+interface VisibleTreeNode {
+	path: string;
+	name: string;
+	isDirectory: boolean;
+	depth: number;
+	parentPath?: string;
+	isExpanded: boolean;
 }
 
 /**
@@ -133,9 +161,18 @@ export function FileTree({
 	className,
 }: FileTreeProperties) {
 	const tree = useMemo(() => buildFileTree(files), [files]);
+	const visibleNodes = useMemo(() => buildVisibleNodes(tree, expandedDirectories), [tree, expandedDirectories]);
+	const firstVisiblePath = visibleNodes[0]?.path;
+	const [focusedPath, setFocusedPath] = useState<string | undefined>(() => selectedFile ?? firstVisiblePath);
+	const treeLabelId = useId();
+	const nodeReferences = useRef<Map<string, HTMLDivElement>>(new Map());
+	const visibleNodeIndex = useMemo(() => new Map(visibleNodes.map((node, index) => [node.path, { index, node }])), [visibleNodes]);
 	const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
 	const [newFilePath, setNewFilePath] = useState('');
 	const [deleteTarget, setDeleteTarget] = useState<string | undefined>();
+	const activeFocusPath =
+		(focusedPath && visibleNodeIndex.has(focusedPath) ? focusedPath : undefined) ??
+		(selectedFile && visibleNodeIndex.has(selectedFile) ? selectedFile : firstVisiblePath);
 
 	const handleCreateSubmit = useCallback(() => {
 		const trimmed = newFilePath.trim();
@@ -146,6 +183,106 @@ export function FileTree({
 		setIsCreateModalOpen(false);
 		setNewFilePath('');
 	}, [newFilePath, onCreateFile]);
+
+	const setNodeReference = useCallback((path: string, node: HTMLDivElement | null) => {
+		if (node) {
+			nodeReferences.current.set(path, node);
+			return;
+		}
+		nodeReferences.current.delete(path);
+	}, []);
+
+	const focusNode = useCallback((path: string | undefined) => {
+		if (!path) return;
+		nodeReferences.current.get(path)?.focus();
+	}, []);
+
+	const handleNodeFocus = useCallback((path: string) => {
+		setFocusedPath(path);
+	}, []);
+
+	const handleTreeItemKeyDown = useCallback(
+		(event: React.KeyboardEvent, path: string) => {
+			const entry = visibleNodeIndex.get(path);
+			if (!entry) return;
+			const { index, node } = entry;
+			const lastIndex = visibleNodes.length - 1;
+
+			switch (event.key) {
+				case 'ArrowDown': {
+					const next = visibleNodes[index + 1];
+					if (!next) return;
+					event.preventDefault();
+					setFocusedPath(next.path);
+					focusNode(next.path);
+					return;
+				}
+				case 'ArrowUp': {
+					const previous = visibleNodes[index - 1];
+					if (!previous) return;
+					event.preventDefault();
+					setFocusedPath(previous.path);
+					focusNode(previous.path);
+					return;
+				}
+				case 'ArrowRight': {
+					if (!node.isDirectory) return;
+					if (!node.isExpanded) {
+						event.preventDefault();
+						onDirectoryToggle(node.path);
+						return;
+					}
+					const next = visibleNodes[index + 1];
+					if (!next || next.parentPath !== node.path) return;
+					event.preventDefault();
+					setFocusedPath(next.path);
+					focusNode(next.path);
+					return;
+				}
+				case 'ArrowLeft': {
+					if (node.isDirectory && node.isExpanded) {
+						event.preventDefault();
+						onDirectoryToggle(node.path);
+						return;
+					}
+					if (!node.parentPath) return;
+					event.preventDefault();
+					setFocusedPath(node.parentPath);
+					focusNode(node.parentPath);
+					return;
+				}
+				case 'Home': {
+					if (!visibleNodes[0]) return;
+					event.preventDefault();
+					setFocusedPath(visibleNodes[0].path);
+					focusNode(visibleNodes[0].path);
+					return;
+				}
+				case 'End': {
+					if (lastIndex < 0) return;
+					event.preventDefault();
+					const lastNode = visibleNodes[lastIndex];
+					setFocusedPath(lastNode.path);
+					focusNode(lastNode.path);
+					return;
+				}
+				case 'Enter':
+				case ' ': {
+					event.preventDefault();
+					if (node.isDirectory) {
+						onDirectoryToggle(node.path);
+						return;
+					}
+					onFileSelect(node.path);
+					return;
+				}
+				default: {
+					return;
+				}
+			}
+		},
+		[focusNode, onDirectoryToggle, onFileSelect, visibleNodeIndex, visibleNodes],
+	);
 
 	const handleOpenCreateModal = useCallback((prefillPath?: string) => {
 		setNewFilePath(prefillPath ?? '');
@@ -169,6 +306,7 @@ export function FileTree({
 				{/* Files header */}
 				<div className="flex items-center justify-between px-3 pt-1.5 pb-0.5">
 					<span
+						id={treeLabelId}
 						className="
 							text-xs font-semibold tracking-wider text-text-secondary uppercase
 						"
@@ -200,7 +338,7 @@ export function FileTree({
 				{/* File tree */}
 				<ScrollArea.Root className="flex-1 overflow-hidden">
 					<ScrollArea.Viewport className="size-full">
-						<div className="py-1">
+						<div role="tree" aria-labelledby={treeLabelId} className="py-1">
 							{tree.map((item) => (
 								<FileTreeNode
 									key={item.path}
@@ -213,6 +351,10 @@ export function FileTree({
 									onDeleteFile={onDeleteFile ? handleDeleteRequest : undefined}
 									onCreateFileInDirectory={onCreateFile ? handleOpenCreateModal : undefined}
 									participants={participants}
+									activeFocusPath={activeFocusPath}
+									onNodeFocus={handleNodeFocus}
+									onNodeKeyDown={handleTreeItemKeyDown}
+									setNodeReference={setNodeReference}
 								/>
 							))}
 						</div>
@@ -290,6 +432,10 @@ interface FileTreeNodeProperties {
 	onDeleteFile?: (path: string) => void;
 	onCreateFileInDirectory?: (prefillPath: string) => void;
 	participants: Participant[];
+	activeFocusPath: string | undefined;
+	onNodeFocus: (path: string) => void;
+	onNodeKeyDown: (event: React.KeyboardEvent, path: string) => void;
+	setNodeReference: (path: string, node: HTMLDivElement | null) => void;
 }
 
 function FileTreeNode({
@@ -302,25 +448,23 @@ function FileTreeNode({
 	onDeleteFile,
 	onCreateFileInDirectory,
 	participants,
+	activeFocusPath,
+	onNodeFocus,
+	onNodeKeyDown,
+	setNodeReference,
 }: FileTreeNodeProperties) {
 	const isExpanded = expandedDirectories.has(item.path);
 	const isSelected = selectedFile === item.path;
 	const isProtected = !item.isDirectory && PROTECTED_FILES.has(item.path);
 	const paddingLeft = `${depth * 12 + 12}px`;
 	const fileParticipants = item.isDirectory ? [] : participants.filter((participant) => participant.file === item.path);
+	const tabIndex = item.path === activeFocusPath ? 0 : -1;
 
 	const handleClick = () => {
 		if (item.isDirectory) {
 			onDirectoryToggle(item.path);
 		} else {
 			onFileSelect(item.path);
-		}
-	};
-
-	const handleKeyDown = (event: React.KeyboardEvent) => {
-		if (event.key === 'Enter' || event.key === ' ') {
-			event.preventDefault();
-			handleClick();
 		}
 	};
 
@@ -342,11 +486,14 @@ function FileTreeNode({
 		<div>
 			<div
 				role="treeitem"
-				tabIndex={0}
+				tabIndex={tabIndex}
 				aria-selected={isSelected}
 				aria-expanded={item.isDirectory ? isExpanded : undefined}
+				aria-level={depth + 1}
 				onClick={handleClick}
-				onKeyDown={handleKeyDown}
+				onKeyDown={(event) => onNodeKeyDown(event, item.path)}
+				onFocus={() => onNodeFocus(item.path)}
+				ref={(node) => setNodeReference(item.path, node)}
 				style={{ paddingLeft }}
 				className={cn(
 					`
@@ -388,26 +535,32 @@ function FileTreeNode({
 				)}
 				{item.isDirectory && onCreateFileInDirectory && (
 					<button
+						type="button"
 						onClick={handleCreateInFolder}
 						className="
 							flex size-4 shrink-0 cursor-pointer items-center justify-center
 							rounded-sm text-text-secondary opacity-0 transition-colors
 							group-hover:opacity-100
 							hover:text-accent
+							focus-visible:opacity-100 focus-visible:ring-1 focus-visible:ring-accent
+							focus-visible:outline-none focus-visible:ring-inset
 						"
 						aria-label={`New file in ${item.name}`}
 					>
 						<FilePlus className="size-3" />
 					</button>
 				)}
-				{!item.isDirectory && !isProtected && onDeleteFile && (
+				{item.isDirectory && !isProtected && onDeleteFile && (
 					<button
+						type="button"
 						onClick={handleDelete}
 						className="
 							flex size-4 shrink-0 cursor-pointer items-center justify-center
 							rounded-sm text-text-secondary opacity-0 transition-colors
 							group-hover:opacity-100
 							hover:text-error
+							focus-visible:opacity-100 focus-visible:ring-1 focus-visible:ring-accent
+							focus-visible:outline-none focus-visible:ring-inset
 						"
 						aria-label={`Delete ${item.name}`}
 					>
@@ -429,6 +582,10 @@ function FileTreeNode({
 							onDeleteFile={onDeleteFile}
 							onCreateFileInDirectory={onCreateFileInDirectory}
 							participants={participants}
+							activeFocusPath={activeFocusPath}
+							onNodeFocus={onNodeFocus}
+							onNodeKeyDown={onNodeKeyDown}
+							setNodeReference={setNodeReference}
 						/>
 					))}
 				</div>

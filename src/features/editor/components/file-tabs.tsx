@@ -240,12 +240,7 @@ function FileTabItem({ tab, isActive, showDirectory, participants, onClose }: Fi
 		}
 	};
 
-	const handleCloseKeyDown = (event: React.KeyboardEvent) => {
-		if (event.key === 'Enter' || event.key === ' ') {
-			event.preventDefault();
-			handleClose(event);
-		}
-	};
+	const closeLabel = showDirectory ? `Close ${tab.path}` : `Close ${filename}`;
 
 	return (
 		<Tabs.Trigger
@@ -295,13 +290,11 @@ function FileTabItem({ tab, isActive, showDirectory, participants, onClose }: Fi
 				</Tooltip>
 			)}
 			<Tooltip content="Close">
-				<span
-					role="button"
-					aria-label="Close"
-					tabIndex={0}
+				<button
+					type="button"
+					aria-label={closeLabel}
 					onPointerDown={handleClosePointerDown}
 					onClick={handleClose}
-					onKeyDown={handleCloseKeyDown}
 					className={cn(
 						`
 							ml-1 flex size-4 shrink-0 items-center justify-center rounded-sm
@@ -311,12 +304,14 @@ function FileTabItem({ tab, isActive, showDirectory, participants, onClose }: Fi
 							opacity-0
 							group-hover:opacity-100
 							hover:bg-bg-tertiary
+							focus-visible:opacity-100 focus-visible:ring-1 focus-visible:ring-accent
+							focus-visible:outline-none focus-visible:ring-inset
 						`,
 						isActive && 'opacity-100',
 					)}
 				>
 					<X className="size-3" />
-				</span>
+				</button>
 			</Tooltip>
 		</Tabs.Trigger>
 	);

@@ -59,10 +59,18 @@ describe('FileTabs', () => {
 		const onClose = vi.fn();
 		renderWithProviders(<FileTabs tabs={SAMPLE_TABS} activeTab="/src/main.ts" onSelect={vi.fn()} onClose={onClose} />);
 
-		// Close buttons have aria-label="Close"
-		const closeButtons = screen.getAllByLabelText('Close');
-		fireEvent.click(closeButtons[0]);
+		// Close buttons have aria-label="Close <filename>"
+		const closeButton = screen.getByLabelText('Close main.ts');
+		fireEvent.click(closeButton);
 		expect(onClose).toHaveBeenCalledWith('/src/main.ts');
+	});
+
+	it('close buttons have specific accessible names', () => {
+		renderWithProviders(<FileTabs tabs={SAMPLE_TABS} activeTab="/src/main.ts" onSelect={vi.fn()} onClose={vi.fn()} />);
+
+		expect(screen.getByLabelText('Close main.ts')).toBeInTheDocument();
+		expect(screen.getByLabelText('Close app.tsx')).toBeInTheDocument();
+		expect(screen.getByLabelText('Close index.css')).toBeInTheDocument();
 	});
 
 	it('shows file type icons', () => {
