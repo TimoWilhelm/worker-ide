@@ -10,7 +10,7 @@ import { hc } from 'hono/client';
 import { serializeMessage, parseServerMessage, type ClientMessage, type ServerMessage } from '@shared/ws-messages';
 
 import type { ApiRoutes } from '@server/routes';
-import type { AiSession, AiSessionSummary } from '@shared/types';
+import type { AiSession } from '@shared/types';
 
 /**
  * Create a typed API client for a specific project.
@@ -43,11 +43,14 @@ export type ApiResponse<T> = T extends Promise<infer R> ? R : never;
 export type JsonResponse<T> = T extends { json(): Promise<infer R> } ? R : never;
 
 // =============================================================================
-// Direct API Functions (for non-Hono endpoints)
+// Project Management
 // =============================================================================
 
 /**
  * Create a new project.
+ *
+ * Uses raw fetch because this is a root-level endpoint (`/api/new-project`)
+ * outside the project-scoped RPC client.
  */
 export async function createProject(): Promise<{ projectId: string; url: string; name: string }> {
 	const response = await fetch('/api/new-project', { method: 'POST' });
@@ -59,12 +62,13 @@ export async function createProject(): Promise<{ projectId: string; url: string;
 }
 
 /**
- * Fetch project metadata (name, humanId).
+ * Fetch project metadata (name, humanId, dependencies).
  */
 export async function fetchProjectMeta(
 	projectId: string,
 ): Promise<{ name: string; humanId: string; dependencies?: Record<string, string> }> {
-	const response = await fetch(`/p/${projectId}/api/project/meta`);
+	const api = createApiClient(projectId);
+	const response = await api.project.meta.$get({});
 	if (!response.ok) {
 		throw new Error('Failed to fetch project meta');
 	}
@@ -75,11 +79,8 @@ export async function fetchProjectMeta(
  * Update project name.
  */
 export async function updateProjectMeta(projectId: string, name: string): Promise<{ name: string; humanId: string }> {
-	const response = await fetch(`/p/${projectId}/api/project/meta`, {
-		method: 'PUT',
-		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify({ name }),
-	});
+	const api = createApiClient(projectId);
+	const response = await api.project.meta.$put({ json: { name } });
 	if (!response.ok) {
 		throw new Error('Failed to update project meta');
 	}
@@ -93,11 +94,8 @@ export async function updateDependencies(
 	projectId: string,
 	dependencies: Record<string, string>,
 ): Promise<{ name: string; humanId: string; dependencies?: Record<string, string> }> {
-	const response = await fetch(`/p/${projectId}/api/project/meta`, {
-		method: 'PUT',
-		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify({ dependencies }),
-	});
+	const api = createApiClient(projectId);
+	const response = await api.project.meta.$put({ json: { dependencies } });
 	if (!response.ok) {
 		throw new Error('Failed to update dependencies');
 	}
@@ -105,7 +103,9 @@ export async function updateDependencies(
 }
 
 /**
- * Download project as ZIP file.
+ * Download project as a deployable ZIP file.
+ *
+ * Uses raw fetch because the response is a binary blob, not typed JSON.
  */
 export async function downloadProject(projectId: string): Promise<Blob> {
 	const response = await fetch(`/p/${projectId}/api/download`);
@@ -122,17 +122,21 @@ export async function downloadProject(projectId: string): Promise<Blob> {
 /**
  * List all saved AI sessions for a project.
  */
-export async function listAiSessions(projectId: string): Promise<AiSessionSummary[]> {
-	const response = await fetch(`/p/${projectId}/api/ai-sessions`);
+export async function listAiSessions(projectId: string): Promise<Array<{ id: string; label: string; createdAt: number }>> {
+	const api = createApiClient(projectId);
+	const response = await api['ai-sessions'].$get({});
 	if (!response.ok) {
 		throw new Error('Failed to list AI sessions');
 	}
-	const data: { sessions: AiSessionSummary[] } = await response.json();
+	const data: { sessions: Array<{ id: string; label: string; createdAt: number }> } = await response.json();
 	return data.sessions;
 }
 
 /**
  * Load a single AI session by ID.
+ *
+ * Uses raw fetch because the backend returns untyped `JSON.parse(raw)`,
+ * which Hono RPC cannot infer as `AiSession`.
  */
 export async function loadAiSession(projectId: string, sessionId: string): Promise<AiSession | undefined> {
 	const response = await fetch(`/p/${projectId}/api/ai-session?id=${encodeURIComponent(sessionId)}`);
@@ -143,6 +147,9 @@ export async function loadAiSession(projectId: string, sessionId: string): Promi
 
 /**
  * Save an AI session to the backend.
+ *
+ * Uses raw fetch because the Zod schema uses `z.unknown()` for history,
+ * causing a type mismatch with the `AiSession` interface.
  */
 export async function saveAiSession(projectId: string, session: AiSession): Promise<void> {
 	const response = await fetch(`/p/${projectId}/api/ai-session`, {
@@ -171,6 +178,9 @@ export interface AIStreamEvent {
 
 /**
  * Start an AI chat session with streaming response.
+ *
+ * Uses raw fetch because the response is an SSE event stream that
+ * requires manual `ReadableStream` parsing, not typed JSON.
  *
  * @param projectId - The project ID
  * @param message - User message
@@ -234,7 +244,7 @@ export async function startAIChat(
 }
 
 // =============================================================================
-// WebSocket Project Connection
+// WebSocket Connection
 // =============================================================================
 
 /**
@@ -245,12 +255,6 @@ export async function startAIChat(
  *
  * Returns a cleanup function that prevents the onClose callback from firing
  * (intentional disconnect vs unexpected drop).
- *
- * @param projectId - The project ID
- * @param onMessage - Callback for each validated ServerMessage
- * @param onClose - Callback when connection drops unexpectedly
- * @param onOpen - Callback when connection opens
- * @returns Cleanup function
  */
 export interface ProjectSocketConnection {
 	cleanup: () => void;
