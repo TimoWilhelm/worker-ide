@@ -48,6 +48,7 @@ function DependencyPanel({ projectId, collapsed = false, onToggle, className }: 
 	const [editError, setEditError] = useState<string | undefined>();
 	const nameInputReference = useRef<HTMLInputElement>(null);
 	const editInputReference = useRef<HTMLInputElement>(null);
+	const editCommittedReference = useRef(false);
 
 	// Listen for server-error events to detect missing or invalid dependencies.
 	// Errors arrive via two channels:
@@ -254,6 +255,7 @@ function DependencyPanel({ projectId, collapsed = false, onToggle, className }: 
 		(name: string) => {
 			const entry = dependencies.find((d) => d.name === name);
 			if (entry) {
+				editCommittedReference.current = false;
 				setEditingName(name);
 				setEditVersion(entry.version);
 			}
@@ -262,7 +264,7 @@ function DependencyPanel({ projectId, collapsed = false, onToggle, className }: 
 	);
 
 	const handleEditSave = useCallback(async () => {
-		if (!editingName) return;
+		if (!editingName || editCommittedReference.current) return;
 		const version = editVersion.trim() || '*';
 
 		// Validate version
@@ -271,6 +273,8 @@ function DependencyPanel({ projectId, collapsed = false, onToggle, className }: 
 			setEditError(versionError);
 			return;
 		}
+
+		editCommittedReference.current = true;
 
 		const updated = dependencies.map((d) => (d.name === editingName ? { ...d, version } : d));
 		setEditingName(undefined);
@@ -300,8 +304,10 @@ function DependencyPanel({ projectId, collapsed = false, onToggle, className }: 
 	const handleEditKeyDown = useCallback(
 		(event: React.KeyboardEvent) => {
 			if (event.key === 'Enter') {
+				event.stopPropagation();
 				void handleEditSave();
 			} else if (event.key === 'Escape') {
+				event.stopPropagation();
 				setEditingName(undefined);
 				setEditVersion('');
 				setEditError(undefined);
@@ -490,7 +496,7 @@ function DependencyPanel({ projectId, collapsed = false, onToggle, className }: 
 							>
 								{editingName === entry.name ? (
 									<>
-										<span className="shrink-0 text-text-primary">{entry.name}@</span>
+										<span className="min-w-0 shrink truncate text-text-primary">{entry.name}@</span>
 										<input
 											ref={editInputReference}
 											type="text"
@@ -517,7 +523,10 @@ function DependencyPanel({ projectId, collapsed = false, onToggle, className }: 
 								) : (
 									<>
 										{isInvalid && <AlertTriangle className="size-3 shrink-0 text-error" />}
-										<span className={cn('min-w-0 flex-1 truncate', isInvalid ? 'text-error' : 'text-text-primary')}>
+										<span
+											className={cn('min-w-0 flex-1 truncate', isInvalid ? 'text-error' : 'text-text-primary')}
+											onDoubleClick={() => handleEditStart(entry.name)}
+										>
 											{entry.name}
 											<span className={cn(isInvalid ? 'text-error/70' : 'text-text-secondary')}>@{entry.version}</span>
 										</span>
@@ -527,10 +536,10 @@ function DependencyPanel({ projectId, collapsed = false, onToggle, className }: 
 											onClick={() => handleEditStart(entry.name)}
 											aria-label={`Edit version for ${entry.name}`}
 											className={`
-												flex size-4 shrink-0 cursor-pointer items-center justify-center
-												rounded-sm text-text-secondary opacity-0 transition-colors
+												hidden size-4 shrink-0 cursor-pointer items-center justify-center
+												rounded-sm text-text-secondary transition-colors
 												hover-always:text-text-primary
-												group-hover-always:opacity-100
+												group-hover-always:flex
 											`}
 										>
 											<Pencil className="size-2.5" />
@@ -541,10 +550,10 @@ function DependencyPanel({ projectId, collapsed = false, onToggle, className }: 
 											onClick={() => void handleRemove(entry.name)}
 											aria-label={`Remove ${entry.name}`}
 											className={`
-												flex size-4 shrink-0 cursor-pointer items-center justify-center
-												rounded-sm text-text-secondary opacity-0 transition-colors
+												hidden size-4 shrink-0 cursor-pointer items-center justify-center
+												rounded-sm text-text-secondary transition-colors
 												hover-always:text-error
-												group-hover-always:opacity-100
+												group-hover-always:flex
 											`}
 										>
 											<Trash2 className="size-2.5" />
