@@ -114,19 +114,33 @@ export const projectRoutes = new Hono<AppEnvironment>()
 			// Fall back to defaults
 		}
 
+		const hasReact = 'react' in registeredDependencies;
+		const hasTypeScript = Object.keys(projectFiles).some((f) => f.endsWith('.ts') || f.endsWith('.tsx'));
+
+		const devDependencies: Record<string, string> = {
+			'@cloudflare/vite-plugin': '^1.0.0',
+			vite: '^6.0.0',
+			wrangler: '^4.0.0',
+		};
+		if (hasReact) {
+			devDependencies['@types/react'] = '^19.0.0';
+			devDependencies['@types/react-dom'] = '^19.0.0';
+			devDependencies['@vitejs/plugin-react'] = '^4.0.0';
+		}
+		if (hasTypeScript) {
+			devDependencies.typescript = '^5.0.0';
+		}
+
 		const packageJson: Record<string, unknown> = {
 			name: projectName,
+			type: 'module',
 			scripts: {
 				dev: 'vite dev',
 				build: 'vite build',
 				deploy: 'vite build && wrangler deploy',
 			},
 			dependencies: registeredDependencies,
-			devDependencies: {
-				'@cloudflare/vite-plugin': '^1.0.0',
-				vite: '^6.0.0',
-				wrangler: '^4.0.0',
-			},
+			devDependencies,
 		};
 
 		const zipFiles: Record<string, string> = {};
@@ -155,12 +169,19 @@ export const projectRoutes = new Hono<AppEnvironment>()
 			'\t',
 		);
 
+		const viteImports = ["import { cloudflare } from '@cloudflare/vite-plugin';"];
+		const vitePlugins = ['cloudflare()'];
+		if (hasReact) {
+			viteImports.unshift("import react from '@vitejs/plugin-react';");
+			vitePlugins.unshift('react()');
+		}
+
 		zipFiles['vite.config.ts'] = [
+			...viteImports,
 			"import { defineConfig } from 'vite';",
-			"import { cloudflare } from '@cloudflare/vite-plugin';",
 			'',
 			'export default defineConfig({',
-			'\tplugins: [cloudflare()],',
+			`\tplugins: [${vitePlugins.join(', ')}],`,
 			'});',
 			'',
 		].join('\n');
