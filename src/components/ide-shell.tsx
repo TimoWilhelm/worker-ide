@@ -26,7 +26,6 @@ import { Tooltip, TooltipProvider } from '@/components/ui/tooltip';
 import { useChangeReview } from '@/features/ai-assistant/hooks/use-change-review';
 import { CodeEditor, computeDiffData, DiffToolbar, FileTabs, useFileContent } from '@/features/editor';
 import { DependencyPanel, FileTree, useFileTree } from '@/features/file-tree';
-import { getLogSnapshot, subscribeToLogs } from '@/features/output/lib/log-buffer';
 import { projectSocketSendReference, useIsMobile, useProjectSocket, useTheme } from '@/hooks';
 import { createProject, downloadProject, fetchProjectMeta, updateProjectMeta } from '@/lib/api-client';
 import { getRecentProjects, trackProject, type RecentProject } from '@/lib/recent-projects';
@@ -34,6 +33,8 @@ import { selectIsProcessing, useStore } from '@/lib/store';
 import { cn, formatRelativeTime } from '@/lib/utils';
 
 import type { LogCounts } from '@/features/output';
+
+import { getLogSnapshot, subscribeToLogs } from '@/features/output/lib/log-buffer';
 
 // Lazy-loaded feature panels for code splitting
 const AIPanel = lazy(() => import('@/features/ai-assistant'));
@@ -180,6 +181,7 @@ export function IDEShell({ projectId }: { projectId: string }) {
 		createFile,
 		deleteFile,
 		renameFile,
+		createFolder,
 	} = useFileTree({ projectId });
 
 	// File content hook
@@ -313,6 +315,22 @@ export function IDEShell({ projectId }: { projectId: string }) {
 
 	// Handle file rename
 	const handleRenameFile = useCallback(
+		(fromPath: string, toPath: string) => {
+			renameFile({ fromPath, toPath });
+		},
+		[renameFile],
+	);
+
+	// Handle folder creation
+	const handleCreateFolder = useCallback(
+		(path: string) => {
+			createFolder(path);
+		},
+		[createFolder],
+	);
+
+	// Handle file move (drag-and-drop)
+	const handleMoveFile = useCallback(
 		(fromPath: string, toPath: string) => {
 			renameFile({ fromPath, toPath });
 		},
@@ -693,6 +711,8 @@ export function IDEShell({ projectId }: { projectId: string }) {
 									onCreateFile={handleCreateFile}
 									onDeleteFile={deleteFile}
 									onRenameFile={handleRenameFile}
+									onCreateFolder={handleCreateFolder}
+									onMoveFile={handleMoveFile}
 									className="flex-1"
 								/>
 							)}
@@ -708,7 +728,7 @@ export function IDEShell({ projectId }: { projectId: string }) {
 								<aside className="flex h-full flex-col border-r border-border bg-bg-secondary">
 									<PanelGroup orientation="vertical" id="sidebar-panels" className="flex-1">
 										<Panel id="file-tree" defaultSize={dependenciesPanelVisible ? '70%' : '100%'} minSize="20%">
-											<div className="h-full overflow-auto">
+											<div className="flex h-full flex-col overflow-hidden">
 												{isLoadingFiles ? (
 													<div className="flex flex-1 items-center justify-center p-4">
 														<Spinner size="sm" />
@@ -724,6 +744,8 @@ export function IDEShell({ projectId }: { projectId: string }) {
 														onCreateFile={handleCreateFile}
 														onDeleteFile={deleteFile}
 														onRenameFile={handleRenameFile}
+														onCreateFolder={handleCreateFolder}
+														onMoveFile={handleMoveFile}
 													/>
 												)}
 											</div>

@@ -16,6 +16,7 @@ import { isPathSafe, isProtectedFile } from '../lib/path-utilities';
 import { invalidateTsConfigCache } from '../services/transform-service';
 
 import type { AppEnvironment } from '../types';
+import type { FileInfo } from '@shared/types';
 
 /**
  * File routes - all routes are prefixed with /api
@@ -102,7 +103,7 @@ export const fileRoutes = new Hono<AppEnvironment>()
 		}
 
 		try {
-			await fs.unlink(`${projectRoot}${path}`);
+			await fs.rm(`${projectRoot}${path}`, { recursive: true, force: true });
 
 			// Trigger HMR so the frontend refreshes the file list
 			const projectId = c.get('projectId');
@@ -176,10 +177,10 @@ export const fileRoutes = new Hono<AppEnvironment>()
 	});
 
 /**
- * Recursively list all files in a directory.
+ * Recursively list all files and directories in a directory.
  */
-async function listFilesRecursive(directory: string, base = ''): Promise<string[]> {
-	const files: string[] = [];
+async function listFilesRecursive(directory: string, base = ''): Promise<FileInfo[]> {
+	const files: FileInfo[] = [];
 	try {
 		const entries = await fs.readdir(directory, { withFileTypes: true });
 		for (const entry of entries) {
@@ -187,10 +188,16 @@ async function listFilesRecursive(directory: string, base = ''): Promise<string[
 			if (HIDDEN_ENTRIES.has(entry.name)) continue;
 
 			const relativePath = base ? `${base}/${entry.name}` : `/${entry.name}`;
+
+			// Add the current entry
+			files.push({
+				path: relativePath,
+				name: entry.name,
+				isDirectory: entry.isDirectory(),
+			});
+
 			if (entry.isDirectory()) {
 				files.push(...(await listFilesRecursive(`${directory}/${entry.name}`, relativePath)));
-			} else {
-				files.push(relativePath);
 			}
 		}
 	} catch (error) {

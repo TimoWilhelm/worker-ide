@@ -9,6 +9,8 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 
 import { FileTree } from './file-tree';
 
+import type { FileInfo } from '@shared/types';
+
 /**
  * Helper to wrap component in required providers.
  */
@@ -16,7 +18,14 @@ function renderWithProviders(ui: React.ReactElement) {
 	return render(<TooltipProvider>{ui}</TooltipProvider>);
 }
 
-const SAMPLE_FILES = ['/src/main.ts', '/src/app.tsx', '/src/lib/utils.ts', '/styles/index.css', '/index.html'];
+const SAMPLE_FILES: FileInfo[] = [
+	{ path: '/src/main.ts', name: 'main.ts', isDirectory: false },
+	{ path: '/src/app.tsx', name: 'app.tsx', isDirectory: false },
+	{ path: '/src/lib/utils.ts', name: 'utils.ts', isDirectory: false },
+	{ path: '/styles/index.css', name: 'index.css', isDirectory: false },
+	{ path: '/index.html', name: 'index.html', isDirectory: false },
+	{ path: '/docs', name: 'docs', isDirectory: true }, // Empty directory
+];
 
 describe('FileTree', () => {
 	it('renders file tree from flat paths', () => {
@@ -33,6 +42,7 @@ describe('FileTree', () => {
 		// Directories should be visible
 		expect(screen.getByText('src')).toBeInTheDocument();
 		expect(screen.getByText('styles')).toBeInTheDocument();
+		expect(screen.getByText('docs')).toBeInTheDocument();
 
 		// Files should be visible when parent is expanded
 		expect(screen.getByText('main.ts')).toBeInTheDocument();

@@ -25,7 +25,20 @@ export function isPathSafe(_basePath: string, requestedPath: string): boolean {
  * Check if a file is protected and cannot be deleted.
  */
 export function isProtectedFile(path: string): boolean {
-	return PROTECTED_FILES.has(path);
+	// Exact match check
+	if (PROTECTED_FILES.has(path)) {
+		return true;
+	}
+
+	// Be safe and check if we are deleting a parent directory of a protected file
+	// e.g. path='/worker' contains protected '/worker/index.ts'
+	for (const protectedPath of PROTECTED_FILES) {
+		if (protectedPath.startsWith(`${path}/`)) {
+			return true;
+		}
+	}
+
+	return false;
 }
 
 /**

@@ -22,29 +22,6 @@ interface UseFileTreeOptions {
 }
 
 // =============================================================================
-// Utilities
-// =============================================================================
-
-/**
- * Extract filename from path.
- */
-function getFilename(path: string): string {
-	const parts = path.split('/');
-	return parts.at(-1) || path;
-}
-
-/**
- * Convert file path to FileInfo.
- */
-function pathToFileInfo(path: string): FileInfo {
-	return {
-		path,
-		name: getFilename(path),
-		isDirectory: false,
-	};
-}
-
-// =============================================================================
 // Hook
 // =============================================================================
 
@@ -78,7 +55,7 @@ export function useFileTree({ projectId, enabled = true }: UseFileTreeOptions) {
 				throw new Error('Failed to load files');
 			}
 
-			const data: { files: string[] } = await response.json();
+			const data: { files: FileInfo[] } = await response.json();
 			return data.files;
 		},
 		enabled,
@@ -88,7 +65,7 @@ export function useFileTree({ projectId, enabled = true }: UseFileTreeOptions) {
 	// Sync query data with store
 	useEffect(() => {
 		if (query.data) {
-			setFiles(query.data.map((path) => pathToFileInfo(path)));
+			setFiles(query.data);
 		}
 		setLoading(query.isLoading);
 	}, [query.data, query.isLoading, setFiles, setLoading]);
@@ -154,18 +131,33 @@ export function useFileTree({ projectId, enabled = true }: UseFileTreeOptions) {
 		},
 	});
 
+	// Mutation for creating directories
+	const createFolderMutation = useMutation({
+		mutationFn: async (path: string) => {
+			const response = await api.mkdir.$post({
+				json: { path },
+			});
+
+			if (!response.ok) {
+				throw new Error('Failed to create folder');
+			}
+
+			return response.json();
+		},
+		onSuccess: async () => {
+			await queryClient.invalidateQueries({ queryKey: ['files', projectId] });
+		},
+	});
+
 	// Select a file and open it in the editor
 	const selectFile = (path: string) => {
 		setSelectedFile(path);
 		openFile(path);
 	};
 
-	// Get file paths as flat array
-	const filePaths = files.map((file) => file.path);
-
 	return {
 		// State
-		files: filePaths,
+		files,
 		selectedFile,
 		expandedDirectories,
 		isLoading: query.isLoading,
@@ -181,8 +173,10 @@ export function useFileTree({ projectId, enabled = true }: UseFileTreeOptions) {
 		createFile: createFileMutation.mutate,
 		deleteFile: deleteFileMutation.mutate,
 		renameFile: renameFileMutation.mutate,
+		createFolder: createFolderMutation.mutate,
 		isCreating: createFileMutation.isPending,
 		isDeleting: deleteFileMutation.isPending,
 		isRenaming: renameFileMutation.isPending,
+		isCreatingFolder: createFolderMutation.isPending,
 	};
 }

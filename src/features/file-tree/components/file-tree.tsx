@@ -4,7 +4,7 @@
  * Hierarchical file explorer with expand/collapse support.
  */
 
-import { ChevronDown, ChevronRight, File, FilePlus, Folder, FolderOpen, Pencil, Trash2 } from 'lucide-react';
+import { ChevronDown, ChevronRight, File, FilePlus, Folder, FolderOpen, FolderPlus, Lock, Pencil, Trash2 } from 'lucide-react';
 import { ScrollArea } from 'radix-ui';
 import { useCallback, useId, useMemo, useRef, useState } from 'react';
 
@@ -15,7 +15,7 @@ import { Tooltip } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { PROTECTED_FILES } from '@shared/constants';
 
-import type { Participant } from '@shared/types';
+import type { FileInfo, Participant } from '@shared/types';
 
 // =============================================================================
 // Types
@@ -49,7 +49,7 @@ function buildVisibleNodes(items: FileTreeItem[], expandedDirectories: Set<strin
 
 export interface FileTreeProperties {
 	/** List of file paths */
-	files: string[];
+	files: FileInfo[];
 	/** Currently selected file */
 	selectedFile: string | undefined;
 	/** Set of expanded directory paths */
@@ -64,6 +64,10 @@ export interface FileTreeProperties {
 	onDeleteFile?: (path: string) => void;
 	/** Called when a file should be renamed */
 	onRenameFile?: (fromPath: string, toPath: string) => void;
+	/** Called when a folder should be created */
+	onCreateFolder?: (path: string) => void;
+	/** Called when a file/folder should be moved via drag-and-drop */
+	onMoveFile?: (fromPath: string, toPath: string) => void;
 	/** Connected collaborators for showing presence dots */
 	participants?: Participant[];
 	/** CSS class name */
@@ -91,13 +95,13 @@ interface VisibleTreeNode {
 }
 
 /**
- * Build a hierarchical tree from flat file paths.
+ * Build a hierarchical tree from flat file info.
  */
-function buildFileTree(files: string[]): FileTreeItem[] {
+function buildFileTree(files: FileInfo[]): FileTreeItem[] {
 	const root: Record<string, TreeNode> = {};
 
-	for (const filePath of files) {
-		const parts = filePath.split('/').filter(Boolean);
+	for (const file of files) {
+		const parts = file.path.split('/').filter(Boolean);
 		let currentLevel = root;
 		let currentPath = '';
 
@@ -110,9 +114,22 @@ function buildFileTree(files: string[]): FileTreeItem[] {
 				currentLevel[part] = {
 					name: part,
 					path: currentPath,
-					isDirectory: !isLast,
-					children: isLast ? undefined : {},
+					isDirectory: true, // Default to directory for intermediate nodes
+					children: {},
 				};
+			}
+
+			// If this is the actual file/folder verify its type
+			if (isLast) {
+				currentLevel[part].isDirectory = file.isDirectory;
+				if (!file.isDirectory) {
+					// It's a file, so it shouldn't have children unless we have a conflict (folder and file with same name?)
+					// For now, let's just set children to undefined if it was just created.
+					// But if we already created it as a directory (implicit), and now we see it's a file... that shouldn't happen with valid paths.
+					// But if it's a directory, we leave children as {} (initialized above).
+					// If it's a file, we can set children to undefined.
+					currentLevel[part].children = undefined;
+				}
 			}
 
 			if (!isLast) {
@@ -160,6 +177,8 @@ export function FileTree({
 	onCreateFile,
 	onDeleteFile,
 	onRenameFile,
+	onCreateFolder,
+	onMoveFile,
 	participants = [],
 	className,
 }: FileTreeProperties) {
@@ -171,9 +190,12 @@ export function FileTree({
 	const nodeReferences = useRef<Map<string, HTMLDivElement>>(new Map());
 	const visibleNodeIndex = useMemo(() => new Map(visibleNodes.map((node, index) => [node.path, { index, node }])), [visibleNodes]);
 	const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+	const [isCreateFolderModalOpen, setIsCreateFolderModalOpen] = useState(false);
 	const [newFilePath, setNewFilePath] = useState('');
+	const [newFolderPath, setNewFolderPath] = useState('');
 	const [deleteTarget, setDeleteTarget] = useState<string | undefined>();
 	const [renamingPath, setRenamingPath] = useState<string | undefined>();
+	const [dragOverPath, setDragOverPath] = useState<string | undefined>();
 	const activeFocusPath =
 		(focusedPath && visibleNodeIndex.has(focusedPath) ? focusedPath : undefined) ??
 		(selectedFile && visibleNodeIndex.has(selectedFile) ? selectedFile : firstVisiblePath);
@@ -187,6 +209,21 @@ export function FileTree({
 		setIsCreateModalOpen(false);
 		setNewFilePath('');
 	}, [newFilePath, onCreateFile]);
+
+	const handleCreateFolderSubmit = useCallback(() => {
+		const trimmed = newFolderPath.trim();
+		if (trimmed && onCreateFolder) {
+			const path = trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
+			onCreateFolder(path);
+		}
+		setIsCreateFolderModalOpen(false);
+		setNewFolderPath('');
+	}, [newFolderPath, onCreateFolder]);
+
+	const handleOpenCreateFolderModal = useCallback((prefillPath?: string) => {
+		setNewFolderPath(prefillPath ?? '');
+		setIsCreateFolderModalOpen(true);
+	}, []);
 
 	const setNodeReference = useCallback((path: string, node: HTMLDivElement | null) => {
 		if (node) {
@@ -292,7 +329,7 @@ export function FileTree({
 					return;
 				}
 				case 'Delete': {
-					if (!node.isDirectory && onDeleteFile) {
+					if (onDeleteFile) {
 						const isNodeProtected = PROTECTED_FILES.has(node.path);
 						if (!isNodeProtected) {
 							event.preventDefault();
@@ -334,32 +371,103 @@ export function FileTree({
 					>
 						Files
 					</span>
-					{onCreateFile && (
-						<Tooltip content="New file">
-							<button
-								onClick={() => handleOpenCreateModal()}
-								className={cn(
-									`
-										flex size-6 cursor-pointer items-center justify-center rounded-sm
-										text-text-secondary
-									`,
-									`
-										transition-colors
-										hover:bg-bg-tertiary hover:text-text-primary
-									`,
-								)}
-								aria-label="New file"
-							>
-								<FilePlus className="size-3.5" />
-							</button>
-						</Tooltip>
-					)}
+					<div className="flex items-center gap-0.5">
+						{onCreateFile && (
+							<Tooltip content="New file">
+								<button
+									onClick={() => handleOpenCreateModal()}
+									className={cn(
+										`
+											flex size-6 cursor-pointer items-center justify-center rounded-sm
+											text-text-secondary
+										`,
+										`
+											transition-colors
+											hover:bg-bg-tertiary hover:text-text-primary
+										`,
+									)}
+									aria-label="New file"
+								>
+									<FilePlus className="size-3.5" />
+								</button>
+							</Tooltip>
+						)}
+						{onCreateFolder && (
+							<Tooltip content="New folder">
+								<button
+									onClick={() => handleOpenCreateFolderModal()}
+									className={cn(
+										`
+											flex size-6 cursor-pointer items-center justify-center rounded-sm
+											text-text-secondary
+										`,
+										`
+											transition-colors
+											hover:bg-bg-tertiary hover:text-text-primary
+										`,
+									)}
+									aria-label="New folder"
+								>
+									<FolderPlus className="size-3.5" />
+								</button>
+							</Tooltip>
+						)}
+					</div>
 				</div>
 
 				{/* File tree */}
-				<ScrollArea.Root className="flex-1 overflow-hidden">
-					<ScrollArea.Viewport className="size-full">
-						<div role="tree" aria-labelledby={treeLabelId} className="py-1">
+				<ScrollArea.Root className="h-full flex-1 overflow-hidden">
+					<ScrollArea.Viewport
+						className="
+							size-full
+							[&>div]:block! [&>div]:h-full! [&>div]:min-w-0!
+						"
+					>
+						<div
+							role="tree"
+							aria-labelledby={treeLabelId}
+							className={cn(
+								'min-h-full flex-1 overflow-hidden py-1',
+								dragOverPath === '__root__' && 'bg-accent/5 ring-1 ring-accent ring-inset',
+							)}
+							onDragOver={
+								onMoveFile
+									? (event) => {
+											// Only highlight root if the drag target is the tree itself
+											const target = event.target;
+											if (event.currentTarget === target || (target instanceof HTMLElement && target.getAttribute('role') === 'tree')) {
+												event.preventDefault();
+												event.dataTransfer.dropEffect = 'move';
+												setDragOverPath('__root__');
+											}
+										}
+									: undefined
+							}
+							onDragLeave={
+								onMoveFile
+									? (event) => {
+											if (event.currentTarget === event.target) {
+												setDragOverPath(undefined);
+											}
+										}
+									: undefined
+							}
+							onDrop={
+								onMoveFile
+									? (event) => {
+											event.preventDefault();
+											setDragOverPath(undefined);
+											const sourcePath = event.dataTransfer.getData('text/x-file-path');
+											if (!sourcePath) return;
+											const sourceName = sourcePath.split('/').pop()!;
+											const newPath = `/${sourceName}`;
+											if (newPath !== sourcePath) {
+												onMoveFile(sourcePath, newPath);
+											}
+										}
+									: undefined
+							}
+						>
 							{tree.map((item) => (
 								<FileTreeNode
 									key={item.path}
@@ -371,7 +479,11 @@ export function FileTree({
 									onDirectoryToggle={onDirectoryToggle}
 									onDeleteFile={onDeleteFile ? handleDeleteRequest : undefined}
 									onCreateFileInDirectory={onCreateFile ? handleOpenCreateModal : undefined}
+									onCreateFolderInDirectory={onCreateFolder ? handleOpenCreateFolderModal : undefined}
 									onRenameFile={onRenameFile}
+									onMoveFile={onMoveFile}
+									dragOverPath={dragOverPath}
+									onDragOverPathChange={setDragOverPath}
 									renamingPath={renamingPath}
 									onStartRename={setRenamingPath}
 									onCancelRename={() => setRenamingPath(undefined)}
@@ -422,16 +534,50 @@ export function FileTree({
 				</ModalFooter>
 			</Modal>
 
+			{/* New Folder Modal */}
+			<Modal open={isCreateFolderModalOpen} onOpenChange={setIsCreateFolderModalOpen} title="New Folder">
+				<ModalBody>
+					<input
+						autoFocus
+						type="text"
+						value={newFolderPath}
+						onChange={(event) => setNewFolderPath(event.target.value)}
+						onKeyDown={(event) => {
+							if (event.key === 'Enter') handleCreateFolderSubmit();
+						}}
+						placeholder="Enter folder path (e.g. /src/components)"
+						className={cn(
+							`w-full rounded-md border border-border bg-bg-primary px-3 py-2 text-sm`,
+							`
+								text-text-primary
+								placeholder:text-text-secondary
+							`,
+							`focus:border-accent focus:outline-none`,
+						)}
+					/>
+				</ModalBody>
+				<ModalFooter>
+					<Button variant="secondary" size="sm" onClick={() => setIsCreateFolderModalOpen(false)}>
+						Cancel
+					</Button>
+					<Button variant="default" size="sm" onClick={handleCreateFolderSubmit} disabled={!newFolderPath.trim()}>
+						Create
+					</Button>
+				</ModalFooter>
+			</Modal>
+
 			{/* Delete Confirmation Dialog */}
 			<ConfirmDialog
 				open={deleteTarget !== undefined}
 				onOpenChange={(open) => {
 					if (!open) setDeleteTarget(undefined);
 				}}
-				title="Delete File"
+				title="Delete Item"
 				description={
 					<>
-						Are you sure you want to delete <strong className="text-text-primary">{deleteTarget}</strong>? This action cannot be undone.
+						Are you sure you want to delete <strong className="text-text-primary">{deleteTarget}</strong>?
+						<br />
+						This action cannot be undone.
 					</>
 				}
 				confirmLabel="Delete"
@@ -456,7 +602,11 @@ interface FileTreeNodeProperties {
 	onDirectoryToggle: (path: string) => void;
 	onDeleteFile?: (path: string) => void;
 	onCreateFileInDirectory?: (prefillPath: string) => void;
+	onCreateFolderInDirectory?: (prefillPath: string) => void;
 	onRenameFile?: (fromPath: string, toPath: string) => void;
+	onMoveFile?: (fromPath: string, toPath: string) => void;
+	dragOverPath: string | undefined;
+	onDragOverPathChange: (path?: string) => void;
 	renamingPath: string | undefined;
 	onStartRename: (path: string) => void;
 	onCancelRename: () => void;
@@ -476,7 +626,11 @@ function FileTreeNode({
 	onDirectoryToggle,
 	onDeleteFile,
 	onCreateFileInDirectory,
+	onCreateFolderInDirectory,
 	onRenameFile,
+	onMoveFile,
+	dragOverPath,
+	onDragOverPathChange,
 	renamingPath,
 	onStartRename,
 	onCancelRename,
@@ -493,6 +647,8 @@ function FileTreeNode({
 	const fileParticipants = item.isDirectory ? [] : participants.filter((participant) => participant.file === item.path);
 	const tabIndex = item.path === activeFocusPath ? 0 : -1;
 	const isRenaming = renamingPath === item.path;
+	const isDragOver = dragOverPath === item.path;
+	const canDrag = onMoveFile && !isProtected && !isRenaming;
 	const renameInputReference = useRef<HTMLInputElement>(null);
 
 	const handleRenameSubmit = useCallback(
@@ -560,6 +716,61 @@ function FileTreeNode({
 				onFocus={() => onNodeFocus(item.path)}
 				ref={(node) => setNodeReference(item.path, node)}
 				style={{ paddingLeft }}
+				draggable={canDrag ? true : undefined}
+				onDragStart={
+					canDrag
+						? (event) => {
+								event.dataTransfer.setData('text/x-file-path', item.path);
+								event.dataTransfer.effectAllowed = 'move';
+							}
+						: undefined
+				}
+				onDragOver={
+					item.isDirectory && onMoveFile
+						? (event) => {
+								event.preventDefault();
+								event.stopPropagation();
+								event.dataTransfer.dropEffect = 'move';
+								onDragOverPathChange(item.path);
+							}
+						: undefined
+				}
+				onDragLeave={
+					item.isDirectory && onMoveFile
+						? (event) => {
+								// Only clear if leaving the element entirely (not entering a child)
+								const related = event.relatedTarget;
+								if (!(related instanceof Node) || !event.currentTarget.contains(related)) {
+									onDragOverPathChange();
+								}
+							}
+						: undefined
+				}
+				onDrop={
+					item.isDirectory && onMoveFile
+						? (event) => {
+								event.preventDefault();
+								event.stopPropagation();
+								onDragOverPathChange();
+								const sourcePath = event.dataTransfer.getData('text/x-file-path');
+								if (!sourcePath) return;
+								// Prevent dropping onto self or into own subtree
+								if (sourcePath === item.path || item.path.startsWith(sourcePath + '/')) return;
+								const sourceName = sourcePath.split('/').pop()!;
+								const newPath = `${item.path}/${sourceName}`;
+								if (newPath !== sourcePath) {
+									onMoveFile(sourcePath, newPath);
+								}
+							}
+						: undefined
+				}
+				onDragEnd={
+					onMoveFile
+						? () => {
+								onDragOverPathChange();
+							}
+						: undefined
+				}
 				className={cn(
 					`
 						group flex cursor-pointer items-center gap-1.5 py-1 pr-2 text-sm
@@ -571,18 +782,23 @@ function FileTreeNode({
 					`,
 					isSelected && 'bg-accent/15 text-accent',
 					!isSelected && 'text-text-secondary',
+					isDragOver && item.isDirectory && 'bg-accent/10 ring-1 ring-accent ring-inset',
 				)}
 			>
 				{item.isDirectory ? (
 					<>
-						<span className="flex size-4 items-center justify-center text-text-secondary">
+						<span
+							className="
+								flex size-4 shrink-0 items-center justify-center text-text-secondary
+							"
+						>
 							{isExpanded ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
 						</span>
-						{isExpanded ? <FolderOpen className="size-4 text-accent" /> : <Folder className="size-4 text-accent" />}
+						{isExpanded ? <FolderOpen className="size-4 shrink-0 text-accent" /> : <Folder className="size-4 shrink-0 text-accent" />}
 					</>
 				) : (
 					<>
-						<span className="size-4" />
+						<span className="size-4 shrink-0" />
 						<FileIcon filename={item.name} />
 					</>
 				)}
@@ -607,13 +823,16 @@ function FileTreeNode({
 						aria-label={`Rename ${item.name}`}
 					/>
 				) : (
-					<Tooltip content={item.path}>
-						<span className="flex-1 truncate" onDoubleClick={handleDoubleClick}>
-							{item.name}
-						</span>
+					<span className="min-w-0 flex-1 truncate" onDoubleClick={handleDoubleClick}>
+						{item.name}
+					</span>
+				)}
+				{isProtected && (
+					<Tooltip content="Protected: Cannot be renamed or deleted">
+						<Lock className="ml-1.5 size-3 shrink-0 text-text-secondary/50" />
 					</Tooltip>
 				)}
-				{/* Collaborator presence dots — always visible, positioned before hover buttons */}
+				{/* Collaborator presence dots — always visible */}
 				{fileParticipants.length > 0 && (
 					<div className="flex shrink-0 items-center gap-0.5">
 						{fileParticipants.slice(0, 3).map((participant) => (
@@ -622,20 +841,40 @@ function FileTreeNode({
 						{fileParticipants.length > 3 && <span className="text-3xs text-text-secondary">+{fileParticipants.length - 3}</span>}
 					</div>
 				)}
+				{/* Action buttons — hidden normally, shown on hover (zero layout space when hidden) */}
 				{item.isDirectory && onCreateFileInDirectory && (
 					<button
 						type="button"
 						tabIndex={-1}
 						onClick={handleCreateInFolder}
 						className="
-							flex size-4 shrink-0 cursor-pointer items-center justify-center
-							rounded-sm text-text-secondary opacity-0 transition-colors
+							hidden size-4 shrink-0 cursor-pointer items-center justify-center
+							rounded-sm text-text-secondary transition-colors
 							hover-always:text-accent
-							group-hover-always:opacity-100
+							group-hover-always:flex
 						"
 						aria-label={`New file in ${item.name}`}
 					>
 						<FilePlus className="size-3" />
+					</button>
+				)}
+				{item.isDirectory && onCreateFolderInDirectory && (
+					<button
+						type="button"
+						tabIndex={-1}
+						onClick={(event) => {
+							event.stopPropagation();
+							onCreateFolderInDirectory(`${item.path}/`);
+						}}
+						className="
+							hidden size-4 shrink-0 cursor-pointer items-center justify-center
+							rounded-sm text-text-secondary transition-colors
+							hover-always:text-accent
+							group-hover-always:flex
+						"
+						aria-label={`New folder in ${item.name}`}
+					>
+						<FolderPlus className="size-3" />
 					</button>
 				)}
 				{!item.isDirectory && !isProtected && onRenameFile && !isRenaming && (
@@ -644,26 +883,26 @@ function FileTreeNode({
 						tabIndex={-1}
 						onClick={handleStartRename}
 						className="
-							flex size-4 shrink-0 cursor-pointer items-center justify-center
-							rounded-sm text-text-secondary opacity-0 transition-colors
+							hidden size-4 shrink-0 cursor-pointer items-center justify-center
+							rounded-sm text-text-secondary transition-colors
 							hover-always:text-accent
-							group-hover-always:opacity-100
+							group-hover-always:flex
 						"
 						aria-label={`Rename ${item.name}`}
 					>
 						<Pencil className="size-3" />
 					</button>
 				)}
-				{!item.isDirectory && !isProtected && onDeleteFile && !isRenaming && (
+				{!isProtected && onDeleteFile && !isRenaming && (
 					<button
 						type="button"
 						tabIndex={-1}
 						onClick={handleDelete}
 						className="
-							flex size-4 shrink-0 cursor-pointer items-center justify-center
-							rounded-sm text-text-secondary opacity-0 transition-colors
+							hidden size-4 shrink-0 cursor-pointer items-center justify-center
+							rounded-sm text-text-secondary transition-colors
 							hover-always:text-error
-							group-hover-always:opacity-100
+							group-hover-always:flex
 						"
 						aria-label={`Delete ${item.name}`}
 					>
@@ -684,7 +923,11 @@ function FileTreeNode({
 							onDirectoryToggle={onDirectoryToggle}
 							onDeleteFile={onDeleteFile}
 							onCreateFileInDirectory={onCreateFileInDirectory}
+							onCreateFolderInDirectory={onCreateFolderInDirectory}
 							onRenameFile={onRenameFile}
+							onMoveFile={onMoveFile}
+							dragOverPath={dragOverPath}
+							onDragOverPathChange={onDragOverPathChange}
 							renamingPath={renamingPath}
 							onStartRename={onStartRename}
 							onCancelRename={onCancelRename}

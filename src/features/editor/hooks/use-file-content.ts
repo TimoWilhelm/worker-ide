@@ -13,6 +13,8 @@ import { createApiClient } from '@/lib/api-client';
 // Types
 // =============================================================================
 
+import type { FileInfo } from '@shared/types';
+
 interface UseFileContentOptions {
 	projectId: string;
 	path: string | undefined;
@@ -121,8 +123,8 @@ export function useFileList({ projectId, enabled = true }: UseFileListOptions) {
 				throw new Error('Failed to load files');
 			}
 
-			const data: { files: string[] } = await response.json();
-			return data.files;
+			const data: { files: FileInfo[] } = (await response.json()) as any;
+			return data.files.map((f) => f.path);
 		},
 		enabled,
 		staleTime: 1000 * 30, // 30 seconds

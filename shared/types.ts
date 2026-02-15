@@ -391,7 +391,7 @@ export interface ApiResponse<T> {
  * Response for file list endpoint
  */
 export interface FilesResponse {
-	files: string[];
+	files: FileInfo[];
 }
 
 /**
