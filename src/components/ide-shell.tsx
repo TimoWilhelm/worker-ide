@@ -179,6 +179,7 @@ export function IDEShell({ projectId }: { projectId: string }) {
 		isLoading: isLoadingFiles,
 		createFile,
 		deleteFile,
+		renameFile,
 	} = useFileTree({ projectId });
 
 	// File content hook
@@ -308,6 +309,14 @@ export function IDEShell({ projectId }: { projectId: string }) {
 			createFile({ path, content: '' });
 		},
 		[createFile],
+	);
+
+	// Handle file rename
+	const handleRenameFile = useCallback(
+		(fromPath: string, toPath: string) => {
+			renameFile({ fromPath, toPath });
+		},
+		[renameFile],
 	);
 
 	// Handle new project
@@ -476,8 +485,8 @@ export function IDEShell({ projectId }: { projectId: string }) {
 										onClick={handleStartRename}
 										className="
 											cursor-pointer text-text-secondary opacity-0 transition-opacity
-											group-hover:opacity-100
-											hover:text-accent
+											hover-always:text-accent
+											group-hover-always:opacity-100
 										"
 										aria-label="Rename project"
 									>
@@ -705,6 +714,7 @@ export function IDEShell({ projectId }: { projectId: string }) {
 									onDirectoryToggle={toggleDirectory}
 									onCreateFile={handleCreateFile}
 									onDeleteFile={deleteFile}
+									onRenameFile={handleRenameFile}
 									className="flex-1"
 								/>
 							)}
@@ -735,6 +745,7 @@ export function IDEShell({ projectId }: { projectId: string }) {
 														onDirectoryToggle={toggleDirectory}
 														onCreateFile={handleCreateFile}
 														onDeleteFile={deleteFile}
+														onRenameFile={handleRenameFile}
 													/>
 												)}
 											</div>

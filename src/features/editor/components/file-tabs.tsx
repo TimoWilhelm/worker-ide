@@ -302,10 +302,10 @@ function FileTabItem({ tab, isActive, showDirectory, participants, onClose }: Fi
 						`,
 						`
 							opacity-0
-							group-hover:opacity-100
-							hover:bg-bg-tertiary
 							focus-visible:opacity-100 focus-visible:ring-1 focus-visible:ring-accent
 							focus-visible:outline-none focus-visible:ring-inset
+							hover-always:bg-bg-tertiary
+							group-hover-always:opacity-100
 						`,
 						isActive && 'opacity-100',
 					)}

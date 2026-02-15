@@ -327,12 +327,47 @@ function DependencyPanel({ projectId, collapsed = false, onToggle, className }: 
 				)}
 
 				{/* Dependency list */}
-				{dependencies.map((entry) => (
+				{dependencies.map((entry, index) => (
 					<div
 						key={entry.name}
+						role="option"
+						tabIndex={index === 0 ? 0 : -1}
+						aria-selected={editingName === entry.name}
+						onKeyDown={(event) => {
+							const row = event.currentTarget;
+							switch (event.key) {
+								case 'ArrowDown': {
+									event.preventDefault();
+									const next = row.nextElementSibling;
+									if (next instanceof HTMLElement) next.focus();
+									break;
+								}
+								case 'ArrowUp': {
+									event.preventDefault();
+									const previous = row.previousElementSibling;
+									if (previous instanceof HTMLElement) previous.focus();
+									break;
+								}
+								case 'Enter':
+								case 'F2': {
+									event.preventDefault();
+									handleEditStart(entry.name);
+									break;
+								}
+								case 'Delete': {
+									event.preventDefault();
+									void handleRemove(entry.name);
+									break;
+								}
+								default: {
+									break;
+								}
+							}
+						}}
 						className={`
 							group flex h-6 items-center gap-1 rounded-sm px-1.5 text-2xs
 							hover:bg-bg-tertiary
+							focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none
 						`}
 					>
 						{editingName === entry.name ? (
@@ -360,32 +395,28 @@ function DependencyPanel({ projectId, collapsed = false, onToggle, className }: 
 								</span>
 								<button
 									type="button"
+									tabIndex={-1}
 									onClick={() => handleEditStart(entry.name)}
 									aria-label={`Edit version for ${entry.name}`}
 									className={`
 										flex size-4 shrink-0 cursor-pointer items-center justify-center
 										rounded-sm text-text-secondary opacity-0 transition-colors
-										group-hover:opacity-100
-										hover:text-text-primary
-										focus-visible:opacity-100 focus-visible:ring-1
-										focus-visible:ring-accent focus-visible:outline-none
-										focus-visible:ring-inset
+										hover-always:text-text-primary
+										group-hover-always:opacity-100
 									`}
 								>
 									<Pencil className="size-2.5" />
 								</button>
 								<button
 									type="button"
+									tabIndex={-1}
 									onClick={() => void handleRemove(entry.name)}
 									aria-label={`Remove ${entry.name}`}
 									className={`
 										flex size-4 shrink-0 cursor-pointer items-center justify-center
 										rounded-sm text-text-secondary opacity-0 transition-colors
-										group-hover:opacity-100
-										hover:text-error
-										focus-visible:opacity-100 focus-visible:ring-1
-										focus-visible:ring-accent focus-visible:outline-none
-										focus-visible:ring-inset
+										hover-always:text-error
+										group-hover-always:opacity-100
 									`}
 								>
 									<Trash2 className="size-2.5" />

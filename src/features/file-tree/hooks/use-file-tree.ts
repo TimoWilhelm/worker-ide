@@ -131,6 +131,29 @@ export function useFileTree({ projectId, enabled = true }: UseFileTreeOptions) {
 		},
 	});
 
+	// Mutation for renaming/moving files
+	const renameFileMutation = useMutation({
+		mutationFn: async ({ fromPath, toPath }: { fromPath: string; toPath: string }) => {
+			const response = await api.file.$patch({
+				json: { from_path: fromPath, to_path: toPath },
+			});
+
+			if (!response.ok) {
+				throw new Error('Failed to rename file');
+			}
+
+			return response.json();
+		},
+		onSuccess: async (_data, variables) => {
+			await queryClient.invalidateQueries({ queryKey: ['files', projectId] });
+			// If the renamed file was selected, update the selection
+			if (selectedFile === variables.fromPath) {
+				setSelectedFile(variables.toPath);
+				openFile(variables.toPath);
+			}
+		},
+	});
+
 	// Select a file and open it in the editor
 	const selectFile = (path: string) => {
 		setSelectedFile(path);
@@ -157,7 +180,9 @@ export function useFileTree({ projectId, enabled = true }: UseFileTreeOptions) {
 		// Mutations
 		createFile: createFileMutation.mutate,
 		deleteFile: deleteFileMutation.mutate,
+		renameFile: renameFileMutation.mutate,
 		isCreating: createFileMutation.isPending,
 		isDeleting: deleteFileMutation.isPending,
+		isRenaming: renameFileMutation.isPending,
 	};
 }

@@ -10,7 +10,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 
 import { HIDDEN_ENTRIES } from '@shared/constants';
-import { filePathSchema, writeFileSchema, mkdirSchema } from '@shared/validation';
+import { filePathSchema, writeFileSchema, mkdirSchema, moveFileSchema } from '@shared/validation';
 
 import { isPathSafe, isProtectedFile } from '../lib/path-utilities';
 import { invalidateTsConfigCache } from '../services/transform-service';
@@ -119,6 +119,46 @@ export const fileRoutes = new Hono<AppEnvironment>()
 			return c.json({ success: true });
 		} catch {
 			return c.json({ error: 'Failed to delete file' }, 500);
+		}
+	})
+
+	// PATCH /api/file - Move/rename file
+	.patch('/file', zValidator('json', moveFileSchema), async (c) => {
+		const projectRoot = c.get('projectRoot');
+		const projectId = c.get('projectId');
+		const environment = c.env;
+		const { from_path: fromPath, to_path: toPath } = c.req.valid('json');
+
+		if (!isPathSafe(projectRoot, fromPath) || !isPathSafe(projectRoot, toPath)) {
+			return c.json({ error: 'Invalid path' }, 400);
+		}
+
+		if (isProtectedFile(fromPath)) {
+			return c.json({ error: 'Cannot move protected file' }, 403);
+		}
+
+		try {
+			// Ensure destination directory exists
+			const toDirectory = toPath.slice(0, toPath.lastIndexOf('/'));
+			if (toDirectory) {
+				await fs.mkdir(`${projectRoot}${toDirectory}`, { recursive: true });
+			}
+
+			await fs.rename(`${projectRoot}${fromPath}`, `${projectRoot}${toPath}`);
+
+			// Trigger HMR so the frontend refreshes
+			const coordinatorId = environment.DO_PROJECT_COORDINATOR.idFromName(`project:${projectId}`);
+			const coordinatorStub = environment.DO_PROJECT_COORDINATOR.get(coordinatorId);
+			await coordinatorStub.triggerUpdate({
+				type: 'full-reload',
+				path: toPath,
+				timestamp: Date.now(),
+				isCSS: false,
+			});
+
+			return c.json({ success: true, from: fromPath, to: toPath });
+		} catch {
+			return c.json({ error: 'Failed to move file' }, 500);
 		}
 	})
 

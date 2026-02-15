@@ -343,6 +343,68 @@ describe('FileTree', () => {
 		expect(document.activeElement).toBe(parentItem);
 	});
 
+	it('triggers delete confirmation with Delete key on a non-protected file', () => {
+		const onDeleteFile = vi.fn();
+		renderWithProviders(
+			<FileTree
+				files={SAMPLE_FILES}
+				selectedFile={undefined}
+				expandedDirectories={new Set(['/src'])}
+				onFileSelect={vi.fn()}
+				onDirectoryToggle={vi.fn()}
+				onDeleteFile={onDeleteFile}
+			/>,
+		);
+
+		const fileItem = screen.getByText('main.ts').closest<HTMLElement>('[role="treeitem"]')!;
+		fileItem.focus();
+		fireEvent.keyDown(fileItem, { key: 'Delete' });
+
+		// Should open the confirmation dialog
+		expect(screen.getByText('Delete File')).toBeInTheDocument();
+	});
+
+	it('enters rename mode with F2 key on a non-protected file', () => {
+		const onRenameFile = vi.fn();
+		renderWithProviders(
+			<FileTree
+				files={SAMPLE_FILES}
+				selectedFile={undefined}
+				expandedDirectories={new Set(['/src'])}
+				onFileSelect={vi.fn()}
+				onDirectoryToggle={vi.fn()}
+				onRenameFile={onRenameFile}
+			/>,
+		);
+
+		const fileItem = screen.getByText('main.ts').closest<HTMLElement>('[role="treeitem"]')!;
+		fileItem.focus();
+		fireEvent.keyDown(fileItem, { key: 'F2' });
+
+		// Should show a rename input
+		expect(screen.getByLabelText('Rename main.ts')).toBeInTheDocument();
+	});
+
+	it('action buttons are not in the tab order', () => {
+		renderWithProviders(
+			<FileTree
+				files={SAMPLE_FILES}
+				selectedFile={undefined}
+				expandedDirectories={new Set(['/src'])}
+				onFileSelect={vi.fn()}
+				onDirectoryToggle={vi.fn()}
+				onDeleteFile={vi.fn()}
+				onRenameFile={vi.fn()}
+			/>,
+		);
+
+		const deleteButton = screen.getByLabelText('Delete main.ts');
+		expect(deleteButton).toHaveAttribute('tabindex', '-1');
+
+		const renameButton = screen.getByLabelText('Rename main.ts');
+		expect(renameButton).toHaveAttribute('tabindex', '-1');
+	});
+
 	it('navigates to first and last items with Home and End', () => {
 		renderWithProviders(
 			<FileTree
