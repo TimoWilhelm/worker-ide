@@ -4,10 +4,12 @@
  * Main IDE layout with resizable panels: file tree, editor, terminal, preview, and AI assistant.
  */
 
-import { Bot, ChevronDown, ChevronUp, Clock, Download, Hexagon, Moon, Pencil, Plus, Sun } from 'lucide-react';
+import { Bot, ChevronDown, ChevronUp, Clock, Download, FolderOpen, Hexagon, Moon, Pencil, Plus, Sun } from 'lucide-react';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { Group as PanelGroup, Panel, Separator as ResizeHandle } from 'react-resizable-panels';
 
+import { MobileFileDrawer } from '@/components/mobile-file-drawer';
+import { MobileTabBar } from '@/components/mobile-tab-bar';
 import { BorderBeam } from '@/components/ui/border-beam';
 import { Button } from '@/components/ui/button';
 import {
@@ -25,7 +27,7 @@ import { useChangeReview } from '@/features/ai-assistant/hooks/use-change-review
 import { CodeEditor, computeDiffData, DiffToolbar, FileTabs, useFileContent } from '@/features/editor';
 import { FileTree, useFileTree } from '@/features/file-tree';
 import { getLogSnapshot, subscribeToLogs } from '@/features/terminal/lib/log-buffer';
-import { projectSocketSendReference, useProjectSocket, useTheme } from '@/hooks';
+import { projectSocketSendReference, useIsMobile, useProjectSocket, useTheme } from '@/hooks';
 import { createProject, downloadProject, fetchProjectMeta, updateProjectMeta } from '@/lib/api-client';
 import { getRecentProjects, trackProject, type RecentProject } from '@/lib/recent-projects';
 import { selectIsProcessing, useStore } from '@/lib/store';
@@ -50,6 +52,12 @@ export function IDEShell({ projectId }: { projectId: string }) {
 	// Theme
 	const resolvedTheme = useTheme();
 	const setColorScheme = useStore((state) => state.setColorScheme);
+
+	// Mobile layout
+	const isMobile = useIsMobile();
+	const activeMobilePanel = useStore((state) => state.activeMobilePanel);
+	const mobileFileTreeOpen = useStore((state) => state.mobileFileTreeOpen);
+	const toggleMobileFileTree = useStore((state) => state.toggleMobileFileTree);
 
 	// Store state
 	const {
@@ -251,6 +259,17 @@ export function IDEShell({ projectId }: { projectId: string }) {
 			selectFile(path);
 		},
 		[selectFile],
+	);
+
+	// Mobile: select file and close the drawer
+	const handleMobileSelectFile = useCallback(
+		(path: string) => {
+			handleSelectFile(path);
+			if (mobileFileTreeOpen) {
+				toggleMobileFileTree();
+			}
+		},
+		[handleSelectFile, mobileFileTreeOpen, toggleMobileFileTree],
 	);
 
 	// Wrap closeFile: autosave current file before closing
@@ -471,21 +490,23 @@ export function IDEShell({ projectId }: { projectId: string }) {
 						{/* Recent projects */}
 						<RecentProjectsDropdown currentProjectId={projectId} onNewProject={handleNewProject} />
 
-						{/* AI toggle */}
-						<Tooltip content="Toggle AI panel">
-							<div className="relative">
-								<Button
-									variant="ghost"
-									size="icon"
-									aria-label="Toggle AI panel"
-									onClick={toggleAIPanel}
-									className={cn(aiPanelVisible && 'text-accent')}
-								>
-									<Bot className="size-4" />
-								</Button>
-								{isAiProcessing && !aiPanelVisible && <BorderBeam duration={1.5} />}
-							</div>
-						</Tooltip>
+						{/* AI toggle (desktop only — mobile uses bottom tab bar) */}
+						{!isMobile && (
+							<Tooltip content="Toggle AI panel">
+								<div className="relative">
+									<Button
+										variant="ghost"
+										size="icon"
+										aria-label="Toggle AI panel"
+										onClick={toggleAIPanel}
+										className={cn(aiPanelVisible && 'text-accent')}
+									>
+										<Bot className="size-4" />
+									</Button>
+									{isAiProcessing && !aiPanelVisible && <BorderBeam duration={1.5} />}
+								</div>
+							</Tooltip>
+						)}
 
 						{/* Theme toggle */}
 						<Tooltip content={resolvedTheme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}>
@@ -508,11 +529,164 @@ export function IDEShell({ projectId }: { projectId: string }) {
 					</div>
 				</header>
 
-				{/* Main content — fully resizable panel layout */}
-				<PanelGroup orientation="horizontal" id="ide-main" className="min-h-0 flex-1">
-					{/* Sidebar — file explorer */}
-					<Panel id="sidebar" defaultSize="15%" minSize="180px" maxSize="25%">
-						<aside className="flex h-full flex-col border-r border-border bg-bg-secondary">
+				{/* Mobile layout — stacked panels with bottom tab bar */}
+				{isMobile ? (
+					<>
+						{/* Mobile content area — one panel at a time */}
+						<div className="min-h-0 flex-1 overflow-hidden">
+							{/* Editor view */}
+							{activeMobilePanel === 'editor' && (
+								<div className="flex h-full flex-col overflow-hidden">
+									<div className="flex shrink-0 items-stretch">
+										<button
+											type="button"
+											onClick={toggleMobileFileTree}
+											className={cn(
+												'flex w-9 shrink-0 cursor-pointer items-center justify-center',
+												`
+													border-r border-b border-border bg-bg-secondary text-text-secondary
+													transition-colors
+												`,
+												'hover:bg-bg-tertiary hover:text-text-primary',
+											)}
+											aria-label="Open file tree"
+										>
+											<FolderOpen className="size-4" />
+										</button>
+										<FileTabs
+											tabs={tabs}
+											activeTab={activeFile}
+											onSelect={handleSelectFile}
+											onClose={handleCloseFile}
+											participants={participants}
+											className="min-w-0 flex-1"
+										/>
+									</div>
+									{hasActiveDiff && activeFile && activePendingChange && (
+										<DiffToolbar
+											path={activeFile}
+											action={activePendingChange.action}
+											onApprove={changeReview.handleApproveChange}
+											onReject={changeReview.handleRejectChange}
+											onApproveAll={changeReview.handleApproveAll}
+											onRejectAll={changeReview.handleRejectAll}
+											isReverting={changeReview.isReverting}
+											canReject={changeReview.canReject}
+										/>
+									)}
+									<div className="flex-1 overflow-hidden">
+										{activeFile ? (
+											isLoadingContent ? (
+												<div className="flex h-full items-center justify-center">
+													<Spinner size="md" />
+												</div>
+											) : (
+												<CodeEditor
+													value={editorContent}
+													filename={activeFile}
+													onChange={handleEditorChange}
+													onCursorChange={handleCursorChange}
+													onBlur={handleEditorBlur}
+													goToPosition={pendingGoTo}
+													onGoToPositionConsumed={clearPendingGoTo}
+													diffData={activeDiffData}
+													onDiffApprove={hasActiveDiff && activeFile ? () => changeReview.handleApproveChange(activeFile) : undefined}
+													onDiffReject={hasActiveDiff && activeFile ? () => changeReview.handleRejectChange(activeFile) : undefined}
+													resolvedTheme={resolvedTheme}
+												/>
+											)
+										) : (
+											<div
+												className="
+													flex h-full items-center justify-center text-text-secondary
+												"
+											>
+												<p>Select a file to edit</p>
+											</div>
+										)}
+									</div>
+									{/* Terminal toggle bar */}
+									{terminalVisible ? (
+										<div className="flex h-48 shrink-0 flex-col border-t border-border">
+											<button
+												type="button"
+												onClick={toggleTerminal}
+												className={cn(
+													`
+														flex h-8 w-full shrink-0 cursor-pointer items-center
+														justify-between
+													`,
+													'border-b border-border bg-bg-secondary px-2 transition-colors',
+													'hover:bg-bg-tertiary',
+												)}
+												aria-label="Hide terminal"
+											>
+												<div className="flex items-center gap-2">
+													<ChevronDown className="size-3 text-text-secondary" />
+													<span className="text-xs font-medium text-text-secondary">Terminal</span>
+													{logCounts.errors > 0 && <Pill color="red">{logCounts.errors}</Pill>}
+													{logCounts.warnings > 0 && <Pill color="yellow">{logCounts.warnings}</Pill>}
+												</div>
+											</button>
+											<div className="flex-1 overflow-hidden">
+												<Suspense fallback={<PanelSkeleton label="Loading terminal..." />}>
+													<TerminalPanel projectId={projectId} className="h-full" />
+												</Suspense>
+											</div>
+										</div>
+									) : (
+										<button
+											type="button"
+											onClick={toggleTerminal}
+											className={cn(
+												'flex h-7 w-full shrink-0 cursor-pointer items-center',
+												'border-t border-border bg-bg-secondary px-2 transition-colors',
+												'hover:bg-bg-tertiary',
+											)}
+											aria-label="Show terminal"
+										>
+											<div className="flex items-center gap-2">
+												<ChevronUp className="size-3 text-text-secondary" />
+												<span className="text-xs font-medium text-text-secondary">Terminal</span>
+												{logCounts.errors > 0 && <Pill color="red">{logCounts.errors}</Pill>}
+												{logCounts.warnings > 0 && <Pill color="yellow">{logCounts.warnings}</Pill>}
+											</div>
+										</button>
+									)}
+								</div>
+							)}
+
+							{/* Preview view */}
+							{activeMobilePanel === 'preview' && (
+								<div className="flex h-full flex-col overflow-hidden">
+									<div className={cn('overflow-hidden', devtoolsVisible ? 'h-1/2' : 'flex-1')}>
+										<Suspense fallback={<PanelSkeleton label="Loading preview..." />}>
+											<PreviewPanel projectId={projectId} iframeReference={previewIframeReference} className="h-full" />
+										</Suspense>
+									</div>
+									{devtoolsVisible && (
+										<div className="h-1/2 border-t border-border">
+											<Suspense fallback={<PanelSkeleton label="Loading DevTools..." />}>
+												<DevelopmentToolsPanel previewIframeReference={previewIframeReference} className="h-full" />
+											</Suspense>
+										</div>
+									)}
+								</div>
+							)}
+
+							{/* Agent view */}
+							{activeMobilePanel === 'agent' && (
+								<Suspense fallback={<PanelSkeleton label="Loading AI assistant..." />}>
+									<AIPanel projectId={projectId} className="h-full" />
+								</Suspense>
+							)}
+						</div>
+
+						{/* Bottom tab bar */}
+						<MobileTabBar />
+
+						{/* File tree drawer */}
+						<MobileFileDrawer>
 							{isLoadingFiles ? (
 								<div className="flex flex-1 items-center justify-center">
 									<Spinner size="sm" />
@@ -523,217 +697,42 @@ export function IDEShell({ projectId }: { projectId: string }) {
 									files={files}
 									selectedFile={selectedFile}
 									expandedDirectories={expandedDirectories}
-									onFileSelect={handleSelectFile}
+									onFileSelect={handleMobileSelectFile}
 									onDirectoryToggle={toggleDirectory}
 									onCreateFile={handleCreateFile}
 									onDeleteFile={deleteFile}
 									className="flex-1"
 								/>
 							)}
-						</aside>
-					</Panel>
-
-					<ResizeHandle
-						className="
-							w-1 bg-border transition-colors
-							hover:bg-accent
-							data-[separator=active]:bg-accent
-							data-[separator=hover]:bg-accent
-						"
-					/>
-
-					{/* Editor + Terminal column */}
-					<Panel id="editor-col" defaultSize="45%" minSize="20%">
-						<div className="flex h-full flex-col overflow-hidden">
-							<PanelGroup orientation="vertical" id="ide-editor-terminal" className="flex-1">
-								{/* Editor area */}
-								<Panel id="editor" defaultSize={terminalVisible ? '70%' : '100%'} minSize="30%">
-									<div className="flex h-full flex-col overflow-hidden">
-										<FileTabs
-											tabs={tabs}
-											activeTab={activeFile}
-											onSelect={handleSelectFile}
-											onClose={handleCloseFile}
-											participants={participants}
-										/>
-										{hasActiveDiff && activeFile && activePendingChange && (
-											<DiffToolbar
-												path={activeFile}
-												action={activePendingChange.action}
-												onApprove={changeReview.handleApproveChange}
-												onReject={changeReview.handleRejectChange}
-												onApproveAll={changeReview.handleApproveAll}
-												onRejectAll={changeReview.handleRejectAll}
-												isReverting={changeReview.isReverting}
-												canReject={changeReview.canReject}
-											/>
-										)}
-										<div className="flex-1 overflow-hidden">
-											{activeFile ? (
-												isLoadingContent ? (
-													<div className="flex h-full items-center justify-center">
-														<Spinner size="md" />
-													</div>
-												) : (
-													<CodeEditor
-														value={editorContent}
-														filename={activeFile}
-														onChange={handleEditorChange}
-														onCursorChange={handleCursorChange}
-														onBlur={handleEditorBlur}
-														goToPosition={pendingGoTo}
-														onGoToPositionConsumed={clearPendingGoTo}
-														diffData={activeDiffData}
-														onDiffApprove={hasActiveDiff && activeFile ? () => changeReview.handleApproveChange(activeFile) : undefined}
-														onDiffReject={hasActiveDiff && activeFile ? () => changeReview.handleRejectChange(activeFile) : undefined}
-														resolvedTheme={resolvedTheme}
-													/>
-												)
-											) : (
-												<div
-													className="
-														flex h-full items-center justify-center text-text-secondary
-													"
-												>
-													<p>Select a file to edit</p>
-												</div>
-											)}
+						</MobileFileDrawer>
+					</>
+				) : (
+					<>
+						{/* Desktop layout — fully resizable panel layout */}
+						<PanelGroup orientation="horizontal" id="ide-main" className="min-h-0 flex-1">
+							{/* Sidebar — file explorer */}
+							<Panel id="sidebar" defaultSize="15%" minSize="180px" maxSize="25%">
+								<aside className="flex h-full flex-col border-r border-border bg-bg-secondary">
+									{isLoadingFiles ? (
+										<div className="flex flex-1 items-center justify-center">
+											<Spinner size="sm" />
 										</div>
-									</div>
-								</Panel>
-
-								{/* Terminal panel (resizable) */}
-								{terminalVisible && (
-									<>
-										<ResizeHandle
-											className="
-												h-1 bg-border transition-colors
-												hover:bg-accent
-												data-[separator=active]:bg-accent
-												data-[separator=hover]:bg-accent
-											"
+									) : (
+										<FileTree
+											participants={participants}
+											files={files}
+											selectedFile={selectedFile}
+											expandedDirectories={expandedDirectories}
+											onFileSelect={handleSelectFile}
+											onDirectoryToggle={toggleDirectory}
+											onCreateFile={handleCreateFile}
+											onDeleteFile={deleteFile}
+											className="flex-1"
 										/>
-										<Panel id="terminal" defaultSize="30%" minSize="10%" maxSize="60%">
-											<div className="flex h-full flex-col overflow-hidden">
-												{/* Terminal header */}
-												<button
-													type="button"
-													onClick={toggleTerminal}
-													className={cn(
-														`
-															flex h-8 w-full shrink-0 cursor-pointer items-center
-															justify-between
-														`,
-														'border-b border-border bg-bg-secondary px-2 transition-colors',
-														'hover:bg-bg-tertiary',
-													)}
-													aria-label="Hide terminal"
-												>
-													<div className="flex items-center gap-2">
-														<ChevronDown className="size-3 text-text-secondary" />
-														<span className="text-xs font-medium text-text-secondary">Terminal</span>
-														{logCounts.errors > 0 && <Pill color="red">{logCounts.errors}</Pill>}
-														{logCounts.warnings > 0 && <Pill color="yellow">{logCounts.warnings}</Pill>}
-													</div>
-													<div className="flex items-center gap-3 text-xs text-text-secondary">
-														{activeFile && <span className="truncate">{activeFile}</span>}
-														{cursorPosition && (
-															<span>
-																Ln {cursorPosition.line}, Col {cursorPosition.column}
-															</span>
-														)}
-													</div>
-												</button>
-												<div className="flex-1 overflow-hidden">
-													<Suspense fallback={<PanelSkeleton label="Loading terminal..." />}>
-														<TerminalPanel projectId={projectId} className="h-full" />
-													</Suspense>
-												</div>
-											</div>
-										</Panel>
-									</>
-								)}
-							</PanelGroup>
-
-							{/* Terminal toggle bar when terminal is hidden */}
-							{!terminalVisible && (
-								<button
-									type="button"
-									onClick={toggleTerminal}
-									className={cn(
-										'flex h-7 w-full shrink-0 cursor-pointer items-center',
-										'border-t border-border bg-bg-secondary px-2 transition-colors',
-										'hover:bg-bg-tertiary',
 									)}
-									aria-label="Show terminal"
-								>
-									<div className="flex items-center gap-2">
-										<ChevronUp className="size-3 text-text-secondary" />
-										<span className="text-xs font-medium text-text-secondary">Terminal</span>
-										{logCounts.errors > 0 && <Pill color="red">{logCounts.errors}</Pill>}
-										{logCounts.warnings > 0 && <Pill color="yellow">{logCounts.warnings}</Pill>}
-									</div>
-									<div
-										className="
-											ml-auto flex items-center gap-3 text-xs text-text-secondary
-										"
-									>
-										{activeFile && <span className="truncate">{activeFile}</span>}
-										{cursorPosition && (
-											<span>
-												Ln {cursorPosition.line}, Col {cursorPosition.column}
-											</span>
-										)}
-									</div>
-								</button>
-							)}
-						</div>
-					</Panel>
-
-					<ResizeHandle
-						className="
-							w-1 bg-border transition-colors
-							hover:bg-accent
-							data-[separator=active]:bg-accent
-							data-[separator=hover]:bg-accent
-						"
-					/>
-
-					{/* Preview + DevTools column */}
-					<Panel id="preview-col" defaultSize={aiPanelVisible ? '20%' : '40%'} minSize="15%">
-						<PanelGroup orientation="vertical" id="ide-preview-devtools">
-							{/* Preview panel */}
-							<Panel id="preview" defaultSize={devtoolsVisible ? '50%' : '100%'} minSize="20%">
-								<Suspense fallback={<PanelSkeleton label="Loading preview..." />}>
-									<PreviewPanel projectId={projectId} iframeReference={previewIframeReference} className="h-full" />
-								</Suspense>
+								</aside>
 							</Panel>
 
-							{/* DevTools panel (resizable) */}
-							{devtoolsVisible && (
-								<>
-									<ResizeHandle
-										className="
-											h-1 bg-border transition-colors
-											hover:bg-accent
-											data-[separator=active]:bg-accent
-											data-[separator=hover]:bg-accent
-										"
-									/>
-									<Panel id="devtools" defaultSize="50%" minSize="15%" maxSize="80%">
-										<Suspense fallback={<PanelSkeleton label="Loading DevTools..." />}>
-											<DevelopmentToolsPanel previewIframeReference={previewIframeReference} className="h-full" />
-										</Suspense>
-									</Panel>
-								</>
-							)}
-						</PanelGroup>
-					</Panel>
-
-					{/* Snapshot panel (part of AI sidebar area) */}
-					{/* AI Assistant panel */}
-					{aiPanelVisible && (
-						<>
 							<ResizeHandle
 								className="
 									w-1 bg-border transition-colors
@@ -742,63 +741,265 @@ export function IDEShell({ projectId }: { projectId: string }) {
 									data-[separator=hover]:bg-accent
 								"
 							/>
-							<Panel id="ai-panel" defaultSize="20%" minSize="15%" maxSize="35%">
-								<aside className="flex h-full flex-col border-l border-border">
-									<Suspense fallback={<PanelSkeleton label="Loading AI assistant..." />}>
-										<AIPanel projectId={projectId} className="h-full" />
-									</Suspense>
-								</aside>
-							</Panel>
-						</>
-					)}
-				</PanelGroup>
 
-				{/* Status bar */}
-				<footer
-					className="
-						flex h-6 shrink-0 items-center justify-between border-t border-border
-						bg-bg-secondary px-3 text-xs text-text-secondary
-					"
-				>
-					<div className="flex items-center gap-4">
-						{isConnected ? (
-							<span className="flex items-center gap-1.5">
-								<span className="size-1.5 rounded-full" style={{ backgroundColor: localParticipantColor ?? 'var(--color-success)' }} />
-								Connected
-								{participants.length > 0 && (
-									<span className="flex items-center gap-1">
-										<span className="text-text-secondary">&middot;</span>
-										{participants.map((participant) => (
-											<span
-												key={participant.id}
-												className="size-2 rounded-full"
-												style={{ backgroundColor: participant.color }}
-												title={`Collaborator (${participant.id.slice(0, 6)})`}
+							{/* Editor + Terminal column */}
+							<Panel id="editor-col" defaultSize="45%" minSize="20%">
+								<div className="flex h-full flex-col overflow-hidden">
+									<PanelGroup orientation="vertical" id="ide-editor-terminal" className="flex-1">
+										{/* Editor area */}
+										<Panel id="editor" defaultSize={terminalVisible ? '70%' : '100%'} minSize="30%">
+											<div className="flex h-full flex-col overflow-hidden">
+												<FileTabs
+													tabs={tabs}
+													activeTab={activeFile}
+													onSelect={handleSelectFile}
+													onClose={handleCloseFile}
+													participants={participants}
+												/>
+												{hasActiveDiff && activeFile && activePendingChange && (
+													<DiffToolbar
+														path={activeFile}
+														action={activePendingChange.action}
+														onApprove={changeReview.handleApproveChange}
+														onReject={changeReview.handleRejectChange}
+														onApproveAll={changeReview.handleApproveAll}
+														onRejectAll={changeReview.handleRejectAll}
+														isReverting={changeReview.isReverting}
+														canReject={changeReview.canReject}
+													/>
+												)}
+												<div className="flex-1 overflow-hidden">
+													{activeFile ? (
+														isLoadingContent ? (
+															<div className="flex h-full items-center justify-center">
+																<Spinner size="md" />
+															</div>
+														) : (
+															<CodeEditor
+																value={editorContent}
+																filename={activeFile}
+																onChange={handleEditorChange}
+																onCursorChange={handleCursorChange}
+																onBlur={handleEditorBlur}
+																goToPosition={pendingGoTo}
+																onGoToPositionConsumed={clearPendingGoTo}
+																diffData={activeDiffData}
+																onDiffApprove={hasActiveDiff && activeFile ? () => changeReview.handleApproveChange(activeFile) : undefined}
+																onDiffReject={hasActiveDiff && activeFile ? () => changeReview.handleRejectChange(activeFile) : undefined}
+																resolvedTheme={resolvedTheme}
+															/>
+														)
+													) : (
+														<div
+															className="
+																flex h-full items-center justify-center text-text-secondary
+															"
+														>
+															<p>Select a file to edit</p>
+														</div>
+													)}
+												</div>
+											</div>
+										</Panel>
+
+										{/* Terminal panel (resizable) */}
+										{terminalVisible && (
+											<>
+												<ResizeHandle
+													className="
+														h-1 bg-border transition-colors
+														hover:bg-accent
+														data-[separator=active]:bg-accent
+														data-[separator=hover]:bg-accent
+													"
+												/>
+												<Panel id="terminal" defaultSize="30%" minSize="10%" maxSize="60%">
+													<div className="flex h-full flex-col overflow-hidden">
+														{/* Terminal header */}
+														<button
+															type="button"
+															onClick={toggleTerminal}
+															className={cn(
+																`
+																	flex h-8 w-full shrink-0 cursor-pointer items-center
+																	justify-between
+																`,
+																'border-b border-border bg-bg-secondary px-2 transition-colors',
+																'hover:bg-bg-tertiary',
+															)}
+															aria-label="Hide terminal"
+														>
+															<div className="flex items-center gap-2">
+																<ChevronDown className="size-3 text-text-secondary" />
+																<span className="text-xs font-medium text-text-secondary">Terminal</span>
+																{logCounts.errors > 0 && <Pill color="red">{logCounts.errors}</Pill>}
+																{logCounts.warnings > 0 && <Pill color="yellow">{logCounts.warnings}</Pill>}
+															</div>
+															<div className="flex items-center gap-3 text-xs text-text-secondary">
+																{activeFile && <span className="truncate">{activeFile}</span>}
+																{cursorPosition && (
+																	<span>
+																		Ln {cursorPosition.line}, Col {cursorPosition.column}
+																	</span>
+																)}
+															</div>
+														</button>
+														<div className="flex-1 overflow-hidden">
+															<Suspense fallback={<PanelSkeleton label="Loading terminal..." />}>
+																<TerminalPanel projectId={projectId} className="h-full" />
+															</Suspense>
+														</div>
+													</div>
+												</Panel>
+											</>
+										)}
+									</PanelGroup>
+
+									{/* Terminal toggle bar when terminal is hidden */}
+									{!terminalVisible && (
+										<button
+											type="button"
+											onClick={toggleTerminal}
+											className={cn(
+												'flex h-7 w-full shrink-0 cursor-pointer items-center',
+												'border-t border-border bg-bg-secondary px-2 transition-colors',
+												'hover:bg-bg-tertiary',
+											)}
+											aria-label="Show terminal"
+										>
+											<div className="flex items-center gap-2">
+												<ChevronUp className="size-3 text-text-secondary" />
+												<span className="text-xs font-medium text-text-secondary">Terminal</span>
+												{logCounts.errors > 0 && <Pill color="red">{logCounts.errors}</Pill>}
+												{logCounts.warnings > 0 && <Pill color="yellow">{logCounts.warnings}</Pill>}
+											</div>
+											<div
+												className="
+													ml-auto flex items-center gap-3 text-xs text-text-secondary
+												"
+											>
+												{activeFile && <span className="truncate">{activeFile}</span>}
+												{cursorPosition && (
+													<span>
+														Ln {cursorPosition.line}, Col {cursorPosition.column}
+													</span>
+												)}
+											</div>
+										</button>
+									)}
+								</div>
+							</Panel>
+
+							<ResizeHandle
+								className="
+									w-1 bg-border transition-colors
+									hover:bg-accent
+									data-[separator=active]:bg-accent
+									data-[separator=hover]:bg-accent
+								"
+							/>
+
+							{/* Preview + DevTools column */}
+							<Panel id="preview-col" defaultSize={aiPanelVisible ? '20%' : '40%'} minSize="15%">
+								<PanelGroup orientation="vertical" id="ide-preview-devtools">
+									{/* Preview panel */}
+									<Panel id="preview" defaultSize={devtoolsVisible ? '50%' : '100%'} minSize="20%">
+										<Suspense fallback={<PanelSkeleton label="Loading preview..." />}>
+											<PreviewPanel projectId={projectId} iframeReference={previewIframeReference} className="h-full" />
+										</Suspense>
+									</Panel>
+
+									{/* DevTools panel (resizable) */}
+									{devtoolsVisible && (
+										<>
+											<ResizeHandle
+												className="
+													h-1 bg-border transition-colors
+													hover:bg-accent
+													data-[separator=active]:bg-accent
+													data-[separator=hover]:bg-accent
+												"
 											/>
-										))}
-										<span className="text-text-secondary">{participants.length} online</span>
+											<Panel id="devtools" defaultSize="50%" minSize="15%" maxSize="80%">
+												<Suspense fallback={<PanelSkeleton label="Loading DevTools..." />}>
+													<DevelopmentToolsPanel previewIframeReference={previewIframeReference} className="h-full" />
+												</Suspense>
+											</Panel>
+										</>
+									)}
+								</PanelGroup>
+							</Panel>
+
+							{/* AI Assistant panel */}
+							{aiPanelVisible && (
+								<>
+									<ResizeHandle
+										className="
+											w-1 bg-border transition-colors
+											hover:bg-accent
+											data-[separator=active]:bg-accent
+											data-[separator=hover]:bg-accent
+										"
+									/>
+									<Panel id="ai-panel" defaultSize="20%" minSize="15%" maxSize="35%">
+										<aside className="flex h-full flex-col border-l border-border">
+											<Suspense fallback={<PanelSkeleton label="Loading AI assistant..." />}>
+												<AIPanel projectId={projectId} className="h-full" />
+											</Suspense>
+										</aside>
+									</Panel>
+								</>
+							)}
+						</PanelGroup>
+
+						{/* Status bar */}
+						<footer
+							className="
+								flex h-6 shrink-0 items-center justify-between border-t border-border
+								bg-bg-secondary px-3 text-xs text-text-secondary
+							"
+						>
+							<div className="flex items-center gap-4">
+								{isConnected ? (
+									<span className="flex items-center gap-1.5">
+										<span className="size-1.5 rounded-full" style={{ backgroundColor: localParticipantColor ?? 'var(--color-success)' }} />
+										Connected
+										{participants.length > 0 && (
+											<span className="flex items-center gap-1">
+												<span className="text-text-secondary">&middot;</span>
+												{participants.map((participant) => (
+													<span
+														key={participant.id}
+														className="size-2 rounded-full"
+														style={{ backgroundColor: participant.color }}
+														title={`Collaborator (${participant.id.slice(0, 6)})`}
+													/>
+												))}
+												<span className="text-text-secondary">{participants.length} online</span>
+											</span>
+										)}
+									</span>
+								) : localParticipantColor ? (
+									<span className="flex items-center gap-1.5">
+										<span className="size-1.5 animate-pulse rounded-full" style={{ backgroundColor: localParticipantColor }} />
+										Reconnecting
+									</span>
+								) : (
+									<span className="flex items-center gap-1.5">
+										<span className="size-1.5 rounded-full bg-error" />
+										Disconnected
 									</span>
 								)}
-							</span>
-						) : localParticipantColor ? (
-							<span className="flex items-center gap-1.5">
-								<span className="size-1.5 animate-pulse rounded-full" style={{ backgroundColor: localParticipantColor }} />
-								Reconnecting
-							</span>
-						) : (
-							<span className="flex items-center gap-1.5">
-								<span className="size-1.5 rounded-full bg-error" />
-								Disconnected
-							</span>
-						)}
-					</div>
-					<div className="flex items-center gap-4">
-						{isSaving && <span>Saving...</span>}
-						<a href="/docs" target="_blank" rel="noopener noreferrer" className="transition-colors hover:text-accent">
-							Worker IDE
-						</a>
-					</div>
-				</footer>
+							</div>
+							<div className="flex items-center gap-4">
+								{isSaving && <span>Saving...</span>}
+								<a href="/docs" target="_blank" rel="noopener noreferrer" className="transition-colors hover:text-accent">
+									Worker IDE
+								</a>
+							</div>
+						</footer>
+					</>
+				)}
 			</div>
 		</TooltipProvider>
 	);

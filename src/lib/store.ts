@@ -173,6 +173,8 @@ interface PendingChangesActions {
 
 type ColorScheme = 'light' | 'dark' | 'system';
 
+export type MobilePanel = 'editor' | 'preview' | 'agent';
+
 interface UIState {
 	/** Whether sidebar is visible */
 	sidebarVisible: boolean;
@@ -184,6 +186,10 @@ interface UIState {
 	devtoolsVisible: boolean;
 	/** Color scheme preference */
 	colorScheme: ColorScheme;
+	/** Active panel on mobile layout */
+	activeMobilePanel: MobilePanel;
+	/** Whether the mobile file tree drawer is open */
+	mobileFileTreeOpen: boolean;
 }
 
 interface UIActions {
@@ -192,6 +198,8 @@ interface UIActions {
 	toggleAIPanel: () => void;
 	toggleDevtools: () => void;
 	setColorScheme: (scheme: ColorScheme) => void;
+	setActiveMobilePanel: (panel: MobilePanel) => void;
+	toggleMobileFileTree: () => void;
 }
 
 // =============================================================================
@@ -576,6 +584,8 @@ export const useStore = create<StoreState>()(
 				aiPanelVisible: false,
 				devtoolsVisible: false,
 				colorScheme: 'dark',
+				activeMobilePanel: 'editor',
+				mobileFileTreeOpen: false,
 				toggleSidebar: () => set((state) => ({ sidebarVisible: !state.sidebarVisible })),
 
 				toggleTerminal: () => set((state) => ({ terminalVisible: !state.terminalVisible })),
@@ -585,6 +595,10 @@ export const useStore = create<StoreState>()(
 				toggleDevtools: () => set((state) => ({ devtoolsVisible: !state.devtoolsVisible })),
 
 				setColorScheme: (scheme) => set({ colorScheme: scheme }),
+
+				setActiveMobilePanel: (panel) => set({ activeMobilePanel: panel }),
+
+				toggleMobileFileTree: () => set((state) => ({ mobileFileTreeOpen: !state.mobileFileTreeOpen })),
 			}),
 			{
 				name: 'worker-ide-store',
@@ -596,6 +610,7 @@ export const useStore = create<StoreState>()(
 					aiPanelVisible: state.aiPanelVisible,
 					devtoolsVisible: state.devtoolsVisible,
 					colorScheme: state.colorScheme,
+					activeMobilePanel: state.activeMobilePanel,
 					expandedDirs: [...state.expandedDirs],
 					sessionId: state.sessionId,
 				}),

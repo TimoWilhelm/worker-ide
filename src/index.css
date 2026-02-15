@@ -50,6 +50,7 @@
 	/* Animations */
 	--animate-fade-in: fadeIn 0.15s ease-out;
 	--animate-chat-item: chatReveal 0.12s ease-out;
+	--animate-slide-in-left: slideInLeft 0.2s ease-out;
 }
 
 /* Dark mode overrides */
@@ -336,6 +337,16 @@ textarea:focus-visible,
 	background: var(--color-bg-primary);
 	padding: 2px 5px;
 	border-radius: 3px;
+}
+
+/* Mobile drawer slide-in animation */
+@keyframes slideInLeft {
+	from {
+		transform: translateX(-100%);
+	}
+	to {
+		transform: translateX(0);
+	}
 }
 
 /* Border beam animation — used by the BorderBeam component (inline styles) */
