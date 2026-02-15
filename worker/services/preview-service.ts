@@ -10,8 +10,8 @@ import { env, exports } from 'cloudflare:workers';
 
 import { serializeMessage, type ServerMessage } from '@shared/ws-messages';
 
-import { transformCode } from './bundler-service';
-import { transformModule, processHTML, type FileSystem } from './transform-service';
+import { bundleWithCdn } from './bundler-service';
+import { transformModule, processHTML, toEsbuildTsconfigRaw, type FileSystem } from './transform-service';
 import { source as chobitsuInitSource, hash as chobitsuInitHash } from '../lib/preview-scripts/chobitsu-init.js?raw-minified';
 import { source as errorOverlaySource, hash as errorOverlayHash } from '../lib/preview-scripts/error-overlay.js?raw-minified';
 import { source as fetchInterceptorSource, hash as fetchInterceptorHash } from '../lib/preview-scripts/fetch-interceptor.js?raw-minified';
@@ -196,7 +196,35 @@ export class PreviewService {
 				});
 			}
 
-			// Handle JS/TS/CSS/JSON - use transformModule for import rewriting
+			// Handle JS/TS/JSX/TSX - bundle with esm.sh CDN resolution
+			if (['.ts', '.tsx', '.jsx', '.js', '.mjs', '.mts'].includes(extension)) {
+				const sourceFiles = await this.collectFilesForBundle(`${this.projectRoot}/src`, 'src');
+				// Also include root-level files (e.g. tsconfig.json for jsx settings)
+				const allFiles: Record<string, string> = { ...sourceFiles };
+				// Add the requested file if not already in src/
+				const relativeFilePath = filePath.startsWith('/') ? filePath.slice(1) : filePath;
+				if (!(relativeFilePath in allFiles)) {
+					allFiles[relativeFilePath] = textContent;
+				}
+
+				const tsconfigRaw = await this.loadTsconfigRaw();
+
+				const bundled = await bundleWithCdn({
+					files: allFiles,
+					entryPoint: relativeFilePath,
+					platform: 'browser',
+					tsconfigRaw,
+				});
+
+				return new Response(bundled.code, {
+					headers: {
+						'Content-Type': 'application/javascript',
+						'Cache-Control': 'no-cache',
+					},
+				});
+			}
+
+			// Handle CSS/JSON - use transformModule for import rewriting
 			const transformed = await transformModule(filePath, textContent, {
 				fs: viteFs,
 				projectRoot: this.projectRoot,
@@ -258,32 +286,19 @@ export class PreviewService {
 			const logTailer = exports.LogTailer({ props: { projectId: this.projectId } });
 
 			const worker = env.LOADER.get(`worker:${contentHash}`, async () => {
-				const modules: Record<string, string> = {};
-				for (const [filePath, content] of workerFiles) {
-					const jsPath = filePath.replace(/\.(ts|tsx|jsx|mts)$/, '.js');
-					const needsTransform = /\.(ts|tsx|jsx|mts)$/.test(filePath);
-					let code = content;
-					if (needsTransform) {
-						const result = await transformCode(code, filePath, { sourcemap: false });
-						code = result.code;
-					}
-					// Rewrite import specifiers to use .js extensions
-					code = code.replaceAll(
-						/(from\s+['"])(\.\.\/|\.\/)([^'"]+?)(\.ts|\.tsx|\.jsx|\.mts)?(['"])/g,
-						(match, pre, relative, rest, extension, quote) => {
-							const hasJsExtension = rest.endsWith('.js') || rest.endsWith('.mjs');
-							if (extension) return `${pre}${relative}${rest}.js${quote}`;
-							if (hasJsExtension) return match;
-							return `${pre}${relative}${rest}.js${quote}`;
-						},
-					);
-					modules[jsPath] = code;
-				}
+				const tsconfigRaw = await this.loadTsconfigRaw();
+
+				const bundled = await bundleWithCdn({
+					files,
+					entryPoint: workerEntry,
+					platform: 'neutral',
+					tsconfigRaw,
+				});
 
 				return {
 					compatibilityDate: '2026-01-31',
-					mainModule: 'worker/index.js',
-					modules,
+					mainModule: 'worker.js',
+					modules: { 'worker.js': bundled.code },
 					tails: [logTailer],
 				};
 			});
@@ -346,6 +361,19 @@ export class PreviewService {
 	private getExtension(path: string): string {
 		const match = path.match(/\.[^./]+$/);
 		return match ? match[0].toLowerCase() : '';
+	}
+
+	/**
+	 * Load and convert tsconfig.json to esbuild's tsconfigRaw format.
+	 */
+	private async loadTsconfigRaw(): Promise<string | undefined> {
+		try {
+			const content = await fs.readFile(`${this.projectRoot}/tsconfig.json`, 'utf8');
+			const tsConfig = JSON.parse(content);
+			return toEsbuildTsconfigRaw(tsConfig);
+		} catch {
+			return undefined;
+		}
 	}
 
 	/**

@@ -119,6 +119,7 @@ export default defineConfig(
 
 	{
 		files: ['**/*.{ts,tsx}'],
+		ignores: ['worker/fixtures/**'],
 		plugins: {
 			'better-tailwindcss': eslintPluginBetterTailwindcss,
 		},

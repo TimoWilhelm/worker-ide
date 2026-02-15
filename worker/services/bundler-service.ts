@@ -108,6 +108,81 @@ export interface BundleResult {
 }
 
 // =============================================================================
+// ESM CDN Resolution
+// =============================================================================
+
+const ESM_CDN = 'https://esm.sh';
+
+/** In-memory cache for modules fetched from esm.sh. */
+const esmCdnCache = new Map<string, string>();
+
+/**
+ * Fetch a module from esm.sh, following redirects, and cache the result.
+ */
+async function fetchFromCdn(url: string): Promise<string> {
+	const cached = esmCdnCache.get(url);
+	if (cached !== undefined) return cached;
+
+	const response = await fetch(url, { redirect: 'follow' });
+	if (!response.ok) {
+		throw new Error(`Failed to fetch ${url}: ${response.status} ${response.statusText}`);
+	}
+	const text = await response.text();
+
+	// Cache both the original URL and the final URL (after redirects)
+	esmCdnCache.set(url, text);
+	if (response.url !== url) {
+		esmCdnCache.set(response.url, text);
+	}
+
+	return text;
+}
+
+/**
+ * Resolve a URL relative to a base URL (for esm.sh internal imports).
+ */
+function resolveUrl(base: string, relative: string): string {
+	try {
+		return new URL(relative, base).href;
+	} catch {
+		return relative;
+	}
+}
+
+/**
+ * esbuild plugin that resolves bare package imports via esm.sh CDN.
+ * Fetches and inlines the module source at bundle time.
+ */
+function createEsmCdnPlugin(): esbuild.Plugin {
+	return {
+		name: 'esm-cdn',
+		setup(build) {
+			// Resolve bare specifiers to esm.sh URLs
+			build.onResolve({ filter: /.*/, namespace: 'esm-cdn' }, (arguments_) => {
+				// Relative imports within esm.sh modules
+				if (arguments_.path.startsWith('.') || arguments_.path.startsWith('/')) {
+					return {
+						path: resolveUrl(arguments_.importer, arguments_.path),
+						namespace: 'esm-cdn',
+					};
+				}
+				// Bare specifiers within esm.sh (transitive deps)
+				return {
+					path: `${ESM_CDN}/${arguments_.path}`,
+					namespace: 'esm-cdn',
+				};
+			});
+
+			// Load modules from esm.sh
+			build.onLoad({ filter: /.*/, namespace: 'esm-cdn' }, async (arguments_) => {
+				const source = await fetchFromCdn(arguments_.path);
+				return { contents: source, loader: 'js' };
+			});
+		},
+	};
+}
+
+// =============================================================================
 // Bundle Function
 // =============================================================================
 
@@ -148,17 +223,20 @@ function resolveRelativePath(resolveDirectory: string, relativePath: string, fil
 }
 
 /**
- * Bundle multiple files into a single JavaScript bundle using esbuild.
+ * Create a virtual-fs esbuild plugin for bundling files from a Record.
+ * When `resolveBareFromCdn` is true, bare specifiers are sent to the esm-cdn namespace
+ * instead of being marked as external.
  */
-export async function bundleCode(options: BundleOptions): Promise<BundleResult> {
-	await initializeEsbuild();
-
-	const { files, entryPoint, externals = [], minify = false, sourcemap = false, tsconfigRaw } = options;
-
-	const virtualFsPlugin: esbuild.Plugin = {
+function createVirtualFsPlugin(files: Record<string, string>, externals: string[], resolveBareFromCdn: boolean): esbuild.Plugin {
+	return {
 		name: 'virtual-fs',
 		setup(build) {
+			// Only handle imports from the virtual namespace or entry points.
+			// Imports from esm-cdn namespace are handled by the esm-cdn plugin.
 			build.onResolve({ filter: /.*/ }, (arguments_) => {
+				// Let the esm-cdn plugin handle its own namespace
+				if (arguments_.namespace === 'esm-cdn') return;
+
 				if (arguments_.kind === 'entry-point') {
 					return { path: arguments_.path, namespace: 'virtual' };
 				}
@@ -173,6 +251,12 @@ export async function bundleCode(options: BundleOptions): Promise<BundleResult> 
 				if (!arguments_.path.startsWith('/') && !arguments_.path.startsWith('.')) {
 					if (externals.includes(arguments_.path) || externals.some((error) => arguments_.path.startsWith(`${error}/`))) {
 						return { path: arguments_.path, external: true };
+					}
+					if (resolveBareFromCdn) {
+						return {
+							path: `${ESM_CDN}/${arguments_.path}`,
+							namespace: 'esm-cdn',
+						};
 					}
 					return { path: arguments_.path, external: true };
 				}
@@ -191,6 +275,20 @@ export async function bundleCode(options: BundleOptions): Promise<BundleResult> 
 					return { errors: [{ text: `File not found: ${arguments_.path}` }] };
 				}
 
+				// Convert CSS imports to JS that injects a <style> tag
+				if (arguments_.path.endsWith('.css')) {
+					const cssContent = JSON.stringify(content);
+					const jsCode = [
+						`const css = ${cssContent};`,
+						`const style = document.createElement('style');`,
+						`style.setAttribute('data-dev-id', ${JSON.stringify(arguments_.path)});`,
+						`style.textContent = css;`,
+						`document.head.appendChild(style);`,
+						`export default css;`,
+					].join('\n');
+					return { contents: jsCode, loader: 'js' };
+				}
+
 				const loader = getLoader(arguments_.path);
 				const lastSlash = arguments_.path.lastIndexOf('/');
 				const resolveDirectory = lastSlash === -1 ? '' : arguments_.path.slice(0, lastSlash);
@@ -198,6 +296,15 @@ export async function bundleCode(options: BundleOptions): Promise<BundleResult> 
 			});
 		},
 	};
+}
+
+/**
+ * Bundle multiple files into a single JavaScript bundle using esbuild.
+ */
+export async function bundleCode(options: BundleOptions): Promise<BundleResult> {
+	await initializeEsbuild();
+
+	const { files, entryPoint, externals = [], minify = false, sourcemap = false, tsconfigRaw } = options;
 
 	const result = await esbuild.build({
 		entryPoints: [entryPoint],
@@ -208,7 +315,55 @@ export async function bundleCode(options: BundleOptions): Promise<BundleResult> 
 		target: 'es2022',
 		minify,
 		sourcemap: sourcemap ? 'inline' : false,
-		plugins: [virtualFsPlugin],
+		plugins: [createVirtualFsPlugin(files, externals, false)],
+		outfile: 'bundle.js',
+		tsconfigRaw,
+	});
+
+	const output = result.outputFiles?.[0];
+	if (!output) {
+		throw new Error('No output generated from esbuild');
+	}
+
+	return {
+		code: output.text,
+		warnings: result.warnings.map((w) => w.text),
+	};
+}
+
+// =============================================================================
+// Bundle with CDN Types
+// =============================================================================
+
+export interface BundleWithCdnOptions {
+	files: Record<string, string>;
+	entryPoint: string;
+	externals?: string[];
+	minify?: boolean;
+	sourcemap?: boolean;
+	tsconfigRaw?: string;
+	platform?: 'browser' | 'neutral';
+}
+
+/**
+ * Bundle files into a single JavaScript module, resolving bare package imports
+ * from esm.sh CDN at bundle time. Used for both frontend (React) and backend (Hono).
+ */
+export async function bundleWithCdn(options: BundleWithCdnOptions): Promise<BundleResult> {
+	await initializeEsbuild();
+
+	const { files, entryPoint, externals = [], minify = false, sourcemap = false, tsconfigRaw, platform = 'browser' } = options;
+
+	const result = await esbuild.build({
+		entryPoints: [entryPoint],
+		bundle: true,
+		write: false,
+		format: 'esm',
+		platform,
+		target: 'es2022',
+		minify,
+		sourcemap: sourcemap ? 'inline' : false,
+		plugins: [createVirtualFsPlugin(files, externals, true), createEsmCdnPlugin()],
 		outfile: 'bundle.js',
 		tsconfigRaw,
 	});

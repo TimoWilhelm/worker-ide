@@ -16,12 +16,11 @@ import { mount, withMounts } from 'worker-fs-mount';
 import { generateHumanId } from '@shared/human-id';
 
 import exampleIndexHtml from './fixtures/example-project/index.html?raw';
-import exampleApiTs from './fixtures/example-project/src/api.ts?raw';
-import exampleMainTs from './fixtures/example-project/src/main.ts?raw';
+import exampleAppTsx from './fixtures/example-project/src/app.tsx?raw';
+import exampleMainTsx from './fixtures/example-project/src/main.tsx?raw';
 import exampleStyleCss from './fixtures/example-project/src/style.css?raw';
 import exampleTsconfig from './fixtures/example-project/tsconfig.json?raw';
 import exampleWorkerDatabaseTs from './fixtures/example-project/worker/database.ts?raw';
-import exampleWorkerHandlersTs from './fixtures/example-project/worker/handlers.ts?raw';
 import exampleWorkerIndexTs from './fixtures/example-project/worker/index.ts?raw';
 import { apiRoutes } from './routes';
 import { PreviewService } from './services/preview-service';
@@ -65,11 +64,10 @@ const PROJECT_ROOT = '/project';
 const EXAMPLE_PROJECT: Record<string, string> = {
 	'tsconfig.json': exampleTsconfig,
 	'index.html': exampleIndexHtml,
-	'src/main.ts': exampleMainTs,
-	'src/api.ts': exampleApiTs,
+	'src/main.tsx': exampleMainTsx,
+	'src/app.tsx': exampleAppTsx,
 	'src/style.css': exampleStyleCss,
 	'worker/database.ts': exampleWorkerDatabaseTs,
-	'worker/handlers.ts': exampleWorkerHandlersTs,
 	'worker/index.ts': exampleWorkerIndexTs,
 };
 

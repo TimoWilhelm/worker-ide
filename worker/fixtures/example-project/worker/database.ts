@@ -1,14 +1,15 @@
 // In-memory database module
 
-export interface Todo {
+export interface Contact {
 	id: string;
-	text: string;
-	done: boolean;
+	name: string;
+	email: string;
+	role: string;
 }
 
 // In-memory storage (resets on worker restart)
-export const todos: Todo[] = [
-	{ id: '1', text: 'Learn Cloudflare Workers', done: true },
-	{ id: '2', text: 'Build a full-stack app', done: false },
-	{ id: '3', text: 'Deploy to the edge', done: false },
+export const contacts: Contact[] = [
+	{ id: '1', name: 'Alice Johnson', email: 'alice@example.com', role: 'Engineer' },
+	{ id: '2', name: 'Bob Smith', email: 'bob@example.com', role: 'Designer' },
+	{ id: '3', name: 'Carol Williams', email: 'carol@example.com', role: 'Manager' },
 ];

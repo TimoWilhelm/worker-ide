@@ -1,36 +1,62 @@
-// Worker entry point - routes requests to handlers
-import { hello, listTodos, addTodo, toggleTodo, deleteTodo } from './handlers';
+// Worker entry point - Hono API
+import { Hono } from 'hono';
 
-export default {
-	async fetch(request: Request): Promise<Response> {
-		const url = new URL(request.url);
-		const path = url.pathname;
-		const method = request.method;
+import { contacts, type Contact } from './database';
 
-		console.log(`${method} ${path}`);
+const app = new Hono();
 
-		if (path === '/api/hello' && method === 'GET') {
-			return hello();
-		}
+// List all contacts
+app.get('/api/contacts', (c) => {
+	return c.json(contacts);
+});
 
-		if (path === '/api/todos' && method === 'GET') {
-			return listTodos();
-		}
+// Get a single contact
+app.get('/api/contacts/:id', (c) => {
+	const contact = contacts.find((item) => item.id === c.req.param('id'));
+	if (!contact) return c.json({ error: 'Not found' }, 404);
+	return c.json(contact);
+});
 
-		if (path === '/api/todos' && method === 'POST') {
-			return addTodo(request);
-		}
+// Create a new contact
+app.post('/api/contacts', async (c) => {
+	const body = await c.req.json<{ name: string; email: string; role?: string }>();
+	const contact: Contact = {
+		id: crypto.randomUUID(),
+		name: body.name,
+		email: body.email,
+		role: body.role || 'Member',
+	};
+	contacts.push(contact);
+	console.log(`Created contact: ${contact.name}`);
+	return c.json(contact, 201);
+});
 
-		const toggleMatch = path.match(/^\/api\/todos\/([^/]+)\/toggle$/);
-		if (toggleMatch && method === 'POST') {
-			return toggleTodo(toggleMatch[1]);
-		}
+// Update a contact
+app.put('/api/contacts/:id', async (c) => {
+	const id = c.req.param('id');
+	const contact = contacts.find((item) => item.id === id);
+	if (!contact) return c.json({ error: 'Not found' }, 404);
+	const body = await c.req.json<{ name?: string; email?: string; role?: string }>();
+	if (body.name) contact.name = body.name;
+	if (body.email) contact.email = body.email;
+	if (body.role) contact.role = body.role;
+	console.log(`Updated contact: ${contact.name}`);
+	return c.json(contact);
+});
 
-		const deleteMatch = path.match(/^\/api\/todos\/([^/]+)$/);
-		if (deleteMatch && method === 'DELETE') {
-			return deleteTodo(deleteMatch[1]);
-		}
+// Delete a contact
+app.delete('/api/contacts/:id', (c) => {
+	const id = c.req.param('id');
+	const index = contacts.findIndex((item) => item.id === id);
+	if (index === -1) return c.json({ error: 'Not found' }, 404);
+	const [deleted] = contacts.splice(index, 1);
+	console.log(`Deleted contact: ${deleted.name}`);
+	return c.json(deleted);
+});
 
-		return Response.json({ error: 'Not found' }, { status: 404 });
-	},
-};
+// Catch-all
+app.all('*', (c) => {
+	return c.json({ error: 'Not found' }, 404);
+});
+
+export default app;
