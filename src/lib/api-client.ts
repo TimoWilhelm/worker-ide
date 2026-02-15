@@ -61,7 +61,9 @@ export async function createProject(): Promise<{ projectId: string; url: string;
 /**
  * Fetch project metadata (name, humanId).
  */
-export async function fetchProjectMeta(projectId: string): Promise<{ name: string; humanId: string }> {
+export async function fetchProjectMeta(
+	projectId: string,
+): Promise<{ name: string; humanId: string; dependencies?: Record<string, string> }> {
 	const response = await fetch(`/p/${projectId}/api/project/meta`);
 	if (!response.ok) {
 		throw new Error('Failed to fetch project meta');
@@ -80,6 +82,24 @@ export async function updateProjectMeta(projectId: string, name: string): Promis
 	});
 	if (!response.ok) {
 		throw new Error('Failed to update project meta');
+	}
+	return response.json();
+}
+
+/**
+ * Update project dependencies.
+ */
+export async function updateDependencies(
+	projectId: string,
+	dependencies: Record<string, string>,
+): Promise<{ name: string; humanId: string; dependencies?: Record<string, string> }> {
+	const response = await fetch(`/p/${projectId}/api/project/meta`, {
+		method: 'PUT',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ dependencies }),
+	});
+	if (!response.ok) {
+		throw new Error('Failed to update dependencies');
 	}
 	return response.json();
 }

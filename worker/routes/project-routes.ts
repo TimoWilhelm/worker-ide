@@ -16,13 +16,6 @@ import type { AppEnvironment } from '../types';
 import type { ProjectMeta } from '@shared/types';
 
 /**
- * Type guard to check if a value is a string record (e.g. scripts or devDependencies from package.json).
- */
-function isStringRecord(value: unknown): value is Record<string, string> {
-	return !!value && typeof value === 'object' && !Array.isArray(value);
-}
-
-/**
  * Project routes - all routes are prefixed with /api
  */
 export const projectRoutes = new Hono<AppEnvironment>()
@@ -66,11 +59,28 @@ export const projectRoutes = new Hono<AppEnvironment>()
 		try {
 			const raw = await fs.readFile(metaPath, 'utf8');
 			meta = JSON.parse(raw);
-			meta.name = parsed.data.name;
 		} catch {
-			meta = { name: parsed.data.name, humanId: generateHumanId() };
+			meta = { name: 'Untitled', humanId: generateHumanId() };
 		}
+		if (parsed.data.name) meta.name = parsed.data.name;
+		const dependenciesChanged = parsed.data.dependencies !== undefined;
+		if (dependenciesChanged) meta.dependencies = parsed.data.dependencies;
 		await fs.writeFile(metaPath, JSON.stringify(meta));
+
+		// Trigger full reload when dependencies change so the preview rebundles
+		if (dependenciesChanged) {
+			const projectId = c.get('projectId');
+			const environment = c.env;
+			const coordinatorId = environment.DO_PROJECT_COORDINATOR.idFromName(`project:${projectId}`);
+			const coordinatorStub = environment.DO_PROJECT_COORDINATOR.get(coordinatorId);
+			await coordinatorStub.triggerUpdate({
+				type: 'full-reload',
+				path: '/.project-meta.json',
+				timestamp: Date.now(),
+				isCSS: false,
+			});
+		}
+
 		return c.json(meta);
 	})
 
@@ -91,47 +101,32 @@ export const projectRoutes = new Hono<AppEnvironment>()
 		delete projectFiles['.initialized'];
 		delete projectFiles['.project-meta.json'];
 
-		let packageJson: Record<string, unknown> = {};
 		let projectName = 'my-worker-app';
+		let registeredDependencies: Record<string, string> = {};
 
-		// Use the project name from metadata (may have been renamed by the user)
+		// Read project metadata for name and dependencies
 		try {
 			const metaRaw = await fs.readFile(`${projectRoot}/.project-meta.json`, 'utf8');
 			const meta: ProjectMeta = JSON.parse(metaRaw);
 			projectName = meta.name || meta.humanId || projectName;
+			registeredDependencies = meta.dependencies ?? {};
 		} catch {
-			// Fall back to default
+			// Fall back to defaults
 		}
 
-		if (projectFiles['package.json']) {
-			try {
-				packageJson = JSON.parse(projectFiles['package.json']);
-			} catch {
-				// Ignore parse errors
-			}
-		}
-		packageJson.name = projectName;
-
-		const existingScripts = isStringRecord(packageJson.scripts) ? packageJson.scripts : {};
-		packageJson.scripts = {
-			...existingScripts,
-			dev: 'vite dev',
-			build: 'vite build',
-			deploy: 'vite build && wrangler deploy',
-		};
-		// Detect bare imports from project source files to populate dependencies
-		const detectedDependencies = detectBareImports(projectFiles);
-		const existingDependencies = isStringRecord(packageJson.dependencies) ? packageJson.dependencies : {};
-		packageJson.dependencies = {
-			...Object.fromEntries([...detectedDependencies].toSorted().map((dep) => [dep, 'latest'])),
-			...existingDependencies,
-		};
-		const existingDevelopmentDependencies = isStringRecord(packageJson.devDependencies) ? packageJson.devDependencies : {};
-		packageJson.devDependencies = {
-			...existingDevelopmentDependencies,
-			'@cloudflare/vite-plugin': '^1.0.0',
-			vite: '^6.0.0',
-			wrangler: '^4.0.0',
+		const packageJson: Record<string, unknown> = {
+			name: projectName,
+			scripts: {
+				dev: 'vite dev',
+				build: 'vite build',
+				deploy: 'vite build && wrangler deploy',
+			},
+			dependencies: registeredDependencies,
+			devDependencies: {
+				'@cloudflare/vite-plugin': '^1.0.0',
+				vite: '^6.0.0',
+				wrangler: '^4.0.0',
+			},
 		};
 
 		const zipFiles: Record<string, string> = {};
@@ -210,32 +205,6 @@ async function collectFilesForBundle(directory: string, base = ''): Promise<Reco
 		}
 	}
 	return files;
-}
-
-/**
- * Scan project source files for bare import specifiers (npm packages).
- * Returns a Set of top-level package names (e.g. 'react', 'hono', '@scope/pkg').
- */
-function detectBareImports(files: Record<string, string>): Set<string> {
-	const packages = new Set<string>();
-	const importPattern = /(?:import|export)\s.*?from\s+['"]([^'"]+)['"]|import\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
-
-	for (const [filePath, content] of Object.entries(files)) {
-		if (!/\.(ts|tsx|js|jsx|mts|mjs)$/.test(filePath)) continue;
-
-		let match;
-		while ((match = importPattern.exec(content))) {
-			const specifier = match[1] || match[2];
-			// Skip relative, absolute, and protocol imports
-			if (specifier.startsWith('.') || specifier.startsWith('/') || specifier.includes('://')) continue;
-			// Extract top-level package name (handle scoped packages like @scope/pkg)
-			const parts = specifier.split('/');
-			const packageName = parts[0].startsWith('@') ? `${parts[0]}/${parts[1]}` : parts[0];
-			packages.add(packageName);
-		}
-	}
-
-	return packages;
 }
 
 export type ProjectRoutes = typeof projectRoutes;

@@ -227,7 +227,12 @@ function resolveRelativePath(resolveDirectory: string, relativePath: string, fil
  * When `resolveBareFromCdn` is true, bare specifiers are sent to the esm-cdn namespace
  * instead of being marked as external.
  */
-function createVirtualFsPlugin(files: Record<string, string>, externals: string[], resolveBareFromCdn: boolean): esbuild.Plugin {
+function createVirtualFsPlugin(
+	files: Record<string, string>,
+	externals: string[],
+	resolveBareFromCdn: boolean,
+	knownDependencies?: Map<string, string>,
+): esbuild.Plugin {
 	return {
 		name: 'virtual-fs',
 		setup(build) {
@@ -253,6 +258,32 @@ function createVirtualFsPlugin(files: Record<string, string>, externals: string[
 						return { path: arguments_.path, external: true };
 					}
 					if (resolveBareFromCdn) {
+						const parts = arguments_.path.split('/');
+						const packageName = parts[0].startsWith('@') ? `${parts[0]}/${parts[1]}` : parts[0];
+						const subpath = parts[0].startsWith('@') ? parts.slice(2).join('/') : parts.slice(1).join('/');
+
+						// Only resolve imports that are registered as dependencies
+						if (knownDependencies) {
+							const version = knownDependencies.get(packageName);
+							if (version === undefined) {
+								return {
+									errors: [
+										{
+											text: `Unregistered dependency "${packageName}". Add it to project dependencies using the Dependencies panel.`,
+										},
+									],
+								};
+							}
+							// Use the registered version in the esm.sh URL
+							const versionedPackage = version && version !== '*' ? `${packageName}@${version}` : packageName;
+							const cdnPath = subpath ? `${versionedPackage}/${subpath}` : versionedPackage;
+							return {
+								path: `${ESM_CDN}/${cdnPath}`,
+								namespace: 'esm-cdn',
+							};
+						}
+
+						// No dependency list provided — resolve all bare imports (legacy/fallback)
 						return {
 							path: `${ESM_CDN}/${arguments_.path}`,
 							namespace: 'esm-cdn',
@@ -343,6 +374,8 @@ export interface BundleWithCdnOptions {
 	sourcemap?: boolean;
 	tsconfigRaw?: string;
 	platform?: 'browser' | 'neutral';
+	/** Known registered dependencies (name → version). Only these are resolved from esm.sh. */
+	knownDependencies?: Map<string, string>;
 }
 
 /**
@@ -352,7 +385,18 @@ export interface BundleWithCdnOptions {
 export async function bundleWithCdn(options: BundleWithCdnOptions): Promise<BundleResult> {
 	await initializeEsbuild();
 
-	const { files, entryPoint, externals = [], minify = false, sourcemap = false, tsconfigRaw, platform = 'browser' } = options;
+	const {
+		files,
+		entryPoint,
+		externals = [],
+		minify = false,
+		sourcemap = false,
+		tsconfigRaw,
+		platform = 'browser',
+		knownDependencies,
+	} = options;
+
+	const virtualFsPlugin = createVirtualFsPlugin(files, externals, true, knownDependencies);
 
 	const result = await esbuild.build({
 		entryPoints: [entryPoint],
@@ -363,7 +407,7 @@ export async function bundleWithCdn(options: BundleWithCdnOptions): Promise<Bund
 		target: 'es2022',
 		minify,
 		sourcemap: sourcemap ? 'inline' : false,
-		plugins: [createVirtualFsPlugin(files, externals, true), createEsmCdnPlugin()],
+		plugins: [virtualFsPlugin, createEsmCdnPlugin()],
 		outfile: 'bundle.js',
 		tsconfigRaw,
 	});

@@ -3,6 +3,8 @@
  * AGENT_TOOLS, PLAN_MODE_TOOLS, and the executor dispatch map.
  */
 
+import * as dependenciesListTool from './dependencies-list';
+import * as dependenciesUpdateTool from './dependencies-update';
 import * as documentationSearchTool from './documentation-search';
 import * as fileDeleteTool from './file-delete';
 import * as fileEditTool from './file-edit';
@@ -43,6 +45,8 @@ export const TOOL_EXECUTORS: ReadonlyMap<string, ToolExecuteFunction> = new Map(
 	['plan_update', planUpdateTool.execute],
 	['todos_get', todosGetTool.execute],
 	['todos_update', todosUpdateTool.execute],
+	['dependencies_list', dependenciesListTool.execute],
+	['dependencies_update', dependenciesUpdateTool.execute],
 ]);
 
 // =============================================================================
@@ -66,6 +70,8 @@ export const AGENT_TOOLS: readonly ToolDefinition[] = [
 	planUpdateTool.definition,
 	todosGetTool.definition,
 	todosUpdateTool.definition,
+	dependenciesListTool.definition,
+	dependenciesUpdateTool.definition,
 ];
 
 // =============================================================================
@@ -84,6 +90,7 @@ const PLAN_MODE_TOOL_NAMES = new Set([
 	'plan_update',
 	'todos_get',
 	'todos_update',
+	'dependencies_list',
 ]);
 
 export const PLAN_MODE_TOOLS: readonly ToolDefinition[] = AGENT_TOOLS.filter((tool) => PLAN_MODE_TOOL_NAMES.has(tool.name));

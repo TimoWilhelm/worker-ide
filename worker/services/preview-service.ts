@@ -8,14 +8,14 @@ import fs from 'node:fs/promises';
 import { source as chobitsuSource, hash as chobitsuHash } from 'chobitsu?raw-minified';
 import { env, exports } from 'cloudflare:workers';
 
-import { serializeMessage, type ServerMessage } from '@shared/ws-messages';
-
 import { bundleWithCdn } from './bundler-service';
 import { transformModule, processHTML, toEsbuildTsconfigRaw, type FileSystem } from './transform-service';
 import { source as chobitsuInitSource, hash as chobitsuInitHash } from '../lib/preview-scripts/chobitsu-init.js?raw-minified';
 import { source as errorOverlaySource, hash as errorOverlayHash } from '../lib/preview-scripts/error-overlay.js?raw-minified';
 import { source as fetchInterceptorSource, hash as fetchInterceptorHash } from '../lib/preview-scripts/fetch-interceptor.js?raw-minified';
 import { source as hmrClientSource, hash as hmrClientHash } from '../lib/preview-scripts/hmr-client.js?raw-minified';
+
+import type { ServerMessage } from '@shared/ws-messages';
 
 // Content-Security-Policy for preview HTML responses.
 // Even though the iframe has sandbox="allow-scripts allow-same-origin", which
@@ -208,12 +208,14 @@ export class PreviewService {
 				}
 
 				const tsconfigRaw = await this.loadTsconfigRaw();
+				const knownDependencies = await this.loadKnownDependencies();
 
 				const bundled = await bundleWithCdn({
 					files: allFiles,
 					entryPoint: relativeFilePath,
 					platform: 'browser',
 					tsconfigRaw,
+					knownDependencies,
 				});
 
 				return new Response(bundled.code, {
@@ -280,7 +282,8 @@ export class PreviewService {
 			}
 
 			const workerFiles = Object.entries(files).toSorted(([a], [b]) => a.localeCompare(b));
-			const contentHash = await this.hashContent(JSON.stringify(workerFiles));
+			const knownDependencies = await this.loadKnownDependencies();
+			const contentHash = await this.hashContent(JSON.stringify(workerFiles) + JSON.stringify([...knownDependencies.entries()]));
 
 			// Create a tail consumer to capture console.log output from the sandbox
 			const logTailer = exports.LogTailer({ props: { projectId: this.projectId } });
@@ -293,6 +296,7 @@ export class PreviewService {
 					entryPoint: workerEntry,
 					platform: 'neutral',
 					tsconfigRaw,
+					knownDependencies,
 				});
 
 				return {
@@ -377,6 +381,22 @@ export class PreviewService {
 	}
 
 	/**
+	 * Load registered dependencies from .project-meta.json as a Map of name → version.
+	 */
+	private async loadKnownDependencies(): Promise<Map<string, string>> {
+		try {
+			const raw = await fs.readFile(`${this.projectRoot}/.project-meta.json`, 'utf8');
+			const meta = JSON.parse(raw);
+			if (meta.dependencies && typeof meta.dependencies === 'object') {
+				return new Map(Object.entries(meta.dependencies));
+			}
+		} catch {
+			// No meta file or parse error
+		}
+		return new Map();
+	}
+
+	/**
 	 * Broadcast a server-error, skipping if it's a duplicate of the last error.
 	 * This prevents the same build error from being shown N times when
 	 * the preview page makes N parallel API requests that all fail.
@@ -390,12 +410,7 @@ export class PreviewService {
 	private async broadcastMessage(message: ServerMessage): Promise<void> {
 		const coordinatorId = env.DO_PROJECT_COORDINATOR.idFromName(`project:${this.projectId}`);
 		const coordinatorStub = env.DO_PROJECT_COORDINATOR.get(coordinatorId);
-		await coordinatorStub.fetch(
-			new Request('http://internal/ws/send', {
-				method: 'POST',
-				body: serializeMessage(message),
-			}),
-		);
+		await coordinatorStub.sendMessage(message);
 	}
 
 	private async hashContent(content: string): Promise<string> {

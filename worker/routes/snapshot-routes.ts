@@ -215,16 +215,12 @@ async function revertSingleFile(
 	try {
 		const coordinatorId = environment.DO_PROJECT_COORDINATOR.idFromName(`project:${projectId}`);
 		const coordinatorStub = environment.DO_PROJECT_COORDINATOR.get(coordinatorId);
-		await coordinatorStub.fetch(
-			new Request('http://internal/ws/trigger', {
-				method: 'POST',
-				body: JSON.stringify({
-					type: 'full-reload',
-					path,
-					timestamp: Date.now(),
-				}),
-			}),
-		);
+		await coordinatorStub.triggerUpdate({
+			type: 'full-reload',
+			path,
+			timestamp: Date.now(),
+			isCSS: false,
+		});
 	} catch {
 		// HMR trigger failure is non-fatal
 	}

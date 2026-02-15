@@ -5,6 +5,7 @@
  */
 
 // Components
+export { DependencyPanel, type DependencyPanelProperties } from './components/dependency-panel';
 export { FileTree, type FileTreeItem, type FileTreeProperties } from './components/file-tree';
 
 // Hooks

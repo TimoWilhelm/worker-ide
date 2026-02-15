@@ -126,7 +126,9 @@ export type ToolName =
 	| 'docs_search'
 	| 'plan_update'
 	| 'todos_get'
-	| 'todos_update';
+	| 'todos_update'
+	| 'dependencies_list'
+	| 'dependencies_update';
 
 /**
  * Tool input types
@@ -423,4 +425,5 @@ export interface NewProjectResponse {
 export interface ProjectMeta {
 	name: string;
 	humanId: string;
+	dependencies?: Record<string, string>;
 }

@@ -25,7 +25,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { Tooltip, TooltipProvider } from '@/components/ui/tooltip';
 import { useChangeReview } from '@/features/ai-assistant/hooks/use-change-review';
 import { CodeEditor, computeDiffData, DiffToolbar, FileTabs, useFileContent } from '@/features/editor';
-import { FileTree, useFileTree } from '@/features/file-tree';
+import { DependencyPanel, FileTree, useFileTree } from '@/features/file-tree';
 import { getLogSnapshot, subscribeToLogs } from '@/features/terminal/lib/log-buffer';
 import { projectSocketSendReference, useIsMobile, useProjectSocket, useTheme } from '@/hooks';
 import { createProject, downloadProject, fetchProjectMeta, updateProjectMeta } from '@/lib/api-client';
@@ -52,6 +52,10 @@ export function IDEShell({ projectId }: { projectId: string }) {
 	// Theme
 	const resolvedTheme = useTheme();
 	const setColorScheme = useStore((state) => state.setColorScheme);
+
+	// Sidebar dependencies panel
+	const [dependenciesPanelVisible, setDependenciesPanelVisible] = useState(true);
+	const toggleDependenciesPanel = useCallback(() => setDependenciesPanelVisible((v) => !v), []);
 
 	// Mobile layout
 	const isMobile = useIsMobile();
@@ -704,6 +708,7 @@ export function IDEShell({ projectId }: { projectId: string }) {
 									className="flex-1"
 								/>
 							)}
+							<DependencyPanel projectId={projectId} />
 						</MobileFileDrawer>
 					</>
 				) : (
@@ -713,23 +718,46 @@ export function IDEShell({ projectId }: { projectId: string }) {
 							{/* Sidebar — file explorer */}
 							<Panel id="sidebar" defaultSize="15%" minSize="180px" maxSize="25%">
 								<aside className="flex h-full flex-col border-r border-border bg-bg-secondary">
-									{isLoadingFiles ? (
-										<div className="flex flex-1 items-center justify-center">
-											<Spinner size="sm" />
-										</div>
-									) : (
-										<FileTree
-											participants={participants}
-											files={files}
-											selectedFile={selectedFile}
-											expandedDirectories={expandedDirectories}
-											onFileSelect={handleSelectFile}
-											onDirectoryToggle={toggleDirectory}
-											onCreateFile={handleCreateFile}
-											onDeleteFile={deleteFile}
-											className="flex-1"
-										/>
-									)}
+									<PanelGroup orientation="vertical" id="sidebar-panels" className="flex-1">
+										<Panel id="file-tree" defaultSize={dependenciesPanelVisible ? '70%' : '100%'} minSize="20%">
+											<div className="h-full overflow-auto">
+												{isLoadingFiles ? (
+													<div className="flex flex-1 items-center justify-center p-4">
+														<Spinner size="sm" />
+													</div>
+												) : (
+													<FileTree
+														participants={participants}
+														files={files}
+														selectedFile={selectedFile}
+														expandedDirectories={expandedDirectories}
+														onFileSelect={handleSelectFile}
+														onDirectoryToggle={toggleDirectory}
+														onCreateFile={handleCreateFile}
+														onDeleteFile={deleteFile}
+													/>
+												)}
+											</div>
+										</Panel>
+										{dependenciesPanelVisible && (
+											<>
+												<ResizeHandle
+													className="
+														h-1 bg-border transition-colors
+														hover:bg-accent
+														data-[separator=active]:bg-accent
+														data-[separator=hover]:bg-accent
+													"
+												/>
+												<Panel id="dependencies" defaultSize="30%" minSize="10%" maxSize="60%">
+													<div className="h-full overflow-auto">
+														<DependencyPanel projectId={projectId} onToggle={toggleDependenciesPanel} />
+													</div>
+												</Panel>
+											</>
+										)}
+									</PanelGroup>
+									{!dependenciesPanelVisible && <DependencyPanel projectId={projectId} collapsed onToggle={toggleDependenciesPanel} />}
 								</aside>
 							</Panel>
 

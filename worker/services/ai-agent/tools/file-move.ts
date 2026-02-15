@@ -75,12 +75,7 @@ export async function execute(
 
 	const coordinatorId = environment.DO_PROJECT_COORDINATOR.idFromName(`project:${projectId}`);
 	const coordinatorStub = environment.DO_PROJECT_COORDINATOR.get(coordinatorId);
-	await coordinatorStub.fetch(
-		new Request('http://internal/ws/trigger', {
-			method: 'POST',
-			body: JSON.stringify({ type: 'full-reload', path: toPath, timestamp: Date.now(), isCSS: false }),
-		}),
-	);
+	await coordinatorStub.triggerUpdate({ type: 'full-reload', path: toPath, timestamp: Date.now(), isCSS: false });
 
 	await sendEvent('file_changed', {
 		path: `${fromPath} → ${toPath}`,

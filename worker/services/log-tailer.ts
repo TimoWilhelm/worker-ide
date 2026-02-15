@@ -9,8 +9,6 @@
 
 import { env, WorkerEntrypoint } from 'cloudflare:workers';
 
-import { serializeMessage } from '@shared/ws-messages';
-
 import type { ServerLogEntry } from '@shared/types';
 
 interface LogTailerProperties {
@@ -56,12 +54,7 @@ export class LogTailer extends WorkerEntrypoint<Env, LogTailerProperties> {
 		try {
 			const coordinatorId = env.DO_PROJECT_COORDINATOR.idFromName(`project:${projectId}`);
 			const coordinatorStub = env.DO_PROJECT_COORDINATOR.get(coordinatorId);
-			await coordinatorStub.fetch(
-				new Request('http://internal/ws/send', {
-					method: 'POST',
-					body: serializeMessage({ type: 'server-logs', logs }),
-				}),
-			);
+			await coordinatorStub.sendMessage({ type: 'server-logs', logs });
 		} catch {
 			// Best-effort — don't fail the tail if broadcast fails
 		}

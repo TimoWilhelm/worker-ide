@@ -4,6 +4,7 @@ import { COLLAB_COLORS } from '@shared/constants';
 import { serializeMessage, parseClientMessage } from '@shared/ws-messages';
 
 import type { HmrUpdate, Participant } from '@shared/types';
+import type { ServerMessage } from '@shared/ws-messages';
 
 /**
  * Participant attachment stored on WebSocket connections.
@@ -28,6 +29,9 @@ interface ParticipantAttachment {
  * Each project has its own ProjectCoordinator instance (keyed by `project:${projectId}`).
  */
 export class ProjectCoordinator extends DurableObject {
+	/** Last server-error message, replayed to newly connected clients */
+	private lastServerError: string | undefined;
+
 	private getAttachment(ws: WebSocket): ParticipantAttachment | undefined {
 		try {
 			const attachment: ParticipantAttachment = ws.deserializeAttachment();
@@ -125,37 +129,32 @@ export class ProjectCoordinator extends DurableObject {
 			return new Response(null, { status: 101, webSocket: client });
 		}
 
-		// Trigger HMR update from internal request
-		if (url.pathname === '/ws/trigger' && request.method === 'POST') {
-			const update: HmrUpdate = await request.json();
-			await this.broadcast(update);
-			return Response.json(
-				{ success: true },
-				{
-					headers: { 'Content-Type': 'application/json' },
-				},
-			);
-		}
-
-		// Send arbitrary message to all clients
-		if (url.pathname === '/ws/send' && request.method === 'POST') {
-			const message = await request.text();
-			this.sendToAll(message);
-			return Response.json(
-				{ success: true },
-				{
-					headers: { 'Content-Type': 'application/json' },
-				},
-			);
-		}
-
 		return new Response('Not found', { status: 404 });
 	}
 
-	async broadcast(update: HmrUpdate): Promise<void> {
+	// =========================================================================
+	// RPC methods (called directly from other workers via stub)
+	// =========================================================================
+
+	async triggerUpdate(update: HmrUpdate): Promise<void> {
+		await this.broadcastHmrUpdate(update);
+	}
+
+	async sendMessage(message: ServerMessage): Promise<void> {
+		const serialized = serializeMessage(message);
+		// Track last server-error so it can be replayed to late-joining clients
+		if (message.type === 'server-error') {
+			this.lastServerError = serialized;
+		}
+		this.sendToAll(serialized);
+	}
+
+	private async broadcastHmrUpdate(update: HmrUpdate): Promise<void> {
 		let updateType: 'css-update' | 'js-update' | 'full-reload';
 		if (update.type === 'full-reload') {
 			updateType = 'full-reload';
+			// Clear stale error on successful reload
+			this.lastServerError = undefined;
 		} else if (update.isCSS) {
 			updateType = 'css-update';
 		} else {
@@ -201,6 +200,14 @@ export class ProjectCoordinator extends DurableObject {
 						participants: this.getAllParticipants(att.id),
 					}),
 				);
+				// Replay last server-error to late-joining clients
+				if (this.lastServerError) {
+					try {
+						ws.send(this.lastServerError);
+					} catch {
+						// Ignore send errors
+					}
+				}
 				this.sendToOthersJoined(
 					ws,
 					serializeMessage({

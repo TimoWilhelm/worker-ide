@@ -57,6 +57,10 @@ export const fileRoutes = new Hono<AppEnvironment>()
 			return c.json({ error: 'Invalid path' }, 400);
 		}
 
+		if (path === '/package.json') {
+			return c.json({ error: 'Dependencies are managed at the project level. Use the Dependencies panel in the sidebar.' }, 400);
+		}
+
 		// Ensure directory exists
 		const directory = path.slice(0, path.lastIndexOf('/'));
 		if (directory) {
@@ -74,17 +78,12 @@ export const fileRoutes = new Hono<AppEnvironment>()
 		const coordinatorId = environment.DO_PROJECT_COORDINATOR.idFromName(`project:${projectId}`);
 		const coordinatorStub = environment.DO_PROJECT_COORDINATOR.get(coordinatorId);
 		const isCSS = path.endsWith('.css');
-		await coordinatorStub.fetch(
-			new Request('http://internal/ws/trigger', {
-				method: 'POST',
-				body: JSON.stringify({
-					type: isCSS ? 'update' : 'full-reload',
-					path,
-					timestamp: Date.now(),
-					isCSS,
-				}),
-			}),
-		);
+		await coordinatorStub.triggerUpdate({
+			type: isCSS ? 'update' : 'full-reload',
+			path,
+			timestamp: Date.now(),
+			isCSS,
+		});
 
 		return c.json({ success: true, path });
 	})
@@ -110,16 +109,12 @@ export const fileRoutes = new Hono<AppEnvironment>()
 			const environment = c.env;
 			const coordinatorId = environment.DO_PROJECT_COORDINATOR.idFromName(`project:${projectId}`);
 			const coordinatorStub = environment.DO_PROJECT_COORDINATOR.get(coordinatorId);
-			await coordinatorStub.fetch(
-				new Request('http://internal/ws/trigger', {
-					method: 'POST',
-					body: JSON.stringify({
-						type: 'full-reload',
-						path,
-						timestamp: Date.now(),
-					}),
-				}),
-			);
+			await coordinatorStub.triggerUpdate({
+				type: 'full-reload',
+				path,
+				timestamp: Date.now(),
+				isCSS: false,
+			});
 
 			return c.json({ success: true });
 		} catch {

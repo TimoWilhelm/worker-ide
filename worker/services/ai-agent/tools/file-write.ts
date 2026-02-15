@@ -48,6 +48,13 @@ export async function execute(
 		return { error: 'Invalid file path' };
 	}
 
+	if (writePath === '/package.json') {
+		return {
+			error:
+				'Cannot create package.json directly. Dependencies are managed at the project level. Use the dependencies_update tool to add, remove, or update dependencies.',
+		};
+	}
+
 	await sendEvent('status', { message: `Writing ${writePath}...` });
 
 	const writeDirectory = writePath.slice(0, writePath.lastIndexOf('/'));
@@ -86,12 +93,12 @@ export async function execute(
 	const coordinatorId = environment.DO_PROJECT_COORDINATOR.idFromName(`project:${projectId}`);
 	const coordinatorStub = environment.DO_PROJECT_COORDINATOR.get(coordinatorId);
 	const isCSS = writePath.endsWith('.css');
-	await coordinatorStub.fetch(
-		new Request('http://internal/ws/trigger', {
-			method: 'POST',
-			body: JSON.stringify({ type: isCSS ? 'update' : 'full-reload', path: writePath, timestamp: Date.now(), isCSS }),
-		}),
-	);
+	await coordinatorStub.triggerUpdate({
+		type: isCSS ? 'update' : 'full-reload',
+		path: writePath,
+		timestamp: Date.now(),
+		isCSS,
+	});
 
 	await sendEvent('file_changed', {
 		path: writePath,

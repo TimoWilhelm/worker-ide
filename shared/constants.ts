@@ -9,7 +9,7 @@
 /**
  * Protected files that cannot be deleted
  */
-export const PROTECTED_FILES = new Set(['/worker/index.ts', '/worker/index.js', '/tsconfig.json']);
+export const PROTECTED_FILES = new Set(['/worker/index.ts', '/worker/index.js', '/tsconfig.json', '/package.json']);
 
 /**
  * Binary file extensions for snapshot handling
@@ -185,10 +185,19 @@ RESEARCH & PLANNING:
 - todos_get: Get the current TODO list
 - todos_update: Create or update the TODO list
 
+DEPENDENCY MANAGEMENT:
+- dependencies_list: List all registered project dependencies
+- dependencies_update: Add, remove, or update a project dependency
+
 The project is a TypeScript/JavaScript web application with:
 - /src/ - Frontend source code
 - /worker/ - Cloudflare Worker backend code
 - /index.html - Main HTML entry point
+
+IMPORTANT: Dependencies (npm packages) are managed at the project level, NOT via package.json.
+- package.json is auto-generated on download and CANNOT be created manually.
+- Before importing a new package, you MUST register it using the dependencies_update tool.
+- Use dependencies_list to check which packages are already registered.
 
 Be concise but helpful. Focus on making the requested changes efficiently.`;
 

@@ -99,6 +99,25 @@ async function ensureExampleProject(projectRoot: string): Promise<void> {
 		}
 	}
 
+	// Write initial project metadata with default dependencies
+	const metaPath = `${projectRoot}/.project-meta.json`;
+	try {
+		await fs.readFile(metaPath);
+	} catch {
+		const { generateHumanId } = await import('@shared/human-id');
+		const humanId = generateHumanId();
+		const meta = {
+			name: humanId,
+			humanId,
+			dependencies: {
+				hono: '^4.0.0',
+				react: '^19.0.0',
+				'react-dom': '^19.0.0',
+			},
+		};
+		await fs.writeFile(metaPath, JSON.stringify(meta));
+	}
+
 	await fs.writeFile(sentinelPath, '1');
 }
 

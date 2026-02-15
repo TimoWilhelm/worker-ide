@@ -90,12 +90,12 @@ export async function execute(
 	const coordinatorId = environment.DO_PROJECT_COORDINATOR.idFromName(`project:${projectId}`);
 	const coordinatorStub = environment.DO_PROJECT_COORDINATOR.get(coordinatorId);
 	const isCSS = path.endsWith('.css');
-	await coordinatorStub.fetch(
-		new Request('http://internal/ws/trigger', {
-			method: 'POST',
-			body: JSON.stringify({ type: isCSS ? 'update' : 'full-reload', path, timestamp: Date.now(), isCSS }),
-		}),
-	);
+	await coordinatorStub.triggerUpdate({
+		type: isCSS ? 'update' : 'full-reload',
+		path,
+		timestamp: Date.now(),
+		isCSS,
+	});
 
 	await sendEvent('file_changed', {
 		path,
