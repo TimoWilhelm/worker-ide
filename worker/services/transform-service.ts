@@ -466,11 +466,11 @@ function generatePreviewScriptTags(integrityHashes?: Record<string, string>): st
 export async function processHTML(
 	html: string,
 	_filePath: string,
-	options: TransformOptions & { hmrUrl: string; scriptIntegrityHashes?: Record<string, string> },
+	options: TransformOptions & { wsUrl: string; scriptIntegrityHashes?: Record<string, string> },
 ): Promise<string> {
-	const { baseUrl, hmrUrl, scriptIntegrityHashes } = options;
+	const { baseUrl, wsUrl, scriptIntegrityHashes } = options;
 
-	const previewConfig = generatePreviewConfig(hmrUrl, baseUrl);
+	const previewConfig = generatePreviewConfig(wsUrl, baseUrl);
 	const previewScripts = generatePreviewScriptTags(scriptIntegrityHashes);
 
 	const rewriter = new HTMLRewriter()

@@ -25,7 +25,7 @@ import { useChangeReview } from '@/features/ai-assistant/hooks/use-change-review
 import { CodeEditor, computeDiffData, DiffToolbar, FileTabs, useFileContent } from '@/features/editor';
 import { FileTree, useFileTree } from '@/features/file-tree';
 import { getLogSnapshot, subscribeToLogs } from '@/features/terminal/lib/log-buffer';
-import { hmrSendReference, useHMR, useTheme } from '@/hooks';
+import { projectSocketSendReference, useProjectSocket, useTheme } from '@/hooks';
 import { createProject, downloadProject, fetchProjectMeta, updateProjectMeta } from '@/lib/api-client';
 import { getRecentProjects, trackProject, type RecentProject } from '@/lib/recent-projects';
 import { selectIsProcessing, useStore } from '@/lib/store';
@@ -44,8 +44,8 @@ const TerminalPanel = lazy(() => import('@/features/terminal'));
 // =============================================================================
 
 export function IDEShell({ projectId }: { projectId: string }) {
-	// HMR connection
-	useHMR({ projectId });
+	// Project WebSocket connection (HMR notifications, collaboration, server events)
+	useProjectSocket({ projectId });
 
 	// Theme
 	const resolvedTheme = useTheme();
@@ -307,7 +307,7 @@ export function IDEShell({ projectId }: { projectId: string }) {
 			// Debounce WebSocket cursor update
 			clearTimeout(cursorUpdateTimeoutReference.current);
 			cursorUpdateTimeoutReference.current = setTimeout(() => {
-				hmrSendReference.current?.({
+				projectSocketSendReference.current?.({
 					type: 'cursor-update',
 					file: activeFile ?? '',
 					cursor: { line: position.line, ch: position.column },

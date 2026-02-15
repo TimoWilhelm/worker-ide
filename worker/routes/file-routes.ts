@@ -71,11 +71,11 @@ export const fileRoutes = new Hono<AppEnvironment>()
 		}
 
 		// Trigger HMR update
-		const hmrId = environment.DO_HMR_COORDINATOR.idFromName(`hmr:${projectId}`);
-		const hmrStub = environment.DO_HMR_COORDINATOR.get(hmrId);
+		const coordinatorId = environment.DO_PROJECT_COORDINATOR.idFromName(`project:${projectId}`);
+		const coordinatorStub = environment.DO_PROJECT_COORDINATOR.get(coordinatorId);
 		const isCSS = path.endsWith('.css');
-		await hmrStub.fetch(
-			new Request('http://internal/hmr/trigger', {
+		await coordinatorStub.fetch(
+			new Request('http://internal/ws/trigger', {
 				method: 'POST',
 				body: JSON.stringify({
 					type: isCSS ? 'update' : 'full-reload',
@@ -108,10 +108,10 @@ export const fileRoutes = new Hono<AppEnvironment>()
 			// Trigger HMR so the frontend refreshes the file list
 			const projectId = c.get('projectId');
 			const environment = c.env;
-			const hmrId = environment.DO_HMR_COORDINATOR.idFromName(`hmr:${projectId}`);
-			const hmrStub = environment.DO_HMR_COORDINATOR.get(hmrId);
-			await hmrStub.fetch(
-				new Request('http://internal/hmr/trigger', {
+			const coordinatorId = environment.DO_PROJECT_COORDINATOR.idFromName(`project:${projectId}`);
+			const coordinatorStub = environment.DO_PROJECT_COORDINATOR.get(coordinatorId);
+			await coordinatorStub.fetch(
+				new Request('http://internal/ws/trigger', {
 					method: 'POST',
 					body: JSON.stringify({
 						type: 'full-reload',

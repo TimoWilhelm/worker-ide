@@ -18,15 +18,16 @@ interface ParticipantAttachment {
 }
 
 /**
- * HMR Coordinator Durable Object
+ * Project Coordinator Durable Object
  *
  * Manages WebSocket connections for:
- * - Hot Module Replacement (HMR) updates
+ * - Hot Module Replacement (HMR) update broadcasts to preview and editor clients
  * - Real-time collaboration (cursor positions, file edits)
+ * - Server error and log forwarding
  *
- * Each project has its own HMRCoordinator instance (keyed by `hmr:${projectId}`).
+ * Each project has its own ProjectCoordinator instance (keyed by `project:${projectId}`).
  */
-export class HMRCoordinator extends DurableObject {
+export class ProjectCoordinator extends DurableObject {
 	private getAttachment(ws: WebSocket): ParticipantAttachment | undefined {
 		try {
 			const attachment: ParticipantAttachment = ws.deserializeAttachment();
@@ -98,8 +99,8 @@ export class HMRCoordinator extends DurableObject {
 	async fetch(request: Request): Promise<Response> {
 		const url = new URL(request.url);
 
-		// WebSocket upgrade for HMR
-		if (url.pathname === '/hmr' && request.headers.get('Upgrade') === 'websocket') {
+		// WebSocket upgrade
+		if (url.pathname === '/ws' && request.headers.get('Upgrade') === 'websocket') {
 			const pair = new WebSocketPair();
 			const [client, server] = Object.values(pair);
 
@@ -125,7 +126,7 @@ export class HMRCoordinator extends DurableObject {
 		}
 
 		// Trigger HMR update from internal request
-		if (url.pathname === '/hmr/trigger' && request.method === 'POST') {
+		if (url.pathname === '/ws/trigger' && request.method === 'POST') {
 			const update: HmrUpdate = await request.json();
 			await this.broadcast(update);
 			return Response.json(
@@ -137,7 +138,7 @@ export class HMRCoordinator extends DurableObject {
 		}
 
 		// Send arbitrary message to all clients
-		if (url.pathname === '/hmr/send' && request.method === 'POST') {
+		if (url.pathname === '/ws/send' && request.method === 'POST') {
 			const message = await request.text();
 			this.sendToAll(message);
 			return Response.json(

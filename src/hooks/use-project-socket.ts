@@ -1,14 +1,16 @@
 /**
- * useHMR Hook
+ * useProjectSocket Hook
  *
- * Hook for managing HMR WebSocket connection.
+ * Hook for managing the project WebSocket connection.
+ * Handles HMR update notifications, real-time collaboration,
+ * server error/log forwarding, and file edit broadcasts.
  */
 
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 
-import { connectHMR } from '@/lib/api-client';
+import { connectProjectSocket } from '@/lib/api-client';
 import { useStore } from '@/lib/store';
 
 import type { ClientMessage } from '@shared/ws-messages';
@@ -17,7 +19,7 @@ import type { ClientMessage } from '@shared/ws-messages';
 // Types
 // =============================================================================
 
-interface UseHMROptions {
+interface UseProjectSocketOptions {
 	projectId: string;
 	enabled?: boolean;
 }
@@ -27,7 +29,7 @@ interface UseHMROptions {
 // =============================================================================
 
 /**
- * Hook for connecting to HMR WebSocket and handling updates.
+ * Hook for connecting to the project WebSocket and handling updates.
  *
  * Uses refs exclusively for callbacks to ensure the WebSocket connection
  * is only created/destroyed when projectId or enabled changes — never
@@ -37,9 +39,9 @@ interface UseHMROptions {
  * Global ref for the WebSocket send function.
  * Used by the editor to send cursor updates without prop drilling.
  */
-export const hmrSendReference: { current: ((data: ClientMessage) => void) | undefined } = { current: undefined };
+export const projectSocketSendReference: { current: ((data: ClientMessage) => void) | undefined } = { current: undefined };
 
-export function useHMR({ projectId, enabled = true }: UseHMROptions) {
+export function useProjectSocket({ projectId, enabled = true }: UseProjectSocketOptions) {
 	const queryClient = useQueryClient();
 	const storeActions = useStore(
 		useShallow((state) => ({
@@ -57,7 +59,7 @@ export function useHMR({ projectId, enabled = true }: UseHMROptions) {
 	// All mutable state in refs — none of these cause re-connection
 	const reconnectTimeoutReference = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 	const reconnectAttemptsReference = useRef(0);
-	const connectionReference = useRef<import('@/lib/api-client').HMRConnection | undefined>(undefined);
+	const connectionReference = useRef<import('@/lib/api-client').ProjectSocketConnection | undefined>(undefined);
 	const queryClientReference = useRef(queryClient);
 	const storeActionsReference = useRef(storeActions);
 	const projectIdReference = useRef(projectId);
@@ -87,7 +89,7 @@ export function useHMR({ projectId, enabled = true }: UseHMROptions) {
 				reconnectTimeoutReference.current = undefined;
 			}
 
-			connectionReference.current = connectHMR(
+			connectionReference.current = connectProjectSocket(
 				projectId,
 				// onMessage — reads latest refs each invocation
 				(message) => {
@@ -167,7 +169,7 @@ export function useHMR({ projectId, enabled = true }: UseHMROptions) {
 					}
 				},
 				// onClose — only fires for unexpected disconnects (intentional
-				// closes are suppressed by the connectHMR cleanup function)
+				// closes are suppressed by the connectProjectSocket cleanup function)
 				() => {
 					if (!isMountedReference.current) return;
 
@@ -186,7 +188,7 @@ export function useHMR({ projectId, enabled = true }: UseHMROptions) {
 				() => {
 					storeActionsReference.current.setConnected(true);
 					reconnectAttemptsReference.current = 0;
-					hmrSendReference.current = connectionReference.current?.send;
+					projectSocketSendReference.current = connectionReference.current?.send;
 				},
 			);
 		};
@@ -197,7 +199,7 @@ export function useHMR({ projectId, enabled = true }: UseHMROptions) {
 			isMountedReference.current = false;
 			connectionReference.current?.cleanup();
 			connectionReference.current = undefined;
-			hmrSendReference.current = undefined;
+			projectSocketSendReference.current = undefined;
 			if (reconnectTimeoutReference.current) {
 				clearTimeout(reconnectTimeoutReference.current);
 				reconnectTimeoutReference.current = undefined;

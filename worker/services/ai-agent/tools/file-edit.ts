@@ -87,11 +87,11 @@ export async function execute(
 		queryChanges.push({ path, action: 'edit', beforeContent, afterContent: content, isBinary: false });
 	}
 
-	const hmrId = environment.DO_HMR_COORDINATOR.idFromName(`hmr:${projectId}`);
-	const hmrStub = environment.DO_HMR_COORDINATOR.get(hmrId);
+	const coordinatorId = environment.DO_PROJECT_COORDINATOR.idFromName(`project:${projectId}`);
+	const coordinatorStub = environment.DO_PROJECT_COORDINATOR.get(coordinatorId);
 	const isCSS = path.endsWith('.css');
-	await hmrStub.fetch(
-		new Request('http://internal/hmr/trigger', {
+	await coordinatorStub.fetch(
+		new Request('http://internal/ws/trigger', {
 			method: 'POST',
 			body: JSON.stringify({ type: isCSS ? 'update' : 'full-reload', path, timestamp: Date.now(), isCSS }),
 		}),

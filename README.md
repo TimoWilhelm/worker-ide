@@ -6,7 +6,7 @@ A Cloudflare Worker that serves as a browser-based full-stack development enviro
 
 - **`src/index.ts`** — Worker entrypoint. Routes static assets, project CRUD APIs (`/api/*`), and per-project preview/HMR (`/p/:id/*`).
 - **`DurableObjectFilesystem`** — Persists project files in DO SQLite storage (via `durable-object-fs`).
-- **`HMRCoordinator`** — Durable Object that manages WebSocket connections and broadcasts HMR updates to connected clients.
+- **`ProjectCoordinator`** — Durable Object that manages WebSocket connections for HMR update broadcasts, real-time collaboration, and server event forwarding.
 - **`src/bundler.ts`** / **`src/transform.ts`** — esbuild-wasm powered bundling and module transformation (TS → JS, CSS → JS modules, import rewriting).
 - **`scripts/dev.ts`** — Optional local Vite dev server that proxies files from the Worker's DO filesystem for a native HMR experience.
 - **`public/`** — Static frontend (editor UI) served via Workers Assets.
@@ -54,9 +54,9 @@ bun run dev:all
 
 ## Key Bindings (wrangler)
 
-| Binding              | Type           | Purpose                  |
-| -------------------- | -------------- | ------------------------ |
-| `DO_FILESYSTEM`      | Durable Object | Per-project file storage |
-| `DO_HMR_COORDINATOR` | Durable Object | WebSocket HMR broadcast  |
-| `ASSETS`             | Assets         | Static frontend assets   |
-| `LOADER`             | Worker Loader  | Worker module loading    |
+| Binding                  | Type           | Purpose                  |
+| ------------------------ | -------------- | ------------------------ |
+| `DO_FILESYSTEM`          | Durable Object | Per-project file storage |
+| `DO_PROJECT_COORDINATOR` | Durable Object | WebSocket coordination   |
+| `ASSETS`                 | Assets         | Static frontend assets   |
+| `LOADER`                 | Worker Loader  | Worker module loading    |

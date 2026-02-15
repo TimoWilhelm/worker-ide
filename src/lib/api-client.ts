@@ -214,11 +214,14 @@ export async function startAIChat(
 }
 
 // =============================================================================
-// WebSocket HMR Connection
+// WebSocket Project Connection
 // =============================================================================
 
 /**
- * Create a WebSocket connection for HMR updates.
+ * Create a WebSocket connection for project coordination.
+ *
+ * Handles HMR update notifications, real-time collaboration,
+ * server error/log forwarding, and file edit broadcasts.
  *
  * Returns a cleanup function that prevents the onClose callback from firing
  * (intentional disconnect vs unexpected drop).
@@ -229,19 +232,19 @@ export async function startAIChat(
  * @param onOpen - Callback when connection opens
  * @returns Cleanup function
  */
-export interface HMRConnection {
+export interface ProjectSocketConnection {
 	cleanup: () => void;
 	send: (data: ClientMessage) => void;
 }
 
-export function connectHMR(
+export function connectProjectSocket(
 	projectId: string,
 	onMessage: (message: ServerMessage) => void,
 	onClose?: () => void,
 	onOpen?: () => void,
-): HMRConnection {
+): ProjectSocketConnection {
 	const protocol = globalThis.location.protocol === 'https:' ? 'wss:' : 'ws:';
-	const wsUrl = `${protocol}//${globalThis.location.host}/p/${projectId}/__hmr`;
+	const wsUrl = `${protocol}//${globalThis.location.host}/p/${projectId}/__ws`;
 
 	let intentionalClose = false;
 	const socket = new WebSocket(wsUrl);
@@ -257,7 +260,7 @@ export function connectHMR(
 		if (result.success) {
 			onMessage(result.data);
 		} else {
-			console.warn('Failed to parse HMR message:', result.error);
+			console.warn('Failed to parse WebSocket message:', result.error);
 		}
 	});
 
@@ -286,7 +289,6 @@ export function connectHMR(
 		}
 	};
 
-	// Return connection object with cleanup and send functions
 	return {
 		cleanup: () => {
 			intentionalClose = true;

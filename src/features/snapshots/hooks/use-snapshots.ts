@@ -70,7 +70,7 @@ export function useSnapshots({ projectId, enabled = true }: UseSnapshotsOptions)
 			return response.json();
 		},
 		onSuccess: async () => {
-			// Force refetch (not just invalidate) so files that the HMR hook
+			// Force refetch (not just invalidate) so files that the project socket hook
 			// skips (e.g. the active editor file) still get fresh content.
 			await queryClient.refetchQueries({ queryKey: ['files', projectId] });
 			await queryClient.refetchQueries({ queryKey: ['file', projectId] });

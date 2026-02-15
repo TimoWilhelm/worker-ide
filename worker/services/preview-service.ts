@@ -169,12 +169,12 @@ export class PreviewService {
 			if (extension === '.html') {
 				const protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
 				const projectPrefix = baseUrl.replace(/\/preview\/?$/, '');
-				const hmrUrl = `${protocol}//${url.host}${projectPrefix}/__hmr`;
+				const wsUrl = `${protocol}//${url.host}${projectPrefix}/__ws`;
 				const html = await processHTML(textContent, filePath, {
 					fs: viteFs,
 					projectRoot: this.projectRoot,
 					baseUrl,
-					hmrUrl,
+					wsUrl,
 					scriptIntegrityHashes,
 				});
 				return new Response(html, {
@@ -360,10 +360,10 @@ export class PreviewService {
 	}
 
 	private async broadcastMessage(message: ServerMessage): Promise<void> {
-		const hmrId = env.DO_HMR_COORDINATOR.idFromName(`hmr:${this.projectId}`);
-		const hmrStub = env.DO_HMR_COORDINATOR.get(hmrId);
-		await hmrStub.fetch(
-			new Request('http://internal/hmr/send', {
+		const coordinatorId = env.DO_PROJECT_COORDINATOR.idFromName(`project:${this.projectId}`);
+		const coordinatorStub = env.DO_PROJECT_COORDINATOR.get(coordinatorId);
+		await coordinatorStub.fetch(
+			new Request('http://internal/ws/send', {
 				method: 'POST',
 				body: serializeMessage(message),
 			}),

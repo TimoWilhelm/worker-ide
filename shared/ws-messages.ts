@@ -1,6 +1,13 @@
 /**
  * WebSocket message types and serialization for real-time features.
- * Handles HMR updates and collaboration messages.
+ *
+ * Used by two independent WebSocket connections:
+ * 1. **Preview HMR client** (`hmr-client.js`) — handles hot module replacement
+ *    in the preview iframe (full-reload, CSS/JS hot-swap).
+ * 2. **Project socket** (`use-project-socket.ts`) — handles editor-side
+ *    coordination (file cache invalidation, collaboration, server events).
+ *
+ * Both connect to the same ProjectCoordinator Durable Object.
  */
 
 import { z } from 'zod';

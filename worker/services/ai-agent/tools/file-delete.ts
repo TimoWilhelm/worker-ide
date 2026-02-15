@@ -61,10 +61,10 @@ export async function execute(
 		queryChanges.push({ path: deletePath, action: 'delete', beforeContent, afterContent: null, isBinary: false });
 	}
 
-	const hmrId = environment.DO_HMR_COORDINATOR.idFromName(`hmr:${projectId}`);
-	const hmrStub = environment.DO_HMR_COORDINATOR.get(hmrId);
-	await hmrStub.fetch(
-		new Request('http://internal/hmr/trigger', {
+	const coordinatorId = environment.DO_PROJECT_COORDINATOR.idFromName(`project:${projectId}`);
+	const coordinatorStub = environment.DO_PROJECT_COORDINATOR.get(coordinatorId);
+	await coordinatorStub.fetch(
+		new Request('http://internal/ws/trigger', {
 			method: 'POST',
 			body: JSON.stringify({ type: 'full-reload', path: deletePath, timestamp: Date.now(), isCSS: false }),
 		}),

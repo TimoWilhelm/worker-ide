@@ -15,8 +15,8 @@
 				"class_name": "DurableObjectFilesystem",
 			},
 			{
-				"name": "DO_HMR_COORDINATOR",
-				"class_name": "HMRCoordinator",
+				"name": "DO_PROJECT_COORDINATOR",
+				"class_name": "ProjectCoordinator",
 			},
 		],
 	},
@@ -24,6 +24,15 @@
 		{
 			"new_sqlite_classes": ["DurableObjectFilesystem", "HMRCoordinator"],
 			"tag": "v2",
+		},
+		{
+			"renamed_classes": [
+				{
+					"from": "HMRCoordinator",
+					"to": "ProjectCoordinator",
+				},
+			],
+			"tag": "v3",
 		},
 	],
 

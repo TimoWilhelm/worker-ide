@@ -71,7 +71,7 @@ This document is a collection of guidelines for agents working on the project.
 ### Backend
 
 - Cloudflare Workers with Hono framework.
-- Cloudflare Durable Objects for filesystem and HMR coordination.
+- Cloudflare Durable Objects for filesystem and project coordination.
 - WebSockets (hibernation API) for real-time communication.
 - Durable Objects SQLite for storage.
 

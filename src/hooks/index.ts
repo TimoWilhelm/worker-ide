@@ -4,5 +4,5 @@
  * Re-exports all shared React hooks.
  */
 
-export { useHMR, hmrSendReference } from './use-hmr';
+export { useProjectSocket, projectSocketSendReference } from './use-project-socket';
 export { useTheme } from './use-theme';

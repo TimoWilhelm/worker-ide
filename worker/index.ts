@@ -5,7 +5,7 @@
  * The worker handles:
  * - API routes for file operations, sessions, snapshots
  * - Project-scoped routes (/p/:projectId/*)
- * - HMR WebSocket connections
+ * - Project WebSocket connections (HMR, collaboration, server events)
  * - Preview serving for user projects
  */
 
@@ -55,7 +55,7 @@ function getPreviewService(projectRoot: string, projectId: string): PreviewServi
 }
 
 // Re-export Durable Objects for wrangler
-export { DurableObjectFilesystem, HMRCoordinator } from './durable';
+export { DurableObjectFilesystem, ProjectCoordinator } from './durable';
 
 // Re-export LogTailer so it's available on ctx.exports for WorkerLoader tails
 export { LogTailer } from './services/log-tailer';
@@ -157,13 +157,13 @@ app.all('/p/:projectId/*', async (c) => {
 		// Refresh expiration timer
 		await fsStub.refreshExpiration();
 
-		// Handle WebSocket HMR endpoint
-		if (subPath === '/__hmr' || subPath.startsWith('/__hmr')) {
-			const hmrId = c.env.DO_HMR_COORDINATOR.idFromName(`hmr:${projectId}`);
-			const hmrStub = c.env.DO_HMR_COORDINATOR.get(hmrId);
-			const hmrUrl = new URL(c.req.url);
-			hmrUrl.pathname = '/hmr';
-			return hmrStub.fetch(new Request(hmrUrl, c.req.raw));
+		// Handle WebSocket endpoint
+		if (subPath === '/__ws' || subPath.startsWith('/__ws')) {
+			const coordinatorId = c.env.DO_PROJECT_COORDINATOR.idFromName(`project:${projectId}`);
+			const coordinatorStub = c.env.DO_PROJECT_COORDINATOR.get(coordinatorId);
+			const wsUrl = new URL(c.req.url);
+			wsUrl.pathname = '/ws';
+			return coordinatorStub.fetch(new Request(wsUrl, c.req.raw));
 		}
 
 		// Handle API routes

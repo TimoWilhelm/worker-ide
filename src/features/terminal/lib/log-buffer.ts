@@ -94,7 +94,7 @@ globalThis.addEventListener('preview-refresh', () => {
 /**
  * Listen for postMessage events from the preview iframe:
  * - __console-log: forwarded by chobitsu CDP Runtime.consoleAPICalled events
- * - __server-error: forwarded by the HMR client when the preview receives a server error
+ * - __server-error: forwarded by the preview HMR client when it receives a server error
  */
 globalThis.addEventListener('message', (event: MessageEvent) => {
 	// Only accept messages from same origin (preview iframe)
