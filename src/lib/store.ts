@@ -440,6 +440,11 @@ export const useStore = create<StoreState>()(
 						const existing = newMap.get(change.path);
 
 						if (!existing) {
+							// Move actions always show (no content diff needed)
+							// For other actions, skip if content is identical (no actual change)
+							if (change.action !== 'move' && change.beforeContent !== undefined && change.beforeContent === change.afterContent) {
+								return { pendingChanges: newMap };
+							}
 							newMap.set(change.path, { ...change, status: 'pending' });
 							return { pendingChanges: newMap };
 						}
@@ -460,6 +465,11 @@ export const useStore = create<StoreState>()(
 
 						// create → edit = still a create (with updated content)
 						if (originalAction === 'create' && newAction === 'edit') {
+							// If the final content matches the original beforeContent, it's a no-op
+							if (beforeContent !== undefined && beforeContent === change.afterContent) {
+								newMap.delete(change.path);
+								return { pendingChanges: newMap };
+							}
 							newMap.set(change.path, {
 								...change,
 								action: 'create',
@@ -472,6 +482,11 @@ export const useStore = create<StoreState>()(
 
 						// delete → create = effectively an edit (file was replaced)
 						if (originalAction === 'delete' && newAction === 'create') {
+							// If recreated content matches original, it's a no-op
+							if (beforeContent !== undefined && beforeContent === change.afterContent) {
+								newMap.delete(change.path);
+								return { pendingChanges: newMap };
+							}
 							newMap.set(change.path, {
 								...change,
 								action: 'edit',
@@ -483,6 +498,11 @@ export const useStore = create<StoreState>()(
 						}
 
 						// All other cases: keep original beforeContent, use new action & afterContent
+						// If the net result is no change, remove the entry
+						if (newAction !== 'move' && beforeContent !== undefined && beforeContent === change.afterContent) {
+							newMap.delete(change.path);
+							return { pendingChanges: newMap };
+						}
 						newMap.set(change.path, { ...change, beforeContent, snapshotId, status: 'pending' });
 						return { pendingChanges: newMap };
 					}),

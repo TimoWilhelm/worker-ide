@@ -5,7 +5,7 @@
  * Each file has approve/reject buttons. Bulk actions at the top.
  */
 
-import { Check, ChevronDown, ChevronRight, FileMinus, FilePen, FilePlus, X } from 'lucide-react';
+import { ArrowRightLeft, Check, ChevronDown, ChevronRight, FileMinus, FilePen, FilePlus, X } from 'lucide-react';
 import { useCallback, useMemo, useState } from 'react';
 
 import { Pill } from '@/components/ui/pill';
@@ -157,7 +157,7 @@ function ChangedFileRow({
 	isReverting,
 }: {
 	path: string;
-	action: 'create' | 'edit' | 'delete';
+	action: 'create' | 'edit' | 'delete' | 'move';
 	hasSnapshot: boolean;
 	onFileClick: (path: string) => void;
 	onApprove: (path: string) => void;
@@ -218,13 +218,17 @@ function ChangedFileRow({
 // Action Badge
 // =============================================================================
 
-const ACTION_BADGE_CONFIG: Record<'create' | 'edit' | 'delete', { icon: typeof FilePlus; color: 'success' | 'warning' | 'error' }> = {
+const ACTION_BADGE_CONFIG: Record<
+	'create' | 'edit' | 'delete' | 'move',
+	{ icon: typeof FilePlus; color: 'success' | 'warning' | 'error' | 'sky' }
+> = {
 	create: { icon: FilePlus, color: 'success' },
 	edit: { icon: FilePen, color: 'warning' },
 	delete: { icon: FileMinus, color: 'error' },
+	move: { icon: ArrowRightLeft, color: 'sky' },
 };
 
-function ActionBadge({ action }: { action: 'create' | 'edit' | 'delete' }) {
+function ActionBadge({ action }: { action: 'create' | 'edit' | 'delete' | 'move' }) {
 	const { icon: Icon, color } = ACTION_BADGE_CONFIG[action];
 	return (
 		<Pill size="xs" rounded="sm" color={color}>

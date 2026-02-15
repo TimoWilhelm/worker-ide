@@ -272,7 +272,7 @@ export interface TodoItem {
  */
 export interface PendingFileChange {
 	path: string;
-	action: 'create' | 'edit' | 'delete';
+	action: 'create' | 'edit' | 'delete' | 'move';
 	beforeContent: string | undefined;
 	afterContent: string | undefined;
 	snapshotId: string | undefined;

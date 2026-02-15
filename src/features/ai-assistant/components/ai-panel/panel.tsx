@@ -260,7 +260,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 								const action = getEventStringField(event, 'action');
 								const beforeContent = getEventStringField(event, 'beforeContent');
 								const afterContent = getEventStringField(event, 'afterContent');
-								if (path && (action === 'create' || action === 'edit' || action === 'delete')) {
+								if (path && (action === 'create' || action === 'edit' || action === 'delete' || action === 'move')) {
 									addPendingChange({
 										path,
 										action,
@@ -270,14 +270,14 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 									});
 									// Open the file so the user sees the diff immediately
 									// (skip for deletes — the file no longer exists on disk)
-									if (action !== 'delete') {
+									// (skip for moves — the path is "from → to", not a real file)
+									if (action !== 'delete' && action !== 'move') {
 										openFile(path);
 									}
 								}
 								break;
 							}
 							case 'user_question': {
-								// AI asked a clarifying question — display it prominently
 								const question = getEventStringField(event, 'question');
 								const options = getEventStringField(event, 'options');
 								if (question) {

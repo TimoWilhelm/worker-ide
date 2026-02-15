@@ -190,7 +190,7 @@ export function IDEShell({ projectId }: { projectId: string }) {
 	// Uses the stored afterContent so decorations accurately reflect the AI's
 	// proposed change, falling back to editorContent if afterContent is unavailable.
 	const activePendingChange = activeFile ? pendingChanges.get(activeFile) : undefined;
-	const hasActiveDiff = activePendingChange?.status === 'pending';
+	const hasActiveDiff = activePendingChange?.status === 'pending' && activePendingChange.action !== 'move';
 
 	const activeDiffData = useMemo(() => {
 		if (!activeFile) return;

@@ -5,7 +5,7 @@
  * Provides file-level accept/reject controls and bulk actions.
  */
 
-import { Check, FileMinus, FilePen, FilePlus, X } from 'lucide-react';
+import { ArrowRightLeft, Check, FileMinus, FilePen, FilePlus, X } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
 
@@ -15,7 +15,7 @@ import { cn } from '@/lib/utils';
 
 export interface DiffToolbarProperties {
 	path: string;
-	action: 'create' | 'edit' | 'delete';
+	action: 'create' | 'edit' | 'delete' | 'move';
 	onApprove: (path: string) => void;
 	onReject: (path: string) => void;
 	onApproveAll: () => void;
@@ -117,7 +117,7 @@ export function DiffToolbar({
 // Helpers
 // =============================================================================
 
-function ActionIcon({ action }: { action: 'create' | 'edit' | 'delete' }) {
+function ActionIcon({ action }: { action: 'create' | 'edit' | 'delete' | 'move' }) {
 	switch (action) {
 		case 'create': {
 			return <FilePlus className="size-3.5 shrink-0 text-success" />;
@@ -128,10 +128,14 @@ function ActionIcon({ action }: { action: 'create' | 'edit' | 'delete' }) {
 		case 'delete': {
 			return <FileMinus className="size-3.5 shrink-0 text-error" />;
 		}
+		case 'move': {
+			return <ArrowRightLeft className="size-3.5 shrink-0 text-sky-500" />;
+		}
 	}
 }
 
-function ActionLabel({ action }: { action: 'create' | 'edit' | 'delete' }) {
-	const colorClass = action === 'create' ? 'text-success' : action === 'edit' ? 'text-warning' : 'text-error';
+function ActionLabel({ action }: { action: 'create' | 'edit' | 'delete' | 'move' }) {
+	const colorClass =
+		action === 'create' ? 'text-success' : action === 'edit' ? 'text-warning' : action === 'delete' ? 'text-error' : 'text-sky-500';
 	return <span className={cn('text-2xs font-medium', colorClass)}>{action}</span>;
 }

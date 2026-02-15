@@ -25,7 +25,7 @@ export function useChangeReview({ projectId }: { projectId: string }) {
 
 	// Derive list of pending (unresolved) changes
 	const unresolvedChanges = useMemo(() => {
-		const result: Array<{ path: string; action: 'create' | 'edit' | 'delete'; snapshotId: string | undefined }> = [];
+		const result: Array<{ path: string; action: 'create' | 'edit' | 'delete' | 'move'; snapshotId: string | undefined }> = [];
 		for (const [, change] of pendingChanges) {
 			if (change.status === 'pending') {
 				result.push({ path: change.path, action: change.action, snapshotId: change.snapshotId });

@@ -398,6 +398,83 @@ describe('Pending Changes slice', () => {
 		expect(change?.beforeContent).toBe('old content');
 		expect(change?.afterContent).toBe('final content');
 	});
+
+	it('skips entry when beforeContent equals afterContent (no actual change)', () => {
+		useStore.getState().addPendingChange({
+			path: '/src/main.ts',
+			action: 'edit',
+			beforeContent: 'same content',
+			afterContent: 'same content',
+			snapshotId: undefined,
+		});
+
+		expect(useStore.getState().pendingChanges.has('/src/main.ts')).toBe(false);
+	});
+
+	it('removes entry when edit reverts content back to original', () => {
+		useStore.getState().addPendingChange({
+			path: '/src/main.ts',
+			action: 'edit',
+			beforeContent: 'original',
+			afterContent: 'changed',
+			snapshotId: undefined,
+		});
+		useStore.getState().addPendingChange({
+			path: '/src/main.ts',
+			action: 'edit',
+			beforeContent: 'changed',
+			afterContent: 'original',
+			snapshotId: undefined,
+		});
+
+		expect(useStore.getState().pendingChanges.has('/src/main.ts')).toBe(false);
+	});
+
+	it('removes entry when delete→create restores identical content', () => {
+		useStore.getState().addPendingChange({
+			path: '/src/main.ts',
+			action: 'delete',
+			beforeContent: 'original',
+			afterContent: undefined,
+			snapshotId: undefined,
+		});
+		useStore.getState().addPendingChange({
+			path: '/src/main.ts',
+			action: 'create',
+			beforeContent: undefined,
+			afterContent: 'original',
+			snapshotId: undefined,
+		});
+
+		expect(useStore.getState().pendingChanges.has('/src/main.ts')).toBe(false);
+	});
+
+	it('adds move action as pending', () => {
+		useStore.getState().addPendingChange({
+			path: '/src/old.ts → /src/new.ts',
+			action: 'move',
+			beforeContent: undefined,
+			afterContent: undefined,
+			snapshotId: 'snap-1',
+		});
+
+		const change = useStore.getState().pendingChanges.get('/src/old.ts → /src/new.ts');
+		expect(change).toBeDefined();
+		expect(change?.action).toBe('move');
+		expect(change?.status).toBe('pending');
+	});
+
+	it('does not skip move action even when beforeContent equals afterContent', () => {
+		useStore.getState().addPendingChange({
+			path: '/src/old.ts → /src/new.ts',
+			action: 'move',
+			beforeContent: 'same',
+			afterContent: 'same',
+			snapshotId: undefined,
+		});
+
+		expect(useStore.getState().pendingChanges.has('/src/old.ts → /src/new.ts')).toBe(true);
+	});
 });
 
 // =============================================================================
