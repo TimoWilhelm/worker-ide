@@ -7,9 +7,8 @@
 
 import { CircleAlert, X } from 'lucide-react';
 import { Toast } from 'radix-ui';
-import { useSyncExternalStore } from 'react';
 
-import { getSnapshot, removeToast, subscribe } from '@/components/ui/toast-store';
+import { removeToast, useToasts } from '@/components/ui/toast-store';
 import { cn } from '@/lib/utils';
 
 // =============================================================================
@@ -21,7 +20,7 @@ import { cn } from '@/lib/utils';
  * Mount once near the root of the app (e.g. in `app.tsx`).
  */
 export function Toaster() {
-	const items = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+	const items = useToasts();
 
 	return (
 		<Toast.Provider duration={4000} swipeDirection="right">

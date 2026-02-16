@@ -4,7 +4,7 @@
 
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/lib/api-client', () => ({
 	fetchProjectMeta: vi.fn().mockResolvedValue({
@@ -13,7 +13,13 @@ vi.mock('@/lib/api-client', () => ({
 	updateDependencies: vi.fn().mockResolvedValue({}),
 }));
 
+import { resetDependencyErrors } from '@/features/file-tree/dependency-error-store';
+
 import { DependencyPanel } from './dependency-panel';
+
+afterEach(() => {
+	resetDependencyErrors();
+});
 
 describe('DependencyPanel accessibility', () => {
 	it('edit and remove buttons have aria-labels', async () => {

@@ -5,7 +5,7 @@
  */
 
 import { Bot, ChevronUp, Clock, Download, FolderOpen, Hexagon, Moon, Pencil, Plus, Sun } from 'lucide-react';
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Group as PanelGroup, Panel, Separator as ResizeHandle } from 'react-resizable-panels';
 
 import { MobileFileDrawer } from '@/components/mobile-file-drawer';
@@ -27,7 +27,7 @@ import { Tooltip, TooltipProvider } from '@/components/ui/tooltip';
 import { useChangeReview } from '@/features/ai-assistant/hooks/use-change-review';
 import { CodeEditor, computeDiffData, DiffToolbar, FileTabs, useFileContent } from '@/features/editor';
 import { DependencyPanel, FileTree, useFileTree } from '@/features/file-tree';
-import { getLogSnapshot, subscribeToLogs } from '@/features/output/lib/log-buffer';
+import { useLogs } from '@/features/output/lib/log-buffer';
 import { projectSocketSendReference, useIsMobile, useProjectSocket, useTheme } from '@/hooks';
 import { createProject, downloadProject, fetchProjectMeta, updateProjectMeta } from '@/lib/api-client';
 import { getRecentProjects, trackProject, type RecentProject } from '@/lib/recent-projects';
@@ -147,7 +147,7 @@ export function IDEShell({ projectId }: { projectId: string }) {
 	}, []);
 
 	// Terminal log counts — derived from the global log buffer
-	const logs = useSyncExternalStore(subscribeToLogs, getLogSnapshot);
+	const logs = useLogs();
 	const logCounts = useMemo<LogCounts>(() => {
 		let errors = 0;
 		let warnings = 0;

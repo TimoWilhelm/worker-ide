@@ -1,25 +1,29 @@
 /**
  * Log Buffer
  *
- * Module-level log accumulator that listens for server-error, rebuild,
- * and server-logs CustomEvents. Persists across output panel component
- * mount/unmount cycles so no log entries are lost.
+ * Zustand store that listens for server-error, rebuild, and server-logs
+ * CustomEvents. Persists across output panel component mount/unmount
+ * cycles so no log entries are lost.
  *
  * Logs are cleared on each rebuild by default unless "Preserve Logs"
  * is enabled.
  */
 
+import { createStore, useStore } from 'zustand';
+
 import type { LogEntry } from '../types';
 import type { ServerError, ServerLogEntry } from '@shared/types';
 
 // =============================================================================
-// State
+// Store
 // =============================================================================
 
+interface LogBufferState {
+	entries: LogEntry[];
+	preserveLogs: boolean;
+}
+
 let idCounter = 0;
-let entries: LogEntry[] = [];
-let preserveLogs = false;
-const listeners = new Set<() => void>();
 const seenErrorIds = new Set<string>();
 
 function nextId(): string {
@@ -27,15 +31,23 @@ function nextId(): string {
 	return `log-${idCounter}`;
 }
 
-function notify() {
-	for (const listener of listeners) {
-		listener();
-	}
-}
+const logBufferStore = createStore<LogBufferState>(() => ({
+	entries: [],
+	preserveLogs: false,
+}));
 
 function append(...newEntries: LogEntry[]) {
-	entries = [...entries, ...newEntries];
-	notify();
+	logBufferStore.setState((state) => ({
+		entries: [...state.entries, ...newEntries],
+	}));
+}
+
+function clearIfNotPreserving() {
+	const { preserveLogs } = logBufferStore.getState();
+	if (!preserveLogs) {
+		seenErrorIds.clear();
+		logBufferStore.setState({ entries: [] });
+	}
 }
 
 // =============================================================================
@@ -62,12 +74,7 @@ globalThis.addEventListener('server-error', (event: Event) => {
 });
 
 globalThis.addEventListener('rebuild', () => {
-	// Clear logs on rebuild unless preserving
-	if (!preserveLogs) {
-		entries = [];
-		seenErrorIds.clear();
-		notify();
-	}
+	clearIfNotPreserving();
 });
 
 globalThis.addEventListener('server-logs', (event: Event) => {
@@ -89,11 +96,7 @@ globalThis.addEventListener('server-logs', (event: Event) => {
  * Clear logs on manual preview refresh unless preserving.
  */
 globalThis.addEventListener('preview-refresh', () => {
-	if (!preserveLogs) {
-		entries = [];
-		seenErrorIds.clear();
-		notify();
-	}
+	clearIfNotPreserving();
 });
 
 /**
@@ -145,28 +148,23 @@ globalThis.addEventListener('message', (event: MessageEvent) => {
 });
 
 // =============================================================================
-// Public API (useSyncExternalStore compatible)
+// Public API
 // =============================================================================
 
-export function subscribeToLogs(listener: () => void): () => void {
-	listeners.add(listener);
-	return () => listeners.delete(listener);
-}
-
-export function getLogSnapshot(): LogEntry[] {
-	return entries;
+/** React hook — subscribe to the log entries array. */
+export function useLogs(): LogEntry[] {
+	return useStore(logBufferStore, (state) => state.entries);
 }
 
 export function clearLogs(): void {
-	entries = [];
 	seenErrorIds.clear();
-	notify();
+	logBufferStore.setState({ entries: [] });
 }
 
 export function getPreserveLogs(): boolean {
-	return preserveLogs;
+	return logBufferStore.getState().preserveLogs;
 }
 
 export function setPreserveLogs(value: boolean): void {
-	preserveLogs = value;
+	logBufferStore.setState({ preserveLogs: value });
 }

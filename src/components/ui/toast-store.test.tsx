@@ -6,23 +6,27 @@
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { getSnapshot, removeToast, subscribe, toast } from './toast-store';
+import { removeToast, toast, toastStore } from './toast-store';
+
+function getItems() {
+	return toastStore.getState().items;
+}
 
 describe('toast store', () => {
 	afterEach(() => {
 		// Clean up all toasts after each test
-		for (const item of getSnapshot()) {
+		for (const item of getItems()) {
 			removeToast(item.id);
 		}
 	});
 
 	it('starts with an empty list', () => {
-		expect(getSnapshot()).toEqual([]);
+		expect(getItems()).toEqual([]);
 	});
 
 	it('adds an error toast', () => {
 		toast.error('Something went wrong');
-		const items = getSnapshot();
+		const items = getItems();
 		expect(items).toHaveLength(1);
 		expect(items[0].message).toBe('Something went wrong');
 		expect(items[0].variant).toBe('error');
@@ -31,36 +35,36 @@ describe('toast store', () => {
 	it('adds multiple toasts', () => {
 		toast.error('Error 1');
 		toast.error('Error 2');
-		expect(getSnapshot()).toHaveLength(2);
+		expect(getItems()).toHaveLength(2);
 	});
 
 	it('assigns unique ids', () => {
 		toast.error('A');
 		toast.error('B');
-		const items = getSnapshot();
+		const items = getItems();
 		expect(items[0].id).not.toBe(items[1].id);
 	});
 
 	it('removes a toast by id', () => {
 		toast.error('To remove');
-		const [item] = getSnapshot();
+		const [item] = getItems();
 		removeToast(item.id);
-		expect(getSnapshot()).toHaveLength(0);
+		expect(getItems()).toHaveLength(0);
 	});
 
 	it('only removes the targeted toast', () => {
 		toast.error('Keep');
 		toast.error('Remove');
-		const items = getSnapshot();
+		const items = getItems();
 		removeToast(items[1].id);
-		const remaining = getSnapshot();
+		const remaining = getItems();
 		expect(remaining).toHaveLength(1);
 		expect(remaining[0].message).toBe('Keep');
 	});
 
 	it('notifies subscribers on add', () => {
 		let callCount = 0;
-		const unsubscribe = subscribe(() => {
+		const unsubscribe = toastStore.subscribe(() => {
 			callCount++;
 		});
 		toast.error('Test');
@@ -71,17 +75,17 @@ describe('toast store', () => {
 	it('notifies subscribers on remove', () => {
 		toast.error('Test');
 		let callCount = 0;
-		const unsubscribe = subscribe(() => {
+		const unsubscribe = toastStore.subscribe(() => {
 			callCount++;
 		});
-		removeToast(getSnapshot()[0].id);
+		removeToast(getItems()[0].id);
 		expect(callCount).toBe(1);
 		unsubscribe();
 	});
 
 	it('does not notify after unsubscribe', () => {
 		let callCount = 0;
-		const unsubscribe = subscribe(() => {
+		const unsubscribe = toastStore.subscribe(() => {
 			callCount++;
 		});
 		unsubscribe();

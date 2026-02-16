@@ -7,14 +7,14 @@
 
 import { Ban, Circle } from 'lucide-react';
 import { ScrollArea } from 'radix-ui';
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { Pill } from '@/components/ui/pill';
 import { Tooltip } from '@/components/ui/tooltip';
 import { useStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 
-import { clearLogs, getLogSnapshot, getPreserveLogs, setPreserveLogs, subscribeToLogs } from '../lib/log-buffer';
+import { clearLogs, getPreserveLogs, setPreserveLogs, useLogs } from '../lib/log-buffer';
 
 import type { LogEntry, OutputPanelProperties } from '../types';
 
@@ -75,7 +75,7 @@ function parseMessage(message: string): MessageSegment[] {
  * Output panel showing logs and console output.
  */
 export function OutputPanel({ className }: OutputPanelProperties) {
-	const logs = useSyncExternalStore(subscribeToLogs, getLogSnapshot);
+	const logs = useLogs();
 	const [filter, setFilter] = useState<'all' | 'server' | 'client'>('all');
 	const [preserve, setPreserve] = useState(getPreserveLogs);
 	const scrollReference = useRef<HTMLDivElement>(null);

@@ -1,9 +1,11 @@
 /**
  * Toast Store
  *
- * Module-level store for toast notifications.
+ * Zustand store for toast notifications.
  * Provides an imperative `toast.error()` API callable from anywhere.
  */
+
+import { createStore, useStore } from 'zustand';
 
 // =============================================================================
 // Types
@@ -19,37 +21,40 @@ export interface ToastItem {
 // Store
 // =============================================================================
 
-let toasts: ToastItem[] = [];
-let nextId = 0;
-const listeners = new Set<() => void>();
-
-function emitChange() {
-	for (const listener of listeners) {
-		listener();
-	}
+interface ToastState {
+	items: ToastItem[];
+	nextId: number;
 }
 
-export function subscribe(listener: () => void) {
-	listeners.add(listener);
-	return () => {
-		listeners.delete(listener);
-	};
-}
-
-export function getSnapshot(): ToastItem[] {
-	return toasts;
-}
+const toastStore = createStore<ToastState>(() => ({
+	items: [],
+	nextId: 0,
+}));
 
 function addToast(message: string, variant: 'error') {
-	nextId++;
-	toasts = [...toasts, { id: String(nextId), message, variant }];
-	emitChange();
+	toastStore.setState((state) => ({
+		nextId: state.nextId + 1,
+		items: [...state.items, { id: String(state.nextId + 1), message, variant }],
+	}));
 }
 
 export function removeToast(id: string) {
-	toasts = toasts.filter((t) => t.id !== id);
-	emitChange();
+	toastStore.setState((state) => ({
+		items: state.items.filter((t) => t.id !== id),
+	}));
 }
+
+// =============================================================================
+// React hook
+// =============================================================================
+
+export function useToasts(): ToastItem[] {
+	return useStore(toastStore, (state) => state.items);
+}
+
+// =============================================================================
+// Imperative API — callable from anywhere (hooks, callbacks, etc.)
+// =============================================================================
 
 /**
  * Imperative toast API — call from anywhere (hooks, callbacks, etc.).
@@ -63,3 +68,10 @@ export function removeToast(id: string) {
 export const toast = {
 	error: (message: string) => addToast(message, 'error'),
 };
+
+// =============================================================================
+// Test helpers
+// =============================================================================
+
+/** Underlying store instance — exposed for direct access in tests. */
+export { toastStore };

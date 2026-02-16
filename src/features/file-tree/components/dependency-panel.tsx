@@ -8,11 +8,10 @@ import { AlertTriangle, ChevronDown, ChevronUp, Package, Pencil, Plus, Trash2 } 
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { toast } from '@/components/ui/toast-store';
+import { removeInvalid, removeMissing, useDependencyErrors } from '@/features/file-tree/dependency-error-store';
 import { fetchProjectMeta, updateDependencies } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
 import { validateDependencyName, validateDependencyVersion } from '@shared/validation';
-
-import type { DependencyError } from '@shared/types';
 
 // =============================================================================
 // Types
@@ -43,81 +42,24 @@ function DependencyPanel({ projectId, collapsed = false, onToggle, className }: 
 	const [addInput, setAddInput] = useState('');
 	const [editVersion, setEditVersion] = useState('');
 	const [isLoading, setIsLoading] = useState(false);
-	const [missingDependencies, setMissingDependencies] = useState<Set<string>>(new Set());
-	const [invalidDependencies, setInvalidDependencies] = useState<Map<string, string>>(new Map());
 	const [addError, setAddError] = useState<string | undefined>();
 	const [editError, setEditError] = useState<string | undefined>();
 	const nameInputReference = useRef<HTMLInputElement>(null);
 	const editInputReference = useRef<HTMLInputElement>(null);
 	const editCommittedReference = useRef(false);
 
-	// Listen for server-error events to detect missing or invalid dependencies.
-	// Errors arrive via two channels:
-	//   1. WebSocket server-error → CustomEvent('server-error')
-	//   2. Preview iframe postMessage → MessageEvent with type '__server-error'
-	// The WebSocket path deduplicates, so on refresh the same error may only
-	// arrive via the iframe postMessage path.
+	// Read dependency errors from the global store (active even when this component is unmounted)
+	const { missing: missingDependencies, invalid: invalidDependencies } = useDependencyErrors();
+
+	// Auto-expand collapsed panel when new errors arrive
+	const previousErrorCountReference = useRef(missingDependencies.size + invalidDependencies.size);
 	useEffect(() => {
-		const ERROR_MESSAGES: Record<DependencyError['code'], string> = {
-			unregistered: 'Not registered. Add it via the Dependencies panel.',
-			'not-found': 'Package not found. Check the name and version.',
-			'resolve-failed': 'Failed to resolve from CDN. The version may be invalid.',
-		};
-
-		function processDependencyErrors(errors: DependencyError[]) {
-			let hasChanges = false;
-			for (const depError of errors) {
-				if (depError.code === 'unregistered') {
-					setMissingDependencies((previous) => {
-						const next = new Set(previous);
-						next.add(depError.packageName);
-						return next;
-					});
-					hasChanges = true;
-				} else {
-					setInvalidDependencies((previous) => {
-						const next = new Map(previous);
-						next.set(depError.packageName, ERROR_MESSAGES[depError.code]);
-						return next;
-					});
-					hasChanges = true;
-				}
-			}
-			if (hasChanges && collapsed && onToggle) onToggle();
+		const currentCount = missingDependencies.size + invalidDependencies.size;
+		if (currentCount > previousErrorCountReference.current && collapsed && onToggle) {
+			onToggle();
 		}
-
-		function extractDependencyErrors(errorObject: unknown): DependencyError[] | undefined {
-			if (typeof errorObject !== 'object' || errorObject === undefined || errorObject === null) {
-				return undefined;
-			}
-			if (!('dependencyErrors' in errorObject)) return undefined;
-			const { dependencyErrors } = errorObject;
-			if (!Array.isArray(dependencyErrors)) return undefined;
-			return dependencyErrors;
-		}
-
-		// Channel 1: WebSocket server-error dispatched as CustomEvent
-		const handleServerError = (event: Event) => {
-			if (!(event instanceof CustomEvent)) return;
-			const errors = extractDependencyErrors(event.detail);
-			if (errors) processDependencyErrors(errors);
-		};
-
-		// Channel 2: Preview iframe postMessage (__server-error)
-		const handleMessage = (event: MessageEvent) => {
-			if (event.origin !== globalThis.location.origin) return;
-			if (event.data?.type !== '__server-error') return;
-			const errors = extractDependencyErrors(event.data?.error);
-			if (errors) processDependencyErrors(errors);
-		};
-
-		globalThis.addEventListener('server-error', handleServerError);
-		globalThis.addEventListener('message', handleMessage);
-		return () => {
-			globalThis.removeEventListener('server-error', handleServerError);
-			globalThis.removeEventListener('message', handleMessage);
-		};
-	}, [collapsed, onToggle]);
+		previousErrorCountReference.current = currentCount;
+	}, [missingDependencies.size, invalidDependencies.size, collapsed, onToggle]);
 
 	// Load dependencies from project meta
 	const loadDependencies = useCallback(async () => {
@@ -211,35 +153,19 @@ function DependencyPanel({ projectId, collapsed = false, onToggle, className }: 
 		setIsAdding(false);
 		setAddInput('');
 		setAddError(undefined);
-		setMissingDependencies((previous) => {
-			const next = new Set(previous);
-			next.delete(parsed.name);
-			return next;
-		});
-		setInvalidDependencies((previous) => {
-			const next = new Map(previous);
-			next.delete(parsed.name);
-			return next;
-		});
+		removeMissing(parsed.name);
+		removeInvalid(parsed.name);
 		await saveDependencies(updated);
 	}, [addInput, parseAddInput, dependencies, saveDependencies]);
 
 	const handleAddMissing = useCallback(
 		async (name: string) => {
 			if (dependencies.some((d) => d.name === name)) {
-				setMissingDependencies((previous) => {
-					const next = new Set(previous);
-					next.delete(name);
-					return next;
-				});
+				removeMissing(name);
 				return;
 			}
 			const updated = [...dependencies, { name, version: '*' }];
-			setMissingDependencies((previous) => {
-				const next = new Set(previous);
-				next.delete(name);
-				return next;
-			});
+			removeMissing(name);
 			await saveDependencies(updated);
 		},
 		[dependencies, saveDependencies],
@@ -282,11 +208,7 @@ function DependencyPanel({ projectId, collapsed = false, onToggle, className }: 
 		setEditingName(undefined);
 		setEditVersion('');
 		setEditError(undefined);
-		setInvalidDependencies((previous) => {
-			const next = new Map(previous);
-			next.delete(editingName);
-			return next;
-		});
+		removeInvalid(editingName);
 		await saveDependencies(updated);
 	}, [editingName, editVersion, dependencies, saveDependencies]);
 

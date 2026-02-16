@@ -11,12 +11,7 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 const EMPTY_LOGS: never[] = [];
 
 vi.mock('../lib/log-buffer', () => ({
-	subscribeToLogs: (listener: () => void) => {
-		return () => {
-			void listener;
-		};
-	},
-	getLogSnapshot: () => EMPTY_LOGS,
+	useLogs: () => EMPTY_LOGS,
 	clearLogs: vi.fn(),
 	getPreserveLogs: () => false,
 	setPreserveLogs: vi.fn(),
