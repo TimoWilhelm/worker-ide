@@ -179,7 +179,7 @@ CODE CHANGES:
 
 RESEARCH & PLANNING:
 - docs_search: Search Cloudflare documentation
-- web_fetch: Fetch and read web page content
+- web_fetch: Fetch a web page and run a prompt against its content
 - user_question: Ask the user a clarifying question (they will answer in their next message)
 - plan_update: Update the current implementation plan
 - todos_get: Get the current TODO list

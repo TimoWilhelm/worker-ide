@@ -39,7 +39,7 @@ export const sessionRoutes = new Hono<AppEnvironment>()
 			}
 
 			sessions.sort((a, b) => b.createdAt - a.createdAt);
-			return c.json({ sessions });
+			return c.json({ sessions: sessions.slice(0, 100) });
 		} catch {
 			return c.json({ sessions: [] });
 		}

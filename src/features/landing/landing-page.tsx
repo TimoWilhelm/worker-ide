@@ -11,14 +11,14 @@
  * out of the main IDE bundle.
  */
 
-import { Copy, Hexagon, Moon, Search, Sun } from 'lucide-react';
+import { Copy, Hexagon, Moon, Search, Sun, X } from 'lucide-react';
 import { Suspense, useCallback, useMemo, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { useTheme } from '@/hooks/use-theme';
 import { cloneProject, createProject } from '@/lib/api-client';
-import { getRecentProjects, trackProject } from '@/lib/recent-projects';
+import { getRecentProjects, removeProject, trackProject } from '@/lib/recent-projects';
 import { useStore } from '@/lib/store';
 import { cn, formatRelativeTime } from '@/lib/utils';
 
@@ -155,12 +155,23 @@ function TemplateCard({
 // Recent project row
 // =============================================================================
 
-function RecentProjectRow({ project, isMostRecent }: { project: RecentProject; isMostRecent: boolean }) {
+function RecentProjectRow({
+	project,
+	isMostRecent,
+	onDelete,
+}: {
+	project: RecentProject;
+	isMostRecent: boolean;
+	onDelete: (projectId: string) => void;
+}) {
 	return (
 		<a
 			href={`/p/${project.id}`}
 			className={cn(
-				'flex items-center justify-between rounded-md px-3 py-2 transition-colors',
+				`
+					group/row flex items-center justify-between rounded-md px-3 py-2
+					transition-colors
+				`,
 				`
 					text-text-secondary
 					hover:bg-bg-tertiary/60 hover:text-text-primary
@@ -169,7 +180,32 @@ function RecentProjectRow({ project, isMostRecent }: { project: RecentProject; i
 			)}
 		>
 			<span className="truncate text-xs">{project.name ?? project.id.slice(0, 12)}</span>
-			<span className="ml-3 shrink-0 text-xs text-text-secondary/60">{formatRelativeTime(project.timestamp)}</span>
+			<div className="ml-3 flex shrink-0 items-center gap-1">
+				<span
+					className="
+						text-xs text-text-secondary/60
+						group-hover/row:hidden
+					"
+				>
+					{formatRelativeTime(project.timestamp)}
+				</span>
+				<button
+					onClick={(event) => {
+						event.preventDefault();
+						event.stopPropagation();
+						onDelete(project.id);
+					}}
+					className="
+						hidden cursor-pointer rounded-sm p-0.5 text-text-secondary/60
+						transition-colors
+						group-hover/row:inline-flex
+						hover:bg-error/10 hover:text-error
+					"
+					aria-label={`Remove ${project.name ?? project.id.slice(0, 12)} from recent projects`}
+				>
+					<X className="size-3" />
+				</button>
+			</div>
 		</a>
 	);
 }
@@ -195,7 +231,7 @@ function navigateToProject(url: string): void {
  * Default export for React.lazy() compatibility.
  */
 export default function LandingPage() {
-	const [recentProjects] = useState(getRecentProjects);
+	const [recentProjects, setRecentProjects] = useState(getRecentProjects);
 	const [cloneInput, setCloneInput] = useState('');
 	const [loadingMessage, setLoadingMessage] = useState<string | undefined>();
 	const [cloneError, setCloneError] = useState<string | undefined>();
@@ -246,6 +282,11 @@ export default function LandingPage() {
 		},
 		[handleClone, parsedProjectId],
 	);
+
+	const handleDeleteProject = useCallback((projectId: string) => {
+		removeProject(projectId);
+		setRecentProjects((previous) => previous.filter((project) => project.id !== projectId));
+	}, []);
 
 	const isLoading = loadingMessage !== undefined;
 
@@ -311,45 +352,53 @@ export default function LandingPage() {
 					>
 						Clone a project
 					</h2>
-					<div className="flex gap-2">
-						<div className="relative flex-1">
-							<Copy
-								className="
-									pointer-events-none absolute top-1/2 left-3 size-3.5 -translate-y-1/2
-									text-text-secondary
-								"
-							/>
-							<input
-								type="text"
-								value={cloneInput}
-								onChange={(event) => {
-									setCloneInput(event.target.value);
-									setCloneError(undefined);
-								}}
-								onKeyDown={handleCloneKeyDown}
-								placeholder="Paste project URL or ID"
-								disabled={isLoading}
-								className={cn(
-									'h-9 w-full rounded-md border bg-bg-secondary/60 pr-3 pl-9',
-									`
-										text-xs text-text-primary
-										placeholder:text-text-secondary/50
-									`,
-									'backdrop-blur-sm transition-colors',
-									'focus:border-accent focus:outline-none',
-									cloneError ? 'border-error/50' : 'border-border',
-								)}
-							/>
-						</div>
-						<Button
-							variant="outline"
-							size="md"
+					<div className="relative">
+						<Copy
+							className="
+								pointer-events-none absolute top-1/2 left-3 size-3.5 -translate-y-1/2
+								text-text-secondary
+							"
+						/>
+						<input
+							type="text"
+							value={cloneInput}
+							onChange={(event) => {
+								setCloneInput(event.target.value);
+								setCloneError(undefined);
+							}}
+							onKeyDown={handleCloneKeyDown}
+							placeholder="Paste project URL or ID"
+							disabled={isLoading}
+							className={cn(
+								'h-9 w-full rounded-md border bg-bg-secondary/60 pr-16 pl-9',
+								`
+									text-xs text-text-primary
+									placeholder:text-text-secondary/50
+								`,
+								'backdrop-blur-sm transition-colors',
+								`
+									focus-within:border-accent
+									focus:outline-none
+								`,
+								cloneError ? 'border-error/50' : 'border-border',
+							)}
+						/>
+						<button
 							onClick={() => void handleClone()}
 							disabled={isLoading || !parsedProjectId}
-							className="shrink-0 backdrop-blur-sm"
+							className={cn(
+								'absolute top-1/2 right-1.5 -translate-y-1/2 rounded-sm px-2.5 py-1',
+								'text-xs font-medium transition-colors',
+								parsedProjectId && !isLoading
+									? `
+										cursor-pointer bg-accent text-white
+										hover:bg-accent-hover
+									`
+									: 'cursor-not-allowed text-text-secondary opacity-40',
+							)}
 						>
 							Clone
-						</Button>
+						</button>
 					</div>
 					{cloneError && <p className="mt-2 text-xs text-error">{cloneError}</p>}
 				</section>
@@ -364,10 +413,18 @@ export default function LandingPage() {
 						>
 							Recent projects
 						</h2>
-						<div className={cn('rounded-lg border border-border bg-bg-secondary/40 backdrop-blur-sm', 'divide-y divide-border')}>
+						<div
+							className={cn(
+								`
+									max-h-46 overflow-y-auto rounded-lg border border-border
+									bg-bg-secondary/40 backdrop-blur-sm
+								`,
+								'divide-y divide-border',
+							)}
+						>
 							{recentProjects.map((project, index) => (
 								<div key={project.id} className="px-1 py-0.5">
-									<RecentProjectRow project={project} isMostRecent={index === 0} />
+									<RecentProjectRow project={project} isMostRecent={index === 0} onDelete={handleDeleteProject} />
 								</div>
 							))}
 						</div>

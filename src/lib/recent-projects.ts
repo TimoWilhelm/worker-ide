@@ -3,7 +3,7 @@
  */
 
 const RECENT_PROJECTS_KEY = 'worker-ide-recent-projects';
-const MAX_RECENT_PROJECTS = 10;
+const MAX_RECENT_PROJECTS = 100;
 
 export interface RecentProject {
 	id: string;
@@ -32,5 +32,10 @@ export function trackProject(projectId: string, name?: string): void {
 	if (projects.length > MAX_RECENT_PROJECTS) {
 		projects = projects.slice(0, MAX_RECENT_PROJECTS);
 	}
+	localStorage.setItem(RECENT_PROJECTS_KEY, JSON.stringify(projects));
+}
+
+export function removeProject(projectId: string): void {
+	const projects = getRecentProjects().filter((project) => project.id !== projectId);
 	localStorage.setItem(RECENT_PROJECTS_KEY, JSON.stringify(projects));
 }

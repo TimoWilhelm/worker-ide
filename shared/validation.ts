@@ -219,7 +219,7 @@ export const questionInputSchema = z.object({
  */
 export const webfetchInputSchema = z.object({
 	url: z.string().url('Must be a valid URL'),
-	max_length: z.string().optional(),
+	prompt: z.string().min(1, 'Prompt is required'),
 });
 
 /**

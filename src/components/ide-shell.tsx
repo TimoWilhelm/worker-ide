@@ -4,7 +4,7 @@
  * Main IDE layout with resizable panels: file tree, editor, terminal, preview, and AI assistant.
  */
 
-import { Bot, ChevronUp, Clock, Download, FolderOpen, Github, Hexagon, Moon, Pencil, Plus, Sun } from 'lucide-react';
+import { Bot, ChevronUp, Clock, Download, FolderOpen, Github, Hexagon, Moon, Pencil, Plus, Sun, X } from 'lucide-react';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Group as PanelGroup, Panel, Separator as ResizeHandle } from 'react-resizable-panels';
 
@@ -31,7 +31,7 @@ import { getDependencyErrorCount, subscribeDependencyErrors } from '@/features/f
 import { useLogs } from '@/features/output/lib/log-buffer';
 import { projectSocketSendReference, useIsMobile, useProjectSocket, useTheme } from '@/hooks';
 import { downloadProject, fetchProjectMeta, updateProjectMeta } from '@/lib/api-client';
-import { getRecentProjects, trackProject, type RecentProject } from '@/lib/recent-projects';
+import { getRecentProjects, removeProject, trackProject, type RecentProject } from '@/lib/recent-projects';
 import { selectIsProcessing, useStore } from '@/lib/store';
 import { cn, formatRelativeTime } from '@/lib/utils';
 
@@ -1068,6 +1068,13 @@ function RecentProjectsDropdown({ currentProjectId, onNewProject }: { currentPro
 		}
 	}, []);
 
+	const handleDeleteProject = useCallback((event: React.MouseEvent, projectId: string) => {
+		event.preventDefault();
+		event.stopPropagation();
+		removeProject(projectId);
+		setProjects((previous) => previous.filter((project) => project.id !== projectId));
+	}, []);
+
 	return (
 		<DropdownMenu onOpenChange={handleOpenChange}>
 			<Tooltip content="Recent Projects" side="bottom">
@@ -1077,7 +1084,7 @@ function RecentProjectsDropdown({ currentProjectId, onNewProject }: { currentPro
 					</Button>
 				</DropdownMenuTrigger>
 			</Tooltip>
-			<DropdownMenuContent align="end" className="w-60">
+			<DropdownMenuContent align="end" className="max-h-80 w-60 overflow-y-auto">
 				{projects.map((project) => {
 					const isCurrent = project.id === currentProjectId;
 					return (
@@ -1088,14 +1095,35 @@ function RecentProjectsDropdown({ currentProjectId, onNewProject }: { currentPro
 									globalThis.location.href = `/p/${project.id}`;
 								}
 							}}
-							className={cn(isCurrent && 'bg-accent/10 text-accent')}
+							className={cn('group/item', isCurrent && 'bg-accent/10 text-accent')}
 						>
 							<div className="flex w-full items-center justify-between">
 								<span className="truncate text-xs">
 									{project.name ?? project.id.slice(0, 8)}
 									{isCurrent && ' (current)'}
 								</span>
-								<span className="ml-2 shrink-0 text-xs text-text-secondary">{formatRelativeTime(project.timestamp)}</span>
+								<div className="ml-2 flex shrink-0 items-center gap-1">
+									<span
+										className="
+											text-xs text-text-secondary
+											group-hover/item:hidden
+										"
+									>
+										{formatRelativeTime(project.timestamp)}
+									</span>
+									<button
+										onPointerDown={(event) => event.stopPropagation()}
+										onClick={(event) => handleDeleteProject(event, project.id)}
+										className="
+											hidden rounded-sm p-0.5 text-text-secondary/60 transition-colors
+											group-hover/item:inline-flex
+											hover:bg-error/10 hover:text-error
+										"
+										aria-label={`Remove ${project.name ?? project.id.slice(0, 8)} from recent projects`}
+									>
+										<X className="size-3" />
+									</button>
+								</div>
 							</div>
 						</DropdownMenuItem>
 					);

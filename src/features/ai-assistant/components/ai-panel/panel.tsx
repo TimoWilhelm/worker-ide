@@ -503,7 +503,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 								<ChevronDown className="size-3" />
 							</Button>
 						</DropdownMenuTrigger>
-						<DropdownMenuContent align="end" className="w-56">
+						<DropdownMenuContent align="end" className="max-h-80 w-56 overflow-y-auto">
 							{savedSessions.length === 0 ? (
 								<div className="px-3 py-2 text-xs text-text-secondary">No saved sessions</div>
 							) : (
