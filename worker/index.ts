@@ -20,7 +20,6 @@ import exampleAppTsx from './fixtures/example-project/src/app.tsx?raw';
 import exampleMainTsx from './fixtures/example-project/src/main.tsx?raw';
 import exampleStyleCss from './fixtures/example-project/src/style.css?raw';
 import exampleTsconfig from './fixtures/example-project/tsconfig.json?raw';
-import exampleWorkerDatabaseTs from './fixtures/example-project/worker/database.ts?raw';
 import exampleWorkerIndexTs from './fixtures/example-project/worker/index.ts?raw';
 import { apiRoutes } from './routes';
 import { PreviewService } from './services/preview-service';
@@ -67,7 +66,6 @@ const EXAMPLE_PROJECT: Record<string, string> = {
 	'src/main.tsx': exampleMainTsx,
 	'src/app.tsx': exampleAppTsx,
 	'src/style.css': exampleStyleCss,
-	'worker/database.ts': exampleWorkerDatabaseTs,
 	'worker/index.ts': exampleWorkerIndexTs,
 };
 

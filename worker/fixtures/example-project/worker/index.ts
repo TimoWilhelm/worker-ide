@@ -1,57 +1,74 @@
 // Worker entry point - Hono API
 import { Hono } from 'hono';
 
-import { contacts, type Contact } from './database';
-
 const app = new Hono();
 
-// List all contacts
-app.get('/api/contacts', (c) => {
-	return c.json(contacts);
+// Inspect the incoming request — returns headers, geo, and connection info
+app.get('/api/inspect', (c) => {
+	const request = c.req.raw;
+	// eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- cf is a Workers-specific property on Request
+	const cf = (request as Request & { cf?: Record<string, unknown> }).cf;
+
+	// Collect request headers
+	const headers: Record<string, string> = {};
+	for (const [key, value] of request.headers.entries()) {
+		headers[key] = value;
+	}
+
+	// Geolocation from Cloudflare's `cf` object (only available on CF network)
+	const geo = cf
+		? {
+				country: cf.country ?? 'Unknown',
+				city: cf.city ?? 'Unknown',
+				continent: cf.continent ?? 'Unknown',
+				latitude: cf.latitude ?? 'Unknown',
+				longitude: cf.longitude ?? 'Unknown',
+				region: cf.region ?? 'Unknown',
+				regionCode: cf.regionCode ?? 'Unknown',
+				postalCode: cf.postalCode ?? 'Unknown',
+				timezone: cf.timezone ?? 'Unknown',
+				metroCode: cf.metroCode ?? 'Unknown',
+			}
+		: undefined;
+
+	// Connection and edge info
+	const connection = cf
+		? {
+				colo: cf.colo ?? 'Unknown',
+				httpProtocol: cf.httpProtocol ?? 'Unknown',
+				tlsVersion: cf.tlsVersion ?? 'Unknown',
+				asn: cf.asn ?? 'Unknown',
+				asOrganization: cf.asOrganization ?? 'Unknown',
+			}
+		: undefined;
+
+	return c.json({
+		timestamp: new Date().toISOString(),
+		method: request.method,
+		url: request.url,
+		headers,
+		geo,
+		connection,
+		runtime: navigator.userAgent,
+	});
 });
 
-// Get a single contact
-app.get('/api/contacts/:id', (c) => {
-	const contact = contacts.find((item) => item.id === c.req.param('id'));
-	if (!contact) return c.json({ error: 'Not found' }, 404);
-	return c.json(contact);
-});
+// Echo endpoint — reflects back whatever you send
+app.post('/api/echo', async (c) => {
+	const contentType = c.req.header('content-type') ?? '';
+	let body: unknown;
+	try {
+		body = await (contentType.includes('application/json') ? c.req.json() : c.req.text());
+	} catch {
+		return c.json({ error: 'Invalid JSON body' }, 400);
+	}
 
-// Create a new contact
-app.post('/api/contacts', async (c) => {
-	const body = await c.req.json<{ name: string; email: string; role?: string }>();
-	const contact: Contact = {
-		id: crypto.randomUUID(),
-		name: body.name,
-		email: body.email,
-		role: body.role || 'Member',
-	};
-	contacts.push(contact);
-	console.log(`Created contact: ${contact.name}`);
-	return c.json(contact, 201);
-});
-
-// Update a contact
-app.put('/api/contacts/:id', async (c) => {
-	const id = c.req.param('id');
-	const contact = contacts.find((item) => item.id === id);
-	if (!contact) return c.json({ error: 'Not found' }, 404);
-	const body = await c.req.json<{ name?: string; email?: string; role?: string }>();
-	if (body.name) contact.name = body.name;
-	if (body.email) contact.email = body.email;
-	if (body.role) contact.role = body.role;
-	console.log(`Updated contact: ${contact.name}`);
-	return c.json(contact);
-});
-
-// Delete a contact
-app.delete('/api/contacts/:id', (c) => {
-	const id = c.req.param('id');
-	const index = contacts.findIndex((item) => item.id === id);
-	if (index === -1) return c.json({ error: 'Not found' }, 404);
-	const [deleted] = contacts.splice(index, 1);
-	console.log(`Deleted contact: ${deleted.name}`);
-	return c.json(deleted);
+	return c.json({
+		timestamp: new Date().toISOString(),
+		method: c.req.method,
+		headers: Object.fromEntries(c.req.raw.headers.entries()),
+		body,
+	});
 });
 
 // Catch-all

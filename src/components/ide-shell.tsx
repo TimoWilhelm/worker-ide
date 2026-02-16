@@ -4,7 +4,7 @@
  * Main IDE layout with resizable panels: file tree, editor, terminal, preview, and AI assistant.
  */
 
-import { Bot, ChevronUp, Clock, Download, FolderOpen, Hexagon, Moon, Pencil, Plus, Sun } from 'lucide-react';
+import { Bot, ChevronUp, Clock, Download, FolderOpen, Github, Hexagon, Moon, Pencil, Plus, Sun } from 'lucide-react';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Group as PanelGroup, Panel, Separator as ResizeHandle } from 'react-resizable-panels';
 
@@ -1018,6 +1018,18 @@ export function IDEShell({ projectId }: { projectId: string }) {
 							</div>
 							<div className="flex items-center gap-4">
 								{isSaving && <span>Saving...</span>}
+								<a
+									href="https://github.com/TimoWilhelm/worker-ide"
+									target="_blank"
+									rel="noopener noreferrer"
+									className="
+										transition-colors
+										hover:text-accent
+									"
+									title="GitHub"
+								>
+									<Github className="size-3.5" />
+								</a>
 								<a href="/docs" target="_blank" rel="noopener noreferrer" className="transition-colors hover:text-accent">
 									Worker IDE
 								</a>

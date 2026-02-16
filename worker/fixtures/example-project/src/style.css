@@ -6,37 +6,41 @@
 
 body {
 	margin: 0;
-	display: flex;
-	place-items: center;
 	min-width: 320px;
-	min-height: 100vh;
 }
 
 #app {
-	max-width: 600px;
+	max-width: 640px;
 	margin: 0 auto;
-	padding: 2rem;
-	text-align: center;
-	width: 100%;
+	padding: 2rem 1rem;
 }
 
 h1 {
-	font-size: 2.5em;
+	font-size: 2em;
 	margin-bottom: 0.2em;
+	text-align: center;
+}
+
+h2 {
+	font-size: 1em;
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+	color: #64748b;
+	margin: 1.5em 0 0.5em;
 }
 
 .subtitle {
 	color: #64748b;
 	margin-bottom: 1.5em;
+	text-align: center;
 }
 
 .card {
 	background: #ffffff;
 	box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 	border-radius: 12px;
-	padding: 1.5em;
-	margin: 1em 0;
-	text-align: left;
+	padding: 1.25em;
+	margin: 0.5em 0;
 }
 
 .card-header {
@@ -49,9 +53,76 @@ h1 {
 .status {
 	color: #16a34a;
 	font-weight: 500;
+	font-size: 0.85em;
+}
+
+.error {
+	background: #fef2f2;
+	color: #dc2626;
+	padding: 0.75em 1em;
+	border-radius: 8px;
 	font-size: 0.9em;
 }
 
+.loading {
+	text-align: center;
+	color: #64748b;
+}
+
+.muted {
+	color: #94a3b8;
+	font-size: 0.9em;
+	margin: 0 0 0.75em;
+}
+
+/* Key-value rows */
+.kv-row {
+	display: flex;
+	gap: 1em;
+	padding: 0.4em 0;
+	border-bottom: 1px solid #f1f5f9;
+	font-size: 0.9em;
+	align-items: baseline;
+}
+
+.kv-row:last-child {
+	border-bottom: none;
+}
+
+.kv-label {
+	flex-shrink: 0;
+	width: 160px;
+	font-weight: 600;
+	color: #475569;
+	font-size: 0.85em;
+	word-break: break-all;
+}
+
+.kv-value {
+	flex: 1;
+	color: #1e293b;
+	word-break: break-all;
+}
+
+/* Skeleton loading */
+.skeleton {
+	display: inline-block;
+	background: linear-gradient(90deg, #e2e8f0 25%, #f1f5f9 50%, #e2e8f0 75%);
+	background-size: 200% 100%;
+	animation: shimmer 1.5s infinite;
+	border-radius: 4px;
+}
+
+@keyframes shimmer {
+	0% {
+		background-position: 200% 0;
+	}
+	100% {
+		background-position: -200% 0;
+	}
+}
+
+/* Buttons */
 button {
 	border-radius: 6px;
 	border: none;
@@ -76,107 +147,48 @@ button:disabled {
 	background-color: #535bf2;
 }
 
-.btn-secondary {
-	background-color: #e2e8f0;
-	color: #1a1a2e;
-}
-
-.btn-secondary:hover:not(:disabled) {
-	background-color: #cbd5e1;
-}
-
-.form {
-	display: flex;
-	flex-direction: column;
-	gap: 0.75em;
-}
-
-.form input {
-	padding: 0.6em 1em;
+/* Echo section */
+.echo-input {
+	width: 100%;
+	padding: 0.75em;
 	border: 1px solid #d1d5db;
-	border-radius: 6px;
-	background: #ffffff;
-	color: #1a1a2e;
-	font-size: 1em;
+	border-radius: 8px;
+	font-family: 'SF Mono', SFMono-Regular, ui-monospace, Menlo, Consolas, monospace;
+	font-size: 0.85em;
+	resize: vertical;
+	background: #f8fafc;
+	color: #1e293b;
+	margin-bottom: 0.75em;
+	box-sizing: border-box;
 }
 
-.form input:focus {
+.echo-input:focus {
 	outline: none;
 	border-color: #646cff;
 }
 
-.contact-list {
-	list-style: none;
-	padding: 0;
-	margin: 0;
-}
-
-.contact-list li {
-	display: flex;
-	align-items: center;
-	gap: 0.75em;
-	padding: 0.75em;
+.echo-result {
 	background: #f1f5f9;
 	border-radius: 8px;
-	margin-bottom: 0.5em;
-	transition: opacity 0.2s;
-}
-
-.contact-list li.busy {
-	opacity: 0.5;
-	pointer-events: none;
-}
-
-.contact-list li.empty {
-	justify-content: center;
-	color: #94a3b8;
-	font-style: italic;
-}
-
-.contact-info {
-	flex: 1;
-	display: flex;
-	flex-direction: column;
-	gap: 0.15em;
-}
-
-.contact-email {
-	font-size: 0.85em;
-	color: #64748b;
-}
-
-.contact-role {
+	padding: 1em;
+	margin-top: 0.75em;
+	font-family: 'SF Mono', SFMono-Regular, ui-monospace, Menlo, Consolas, monospace;
 	font-size: 0.8em;
-	color: #94a3b8;
+	overflow-x: auto;
+	white-space: pre-wrap;
+	word-break: break-all;
+	color: #334155;
 }
 
-.contact-actions {
-	display: flex;
-	gap: 0.3em;
-}
-
-.btn-edit,
-.btn-delete {
-	padding: 0.3em 0.6em;
-	font-size: 1em;
-	background: #e2e8f0;
-	color: #1a1a2e;
-	border: none;
+code {
+	background: #f1f5f9;
+	padding: 0.15em 0.4em;
 	border-radius: 4px;
-	cursor: pointer;
-}
-
-.btn-edit:hover:not(:disabled) {
-	background: #646cff;
-	color: white;
-}
-
-.btn-delete:hover:not(:disabled) {
-	background: #ef4444;
-	color: white;
+	font-size: 0.9em;
 }
 
 .hint {
 	font-size: 0.85em;
 	opacity: 0.6;
+	text-align: center;
 }

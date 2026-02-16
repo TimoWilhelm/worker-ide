@@ -1,166 +1,230 @@
 import { useState, useEffect, useCallback } from 'react';
 
-interface Contact {
-	id: string;
-	name: string;
-	email: string;
-	role: string;
+interface InspectData {
+	timestamp: string;
+	method: string;
+	url: string;
+	headers: Record<string, string>;
+	geo?: {
+		country: string;
+		city: string;
+		continent: string;
+		latitude: string;
+		longitude: string;
+		region: string;
+		regionCode: string;
+		postalCode: string;
+		timezone: string;
+		metroCode: string;
+	};
+	connection?: {
+		colo: string;
+		httpProtocol: string;
+		tlsVersion: string;
+		asn: string | number;
+		asOrganization: string;
+	};
+	runtime: string;
 }
 
-type View = 'list' | 'add' | 'edit';
+interface EchoResponse {
+	timestamp: string;
+	method: string;
+	headers: Record<string, string>;
+	body: unknown;
+}
+
+const HIGHLIGHT_HEADERS = [
+	'user-agent',
+	'accept-language',
+	'accept-encoding',
+	'cf-connecting-ip',
+	'cf-ipcountry',
+	'cf-ray',
+	'x-forwarded-for',
+	'x-real-ip',
+];
+
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+	return (
+		<div className="section">
+			<h2>{title}</h2>
+			{children}
+		</div>
+	);
+}
+
+function KeyValue({ label, value }: { label: string; value: string }) {
+	return (
+		<div className="kv-row">
+			<span className="kv-label">{label}</span>
+			<span className="kv-value">{value}</span>
+		</div>
+	);
+}
+
+function SkeletonLine({ width = '60%' }: { width?: string }) {
+	return (
+		<div className="kv-row">
+			<span className="skeleton" style={{ width: '120px', height: '0.85em' }} />
+			<span className="skeleton" style={{ width, height: '0.85em' }} />
+		</div>
+	);
+}
+
+function SkeletonCard({ lines = 3 }: { lines?: number }) {
+	const widths = ['75%', '50%', '90%', '60%', '40%'];
+	return (
+		<div className="card">
+			{Array.from({ length: lines }, (_, index) => (
+				<SkeletonLine key={index} width={widths[index % widths.length]} />
+			))}
+		</div>
+	);
+}
 
 export function App() {
-	const [contacts, setContacts] = useState<Contact[]>([]);
-	const [view, setView] = useState<View>('list');
-	const [editingContact, setEditingContact] = useState<Contact | undefined>();
-	const [name, setName] = useState('');
-	const [email, setEmail] = useState('');
-	const [role, setRole] = useState('');
-	const [status, setStatus] = useState('Loading...');
-	const [busy, setBusy] = useState(false);
+	const [data, setData] = useState<InspectData | undefined>();
+	const [echoInput, setEchoInput] = useState('{ "hello": "world" }');
+	const [echoResult, setEchoResult] = useState<EchoResponse | undefined>();
+	const [echoError, setEchoError] = useState('');
+	const [loading, setLoading] = useState(true);
+	const [error, setError] = useState('');
 
-	const loadContacts = useCallback(async () => {
+	const fetchInspect = useCallback(async () => {
+		setLoading(true);
+		setError('');
 		try {
-			const response = await fetch('/api/contacts');
-			const data: Contact[] = await response.json();
-			setContacts(data);
-			setStatus(`${data.length} contact${data.length === 1 ? '' : 's'}`);
+			const response = await fetch('/api/inspect');
+			if (!response.ok) throw new Error(`HTTP ${response.status}`);
+			const json: InspectData = await response.json();
+			setData(json);
 		} catch {
-			setStatus('Error loading contacts');
+			setError('Failed to reach the worker API');
+		} finally {
+			setLoading(false);
 		}
 	}, []);
 
 	useEffect(() => {
-		void loadContacts();
-	}, [loadContacts]);
+		void fetchInspect();
+	}, [fetchInspect]);
 
-	const resetForm = () => {
-		setName('');
-		setEmail('');
-		setRole('');
-		setEditingContact(undefined);
-		setView('list');
-	};
-
-	const handleAdd = async () => {
-		if (!name.trim() || !email.trim()) return;
-		setBusy(true);
+	const handleEcho = async () => {
+		setEchoResult(undefined);
+		setEchoError('');
 		try {
-			await fetch('/api/contacts', {
+			const response = await fetch('/api/echo', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ name: name.trim(), email: email.trim(), role: role.trim() || 'Member' }),
+				body: echoInput,
 			});
-			resetForm();
-			await loadContacts();
-		} finally {
-			setBusy(false);
+			if (!response.ok) {
+				const errorBody: { error?: string } = await response.json();
+				throw new Error(errorBody.error ?? `HTTP ${response.status}`);
+			}
+			const json: EchoResponse = await response.json();
+			setEchoResult(json);
+		} catch (error_) {
+			setEchoError(error_ instanceof Error ? error_.message : 'Request failed');
 		}
-	};
-
-	const handleUpdate = async () => {
-		if (!editingContact || !name.trim() || !email.trim()) return;
-		setBusy(true);
-		try {
-			await fetch(`/api/contacts/${editingContact.id}`, {
-				method: 'PUT',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ name: name.trim(), email: email.trim(), role: role.trim() || 'Member' }),
-			});
-			resetForm();
-			await loadContacts();
-		} finally {
-			setBusy(false);
-		}
-	};
-
-	const handleDelete = async (id: string) => {
-		setBusy(true);
-		try {
-			await fetch(`/api/contacts/${id}`, { method: 'DELETE' });
-			await loadContacts();
-		} finally {
-			setBusy(false);
-		}
-	};
-
-	const startEdit = (contact: Contact) => {
-		setEditingContact(contact);
-		setName(contact.name);
-		setEmail(contact.email);
-		setRole(contact.role);
-		setView('edit');
-	};
-
-	const startAdd = () => {
-		resetForm();
-		setView('add');
 	};
 
 	return (
 		<div className="app">
-			<h1>&#9889; Workers Full-Stack</h1>
-			<p className="subtitle">React + Hono on Cloudflare Workers</p>
+			<h1>&#128269; Request Inspector</h1>
+			<p className="subtitle">See what your Cloudflare Worker knows about each request</p>
 
-			<div className="card">
-				<div className="card-header">
-					<span className="status">{status}</span>
-					{view === 'list' && (
-						<button className="btn-primary" onClick={startAdd}>
-							+ Add Contact
-						</button>
-					)}
-					{view !== 'list' && (
-						<button className="btn-secondary" onClick={resetForm}>
-							&larr; Back
-						</button>
-					)}
-				</div>
+			{error && <p className="error">{error}</p>}
 
-				{(view === 'add' || view === 'edit') && (
-					<div className="form">
-						<input type="text" placeholder="Name" value={name} onChange={(event) => setName(event.target.value)} disabled={busy} />
-						<input type="email" placeholder="Email" value={email} onChange={(event) => setEmail(event.target.value)} disabled={busy} />
-						<input
-							type="text"
-							placeholder="Role (optional)"
-							value={role}
-							onChange={(event) => setRole(event.target.value)}
-							disabled={busy}
-						/>
-						<button
-							className="btn-primary"
-							onClick={view === 'add' ? handleAdd : handleUpdate}
-							disabled={busy || !name.trim() || !email.trim()}
-						>
-							{busy ? 'Saving...' : view === 'add' ? 'Add Contact' : 'Save Changes'}
-						</button>
+			{loading && !data && (
+				<>
+					<SkeletonCard lines={2} />
+					<Section title="Geolocation">
+						<SkeletonCard lines={5} />
+					</Section>
+					<Section title="Request Headers">
+						<SkeletonCard lines={4} />
+					</Section>
+				</>
+			)}
+
+			{data && (
+				<>
+					<div className="card">
+						<div className="card-header">
+							<span className="status">Responded at {new Date(data.timestamp).toLocaleTimeString()}</span>
+							<button className="btn-primary" onClick={fetchInspect} disabled={loading}>
+								{loading ? 'Refreshing...' : 'Refresh'}
+							</button>
+						</div>
+
+						<KeyValue label="Runtime" value={data.runtime} />
+						<KeyValue label="Request URL" value={data.url} />
 					</div>
-				)}
 
-				{view === 'list' && (
-					<ul className="contact-list">
-						{contacts.map((contact) => (
-							<li key={contact.id} className={busy ? 'busy' : ''}>
-								<div className="contact-info">
-									<strong>{contact.name}</strong>
-									<span className="contact-email">{contact.email}</span>
-									<span className="contact-role">{contact.role}</span>
-								</div>
-								<div className="contact-actions">
-									<button className="btn-edit" onClick={() => startEdit(contact)} disabled={busy}>
-										&#9998;
-									</button>
-									<button className="btn-delete" onClick={() => handleDelete(contact.id)} disabled={busy}>
-										&times;
-									</button>
-								</div>
-							</li>
-						))}
-						{contacts.length === 0 && <li className="empty">No contacts yet. Add one!</li>}
-					</ul>
-				)}
-			</div>
+					{data.geo && (
+						<Section title="Geolocation">
+							<div className="card">
+								<KeyValue label="Country" value={data.geo.country} />
+								<KeyValue label="City" value={data.geo.city} />
+								<KeyValue label="Region" value={`${data.geo.region} (${data.geo.regionCode})`} />
+								<KeyValue label="Continent" value={data.geo.continent} />
+								<KeyValue label="Timezone" value={data.geo.timezone} />
+								<KeyValue label="Coordinates" value={`${data.geo.latitude}, ${data.geo.longitude}`} />
+								<KeyValue label="Postal Code" value={data.geo.postalCode} />
+							</div>
+						</Section>
+					)}
+
+					{data.connection && (
+						<Section title="Connection">
+							<div className="card">
+								<KeyValue label="Cloudflare Colo" value={data.connection.colo} />
+								<KeyValue label="HTTP Protocol" value={data.connection.httpProtocol} />
+								<KeyValue label="TLS Version" value={data.connection.tlsVersion} />
+								<KeyValue label="ASN" value={String(data.connection.asn)} />
+								<KeyValue label="AS Organization" value={data.connection.asOrganization} />
+							</div>
+						</Section>
+					)}
+
+					{!data.geo && !data.connection && (
+						<Section title="Edge Info">
+							<div className="card">
+								<p className="muted">Cloudflare geolocation and connection data is available when deployed to the Cloudflare network.</p>
+							</div>
+						</Section>
+					)}
+
+					<Section title="Request Headers">
+						<div className="card">
+							{HIGHLIGHT_HEADERS.filter((h) => data.headers[h]).map((h) => (
+								<KeyValue key={h} label={h} value={data.headers[h]} />
+							))}
+							{Object.entries(data.headers)
+								.filter(([key]) => !HIGHLIGHT_HEADERS.includes(key))
+								.map(([key, value]) => (
+									<KeyValue key={key} label={key} value={value} />
+								))}
+						</div>
+					</Section>
+				</>
+			)}
+
+			<Section title="Echo API">
+				<div className="card">
+					<p className="muted">
+						Send JSON to <code>POST /api/echo</code> and see it reflected back from the server.
+					</p>
+					<textarea className="echo-input" rows={4} value={echoInput} onChange={(event) => setEchoInput(event.target.value)} />
+					<button className="btn-primary" onClick={handleEcho}>
+						Send
+					</button>
+					{echoError && <p className="error">{echoError}</p>}
+					{echoResult && <pre className="echo-result">{JSON.stringify(echoResult, undefined, 2)}</pre>}
+				</div>
+			</Section>
 
 			<p className="hint">
 				Edit <code>src/app.tsx</code> for frontend, <code>worker/index.ts</code> for backend
