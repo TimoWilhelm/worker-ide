@@ -51,16 +51,6 @@ function DependencyPanel({ projectId, collapsed = false, onToggle, className }: 
 	// Read dependency errors from the global store (active even when this component is unmounted)
 	const { missing: missingDependencies, invalid: invalidDependencies } = useDependencyErrors();
 
-	// Auto-expand collapsed panel when new errors arrive
-	const previousErrorCountReference = useRef(missingDependencies.size + invalidDependencies.size);
-	useEffect(() => {
-		const currentCount = missingDependencies.size + invalidDependencies.size;
-		if (currentCount > previousErrorCountReference.current && collapsed && onToggle) {
-			onToggle();
-		}
-		previousErrorCountReference.current = currentCount;
-	}, [missingDependencies.size, invalidDependencies.size, collapsed, onToggle]);
-
 	// Load dependencies from project meta
 	const loadDependencies = useCallback(async () => {
 		try {

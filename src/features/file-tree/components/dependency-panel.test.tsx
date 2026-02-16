@@ -2,8 +2,9 @@
  * Component tests for DependencyPanel accessibility and validation.
  */
 
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { act, render, screen, waitFor, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { useEffect, useRef, useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/lib/api-client', () => ({
@@ -13,7 +14,7 @@ vi.mock('@/lib/api-client', () => ({
 	updateDependencies: vi.fn().mockResolvedValue({}),
 }));
 
-import { resetDependencyErrors } from '@/features/file-tree/dependency-error-store';
+import { getDependencyErrorCount, resetDependencyErrors, subscribeDependencyErrors } from '@/features/file-tree/dependency-error-store';
 
 import { DependencyPanel } from './dependency-panel';
 
@@ -208,6 +209,132 @@ describe('DependencyPanel validation', () => {
 
 		await waitFor(() => {
 			expect(screen.getByText(/lodash/)).toBeInTheDocument();
+		});
+	});
+});
+
+describe('DependencyPanel auto-expand', () => {
+	/**
+	 * Small wrapper that replicates the auto-expand pattern used in ide-shell.tsx.
+	 * Uses Zustand store subscription (external system) so setState is called
+	 * from the subscription callback rather than synchronously inside an effect.
+	 */
+	function AutoExpandWrapper() {
+		const [visible, setVisible] = useState(false);
+		const previousCount = useRef(0);
+
+		useEffect(() => {
+			return subscribeDependencyErrors(() => {
+				const currentCount = getDependencyErrorCount();
+				if (currentCount > previousCount.current) {
+					setVisible(true);
+				}
+				previousCount.current = currentCount;
+			});
+		}, []);
+
+		return visible ? (
+			<DependencyPanel projectId="test" onToggle={() => setVisible(false)} />
+		) : (
+			<DependencyPanel projectId="test" collapsed onToggle={() => setVisible(true)} />
+		);
+	}
+
+	it('expands automatically when a missing dependency error arrives', async () => {
+		render(<AutoExpandWrapper />);
+
+		// Should start collapsed
+		expect(screen.getByLabelText('Show dependencies')).toBeInTheDocument();
+
+		// Dispatch a missing dependency error
+		act(() => {
+			globalThis.dispatchEvent(
+				new CustomEvent('server-error', {
+					detail: {
+						message: 'Build failed',
+						dependencyErrors: [{ packageName: 'lodash', code: 'unregistered', message: 'Unregistered' }],
+					},
+				}),
+			);
+		});
+
+		// Should now be expanded and show the missing dependency
+		await waitFor(() => {
+			expect(screen.queryByLabelText('Show dependencies')).not.toBeInTheDocument();
+			expect(screen.getByText(/lodash/)).toBeInTheDocument();
+		});
+	});
+
+	it('expands automatically when an invalid dependency error arrives', async () => {
+		render(<AutoExpandWrapper />);
+
+		// Should start collapsed
+		expect(screen.getByLabelText('Show dependencies')).toBeInTheDocument();
+
+		// Dispatch an invalid dependency error
+		act(() => {
+			globalThis.dispatchEvent(
+				new CustomEvent('server-error', {
+					detail: {
+						message: 'Build failed',
+						dependencyErrors: [{ packageName: 'react', code: 'not-found', message: 'Not found' }],
+					},
+				}),
+			);
+		});
+
+		// Should now be expanded
+		await waitFor(() => {
+			expect(screen.queryByLabelText('Show dependencies')).not.toBeInTheDocument();
+		});
+	});
+
+	it('does not re-expand when user collapses while errors exist', async () => {
+		const user = userEvent.setup();
+		render(<AutoExpandWrapper />);
+
+		// Trigger an error to expand
+		act(() => {
+			globalThis.dispatchEvent(
+				new CustomEvent('server-error', {
+					detail: {
+						message: 'Build failed',
+						dependencyErrors: [{ packageName: 'lodash', code: 'unregistered', message: 'Unregistered' }],
+					},
+				}),
+			);
+		});
+
+		// Wait for expanded state
+		await waitFor(() => {
+			expect(screen.queryByLabelText('Show dependencies')).not.toBeInTheDocument();
+		});
+
+		// Find and click the expanded header to collapse
+		const header = screen.getByText('Dependencies').closest('button');
+		expect(header).toBeTruthy();
+		await user.click(header!);
+
+		// Should be collapsed again
+		await waitFor(() => {
+			expect(screen.getByLabelText('Show dependencies')).toBeInTheDocument();
+		});
+
+		// Re-dispatch the same error — count doesn't increase, panel should stay collapsed
+		act(() => {
+			globalThis.dispatchEvent(
+				new CustomEvent('server-error', {
+					detail: {
+						message: 'Build failed',
+						dependencyErrors: [{ packageName: 'lodash', code: 'unregistered', message: 'Unregistered' }],
+					},
+				}),
+			);
+		});
+
+		// Should remain collapsed
+		await waitFor(() => {
+			expect(screen.getByLabelText('Show dependencies')).toBeInTheDocument();
 		});
 	});
 });

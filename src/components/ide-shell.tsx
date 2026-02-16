@@ -27,6 +27,7 @@ import { Tooltip, TooltipProvider } from '@/components/ui/tooltip';
 import { useChangeReview } from '@/features/ai-assistant/hooks/use-change-review';
 import { CodeEditor, computeDiffData, DiffToolbar, FileTabs, useFileContent } from '@/features/editor';
 import { DependencyPanel, FileTree, useFileTree } from '@/features/file-tree';
+import { getDependencyErrorCount, subscribeDependencyErrors } from '@/features/file-tree/dependency-error-store';
 import { useLogs } from '@/features/output/lib/log-buffer';
 import { projectSocketSendReference, useIsMobile, useProjectSocket, useTheme } from '@/hooks';
 import { createProject, downloadProject, fetchProjectMeta, updateProjectMeta } from '@/lib/api-client';
@@ -57,6 +58,20 @@ export function IDEShell({ projectId }: { projectId: string }) {
 	// Sidebar dependencies panel
 	const [dependenciesPanelVisible, setDependenciesPanelVisible] = useState(true);
 	const toggleDependenciesPanel = useCallback(() => setDependenciesPanelVisible((v) => !v), []);
+
+	// Auto-expand dependencies panel when new errors are detected.
+	// Uses a Zustand store subscription (external system) so setState is called
+	// from the subscription callback rather than synchronously inside an effect.
+	const previousDependencyErrorCount = useRef(0);
+	useEffect(() => {
+		return subscribeDependencyErrors(() => {
+			const currentCount = getDependencyErrorCount();
+			if (currentCount > previousDependencyErrorCount.current) {
+				setDependenciesPanelVisible(true);
+			}
+			previousDependencyErrorCount.current = currentCount;
+		});
+	}, []);
 
 	// Mobile layout
 	const isMobile = useIsMobile();

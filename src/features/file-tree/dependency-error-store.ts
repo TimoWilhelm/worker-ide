@@ -148,4 +148,13 @@ globalThis.addEventListener('message', handleMessage);
 // Exports
 // =============================================================================
 
-export { useDependencyErrors, removeMissing, removeInvalid, resetDependencyErrors };
+function subscribeDependencyErrors(listener: () => void) {
+	return dependencyErrorStore.subscribe(listener);
+}
+
+function getDependencyErrorCount() {
+	const { missing, invalid } = dependencyErrorStore.getState();
+	return missing.size + invalid.size;
+}
+
+export { useDependencyErrors, removeMissing, removeInvalid, resetDependencyErrors, subscribeDependencyErrors, getDependencyErrorCount };
