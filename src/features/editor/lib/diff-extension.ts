@@ -206,8 +206,8 @@ function buildDecorations(
 		}
 	}
 
-	// Sort by position (required by RangeSetBuilder)
-	decorations.sort((a, b) => a.from - b.from || a.to - b.to);
+	// Sort by (from, startSide) as required by RangeSetBuilder
+	decorations.sort((a, b) => a.from - b.from || a.decoration.startSide - b.decoration.startSide);
 
 	for (const { from, to, decoration } of decorations) {
 		builder.add(from, to, decoration);
@@ -263,7 +263,7 @@ function createDiffGutter(hunks: DiffHunk[]): Extension {
 				}
 			}
 
-			markers.sort((a, b) => a.from - b.from);
+			markers.sort((a, b) => a.from - b.from || a.marker.startSide - b.marker.startSide);
 
 			for (const { from, marker } of markers) {
 				builder.add(from, from, marker);
