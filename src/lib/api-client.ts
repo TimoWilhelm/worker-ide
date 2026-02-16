@@ -51,11 +51,42 @@ export type JsonResponse<T> = T extends { json(): Promise<infer R> } ? R : never
  *
  * Uses raw fetch because this is a root-level endpoint (`/api/new-project`)
  * outside the project-scoped RPC client.
+ *
+ * @param templateId - Optional template ID to initialize the project with.
+ *                     Defaults to 'request-inspector' on the server if omitted.
  */
-export async function createProject(): Promise<{ projectId: string; url: string; name: string }> {
-	const response = await fetch('/api/new-project', { method: 'POST' });
+export async function createProject(templateId?: string): Promise<{ projectId: string; url: string; name: string }> {
+	const body = templateId ? JSON.stringify({ template: templateId }) : undefined;
+	const headers: Record<string, string> = {};
+	if (body) {
+		headers['Content-Type'] = 'application/json';
+	}
+	const response = await fetch('/api/new-project', { method: 'POST', body, headers });
 	if (!response.ok) {
 		throw new Error('Failed to create project');
+	}
+	const data: { projectId: string; url: string; name: string } = await response.json();
+	return data;
+}
+
+/**
+ * Clone an existing project by ID.
+ *
+ * Creates a new project with all files copied from the source project.
+ * The clone runs server-side; this function waits for it to complete.
+ * Typical projects clone in under 2 seconds.
+ *
+ * @param sourceProjectId - The 64-character hex ID of the project to clone
+ */
+export async function cloneProject(sourceProjectId: string): Promise<{ projectId: string; url: string; name: string }> {
+	const response = await fetch('/api/clone-project', {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ sourceProjectId }),
+	});
+	if (!response.ok) {
+		const errorData: { error?: string } = await response.json().catch(() => ({ error: 'Clone failed' }));
+		throw new Error(errorData.error || 'Failed to clone project');
 	}
 	const data: { projectId: string; url: string; name: string } = await response.json();
 	return data;

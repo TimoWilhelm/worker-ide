@@ -7,6 +7,7 @@
  * - Project-scoped routes (/p/:projectId/*)
  * - Project WebSocket connections (HMR, collaboration, server events)
  * - Preview serving for user projects
+ * - Template listing and project cloning (root-level API)
  */
 
 import { Hono } from 'hono';
@@ -15,14 +16,9 @@ import { mount, withMounts } from 'worker-fs-mount';
 
 import { generateHumanId } from '@shared/human-id';
 
-import exampleIndexHtml from './fixtures/example-project/index.html?raw';
-import exampleAppTsx from './fixtures/example-project/src/app.tsx?raw';
-import exampleMainTsx from './fixtures/example-project/src/main.tsx?raw';
-import exampleStyleCss from './fixtures/example-project/src/style.css?raw';
-import exampleTsconfig from './fixtures/example-project/tsconfig.json?raw';
-import exampleWorkerIndexTs from './fixtures/example-project/worker/index.ts?raw';
 import { apiRoutes } from './routes';
 import { PreviewService } from './services/preview-service';
+import { DEFAULT_TEMPLATE_ID, getTemplate, getTemplateMetadata } from './templates';
 
 import type { AppEnvironment } from './types';
 
@@ -60,21 +56,21 @@ export { LogTailer } from './services/log-tailer';
 
 const PROJECT_ROOT = '/project';
 
-const EXAMPLE_PROJECT: Record<string, string> = {
-	'tsconfig.json': exampleTsconfig,
-	'index.html': exampleIndexHtml,
-	'src/main.tsx': exampleMainTsx,
-	'src/app.tsx': exampleAppTsx,
-	'src/style.css': exampleStyleCss,
-	'worker/index.ts': exampleWorkerIndexTs,
-};
+/**
+ * Regex for validating 64-character hexadecimal project IDs (Durable Object IDs).
+ */
+const PROJECT_ID_PATTERN = /^[a-f0-9]{64}$/i;
 
 /**
- * Initialize example project files if not already present.
+ * Initialize a project with template files if not already initialized.
  * Uses a sentinel file on disk as the source of truth so that
  * re-initialization happens correctly after a DO storage wipe.
+ *
+ * If a `.template` marker file exists (written by the new-project endpoint),
+ * the template specified in that file is used. Otherwise falls back to the
+ * default template for backward compatibility.
  */
-async function ensureExampleProject(projectRoot: string): Promise<void> {
+async function initializeProject(projectRoot: string): Promise<void> {
 	// Dynamic import to allow alias resolution at build time
 	const fs = await import('node:fs/promises');
 
@@ -86,7 +82,54 @@ async function ensureExampleProject(projectRoot: string): Promise<void> {
 		// Not yet initialized
 	}
 
-	for (const [filePath, content] of Object.entries(EXAMPLE_PROJECT)) {
+	// Determine which template to use
+	let templateId = DEFAULT_TEMPLATE_ID;
+	const templateMarkerPath = `${projectRoot}/.template`;
+	try {
+		const marker = await fs.readFile(templateMarkerPath, 'utf8');
+		if (marker.trim()) {
+			templateId = marker.trim();
+		}
+	} catch {
+		// No marker file — use default template
+	}
+
+	const template = getTemplate(templateId);
+	if (template) {
+		await writeTemplateFiles(fs, projectRoot, template.files, template.dependencies);
+	} else {
+		// Fallback to default if requested template doesn't exist
+		const fallbackTemplate = getTemplate(DEFAULT_TEMPLATE_ID);
+		if (!fallbackTemplate) {
+			// Should never happen — write sentinel and bail
+			await fs.writeFile(sentinelPath, '1');
+			return;
+		}
+		// Use fallback
+		await writeTemplateFiles(fs, projectRoot, fallbackTemplate.files, fallbackTemplate.dependencies);
+	}
+
+	// Clean up the template marker file if it exists
+	try {
+		await fs.unlink(templateMarkerPath);
+	} catch {
+		// Ignore — file may not exist
+	}
+
+	await fs.writeFile(sentinelPath, '1');
+}
+
+/**
+ * Write template files and project metadata to the filesystem.
+ * Only writes files that don't already exist (preserves manual edits).
+ */
+async function writeTemplateFiles(
+	fs: typeof import('node:fs/promises'),
+	projectRoot: string,
+	files: Record<string, string>,
+	dependencies: Record<string, string>,
+): Promise<void> {
+	for (const [filePath, content] of Object.entries(files)) {
 		const fullPath = `${projectRoot}/${filePath}`;
 		try {
 			await fs.readFile(fullPath);
@@ -97,26 +140,19 @@ async function ensureExampleProject(projectRoot: string): Promise<void> {
 		}
 	}
 
-	// Write initial project metadata with default dependencies
+	// Write initial project metadata with template dependencies
 	const metaPath = `${projectRoot}/.project-meta.json`;
 	try {
 		await fs.readFile(metaPath);
 	} catch {
-		const { generateHumanId } = await import('@shared/human-id');
 		const humanId = generateHumanId();
 		const meta = {
 			name: humanId,
 			humanId,
-			dependencies: {
-				hono: '^4.0.0',
-				react: '^19.0.0',
-				'react-dom': '^19.0.0',
-			},
+			dependencies,
 		};
 		await fs.writeFile(metaPath, JSON.stringify(meta));
 	}
-
-	await fs.writeFile(sentinelPath, '1');
 }
 
 /**
@@ -141,16 +177,158 @@ const app = new Hono<{ Bindings: Env }>();
 app.use('/api/*', cors());
 app.use('/p/*/api/*', cors());
 
-// Create new project (needs to be outside project context)
+// =============================================================================
+// Root-level API routes (outside project scope)
+// =============================================================================
+
+/**
+ * POST /api/new-project
+ *
+ * Create a new project. Accepts an optional template ID in the request body.
+ * If a template is specified, a `.template` marker file is written into the
+ * new project's Durable Object so that `initializeProject()` uses the
+ * correct template on first access.
+ */
 app.post('/api/new-project', async (c) => {
 	const environment = c.env;
 	const id = environment.DO_FILESYSTEM.newUniqueId();
 	const projectId = id.toString();
 	const humanId = generateHumanId();
+
+	// Parse optional template from request body
+	let templateId: string | undefined;
+	try {
+		const body: { template?: string } = await c.req.json();
+		templateId = body.template;
+	} catch {
+		// No body or invalid JSON — use default template
+	}
+
+	// If a non-default template was requested, write a marker file
+	// so initializeProject() knows which template to use
+	if (templateId && templateId !== DEFAULT_TEMPLATE_ID) {
+		// Validate the template exists
+		const template = getTemplate(templateId);
+		if (!template) {
+			return c.json({ error: `Unknown template: ${templateId}` }, 400);
+		}
+
+		await withMounts(async () => {
+			const fsStub = environment.DO_FILESYSTEM.get(id);
+			mount(PROJECT_ROOT, fsStub);
+
+			const fs = await import('node:fs/promises');
+			await fs.writeFile(`${PROJECT_ROOT}/.template`, templateId);
+		});
+	}
+
 	return c.json({ projectId, url: `/p/${projectId}`, name: humanId });
 });
 
+/**
+ * POST /api/clone-project
+ *
+ * Clone an existing project by copying all files from the source project
+ * into a new Durable Object. Uses streaming file-by-file copy to stay
+ * within Cloudflare Workers memory limits (128 MB per isolate).
+ *
+ * Limits analysis:
+ * - CPU time: Mostly I/O wait (DO reads/writes), well under 30s default
+ * - Subrequests: ~2 per file (read + write) + directory ops, well under 10,000
+ * - Memory: Files are copied one at a time, peak = largest single file
+ * - Connections: 2 DO stubs mounted simultaneously (within 6 connection limit)
+ */
+app.post('/api/clone-project', async (c) => {
+	let sourceProjectId: string;
+	try {
+		const body: { sourceProjectId: string } = await c.req.json();
+		sourceProjectId = body.sourceProjectId;
+	} catch {
+		return c.json({ error: 'Request body must contain sourceProjectId' }, 400);
+	}
+
+	if (!sourceProjectId || !PROJECT_ID_PATTERN.test(sourceProjectId)) {
+		return c.json({ error: 'Invalid source project ID. Must be a 64-character hex string.' }, 400);
+	}
+
+	sourceProjectId = sourceProjectId.toLowerCase();
+
+	const environment = c.env;
+	const newId = environment.DO_FILESYSTEM.newUniqueId();
+	const newProjectId = newId.toString();
+	const humanId = generateHumanId();
+
+	try {
+		await withMounts(async () => {
+			const sourceStub = environment.DO_FILESYSTEM.get(environment.DO_FILESYSTEM.idFromString(sourceProjectId));
+			const destinationStub = environment.DO_FILESYSTEM.get(newId);
+			mount('/source', sourceStub);
+			mount('/destination', destinationStub);
+
+			const fs = await import('node:fs/promises');
+
+			// Verify source project exists by checking for the sentinel file
+			try {
+				await fs.readFile('/source/.initialized');
+			} catch {
+				throw new Error('SOURCE_NOT_FOUND');
+			}
+
+			// Copy all files from source to destination, file by file.
+			// This is memory-efficient: only one file's content is in memory at a time.
+			await copyDirectoryRecursive(fs, '/source', '/destination');
+
+			// Write fresh metadata for the cloned project
+			const meta: { name: string; humanId: string; dependencies: Record<string, string> } = {
+				name: humanId,
+				humanId,
+				dependencies: {},
+			};
+			try {
+				const sourceMetaRaw = await fs.readFile('/source/.project-meta.json', 'utf8');
+				const sourceMeta: { dependencies?: Record<string, string> } = JSON.parse(sourceMetaRaw);
+				meta.dependencies = sourceMeta.dependencies ?? {};
+			} catch {
+				// Use empty dependencies if source has no metadata
+			}
+
+			await fs.writeFile('/destination/.project-meta.json', JSON.stringify(meta));
+			await fs.writeFile('/destination/.initialized', '1');
+
+			// Remove the template marker from the clone (if it somehow exists)
+			try {
+				await fs.unlink('/destination/.template');
+			} catch {
+				// Ignore
+			}
+
+			// Refresh expiration on the new project
+			await destinationStub.refreshExpiration();
+		});
+	} catch (error) {
+		if (error instanceof Error && error.message === 'SOURCE_NOT_FOUND') {
+			return c.json({ error: 'Source project not found or not initialized' }, 404);
+		}
+		throw error;
+	}
+
+	return c.json({ projectId: newProjectId, url: `/p/${newProjectId}`, name: humanId });
+});
+
+/**
+ * GET /api/templates
+ *
+ * Returns metadata for all available project templates (without file contents).
+ * Used by the landing page to display template cards.
+ */
+app.get('/api/templates', (c) => {
+	return c.json({ templates: getTemplateMetadata() });
+});
+
+// =============================================================================
 // Project-scoped routes
+// =============================================================================
+
 app.all('/p/:projectId/*', async (c) => {
 	const path = new URL(c.req.url).pathname;
 	const projectRoute = parseProjectRoute(path);
@@ -167,7 +345,7 @@ app.all('/p/:projectId/*', async (c) => {
 		mount(PROJECT_ROOT, fsStub);
 
 		// Initialize project if needed (always checks sentinel file on disk)
-		await ensureExampleProject(PROJECT_ROOT);
+		await initializeProject(PROJECT_ROOT);
 
 		// Refresh expiration timer
 		await fsStub.refreshExpiration();
@@ -237,3 +415,50 @@ app.all('*', (c) => {
 });
 
 export default app;
+
+// =============================================================================
+// Helper functions
+// =============================================================================
+
+/**
+ * Hidden entries that should not be copied during cloning.
+ * These are internal sentinel/metadata files managed by the IDE.
+ */
+const CLONE_SKIP_ENTRIES = new Set(['.initialized', '.project-meta.json', '.template', '.agent']);
+
+/**
+ * Recursively copy files from source to destination, one file at a time.
+ *
+ * This approach is memory-efficient because only one file's content is held
+ * in memory at any point. This avoids hitting the 128 MB isolate memory limit
+ * even for projects with many or large files.
+ *
+ * Each file read/write goes through worker-fs-mount to the Durable Object,
+ * which counts as a subrequest. For a project with N files, this uses
+ * approximately 2N + D subrequests (N reads + N writes + D directory reads),
+ * well within the 10,000 default subrequest limit.
+ */
+async function copyDirectoryRecursive(fs: typeof import('node:fs/promises'), source: string, destination: string): Promise<void> {
+	const entries = await fs.readdir(source, { withFileTypes: true });
+
+	for (const entry of entries) {
+		// Skip internal IDE files
+		if (CLONE_SKIP_ENTRIES.has(entry.name)) {
+			continue;
+		}
+
+		const sourcePath = `${source}/${entry.name}`;
+		const destinationPath = `${destination}/${entry.name}`;
+
+		if (entry.isDirectory()) {
+			await fs.mkdir(destinationPath, { recursive: true });
+			await copyDirectoryRecursive(fs, sourcePath, destinationPath);
+		} else {
+			// Read and write one file at a time to bound memory usage
+			const content = await fs.readFile(sourcePath);
+			const directory = destinationPath.slice(0, destinationPath.lastIndexOf('/'));
+			await fs.mkdir(directory, { recursive: true });
+			await fs.writeFile(destinationPath, content);
+		}
+	}
+}

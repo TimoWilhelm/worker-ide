@@ -30,7 +30,7 @@ import { DependencyPanel, FileTree, useFileTree } from '@/features/file-tree';
 import { getDependencyErrorCount, subscribeDependencyErrors } from '@/features/file-tree/dependency-error-store';
 import { useLogs } from '@/features/output/lib/log-buffer';
 import { projectSocketSendReference, useIsMobile, useProjectSocket, useTheme } from '@/hooks';
-import { createProject, downloadProject, fetchProjectMeta, updateProjectMeta } from '@/lib/api-client';
+import { downloadProject, fetchProjectMeta, updateProjectMeta } from '@/lib/api-client';
 import { getRecentProjects, trackProject, type RecentProject } from '@/lib/recent-projects';
 import { selectIsProcessing, useStore } from '@/lib/store';
 import { cn, formatRelativeTime } from '@/lib/utils';
@@ -354,15 +354,9 @@ export function IDEShell({ projectId }: { projectId: string }) {
 		[renameFile],
 	);
 
-	// Handle new project
-	const handleNewProject = useCallback(async () => {
-		try {
-			const data = await createProject();
-			trackProject(data.projectId, data.name);
-			globalThis.location.href = data.url;
-		} catch (error) {
-			console.error('Failed to create new project:', error);
-		}
+	// Navigate to landing page to create a new project
+	const handleNewProject = useCallback(() => {
+		globalThis.location.href = '/';
 	}, []);
 
 	// Send cursor updates to collaborators (debounced)
@@ -492,7 +486,11 @@ export function IDEShell({ projectId }: { projectId: string }) {
 					"
 				>
 					<div className="flex items-center gap-2">
-						<Hexagon className="size-4 text-accent" />
+						<Tooltip content="Back to home">
+							<a href="/" className="text-accent transition-colors hover:text-accent-hover" aria-label="Back to home">
+								<Hexagon className="size-4" />
+							</a>
+						</Tooltip>
 						{isEditingName ? (
 							<div className="flex items-center gap-1">
 								<input
