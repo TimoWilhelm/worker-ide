@@ -622,7 +622,10 @@ function InlineToolCall({ toolUse, toolResult }: { toolUse: AgentContent; toolRe
 				type="button"
 				onClick={() => expandable && setIsExpanded((previous) => !previous)}
 				className={cn(
-					'flex items-center gap-2 overflow-hidden rounded-md px-3 py-1.5 text-xs',
+					`
+						flex flex-wrap items-center gap-x-2 gap-y-1 overflow-hidden rounded-md
+						px-3 py-1.5 text-xs
+					`,
 					isCompleted && !isError && 'bg-success/5 text-text-secondary',
 					isError && 'bg-error/5 text-error',
 					!isCompleted && 'bg-bg-tertiary text-text-secondary',
@@ -638,21 +641,21 @@ function InlineToolCall({ toolUse, toolResult }: { toolUse: AgentContent; toolRe
 					<ToolIcon name={toolName} />
 				</span>
 				<span className="shrink-0 font-medium capitalize">{toolName.replaceAll('_', ' ')}</span>
-				{singlePath && <FileReference path={singlePath} className="min-w-0 truncate" />}
+				{singlePath && <FileReference path={singlePath} className="max-w-48 truncate" />}
 				{fromPath && toPath && (
-					<span className="flex min-w-0 items-center gap-1 truncate">
-						<FileReference path={fromPath} />
-						<span className="text-text-secondary">→</span>
-						<FileReference path={toPath} />
+					<span className="flex max-w-48 items-center gap-1">
+						<FileReference path={fromPath} className="truncate" />
+						<span className="shrink-0 text-text-secondary">→</span>
+						<FileReference path={toPath} className="truncate" />
 					</span>
 				)}
 				{pattern && (
-					<span className="min-w-0 truncate font-mono text-text-secondary" title={pattern}>
+					<span className="max-w-48 truncate font-mono text-text-secondary" title={pattern}>
 						{pattern}
 					</span>
 				)}
 				{!singlePath && !fromPath && !pattern && extraLabel && (
-					<span className="min-w-0 truncate text-text-secondary" title={extraLabel}>
+					<span className="max-w-48 truncate text-text-secondary" title={extraLabel}>
 						{extraLabel.length > 60 ? extraLabel.slice(0, 60) + '…' : extraLabel}
 					</span>
 				)}

@@ -22,6 +22,7 @@ export const aiRoutes = new Hono<AppEnvironment>()
 	.post('/ai/chat', zValidator('json', aiChatMessageSchema), async (c) => {
 		const projectRoot = c.get('projectRoot');
 		const projectId = c.get('projectId');
+		const fsStub = c.get('fsStub');
 
 		const apiToken = env.REPLICATE_API_TOKEN;
 		if (!apiToken) {
@@ -52,7 +53,7 @@ export const aiRoutes = new Hono<AppEnvironment>()
 		// Use the validated model from the request, or fall back to the default
 		const selectedModel = model ?? DEFAULT_AI_MODEL;
 
-		const agentService = new AIAgentService(projectRoot, projectId, sessionId, mode, selectedModel);
+		const agentService = new AIAgentService(projectRoot, projectId, fsStub, sessionId, mode, selectedModel);
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		const chatHistory: any[] = history;
 		const stream = await agentService.runAgentChat(message, chatHistory, apiToken, c.req.raw.signal);

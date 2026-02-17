@@ -8,21 +8,24 @@ import fs from 'node:fs/promises';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import Replicate from 'replicate';
+import { mount, withMounts } from 'worker-fs-mount';
 
 import {
 	AGENT_SYSTEM_PROMPT,
 	AGENTS_MD_MAX_CHARACTERS,
 	ASK_MODE_SYSTEM_PROMPT,
+	DEFAULT_AI_MODEL,
 	MCP_SERVERS,
 	PLAN_MODE_SYSTEM_PROMPT,
 } from '@shared/constants';
-import { DEFAULT_AI_MODEL, type AIModelId } from '@shared/constants';
 
 import { executeAgentTool } from './tool-executor';
 import { AGENT_TOOLS, ASK_MODE_TOOLS, PLAN_MODE_TOOLS } from './tools';
 import { isRecordObject, normalizeFunctionCallsFormat, parseApiError, repairToolCallJson } from './utilities';
 
 import type { AgentMessage, ClaudeResponse, ContentBlock, FileChange, SnapshotMetadata, ToolResultBlock, ToolUseBlock } from './types';
+import type { ExpiringFilesystem } from '../../durable/expiring-filesystem';
+import type { AIModelId } from '@shared/constants';
 
 // =============================================================================
 // AI Agent Service Class
@@ -34,6 +37,7 @@ export class AIAgentService {
 	constructor(
 		private projectRoot: string,
 		private projectId: string,
+		private fsStub: DurableObjectStub<ExpiringFilesystem>,
 		private sessionId?: string,
 		private mode: 'code' | 'plan' | 'ask' = 'code',
 		private model: AIModelId = DEFAULT_AI_MODEL,
@@ -52,8 +56,13 @@ export class AIAgentService {
 			await writer.write(encoder.encode(event));
 		};
 
-		// Run agent loop in background
-		this.runAgentLoop(writer, sendEvent, prompt, history, apiToken, signal).catch(async (error) => {
+		// Run agent loop in background with its own mount scope.
+		// The parent withMounts scope exits when the Response is returned,
+		// so we need our own scope for the async agent loop.
+		withMounts(() => {
+			mount(this.projectRoot, this.fsStub);
+			return this.runAgentLoop(writer, sendEvent, prompt, history, apiToken, signal);
+		}).catch(async (error) => {
 			if (error instanceof Error && error.name === 'AbortError') {
 				try {
 					await writer.close();
@@ -73,6 +82,13 @@ export class AIAgentService {
 		});
 
 		return readable;
+	}
+
+	/**
+	 * Get the filesystem stub for use in tool context.
+	 */
+	getFsStub(): DurableObjectStub<ExpiringFilesystem> {
+		return this.fsStub;
 	}
 
 	private async runAgentLoop(
