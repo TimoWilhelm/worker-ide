@@ -24,6 +24,9 @@ import type { GitBranchInfo } from '@shared/types';
 // Types
 // =============================================================================
 
+/** Branch names that are protected from deletion. */
+const PROTECTED_BRANCHES = new Set(['main', 'master']);
+
 interface GitBranchSelectorProperties {
 	branches: GitBranchInfo[];
 	currentBranch: string | undefined;
@@ -32,6 +35,8 @@ interface GitBranchSelectorProperties {
 	onMerge: (branch: string) => void;
 	onDeleteBranch: (name: string) => void;
 	disabled?: boolean;
+	/** Whether the working directory has uncommitted changes */
+	hasChanges?: boolean;
 }
 
 // =============================================================================
@@ -46,11 +51,14 @@ export function GitBranchSelector({
 	onMerge,
 	onDeleteBranch,
 	disabled,
+	hasChanges,
 }: GitBranchSelectorProperties) {
 	const [deleteConfirm, setDeleteConfirm] = useState<string | undefined>();
 	const [mergeConfirm, setMergeConfirm] = useState<string | undefined>();
+	const [checkoutConfirm, setCheckoutConfirm] = useState<string | undefined>();
 
 	const otherBranches = branches.filter((branch) => !branch.isCurrent);
+	const deletableBranches = otherBranches.filter((branch) => !PROTECTED_BRANCHES.has(branch.name));
 
 	return (
 		<>
@@ -76,7 +84,18 @@ export function GitBranchSelector({
 				<DropdownMenuContent align="start" sideOffset={4}>
 					<DropdownMenuLabel>Switch Branch</DropdownMenuLabel>
 					{branches.map((branch) => (
-						<DropdownMenuItem key={branch.name} onSelect={() => onCheckout(branch.name)} disabled={branch.isCurrent}>
+						<DropdownMenuItem
+							key={branch.name}
+							onSelect={() => {
+								if (branch.isCurrent) return;
+								if (hasChanges) {
+									setCheckoutConfirm(branch.name);
+								} else {
+									onCheckout(branch.name);
+								}
+							}}
+							disabled={branch.isCurrent}
+						>
 							<GitBranch className="mr-2 size-3" />
 							<span className="truncate">{branch.name}</span>
 							{branch.isCurrent && <span className="ml-auto text-xs text-accent">current</span>}
@@ -97,12 +116,12 @@ export function GitBranchSelector({
 						</>
 					)}
 
-					{/* Delete section */}
-					{otherBranches.length > 0 && (
+					{/* Delete section — protected branches (main/master) are excluded */}
+					{deletableBranches.length > 0 && (
 						<>
 							<DropdownMenuSeparator />
 							<DropdownMenuLabel>Delete Branch</DropdownMenuLabel>
-							{otherBranches.map((branch) => (
+							{deletableBranches.map((branch) => (
 								<DropdownMenuItem
 									key={`delete-${branch.name}`}
 									onSelect={() => setDeleteConfirm(branch.name)}
@@ -123,6 +142,29 @@ export function GitBranchSelector({
 				</DropdownMenuContent>
 			</DropdownMenu>
 
+			{/* Switch branch confirmation (shown when there are uncommitted changes) */}
+			<ConfirmDialog
+				open={checkoutConfirm !== undefined}
+				onOpenChange={(open) => {
+					if (!open) setCheckoutConfirm(undefined);
+				}}
+				title="Switch Branch"
+				description={
+					<>
+						You have uncommitted changes. Switching to <strong>{checkoutConfirm}</strong> may overwrite or discard your current changes. Are
+						you sure you want to switch branches?
+					</>
+				}
+				confirmLabel="Switch Branch"
+				variant="danger"
+				onConfirm={() => {
+					if (checkoutConfirm) {
+						onCheckout(checkoutConfirm);
+					}
+					setCheckoutConfirm(undefined);
+				}}
+			/>
+
 			{/* Merge confirmation */}
 			<ConfirmDialog
 				open={mergeConfirm !== undefined}
@@ -132,7 +174,8 @@ export function GitBranchSelector({
 				title="Merge Branch"
 				description={
 					<>
-						Merge <strong>{mergeConfirm}</strong> into <strong>{currentBranch ?? 'HEAD'}</strong>?
+						This will merge all commits from <strong>{mergeConfirm}</strong> into <strong>{currentBranch ?? 'HEAD'}</strong>. If there are
+						conflicting changes, you may need to resolve merge conflicts manually.
 					</>
 				}
 				confirmLabel="Merge"
@@ -144,7 +187,7 @@ export function GitBranchSelector({
 				}}
 			/>
 
-			{/* Delete confirmation */}
+			{/* Delete branch confirmation */}
 			<ConfirmDialog
 				open={deleteConfirm !== undefined}
 				onOpenChange={(open) => {
@@ -153,10 +196,11 @@ export function GitBranchSelector({
 				title="Delete Branch"
 				description={
 					<>
-						Delete branch <strong>{deleteConfirm}</strong>? This action cannot be undone.
+						Are you sure you want to delete the branch <strong>{deleteConfirm}</strong>? Any unmerged commits on this branch will become
+						unreachable. This action cannot be undone.
 					</>
 				}
-				confirmLabel="Delete"
+				confirmLabel="Delete Branch"
 				variant="danger"
 				onConfirm={() => {
 					if (deleteConfirm) {

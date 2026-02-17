@@ -14,7 +14,7 @@ import { GitBranch, History, RotateCcw } from 'lucide-react';
 import { ScrollArea } from 'radix-ui';
 import { useCallback, useMemo, useState } from 'react';
 
-import { Tooltip } from '@/components/ui';
+import { ConfirmDialog, Tooltip } from '@/components/ui';
 import { toast } from '@/components/ui/toast-store';
 import { createApiClient } from '@/lib/api-client';
 import { useStore } from '@/lib/store';
@@ -47,6 +47,8 @@ interface GitPanelProperties {
 export function GitPanel({ projectId, className }: GitPanelProperties) {
 	const [showHistory, setShowHistory] = useState(false);
 	const [branchDialogOpen, setBranchDialogOpen] = useState(false);
+	const [discardAllConfirmOpen, setDiscardAllConfirmOpen] = useState(false);
+	const [discardFilePath, setDiscardFilePath] = useState<string | undefined>();
 
 	const openFile = useStore((state) => state.openFile);
 	const showGitDiff = useStore((state) => state.showGitDiff);
@@ -134,6 +136,7 @@ export function GitPanel({ projectId, className }: GitPanelProperties) {
 	// Derived
 	const groups = groupStatusEntries(entries);
 	const hasStagedChanges = groups.staged.length > 0;
+	const changedFileCount = groups.unstaged.length + groups.untracked.length;
 
 	// Not initialized
 	if (!initialized) {
@@ -179,7 +182,7 @@ export function GitPanel({ projectId, className }: GitPanelProperties) {
 					<Tooltip content="Discard all changes">
 						<button
 							type="button"
-							onClick={() => mutations.discardAll()}
+							onClick={() => setDiscardAllConfirmOpen(true)}
 							disabled={mutations.isDiscardPending}
 							className={cn(
 								`
@@ -209,6 +212,7 @@ export function GitPanel({ projectId, className }: GitPanelProperties) {
 					onMerge={(branch) => mutations.merge(branch)}
 					onDeleteBranch={(name) => mutations.deleteBranch(name)}
 					disabled={mutations.isBranchPending || mutations.isMergePending}
+					hasChanges={changedFileCount > 0 || hasStagedChanges}
 				/>
 			</div>
 
@@ -241,7 +245,7 @@ export function GitPanel({ projectId, className }: GitPanelProperties) {
 								entries={entries}
 								onStage={(paths) => mutations.stageFiles(paths)}
 								onUnstage={(paths) => mutations.unstageFiles(paths)}
-								onDiscard={(path) => mutations.discardChanges(path)}
+								onDiscard={(path) => setDiscardFilePath(path)}
 								onFileClick={(path) => void handleFileClick(path)}
 							/>
 						</>
@@ -261,6 +265,51 @@ export function GitPanel({ projectId, className }: GitPanelProperties) {
 					setBranchDialogOpen(false);
 				}}
 				isPending={mutations.isBranchPending}
+			/>
+
+			{/* Discard all confirmation */}
+			<ConfirmDialog
+				open={discardAllConfirmOpen}
+				onOpenChange={setDiscardAllConfirmOpen}
+				title="Discard All Changes"
+				description={
+					<>
+						Are you sure you want to discard all changes in{' '}
+						<strong>
+							{changedFileCount} {changedFileCount === 1 ? 'file' : 'files'}
+						</strong>
+						? This will revert all modifications to the last committed state. This action cannot be undone.
+					</>
+				}
+				confirmLabel="Discard All"
+				variant="danger"
+				onConfirm={() => {
+					mutations.discardAll();
+					setDiscardAllConfirmOpen(false);
+				}}
+			/>
+
+			{/* Discard single file confirmation */}
+			<ConfirmDialog
+				open={discardFilePath !== undefined}
+				onOpenChange={(open) => {
+					if (!open) setDiscardFilePath(undefined);
+				}}
+				title="Discard Changes"
+				description={
+					<>
+						Are you sure you want to discard changes in <strong>{discardFilePath}</strong>? This will revert the file to its last committed
+						state. This action cannot be undone.
+					</>
+				}
+				confirmLabel="Discard Changes"
+				variant="danger"
+				onConfirm={() => {
+					if (discardFilePath) {
+						mutations.discardChanges(discardFilePath);
+					}
+					setDiscardFilePath(undefined);
+				}}
 			/>
 		</div>
 	);
