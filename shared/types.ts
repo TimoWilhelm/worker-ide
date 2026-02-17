@@ -576,6 +576,10 @@ export interface GitFileDiff {
 	path: string;
 	status: 'modified' | 'added' | 'deleted';
 	hunks: GitDiffHunk[];
+	/** Raw content before the change (HEAD version). Empty string for new files. */
+	beforeContent?: string;
+	/** Raw content after the change (working directory version). Empty string for deleted files. */
+	afterContent?: string;
 }
 
 /**

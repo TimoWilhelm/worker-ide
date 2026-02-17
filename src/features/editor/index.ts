@@ -8,13 +8,14 @@
 export { CodeEditor, type CodeEditorProperties, useEditorReference } from './components/code-editor';
 export { DiffToolbar, type DiffToolbarProperties } from './components/diff-toolbar';
 export { FileTabs, type FileTab, type FileTabsProperties } from './components/file-tabs';
+export { GitDiffToolbar, type GitDiffToolbarProperties } from './components/git-diff-toolbar';
 
 // Hooks
 export { useFileContent, useFileList } from './hooks/use-file-content';
 
 // Diff utilities
 export { computeDiffData, type DiffData, type DiffHunk } from './lib/diff-decorations';
-export { createDiffExtensions, type DiffExtensionConfig } from './lib/diff-extension';
+export { createAiActionBarExtension, createDiffDecorations, createDiffExtensions, type DiffExtensionConfig } from './lib/diff-extension';
 
 // Extensions (for advanced usage)
 export {

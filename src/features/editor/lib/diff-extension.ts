@@ -3,6 +3,12 @@
  *
  * Provides inline diff decorations for the editor: green backgrounds for
  * added lines, red widget decorations for removed lines, and gutter markers.
+ *
+ * Split into two independent extension sets:
+ * - `createDiffDecorations()` — Core diff line/gutter decorations. Used by
+ *   both AI change review and read-only git diffs.
+ * - `createAiActionBarExtension()` — Inline "AI Change" accept/reject bar.
+ *   Only used during AI change review.
  */
 
 import { RangeSetBuilder, StateField, type Extension, type Text, type Transaction } from '@codemirror/state';
@@ -21,7 +27,7 @@ export interface DiffExtensionConfig {
 }
 
 // =============================================================================
-// Decoration marks
+// Core decoration marks
 // =============================================================================
 
 const addedLineDecoration = Decoration.line({ class: 'cm-diff-added' });
@@ -52,74 +58,8 @@ const addedMarker = new AddedGutterMarker();
 const removedMarker = new RemovedGutterMarker();
 
 // =============================================================================
-// Removed lines widget
+// Removed lines widget (core — used by both AI and git diffs)
 // =============================================================================
-
-// =============================================================================
-// Inline action bar widget (file-level accept/reject at first hunk)
-// =============================================================================
-
-class DiffActionBarWidget extends WidgetType {
-	constructor(
-		readonly onApprove: (() => void) | undefined,
-		readonly onReject: (() => void) | undefined,
-	) {
-		super();
-	}
-
-	toDOM(): HTMLElement {
-		const container = document.createElement('div');
-		container.className = 'cm-diff-action-bar';
-
-		const label = document.createElement('span');
-		label.className = 'cm-diff-action-label';
-		label.textContent = 'AI Change';
-		container.append(label);
-
-		const buttonGroup = document.createElement('span');
-		buttonGroup.className = 'cm-diff-action-buttons';
-
-		if (this.onApprove) {
-			const acceptButton = document.createElement('button');
-			acceptButton.className = 'cm-diff-action-accept';
-			acceptButton.textContent = '\u2713 Accept';
-			acceptButton.addEventListener('click', (event) => {
-				event.preventDefault();
-				event.stopPropagation();
-				this.onApprove?.();
-			});
-			buttonGroup.append(acceptButton);
-		}
-
-		if (this.onReject) {
-			const rejectButton = document.createElement('button');
-			rejectButton.className = 'cm-diff-action-reject';
-			rejectButton.textContent = '\u2717 Reject';
-			rejectButton.addEventListener('click', (event) => {
-				event.preventDefault();
-				event.stopPropagation();
-				this.onReject?.();
-			});
-			buttonGroup.append(rejectButton);
-		}
-
-		container.append(buttonGroup);
-		return container;
-	}
-
-	override eq(other: WidgetType): boolean {
-		if (!(other instanceof DiffActionBarWidget)) return false;
-		return this.onApprove === other.onApprove && this.onReject === other.onReject;
-	}
-
-	override get estimatedHeight(): number {
-		return 28;
-	}
-
-	override ignoreEvent(): boolean {
-		return false;
-	}
-}
 
 class RemovedLinesWidget extends WidgetType {
 	constructor(readonly lines: string[]) {
@@ -156,37 +96,77 @@ class RemovedLinesWidget extends WidgetType {
 }
 
 // =============================================================================
-// View plugin — builds decorations from hunks
+// AI action bar widget (AI-only — accept/reject at first hunk)
 // =============================================================================
 
-function buildDecorations(
-	document_: Text,
-	hunks: DiffHunk[],
-	onApprove: (() => void) | undefined,
-	onReject: (() => void) | undefined,
-): DecorationSet {
-	const builder = new RangeSetBuilder<Decoration>();
+class AiActionBarWidget extends WidgetType {
+	constructor(
+		readonly onApprove: () => void,
+		readonly onReject: () => void,
+	) {
+		super();
+	}
 
-	// Collect all decorations, sorted by position
+	toDOM(): HTMLElement {
+		const container = document.createElement('div');
+		container.className = 'cm-diff-action-bar';
+
+		const label = document.createElement('span');
+		label.className = 'cm-diff-action-label';
+		label.textContent = 'AI Change';
+		container.append(label);
+
+		const buttonGroup = document.createElement('span');
+		buttonGroup.className = 'cm-diff-action-buttons';
+
+		const acceptButton = document.createElement('button');
+		acceptButton.className = 'cm-diff-action-accept';
+		acceptButton.textContent = '\u2713 Accept';
+		acceptButton.addEventListener('click', (event) => {
+			event.preventDefault();
+			event.stopPropagation();
+			this.onApprove();
+		});
+		buttonGroup.append(acceptButton);
+
+		const rejectButton = document.createElement('button');
+		rejectButton.className = 'cm-diff-action-reject';
+		rejectButton.textContent = '\u2717 Reject';
+		rejectButton.addEventListener('click', (event) => {
+			event.preventDefault();
+			event.stopPropagation();
+			this.onReject();
+		});
+		buttonGroup.append(rejectButton);
+
+		container.append(buttonGroup);
+		return container;
+	}
+
+	override eq(other: WidgetType): boolean {
+		if (!(other instanceof AiActionBarWidget)) return false;
+		return this.onApprove === other.onApprove && this.onReject === other.onReject;
+	}
+
+	override get estimatedHeight(): number {
+		return 28;
+	}
+
+	override ignoreEvent(): boolean {
+		return false;
+	}
+}
+
+// =============================================================================
+// Core diff decorations (no action bar)
+// =============================================================================
+
+function buildCoreDecorations(document_: Text, hunks: DiffHunk[]): DecorationSet {
+	const builder = new RangeSetBuilder<Decoration>();
 	const decorations: Array<{ from: number; to: number; decoration: Decoration }> = [];
-	let actionBarInserted = false;
 
 	for (const hunk of hunks) {
-		// Insert action bar above the first hunk
-		if (!actionBarInserted && (onApprove || onReject)) {
-			const hunkLine = Math.min(hunk.startLine, document_.lines);
-			const line = document_.line(hunkLine);
-			const actionWidget = Decoration.widget({
-				widget: new DiffActionBarWidget(onApprove, onReject),
-				block: true,
-				side: -2, // before removed-lines widgets (-1)
-			});
-			decorations.push({ from: line.from, to: line.from, decoration: actionWidget });
-			actionBarInserted = true;
-		}
-
 		if (hunk.type === 'added') {
-			// Highlight added lines with green background
 			for (let index = 0; index < hunk.lineCount; index++) {
 				const lineNumber = hunk.startLine + index;
 				if (lineNumber > document_.lines) break;
@@ -194,19 +174,17 @@ function buildDecorations(
 				decorations.push({ from: line.from, to: line.from, decoration: addedLineDecoration });
 			}
 		} else if (hunk.type === 'removed') {
-			// Show removed lines as a widget above the current line
 			const lineNumber = Math.min(hunk.startLine, document_.lines);
 			const line = document_.line(lineNumber);
 			const widget = Decoration.widget({
 				widget: new RemovedLinesWidget(hunk.lines),
 				block: true,
-				side: -1, // above the line
+				side: -1,
 			});
 			decorations.push({ from: line.from, to: line.from, decoration: widget });
 		}
 	}
 
-	// Sort by (from, startSide) as required by RangeSetBuilder
 	decorations.sort((a, b) => a.from - b.from || a.decoration.startSide - b.decoration.startSide);
 
 	for (const { from, to, decoration } of decorations) {
@@ -216,14 +194,14 @@ function buildDecorations(
 	return builder.finish();
 }
 
-function createDiffField(hunks: DiffHunk[], onApprove: (() => void) | undefined, onReject: (() => void) | undefined): Extension {
-	const field = StateField.define<DecorationSet>({
+function createCoreDiffField(hunks: DiffHunk[]): Extension {
+	return StateField.define<DecorationSet>({
 		create(state) {
-			return buildDecorations(state.doc, hunks, onApprove, onReject);
+			return buildCoreDecorations(state.doc, hunks);
 		},
 		update(decorations: DecorationSet, transaction: Transaction) {
 			if (transaction.docChanged) {
-				return buildDecorations(transaction.state.doc, hunks, onApprove, onReject);
+				return buildCoreDecorations(transaction.state.doc, hunks);
 			}
 			return decorations;
 		},
@@ -231,7 +209,46 @@ function createDiffField(hunks: DiffHunk[], onApprove: (() => void) | undefined,
 			return EditorView.decorations.from(field);
 		},
 	});
-	return field;
+}
+
+// =============================================================================
+// AI action bar extension (separate from core decorations)
+// =============================================================================
+
+function buildActionBarDecoration(document_: Text, hunks: DiffHunk[], onApprove: () => void, onReject: () => void): DecorationSet {
+	const builder = new RangeSetBuilder<Decoration>();
+
+	if (hunks.length === 0) return builder.finish();
+
+	// Insert action bar above the first hunk
+	const firstHunk = hunks[0];
+	const hunkLine = Math.min(firstHunk.startLine, document_.lines);
+	const line = document_.line(hunkLine);
+	const actionWidget = Decoration.widget({
+		widget: new AiActionBarWidget(onApprove, onReject),
+		block: true,
+		side: -2, // before removed-lines widgets (-1)
+	});
+	builder.add(line.from, line.from, actionWidget);
+
+	return builder.finish();
+}
+
+function createAiActionBarField(hunks: DiffHunk[], onApprove: () => void, onReject: () => void): Extension {
+	return StateField.define<DecorationSet>({
+		create(state) {
+			return buildActionBarDecoration(state.doc, hunks, onApprove, onReject);
+		},
+		update(decorations: DecorationSet, transaction: Transaction) {
+			if (transaction.docChanged) {
+				return buildActionBarDecoration(transaction.state.doc, hunks, onApprove, onReject);
+			}
+			return decorations;
+		},
+		provide(field) {
+			return EditorView.decorations.from(field);
+		},
+	});
 }
 
 // =============================================================================
@@ -244,8 +261,6 @@ function createDiffGutter(hunks: DiffHunk[]): Extension {
 		markers(view) {
 			const builder = new RangeSetBuilder<GutterMarker>();
 			const document_ = view.state.doc;
-
-			// Collect markers sorted by position
 			const markers: Array<{ from: number; marker: GutterMarker }> = [];
 
 			for (const hunk of hunks) {
@@ -275,10 +290,10 @@ function createDiffGutter(hunks: DiffHunk[]): Extension {
 }
 
 // =============================================================================
-// Theme
+// Theme — core diff styles (used by both AI and git diffs)
 // =============================================================================
 
-const diffTheme = EditorView.baseTheme({
+const coreDiffTheme = EditorView.baseTheme({
 	'.cm-diff-added': {
 		backgroundColor: 'rgba(94, 255, 58, 0.08)',
 	},
@@ -309,6 +324,13 @@ const diffTheme = EditorView.baseTheme({
 		fontWeight: 'bold',
 		fontSize: '12px',
 	},
+});
+
+// =============================================================================
+// Theme — AI action bar styles (only loaded when action bar is shown)
+// =============================================================================
+
+const aiActionBarTheme = EditorView.baseTheme({
 	'.cm-diff-action-bar': {
 		display: 'flex',
 		alignItems: 'center',
@@ -360,11 +382,39 @@ const diffTheme = EditorView.baseTheme({
 // =============================================================================
 
 /**
+ * Create core diff decoration extensions (line highlights, removed line widgets, gutter).
+ * Used by both AI change review and read-only git diffs.
+ * Does NOT include the AI accept/reject action bar.
+ */
+export function createDiffDecorations(hunks: DiffHunk[]): Extension[] {
+	if (hunks.length === 0) return [];
+	return [coreDiffTheme, createDiffGutter(hunks), createCoreDiffField(hunks)];
+}
+
+/**
+ * Create the AI-specific inline action bar extension (accept/reject buttons).
+ * Should only be used during AI change review, never for git diffs.
+ */
+export function createAiActionBarExtension(hunks: DiffHunk[], onApprove: () => void, onReject: () => void): Extension[] {
+	if (hunks.length === 0) return [];
+	return [aiActionBarTheme, createAiActionBarField(hunks, onApprove, onReject)];
+}
+
+/**
  * Create a set of CodeMirror extensions for displaying inline diffs.
- * Returns an empty array if there are no hunks.
+ * Composes core decorations + optional AI action bar.
+ *
+ * @deprecated Prefer using `createDiffDecorations()` and `createAiActionBarExtension()`
+ * separately for clearer separation of concerns.
  */
 export function createDiffExtensions(config: DiffExtensionConfig): Extension[] {
 	if (config.hunks.length === 0) return [];
 
-	return [diffTheme, createDiffGutter(config.hunks), createDiffField(config.hunks, config.onApprove, config.onReject)];
+	const extensions = createDiffDecorations(config.hunks);
+
+	if (config.onApprove && config.onReject) {
+		extensions.push(...createAiActionBarExtension(config.hunks, config.onApprove, config.onReject));
+	}
+
+	return extensions;
 }

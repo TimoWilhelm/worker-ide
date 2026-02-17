@@ -26,6 +26,7 @@ import {
 	gitGraphQuerySchema,
 	gitDiffQuerySchema,
 	gitCommitDiffQuerySchema,
+	gitFileDiffAtCommitQuerySchema,
 	gitBranchNameQuerySchema,
 	gitTagNameQuerySchema,
 } from '@shared/validation';
@@ -440,6 +441,22 @@ export const gitRoutes = new Hono<AppEnvironment>()
 		} catch (error) {
 			console.error('Git commit diff error:', error);
 			return c.json({ error: 'Failed to get commit diff' }, 500);
+		}
+	})
+
+	/**
+	 * GET /api/git/diff/file — Get the before/after content for a file at a specific commit.
+	 */
+	.get('/git/diff/file', zValidator('query', gitFileDiffAtCommitQuerySchema), async (c) => {
+		const fsStub = c.get('fsStub');
+		const { objectId, path } = c.req.valid('query');
+
+		try {
+			const diff = await fsStub.gitDiffFileAtCommit(objectId, path);
+			return c.json({ diff });
+		} catch (error) {
+			console.error('Git file diff at commit error:', error);
+			return c.json({ error: 'Failed to get file diff at commit' }, 500);
 		}
 	});
 

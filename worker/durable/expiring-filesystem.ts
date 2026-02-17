@@ -602,4 +602,14 @@ export class ExpiringFilesystem extends DurableObjectFilesystem {
 			return gitService.diffCommit(objectId);
 		});
 	}
+
+	/**
+	 * Get the before/after content for a single file at a specific commit.
+	 */
+	async gitDiffFileAtCommit(objectId: string, path: string): Promise<GitFileDiff> {
+		return this.withGitMount(async () => {
+			const gitService = this.createGitService();
+			return gitService.diffFileAtCommit(objectId, path);
+		});
+	}
 }

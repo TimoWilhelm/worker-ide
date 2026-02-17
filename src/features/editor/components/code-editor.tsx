@@ -9,7 +9,7 @@ import { Compartment, EditorState, type Extension } from '@codemirror/state';
 import { EditorView, type ViewUpdate } from '@codemirror/view';
 import { useCallback, useEffect, useRef } from 'react';
 
-import { createDiffExtensions } from '../lib/diff-extension';
+import { createAiActionBarExtension, createDiffDecorations } from '../lib/diff-extension';
 import {
 	createEditorExtensions,
 	createTabSizeExtension,
@@ -22,6 +22,32 @@ import {
 } from '../lib/extensions';
 
 import type { DiffData } from '../lib/diff-decorations';
+
+// =============================================================================
+// Helpers
+// =============================================================================
+
+/**
+ * Build diff extensions: core decorations always, AI action bar only when
+ * approve/reject callbacks are provided. This ensures git diffs never show
+ * the AI accept/reject bar.
+ */
+function buildDiffExtensions(
+	diffData: DiffData,
+	onApproveReference: React.RefObject<(() => void) | undefined>,
+	onRejectReference: React.RefObject<(() => void) | undefined>,
+): Extension[] {
+	const extensions = createDiffDecorations(diffData.hunks);
+
+	// Only add the AI action bar when both callbacks are provided
+	const onApprove = onApproveReference.current;
+	const onReject = onRejectReference.current;
+	if (onApprove && onReject) {
+		extensions.push(...createAiActionBarExtension(diffData.hunks, onApprove, onReject));
+	}
+
+	return extensions;
+}
 
 // =============================================================================
 // Types
@@ -137,14 +163,8 @@ export function CodeEditor({
 		const langExtension = getLanguageExtension(filename);
 		const baseExtensions = createEditorExtensions([createUpdateListener(), ...additionalExtensions]);
 
-		// Remove language from base extensions since we'll use compartment
-		const diffExtensions = diffData
-			? createDiffExtensions({
-					hunks: diffData.hunks,
-					onApprove: () => onDiffApproveReference.current?.(),
-					onReject: () => onDiffRejectReference.current?.(),
-				})
-			: [];
+		// Build diff extensions: core decorations always, AI action bar only when callbacks provided
+		const diffExtensions = diffData ? buildDiffExtensions(diffData, onDiffApproveReference, onDiffRejectReference) : [];
 		const isDark = resolvedTheme === 'dark';
 
 		const extensions = [
@@ -237,13 +257,7 @@ export function CodeEditor({
 	useEffect(() => {
 		if (!viewReference.current) return;
 
-		const diffExtensions = diffData
-			? createDiffExtensions({
-					hunks: diffData.hunks,
-					onApprove: () => onDiffApproveReference.current?.(),
-					onReject: () => onDiffRejectReference.current?.(),
-				})
-			: [];
+		const diffExtensions = diffData ? buildDiffExtensions(diffData, onDiffApproveReference, onDiffRejectReference) : [];
 		viewReference.current.dispatch({
 			effects: diffCompartment.reconfigure(diffExtensions),
 		});

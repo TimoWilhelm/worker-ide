@@ -12,9 +12,11 @@
 
 import { GitBranch, History, RotateCcw } from 'lucide-react';
 import { ScrollArea } from 'radix-ui';
-import { useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 
 import { Tooltip } from '@/components/ui';
+import { toast } from '@/components/ui/toast-store';
+import { createApiClient } from '@/lib/api-client';
 import { useStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 
@@ -47,6 +49,79 @@ export function GitPanel({ projectId, className }: GitPanelProperties) {
 	const [branchDialogOpen, setBranchDialogOpen] = useState(false);
 
 	const openFile = useStore((state) => state.openFile);
+	const showGitDiff = useStore((state) => state.showGitDiff);
+	const apiClient = useMemo(() => createApiClient(projectId), [projectId]);
+
+	// Fetch diff from API and show it in the editor
+	const handleFileClick = useCallback(
+		async (path: string) => {
+			const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+			// Strip leading slash for git paths (git uses relative paths)
+			const gitPath = path.startsWith('/') ? path.slice(1) : path;
+
+			try {
+				const response = await apiClient.git.diff.$get({ query: { path: gitPath } });
+				const data = JSON.parse(await response.text());
+
+				if ('error' in data) {
+					// Fallback: just open the file without diff
+					openFile(normalizedPath);
+					return;
+				}
+
+				const diff = data.diff;
+				if (diff?.beforeContent !== undefined && diff?.afterContent !== undefined) {
+					showGitDiff({
+						path: normalizedPath,
+						beforeContent: diff.beforeContent,
+						afterContent: diff.afterContent,
+					});
+				} else {
+					// No content available (shouldn't happen), fall back to opening file
+					openFile(normalizedPath);
+				}
+			} catch {
+				// On error, just open the file without diff
+				toast.error('Failed to load diff');
+				openFile(normalizedPath);
+			}
+		},
+		[apiClient, openFile, showGitDiff],
+	);
+
+	// Fetch diff for a file at a specific commit and show it in the editor
+	const handleCommitFileClick = useCallback(
+		async (path: string, objectId: string) => {
+			const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+			const gitPath = path.startsWith('/') ? path.slice(1) : path;
+
+			try {
+				const response = await apiClient.git.diff.file.$get({ query: { objectId, path: gitPath } });
+				const data = JSON.parse(await response.text());
+
+				if ('error' in data) {
+					openFile(normalizedPath);
+					return;
+				}
+
+				const diff = data.diff;
+				if (diff?.beforeContent !== undefined && diff?.afterContent !== undefined) {
+					showGitDiff({
+						path: normalizedPath,
+						beforeContent: diff.beforeContent,
+						afterContent: diff.afterContent,
+						description: objectId.slice(0, 7),
+					});
+				} else {
+					openFile(normalizedPath);
+				}
+			} catch {
+				toast.error('Failed to load commit diff');
+				openFile(normalizedPath);
+			}
+		},
+		[apiClient, openFile, showGitDiff],
+	);
 
 	// Data hooks
 	const { entries, initialized } = useGitStatus({ projectId });
@@ -131,7 +206,9 @@ export function GitPanel({ projectId, className }: GitPanelProperties) {
 					currentBranch={currentBranch}
 					onCheckout={(reference) => mutations.checkout(reference)}
 					onCreateBranch={() => setBranchDialogOpen(true)}
-					disabled={mutations.isBranchPending}
+					onMerge={(branch) => mutations.merge(branch)}
+					onDeleteBranch={(name) => mutations.deleteBranch(name)}
+					disabled={mutations.isBranchPending || mutations.isMergePending}
 				/>
 			</div>
 
@@ -139,7 +216,15 @@ export function GitPanel({ projectId, className }: GitPanelProperties) {
 			<ScrollArea.Root className="h-full flex-1 overflow-hidden">
 				<ScrollArea.Viewport className="size-full [&>div]:block! [&>div]:h-full! [&>div]:min-w-0!">
 					{showHistory ? (
-						<GitHistoryPanel projectId={projectId} commits={commits} isLoading={isLogLoading} branches={branches} />
+						<GitHistoryPanel
+							projectId={projectId}
+							commits={commits}
+							isLoading={isLogLoading}
+							branches={branches}
+							onCheckout={(reference) => mutations.checkout(reference)}
+							onFileClick={(path, objectId) => void handleCommitFileClick(path, objectId)}
+							isCheckoutPending={mutations.isBranchPending}
+						/>
 					) : (
 						<>
 							{/* Commit form */}
@@ -157,7 +242,7 @@ export function GitPanel({ projectId, className }: GitPanelProperties) {
 								onStage={(paths) => mutations.stageFiles(paths)}
 								onUnstage={(paths) => mutations.unstageFiles(paths)}
 								onDiscard={(path) => mutations.discardChanges(path)}
-								onFileClick={(path) => openFile(path.startsWith('/') ? path : `/${path}`)}
+								onFileClick={(path) => void handleFileClick(path)}
 							/>
 						</>
 					)}

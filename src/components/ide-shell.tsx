@@ -26,7 +26,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { toast } from '@/components/ui/toast-store';
 import { Tooltip, TooltipProvider } from '@/components/ui/tooltip';
 import { useChangeReview } from '@/features/ai-assistant/hooks/use-change-review';
-import { CodeEditor, computeDiffData, DiffToolbar, FileTabs, useFileContent } from '@/features/editor';
+import { CodeEditor, computeDiffData, DiffToolbar, FileTabs, GitDiffToolbar, useFileContent } from '@/features/editor';
 import { DependencyPanel, FileTree, useFileTree } from '@/features/file-tree';
 import { getDependencyErrorCount, subscribeDependencyErrors } from '@/features/file-tree/dependency-error-store';
 import { GitPanel } from '@/features/git';
@@ -34,7 +34,7 @@ import { useLogs } from '@/features/output/lib/log-buffer';
 import { projectSocketSendReference, useIsMobile, useProjectSocket, useTheme } from '@/hooks';
 import { downloadProject, fetchProjectMeta, updateProjectMeta } from '@/lib/api-client';
 import { getRecentProjects, removeProject, trackProject, type RecentProject } from '@/lib/recent-projects';
-import { selectGitStatus, selectIsProcessing, useStore } from '@/lib/store';
+import { selectGitDiffView, selectGitStatus, selectIsProcessing, useStore } from '@/lib/store';
 import { cn, formatRelativeTime } from '@/lib/utils';
 
 import type { LogCounts } from '@/features/output';
@@ -108,6 +108,10 @@ export function IDEShell({ projectId }: { projectId: string }) {
 
 	// Read AI processing state via a dedicated selector to limit re-renders
 	const isAiProcessing = useStore(selectIsProcessing);
+
+	// Git diff view (read-only git diffs in the editor)
+	const gitDiffView = useStore(selectGitDiffView);
+	const clearGitDiff = useStore((state) => state.clearGitDiff);
 
 	// Git status for file tree coloring
 	const gitStatusEntries = useStore(selectGitStatus);
@@ -246,10 +250,21 @@ export function IDEShell({ projectId }: { projectId: string }) {
 		return computeDiffData(pendingChange.beforeContent, pendingChange.afterContent ?? editorContent);
 	}, [activeFile, pendingChanges, editorContent]);
 
-	// Build tabs data
+	// Compute git diff data when a read-only git diff view is active
+	const isGitDiffActive = !!gitDiffView && gitDiffView.path === activeFile;
+	const gitDiffData = useMemo(() => {
+		if (!gitDiffView || gitDiffView.path !== activeFile) return;
+		return computeDiffData(gitDiffView.beforeContent, gitDiffView.afterContent);
+	}, [gitDiffView, activeFile]);
+
+	// Git diff takes priority over AI diff when both exist for the same file
+	const effectiveDiffData = gitDiffData ?? activeDiffData;
+
+	// Build tabs data — add label when git diff is active
 	const tabs = openFiles.map((path) => ({
 		path,
 		hasUnsavedChanges: unsavedChanges.get(path) ?? false,
+		label: gitDiffView?.path === path ? `${path.split('/').pop() ?? path} (${gitDiffView.description ?? 'Working Changes'})` : undefined,
 	}));
 
 	// Handle editor content changes
@@ -291,13 +306,17 @@ export function IDEShell({ projectId }: { projectId: string }) {
 		void handleSaveReference.current();
 	}, []);
 
-	// Wrap selectFile: autosave current file before switching
+	// Wrap selectFile: autosave current file before switching + clear git diff if switching away
 	const handleSelectFile = useCallback(
 		(path: string) => {
 			void handleSaveReference.current();
+			// Clear git diff view when navigating away from the diffed file
+			if (gitDiffView && gitDiffView.path !== path) {
+				clearGitDiff();
+			}
 			selectFile(path);
 		},
-		[selectFile],
+		[selectFile, gitDiffView, clearGitDiff],
 	);
 
 	// Mobile: select file and close the drawer
@@ -311,13 +330,17 @@ export function IDEShell({ projectId }: { projectId: string }) {
 		[handleSelectFile, mobileFileTreeOpen, toggleMobileFileTree],
 	);
 
-	// Wrap closeFile: autosave current file before closing
+	// Wrap closeFile: autosave current file before closing + clear git diff if closing diffed file
 	const handleCloseFile = useCallback(
 		(path: string) => {
 			void handleSaveReference.current();
+			// Clear git diff view when closing the diffed file
+			if (gitDiffView?.path === path) {
+				clearGitDiff();
+			}
 			closeFile(path);
 		},
-		[closeFile],
+		[closeFile, gitDiffView, clearGitDiff],
 	);
 
 	// Handle download
@@ -623,7 +646,10 @@ export function IDEShell({ projectId }: { projectId: string }) {
 											className="min-w-0 flex-1"
 										/>
 									</div>
-									{hasActiveDiff && activeFile && activePendingChange && (
+									{isGitDiffActive && activeFile && (
+										<GitDiffToolbar path={activeFile} description={gitDiffView.description ?? 'Working Changes'} onClose={clearGitDiff} />
+									)}
+									{!isGitDiffActive && hasActiveDiff && activeFile && activePendingChange && (
 										<DiffToolbar
 											path={activeFile}
 											action={activePendingChange.action}
@@ -643,16 +669,21 @@ export function IDEShell({ projectId }: { projectId: string }) {
 												</div>
 											) : (
 												<CodeEditor
-													value={editorContent}
+													value={isGitDiffActive ? gitDiffView.afterContent : editorContent}
 													filename={activeFile}
-													onChange={handleEditorChange}
+													onChange={isGitDiffActive ? undefined : handleEditorChange}
 													onCursorChange={handleCursorChange}
-													onBlur={handleEditorBlur}
+													onBlur={isGitDiffActive ? undefined : handleEditorBlur}
 													goToPosition={pendingGoTo}
 													onGoToPositionConsumed={clearPendingGoTo}
-													diffData={activeDiffData}
-													onDiffApprove={hasActiveDiff && activeFile ? () => changeReview.handleApproveChange(activeFile) : undefined}
-													onDiffReject={hasActiveDiff && activeFile ? () => changeReview.handleRejectChange(activeFile) : undefined}
+													readonly={isGitDiffActive}
+													diffData={effectiveDiffData}
+													onDiffApprove={
+														hasActiveDiff && activeFile && !isGitDiffActive ? () => changeReview.handleApproveChange(activeFile) : undefined
+													}
+													onDiffReject={
+														hasActiveDiff && activeFile && !isGitDiffActive ? () => changeReview.handleRejectChange(activeFile) : undefined
+													}
 													resolvedTheme={resolvedTheme}
 												/>
 											)
@@ -847,7 +878,14 @@ export function IDEShell({ projectId }: { projectId: string }) {
 													onClose={handleCloseFile}
 													participants={participants}
 												/>
-												{hasActiveDiff && activeFile && activePendingChange && (
+												{isGitDiffActive && activeFile && (
+													<GitDiffToolbar
+														path={activeFile}
+														description={gitDiffView.description ?? 'Working Changes'}
+														onClose={clearGitDiff}
+													/>
+												)}
+												{!isGitDiffActive && hasActiveDiff && activeFile && activePendingChange && (
 													<DiffToolbar
 														path={activeFile}
 														action={activePendingChange.action}
@@ -867,16 +905,25 @@ export function IDEShell({ projectId }: { projectId: string }) {
 															</div>
 														) : (
 															<CodeEditor
-																value={editorContent}
+																value={isGitDiffActive ? gitDiffView.afterContent : editorContent}
 																filename={activeFile}
-																onChange={handleEditorChange}
+																onChange={isGitDiffActive ? undefined : handleEditorChange}
 																onCursorChange={handleCursorChange}
-																onBlur={handleEditorBlur}
+																onBlur={isGitDiffActive ? undefined : handleEditorBlur}
 																goToPosition={pendingGoTo}
 																onGoToPositionConsumed={clearPendingGoTo}
-																diffData={activeDiffData}
-																onDiffApprove={hasActiveDiff && activeFile ? () => changeReview.handleApproveChange(activeFile) : undefined}
-																onDiffReject={hasActiveDiff && activeFile ? () => changeReview.handleRejectChange(activeFile) : undefined}
+																readonly={isGitDiffActive}
+																diffData={effectiveDiffData}
+																onDiffApprove={
+																	hasActiveDiff && activeFile && !isGitDiffActive
+																		? () => changeReview.handleApproveChange(activeFile)
+																		: undefined
+																}
+																onDiffReject={
+																	hasActiveDiff && activeFile && !isGitDiffActive
+																		? () => changeReview.handleRejectChange(activeFile)
+																		: undefined
+																}
 																resolvedTheme={resolvedTheme}
 															/>
 														)

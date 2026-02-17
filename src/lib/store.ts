@@ -220,6 +220,21 @@ interface UIActions {
 // Git State
 // =============================================================================
 
+/**
+ * Read-only diff view for displaying git file diffs in the editor.
+ * Separate from `pendingChanges` (which is for AI change review with accept/reject).
+ */
+interface GitDiffView {
+	/** File path being diffed */
+	path: string;
+	/** Content before the change (empty string for new files) */
+	beforeContent: string;
+	/** Content after the change */
+	afterContent: string;
+	/** Description of the diff context (e.g., "Working Changes", "abc1234") */
+	description?: string;
+}
+
 interface GitState {
 	/** Current git status entries for all tracked/untracked files */
 	gitStatus: GitStatusEntry[];
@@ -229,6 +244,8 @@ interface GitState {
 	gitStatusLoading: boolean;
 	/** Whether git has been initialized in this project */
 	gitInitialized: boolean;
+	/** Active read-only diff view (shown in the editor) */
+	gitDiffView: GitDiffView | undefined;
 }
 
 interface GitActions {
@@ -236,6 +253,10 @@ interface GitActions {
 	setGitBranches: (branches: GitBranchInfo[]) => void;
 	setGitStatusLoading: (loading: boolean) => void;
 	setGitInitialized: (initialized: boolean) => void;
+	/** Show a read-only diff in the editor for the given file */
+	showGitDiff: (diffView: GitDiffView) => void;
+	/** Clear the active diff view */
+	clearGitDiff: () => void;
 }
 
 // =============================================================================
@@ -648,6 +669,7 @@ export const useStore = create<StoreState>()(
 				gitBranches: [],
 				gitStatusLoading: false,
 				gitInitialized: false,
+				gitDiffView: undefined,
 
 				setGitStatus: (entries) => set({ gitStatus: entries }),
 
@@ -656,6 +678,16 @@ export const useStore = create<StoreState>()(
 				setGitStatusLoading: (loading) => set({ gitStatusLoading: loading }),
 
 				setGitInitialized: (initialized) => set({ gitInitialized: initialized }),
+
+				showGitDiff: (diffView) =>
+					set((state) => ({
+						gitDiffView: diffView,
+						// Also open the file and make it active so the editor shows it
+						openFiles: state.openFiles.includes(diffView.path) ? state.openFiles : [...state.openFiles, diffView.path],
+						activeFile: diffView.path,
+					})),
+
+				clearGitDiff: () => set({ gitDiffView: undefined }),
 			}),
 			{
 				name: 'worker-ide-store',
@@ -705,3 +737,4 @@ export const selectGitInitialized = (state: StoreState) => state.gitInitialized;
 export const selectActiveSidebarView = (state: StoreState) => state.activeSidebarView;
 export const selectCurrentBranch = (state: StoreState) => state.gitBranches.find((branch) => branch.isCurrent);
 export const selectGitChangedFileCount = (state: StoreState) => state.gitStatus.filter((entry) => entry.status !== 'unmodified').length;
+export const selectGitDiffView = (state: StoreState) => state.gitDiffView;

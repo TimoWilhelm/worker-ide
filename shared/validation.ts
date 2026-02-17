@@ -538,6 +538,16 @@ export const gitCommitDiffQuerySchema = z.object({
 export type GitCommitDiffQuery = z.infer<typeof gitCommitDiffQuerySchema>;
 
 /**
+ * Schema for git file diff at commit query parameters (objectId + path)
+ */
+export const gitFileDiffAtCommitQuerySchema = z.object({
+	objectId: z.string().min(1, 'Object ID is required'),
+	path: z.string().min(1, 'File path is required'),
+});
+
+export type GitFileDiffAtCommitQuery = z.infer<typeof gitFileDiffAtCommitQuerySchema>;
+
+/**
  * Schema for git branch name query parameter
  */
 export const gitBranchNameQuerySchema = z.object({

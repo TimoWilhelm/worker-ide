@@ -22,6 +22,8 @@ import type { Participant } from '@shared/types';
 export interface FileTab {
 	path: string;
 	hasUnsavedChanges?: boolean;
+	/** Optional display label override (e.g., "main.ts (Working Changes)") */
+	label?: string;
 }
 
 export interface FileTabsProperties {
@@ -227,6 +229,7 @@ function FileTabItem({ tab, isActive, showDirectory, participants, onClose }: Fi
 	const filename = getFilename(tab.path);
 	const iconColor = getFileIconColor(tab.path);
 	const parentDirectory = showDirectory ? getParentDirectory(tab.path) : '';
+	const displayLabel = tab.label ?? filename;
 
 	const handleClose = (event: React.SyntheticEvent) => {
 		event.stopPropagation();
@@ -248,7 +251,7 @@ function FileTabItem({ tab, isActive, showDirectory, participants, onClose }: Fi
 		}
 	};
 
-	const closeLabel = showDirectory ? `Close ${tab.path}` : `Close ${filename}`;
+	const closeLabel = showDirectory ? `Close ${tab.path}` : `Close ${displayLabel}`;
 
 	return (
 		<Tabs.Trigger
@@ -279,8 +282,8 @@ function FileTabItem({ tab, isActive, showDirectory, participants, onClose }: Fi
 			<File className={cn('size-3.5 shrink-0', iconColor)} />
 			<Tooltip content={tab.path}>
 				<span className="max-w-utility-panel truncate">
-					{filename}
-					{parentDirectory && <span className="ml-1 text-text-secondary opacity-60">&#8249;{parentDirectory}&#8250;</span>}
+					{tab.label ? displayLabel : filename}
+					{!tab.label && parentDirectory && <span className="ml-1 text-text-secondary opacity-60">&#8249;{parentDirectory}&#8250;</span>}
 				</span>
 			</Tooltip>
 			{/* Collaborator presence dots */}

@@ -27,6 +27,9 @@ interface GitHistoryPanelProperties {
 	commits: GitCommitEntry[];
 	isLoading: boolean;
 	branches: Array<{ name: string; isCurrent: boolean }>;
+	onCheckout: (reference: string) => void;
+	onFileClick: (path: string, objectId: string) => void;
+	isCheckoutPending?: boolean;
 }
 
 // =============================================================================
@@ -49,7 +52,15 @@ function formatRelativeTime(timestamp: number): string {
 // Component
 // =============================================================================
 
-export function GitHistoryPanel({ projectId, commits, isLoading, branches }: GitHistoryPanelProperties) {
+export function GitHistoryPanel({
+	projectId,
+	commits,
+	isLoading,
+	branches,
+	onCheckout,
+	onFileClick,
+	isCheckoutPending,
+}: GitHistoryPanelProperties) {
 	const [selectedCommit, setSelectedCommit] = useState<GitCommitEntry | undefined>();
 
 	const api = createApiClient(projectId);
@@ -87,6 +98,9 @@ export function GitHistoryPanel({ projectId, commits, isLoading, branches }: Git
 				files={commitDiffQuery.data}
 				isLoadingDiff={commitDiffQuery.isLoading}
 				onBack={() => setSelectedCommit(undefined)}
+				onCheckout={onCheckout}
+				onFileClick={onFileClick}
+				isCheckoutPending={isCheckoutPending}
 			/>
 		);
 	}
@@ -151,9 +165,11 @@ export function GitHistoryPanel({ projectId, commits, isLoading, branches }: Git
 								</span>
 							))}
 						</div>
-						<div className="
-							flex flex-wrap items-center gap-x-1.5 text-[10px] text-text-secondary
-						">
+						<div
+							className="
+								flex flex-wrap items-center gap-x-1.5 text-[10px] text-text-secondary
+							"
+						>
 							<span className="font-mono">{entry.abbreviatedObjectId}</span>
 							<span className="flex shrink-0 items-center gap-1">
 								<Clock className="size-2.5" />

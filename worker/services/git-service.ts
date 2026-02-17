@@ -659,7 +659,7 @@ export class GitService {
 
 		const hunks = computeDiffHunks(headContent, workdirContent);
 
-		return { path: filepath, status: fileStatus, hunks };
+		return { path: filepath, status: fileStatus, hunks, beforeContent: headContent, afterContent: workdirContent };
 	}
 
 	/**
@@ -720,6 +720,62 @@ export class GitService {
 		});
 
 		return diffs;
+	}
+
+	/**
+	 * Get the before/after content for a single file at a specific commit.
+	 * "before" = content at the commit's parent, "after" = content at the commit.
+	 */
+	async diffFileAtCommit(objectId: string, filepath: string): Promise<GitFileDiff> {
+		const commit = await git.readCommit({
+			fs: this.gitFs,
+			dir: this.directory,
+			oid: objectId,
+		});
+
+		const parentOid = commit.commit.parent[0];
+		let beforeContent = '';
+		let afterContent = '';
+		let fileStatus: 'modified' | 'added' | 'deleted' = 'modified';
+
+		// Read content at commit
+		try {
+			const { blob } = await git.readBlob({
+				fs: this.gitFs,
+				dir: this.directory,
+				oid: objectId,
+				filepath,
+			});
+			afterContent = new TextDecoder().decode(blob);
+		} catch {
+			// File doesn't exist at this commit — it was deleted
+			fileStatus = 'deleted';
+		}
+
+		// Read content at parent commit
+		if (parentOid) {
+			try {
+				const { blob } = await git.readBlob({
+					fs: this.gitFs,
+					dir: this.directory,
+					oid: parentOid,
+					filepath,
+				});
+				beforeContent = new TextDecoder().decode(blob);
+			} catch {
+				// File doesn't exist in parent — it was added
+				if (fileStatus !== 'deleted') {
+					fileStatus = 'added';
+				}
+			}
+		} else {
+			// No parent (initial commit) — everything is "added"
+			fileStatus = 'added';
+		}
+
+		const hunks = computeDiffHunks(beforeContent, afterContent);
+
+		return { path: filepath, status: fileStatus, hunks, beforeContent, afterContent };
 	}
 }
 
