@@ -11,10 +11,10 @@
  * out of the main IDE bundle.
  */
 
-import { Copy, Hexagon, Moon, Search, Sun, X } from 'lucide-react';
+import { BookOpen, Copy, Github, Hexagon, Moon, Search, Sun, X } from 'lucide-react';
 import { Suspense, useCallback, useMemo, useState } from 'react';
 
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { useTheme } from '@/hooks/use-theme';
 import { cloneProject, createProject } from '@/lib/api-client';
@@ -300,8 +300,26 @@ export default function LandingPage() {
 			{/* Loading overlay */}
 			{isLoading && <LoadingOverlay message={loadingMessage} />}
 
-			{/* Theme toggle — top right */}
-			<div className="fixed top-4 right-4 z-10">
+			{/* Header actions — top right */}
+			<div className="fixed top-4 right-4 z-10 flex items-center gap-1">
+				<a
+					href="/docs"
+					target="_blank"
+					rel="noopener noreferrer"
+					aria-label="Architecture docs"
+					className={buttonVariants({ variant: 'ghost', size: 'icon', className: 'bg-bg-secondary/40 backdrop-blur-sm' })}
+				>
+					<BookOpen className="size-4" />
+				</a>
+				<a
+					href="https://github.com/TimoWilhelm/worker-ide"
+					target="_blank"
+					rel="noopener noreferrer"
+					aria-label="GitHub repository"
+					className={buttonVariants({ variant: 'ghost', size: 'icon', className: 'bg-bg-secondary/40 backdrop-blur-sm' })}
+				>
+					<Github className="size-4" />
+				</a>
 				<Button
 					variant="ghost"
 					size="icon"
@@ -355,8 +373,8 @@ export default function LandingPage() {
 					<div className="relative">
 						<Copy
 							className="
-								pointer-events-none absolute top-1/2 left-3 size-3.5 -translate-y-1/2
-								text-text-secondary
+								pointer-events-none absolute top-1/2 left-3 z-10 size-3.5
+								-translate-y-1/2 text-text-secondary
 							"
 						/>
 						<input

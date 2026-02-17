@@ -7,7 +7,7 @@
 		<link rel="preconnect" href="https://fonts.googleapis.com" />
 		<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 		<link
-			href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap"
+			href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;500;600;700&display=swap"
 			rel="stylesheet"
 		/>
 		<style>
@@ -20,27 +20,36 @@
 			}
 
 			:root {
-				--bg: #0a0a0f;
-				--bg-surface: #111119;
-				--bg-card: #16161f;
-				--border: rgba(255, 255, 255, 0.06);
-				--border-bright: rgba(255, 255, 255, 0.1);
-				--text: #e8e8f0;
-				--text-muted: #8b8ba0;
-				--text-dim: #55556a;
-				--asset: #38bdf8;
-				--asset-dim: rgba(56, 189, 248, 0.08);
-				--asset-glow: rgba(56, 189, 248, 0.4);
-				--worker: #a78bfa;
-				--worker-dim: rgba(167, 139, 250, 0.08);
-				--worker-glow: rgba(167, 139, 250, 0.4);
-				--ws: #4ade80;
-				--ws-dim: rgba(74, 222, 128, 0.08);
-				--ws-glow: rgba(74, 222, 128, 0.4);
-				--orange: #fb923c;
-				--magenta: #f472b6;
-				--yellow: #facc15;
-				--red: #f87171;
+				/* Dark theme matching the app */
+				--bg: #121212;
+				--bg-surface: #191817;
+				--bg-card: #2a2927;
+				--border: #f0e3de20;
+				--border-solid: #302c2a;
+				--border-bright: #f0e3de40;
+				--text: #f0e3de;
+				--text-muted: #d4c8c2;
+				--text-dim: #8a7f7a;
+				--accent: #f14602;
+				--accent-hover: #ff6d33;
+
+				/* Lane colors - high contrast, distinct hues */
+				--asset: #5cc8ff;
+				--asset-dim: rgba(92, 200, 255, 0.12);
+				--worker: #c490ff;
+				--worker-dim: rgba(196, 144, 255, 0.12);
+				--ws: #7dff6a;
+				--ws-dim: rgba(125, 255, 106, 0.12);
+				--cyan: #5cc8ff;
+				--cyan-dim: rgba(92, 200, 255, 0.12);
+				--emerald: #50e8a0;
+				--emerald-dim: rgba(80, 232, 160, 0.12);
+
+				/* Component colors - warm palette */
+				--orange: #ff8c5a;
+				--magenta: #ff70d0;
+				--yellow: #ffd060;
+				--red: #ff7070;
 			}
 
 			html {
@@ -49,7 +58,7 @@
 
 			body {
 				font-family:
-					'Inter',
+					'Space Grotesk',
 					system-ui,
 					-apple-system,
 					sans-serif;
@@ -86,7 +95,7 @@
 				left: 0;
 				right: 0;
 				z-index: 100;
-				background: rgba(10, 10, 15, 0.85);
+				background: rgba(18, 18, 18, 0.85);
 				backdrop-filter: blur(16px) saturate(1.5);
 				border-bottom: 1px solid var(--border);
 			}
@@ -97,10 +106,10 @@
 				height: 56px;
 			}
 			.logo {
-				font-family: 'JetBrains Mono', monospace;
+				font-family: 'Space Mono', monospace;
 				font-weight: 600;
 				font-size: 15px;
-				color: var(--asset);
+				color: var(--accent);
 				text-decoration: none;
 				letter-spacing: 0.02em;
 			}
@@ -131,7 +140,7 @@
 				margin-bottom: 16px;
 			}
 			.hero h1 .grad {
-				background: linear-gradient(135deg, var(--asset) 0%, var(--worker) 50%, var(--ws) 100%);
+				background: linear-gradient(135deg, var(--accent) 0%, var(--accent-hover) 50%, var(--yellow) 100%);
 				-webkit-background-clip: text;
 				-webkit-text-fill-color: transparent;
 				background-clip: text;
@@ -155,7 +164,7 @@
 				display: flex;
 				align-items: center;
 				gap: 8px;
-				font-family: 'JetBrains Mono', monospace;
+				font-family: 'Space Mono', monospace;
 				font-size: 13px;
 				font-weight: 500;
 				letter-spacing: 0.04em;
@@ -170,7 +179,7 @@
 			.legend-item.asset {
 				color: var(--asset);
 				background: var(--asset-dim);
-				border: 1px solid rgba(56, 189, 248, 0.2);
+				border: 1px solid rgba(77, 184, 255, 0.2);
 			}
 			.legend-item.asset .dot {
 				background: var(--asset);
@@ -178,7 +187,7 @@
 			.legend-item.worker {
 				color: var(--worker);
 				background: var(--worker-dim);
-				border: 1px solid rgba(167, 139, 250, 0.2);
+				border: 1px solid rgba(184, 102, 255, 0.2);
 			}
 			.legend-item.worker .dot {
 				background: var(--worker);
@@ -186,7 +195,7 @@
 			.legend-item.ws {
 				color: var(--ws);
 				background: var(--ws-dim);
-				border: 1px solid rgba(74, 222, 128, 0.2);
+				border: 1px solid rgba(94, 255, 58, 0.2);
 			}
 			.legend-item.ws .dot {
 				background: var(--ws);
@@ -198,7 +207,7 @@
 
 			/* ── Lane container ── */
 			.lane {
-				background: rgba(12, 12, 20, 0.6);
+				background: rgba(25, 24, 23, 0.6);
 				border: 1px solid var(--border);
 				border-radius: 12px;
 				padding: 24px 28px 28px;
@@ -220,7 +229,7 @@
 				flex-shrink: 0;
 			}
 			.lane-title {
-				font-family: 'JetBrains Mono', monospace;
+				font-family: 'Space Mono', monospace;
 				font-size: 16px;
 				font-weight: 600;
 				letter-spacing: 0.02em;
@@ -229,12 +238,12 @@
 				font-size: 14px;
 				color: var(--text-muted);
 				margin-left: auto;
-				font-family: 'Inter', sans-serif;
+				font-family: 'Space Grotesk', sans-serif;
 			}
 
 			/* ── Flow label above a grid ── */
 			.flow-label {
-				font-family: 'JetBrains Mono', monospace;
+				font-family: 'Space Mono', monospace;
 				font-size: 13px;
 				font-weight: 600;
 				letter-spacing: 0.08em;
@@ -274,7 +283,7 @@
 
 			/* ── Node card ── */
 			.node {
-				background: rgba(10, 10, 20, 0.7);
+				background: rgba(18, 18, 18, 0.7);
 				border: 1px dashed var(--node-color, var(--border-bright));
 				border-radius: 3px;
 				padding: 8px 6px;
@@ -296,7 +305,7 @@
 				opacity: 0.4;
 			}
 			.node-name {
-				font-family: 'JetBrains Mono', monospace;
+				font-family: 'Space Mono', monospace;
 				font-size: 12px;
 				font-weight: 600;
 				color: var(--node-color, var(--text));
@@ -305,7 +314,7 @@
 				white-space: nowrap;
 			}
 			.node-detail {
-				font-family: 'Inter', sans-serif;
+				font-family: 'Space Grotesk', sans-serif;
 				font-size: 11px;
 				color: var(--text-muted);
 				line-height: 1.3;
@@ -323,7 +332,7 @@
 				min-width: 48px;
 			}
 			.h-arrow-label {
-				font-family: 'JetBrains Mono', monospace;
+				font-family: 'Space Mono', monospace;
 				font-size: 8px;
 				font-weight: 500;
 				color: var(--arrow-color, var(--text-muted));
@@ -384,7 +393,7 @@
 				border-right: 4px solid transparent;
 			}
 			.v-connector-label {
-				font-family: 'JetBrains Mono', monospace;
+				font-family: 'Space Mono', monospace;
 				font-size: 9px;
 				font-weight: 500;
 				color: var(--arrow-color, var(--text-muted));
@@ -405,18 +414,25 @@
 				line-height: 1;
 			}
 			.flow-connector-text {
-				font-family: 'Inter', sans-serif;
+				font-family: 'Space Grotesk', sans-serif;
 				font-size: 14px;
 				color: var(--text-muted);
 			}
 
 			/* ── Lane footnote ── */
 			.lane-note {
-				font-family: 'Inter', sans-serif;
+				font-family: 'Space Grotesk', sans-serif;
 				font-size: 14px;
 				color: var(--text-muted);
 				margin-top: 20px;
 				line-height: 1.5;
+			}
+			.lane-note code {
+				font-family: 'Space Mono', monospace;
+				background: var(--bg-card);
+				padding: 2px 6px;
+				border-radius: 3px;
+				font-size: 13px;
 			}
 
 			/* Column utilities for serpentine layout (must be last to override) */
@@ -499,7 +515,6 @@
 					<a href="/" class="logo">worker-ide</a>
 					<div class="nav-links">
 						<a href="https://github.com/TimoWilhelm/worker-ide" target="_blank">GitHub</a>
-						<a href="https://github.com/TimoWilhelm/worker-ide#readme" target="_blank">Docs</a>
 					</div>
 				</div>
 			</nav>
@@ -515,6 +530,14 @@
 						<span class="legend-item asset"><span class="dot"></span>Asset Pipeline + HMR</span>
 						<span class="legend-item worker"><span class="dot"></span>Worker Execution</span>
 						<span class="legend-item ws"><span class="dot"></span>WebSocket Feedback</span>
+						<span class="legend-item" style="color: var(--cyan); background: var(--cyan-dim); border: 1px solid rgba(77, 184, 255, 0.2)"
+							><span class="dot" style="background: var(--cyan)"></span>Dependency Resolution</span
+						>
+						<span
+							class="legend-item"
+							style="color: var(--emerald); background: var(--emerald-dim); border: 1px solid rgba(94, 255, 58, 0.2)"
+							><span class="dot" style="background: var(--emerald)"></span>Git Integration</span
+						>
 					</div>
 				</div>
 			</section>
@@ -561,11 +584,11 @@
 
 							<!-- Row 2: HMR broadcast -->
 							<div class="node col-3" style="--node-color: var(--ws)">
-								<div class="node-name">HMR Coordinator</div>
-								<div class="node-detail">broadcast()</div>
+								<div class="node-name">ProjectCoordinator</div>
+								<div class="node-detail">triggerUpdate()</div>
 							</div>
 							<div class="h-arrow col-4" style="--arrow-color: var(--ws)">
-								<span class="h-arrow-label">WS message</span>
+								<span class="h-arrow-label">HmrUpdateMessage</span>
 								<div class="h-arrow-line"></div>
 							</div>
 							<div class="node col-5" style="--node-color: var(--text)">
@@ -709,7 +732,7 @@
 						<div class="lane-header">
 							<span class="lane-dot" style="background: var(--ws)"></span>
 							<span class="lane-title" style="color: var(--ws)">WebSocket Feedback</span>
-							<span class="lane-desc">Logs &amp; errors flow from Sources (Left) → HMR (Right) → Editor (Bottom)</span>
+							<span class="lane-desc">Logs &amp; errors flow from Sources (Left) → Coordinator (Right) → Editor (Bottom)</span>
 						</div>
 
 						<div class="flow-grid">
@@ -727,7 +750,7 @@
 								<div class="node-detail">tail() handler</div>
 							</div>
 							<div class="h-arrow col-4" style="grid-row: 1; --arrow-color: var(--ws)">
-								<span class="h-arrow-label">HMREvent</span>
+								<span class="h-arrow-label">ServerLogsMessage</span>
 								<div class="h-arrow-line"></div>
 							</div>
 
@@ -738,11 +761,11 @@
 							</div>
 							<!-- Long arrow spanning Col 2-4 -->
 							<div class="h-arrow col-span-3" style="grid-row: 2; margin-top: 12px; --arrow-color: var(--red)">
-								<span class="h-arrow-label">HMREvent (broadcast)</span>
+								<span class="h-arrow-label">ServerErrorMessage</span>
 								<div class="h-arrow-line"></div>
 							</div>
 
-							<!-- Aggregator: HMR Coordinator (Spans Rows 1-2) -->
+							<!-- Aggregator: ProjectCoordinator (Spans Rows 1-2) -->
 							<div
 								class="node col-5"
 								style="
@@ -756,7 +779,7 @@
 									z-index: 2;
 								"
 							>
-								<div class="node-name">HMR Coordinator</div>
+								<div class="node-name">ProjectCoordinator</div>
 								<div class="node-detail">sendToAll()</div>
 							</div>
 
@@ -772,6 +795,173 @@
 								<div class="node-detail">console / overlay</div>
 							</div>
 						</div>
+					</div>
+
+					<!-- LANE 4: DEPENDENCY RESOLUTION -->
+					<div class="lane">
+						<div class="lane-header">
+							<span class="lane-dot" style="background: var(--cyan)"></span>
+							<span class="lane-title" style="color: var(--cyan)">Dependency Resolution</span>
+							<span class="lane-desc">Bare imports resolved via esm.sh CDN at bundle time</span>
+						</div>
+
+						<div class="flow-label" style="color: var(--cyan)">Import Resolution Flow</div>
+						<div class="flow-grid">
+							<!-- Row 1: Source import -->
+							<div class="node col-1" style="--node-color: var(--text)">
+								<div class="node-name">Source Code</div>
+								<div class="node-detail">import "react"</div>
+							</div>
+							<div class="h-arrow col-2" style="--arrow-color: var(--yellow)">
+								<span class="h-arrow-label">onResolve</span>
+								<div class="h-arrow-line"></div>
+							</div>
+							<div class="node col-3" style="--node-color: var(--yellow)">
+								<div class="node-name">VirtualFsPlugin</div>
+								<div class="node-detail">bare import check</div>
+							</div>
+							<div class="h-arrow col-4" style="--arrow-color: var(--magenta)">
+								<span class="h-arrow-label">lookup version</span>
+								<div class="h-arrow-line"></div>
+							</div>
+							<div class="node col-5" style="--node-color: var(--magenta)">
+								<div class="node-name">.project-meta.json</div>
+								<div class="node-detail">dependencies map</div>
+							</div>
+
+							<!-- Connector: Rewrite to CDN -->
+							<div class="v-connector col-3" style="--arrow-color: var(--cyan)">
+								<div class="v-connector-line"></div>
+								<span class="v-connector-label">rewrite to CDN URL</span>
+							</div>
+
+							<!-- Row 2: CDN fetch -->
+							<div class="node col-1" style="--node-color: var(--yellow)">
+								<div class="node-name">esbuild-wasm</div>
+								<div class="node-detail">bundleWithCdn()</div>
+							</div>
+							<div class="h-arrow reverse col-2" style="--arrow-color: var(--cyan)">
+								<span class="h-arrow-label">bundled JS</span>
+								<div class="h-arrow-line"></div>
+							</div>
+							<div class="node col-3" style="--node-color: var(--cyan)">
+								<div class="node-name">EsmCdnPlugin</div>
+								<div class="node-detail">onLoad handler</div>
+							</div>
+							<div class="h-arrow col-4" style="--arrow-color: var(--cyan)">
+								<span class="h-arrow-label">fetch + cache</span>
+								<div class="h-arrow-line"></div>
+							</div>
+							<div class="node col-5" style="--node-color: var(--cyan)">
+								<div class="node-name">esm.sh CDN</div>
+								<div class="node-detail">react@19.0.0</div>
+							</div>
+						</div>
+
+						<p class="lane-note">
+							Dependencies are managed via <code>.project-meta.json</code> instead of package.json. Unregistered imports trigger an error
+							prompting users to add the dependency via the Dependencies panel.
+						</p>
+					</div>
+
+					<!-- LANE 5: GIT INTEGRATION -->
+					<div class="lane">
+						<div class="lane-header">
+							<span class="lane-dot" style="background: var(--emerald)"></span>
+							<span class="lane-title" style="color: var(--emerald)">Git Integration</span>
+							<span class="lane-desc">isomorphic-git running inside Durable Object with SQLite storage</span>
+						</div>
+
+						<div class="flow-label" style="color: var(--emerald)">Git Operations Flow</div>
+						<div class="flow-grid">
+							<!-- Row 1: UI to API -->
+							<div class="node col-1" style="--node-color: var(--text)">
+								<div class="node-name">Git Panel</div>
+								<div class="node-detail">stage / commit</div>
+							</div>
+							<div class="h-arrow col-2" style="--arrow-color: var(--emerald)">
+								<span class="h-arrow-label">POST /api/git/*</span>
+								<div class="h-arrow-line"></div>
+							</div>
+							<div class="node col-3" style="--node-color: var(--orange)">
+								<div class="node-name">Host Worker</div>
+								<div class="node-detail">git-routes.ts</div>
+							</div>
+							<div class="h-arrow col-4" style="--arrow-color: var(--magenta)">
+								<span class="h-arrow-label">RPC call</span>
+								<div class="h-arrow-line"></div>
+							</div>
+							<div class="node col-5" style="--node-color: var(--magenta)">
+								<div class="node-name">ExpiringFilesystem</div>
+								<div class="node-detail">Durable Object</div>
+							</div>
+
+							<!-- Connector: Mount context -->
+							<div class="v-connector col-5" style="--arrow-color: var(--emerald)">
+								<div class="v-connector-line"></div>
+								<span class="v-connector-label">withGitMount()</span>
+							</div>
+
+							<!-- Row 2: Git service -->
+							<div class="node col-3" style="--node-color: var(--emerald)">
+								<div class="node-name">GitService</div>
+								<div class="node-detail">isomorphic-git wrapper</div>
+							</div>
+							<div class="h-arrow col-4" style="--arrow-color: var(--emerald)">
+								<span class="h-arrow-label">git operations</span>
+								<div class="h-arrow-line"></div>
+							</div>
+							<div class="node col-5" style="--node-color: var(--emerald)">
+								<div class="node-name">isomorphic-git</div>
+								<div class="node-detail">stage / commit / etc</div>
+							</div>
+
+							<!-- Connector: Filesystem access -->
+							<div class="v-connector col-5" style="--arrow-color: var(--magenta)">
+								<div class="v-connector-line"></div>
+								<span class="v-connector-label">node:fs/promises</span>
+							</div>
+
+							<!-- Row 3: SQLite storage -->
+							<div class="node col-5" style="--node-color: var(--magenta)">
+								<div class="node-name">worker-fs-mount</div>
+								<div class="node-detail">DO SQLite storage</div>
+							</div>
+						</div>
+
+						<div class="flow-connector">
+							<span class="flow-connector-icon">↓</span>
+							<span class="flow-connector-text">After mutations, status changes are broadcast via WebSocket</span>
+						</div>
+
+						<div class="flow-label" style="color: var(--ws)">Real-time Status Updates</div>
+						<div class="flow-grid">
+							<div class="node col-1" style="--node-color: var(--magenta)">
+								<div class="node-name">ExpiringFilesystem</div>
+								<div class="node-detail">broadcastGitStatusChanged()</div>
+							</div>
+							<div class="h-arrow col-2" style="--arrow-color: var(--ws)">
+								<span class="h-arrow-label">RPC</span>
+								<div class="h-arrow-line"></div>
+							</div>
+							<div class="node col-3" style="--node-color: var(--ws)">
+								<div class="node-name">ProjectCoordinator</div>
+								<div class="node-detail">sendMessage()</div>
+							</div>
+							<div class="h-arrow col-4" style="--arrow-color: var(--ws)">
+								<span class="h-arrow-label">git-status-changed</span>
+								<div class="h-arrow-line"></div>
+							</div>
+							<div class="node col-5" style="--node-color: var(--text)">
+								<div class="node-name">Git Panel</div>
+								<div class="node-detail">refetch status</div>
+							</div>
+						</div>
+
+						<p class="lane-note">
+							Git operations run inside the Durable Object's single-threaded context, avoiding race conditions with isomorphic-git's
+							AsyncLock. The <code>node:fs/promises</code> import is aliased to <code>worker-fs-mount/fs</code> at build time.
+						</p>
 					</div>
 				</div>
 			</section>
