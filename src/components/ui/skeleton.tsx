@@ -63,3 +63,15 @@ export function PanelSkeleton({ label }: { label?: string }) {
 		</div>
 	);
 }
+
+/**
+ * Skeleton fallback for the git panel.
+ */
+export function GitPanelSkeleton() {
+	return (
+		<div className="flex h-full flex-col items-center justify-center gap-3 px-4">
+			<Skeleton className="size-8 rounded-full" />
+			<Skeleton className="h-4 w-32" />
+		</div>
+	);
+}

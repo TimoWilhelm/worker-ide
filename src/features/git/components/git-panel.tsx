@@ -12,9 +12,10 @@
 
 import { GitBranch, History, RotateCcw } from 'lucide-react';
 import { ScrollArea } from 'radix-ui';
-import { useCallback, useMemo, useState } from 'react';
+import { Suspense, useCallback, useMemo, useState } from 'react';
 
 import { Button, ConfirmDialog, Tooltip } from '@/components/ui';
+import { GitPanelSkeleton } from '@/components/ui/skeleton';
 import { toast } from '@/components/ui/toast-store';
 import { createApiClient } from '@/lib/api-client';
 import { useStore } from '@/lib/store';
@@ -28,7 +29,7 @@ import { GitStatusList } from './git-status-list';
 import { useGitBranches } from '../hooks/use-git-branches';
 import { useGitLog } from '../hooks/use-git-log';
 import { useGitMutations } from '../hooks/use-git-mutations';
-import { useGitStatus } from '../hooks/use-git-status';
+import { useGitStatusSuspense } from '../hooks/use-git-status';
 import { groupStatusEntries } from '../lib/status-helpers';
 
 // =============================================================================
@@ -44,7 +45,22 @@ interface GitPanelProperties {
 // Component
 // =============================================================================
 
+/**
+ * GitPanel with Suspense boundary.
+ * Shows a skeleton while loading the initial git status.
+ */
 export function GitPanel({ projectId, className }: GitPanelProperties) {
+	return (
+		<Suspense fallback={<GitPanelSkeleton />}>
+			<GitPanelContent projectId={projectId} className={className} />
+		</Suspense>
+	);
+}
+
+/**
+ * Inner GitPanel content that uses suspense for data fetching.
+ */
+function GitPanelContent({ projectId, className }: GitPanelProperties) {
 	const [showHistory, setShowHistory] = useState(false);
 	const [branchDialogOpen, setBranchDialogOpen] = useState(false);
 	const [discardAllConfirmOpen, setDiscardAllConfirmOpen] = useState(false);
@@ -126,7 +142,7 @@ export function GitPanel({ projectId, className }: GitPanelProperties) {
 	);
 
 	// Data hooks
-	const { entries, initialized } = useGitStatus({ projectId });
+	const { entries, initialized } = useGitStatusSuspense({ projectId });
 	const { branches, currentBranch } = useGitBranches({ projectId, enabled: initialized });
 	const { commits, isLoading: isLogLoading } = useGitLog({ projectId, enabled: initialized && showHistory });
 
