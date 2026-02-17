@@ -403,6 +403,155 @@ export const sessionIdQuerySchema = z.object({
 });
 
 // =============================================================================
+// Git Operation Schemas
+// =============================================================================
+
+/**
+ * Schema for staging/unstaging files
+ */
+export const gitStageSchema = z.object({
+	paths: z.array(z.string().min(1)).min(1, 'At least one path is required'),
+});
+
+export type GitStageInput = z.infer<typeof gitStageSchema>;
+
+/**
+ * Schema for discarding changes to a file
+ */
+export const gitDiscardSchema = z.object({
+	path: z.string().min(1, 'Path is required'),
+});
+
+export type GitDiscardInput = z.infer<typeof gitDiscardSchema>;
+
+/**
+ * Schema for creating a commit
+ */
+export const gitCommitSchema = z.object({
+	message: z.string().min(1, 'Commit message is required').max(5000, 'Commit message is too long'),
+	amend: z.boolean().optional(),
+});
+
+export type GitCommitInput = z.infer<typeof gitCommitSchema>;
+
+/**
+ * Schema for creating or deleting a branch
+ */
+export const gitBranchSchema = z.object({
+	name: z
+		.string()
+		.min(1, 'Branch name is required')
+		.max(255, 'Branch name is too long')
+		.refine((name) => !name.includes(' '), 'Branch name cannot contain spaces')
+		.refine((name) => !name.startsWith('-'), 'Branch name cannot start with a dash')
+		.refine((name) => !name.includes('..'), 'Branch name cannot contain ".."')
+		.refine((name) => !name.endsWith('.lock'), 'Branch name cannot end with ".lock"'),
+	checkout: z.boolean().optional(),
+});
+
+export type GitBranchInput = z.infer<typeof gitBranchSchema>;
+
+/**
+ * Schema for renaming a branch
+ */
+export const gitBranchRenameSchema = z.object({
+	oldName: z.string().min(1, 'Old branch name is required'),
+	newName: z.string().min(1, 'New branch name is required').max(255, 'Branch name is too long'),
+});
+
+export type GitBranchRenameInput = z.infer<typeof gitBranchRenameSchema>;
+
+/**
+ * Schema for checking out a reference
+ */
+export const gitCheckoutSchema = z.object({
+	reference: z.string().min(1, 'Reference is required'),
+});
+
+export type GitCheckoutInput = z.infer<typeof gitCheckoutSchema>;
+
+/**
+ * Schema for merging a branch
+ */
+export const gitMergeSchema = z.object({
+	branch: z.string().min(1, 'Branch name is required'),
+});
+
+export type GitMergeInput = z.infer<typeof gitMergeSchema>;
+
+/**
+ * Schema for creating or deleting a tag
+ */
+export const gitTagSchema = z.object({
+	name: z.string().min(1, 'Tag name is required').max(255, 'Tag name is too long'),
+	reference: z.string().optional(),
+});
+
+export type GitTagInput = z.infer<typeof gitTagSchema>;
+
+/**
+ * Schema for stash operations
+ */
+export const gitStashSchema = z.object({
+	action: z.enum(['push', 'pop', 'apply', 'drop', 'clear']),
+	index: z.number().int().min(0).optional(),
+	message: z.string().max(500).optional(),
+});
+
+export type GitStashInput = z.infer<typeof gitStashSchema>;
+
+/**
+ * Schema for git log query parameters
+ */
+export const gitLogQuerySchema = z.object({
+	reference: z.string().optional(),
+	depth: z.coerce.number().int().min(1).max(500).optional(),
+});
+
+export type GitLogQuery = z.infer<typeof gitLogQuerySchema>;
+
+/**
+ * Schema for git graph query parameters
+ */
+export const gitGraphQuerySchema = z.object({
+	maxCount: z.coerce.number().int().min(1).max(500).optional(),
+});
+
+export type GitGraphQuery = z.infer<typeof gitGraphQuerySchema>;
+
+/**
+ * Schema for git diff query parameters
+ */
+export const gitDiffQuerySchema = z.object({
+	path: z.string().min(1, 'Path is required'),
+});
+
+export type GitDiffQuery = z.infer<typeof gitDiffQuerySchema>;
+
+/**
+ * Schema for git commit diff query parameters
+ */
+export const gitCommitDiffQuerySchema = z.object({
+	objectId: z.string().min(1, 'Object ID is required'),
+});
+
+export type GitCommitDiffQuery = z.infer<typeof gitCommitDiffQuerySchema>;
+
+/**
+ * Schema for git branch name query parameter
+ */
+export const gitBranchNameQuerySchema = z.object({
+	name: z.string().min(1, 'Branch name is required'),
+});
+
+/**
+ * Schema for git tag name query parameter
+ */
+export const gitTagNameQuerySchema = z.object({
+	name: z.string().min(1, 'Tag name is required'),
+});
+
+// =============================================================================
 // Validation Helpers
 // =============================================================================
 

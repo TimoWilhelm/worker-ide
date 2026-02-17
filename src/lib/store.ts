@@ -7,7 +7,16 @@
 import { create } from 'zustand';
 import { devtools, persist } from 'zustand/middleware';
 
-import type { AgentMode, FileInfo, AgentMessage, Participant, PendingFileChange, SnapshotSummary } from '@shared/types';
+import type {
+	AgentMode,
+	FileInfo,
+	AgentMessage,
+	GitBranchInfo,
+	GitStatusEntry,
+	Participant,
+	PendingFileChange,
+	SnapshotSummary,
+} from '@shared/types';
 
 // =============================================================================
 // Editor State
@@ -173,7 +182,9 @@ interface PendingChangesActions {
 
 type ColorScheme = 'light' | 'dark' | 'system';
 
-export type MobilePanel = 'editor' | 'preview' | 'agent';
+export type MobilePanel = 'editor' | 'preview' | 'git' | 'agent';
+
+export type SidebarView = 'explorer' | 'git';
 
 interface UIState {
 	/** Whether sidebar is visible */
@@ -190,6 +201,8 @@ interface UIState {
 	activeMobilePanel: MobilePanel;
 	/** Whether the mobile file tree drawer is open */
 	mobileFileTreeOpen: boolean;
+	/** Which sidebar view is active (activity bar selection) */
+	activeSidebarView: SidebarView;
 }
 
 interface UIActions {
@@ -200,6 +213,29 @@ interface UIActions {
 	setColorScheme: (scheme: ColorScheme) => void;
 	setActiveMobilePanel: (panel: MobilePanel) => void;
 	toggleMobileFileTree: () => void;
+	setActiveSidebarView: (view: SidebarView) => void;
+}
+
+// =============================================================================
+// Git State
+// =============================================================================
+
+interface GitState {
+	/** Current git status entries for all tracked/untracked files */
+	gitStatus: GitStatusEntry[];
+	/** Available branches */
+	gitBranches: GitBranchInfo[];
+	/** Whether git status is currently being fetched */
+	gitStatusLoading: boolean;
+	/** Whether git has been initialized in this project */
+	gitInitialized: boolean;
+}
+
+interface GitActions {
+	setGitStatus: (entries: GitStatusEntry[]) => void;
+	setGitBranches: (branches: GitBranchInfo[]) => void;
+	setGitStatusLoading: (loading: boolean) => void;
+	setGitInitialized: (initialized: boolean) => void;
 }
 
 // =============================================================================
@@ -213,13 +249,15 @@ type StoreState = EditorState &
 	SnapshotState &
 	PendingChangesState &
 	UIState &
+	GitState &
 	EditorActions &
 	FileTreeActions &
 	AIActions &
 	CollaborationActions &
 	SnapshotActions &
 	PendingChangesActions &
-	UIActions;
+	UIActions &
+	GitActions;
 
 /**
  * Rehydrate expandedDirs from persisted array back to Set.
@@ -586,6 +624,7 @@ export const useStore = create<StoreState>()(
 				colorScheme: 'dark',
 				activeMobilePanel: 'editor',
 				mobileFileTreeOpen: false,
+				activeSidebarView: 'explorer',
 				toggleSidebar: () => set((state) => ({ sidebarVisible: !state.sidebarVisible })),
 
 				toggleUtilityPanel: () => set((state) => ({ utilityPanelVisible: !state.utilityPanelVisible })),
@@ -599,6 +638,24 @@ export const useStore = create<StoreState>()(
 				setActiveMobilePanel: (panel) => set({ activeMobilePanel: panel }),
 
 				toggleMobileFileTree: () => set((state) => ({ mobileFileTreeOpen: !state.mobileFileTreeOpen })),
+
+				setActiveSidebarView: (view) => set({ activeSidebarView: view }),
+
+				// =============================================================================
+				// Git State & Actions
+				// =============================================================================
+				gitStatus: [],
+				gitBranches: [],
+				gitStatusLoading: false,
+				gitInitialized: false,
+
+				setGitStatus: (entries) => set({ gitStatus: entries }),
+
+				setGitBranches: (branches) => set({ gitBranches: branches }),
+
+				setGitStatusLoading: (loading) => set({ gitStatusLoading: loading }),
+
+				setGitInitialized: (initialized) => set({ gitInitialized: initialized }),
 			}),
 			{
 				name: 'worker-ide-store',
@@ -611,6 +668,7 @@ export const useStore = create<StoreState>()(
 					devtoolsVisible: state.devtoolsVisible,
 					colorScheme: state.colorScheme,
 					activeMobilePanel: state.activeMobilePanel,
+					activeSidebarView: state.activeSidebarView,
 					expandedDirs: [...state.expandedDirs],
 					sessionId: state.sessionId,
 				}),
@@ -640,3 +698,10 @@ export const selectHasPendingChanges = (state: StoreState) => {
 	}
 	return false;
 };
+export const selectGitStatus = (state: StoreState) => state.gitStatus;
+export const selectGitBranches = (state: StoreState) => state.gitBranches;
+export const selectGitStatusLoading = (state: StoreState) => state.gitStatusLoading;
+export const selectGitInitialized = (state: StoreState) => state.gitInitialized;
+export const selectActiveSidebarView = (state: StoreState) => state.activeSidebarView;
+export const selectCurrentBranch = (state: StoreState) => state.gitBranches.find((branch) => branch.isCurrent);
+export const selectGitChangedFileCount = (state: StoreState) => state.gitStatus.filter((entry) => entry.status !== 'unmodified').length;

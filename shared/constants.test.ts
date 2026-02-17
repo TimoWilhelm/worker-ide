@@ -64,6 +64,10 @@ describe('HIDDEN_ENTRIES', () => {
 		expect(HIDDEN_ENTRIES.has('.agent')).toBe(true);
 	});
 
+	it('includes .git directory', () => {
+		expect(HIDDEN_ENTRIES.has('.git')).toBe(true);
+	});
+
 	it('does not include .snapshots separately (now under .agent)', () => {
 		expect(HIDDEN_ENTRIES.has('.snapshots')).toBe(false);
 	});

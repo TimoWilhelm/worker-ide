@@ -145,6 +145,14 @@ export interface ServerLogsMessage {
 	logs: ServerLogEntry[];
 }
 
+/**
+ * Server message indicating git status may have changed.
+ * Prompts clients to re-fetch git status data.
+ */
+export interface GitStatusChangedMessage {
+	type: 'git-status-changed';
+}
+
 export type ServerMessage =
 	| PongMessage
 	| CollabStateMessage
@@ -154,7 +162,8 @@ export type ServerMessage =
 	| FileEditedMessage
 	| HmrUpdateMessage
 	| ServerErrorMessage
-	| ServerLogsMessage;
+	| ServerLogsMessage
+	| GitStatusChangedMessage;
 
 // =============================================================================
 // Zod Schemas for Validation
@@ -271,6 +280,9 @@ export const serverMessageSchema = z.discriminatedUnion('type', [
 	z.object({
 		type: z.literal('server-logs'),
 		logs: z.array(serverLogSchema),
+	}),
+	z.object({
+		type: z.literal('git-status-changed'),
 	}),
 ]);
 

@@ -4,7 +4,7 @@
  * Fixed bottom navigation bar for switching between Editor, Preview, and Agent views on mobile.
  */
 
-import { Bot, Code, Eye } from 'lucide-react';
+import { Bot, Code, Eye, GitBranch } from 'lucide-react';
 
 import { BorderBeam } from '@/components/ui/border-beam';
 import { selectIsProcessing, useStore } from '@/lib/store';
@@ -19,6 +19,7 @@ import type { MobilePanel } from '@/lib/store';
 const TABS: Array<{ panel: MobilePanel; label: string; icon: typeof Code }> = [
 	{ panel: 'editor', label: 'Editor', icon: Code },
 	{ panel: 'preview', label: 'Preview', icon: Eye },
+	{ panel: 'git', label: 'Git', icon: GitBranch },
 	{ panel: 'agent', label: 'Agent', icon: Bot },
 ];
 

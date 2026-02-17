@@ -15,7 +15,35 @@ import { Tooltip } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { PROTECTED_FILES } from '@shared/constants';
 
-import type { FileInfo, Participant } from '@shared/types';
+import type { FileInfo, GitFileStatus, Participant } from '@shared/types';
+
+// =============================================================================
+// Git Status Color
+// =============================================================================
+
+function getGitStatusColor(status: GitFileStatus | undefined): string | undefined {
+	if (!status || status === 'unmodified') return undefined;
+
+	switch (status) {
+		case 'modified':
+		case 'modified-staged':
+		case 'modified-partially-staged': {
+			return 'text-sky-400';
+		}
+		case 'untracked':
+		case 'untracked-staged':
+		case 'untracked-partially-staged': {
+			return 'text-emerald-400';
+		}
+		case 'deleted':
+		case 'deleted-staged': {
+			return 'text-red-400';
+		}
+		default: {
+			return undefined;
+		}
+	}
+}
 
 // =============================================================================
 // Types
@@ -70,6 +98,8 @@ export interface FileTreeProperties {
 	onMoveFile?: (fromPath: string, toPath: string) => void;
 	/** Connected collaborators for showing presence dots */
 	participants?: Participant[];
+	/** Git status map: file path (without leading /) -> git status */
+	gitStatusMap?: Map<string, GitFileStatus>;
 	/** CSS class name */
 	className?: string;
 }
@@ -180,6 +210,7 @@ export function FileTree({
 	onCreateFolder,
 	onMoveFile,
 	participants = [],
+	gitStatusMap,
 	className,
 }: FileTreeProperties) {
 	const tree = useMemo(() => buildFileTree(files), [files]);
@@ -488,6 +519,7 @@ export function FileTree({
 									onStartRename={setRenamingPath}
 									onCancelRename={() => setRenamingPath(undefined)}
 									participants={participants}
+									gitStatusMap={gitStatusMap}
 									activeFocusPath={activeFocusPath}
 									onNodeFocus={handleNodeFocus}
 									onNodeKeyDown={handleTreeItemKeyDown}
@@ -611,6 +643,7 @@ interface FileTreeNodeProperties {
 	onStartRename: (path: string) => void;
 	onCancelRename: () => void;
 	participants: Participant[];
+	gitStatusMap?: Map<string, GitFileStatus>;
 	activeFocusPath: string | undefined;
 	onNodeFocus: (path: string) => void;
 	onNodeKeyDown: (event: React.KeyboardEvent, path: string) => void;
@@ -635,6 +668,7 @@ function FileTreeNode({
 	onStartRename,
 	onCancelRename,
 	participants,
+	gitStatusMap,
 	activeFocusPath,
 	onNodeFocus,
 	onNodeKeyDown,
@@ -649,6 +683,10 @@ function FileTreeNode({
 	const isRenaming = renamingPath === item.path;
 	const isDragOver = dragOverPath === item.path;
 	const canDrag = onMoveFile && !isProtected && !isRenaming;
+	// Git status: path in gitStatusMap uses no leading slash (e.g. "src/main.ts")
+	const gitStatus =
+		!item.isDirectory && gitStatusMap ? gitStatusMap.get(item.path.startsWith('/') ? item.path.slice(1) : item.path) : undefined;
+	const gitColor = getGitStatusColor(gitStatus);
 	const renameInputReference = useRef<HTMLInputElement>(null);
 
 	const handleRenameSubmit = useCallback(
@@ -823,7 +861,7 @@ function FileTreeNode({
 						aria-label={`Rename ${item.name}`}
 					/>
 				) : (
-					<span className="min-w-0 flex-1 truncate" onDoubleClick={handleDoubleClick}>
+					<span className={cn('min-w-0 flex-1 truncate', gitColor)} onDoubleClick={handleDoubleClick}>
 						{item.name}
 					</span>
 				)}
@@ -932,6 +970,7 @@ function FileTreeNode({
 							onStartRename={onStartRename}
 							onCancelRename={onCancelRename}
 							participants={participants}
+							gitStatusMap={gitStatusMap}
 							activeFocusPath={activeFocusPath}
 							onNodeFocus={onNodeFocus}
 							onNodeKeyDown={onNodeKeyDown}

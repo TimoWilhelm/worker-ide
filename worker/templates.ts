@@ -14,6 +14,7 @@
 // Request Inspector template
 // =============================================================================
 
+import requestInspectorGitignore from './fixtures/example-project/gitignore.txt?raw';
 import requestInspectorIndexHtml from './fixtures/example-project/index.html?raw';
 import requestInspectorAppTsx from './fixtures/example-project/src/app.tsx?raw';
 import requestInspectorMainTsx from './fixtures/example-project/src/main.tsx?raw';
@@ -67,6 +68,7 @@ const requestInspectorTemplate: ProjectTemplate = {
 		'src/app.tsx': requestInspectorAppTsx,
 		'src/style.css': requestInspectorStyleCss,
 		'worker/index.ts': requestInspectorWorkerIndexTs,
+		'.gitignore': requestInspectorGitignore,
 	},
 	dependencies: {
 		hono: '^4.0.0',

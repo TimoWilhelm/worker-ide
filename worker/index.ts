@@ -69,15 +69,18 @@ const PROJECT_ID_PATTERN = /^[a-f0-9]{64}$/i;
  * If a `.template` marker file exists (written by the new-project endpoint),
  * the template specified in that file is used. Otherwise falls back to the
  * default template for backward compatibility.
+ *
+ * Returns `true` if the project was freshly initialized (first request),
+ * signaling the caller to run git initialization via the DO.
  */
-async function initializeProject(projectRoot: string): Promise<void> {
+async function initializeProject(projectRoot: string): Promise<boolean> {
 	// Dynamic import to allow alias resolution at build time
 	const fs = await import('node:fs/promises');
 
 	const sentinelPath = `${projectRoot}/.initialized`;
 	try {
 		await fs.readFile(sentinelPath);
-		return;
+		return false;
 	} catch {
 		// Not yet initialized
 	}
@@ -103,7 +106,7 @@ async function initializeProject(projectRoot: string): Promise<void> {
 		if (!fallbackTemplate) {
 			// Should never happen — write sentinel and bail
 			await fs.writeFile(sentinelPath, '1');
-			return;
+			return false;
 		}
 		// Use fallback
 		await writeTemplateFiles(fs, projectRoot, fallbackTemplate.files, fallbackTemplate.dependencies);
@@ -117,6 +120,7 @@ async function initializeProject(projectRoot: string): Promise<void> {
 	}
 
 	await fs.writeFile(sentinelPath, '1');
+	return true;
 }
 
 /**
@@ -312,6 +316,14 @@ app.post('/api/clone-project', async (c) => {
 		throw error;
 	}
 
+	// Run git initialization inside the DO — single-threaded, no race conditions.
+	const newFsStub = environment.DO_FILESYSTEM.get(newId);
+	c.executionCtx.waitUntil(
+		newFsStub.gitInit().catch((error) => {
+			console.error('Git initialization failed for clone:', error);
+		}),
+	);
+
 	return c.json({ projectId: newProjectId, url: `/p/${newProjectId}`, name: humanId });
 });
 
@@ -345,7 +357,18 @@ app.all('/p/:projectId/*', async (c) => {
 		mount(PROJECT_ROOT, fsStub);
 
 		// Initialize project if needed (always checks sentinel file on disk)
-		await initializeProject(PROJECT_ROOT);
+		const needsGitInit = await initializeProject(PROJECT_ROOT);
+
+		// Run git init inside the DO — single-threaded, no race conditions.
+		// This is safe to fire-and-forget because the DO serializes all RPC
+		// calls. Any subsequent git API request will queue behind this.
+		if (needsGitInit) {
+			c.executionCtx.waitUntil(
+				fsStub.gitInit().catch((error) => {
+					console.error('Git initialization failed:', error);
+				}),
+			);
+		}
 
 		// Refresh expiration timer
 		await fsStub.refreshExpiration();
@@ -424,7 +447,7 @@ export default app;
  * Hidden entries that should not be copied during cloning.
  * These are internal sentinel/metadata files managed by the IDE.
  */
-const CLONE_SKIP_ENTRIES = new Set(['.initialized', '.project-meta.json', '.template', '.agent']);
+const CLONE_SKIP_ENTRIES = new Set(['.initialized', '.project-meta.json', '.template', '.agent', '.git']);
 
 /**
  * Recursively copy files from source to destination, one file at a time.

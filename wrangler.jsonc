@@ -7,7 +7,7 @@
 	"name": "worker-ide",
 	"main": "worker/index.ts",
 	"compatibility_date": "2026-01-31",
-	"compatibility_flags": ["nodejs_compat"],
+	"compatibility_flags": ["nodejs_compat", "no_handle_cross_request_promise_resolution"],
 	"durable_objects": {
 		"bindings": [
 			{

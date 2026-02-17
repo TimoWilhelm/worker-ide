@@ -5,6 +5,7 @@
 
 import fs from 'node:fs/promises';
 
+import { HIDDEN_ENTRIES } from '@shared/constants';
 import { todoItemSchema } from '@shared/validation';
 
 import { TOOL_EXECUTORS } from './tools';
@@ -23,7 +24,7 @@ export async function listFilesRecursive(directory: string, base: string = ''): 
 	try {
 		const entries = await fs.readdir(directory, { withFileTypes: true });
 		for (const entry of entries) {
-			if (entry.name === '.initialized' || entry.name === '.project-meta.json' || entry.name === '.agent') continue;
+			if (HIDDEN_ENTRIES.has(entry.name)) continue;
 			const relativePath = base ? `${base}/${entry.name}` : `/${entry.name}`;
 			if (entry.isDirectory()) {
 				files.push(...(await listFilesRecursive(`${directory}/${entry.name}`, relativePath)));

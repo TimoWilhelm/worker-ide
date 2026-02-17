@@ -86,6 +86,9 @@ export const fileRoutes = new Hono<AppEnvironment>()
 			isCSS,
 		});
 
+		// Notify clients that git status may have changed
+		await coordinatorStub.sendMessage({ type: 'git-status-changed' });
+
 		return c.json({ success: true, path });
 	})
 
@@ -102,6 +105,10 @@ export const fileRoutes = new Hono<AppEnvironment>()
 			return c.json({ error: 'Cannot delete protected file' }, 403);
 		}
 
+		if (path === '/.git' || path.startsWith('/.git/')) {
+			return c.json({ error: 'Cannot modify git repository internals' }, 403);
+		}
+
 		try {
 			await fs.rm(`${projectRoot}${path}`, { recursive: true, force: true });
 
@@ -116,6 +123,9 @@ export const fileRoutes = new Hono<AppEnvironment>()
 				timestamp: Date.now(),
 				isCSS: false,
 			});
+
+			// Notify clients that git status may have changed
+			await coordinatorStub.sendMessage({ type: 'git-status-changed' });
 
 			return c.json({ success: true });
 		} catch {
@@ -156,6 +166,9 @@ export const fileRoutes = new Hono<AppEnvironment>()
 				timestamp: Date.now(),
 				isCSS: false,
 			});
+
+			// Notify clients that git status may have changed
+			await coordinatorStub.sendMessage({ type: 'git-status-changed' });
 
 			return c.json({ success: true, from: fromPath, to: toPath });
 		} catch {

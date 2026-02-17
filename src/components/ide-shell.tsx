@@ -8,6 +8,7 @@ import { Bot, ChevronUp, Clock, Download, FolderOpen, Github, Hexagon, Moon, Pen
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Group as PanelGroup, Panel, Separator as ResizeHandle } from 'react-resizable-panels';
 
+import { ActivityBar } from '@/components/activity-bar';
 import { MobileFileDrawer } from '@/components/mobile-file-drawer';
 import { MobileTabBar } from '@/components/mobile-tab-bar';
 import { BorderBeam } from '@/components/ui/border-beam';
@@ -28,11 +29,12 @@ import { useChangeReview } from '@/features/ai-assistant/hooks/use-change-review
 import { CodeEditor, computeDiffData, DiffToolbar, FileTabs, useFileContent } from '@/features/editor';
 import { DependencyPanel, FileTree, useFileTree } from '@/features/file-tree';
 import { getDependencyErrorCount, subscribeDependencyErrors } from '@/features/file-tree/dependency-error-store';
+import { GitPanel } from '@/features/git';
 import { useLogs } from '@/features/output/lib/log-buffer';
 import { projectSocketSendReference, useIsMobile, useProjectSocket, useTheme } from '@/hooks';
 import { downloadProject, fetchProjectMeta, updateProjectMeta } from '@/lib/api-client';
 import { getRecentProjects, removeProject, trackProject, type RecentProject } from '@/lib/recent-projects';
-import { selectIsProcessing, useStore } from '@/lib/store';
+import { selectGitStatus, selectIsProcessing, useStore } from '@/lib/store';
 import { cn, formatRelativeTime } from '@/lib/utils';
 
 import type { LogCounts } from '@/features/output';
@@ -76,6 +78,7 @@ export function IDEShell({ projectId }: { projectId: string }) {
 	// Mobile layout
 	const isMobile = useIsMobile();
 	const activeMobilePanel = useStore((state) => state.activeMobilePanel);
+	const activeSidebarView = useStore((state) => state.activeSidebarView);
 	const mobileFileTreeOpen = useStore((state) => state.mobileFileTreeOpen);
 	const toggleMobileFileTree = useStore((state) => state.toggleMobileFileTree);
 
@@ -105,6 +108,18 @@ export function IDEShell({ projectId }: { projectId: string }) {
 
 	// Read AI processing state via a dedicated selector to limit re-renders
 	const isAiProcessing = useStore(selectIsProcessing);
+
+	// Git status for file tree coloring
+	const gitStatusEntries = useStore(selectGitStatus);
+	const gitStatusMap = useMemo(() => {
+		const map = new Map<string, import('@shared/types').GitFileStatus>();
+		for (const entry of gitStatusEntries) {
+			if (entry.status !== 'unmodified') {
+				map.set(entry.path, entry.status);
+			}
+		}
+		return map;
+	}, [gitStatusEntries]);
 
 	// Change review for diff toolbar
 	const changeReview = useChangeReview({ projectId });
@@ -698,6 +713,9 @@ export function IDEShell({ projectId }: { projectId: string }) {
 								</div>
 							)}
 
+							{/* Git view */}
+							{activeMobilePanel === 'git' && <GitPanel projectId={projectId} className="h-full" />}
+
 							{/* Agent view */}
 							{activeMobilePanel === 'agent' && (
 								<Suspense fallback={<PanelSkeleton label="Loading AI assistant..." />}>
@@ -728,6 +746,7 @@ export function IDEShell({ projectId }: { projectId: string }) {
 									onRenameFile={handleRenameFile}
 									onCreateFolder={handleCreateFolder}
 									onMoveFile={handleMoveFile}
+									gitStatusMap={gitStatusMap}
 									className="flex-1"
 								/>
 							)}
@@ -740,53 +759,69 @@ export function IDEShell({ projectId }: { projectId: string }) {
 					<>
 						{/* Desktop layout — fully resizable panel layout */}
 						<PanelGroup orientation="horizontal" id="ide-main" className="min-h-0 flex-1">
-							{/* Sidebar — file explorer */}
+							{/* Activity Bar + Sidebar */}
 							<Panel id="sidebar" defaultSize="15%" minSize="180px" maxSize="25%">
-								<aside className="flex h-full flex-col border-r border-border bg-bg-secondary">
-									<PanelGroup orientation="vertical" id="sidebar-panels" className="flex-1">
-										<Panel id="file-tree" defaultSize={dependenciesPanelVisible ? '70%' : '100%'} minSize="20%">
-											<div className="flex h-full flex-col overflow-hidden">
-												{isLoadingFiles ? (
-													<div className="flex flex-1 items-center justify-center p-4">
-														<Spinner size="sm" />
-													</div>
-												) : (
-													<FileTree
-														participants={participants}
-														files={files}
-														selectedFile={selectedFile}
-														expandedDirectories={expandedDirectories}
-														onFileSelect={handleSelectFile}
-														onDirectoryToggle={toggleDirectory}
-														onCreateFile={handleCreateFile}
-														onDeleteFile={deleteFile}
-														onRenameFile={handleRenameFile}
-														onCreateFolder={handleCreateFolder}
-														onMoveFile={handleMoveFile}
-													/>
-												)}
-											</div>
-										</Panel>
-										{dependenciesPanelVisible && (
+								<div className="flex h-full">
+									<ActivityBar />
+									<aside
+										className="
+											flex min-w-0 flex-1 flex-col border-r border-border bg-bg-secondary
+										"
+									>
+										{activeSidebarView === 'explorer' ? (
 											<>
-												<ResizeHandle
-													className="
-														h-0.5 bg-border transition-colors
-														hover:bg-accent
-														data-[separator=active]:bg-accent
-														data-[separator=hover]:bg-accent
-													"
-												/>
-												<Panel id="dependencies" defaultSize="30%" minSize="10%" maxSize="60%">
-													<div className="h-full overflow-auto">
-														<DependencyPanel projectId={projectId} onToggle={toggleDependenciesPanel} />
-													</div>
-												</Panel>
+												<PanelGroup orientation="vertical" id="sidebar-panels" className="flex-1">
+													<Panel id="file-tree" defaultSize={dependenciesPanelVisible ? '70%' : '100%'} minSize="20%">
+														<div className="flex h-full flex-col overflow-hidden">
+															{isLoadingFiles ? (
+																<div className="flex flex-1 items-center justify-center p-4">
+																	<Spinner size="sm" />
+																</div>
+															) : (
+																<FileTree
+																	participants={participants}
+																	files={files}
+																	selectedFile={selectedFile}
+																	expandedDirectories={expandedDirectories}
+																	onFileSelect={handleSelectFile}
+																	onDirectoryToggle={toggleDirectory}
+																	onCreateFile={handleCreateFile}
+																	onDeleteFile={deleteFile}
+																	onRenameFile={handleRenameFile}
+																	onCreateFolder={handleCreateFolder}
+																	onMoveFile={handleMoveFile}
+																	gitStatusMap={gitStatusMap}
+																/>
+															)}
+														</div>
+													</Panel>
+													{dependenciesPanelVisible && (
+														<>
+															<ResizeHandle
+																className="
+																	h-0.5 bg-border transition-colors
+																	hover:bg-accent
+																	data-[separator=active]:bg-accent
+																	data-[separator=hover]:bg-accent
+																"
+															/>
+															<Panel id="dependencies" defaultSize="30%" minSize="10%" maxSize="60%">
+																<div className="h-full overflow-auto">
+																	<DependencyPanel projectId={projectId} onToggle={toggleDependenciesPanel} />
+																</div>
+															</Panel>
+														</>
+													)}
+												</PanelGroup>
+												{!dependenciesPanelVisible && (
+													<DependencyPanel projectId={projectId} collapsed onToggle={toggleDependenciesPanel} />
+												)}
 											</>
+										) : (
+											<GitPanel projectId={projectId} className="flex-1" />
 										)}
-									</PanelGroup>
-									{!dependenciesPanelVisible && <DependencyPanel projectId={projectId} collapsed onToggle={toggleDependenciesPanel} />}
-								</aside>
+									</aside>
+								</div>
 							</Panel>
 
 							<ResizeHandle

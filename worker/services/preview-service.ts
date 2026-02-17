@@ -8,6 +8,8 @@ import fs from 'node:fs/promises';
 import { source as chobitsuSource, hash as chobitsuHash } from 'chobitsu?raw-minified';
 import { env, exports } from 'cloudflare:workers';
 
+import { HIDDEN_ENTRIES } from '@shared/constants';
+
 import { bundleWithCdn, BundleDependencyError } from './bundler-service';
 import { parseDependencyErrorsFromMessage } from './dependency-error-parser';
 import { transformModule, processHTML, toEsbuildTsconfigRaw, type FileSystem } from './transform-service';
@@ -410,7 +412,7 @@ export class PreviewService {
 			const entries = await fs.readdir(directory, { withFileTypes: true });
 			const results = await Promise.all(
 				entries
-					.filter((entry: { name: string }) => entry.name !== '.agent')
+					.filter((entry: { name: string }) => !HIDDEN_ENTRIES.has(entry.name))
 					.map(async (entry: { name: string; isDirectory(): boolean }) => {
 						const relativePath = base ? `${base}/${entry.name}` : entry.name;
 						const fullPath = `${directory}/${entry.name}`;

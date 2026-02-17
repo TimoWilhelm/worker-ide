@@ -161,6 +161,19 @@ export function useProjectSocket({ projectId, enabled = true }: UseProjectSocket
 							});
 							break;
 						}
+						case 'git-status-changed': {
+							// Invalidate git queries so the UI refreshes
+							void queryClientCurrent.invalidateQueries({
+								queryKey: ['git-status', projectIdCurrent],
+							});
+							void queryClientCurrent.invalidateQueries({
+								queryKey: ['git-branches', projectIdCurrent],
+							});
+							void queryClientCurrent.invalidateQueries({
+								queryKey: ['git-log', projectIdCurrent],
+							});
+							break;
+						}
 						case 'pong':
 						case 'file-edited': {
 							// Handled elsewhere or ignored

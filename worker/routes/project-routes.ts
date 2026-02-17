@@ -7,6 +7,7 @@ import fs from 'node:fs/promises';
 
 import { Hono } from 'hono';
 
+import { HIDDEN_ENTRIES } from '@shared/constants';
 import { generateHumanId } from '@shared/human-id';
 import { projectMetaSchema } from '@shared/validation';
 
@@ -205,7 +206,7 @@ async function collectFilesForBundle(directory: string, base = ''): Promise<Reco
 		const entries = await fs.readdir(directory, { withFileTypes: true });
 		const results = await Promise.all(
 			entries
-				.filter((entry: { name: string }) => entry.name !== '.agent')
+				.filter((entry: { name: string }) => !HIDDEN_ENTRIES.has(entry.name))
 				.map(async (entry: { name: string; isDirectory: () => boolean }) => {
 					const relativePath = base ? `${base}/${entry.name}` : entry.name;
 					const fullPath = `${directory}/${entry.name}`;
