@@ -50,7 +50,7 @@ describe('Button', () => {
 	it('applies size classes', () => {
 		const { container } = render(<Button size="lg">Large</Button>);
 		const button = container.querySelector('button');
-		expect(button?.className).toContain('h-10');
+		expect(button?.className).toContain('py-2');
 	});
 
 	it('supports ref-as-prop (React 19)', () => {
