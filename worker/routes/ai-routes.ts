@@ -7,6 +7,7 @@ import { zValidator } from '@hono/zod-validator';
 import { env } from 'cloudflare:workers';
 import { Hono } from 'hono';
 
+import { DEFAULT_AI_MODEL } from '@shared/constants';
 import { aiChatMessageSchema } from '@shared/validation';
 
 import { AIAgentService } from '../services/ai-agent';
@@ -46,9 +47,12 @@ export const aiRoutes = new Hono<AppEnvironment>()
 			}
 		}
 
-		const { message, history = [], mode, sessionId } = c.req.valid('json');
+		const { message, history = [], mode, sessionId, model } = c.req.valid('json');
 
-		const agentService = new AIAgentService(projectRoot, projectId, sessionId, mode);
+		// Use the validated model from the request, or fall back to the default
+		const selectedModel = model ?? DEFAULT_AI_MODEL;
+
+		const agentService = new AIAgentService(projectRoot, projectId, sessionId, mode, selectedModel);
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		const chatHistory: any[] = history;
 		const stream = await agentService.runAgentChat(message, chatHistory, apiToken, c.req.raw.signal);

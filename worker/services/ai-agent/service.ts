@@ -16,6 +16,7 @@ import {
 	MCP_SERVERS,
 	PLAN_MODE_SYSTEM_PROMPT,
 } from '@shared/constants';
+import { DEFAULT_AI_MODEL, type AIModelId } from '@shared/constants';
 
 import { executeAgentTool } from './tool-executor';
 import { AGENT_TOOLS, ASK_MODE_TOOLS, PLAN_MODE_TOOLS } from './tools';
@@ -35,6 +36,7 @@ export class AIAgentService {
 		private projectId: string,
 		private sessionId?: string,
 		private mode: 'code' | 'plan' | 'ask' = 'code',
+		private model: AIModelId = DEFAULT_AI_MODEL,
 	) {}
 
 	/**
@@ -349,7 +351,7 @@ When you're done and don't need to use any more tools, just provide your final r
 		const fullPrompt = `${fullSystemPrompt}${formattedPrompt}`;
 
 		let output = '';
-		for await (const event of replicate.stream('anthropic/claude-4.5-haiku', {
+		for await (const event of replicate.stream(this.model, {
 			input: {
 				prompt: fullPrompt,
 				max_tokens: 4096,
@@ -482,7 +484,7 @@ When you're done and don't need to use any more tools, just provide your final r
 		try {
 			const replicate = new Replicate({ auth: apiToken });
 			let output = '';
-			for await (const event of replicate.stream('anthropic/claude-4.5-haiku', {
+			for await (const event of replicate.stream(this.model, {
 				input: {
 					prompt: `\n\nHuman: ${prompt}\n\nAssistant:`,
 					max_tokens: 512,

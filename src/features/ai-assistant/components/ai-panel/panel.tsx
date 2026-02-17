@@ -13,6 +13,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { Pill } from '@/components/ui/pill';
 import { Tooltip } from '@/components/ui/tooltip';
 import { useSnapshots } from '@/features/snapshots';
 import { startAIChat, type AIStreamEvent } from '@/lib/api-client';
@@ -21,6 +22,8 @@ import { cn, formatRelativeTime } from '@/lib/utils';
 
 import { getEventBooleanField, getEventObjectField, getEventStringField, getEventToolName } from './helpers';
 import { AIError, AssistantMessage, ContinuationPrompt, MessageBubble, UserQuestionPrompt, WelcomeScreen } from './messages';
+import { getModelLabel } from './model-config';
+import { ModelSelectorDialog } from './model-selector-dialog';
 import { useAiSessions } from '../../hooks/use-ai-sessions';
 import { useChangeReview } from '../../hooks/use-change-review';
 import { useFileMention } from '../../hooks/use-file-mention';
@@ -47,6 +50,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	const [needsContinuation, setNeedsContinuation] = useState(false);
 	const [pendingQuestion, setPendingQuestion] = useState<{ question: string; options: string } | undefined>();
 	const [planPath, setPlanPath] = useState<string | undefined>();
+	const [isModelSelectorOpen, setIsModelSelectorOpen] = useState(false);
 	const inputReference = useRef<RichTextInputHandle>(null);
 	const scrollReference = useRef<HTMLDivElement>(null);
 	const abortControllerReference = useRef<AbortController | undefined>(undefined);
@@ -71,6 +75,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		files,
 		agentMode,
 		sessionId,
+		selectedModel,
 		addMessage,
 		clearHistory: storeClearHistory,
 		setProcessing,
@@ -80,6 +85,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		removeMessagesAfter,
 		removeMessagesFrom,
 		setAgentMode,
+		setSelectedModel,
 		openFile,
 		addPendingChange,
 		associateSnapshotWithPending,
@@ -304,7 +310,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 							}
 						}
 					},
-					{ mode: agentMode, sessionId },
+					{ mode: agentMode, sessionId, model: selectedModel },
 				);
 
 				// Add complete assistant message
@@ -360,6 +366,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 			projectId,
 			agentMode,
 			sessionId,
+			selectedModel,
 			addMessage,
 			setProcessing,
 			setStatusMessage,
@@ -642,27 +649,33 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 					<div className="flex items-center justify-between px-1.5 py-1">
 						<div className="flex items-center gap-2">
 							<AgentModeSelector mode={agentMode} onModeChange={setAgentMode} disabled={isProcessing} />
+							<Pill
+								size="md"
+								color="muted"
+								className={cn('cursor-pointer transition-colors', isProcessing && 'cursor-not-allowed opacity-40')}
+								onClick={() => !isProcessing && setIsModelSelectorOpen(true)}
+							>
+								{getModelLabel(selectedModel)}
+							</Pill>
 						</div>
 						{isProcessing ? (
 							<button
 								onClick={handleCancel}
 								className={cn(
-									`
-										inline-flex cursor-pointer items-center gap-1.5 rounded-md px-2.5 py-1
-									`,
+									`inline-flex cursor-pointer items-center gap-1.5 rounded-md p-1.5`,
 									'text-xs font-medium text-error transition-colors',
 									'hover:bg-error/10',
 								)}
+								aria-label="Stop"
 							>
 								<Square className="size-3" />
-								Stop
 							</button>
 						) : (
 							<button
 								onClick={() => void handleSend()}
 								disabled={!hasContent}
 								className={cn(
-									'inline-flex items-center gap-1.5 rounded-md px-2.5 py-1',
+									'inline-flex items-center gap-1.5 rounded-md p-1.5',
 									'text-xs font-medium transition-colors',
 									hasContent
 										? `
@@ -671,9 +684,9 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 										`
 										: 'cursor-not-allowed text-text-secondary opacity-40',
 								)}
+								aria-label="Send"
 							>
 								<Send className="size-3" />
-								Send
 							</button>
 						)}
 					</div>
@@ -694,6 +707,14 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 					isReverting={isReverting}
 				/>
 			)}
+
+			{/* Model selector dialog */}
+			<ModelSelectorDialog
+				open={isModelSelectorOpen}
+				onOpenChange={setIsModelSelectorOpen}
+				selectedModel={selectedModel}
+				onSelectModel={setSelectedModel}
+			/>
 		</div>
 	);
 }

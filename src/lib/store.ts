@@ -7,6 +7,8 @@
 import { create } from 'zustand';
 import { devtools, persist } from 'zustand/middleware';
 
+import { DEFAULT_AI_MODEL, type AIModelId } from '@shared/constants';
+
 import type {
 	AgentMode,
 	FileInfo,
@@ -98,6 +100,8 @@ interface AIState {
 	messageSnapshots: Map<number, string>;
 	/** Current agent operating mode */
 	agentMode: AgentMode;
+	/** Selected AI model identifier */
+	selectedModel: AIModelId;
 }
 
 interface AIActions {
@@ -113,6 +117,7 @@ interface AIActions {
 	removeMessagesAfter: (index: number) => void;
 	removeMessagesFrom: (index: number) => void;
 	setAgentMode: (mode: AgentMode) => void;
+	setSelectedModel: (model: AIModelId) => void;
 }
 
 // =============================================================================
@@ -402,6 +407,7 @@ export const useStore = create<StoreState>()(
 				savedSessions: [],
 				messageSnapshots: new Map(),
 				agentMode: 'code',
+				selectedModel: DEFAULT_AI_MODEL,
 
 				addMessage: (message) =>
 					set((state) => ({
@@ -435,6 +441,8 @@ export const useStore = create<StoreState>()(
 						history: state.history.slice(0, index + 1),
 					})),
 				setAgentMode: (mode) => set({ agentMode: mode }),
+
+				setSelectedModel: (model) => set({ selectedModel: model }),
 
 				removeMessagesFrom: (index) =>
 					set((state) => {
@@ -703,6 +711,7 @@ export const useStore = create<StoreState>()(
 					activeSidebarView: state.activeSidebarView,
 					expandedDirs: [...state.expandedDirs],
 					sessionId: state.sessionId,
+					selectedModel: state.selectedModel,
 				}),
 				// Rehydrate expandedDirs as Set
 				onRehydrateStorage: () => rehydrateExpandedDirectories,

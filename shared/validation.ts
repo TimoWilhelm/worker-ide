@@ -5,6 +5,8 @@
 
 import { z } from 'zod';
 
+import { AI_MODEL_IDS_TUPLE } from './constants';
+
 // =============================================================================
 // Validation Constants
 // =============================================================================
@@ -86,6 +88,21 @@ export const moveFileSchema = z.object({
 });
 
 export type MoveFileInput = z.infer<typeof moveFileSchema>;
+
+// =============================================================================
+// AI Model Validation
+// =============================================================================
+
+/**
+ * Schema for validating AI model selection.
+ * Uses the model IDs from the shared constants configuration.
+ */
+export const aiModelSchema = z.enum(AI_MODEL_IDS_TUPLE);
+
+/**
+ * Type for allowed AI model identifiers
+ */
+export type AllowedAIModel = z.infer<typeof aiModelSchema>;
 
 // =============================================================================
 // AI Agent Schemas
@@ -254,6 +271,7 @@ export const aiChatMessageSchema = z.object({
 	history: z.array(z.unknown()).optional(),
 	mode: z.enum(['code', 'plan', 'ask']).optional(),
 	sessionId: z.string().max(LIMITS.SESSION_ID_MAX_LENGTH).optional(),
+	model: aiModelSchema.optional(),
 });
 
 export type AiChatInput = z.infer<typeof aiChatMessageSchema>;
@@ -593,3 +611,5 @@ export function isPathSafe(path: string): boolean {
 	const result = filePathSchema.safeParse(path);
 	return result.success;
 }
+
+export { DEFAULT_AI_MODEL } from './constants';

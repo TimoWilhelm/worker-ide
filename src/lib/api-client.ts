@@ -218,6 +218,7 @@ export interface AIStreamEvent {
  * @param history - Previous conversation history
  * @param signal - AbortController signal for cancellation
  * @param onEvent - Callback for each SSE event
+ * @param options - Optional mode, sessionId, and model selection
  */
 export async function startAIChat(
 	projectId: string,
@@ -225,12 +226,18 @@ export async function startAIChat(
 	history: AIChatMessage[],
 	signal: AbortSignal,
 	onEvent: (event: AIStreamEvent) => void,
-	options?: { mode?: 'code' | 'plan' | 'ask'; sessionId?: string },
+	options?: { mode?: 'code' | 'plan' | 'ask'; sessionId?: string; model?: string },
 ): Promise<void> {
 	const response = await fetch(`/p/${projectId}/api/ai/chat`, {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify({ message, history, mode: options?.mode, sessionId: options?.sessionId }),
+		body: JSON.stringify({
+			message,
+			history,
+			mode: options?.mode,
+			sessionId: options?.sessionId,
+			model: options?.model,
+		}),
 		signal,
 	});
 
