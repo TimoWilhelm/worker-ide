@@ -5,6 +5,8 @@
 
 import fs from 'node:fs/promises';
 
+import { exports } from 'cloudflare:workers';
+
 import { isPathSafe } from '../../../lib/path-utilities';
 
 import type { FileChange, SendEventFunction, ToolDefinition, ToolExecutorContext } from '../types';
@@ -41,7 +43,7 @@ export async function execute(
 	toolUseId?: string,
 	queryChanges?: FileChange[],
 ): Promise<string | object> {
-	const { projectRoot, projectId, environment } = context;
+	const { projectRoot, projectId } = context;
 	const path = input.path;
 	const oldString = input.old_string;
 	const newString = input.new_string;
@@ -87,8 +89,8 @@ export async function execute(
 		queryChanges.push({ path, action: 'edit', beforeContent, afterContent: content, isBinary: false });
 	}
 
-	const coordinatorId = environment.DO_PROJECT_COORDINATOR.idFromName(`project:${projectId}`);
-	const coordinatorStub = environment.DO_PROJECT_COORDINATOR.get(coordinatorId);
+	const coordinatorId = exports.ProjectCoordinator.idFromName(`project:${projectId}`);
+	const coordinatorStub = exports.ProjectCoordinator.get(coordinatorId);
 	const isCSS = path.endsWith('.css');
 	await coordinatorStub.triggerUpdate({
 		type: isCSS ? 'update' : 'full-reload',

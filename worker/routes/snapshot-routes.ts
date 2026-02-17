@@ -6,6 +6,7 @@
 import fs from 'node:fs/promises';
 
 import { zValidator } from '@hono/zod-validator';
+import { exports } from 'cloudflare:workers';
 import { Hono } from 'hono';
 import { z } from 'zod';
 
@@ -60,10 +61,9 @@ export const snapshotRoutes = new Hono<AppEnvironment>()
 	.post('/snapshot/:id/revert', zValidator('param', z.object({ id: snapshotIdSchema })), async (c) => {
 		const projectRoot = c.get('projectRoot');
 		const projectId = c.get('projectId');
-		const environment = c.env;
 		const { id } = c.req.valid('param');
 
-		const success = await revertSnapshot(projectRoot, id, projectId, environment);
+		const success = await revertSnapshot(projectRoot, id, projectId);
 		if (!success) {
 			return c.json({ error: 'Failed to revert snapshot' }, 500);
 		}
@@ -75,10 +75,9 @@ export const snapshotRoutes = new Hono<AppEnvironment>()
 	.post('/snapshot/revert-file', zValidator('json', revertFileSchema), async (c) => {
 		const projectRoot = c.get('projectRoot');
 		const projectId = c.get('projectId');
-		const environment = c.env;
 		const { path, snapshotId } = c.req.valid('json');
 
-		const success = await revertFileFromSnapshot(projectRoot, path, snapshotId, projectId, environment);
+		const success = await revertFileFromSnapshot(projectRoot, path, snapshotId, projectId);
 		if (!success) {
 			return c.json({ error: 'Failed to revert file' }, 500);
 		}
@@ -182,7 +181,6 @@ async function revertSingleFile(
 	action: 'create' | 'edit' | 'delete',
 	snapshotDirectory: string,
 	projectId: string,
-	environment: AppEnvironment['Bindings'],
 ): Promise<void> {
 	const isBinary = isBinaryFilePath(path);
 
@@ -213,8 +211,8 @@ async function revertSingleFile(
 
 	// Trigger HMR for the reverted file
 	try {
-		const coordinatorId = environment.DO_PROJECT_COORDINATOR.idFromName(`project:${projectId}`);
-		const coordinatorStub = environment.DO_PROJECT_COORDINATOR.get(coordinatorId);
+		const coordinatorId = exports.ProjectCoordinator.idFromName(`project:${projectId}`);
+		const coordinatorStub = exports.ProjectCoordinator.get(coordinatorId);
 		await coordinatorStub.triggerUpdate({
 			type: 'full-reload',
 			path,
@@ -229,12 +227,7 @@ async function revertSingleFile(
 /**
  * Revert all files in a snapshot to their previous state.
  */
-async function revertSnapshot(
-	projectRoot: string,
-	snapshotId: string,
-	projectId: string,
-	environment: AppEnvironment['Bindings'],
-): Promise<boolean> {
+async function revertSnapshot(projectRoot: string, snapshotId: string, projectId: string): Promise<boolean> {
 	const snapshotDirectory = `${projectRoot}/.agent/snapshots/${snapshotId}`;
 
 	try {
@@ -242,7 +235,7 @@ async function revertSnapshot(
 		if (!metadata) return false;
 
 		for (const change of metadata.changes) {
-			await revertSingleFile(projectRoot, change.path, change.action, snapshotDirectory, projectId, environment);
+			await revertSingleFile(projectRoot, change.path, change.action, snapshotDirectory, projectId);
 		}
 
 		return true;
@@ -255,13 +248,7 @@ async function revertSnapshot(
 /**
  * Revert a single file from a specific snapshot.
  */
-async function revertFileFromSnapshot(
-	projectRoot: string,
-	path: string,
-	snapshotId: string,
-	projectId: string,
-	environment: AppEnvironment['Bindings'],
-): Promise<boolean> {
+async function revertFileFromSnapshot(projectRoot: string, path: string, snapshotId: string, projectId: string): Promise<boolean> {
 	const snapshotDirectory = `${projectRoot}/.agent/snapshots/${snapshotId}`;
 
 	try {
@@ -271,7 +258,7 @@ async function revertFileFromSnapshot(
 		const change = metadata.changes.find((ch) => ch.path === path);
 		if (!change) return false;
 
-		await revertSingleFile(projectRoot, path, change.action, snapshotDirectory, projectId, environment);
+		await revertSingleFile(projectRoot, path, change.action, snapshotDirectory, projectId);
 		return true;
 	} catch (error) {
 		console.error('Failed to revert file from snapshot:', error);

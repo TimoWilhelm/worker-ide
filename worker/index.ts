@@ -10,6 +10,7 @@
  * - Template listing and project cloning (root-level API)
  */
 
+import { env, exports } from 'cloudflare:workers';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { mount, withMounts } from 'worker-fs-mount';
@@ -21,7 +22,6 @@ import { PreviewService } from './services/preview-service';
 import { DEFAULT_TEMPLATE_ID, getTemplate, getTemplateMetadata } from './templates';
 
 import type { AppEnvironment } from './types';
-
 /**
  * Cache PreviewService instances per projectId so that error deduplication
  * (lastErrorMessage) works across requests within the same isolate.
@@ -194,8 +194,7 @@ app.use('/p/*/api/*', cors());
  * correct template on first access.
  */
 app.post('/api/new-project', async (c) => {
-	const environment = c.env;
-	const id = environment.DO_FILESYSTEM.newUniqueId();
+	const id = exports.DurableObjectFilesystem.newUniqueId();
 	const projectId = id.toString();
 	const humanId = generateHumanId();
 
@@ -218,7 +217,7 @@ app.post('/api/new-project', async (c) => {
 		}
 
 		await withMounts(async () => {
-			const fsStub = environment.DO_FILESYSTEM.get(id);
+			const fsStub = exports.DurableObjectFilesystem.get(id);
 			mount(PROJECT_ROOT, fsStub);
 
 			const fs = await import('node:fs/promises');
@@ -257,15 +256,14 @@ app.post('/api/clone-project', async (c) => {
 
 	sourceProjectId = sourceProjectId.toLowerCase();
 
-	const environment = c.env;
-	const newId = environment.DO_FILESYSTEM.newUniqueId();
+	const newId = exports.DurableObjectFilesystem.newUniqueId();
 	const newProjectId = newId.toString();
 	const humanId = generateHumanId();
 
 	try {
 		await withMounts(async () => {
-			const sourceStub = environment.DO_FILESYSTEM.get(environment.DO_FILESYSTEM.idFromString(sourceProjectId));
-			const destinationStub = environment.DO_FILESYSTEM.get(newId);
+			const sourceStub = exports.DurableObjectFilesystem.get(exports.DurableObjectFilesystem.idFromString(sourceProjectId));
+			const destinationStub = exports.DurableObjectFilesystem.get(newId);
 			mount('/source', sourceStub);
 			mount('/destination', destinationStub);
 
@@ -317,7 +315,7 @@ app.post('/api/clone-project', async (c) => {
 	}
 
 	// Run git initialization inside the DO — single-threaded, no race conditions.
-	const newFsStub = environment.DO_FILESYSTEM.get(newId);
+	const newFsStub = exports.DurableObjectFilesystem.get(newId);
 	c.executionCtx.waitUntil(
 		newFsStub.gitInit().catch((error) => {
 			console.error('Git initialization failed for clone:', error);
@@ -346,14 +344,14 @@ app.all('/p/:projectId/*', async (c) => {
 	const projectRoute = parseProjectRoute(path);
 
 	if (!projectRoute) {
-		return c.env.ASSETS.fetch(c.req.raw);
+		return env.ASSETS.fetch(c.req.raw);
 	}
 
 	const { projectId, subPath } = projectRoute;
 
 	return withMounts(async () => {
-		const fsId = c.env.DO_FILESYSTEM.idFromString(projectId);
-		const fsStub = c.env.DO_FILESYSTEM.get(fsId);
+		const fsId = exports.DurableObjectFilesystem.idFromString(projectId);
+		const fsStub = exports.DurableObjectFilesystem.get(fsId);
 		mount(PROJECT_ROOT, fsStub);
 
 		// Initialize project if needed (always checks sentinel file on disk)
@@ -375,8 +373,8 @@ app.all('/p/:projectId/*', async (c) => {
 
 		// Handle WebSocket endpoint
 		if (subPath === '/__ws' || subPath.startsWith('/__ws')) {
-			const coordinatorId = c.env.DO_PROJECT_COORDINATOR.idFromName(`project:${projectId}`);
-			const coordinatorStub = c.env.DO_PROJECT_COORDINATOR.get(coordinatorId);
+			const coordinatorId = exports.ProjectCoordinator.idFromName(`project:${projectId}`);
+			const coordinatorStub = exports.ProjectCoordinator.get(coordinatorId);
 			const wsUrl = new URL(c.req.url);
 			wsUrl.pathname = '/ws';
 			return coordinatorStub.fetch(new Request(wsUrl, c.req.raw));
@@ -402,7 +400,7 @@ app.all('/p/:projectId/*', async (c) => {
 			const apiUrl = new URL(c.req.url);
 			apiUrl.pathname = subPath;
 
-			return projectApp.fetch(new Request(apiUrl, c.req.raw), c.env, c.executionCtx);
+			return projectApp.fetch(new Request(apiUrl, c.req.raw), env, c.executionCtx);
 		}
 
 		// Handle preview API routes (user's backend code)
@@ -423,18 +421,18 @@ app.all('/p/:projectId/*', async (c) => {
 		}
 
 		// Serve the SPA for all other routes
-		return c.env.ASSETS.fetch(new Request(new URL('/', c.req.url), c.req.raw));
+		return env.ASSETS.fetch(new Request(new URL('/', c.req.url), c.req.raw));
 	});
 });
 
 // Project root without trailing content
 app.get('/p/:projectId', async (c) => {
-	return c.env.ASSETS.fetch(c.req.raw);
+	return env.ASSETS.fetch(c.req.raw);
 });
 
 // Fallback to static assets
 app.all('*', (c) => {
-	return c.env.ASSETS.fetch(c.req.raw);
+	return env.ASSETS.fetch(c.req.raw);
 });
 
 export default app;

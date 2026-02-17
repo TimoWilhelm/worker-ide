@@ -5,6 +5,8 @@
 
 import fs from 'node:fs/promises';
 
+import { exports } from 'cloudflare:workers';
+
 import { isPathSafe, isProtectedFile } from '../../../lib/path-utilities';
 
 import type { FileChange, SendEventFunction, ToolDefinition, ToolExecutorContext } from '../types';
@@ -38,7 +40,7 @@ export async function execute(
 	toolUseId?: string,
 	queryChanges?: FileChange[],
 ): Promise<string | object> {
-	const { projectRoot, projectId, environment } = context;
+	const { projectRoot, projectId } = context;
 	const fromPath = input.from_path;
 	const toPath = input.to_path;
 
@@ -73,8 +75,8 @@ export async function execute(
 		);
 	}
 
-	const coordinatorId = environment.DO_PROJECT_COORDINATOR.idFromName(`project:${projectId}`);
-	const coordinatorStub = environment.DO_PROJECT_COORDINATOR.get(coordinatorId);
+	const coordinatorId = exports.ProjectCoordinator.idFromName(`project:${projectId}`);
+	const coordinatorStub = exports.ProjectCoordinator.get(coordinatorId);
 	await coordinatorStub.triggerUpdate({ type: 'full-reload', path: toPath, timestamp: Date.now(), isCSS: false });
 
 	await sendEvent('file_changed', {

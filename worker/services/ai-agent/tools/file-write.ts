@@ -5,6 +5,8 @@
 
 import fs from 'node:fs/promises';
 
+import { exports } from 'cloudflare:workers';
+
 import { isPathSafe } from '../../../lib/path-utilities';
 import { isBinaryFilePath, toUint8Array } from '../utilities';
 
@@ -40,7 +42,7 @@ export async function execute(
 	toolUseId?: string,
 	queryChanges?: FileChange[],
 ): Promise<string | object> {
-	const { projectRoot, projectId, environment } = context;
+	const { projectRoot, projectId } = context;
 	const writePath = input.path;
 	const writeContent = input.content;
 
@@ -90,8 +92,8 @@ export async function execute(
 		});
 	}
 
-	const coordinatorId = environment.DO_PROJECT_COORDINATOR.idFromName(`project:${projectId}`);
-	const coordinatorStub = environment.DO_PROJECT_COORDINATOR.get(coordinatorId);
+	const coordinatorId = exports.ProjectCoordinator.idFromName(`project:${projectId}`);
+	const coordinatorStub = exports.ProjectCoordinator.get(coordinatorId);
 	const isCSS = writePath.endsWith('.css');
 	await coordinatorStub.triggerUpdate({
 		type: isCSS ? 'update' : 'full-reload',

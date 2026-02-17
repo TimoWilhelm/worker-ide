@@ -33,7 +33,6 @@ export class AIAgentService {
 	constructor(
 		private projectRoot: string,
 		private projectId: string,
-		private environment: Env,
 		private sessionId?: string,
 		private mode: 'code' | 'plan' | 'ask' = 'code',
 	) {}
@@ -151,7 +150,6 @@ export class AIAgentService {
 							{
 								projectRoot: this.projectRoot,
 								projectId: this.projectId,
-								environment: this.environment,
 								mode: this.mode,
 								sessionId: this.sessionId,
 								callMcpTool: (serverId: string, toolName: string, arguments_: Record<string, unknown>) =>

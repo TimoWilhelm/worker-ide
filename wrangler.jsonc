@@ -8,18 +8,6 @@
 	"main": "worker/index.ts",
 	"compatibility_date": "2026-01-31",
 	"compatibility_flags": ["nodejs_compat", "no_handle_cross_request_promise_resolution"],
-	"durable_objects": {
-		"bindings": [
-			{
-				"name": "DO_FILESYSTEM",
-				"class_name": "DurableObjectFilesystem",
-			},
-			{
-				"name": "DO_PROJECT_COORDINATOR",
-				"class_name": "ProjectCoordinator",
-			},
-		],
-	},
 	"migrations": [
 		{
 			"new_sqlite_classes": ["DurableObjectFilesystem", "HMRCoordinator"],

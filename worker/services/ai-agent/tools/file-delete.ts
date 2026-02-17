@@ -5,6 +5,8 @@
 
 import fs from 'node:fs/promises';
 
+import { exports } from 'cloudflare:workers';
+
 import { isPathSafe, isProtectedFile } from '../../../lib/path-utilities';
 
 import type { FileChange, SendEventFunction, ToolDefinition, ToolExecutorContext } from '../types';
@@ -35,7 +37,7 @@ export async function execute(
 	toolUseId?: string,
 	queryChanges?: FileChange[],
 ): Promise<string | object> {
-	const { projectRoot, projectId, environment } = context;
+	const { projectRoot, projectId } = context;
 	const deletePath = input.path;
 
 	if (!isPathSafe(projectRoot, deletePath)) {
@@ -61,8 +63,8 @@ export async function execute(
 		queryChanges.push({ path: deletePath, action: 'delete', beforeContent, afterContent: null, isBinary: false });
 	}
 
-	const coordinatorId = environment.DO_PROJECT_COORDINATOR.idFromName(`project:${projectId}`);
-	const coordinatorStub = environment.DO_PROJECT_COORDINATOR.get(coordinatorId);
+	const coordinatorId = exports.ProjectCoordinator.idFromName(`project:${projectId}`);
+	const coordinatorStub = exports.ProjectCoordinator.get(coordinatorId);
 	await coordinatorStub.triggerUpdate({ type: 'full-reload', path: deletePath, timestamp: Date.now(), isCSS: false });
 
 	await sendEvent('file_changed', {

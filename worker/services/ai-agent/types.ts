@@ -67,7 +67,6 @@ export type SendEventFunction = (type: string, data: Record<string, unknown>) =>
 export interface ToolExecutorContext {
 	projectRoot: string;
 	projectId: string;
-	environment: Env;
 	mode: 'code' | 'plan' | 'ask';
 	sessionId?: string;
 	callMcpTool: (serverId: string, toolName: string, arguments_: Record<string, unknown>) => Promise<string>;

@@ -5,6 +5,7 @@
 
 import fs from 'node:fs/promises';
 
+import { exports } from 'cloudflare:workers';
 import { Hono } from 'hono';
 
 import { HIDDEN_ENTRIES } from '@shared/constants';
@@ -22,8 +23,7 @@ import type { ProjectMeta } from '@shared/types';
 export const projectRoutes = new Hono<AppEnvironment>()
 	// POST /api/new-project - Create a new project
 	.post('/new-project', async (c) => {
-		const environment = c.env;
-		const id = environment.DO_FILESYSTEM.newUniqueId();
+		const id = exports.DurableObjectFilesystem.newUniqueId();
 		const projectId = id.toString();
 		const projectName = generateHumanId();
 		return c.json({ projectId, url: `/p/${projectId}`, name: projectName });
@@ -71,9 +71,8 @@ export const projectRoutes = new Hono<AppEnvironment>()
 		// Trigger full reload when dependencies change so the preview rebundles
 		if (dependenciesChanged) {
 			const projectId = c.get('projectId');
-			const environment = c.env;
-			const coordinatorId = environment.DO_PROJECT_COORDINATOR.idFromName(`project:${projectId}`);
-			const coordinatorStub = environment.DO_PROJECT_COORDINATOR.get(coordinatorId);
+			const coordinatorId = exports.ProjectCoordinator.idFromName(`project:${projectId}`);
+			const coordinatorStub = exports.ProjectCoordinator.get(coordinatorId);
 			await coordinatorStub.triggerUpdate({
 				type: 'full-reload',
 				path: '/.project-meta.json',

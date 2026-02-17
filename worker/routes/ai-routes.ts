@@ -4,6 +4,7 @@
  */
 
 import { zValidator } from '@hono/zod-validator';
+import { env } from 'cloudflare:workers';
 import { Hono } from 'hono';
 
 import { aiChatMessageSchema } from '@shared/validation';
@@ -20,9 +21,8 @@ export const aiRoutes = new Hono<AppEnvironment>()
 	.post('/ai/chat', zValidator('json', aiChatMessageSchema), async (c) => {
 		const projectRoot = c.get('projectRoot');
 		const projectId = c.get('projectId');
-		const environment = c.env;
 
-		const apiToken = environment.REPLICATE_API_TOKEN;
+		const apiToken = env.REPLICATE_API_TOKEN;
 		if (!apiToken) {
 			return c.json(
 				{
@@ -33,8 +33,8 @@ export const aiRoutes = new Hono<AppEnvironment>()
 		}
 
 		// Rate limit check
-		if (environment.REPLICATE_RATE_LIMITER) {
-			const { success } = await environment.REPLICATE_RATE_LIMITER.limit({ key: projectId });
+		if (env.REPLICATE_RATE_LIMITER) {
+			const { success } = await env.REPLICATE_RATE_LIMITER.limit({ key: projectId });
 			if (!success) {
 				return c.json(
 					{
@@ -48,7 +48,7 @@ export const aiRoutes = new Hono<AppEnvironment>()
 
 		const { message, history = [], mode, sessionId } = c.req.valid('json');
 
-		const agentService = new AIAgentService(projectRoot, projectId, environment, sessionId, mode);
+		const agentService = new AIAgentService(projectRoot, projectId, sessionId, mode);
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		const chatHistory: any[] = history;
 		const stream = await agentService.runAgentChat(message, chatHistory, apiToken, c.req.raw.signal);

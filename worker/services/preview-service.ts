@@ -393,8 +393,8 @@ export class PreviewService {
 	}
 
 	private async broadcastMessage(message: ServerMessage): Promise<void> {
-		const coordinatorId = env.DO_PROJECT_COORDINATOR.idFromName(`project:${this.projectId}`);
-		const coordinatorStub = env.DO_PROJECT_COORDINATOR.get(coordinatorId);
+		const coordinatorId = exports.ProjectCoordinator.idFromName(`project:${this.projectId}`);
+		const coordinatorStub = exports.ProjectCoordinator.get(coordinatorId);
 		await coordinatorStub.sendMessage(message);
 	}
 

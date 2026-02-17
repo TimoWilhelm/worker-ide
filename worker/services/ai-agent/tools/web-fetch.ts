@@ -7,6 +7,7 @@
  * injection attacks embedded in web pages.
  */
 
+import { env } from 'cloudflare:workers';
 import Replicate from 'replicate';
 
 import type { SendEventFunction, ToolDefinition, ToolExecutorContext } from '../types';
@@ -124,12 +125,12 @@ async function summarizeContent(markdownContent: string, userPrompt: string, url
 export async function execute(
 	input: Record<string, string>,
 	sendEvent: SendEventFunction,
-	context: ToolExecutorContext,
+	_context: ToolExecutorContext,
 ): Promise<string | object> {
 	const fetchUrl = input.url;
 	const userPrompt = input.prompt;
 
-	const replicateApiToken = context.environment.REPLICATE_API_TOKEN;
+	const replicateApiToken = env.REPLICATE_API_TOKEN;
 	if (!replicateApiToken) {
 		return { error: 'REPLICATE_API_TOKEN is not configured.' };
 	}
@@ -166,7 +167,7 @@ export async function execute(
 			markdown = raw.trim();
 		} else {
 			try {
-				const converted = await convertHtmlToMarkdown(raw, context.environment.AI);
+				const converted = await convertHtmlToMarkdown(raw, env.AI);
 				if (!converted) {
 					return { error: `Failed to convert content from ${fetchUrl} to markdown` };
 				}

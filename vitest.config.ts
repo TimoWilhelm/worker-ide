@@ -1,35 +1,51 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { defineWorkersProject } from '@cloudflare/vitest-pool-workers/config';
 import { defineConfig } from 'vitest/config';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+const sharedAlias = {
+	'@': path.resolve(__dirname, './src'),
+	'@shared': path.resolve(__dirname, './shared'),
+	'@server': path.resolve(__dirname, './worker'),
+};
+
 export default defineConfig({
 	resolve: {
-		alias: {
-			'@': path.resolve(__dirname, './src'),
-			'@shared': path.resolve(__dirname, './shared'),
-			'@server': path.resolve(__dirname, './worker'),
-		},
+		alias: sharedAlias,
 	},
 	test: {
 		projects: [
-			// Unit tests - shared utilities, store, pure logic
+			// Unit tests - shared utilities, store, pure logic (Node environment)
 			{
 				test: {
 					name: 'unit',
-					include: ['shared/**/*.test.ts', 'src/lib/**/*.test.ts', 'worker/**/*.test.ts'],
+					include: ['shared/**/*.test.ts', 'src/lib/**/*.test.ts'],
 					environment: 'node',
 				},
 				resolve: {
-					alias: {
-						'@': path.resolve(__dirname, './src'),
-						'@shared': path.resolve(__dirname, './shared'),
-						'@server': path.resolve(__dirname, './worker'),
-					},
+					alias: sharedAlias,
 				},
 			},
+			// Worker tests - run inside workerd via @cloudflare/vitest-pool-workers
+			defineWorkersProject({
+				test: {
+					name: 'worker',
+					include: ['worker/**/*.test.ts'],
+					poolOptions: {
+						workers: {
+							wrangler: {
+								configPath: './wrangler.jsonc',
+							},
+						},
+					},
+				},
+				resolve: {
+					alias: sharedAlias,
+				},
+			}),
 			// React component tests - hooks, components
 			{
 				test: {
@@ -40,11 +56,7 @@ export default defineConfig({
 					setupFiles: ['./src/test-setup.ts'],
 				},
 				resolve: {
-					alias: {
-						'@': path.resolve(__dirname, './src'),
-						'@shared': path.resolve(__dirname, './shared'),
-						'@server': path.resolve(__dirname, './worker'),
-					},
+					alias: sharedAlias,
 				},
 			},
 		],
