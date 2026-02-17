@@ -14,7 +14,7 @@ import { GitBranch, History, RotateCcw } from 'lucide-react';
 import { ScrollArea } from 'radix-ui';
 import { useCallback, useMemo, useState } from 'react';
 
-import { ConfirmDialog, Tooltip } from '@/components/ui';
+import { Button, ConfirmDialog, Tooltip } from '@/components/ui';
 import { toast } from '@/components/ui/toast-store';
 import { createApiClient } from '@/lib/api-client';
 import { useStore } from '@/lib/store';
@@ -141,9 +141,12 @@ export function GitPanel({ projectId, className }: GitPanelProperties) {
 	// Not initialized
 	if (!initialized) {
 		return (
-			<div className={cn('flex h-full flex-col items-center justify-center gap-2 px-4', className)}>
+			<div className={cn('flex h-full flex-col items-center justify-center gap-3 px-4', className)}>
 				<GitBranch className="size-8 text-text-secondary" />
 				<p className="text-center text-sm text-text-secondary">Git not initialized</p>
+				<Button variant="default" size="sm" isLoading={mutations.isInitPending} onClick={() => mutations.initializeRepository()}>
+					Initialize Repository
+				</Button>
 			</div>
 		);
 	}

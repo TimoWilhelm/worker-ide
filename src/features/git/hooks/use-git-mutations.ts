@@ -217,6 +217,26 @@ export function useGitMutations({ projectId }: UseGitMutationsOptions) {
 	};
 
 	// =========================================================================
+	// Initialize
+	// =========================================================================
+
+	const initializeRepository = useMutation({
+		mutationFn: async () => {
+			const response = await api.git.init.$post({});
+			if (!response.ok) {
+				throw new Error(await parseErrorMessage(response, 'Failed to initialize git repository'));
+			}
+			return parseMutationResponse<{ success: boolean }>(response);
+		},
+		onSuccess: async () => {
+			await Promise.all([queryClient.invalidateQueries({ queryKey: statusQueryKey }), invalidateNonStatusGitQueries()]);
+		},
+		onError: (error) => {
+			toast.error(error.message);
+		},
+	});
+
+	// =========================================================================
 	// Staging
 	// =========================================================================
 
@@ -342,8 +362,10 @@ export function useGitMutations({ projectId }: UseGitMutationsOptions) {
 		},
 		onSuccess: async (data) => {
 			applyInlineGitStatus(data.gitStatus);
-			await queryClient.invalidateQueries({ queryKey: ['files', projectId] });
-			await queryClient.invalidateQueries({ queryKey: ['file', projectId] });
+			await Promise.all([
+				queryClient.invalidateQueries({ queryKey: ['files', projectId] }),
+				queryClient.invalidateQueries({ queryKey: ['file', projectId] }),
+			]);
 		},
 		onError: (_error, _path, context) => {
 			rollbackStatus(context);
@@ -369,8 +391,10 @@ export function useGitMutations({ projectId }: UseGitMutationsOptions) {
 		},
 		onSuccess: async (data) => {
 			applyInlineGitStatus(data.gitStatus);
-			await queryClient.invalidateQueries({ queryKey: ['files', projectId] });
-			await queryClient.invalidateQueries({ queryKey: ['file', projectId] });
+			await Promise.all([
+				queryClient.invalidateQueries({ queryKey: ['files', projectId] }),
+				queryClient.invalidateQueries({ queryKey: ['file', projectId] }),
+			]);
 		},
 		onError: (_error, _variables, context) => {
 			rollbackStatus(context);
@@ -451,9 +475,11 @@ export function useGitMutations({ projectId }: UseGitMutationsOptions) {
 		},
 		onSuccess: async (data) => {
 			applyInlineGitStatus(data.gitStatus);
-			await invalidateNonStatusGitQueries();
-			await queryClient.invalidateQueries({ queryKey: ['files', projectId] });
-			await queryClient.refetchQueries({ queryKey: ['file', projectId] });
+			await Promise.all([
+				invalidateNonStatusGitQueries(),
+				queryClient.invalidateQueries({ queryKey: ['files', projectId] }),
+				queryClient.refetchQueries({ queryKey: ['file', projectId] }),
+			]);
 		},
 		onError: (error) => {
 			toast.error(error.message);
@@ -474,9 +500,11 @@ export function useGitMutations({ projectId }: UseGitMutationsOptions) {
 		},
 		onSuccess: async (data) => {
 			applyInlineGitStatus(data.gitStatus);
-			await invalidateNonStatusGitQueries();
-			await queryClient.invalidateQueries({ queryKey: ['files', projectId] });
-			await queryClient.refetchQueries({ queryKey: ['file', projectId] });
+			await Promise.all([
+				invalidateNonStatusGitQueries(),
+				queryClient.invalidateQueries({ queryKey: ['files', projectId] }),
+				queryClient.refetchQueries({ queryKey: ['file', projectId] }),
+			]);
 		},
 		onError: (error) => {
 			toast.error(error.message);
@@ -543,8 +571,10 @@ export function useGitMutations({ projectId }: UseGitMutationsOptions) {
 		},
 		onSuccess: async (data) => {
 			applyInlineGitStatus(data.gitStatus);
-			await queryClient.invalidateQueries({ queryKey: ['files', projectId] });
-			await queryClient.refetchQueries({ queryKey: ['file', projectId] });
+			await Promise.all([
+				queryClient.invalidateQueries({ queryKey: ['files', projectId] }),
+				queryClient.refetchQueries({ queryKey: ['file', projectId] }),
+			]);
 		},
 		onError: (error) => {
 			toast.error(error.message);
@@ -561,8 +591,10 @@ export function useGitMutations({ projectId }: UseGitMutationsOptions) {
 		},
 		onSuccess: async (data) => {
 			applyInlineGitStatus(data.gitStatus);
-			await queryClient.invalidateQueries({ queryKey: ['files', projectId] });
-			await queryClient.refetchQueries({ queryKey: ['file', projectId] });
+			await Promise.all([
+				queryClient.invalidateQueries({ queryKey: ['files', projectId] }),
+				queryClient.refetchQueries({ queryKey: ['file', projectId] }),
+			]);
 		},
 		onError: (error) => {
 			toast.error(error.message);
@@ -602,6 +634,9 @@ export function useGitMutations({ projectId }: UseGitMutationsOptions) {
 	});
 
 	return {
+		// Initialize
+		initializeRepository: initializeRepository.mutate,
+
 		// Staging
 		stageFiles: stageFiles.mutate,
 		stageFilesAsync: stageFiles.mutateAsync,
@@ -644,6 +679,7 @@ export function useGitMutations({ projectId }: UseGitMutationsOptions) {
 		stashClear: stashClear.mutate,
 
 		// Loading states
+		isInitPending: initializeRepository.isPending,
 		isStagePending: stageFiles.isPending || unstageFiles.isPending || stageAll.isPending || unstageAll.isPending,
 		isCommitPending: commit.isPending,
 		isBranchPending: createBranch.isPending || deleteBranch.isPending || renameBranch.isPending || checkout.isPending,

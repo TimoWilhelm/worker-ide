@@ -40,6 +40,26 @@ import type { AppEnvironment } from '../types';
 export const gitRoutes = new Hono<AppEnvironment>()
 
 	// =========================================================================
+	// Initialize
+	// =========================================================================
+
+	/**
+	 * POST /api/git/init — Initialize a git repository.
+	 */
+	.post('/git/init', async (c) => {
+		const fsStub = c.get('fsStub');
+
+		try {
+			await fsStub.gitInit();
+			return c.json({ success: true });
+		} catch (error) {
+			console.error('Git init error:', error);
+			const errorMessage = error instanceof Error ? error.message : 'Failed to initialize git repository';
+			return c.json({ error: errorMessage }, 500);
+		}
+	})
+
+	// =========================================================================
 	// Status
 	// =========================================================================
 

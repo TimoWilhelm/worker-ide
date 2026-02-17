@@ -81,7 +81,7 @@ export function ActivityBar({ className }: ActivityBarProperties) {
 			className={cn(
 				`
 					flex w-10 shrink-0 flex-col items-center border-r border-border
-					bg-bg-primary pt-1
+					bg-bg-secondary pt-1
 				`,
 				className,
 			)}
