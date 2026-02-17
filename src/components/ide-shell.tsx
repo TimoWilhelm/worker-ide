@@ -1185,26 +1185,23 @@ function RecentProjectsDropdown({ currentProjectId, onNewProject }: { currentPro
 									{isCurrent && ' (current)'}
 								</span>
 								<div className="ml-2 flex shrink-0 items-center gap-1">
-									<span
-										className="
-											text-xs text-text-secondary
-											group-hover/item:hidden
-										"
-									>
+									<span className={cn('text-xs text-text-secondary', !isCurrent && 'group-hover/item:hidden')}>
 										{formatRelativeTime(project.timestamp)}
 									</span>
-									<button
-										onPointerDown={(event) => event.stopPropagation()}
-										onClick={(event) => handleDeleteProject(event, project.id)}
-										className="
-											hidden rounded-sm p-0.5 text-text-secondary/60 transition-colors
-											group-hover/item:inline-flex
-											hover:bg-error/10 hover:text-error
-										"
-										aria-label={`Remove ${project.name ?? project.id.slice(0, 8)} from recent projects`}
-									>
-										<X className="size-3" />
-									</button>
+									{!isCurrent && (
+										<button
+											onPointerDown={(event) => event.stopPropagation()}
+											onClick={(event) => handleDeleteProject(event, project.id)}
+											className="
+												hidden rounded-sm p-0.5 text-text-secondary/60 transition-colors
+												group-hover/item:inline-flex
+												hover:text-error
+											"
+											aria-label={`Remove ${project.name ?? project.id.slice(0, 8)} from recent projects`}
+										>
+											<X className="size-3" />
+										</button>
+									)}
 								</div>
 							</div>
 						</DropdownMenuItem>

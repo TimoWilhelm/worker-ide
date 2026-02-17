@@ -324,10 +324,8 @@ body {
 	outline-offset: 2px;
 }
 
-[data-separator]:focus-visible {
-	outline: none;
-}
-
+[data-separator]:focus-visible,
+[role='menuitem']:focus-visible,
 textarea:focus-visible,
 [contenteditable]:focus-visible {
 	outline: none;

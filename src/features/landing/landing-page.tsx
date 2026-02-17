@@ -169,8 +169,8 @@ function RecentProjectRow({
 			href={`/p/${project.id}`}
 			className={cn(
 				`
-					group/row flex items-center justify-between rounded-md px-3 py-2
-					transition-colors
+					group/row flex items-center justify-between px-3 py-2 transition-colors
+					focus-visible:outline-none
 				`,
 				`
 					text-text-secondary
@@ -199,7 +199,7 @@ function RecentProjectRow({
 						hidden cursor-pointer rounded-sm p-0.5 text-text-secondary/60
 						transition-colors
 						group-hover/row:inline-flex
-						hover:bg-error/10 hover:text-error
+						hover:text-error
 					"
 					aria-label={`Remove ${project.name ?? project.id.slice(0, 12)} from recent projects`}
 				>
@@ -423,9 +423,7 @@ export default function LandingPage() {
 							)}
 						>
 							{recentProjects.map((project, index) => (
-								<div key={project.id} className="px-1 py-0.5">
-									<RecentProjectRow project={project} isMostRecent={index === 0} onDelete={handleDeleteProject} />
-								</div>
+								<RecentProjectRow key={project.id} project={project} isMostRecent={index === 0} onDelete={handleDeleteProject} />
 							))}
 						</div>
 					</section>

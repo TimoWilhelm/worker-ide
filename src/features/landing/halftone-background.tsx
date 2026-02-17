@@ -201,8 +201,8 @@ export function HalftoneBackground() {
 			const accentRgb = accentRaw ? resolveColorToRgb(accentRaw, DEFAULT_ACCENT) : DEFAULT_ACCENT;
 			const backgroundRgb = backgroundRaw ? resolveColorToRgb(backgroundRaw, DEFAULT_BACKGROUND) : DEFAULT_BACKGROUND;
 
-			// Dot density: canvas pixels / ~12px per cell (matching Cloudflare dot grid)
-			const dotScale = Math.round(canvas.height / 12);
+			// Dot density: canvas pixels
+			const dotScale = Math.round(canvas.height / 4);
 
 			// Fade-in over 2 seconds, clamped at 1.0
 			const fadeIn = Math.min(elapsed / 2, 1);

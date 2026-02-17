@@ -40,7 +40,7 @@ function DropdownMenuContent({ children, className, align = 'end', sideOffset = 
 				className={cn(
 					`
 						z-50 min-w-32 overflow-hidden rounded-md border border-border
-						bg-bg-secondary p-1 shadow-md
+						bg-bg-secondary shadow-md
 					`,
 					className,
 				)}
@@ -71,8 +71,8 @@ function DropdownMenuItem({ children, className, disabled, onSelect, ref }: Drop
 			onSelect={onSelect}
 			className={cn(
 				`
-					relative flex cursor-default items-center gap-2 rounded-sm px-2 py-1.5
-					text-sm text-text-primary transition-colors outline-none select-none
+					relative flex cursor-default items-center gap-2 px-2 py-1.5 text-sm
+					text-text-primary transition-colors outline-none select-none
 					focus:bg-bg-tertiary focus:text-text-primary
 					data-disabled:pointer-events-none data-disabled:opacity-50
 				`,
@@ -89,7 +89,7 @@ function DropdownMenuItem({ children, className, disabled, onSelect, ref }: Drop
 // =============================================================================
 
 function DropdownMenuSeparator({ className }: { className?: string }) {
-	return <RadixDropdownMenu.Separator className={cn('-mx-1 my-1 h-px bg-border', className)} />;
+	return <RadixDropdownMenu.Separator className={cn('my-1 h-px bg-border', className)} />;
 }
 
 function DropdownMenuLabel({ children, className }: { children: ReactNode; className?: string }) {
