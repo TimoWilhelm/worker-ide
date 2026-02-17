@@ -238,7 +238,7 @@ You are currently in ASK MODE. In this mode:
 /**
  * Default project expiration time in days
  */
-export const PROJECT_EXPIRATION_DAYS = 14;
+export const PROJECT_EXPIRATION_DAYS = 365;
 
 /**
  * Hidden entries (directories and files) that should be excluded from file listings
