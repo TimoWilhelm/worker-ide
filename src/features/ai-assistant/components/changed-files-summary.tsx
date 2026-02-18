@@ -6,7 +6,7 @@
  */
 
 import { ArrowRightLeft, Check, ChevronDown, ChevronRight, FileMinus, FilePen, FilePlus, X } from 'lucide-react';
-import { useCallback, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 
 import { Pill } from '@/components/ui/pill';
 import { useStore } from '@/lib/store';
@@ -43,7 +43,6 @@ export function ChangedFilesSummary({
 	canReject,
 }: ChangedFilesSummaryProperties) {
 	const pendingChanges = useStore((state) => state.pendingChanges);
-	const openFile = useStore((state) => state.openFile);
 	const [isExpanded, setIsExpanded] = useState(true);
 
 	// Collect only pending (unresolved) changes
@@ -56,13 +55,6 @@ export function ChangedFilesSummary({
 		}
 		return entries;
 	}, [pendingChanges]);
-
-	const handleFileClick = useCallback(
-		(path: string) => {
-			openFile(path);
-		},
-		[openFile],
-	);
 
 	if (pendingEntries.length === 0) return;
 
@@ -124,7 +116,6 @@ export function ChangedFilesSummary({
 							path={path}
 							action={change.action}
 							hasSnapshot={!!change.snapshotId}
-							onFileClick={handleFileClick}
 							onApprove={onApproveChange}
 							onReject={onRejectChange}
 							isReverting={isReverting}
@@ -144,7 +135,6 @@ function ChangedFileRow({
 	path,
 	action,
 	hasSnapshot,
-	onFileClick,
 	onApprove,
 	onReject,
 	isReverting,
@@ -152,7 +142,6 @@ function ChangedFileRow({
 	path: string;
 	action: 'create' | 'edit' | 'delete' | 'move';
 	hasSnapshot: boolean;
-	onFileClick: (path: string) => void;
 	onApprove: (path: string) => void;
 	onReject: (path: string) => void;
 	isReverting: boolean;
@@ -169,9 +158,9 @@ function ChangedFileRow({
 		>
 			<div className="flex min-w-0 items-center gap-2">
 				<ActionBadge action={action} />
-				<button type="button" onClick={() => onFileClick(path)} className="min-w-0 cursor-pointer truncate">
+				<div className="min-w-0 truncate">
 					<FileReference path={path} className="text-2xs" />
-				</button>
+				</div>
 			</div>
 			<div className="flex shrink-0 items-center gap-0.5">
 				<button

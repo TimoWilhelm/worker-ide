@@ -57,32 +57,32 @@ It is important to remember:
 // Types
 // =============================================================================
 
-interface AddHunk {
+export interface AddHunk {
 	type: 'add';
 	path: string;
 	contents: string;
 }
 
-interface DeleteHunk {
+export interface DeleteHunk {
 	type: 'delete';
 	path: string;
 }
 
-interface UpdateFileChunk {
+export interface UpdateFileChunk {
 	oldLines: string[];
 	newLines: string[];
 	changeContext?: string;
 	isEndOfFile?: boolean;
 }
 
-interface UpdateHunk {
+export interface UpdateHunk {
 	type: 'update';
 	path: string;
 	movePath?: string;
 	chunks: UpdateFileChunk[];
 }
 
-type Hunk = AddHunk | DeleteHunk | UpdateHunk;
+export type Hunk = AddHunk | DeleteHunk | UpdateHunk;
 
 // =============================================================================
 // Tool Definition
@@ -189,6 +189,11 @@ function parseUpdateFileChunks(lines: string[], startIndex: number): { chunks: U
 				} else if (changeLine.startsWith('+')) {
 					// Add line - only in new
 					newLines.push(changeLine.slice(1));
+				} else if (changeLine.trim() === '') {
+					// Bare empty line — LLMs often omit the leading space for blank
+					// context lines. Treat as an unchanged blank line in both old & new.
+					oldLines.push('');
+					newLines.push('');
 				}
 
 				index++;
@@ -244,7 +249,7 @@ function stripHeredoc(input: string): string {
 	return input;
 }
 
-function parsePatch(patchText: string): { hunks: Hunk[] } {
+export function parsePatch(patchText: string): { hunks: Hunk[] } {
 	const cleaned = stripHeredoc(patchText.trim());
 	const lines = cleaned.split('\n');
 	const hunks: Hunk[] = [];
@@ -451,7 +456,7 @@ function applyReplacements(lines: string[], replacements: Array<[number, number,
 /**
  * Derive new file contents from update chunks
  */
-function deriveNewContentsFromChunks(filePath: string, originalContent: string, chunks: UpdateFileChunk[]): string {
+export function deriveNewContentsFromChunks(filePath: string, originalContent: string, chunks: UpdateFileChunk[]): string {
 	const originalLines = originalContent.split('\n');
 
 	// Drop trailing empty element for consistent line counting

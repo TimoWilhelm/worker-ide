@@ -32,6 +32,9 @@ export class ProjectCoordinator extends DurableObject {
 	/** Last server-error message, replayed to newly connected clients */
 	private lastServerError: string | undefined;
 
+	/** Timestamp of the most recent HMR update broadcast, used to detect missed updates */
+	private lastUpdateTimestamp = 0;
+
 	private getAttachment(ws: WebSocket): ParticipantAttachment | undefined {
 		try {
 			const attachment: ParticipantAttachment = ws.deserializeAttachment();
@@ -161,6 +164,10 @@ export class ProjectCoordinator extends DurableObject {
 			updateType = 'js-update';
 		}
 
+		// Track the latest update timestamp so we can detect missed updates
+		// when an HMR client reconnects after a reload.
+		this.lastUpdateTimestamp = update.timestamp;
+
 		const message = serializeMessage({
 			type: update.type,
 			updates: [
@@ -184,6 +191,31 @@ export class ProjectCoordinator extends DurableObject {
 
 			if (data.type === 'ping') {
 				ws.send(serializeMessage({ type: 'pong' }));
+				return;
+			}
+
+			if (data.type === 'hmr-connect') {
+				// The HMR client sends this after reconnecting post-reload.
+				// If any update was broadcast after the client's reload timestamp,
+				// the client missed it and needs to reload again.
+				if (this.lastUpdateTimestamp > data.lastReloadTimestamp) {
+					try {
+						ws.send(
+							serializeMessage({
+								type: 'full-reload',
+								updates: [
+									{
+										type: 'full-reload',
+										path: '*',
+										timestamp: this.lastUpdateTimestamp,
+									},
+								],
+							}),
+						);
+					} catch {
+						// Ignore send errors
+					}
+				}
 				return;
 			}
 

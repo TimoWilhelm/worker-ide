@@ -51,7 +51,17 @@ export interface FileEditMessage {
 	content: string;
 }
 
-export type ClientMessage = PingMessage | CollabJoinMessage | CursorUpdateMessage | FileEditMessage;
+/**
+ * Client message sent by the HMR client after connecting post-reload.
+ * Includes the timestamp of the reload so the coordinator can check
+ * if any updates were missed during the reload window.
+ */
+export interface HmrConnectMessage {
+	type: 'hmr-connect';
+	lastReloadTimestamp: number;
+}
+
+export type ClientMessage = PingMessage | CollabJoinMessage | CursorUpdateMessage | FileEditMessage | HmrConnectMessage;
 
 // =============================================================================
 // Server -> Client Messages
@@ -193,6 +203,10 @@ export const clientMessageSchema = z.discriminatedUnion('type', [
 		type: z.literal('file-edit'),
 		path: z.string(),
 		content: z.string(),
+	}),
+	z.object({
+		type: z.literal('hmr-connect'),
+		lastReloadTimestamp: z.number(),
 	}),
 ]);
 

@@ -1008,12 +1008,12 @@ function InlineToolCall({ toolCall, toolResult }: { toolCall: ToolCallPart; tool
 					<ToolIcon name={toolName} />
 				</span>
 				<span className="shrink-0 font-medium capitalize">{toolName.replaceAll('_', ' ')}</span>
-				{singlePath && <FileReference path={singlePath} className="max-w-48 truncate" />}
+				{singlePath && <FileReference path={singlePath} className="max-w-48 truncate" interactive={false} />}
 				{fromPath && toPath && (
 					<span className="flex max-w-48 items-center gap-1">
-						<FileReference path={fromPath} className="truncate" />
+						<FileReference path={fromPath} className="truncate" interactive={false} />
 						<span className="shrink-0 text-text-secondary">→</span>
-						<FileReference path={toPath} className="truncate" />
+						<FileReference path={toPath} className="truncate" interactive={false} />
 					</span>
 				)}
 				{pattern && (

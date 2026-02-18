@@ -26,11 +26,20 @@
 	// By debouncing with a short delay, we wait for all writes to finish before reloading.
 	var reloadTimer = null;
 	var RELOAD_DEBOUNCE_MS = 200;
+	var HMR_RELOAD_TS_KEY = '__hmr_reload_ts';
 
 	function debouncedReload() {
 		if (reloadTimer) clearTimeout(reloadTimer);
 		reloadTimer = setTimeout(function () {
 			reloadTimer = null;
+			// Store the reload timestamp so that after the page reloads and
+			// a new WebSocket connects, we can ask the coordinator whether any
+			// updates were broadcast during the reload window that we missed.
+			try {
+				sessionStorage.setItem(HMR_RELOAD_TS_KEY, String(Date.now()));
+			} catch (_) {
+				// sessionStorage may be unavailable in sandboxed iframes
+			}
 			location.reload();
 		}, RELOAD_DEBOUNCE_MS);
 	}
@@ -81,6 +90,20 @@
 
 	socket.addEventListener('open', function () {
 		console.log('[hmr] connected.');
+
+		// Negotiate with the coordinator: if any updates were broadcast
+		// after our last reload, we may have missed them and need to reload again.
+		var lastReloadTimestamp = 0;
+		try {
+			var stored = sessionStorage.getItem(HMR_RELOAD_TS_KEY);
+			if (stored) {
+				lastReloadTimestamp = Number(stored);
+				sessionStorage.removeItem(HMR_RELOAD_TS_KEY);
+			}
+		} catch (_) {
+			// sessionStorage may be unavailable in sandboxed iframes
+		}
+		socket.send(JSON.stringify({ type: 'hmr-connect', lastReloadTimestamp: lastReloadTimestamp }));
 	});
 
 	socket.addEventListener('close', function () {
