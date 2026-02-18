@@ -118,6 +118,8 @@ export const listFilesInputSchema = z.object({});
  */
 export const readFileInputSchema = z.object({
 	path: filePathSchema,
+	offset: z.coerce.number().int().min(1).optional(),
+	limit: z.coerce.number().int().min(1).optional(),
 });
 
 /**
@@ -196,7 +198,6 @@ export const grepInputSchema = z.object({
 	pattern: z.string().min(1, 'Pattern is required'),
 	path: z.string().optional(),
 	include: z.string().optional(),
-	fixed_strings: z.string().optional(),
 });
 
 /**
@@ -216,10 +217,9 @@ export const listInputSchema = z.object({
 });
 
 /**
- * Schema for AI tool: patch (apply unified diff)
+ * Schema for AI tool: patch (apply custom patch format)
  */
 export const patchInputSchema = z.object({
-	path: filePathSchema,
 	patch: z.string().min(1, 'Patch content is required'),
 });
 

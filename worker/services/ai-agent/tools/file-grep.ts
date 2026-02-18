@@ -1,25 +1,41 @@
 /**
  * Tool: file_grep
  * Search file contents using regular expressions.
+ * Uses minimatch for include pattern filtering.
  */
 
 import fs from 'node:fs/promises';
+
+import { minimatch } from 'minimatch';
 
 import { listFilesRecursive } from '../tool-executor';
 import { isBinaryFilePath } from '../utilities';
 
 import type { SendEventFunction, ToolDefinition, ToolExecutorContext } from '../types';
 
-export const DESCRIPTION = String.raw`Fast content search tool that works with any codebase size. Searches file contents using regular expressions. Returns matching file paths with line numbers sorted by modification time. Results are capped at 50 files.
+// =============================================================================
+// Constants
+// =============================================================================
 
-Usage:
-- Use this to find relevant code before making changes.
-- Supports full regex syntax (e.g. "log.*Error", "function\\s+\\w+", etc.).
-- Set fixed_strings to "true" to treat pattern as a literal string (no regex).
-- Filter files by pattern with the include parameter (e.g. "*.ts", "*.tsx").
-- path defaults to the project root. Use it to narrow the search directory.
-- Returns up to 10 matches per file, 50 files total.
-- You have the capability to call multiple tools in a single response. It is always better to speculatively perform multiple searches as a batch that are potentially useful.`;
+const MAX_MATCHES = 100;
+const MAX_LINE_LENGTH = 2000;
+const MAX_FILE_BYTES = 1_048_576; // 1 MB — skip files larger than this
+const BATCH_SIZE = 10;
+
+// =============================================================================
+// Description (matches OpenCode)
+// =============================================================================
+
+export const DESCRIPTION = String.raw`- Fast content search tool that works with any codebase size
+- Searches file contents using regular expressions
+- Supports full regex syntax (eg. "log.*Error", "function\s+\w+", etc.)
+- Filter files by pattern with the include parameter (eg. "*.js", "*.{ts,tsx}")
+- Returns file paths and line numbers with at least one match sorted by modification time
+- Use this tool when you need to find files containing specific patterns`;
+
+// =============================================================================
+// Tool Definition
+// =============================================================================
 
 export const definition: ToolDefinition = {
 	name: 'file_grep',
@@ -27,75 +43,142 @@ export const definition: ToolDefinition = {
 	input_schema: {
 		type: 'object',
 		properties: {
-			pattern: { type: 'string', description: 'Regex pattern to search for' },
-			path: { type: 'string', description: 'Directory to search in (default: project root). Starting with /' },
-			include: { type: 'string', description: 'Glob filter for files, e.g., "*.ts" or "*.tsx"' },
-			fixed_strings: { type: 'string', description: 'Set to "true" to treat pattern as a literal string' },
+			pattern: { type: 'string', description: 'The regex pattern to search for in file contents' },
+			path: { type: 'string', description: 'The directory to search in. Defaults to the project root.' },
+			include: { type: 'string', description: 'File pattern to include in the search (e.g. "*.js", "*.{ts,tsx}")' },
 		},
 		required: ['pattern'],
 	},
 };
 
-export async function execute(
-	input: Record<string, string>,
-	sendEvent: SendEventFunction,
-	context: ToolExecutorContext,
-): Promise<string | object> {
+// =============================================================================
+// Execute Function
+// =============================================================================
+
+export async function execute(input: Record<string, string>, sendEvent: SendEventFunction, context: ToolExecutorContext): Promise<string> {
 	const { projectRoot } = context;
 	const grepPattern = input.pattern;
-	const grepPath = input.path || '/';
-	const grepInclude = input.include;
-	const grepFixedStrings = input.fixed_strings === 'true';
+	const searchPath = input.path || '/';
+	const includePattern = input.include;
 
 	await sendEvent('status', { message: `Searching for "${grepPattern}"...` });
 
+	// Compile regex
 	let regex: RegExp;
 	try {
-		regex = grepFixedStrings
-			? new RegExp(grepPattern.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`), 'i')
-			: new RegExp(grepPattern, 'i');
+		regex = new RegExp(grepPattern, 'i');
 	} catch {
-		return { error: `Invalid regex pattern: ${grepPattern}` };
+		return `<error>Invalid regex pattern: ${grepPattern}</error>`;
 	}
 
-	const allFiles = await listFilesRecursive(`${projectRoot}${grepPath === '/' ? '' : grepPath}`);
+	// Get all files
+	const searchDirectory = searchPath === '/' ? projectRoot : `${projectRoot}${searchPath}`;
+	const allFiles = await listFilesRecursive(searchDirectory);
+
+	// Filter by include pattern using minimatch
 	let filesToSearch = allFiles;
-
-	if (grepInclude) {
-		const includePattern = grepInclude.replaceAll('.', String.raw`\.`).replaceAll('*', '.*');
-		const includeRegex = new RegExp(`${includePattern}$`, 'i');
-		filesToSearch = filesToSearch.filter((f) => includeRegex.test(f));
+	if (includePattern) {
+		filesToSearch = allFiles.filter((filepath) => {
+			const filename = filepath.slice(filepath.lastIndexOf('/') + 1);
+			const testPath = filepath.startsWith('/') ? filepath.slice(1) : filepath;
+			// Try matching against the filename and full path
+			return (
+				minimatch(filename, includePattern, { matchBase: true, dot: true }) ||
+				minimatch(testPath, includePattern, { matchBase: true, dot: true })
+			);
+		});
 	}
 
-	const results: Array<{ file: string; matches: Array<{ line: number; content: string }> }> = [];
-	const maxFiles = 50;
-	const maxMatchesPerFile = 10;
+	// Search files in parallel batches to balance I/O throughput and memory usage
+	interface Match {
+		path: string;
+		lineNumber: number;
+		lineText: string;
+	}
 
-	for (const file of filesToSearch) {
-		if (results.length >= maxFiles) break;
-		if (isBinaryFilePath(file)) continue;
+	const matches: Match[] = [];
 
-		try {
-			const fullPath = grepPath === '/' ? `${projectRoot}${file}` : `${projectRoot}${grepPath}${file}`;
-			const fileContent = await fs.readFile(fullPath, 'utf8');
-			const fileLines = fileContent.split('\n');
-			const matches: Array<{ line: number; content: string }> = [];
+	// Filter out binary files upfront
+	const candidates = filesToSearch.filter((file) => !isBinaryFilePath(file));
 
-			for (const [lineIndex, lineText] of fileLines.entries()) {
-				if (matches.length >= maxMatchesPerFile) break;
-				if (regex.test(lineText)) {
-					matches.push({ line: lineIndex + 1, content: lineText.slice(0, 200) });
+	for (let batchStart = 0; batchStart < candidates.length && matches.length < MAX_MATCHES; batchStart += BATCH_SIZE) {
+		const batch = candidates.slice(batchStart, batchStart + BATCH_SIZE);
+
+		const batchResults = await Promise.all(
+			batch.map(async (file): Promise<Match[]> => {
+				try {
+					const fullPath = searchPath === '/' ? `${projectRoot}${file}` : `${projectRoot}${searchPath}${file}`;
+
+					// Skip large files to avoid excessive memory usage
+					const stats = await fs.stat(fullPath);
+					if (stats.size > MAX_FILE_BYTES) return [];
+
+					const fileContent = await fs.readFile(fullPath, 'utf8');
+
+					// Quick whole-file pre-test: skip line splitting if no match
+					if (!regex.test(fileContent)) return [];
+
+					const displayPath = searchPath === '/' ? file : `${searchPath}${file}`;
+					const fileMatches: Match[] = [];
+					const fileLines = fileContent.split('\n');
+
+					for (const [lineIndex, lineText] of fileLines.entries()) {
+						if (regex.test(lineText)) {
+							const truncatedText = lineText.length > MAX_LINE_LENGTH ? `${lineText.slice(0, MAX_LINE_LENGTH)}...` : lineText;
+							fileMatches.push({
+								path: displayPath,
+								lineNumber: lineIndex + 1,
+								lineText: truncatedText,
+							});
+						}
+					}
+
+					return fileMatches;
+				} catch {
+					return [];
 				}
-			}
+			}),
+		);
 
-			if (matches.length > 0) {
-				const displayPath = grepPath === '/' ? file : `${grepPath}${file}`;
-				results.push({ file: displayPath, matches });
+		// Collect results from the batch, stopping at MAX_MATCHES
+		for (const fileMatches of batchResults) {
+			for (const match of fileMatches) {
+				matches.push(match);
+				if (matches.length >= MAX_MATCHES) break;
 			}
-		} catch {
-			// Skip unreadable files
+			if (matches.length >= MAX_MATCHES) break;
 		}
 	}
 
-	return { results, totalFiles: results.length };
+	// Format output (matches OpenCode style)
+	if (matches.length === 0) {
+		return 'No files found';
+	}
+
+	const totalMatches = matches.length;
+	const truncated = totalMatches >= MAX_MATCHES;
+
+	const outputLines = [`Found ${totalMatches} matches${truncated ? ` (showing first ${MAX_MATCHES})` : ''}`];
+
+	// Group by file
+	let currentFile = '';
+	for (const match of matches) {
+		if (currentFile !== match.path) {
+			if (currentFile !== '') {
+				outputLines.push('');
+			}
+			currentFile = match.path;
+			outputLines.push(`${match.path}:`);
+		}
+		outputLines.push(`  Line ${match.lineNumber}: ${match.lineText}`);
+	}
+
+	if (truncated) {
+		outputLines.push(
+			'',
+			`(Results truncated: showing ${MAX_MATCHES} of ${totalMatches} matches. Consider using a more specific path or pattern.)`,
+		);
+	}
+
+	return outputLines.join('\n');
 }

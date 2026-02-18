@@ -1,6 +1,7 @@
 /**
  * Tool: file_write
  * Create new files or overwrite existing ones.
+ * Integrates with FileTime to ensure files are read before being overwritten.
  */
 
 import fs from 'node:fs/promises';
@@ -8,19 +9,26 @@ import fs from 'node:fs/promises';
 import { exports } from 'cloudflare:workers';
 
 import { isPathSafe } from '../../../lib/path-utilities';
+import { assertFileWasRead, recordFileRead } from '../file-time';
 import { isBinaryFilePath, toUint8Array } from '../utilities';
 
 import type { FileChange, SendEventFunction, ToolDefinition, ToolExecutorContext } from '../types';
 
-export const DESCRIPTION = `Write a file to the project. Creates a new file or overwrites an existing file with the provided content.
+// =============================================================================
+// Description (matches OpenCode)
+// =============================================================================
+
+export const DESCRIPTION = `Writes a file to the local filesystem.
 
 Usage:
 - This tool will overwrite the existing file if there is one at the provided path.
-- If this is an existing file, you MUST use the file_read tool first to read the file's contents. This tool will fail if you did not read the file first.
-- ALWAYS prefer editing existing files in the codebase using the file_edit tool. NEVER write new files unless explicitly required.
-- NEVER proactively create documentation files (*.md) or README files. Only create documentation files if explicitly requested by the user.
-- Parent directories are created automatically if they don't exist.
-- The content parameter must contain the complete file content.`;
+- If this is an existing file, you MUST use the Read tool first to read the file's contents. This tool will fail if you did not read the file first.
+- ALWAYS prefer editing existing files in the codebase. NEVER write new files unless explicitly required.
+- NEVER proactively create documentation files (*.md) or README files. Only create documentation files if explicitly requested by the User.`;
+
+// =============================================================================
+// Tool Definition
+// =============================================================================
 
 export const definition: ToolDefinition = {
 	name: 'file_write',
@@ -28,12 +36,16 @@ export const definition: ToolDefinition = {
 	input_schema: {
 		type: 'object',
 		properties: {
-			path: { type: 'string', description: 'File path starting with /, e.g., /src/utils.ts' },
-			content: { type: 'string', description: 'The complete file content to write' },
+			path: { type: 'string', description: 'The absolute path to the file to write (must be absolute, not relative)' },
+			content: { type: 'string', description: 'The content to write to the file' },
 		},
 		required: ['path', 'content'],
 	},
 };
+
+// =============================================================================
+// Execute Function
+// =============================================================================
 
 export async function execute(
 	input: Record<string, string>,
@@ -41,33 +53,27 @@ export async function execute(
 	context: ToolExecutorContext,
 	toolUseId?: string,
 	queryChanges?: FileChange[],
-): Promise<string | object> {
-	const { projectRoot, projectId } = context;
+): Promise<string> {
+	const { projectRoot, projectId, sessionId } = context;
 	const writePath = input.path;
 	const writeContent = input.content;
 
+	// Validate path
 	if (!isPathSafe(projectRoot, writePath)) {
-		return { error: 'Invalid file path' };
+		return '<error>Invalid file path</error>';
 	}
 
+	// Prevent direct package.json creation
 	if (writePath === '/package.json') {
-		return {
-			error:
-				'Cannot create package.json directly. Dependencies are managed at the project level. Use the dependencies_update tool to add, remove, or update dependencies.',
-		};
+		return '<error>Cannot create package.json directly. Dependencies are managed at the project level. Use the dependencies_update tool to add, remove, or update dependencies.</error>';
 	}
 
-	await sendEvent('status', { message: `Writing ${writePath}...` });
-
-	const writeDirectory = writePath.slice(0, writePath.lastIndexOf('/'));
-	if (writeDirectory) {
-		await fs.mkdir(`${projectRoot}${writeDirectory}`, { recursive: true });
-	}
-
-	const writeIsBinary = isBinaryFilePath(writePath);
+	// Check if file exists
+	let fileExists = false;
 	// eslint-disable-next-line unicorn/no-null -- JSON wire format for SSE events
 	let beforeContent: string | Uint8Array | null = null;
-	let action: 'create' | 'edit' = 'create';
+	const writeIsBinary = isBinaryFilePath(writePath);
+
 	try {
 		if (writeIsBinary) {
 			const buffer = await fs.readFile(`${projectRoot}${writePath}`);
@@ -75,13 +81,39 @@ export async function execute(
 		} else {
 			beforeContent = await fs.readFile(`${projectRoot}${writePath}`, 'utf8');
 		}
-		action = 'edit';
+		fileExists = true;
 	} catch {
-		action = 'create';
+		fileExists = false;
 	}
 
+	// If file exists, verify it was read first (if session tracking is available)
+	if (fileExists && sessionId) {
+		try {
+			await assertFileWasRead(projectRoot, sessionId, writePath);
+		} catch (error) {
+			return `<error>${error instanceof Error ? error.message : 'You must read the file before overwriting it.'}</error>`;
+		}
+	}
+
+	await sendEvent('status', { message: `Writing ${writePath}...` });
+
+	// Create parent directories if needed
+	const writeDirectory = writePath.slice(0, writePath.lastIndexOf('/'));
+	if (writeDirectory) {
+		await fs.mkdir(`${projectRoot}${writeDirectory}`, { recursive: true });
+	}
+
+	// Write the file
 	await fs.writeFile(`${projectRoot}${writePath}`, writeContent);
 
+	// Record as read for subsequent operations (both create and edit)
+	if (sessionId) {
+		await recordFileRead(projectRoot, sessionId, writePath);
+	}
+
+	const action: 'create' | 'edit' = fileExists ? 'edit' : 'create';
+
+	// Track file change for snapshots
 	if (queryChanges) {
 		queryChanges.push({
 			path: writePath,
@@ -92,6 +124,7 @@ export async function execute(
 		});
 	}
 
+	// Trigger live reload
 	const coordinatorId = exports.ProjectCoordinator.idFromName(`project:${projectId}`);
 	const coordinatorStub = exports.ProjectCoordinator.get(coordinatorId);
 	const isCSS = writePath.endsWith('.css');
@@ -102,6 +135,7 @@ export async function execute(
 		isCSS,
 	});
 
+	// Send file changed event for UI
 	await sendEvent('file_changed', {
 		path: writePath,
 		action,
@@ -113,5 +147,5 @@ export async function execute(
 		isBinary: writeIsBinary,
 	});
 
-	return { success: true, path: writePath, action };
+	return 'Wrote file successfully.';
 }

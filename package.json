@@ -88,6 +88,7 @@
 		"knip": "^5.83.1",
 		"lint-staged": "^16.2.7",
 		"lucide-react": "^0.563.0",
+		"minimatch": "^10.2.1",
 		"playwright": "^1.52.0",
 		"prettier": "^3.8.1",
 		"radix-ui": "^1.4.3",

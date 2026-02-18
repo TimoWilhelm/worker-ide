@@ -1,6 +1,7 @@
 /**
  * Tool: file_edit
  * Modify existing files using exact string replacements.
+ * Uses multiple replacement strategies for robust matching.
  */
 
 import fs from 'node:fs/promises';
@@ -8,18 +9,28 @@ import fs from 'node:fs/promises';
 import { exports } from 'cloudflare:workers';
 
 import { isPathSafe } from '../../../lib/path-utilities';
+import { assertFileWasRead, recordFileRead } from '../file-time';
+import { replace } from './replacers';
 
 import type { FileChange, SendEventFunction, ToolDefinition, ToolExecutorContext } from '../types';
 
-export const DESCRIPTION = `Performs exact string replacements in files. Finds old_string in the file and replaces it with new_string.
+// =============================================================================
+// Description (matches OpenCode)
+// =============================================================================
+
+export const DESCRIPTION = `Performs exact string replacements in files. 
 
 Usage:
-- You MUST use the file_read tool at least once before editing a file. This tool will error if you attempt an edit without reading the file first.
-- When editing text from file_read output, preserve the exact indentation (tabs/spaces) as it appears AFTER the line number prefix. The line number prefix format is: number + tab. Everything after that tab is the actual file content to match. Never include any part of the line number prefix in old_string or new_string.
+- You must use your \`Read\` tool at least once in the conversation before editing. This tool will error if you attempt an edit without reading the file. 
+- When editing text from Read tool output, ensure you preserve the exact indentation (tabs/spaces) as it appears AFTER the line number prefix. The line number prefix format is: line number + colon + space (e.g., \`1: \`). Everything after that space is the actual file content to match. Never include any part of the line number prefix in the oldString or newString.
 - ALWAYS prefer editing existing files in the codebase. NEVER write new files unless explicitly required.
-- The edit will FAIL if old_string is not found in the file.
-- The edit will FAIL if old_string matches multiple times. Either provide a larger string with more surrounding context to make it unique, or use replace_all: "true" to change every instance.
-- Use replace_all for replacing and renaming strings across the file. This is useful for renaming a variable, for instance.`;
+- The edit will FAIL if \`oldString\` is not found in the file with an error "oldString not found in content".
+- The edit will FAIL if \`oldString\` is found multiple times in the file with an error "Found multiple matches for oldString. Provide more surrounding lines in oldString to identify the correct match." Either provide a larger string with more surrounding context to make it unique or use \`replaceAll\` to change every instance of \`oldString\`. 
+- Use \`replaceAll\` for replacing and renaming strings across the file. This parameter is useful if you want to rename a variable for instance.`;
+
+// =============================================================================
+// Tool Definition
+// =============================================================================
 
 export const definition: ToolDefinition = {
 	name: 'file_edit',
@@ -27,14 +38,18 @@ export const definition: ToolDefinition = {
 	input_schema: {
 		type: 'object',
 		properties: {
-			path: { type: 'string', description: 'File path starting with /, e.g., /src/main.ts' },
-			old_string: { type: 'string', description: 'The exact text to find and replace' },
-			new_string: { type: 'string', description: 'The replacement text' },
-			replace_all: { type: 'string', description: 'Set to "true" to replace all occurrences (default: first only)' },
+			path: { type: 'string', description: 'The absolute path to the file to modify' },
+			old_string: { type: 'string', description: 'The text to replace' },
+			new_string: { type: 'string', description: 'The text to replace it with (must be different from old_string)' },
+			replace_all: { type: 'string', description: 'Replace all occurrences of old_string (default false). Set to "true" to enable.' },
 		},
 		required: ['path', 'old_string', 'new_string'],
 	},
 };
+
+// =============================================================================
+// Execute Function
+// =============================================================================
 
 export async function execute(
 	input: Record<string, string>,
@@ -42,65 +57,74 @@ export async function execute(
 	context: ToolExecutorContext,
 	toolUseId?: string,
 	queryChanges?: FileChange[],
-): Promise<string | object> {
-	const { projectRoot, projectId } = context;
-	const path = input.path;
+): Promise<string> {
+	const { projectRoot, projectId, sessionId } = context;
+	const editPath = input.path;
 	const oldString = input.old_string;
 	const newString = input.new_string;
 	const shouldReplaceAll = input.replace_all === 'true';
 
-	if (!isPathSafe(projectRoot, path)) {
-		return { error: 'Invalid file path' };
+	// Validate path
+	if (!isPathSafe(projectRoot, editPath)) {
+		return '<error>Invalid file path</error>';
 	}
 
-	await sendEvent('status', { message: `Editing ${path}...` });
+	// Check that file was read first (if session tracking is available)
+	if (sessionId) {
+		try {
+			await assertFileWasRead(projectRoot, sessionId, editPath);
+		} catch (error) {
+			return `<error>${error instanceof Error ? error.message : 'You must read the file before editing it.'}</error>`;
+		}
+	}
 
+	await sendEvent('status', { message: `Editing ${editPath}...` });
+
+	// Read file content
 	let content: string;
 	try {
-		content = await fs.readFile(`${projectRoot}${path}`, 'utf8');
+		content = await fs.readFile(`${projectRoot}${editPath}`, 'utf8');
 	} catch {
-		return { error: `File not found: ${path}` };
+		return `<error>File not found: ${editPath}</error>`;
 	}
 
 	const beforeContent = content;
 
-	if (shouldReplaceAll) {
-		if (!content.includes(oldString)) {
-			return { error: `old_string not found in ${path}` };
-		}
-		content = content.replaceAll(oldString, newString);
-	} else {
-		const firstIndex = content.indexOf(oldString);
-		if (firstIndex === -1) {
-			return { error: `old_string not found in ${path}` };
-		}
-		const secondIndex = content.indexOf(oldString, firstIndex + oldString.length);
-		if (secondIndex !== -1) {
-			return {
-				error: `old_string matches multiple times in ${path}. Use replace_all: "true" to replace all, or provide a more specific old_string.`,
-			};
-		}
-		content = content.slice(0, firstIndex) + newString + content.slice(firstIndex + oldString.length);
+	// Use the replace function with multiple strategies
+	try {
+		content = replace(content, oldString, newString, shouldReplaceAll);
+	} catch (error) {
+		const message = error instanceof Error ? error.message : 'Unknown error';
+		return `<error>${message}</error>`;
 	}
 
-	await fs.writeFile(`${projectRoot}${path}`, content);
+	// Write the updated content
+	await fs.writeFile(`${projectRoot}${editPath}`, content);
 
+	// Record the edit as a read for subsequent edits
+	if (sessionId) {
+		await recordFileRead(projectRoot, sessionId, editPath);
+	}
+
+	// Track file change for snapshots
 	if (queryChanges) {
-		queryChanges.push({ path, action: 'edit', beforeContent, afterContent: content, isBinary: false });
+		queryChanges.push({ path: editPath, action: 'edit', beforeContent, afterContent: content, isBinary: false });
 	}
 
+	// Trigger live reload
 	const coordinatorId = exports.ProjectCoordinator.idFromName(`project:${projectId}`);
 	const coordinatorStub = exports.ProjectCoordinator.get(coordinatorId);
-	const isCSS = path.endsWith('.css');
+	const isCSS = editPath.endsWith('.css');
 	await coordinatorStub.triggerUpdate({
 		type: isCSS ? 'update' : 'full-reload',
-		path,
+		path: editPath,
 		timestamp: Date.now(),
 		isCSS,
 	});
 
+	// Send file changed event for UI
 	await sendEvent('file_changed', {
-		path,
+		path: editPath,
 		action: 'edit',
 		tool_use_id: toolUseId,
 		beforeContent,
@@ -108,5 +132,5 @@ export async function execute(
 		isBinary: false,
 	});
 
-	return { success: true, path, action: 'edit' };
+	return 'Edit applied successfully.';
 }

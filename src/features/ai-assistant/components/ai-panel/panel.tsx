@@ -501,6 +501,9 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 				<div className="flex items-center gap-2">
 					<Bot className="size-4 text-accent" />
 					<span className="text-sm font-medium text-text-primary">AI Assistant</span>
+					<Pill color="muted" size="xs">
+						Beta
+					</Pill>
 				</div>
 				<div className="flex items-center gap-1">
 					{/* Session dropdown */}

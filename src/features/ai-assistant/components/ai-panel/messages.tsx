@@ -400,62 +400,141 @@ export function AssistantMessage({ content, streaming }: { content: AgentContent
 // Inline Tool Call
 // =============================================================================
 
+// =============================================================================
+// Tool result parsing helpers
+// =============================================================================
+
+/**
+ * Extract text content from an XML-like tag, e.g. `<error>msg</error>` → `msg`.
+ * Returns undefined if the tag is not found.
+ */
+function extractTag(text: string, tag: string): string | undefined {
+	const openTag = `<${tag}>`;
+	const closeTag = `</${tag}>`;
+	const start = text.indexOf(openTag);
+	const end = text.indexOf(closeTag);
+	if (start === -1 || end === -1) return undefined;
+	return text.slice(start + openTag.length, end).trim();
+}
+
+/**
+ * Extract an error message from `<error>...</error>` tags.
+ */
+function extractError(text: string): string | undefined {
+	return extractTag(text, 'error');
+}
+
 /**
  * Parse a tool result string into a brief human-readable summary.
+ * Each tool gets a custom parser; falls back to a cleaned-up truncation.
  */
 function summarizeToolResult(toolName: ToolName, rawResult: string): string {
-	try {
-		const parsed: unknown = JSON.parse(rawResult);
-		if (!isRecord(parsed)) return rawResult.slice(0, 200);
+	// Handle errors first — applies to all tools
+	const errorMessage = extractError(rawResult);
+	if (errorMessage) {
+		return errorMessage.length > 80 ? errorMessage.slice(0, 80) + '…' : errorMessage;
+	}
 
-		if (toolName === 'files_list' && Array.isArray(parsed.files)) {
-			const files: unknown[] = parsed.files;
+	switch (toolName) {
+		case 'file_read': {
+			const type = extractTag(rawResult, 'type');
+			if (type === 'directory') {
+				const entries = extractTag(rawResult, 'entries');
+				if (entries) {
+					const count = entries.split('\n').filter(Boolean).length;
+					return `${count} entr${count === 1 ? 'y' : 'ies'}`;
+				}
+				return 'Directory';
+			}
+			if (type === 'binary') return 'Binary file';
+			const content = extractTag(rawResult, 'content');
+			if (content) {
+				const lines = content.split('\n').filter(Boolean);
+				return `${lines.length} line${lines.length === 1 ? '' : 's'}`;
+			}
+			return 'Read';
+		}
+
+		case 'file_edit':
+		case 'file_write':
+		case 'file_delete':
+		case 'file_move': {
+			// These return plain success strings
+			return rawResult.length > 80 ? rawResult.slice(0, 80) + '…' : rawResult;
+		}
+
+		case 'file_patch': {
+			// "Success. Updated the following files:\nA /path\nM /path\nD /path"
+			const lines = rawResult.split('\n').filter(Boolean);
+			const fileCount = lines.filter((l) => /^[AMD] /.test(l)).length;
+			if (fileCount > 0) return `${fileCount} file${fileCount === 1 ? '' : 's'} changed`;
+			return rawResult.length > 80 ? rawResult.slice(0, 80) + '…' : rawResult;
+		}
+
+		case 'file_grep': {
+			// "Found N matches..." or "No files found"
+			const matchCount = rawResult.match(/^Found (\d+) match/);
+			if (matchCount) return `${matchCount[1]} match${matchCount[1] === '1' ? '' : 'es'}`;
+			if (rawResult.startsWith('No files found')) return 'No matches';
+			return rawResult.length > 80 ? rawResult.slice(0, 80) + '…' : rawResult;
+		}
+
+		case 'file_glob': {
+			if (rawResult.startsWith('No files found')) return 'No files found';
+			const files = rawResult.split('\n').filter((l) => l && !l.startsWith('('));
 			return `${files.length} file${files.length === 1 ? '' : 's'}`;
 		}
 
-		if (toolName === 'file_read' && typeof parsed.content === 'string') {
-			const lineCount = parsed.content.split('\n').length;
-			return `${lineCount} line${lineCount === 1 ? '' : 's'}`;
-		}
-
-		if (toolName === 'file_list' && Array.isArray(parsed.entries)) {
-			const entries: unknown[] = parsed.entries;
+		case 'file_list': {
+			const entries = rawResult.split('\n').filter(Boolean);
 			return `${entries.length} entr${entries.length === 1 ? 'y' : 'ies'}`;
 		}
 
-		if (toolName === 'file_glob' && Array.isArray(parsed.files)) {
-			const files: unknown[] = parsed.files;
-			return `${files.length} match${files.length === 1 ? '' : 'es'}`;
+		case 'files_list': {
+			try {
+				const parsed: unknown = JSON.parse(rawResult);
+				if (isRecord(parsed) && Array.isArray(parsed.files)) {
+					const files: unknown[] = parsed.files;
+					return `${files.length} file${files.length === 1 ? '' : 's'}`;
+				}
+			} catch {
+				/* not JSON */
+			}
+			return 'Listed';
 		}
 
-		if (toolName === 'file_grep' && Array.isArray(parsed.results)) {
-			const results: unknown[] = parsed.results;
-			return `${results.length} file${results.length === 1 ? '' : 's'} matched`;
+		case 'docs_search': {
+			return 'Results fetched';
 		}
 
-		if (toolName === 'user_question' && typeof parsed.question === 'string') {
-			return parsed.question.length > 60 ? parsed.question.slice(0, 60) + '…' : parsed.question;
+		case 'web_fetch': {
+			try {
+				const parsed: unknown = JSON.parse(rawResult);
+				if (isRecord(parsed) && typeof parsed.length === 'number') {
+					return `${parsed.length} chars`;
+				}
+			} catch {
+				/* not JSON */
+			}
+			return 'Fetched';
 		}
 
-		if (toolName === 'web_fetch' && typeof parsed.length === 'number') {
-			return `${parsed.length} chars`;
+		case 'user_question': {
+			try {
+				const parsed: unknown = JSON.parse(rawResult);
+				if (isRecord(parsed) && typeof parsed.question === 'string') {
+					return parsed.question.length > 60 ? parsed.question.slice(0, 60) + '…' : parsed.question;
+				}
+			} catch {
+				/* not JSON */
+			}
+			return 'Question';
 		}
 
-		if (toolName === 'docs_search' && typeof parsed.results === 'string') {
-			return `Results fetched`;
+		default: {
+			return rawResult.length > 80 ? rawResult.slice(0, 80) + '…' : rawResult;
 		}
-
-		if (parsed.error && typeof parsed.error === 'string') {
-			return parsed.error;
-		}
-
-		if (parsed.success) {
-			return 'Success';
-		}
-	} catch {
-		// Not valid JSON — return truncated raw string
 	}
-	return rawResult.length > 200 ? rawResult.slice(0, 200) + '...' : rawResult;
 }
 
 interface TodoItemDisplay {
@@ -550,14 +629,52 @@ function extractTodosFromResult(toolName: ToolName, rawResult: string): TodoItem
 
 /**
  * Format raw tool result content for the expandable detail view.
- * Tries to pretty-print JSON; falls back to the raw string.
+ * Strips XML tags and formats per-tool content cleanly.
  */
-function formatToolResultDetail(rawResult: string): string {
-	try {
-		const parsed: unknown = JSON.parse(rawResult);
-		return JSON.stringify(parsed, undefined, 2);
-	} catch {
-		return rawResult;
+function formatToolResultDetail(toolName: ToolName, rawResult: string): string {
+	// Handle errors — strip the <error> tags
+	const errorMessage = extractError(rawResult);
+	if (errorMessage) return errorMessage;
+
+	switch (toolName) {
+		case 'file_read': {
+			// Show just the file content or directory entries, without XML wrapper
+			const content = extractTag(rawResult, 'content');
+			if (content) return content;
+			const entries = extractTag(rawResult, 'entries');
+			if (entries) return entries;
+			return rawResult;
+		}
+
+		case 'file_grep':
+		case 'file_glob':
+		case 'file_patch':
+		case 'file_list': {
+			// Already plain text, show as-is
+			return rawResult;
+		}
+
+		case 'files_list':
+		case 'docs_search':
+		case 'web_fetch': {
+			// Try to pretty-print JSON
+			try {
+				const parsed: unknown = JSON.parse(rawResult);
+				return JSON.stringify(parsed, undefined, 2);
+			} catch {
+				return rawResult;
+			}
+		}
+
+		default: {
+			// Try JSON pretty-print, fall back to raw
+			try {
+				const parsed: unknown = JSON.parse(rawResult);
+				return JSON.stringify(parsed, undefined, 2);
+			} catch {
+				return rawResult;
+			}
+		}
 	}
 }
 
@@ -568,7 +685,49 @@ function formatToolResultDetail(rawResult: string): string {
 function hasExpandableDetail(toolName: ToolName, rawResult: string): boolean {
 	// TODOs have their own dedicated inline widget
 	if (toolName === 'todos_get' || toolName === 'todos_update') return false;
-	return rawResult.length > 200;
+
+	switch (toolName) {
+		case 'file_read': {
+			// Always expandable when there's actual content
+			const content = extractTag(rawResult, 'content');
+			const entries = extractTag(rawResult, 'entries');
+			return Boolean(content || entries);
+		}
+
+		case 'file_grep': {
+			// Expandable when there are actual matches (not "No files found")
+			return rawResult.startsWith('Found');
+		}
+
+		case 'file_glob':
+		case 'file_list': {
+			// Expandable when there are results
+			return !rawResult.startsWith('No files found') && rawResult.split('\n').length > 3;
+		}
+
+		case 'file_patch': {
+			// Expandable when there are multiple file changes
+			return rawResult.split('\n').filter((l) => /^[AMD] /.test(l)).length > 1;
+		}
+
+		case 'file_edit':
+		case 'file_write':
+		case 'file_delete':
+		case 'file_move': {
+			// Short success/error messages — not expandable
+			return false;
+		}
+
+		case 'docs_search':
+		case 'web_fetch':
+		case 'files_list': {
+			return rawResult.length > 200;
+		}
+
+		default: {
+			return rawResult.length > 200;
+		}
+	}
 }
 
 function InlineToolCall({ toolUse, toolResult }: { toolUse: AgentContent; toolResult?: AgentContent }) {
@@ -578,7 +737,10 @@ function InlineToolCall({ toolUse, toolResult }: { toolUse: AgentContent; toolRe
 
 	const toolName = toolUse.name;
 	const isCompleted = toolResult !== undefined;
-	const isError = toolResult?.type === 'tool_result' && toolResult.is_error;
+	const rawResultContent = toolResult?.type === 'tool_result' && typeof toolResult.content === 'string' ? toolResult.content : undefined;
+	const isError =
+		(toolResult?.type === 'tool_result' && toolResult.is_error) ||
+		(rawResultContent !== undefined && extractError(rawResultContent) !== undefined);
 
 	// Extract file paths from tool input
 	const input = toolUse.input;
@@ -612,7 +774,6 @@ function InlineToolCall({ toolUse, toolResult }: { toolUse: AgentContent; toolRe
 			: undefined;
 
 	// Build summary text for the result
-	const rawResultContent = toolResult?.type === 'tool_result' && typeof toolResult.content === 'string' ? toolResult.content : undefined;
 	const resultSummary = rawResultContent ? summarizeToolResult(toolName, rawResultContent) : undefined;
 	const expandable = rawResultContent ? hasExpandableDetail(toolName, rawResultContent) : false;
 
@@ -668,7 +829,7 @@ function InlineToolCall({ toolUse, toolResult }: { toolUse: AgentContent; toolRe
 						text-2xs/relaxed break-all whitespace-pre-wrap text-text-secondary
 					"
 				>
-					{formatToolResultDetail(rawResultContent)}
+					{formatToolResultDetail(toolName, rawResultContent)}
 				</pre>
 			)}
 			{todos && todos.length > 0 && <InlineTodoList todos={todos} />}
