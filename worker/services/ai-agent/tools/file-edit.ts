@@ -8,6 +8,8 @@ import fs from 'node:fs/promises';
 
 import { exports } from 'cloudflare:workers';
 
+import { ToolErrorCode, toolError } from '@shared/tool-errors';
+
 import { isPathSafe } from '../../../lib/path-utilities';
 import { assertFileWasRead, recordFileRead } from '../file-time';
 import { replace } from './replacers';
@@ -18,14 +20,14 @@ import type { FileChange, SendEventFunction, ToolDefinition, ToolExecutorContext
 // Description (matches OpenCode)
 // =============================================================================
 
-export const DESCRIPTION = `Performs exact string replacements in files. 
+export const DESCRIPTION = `Performs exact string replacements in files.
 
 Usage:
-- You must use your \`Read\` tool at least once in the conversation before editing. This tool will error if you attempt an edit without reading the file. 
+- You must use your \`Read\` tool at least once in the conversation before editing. This tool will error if you attempt an edit without reading the file.
 - When editing text from Read tool output, ensure you preserve the exact indentation (tabs/spaces) as it appears AFTER the line number prefix. The line number prefix format is: line number + colon + space (e.g., \`1: \`). Everything after that space is the actual file content to match. Never include any part of the line number prefix in the oldString or newString.
 - ALWAYS prefer editing existing files in the codebase. NEVER write new files unless explicitly required.
 - The edit will FAIL if \`oldString\` is not found in the file with an error "oldString not found in content".
-- The edit will FAIL if \`oldString\` is found multiple times in the file with an error "Found multiple matches for oldString. Provide more surrounding lines in oldString to identify the correct match." Either provide a larger string with more surrounding context to make it unique or use \`replaceAll\` to change every instance of \`oldString\`. 
+- The edit will FAIL if \`oldString\` is found multiple times in the file with an error "Found multiple matches for oldString. Provide more surrounding lines in oldString to identify the correct match." Either provide a larger string with more surrounding context to make it unique or use \`replaceAll\` to change every instance of \`oldString\`.
 - Use \`replaceAll\` for replacing and renaming strings across the file. This parameter is useful if you want to rename a variable for instance.`;
 
 // =============================================================================
@@ -66,7 +68,7 @@ export async function execute(
 
 	// Validate path
 	if (!isPathSafe(projectRoot, editPath)) {
-		return '<error>Invalid file path</error>';
+		return toolError(ToolErrorCode.INVALID_PATH, 'Invalid file path');
 	}
 
 	// Check that file was read first (if session tracking is available)
@@ -74,7 +76,7 @@ export async function execute(
 		try {
 			await assertFileWasRead(projectRoot, sessionId, editPath);
 		} catch (error) {
-			return `<error>${error instanceof Error ? error.message : 'You must read the file before editing it.'}</error>`;
+			return toolError(ToolErrorCode.FILE_NOT_READ, error instanceof Error ? error.message : 'You must read the file before editing it.');
 		}
 	}
 
@@ -85,7 +87,7 @@ export async function execute(
 	try {
 		content = await fs.readFile(`${projectRoot}${editPath}`, 'utf8');
 	} catch {
-		return `<error>File not found: ${editPath}</error>`;
+		return toolError(ToolErrorCode.FILE_NOT_FOUND, `File not found: ${editPath}`);
 	}
 
 	const beforeContent = content;
@@ -95,7 +97,7 @@ export async function execute(
 		content = replace(content, oldString, newString, shouldReplaceAll);
 	} catch (error) {
 		const message = error instanceof Error ? error.message : 'Unknown error';
-		return `<error>${message}</error>`;
+		return toolError(ToolErrorCode.NO_MATCH, message);
 	}
 
 	// Write the updated content

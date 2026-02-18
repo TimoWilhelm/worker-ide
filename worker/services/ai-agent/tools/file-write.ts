@@ -8,6 +8,8 @@ import fs from 'node:fs/promises';
 
 import { exports } from 'cloudflare:workers';
 
+import { ToolErrorCode, toolError } from '@shared/tool-errors';
+
 import { isPathSafe } from '../../../lib/path-utilities';
 import { assertFileWasRead, recordFileRead } from '../file-time';
 import { isBinaryFilePath, toUint8Array } from '../utilities';
@@ -60,12 +62,15 @@ export async function execute(
 
 	// Validate path
 	if (!isPathSafe(projectRoot, writePath)) {
-		return '<error>Invalid file path</error>';
+		return toolError(ToolErrorCode.INVALID_PATH, 'Invalid file path');
 	}
 
 	// Prevent direct package.json creation
 	if (writePath === '/package.json') {
-		return '<error>Cannot create package.json directly. Dependencies are managed at the project level. Use the dependencies_update tool to add, remove, or update dependencies.</error>';
+		return toolError(
+			ToolErrorCode.NOT_ALLOWED,
+			'Cannot create package.json directly. Dependencies are managed at the project level. Use the dependencies_update tool to add, remove, or update dependencies.',
+		);
 	}
 
 	// Check if file exists
@@ -91,7 +96,10 @@ export async function execute(
 		try {
 			await assertFileWasRead(projectRoot, sessionId, writePath);
 		} catch (error) {
-			return `<error>${error instanceof Error ? error.message : 'You must read the file before overwriting it.'}</error>`;
+			return toolError(
+				ToolErrorCode.FILE_NOT_READ,
+				error instanceof Error ? error.message : 'You must read the file before overwriting it.',
+			);
 		}
 	}
 

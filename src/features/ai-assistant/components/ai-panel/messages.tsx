@@ -35,6 +35,7 @@ import { Pill, type PillProperties } from '@/components/ui/pill';
 import { Tooltip } from '@/components/ui/tooltip';
 import { useStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
+import { TOOL_ERROR_LABELS } from '@shared/tool-errors';
 
 import { AI_SUGGESTIONS, isRecord } from './helpers';
 import { parseTextToSegments } from '../../lib/input-segments';
@@ -418,10 +419,38 @@ function extractTag(text: string, tag: string): string | undefined {
 }
 
 /**
- * Extract an error message from `<error>...</error>` tags.
+ * Check whether the text contains an `<error ...>` tag (with or without a code attribute).
  */
-function extractError(text: string): string | undefined {
-	return extractTag(text, 'error');
+function isErrorResult(text: string): boolean {
+	return text.includes('<error');
+}
+
+/**
+ * Extract the error code from `<error code="CODE">...</error>`. Returns undefined
+ * if no code attribute is present (legacy format).
+ */
+function extractErrorCode(text: string): string | undefined {
+	const match = text.match(/<error\s+code="([^"]+)"/);
+	return match?.[1];
+}
+
+/** Lookup table typed as a plain record so we can index with an arbitrary string. */
+const errorLabels: Record<string, string> = TOOL_ERROR_LABELS;
+
+/**
+ * Get a short label for an error. Uses the code attribute when available,
+ * falls back to truncating the message body.
+ */
+function shortenError(text: string): string {
+	const code = extractErrorCode(text);
+	if (code) {
+		const label = errorLabels[code];
+		if (label) return label;
+	}
+	// Fallback: extract the message body and truncate
+	const body = extractTag(text, 'error');
+	if (body) return body.length > 40 ? body.slice(0, 40) + '…' : body;
+	return 'Error';
 }
 
 /**
@@ -430,9 +459,8 @@ function extractError(text: string): string | undefined {
  */
 function summarizeToolResult(toolName: ToolName, rawResult: string): string {
 	// Handle errors first — applies to all tools
-	const errorMessage = extractError(rawResult);
-	if (errorMessage) {
-		return errorMessage.length > 80 ? errorMessage.slice(0, 80) + '…' : errorMessage;
+	if (isErrorResult(rawResult)) {
+		return shortenError(rawResult);
 	}
 
 	switch (toolName) {
@@ -455,12 +483,20 @@ function summarizeToolResult(toolName: ToolName, rawResult: string): string {
 			return 'Read';
 		}
 
-		case 'file_edit':
-		case 'file_write':
-		case 'file_delete':
+		case 'file_edit': {
+			return 'Applied';
+		}
+
+		case 'file_write': {
+			return 'Written';
+		}
+
+		case 'file_delete': {
+			return 'Deleted';
+		}
+
 		case 'file_move': {
-			// These return plain success strings
-			return rawResult.length > 80 ? rawResult.slice(0, 80) + '…' : rawResult;
+			return 'Moved';
 		}
 
 		case 'file_patch': {
@@ -468,7 +504,7 @@ function summarizeToolResult(toolName: ToolName, rawResult: string): string {
 			const lines = rawResult.split('\n').filter(Boolean);
 			const fileCount = lines.filter((l) => /^[AMD] /.test(l)).length;
 			if (fileCount > 0) return `${fileCount} file${fileCount === 1 ? '' : 's'} changed`;
-			return rawResult.length > 80 ? rawResult.slice(0, 80) + '…' : rawResult;
+			return rawResult.length > 40 ? rawResult.slice(0, 40) + '…' : rawResult;
 		}
 
 		case 'file_grep': {
@@ -476,7 +512,7 @@ function summarizeToolResult(toolName: ToolName, rawResult: string): string {
 			const matchCount = rawResult.match(/^Found (\d+) match/);
 			if (matchCount) return `${matchCount[1]} match${matchCount[1] === '1' ? '' : 'es'}`;
 			if (rawResult.startsWith('No files found')) return 'No matches';
-			return rawResult.length > 80 ? rawResult.slice(0, 80) + '…' : rawResult;
+			return rawResult.length > 40 ? rawResult.slice(0, 40) + '…' : rawResult;
 		}
 
 		case 'file_glob': {
@@ -532,7 +568,7 @@ function summarizeToolResult(toolName: ToolName, rawResult: string): string {
 		}
 
 		default: {
-			return rawResult.length > 80 ? rawResult.slice(0, 80) + '…' : rawResult;
+			return rawResult.length > 40 ? rawResult.slice(0, 40) + '…' : rawResult;
 		}
 	}
 }
@@ -633,8 +669,10 @@ function extractTodosFromResult(toolName: ToolName, rawResult: string): TodoItem
  */
 function formatToolResultDetail(toolName: ToolName, rawResult: string): string {
 	// Handle errors — strip the <error> tags
-	const errorMessage = extractError(rawResult);
-	if (errorMessage) return errorMessage;
+	if (isErrorResult(rawResult)) {
+		const body = extractTag(rawResult, 'error');
+		if (body) return body;
+	}
 
 	switch (toolName) {
 		case 'file_read': {
@@ -739,8 +777,7 @@ function InlineToolCall({ toolUse, toolResult }: { toolUse: AgentContent; toolRe
 	const isCompleted = toolResult !== undefined;
 	const rawResultContent = toolResult?.type === 'tool_result' && typeof toolResult.content === 'string' ? toolResult.content : undefined;
 	const isError =
-		(toolResult?.type === 'tool_result' && toolResult.is_error) ||
-		(rawResultContent !== undefined && extractError(rawResultContent) !== undefined);
+		(toolResult?.type === 'tool_result' && toolResult.is_error) || (rawResultContent !== undefined && isErrorResult(rawResultContent));
 
 	// Extract file paths from tool input
 	const input = toolUse.input;
@@ -820,7 +857,7 @@ function InlineToolCall({ toolUse, toolResult }: { toolUse: AgentContent; toolRe
 						{extraLabel.length > 60 ? extraLabel.slice(0, 60) + '…' : extraLabel}
 					</span>
 				)}
-				{resultSummary && <span className="ml-auto shrink-0 text-text-secondary">{resultSummary}</span>}
+				{resultSummary && <span className="ml-auto min-w-0 truncate text-text-secondary">{resultSummary}</span>}
 			</button>
 			{isExpanded && rawResultContent && (
 				<pre

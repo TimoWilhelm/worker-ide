@@ -8,6 +8,8 @@ import fs from 'node:fs/promises';
 
 import { minimatch } from 'minimatch';
 
+import { ToolErrorCode, toolError } from '@shared/tool-errors';
+
 import { listFilesRecursive } from '../tool-executor';
 import { isBinaryFilePath } from '../utilities';
 
@@ -68,7 +70,7 @@ export async function execute(input: Record<string, string>, sendEvent: SendEven
 	try {
 		regex = new RegExp(grepPattern, 'i');
 	} catch {
-		return `<error>Invalid regex pattern: ${grepPattern}</error>`;
+		return toolError(ToolErrorCode.INVALID_REGEX, `Invalid regex pattern: ${grepPattern}`);
 	}
 
 	// Get all files

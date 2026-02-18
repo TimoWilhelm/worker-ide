@@ -8,6 +8,8 @@ import fs from 'node:fs/promises';
 
 import { exports } from 'cloudflare:workers';
 
+import { ToolErrorCode, toolError } from '@shared/tool-errors';
+
 import { isPathSafe } from '../../../lib/path-utilities';
 import { assertFileWasRead, recordFileRead } from '../file-time';
 
@@ -483,7 +485,7 @@ export async function execute(
 	const patchText = input.patch;
 
 	if (!patchText) {
-		return '<error>patch is required</error>';
+		return toolError(ToolErrorCode.MISSING_INPUT, 'patch is required');
 	}
 
 	await sendEvent('status', { message: 'Applying patch...' });
@@ -494,27 +496,27 @@ export async function execute(
 		const parseResult = parsePatch(patchText);
 		hunks = parseResult.hunks;
 	} catch (error) {
-		return `<error>Patch parse failed: ${error instanceof Error ? error.message : 'Unknown error'}</error>`;
+		return toolError(ToolErrorCode.PATCH_PARSE_FAILED, `Patch parse failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
 	}
 
 	if (hunks.length === 0) {
-		return '<error>Patch rejected: no file operations found</error>';
+		return toolError(ToolErrorCode.PATCH_REJECTED, 'Patch rejected: no file operations found');
 	}
 
 	// Validate all paths first
 	for (const hunk of hunks) {
 		if (!hunk.path.startsWith('/')) {
-			return `<error>Invalid path: ${hunk.path}. Paths must start with /</error>`;
+			return toolError(ToolErrorCode.INVALID_PATH, `Invalid path: ${hunk.path}. Paths must start with /`);
 		}
 		if (!isPathSafe(projectRoot, hunk.path)) {
-			return `<error>Invalid file path: ${hunk.path}</error>`;
+			return toolError(ToolErrorCode.INVALID_PATH, `Invalid file path: ${hunk.path}`);
 		}
 		if (hunk.type === 'update' && hunk.movePath) {
 			if (!hunk.movePath.startsWith('/')) {
-				return `<error>Invalid move path: ${hunk.movePath}. Paths must start with /</error>`;
+				return toolError(ToolErrorCode.INVALID_PATH, `Invalid move path: ${hunk.movePath}. Paths must start with /`);
 			}
 			if (!isPathSafe(projectRoot, hunk.movePath)) {
-				return `<error>Invalid move path: ${hunk.movePath}</error>`;
+				return toolError(ToolErrorCode.INVALID_PATH, `Invalid move path: ${hunk.movePath}`);
 			}
 		}
 	}
@@ -542,7 +544,7 @@ export async function execute(
 					try {
 						oldContent = await fs.readFile(`${projectRoot}${hunk.path}`, 'utf8');
 					} catch {
-						return `<error>File not found for deletion: ${hunk.path}</error>`;
+						return toolError(ToolErrorCode.FILE_NOT_FOUND, `File not found for deletion: ${hunk.path}`);
 					}
 					fileChanges.push({ hunk, oldContent, newContent: '', targetPath: hunk.path });
 					break;
@@ -553,7 +555,10 @@ export async function execute(
 						try {
 							await assertFileWasRead(projectRoot, sessionId, hunk.path);
 						} catch (error) {
-							return `<error>${error instanceof Error ? error.message : 'You must read the file before patching it.'}</error>`;
+							return toolError(
+								ToolErrorCode.FILE_NOT_READ,
+								error instanceof Error ? error.message : 'You must read the file before patching it.',
+							);
 						}
 					}
 
@@ -561,7 +566,7 @@ export async function execute(
 					try {
 						oldContent = await fs.readFile(`${projectRoot}${hunk.path}`, 'utf8');
 					} catch {
-						return `<error>File not found for update: ${hunk.path}</error>`;
+						return toolError(ToolErrorCode.FILE_NOT_FOUND, `File not found for update: ${hunk.path}`);
 					}
 
 					const newContent = deriveNewContentsFromChunks(hunk.path, oldContent, hunk.chunks);
@@ -571,7 +576,10 @@ export async function execute(
 				}
 			}
 		} catch (error) {
-			return `<error>Failed to verify hunk for ${hunk.path}: ${error instanceof Error ? error.message : 'Unknown error'}</error>`;
+			return toolError(
+				ToolErrorCode.PATCH_APPLY_FAILED,
+				`Failed to verify hunk for ${hunk.path}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+			);
 		}
 	}
 

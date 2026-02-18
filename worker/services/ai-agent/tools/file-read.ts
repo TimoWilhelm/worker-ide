@@ -6,6 +6,8 @@
 
 import fs from 'node:fs/promises';
 
+import { ToolErrorCode, toolError } from '@shared/tool-errors';
+
 import { isPathSafe } from '../../../lib/path-utilities';
 import { recordFileRead } from '../file-time';
 
@@ -177,7 +179,7 @@ export async function execute(input: Record<string, string>, sendEvent: SendEven
 	const readPath = input.path;
 
 	if (!isPathSafe(projectRoot, readPath)) {
-		return `<error>Invalid file path: ${readPath}</error>`;
+		return toolError(ToolErrorCode.INVALID_PATH, `Invalid file path: ${readPath}`);
 	}
 
 	await sendEvent('status', { message: `Reading ${readPath}...` });
@@ -296,6 +298,6 @@ ${content}${message}
 			suggestion = `\n\nDid you mean one of these?\n${similar.map((f) => `  ${f}`).join('\n')}`;
 		}
 
-		return `<error>File not found: ${readPath}${suggestion}</error>`;
+		return toolError(ToolErrorCode.FILE_NOT_FOUND, `File not found: ${readPath}${suggestion}`);
 	}
 }
