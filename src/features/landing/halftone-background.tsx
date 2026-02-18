@@ -178,6 +178,8 @@ export function HalftoneBackground() {
 	const canvasReference = useRef<HTMLCanvasElement>(null);
 	const animationFrameReference = useRef<number>(0);
 	const startTimeReference = useRef<number>(0);
+	const currentDprReference = useRef<number>(Math.min(globalThis.devicePixelRatio || 1, 2));
+	const cssHeightReference = useRef<number>(0);
 
 	useEffect(() => {
 		const canvas = canvasReference.current;
@@ -185,6 +187,33 @@ export function HalftoneBackground() {
 
 		let webGLContext: WebGLContext | undefined;
 		let disposed = false;
+
+		/**
+		 * Apply the correct physical pixel size for the current DPR.
+		 * Called both by the ResizeObserver and the DPR-change listener.
+		 */
+		const applyCanvasSize = (cssWidth: number, cssHeight: number, dpr: number) => {
+			const physicalWidth = Math.round(cssWidth * dpr);
+			const physicalHeight = Math.round(cssHeight * dpr);
+
+			// Skip if nothing actually changed
+			if (canvas.width === physicalWidth && canvas.height === physicalHeight) return;
+
+			canvas.width = physicalWidth;
+			canvas.height = physicalHeight;
+			cssHeightReference.current = cssHeight;
+
+			if (webGLContext) {
+				const { gl } = webGLContext;
+				gl.viewport(0, 0, canvas.width, canvas.height);
+
+				// Immediately clear to background color to prevent black flash
+				const backgroundRaw = getCssVariable('--color-bg-primary');
+				const bg = backgroundRaw ? resolveColorToRgb(backgroundRaw, DEFAULT_BACKGROUND) : DEFAULT_BACKGROUND;
+				gl.clearColor(bg[0], bg[1], bg[2], 1);
+				gl.clear(gl.COLOR_BUFFER_BIT);
+			}
+		};
 
 		// Animation loop — defined before ResizeObserver so it can be
 		// referenced in the first-resize callback without TDZ issues.
@@ -201,8 +230,9 @@ export function HalftoneBackground() {
 			const accentRgb = accentRaw ? resolveColorToRgb(accentRaw, DEFAULT_ACCENT) : DEFAULT_ACCENT;
 			const backgroundRgb = backgroundRaw ? resolveColorToRgb(backgroundRaw, DEFAULT_BACKGROUND) : DEFAULT_BACKGROUND;
 
-			// Dot density: canvas pixels
-			const dotScale = Math.round(canvas.height / 4);
+			// Dot density: use CSS (logical) pixels so the visual density
+			// stays consistent regardless of devicePixelRatio.
+			const dotScale = Math.round(cssHeightReference.current / 4);
 
 			// Fade-in over 2 seconds, clamped at 1.0
 			const fadeIn = Math.min(elapsed / 2, 1);
@@ -219,18 +249,83 @@ export function HalftoneBackground() {
 			animationFrameReference.current = requestAnimationFrame(render);
 		};
 
+		// ---------------------------------------------------------------
+		// DPR change detection via matchMedia.
+		// `matchMedia` with a `resolution` query fires when the effective
+		// DPR changes — e.g. dragging a window between a Retina display
+		// and an external 1× monitor. We re-register the listener each
+		// time because the media query is for a specific DPR value.
+		// ---------------------------------------------------------------
+		let dprMediaQuery: MediaQueryList | undefined;
+
+		const handleDprChange = () => {
+			const newDpr = Math.min(globalThis.devicePixelRatio || 1, 2);
+			if (newDpr === currentDprReference.current) return;
+			currentDprReference.current = newDpr;
+
+			// Re-apply canvas size at the new DPR
+			if (cssHeightReference.current > 0) {
+				const rect = canvas.getBoundingClientRect();
+				applyCanvasSize(rect.width, rect.height, newDpr);
+			}
+
+			// Re-register for the next DPR change
+			listenForDprChange();
+		};
+
+		const listenForDprChange = () => {
+			// Clean up previous listener
+			dprMediaQuery?.removeEventListener('change', handleDprChange);
+			// Register for the *current* DPR value changing
+			dprMediaQuery = globalThis.matchMedia(`(resolution: ${globalThis.devicePixelRatio}dppx)`);
+			dprMediaQuery.addEventListener('change', handleDprChange);
+		};
+
+		listenForDprChange();
+
+		// ---------------------------------------------------------------
 		// Handle canvas resize with ResizeObserver.
+		// Prefer devicePixelContentBoxSize when available — it gives the
+		// exact physical pixel dimensions the browser allocated, avoiding
+		// rounding errors from CSS-pixels × DPR multiplication.
 		// WebGL setup is deferred until the canvas has real dimensions —
 		// a 0×0 canvas produces a broken WebGL context on some drivers.
+		// ---------------------------------------------------------------
 		const resizeObserver = new ResizeObserver((entries) => {
 			if (disposed) return;
 			for (const entry of entries) {
-				const { width, height } = entry.contentRect;
-				if (width === 0 || height === 0) continue;
+				let physicalWidth: number;
+				let physicalHeight: number;
+				let cssHeight: number;
 
-				const dpr = Math.min(globalThis.devicePixelRatio || 1, 2);
-				canvas.width = Math.round(width * dpr);
-				canvas.height = Math.round(height * dpr);
+				// devicePixelContentBoxSize gives exact physical pixels
+				// (available in Chromium 84+, Firefox 116+, Safari 18.4+)
+				if (entry.devicePixelContentBoxSize?.[0]) {
+					const dpSize = entry.devicePixelContentBoxSize[0];
+					physicalWidth = dpSize.inlineSize;
+					physicalHeight = dpSize.blockSize;
+
+					cssHeight = entry.contentRect.height;
+
+					// Update tracked DPR based on actual physical/CSS ratio
+					if (cssHeight > 0) {
+						currentDprReference.current = Math.min(physicalHeight / cssHeight, 2);
+					}
+				} else {
+					// Fallback: multiply CSS size by DPR
+					const { width, height } = entry.contentRect;
+					if (width === 0 || height === 0) continue;
+					cssHeight = height;
+					const dpr = currentDprReference.current;
+					physicalWidth = Math.round(width * dpr);
+					physicalHeight = Math.round(height * dpr);
+				}
+
+				if (physicalWidth === 0 || physicalHeight === 0) continue;
+
+				canvas.width = physicalWidth;
+				canvas.height = physicalHeight;
+				cssHeightReference.current = cssHeight;
 
 				// First resize: set up WebGL now that the canvas has real dimensions
 				if (!webGLContext) {
@@ -250,12 +345,20 @@ export function HalftoneBackground() {
 				gl.clear(gl.COLOR_BUFFER_BIT);
 			}
 		});
-		resizeObserver.observe(canvas);
+
+		// Request devicePixelContentBoxSize reporting when supported
+		try {
+			resizeObserver.observe(canvas, { box: 'device-pixel-content-box' });
+		} catch {
+			// Safari < 18.4 doesn't support device-pixel-content-box observation
+			resizeObserver.observe(canvas);
+		}
 
 		return () => {
 			disposed = true;
 			cancelAnimationFrame(animationFrameReference.current);
 			resizeObserver.disconnect();
+			dprMediaQuery?.removeEventListener('change', handleDprChange);
 			webGLContext?.gl.getExtension('WEBGL_lose_context')?.loseContext();
 		};
 	}, []);
