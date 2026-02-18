@@ -1,24 +1,27 @@
 /**
  * Helper functions for AI retry logic.
  * Extracted for testability.
+ *
+ * Works with UIMessage (TanStack AI) which has `parts: MessagePart[]`.
+ * Text content is in TextPart: { type: 'text', content: string }.
  */
 
-import type { AgentMessage } from '@shared/types';
+import type { UIMessage } from '@shared/types';
 
 /**
- * Extract the text content from an agent message.
+ * Extract the text content from a UIMessage.
  */
-export function extractMessageText(message: AgentMessage): string {
-	return message.content
-		.filter((block): block is { type: 'text'; text: string } => block.type === 'text')
-		.map((block) => block.text)
+export function extractMessageText(message: UIMessage): string {
+	return message.parts
+		.filter((part): part is { type: 'text'; content: string } => part.type === 'text')
+		.map((part) => part.content)
 		.join('\n');
 }
 
 /**
  * Find the last user message in history.
  */
-export function findLastUserMessage(history: AgentMessage[]): AgentMessage | undefined {
+export function findLastUserMessage(history: UIMessage[]): UIMessage | undefined {
 	return [...history].toReversed().find((message) => message.role === 'user');
 }
 
@@ -33,7 +36,7 @@ export function findLastUserMessage(history: AgentMessage[]): AgentMessage | und
  *
  * Returns the index after which to remove (exclusive).
  */
-export function getRemoveAfterIndex(history: AgentMessage[]): number {
+export function getRemoveAfterIndex(history: UIMessage[]): number {
 	if (history.length === 0) {
 		return 0;
 	}
@@ -57,7 +60,7 @@ export function getRemoveAfterIndex(history: AgentMessage[]): number {
  * Prepare for retry by extracting the prompt text and calculating the remove index.
  * Returns undefined if there's no user message to retry.
  */
-export function prepareRetry(history: AgentMessage[]): { promptText: string; removeAfterIndex: number } | undefined {
+export function prepareRetry(history: UIMessage[]): { promptText: string; removeAfterIndex: number } | undefined {
 	const lastUserMessage = findLastUserMessage(history);
 	if (!lastUserMessage) {
 		return undefined;

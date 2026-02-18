@@ -68,6 +68,12 @@ export interface SelectionRange {
 // =============================================================================
 
 /**
+ * Re-export UIMessage from TanStack AI for use throughout the app.
+ * This is the primary message type for the AI chat interface.
+ */
+export type { UIMessage } from '@tanstack/ai-client';
+
+/**
  * Agent operating mode.
  * - code: Full tool access — reads, writes, edits, deletes files (default).
  * - plan: Read-only research + produces an implementation plan.
@@ -229,13 +235,15 @@ export type ToolInput =
 	| { name: 'update_plan'; input: UpdatePlanInput };
 
 /**
- * A saved AI chat session
+ * A saved AI chat session.
+ * Uses UIMessage[] from TanStack AI for the history.
+ * Also accepts legacy AgentMessage[] for backward compatibility with older sessions.
  */
 export interface AiSession {
 	id: string;
 	label: string;
 	createdAt: number;
-	history: AgentMessage[];
+	history: unknown[];
 	/** Maps message index (as string key) to snapshot ID for revert buttons */
 	messageSnapshots?: Record<string, string>;
 }

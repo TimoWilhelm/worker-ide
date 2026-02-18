@@ -34,6 +34,16 @@ export default defineConfig({
 				test: {
 					name: 'worker',
 					include: ['worker/**/*.test.ts'],
+					// Pre-bundle CJS-only dependencies so workerd's ESM runtime can resolve
+					// their named exports. See: https://developers.cloudflare.com/workers/testing/vitest-integration/known-issues/#module-resolution
+					deps: {
+						optimizer: {
+							ssr: {
+								enabled: true,
+								include: ['@tanstack/ai'],
+							},
+						},
+					},
 					poolOptions: {
 						workers: {
 							wrangler: {

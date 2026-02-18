@@ -1,37 +1,47 @@
 /**
  * Unit tests for AI retry helper functions.
+ * Uses UIMessage (TanStack AI) with `parts: MessagePart[]`.
  */
 
 import { describe, expect, it } from 'vitest';
 
 import { extractMessageText, findLastUserMessage, getRemoveAfterIndex, prepareRetry } from './retry-helpers';
 
-import type { AgentContent, AgentMessage, ToolName } from '@shared/types';
+import type { UIMessage } from '@shared/types';
 
 // =============================================================================
 // Test Helpers
 // =============================================================================
 
-function createTextMessage(role: 'user' | 'assistant', text: string): AgentMessage {
+let idCounter = 0;
+function nextId(): string {
+	idCounter++;
+	return `msg-${idCounter}`;
+}
+
+function createTextMessage(role: 'user' | 'assistant', text: string): UIMessage {
 	return {
+		id: nextId(),
 		role,
-		content: [{ type: 'text', text }],
+		parts: [{ type: 'text', content: text }],
 	};
 }
 
-function createToolUseMessage(role: 'assistant', toolName: ToolName): AgentMessage {
+function createToolCallMessage(role: 'assistant'): UIMessage {
 	return {
+		id: nextId(),
 		role,
-		content: [{ type: 'tool_use', id: '123', name: toolName, input: {} }],
+		parts: [{ type: 'tool-call', id: 'tc-123', name: 'file_read', arguments: '{}', state: 'input-complete' }],
 	};
 }
 
-function createMixedMessage(role: 'user' | 'assistant', text: string, hasToolUse: boolean): AgentMessage {
-	const content: AgentContent[] = [{ type: 'text', text }];
-	if (hasToolUse) {
-		content.push({ type: 'tool_use', id: '456', name: 'file_read', input: {} });
+function createMixedMessage(role: 'user' | 'assistant', text: string, hasToolCall: boolean): UIMessage {
+	const parts: UIMessage['parts'] = [{ type: 'text', content: text }];
+	if (hasToolCall) {
+		// eslint-disable-next-line @typescript-eslint/consistent-type-assertions, @typescript-eslint/no-explicit-any -- test helper
+		(parts as any[]).push({ type: 'tool-call', id: 'tc-456', name: 'file_read', arguments: '{}', state: 'input-complete' });
 	}
-	return { role, content };
+	return { id: nextId(), role, parts };
 }
 
 // =============================================================================
@@ -44,24 +54,25 @@ describe('extractMessageText', () => {
 		expect(extractMessageText(message)).toBe('Hello world');
 	});
 
-	it('should extract text from a message with multiple text blocks', () => {
-		const message: AgentMessage = {
+	it('should extract text from a message with multiple text parts', () => {
+		const message: UIMessage = {
+			id: nextId(),
 			role: 'user',
-			content: [
-				{ type: 'text', text: 'First line' },
-				{ type: 'text', text: 'Second line' },
+			parts: [
+				{ type: 'text', content: 'First line' },
+				{ type: 'text', content: 'Second line' },
 			],
 		};
 		expect(extractMessageText(message)).toBe('First line\nSecond line');
 	});
 
-	it('should ignore non-text blocks', () => {
+	it('should ignore non-text parts', () => {
 		const message = createMixedMessage('assistant', 'Some text', true);
 		expect(extractMessageText(message)).toBe('Some text');
 	});
 
-	it('should return empty string for message with no text blocks', () => {
-		const message = createToolUseMessage('assistant', 'file_read');
+	it('should return empty string for message with no text parts', () => {
+		const message = createToolCallMessage('assistant');
 		expect(extractMessageText(message)).toBe('');
 	});
 });
@@ -72,7 +83,7 @@ describe('extractMessageText', () => {
 
 describe('findLastUserMessage', () => {
 	it('should find the last user message', () => {
-		const history: AgentMessage[] = [
+		const history: UIMessage[] = [
 			createTextMessage('user', 'First'),
 			createTextMessage('assistant', 'Response 1'),
 			createTextMessage('user', 'Second'),
@@ -89,13 +100,13 @@ describe('findLastUserMessage', () => {
 	});
 
 	it('should return undefined when no user messages exist', () => {
-		const history: AgentMessage[] = [createTextMessage('assistant', 'Only assistant')];
+		const history: UIMessage[] = [createTextMessage('assistant', 'Only assistant')];
 		const result = findLastUserMessage(history);
 		expect(result).toBeUndefined();
 	});
 
 	it('should find user message when it is the last message', () => {
-		const history: AgentMessage[] = [createTextMessage('user', 'Question')];
+		const history: UIMessage[] = [createTextMessage('user', 'Question')];
 		const result = findLastUserMessage(history);
 		expect(result).toBeDefined();
 		expect(extractMessageText(result!)).toBe('Question');
@@ -112,7 +123,7 @@ describe('getRemoveAfterIndex', () => {
 	});
 
 	it('should remove 2 messages when last is assistant (error during generation)', () => {
-		const history: AgentMessage[] = [
+		const history: UIMessage[] = [
 			createTextMessage('user', 'First'),
 			createTextMessage('assistant', 'Response'),
 			createTextMessage('user', 'Second'),
@@ -124,7 +135,7 @@ describe('getRemoveAfterIndex', () => {
 	});
 
 	it('should remove 1 message when last is user (error before assistant replied)', () => {
-		const history: AgentMessage[] = [
+		const history: UIMessage[] = [
 			createTextMessage('user', 'First'),
 			createTextMessage('assistant', 'Response'),
 			createTextMessage('user', 'Second'), // Error occurred before reply
@@ -135,13 +146,13 @@ describe('getRemoveAfterIndex', () => {
 	});
 
 	it('should handle single user message', () => {
-		const history: AgentMessage[] = [createTextMessage('user', 'Only message')];
+		const history: UIMessage[] = [createTextMessage('user', 'Only message')];
 		// Remove the user message (to avoid duplication when re-sent)
 		expect(getRemoveAfterIndex(history)).toBe(0);
 	});
 
 	it('should handle single assistant message', () => {
-		const history: AgentMessage[] = [createTextMessage('assistant', 'Only assistant')];
+		const history: UIMessage[] = [createTextMessage('assistant', 'Only assistant')];
 		// This is an edge case - remove 2 would be -1
 		expect(getRemoveAfterIndex(history)).toBe(-1);
 	});
@@ -157,12 +168,12 @@ describe('prepareRetry', () => {
 	});
 
 	it('should return undefined when no user messages exist', () => {
-		const history: AgentMessage[] = [createTextMessage('assistant', 'Only assistant')];
+		const history: UIMessage[] = [createTextMessage('assistant', 'Only assistant')];
 		expect(prepareRetry(history)).toBeUndefined();
 	});
 
 	it('should return correct values when last message is assistant', () => {
-		const history: AgentMessage[] = [createTextMessage('user', 'Hello'), createTextMessage('assistant', 'Error response')];
+		const history: UIMessage[] = [createTextMessage('user', 'Hello'), createTextMessage('assistant', 'Error response')];
 		const result = prepareRetry(history);
 		expect(result).toBeDefined();
 		expect(result!.promptText).toBe('Hello');
@@ -170,7 +181,7 @@ describe('prepareRetry', () => {
 	});
 
 	it('should return correct values when last message is user', () => {
-		const history: AgentMessage[] = [
+		const history: UIMessage[] = [
 			createTextMessage('user', 'First'),
 			createTextMessage('assistant', 'Response'),
 			createTextMessage('user', 'Second'),
@@ -182,7 +193,7 @@ describe('prepareRetry', () => {
 	});
 
 	it('should handle complex conversation', () => {
-		const history: AgentMessage[] = [
+		const history: UIMessage[] = [
 			createTextMessage('user', 'Create a file'),
 			createMixedMessage('assistant', 'I will create the file', true),
 			createTextMessage('user', 'Now edit it'),

@@ -100,6 +100,13 @@ export async function execute(
 		return toolError(ToolErrorCode.NO_MATCH, message);
 	}
 
+	// Guard: if the replacement produced no actual change (e.g., fuzzy match found
+	// content that after substitution is identical), skip the write and return early.
+	// This prevents empty diffs from appearing in the UI.
+	if (content === beforeContent) {
+		return 'No changes needed — the file already contains the expected content.';
+	}
+
 	// Write the updated content
 	await fs.writeFile(`${projectRoot}${editPath}`, content);
 

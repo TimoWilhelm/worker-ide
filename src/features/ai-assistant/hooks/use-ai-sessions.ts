@@ -12,7 +12,7 @@ import { useCallback, useEffect, useRef } from 'react';
 import { createApiClient, listAiSessions, loadAiSession, saveAiSession } from '@/lib/api-client';
 import { useStore } from '@/lib/store';
 
-import type { AgentMessage } from '@shared/types';
+import type { UIMessage } from '@shared/types';
 
 // =============================================================================
 // Helpers
@@ -28,14 +28,15 @@ function generateSessionId(): string {
 
 /**
  * Derive a session label from the first user message (truncated to 50 chars).
+ * UIMessage uses `parts: MessagePart[]` with TextPart { type: 'text', content: string }.
  */
-function deriveLabel(history: AgentMessage[]): string {
+function deriveLabel(history: UIMessage[]): string {
 	const firstUserMessage = history.find((message) => message.role === 'user');
 	if (!firstUserMessage) return 'New chat';
 
-	const text = firstUserMessage.content
-		.filter((block): block is { type: 'text'; text: string } => block.type === 'text')
-		.map((block) => block.text)
+	const text = firstUserMessage.parts
+		.filter((part): part is { type: 'text'; content: string } => part.type === 'text')
+		.map((part) => part.content)
 		.join(' ')
 		.trim();
 
@@ -108,7 +109,10 @@ export function useAiSessions({ projectId }: { projectId: string }) {
 			if (!data) return;
 			const restoredSnapshots = snapshotsRecordToMap(data.messageSnapshots);
 			createdAtReference.current = data.createdAt;
-			loadSession(data.history, data.id, restoredSnapshots);
+			// AiSession.history is unknown[] for wire-format flexibility.
+			// Cast to UIMessage[] — the store expects UIMessage[].
+			// eslint-disable-next-line @typescript-eslint/consistent-type-assertions, @typescript-eslint/no-explicit-any -- wire format cast
+			loadSession(data.history as any[], data.id, restoredSnapshots);
 		},
 	});
 
@@ -130,7 +134,8 @@ export function useAiSessions({ projectId }: { projectId: string }) {
 				if (!data) return;
 				const restoredSnapshots = snapshotsRecordToMap(data.messageSnapshots);
 				createdAtReference.current = data.createdAt;
-				loadSession(data.history, data.id, restoredSnapshots);
+				// eslint-disable-next-line @typescript-eslint/consistent-type-assertions, @typescript-eslint/no-explicit-any -- wire format cast
+				loadSession(data.history as any[], data.id, restoredSnapshots);
 			});
 		}
 	}, [projectId, loadSession]);

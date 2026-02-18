@@ -67,6 +67,7 @@ This document is a collection of guidelines for agents working on the project.
 - Zustand for client state management (6 slices + persist middleware).
 - CodeMirror 6 for the code editor.
 - Hono RPC client for type-safe API calls.
+- TanStack AI (`@tanstack/ai-react`, `@tanstack/ai-client`) for the AI chat UI.
 
 ### Backend
 
@@ -74,6 +75,7 @@ This document is a collection of guidelines for agents working on the project.
 - Cloudflare Durable Objects for filesystem and project coordination.
 - WebSockets (hibernation API) for real-time communication.
 - Durable Objects SQLite for storage.
+- TanStack AI (`@tanstack/ai`) for the AI agent loop and AG-UI streaming protocol.
 
 ### Build and Tooling
 
@@ -93,6 +95,32 @@ This document is a collection of guidelines for agents working on the project.
 - Formatting: Prettier (`bun run format`).
 - Report unused dependencies: Knip (`bun run knip`).
 - Type checking: TypeScript (`bun run typecheck`).
+
+## AI Architecture
+
+The AI assistant uses **TanStack AI** with the **AG-UI streaming protocol** across the full stack.
+
+### Key Packages
+
+- `@tanstack/ai` (backend) — `chat()`, `toServerSentEventsResponse()`, `convertMessagesToModelMessages()`, `toolDefinition()`, `maxIterations()`, `BaseTextAdapter`.
+- `@tanstack/ai-react` (frontend) — `useChat()` hook for managing chat state and streaming.
+- `@tanstack/ai-client` (frontend) — `fetchServerSentEvents()` connection adapter, `UIMessage` type.
+
+### LLM Provider
+
+- API calls go through **Replicate** (not directly to Anthropic). The `REPLICATE_API_TOKEN` binding is required.
+- Model IDs use Replicate format: `"anthropic/claude-4.5-haiku"`.
+- A custom adapter (`worker/services/ai-agent/llm-adapter.ts`) extends `BaseTextAdapter` from `@tanstack/ai/adapters`.
+- Do **not** use `@tanstack/ai-anthropic`
+
+### Backend Agent Loop
+
+- `worker/services/ai-agent/service.ts` — Async generator (`createAgentStream()`) wraps `chat()` calls in a manual outer loop with `maxIterations(1)` per call for doom-loop detection and snapshot management.
+- `toServerSentEventsResponse()` converts the async iterable of `StreamChunk` (AG-UI events) into an SSE `Response`.
+- App-specific events (snapshot_created, file_changed, plan_created, user_question, status, usage, max_iterations_reached, turn_complete) are injected as **CUSTOM AG-UI events**: `{ type: 'CUSTOM', name: string, data?: unknown, timestamp: number }`.
+- Tool executors push CUSTOM events to a shared `CustomEventQueue` array (synchronous push, drained by the generator).
+- Tools are defined with `toolDefinition()` from `@tanstack/ai`.
+
 
 ## Important Notes
 

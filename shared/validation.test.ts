@@ -84,32 +84,33 @@ describe('writeFileSchema', () => {
 // =============================================================================
 
 describe('aiChatMessageSchema', () => {
-	it('accepts valid chat input', () => {
+	it('accepts valid chat input with messages array', () => {
 		const result = aiChatMessageSchema.safeParse({
-			message: 'Help me fix this bug',
+			messages: [{ id: 'msg-1', role: 'user', parts: [{ type: 'text', content: 'Help me fix this bug' }] }],
 		});
 		expect(result.success).toBe(true);
 	});
 
-	it('accepts input with history', () => {
+	it('accepts input with multiple messages', () => {
 		const result = aiChatMessageSchema.safeParse({
-			message: 'Continue',
-			history: [{ role: 'user', content: 'previous message' }],
+			messages: [
+				{ id: 'msg-1', role: 'user', parts: [{ type: 'text', content: 'previous message' }] },
+				{ id: 'msg-2', role: 'assistant', parts: [{ type: 'text', content: 'response' }] },
+				{ id: 'msg-3', role: 'user', parts: [{ type: 'text', content: 'Continue' }] },
+			],
 		});
 		expect(result.success).toBe(true);
 	});
 
-	it('rejects empty message', () => {
+	it('rejects empty messages array', () => {
 		const result = aiChatMessageSchema.safeParse({
-			message: '',
+			messages: [],
 		});
 		expect(result.success).toBe(false);
 	});
 
-	it('rejects message exceeding max length', () => {
-		const result = aiChatMessageSchema.safeParse({
-			message: 'a'.repeat(LIMITS.AI_MESSAGE_MAX_LENGTH + 1),
-		});
+	it('rejects missing messages field', () => {
+		const result = aiChatMessageSchema.safeParse({});
 		expect(result.success).toBe(false);
 	});
 });
@@ -325,10 +326,12 @@ describe('todoItemSchema', () => {
 // =============================================================================
 
 describe('aiChatMessageSchema mode and session fields', () => {
+	const validMessages = [{ id: 'msg-1', role: 'user', parts: [{ type: 'text', content: 'Hello' }] }];
+
 	it('accepts mode enum values', () => {
 		for (const mode of ['code', 'plan', 'ask']) {
 			const result = aiChatMessageSchema.safeParse({
-				message: 'Create a plan',
+				messages: validMessages,
 				mode,
 			});
 			expect(result.success).toBe(true);
@@ -337,7 +340,7 @@ describe('aiChatMessageSchema mode and session fields', () => {
 
 	it('rejects invalid mode value', () => {
 		const result = aiChatMessageSchema.safeParse({
-			message: 'Hello',
+			messages: validMessages,
 			mode: 'invalid',
 		});
 		expect(result.success).toBe(false);
@@ -345,7 +348,7 @@ describe('aiChatMessageSchema mode and session fields', () => {
 
 	it('accepts sessionId string', () => {
 		const result = aiChatMessageSchema.safeParse({
-			message: 'Hello',
+			messages: validMessages,
 			sessionId: 'abc123',
 		});
 		expect(result.success).toBe(true);
@@ -353,7 +356,7 @@ describe('aiChatMessageSchema mode and session fields', () => {
 
 	it('accepts both mode and sessionId', () => {
 		const result = aiChatMessageSchema.safeParse({
-			message: 'Plan this feature',
+			messages: validMessages,
 			mode: 'plan',
 			sessionId: 'session1',
 		});
@@ -362,7 +365,7 @@ describe('aiChatMessageSchema mode and session fields', () => {
 
 	it('rejects sessionId exceeding max length', () => {
 		const result = aiChatMessageSchema.safeParse({
-			message: 'Hello',
+			messages: validMessages,
 			sessionId: 'a'.repeat(LIMITS.SESSION_ID_MAX_LENGTH + 1),
 		});
 		expect(result.success).toBe(false);

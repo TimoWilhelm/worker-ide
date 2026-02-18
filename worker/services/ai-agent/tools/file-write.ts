@@ -105,6 +105,12 @@ export async function execute(
 
 	await sendEvent('status', { message: `Writing ${writePath}...` });
 
+	// Guard: if file exists and content is identical, skip the write.
+	// This prevents empty diffs from appearing in the UI.
+	if (fileExists && typeof beforeContent === 'string' && beforeContent === writeContent) {
+		return 'No changes needed — the file already contains the expected content.';
+	}
+
 	// Create parent directories if needed
 	const writeDirectory = writePath.slice(0, writePath.lastIndexOf('/'));
 	if (writeDirectory) {

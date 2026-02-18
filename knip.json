@@ -7,7 +7,7 @@
 	"exclude": ["exports", "types"],
 	"entry": ["worker/index.ts"],
 	"project": ["src/**", "worker/**", "shared/**", "test/**"],
-	"ignoreDependencies": ["cloudflare", "codemirror"],
+	"ignoreDependencies": ["cloudflare", "codemirror", "@standard-schema/spec"],
 	"ignoreFiles": [
 		"src/vite-env.d.ts",
 		"playwright.config.ts",

@@ -2,43 +2,16 @@
  * Types for the AI Agent Service.
  */
 
+import type { StreamChunk } from '@tanstack/ai';
+
 // =============================================================================
 // Types
 // =============================================================================
 
-export interface AgentMessage {
-	role: 'user' | 'assistant';
-	content: ContentBlock[] | string;
-}
-
-export interface TextBlock {
-	type: 'text';
-	text: string;
-}
-
-export interface ToolUseBlock {
-	type: 'tool_use';
-	id: string;
-	name: string;
-	input: Record<string, string>;
-}
-
-export type ContentBlock = TextBlock | ToolUseBlock;
-
-export interface ToolResultBlock {
-	type: 'tool_result';
-	tool_use_id: string;
-	content: string;
-}
-
-export interface ClaudeResponse {
-	id: string;
-	type: string;
-	role: string;
-	content: ContentBlock[];
-	stop_reason: string | null;
-	stop_sequence: string | null;
-}
+/**
+ * Re-export TanStack AI's ModelMessage as our message type.
+ * This replaces the old hand-rolled AgentMessage / ContentBlock / ClaudeResponse types.
+ */
 
 export interface FileChange {
 	path: string;
@@ -62,17 +35,35 @@ export type TodoItem = {
 	priority: 'high' | 'medium' | 'low';
 };
 
-export type SendEventFunction = (type: string, data: Record<string, unknown>) => Promise<void>;
+/**
+ * A queue of CUSTOM AG-UI events that tools push into during execution.
+ * The stream wrapper drains this queue between AG-UI events from chat().
+ */
+export type CustomEventQueue = StreamChunk[];
 
+/**
+ * Function to emit a CUSTOM AG-UI event from a tool executor.
+ * Pushes events into the shared CustomEventQueue which is drained
+ * by the stream wrapper and sent to the client.
+ */
+export type SendEventFunction = (type: string, data: Record<string, unknown>) => void;
+
+/**
+ * Context passed to tool execute functions.
+ * This is captured in closures when creating tool definitions.
+ */
 export interface ToolExecutorContext {
 	projectRoot: string;
 	projectId: string;
 	mode: 'code' | 'plan' | 'ask';
 	sessionId?: string;
 	callMcpTool: (serverId: string, toolName: string, arguments_: Record<string, unknown>) => Promise<string>;
-	repairToolCall: (toolName: string, rawInput: unknown, error: string, apiToken: string) => Promise<Record<string, unknown> | undefined>;
 }
 
+/**
+ * Legacy tool execute function signature.
+ * Used by the individual tool modules before they're wrapped in toolDefinition().server().
+ */
 export type ToolExecuteFunction = (
 	input: Record<string, string>,
 	sendEvent: SendEventFunction,
@@ -81,6 +72,10 @@ export type ToolExecuteFunction = (
 	queryChanges?: FileChange[],
 ) => Promise<string | object>;
 
+/**
+ * Legacy tool definition shape (used by individual tool modules).
+ * The tools/index.ts barrel wraps these into TanStack AI toolDefinition().server() format.
+ */
 export interface ToolDefinition {
 	name: string;
 	description: string;
@@ -95,3 +90,5 @@ export interface ToolModule {
 	definition: ToolDefinition;
 	execute: ToolExecuteFunction;
 }
+
+export { type ModelMessage } from '@tanstack/ai';

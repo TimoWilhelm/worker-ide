@@ -1,6 +1,10 @@
 /**
  * AI Agent Tool Executor.
  * Thin dispatcher that validates input and delegates to individual tool modules.
+ *
+ * This module is still used by the legacy tool dispatch path.
+ * With TanStack AI, tool execution is handled by toolDefinition().server() wrappers
+ * in tools/index.ts. This module provides the shared helpers (listFilesRecursive, readTodos).
  */
 
 import fs from 'node:fs/promises';
@@ -8,12 +12,7 @@ import fs from 'node:fs/promises';
 import { HIDDEN_ENTRIES } from '@shared/constants';
 import { todoItemSchema } from '@shared/validation';
 
-import { TOOL_EXECUTORS } from './tools';
-import { isToolName, validateToolInput } from './utilities';
-
-import type { FileChange, SendEventFunction, TodoItem, ToolExecutorContext } from './types';
-
-export type { ToolExecutorContext } from './types';
+import type { TodoItem } from './types';
 
 // =============================================================================
 // File System Helpers
@@ -63,66 +62,5 @@ export async function readTodos(projectRoot: string, sessionId?: string): Promis
 		return validated;
 	} catch {
 		return [];
-	}
-}
-
-// =============================================================================
-// Editing tools blocked in plan mode
-// =============================================================================
-
-const EDITING_TOOLS = new Set(['file_edit', 'file_write', 'file_patch', 'file_delete', 'file_move']);
-
-// =============================================================================
-// Execute Agent Tool
-// =============================================================================
-
-export async function executeAgentTool(
-	toolName: string,
-	toolInput: Record<string, string>,
-	sendEvent: SendEventFunction,
-	apiToken: string,
-	context: ToolExecutorContext,
-	toolUseId?: string,
-	queryChanges?: FileChange[],
-): Promise<string | object> {
-	try {
-		let validatedInput: Record<string, string> = toolInput;
-		if (isToolName(toolName)) {
-			let validation = validateToolInput(toolName, toolInput);
-			if (!validation.success) {
-				try {
-					const repaired = await context.repairToolCall(toolName, toolInput, validation.error, apiToken);
-					if (repaired) {
-						validation = validateToolInput(toolName, repaired);
-					}
-				} catch {
-					// No-op
-				}
-				if (!validation.success) {
-					return { error: validation.error };
-				}
-			}
-			const data: Record<string, string> = {};
-			for (const [key, value] of Object.entries(validation.data)) {
-				data[key] = String(value);
-			}
-			validatedInput = data;
-		}
-
-		// Plan/Ask mode defense-in-depth: reject editing tools
-		if (context.mode !== 'code' && EDITING_TOOLS.has(toolName)) {
-			return { error: 'File editing tools are not available in this mode. Switch to Code mode to make changes.' };
-		}
-
-		// Dispatch to the tool module
-		const executor = TOOL_EXECUTORS.get(toolName);
-		if (!executor) {
-			return { error: `Unknown tool: ${toolName}` };
-		}
-
-		return await executor(validatedInput, sendEvent, context, toolUseId, queryChanges);
-	} catch (error) {
-		console.error(`Tool execution error (${toolName}):`, error);
-		return { error: String(error) };
 	}
 }

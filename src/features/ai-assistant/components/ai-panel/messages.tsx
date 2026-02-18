@@ -2,6 +2,9 @@
  * AI Panel Message Sub-Components.
  * WelcomeScreen, MessageBubble, UserMessage, AssistantMessage,
  * InlineToolCall, InlineTodoList, ContinuationPrompt, AIError.
+ *
+ * Renders UIMessage.parts (TextPart, ToolCallPart, ToolResultPart, ThinkingPart)
+ * from TanStack AI instead of the legacy AgentContent[] format.
  */
 
 import {
@@ -37,12 +40,60 @@ import { useStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 import { TOOL_ERROR_LABELS } from '@shared/tool-errors';
 
-import { AI_SUGGESTIONS, isRecord } from './helpers';
+import { AI_SUGGESTIONS, isRecord, isToolName } from './helpers';
 import { parseTextToSegments } from '../../lib/input-segments';
 import { FileReference } from '../file-reference';
 import { MarkdownContent } from '../markdown-content';
 
-import type { AgentContent, AgentMessage, AgentMode, ToolName } from '@shared/types';
+import type { AgentMode, ToolName, UIMessage } from '@shared/types';
+
+// =============================================================================
+// Part type helpers (for narrowing UIMessage parts)
+// =============================================================================
+
+interface TextPart {
+	type: 'text';
+	content: string;
+}
+
+interface ToolCallPart {
+	type: 'tool-call';
+	id: string;
+	name: string;
+	arguments: string;
+	input?: unknown;
+	state: string;
+	output?: unknown;
+}
+
+interface ToolResultPart {
+	type: 'tool-result';
+	toolCallId: string;
+	content: string;
+	state: string;
+	error?: string;
+}
+
+interface ThinkingPart {
+	type: 'thinking';
+	content: string;
+}
+
+function isTextPart(part: unknown): part is TextPart {
+	return isRecord(part) && part.type === 'text' && typeof part.content === 'string';
+}
+
+function isToolCallPart(part: unknown): part is ToolCallPart {
+	return isRecord(part) && part.type === 'tool-call' && typeof part.id === 'string';
+}
+
+function isToolResultPart(part: unknown): part is ToolResultPart {
+	return isRecord(part) && part.type === 'tool-result' && typeof part.toolCallId === 'string';
+}
+
+function isThinkingPart(part: unknown): part is ThinkingPart {
+	return isRecord(part) && part.type === 'thinking' && typeof part.content === 'string';
+}
 
 // =============================================================================
 // Tool icon helper
@@ -149,20 +200,19 @@ export function MessageBubble({
 	isReverting,
 	onRevert,
 }: {
-	message: AgentMessage;
+	message: UIMessage;
 	messageIndex: number;
 	snapshotId?: string;
 	isReverting: boolean;
 	onRevert: (snapshotId: string, messageIndex: number) => void;
 }) {
 	if (message.role === 'user') {
-		const textBlocks = message.content.filter((block) => block.type === 'text');
 		return (
-			<UserMessage content={textBlocks} messageIndex={messageIndex} snapshotId={snapshotId} isReverting={isReverting} onRevert={onRevert} />
+			<UserMessage message={message} messageIndex={messageIndex} snapshotId={snapshotId} isReverting={isReverting} onRevert={onRevert} />
 		);
 	}
 
-	return <AssistantMessage content={message.content} />;
+	return <AssistantMessage message={message} />;
 }
 
 // =============================================================================
@@ -170,21 +220,21 @@ export function MessageBubble({
 // =============================================================================
 
 function UserMessage({
-	content,
+	message,
 	messageIndex,
 	snapshotId,
 	isReverting,
 	onRevert,
 }: {
-	content: AgentContent[];
+	message: UIMessage;
 	messageIndex: number;
 	snapshotId?: string;
 	isReverting: boolean;
 	onRevert: (snapshotId: string, messageIndex: number) => void;
 }) {
-	const text = content
-		.filter((block): block is AgentContent & { type: 'text' } => block.type === 'text')
-		.map((block) => block.text)
+	const text = message.parts
+		.filter((part) => isTextPart(part))
+		.map((part) => part.content)
 		.join('\n');
 
 	// Build a set of known file paths to identify file mentions
@@ -230,24 +280,28 @@ function UserMessage({
 // =============================================================================
 
 /**
- * Build a list of renderable segments from content blocks, preserving order.
- * Groups adjacent text blocks, pairs tool_use with their tool_result.
+ * Build a list of renderable segments from UIMessage parts, preserving order.
+ * Groups adjacent text parts, pairs tool-call with their tool-result.
  */
-type RenderSegment = { kind: 'text'; text: string } | { kind: 'tool'; toolUse: AgentContent; toolResult?: AgentContent };
+type RenderSegment =
+	| { kind: 'text'; text: string }
+	| { kind: 'thinking'; text: string }
+	| { kind: 'tool'; toolCall: ToolCallPart; toolResult?: ToolResultPart };
 
-function buildRenderSegments(content: AgentContent[]): RenderSegment[] {
+function buildRenderSegments(parts: unknown[]): RenderSegment[] {
 	const segments: RenderSegment[] = [];
-	// Collect tool_results into a lookup so we can pair them with tool_use
-	const resultsByUseId = new Map<string, AgentContent>();
-	for (const block of content) {
-		if (block.type === 'tool_result' && block.tool_use_id) {
-			resultsByUseId.set(block.tool_use_id, block);
+
+	// Collect tool results into a lookup so we can pair them with tool calls
+	const resultsByCallId = new Map<string, ToolResultPart>();
+	for (const part of parts) {
+		if (isToolResultPart(part)) {
+			resultsByCallId.set(part.toolCallId, part);
 		}
 	}
 
-	for (const block of content) {
-		if (block.type === 'text') {
-			const trimmed = block.text.trim();
+	for (const part of parts) {
+		if (isTextPart(part)) {
+			const trimmed = part.content.trim();
 			if (!trimmed) continue;
 			// Merge consecutive text segments
 			const last = segments.at(-1);
@@ -256,17 +310,21 @@ function buildRenderSegments(content: AgentContent[]): RenderSegment[] {
 			} else {
 				segments.push({ kind: 'text', text: trimmed });
 			}
-		} else if (block.type === 'tool_use') {
-			const result = block.id ? resultsByUseId.get(block.id) : undefined;
-			segments.push({ kind: 'tool', toolUse: block, toolResult: result });
+		} else if (isThinkingPart(part)) {
+			const trimmed = part.content.trim();
+			if (!trimmed) continue;
+			segments.push({ kind: 'thinking', text: trimmed });
+		} else if (isToolCallPart(part)) {
+			const result = resultsByCallId.get(part.id);
+			segments.push({ kind: 'tool', toolCall: part, toolResult: result });
 		}
-		// tool_result blocks are consumed via the lookup above
+		// tool-result parts are consumed via the lookup above
 	}
 	return segments;
 }
 
-export function AssistantMessage({ content, streaming }: { content: AgentContent[]; streaming?: boolean }) {
-	const segments = buildRenderSegments(content);
+export function AssistantMessage({ message, streaming }: { message: UIMessage; streaming?: boolean }) {
+	const segments = buildRenderSegments(message.parts);
 	const [expandedThinking, setExpandedThinking] = useState<Set<number>>(new Set());
 	const scrollReference = useRef<HTMLDivElement>(null);
 
@@ -278,7 +336,7 @@ export function AssistantMessage({ content, streaming }: { content: AgentContent
 		if (streaming && scrollReference.current) {
 			scrollReference.current.scrollTop = scrollReference.current.scrollHeight;
 		}
-	}, [streaming, content]);
+	}, [streaming, message.parts]);
 
 	const toggleThinking = (index: number) => {
 		setExpandedThinking((previous) => {
@@ -297,19 +355,57 @@ export function AssistantMessage({ content, streaming }: { content: AgentContent
 		return (
 			<div className="flex min-w-0 animate-chat-item flex-col gap-2">
 				<div className="text-2xs font-semibold tracking-wider text-success uppercase">AI</div>
-				{segments.map((segment, index) =>
-					segment.kind === 'text' ? (
-						<div
-							key={index}
-							className="
-								overflow-hidden rounded-lg bg-bg-tertiary px-3 py-2.5 text-sm/relaxed
-								text-text-primary
-							"
-						>
-							<MarkdownContent content={segment.text} />
-						</div>
-					) : undefined,
-				)}
+				{segments.map((segment, index) => {
+					if (segment.kind === 'text') {
+						return (
+							<div
+								key={index}
+								className="
+									overflow-hidden rounded-lg bg-bg-tertiary px-3 py-2.5 text-sm/relaxed
+									text-text-primary
+								"
+							>
+								<MarkdownContent content={segment.text} />
+							</div>
+						);
+					}
+					if (segment.kind === 'thinking') {
+						const isExpanded = expandedThinking.has(index);
+						return (
+							<div key={index} className="flex flex-col gap-1.5">
+								<button
+									type="button"
+									onClick={() => toggleThinking(index)}
+									className={cn(
+										`
+											flex items-center gap-2 overflow-hidden rounded-md px-3 py-1.5
+											text-xs
+										`,
+										`
+											cursor-pointer bg-bg-tertiary font-medium text-text-secondary
+											transition-colors
+											hover:bg-border
+										`,
+									)}
+								>
+									<ChevronRight className={cn('size-3 shrink-0 transition-transform', isExpanded && 'rotate-90')} />
+									Show thinking
+								</button>
+								{isExpanded && (
+									<div
+										className="
+											overflow-hidden rounded-lg bg-bg-tertiary px-3 py-2.5 text-sm/relaxed
+											text-text-primary
+										"
+									>
+										<MarkdownContent content={segment.text} />
+									</div>
+								)}
+							</div>
+						);
+					}
+					return;
+				})}
 			</div>
 		);
 	}
@@ -321,7 +417,43 @@ export function AssistantMessage({ content, streaming }: { content: AgentContent
 			{segments.map((segment, index) => {
 				// Tool calls — always rendered inline
 				if (segment.kind === 'tool') {
-					return <InlineToolCall key={index} toolUse={segment.toolUse} toolResult={segment.toolResult} />;
+					return <InlineToolCall key={index} toolCall={segment.toolCall} toolResult={segment.toolResult} />;
+				}
+
+				// Thinking segments — collapsible
+				if (segment.kind === 'thinking') {
+					const isExpanded = expandedThinking.has(index);
+					return (
+						<div key={index} className="flex flex-col gap-1.5">
+							<button
+								type="button"
+								onClick={() => toggleThinking(index)}
+								className={cn(
+									`
+										flex items-center gap-2 overflow-hidden rounded-md px-3 py-1.5 text-xs
+									`,
+									`
+										cursor-pointer bg-bg-tertiary font-medium text-text-secondary
+										transition-colors
+										hover:bg-border
+									`,
+								)}
+							>
+								<ChevronRight className={cn('size-3 shrink-0 transition-transform', isExpanded && 'rotate-90')} />
+								Show thinking
+							</button>
+							{isExpanded && (
+								<div
+									className="
+										overflow-hidden rounded-lg bg-bg-tertiary px-3 py-2.5 text-sm/relaxed
+										text-text-primary
+									"
+								>
+									<MarkdownContent content={segment.text} />
+								</div>
+							)}
+						</div>
+					);
 				}
 
 				const isLastText = index === lastTextIndex;
@@ -361,35 +493,16 @@ export function AssistantMessage({ content, streaming }: { content: AgentContent
 					);
 				}
 
-				// Earlier text segments: collapsible thinking pill
-				const isExpanded = expandedThinking.has(index);
+				// Earlier text segments: render as normal text blocks
 				return (
-					<div key={index} className="flex flex-col gap-1.5">
-						<button
-							type="button"
-							onClick={() => toggleThinking(index)}
-							className={cn(
-								'flex items-center gap-2 overflow-hidden rounded-md px-3 py-1.5 text-xs',
-								`
-									cursor-pointer bg-bg-tertiary font-medium text-text-secondary
-									transition-colors
-									hover:bg-border
-								`,
-							)}
-						>
-							<ChevronRight className={cn('size-3 shrink-0 transition-transform', isExpanded && 'rotate-90')} />
-							Show thinking
-						</button>
-						{isExpanded && (
-							<div
-								className="
-									overflow-hidden rounded-lg bg-bg-tertiary px-3 py-2.5 text-sm/relaxed
-									text-text-primary
-								"
-							>
-								<MarkdownContent content={segment.text} />
-							</div>
-						)}
+					<div
+						key={index}
+						className="
+							overflow-hidden rounded-lg bg-bg-tertiary px-3 py-2.5 text-sm/relaxed
+							text-text-primary
+						"
+					>
+						<MarkdownContent content={segment.text} />
 					</div>
 				);
 			})}
@@ -406,7 +519,7 @@ export function AssistantMessage({ content, streaming }: { content: AgentContent
 // =============================================================================
 
 /**
- * Extract text content from an XML-like tag, e.g. `<error>msg</error>` → `msg`.
+ * Extract text content from an XML-like tag, e.g. `<error>msg</error>` -> `msg`.
  * Returns undefined if the tag is not found.
  */
 function extractTag(text: string, tag: string): string | undefined {
@@ -449,7 +562,7 @@ function shortenError(text: string): string {
 	}
 	// Fallback: extract the message body and truncate
 	const body = extractTag(text, 'error');
-	if (body) return body.length > 40 ? body.slice(0, 40) + '…' : body;
+	if (body) return body.length > 40 ? body.slice(0, 40) + '...' : body;
 	return 'Error';
 }
 
@@ -504,7 +617,7 @@ function summarizeToolResult(toolName: ToolName, rawResult: string): string {
 			const lines = rawResult.split('\n').filter(Boolean);
 			const fileCount = lines.filter((l) => /^[AMD] /.test(l)).length;
 			if (fileCount > 0) return `${fileCount} file${fileCount === 1 ? '' : 's'} changed`;
-			return rawResult.length > 40 ? rawResult.slice(0, 40) + '…' : rawResult;
+			return rawResult.length > 40 ? rawResult.slice(0, 40) + '...' : rawResult;
 		}
 
 		case 'file_grep': {
@@ -512,7 +625,7 @@ function summarizeToolResult(toolName: ToolName, rawResult: string): string {
 			const matchCount = rawResult.match(/^Found (\d+) match/);
 			if (matchCount) return `${matchCount[1]} match${matchCount[1] === '1' ? '' : 'es'}`;
 			if (rawResult.startsWith('No files found')) return 'No matches';
-			return rawResult.length > 40 ? rawResult.slice(0, 40) + '…' : rawResult;
+			return rawResult.length > 40 ? rawResult.slice(0, 40) + '...' : rawResult;
 		}
 
 		case 'file_glob': {
@@ -559,7 +672,7 @@ function summarizeToolResult(toolName: ToolName, rawResult: string): string {
 			try {
 				const parsed: unknown = JSON.parse(rawResult);
 				if (isRecord(parsed) && typeof parsed.question === 'string') {
-					return parsed.question.length > 60 ? parsed.question.slice(0, 60) + '…' : parsed.question;
+					return parsed.question.length > 60 ? parsed.question.slice(0, 60) + '...' : parsed.question;
 				}
 			} catch {
 				/* not JSON */
@@ -568,7 +681,7 @@ function summarizeToolResult(toolName: ToolName, rawResult: string): string {
 		}
 
 		default: {
-			return rawResult.length > 40 ? rawResult.slice(0, 40) + '…' : rawResult;
+			return rawResult.length > 40 ? rawResult.slice(0, 40) + '...' : rawResult;
 		}
 	}
 }
@@ -768,47 +881,103 @@ function hasExpandableDetail(toolName: ToolName, rawResult: string): boolean {
 	}
 }
 
-function InlineToolCall({ toolUse, toolResult }: { toolUse: AgentContent; toolResult?: AgentContent }) {
+/**
+ * Unwrap a tool result from its `{ content: string }` envelope.
+ *
+ * Server tools return `{ content: text }` objects so that `@tanstack/ai`'s
+ * `executeToolCalls()` doesn't `JSON.parse` a plain string.  The result
+ * arrives on the client as:
+ *   - `ToolResultPart.content`: JSON string `'{"content":"..."}'`
+ *   - `ToolCallPart.output`: parsed object `{ content: "..." }`
+ */
+function unwrapToolContent(value: unknown): string | undefined {
+	if (typeof value === 'string') {
+		try {
+			const parsed: unknown = JSON.parse(value);
+			if (isRecord(parsed) && typeof parsed.content === 'string') {
+				return parsed.content;
+			}
+		} catch {
+			// Not JSON
+		}
+		return value || undefined;
+	}
+	if (isRecord(value) && typeof value.content === 'string') {
+		return value.content;
+	}
+	if (isRecord(value) && typeof value.error === 'string') {
+		return value.error;
+	}
+	return value === undefined ? undefined : JSON.stringify(value);
+}
+
+/**
+ * Get the raw result string from a ToolCallPart and/or ToolResultPart.
+ * TanStack AI puts the result in ToolResultPart.content (string) or ToolCallPart.output.
+ */
+function getToolResultContent(toolCall: ToolCallPart, toolResult?: ToolResultPart): string | undefined {
+	if (toolResult && typeof toolResult.content === 'string' && toolResult.content) {
+		return unwrapToolContent(toolResult.content);
+	}
+	if (toolCall.output !== undefined) {
+		return unwrapToolContent(toolCall.output);
+	}
+	return undefined;
+}
+
+/**
+ * Check if a tool call has an error result.
+ */
+function isToolError(toolCall: ToolCallPart, toolResult?: ToolResultPart): boolean {
+	if (toolResult?.state === 'error') return true;
+	if (toolResult?.error) return true;
+	const content = getToolResultContent(toolCall, toolResult);
+	return content !== undefined && isErrorResult(content);
+}
+
+function InlineToolCall({ toolCall, toolResult }: { toolCall: ToolCallPart; toolResult?: ToolResultPart }) {
 	const [isExpanded, setIsExpanded] = useState(false);
 
-	if (toolUse.type !== 'tool_use') return;
+	const toolName: ToolName = isToolName(toolCall.name) ? toolCall.name : 'files_list';
+	const isCompleted = toolCall.state === 'input-complete' && (toolResult !== undefined || toolCall.output !== undefined);
+	const rawResultContent = getToolResultContent(toolCall, toolResult);
+	const isError = isToolError(toolCall, toolResult);
 
-	const toolName = toolUse.name;
-	const isCompleted = toolResult !== undefined;
-	const rawResultContent = toolResult?.type === 'tool_result' && typeof toolResult.content === 'string' ? toolResult.content : undefined;
-	const isError =
-		(toolResult?.type === 'tool_result' && toolResult.is_error) || (rawResultContent !== undefined && isErrorResult(rawResultContent));
-
-	// Extract file paths from tool input
-	const input = toolUse.input;
+	// Extract file paths from tool input.
+	// Prefer toolCall.input (parsed object), fall back to parsing toolCall.arguments (JSON string).
+	const input = isRecord(toolCall.input)
+		? toolCall.input
+		: (() => {
+				try {
+					const parsed: unknown = JSON.parse(toolCall.arguments);
+					return isRecord(parsed) ? parsed : {};
+				} catch {
+					return {};
+				}
+			})();
 	let singlePath: string | undefined;
 	let fromPath: string | undefined;
 	let toPath: string | undefined;
 	let pattern: string | undefined;
 	let extraLabel: string | undefined;
-	if (isRecord(input)) {
-		if (typeof input.path === 'string') {
-			singlePath = input.path;
-		} else if (typeof input.from_path === 'string' && typeof input.to_path === 'string') {
-			fromPath = input.from_path;
-			toPath = input.to_path;
-		}
-		if (typeof input.pattern === 'string') {
-			pattern = input.pattern;
-		}
-		if (typeof input.url === 'string') {
-			extraLabel = input.url;
-		}
-		if (typeof input.query === 'string') {
-			extraLabel = input.query;
-		}
+	if (typeof input.path === 'string') {
+		singlePath = input.path;
+	} else if (typeof input.from_path === 'string' && typeof input.to_path === 'string') {
+		fromPath = input.from_path;
+		toPath = input.to_path;
+	}
+	if (typeof input.pattern === 'string') {
+		pattern = input.pattern;
+	}
+	if (typeof input.url === 'string') {
+		extraLabel = input.url;
+	}
+	if (typeof input.query === 'string') {
+		extraLabel = input.query;
 	}
 
 	// Extract TODOs from todos_get / todos_update results
-	const todos =
-		toolResult?.type === 'tool_result' && typeof toolResult.content === 'string'
-			? extractTodosFromResult(toolName, toolResult.content)
-			: undefined;
+	const todos = rawResultContent ? extractTodosFromResult(toolName, rawResultContent) : undefined;
 
 	// Build summary text for the result
 	const resultSummary = rawResultContent ? summarizeToolResult(toolName, rawResultContent) : undefined;
@@ -854,7 +1023,7 @@ function InlineToolCall({ toolUse, toolResult }: { toolUse: AgentContent; toolRe
 				)}
 				{!singlePath && !fromPath && !pattern && extraLabel && (
 					<span className="max-w-48 truncate text-text-secondary" title={extraLabel}>
-						{extraLabel.length > 60 ? extraLabel.slice(0, 60) + '…' : extraLabel}
+						{extraLabel.length > 60 ? extraLabel.slice(0, 60) + '...' : extraLabel}
 					</span>
 				)}
 				{resultSummary && <span className="ml-auto min-w-0 truncate text-text-secondary">{resultSummary}</span>}

@@ -69,28 +69,24 @@ export function ChangedFilesSummary({
 	return (
 		<div className="rounded-lg border border-accent/25 bg-accent/5">
 			{/* Header */}
-			<button
-				type="button"
-				onClick={() => setIsExpanded((previous) => !previous)}
-				className={cn(
-					'flex w-full cursor-pointer items-center justify-between px-3 py-2',
-					'text-xs font-medium text-accent transition-colors',
-					'hover:bg-accent/10',
-				)}
-			>
-				<div className="flex items-center gap-2">
+			<div className={cn('flex w-full items-center justify-between px-3 py-2', 'text-xs font-medium text-accent transition-colors')}>
+				<button
+					type="button"
+					onClick={() => setIsExpanded((previous) => !previous)}
+					className="
+						-mx-1 flex cursor-pointer items-center gap-2 rounded-md px-1
+						hover:bg-accent/10
+					"
+				>
 					{isExpanded ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
 					<span>
 						{pendingEntries.length} file{pendingEntries.length === 1 ? '' : 's'}
 					</span>
-				</div>
+				</button>
 				<div className="flex shrink-0 items-center gap-1">
 					<button
 						type="button"
-						onClick={(event) => {
-							event.stopPropagation();
-							onApproveAll();
-						}}
+						onClick={() => onApproveAll()}
 						disabled={isReverting}
 						className={cn(
 							'inline-flex cursor-pointer items-center gap-1 rounded-md px-2 py-0.5',
@@ -104,10 +100,7 @@ export function ChangedFilesSummary({
 					</button>
 					<button
 						type="button"
-						onClick={(event) => {
-							event.stopPropagation();
-							void onRejectAll();
-						}}
+						onClick={() => void onRejectAll()}
 						disabled={isReverting || !canReject}
 						className={cn(
 							'inline-flex cursor-pointer items-center gap-1 rounded-md px-2 py-0.5',
@@ -120,7 +113,7 @@ export function ChangedFilesSummary({
 						<span className="whitespace-nowrap">Reject All</span>
 					</button>
 				</div>
-			</button>
+			</div>
 
 			{/* File list */}
 			{isExpanded && (

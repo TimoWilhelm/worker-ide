@@ -1,13 +1,20 @@
 /**
  * AI Agent Service.
- * Handles the Claude AI agent loop with streaming response.
+ * Handles the Claude AI agent loop with streaming response using TanStack AI.
+ *
+ * Key architecture:
+ * - Uses TanStack AI chat() with custom Replicate adapter for the agentic loop
+ * - Emits native AG-UI protocol events via toServerSentEventsResponse()
+ * - App-specific events (snapshots, file changes, etc.) are sent as CUSTOM AG-UI events
+ * - Frontend uses useChat + fetchServerSentEvents to consume the stream natively
+ * - Integrates retry, doom loop detection, context pruning, and token tracking
  */
 
 import fs from 'node:fs/promises';
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import Replicate from 'replicate';
+import { chat, maxIterations, toServerSentEventsResponse } from '@tanstack/ai';
 import { mount, withMounts } from 'worker-fs-mount';
 
 import {
@@ -19,13 +26,65 @@ import {
 	PLAN_MODE_SYSTEM_PROMPT,
 } from '@shared/constants';
 
-import { executeAgentTool } from './tool-executor';
-import { AGENT_TOOLS, ASK_MODE_TOOLS, PLAN_MODE_TOOLS } from './tools';
-import { isRecordObject, normalizeFunctionCallsFormat, parseApiError, repairToolCallJson } from './utilities';
+import { isContextOverflow, pruneToolOutputs } from './context-pruner';
+import { DoomLoopDetector } from './doom-loop';
+import { createAdapter, getModelLimits } from './llm-adapter';
+import { classifyRetryableError, calculateRetryDelay, sleep } from './retry';
+import { TokenTracker } from './token-tracker';
+import { createSendEvent, createServerTools } from './tools';
+import { isRecordObject, parseApiError } from './utilities';
 
-import type { AgentMessage, ClaudeResponse, ContentBlock, FileChange, SnapshotMetadata, ToolResultBlock, ToolUseBlock } from './types';
+import type { CustomEventQueue, FileChange, ModelMessage, SnapshotMetadata, ToolExecutorContext } from './types';
 import type { ExpiringFilesystem } from '../../durable/expiring-filesystem';
 import type { AIModelId } from '@shared/constants';
+import type { StreamChunk } from '@tanstack/ai';
+
+// =============================================================================
+// AG-UI Event Helpers
+// =============================================================================
+
+/**
+ * Safely extract a string field from an unknown AG-UI event object.
+ */
+function getEventField(event: unknown, field: string): string | undefined {
+	if (!isRecordObject(event)) return undefined;
+	const value = event[field];
+	return typeof value === 'string' ? value : undefined;
+}
+
+/**
+ * Safely extract a record field from an unknown AG-UI event object.
+ */
+function getEventRecord(event: unknown, field: string): Record<string, unknown> | undefined {
+	if (!isRecordObject(event)) return undefined;
+	const value = event[field];
+	return isRecordObject(value) ? value : undefined;
+}
+
+/**
+ * Safely extract a number from a record by key.
+ */
+function getNumberField(record: Record<string, unknown>, field: string): number {
+	const value = record[field];
+	return typeof value === 'number' ? value : 0;
+}
+
+/**
+ * Create a CUSTOM AG-UI event.
+ */
+function customEvent(name: string, data: Record<string, unknown>): StreamChunk {
+	return { type: 'CUSTOM', name, data, timestamp: Date.now() };
+}
+
+// =============================================================================
+// Constants
+// =============================================================================
+
+/** Maximum number of agent loop iterations (LLM calls) */
+const MAX_ITERATIONS = 10;
+
+/** Maximum retry attempts for a single LLM call */
+const MAX_RETRY_ATTEMPTS = 5;
 
 // =============================================================================
 // AI Agent Service Class
@@ -45,43 +104,23 @@ export class AIAgentService {
 
 	/**
 	 * Run the AI agent chat loop with streaming response.
+	 * Returns a Response with AG-UI SSE events via toServerSentEventsResponse().
 	 */
-	async runAgentChat(prompt: string, history: AgentMessage[], apiToken: string, signal?: AbortSignal): Promise<ReadableStream<Uint8Array>> {
-		const encoder = new TextEncoder();
-		const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
-		const writer = writable.getWriter();
+	async runAgentChat(messages: ModelMessage[], apiKey: string, signal?: AbortSignal): Promise<Response> {
+		const abortController = new AbortController();
 
-		const sendEvent = async (type: string, data: Record<string, unknown>) => {
-			const event = `data: ${JSON.stringify({ type, ...data })}\n\n`;
-			await writer.write(encoder.encode(event));
-		};
+		// Forward external signal to our controller
+		if (signal) {
+			signal.addEventListener('abort', () => abortController.abort(), { once: true });
+		}
 
-		// Run agent loop in background with its own mount scope.
-		// The parent withMounts scope exits when the Response is returned,
-		// so we need our own scope for the async agent loop.
-		withMounts(() => {
+		// Run the agent loop in a mount scope (for worker-fs-mount)
+		const stream = withMounts(() => {
 			mount(this.projectRoot, this.fsStub);
-			return this.runAgentLoop(writer, sendEvent, prompt, history, apiToken, signal);
-		}).catch(async (error) => {
-			if (error instanceof Error && error.name === 'AbortError') {
-				try {
-					await writer.close();
-				} catch {
-					// No-op
-				}
-				return;
-			}
-			console.error('Agent error:', error);
-			try {
-				const parsed = parseApiError(error);
-				await sendEvent('error', { message: parsed.message, code: parsed.code });
-				await writer.close();
-			} catch {
-				// No-op
-			}
+			return this.createAgentStream(messages, apiKey, abortController);
 		});
 
-		return readable;
+		return toServerSentEventsResponse(stream, { abortController });
 	}
 
 	/**
@@ -91,166 +130,343 @@ export class AIAgentService {
 		return this.fsStub;
 	}
 
-	private async runAgentLoop(
-		writer: WritableStreamDefaultWriter<Uint8Array>,
-		sendEvent: (type: string, data: Record<string, unknown>) => Promise<void>,
-		prompt: string,
-		history: AgentMessage[],
-		apiToken: string,
-		signal?: AbortSignal,
-	): Promise<void> {
+	/**
+	 * Create the AG-UI event stream that wraps chat() with app-specific CUSTOM events.
+	 *
+	 * This async generator:
+	 * 1. Emits CUSTOM status/snapshot events at the start
+	 * 2. Runs the agent loop manually (chat() with maxIterations(1) per iteration)
+	 * 3. Passes through AG-UI events from chat() directly to the client
+	 * 4. Drains the CUSTOM event queue (populated by tool executors) between AG-UI events
+	 * 5. Intercepts events for doom loop detection, file change tracking, token tracking
+	 * 6. Emits CUSTOM usage/done events at the end
+	 */
+	private async *createAgentStream(messages: ModelMessage[], apiKey: string, abortController: AbortController): AsyncIterable<StreamChunk> {
+		const signal = abortController.signal;
 		const queryChanges: FileChange[] = [];
+		const doomDetector = new DoomLoopDetector();
+		const tokenTracker = new TokenTracker();
+		const eventQueue: CustomEventQueue = [];
 
-		// Eagerly create a snapshot directory for code mode so the revert
-		// button appears immediately and file changes are captured in real-time.
+		// Create the sendEvent function that pushes CUSTOM events to the queue
+		const sendEvent = createSendEvent(eventQueue);
+
+		// Eagerly create a snapshot directory for code mode
 		let snapshotContext: { id: string; directory: string; savedPaths: Set<string> } | undefined;
 		if (this.mode === 'code') {
-			snapshotContext = await this.initSnapshot(prompt, sendEvent);
+			snapshotContext = await this.initSnapshot(messages, sendEvent);
+			// Drain snapshot events
+			while (eventQueue.length > 0) {
+				const queued = eventQueue.shift();
+				if (queued) yield queued;
+			}
 		}
 
 		try {
-			await sendEvent('status', { message: 'Starting...' });
+			yield customEvent('status', { message: 'Starting...' });
 
-			// Read AGENTS.md context if available
-			const agentsContext = await this.readAgentsContext();
+			// Build system prompts
+			const systemPrompts = await this.buildSystemPrompts();
 
-			// Read the latest plan so implementation steps can reference it
-			const latestPlan = this.mode === 'plan' ? undefined : await this.readLatestPlan();
+			// Create the Replicate adapter
+			const adapter = createAdapter(this.model, apiKey);
+			const modelLimits = getModelLimits(this.model);
 
-			const messages: Array<{ role: string; content: string | ContentBlock[] | ToolResultBlock[] }> = [];
-			for (const message of history) {
-				messages.push({ role: message.role, content: message.content });
-			}
-			messages.push({ role: 'user', content: prompt });
+			// Create tool executor context
+			const toolContext: ToolExecutorContext = {
+				projectRoot: this.projectRoot,
+				projectId: this.projectId,
+				mode: this.mode,
+				sessionId: this.sessionId,
+				callMcpTool: (serverId, toolName, arguments_) => this.callMcpTool(serverId, toolName, arguments_),
+			};
+
+			// Mutable copy of messages for the agent loop
+			const workingMessages = [...messages];
 
 			let continueLoop = true;
-			const maxIterations = 10;
 			let iteration = 0;
 			let hitIterationLimit = false;
-			// Collect the final assistant text for plan mode
 			let lastAssistantText = '';
 
-			while (continueLoop && iteration < maxIterations) {
-				if (signal?.aborted) {
-					await sendEvent('status', { message: 'Interrupted' });
+			while (continueLoop && iteration < MAX_ITERATIONS) {
+				if (signal.aborted) {
+					yield customEvent('status', { message: 'Interrupted' });
 					break;
 				}
+
 				iteration++;
-				await sendEvent('status', { message: this.mode === 'plan' ? 'Researching...' : 'Thinking...' });
+				yield customEvent('status', {
+					message: this.mode === 'plan' ? 'Researching...' : 'Thinking...',
+				});
 
-				const response = await this.callClaude(messages, apiToken, signal, agentsContext, latestPlan);
-				if (!response) {
-					throw new Error('Failed to get response from Claude');
+				// Check context overflow and prune if needed
+				if (isContextOverflow(workingMessages, modelLimits)) {
+					const { messages: prunedMessages, prunedTokens } = pruneToolOutputs(workingMessages);
+					if (prunedTokens > 0) {
+						workingMessages.length = 0;
+						workingMessages.push(...prunedMessages);
+						yield customEvent('status', {
+							message: `Pruned ${prunedTokens} tokens of old tool output`,
+						});
+					}
 				}
 
-				let hasToolUse = false;
-				const toolResults: ToolResultBlock[] = [];
+				// Track file changes before this iteration for snapshot
+				const changeCountBefore = queryChanges.length;
 
-				for (const block of response.content) {
-					if (block.type === 'text') {
-						await sendEvent('message', { content: block.text });
-						lastAssistantText = block.text;
-					} else if (block.type === 'tool_use') {
-						hasToolUse = true;
+				// Create tools fresh each iteration (they capture the mutable queryChanges array)
+				const tools = createServerTools(sendEvent, toolContext, queryChanges, this.mode);
 
-						await sendEvent('tool_call', {
-							tool: block.name,
-							id: block.id,
-							args: block.input,
+				// Call the LLM with retry
+				let chatResult: AsyncIterable<StreamChunk>;
+				let retryAttempt = 0;
+
+				while (true) {
+					try {
+						// eslint-disable-next-line @typescript-eslint/no-explicit-any -- TanStack AI message types are restrictive
+						const messagesCopy: any = [...workingMessages];
+						chatResult = chat({
+							adapter,
+							messages: messagesCopy,
+							systemPrompts,
+							tools,
+							maxTokens: 8192,
+							agentLoopStrategy: maxIterations(1),
 						});
-
-						const changeCountBefore = queryChanges.length;
-						const result = await executeAgentTool(
-							block.name,
-							block.input,
-							sendEvent,
-							apiToken,
-							{
-								projectRoot: this.projectRoot,
-								projectId: this.projectId,
-								mode: this.mode,
-								sessionId: this.sessionId,
-								callMcpTool: (serverId: string, toolName: string, arguments_: Record<string, unknown>) =>
-									this.callMcpTool(serverId, toolName, arguments_),
-								repairToolCall: (toolName: string, rawInput: unknown, error: string, token: string) =>
-									this.repairToolCall(toolName, rawInput, error, token),
-							},
-							block.id,
-							queryChanges,
-						);
-
-						// Incrementally persist new file changes to the snapshot
-						if (snapshotContext && queryChanges.length > changeCountBefore) {
-							for (let index = changeCountBefore; index < queryChanges.length; index++) {
-								await this.addFileToSnapshot(snapshotContext, queryChanges[index]);
-							}
+						break;
+					} catch (error) {
+						retryAttempt++;
+						const retryReason = classifyRetryableError(error);
+						if (!retryReason || retryAttempt >= MAX_RETRY_ATTEMPTS) {
+							throw error;
 						}
-
-						await sendEvent('tool_result', {
-							tool: block.name,
-							tool_use_id: block.id,
-							result: typeof result === 'string' ? result : JSON.stringify(result),
-						});
-
-						toolResults.push({
-							type: 'tool_result',
-							tool_use_id: block.id,
-							content: typeof result === 'string' ? result : JSON.stringify(result),
-						});
+						const delay = calculateRetryDelay(retryAttempt, error);
+						yield customEvent('status', { message: `Retrying (${retryReason})...` });
+						await sleep(delay, signal);
 					}
 				}
 
-				// Stop the loop when user_question is used — the user needs to reply
-				const questionBlock = response.content.find(
-					(block): block is ToolUseBlock => block.type === 'tool_use' && block.name === 'user_question',
-				);
+				// Consume the AG-UI event stream from chat()
+				let hadToolCalls = false;
+				let hadUserQuestion = false;
+				let currentToolCallId: string | undefined;
+				let currentToolName: string | undefined;
+				let currentToolArguments = '';
+				const completedToolCalls: Array<{ id: string; name: string; arguments: string }> = [];
+				const toolResults: Array<{ toolCallId: string; content: string }> = [];
 
-				if (hasToolUse) {
-					messages.push({ role: 'assistant', content: response.content }, { role: 'user', content: toolResults });
-					if (questionBlock) {
-						continueLoop = false;
-						// Emit a dedicated event so the frontend can display the question prominently
-						await sendEvent('user_question', {
-							question: questionBlock.input.question ?? '',
-							options: questionBlock.input.options ?? '',
+				for await (const chunk of chatResult) {
+					if (signal.aborted) break;
+
+					// Drain any CUSTOM events queued by tool executors
+					while (eventQueue.length > 0) {
+						const queued = eventQueue.shift();
+						if (queued) yield queued;
+					}
+
+					if (!isRecordObject(chunk)) continue;
+					const eventType = getEventField(chunk, 'type');
+
+					switch (eventType) {
+						case 'TEXT_MESSAGE_CONTENT': {
+							const delta = getEventField(chunk, 'delta');
+							if (delta) {
+								lastAssistantText += delta;
+							}
+							// Pass through to client
+							yield chunk;
+							break;
+						}
+						case 'TEXT_MESSAGE_START': {
+							lastAssistantText = '';
+							yield chunk;
+							break;
+						}
+						case 'TEXT_MESSAGE_END': {
+							yield chunk;
+							break;
+						}
+						case 'TOOL_CALL_START': {
+							hadToolCalls = true;
+							currentToolCallId = getEventField(chunk, 'toolCallId');
+							currentToolName = getEventField(chunk, 'toolName');
+							currentToolArguments = '';
+							yield chunk;
+							break;
+						}
+						case 'TOOL_CALL_ARGS': {
+							currentToolArguments += getEventField(chunk, 'delta') ?? '';
+							yield chunk;
+							break;
+						}
+						case 'TOOL_CALL_END': {
+							const toolCallId = getEventField(chunk, 'toolCallId') || currentToolCallId || '';
+							const toolName = getEventField(chunk, 'toolName') || currentToolName;
+
+							// Record for doom loop detection
+							if (toolName) {
+								let toolInput: Record<string, unknown> = {};
+								try {
+									toolInput = JSON.parse(currentToolArguments || '{}');
+								} catch {
+									// No-op
+								}
+								doomDetector.record(toolName, toolInput);
+							}
+
+							// Track completed tool call for message reconstruction
+							if (toolCallId && toolName) {
+								completedToolCalls.push({ id: toolCallId, name: toolName, arguments: currentToolArguments });
+								const resultContent = getEventField(chunk, 'result');
+								toolResults.push({ toolCallId, content: resultContent ?? '' });
+							}
+
+							// Check if user_question was used — stop the loop
+							if (toolName === 'user_question') {
+								hadUserQuestion = true;
+							}
+
+							yield chunk;
+
+							// Drain any CUSTOM events from tool execution
+							while (eventQueue.length > 0) {
+								const queued = eventQueue.shift();
+								if (queued) yield queued;
+							}
+
+							currentToolCallId = undefined;
+							currentToolName = undefined;
+							currentToolArguments = '';
+							break;
+						}
+						case 'RUN_FINISHED': {
+							// Extract usage data if available
+							const usage = getEventRecord(chunk, 'usage');
+							if (usage) {
+								tokenTracker.recordTurn(this.model, {
+									inputTokens: getNumberField(usage, 'inputTokens') || getNumberField(usage, 'input_tokens'),
+									outputTokens: getNumberField(usage, 'outputTokens') || getNumberField(usage, 'output_tokens'),
+									cacheReadInputTokens: getNumberField(usage, 'cacheReadInputTokens') || getNumberField(usage, 'cache_read_input_tokens'),
+									cacheCreationInputTokens:
+										getNumberField(usage, 'cacheCreationInputTokens') || getNumberField(usage, 'cache_creation_input_tokens'),
+								});
+							}
+							// Pass through — this is the per-iteration RUN_FINISHED
+							yield chunk;
+							break;
+						}
+						case 'RUN_ERROR': {
+							// Pass through — retries are handled at the outer chat() call level,
+							// not inside the stream consumption loop.
+							yield chunk;
+							break;
+						}
+						default: {
+							// Pass through other AG-UI events (RUN_STARTED, STEP_STARTED, etc.)
+							yield chunk;
+							break;
+						}
+					}
+				}
+
+				// Drain any remaining CUSTOM events from the last tool execution
+				while (eventQueue.length > 0) {
+					const queued = eventQueue.shift();
+					if (queued) yield queued;
+				}
+
+				// Incrementally persist new file changes to the snapshot
+				if (snapshotContext && queryChanges.length > changeCountBefore) {
+					for (let index = changeCountBefore; index < queryChanges.length; index++) {
+						await this.addFileToSnapshot(snapshotContext, queryChanges[index]);
+					}
+				}
+
+				// Update messages for next iteration.
+				// When tool calls occurred, reconstruct the full assistant + tool result
+				// messages so the LLM sees the complete context on the next iteration.
+				if (hadToolCalls && completedToolCalls.length > 0) {
+					workingMessages.push({
+						role: 'assistant',
+						// eslint-disable-next-line unicorn/no-null -- ModelMessage.content requires null, not undefined
+						content: lastAssistantText || null,
+						toolCalls: completedToolCalls.map((tc) => ({
+							id: tc.id,
+							type: 'function' as const,
+							function: { name: tc.name, arguments: tc.arguments },
+						})),
+					});
+					for (const result of toolResults) {
+						workingMessages.push({
+							role: 'tool',
+							content: result.content,
+							toolCallId: result.toolCallId,
 						});
 					}
+					completedToolCalls.length = 0;
+					toolResults.length = 0;
 				} else {
+					if (lastAssistantText) {
+						workingMessages.push({ role: 'assistant', content: lastAssistantText });
+					}
 					continueLoop = false;
 				}
 
-				if (response.stop_reason === 'end_turn' && !hasToolUse) {
+				// Check doom loop
+				const doomLoopTool = doomDetector.isDoomLoop();
+				if (doomLoopTool) {
+					yield customEvent('status', {
+						message: `Detected repeated calls to ${doomLoopTool}, stopping.`,
+					});
 					continueLoop = false;
 				}
 
-				await sendEvent('turn_complete', {});
+				// Check user question
+				if (hadUserQuestion) {
+					continueLoop = false;
+				}
+
+				// If no tool calls, we're done
+				if (!hadToolCalls) {
+					continueLoop = false;
+				}
+
+				yield customEvent('turn_complete', {});
 			}
 
-			// Detect whether the loop was cut short by the iteration limit
-			// while the model still wanted to use tools (circuit breaker).
-			if (continueLoop && iteration >= maxIterations && !signal?.aborted) {
+			// Detect iteration limit hit
+			if (continueLoop && iteration >= MAX_ITERATIONS && !signal.aborted) {
 				hitIterationLimit = true;
 			}
 
-			// Clean up empty snapshots (no files were changed)
+			// Clean up empty snapshots
 			if (snapshotContext && queryChanges.length === 0) {
 				await this.deleteDirectoryRecursive(snapshotContext.directory);
 			}
 
-			// In plan mode, save the plan to the filesystem
+			// In plan mode, save the plan
 			if (this.mode === 'plan' && lastAssistantText.trim()) {
-				await this.savePlan(lastAssistantText, prompt, sendEvent);
+				yield* this.savePlan(lastAssistantText, workingMessages);
 			}
 
 			if (hitIterationLimit) {
-				await sendEvent('max_iterations_reached', { iterations: maxIterations });
+				yield customEvent('max_iterations_reached', { iterations: MAX_ITERATIONS });
 			}
 
-			await sendEvent('done', {});
-			await writer.close();
+			// Emit token usage summary
+			const totalUsage = tokenTracker.getTotalUsage();
+			if (totalUsage.input > 0 || totalUsage.output > 0) {
+				yield customEvent('usage', {
+					input: totalUsage.input,
+					output: totalUsage.output,
+					cacheRead: totalUsage.cacheRead,
+					cacheWrite: totalUsage.cacheWrite,
+					turns: tokenTracker.turnCount,
+				});
+			}
 		} catch (error) {
 			if (error instanceof Error && error.name === 'AbortError') {
-				// Clean up empty snapshots on abort
 				if (snapshotContext && queryChanges.length === 0) {
 					try {
 						await this.deleteDirectoryRecursive(snapshotContext.directory);
@@ -258,11 +474,9 @@ export class AIAgentService {
 						// No-op
 					}
 				}
-				await writer.close();
 				return;
 			}
 			console.error('Agent loop error:', error);
-			// Clean up empty snapshots on error
 			if (snapshotContext && queryChanges.length === 0) {
 				try {
 					await this.deleteDirectoryRecursive(snapshotContext.directory);
@@ -271,275 +485,72 @@ export class AIAgentService {
 				}
 			}
 			const parsed = parseApiError(error);
-			await sendEvent('error', { message: parsed.message, code: parsed.code });
-			await writer.close();
+			yield {
+				type: 'RUN_ERROR',
+				timestamp: Date.now(),
+				error: { message: parsed.message, code: parsed.code ?? undefined },
+			};
 		} finally {
 			await this.closeMcpClients();
 		}
 	}
 
-	private async callClaude(
-		messages: Array<{ role: string; content: string | ContentBlock[] | ToolResultBlock[] }>,
-		apiToken: string,
-		signal?: AbortSignal,
-		agentsContext?: string,
-		latestPlan?: string,
-	): Promise<ClaudeResponse | undefined> {
-		if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
-		const replicate = new Replicate({ auth: apiToken });
+	// =============================================================================
+	// System Prompt Builder
+	// =============================================================================
 
-		let formattedPrompt = '';
-		for (const message of messages) {
-			if (message.role === 'user') {
-				if (typeof message.content === 'string') {
-					formattedPrompt += `\n\nHuman: ${message.content}`;
-				} else if (this.isToolResultArray(message.content)) {
-					let resultsText = '';
-					for (const result of message.content) {
-						const resultContent =
-							typeof result.content === 'string'
-								? result.content.length > 2000
-									? result.content.slice(0, 2000) + '\n... (truncated)'
-									: result.content
-								: JSON.stringify(result.content);
-						resultsText += `\n[Tool Result for ${result.tool_use_id}]:\n${resultContent}\n[/Tool Result]`;
-					}
-					formattedPrompt += `\n\nHuman: ${resultsText}`;
-				}
-			} else if (message.role === 'assistant') {
-				if (typeof message.content === 'string') {
-					formattedPrompt += `\n\nAssistant: ${message.content}`;
-				} else if (this.isContentBlockArray(message.content)) {
-					let assistantText = '';
-					for (const block of message.content) {
-						if (block.type === 'text') {
-							assistantText += block.text;
-						} else if (block.type === 'tool_use') {
-							assistantText += `\n<tool_use>\n{"name": "${block.name}", "input": ${JSON.stringify(block.input)}}\n</tool_use>`;
-						}
-					}
-					formattedPrompt += `\n\nAssistant: ${assistantText}`;
-				}
-			}
-		}
-		formattedPrompt += '\n\nAssistant:';
+	private async buildSystemPrompts(): Promise<string[]> {
+		const prompts: string[] = [];
 
-		// Select tools based on plan mode
-		const activeTools = this.mode === 'ask' ? ASK_MODE_TOOLS : this.mode === 'plan' ? PLAN_MODE_TOOLS : AGENT_TOOLS;
+		let mainPrompt = AGENT_SYSTEM_PROMPT;
 
-		const toolsDescription = activeTools
-			.map((t) => `- ${t.name}: ${t.description}\n  Parameters: ${JSON.stringify(t.input_schema.properties)}`)
-			.join('\n');
-
-		// Build system prompt with optional AGENTS.md context and plan mode addendum
-		let systemPrompt = AGENT_SYSTEM_PROMPT;
+		// Add AGENTS.md context
+		const agentsContext = await this.readAgentsContext();
 		if (agentsContext) {
-			systemPrompt += `\n\n## Project Guidelines (from AGENTS.md)\n${agentsContext}`;
+			mainPrompt += `\n\n## Project Guidelines (from AGENTS.md)\n${agentsContext}`;
 		}
+
+		// Add mode-specific addendum
 		if (this.mode === 'plan') {
-			systemPrompt += PLAN_MODE_SYSTEM_PROMPT;
+			mainPrompt += PLAN_MODE_SYSTEM_PROMPT;
 		} else if (this.mode === 'ask') {
-			systemPrompt += ASK_MODE_SYSTEM_PROMPT;
-		}
-		if (latestPlan) {
-			systemPrompt += `\n\n## Active Implementation Plan\nFollow this plan for all implementation steps. Reference it to decide what to do next and mark steps as complete when done.\n\n${latestPlan}`;
+			mainPrompt += ASK_MODE_SYSTEM_PROMPT;
 		}
 
-		const fullSystemPrompt = `${systemPrompt}
-
-Available tools:
-${toolsDescription}
-
-IMPORTANT: To use a tool, you MUST respond with a JSON block in this EXACT format:
-<tool_use>
-{"name": "tool_name", "input": {"param1": "value1"}}
-</tool_use>
-
-CRITICAL FORMAT RULES:
-- All parameters MUST be nested inside the "input" object
-- Example for write_file: {"name": "write_file", "input": {"path": "/file.txt", "content": "hello"}}
-- Example for read_file: {"name": "read_file", "input": {"path": "/file.txt"}}
-- NEVER put parameters at the top level like {"name": "write_file", "path": "..."} - this is WRONG
-
-You can use multiple tools in sequence. After using a tool, you will receive the result and can continue your response.
-When you're done and don't need to use any more tools, just provide your final response without any tool_use blocks.`;
-
-		const fullPrompt = `${fullSystemPrompt}${formattedPrompt}`;
-
-		let output = '';
-		for await (const event of replicate.stream(this.model, {
-			input: {
-				prompt: fullPrompt,
-				max_tokens: 4096,
-				system_prompt: '',
-			},
-		})) {
-			if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
-			output += event.toString();
-		}
-
-		// Normalize alternative tool-call formats before parsing
-		output = normalizeFunctionCallsFormat(output);
-
-		const content: ContentBlock[] = [];
-		let lastIndex = 0;
-		let toolUseCount = 0;
-		const openTag = '<tool_use>';
-		const closeTag = '</tool_use>';
-		let searchFrom = 0;
-
-		while (searchFrom < output.length) {
-			const tagStart = output.indexOf(openTag, searchFrom);
-			if (tagStart === -1) break;
-
-			const jsonStart = tagStart + openTag.length;
-			const tagEnd = output.indexOf(closeTag, jsonStart);
-			if (tagEnd === -1) break;
-
-			const jsonString = output.slice(jsonStart, tagEnd).trim();
-			const blockEnd = tagEnd + closeTag.length;
-
-			const textBefore = output.slice(lastIndex, tagStart).trim();
-			if (textBefore) {
-				content.push({ type: 'text', text: textBefore });
+		// Add latest plan context (in code mode only)
+		if (this.mode !== 'plan') {
+			const latestPlan = await this.readLatestPlan();
+			if (latestPlan) {
+				mainPrompt += `\n\n## Active Implementation Plan\nFollow this plan for all implementation steps. Reference it to decide what to do next and mark steps as complete when done.\n\n${latestPlan}`;
 			}
-
-			try {
-				let parsed: string | undefined;
-				try {
-					JSON.parse(jsonString);
-					parsed = jsonString;
-				} catch {
-					parsed = repairToolCallJson(jsonString);
-				}
-				if (parsed === undefined) {
-					throw new Error('Unrecoverable JSON');
-				}
-				const toolData: { name: string; input?: Record<string, unknown>; [key: string]: unknown } = JSON.parse(parsed);
-				let input: Record<string, unknown>;
-				if (toolData.input != undefined && typeof toolData.input === 'object') {
-					input = toolData.input;
-				} else {
-					const { name, input: _discard, ...rest } = toolData;
-					void name;
-					void _discard;
-					input = rest;
-				}
-
-				const inputAsStrings: Record<string, string> = {};
-				for (const [key, value] of Object.entries(input)) {
-					inputAsStrings[key] = String(value);
-				}
-				content.push({
-					type: 'tool_use',
-					id: `tool_${Date.now()}_${toolUseCount++}`,
-					name: toolData.name,
-					input: inputAsStrings,
-				});
-			} catch (error) {
-				console.error('Failed to parse tool use:', jsonString, error);
-				content.push({ type: 'text', text: output.slice(tagStart, blockEnd) });
-			}
-
-			lastIndex = blockEnd;
-			searchFrom = blockEnd;
 		}
 
-		const remainingText = output.slice(lastIndex).trim();
-		if (remainingText) {
-			content.push({ type: 'text', text: remainingText });
-		}
-
-		if (content.length === 0) {
-			content.push({ type: 'text', text: output });
-		}
-
-		const hasToolUse = content.some((c) => c.type === 'tool_use');
-
-		return {
-			id: `resp_${Date.now()}`,
-			type: 'message',
-			role: 'assistant',
-			content,
-			stop_reason: hasToolUse ? 'tool_use' : 'end_turn',
-			// eslint-disable-next-line unicorn/no-null -- JSON wire format from Claude API
-			stop_sequence: null,
-		};
+		prompts.push(mainPrompt);
+		return prompts;
 	}
 
-	private isToolResultArray(content: ContentBlock[] | ToolResultBlock[]): content is ToolResultBlock[] {
-		return content.length > 0 && 'tool_use_id' in content[0];
-	}
+	// =============================================================================
+	// Snapshot Management
+	// =============================================================================
 
-	private isContentBlockArray(content: ContentBlock[] | ToolResultBlock[]): content is ContentBlock[] {
-		return content.length === 0 || !('tool_use_id' in content[0]);
-	}
-
-	private async repairToolCall(
-		toolName: string,
-		rawInput: unknown,
-		error: string,
-		apiToken: string,
-	): Promise<Record<string, unknown> | undefined> {
-		const tool = AGENT_TOOLS.find((t) => t.name === toolName);
-		if (!tool) return undefined;
-
-		const prompt = [
-			`The model tried to call the tool "${toolName}" with the following input:`,
-			JSON.stringify(rawInput),
-			``,
-			`This failed with the error:`,
-			error,
-			``,
-			`The tool accepts the following schema:`,
-			JSON.stringify(tool.input_schema),
-			``,
-			`Respond with ONLY the corrected JSON input object. No explanation, no markdown, no wrapping.`,
-		].join('\n');
-
-		try {
-			const replicate = new Replicate({ auth: apiToken });
-			let output = '';
-			for await (const event of replicate.stream(this.model, {
-				input: {
-					prompt: `\n\nHuman: ${prompt}\n\nAssistant:`,
-					max_tokens: 512,
-					system_prompt: 'You are a JSON repair assistant. Output only valid JSON, nothing else.',
-				},
-			})) {
-				output += event.toString();
-			}
-
-			const trimmed = output
-				.trim()
-				.replace(/^```(?:json)?\s*\n?/i, '')
-				.replace(/\n?```\s*$/, '');
-			const repaired: unknown = JSON.parse(trimmed);
-			if (!isRecordObject(repaired)) return undefined;
-			return repaired;
-		} catch {
-			return undefined;
-		}
-	}
-
-	/**
-	 * Create a snapshot directory and metadata eagerly at the start of an
-	 * agent turn. Emits `snapshot_created` immediately so the frontend can
-	 * show the revert button right away.
-	 */
 	private async initSnapshot(
-		prompt: string,
-		sendEvent: (type: string, data: Record<string, unknown>) => Promise<void>,
+		messages: ModelMessage[],
+		sendEvent: (type: string, data: Record<string, unknown>) => void,
 	): Promise<{ id: string; directory: string; savedPaths: Set<string> }> {
 		const snapshotId = crypto.randomUUID().slice(0, 8);
 		const snapshotDirectory = `${this.projectRoot}/.agent/snapshots/${snapshotId}`;
 
 		await fs.mkdir(snapshotDirectory, { recursive: true });
 
+		// Derive label from the last user message
+		const lastUserMessage = [...messages].toReversed().find((m) => m.role === 'user');
+		const promptText = typeof lastUserMessage?.content === 'string' ? lastUserMessage.content : '';
+		const label = promptText.slice(0, 50) + (promptText.length > 50 ? '...' : '');
+
 		const metadata: SnapshotMetadata = {
 			id: snapshotId,
 			timestamp: Date.now(),
-			label: prompt.slice(0, 50) + (prompt.length > 50 ? '...' : ''),
+			label,
 			changes: [],
 		};
 		// eslint-disable-next-line unicorn/no-null -- JSON.stringify requires null as replacer argument
@@ -547,7 +558,7 @@ When you're done and don't need to use any more tools, just provide your final r
 
 		await this.cleanupOldSnapshots(10);
 
-		await sendEvent('snapshot_created', {
+		sendEvent('snapshot_created', {
 			id: snapshotId,
 			label: metadata.label,
 			timestamp: metadata.timestamp,
@@ -557,16 +568,10 @@ When you're done and don't need to use any more tools, just provide your final r
 		return { id: snapshotId, directory: snapshotDirectory, savedPaths: new Set() };
 	}
 
-	/**
-	 * Incrementally add a file change to an existing snapshot.
-	 * Deduplicates by path so only the first change per file is recorded
-	 * (preserving the true original content for revert).
-	 */
 	private async addFileToSnapshot(context: { id: string; directory: string; savedPaths: Set<string> }, change: FileChange): Promise<void> {
 		if (context.savedPaths.has(change.path)) return;
 		context.savedPaths.add(change.path);
 
-		// Save beforeContent to the snapshot directory (only for edit/delete)
 		if (change.action !== 'create' && change.beforeContent !== null) {
 			const filePath = `${context.directory}${change.path}`;
 			const directory = filePath.slice(0, filePath.lastIndexOf('/'));
@@ -576,7 +581,6 @@ When you're done and don't need to use any more tools, just provide your final r
 			await fs.writeFile(filePath, change.beforeContent);
 		}
 
-		// Update metadata.json with the new change entry
 		try {
 			const metadataPath = `${context.directory}/metadata.json`;
 			const raw = await fs.readFile(metadataPath, 'utf8');
@@ -585,7 +589,7 @@ When you're done and don't need to use any more tools, just provide your final r
 			// eslint-disable-next-line unicorn/no-null -- JSON.stringify requires null as replacer argument
 			await fs.writeFile(metadataPath, JSON.stringify(metadata, null, 2));
 		} catch {
-			// Non-fatal: snapshot metadata update failed
+			// Non-fatal
 		}
 	}
 
@@ -677,11 +681,7 @@ When you're done and don't need to use any more tools, just provide your final r
 	// Plan Mode
 	// =============================================================================
 
-	private async savePlan(
-		planContent: string,
-		prompt: string,
-		sendEvent: (type: string, data: Record<string, unknown>) => Promise<void>,
-	): Promise<void> {
+	private async *savePlan(planContent: string, messages: ModelMessage[]): AsyncIterable<StreamChunk> {
 		try {
 			const plansDirectory = `${this.projectRoot}/.agent/plans`;
 			await fs.mkdir(plansDirectory, { recursive: true });
@@ -690,10 +690,13 @@ When you're done and don't need to use any more tools, just provide your final r
 			const planFileName = `${timestamp}-plan.md`;
 			const planPath = `${plansDirectory}/${planFileName}`;
 
-			const header = `# Plan: ${prompt.slice(0, 80)}${prompt.length > 80 ? '...' : ''}\n\n_Generated at ${new Date(timestamp).toISOString()}_\n\n---\n\n`;
+			// Derive prompt text from the first user message
+			const firstUserMessage = messages.find((m) => m.role === 'user');
+			const promptText = typeof firstUserMessage?.content === 'string' ? firstUserMessage.content : '';
+			const header = `# Plan: ${promptText.slice(0, 80)}${promptText.length > 80 ? '...' : ''}\n\n_Generated at ${new Date(timestamp).toISOString()}_\n\n---\n\n`;
 			await fs.writeFile(planPath, header + planContent);
 
-			await sendEvent('plan_created', {
+			yield customEvent('plan_created', {
 				path: `/.agent/plans/${planFileName}`,
 				content: planContent,
 			});
@@ -727,7 +730,6 @@ When you're done and don't need to use any more tools, just provide your final r
 		const client = await this.getMcpClient(serverId);
 		const result = await client.callTool({ name: toolName, arguments: arguments_ });
 
-		// Extract text content from the MCP result
 		if (result.content && Array.isArray(result.content)) {
 			const textParts: string[] = [];
 			for (const item of result.content) {

@@ -1,9 +1,16 @@
 /**
  * AI Agent routes.
  * Handles AI chat and session management.
+ *
+ * The chat endpoint accepts the TanStack AI fetchServerSentEvents format:
+ * POST body: { messages: UIMessage[], data?: {...}, mode?, sessionId?, model? }
+ *
+ * Messages are converted from UIMessage[] to ModelMessage[] using TanStack AI's
+ * convertMessagesToModelMessages() utility.
  */
 
 import { zValidator } from '@hono/zod-validator';
+import { convertMessagesToModelMessages } from '@tanstack/ai';
 import { env } from 'cloudflare:workers';
 import { Hono } from 'hono';
 
@@ -35,8 +42,8 @@ export const aiRoutes = new Hono<AppEnvironment>()
 		}
 
 		// Rate limit check
-		if (env.REPLICATE_RATE_LIMITER) {
-			const { success } = await env.REPLICATE_RATE_LIMITER.limit({ key: projectId });
+		if (env.AI_RATE_LIMITER) {
+			const { success } = await env.AI_RATE_LIMITER.limit({ key: projectId });
 			if (!success) {
 				return c.json(
 					{
@@ -48,24 +55,19 @@ export const aiRoutes = new Hono<AppEnvironment>()
 			}
 		}
 
-		const { message, history = [], mode, sessionId, model } = c.req.valid('json');
+		const { messages, mode, sessionId, model } = c.req.valid('json');
+
+		// Convert UIMessage[] (from frontend) to ModelMessage[] (for the adapter)
+		// eslint-disable-next-line @typescript-eslint/consistent-type-assertions, @typescript-eslint/no-explicit-any -- UIMessage format from frontend is loosely typed at the wire boundary
+		const modelMessages = convertMessagesToModelMessages(messages as any);
 
 		// Use the validated model from the request, or fall back to the default
 		const selectedModel = model ?? DEFAULT_AI_MODEL;
 
 		const agentService = new AIAgentService(projectRoot, projectId, fsStub, sessionId, mode, selectedModel);
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		const chatHistory: any[] = history;
-		const stream = await agentService.runAgentChat(message, chatHistory, apiToken, c.req.raw.signal);
+		const response = await agentService.runAgentChat(modelMessages, apiToken, c.req.raw.signal);
 
-		return new Response(stream, {
-			headers: {
-				'Content-Type': 'text/event-stream',
-				'Cache-Control': 'no-cache',
-				Connection: 'keep-alive',
-				'Access-Control-Allow-Origin': '*',
-			},
-		});
+		return response;
 	})
 
 	// POST /api/ai/abort - Abort current AI chat (handled via request signal)

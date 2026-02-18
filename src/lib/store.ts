@@ -12,12 +12,12 @@ import { DEFAULT_AI_MODEL, type AIModelId } from '@shared/constants';
 import type {
 	AgentMode,
 	FileInfo,
-	AgentMessage,
 	GitBranchInfo,
 	GitStatusEntry,
 	Participant,
 	PendingFileChange,
 	SnapshotSummary,
+	UIMessage,
 } from '@shared/types';
 
 // =============================================================================
@@ -84,8 +84,8 @@ interface AIError {
 }
 
 interface AIState {
-	/** Current conversation history */
-	history: AgentMessage[];
+	/** Current conversation history (UIMessage from TanStack AI) */
+	history: UIMessage[];
 	/** Whether AI is currently processing */
 	isProcessing: boolean;
 	/** Current status message */
@@ -105,14 +105,14 @@ interface AIState {
 }
 
 interface AIActions {
-	addMessage: (message: AgentMessage) => void;
+	addMessage: (message: UIMessage) => void;
 	clearHistory: () => void;
 	setProcessing: (processing: boolean) => void;
 	setStatusMessage: (message: string | undefined) => void;
 	setAiError: (error: AIError | undefined) => void;
 	setSessionId: (id: string | undefined) => void;
 	setSavedSessions: (sessions: Array<{ id: string; label: string; createdAt: number }>) => void;
-	loadSession: (history: AgentMessage[], sessionId: string, messageSnapshots?: Map<number, string>) => void;
+	loadSession: (history: UIMessage[], sessionId: string, messageSnapshots?: Map<number, string>) => void;
 	setMessageSnapshot: (messageIndex: number, snapshotId: string) => void;
 	removeMessagesAfter: (index: number) => void;
 	removeMessagesFrom: (index: number) => void;

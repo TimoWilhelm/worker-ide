@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { isToolName, getEventStringField, getEventToolName, isRecord, getEventObjectField, getEventBooleanField } from './helpers';
+import { isToolName, isRecord, extractCustomEvent, getStringField, getNumberField } from './helpers';
 
 // =============================================================================
 // isToolName
@@ -43,48 +43,6 @@ describe('isToolName', () => {
 });
 
 // =============================================================================
-// getEventStringField
-// =============================================================================
-
-describe('getEventStringField', () => {
-	it('returns string value for existing field', () => {
-		const event = { type: 'text', text: 'hello' };
-		expect(getEventStringField(event, 'text')).toBe('hello');
-	});
-
-	it('returns empty string for missing field', () => {
-		const event = { type: 'text' };
-		expect(getEventStringField(event, 'text')).toBe('');
-	});
-
-	it('returns empty string for non-string field', () => {
-		const event = { type: 'text', count: 42 };
-		expect(getEventStringField(event, 'count')).toBe('');
-	});
-});
-
-// =============================================================================
-// getEventToolName
-// =============================================================================
-
-describe('getEventToolName', () => {
-	it('returns tool name for valid field', () => {
-		const event = { type: 'tool_use', name: 'file_read' };
-		expect(getEventToolName(event, 'name')).toBe('file_read');
-	});
-
-	it('returns files_list as fallback for invalid tool name', () => {
-		const event = { type: 'tool_use', name: 'unknown_tool' };
-		expect(getEventToolName(event, 'name')).toBe('files_list');
-	});
-
-	it('returns files_list as fallback for missing field', () => {
-		const event = { type: 'tool_use' };
-		expect(getEventToolName(event, 'name')).toBe('files_list');
-	});
-});
-
-// =============================================================================
 // isRecord
 // =============================================================================
 
@@ -110,43 +68,65 @@ describe('isRecord', () => {
 });
 
 // =============================================================================
-// getEventObjectField
+// extractCustomEvent
 // =============================================================================
 
-describe('getEventObjectField', () => {
-	it('returns object for valid field', () => {
-		const event = { type: 'tool_use', input: { path: '/src/main.ts' } };
-		expect(getEventObjectField(event, 'input')).toEqual({ path: '/src/main.ts' });
+describe('extractCustomEvent', () => {
+	it('extracts data from a CUSTOM AG-UI event', () => {
+		const chunk = { type: 'CUSTOM' as const, name: 'status', data: { message: 'Thinking...' }, timestamp: 12_345 };
+		const result = extractCustomEvent(chunk);
+		expect(result).toEqual({ name: 'status', data: { message: 'Thinking...' } });
 	});
 
-	it('returns empty object for missing field', () => {
-		const event = { type: 'tool_use' };
-		expect(getEventObjectField(event, 'input')).toEqual({});
+	it('returns undefined for non-CUSTOM events', () => {
+		const chunk = { type: 'TEXT_MESSAGE_CONTENT' as const, messageId: 'msg-1', delta: 'hello', timestamp: 12_345 };
+		expect(extractCustomEvent(chunk)).toBeUndefined();
 	});
 
-	it('returns empty object for non-object field', () => {
-		const event = { type: 'tool_use', input: 'not an object' };
-		expect(getEventObjectField(event, 'input')).toEqual({});
+	it('returns empty data for CUSTOM event without data', () => {
+		const chunk = { type: 'CUSTOM' as const, name: 'turn_complete', timestamp: 12_345 };
+		const result = extractCustomEvent(chunk);
+		expect(result).toEqual({ name: 'turn_complete', data: {} });
+	});
+
+	it('returns undefined for non-object chunks', () => {
+		// eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- testing invalid input
+		expect(extractCustomEvent('not an object' as never)).toBeUndefined();
 	});
 });
 
 // =============================================================================
-// getEventBooleanField
+// getStringField
 // =============================================================================
 
-describe('getEventBooleanField', () => {
-	it('returns boolean value for boolean field', () => {
-		const event = { type: 'tool_result', is_error: true };
-		expect(getEventBooleanField(event, 'is_error')).toBe(true);
+describe('getStringField', () => {
+	it('returns string value for existing field', () => {
+		expect(getStringField({ message: 'hello' }, 'message')).toBe('hello');
 	});
 
-	it('returns undefined for missing field', () => {
-		const event = { type: 'tool_result' };
-		expect(getEventBooleanField(event, 'is_error')).toBeUndefined();
+	it('returns empty string for missing field', () => {
+		expect(getStringField({}, 'message')).toBe('');
 	});
 
-	it('returns undefined for non-boolean field', () => {
-		const event = { type: 'tool_result', is_error: 'yes' };
-		expect(getEventBooleanField(event, 'is_error')).toBeUndefined();
+	it('returns empty string for non-string field', () => {
+		expect(getStringField({ count: 42 }, 'count')).toBe('');
+	});
+});
+
+// =============================================================================
+// getNumberField
+// =============================================================================
+
+describe('getNumberField', () => {
+	it('returns number value for existing field', () => {
+		expect(getNumberField({ count: 42 }, 'count')).toBe(42);
+	});
+
+	it('returns 0 for missing field', () => {
+		expect(getNumberField({}, 'count')).toBe(0);
+	});
+
+	it('returns 0 for non-number field', () => {
+		expect(getNumberField({ count: 'not a number' }, 'count')).toBe(0);
 	});
 });

@@ -102,10 +102,108 @@ describe('repairToolCallJson', () => {
 
 	it('closes unclosed braces', () => {
 		const json = '{"name": "file_read"';
-		expect(repairToolCallJson(json)).toBe('{"name": "file_read"}');
+		const result = repairToolCallJson(json);
+		expect(result).toBeDefined();
+		expect(JSON.parse(result!)).toEqual({ name: 'file_read' });
 	});
 
 	it('returns undefined for unrecoverable JSON', () => {
 		expect(repairToolCallJson('not json at all {{{')).toBeUndefined();
+	});
+
+	// New tests for the state-machine repair
+	it('closes unclosed strings', () => {
+		const json = '{"name": "file_read", "input": {"path": "/a.txt';
+		const result = repairToolCallJson(json);
+		expect(result).toBeDefined();
+		const parsed = JSON.parse(result!);
+		expect(parsed.name).toBe('file_read');
+		expect(parsed.input.path).toBe('/a.txt');
+	});
+
+	it('closes nested objects and arrays', () => {
+		const json = '{"name": "test", "input": {"items": [1, 2, 3';
+		const result = repairToolCallJson(json);
+		expect(result).toBeDefined();
+		const parsed = JSON.parse(result!);
+		expect(parsed.name).toBe('test');
+		expect(parsed.input.items).toEqual([1, 2, 3]);
+	});
+
+	it('completes truncated literals (true)', () => {
+		const json = '{"active": tru';
+		const result = repairToolCallJson(json);
+		expect(result).toBeDefined();
+		const parsed = JSON.parse(result!);
+		expect(parsed.active).toBe(true);
+	});
+
+	it('completes truncated literals (false)', () => {
+		const json = '{"active": fals';
+		const result = repairToolCallJson(json);
+		expect(result).toBeDefined();
+		const parsed = JSON.parse(result!);
+		expect(parsed.active).toBe(false);
+	});
+
+	it('completes truncated literals (null)', () => {
+		const json = '{"value": nul';
+		const result = repairToolCallJson(json);
+		expect(result).toBeDefined();
+		const parsed = JSON.parse(result!);
+
+		expect(parsed.value).toBeNull();
+	});
+
+	it('drops incomplete key-value pairs', () => {
+		const json = '{"k1": 1, "k2":';
+		const result = repairToolCallJson(json);
+		expect(result).toBeDefined();
+		const parsed = JSON.parse(result!);
+		expect(parsed.k1).toBe(1);
+	});
+
+	it('handles deeply nested structures', () => {
+		const json = '{"a": {"b": {"c": [1, [2, [3';
+		const result = repairToolCallJson(json);
+		expect(result).toBeDefined();
+		expect(() => JSON.parse(result!)).not.toThrow();
+	});
+
+	it('handles escaped characters in strings', () => {
+		const json = String.raw`{"content": "line1\nline2\ttab\"quoted\""}`;
+		const result = repairToolCallJson(json);
+		expect(result).toBeDefined();
+		const parsed = JSON.parse(result!);
+		expect(parsed.content).toBe('line1\nline2\ttab"quoted"');
+	});
+
+	it('handles empty object', () => {
+		const json = '{}';
+		expect(repairToolCallJson(json)).toBe('{}');
+	});
+
+	it('handles empty array', () => {
+		const json = '[]';
+		expect(repairToolCallJson(json)).toBe('[]');
+	});
+
+	it('handles trailing comma before close bracket in array', () => {
+		const json = '[1, 2, 3,]';
+		const result = repairToolCallJson(json);
+		expect(result).toBeDefined();
+		expect(JSON.parse(result!)).toEqual([1, 2, 3]);
+	});
+
+	it('returns a valid result for a bare string', () => {
+		const json = '"hello"';
+		expect(repairToolCallJson(json)).toBe('"hello"');
+	});
+
+	it('repairs a truncated string at root level', () => {
+		const json = '"hello';
+		const result = repairToolCallJson(json);
+		expect(result).toBeDefined();
+		expect(JSON.parse(result!)).toBe('hello');
 	});
 });

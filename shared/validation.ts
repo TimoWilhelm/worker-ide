@@ -264,15 +264,27 @@ export const toolInputSchemas = {
 export type ToolName = keyof typeof toolInputSchemas;
 
 /**
- * Schema for AI chat message
+ * Schema for AI chat message.
+ *
+ * Accepts the TanStack AI fetchServerSentEvents format:
+ * { messages: UIMessage[], data?: {...}, mode?, sessionId?, model? }
+ *
+ * The `messages` array contains UIMessage objects with `parts` arrays.
+ * Additional fields (mode, sessionId, model) come from the `body` config
+ * on the frontend's fetchServerSentEvents connection adapter.
  */
-export const aiChatMessageSchema = z.object({
-	message: z.string().min(1, 'Message is required').max(LIMITS.AI_MESSAGE_MAX_LENGTH, 'Message is too long'),
-	history: z.array(z.unknown()).optional(),
-	mode: z.enum(['code', 'plan', 'ask']).optional(),
-	sessionId: z.string().max(LIMITS.SESSION_ID_MAX_LENGTH).optional(),
-	model: aiModelSchema.optional(),
-});
+export const aiChatMessageSchema = z
+	.object({
+		messages: z.array(z.unknown()).min(1, 'At least one message is required'),
+		data: z.unknown().optional(),
+		mode: z.enum(['code', 'plan', 'ask']).optional(),
+		sessionId: z.string().max(LIMITS.SESSION_ID_MAX_LENGTH).optional(),
+		model: aiModelSchema.optional(),
+	})
+	.refine((data) => JSON.stringify(data.messages).length <= LIMITS.AI_MESSAGE_MAX_LENGTH * 10, {
+		message: 'Messages payload is too large',
+		path: ['messages'],
+	});
 
 export type AiChatInput = z.infer<typeof aiChatMessageSchema>;
 

@@ -150,8 +150,9 @@ describe('File Tree slice', () => {
 describe('AI slice', () => {
 	it('adds a message to history', () => {
 		useStore.getState().addMessage({
+			id: 'msg-1',
 			role: 'user',
-			content: [{ type: 'text', text: 'Hello' }],
+			parts: [{ type: 'text', content: 'Hello' }],
 		});
 
 		expect(useStore.getState().history).toHaveLength(1);
@@ -160,8 +161,9 @@ describe('AI slice', () => {
 
 	it('clears history', () => {
 		useStore.getState().addMessage({
+			id: 'msg-1',
 			role: 'user',
-			content: [{ type: 'text', text: 'Hello' }],
+			parts: [{ type: 'text', content: 'Hello' }],
 		});
 		useStore.getState().clearHistory();
 

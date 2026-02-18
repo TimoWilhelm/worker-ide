@@ -3,4 +3,4 @@
  */
 
 export { AIAgentService } from './service';
-export type { AgentMessage, FileChange, SnapshotMetadata } from './types';
+export type { FileChange, SnapshotMetadata, ModelMessage } from './types';

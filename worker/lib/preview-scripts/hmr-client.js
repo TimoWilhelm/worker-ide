@@ -17,11 +17,29 @@
 	var socket = new WebSocket(config.wsUrl);
 	var hmrBaseUrl = config.baseUrl || '';
 
+	// Debounce full-reload to coalesce rapid sequential updates.
+	// When multiple file writes happen in quick succession (e.g., saving several files,
+	// batch edits, or automated tools), each write triggers a full-reload message.
+	// Without debouncing, the first reload tears down the page (and its WebSocket),
+	// causing subsequent reload messages to be lost. The page may then show stale
+	// content from an intermediate state.
+	// By debouncing with a short delay, we wait for all writes to finish before reloading.
+	var reloadTimer = null;
+	var RELOAD_DEBOUNCE_MS = 200;
+
+	function debouncedReload() {
+		if (reloadTimer) clearTimeout(reloadTimer);
+		reloadTimer = setTimeout(function () {
+			reloadTimer = null;
+			location.reload();
+		}, RELOAD_DEBOUNCE_MS);
+	}
+
 	socket.addEventListener('message', function (event) {
 		var data = JSON.parse(event.data);
 
 		if (data.type === 'full-reload') {
-			location.reload();
+			debouncedReload();
 		} else if (data.type === 'server-error' && data.error) {
 			// Show overlay only for bundle errors, not runtime errors
 			if (data.error.type === 'bundle' && typeof window.showErrorOverlay === 'function') {

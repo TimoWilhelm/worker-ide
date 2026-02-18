@@ -2,11 +2,15 @@
  * AI Assistant Panel Component
  *
  * Chat interface for interacting with the AI coding assistant.
+ * Uses TanStack AI's useChat + fetchServerSentEvents for native AG-UI streaming.
+ *
  * Features: welcome screen with suggestions, collapsible tool calls,
  * collapsible reasoning, error handling with retry, session management,
- * snapshot revert buttons on user messages.
+ * snapshot revert buttons on user messages, CUSTOM event handling.
  */
 
+import { fetchServerSentEvents } from '@tanstack/ai-client';
+import { useChat } from '@tanstack/ai-react';
 import { Bot, ChevronDown, Loader2, Map as MapIcon, Plus, Send, Square } from 'lucide-react';
 import { ScrollArea } from 'radix-ui';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -14,13 +18,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Pill } from '@/components/ui/pill';
-import { Tooltip } from '@/components/ui/tooltip';
 import { useSnapshots } from '@/features/snapshots';
-import { startAIChat, type AIStreamEvent } from '@/lib/api-client';
 import { useStore } from '@/lib/store';
 import { cn, formatRelativeTime } from '@/lib/utils';
 
-import { getEventBooleanField, getEventObjectField, getEventStringField, getEventToolName } from './helpers';
+import { extractCustomEvent, getStringField } from './helpers';
 import { AIError, AssistantMessage, ContinuationPrompt, MessageBubble, UserQuestionPrompt, WelcomeScreen } from './messages';
 import { getModelLabel } from './model-config';
 import { ModelSelectorDialog } from './model-selector-dialog';
@@ -28,13 +30,14 @@ import { useAiSessions } from '../../hooks/use-ai-sessions';
 import { useChangeReview } from '../../hooks/use-change-review';
 import { useFileMention } from '../../hooks/use-file-mention';
 import { segmentsHaveContent, segmentsToPlainText, type InputSegment } from '../../lib/input-segments';
+import { extractMessageText } from '../../lib/retry-helpers';
 import { AgentModeSelector } from '../agent-mode-selector';
 import { ChangedFilesSummary } from '../changed-files-summary';
 import { FileMentionDropdown } from '../file-mention-dropdown';
 import { RevertConfirmDialog } from '../revert-confirm-dialog';
 import { RichTextInput, type RichTextInputHandle } from '../rich-text-input';
 
-import type { AgentContent, AgentMessage } from '@shared/types';
+import type { UIMessage } from '@shared/types';
 
 // =============================================================================
 // Component
@@ -46,17 +49,16 @@ import type { AgentContent, AgentMessage } from '@shared/types';
 export function AIPanel({ projectId, className }: { projectId: string; className?: string }) {
 	const [segments, setSegments] = useState<InputSegment[]>([]);
 	const [cursorPosition, setCursorPosition] = useState(0);
-	const [streamingContent, setStreamingContent] = useState<AgentContent[] | undefined>();
 	const [needsContinuation, setNeedsContinuation] = useState(false);
 	const [pendingQuestion, setPendingQuestion] = useState<{ question: string; options: string } | undefined>();
 	const [planPath, setPlanPath] = useState<string | undefined>();
 	const [isModelSelectorOpen, setIsModelSelectorOpen] = useState(false);
 	const inputReference = useRef<RichTextInputHandle>(null);
 	const scrollReference = useRef<HTMLDivElement>(null);
-	const abortControllerReference = useRef<AbortController | undefined>(undefined);
-	const assistantContentReference = useRef<AgentContent[]>([]);
 	const userMessageIndexReference = useRef<number>(-1);
 	const activeSnapshotIdReference = useRef<string | undefined>(undefined);
+	// Track the last chatError we already surfaced so dismissing it doesn't re-trigger
+	const lastSurfacedChatErrorReference = useRef<Error | undefined>(undefined);
 
 	// Derived plain text for the file mention hook
 	const inputPlainText = useMemo(() => segmentsToPlainText(segments), [segments]);
@@ -76,13 +78,10 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		agentMode,
 		sessionId,
 		selectedModel,
-		addMessage,
-		clearHistory: storeClearHistory,
 		setProcessing,
 		setStatusMessage,
 		setAiError,
 		setMessageSnapshot,
-		removeMessagesAfter,
 		removeMessagesFrom,
 		setAgentMode,
 		setSelectedModel,
@@ -91,6 +90,193 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		associateSnapshotWithPending,
 		clearPendingChanges,
 	} = useStore();
+
+	// Keep stable references for useChat callbacks (avoid re-creating connection)
+	const agentModeReference = useRef(agentMode);
+	const sessionIdReference = useRef(sessionId);
+	const selectedModelReference = useRef(selectedModel);
+	useEffect(() => {
+		agentModeReference.current = agentMode;
+	}, [agentMode]);
+	useEffect(() => {
+		sessionIdReference.current = sessionId;
+	}, [sessionId]);
+	useEffect(() => {
+		selectedModelReference.current = selectedModel;
+	}, [selectedModel]);
+
+	// =========================================================================
+	// TanStack AI useChat setup
+	// =========================================================================
+
+	const chatUrl = useMemo(() => `/p/${projectId}/api/ai/chat`, [projectId]);
+
+	// Connection adapter — fetchServerSentEvents POSTs { messages, data, ...body }
+	// We pass mode, sessionId, model in the body config (read from refs for freshness)
+	const connection = useMemo(
+		() =>
+			fetchServerSentEvents(chatUrl, () => ({
+				body: {
+					mode: agentModeReference.current,
+					sessionId: sessionIdReference.current,
+					model: selectedModelReference.current,
+				},
+			})),
+		[chatUrl],
+	);
+
+	const {
+		messages: chatMessages,
+		sendMessage,
+		isLoading: isChatLoading,
+		stop: stopChat,
+		error: chatError,
+		setMessages: setChatMessages,
+		clear: clearChat,
+	} = useChat({
+		connection,
+		initialMessages: history,
+		onChunk: (chunk) => {
+			const custom = extractCustomEvent(chunk);
+			if (!custom) return;
+
+			switch (custom.name) {
+				case 'status': {
+					const statusText = getStringField(custom.data, 'message');
+					if (statusText) {
+						setStatusMessage(statusText);
+					}
+					break;
+				}
+				case 'snapshot_created': {
+					const snapshotId = getStringField(custom.data, 'id');
+					if (snapshotId) {
+						activeSnapshotIdReference.current = snapshotId;
+						if (userMessageIndexReference.current >= 0) {
+							setMessageSnapshot(userMessageIndexReference.current, snapshotId);
+						}
+						associateSnapshotWithPending(snapshotId);
+					}
+					break;
+				}
+				case 'file_changed': {
+					const path = getStringField(custom.data, 'path');
+					const action = getStringField(custom.data, 'action');
+					const beforeContent = getStringField(custom.data, 'beforeContent');
+					const afterContent = getStringField(custom.data, 'afterContent');
+					if (path && (action === 'create' || action === 'edit' || action === 'delete' || action === 'move')) {
+						addPendingChange({
+							path,
+							action,
+							beforeContent: beforeContent || undefined,
+							afterContent: afterContent || undefined,
+							snapshotId: activeSnapshotIdReference.current,
+						});
+						if (action !== 'delete' && action !== 'move') {
+							openFile(path);
+						}
+					}
+					break;
+				}
+				case 'plan_created': {
+					const path = getStringField(custom.data, 'path');
+					if (path) {
+						setPlanPath(path);
+					}
+					break;
+				}
+				case 'user_question': {
+					const question = getStringField(custom.data, 'question');
+					const options = getStringField(custom.data, 'options');
+					if (question) {
+						setPendingQuestion({ question, options });
+					}
+					break;
+				}
+				case 'max_iterations_reached': {
+					setNeedsContinuation(true);
+					break;
+				}
+				case 'turn_complete': {
+					// No action needed — just a signal from the backend
+					break;
+				}
+				case 'usage': {
+					// Token usage — could be surfaced in UI in the future
+					break;
+				}
+			}
+		},
+		onFinish: (_message) => {
+			setProcessing(false);
+			setStatusMessage(undefined);
+			activeSnapshotIdReference.current = undefined;
+			userMessageIndexReference.current = -1;
+
+			// Auto-save the session after each AI response
+			queueMicrotask(() => {
+				void saveCurrentSession();
+			});
+		},
+		onError: (error) => {
+			// Ignore abort errors — the user intentionally cancelled
+			if (error.name === 'AbortError') return;
+			setProcessing(false);
+			setStatusMessage(undefined);
+			setAiError({ message: error.message });
+		},
+	});
+
+	// Bi-directional sync between useChat (chatMessages) and Zustand (history).
+	//
+	// We use a "skip next" flag to break the circular dependency:
+	//   chatMessages changes → forward sync writes to store → store fires
+	//   → reverse sync sees change → would call setChatMessages → loop!
+	//
+	// The flag ensures that when one side writes, the other side's effect
+	// recognises it as an echo and skips.
+	const skipNextReverseSyncReference = useRef(false);
+	const skipNextForwardSyncReference = useRef(false);
+
+	// Forward sync: chatMessages → store
+	useEffect(() => {
+		if (skipNextForwardSyncReference.current) {
+			skipNextForwardSyncReference.current = false;
+			return;
+		}
+		skipNextReverseSyncReference.current = true;
+		useStore.setState({ history: chatMessages });
+	}, [chatMessages]);
+
+	// Reverse sync: store → chatMessages (for external updates like session load)
+	useEffect(() => {
+		if (skipNextReverseSyncReference.current) {
+			skipNextReverseSyncReference.current = false;
+			return;
+		}
+		skipNextForwardSyncReference.current = true;
+		setChatMessages(history);
+	}, [history, setChatMessages]);
+
+	// Sync isLoading to isProcessing (both directions for safety)
+	useEffect(() => {
+		if (isChatLoading && !isProcessing) {
+			setProcessing(true);
+		} else if (!isChatLoading && isProcessing) {
+			setProcessing(false);
+			setStatusMessage(undefined);
+		}
+	}, [isChatLoading, isProcessing, setProcessing, setStatusMessage]);
+
+	// Sync chatError to aiError (for RUN_ERROR events).
+	// Only surface a chatError once — if the user dismisses it, don't re-trigger
+	// until a genuinely new error arrives from useChat.
+	useEffect(() => {
+		if (chatError && chatError !== lastSurfacedChatErrorReference.current) {
+			lastSurfacedChatErrorReference.current = chatError;
+			setAiError({ message: chatError.message });
+		}
+	}, [chatError, setAiError]);
 
 	// File mention autocomplete
 	const handleFileMentionSelect = useCallback((path: string, triggerIndex: number, queryLength: number) => {
@@ -120,17 +306,34 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	// Change review hook for accept/reject UI
 	const changeReview = useChangeReview({ projectId });
 
-	// Wrap clearHistory to also clear pending changes
+	// Wrap clearHistory to also clear pending changes and useChat messages.
+	// clearChat() resets chatMessages to [], which triggers the forward-sync
+	// effect to write history=[] to the store. We separately clear the
+	// AI-related metadata (sessionId, snapshots, error) to avoid creating a
+	// second competing [] reference that would cause a sync loop.
 	const clearHistory = useCallback(() => {
-		storeClearHistory();
 		clearPendingChanges();
-	}, [storeClearHistory, clearPendingChanges]);
+		setPlanPath(undefined);
+		setNeedsContinuation(false);
+		setPendingQuestion(undefined);
+		// Clear AI metadata without touching history (the forward sync handles it)
+		useStore.setState({
+			sessionId: undefined,
+			messageSnapshots: new Map(),
+			aiError: undefined,
+		});
+		// clearChat() must be last — it sets chatMessages=[] which the forward-sync
+		// effect will propagate to the store's history.
+		clearChat();
+	}, [clearChat, clearPendingChanges]);
 
-	// Wrap handleLoadSession to also clear pending changes
+	// Wrap handleLoadSession to also clear pending changes and sync to useChat.
+	// loadSession updates the store's history, and the reverse-sync effect
+	// will propagate that into useChat automatically.
 	const handleLoadSession = useCallback(
-		(sessionId: string) => {
+		(targetSessionId: string) => {
 			clearPendingChanges();
-			loadSession(sessionId);
+			loadSession(targetSessionId);
 		},
 		[clearPendingChanges, loadSession],
 	);
@@ -140,7 +343,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		if (scrollReference.current) {
 			scrollReference.current.scrollTop = scrollReference.current.scrollHeight;
 		}
-	}, [history, statusMessage, aiError, streamingContent, needsContinuation, pendingQuestion]);
+	}, [chatMessages, statusMessage, aiError, needsContinuation, pendingQuestion]);
 
 	// Focus input on mount
 	useEffect(() => {
@@ -161,222 +364,24 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 			setNeedsContinuation(false);
 			setPendingQuestion(undefined);
 
-			const userMessage: AgentMessage = {
-				role: 'user',
-				content: [{ type: 'text', text: messageText }],
-			};
-
-			addMessage(userMessage);
 			// Track the index of this user message for snapshot association
-			userMessageIndexReference.current = history.length; // index of the user message we just added
+			userMessageIndexReference.current = chatMessages.length; // index of the user message about to be added
 			setSegments([]);
 			inputReference.current?.clear();
 			setProcessing(true);
 			setStatusMessage('Thinking...');
 
-			// Create abort controller for cancellation
-			abortControllerReference.current = new AbortController();
-
-			const assistantContent: AgentContent[] = [];
-			assistantContentReference.current = assistantContent;
-			setStreamingContent([]);
-			let wasCancelled = false;
-
 			try {
-				// Convert history to API format
-				const apiHistory = history.map((message) => ({
-					role: message.role,
-					content: message.content,
-				}));
-
-				await startAIChat(
-					projectId,
-					messageText,
-					apiHistory,
-					abortControllerReference.current.signal,
-					(event: AIStreamEvent) => {
-						switch (event.type) {
-							case 'plan_created': {
-								const path = getEventStringField(event, 'path');
-								if (path) {
-									setPlanPath(path);
-								}
-								break;
-							}
-							case 'status': {
-								const statusText = getEventStringField(event, 'message');
-								if (statusText) {
-									setStatusMessage(statusText);
-								}
-								break;
-							}
-							case 'message': {
-								// Each message event is a distinct text chunk from the server.
-								// Always push a new text block so interleaving with tool
-								// calls is preserved in the rendered output.
-								const text = getEventStringField(event, 'content');
-								if (text) {
-									assistantContent.push({ type: 'text', text });
-									setStreamingContent([...assistantContent]);
-									setStatusMessage(undefined);
-								}
-								break;
-							}
-							case 'tool_call': {
-								// Server sends: { type: 'tool_call', tool, id, args }
-								const toolName = getEventToolName(event, 'tool');
-								setStatusMessage(`Using tool: ${toolName}`);
-								assistantContent.push({
-									type: 'tool_use',
-									id: getEventStringField(event, 'id'),
-									name: toolName,
-									input: getEventObjectField(event, 'args'),
-								});
-								setStreamingContent([...assistantContent]);
-								break;
-							}
-							case 'tool_result': {
-								// Server sends: { type: 'tool_result', tool, tool_use_id, result }
-								assistantContent.push({
-									type: 'tool_result',
-									tool_use_id: getEventStringField(event, 'tool_use_id'),
-									content: getEventStringField(event, 'result'),
-									is_error: getEventBooleanField(event, 'is_error'),
-								});
-								setStreamingContent([...assistantContent]);
-								break;
-							}
-							case 'snapshot_created': {
-								// Snapshot is created eagerly at prompt submission.
-								// Store the ID so subsequent file_changed events can
-								// associate directly with this snapshot.
-								const snapshotId = getEventStringField(event, 'id');
-								if (snapshotId) {
-									activeSnapshotIdReference.current = snapshotId;
-									if (userMessageIndexReference.current >= 0) {
-										setMessageSnapshot(userMessageIndexReference.current, snapshotId);
-									}
-									// Link any already-pending changes (e.g. from a previous turn)
-									associateSnapshotWithPending(snapshotId);
-								}
-								break;
-							}
-							case 'file_changed': {
-								const path = getEventStringField(event, 'path');
-								const action = getEventStringField(event, 'action');
-								const beforeContent = getEventStringField(event, 'beforeContent');
-								const afterContent = getEventStringField(event, 'afterContent');
-								if (path && (action === 'create' || action === 'edit' || action === 'delete' || action === 'move')) {
-									addPendingChange({
-										path,
-										action,
-										beforeContent: beforeContent || undefined,
-										afterContent: afterContent || undefined,
-										snapshotId: activeSnapshotIdReference.current,
-									});
-									// Open the file so the user sees the diff immediately
-									// (skip for deletes — the file no longer exists on disk)
-									// (skip for moves — the path is "from → to", not a real file)
-									if (action !== 'delete' && action !== 'move') {
-										openFile(path);
-									}
-								}
-								break;
-							}
-							case 'user_question': {
-								const question = getEventStringField(event, 'question');
-								const options = getEventStringField(event, 'options');
-								if (question) {
-									setPendingQuestion({ question, options });
-								}
-								break;
-							}
-							case 'turn_complete':
-							case 'done': {
-								// Turn or stream complete — no action needed
-								break;
-							}
-							case 'max_iterations_reached': {
-								// Agent hit the iteration circuit breaker — prompt user to continue
-								setNeedsContinuation(true);
-								break;
-							}
-							case 'error': {
-								// Surface SSE errors to the UI
-								const errorMessage = getEventStringField(event, 'message') || 'An unknown error occurred';
-								const errorCode = getEventStringField(event, 'code');
-								setAiError({ message: errorMessage, code: errorCode || undefined });
-								break;
-							}
-						}
-					},
-					{ mode: agentMode, sessionId, model: selectedModel },
-				);
-
-				// Add complete assistant message
-				if (assistantContent.length > 0) {
-					addMessage({
-						role: 'assistant',
-						content: assistantContent,
-					});
-				}
+				await sendMessage(messageText);
 			} catch (error: unknown) {
 				if (error instanceof Error && error.name === 'AbortError') {
-					wasCancelled = true;
-					// Preserve partial content on cancellation
-					if (assistantContent.length > 0) {
-						// Add a cancellation indicator to the last text block
-						const lastText = [...assistantContent].toReversed().find((block) => block.type === 'text');
-						if (lastText && lastText.type === 'text') {
-							lastText.text += '\n\n_[Generation stopped]_';
-						} else {
-							assistantContent.push({ type: 'text', text: '_[Generation stopped]_' });
-						}
-						addMessage({
-							role: 'assistant',
-							content: assistantContent,
-						});
-					}
-				} else if (error instanceof Error) {
-					console.error('AI chat error:', error);
-					setAiError({ message: error.message });
+					// Cancelled — useChat handles partial messages
+					return;
 				}
-			} finally {
-				setProcessing(false);
-				setStatusMessage(undefined);
-				setStreamingContent(undefined);
-				abortControllerReference.current = undefined;
-				assistantContentReference.current = [];
-				activeSnapshotIdReference.current = undefined;
-				if (!wasCancelled) {
-					userMessageIndexReference.current = -1;
-				}
-
-				// Auto-save the session after each AI response
-				// Use a microtask so the store updates from addMessage() are committed first
-				queueMicrotask(() => {
-					void saveCurrentSession();
-				});
+				// Other errors are handled by onError callback
 			}
 		},
-		[
-			inputPlainText,
-			isProcessing,
-			history,
-			projectId,
-			agentMode,
-			sessionId,
-			selectedModel,
-			addMessage,
-			setProcessing,
-			setStatusMessage,
-			setAiError,
-			setMessageSnapshot,
-			saveCurrentSession,
-			addPendingChange,
-			associateSnapshotWithPending,
-			openFile,
-		],
+		[inputPlainText, isProcessing, chatMessages.length, setAiError, setProcessing, setStatusMessage, sendMessage],
 	);
 
 	// Handle keyboard shortcuts
@@ -395,38 +400,41 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 
 	// Cancel current request
 	const handleCancel = useCallback(() => {
-		abortControllerReference.current?.abort();
-	}, []);
+		stopChat();
+		setProcessing(false);
+		setStatusMessage(undefined);
+	}, [stopChat, setProcessing, setStatusMessage]);
 
-	// Retry last message
+	// Retry last message.
+	// We trim messages synchronously via setChatMessages, then defer the re-send
+	// to a microtask so useChat has processed the trimmed state before sendMessage runs.
 	const handleRetry = useCallback(() => {
 		// Find the last user message text
-		const lastUserMessage = [...history].toReversed().find((message) => message.role === 'user');
+		const lastUserMessage = [...chatMessages].toReversed().find((message) => message.role === 'user');
 		if (!lastUserMessage) return;
 
-		const text = lastUserMessage.content
-			.filter((block): block is AgentContent & { type: 'text' } => block.type === 'text')
-			.map((block) => block.text)
-			.join('\n');
+		const text = extractMessageText(lastUserMessage);
 
 		// Clear the error
 		setAiError(undefined);
 
 		// Remove the errored assistant message and/or the last user message to
 		// avoid duplicating it when handleSend adds it back.
-		const lastMessage = history.at(-1);
+		const lastMessage = chatMessages.at(-1);
 		if (lastMessage && lastMessage.role === 'assistant') {
 			// Remove both the assistant reply and the user message before it
-			removeMessagesAfter(history.length - 2);
+			setChatMessages(chatMessages.slice(0, -2));
 		} else if (lastMessage && lastMessage.role === 'user') {
 			// Error occurred before an assistant message was added — remove the
 			// dangling user message so handleSend doesn't duplicate it.
-			removeMessagesAfter(history.length - 1);
+			setChatMessages(chatMessages.slice(0, -1));
 		}
 
-		// Re-send
-		void handleSend(text);
-	}, [history, setAiError, removeMessagesAfter, handleSend]);
+		// Defer re-send so useChat processes the trimmed messages first
+		queueMicrotask(() => {
+			void handleSend(text);
+		});
+	}, [chatMessages, setAiError, handleSend, setChatMessages]);
 
 	// Dismiss error
 	const handleDismissError = useCallback(() => {
@@ -443,22 +451,23 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		async (snapshotId: string, messageIndex: number) => {
 			// Cancel any ongoing generation first
 			if (isProcessing) {
-				abortControllerReference.current?.abort();
+				stopChat();
+				setProcessing(false);
+				setStatusMessage(undefined);
 			}
 
 			// Extract the user prompt text before removing messages
-			const userMessage = history[messageIndex];
-			const promptText =
-				userMessage?.content
-					.filter((block): block is AgentContent & { type: 'text' } => block.type === 'text')
-					.map((block) => block.text)
-					.join('\n') ?? '';
+			const userMessage = chatMessages[messageIndex];
+			const promptText = userMessage ? extractMessageText(userMessage) : '';
 
 			try {
 				await revertSnapshotAsync(snapshotId);
 
 				// Remove the user message and all subsequent messages, clean up snapshot associations
 				removeMessagesFrom(messageIndex);
+
+				// Sync to useChat
+				setChatMessages(chatMessages.slice(0, messageIndex));
 
 				// Clear all pending changes since files are restored
 				clearPendingChanges();
@@ -479,7 +488,18 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 				setPendingRevert(undefined);
 			}
 		},
-		[isProcessing, history, revertSnapshotAsync, removeMessagesFrom, clearPendingChanges, saveCurrentSession],
+		[
+			isProcessing,
+			chatMessages,
+			stopChat,
+			setProcessing,
+			setStatusMessage,
+			revertSnapshotAsync,
+			removeMessagesFrom,
+			setChatMessages,
+			clearPendingChanges,
+			saveCurrentSession,
+		],
 	);
 
 	// Handle suggestion click
@@ -489,6 +509,24 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		},
 		[handleSend],
 	);
+
+	// Determine the streaming assistant message (last message if it's still being generated)
+	const streamingAssistantMessage = useMemo((): UIMessage | undefined => {
+		if (!isChatLoading) return undefined;
+		const last = chatMessages.at(-1);
+		if (last && last.role === 'assistant' && last.parts.length > 0) {
+			return last;
+		}
+		return undefined;
+	}, [isChatLoading, chatMessages]);
+
+	// Non-streaming messages (all except the streaming one)
+	const displayMessages = useMemo(() => {
+		if (streamingAssistantMessage) {
+			return chatMessages.slice(0, -1);
+		}
+		return chatMessages;
+	}, [chatMessages, streamingAssistantMessage]);
 
 	return (
 		<div className={cn('flex h-full flex-col bg-bg-secondary', className)}>
@@ -530,11 +568,9 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 					</DropdownMenu>
 
 					{/* New session */}
-					<Tooltip content="New session">
-						<Button variant="ghost" size="icon-sm" onClick={clearHistory}>
-							<Plus className="size-3.5" />
-						</Button>
-					</Tooltip>
+					<Button variant="ghost" size="icon-sm" onClick={clearHistory} title="New session">
+						<Plus className="size-3.5" />
+					</Button>
 				</div>
 			</div>
 
@@ -542,13 +578,13 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 			<ScrollArea.Root className="flex-1 overflow-hidden">
 				<ScrollArea.Viewport ref={scrollReference} className="size-full [&>div]:block!">
 					<div className="flex min-w-0 flex-col gap-3 p-2">
-						{history.length === 0 ? (
+						{displayMessages.length === 0 && !streamingAssistantMessage ? (
 							<WelcomeScreen onSuggestionClick={handleSuggestion} onModeChange={setAgentMode} />
 						) : (
 							<>
-								{history.map((message, index) => (
+								{displayMessages.map((message, index) => (
 									<MessageBubble
-										key={index}
+										key={message.id}
 										message={message}
 										messageIndex={index}
 										snapshotId={messageSnapshots.get(index)}
@@ -559,7 +595,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 							</>
 						)}
 						{/* Streaming assistant message */}
-						{streamingContent && streamingContent.length > 0 && <AssistantMessage content={streamingContent} streaming />}
+						{streamingAssistantMessage && <AssistantMessage message={streamingAssistantMessage} streaming />}
 						{/* User question prompt — shown when the AI asks a clarifying question */}
 						{pendingQuestion && !isProcessing && (
 							<UserQuestionPrompt

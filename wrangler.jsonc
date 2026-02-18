@@ -41,7 +41,7 @@
 	],
 	"ratelimits": [
 		{
-			"name": "REPLICATE_RATE_LIMITER",
+			"name": "AI_RATE_LIMITER",
 			"namespace_id": "1001",
 			"simple": {
 				"limit": 300,

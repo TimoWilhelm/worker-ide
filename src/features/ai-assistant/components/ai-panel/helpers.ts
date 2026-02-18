@@ -2,11 +2,11 @@
  * Helper functions and constants for the AI Panel.
  */
 
-import type { AIStreamEvent } from '@/lib/api-client';
 import type { AgentMode, ToolName } from '@shared/types';
+import type { StreamChunk } from '@tanstack/ai';
 
 // =============================================================================
-// Helper functions
+// Tool name validation
 // =============================================================================
 
 const VALID_TOOL_NAMES: ReadonlySet<string> = new Set<ToolName>([
@@ -26,37 +26,56 @@ const VALID_TOOL_NAMES: ReadonlySet<string> = new Set<ToolName>([
 	'plan_update',
 	'todos_get',
 	'todos_update',
+	'dependencies_list',
+	'dependencies_update',
 ]);
 
 export function isToolName(value: unknown): value is ToolName {
 	return typeof value === 'string' && VALID_TOOL_NAMES.has(value);
 }
 
-export function getEventStringField(event: AIStreamEvent, field: string): string {
-	const value = event[field];
-	return typeof value === 'string' ? value : '';
-}
-
-export function getEventToolName(event: AIStreamEvent, field: string): ToolName {
-	const value = event[field];
-	if (isToolName(value)) {
-		return value;
-	}
-	return 'files_list';
-}
-
 export function isRecord(value: unknown): value is Record<string, unknown> {
 	return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
-export function getEventObjectField(event: AIStreamEvent, field: string): Record<string, unknown> {
-	const value = event[field];
-	return isRecord(value) ? value : {};
+// =============================================================================
+// CUSTOM AG-UI event helpers
+// =============================================================================
+
+/**
+ * Data shape for CUSTOM events from the backend.
+ * The backend emits: { type: 'CUSTOM', name: string, data?: unknown, timestamp: number }
+ */
+interface CustomEventData {
+	name: string;
+	data: Record<string, unknown>;
 }
 
-export function getEventBooleanField(event: AIStreamEvent, field: string): boolean | undefined {
-	const value = event[field];
-	return typeof value === 'boolean' ? value : undefined;
+/**
+ * Extract CUSTOM event data from a StreamChunk.
+ * Returns undefined if the chunk is not a CUSTOM event.
+ */
+export function extractCustomEvent(chunk: StreamChunk): CustomEventData | undefined {
+	if (!isRecord(chunk) || chunk.type !== 'CUSTOM') return undefined;
+	const name = typeof chunk.name === 'string' ? chunk.name : '';
+	const data = isRecord(chunk.data) ? chunk.data : {};
+	return { name, data };
+}
+
+/**
+ * Safely extract a string field from a record.
+ */
+export function getStringField(record: Record<string, unknown>, field: string): string {
+	const value = record[field];
+	return typeof value === 'string' ? value : '';
+}
+
+/**
+ * Safely extract a number field from a record.
+ */
+export function getNumberField(record: Record<string, unknown>, field: string): number {
+	const value = record[field];
+	return typeof value === 'number' ? value : 0;
 }
 
 // =============================================================================

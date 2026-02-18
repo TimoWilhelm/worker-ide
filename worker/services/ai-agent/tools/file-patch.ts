@@ -641,6 +641,13 @@ export async function execute(
 			}
 
 			case 'update': {
+				// Guard: skip no-op updates where the patch produces identical content.
+				// Moves always proceed (the path changes even if content doesn't).
+				if (!hunk.movePath && oldContent === newContent) {
+					results.push(`S ${targetPath} (no changes)`);
+					break;
+				}
+
 				if (hunk.movePath) {
 					const moveDirectory = hunk.movePath.slice(0, hunk.movePath.lastIndexOf('/'));
 					if (moveDirectory) {
