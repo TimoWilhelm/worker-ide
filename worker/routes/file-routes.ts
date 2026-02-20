@@ -6,13 +6,13 @@
 import fs from 'node:fs/promises';
 
 import { zValidator } from '@hono/zod-validator';
-import { exports } from 'cloudflare:workers';
 import { Hono } from 'hono';
 import { z } from 'zod';
 
 import { HIDDEN_ENTRIES } from '@shared/constants';
 import { filePathSchema, writeFileSchema, mkdirSchema, moveFileSchema } from '@shared/validation';
 
+import { coordinatorNamespace } from '../lib/durable-object-namespaces';
 import { isPathSafe, isProtectedFile } from '../lib/path-utilities';
 import { invalidateTsConfigCache } from '../services/transform-service';
 
@@ -76,8 +76,8 @@ export const fileRoutes = new Hono<AppEnvironment>()
 		}
 
 		// Trigger HMR update
-		const coordinatorId = exports.ProjectCoordinator.idFromName(`project:${projectId}`);
-		const coordinatorStub = exports.ProjectCoordinator.get(coordinatorId);
+		const coordinatorId = coordinatorNamespace.idFromName(`project:${projectId}`);
+		const coordinatorStub = coordinatorNamespace.get(coordinatorId);
 		const isCSS = path.endsWith('.css');
 		await coordinatorStub.triggerUpdate({
 			type: isCSS ? 'update' : 'full-reload',
@@ -114,8 +114,8 @@ export const fileRoutes = new Hono<AppEnvironment>()
 
 			// Trigger HMR so the frontend refreshes the file list
 			const projectId = c.get('projectId');
-			const coordinatorId = exports.ProjectCoordinator.idFromName(`project:${projectId}`);
-			const coordinatorStub = exports.ProjectCoordinator.get(coordinatorId);
+			const coordinatorId = coordinatorNamespace.idFromName(`project:${projectId}`);
+			const coordinatorStub = coordinatorNamespace.get(coordinatorId);
 			await coordinatorStub.triggerUpdate({
 				type: 'full-reload',
 				path,
@@ -156,8 +156,8 @@ export const fileRoutes = new Hono<AppEnvironment>()
 			await fs.rename(`${projectRoot}${fromPath}`, `${projectRoot}${toPath}`);
 
 			// Trigger HMR so the frontend refreshes
-			const coordinatorId = exports.ProjectCoordinator.idFromName(`project:${projectId}`);
-			const coordinatorStub = exports.ProjectCoordinator.get(coordinatorId);
+			const coordinatorId = coordinatorNamespace.idFromName(`project:${projectId}`);
+			const coordinatorStub = coordinatorNamespace.get(coordinatorId);
 			await coordinatorStub.triggerUpdate({
 				type: 'full-reload',
 				path: toPath,

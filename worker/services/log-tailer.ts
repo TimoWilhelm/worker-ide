@@ -7,7 +7,9 @@
  * over the project WebSocket.
  */
 
-import { exports, WorkerEntrypoint } from 'cloudflare:workers';
+import { WorkerEntrypoint } from 'cloudflare:workers';
+
+import { coordinatorNamespace } from '../lib/durable-object-namespaces';
 
 import type { ServerLogEntry } from '@shared/types';
 
@@ -52,8 +54,8 @@ export class LogTailer extends WorkerEntrypoint<Env, LogTailerProperties> {
 		if (logs.length === 0) return;
 
 		try {
-			const coordinatorId = exports.ProjectCoordinator.idFromName(`project:${projectId}`);
-			const coordinatorStub = exports.ProjectCoordinator.get(coordinatorId);
+			const coordinatorId = coordinatorNamespace.idFromName(`project:${projectId}`);
+			const coordinatorStub = coordinatorNamespace.get(coordinatorId);
 			await coordinatorStub.sendMessage({ type: 'server-logs', logs });
 		} catch {
 			// Best-effort — don't fail the tail if broadcast fails

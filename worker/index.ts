@@ -10,13 +10,14 @@
  * - Template listing and project cloning (root-level API)
  */
 
-import { env, exports } from 'cloudflare:workers';
+import { env } from 'cloudflare:workers';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { mount, withMounts } from 'worker-fs-mount';
 
 import { generateHumanId } from '@shared/human-id';
 
+import { coordinatorNamespace, filesystemNamespace } from './lib/durable-object-namespaces';
 import { apiRoutes } from './routes';
 import { PreviewService } from './services/preview-service';
 import { DEFAULT_TEMPLATE_ID, getTemplate, getTemplateMetadata } from './templates';
@@ -194,7 +195,7 @@ app.use('/p/*/api/*', cors());
  * correct template on first access.
  */
 app.post('/api/new-project', async (c) => {
-	const id = exports.DurableObjectFilesystem.newUniqueId();
+	const id = filesystemNamespace.newUniqueId();
 	const projectId = id.toString();
 	const humanId = generateHumanId();
 
@@ -217,7 +218,7 @@ app.post('/api/new-project', async (c) => {
 		}
 
 		await withMounts(async () => {
-			const fsStub = exports.DurableObjectFilesystem.get(id);
+			const fsStub = filesystemNamespace.get(id);
 			mount(PROJECT_ROOT, fsStub);
 
 			const fs = await import('node:fs/promises');
@@ -256,14 +257,14 @@ app.post('/api/clone-project', async (c) => {
 
 	sourceProjectId = sourceProjectId.toLowerCase();
 
-	const newId = exports.DurableObjectFilesystem.newUniqueId();
+	const newId = filesystemNamespace.newUniqueId();
 	const newProjectId = newId.toString();
 	const humanId = generateHumanId();
 
 	try {
 		await withMounts(async () => {
-			const sourceStub = exports.DurableObjectFilesystem.get(exports.DurableObjectFilesystem.idFromString(sourceProjectId));
-			const destinationStub = exports.DurableObjectFilesystem.get(newId);
+			const sourceStub = filesystemNamespace.get(filesystemNamespace.idFromString(sourceProjectId));
+			const destinationStub = filesystemNamespace.get(newId);
 			mount('/source', sourceStub);
 			mount('/destination', destinationStub);
 
@@ -315,7 +316,7 @@ app.post('/api/clone-project', async (c) => {
 	}
 
 	// Run git initialization inside the DO — single-threaded, no race conditions.
-	const newFsStub = exports.DurableObjectFilesystem.get(newId);
+	const newFsStub = filesystemNamespace.get(newId);
 	c.executionCtx.waitUntil(
 		newFsStub.gitInit().catch((error) => {
 			console.error('Git initialization failed for clone:', error);
@@ -350,8 +351,8 @@ app.all('/p/:projectId/*', async (c) => {
 	const { projectId, subPath } = projectRoute;
 
 	return withMounts(async () => {
-		const fsId = exports.DurableObjectFilesystem.idFromString(projectId);
-		const fsStub = exports.DurableObjectFilesystem.get(fsId);
+		const fsId = filesystemNamespace.idFromString(projectId);
+		const fsStub = filesystemNamespace.get(fsId);
 		mount(PROJECT_ROOT, fsStub);
 
 		// Initialize project if needed (always checks sentinel file on disk)
@@ -373,8 +374,8 @@ app.all('/p/:projectId/*', async (c) => {
 
 		// Handle WebSocket endpoint
 		if (subPath === '/__ws' || subPath.startsWith('/__ws')) {
-			const coordinatorId = exports.ProjectCoordinator.idFromName(`project:${projectId}`);
-			const coordinatorStub = exports.ProjectCoordinator.get(coordinatorId);
+			const coordinatorId = coordinatorNamespace.idFromName(`project:${projectId}`);
+			const coordinatorStub = coordinatorNamespace.get(coordinatorId);
 			const wsUrl = new URL(c.req.url);
 			wsUrl.pathname = '/ws';
 			return coordinatorStub.fetch(new Request(wsUrl, c.req.raw));

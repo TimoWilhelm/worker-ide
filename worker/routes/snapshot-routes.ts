@@ -6,12 +6,13 @@
 import fs from 'node:fs/promises';
 
 import { zValidator } from '@hono/zod-validator';
-import { exports } from 'cloudflare:workers';
 import { Hono } from 'hono';
 import { z } from 'zod';
 
 import { BINARY_EXTENSIONS } from '@shared/constants';
 import { snapshotIdSchema, revertFileSchema, filePathSchema } from '@shared/validation';
+
+import { coordinatorNamespace } from '../lib/durable-object-namespaces';
 
 import type { AppEnvironment } from '../types';
 
@@ -211,8 +212,8 @@ async function revertSingleFile(
 
 	// Trigger HMR for the reverted file
 	try {
-		const coordinatorId = exports.ProjectCoordinator.idFromName(`project:${projectId}`);
-		const coordinatorStub = exports.ProjectCoordinator.get(coordinatorId);
+		const coordinatorId = coordinatorNamespace.idFromName(`project:${projectId}`);
+		const coordinatorStub = coordinatorNamespace.get(coordinatorId);
 		await coordinatorStub.triggerUpdate({
 			type: 'full-reload',
 			path,

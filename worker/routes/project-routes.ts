@@ -5,13 +5,13 @@
 
 import fs from 'node:fs/promises';
 
-import { exports } from 'cloudflare:workers';
 import { Hono } from 'hono';
 
 import { HIDDEN_ENTRIES } from '@shared/constants';
 import { generateHumanId } from '@shared/human-id';
 import { projectMetaSchema } from '@shared/validation';
 
+import { coordinatorNamespace, filesystemNamespace } from '../lib/durable-object-namespaces';
 import { createZip } from '../lib/zip';
 
 import type { AppEnvironment } from '../types';
@@ -23,7 +23,7 @@ import type { ProjectMeta } from '@shared/types';
 export const projectRoutes = new Hono<AppEnvironment>()
 	// POST /api/new-project - Create a new project
 	.post('/new-project', async (c) => {
-		const id = exports.DurableObjectFilesystem.newUniqueId();
+		const id = filesystemNamespace.newUniqueId();
 		const projectId = id.toString();
 		const projectName = generateHumanId();
 		return c.json({ projectId, url: `/p/${projectId}`, name: projectName });
@@ -71,8 +71,8 @@ export const projectRoutes = new Hono<AppEnvironment>()
 		// Trigger full reload when dependencies change so the preview rebundles
 		if (dependenciesChanged) {
 			const projectId = c.get('projectId');
-			const coordinatorId = exports.ProjectCoordinator.idFromName(`project:${projectId}`);
-			const coordinatorStub = exports.ProjectCoordinator.get(coordinatorId);
+			const coordinatorId = coordinatorNamespace.idFromName(`project:${projectId}`);
+			const coordinatorStub = coordinatorNamespace.get(coordinatorId);
 			await coordinatorStub.triggerUpdate({
 				type: 'full-reload',
 				path: '/.project-meta.json',

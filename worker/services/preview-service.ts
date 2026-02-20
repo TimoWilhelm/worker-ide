@@ -13,6 +13,7 @@ import { HIDDEN_ENTRIES } from '@shared/constants';
 import { bundleWithCdn, BundleDependencyError } from './bundler-service';
 import { parseDependencyErrorsFromMessage } from './dependency-error-parser';
 import { transformModule, processHTML, toEsbuildTsconfigRaw, type FileSystem } from './transform-service';
+import { coordinatorNamespace } from '../lib/durable-object-namespaces';
 import { source as chobitsuInitSource, hash as chobitsuInitHash } from '../lib/preview-scripts/chobitsu-init.js?raw-minified';
 import { source as errorOverlaySource, hash as errorOverlayHash } from '../lib/preview-scripts/error-overlay.js?raw-minified';
 import { source as fetchInterceptorSource, hash as fetchInterceptorHash } from '../lib/preview-scripts/fetch-interceptor.js?raw-minified';
@@ -393,8 +394,8 @@ export class PreviewService {
 	}
 
 	private async broadcastMessage(message: ServerMessage): Promise<void> {
-		const coordinatorId = exports.ProjectCoordinator.idFromName(`project:${this.projectId}`);
-		const coordinatorStub = exports.ProjectCoordinator.get(coordinatorId);
+		const coordinatorId = coordinatorNamespace.idFromName(`project:${this.projectId}`);
+		const coordinatorStub = coordinatorNamespace.get(coordinatorId);
 		await coordinatorStub.sendMessage(message);
 	}
 

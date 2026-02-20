@@ -6,10 +6,9 @@
 
 import fs from 'node:fs/promises';
 
-import { exports } from 'cloudflare:workers';
-
 import { ToolErrorCode, toolError } from '@shared/tool-errors';
 
+import { coordinatorNamespace } from '../../../lib/durable-object-namespaces';
 import { isPathSafe } from '../../../lib/path-utilities';
 import { assertFileWasRead, recordFileRead } from '../file-time';
 
@@ -719,8 +718,8 @@ export async function execute(
 	}
 
 	// Trigger live reload for all affected files
-	const coordinatorId = exports.ProjectCoordinator.idFromName(`project:${projectId}`);
-	const coordinatorStub = exports.ProjectCoordinator.get(coordinatorId);
+	const coordinatorId = coordinatorNamespace.idFromName(`project:${projectId}`);
+	const coordinatorStub = coordinatorNamespace.get(coordinatorId);
 	await coordinatorStub.triggerUpdate({
 		type: 'full-reload',
 		path: '/',

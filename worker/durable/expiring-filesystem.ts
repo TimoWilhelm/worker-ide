@@ -1,9 +1,9 @@
-import { exports } from 'cloudflare:workers';
 import { DurableObjectFilesystem } from 'durable-object-fs';
 import { mount, withMounts } from 'worker-fs-mount';
 
 import { PROJECT_EXPIRATION_DAYS } from '@shared/constants';
 
+import { coordinatorNamespace } from '../lib/durable-object-namespaces';
 import { GitService } from '../services/git-service';
 
 import type { GitBranchInfo, GitCommitEntry, GitFileDiff, GitMergeResult, GitStashEntry, GitStatusEntry } from '@shared/types';
@@ -193,8 +193,8 @@ export class ExpiringFilesystem extends DurableObjectFilesystem {
 	private broadcastGitStatusChanged(): void {
 		try {
 			const projectId = this.ctx.id.toString();
-			const coordinatorId = exports.ProjectCoordinator.idFromName(`project:${projectId}`);
-			const coordinatorStub = exports.ProjectCoordinator.get(coordinatorId);
+			const coordinatorId = coordinatorNamespace.idFromName(`project:${projectId}`);
+			const coordinatorStub = coordinatorNamespace.get(coordinatorId);
 			void coordinatorStub.sendMessage({ type: 'git-status-changed' });
 		} catch {
 			// Non-fatal
@@ -460,8 +460,8 @@ export class ExpiringFilesystem extends DurableObjectFilesystem {
 		// Trigger full reload so the editor refreshes file contents
 		try {
 			const projectId = this.ctx.id.toString();
-			const coordinatorId = exports.ProjectCoordinator.idFromName(`project:${projectId}`);
-			const coordinatorStub = exports.ProjectCoordinator.get(coordinatorId);
+			const coordinatorId = coordinatorNamespace.idFromName(`project:${projectId}`);
+			const coordinatorStub = coordinatorNamespace.get(coordinatorId);
 			await coordinatorStub.triggerUpdate({
 				type: 'full-reload',
 				path: '/',
