@@ -11,7 +11,7 @@
 
 import { fetchServerSentEvents } from '@tanstack/ai-client';
 import { useChat } from '@tanstack/ai-react';
-import { Bot, ChevronDown, Loader2, Map as MapIcon, Plus, Send, Square } from 'lucide-react';
+import { Bot, ChevronDown, Download, Loader2, Map as MapIcon, Plus, Send, Square } from 'lucide-react';
 import { ScrollArea } from 'radix-ui';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
@@ -19,6 +19,7 @@ import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Pill } from '@/components/ui/pill';
 import { useSnapshots } from '@/features/snapshots';
+import { downloadDebugLog } from '@/lib/api-client';
 import { useStore } from '@/lib/store';
 import { cn, formatRelativeTime } from '@/lib/utils';
 
@@ -53,6 +54,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	const [pendingQuestion, setPendingQuestion] = useState<{ question: string; options: string } | undefined>();
 	const [planPath, setPlanPath] = useState<string | undefined>();
 	const [isModelSelectorOpen, setIsModelSelectorOpen] = useState(false);
+	const [debugLogId, setDebugLogId] = useState<string | undefined>();
 	const inputReference = useRef<RichTextInputHandle>(null);
 	const scrollReference = useRef<HTMLDivElement>(null);
 	const userMessageIndexReference = useRef<number>(-1);
@@ -205,6 +207,13 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 					// Token usage — could be surfaced in UI in the future
 					break;
 				}
+				case 'debug_log': {
+					const logId = getStringField(custom.data, 'id');
+					if (logId) {
+						setDebugLogId(logId);
+					}
+					break;
+				}
 			}
 		},
 		onFinish: (_message) => {
@@ -316,6 +325,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		setPlanPath(undefined);
 		setNeedsContinuation(false);
 		setPendingQuestion(undefined);
+		setDebugLogId(undefined);
 		// Clear AI metadata without touching history (the forward sync handles it)
 		useStore.setState({
 			sessionId: undefined,
@@ -502,6 +512,14 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		],
 	);
 
+	// Download debug log
+	const handleDownloadDebugLog = useCallback(() => {
+		if (!debugLogId) return;
+		void downloadDebugLog(projectId, debugLogId).catch((error) => {
+			console.error('Failed to download debug log:', error);
+		});
+	}, [debugLogId, projectId]);
+
 	// Handle suggestion click
 	const handleSuggestion = useCallback(
 		(prompt: string) => {
@@ -544,6 +562,13 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 					</Pill>
 				</div>
 				<div className="flex items-center gap-1">
+					{/* Download debug log */}
+					{debugLogId && (
+						<Button variant="ghost" size="icon-sm" onClick={handleDownloadDebugLog} title="Download debug log">
+							<Download className="size-3.5" />
+						</Button>
+					)}
+
 					{/* Session dropdown */}
 					<DropdownMenu>
 						<DropdownMenuTrigger asChild>

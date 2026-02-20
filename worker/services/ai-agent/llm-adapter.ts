@@ -16,6 +16,7 @@ import Replicate from 'replicate';
 
 import { isRecordObject, normalizeFunctionCallsFormat, parseToolCalls } from './utilities';
 
+import type { AgentLogger } from './agent-logger';
 import type { AIModelId } from '@shared/constants';
 import type { DefaultMessageMetadataByModality, ModelMessage, StreamChunk, TextOptions, Tool } from '@tanstack/ai';
 import type { StructuredOutputOptions, StructuredOutputResult } from '@tanstack/ai/adapters';
@@ -230,10 +231,12 @@ Since tools are called sequentially, prefer efficient tool usage:
 class ReplicateTextAdapter extends BaseTextAdapter<string, Record<string, never>, readonly ['text'], DefaultMessageMetadataByModality> {
 	readonly name = 'replicate';
 	private replicate: Replicate;
+	private logger?: AgentLogger;
 
-	constructor(apiKey: string, model: string) {
+	constructor(apiKey: string, model: string, logger?: AgentLogger) {
 		super({ apiKey }, model);
 		this.replicate = new Replicate({ auth: apiKey });
+		this.logger = logger;
 	}
 
 	async *chatStream(options: TextOptions<Record<string, never>>): AsyncIterable<StreamChunk> {
@@ -249,6 +252,14 @@ class ReplicateTextAdapter extends BaseTextAdapter<string, Record<string, never>
 		// Format messages into Human:/Assistant: prompt
 		const formattedMessages = formatMessages(options.messages);
 		const fullPrompt = `${fullSystemPrompt}${formattedMessages}\n\nAssistant:`;
+
+		this.logger?.debug('llm', 'prompt_built', {
+			promptLength: fullPrompt.length,
+			systemPromptLength: fullSystemPrompt.length,
+			messageCount: options.messages.length,
+			toolCount: options.tools?.length ?? 0,
+			maxTokens: options.maxTokens ?? 4096,
+		});
 
 		// Emit RUN_STARTED
 		yield {
@@ -363,6 +374,10 @@ class ReplicateTextAdapter extends BaseTextAdapter<string, Record<string, never>
 				}
 			}
 		} catch (error) {
+			this.logger?.error('llm', 'replicate_stream_error', {
+				error: error instanceof Error ? error.message : String(error),
+				accumulatedOutputLength: accumulatedOutput.length,
+			});
 			// Emit TEXT_MESSAGE_END before the error so the text message is properly closed
 			yield {
 				type: 'TEXT_MESSAGE_END',
@@ -393,8 +408,16 @@ class ReplicateTextAdapter extends BaseTextAdapter<string, Record<string, never>
 
 		// Normalize alternative tool call formats and parse tool calls
 		const normalizedOutput = normalizeFunctionCallsFormat(accumulatedOutput);
-		const { textParts, toolCalls } = parseToolCalls(normalizedOutput);
+		const { textParts, toolCalls } = parseToolCalls(normalizedOutput, this.logger);
 		const hasToolCalls = toolCalls.length > 0;
+
+		this.logger?.info('tool_parse', 'parse_result', {
+			accumulatedOutputLength: accumulatedOutput.length,
+			toolCallCount: toolCalls.length,
+			toolNames: toolCalls.map((tc) => tc.name),
+			textPartCount: textParts.length,
+			wasNormalized: normalizedOutput !== accumulatedOutput,
+		});
 
 		// If there are tool calls and there are text segments BETWEEN or AFTER tool blocks
 		// that weren't streamed (because we stopped at the first <tool_use>), emit them
@@ -490,7 +513,8 @@ class ReplicateTextAdapter extends BaseTextAdapter<string, Record<string, never>
  *
  * @param modelId - Replicate model ID (e.g., "anthropic/claude-4.5-haiku")
  * @param apiKey - Replicate API token
+ * @param logger - Optional debug logger for structured logging of LLM interactions
  */
-export function createAdapter(modelId: AIModelId | string, apiKey: string): ReplicateTextAdapter {
-	return new ReplicateTextAdapter(apiKey, modelId);
+export function createAdapter(modelId: AIModelId | string, apiKey: string, logger?: AgentLogger): ReplicateTextAdapter {
+	return new ReplicateTextAdapter(apiKey, modelId, logger);
 }

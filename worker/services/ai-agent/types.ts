@@ -91,4 +91,5 @@ export interface ToolModule {
 	execute: ToolExecuteFunction;
 }
 
+export type { AgentDebugLog, AgentDebugLogSummary, AgentLogEntry, LogCategory, LogLevel } from './agent-logger';
 export { type ModelMessage } from '@tanstack/ai';

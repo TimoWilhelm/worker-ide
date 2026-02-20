@@ -315,6 +315,20 @@ export const saveSessionSchema = z.object({
 export type SaveSessionInput = z.infer<typeof saveSessionSchema>;
 
 // =============================================================================
+// Debug Log Schemas
+// =============================================================================
+
+/**
+ * Schema for debug log ID.
+ * Format: `{sessionIdOrUuid}-{timestamp}` — alphanumeric characters and hyphens.
+ */
+export const debugLogIdSchema = z
+	.string()
+	.min(1, 'Debug log ID is required')
+	.max(64, 'Debug log ID must be at most 64 characters')
+	.regex(/^[a-z0-9-]+$/, 'Debug log ID must contain only lowercase alphanumeric characters and hyphens');
+
+// =============================================================================
 // Snapshot Schemas
 // =============================================================================
 

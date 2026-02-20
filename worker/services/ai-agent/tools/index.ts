@@ -26,8 +26,10 @@ import * as todosGetTool from './todos-get';
 import * as todosUpdateTool from './todos-update';
 import * as userQuestionTool from './user-question';
 import * as webFetchTool from './web-fetch';
+import { sanitizeToolInput, summarizeToolResult } from '../agent-logger';
 import { isRecordObject } from '../utilities';
 
+import type { AgentLogger } from '../agent-logger';
 import type { CustomEventQueue, FileChange, SendEventFunction, ToolDefinition, ToolExecuteFunction, ToolExecutorContext } from '../types';
 
 // =============================================================================
@@ -203,12 +205,14 @@ export function createSendEvent(eventQueue: CustomEventQueue): SendEventFunction
  * @param context - Tool executor context (project root, mode, etc.)
  * @param queryChanges - Mutable array for tracking file changes
  * @param mode - Agent mode (code, plan, ask) — determines which tools are available
+ * @param logger - Optional debug logger for structured tool call logging
  */
 export function createServerTools(
 	sendEvent: SendEventFunction,
 	context: ToolExecutorContext,
 	queryChanges: FileChange[],
 	mode: 'code' | 'plan' | 'ask',
+	logger?: AgentLogger,
 ) {
 	// Select which tool definitions to use based on mode
 	const activeToolDefinitions = mode === 'ask' ? ASK_MODE_TOOLS : mode === 'plan' ? PLAN_MODE_TOOLS : AGENT_TOOLS;
@@ -228,6 +232,11 @@ export function createServerTools(
 		}).server(async (input) => {
 			// Defense-in-depth: reject editing tools in non-code modes
 			if (mode !== 'code' && EDITING_TOOL_NAMES.has(definition.name)) {
+				logger?.warn('tool_call', 'blocked', {
+					toolName: definition.name,
+					reason: 'editing_tool_in_non_code_mode',
+					mode,
+				});
 				// Return a JSON object — @tanstack/ai's executeToolCalls() calls
 				// JSON.parse() on string results, so plain strings would throw.
 				return { content: 'File editing tools are not available in this mode. Switch to Code mode to make changes.' };
@@ -239,12 +248,44 @@ export function createServerTools(
 				stringInput[key] = String(value);
 			}
 
-			const result = await executor(stringInput, sendEvent, context, undefined, queryChanges);
-			// Wrap the result in an object so @tanstack/ai's executeToolCalls()
-			// doesn't try to JSON.parse() a plain string (which would fail for
-			// non-JSON text like XML content or "Wrote file successfully.").
-			const text = typeof result === 'string' ? result : JSON.stringify(result);
-			return { content: text };
+			logger?.info('tool_call', 'started', {
+				toolName: definition.name,
+				input: sanitizeToolInput(stringInput),
+			});
+			const timer = logger?.startTimer();
+
+			try {
+				const result = await executor(stringInput, sendEvent, context, undefined, queryChanges);
+				// Wrap the result in an object so @tanstack/ai's executeToolCalls()
+				// doesn't try to JSON.parse() a plain string (which would fail for
+				// non-JSON text like XML content or "Wrote file successfully.").
+				const text = typeof result === 'string' ? result : JSON.stringify(result);
+
+				logger?.info(
+					'tool_call',
+					'completed',
+					{
+						toolName: definition.name,
+						resultSummary: summarizeToolResult(text),
+						resultLength: text.length,
+					},
+					{ durationMs: timer?.() },
+				);
+
+				return { content: text };
+			} catch (error) {
+				logger?.error(
+					'tool_call',
+					'error',
+					{
+						toolName: definition.name,
+						error: error instanceof Error ? error.message : String(error),
+						stack: error instanceof Error ? error.stack : undefined,
+					},
+					{ durationMs: timer?.() },
+				);
+				throw error;
+			}
 		});
 	});
 }

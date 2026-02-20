@@ -6,6 +6,8 @@
 import { BINARY_EXTENSIONS } from '@shared/constants';
 import { toolInputSchemas, type ToolName } from '@shared/validation';
 
+import type { AgentLogger } from './agent-logger';
+
 // =============================================================================
 // Type Guards
 // =============================================================================
@@ -684,7 +686,7 @@ function coerceInputToStrings(input: Record<string, unknown>): Record<string, st
  * - Malformed JSON inside tool blocks (repair attempted, falls back to text)
  * - Empty tool names (filtered out with warning)
  */
-export function parseToolCalls(output: string): ParseToolCallsResult {
+export function parseToolCalls(output: string, logger?: AgentLogger): ParseToolCallsResult {
 	const textParts: string[] = [];
 	const toolCalls: ParsedToolCall[] = [];
 
@@ -692,6 +694,8 @@ export function parseToolCalls(output: string): ParseToolCallsResult {
 	const closeTag = '</tool_use>';
 	let lastIndex = 0;
 	let searchFrom = 0;
+
+	logger?.debug('tool_parse', 'parse_start', { outputLength: output.length });
 
 	try {
 		while (searchFrom < output.length) {
@@ -715,11 +719,21 @@ export function parseToolCalls(output: string): ParseToolCallsResult {
 						if (toolName) {
 							const input = extractToolInput(toolData);
 							toolCalls.push({ name: toolName, input: coerceInputToStrings(input) });
+							logger?.info('tool_parse', 'truncated_block_recovered', {
+								toolName,
+								jsonLength: remainingJson.length,
+							});
 						} else {
+							logger?.warn('tool_parse', 'empty_name_truncated', {
+								jsonSnippet: remainingJson.slice(0, 200),
+							});
 							console.warn('Parsed tool call with empty name from truncated block, treating as text');
 							textParts.push(output.slice(tagStart));
 						}
 					} else {
+						logger?.warn('tool_parse', 'unrecoverable_truncated', {
+							jsonSnippet: remainingJson.slice(0, 200),
+						});
 						// Unrecoverable — treat entire remaining output as text
 						textParts.push(output.slice(tagStart));
 					}
@@ -744,10 +758,16 @@ export function parseToolCalls(output: string): ParseToolCallsResult {
 					const input = extractToolInput(toolData);
 					toolCalls.push({ name: toolName, input: coerceInputToStrings(input) });
 				} else {
+					logger?.warn('tool_parse', 'empty_name', {
+						jsonSnippet: jsonString.slice(0, 200),
+					});
 					console.warn('Parsed tool call with empty name, treating as text');
 					textParts.push(output.slice(tagStart, blockEnd));
 				}
 			} else {
+				logger?.warn('tool_parse', 'parse_error', {
+					jsonSnippet: jsonString.slice(0, 200),
+				});
 				console.warn('Failed to parse tool use JSON, treating as text:', jsonString.slice(0, 200));
 				textParts.push(output.slice(tagStart, blockEnd));
 			}
@@ -757,6 +777,10 @@ export function parseToolCalls(output: string): ParseToolCallsResult {
 		}
 	} catch (error) {
 		// Outer safety net — should never happen, but guarantees we never crash
+		logger?.error('tool_parse', 'unexpected_error', {
+			error: error instanceof Error ? error.message : String(error),
+			stack: error instanceof Error ? error.stack : undefined,
+		});
 		console.error('Unexpected error during tool call parsing:', error);
 		// Return whatever we've collected so far, plus remaining text
 		const remaining = output.slice(lastIndex).trim();

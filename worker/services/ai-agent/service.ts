@@ -26,6 +26,7 @@ import {
 	PLAN_MODE_SYSTEM_PROMPT,
 } from '@shared/constants';
 
+import { AgentLogger } from './agent-logger';
 import { isContextOverflow, pruneToolOutputs } from './context-pruner';
 import { DoomLoopDetector } from './doom-loop';
 import { createAdapter, getModelLimits } from './llm-adapter';
@@ -147,6 +148,15 @@ export class AIAgentService {
 		const doomDetector = new DoomLoopDetector();
 		const tokenTracker = new TokenTracker();
 		const eventQueue: CustomEventQueue = [];
+		const logger = new AgentLogger(this.sessionId, this.projectId, this.model, this.mode);
+
+		logger.info('agent_loop', 'started', {
+			mode: this.mode,
+			model: this.model,
+			sessionId: this.sessionId,
+			messageCount: messages.length,
+			maxIterations: MAX_ITERATIONS,
+		});
 
 		// Create the sendEvent function that pushes CUSTOM events to the queue
 		const sendEvent = createSendEvent(eventQueue);
@@ -155,6 +165,7 @@ export class AIAgentService {
 		let snapshotContext: { id: string; directory: string; savedPaths: Set<string> } | undefined;
 		if (this.mode === 'code') {
 			snapshotContext = await this.initSnapshot(messages, sendEvent);
+			logger.debug('snapshot', 'created', { snapshotId: snapshotContext.id });
 			// Drain snapshot events
 			while (eventQueue.length > 0) {
 				const queued = eventQueue.shift();
@@ -167,9 +178,13 @@ export class AIAgentService {
 
 			// Build system prompts
 			const systemPrompts = await this.buildSystemPrompts();
+			logger.debug('message', 'system_prompt_built', {
+				promptCount: systemPrompts.length,
+				totalLength: systemPrompts.reduce((sum, p) => sum + p.length, 0),
+			});
 
 			// Create the Replicate adapter
-			const adapter = createAdapter(this.model, apiKey);
+			const adapter = createAdapter(this.model, apiKey, logger);
 			const modelLimits = getModelLimits(this.model);
 
 			// Create tool executor context
@@ -191,19 +206,32 @@ export class AIAgentService {
 
 			while (continueLoop && iteration < MAX_ITERATIONS) {
 				if (signal.aborted) {
+					logger.info('agent_loop', 'aborted', { iteration });
+					logger.markAborted();
 					yield customEvent('status', { message: 'Interrupted' });
 					break;
 				}
 
 				iteration++;
+				logger.setIteration(iteration);
+				logger.info('agent_loop', 'iteration_start', {
+					iteration,
+					workingMessageCount: workingMessages.length,
+				});
 				yield customEvent('status', {
 					message: this.mode === 'plan' ? 'Researching...' : 'Thinking...',
 				});
 
 				// Check context overflow and prune if needed
 				if (isContextOverflow(workingMessages, modelLimits)) {
+					logger.info('context', 'overflow_check', { overflow: true });
 					const { messages: prunedMessages, prunedTokens } = pruneToolOutputs(workingMessages);
 					if (prunedTokens > 0) {
+						logger.info('context', 'prune_executed', {
+							prunedTokens,
+							messageCountBefore: workingMessages.length,
+							messageCountAfter: prunedMessages.length,
+						});
 						workingMessages.length = 0;
 						workingMessages.push(...prunedMessages);
 						yield customEvent('status', {
@@ -216,14 +244,22 @@ export class AIAgentService {
 				const changeCountBefore = queryChanges.length;
 
 				// Create tools fresh each iteration (they capture the mutable queryChanges array)
-				const tools = createServerTools(sendEvent, toolContext, queryChanges, this.mode);
+				const tools = createServerTools(sendEvent, toolContext, queryChanges, this.mode, logger);
 
 				// Call the LLM with retry
 				let chatResult: AsyncIterable<StreamChunk>;
 				let retryAttempt = 0;
+				let llmTimer = logger.startTimer();
+
+				logger.info('llm', 'request_start', {
+					model: this.model,
+					maxTokens: 8192,
+					toolCount: tools.length,
+				});
 
 				while (true) {
 					try {
+						llmTimer = logger.startTimer();
 						// eslint-disable-next-line @typescript-eslint/no-explicit-any -- TanStack AI message types are restrictive
 						const messagesCopy: any = [...workingMessages];
 						chatResult = chat({
@@ -239,9 +275,19 @@ export class AIAgentService {
 						retryAttempt++;
 						const retryReason = classifyRetryableError(error);
 						if (!retryReason || retryAttempt >= MAX_RETRY_ATTEMPTS) {
+							logger.error('llm', 'request_failed', {
+								retryAttempt,
+								reason: retryReason ?? 'non_retryable',
+								error: error instanceof Error ? error.message : String(error),
+							});
 							throw error;
 						}
 						const delay = calculateRetryDelay(retryAttempt, error);
+						logger.warn('llm', 'retry', {
+							retryAttempt,
+							reason: retryReason,
+							delayMs: delay,
+						});
 						yield customEvent('status', { message: `Retrying (${retryReason})...` });
 						await sleep(delay, signal);
 					}
@@ -292,6 +338,10 @@ export class AIAgentService {
 							currentToolCallId = getEventField(chunk, 'toolCallId');
 							currentToolName = getEventField(chunk, 'toolName');
 							currentToolArguments = '';
+							logger.debug('tool_call', 'stream_start', {
+								toolCallId: currentToolCallId,
+								toolName: currentToolName,
+							});
 							yield chunk;
 							break;
 						}
@@ -310,9 +360,14 @@ export class AIAgentService {
 								try {
 									toolInput = JSON.parse(currentToolArguments || '{}');
 								} catch {
-									// No-op
+									logger.warn('tool_call', 'arguments_parse_error', {
+										toolCallId,
+										toolName,
+										rawArguments: currentToolArguments.slice(0, 200),
+									});
 								}
 								doomDetector.record(toolName, toolInput);
+								logger.recordToolCall(toolName);
 							}
 
 							// Track completed tool call for message reconstruction
@@ -324,6 +379,7 @@ export class AIAgentService {
 
 							// Check if user_question was used — stop the loop
 							if (toolName === 'user_question') {
+								logger.info('agent_loop', 'user_question_stop', { toolCallId });
 								hadUserQuestion = true;
 							}
 
@@ -343,20 +399,40 @@ export class AIAgentService {
 						case 'RUN_FINISHED': {
 							// Extract usage data if available
 							const usage = getEventRecord(chunk, 'usage');
+							const finishReason = getEventField(chunk, 'finishReason');
+							const inputTokens = usage ? getNumberField(usage, 'inputTokens') || getNumberField(usage, 'input_tokens') : 0;
+							const outputTokens = usage ? getNumberField(usage, 'outputTokens') || getNumberField(usage, 'output_tokens') : 0;
 							if (usage) {
 								tokenTracker.recordTurn(this.model, {
-									inputTokens: getNumberField(usage, 'inputTokens') || getNumberField(usage, 'input_tokens'),
-									outputTokens: getNumberField(usage, 'outputTokens') || getNumberField(usage, 'output_tokens'),
+									inputTokens,
+									outputTokens,
 									cacheReadInputTokens: getNumberField(usage, 'cacheReadInputTokens') || getNumberField(usage, 'cache_read_input_tokens'),
 									cacheCreationInputTokens:
 										getNumberField(usage, 'cacheCreationInputTokens') || getNumberField(usage, 'cache_creation_input_tokens'),
 								});
+								logger.recordTokenUsage(inputTokens, outputTokens);
 							}
+							logger.info(
+								'llm',
+								'request_end',
+								{
+									finishReason,
+									inputTokens,
+									outputTokens,
+									toolCallCount: completedToolCalls.length,
+									textLength: lastAssistantText.length,
+								},
+								{ durationMs: llmTimer() },
+							);
 							// Pass through — this is the per-iteration RUN_FINISHED
 							yield chunk;
 							break;
 						}
 						case 'RUN_ERROR': {
+							const errorData = getEventRecord(chunk, 'error');
+							logger.error('llm', 'stream_error', {
+								message: errorData ? getEventField(errorData, 'message') : 'Unknown error',
+							});
 							// Pass through — retries are handled at the outer chat() call level,
 							// not inside the stream consumption loop.
 							yield chunk;
@@ -387,6 +463,11 @@ export class AIAgentService {
 				// When tool calls occurred, reconstruct the full assistant + tool result
 				// messages so the LLM sees the complete context on the next iteration.
 				if (hadToolCalls && completedToolCalls.length > 0) {
+					logger.debug('message', 'messages_reconstructed', {
+						toolCallCount: completedToolCalls.length,
+						toolNames: completedToolCalls.map((tc) => tc.name),
+						textLength: lastAssistantText.length,
+					});
 					workingMessages.push({
 						role: 'assistant',
 						// eslint-disable-next-line unicorn/no-null -- ModelMessage.content requires null, not undefined
@@ -410,12 +491,20 @@ export class AIAgentService {
 					if (lastAssistantText) {
 						workingMessages.push({ role: 'assistant', content: lastAssistantText });
 					}
+					logger.info('agent_loop', 'no_tool_calls_stop', {
+						textLength: lastAssistantText.length,
+					});
 					continueLoop = false;
 				}
 
 				// Check doom loop
 				const doomLoopTool = doomDetector.isDoomLoop();
 				if (doomLoopTool) {
+					logger.warn('agent_loop', 'doom_loop_detected', {
+						toolName: doomLoopTool,
+						totalToolCalls: doomDetector.length,
+					});
+					logger.markDoomLoop();
 					yield customEvent('status', {
 						message: `Detected repeated calls to ${doomLoopTool}, stopping.`,
 					});
@@ -432,12 +521,24 @@ export class AIAgentService {
 					continueLoop = false;
 				}
 
+				logger.info('agent_loop', 'iteration_end', {
+					iteration,
+					hadToolCalls,
+					hadUserQuestion,
+					continueLoop,
+					fileChangesThisIteration: queryChanges.length - changeCountBefore,
+				});
+
 				yield customEvent('turn_complete', {});
 			}
 
 			// Detect iteration limit hit
 			if (continueLoop && iteration >= MAX_ITERATIONS && !signal.aborted) {
 				hitIterationLimit = true;
+				logger.warn('agent_loop', 'iteration_limit', {
+					maxIterations: MAX_ITERATIONS,
+				});
+				logger.markIterationLimit();
 			}
 
 			// Clean up empty snapshots
@@ -465,8 +566,20 @@ export class AIAgentService {
 					turns: tokenTracker.turnCount,
 				});
 			}
+
+			// Log completion and flush
+			logger.info('agent_loop', 'completed', {
+				totalIterations: iteration,
+				totalFileChanges: queryChanges.length,
+				hitIterationLimit,
+			});
+			await logger.flush(this.projectRoot);
+			yield customEvent('debug_log', { id: logger.id });
 		} catch (error) {
 			if (error instanceof Error && error.name === 'AbortError') {
+				logger.info('agent_loop', 'aborted');
+				logger.markAborted();
+				await logger.flush(this.projectRoot);
 				if (snapshotContext && queryChanges.length === 0) {
 					try {
 						await this.deleteDirectoryRecursive(snapshotContext.directory);
@@ -474,9 +587,15 @@ export class AIAgentService {
 						// No-op
 					}
 				}
+				yield customEvent('debug_log', { id: logger.id });
 				return;
 			}
 			console.error('Agent loop error:', error);
+			logger.error('agent_loop', 'error', {
+				message: error instanceof Error ? error.message : String(error),
+				stack: error instanceof Error ? error.stack : undefined,
+			});
+			await logger.flush(this.projectRoot);
 			if (snapshotContext && queryChanges.length === 0) {
 				try {
 					await this.deleteDirectoryRecursive(snapshotContext.directory);
@@ -490,6 +609,7 @@ export class AIAgentService {
 				timestamp: Date.now(),
 				error: { message: parsed.message, code: parsed.code ?? undefined },
 			};
+			yield customEvent('debug_log', { id: logger.id });
 		} finally {
 			await this.closeMcpClients();
 		}

@@ -9,13 +9,16 @@
  * convertMessagesToModelMessages() utility.
  */
 
+import fs from 'node:fs/promises';
+
 import { zValidator } from '@hono/zod-validator';
 import { convertMessagesToModelMessages } from '@tanstack/ai';
 import { env } from 'cloudflare:workers';
 import { Hono } from 'hono';
+import { z } from 'zod';
 
 import { DEFAULT_AI_MODEL } from '@shared/constants';
-import { aiChatMessageSchema } from '@shared/validation';
+import { aiChatMessageSchema, debugLogIdSchema } from '@shared/validation';
 
 import { AIAgentService } from '../services/ai-agent';
 
@@ -75,6 +78,23 @@ export const aiRoutes = new Hono<AppEnvironment>()
 		// The abort is handled via the AbortController signal in the browser
 		// This endpoint exists for explicit abort requests if needed
 		return c.json({ success: true });
+	})
+
+	// GET /api/ai/debug-log?id=X - Download an agent debug log
+	.get('/ai/debug-log', zValidator('query', z.object({ id: debugLogIdSchema })), async (c) => {
+		const projectRoot = c.get('projectRoot');
+		const { id } = c.req.valid('query');
+
+		const logPath = `${projectRoot}/.agent/debug-logs/${id}.json`;
+		try {
+			const content = await fs.readFile(logPath, 'utf8');
+			return c.json(JSON.parse(content));
+		} catch (error) {
+			if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+				return c.json({ error: 'Debug log not found' }, 404);
+			}
+			return c.json({ error: 'Failed to read debug log' }, 500);
+		}
 	});
 
 export type AIRoutes = typeof aiRoutes;

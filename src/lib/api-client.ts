@@ -194,6 +194,32 @@ export async function saveAiSession(projectId: string, session: AiSession): Prom
 }
 
 // =============================================================================
+// Debug Logs
+// =============================================================================
+
+/**
+ * Download an agent debug log as a JSON file.
+ *
+ * Fetches the debug log from the backend and triggers a browser file download.
+ */
+export async function downloadDebugLog(projectId: string, logId: string): Promise<void> {
+	const response = await fetch(`/p/${projectId}/api/ai/debug-log?id=${encodeURIComponent(logId)}`);
+	if (!response.ok) {
+		throw new Error('Failed to download debug log');
+	}
+	const data: unknown = await response.json();
+	const blob = new Blob([JSON.stringify(data, undefined, 2)], { type: 'application/json' });
+	const url = URL.createObjectURL(blob);
+	const anchor = document.createElement('a');
+	anchor.href = url;
+	anchor.download = `agent-debug-log-${logId}.json`;
+	document.body.append(anchor);
+	anchor.click();
+	anchor.remove();
+	URL.revokeObjectURL(url);
+}
+
+// =============================================================================
 // WebSocket Connection
 // =============================================================================
 
