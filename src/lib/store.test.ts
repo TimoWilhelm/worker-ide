@@ -32,6 +32,7 @@ beforeEach(() => {
 		sidebarVisible: true,
 		utilityPanelVisible: true,
 		aiPanelVisible: false,
+		dependenciesPanelVisible: true,
 	});
 });
 
@@ -521,5 +522,20 @@ describe('UI slice', () => {
 		expect(useStore.getState().aiPanelVisible).toBe(false);
 		useStore.getState().toggleAIPanel();
 		expect(useStore.getState().aiPanelVisible).toBe(true);
+	});
+
+	it('toggles dependencies panel', () => {
+		expect(useStore.getState().dependenciesPanelVisible).toBe(true);
+		useStore.getState().toggleDependenciesPanel();
+		expect(useStore.getState().dependenciesPanelVisible).toBe(false);
+		useStore.getState().toggleDependenciesPanel();
+		expect(useStore.getState().dependenciesPanelVisible).toBe(true);
+	});
+
+	it('shows dependencies panel', () => {
+		useStore.getState().toggleDependenciesPanel(); // hide it first
+		expect(useStore.getState().dependenciesPanelVisible).toBe(false);
+		useStore.getState().showDependenciesPanel();
+		expect(useStore.getState().dependenciesPanelVisible).toBe(true);
 	});
 });

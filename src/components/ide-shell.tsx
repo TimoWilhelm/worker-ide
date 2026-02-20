@@ -6,7 +6,7 @@
 
 import { Bot, ChevronUp, Clock, Download, FolderOpen, Github, Hexagon, Moon, Pencil, Plus, Sun, X } from 'lucide-react';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Group as PanelGroup, Panel, Separator as ResizeHandle } from 'react-resizable-panels';
+import { Group as PanelGroup, Panel, Separator as ResizeHandle, useDefaultLayout } from 'react-resizable-panels';
 
 import { ActivityBar } from '@/components/activity-bar';
 import { MobileFileDrawer } from '@/components/mobile-file-drawer';
@@ -57,23 +57,20 @@ export function IDEShell({ projectId }: { projectId: string }) {
 	const resolvedTheme = useTheme();
 	const setColorScheme = useStore((state) => state.setColorScheme);
 
-	// Sidebar dependencies panel
-	const [dependenciesPanelVisible, setDependenciesPanelVisible] = useState(true);
-	const toggleDependenciesPanel = useCallback(() => setDependenciesPanelVisible((v) => !v), []);
-
 	// Auto-expand dependencies panel when new errors are detected.
 	// Uses a Zustand store subscription (external system) so setState is called
 	// from the subscription callback rather than synchronously inside an effect.
+	const showDependenciesPanel = useStore((state) => state.showDependenciesPanel);
 	const previousDependencyErrorCount = useRef(0);
 	useEffect(() => {
 		return subscribeDependencyErrors(() => {
 			const currentCount = getDependencyErrorCount();
 			if (currentCount > previousDependencyErrorCount.current) {
-				setDependenciesPanelVisible(true);
+				showDependenciesPanel();
 			}
 			previousDependencyErrorCount.current = currentCount;
 		});
-	}, []);
+	}, [showDependenciesPanel]);
 
 	// Mobile layout
 	const isMobile = useIsMobile();
@@ -89,6 +86,8 @@ export function IDEShell({ projectId }: { projectId: string }) {
 		aiPanelVisible,
 		toggleAIPanel,
 		devtoolsVisible,
+		dependenciesPanelVisible,
+		toggleDependenciesPanel,
 		activeFile,
 		openFiles,
 		unsavedChanges,
@@ -513,6 +512,46 @@ export function IDEShell({ projectId }: { projectId: string }) {
 		return () => globalThis.removeEventListener('keydown', handleKeyDown);
 	}, []);
 
+	// =========================================================================
+	// Persist panel layouts to localStorage via react-resizable-panels
+	// =========================================================================
+
+	// Main horizontal layout: sidebar | editor-col | preview-col | ai-panel
+	const mainPanelIds = useMemo(() => {
+		const ids = ['sidebar', 'editor-col', 'preview-col'];
+		if (aiPanelVisible) ids.push('ai-panel');
+		return ids;
+	}, [aiPanelVisible]);
+
+	const mainLayout = useDefaultLayout({ id: 'ide-main', panelIds: mainPanelIds });
+
+	// Sidebar panels: file-tree | dependencies
+	const sidebarPanelIds = useMemo(() => {
+		const ids = ['file-tree'];
+		if (dependenciesPanelVisible) ids.push('dependencies');
+		return ids;
+	}, [dependenciesPanelVisible]);
+
+	const sidebarLayout = useDefaultLayout({ id: 'sidebar-panels', panelIds: sidebarPanelIds });
+
+	// Editor + terminal: editor | utility-panel
+	const editorTerminalPanelIds = useMemo(() => {
+		const ids = ['editor'];
+		if (utilityPanelVisible) ids.push('utility-panel');
+		return ids;
+	}, [utilityPanelVisible]);
+
+	const editorTerminalLayout = useDefaultLayout({ id: 'ide-editor-terminal', panelIds: editorTerminalPanelIds });
+
+	// Preview + devtools: preview | devtools
+	const previewDevtoolsPanelIds = useMemo(() => {
+		const ids = ['preview'];
+		if (devtoolsVisible) ids.push('devtools');
+		return ids;
+	}, [devtoolsVisible]);
+
+	const previewDevtoolsLayout = useDefaultLayout({ id: 'ide-preview-devtools', panelIds: previewDevtoolsPanelIds });
+
 	return (
 		<TooltipProvider>
 			<div className="flex h-dvh flex-col overflow-hidden bg-bg-primary">
@@ -789,7 +828,13 @@ export function IDEShell({ projectId }: { projectId: string }) {
 				) : (
 					<>
 						{/* Desktop layout — fully resizable panel layout */}
-						<PanelGroup orientation="horizontal" id="ide-main" className="min-h-0 flex-1">
+						<PanelGroup
+							orientation="horizontal"
+							id="ide-main"
+							className="min-h-0 flex-1"
+							defaultLayout={mainLayout.defaultLayout}
+							onLayoutChanged={mainLayout.onLayoutChanged}
+						>
 							{/* Activity Bar + Sidebar */}
 							<Panel id="sidebar" defaultSize="15%" minSize="180px" maxSize="25%">
 								<div className="flex h-full">
@@ -801,7 +846,13 @@ export function IDEShell({ projectId }: { projectId: string }) {
 									>
 										{activeSidebarView === 'explorer' ? (
 											<>
-												<PanelGroup orientation="vertical" id="sidebar-panels" className="flex-1">
+												<PanelGroup
+													orientation="vertical"
+													id="sidebar-panels"
+													className="flex-1"
+													defaultLayout={sidebarLayout.defaultLayout}
+													onLayoutChanged={sidebarLayout.onLayoutChanged}
+												>
 													<Panel id="file-tree" defaultSize={dependenciesPanelVisible ? '70%' : '100%'} minSize="20%">
 														<div className="flex h-full flex-col overflow-hidden">
 															{isLoadingFiles ? (
@@ -867,7 +918,13 @@ export function IDEShell({ projectId }: { projectId: string }) {
 							{/* Editor + Terminal column */}
 							<Panel id="editor-col" defaultSize="45%" minSize="20%">
 								<div className="flex h-full flex-col overflow-hidden">
-									<PanelGroup orientation="vertical" id="ide-editor-terminal" className="flex-1">
+									<PanelGroup
+										orientation="vertical"
+										id="ide-editor-terminal"
+										className="flex-1"
+										defaultLayout={editorTerminalLayout.defaultLayout}
+										onLayoutChanged={editorTerminalLayout.onLayoutChanged}
+									>
 										{/* Editor area */}
 										<Panel id="editor" defaultSize={utilityPanelVisible ? '70%' : '100%'} minSize="30%">
 											<div className="flex h-full flex-col overflow-hidden">
@@ -1021,7 +1078,12 @@ export function IDEShell({ projectId }: { projectId: string }) {
 
 							{/* Preview + DevTools column */}
 							<Panel id="preview-col" defaultSize={aiPanelVisible ? '20%' : '40%'} minSize="15%">
-								<PanelGroup orientation="vertical" id="ide-preview-devtools">
+								<PanelGroup
+									orientation="vertical"
+									id="ide-preview-devtools"
+									defaultLayout={previewDevtoolsLayout.defaultLayout}
+									onLayoutChanged={previewDevtoolsLayout.onLayoutChanged}
+								>
 									{/* Preview panel */}
 									<Panel id="preview" defaultSize={devtoolsVisible ? '70%' : '100%'} minSize="20%">
 										<Suspense fallback={<PanelSkeleton label="Loading preview..." />}>

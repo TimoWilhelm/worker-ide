@@ -200,6 +200,8 @@ interface UIState {
 	aiPanelVisible: boolean;
 	/** Whether DevTools panel is visible below the preview */
 	devtoolsVisible: boolean;
+	/** Whether dependencies panel is visible in the sidebar */
+	dependenciesPanelVisible: boolean;
 	/** Color scheme preference */
 	colorScheme: ColorScheme;
 	/** Active panel on mobile layout */
@@ -215,10 +217,12 @@ interface UIActions {
 	toggleUtilityPanel: () => void;
 	toggleAIPanel: () => void;
 	toggleDevtools: () => void;
+	toggleDependenciesPanel: () => void;
 	setColorScheme: (scheme: ColorScheme) => void;
 	setActiveMobilePanel: (panel: MobilePanel) => void;
 	toggleMobileFileTree: () => void;
 	setActiveSidebarView: (view: SidebarView) => void;
+	showDependenciesPanel: () => void;
 }
 
 // =============================================================================
@@ -650,6 +654,7 @@ export const useStore = create<StoreState>()(
 				utilityPanelVisible: true,
 				aiPanelVisible: false,
 				devtoolsVisible: false,
+				dependenciesPanelVisible: true,
 				colorScheme: 'dark',
 				activeMobilePanel: 'editor',
 				mobileFileTreeOpen: false,
@@ -661,6 +666,10 @@ export const useStore = create<StoreState>()(
 				toggleAIPanel: () => set((state) => ({ aiPanelVisible: !state.aiPanelVisible })),
 
 				toggleDevtools: () => set((state) => ({ devtoolsVisible: !state.devtoolsVisible })),
+
+				toggleDependenciesPanel: () => set((state) => ({ dependenciesPanelVisible: !state.dependenciesPanelVisible })),
+
+				showDependenciesPanel: () => set({ dependenciesPanelVisible: true }),
 
 				setColorScheme: (scheme) => set({ colorScheme: scheme }),
 
@@ -706,6 +715,7 @@ export const useStore = create<StoreState>()(
 					utilityPanelVisible: state.utilityPanelVisible,
 					aiPanelVisible: state.aiPanelVisible,
 					devtoolsVisible: state.devtoolsVisible,
+					dependenciesPanelVisible: state.dependenciesPanelVisible,
 					colorScheme: state.colorScheme,
 					activeMobilePanel: state.activeMobilePanel,
 					activeSidebarView: state.activeSidebarView,
