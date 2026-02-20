@@ -14,9 +14,10 @@ import { convertSchemaToJsonSchema } from '@tanstack/ai';
 import { BaseTextAdapter } from '@tanstack/ai/adapters';
 import Replicate from 'replicate';
 
-import { isRecordObject, normalizeFunctionCallsFormat, parseToolCalls } from './utilities';
+import { isRecordObject } from '../utilities';
+import { normalizeFunctionCallsFormat, parseToolCalls } from './tool-call-parser';
 
-import type { AgentLogger } from './agent-logger';
+import type { AgentLogger } from '../agent-logger';
 import type { AIModelId } from '@shared/constants';
 import type { DefaultMessageMetadataByModality, ModelMessage, StreamChunk, TextOptions, Tool } from '@tanstack/ai';
 import type { StructuredOutputOptions, StructuredOutputResult } from '@tanstack/ai/adapters';
@@ -188,8 +189,6 @@ CRITICAL FORMAT RULES:
 You can use multiple tools in sequence. After using a tool, you will receive the result and can continue your response.
 When you're done and don't need to use any more tools, just provide your final response without any tool_use blocks.`;
 }
-
-// parseToolCalls and ParsedToolCall are imported from ./utilities
 
 // =============================================================================
 // Text-Completion Tool Guidance (Replicate-specific)
@@ -418,6 +417,19 @@ class ReplicateTextAdapter extends BaseTextAdapter<string, Record<string, never>
 			textPartCount: textParts.length,
 			wasNormalized: normalizedOutput !== accumulatedOutput,
 		});
+
+		// Log raw output snippet for debugging when no tool calls were found.
+		// This helps diagnose format mismatches where the model emits tool calls
+		// in an unrecognized XML format that the normalizer doesn't handle.
+		if (!hasToolCalls && accumulatedOutput.length > 0) {
+			this.logger?.debug('tool_parse', 'no_tools_raw_output', {
+				rawOutputSnippet: accumulatedOutput.slice(0, 1000),
+				rawOutputLength: accumulatedOutput.length,
+				containsFunctionCalls: accumulatedOutput.includes('<function_calls>'),
+				containsInvoke: accumulatedOutput.includes('<invoke'),
+				containsToolUse: accumulatedOutput.includes('<tool_use>'),
+			});
+		}
 
 		// If there are tool calls and there are text segments BETWEEN or AFTER tool blocks
 		// that weren't streamed (because we stopped at the first <tool_use>), emit them

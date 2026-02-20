@@ -152,7 +152,7 @@ export const MCP_SERVERS = [
  * they do NOT need to be repeated here.
  *
  * NOTE: This prompt is provider-neutral. Provider-specific guidance (e.g., text-completion
- * tool efficiency hints for Replicate) is injected by the adapter in llm-adapter.ts.
+ * tool efficiency hints for Replicate) is injected by the adapter in replicate/adapter.ts.
  */
 export const AGENT_SYSTEM_PROMPT = `You are an AI coding assistant integrated into a web-based IDE. Your role is to help users with software engineering tasks including solving bugs, adding new functionality, refactoring code, and explaining code.
 

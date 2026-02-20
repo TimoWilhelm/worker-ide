@@ -29,7 +29,7 @@ import {
 import { AgentLogger } from './agent-logger';
 import { isContextOverflow, pruneToolOutputs } from './context-pruner';
 import { DoomLoopDetector } from './doom-loop';
-import { createAdapter, getModelLimits } from './llm-adapter';
+import { createAdapter, getModelLimits } from './replicate';
 import { classifyRetryableError, calculateRetryDelay, sleep } from './retry';
 import { TokenTracker } from './token-tracker';
 import { createSendEvent, createServerTools } from './tools';
@@ -421,6 +421,9 @@ export class AIAgentService {
 									outputTokens,
 									toolCallCount: completedToolCalls.length,
 									textLength: lastAssistantText.length,
+									// Include a truncated snippet of the raw output for debugging.
+									// Especially useful when toolCallCount is 0 (model didn't call tools).
+									outputSnippet: lastAssistantText.slice(0, 500),
 								},
 								{ durationMs: llmTimer() },
 							);
@@ -493,6 +496,16 @@ export class AIAgentService {
 					}
 					logger.info('agent_loop', 'no_tool_calls_stop', {
 						textLength: lastAssistantText.length,
+						// Include a snippet of the raw output to help diagnose why no tool
+						// calls were parsed — e.g., the model emitted tool calls in an
+						// unrecognized format that was treated as plain text.
+						outputSnippet: lastAssistantText.slice(0, 500),
+						// Flag suspicious patterns that may indicate an unrecognized tool call format
+						containsXmlTags:
+							lastAssistantText.includes('<function_calls>') ||
+							lastAssistantText.includes('<invoke') ||
+							lastAssistantText.includes('<tool_use>') ||
+							lastAssistantText.includes('<tool_call>'),
 					});
 					continueLoop = false;
 				}

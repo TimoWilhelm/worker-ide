@@ -110,7 +110,7 @@ The AI assistant uses **TanStack AI** with the **AG-UI streaming protocol** acro
 
 - API calls go through **Replicate** (not directly to Anthropic). The `REPLICATE_API_TOKEN` binding is required.
 - Model IDs use Replicate format: `"anthropic/claude-4.5-haiku"`.
-- A custom adapter (`worker/services/ai-agent/llm-adapter.ts`) extends `BaseTextAdapter` from `@tanstack/ai/adapters`.
+- A custom adapter (`worker/services/ai-agent/replicate/adapter.ts`) extends `BaseTextAdapter` from `@tanstack/ai/adapters`.
 - Do **not** use `@tanstack/ai-anthropic`
 
 ### Backend Agent Loop
