@@ -58,7 +58,7 @@ export const Editor: Story = {
 
 export const Panel: Story = {
 	render: () => (
-		<div data-testid="panel-skeleton" className="h-64 w-64 border border-border bg-bg-secondary">
+		<div data-testid="panel-skeleton" className="size-64 border border-border bg-bg-secondary">
 			<PanelSkeleton label="Terminal" />
 		</div>
 	),
@@ -71,7 +71,7 @@ export const Panel: Story = {
 
 export const GitPanel: Story = {
 	render: () => (
-		<div data-testid="git-panel-skeleton" className="h-64 w-64 border border-border bg-bg-secondary">
+		<div data-testid="git-panel-skeleton" className="size-64 border border-border bg-bg-secondary">
 			<GitPanelSkeleton />
 		</div>
 	),
