@@ -8,6 +8,7 @@
 import { toolDefinition } from '@tanstack/ai';
 import { z } from 'zod';
 
+import * as cdpEvalTool from './cdp-eval';
 import * as dependenciesListTool from './dependencies-list';
 import * as dependenciesUpdateTool from './dependencies-update';
 import * as documentationSearchTool from './documentation-search';
@@ -57,6 +58,7 @@ export const TOOL_EXECUTORS: ReadonlyMap<string, ToolExecuteFunction> = new Map(
 	['dependencies_list', dependenciesListTool.execute],
 	['dependencies_update', dependenciesUpdateTool.execute],
 	['lint_fix', lintFixTool.execute],
+	['cdp_eval', cdpEvalTool.execute],
 ]);
 
 // =============================================================================
@@ -83,6 +85,7 @@ export const AGENT_TOOLS: readonly ToolDefinition[] = [
 	dependenciesListTool.definition,
 	dependenciesUpdateTool.definition,
 	lintFixTool.definition,
+	cdpEvalTool.definition,
 ];
 
 // =============================================================================
@@ -102,6 +105,7 @@ const PLAN_MODE_TOOL_NAMES = new Set([
 	'todos_get',
 	'todos_update',
 	'dependencies_list',
+	'cdp_eval',
 ]);
 
 export const PLAN_MODE_TOOLS: readonly ToolDefinition[] = AGENT_TOOLS.filter((tool) => PLAN_MODE_TOOL_NAMES.has(tool.name));

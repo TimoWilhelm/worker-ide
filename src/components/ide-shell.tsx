@@ -796,23 +796,21 @@ export function IDEShell({ projectId }: { projectId: string }) {
 								</div>
 							)}
 
-							{/* Preview view */}
-							{activeMobilePanel === 'preview' && (
-								<div className="flex h-full flex-col overflow-hidden">
-									<div className={cn('overflow-hidden', devtoolsVisible ? 'h-1/2' : 'flex-1')}>
-										<Suspense fallback={<PanelSkeleton label="Loading preview..." />}>
-											<PreviewPanel projectId={projectId} iframeReference={previewIframeReference} className="h-full" />
+							{/* Preview view — always mounted so chobitsu stays alive for CDP commands */}
+							<div className={cn('flex h-full flex-col overflow-hidden', activeMobilePanel !== 'preview' && 'hidden')}>
+								<div className={cn('overflow-hidden', devtoolsVisible ? 'h-1/2' : 'flex-1')}>
+									<Suspense fallback={<PanelSkeleton label="Loading preview..." />}>
+										<PreviewPanel projectId={projectId} iframeReference={previewIframeReference} className="h-full" />
+									</Suspense>
+								</div>
+								{devtoolsVisible && (
+									<div className="h-1/2 border-t border-border">
+										<Suspense fallback={<PanelSkeleton label="Loading DevTools..." />}>
+											<DevelopmentToolsPanel previewIframeReference={previewIframeReference} className="h-full" />
 										</Suspense>
 									</div>
-									{devtoolsVisible && (
-										<div className="h-1/2 border-t border-border">
-											<Suspense fallback={<PanelSkeleton label="Loading DevTools..." />}>
-												<DevelopmentToolsPanel previewIframeReference={previewIframeReference} className="h-full" />
-											</Suspense>
-										</div>
-									)}
-								</div>
-							)}
+								)}
+							</div>
 
 							{/* Git view */}
 							{activeMobilePanel === 'git' && <GitPanel projectId={projectId} className="h-full" />}

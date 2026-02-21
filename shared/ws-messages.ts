@@ -61,7 +61,24 @@ export interface HmrConnectMessage {
 	lastReloadTimestamp: number;
 }
 
-export type ClientMessage = PingMessage | CollabJoinMessage | CursorUpdateMessage | FileEditMessage | HmrConnectMessage;
+/**
+ * Client message responding to a CDP command request from the server.
+ * Sent by the frontend after relaying the command through chobitsu.
+ */
+export interface CdpResponseMessage {
+	type: 'cdp-response';
+	id: string;
+	result?: string;
+	error?: string;
+}
+
+export type ClientMessage =
+	| PingMessage
+	| CollabJoinMessage
+	| CursorUpdateMessage
+	| FileEditMessage
+	| HmrConnectMessage
+	| CdpResponseMessage;
 
 // =============================================================================
 // Server -> Client Messages
@@ -163,6 +180,17 @@ export interface GitStatusChangedMessage {
 	type: 'git-status-changed';
 }
 
+/**
+ * Server message requesting the frontend to execute a CDP command
+ * in the preview iframe via chobitsu.
+ */
+export interface CdpRequestMessage {
+	type: 'cdp-request';
+	id: string;
+	method: string;
+	params?: Record<string, unknown>;
+}
+
 export type ServerMessage =
 	| PongMessage
 	| CollabStateMessage
@@ -173,7 +201,8 @@ export type ServerMessage =
 	| HmrUpdateMessage
 	| ServerErrorMessage
 	| ServerLogsMessage
-	| GitStatusChangedMessage;
+	| GitStatusChangedMessage
+	| CdpRequestMessage;
 
 // =============================================================================
 // Zod Schemas for Validation
@@ -207,6 +236,12 @@ export const clientMessageSchema = z.discriminatedUnion('type', [
 	z.object({
 		type: z.literal('hmr-connect'),
 		lastReloadTimestamp: z.number(),
+	}),
+	z.object({
+		type: z.literal('cdp-response'),
+		id: z.string(),
+		result: z.string().optional(),
+		error: z.string().optional(),
 	}),
 ]);
 
@@ -297,6 +332,12 @@ export const serverMessageSchema = z.discriminatedUnion('type', [
 	}),
 	z.object({
 		type: z.literal('git-status-changed'),
+	}),
+	z.object({
+		type: z.literal('cdp-request'),
+		id: z.string(),
+		method: z.string(),
+		params: z.record(z.string(), z.unknown()).optional(),
 	}),
 ]);
 

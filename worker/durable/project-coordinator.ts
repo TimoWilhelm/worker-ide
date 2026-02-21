@@ -35,6 +35,9 @@ export class ProjectCoordinator extends DurableObject {
 	/** Timestamp of the most recent HMR update broadcast, used to detect missed updates */
 	private lastUpdateTimestamp = 0;
 
+	/** Pending CDP command requests awaiting a response from a frontend client */
+	private pendingCdpRequests = new Map<string, { resolve: (value: { result?: string; error?: string }) => void }>();
+
 	private getAttachment(ws: WebSocket): ParticipantAttachment | undefined {
 		try {
 			const attachment: ParticipantAttachment = ws.deserializeAttachment();
@@ -150,6 +153,42 @@ export class ProjectCoordinator extends DurableObject {
 			this.lastServerError = serialized;
 		}
 		this.sendToAll(serialized);
+	}
+
+	/**
+	 * Send a CDP command to the preview iframe via a connected frontend client.
+	 * Returns the CDP response result or an error message.
+	 */
+	async sendCdpCommand(id: string, method: string, parameters?: Record<string, unknown>): Promise<{ result?: string; error?: string }> {
+		const openSockets = this.ctx.getWebSockets().filter((ws) => ws.readyState === WebSocket.OPEN);
+		if (openSockets.length === 0) {
+			return { error: 'No browser is connected to the project.' };
+		}
+
+		const CDP_TIMEOUT_MS = 10_000;
+
+		return new Promise<{ result?: string; error?: string }>((resolve) => {
+			const timeout = setTimeout(() => {
+				this.pendingCdpRequests.delete(id);
+				resolve({ error: 'CDP command timed out. The preview iframe may not be loaded or chobitsu is not responding.' });
+			}, CDP_TIMEOUT_MS);
+
+			this.pendingCdpRequests.set(id, {
+				resolve: (value) => {
+					clearTimeout(timeout);
+					this.pendingCdpRequests.delete(id);
+					resolve(value);
+				},
+			});
+
+			const message = serializeMessage({
+				type: 'cdp-request',
+				id,
+				method,
+				params: parameters,
+			});
+			this.sendToAll(message);
+		});
 	}
 
 	private async broadcastHmrUpdate(update: HmrUpdate): Promise<void> {
@@ -292,6 +331,14 @@ export class ProjectCoordinator extends DurableObject {
 						content: data.content,
 					}),
 				);
+				return;
+			}
+
+			if (data.type === 'cdp-response') {
+				const pending = this.pendingCdpRequests.get(data.id);
+				if (pending) {
+					pending.resolve({ result: data.result, error: data.error });
+				}
 				return;
 			}
 		} catch {

@@ -134,7 +134,9 @@ export type ToolName =
 	| 'todos_get'
 	| 'todos_update'
 	| 'dependencies_list'
-	| 'dependencies_update';
+	| 'dependencies_update'
+	| 'lint_fix'
+	| 'cdp_eval';
 
 /**
  * Tool input types

@@ -34,6 +34,7 @@ import { classifyRetryableError, calculateRetryDelay, sleep } from './retry';
 import { TokenTracker } from './token-tracker';
 import { createSendEvent, createServerTools } from './tools';
 import { isRecordObject, parseApiError } from './utilities';
+import { coordinatorNamespace } from '../../lib/durable-object-namespaces';
 
 import type { CustomEventQueue, FileChange, ModelMessage, SnapshotMetadata, ToolExecutorContext } from './types';
 import type { ExpiringFilesystem } from '../../durable/expiring-filesystem';
@@ -193,12 +194,15 @@ export class AIAgentService {
 			const modelLimits = getModelLimits(this.model);
 
 			// Create tool executor context
+			const coordinatorId = coordinatorNamespace.idFromName(`project:${this.projectId}`);
+			const coordinatorStub = coordinatorNamespace.get(coordinatorId);
 			const toolContext: ToolExecutorContext = {
 				projectRoot: this.projectRoot,
 				projectId: this.projectId,
 				mode: this.mode,
 				sessionId: this.sessionId,
 				callMcpTool: (serverId, toolName, arguments_) => this.callMcpTool(serverId, toolName, arguments_),
+				sendCdpCommand: (id, method, parameters) => coordinatorStub.sendCdpCommand(id, method, parameters),
 			};
 
 			// Mutable copy of messages for the agent loop

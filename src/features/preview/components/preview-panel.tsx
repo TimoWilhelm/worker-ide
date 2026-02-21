@@ -6,10 +6,11 @@
  */
 
 import { ExternalLink, RefreshCw, Wrench } from 'lucide-react';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Tooltip } from '@/components/ui/tooltip';
+import { previewIframeReference } from '@/features/preview/preview-iframe-reference';
 import { useStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 
@@ -62,6 +63,14 @@ export function PreviewPanel({ projectId, iframeReference, className }: PreviewP
 	// The preview iframe has its own HMR WebSocket client (injected by
 	// processHTML) that handles full-reload and CSS hot-swap internally.
 	// Chobitsu (CDP implementation) is also injected for DevTools support.
+
+	// Sync the global ref with the prop-based ref so the WebSocket handler can access the iframe
+	useEffect(() => {
+		previewIframeReference.current = iframeReference.current ?? undefined;
+		return () => {
+			previewIframeReference.current = undefined;
+		};
+	});
 
 	return (
 		<div className={cn('flex h-full flex-col bg-bg-secondary', className)}>

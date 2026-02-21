@@ -58,6 +58,7 @@ export interface ToolExecutorContext {
 	mode: 'code' | 'plan' | 'ask';
 	sessionId?: string;
 	callMcpTool: (serverId: string, toolName: string, arguments_: Record<string, unknown>) => Promise<string>;
+	sendCdpCommand?: (id: string, method: string, parameters?: Record<string, unknown>) => Promise<{ result?: string; error?: string }>;
 }
 
 /**
