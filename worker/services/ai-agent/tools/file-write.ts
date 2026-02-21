@@ -9,7 +9,7 @@ import fs from 'node:fs/promises';
 import { ToolErrorCode, toolError } from '@shared/tool-errors';
 
 import { coordinatorNamespace } from '../../../lib/durable-object-namespaces';
-import { isPathSafe } from '../../../lib/path-utilities';
+import { isHiddenPath, isPathSafe } from '../../../lib/path-utilities';
 import { assertFileWasRead, recordFileRead } from '../file-time';
 import { formatLintResultsForAgent } from '../lib/biome-linter';
 import { isBinaryFilePath, toUint8Array } from '../utilities';
@@ -63,6 +63,10 @@ export async function execute(
 	// Validate path
 	if (!isPathSafe(projectRoot, writePath)) {
 		return toolError(ToolErrorCode.INVALID_PATH, 'Invalid file path');
+	}
+
+	if (isHiddenPath(writePath)) {
+		return toolError(ToolErrorCode.INVALID_PATH, `Access denied: ${writePath}`);
 	}
 
 	// Prevent direct package.json creation

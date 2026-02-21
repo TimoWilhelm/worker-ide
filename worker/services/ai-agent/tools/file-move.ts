@@ -8,7 +8,7 @@ import fs from 'node:fs/promises';
 import { ToolErrorCode, toolError } from '@shared/tool-errors';
 
 import { coordinatorNamespace } from '../../../lib/durable-object-namespaces';
-import { isPathSafe, isProtectedFile } from '../../../lib/path-utilities';
+import { isHiddenPath, isPathSafe, isProtectedFile } from '../../../lib/path-utilities';
 
 import type { FileChange, SendEventFunction, ToolDefinition, ToolExecutorContext } from '../types';
 
@@ -47,6 +47,9 @@ export async function execute(
 
 	if (!isPathSafe(projectRoot, fromPath) || !isPathSafe(projectRoot, toPath)) {
 		return toolError(ToolErrorCode.INVALID_PATH, 'Invalid file path');
+	}
+	if (isHiddenPath(fromPath) || isHiddenPath(toPath)) {
+		return toolError(ToolErrorCode.INVALID_PATH, `Access denied: hidden path`);
 	}
 	if (isProtectedFile(fromPath)) {
 		return toolError(ToolErrorCode.NOT_ALLOWED, `Cannot move protected file: ${fromPath}`);

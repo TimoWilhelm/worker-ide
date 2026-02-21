@@ -2,7 +2,7 @@
  * Path utility functions for file operations.
  */
 
-import { BINARY_EXTENSIONS, PROTECTED_FILES } from '@shared/constants';
+import { BINARY_EXTENSIONS, HIDDEN_ENTRIES, PROTECTED_FILES } from '@shared/constants';
 
 /**
  * Check if a path is safe (doesn't escape the project root).
@@ -19,6 +19,15 @@ export function isPathSafe(_basePath: string, requestedPath: string): boolean {
 		return false;
 	}
 	return true;
+}
+
+/**
+ * Check if a path targets a hidden entry (e.g. .git, .agent, .initialized).
+ * Returns true when any segment of the path is in HIDDEN_ENTRIES.
+ */
+export function isHiddenPath(requestedPath: string): boolean {
+	const segments = requestedPath.split('/');
+	return segments.some((segment) => HIDDEN_ENTRIES.has(segment));
 }
 
 /**

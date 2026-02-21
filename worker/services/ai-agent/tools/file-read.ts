@@ -6,9 +6,10 @@
 
 import fs from 'node:fs/promises';
 
+import { HIDDEN_ENTRIES } from '@shared/constants';
 import { ToolErrorCode, toolError } from '@shared/tool-errors';
 
-import { isPathSafe } from '../../../lib/path-utilities';
+import { isHiddenPath, isPathSafe } from '../../../lib/path-utilities';
 import { recordFileRead } from '../file-time';
 import { formatLintResultsForAgent } from '../lib/biome-linter';
 
@@ -157,7 +158,7 @@ async function findSimilarFiles(projectRoot: string, filepath: string): Promise<
 		const entries = await fs.readdir(`${projectRoot}${directory}`);
 		const similar: string[] = [];
 
-		for (const entry of entries) {
+		for (const entry of entries.filter((name) => !HIDDEN_ENTRIES.has(name))) {
 			const entryLower = entry.toLowerCase();
 			// Simple similarity: starts with same characters or contains the name
 			if (entryLower.startsWith(filename.slice(0, 3)) || filename.includes(entryLower) || entryLower.includes(filename)) {
@@ -183,6 +184,10 @@ export async function execute(input: Record<string, string>, sendEvent: SendEven
 		return toolError(ToolErrorCode.INVALID_PATH, `Invalid file path: ${readPath}`);
 	}
 
+	if (isHiddenPath(readPath)) {
+		return toolError(ToolErrorCode.INVALID_PATH, `Access denied: ${readPath}`);
+	}
+
 	await sendEvent('status', { message: `Reading ${readPath}...` });
 
 	const fullPath = `${projectRoot}${readPath}`;
@@ -194,6 +199,7 @@ export async function execute(input: Record<string, string>, sendEvent: SendEven
 		if (stats.isDirectory()) {
 			const entries = await fs.readdir(fullPath, { withFileTypes: true });
 			const formattedEntries = entries
+				.filter((entry) => !HIDDEN_ENTRIES.has(entry.name))
 				.map((entry) => (entry.isDirectory() ? `${entry.name}/` : entry.name))
 				.toSorted((a, b) => {
 					// Directories first, then alphabetical

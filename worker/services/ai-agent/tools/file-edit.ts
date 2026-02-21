@@ -9,7 +9,7 @@ import fs from 'node:fs/promises';
 import { ToolErrorCode, toolError } from '@shared/tool-errors';
 
 import { coordinatorNamespace } from '../../../lib/durable-object-namespaces';
-import { isPathSafe } from '../../../lib/path-utilities';
+import { isHiddenPath, isPathSafe } from '../../../lib/path-utilities';
 import { assertFileWasRead, recordFileRead } from '../file-time';
 import { replace } from './replacers';
 
@@ -68,6 +68,10 @@ export async function execute(
 	// Validate path
 	if (!isPathSafe(projectRoot, editPath)) {
 		return toolError(ToolErrorCode.INVALID_PATH, 'Invalid file path');
+	}
+
+	if (isHiddenPath(editPath)) {
+		return toolError(ToolErrorCode.INVALID_PATH, `Access denied: ${editPath}`);
 	}
 
 	// Check that file was read first (if session tracking is available)

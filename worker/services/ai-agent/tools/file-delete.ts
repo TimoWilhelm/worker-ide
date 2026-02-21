@@ -8,7 +8,7 @@ import fs from 'node:fs/promises';
 import { ToolErrorCode, toolError } from '@shared/tool-errors';
 
 import { coordinatorNamespace } from '../../../lib/durable-object-namespaces';
-import { isPathSafe, isProtectedFile } from '../../../lib/path-utilities';
+import { isHiddenPath, isPathSafe, isProtectedFile } from '../../../lib/path-utilities';
 
 import type { FileChange, SendEventFunction, ToolDefinition, ToolExecutorContext } from '../types';
 
@@ -43,6 +43,9 @@ export async function execute(
 
 	if (!isPathSafe(projectRoot, deletePath)) {
 		return toolError(ToolErrorCode.INVALID_PATH, 'Invalid file path');
+	}
+	if (isHiddenPath(deletePath)) {
+		return toolError(ToolErrorCode.INVALID_PATH, `Access denied: ${deletePath}`);
 	}
 	if (isProtectedFile(deletePath)) {
 		return toolError(ToolErrorCode.NOT_ALLOWED, `Cannot delete protected file: ${deletePath}`);

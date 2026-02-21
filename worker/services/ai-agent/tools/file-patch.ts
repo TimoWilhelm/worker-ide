@@ -9,7 +9,7 @@ import fs from 'node:fs/promises';
 import { ToolErrorCode, toolError } from '@shared/tool-errors';
 
 import { coordinatorNamespace } from '../../../lib/durable-object-namespaces';
-import { isPathSafe } from '../../../lib/path-utilities';
+import { isHiddenPath, isPathSafe } from '../../../lib/path-utilities';
 import { assertFileWasRead, recordFileRead } from '../file-time';
 import { formatLintResultsForAgent } from '../lib/biome-linter';
 
@@ -516,12 +516,18 @@ export async function execute(
 		if (!isPathSafe(projectRoot, hunk.path)) {
 			return toolError(ToolErrorCode.INVALID_PATH, `Invalid file path: ${hunk.path}`);
 		}
+		if (isHiddenPath(hunk.path)) {
+			return toolError(ToolErrorCode.INVALID_PATH, `Access denied: ${hunk.path}`);
+		}
 		if (hunk.type === 'update' && hunk.movePath) {
 			if (!hunk.movePath.startsWith('/')) {
 				return toolError(ToolErrorCode.INVALID_PATH, `Invalid move path: ${hunk.movePath}. Paths must start with /`);
 			}
 			if (!isPathSafe(projectRoot, hunk.movePath)) {
 				return toolError(ToolErrorCode.INVALID_PATH, `Invalid move path: ${hunk.movePath}`);
+			}
+			if (isHiddenPath(hunk.movePath)) {
+				return toolError(ToolErrorCode.INVALID_PATH, `Access denied: ${hunk.movePath}`);
 			}
 		}
 	}

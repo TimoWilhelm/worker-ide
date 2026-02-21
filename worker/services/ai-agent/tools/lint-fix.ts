@@ -9,7 +9,7 @@ import fs from 'node:fs/promises';
 import { ToolErrorCode, toolError } from '@shared/tool-errors';
 
 import { coordinatorNamespace } from '../../../lib/durable-object-namespaces';
-import { isPathSafe } from '../../../lib/path-utilities';
+import { isHiddenPath, isPathSafe } from '../../../lib/path-utilities';
 import { recordFileRead } from '../file-time';
 import { fixFileForAgent, formatLintResultsForAgent } from '../lib/biome-linter';
 
@@ -66,6 +66,10 @@ export async function execute(
 
 	if (!isPathSafe(projectRoot, fixPath)) {
 		return toolError(ToolErrorCode.INVALID_PATH, `Path is outside project root: ${fixPath}`);
+	}
+
+	if (isHiddenPath(fixPath)) {
+		return toolError(ToolErrorCode.INVALID_PATH, `Access denied: ${fixPath}`);
 	}
 
 	// Read the file
