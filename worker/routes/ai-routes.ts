@@ -80,6 +80,34 @@ export const aiRoutes = new Hono<AppEnvironment>()
 		return c.json({ success: true });
 	})
 
+	// GET /api/ai/debug-log/latest - Get the most recent debug log ID
+	.get('/ai/debug-log/latest', async (c) => {
+		const projectRoot = c.get('projectRoot');
+		const logsDirectory = `${projectRoot}/.agent/debug-logs`;
+
+		try {
+			const entries = await fs.readdir(logsDirectory);
+			const logFiles = entries
+				.filter((entry) => entry.endsWith('.json'))
+				.toSorted((a, b) => {
+					const timestampA = Number(a.slice(0, -5).split('-').pop()) || 0;
+					const timestampB = Number(b.slice(0, -5).split('-').pop()) || 0;
+					return timestampA - timestampB;
+				});
+
+			const latest = logFiles.at(-1);
+			if (!latest) {
+				return c.json({ id: undefined });
+			}
+
+			// Strip the .json extension to get the log ID
+			const id = latest.slice(0, -5);
+			return c.json({ id });
+		} catch {
+			return c.json({ id: undefined });
+		}
+	})
+
 	// GET /api/ai/debug-log?id=X - Download an agent debug log
 	.get('/ai/debug-log', zValidator('query', z.object({ id: debugLogIdSchema })), async (c) => {
 		const projectRoot = c.get('projectRoot');

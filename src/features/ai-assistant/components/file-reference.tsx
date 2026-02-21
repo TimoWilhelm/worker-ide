@@ -25,7 +25,7 @@ export function FileReference({
 }) {
 	const openFile = useStore((state) => state.openFile);
 
-	const fileName = path.split('/').at(-1) ?? path;
+	const fileName = path.split('/').findLast(Boolean) || path;
 
 	const sharedClassName = cn(
 		'inline-flex items-center gap-1 rounded-sm px-1.5 py-px',

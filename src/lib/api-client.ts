@@ -219,6 +219,23 @@ export async function downloadDebugLog(projectId: string, logId: string): Promis
 	URL.revokeObjectURL(url);
 }
 
+/**
+ * Fetch the most recent debug log ID for a project.
+ *
+ * Used to retrieve the debug log ID when the SSE stream is interrupted
+ * (user cancel or network error) before the backend can send the debug_log event.
+ */
+export async function fetchLatestDebugLogId(projectId: string): Promise<string | undefined> {
+	try {
+		const response = await fetch(`/p/${projectId}/api/ai/debug-log/latest`);
+		if (!response.ok) return undefined;
+		const data: { id?: string } = await response.json();
+		return data.id;
+	} catch {
+		return undefined;
+	}
+}
+
 // =============================================================================
 // WebSocket Connection
 // =============================================================================

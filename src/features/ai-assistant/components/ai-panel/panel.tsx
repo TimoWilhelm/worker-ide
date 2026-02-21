@@ -20,7 +20,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Pill } from '@/components/ui/pill';
 import { getLogSnapshot } from '@/features/output';
 import { useSnapshots } from '@/features/snapshots';
-import { downloadDebugLog } from '@/lib/api-client';
+import { downloadDebugLog, fetchLatestDebugLogId } from '@/lib/api-client';
 import { useStore } from '@/lib/store';
 import { cn, formatRelativeTime } from '@/lib/utils';
 
@@ -235,6 +235,14 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 			setProcessing(false);
 			setStatusMessage(undefined);
 			setAiError({ message: error.message });
+
+			// The SSE stream may have been severed before the debug_log event
+			// arrived. Poll for the latest log after a short delay.
+			setTimeout(() => {
+				void fetchLatestDebugLogId(projectId).then((id) => {
+					if (id) setDebugLogId(id);
+				});
+			}, 2000);
 		},
 	});
 
@@ -415,7 +423,18 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		stopChat();
 		setProcessing(false);
 		setStatusMessage(undefined);
-	}, [stopChat, setProcessing, setStatusMessage]);
+
+		// The backend flushes the debug log on abort, but the SSE stream is
+		// already severed so we never receive the debug_log event. Poll for
+		// the latest log after a short delay to allow the flush to complete.
+		if (!debugLogId) {
+			setTimeout(() => {
+				void fetchLatestDebugLogId(projectId).then((id) => {
+					if (id) setDebugLogId(id);
+				});
+			}, 2000);
+		}
+	}, [stopChat, setProcessing, setStatusMessage, debugLogId, projectId]);
 
 	// Retry last message.
 	// We trim messages synchronously via setChatMessages, then defer the re-send
