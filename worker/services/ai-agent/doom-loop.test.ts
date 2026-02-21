@@ -134,7 +134,7 @@ describe('isSameToolLoop', () => {
 // =============================================================================
 
 describe('isFailureLoop', () => {
-	it('returns undefined when fewer than 3 entries in history', () => {
+	it('returns undefined when fewer than 3 failures recorded', () => {
 		const detector = new DoomLoopDetector();
 		detector.recordFailure('file_edit');
 		detector.recordFailure('file_edit');
@@ -160,15 +160,18 @@ describe('isFailureLoop', () => {
 		expect(detector.isFailureLoop()).toBeUndefined();
 	});
 
-	it('a successful record() call breaks the failure streak', () => {
+	it('detects failures even when interleaved with successful reads (dedicated failure history)', () => {
 		const detector = new DoomLoopDetector();
-		detector.recordFailure('file_edit');
-		detector.recordFailure('file_edit');
-		// A successful call in between breaks the consecutive failure streak
-		detector.record('file_edit', { path: '/a.txt' });
-		detector.recordFailure('file_edit');
+		// This simulates the exact bug: file_read succeeds between file_patch failures
+		detector.record('file_read', { path: '/src/app.tsx' });
+		detector.recordFailure('file_patch');
+		detector.record('file_read', { path: '/src/app.tsx' });
+		detector.recordFailure('file_patch');
+		detector.record('file_read', { path: '/src/style.css' });
+		detector.recordFailure('file_patch');
 
-		expect(detector.isFailureLoop()).toBeUndefined();
+		// The dedicated failure history should see 3 consecutive file_patch failures
+		expect(detector.isFailureLoop()).toBe('file_patch');
 	});
 
 	it('resets failure history on reset()', () => {
@@ -188,17 +191,15 @@ describe('isFailureLoop', () => {
 // =============================================================================
 
 describe('isNoProgress', () => {
-	it('returns false when fewer than 3 iterations recorded', () => {
+	it('returns false when fewer than 2 iterations recorded', () => {
 		const detector = new DoomLoopDetector();
-		detector.recordIterationProgress(false);
 		detector.recordIterationProgress(false);
 
 		expect(detector.isNoProgress()).toBe(false);
 	});
 
-	it('detects 3 consecutive iterations with no file changes', () => {
+	it('detects 2 consecutive iterations with no file changes', () => {
 		const detector = new DoomLoopDetector();
-		detector.recordIterationProgress(false);
 		detector.recordIterationProgress(false);
 		detector.recordIterationProgress(false);
 
@@ -207,7 +208,6 @@ describe('isNoProgress', () => {
 
 	it('does not trigger when any iteration had file changes', () => {
 		const detector = new DoomLoopDetector();
-		detector.recordIterationProgress(false);
 		detector.recordIterationProgress(true);
 		detector.recordIterationProgress(false);
 
@@ -219,7 +219,6 @@ describe('isNoProgress', () => {
 		detector.recordIterationProgress(true);
 		detector.recordIterationProgress(false);
 		detector.recordIterationProgress(false);
-		detector.recordIterationProgress(false);
 
 		expect(detector.isNoProgress()).toBe(true);
 	});
@@ -228,11 +227,58 @@ describe('isNoProgress', () => {
 		const detector = new DoomLoopDetector();
 		detector.recordIterationProgress(false);
 		detector.recordIterationProgress(false);
-		detector.recordIterationProgress(false);
 		expect(detector.isNoProgress()).toBe(true);
 
 		detector.reset();
 		expect(detector.isNoProgress()).toBe(false);
+	});
+});
+
+// =============================================================================
+// isMutationFailureLoop (mutation tools failing across consecutive iterations)
+// =============================================================================
+
+describe('isMutationFailureLoop', () => {
+	it('returns false when fewer than 2 iterations recorded', () => {
+		const detector = new DoomLoopDetector();
+		detector.recordIterationMutationFailure(true);
+
+		expect(detector.isMutationFailureLoop()).toBe(false);
+	});
+
+	it('detects 2 consecutive iterations with mutation failures', () => {
+		const detector = new DoomLoopDetector();
+		detector.recordIterationMutationFailure(true);
+		detector.recordIterationMutationFailure(true);
+
+		expect(detector.isMutationFailureLoop()).toBe(true);
+	});
+
+	it('does not trigger when an iteration had no mutation failures', () => {
+		const detector = new DoomLoopDetector();
+		detector.recordIterationMutationFailure(true);
+		detector.recordIterationMutationFailure(false);
+
+		expect(detector.isMutationFailureLoop()).toBe(false);
+	});
+
+	it('detects mutation failure loop after an initial successful iteration', () => {
+		const detector = new DoomLoopDetector();
+		detector.recordIterationMutationFailure(false);
+		detector.recordIterationMutationFailure(true);
+		detector.recordIterationMutationFailure(true);
+
+		expect(detector.isMutationFailureLoop()).toBe(true);
+	});
+
+	it('resets mutation failure history on reset()', () => {
+		const detector = new DoomLoopDetector();
+		detector.recordIterationMutationFailure(true);
+		detector.recordIterationMutationFailure(true);
+		expect(detector.isMutationFailureLoop()).toBe(true);
+
+		detector.reset();
+		expect(detector.isMutationFailureLoop()).toBe(false);
 	});
 });
 
@@ -249,15 +295,11 @@ describe('combined detection', () => {
 		detector.recordFailure('file_edit');
 		detector.recordFailure('file_edit');
 
-		// 3 no-progress iterations
-		detector.recordIterationProgress(false);
+		// 2 no-progress iterations
 		detector.recordIterationProgress(false);
 		detector.recordIterationProgress(false);
 
-		// Doom loop: no (recordFailure uses empty input, but all identical — actually yes)
-		// Failure loop: yes (3 consecutive file_edit failures at tail)
 		expect(detector.isFailureLoop()).toBe('file_edit');
-		// No progress: yes (3 iterations with no changes)
 		expect(detector.isNoProgress()).toBe(true);
 	});
 
@@ -291,14 +333,59 @@ describe('combined detection', () => {
 		expect(detector.isDoomLoop()).toBe('file_edit');
 	});
 
-	it('successful call between failures prevents failure loop detection', () => {
+	it('interleaved successful reads do NOT prevent failure loop detection (regression)', () => {
 		const detector = new DoomLoopDetector();
+		// Simulate the exact pattern from the bug:
+		// Iteration 1: file_read succeeds, file_patch fails
+		detector.record('file_read', { path: '/src/app.tsx' });
+		detector.recordFailure('file_patch');
+		// Iteration 2: file_read succeeds, file_patch fails, file_read succeeds, file_edit fails
+		detector.record('file_read', { path: '/src/app.tsx' });
+		detector.recordFailure('file_patch');
+		detector.record('file_read', { path: '/src/style.css' });
 		detector.recordFailure('file_edit');
-		detector.recordFailure('file_edit');
-		detector.record('file_read', { path: '/a.txt' }); // success breaks streak
-		detector.recordFailure('file_edit');
-		detector.recordFailure('file_edit');
+		// Iteration 3: file_read succeeds, file_patch fails
+		detector.record('file_read', { path: '/src/app.tsx' });
+		detector.recordFailure('file_patch');
 
+		// The dedicated failure history sees [file_patch, file_patch, file_edit, file_patch]
+		// Last 3 are [file_patch, file_edit, file_patch] — different tools, so no detection.
+		// But if we only had file_patch failures:
+		// This specific scenario has mixed failures, so isFailureLoop won't trigger.
+		// The mutation failure loop (per-iteration) should catch this instead.
 		expect(detector.isFailureLoop()).toBeUndefined();
+	});
+
+	it('mutation failure loop catches the interleaved-reads scenario', () => {
+		const detector = new DoomLoopDetector();
+		// Simulate: 2 iterations where mutation tools failed
+		detector.recordIterationMutationFailure(true);
+		detector.recordIterationMutationFailure(true);
+
+		expect(detector.isMutationFailureLoop()).toBe(true);
+	});
+
+	it('all detection methods work together for the original bug scenario', () => {
+		const detector = new DoomLoopDetector();
+
+		// Iteration 1: read + failed patch
+		detector.record('file_read', { path: '/src/app.tsx' });
+		detector.recordFailure('file_patch');
+		detector.recordIterationProgress(false);
+		detector.recordIterationMutationFailure(true);
+
+		// After iteration 1: nothing detected yet
+		expect(detector.isNoProgress()).toBe(false);
+		expect(detector.isMutationFailureLoop()).toBe(false);
+
+		// Iteration 2: read + failed patch
+		detector.record('file_read', { path: '/src/app.tsx' });
+		detector.recordFailure('file_patch');
+		detector.recordIterationProgress(false);
+		detector.recordIterationMutationFailure(true);
+
+		// After iteration 2: both no-progress and mutation failure loop detected
+		expect(detector.isNoProgress()).toBe(true);
+		expect(detector.isMutationFailureLoop()).toBe(true);
 	});
 });

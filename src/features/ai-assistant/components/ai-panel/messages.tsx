@@ -291,6 +291,34 @@ type RenderSegment =
 	| { kind: 'thinking'; text: string }
 	| { kind: 'tool'; toolCall: ToolCallPart; toolResult?: ToolResultPart };
 
+/**
+ * Regex matching XML-like tool call tags that models sometimes emit
+ * inside thinking or text content. These are noise and should be stripped.
+ *
+ * Matches:
+ * - `<function_calls>...</function_calls>` (with any content inside, including JSON)
+ * - `<invoke ...>...</invoke>` / `<invoke ...>...</invoke>`
+ * - `<tool_use>...</tool_use>` / `<tool_call>...</tool_call>`
+ * - Unclosed variants (partial streaming) that run to end of string
+ */
+const XML_TOOL_CALL_PATTERN =
+	/<(?:function_calls|antml:function_calls|invoke\s|antml:invoke|tool_use|tool_call)[^>]*>[\s\S]*?(?:<\/(?:function_calls|antml:function_calls|invoke|antml:invoke|tool_use|tool_call)>|$)/g;
+
+/**
+ * Strip XML-like partial tool call fragments from text.
+ * Returns the cleaned text, or an empty string if nothing remains.
+ */
+function stripPartialToolCalls(text: string): string {
+	return text.replaceAll(XML_TOOL_CALL_PATTERN, '').trim();
+}
+
+/** Check whether text contains tool call XML fragments. */
+function containsToolCallXml(text: string): boolean {
+	// Reset lastIndex since the regex is global
+	XML_TOOL_CALL_PATTERN.lastIndex = 0;
+	return XML_TOOL_CALL_PATTERN.test(text);
+}
+
 function buildRenderSegments(parts: unknown[]): RenderSegment[] {
 	const segments: RenderSegment[] = [];
 
@@ -304,19 +332,30 @@ function buildRenderSegments(parts: unknown[]): RenderSegment[] {
 
 	for (const part of parts) {
 		if (isTextPart(part)) {
-			const trimmed = part.content.trim();
+			const raw = part.content.trim();
+			if (!raw) continue;
+			// Strip tool call XML that models sometimes emit in text parts
+			const hadXml = containsToolCallXml(raw);
+			const trimmed = hadXml ? stripPartialToolCalls(raw) : raw;
 			if (!trimmed) continue;
-			// Merge consecutive text segments
-			const last = segments.at(-1);
-			if (last?.kind === 'text') {
-				last.text += '\n' + trimmed;
+			// If the text originally contained tool call XML, the remaining
+			// content is the model narrating its tool use — render it as a
+			// collapsible thinking segment instead of visible text.
+			if (hadXml) {
+				segments.push({ kind: 'thinking', text: trimmed });
 			} else {
-				segments.push({ kind: 'text', text: trimmed });
+				// Merge consecutive text segments
+				const last = segments.at(-1);
+				if (last?.kind === 'text') {
+					last.text += '\n' + trimmed;
+				} else {
+					segments.push({ kind: 'text', text: trimmed });
+				}
 			}
 		} else if (isThinkingPart(part)) {
-			const trimmed = part.content.trim();
-			if (!trimmed) continue;
-			segments.push({ kind: 'thinking', text: trimmed });
+			const cleaned = stripPartialToolCalls(part.content);
+			if (!cleaned) continue;
+			segments.push({ kind: 'thinking', text: cleaned });
 		} else if (isToolCallPart(part)) {
 			const result = resultsByCallId.get(part.id);
 			segments.push({ kind: 'tool', toolCall: part, toolResult: result });
@@ -865,55 +904,27 @@ function formatToolResultDetail(toolName: ToolName, rawResult: string): string {
 }
 
 /**
- * Determine whether a tool result is large enough to warrant a
- * collapsible detail section (rather than showing everything inline).
+ * Build the detail text shown in the expandable dropdown.
+ * Combines raw result content with structured error info when available.
  */
-function hasExpandableDetail(toolName: ToolName, rawResult: string): boolean {
-	// TODOs have their own dedicated inline widget
-	if (toolName === 'todos_get' || toolName === 'todos_update') return false;
-
-	switch (toolName) {
-		case 'file_read': {
-			// Always expandable when there's actual content
-			const content = extractTag(rawResult, 'content');
-			const entries = extractTag(rawResult, 'entries');
-			return Boolean(content || entries);
-		}
-
-		case 'file_grep': {
-			// Expandable when there are actual matches (not "No files found")
-			return rawResult.startsWith('Found');
-		}
-
-		case 'file_glob':
-		case 'file_list': {
-			// Expandable when there are results
-			return !rawResult.startsWith('No files found') && rawResult.split('\n').length > 3;
-		}
-
-		case 'file_patch': {
-			// Expandable when there are multiple file changes
-			return rawResult.split('\n').filter((l) => /^[AMD] /.test(l)).length > 1;
-		}
-
-		case 'file_edit':
-		case 'file_write':
-		case 'file_delete':
-		case 'file_move': {
-			// Short success/error messages — not expandable
-			return false;
-		}
-
-		case 'docs_search':
-		case 'web_fetch':
-		case 'files_list': {
-			return rawResult.length > 200;
-		}
-
-		default: {
-			return rawResult.length > 200;
+function getExpandableDetailText(
+	toolName: ToolName,
+	rawResultContent: string | undefined,
+	structuredError: ToolErrorInfo | undefined,
+): string {
+	const parts: string[] = [];
+	if (structuredError) {
+		const prefix = structuredError.errorCode ? `[${structuredError.errorCode}] ` : '';
+		parts.push(`${prefix}${structuredError.errorMessage}`);
+	}
+	if (rawResultContent) {
+		const formatted = formatToolResultDetail(toolName, rawResultContent);
+		// Avoid duplicating the error message if it's the same as the structured error
+		if (!structuredError || formatted !== parts[0]) {
+			parts.push(formatted);
 		}
 	}
+	return parts.join('\n\n');
 }
 
 /**
@@ -985,14 +996,16 @@ function InlineToolCall({
 }) {
 	const [isExpanded, setIsExpanded] = useState(false);
 
-	const toolName: ToolName = isToolName(toolCall.name) ? toolCall.name : 'files_list';
+	const knownToolName: ToolName | undefined = isToolName(toolCall.name) ? toolCall.name : undefined;
+	const displayToolName = toolCall.name || 'unknown';
 	const isCompleted = toolCall.state === 'input-complete' && (toolResult !== undefined || toolCall.output !== undefined);
 	const rawResultContent = getToolResultContent(toolCall, toolResult);
+	const isUnknownTool = knownToolName === undefined;
 
 	// Prefer structured error data from CUSTOM tool_error events.
 	// Falls back to regex-based detection for backward compatibility.
 	const structuredError = toolErrors?.get(toolCall.id);
-	const isError = structuredError !== undefined || isToolError(toolCall, toolResult);
+	const isError = isUnknownTool || structuredError !== undefined || isToolError(toolCall, toolResult);
 
 	// Extract file paths from tool input.
 	// Prefer toolCall.input (parsed object), fall back to parsing toolCall.arguments (JSON string).
@@ -1028,18 +1041,24 @@ function InlineToolCall({
 	}
 
 	// Extract TODOs from todos_get / todos_update results
-	const todos = rawResultContent ? extractTodosFromResult(toolName, rawResultContent) : undefined;
+	const todos = knownToolName && rawResultContent ? extractTodosFromResult(knownToolName, rawResultContent) : undefined;
 
 	// Build summary text for the result.
 	// Prefer structured error data from CUSTOM events over regex-parsing [CODE] prefixes.
-	const resultSummary = structuredError
-		? shortenErrorFromStructured(structuredError)
-		: rawResultContent
-			? summarizeToolResult(toolName, rawResultContent)
-			: isCompleted
-				? 'No result'
-				: undefined;
-	const expandable = rawResultContent ? hasExpandableDetail(toolName, rawResultContent) : false;
+	const resultSummary = isUnknownTool
+		? `Unknown tool: ${displayToolName}`
+		: structuredError
+			? shortenErrorFromStructured(structuredError)
+			: rawResultContent && knownToolName
+				? summarizeToolResult(knownToolName, rawResultContent)
+				: isCompleted
+					? 'No result'
+					: undefined;
+
+	// Every completed tool call with content or a structured error is expandable.
+	// This ensures errors (including gate rejections) always have a detail dropdown.
+	const hasDetailContent = rawResultContent !== undefined || structuredError !== undefined;
+	const expandable = !isUnknownTool && isCompleted && hasDetailContent;
 
 	return (
 		<div className="flex min-w-0 animate-chat-item flex-col gap-1.5">
@@ -1063,9 +1082,9 @@ function InlineToolCall({
 			>
 				{expandable && <ChevronRight className={cn('size-3 shrink-0 transition-transform', isExpanded && 'rotate-90')} />}
 				<span className={cn('shrink-0', isCompleted && !isError && 'text-success', isError && 'text-error')}>
-					<ToolIcon name={toolName} />
+					{knownToolName ? <ToolIcon name={knownToolName} /> : <AlertCircle className="size-3" />}
 				</span>
-				<span className="shrink-0 font-medium capitalize">{toolName.replaceAll('_', ' ')}</span>
+				<span className="shrink-0 font-medium capitalize">{displayToolName.replaceAll('_', ' ')}</span>
 				{singlePath && <FileReference path={singlePath} className="max-w-48 truncate" interactive={false} />}
 				{fromPath && toPath && (
 					<span className="flex max-w-48 items-center gap-1">
@@ -1086,14 +1105,14 @@ function InlineToolCall({
 				)}
 				{resultSummary && <span className="ml-auto min-w-0 truncate text-text-secondary">{resultSummary}</span>}
 			</button>
-			{isExpanded && rawResultContent && (
+			{isExpanded && hasDetailContent && (
 				<pre
 					className="
 						max-h-60 overflow-auto rounded-md bg-bg-primary p-2.5 font-mono
 						text-2xs/relaxed break-all whitespace-pre-wrap text-text-secondary
 					"
 				>
-					{formatToolResultDetail(toolName, rawResultContent)}
+					{knownToolName ? getExpandableDetailText(knownToolName, rawResultContent, structuredError) : rawResultContent}
 				</pre>
 			)}
 			{todos && todos.length > 0 && <InlineTodoList todos={todos} />}
@@ -1190,6 +1209,56 @@ export function ContinuationPrompt({ onContinue, onDismiss }: { onContinue: () =
 				>
 					<FastForward className="size-3" />
 					Continue
+				</button>
+				<button
+					onClick={onDismiss}
+					className={cn(
+						`
+							inline-flex cursor-pointer items-center rounded-md border border-border
+							bg-bg-tertiary
+						`,
+						'px-3 py-1.5 text-xs font-medium text-text-secondary transition-colors',
+						'hover:bg-border hover:text-text-primary',
+					)}
+				>
+					Dismiss
+				</button>
+			</div>
+		</div>
+	);
+}
+
+// =============================================================================
+// Doom Loop Alert
+// =============================================================================
+
+export function DoomLoopAlert({ message, onRetry, onDismiss }: { message: string; onRetry: () => void; onDismiss: () => void }) {
+	return (
+		<div
+			className="
+				flex animate-chat-item flex-col gap-2.5 rounded-lg border border-warning/25
+				bg-warning/10 p-3
+			"
+		>
+			<div className="flex items-center gap-2 text-xs font-semibold text-warning">
+				<RefreshCw className="size-4" />
+				<span>Loop Detected</span>
+			</div>
+			<div className="text-sm/relaxed text-text-primary">{message}</div>
+			<div className="flex gap-2">
+				<button
+					onClick={onRetry}
+					className={cn(
+						`
+							inline-flex cursor-pointer items-center gap-1.5 rounded-md bg-accent px-3
+							py-1.5
+						`,
+						'text-xs font-medium text-white transition-colors',
+						'hover:bg-accent-hover',
+					)}
+				>
+					<RefreshCw className="size-3" />
+					Retry
 				</button>
 				<button
 					onClick={onDismiss}

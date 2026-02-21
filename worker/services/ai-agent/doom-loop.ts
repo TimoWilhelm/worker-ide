@@ -35,7 +35,16 @@ const FAILURE_LOOP_THRESHOLD = 3;
 /**
  * Number of consecutive iterations with zero file changes required to trigger no-progress detection.
  */
-const NO_PROGRESS_THRESHOLD = 3;
+const NO_PROGRESS_THRESHOLD = 2;
+
+/**
+ * Number of consecutive iterations where a mutation tool failed to trigger
+ * mutation-failure-loop detection. This catches the pattern where the LLM
+ * keeps retrying a failing mutation (e.g. file_patch) across iterations,
+ * even when interleaved with successful read-only calls that dilute the
+ * unified history.
+ */
+const MUTATION_FAILURE_ITERATION_THRESHOLD = 2;
 
 /**
  * Maximum history size — large enough for all detection windows.
@@ -68,7 +77,9 @@ interface ToolCallRecord {
  */
 export class DoomLoopDetector {
 	private history: ToolCallRecord[] = [];
+	private failureHistory: ToolCallRecord[] = [];
 	private iterationProgressHistory: boolean[] = [];
+	private iterationMutationFailureHistory: boolean[] = [];
 	private totalToolCalls = 0;
 
 	/**
@@ -89,9 +100,14 @@ export class DoomLoopDetector {
 
 	/**
 	 * Record a tool call failure. Convenience wrapper around `record()`.
+	 * Also appends to the dedicated failure history for failure-loop detection.
 	 */
 	recordFailure(toolName: string): void {
 		this.record(toolName, {}, true);
+		this.failureHistory.push({ name: toolName, inputJson: '{}', failed: true });
+		if (this.failureHistory.length > FAILURE_LOOP_THRESHOLD) {
+			this.failureHistory.shift();
+		}
 	}
 
 	/**
@@ -102,6 +118,17 @@ export class DoomLoopDetector {
 		this.iterationProgressHistory.push(hadFileChanges);
 		if (this.iterationProgressHistory.length > NO_PROGRESS_THRESHOLD) {
 			this.iterationProgressHistory.shift();
+		}
+	}
+
+	/**
+	 * Record whether a mutation tool failed during this iteration.
+	 * Only the last MUTATION_FAILURE_ITERATION_THRESHOLD entries are retained.
+	 */
+	recordIterationMutationFailure(hadMutationFailure: boolean): void {
+		this.iterationMutationFailureHistory.push(hadMutationFailure);
+		if (this.iterationMutationFailureHistory.length > MUTATION_FAILURE_ITERATION_THRESHOLD) {
+			this.iterationMutationFailureHistory.shift();
 		}
 	}
 
@@ -146,19 +173,20 @@ export class DoomLoopDetector {
 	}
 
 	/**
-	 * Check if the last N entries in history are consecutive failures of the same tool.
-	 * Derived purely from the history — a successful call naturally breaks the streak.
+	 * Check if the last N failures are consecutive failures of the same tool.
+	 * Uses the dedicated failure history so interleaved successful read-only calls
+	 * don't dilute the detection.
 	 * Returns the tool name if a failure loop is detected, undefined otherwise.
 	 */
 	isFailureLoop(): string | undefined {
-		if (this.history.length < FAILURE_LOOP_THRESHOLD) {
+		if (this.failureHistory.length < FAILURE_LOOP_THRESHOLD) {
 			return undefined;
 		}
 
-		const recent = this.history.slice(-FAILURE_LOOP_THRESHOLD);
+		const recent = this.failureHistory.slice(-FAILURE_LOOP_THRESHOLD);
 		const first = recent[0];
 
-		const allSameToolFailed = recent.every((record) => record.failed && record.name === first.name);
+		const allSameToolFailed = recent.every((record) => record.name === first.name);
 
 		return allSameToolFailed ? first.name : undefined;
 	}
@@ -177,11 +205,28 @@ export class DoomLoopDetector {
 	}
 
 	/**
+	 * Check if mutation tools have failed in the last N consecutive iterations.
+	 * This catches the pattern where the LLM keeps retrying a failing mutation
+	 * (e.g. file_patch with hallucinated content) across iterations, even when
+	 * interleaved with successful read-only calls.
+	 */
+	isMutationFailureLoop(): boolean {
+		if (this.iterationMutationFailureHistory.length < MUTATION_FAILURE_ITERATION_THRESHOLD) {
+			return false;
+		}
+
+		const recent = this.iterationMutationFailureHistory.slice(-MUTATION_FAILURE_ITERATION_THRESHOLD);
+		return recent.every(Boolean);
+	}
+
+	/**
 	 * Reset the history (e.g., when starting a new request).
 	 */
 	reset(): void {
 		this.history = [];
+		this.failureHistory = [];
 		this.iterationProgressHistory = [];
+		this.iterationMutationFailureHistory = [];
 		this.totalToolCalls = 0;
 	}
 

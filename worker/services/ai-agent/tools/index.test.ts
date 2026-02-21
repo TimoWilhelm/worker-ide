@@ -71,3 +71,15 @@ describe('AGENT_TOOLS', () => {
 		expect(new Set(names).size).toBe(names.length);
 	});
 });
+
+// =============================================================================
+// MUTATION_TOOL_NAMES / READ_ONLY_TOOL_NAMES
+// =============================================================================
+
+describe('MUTATION_TOOL_NAMES', () => {
+	it('has no overlap with READ_ONLY_TOOL_NAMES', () => {
+		for (const name of MUTATION_TOOL_NAMES) {
+			expect(READ_ONLY_TOOL_NAMES.has(name)).toBe(false);
+		}
+	});
+});

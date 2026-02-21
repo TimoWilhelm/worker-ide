@@ -532,14 +532,16 @@ export async function execute(
 		}
 	}
 
-	// Phase 1: Validate all hunks and compute new contents before writing anything.
-	// This prevents partial application leaving the filesystem in an inconsistent state.
+	// Phase 1: Validate each hunk independently and compute new contents.
+	// Valid hunks are collected for application; failed hunks are recorded as errors.
+	// This prevents a single bad hunk from rejecting the entire multi-file patch.
 	const fileChanges: Array<{
 		hunk: Hunk;
 		oldContent: string;
 		newContent: string;
 		targetPath: string;
 	}> = [];
+	const hunkErrors: Array<{ path: string; error: string }> = [];
 
 	for (const hunk of hunks) {
 		try {
@@ -555,7 +557,8 @@ export async function execute(
 					try {
 						oldContent = await fs.readFile(`${projectRoot}${hunk.path}`, 'utf8');
 					} catch {
-						return toolError(ToolErrorCode.FILE_NOT_FOUND, `File not found for deletion: ${hunk.path}`);
+						hunkErrors.push({ path: hunk.path, error: `File not found for deletion: ${hunk.path}` });
+						continue;
 					}
 					fileChanges.push({ hunk, oldContent, newContent: '', targetPath: hunk.path });
 					break;
@@ -566,10 +569,11 @@ export async function execute(
 						try {
 							await assertFileWasRead(projectRoot, sessionId, hunk.path);
 						} catch (error) {
-							return toolError(
-								ToolErrorCode.FILE_NOT_READ,
-								error instanceof Error ? error.message : 'You must read the file before patching it.',
-							);
+							hunkErrors.push({
+								path: hunk.path,
+								error: error instanceof Error ? error.message : 'You must read the file before patching it.',
+							});
+							continue;
 						}
 					}
 
@@ -577,7 +581,8 @@ export async function execute(
 					try {
 						oldContent = await fs.readFile(`${projectRoot}${hunk.path}`, 'utf8');
 					} catch {
-						return toolError(ToolErrorCode.FILE_NOT_FOUND, `File not found for update: ${hunk.path}`);
+						hunkErrors.push({ path: hunk.path, error: `File not found for update: ${hunk.path}` });
+						continue;
 					}
 
 					const newContent = deriveNewContentsFromChunks(hunk.path, oldContent, hunk.chunks);
@@ -587,11 +592,16 @@ export async function execute(
 				}
 			}
 		} catch (error) {
-			return toolError(
-				ToolErrorCode.PATCH_APPLY_FAILED,
-				`Failed to verify hunk for ${hunk.path}: ${error instanceof Error ? error.message : 'Unknown error'}`,
-			);
+			hunkErrors.push({
+				path: hunk.path,
+				error: `Failed to verify hunk for ${hunk.path}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+			});
 		}
+	}
+
+	// If ALL hunks failed, throw so doom loop detection can track the failure
+	if (fileChanges.length === 0 && hunkErrors.length > 0) {
+		return toolError(ToolErrorCode.PATCH_APPLY_FAILED, hunkErrors.map((hunkError) => hunkError.error).join('\n'));
 	}
 
 	// Phase 2: Apply all validated changes to the filesystem.
@@ -734,9 +744,9 @@ export async function execute(
 		isCSS: false,
 	});
 
-	// Collect lint diagnostics for all affected files
+	// Collect lint diagnostics for successfully applied files only
 	const lintSections: string[] = [];
-	for (const hunk of hunks) {
+	for (const { hunk } of fileChanges) {
 		if (hunk.type === 'delete') continue;
 		const lintPath = hunk.type === 'update' && hunk.movePath ? hunk.movePath : hunk.path;
 		try {
@@ -749,6 +759,15 @@ export async function execute(
 	}
 
 	const lintOutput = lintSections.length > 0 ? `\n${lintSections.join('\n')}` : '';
+
+	// Build result with both successes and failures
+	if (hunkErrors.length > 0) {
+		const errorLines = hunkErrors.map((hunkError) => `FAILED ${hunkError.path}: ${hunkError.error}`);
+		return (
+			`Partial success. Applied ${fileChanges.length} of ${hunks.length} file operations:\n${results.join('\n')}\n\n` +
+			`The following file operations FAILED (re-read these files before retrying):\n${errorLines.join('\n')}${lintOutput}`
+		);
+	}
 
 	return `Success. Updated the following files:\n${results.join('\n')}${lintOutput}`;
 }

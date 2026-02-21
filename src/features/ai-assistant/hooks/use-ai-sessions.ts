@@ -9,7 +9,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef } from 'react';
 
-import { createApiClient, listAiSessions, loadAiSession, saveAiSession } from '@/lib/api-client';
+import { createApiClient, fetchLatestDebugLogId, listAiSessions, loadAiSession, saveAiSession } from '@/lib/api-client';
 import { useStore } from '@/lib/store';
 
 import type { UIMessage } from '@shared/types';
@@ -75,7 +75,7 @@ function snapshotsRecordToMap(record: Record<string, string> | undefined): Map<n
 
 export function useAiSessions({ projectId }: { projectId: string }) {
 	const queryClient = useQueryClient();
-	const { setSavedSessions, setSessionId, loadSession } = useStore();
+	const { setSavedSessions, setSessionId, loadSession, setDebugLogId } = useStore();
 
 	// Track whether a save is already in flight to avoid overlapping saves
 	const isSavingReference = useRef(false);
@@ -113,6 +113,9 @@ export function useAiSessions({ projectId }: { projectId: string }) {
 			// Cast to UIMessage[] — the store expects UIMessage[].
 			// eslint-disable-next-line @typescript-eslint/consistent-type-assertions, @typescript-eslint/no-explicit-any -- wire format cast
 			loadSession(data.history as any[], data.id, restoredSnapshots);
+			void fetchLatestDebugLogId(projectId).then((id) => {
+				if (id) setDebugLogId(id);
+			});
 		},
 	});
 
@@ -141,9 +144,12 @@ export function useAiSessions({ projectId }: { projectId: string }) {
 				createdAtReference.current = data.createdAt;
 				// eslint-disable-next-line @typescript-eslint/consistent-type-assertions, @typescript-eslint/no-explicit-any -- wire format cast
 				loadSession(data.history as any[], data.id, restoredSnapshots);
+				void fetchLatestDebugLogId(projectId).then((id) => {
+					if (id) setDebugLogId(id);
+				});
 			});
 		}
-	}, [projectId, loadSession, setSessionId]);
+	}, [projectId, loadSession, setSessionId, setDebugLogId]);
 
 	// =========================================================================
 	// Save current session to the backend

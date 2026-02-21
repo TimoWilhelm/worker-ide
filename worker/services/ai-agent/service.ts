@@ -32,7 +32,7 @@ import { DoomLoopDetector } from './doom-loop';
 import { createAdapter, getModelLimits } from './replicate';
 import { classifyRetryableError, calculateRetryDelay, sleep } from './retry';
 import { TokenTracker } from './token-tracker';
-import { createSendEvent, createServerTools, READ_ONLY_TOOL_NAMES, ToolCallGate } from './tools';
+import { createSendEvent, createServerTools, MUTATION_TOOL_NAMES, READ_ONLY_TOOL_NAMES } from './tools';
 import { isRecordObject, parseApiError } from './utilities';
 import { coordinatorNamespace } from '../../lib/durable-object-namespaces';
 
@@ -212,7 +212,7 @@ export class AIAgentService {
 			let iteration = 0;
 			let hitIterationLimit = false;
 			let lastAssistantText = '';
-			const toolCallGate = new ToolCallGate();
+			let xmlRetried = false;
 
 			while (continueLoop && iteration < MAX_ITERATIONS) {
 				if (signal.aborted) {
@@ -255,8 +255,7 @@ export class AIAgentService {
 
 				// Create tools fresh each iteration (they capture the mutable queryChanges array)
 				const toolFailures: ToolFailureRecord[] = [];
-				toolCallGate.reset();
-				const tools = createServerTools(sendEvent, toolContext, queryChanges, this.mode, logger, toolFailures, toolCallGate);
+				const tools = createServerTools(sendEvent, toolContext, queryChanges, this.mode, logger, toolFailures);
 
 				// Call the LLM with retry
 				let chatResult: AsyncIterable<StreamChunk>;
@@ -308,6 +307,7 @@ export class AIAgentService {
 				// Consume the AG-UI event stream from chat()
 				let hadToolCalls = false;
 				let hadUserQuestion = false;
+				let hadMutationFailure = false;
 				let currentToolCallId: string | undefined;
 				let currentToolName: string | undefined;
 				let currentToolArguments = '';
@@ -400,6 +400,9 @@ export class AIAgentService {
 								// instead of having to regex-parse "[CODE] message" prefixes.
 								for (const failure of toolFailures) {
 									doomDetector.recordFailure(failure.toolName);
+									if (MUTATION_TOOL_NAMES.has(failure.toolName)) {
+										hadMutationFailure = true;
+									}
 									yield customEvent('tool_error', {
 										toolCallId,
 										toolName: failure.toolName,
@@ -541,6 +544,7 @@ export class AIAgentService {
 						toolCallCount: completedToolCalls.length,
 						toolNames: completedToolCalls.map((tc) => tc.name),
 						textLength: lastAssistantText.length,
+						mutationCount: completedToolCalls.filter((tc) => MUTATION_TOOL_NAMES.has(tc.name)).length,
 					});
 					workingMessages.push({
 						role: 'assistant',
@@ -559,26 +563,63 @@ export class AIAgentService {
 							toolCallId: result.toolCallId,
 						});
 					}
+
+					// Inject a corrective message when mutation tools failed.
+					// This teaches the LLM to re-read files before retrying.
+					if (hadMutationFailure) {
+						logger.info('agent_loop', 'mutation_failure_correction', {
+							iteration,
+						});
+						workingMessages.push({
+							role: 'user',
+							content:
+								'SYSTEM: One or more mutation tools (file_patch, file_edit, etc.) FAILED this turn. ' +
+								'Common causes: (1) the patch contained content that does not match the actual file — you may be hallucinating file contents; ' +
+								'(2) the old_string in file_edit does not exist in the file. ' +
+								'IMPORTANT: Before retrying, you MUST file_read the target file(s) to see their ACTUAL current content. ' +
+								'Do NOT guess what a file contains — read it first.',
+						});
+					}
+
 					completedToolCalls.length = 0;
 					toolResults.length = 0;
 				} else {
 					if (lastAssistantText) {
 						workingMessages.push({ role: 'assistant', content: lastAssistantText });
 					}
-					logger.info('agent_loop', 'no_tool_calls_stop', {
-						textLength: lastAssistantText.length,
-						// Include a snippet of the raw output to help diagnose why no tool
-						// calls were parsed — e.g., the model emitted tool calls in an
-						// unrecognized format that was treated as plain text.
-						outputSnippet: lastAssistantText.slice(0, 500),
-						// Flag suspicious patterns that may indicate an unrecognized tool call format
-						containsXmlTags:
-							lastAssistantText.includes('<function_calls>') ||
-							lastAssistantText.includes('<invoke') ||
-							lastAssistantText.includes('<tool_use>') ||
-							lastAssistantText.includes('<tool_call>'),
-					});
-					continueLoop = false;
+
+					// Detect XML output that looks like failed tool calls.
+					// Some models emit tool calls as XML text instead of using the
+					// tool-calling API. When detected, inject a corrective message
+					// and retry once so the model uses proper tool calls.
+					const xmlToolCallPattern = /<(?:function_calls|invoke\s|tool_use|tool_call|antml:invoke)/;
+					const containsXmlToolCalls = xmlToolCallPattern.test(lastAssistantText);
+
+					if (containsXmlToolCalls && !xmlRetried) {
+						xmlRetried = true;
+						logger.warn('agent_loop', 'xml_tool_call_detected', {
+							outputSnippet: lastAssistantText.slice(0, 500),
+						});
+						yield customEvent('status', {
+							message: 'Detected XML tool output — retrying with proper tool calls...',
+						});
+						workingMessages.push({
+							role: 'user',
+							content:
+								'SYSTEM: Your previous response contained XML-formatted tool calls (e.g. <function_calls>, <invoke>, <tool_use>) as plain text. ' +
+								'This is incorrect — you MUST use the tool-calling API provided to you, not XML tags. ' +
+								'Please retry your intended action using the actual tool functions available to you. ' +
+								'Do NOT output XML tags. Call the tools directly.',
+						});
+						// Continue the loop — the model will retry with proper tool calls
+					} else {
+						logger.info('agent_loop', 'no_tool_calls_stop', {
+							textLength: lastAssistantText.length,
+							outputSnippet: lastAssistantText.slice(0, 500),
+							containsXmlToolCalls,
+						});
+						continueLoop = false;
+					}
 				}
 
 				// Check doom loop (identical consecutive tool calls)
@@ -591,6 +632,11 @@ export class AIAgentService {
 					logger.markDoomLoop();
 					yield customEvent('status', {
 						message: `Detected repeated calls to ${doomLoopTool}, stopping.`,
+					});
+					yield customEvent('doom_loop_detected', {
+						reason: 'identical_calls',
+						toolName: doomLoopTool,
+						message: `Detected repeated identical calls to ${doomLoopTool}. The agent was stopped to prevent an infinite loop.`,
 					});
 					continueLoop = false;
 				}
@@ -606,6 +652,11 @@ export class AIAgentService {
 					yield customEvent('status', {
 						message: `${sameToolLoopTool} called too many times in a row, stopping.`,
 					});
+					yield customEvent('doom_loop_detected', {
+						reason: 'same_tool_repetition',
+						toolName: sameToolLoopTool,
+						message: `${sameToolLoopTool} was called too many times in a row. The agent was stopped to prevent an infinite loop.`,
+					});
 					continueLoop = false;
 				}
 
@@ -620,12 +671,38 @@ export class AIAgentService {
 					yield customEvent('status', {
 						message: `${failureLoopTool} keeps failing, stopping.`,
 					});
+					yield customEvent('doom_loop_detected', {
+						reason: 'failure_loop',
+						toolName: failureLoopTool,
+						message: `${failureLoopTool} keeps failing repeatedly. The agent was stopped to prevent an infinite loop.`,
+					});
 					continueLoop = false;
 				}
 
 				// Track iteration progress and check for no-progress loop
 				const fileChangesThisIteration = queryChanges.length - changeCountBefore;
 				doomDetector.recordIterationProgress(fileChangesThisIteration > 0);
+				doomDetector.recordIterationMutationFailure(hadMutationFailure);
+
+				// Check mutation failure loop (mutation tools failing across consecutive iterations)
+				if (hadMutationFailure && doomDetector.isMutationFailureLoop()) {
+					logger.warn('agent_loop', 'mutation_failure_loop_detected', {
+						iteration,
+						totalToolCalls: doomDetector.length,
+					});
+					logger.markDoomLoop();
+					yield customEvent('status', {
+						message: 'Mutation tools keep failing, stopping.',
+					});
+					yield customEvent('doom_loop_detected', {
+						reason: 'mutation_failure_loop',
+						message:
+							'Mutation tools (file_patch, file_edit, etc.) have failed across multiple consecutive iterations. ' +
+							'The agent was stopped to prevent wasting resources.',
+					});
+					continueLoop = false;
+				}
+
 				if (hadToolCalls && doomDetector.isNoProgress()) {
 					logger.warn('agent_loop', 'no_progress_detected', {
 						iteration,
@@ -634,6 +711,10 @@ export class AIAgentService {
 					logger.markDoomLoop();
 					yield customEvent('status', {
 						message: 'No file changes after multiple attempts, stopping.',
+					});
+					yield customEvent('doom_loop_detected', {
+						reason: 'no_progress',
+						message: 'No file changes were made after multiple attempts. The agent was stopped to prevent an infinite loop.',
 					});
 					continueLoop = false;
 				}

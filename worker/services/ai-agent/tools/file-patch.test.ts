@@ -360,6 +360,110 @@ describe('parsePatch + deriveNewContentsFromChunks integration', () => {
 });
 
 // =============================================================================
+// Multi-file patch partial failure (regression for doom loop bug)
+// =============================================================================
+
+describe('multi-file patch partial failure', () => {
+	it('should parse a multi-file patch into separate hunks', () => {
+		const patchText = `*** Begin Patch
+*** Update File: /src/app.tsx
+@@ export function App() {
+ const [error, setError] = useState('');
++const [isDark, setIsDark] = useState(false);
+*** Update File: /src/style.css
+@@ .error {
+-  background: #fef2f2;
++  background: var(--color-error-bg);
+*** End Patch`;
+
+		const { hunks } = parsePatch(patchText);
+		expect(hunks).toHaveLength(2);
+		expect(hunks[0].type).toBe('update');
+		expect(hunks[1].type).toBe('update');
+		if (hunks[0].type === 'update') expect(hunks[0].path).toBe('/src/app.tsx');
+		if (hunks[1].type === 'update') expect(hunks[1].path).toBe('/src/style.css');
+	});
+
+	it('should allow valid hunk to succeed even when another file hunk would fail', () => {
+		// This is the exact pattern from the doom loop bug:
+		// The LLM sends a multi-file patch where app.tsx hunk is valid but style.css hunk
+		// references lines that don't exist. Previously, the entire patch was rejected atomically.
+		// Now each hunk is validated independently.
+
+		const appContent = ['export function App() {', "  const [error, setError] = useState('');", '  return <div>Hello</div>;', '}', ''].join(
+			'\n',
+		);
+
+		const styleContent = [':root {', '  --color-bg: #ffffff;', '}', ''].join('\n');
+
+		// Valid hunk for app.tsx — context and old lines match
+		const appPatch = `*** Begin Patch
+*** Update File: /src/app.tsx
+@@ export function App() {
+ const [error, setError] = useState('');
++const [isDark, setIsDark] = useState(false);
+*** End Patch`;
+
+		const { hunks: appHunks } = parsePatch(appPatch);
+		const appHunk = appHunks[0];
+		if (appHunk.type !== 'update') throw new Error('Expected update hunk');
+
+		// This should succeed
+		const appResult = deriveNewContentsFromChunks('/src/app.tsx', appContent, appHunk.chunks);
+		expect(appResult).toContain('const [isDark, setIsDark] = useState(false);');
+
+		// Invalid hunk for style.css — references lines that don't exist
+		const stylePatch = `*** Begin Patch
+*** Update File: /src/style.css
+@@ .error {
+-  background: #fef2f2;
++  background: var(--color-error-bg);
+*** End Patch`;
+
+		const { hunks: styleHunks } = parsePatch(stylePatch);
+		const styleHunk = styleHunks[0];
+		if (styleHunk.type !== 'update') throw new Error('Expected update hunk');
+
+		// This should throw because the context ".error {" doesn't exist in the file
+		expect(() => deriveNewContentsFromChunks('/src/style.css', styleContent, styleHunk.chunks)).toThrow(
+			"Failed to find context '.error {'",
+		);
+	});
+
+	it('should independently validate each file in a multi-file patch', () => {
+		// Verify that parsePatch produces separate hunks that can be validated independently
+		const patchText = `*** Begin Patch
+*** Update File: /src/valid.ts
+@@ function valid() {
+-  return 1;
++  return 2;
+*** Update File: /src/invalid.ts
+@@ function nonexistent() {
+-  this line does not exist;
++  replacement;
+*** End Patch`;
+
+		const { hunks } = parsePatch(patchText);
+		expect(hunks).toHaveLength(2);
+
+		const validContent = 'function valid() {\n  return 1;\n}\n';
+		const invalidContent = 'function other() {\n  return 42;\n}\n';
+
+		const validHunk = hunks[0];
+		const invalidHunk = hunks[1];
+		if (validHunk.type !== 'update') throw new Error('Expected update hunk');
+		if (invalidHunk.type !== 'update') throw new Error('Expected update hunk');
+
+		// First hunk succeeds
+		const result = deriveNewContentsFromChunks('/src/valid.ts', validContent, validHunk.chunks);
+		expect(result).toContain('return 2;');
+
+		// Second hunk fails — but this should NOT prevent the first from being applied
+		expect(() => deriveNewContentsFromChunks('/src/invalid.ts', invalidContent, invalidHunk.chunks)).toThrow('Failed to find context');
+	});
+});
+
+// =============================================================================
 // Line Matching Tests
 // =============================================================================
 

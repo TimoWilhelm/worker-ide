@@ -11,7 +11,7 @@
 
 import { fetchServerSentEvents } from '@tanstack/ai-client';
 import { useChat } from '@tanstack/ai-react';
-import { Bot, ChevronDown, Download, Loader2, Map as MapIcon, Plus, Send, Square } from 'lucide-react';
+import { ArrowDown, Bot, ChevronDown, Download, Loader2, Map as MapIcon, Plus, Send, Square } from 'lucide-react';
 import { ScrollArea } from 'radix-ui';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
@@ -25,10 +25,11 @@ import { useStore } from '@/lib/store';
 import { cn, formatRelativeTime } from '@/lib/utils';
 
 import { extractCustomEvent, getStringField } from './helpers';
-import { AIError, AssistantMessage, ContinuationPrompt, MessageBubble, UserQuestionPrompt, WelcomeScreen } from './messages';
+import { AIError, AssistantMessage, ContinuationPrompt, DoomLoopAlert, MessageBubble, UserQuestionPrompt, WelcomeScreen } from './messages';
 import { getModelLabel } from './model-config';
 import { ModelSelectorDialog } from './model-selector-dialog';
 import { useAiSessions } from '../../hooks/use-ai-sessions';
+import { useAutoScroll } from '../../hooks/use-auto-scroll';
 import { useChangeReview } from '../../hooks/use-change-review';
 import { useFileMention } from '../../hooks/use-file-mention';
 import { segmentsHaveContent, segmentsToPlainText, type InputSegment } from '../../lib/input-segments';
@@ -53,11 +54,10 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	const [cursorPosition, setCursorPosition] = useState(0);
 	const [needsContinuation, setNeedsContinuation] = useState(false);
 	const [pendingQuestion, setPendingQuestion] = useState<{ question: string; options: string } | undefined>();
+	const [doomLoopMessage, setDoomLoopMessage] = useState<string | undefined>();
 	const [planPath, setPlanPath] = useState<string | undefined>();
 	const [isModelSelectorOpen, setIsModelSelectorOpen] = useState(false);
-	const [debugLogId, setDebugLogId] = useState<string | undefined>();
 	const inputReference = useRef<RichTextInputHandle>(null);
-	const scrollReference = useRef<HTMLDivElement>(null);
 	const userMessageIndexReference = useRef<number>(-1);
 	const activeSnapshotIdReference = useRef<string | undefined>(undefined);
 	// Track the last chatError we already surfaced so dismissing it doesn't re-trigger
@@ -94,6 +94,8 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		addPendingChange,
 		associateSnapshotWithPending,
 		clearPendingChanges,
+		debugLogId,
+		setDebugLogId,
 	} = useStore();
 
 	// Keep stable references for useChat callbacks (avoid re-creating connection)
@@ -201,6 +203,13 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 				}
 				case 'max_iterations_reached': {
 					setNeedsContinuation(true);
+					break;
+				}
+				case 'doom_loop_detected': {
+					const message = getStringField(custom.data, 'message');
+					if (message) {
+						setDoomLoopMessage(message);
+					}
 					break;
 				}
 				case 'turn_complete': {
@@ -358,13 +367,14 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		setPlanPath(undefined);
 		setNeedsContinuation(false);
 		setPendingQuestion(undefined);
-		setDebugLogId(undefined);
+		setDoomLoopMessage(undefined);
 		toolErrorsReference.current.clear();
 		// Clear AI metadata without touching history (the forward sync handles it)
 		useStore.setState({
 			sessionId: undefined,
 			messageSnapshots: new Map(),
 			aiError: undefined,
+			debugLogId: undefined,
 		});
 		// clearChat() must be last — it sets chatMessages=[] which the forward-sync
 		// effect will propagate to the store's history.
@@ -383,12 +393,10 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		[clearPendingChanges, loadSession],
 	);
 
-	// Auto-scroll to bottom
-	useEffect(() => {
-		if (scrollReference.current) {
-			scrollReference.current.scrollTop = scrollReference.current.scrollHeight;
-		}
-	}, [chatMessages, statusMessage, aiError, needsContinuation, pendingQuestion]);
+	// Smart auto-scroll: stops when user scrolls up, shows pill for new content
+	const { scrollReference, anchorReference, canScrollUp, canScrollDown, hasNewContent, scrollToBottom } = useAutoScroll({
+		enabled: isChatLoading,
+	});
 
 	// Focus input on mount
 	useEffect(() => {
@@ -404,10 +412,11 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 			const messageText = messageOverride ?? inputPlainText.trim();
 			if (!messageText || isProcessing) return;
 
-			// Clear any previous error, continuation prompt, or pending question
+			// Clear any previous error, continuation prompt, pending question, or doom loop
 			setAiError(undefined);
 			setNeedsContinuation(false);
 			setPendingQuestion(undefined);
+			setDoomLoopMessage(undefined);
 
 			// Track the index of this user message for snapshot association
 			userMessageIndexReference.current = chatMessages.length; // index of the user message about to be added
@@ -459,7 +468,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 				});
 			}, 2000);
 		}
-	}, [stopChat, setProcessing, setStatusMessage, debugLogId, projectId]);
+	}, [stopChat, setProcessing, setStatusMessage, debugLogId, projectId, setDebugLogId]);
 
 	// Retry last message.
 	// We trim messages synchronously via setChatMessages, then defer the re-send
@@ -647,62 +656,109 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 				</div>
 			</div>
 
-			{/* Messages */}
-			<ScrollArea.Root className="flex-1 overflow-hidden">
-				<ScrollArea.Viewport ref={scrollReference} className="size-full [&>div]:block!">
-					<div className="flex min-w-0 flex-col gap-3 p-2">
-						{displayMessages.length === 0 && !streamingAssistantMessage ? (
-							<WelcomeScreen onSuggestionClick={handleSuggestion} onModeChange={setAgentMode} />
-						) : (
-							<>
-								{displayMessages.map((message, index) => (
-									<MessageBubble
-										key={message.id}
-										message={message}
-										messageIndex={index}
-										snapshotId={messageSnapshots.get(index)}
-										isReverting={isReverting}
-										onRevert={handleRevert}
-										toolErrors={toolErrorsReference.current}
-									/>
-								))}
-							</>
+			{/* Messages — with fade edges and smart auto-scroll */}
+			<div className="relative flex-1 overflow-hidden">
+				{/* Top fade edge */}
+				<div
+					className={cn(
+						'pointer-events-none absolute inset-x-0 top-0 z-10 h-6',
+						'bg-linear-to-b from-bg-secondary to-transparent',
+						'transition-opacity duration-200',
+						canScrollUp ? 'opacity-100' : 'opacity-0',
+					)}
+				/>
+
+				<ScrollArea.Root className="size-full">
+					<ScrollArea.Viewport ref={scrollReference} className="size-full [&>div]:block!">
+						<div className="flex min-w-0 flex-col gap-3 p-2">
+							{displayMessages.length === 0 && !streamingAssistantMessage ? (
+								<WelcomeScreen onSuggestionClick={handleSuggestion} onModeChange={setAgentMode} />
+							) : (
+								<>
+									{displayMessages.map((message, index) => (
+										<MessageBubble
+											key={message.id}
+											message={message}
+											messageIndex={index}
+											snapshotId={messageSnapshots.get(index)}
+											isReverting={isReverting}
+											onRevert={handleRevert}
+											toolErrors={toolErrorsReference.current}
+										/>
+									))}
+								</>
+							)}
+							{/* Streaming assistant message */}
+							{streamingAssistantMessage && (
+								<AssistantMessage message={streamingAssistantMessage} streaming toolErrors={toolErrorsReference.current} />
+							)}
+							{/* User question prompt — shown when the AI asks a clarifying question */}
+							{pendingQuestion && !isProcessing && (
+								<UserQuestionPrompt
+									question={pendingQuestion.question}
+									options={pendingQuestion.options}
+									onOptionClick={(option) => void handleSend(option)}
+								/>
+							)}
+							{/* Continuation prompt — shown when the agent hit the iteration limit */}
+							{needsContinuation && !isProcessing && (
+								<ContinuationPrompt onContinue={() => void handleSend('continue')} onDismiss={() => setNeedsContinuation(false)} />
+							)}
+							{/* Doom loop alert — shown when the agent was stopped due to repetitive behavior */}
+							{doomLoopMessage && !isProcessing && (
+								<DoomLoopAlert message={doomLoopMessage} onRetry={handleRetry} onDismiss={() => setDoomLoopMessage(undefined)} />
+							)}
+							{/* AI Error display */}
+							{aiError && <AIError message={aiError.message} code={aiError.code} onRetry={handleRetry} onDismiss={handleDismissError} />}
+							{statusMessage ? (
+								<div
+									className="
+										flex animate-chat-item items-center gap-2 px-1 text-xs
+										text-text-secondary
+									"
+								>
+									<Loader2 className="size-3 animate-spin" />
+									{statusMessage}
+								</div>
+							) : undefined}
+							{/* Invisible anchor for auto-scroll detection */}
+							<div ref={anchorReference} className="h-px shrink-0" aria-hidden />
+						</div>
+					</ScrollArea.Viewport>
+					<ScrollArea.Scrollbar className="flex w-2 touch-none bg-transparent p-0.5 select-none" orientation="vertical">
+						<ScrollArea.Thumb className="relative flex-1 rounded-full bg-border" />
+					</ScrollArea.Scrollbar>
+				</ScrollArea.Root>
+
+				{/* Bottom fade edge */}
+				<div
+					className={cn(
+						'pointer-events-none absolute inset-x-0 bottom-0 z-10 h-6',
+						'bg-linear-to-t from-bg-secondary to-transparent',
+						'transition-opacity duration-200',
+						canScrollDown ? 'opacity-100' : 'opacity-0',
+					)}
+				/>
+
+				{/* Floating "new content" pill */}
+				{hasNewContent && (
+					<button
+						type="button"
+						onClick={scrollToBottom}
+						className={cn(
+							'absolute bottom-3 left-1/2 z-20 -translate-x-1/2',
+							'flex cursor-pointer items-center gap-1.5 rounded-full',
+							'border border-border bg-bg-primary px-3 py-1.5',
+							'text-xs font-medium text-accent shadow-md',
+							'animate-chat-item transition-colors',
+							'hover:bg-bg-tertiary',
 						)}
-						{/* Streaming assistant message */}
-						{streamingAssistantMessage && (
-							<AssistantMessage message={streamingAssistantMessage} streaming toolErrors={toolErrorsReference.current} />
-						)}
-						{/* User question prompt — shown when the AI asks a clarifying question */}
-						{pendingQuestion && !isProcessing && (
-							<UserQuestionPrompt
-								question={pendingQuestion.question}
-								options={pendingQuestion.options}
-								onOptionClick={(option) => void handleSend(option)}
-							/>
-						)}
-						{/* Continuation prompt — shown when the agent hit the iteration limit */}
-						{needsContinuation && !isProcessing && (
-							<ContinuationPrompt onContinue={() => void handleSend('continue')} onDismiss={() => setNeedsContinuation(false)} />
-						)}
-						{/* AI Error display */}
-						{aiError && <AIError message={aiError.message} code={aiError.code} onRetry={handleRetry} onDismiss={handleDismissError} />}
-						{statusMessage ? (
-							<div
-								className="
-									flex animate-chat-item items-center gap-2 px-1 text-xs
-									text-text-secondary
-								"
-							>
-								<Loader2 className="size-3 animate-spin" />
-								{statusMessage}
-							</div>
-						) : undefined}
-					</div>
-				</ScrollArea.Viewport>
-				<ScrollArea.Scrollbar className="flex w-2 touch-none bg-transparent p-0.5 select-none" orientation="vertical">
-					<ScrollArea.Thumb className="relative flex-1 rounded-full bg-border" />
-				</ScrollArea.Scrollbar>
-			</ScrollArea.Root>
+					>
+						<ArrowDown className="size-3" />
+						Follow along
+					</button>
+				)}
+			</div>
 
 			{/* Changed files summary — shown when AI has pending edits */}
 			{changeReview.pendingCount > 0 && (

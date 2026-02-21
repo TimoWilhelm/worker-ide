@@ -102,6 +102,8 @@ interface AIState {
 	agentMode: AgentMode;
 	/** Selected AI model identifier */
 	selectedModel: AIModelId;
+	/** Debug log ID from the last agent turn */
+	debugLogId: string | undefined;
 }
 
 interface AIActions {
@@ -118,6 +120,7 @@ interface AIActions {
 	removeMessagesFrom: (index: number) => void;
 	setAgentMode: (mode: AgentMode) => void;
 	setSelectedModel: (model: AIModelId) => void;
+	setDebugLogId: (id: string | undefined) => void;
 }
 
 // =============================================================================
@@ -412,13 +415,15 @@ export const useStore = create<StoreState>()(
 				messageSnapshots: new Map(),
 				agentMode: 'code',
 				selectedModel: DEFAULT_AI_MODEL,
+				debugLogId: undefined,
 
 				addMessage: (message) =>
 					set((state) => ({
 						history: [...state.history, message],
 					})),
 
-				clearHistory: () => set({ history: [], sessionId: undefined, messageSnapshots: new Map(), aiError: undefined }),
+				clearHistory: () =>
+					set({ history: [], sessionId: undefined, messageSnapshots: new Map(), aiError: undefined, debugLogId: undefined }),
 
 				setProcessing: (processing) => set({ isProcessing: processing }),
 
@@ -431,7 +436,7 @@ export const useStore = create<StoreState>()(
 				setSavedSessions: (sessions) => set({ savedSessions: sessions }),
 
 				loadSession: (history, sessionId, messageSnapshots) =>
-					set({ history, sessionId, messageSnapshots: messageSnapshots ?? new Map(), aiError: undefined }),
+					set({ history, sessionId, messageSnapshots: messageSnapshots ?? new Map(), aiError: undefined, debugLogId: undefined }),
 
 				setMessageSnapshot: (messageIndex, snapshotId) =>
 					set((state) => {
@@ -447,6 +452,8 @@ export const useStore = create<StoreState>()(
 				setAgentMode: (mode) => set({ agentMode: mode }),
 
 				setSelectedModel: (model) => set({ selectedModel: model }),
+
+				setDebugLogId: (id) => set({ debugLogId: id }),
 
 				removeMessagesFrom: (index) =>
 					set((state) => {

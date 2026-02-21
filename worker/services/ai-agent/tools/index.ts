@@ -148,41 +148,19 @@ export const READ_ONLY_TOOL_NAMES = new Set([
 	'cdp_eval',
 ]);
 
-// =============================================================================
-// Tool Call Gate
-// =============================================================================
-
 /**
- * Enforces single-mutation-tool-per-iteration.
- *
- * Read-only tools (file_read, file_grep, etc.) can execute freely in parallel.
- * After the first non-read-only tool executes, subsequent non-read-only tools
- * are blocked and return a message telling the LLM to try again next turn.
- *
- * Call `reset()` at the start of each iteration.
+ * Mutation tool names — tools that modify files or project state.
+ * Used by the doom loop detector and logging to track mutation activity.
  */
-export class ToolCallGate {
-	private mutationExecuted = false;
-
-	/**
-	 * Check if a tool is allowed to execute.
-	 * Returns undefined if allowed, or a rejection message if blocked.
-	 */
-	check(toolName: string): string | undefined {
-		if (READ_ONLY_TOOL_NAMES.has(toolName)) {
-			return undefined;
-		}
-		if (this.mutationExecuted) {
-			return `Tool "${toolName}" was not executed. Only one mutation tool call is allowed per turn. Read-only tools (file_read, file_grep, file_glob, file_list, files_list, docs_search, etc.) can be batched freely. Please retry this call in your next response.`;
-		}
-		this.mutationExecuted = true;
-		return undefined;
-	}
-
-	reset(): void {
-		this.mutationExecuted = false;
-	}
-}
+export const MUTATION_TOOL_NAMES = new Set([
+	'file_edit',
+	'file_write',
+	'file_patch',
+	'file_delete',
+	'file_move',
+	'lint_fix',
+	'dependencies_update',
+]);
 
 // =============================================================================
 // TanStack AI Tool Factory
@@ -283,7 +261,6 @@ export function createServerTools(
 	mode: 'code' | 'plan' | 'ask',
 	logger?: AgentLogger,
 	toolFailures?: ToolFailureQueue,
-	toolCallGate?: ToolCallGate,
 ) {
 	// Select which tool definitions to use based on mode
 	const activeToolDefinitions = mode === 'ask' ? ASK_MODE_TOOLS : mode === 'plan' ? PLAN_MODE_TOOLS : AGENT_TOOLS;
@@ -301,18 +278,6 @@ export function createServerTools(
 			description: definition.description,
 			inputSchema,
 		}).server(async (input) => {
-			// Enforce single-mutation-tool-per-iteration gate
-			if (toolCallGate) {
-				const rejection = toolCallGate.check(definition.name);
-				if (rejection) {
-					logger?.warn('tool_call', 'gated', {
-						toolName: definition.name,
-						reason: 'mutation_already_executed',
-					});
-					return { content: rejection };
-				}
-			}
-
 			// Defense-in-depth: reject editing tools in non-code modes
 			if (mode !== 'code' && EDITING_TOOL_NAMES.has(definition.name)) {
 				logger?.warn('tool_call', 'blocked', {
