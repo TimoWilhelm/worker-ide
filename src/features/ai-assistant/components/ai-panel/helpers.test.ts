@@ -19,7 +19,6 @@ describe('isToolName', () => {
 		expect(isToolName('file_glob')).toBe(true);
 		expect(isToolName('file_list')).toBe(true);
 		expect(isToolName('files_list')).toBe(true);
-		expect(isToolName('file_patch')).toBe(true);
 		expect(isToolName('file_delete')).toBe(true);
 		expect(isToolName('file_move')).toBe(true);
 		expect(isToolName('user_question')).toBe(true);

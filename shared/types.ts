@@ -95,6 +95,17 @@ export interface ToolErrorInfo {
 }
 
 /**
+ * Stats for a file-editing tool call (file_edit, file_write, lint_fix).
+ * Populated from the CUSTOM `file_changed` SSE event's extra fields.
+ */
+export interface FileEditStats {
+	toolUseId: string;
+	linesAdded: number;
+	linesRemoved: number;
+	lintErrorCount: number;
+}
+
+/**
  * A saved AI chat session.
  * Uses UIMessage[] from TanStack AI for the history.
  */

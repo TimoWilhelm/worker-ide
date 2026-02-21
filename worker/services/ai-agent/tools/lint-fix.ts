@@ -11,9 +11,10 @@ import { ToolErrorCode, toolError } from '@shared/tool-errors';
 import { coordinatorNamespace } from '../../../lib/durable-object-namespaces';
 import { isHiddenPath, isPathSafe } from '../../../lib/path-utilities';
 import { recordFileRead } from '../file-time';
-import { fixFileForAgent, formatLintResultsForAgent } from '../lib/biome-linter';
+import { fixFileForAgent, formatLintResultsForAgent, lintFileForAgent } from '../lib/biome-linter';
+import { computeDiffStats } from '../utilities';
 
-import type { FileChange, SendEventFunction, ToolDefinition, ToolExecutorContext } from '../types';
+import type { FileChange, FileEditStatsQueue, SendEventFunction, ToolDefinition, ToolExecutorContext } from '../types';
 
 // =============================================================================
 // Description
@@ -56,6 +57,7 @@ export async function execute(
 	context: ToolExecutorContext,
 	toolUseId?: string,
 	queryChanges?: FileChange[],
+	fileEditStatsQueue?: FileEditStatsQueue,
 ): Promise<string> {
 	const { projectRoot, projectId, sessionId } = context;
 	const fixPath = input.path;
@@ -124,6 +126,15 @@ export async function execute(
 		timestamp: Date.now(),
 		isCSS,
 	});
+
+	// Compute diff stats and lint errors for the UI
+	const { linesAdded, linesRemoved } = computeDiffStats(originalContent, result.fixedContent);
+	const lintDiagnostics = await lintFileForAgent(fixPath, result.fixedContent);
+	const lintErrorCount = lintDiagnostics.length;
+
+	if (fileEditStatsQueue) {
+		fileEditStatsQueue.push({ linesAdded, linesRemoved, lintErrorCount });
+	}
 
 	// Send file changed event for UI
 	sendEvent('file_changed', {

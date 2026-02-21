@@ -45,7 +45,7 @@ import { parseTextToSegments } from '../../lib/input-segments';
 import { FileReference } from '../file-reference';
 import { MarkdownContent } from '../markdown-content';
 
-import type { AgentMode, ToolErrorInfo, UIMessage } from '@shared/types';
+import type { AgentMode, FileEditStats, ToolErrorInfo, UIMessage } from '@shared/types';
 import type { ToolName } from '@shared/validation';
 
 // =============================================================================
@@ -107,8 +107,7 @@ function ToolIcon({ name, className }: { name: ToolName; className?: string }) {
 			return <Eye className={cn('size-3', className)} />;
 		}
 		case 'file_edit':
-		case 'file_write':
-		case 'file_patch': {
+		case 'file_write': {
 			return <Pencil className={cn('size-3', className)} />;
 		}
 		case 'file_delete': {
@@ -201,6 +200,7 @@ export function MessageBubble({
 	isReverting,
 	onRevert,
 	toolErrors,
+	fileEditStats,
 }: {
 	message: UIMessage;
 	messageIndex: number;
@@ -208,6 +208,7 @@ export function MessageBubble({
 	isReverting: boolean;
 	onRevert: (snapshotId: string, messageIndex: number) => void;
 	toolErrors?: Map<string, ToolErrorInfo>;
+	fileEditStats?: Map<string, FileEditStats>;
 }) {
 	if (message.role === 'user') {
 		return (
@@ -215,7 +216,7 @@ export function MessageBubble({
 		);
 	}
 
-	return <AssistantMessage message={message} toolErrors={toolErrors} />;
+	return <AssistantMessage message={message} toolErrors={toolErrors} fileEditStats={fileEditStats} />;
 }
 
 // =============================================================================
@@ -369,10 +370,12 @@ export function AssistantMessage({
 	message,
 	streaming,
 	toolErrors,
+	fileEditStats,
 }: {
 	message: UIMessage;
 	streaming?: boolean;
 	toolErrors?: Map<string, ToolErrorInfo>;
+	fileEditStats?: Map<string, FileEditStats>;
 }) {
 	const segments = buildRenderSegments(message.parts);
 	const [expandedThinking, setExpandedThinking] = useState<Set<number>>(new Set());
@@ -467,7 +470,15 @@ export function AssistantMessage({
 			{segments.map((segment, index) => {
 				// Tool calls — always rendered inline
 				if (segment.kind === 'tool') {
-					return <InlineToolCall key={index} toolCall={segment.toolCall} toolResult={segment.toolResult} toolErrors={toolErrors} />;
+					return (
+						<InlineToolCall
+							key={index}
+							toolCall={segment.toolCall}
+							toolResult={segment.toolResult}
+							toolErrors={toolErrors}
+							fileEditStats={fileEditStats}
+						/>
+					);
 				}
 
 				// Thinking segments — collapsible
@@ -710,14 +721,6 @@ function summarizeToolResult(toolName: ToolName, rawResult: string): string {
 			return 'Moved';
 		}
 
-		case 'file_patch': {
-			// "Success. Updated the following files:\nA /path\nM /path\nD /path"
-			const lines = rawResult.split('\n').filter(Boolean);
-			const fileCount = lines.filter((l) => /^[AMD] /.test(l)).length;
-			if (fileCount > 0) return `${fileCount} file${fileCount === 1 ? '' : 's'} changed`;
-			return rawResult.length > 40 ? rawResult.slice(0, 40) + '...' : rawResult;
-		}
-
 		case 'file_grep': {
 			// "Found N matches..." or "No files found"
 			const matchCount = rawResult.match(/^Found (\d+) match/);
@@ -896,7 +899,6 @@ function formatToolResultDetail(toolName: ToolName, rawResult: string): string {
 
 		case 'file_grep':
 		case 'file_glob':
-		case 'file_patch':
 		case 'file_list': {
 			// Already plain text, show as-is
 			return rawResult;
@@ -1012,10 +1014,12 @@ function InlineToolCall({
 	toolCall,
 	toolResult,
 	toolErrors,
+	fileEditStats,
 }: {
 	toolCall: ToolCallPart;
 	toolResult?: ToolResultPart;
 	toolErrors?: Map<string, ToolErrorInfo>;
+	fileEditStats?: Map<string, FileEditStats>;
 }) {
 	const [isExpanded, setIsExpanded] = useState(false);
 
@@ -1127,6 +1131,34 @@ function InlineToolCall({
 					</span>
 				)}
 				{resultSummary && <span className="ml-auto min-w-0 truncate text-text-secondary">{resultSummary}</span>}
+				{/* File edit stats: lines added, removed, lint errors */}
+				{isCompleted &&
+					fileEditStats?.has(toolCall.id) &&
+					(() => {
+						const stats = fileEditStats.get(toolCall.id)!;
+						return (
+							<span className="ml-1 flex shrink-0 items-center gap-1.5">
+								{stats.linesAdded > 0 && (
+									<span className="font-mono text-success" title={`${stats.linesAdded} line${stats.linesAdded === 1 ? '' : 's'} added`}>
+										+{stats.linesAdded}
+									</span>
+								)}
+								{stats.linesRemoved > 0 && (
+									<span className="font-mono text-error" title={`${stats.linesRemoved} line${stats.linesRemoved === 1 ? '' : 's'} removed`}>
+										-{stats.linesRemoved}
+									</span>
+								)}
+								{stats.lintErrorCount > 0 && (
+									<span
+										className="font-mono text-warning"
+										title={`${stats.lintErrorCount} lint error${stats.lintErrorCount === 1 ? '' : 's'}`}
+									>
+										⚠ {stats.lintErrorCount}
+									</span>
+								)}
+							</span>
+						);
+					})()}
 			</button>
 			{isExpanded && hasDetailContent && (
 				<pre

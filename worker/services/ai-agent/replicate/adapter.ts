@@ -186,33 +186,10 @@ CRITICAL FORMAT RULES:
 - Example for read_file: {"name": "read_file", "input": {"path": "/file.txt"}}
 - NEVER put parameters at the top level like {"name": "write_file", "path": "..."} - this is WRONG
 
-You can use multiple tools in sequence. After using a tool, you will receive the result and can continue your response.
+IMPORTANT: You MUST use exactly ONE tool per response. Do NOT include multiple tool_use blocks.
+After using a tool, you will receive the result and can decide your next action in a follow-up response.
 When you're done and don't need to use any more tools, just provide your final response without any tool_use blocks.`;
 }
-
-// =============================================================================
-// Text-Completion Tool Guidance (Replicate-specific)
-// =============================================================================
-
-/**
- * Additional system prompt guidance injected ONLY by the Replicate text-completion adapter.
- *
- * Because Replicate exposes Claude as a text-completion endpoint (not a Messages API),
- * tool calls are parsed from XML blocks in the model's text output. This means:
- *   - Tools are called sequentially (no native parallel tool calls)
- *   - Each tool call is a separate <tool_use> block
- *
- * This guidance steers the model toward `file_patch` for multi-edit scenarios, reducing
- * the number of sequential `file_edit` calls in a single agent iteration.
- *
- * This constant is NOT used by future adapters that support native tool calling
- * (e.g., Anthropic Messages API), where parallel tool calls make this unnecessary.
- */
-const TEXT_COMPLETION_TOOL_GUIDANCE = `# Tool efficiency
-Since tools are called sequentially, prefer efficient tool usage:
-- When making multiple changes to the same file, prefer \`file_patch\` over multiple \`file_edit\` calls. The \`file_patch\` tool lets you express all changes to a file (or even multiple files) in a single tool call.
-- Reserve \`file_edit\` for simple, single-change edits (e.g., one find-and-replace).
-- When you need to make 2 or more changes to the same file, use \`file_patch\` instead.`;
 
 // =============================================================================
 // Replicate Text Adapter
@@ -246,7 +223,7 @@ class ReplicateTextAdapter extends BaseTextAdapter<string, Record<string, never>
 		// Build system prompt with tool descriptions and text-completion-specific guidance
 		const systemPromptParts = options.systemPrompts ?? [];
 		const toolDescriptions = options.tools ? formatToolDescriptions(options.tools) : '';
-		const fullSystemPrompt = [...systemPromptParts, toolDescriptions, TEXT_COMPLETION_TOOL_GUIDANCE].filter(Boolean).join('\n\n');
+		const fullSystemPrompt = [...systemPromptParts, toolDescriptions].filter(Boolean).join('\n\n');
 
 		// Format messages into Human:/Assistant: prompt
 		const formattedMessages = formatMessages(options.messages);
@@ -407,7 +384,18 @@ class ReplicateTextAdapter extends BaseTextAdapter<string, Record<string, never>
 
 		// Normalize alternative tool call formats and parse tool calls
 		const normalizedOutput = normalizeFunctionCallsFormat(accumulatedOutput);
-		const { textParts, toolCalls } = parseToolCalls(normalizedOutput, this.logger);
+		const { textParts, toolCalls: parsedToolCalls } = parseToolCalls(normalizedOutput, this.logger);
+
+		// Enforce single tool call per response — if the model emitted multiple
+		// <tool_use> blocks despite the prompt instruction, only keep the first one.
+		if (parsedToolCalls.length > 1) {
+			this.logger?.warn('tool_parse', 'multiple_tool_calls_truncated', {
+				requestedCount: parsedToolCalls.length,
+				toolNames: parsedToolCalls.map((tc) => tc.name),
+				keptTool: parsedToolCalls[0].name,
+			});
+		}
+		const toolCalls = parsedToolCalls.length > 1 ? parsedToolCalls.slice(0, 1) : parsedToolCalls;
 		const hasToolCalls = toolCalls.length > 0;
 
 		this.logger?.info('tool_parse', 'parse_result', {

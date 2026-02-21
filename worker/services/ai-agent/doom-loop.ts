@@ -40,7 +40,7 @@ const NO_PROGRESS_THRESHOLD = 2;
 /**
  * Number of consecutive iterations where a mutation tool failed to trigger
  * mutation-failure-loop detection. This catches the pattern where the LLM
- * keeps retrying a failing mutation (e.g. file_patch) across iterations,
+ * keeps retrying a failing mutation (e.g. file_edit) across iterations,
  * even when interleaved with successful read-only calls that dilute the
  * unified history.
  */
@@ -207,7 +207,7 @@ export class DoomLoopDetector {
 	/**
 	 * Check if mutation tools have failed in the last N consecutive iterations.
 	 * This catches the pattern where the LLM keeps retrying a failing mutation
-	 * (e.g. file_patch with hallucinated content) across iterations, even when
+	 * (e.g. file_edit with hallucinated content) across iterations, even when
 	 * interleaved with successful read-only calls.
 	 */
 	isMutationFailureLoop(): boolean {

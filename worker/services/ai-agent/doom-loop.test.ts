@@ -154,7 +154,7 @@ describe('isFailureLoop', () => {
 	it('does not trigger when different tools fail', () => {
 		const detector = new DoomLoopDetector();
 		detector.recordFailure('file_edit');
-		detector.recordFailure('file_patch');
+		detector.recordFailure('file_write');
 		detector.recordFailure('file_edit');
 
 		expect(detector.isFailureLoop()).toBeUndefined();
@@ -162,16 +162,16 @@ describe('isFailureLoop', () => {
 
 	it('detects failures even when interleaved with successful reads (dedicated failure history)', () => {
 		const detector = new DoomLoopDetector();
-		// This simulates the exact bug: file_read succeeds between file_patch failures
+		// This simulates the exact bug: file_read succeeds between file_write failures
 		detector.record('file_read', { path: '/src/app.tsx' });
-		detector.recordFailure('file_patch');
+		detector.recordFailure('file_write');
 		detector.record('file_read', { path: '/src/app.tsx' });
-		detector.recordFailure('file_patch');
+		detector.recordFailure('file_write');
 		detector.record('file_read', { path: '/src/style.css' });
-		detector.recordFailure('file_patch');
+		detector.recordFailure('file_write');
 
-		// The dedicated failure history should see 3 consecutive file_patch failures
-		expect(detector.isFailureLoop()).toBe('file_patch');
+		// The dedicated failure history should see 3 consecutive file_write failures
+		expect(detector.isFailureLoop()).toBe('file_write');
 	});
 
 	it('resets failure history on reset()', () => {
@@ -336,21 +336,21 @@ describe('combined detection', () => {
 	it('interleaved successful reads do NOT prevent failure loop detection (regression)', () => {
 		const detector = new DoomLoopDetector();
 		// Simulate the exact pattern from the bug:
-		// Iteration 1: file_read succeeds, file_patch fails
+		// Iteration 1: file_read succeeds, file_write fails
 		detector.record('file_read', { path: '/src/app.tsx' });
-		detector.recordFailure('file_patch');
-		// Iteration 2: file_read succeeds, file_patch fails, file_read succeeds, file_edit fails
+		detector.recordFailure('file_write');
+		// Iteration 2: file_read succeeds, file_write fails, file_read succeeds, file_edit fails
 		detector.record('file_read', { path: '/src/app.tsx' });
-		detector.recordFailure('file_patch');
+		detector.recordFailure('file_write');
 		detector.record('file_read', { path: '/src/style.css' });
 		detector.recordFailure('file_edit');
-		// Iteration 3: file_read succeeds, file_patch fails
+		// Iteration 3: file_read succeeds, file_write fails
 		detector.record('file_read', { path: '/src/app.tsx' });
-		detector.recordFailure('file_patch');
+		detector.recordFailure('file_write');
 
-		// The dedicated failure history sees [file_patch, file_patch, file_edit, file_patch]
-		// Last 3 are [file_patch, file_edit, file_patch] — different tools, so no detection.
-		// But if we only had file_patch failures:
+		// The dedicated failure history sees [file_write, file_write, file_edit, file_write]
+		// Last 3 are [file_write, file_edit, file_write] — different tools, so no detection.
+		// But if we only had file_write failures:
 		// This specific scenario has mixed failures, so isFailureLoop won't trigger.
 		// The mutation failure loop (per-iteration) should catch this instead.
 		expect(detector.isFailureLoop()).toBeUndefined();
@@ -370,7 +370,7 @@ describe('combined detection', () => {
 
 		// Iteration 1: read + failed patch
 		detector.record('file_read', { path: '/src/app.tsx' });
-		detector.recordFailure('file_patch');
+		detector.recordFailure('file_write');
 		detector.recordIterationProgress(false);
 		detector.recordIterationMutationFailure(true);
 
@@ -380,7 +380,7 @@ describe('combined detection', () => {
 
 		// Iteration 2: read + failed patch
 		detector.record('file_read', { path: '/src/app.tsx' });
-		detector.recordFailure('file_patch');
+		detector.recordFailure('file_write');
 		detector.recordIterationProgress(false);
 		detector.recordIterationMutationFailure(true);
 

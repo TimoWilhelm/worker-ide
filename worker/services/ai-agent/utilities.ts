@@ -1,10 +1,6 @@
 /**
  * Utility functions for the AI Agent Service.
  * Includes error parsing, validation helpers, and type guards.
- *
- * Tool call parsing logic (normalizeFunctionCallsFormat, parseToolCalls,
- * repairToolCallJson) has been moved to `./replicate/tool-call-parser.ts`
- * since it is specific to the Replicate text-completion adapter.
  */
 
 import { BINARY_EXTENSIONS } from '@shared/constants';
@@ -134,6 +130,44 @@ export function toUint8Array(buffer: Buffer | Uint8Array): Uint8Array {
 		return buffer;
 	}
 	return new Uint8Array(buffer);
+}
+
+// =============================================================================
+// Diff Stats
+// =============================================================================
+
+/**
+ * Compute the number of lines added and removed between two strings.
+ * Returns { linesAdded, linesRemoved }.
+ */
+export function computeDiffStats(
+	before: string | undefined | null,
+	after: string | undefined | null,
+): { linesAdded: number; linesRemoved: number } {
+	const beforeLines = before ? before.split('\n') : [];
+	const afterLines = after ? after.split('\n') : [];
+
+	// Build a multiset of lines in each version
+	const beforeCounts = new Map<string, number>();
+	for (const line of beforeLines) {
+		beforeCounts.set(line, (beforeCounts.get(line) ?? 0) + 1);
+	}
+
+	// Walk the "after" lines and match against the "before" multiset
+	const remaining = new Map(beforeCounts);
+	let matched = 0;
+	for (const line of afterLines) {
+		const count = remaining.get(line);
+		if (count && count > 0) {
+			remaining.set(line, count - 1);
+			matched++;
+		}
+	}
+
+	const linesRemoved = beforeLines.length - matched;
+	const linesAdded = afterLines.length - matched;
+
+	return { linesAdded, linesRemoved };
 }
 
 // =============================================================================

@@ -24,7 +24,7 @@ import { downloadDebugLog, fetchLatestDebugLogId } from '@/lib/api-client';
 import { useStore } from '@/lib/store';
 import { cn, formatRelativeTime } from '@/lib/utils';
 
-import { extractCustomEvent, getStringField } from './helpers';
+import { extractCustomEvent, getNumberField, getStringField } from './helpers';
 import { AIError, AssistantMessage, ContinuationPrompt, DoomLoopAlert, MessageBubble, UserQuestionPrompt, WelcomeScreen } from './messages';
 import { getModelLabel } from './model-config';
 import { ModelSelectorDialog } from './model-selector-dialog';
@@ -40,7 +40,7 @@ import { FileMentionDropdown } from '../file-mention-dropdown';
 import { RevertConfirmDialog } from '../revert-confirm-dialog';
 import { RichTextInput, type RichTextInputHandle } from '../rich-text-input';
 
-import type { ToolErrorInfo, UIMessage } from '@shared/types';
+import type { FileEditStats, ToolErrorInfo, UIMessage } from '@shared/types';
 
 // =============================================================================
 // Component
@@ -64,6 +64,8 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	const lastSurfacedChatErrorReference = useRef<Error | undefined>(undefined);
 	// Structured tool error data keyed by toolCallId, populated by CUSTOM tool_error events
 	const toolErrorsReference = useRef<Map<string, ToolErrorInfo>>(new Map());
+	// File edit stats (lines added/removed, lint errors) keyed by tool_use_id, populated by CUSTOM file_changed events
+	const fileEditStatsReference = useRef<Map<string, FileEditStats>>(new Map());
 
 	// Derived plain text for the file mention hook
 	const inputPlainText = useMemo(() => segmentsToPlainText(segments), [segments]);
@@ -180,6 +182,21 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 							afterContent: afterContent || undefined,
 							snapshotId: activeSnapshotIdReference.current,
 						});
+						// Store diff stats + lint error count for the inline tool call UI
+						const toolUseId = getStringField(custom.data, 'tool_use_id');
+						if (toolUseId) {
+							const linesAdded = getNumberField(custom.data, 'linesAdded');
+							const linesRemoved = getNumberField(custom.data, 'linesRemoved');
+							const lintErrorCount = getNumberField(custom.data, 'lintErrorCount');
+							// Cap map size (same pattern as toolErrors)
+							if (fileEditStatsReference.current.size >= 500) {
+								const firstKey = fileEditStatsReference.current.keys().next().value;
+								if (firstKey !== undefined) {
+									fileEditStatsReference.current.delete(firstKey);
+								}
+							}
+							fileEditStatsReference.current.set(toolUseId, { toolUseId, linesAdded, linesRemoved, lintErrorCount });
+						}
 						if (action !== 'delete' && action !== 'move') {
 							openFile(path);
 						}
@@ -369,6 +386,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		setPendingQuestion(undefined);
 		setDoomLoopMessage(undefined);
 		toolErrorsReference.current.clear();
+		fileEditStatsReference.current.clear();
 		// Clear AI metadata without touching history (the forward sync handles it)
 		useStore.setState({
 			sessionId: undefined,
@@ -388,6 +406,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		(targetSessionId: string) => {
 			clearPendingChanges();
 			toolErrorsReference.current.clear();
+			fileEditStatsReference.current.clear();
 			loadSession(targetSessionId);
 		},
 		[clearPendingChanges, loadSession],
@@ -684,13 +703,19 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 											isReverting={isReverting}
 											onRevert={handleRevert}
 											toolErrors={toolErrorsReference.current}
+											fileEditStats={fileEditStatsReference.current}
 										/>
 									))}
 								</>
 							)}
 							{/* Streaming assistant message */}
 							{streamingAssistantMessage && (
-								<AssistantMessage message={streamingAssistantMessage} streaming toolErrors={toolErrorsReference.current} />
+								<AssistantMessage
+									message={streamingAssistantMessage}
+									streaming
+									toolErrors={toolErrorsReference.current}
+									fileEditStats={fileEditStatsReference.current}
+								/>
 							)}
 							{/* User question prompt — shown when the AI asks a clarifying question */}
 							{pendingQuestion && !isProcessing && (

@@ -1,8 +1,5 @@
 /**
  * Unit tests for Replicate tool call parsing logic.
- *
- * Tests normalizeFunctionCallsFormat, parseToolCalls, repairToolCallJson,
- * and the ParsedToolCall type — all Replicate-specific parsing utilities.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -202,12 +199,11 @@ Now let me check more files:
 
 	it('converts Format B with multiline parameter content', () => {
 		const input = `<function_calls>
-<invoke name="file_patch">
-<parameter name="patch">*** Begin Patch
-some
-multiline
-patch content
-*** End Patch</parameter>
+<invoke name="file_write">
+<parameter name="path">/index.html</parameter>
+<parameter name="content">line1
+line2
+line3</parameter>
 </invoke>
 </function_calls>`;
 
@@ -216,9 +212,10 @@ patch content
 		const jsonMatch = result.match(/<tool_use>\n([\s\S]*?)\n<\/tool_use>/);
 		expect(jsonMatch).not.toBeUndefined();
 		const parsed = JSON.parse(jsonMatch![1]);
-		expect(parsed.name).toBe('file_patch');
-		expect(parsed.input.patch).toContain('*** Begin Patch');
-		expect(parsed.input.patch).toContain('*** End Patch');
+		expect(parsed.name).toBe('file_write');
+		expect(parsed.input.path).toBe('/index.html');
+		expect(parsed.input.content).toContain('line1');
+		expect(parsed.input.content).toContain('line3');
 	});
 });
 

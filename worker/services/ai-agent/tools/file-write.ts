@@ -11,10 +11,10 @@ import { ToolErrorCode, toolError } from '@shared/tool-errors';
 import { coordinatorNamespace } from '../../../lib/durable-object-namespaces';
 import { isHiddenPath, isPathSafe } from '../../../lib/path-utilities';
 import { assertFileWasRead, recordFileRead } from '../file-time';
-import { formatLintResultsForAgent } from '../lib/biome-linter';
-import { isBinaryFilePath, toUint8Array } from '../utilities';
+import { lintFileForAgent } from '../lib/biome-linter';
+import { computeDiffStats, isBinaryFilePath, toUint8Array } from '../utilities';
 
-import type { FileChange, SendEventFunction, ToolDefinition, ToolExecutorContext } from '../types';
+import type { FileChange, FileEditStatsQueue, SendEventFunction, ToolDefinition, ToolExecutorContext } from '../types';
 
 // =============================================================================
 // Description (matches OpenCode)
@@ -55,6 +55,7 @@ export async function execute(
 	context: ToolExecutorContext,
 	toolUseId?: string,
 	queryChanges?: FileChange[],
+	fileEditStatsQueue?: FileEditStatsQueue,
 ): Promise<string> {
 	const { projectRoot, projectId, sessionId } = context;
 	const writePath = input.path;
@@ -153,6 +154,17 @@ export async function execute(
 		isCSS,
 	});
 
+	// Compute diff stats and lint errors for the UI
+	const { linesAdded, linesRemoved } = writeIsBinary
+		? { linesAdded: 0, linesRemoved: 0 }
+		: computeDiffStats(typeof beforeContent === 'string' ? beforeContent : undefined, writeContent);
+	const lintDiagnostics = writeIsBinary ? [] : await lintFileForAgent(writePath, writeContent);
+	const lintErrorCount = lintDiagnostics.length;
+
+	if (fileEditStatsQueue) {
+		fileEditStatsQueue.push({ linesAdded, linesRemoved, lintErrorCount });
+	}
+
 	// Send file changed event for UI
 	await sendEvent('file_changed', {
 		path: writePath,
@@ -165,7 +177,17 @@ export async function execute(
 		isBinary: writeIsBinary,
 	});
 
-	const lintResults = writeIsBinary ? undefined : await formatLintResultsForAgent(writePath, writeContent);
+	// Format lint results from the already-computed diagnostics (avoids a second lintFileForAgent call)
+	let lintResults: string | undefined;
+	if (!writeIsBinary && lintDiagnostics.length > 0) {
+		const lines = lintDiagnostics.map((d) => `  - line ${d.line}: ${d.message} (${d.rule})${d.fixable ? ' [auto-fixable]' : ''}`);
+		const errorCount = lintDiagnostics.filter((d) => d.severity === 'error').length;
+		const warningCount = lintDiagnostics.length - errorCount;
+		const summary = [errorCount > 0 ? `${errorCount} error(s)` : '', warningCount > 0 ? `${warningCount} warning(s)` : '']
+			.filter(Boolean)
+			.join(', ');
+		lintResults = `\nLint diagnostics (${summary}):\n${lines.join('\n')}`;
+	}
 
 	return `Wrote file successfully.${lintResults ?? ''}`;
 }

@@ -20,7 +20,6 @@ import * as fileGlobTool from './file-glob';
 import * as fileGrepTool from './file-grep';
 import * as fileListTool from './file-list';
 import * as fileMoveTool from './file-move';
-import * as filePatchTool from './file-patch';
 import * as fileReadTool from './file-read';
 import * as fileWriteTool from './file-write';
 import * as filesListTool from './files-list';
@@ -42,6 +41,7 @@ import type {
 	ToolExecuteFunction,
 	ToolExecutorContext,
 	ToolFailureQueue,
+	FileEditStatsQueue,
 } from '../types';
 
 // =============================================================================
@@ -56,7 +56,7 @@ export const TOOL_EXECUTORS: ReadonlyMap<string, ToolExecuteFunction> = new Map(
 	['file_glob', fileGlobTool.execute],
 	['file_list', fileListTool.execute],
 	['files_list', filesListTool.execute],
-	['file_patch', filePatchTool.execute],
+
 	['file_delete', fileDeleteTool.execute],
 	['file_move', fileMoveTool.execute],
 	['user_question', userQuestionTool.execute],
@@ -83,7 +83,7 @@ export const AGENT_TOOLS: readonly ToolDefinition[] = [
 	fileGlobTool.definition,
 	fileListTool.definition,
 	filesListTool.definition,
-	filePatchTool.definition,
+
 	fileDeleteTool.definition,
 	fileMoveTool.definition,
 	userQuestionTool.definition,
@@ -130,7 +130,7 @@ export const ASK_MODE_TOOLS: readonly ToolDefinition[] = [];
 // Editing tools blocked in plan mode
 // =============================================================================
 
-const EDITING_TOOL_NAMES = new Set(['file_edit', 'file_write', 'file_patch', 'file_delete', 'file_move', 'lint_fix']);
+const EDITING_TOOL_NAMES = new Set(['file_edit', 'file_write', 'file_delete', 'file_move', 'lint_fix']);
 
 /**
  * Read-only tools that can be batched freely within a single iteration.
@@ -152,15 +152,7 @@ export const READ_ONLY_TOOL_NAMES = new Set([
  * Mutation tool names — tools that modify files or project state.
  * Used by the doom loop detector and logging to track mutation activity.
  */
-export const MUTATION_TOOL_NAMES = new Set([
-	'file_edit',
-	'file_write',
-	'file_patch',
-	'file_delete',
-	'file_move',
-	'lint_fix',
-	'dependencies_update',
-]);
+export const MUTATION_TOOL_NAMES = new Set(['file_edit', 'file_write', 'file_delete', 'file_move', 'lint_fix', 'dependencies_update']);
 
 // =============================================================================
 // TanStack AI Tool Factory
@@ -261,6 +253,7 @@ export function createServerTools(
 	mode: 'code' | 'plan' | 'ask',
 	logger?: AgentLogger,
 	toolFailures?: ToolFailureQueue,
+	fileEditStatsQueue?: FileEditStatsQueue,
 ) {
 	// Select which tool definitions to use based on mode
 	const activeToolDefinitions = mode === 'ask' ? ASK_MODE_TOOLS : mode === 'plan' ? PLAN_MODE_TOOLS : AGENT_TOOLS;
@@ -303,7 +296,7 @@ export function createServerTools(
 			const timer = logger?.startTimer();
 
 			try {
-				const result = await executor(stringInput, sendEvent, context, undefined, queryChanges);
+				const result = await executor(stringInput, sendEvent, context, undefined, queryChanges, fileEditStatsQueue);
 				const text = typeof result === 'string' ? result : JSON.stringify(result);
 
 				logger?.info(

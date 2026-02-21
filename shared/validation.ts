@@ -217,13 +217,6 @@ export const listInputSchema = z.object({
 });
 
 /**
- * Schema for AI tool: patch (apply custom patch format)
- */
-export const patchInputSchema = z.object({
-	patch: z.string().min(1, 'Patch content is required'),
-});
-
-/**
  * Schema for AI tool: question (ask the user)
  */
 export const questionInputSchema = z.object({
@@ -279,7 +272,7 @@ export const toolInputSchemas = {
 	file_glob: globInputSchema,
 	file_list: listInputSchema,
 	files_list: listFilesInputSchema,
-	file_patch: patchInputSchema,
+
 	file_delete: deleteFileInputSchema,
 	file_move: moveFileInputSchema,
 	user_question: questionInputSchema,

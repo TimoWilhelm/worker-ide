@@ -36,7 +36,15 @@ import { createSendEvent, createServerTools, MUTATION_TOOL_NAMES, READ_ONLY_TOOL
 import { isRecordObject, parseApiError } from './utilities';
 import { coordinatorNamespace } from '../../lib/durable-object-namespaces';
 
-import type { CustomEventQueue, FileChange, ModelMessage, SnapshotMetadata, ToolExecutorContext, ToolFailureRecord } from './types';
+import type {
+	CustomEventQueue,
+	FileChange,
+	FileEditStatsQueue,
+	ModelMessage,
+	SnapshotMetadata,
+	ToolExecutorContext,
+	ToolFailureRecord,
+} from './types';
 import type { ExpiringFilesystem } from '../../durable/expiring-filesystem';
 import type { AIModelId } from '@shared/constants';
 import type { StreamChunk } from '@tanstack/ai';
@@ -255,7 +263,8 @@ export class AIAgentService {
 
 				// Create tools fresh each iteration (they capture the mutable queryChanges array)
 				const toolFailures: ToolFailureRecord[] = [];
-				const tools = createServerTools(sendEvent, toolContext, queryChanges, this.mode, logger, toolFailures);
+				const fileEditStatsQueue: FileEditStatsQueue = [];
+				const tools = createServerTools(sendEvent, toolContext, queryChanges, this.mode, logger, toolFailures, fileEditStatsQueue);
 
 				// Call the LLM with retry
 				let chatResult: AsyncIterable<StreamChunk>;
@@ -411,6 +420,17 @@ export class AIAgentService {
 									});
 								}
 								toolFailures.length = 0;
+
+								// Drain file edit stats
+								for (const stats of fileEditStatsQueue) {
+									yield customEvent('file_edit_stats', {
+										tool_use_id: toolCallId,
+										linesAdded: stats.linesAdded,
+										linesRemoved: stats.linesRemoved,
+										lintErrorCount: stats.lintErrorCount,
+									});
+								}
+								fileEditStatsQueue.length = 0;
 
 								// Clean up stored args
 								toolCallArgumentsById.delete(toolCallId);
@@ -573,7 +593,7 @@ export class AIAgentService {
 						workingMessages.push({
 							role: 'user',
 							content:
-								'SYSTEM: One or more mutation tools (file_patch, file_edit, etc.) FAILED this turn. ' +
+								'SYSTEM: One or more mutation tools (file_edit, file_write, etc.) FAILED this turn. ' +
 								'Common causes: (1) the patch contained content that does not match the actual file — you may be hallucinating file contents; ' +
 								'(2) the old_string in file_edit does not exist in the file. ' +
 								'IMPORTANT: Before retrying, you MUST file_read the target file(s) to see their ACTUAL current content. ' +
@@ -728,7 +748,7 @@ export class AIAgentService {
 					yield customEvent('doom_loop_detected', {
 						reason: 'mutation_failure_loop',
 						message:
-							'Mutation tools (file_patch, file_edit, etc.) have failed across multiple consecutive iterations. ' +
+							'Mutation tools (file_edit, file_write, etc.) have failed across multiple consecutive iterations. ' +
 							'The agent was stopped to prevent wasting resources.',
 					});
 					continueLoop = false;

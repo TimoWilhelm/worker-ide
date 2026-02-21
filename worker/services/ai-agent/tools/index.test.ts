@@ -29,7 +29,7 @@ describe('PLAN_MODE_TOOLS', () => {
 		const toolNames = PLAN_MODE_TOOLS.map((tool) => tool.name);
 		expect(toolNames).not.toContain('file_edit');
 		expect(toolNames).not.toContain('file_write');
-		expect(toolNames).not.toContain('file_patch');
+
 		expect(toolNames).not.toContain('file_delete');
 		expect(toolNames).not.toContain('file_move');
 	});

@@ -18,7 +18,7 @@ const VALID_TOOL_NAMES: ReadonlySet<string> = new Set<ToolName>([
 	'file_glob',
 	'file_list',
 	'files_list',
-	'file_patch',
+
 	'file_delete',
 	'file_move',
 	'user_question',

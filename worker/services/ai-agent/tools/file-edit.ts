@@ -11,9 +11,11 @@ import { ToolErrorCode, toolError } from '@shared/tool-errors';
 import { coordinatorNamespace } from '../../../lib/durable-object-namespaces';
 import { isHiddenPath, isPathSafe } from '../../../lib/path-utilities';
 import { assertFileWasRead, recordFileRead } from '../file-time';
+import { lintFileForAgent } from '../lib/biome-linter';
+import { computeDiffStats } from '../utilities';
 import { replace } from './replacers';
 
-import type { FileChange, SendEventFunction, ToolDefinition, ToolExecutorContext } from '../types';
+import type { FileChange, FileEditStatsQueue, SendEventFunction, ToolDefinition, ToolExecutorContext } from '../types';
 
 // =============================================================================
 // Description (matches OpenCode)
@@ -58,6 +60,7 @@ export async function execute(
 	context: ToolExecutorContext,
 	toolUseId?: string,
 	queryChanges?: FileChange[],
+	fileEditStatsQueue?: FileEditStatsQueue,
 ): Promise<string> {
 	const { projectRoot, projectId, sessionId } = context;
 	const editPath = input.path;
@@ -133,6 +136,15 @@ export async function execute(
 		timestamp: Date.now(),
 		isCSS,
 	});
+
+	// Compute diff stats and lint errors for the UI
+	const { linesAdded, linesRemoved } = computeDiffStats(beforeContent, content);
+	const lintDiagnostics = await lintFileForAgent(editPath, content);
+	const lintErrorCount = lintDiagnostics.length;
+
+	if (fileEditStatsQueue) {
+		fileEditStatsQueue.push({ linesAdded, linesRemoved, lintErrorCount });
+	}
 
 	// Send file changed event for UI
 	await sendEvent('file_changed', {
