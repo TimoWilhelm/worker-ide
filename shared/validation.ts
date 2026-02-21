@@ -280,6 +280,7 @@ export const aiChatMessageSchema = z
 		mode: z.enum(['code', 'plan', 'ask']).optional(),
 		sessionId: z.string().max(LIMITS.SESSION_ID_MAX_LENGTH).optional(),
 		model: aiModelSchema.optional(),
+		outputLogs: z.string().max(10_000).optional(),
 	})
 	.refine((data) => JSON.stringify(data.messages).length <= LIMITS.AI_MESSAGE_MAX_LENGTH * 10, {
 		message: 'Messages payload is too large',

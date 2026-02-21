@@ -58,7 +58,7 @@ export const aiRoutes = new Hono<AppEnvironment>()
 			}
 		}
 
-		const { messages, mode, sessionId, model } = c.req.valid('json');
+		const { messages, mode, sessionId, model, outputLogs } = c.req.valid('json');
 
 		// Convert UIMessage[] (from frontend) to ModelMessage[] (for the adapter)
 		// eslint-disable-next-line @typescript-eslint/consistent-type-assertions, @typescript-eslint/no-explicit-any -- UIMessage format from frontend is loosely typed at the wire boundary
@@ -68,7 +68,7 @@ export const aiRoutes = new Hono<AppEnvironment>()
 		const selectedModel = model ?? DEFAULT_AI_MODEL;
 
 		const agentService = new AIAgentService(projectRoot, projectId, fsStub, sessionId, mode, selectedModel);
-		const response = await agentService.runAgentChat(modelMessages, apiToken, c.req.raw.signal);
+		const response = await agentService.runAgentChat(modelMessages, apiToken, c.req.raw.signal, outputLogs);
 
 		return response;
 	})

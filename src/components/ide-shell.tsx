@@ -4,7 +4,7 @@
  * Main IDE layout with resizable panels: file tree, editor, terminal, preview, and AI assistant.
  */
 
-import { Bot, ChevronUp, Clock, Download, FolderOpen, Github, Hexagon, Moon, Pencil, Plus, Sun, X } from 'lucide-react';
+import { Bot, ChevronUp, Clock, Download, FolderOpen, Github, Hexagon, Moon, Pencil, Plus, Sparkles, Sun, X } from 'lucide-react';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Group as PanelGroup, Panel, Separator as ResizeHandle, useDefaultLayout } from 'react-resizable-panels';
 
@@ -33,6 +33,7 @@ import { GitPanel } from '@/features/git';
 import { useLogs } from '@/features/output/lib/log-buffer';
 import { projectSocketSendReference, useIsMobile, useProjectSocket, useTheme } from '@/hooks';
 import { downloadProject, fetchProjectMeta, updateProjectMeta } from '@/lib/api-client';
+import { fixFile, isLintableFile } from '@/lib/biome-linter';
 import { getRecentProjects, removeProject, trackProject, type RecentProject } from '@/lib/recent-projects';
 import { selectGitDiffView, selectGitStatus, selectIsProcessing, useStore } from '@/lib/store';
 import { cn, formatRelativeTime } from '@/lib/utils';
@@ -304,6 +305,17 @@ export function IDEShell({ projectId }: { projectId: string }) {
 	const handleEditorBlur = useCallback(() => {
 		void handleSaveReference.current();
 	}, []);
+
+	// Prettify: apply all safe Biome fixes to the active file
+	const handlePrettify = useCallback(async () => {
+		if (!activeFile || isGitDiffActive) return;
+		const result = await fixFile(activeFile, editorContent);
+		if (!result || result.fixCount === 0) return;
+		setLocalEditorContent(result.content);
+		if (activeFile) {
+			markFileChanged(activeFile, true);
+		}
+	}, [activeFile, editorContent, isGitDiffActive, markFileChanged]);
 
 	// Wrap selectFile: autosave current file before switching + clear git diff if switching away
 	const handleSelectFile = useCallback(
@@ -684,6 +696,25 @@ export function IDEShell({ projectId }: { projectId: string }) {
 											participants={participants}
 											className="min-w-0 flex-1"
 										/>
+										{activeFile && !isGitDiffActive && isLintableFile(activeFile) && (
+											<Tooltip content="Prettify (Shift+Alt+F)">
+												<button
+													type="button"
+													onClick={() => void handlePrettify()}
+													className={cn(
+														'flex shrink-0 cursor-pointer items-center justify-center px-2',
+														`
+															border-b border-border bg-bg-secondary text-text-secondary
+															transition-colors
+														`,
+														'hover:bg-bg-tertiary hover:text-accent',
+													)}
+													aria-label="Prettify file"
+												>
+													<Sparkles className="size-3.5" />
+												</button>
+											</Tooltip>
+										)}
 									</div>
 									{isGitDiffActive && activeFile && (
 										<GitDiffToolbar path={activeFile} description={gitDiffView.description ?? 'Working Changes'} onClose={clearGitDiff} />
@@ -928,13 +959,35 @@ export function IDEShell({ projectId }: { projectId: string }) {
 										{/* Editor area */}
 										<Panel id="editor" defaultSize={utilityPanelVisible ? '70%' : '100%'} minSize="30%">
 											<div className="flex h-full flex-col overflow-hidden">
-												<FileTabs
-													tabs={tabs}
-													activeTab={activeFile}
-													onSelect={handleSelectFile}
-													onClose={handleCloseFile}
-													participants={participants}
-												/>
+												<div className="flex items-stretch">
+													<FileTabs
+														tabs={tabs}
+														activeTab={activeFile}
+														onSelect={handleSelectFile}
+														onClose={handleCloseFile}
+														participants={participants}
+														className="min-w-0 flex-1"
+													/>
+													{activeFile && !isGitDiffActive && isLintableFile(activeFile) && (
+														<Tooltip content="Prettify (Shift+Alt+F)">
+															<button
+																type="button"
+																onClick={() => void handlePrettify()}
+																className={cn(
+																	'flex shrink-0 cursor-pointer items-center justify-center px-2',
+																	`
+																		border-b border-border bg-bg-secondary text-text-secondary
+																		transition-colors
+																	`,
+																	'hover:bg-bg-tertiary hover:text-accent',
+																)}
+																aria-label="Prettify file"
+															>
+																<Sparkles className="size-3.5" />
+															</button>
+														</Tooltip>
+													)}
+												</div>
 												{isGitDiffActive && activeFile && (
 													<GitDiffToolbar
 														path={activeFile}

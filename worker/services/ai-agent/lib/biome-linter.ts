@@ -50,7 +50,7 @@ interface BiomeDiagnosticResult {
 	tags: string[];
 }
 
-interface BiomeInstance {
+interface BiomeLintApi {
 	lintContent: (
 		projectKey: number,
 		content: string,
@@ -59,29 +59,38 @@ interface BiomeInstance {
 		content: string;
 		diagnostics: BiomeDiagnosticResult[];
 	};
-	openProject: (path?: string) => { projectKey: number };
-	applyConfiguration: (projectKey: number, configuration: Record<string, unknown>) => void;
-	shutdown: () => void;
 }
 
-let biomePromise: Promise<{ biome: BiomeInstance; projectKey: number }> | undefined;
-let initFailed = false;
+interface BiomeWorkspace {
+	openFile: (options: { projectKey: number; content: { type: string; content: string; version: number }; path: string }) => void;
+	closeFile: (options: { projectKey: number; path: string }) => void;
+	pullDiagnostics: (options: { projectKey: number; path: string; categories: string[]; pullCodeActions: boolean }) => {
+		diagnostics: BiomeDiagnosticResult[];
+	};
+}
 
-async function getBiome(): Promise<{ biome: BiomeInstance; projectKey: number } | undefined> {
-	if (initFailed) return undefined;
-	if (!biomePromise) {
-		biomePromise = initBiome();
+let initPromise: Promise<void> | undefined;
+let initFailed = false;
+let storedProjectKey: number | undefined;
+let biomeLintApi: BiomeLintApi | undefined;
+let biomeWorkspace: BiomeWorkspace | undefined;
+
+async function ensureBiome(): Promise<boolean> {
+	if (initFailed) return false;
+	if (!initPromise) {
+		initPromise = initBiome();
 	}
 	try {
-		return await biomePromise;
+		await initPromise;
+		return true;
 	} catch {
 		initFailed = true;
-		biomePromise = undefined;
-		return undefined;
+		initPromise = undefined;
+		return false;
 	}
 }
 
-async function initBiome(): Promise<{ biome: BiomeInstance; projectKey: number }> {
+async function initBiome(): Promise<void> {
 	// Initialize the WASM binary first — @biomejs/wasm-web exports a default
 	// init function that must resolve before any classes (Workspace, etc.) work.
 	const wasmModule = await import('@biomejs/wasm-web');
@@ -91,8 +100,9 @@ async function initBiome(): Promise<{ biome: BiomeInstance; projectKey: number }
 	const biome = await Biome.create({ distribution: Distribution.WEB });
 
 	const project = biome.openProject();
+	storedProjectKey = project.projectKey;
 
-	biome.applyConfiguration(project.projectKey, {
+	biome.applyConfiguration(storedProjectKey, {
 		linter: {
 			enabled: true,
 		},
@@ -101,7 +111,15 @@ async function initBiome(): Promise<{ biome: BiomeInstance; projectKey: number }
 		},
 	});
 
-	return { biome, projectKey: project.projectKey };
+	// Store the high-level lintContent API (used by fixFileForAgent)
+	biomeLintApi = biome;
+
+	// Extract the workspace reference for direct pullDiagnostics calls.
+	// The `workspace` property is private on BiomeCommon but exists at runtime.
+	const descriptor = Object.getOwnPropertyDescriptor(biome, 'workspace');
+	if (descriptor?.value) {
+		biomeWorkspace = descriptor.value;
+	}
 }
 
 // =============================================================================
@@ -135,6 +153,36 @@ function offsetToLine(content: string, offset: number): number {
 }
 
 // =============================================================================
+// Workspace-level Diagnostics
+// =============================================================================
+
+/**
+ * Pull diagnostics directly from the Biome workspace with pullCodeActions
+ * enabled so that the `fixable` tag is populated on each diagnostic.
+ */
+function pullDiagnosticsWithCodeActions(key: number, filePath: string, content: string): BiomeDiagnosticResult[] {
+	if (!biomeWorkspace) {
+		return [];
+	}
+	biomeWorkspace.openFile({
+		projectKey: key,
+		content: { type: 'fromClient', content, version: 0 },
+		path: filePath,
+	});
+	try {
+		const { diagnostics } = biomeWorkspace.pullDiagnostics({
+			projectKey: key,
+			path: filePath,
+			categories: ['syntax', 'lint', 'action'],
+			pullCodeActions: true,
+		});
+		return diagnostics;
+	} finally {
+		biomeWorkspace.closeFile({ projectKey: key, path: filePath });
+	}
+}
+
+// =============================================================================
 // Public API
 // =============================================================================
 
@@ -145,13 +193,13 @@ function offsetToLine(content: string, offset: number): number {
 export async function lintFileForAgent(filePath: string, content: string): Promise<ServerLintDiagnostic[]> {
 	if (!isLintableFile(filePath)) return [];
 
-	const instance = await getBiome();
-	if (!instance) return [];
+	const ready = await ensureBiome();
+	if (!ready || storedProjectKey === undefined || !biomeWorkspace) return [];
 
 	try {
-		const result = instance.biome.lintContent(instance.projectKey, content, { filePath });
+		const diagnostics = pullDiagnosticsWithCodeActions(storedProjectKey, filePath, content);
 
-		return result.diagnostics.map((diagnostic) => {
+		return diagnostics.map((diagnostic) => {
 			const span = diagnostic.location?.span;
 			const line = span ? offsetToLine(content, span[0]) : 1;
 
@@ -192,23 +240,23 @@ export interface ServerLintFixResult {
 export async function fixFileForAgent(filePath: string, content: string): Promise<ServerLintFixResult | undefined> {
 	if (!isLintableFile(filePath)) return undefined;
 
-	const instance = await getBiome();
-	if (!instance) return undefined;
+	const ready = await ensureBiome();
+	if (!ready || storedProjectKey === undefined || !biomeLintApi) return undefined;
 
 	try {
 		// Count original diagnostics
-		const originalResult = instance.biome.lintContent(instance.projectKey, content, { filePath });
+		const originalResult = biomeLintApi.lintContent(storedProjectKey, content, { filePath });
 		const originalCount = originalResult.diagnostics.length;
 		if (originalCount === 0) return { fixedContent: content, fixCount: 0, remainingDiagnostics: [] };
 
 		// Apply safe fixes
-		const fixedResult = instance.biome.lintContent(instance.projectKey, content, {
+		const fixedResult = biomeLintApi.lintContent(storedProjectKey, content, {
 			filePath,
 			fixFileMode: 'safeFixes',
 		});
 
 		// Lint the fixed content to get remaining diagnostics
-		const remainingResult = instance.biome.lintContent(instance.projectKey, fixedResult.content, { filePath });
+		const remainingResult = biomeLintApi.lintContent(storedProjectKey, fixedResult.content, { filePath });
 
 		const remainingDiagnostics = remainingResult.diagnostics.map((diagnostic) => {
 			const span = diagnostic.location?.span;

@@ -122,7 +122,7 @@ export async function execute(
 	});
 
 	// Send file changed event for UI
-	await sendEvent('file_changed', {
+	sendEvent('file_changed', {
 		path: fixPath,
 		action: 'edit',
 		tool_use_id: toolUseId,

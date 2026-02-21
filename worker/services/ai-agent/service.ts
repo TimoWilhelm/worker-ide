@@ -107,7 +107,7 @@ export class AIAgentService {
 	 * Run the AI agent chat loop with streaming response.
 	 * Returns a Response with AG-UI SSE events via toServerSentEventsResponse().
 	 */
-	async runAgentChat(messages: ModelMessage[], apiKey: string, signal?: AbortSignal): Promise<Response> {
+	async runAgentChat(messages: ModelMessage[], apiKey: string, signal?: AbortSignal, outputLogs?: string): Promise<Response> {
 		const abortController = new AbortController();
 
 		// Forward external signal to our controller
@@ -118,7 +118,7 @@ export class AIAgentService {
 		// Run the agent loop in a mount scope (for worker-fs-mount)
 		const stream = withMounts(() => {
 			mount(this.projectRoot, this.fsStub);
-			return this.createAgentStream(messages, apiKey, abortController);
+			return this.createAgentStream(messages, apiKey, abortController, outputLogs);
 		});
 
 		return toServerSentEventsResponse(stream, { abortController });
@@ -142,7 +142,12 @@ export class AIAgentService {
 	 * 5. Intercepts events for doom loop detection, file change tracking, token tracking
 	 * 6. Emits CUSTOM usage/done events at the end
 	 */
-	private async *createAgentStream(messages: ModelMessage[], apiKey: string, abortController: AbortController): AsyncIterable<StreamChunk> {
+	private async *createAgentStream(
+		messages: ModelMessage[],
+		apiKey: string,
+		abortController: AbortController,
+		outputLogs?: string,
+	): AsyncIterable<StreamChunk> {
 		const signal = abortController.signal;
 		const queryChanges: FileChange[] = [];
 		const doomDetector = new DoomLoopDetector();
@@ -177,7 +182,7 @@ export class AIAgentService {
 			yield customEvent('status', { message: 'Starting...' });
 
 			// Build system prompts
-			const systemPrompts = await this.buildSystemPrompts();
+			const systemPrompts = await this.buildSystemPrompts(outputLogs);
 			logger.debug('message', 'system_prompt_built', {
 				promptCount: systemPrompts.length,
 				totalLength: systemPrompts.reduce((sum, p) => sum + p.length, 0),
@@ -632,7 +637,7 @@ export class AIAgentService {
 	// System Prompt Builder
 	// =============================================================================
 
-	private async buildSystemPrompts(): Promise<string[]> {
+	private async buildSystemPrompts(outputLogs?: string): Promise<string[]> {
 		const prompts: string[] = [];
 
 		let mainPrompt = AGENT_SYSTEM_PROMPT;
@@ -656,6 +661,11 @@ export class AIAgentService {
 			if (latestPlan) {
 				mainPrompt += `\n\n## Active Implementation Plan\nFollow this plan for all implementation steps. Reference it to decide what to do next and mark steps as complete when done.\n\n${latestPlan}`;
 			}
+		}
+
+		// Append IDE output logs (bundle errors, server logs, client console, lint)
+		if (outputLogs && outputLogs.trim().length > 0) {
+			mainPrompt += `\n\n## IDE Output Logs\nThe following are recent output messages from the IDE (bundle errors, server logs, client console logs, lint diagnostics). Use these to diagnose issues the user may be experiencing.\n\n<output_logs>\n${outputLogs}\n</output_logs>`;
 		}
 
 		prompts.push(mainPrompt);

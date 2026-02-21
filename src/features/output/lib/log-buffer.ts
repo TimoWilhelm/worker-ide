@@ -213,3 +213,36 @@ export function getPreserveLogs(): boolean {
 export function setPreserveLogs(value: boolean): void {
 	logBufferStore.setState({ preserveLogs: value });
 }
+
+/**
+ * Return a formatted snapshot of recent log entries for AI agent context.
+ * Caps output at `maxEntries` entries and `maxBytes` total characters.
+ */
+const LOG_SNAPSHOT_MAX_ENTRIES = 50;
+const LOG_SNAPSHOT_MAX_BYTES = 8192;
+
+export function getLogSnapshot(maxEntries = LOG_SNAPSHOT_MAX_ENTRIES, maxBytes = LOG_SNAPSHOT_MAX_BYTES): string {
+	const { entries } = logBufferStore.getState();
+	if (entries.length === 0) return '';
+
+	const recent = entries.slice(-maxEntries);
+	const lines: string[] = [];
+	let totalLength = 0;
+
+	for (const entry of recent) {
+		const time = new Date(entry.timestamp).toLocaleTimeString('en-US', {
+			hour12: false,
+			hour: '2-digit',
+			minute: '2-digit',
+			second: '2-digit',
+		});
+		const source = entry.source ? `[${entry.source}]` : '';
+		const line = `${time} ${source} ${entry.level.toUpperCase()}: ${entry.message}`;
+
+		if (totalLength + line.length > maxBytes) break;
+		lines.push(line);
+		totalLength += line.length;
+	}
+
+	return lines.join('\n');
+}

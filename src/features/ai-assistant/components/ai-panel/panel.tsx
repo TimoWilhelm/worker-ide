@@ -18,6 +18,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Pill } from '@/components/ui/pill';
+import { getLogSnapshot } from '@/features/output';
 import { useSnapshots } from '@/features/snapshots';
 import { downloadDebugLog } from '@/lib/api-client';
 import { useStore } from '@/lib/store';
@@ -122,6 +123,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 					mode: agentModeReference.current,
 					sessionId: sessionIdReference.current,
 					model: selectedModelReference.current,
+					outputLogs: getLogSnapshot(),
 				},
 			})),
 		[chatUrl],

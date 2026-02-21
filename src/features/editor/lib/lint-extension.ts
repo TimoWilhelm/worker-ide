@@ -15,7 +15,7 @@
 import { forEachDiagnostic, linter, lintGutter } from '@codemirror/lint';
 import { keymap } from '@codemirror/view';
 
-import { fixFile, isLintableFile, lintFile } from '@/lib/biome-linter';
+import { applySingleFix, fixFile, isLintableFile, lintFile } from '@/lib/biome-linter';
 
 import type { LintDiagnostic } from '@/lib/biome-linter';
 import type { Action, Diagnostic } from '@codemirror/lint';
@@ -77,14 +77,19 @@ async function applyAllFixes(view: EditorView, filename: string): Promise<boolea
 }
 
 /**
- * Create a "Fix" action for a lint diagnostic tooltip.
- * Applies all safe fixes to the file (Biome fixes are whole-file).
+ * Create a "Fix" action for a specific lint diagnostic.
+ * Uses workspace.pullActions to apply the fix for just this diagnostic's span.
  */
-function createFixAction(filename: string): Action {
+function createFixAction(filename: string, from: number, to: number): Action {
 	return {
 		name: 'Fix (Biome)',
 		apply: (view: EditorView) => {
-			void applyAllFixes(view, filename);
+			const content = view.state.doc.toString();
+			void applySingleFix(filename, content, from, to).then((fixedContent) => {
+				if (fixedContent !== undefined) {
+					replaceDocument(view, fixedContent);
+				}
+			});
 		},
 	};
 }
@@ -107,8 +112,6 @@ export function createLintExtension(filename: string): Extension[] {
 		return [];
 	}
 
-	const fixAction = createFixAction(filename);
-
 	const biomeLinter = linter(
 		async (view: EditorView): Promise<Diagnostic[]> => {
 			const content = view.state.doc.toString();
@@ -118,14 +121,18 @@ export function createLintExtension(filename: string): Extension[] {
 
 			const documentLength = view.state.doc.length;
 
-			return lintDiagnostics.map((diagnostic) => ({
-				from: Math.min(diagnostic.from, documentLength),
-				to: Math.min(diagnostic.to, documentLength),
-				severity: mapSeverity(diagnostic.severity),
-				message: diagnostic.message,
-				source: diagnostic.rule ?? 'biome',
-				actions: diagnostic.fixable ? [fixAction] : [],
-			}));
+			return lintDiagnostics.map((diagnostic) => {
+				const from = Math.min(diagnostic.from, documentLength);
+				const to = Math.min(diagnostic.to, documentLength);
+				return {
+					from,
+					to,
+					severity: mapSeverity(diagnostic.severity),
+					message: diagnostic.message,
+					source: diagnostic.rule ?? 'biome',
+					actions: diagnostic.fixable ? [createFixAction(filename, from, to)] : [],
+				};
+			});
 		},
 		{ delay: 400 },
 	);
@@ -134,16 +141,29 @@ export function createLintExtension(filename: string): Extension[] {
 		{
 			key: 'Mod-.',
 			run: (view: EditorView) => {
-				// Quick Fix: find the diagnostic at cursor and apply fix
+				// Quick Fix: apply fix for the first fixable diagnostic at cursor
 				const cursorPosition = view.state.selection.main.head;
-				let hasDiagnostic = false;
+				let targetFrom: number | undefined;
+				let targetTo: number | undefined;
 				forEachDiagnostic(view.state, (diagnostic) => {
-					if (diagnostic.from <= cursorPosition && diagnostic.to >= cursorPosition) {
-						hasDiagnostic = true;
+					if (
+						targetFrom === undefined &&
+						diagnostic.from <= cursorPosition &&
+						diagnostic.to >= cursorPosition &&
+						diagnostic.actions &&
+						diagnostic.actions.length > 0
+					) {
+						targetFrom = diagnostic.from;
+						targetTo = diagnostic.to;
 					}
 				});
-				if (hasDiagnostic) {
-					void applyAllFixes(view, filename);
+				if (targetFrom !== undefined && targetTo !== undefined) {
+					const content = view.state.doc.toString();
+					void applySingleFix(filename, content, targetFrom, targetTo).then((fixedContent) => {
+						if (fixedContent !== undefined) {
+							replaceDocument(view, fixedContent);
+						}
+					});
 					return true;
 				}
 				return false;
@@ -153,6 +173,14 @@ export function createLintExtension(filename: string): Extension[] {
 			key: 'Mod-Shift-.',
 			run: (view: EditorView) => {
 				// Fix All: apply all safe fixes in the file
+				void applyAllFixes(view, filename);
+				return true;
+			},
+		},
+		{
+			key: 'Shift-Alt-f',
+			run: (view: EditorView) => {
+				// Prettify: apply all safe fixes (same as Fix All, standard format shortcut)
 				void applyAllFixes(view, filename);
 				return true;
 			},
