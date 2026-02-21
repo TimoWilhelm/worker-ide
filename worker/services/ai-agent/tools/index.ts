@@ -1,7 +1,7 @@
 /**
- * Tool registry — bridges legacy tool modules into TanStack AI toolDefinition().server() format.
+ * Tool registry — wraps individual tool modules into TanStack AI toolDefinition().server() format.
  *
- * Individual tool files still export { definition, execute } with the old interface.
+ * Individual tool files export { definition, execute }.
  * This barrel wraps them into TanStack AI tools using factories that capture runtime context.
  */
 
@@ -37,7 +37,7 @@ import type { AgentLogger } from '../agent-logger';
 import type { CustomEventQueue, FileChange, SendEventFunction, ToolDefinition, ToolExecuteFunction, ToolExecutorContext } from '../types';
 
 // =============================================================================
-// Legacy tool executor dispatch map (still used by tool-executor.ts)
+// Tool executor dispatch map
 // =============================================================================
 
 export const TOOL_EXECUTORS: ReadonlyMap<string, ToolExecuteFunction> = new Map([
@@ -64,7 +64,7 @@ export const TOOL_EXECUTORS: ReadonlyMap<string, ToolExecuteFunction> = new Map(
 ]);
 
 // =============================================================================
-// Legacy tool definitions (still used for reference/modes)
+// Tool definitions
 // =============================================================================
 
 export const AGENT_TOOLS: readonly ToolDefinition[] = [
@@ -131,7 +131,7 @@ const EDITING_TOOL_NAMES = new Set(['file_edit', 'file_write', 'file_patch', 'fi
 /**
  * Convert a JSON Schema `properties` object into a Zod z.object() schema.
  * This is a shallow conversion — handles string, number, boolean, array, and enum types.
- * Used to bridge legacy tool definitions into TanStack AI toolDefinition() format.
+ * Used to bridge tool definitions into TanStack AI toolDefinition() format.
  */
 function jsonSchemaToZod(properties: Record<string, unknown>, required: string[] = []): z.ZodObject<Record<string, z.ZodTypeAny>> {
 	const requiredSet = new Set(required);
@@ -203,7 +203,7 @@ export function createSendEvent(eventQueue: CustomEventQueue): SendEventFunction
 }
 
 /**
- * Create TanStack AI server tools from our legacy tool modules.
+ * Create TanStack AI server tools from our tool modules.
  *
  * Each tool's execute function is wrapped in a closure that captures:
  * - sendEvent: callback to push CUSTOM AG-UI events to the event queue
@@ -251,7 +251,7 @@ export function createServerTools(
 				return { content: 'File editing tools are not available in this mode. Switch to Code mode to make changes.' };
 			}
 
-			// Coerce input values to strings (legacy tools expect Record<string, string>)
+			// Coerce input values to strings (tool executors expect Record<string, string>)
 			const stringInput: Record<string, string> = {};
 			for (const [key, value] of Object.entries(input)) {
 				stringInput[key] = String(value);

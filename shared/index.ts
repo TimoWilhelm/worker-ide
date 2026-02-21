@@ -51,10 +51,10 @@ export {
 	gitCommitDiffQuerySchema,
 	gitBranchNameQuerySchema,
 	gitTagNameQuerySchema,
-	// Types (with explicit renames to avoid conflicts)
-	type WriteFileInput as WriteFileSchemaInput,
-	type DeleteFileInput as DeleteFileSchemaInput,
-	type MoveFileInput as MoveFileSchemaInput,
+	// Types
+	type WriteFileInput,
+	type DeleteFileInput,
+	type MoveFileInput,
 	type MkdirInput,
 	type AiChatInput,
 	type SaveSessionInput,
@@ -77,8 +77,7 @@ export {
 	validateToolInput,
 	isPathSafe,
 	LIMITS,
-	// ToolName type is used by validation
-	type ToolName as ValidationToolName,
+	type ToolName,
 } from './validation';
 
 // WebSocket messages

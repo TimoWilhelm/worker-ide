@@ -1,10 +1,6 @@
 /**
  * AI Agent Tool Executor.
- * Thin dispatcher that validates input and delegates to individual tool modules.
- *
- * This module is still used by the legacy tool dispatch path.
- * With TanStack AI, tool execution is handled by toolDefinition().server() wrappers
- * in tools/index.ts. This module provides the shared helpers (listFilesRecursive, readTodos).
+ * Shared helpers used by tool modules: listFilesRecursive, readTodos.
  */
 
 import fs from 'node:fs/promises';

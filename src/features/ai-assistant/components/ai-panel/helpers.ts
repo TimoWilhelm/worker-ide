@@ -2,7 +2,8 @@
  * Helper functions and constants for the AI Panel.
  */
 
-import type { AgentMode, ToolName } from '@shared/types';
+import type { AgentMode } from '@shared/types';
+import type { ToolName } from '@shared/validation';
 import type { StreamChunk } from '@tanstack/ai';
 
 // =============================================================================
@@ -28,6 +29,8 @@ const VALID_TOOL_NAMES: ReadonlySet<string> = new Set<ToolName>([
 	'todos_update',
 	'dependencies_list',
 	'dependencies_update',
+	'lint_fix',
+	'cdp_eval',
 ]);
 
 export function isToolName(value: unknown): value is ToolName {

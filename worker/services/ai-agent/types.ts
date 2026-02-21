@@ -10,7 +10,6 @@ import type { StreamChunk } from '@tanstack/ai';
 
 /**
  * Re-export TanStack AI's ModelMessage as our message type.
- * This replaces the old hand-rolled AgentMessage / ContentBlock / ClaudeResponse types.
  */
 
 export interface FileChange {
@@ -62,8 +61,8 @@ export interface ToolExecutorContext {
 }
 
 /**
- * Legacy tool execute function signature.
- * Used by the individual tool modules before they're wrapped in toolDefinition().server().
+ * Tool execute function signature.
+ * Used by individual tool modules, wrapped into TanStack AI tools by tools/index.ts.
  */
 export type ToolExecuteFunction = (
 	input: Record<string, string>,
@@ -74,7 +73,7 @@ export type ToolExecuteFunction = (
 ) => Promise<string | object>;
 
 /**
- * Legacy tool definition shape (used by individual tool modules).
+ * Tool definition shape used by individual tool modules.
  * The tools/index.ts barrel wraps these into TanStack AI toolDefinition().server() format.
  */
 export interface ToolDefinition {

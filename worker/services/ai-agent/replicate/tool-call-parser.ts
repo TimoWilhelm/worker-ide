@@ -27,7 +27,7 @@ import type { AgentLogger } from '../agent-logger';
  * Models may emit tool calls in several non-canonical XML formats instead of `<tool_use>`.
  * This function normalizes all known variants:
  *
- * **Format A** (legacy — `<parameter name="name">` + `<parameter name="input">`):
+ * **Format A** (`<parameter name="name">` + `<parameter name="input">`):
  * ```xml
  * <function_calls><invoke>
  *   <parameter name="name">file_read</parameter>
@@ -566,7 +566,7 @@ function extractToolInput(toolData: Record<string, unknown>): Record<string, unk
 }
 
 /**
- * Coerce tool input values to strings for the legacy tool executor interface.
+ * Coerce tool input values to strings for the tool executor interface.
  * Complex values (objects, arrays) are JSON-serialized rather than using
  * String() which would produce "[object Object]".
  */

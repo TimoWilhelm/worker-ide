@@ -4,7 +4,7 @@
  * InlineToolCall, InlineTodoList, ContinuationPrompt, AIError.
  *
  * Renders UIMessage.parts (TextPart, ToolCallPart, ToolResultPart, ThinkingPart)
- * from TanStack AI instead of the legacy AgentContent[] format.
+ * from TanStack AI.
  */
 
 import {
@@ -45,7 +45,8 @@ import { parseTextToSegments } from '../../lib/input-segments';
 import { FileReference } from '../file-reference';
 import { MarkdownContent } from '../markdown-content';
 
-import type { AgentMode, ToolName, UIMessage } from '@shared/types';
+import type { AgentMode, UIMessage } from '@shared/types';
+import type { ToolName } from '@shared/validation';
 
 // =============================================================================
 // Part type helpers (for narrowing UIMessage parts)

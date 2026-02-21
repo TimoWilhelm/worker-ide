@@ -320,7 +320,7 @@ function createVirtualFsPlugin(
 							};
 						}
 
-						// No dependency list provided — resolve all bare imports (legacy/fallback)
+						// No dependency list provided — resolve all bare imports via CDN
 						return {
 							path: `${ESM_CDN}/${arguments_.path}`,
 							namespace: 'esm-cdn',

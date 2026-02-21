@@ -69,7 +69,7 @@ const PROJECT_ID_PATTERN = /^[a-f0-9]{64}$/i;
  *
  * If a `.template` marker file exists (written by the new-project endpoint),
  * the template specified in that file is used. Otherwise falls back to the
- * default template for backward compatibility.
+ * default template.
  *
  * Returns `true` if the project was freshly initialized (first request),
  * signaling the caller to run git initialization via the DO.

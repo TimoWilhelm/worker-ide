@@ -240,6 +240,35 @@ export const webfetchInputSchema = z.object({
 });
 
 /**
+ * Schema for AI tool: dependencies_list (list project dependencies)
+ */
+export const dependenciesListInputSchema = z.object({});
+
+/**
+ * Schema for AI tool: dependencies_update (add/remove/update a dependency)
+ */
+export const dependenciesUpdateInputSchema = z.object({
+	action: z.enum(['add', 'remove', 'update']),
+	name: z.string().min(1, 'Package name is required'),
+	version: z.string().optional(),
+});
+
+/**
+ * Schema for AI tool: lint_fix (apply safe Biome lint fixes)
+ */
+export const lintFixInputSchema = z.object({
+	path: filePathSchema,
+});
+
+/**
+ * Schema for AI tool: cdp_eval (execute CDP commands in preview)
+ */
+export const cdpEvalInputSchema = z.object({
+	method: z.string().min(1, 'CDP method is required'),
+	params: z.string().optional(),
+});
+
+/**
  * Union of all tool input schemas
  */
 export const toolInputSchemas = {
@@ -259,6 +288,10 @@ export const toolInputSchemas = {
 	plan_update: updatePlanInputSchema,
 	todos_get: getTodosInputSchema,
 	todos_update: updateTodosInputSchema,
+	dependencies_list: dependenciesListInputSchema,
+	dependencies_update: dependenciesUpdateInputSchema,
+	lint_fix: lintFixInputSchema,
+	cdp_eval: cdpEvalInputSchema,
 } as const;
 
 export type ToolName = keyof typeof toolInputSchemas;
