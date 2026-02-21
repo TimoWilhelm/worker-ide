@@ -566,21 +566,39 @@ function extractToolInput(toolData: Record<string, unknown>): Record<string, unk
 }
 
 /**
+ * Convert a camelCase key to snake_case.
+ * E.g., "oldString" → "old_string", "replaceAll" → "replace_all".
+ * Keys that are already snake_case or single-word are returned unchanged.
+ */
+function camelToSnake(key: string): string {
+	return key.replaceAll(/[A-Z]/g, (match) => `_${match.toLowerCase()}`);
+}
+
+/**
  * Coerce tool input values to strings for the tool executor interface.
  * Complex values (objects, arrays) are JSON-serialized rather than using
  * String() which would produce "[object Object]".
+ *
+ * Also normalizes camelCase keys to snake_case. LLMs frequently emit
+ * camelCase variants (e.g., "oldString" instead of "old_string") which
+ * causes Zod validation to strip them as unknown keys, making required
+ * fields undefined.
  */
 function coerceInputToStrings(input: Record<string, unknown>): Record<string, string> {
 	const result: Record<string, string> = {};
 	for (const [key, value] of Object.entries(input)) {
-		if (typeof value === 'string') {
-			result[key] = value;
-		} else if (value === undefined) {
-			result[key] = '';
-		} else {
-			// Numbers, booleans, objects, arrays — use JSON for lossless conversion
-			result[key] = JSON.stringify(value);
+		const normalizedKey = camelToSnake(key);
+		const stringValue = typeof value === 'string' ? value : value === undefined ? '' : JSON.stringify(value);
+
+		// If the key was camelCase, write both the normalized snake_case key
+		// and the original key. The snake_case version satisfies Zod validation;
+		// the original is kept in case a tool uses camelCase natively.
+		// Only set the snake_case key if it's not already present
+		// (avoids overwriting an explicit snake_case key with a camelCase duplicate)
+		if (normalizedKey !== key && !(normalizedKey in result)) {
+			result[normalizedKey] = stringValue;
 		}
+		result[key] = stringValue;
 	}
 	return result;
 }

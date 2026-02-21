@@ -34,7 +34,15 @@ import { sanitizeToolInput, summarizeToolResult } from '../agent-logger';
 import { isRecordObject } from '../utilities';
 
 import type { AgentLogger } from '../agent-logger';
-import type { CustomEventQueue, FileChange, SendEventFunction, ToolDefinition, ToolExecuteFunction, ToolExecutorContext } from '../types';
+import type {
+	CustomEventQueue,
+	FileChange,
+	SendEventFunction,
+	ToolDefinition,
+	ToolExecuteFunction,
+	ToolExecutorContext,
+	ToolFailureQueue,
+} from '../types';
 
 // =============================================================================
 // Tool executor dispatch map
@@ -123,6 +131,58 @@ export const ASK_MODE_TOOLS: readonly ToolDefinition[] = [];
 // =============================================================================
 
 const EDITING_TOOL_NAMES = new Set(['file_edit', 'file_write', 'file_patch', 'file_delete', 'file_move', 'lint_fix']);
+
+/**
+ * Read-only tools that can be batched freely within a single iteration.
+ * These have no side effects and are safe to execute in parallel.
+ */
+export const READ_ONLY_TOOL_NAMES = new Set([
+	'file_read',
+	'file_grep',
+	'file_glob',
+	'file_list',
+	'files_list',
+	'docs_search',
+	'todos_get',
+	'dependencies_list',
+	'cdp_eval',
+]);
+
+// =============================================================================
+// Tool Call Gate
+// =============================================================================
+
+/**
+ * Enforces single-mutation-tool-per-iteration.
+ *
+ * Read-only tools (file_read, file_grep, etc.) can execute freely in parallel.
+ * After the first non-read-only tool executes, subsequent non-read-only tools
+ * are blocked and return a message telling the LLM to try again next turn.
+ *
+ * Call `reset()` at the start of each iteration.
+ */
+export class ToolCallGate {
+	private mutationExecuted = false;
+
+	/**
+	 * Check if a tool is allowed to execute.
+	 * Returns undefined if allowed, or a rejection message if blocked.
+	 */
+	check(toolName: string): string | undefined {
+		if (READ_ONLY_TOOL_NAMES.has(toolName)) {
+			return undefined;
+		}
+		if (this.mutationExecuted) {
+			return `Tool "${toolName}" was not executed. Only one mutation tool call is allowed per turn. Read-only tools (file_read, file_grep, file_glob, file_list, files_list, docs_search, etc.) can be batched freely. Please retry this call in your next response.`;
+		}
+		this.mutationExecuted = true;
+		return undefined;
+	}
+
+	reset(): void {
+		this.mutationExecuted = false;
+	}
+}
 
 // =============================================================================
 // TanStack AI Tool Factory
@@ -222,6 +282,8 @@ export function createServerTools(
 	queryChanges: FileChange[],
 	mode: 'code' | 'plan' | 'ask',
 	logger?: AgentLogger,
+	toolFailures?: ToolFailureQueue,
+	toolCallGate?: ToolCallGate,
 ) {
 	// Select which tool definitions to use based on mode
 	const activeToolDefinitions = mode === 'ask' ? ASK_MODE_TOOLS : mode === 'plan' ? PLAN_MODE_TOOLS : AGENT_TOOLS;
@@ -239,6 +301,18 @@ export function createServerTools(
 			description: definition.description,
 			inputSchema,
 		}).server(async (input) => {
+			// Enforce single-mutation-tool-per-iteration gate
+			if (toolCallGate) {
+				const rejection = toolCallGate.check(definition.name);
+				if (rejection) {
+					logger?.warn('tool_call', 'gated', {
+						toolName: definition.name,
+						reason: 'mutation_already_executed',
+					});
+					return { content: rejection };
+				}
+			}
+
 			// Defense-in-depth: reject editing tools in non-code modes
 			if (mode !== 'code' && EDITING_TOOL_NAMES.has(definition.name)) {
 				logger?.warn('tool_call', 'blocked', {
@@ -282,19 +356,28 @@ export function createServerTools(
 			} catch (error) {
 				// ToolExecutionError = expected tool-level failure (file not found, no match, etc.)
 				// Other errors = unexpected crashes in tool code
-				const level = error instanceof ToolExecutionError ? 'warn' : 'error';
-				const event = error instanceof ToolExecutionError ? 'tool_error' : 'error';
+				const isToolError = error instanceof ToolExecutionError;
+				const level = isToolError ? 'warn' : 'error';
+				const event = isToolError ? 'tool_error' : 'error';
 				logger?.[level](
 					'tool_call',
 					event,
 					{
 						toolName: definition.name,
-						errorCode: error instanceof ToolExecutionError ? error.code : undefined,
+						errorCode: isToolError ? error.code : undefined,
 						error: error instanceof Error ? error.message : String(error),
-						stack: error instanceof ToolExecutionError ? undefined : error instanceof Error ? error.stack : undefined,
+						stack: isToolError ? undefined : error instanceof Error ? error.stack : undefined,
 					},
 					{ durationMs: timer?.() },
 				);
+
+				// Push typed failure record for doom-loop detection and frontend error display
+				toolFailures?.push({
+					toolName: definition.name,
+					errorCode: isToolError ? error.code : undefined,
+					errorMessage: error instanceof Error ? error.message : String(error),
+				});
+
 				throw error;
 			}
 		});

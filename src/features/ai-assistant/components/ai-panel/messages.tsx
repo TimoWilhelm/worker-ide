@@ -45,7 +45,7 @@ import { parseTextToSegments } from '../../lib/input-segments';
 import { FileReference } from '../file-reference';
 import { MarkdownContent } from '../markdown-content';
 
-import type { AgentMode, UIMessage } from '@shared/types';
+import type { AgentMode, ToolErrorInfo, UIMessage } from '@shared/types';
 import type { ToolName } from '@shared/validation';
 
 // =============================================================================
@@ -200,12 +200,14 @@ export function MessageBubble({
 	snapshotId,
 	isReverting,
 	onRevert,
+	toolErrors,
 }: {
 	message: UIMessage;
 	messageIndex: number;
 	snapshotId?: string;
 	isReverting: boolean;
 	onRevert: (snapshotId: string, messageIndex: number) => void;
+	toolErrors?: Map<string, ToolErrorInfo>;
 }) {
 	if (message.role === 'user') {
 		return (
@@ -213,7 +215,7 @@ export function MessageBubble({
 		);
 	}
 
-	return <AssistantMessage message={message} />;
+	return <AssistantMessage message={message} toolErrors={toolErrors} />;
 }
 
 // =============================================================================
@@ -324,7 +326,15 @@ function buildRenderSegments(parts: unknown[]): RenderSegment[] {
 	return segments;
 }
 
-export function AssistantMessage({ message, streaming }: { message: UIMessage; streaming?: boolean }) {
+export function AssistantMessage({
+	message,
+	streaming,
+	toolErrors,
+}: {
+	message: UIMessage;
+	streaming?: boolean;
+	toolErrors?: Map<string, ToolErrorInfo>;
+}) {
 	const segments = buildRenderSegments(message.parts);
 	const [expandedThinking, setExpandedThinking] = useState<Set<number>>(new Set());
 	const scrollReference = useRef<HTMLDivElement>(null);
@@ -418,7 +428,7 @@ export function AssistantMessage({ message, streaming }: { message: UIMessage; s
 			{segments.map((segment, index) => {
 				// Tool calls — always rendered inline
 				if (segment.kind === 'tool') {
-					return <InlineToolCall key={index} toolCall={segment.toolCall} toolResult={segment.toolResult} />;
+					return <InlineToolCall key={index} toolCall={segment.toolCall} toolResult={segment.toolResult} toolErrors={toolErrors} />;
 				}
 
 				// Thinking segments — collapsible
@@ -546,6 +556,20 @@ function isErrorResult(text: string): boolean {
 
 /** Lookup table typed as a plain record so we can index with an arbitrary string. */
 const errorLabels: Record<string, string> = TOOL_ERROR_LABELS;
+
+/**
+ * Get a short label from a structured ToolErrorInfo.
+ * Uses the typed errorCode directly instead of regex-parsing `[CODE] message`.
+ */
+function shortenErrorFromStructured(error: ToolErrorInfo): string {
+	if (error.errorCode) {
+		const label = errorLabels[error.errorCode];
+		if (label) return label;
+	}
+	// Strip the [CODE] prefix from errorMessage if present (ToolExecutionError format)
+	const stripped = error.errorMessage.replace(/^\[[A-Z_]+\] /, '');
+	return stripped.length > 40 ? stripped.slice(0, 40) + '...' : stripped || 'Error';
+}
 
 /**
  * Get a short label for an error.
@@ -950,13 +974,25 @@ function isToolError(toolCall: ToolCallPart, toolResult?: ToolResultPart): boole
 	return content !== undefined && isErrorResult(content);
 }
 
-function InlineToolCall({ toolCall, toolResult }: { toolCall: ToolCallPart; toolResult?: ToolResultPart }) {
+function InlineToolCall({
+	toolCall,
+	toolResult,
+	toolErrors,
+}: {
+	toolCall: ToolCallPart;
+	toolResult?: ToolResultPart;
+	toolErrors?: Map<string, ToolErrorInfo>;
+}) {
 	const [isExpanded, setIsExpanded] = useState(false);
 
 	const toolName: ToolName = isToolName(toolCall.name) ? toolCall.name : 'files_list';
 	const isCompleted = toolCall.state === 'input-complete' && (toolResult !== undefined || toolCall.output !== undefined);
 	const rawResultContent = getToolResultContent(toolCall, toolResult);
-	const isError = isToolError(toolCall, toolResult);
+
+	// Prefer structured error data from CUSTOM tool_error events.
+	// Falls back to regex-based detection for backward compatibility.
+	const structuredError = toolErrors?.get(toolCall.id);
+	const isError = structuredError !== undefined || isToolError(toolCall, toolResult);
 
 	// Extract file paths from tool input.
 	// Prefer toolCall.input (parsed object), fall back to parsing toolCall.arguments (JSON string).
@@ -994,8 +1030,15 @@ function InlineToolCall({ toolCall, toolResult }: { toolCall: ToolCallPart; tool
 	// Extract TODOs from todos_get / todos_update results
 	const todos = rawResultContent ? extractTodosFromResult(toolName, rawResultContent) : undefined;
 
-	// Build summary text for the result
-	const resultSummary = rawResultContent ? summarizeToolResult(toolName, rawResultContent) : isCompleted ? 'No result' : undefined;
+	// Build summary text for the result.
+	// Prefer structured error data from CUSTOM events over regex-parsing [CODE] prefixes.
+	const resultSummary = structuredError
+		? shortenErrorFromStructured(structuredError)
+		: rawResultContent
+			? summarizeToolResult(toolName, rawResultContent)
+			: isCompleted
+				? 'No result'
+				: undefined;
 	const expandable = rawResultContent ? hasExpandableDetail(toolName, rawResultContent) : false;
 
 	return (

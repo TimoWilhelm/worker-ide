@@ -82,6 +82,19 @@ export type { UIMessage } from '@tanstack/ai-client';
 export type AgentMode = 'code' | 'plan' | 'ask';
 
 /**
+ * Structured tool error info received via CUSTOM AG-UI `tool_error` events.
+ * Replaces regex-based `[CODE] message` prefix parsing on the frontend.
+ */
+export interface ToolErrorInfo {
+	toolCallId: string;
+	toolName: string;
+	/** Error code from ToolErrorCode (e.g. "FILE_NOT_FOUND"), or empty string for non-tool errors */
+	errorCode: string;
+	/** Human-readable error message without the [CODE] prefix */
+	errorMessage: string;
+}
+
+/**
  * A saved AI chat session.
  * Uses UIMessage[] from TanStack AI for the history.
  */

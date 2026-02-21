@@ -39,7 +39,7 @@ import { FileMentionDropdown } from '../file-mention-dropdown';
 import { RevertConfirmDialog } from '../revert-confirm-dialog';
 import { RichTextInput, type RichTextInputHandle } from '../rich-text-input';
 
-import type { UIMessage } from '@shared/types';
+import type { ToolErrorInfo, UIMessage } from '@shared/types';
 
 // =============================================================================
 // Component
@@ -62,6 +62,8 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	const activeSnapshotIdReference = useRef<string | undefined>(undefined);
 	// Track the last chatError we already surfaced so dismissing it doesn't re-trigger
 	const lastSurfacedChatErrorReference = useRef<Error | undefined>(undefined);
+	// Structured tool error data keyed by toolCallId, populated by CUSTOM tool_error events
+	const toolErrorsReference = useRef<Map<string, ToolErrorInfo>>(new Map());
 
 	// Derived plain text for the file mention hook
 	const inputPlainText = useMemo(() => segmentsToPlainText(segments), [segments]);
@@ -216,6 +218,27 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 					}
 					break;
 				}
+				case 'tool_error': {
+					const toolCallId = getStringField(custom.data, 'toolCallId');
+					if (toolCallId) {
+						// Cap map size to prevent unbounded growth in long sessions.
+						// Only the most recent errors matter for display; old entries
+						// for already-rendered messages are harmless to evict.
+						if (toolErrorsReference.current.size >= 500) {
+							const firstKey = toolErrorsReference.current.keys().next().value;
+							if (firstKey !== undefined) {
+								toolErrorsReference.current.delete(firstKey);
+							}
+						}
+						toolErrorsReference.current.set(toolCallId, {
+							toolCallId,
+							toolName: getStringField(custom.data, 'toolName'),
+							errorCode: getStringField(custom.data, 'errorCode'),
+							errorMessage: getStringField(custom.data, 'errorMessage'),
+						});
+					}
+					break;
+				}
 			}
 		},
 		onFinish: (_message) => {
@@ -336,6 +359,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		setNeedsContinuation(false);
 		setPendingQuestion(undefined);
 		setDebugLogId(undefined);
+		toolErrorsReference.current.clear();
 		// Clear AI metadata without touching history (the forward sync handles it)
 		useStore.setState({
 			sessionId: undefined,
@@ -353,6 +377,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	const handleLoadSession = useCallback(
 		(targetSessionId: string) => {
 			clearPendingChanges();
+			toolErrorsReference.current.clear();
 			loadSession(targetSessionId);
 		},
 		[clearPendingChanges, loadSession],
@@ -638,12 +663,15 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 										snapshotId={messageSnapshots.get(index)}
 										isReverting={isReverting}
 										onRevert={handleRevert}
+										toolErrors={toolErrorsReference.current}
 									/>
 								))}
 							</>
 						)}
 						{/* Streaming assistant message */}
-						{streamingAssistantMessage && <AssistantMessage message={streamingAssistantMessage} streaming />}
+						{streamingAssistantMessage && (
+							<AssistantMessage message={streamingAssistantMessage} streaming toolErrors={toolErrorsReference.current} />
+						)}
 						{/* User question prompt — shown when the AI asks a clarifying question */}
 						{pendingQuestion && !isProcessing && (
 							<UserQuestionPrompt

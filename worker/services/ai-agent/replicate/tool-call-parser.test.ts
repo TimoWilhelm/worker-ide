@@ -600,6 +600,67 @@ describe('repairToolCallJson', () => {
 });
 
 // =============================================================================
+// camelCase → snake_case key normalization (via parseToolCalls)
+// =============================================================================
+
+describe('camelCase key normalization', () => {
+	it('normalizes oldString/newString to old_string/new_string for file_edit', () => {
+		const output = '<tool_use>\n{"name": "file_edit", "input": {"path": "/a.txt", "oldString": "foo", "newString": "bar"}}\n</tool_use>';
+		const result = parseToolCalls(output);
+
+		expect(result.toolCalls).toHaveLength(1);
+		expect(result.toolCalls[0].input.old_string).toBe('foo');
+		expect(result.toolCalls[0].input.new_string).toBe('bar');
+		// Original camelCase keys are also preserved
+		expect(result.toolCalls[0].input.oldString).toBe('foo');
+		expect(result.toolCalls[0].input.newString).toBe('bar');
+	});
+
+	it('normalizes replaceAll to replace_all', () => {
+		const output =
+			'<tool_use>\n{"name": "file_edit", "input": {"path": "/a.txt", "oldString": "x", "newString": "y", "replaceAll": "true"}}\n</tool_use>';
+		const result = parseToolCalls(output);
+
+		expect(result.toolCalls[0].input.replace_all).toBe('true');
+	});
+
+	it('normalizes fromPath/toPath to from_path/to_path for file_move', () => {
+		const output = '<tool_use>\n{"name": "file_move", "input": {"fromPath": "/a.txt", "toPath": "/b.txt"}}\n</tool_use>';
+		const result = parseToolCalls(output);
+
+		expect(result.toolCalls[0].input.from_path).toBe('/a.txt');
+		expect(result.toolCalls[0].input.to_path).toBe('/b.txt');
+	});
+
+	it('does not overwrite existing snake_case keys with camelCase duplicates', () => {
+		const output =
+			'<tool_use>\n{"name": "file_edit", "input": {"path": "/a.txt", "old_string": "correct", "oldString": "wrong", "new_string": "right", "newString": "bad"}}\n</tool_use>';
+		const result = parseToolCalls(output);
+
+		// The explicit snake_case keys should win
+		expect(result.toolCalls[0].input.old_string).toBe('correct');
+		expect(result.toolCalls[0].input.new_string).toBe('right');
+	});
+
+	it('leaves already snake_case keys unchanged', () => {
+		const output = '<tool_use>\n{"name": "file_edit", "input": {"path": "/a.txt", "old_string": "foo", "new_string": "bar"}}\n</tool_use>';
+		const result = parseToolCalls(output);
+
+		expect(result.toolCalls[0].input.old_string).toBe('foo');
+		expect(result.toolCalls[0].input.new_string).toBe('bar');
+	});
+
+	it('leaves single-word keys unchanged', () => {
+		const output = '<tool_use>\n{"name": "file_read", "input": {"path": "/a.txt", "offset": "10", "limit": "50"}}\n</tool_use>';
+		const result = parseToolCalls(output);
+
+		expect(result.toolCalls[0].input.path).toBe('/a.txt');
+		expect(result.toolCalls[0].input.offset).toBe('10');
+		expect(result.toolCalls[0].input.limit).toBe('50');
+	});
+});
+
+// =============================================================================
 // Type-level test: ParsedToolCall shape
 // =============================================================================
 

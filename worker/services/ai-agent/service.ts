@@ -32,11 +32,11 @@ import { DoomLoopDetector } from './doom-loop';
 import { createAdapter, getModelLimits } from './replicate';
 import { classifyRetryableError, calculateRetryDelay, sleep } from './retry';
 import { TokenTracker } from './token-tracker';
-import { createSendEvent, createServerTools } from './tools';
+import { createSendEvent, createServerTools, READ_ONLY_TOOL_NAMES, ToolCallGate } from './tools';
 import { isRecordObject, parseApiError } from './utilities';
 import { coordinatorNamespace } from '../../lib/durable-object-namespaces';
 
-import type { CustomEventQueue, FileChange, ModelMessage, SnapshotMetadata, ToolExecutorContext } from './types';
+import type { CustomEventQueue, FileChange, ModelMessage, SnapshotMetadata, ToolExecutorContext, ToolFailureRecord } from './types';
 import type { ExpiringFilesystem } from '../../durable/expiring-filesystem';
 import type { AIModelId } from '@shared/constants';
 import type { StreamChunk } from '@tanstack/ai';
@@ -212,6 +212,7 @@ export class AIAgentService {
 			let iteration = 0;
 			let hitIterationLimit = false;
 			let lastAssistantText = '';
+			const toolCallGate = new ToolCallGate();
 
 			while (continueLoop && iteration < MAX_ITERATIONS) {
 				if (signal.aborted) {
@@ -253,7 +254,9 @@ export class AIAgentService {
 				const changeCountBefore = queryChanges.length;
 
 				// Create tools fresh each iteration (they capture the mutable queryChanges array)
-				const tools = createServerTools(sendEvent, toolContext, queryChanges, this.mode, logger);
+				const toolFailures: ToolFailureRecord[] = [];
+				toolCallGate.reset();
+				const tools = createServerTools(sendEvent, toolContext, queryChanges, this.mode, logger, toolFailures, toolCallGate);
 
 				// Call the LLM with retry
 				let chatResult: AsyncIterable<StreamChunk>;
@@ -391,6 +394,20 @@ export class AIAgentService {
 									resultSummary: summarizeToolResult(resultContent),
 									resultLength: resultContent.length,
 								});
+
+								// Drain typed failure records from the tool executor.
+								// Emit CUSTOM events so the frontend gets structured error data
+								// instead of having to regex-parse "[CODE] message" prefixes.
+								for (const failure of toolFailures) {
+									doomDetector.recordFailure(failure.toolName);
+									yield customEvent('tool_error', {
+										toolCallId,
+										toolName: failure.toolName,
+										errorCode: failure.errorCode ?? '',
+										errorMessage: failure.errorMessage,
+									});
+								}
+								toolFailures.length = 0;
 
 								// Clean up stored args
 								toolCallArgumentsById.delete(toolCallId);
@@ -564,7 +581,7 @@ export class AIAgentService {
 					continueLoop = false;
 				}
 
-				// Check doom loop
+				// Check doom loop (identical consecutive tool calls)
 				const doomLoopTool = doomDetector.isDoomLoop();
 				if (doomLoopTool) {
 					logger.warn('agent_loop', 'doom_loop_detected', {
@@ -574,6 +591,49 @@ export class AIAgentService {
 					logger.markDoomLoop();
 					yield customEvent('status', {
 						message: `Detected repeated calls to ${doomLoopTool}, stopping.`,
+					});
+					continueLoop = false;
+				}
+
+				// Check same-tool loop (same tool called repeatedly with different inputs)
+				const sameToolLoopTool = doomDetector.isSameToolLoop(READ_ONLY_TOOL_NAMES);
+				if (sameToolLoopTool) {
+					logger.warn('agent_loop', 'same_tool_loop_detected', {
+						toolName: sameToolLoopTool,
+						totalToolCalls: doomDetector.length,
+					});
+					logger.markDoomLoop();
+					yield customEvent('status', {
+						message: `${sameToolLoopTool} called too many times in a row, stopping.`,
+					});
+					continueLoop = false;
+				}
+
+				// Check failure loop (same tool failing repeatedly)
+				const failureLoopTool = doomDetector.isFailureLoop();
+				if (failureLoopTool) {
+					logger.warn('agent_loop', 'failure_loop_detected', {
+						toolName: failureLoopTool,
+						totalToolCalls: doomDetector.length,
+					});
+					logger.markDoomLoop();
+					yield customEvent('status', {
+						message: `${failureLoopTool} keeps failing, stopping.`,
+					});
+					continueLoop = false;
+				}
+
+				// Track iteration progress and check for no-progress loop
+				const fileChangesThisIteration = queryChanges.length - changeCountBefore;
+				doomDetector.recordIterationProgress(fileChangesThisIteration > 0);
+				if (hadToolCalls && doomDetector.isNoProgress()) {
+					logger.warn('agent_loop', 'no_progress_detected', {
+						iteration,
+						totalToolCalls: doomDetector.length,
+					});
+					logger.markDoomLoop();
+					yield customEvent('status', {
+						message: 'No file changes after multiple attempts, stopping.',
 					});
 					continueLoop = false;
 				}
@@ -593,7 +653,7 @@ export class AIAgentService {
 					hadToolCalls,
 					hadUserQuestion,
 					continueLoop,
-					fileChangesThisIteration: queryChanges.length - changeCountBefore,
+					fileChangesThisIteration,
 				});
 
 				yield customEvent('turn_complete', {});

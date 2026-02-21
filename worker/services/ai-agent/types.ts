@@ -41,6 +41,22 @@ export type TodoItem = {
 export type CustomEventQueue = StreamChunk[];
 
 /**
+ * A record of a tool execution failure, pushed by createServerTools
+ * and consumed by the agent loop for doom-loop detection.
+ */
+export interface ToolFailureRecord {
+	toolName: string;
+	errorCode: string | undefined;
+	errorMessage: string;
+}
+
+/**
+ * A queue of tool failure records. createServerTools pushes into this
+ * during execution; the agent loop drains it after each TOOL_CALL_END.
+ */
+export type ToolFailureQueue = ToolFailureRecord[];
+
+/**
  * Function to emit a CUSTOM AG-UI event from a tool executor.
  * Pushes events into the shared CustomEventQueue which is drained
  * by the stream wrapper and sent to the client.
