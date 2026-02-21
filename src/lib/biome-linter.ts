@@ -103,8 +103,11 @@ async function ensureBiome(): Promise<void> {
 async function initBiome(): Promise<void> {
 	// Initialize the WASM binary first — @biomejs/wasm-web exports a default
 	// init function that must resolve before any classes (Workspace, etc.) work.
+	// Load the WASM binary from esm.sh CDN to avoid bundling the 27+ MiB file
+	// as a Cloudflare Workers asset (which has a 25 MiB limit).
+	// __BIOME_WASM_CDN_URL__ is injected at build time by biomeWasmCdnPlugin (vite.config.ts).
 	const wasmModule = await import('@biomejs/wasm-web');
-	await wasmModule.default();
+	await wasmModule.default(__BIOME_WASM_CDN_URL__);
 
 	const { Biome, Distribution } = await import('@biomejs/js-api');
 	const biome = await Biome.create({ distribution: Distribution.WEB });

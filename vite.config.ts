@@ -48,6 +48,35 @@ function rawMinifiedPlugin(): Plugin {
 	};
 }
 
+/**
+ * Prevent Vite from statically detecting `new URL('biome_wasm_bg.wasm', import.meta.url)`
+ * in @biomejs/wasm-web and emitting the 27+ MiB WASM as a bundled asset.
+ * The WASM is loaded at runtime from esm.sh CDN instead (see biome-linter.ts).
+ * The version is read from the installed package so upgrades are automatic.
+ */
+const biomeWasmVersion = JSON.parse(readFileSync(path.join(__dirname, 'node_modules/@biomejs/wasm-web/package.json'), 'utf8')).version;
+
+function biomeWasmCdnPlugin(): Plugin {
+	const cdnUrl = `https://esm.sh/@biomejs/wasm-web@${biomeWasmVersion}/biome_wasm_bg.wasm`;
+	return {
+		name: 'biome-wasm-cdn',
+		enforce: 'pre',
+		config() {
+			return {
+				define: {
+					__BIOME_WASM_CDN_URL__: JSON.stringify(cdnUrl),
+				},
+			};
+		},
+		transform(code, id) {
+			if (!id.includes('@biomejs/wasm-web')) return;
+			// Replace the static URL pattern so Vite's asset pipeline doesn't pick it up.
+			// The init function receives the CDN URL from our code, so this default is unused.
+			return code.replace(`new URL('biome_wasm_bg.wasm', import.meta.url)`, `new URL('${cdnUrl}')`);
+		},
+	};
+}
+
 function esbuildWasmPlugin(): Plugin {
 	return {
 		name: 'esbuild-wasm-plugin',
@@ -66,6 +95,7 @@ function esbuildWasmPlugin(): Plugin {
 export default defineConfig({
 	plugins: [
 		rawMinifiedPlugin(),
+		biomeWasmCdnPlugin(),
 		esbuildWasmPlugin(),
 		tailwindcss(),
 		react(),
