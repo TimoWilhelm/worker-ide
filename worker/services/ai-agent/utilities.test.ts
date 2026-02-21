@@ -1,8 +1,5 @@
 /**
  * Unit tests for AI Agent utility functions.
- *
- * Tool call parsing tests (normalizeFunctionCallsFormat, repairToolCallJson,
- * parseToolCalls) have been moved to `./replicate/tool-call-parser.test.ts`.
  */
 
 import { describe, expect, it } from 'vitest';

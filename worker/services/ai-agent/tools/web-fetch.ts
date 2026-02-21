@@ -1,14 +1,18 @@
 /**
  * Tool: web_fetch
- * Fetch web page content, convert to markdown, and summarize via Replicate.
+ * Fetch web page content, convert to markdown, and summarize.
  *
  * Raw content is never returned to the caller — it is always processed through
  * a summarization model, which acts as a content barrier against prompt
  * injection attacks embedded in web pages.
  */
 
+import { chat, maxIterations } from '@tanstack/ai';
 import { env } from 'cloudflare:workers';
-import Replicate from 'replicate';
+
+import { SUMMARIZATION_AI_MODEL } from '@shared/constants';
+
+import { createAdapter } from '../replicate';
 
 import type { SendEventFunction, ToolDefinition, ToolExecutorContext } from '../types';
 
@@ -80,12 +84,12 @@ async function convertHtmlToMarkdown(html: string, ai: Ai): Promise<string | und
 // =============================================================================
 
 /**
- * Send markdown content + user prompt to Replicate for summarization.
+ * Send markdown content + user prompt through TanStack AI chat() for summarization.
  * The summarization model treats the fetched content as data, preventing
  * prompt injection from reaching the calling agent.
  */
-async function summarizeContent(markdownContent: string, userPrompt: string, url: string, replicateApiToken: string): Promise<string> {
-	const replicate = new Replicate({ auth: replicateApiToken });
+async function summarizeContent(markdownContent: string, userPrompt: string, url: string, apiKey: string): Promise<string> {
+	const adapter = createAdapter(SUMMARIZATION_AI_MODEL, apiKey);
 
 	const systemPrompt = [
 		'You are a web content summarization assistant.',
@@ -95,7 +99,7 @@ async function summarizeContent(markdownContent: string, userPrompt: string, url
 		'Be concise and factual. If the page does not contain the requested information, say so.',
 	].join(' ');
 
-	const prompt = [
+	const userMessage = [
 		`Web page URL: ${url}`,
 		'',
 		'--- BEGIN WEB PAGE CONTENT ---',
@@ -105,17 +109,23 @@ async function summarizeContent(markdownContent: string, userPrompt: string, url
 		`User prompt: ${userPrompt}`,
 	].join('\n');
 
-	const output = await replicate.run('anthropic/claude-4.5-haiku', {
-		input: {
-			prompt: `\n\nHuman: ${prompt}\n\nAssistant:`,
-			max_tokens: 4096,
-			system_prompt: systemPrompt,
-		},
+	const stream = chat({
+		adapter,
+		messages: [{ role: 'user', content: userMessage }],
+		systemPrompts: [systemPrompt],
+		maxTokens: 4096,
+		agentLoopStrategy: maxIterations(1),
 	});
 
-	// replicate.run() returns an array of string tokens for text models
-	const tokens: string[] = Array.isArray(output) ? output.map(String) : [String(output)];
-	return tokens.join('').trim();
+	// Collect text deltas from the AG-UI stream
+	let result = '';
+	for await (const chunk of stream) {
+		if (chunk.type === 'TEXT_MESSAGE_CONTENT' && 'delta' in chunk && typeof chunk.delta === 'string') {
+			result += chunk.delta;
+		}
+	}
+
+	return result.trim();
 }
 
 // =============================================================================
@@ -130,8 +140,8 @@ export async function execute(
 	const fetchUrl = input.url;
 	const userPrompt = input.prompt;
 
-	const replicateApiToken = env.REPLICATE_API_TOKEN;
-	if (!replicateApiToken) {
+	const apiKey = env.REPLICATE_API_TOKEN;
+	if (!apiKey) {
 		return { error: 'REPLICATE_API_TOKEN is not configured.' };
 	}
 
@@ -182,11 +192,11 @@ export async function execute(
 			markdown = markdown.slice(0, MAX_CONTENT_LENGTH) + '\n... (truncated)';
 		}
 
-		// ── Step 2: Summarize via Replicate ─────────────────────────────────
+		// ── Step 2: Summarize ────────────────────────────────────────────────
 		await sendEvent('status', { message: 'Summarizing content...' });
 
 		try {
-			const summary = await summarizeContent(markdown, userPrompt, fetchUrl, replicateApiToken);
+			const summary = await summarizeContent(markdown, userPrompt, fetchUrl, apiKey);
 			return { url: fetchUrl, content: summary, length: summary.length };
 		} catch (error) {
 			return { error: `Failed to summarize content from ${fetchUrl}: ${String(error)}` };

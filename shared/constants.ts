@@ -291,6 +291,11 @@ export const AI_MODEL_IDS_TUPLE = AI_MODEL_IDS as readonly [AIModelId, ...AIMode
 export const DEFAULT_AI_MODEL: AIModelId = AI_MODELS[0].id;
 
 /**
+ * Model used for internal summarization tasks (e.g., web_fetch content summarization).
+ */
+export const SUMMARIZATION_AI_MODEL: AIModelId = 'anthropic/claude-4.5-haiku';
+
+/**
  * Get the display label for a model ID.
  * Returns the ID itself if no matching model is found.
  */
