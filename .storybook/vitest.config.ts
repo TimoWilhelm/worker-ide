@@ -1,0 +1,40 @@
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+import { storybookTest } from '@storybook/experimental-addon-test/vitest-plugin';
+import react from '@vitejs/plugin-react';
+import { defineConfig, mergeConfig } from 'vite';
+import { defineConfig as defineVitestConfig } from 'vitest/config';
+
+const dirname = path.dirname(fileURLToPath(import.meta.url));
+const projectRoot = path.join(dirname, '../');
+
+export default mergeConfig(
+	defineConfig({
+		plugins: [
+			react(),
+			storybookTest({
+				configDir: path.join(projectRoot, '.storybook'),
+				storybookScript: 'bun run storybook --ci',
+			}),
+		],
+		resolve: {
+			alias: {
+				'@': path.join(projectRoot, 'src'),
+				'@shared': path.join(projectRoot, 'shared'),
+			},
+		},
+	}),
+	defineVitestConfig({
+		test: {
+			name: 'storybook',
+			browser: {
+				enabled: true,
+				headless: true,
+				provider: 'playwright',
+				instances: [{ browser: 'chromium' }],
+			},
+			setupFiles: [path.join(projectRoot, '.storybook/vitest.setup.ts')],
+		},
+	}),
+);

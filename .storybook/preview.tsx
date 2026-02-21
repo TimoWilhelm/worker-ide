@@ -2,6 +2,8 @@ import type { Preview } from '@storybook/react';
 
 import '../src/index.css';
 
+import { TooltipProvider } from '../src/components/ui/tooltip';
+
 const preview: Preview = {
 	parameters: {
 		backgrounds: {
@@ -19,6 +21,13 @@ const preview: Preview = {
 		},
 	},
 	tags: ['autodocs'],
+	decorators: [
+		(Story) => (
+			<TooltipProvider>
+				<Story />
+			</TooltipProvider>
+		),
+	],
 };
 
 export default preview;
