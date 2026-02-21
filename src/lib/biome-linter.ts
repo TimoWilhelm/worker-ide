@@ -81,6 +81,11 @@ interface BiomeLintApi {
 		content: string,
 		options: { filePath: string; fixFileMode?: 'safeFixes' | 'safeAndUnsafeFixes' },
 	) => { content: string; diagnostics: BiomeDiagnostic[] };
+	formatContent: (
+		projectKey: number,
+		content: string,
+		options: { filePath: string },
+	) => { content: string; diagnostics: BiomeDiagnostic[] };
 }
 
 let initPromise: Promise<void> | undefined;
@@ -112,7 +117,7 @@ async function initBiome(): Promise<void> {
 			enabled: true,
 		},
 		formatter: {
-			enabled: false,
+			enabled: true,
 		},
 	});
 
@@ -317,8 +322,11 @@ export async function fixFile(filePath: string, content: string): Promise<LintFi
 			fixFileMode: 'safeFixes',
 		});
 
-		// Lint the fixed content to get remaining diagnostics
-		const remainingResult = biomeLintApi.lintContent(projectKey, fixedResult.content, { filePath });
+		// Format the fixed content
+		const formattedResult = biomeLintApi.formatContent(projectKey, fixedResult.content, { filePath });
+
+		// Lint the formatted content to get remaining diagnostics
+		const remainingResult = biomeLintApi.lintContent(projectKey, formattedResult.content, { filePath });
 
 		const remainingDiagnostics = remainingResult.diagnostics.map((diagnostic) => {
 			const span = diagnostic.location?.span;
@@ -337,7 +345,7 @@ export async function fixFile(filePath: string, content: string): Promise<LintFi
 		});
 
 		return {
-			content: fixedResult.content,
+			content: formattedResult.content,
 			fixCount: originalCount - remainingDiagnostics.length,
 			remainingDiagnostics,
 		};

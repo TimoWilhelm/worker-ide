@@ -543,18 +543,41 @@ export function AssistantMessage({
 					);
 				}
 
-				// Earlier text segments: render as normal text blocks
-				return (
-					<div
-						key={index}
-						className="
-							overflow-hidden rounded-lg bg-bg-tertiary px-3 py-2.5 text-sm/relaxed
-							text-text-primary
-						"
-					>
-						<MarkdownContent content={segment.text} />
-					</div>
-				);
+				// Earlier text segments: collapsible thinking (intermediate reasoning between tool calls)
+				{
+					const isExpanded = expandedThinking.has(index);
+					return (
+						<div key={index} className="flex flex-col gap-1.5">
+							<button
+								type="button"
+								onClick={() => toggleThinking(index)}
+								className={cn(
+									`
+										flex items-center gap-2 overflow-hidden rounded-md px-3 py-1.5 text-xs
+									`,
+									`
+										cursor-pointer bg-bg-tertiary font-medium text-text-secondary
+										transition-colors
+										hover:bg-border
+									`,
+								)}
+							>
+								<ChevronRight className={cn('size-3 shrink-0 transition-transform', isExpanded && 'rotate-90')} />
+								Show thinking
+							</button>
+							{isExpanded && (
+								<div
+									className="
+										overflow-hidden rounded-lg bg-bg-tertiary px-3 py-2.5 text-sm/relaxed
+										text-text-primary
+									"
+								>
+									<MarkdownContent content={segment.text} />
+								</div>
+							)}
+						</div>
+					);
+				}
 			})}
 		</div>
 	);
