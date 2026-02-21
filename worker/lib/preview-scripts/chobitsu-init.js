@@ -26,9 +26,10 @@
 		chobitsu.sendRawMessage(JSON.stringify(message));
 	}
 
-	// Enable Runtime immediately so console logs are captured even
-	// when the DevTools panel is not open.
+	// Enable Runtime and Log immediately so console logs and browser
+	// issues are captured even when the DevTools panel is not open.
 	sendToChobitsu({ method: 'Runtime.enable' });
+	sendToChobitsu({ method: 'Log.enable' });
 
 	function handleInit() {
 		sendToDevtools(
@@ -78,6 +79,55 @@
 							},
 							location.origin,
 						);
+					}
+				}
+			}
+			// Intercept Log.entryAdded to forward browser issues (CORS, CSP, network, deprecations) to the output panel
+			if (message.includes('"Log.entryAdded"')) {
+				var parsedLog = JSON.parse(message);
+				if (parsedLog.method === 'Log.entryAdded' && parsedLog.params && parsedLog.params.entry) {
+					var entry = parsedLog.params.entry;
+					var logLevel = entry.level === 'error' ? 'error' : entry.level === 'warning' ? 'warning' : 'info';
+					var logText = entry.text || '';
+					if (entry.url) {
+						logText += '\n  at ' + entry.url + (entry.lineNumber ? ':' + entry.lineNumber : '');
+					}
+					if (logText) {
+						window.parent.postMessage(
+							{
+								type: '__console-log',
+								level: logLevel,
+								message: logText,
+								timestamp: entry.timestamp ? Math.floor(entry.timestamp) : Date.now(),
+							},
+							location.origin,
+						);
+					}
+				}
+			}
+			// Intercept Runtime.exceptionThrown to forward JS errors to the output panel
+			if (message.includes('"Runtime.exceptionThrown"')) {
+				var parsedException = JSON.parse(message);
+				if (parsedException.method === 'Runtime.exceptionThrown' && parsedException.params) {
+					var detail = parsedException.params.exceptionDetails;
+					if (detail) {
+						var errorText = '';
+						if (detail.exception && detail.exception.description) {
+							errorText = detail.exception.description;
+						} else if (detail.text) {
+							errorText = detail.text;
+						}
+						if (errorText) {
+							window.parent.postMessage(
+								{
+									type: '__console-log',
+									level: 'error',
+									message: errorText,
+									timestamp: parsedException.params.timestamp ? Math.floor(parsedException.params.timestamp) : Date.now(),
+								},
+								location.origin,
+							);
+						}
 					}
 				}
 			}

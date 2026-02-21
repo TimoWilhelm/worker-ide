@@ -136,7 +136,7 @@ globalThis.addEventListener('lint-diagnostics', (event: Event) => {
 	const newEntries: LogEntry[] = diagnostics.map((diagnostic) => ({
 		id: nextId(),
 		timestamp: Date.now(),
-		level: diagnostic.severity === 'error' ? ('error' as const) : ('warn' as const),
+		level: diagnostic.severity === 'error' ? ('error' as const) : ('warning' as const),
 		message: `${filePath}:${diagnostic.from} ${diagnostic.rule ? `(${diagnostic.rule}) ` : ''}${diagnostic.message}`,
 		source: 'lint' as const,
 	}));
@@ -159,7 +159,7 @@ globalThis.addEventListener('message', (event: MessageEvent) => {
 		const { level, message, timestamp } = event.data;
 		if (typeof message !== 'string' || typeof timestamp !== 'number') return;
 
-		const validLevels = new Set(['log', 'info', 'warn', 'error', 'debug']);
+		const validLevels = new Set(['log', 'info', 'warning', 'error', 'debug']);
 		const resolvedLevel: LogEntry['level'] = validLevels.has(level) ? level : 'log';
 
 		append({
@@ -213,6 +213,37 @@ export function getPreserveLogs(): boolean {
 export function setPreserveLogs(value: boolean): void {
 	logBufferStore.setState({ preserveLogs: value });
 }
+
+// =============================================================================
+// WebSocket Sync — push output logs to the coordinator for the AI agent
+// =============================================================================
+
+/**
+ * Debounced sync of output logs to the coordinator via the project WebSocket.
+ * Only sends when entries actually change, with a 1s debounce to avoid flooding.
+ */
+let syncTimeout: ReturnType<typeof setTimeout> | undefined;
+const SYNC_DEBOUNCE_MS = 1000;
+
+function scheduleSyncToCoordinator() {
+	if (syncTimeout !== undefined) clearTimeout(syncTimeout);
+	syncTimeout = setTimeout(() => {
+		syncTimeout = undefined;
+		// Dynamic import to avoid circular dependency — projectSocketSendReference
+		// is a simple { current } ref object, not a React hook.
+		void import('@/hooks/use-project-socket').then(({ projectSocketSendReference }) => {
+			const send = projectSocketSendReference.current;
+			if (!send) return;
+			const snapshot = getLogSnapshot();
+			send({ type: 'output-logs-sync', logs: snapshot });
+		});
+	}, SYNC_DEBOUNCE_MS);
+}
+
+// Subscribe to store changes and sync on every mutation
+logBufferStore.subscribe(() => {
+	scheduleSyncToCoordinator();
+});
 
 /**
  * Return a formatted snapshot of recent log entries for AI agent context.

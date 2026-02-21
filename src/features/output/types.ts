@@ -12,7 +12,7 @@ export interface OutputPanelProperties {
 export interface LogEntry {
 	id: string;
 	timestamp: number;
-	level: 'log' | 'info' | 'warn' | 'error' | 'debug';
+	level: 'log' | 'info' | 'warning' | 'error' | 'debug';
 	message: string;
 	source?: 'server' | 'client' | 'system' | 'lint';
 }

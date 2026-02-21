@@ -253,7 +253,7 @@ export interface ServerError {
 export interface ServerLogEntry {
 	type: 'server-log';
 	timestamp: number;
-	level: 'log' | 'warn' | 'error' | 'debug' | 'info';
+	level: 'log' | 'warning' | 'error' | 'debug' | 'info';
 	message: string;
 }
 

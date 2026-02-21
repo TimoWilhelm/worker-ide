@@ -209,7 +209,7 @@ function FilterButton({ active, onClick, children }: { active: boolean; onClick:
 const LEVEL_COLORS: Record<LogEntry['level'], string> = {
 	log: 'text-text-secondary',
 	info: 'text-blue-600 dark:text-blue-400',
-	warn: 'text-yellow-600 dark:text-yellow-400',
+	warning: 'text-yellow-600 dark:text-yellow-400',
 	error: 'text-red-600 dark:text-red-400',
 	debug: 'text-gray-500',
 };

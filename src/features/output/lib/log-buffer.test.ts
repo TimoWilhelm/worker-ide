@@ -69,10 +69,10 @@ describe('getLogSnapshot', () => {
 	});
 
 	it('includes source tag in output', () => {
-		dispatchServerLogs([{ level: 'warn', message: 'Deprecation warning' }]);
+		dispatchServerLogs([{ level: 'warning', message: 'Deprecation warning' }]);
 
 		const snapshot = getLogSnapshot();
 		expect(snapshot).toContain('[server]');
-		expect(snapshot).toContain('WARN:');
+		expect(snapshot).toContain('WARNING:');
 	});
 });

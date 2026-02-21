@@ -249,10 +249,10 @@ export async function fixFileForAgent(filePath: string, content: string): Promis
 		const originalCount = originalResult.diagnostics.length;
 		if (originalCount === 0) return { fixedContent: content, fixCount: 0, remainingDiagnostics: [] };
 
-		// Apply safe fixes
+		// Apply all fixes (safe + unsafe)
 		const fixedResult = biomeLintApi.lintContent(storedProjectKey, content, {
 			filePath,
-			fixFileMode: 'safeFixes',
+			fixFileMode: 'safeAndUnsafeFixes',
 		});
 
 		// Lint the fixed content to get remaining diagnostics

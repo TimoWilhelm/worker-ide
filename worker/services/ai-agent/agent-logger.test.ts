@@ -112,10 +112,10 @@ describe('AgentLogger', () => {
 			expect(logger.toJSON().entries[0].level).toBe('info');
 		});
 
-		it('warn() creates warn-level entries and increments warning count', () => {
+		it('warn() creates warning-level entries and increments warning count', () => {
 			logger.warn('tool_parse', 'empty_name');
 			const result = logger.toJSON();
-			expect(result.entries[0].level).toBe('warn');
+			expect(result.entries[0].level).toBe('warning');
 			expect(result.summary.totalWarnings).toBe(1);
 		});
 

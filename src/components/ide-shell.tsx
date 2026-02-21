@@ -39,6 +39,7 @@ import { selectGitDiffView, selectGitStatus, selectIsProcessing, useStore } from
 import { cn, formatRelativeTime } from '@/lib/utils';
 
 import type { LogCounts } from '@/features/output';
+import type { EditorView } from '@codemirror/view';
 
 // Lazy-loaded feature panels for code splitting
 const AIPanel = lazy(() => import('@/features/ai-assistant'));
@@ -188,7 +189,7 @@ export function IDEShell({ projectId }: { projectId: string }) {
 		let logCount = 0;
 		for (const entry of logs) {
 			if (entry.level === 'error') errors++;
-			else if (entry.level === 'warn') warnings++;
+			else if (entry.level === 'warning') warnings++;
 			else logCount++;
 		}
 		return { errors, warnings, logs: logCount };
@@ -306,12 +307,29 @@ export function IDEShell({ projectId }: { projectId: string }) {
 		void handleSaveReference.current();
 	}, []);
 
-	// Prettify: apply all safe Biome fixes to the active file
+	// Editor view ref for direct CodeMirror dispatch (preserves scroll position)
+	const editorViewReference = useRef<EditorView | undefined>(undefined);
+	const handleViewReady = useCallback((view?: EditorView) => {
+		editorViewReference.current = view;
+	}, []);
+
+	// Prettify: apply all Biome fixes + formatting to the active file
 	const handlePrettify = useCallback(async () => {
 		if (!activeFile || isGitDiffActive) return;
 		const result = await fixFile(activeFile, editorContent);
 		if (!result || result.fixCount === 0) return;
-		setLocalEditorContent(result.content);
+
+		// Dispatch directly through CodeMirror to preserve scroll position.
+		// The onChange callback fires automatically to sync React state.
+		const view = editorViewReference.current;
+		if (view) {
+			view.dispatch({
+				changes: { from: 0, to: view.state.doc.length, insert: result.content },
+			});
+		} else {
+			setLocalEditorContent(result.content);
+		}
+
 		if (activeFile) {
 			markFileChanged(activeFile, true);
 		}
@@ -755,6 +773,7 @@ export function IDEShell({ projectId }: { projectId: string }) {
 														hasActiveDiff && activeFile && !isGitDiffActive ? () => changeReview.handleRejectChange(activeFile) : undefined
 													}
 													resolvedTheme={resolvedTheme}
+													onViewReady={handleViewReady}
 												/>
 											)
 										) : (
@@ -1033,6 +1052,7 @@ export function IDEShell({ projectId }: { projectId: string }) {
 																		: undefined
 																}
 																resolvedTheme={resolvedTheme}
+																onViewReady={handleViewReady}
 															/>
 														)
 													) : (

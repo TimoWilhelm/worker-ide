@@ -85,6 +85,8 @@ export interface CodeEditorProperties {
 	extensions?: Extension[];
 	/** CSS class name */
 	className?: string;
+	/** Called with the EditorView when it is created (and no argument when destroyed) */
+	onViewReady?: (view?: EditorView) => void;
 }
 
 // =============================================================================
@@ -110,6 +112,7 @@ export function CodeEditor({
 	resolvedTheme = 'dark',
 	extensions: additionalExtensions = [],
 	className,
+	onViewReady,
 }: CodeEditorProperties) {
 	const containerReference = useRef<HTMLDivElement>(null);
 	const viewReference = useRef<EditorView | undefined>(undefined);
@@ -131,6 +134,8 @@ export function CodeEditor({
 	onCursorChangeReference.current = onCursorChange;
 	const onBlurReference = useRef(onBlur);
 	onBlurReference.current = onBlur;
+	const onViewReadyReference = useRef(onViewReady);
+	onViewReadyReference.current = onViewReady;
 	const onDiffApproveReference = useRef(onDiffApprove);
 	onDiffApproveReference.current = onDiffApprove;
 	const onDiffRejectReference = useRef(onDiffReject);
@@ -192,8 +197,10 @@ export function CodeEditor({
 		});
 
 		viewReference.current = view;
+		onViewReadyReference.current?.(view);
 
 		return () => {
+			onViewReadyReference.current?.();
 			view.destroy();
 			viewReference.current = undefined;
 		};

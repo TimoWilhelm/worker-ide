@@ -38,6 +38,9 @@ export class ProjectCoordinator extends DurableObject {
 	/** Pending CDP command requests awaiting a response from a frontend client */
 	private pendingCdpRequests = new Map<string, { resolve: (value: { result?: string; error?: string }) => void }>();
 
+	/** Latest IDE output logs snapshot pushed by the frontend */
+	private outputLogs = '';
+
 	private getAttachment(ws: WebSocket): ParticipantAttachment | undefined {
 		try {
 			const attachment: ParticipantAttachment = ws.deserializeAttachment();
@@ -191,6 +194,14 @@ export class ProjectCoordinator extends DurableObject {
 		});
 	}
 
+	/**
+	 * Get the latest IDE output logs snapshot.
+	 * Called by the AI agent service between iterations to check for new errors/warnings.
+	 */
+	async getOutputLogs(): Promise<string> {
+		return this.outputLogs;
+	}
+
 	private async broadcastHmrUpdate(update: HmrUpdate): Promise<void> {
 		let updateType: 'css-update' | 'js-update' | 'full-reload';
 		if (update.type === 'full-reload') {
@@ -339,6 +350,11 @@ export class ProjectCoordinator extends DurableObject {
 				if (pending) {
 					pending.resolve({ result: data.result, error: data.error });
 				}
+				return;
+			}
+
+			if (data.type === 'output-logs-sync') {
+				this.outputLogs = data.logs;
 				return;
 			}
 		} catch {

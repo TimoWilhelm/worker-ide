@@ -622,6 +622,38 @@ export class AIAgentService {
 					}
 				}
 
+				// Proactively check for new errors/warnings in the IDE output.
+				// After file mutations, the preview rebuilds and may produce new errors.
+				// The frontend pushes fresh output logs to the coordinator via WebSocket.
+				// If new errors appeared, inject a system message so the agent can react.
+				const fileChangesThisIteration = queryChanges.length - changeCountBefore;
+				if (continueLoop && fileChangesThisIteration > 0) {
+					try {
+						// Brief delay to let HMR rebuild and the frontend sync logs
+						await sleep(2000, signal);
+						const freshLogs = await coordinatorStub.getOutputLogs();
+						if (freshLogs && freshLogs !== (outputLogs ?? '')) {
+							// Check if the fresh logs contain errors or warnings
+							const hasErrors = /\bERROR:/i.test(freshLogs) || /\bWARNING:/i.test(freshLogs);
+							if (hasErrors) {
+								logger.info('agent_loop', 'output_errors_detected', {
+									logsLength: freshLogs.length,
+								});
+								workingMessages.push({
+									role: 'user',
+									content:
+										'SYSTEM: The IDE output panel shows new warnings or errors after your recent changes. ' +
+										'Review them carefully and fix any issues before proceeding.\n\n' +
+										`<output_logs>\n${freshLogs}\n</output_logs>`,
+								});
+								yield customEvent('status', { message: 'Detected output errors, reviewing...' });
+							}
+						}
+					} catch {
+						// Non-fatal — coordinator may be unreachable
+					}
+				}
+
 				// Check doom loop (identical consecutive tool calls)
 				const doomLoopTool = doomDetector.isDoomLoop();
 				if (doomLoopTool) {
@@ -680,7 +712,6 @@ export class AIAgentService {
 				}
 
 				// Track iteration progress and check for no-progress loop
-				const fileChangesThisIteration = queryChanges.length - changeCountBefore;
 				doomDetector.recordIterationProgress(fileChangesThisIteration > 0);
 				doomDetector.recordIterationMutationFailure(hadMutationFailure);
 

@@ -72,13 +72,24 @@ export interface CdpResponseMessage {
 	error?: string;
 }
 
+/**
+ * Client message to sync the IDE output logs (errors, warnings) to the coordinator.
+ * Sent periodically by the frontend so the AI agent loop can read fresh logs
+ * between iterations without needing a round-trip to the browser.
+ */
+export interface OutputLogsSyncMessage {
+	type: 'output-logs-sync';
+	logs: string;
+}
+
 export type ClientMessage =
 	| PingMessage
 	| CollabJoinMessage
 	| CursorUpdateMessage
 	| FileEditMessage
 	| HmrConnectMessage
-	| CdpResponseMessage;
+	| CdpResponseMessage
+	| OutputLogsSyncMessage;
 
 // =============================================================================
 // Server -> Client Messages
@@ -243,6 +254,10 @@ export const clientMessageSchema = z.discriminatedUnion('type', [
 		result: z.string().optional(),
 		error: z.string().optional(),
 	}),
+	z.object({
+		type: z.literal('output-logs-sync'),
+		logs: z.string(),
+	}),
 ]);
 
 // Server message schemas (for client-side validation)
@@ -274,7 +289,7 @@ const serverErrorSchema = z.object({
 const serverLogSchema = z.object({
 	type: z.literal('server-log'),
 	timestamp: z.number(),
-	level: z.enum(['log', 'warn', 'error', 'debug', 'info']),
+	level: z.enum(['log', 'warning', 'error', 'debug', 'info']),
 	message: z.string(),
 });
 

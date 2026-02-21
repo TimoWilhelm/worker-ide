@@ -299,11 +299,14 @@ export interface LintFixResult {
 }
 
 /**
- * Apply safe lint fixes to a file using Biome WASM.
- * Returns the fixed content and remaining diagnostics.
+ * Apply lint fixes and formatting to a file using Biome WASM.
  * Returns undefined for unsupported file types or if Biome fails.
  */
-export async function fixFile(filePath: string, content: string): Promise<LintFixResult | undefined> {
+export async function fixFile(
+	filePath: string,
+	content: string,
+	fixFileMode: 'safeFixes' | 'safeAndUnsafeFixes' = 'safeAndUnsafeFixes',
+): Promise<LintFixResult | undefined> {
 	if (!isLintableFile(filePath)) {
 		return undefined;
 	}
@@ -316,10 +319,10 @@ export async function fixFile(filePath: string, content: string): Promise<LintFi
 		const originalResult = biomeLintApi.lintContent(projectKey, content, { filePath });
 		const originalCount = originalResult.diagnostics.length;
 
-		// Apply safe fixes
+		// Apply fixes
 		const fixedResult = biomeLintApi.lintContent(projectKey, content, {
 			filePath,
-			fixFileMode: 'safeFixes',
+			fixFileMode,
 		});
 
 		// Format the fixed content

@@ -63,10 +63,13 @@ export class LogTailer extends WorkerEntrypoint<Env, LogTailerProperties> {
 	}
 }
 
-function mapLogLevel(level: string): 'log' | 'warn' | 'error' | 'debug' | 'info' {
+function mapLogLevel(level: string): 'log' | 'warning' | 'error' | 'debug' | 'info' {
 	switch (level) {
+		case 'warn': {
+			return 'warning';
+		}
 		case 'log':
-		case 'warn':
+		case 'warning':
 		case 'error':
 		case 'debug':
 		case 'info': {

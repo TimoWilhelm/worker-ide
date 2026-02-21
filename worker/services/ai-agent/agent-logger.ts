@@ -35,7 +35,7 @@ const LARGE_CONTENT_KEYS = new Set(['content', 'file_content', 'patch', 'diff', 
 // Types
 // =============================================================================
 
-export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
+export type LogLevel = 'debug' | 'info' | 'warning' | 'error';
 
 export type LogCategory = 'agent_loop' | 'llm' | 'tool_call' | 'tool_parse' | 'message' | 'snapshot' | 'context' | 'mcp';
 
@@ -185,7 +185,7 @@ export class AgentLogger {
 
 		// Update summary counters
 		if (level === 'error') this.errorCount++;
-		if (level === 'warn') this.warningCount++;
+		if (level === 'warning') this.warningCount++;
 	}
 
 	/** Convenience: debug-level log */
@@ -198,9 +198,9 @@ export class AgentLogger {
 		this.log('info', category, event, data, options);
 	}
 
-	/** Convenience: warn-level log */
+	/** Convenience: warning-level log */
 	warn(category: LogCategory, event: string, data?: Record<string, unknown>, options?: { durationMs?: number }): void {
-		this.log('warn', category, event, data, options);
+		this.log('warning', category, event, data, options);
 	}
 
 	/** Convenience: error-level log */

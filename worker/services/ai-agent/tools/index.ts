@@ -322,9 +322,9 @@ export function createServerTools(
 				// ToolExecutionError = expected tool-level failure (file not found, no match, etc.)
 				// Other errors = unexpected crashes in tool code
 				const isToolError = error instanceof ToolExecutionError;
-				const level = isToolError ? 'warn' : 'error';
+				const logMethod = isToolError ? 'warn' : 'error';
 				const event = isToolError ? 'tool_error' : 'error';
-				logger?.[level](
+				logger?.[logMethod](
 					'tool_call',
 					event,
 					{
