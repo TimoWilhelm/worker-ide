@@ -5,6 +5,8 @@
 
 import fs from 'node:fs/promises';
 
+import { ToolErrorCode, toolError } from '@shared/tool-errors';
+
 import { coordinatorNamespace } from '../../../lib/durable-object-namespaces';
 import { isPathSafe, isProtectedFile } from '../../../lib/path-utilities';
 
@@ -44,10 +46,10 @@ export async function execute(
 	const toPath = input.to_path;
 
 	if (!isPathSafe(projectRoot, fromPath) || !isPathSafe(projectRoot, toPath)) {
-		return { error: 'Invalid file path' };
+		return toolError(ToolErrorCode.INVALID_PATH, 'Invalid file path');
 	}
 	if (isProtectedFile(fromPath)) {
-		return { error: `Cannot move protected file: ${fromPath}` };
+		return toolError(ToolErrorCode.NOT_ALLOWED, `Cannot move protected file: ${fromPath}`);
 	}
 
 	await sendEvent('status', { message: `Moving ${fromPath} → ${toPath}...` });
@@ -56,7 +58,7 @@ export async function execute(
 	try {
 		beforeContent = await fs.readFile(`${projectRoot}${fromPath}`, 'utf8');
 	} catch {
-		return { error: `File not found: ${fromPath}` };
+		return toolError(ToolErrorCode.FILE_NOT_FOUND, `File not found: ${fromPath}`);
 	}
 
 	const toDirectory = toPath.slice(0, toPath.lastIndexOf('/'));

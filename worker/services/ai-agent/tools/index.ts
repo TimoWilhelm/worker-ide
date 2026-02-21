@@ -8,6 +8,8 @@
 import { toolDefinition } from '@tanstack/ai';
 import { z } from 'zod';
 
+import { ToolExecutionError } from '@shared/tool-errors';
+
 import * as cdpEvalTool from './cdp-eval';
 import * as dependenciesListTool from './dependencies-list';
 import * as dependenciesUpdateTool from './dependencies-update';
@@ -263,9 +265,6 @@ export function createServerTools(
 
 			try {
 				const result = await executor(stringInput, sendEvent, context, undefined, queryChanges);
-				// Wrap the result in an object so @tanstack/ai's executeToolCalls()
-				// doesn't try to JSON.parse() a plain string (which would fail for
-				// non-JSON text like XML content or "Wrote file successfully.").
 				const text = typeof result === 'string' ? result : JSON.stringify(result);
 
 				logger?.info(
@@ -281,13 +280,18 @@ export function createServerTools(
 
 				return { content: text };
 			} catch (error) {
-				logger?.error(
+				// ToolExecutionError = expected tool-level failure (file not found, no match, etc.)
+				// Other errors = unexpected crashes in tool code
+				const level = error instanceof ToolExecutionError ? 'warn' : 'error';
+				const event = error instanceof ToolExecutionError ? 'tool_error' : 'error';
+				logger?.[level](
 					'tool_call',
-					'error',
+					event,
 					{
 						toolName: definition.name,
+						errorCode: error instanceof ToolExecutionError ? error.code : undefined,
 						error: error instanceof Error ? error.message : String(error),
-						stack: error instanceof Error ? error.stack : undefined,
+						stack: error instanceof ToolExecutionError ? undefined : error instanceof Error ? error.stack : undefined,
 					},
 					{ durationMs: timer?.() },
 				);

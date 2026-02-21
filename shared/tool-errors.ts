@@ -2,8 +2,12 @@
  * Tool Error Codes
  *
  * Unique identifiers for tool errors, shared between worker (tools) and
- * frontend (UI). The worker embeds the code in `<error code="...">` tags;
- * the UI maps codes to short human-readable labels for inline display.
+ * frontend (UI). Tool executors call `toolError(code, message)` which throws
+ * a `ToolExecutionError`. TanStack AI catches it and wraps it as
+ * `{ error: "[CODE] message" }` with `state: 'output-error'`.
+ *
+ * The frontend detects errors via the `[CODE] message` prefix format and
+ * maps codes to short human-readable labels for inline display.
  */
 
 // =============================================================================
@@ -29,15 +33,43 @@ export const ToolErrorCode = {
 export type ToolErrorCode = (typeof ToolErrorCode)[keyof typeof ToolErrorCode];
 
 // =============================================================================
-// Helpers
+// Error Class
 // =============================================================================
 
 /**
- * Format a tool error string with an embedded code attribute.
- * Output: `<error code="CODE">Human-readable message</error>`
+ * Error thrown by tool executors to signal a tool-level failure.
+ * The message uses `[CODE] description` format so the frontend can
+ * extract the code and map it to a short label.
  */
-export function toolError(code: ToolErrorCode, message: string): string {
-	return `<error code="${code}">${message}</error>`;
+export class ToolExecutionError extends Error {
+	readonly code: ToolErrorCode;
+
+	constructor(code: ToolErrorCode, message: string) {
+		super(`[${code}] ${message}`);
+		this.name = 'ToolExecutionError';
+		this.code = code;
+	}
+}
+
+// =============================================================================
+// Helper
+// =============================================================================
+
+/**
+ * Throw a `ToolExecutionError` with the given code and message.
+ *
+ * Usage in tool executors:
+ * ```ts
+ * toolError(ToolErrorCode.FILE_NOT_FOUND, `File not found: ${path}`);
+ * // or with return for type narrowing:
+ * return toolError(ToolErrorCode.FILE_NOT_FOUND, `File not found: ${path}`);
+ * ```
+ *
+ * The return type is `never` so `return toolError(...)` is valid in functions
+ * that return `string` or `Promise<string>`.
+ */
+export function toolError(code: ToolErrorCode, message: string): never {
+	throw new ToolExecutionError(code, message);
 }
 
 // =============================================================================

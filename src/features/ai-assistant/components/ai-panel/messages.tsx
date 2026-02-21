@@ -532,38 +532,46 @@ function extractTag(text: string, tag: string): string | undefined {
 }
 
 /**
- * Check whether the text contains an `<error ...>` tag (with or without a code attribute).
+ * Check whether the tool result text represents an error.
+ *
+ * Error formats from TanStack AI:
+ * - `[CODE] message` — ToolExecutionError thrown by our tool executors
+ * - `Error executing tool: ...` — unexpected throw caught by TanStack AI
+ * - `Input validation failed...` — Zod schema validation failure
  */
 function isErrorResult(text: string): boolean {
-	return text.includes('<error');
-}
-
-/**
- * Extract the error code from `<error code="CODE">...</error>`. Returns undefined
- * if no code attribute is present (legacy format).
- */
-function extractErrorCode(text: string): string | undefined {
-	const match = text.match(/<error\s+code="([^"]+)"/);
-	return match?.[1];
+	return /^\[[A-Z_]+\] /.test(text) || text.startsWith('Error executing tool:') || text.startsWith('Input validation failed');
 }
 
 /** Lookup table typed as a plain record so we can index with an arbitrary string. */
 const errorLabels: Record<string, string> = TOOL_ERROR_LABELS;
 
 /**
- * Get a short label for an error. Uses the code attribute when available,
- * falls back to truncating the message body.
+ * Get a short label for an error.
+ *
+ * Extracts the error code from `[CODE] message` format and maps it to a
+ * human-readable label. Falls back to truncating the message.
  */
 function shortenError(text: string): string {
-	const code = extractErrorCode(text);
-	if (code) {
+	// ToolExecutionError format: "[CODE] message"
+	const bracketMatch = text.match(/^\[([A-Z_]+)\] (.*)/);
+	if (bracketMatch) {
+		const code = bracketMatch[1];
 		const label = errorLabels[code];
 		if (label) return label;
+		const message = bracketMatch[2];
+		return message.length > 40 ? message.slice(0, 40) + '...' : message;
 	}
-	// Fallback: extract the message body and truncate
-	const body = extractTag(text, 'error');
-	if (body) return body.length > 40 ? body.slice(0, 40) + '...' : body;
-	return 'Error';
+
+	// Framework-level errors
+	if (text.startsWith('Error executing tool: ')) {
+		const message = text.slice('Error executing tool: '.length);
+		return message.length > 40 ? message.slice(0, 40) + '...' : message;
+	}
+	if (text.startsWith('Input validation failed')) {
+		return 'Validation failed';
+	}
+	return text.length > 40 ? text.slice(0, 40) + '...' : 'Error';
 }
 
 /**
@@ -597,7 +605,10 @@ function summarizeToolResult(toolName: ToolName, rawResult: string): string {
 		}
 
 		case 'file_edit': {
-			return 'Applied';
+			// Show actual result — don't blindly say "Applied" if the edit may have failed silently
+			if (rawResult.includes('Edit applied successfully')) return 'Applied';
+			if (rawResult.includes('No changes needed')) return 'No changes';
+			return rawResult.length > 40 ? rawResult.slice(0, 40) + '...' : rawResult || 'Applied';
 		}
 
 		case 'file_write': {
@@ -781,10 +792,9 @@ function extractTodosFromResult(toolName: ToolName, rawResult: string): TodoItem
  * Strips XML tags and formats per-tool content cleanly.
  */
 function formatToolResultDetail(toolName: ToolName, rawResult: string): string {
-	// Handle errors — strip the <error> tags
+	// Errors are plain text — return as-is
 	if (isErrorResult(rawResult)) {
-		const body = extractTag(rawResult, 'error');
-		if (body) return body;
+		return rawResult;
 	}
 
 	switch (toolName) {
@@ -897,6 +907,10 @@ function unwrapToolContent(value: unknown): string | undefined {
 			if (isRecord(parsed) && typeof parsed.content === 'string') {
 				return parsed.content;
 			}
+			// TanStack AI wraps tool execution errors as {"error":"..."}
+			if (isRecord(parsed) && typeof parsed.error === 'string') {
+				return parsed.error;
+			}
 		} catch {
 			// Not JSON
 		}
@@ -980,7 +994,7 @@ function InlineToolCall({ toolCall, toolResult }: { toolCall: ToolCallPart; tool
 	const todos = rawResultContent ? extractTodosFromResult(toolName, rawResultContent) : undefined;
 
 	// Build summary text for the result
-	const resultSummary = rawResultContent ? summarizeToolResult(toolName, rawResultContent) : undefined;
+	const resultSummary = rawResultContent ? summarizeToolResult(toolName, rawResultContent) : isCompleted ? 'No result' : undefined;
 	const expandable = rawResultContent ? hasExpandableDetail(toolName, rawResultContent) : false;
 
 	return (

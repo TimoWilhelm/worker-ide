@@ -5,6 +5,8 @@
 
 import fs from 'node:fs/promises';
 
+import { ToolErrorCode, toolError } from '@shared/tool-errors';
+
 import { coordinatorNamespace } from '../../../lib/durable-object-namespaces';
 import { isPathSafe, isProtectedFile } from '../../../lib/path-utilities';
 
@@ -40,10 +42,10 @@ export async function execute(
 	const deletePath = input.path;
 
 	if (!isPathSafe(projectRoot, deletePath)) {
-		return { error: 'Invalid file path' };
+		return toolError(ToolErrorCode.INVALID_PATH, 'Invalid file path');
 	}
 	if (isProtectedFile(deletePath)) {
-		return { error: `Cannot delete protected file: ${deletePath}` };
+		return toolError(ToolErrorCode.NOT_ALLOWED, `Cannot delete protected file: ${deletePath}`);
 	}
 
 	await sendEvent('status', { message: `Deleting ${deletePath}...` });
@@ -52,7 +54,7 @@ export async function execute(
 	try {
 		beforeContent = await fs.readFile(`${projectRoot}${deletePath}`, 'utf8');
 	} catch {
-		return { error: `File not found: ${deletePath}` };
+		return toolError(ToolErrorCode.FILE_NOT_FOUND, `File not found: ${deletePath}`);
 	}
 
 	await fs.unlink(`${projectRoot}${deletePath}`);

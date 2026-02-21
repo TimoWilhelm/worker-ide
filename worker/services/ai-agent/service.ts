@@ -26,7 +26,7 @@ import {
 	PLAN_MODE_SYSTEM_PROMPT,
 } from '@shared/constants';
 
-import { AgentLogger } from './agent-logger';
+import { AgentLogger, sanitizeToolInput, summarizeToolResult } from './agent-logger';
 import { isContextOverflow, pruneToolOutputs } from './context-pruner';
 import { DoomLoopDetector } from './doom-loop';
 import { createAdapter, getModelLimits } from './replicate';
@@ -311,6 +311,13 @@ export class AIAgentService {
 				const completedToolCalls: Array<{ id: string; name: string; arguments: string }> = [];
 				const toolResults: Array<{ toolCallId: string; content: string }> = [];
 
+				// Track tool call arguments by ID for the TOOL_CALL_END dual-role handling.
+				// TanStack AI emits two TOOL_CALL_END events per tool call:
+				// 1. From adapter (no result): signals arguments are finalized
+				// 2. From executeToolCalls (with result): signals execution is done
+				// We need the args from event #1 when processing event #2.
+				const toolCallArgumentsById = new Map<string, { name: string; arguments: string; input: Record<string, unknown> }>();
+
 				for await (const chunk of chatResult) {
 					if (signal.aborted) break;
 
@@ -362,28 +369,69 @@ export class AIAgentService {
 						case 'TOOL_CALL_END': {
 							const toolCallId = getEventField(chunk, 'toolCallId') || currentToolCallId || '';
 							const toolName = getEventField(chunk, 'toolName') || currentToolName;
+							const resultContent = getEventField(chunk, 'result');
+							const hasResult = resultContent !== undefined && resultContent !== '';
 
-							// Record for doom loop detection
-							if (toolName) {
+							if (hasResult) {
+								// Phase 2: TanStack AI signals tool execution is done (has result).
+								// Look up the stored args from phase 1.
+								const stored = toolCallArgumentsById.get(toolCallId);
+								const resolvedName = toolName || stored?.name || 'unknown';
+								const resolvedArguments = stored?.arguments ?? '';
+								const resolvedInput = stored?.input ?? {};
+
+								// Add to completedToolCalls for message reconstruction
+								completedToolCalls.push({ id: toolCallId, name: resolvedName, arguments: resolvedArguments });
+								toolResults.push({ toolCallId, content: resultContent });
+
+								logger.info('tool_call', 'execution_result', {
+									toolCallId,
+									toolName: resolvedName,
+									input: sanitizeToolInput(resolvedInput),
+									resultSummary: summarizeToolResult(resultContent),
+									resultLength: resultContent.length,
+								});
+
+								// Clean up stored args
+								toolCallArgumentsById.delete(toolCallId);
+							} else {
+								// Phase 1: Adapter signals arguments are finalized (no result yet).
+								// Parse and store args, record for doom detection, but don't add
+								// to completedToolCalls yet — wait for the execution result.
 								let toolInput: Record<string, unknown> = {};
-								try {
-									toolInput = JSON.parse(currentToolArguments || '{}');
-								} catch {
-									logger.warn('tool_call', 'arguments_parse_error', {
-										toolCallId,
-										toolName,
-										rawArguments: currentToolArguments.slice(0, 200),
+								if (toolName) {
+									try {
+										toolInput = JSON.parse(currentToolArguments || '{}');
+									} catch {
+										logger.warn('tool_call', 'arguments_parse_error', {
+											toolCallId,
+											toolName,
+											rawArguments: currentToolArguments.slice(0, 200),
+										});
+									}
+									doomDetector.record(toolName, toolInput);
+									logger.recordToolCall(toolName);
+								}
+
+								// Store args for phase 2 lookup
+								if (toolCallId) {
+									toolCallArgumentsById.set(toolCallId, {
+										name: toolName ?? 'unknown',
+										arguments: currentToolArguments,
+										input: toolInput,
 									});
 								}
-								doomDetector.record(toolName, toolInput);
-								logger.recordToolCall(toolName);
-							}
 
-							// Track completed tool call for message reconstruction
-							if (toolCallId && toolName) {
-								completedToolCalls.push({ id: toolCallId, name: toolName, arguments: currentToolArguments });
-								const resultContent = getEventField(chunk, 'result');
-								toolResults.push({ toolCallId, content: resultContent ?? '' });
+								logger.info('tool_call', 'args_complete', {
+									toolCallId,
+									toolName,
+									input: sanitizeToolInput(toolInput),
+								});
+
+								// Reset streaming state (args accumulation is done)
+								currentToolCallId = undefined;
+								currentToolName = undefined;
+								currentToolArguments = '';
 							}
 
 							// Check if user_question was used — stop the loop
@@ -400,9 +448,6 @@ export class AIAgentService {
 								if (queued) yield queued;
 							}
 
-							currentToolCallId = undefined;
-							currentToolName = undefined;
-							currentToolArguments = '';
 							break;
 						}
 						case 'RUN_FINISHED': {
