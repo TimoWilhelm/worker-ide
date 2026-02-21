@@ -30,6 +30,8 @@
 		"build-storybook": "storybook build"
 	},
 	"devDependencies": {
+		"@biomejs/js-api": "^4.0.0",
+		"@biomejs/wasm-web": "^2.4.4",
 		"@cloudflare/vite-plugin": "^1.0.0",
 		"@cloudflare/vitest-pool-workers": "^0.12.13",
 		"@codemirror/autocomplete": "^6.18.6",

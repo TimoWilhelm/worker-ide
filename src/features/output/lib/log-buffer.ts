@@ -100,6 +100,51 @@ globalThis.addEventListener('preview-refresh', () => {
 });
 
 /**
+ * Listen for lint-diagnostics events dispatched by the Biome lint extension.
+ * Replaces previous lint entries for the same file with the new diagnostics.
+ */
+interface LintDiagnosticEvent {
+	filePath: string;
+	diagnostics: Array<{
+		message: string;
+		severity: string;
+		from: number;
+		rule?: string;
+	}>;
+}
+
+function isLintDiagnosticEvent(value: unknown): value is LintDiagnosticEvent {
+	if (typeof value !== 'object' || value === undefined || value === null) return false;
+	if (!('filePath' in value) || !('diagnostics' in value)) return false;
+	const { filePath, diagnostics } = value;
+	return typeof filePath === 'string' && Array.isArray(diagnostics);
+}
+
+globalThis.addEventListener('lint-diagnostics', (event: Event) => {
+	if (!(event instanceof CustomEvent)) return;
+	if (!isLintDiagnosticEvent(event.detail)) return;
+
+	const { filePath, diagnostics } = event.detail;
+
+	// Remove previous lint entries for this file
+	logBufferStore.setState((state) => ({
+		entries: state.entries.filter((entry) => !(entry.source === 'lint' && entry.message.includes(filePath))),
+	}));
+
+	if (diagnostics.length === 0) return;
+
+	const newEntries: LogEntry[] = diagnostics.map((diagnostic) => ({
+		id: nextId(),
+		timestamp: Date.now(),
+		level: diagnostic.severity === 'error' ? ('error' as const) : ('warn' as const),
+		message: `${filePath}:${diagnostic.from} ${diagnostic.rule ? `(${diagnostic.rule}) ` : ''}${diagnostic.message}`,
+		source: 'lint' as const,
+	}));
+
+	append(...newEntries);
+});
+
+/**
  * Listen for postMessage events from the preview iframe:
  * - __console-log: forwarded by chobitsu CDP Runtime.consoleAPICalled events
  * - __server-error: forwarded by the preview HMR client when it receives a server error

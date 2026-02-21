@@ -14,7 +14,7 @@ export interface LogEntry {
 	timestamp: number;
 	level: 'log' | 'info' | 'warn' | 'error' | 'debug';
 	message: string;
-	source?: 'server' | 'client' | 'system';
+	source?: 'server' | 'client' | 'system' | 'lint';
 }
 
 export interface LogCounts {

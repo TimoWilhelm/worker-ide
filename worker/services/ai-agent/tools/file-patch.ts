@@ -11,6 +11,7 @@ import { ToolErrorCode, toolError } from '@shared/tool-errors';
 import { coordinatorNamespace } from '../../../lib/durable-object-namespaces';
 import { isPathSafe } from '../../../lib/path-utilities';
 import { assertFileWasRead, recordFileRead } from '../file-time';
+import { formatLintResultsForAgent } from '../lib/biome-linter';
 
 import type { FileChange, SendEventFunction, ToolDefinition, ToolExecutorContext } from '../types';
 
@@ -727,5 +728,21 @@ export async function execute(
 		isCSS: false,
 	});
 
-	return `Success. Updated the following files:\n${results.join('\n')}`;
+	// Collect lint diagnostics for all affected files
+	const lintSections: string[] = [];
+	for (const hunk of hunks) {
+		if (hunk.type === 'delete') continue;
+		const lintPath = hunk.type === 'update' && hunk.movePath ? hunk.movePath : hunk.path;
+		try {
+			const lintContent = await fs.readFile(`${projectRoot}${lintPath}`, 'utf8');
+			const lintResult = await formatLintResultsForAgent(lintPath, lintContent);
+			if (lintResult) lintSections.push(lintResult);
+		} catch {
+			// File may not exist (e.g. after move), skip lint
+		}
+	}
+
+	const lintOutput = lintSections.length > 0 ? `\n${lintSections.join('\n')}` : '';
+
+	return `Success. Updated the following files:\n${results.join('\n')}${lintOutput}`;
 }

@@ -43,7 +43,7 @@ describe('OutputPanel accessibility', () => {
 		renderWithProviders(<OutputPanel projectId="test" />);
 
 		const radios = screen.getAllByRole('radio');
-		expect(radios).toHaveLength(3);
+		expect(radios).toHaveLength(4);
 
 		const allButton = screen.getByRole('radio', { name: 'All' });
 		expect(allButton).toHaveAttribute('aria-checked', 'true');

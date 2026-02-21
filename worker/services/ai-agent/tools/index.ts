@@ -21,6 +21,7 @@ import * as filePatchTool from './file-patch';
 import * as fileReadTool from './file-read';
 import * as fileWriteTool from './file-write';
 import * as filesListTool from './files-list';
+import * as lintFixTool from './lint-fix';
 import * as planUpdateTool from './plan-update';
 import * as todosGetTool from './todos-get';
 import * as todosUpdateTool from './todos-update';
@@ -55,6 +56,7 @@ export const TOOL_EXECUTORS: ReadonlyMap<string, ToolExecuteFunction> = new Map(
 	['todos_update', todosUpdateTool.execute],
 	['dependencies_list', dependenciesListTool.execute],
 	['dependencies_update', dependenciesUpdateTool.execute],
+	['lint_fix', lintFixTool.execute],
 ]);
 
 // =============================================================================
@@ -80,6 +82,7 @@ export const AGENT_TOOLS: readonly ToolDefinition[] = [
 	todosUpdateTool.definition,
 	dependenciesListTool.definition,
 	dependenciesUpdateTool.definition,
+	lintFixTool.definition,
 ];
 
 // =============================================================================
@@ -113,7 +116,7 @@ export const ASK_MODE_TOOLS: readonly ToolDefinition[] = [];
 // Editing tools blocked in plan mode
 // =============================================================================
 
-const EDITING_TOOL_NAMES = new Set(['file_edit', 'file_write', 'file_patch', 'file_delete', 'file_move']);
+const EDITING_TOOL_NAMES = new Set(['file_edit', 'file_write', 'file_patch', 'file_delete', 'file_move', 'lint_fix']);
 
 // =============================================================================
 // TanStack AI Tool Factory

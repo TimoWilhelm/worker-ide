@@ -11,6 +11,7 @@ import { ToolErrorCode, toolError } from '@shared/tool-errors';
 import { coordinatorNamespace } from '../../../lib/durable-object-namespaces';
 import { isPathSafe } from '../../../lib/path-utilities';
 import { assertFileWasRead, recordFileRead } from '../file-time';
+import { formatLintResultsForAgent } from '../lib/biome-linter';
 import { isBinaryFilePath, toUint8Array } from '../utilities';
 
 import type { FileChange, SendEventFunction, ToolDefinition, ToolExecutorContext } from '../types';
@@ -160,5 +161,7 @@ export async function execute(
 		isBinary: writeIsBinary,
 	});
 
-	return 'Wrote file successfully.';
+	const lintResults = writeIsBinary ? undefined : await formatLintResultsForAgent(writePath, writeContent);
+
+	return `Wrote file successfully.${lintResults ?? ''}`;
 }

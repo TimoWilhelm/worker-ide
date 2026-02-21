@@ -10,6 +10,7 @@ import { ToolErrorCode, toolError } from '@shared/tool-errors';
 
 import { isPathSafe } from '../../../lib/path-utilities';
 import { recordFileRead } from '../file-time';
+import { formatLintResultsForAgent } from '../lib/biome-linter';
 
 import type { SendEventFunction, ToolDefinition, ToolExecutorContext } from '../types';
 
@@ -285,11 +286,19 @@ Binary file detected. Cannot display content.
 			message += ')';
 		}
 
+		const lintResults = await formatLintResultsForAgent(readPath, fileContent);
+
 		return `<path>${readPath}</path>
 <type>file</type>
 <content>
 ${content}${message}
-</content>`;
+</content>${
+			lintResults
+				? `
+<lint_diagnostics>${lintResults}
+</lint_diagnostics>`
+				: ''
+		}`;
 	} catch {
 		// File not found - try to suggest similar files
 		const similar = await findSimilarFiles(projectRoot, readPath);

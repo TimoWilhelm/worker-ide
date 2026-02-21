@@ -20,6 +20,7 @@ import {
 	lightTheme,
 	readonlyExtension,
 } from '../lib/extensions';
+import { createLintExtension } from '../lib/lint-extension';
 
 import type { DiffData } from '../lib/diff-decorations';
 
@@ -118,6 +119,7 @@ export function CodeEditor({
 	const readonlyCompartment = useRef(new Compartment()).current;
 	const tabSizeCompartment = useRef(new Compartment()).current;
 	const diffCompartment = useRef(new Compartment()).current;
+	const lintCompartment = useRef(new Compartment()).current;
 	const themeCompartment = useRef(new Compartment()).current;
 
 	// Use refs for all callbacks so the CodeMirror extension (created once
@@ -167,12 +169,15 @@ export function CodeEditor({
 		const diffExtensions = diffData ? buildDiffExtensions(diffData, onDiffApproveReference, onDiffRejectReference) : [];
 		const isDark = resolvedTheme === 'dark';
 
+		const lintExtensions = readonly ? [] : createLintExtension(filename);
+
 		const extensions = [
 			...baseExtensions,
 			languageCompartment.of(langExtension ?? []),
 			readonlyCompartment.of(readonly ? readonlyExtension : []),
 			tabSizeCompartment.of(createTabSizeExtension(tabSize)),
 			diffCompartment.of(diffExtensions),
+			lintCompartment.of(lintExtensions),
 			themeCompartment.of([isDark ? darkTheme : lightTheme, syntaxHighlighting(isDark ? darkHighlightStyle : lightHighlightStyle)]),
 		];
 
@@ -212,15 +217,16 @@ export function CodeEditor({
 		}
 	}, [value]);
 
-	// Update language when filename changes
+	// Update language and lint when filename changes
 	useEffect(() => {
 		if (!viewReference.current) return;
 
 		const langExtension = getLanguageExtension(filename);
+		const lintExtensions = readonly ? [] : createLintExtension(filename);
 		viewReference.current.dispatch({
-			effects: languageCompartment.reconfigure(langExtension ?? []),
+			effects: [languageCompartment.reconfigure(langExtension ?? []), lintCompartment.reconfigure(lintExtensions)],
 		});
-	}, [filename, languageCompartment]);
+	}, [filename, readonly, languageCompartment, lintCompartment]);
 
 	// Update readonly state
 	useEffect(() => {

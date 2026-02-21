@@ -82,6 +82,9 @@ export default defineConfig({
 			'esbuild-wasm': 'esbuild-wasm/lib/browser.js',
 		},
 	},
+	optimizeDeps: {
+		exclude: ['@biomejs/wasm-web'],
+	},
 	build: {
 		sourcemap: true,
 		rollupOptions: {

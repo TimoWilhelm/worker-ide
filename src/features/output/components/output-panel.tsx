@@ -76,7 +76,7 @@ function parseMessage(message: string): MessageSegment[] {
  */
 export function OutputPanel({ className }: OutputPanelProperties) {
 	const logs = useLogs();
-	const [filter, setFilter] = useState<'all' | 'server' | 'client'>('all');
+	const [filter, setFilter] = useState<'all' | 'server' | 'client' | 'lint'>('all');
 	const [preserve, setPreserve] = useState(getPreserveLogs);
 	const scrollReference = useRef<HTMLDivElement>(null);
 	const autoScrollReference = useRef(true);
@@ -123,6 +123,9 @@ export function OutputPanel({ className }: OutputPanelProperties) {
 					</FilterButton>
 					<FilterButton active={filter === 'client'} onClick={() => setFilter('client')}>
 						Client
+					</FilterButton>
+					<FilterButton active={filter === 'lint'} onClick={() => setFilter('lint')}>
+						Lint
 					</FilterButton>
 				</div>
 				<div className="flex items-center gap-1.5">
@@ -211,9 +214,10 @@ const LEVEL_COLORS: Record<LogEntry['level'], string> = {
 	debug: 'text-gray-500',
 };
 
-const SOURCE_PILL_COLOR: Record<string, 'purple' | 'cyan'> = {
+const SOURCE_PILL_COLOR: Record<string, 'purple' | 'cyan' | 'yellow'> = {
 	server: 'purple',
 	client: 'cyan',
+	lint: 'yellow',
 };
 
 function LogLine({ log }: { log: LogEntry }) {
@@ -236,7 +240,7 @@ function LogLine({ log }: { log: LogEntry }) {
 			<span className="shrink-0 text-text-secondary">{time}</span>
 			{log.source && log.source !== 'system' && (
 				<Pill size="xs" rounded="sm" color={SOURCE_PILL_COLOR[log.source]} className="mt-px shrink-0 uppercase">
-					{log.source === 'server' ? 'worker' : 'client'}
+					{log.source === 'server' ? 'worker' : log.source === 'lint' ? 'lint' : 'client'}
 				</Pill>
 			)}
 			<Circle className={cn('mt-1 size-2 shrink-0', LEVEL_COLORS[log.level])} fill="currentColor" />
