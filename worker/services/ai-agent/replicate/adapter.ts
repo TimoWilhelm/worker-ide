@@ -15,7 +15,7 @@ import { BaseTextAdapter } from '@tanstack/ai/adapters';
 import Replicate from 'replicate';
 
 import { isRecordObject } from '../utilities';
-import { normalizeFunctionCallsFormat, parseToolCalls } from './tool-call-parser';
+import { normalizeFunctionCallsFormat, parseToolCalls, stripPartialToolCalls } from './tool-call-parser';
 
 import type { AgentLogger } from '../agent-logger';
 import type { AIModelId } from '@shared/constants';
@@ -259,17 +259,12 @@ class ReplicateTextAdapter extends BaseTextAdapter<string, Record<string, never>
 		// Streaming strategy: we emit TEXT_MESSAGE_CONTENT events for visible text
 		// and suppress raw XML tool blocks from being streamed to the UI.
 		//
-		// To handle the `<tool_use>` tag potentially spanning token boundaries, we
-		// maintain a small "pending buffer" of characters that could be the start of
-		// a tag. Only when we're sure text isn't part of a tag do we emit it.
-		//
-		// States:
-		//   1. STREAMING_TEXT: Emitting text tokens, watching for potential tag prefix
-		//   2. INSIDE_TOOL_USE: Detected <tool_use>, accumulating silently
+		// We use `stripPartialToolCalls` to completely remove any tool XML tags from the stream.
+		// To handle tags spanning boundaries, we hold back a small buffer of characters.
 		let accumulatedOutput = '';
-		let emittedUpTo = 0; // Index in accumulatedOutput up to which we've emitted text
-		let insideToolUse = false;
-		const TOOL_USE_OPEN = '<tool_use>';
+		let emittedUpTo = 0; // Index in accumulatedOutput up to which we've processed
+		let emittedCleanedUpTo = 0; // Index in the stripped string up to which we've emitted
+		const MAX_TAG_PREFIX_LENGTH = 30; // Longest opening tag + wiggle room
 
 		try {
 			for await (const event of this.replicate.stream(
@@ -286,20 +281,18 @@ class ReplicateTextAdapter extends BaseTextAdapter<string, Record<string, never>
 				const token = event.toString();
 				accumulatedOutput += token;
 
-				if (insideToolUse) {
-					// Already inside a tool_use block — accumulate silently
-					continue;
-				}
+				const lastOpen = accumulatedOutput.lastIndexOf('<');
+				const safeEnd =
+					lastOpen !== -1 && accumulatedOutput.length - lastOpen <= MAX_TAG_PREFIX_LENGTH
+						? lastOpen
+						: Math.max(0, accumulatedOutput.length - 1);
 
-				// Check whether the accumulated output now contains a <tool_use> tag.
-				// We search from a safe starting position to avoid re-scanning.
-				const searchStart = Math.max(0, emittedUpTo - TOOL_USE_OPEN.length + 1);
-				const tagIndex = accumulatedOutput.indexOf(TOOL_USE_OPEN, searchStart);
+				if (safeEnd > emittedUpTo) {
+					const chunkToProcess = accumulatedOutput.slice(0, safeEnd);
+					const cleanedChunk = stripPartialToolCalls(chunkToProcess);
 
-				if (tagIndex !== -1) {
-					// Found a complete tag — emit any text before it
-					if (tagIndex > emittedUpTo) {
-						const delta = accumulatedOutput.slice(emittedUpTo, tagIndex);
+					if (cleanedChunk.length > emittedCleanedUpTo) {
+						const delta = cleanedChunk.slice(emittedCleanedUpTo);
 						if (delta) {
 							yield {
 								type: 'TEXT_MESSAGE_CONTENT',
@@ -309,36 +302,17 @@ class ReplicateTextAdapter extends BaseTextAdapter<string, Record<string, never>
 								model: this.model,
 							};
 						}
-					}
-					emittedUpTo = tagIndex;
-					insideToolUse = true;
-					continue;
-				}
-
-				// No complete tag found. To avoid emitting characters that might be
-				// part of a partial `<tool_use>` tag, we hold back up to
-				// (TOOL_USE_OPEN.length - 1) characters from the end of the buffer.
-				// This handles the case where tokens arrive as: "...<tool" + "_use>..."
-				const safeEnd = accumulatedOutput.length - (TOOL_USE_OPEN.length - 1);
-				if (safeEnd > emittedUpTo) {
-					const delta = accumulatedOutput.slice(emittedUpTo, safeEnd);
-					if (delta) {
-						yield {
-							type: 'TEXT_MESSAGE_CONTENT',
-							timestamp: Date.now(),
-							messageId,
-							delta,
-							model: this.model,
-						};
+						emittedCleanedUpTo = cleanedChunk.length;
 					}
 					emittedUpTo = safeEnd;
 				}
 			}
 
-			// After stream ends, flush any remaining buffered text that wasn't emitted
+			// After stream ends, flush any remaining buffered text
 			// because it was held back as a potential tag prefix
-			if (!insideToolUse && emittedUpTo < accumulatedOutput.length) {
-				const delta = accumulatedOutput.slice(emittedUpTo);
+			const cleanedChunk = stripPartialToolCalls(accumulatedOutput);
+			if (cleanedChunk.length > emittedCleanedUpTo) {
+				const delta = cleanedChunk.slice(emittedCleanedUpTo);
 				if (delta) {
 					yield {
 						type: 'TEXT_MESSAGE_CONTENT',

@@ -18,6 +18,27 @@ import { isRecordObject } from '../utilities';
 import type { AgentLogger } from '../agent-logger';
 
 // =============================================================================
+// XML Tag Stripping
+// =============================================================================
+
+export const XML_TOOL_CALL_PATTERN =
+	/<(?:function_calls|antml:function_calls|invoke\s|antml:invoke|tool_use|tool_call)[^>]*>[\s\S]*?(?:<\/(?:function_calls|antml:function_calls|invoke|antml:invoke|tool_use|tool_call)>|$)/g;
+
+/**
+ * Strip XML-like partial tool call fragments from text.
+ * Returns the cleaned text.
+ */
+export function stripPartialToolCalls(text: string): string {
+	return text.replaceAll(XML_TOOL_CALL_PATTERN, '');
+}
+
+/** Check whether text contains tool call XML fragments. */
+export function containsToolCallXml(text: string): boolean {
+	XML_TOOL_CALL_PATTERN.lastIndex = 0;
+	return XML_TOOL_CALL_PATTERN.test(text);
+}
+
+// =============================================================================
 // Function Call Format Normalization
 // =============================================================================
 

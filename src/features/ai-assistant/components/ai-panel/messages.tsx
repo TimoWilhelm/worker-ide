@@ -292,34 +292,6 @@ type RenderSegment =
 	| { kind: 'thinking'; text: string }
 	| { kind: 'tool'; toolCall: ToolCallPart; toolResult?: ToolResultPart };
 
-/**
- * Regex matching XML-like tool call tags that models sometimes emit
- * inside thinking or text content. These are noise and should be stripped.
- *
- * Matches:
- * - `<function_calls>...</function_calls>` (with any content inside, including JSON)
- * - `<invoke ...>...</invoke>` / `<invoke ...>...</invoke>`
- * - `<tool_use>...</tool_use>` / `<tool_call>...</tool_call>`
- * - Unclosed variants (partial streaming) that run to end of string
- */
-const XML_TOOL_CALL_PATTERN =
-	/<(?:function_calls|antml:function_calls|invoke\s|antml:invoke|tool_use|tool_call)[^>]*>[\s\S]*?(?:<\/(?:function_calls|antml:function_calls|invoke|antml:invoke|tool_use|tool_call)>|$)/g;
-
-/**
- * Strip XML-like partial tool call fragments from text.
- * Returns the cleaned text, or an empty string if nothing remains.
- */
-function stripPartialToolCalls(text: string): string {
-	return text.replaceAll(XML_TOOL_CALL_PATTERN, '').trim();
-}
-
-/** Check whether text contains tool call XML fragments. */
-function containsToolCallXml(text: string): boolean {
-	// Reset lastIndex since the regex is global
-	XML_TOOL_CALL_PATTERN.lastIndex = 0;
-	return XML_TOOL_CALL_PATTERN.test(text);
-}
-
 function buildRenderSegments(parts: unknown[]): RenderSegment[] {
 	const segments: RenderSegment[] = [];
 
@@ -335,26 +307,15 @@ function buildRenderSegments(parts: unknown[]): RenderSegment[] {
 		if (isTextPart(part)) {
 			const raw = part.content.trim();
 			if (!raw) continue;
-			// Strip tool call XML that models sometimes emit in text parts
-			const hadXml = containsToolCallXml(raw);
-			const trimmed = hadXml ? stripPartialToolCalls(raw) : raw;
-			if (!trimmed) continue;
-			// If the text originally contained tool call XML, the remaining
-			// content is the model narrating its tool use — render it as a
-			// collapsible thinking segment instead of visible text.
-			if (hadXml) {
-				segments.push({ kind: 'thinking', text: trimmed });
+			// Merge consecutive text segments
+			const last = segments.at(-1);
+			if (last?.kind === 'text') {
+				last.text += '\n' + raw;
 			} else {
-				// Merge consecutive text segments
-				const last = segments.at(-1);
-				if (last?.kind === 'text') {
-					last.text += '\n' + trimmed;
-				} else {
-					segments.push({ kind: 'text', text: trimmed });
-				}
+				segments.push({ kind: 'text', text: raw });
 			}
 		} else if (isThinkingPart(part)) {
-			const cleaned = stripPartialToolCalls(part.content);
+			const cleaned = part.content.trim();
 			if (!cleaned) continue;
 			segments.push({ kind: 'thinking', text: cleaned });
 		} else if (isToolCallPart(part)) {
