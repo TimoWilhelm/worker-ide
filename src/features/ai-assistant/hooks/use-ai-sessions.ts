@@ -131,14 +131,19 @@ export function useAiSessions({ projectId }: { projectId: string }) {
 		// reload the session from the backend.
 		if (sessionId && history.length === 0) {
 			void loadAiSession(projectId, sessionId).then((data) => {
-				if (!data) return;
+				if (!data) {
+					// Session no longer exists on the backend — clear the stale ID
+					// so we don't keep retrying on every page load.
+					setSessionId(undefined);
+					return;
+				}
 				const restoredSnapshots = snapshotsRecordToMap(data.messageSnapshots);
 				createdAtReference.current = data.createdAt;
 				// eslint-disable-next-line @typescript-eslint/consistent-type-assertions, @typescript-eslint/no-explicit-any -- wire format cast
 				loadSession(data.history as any[], data.id, restoredSnapshots);
 			});
 		}
-	}, [projectId, loadSession]);
+	}, [projectId, loadSession, setSessionId]);
 
 	// =========================================================================
 	// Save current session to the backend
@@ -156,9 +161,9 @@ export function useAiSessions({ projectId }: { projectId: string }) {
 		try {
 			// Generate a session ID if this is a new conversation
 			let currentSessionId = sessionId;
+			const isNewSession = !currentSessionId;
 			if (!currentSessionId) {
 				currentSessionId = generateSessionId();
-				setSessionId(currentSessionId);
 				createdAtReference.current = Date.now();
 			}
 
@@ -169,6 +174,12 @@ export function useAiSessions({ projectId }: { projectId: string }) {
 				history,
 				messageSnapshots: snapshotsMapToRecord(messageSnapshots),
 			});
+
+			// Only persist the session ID after the backend confirms the save,
+			// so we never rehydrate a sessionId that doesn't exist on disk.
+			if (isNewSession) {
+				setSessionId(currentSessionId);
+			}
 
 			// Refresh the sessions list
 			await queryClient.invalidateQueries({ queryKey: ['ai-sessions', projectId] });

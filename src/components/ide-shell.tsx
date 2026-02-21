@@ -627,12 +627,12 @@ export function IDEShell({ projectId }: { projectId: string }) {
 
 						{/* AI toggle (desktop only — mobile uses bottom tab bar) */}
 						{!isMobile && (
-							<Tooltip content="Toggle AI panel">
+							<Tooltip content="Toggle Agent panel">
 								<div className="relative">
 									<Button
 										variant="ghost"
 										size="icon"
-										aria-label="Toggle AI panel"
+										aria-label="Toggle Agent panel"
 										onClick={toggleAIPanel}
 										className={cn(aiPanelVisible && 'text-accent')}
 									>

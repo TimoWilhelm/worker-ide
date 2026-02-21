@@ -162,7 +162,7 @@ export function WelcomeScreen({
 				<Bot className="size-8" />
 			</div>
 			<p className="max-w-[250px] text-sm/relaxed text-text-secondary">
-				Ask me to help with your code. I can read, create, edit, and delete files in your project.
+				Ask me to help with your code. I can read, create and edit files in your project.
 			</p>
 			<div className="mt-4 flex flex-wrap justify-center gap-2">
 				{AI_SUGGESTIONS.map((suggestion) => (

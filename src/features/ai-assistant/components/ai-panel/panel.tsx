@@ -558,7 +558,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 			>
 				<div className="flex items-center gap-2">
 					<Bot className="size-4 text-accent" />
-					<span className="text-sm font-medium text-text-primary">AI Assistant</span>
+					<span className="text-xs font-medium text-text-secondary">Agent</span>
 					<Pill color="muted" size="xs">
 						Beta
 					</Pill>
@@ -595,9 +595,11 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 					</DropdownMenu>
 
 					{/* New session */}
-					<Button variant="ghost" size="icon-sm" onClick={clearHistory} title="New session">
-						<Plus className="size-3.5" />
-					</Button>
+					{chatMessages.length > 0 && (
+						<Button variant="ghost" size="icon-sm" onClick={clearHistory} title="New session">
+							<Plus className="size-3.5" />
+						</Button>
+					)}
 				</div>
 			</div>
 
