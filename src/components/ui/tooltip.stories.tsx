@@ -1,15 +1,19 @@
-import { expect, userEvent, within } from '@storybook/test';
+import { expect, userEvent, within } from 'storybook/test';
 
 import { Button } from './button';
 import { Tooltip } from './tooltip';
 
-import type { Meta, StoryObj } from '@storybook/react';
+import type { Meta, StoryObj } from '@storybook/react-vite';
 
 const meta = {
 	title: 'UI/Tooltip',
 	component: Tooltip,
 	parameters: {
 		layout: 'centered',
+	},
+	args: {
+		children: undefined,
+		content: '',
 	},
 	decorators: [
 		(Story) => (

@@ -1,4 +1,4 @@
-import { expect, userEvent, within } from '@storybook/test';
+import { expect, userEvent, within } from 'storybook/test';
 
 import { Button } from './button';
 import {
@@ -11,7 +11,7 @@ import {
 	DropdownMenuGroup,
 } from './dropdown-menu';
 
-import type { Meta, StoryObj } from '@storybook/react';
+import type { Meta, StoryObj } from '@storybook/react-vite';
 
 const meta = {
 	title: 'UI/DropdownMenu',

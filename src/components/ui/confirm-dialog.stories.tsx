@@ -1,16 +1,23 @@
-import { expect, userEvent, within } from '@storybook/test';
 import { useState } from 'react';
+import { expect, userEvent, within } from 'storybook/test';
 
 import { Button } from './button';
 import { ConfirmDialog } from './confirm-dialog';
 
-import type { Meta, StoryObj } from '@storybook/react';
+import type { Meta, StoryObj } from '@storybook/react-vite';
 
 const meta = {
 	title: 'UI/ConfirmDialog',
 	component: ConfirmDialog,
 	parameters: {
 		layout: 'centered',
+	},
+	args: {
+		open: false,
+		onOpenChange: () => {},
+		title: '',
+		description: '',
+		onConfirm: () => {},
 	},
 } satisfies Meta<typeof ConfirmDialog>;
 

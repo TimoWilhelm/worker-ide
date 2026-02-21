@@ -1,8 +1,8 @@
-import { fn } from '@storybook/test';
+import { fn } from 'storybook/test';
 
 import { FileTabs } from './file-tabs';
 
-import type { Meta, StoryObj } from '@storybook/react';
+import type { Meta, StoryObj } from '@storybook/react-vite';
 
 const meta = {
 	title: 'Features/Editor/FileTabs',

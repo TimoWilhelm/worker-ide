@@ -9,8 +9,10 @@ This document is a collection of guidelines for agents working on the project.
 - [ ] You ran `bun run typecheck` to check for type errors and it passes with no errors.
 - [ ] You ran `bun run knip` to check for unused dependencies, exports and files and it passes with no errors.
 - [ ] You ran `bun run test:unit --run` to run unit tests and it passes with no errors.
-- [ ] You ran `bun run test:react --run` to run React component tests and it passes with no errors.
+- [ ] You ran `bun run test:react --run` to run react tests and it passes with no errors.
+- [ ] You ran `bun run test:integration --run` to run integration tests and it passes with no errors.
 - [ ] You ran `bun run test:e2e` to run end-to-end tests and it passes with no errors.
+- [ ] You ran `bun run test:storybook` to run storybook tests and it passes with no errors.
 - [ ] You checked the `README.md` to make sure it is up to date.
 
 ## Coding Conventions
@@ -88,39 +90,37 @@ This document is a collection of guidelines for agents working on the project.
 ## Testing & Quality
 
 - Unit tests: Vitest (`bun run test:unit --run`).
+- Integration tests: Vitest (`bun run test:integration --run`).
 - React component tests: Vitest + jsdom (`bun run test:react --run`).
+- Component visual tests: Vitest + Storybook (`bun run test:storybook`).
 - E2E tests: Playwright (`bun run test:e2e`).
-- Storybook: Component documentation (`bun run storybook`).
 - Linting: ESLint (`bun run lint`).
 - Formatting: Prettier (`bun run format`).
 - Report unused dependencies: Knip (`bun run knip`).
 - Type checking: TypeScript (`bun run typecheck`).
 
-## AI Architecture
+## Worker Testing
 
-The AI assistant uses **TanStack AI** with the **AG-UI streaming protocol** across the full stack.
+Worker code runs in Cloudflare's workerd runtime, which requires special test configuration.
 
-### Key Packages
+- Worker tests are located in `worker/**/*.test.ts` and `shared/**/*.test.ts`.
+- Configuration is in `test/unit/vitest.config.mts` using `defineWorkersConfig` from `@cloudflare/vitest-pool-workers`.
+- Tests run in a simulated Workers environment with isolated storage disabled.
+- The main worker entrypoint must be specified in `poolOptions.workers.main`.
+- Use absolute paths (`path.resolve()`) for all config paths to avoid resolution issues.
+- Run with `bun run test:unit` which includes both worker and shared code tests.
 
-- `@tanstack/ai` (backend) — `chat()`, `toServerSentEventsResponse()`, `convertMessagesToModelMessages()`, `toolDefinition()`, `maxIterations()`, `BaseTextAdapter`.
-- `@tanstack/ai-react` (frontend) — `useChat()` hook for managing chat state and streaming.
-- `@tanstack/ai-client` (frontend) — `fetchServerSentEvents()` connection adapter, `UIMessage` type.
+## Accessibility Testing
 
-### LLM Provider
+Accessibility is built into the development workflow.
 
-- API calls go through **Replicate** (not directly to Anthropic). The `REPLICATE_API_TOKEN` binding is required.
-- Model IDs use Replicate format: `"anthropic/claude-4.5-haiku"`.
-- A custom adapter (`worker/services/ai-agent/replicate/adapter.ts`) extends `BaseTextAdapter` from `@tanstack/ai/adapters`.
-- Do **not** use `@tanstack/ai-anthropic`
-
-### Backend Agent Loop
-
-- `worker/services/ai-agent/service.ts` — Async generator (`createAgentStream()`) wraps `chat()` calls in a manual outer loop with `maxIterations(1)` per call for doom-loop detection and snapshot management.
-- `toServerSentEventsResponse()` converts the async iterable of `StreamChunk` (AG-UI events) into an SSE `Response`.
-- App-specific events (snapshot_created, file_changed, plan_created, user_question, status, usage, max_iterations_reached, turn_complete) are injected as **CUSTOM AG-UI events**: `{ type: 'CUSTOM', name: string, data?: unknown, timestamp: number }`.
-- Tool executors push CUSTOM events to a shared `CustomEventQueue` array (synchronous push, drained by the generator).
-- Tools are defined with `toolDefinition()` from `@tanstack/ai`.
-
+- Storybook includes `@storybook/addon-a11y` for real-time a11y audits in the UI.
+- Stories display accessibility violations directly in the Storybook panel.
+- Use semantic HTML elements and proper ARIA attributes.
+- Ensure all interactive elements have unique, descriptive `id` attributes.
+- Include visible focus indicators on all focusable elements.
+- Use sufficient color contrast (neo-brutalism style helps with this).
+- Test with keyboard navigation (Tab, Enter, Escape keys).
 
 ## Important Notes
 

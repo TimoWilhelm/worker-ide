@@ -28,5 +28,6 @@
 		"lint-staged.config.js",
 		".storybook/**/*.ts",
 		"test/**/*.ts"
-	]
+	],
+	"exclude": [".storybook/vitest.setup.ts"]
 }

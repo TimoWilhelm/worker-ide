@@ -1,8 +1,8 @@
-import { expect, within } from '@storybook/test';
+import { expect, within } from 'storybook/test';
 
 import { Skeleton, EditorSkeleton, FileTreeSkeleton, GitPanelSkeleton, PanelSkeleton } from './skeleton';
 
-import type { Meta, StoryObj } from '@storybook/react';
+import type { Meta, StoryObj } from '@storybook/react-vite';
 
 const meta = {
 	title: 'UI/Skeleton',

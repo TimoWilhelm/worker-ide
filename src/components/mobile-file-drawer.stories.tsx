@@ -1,12 +1,12 @@
-import { expect, userEvent, within } from '@storybook/test';
 import { useEffect } from 'react';
+import { expect, userEvent, within } from 'storybook/test';
 
 import { useStore } from '@/lib/store';
 
 import { MobileFileDrawer } from './mobile-file-drawer';
 import { Button } from './ui/button';
 
-import type { Meta, StoryObj } from '@storybook/react';
+import type { Meta, StoryObj } from '@storybook/react-vite';
 
 const meta = {
 	title: 'Core/MobileFileDrawer',

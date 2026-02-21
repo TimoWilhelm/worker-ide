@@ -1,391 +1,340 @@
 /**
- * Unit tests for the DoomLoopDetector.
+ * Unit tests for the stateless detectDoomLoop function.
  *
- * All detection is stateless — derived purely from append-only history arrays.
- *
- * Tests the four detection strategies:
+ * Tests the three detection strategies by constructing ModelMessage[] histories:
  * 1. Identical consecutive tool calls (exact name + input)
- * 2. Same-tool repetition (same tool, different inputs)
- * 3. Repeated failures of the same tool (consecutive in unified history)
- * 4. No-progress iterations (zero file changes)
+ * 2. Same-tool repetition (same tool, different inputs, excluding read-only)
+ * 3. Mutation failure loop (consecutive iterations with MUTATION_FAILURE_TAG)
  */
 
 import { describe, expect, it } from 'vitest';
 
-import { DoomLoopDetector } from './doom-loop';
+import { detectDoomLoop, MUTATION_FAILURE_TAG } from './doom-loop';
+
+import type { ModelMessage } from '@tanstack/ai';
 
 // =============================================================================
-// isDoomLoop (identical consecutive tool calls)
+// Test helpers — build ModelMessage[] histories
 // =============================================================================
 
-describe('isDoomLoop', () => {
-	it('returns undefined when fewer than 3 calls recorded', () => {
-		const detector = new DoomLoopDetector();
-		detector.record('file_read', { path: '/a.txt' });
-		detector.record('file_read', { path: '/a.txt' });
+let toolCallCounter = 0;
 
-		expect(detector.isDoomLoop()).toBeUndefined();
+/** Create tool call objects with auto-incrementing IDs. */
+function makeToolCalls(calls: Array<{ name: string; arguments: Record<string, unknown> }>) {
+	return calls.map((c) => ({
+		id: `tc_${++toolCallCounter}`,
+		type: 'function' as const,
+		function: { name: c.name, arguments: JSON.stringify(c.arguments) },
+	}));
+}
+
+/** Create an assistant message with one or more tool calls. */
+function assistantWithTools(...calls: Array<{ name: string; arguments: Record<string, unknown> }>): ModelMessage {
+	return {
+		role: 'assistant',
+		// eslint-disable-next-line unicorn/no-null -- ModelMessage.content requires null
+		content: null,
+		toolCalls: makeToolCalls(calls),
+	};
+}
+
+/** Create a tool result message. */
+function toolResult(toolCallId: string, content: string): ModelMessage {
+	return { role: 'tool', content, toolCallId };
+}
+
+/** Create a user corrective message with the mutation failure tag. */
+function mutationFailureMessage(): ModelMessage {
+	return {
+		role: 'user',
+		content: `${MUTATION_FAILURE_TAG} SYSTEM: One or more mutation tools failed.`,
+	};
+}
+
+/** Create a plain user message (no failure tag). */
+function userMessage(content: string): ModelMessage {
+	return { role: 'user', content };
+}
+
+/**
+ * Build a single iteration of messages:
+ * assistant (with toolCalls) → tool results → optional mutation failure user message.
+ */
+function buildIteration(
+	calls: Array<{ name: string; arguments: Record<string, unknown> }>,
+	options?: { mutationFailure?: boolean },
+): ModelMessage[] {
+	const toolCalls = makeToolCalls(calls);
+	const assistant: ModelMessage = {
+		role: 'assistant',
+		// eslint-disable-next-line unicorn/no-null -- ModelMessage.content requires null
+		content: null,
+		toolCalls,
+	};
+	const messages: ModelMessage[] = [assistant];
+	for (const tc of toolCalls) {
+		messages.push(toolResult(tc.id, 'ok'));
+	}
+	if (options?.mutationFailure) {
+		messages.push(mutationFailureMessage());
+	}
+	return messages;
+}
+
+// =============================================================================
+// identical_calls (exact same name + arguments, N consecutive)
+// =============================================================================
+
+describe('identical_calls detection', () => {
+	it('returns no doom loop when fewer than 3 identical calls', () => {
+		const messages: ModelMessage[] = [
+			...buildIteration([{ name: 'file_read', arguments: { path: '/a.txt' } }]),
+			...buildIteration([{ name: 'file_read', arguments: { path: '/a.txt' } }]),
+		];
+		expect(detectDoomLoop(messages).isDoomLoop).toBe(false);
 	});
 
 	it('detects 3 identical consecutive tool calls', () => {
-		const detector = new DoomLoopDetector();
-		detector.record('file_read', { path: '/a.txt' });
-		detector.record('file_read', { path: '/a.txt' });
-		detector.record('file_read', { path: '/a.txt' });
-
-		expect(detector.isDoomLoop()).toBe('file_read');
+		const messages: ModelMessage[] = [
+			...buildIteration([{ name: 'file_read', arguments: { path: '/a.txt' } }]),
+			...buildIteration([{ name: 'file_read', arguments: { path: '/a.txt' } }]),
+			...buildIteration([{ name: 'file_read', arguments: { path: '/a.txt' } }]),
+		];
+		const result = detectDoomLoop(messages);
+		expect(result.isDoomLoop).toBe(true);
+		expect(result.reason).toBe('identical_calls');
+		expect(result.toolName).toBe('file_read');
 	});
 
-	it('does not trigger for different inputs', () => {
-		const detector = new DoomLoopDetector();
-		detector.record('file_read', { path: '/a.txt' });
-		detector.record('file_read', { path: '/b.txt' });
-		detector.record('file_read', { path: '/c.txt' });
-
-		expect(detector.isDoomLoop()).toBeUndefined();
+	it('does not trigger for same tool with different inputs', () => {
+		const messages: ModelMessage[] = [
+			...buildIteration([{ name: 'file_read', arguments: { path: '/a.txt' } }]),
+			...buildIteration([{ name: 'file_read', arguments: { path: '/b.txt' } }]),
+			...buildIteration([{ name: 'file_read', arguments: { path: '/c.txt' } }]),
+		];
+		expect(detectDoomLoop(messages).isDoomLoop).toBe(false);
 	});
 
 	it('does not trigger for different tool names', () => {
-		const detector = new DoomLoopDetector();
-		detector.record('file_read', { path: '/a.txt' });
-		detector.record('file_write', { path: '/a.txt' });
-		detector.record('file_read', { path: '/a.txt' });
-
-		expect(detector.isDoomLoop()).toBeUndefined();
+		const messages: ModelMessage[] = [
+			...buildIteration([{ name: 'file_read', arguments: { path: '/a.txt' } }]),
+			...buildIteration([{ name: 'file_write', arguments: { path: '/a.txt' } }]),
+			...buildIteration([{ name: 'file_read', arguments: { path: '/a.txt' } }]),
+		];
+		expect(detectDoomLoop(messages).isDoomLoop).toBe(false);
 	});
 
-	it('resets history correctly', () => {
-		const detector = new DoomLoopDetector();
-		detector.record('file_read', { path: '/a.txt' });
-		detector.record('file_read', { path: '/a.txt' });
-		detector.record('file_read', { path: '/a.txt' });
-		expect(detector.isDoomLoop()).toBe('file_read');
+	it('detects identical calls after many non-identical ones', () => {
+		const messages: ModelMessage[] = [
+			...buildIteration([{ name: 'file_read', arguments: { path: '/a.txt' } }]),
+			...buildIteration([{ name: 'file_write', arguments: { path: '/b.txt' } }]),
+			...buildIteration([{ name: 'file_delete', arguments: { path: '/c.txt' } }]),
+			...buildIteration([{ name: 'file_edit', arguments: { path: '/x.txt', old_string: 'a', new_string: 'b' } }]),
+			...buildIteration([{ name: 'file_edit', arguments: { path: '/x.txt', old_string: 'a', new_string: 'b' } }]),
+			...buildIteration([{ name: 'file_edit', arguments: { path: '/x.txt', old_string: 'a', new_string: 'b' } }]),
+		];
+		const result = detectDoomLoop(messages);
+		expect(result.isDoomLoop).toBe(true);
+		expect(result.reason).toBe('identical_calls');
+		expect(result.toolName).toBe('file_edit');
+	});
 
-		detector.reset();
-		expect(detector.isDoomLoop()).toBeUndefined();
-		expect(detector.length).toBe(0);
+	it('detects identical calls across multi-tool iterations', () => {
+		// Each iteration has 2 tool calls; the last 3 calls across iterations are identical
+		const messages: ModelMessage[] = [
+			...buildIteration([
+				{ name: 'file_read', arguments: { path: '/a.txt' } },
+				{ name: 'file_edit', arguments: { path: '/x.txt' } },
+			]),
+			...buildIteration([{ name: 'file_edit', arguments: { path: '/x.txt' } }]),
+			...buildIteration([{ name: 'file_edit', arguments: { path: '/x.txt' } }]),
+		];
+		const result = detectDoomLoop(messages);
+		expect(result.isDoomLoop).toBe(true);
+		expect(result.reason).toBe('identical_calls');
+		expect(result.toolName).toBe('file_edit');
 	});
 });
 
 // =============================================================================
-// isSameToolLoop (same tool called repeatedly with different inputs)
+// same_tool_repetition (same tool N times, even with different inputs)
 // =============================================================================
 
-describe('isSameToolLoop', () => {
-	it('returns undefined when fewer than 5 calls recorded', () => {
-		const detector = new DoomLoopDetector();
-		detector.record('file_edit', { path: '/a.txt' });
-		detector.record('file_edit', { path: '/b.txt' });
-		detector.record('file_edit', { path: '/c.txt' });
-		detector.record('file_edit', { path: '/d.txt' });
-
-		expect(detector.isSameToolLoop()).toBeUndefined();
+describe('same_tool_repetition detection', () => {
+	it('returns no doom loop when fewer than 5 same-tool calls', () => {
+		const messages: ModelMessage[] = [
+			...buildIteration([{ name: 'file_edit', arguments: { path: '/a.txt' } }]),
+			...buildIteration([{ name: 'file_edit', arguments: { path: '/b.txt' } }]),
+			...buildIteration([{ name: 'file_edit', arguments: { path: '/c.txt' } }]),
+			...buildIteration([{ name: 'file_edit', arguments: { path: '/d.txt' } }]),
+		];
+		expect(detectDoomLoop(messages).isDoomLoop).toBe(false);
 	});
 
-	it('detects 5 consecutive calls to the same tool with different inputs', () => {
-		const detector = new DoomLoopDetector();
-		detector.record('file_edit', { path: '/a.txt' });
-		detector.record('file_edit', { path: '/b.txt' });
-		detector.record('file_edit', { path: '/c.txt' });
-		detector.record('file_edit', { path: '/d.txt' });
-		detector.record('file_edit', { path: '/e.txt' });
-
-		expect(detector.isSameToolLoop()).toBe('file_edit');
+	it('detects 5 consecutive calls to the same mutation tool', () => {
+		const messages: ModelMessage[] = [
+			...buildIteration([{ name: 'file_edit', arguments: { path: '/a.txt' } }]),
+			...buildIteration([{ name: 'file_edit', arguments: { path: '/b.txt' } }]),
+			...buildIteration([{ name: 'file_edit', arguments: { path: '/c.txt' } }]),
+			...buildIteration([{ name: 'file_edit', arguments: { path: '/d.txt' } }]),
+			...buildIteration([{ name: 'file_edit', arguments: { path: '/e.txt' } }]),
+		];
+		const result = detectDoomLoop(messages);
+		expect(result.isDoomLoop).toBe(true);
+		expect(result.reason).toBe('same_tool_repetition');
+		expect(result.toolName).toBe('file_edit');
 	});
 
 	it('does not trigger when different tools are interleaved', () => {
-		const detector = new DoomLoopDetector();
-		detector.record('file_edit', { path: '/a.txt' });
-		detector.record('file_edit', { path: '/b.txt' });
-		detector.record('file_read', { path: '/c.txt' });
-		detector.record('file_edit', { path: '/d.txt' });
-		detector.record('file_edit', { path: '/e.txt' });
-
-		expect(detector.isSameToolLoop()).toBeUndefined();
+		const messages: ModelMessage[] = [
+			...buildIteration([{ name: 'file_edit', arguments: { path: '/a.txt' } }]),
+			...buildIteration([{ name: 'file_edit', arguments: { path: '/b.txt' } }]),
+			...buildIteration([{ name: 'file_read', arguments: { path: '/c.txt' } }]),
+			...buildIteration([{ name: 'file_edit', arguments: { path: '/d.txt' } }]),
+			...buildIteration([{ name: 'file_edit', arguments: { path: '/e.txt' } }]),
+		];
+		expect(detectDoomLoop(messages).isDoomLoop).toBe(false);
 	});
 
 	it('excludes read-only tools from detection', () => {
 		const readOnlyTools = new Set(['file_read']);
-		const detector = new DoomLoopDetector();
-		detector.record('file_read', { path: '/a.txt' });
-		detector.record('file_read', { path: '/b.txt' });
-		detector.record('file_read', { path: '/c.txt' });
-		detector.record('file_read', { path: '/d.txt' });
-		detector.record('file_read', { path: '/e.txt' });
-
-		expect(detector.isSameToolLoop(readOnlyTools)).toBeUndefined();
+		const messages: ModelMessage[] = [
+			...buildIteration([{ name: 'file_read', arguments: { path: '/a.txt' } }]),
+			...buildIteration([{ name: 'file_read', arguments: { path: '/b.txt' } }]),
+			...buildIteration([{ name: 'file_read', arguments: { path: '/c.txt' } }]),
+			...buildIteration([{ name: 'file_read', arguments: { path: '/d.txt' } }]),
+			...buildIteration([{ name: 'file_read', arguments: { path: '/e.txt' } }]),
+		];
+		expect(detectDoomLoop(messages, readOnlyTools).isDoomLoop).toBe(false);
 	});
 
 	it('detects non-read-only tools even when readOnlyTools set is provided', () => {
 		const readOnlyTools = new Set(['file_read']);
-		const detector = new DoomLoopDetector();
-		detector.record('file_edit', { path: '/a.txt' });
-		detector.record('file_edit', { path: '/b.txt' });
-		detector.record('file_edit', { path: '/c.txt' });
-		detector.record('file_edit', { path: '/d.txt' });
-		detector.record('file_edit', { path: '/e.txt' });
-
-		expect(detector.isSameToolLoop(readOnlyTools)).toBe('file_edit');
+		const messages: ModelMessage[] = [
+			...buildIteration([{ name: 'file_edit', arguments: { path: '/a.txt' } }]),
+			...buildIteration([{ name: 'file_edit', arguments: { path: '/b.txt' } }]),
+			...buildIteration([{ name: 'file_edit', arguments: { path: '/c.txt' } }]),
+			...buildIteration([{ name: 'file_edit', arguments: { path: '/d.txt' } }]),
+			...buildIteration([{ name: 'file_edit', arguments: { path: '/e.txt' } }]),
+		];
+		const result = detectDoomLoop(messages, readOnlyTools);
+		expect(result.isDoomLoop).toBe(true);
+		expect(result.reason).toBe('same_tool_repetition');
+		expect(result.toolName).toBe('file_edit');
 	});
 });
 
 // =============================================================================
-// isFailureLoop (same tool failing repeatedly — from unified history)
+// mutation_failure_loop (MUTATION_FAILURE_TAG in consecutive iterations)
 // =============================================================================
 
-describe('isFailureLoop', () => {
-	it('returns undefined when fewer than 3 failures recorded', () => {
-		const detector = new DoomLoopDetector();
-		detector.recordFailure('file_edit');
-		detector.recordFailure('file_edit');
-
-		expect(detector.isFailureLoop()).toBeUndefined();
-	});
-
-	it('detects 3 consecutive failures of the same tool', () => {
-		const detector = new DoomLoopDetector();
-		detector.recordFailure('file_edit');
-		detector.recordFailure('file_edit');
-		detector.recordFailure('file_edit');
-
-		expect(detector.isFailureLoop()).toBe('file_edit');
-	});
-
-	it('does not trigger when different tools fail', () => {
-		const detector = new DoomLoopDetector();
-		detector.recordFailure('file_edit');
-		detector.recordFailure('file_write');
-		detector.recordFailure('file_edit');
-
-		expect(detector.isFailureLoop()).toBeUndefined();
-	});
-
-	it('detects failures even when interleaved with successful reads (dedicated failure history)', () => {
-		const detector = new DoomLoopDetector();
-		// This simulates the exact bug: file_read succeeds between file_write failures
-		detector.record('file_read', { path: '/src/app.tsx' });
-		detector.recordFailure('file_write');
-		detector.record('file_read', { path: '/src/app.tsx' });
-		detector.recordFailure('file_write');
-		detector.record('file_read', { path: '/src/style.css' });
-		detector.recordFailure('file_write');
-
-		// The dedicated failure history should see 3 consecutive file_write failures
-		expect(detector.isFailureLoop()).toBe('file_write');
-	});
-
-	it('resets failure history on reset()', () => {
-		const detector = new DoomLoopDetector();
-		detector.recordFailure('file_edit');
-		detector.recordFailure('file_edit');
-		detector.recordFailure('file_edit');
-		expect(detector.isFailureLoop()).toBe('file_edit');
-
-		detector.reset();
-		expect(detector.isFailureLoop()).toBeUndefined();
-	});
-});
-
-// =============================================================================
-// isNoProgress (consecutive iterations with zero file changes)
-// =============================================================================
-
-describe('isNoProgress', () => {
-	it('returns false when fewer than 2 iterations recorded', () => {
-		const detector = new DoomLoopDetector();
-		detector.recordIterationProgress(false);
-
-		expect(detector.isNoProgress()).toBe(false);
-	});
-
-	it('detects 2 consecutive iterations with no file changes', () => {
-		const detector = new DoomLoopDetector();
-		detector.recordIterationProgress(false);
-		detector.recordIterationProgress(false);
-
-		expect(detector.isNoProgress()).toBe(true);
-	});
-
-	it('does not trigger when any iteration had file changes', () => {
-		const detector = new DoomLoopDetector();
-		detector.recordIterationProgress(true);
-		detector.recordIterationProgress(false);
-
-		expect(detector.isNoProgress()).toBe(false);
-	});
-
-	it('detects no-progress after an initial successful iteration', () => {
-		const detector = new DoomLoopDetector();
-		detector.recordIterationProgress(true);
-		detector.recordIterationProgress(false);
-		detector.recordIterationProgress(false);
-
-		expect(detector.isNoProgress()).toBe(true);
-	});
-
-	it('resets iteration progress history on reset()', () => {
-		const detector = new DoomLoopDetector();
-		detector.recordIterationProgress(false);
-		detector.recordIterationProgress(false);
-		expect(detector.isNoProgress()).toBe(true);
-
-		detector.reset();
-		expect(detector.isNoProgress()).toBe(false);
-	});
-});
-
-// =============================================================================
-// isMutationFailureLoop (mutation tools failing across consecutive iterations)
-// =============================================================================
-
-describe('isMutationFailureLoop', () => {
-	it('returns false when fewer than 2 iterations recorded', () => {
-		const detector = new DoomLoopDetector();
-		detector.recordIterationMutationFailure(true);
-
-		expect(detector.isMutationFailureLoop()).toBe(false);
+describe('mutation_failure_loop detection', () => {
+	it('returns no doom loop when only 1 iteration has a mutation failure', () => {
+		const messages: ModelMessage[] = [...buildIteration([{ name: 'file_edit', arguments: { path: '/a.txt' } }], { mutationFailure: true })];
+		expect(detectDoomLoop(messages).isDoomLoop).toBe(false);
 	});
 
 	it('detects 2 consecutive iterations with mutation failures', () => {
-		const detector = new DoomLoopDetector();
-		detector.recordIterationMutationFailure(true);
-		detector.recordIterationMutationFailure(true);
-
-		expect(detector.isMutationFailureLoop()).toBe(true);
+		const messages: ModelMessage[] = [
+			...buildIteration([{ name: 'file_edit', arguments: { path: '/a.txt' } }], { mutationFailure: true }),
+			...buildIteration([{ name: 'file_edit', arguments: { path: '/b.txt' } }], { mutationFailure: true }),
+		];
+		const result = detectDoomLoop(messages);
+		expect(result.isDoomLoop).toBe(true);
+		expect(result.reason).toBe('mutation_failure_loop');
 	});
 
-	it('does not trigger when an iteration had no mutation failures', () => {
-		const detector = new DoomLoopDetector();
-		detector.recordIterationMutationFailure(true);
-		detector.recordIterationMutationFailure(false);
-
-		expect(detector.isMutationFailureLoop()).toBe(false);
+	it('does not trigger when an iteration had no mutation failure', () => {
+		const messages: ModelMessage[] = [
+			...buildIteration([{ name: 'file_edit', arguments: { path: '/a.txt' } }], { mutationFailure: true }),
+			...buildIteration([{ name: 'file_edit', arguments: { path: '/b.txt' } }]),
+		];
+		expect(detectDoomLoop(messages).isDoomLoop).toBe(false);
 	});
 
 	it('detects mutation failure loop after an initial successful iteration', () => {
-		const detector = new DoomLoopDetector();
-		detector.recordIterationMutationFailure(false);
-		detector.recordIterationMutationFailure(true);
-		detector.recordIterationMutationFailure(true);
-
-		expect(detector.isMutationFailureLoop()).toBe(true);
+		const messages: ModelMessage[] = [
+			...buildIteration([{ name: 'file_edit', arguments: { path: '/a.txt' } }]),
+			...buildIteration([{ name: 'file_edit', arguments: { path: '/b.txt' } }], { mutationFailure: true }),
+			...buildIteration([{ name: 'file_edit', arguments: { path: '/c.txt' } }], { mutationFailure: true }),
+		];
+		const result = detectDoomLoop(messages);
+		expect(result.isDoomLoop).toBe(true);
+		expect(result.reason).toBe('mutation_failure_loop');
 	});
 
-	it('resets mutation failure history on reset()', () => {
-		const detector = new DoomLoopDetector();
-		detector.recordIterationMutationFailure(true);
-		detector.recordIterationMutationFailure(true);
-		expect(detector.isMutationFailureLoop()).toBe(true);
+	it('does not trigger on user messages without the mutation failure tag', () => {
+		const messages: ModelMessage[] = [
+			assistantWithTools({ name: 'file_edit', arguments: { path: '/a.txt' } }),
+			toolResult('tc_prev', 'ok'),
+			userMessage('Please fix the bug'),
+			assistantWithTools({ name: 'file_edit', arguments: { path: '/b.txt' } }),
+			toolResult('tc_prev2', 'ok'),
+			userMessage('Try again'),
+		];
+		expect(detectDoomLoop(messages).isDoomLoop).toBe(false);
+	});
 
-		detector.reset();
-		expect(detector.isMutationFailureLoop()).toBe(false);
+	it('handles interleaved reads between mutation failures (regression)', () => {
+		// Iteration 1: read + failed write (mutation failure)
+		// Iteration 2: read + failed write (mutation failure)
+		const messages: ModelMessage[] = [
+			...buildIteration(
+				[
+					{ name: 'file_read', arguments: { path: '/src/app.tsx' } },
+					{ name: 'file_write', arguments: { path: '/src/app.tsx' } },
+				],
+				{ mutationFailure: true },
+			),
+			...buildIteration(
+				[
+					{ name: 'file_read', arguments: { path: '/src/app.tsx' } },
+					{ name: 'file_write', arguments: { path: '/src/app.tsx' } },
+				],
+				{ mutationFailure: true },
+			),
+		];
+		const result = detectDoomLoop(messages);
+		expect(result.isDoomLoop).toBe(true);
+		expect(result.reason).toBe('mutation_failure_loop');
 	});
 });
 
 // =============================================================================
-// Combined scenarios
+// Combined / edge-case scenarios
 // =============================================================================
 
 describe('combined detection', () => {
-	it('failure loop and no-progress detected together', () => {
-		const detector = new DoomLoopDetector();
-
-		// 3 consecutive failures of the same tool
-		detector.recordFailure('file_edit');
-		detector.recordFailure('file_edit');
-		detector.recordFailure('file_edit');
-
-		// 2 no-progress iterations
-		detector.recordIterationProgress(false);
-		detector.recordIterationProgress(false);
-
-		expect(detector.isFailureLoop()).toBe('file_edit');
-		expect(detector.isNoProgress()).toBe(true);
+	it('identical_calls takes priority over mutation_failure_loop', () => {
+		const messages: ModelMessage[] = [
+			...buildIteration([{ name: 'file_edit', arguments: { path: '/a.txt' } }], { mutationFailure: true }),
+			...buildIteration([{ name: 'file_edit', arguments: { path: '/a.txt' } }], { mutationFailure: true }),
+			...buildIteration([{ name: 'file_edit', arguments: { path: '/a.txt' } }], { mutationFailure: true }),
+		];
+		const result = detectDoomLoop(messages);
+		// identical_calls is checked first
+		expect(result.isDoomLoop).toBe(true);
+		expect(result.reason).toBe('identical_calls');
 	});
 
-	it('length tracks total tool call count including failures', () => {
-		const detector = new DoomLoopDetector();
-		detector.record('file_read', { path: '/a.txt' });
-		detector.record('file_read', { path: '/b.txt' });
-		detector.record('file_read', { path: '/c.txt' });
-		detector.record('file_read', { path: '/d.txt' });
-		detector.record('file_read', { path: '/e.txt' });
-		detector.recordFailure('file_edit');
-		detector.recordIterationProgress(false);
-
-		// 5 successful + 1 failure = 6 total tool calls
-		expect(detector.length).toBe(6);
+	it('returns no doom loop for an empty message history', () => {
+		expect(detectDoomLoop([]).isDoomLoop).toBe(false);
 	});
 
-	it('still detects doom loop after many non-identical calls followed by identical ones', () => {
-		const detector = new DoomLoopDetector();
-		// Fill with different calls (these get evicted from bounded history)
-		detector.record('file_read', { path: '/a.txt' });
-		detector.record('file_write', { path: '/b.txt' });
-		detector.record('file_delete', { path: '/c.txt' });
-		detector.record('file_glob', { pattern: '*.ts' });
-		expect(detector.isDoomLoop()).toBeUndefined();
-
-		// Now 3 identical calls — should detect doom loop
-		detector.record('file_edit', { path: '/x.txt', old_string: 'a', new_string: 'b' });
-		detector.record('file_edit', { path: '/x.txt', old_string: 'a', new_string: 'b' });
-		detector.record('file_edit', { path: '/x.txt', old_string: 'a', new_string: 'b' });
-		expect(detector.isDoomLoop()).toBe('file_edit');
+	it('returns no doom loop for messages with no tool calls', () => {
+		const messages: ModelMessage[] = [
+			{ role: 'user', content: 'Hello' },
+			{ role: 'assistant', content: 'Hi there!' },
+		];
+		expect(detectDoomLoop(messages).isDoomLoop).toBe(false);
 	});
 
-	it('interleaved successful reads do NOT prevent failure loop detection (regression)', () => {
-		const detector = new DoomLoopDetector();
-		// Simulate the exact pattern from the bug:
-		// Iteration 1: file_read succeeds, file_write fails
-		detector.record('file_read', { path: '/src/app.tsx' });
-		detector.recordFailure('file_write');
-		// Iteration 2: file_read succeeds, file_write fails, file_read succeeds, file_edit fails
-		detector.record('file_read', { path: '/src/app.tsx' });
-		detector.recordFailure('file_write');
-		detector.record('file_read', { path: '/src/style.css' });
-		detector.recordFailure('file_edit');
-		// Iteration 3: file_read succeeds, file_write fails
-		detector.record('file_read', { path: '/src/app.tsx' });
-		detector.recordFailure('file_write');
-
-		// The dedicated failure history sees [file_write, file_write, file_edit, file_write]
-		// Last 3 are [file_write, file_edit, file_write] — different tools, so no detection.
-		// But if we only had file_write failures:
-		// This specific scenario has mixed failures, so isFailureLoop won't trigger.
-		// The mutation failure loop (per-iteration) should catch this instead.
-		expect(detector.isFailureLoop()).toBeUndefined();
-	});
-
-	it('mutation failure loop catches the interleaved-reads scenario', () => {
-		const detector = new DoomLoopDetector();
-		// Simulate: 2 iterations where mutation tools failed
-		detector.recordIterationMutationFailure(true);
-		detector.recordIterationMutationFailure(true);
-
-		expect(detector.isMutationFailureLoop()).toBe(true);
-	});
-
-	it('all detection methods work together for the original bug scenario', () => {
-		const detector = new DoomLoopDetector();
-
-		// Iteration 1: read + failed patch
-		detector.record('file_read', { path: '/src/app.tsx' });
-		detector.recordFailure('file_write');
-		detector.recordIterationProgress(false);
-		detector.recordIterationMutationFailure(true);
-
-		// After iteration 1: nothing detected yet
-		expect(detector.isNoProgress()).toBe(false);
-		expect(detector.isMutationFailureLoop()).toBe(false);
-
-		// Iteration 2: read + failed patch
-		detector.record('file_read', { path: '/src/app.tsx' });
-		detector.recordFailure('file_write');
-		detector.recordIterationProgress(false);
-		detector.recordIterationMutationFailure(true);
-
-		// After iteration 2: both no-progress and mutation failure loop detected
-		expect(detector.isNoProgress()).toBe(true);
-		expect(detector.isMutationFailureLoop()).toBe(true);
+	it('handles assistant messages with empty toolCalls array', () => {
+		const messages: ModelMessage[] = [
+			{ role: 'assistant', content: 'thinking...', toolCalls: [] },
+			{ role: 'assistant', content: 'still thinking...', toolCalls: [] },
+			{ role: 'assistant', content: 'done thinking', toolCalls: [] },
+		];
+		expect(detectDoomLoop(messages).isDoomLoop).toBe(false);
 	});
 });

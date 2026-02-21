@@ -1,9 +1,9 @@
-import { fn } from '@storybook/test';
+import { fn } from 'storybook/test';
 
 import { FileTree } from './file-tree';
 
 import type { FileInfo } from '@shared/types';
-import type { Meta, StoryObj } from '@storybook/react';
+import type { Meta, StoryObj } from '@storybook/react-vite';
 
 function toFileInfo(paths: string[]): FileInfo[] {
 	return paths.map((path) => ({

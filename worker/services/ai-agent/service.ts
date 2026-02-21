@@ -28,7 +28,7 @@ import {
 
 import { AgentLogger, sanitizeToolInput, summarizeToolResult } from './agent-logger';
 import { isContextOverflow, pruneToolOutputs } from './context-pruner';
-import { DoomLoopDetector } from './doom-loop';
+import { detectDoomLoop, MUTATION_FAILURE_TAG } from './doom-loop';
 import { createAdapter, getModelLimits } from './replicate';
 import { classifyRetryableError, calculateRetryDelay, sleep } from './retry';
 import { TokenTracker } from './token-tracker';
@@ -159,7 +159,6 @@ export class AIAgentService {
 	): AsyncIterable<StreamChunk> {
 		const signal = abortController.signal;
 		const queryChanges: FileChange[] = [];
-		const doomDetector = new DoomLoopDetector();
 		const tokenTracker = new TokenTracker();
 		const eventQueue: CustomEventQueue = [];
 		const logger = new AgentLogger(this.sessionId, this.projectId, this.model, this.mode);
@@ -408,7 +407,6 @@ export class AIAgentService {
 								// Emit CUSTOM events so the frontend gets structured error data
 								// instead of having to regex-parse "[CODE] message" prefixes.
 								for (const failure of toolFailures) {
-									doomDetector.recordFailure(failure.toolName);
 									if (MUTATION_TOOL_NAMES.has(failure.toolName)) {
 										hadMutationFailure = true;
 									}
@@ -449,7 +447,6 @@ export class AIAgentService {
 											rawArguments: currentToolArguments.slice(0, 200),
 										});
 									}
-									doomDetector.record(toolName, toolInput);
 									logger.recordToolCall(toolName);
 								}
 
@@ -593,7 +590,7 @@ export class AIAgentService {
 						workingMessages.push({
 							role: 'user',
 							content:
-								'SYSTEM: One or more mutation tools (file_edit, file_write, etc.) FAILED this turn. ' +
+								`${MUTATION_FAILURE_TAG} SYSTEM: One or more mutation tools (file_edit, file_write, etc.) FAILED this turn. ` +
 								'Common causes: (1) the patch contained content that does not match the actual file — you may be hallucinating file contents; ' +
 								'(2) the old_string in file_edit does not exist in the file. ' +
 								'IMPORTANT: Before retrying, you MUST file_read the target file(s) to see their ACTUAL current content. ' +
@@ -673,99 +670,20 @@ export class AIAgentService {
 						// Non-fatal — coordinator may be unreachable
 					}
 				}
-
-				// Check doom loop (identical consecutive tool calls)
-				const doomLoopTool = doomDetector.isDoomLoop();
-				if (doomLoopTool) {
+				const loopResult = detectDoomLoop(workingMessages, READ_ONLY_TOOL_NAMES);
+				if (loopResult.isDoomLoop) {
 					logger.warn('agent_loop', 'doom_loop_detected', {
-						toolName: doomLoopTool,
-						totalToolCalls: doomDetector.length,
+						reason: loopResult.reason,
+						toolName: loopResult.toolName,
 					});
 					logger.markDoomLoop();
 					yield customEvent('status', {
-						message: `Detected repeated calls to ${doomLoopTool}, stopping.`,
+						message: loopResult.toolName ? `${loopResult.toolName} loop detected, stopping.` : 'Doom loop detected, stopping.',
 					});
 					yield customEvent('doom_loop_detected', {
-						reason: 'identical_calls',
-						toolName: doomLoopTool,
-						message: `Detected repeated identical calls to ${doomLoopTool}. The agent was stopped to prevent an infinite loop.`,
-					});
-					continueLoop = false;
-				}
-
-				// Check same-tool loop (same tool called repeatedly with different inputs)
-				const sameToolLoopTool = doomDetector.isSameToolLoop(READ_ONLY_TOOL_NAMES);
-				if (sameToolLoopTool) {
-					logger.warn('agent_loop', 'same_tool_loop_detected', {
-						toolName: sameToolLoopTool,
-						totalToolCalls: doomDetector.length,
-					});
-					logger.markDoomLoop();
-					yield customEvent('status', {
-						message: `${sameToolLoopTool} called too many times in a row, stopping.`,
-					});
-					yield customEvent('doom_loop_detected', {
-						reason: 'same_tool_repetition',
-						toolName: sameToolLoopTool,
-						message: `${sameToolLoopTool} was called too many times in a row. The agent was stopped to prevent an infinite loop.`,
-					});
-					continueLoop = false;
-				}
-
-				// Check failure loop (same tool failing repeatedly)
-				const failureLoopTool = doomDetector.isFailureLoop();
-				if (failureLoopTool) {
-					logger.warn('agent_loop', 'failure_loop_detected', {
-						toolName: failureLoopTool,
-						totalToolCalls: doomDetector.length,
-					});
-					logger.markDoomLoop();
-					yield customEvent('status', {
-						message: `${failureLoopTool} keeps failing, stopping.`,
-					});
-					yield customEvent('doom_loop_detected', {
-						reason: 'failure_loop',
-						toolName: failureLoopTool,
-						message: `${failureLoopTool} keeps failing repeatedly. The agent was stopped to prevent an infinite loop.`,
-					});
-					continueLoop = false;
-				}
-
-				// Track iteration progress and check for no-progress loop
-				doomDetector.recordIterationProgress(fileChangesThisIteration > 0);
-				doomDetector.recordIterationMutationFailure(hadMutationFailure);
-
-				// Check mutation failure loop (mutation tools failing across consecutive iterations)
-				if (hadMutationFailure && doomDetector.isMutationFailureLoop()) {
-					logger.warn('agent_loop', 'mutation_failure_loop_detected', {
-						iteration,
-						totalToolCalls: doomDetector.length,
-					});
-					logger.markDoomLoop();
-					yield customEvent('status', {
-						message: 'Mutation tools keep failing, stopping.',
-					});
-					yield customEvent('doom_loop_detected', {
-						reason: 'mutation_failure_loop',
-						message:
-							'Mutation tools (file_edit, file_write, etc.) have failed across multiple consecutive iterations. ' +
-							'The agent was stopped to prevent wasting resources.',
-					});
-					continueLoop = false;
-				}
-
-				if (hadToolCalls && doomDetector.isNoProgress()) {
-					logger.warn('agent_loop', 'no_progress_detected', {
-						iteration,
-						totalToolCalls: doomDetector.length,
-					});
-					logger.markDoomLoop();
-					yield customEvent('status', {
-						message: 'No file changes after multiple attempts, stopping.',
-					});
-					yield customEvent('doom_loop_detected', {
-						reason: 'no_progress',
-						message: 'No file changes were made after multiple attempts. The agent was stopped to prevent an infinite loop.',
+						reason: loopResult.reason || 'unknown',
+						toolName: loopResult.toolName,
+						message: loopResult.message || 'The agent was stopped to prevent an infinite loop.',
 					});
 					continueLoop = false;
 				}

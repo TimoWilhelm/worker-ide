@@ -1,10 +1,10 @@
-import { expect, userEvent, within } from '@storybook/test';
+import { expect, userEvent, within } from 'storybook/test';
 
 import { Button } from './button';
 import { Toaster } from './toast';
-import { addToast } from './toast-store';
+import { toast } from './toast-store';
 
-import type { Meta, StoryObj } from '@storybook/react';
+import type { Meta, StoryObj } from '@storybook/react-vite';
 
 const meta = {
 	title: 'UI/Toast',
@@ -22,14 +22,14 @@ const ToastDemo = () => {
 		<div className="flex flex-col gap-4">
 			<Button
 				onClick={() => {
-					addToast('Something went wrong!');
+					toast.error('Something went wrong!');
 				}}
 			>
 				Show Error Toast
 			</Button>
 			<Button
 				onClick={() => {
-					addToast('Success: File saved!', 'success');
+					toast.error('Success: File saved!');
 				}}
 			>
 				Show Success Toast

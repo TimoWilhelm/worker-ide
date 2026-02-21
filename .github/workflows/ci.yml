@@ -244,6 +244,60 @@ jobs:
       - name: Run Storybook tests
         run: bun run test:storybook
 
+  integration-tests:
+    name: Integration Tests
+    needs: setup
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Node.js is required for Vitest - https://github.com/oven-sh/bun/issues/4145
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Restore node_modules
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: ${{ runner.os }}-modules-${{ hashFiles('bun.lock') }}
+          fail-on-cache-miss: true
+
+      - name: Start dev server
+        run: |
+          bun run dev &
+          echo "DEV_SERVER_PID=$!" >> $GITHUB_ENV
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Wait for server to be ready
+        run: |
+          echo "Waiting for server..."
+          timeout 60 bash -c 'until curl -sf http://localhost:3000/api/templates > /dev/null 2>&1; do sleep 2; done'
+          echo "Server is ready!"
+
+      - name: Run integration tests
+        run: bun run test:integration
+        env:
+          TEST_BASE_URL: 'http://localhost:3000'
+
+      - name: Stop dev server
+        if: always()
+        run: |
+          if [ -n "$DEV_SERVER_PID" ]; then
+            kill $DEV_SERVER_PID || true
+          fi
+
   e2e:
     name: E2E Tests
     needs: setup
