@@ -81,7 +81,9 @@ export async function execute(
 		try {
 			await assertFileWasRead(projectRoot, sessionId, editPath);
 		} catch (error) {
-			return toolError(ToolErrorCode.FILE_NOT_READ, error instanceof Error ? error.message : 'You must read the file before editing it.');
+			const message = error instanceof Error ? error.message : 'You must read the file before editing it.';
+			const code = message.includes('has been modified since') ? ToolErrorCode.FILE_CHANGED_EXTERNALLY : ToolErrorCode.FILE_NOT_READ;
+			return toolError(code, message);
 		}
 	}
 

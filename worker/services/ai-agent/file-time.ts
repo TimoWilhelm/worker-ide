@@ -84,11 +84,30 @@ async function flushFileTimes(projectRoot: string, sessionId: string, times: Map
 
 /**
  * Record that a file was read. Call this after successfully reading a file.
- * This also serves to mark newly created files as "read" so subsequent edits work.
+ * This also serves to mark newly created/written files as "read" so subsequent edits work.
+ *
+ * Uses the file's actual mtime from the filesystem rather than Date.now() to
+ * avoid clock skew between the Worker isolate and the Durable Object that
+ * backs the virtual filesystem — both produce independent Date.now() values
+ * which can drift by a few milliseconds, causing false "file changed externally"
+ * errors on the very next edit.
  */
 export async function recordFileRead(projectRoot: string, sessionId: string, filepath: string): Promise<void> {
+	const normalized = normalizePath(filepath);
 	const times = await loadFileTimes(projectRoot, sessionId);
-	times.set(normalizePath(filepath), Date.now());
+
+	// Stat the file to get its actual mtime so the recorded timestamp and
+	// the value returned by future stat() calls come from the same clock.
+	let timestamp: number;
+	try {
+		const stats = await fs.stat(`${projectRoot}${normalized}`);
+		timestamp = stats.mtime.getTime();
+	} catch {
+		// File may not exist yet (e.g., about to be created), fall back
+		timestamp = Date.now();
+	}
+
+	times.set(normalized, timestamp);
 	await flushFileTimes(projectRoot, sessionId, times);
 }
 
