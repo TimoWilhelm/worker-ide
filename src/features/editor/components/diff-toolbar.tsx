@@ -2,7 +2,8 @@
  * Diff Toolbar
  *
  * Shown above the code editor when the active file has a pending AI change.
- * Provides file-level accept/reject controls and bulk actions.
+ * Provides file-level accept/reject controls. Bulk actions (Accept All /
+ * Reject All) live in the AI panel's ChangedFilesSummary component.
  */
 
 import { ArrowRightLeft, Check, FileMinus, FilePen, FilePlus, X } from 'lucide-react';
@@ -18,8 +19,6 @@ export interface DiffToolbarProperties {
 	action: 'create' | 'edit' | 'delete' | 'move';
 	onApprove: (path: string) => void;
 	onReject: (path: string) => void;
-	onApproveAll: () => void;
-	onRejectAll: () => void;
 	isReverting: boolean;
 	canReject: boolean;
 }
@@ -28,16 +27,7 @@ export interface DiffToolbarProperties {
 // Component
 // =============================================================================
 
-export function DiffToolbar({
-	path,
-	action,
-	onApprove,
-	onReject,
-	onApproveAll,
-	onRejectAll,
-	isReverting,
-	canReject,
-}: DiffToolbarProperties) {
+export function DiffToolbar({ path, action, onApprove, onReject, isReverting, canReject }: DiffToolbarProperties) {
 	return (
 		<div className={cn('flex items-center justify-between gap-2 border-b px-3 py-1', 'border-accent/20 bg-accent/5')}>
 			{/* Left: file path + action badge */}
@@ -76,37 +66,6 @@ export function DiffToolbar({
 				>
 					<X className="size-3" />
 					Reject
-				</button>
-
-				<span className="mx-1 h-3 w-px bg-border" />
-
-				<button
-					type="button"
-					onClick={onApproveAll}
-					disabled={isReverting}
-					className={cn(
-						'inline-flex cursor-pointer items-center gap-1 rounded-md px-2 py-0.5',
-						'text-2xs font-medium text-text-secondary transition-colors',
-						'hover:bg-success/10 hover:text-success',
-						isReverting && 'cursor-not-allowed opacity-50',
-					)}
-				>
-					<Check className="size-3" />
-					Accept All
-				</button>
-				<button
-					type="button"
-					onClick={onRejectAll}
-					disabled={isReverting || !canReject}
-					className={cn(
-						'inline-flex cursor-pointer items-center gap-1 rounded-md px-2 py-0.5',
-						'text-2xs font-medium text-text-secondary transition-colors',
-						'hover:bg-error/10 hover:text-error',
-						(isReverting || !canReject) && 'cursor-not-allowed opacity-50',
-					)}
-				>
-					<X className="size-3" />
-					Reject All
 				</button>
 			</div>
 		</div>

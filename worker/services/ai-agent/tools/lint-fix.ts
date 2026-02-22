@@ -12,9 +12,9 @@ import { coordinatorNamespace } from '../../../lib/durable-object-namespaces';
 import { isHiddenPath, isPathSafe } from '../../../lib/path-utilities';
 import { recordFileRead } from '../file-time';
 import { fixFileForAgent, formatLintResultsForAgent, lintFileForAgent } from '../lib/biome-linter';
-import { computeDiffStats } from '../utilities';
+import { computeDiffStats, generateCompactDiff } from '../utilities';
 
-import type { FileChange, FileEditStatsQueue, SendEventFunction, ToolDefinition, ToolExecutorContext } from '../types';
+import type { FileChange, SendEventFunction, ToolDefinition, ToolExecutorContext } from '../types';
 
 // =============================================================================
 // Description
@@ -57,8 +57,7 @@ export async function execute(
 	context: ToolExecutorContext,
 	toolUseId?: string,
 	queryChanges?: FileChange[],
-	fileEditStatsQueue?: FileEditStatsQueue,
-): Promise<string> {
+): Promise<string | object> {
 	const { projectRoot, projectId, sessionId } = context;
 	const fixPath = input.path;
 
@@ -132,11 +131,7 @@ export async function execute(
 	const lintDiagnostics = await lintFileForAgent(fixPath, result.fixedContent);
 	const lintErrorCount = lintDiagnostics.length;
 
-	if (fileEditStatsQueue) {
-		fileEditStatsQueue.push({ linesAdded, linesRemoved, lintErrorCount });
-	}
-
-	// Send file changed event for UI
+	// Send file changed event for UI (carries full content for inline diff)
 	sendEvent('file_changed', {
 		path: fixPath,
 		action: 'edit',
@@ -146,15 +141,16 @@ export async function execute(
 		isBinary: false,
 	});
 
-	// Build result message
-	let message = `Fixed ${result.fixCount} lint issue(s) in ${fixPath}.`;
+	// Build result with a compact diff so the model can see what changed
+	let resultText = generateCompactDiff(fixPath, originalContent, result.fixedContent);
+	resultText += `\n\nFixed ${result.fixCount} lint issue(s) in ${fixPath}.`;
 
 	if (result.remainingDiagnostics.length > 0) {
-		message += `\n\n${result.remainingDiagnostics.length} issue(s) remain and require manual fixes:`;
+		resultText += `\n${result.remainingDiagnostics.length} issue(s) remain and require manual fixes:`;
 		for (const diagnostic of result.remainingDiagnostics) {
-			message += `\n  - line ${diagnostic.line}: ${diagnostic.message} (${diagnostic.rule})`;
+			resultText += `\n  - line ${diagnostic.line}: ${diagnostic.message} (${diagnostic.rule})`;
 		}
 	}
 
-	return message;
+	return { result: resultText, linesAdded, linesRemoved, lintErrorCount };
 }

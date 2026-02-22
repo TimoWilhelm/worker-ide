@@ -4,9 +4,89 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { normalizeFunctionCallsFormat, parseToolCalls, repairToolCallJson } from './tool-call-parser';
+import { normalizeFunctionCallsFormat, parseToolCalls, repairToolCallJson, stripPartialToolCalls } from './tool-call-parser';
 
 import type { ParsedToolCall } from './tool-call-parser';
+
+// =============================================================================
+// stripPartialToolCalls
+// =============================================================================
+
+describe('stripPartialToolCalls', () => {
+	describe('complete blocks', () => {
+		it('strips a complete <tool_use> block', () => {
+			const input = 'Hello\n<tool_use>\n{"name": "file_read", "input": {"path": "/a.txt"}}\n</tool_use>\nDone';
+			expect(stripPartialToolCalls(input)).toBe('Hello\n\nDone');
+		});
+
+		it('strips a complete <function_calls> block wrapping <invoke>', () => {
+			const input = [
+				'Hello',
+				'<function_calls>',
+				'<invoke name="file_read">',
+				'<parameter name="path">/index.html</parameter>',
+				'</invoke>',
+				'</function_calls>',
+				'Done',
+			].join('\n');
+			expect(stripPartialToolCalls(input)).toBe('Hello\n\nDone');
+		});
+
+		it('strips multiple <function_calls> blocks', () => {
+			const input = [
+				'Hello',
+				'<function_calls>',
+				'<invoke name="file_read">',
+				'<parameter name="path">/index.html</parameter>',
+				'</invoke>',
+				'</function_calls>',
+				'Between',
+				'<function_calls>',
+				'<invoke name="file_write">',
+				'<parameter name="path">/b.txt</parameter>',
+				'<parameter name="content">hello</parameter>',
+				'</invoke>',
+				'</function_calls>',
+				'Done',
+			].join('\n');
+			expect(stripPartialToolCalls(input)).toBe('Hello\n\nBetween\n\nDone');
+		});
+
+		it('strips a <tool_use> block with HTML content inside', () => {
+			const input =
+				'Hello\n<tool_use>\n{"name": "file_write", "input": {"path": "/a.html", "content": "<div>hi</div>"}}\n</tool_use>\nDone';
+			expect(stripPartialToolCalls(input)).toBe('Hello\n\nDone');
+		});
+	});
+
+	describe('partial/streaming blocks', () => {
+		it('strips a partial <tool_use> block (no closing tag)', () => {
+			const input = 'Hello\n<tool_use>\n{"name": "file_rea';
+			expect(stripPartialToolCalls(input)).toBe('Hello\n');
+		});
+
+		it('strips a partial <function_calls> block (no closing tag)', () => {
+			const input = 'Hello\n<function_calls>\n<invoke name="file_read">\n<parameter name="';
+			expect(stripPartialToolCalls(input)).toBe('Hello\n');
+		});
+
+		it('strips orphaned closing tags', () => {
+			const input = '</parameter>\n</invoke>\n</function_calls>';
+			expect(stripPartialToolCalls(input).trim()).toBe('');
+		});
+	});
+
+	describe('no tool calls', () => {
+		it('leaves plain text unchanged', () => {
+			const input = 'Just a normal response with no tool calls.';
+			expect(stripPartialToolCalls(input)).toBe(input);
+		});
+
+		it('handles empty input', () => {
+			expect(stripPartialToolCalls('')).toBe('');
+		});
+	});
+});
 
 // =============================================================================
 // normalizeFunctionCallsFormat
@@ -216,6 +296,47 @@ line3</parameter>
 		expect(parsed.input.path).toBe('/index.html');
 		expect(parsed.input.content).toContain('line1');
 		expect(parsed.input.content).toContain('line3');
+	});
+
+	// antml:-prefixed formats (Claude text-completion output)
+
+	it('normalizes antml-prefixed Format B tags', () => {
+		// Build the string with antml: prefixes using concatenation to avoid XML processing issues
+		const input =
+			'<' +
+			'antml:function_calls>\n' +
+			'<' +
+			'antml:invoke name="file_read">\n' +
+			'<' +
+			'antml:parameter name="path">/index.html</' +
+			'antml:parameter>\n' +
+			'</' +
+			'antml:invoke>\n' +
+			'</' +
+			'antml:function_calls>';
+
+		const result = normalizeFunctionCallsFormat(input);
+
+		expect(result).toContain('<tool_use>');
+		expect(result).toContain('"name": "file_read"');
+		expect(result).not.toContain('antml:');
+		expect(result).not.toContain('<function_calls>');
+
+		const jsonMatch = result.match(/<tool_use>\n([\s\S]*?)\n<\/tool_use>/);
+		expect(jsonMatch).not.toBeUndefined();
+		const parsed = JSON.parse(jsonMatch![1]);
+		expect(parsed.name).toBe('file_read');
+		expect(parsed.input).toEqual({ path: '/index.html' });
+	});
+
+	it('normalizes mixed antml: and non-prefixed tags', () => {
+		// Some models mix prefixed and non-prefixed tags
+		const input = '<' + 'antml:function_calls>\n' + '<invoke name="files_list">\n' + '</invoke>\n' + '</' + 'antml:function_calls>';
+
+		const result = normalizeFunctionCallsFormat(input);
+
+		expect(result).toContain('<tool_use>');
+		expect(result).toContain('"name": "files_list"');
 	});
 });
 

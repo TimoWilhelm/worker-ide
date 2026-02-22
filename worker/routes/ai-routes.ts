@@ -80,40 +80,44 @@ export const aiRoutes = new Hono<AppEnvironment>()
 		return c.json({ success: true });
 	})
 
-	// GET /api/ai/debug-log/latest - Get the most recent debug log ID
-	.get('/ai/debug-log/latest', async (c) => {
+	// GET /api/ai/latest-debug-log-id?sessionId=X - Get the latest debug log ID for a session
+	.get('/ai/latest-debug-log-id', zValidator('query', z.object({ sessionId: z.string().min(1) })), async (c) => {
 		const projectRoot = c.get('projectRoot');
-		const logsDirectory = `${projectRoot}/.agent/debug-logs`;
+		const { sessionId } = c.req.valid('query');
+		const logsDirectory = `${projectRoot}/.agent/sessions/${sessionId}/debug-logs`;
 
 		try {
 			const entries = await fs.readdir(logsDirectory);
 			const logFiles = entries
 				.filter((entry) => entry.endsWith('.json'))
 				.toSorted((a, b) => {
+					// Log files are named {prefix}-{timestamp}.json — sort by the numeric timestamp suffix.
 					const timestampA = Number(a.slice(0, -5).split('-').pop()) || 0;
 					const timestampB = Number(b.slice(0, -5).split('-').pop()) || 0;
 					return timestampA - timestampB;
 				});
 
-			const latest = logFiles.at(-1);
-			if (!latest) {
-				return c.json({ id: undefined });
+			if (logFiles.length === 0) {
+				return c.json({ id: '' });
 			}
 
-			// Strip the .json extension to get the log ID
-			const id = latest.slice(0, -5);
-			return c.json({ id });
+			// Return the latest log file's ID (filename without .json extension)
+			const latestFile = logFiles.at(-1)!;
+			return c.json({ id: latestFile.slice(0, -5) });
 		} catch {
-			return c.json({ id: undefined });
+			return c.json({ id: '' });
 		}
 	})
 
-	// GET /api/ai/debug-log?id=X - Download an agent debug log
-	.get('/ai/debug-log', zValidator('query', z.object({ id: debugLogIdSchema })), async (c) => {
+	// GET /api/ai/debug-log?id=X&sessionId=Y - Download an agent debug log
+	.get('/ai/debug-log', zValidator('query', z.object({ id: debugLogIdSchema, sessionId: z.string().min(1).optional() })), async (c) => {
 		const projectRoot = c.get('projectRoot');
-		const { id } = c.req.valid('query');
+		const { id, sessionId } = c.req.valid('query');
 
-		const logPath = `${projectRoot}/.agent/debug-logs/${id}.json`;
+		// Debug logs are stored alongside sessions when a sessionId is available
+		const logPath = sessionId
+			? `${projectRoot}/.agent/sessions/${sessionId}/debug-logs/${id}.json`
+			: `${projectRoot}/.agent/debug-logs/${id}.json`;
 		try {
 			const content = await fs.readFile(logPath, 'utf8');
 			return c.json(JSON.parse(content));

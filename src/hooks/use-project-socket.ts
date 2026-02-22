@@ -242,6 +242,10 @@ export function useProjectSocket({ projectId, enabled = true }: UseProjectSocket
 							handleCdpRequest(message.id, message.method, message.params);
 							break;
 						}
+						case 'debug-log-ready': {
+							useStore.getState().setDebugLogId(message.id);
+							break;
+						}
 						case 'pong':
 						case 'file-edited': {
 							// Handled elsewhere or ignored

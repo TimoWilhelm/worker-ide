@@ -41,7 +41,6 @@ import type {
 	ToolExecuteFunction,
 	ToolExecutorContext,
 	ToolFailureQueue,
-	FileEditStatsQueue,
 } from '../types';
 
 // =============================================================================
@@ -253,7 +252,6 @@ export function createServerTools(
 	mode: 'code' | 'plan' | 'ask',
 	logger?: AgentLogger,
 	toolFailures?: ToolFailureQueue,
-	fileEditStatsQueue?: FileEditStatsQueue,
 ) {
 	// Select which tool definitions to use based on mode
 	const activeToolDefinitions = mode === 'ask' ? ASK_MODE_TOOLS : mode === 'plan' ? PLAN_MODE_TOOLS : AGENT_TOOLS;
@@ -296,7 +294,7 @@ export function createServerTools(
 			const timer = logger?.startTimer();
 
 			try {
-				const result = await executor(stringInput, sendEvent, context, undefined, queryChanges, fileEditStatsQueue);
+				const result = await executor(stringInput, sendEvent, context, undefined, queryChanges);
 				const text = typeof result === 'string' ? result : JSON.stringify(result);
 
 				logger?.info(

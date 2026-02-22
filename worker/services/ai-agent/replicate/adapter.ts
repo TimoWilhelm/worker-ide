@@ -85,6 +85,30 @@ function formatToolCallsXml(toolCalls: ReadonlyArray<{ type: string; function: {
 }
 
 /**
+ * Pattern matching hallucinated turn markers in the model's text output.
+ *
+ * When using Replicate's text-completion endpoint, the model may continue
+ * generating beyond its assistant turn — hallucinating a "Human:" turn
+ * (often containing fake tool results) and then another "Assistant:" turn.
+ * The Replicate Claude model schema does not support `stop_sequences`, so
+ * we must detect these markers ourselves and truncate.
+ *
+ * Matches `\n\nHuman:` and the abbreviated `\n\nH:` form that the model
+ * frequently uses. Requires a double newline prefix to avoid false positives
+ * on content like "H: header" in normal text.
+ */
+const TURN_MARKER_PATTERN = /\n\nH(?:uman)?:\s/;
+
+/**
+ * Find the index of a hallucinated turn marker in the accumulated output.
+ * Returns the index of the `\n\nH` prefix, or -1 if not found.
+ */
+function findTurnMarker(text: string): number {
+	const match = TURN_MARKER_PATTERN.exec(text);
+	return match ? match.index : -1;
+}
+
+/**
  * Convert TanStack AI ModelMessage[] into the Human:/Assistant: text prompt
  * format expected by Replicate's text-completion Claude endpoints.
  *
@@ -261,6 +285,13 @@ class ReplicateTextAdapter extends BaseTextAdapter<string, Record<string, never>
 		//
 		// We use `stripPartialToolCalls` to completely remove any tool XML tags from the stream.
 		// To handle tags spanning boundaries, we hold back a small buffer of characters.
+		//
+		// Hallucinated turn detection:
+		// Replicate's text-completion endpoint does not support stop sequences, so
+		// the model can role-play the entire conversation — generating a tool call,
+		// then a fake "Human:" / "H:" turn with hallucinated tool results, and
+		// continuing as "Assistant:" again. We detect these turn markers and truncate
+		// the output, discarding everything from the marker onward.
 		let accumulatedOutput = '';
 		let emittedUpTo = 0; // Index in accumulatedOutput up to which we've processed
 		let emittedCleanedUpTo = 0; // Index in the stripped string up to which we've emitted
@@ -281,11 +312,29 @@ class ReplicateTextAdapter extends BaseTextAdapter<string, Record<string, never>
 				const token = event.toString();
 				accumulatedOutput += token;
 
+				// Detect hallucinated turn markers (`\n\nHuman:` or `\n\nH:`) and
+				// truncate output at that point, discarding the rest of the stream.
+				const turnMarkerIndex = findTurnMarker(accumulatedOutput);
+				if (turnMarkerIndex !== -1) {
+					accumulatedOutput = accumulatedOutput.slice(0, turnMarkerIndex);
+					this.logger?.warn('llm', 'hallucinated_turn_truncated', {
+						truncatedAt: turnMarkerIndex,
+					});
+					break;
+				}
+
+				// Calculate the safe boundary up to which we can emit text.
+				// Hold back characters near the end that could be part of an
+				// incomplete XML tag (`<tool_use>...`) or a turn marker prefix
+				// (`\n\nHuman: `). The turn marker is at most 10 chars, and XML
+				// tags up to 30. We use the last `<` for XML holdback; for turn
+				// markers we hold back a fixed 10 chars from the end to ensure
+				// `\n\nHuman: ` is fully buffered before we decide to emit or truncate.
 				const lastOpen = accumulatedOutput.lastIndexOf('<');
 				const safeEnd =
 					lastOpen !== -1 && accumulatedOutput.length - lastOpen <= MAX_TAG_PREFIX_LENGTH
 						? lastOpen
-						: Math.max(0, accumulatedOutput.length - 1);
+						: Math.max(0, accumulatedOutput.length - 10);
 
 				if (safeEnd > emittedUpTo) {
 					const chunkToProcess = accumulatedOutput.slice(0, safeEnd);

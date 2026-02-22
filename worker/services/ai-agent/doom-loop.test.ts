@@ -1,10 +1,9 @@
 /**
  * Unit tests for the stateless detectDoomLoop function.
  *
- * Tests the three detection strategies by constructing ModelMessage[] histories:
+ * Tests the two detection strategies by constructing ModelMessage[] histories:
  * 1. Identical consecutive tool calls (exact name + input)
- * 2. Same-tool repetition (same tool, different inputs, excluding read-only)
- * 3. Mutation failure loop (consecutive iterations with MUTATION_FAILURE_TAG)
+ * 2. Mutation failure loop (consecutive iterations with MUTATION_FAILURE_TAG)
  */
 
 import { describe, expect, it } from 'vitest';
@@ -154,24 +153,9 @@ describe('identical_calls detection', () => {
 		expect(result.reason).toBe('identical_calls');
 		expect(result.toolName).toBe('file_edit');
 	});
-});
 
-// =============================================================================
-// same_tool_repetition (same tool N times, even with different inputs)
-// =============================================================================
-
-describe('same_tool_repetition detection', () => {
-	it('returns no doom loop when fewer than 5 same-tool calls', () => {
-		const messages: ModelMessage[] = [
-			...buildIteration([{ name: 'file_edit', arguments: { path: '/a.txt' } }]),
-			...buildIteration([{ name: 'file_edit', arguments: { path: '/b.txt' } }]),
-			...buildIteration([{ name: 'file_edit', arguments: { path: '/c.txt' } }]),
-			...buildIteration([{ name: 'file_edit', arguments: { path: '/d.txt' } }]),
-		];
-		expect(detectDoomLoop(messages).isDoomLoop).toBe(false);
-	});
-
-	it('detects 5 consecutive calls to the same mutation tool', () => {
+	it('does NOT trigger for same mutation tool with different files (legitimate work)', () => {
+		// Editing 5 different files in a row is normal behavior, not a doom loop
 		const messages: ModelMessage[] = [
 			...buildIteration([{ name: 'file_edit', arguments: { path: '/a.txt' } }]),
 			...buildIteration([{ name: 'file_edit', arguments: { path: '/b.txt' } }]),
@@ -179,25 +163,10 @@ describe('same_tool_repetition detection', () => {
 			...buildIteration([{ name: 'file_edit', arguments: { path: '/d.txt' } }]),
 			...buildIteration([{ name: 'file_edit', arguments: { path: '/e.txt' } }]),
 		];
-		const result = detectDoomLoop(messages);
-		expect(result.isDoomLoop).toBe(true);
-		expect(result.reason).toBe('same_tool_repetition');
-		expect(result.toolName).toBe('file_edit');
-	});
-
-	it('does not trigger when different tools are interleaved', () => {
-		const messages: ModelMessage[] = [
-			...buildIteration([{ name: 'file_edit', arguments: { path: '/a.txt' } }]),
-			...buildIteration([{ name: 'file_edit', arguments: { path: '/b.txt' } }]),
-			...buildIteration([{ name: 'file_read', arguments: { path: '/c.txt' } }]),
-			...buildIteration([{ name: 'file_edit', arguments: { path: '/d.txt' } }]),
-			...buildIteration([{ name: 'file_edit', arguments: { path: '/e.txt' } }]),
-		];
 		expect(detectDoomLoop(messages).isDoomLoop).toBe(false);
 	});
 
-	it('excludes read-only tools from detection', () => {
-		const readOnlyTools = new Set(['file_read']);
+	it('does NOT trigger for same read-only tool called many times with different inputs', () => {
 		const messages: ModelMessage[] = [
 			...buildIteration([{ name: 'file_read', arguments: { path: '/a.txt' } }]),
 			...buildIteration([{ name: 'file_read', arguments: { path: '/b.txt' } }]),
@@ -205,22 +174,7 @@ describe('same_tool_repetition detection', () => {
 			...buildIteration([{ name: 'file_read', arguments: { path: '/d.txt' } }]),
 			...buildIteration([{ name: 'file_read', arguments: { path: '/e.txt' } }]),
 		];
-		expect(detectDoomLoop(messages, readOnlyTools).isDoomLoop).toBe(false);
-	});
-
-	it('detects non-read-only tools even when readOnlyTools set is provided', () => {
-		const readOnlyTools = new Set(['file_read']);
-		const messages: ModelMessage[] = [
-			...buildIteration([{ name: 'file_edit', arguments: { path: '/a.txt' } }]),
-			...buildIteration([{ name: 'file_edit', arguments: { path: '/b.txt' } }]),
-			...buildIteration([{ name: 'file_edit', arguments: { path: '/c.txt' } }]),
-			...buildIteration([{ name: 'file_edit', arguments: { path: '/d.txt' } }]),
-			...buildIteration([{ name: 'file_edit', arguments: { path: '/e.txt' } }]),
-		];
-		const result = detectDoomLoop(messages, readOnlyTools);
-		expect(result.isDoomLoop).toBe(true);
-		expect(result.reason).toBe('same_tool_repetition');
-		expect(result.toolName).toBe('file_edit');
+		expect(detectDoomLoop(messages).isDoomLoop).toBe(false);
 	});
 });
 

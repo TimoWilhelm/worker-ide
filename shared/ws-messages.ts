@@ -202,6 +202,16 @@ export interface CdpRequestMessage {
 	params?: Record<string, unknown>;
 }
 
+/**
+ * Server message indicating a debug log is ready for download.
+ * Sent by the AI agent service after flushing the debug log to disk.
+ */
+export interface DebugLogReadyMessage {
+	type: 'debug-log-ready';
+	id: string;
+	sessionId: string;
+}
+
 export type ServerMessage =
 	| PongMessage
 	| CollabStateMessage
@@ -213,7 +223,8 @@ export type ServerMessage =
 	| ServerErrorMessage
 	| ServerLogsMessage
 	| GitStatusChangedMessage
-	| CdpRequestMessage;
+	| CdpRequestMessage
+	| DebugLogReadyMessage;
 
 // =============================================================================
 // Zod Schemas for Validation
@@ -353,6 +364,11 @@ export const serverMessageSchema = z.discriminatedUnion('type', [
 		id: z.string(),
 		method: z.string(),
 		params: z.record(z.string(), z.unknown()).optional(),
+	}),
+	z.object({
+		type: z.literal('debug-log-ready'),
+		id: z.string(),
+		sessionId: z.string(),
 	}),
 ]);
 

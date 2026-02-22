@@ -41,9 +41,32 @@ export async function execute(
 		const planDirectory = `${projectRoot}/.agent/plans`;
 		await fs.mkdir(planDirectory, { recursive: true });
 		const planFile = `${planDirectory}/${sessionId || 'default'}.md`;
+
+		// Read previous plan to compute a meaningful diff
+		let previousContent: string | undefined;
+		try {
+			previousContent = await fs.readFile(planFile, 'utf8');
+		} catch {
+			// No previous plan — this is a new plan
+		}
+
 		await fs.writeFile(planFile, content);
 		await sendEvent('plan_updated', { content });
-		return { success: true, path: planFile };
+
+		const lineCount = content.split('\n').length;
+		const completedCount = (content.match(/- \[x\]/gi) || []).length;
+		const pendingCount = (content.match(/- \[ \]/g) || []).length;
+		const totalTasks = completedCount + pendingCount;
+
+		let result = `Plan updated (${lineCount} lines).`;
+		if (totalTasks > 0) {
+			result += ` Progress: ${completedCount}/${totalTasks} tasks completed.`;
+		}
+		if (previousContent === content) {
+			result += ' (no changes from previous plan)';
+		}
+
+		return { result, path: planFile };
 	} catch (error) {
 		return { error: `Failed to update plan: ${String(error)}` };
 	}

@@ -53,7 +53,7 @@ export async function execute(
 
 	await sendEvent('status', { message: `Deleting ${deletePath}...` });
 
-	let beforeContent: string | Uint8Array;
+	let beforeContent: string;
 	try {
 		beforeContent = await fs.readFile(`${projectRoot}${deletePath}`, 'utf8');
 	} catch {
@@ -80,5 +80,9 @@ export async function execute(
 		isBinary: false,
 	});
 
-	return { success: true, path: deletePath, action: 'delete' };
+	const lineCount = beforeContent.split('\n').length;
+	const fileSize = Buffer.byteLength(beforeContent, 'utf8');
+	return {
+		result: `Deleted ${deletePath} (${lineCount} lines, ${fileSize} bytes). Remember to remove any imports or references to this file.`,
+	};
 }

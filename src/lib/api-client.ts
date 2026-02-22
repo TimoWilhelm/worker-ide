@@ -198,12 +198,36 @@ export async function saveAiSession(projectId: string, session: AiSession): Prom
 // =============================================================================
 
 /**
+ * Fetch the latest debug log ID for a session.
+ *
+ * Returns the ID of the most recent debug log file, or undefined if none exists.
+ *
+ * @param projectId - The project ID
+ * @param sessionId - The session ID to look up debug logs for
+ */
+export async function fetchLatestDebugLogId(projectId: string, sessionId: string): Promise<string | undefined> {
+	const parameters = new URLSearchParams({ sessionId });
+	const response = await fetch(`/p/${projectId}/api/ai/latest-debug-log-id?${parameters.toString()}`);
+	if (!response.ok) return undefined;
+	const data: { id: string } = await response.json();
+	return data.id || undefined;
+}
+
+/**
  * Download an agent debug log as a JSON file.
  *
  * Fetches the debug log from the backend and triggers a browser file download.
+ *
+ * @param projectId - The project ID
+ * @param logId - The debug log ID
+ * @param sessionId - Optional session ID for session-scoped debug logs
  */
-export async function downloadDebugLog(projectId: string, logId: string): Promise<void> {
-	const response = await fetch(`/p/${projectId}/api/ai/debug-log?id=${encodeURIComponent(logId)}`);
+export async function downloadDebugLog(projectId: string, logId: string, sessionId?: string): Promise<void> {
+	const parameters = new URLSearchParams({ id: logId });
+	if (sessionId) {
+		parameters.set('sessionId', sessionId);
+	}
+	const response = await fetch(`/p/${projectId}/api/ai/debug-log?${parameters.toString()}`);
 	if (!response.ok) {
 		throw new Error('Failed to download debug log');
 	}
@@ -217,23 +241,6 @@ export async function downloadDebugLog(projectId: string, logId: string): Promis
 	anchor.click();
 	anchor.remove();
 	URL.revokeObjectURL(url);
-}
-
-/**
- * Fetch the most recent debug log ID for a project.
- *
- * Used to retrieve the debug log ID when the SSE stream is interrupted
- * (user cancel or network error) before the backend can send the debug_log event.
- */
-export async function fetchLatestDebugLogId(projectId: string): Promise<string | undefined> {
-	try {
-		const response = await fetch(`/p/${projectId}/api/ai/debug-log/latest`);
-		if (!response.ok) return undefined;
-		const data: { id?: string } = await response.json();
-		return data.id;
-	} catch {
-		return undefined;
-	}
 }
 
 // =============================================================================

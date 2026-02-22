@@ -89,5 +89,10 @@ export async function execute(
 		tool_use_id: toolUseId,
 	});
 
-	return { success: true, from: fromPath, to: toPath };
+	const fileSize = Buffer.byteLength(beforeContent, 'utf8');
+	return {
+		result: `Moved ${fromPath} → ${toPath} (${fileSize} bytes). Remember to update any import paths that reference the old location.`,
+		from: fromPath,
+		to: toPath,
+	};
 }

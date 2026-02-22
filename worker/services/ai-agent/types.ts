@@ -57,21 +57,6 @@ export interface ToolFailureRecord {
 export type ToolFailureQueue = ToolFailureRecord[];
 
 /**
- * File edit stats recorded during tool execution.
- */
-export interface FileEditStatsRecord {
-	linesAdded: number;
-	linesRemoved: number;
-	lintErrorCount: number;
-}
-
-/**
- * A queue of file edit stats records. Tools push into this during execution,
- * and the agent loop drains them at TOOL_CALL_END to emit UI events.
- */
-export type FileEditStatsQueue = FileEditStatsRecord[];
-
-/**
  * Function to emit a CUSTOM AG-UI event from a tool executor.
  * Pushes events into the shared CustomEventQueue which is drained
  * by the stream wrapper and sent to the client.
@@ -101,7 +86,6 @@ export type ToolExecuteFunction = (
 	context: ToolExecutorContext,
 	toolUseId?: string,
 	queryChanges?: FileChange[],
-	fileEditStatsQueue?: FileEditStatsQueue,
 ) => Promise<string | object>;
 
 /**

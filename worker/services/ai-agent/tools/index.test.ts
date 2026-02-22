@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { AGENT_TOOLS, ASK_MODE_TOOLS, PLAN_MODE_TOOLS } from './index';
+import { AGENT_TOOLS, ASK_MODE_TOOLS, MUTATION_TOOL_NAMES, PLAN_MODE_TOOLS, READ_ONLY_TOOL_NAMES } from './index';
 
 // =============================================================================
 // PLAN_MODE_TOOLS

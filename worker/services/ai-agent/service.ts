@@ -27,24 +27,16 @@ import {
 } from '@shared/constants';
 
 import { AgentLogger, sanitizeToolInput, summarizeToolResult } from './agent-logger';
-import { isContextOverflow, pruneToolOutputs } from './context-pruner';
+import { estimateMessagesTokens, getContextUtilization, hasContextBudget, pruneToolOutputs } from './context-pruner';
 import { detectDoomLoop, MUTATION_FAILURE_TAG } from './doom-loop';
 import { createAdapter, getModelLimits } from './replicate';
 import { classifyRetryableError, calculateRetryDelay, sleep } from './retry';
 import { TokenTracker } from './token-tracker';
-import { createSendEvent, createServerTools, MUTATION_TOOL_NAMES, READ_ONLY_TOOL_NAMES } from './tools';
+import { createSendEvent, createServerTools, MUTATION_TOOL_NAMES } from './tools';
 import { isRecordObject, parseApiError } from './utilities';
 import { coordinatorNamespace } from '../../lib/durable-object-namespaces';
 
-import type {
-	CustomEventQueue,
-	FileChange,
-	FileEditStatsQueue,
-	ModelMessage,
-	SnapshotMetadata,
-	ToolExecutorContext,
-	ToolFailureRecord,
-} from './types';
+import type { CustomEventQueue, FileChange, ModelMessage, SnapshotMetadata, ToolExecutorContext, ToolFailureRecord } from './types';
 import type { ExpiringFilesystem } from '../../durable/expiring-filesystem';
 import type { AIModelId } from '@shared/constants';
 import type { StreamChunk } from '@tanstack/ai';
@@ -90,11 +82,29 @@ function customEvent(name: string, data: Record<string, unknown>): StreamChunk {
 // Constants
 // =============================================================================
 
-/** Maximum number of agent loop iterations (LLM calls) */
-const MAX_ITERATIONS = 10;
+/**
+ * Hard ceiling on agent loop iterations — safety net to prevent runaway loops.
+ * The agent will typically stop earlier due to context exhaustion or task completion.
+ * This is intentionally generous (like OpenCode's default of Infinity) since
+ * context-awareness and compaction handle the practical limits.
+ */
+const MAX_ITERATIONS = 200;
 
 /** Maximum retry attempts for a single LLM call */
 const MAX_RETRY_ATTEMPTS = 5;
+
+/**
+ * Soft iteration limit — when exceeded, the agent is nudged to wrap up.
+ * The agent can still use tools after this point if context allows,
+ * but we inject a message encouraging it to finish.
+ */
+const SOFT_ITERATION_LIMIT = 50;
+
+/**
+ * Context utilization threshold at which we proactively prune.
+ * Pruning at 70% gives headroom before hitting the hard overflow limit.
+ */
+const PROACTIVE_PRUNE_THRESHOLD = 0.7;
 
 // =============================================================================
 // AI Agent Service Class
@@ -169,6 +179,7 @@ export class AIAgentService {
 			sessionId: this.sessionId,
 			messageCount: messages.length,
 			maxIterations: MAX_ITERATIONS,
+			softLimit: SOFT_ITERATION_LIMIT,
 		});
 
 		// Create the sendEvent function that pushes CUSTOM events to the queue
@@ -186,6 +197,17 @@ export class AIAgentService {
 			}
 		}
 
+		// Create coordinator stub before try-catch so it's accessible in error handlers
+		const coordinatorId = coordinatorNamespace.idFromName(`project:${this.projectId}`);
+		const coordinatorStub = coordinatorNamespace.get(coordinatorId);
+
+		// Track whether the debug log has been flushed so the finally block can
+		// handle the case where the consumer stops iterating early (e.g., the SSE
+		// ReadableStream breaks out of its for-await when the client disconnects).
+		// In that scenario, the generator's return() is called, skipping both the
+		// try-block completion path and the catch block — only finally runs.
+		let debugLogFlushed = false;
+
 		try {
 			yield customEvent('status', { message: 'Starting...' });
 
@@ -199,10 +221,6 @@ export class AIAgentService {
 			// Create the Replicate adapter
 			const adapter = createAdapter(this.model, apiKey, logger);
 			const modelLimits = getModelLimits(this.model);
-
-			// Create tool executor context
-			const coordinatorId = coordinatorNamespace.idFromName(`project:${this.projectId}`);
-			const coordinatorStub = coordinatorNamespace.get(coordinatorId);
 			const toolContext: ToolExecutorContext = {
 				projectRoot: this.projectRoot,
 				projectId: this.projectId,
@@ -220,6 +238,7 @@ export class AIAgentService {
 			let hitIterationLimit = false;
 			let lastAssistantText = '';
 			let xmlRetried = false;
+			let softLimitNudged = false;
 
 			while (continueLoop && iteration < MAX_ITERATIONS) {
 				if (signal.aborted) {
@@ -231,21 +250,39 @@ export class AIAgentService {
 
 				iteration++;
 				logger.setIteration(iteration);
+
+				const contextUtilization = getContextUtilization(workingMessages, modelLimits);
 				logger.info('agent_loop', 'iteration_start', {
 					iteration,
 					workingMessageCount: workingMessages.length,
+					contextUtilization: Math.round(contextUtilization * 100),
+					estimatedTokens: estimateMessagesTokens(workingMessages),
 				});
 				yield customEvent('status', {
 					message: this.mode === 'plan' ? 'Researching...' : 'Thinking...',
 				});
 
-				// Check context overflow and prune if needed
-				if (isContextOverflow(workingMessages, modelLimits)) {
-					logger.info('context', 'overflow_check', { overflow: true });
+				// Soft iteration nudge — encourage the agent to wrap up after SOFT_ITERATION_LIMIT
+				if (iteration === SOFT_ITERATION_LIMIT && !softLimitNudged) {
+					softLimitNudged = true;
+					logger.info('agent_loop', 'soft_limit_nudge', { iteration });
+					workingMessages.push({
+						role: 'user',
+						content:
+							'SYSTEM: You have been working for many iterations. ' +
+							'Please try to wrap up the current task efficiently. ' +
+							'If you are close to finishing, continue. ' +
+							'If you are stuck in a loop, stop and explain what you need.',
+					});
+				}
+
+				// Proactive pruning — prune early (at 70% utilization) to avoid hitting the wall
+				if (contextUtilization >= PROACTIVE_PRUNE_THRESHOLD) {
 					const { messages: prunedMessages, prunedTokens } = pruneToolOutputs(workingMessages);
 					if (prunedTokens > 0) {
-						logger.info('context', 'prune_executed', {
+						logger.info('context', 'proactive_prune', {
 							prunedTokens,
+							contextUtilization: Math.round(contextUtilization * 100),
 							messageCountBefore: workingMessages.length,
 							messageCountAfter: prunedMessages.length,
 						});
@@ -257,13 +294,22 @@ export class AIAgentService {
 					}
 				}
 
+				// Context budget check — if still overflowing after pruning, stop
+				if (!hasContextBudget(workingMessages, modelLimits)) {
+					logger.warn('context', 'no_budget_remaining', {
+						estimatedTokens: estimateMessagesTokens(workingMessages),
+					});
+					yield customEvent('status', { message: 'Context window exhausted' });
+					hitIterationLimit = true;
+					break;
+				}
+
 				// Track file changes before this iteration for snapshot
 				const changeCountBefore = queryChanges.length;
 
 				// Create tools fresh each iteration (they capture the mutable queryChanges array)
 				const toolFailures: ToolFailureRecord[] = [];
-				const fileEditStatsQueue: FileEditStatsQueue = [];
-				const tools = createServerTools(sendEvent, toolContext, queryChanges, this.mode, logger, toolFailures, fileEditStatsQueue);
+				const tools = createServerTools(sendEvent, toolContext, queryChanges, this.mode, logger, toolFailures);
 
 				// Call the LLM with retry
 				let chatResult: AsyncIterable<StreamChunk>;
@@ -418,17 +464,6 @@ export class AIAgentService {
 									});
 								}
 								toolFailures.length = 0;
-
-								// Drain file edit stats
-								for (const stats of fileEditStatsQueue) {
-									yield customEvent('file_edit_stats', {
-										tool_use_id: toolCallId,
-										linesAdded: stats.linesAdded,
-										linesRemoved: stats.linesRemoved,
-										lintErrorCount: stats.lintErrorCount,
-									});
-								}
-								fileEditStatsQueue.length = 0;
 
 								// Clean up stored args
 								toolCallArgumentsById.delete(toolCallId);
@@ -670,7 +705,7 @@ export class AIAgentService {
 						// Non-fatal — coordinator may be unreachable
 					}
 				}
-				const loopResult = detectDoomLoop(workingMessages, READ_ONLY_TOOL_NAMES);
+				const loopResult = detectDoomLoop(workingMessages);
 				if (loopResult.isDoomLoop) {
 					logger.warn('agent_loop', 'doom_loop_detected', {
 						reason: loopResult.reason,
@@ -709,11 +744,16 @@ export class AIAgentService {
 				yield customEvent('turn_complete', {});
 			}
 
-			// Detect iteration limit hit
-			if (continueLoop && iteration >= MAX_ITERATIONS && !signal.aborted) {
+			// Detect iteration limit hit (hard ceiling or context exhaustion — hitIterationLimit
+			// may already be true if the loop broke due to context budget exhaustion)
+			if (!hitIterationLimit && continueLoop && iteration >= MAX_ITERATIONS && !signal.aborted) {
 				hitIterationLimit = true;
+			}
+			if (hitIterationLimit) {
 				logger.warn('agent_loop', 'iteration_limit', {
 					maxIterations: MAX_ITERATIONS,
+					actualIterations: iteration,
+					reason: iteration >= MAX_ITERATIONS ? 'hard_ceiling' : 'context_exhausted',
 				});
 				logger.markIterationLimit();
 			}
@@ -729,7 +769,7 @@ export class AIAgentService {
 			}
 
 			if (hitIterationLimit) {
-				yield customEvent('max_iterations_reached', { iterations: MAX_ITERATIONS });
+				yield customEvent('max_iterations_reached', { iterations: iteration });
 			}
 
 			// Emit token usage summary
@@ -751,7 +791,8 @@ export class AIAgentService {
 				hitIterationLimit,
 			});
 			await logger.flush(this.projectRoot);
-			yield customEvent('debug_log', { id: logger.id });
+			await this.broadcastDebugLogReady(coordinatorStub, logger.id);
+			debugLogFlushed = true;
 		} catch (error) {
 			if (error instanceof Error && error.name === 'AbortError') {
 				logger.info('agent_loop', 'aborted');
@@ -764,7 +805,8 @@ export class AIAgentService {
 						// No-op
 					}
 				}
-				yield customEvent('debug_log', { id: logger.id });
+				await this.broadcastDebugLogReady(coordinatorStub, logger.id);
+				debugLogFlushed = true;
 				return;
 			}
 			console.error('Agent loop error:', error);
@@ -786,9 +828,53 @@ export class AIAgentService {
 				timestamp: Date.now(),
 				error: { message: parsed.message, code: parsed.code ?? undefined },
 			};
-			yield customEvent('debug_log', { id: logger.id });
+			await this.broadcastDebugLogReady(coordinatorStub, logger.id);
+			debugLogFlushed = true;
 		} finally {
+			// When the SSE consumer stops iterating (e.g., client disconnects and
+			// the ReadableStream is cancelled), the generator's return() is invoked
+			// which skips both the try-block completion path and the catch block —
+			// only this finally block runs. Ensure the debug log is still flushed
+			// and broadcast so the download button appears on the frontend.
+			if (!debugLogFlushed) {
+				logger.info('agent_loop', 'aborted');
+				logger.markAborted();
+				await logger.flush(this.projectRoot).catch(() => {});
+				if (snapshotContext && queryChanges.length === 0) {
+					try {
+						await this.deleteDirectoryRecursive(snapshotContext.directory);
+					} catch {
+						// No-op
+					}
+				}
+				await this.broadcastDebugLogReady(coordinatorStub, logger.id);
+			}
 			await this.closeMcpClients();
+		}
+	}
+
+	// =============================================================================
+	// Debug Log Broadcasting
+	// =============================================================================
+
+	/**
+	 * Broadcast a debug-log-ready message to all connected clients via the
+	 * project coordinator WebSocket. This replaces the previous approach of
+	 * emitting the debug_log ID as a CUSTOM AG-UI SSE event, ensuring the
+	 * notification arrives even when the SSE stream is interrupted (cancel/error).
+	 */
+	private async broadcastDebugLogReady(
+		coordinatorStub: DurableObjectStub<import('../../durable/project-coordinator').ProjectCoordinator>,
+		logId: string,
+	): Promise<void> {
+		try {
+			await coordinatorStub.sendMessage({
+				type: 'debug-log-ready',
+				id: logId,
+				sessionId: this.sessionId ?? '',
+			});
+		} catch {
+			// Non-fatal — don't let notification failures break the agent
 		}
 	}
 

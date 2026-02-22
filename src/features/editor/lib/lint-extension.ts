@@ -44,7 +44,7 @@ function mapSeverity(severity: LintDiagnostic['severity']): Diagnostic['severity
 // Lint Diagnostics Event
 // =============================================================================
 
-function dispatchLintDiagnostics(filePath: string, diagnostics: LintDiagnostic[]): void {
+export function dispatchLintDiagnostics(filePath: string, diagnostics: LintDiagnostic[]): void {
 	globalThis.dispatchEvent(
 		new CustomEvent('lint-diagnostics', {
 			detail: { filePath, diagnostics },
@@ -73,6 +73,7 @@ async function applyAllFixes(view: EditorView, filename: string): Promise<boolea
 	const result = await fixFile(filename, content);
 	if (!result || result.fixCount === 0) return false;
 	replaceDocument(view, result.content);
+	dispatchLintDiagnostics(filename, result.remainingDiagnostics);
 	return true;
 }
 
@@ -82,7 +83,7 @@ async function applyAllFixes(view: EditorView, filename: string): Promise<boolea
  */
 function createFixAction(filename: string, from: number, to: number): Action {
 	return {
-		name: 'Fix (Biome)',
+		name: 'Fix',
 		apply: (view: EditorView) => {
 			const content = view.state.doc.toString();
 			void applySingleFix(filename, content, from, to).then((fixedContent) => {

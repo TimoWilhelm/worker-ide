@@ -244,17 +244,27 @@ describe('AgentLogger', () => {
 	// =========================================================================
 
 	describe('flush', () => {
-		it('calls mkdir and writeFile with correct paths', async () => {
+		it('calls mkdir and writeFile with session-scoped paths', async () => {
 			const fs = await import('node:fs/promises');
 			logger.info('agent_loop', 'started');
 
 			await logger.flush('/project');
 
-			expect(fs.default.mkdir).toHaveBeenCalledWith('/project/.agent/debug-logs', { recursive: true });
+			expect(fs.default.mkdir).toHaveBeenCalledWith('/project/.agent/sessions/test-session/debug-logs', { recursive: true });
 			expect(fs.default.writeFile).toHaveBeenCalledWith(
-				expect.stringMatching(/^\/project\/\.agent\/debug-logs\/test-session-\d+\.json$/),
+				expect.stringMatching(/^\/project\/\.agent\/sessions\/test-session\/debug-logs\/test-session-\d+\.json$/),
 				expect.any(String),
 			);
+		});
+
+		it('falls back to project-scoped path when no sessionId is provided', async () => {
+			const fs = await import('node:fs/promises');
+			const noSessionLogger = new AgentLogger(undefined, 'proj', 'model', 'code');
+			noSessionLogger.info('agent_loop', 'started');
+
+			await noSessionLogger.flush('/project');
+
+			expect(fs.default.mkdir).toHaveBeenCalledWith('/project/.agent/debug-logs', { recursive: true });
 		});
 
 		it('writes valid JSON content', async () => {

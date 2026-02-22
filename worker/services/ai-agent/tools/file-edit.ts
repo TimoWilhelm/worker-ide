@@ -11,11 +11,11 @@ import { ToolErrorCode, toolError } from '@shared/tool-errors';
 import { coordinatorNamespace } from '../../../lib/durable-object-namespaces';
 import { isHiddenPath, isPathSafe } from '../../../lib/path-utilities';
 import { assertFileWasRead, recordFileRead } from '../file-time';
-import { lintFileForAgent } from '../lib/biome-linter';
-import { computeDiffStats } from '../utilities';
+import { formatLintDiagnostics, lintFileForAgent } from '../lib/biome-linter';
+import { computeDiffStats, generateCompactDiff } from '../utilities';
 import { replace } from './replacers';
 
-import type { FileChange, FileEditStatsQueue, SendEventFunction, ToolDefinition, ToolExecutorContext } from '../types';
+import type { FileChange, SendEventFunction, ToolDefinition, ToolExecutorContext } from '../types';
 
 // =============================================================================
 // Description (matches OpenCode)
@@ -60,8 +60,7 @@ export async function execute(
 	context: ToolExecutorContext,
 	toolUseId?: string,
 	queryChanges?: FileChange[],
-	fileEditStatsQueue?: FileEditStatsQueue,
-): Promise<string> {
+): Promise<string | object> {
 	const { projectRoot, projectId, sessionId } = context;
 	const editPath = input.path;
 	const oldString = input.old_string;
@@ -142,12 +141,8 @@ export async function execute(
 	const lintDiagnostics = await lintFileForAgent(editPath, content);
 	const lintErrorCount = lintDiagnostics.length;
 
-	if (fileEditStatsQueue) {
-		fileEditStatsQueue.push({ linesAdded, linesRemoved, lintErrorCount });
-	}
-
-	// Send file changed event for UI
-	await sendEvent('file_changed', {
+	// Send file changed event for UI (carries full content for inline diff)
+	sendEvent('file_changed', {
 		path: editPath,
 		action: 'edit',
 		tool_use_id: toolUseId,
@@ -156,5 +151,12 @@ export async function execute(
 		isBinary: false,
 	});
 
-	return 'Edit applied successfully.';
+	// Build result with a compact diff so the model can verify its edit
+	let result = generateCompactDiff(editPath, beforeContent, content);
+	const lintOutput = formatLintDiagnostics(lintDiagnostics);
+	if (lintOutput) {
+		result += `\n${lintOutput}`;
+	}
+
+	return { result, linesAdded, linesRemoved, lintErrorCount };
 }

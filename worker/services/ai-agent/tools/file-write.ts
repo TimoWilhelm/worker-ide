@@ -11,10 +11,10 @@ import { ToolErrorCode, toolError } from '@shared/tool-errors';
 import { coordinatorNamespace } from '../../../lib/durable-object-namespaces';
 import { isHiddenPath, isPathSafe } from '../../../lib/path-utilities';
 import { assertFileWasRead, recordFileRead } from '../file-time';
-import { lintFileForAgent } from '../lib/biome-linter';
-import { computeDiffStats, isBinaryFilePath, toUint8Array } from '../utilities';
+import { formatLintDiagnostics, lintFileForAgent } from '../lib/biome-linter';
+import { computeDiffStats, generateCompactDiff, isBinaryFilePath, toUint8Array } from '../utilities';
 
-import type { FileChange, FileEditStatsQueue, SendEventFunction, ToolDefinition, ToolExecutorContext } from '../types';
+import type { FileChange, SendEventFunction, ToolDefinition, ToolExecutorContext } from '../types';
 
 // =============================================================================
 // Description (matches OpenCode)
@@ -55,8 +55,7 @@ export async function execute(
 	context: ToolExecutorContext,
 	toolUseId?: string,
 	queryChanges?: FileChange[],
-	fileEditStatsQueue?: FileEditStatsQueue,
-): Promise<string> {
+): Promise<string | object> {
 	const { projectRoot, projectId, sessionId } = context;
 	const writePath = input.path;
 	const writeContent = input.content;
@@ -161,12 +160,8 @@ export async function execute(
 	const lintDiagnostics = writeIsBinary ? [] : await lintFileForAgent(writePath, writeContent);
 	const lintErrorCount = lintDiagnostics.length;
 
-	if (fileEditStatsQueue) {
-		fileEditStatsQueue.push({ linesAdded, linesRemoved, lintErrorCount });
-	}
-
-	// Send file changed event for UI
-	await sendEvent('file_changed', {
+	// Send file changed event for UI (carries full content for inline diff)
+	sendEvent('file_changed', {
 		path: writePath,
 		action,
 		tool_use_id: toolUseId,
@@ -177,17 +172,14 @@ export async function execute(
 		isBinary: writeIsBinary,
 	});
 
-	// Format lint results from the already-computed diagnostics (avoids a second lintFileForAgent call)
-	let lintResults: string | undefined;
-	if (!writeIsBinary && lintDiagnostics.length > 0) {
-		const lines = lintDiagnostics.map((d) => `  - line ${d.line}: ${d.message} (${d.rule})${d.fixable ? ' [auto-fixable]' : ''}`);
-		const errorCount = lintDiagnostics.filter((d) => d.severity === 'error').length;
-		const warningCount = lintDiagnostics.length - errorCount;
-		const summary = [errorCount > 0 ? `${errorCount} error(s)` : '', warningCount > 0 ? `${warningCount} warning(s)` : '']
-			.filter(Boolean)
-			.join(', ');
-		lintResults = `\nLint diagnostics (${summary}):\n${lines.join('\n')}`;
+	// Build result with a compact diff so the model can verify the write
+	let result = writeIsBinary
+		? `Wrote binary file: ${writePath}`
+		: generateCompactDiff(writePath, typeof beforeContent === 'string' ? beforeContent : undefined, writeContent);
+	const lintOutput = writeIsBinary ? undefined : formatLintDiagnostics(lintDiagnostics);
+	if (lintOutput) {
+		result += `\n${lintOutput}`;
 	}
 
-	return `Wrote file successfully.${lintResults ?? ''}`;
+	return { result, linesAdded, linesRemoved, lintErrorCount };
 }

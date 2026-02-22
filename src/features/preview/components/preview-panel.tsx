@@ -64,6 +64,28 @@ export function PreviewPanel({ projectId, iframeReference, className }: PreviewP
 	// processHTML) that handles full-reload and CSS hot-swap internally.
 	// Chobitsu (CDP implementation) is also injected for DevTools support.
 
+	// Listen for force-refresh requests from other parts of the app (e.g.
+	// after the AI agent finishes writing files). Delays slightly past the
+	// HMR debounce window (200ms) so any in-flight reload settles first.
+	useEffect(() => {
+		const FORCE_REFRESH_DELAY_MS = 500;
+		let timer: ReturnType<typeof setTimeout> | undefined;
+
+		const handleForceRefresh = () => {
+			if (timer) clearTimeout(timer);
+			timer = setTimeout(() => {
+				timer = undefined;
+				handleRefresh();
+			}, FORCE_REFRESH_DELAY_MS);
+		};
+
+		globalThis.addEventListener('preview-force-refresh', handleForceRefresh);
+		return () => {
+			globalThis.removeEventListener('preview-force-refresh', handleForceRefresh);
+			if (timer) clearTimeout(timer);
+		};
+	}, [handleRefresh]);
+
 	// Sync the global ref with the prop-based ref so the WebSocket handler can access the iframe
 	useEffect(() => {
 		previewIframeReference.current = iframeReference.current ?? undefined;

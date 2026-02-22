@@ -27,6 +27,7 @@ import { toast } from '@/components/ui/toast-store';
 import { Tooltip, TooltipProvider } from '@/components/ui/tooltip';
 import { useChangeReview } from '@/features/ai-assistant/hooks/use-change-review';
 import { CodeEditor, computeDiffData, DiffToolbar, FileTabs, GitDiffToolbar, useFileContent } from '@/features/editor';
+import { dispatchLintDiagnostics } from '@/features/editor/lib/lint-extension';
 import { DependencyPanel, FileTree, useFileTree } from '@/features/file-tree';
 import { getDependencyErrorCount, subscribeDependencyErrors } from '@/features/file-tree/dependency-error-store';
 import { GitPanel } from '@/features/git';
@@ -329,6 +330,11 @@ export function IDEShell({ projectId }: { projectId: string }) {
 		} else {
 			setLocalEditorContent(result.content);
 		}
+
+		// Immediately dispatch remaining diagnostics to the output panel so that
+		// lint errors are visible right away instead of waiting for the CodeMirror
+		// linter to re-run after its 400ms delay.
+		dispatchLintDiagnostics(activeFile, result.remainingDiagnostics);
 
 		if (activeFile) {
 			markFileChanged(activeFile, true);
@@ -743,8 +749,6 @@ export function IDEShell({ projectId }: { projectId: string }) {
 											action={activePendingChange.action}
 											onApprove={changeReview.handleApproveChange}
 											onReject={changeReview.handleRejectChange}
-											onApproveAll={changeReview.handleApproveAll}
-											onRejectAll={changeReview.handleRejectAll}
 											isReverting={changeReview.isReverting}
 											canReject={changeReview.canReject}
 										/>
@@ -1018,8 +1022,6 @@ export function IDEShell({ projectId }: { projectId: string }) {
 														action={activePendingChange.action}
 														onApprove={changeReview.handleApproveChange}
 														onReject={changeReview.handleRejectChange}
-														onApproveAll={changeReview.handleApproveAll}
-														onRejectAll={changeReview.handleRejectAll}
 														isReverting={changeReview.isReverting}
 														canReject={changeReview.canReject}
 													/>

@@ -113,8 +113,9 @@ export function useAiSessions({ projectId }: { projectId: string }) {
 			// Cast to UIMessage[] — the store expects UIMessage[].
 			// eslint-disable-next-line @typescript-eslint/consistent-type-assertions, @typescript-eslint/no-explicit-any -- wire format cast
 			loadSession(data.history as any[], data.id, restoredSnapshots);
-			void fetchLatestDebugLogId(projectId).then((id) => {
-				if (id) setDebugLogId(id);
+			// Restore the latest debug log download button for this session
+			void fetchLatestDebugLogId(projectId, data.id).then((logId) => {
+				if (logId) setDebugLogId(logId);
 			});
 		},
 	});
@@ -144,8 +145,9 @@ export function useAiSessions({ projectId }: { projectId: string }) {
 				createdAtReference.current = data.createdAt;
 				// eslint-disable-next-line @typescript-eslint/consistent-type-assertions, @typescript-eslint/no-explicit-any -- wire format cast
 				loadSession(data.history as any[], data.id, restoredSnapshots);
-				void fetchLatestDebugLogId(projectId).then((id) => {
-					if (id) setDebugLogId(id);
+				// Restore the latest debug log download button for this session
+				void fetchLatestDebugLogId(projectId, data.id).then((logId) => {
+					if (logId) setDebugLogId(logId);
 				});
 			});
 		}

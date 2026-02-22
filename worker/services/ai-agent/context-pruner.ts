@@ -1,7 +1,11 @@
 /**
- * Context window pruning for the AI agent.
- * Ported from OpenCode's SessionCompaction — when the conversation exceeds
- * the model's context window, prune old tool outputs to free space.
+ * Context window management for the AI agent.
+ * Ported from OpenCode's SessionCompaction — provides two levels of context management:
+ *
+ * 1. **Pruning** — erase old tool outputs when context is getting full
+ * 2. **Context budget** — check if there's enough context remaining for another iteration
+ *
+ * The agent loop prunes proactively at ~70% utilization, then stops when budget is exhausted.
  */
 
 import type { ModelMessage } from '@tanstack/ai';
@@ -21,6 +25,12 @@ const PRUNE_PROTECT = 40_000;
 
 /** Placeholder text for pruned tool outputs */
 const PRUNED_PLACEHOLDER = '[Old tool result content cleared]';
+
+/**
+ * Buffer reserved for model output and system prompt overhead.
+ * When usable context minus this buffer is exceeded, the agent should stop.
+ */
+const CONTEXT_BUDGET_BUFFER = 20_000;
 
 // =============================================================================
 // Token Estimation
@@ -73,15 +83,31 @@ interface ModelLimits {
 }
 
 /**
- * Check if the current conversation is approaching the context window limit.
+ * Check if there's enough context budget remaining for another iteration.
+ * Returns false when the context is so full that there wouldn't be enough
+ * room for a useful LLM turn (even after pruning).
  */
-export function isContextOverflow(messages: ModelMessage[], limits: ModelLimits): boolean {
-	if (limits.contextWindow === 0) return false;
+export function hasContextBudget(messages: ModelMessage[], limits: ModelLimits): boolean {
+	if (limits.contextWindow === 0) return true;
+
+	const currentTokens = estimateMessagesTokens(messages);
+	const usable = limits.contextWindow - limits.maxOutput - CONTEXT_BUDGET_BUFFER;
+
+	return currentTokens < usable;
+}
+
+/**
+ * Get the context utilization as a fraction (0.0 to 1.0+).
+ * Values above 1.0 indicate overflow.
+ */
+export function getContextUtilization(messages: ModelMessage[], limits: ModelLimits): number {
+	if (limits.contextWindow === 0) return 0;
 
 	const currentTokens = estimateMessagesTokens(messages);
 	const usable = limits.contextWindow - limits.maxOutput;
+	if (usable <= 0) return 1;
 
-	return currentTokens >= usable;
+	return currentTokens / usable;
 }
 
 // =============================================================================

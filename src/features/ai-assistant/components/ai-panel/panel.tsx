@@ -20,11 +20,11 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Pill } from '@/components/ui/pill';
 import { getLogSnapshot } from '@/features/output';
 import { useSnapshots } from '@/features/snapshots';
-import { downloadDebugLog, fetchLatestDebugLogId } from '@/lib/api-client';
+import { downloadDebugLog } from '@/lib/api-client';
 import { useStore } from '@/lib/store';
 import { cn, formatRelativeTime } from '@/lib/utils';
 
-import { extractCustomEvent, getNumberField, getStringField } from './helpers';
+import { extractCustomEvent, getStringField } from './helpers';
 import { AIError, AssistantMessage, ContinuationPrompt, DoomLoopAlert, MessageBubble, UserQuestionPrompt, WelcomeScreen } from './messages';
 import { getModelLabel } from './model-config';
 import { ModelSelectorDialog } from './model-selector-dialog';
@@ -40,7 +40,7 @@ import { FileMentionDropdown } from '../file-mention-dropdown';
 import { RevertConfirmDialog } from '../revert-confirm-dialog';
 import { RichTextInput, type RichTextInputHandle } from '../rich-text-input';
 
-import type { FileEditStats, ToolErrorInfo, UIMessage } from '@shared/types';
+import type { ToolErrorInfo, UIMessage } from '@shared/types';
 
 // =============================================================================
 // Component
@@ -64,8 +64,8 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	const lastSurfacedChatErrorReference = useRef<Error | undefined>(undefined);
 	// Structured tool error data keyed by toolCallId, populated by CUSTOM tool_error events
 	const toolErrorsReference = useRef<Map<string, ToolErrorInfo>>(new Map());
-	// File edit stats (lines added/removed, lint errors) keyed by tool_use_id, populated by CUSTOM file_changed events
-	const fileEditStatsReference = useRef<Map<string, FileEditStats>>(new Map());
+	// Diff content (before/after) keyed by tool_use_id, populated by CUSTOM file_changed events for inline diff rendering
+	const fileDiffContentReference = useRef<Map<string, { beforeContent: string; afterContent: string }>>(new Map());
 
 	// Derived plain text for the file mention hook
 	const inputPlainText = useMemo(() => segmentsToPlainText(segments), [segments]);
@@ -97,7 +97,6 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		associateSnapshotWithPending,
 		clearPendingChanges,
 		debugLogId,
-		setDebugLogId,
 	} = useStore();
 
 	// Keep stable references for useChat callbacks (avoid re-creating connection)
@@ -182,20 +181,17 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 							afterContent: afterContent || undefined,
 							snapshotId: activeSnapshotIdReference.current,
 						});
-						// Store diff stats + lint error count for the inline tool call UI
+						// Store diff content for inline diff rendering in tool call dropdowns
 						const toolUseId = getStringField(custom.data, 'tool_use_id');
-						if (toolUseId) {
-							const linesAdded = getNumberField(custom.data, 'linesAdded');
-							const linesRemoved = getNumberField(custom.data, 'linesRemoved');
-							const lintErrorCount = getNumberField(custom.data, 'lintErrorCount');
+						if (toolUseId && beforeContent && afterContent) {
 							// Cap map size (same pattern as toolErrors)
-							if (fileEditStatsReference.current.size >= 500) {
-								const firstKey = fileEditStatsReference.current.keys().next().value;
+							if (fileDiffContentReference.current.size >= 500) {
+								const firstKey = fileDiffContentReference.current.keys().next().value;
 								if (firstKey !== undefined) {
-									fileEditStatsReference.current.delete(firstKey);
+									fileDiffContentReference.current.delete(firstKey);
 								}
 							}
-							fileEditStatsReference.current.set(toolUseId, { toolUseId, linesAdded, linesRemoved, lintErrorCount });
+							fileDiffContentReference.current.set(toolUseId, { beforeContent, afterContent });
 						}
 						if (action !== 'delete' && action !== 'move') {
 							openFile(path);
@@ -230,18 +226,10 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 					break;
 				}
 				case 'turn_complete': {
-					// No action needed — just a signal from the backend
 					break;
 				}
 				case 'usage': {
 					// Token usage — could be surfaced in UI in the future
-					break;
-				}
-				case 'debug_log': {
-					const logId = getStringField(custom.data, 'id');
-					if (logId) {
-						setDebugLogId(logId);
-					}
 					break;
 				}
 				case 'tool_error': {
@@ -273,6 +261,13 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 			activeSnapshotIdReference.current = undefined;
 			userMessageIndexReference.current = -1;
 
+			// If the agent wrote any files, signal the preview to do a hard
+			// refresh. The per-file HMR reloads may have hit intermediate
+			// states or been lost during iframe reload cycles.
+			if (useStore.getState().pendingChanges.size > 0) {
+				globalThis.dispatchEvent(new CustomEvent('preview-force-refresh'));
+			}
+
 			// Auto-save the session after each AI response
 			queueMicrotask(() => {
 				void saveCurrentSession();
@@ -284,14 +279,6 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 			setProcessing(false);
 			setStatusMessage(undefined);
 			setAiError({ message: error.message });
-
-			// The SSE stream may have been severed before the debug_log event
-			// arrived. Poll for the latest log after a short delay.
-			setTimeout(() => {
-				void fetchLatestDebugLogId(projectId).then((id) => {
-					if (id) setDebugLogId(id);
-				});
-			}, 2000);
 		},
 	});
 
@@ -386,7 +373,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		setPendingQuestion(undefined);
 		setDoomLoopMessage(undefined);
 		toolErrorsReference.current.clear();
-		fileEditStatsReference.current.clear();
+		fileDiffContentReference.current.clear();
 		// Clear AI metadata without touching history (the forward sync handles it)
 		useStore.setState({
 			sessionId: undefined,
@@ -406,7 +393,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		(targetSessionId: string) => {
 			clearPendingChanges();
 			toolErrorsReference.current.clear();
-			fileEditStatsReference.current.clear();
+			fileDiffContentReference.current.clear();
 			loadSession(targetSessionId);
 		},
 		[clearPendingChanges, loadSession],
@@ -476,18 +463,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		stopChat();
 		setProcessing(false);
 		setStatusMessage(undefined);
-
-		// The backend flushes the debug log on abort, but the SSE stream is
-		// already severed so we never receive the debug_log event. Poll for
-		// the latest log after a short delay to allow the flush to complete.
-		if (!debugLogId) {
-			setTimeout(() => {
-				void fetchLatestDebugLogId(projectId).then((id) => {
-					if (id) setDebugLogId(id);
-				});
-			}, 2000);
-		}
-	}, [stopChat, setProcessing, setStatusMessage, debugLogId, projectId, setDebugLogId]);
+	}, [stopChat, setProcessing, setStatusMessage]);
 
 	// Retry last message.
 	// We trim messages synchronously via setChatMessages, then defer the re-send
@@ -589,10 +565,10 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	// Download debug log
 	const handleDownloadDebugLog = useCallback(() => {
 		if (!debugLogId) return;
-		void downloadDebugLog(projectId, debugLogId).catch((error) => {
+		void downloadDebugLog(projectId, debugLogId, sessionId).catch((error) => {
 			console.error('Failed to download debug log:', error);
 		});
-	}, [debugLogId, projectId]);
+	}, [debugLogId, projectId, sessionId]);
 
 	// Handle suggestion click
 	const handleSuggestion = useCallback(
@@ -703,7 +679,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 											isReverting={isReverting}
 											onRevert={handleRevert}
 											toolErrors={toolErrorsReference.current}
-											fileEditStats={fileEditStatsReference.current}
+											fileDiffContent={fileDiffContentReference.current}
 										/>
 									))}
 								</>
@@ -714,7 +690,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 									message={streamingAssistantMessage}
 									streaming
 									toolErrors={toolErrorsReference.current}
-									fileEditStats={fileEditStatsReference.current}
+									fileDiffContent={fileDiffContentReference.current}
 								/>
 							)}
 							{/* User question prompt — shown when the AI asks a clarifying question */}

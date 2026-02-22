@@ -12,8 +12,6 @@ const defaultProperties = {
 	action: 'edit' as const,
 	onApprove: vi.fn(),
 	onReject: vi.fn(),
-	onApproveAll: vi.fn(),
-	onRejectAll: vi.fn(),
 	isReverting: false,
 	canReject: true,
 };
@@ -54,22 +52,6 @@ describe('DiffToolbar', () => {
 		expect(onReject).toHaveBeenCalledWith('/src/main.ts');
 	});
 
-	it('calls onApproveAll when Accept All is clicked', () => {
-		const onApproveAll = vi.fn();
-		render(<DiffToolbar {...defaultProperties} onApproveAll={onApproveAll} />);
-
-		fireEvent.click(screen.getByText('Accept All'));
-		expect(onApproveAll).toHaveBeenCalled();
-	});
-
-	it('calls onRejectAll when Reject All is clicked', () => {
-		const onRejectAll = vi.fn();
-		render(<DiffToolbar {...defaultProperties} onRejectAll={onRejectAll} />);
-
-		fireEvent.click(screen.getByText('Reject All'));
-		expect(onRejectAll).toHaveBeenCalled();
-	});
-
 	it('disables buttons when isReverting is true', () => {
 		render(<DiffToolbar {...defaultProperties} isReverting={true} />);
 
@@ -80,13 +62,11 @@ describe('DiffToolbar', () => {
 		expect(rejectButton).toBeDisabled();
 	});
 
-	it('disables reject buttons when canReject is false', () => {
+	it('disables reject button when canReject is false', () => {
 		render(<DiffToolbar {...defaultProperties} canReject={false} />);
 
 		const rejectButton = screen.getByText('Reject').closest('button');
-		const rejectAllButton = screen.getByText('Reject All').closest('button');
 
 		expect(rejectButton).toBeDisabled();
-		expect(rejectAllButton).toBeDisabled();
 	});
 });

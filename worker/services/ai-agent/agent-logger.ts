@@ -6,8 +6,9 @@
  * doom loop detection, retries, and errors.
  *
  * Logs are accumulated in-memory during the run (synchronous pushes only) and
- * flushed to `.agent/debug-logs/{id}.json` at the end of the run. The log ID is
- * sent to the frontend via a CUSTOM AG-UI event so the user can download it.
+ * flushed to `.agent/sessions/{sessionId}/debug-logs/{id}.json` at the end of
+ * the run. The log ID is sent to the frontend via the project coordinator
+ * WebSocket so the user can download it.
  *
  * Design principles:
  * - Zero async overhead during the hot path (all logging is synchronous array pushes)
@@ -305,13 +306,15 @@ export class AgentLogger {
 	// =========================================================================
 
 	/**
-	 * Flush the debug log to disk at `.agent/debug-logs/{id}.json`.
+	 * Flush the debug log to disk at `.agent/sessions/{sessionId}/debug-logs/{id}.json`.
 	 * Also cleans up old logs beyond the retention limit.
 	 *
 	 * This is the ONLY async operation — called once at the end of the run.
 	 */
 	async flush(projectRoot: string): Promise<void> {
-		const logsDirectory = `${projectRoot}/.agent/debug-logs`;
+		const logsDirectory = this.sessionId
+			? `${projectRoot}/.agent/sessions/${this.sessionId}/debug-logs`
+			: `${projectRoot}/.agent/debug-logs`;
 
 		try {
 			await fs.mkdir(logsDirectory, { recursive: true });

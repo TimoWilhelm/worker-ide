@@ -32,10 +32,11 @@ import {
 	Search,
 	Trash2,
 } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { Pill, type PillProperties } from '@/components/ui/pill';
 import { Tooltip } from '@/components/ui/tooltip';
+import { computeDiffHunks } from '@/features/editor/lib/diff-decorations';
 import { useStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 import { TOOL_ERROR_LABELS } from '@shared/tool-errors';
@@ -45,8 +46,11 @@ import { parseTextToSegments } from '../../lib/input-segments';
 import { FileReference } from '../file-reference';
 import { MarkdownContent } from '../markdown-content';
 
-import type { AgentMode, FileEditStats, ToolErrorInfo, UIMessage } from '@shared/types';
+import type { AgentMode, ToolErrorInfo, UIMessage } from '@shared/types';
 import type { ToolName } from '@shared/validation';
+
+/** Threshold in pixels — if within this distance of bottom, consider "at bottom" for the thinking box. */
+const THINKING_BOX_BOTTOM_THRESHOLD = 16;
 
 // =============================================================================
 // Part type helpers (for narrowing UIMessage parts)
@@ -200,7 +204,7 @@ export function MessageBubble({
 	isReverting,
 	onRevert,
 	toolErrors,
-	fileEditStats,
+	fileDiffContent,
 }: {
 	message: UIMessage;
 	messageIndex: number;
@@ -208,7 +212,7 @@ export function MessageBubble({
 	isReverting: boolean;
 	onRevert: (snapshotId: string, messageIndex: number) => void;
 	toolErrors?: Map<string, ToolErrorInfo>;
-	fileEditStats?: Map<string, FileEditStats>;
+	fileDiffContent?: Map<string, { beforeContent: string; afterContent: string }>;
 }) {
 	if (message.role === 'user') {
 		return (
@@ -216,7 +220,7 @@ export function MessageBubble({
 		);
 	}
 
-	return <AssistantMessage message={message} toolErrors={toolErrors} fileEditStats={fileEditStats} />;
+	return <AssistantMessage message={message} toolErrors={toolErrors} fileDiffContent={fileDiffContent} />;
 }
 
 // =============================================================================
@@ -288,9 +292,9 @@ function UserMessage({
  * Groups adjacent text parts, pairs tool-call with their tool-result.
  */
 type RenderSegment =
-	| { kind: 'text'; text: string }
-	| { kind: 'thinking'; text: string }
-	| { kind: 'tool'; toolCall: ToolCallPart; toolResult?: ToolResultPart };
+	| { kind: 'text'; key: string; text: string }
+	| { kind: 'thinking'; key: string; text: string }
+	| { kind: 'tool'; key: string; toolCall: ToolCallPart; toolResult?: ToolResultPart };
 
 function buildRenderSegments(parts: unknown[]): RenderSegment[] {
 	const segments: RenderSegment[] = [];
@@ -303,6 +307,10 @@ function buildRenderSegments(parts: unknown[]): RenderSegment[] {
 		}
 	}
 
+	// Counters for generating stable keys per segment kind
+	let textCount = 0;
+	let thinkingCount = 0;
+
 	for (const part of parts) {
 		if (isTextPart(part)) {
 			const raw = part.content.trim();
@@ -312,15 +320,15 @@ function buildRenderSegments(parts: unknown[]): RenderSegment[] {
 			if (last?.kind === 'text') {
 				last.text += '\n' + raw;
 			} else {
-				segments.push({ kind: 'text', text: raw });
+				segments.push({ kind: 'text', key: `text-${textCount++}`, text: raw });
 			}
 		} else if (isThinkingPart(part)) {
 			const cleaned = part.content.trim();
 			if (!cleaned) continue;
-			segments.push({ kind: 'thinking', text: cleaned });
+			segments.push({ kind: 'thinking', key: `thinking-${thinkingCount++}`, text: cleaned });
 		} else if (isToolCallPart(part)) {
 			const result = resultsByCallId.get(part.id);
-			segments.push({ kind: 'tool', toolCall: part, toolResult: result });
+			segments.push({ kind: 'tool', key: part.id, toolCall: part, toolResult: result });
 		}
 		// tool-result parts are consumed via the lookup above
 	}
@@ -331,34 +339,48 @@ export function AssistantMessage({
 	message,
 	streaming,
 	toolErrors,
-	fileEditStats,
+	fileDiffContent,
 }: {
 	message: UIMessage;
 	streaming?: boolean;
 	toolErrors?: Map<string, ToolErrorInfo>;
-	fileEditStats?: Map<string, FileEditStats>;
+	fileDiffContent?: Map<string, { beforeContent: string; afterContent: string }>;
 }) {
 	const segments = buildRenderSegments(message.parts);
-	const [expandedThinking, setExpandedThinking] = useState<Set<number>>(new Set());
+	const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set());
 	const scrollReference = useRef<HTMLDivElement>(null);
+	const userScrolledAwayReference = useRef(false);
 
 	const hasToolCalls = segments.some((segment) => segment.kind === 'tool');
 	const lastTextIndex = segments.findLastIndex((segment) => segment.kind === 'text');
 
-	// Auto-scroll the active streaming thinking box
+	// Auto-scroll the active streaming thinking box (respects user scroll-up)
 	useEffect(() => {
-		if (streaming && scrollReference.current) {
+		if (streaming && scrollReference.current && !userScrolledAwayReference.current) {
 			scrollReference.current.scrollTop = scrollReference.current.scrollHeight;
 		}
 	}, [streaming, message.parts]);
 
-	const toggleThinking = (index: number) => {
-		setExpandedThinking((previous) => {
+	// Reset scroll-away flag when streaming starts (new thinking box appears)
+	useEffect(() => {
+		if (streaming) {
+			userScrolledAwayReference.current = false;
+		}
+	}, [streaming]);
+
+	const handleThinkingBoxScroll = useCallback((event: React.UIEvent<HTMLDivElement>) => {
+		const element = event.currentTarget;
+		const distanceFromBottom = element.scrollHeight - element.scrollTop - element.clientHeight;
+		userScrolledAwayReference.current = distanceFromBottom > THINKING_BOX_BOTTOM_THRESHOLD;
+	}, []);
+
+	const toggleSection = (key: string) => {
+		setExpandedSections((previous) => {
 			const next = new Set(previous);
-			if (next.has(index)) {
-				next.delete(index);
+			if (next.has(key)) {
+				next.delete(key);
 			} else {
-				next.add(index);
+				next.add(key);
 			}
 			return next;
 		});
@@ -369,11 +391,11 @@ export function AssistantMessage({
 		return (
 			<div className="flex min-w-0 animate-chat-item flex-col gap-2">
 				<div className="text-2xs font-semibold tracking-wider text-success uppercase">AI</div>
-				{segments.map((segment, index) => {
+				{segments.map((segment) => {
 					if (segment.kind === 'text') {
 						return (
 							<div
-								key={index}
+								key={segment.key}
 								className="
 									overflow-hidden rounded-lg bg-bg-tertiary px-3 py-2.5 text-sm/relaxed
 									text-text-primary
@@ -384,12 +406,12 @@ export function AssistantMessage({
 						);
 					}
 					if (segment.kind === 'thinking') {
-						const isExpanded = expandedThinking.has(index);
+						const isExpanded = expandedSections.has(segment.key);
 						return (
-							<div key={index} className="flex flex-col gap-1.5">
+							<div key={segment.key} className="flex flex-col gap-1.5">
 								<button
 									type="button"
-									onClick={() => toggleThinking(index)}
+									onClick={() => toggleSection(segment.key)}
 									className={cn(
 										`
 											flex items-center gap-2 overflow-hidden rounded-md px-3 py-1.5
@@ -433,23 +455,25 @@ export function AssistantMessage({
 				if (segment.kind === 'tool') {
 					return (
 						<InlineToolCall
-							key={index}
+							key={segment.key}
 							toolCall={segment.toolCall}
 							toolResult={segment.toolResult}
 							toolErrors={toolErrors}
-							fileEditStats={fileEditStats}
+							fileDiffContent={fileDiffContent}
+							isExpanded={expandedSections.has(segment.key)}
+							onToggleExpand={() => toggleSection(segment.key)}
 						/>
 					);
 				}
 
 				// Thinking segments — collapsible
 				if (segment.kind === 'thinking') {
-					const isExpanded = expandedThinking.has(index);
+					const isExpanded = expandedSections.has(segment.key);
 					return (
-						<div key={index} className="flex flex-col gap-1.5">
+						<div key={segment.key} className="flex flex-col gap-1.5">
 							<button
 								type="button"
-								onClick={() => toggleThinking(index)}
+								onClick={() => toggleSection(segment.key)}
 								className={cn(
 									`
 										flex items-center gap-2 overflow-hidden rounded-md px-3 py-1.5 text-xs
@@ -484,7 +508,7 @@ export function AssistantMessage({
 				if (isLastText && !streaming) {
 					return (
 						<div
-							key={index}
+							key={segment.key}
 							className="
 								overflow-hidden rounded-lg bg-bg-tertiary px-3 py-2.5 text-sm/relaxed
 								text-text-primary
@@ -499,8 +523,9 @@ export function AssistantMessage({
 				if (isLastText && streaming) {
 					return (
 						<div
-							key={index}
+							key={segment.key}
 							ref={scrollReference}
+							onScroll={handleThinkingBoxScroll}
 							className="
 								max-h-48 overflow-y-auto rounded-lg border border-accent/20
 								bg-bg-tertiary
@@ -517,12 +542,12 @@ export function AssistantMessage({
 
 				// Earlier text segments: collapsible thinking (intermediate reasoning between tool calls)
 				{
-					const isExpanded = expandedThinking.has(index);
+					const isExpanded = expandedSections.has(segment.key);
 					return (
-						<div key={index} className="flex flex-col gap-1.5">
+						<div key={segment.key} className="flex flex-col gap-1.5">
 							<button
 								type="button"
-								onClick={() => toggleThinking(index)}
+								onClick={() => toggleSection(segment.key)}
 								className={cn(
 									`
 										flex items-center gap-2 overflow-hidden rounded-md px-3 py-1.5 text-xs
@@ -562,6 +587,45 @@ export function AssistantMessage({
 // =============================================================================
 // Tool result parsing helpers
 // =============================================================================
+
+/**
+ * Parsed stats from a structured file-editing tool result.
+ * Tools like file_edit, file_write, lint_fix return JSON objects
+ * with a `result` field (diff or summary) and numeric stats.
+ */
+interface FileEditResultStats {
+	result: string;
+	linesAdded: number;
+	linesRemoved: number;
+	lintErrorCount: number;
+}
+
+/**
+ * Try to parse a structured file-edit result from a raw tool result string.
+ * Returns undefined if the result is not a structured edit result.
+ */
+function parseFileEditResult(rawResult: string): FileEditResultStats | undefined {
+	try {
+		const parsed: unknown = JSON.parse(rawResult);
+		if (
+			isRecord(parsed) &&
+			typeof parsed.result === 'string' &&
+			typeof parsed.linesAdded === 'number' &&
+			typeof parsed.linesRemoved === 'number' &&
+			typeof parsed.lintErrorCount === 'number'
+		) {
+			return {
+				result: parsed.result,
+				linesAdded: parsed.linesAdded,
+				linesRemoved: parsed.linesRemoved,
+				lintErrorCount: parsed.lintErrorCount,
+			};
+		}
+	} catch {
+		// Not JSON or wrong shape
+	}
+	return undefined;
+}
 
 /**
  * Extract text content from an XML-like tag, e.g. `<error>msg</error>` -> `msg`.
@@ -664,14 +728,22 @@ function summarizeToolResult(toolName: ToolName, rawResult: string): string {
 		}
 
 		case 'file_edit': {
-			// Show actual result — don't blindly say "Applied" if the edit may have failed silently
-			if (rawResult.includes('Edit applied successfully')) return 'Applied';
+			const stats = parseFileEditResult(rawResult);
+			if (stats) return 'Applied';
 			if (rawResult.includes('No changes needed')) return 'No changes';
 			return rawResult.length > 40 ? rawResult.slice(0, 40) + '...' : rawResult || 'Applied';
 		}
 
 		case 'file_write': {
+			const stats = parseFileEditResult(rawResult);
+			if (stats) return 'Written';
 			return 'Written';
+		}
+
+		case 'lint_fix': {
+			const stats = parseFileEditResult(rawResult);
+			if (stats) return 'Fixed';
+			return rawResult.includes('No lint issues') ? 'No issues' : 'Fixed';
 		}
 
 		case 'file_delete': {
@@ -680,6 +752,62 @@ function summarizeToolResult(toolName: ToolName, rawResult: string): string {
 
 		case 'file_move': {
 			return 'Moved';
+		}
+
+		case 'plan_update': {
+			const result = extractResultField(rawResult);
+			if (result) {
+				// Extract progress info like "3/7 tasks completed"
+				const progress = result.match(/(\d+\/\d+) tasks/);
+				if (progress) return progress[1];
+			}
+			return 'Updated';
+		}
+
+		case 'dependencies_update': {
+			try {
+				const parsed: unknown = JSON.parse(rawResult);
+				if (isRecord(parsed) && typeof parsed.action === 'string' && typeof parsed.name === 'string') {
+					const verb = parsed.action === 'add' ? 'Added' : parsed.action === 'remove' ? 'Removed' : 'Updated';
+					return `${verb} ${parsed.name}`;
+				}
+			} catch {
+				/* not JSON */
+			}
+			return 'Updated';
+		}
+
+		case 'dependencies_list': {
+			try {
+				const parsed: unknown = JSON.parse(rawResult);
+				if (isRecord(parsed) && isRecord(parsed.dependencies)) {
+					const count = Object.keys(parsed.dependencies).length;
+					return `${count} dep${count === 1 ? '' : 's'}`;
+				}
+			} catch {
+				/* not JSON */
+			}
+			return 'Listed';
+		}
+
+		case 'cdp_eval': {
+			try {
+				const parsed: unknown = JSON.parse(rawResult);
+				if (isRecord(parsed) && typeof parsed.method === 'string') {
+					return parsed.method;
+				}
+			} catch {
+				/* not JSON */
+			}
+			return 'Evaluated';
+		}
+
+		case 'todos_get': {
+			return 'Retrieved';
+		}
+
+		case 'todos_update': {
+			return 'Updated';
 		}
 
 		case 'file_grep': {
@@ -839,6 +967,23 @@ function extractTodosFromResult(toolName: ToolName, rawResult: string): TodoItem
 }
 
 /**
+ * Extract the `result` string from a structured tool result JSON.
+ * Tools like file_edit, file_write, lint_fix, plan_update, file_move, file_delete
+ * return `{ result: "...", ... }`. This extracts the human-readable `result` field.
+ */
+function extractResultField(rawResult: string): string | undefined {
+	try {
+		const parsed: unknown = JSON.parse(rawResult);
+		if (isRecord(parsed) && typeof parsed.result === 'string') {
+			return parsed.result;
+		}
+	} catch {
+		// Not JSON
+	}
+	return undefined;
+}
+
+/**
  * Format raw tool result content for the expandable detail view.
  * Strips XML tags and formats per-tool content cleanly.
  */
@@ -858,23 +1003,165 @@ function formatToolResultDetail(toolName: ToolName, rawResult: string): string {
 			return rawResult;
 		}
 
+		case 'file_edit':
+		case 'file_write':
+		case 'lint_fix': {
+			// These tools return { result: "diff...", linesAdded, ... }
+			// Show the diff/result text (fallback for when InlineDiffView is unavailable, e.g. page reload)
+			return extractResultField(rawResult) ?? rawResult;
+		}
+
+		case 'file_delete':
+		case 'file_move':
+		case 'plan_update': {
+			// These tools return { result: "summary..." }
+			return extractResultField(rawResult) ?? rawResult;
+		}
+
 		case 'file_grep':
-		case 'file_glob':
-		case 'file_list': {
+		case 'file_glob': {
 			// Already plain text, show as-is
 			return rawResult;
 		}
 
-		case 'files_list':
-		case 'docs_search':
-		case 'web_fetch': {
-			// Try to pretty-print JSON
+		case 'file_list': {
+			// JSON with { path, entries: [...] } — format as a clean directory listing
 			try {
 				const parsed: unknown = JSON.parse(rawResult);
-				return JSON.stringify(parsed, undefined, 2);
+				if (isRecord(parsed) && Array.isArray(parsed.entries)) {
+					return parsed.entries
+						.filter((entry): entry is Record<string, unknown> => isRecord(entry))
+						.map((entry) => {
+							const name = typeof entry.name === 'string' ? entry.name : '';
+							const suffix = entry.type === 'directory' ? '/' : '';
+							const size = typeof entry.size === 'number' ? `  (${entry.size} bytes)` : '';
+							return `${name}${suffix}${size}`;
+						})
+						.join('\n');
+				}
 			} catch {
-				return rawResult;
+				// Not JSON
 			}
+			return rawResult;
+		}
+
+		case 'files_list': {
+			// JSON with { files: [...] } — format as a file list
+			try {
+				const parsed: unknown = JSON.parse(rawResult);
+				if (isRecord(parsed) && Array.isArray(parsed.files)) {
+					return parsed.files.filter((file): file is string => typeof file === 'string').join('\n');
+				}
+			} catch {
+				// Not JSON
+			}
+			return rawResult;
+		}
+
+		case 'dependencies_list': {
+			// JSON with { dependencies: { name: version } }
+			try {
+				const parsed: unknown = JSON.parse(rawResult);
+				if (isRecord(parsed) && isRecord(parsed.dependencies)) {
+					const entries = Object.entries(parsed.dependencies);
+					if (entries.length === 0) {
+						return typeof parsed.note === 'string' ? parsed.note : 'No dependencies';
+					}
+					return entries.map(([name, version]) => `${name}: ${String(version)}`).join('\n');
+				}
+			} catch {
+				// Not JSON
+			}
+			return rawResult;
+		}
+
+		case 'dependencies_update': {
+			// JSON with { success, action, name, dependencies }
+			try {
+				const parsed: unknown = JSON.parse(rawResult);
+				if (isRecord(parsed) && typeof parsed.action === 'string' && typeof parsed.name === 'string') {
+					const verb = parsed.action === 'add' ? 'Added' : parsed.action === 'remove' ? 'Removed' : 'Updated';
+					let summary = `${verb} ${parsed.name}`;
+					if (isRecord(parsed.dependencies)) {
+						const version = parsed.dependencies[parsed.name];
+						if (typeof version === 'string') summary += `@${version}`;
+					}
+					return summary;
+				}
+			} catch {
+				// Not JSON
+			}
+			return rawResult;
+		}
+
+		case 'web_fetch': {
+			// JSON with { url, content, length }
+			try {
+				const parsed: unknown = JSON.parse(rawResult);
+				if (isRecord(parsed) && typeof parsed.content === 'string') {
+					const url = typeof parsed.url === 'string' ? `Source: ${parsed.url}\n\n` : '';
+					return `${url}${parsed.content}`;
+				}
+			} catch {
+				// Not JSON
+			}
+			return rawResult;
+		}
+
+		case 'docs_search': {
+			// JSON with { results: ... }
+			try {
+				const parsed: unknown = JSON.parse(rawResult);
+				if (isRecord(parsed)) {
+					return JSON.stringify(parsed, undefined, 2);
+				}
+			} catch {
+				// Not JSON
+			}
+			return rawResult;
+		}
+
+		case 'cdp_eval': {
+			// JSON with { method, result: ... }
+			try {
+				const parsed: unknown = JSON.parse(rawResult);
+				if (isRecord(parsed)) {
+					const method = typeof parsed.method === 'string' ? `Method: ${parsed.method}\n\n` : '';
+					const result = parsed.result === undefined ? 'No result' : JSON.stringify(parsed.result, undefined, 2);
+					return `${method}${result}`;
+				}
+			} catch {
+				// Not JSON
+			}
+			return rawResult;
+		}
+
+		case 'user_question': {
+			// JSON with { question, options, message }
+			try {
+				const parsed: unknown = JSON.parse(rawResult);
+				if (isRecord(parsed) && typeof parsed.question === 'string') {
+					return parsed.question;
+				}
+			} catch {
+				// Not JSON
+			}
+			return rawResult;
+		}
+
+		case 'todos_get':
+		case 'todos_update': {
+			// Handled by InlineTodoList — just return a summary
+			try {
+				const parsed: unknown = JSON.parse(rawResult);
+				if (isRecord(parsed) && Array.isArray(parsed.todos)) {
+					const completed = parsed.todos.filter((t): t is Record<string, unknown> => isRecord(t) && t.status === 'completed').length;
+					return `${completed}/${parsed.todos.length} tasks completed`;
+				}
+			} catch {
+				// Not JSON
+			}
+			return rawResult;
 		}
 
 		default: {
@@ -971,19 +1258,125 @@ function isToolError(toolCall: ToolCallPart, toolResult?: ToolResultPart): boole
 	return content !== undefined && isErrorResult(content);
 }
 
+/**
+ * Render a compact unified diff view from before/after content.
+ * Shows added lines in green, removed lines in red, with line numbers.
+ */
+function InlineDiffView({ beforeContent, afterContent }: { beforeContent: string; afterContent: string }) {
+	const hunks = useMemo(() => computeDiffHunks(beforeContent, afterContent), [beforeContent, afterContent]);
+
+	if (hunks.length === 0) return;
+
+	// Build rendered lines from hunks with a few lines of surrounding context.
+	// We re-derive context from the afterContent so the diff is self-contained.
+	const afterLines = afterContent.split('\n');
+
+	// Build a set of "after" line numbers that are part of added hunks (1-indexed)
+	const addedLineSet = new Set<number>();
+	for (const hunk of hunks) {
+		if (hunk.type === 'added') {
+			for (let index = 0; index < hunk.lineCount; index++) {
+				addedLineSet.add(hunk.startLine + index);
+			}
+		}
+	}
+
+	// Build diff display lines: show hunks with up to 2 lines of context
+	const CONTEXT = 2;
+	interface DiffLine {
+		type: 'added' | 'removed' | 'context';
+		content: string;
+	}
+	const diffLines: DiffLine[] = [];
+	let lastRenderedAfterLine = 0;
+
+	for (const hunk of hunks) {
+		if (hunk.type === 'removed') {
+			// Show context lines before this removed block
+			const contextStart = Math.max(lastRenderedAfterLine + 1, hunk.startLine - CONTEXT);
+			if (contextStart > lastRenderedAfterLine + 1 && diffLines.length > 0) {
+				diffLines.push({ type: 'context', content: '···' });
+			}
+			for (let index = contextStart; index < hunk.startLine; index++) {
+				if (!addedLineSet.has(index)) {
+					diffLines.push({ type: 'context', content: afterLines[index - 1] ?? '' });
+					lastRenderedAfterLine = index;
+				}
+			}
+			// Render removed lines
+			for (const line of hunk.lines) {
+				diffLines.push({ type: 'removed', content: line });
+			}
+		} else {
+			// Added hunk
+			const contextStart = Math.max(lastRenderedAfterLine + 1, hunk.startLine - CONTEXT);
+			if (contextStart > lastRenderedAfterLine + 1 && diffLines.length > 0) {
+				diffLines.push({ type: 'context', content: '···' });
+			}
+			for (let index = contextStart; index < hunk.startLine; index++) {
+				if (!addedLineSet.has(index)) {
+					diffLines.push({ type: 'context', content: afterLines[index - 1] ?? '' });
+					lastRenderedAfterLine = index;
+				}
+			}
+			// Render added lines
+			for (const line of hunk.lines) {
+				diffLines.push({ type: 'added', content: line });
+			}
+			lastRenderedAfterLine = hunk.startLine + hunk.lineCount - 1;
+		}
+	}
+
+	// Trailing context after last hunk
+	const trailingStart = lastRenderedAfterLine + 1;
+	const trailingEnd = Math.min(afterLines.length, lastRenderedAfterLine + CONTEXT);
+	for (let index = trailingStart; index <= trailingEnd; index++) {
+		if (!addedLineSet.has(index)) {
+			diffLines.push({ type: 'context', content: afterLines[index - 1] ?? '' });
+		}
+	}
+
+	return (
+		<div
+			className="
+				max-h-60 overflow-auto rounded-md bg-bg-primary font-mono text-2xs/relaxed
+			"
+		>
+			{diffLines.map((line, index) => (
+				<div
+					key={index}
+					className={cn(
+						'px-2.5 whitespace-pre-wrap',
+						line.type === 'added' && 'bg-success/10 text-success',
+						line.type === 'removed' && 'bg-error/10 text-error',
+						line.type === 'context' && 'text-text-secondary',
+					)}
+				>
+					<span className="mr-2 inline-block w-4 text-right opacity-50 select-none">
+						{line.type === 'added' ? '+' : line.type === 'removed' ? '-' : ' '}
+					</span>
+					{line.content || '\u00A0'}
+				</div>
+			))}
+		</div>
+	);
+}
+
 function InlineToolCall({
 	toolCall,
 	toolResult,
 	toolErrors,
-	fileEditStats,
+	fileDiffContent,
+	isExpanded,
+	onToggleExpand,
 }: {
 	toolCall: ToolCallPart;
 	toolResult?: ToolResultPart;
 	toolErrors?: Map<string, ToolErrorInfo>;
-	fileEditStats?: Map<string, FileEditStats>;
+	fileDiffContent?: Map<string, { beforeContent: string; afterContent: string }>;
+	isExpanded: boolean;
+	onToggleExpand: () => void;
 }) {
-	const [isExpanded, setIsExpanded] = useState(false);
-
 	const knownToolName: ToolName | undefined = isToolName(toolCall.name) ? toolCall.name : undefined;
 	const displayToolName = toolCall.name || 'unknown';
 	const isCompleted = toolCall.state === 'input-complete' && (toolResult !== undefined || toolCall.output !== undefined);
@@ -1031,28 +1424,39 @@ function InlineToolCall({
 	// Extract TODOs from todos_get / todos_update results
 	const todos = knownToolName && rawResultContent ? extractTodosFromResult(knownToolName, rawResultContent) : undefined;
 
+	// Parse file-edit stats directly from the structured tool result JSON.
+	const editStats = isCompleted && rawResultContent ? parseFileEditResult(rawResultContent) : undefined;
+	const hasEditStats = editStats !== undefined && (editStats.linesAdded > 0 || editStats.linesRemoved > 0 || editStats.lintErrorCount > 0);
+
 	// Build summary text for the result.
 	// Prefer structured error data from CUSTOM events over regex-parsing [CODE] prefixes.
+	// When file-edit stats are available, skip the generic summary — the stats replace it.
 	const resultSummary = isUnknownTool
 		? `Unknown tool: ${displayToolName}`
 		: structuredError
 			? shortenErrorFromStructured(structuredError)
-			: rawResultContent && knownToolName
-				? summarizeToolResult(knownToolName, rawResultContent)
-				: isCompleted
-					? 'No result'
-					: undefined;
+			: hasEditStats
+				? undefined
+				: rawResultContent && knownToolName
+					? summarizeToolResult(knownToolName, rawResultContent)
+					: isCompleted
+						? 'No result'
+						: undefined;
+
+	// Diff content from the file_changed CUSTOM event (carries beforeContent/afterContent)
+	const diffContent = fileDiffContent?.get(toolCall.id);
+	const hasDiffContent = diffContent !== undefined;
 
 	// Every completed tool call with content or a structured error is expandable.
-	// This ensures errors (including gate rejections) always have a detail dropdown.
-	const hasDetailContent = rawResultContent !== undefined || structuredError !== undefined;
+	// File-editing tools with before/after content are also expandable (for the diff view).
+	const hasDetailContent = rawResultContent !== undefined || structuredError !== undefined || hasDiffContent;
 	const expandable = !isUnknownTool && isCompleted && hasDetailContent;
 
 	return (
 		<div className="flex min-w-0 animate-chat-item flex-col gap-1.5">
 			<button
 				type="button"
-				onClick={() => expandable && setIsExpanded((previous) => !previous)}
+				onClick={() => expandable && onToggleExpand()}
 				className={cn(
 					`
 						flex flex-wrap items-center gap-x-2 gap-y-1 overflow-hidden rounded-md
@@ -1093,44 +1497,46 @@ function InlineToolCall({
 				)}
 				{resultSummary && <span className="ml-auto min-w-0 truncate text-text-secondary">{resultSummary}</span>}
 				{/* File edit stats: lines added, removed, lint errors */}
-				{isCompleted &&
-					fileEditStats?.has(toolCall.id) &&
-					(() => {
-						const stats = fileEditStats.get(toolCall.id)!;
-						return (
-							<span className="ml-1 flex shrink-0 items-center gap-1.5">
-								{stats.linesAdded > 0 && (
-									<span className="font-mono text-success" title={`${stats.linesAdded} line${stats.linesAdded === 1 ? '' : 's'} added`}>
-										+{stats.linesAdded}
-									</span>
-								)}
-								{stats.linesRemoved > 0 && (
-									<span className="font-mono text-error" title={`${stats.linesRemoved} line${stats.linesRemoved === 1 ? '' : 's'} removed`}>
-										-{stats.linesRemoved}
-									</span>
-								)}
-								{stats.lintErrorCount > 0 && (
-									<span
-										className="font-mono text-warning"
-										title={`${stats.lintErrorCount} lint error${stats.lintErrorCount === 1 ? '' : 's'}`}
-									>
-										⚠ {stats.lintErrorCount}
-									</span>
-								)}
+				{hasEditStats && editStats && (
+					<span className={cn('flex shrink-0 items-center gap-1.5', !resultSummary && 'ml-auto')}>
+						{editStats.linesAdded > 0 && (
+							<span className="font-mono text-success" title={`${editStats.linesAdded} line${editStats.linesAdded === 1 ? '' : 's'} added`}>
+								+{editStats.linesAdded}
 							</span>
-						);
-					})()}
+						)}
+						{editStats.linesRemoved > 0 && (
+							<span
+								className="font-mono text-error"
+								title={`${editStats.linesRemoved} line${editStats.linesRemoved === 1 ? '' : 's'} removed`}
+							>
+								-{editStats.linesRemoved}
+							</span>
+						)}
+						{editStats.lintErrorCount > 0 && (
+							<span
+								className="font-mono text-warning"
+								title={`${editStats.lintErrorCount} lint error${editStats.lintErrorCount === 1 ? '' : 's'}`}
+							>
+								⚠ {editStats.lintErrorCount}
+							</span>
+						)}
+					</span>
+				)}
 			</button>
-			{isExpanded && hasDetailContent && (
-				<pre
-					className="
-						max-h-60 overflow-auto rounded-md bg-bg-primary p-2.5 font-mono
-						text-2xs/relaxed break-all whitespace-pre-wrap text-text-secondary
-					"
-				>
-					{knownToolName ? getExpandableDetailText(knownToolName, rawResultContent, structuredError) : rawResultContent}
-				</pre>
-			)}
+			{isExpanded &&
+				hasDetailContent &&
+				(hasDiffContent ? (
+					<InlineDiffView beforeContent={diffContent.beforeContent} afterContent={diffContent.afterContent} />
+				) : (
+					<pre
+						className="
+							max-h-60 overflow-auto rounded-md bg-bg-primary p-2.5 font-mono
+							text-2xs/relaxed break-all whitespace-pre-wrap text-text-secondary
+						"
+					>
+						{knownToolName ? getExpandableDetailText(knownToolName, rawResultContent, structuredError) : rawResultContent}
+					</pre>
+				))}
 			{todos && todos.length > 0 && <InlineTodoList todos={todos} />}
 		</div>
 	);

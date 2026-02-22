@@ -248,7 +248,7 @@ export class ProjectCoordinator extends DurableObject {
 				// The HMR client sends this after reconnecting post-reload.
 				// If any update was broadcast after the client's reload timestamp,
 				// the client missed it and needs to reload again.
-				if (this.lastUpdateTimestamp > data.lastReloadTimestamp) {
+				if (this.lastUpdateTimestamp >= data.lastReloadTimestamp) {
 					try {
 						ws.send(
 							serializeMessage({

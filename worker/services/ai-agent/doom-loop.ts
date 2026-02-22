@@ -1,7 +1,6 @@
 import type { ModelMessage } from '@tanstack/ai';
 
 const DOOM_LOOP_THRESHOLD = 3;
-const SAME_TOOL_THRESHOLD = 5;
 const MUTATION_FAILURE_ITERATION_THRESHOLD = 2;
 
 /**
@@ -13,7 +12,7 @@ export const MUTATION_FAILURE_TAG = '[MUTATION_FAILURE]';
 
 export interface DoomLoopResult {
 	isDoomLoop: boolean;
-	reason?: 'identical_calls' | 'same_tool_repetition' | 'mutation_failure_loop';
+	reason?: 'identical_calls' | 'mutation_failure_loop';
 	toolName?: string;
 	message?: string;
 }
@@ -27,17 +26,20 @@ interface ToolCallRecord {
  * Stateless doom loop detection for the AI agent.
  *
  * Detects when the agent is stuck in repetitive patterns by analyzing the message history:
- * 1. Identical consecutive tool calls (exact same name + input)
- * 2. Same-tool repetition (same mutation tool called N times, even with different inputs)
- * 3. Mutation failure loop (consecutive iterations where mutation tools fail)
+ * 1. Identical consecutive tool calls (exact same name + arguments)
+ * 2. Mutation failure loop (consecutive iterations where mutation tools fail)
  *
  * An "iteration" in the message history is a group of:
  *   assistant (with toolCalls) → tool result(s) → optional user corrective message
  *
+ * NOTE: We intentionally do NOT detect "same tool, different arguments" as a loop.
+ * Editing multiple different files in a row is legitimate work, not a doom loop.
+ * Only truly identical calls (same tool + same arguments) indicate the model is stuck.
+ *
  * Mutation failures are detected via the MUTATION_FAILURE_TAG that the agent loop
  * injects into corrective user messages, not by parsing natural-language content.
  */
-export function detectDoomLoop(messages: ModelMessage[], readOnlyTools?: ReadonlySet<string>): DoomLoopResult {
+export function detectDoomLoop(messages: ModelMessage[]): DoomLoopResult {
 	const toolCalls: ToolCallRecord[] = [];
 
 	// Extract all tool calls in order
@@ -57,7 +59,7 @@ export function detectDoomLoop(messages: ModelMessage[], readOnlyTools?: Readonl
 		}
 	}
 
-	// 1. Check identical consecutive calls
+	// 1. Check identical consecutive calls (same name AND same arguments)
 	if (toolCalls.length >= DOOM_LOOP_THRESHOLD) {
 		const recent = toolCalls.slice(-DOOM_LOOP_THRESHOLD);
 		const first = recent[0];
@@ -73,25 +75,7 @@ export function detectDoomLoop(messages: ModelMessage[], readOnlyTools?: Readonl
 		}
 	}
 
-	// 2. Check same-tool repetition (excluding read-only tools)
-	if (toolCalls.length >= SAME_TOOL_THRESHOLD) {
-		const recent = toolCalls.slice(-SAME_TOOL_THRESHOLD);
-		const first = recent[0];
-
-		if (!readOnlyTools?.has(first.name)) {
-			const allSameTool = recent.every((tc) => tc.name === first.name);
-			if (allSameTool) {
-				return {
-					isDoomLoop: true,
-					reason: 'same_tool_repetition',
-					toolName: first.name,
-					message: `${first.name} was called too many times in a row. The agent was stopped to prevent an infinite loop.`,
-				};
-			}
-		}
-	}
-
-	// 3. Check mutation failure loop
+	// 2. Check mutation failure loop
 	// Parse the message history into iterations by scanning backwards.
 	// Each iteration is bounded by an assistant message with toolCalls.
 	// A mutation failure is signaled by a user message containing MUTATION_FAILURE_TAG,

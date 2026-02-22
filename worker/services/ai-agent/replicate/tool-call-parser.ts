@@ -21,20 +21,75 @@ import type { AgentLogger } from '../agent-logger';
 // XML Tag Stripping
 // =============================================================================
 
-export const XML_TOOL_CALL_PATTERN =
-	/<(?:function_calls|antml:function_calls|invoke\s|antml:invoke|tool_use|tool_call)[^>]*>[\s\S]*?(?:<\/(?:function_calls|antml:function_calls|invoke|antml:invoke|tool_use|tool_call)>|$)/g;
+/**
+ * Pattern to match outer wrapper tags (`<function_calls>` and its `antml:`-prefixed variant)
+ * that contain nested `<invoke>` elements. Uses a lazy quantifier that stops at the matching
+ * closing wrapper tag, stripping the entire block including all nested content.
+ */
+const OUTER_WRAPPER_PATTERN = /<(?:function_calls|antml:function_calls)[^>]*>[\s\S]*?<\/(?:function_calls|antml:function_calls)>/g;
 
 /**
- * Strip XML-like partial tool call fragments from text.
- * Returns the cleaned text.
+ * Pattern to match standalone/inner tool call tags that are not wrapped by
+ * `<function_calls>`. This handles `<invoke>`, `<invoke>`, `<tool_use>`,
+ * and `<tool_call>` blocks — either closed normally or extending to end-of-string
+ * (for partial/truncated output during streaming).
+ */
+const INNER_TOOL_CALL_PATTERN =
+	/<(?:invoke\s|antml:invoke|tool_use|tool_call)[^>]*>[\s\S]*?(?:<\/(?:invoke|antml:invoke|tool_use|tool_call)>|$)/g;
+
+/**
+ * Pattern to match partial outer wrappers that haven't closed yet (streaming).
+ * E.g. `<function_calls>\n<invoke name="file_read">\n<parameter...` with no closing tag.
+ */
+const PARTIAL_OUTER_WRAPPER_PATTERN = /<(?:function_calls|antml:function_calls)[^>]*>[\s\S]*$/g;
+
+/**
+ * Pattern to strip orphaned closing tags and `<parameter>` elements that might
+ * remain after the above passes. These are internal XML elements that should
+ * never be visible to the user.
+ */
+const ORPHANED_XML_PATTERN =
+	/<\/?(?:parameter|antml:parameter)[^>]*>|<\/(?:function_calls|antml:function_calls|invoke|antml:invoke|tool_use|tool_call)>/g;
+
+/**
+ * Exported for use in `containsToolCallXml` detection. Matches any recognized
+ * tool call XML opening tag.
+ */
+export const XML_TOOL_CALL_PATTERN = /<(?:function_calls|antml:function_calls|invoke\s|antml:invoke|tool_use|tool_call)[^>]*>/;
+
+/**
+ * Strip XML-like tool call fragments from text.
+ *
+ * Uses a multi-pass approach to handle nested XML formats correctly:
+ * 1. Strip complete outer wrappers (`<function_calls>...</function_calls>`)
+ * 2. Strip partial outer wrappers that extend to end-of-string (streaming)
+ * 3. Strip standalone inner tags (`<tool_use>`, `<invoke>`, etc.)
+ * 4. Strip any orphaned closing tags or `<parameter>` elements left behind
+ *
+ * This avoids the previous bug where a single regex with lazy quantifier
+ * would match from `<function_calls>` to the first inner `</invoke>`,
+ * leaving `</function_calls>` visible to the user.
  */
 export function stripPartialToolCalls(text: string): string {
-	return text.replaceAll(XML_TOOL_CALL_PATTERN, '');
+	let result = text;
+
+	// Pass 1: Strip complete outer wrappers (greedy — spans to closing </function_calls>)
+	result = result.replaceAll(OUTER_WRAPPER_PATTERN, '');
+
+	// Pass 2: Strip partial outer wrappers (no closing tag yet — streaming)
+	result = result.replaceAll(PARTIAL_OUTER_WRAPPER_PATTERN, '');
+
+	// Pass 3: Strip standalone/inner tool call blocks (<tool_use>, <invoke>, etc.)
+	result = result.replaceAll(INNER_TOOL_CALL_PATTERN, '');
+
+	// Pass 4: Strip orphaned closing tags and <parameter> elements
+	result = result.replaceAll(ORPHANED_XML_PATTERN, '');
+
+	return result;
 }
 
 /** Check whether text contains tool call XML fragments. */
 export function containsToolCallXml(text: string): boolean {
-	XML_TOOL_CALL_PATTERN.lastIndex = 0;
 	return XML_TOOL_CALL_PATTERN.test(text);
 }
 
@@ -46,7 +101,8 @@ export function containsToolCallXml(text: string): boolean {
  * Normalize alternative function call formats to the canonical `<tool_use>` format.
  *
  * Models may emit tool calls in several non-canonical XML formats instead of `<tool_use>`.
- * This function normalizes all known variants:
+ * This function normalizes all known variants, including `antml:`-prefixed tags that
+ * Claude models frequently emit when accessed via text-completion endpoints.
  *
  * **Format A** (`<parameter name="name">` + `<parameter name="input">`):
  * ```xml
@@ -63,10 +119,18 @@ export function containsToolCallXml(text: string): boolean {
  * </invoke></function_calls>
  * ```
  * A single `<function_calls>` wrapper can contain multiple `<invoke>` blocks.
+ *
+ * Both formats are also recognized with `antml:` namespace prefixes on all tags.
  */
 export function normalizeFunctionCallsFormat(output: string): string {
+	// Pre-pass: Strip `antml:` namespace prefixes from all XML tags so that the
+	// existing Format A / Format B regexes below work unchanged. This handles
+	// Claude models that emit `<function_calls>`, `<invoke>`, and
+	// `<parameter>` variants.
+	let result = output.replaceAll(/<(\/?)antml:(?=function_calls|invoke|parameter)/g, '<$1');
+
 	// Format A: <function_calls><invoke><parameter name="name">TOOL</parameter><parameter name="input">JSON</parameter></invoke></function_calls>
-	let result = output.replaceAll(
+	result = result.replaceAll(
 		/<function_calls>\s*<invoke>\s*<parameter\s+name="name">([\s\S]*?)<\/parameter>\s*<parameter\s+name="input">([\s\S]*?)<\/parameter>\s*<\/invoke>\s*<\/function_calls>/g,
 		(_match, name: string, inputJson: string) => {
 			const toolName = name.trim();

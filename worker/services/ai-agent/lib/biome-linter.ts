@@ -287,11 +287,10 @@ export async function fixFileForAgent(filePath: string, content: string): Promis
 }
 
 /**
- * Format lint diagnostics as a string suitable for appending to tool results.
- * Returns undefined if there are no diagnostics.
+ * Format pre-computed lint diagnostics as a string suitable for appending to tool results.
+ * Returns undefined if the array is empty.
  */
-export async function formatLintResultsForAgent(filePath: string, content: string): Promise<string | undefined> {
-	const diagnostics = await lintFileForAgent(filePath, content);
+export function formatLintDiagnostics(diagnostics: ServerLintDiagnostic[]): string | undefined {
 	if (diagnostics.length === 0) return undefined;
 
 	const lines = diagnostics.map(
@@ -305,5 +304,15 @@ export async function formatLintResultsForAgent(filePath: string, content: strin
 		.filter(Boolean)
 		.join(', ');
 
-	return `\nLint diagnostics (${summary}):\n${lines.join('\n')}`;
+	return `Lint diagnostics (${summary}):\n${lines.join('\n')}`;
+}
+
+/**
+ * Lint a file and format the results as a string suitable for appending to tool results.
+ * Returns undefined if there are no diagnostics.
+ */
+export async function formatLintResultsForAgent(filePath: string, content: string): Promise<string | undefined> {
+	const diagnostics = await lintFileForAgent(filePath, content);
+	const formatted = formatLintDiagnostics(diagnostics);
+	return formatted ? `\n${formatted}` : undefined;
 }
