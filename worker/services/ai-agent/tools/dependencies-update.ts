@@ -11,7 +11,7 @@ import type { ProjectMeta } from '@shared/types';
 export const definition: ToolDefinition = {
 	name: 'dependencies_update',
 	description: `Add, remove, or update a project dependency. Dependencies are managed at the project level (not via package.json).
-You MUST register a dependency before importing it in code. Use dependencies_list to see current dependencies.`,
+CRITICAL INSTRUCTION: You MUST register a dependency before importing it in code. Use dependencies_list to see current dependencies.`,
 	input_schema: {
 		type: 'object',
 		properties: {

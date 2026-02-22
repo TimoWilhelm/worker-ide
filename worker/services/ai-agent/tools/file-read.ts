@@ -88,12 +88,11 @@ Usage:
 - Call this tool in parallel when you know there are multiple files you want to read.
 - Avoid tiny repeated slices (30 line chunks). If you need more context, read a larger window.
 
-<<< CRITICAL RULES — VIOLATION WASTES TOKENS AND DEGRADES PERFORMANCE >>>
-1. NEVER re-read a file (or section of a file) you already have in context. The content does not change unless YOU edit it.
-2. After EVERY file_read, check the status line at the bottom of the output:
-   - "End of file" or "End of file reached" → you have ALL the content. Do NOT call file_read on this file again.
-   - "Use offset=N to continue reading" → there is more content. ONLY then should you call file_read again with that offset.
-3. If no "Use offset" instruction appears, the file is COMPLETE. Stop reading.`;
+CRITICAL INSTRUCTION: NEVER re-read a file (or section of a file) you already have in context. The content does not change unless YOU edit it.
+CRITICAL INSTRUCTION: After EVERY file_read, check the status line at the bottom of the output:
+  - "End of file" or "End of file reached" means you have ALL the content. Do NOT call file_read on this file again.
+  - "Use offset=N to continue reading" means there is more content. ONLY then should you call file_read again with that offset.
+CRITICAL INSTRUCTION: If no "Use offset" instruction appears, the file is COMPLETE. Stop reading.`;
 
 // =============================================================================
 // Tool Definition

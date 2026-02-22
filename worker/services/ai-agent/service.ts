@@ -825,7 +825,7 @@ export class AIAgentService {
 								`${MUTATION_FAILURE_TAG} SYSTEM: One or more mutation tools (file_edit, file_write, etc.) FAILED this turn. ` +
 								'Common causes: (1) the patch contained content that does not match the actual file — you may be hallucinating file contents; ' +
 								'(2) the old_string in file_edit does not exist in the file. ' +
-								'IMPORTANT: Before retrying, you MUST file_read the target file(s) to see their ACTUAL current content. ' +
+								'CRITICAL INSTRUCTION: Before retrying, you MUST file_read the target file(s) to see their ACTUAL current content. ' +
 								'Do NOT guess what a file contains — read it first.',
 						});
 					}
@@ -856,7 +856,7 @@ export class AIAgentService {
 							role: 'user',
 							content:
 								'SYSTEM: Your previous response contained XML-formatted tool calls (e.g. <function_calls>, <invoke>, <tool_use>) as plain text. ' +
-								'This is incorrect — you MUST use the tool-calling API provided to you, not XML tags. ' +
+								'CRITICAL INSTRUCTION: You MUST use the tool-calling API provided to you, not XML tags. ' +
 								'Please retry your intended action using the actual tool functions available to you. ' +
 								'Do NOT output XML tags. Call the tools directly.',
 						});

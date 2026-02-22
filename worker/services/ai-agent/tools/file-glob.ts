@@ -40,7 +40,7 @@ export const definition: ToolDefinition = {
 			path: {
 				type: 'string',
 				description:
-					'The directory to search in. If not specified, the project root will be used. IMPORTANT: Omit this field to use the default directory. DO NOT enter "undefined" or "null" - simply omit it for the default behavior.',
+					'The directory to search in. If not specified, the project root will be used. CRITICAL INSTRUCTION: Omit this field to use the default directory. DO NOT enter "undefined" or "null" - simply omit it for the default behavior.',
 			},
 		},
 		required: ['pattern'],

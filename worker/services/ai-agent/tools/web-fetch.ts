@@ -19,9 +19,9 @@ import type { SendEventFunction, ToolDefinition, ToolExecutorContext } from '../
 export const DESCRIPTION = `Fetch a web page and run a prompt against its content. The page is converted to markdown and summarized, so the returned content is always a processed summary — never raw page text.
 
 Usage:
-- IMPORTANT: If another tool is available that offers more targeted information (e.g. docs_search for Cloudflare documentation), prefer using that tool instead of this one.
+CRITICAL INSTRUCTION: If another tool is available that offers more targeted information (e.g. docs_search for Cloudflare documentation), prefer using that tool instead of this one.
 - The URL must be a fully-formed valid URL. Only http:// and https:// URLs are supported.
-- You MUST provide a prompt describing what information you need from the page.
+CRITICAL INSTRUCTION: You MUST provide a prompt describing what information you need from the page.
 - This tool is read-only and does not modify any files.
 - Requests have a 10-second timeout.`;
 

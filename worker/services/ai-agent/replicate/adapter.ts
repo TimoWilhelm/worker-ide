@@ -175,18 +175,16 @@ function formatToolDescriptions(tools: ReadonlyArray<Tool>): string {
 	return `Available tools:
 ${toolLines.join('\n')}
 
-IMPORTANT: To use a tool, you MUST respond with a JSON block in this EXACT format:
+CRITICAL INSTRUCTION: To use a tool, you MUST respond with a JSON block in this EXACT format:
 <tool_use>
 {"name": "tool_name", "input": {"param1": "value1"}}
 </tool_use>
 
-CRITICAL FORMAT RULES:
-- All parameters MUST be nested inside the "input" object
+CRITICAL INSTRUCTION: All parameters MUST be nested inside the "input" object. NEVER put parameters at the top level like {"name": "write_file", "path": "..."} - this is WRONG.
 - Example for write_file: {"name": "write_file", "input": {"path": "/file.txt", "content": "hello"}}
 - Example for read_file: {"name": "read_file", "input": {"path": "/file.txt"}}
-- NEVER put parameters at the top level like {"name": "write_file", "path": "..."} - this is WRONG
 
-IMPORTANT: You MUST use exactly ONE tool per response. Do NOT include multiple tool_use blocks.
+CRITICAL INSTRUCTION: You MUST use exactly ONE tool per response. Do NOT include multiple tool_use blocks.
 After using a tool, you will receive the result and can decide your next action in a follow-up response.
 When you're done and don't need to use any more tools, just provide your final response without any tool_use blocks.`;
 }
