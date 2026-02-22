@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { copyFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -50,44 +50,21 @@ function rawMinifiedPlugin(): Plugin {
 
 /**
  * Prevent Vite from statically detecting `new URL('biome_wasm_bg.wasm', import.meta.url)`
- * in @biomejs/wasm-web and emitting the 27+ MiB WASM as a bundled asset.
- * The WASM is loaded at runtime from esm.sh CDN instead (see biome-linter.ts).
- * The version is read from the installed package so upgrades are automatic.
+ * in @biomejs/wasm-web and trying to emit the WASM as a bundled asset.
+ *
+ * Both client and server now pass the WASM module explicitly to the init function,
+ * so this default URL inside @biomejs/wasm-web is never used. We replace it with a
+ * no-op URL to stop Vite's asset pipeline from processing the original 27+ MiB file.
+ *
+ * The optimized WASM lives in vendor/biome_wasm_bg.wasm (created by scripts/vendor-wasm.ts).
  */
-const biomeWasmVersion = JSON.parse(readFileSync(path.join(__dirname, 'node_modules/@biomejs/wasm-web/package.json'), 'utf8')).version;
-
-function biomeWasmCdnPlugin(): Plugin {
-	const cdnUrl = `https://esm.sh/@biomejs/wasm-web@${biomeWasmVersion}/biome_wasm_bg.wasm`;
+function biomeWasmNoopPlugin(): Plugin {
 	return {
-		name: 'biome-wasm-cdn',
+		name: 'biome-wasm-noop',
 		enforce: 'pre',
-		config() {
-			return {
-				define: {
-					__BIOME_WASM_CDN_URL__: JSON.stringify(cdnUrl),
-				},
-			};
-		},
 		transform(code, id) {
 			if (!id.includes('@biomejs/wasm-web')) return;
-			// Replace the static URL pattern so Vite's asset pipeline doesn't pick it up.
-			// The init function receives the CDN URL from our code, so this default is unused.
-			return code.replace(`new URL('biome_wasm_bg.wasm', import.meta.url)`, `new URL('${cdnUrl}')`);
-		},
-	};
-}
-
-function esbuildWasmPlugin(): Plugin {
-	return {
-		name: 'esbuild-wasm-plugin',
-		buildStart() {
-			const wasmSource = path.join(__dirname, 'node_modules/esbuild-wasm/esbuild.wasm');
-			const vendorDirectory = path.join(__dirname, 'vendor');
-			const wasmDestination = path.join(vendorDirectory, 'esbuild.wasm');
-			if (existsSync(wasmSource)) {
-				mkdirSync(vendorDirectory, { recursive: true });
-				copyFileSync(wasmSource, wasmDestination);
-			}
+			return code.replace(`new URL('biome_wasm_bg.wasm', import.meta.url)`, `new URL('about:blank')`);
 		},
 	};
 }
@@ -95,8 +72,7 @@ function esbuildWasmPlugin(): Plugin {
 export default defineConfig({
 	plugins: [
 		rawMinifiedPlugin(),
-		biomeWasmCdnPlugin(),
-		esbuildWasmPlugin(),
+		biomeWasmNoopPlugin(),
 		tailwindcss(),
 		react(),
 		cloudflare({

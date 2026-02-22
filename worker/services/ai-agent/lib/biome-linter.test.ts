@@ -13,7 +13,11 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { initSync } from '@biomejs/wasm-web';
-import { beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
+
+// Mock the static WASM import — in Node tests, the WASM is pre-loaded via
+// initSync() in beforeAll, so the default() call in initBiome() short-circuits.
+vi.mock('./biome-wasm-module', () => ({ default: undefined }));
 
 import { fixFileForAgent, formatLintDiagnostics, formatLintResultsForAgent, lintFileForAgent } from './biome-linter';
 

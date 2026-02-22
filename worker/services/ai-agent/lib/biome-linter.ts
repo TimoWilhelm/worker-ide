@@ -91,10 +91,13 @@ async function ensureBiome(): Promise<boolean> {
 }
 
 async function initBiome(): Promise<void> {
-	// Initialize the WASM binary first — @biomejs/wasm-web exports a default
-	// init function that must resolve before any classes (Workspace, etc.) work.
-	const wasmModule = await import('@biomejs/wasm-web');
-	await wasmModule.default();
+	// Initialize the WASM binary from the statically imported, pre-compiled
+	// WebAssembly.Module. In the Cloudflare Workers runtime, the `.wasm` import
+	// resolves to a WebAssembly.Module at deploy time. The default() init
+	// function detects this and calls WebAssembly.instantiate(module, imports)
+	// — the async form that Workers supports.
+	const [wasmModule, { default: biomeWasm }] = await Promise.all([import('@biomejs/wasm-web'), import('./biome-wasm-module')]);
+	await wasmModule.default(biomeWasm);
 
 	const { Biome, Distribution } = await import('@biomejs/js-api');
 	const biome = await Biome.create({ distribution: Distribution.WEB });

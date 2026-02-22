@@ -25,6 +25,10 @@
 			"inputs": ["worker/**", "shared/**", "tsconfig.worker.json", "tsconfig.json"],
 			"cache": true
 		},
+		"typecheck:scripts": {
+			"inputs": ["scripts/**/*.ts", "tsconfig.scripts.json", "tsconfig.json"],
+			"cache": true
+		},
 		"lint": {
 			"inputs": ["src/**", "worker/**", "shared/**", "test/**", "eslint.config.js"],
 			"cache": true

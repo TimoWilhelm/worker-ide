@@ -32,6 +32,10 @@ import type { FileChange, SendEventFunction, ToolExecutorContext } from '../type
 // Bootstrap Biome WASM from disk (once, before any imports that use it)
 // =============================================================================
 
+// Mock the static WASM import — in Node tests, the WASM is pre-loaded via
+// initSync() in beforeAll, so the default() call in initBiome() short-circuits.
+vi.mock('../lib/biome-wasm-module', () => ({ default: undefined }));
+
 beforeAll(() => {
 	const wasmPath = path.resolve('node_modules/@biomejs/wasm-web/biome_wasm_bg.wasm');
 	initSync({ module: readFileSync(wasmPath) });

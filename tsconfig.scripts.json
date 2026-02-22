@@ -1,0 +1,19 @@
+{
+	"compilerOptions": {
+		"target": "ES2024",
+		"lib": ["ES2024"],
+		"module": "ESNext",
+		"moduleResolution": "bundler",
+		"moduleDetection": "force",
+		"strict": true,
+		"noEmit": true,
+		"isolatedModules": true,
+		"skipLibCheck": true,
+		"noUnusedLocals": true,
+		"noUnusedParameters": true,
+		"noFallthroughCasesInSwitch": true,
+		"noUncheckedSideEffectImports": true,
+		"types": ["node"]
+	},
+	"include": ["scripts/**/*.ts"]
+}
