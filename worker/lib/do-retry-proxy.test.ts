@@ -1,5 +1,3 @@
-/* eslint-disable @typescript-eslint/consistent-type-assertions -- test mocks require type assertions for Cloudflare runtime types */
-
 /**
  * Unit tests for the Durable Object retry proxy.
  */

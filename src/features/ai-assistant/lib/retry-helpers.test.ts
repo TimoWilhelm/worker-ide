@@ -38,7 +38,7 @@ function createToolCallMessage(role: 'assistant'): UIMessage {
 function createMixedMessage(role: 'user' | 'assistant', text: string, hasToolCall: boolean): UIMessage {
 	const parts: UIMessage['parts'] = [{ type: 'text', content: text }];
 	if (hasToolCall) {
-		// eslint-disable-next-line @typescript-eslint/consistent-type-assertions, @typescript-eslint/no-explicit-any -- test helper
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any -- test helper
 		(parts as any[]).push({ type: 'tool-call', id: 'tc-456', name: 'file_read', arguments: '{}', state: 'input-complete' });
 	}
 	return { id: nextId(), role, parts };

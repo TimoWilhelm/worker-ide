@@ -115,6 +115,14 @@ export default defineConfig(
 		},
 	},
 
+	// Test files need type assertions to narrow unknown results from tool execute functions
+	{
+		files: ['**/*.test.{ts,tsx}', '**/test-helpers.ts'],
+		rules: {
+			'@typescript-eslint/consistent-type-assertions': 'off',
+		},
+	},
+
 	eslintConfigPrettier,
 
 	{

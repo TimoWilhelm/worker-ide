@@ -296,7 +296,7 @@ describe('AgentLogger', () => {
 				const prefix = String.fromCodePoint(122 - (index % 26)); // z, y, x, ...
 				return `${prefix}-${1000 + index}.json`;
 			});
-			// eslint-disable-next-line @typescript-eslint/consistent-type-assertions, @typescript-eslint/no-explicit-any -- readdir mock needs string[] but TS expects Dirent[]
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any -- readdir mock needs string[] but TS expects Dirent[]
 			vi.mocked(fs.default.readdir).mockResolvedValue(existingFiles as any);
 
 			await logger.flush('/project');

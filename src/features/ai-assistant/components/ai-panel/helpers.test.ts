@@ -89,7 +89,6 @@ describe('extractCustomEvent', () => {
 	});
 
 	it('returns undefined for non-object chunks', () => {
-		// eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- testing invalid input
 		expect(extractCustomEvent('not an object' as never)).toBeUndefined();
 	});
 });

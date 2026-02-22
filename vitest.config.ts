@@ -22,7 +22,12 @@ export default defineConfig({
 			{
 				test: {
 					name: 'unit',
-					include: ['shared/**/*.test.ts', 'src/lib/**/*.test.ts'],
+					include: [
+						'shared/**/*.test.ts',
+						'src/lib/**/*.test.ts',
+						'worker/services/ai-agent/lib/**/*.test.ts',
+						'worker/services/ai-agent/tools/lint-fix-biome.test.ts',
+					],
 					environment: 'node',
 				},
 				resolve: {
@@ -34,6 +39,12 @@ export default defineConfig({
 				test: {
 					name: 'worker',
 					include: ['worker/**/*.test.ts'],
+					exclude: [
+						// Biome WASM tests run in the unit (Node) project because the 27 MiB
+						// WASM binary cannot load inside the workerd sandbox.
+						'worker/services/ai-agent/lib/**/*.test.ts',
+						'worker/services/ai-agent/tools/lint-fix-biome.test.ts',
+					],
 					// Pre-bundle CJS-only dependencies so workerd's ESM runtime can resolve
 					// their named exports. See: https://developers.cloudflare.com/workers/testing/vitest-integration/known-issues/#module-resolution
 					deps: {

@@ -1,0 +1,128 @@
+/**
+ * Integration tests for the todos_update tool.
+ *
+ * Tests todo creation, real Zod validation, JSON parsing,
+ * and error handling against an in-memory filesystem.
+ */
+
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { createMemoryFs, createMockContext, createMockSendEvent } from './test-helpers';
+
+// ---------------------------------------------------------------------------
+// Mocks
+// ---------------------------------------------------------------------------
+
+const memoryFs = createMemoryFs();
+
+vi.mock('node:fs/promises', () => memoryFs.asMock());
+
+// ---------------------------------------------------------------------------
+// Import under test
+// ---------------------------------------------------------------------------
+
+const { execute } = await import('./todos-update');
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+const PROJECT_ROOT = '/project';
+
+function context() {
+	return createMockContext({ projectRoot: PROJECT_ROOT, sessionId: 'ses-update' });
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+describe('todos_update', () => {
+	beforeEach(() => {
+		memoryFs.reset();
+	});
+
+	// ── Successful creation ───────────────────────────────────────────────
+
+	it('creates todos and returns success with count', async () => {
+		const todos = [
+			{ id: '1', content: 'Task A', status: 'pending', priority: 'high' },
+			{ id: '2', content: 'Task B', status: 'in_progress', priority: 'medium' },
+		];
+
+		// Cast as Record<string, string> since the tool receives input that way
+		const result = await execute({ todos } as unknown as Record<string, string>, createMockSendEvent(), context());
+
+		expect(result).toHaveProperty('success', true);
+		expect(result).toHaveProperty('count', 2);
+		expect(result).toHaveProperty('todos');
+		// File should be written
+		expect(memoryFs.store.has(`${PROJECT_ROOT}/.agent/todo/ses-update.json`)).toBe(true);
+	});
+
+	it('persists todos to the filesystem as JSON', async () => {
+		const todos = [{ id: 't1', content: 'Persist me', status: 'pending', priority: 'low' }];
+
+		await execute({ todos } as unknown as Record<string, string>, createMockSendEvent(), context());
+
+		const entry = memoryFs.store.get(`${PROJECT_ROOT}/.agent/todo/ses-update.json`);
+		expect(entry).toBeDefined();
+		const parsed = JSON.parse(entry!.content as string);
+		expect(parsed).toHaveLength(1);
+		expect(parsed[0].content).toBe('Persist me');
+	});
+
+	// ── String JSON input ─────────────────────────────────────────────────
+
+	it('parses string JSON for the todos field', async () => {
+		const todosJson = JSON.stringify([{ id: '1', content: 'From JSON', status: 'completed', priority: 'high' }]);
+
+		const result = await execute({ todos: todosJson } as unknown as Record<string, string>, createMockSendEvent(), context());
+
+		expect(result).toHaveProperty('success', true);
+		expect(result).toHaveProperty('count', 1);
+	});
+
+	// ── Validation errors ─────────────────────────────────────────────────
+
+	it('rejects invalid todo items', async () => {
+		const invalidTodos = [{ id: '', content: '', status: 'bad_status', priority: 'bad_priority' }];
+
+		const result = await execute({ todos: invalidTodos } as unknown as Record<string, string>, createMockSendEvent(), context());
+
+		expect(result).toHaveProperty('error');
+		const errorResult = result as { error: string };
+		expect(errorResult.error).toContain('Invalid TODO item');
+	});
+
+	it('rejects non-array input', async () => {
+		const result = await execute({ todos: { not: 'an array' } } as unknown as Record<string, string>, createMockSendEvent(), context());
+
+		expect(result).toHaveProperty('error');
+		const errorResult = result as { error: string };
+		expect(errorResult.error).toContain('must be an array');
+	});
+
+	it('rejects invalid JSON string', async () => {
+		const result = await execute({ todos: 'not valid json{{{' } as unknown as Record<string, string>, createMockSendEvent(), context());
+
+		expect(result).toHaveProperty('error');
+		const errorResult = result as { error: string };
+		expect(errorResult.error).toContain('Invalid JSON');
+	});
+
+	// ── All valid statuses and priorities ──────────────────────────────────
+
+	it('accepts all valid status and priority values', async () => {
+		const todos = [
+			{ id: '1', content: 'Pending high', status: 'pending', priority: 'high' },
+			{ id: '2', content: 'In progress medium', status: 'in_progress', priority: 'medium' },
+			{ id: '3', content: 'Completed low', status: 'completed', priority: 'low' },
+		];
+
+		const result = await execute({ todos } as unknown as Record<string, string>, createMockSendEvent(), context());
+
+		expect(result).toHaveProperty('success', true);
+		expect(result).toHaveProperty('count', 3);
+	});
+});
