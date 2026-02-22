@@ -234,14 +234,28 @@ export interface ServerLintFixResult {
 }
 
 /**
- * Apply safe lint fixes to a file using Biome WASM.
- * Returns the fixed content and remaining diagnostics, or undefined if unavailable.
+ * Returned when fixFileForAgent cannot apply fixes.
+ * The `reason` field contains a human-readable explanation of why.
  */
-export async function fixFileForAgent(filePath: string, content: string): Promise<ServerLintFixResult | undefined> {
-	if (!isLintableFile(filePath)) return undefined;
+export interface FixFileFailure {
+	failed: true;
+	reason: string;
+}
+
+/**
+ * Apply safe lint fixes to a file using Biome WASM.
+ * Returns the fixed content and remaining diagnostics, or a failure object
+ * with a human-readable reason when fixes cannot be applied.
+ */
+export async function fixFileForAgent(filePath: string, content: string): Promise<ServerLintFixResult | FixFileFailure> {
+	if (!isLintableFile(filePath)) {
+		return { failed: true, reason: `File type not supported for lint fixing: ${filePath}` };
+	}
 
 	const ready = await ensureBiome();
-	if (!ready || storedProjectKey === undefined || !biomeLintApi) return undefined;
+	if (!ready || storedProjectKey === undefined || !biomeLintApi) {
+		return { failed: true, reason: 'Biome linter failed to initialize' };
+	}
 
 	try {
 		// Count original diagnostics
@@ -281,8 +295,8 @@ export async function fixFileForAgent(filePath: string, content: string): Promis
 			fixCount: originalCount - remainingDiagnostics.length,
 			remainingDiagnostics,
 		};
-	} catch {
-		return undefined;
+	} catch (error) {
+		return { failed: true, reason: `Biome threw an error: ${error instanceof Error ? error.message : String(error)}` };
 	}
 }
 

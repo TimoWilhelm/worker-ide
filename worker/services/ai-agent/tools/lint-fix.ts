@@ -84,8 +84,8 @@ export async function execute(
 	// Apply fixes
 	const result = await fixFileForAgent(fixPath, originalContent);
 
-	if (!result) {
-		return `File type not supported for lint fixing: ${fixPath}`;
+	if ('failed' in result) {
+		return toolError(ToolErrorCode.LINT_FIX_FAILED, result.reason);
 	}
 
 	if (result.fixCount === 0) {

@@ -28,6 +28,7 @@ export const ToolErrorCode = {
 	PATCH_APPLY_FAILED: 'PATCH_APPLY_FAILED',
 	NOT_ALLOWED: 'NOT_ALLOWED',
 	MISSING_INPUT: 'MISSING_INPUT',
+	LINT_FIX_FAILED: 'LINT_FIX_FAILED',
 } as const;
 
 export type ToolErrorCode = (typeof ToolErrorCode)[keyof typeof ToolErrorCode];
@@ -93,4 +94,5 @@ export const TOOL_ERROR_LABELS: Record<ToolErrorCode, string> = {
 	PATCH_APPLY_FAILED: 'Patch failed',
 	NOT_ALLOWED: 'Not allowed',
 	MISSING_INPUT: 'Missing input',
+	LINT_FIX_FAILED: 'Lint fix failed',
 };
