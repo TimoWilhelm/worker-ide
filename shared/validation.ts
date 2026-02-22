@@ -331,6 +331,15 @@ export const sessionIdSchema = z
 /**
  * Schema for saving an AI session
  */
+const pendingFileChangeSchema = z.object({
+	path: z.string(),
+	action: z.enum(['create', 'edit', 'delete', 'move']),
+	beforeContent: z.string().optional(),
+	afterContent: z.string().optional(),
+	snapshotId: z.string().optional(),
+	status: z.enum(['pending', 'approved', 'rejected']),
+});
+
 export const saveSessionSchema = z.object({
 	id: sessionIdSchema,
 	label: z.string().min(1).max(LIMITS.LABEL_MAX_LENGTH),
@@ -338,6 +347,7 @@ export const saveSessionSchema = z.object({
 	createdAt: z.number(),
 	messageSnapshots: z.record(z.string(), z.string()).optional(),
 	contextTokensUsed: z.number().int().nonnegative().optional(),
+	pendingChanges: z.record(z.string(), pendingFileChangeSchema).optional(),
 });
 
 export type SaveSessionInput = z.infer<typeof saveSessionSchema>;

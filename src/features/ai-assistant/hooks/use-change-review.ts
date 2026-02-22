@@ -4,14 +4,19 @@
  * Manages approval/rejection of AI file changes.
  * Approve = keep the change (file already written by AI).
  * Reject = revert the file using the snapshot API.
+ *
+ * After each approve/reject action, persists the updated pending changes
+ * state to the session on the server so inline diffs survive page refresh.
  */
 
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useMemo, useRef } from 'react';
 
 import { useSnapshots } from '@/features/snapshots';
-import { createApiClient } from '@/lib/api-client';
+import { createApiClient, saveAiSession } from '@/lib/api-client';
 import { useStore } from '@/lib/store';
+
+import { deriveLabel, pendingChangesMapToRecord, snapshotsMapToRecord } from '../lib/session-serializers';
 
 // =============================================================================
 // Hook
@@ -22,6 +27,27 @@ export function useChangeReview({ projectId }: { projectId: string }) {
 	const { pendingChanges, approveChange, rejectChange, approveAllChanges, rejectAllChanges } = useStore();
 	const { revertFile, revertFileAsync, isReverting } = useSnapshots({ projectId });
 	const apiReference = useRef(createApiClient(projectId));
+
+	// Persist the current pending changes state to the session on the server.
+	// Reads directly from the store to always get the latest state.
+	const persistPendingChanges = useCallback(async () => {
+		const { sessionId, history, messageSnapshots, contextTokensUsed, pendingChanges: currentPendingChanges } = useStore.getState();
+		if (!sessionId || history.length === 0) return;
+
+		try {
+			await saveAiSession(projectId, {
+				id: sessionId,
+				label: deriveLabel(history),
+				createdAt: Date.now(),
+				history,
+				messageSnapshots: snapshotsMapToRecord(messageSnapshots),
+				contextTokensUsed: contextTokensUsed > 0 ? contextTokensUsed : undefined,
+				pendingChanges: pendingChangesMapToRecord(currentPendingChanges),
+			});
+		} catch (error) {
+			console.error('Failed to persist pending changes:', error);
+		}
+	}, [projectId]);
 
 	// Derive list of pending (unresolved) changes
 	const unresolvedChanges = useMemo(() => {
@@ -50,8 +76,9 @@ export function useChangeReview({ projectId }: { projectId: string }) {
 	const handleApproveChange = useCallback(
 		(path: string) => {
 			approveChange(path);
+			void persistPendingChanges();
 		},
-		[approveChange],
+		[approveChange, persistPendingChanges],
 	);
 
 	// Reject a single file change (revert via snapshot API or write back beforeContent)
@@ -67,6 +94,7 @@ export function useChangeReview({ projectId }: { projectId: string }) {
 					{
 						onSuccess: () => {
 							rejectChange(path);
+							void persistPendingChanges();
 						},
 					},
 				);
@@ -76,10 +104,12 @@ export function useChangeReview({ projectId }: { projectId: string }) {
 					() => {
 						rejectChange(path);
 						void queryClient.refetchQueries({ queryKey: ['file', projectId] });
+						void persistPendingChanges();
 					},
 					(error) => {
 						console.error('Failed to revert file edit:', error);
 						rejectChange(path);
+						void persistPendingChanges();
 					},
 				);
 			} else if (change.action === 'create') {
@@ -88,24 +118,28 @@ export function useChangeReview({ projectId }: { projectId: string }) {
 					() => {
 						rejectChange(path);
 						void queryClient.refetchQueries({ queryKey: ['files', projectId] });
+						void persistPendingChanges();
 					},
 					(error) => {
 						console.error('Failed to delete created file:', error);
 						rejectChange(path);
+						void persistPendingChanges();
 					},
 				);
 			} else {
 				// No snapshot and no beforeContent — just mark as rejected
 				rejectChange(path);
+				void persistPendingChanges();
 			}
 		},
-		[pendingChanges, revertFile, rejectChange, queryClient, projectId],
+		[pendingChanges, revertFile, rejectChange, queryClient, projectId, persistPendingChanges],
 	);
 
 	// Approve all pending changes
 	const handleApproveAll = useCallback(() => {
 		approveAllChanges();
-	}, [approveAllChanges]);
+		void persistPendingChanges();
+	}, [approveAllChanges, persistPendingChanges]);
 
 	// Reject all pending changes (revert each file individually)
 	const handleRejectAll = useCallback(async () => {
@@ -132,10 +166,13 @@ export function useChangeReview({ projectId }: { projectId: string }) {
 		// Mark only pending changes as rejected (preserves already-approved entries)
 		rejectAllChanges();
 
+		// Persist the updated pending changes state to the session
+		await persistPendingChanges();
+
 		// Refetch file data
 		await queryClient.refetchQueries({ queryKey: ['files', projectId] });
 		await queryClient.refetchQueries({ queryKey: ['file', projectId] });
-	}, [pendingChanges, revertFileAsync, rejectAllChanges, queryClient, projectId]);
+	}, [pendingChanges, revertFileAsync, rejectAllChanges, queryClient, projectId, persistPendingChanges]);
 
 	return {
 		pendingChanges,

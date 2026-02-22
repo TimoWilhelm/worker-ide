@@ -39,6 +39,7 @@ import { coordinatorNamespace } from '../../lib/durable-object-namespaces';
 import type { CustomEventQueue, FileChange, ModelMessage, SnapshotMetadata, ToolExecutorContext, ToolFailureRecord } from './types';
 import type { ExpiringFilesystem } from '../../durable/expiring-filesystem';
 import type { AIModelId } from '@shared/constants';
+import type { PendingFileChange } from '@shared/types';
 import type { StreamChunk, UIMessage } from '@tanstack/ai';
 
 // =============================================================================
@@ -76,6 +77,83 @@ function getNumberField(record: Record<string, unknown>, field: string): number 
  */
 function customEvent(name: string, data: Record<string, unknown>): StreamChunk {
 	return { type: 'CUSTOM', name, data, timestamp: Date.now() };
+}
+
+// =============================================================================
+// Server-Side Pending Changes Accumulation
+// =============================================================================
+
+/**
+ * Accumulate a file_changed event into a pending changes map.
+ * Mirrors the deduplication logic from the client-side addPendingChange
+ * (store.ts) so the server builds the same net result.
+ */
+function accumulatePendingChange(pendingChanges: Map<string, PendingFileChange>, change: Omit<PendingFileChange, 'status'>): void {
+	const existing = pendingChanges.get(change.path);
+
+	if (!existing) {
+		// Skip if content is identical (no actual change)
+		if (change.action !== 'move' && change.beforeContent !== undefined && change.beforeContent === change.afterContent) {
+			return;
+		}
+		pendingChanges.set(change.path, { ...change, status: 'pending' });
+		return;
+	}
+
+	// Keep the first beforeContent and existing snapshotId for dedup
+	const beforeContent = existing.beforeContent;
+	const snapshotId = existing.snapshotId ?? change.snapshotId;
+	const originalAction = existing.action;
+	const newAction = change.action;
+
+	// create -> delete = net no-op
+	if (originalAction === 'create' && newAction === 'delete') {
+		pendingChanges.delete(change.path);
+		return;
+	}
+
+	// create -> edit = still a create (with updated content)
+	if (originalAction === 'create' && newAction === 'edit') {
+		if (beforeContent !== undefined && beforeContent === change.afterContent) {
+			pendingChanges.delete(change.path);
+			return;
+		}
+		pendingChanges.set(change.path, { ...change, action: 'create', beforeContent, snapshotId, status: 'pending' });
+		return;
+	}
+
+	// delete -> create = effectively an edit
+	if (originalAction === 'delete' && newAction === 'create') {
+		if (beforeContent !== undefined && beforeContent === change.afterContent) {
+			pendingChanges.delete(change.path);
+			return;
+		}
+		pendingChanges.set(change.path, { ...change, action: 'edit', beforeContent, snapshotId, status: 'pending' });
+		return;
+	}
+
+	// All other cases: keep original beforeContent, use new action & afterContent
+	if (newAction !== 'move' && beforeContent !== undefined && beforeContent === change.afterContent) {
+		pendingChanges.delete(change.path);
+		return;
+	}
+	pendingChanges.set(change.path, { ...change, beforeContent, snapshotId, status: 'pending' });
+}
+
+/**
+ * Convert a pending changes Map to a JSON-safe Record, filtering to only
+ * entries with 'pending' status.
+ */
+function pendingChangesMapToRecord(pendingChanges: Map<string, PendingFileChange>): Record<string, PendingFileChange> | undefined {
+	const record: Record<string, PendingFileChange> = {};
+	let hasEntries = false;
+	for (const [key, value] of pendingChanges) {
+		if (value.status === 'pending') {
+			record[key] = value;
+			hasEntries = true;
+		}
+	}
+	return hasEntries ? record : undefined;
 }
 
 // =============================================================================
@@ -195,11 +273,15 @@ export class AIAgentService {
 		let lastSaveTimestamp = 0;
 		// Track whether the session was already persisted (idempotent guard for finally)
 		let sessionPersisted = false;
+		// Accumulate file_changed events for pending changes persistence.
+		// Mirrors the client-side addPendingChange dedup logic so the server
+		// builds the same net result without relying on client-side saves.
+		const streamPendingChanges = new Map<string, PendingFileChange>();
 
 		const persistSession = async () => {
 			processor.finalizeStream();
 			sessionPersisted = true;
-			await this.persistSession(processor, snapshotId, userMessageIndex, contextTokensUsed);
+			await this.persistSession(processor, snapshotId, userMessageIndex, contextTokensUsed, streamPendingChanges);
 		};
 
 		try {
@@ -218,6 +300,22 @@ export class AIAgentService {
 
 							break;
 						}
+						case 'file_changed': {
+							const data = isRecordObject(chunk.data) ? chunk.data : {};
+							const path = typeof data.path === 'string' ? data.path : undefined;
+							const action = typeof data.action === 'string' ? data.action : undefined;
+							if (path && (action === 'create' || action === 'edit' || action === 'delete' || action === 'move')) {
+								accumulatePendingChange(streamPendingChanges, {
+									path,
+									action,
+									beforeContent: typeof data.beforeContent === 'string' ? data.beforeContent : undefined,
+									afterContent: typeof data.afterContent === 'string' ? data.afterContent : undefined,
+									snapshotId,
+								});
+							}
+
+							break;
+						}
 						case 'context_utilization': {
 							const data = isRecordObject(chunk.data) ? chunk.data : {};
 							const tokens = typeof data.estimatedTokens === 'number' ? data.estimatedTokens : 0;
@@ -230,7 +328,7 @@ export class AIAgentService {
 							const now = Date.now();
 							if (now - lastSaveTimestamp >= SESSION_SAVE_THROTTLE_MS) {
 								lastSaveTimestamp = now;
-								await this.persistSession(processor, snapshotId, userMessageIndex, contextTokensUsed);
+								await this.persistSession(processor, snapshotId, userMessageIndex, contextTokensUsed, streamPendingChanges);
 							}
 
 							break;
@@ -260,7 +358,10 @@ export class AIAgentService {
 	 *
 	 * Writes the UIMessage[] from the StreamProcessor (which mirrors what the
 	 * client would have built) to `.agent/sessions/{sessionId}.json`.
-	 * Includes messageSnapshots and contextTokensUsed metadata.
+	 * Includes messageSnapshots, contextTokensUsed, and pendingChanges metadata.
+	 *
+	 * Pending changes from the current stream are merged with any existing
+	 * pending changes from previous turns that haven't been acted on yet.
 	 *
 	 * Non-fatal: errors are logged but never propagate to the caller.
 	 */
@@ -269,6 +370,7 @@ export class AIAgentService {
 		snapshotId: string | undefined,
 		userMessageIndex: number,
 		contextTokensUsed: number,
+		streamPendingChanges?: Map<string, PendingFileChange>,
 	): Promise<void> {
 		if (!this.sessionId) return;
 
@@ -292,18 +394,47 @@ export class AIAgentService {
 			const messageSnapshots: Record<string, string> | undefined =
 				snapshotId && userMessageIndex >= 0 ? { [String(userMessageIndex)]: snapshotId } : undefined;
 
-			// Read the existing session's createdAt timestamp if available,
-			// otherwise use the current time for new sessions.
+			// Read the existing session to preserve createdAt and merge pending changes
+			// from previous turns that the user hasn't acted on yet.
 			let createdAt = Date.now();
+			let existingPendingChanges: Record<string, PendingFileChange> | undefined;
 			const sessionPath = `${this.projectRoot}/.agent/sessions/${this.sessionId}.json`;
 			try {
 				const existing = await fs.readFile(sessionPath, 'utf8');
-				const parsed: { createdAt?: number } = JSON.parse(existing);
+				const parsed: { createdAt?: number; pendingChanges?: Record<string, PendingFileChange> } = JSON.parse(existing);
 				if (typeof parsed.createdAt === 'number') {
 					createdAt = parsed.createdAt;
 				}
+				if (parsed.pendingChanges && typeof parsed.pendingChanges === 'object') {
+					existingPendingChanges = parsed.pendingChanges;
+				}
 			} catch {
 				// New session or read error — use current timestamp
+			}
+
+			// Merge pending changes: start with existing pending changes from disk,
+			// then overlay the new stream-accumulated changes (which have dedup applied).
+			// This preserves pending changes from prior turns that haven't been
+			// approved/rejected while adding new changes from the current turn.
+			let mergedPendingChanges: Record<string, PendingFileChange> | undefined;
+			if (existingPendingChanges || (streamPendingChanges && streamPendingChanges.size > 0)) {
+				const merged: Record<string, PendingFileChange> = {};
+				// Carry forward existing pending-only entries
+				if (existingPendingChanges) {
+					for (const [key, value] of Object.entries(existingPendingChanges)) {
+						if (value.status === 'pending') {
+							merged[key] = value;
+						}
+					}
+				}
+				// Overlay new stream changes (these have dedup already applied)
+				const streamRecord = streamPendingChanges ? pendingChangesMapToRecord(streamPendingChanges) : undefined;
+				if (streamRecord) {
+					for (const [key, value] of Object.entries(streamRecord)) {
+						merged[key] = value;
+					}
+				}
+				mergedPendingChanges = Object.keys(merged).length > 0 ? merged : undefined;
 			}
 
 			const session = {
@@ -313,6 +444,7 @@ export class AIAgentService {
 				history,
 				messageSnapshots,
 				contextTokensUsed: contextTokensUsed > 0 ? contextTokensUsed : undefined,
+				pendingChanges: mergedPendingChanges,
 			};
 
 			const sessionsDirectory = `${this.projectRoot}/.agent/sessions`;

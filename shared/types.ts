@@ -107,6 +107,8 @@ export interface AiSession {
 	messageSnapshots?: Record<string, string>;
 	/** Last known context window token usage (for the context ring indicator) */
 	contextTokensUsed?: number;
+	/** Pending file changes awaiting user review (keyed by file path) */
+	pendingChanges?: Record<string, PendingFileChange>;
 }
 
 /**

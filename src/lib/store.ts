@@ -116,7 +116,13 @@ interface AIActions {
 	setAiError: (error: AIError | undefined) => void;
 	setSessionId: (id: string | undefined) => void;
 	setSavedSessions: (sessions: Array<{ id: string; label: string; createdAt: number }>) => void;
-	loadSession: (history: UIMessage[], sessionId: string, messageSnapshots?: Map<number, string>, contextTokensUsed?: number) => void;
+	loadSession: (
+		history: UIMessage[],
+		sessionId: string,
+		messageSnapshots?: Map<number, string>,
+		contextTokensUsed?: number,
+		pendingChanges?: Map<string, PendingFileChange>,
+	) => void;
 	setMessageSnapshot: (messageIndex: number, snapshotId: string) => void;
 	removeMessagesAfter: (index: number) => void;
 	removeMessagesFrom: (index: number) => void;
@@ -446,7 +452,7 @@ export const useStore = create<StoreState>()(
 
 				setSavedSessions: (sessions) => set({ savedSessions: sessions }),
 
-				loadSession: (history, sessionId, messageSnapshots, contextTokensUsed) =>
+				loadSession: (history, sessionId, messageSnapshots, contextTokensUsed, pendingChanges) =>
 					set({
 						history,
 						sessionId,
@@ -454,6 +460,7 @@ export const useStore = create<StoreState>()(
 						aiError: undefined,
 						debugLogId: undefined,
 						contextTokensUsed: contextTokensUsed ?? 0,
+						pendingChanges: pendingChanges ?? new Map(),
 					}),
 
 				setMessageSnapshot: (messageIndex, snapshotId) =>

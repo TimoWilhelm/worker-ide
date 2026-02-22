@@ -406,14 +406,15 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	// will propagate that into useChat automatically.
 	const handleLoadSession = useCallback(
 		(targetSessionId: string) => {
-			clearPendingChanges();
+			// Note: pendingChanges are NOT cleared here — loadSession() replaces
+			// them with the loaded session's persisted pending changes (or empty).
 			toolErrorsReference.current.clear();
 			fileDiffContentReference.current.clear();
 			loadSession(targetSessionId);
 			// Persist the newly loaded session as the active one in localStorage
 			setActiveSessionId(projectId, targetSessionId);
 		},
-		[clearPendingChanges, loadSession, projectId],
+		[loadSession, projectId],
 	);
 
 	// Smart auto-scroll: stops when user scrolls up, shows pill for new content

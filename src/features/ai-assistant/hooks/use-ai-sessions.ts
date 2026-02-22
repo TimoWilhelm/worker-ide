@@ -2,8 +2,8 @@
  * useAiSessions Hook
  *
  * Manages AI session persistence — listing, loading, and saving sessions.
- * Sessions include conversation history and message-to-snapshot mappings
- * so that revert buttons survive page refreshes.
+ * Sessions include conversation history, message-to-snapshot mappings,
+ * and pending file changes so that inline diffs survive page refreshes.
  */
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -12,7 +12,13 @@ import { useCallback, useEffect, useRef } from 'react';
 import { fetchLatestDebugLogId, listAiSessions, loadAiSession, saveAiSession } from '@/lib/api-client';
 import { useStore } from '@/lib/store';
 
-import type { UIMessage } from '@shared/types';
+import {
+	deriveLabel,
+	pendingChangesMapToRecord,
+	pendingChangesRecordToMap,
+	snapshotsMapToRecord,
+	snapshotsRecordToMap,
+} from '../lib/session-serializers';
 
 // =============================================================================
 // Helpers
@@ -24,49 +30,6 @@ import type { UIMessage } from '@shared/types';
  */
 function generateSessionId(): string {
 	return crypto.randomUUID().replaceAll('-', '').slice(0, 16);
-}
-
-/**
- * Derive a session label from the first user message (truncated to 50 chars).
- * UIMessage uses `parts: MessagePart[]` with TextPart { type: 'text', content: string }.
- */
-function deriveLabel(history: UIMessage[]): string {
-	const firstUserMessage = history.find((message) => message.role === 'user');
-	if (!firstUserMessage) return 'New chat';
-
-	const text = firstUserMessage.parts
-		.filter((part): part is { type: 'text'; content: string } => part.type === 'text')
-		.map((part) => part.content)
-		.join(' ')
-		.trim();
-
-	return text.length > 50 ? text.slice(0, 50) + '...' : text || 'New chat';
-}
-
-/**
- * Convert a Map<number, string> to a JSON-safe Record<string, string>.
- */
-function snapshotsMapToRecord(snapshotsMap: Map<number, string>): Record<string, string> {
-	const record: Record<string, string> = {};
-	for (const [key, value] of snapshotsMap) {
-		record[String(key)] = value;
-	}
-	return record;
-}
-
-/**
- * Convert a Record<string, string> back to a Map<number, string>.
- */
-function snapshotsRecordToMap(record: Record<string, string> | undefined): Map<number, string> {
-	const map = new Map<number, string>();
-	if (!record) return map;
-	for (const [key, value] of Object.entries(record)) {
-		const index = Number(key);
-		if (Number.isFinite(index)) {
-			map.set(index, value);
-		}
-	}
-	return map;
 }
 
 /**
@@ -141,11 +104,12 @@ export function useAiSessions({ projectId }: { projectId: string }) {
 		onSuccess: (data) => {
 			if (!data) return;
 			const restoredSnapshots = snapshotsRecordToMap(data.messageSnapshots);
+			const restoredPendingChanges = pendingChangesRecordToMap(data.pendingChanges);
 			createdAtReference.current = data.createdAt;
 			// AiSession.history is unknown[] for wire-format flexibility.
 			// Cast to UIMessage[] — the store expects UIMessage[].
 			// eslint-disable-next-line @typescript-eslint/consistent-type-assertions, @typescript-eslint/no-explicit-any -- wire format cast
-			loadSession(data.history as any[], data.id, restoredSnapshots, data.contextTokensUsed);
+			loadSession(data.history as any[], data.id, restoredSnapshots, data.contextTokensUsed, restoredPendingChanges);
 			// Restore the latest debug log download button for this session
 			void fetchLatestDebugLogId(projectId, data.id).then((logId) => {
 				if (logId) setDebugLogId(logId);
@@ -177,9 +141,10 @@ export function useAiSessions({ projectId }: { projectId: string }) {
 					return;
 				}
 				const restoredSnapshots = snapshotsRecordToMap(data.messageSnapshots);
+				const restoredPendingChanges = pendingChangesRecordToMap(data.pendingChanges);
 				createdAtReference.current = data.createdAt;
 				// eslint-disable-next-line @typescript-eslint/consistent-type-assertions, @typescript-eslint/no-explicit-any -- wire format cast
-				loadSession(data.history as any[], data.id, restoredSnapshots, data.contextTokensUsed);
+				loadSession(data.history as any[], data.id, restoredSnapshots, data.contextTokensUsed, restoredPendingChanges);
 				// Restore the latest debug log download button for this session
 				void fetchLatestDebugLogId(projectId, data.id).then((logId) => {
 					if (logId) setDebugLogId(logId);
@@ -196,7 +161,7 @@ export function useAiSessions({ projectId }: { projectId: string }) {
 	const saveCurrentSession = useCallback(async () => {
 		// Read directly from the store so we always get the latest state,
 		// even when called from a microtask before React re-renders.
-		const { history, sessionId, messageSnapshots, contextTokensUsed } = useStore.getState();
+		const { history, sessionId, messageSnapshots, contextTokensUsed, pendingChanges } = useStore.getState();
 
 		if (history.length === 0) return;
 		if (isSavingReference.current) return;
@@ -218,6 +183,7 @@ export function useAiSessions({ projectId }: { projectId: string }) {
 				history,
 				messageSnapshots: snapshotsMapToRecord(messageSnapshots),
 				contextTokensUsed: contextTokensUsed > 0 ? contextTokensUsed : undefined,
+				pendingChanges: pendingChangesMapToRecord(pendingChanges),
 			});
 
 			// Only persist the session ID after the backend confirms the save,
