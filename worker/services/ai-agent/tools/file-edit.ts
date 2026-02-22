@@ -18,7 +18,7 @@ import { replace } from './replacers';
 import type { FileChange, SendEventFunction, ToolDefinition, ToolExecutorContext } from '../types';
 
 // =============================================================================
-// Description (matches OpenCode)
+// Description
 // =============================================================================
 
 export const DESCRIPTION = `Performs exact string replacements in files.

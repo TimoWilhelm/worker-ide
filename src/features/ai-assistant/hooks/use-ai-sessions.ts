@@ -9,7 +9,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef } from 'react';
 
-import { createApiClient, fetchLatestDebugLogId, listAiSessions, loadAiSession, saveAiSession } from '@/lib/api-client';
+import { fetchLatestDebugLogId, listAiSessions, loadAiSession, saveAiSession } from '@/lib/api-client';
 import { useStore } from '@/lib/store';
 
 import type { UIMessage } from '@shared/types';
@@ -69,6 +69,39 @@ function snapshotsRecordToMap(record: Record<string, string> | undefined): Map<n
 	return map;
 }
 
+/**
+ * localStorage key for the active session ID, scoped per project.
+ */
+function activeSessionKey(projectId: string): string {
+	return `worker-ide-active-session:${projectId}`;
+}
+
+/**
+ * Read the active session ID for a project from localStorage.
+ */
+function getActiveSessionId(projectId: string): string | undefined {
+	try {
+		return localStorage.getItem(activeSessionKey(projectId)) ?? undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+/**
+ * Write (or clear) the active session ID for a project in localStorage.
+ */
+export function setActiveSessionId(projectId: string, sessionId: string | undefined): void {
+	try {
+		if (sessionId) {
+			localStorage.setItem(activeSessionKey(projectId), sessionId);
+		} else {
+			localStorage.removeItem(activeSessionKey(projectId));
+		}
+	} catch {
+		// Ignore storage errors (e.g. private browsing)
+	}
+}
+
 // =============================================================================
 // Hook
 // =============================================================================
@@ -112,7 +145,7 @@ export function useAiSessions({ projectId }: { projectId: string }) {
 			// AiSession.history is unknown[] for wire-format flexibility.
 			// Cast to UIMessage[] — the store expects UIMessage[].
 			// eslint-disable-next-line @typescript-eslint/consistent-type-assertions, @typescript-eslint/no-explicit-any -- wire format cast
-			loadSession(data.history as any[], data.id, restoredSnapshots);
+			loadSession(data.history as any[], data.id, restoredSnapshots, data.contextTokensUsed);
 			// Restore the latest debug log download button for this session
 			void fetchLatestDebugLogId(projectId, data.id).then((logId) => {
 				if (logId) setDebugLogId(logId);
@@ -130,21 +163,23 @@ export function useAiSessions({ projectId }: { projectId: string }) {
 		if (hasRestoredReference.current) return;
 		hasRestoredReference.current = true;
 
-		const { sessionId, history } = useStore.getState();
-		// If we have a persisted sessionId but no in-memory history,
-		// reload the session from the backend.
-		if (sessionId && history.length === 0) {
-			void loadAiSession(projectId, sessionId).then((data) => {
+		const { history } = useStore.getState();
+		// Only attempt restore when there is no in-memory history.
+		// The active session ID is stored in localStorage scoped per project,
+		// so each project resolves its own last-active session.
+		if (history.length === 0) {
+			const activeId = getActiveSessionId(projectId);
+			if (!activeId) return;
+			void loadAiSession(projectId, activeId).then((data) => {
 				if (!data) {
-					// Session no longer exists on the backend — clear the stale ID
-					// so we don't keep retrying on every page load.
-					setSessionId(undefined);
+					// Session file was deleted — clear the stale pointer.
+					setActiveSessionId(projectId, undefined);
 					return;
 				}
 				const restoredSnapshots = snapshotsRecordToMap(data.messageSnapshots);
 				createdAtReference.current = data.createdAt;
 				// eslint-disable-next-line @typescript-eslint/consistent-type-assertions, @typescript-eslint/no-explicit-any -- wire format cast
-				loadSession(data.history as any[], data.id, restoredSnapshots);
+				loadSession(data.history as any[], data.id, restoredSnapshots, data.contextTokensUsed);
 				// Restore the latest debug log download button for this session
 				void fetchLatestDebugLogId(projectId, data.id).then((logId) => {
 					if (logId) setDebugLogId(logId);
@@ -154,13 +189,14 @@ export function useAiSessions({ projectId }: { projectId: string }) {
 	}, [projectId, loadSession, setSessionId, setDebugLogId]);
 
 	// =========================================================================
-	// Save current session to the backend
+	// Save current session to the backend (used only for client-only operations
+	// like revert — normal streaming persistence is handled server-side)
 	// =========================================================================
 
 	const saveCurrentSession = useCallback(async () => {
 		// Read directly from the store so we always get the latest state,
 		// even when called from a microtask before React re-renders.
-		const { history, sessionId, messageSnapshots } = useStore.getState();
+		const { history, sessionId, messageSnapshots, contextTokensUsed } = useStore.getState();
 
 		if (history.length === 0) return;
 		if (isSavingReference.current) return;
@@ -181,12 +217,16 @@ export function useAiSessions({ projectId }: { projectId: string }) {
 				createdAt: createdAtReference.current ?? Date.now(),
 				history,
 				messageSnapshots: snapshotsMapToRecord(messageSnapshots),
+				contextTokensUsed: contextTokensUsed > 0 ? contextTokensUsed : undefined,
 			});
 
 			// Only persist the session ID after the backend confirms the save,
 			// so we never rehydrate a sessionId that doesn't exist on disk.
 			if (isNewSession) {
 				setSessionId(currentSessionId);
+				// Persist the active session pointer in localStorage (scoped
+				// per project) so it survives page reloads.
+				setActiveSessionId(projectId, currentSessionId);
 			}
 
 			// Refresh the sessions list
@@ -197,51 +237,6 @@ export function useAiSessions({ projectId }: { projectId: string }) {
 			isSavingReference.current = false;
 		}
 	}, [projectId, setSessionId, queryClient]);
-
-	// =========================================================================
-	// Save on page unload / tab switch
-	// =========================================================================
-
-	const saveCurrentSessionReference = useRef(saveCurrentSession);
-	useEffect(() => {
-		saveCurrentSessionReference.current = saveCurrentSession;
-	}, [saveCurrentSession]);
-
-	useEffect(() => {
-		const api = createApiClient(projectId);
-
-		const saveViaBeacon = () => {
-			const { history, sessionId, messageSnapshots } = useStore.getState();
-			if (history.length === 0 || !sessionId) return;
-
-			const payload = JSON.stringify({
-				id: sessionId,
-				label: deriveLabel(history),
-				createdAt: createdAtReference.current ?? Date.now(),
-				history,
-				messageSnapshots: snapshotsMapToRecord(messageSnapshots),
-			});
-
-			// sendBeacon is fire-and-forget and survives page unload
-			const url = api['ai-session'].$url().toString();
-			navigator.sendBeacon(url, new Blob([payload], { type: 'application/json' }));
-		};
-
-		const handleBeforeUnload = () => saveViaBeacon();
-		const handleVisibilityChange = () => {
-			if (document.visibilityState === 'hidden') {
-				saveViaBeacon();
-			}
-		};
-
-		globalThis.addEventListener('beforeunload', handleBeforeUnload);
-		document.addEventListener('visibilitychange', handleVisibilityChange);
-
-		return () => {
-			globalThis.removeEventListener('beforeunload', handleBeforeUnload);
-			document.removeEventListener('visibilitychange', handleVisibilityChange);
-		};
-	}, [projectId]);
 
 	// =========================================================================
 	// Public API
@@ -256,7 +251,7 @@ export function useAiSessions({ projectId }: { projectId: string }) {
 		handleLoadSession: loadSessionMutation.mutate,
 		/** Whether a session is currently being loaded */
 		isLoadingSession: loadSessionMutation.isPending,
-		/** Save the current session state to the backend */
+		/** Save the current session state to the backend (revert-only — streaming persistence is server-side) */
 		saveCurrentSession,
 	};
 }

@@ -68,7 +68,10 @@ export const aiRoutes = new Hono<AppEnvironment>()
 		const selectedModel = model ?? DEFAULT_AI_MODEL;
 
 		const agentService = new AIAgentService(projectRoot, projectId, fsStub, sessionId, mode, selectedModel);
-		const response = await agentService.runAgentChat(modelMessages, apiToken, c.req.raw.signal, outputLogs);
+		// Pass both modelMessages (for the LLM) and the raw UIMessages (for session persistence).
+		// The raw messages array preserves the UIMessage format that the frontend expects when
+		// loading a session, so the server-side StreamProcessor can mirror the client exactly.
+		const response = await agentService.runAgentChat(modelMessages, messages, apiToken, c.req.raw.signal, outputLogs);
 
 		return response;
 	})
@@ -118,15 +121,27 @@ export const aiRoutes = new Hono<AppEnvironment>()
 		const logPath = sessionId
 			? `${projectRoot}/.agent/sessions/${sessionId}/debug-logs/${id}.json`
 			: `${projectRoot}/.agent/debug-logs/${id}.json`;
+		let content: string;
 		try {
-			const content = await fs.readFile(logPath, 'utf8');
-			return c.json(JSON.parse(content));
+			content = await fs.readFile(logPath, 'utf8');
 		} catch (error) {
 			if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
 				return c.json({ error: 'Debug log not found' }, 404);
 			}
+			console.error('Failed to read debug log file:', error);
 			return c.json({ error: 'Failed to read debug log' }, 500);
 		}
+
+		// Validate JSON before returning — corrupted/truncated logs should
+		// return a clear error rather than a generic 500.
+		try {
+			JSON.parse(content);
+		} catch {
+			console.error(`Debug log file contains invalid JSON: ${logPath}`);
+			return c.json({ error: 'Debug log file is corrupted' }, 422);
+		}
+
+		return c.body(content, 200, { 'Content-Type': 'application/json' });
 	});
 
 export type AIRoutes = typeof aiRoutes;

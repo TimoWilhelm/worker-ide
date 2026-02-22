@@ -337,6 +337,7 @@ export const saveSessionSchema = z.object({
 	history: z.array(z.unknown()),
 	createdAt: z.number(),
 	messageSnapshots: z.record(z.string(), z.string()).optional(),
+	contextTokensUsed: z.number().int().nonnegative().optional(),
 });
 
 export type SaveSessionInput = z.infer<typeof saveSessionSchema>;

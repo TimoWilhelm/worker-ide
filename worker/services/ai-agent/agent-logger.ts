@@ -153,6 +153,9 @@ export class AgentLogger {
 	private hitIterationLimit = false;
 	private aborted = false;
 
+	/** Whether flush() has already been called (idempotency guard). */
+	private flushed = false;
+
 	constructor(
 		private readonly sessionId: string | undefined,
 		private readonly projectId: string,
@@ -306,12 +309,26 @@ export class AgentLogger {
 	// =========================================================================
 
 	/**
+	 * Whether the debug log has already been flushed to disk.
+	 * Can be checked externally to avoid redundant work (e.g., in finally blocks).
+	 */
+	get isFlushed(): boolean {
+		return this.flushed;
+	}
+
+	/**
 	 * Flush the debug log to disk at `.agent/sessions/{sessionId}/debug-logs/{id}.json`.
 	 * Also cleans up old logs beyond the retention limit.
 	 *
-	 * This is the ONLY async operation — called once at the end of the run.
+	 * This is idempotent — calling it multiple times is safe. Only the first call
+	 * writes to disk; subsequent calls are no-ops. This prevents double-flush issues
+	 * when error handling paths overlap (e.g., catch block flushes and then the
+	 * finally block tries again).
 	 */
 	async flush(projectRoot: string): Promise<void> {
+		if (this.flushed) return;
+		this.flushed = true;
+
 		const logsDirectory = this.sessionId
 			? `${projectRoot}/.agent/sessions/${this.sessionId}/debug-logs`
 			: `${projectRoot}/.agent/debug-logs`;
@@ -325,7 +342,9 @@ export class AgentLogger {
 
 			await this.cleanupOldLogs(logsDirectory);
 		} catch (error) {
-			// Non-fatal — don't let logging failures break the agent
+			// Non-fatal — don't let logging failures break the agent.
+			// Reset the flag so a retry from the finally block can attempt again.
+			this.flushed = false;
 			console.error('Failed to flush agent debug log:', error);
 		}
 	}

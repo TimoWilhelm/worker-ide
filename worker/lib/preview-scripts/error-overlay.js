@@ -100,6 +100,9 @@
 			'.__eo-title{color:#f85149;font-size:14px;font-weight:600;flex:1}' +
 			'.__eo-close{background:none;border:none;color:#8b949e;cursor:pointer;font-size:18px;padding:4px 8px;border-radius:4px}' +
 			'.__eo-close:hover{background:rgba(255,255,255,0.1);color:#e0e0e0}' +
+			'.__eo-copy{background:none;border:none;color:#8b949e;cursor:pointer;padding:4px 8px;border-radius:4px;display:flex;align-items:center}' +
+			'.__eo-copy:hover{background:rgba(255,255,255,0.1);color:#e0e0e0}' +
+			'.__eo-copy svg{width:16px;height:16px}' +
 			'.__eo-body{padding:16px 20px}' +
 			'.__eo-file{color:#58a6ff;font-size:13px;margin-bottom:12px;cursor:pointer;text-decoration:underline}' +
 			'.__eo-file:hover{color:#79b8ff}' +
@@ -113,6 +116,9 @@
 			esc(err.type || 'error') +
 			'</span>' +
 			'<span class="__eo-title">Build Error</span>' +
+			'<button class="__eo-copy" id="__eo-copy-btn" title="Copy error to clipboard">' +
+			'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>' +
+			'</button>' +
 			'<button class="__eo-close" id="__eo-close-btn">&times;</button>' +
 			'</div>' +
 			'<div class="__eo-body">' +
@@ -136,6 +142,20 @@
 		hideErrorPill();
 		overlay.querySelector('#__eo-close-btn').addEventListener('click', function () {
 			dismissOverlay();
+		});
+		var copyBtn = overlay.querySelector('#__eo-copy-btn');
+		copyBtn.addEventListener('click', function () {
+			var text =
+				(err.file ? err.file + (err.line ? ':' + err.line : '') + (err.column ? ':' + err.column : '') + '\n' : '') +
+				(err.message || 'Unknown error');
+			navigator.clipboard.writeText(text).then(function () {
+				copyBtn.innerHTML =
+					'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+				setTimeout(function () {
+					copyBtn.innerHTML =
+						'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+				}, 2000);
+			});
 		});
 		overlay.addEventListener('click', function (e) {
 			if (e.target === overlay) dismissOverlay();

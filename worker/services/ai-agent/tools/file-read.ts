@@ -1,7 +1,6 @@
 /**
  * Tool: file_read
  * Read file contents from the project.
- * Matches OpenCode's read tool behavior.
  */
 
 import fs from 'node:fs/promises';
@@ -72,7 +71,7 @@ const BINARY_EXTENSIONS = new Set([
 ]);
 
 // =============================================================================
-// Description (matches OpenCode)
+// Description
 // =============================================================================
 
 export const DESCRIPTION = `Read a file or directory from the local filesystem. If the path does not exist, an error is returned.
@@ -87,7 +86,14 @@ Usage:
 - Contents are returned with each line prefixed by its line number as \`<line>: <content>\`. For example, if a file has contents "foo\\n", you will receive "1: foo\\n". For directories, entries are returned one per line (without line numbers) with a trailing \`/\` for subdirectories.
 - Any line longer than 2000 characters is truncated.
 - Call this tool in parallel when you know there are multiple files you want to read.
-- Avoid tiny repeated slices (30 line chunks). If you need more context, read a larger window.`;
+- Avoid tiny repeated slices (30 line chunks). If you need more context, read a larger window.
+
+<<< CRITICAL RULES — VIOLATION WASTES TOKENS AND DEGRADES PERFORMANCE >>>
+1. NEVER re-read a file (or section of a file) you already have in context. The content does not change unless YOU edit it.
+2. After EVERY file_read, check the status line at the bottom of the output:
+   - "End of file" or "End of file reached" → you have ALL the content. Do NOT call file_read on this file again.
+   - "Use offset=N to continue reading" → there is more content. ONLY then should you call file_read again with that offset.
+3. If no "Use offset" instruction appears, the file is COMPLETE. Stop reading.`;
 
 // =============================================================================
 // Tool Definition
@@ -281,15 +287,17 @@ Binary file detected. Cannot display content.
 		let message = '';
 		const actualEndLine = truncatedAtLine ? truncatedAtLine - 1 : endIndex;
 
-		if (startIndex > 0 || actualEndLine < totalLines || truncatedAtLine) {
+		const hasMoreLines = actualEndLine < totalLines;
+
+		if (startIndex > 0 || hasMoreLines || truncatedAtLine) {
 			message = `\n\n(Showing lines ${startIndex + 1}-${actualEndLine} of ${totalLines}.`;
-			if (actualEndLine < totalLines) {
-				message += ` Use offset=${actualEndLine + 1} to continue.`;
-			}
+			message += hasMoreLines ? ` Use offset=${actualEndLine + 1} to continue reading.` : ` End of file reached.`;
 			if (truncatedAtLine) {
 				message += ` Output truncated due to size limit.`;
 			}
 			message += ')';
+		} else {
+			message = `\n\n(End of file - total ${totalLines} lines)`;
 		}
 
 		const lintResults = await formatLintResultsForAgent(readPath, fileContent);

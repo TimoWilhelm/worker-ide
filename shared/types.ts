@@ -105,6 +105,8 @@ export interface AiSession {
 	history: unknown[];
 	/** Maps message index (as string key) to snapshot ID for revert buttons */
 	messageSnapshots?: Record<string, string>;
+	/** Last known context window token usage (for the context ring indicator) */
+	contextTokensUsed?: number;
 }
 
 /**

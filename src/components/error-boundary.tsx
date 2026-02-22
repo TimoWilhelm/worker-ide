@@ -5,11 +5,16 @@
  * Catches JavaScript errors in child component tree.
  */
 
-import { Component, type ReactNode } from 'react';
+import { Component, type ComponentType, type ReactNode } from 'react';
+
+interface FallbackProperties {
+	error: Error;
+	resetErrorBoundary: () => void;
+}
 
 interface ErrorBoundaryProperties {
 	children: ReactNode;
-	fallback: (properties: { error: Error; resetErrorBoundary: () => void }) => ReactNode;
+	fallback: ComponentType<FallbackProperties>;
 }
 
 interface ErrorBoundaryState {
@@ -40,10 +45,8 @@ export class ErrorBoundary extends Component<ErrorBoundaryProperties, ErrorBound
 
 	render() {
 		if (this.state.hasError && this.state.error) {
-			return this.props.fallback({
-				error: this.state.error,
-				resetErrorBoundary: this.resetErrorBoundary,
-			});
+			const Fallback = this.props.fallback;
+			return <Fallback error={this.state.error} resetErrorBoundary={this.resetErrorBoundary} />;
 		}
 
 		return this.props.children;

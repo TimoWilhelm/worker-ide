@@ -229,7 +229,17 @@ export async function downloadDebugLog(projectId: string, logId: string, session
 	}
 	const response = await fetch(`/p/${projectId}/api/ai/debug-log?${parameters.toString()}`);
 	if (!response.ok) {
-		throw new Error('Failed to download debug log');
+		let detail = response.statusText;
+		try {
+			const body: unknown = await response.json();
+			if (body && typeof body === 'object' && 'error' in body) {
+				const { error } = body;
+				detail = String(error);
+			}
+		} catch {
+			// Use statusText as fallback
+		}
+		throw new Error(`Failed to download debug log: ${detail}`);
 	}
 	const data: unknown = await response.json();
 	const blob = new Blob([JSON.stringify(data, undefined, 2)], { type: 'application/json' });

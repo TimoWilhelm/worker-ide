@@ -1383,8 +1383,9 @@ function InlineToolCall({
 	const rawResultContent = getToolResultContent(toolCall, toolResult);
 	const isUnknownTool = knownToolName === undefined;
 
-	// Prefer structured error data from CUSTOM tool_error events.
-	// Falls back to regex-based detection for backward compatibility.
+	// Structured error data from CUSTOM tool_error events (populated during streaming).
+	// Also check tool result content via regex as a fallback for loaded sessions where
+	// the toolErrors ref is empty.
 	const structuredError = toolErrors?.get(toolCall.id);
 	const isError = isUnknownTool || structuredError !== undefined || isToolError(toolCall, toolResult);
 

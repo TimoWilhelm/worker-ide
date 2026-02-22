@@ -1,6 +1,6 @@
 /**
  * Retry logic for AI agent API calls.
- * Ported from OpenCode's SessionRetry — exponential backoff with retryable error classification.
+ * Exponential backoff with retryable error classification.
  */
 
 import { parseApiError } from './utilities';

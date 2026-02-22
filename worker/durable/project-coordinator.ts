@@ -32,8 +32,10 @@ export class ProjectCoordinator extends DurableObject {
 	/** Last server-error message, replayed to newly connected clients */
 	private lastServerError: string | undefined;
 
-	/** Timestamp of the most recent HMR update broadcast, used to detect missed updates */
-	private lastUpdateTimestamp = 0;
+	/** Monotonically increasing version counter for HMR updates.
+	 *  Incremented on every broadcast so clients can detect missed updates
+	 *  by comparing their last-seen version against this value. */
+	private updateVersion = 0;
 
 	/** Pending CDP command requests awaiting a response from a frontend client */
 	private pendingCdpRequests = new Map<string, { resolve: (value: { result?: string; error?: string }) => void }>();
@@ -80,7 +82,7 @@ export class ProjectCoordinator extends DurableObject {
 
 	private sendToOthersJoined(sender: WebSocket, message: string): void {
 		for (const ws of this.ctx.getWebSockets()) {
-			if (ws === sender) continue;
+			if (ws === sender || ws.readyState !== WebSocket.OPEN) continue;
 			const att = this.getAttachment(ws);
 			if (!att?.joined) continue;
 			try {
@@ -97,6 +99,7 @@ export class ProjectCoordinator extends DurableObject {
 
 	private sendToAll(message: string): void {
 		for (const ws of this.ctx.getWebSockets()) {
+			if (ws.readyState !== WebSocket.OPEN) continue;
 			try {
 				ws.send(message);
 			} catch {
@@ -214,12 +217,14 @@ export class ProjectCoordinator extends DurableObject {
 			updateType = 'js-update';
 		}
 
-		// Track the latest update timestamp so we can detect missed updates
-		// when an HMR client reconnects after a reload.
-		this.lastUpdateTimestamp = update.timestamp;
+		// Increment the monotonic version counter. Clients track the latest
+		// version they have seen and send it on reconnect so we can detect
+		// whether they missed any updates during a reload window.
+		this.updateVersion++;
 
 		const message = serializeMessage({
 			type: update.type,
+			version: this.updateVersion,
 			updates: [
 				{
 					type: updateType,
@@ -245,19 +250,21 @@ export class ProjectCoordinator extends DurableObject {
 			}
 
 			if (data.type === 'hmr-connect') {
-				// The HMR client sends this after reconnecting post-reload.
-				// If any update was broadcast after the client's reload timestamp,
-				// the client missed it and needs to reload again.
-				if (this.lastUpdateTimestamp >= data.lastReloadTimestamp) {
+				// The HMR client sends its last-seen version after connecting
+				// (or reconnecting post-reload). If the coordinator's version
+				// is higher, the client missed one or more updates and needs
+				// to reload to pick up the latest content.
+				if (data.lastVersion < this.updateVersion) {
 					try {
 						ws.send(
 							serializeMessage({
 								type: 'full-reload',
+								version: this.updateVersion,
 								updates: [
 									{
 										type: 'full-reload',
 										path: '*',
-										timestamp: this.lastUpdateTimestamp,
+										timestamp: Date.now(),
 									},
 								],
 							}),

@@ -7,6 +7,7 @@
  */
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { Check, ClipboardCopy } from 'lucide-react';
 import { Suspense, useEffect, useState } from 'react';
 
 import { ErrorBoundary } from '@/components/error-boundary';
@@ -46,6 +47,15 @@ function LoadingFallback() {
 }
 
 function ErrorFallback({ error, resetErrorBoundary }: { error: Error; resetErrorBoundary: () => void }) {
+	const [copied, setCopied] = useState(false);
+
+	function handleCopy() {
+		void navigator.clipboard.writeText(error.message).then(() => {
+			setCopied(true);
+			setTimeout(() => setCopied(false), 2000);
+		});
+	}
+
 	return (
 		<div className="flex h-dvh items-center justify-center bg-bg-primary p-4">
 			<div
@@ -53,7 +63,19 @@ function ErrorFallback({ error, resetErrorBoundary }: { error: Error; resetError
 					max-w-lg rounded-xl border border-error/50 bg-bg-secondary p-10 shadow-lg
 				"
 			>
-				<h1 className="mb-4 text-xl font-semibold text-error">Something went wrong</h1>
+				<div className="mb-4 flex items-center justify-between">
+					<h1 className="text-xl font-semibold text-error">Something went wrong</h1>
+					<button
+						onClick={handleCopy}
+						title="Copy error to clipboard"
+						className="
+							cursor-pointer rounded-md p-1.5 text-text-secondary transition-colors
+							hover:bg-bg-tertiary hover:text-text-primary
+						"
+					>
+						{copied ? <Check className="size-4 text-green-500" /> : <ClipboardCopy className="size-4" />}
+					</button>
+				</div>
 				<pre
 					className="
 						mb-8 max-h-48 overflow-auto rounded-md bg-bg-tertiary p-5 font-mono

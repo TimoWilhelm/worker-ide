@@ -20,12 +20,6 @@ import type { DiffHunk } from './diff-decorations';
 // Types
 // =============================================================================
 
-export interface DiffExtensionConfig {
-	hunks: DiffHunk[];
-	onApprove?: () => void;
-	onReject?: () => void;
-}
-
 // =============================================================================
 // Core decoration marks
 // =============================================================================
@@ -398,23 +392,4 @@ export function createDiffDecorations(hunks: DiffHunk[]): Extension[] {
 export function createAiActionBarExtension(hunks: DiffHunk[], onApprove: () => void, onReject: () => void): Extension[] {
 	if (hunks.length === 0) return [];
 	return [aiActionBarTheme, createAiActionBarField(hunks, onApprove, onReject)];
-}
-
-/**
- * Create a set of CodeMirror extensions for displaying inline diffs.
- * Composes core decorations + optional AI action bar.
- *
- * @deprecated Prefer using `createDiffDecorations()` and `createAiActionBarExtension()`
- * separately for clearer separation of concerns.
- */
-export function createDiffExtensions(config: DiffExtensionConfig): Extension[] {
-	if (config.hunks.length === 0) return [];
-
-	const extensions = createDiffDecorations(config.hunks);
-
-	if (config.onApprove && config.onReject) {
-		extensions.push(...createAiActionBarExtension(config.hunks, config.onApprove, config.onReject));
-	}
-
-	return extensions;
 }

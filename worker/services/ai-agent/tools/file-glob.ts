@@ -17,7 +17,7 @@ import type { SendEventFunction, ToolDefinition, ToolExecutorContext } from '../
 const MAX_RESULTS = 100;
 
 // =============================================================================
-// Description (matches OpenCode)
+// Description
 // =============================================================================
 
 export const DESCRIPTION = `- Fast file pattern matching tool that works with any codebase size

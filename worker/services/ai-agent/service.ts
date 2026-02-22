@@ -1,6 +1,6 @@
 /**
  * AI Agent Service.
- * Handles the Claude AI agent loop with streaming response using TanStack AI.
+ * Handles the AI agent loop with streaming response using TanStack AI.
  *
  * Key architecture:
  * - Uses TanStack AI chat() with custom Replicate adapter for the agentic loop
@@ -14,7 +14,7 @@ import fs from 'node:fs/promises';
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import { chat, maxIterations, toServerSentEventsResponse } from '@tanstack/ai';
+import { chat, maxIterations, StreamProcessor, toServerSentEventsResponse } from '@tanstack/ai';
 import { mount, withMounts } from 'worker-fs-mount';
 
 import {
@@ -39,7 +39,7 @@ import { coordinatorNamespace } from '../../lib/durable-object-namespaces';
 import type { CustomEventQueue, FileChange, ModelMessage, SnapshotMetadata, ToolExecutorContext, ToolFailureRecord } from './types';
 import type { ExpiringFilesystem } from '../../durable/expiring-filesystem';
 import type { AIModelId } from '@shared/constants';
-import type { StreamChunk } from '@tanstack/ai';
+import type { StreamChunk, UIMessage } from '@tanstack/ai';
 
 // =============================================================================
 // AG-UI Event Helpers
@@ -85,8 +85,7 @@ function customEvent(name: string, data: Record<string, unknown>): StreamChunk {
 /**
  * Hard ceiling on agent loop iterations — safety net to prevent runaway loops.
  * The agent will typically stop earlier due to context exhaustion or task completion.
- * This is intentionally generous (like OpenCode's default of Infinity) since
- * context-awareness and compaction handle the practical limits.
+ * This is intentionally generous since context-awareness and compaction handle the practical limits.
  */
 const MAX_ITERATIONS = 200;
 
@@ -105,6 +104,13 @@ const SOFT_ITERATION_LIMIT = 50;
  * Pruning at 70% gives headroom before hitting the hard overflow limit.
  */
 const PROACTIVE_PRUNE_THRESHOLD = 0.7;
+
+/**
+ * Minimum interval (ms) between incremental session saves during streaming.
+ * Each `turn_complete` triggers a save, but this throttle prevents hammering
+ * the filesystem on rapid successive turns.
+ */
+const SESSION_SAVE_THROTTLE_MS = 3000;
 
 // =============================================================================
 // AI Agent Service Class
@@ -125,8 +131,19 @@ export class AIAgentService {
 	/**
 	 * Run the AI agent chat loop with streaming response.
 	 * Returns a Response with AG-UI SSE events via toServerSentEventsResponse().
+	 *
+	 * The stream is "teed" through a server-side StreamProcessor that mirrors the
+	 * client's UIMessage building. This enables the server to persist the session
+	 * incrementally during streaming and on all termination paths (including client
+	 * disconnect), producing UIMessage[] identical to what the client would build.
 	 */
-	async runAgentChat(messages: ModelMessage[], apiKey: string, signal?: AbortSignal, outputLogs?: string): Promise<Response> {
+	async runAgentChat(
+		messages: ModelMessage[],
+		uiMessages: unknown[],
+		apiKey: string,
+		signal?: AbortSignal,
+		outputLogs?: string,
+	): Promise<Response> {
 		const abortController = new AbortController();
 
 		// Forward external signal to our controller
@@ -134,13 +151,177 @@ export class AIAgentService {
 			signal.addEventListener('abort', () => abortController.abort(), { once: true });
 		}
 
+		// Server-side StreamProcessor mirrors the client's UIMessage building.
+		// Initialized with the conversation history the client sent (UIMessage[]),
+		// so the processor already contains all prior messages when the new
+		// assistant message is appended during streaming.
+		// eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- wire format cast: uiMessages is UIMessage[] from the frontend
+		const processor = new StreamProcessor({ initialMessages: uiMessages as UIMessage[] });
+
 		// Run the agent loop in a mount scope (for worker-fs-mount)
-		const stream = withMounts(() => {
+		const innerStream = withMounts(() => {
 			mount(this.projectRoot, this.fsStub);
 			return this.createAgentStream(messages, apiKey, abortController, outputLogs);
 		});
 
-		return toServerSentEventsResponse(stream, { abortController });
+		// Tee the stream: feed chunks to both the SSE response and the server-side
+		// StreamProcessor for session persistence.
+		const teedStream = this.createTeedStream(innerStream, processor);
+
+		return toServerSentEventsResponse(teedStream, { abortController });
+	}
+
+	/**
+	 * Wraps the agent stream, mirroring every chunk to a server-side
+	 * StreamProcessor and persisting the session on all termination paths.
+	 *
+	 * The generator propagates all chunks from the inner stream unchanged
+	 * so the SSE response is identical. Additionally:
+	 * - Feeds each chunk to the StreamProcessor to build UIMessage[]
+	 * - Persists the session incrementally on `turn_complete` events
+	 * - Persists the session in `finally` (handles client disconnect)
+	 * - Tracks snapshot IDs and context token usage for session metadata
+	 */
+	private async *createTeedStream(innerStream: AsyncIterable<StreamChunk>, processor: StreamProcessor): AsyncIterable<StreamChunk> {
+		processor.prepareAssistantMessage();
+
+		// Snapshot ID emitted by the agent loop (set via snapshot_created CUSTOM event)
+		let snapshotId: string | undefined;
+		// Index of the user message that triggered this turn (last message before the assistant response)
+		const userMessageIndex = processor.getMessages().length - 1;
+		// Latest context token count from context_utilization CUSTOM events
+		let contextTokensUsed = 0;
+		// Throttle incremental saves
+		let lastSaveTimestamp = 0;
+		// Track whether the session was already persisted (idempotent guard for finally)
+		let sessionPersisted = false;
+
+		const persistSession = async () => {
+			processor.finalizeStream();
+			sessionPersisted = true;
+			await this.persistSession(processor, snapshotId, userMessageIndex, contextTokensUsed);
+		};
+
+		try {
+			for await (const chunk of innerStream) {
+				// Mirror to the StreamProcessor for UIMessage building
+				processor.processChunk(chunk);
+
+				// Track metadata from CUSTOM events
+				if (isRecordObject(chunk) && chunk.type === 'CUSTOM') {
+					const name = typeof chunk.name === 'string' ? chunk.name : '';
+					switch (name) {
+						case 'snapshot_created': {
+							const data = isRecordObject(chunk.data) ? chunk.data : {};
+							const id = typeof data.id === 'string' ? data.id : undefined;
+							if (id) snapshotId = id;
+
+							break;
+						}
+						case 'context_utilization': {
+							const data = isRecordObject(chunk.data) ? chunk.data : {};
+							const tokens = typeof data.estimatedTokens === 'number' ? data.estimatedTokens : 0;
+							if (tokens > 0) contextTokensUsed = tokens;
+
+							break;
+						}
+						case 'turn_complete': {
+							// Incrementally persist after each agent turn (throttled)
+							const now = Date.now();
+							if (now - lastSaveTimestamp >= SESSION_SAVE_THROTTLE_MS) {
+								lastSaveTimestamp = now;
+								await this.persistSession(processor, snapshotId, userMessageIndex, contextTokensUsed);
+							}
+
+							break;
+						}
+						// No default
+					}
+				}
+
+				yield chunk;
+			}
+
+			// Normal completion — persist the final state
+			await persistSession();
+		} finally {
+			// Safety net: if the stream was cancelled (client disconnect) or an
+			// error occurred before the normal completion path, persist whatever
+			// progress was made. The `finally` block runs even when the generator's
+			// return() is invoked by ReadableStream cancel().
+			if (!sessionPersisted) {
+				await persistSession().catch(() => {});
+			}
+		}
+	}
+
+	/**
+	 * Persist the current session state to disk.
+	 *
+	 * Writes the UIMessage[] from the StreamProcessor (which mirrors what the
+	 * client would have built) to `.agent/sessions/{sessionId}.json`.
+	 * Includes messageSnapshots and contextTokensUsed metadata.
+	 *
+	 * Non-fatal: errors are logged but never propagate to the caller.
+	 */
+	private async persistSession(
+		processor: StreamProcessor,
+		snapshotId: string | undefined,
+		userMessageIndex: number,
+		contextTokensUsed: number,
+	): Promise<void> {
+		if (!this.sessionId) return;
+
+		try {
+			const history = processor.getMessages();
+			if (history.length === 0) return;
+
+			// Derive label from the first user message
+			const firstUserMessage = history.find((message) => message.role === 'user');
+			let label = 'New chat';
+			if (firstUserMessage) {
+				const textParts = firstUserMessage.parts
+					.filter((part): part is { type: 'text'; content: string } => part.type === 'text')
+					.map((part) => part.content)
+					.join(' ')
+					.trim();
+				label = textParts.length > 50 ? textParts.slice(0, 50) + '...' : textParts || 'New chat';
+			}
+
+			// Build messageSnapshots: associate the user message with the snapshot
+			const messageSnapshots: Record<string, string> | undefined =
+				snapshotId && userMessageIndex >= 0 ? { [String(userMessageIndex)]: snapshotId } : undefined;
+
+			// Read the existing session's createdAt timestamp if available,
+			// otherwise use the current time for new sessions.
+			let createdAt = Date.now();
+			const sessionPath = `${this.projectRoot}/.agent/sessions/${this.sessionId}.json`;
+			try {
+				const existing = await fs.readFile(sessionPath, 'utf8');
+				const parsed: { createdAt?: number } = JSON.parse(existing);
+				if (typeof parsed.createdAt === 'number') {
+					createdAt = parsed.createdAt;
+				}
+			} catch {
+				// New session or read error — use current timestamp
+			}
+
+			const session = {
+				id: this.sessionId,
+				label,
+				createdAt,
+				history,
+				messageSnapshots,
+				contextTokensUsed: contextTokensUsed > 0 ? contextTokensUsed : undefined,
+			};
+
+			const sessionsDirectory = `${this.projectRoot}/.agent/sessions`;
+			await fs.mkdir(sessionsDirectory, { recursive: true });
+			await fs.writeFile(sessionPath, JSON.stringify(session));
+		} catch (error) {
+			// Non-fatal — don't let session persistence break the agent stream
+			console.error('Failed to persist AI session:', error);
+		}
 	}
 
 	/**
@@ -201,13 +382,6 @@ export class AIAgentService {
 		const coordinatorId = coordinatorNamespace.idFromName(`project:${this.projectId}`);
 		const coordinatorStub = coordinatorNamespace.get(coordinatorId);
 
-		// Track whether the debug log has been flushed so the finally block can
-		// handle the case where the consumer stops iterating early (e.g., the SSE
-		// ReadableStream breaks out of its for-await when the client disconnects).
-		// In that scenario, the generator's return() is called, skipping both the
-		// try-block completion path and the catch block — only finally runs.
-		let debugLogFlushed = false;
-
 		try {
 			yield customEvent('status', { message: 'Starting...' });
 
@@ -251,12 +425,19 @@ export class AIAgentService {
 				iteration++;
 				logger.setIteration(iteration);
 
+				const estimatedTokens = estimateMessagesTokens(workingMessages);
 				const contextUtilization = getContextUtilization(workingMessages, modelLimits);
 				logger.info('agent_loop', 'iteration_start', {
 					iteration,
 					workingMessageCount: workingMessages.length,
 					contextUtilization: Math.round(contextUtilization * 100),
-					estimatedTokens: estimateMessagesTokens(workingMessages),
+					estimatedTokens,
+				});
+				// Emit context utilization so the frontend ring updates in real-time
+				yield customEvent('context_utilization', {
+					estimatedTokens,
+					contextWindow: modelLimits.contextWindow,
+					utilization: Math.round(contextUtilization * 100),
 				});
 				yield customEvent('status', {
 					message: this.mode === 'plan' ? 'Researching...' : 'Thinking...',
@@ -288,6 +469,14 @@ export class AIAgentService {
 						});
 						workingMessages.length = 0;
 						workingMessages.push(...prunedMessages);
+						// Update context utilization after pruning
+						const postPruneTokens = estimateMessagesTokens(workingMessages);
+						const postPruneUtilization = getContextUtilization(workingMessages, modelLimits);
+						yield customEvent('context_utilization', {
+							estimatedTokens: postPruneTokens,
+							contextWindow: modelLimits.contextWindow,
+							utilization: Math.round(postPruneUtilization * 100),
+						});
 						yield customEvent('status', {
 							message: `Pruned ${prunedTokens} tokens of old tool output`,
 						});
@@ -537,6 +726,14 @@ export class AIAgentService {
 										getNumberField(usage, 'cacheCreationInputTokens') || getNumberField(usage, 'cache_creation_input_tokens'),
 								});
 								logger.recordTokenUsage(inputTokens, outputTokens);
+								// Emit real-time context utilization with API-reported token count
+								if (inputTokens > 0) {
+									yield customEvent('context_utilization', {
+										estimatedTokens: inputTokens,
+										contextWindow: modelLimits.contextWindow,
+										utilization: Math.round((inputTokens / (modelLimits.contextWindow - modelLimits.maxOutput)) * 100),
+									});
+								}
 							}
 							logger.info(
 								'llm',
@@ -775,12 +972,18 @@ export class AIAgentService {
 			// Emit token usage summary
 			const totalUsage = tokenTracker.getTotalUsage();
 			if (totalUsage.input > 0 || totalUsage.output > 0) {
+				// The last turn's input tokens reflect the current context window
+				// utilization (the full conversation size sent to the model).
+				const turns = tokenTracker.getTurns();
+				const lastTurn = turns.at(-1);
+				const lastTurnInput = lastTurn ? lastTurn.usage.input : 0;
 				yield customEvent('usage', {
 					input: totalUsage.input,
 					output: totalUsage.output,
 					cacheRead: totalUsage.cacheRead,
 					cacheWrite: totalUsage.cacheWrite,
 					turns: tokenTracker.turnCount,
+					lastTurnInputTokens: lastTurnInput,
 				});
 			}
 
@@ -792,7 +995,6 @@ export class AIAgentService {
 			});
 			await logger.flush(this.projectRoot);
 			await this.broadcastDebugLogReady(coordinatorStub, logger.id);
-			debugLogFlushed = true;
 		} catch (error) {
 			if (error instanceof Error && error.name === 'AbortError') {
 				logger.info('agent_loop', 'aborted');
@@ -806,7 +1008,6 @@ export class AIAgentService {
 					}
 				}
 				await this.broadcastDebugLogReady(coordinatorStub, logger.id);
-				debugLogFlushed = true;
 				return;
 			}
 			console.error('Agent loop error:', error);
@@ -814,6 +1015,10 @@ export class AIAgentService {
 				message: error instanceof Error ? error.message : String(error),
 				stack: error instanceof Error ? error.stack : undefined,
 			});
+			// Flush and broadcast BEFORE yielding the error event.
+			// The yield can throw if the stream consumer has already disconnected,
+			// which would skip everything after it. Persisting the debug log is
+			// more important than delivering the SSE error event.
 			await logger.flush(this.projectRoot);
 			if (snapshotContext && queryChanges.length === 0) {
 				try {
@@ -822,21 +1027,24 @@ export class AIAgentService {
 					// No-op
 				}
 			}
+			await this.broadcastDebugLogReady(coordinatorStub, logger.id);
 			const parsed = parseApiError(error);
 			yield {
 				type: 'RUN_ERROR',
 				timestamp: Date.now(),
 				error: { message: parsed.message, code: parsed.code ?? undefined },
 			};
-			await this.broadcastDebugLogReady(coordinatorStub, logger.id);
-			debugLogFlushed = true;
 		} finally {
 			// When the SSE consumer stops iterating (e.g., client disconnects and
 			// the ReadableStream is cancelled), the generator's return() is invoked
 			// which skips both the try-block completion path and the catch block —
 			// only this finally block runs. Ensure the debug log is still flushed
 			// and broadcast so the download button appears on the frontend.
-			if (!debugLogFlushed) {
+			//
+			// flush() is idempotent — if it already succeeded in the try/catch
+			// paths above, this is a no-op. If the previous flush failed (e.g.,
+			// filesystem error), the idempotency flag was reset and this retries.
+			if (!logger.isFlushed) {
 				logger.info('agent_loop', 'aborted');
 				logger.markAborted();
 				await logger.flush(this.projectRoot).catch(() => {});

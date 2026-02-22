@@ -52,13 +52,16 @@ export interface FileEditMessage {
 }
 
 /**
- * Client message sent by the HMR client after connecting post-reload.
- * Includes the timestamp of the reload so the coordinator can check
- * if any updates were missed during the reload window.
+ * Client message sent by the HMR client after connecting (or reconnecting
+ * post-reload). Includes the last update version the client has seen so the
+ * coordinator can determine whether the client missed any updates.
+ *
+ * The version is a monotonically increasing integer maintained by the
+ * coordinator. A value of 0 means "I have never seen an update".
  */
 export interface HmrConnectMessage {
 	type: 'hmr-connect';
-	lastReloadTimestamp: number;
+	lastVersion: number;
 }
 
 /**
@@ -156,10 +159,15 @@ export interface FileEditedMessage {
 export type HmrUpdateType = 'css-update' | 'js-update' | 'full-reload';
 
 /**
- * HMR update message
+ * HMR update message.
+ *
+ * `version` is a monotonically increasing integer assigned by the
+ * coordinator. Clients track the latest version they have seen and
+ * send it back on reconnect so the coordinator can detect missed updates.
  */
 export interface HmrUpdateMessage {
 	type: 'update' | 'full-reload';
+	version: number;
 	updates: Array<{
 		type: HmrUpdateType;
 		path: string;
@@ -257,7 +265,7 @@ export const clientMessageSchema = z.discriminatedUnion('type', [
 	}),
 	z.object({
 		type: z.literal('hmr-connect'),
-		lastReloadTimestamp: z.number(),
+		lastVersion: z.number(),
 	}),
 	z.object({
 		type: z.literal('cdp-response'),
@@ -342,10 +350,12 @@ export const serverMessageSchema = z.discriminatedUnion('type', [
 	}),
 	z.object({
 		type: z.literal('update'),
+		version: z.number(),
 		updates: z.array(hmrUpdateSchema),
 	}),
 	z.object({
 		type: z.literal('full-reload'),
+		version: z.number(),
 		updates: z.array(hmrUpdateSchema),
 	}),
 	z.object({

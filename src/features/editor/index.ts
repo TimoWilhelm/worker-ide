@@ -15,7 +15,7 @@ export { useFileContent, useFileList } from './hooks/use-file-content';
 
 // Diff utilities
 export { computeDiffData, type DiffData, type DiffHunk } from './lib/diff-decorations';
-export { createAiActionBarExtension, createDiffDecorations, createDiffExtensions, type DiffExtensionConfig } from './lib/diff-extension';
+export { createAiActionBarExtension, createDiffDecorations } from './lib/diff-extension';
 
 // Extensions (for advanced usage)
 export {

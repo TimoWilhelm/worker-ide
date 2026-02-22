@@ -1,3 +1,4 @@
+import { Check, ClipboardCopy } from 'lucide-react';
 import { useState } from 'react';
 
 import { ErrorBoundary } from './error-boundary';
@@ -13,9 +14,30 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 function ErrorFallback({ error, resetErrorBoundary }: { error: Error; resetErrorBoundary: () => void }) {
+	const [copied, setCopied] = useState(false);
+
+	function handleCopy() {
+		void navigator.clipboard.writeText(error.message).then(() => {
+			setCopied(true);
+			setTimeout(() => setCopied(false), 2000);
+		});
+	}
+
 	return (
 		<div className="rounded-lg border border-error bg-bg-secondary p-6">
-			<h2 className="mb-2 text-lg font-semibold text-error">Something went wrong</h2>
+			<div className="mb-2 flex items-center justify-between">
+				<h2 className="text-lg font-semibold text-error">Something went wrong</h2>
+				<button
+					onClick={handleCopy}
+					title="Copy error to clipboard"
+					className="
+						cursor-pointer rounded-md p-1.5 text-text-secondary transition-colors
+						hover:bg-bg-tertiary hover:text-text-primary
+					"
+				>
+					{copied ? <Check className="size-4 text-green-500" /> : <ClipboardCopy className="size-4" />}
+				</button>
+			</div>
 			<pre
 				className="
 					mb-4 rounded-sm bg-bg-tertiary p-3 font-mono text-sm text-text-secondary

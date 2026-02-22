@@ -362,31 +362,6 @@ textarea:focus-visible,
 	color: var(--color-selection-text);
 }
 
-/* AI panel styles (used by error overlay / legacy code) */
-.ai-code-block {
-	background: var(--color-bg-primary);
-	padding: 10px;
-	border-radius: 6px;
-	overflow-x: auto;
-	margin: 8px 0;
-	font-family: var(--font-mono);
-	font-size: var(--text-xs);
-	line-height: 1.6;
-}
-
-.ai-code-block code {
-	background: none;
-	padding: 0;
-}
-
-.ai-inline-code {
-	font-family: var(--font-mono);
-	font-size: var(--text-xs);
-	background: var(--color-bg-primary);
-	padding: 2px 5px;
-	border-radius: 3px;
-}
-
 /* Toast animations */
 @keyframes toastSlideIn {
 	from {

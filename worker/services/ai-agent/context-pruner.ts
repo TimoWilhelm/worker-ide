@@ -1,6 +1,5 @@
 /**
  * Context window management for the AI agent.
- * Ported from OpenCode's SessionCompaction — provides two levels of context management:
  *
  * 1. **Pruning** — erase old tool outputs when context is getting full
  * 2. **Context budget** — check if there's enough context remaining for another iteration
@@ -117,7 +116,6 @@ export function getContextUtilization(messages: ModelMessage[], limits: ModelLim
 /**
  * Prune old tool result messages to free up context space.
  *
- * Algorithm (from OpenCode's SessionCompaction):
  * 1. Walk backwards through messages (newest first)
  * 2. Skip the most recent user turn
  * 3. For each tool result message:

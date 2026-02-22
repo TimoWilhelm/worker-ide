@@ -11,6 +11,7 @@
 
 import { fetchServerSentEvents } from '@tanstack/ai-client';
 import { useChat } from '@tanstack/ai-react';
+import { useQueryClient } from '@tanstack/react-query';
 import { ArrowDown, Bot, ChevronDown, Download, Loader2, Map as MapIcon, Plus, Send, Square } from 'lucide-react';
 import { ScrollArea } from 'radix-ui';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -18,17 +19,18 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Pill } from '@/components/ui/pill';
+import { setActiveSessionId, useAiSessions } from '@/features/ai-assistant/hooks/use-ai-sessions';
 import { getLogSnapshot } from '@/features/output';
 import { useSnapshots } from '@/features/snapshots';
 import { downloadDebugLog } from '@/lib/api-client';
 import { useStore } from '@/lib/store';
 import { cn, formatRelativeTime } from '@/lib/utils';
 
-import { extractCustomEvent, getStringField } from './helpers';
+import { ContextRing } from './context-ring';
+import { extractCustomEvent, getNumberField, getStringField } from './helpers';
 import { AIError, AssistantMessage, ContinuationPrompt, DoomLoopAlert, MessageBubble, UserQuestionPrompt, WelcomeScreen } from './messages';
-import { getModelLabel } from './model-config';
+import { getModelLabel, getModelLimits } from './model-config';
 import { ModelSelectorDialog } from './model-selector-dialog';
-import { useAiSessions } from '../../hooks/use-ai-sessions';
 import { useAutoScroll } from '../../hooks/use-auto-scroll';
 import { useChangeReview } from '../../hooks/use-change-review';
 import { useFileMention } from '../../hooks/use-file-mention';
@@ -50,6 +52,7 @@ import type { ToolErrorInfo, UIMessage } from '@shared/types';
  * AI assistant panel with chat interface.
  */
 export function AIPanel({ projectId, className }: { projectId: string; className?: string }) {
+	const queryClient = useQueryClient();
 	const [segments, setSegments] = useState<InputSegment[]>([]);
 	const [cursorPosition, setCursorPosition] = useState(0);
 	const [needsContinuation, setNeedsContinuation] = useState(false);
@@ -85,6 +88,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		agentMode,
 		sessionId,
 		selectedModel,
+		contextTokensUsed,
 		setProcessing,
 		setStatusMessage,
 		setAiError,
@@ -92,6 +96,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		removeMessagesFrom,
 		setAgentMode,
 		setSelectedModel,
+		setContextTokensUsed,
 		openFile,
 		addPendingChange,
 		associateSnapshotWithPending,
@@ -228,8 +233,15 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 				case 'turn_complete': {
 					break;
 				}
+				case 'context_utilization': {
+					// Real-time context window usage emitted per-turn during the agent loop.
+					const tokens = getNumberField(custom.data, 'estimatedTokens');
+					if (tokens > 0) {
+						setContextTokensUsed(tokens);
+					}
+					break;
+				}
 				case 'usage': {
-					// Token usage — could be surfaced in UI in the future
 					break;
 				}
 				case 'tool_error': {
@@ -268,10 +280,9 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 				globalThis.dispatchEvent(new CustomEvent('preview-force-refresh'));
 			}
 
-			// Auto-save the session after each AI response
-			queueMicrotask(() => {
-				void saveCurrentSession();
-			});
+			// Session is persisted server-side — refresh the sessions list so the
+			// dropdown reflects the latest state.
+			void queryClient.invalidateQueries({ queryKey: ['ai-sessions', projectId] });
 		},
 		onError: (error) => {
 			// Ignore abort errors — the user intentionally cancelled
@@ -279,6 +290,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 			setProcessing(false);
 			setStatusMessage(undefined);
 			setAiError({ message: error.message });
+			// Session is persisted server-side on all termination paths including errors.
 		},
 	});
 
@@ -380,11 +392,14 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 			messageSnapshots: new Map(),
 			aiError: undefined,
 			debugLogId: undefined,
+			contextTokensUsed: 0,
 		});
+		// Clear the project-scoped active session pointer in localStorage
+		setActiveSessionId(projectId, undefined);
 		// clearChat() must be last — it sets chatMessages=[] which the forward-sync
 		// effect will propagate to the store's history.
 		clearChat();
-	}, [clearChat, clearPendingChanges]);
+	}, [clearChat, clearPendingChanges, projectId]);
 
 	// Wrap handleLoadSession to also clear pending changes and sync to useChat.
 	// loadSession updates the store's history, and the reverse-sync effect
@@ -395,8 +410,10 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 			toolErrorsReference.current.clear();
 			fileDiffContentReference.current.clear();
 			loadSession(targetSessionId);
+			// Persist the newly loaded session as the active one in localStorage
+			setActiveSessionId(projectId, targetSessionId);
 		},
-		[clearPendingChanges, loadSession],
+		[clearPendingChanges, loadSession, projectId],
 	);
 
 	// Smart auto-scroll: stops when user scrolls up, shows pill for new content
@@ -424,6 +441,16 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 			setPendingQuestion(undefined);
 			setDoomLoopMessage(undefined);
 
+			// Eagerly generate a session ID so the server-side persistence always
+			// has a valid ID. Update the ref directly so the SSE connection body
+			// picks it up immediately (the useEffect sync is deferred).
+			if (!sessionIdReference.current) {
+				const newId = crypto.randomUUID().replaceAll('-', '').slice(0, 16);
+				useStore.getState().setSessionId(newId);
+				sessionIdReference.current = newId;
+				setActiveSessionId(projectId, newId);
+			}
+
 			// Track the index of this user message for snapshot association
 			userMessageIndexReference.current = chatMessages.length; // index of the user message about to be added
 			setSegments([]);
@@ -441,7 +468,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 				// Other errors are handled by onError callback
 			}
 		},
-		[inputPlainText, isProcessing, chatMessages.length, setAiError, setProcessing, setStatusMessage, sendMessage],
+		[inputPlainText, isProcessing, chatMessages.length, setAiError, setProcessing, setStatusMessage, sendMessage, projectId],
 	);
 
 	// Handle keyboard shortcuts
@@ -459,6 +486,8 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	);
 
 	// Cancel current request
+	// Session is persisted server-side when the stream is aborted (via the
+	// generator's finally block), so no client-side save is needed here.
 	const handleCancel = useCallback(() => {
 		stopChat();
 		setProcessing(false);
@@ -821,14 +850,17 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 					<div className="flex items-center justify-between px-1.5 py-1">
 						<div className="flex items-center gap-2">
 							<AgentModeSelector mode={agentMode} onModeChange={setAgentMode} disabled={isProcessing} />
-							<Pill
-								size="md"
-								color="muted"
-								className={cn('cursor-pointer transition-colors', isProcessing && 'cursor-not-allowed opacity-40')}
-								onClick={() => !isProcessing && setIsModelSelectorOpen(true)}
-							>
-								{getModelLabel(selectedModel)}
-							</Pill>
+							<div className="flex items-center gap-1">
+								<Pill
+									size="md"
+									color="muted"
+									className={cn('cursor-pointer transition-colors', isProcessing && 'cursor-not-allowed opacity-40')}
+									onClick={() => !isProcessing && setIsModelSelectorOpen(true)}
+								>
+									{getModelLabel(selectedModel)}
+								</Pill>
+								<ContextRing tokensUsed={contextTokensUsed} contextWindow={getModelLimits(selectedModel).contextWindow} />
+							</div>
 						</div>
 						{isProcessing ? (
 							<button

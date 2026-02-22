@@ -25,7 +25,7 @@ const MAX_FILE_BYTES = 1_048_576; // 1 MB — skip files larger than this
 const BATCH_SIZE = 10;
 
 // =============================================================================
-// Description (matches OpenCode)
+// Description
 // =============================================================================
 
 export const DESCRIPTION = String.raw`- Fast content search tool that works with any codebase size
@@ -152,7 +152,7 @@ export async function execute(input: Record<string, string>, sendEvent: SendEven
 		}
 	}
 
-	// Format output (matches OpenCode style)
+	// Format output
 	if (matches.length === 0) {
 		return 'No files found';
 	}

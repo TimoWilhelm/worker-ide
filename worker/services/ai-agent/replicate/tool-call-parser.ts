@@ -9,8 +9,7 @@
  * - Parsing `<tool_use>` blocks into structured tool call objects
  * - Repairing malformed/truncated JSON from model output
  *
- * Other adapters (e.g., Anthropic Messages API) handle tool calls natively
- * and do not need this parsing logic.
+ * Other adapters handle tool calls natively and do not need this parsing logic.
  */
 
 import { isRecordObject } from '../utilities';
@@ -91,6 +90,64 @@ export function stripPartialToolCalls(text: string): string {
 /** Check whether text contains tool call XML fragments. */
 export function containsToolCallXml(text: string): boolean {
 	return XML_TOOL_CALL_PATTERN.test(text);
+}
+
+/**
+ * Result of extracting a single complete tool block from model output.
+ */
+export interface ExtractedToolBlock {
+	/** The parsed tool call (name + input). */
+	toolCall: ParsedToolCall;
+	/** Text that appeared before the `<tool_use>` opening tag (may be empty). */
+	textBefore: string;
+	/** Index in the input string immediately after the `</tool_use>` closing tag. */
+	blockEnd: number;
+}
+
+/**
+ * Find and parse the first complete `<tool_use>...</tool_use>` block in the
+ * normalized output starting from `searchFrom`.
+ *
+ * Used during **streaming** to detect tool calls incrementally as the model
+ * output accumulates, instead of waiting for the full text to finish.
+ *
+ * Returns `undefined` if no complete tool block is found (e.g., the block is
+ * still being generated, or there are no tool blocks at all).
+ *
+ * This function only matches the canonical `<tool_use>` format. The caller
+ * must run `normalizeFunctionCallsFormat()` on the input first to convert
+ * alternative formats (`<function_calls>/<invoke>`) to `<tool_use>`.
+ */
+export function extractNextCompleteToolBlock(normalizedOutput: string, searchFrom: number): ExtractedToolBlock | undefined {
+	const openTag = '<tool_use>';
+	const closeTag = '</tool_use>';
+
+	const tagStart = normalizedOutput.indexOf(openTag, searchFrom);
+	if (tagStart === -1) return undefined;
+
+	const jsonStart = tagStart + openTag.length;
+	const tagEnd = normalizedOutput.indexOf(closeTag, jsonStart);
+
+	// No closing tag yet — the block is still being streamed
+	if (tagEnd === -1) return undefined;
+
+	const jsonString = normalizedOutput.slice(jsonStart, tagEnd).trim();
+	const blockEnd = tagEnd + closeTag.length;
+
+	const toolData = safeParseToolJson(jsonString);
+	if (!toolData) return undefined;
+
+	const toolName = typeof toolData.name === 'string' ? toolData.name.trim() : '';
+	if (!toolName) return undefined;
+
+	const input = extractToolInput(toolData);
+	const textBefore = normalizedOutput.slice(searchFrom, tagStart).trim();
+
+	return {
+		toolCall: { name: toolName, input: coerceInputToStrings(input) },
+		textBefore,
+		blockEnd,
+	};
 }
 
 // =============================================================================

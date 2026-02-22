@@ -17,7 +17,7 @@ import { computeDiffStats, generateCompactDiff, isBinaryFilePath, toUint8Array }
 import type { FileChange, SendEventFunction, ToolDefinition, ToolExecutorContext } from '../types';
 
 // =============================================================================
-// Description (matches OpenCode)
+// Description
 // =============================================================================
 
 export const DESCRIPTION = `Writes a file to the local filesystem.

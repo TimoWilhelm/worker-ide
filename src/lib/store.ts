@@ -104,6 +104,8 @@ interface AIState {
 	selectedModel: AIModelId;
 	/** Debug log ID from the last agent turn */
 	debugLogId: string | undefined;
+	/** Cumulative input tokens used in the current session (for context window indicator) */
+	contextTokensUsed: number;
 }
 
 interface AIActions {
@@ -114,13 +116,14 @@ interface AIActions {
 	setAiError: (error: AIError | undefined) => void;
 	setSessionId: (id: string | undefined) => void;
 	setSavedSessions: (sessions: Array<{ id: string; label: string; createdAt: number }>) => void;
-	loadSession: (history: UIMessage[], sessionId: string, messageSnapshots?: Map<number, string>) => void;
+	loadSession: (history: UIMessage[], sessionId: string, messageSnapshots?: Map<number, string>, contextTokensUsed?: number) => void;
 	setMessageSnapshot: (messageIndex: number, snapshotId: string) => void;
 	removeMessagesAfter: (index: number) => void;
 	removeMessagesFrom: (index: number) => void;
 	setAgentMode: (mode: AgentMode) => void;
 	setSelectedModel: (model: AIModelId) => void;
 	setDebugLogId: (id: string | undefined) => void;
+	setContextTokensUsed: (tokens: number) => void;
 }
 
 // =============================================================================
@@ -416,6 +419,7 @@ export const useStore = create<StoreState>()(
 				agentMode: 'code',
 				selectedModel: DEFAULT_AI_MODEL,
 				debugLogId: undefined,
+				contextTokensUsed: 0,
 
 				addMessage: (message) =>
 					set((state) => ({
@@ -423,7 +427,14 @@ export const useStore = create<StoreState>()(
 					})),
 
 				clearHistory: () =>
-					set({ history: [], sessionId: undefined, messageSnapshots: new Map(), aiError: undefined, debugLogId: undefined }),
+					set({
+						history: [],
+						sessionId: undefined,
+						messageSnapshots: new Map(),
+						aiError: undefined,
+						debugLogId: undefined,
+						contextTokensUsed: 0,
+					}),
 
 				setProcessing: (processing) => set({ isProcessing: processing }),
 
@@ -435,8 +446,15 @@ export const useStore = create<StoreState>()(
 
 				setSavedSessions: (sessions) => set({ savedSessions: sessions }),
 
-				loadSession: (history, sessionId, messageSnapshots) =>
-					set({ history, sessionId, messageSnapshots: messageSnapshots ?? new Map(), aiError: undefined, debugLogId: undefined }),
+				loadSession: (history, sessionId, messageSnapshots, contextTokensUsed) =>
+					set({
+						history,
+						sessionId,
+						messageSnapshots: messageSnapshots ?? new Map(),
+						aiError: undefined,
+						debugLogId: undefined,
+						contextTokensUsed: contextTokensUsed ?? 0,
+					}),
 
 				setMessageSnapshot: (messageIndex, snapshotId) =>
 					set((state) => {
@@ -454,6 +472,8 @@ export const useStore = create<StoreState>()(
 				setSelectedModel: (model) => set({ selectedModel: model }),
 
 				setDebugLogId: (id) => set({ debugLogId: id }),
+
+				setContextTokensUsed: (tokens) => set({ contextTokensUsed: tokens }),
 
 				removeMessagesFrom: (index) =>
 					set((state) => {
@@ -715,8 +735,8 @@ export const useStore = create<StoreState>()(
 			}),
 			{
 				name: 'worker-ide-store',
-				// Persist UI preferences and the active session ID so the
-				// session can be restored after a page refresh.
+				// Persist UI preferences only. The active session ID is stored
+				// in localStorage scoped per project to avoid cross-project leakage.
 				partialize: (state) => ({
 					sidebarVisible: state.sidebarVisible,
 					utilityPanelVisible: state.utilityPanelVisible,
@@ -727,7 +747,6 @@ export const useStore = create<StoreState>()(
 					activeMobilePanel: state.activeMobilePanel,
 					activeSidebarView: state.activeSidebarView,
 					expandedDirs: [...state.expandedDirs],
-					sessionId: state.sessionId,
 					selectedModel: state.selectedModel,
 				}),
 				// Rehydrate expandedDirs as Set
@@ -764,3 +783,5 @@ export const selectActiveSidebarView = (state: StoreState) => state.activeSideba
 export const selectCurrentBranch = (state: StoreState) => state.gitBranches.find((branch) => branch.isCurrent);
 export const selectGitChangedFileCount = (state: StoreState) => state.gitStatus.filter((entry) => entry.status !== 'unmodified').length;
 export const selectGitDiffView = (state: StoreState) => state.gitDiffView;
+export const selectContextTokensUsed = (state: StoreState) => state.contextTokensUsed;
+export const selectSelectedModel = (state: StoreState) => state.selectedModel;

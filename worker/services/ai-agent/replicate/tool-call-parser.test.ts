@@ -4,7 +4,13 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { normalizeFunctionCallsFormat, parseToolCalls, repairToolCallJson, stripPartialToolCalls } from './tool-call-parser';
+import {
+	extractNextCompleteToolBlock,
+	normalizeFunctionCallsFormat,
+	parseToolCalls,
+	repairToolCallJson,
+	stripPartialToolCalls,
+} from './tool-call-parser';
 
 import type { ParsedToolCall } from './tool-call-parser';
 
@@ -790,5 +796,153 @@ describe('ParsedToolCall type', () => {
 		};
 		expect(toolCall.name).toBe('file_read');
 		expect(toolCall.input.path).toBe('/a.txt');
+	});
+});
+
+// =============================================================================
+// extractNextCompleteToolBlock
+// =============================================================================
+
+describe('extractNextCompleteToolBlock', () => {
+	describe('basic extraction', () => {
+		it('extracts a complete tool block from the start', () => {
+			const output = '<tool_use>\n{"name": "file_read", "input": {"path": "/a.txt"}}\n</tool_use>';
+			const result = extractNextCompleteToolBlock(output, 0);
+
+			expect(result).toBeDefined();
+			expect(result!.toolCall.name).toBe('file_read');
+			expect(result!.toolCall.input).toEqual({ path: '/a.txt' });
+			expect(result!.textBefore).toBe('');
+			expect(result!.blockEnd).toBe(output.length);
+		});
+
+		it('extracts text before the tool block', () => {
+			const output = 'I will read the file.\n<tool_use>\n{"name": "file_read", "input": {"path": "/a.txt"}}\n</tool_use>';
+			const result = extractNextCompleteToolBlock(output, 0);
+
+			expect(result).toBeDefined();
+			expect(result!.toolCall.name).toBe('file_read');
+			expect(result!.textBefore).toBe('I will read the file.');
+		});
+
+		it('extracts from a given searchFrom offset', () => {
+			const output = [
+				'<tool_use>\n{"name": "file_read", "input": {"path": "/a.txt"}}\n</tool_use>',
+				'Some text',
+				'<tool_use>\n{"name": "file_write", "input": {"path": "/b.txt", "content": "hello"}}\n</tool_use>',
+			].join('\n');
+
+			// Skip past the first tool block
+			const firstBlockEnd = output.indexOf('</tool_use>') + '</tool_use>'.length;
+			const result = extractNextCompleteToolBlock(output, firstBlockEnd);
+
+			expect(result).toBeDefined();
+			expect(result!.toolCall.name).toBe('file_write');
+			expect(result!.textBefore).toBe('Some text');
+		});
+
+		it('returns undefined for incomplete (unclosed) tool block', () => {
+			const output = 'Some text\n<tool_use>\n{"name": "file_read", "input": {"path": "/a.txt"}';
+			const result = extractNextCompleteToolBlock(output, 0);
+
+			expect(result).toBeUndefined();
+		});
+
+		it('returns undefined when no tool block exists', () => {
+			const output = 'Just a normal response with no tools.';
+			const result = extractNextCompleteToolBlock(output, 0);
+
+			expect(result).toBeUndefined();
+		});
+
+		it('returns undefined for empty input', () => {
+			expect(extractNextCompleteToolBlock('', 0)).toBeUndefined();
+		});
+	});
+
+	describe('error handling', () => {
+		it('returns undefined for malformed JSON in tool block', () => {
+			const output = '<tool_use>\nnot valid json\n</tool_use>';
+			const result = extractNextCompleteToolBlock(output, 0);
+
+			expect(result).toBeUndefined();
+		});
+
+		it('returns undefined for tool block with empty name', () => {
+			const output = '<tool_use>\n{"name": "", "input": {"path": "/a.txt"}}\n</tool_use>';
+			const result = extractNextCompleteToolBlock(output, 0);
+
+			expect(result).toBeUndefined();
+		});
+
+		it('handles JSON with trailing commas via repair', () => {
+			const output = '<tool_use>\n{"name": "file_read", "input": {"path": "/a.txt",}}\n</tool_use>';
+			const result = extractNextCompleteToolBlock(output, 0);
+
+			expect(result).toBeDefined();
+			expect(result!.toolCall.name).toBe('file_read');
+		});
+	});
+
+	describe('input format handling', () => {
+		it('handles canonical format (nested input object)', () => {
+			const output = '<tool_use>\n{"name": "file_read", "input": {"path": "/a.txt"}}\n</tool_use>';
+			const result = extractNextCompleteToolBlock(output, 0);
+
+			expect(result!.toolCall.input).toEqual({ path: '/a.txt' });
+		});
+
+		it('handles flat format (top-level keys)', () => {
+			const output = '<tool_use>\n{"name": "file_read", "path": "/a.txt"}\n</tool_use>';
+			const result = extractNextCompleteToolBlock(output, 0);
+
+			expect(result!.toolCall.input).toEqual({ path: '/a.txt' });
+		});
+
+		it('handles no-argument tools', () => {
+			const output = '<tool_use>\n{"name": "files_list"}\n</tool_use>';
+			const result = extractNextCompleteToolBlock(output, 0);
+
+			expect(result!.toolCall).toEqual({ name: 'files_list', input: {} });
+		});
+
+		it('normalizes camelCase keys to snake_case', () => {
+			const output = '<tool_use>\n{"name": "file_edit", "input": {"path": "/a.txt", "oldString": "foo", "newString": "bar"}}\n</tool_use>';
+			const result = extractNextCompleteToolBlock(output, 0);
+
+			expect(result!.toolCall.input.old_string).toBe('foo');
+			expect(result!.toolCall.input.new_string).toBe('bar');
+		});
+	});
+
+	describe('streaming simulation', () => {
+		it('returns undefined while block is still being generated', () => {
+			// Simulate tokens arriving incrementally
+			const tokens = ['<tool_', 'use>\n{"na', 'me": "file_read",', ' "input": {"pa', 'th": "/a.txt"}}'];
+			let accumulated = '';
+
+			for (const token of tokens) {
+				accumulated += token;
+				// No closing tag yet — should return undefined
+				expect(extractNextCompleteToolBlock(accumulated, 0)).toBeUndefined();
+			}
+
+			// Now add the closing tag
+			accumulated += '\n</tool_use>';
+			const result = extractNextCompleteToolBlock(accumulated, 0);
+			expect(result).toBeDefined();
+			expect(result!.toolCall.name).toBe('file_read');
+		});
+
+		it('detects tool block as soon as closing tag arrives', () => {
+			const withText = 'Let me read the file.\n<tool_use>\n{"name": "file_read", "input": {"path": "/a.txt"}}\n</tool_use>\nMore text...';
+			const result = extractNextCompleteToolBlock(withText, 0);
+
+			expect(result).toBeDefined();
+			expect(result!.toolCall.name).toBe('file_read');
+			expect(result!.textBefore).toBe('Let me read the file.');
+			// blockEnd should point right after </tool_use>, not at the end of the string
+			expect(result!.blockEnd).toBeLessThan(withText.length);
+		});
 	});
 });
