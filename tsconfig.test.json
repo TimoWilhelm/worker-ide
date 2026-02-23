@@ -4,6 +4,6 @@
 		"noEmit": true,
 		"types": ["vitest/globals"]
 	},
-	"include": ["worker", "shared"],
+	"include": ["worker", "shared", "auxiliary"],
 	"exclude": []
 }

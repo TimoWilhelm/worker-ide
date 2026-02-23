@@ -15,7 +15,16 @@ import tseslint from 'typescript-eslint';
 
 export default defineConfig(
 	{
-		ignores: ['dist', 'dev-dist', '.wrangler', 'worker-configuration.d.ts', '.storybook', 'storybook-static', 'worker/lib/preview-scripts'],
+		ignores: [
+			'dist',
+			'dev-dist',
+			'.wrangler',
+			'worker-configuration.d.ts',
+			'worker-env.d.ts',
+			'.storybook',
+			'storybook-static',
+			'worker/lib/preview-scripts',
+		],
 	},
 
 	js.configs.recommended,

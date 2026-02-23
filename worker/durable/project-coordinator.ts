@@ -19,6 +19,19 @@ interface ParticipantAttachment {
 }
 
 /**
+ * Storage keys used by the synchronous KV API (`ctx.storage.kv`).
+ * All persisted values must be serializable via the structured clone algorithm.
+ */
+const STORAGE_KEY = {
+	/** Last serialized server-error message (string). Replayed to late-joining clients. */
+	LAST_SERVER_ERROR: 'lastServerError',
+	/** Monotonic HMR version counter (number). Survives hibernation / eviction. */
+	UPDATE_VERSION: 'updateVersion',
+	/** Latest IDE output-logs snapshot (string). Read by the AI agent service. */
+	OUTPUT_LOGS: 'outputLogs',
+} as const;
+
+/**
  * Project Coordinator Durable Object
  *
  * Manages WebSocket connections for:
@@ -27,21 +40,56 @@ interface ParticipantAttachment {
  * - Server error and log forwarding
  *
  * Each project has its own ProjectCoordinator instance (keyed by `project:${projectId}`).
+ *
+ * All durable state is persisted to the DO's SQLite-backed storage via
+ * `ctx.storage.kv` so it survives hibernation and eviction. Only truly
+ * transient data (pending CDP promise callbacks) is kept in-memory.
  */
 export class ProjectCoordinator extends DurableObject {
-	/** Last server-error message, replayed to newly connected clients */
-	private lastServerError: string | undefined;
-
-	/** Monotonically increasing version counter for HMR updates.
-	 *  Incremented on every broadcast so clients can detect missed updates
-	 *  by comparing their last-seen version against this value. */
-	private updateVersion = 0;
-
-	/** Pending CDP command requests awaiting a response from a frontend client */
+	/**
+	 * Pending CDP command requests awaiting a response from a frontend client.
+	 *
+	 * These contain `resolve` callbacks which are not serializable.
+	 * If the DO is evicted while requests are pending, callers will time out
+	 * on their side. When the DO wakes from hibernation, this Map starts empty,
+	 * which is safe because any in-flight CDP promises will have already expired.
+	 */
 	private pendingCdpRequests = new Map<string, { resolve: (value: { result?: string; error?: string }) => void }>();
 
-	/** Latest IDE output logs snapshot pushed by the frontend */
-	private outputLogs = '';
+	// =========================================================================
+	// Persisted state — native get/set backed by ctx.storage.kv
+	// =========================================================================
+
+	/** Last server-error message, replayed to newly connected clients. */
+	private get lastServerError(): string | undefined {
+		return this.ctx.storage.kv.get<string>(STORAGE_KEY.LAST_SERVER_ERROR);
+	}
+
+	private set lastServerError(value: string | undefined) {
+		if (value === undefined) {
+			this.ctx.storage.kv.delete(STORAGE_KEY.LAST_SERVER_ERROR);
+		} else {
+			this.ctx.storage.kv.put(STORAGE_KEY.LAST_SERVER_ERROR, value);
+		}
+	}
+
+	/** Monotonically increasing version counter for HMR updates. */
+	private get updateVersion(): number {
+		return this.ctx.storage.kv.get<number>(STORAGE_KEY.UPDATE_VERSION) ?? 0;
+	}
+
+	private set updateVersion(value: number) {
+		this.ctx.storage.kv.put(STORAGE_KEY.UPDATE_VERSION, value);
+	}
+
+	/** Latest IDE output logs snapshot pushed by the frontend. */
+	private get outputLogs(): string {
+		return this.ctx.storage.kv.get<string>(STORAGE_KEY.OUTPUT_LOGS) ?? '';
+	}
+
+	private set outputLogs(value: string) {
+		this.ctx.storage.kv.put(STORAGE_KEY.OUTPUT_LOGS, value);
+	}
 
 	private getAttachment(ws: WebSocket): ParticipantAttachment | undefined {
 		try {
@@ -220,11 +268,12 @@ export class ProjectCoordinator extends DurableObject {
 		// Increment the monotonic version counter. Clients track the latest
 		// version they have seen and send it on reconnect so we can detect
 		// whether they missed any updates during a reload window.
-		this.updateVersion++;
+		const nextVersion = this.updateVersion + 1;
+		this.updateVersion = nextVersion;
 
 		const message = serializeMessage({
 			type: update.type,
-			version: this.updateVersion,
+			version: nextVersion,
 			updates: [
 				{
 					type: updateType,
@@ -254,12 +303,13 @@ export class ProjectCoordinator extends DurableObject {
 				// (or reconnecting post-reload). If the coordinator's version
 				// is higher, the client missed one or more updates and needs
 				// to reload to pick up the latest content.
-				if (data.lastVersion < this.updateVersion) {
+				const currentVersion = this.updateVersion;
+				if (data.lastVersion < currentVersion) {
 					try {
 						ws.send(
 							serializeMessage({
 								type: 'full-reload',
-								version: this.updateVersion,
+								version: currentVersion,
 								updates: [
 									{
 										type: 'full-reload',
@@ -290,9 +340,10 @@ export class ProjectCoordinator extends DurableObject {
 					}),
 				);
 				// Replay last server-error to late-joining clients
-				if (this.lastServerError) {
+				const lastError = this.lastServerError;
+				if (lastError) {
 					try {
-						ws.send(this.lastServerError);
+						ws.send(lastError);
 					} catch {
 						// Ignore send errors
 					}

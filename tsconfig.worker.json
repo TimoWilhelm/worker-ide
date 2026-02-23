@@ -12,8 +12,8 @@
 		"paths": {
 			"@shared/*": ["./shared/*"]
 		},
-		"types": ["./worker-configuration.d.ts", "./raw-minified.d.ts", "vite/client", "node"]
+		"types": ["./worker-configuration.d.ts", "./worker-env.d.ts", "./raw-minified.d.ts", "vite/client", "node"]
 	},
-	"include": ["worker", "shared"],
-	"exclude": ["worker/fixtures", "worker/**/*.test.ts", "shared/**/*.test.ts"]
+	"include": ["worker", "shared", "auxiliary"],
+	"exclude": ["worker/fixtures", "worker/**/*.test.ts", "shared/**/*.test.ts", "auxiliary/**/*.test.ts"]
 }

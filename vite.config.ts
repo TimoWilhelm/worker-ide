@@ -77,6 +77,7 @@ export default defineConfig({
 		react(),
 		cloudflare({
 			configPath: './wrangler.jsonc',
+			auxiliaryWorkers: [{ configPath: './auxiliary/biome/wrangler.jsonc' }],
 		}),
 	],
 	resolve: {

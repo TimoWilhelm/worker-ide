@@ -5,8 +5,8 @@
 		"type": true
 	},
 	"exclude": ["exports", "types"],
-	"entry": ["worker/index.ts"],
-	"project": ["src/**", "worker/**", "shared/**", "test/**"],
+	"entry": ["worker/index.ts", "auxiliary/biome/index.ts"],
+	"project": ["src/**", "worker/**", "auxiliary/**", "shared/**", "test/**"],
 	"ignoreDependencies": ["cloudflare", "codemirror", "@standard-schema/spec"],
 	"ignoreFiles": [
 		"src/vite-env.d.ts",

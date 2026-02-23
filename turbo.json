@@ -3,12 +3,12 @@
 	"tasks": {
 		"build:worker-types": {
 			"outputs": ["dist/worker/**"],
-			"inputs": ["worker/**/*.ts", "shared/**/*.ts", "tsconfig.worker.json", "tsconfig.json"]
+			"inputs": ["worker/**/*.ts", "auxiliary/**/*.ts", "shared/**/*.ts", "tsconfig.worker.json", "tsconfig.json"]
 		},
 		"build:vite": {
 			"dependsOn": ["build:worker-types"],
 			"outputs": ["dist/**"],
-			"inputs": ["src/**", "worker/**", "shared/**", "public/**", "index.html", "vite.config.ts", "tsconfig.*.json"],
+			"inputs": ["src/**", "worker/**", "auxiliary/**", "shared/**", "public/**", "index.html", "vite.config.ts", "tsconfig.*.json"],
 			"env": ["NODE_ENV"]
 		},
 		"typecheck:app": {
@@ -22,7 +22,7 @@
 		},
 		"typecheck:worker": {
 			"dependsOn": ["build:worker-types"],
-			"inputs": ["worker/**", "shared/**", "tsconfig.worker.json", "tsconfig.json"],
+			"inputs": ["worker/**", "auxiliary/**", "shared/**", "tsconfig.worker.json", "tsconfig.json"],
 			"cache": true
 		},
 		"typecheck:scripts": {
@@ -30,7 +30,7 @@
 			"cache": true
 		},
 		"lint": {
-			"inputs": ["src/**", "worker/**", "shared/**", "test/**", "eslint.config.js"],
+			"inputs": ["src/**", "worker/**", "auxiliary/**", "shared/**", "test/**", "eslint.config.js"],
 			"cache": true
 		},
 		"format:check": {
@@ -38,11 +38,11 @@
 			"cache": true
 		},
 		"test": {
-			"inputs": ["src/**", "worker/**", "shared/**"],
+			"inputs": ["src/**", "worker/**", "auxiliary/**", "shared/**"],
 			"cache": true
 		},
 		"test:e2e": {
-			"inputs": ["src/**", "worker/**", "shared/**", "test/e2e/**", "playwright.config.ts"],
+			"inputs": ["src/**", "worker/**", "auxiliary/**", "shared/**", "test/e2e/**", "playwright.config.ts"],
 			"env": ["CI"],
 			"cache": false
 		}

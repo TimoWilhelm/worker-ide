@@ -52,4 +52,10 @@
 	"ai": {
 		"binding": "AI",
 	},
+	"services": [
+		{
+			"binding": "BIOME",
+			"service": "biome-worker",
+		},
+	],
 }
