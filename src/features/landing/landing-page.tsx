@@ -12,7 +12,7 @@
  */
 
 import { BookOpen, Copy, Github, Hexagon, Moon, Search, Sun, X } from 'lucide-react';
-import { Suspense, useCallback, useMemo, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
@@ -287,6 +287,17 @@ export default function LandingPage() {
 	const handleDeleteProject = useCallback((projectId: string) => {
 		removeProject(projectId);
 		setRecentProjects((previous) => previous.filter((project) => project.id !== projectId));
+	}, []);
+
+	// Clear loading state when the page is restored from bfcache (browser back)
+	useEffect(() => {
+		function handlePageShow(event: PageTransitionEvent) {
+			if (event.persisted) {
+				setLoadingMessage(undefined);
+			}
+		}
+		globalThis.addEventListener('pageshow', handlePageShow);
+		return () => globalThis.removeEventListener('pageshow', handlePageShow);
 	}, []);
 
 	const isLoading = loadingMessage !== undefined;
