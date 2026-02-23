@@ -186,6 +186,16 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 							afterContent: afterContent || undefined,
 							snapshotId: activeSnapshotIdReference.current,
 						});
+						// Eagerly update the file query cache so the editor shows the
+						// correct content immediately.  The WebSocket `update` handler
+						// intentionally skips invalidating the *active* file (to avoid
+						// racing with unsaved user edits), but AI-driven writes are not
+						// user edits — the editor must reflect the new content so that
+						// diff decorations (whose hunk positions reference afterContent)
+						// align with the actual editor document.
+						if (afterContent && action !== 'delete') {
+							queryClient.setQueryData(['file', projectId, path], { path, content: afterContent });
+						}
 						// Store diff content for inline diff rendering in tool call dropdowns
 						const toolUseId = getStringField(custom.data, 'tool_use_id');
 						if (toolUseId && beforeContent && afterContent) {

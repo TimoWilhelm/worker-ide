@@ -23,6 +23,7 @@ import * as fileMoveTool from './file-move';
 import * as fileReadTool from './file-read';
 import * as fileWriteTool from './file-write';
 import * as filesListTool from './files-list';
+import * as lintCheckTool from './lint-check';
 import * as lintFixTool from './lint-fix';
 import * as planUpdateTool from './plan-update';
 import * as todosGetTool from './todos-get';
@@ -66,6 +67,7 @@ export const TOOL_EXECUTORS: ReadonlyMap<string, ToolExecuteFunction> = new Map(
 	['todos_update', todosUpdateTool.execute],
 	['dependencies_list', dependenciesListTool.execute],
 	['dependencies_update', dependenciesUpdateTool.execute],
+	['lint_check', lintCheckTool.execute],
 	['lint_fix', lintFixTool.execute],
 	['cdp_eval', cdpEvalTool.execute],
 ]);
@@ -93,6 +95,7 @@ export const AGENT_TOOLS: readonly ToolDefinition[] = [
 	todosUpdateTool.definition,
 	dependenciesListTool.definition,
 	dependenciesUpdateTool.definition,
+	lintCheckTool.definition,
 	lintFixTool.definition,
 	cdpEvalTool.definition,
 ];
@@ -114,6 +117,7 @@ const PLAN_MODE_TOOL_NAMES = new Set([
 	'todos_get',
 	'todos_update',
 	'dependencies_list',
+	'lint_check',
 	'cdp_eval',
 ]);
 
@@ -144,6 +148,7 @@ export const READ_ONLY_TOOL_NAMES = new Set([
 	'docs_search',
 	'todos_get',
 	'dependencies_list',
+	'lint_check',
 	'cdp_eval',
 ]);
 

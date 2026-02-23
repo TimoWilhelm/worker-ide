@@ -243,7 +243,14 @@ export function useProjectSocket({ projectId, enabled = true }: UseProjectSocket
 							break;
 						}
 						case 'debug-log-ready': {
-							useStore.getState().setDebugLogId(message.id);
+							// Only apply the debug log ID if it belongs to the
+							// currently active session (or no session filter is
+							// set). Without this check, a broadcast from another
+							// tab's session could clobber the local debug log ID.
+							const currentSessionId = useStore.getState().sessionId;
+							if (!currentSessionId || message.sessionId === currentSessionId) {
+								useStore.getState().setDebugLogId(message.id);
+							}
 							break;
 						}
 						case 'pong':

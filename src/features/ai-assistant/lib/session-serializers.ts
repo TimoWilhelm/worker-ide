@@ -51,13 +51,18 @@ export function snapshotsRecordToMap(record: Record<string, string> | undefined)
 
 /**
  * Convert a pending changes Map to a JSON-safe Record, filtering to only
- * entries with 'pending' status.
+ * entries that still have unresolved work (file-level 'pending' or any
+ * hunk-level 'pending').
  */
 export function pendingChangesMapToRecord(pendingChanges: Map<string, PendingFileChange>): Record<string, PendingFileChange> | undefined {
 	const record: Record<string, PendingFileChange> = {};
 	let hasEntries = false;
 	for (const [key, value] of pendingChanges) {
-		if (value.status === 'pending') {
+		// Include entries that are file-level pending, or that have any
+		// unresolved hunks (the file status stays 'pending' while hunks are
+		// being individually resolved).
+		const hasPendingHunks = value.hunkStatuses.includes('pending');
+		if (value.status === 'pending' || hasPendingHunks) {
 			record[key] = value;
 			hasEntries = true;
 		}

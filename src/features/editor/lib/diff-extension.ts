@@ -4,6 +4,12 @@
  * Provides inline diff decorations for the editor: green backgrounds for
  * added lines, red widget decorations for removed lines, and gutter markers.
  *
+ * Removed lines are rendered as individual block widgets (one per line) so
+ * that each participates in CodeMirror's native gutter system.  The
+ * `lineNumberWidgetMarker` facet gives each widget a proper line number in
+ * the line-number gutter, and `widgetMarker` on the diff gutter gives each
+ * widget a "−" marker — no fake HTML gutters needed.
+ *
  * Split into two independent extension sets:
  * - `createDiffDecorations()` — Core diff line/gutter decorations. Used by
  *   both AI change review and read-only git diffs.
@@ -14,11 +20,7 @@
 import { RangeSetBuilder, StateField, type Extension, type Text, type Transaction } from '@codemirror/state';
 import { Decoration, EditorView, GutterMarker, WidgetType, gutter, type DecorationSet } from '@codemirror/view';
 
-import type { DiffHunk } from './diff-decorations';
-
-// =============================================================================
-// Types
-// =============================================================================
+import { groupHunksIntoChanges, type ChangeGroup, type DiffHunk } from './diff-decorations';
 
 // =============================================================================
 // Core decoration marks
@@ -52,36 +54,40 @@ const addedMarker = new AddedGutterMarker();
 const removedMarker = new RemovedGutterMarker();
 
 // =============================================================================
-// Removed lines widget (core — used by both AI and git diffs)
+// Removed line widget — one per removed line for native gutter integration
 // =============================================================================
 
-class RemovedLinesWidget extends WidgetType {
-	constructor(readonly lines: string[]) {
+/**
+ * A single removed line rendered as a block widget.  Each removed line
+ * in a diff hunk becomes its own `RemovedLineWidget` so that CodeMirror's
+ * gutter system allocates a dedicated row for it (with line number and
+ * diff marker).  The widget itself only renders the line content.
+ */
+class RemovedLineWidget extends WidgetType {
+	constructor(
+		/** Text content of the removed line */
+		readonly lineText: string,
+		/** 1-indexed line number in the original (before) document */
+		readonly beforeLineNumber: number,
+	) {
 		super();
 	}
 
 	toDOM(): HTMLElement {
-		const container = document.createElement('div');
-		container.className = 'cm-diff-removed-block';
-
-		for (const line of this.lines) {
-			const lineElement = document.createElement('div');
-			lineElement.className = 'cm-diff-removed-line';
-			lineElement.textContent = line || '\u00A0'; // non-breaking space for empty lines
-			container.append(lineElement);
-		}
-
-		return container;
+		const element = document.createElement('div');
+		element.className = 'cm-diff-removed-line';
+		const content = document.createElement('del');
+		content.textContent = this.lineText || '\u00A0'; // non-breaking space for empty lines
+		element.append(content);
+		return element;
 	}
 
 	override eq(other: WidgetType): boolean {
-		if (!(other instanceof RemovedLinesWidget)) return false;
-		if (this.lines.length !== other.lines.length) return false;
-		return this.lines.every((line, index) => line === other.lines[index]);
+		return other instanceof RemovedLineWidget && other.lineText === this.lineText && other.beforeLineNumber === this.beforeLineNumber;
 	}
 
 	override get estimatedHeight(): number {
-		return this.lines.length * 20;
+		return 20;
 	}
 
 	override ignoreEvent(): boolean {
@@ -95,8 +101,9 @@ class RemovedLinesWidget extends WidgetType {
 
 class AiActionBarWidget extends WidgetType {
 	constructor(
-		readonly onApprove: () => void,
-		readonly onReject: () => void,
+		readonly groupIndex: number,
+		readonly onApprove: (groupIndex: number) => void,
+		readonly onReject: (groupIndex: number) => void,
 	) {
 		super();
 	}
@@ -104,11 +111,6 @@ class AiActionBarWidget extends WidgetType {
 	toDOM(): HTMLElement {
 		const container = document.createElement('div');
 		container.className = 'cm-diff-action-bar';
-
-		const label = document.createElement('span');
-		label.className = 'cm-diff-action-label';
-		label.textContent = 'AI Change';
-		container.append(label);
 
 		const buttonGroup = document.createElement('span');
 		buttonGroup.className = 'cm-diff-action-buttons';
@@ -119,7 +121,7 @@ class AiActionBarWidget extends WidgetType {
 		acceptButton.addEventListener('click', (event) => {
 			event.preventDefault();
 			event.stopPropagation();
-			this.onApprove();
+			this.onApprove(this.groupIndex);
 		});
 		buttonGroup.append(acceptButton);
 
@@ -129,7 +131,7 @@ class AiActionBarWidget extends WidgetType {
 		rejectButton.addEventListener('click', (event) => {
 			event.preventDefault();
 			event.stopPropagation();
-			this.onReject();
+			this.onReject(this.groupIndex);
 		});
 		buttonGroup.append(rejectButton);
 
@@ -139,7 +141,7 @@ class AiActionBarWidget extends WidgetType {
 
 	override eq(other: WidgetType): boolean {
 		if (!(other instanceof AiActionBarWidget)) return false;
-		return this.onApprove === other.onApprove && this.onReject === other.onReject;
+		return this.groupIndex === other.groupIndex && this.onApprove === other.onApprove && this.onReject === other.onReject;
 	}
 
 	override get estimatedHeight(): number {
@@ -170,12 +172,24 @@ function buildCoreDecorations(document_: Text, hunks: DiffHunk[]): DecorationSet
 		} else if (hunk.type === 'removed') {
 			const lineNumber = Math.min(hunk.startLine, document_.lines);
 			const line = document_.line(lineNumber);
-			const widget = Decoration.widget({
-				widget: new RemovedLinesWidget(hunk.lines),
-				block: true,
-				side: -1,
-			});
-			decorations.push({ from: line.from, to: line.from, decoration: widget });
+
+			// Emit one block widget per removed line so each gets its own
+			// gutter row (line number + diff marker) from CodeMirror's
+			// native gutter system.
+			//
+			// side ordering: more-negative → appears earlier.  Within a
+			// hunk the first removed line gets the most-negative side so
+			// they render top-to-bottom.  We reserve side values -1 to
+			// -999 for removed-line widgets; the AI action bar uses
+			// -1000 to ensure it appears before all removed lines.
+			for (let index = 0; index < hunk.lineCount; index++) {
+				const widget = Decoration.widget({
+					widget: new RemovedLineWidget(hunk.lines[index], hunk.beforeStartLine + index),
+					block: true,
+					side: -(hunk.lineCount - index),
+				});
+				decorations.push({ from: line.from, to: line.from, decoration: widget });
+			}
 		}
 	}
 
@@ -209,33 +223,52 @@ function createCoreDiffField(hunks: DiffHunk[]): Extension {
 // AI action bar extension (separate from core decorations)
 // =============================================================================
 
-function buildActionBarDecoration(document_: Text, hunks: DiffHunk[], onApprove: () => void, onReject: () => void): DecorationSet {
+function buildActionBarDecorations(
+	document_: Text,
+	changeGroups: ChangeGroup[],
+	onApprove: (groupIndex: number) => void,
+	onReject: (groupIndex: number) => void,
+): DecorationSet {
 	const builder = new RangeSetBuilder<Decoration>();
+	const decorations: Array<{ from: number; decoration: Decoration }> = [];
 
-	if (hunks.length === 0) return builder.finish();
+	if (changeGroups.length === 0) return builder.finish();
 
-	// Insert action bar above the first hunk
-	const firstHunk = hunks[0];
-	const hunkLine = Math.min(firstHunk.startLine, document_.lines);
-	const line = document_.line(hunkLine);
-	const actionWidget = Decoration.widget({
-		widget: new AiActionBarWidget(onApprove, onReject),
-		block: true,
-		side: -2, // before removed-lines widgets (-1)
-	});
-	builder.add(line.from, line.from, actionWidget);
+	// Insert one action bar per change group, positioned above the group's first hunk.
+	for (const group of changeGroups) {
+		const hunkLine = Math.min(group.startLine, document_.lines);
+		const line = document_.line(hunkLine);
+		const actionWidget = Decoration.widget({
+			widget: new AiActionBarWidget(group.index, onApprove, onReject),
+			block: true,
+			// Each action bar needs a unique side value below all removed-line
+			// widgets at the same position.  Removed lines use -1 to -999;
+			// action bars use -1001, -1002, ... (one per group).
+			side: -(1001 + group.index),
+		});
+		decorations.push({ from: line.from, decoration: actionWidget });
+	}
+
+	decorations.sort((a, b) => a.from - b.from || a.decoration.startSide - b.decoration.startSide);
+	for (const { from, decoration } of decorations) {
+		builder.add(from, from, decoration);
+	}
 
 	return builder.finish();
 }
 
-function createAiActionBarField(hunks: DiffHunk[], onApprove: () => void, onReject: () => void): Extension {
+function createAiActionBarField(
+	changeGroups: ChangeGroup[],
+	onApprove: (groupIndex: number) => void,
+	onReject: (groupIndex: number) => void,
+): Extension {
 	return StateField.define<DecorationSet>({
 		create(state) {
-			return buildActionBarDecoration(state.doc, hunks, onApprove, onReject);
+			return buildActionBarDecorations(state.doc, changeGroups, onApprove, onReject);
 		},
 		update(decorations: DecorationSet, transaction: Transaction) {
 			if (transaction.docChanged) {
-				return buildActionBarDecoration(transaction.state.doc, hunks, onApprove, onReject);
+				return buildActionBarDecorations(transaction.state.doc, changeGroups, onApprove, onReject);
 			}
 			return decorations;
 		},
@@ -257,6 +290,8 @@ function createDiffGutter(hunks: DiffHunk[]): Extension {
 			const document_ = view.state.doc;
 			const markers: Array<{ from: number; marker: GutterMarker }> = [];
 
+			// Only added lines need markers from the rangeset — removed
+			// lines get their "−" via `widgetMarker` below.
 			for (const hunk of hunks) {
 				if (hunk.type === 'added') {
 					for (let index = 0; index < hunk.lineCount; index++) {
@@ -265,20 +300,24 @@ function createDiffGutter(hunks: DiffHunk[]): Extension {
 						const line = document_.line(lineNumber);
 						markers.push({ from: line.from, marker: addedMarker });
 					}
-				} else if (hunk.type === 'removed') {
-					const lineNumber = Math.min(hunk.startLine, document_.lines);
-					const line = document_.line(lineNumber);
-					markers.push({ from: line.from, marker: removedMarker });
 				}
 			}
 
-			markers.sort((a, b) => a.from - b.from || a.marker.startSide - b.marker.startSide);
+			markers.sort((a, b) => a.from - b.from);
 
 			for (const { from, marker } of markers) {
 				builder.add(from, from, marker);
 			}
 
 			return builder.finish();
+		},
+
+		// Give each RemovedLineWidget block its own "−" gutter entry.
+
+		widgetMarker: (_view, widget) => {
+			if (widget instanceof RemovedLineWidget) return removedMarker;
+			// eslint-disable-next-line unicorn/no-null -- CodeMirror API requires null
+			return null;
 		},
 	});
 }
@@ -291,19 +330,17 @@ const coreDiffTheme = EditorView.baseTheme({
 	'.cm-diff-added': {
 		backgroundColor: 'rgba(94, 255, 58, 0.08)',
 	},
-	'.cm-diff-removed-block': {
-		backgroundColor: 'rgba(255, 94, 94, 0.08)',
-		borderLeft: '2px solid rgba(255, 94, 94, 0.4)',
-		padding: '0',
-		fontFamily: 'var(--font-mono)',
-		fontSize: 'var(--text-base)',
-	},
+	// Each removed line is its own block widget.  The gutter line
+	// number and "−" marker are rendered natively by CodeMirror; this
+	// only styles the content area.
 	'.cm-diff-removed-line': {
-		padding: '0 4px',
+		backgroundColor: 'rgba(255, 94, 94, 0.08)',
 		color: 'rgba(255, 94, 94, 0.7)',
-		textDecoration: 'line-through',
 		whiteSpace: 'pre',
-		lineHeight: '1.4',
+		'& del': {
+			textDecoration: 'line-through',
+			padding: '0 4px',
+		},
 	},
 	'.cm-diff-gutter': {
 		width: '12px',
@@ -348,12 +385,12 @@ const aiActionBarTheme = EditorView.baseTheme({
 		padding: '2px 10px',
 		borderRadius: '4px',
 		border: 'none',
-		backgroundColor: 'var(--color-success)',
-		color: '#fff',
+		backgroundColor: 'color-mix(in srgb, var(--color-success) 12%, transparent)',
+		color: 'var(--color-success)',
 		fontSize: '11px',
 		fontWeight: '600',
 		'&:hover': {
-			opacity: '0.85',
+			backgroundColor: 'color-mix(in srgb, var(--color-success) 22%, transparent)',
 		},
 	},
 	'.cm-diff-action-reject': {
@@ -361,12 +398,12 @@ const aiActionBarTheme = EditorView.baseTheme({
 		padding: '2px 10px',
 		borderRadius: '4px',
 		border: 'none',
-		backgroundColor: 'var(--color-error)',
-		color: '#fff',
+		backgroundColor: 'color-mix(in srgb, var(--color-error) 12%, transparent)',
+		color: 'var(--color-error)',
 		fontSize: '11px',
 		fontWeight: '600',
 		'&:hover': {
-			opacity: '0.85',
+			backgroundColor: 'color-mix(in srgb, var(--color-error) 22%, transparent)',
 		},
 	},
 });
@@ -386,10 +423,17 @@ export function createDiffDecorations(hunks: DiffHunk[]): Extension[] {
 }
 
 /**
- * Create the AI-specific inline action bar extension (accept/reject buttons).
+ * Create the AI-specific inline action bar extension (per-change accept/reject buttons).
+ * Hunks are grouped into logical changes (replacement, addition, removal) and each
+ * group gets its own inline action bar.
  * Should only be used during AI change review, never for git diffs.
  */
-export function createAiActionBarExtension(hunks: DiffHunk[], onApprove: () => void, onReject: () => void): Extension[] {
+export function createAiActionBarExtension(
+	hunks: DiffHunk[],
+	onApprove: (groupIndex: number) => void,
+	onReject: (groupIndex: number) => void,
+): Extension[] {
 	if (hunks.length === 0) return [];
-	return [aiActionBarTheme, createAiActionBarField(hunks, onApprove, onReject)];
+	const changeGroups = groupHunksIntoChanges(hunks);
+	return [aiActionBarTheme, createAiActionBarField(changeGroups, onApprove, onReject)];
 }

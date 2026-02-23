@@ -88,7 +88,10 @@ function customEvent(name: string, data: Record<string, unknown>): StreamChunk {
  * Mirrors the deduplication logic from the client-side addPendingChange
  * (store.ts) so the server builds the same net result.
  */
-function accumulatePendingChange(pendingChanges: Map<string, PendingFileChange>, change: Omit<PendingFileChange, 'status'>): void {
+function accumulatePendingChange(
+	pendingChanges: Map<string, PendingFileChange>,
+	change: Omit<PendingFileChange, 'status' | 'hunkStatuses'>,
+): void {
 	const existing = pendingChanges.get(change.path);
 
 	if (!existing) {
@@ -96,7 +99,7 @@ function accumulatePendingChange(pendingChanges: Map<string, PendingFileChange>,
 		if (change.action !== 'move' && change.beforeContent !== undefined && change.beforeContent === change.afterContent) {
 			return;
 		}
-		pendingChanges.set(change.path, { ...change, status: 'pending' });
+		pendingChanges.set(change.path, { ...change, status: 'pending', hunkStatuses: [] });
 		return;
 	}
 
@@ -118,7 +121,7 @@ function accumulatePendingChange(pendingChanges: Map<string, PendingFileChange>,
 			pendingChanges.delete(change.path);
 			return;
 		}
-		pendingChanges.set(change.path, { ...change, action: 'create', beforeContent, snapshotId, status: 'pending' });
+		pendingChanges.set(change.path, { ...change, action: 'create', beforeContent, snapshotId, status: 'pending', hunkStatuses: [] });
 		return;
 	}
 
@@ -128,7 +131,7 @@ function accumulatePendingChange(pendingChanges: Map<string, PendingFileChange>,
 			pendingChanges.delete(change.path);
 			return;
 		}
-		pendingChanges.set(change.path, { ...change, action: 'edit', beforeContent, snapshotId, status: 'pending' });
+		pendingChanges.set(change.path, { ...change, action: 'edit', beforeContent, snapshotId, status: 'pending', hunkStatuses: [] });
 		return;
 	}
 
@@ -137,7 +140,7 @@ function accumulatePendingChange(pendingChanges: Map<string, PendingFileChange>,
 		pendingChanges.delete(change.path);
 		return;
 	}
-	pendingChanges.set(change.path, { ...change, beforeContent, snapshotId, status: 'pending' });
+	pendingChanges.set(change.path, { ...change, beforeContent, snapshotId, status: 'pending', hunkStatuses: [] });
 }
 
 /**
@@ -513,6 +516,11 @@ export class AIAgentService {
 		// Create coordinator stub before try-catch so it's accessible in error handlers
 		const coordinatorId = coordinatorNamespace.idFromName(`project:${this.projectId}`);
 		const coordinatorStub = coordinatorNamespace.get(coordinatorId);
+
+		// Track whether the debug-log-ready broadcast succeeded. The finally
+		// block uses this (independently of logger.isFlushed) to retry the
+		// broadcast when the flush succeeded but the coordinator RPC failed.
+		let debugLogBroadcasted = false;
 
 		try {
 			yield customEvent('status', { message: 'Starting...' });
@@ -1126,7 +1134,7 @@ export class AIAgentService {
 				hitIterationLimit,
 			});
 			await logger.flush(this.projectRoot);
-			await this.broadcastDebugLogReady(coordinatorStub, logger.id);
+			debugLogBroadcasted = await this.broadcastDebugLogReady(coordinatorStub, logger.id);
 		} catch (error) {
 			if (error instanceof Error && error.name === 'AbortError') {
 				logger.info('agent_loop', 'aborted');
@@ -1139,7 +1147,7 @@ export class AIAgentService {
 						// No-op
 					}
 				}
-				await this.broadcastDebugLogReady(coordinatorStub, logger.id);
+				debugLogBroadcasted = await this.broadcastDebugLogReady(coordinatorStub, logger.id);
 				return;
 			}
 			console.error('Agent loop error:', error);
@@ -1159,7 +1167,7 @@ export class AIAgentService {
 					// No-op
 				}
 			}
-			await this.broadcastDebugLogReady(coordinatorStub, logger.id);
+			debugLogBroadcasted = await this.broadcastDebugLogReady(coordinatorStub, logger.id);
 			const parsed = parseApiError(error);
 			yield {
 				type: 'RUN_ERROR',
@@ -1187,6 +1195,14 @@ export class AIAgentService {
 						// No-op
 					}
 				}
+			}
+			// Always retry the broadcast if it hasn't succeeded yet. This
+			// covers two scenarios: (1) the generator was returned via
+			// ReadableStream cancel and no catch block ran, (2) a catch block
+			// flushed the log but the coordinator RPC failed — previously the
+			// finally guard only checked logger.isFlushed which would skip
+			// the broadcast retry.
+			if (!debugLogBroadcasted) {
 				await this.broadcastDebugLogReady(coordinatorStub, logger.id);
 			}
 			await this.closeMcpClients();
@@ -1202,19 +1218,24 @@ export class AIAgentService {
 	 * project coordinator WebSocket. This replaces the previous approach of
 	 * emitting the debug_log ID as a CUSTOM AG-UI SSE event, ensuring the
 	 * notification arrives even when the SSE stream is interrupted (cancel/error).
+	 *
+	 * Returns `true` if the broadcast succeeded, `false` if it failed.
+	 * Failures are non-fatal — they are logged but never propagate to the caller.
 	 */
 	private async broadcastDebugLogReady(
 		coordinatorStub: DurableObjectStub<import('../../durable/project-coordinator').ProjectCoordinator>,
 		logId: string,
-	): Promise<void> {
+	): Promise<boolean> {
 		try {
 			await coordinatorStub.sendMessage({
 				type: 'debug-log-ready',
 				id: logId,
 				sessionId: this.sessionId ?? '',
 			});
-		} catch {
-			// Non-fatal — don't let notification failures break the agent
+			return true;
+		} catch (error) {
+			console.error('Failed to broadcast debug-log-ready:', error);
+			return false;
 		}
 	}
 

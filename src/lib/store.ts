@@ -184,9 +184,11 @@ interface PendingChangesState {
 }
 
 interface PendingChangesActions {
-	addPendingChange: (change: Omit<PendingFileChange, 'status'>) => void;
+	addPendingChange: (change: Omit<PendingFileChange, 'status' | 'hunkStatuses'>) => void;
 	approveChange: (path: string) => void;
 	rejectChange: (path: string) => void;
+	approveHunk: (path: string, groupIndex: number) => void;
+	rejectHunk: (path: string, groupIndex: number) => void;
 	approveAllChanges: () => void;
 	rejectAllChanges: () => void;
 	clearPendingChanges: () => void;
@@ -558,7 +560,7 @@ export const useStore = create<StoreState>()(
 							if (change.action !== 'move' && change.beforeContent !== undefined && change.beforeContent === change.afterContent) {
 								return { pendingChanges: newMap };
 							}
-							newMap.set(change.path, { ...change, status: 'pending' });
+							newMap.set(change.path, { ...change, status: 'pending', hunkStatuses: [] });
 							return { pendingChanges: newMap };
 						}
 
@@ -589,6 +591,7 @@ export const useStore = create<StoreState>()(
 								beforeContent,
 								snapshotId,
 								status: 'pending',
+								hunkStatuses: [],
 							});
 							return { pendingChanges: newMap };
 						}
@@ -606,6 +609,7 @@ export const useStore = create<StoreState>()(
 								beforeContent,
 								snapshotId,
 								status: 'pending',
+								hunkStatuses: [],
 							});
 							return { pendingChanges: newMap };
 						}
@@ -616,7 +620,7 @@ export const useStore = create<StoreState>()(
 							newMap.delete(change.path);
 							return { pendingChanges: newMap };
 						}
-						newMap.set(change.path, { ...change, beforeContent, snapshotId, status: 'pending' });
+						newMap.set(change.path, { ...change, beforeContent, snapshotId, status: 'pending', hunkStatuses: [] });
 						return { pendingChanges: newMap };
 					}),
 
@@ -625,7 +629,11 @@ export const useStore = create<StoreState>()(
 						const newMap = new Map(state.pendingChanges);
 						const change = newMap.get(path);
 						if (change) {
-							newMap.set(path, { ...change, status: 'approved' });
+							newMap.set(path, {
+								...change,
+								status: 'approved',
+								hunkStatuses: change.hunkStatuses.map(() => 'approved' as const),
+							});
 						}
 						return { pendingChanges: newMap };
 					}),
@@ -635,8 +643,54 @@ export const useStore = create<StoreState>()(
 						const newMap = new Map(state.pendingChanges);
 						const change = newMap.get(path);
 						if (change) {
-							newMap.set(path, { ...change, status: 'rejected' });
+							newMap.set(path, {
+								...change,
+								status: 'rejected',
+								hunkStatuses: change.hunkStatuses.map(() => 'rejected' as const),
+							});
 						}
+						return { pendingChanges: newMap };
+					}),
+
+				approveHunk: (path, groupIndex) =>
+					set((state) => {
+						const newMap = new Map(state.pendingChanges);
+						const change = newMap.get(path);
+						if (!change) return { pendingChanges: newMap };
+
+						const newStatuses = [...change.hunkStatuses];
+						newStatuses[groupIndex] = 'approved';
+
+						// If all hunks are resolved (no pending left), mark the whole file
+						const allResolved = newStatuses.every((status) => status !== 'pending');
+						const allApproved = newStatuses.every((status) => status === 'approved');
+
+						newMap.set(path, {
+							...change,
+							hunkStatuses: newStatuses,
+							status: allResolved ? (allApproved ? 'approved' : 'pending') : 'pending',
+						});
+						return { pendingChanges: newMap };
+					}),
+
+				rejectHunk: (path, groupIndex) =>
+					set((state) => {
+						const newMap = new Map(state.pendingChanges);
+						const change = newMap.get(path);
+						if (!change) return { pendingChanges: newMap };
+
+						const newStatuses = [...change.hunkStatuses];
+						newStatuses[groupIndex] = 'rejected';
+
+						// If all hunks are resolved (no pending left), mark the whole file
+						const allResolved = newStatuses.every((status) => status !== 'pending');
+						const allRejected = newStatuses.every((status) => status === 'rejected');
+
+						newMap.set(path, {
+							...change,
+							hunkStatuses: newStatuses,
+							status: allResolved ? (allRejected ? 'rejected' : 'pending') : 'pending',
+						});
 						return { pendingChanges: newMap };
 					}),
 
@@ -645,7 +699,11 @@ export const useStore = create<StoreState>()(
 						const newMap = new Map<string, PendingFileChange>();
 						for (const [key, value] of state.pendingChanges) {
 							if (value.status === 'pending') {
-								newMap.set(key, { ...value, status: 'approved' });
+								newMap.set(key, {
+									...value,
+									status: 'approved',
+									hunkStatuses: value.hunkStatuses.map(() => 'approved' as const),
+								});
 							} else {
 								newMap.set(key, value);
 							}
@@ -658,7 +716,11 @@ export const useStore = create<StoreState>()(
 						const newMap = new Map<string, PendingFileChange>();
 						for (const [key, value] of state.pendingChanges) {
 							if (value.status === 'pending') {
-								newMap.set(key, { ...value, status: 'rejected' });
+								newMap.set(key, {
+									...value,
+									status: 'rejected',
+									hunkStatuses: value.hunkStatuses.map(() => 'rejected' as const),
+								});
 							} else {
 								newMap.set(key, value);
 							}

@@ -150,6 +150,12 @@ export interface PendingFileChange {
 	afterContent: string | undefined;
 	snapshotId: string | undefined;
 	status: 'pending' | 'approved' | 'rejected';
+	/**
+	 * Per-change-group statuses for hunk-level accept/reject.
+	 * Indices correspond to change groups computed by `groupHunksIntoChanges()`.
+	 * Starts as `[]` and is populated when the diff is first displayed.
+	 */
+	hunkStatuses: Array<'pending' | 'approved' | 'rejected'>;
 }
 
 // =============================================================================

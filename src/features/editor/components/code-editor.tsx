@@ -35,8 +35,8 @@ import type { DiffData } from '../lib/diff-decorations';
  */
 function buildDiffExtensions(
 	diffData: DiffData,
-	onApproveReference: React.RefObject<(() => void) | undefined>,
-	onRejectReference: React.RefObject<(() => void) | undefined>,
+	onApproveReference: React.RefObject<((groupIndex: number) => void) | undefined>,
+	onRejectReference: React.RefObject<((groupIndex: number) => void) | undefined>,
 ): Extension[] {
 	const extensions = createDiffDecorations(diffData.hunks);
 
@@ -75,10 +75,10 @@ export interface CodeEditorProperties {
 	tabSize?: number;
 	/** Inline diff data for AI change review */
 	diffData?: DiffData;
-	/** Called when the user accepts the diff via inline action bar */
-	onDiffApprove?: () => void;
-	/** Called when the user rejects the diff via inline action bar */
-	onDiffReject?: () => void;
+	/** Called when the user accepts a change group via inline action bar */
+	onDiffApprove?: (groupIndex: number) => void;
+	/** Called when the user rejects a change group via inline action bar */
+	onDiffReject?: (groupIndex: number) => void;
 	/** Resolved color theme */
 	resolvedTheme?: 'light' | 'dark';
 	/** Additional extensions */

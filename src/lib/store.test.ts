@@ -244,6 +244,7 @@ describe('Pending Changes slice', () => {
 		expect(change).toBeDefined();
 		expect(change?.status).toBe('pending');
 		expect(change?.action).toBe('edit');
+		expect(change?.hunkStatuses).toEqual([]);
 	});
 
 	it('deduplicates by keeping first beforeContent', () => {
@@ -477,6 +478,175 @@ describe('Pending Changes slice', () => {
 		});
 
 		expect(useStore.getState().pendingChanges.has('/src/old.ts → /src/new.ts')).toBe(true);
+	});
+
+	it('resets hunkStatuses to empty when deduplicating a change', () => {
+		useStore.getState().addPendingChange(sampleChange);
+		// Manually set hunkStatuses to simulate initialization
+		useStore.setState((state) => {
+			const newMap = new Map(state.pendingChanges);
+			const change = newMap.get('/src/main.ts')!;
+			newMap.set('/src/main.ts', { ...change, hunkStatuses: ['pending', 'approved'] });
+			return { pendingChanges: newMap };
+		});
+		// Adding a new change for the same path should reset hunkStatuses
+		useStore.getState().addPendingChange({
+			...sampleChange,
+			afterContent: 'final content',
+		});
+
+		const change = useStore.getState().pendingChanges.get('/src/main.ts');
+		expect(change?.hunkStatuses).toEqual([]);
+	});
+
+	it('approves a single hunk', () => {
+		useStore.getState().addPendingChange(sampleChange);
+		// Simulate hunkStatuses initialization
+		useStore.setState((state) => {
+			const newMap = new Map(state.pendingChanges);
+			const change = newMap.get('/src/main.ts')!;
+			newMap.set('/src/main.ts', { ...change, hunkStatuses: ['pending', 'pending', 'pending'] });
+			return { pendingChanges: newMap };
+		});
+
+		useStore.getState().approveHunk('/src/main.ts', 1);
+
+		const change = useStore.getState().pendingChanges.get('/src/main.ts');
+		expect(change?.hunkStatuses).toEqual(['pending', 'approved', 'pending']);
+		expect(change?.status).toBe('pending');
+	});
+
+	it('rejects a single hunk', () => {
+		useStore.getState().addPendingChange(sampleChange);
+		useStore.setState((state) => {
+			const newMap = new Map(state.pendingChanges);
+			const change = newMap.get('/src/main.ts')!;
+			newMap.set('/src/main.ts', { ...change, hunkStatuses: ['pending', 'pending'] });
+			return { pendingChanges: newMap };
+		});
+
+		useStore.getState().rejectHunk('/src/main.ts', 0);
+
+		const change = useStore.getState().pendingChanges.get('/src/main.ts');
+		expect(change?.hunkStatuses).toEqual(['rejected', 'pending']);
+		expect(change?.status).toBe('pending');
+	});
+
+	it('marks file as approved when all hunks are approved', () => {
+		useStore.getState().addPendingChange(sampleChange);
+		useStore.setState((state) => {
+			const newMap = new Map(state.pendingChanges);
+			const change = newMap.get('/src/main.ts')!;
+			newMap.set('/src/main.ts', { ...change, hunkStatuses: ['pending', 'pending'] });
+			return { pendingChanges: newMap };
+		});
+
+		useStore.getState().approveHunk('/src/main.ts', 0);
+		useStore.getState().approveHunk('/src/main.ts', 1);
+
+		const change = useStore.getState().pendingChanges.get('/src/main.ts');
+		expect(change?.hunkStatuses).toEqual(['approved', 'approved']);
+		expect(change?.status).toBe('approved');
+	});
+
+	it('marks file as rejected when all hunks are rejected', () => {
+		useStore.getState().addPendingChange(sampleChange);
+		useStore.setState((state) => {
+			const newMap = new Map(state.pendingChanges);
+			const change = newMap.get('/src/main.ts')!;
+			newMap.set('/src/main.ts', { ...change, hunkStatuses: ['pending', 'pending'] });
+			return { pendingChanges: newMap };
+		});
+
+		useStore.getState().rejectHunk('/src/main.ts', 0);
+		useStore.getState().rejectHunk('/src/main.ts', 1);
+
+		const change = useStore.getState().pendingChanges.get('/src/main.ts');
+		expect(change?.hunkStatuses).toEqual(['rejected', 'rejected']);
+		expect(change?.status).toBe('rejected');
+	});
+
+	it('keeps file pending when hunks have mixed decisions and all are resolved', () => {
+		useStore.getState().addPendingChange(sampleChange);
+		useStore.setState((state) => {
+			const newMap = new Map(state.pendingChanges);
+			const change = newMap.get('/src/main.ts')!;
+			newMap.set('/src/main.ts', { ...change, hunkStatuses: ['pending', 'pending'] });
+			return { pendingChanges: newMap };
+		});
+
+		useStore.getState().approveHunk('/src/main.ts', 0);
+		useStore.getState().rejectHunk('/src/main.ts', 1);
+
+		const change = useStore.getState().pendingChanges.get('/src/main.ts');
+		expect(change?.hunkStatuses).toEqual(['approved', 'rejected']);
+		// Mixed decisions: file stays pending until finalizePartialReview handles it
+		expect(change?.status).toBe('pending');
+	});
+
+	it('syncs hunkStatuses when approving a file-level change', () => {
+		useStore.getState().addPendingChange(sampleChange);
+		useStore.setState((state) => {
+			const newMap = new Map(state.pendingChanges);
+			const change = newMap.get('/src/main.ts')!;
+			newMap.set('/src/main.ts', { ...change, hunkStatuses: ['pending', 'rejected', 'pending'] });
+			return { pendingChanges: newMap };
+		});
+
+		useStore.getState().approveChange('/src/main.ts');
+
+		const change = useStore.getState().pendingChanges.get('/src/main.ts');
+		expect(change?.status).toBe('approved');
+		expect(change?.hunkStatuses).toEqual(['approved', 'approved', 'approved']);
+	});
+
+	it('syncs hunkStatuses when rejecting a file-level change', () => {
+		useStore.getState().addPendingChange(sampleChange);
+		useStore.setState((state) => {
+			const newMap = new Map(state.pendingChanges);
+			const change = newMap.get('/src/main.ts')!;
+			newMap.set('/src/main.ts', { ...change, hunkStatuses: ['approved', 'pending'] });
+			return { pendingChanges: newMap };
+		});
+
+		useStore.getState().rejectChange('/src/main.ts');
+
+		const change = useStore.getState().pendingChanges.get('/src/main.ts');
+		expect(change?.status).toBe('rejected');
+		expect(change?.hunkStatuses).toEqual(['rejected', 'rejected']);
+	});
+
+	it('syncs hunkStatuses when approving all changes', () => {
+		useStore.getState().addPendingChange(sampleChange);
+		useStore.setState((state) => {
+			const newMap = new Map(state.pendingChanges);
+			const change = newMap.get('/src/main.ts')!;
+			newMap.set('/src/main.ts', { ...change, hunkStatuses: ['pending', 'pending'] });
+			return { pendingChanges: newMap };
+		});
+
+		useStore.getState().approveAllChanges();
+
+		const change = useStore.getState().pendingChanges.get('/src/main.ts');
+		expect(change?.status).toBe('approved');
+		expect(change?.hunkStatuses).toEqual(['approved', 'approved']);
+	});
+
+	it('syncs hunkStatuses when rejecting all changes', () => {
+		useStore.getState().addPendingChange(sampleChange);
+		useStore.setState((state) => {
+			const newMap = new Map(state.pendingChanges);
+			const change = newMap.get('/src/main.ts')!;
+			newMap.set('/src/main.ts', { ...change, hunkStatuses: ['approved', 'pending'] });
+			return { pendingChanges: newMap };
+		});
+
+		useStore.getState().rejectAllChanges();
+
+		// File was 'pending' so it should be rejected, along with its hunkStatuses
+		const change = useStore.getState().pendingChanges.get('/src/main.ts');
+		expect(change?.status).toBe('rejected');
+		expect(change?.hunkStatuses).toEqual(['rejected', 'rejected']);
 	});
 });
 

@@ -3,7 +3,7 @@
  *
  * Creates a CodeMirror linter extension that runs Biome WASM on the
  * editor content and returns diagnostics as inline squiggly underlines.
- * Each fixable diagnostic gets a "Fix" action in its tooltip (VSCode-style).
+ * Each fixable diagnostic gets a "Fix" action in its tooltip.
  *
  * Keyboard shortcuts:
  * - Ctrl+. / Cmd+. — Quick Fix: apply safe fix for the diagnostic at cursor

@@ -14,7 +14,14 @@ export { GitDiffToolbar, type GitDiffToolbarProperties } from './components/git-
 export { useFileContent, useFileList } from './hooks/use-file-content';
 
 // Diff utilities
-export { computeDiffData, type DiffData, type DiffHunk } from './lib/diff-decorations';
+export {
+	computeDiffData,
+	groupHunksIntoChanges,
+	reconstructContent,
+	type ChangeGroup,
+	type DiffData,
+	type DiffHunk,
+} from './lib/diff-decorations';
 export { createAiActionBarExtension, createDiffDecorations } from './lib/diff-extension';
 
 // Extensions (for advanced usage)

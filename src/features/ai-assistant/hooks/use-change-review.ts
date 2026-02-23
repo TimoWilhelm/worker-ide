@@ -12,6 +12,7 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useMemo, useRef } from 'react';
 
+import { computeDiffHunks, groupHunksIntoChanges, reconstructContent } from '@/features/editor/lib/diff-decorations';
 import { useSnapshots } from '@/features/snapshots';
 import { createApiClient, saveAiSession } from '@/lib/api-client';
 import { useStore } from '@/lib/store';
@@ -24,7 +25,7 @@ import { deriveLabel, pendingChangesMapToRecord, snapshotsMapToRecord } from '..
 
 export function useChangeReview({ projectId }: { projectId: string }) {
 	const queryClient = useQueryClient();
-	const { pendingChanges, approveChange, rejectChange, approveAllChanges, rejectAllChanges } = useStore();
+	const { pendingChanges, approveChange, rejectChange, approveHunk, rejectHunk, approveAllChanges, rejectAllChanges } = useStore();
 	const { revertFile, revertFileAsync, isReverting } = useSnapshots({ projectId });
 	const apiReference = useRef(createApiClient(projectId));
 
@@ -135,6 +136,117 @@ export function useChangeReview({ projectId }: { projectId: string }) {
 		[pendingChanges, revertFile, rejectChange, queryClient, projectId, persistPendingChanges],
 	);
 
+	// After all hunks are individually resolved, reconstruct the file content
+	// from the accept/reject decisions and write it to disk.
+	const finalizePartialReview = useCallback(
+		async (path: string) => {
+			const change = useStore.getState().pendingChanges.get(path);
+			if (!change) return;
+
+			if (!change.beforeContent || !change.afterContent) {
+				// Can't reconstruct without content — mark based on hunk decisions
+				const allApproved = change.hunkStatuses.every((status) => status === 'approved');
+				if (allApproved) {
+					approveChange(path);
+				} else {
+					rejectChange(path);
+				}
+				return;
+			}
+
+			const allApproved = change.hunkStatuses.every((status) => status === 'approved');
+			const allRejected = change.hunkStatuses.every((status) => status === 'rejected');
+
+			if (allApproved) {
+				// All accepted — file is already correct on disk
+				approveChange(path);
+			} else if (allRejected) {
+				// All rejected — full revert
+				if (change.snapshotId) {
+					revertFile(
+						{ path, snapshotId: change.snapshotId },
+						{
+							onSuccess: () => {
+								rejectChange(path);
+								void persistPendingChanges();
+							},
+						},
+					);
+					return;
+				}
+				// Fallback: write beforeContent
+				try {
+					await apiReference.current.file.$put({ json: { path, content: change.beforeContent } });
+				} catch (error) {
+					console.error('Failed to revert file:', error);
+				}
+				rejectChange(path);
+			} else {
+				// Mixed — reconstruct from decisions
+				const hunks = computeDiffHunks(change.beforeContent, change.afterContent);
+				const groups = groupHunksIntoChanges(hunks);
+				const decisions = groups.map((group) => change.hunkStatuses[group.index] === 'approved');
+				const reconstructed = reconstructContent(change.beforeContent, change.afterContent, decisions);
+
+				try {
+					await apiReference.current.file.$put({ json: { path, content: reconstructed } });
+					// Update the query cache with the reconstructed content
+					queryClient.setQueryData(['file', projectId, path], { path, content: reconstructed });
+				} catch (error) {
+					console.error('Failed to write reconstructed file:', error);
+				}
+
+				// Mark as approved since the file now contains the user's chosen content
+				approveChange(path);
+			}
+
+			void queryClient.refetchQueries({ queryKey: ['file', projectId] });
+			void persistPendingChanges();
+		},
+		[approveChange, rejectChange, revertFile, queryClient, projectId, persistPendingChanges],
+	);
+
+	// Approve a single change group (hunk) within a file.
+	// The file is already written by the AI — approving a hunk just records the decision.
+	// When all hunks are resolved, the file content is reconstructed from the decisions.
+	const handleApproveHunk = useCallback(
+		(path: string, groupIndex: number) => {
+			const change = pendingChanges.get(path);
+			if (!change) return;
+
+			approveHunk(path, groupIndex);
+
+			// Check if all hunks are now resolved after this approval
+			const updatedChange = useStore.getState().pendingChanges.get(path);
+			if (updatedChange && updatedChange.hunkStatuses.every((status) => status !== 'pending')) {
+				void finalizePartialReview(path);
+			}
+
+			void persistPendingChanges();
+		},
+		[pendingChanges, approveHunk, finalizePartialReview, persistPendingChanges],
+	);
+
+	// Reject a single change group (hunk) within a file.
+	// When all hunks are resolved, the file content is reconstructed from the decisions.
+	const handleRejectHunk = useCallback(
+		(path: string, groupIndex: number) => {
+			const change = pendingChanges.get(path);
+			if (!change) return;
+
+			rejectHunk(path, groupIndex);
+
+			// Check if all hunks are now resolved after this rejection
+			const updatedChange = useStore.getState().pendingChanges.get(path);
+			if (updatedChange && updatedChange.hunkStatuses.every((status) => status !== 'pending')) {
+				void finalizePartialReview(path);
+			}
+
+			void persistPendingChanges();
+		},
+		[pendingChanges, rejectHunk, finalizePartialReview, persistPendingChanges],
+	);
+
 	// Approve all pending changes
 	const handleApproveAll = useCallback(() => {
 		approveAllChanges();
@@ -182,6 +294,8 @@ export function useChangeReview({ projectId }: { projectId: string }) {
 		isReverting,
 		handleApproveChange,
 		handleRejectChange,
+		handleApproveHunk,
+		handleRejectHunk,
 		handleApproveAll,
 		handleRejectAll,
 	};

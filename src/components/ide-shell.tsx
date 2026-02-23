@@ -26,7 +26,15 @@ import { Spinner } from '@/components/ui/spinner';
 import { toast } from '@/components/ui/toast-store';
 import { Tooltip, TooltipProvider } from '@/components/ui/tooltip';
 import { useChangeReview } from '@/features/ai-assistant/hooks/use-change-review';
-import { CodeEditor, computeDiffData, DiffToolbar, FileTabs, GitDiffToolbar, useFileContent } from '@/features/editor';
+import {
+	CodeEditor,
+	computeDiffData,
+	DiffToolbar,
+	FileTabs,
+	GitDiffToolbar,
+	groupHunksIntoChanges,
+	useFileContent,
+} from '@/features/editor';
 import { dispatchLintDiagnostics } from '@/features/editor/lib/lint-extension';
 import { DependencyPanel, FileTree, useFileTree } from '@/features/file-tree';
 import { getDependencyErrorCount, subscribeDependencyErrors } from '@/features/file-tree/dependency-error-store';
@@ -251,6 +259,26 @@ export function IDEShell({ projectId }: { projectId: string }) {
 		if (!pendingChange || pendingChange.status !== 'pending') return;
 		return computeDiffData(pendingChange.beforeContent, pendingChange.afterContent ?? editorContent);
 	}, [activeFile, pendingChanges, editorContent]);
+
+	// Lazily initialize per-hunk statuses when a diff is first displayed.
+	// hunkStatuses starts as [] and is populated when the diff is first computed.
+	useEffect(() => {
+		if (!activeFile || !activeDiffData || !activePendingChange) return;
+		if (activePendingChange.hunkStatuses.length > 0) return; // already initialized
+
+		const changeGroups = groupHunksIntoChanges(activeDiffData.hunks);
+		if (changeGroups.length === 0) return;
+
+		const statuses = changeGroups.map(() => 'pending' as const);
+		useStore.setState((state) => {
+			const newMap = new Map(state.pendingChanges);
+			const change = newMap.get(activeFile);
+			if (change && change.hunkStatuses.length === 0) {
+				newMap.set(activeFile, { ...change, hunkStatuses: statuses });
+			}
+			return { pendingChanges: newMap };
+		});
+	}, [activeFile, activeDiffData, activePendingChange]);
 
 	// Compute git diff data when a read-only git diff view is active
 	const isGitDiffActive = !!gitDiffView && gitDiffView.path === activeFile;
@@ -771,10 +799,14 @@ export function IDEShell({ projectId }: { projectId: string }) {
 													readonly={isGitDiffActive}
 													diffData={effectiveDiffData}
 													onDiffApprove={
-														hasActiveDiff && activeFile && !isGitDiffActive ? () => changeReview.handleApproveChange(activeFile) : undefined
+														hasActiveDiff && activeFile && !isGitDiffActive
+															? (groupIndex: number) => changeReview.handleApproveHunk(activeFile, groupIndex)
+															: undefined
 													}
 													onDiffReject={
-														hasActiveDiff && activeFile && !isGitDiffActive ? () => changeReview.handleRejectChange(activeFile) : undefined
+														hasActiveDiff && activeFile && !isGitDiffActive
+															? (groupIndex: number) => changeReview.handleRejectHunk(activeFile, groupIndex)
+															: undefined
 													}
 													resolvedTheme={resolvedTheme}
 													onViewReady={handleViewReady}
@@ -1045,12 +1077,12 @@ export function IDEShell({ projectId }: { projectId: string }) {
 																diffData={effectiveDiffData}
 																onDiffApprove={
 																	hasActiveDiff && activeFile && !isGitDiffActive
-																		? () => changeReview.handleApproveChange(activeFile)
+																		? (groupIndex: number) => changeReview.handleApproveHunk(activeFile, groupIndex)
 																		: undefined
 																}
 																onDiffReject={
 																	hasActiveDiff && activeFile && !isGitDiffActive
-																		? () => changeReview.handleRejectChange(activeFile)
+																		? (groupIndex: number) => changeReview.handleRejectHunk(activeFile, groupIndex)
 																		: undefined
 																}
 																resolvedTheme={resolvedTheme}
