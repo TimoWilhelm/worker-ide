@@ -149,7 +149,7 @@ class AiActionBarWidget extends WidgetType {
 	}
 
 	override ignoreEvent(): boolean {
-		return false;
+		return true;
 	}
 }
 
