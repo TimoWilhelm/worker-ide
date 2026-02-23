@@ -107,8 +107,6 @@ export interface AiSession {
 	messageSnapshots?: Record<string, string>;
 	/** Last known context window token usage (for the context ring indicator) */
 	contextTokensUsed?: number;
-	/** Pending file changes awaiting user review (keyed by file path) */
-	pendingChanges?: Record<string, PendingFileChange>;
 }
 
 /**
@@ -156,6 +154,8 @@ export interface PendingFileChange {
 	 * Starts as `[]` and is populated when the diff is first displayed.
 	 */
 	hunkStatuses: Array<'pending' | 'approved' | 'rejected'>;
+	/** The AI session that produced this change */
+	sessionId: string;
 }
 
 // =============================================================================

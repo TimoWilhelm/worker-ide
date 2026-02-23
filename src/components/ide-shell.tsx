@@ -789,15 +789,22 @@ export function IDEShell({ projectId }: { projectId: string }) {
 												</div>
 											) : (
 												<CodeEditor
-													value={isGitDiffActive ? gitDiffView.afterContent : editorContent}
+													value={
+														isGitDiffActive
+															? gitDiffView.afterContent
+															: hasActiveDiff && activePendingChange?.afterContent
+																? activePendingChange.afterContent
+																: editorContent
+													}
 													filename={activeFile}
-													onChange={isGitDiffActive ? undefined : handleEditorChange}
+													onChange={isGitDiffActive || hasActiveDiff ? undefined : handleEditorChange}
 													onCursorChange={handleCursorChange}
-													onBlur={isGitDiffActive ? undefined : handleEditorBlur}
+													onBlur={isGitDiffActive || hasActiveDiff ? undefined : handleEditorBlur}
 													goToPosition={pendingGoTo}
 													onGoToPositionConsumed={clearPendingGoTo}
-													readonly={isGitDiffActive}
+													readonly={isGitDiffActive || hasActiveDiff}
 													diffData={effectiveDiffData}
+													hunkStatuses={hasActiveDiff ? activePendingChange?.hunkStatuses : undefined}
 													onDiffApprove={
 														hasActiveDiff && activeFile && !isGitDiffActive
 															? (groupIndex: number) => changeReview.handleApproveHunk(activeFile, groupIndex)
@@ -1066,15 +1073,22 @@ export function IDEShell({ projectId }: { projectId: string }) {
 															</div>
 														) : (
 															<CodeEditor
-																value={isGitDiffActive ? gitDiffView.afterContent : editorContent}
+																value={
+																	isGitDiffActive
+																		? gitDiffView.afterContent
+																		: hasActiveDiff && activePendingChange?.afterContent
+																			? activePendingChange.afterContent
+																			: editorContent
+																}
 																filename={activeFile}
-																onChange={isGitDiffActive ? undefined : handleEditorChange}
+																onChange={isGitDiffActive || hasActiveDiff ? undefined : handleEditorChange}
 																onCursorChange={handleCursorChange}
-																onBlur={isGitDiffActive ? undefined : handleEditorBlur}
+																onBlur={isGitDiffActive || hasActiveDiff ? undefined : handleEditorBlur}
 																goToPosition={pendingGoTo}
 																onGoToPositionConsumed={clearPendingGoTo}
-																readonly={isGitDiffActive}
+																readonly={isGitDiffActive || hasActiveDiff}
 																diffData={effectiveDiffData}
+																hunkStatuses={hasActiveDiff ? activePendingChange?.hunkStatuses : undefined}
 																onDiffApprove={
 																	hasActiveDiff && activeFile && !isGitDiffActive
 																		? (groupIndex: number) => changeReview.handleApproveHunk(activeFile, groupIndex)

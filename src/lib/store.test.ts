@@ -235,6 +235,7 @@ describe('Pending Changes slice', () => {
 		beforeContent: 'old content',
 		afterContent: 'new content',
 		snapshotId: undefined,
+		sessionId: 'test-session',
 	};
 
 	it('adds a pending change', () => {
@@ -332,6 +333,7 @@ describe('Pending Changes slice', () => {
 			beforeContent: undefined,
 			afterContent: 'new content',
 			snapshotId: 'snap-1',
+			sessionId: 'test-session',
 		});
 		useStore.getState().addPendingChange({
 			path: '/src/new-file.ts',
@@ -339,6 +341,7 @@ describe('Pending Changes slice', () => {
 			beforeContent: 'new content',
 			afterContent: undefined,
 			snapshotId: 'snap-1',
+			sessionId: 'test-session',
 		});
 
 		expect(useStore.getState().pendingChanges.has('/src/new-file.ts')).toBe(false);
@@ -351,6 +354,7 @@ describe('Pending Changes slice', () => {
 			beforeContent: undefined,
 			afterContent: 'initial content',
 			snapshotId: 'snap-1',
+			sessionId: 'test-session',
 		});
 		useStore.getState().addPendingChange({
 			path: '/src/new-file.ts',
@@ -358,6 +362,7 @@ describe('Pending Changes slice', () => {
 			beforeContent: 'initial content',
 			afterContent: 'updated content',
 			snapshotId: 'snap-1',
+			sessionId: 'test-session',
 		});
 
 		const change = useStore.getState().pendingChanges.get('/src/new-file.ts');
@@ -373,6 +378,7 @@ describe('Pending Changes slice', () => {
 			beforeContent: 'original content',
 			afterContent: undefined,
 			snapshotId: 'snap-1',
+			sessionId: 'test-session',
 		});
 		useStore.getState().addPendingChange({
 			path: '/src/main.ts',
@@ -380,6 +386,7 @@ describe('Pending Changes slice', () => {
 			beforeContent: undefined,
 			afterContent: 'recreated content',
 			snapshotId: 'snap-1',
+			sessionId: 'test-session',
 		});
 
 		const change = useStore.getState().pendingChanges.get('/src/main.ts');
@@ -410,6 +417,7 @@ describe('Pending Changes slice', () => {
 			beforeContent: 'same content',
 			afterContent: 'same content',
 			snapshotId: undefined,
+			sessionId: 'test-session',
 		});
 
 		expect(useStore.getState().pendingChanges.has('/src/main.ts')).toBe(false);
@@ -422,6 +430,7 @@ describe('Pending Changes slice', () => {
 			beforeContent: 'original',
 			afterContent: 'changed',
 			snapshotId: undefined,
+			sessionId: 'test-session',
 		});
 		useStore.getState().addPendingChange({
 			path: '/src/main.ts',
@@ -429,6 +438,7 @@ describe('Pending Changes slice', () => {
 			beforeContent: 'changed',
 			afterContent: 'original',
 			snapshotId: undefined,
+			sessionId: 'test-session',
 		});
 
 		expect(useStore.getState().pendingChanges.has('/src/main.ts')).toBe(false);
@@ -441,6 +451,7 @@ describe('Pending Changes slice', () => {
 			beforeContent: 'original',
 			afterContent: undefined,
 			snapshotId: undefined,
+			sessionId: 'test-session',
 		});
 		useStore.getState().addPendingChange({
 			path: '/src/main.ts',
@@ -448,6 +459,7 @@ describe('Pending Changes slice', () => {
 			beforeContent: undefined,
 			afterContent: 'original',
 			snapshotId: undefined,
+			sessionId: 'test-session',
 		});
 
 		expect(useStore.getState().pendingChanges.has('/src/main.ts')).toBe(false);
@@ -460,6 +472,7 @@ describe('Pending Changes slice', () => {
 			beforeContent: undefined,
 			afterContent: undefined,
 			snapshotId: 'snap-1',
+			sessionId: 'test-session',
 		});
 
 		const change = useStore.getState().pendingChanges.get('/src/old.ts → /src/new.ts');
@@ -475,6 +488,7 @@ describe('Pending Changes slice', () => {
 			beforeContent: 'same',
 			afterContent: 'same',
 			snapshotId: undefined,
+			sessionId: 'test-session',
 		});
 
 		expect(useStore.getState().pendingChanges.has('/src/old.ts → /src/new.ts')).toBe(true);
@@ -584,7 +598,7 @@ describe('Pending Changes slice', () => {
 		expect(change?.status).toBe('pending');
 	});
 
-	it('syncs hunkStatuses when approving a file-level change', () => {
+	it('only changes pending hunkStatuses when approving a file-level change', () => {
 		useStore.getState().addPendingChange(sampleChange);
 		useStore.setState((state) => {
 			const newMap = new Map(state.pendingChanges);
@@ -597,10 +611,10 @@ describe('Pending Changes slice', () => {
 
 		const change = useStore.getState().pendingChanges.get('/src/main.ts');
 		expect(change?.status).toBe('approved');
-		expect(change?.hunkStatuses).toEqual(['approved', 'approved', 'approved']);
+		expect(change?.hunkStatuses).toEqual(['approved', 'rejected', 'approved']);
 	});
 
-	it('syncs hunkStatuses when rejecting a file-level change', () => {
+	it('only changes pending hunkStatuses when rejecting a file-level change', () => {
 		useStore.getState().addPendingChange(sampleChange);
 		useStore.setState((state) => {
 			const newMap = new Map(state.pendingChanges);
@@ -613,15 +627,15 @@ describe('Pending Changes slice', () => {
 
 		const change = useStore.getState().pendingChanges.get('/src/main.ts');
 		expect(change?.status).toBe('rejected');
-		expect(change?.hunkStatuses).toEqual(['rejected', 'rejected']);
+		expect(change?.hunkStatuses).toEqual(['approved', 'rejected']);
 	});
 
-	it('syncs hunkStatuses when approving all changes', () => {
+	it('only changes pending hunkStatuses when approving all changes', () => {
 		useStore.getState().addPendingChange(sampleChange);
 		useStore.setState((state) => {
 			const newMap = new Map(state.pendingChanges);
 			const change = newMap.get('/src/main.ts')!;
-			newMap.set('/src/main.ts', { ...change, hunkStatuses: ['pending', 'pending'] });
+			newMap.set('/src/main.ts', { ...change, hunkStatuses: ['rejected', 'pending'] });
 			return { pendingChanges: newMap };
 		});
 
@@ -629,10 +643,10 @@ describe('Pending Changes slice', () => {
 
 		const change = useStore.getState().pendingChanges.get('/src/main.ts');
 		expect(change?.status).toBe('approved');
-		expect(change?.hunkStatuses).toEqual(['approved', 'approved']);
+		expect(change?.hunkStatuses).toEqual(['rejected', 'approved']);
 	});
 
-	it('syncs hunkStatuses when rejecting all changes', () => {
+	it('only changes pending hunkStatuses when rejecting all changes', () => {
 		useStore.getState().addPendingChange(sampleChange);
 		useStore.setState((state) => {
 			const newMap = new Map(state.pendingChanges);
@@ -643,10 +657,10 @@ describe('Pending Changes slice', () => {
 
 		useStore.getState().rejectAllChanges();
 
-		// File was 'pending' so it should be rejected, along with its hunkStatuses
+		// File was 'pending' so it should be rejected; only pending hunkStatuses change
 		const change = useStore.getState().pendingChanges.get('/src/main.ts');
 		expect(change?.status).toBe('rejected');
-		expect(change?.hunkStatuses).toEqual(['rejected', 'rejected']);
+		expect(change?.hunkStatuses).toEqual(['approved', 'rejected']);
 	});
 });
 

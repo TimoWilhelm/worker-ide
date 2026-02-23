@@ -116,13 +116,7 @@ interface AIActions {
 	setAiError: (error: AIError | undefined) => void;
 	setSessionId: (id: string | undefined) => void;
 	setSavedSessions: (sessions: Array<{ id: string; label: string; createdAt: number }>) => void;
-	loadSession: (
-		history: UIMessage[],
-		sessionId: string,
-		messageSnapshots?: Map<number, string>,
-		contextTokensUsed?: number,
-		pendingChanges?: Map<string, PendingFileChange>,
-	) => void;
+	loadSession: (history: UIMessage[], sessionId: string, messageSnapshots?: Map<number, string>, contextTokensUsed?: number) => void;
 	setMessageSnapshot: (messageIndex: number, snapshotId: string) => void;
 	removeMessagesAfter: (index: number) => void;
 	removeMessagesFrom: (index: number) => void;
@@ -189,9 +183,13 @@ interface PendingChangesActions {
 	rejectChange: (path: string) => void;
 	approveHunk: (path: string, groupIndex: number) => void;
 	rejectHunk: (path: string, groupIndex: number) => void;
-	approveAllChanges: () => void;
-	rejectAllChanges: () => void;
+	/** Approve all pending changes. If sessionId is provided, only changes from that session. */
+	approveAllChanges: (sessionId?: string) => void;
+	/** Reject all pending changes. If sessionId is provided, only changes from that session. */
+	rejectAllChanges: (sessionId?: string) => void;
 	clearPendingChanges: () => void;
+	/** Replace the entire pending changes map (used on project mount) */
+	loadPendingChanges: (changes: Map<string, PendingFileChange>) => void;
 	associateSnapshotWithPending: (snapshotId: string) => void;
 }
 
@@ -454,7 +452,7 @@ export const useStore = create<StoreState>()(
 
 				setSavedSessions: (sessions) => set({ savedSessions: sessions }),
 
-				loadSession: (history, sessionId, messageSnapshots, contextTokensUsed, pendingChanges) =>
+				loadSession: (history, sessionId, messageSnapshots, contextTokensUsed) =>
 					set({
 						history,
 						sessionId,
@@ -462,7 +460,6 @@ export const useStore = create<StoreState>()(
 						aiError: undefined,
 						debugLogId: undefined,
 						contextTokensUsed: contextTokensUsed ?? 0,
-						pendingChanges: pendingChanges ?? new Map(),
 					}),
 
 				setMessageSnapshot: (messageIndex, snapshotId) =>
@@ -632,7 +629,7 @@ export const useStore = create<StoreState>()(
 							newMap.set(path, {
 								...change,
 								status: 'approved',
-								hunkStatuses: change.hunkStatuses.map(() => 'approved' as const),
+								hunkStatuses: change.hunkStatuses.map((status) => (status === 'pending' ? 'approved' : status)),
 							});
 						}
 						return { pendingChanges: newMap };
@@ -646,7 +643,7 @@ export const useStore = create<StoreState>()(
 							newMap.set(path, {
 								...change,
 								status: 'rejected',
-								hunkStatuses: change.hunkStatuses.map(() => 'rejected' as const),
+								hunkStatuses: change.hunkStatuses.map((status) => (status === 'pending' ? 'rejected' : status)),
 							});
 						}
 						return { pendingChanges: newMap };
@@ -694,15 +691,16 @@ export const useStore = create<StoreState>()(
 						return { pendingChanges: newMap };
 					}),
 
-				approveAllChanges: () =>
+				approveAllChanges: (sessionId) =>
 					set((state) => {
 						const newMap = new Map<string, PendingFileChange>();
 						for (const [key, value] of state.pendingChanges) {
-							if (value.status === 'pending') {
+							const matchesSession = !sessionId || value.sessionId === sessionId;
+							if (value.status === 'pending' && matchesSession) {
 								newMap.set(key, {
 									...value,
 									status: 'approved',
-									hunkStatuses: value.hunkStatuses.map(() => 'approved' as const),
+									hunkStatuses: value.hunkStatuses.map((status) => (status === 'pending' ? 'approved' : status)),
 								});
 							} else {
 								newMap.set(key, value);
@@ -711,15 +709,16 @@ export const useStore = create<StoreState>()(
 						return { pendingChanges: newMap };
 					}),
 
-				rejectAllChanges: () =>
+				rejectAllChanges: (sessionId) =>
 					set((state) => {
 						const newMap = new Map<string, PendingFileChange>();
 						for (const [key, value] of state.pendingChanges) {
-							if (value.status === 'pending') {
+							const matchesSession = !sessionId || value.sessionId === sessionId;
+							if (value.status === 'pending' && matchesSession) {
 								newMap.set(key, {
 									...value,
 									status: 'rejected',
-									hunkStatuses: value.hunkStatuses.map(() => 'rejected' as const),
+									hunkStatuses: value.hunkStatuses.map((status) => (status === 'pending' ? 'rejected' : status)),
 								});
 							} else {
 								newMap.set(key, value);
@@ -729,6 +728,8 @@ export const useStore = create<StoreState>()(
 					}),
 
 				clearPendingChanges: () => set({ pendingChanges: new Map() }),
+
+				loadPendingChanges: (changes) => set({ pendingChanges: changes }),
 
 				associateSnapshotWithPending: (snapshotId) =>
 					set((state) => {

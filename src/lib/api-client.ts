@@ -10,7 +10,7 @@ import { hc } from 'hono/client';
 import { serializeMessage, parseServerMessage, type ClientMessage, type ServerMessage } from '@shared/ws-messages';
 
 import type { ApiRoutes } from '@server/routes';
-import type { AiSession } from '@shared/types';
+import type { AiSession, PendingFileChange } from '@shared/types';
 
 /**
  * Create a typed API client for a specific project.
@@ -190,6 +190,36 @@ export async function saveAiSession(projectId: string, session: AiSession): Prom
 	});
 	if (!response.ok) {
 		throw new Error('Failed to save AI session');
+	}
+}
+
+// =============================================================================
+// Project-Level Pending Changes
+// =============================================================================
+
+/**
+ * Load project-level pending changes from the backend.
+ * Returns a Record keyed by file path, or empty object if none exist.
+ */
+export async function loadProjectPendingChanges(projectId: string): Promise<Record<string, PendingFileChange>> {
+	const response = await fetch(`/p/${projectId}/api/pending-changes`);
+	if (!response.ok) return {};
+	const data: Record<string, PendingFileChange> = await response.json();
+	return data;
+}
+
+/**
+ * Save project-level pending changes to the backend.
+ * Uses raw fetch because the Zod schema uses string keys.
+ */
+export async function saveProjectPendingChanges(projectId: string, changes: Record<string, PendingFileChange>): Promise<void> {
+	const response = await fetch(`/p/${projectId}/api/pending-changes`, {
+		method: 'PUT',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify(changes),
+	});
+	if (!response.ok) {
+		throw new Error('Failed to save pending changes');
 	}
 }
 

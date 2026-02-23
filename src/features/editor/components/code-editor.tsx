@@ -35,16 +35,17 @@ import type { DiffData } from '../lib/diff-decorations';
  */
 function buildDiffExtensions(
 	diffData: DiffData,
+	hunkStatuses: Array<'pending' | 'approved' | 'rejected'>,
 	onApproveReference: React.RefObject<((groupIndex: number) => void) | undefined>,
 	onRejectReference: React.RefObject<((groupIndex: number) => void) | undefined>,
 ): Extension[] {
-	const extensions = createDiffDecorations(diffData.hunks);
+	const extensions = createDiffDecorations(diffData.hunks, hunkStatuses);
 
 	// Only add the AI action bar when both callbacks are provided
 	const onApprove = onApproveReference.current;
 	const onReject = onRejectReference.current;
 	if (onApprove && onReject) {
-		extensions.push(...createAiActionBarExtension(diffData.hunks, onApprove, onReject));
+		extensions.push(...createAiActionBarExtension(diffData.hunks, hunkStatuses, onApprove, onReject));
 	}
 
 	return extensions;
@@ -75,6 +76,8 @@ export interface CodeEditorProperties {
 	tabSize?: number;
 	/** Inline diff data for AI change review */
 	diffData?: DiffData;
+	/** Per-change-group statuses for filtering resolved hunks from decorations */
+	hunkStatuses?: Array<'pending' | 'approved' | 'rejected'>;
 	/** Called when the user accepts a change group via inline action bar */
 	onDiffApprove?: (groupIndex: number) => void;
 	/** Called when the user rejects a change group via inline action bar */
@@ -107,6 +110,7 @@ export function CodeEditor({
 	readonly = false,
 	tabSize = 2,
 	diffData,
+	hunkStatuses = [],
 	onDiffApprove,
 	onDiffReject,
 	resolvedTheme = 'dark',
@@ -136,6 +140,8 @@ export function CodeEditor({
 	onBlurReference.current = onBlur;
 	const onViewReadyReference = useRef(onViewReady);
 	onViewReadyReference.current = onViewReady;
+	const hunkStatusesReference = useRef(hunkStatuses);
+	hunkStatusesReference.current = hunkStatuses;
 	const onDiffApproveReference = useRef(onDiffApprove);
 	onDiffApproveReference.current = onDiffApprove;
 	const onDiffRejectReference = useRef(onDiffReject);
@@ -171,7 +177,9 @@ export function CodeEditor({
 		const baseExtensions = createEditorExtensions([createUpdateListener(), ...additionalExtensions]);
 
 		// Build diff extensions: core decorations always, AI action bar only when callbacks provided
-		const diffExtensions = diffData ? buildDiffExtensions(diffData, onDiffApproveReference, onDiffRejectReference) : [];
+		const diffExtensions = diffData
+			? buildDiffExtensions(diffData, hunkStatusesReference.current, onDiffApproveReference, onDiffRejectReference)
+			: [];
 		const isDark = resolvedTheme === 'dark';
 
 		const lintExtensions = readonly ? [] : createLintExtension(filename);
@@ -270,11 +278,13 @@ export function CodeEditor({
 	useEffect(() => {
 		if (!viewReference.current) return;
 
-		const diffExtensions = diffData ? buildDiffExtensions(diffData, onDiffApproveReference, onDiffRejectReference) : [];
+		const diffExtensions = diffData
+			? buildDiffExtensions(diffData, hunkStatusesReference.current, onDiffApproveReference, onDiffRejectReference)
+			: [];
 		viewReference.current.dispatch({
 			effects: diffCompartment.reconfigure(diffExtensions),
 		});
-	}, [diffData, diffCompartment]);
+	}, [diffData, hunkStatuses, diffCompartment]);
 
 	// Navigate to a specific position when goToPosition is set
 	useEffect(() => {

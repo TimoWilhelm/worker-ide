@@ -157,11 +157,36 @@ class AiActionBarWidget extends WidgetType {
 // Core diff decorations (no action bar)
 // =============================================================================
 
-function buildCoreDecorations(document_: Text, hunks: DiffHunk[]): DecorationSet {
+type HunkStatus = 'pending' | 'approved' | 'rejected';
+
+/**
+ * Build the set of hunks that should be skipped (belong to resolved change groups).
+ */
+function resolvedHunkSet(hunks: DiffHunk[], hunkStatuses: HunkStatus[]): Set<DiffHunk> {
+	if (hunkStatuses.length === 0) return new Set();
+	const groups = groupHunksIntoChanges(hunks);
+	const resolved = new Set<DiffHunk>();
+	for (const group of groups) {
+		// Only skip groups with an explicit non-pending status.
+		// Out-of-bounds indices (undefined) are treated as pending so new
+		// groups added during review remain visible.
+		const status = hunkStatuses[group.index];
+		if (status !== undefined && status !== 'pending') {
+			for (const hunk of group.hunks) {
+				resolved.add(hunk);
+			}
+		}
+	}
+	return resolved;
+}
+
+function buildCoreDecorations(document_: Text, hunks: DiffHunk[], hunkStatuses: HunkStatus[]): DecorationSet {
 	const builder = new RangeSetBuilder<Decoration>();
 	const decorations: Array<{ from: number; to: number; decoration: Decoration }> = [];
+	const resolved = resolvedHunkSet(hunks, hunkStatuses);
 
 	for (const hunk of hunks) {
+		if (resolved.has(hunk)) continue;
 		if (hunk.type === 'added') {
 			for (let index = 0; index < hunk.lineCount; index++) {
 				const lineNumber = hunk.startLine + index;
@@ -202,14 +227,14 @@ function buildCoreDecorations(document_: Text, hunks: DiffHunk[]): DecorationSet
 	return builder.finish();
 }
 
-function createCoreDiffField(hunks: DiffHunk[]): Extension {
+function createCoreDiffField(hunks: DiffHunk[], hunkStatuses: HunkStatus[]): Extension {
 	return StateField.define<DecorationSet>({
 		create(state) {
-			return buildCoreDecorations(state.doc, hunks);
+			return buildCoreDecorations(state.doc, hunks, hunkStatuses);
 		},
 		update(decorations: DecorationSet, transaction: Transaction) {
 			if (transaction.docChanged) {
-				return buildCoreDecorations(transaction.state.doc, hunks);
+				return buildCoreDecorations(transaction.state.doc, hunks, hunkStatuses);
 			}
 			return decorations;
 		},
@@ -226,6 +251,7 @@ function createCoreDiffField(hunks: DiffHunk[]): Extension {
 function buildActionBarDecorations(
 	document_: Text,
 	changeGroups: ChangeGroup[],
+	hunkStatuses: HunkStatus[],
 	onApprove: (groupIndex: number) => void,
 	onReject: (groupIndex: number) => void,
 ): DecorationSet {
@@ -234,8 +260,12 @@ function buildActionBarDecorations(
 
 	if (changeGroups.length === 0) return builder.finish();
 
-	// Insert one action bar per change group, positioned above the group's first hunk.
+	// Insert one action bar per pending change group, positioned above the group's first hunk.
 	for (const group of changeGroups) {
+		// Skip groups with an explicit non-pending status.
+		// Out-of-bounds indices (undefined) are treated as pending.
+		const status = hunkStatuses[group.index];
+		if (status !== undefined && status !== 'pending') continue;
 		const hunkLine = Math.min(group.startLine, document_.lines);
 		const line = document_.line(hunkLine);
 		const actionWidget = Decoration.widget({
@@ -259,16 +289,17 @@ function buildActionBarDecorations(
 
 function createAiActionBarField(
 	changeGroups: ChangeGroup[],
+	hunkStatuses: HunkStatus[],
 	onApprove: (groupIndex: number) => void,
 	onReject: (groupIndex: number) => void,
 ): Extension {
 	return StateField.define<DecorationSet>({
 		create(state) {
-			return buildActionBarDecorations(state.doc, changeGroups, onApprove, onReject);
+			return buildActionBarDecorations(state.doc, changeGroups, hunkStatuses, onApprove, onReject);
 		},
 		update(decorations: DecorationSet, transaction: Transaction) {
 			if (transaction.docChanged) {
-				return buildActionBarDecorations(transaction.state.doc, changeGroups, onApprove, onReject);
+				return buildActionBarDecorations(transaction.state.doc, changeGroups, hunkStatuses, onApprove, onReject);
 			}
 			return decorations;
 		},
@@ -416,24 +447,27 @@ const aiActionBarTheme = EditorView.baseTheme({
  * Create core diff decoration extensions (line highlights, removed line widgets, gutter).
  * Used by both AI change review and read-only git diffs.
  * Does NOT include the AI accept/reject action bar.
+ *
+ * @param hunkStatuses - When provided, decorations for resolved (non-pending) change groups are hidden.
  */
-export function createDiffDecorations(hunks: DiffHunk[]): Extension[] {
+export function createDiffDecorations(hunks: DiffHunk[], hunkStatuses: HunkStatus[] = []): Extension[] {
 	if (hunks.length === 0) return [];
-	return [coreDiffTheme, createDiffGutter(hunks), createCoreDiffField(hunks)];
+	return [coreDiffTheme, createDiffGutter(hunks), createCoreDiffField(hunks, hunkStatuses)];
 }
 
 /**
  * Create the AI-specific inline action bar extension (per-change accept/reject buttons).
  * Hunks are grouped into logical changes (replacement, addition, removal) and each
- * group gets its own inline action bar.
+ * pending group gets its own inline action bar. Resolved groups are skipped.
  * Should only be used during AI change review, never for git diffs.
  */
 export function createAiActionBarExtension(
 	hunks: DiffHunk[],
+	hunkStatuses: HunkStatus[],
 	onApprove: (groupIndex: number) => void,
 	onReject: (groupIndex: number) => void,
 ): Extension[] {
 	if (hunks.length === 0) return [];
 	const changeGroups = groupHunksIntoChanges(hunks);
-	return [aiActionBarTheme, createAiActionBarField(changeGroups, onApprove, onReject)];
+	return [aiActionBarTheme, createAiActionBarField(changeGroups, hunkStatuses, onApprove, onReject)];
 }

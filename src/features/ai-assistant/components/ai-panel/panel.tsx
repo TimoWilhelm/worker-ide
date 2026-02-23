@@ -185,6 +185,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 							beforeContent: beforeContent || undefined,
 							afterContent: afterContent || undefined,
 							snapshotId: activeSnapshotIdReference.current,
+							sessionId: sessionIdReference.current ?? '',
 						});
 						// Eagerly update the file query cache so the editor shows the
 						// correct content immediately.  The WebSocket `update` handler
@@ -383,13 +384,13 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	// Change review hook for accept/reject UI
 	const changeReview = useChangeReview({ projectId });
 
-	// Wrap clearHistory to also clear pending changes and useChat messages.
+	// Wrap clearHistory to start a new session.
+	// Pending changes are NOT cleared — they persist across sessions at the project level.
 	// clearChat() resets chatMessages to [], which triggers the forward-sync
 	// effect to write history=[] to the store. We separately clear the
 	// AI-related metadata (sessionId, snapshots, error) to avoid creating a
 	// second competing [] reference that would cause a sync loop.
 	const clearHistory = useCallback(() => {
-		clearPendingChanges();
 		setPlanPath(undefined);
 		setNeedsContinuation(false);
 		setPendingQuestion(undefined);
@@ -409,7 +410,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		// clearChat() must be last — it sets chatMessages=[] which the forward-sync
 		// effect will propagate to the store's history.
 		clearChat();
-	}, [clearChat, clearPendingChanges, projectId]);
+	}, [clearChat, projectId]);
 
 	// Wrap handleLoadSession to also clear pending changes and sync to useChat.
 	// loadSession updates the store's history, and the reverse-sync effect
@@ -802,15 +803,16 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 			</div>
 
 			{/* Changed files summary — shown when AI has pending edits */}
-			{changeReview.pendingCount > 0 && (
+			{changeReview.sessionPendingCount(sessionId) > 0 && (
 				<div className="shrink-0 border-t border-border px-2 pt-2">
 					<ChangedFilesSummary
 						onApproveChange={changeReview.handleApproveChange}
 						onRejectChange={changeReview.handleRejectChange}
-						onApproveAll={changeReview.handleApproveAll}
-						onRejectAll={changeReview.handleRejectAll}
+						onApproveAll={() => changeReview.handleApproveAll(sessionId)}
+						onRejectAll={() => changeReview.handleRejectAll(sessionId)}
 						isReverting={changeReview.isReverting}
 						canReject={changeReview.canReject}
+						sessionId={sessionId}
 					/>
 				</div>
 			)}

@@ -314,6 +314,7 @@ export class AIAgentService {
 									beforeContent: typeof data.beforeContent === 'string' ? data.beforeContent : undefined,
 									afterContent: typeof data.afterContent === 'string' ? data.afterContent : undefined,
 									snapshotId,
+									sessionId: this.sessionId ?? '',
 								});
 							}
 
@@ -361,10 +362,11 @@ export class AIAgentService {
 	 *
 	 * Writes the UIMessage[] from the StreamProcessor (which mirrors what the
 	 * client would have built) to `.agent/sessions/{sessionId}.json`.
-	 * Includes messageSnapshots, contextTokensUsed, and pendingChanges metadata.
+	 * Includes messageSnapshots and contextTokensUsed metadata.
 	 *
-	 * Pending changes from the current stream are merged with any existing
-	 * pending changes from previous turns that haven't been acted on yet.
+	 * Pending changes are written to a separate project-level file at
+	 * `.agent/pending-changes.json`. Changes from the current stream are
+	 * merged with existing changes from all sessions.
 	 *
 	 * Non-fatal: errors are logged but never propagate to the caller.
 	 */
@@ -397,47 +399,17 @@ export class AIAgentService {
 			const messageSnapshots: Record<string, string> | undefined =
 				snapshotId && userMessageIndex >= 0 ? { [String(userMessageIndex)]: snapshotId } : undefined;
 
-			// Read the existing session to preserve createdAt and merge pending changes
-			// from previous turns that the user hasn't acted on yet.
+			// Read the existing session to preserve createdAt
 			let createdAt = Date.now();
-			let existingPendingChanges: Record<string, PendingFileChange> | undefined;
 			const sessionPath = `${this.projectRoot}/.agent/sessions/${this.sessionId}.json`;
 			try {
 				const existing = await fs.readFile(sessionPath, 'utf8');
-				const parsed: { createdAt?: number; pendingChanges?: Record<string, PendingFileChange> } = JSON.parse(existing);
+				const parsed: { createdAt?: number } = JSON.parse(existing);
 				if (typeof parsed.createdAt === 'number') {
 					createdAt = parsed.createdAt;
 				}
-				if (parsed.pendingChanges && typeof parsed.pendingChanges === 'object') {
-					existingPendingChanges = parsed.pendingChanges;
-				}
 			} catch {
 				// New session or read error — use current timestamp
-			}
-
-			// Merge pending changes: start with existing pending changes from disk,
-			// then overlay the new stream-accumulated changes (which have dedup applied).
-			// This preserves pending changes from prior turns that haven't been
-			// approved/rejected while adding new changes from the current turn.
-			let mergedPendingChanges: Record<string, PendingFileChange> | undefined;
-			if (existingPendingChanges || (streamPendingChanges && streamPendingChanges.size > 0)) {
-				const merged: Record<string, PendingFileChange> = {};
-				// Carry forward existing pending-only entries
-				if (existingPendingChanges) {
-					for (const [key, value] of Object.entries(existingPendingChanges)) {
-						if (value.status === 'pending') {
-							merged[key] = value;
-						}
-					}
-				}
-				// Overlay new stream changes (these have dedup already applied)
-				const streamRecord = streamPendingChanges ? pendingChangesMapToRecord(streamPendingChanges) : undefined;
-				if (streamRecord) {
-					for (const [key, value] of Object.entries(streamRecord)) {
-						merged[key] = value;
-					}
-				}
-				mergedPendingChanges = Object.keys(merged).length > 0 ? merged : undefined;
 			}
 
 			const session = {
@@ -447,12 +419,38 @@ export class AIAgentService {
 				history,
 				messageSnapshots,
 				contextTokensUsed: contextTokensUsed > 0 ? contextTokensUsed : undefined,
-				pendingChanges: mergedPendingChanges,
 			};
 
-			const sessionsDirectory = `${this.projectRoot}/.agent/sessions`;
+			const agentDirectory = `${this.projectRoot}/.agent`;
+			const sessionsDirectory = `${agentDirectory}/sessions`;
 			await fs.mkdir(sessionsDirectory, { recursive: true });
 			await fs.writeFile(sessionPath, JSON.stringify(session));
+
+			// Persist pending changes to the project-level file.
+			// Read existing file, overlay this session's stream-accumulated changes,
+			// and write back. This preserves other sessions' pending changes.
+			if (streamPendingChanges && streamPendingChanges.size > 0) {
+				const pendingChangesPath = `${agentDirectory}/pending-changes.json`;
+
+				// Read existing pending changes from all sessions
+				let existingChanges: Record<string, PendingFileChange> = {};
+				try {
+					const raw = await fs.readFile(pendingChangesPath, 'utf8');
+					existingChanges = JSON.parse(raw);
+				} catch {
+					// No existing file — start fresh
+				}
+
+				// Overlay new stream changes (these have dedup already applied)
+				const streamRecord = pendingChangesMapToRecord(streamPendingChanges);
+				if (streamRecord) {
+					for (const [key, value] of Object.entries(streamRecord)) {
+						existingChanges[key] = value;
+					}
+				}
+
+				await fs.writeFile(pendingChangesPath, JSON.stringify(existingChanges));
+			}
 		} catch (error) {
 			// Non-fatal — don't let session persistence break the agent stream
 			console.error('Failed to persist AI session:', error);

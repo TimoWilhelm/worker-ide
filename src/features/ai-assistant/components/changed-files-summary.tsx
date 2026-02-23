@@ -28,6 +28,8 @@ interface ChangedFilesSummaryProperties {
 	isReverting: boolean;
 	/** Whether any pending change has a snapshot to revert to */
 	canReject: boolean;
+	/** Only show changes from this session (omit to show all) */
+	sessionId?: string;
 }
 
 // =============================================================================
@@ -41,20 +43,22 @@ export function ChangedFilesSummary({
 	onRejectAll,
 	isReverting,
 	canReject,
+	sessionId,
 }: ChangedFilesSummaryProperties) {
 	const pendingChanges = useStore((state) => state.pendingChanges);
 	const [isExpanded, setIsExpanded] = useState(true);
 
-	// Collect only pending (unresolved) changes
+	// Collect only pending (unresolved) changes, optionally filtered by session
 	const pendingEntries = useMemo(() => {
 		const entries: Array<[string, PendingFileChange]> = [];
 		for (const [path, change] of pendingChanges) {
 			if (change.status === 'pending') {
+				if (sessionId && change.sessionId !== sessionId) continue;
 				entries.push([path, change]);
 			}
 		}
 		return entries;
-	}, [pendingChanges]);
+	}, [pendingChanges, sessionId]);
 
 	if (pendingEntries.length === 0) return;
 

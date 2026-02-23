@@ -9,7 +9,7 @@ import { zValidator } from '@hono/zod-validator';
 import { Hono } from 'hono';
 import { z } from 'zod';
 
-import { sessionIdSchema, saveSessionSchema } from '@shared/validation';
+import { sessionIdSchema, saveSessionSchema, pendingChangesFileSchema } from '@shared/validation';
 
 const sessionIdQuerySchema = z.object({ id: sessionIdSchema });
 
@@ -92,6 +92,39 @@ export const sessionRoutes = new Hono<AppEnvironment>()
 		} catch {
 			// Ignore errors if file doesn't exist
 		}
+		return c.json({ success: true });
+	})
+
+	// GET /api/pending-changes - Load project-level pending changes
+	.get('/pending-changes', async (c) => {
+		const projectRoot = c.get('projectRoot');
+		const pendingChangesPath = `${projectRoot}/.agent/pending-changes.json`;
+
+		try {
+			const raw = await fs.readFile(pendingChangesPath, 'utf8');
+			return c.json(JSON.parse(raw));
+		} catch {
+			return c.json({});
+		}
+	})
+
+	// PUT /api/pending-changes - Save project-level pending changes
+	.put('/pending-changes', zValidator('json', pendingChangesFileSchema), async (c) => {
+		const projectRoot = c.get('projectRoot');
+		const body = c.req.valid('json');
+
+		// Strip non-pending entries before writing
+		const filtered: Record<string, unknown> = {};
+		for (const [key, value] of Object.entries(body)) {
+			if (value.status === 'pending') {
+				filtered[key] = value;
+			}
+		}
+
+		const agentDirectory = `${projectRoot}/.agent`;
+		await fs.mkdir(agentDirectory, { recursive: true });
+		await fs.writeFile(`${agentDirectory}/pending-changes.json`, JSON.stringify(filtered));
+
 		return c.json({ success: true });
 	});
 
