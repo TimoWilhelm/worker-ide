@@ -1,9 +1,9 @@
 /**
  * Version Badge
  *
- * Displays the app version (git commit SHA) as a small badge.
+ * Displays the app version (git commit SHA) as a small, subtle badge.
  * Shows a truncated hash, reveals the full hash on hover via tooltip,
- * and copies the full hash to clipboard on click with inline feedback.
+ * and copies the full hash to clipboard on click with a success toast.
  *
  * Optionally fetches the Cloudflare deployment version at runtime
  * to enrich the tooltip with deployment metadata.
@@ -11,6 +11,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 
+import { toast } from '@/components/ui/toast-store';
 import { Tooltip, TooltipProvider } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 
@@ -20,9 +21,6 @@ import { cn } from '@/lib/utils';
 
 /** Number of characters to show in the truncated version. */
 const TRUNCATED_LENGTH = 7;
-
-/** Duration to show "Copied!" feedback before reverting. */
-const COPIED_FEEDBACK_DURATION_MS = 2000;
 
 /** Build-time git commit SHA injected by Vite's `define`. */
 const GIT_SHA = __APP_VERSION__;
@@ -84,21 +82,15 @@ interface VersionBadgeProperties {
 }
 
 export function VersionBadge({ className, withProvider = true }: VersionBadgeProperties) {
-	const [copied, setCopied] = useState(false);
 	const cloudflareVersion = useCloudflareVersion();
 
 	const truncated = GIT_SHA.slice(0, TRUNCATED_LENGTH);
 
-	const tooltipContent = copied
-		? 'Copied!'
-		: cloudflareVersion
-			? `${GIT_SHA}\nDeploy: ${cloudflareVersion.id.slice(0, TRUNCATED_LENGTH)}`
-			: GIT_SHA;
+	const tooltipContent = cloudflareVersion ? `${GIT_SHA}\nDeploy: ${cloudflareVersion.id.slice(0, TRUNCATED_LENGTH)}` : GIT_SHA;
 
 	const handleClick = useCallback(() => {
 		void navigator.clipboard.writeText(GIT_SHA).then(() => {
-			setCopied(true);
-			setTimeout(() => setCopied(false), COPIED_FEEDBACK_DURATION_MS);
+			toast.success('Version copied to clipboard');
 		});
 	}, []);
 

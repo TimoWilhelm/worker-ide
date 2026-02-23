@@ -4,7 +4,23 @@
  * Main IDE layout with resizable panels: file tree, editor, terminal, preview, and AI assistant.
  */
 
-import { Bot, ChevronUp, Clock, Download, FolderOpen, Github, Hexagon, Moon, Pencil, Plus, Sparkles, Sun, X } from 'lucide-react';
+import {
+	BookOpen,
+	Bot,
+	ChevronUp,
+	Clock,
+	Download,
+	EllipsisVertical,
+	FolderOpen,
+	Github,
+	Hexagon,
+	Moon,
+	Pencil,
+	Plus,
+	Sparkles,
+	Sun,
+	X,
+} from 'lucide-react';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Group as PanelGroup, Panel, Separator as ResizeHandle, useDefaultLayout } from 'react-resizable-panels';
 
@@ -20,6 +36,7 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { Modal, ModalBody } from '@/components/ui/modal';
 import { Pill } from '@/components/ui/pill';
 import { PanelSkeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
@@ -86,6 +103,7 @@ export function IDEShell({ projectId }: { projectId: string }) {
 
 	// Mobile layout
 	const isMobile = useIsMobile();
+	const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 	const activeMobilePanel = useStore((state) => state.activeMobilePanel);
 	const activeSidebarView = useStore((state) => state.activeSidebarView);
 	const mobileFileTreeOpen = useStore((state) => state.mobileFileTreeOpen);
@@ -714,8 +732,56 @@ export function IDEShell({ projectId }: { projectId: string }) {
 								<Download className="size-4" />
 							</Button>
 						</Tooltip>
+
+						{/* More menu (mobile only — exposes footer links) */}
+						{isMobile && (
+							<Tooltip content="More">
+								<Button variant="ghost" size="icon" aria-label="More options" onClick={() => setMobileMenuOpen(true)}>
+									<EllipsisVertical className="size-4" />
+								</Button>
+							</Tooltip>
+						)}
 					</div>
 				</header>
+
+				{/* Mobile menu dialog — links that are in the desktop footer */}
+				<Modal open={mobileMenuOpen} onOpenChange={setMobileMenuOpen} title="Links">
+					<ModalBody className="flex flex-col gap-1">
+						<a
+							href="/docs"
+							target="_blank"
+							rel="noopener noreferrer"
+							className="
+								flex items-center gap-3 rounded-md px-3 py-2 text-sm text-text-primary
+								transition-colors
+								hover:bg-bg-tertiary
+							"
+						>
+							<BookOpen className="size-4 text-text-secondary" />
+							Documentation
+						</a>
+						<a
+							href="https://github.com/TimoWilhelm/worker-ide"
+							target="_blank"
+							rel="noopener noreferrer"
+							className="
+								flex items-center gap-3 rounded-md px-3 py-2 text-sm text-text-primary
+								transition-colors
+								hover:bg-bg-tertiary
+							"
+						>
+							<Github className="size-4 text-text-secondary" />
+							GitHub
+						</a>
+						<div
+							className="
+								flex items-center gap-3 rounded-md px-3 py-2 text-sm text-text-secondary
+							"
+						>
+							<VersionBadge withProvider={false} />
+						</div>
+					</ModalBody>
+				</Modal>
 
 				{/* Mobile layout — stacked panels with bottom tab bar */}
 				{isMobile ? (

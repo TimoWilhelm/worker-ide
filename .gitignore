@@ -2,6 +2,7 @@ node_modules
 .wrangler
 .turbo
 dist
+dev-dist
 *.tsbuildinfo
 .eslintcache
 

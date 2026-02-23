@@ -67,6 +67,9 @@ export default defineConfig({
 			}),
 			// React component tests - hooks, components
 			{
+				define: {
+					__APP_VERSION__: JSON.stringify('test-version'),
+				},
 				test: {
 					name: 'react',
 					include: ['src/**/*.test.tsx', 'src/features/**/*.test.ts', 'src/hooks/**/*.test.ts'],

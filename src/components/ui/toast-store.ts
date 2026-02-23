@@ -14,7 +14,7 @@ import { createStore, useStore } from 'zustand';
 export interface ToastItem {
 	id: string;
 	message: string;
-	variant: 'error';
+	variant: 'error' | 'success';
 }
 
 // =============================================================================
@@ -31,7 +31,7 @@ const toastStore = createStore<ToastState>(() => ({
 	nextId: 0,
 }));
 
-function addToast(message: string, variant: 'error') {
+function addToast(message: string, variant: 'error' | 'success') {
 	toastStore.setState((state) => ({
 		nextId: state.nextId + 1,
 		items: [...state.items, { id: String(state.nextId + 1), message, variant }],
@@ -63,10 +63,12 @@ export function useToasts(): ToastItem[] {
  * ```ts
  * import { toast } from '@/components/ui/toast-store';
  * toast.error('Failed to delete file');
+ * toast.success('Copied to clipboard');
  * ```
  */
 export const toast = {
 	error: (message: string) => addToast(message, 'error'),
+	success: (message: string) => addToast(message, 'success'),
 };
 
 // =============================================================================

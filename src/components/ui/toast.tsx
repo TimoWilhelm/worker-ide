@@ -5,7 +5,7 @@
  * Mount `<Toaster />` once near the root of the app.
  */
 
-import { CircleAlert, X } from 'lucide-react';
+import { CircleAlert, CircleCheck, X } from 'lucide-react';
 import { Toast } from 'radix-ui';
 
 import { removeToast, useToasts } from '@/components/ui/toast-store';
@@ -32,7 +32,8 @@ export function Toaster() {
 					}}
 					className={cn(
 						'flex items-start gap-2.5 rounded-lg border px-3 py-2.5 shadow-lg',
-						'border-error/40 bg-bg-secondary text-text-primary',
+						'bg-bg-secondary text-text-primary',
+						item.variant === 'error' ? 'border-error/40' : 'border-accent/40',
 						'data-[state=open]:animate-toast-slide-in',
 						'data-[state=closed]:animate-toast-fade-out',
 						'data-[swipe=move]:translate-x-(--radix-toast-swipe-move-x)',
@@ -43,7 +44,11 @@ export function Toaster() {
 						'data-[swipe=end]:animate-toast-swipe-out',
 					)}
 				>
-					<CircleAlert className="mt-0.5 size-4 shrink-0 text-error" />
+					{item.variant === 'error' ? (
+						<CircleAlert className="mt-0.5 size-4 shrink-0 text-error" />
+					) : (
+						<CircleCheck className="mt-0.5 size-4 shrink-0 text-accent" />
+					)}
 					<Toast.Description className="flex-1 text-sm text-text-primary">{item.message}</Toast.Description>
 					<Toast.Close
 						aria-label="Dismiss"

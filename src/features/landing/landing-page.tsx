@@ -333,7 +333,7 @@ export default function LandingPage() {
 			</div>
 
 			{/* Main content */}
-			<main className="relative z-0 w-full max-w-lg px-6 py-16">
+			<main className="relative z-0 w-full max-w-lg px-6 pt-16 pb-12">
 				{/* Header / Branding */}
 				<div className="mb-10 flex flex-col items-center gap-3">
 					<Hexagon className="size-8 text-accent" strokeWidth={1.5} />
@@ -447,11 +447,8 @@ export default function LandingPage() {
 						</div>
 					</section>
 				)}
-				{/* Version badge */}
-				<div className="mt-8 text-center">
-					<VersionBadge />
-				</div>
 			</main>
+			<VersionBadge className="fixed right-4 bottom-4" />
 		</div>
 	);
 }
