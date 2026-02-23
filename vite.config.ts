@@ -1,3 +1,4 @@
+import { execSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -7,10 +8,13 @@ import { cloudflare } from '@cloudflare/vite-plugin';
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import { defineConfig, transformWithEsbuild } from 'vite';
+import { VitePWA } from 'vite-plugin-pwa';
 
 import type { Plugin } from 'vite';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+const commitHash = execSync('git rev-parse HEAD').toString().trim();
 
 function rawMinifiedPlugin(): Plugin {
 	return {
@@ -79,7 +83,41 @@ export default defineConfig({
 			configPath: './wrangler.jsonc',
 			auxiliaryWorkers: [{ configPath: './auxiliary/biome/wrangler.jsonc' }],
 		}),
+		VitePWA({
+			registerType: 'autoUpdate',
+			manifest: {
+				id: '7c3a8f1e-9d4b-4e2a-b6f5-1a2d3c4e5f6a',
+				name: 'Worker IDE',
+				short_name: 'Worker IDE',
+				description: 'Build and preview Cloudflare Workers in the browser',
+				orientation: 'natural',
+				start_url: '/',
+				scope: '/',
+				display: 'standalone',
+				display_override: ['window-controls-overlay'],
+				background_color: '#ffffff',
+				theme_color: '#f14602',
+				icons: [
+					{
+						src: '/favicon.svg',
+						sizes: 'any',
+						type: 'image/svg+xml',
+						purpose: 'any',
+					},
+				],
+			},
+			workbox: {
+				navigateFallback: '/index.html',
+				globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+			},
+			devOptions: {
+				enabled: true,
+			},
+		}),
 	],
+	define: {
+		__APP_VERSION__: JSON.stringify(commitHash),
+	},
 	resolve: {
 		alias: {
 			'@': path.resolve(__dirname, './src'),

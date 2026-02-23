@@ -16,6 +16,7 @@ import { Suspense, useCallback, useMemo, useState } from 'react';
 
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
+import { VersionBadge } from '@/components/version-badge';
 import { useTheme } from '@/hooks/use-theme';
 import { cloneProject, createProject } from '@/lib/api-client';
 import { getRecentProjects, removeProject, trackProject } from '@/lib/recent-projects';
@@ -446,6 +447,10 @@ export default function LandingPage() {
 						</div>
 					</section>
 				)}
+				{/* Version badge */}
+				<div className="mt-8 text-center">
+					<VersionBadge />
+				</div>
 			</main>
 		</div>
 	);

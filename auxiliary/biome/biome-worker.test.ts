@@ -202,6 +202,8 @@ describe('lintFile', () => {
 		for (const diagnostic of diagnostics) {
 			expect(typeof diagnostic.line).toBe('number');
 			expect(diagnostic.line).toBeGreaterThanOrEqual(1);
+			expect(typeof diagnostic.column).toBe('number');
+			expect(diagnostic.column).toBeGreaterThanOrEqual(1);
 			expect(typeof diagnostic.rule).toBe('string');
 			expect(diagnostic.rule.length).toBeGreaterThan(0);
 			expect(typeof diagnostic.message).toBe('string');

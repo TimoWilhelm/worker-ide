@@ -25,33 +25,35 @@ describe('formatLintDiagnostics', () => {
 
 	it('formats a single error diagnostic with auto-fixable tag', () => {
 		const diagnostics: ServerLintDiagnostic[] = [
-			{ line: 2, rule: 'lint/suspicious/noDoubleEquals', message: 'Using == may be unsafe.', severity: 'error', fixable: true },
+			{ line: 2, column: 5, rule: 'lint/suspicious/noDoubleEquals', message: 'Using == may be unsafe.', severity: 'error', fixable: true },
 		];
 
 		const formatted = formatLintDiagnostics(diagnostics);
 		expect(formatted).toBeDefined();
-		expect(formatted).toContain('line 2');
-		expect(formatted).toContain('noDoubleEquals');
+		expect(formatted).toContain('Error [2:5]');
+		expect(formatted).toContain('Using == may be unsafe.');
 		expect(formatted).toContain('[auto-fixable]');
 		expect(formatted).toContain('1 error(s)');
 	});
 
 	it('formats mixed severity diagnostics with correct counts', () => {
 		const diagnostics: ServerLintDiagnostic[] = [
-			{ line: 1, rule: 'lint/suspicious/noDebugger', message: 'Unexpected debugger', severity: 'error', fixable: false },
-			{ line: 3, rule: 'lint/correctness/noUnusedVariables', message: 'Unused variable', severity: 'warning', fixable: true },
+			{ line: 1, column: 1, rule: 'lint/suspicious/noDebugger', message: 'Unexpected debugger', severity: 'error', fixable: false },
+			{ line: 3, column: 7, rule: 'lint/correctness/noUnusedVariables', message: 'Unused variable', severity: 'warning', fixable: true },
 		];
 
 		const formatted = formatLintDiagnostics(diagnostics);
 		expect(formatted).toBeDefined();
+		expect(formatted).toContain('Error [1:1]');
+		expect(formatted).toContain('Warning [3:7]');
 		expect(formatted).toContain('1 error(s)');
 		expect(formatted).toContain('1 warning(s)');
 	});
 
 	it('includes auto-fixable tag only for fixable diagnostics', () => {
 		const diagnostics: ServerLintDiagnostic[] = [
-			{ line: 1, rule: 'a', message: 'fixable issue', severity: 'warning', fixable: true },
-			{ line: 2, rule: 'b', message: 'unfixable issue', severity: 'warning', fixable: false },
+			{ line: 1, column: 1, rule: 'a', message: 'fixable issue', severity: 'warning', fixable: true },
+			{ line: 2, column: 1, rule: 'b', message: 'unfixable issue', severity: 'warning', fixable: false },
 		];
 
 		const formatted = formatLintDiagnostics(diagnostics)!;

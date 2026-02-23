@@ -25,6 +25,7 @@ import { PanelSkeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
 import { toast } from '@/components/ui/toast-store';
 import { Tooltip, TooltipProvider } from '@/components/ui/tooltip';
+import { VersionBadge } from '@/components/version-badge';
 import { useChangeReview } from '@/features/ai-assistant/hooks/use-change-review';
 import {
 	CodeEditor,
@@ -1309,6 +1310,7 @@ export function IDEShell({ projectId }: { projectId: string }) {
 								<a href="/docs" target="_blank" rel="noopener noreferrer" className="transition-colors hover:text-accent">
 									Worker IDE
 								</a>
+								<VersionBadge withProvider={false} />
 							</div>
 						</footer>
 					</>

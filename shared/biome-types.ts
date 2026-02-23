@@ -12,6 +12,8 @@
 export interface ServerLintDiagnostic {
 	/** 1-based line number */
 	line: number;
+	/** 1-based column number */
+	column: number;
 	/** Rule category (e.g. "lint/style/noVar") */
 	rule: string;
 	/** Human-readable message */

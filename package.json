@@ -85,6 +85,7 @@
 		"typescript": "^5.5.2",
 		"typescript-eslint": "^8.33.1",
 		"vite": "^6.0.0",
+		"vite-plugin-pwa": "^1.2.0",
 		"vitest": "^3.1.4",
 		"worker-fs-mount": "^0.1.1",
 		"wrangler": "^4.62.0",
@@ -123,7 +124,7 @@
 		"test:e2e:report": "playwright show-report",
 		"preview": "turbo run build:vite && vite preview --host 0.0.0.0 --port 4173",
 		"deploy": "turbo run build:vite && wrangler deploy && wrangler deploy -c dist/biome-worker/wrangler.json",
-		"cf-typegen": "wrangler types",
+		"cf-typegen": "wrangler types -c wrangler.jsonc -c auxiliary/biome/wrangler.jsonc",
 		"knip": "knip",
 		"storybook": "storybook dev -p 6006",
 		"build-storybook": "storybook build"

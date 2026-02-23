@@ -336,6 +336,22 @@ app.get('/api/templates', (c) => {
 	return c.json({ templates: getTemplateMetadata() });
 });
 
+/**
+ * GET /api/version
+ *
+ * Returns the Cloudflare deployment version metadata.
+ * Used by the frontend to display the deployment version alongside the
+ * build-time git commit hash injected via Vite's `define`.
+ */
+app.get('/api/version', (c) => {
+	const metadata = env.CF_VERSION_METADATA;
+	return c.json({
+		id: metadata.id,
+		tag: metadata.tag,
+		timestamp: metadata.timestamp,
+	});
+});
+
 // =============================================================================
 // Project-scoped routes
 // =============================================================================

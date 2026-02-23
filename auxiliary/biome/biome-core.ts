@@ -128,17 +128,20 @@ function mapDiagnosticSeverity(severity: string): ServerLintDiagnostic['severity
 }
 
 // =============================================================================
-// Offset → Line Conversion
+// Offset → Line/Column Conversion
 // =============================================================================
 
-function offsetToLine(content: string, offset: number): number {
+function offsetToLineAndColumn(content: string, offset: number): { line: number; column: number } {
 	let line = 1;
+	let lastNewlineIndex = -1;
 	for (let index = 0; index < offset && index < content.length; index++) {
 		if (content[index] === '\n') {
 			line++;
+			lastNewlineIndex = index;
 		}
 	}
-	return line;
+	const column = offset - lastNewlineIndex;
+	return { line, column };
 }
 
 // =============================================================================
@@ -178,7 +181,7 @@ function pullDiagnosticsWithCodeActions(key: number, filePath: string, content: 
 function mapDiagnostics(diagnostics: BiomeDiagnosticResult[], content: string): ServerLintDiagnostic[] {
 	return diagnostics.map((diagnostic) => {
 		const span = diagnostic.location?.span;
-		const line = span ? offsetToLine(content, span[0]) : 1;
+		const { line, column } = span ? offsetToLineAndColumn(content, span[0]) : { line: 1, column: 1 };
 
 		let message = diagnostic.description;
 		if (!message && diagnostic.message && diagnostic.message.length > 0) {
@@ -187,6 +190,7 @@ function mapDiagnostics(diagnostics: BiomeDiagnosticResult[], content: string): 
 
 		return {
 			line,
+			column,
 			rule: diagnostic.category ?? 'biome',
 			message: message || 'Unknown lint issue',
 			severity: mapDiagnosticSeverity(diagnostic.severity),

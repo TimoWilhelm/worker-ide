@@ -20,17 +20,21 @@ vi.mock('node:fs/promises', () => memoryFs.asMock());
 
 // Mock the biome linter with controllable diagnostics
 const biomeMock = vi.hoisted(() => ({
-	diagnostics: [] as Array<{ line: number; rule: string; message: string; severity: string; fixable: boolean }>,
+	diagnostics: [] as Array<{ line: number; column: number; rule: string; message: string; severity: string; fixable: boolean }>,
 }));
+
+const severityLabel = (severity: string) => (severity === 'error' ? 'Error' : 'Warning');
 
 vi.mock('../lib/biome-linter', () => ({
 	lintFileForAgent: async () => biomeMock.diagnostics,
-	formatLintDiagnostics: (diagnostics: Array<{ line: number; rule: string; message: string; severity: string; fixable: boolean }>) => {
+	formatLintDiagnostics: (
+		diagnostics: Array<{ line: number; column: number; rule: string; message: string; severity: string; fixable: boolean }>,
+	) => {
 		if (diagnostics.length === 0) return;
 
 		const lines = diagnostics.map(
 			(diagnostic) =>
-				`  - line ${diagnostic.line}: ${diagnostic.message} (${diagnostic.rule})${diagnostic.fixable ? ' [auto-fixable]' : ''}`,
+				`${severityLabel(diagnostic.severity)} [${diagnostic.line}:${diagnostic.column}] ${diagnostic.message}${diagnostic.fixable ? ' [auto-fixable]' : ''}`,
 		);
 
 		const errorCount = diagnostics.filter((diagnostic) => diagnostic.severity === 'error').length;
@@ -85,23 +89,23 @@ describe('lint_check', () => {
 	it('reports lint diagnostics with line numbers and rules', async () => {
 		memoryFs.seedFile(`${PROJECT_ROOT}/src/app.ts`, 'var x = 1;\neval("bad");');
 		biomeMock.diagnostics = [
-			{ line: 1, rule: 'lint/style/noVar', message: 'Use const or let instead of var', severity: 'error', fixable: true },
-			{ line: 2, rule: 'lint/security/noEval', message: 'eval is harmful', severity: 'error', fixable: false },
+			{ line: 1, column: 1, rule: 'lint/style/noVar', message: 'Use const or let instead of var', severity: 'error', fixable: true },
+			{ line: 2, column: 1, rule: 'lint/security/noEval', message: 'eval is harmful', severity: 'error', fixable: false },
 		];
 
 		const result = await execute({ path: '/src/app.ts' }, createMockSendEvent(), context());
 
 		expect(result).toContain('Found 2 lint issue(s) in /src/app.ts');
-		expect(result).toContain('noVar');
-		expect(result).toContain('noEval');
-		expect(result).toContain('line 1');
-		expect(result).toContain('line 2');
+		expect(result).toContain('Use const or let instead of var');
+		expect(result).toContain('eval is harmful');
+		expect(result).toContain('Error [1:1]');
+		expect(result).toContain('Error [2:1]');
 	});
 
 	it('indicates fixable count and suggests lint_fix', async () => {
 		memoryFs.seedFile(`${PROJECT_ROOT}/src/fixable.ts`, 'var x = 1;');
 		biomeMock.diagnostics = [
-			{ line: 1, rule: 'lint/style/noVar', message: 'Use const or let instead of var', severity: 'error', fixable: true },
+			{ line: 1, column: 1, rule: 'lint/style/noVar', message: 'Use const or let instead of var', severity: 'error', fixable: true },
 		];
 
 		const result = await execute({ path: '/src/fixable.ts' }, createMockSendEvent(), context());
@@ -111,7 +115,9 @@ describe('lint_check', () => {
 
 	it('does not suggest lint_fix when no issues are fixable', async () => {
 		memoryFs.seedFile(`${PROJECT_ROOT}/src/unfixable.ts`, 'eval("bad");');
-		biomeMock.diagnostics = [{ line: 1, rule: 'lint/security/noEval', message: 'eval is harmful', severity: 'error', fixable: false }];
+		biomeMock.diagnostics = [
+			{ line: 1, column: 1, rule: 'lint/security/noEval', message: 'eval is harmful', severity: 'error', fixable: false },
+		];
 
 		const result = await execute({ path: '/src/unfixable.ts' }, createMockSendEvent(), context());
 
@@ -125,7 +131,7 @@ describe('lint_check', () => {
 		const original = 'var x = 1;';
 		memoryFs.seedFile(`${PROJECT_ROOT}/src/readonly.ts`, original);
 		biomeMock.diagnostics = [
-			{ line: 1, rule: 'lint/style/noVar', message: 'Use const or let instead of var', severity: 'error', fixable: true },
+			{ line: 1, column: 1, rule: 'lint/style/noVar', message: 'Use const or let instead of var', severity: 'error', fixable: true },
 		];
 
 		await execute({ path: '/src/readonly.ts' }, createMockSendEvent(), context());
@@ -137,7 +143,7 @@ describe('lint_check', () => {
 	it('does not send any events', async () => {
 		memoryFs.seedFile(`${PROJECT_ROOT}/src/quiet.ts`, 'var x = 1;');
 		biomeMock.diagnostics = [
-			{ line: 1, rule: 'lint/style/noVar', message: 'Use const or let instead of var', severity: 'error', fixable: true },
+			{ line: 1, column: 1, rule: 'lint/style/noVar', message: 'Use const or let instead of var', severity: 'error', fixable: true },
 		];
 		const sendEvent = createMockSendEvent();
 
@@ -151,8 +157,8 @@ describe('lint_check', () => {
 	it('reports errors and warnings together', async () => {
 		memoryFs.seedFile(`${PROJECT_ROOT}/src/mixed.ts`, 'var x = 1;\n// TODO: fix this');
 		biomeMock.diagnostics = [
-			{ line: 1, rule: 'lint/style/noVar', message: 'Use const or let instead of var', severity: 'error', fixable: true },
-			{ line: 2, rule: 'lint/nursery/noTodo', message: 'Avoid TODO comments', severity: 'warning', fixable: false },
+			{ line: 1, column: 1, rule: 'lint/style/noVar', message: 'Use const or let instead of var', severity: 'error', fixable: true },
+			{ line: 2, column: 1, rule: 'lint/nursery/noTodo', message: 'Avoid TODO comments', severity: 'warning', fixable: false },
 		];
 
 		const result = await execute({ path: '/src/mixed.ts' }, createMockSendEvent(), context());

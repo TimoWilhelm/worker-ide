@@ -32,7 +32,7 @@ const biomeMock = vi.hoisted(() => ({
 	fixResult: {
 		fixedContent: '',
 		fixCount: 0,
-		remainingDiagnostics: [] as Array<{ line: number; rule: string; message: string; severity: string; fixable: boolean }>,
+		remainingDiagnostics: [] as Array<{ line: number; column: number; rule: string; message: string; severity: string; fixable: boolean }>,
 	},
 }));
 
@@ -136,7 +136,9 @@ describe('lint_fix', () => {
 		biomeMock.fixResult = {
 			fixedContent: 'const x = 1;\neval("bad");',
 			fixCount: 1,
-			remainingDiagnostics: [{ line: 2, rule: 'lint/security/noEval', message: 'eval is harmful', severity: 'error', fixable: false }],
+			remainingDiagnostics: [
+				{ line: 2, column: 1, rule: 'lint/security/noEval', message: 'eval is harmful', severity: 'error', fixable: false },
+			],
 		};
 
 		const result = await execute({ path: '/partial.ts' }, createMockSendEvent(), context());
@@ -151,7 +153,9 @@ describe('lint_fix', () => {
 		biomeMock.fixResult = {
 			fixedContent: 'eval("x")',
 			fixCount: 0,
-			remainingDiagnostics: [{ line: 1, rule: 'lint/security/noEval', message: 'eval is harmful', severity: 'error', fixable: false }],
+			remainingDiagnostics: [
+				{ line: 1, column: 1, rule: 'lint/security/noEval', message: 'eval is harmful', severity: 'error', fixable: false },
+			],
 		};
 
 		const result = await execute({ path: '/manual.ts' }, createMockSendEvent(), context());

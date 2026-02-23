@@ -70,12 +70,18 @@ export async function fixFileForAgent(filePath: string, content: string): Promis
 /**
  * Format pre-computed lint diagnostics as a string suitable for appending to tool results.
  * Returns undefined if the array is empty.
+ *
+ * Each diagnostic is formatted as:
+ *   Error [19:1] 'VersionBadge' is declared but its value is never read. [auto-fixable]
  */
 export function formatLintDiagnostics(diagnostics: ServerLintDiagnostic[]): string | undefined {
 	if (diagnostics.length === 0) return undefined;
 
+	const severityLabel = (severity: ServerLintDiagnostic['severity']): string => (severity === 'error' ? 'Error' : 'Warning');
+
 	const lines = diagnostics.map(
-		(diagnostic) => `  - line ${diagnostic.line}: ${diagnostic.message} (${diagnostic.rule})${diagnostic.fixable ? ' [auto-fixable]' : ''}`,
+		(diagnostic) =>
+			`${severityLabel(diagnostic.severity)} [${diagnostic.line}:${diagnostic.column}] ${diagnostic.message}${diagnostic.fixable ? ' [auto-fixable]' : ''}`,
 	);
 
 	const errorCount = diagnostics.filter((diagnostic) => diagnostic.severity === 'error').length;
