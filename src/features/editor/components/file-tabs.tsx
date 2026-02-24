@@ -10,6 +10,7 @@ import { File, X } from 'lucide-react';
 import { Tabs } from 'radix-ui';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 
+import { Spinner } from '@/components/ui/spinner';
 import { Tooltip } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 
@@ -22,6 +23,8 @@ import type { Participant } from '@shared/types';
 export interface FileTab {
 	path: string;
 	hasUnsavedChanges?: boolean;
+	/** Whether the file is currently being saved */
+	isSaving?: boolean;
 	/** Optional display label override (e.g., "main.ts (Working Changes)") */
 	label?: string;
 }
@@ -295,10 +298,16 @@ function FileTabItem({ tab, isActive, showDirectory, participants, onClose }: Fi
 					{participants.length > 3 && <span className="text-3xs text-text-secondary">+{participants.length - 3}</span>}
 				</div>
 			)}
-			{tab.hasUnsavedChanges && (
-				<Tooltip content="Unsaved changes">
-					<span className="size-2 shrink-0 rounded-full bg-accent" />
+			{tab.isSaving ? (
+				<Tooltip content="Saving…">
+					<Spinner size="xs" className="shrink-0 text-accent" />
 				</Tooltip>
+			) : (
+				tab.hasUnsavedChanges && (
+					<Tooltip content="Unsaved changes">
+						<span className="size-2 shrink-0 rounded-full bg-accent" />
+					</Tooltip>
+				)
 			)}
 			<Tooltip content="Close">
 				<span

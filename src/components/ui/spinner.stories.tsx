@@ -8,7 +8,7 @@ const meta = {
 	argTypes: {
 		size: {
 			control: 'select',
-			options: ['sm', 'md', 'lg', 'xl'],
+			options: ['xs', 'sm', 'md', 'lg', 'xl'],
 		},
 	},
 } satisfies Meta<typeof Spinner>;
@@ -19,6 +19,12 @@ type Story = StoryObj<typeof meta>;
 export const Default: Story = {
 	args: {
 		size: 'md',
+	},
+};
+
+export const ExtraSmall: Story = {
+	args: {
+		size: 'xs',
 	},
 };
 
@@ -43,6 +49,7 @@ export const ExtraLarge: Story = {
 export const AllSizes: Story = {
 	render: () => (
 		<div className="flex items-center gap-4">
+			<Spinner size="xs" />
 			<Spinner size="sm" />
 			<Spinner size="md" />
 			<Spinner size="lg" />

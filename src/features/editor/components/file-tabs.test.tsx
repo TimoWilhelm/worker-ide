@@ -44,6 +44,23 @@ describe('FileTabs', () => {
 		expect(unsavedDots).toHaveLength(1);
 	});
 
+	it('shows saving spinner instead of unsaved dot when saving', () => {
+		const savingTabs = [
+			{ path: '/src/main.ts', hasUnsavedChanges: false },
+			{ path: '/src/app.tsx', hasUnsavedChanges: true, isSaving: true },
+			{ path: '/styles/index.css', hasUnsavedChanges: false },
+		];
+		renderWithProviders(<FileTabs tabs={savingTabs} activeTab="/src/app.tsx" onSelect={vi.fn()} onClose={vi.fn()} />);
+
+		// Should show a spinner (role="status") instead of the unsaved dot
+		expect(screen.getByRole('status')).toBeInTheDocument();
+		expect(screen.getByLabelText('Loading')).toBeInTheDocument();
+
+		// The static unsaved dot should not be rendered
+		const unsavedDots = document.querySelectorAll('.rounded-full.bg-accent');
+		expect(unsavedDots).toHaveLength(0);
+	});
+
 	it('calls onSelect when a tab is clicked', async () => {
 		const onSelect = vi.fn();
 		renderWithProviders(<FileTabs tabs={SAMPLE_TABS} activeTab="/src/main.ts" onSelect={onSelect} onClose={vi.fn()} />);

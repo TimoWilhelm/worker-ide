@@ -682,10 +682,14 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 					});
 				}
 
-				// Persist the updated pending changes and session
+				// Persist the updated pending changes and session.
+				// Pass `revertedAt` so the server-side `persistSession` (which may
+				// still fire from the cancelled stream's `finally` block) knows not
+				// to overwrite the truncated history with the pre-revert version.
+				const revertedAt = Date.now();
 				queueMicrotask(() => {
 					void persistPendingChangesAfterRevert();
-					void saveCurrentSession();
+					void saveCurrentSession({ revertedAt });
 				});
 
 				// Close the dialog on success

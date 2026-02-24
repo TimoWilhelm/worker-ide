@@ -9,7 +9,14 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef } from 'react';
 
-import { fetchLatestDebugLogId, listAiSessions, loadAiSession, loadProjectPendingChanges, saveAiSession } from '@/lib/api-client';
+import {
+	deleteAiSession,
+	fetchLatestDebugLogId,
+	listAiSessions,
+	loadAiSession,
+	loadProjectPendingChanges,
+	saveAiSession,
+} from '@/lib/api-client';
 import { useStore } from '@/lib/store';
 
 import { deriveLabel, pendingChangesRecordToMap, snapshotsMapToRecord, snapshotsRecordToMap } from '../lib/session-serializers';
@@ -158,50 +165,72 @@ export function useAiSessions({ projectId }: { projectId: string }) {
 	// like revert — normal streaming persistence is handled server-side)
 	// =========================================================================
 
-	const saveCurrentSession = useCallback(async () => {
-		// Read directly from the store so we always get the latest state,
-		// even when called from a microtask before React re-renders.
-		const { history, sessionId, messageSnapshots, contextTokensUsed } = useStore.getState();
+	const saveCurrentSession = useCallback(
+		async (options?: { revertedAt?: number }) => {
+			// Read directly from the store so we always get the latest state,
+			// even when called from a microtask before React re-renders.
+			const { history, sessionId, messageSnapshots, contextTokensUsed } = useStore.getState();
 
-		if (history.length === 0) return;
-		if (isSavingReference.current) return;
+			if (isSavingReference.current) return;
 
-		isSavingReference.current = true;
-		try {
-			// Generate a session ID if this is a new conversation
-			let currentSessionId = sessionId;
-			const isNewSession = !currentSessionId;
-			if (!currentSessionId) {
-				currentSessionId = generateSessionId();
-				createdAtReference.current = Date.now();
+			// After a full revert (all messages removed), delete the session file
+			// and clear the active session pointer so a page refresh starts fresh.
+			if (history.length === 0) {
+				if (sessionId) {
+					isSavingReference.current = true;
+					try {
+						await deleteAiSession(projectId, sessionId);
+						setActiveSessionId(projectId, undefined);
+						useStore.setState({ sessionId: undefined });
+						await queryClient.invalidateQueries({ queryKey: ['ai-sessions', projectId] });
+					} catch (error) {
+						console.error('Failed to delete AI session after full revert:', error);
+					} finally {
+						isSavingReference.current = false;
+					}
+				}
+				return;
 			}
 
-			await saveAiSession(projectId, {
-				id: currentSessionId,
-				label: deriveLabel(history),
-				createdAt: createdAtReference.current ?? Date.now(),
-				history,
-				messageSnapshots: snapshotsMapToRecord(messageSnapshots),
-				contextTokensUsed: contextTokensUsed > 0 ? contextTokensUsed : undefined,
-			});
+			isSavingReference.current = true;
+			try {
+				// Generate a session ID if this is a new conversation
+				let currentSessionId = sessionId;
+				const isNewSession = !currentSessionId;
+				if (!currentSessionId) {
+					currentSessionId = generateSessionId();
+					createdAtReference.current = Date.now();
+				}
 
-			// Only persist the session ID after the backend confirms the save,
-			// so we never rehydrate a sessionId that doesn't exist on disk.
-			if (isNewSession) {
-				setSessionId(currentSessionId);
-				// Persist the active session pointer in localStorage (scoped
-				// per project) so it survives page reloads.
-				setActiveSessionId(projectId, currentSessionId);
+				await saveAiSession(projectId, {
+					id: currentSessionId,
+					label: deriveLabel(history),
+					createdAt: createdAtReference.current ?? Date.now(),
+					history,
+					messageSnapshots: snapshotsMapToRecord(messageSnapshots),
+					contextTokensUsed: contextTokensUsed > 0 ? contextTokensUsed : undefined,
+					revertedAt: options?.revertedAt,
+				});
+
+				// Only persist the session ID after the backend confirms the save,
+				// so we never rehydrate a sessionId that doesn't exist on disk.
+				if (isNewSession) {
+					setSessionId(currentSessionId);
+					// Persist the active session pointer in localStorage (scoped
+					// per project) so it survives page reloads.
+					setActiveSessionId(projectId, currentSessionId);
+				}
+
+				// Refresh the sessions list
+				await queryClient.invalidateQueries({ queryKey: ['ai-sessions', projectId] });
+			} catch (error) {
+				console.error('Failed to save AI session:', error);
+			} finally {
+				isSavingReference.current = false;
 			}
-
-			// Refresh the sessions list
-			await queryClient.invalidateQueries({ queryKey: ['ai-sessions', projectId] });
-		} catch (error) {
-			console.error('Failed to save AI session:', error);
-		} finally {
-			isSavingReference.current = false;
-		}
-	}, [projectId, setSessionId, queryClient]);
+		},
+		[projectId, setSessionId, queryClient],
+	);
 
 	// =========================================================================
 	// Public API

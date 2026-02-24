@@ -314,6 +314,7 @@ export function IDEShell({ projectId }: { projectId: string }) {
 	const tabs = openFiles.map((path) => ({
 		path,
 		hasUnsavedChanges: unsavedChanges.get(path) ?? false,
+		isSaving: isSaving && path === activeFile,
 		label: gitDiffView?.path === path ? `${path.split('/').pop() ?? path} (${gitDiffView.description ?? 'Working Changes'})` : undefined,
 	}));
 

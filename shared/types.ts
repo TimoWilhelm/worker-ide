@@ -107,6 +107,9 @@ export interface AiSession {
 	messageSnapshots?: Record<string, string>;
 	/** Last known context window token usage (for the context ring indicator) */
 	contextTokensUsed?: number;
+	/** Set by the client after a revert to prevent the server-side stream
+	 *  `finally` block from overwriting the truncated history. */
+	revertedAt?: number;
 }
 
 /**

@@ -363,6 +363,9 @@ export const saveSessionSchema = z.object({
 	createdAt: z.number(),
 	messageSnapshots: z.record(z.string(), z.string()).optional(),
 	contextTokensUsed: z.number().int().nonnegative().optional(),
+	/** Set by the client after a revert to prevent the server-side stream
+	 *  `finally` block from overwriting the truncated history. */
+	revertedAt: z.number().optional(),
 });
 
 export type SaveSessionInput = z.infer<typeof saveSessionSchema>;

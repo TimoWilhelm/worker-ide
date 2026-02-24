@@ -276,6 +276,8 @@ export class AIAgentService {
 		let lastSaveTimestamp = 0;
 		// Track whether the session was already persisted (idempotent guard for finally)
 		let sessionPersisted = false;
+		// Timestamp when this stream started — used to detect revert races.
+		const streamStartedAt = Date.now();
 		// Accumulate file_changed events for pending changes persistence.
 		// Mirrors the client-side addPendingChange dedup logic so the server
 		// builds the same net result without relying on client-side saves.
@@ -284,7 +286,7 @@ export class AIAgentService {
 		const persistSession = async () => {
 			processor.finalizeStream();
 			sessionPersisted = true;
-			await this.persistSession(processor, snapshotId, userMessageIndex, contextTokensUsed, streamPendingChanges);
+			await this.persistSession(processor, snapshotId, userMessageIndex, contextTokensUsed, streamPendingChanges, streamStartedAt);
 		};
 
 		try {
@@ -332,7 +334,14 @@ export class AIAgentService {
 							const now = Date.now();
 							if (now - lastSaveTimestamp >= SESSION_SAVE_THROTTLE_MS) {
 								lastSaveTimestamp = now;
-								await this.persistSession(processor, snapshotId, userMessageIndex, contextTokensUsed, streamPendingChanges);
+								await this.persistSession(
+									processor,
+									snapshotId,
+									userMessageIndex,
+									contextTokensUsed,
+									streamPendingChanges,
+									streamStartedAt,
+								);
 							}
 
 							break;
@@ -376,6 +385,7 @@ export class AIAgentService {
 		userMessageIndex: number,
 		contextTokensUsed: number,
 		streamPendingChanges?: Map<string, PendingFileChange>,
+		streamStartedAt?: number,
 	): Promise<void> {
 		if (!this.sessionId) return;
 
@@ -395,21 +405,36 @@ export class AIAgentService {
 				label = textParts.length > 50 ? textParts.slice(0, 50) + '...' : textParts || 'New chat';
 			}
 
-			// Build messageSnapshots: associate the user message with the snapshot
-			const messageSnapshots: Record<string, string> | undefined =
-				snapshotId && userMessageIndex >= 0 ? { [String(userMessageIndex)]: snapshotId } : undefined;
-
-			// Read the existing session to preserve createdAt
+			// Read the existing session to preserve createdAt, merge messageSnapshots,
+			// and detect revert races.
 			let createdAt = Date.now();
+			let existingMessageSnapshots: Record<string, string> = {};
 			const sessionPath = `${this.projectRoot}/.agent/sessions/${this.sessionId}.json`;
 			try {
 				const existing = await fs.readFile(sessionPath, 'utf8');
-				const parsed: { createdAt?: number } = JSON.parse(existing);
+				const parsed: { createdAt?: number; messageSnapshots?: Record<string, string>; revertedAt?: number } = JSON.parse(existing);
 				if (typeof parsed.createdAt === 'number') {
 					createdAt = parsed.createdAt;
 				}
+				if (parsed.messageSnapshots && typeof parsed.messageSnapshots === 'object') {
+					existingMessageSnapshots = parsed.messageSnapshots;
+				}
+				// Race condition guard: if the client reverted after this stream
+				// started, the session file contains truncated history with a
+				// `revertedAt` timestamp. Do NOT overwrite it with the pre-revert
+				// history from this stream.
+				if (typeof parsed.revertedAt === 'number' && streamStartedAt && parsed.revertedAt >= streamStartedAt) {
+					return;
+				}
 			} catch {
 				// New session or read error — use current timestamp
+			}
+
+			// Build messageSnapshots: merge with existing snapshots so multi-turn
+			// conversations retain all snapshot mappings, not just the current turn's.
+			const messageSnapshots: Record<string, string> = { ...existingMessageSnapshots };
+			if (snapshotId && userMessageIndex >= 0) {
+				messageSnapshots[String(userMessageIndex)] = snapshotId;
 			}
 
 			const session = {
@@ -417,7 +442,7 @@ export class AIAgentService {
 				label,
 				createdAt,
 				history,
-				messageSnapshots,
+				messageSnapshots: Object.keys(messageSnapshots).length > 0 ? messageSnapshots : undefined,
 				contextTokensUsed: contextTokensUsed > 0 ? contextTokensUsed : undefined,
 			};
 
