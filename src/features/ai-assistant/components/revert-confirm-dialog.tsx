@@ -1,19 +1,25 @@
 /**
  * Revert Confirmation Dialog
  *
- * Shows a detailed summary of what reverting a snapshot will do:
+ * Shows a detailed summary of what reverting a snapshot cascade will do:
  * - Created files → will be deleted
  * - Edited files → will be restored to their original content
  * - Deleted files → will be recreated
  *
+ * Also detects and warns about conflicts:
+ * - Files that were already approved or manually edited
+ * - Files from other sessions that touch the same paths
+ *
  * File paths are rendered as clickable references that open in the editor.
  */
 
-import { useQuery } from '@tanstack/react-query';
-import { AlertCircle, FileMinus, FilePen, FilePlus, Loader2, RotateCcw } from 'lucide-react';
+import { useQueries } from '@tanstack/react-query';
+import { AlertCircle, AlertTriangle, FileMinus, FilePen, FilePlus, Loader2, RotateCcw } from 'lucide-react';
 import { AlertDialog } from 'radix-ui';
+import { useMemo } from 'react';
 
 import { createApiClient } from '@/lib/api-client';
+import { useStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 
 import { FileReference } from './file-reference';
@@ -29,16 +35,18 @@ interface RevertConfirmDialogProperties {
 	open: boolean;
 	/** Callback when open state changes */
 	onOpenChange: (open: boolean) => void;
-	/** The snapshot ID to revert */
-	snapshotId: string;
-	/** The index of the user message associated with this snapshot */
+	/** The snapshot IDs to revert (newest-first cascade) */
+	snapshotIds: string[];
+	/** The index of the user message associated with the revert point */
 	messageIndex: number;
 	/** The project ID for API calls */
 	projectId: string;
 	/** Callback when the user confirms the revert */
-	onConfirm: (snapshotId: string, messageIndex: number) => void;
+	onConfirm: (snapshotIds: string[], messageIndex: number) => void;
 	/** Whether a revert is currently in progress */
 	isReverting: boolean;
+	/** Error message from a failed revert attempt */
+	revertError?: string;
 }
 
 // =============================================================================
@@ -48,36 +56,83 @@ interface RevertConfirmDialogProperties {
 export function RevertConfirmDialog({
 	open,
 	onOpenChange,
-	snapshotId,
+	snapshotIds,
 	messageIndex,
 	projectId,
 	onConfirm,
 	isReverting,
+	revertError,
 }: RevertConfirmDialogProperties) {
-	// Fetch snapshot metadata via React Query (only when dialog is open)
-	const {
-		data: metadata,
-		isLoading,
-		error,
-	} = useQuery({
-		queryKey: ['snapshot-detail', projectId, snapshotId],
-		queryFn: async () => {
-			const api = createApiClient(projectId);
-			const response = await api.snapshot[':id'].$get({ param: { id: snapshotId } });
-			if (!response.ok) {
-				throw new Error('Failed to load snapshot details');
-			}
-			const data: { snapshot: SnapshotMetadata } = await response.json();
-			return data.snapshot;
-		},
-		enabled: open && !!snapshotId,
-		staleTime: 1000 * 10,
+	// Fetch metadata for all snapshots in the cascade
+	const snapshotQueries = useQueries({
+		queries: snapshotIds.map((snapshotId) => ({
+			queryKey: ['snapshot-detail', projectId, snapshotId],
+			queryFn: async () => {
+				const api = createApiClient(projectId);
+				const response = await api.snapshot[':id'].$get({ param: { id: snapshotId } });
+				if (!response.ok) {
+					throw new Error(`Failed to load snapshot ${snapshotId}`);
+				}
+				const data: { snapshot: SnapshotMetadata } = await response.json();
+				return data.snapshot;
+			},
+			enabled: open,
+			staleTime: 1000 * 10,
+		})),
 	});
 
+	const isLoading = snapshotQueries.some((query) => query.isLoading);
+	const fetchError = snapshotQueries.find((query) => query.error)?.error;
+	const allMetadata = snapshotQueries.map((query) => query.data).filter((data): data is SnapshotMetadata => data !== undefined);
+
+	// Aggregate all file changes across the cascade, deduplicating by path
+	// (the first occurrence wins since snapshots are newest-first, but we
+	// display all unique files regardless of which snapshot they came from)
+	const aggregatedChanges = useMemo(() => {
+		const seen = new Set<string>();
+		const changes: Array<{ path: string; action: 'create' | 'edit' | 'delete' }> = [];
+		// Process oldest-first so the earliest action for a path is kept
+		for (const metadata of [...allMetadata].toReversed()) {
+			for (const change of metadata.changes) {
+				if (!seen.has(change.path)) {
+					seen.add(change.path);
+					changes.push(change);
+				}
+			}
+		}
+		return changes;
+	}, [allMetadata]);
+
 	// Categorize changes
-	const createdFiles = metadata?.changes.filter((change) => change.action === 'create') ?? [];
-	const editedFiles = metadata?.changes.filter((change) => change.action === 'edit') ?? [];
-	const deletedFiles = metadata?.changes.filter((change) => change.action === 'delete') ?? [];
+	const createdFiles = aggregatedChanges.filter((change) => change.action === 'create');
+	const editedFiles = aggregatedChanges.filter((change) => change.action === 'edit');
+	const deletedFiles = aggregatedChanges.filter((change) => change.action === 'delete');
+
+	// Detect conflicts with pending changes
+	const pendingChanges = useStore((state) => state.pendingChanges);
+	const warnings = useMemo(() => {
+		const result: Array<{ path: string; reason: string }> = [];
+		for (const change of aggregatedChanges) {
+			const pending = pendingChanges.get(change.path);
+			if (!pending) continue;
+
+			if (pending.status === 'approved') {
+				result.push({ path: change.path, reason: 'already accepted — your edits will be overwritten' });
+			} else if (pending.status === 'rejected') {
+				result.push({ path: change.path, reason: 'already rejected — will be re-reverted' });
+			} else if (pending.sessionId && !snapshotIds.includes(pending.snapshotId ?? '')) {
+				// The pending change is from a different session/snapshot than the ones being reverted
+				const snapshotIdSet = new Set(snapshotIds);
+				if (pending.snapshotId && !snapshotIdSet.has(pending.snapshotId)) {
+					result.push({ path: change.path, reason: 'also modified by another session' });
+				}
+			}
+		}
+		return result;
+	}, [aggregatedChanges, pendingChanges, snapshotIds]);
+
+	const hasData = allMetadata.length > 0;
+	const isCascade = snapshotIds.length > 1;
 
 	return (
 		<AlertDialog.Root open={open} onOpenChange={onOpenChange}>
@@ -93,7 +148,9 @@ export function RevertConfirmDialog({
 					{/* Header */}
 					<div className="flex items-center gap-2 border-b border-border px-4 py-3">
 						<RotateCcw className="size-4 text-warning" />
-						<AlertDialog.Title className="text-sm font-semibold text-text-primary">Revert AI Changes</AlertDialog.Title>
+						<AlertDialog.Title className="text-sm font-semibold text-text-primary">
+							Revert AI Changes{isCascade ? ` (${snapshotIds.length} turns)` : ''}
+						</AlertDialog.Title>
 					</div>
 
 					{/* Body */}
@@ -109,7 +166,7 @@ export function RevertConfirmDialog({
 							</div>
 						)}
 
-						{error && (
+						{fetchError && (
 							<div
 								className="
 									flex items-center gap-2 rounded-md bg-error/10 px-3 py-2 text-sm
@@ -121,11 +178,53 @@ export function RevertConfirmDialog({
 							</div>
 						)}
 
-						{metadata && (
+						{/* Revert API error (from a previous failed attempt) */}
+						{revertError && (
+							<div
+								className="
+									mb-3 flex items-center gap-2 rounded-md bg-error/10 px-3 py-2 text-sm
+									text-error
+								"
+							>
+								<AlertCircle className="size-4 shrink-0" />
+								{revertError}
+							</div>
+						)}
+
+						{hasData && (
 							<div className="flex flex-col gap-3">
 								<AlertDialog.Description className="text-sm text-text-secondary">
-									This will undo all changes made by the AI in response to this prompt. The following operations will be performed:
+									{isCascade
+										? 'This will undo all changes from this message and all subsequent AI turns. The following operations will be performed:'
+										: 'This will undo all changes made by the AI in response to this prompt. The following operations will be performed:'}
 								</AlertDialog.Description>
+
+								{/* Conflict warnings */}
+								{warnings.length > 0 && (
+									<div className="rounded-md border border-warning/30 bg-warning/5">
+										<div className="flex items-center gap-2 px-3 py-2">
+											<span
+												className="
+													inline-flex items-center gap-1 rounded-sm bg-warning/15 px-1.5
+													py-0.5 text-2xs font-semibold text-warning
+												"
+											>
+												<AlertTriangle className="size-3.5" />
+												Warning
+											</span>
+											<span className="text-2xs text-text-secondary">Some files have been modified since the AI change</span>
+										</div>
+										<div className="flex flex-col gap-1 border-t border-warning/20 px-3 py-2">
+											{warnings.map((warning) => (
+												<div key={warning.path} className="flex items-center gap-2">
+													<span className="size-1 shrink-0 rounded-full bg-warning" />
+													<FileReference path={warning.path} className="text-2xs" />
+													<span className="text-2xs text-text-secondary">— {warning.reason}</span>
+												</div>
+											))}
+										</div>
+									</div>
+								)}
 
 								{/* Created files → will be deleted */}
 								{createdFiles.length > 0 && (
@@ -166,7 +265,7 @@ export function RevertConfirmDialog({
 									/>
 								)}
 
-								{metadata.changes.length === 0 && (
+								{aggregatedChanges.length === 0 && (
 									<div className="py-2 text-sm text-text-secondary">No file changes found in this snapshot.</div>
 								)}
 							</div>
@@ -176,6 +275,7 @@ export function RevertConfirmDialog({
 					{/* Footer */}
 					<div className="flex justify-end gap-2 border-t border-border px-4 py-3">
 						<AlertDialog.Cancel
+							disabled={isReverting}
 							className={cn(
 								`
 									inline-flex items-center justify-center rounded-md border border-border
@@ -185,13 +285,14 @@ export function RevertConfirmDialog({
 									transition-colors
 									hover:bg-border
 								`,
+								isReverting && 'cursor-not-allowed opacity-50',
 							)}
 						>
 							Cancel
 						</AlertDialog.Cancel>
 						<AlertDialog.Action
-							onClick={() => onConfirm(snapshotId, messageIndex)}
-							disabled={isLoading || !!error || isReverting}
+							onClick={() => onConfirm(snapshotIds, messageIndex)}
+							disabled={isLoading || !!fetchError || isReverting}
 							className={cn(
 								'inline-flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5',
 								'text-sm font-medium text-white transition-colors',

@@ -10,6 +10,7 @@ import {
 	aiChatMessageSchema,
 	sessionIdSchema,
 	snapshotIdSchema,
+	revertCascadeSchema,
 	todoItemSchema,
 	isPathSafe,
 	validateToolInput,
@@ -152,6 +153,37 @@ describe('snapshotIdSchema', () => {
 
 	it('rejects empty string', () => {
 		expect(snapshotIdSchema.safeParse('').success).toBe(false);
+	});
+});
+
+// =============================================================================
+// revertCascadeSchema
+// =============================================================================
+
+describe('revertCascadeSchema', () => {
+	it('accepts a single snapshot ID', () => {
+		expect(revertCascadeSchema.safeParse({ snapshotIds: ['abcdef01'] }).success).toBe(true);
+	});
+
+	it('accepts multiple snapshot IDs', () => {
+		expect(revertCascadeSchema.safeParse({ snapshotIds: ['abcdef01', '12345678'] }).success).toBe(true);
+	});
+
+	it('rejects empty array', () => {
+		expect(revertCascadeSchema.safeParse({ snapshotIds: [] }).success).toBe(false);
+	});
+
+	it('rejects non-hex snapshot IDs', () => {
+		expect(revertCascadeSchema.safeParse({ snapshotIds: ['xyz!@#'] }).success).toBe(false);
+	});
+
+	it('rejects when snapshotIds is missing', () => {
+		expect(revertCascadeSchema.safeParse({}).success).toBe(false);
+	});
+
+	it('rejects more than 20 snapshot IDs', () => {
+		const tooMany = Array.from({ length: 21 }, (_, index) => index.toString(16).padStart(8, '0'));
+		expect(revertCascadeSchema.safeParse({ snapshotIds: tooMany }).success).toBe(false);
 	});
 });
 

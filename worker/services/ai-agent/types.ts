@@ -24,6 +24,8 @@ export interface SnapshotMetadata {
 	id: string;
 	timestamp: number;
 	label: string;
+	/** The AI session that created this snapshot (absent in legacy snapshots) */
+	sessionId?: string;
 	changes: Array<{ path: string; action: 'create' | 'edit' | 'delete' }>;
 }
 

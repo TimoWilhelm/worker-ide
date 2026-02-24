@@ -662,6 +662,78 @@ describe('Pending Changes slice', () => {
 		expect(change?.status).toBe('rejected');
 		expect(change?.hunkStatuses).toEqual(['approved', 'rejected']);
 	});
+	it('clears pending changes by snapshot IDs', () => {
+		useStore.getState().addPendingChange({ ...sampleChange, snapshotId: 'snap-a' });
+		useStore.getState().addPendingChange({ ...sampleChange, path: '/src/app.tsx', snapshotId: 'snap-b' });
+		useStore.getState().addPendingChange({ ...sampleChange, path: '/src/utils.ts', snapshotId: 'snap-a' });
+
+		useStore.getState().clearPendingChangesBySnapshots(new Set(['snap-a']));
+
+		const remaining = useStore.getState().pendingChanges;
+		expect(remaining.size).toBe(1);
+		expect(remaining.has('/src/app.tsx')).toBe(true);
+		expect(remaining.has('/src/main.ts')).toBe(false);
+		expect(remaining.has('/src/utils.ts')).toBe(false);
+	});
+
+	it('preserves changes with no snapshotId when clearing by snapshots', () => {
+		useStore.getState().addPendingChange(sampleChange); // no snapshotId
+		useStore.getState().addPendingChange({ ...sampleChange, path: '/src/app.tsx', snapshotId: 'snap-a' });
+
+		useStore.getState().clearPendingChangesBySnapshots(new Set(['snap-a']));
+
+		const remaining = useStore.getState().pendingChanges;
+		expect(remaining.size).toBe(1);
+		expect(remaining.has('/src/main.ts')).toBe(true);
+	});
+
+	it('is a no-op when clearing by empty snapshot set', () => {
+		useStore.getState().addPendingChange({ ...sampleChange, snapshotId: 'snap-a' });
+
+		useStore.getState().clearPendingChangesBySnapshots(new Set());
+
+		expect(useStore.getState().pendingChanges.size).toBe(1);
+	});
+
+	it('clears pending changes by file paths', () => {
+		useStore.getState().addPendingChange(sampleChange);
+		useStore.getState().addPendingChange({ ...sampleChange, path: '/src/app.tsx' });
+		useStore.getState().addPendingChange({ ...sampleChange, path: '/src/utils.ts' });
+
+		useStore.getState().clearPendingChangesByPaths(new Set(['/src/main.ts', '/src/utils.ts']));
+
+		const remaining = useStore.getState().pendingChanges;
+		expect(remaining.size).toBe(1);
+		expect(remaining.has('/src/app.tsx')).toBe(true);
+	});
+
+	it('is a no-op when clearing by empty path set', () => {
+		useStore.getState().addPendingChange(sampleChange);
+
+		useStore.getState().clearPendingChangesByPaths(new Set());
+
+		expect(useStore.getState().pendingChanges.size).toBe(1);
+	});
+
+	it('approves all changes scoped to a session ID', () => {
+		useStore.getState().addPendingChange({ ...sampleChange, sessionId: 'session-1' });
+		useStore.getState().addPendingChange({ ...sampleChange, path: '/src/app.tsx', sessionId: 'session-2' });
+
+		useStore.getState().approveAllChanges('session-1');
+
+		expect(useStore.getState().pendingChanges.get('/src/main.ts')?.status).toBe('approved');
+		expect(useStore.getState().pendingChanges.get('/src/app.tsx')?.status).toBe('pending');
+	});
+
+	it('rejects all changes scoped to a session ID', () => {
+		useStore.getState().addPendingChange({ ...sampleChange, sessionId: 'session-1' });
+		useStore.getState().addPendingChange({ ...sampleChange, path: '/src/app.tsx', sessionId: 'session-2' });
+
+		useStore.getState().rejectAllChanges('session-1');
+
+		expect(useStore.getState().pendingChanges.get('/src/main.ts')?.status).toBe('rejected');
+		expect(useStore.getState().pendingChanges.get('/src/app.tsx')?.status).toBe('pending');
+	});
 });
 
 // =============================================================================

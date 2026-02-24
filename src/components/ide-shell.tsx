@@ -14,6 +14,7 @@ import {
 	FolderOpen,
 	Github,
 	Hexagon,
+	Loader2,
 	Moon,
 	Pencil,
 	Plus,
@@ -362,29 +363,35 @@ export function IDEShell({ projectId }: { projectId: string }) {
 	}, []);
 
 	// Prettify: apply all Biome fixes + formatting to the active file
+	const [isPrettifying, setIsPrettifying] = useState(false);
 	const handlePrettify = useCallback(async () => {
 		if (!activeFile || isGitDiffActive) return;
-		const result = await fixFile(activeFile, editorContent);
-		if (!result || result.fixCount === 0) return;
+		setIsPrettifying(true);
+		try {
+			const result = await fixFile(activeFile, editorContent);
+			if (!result || result.fixCount === 0) return;
 
-		// Dispatch directly through CodeMirror to preserve scroll position.
-		// The onChange callback fires automatically to sync React state.
-		const view = editorViewReference.current;
-		if (view) {
-			view.dispatch({
-				changes: { from: 0, to: view.state.doc.length, insert: result.content },
-			});
-		} else {
-			setLocalEditorContent(result.content);
-		}
+			// Dispatch directly through CodeMirror to preserve scroll position.
+			// The onChange callback fires automatically to sync React state.
+			const view = editorViewReference.current;
+			if (view) {
+				view.dispatch({
+					changes: { from: 0, to: view.state.doc.length, insert: result.content },
+				});
+			} else {
+				setLocalEditorContent(result.content);
+			}
 
-		// Immediately dispatch remaining diagnostics to the output panel so that
-		// lint errors are visible right away instead of waiting for the CodeMirror
-		// linter to re-run after its 400ms delay.
-		dispatchLintDiagnostics(activeFile, result.remainingDiagnostics);
+			// Immediately dispatch remaining diagnostics to the output panel so that
+			// lint errors are visible right away instead of waiting for the CodeMirror
+			// linter to re-run after its 400ms delay.
+			dispatchLintDiagnostics(activeFile, result.remainingDiagnostics);
 
-		if (activeFile) {
-			markFileChanged(activeFile, true);
+			if (activeFile) {
+				markFileChanged(activeFile, true);
+			}
+		} finally {
+			setIsPrettifying(false);
 		}
 	}, [activeFile, editorContent, isGitDiffActive, markFileChanged]);
 
@@ -820,6 +827,7 @@ export function IDEShell({ projectId }: { projectId: string }) {
 												<button
 													type="button"
 													onClick={() => void handlePrettify()}
+													disabled={isPrettifying}
 													className={cn(
 														'flex shrink-0 cursor-pointer items-center justify-center px-2',
 														`
@@ -827,10 +835,11 @@ export function IDEShell({ projectId }: { projectId: string }) {
 															transition-colors
 														`,
 														'hover:bg-bg-tertiary hover:text-accent',
+														'disabled:pointer-events-none disabled:opacity-50',
 													)}
 													aria-label="Prettify file"
 												>
-													<Sparkles className="size-3.5" />
+													{isPrettifying ? <Loader2 className="size-3.5 animate-spin" /> : <Sparkles className="size-3.5" />}
 												</button>
 											</Tooltip>
 										)}
@@ -1100,6 +1109,7 @@ export function IDEShell({ projectId }: { projectId: string }) {
 															<button
 																type="button"
 																onClick={() => void handlePrettify()}
+																disabled={isPrettifying}
 																className={cn(
 																	'flex shrink-0 cursor-pointer items-center justify-center px-2',
 																	`
@@ -1107,10 +1117,11 @@ export function IDEShell({ projectId }: { projectId: string }) {
 																		transition-colors
 																	`,
 																	'hover:bg-bg-tertiary hover:text-accent',
+																	'disabled:pointer-events-none disabled:opacity-50',
 																)}
 																aria-label="Prettify file"
 															>
-																<Sparkles className="size-3.5" />
+																{isPrettifying ? <Loader2 className="size-3.5 animate-spin" /> : <Sparkles className="size-3.5" />}
 															</button>
 														</Tooltip>
 													)}

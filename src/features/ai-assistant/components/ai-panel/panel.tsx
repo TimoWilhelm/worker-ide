@@ -17,12 +17,13 @@ import { ScrollArea } from 'radix-ui';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
+import { Collapsible } from '@/components/ui/collapsible';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Pill } from '@/components/ui/pill';
 import { setActiveSessionId, useAiSessions } from '@/features/ai-assistant/hooks/use-ai-sessions';
 import { getLogSnapshot } from '@/features/output';
 import { useSnapshots } from '@/features/snapshots';
-import { downloadDebugLog } from '@/lib/api-client';
+import { createApiClient, downloadDebugLog, saveProjectPendingChanges } from '@/lib/api-client';
 import { useStore } from '@/lib/store';
 import { cn, formatRelativeTime } from '@/lib/utils';
 
@@ -36,6 +37,7 @@ import { useChangeReview } from '../../hooks/use-change-review';
 import { useFileMention } from '../../hooks/use-file-mention';
 import { segmentsHaveContent, segmentsToPlainText, type InputSegment } from '../../lib/input-segments';
 import { extractMessageText } from '../../lib/retry-helpers';
+import { pendingChangesMapToRecord } from '../../lib/session-serializers';
 import { AgentModeSelector } from '../agent-mode-selector';
 import { ChangedFilesSummary } from '../changed-files-summary';
 import { FileMentionDropdown } from '../file-mention-dropdown';
@@ -65,17 +67,25 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	const activeSnapshotIdReference = useRef<string | undefined>(undefined);
 	// Track the last chatError we already surfaced so dismissing it doesn't re-trigger
 	const lastSurfacedChatErrorReference = useRef<Error | undefined>(undefined);
-	// Structured tool error data keyed by toolCallId, populated by CUSTOM tool_error events
+	// Structured tool error data keyed by toolCallId, populated by CUSTOM tool_error events.
+	// Refs accumulate data during streaming (no re-renders); state mirrors are flushed
+	// when chatMessages changes so the JSX reads from state, not refs.
 	const toolErrorsReference = useRef<Map<string, ToolErrorInfo>>(new Map());
+	const [toolErrors, setToolErrors] = useState<Map<string, ToolErrorInfo>>(new Map());
 	// Diff content (before/after) keyed by tool_use_id, populated by CUSTOM file_changed events for inline diff rendering
 	const fileDiffContentReference = useRef<Map<string, { beforeContent: string; afterContent: string }>>(new Map());
+	const [fileDiffContent, setFileDiffContent] = useState<Map<string, { beforeContent: string; afterContent: string }>>(new Map());
 
 	// Derived plain text for the file mention hook
 	const inputPlainText = useMemo(() => segmentsToPlainText(segments), [segments]);
 	const hasContent = useMemo(() => segmentsHaveContent(segments), [segments]);
 
-	// Revert confirmation dialog state
-	const [pendingRevert, setPendingRevert] = useState<{ snapshotId: string; messageIndex: number } | undefined>();
+	// Revert confirmation dialog state.
+	// `snapshotIds` is the full cascade set (from the clicked message forward within the session).
+	// `isLoading` and `error` track the revert operation's progress.
+	const [pendingRevert, setPendingRevert] = useState<
+		{ snapshotIds: string[]; messageIndex: number; isLoading: boolean; error?: string } | undefined
+	>();
 
 	// Store state
 	const {
@@ -100,7 +110,8 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		openFile,
 		addPendingChange,
 		associateSnapshotWithPending,
-		clearPendingChanges,
+		clearPendingChangesBySnapshots,
+		clearPendingChangesByPaths,
 		debugLogId,
 	} = useStore();
 
@@ -125,19 +136,23 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	const chatUrl = useMemo(() => `/p/${projectId}/api/ai/chat`, [projectId]);
 
 	// Connection adapter — fetchServerSentEvents POSTs { messages, data, ...body }
-	// We pass mode, sessionId, model in the body config (read from refs for freshness)
-	const connection = useMemo(
-		() =>
-			fetchServerSentEvents(chatUrl, () => ({
-				body: {
-					mode: agentModeReference.current,
-					sessionId: sessionIdReference.current,
-					model: selectedModelReference.current,
-					outputLogs: getLogSnapshot(),
-				},
-			})),
-		[chatUrl],
+	// We pass mode, sessionId, model in the body config (read from refs for freshness).
+	// The config factory is wrapped in useCallback so refs are read at request time, not render time.
+	const connectionConfigFactory = useCallback(
+		() => ({
+			body: {
+				mode: agentModeReference.current,
+				sessionId: sessionIdReference.current,
+				model: selectedModelReference.current,
+				outputLogs: getLogSnapshot(),
+			},
+		}),
+		[],
 	);
+	// The config factory reads refs at request time (not render time), but ESLint's
+	// react-hooks/refs rule cannot distinguish deferred execution from render-time access.
+	// eslint-disable-next-line react-hooks/refs -- factory is invoked at fetch time, not render
+	const connection = useMemo(() => fetchServerSentEvents(chatUrl, connectionConfigFactory), [chatUrl, connectionConfigFactory]);
 
 	const {
 		messages: chatMessages,
@@ -284,6 +299,10 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 			activeSnapshotIdReference.current = undefined;
 			userMessageIndexReference.current = -1;
 
+			// Flush accumulated ref data to state so the final render sees it
+			setToolErrors(new Map(toolErrorsReference.current));
+			setFileDiffContent(new Map(fileDiffContentReference.current));
+
 			// If the agent wrote any files, signal the preview to do a hard
 			// refresh. The per-file HMR reloads may have hit intermediate
 			// states or been lost during iframe reload cycles.
@@ -301,6 +320,9 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 			setProcessing(false);
 			setStatusMessage(undefined);
 			setAiError({ message: error.message });
+			// Flush accumulated ref data to state so the error render sees it
+			setToolErrors(new Map(toolErrorsReference.current));
+			setFileDiffContent(new Map(fileDiffContentReference.current));
 			// Session is persisted server-side on all termination paths including errors.
 		},
 	});
@@ -324,6 +346,14 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		}
 		skipNextReverseSyncReference.current = true;
 		useStore.setState({ history: chatMessages });
+	}, [chatMessages]);
+
+	// Flush accumulated ref data to state on each chatMessages change so that
+	// intermediate streaming renders show tool errors and diffs without reading
+	// refs directly in the JSX (which violates react-hooks/refs).
+	useEffect(() => {
+		setToolErrors(new Map(toolErrorsReference.current));
+		setFileDiffContent(new Map(fileDiffContentReference.current));
 	}, [chatMessages]);
 
 	// Reverse sync: store → chatMessages (for external updates like session load)
@@ -379,7 +409,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	const { savedSessions, handleLoadSession: loadSession, saveCurrentSession } = useAiSessions({ projectId });
 
 	// Snapshot hook for revert
-	const { revertSnapshotAsync, isReverting } = useSnapshots({ projectId });
+	const { revertCascadeAsync, isReverting } = useSnapshots({ projectId });
 
 	// Change review hook for accept/reject UI
 	const changeReview = useChangeReview({ projectId });
@@ -397,6 +427,8 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		setDoomLoopMessage(undefined);
 		toolErrorsReference.current.clear();
 		fileDiffContentReference.current.clear();
+		setToolErrors(new Map());
+		setFileDiffContent(new Map());
 		// Clear AI metadata without touching history (the forward sync handles it)
 		useStore.setState({
 			sessionId: undefined,
@@ -421,6 +453,8 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 			// them with the loaded session's persisted pending changes (or empty).
 			toolErrorsReference.current.clear();
 			fileDiffContentReference.current.clear();
+			setToolErrors(new Map());
+			setFileDiffContent(new Map());
 			loadSession(targetSessionId);
 			// Persist the newly loaded session as the active one in localStorage
 			setActiveSessionId(projectId, targetSessionId);
@@ -542,14 +576,49 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		setAiError(undefined);
 	}, [setAiError]);
 
-	// Open revert confirmation dialog
-	const handleRevert = useCallback((snapshotId: string, messageIndex: number) => {
-		setPendingRevert({ snapshotId, messageIndex });
-	}, []);
+	// Open revert confirmation dialog.
+	// Computes the full cascade set: all snapshot IDs from the clicked message forward
+	// within the current session, so the dialog can show what will be reverted.
+	const handleRevert = useCallback(
+		(_snapshotId: string, messageIndex: number) => {
+			// Collect snapshot IDs from this message index forward (cascade)
+			const cascadeSnapshotIds: string[] = [];
+			for (const [index, snapshotId] of messageSnapshots) {
+				if (index >= messageIndex) {
+					cascadeSnapshotIds.push(snapshotId);
+				}
+			}
 
-	// Confirm revert (called from the dialog)
+			// Sort by message index descending (newest first) for reverse chronological revert
+			const sortedIndices = [...messageSnapshots.entries()].filter(([index]) => index >= messageIndex).toSorted(([a], [b]) => b - a);
+			const sortedSnapshotIds = sortedIndices.map(([, id]) => id);
+
+			if (sortedSnapshotIds.length === 0) return;
+
+			setPendingRevert({ snapshotIds: sortedSnapshotIds, messageIndex, isLoading: false });
+		},
+		[messageSnapshots],
+	);
+
+	// Persist updated pending changes to the project-level file after revert.
+	const persistPendingChangesAfterRevert = useCallback(async () => {
+		const { pendingChanges: currentPendingChanges } = useStore.getState();
+		try {
+			const record = pendingChangesMapToRecord(currentPendingChanges);
+			await saveProjectPendingChanges(projectId, record ?? {});
+		} catch (error) {
+			console.error('Failed to persist pending changes after revert:', error);
+		}
+	}, [projectId]);
+
+	// Confirm revert (called from the dialog).
+	// Cascade-reverts all snapshots from the clicked message forward within the session,
+	// then surgically clears only the affected pending changes.
 	const handleConfirmRevert = useCallback(
-		async (snapshotId: string, messageIndex: number) => {
+		async (snapshotIds: string[], messageIndex: number) => {
+			// Mark loading state on the dialog
+			setPendingRevert((previous) => (previous ? { ...previous, isLoading: true, error: undefined } : previous));
+
 			// Cancel any ongoing generation first
 			if (isProcessing) {
 				stopChat();
@@ -562,16 +631,47 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 			const promptText = userMessage ? extractMessageText(userMessage) : '';
 
 			try {
-				await revertSnapshotAsync(snapshotId);
+				const result = await revertCascadeAsync(snapshotIds);
+
+				// Build the set of successfully reverted file paths
+				const revertedPaths = new Set(result.reverted.map((file) => file.path));
+
+				// For files that failed to revert on the backend, attempt a fallback:
+				// use beforeContent from pending changes to restore the original file.
+				const { pendingChanges: currentPendingChanges } = useStore.getState();
+				const apiClient = createApiClient(projectId);
+				for (const failed of result.failed) {
+					const change = currentPendingChanges.get(failed.path);
+					if (change?.beforeContent !== undefined && change.action === 'edit') {
+						try {
+							await apiClient.file.$put({ json: { path: failed.path, content: change.beforeContent } });
+							revertedPaths.add(failed.path);
+						} catch {
+							console.error(`Fallback revert failed for ${failed.path}`);
+						}
+					} else if (change?.action === 'create') {
+						try {
+							await apiClient.file.$delete({ query: { path: failed.path } });
+							revertedPaths.add(failed.path);
+						} catch {
+							console.error(`Fallback delete failed for ${failed.path}`);
+						}
+					}
+				}
+
+				// Surgically clear only the pending changes for reverted files
+				clearPendingChangesByPaths(revertedPaths);
+
+				// Also clear any remaining pending changes whose snapshotId is in the cascade set
+				// (covers entries that may not have a file path match, e.g., deleted files)
+				const snapshotIdSet = new Set(snapshotIds);
+				clearPendingChangesBySnapshots(snapshotIdSet);
 
 				// Remove the user message and all subsequent messages, clean up snapshot associations
 				removeMessagesFrom(messageIndex);
 
 				// Sync to useChat
 				setChatMessages(chatMessages.slice(0, messageIndex));
-
-				// Clear all pending changes since files are restored
-				clearPendingChanges();
 
 				// Restore the prompt text into the input
 				if (promptText) {
@@ -581,24 +681,38 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 					});
 				}
 
-				// Save the updated session
+				// Persist the updated pending changes and session
 				queueMicrotask(() => {
+					void persistPendingChangesAfterRevert();
 					void saveCurrentSession();
 				});
-			} finally {
+
+				// Close the dialog on success
 				setPendingRevert(undefined);
+
+				// Warn if there were missing snapshots that couldn't be found
+				if (result.missingSnapshots.length > 0) {
+					console.warn('Some snapshots were not found during cascade revert:', result.missingSnapshots);
+				}
+			} catch (error) {
+				// Show error in the dialog — don't close it, let the user retry or cancel
+				const message = error instanceof Error ? error.message : 'Failed to revert changes';
+				setPendingRevert((previous) => (previous ? { ...previous, isLoading: false, error: message } : previous));
 			}
 		},
 		[
 			isProcessing,
 			chatMessages,
+			projectId,
 			stopChat,
 			setProcessing,
 			setStatusMessage,
-			revertSnapshotAsync,
+			revertCascadeAsync,
+			clearPendingChangesByPaths,
+			clearPendingChangesBySnapshots,
 			removeMessagesFrom,
 			setChatMessages,
-			clearPendingChanges,
+			persistPendingChangesAfterRevert,
 			saveCurrentSession,
 		],
 	);
@@ -718,41 +832,50 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 											messageIndex={index}
 											snapshotId={messageSnapshots.get(index)}
 											isReverting={isReverting}
+											revertingMessageIndex={pendingRevert?.isLoading ? pendingRevert.messageIndex : undefined}
 											onRevert={handleRevert}
-											toolErrors={toolErrorsReference.current}
-											fileDiffContent={fileDiffContentReference.current}
+											toolErrors={toolErrors}
+											fileDiffContent={fileDiffContent}
 										/>
 									))}
 								</>
 							)}
 							{/* Streaming assistant message */}
-							{streamingAssistantMessage && (
-								<AssistantMessage
-									message={streamingAssistantMessage}
-									streaming
-									toolErrors={toolErrorsReference.current}
-									fileDiffContent={fileDiffContentReference.current}
-								/>
-							)}
+							<Collapsible open={!!streamingAssistantMessage} duration="duration-150">
+								{streamingAssistantMessage && (
+									<AssistantMessage
+										message={streamingAssistantMessage}
+										streaming
+										toolErrors={toolErrors}
+										fileDiffContent={fileDiffContent}
+									/>
+								)}
+							</Collapsible>
 							{/* User question prompt — shown when the AI asks a clarifying question */}
-							{pendingQuestion && !isProcessing && (
-								<UserQuestionPrompt
-									question={pendingQuestion.question}
-									options={pendingQuestion.options}
-									onOptionClick={(option) => void handleSend(option)}
-								/>
-							)}
+							<Collapsible open={!!pendingQuestion && !isProcessing}>
+								{pendingQuestion && (
+									<UserQuestionPrompt
+										question={pendingQuestion.question}
+										options={pendingQuestion.options}
+										onOptionClick={(option) => void handleSend(option)}
+									/>
+								)}
+							</Collapsible>
 							{/* Continuation prompt — shown when the agent hit the iteration limit */}
-							{needsContinuation && !isProcessing && (
+							<Collapsible open={needsContinuation && !isProcessing}>
 								<ContinuationPrompt onContinue={() => void handleSend('continue')} onDismiss={() => setNeedsContinuation(false)} />
-							)}
+							</Collapsible>
 							{/* Doom loop alert — shown when the agent was stopped due to repetitive behavior */}
-							{doomLoopMessage && !isProcessing && (
-								<DoomLoopAlert message={doomLoopMessage} onRetry={handleRetry} onDismiss={() => setDoomLoopMessage(undefined)} />
-							)}
+							<Collapsible open={!!doomLoopMessage && !isProcessing}>
+								{doomLoopMessage && (
+									<DoomLoopAlert message={doomLoopMessage} onRetry={handleRetry} onDismiss={() => setDoomLoopMessage(undefined)} />
+								)}
+							</Collapsible>
 							{/* AI Error display */}
-							{aiError && <AIError message={aiError.message} code={aiError.code} onRetry={handleRetry} onDismiss={handleDismissError} />}
-							{statusMessage ? (
+							<Collapsible open={!!aiError}>
+								{aiError && <AIError message={aiError.message} code={aiError.code} onRetry={handleRetry} onDismiss={handleDismissError} />}
+							</Collapsible>
+							<Collapsible open={!!statusMessage} duration="duration-150">
 								<div
 									className="
 										flex animate-chat-item items-center gap-2 px-1 text-xs
@@ -762,7 +885,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 									<Loader2 className="size-3 animate-spin" />
 									{statusMessage}
 								</div>
-							) : undefined}
+							</Collapsible>
 							{/* Invisible anchor for auto-scroll detection */}
 							<div ref={anchorReference} className="h-px shrink-0" aria-hidden />
 						</div>
@@ -803,8 +926,8 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 			</div>
 
 			{/* Changed files summary — shown when AI has pending edits */}
-			{changeReview.sessionPendingCount(sessionId) > 0 && (
-				<div className="shrink-0 border-t border-border px-2 pt-2">
+			<Collapsible open={changeReview.sessionPendingCount(sessionId) > 0} className="shrink-0">
+				<div className="border-t border-border px-2 pt-2">
 					<ChangedFilesSummary
 						onApproveChange={changeReview.handleApproveChange}
 						onRejectChange={changeReview.handleRejectChange}
@@ -815,7 +938,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 						sessionId={sessionId}
 					/>
 				</div>
-			)}
+			</Collapsible>
 
 			{/* Input */}
 			<div className="shrink-0 border-t border-border p-2">
@@ -847,19 +970,21 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 						}
 						disabled={isProcessing}
 					/>
-					{planPath && (
-						<button
-							onClick={() => openFile(planPath)}
-							className="
-								flex w-full items-center gap-1.5 border-t border-border/50 px-2.5 py-1
-								text-xs text-accent transition-colors
-								hover:bg-accent/5
-							"
-						>
-							<MapIcon className="size-3 shrink-0" />
-							<span className="truncate">View plan: {planPath.split('/').pop()}</span>
-						</button>
-					)}
+					<Collapsible open={!!planPath}>
+						{planPath && (
+							<button
+								onClick={() => openFile(planPath)}
+								className="
+									flex w-full items-center gap-1.5 border-t border-border/50 px-2.5 py-1
+									text-xs text-accent transition-colors
+									hover:bg-accent/5
+								"
+							>
+								<MapIcon className="size-3 shrink-0" />
+								<span className="truncate">View plan: {planPath.split('/').pop()}</span>
+							</button>
+						)}
+					</Collapsible>
 					<div className="flex items-center justify-between px-1.5 py-1">
 						<div className="flex items-center gap-2">
 							<AgentModeSelector mode={agentMode} onModeChange={setAgentMode} disabled={isProcessing} />
@@ -915,13 +1040,14 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 				<RevertConfirmDialog
 					open={!!pendingRevert}
 					onOpenChange={(open) => {
-						if (!open) setPendingRevert(undefined);
+						if (!open && !pendingRevert.isLoading) setPendingRevert(undefined);
 					}}
-					snapshotId={pendingRevert.snapshotId}
+					snapshotIds={pendingRevert.snapshotIds}
 					messageIndex={pendingRevert.messageIndex}
 					projectId={projectId}
 					onConfirm={handleConfirmRevert}
-					isReverting={isReverting}
+					isReverting={pendingRevert.isLoading}
+					revertError={pendingRevert.error}
 				/>
 			)}
 

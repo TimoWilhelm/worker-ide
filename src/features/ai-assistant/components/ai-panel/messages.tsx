@@ -34,6 +34,7 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import { Collapsible } from '@/components/ui/collapsible';
 import { Pill, type PillProperties } from '@/components/ui/pill';
 import { Tooltip } from '@/components/ui/tooltip';
 import { computeDiffHunks } from '@/features/editor/lib/diff-decorations';
@@ -202,6 +203,7 @@ export function MessageBubble({
 	messageIndex,
 	snapshotId,
 	isReverting,
+	revertingMessageIndex,
 	onRevert,
 	toolErrors,
 	fileDiffContent,
@@ -209,14 +211,24 @@ export function MessageBubble({
 	message: UIMessage;
 	messageIndex: number;
 	snapshotId?: string;
+	/** Whether any revert operation is in progress (disables all revert buttons) */
 	isReverting: boolean;
+	/** The message index currently being reverted (shows spinner on that specific button) */
+	revertingMessageIndex?: number;
 	onRevert: (snapshotId: string, messageIndex: number) => void;
 	toolErrors?: Map<string, ToolErrorInfo>;
 	fileDiffContent?: Map<string, { beforeContent: string; afterContent: string }>;
 }) {
 	if (message.role === 'user') {
 		return (
-			<UserMessage message={message} messageIndex={messageIndex} snapshotId={snapshotId} isReverting={isReverting} onRevert={onRevert} />
+			<UserMessage
+				message={message}
+				messageIndex={messageIndex}
+				snapshotId={snapshotId}
+				isReverting={isReverting}
+				isRevertingThis={revertingMessageIndex === messageIndex}
+				onRevert={onRevert}
+			/>
 		);
 	}
 
@@ -232,12 +244,16 @@ function UserMessage({
 	messageIndex,
 	snapshotId,
 	isReverting,
+	isRevertingThis,
 	onRevert,
 }: {
 	message: UIMessage;
 	messageIndex: number;
 	snapshotId?: string;
+	/** Whether any revert operation is in progress (disables this button) */
 	isReverting: boolean;
+	/** Whether this specific message is being reverted (shows spinner) */
+	isRevertingThis: boolean;
 	onRevert: (snapshotId: string, messageIndex: number) => void;
 }) {
 	const text = message.parts
@@ -266,8 +282,8 @@ function UserMessage({
 								isReverting && 'cursor-not-allowed opacity-50',
 							)}
 						>
-							{isReverting ? <Loader2 className="size-3 animate-spin" /> : <RotateCcw className="size-3" />}
-							Revert
+							{isRevertingThis ? <Loader2 className="size-3 animate-spin" /> : <RotateCcw className="size-3" />}
+							{isRevertingThis ? 'Reverting...' : 'Revert'}
 						</button>
 					</Tooltip>
 				)}
@@ -427,7 +443,7 @@ export function AssistantMessage({
 									<ChevronRight className={cn('size-3 shrink-0 transition-transform', isExpanded && 'rotate-90')} />
 									Show thinking
 								</button>
-								{isExpanded && (
+								<Collapsible open={isExpanded}>
 									<div
 										className="
 											overflow-hidden rounded-lg bg-bg-tertiary px-3 py-2.5 text-sm/relaxed
@@ -436,7 +452,7 @@ export function AssistantMessage({
 									>
 										<MarkdownContent content={segment.text} />
 									</div>
-								)}
+								</Collapsible>
 							</div>
 						);
 					}
@@ -488,7 +504,7 @@ export function AssistantMessage({
 								<ChevronRight className={cn('size-3 shrink-0 transition-transform', isExpanded && 'rotate-90')} />
 								Show thinking
 							</button>
-							{isExpanded && (
+							<Collapsible open={isExpanded}>
 								<div
 									className="
 										overflow-hidden rounded-lg bg-bg-tertiary px-3 py-2.5 text-sm/relaxed
@@ -497,7 +513,7 @@ export function AssistantMessage({
 								>
 									<MarkdownContent content={segment.text} />
 								</div>
-							)}
+							</Collapsible>
 						</div>
 					);
 				}
@@ -562,7 +578,7 @@ export function AssistantMessage({
 								<ChevronRight className={cn('size-3 shrink-0 transition-transform', isExpanded && 'rotate-90')} />
 								Show thinking
 							</button>
-							{isExpanded && (
+							<Collapsible open={isExpanded}>
 								<div
 									className="
 										overflow-hidden rounded-lg bg-bg-tertiary px-3 py-2.5 text-sm/relaxed
@@ -571,7 +587,7 @@ export function AssistantMessage({
 								>
 									<MarkdownContent content={segment.text} />
 								</div>
-							)}
+							</Collapsible>
 						</div>
 					);
 				}
@@ -1524,9 +1540,8 @@ function InlineToolCall({
 					</span>
 				)}
 			</button>
-			{isExpanded &&
-				hasDetailContent &&
-				(hasDiffContent ? (
+			<Collapsible open={isExpanded && hasDetailContent}>
+				{hasDiffContent ? (
 					<InlineDiffView beforeContent={diffContent.beforeContent} afterContent={diffContent.afterContent} />
 				) : (
 					<pre
@@ -1537,8 +1552,9 @@ function InlineToolCall({
 					>
 						{knownToolName ? getExpandableDetailText(knownToolName, rawResultContent, structuredError) : rawResultContent}
 					</pre>
-				))}
-			{todos && todos.length > 0 && <InlineTodoList todos={todos} />}
+				)}
+			</Collapsible>
+			<Collapsible open={!!todos && todos.length > 0}>{todos && todos.length > 0 && <InlineTodoList todos={todos} />}</Collapsible>
 		</div>
 	);
 }

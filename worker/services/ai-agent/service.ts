@@ -1298,6 +1298,7 @@ export class AIAgentService {
 			id: snapshotId,
 			timestamp: Date.now(),
 			label,
+			sessionId: this.sessionId,
 			changes: [],
 		};
 		// eslint-disable-next-line unicorn/no-null -- JSON.stringify requires null as replacer argument
@@ -1344,6 +1345,10 @@ export class AIAgentService {
 		const snapshotsDirectory = `${this.projectRoot}/.agent/snapshots`;
 
 		try {
+			// Read the set of snapshot IDs still referenced by pending changes.
+			// These must never be deleted even if they exceed the keepCount.
+			const referencedSnapshotIds = await this.getReferencedSnapshotIds();
+
 			const entries = await fs.readdir(snapshotsDirectory);
 			const snapshots: Array<{ id: string; timestamp: number }> = [];
 
@@ -1360,12 +1365,42 @@ export class AIAgentService {
 
 			snapshots.sort((a, b) => b.timestamp - a.timestamp);
 
-			for (let index = keepCount; index < snapshots.length; index++) {
-				await this.deleteDirectoryRecursive(`${snapshotsDirectory}/${snapshots[index].id}`);
+			// Only delete unreferenced snapshots beyond the keep count
+			let unreferencedCount = 0;
+			for (const snapshot of snapshots) {
+				if (referencedSnapshotIds.has(snapshot.id)) {
+					// Always keep referenced snapshots
+					continue;
+				}
+				unreferencedCount++;
+				if (unreferencedCount > keepCount) {
+					await this.deleteDirectoryRecursive(`${snapshotsDirectory}/${snapshot.id}`);
+				}
 			}
 		} catch {
 			// No-op
 		}
+	}
+
+	/**
+	 * Read the set of snapshot IDs referenced by pending changes.
+	 * These snapshots must be preserved during cleanup.
+	 */
+	private async getReferencedSnapshotIds(): Promise<Set<string>> {
+		const referenced = new Set<string>();
+		try {
+			const pendingChangesPath = `${this.projectRoot}/.agent/pending-changes.json`;
+			const raw = await fs.readFile(pendingChangesPath, 'utf8');
+			const record: Record<string, { snapshotId?: string }> = JSON.parse(raw);
+			for (const value of Object.values(record)) {
+				if (value.snapshotId) {
+					referenced.add(value.snapshotId);
+				}
+			}
+		} catch {
+			// No pending changes file — nothing to protect
+		}
+		return referenced;
 	}
 
 	private async deleteDirectoryRecursive(directoryPath: string): Promise<void> {

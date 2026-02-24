@@ -396,6 +396,16 @@ export const revertFileSchema = z.object({
 
 export type RevertFileInput = z.infer<typeof revertFileSchema>;
 
+/**
+ * Schema for cascade-reverting multiple snapshots at once.
+ * Snapshot IDs should be ordered newest-first (reverse chronological).
+ */
+export const revertCascadeSchema = z.object({
+	snapshotIds: z.array(snapshotIdSchema).min(1).max(20),
+});
+
+export type RevertCascadeInput = z.infer<typeof revertCascadeSchema>;
+
 // =============================================================================
 // Dependency Validation
 // =============================================================================

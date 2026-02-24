@@ -10,7 +10,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 
 import { BINARY_EXTENSIONS } from '@shared/constants';
-import { snapshotIdSchema, revertFileSchema, filePathSchema } from '@shared/validation';
+import { snapshotIdSchema, revertFileSchema, revertCascadeSchema, filePathSchema } from '@shared/validation';
 
 import { coordinatorNamespace } from '../lib/durable-object-namespaces';
 
@@ -23,6 +23,8 @@ interface SnapshotMetadata {
 	id: string;
 	timestamp: number;
 	label: string;
+	/** The AI session that created this snapshot (absent in legacy snapshots) */
+	sessionId?: string;
 	changes: Array<{ path: string; action: 'create' | 'edit' | 'delete' }>;
 }
 
@@ -84,6 +86,18 @@ export const snapshotRoutes = new Hono<AppEnvironment>()
 		}
 
 		return c.json({ success: true });
+	})
+
+	// POST /api/snapshots/revert-cascade - Revert multiple snapshots in reverse chronological order.
+	// Deduplicates file paths across snapshots: when the same file appears in multiple
+	// snapshots, only the earliest snapshot's backup is used (it has the true original content).
+	.post('/snapshots/revert-cascade', zValidator('json', revertCascadeSchema), async (c) => {
+		const projectRoot = c.get('projectRoot');
+		const projectId = c.get('projectId');
+		const { snapshotIds } = c.req.valid('json');
+
+		const result = await revertCascade(projectRoot, snapshotIds, projectId);
+		return c.json(result);
 	})
 
 	// GET /api/snapshot/:id/file?path=/src/main.ts - Get file content from snapshot
@@ -265,6 +279,74 @@ async function revertFileFromSnapshot(projectRoot: string, path: string, snapsho
 		console.error('Failed to revert file from snapshot:', error);
 		return false;
 	}
+}
+
+/**
+ * Result for a single file in a cascade revert.
+ */
+interface CascadeRevertFileResult {
+	path: string;
+	snapshotId: string;
+	action: 'create' | 'edit' | 'delete';
+}
+
+/**
+ * Result of a cascade revert operation.
+ */
+interface CascadeRevertResult {
+	reverted: CascadeRevertFileResult[];
+	failed: Array<CascadeRevertFileResult & { error: string }>;
+	missingSnapshots: string[];
+}
+
+/**
+ * Revert multiple snapshots in cascade (reverse chronological order).
+ *
+ * When the same file path appears in multiple snapshots, only the earliest
+ * snapshot's backup is used — it contains the true original content before
+ * any AI modifications in this sequence.
+ *
+ * Snapshots whose metadata cannot be found are reported in `missingSnapshots`
+ * but do not cause the entire operation to fail.
+ */
+async function revertCascade(projectRoot: string, snapshotIds: string[], projectId: string): Promise<CascadeRevertResult> {
+	const result: CascadeRevertResult = { reverted: [], failed: [], missingSnapshots: [] };
+
+	// Load all snapshot metadata first. Track which files appear and in which
+	// snapshot, keeping only the EARLIEST (last in the array since IDs arrive
+	// newest-first) so we restore from the true pre-sequence state.
+	const fileToSnapshot = new Map<string, { snapshotId: string; action: 'create' | 'edit' | 'delete'; snapshotDirectory: string }>();
+
+	// Process in reverse (oldest first) so the earliest snapshot wins per file
+	for (const snapshotId of [...snapshotIds].toReversed()) {
+		const metadata = await getSnapshotMetadata(projectRoot, snapshotId);
+		if (!metadata) {
+			result.missingSnapshots.push(snapshotId);
+			continue;
+		}
+
+		const snapshotDirectory = `${projectRoot}/.agent/snapshots/${snapshotId}`;
+		for (const change of metadata.changes) {
+			// Earliest snapshot wins — its backup has the true original content.
+			// Later snapshots' backups have intermediate states we don't want.
+			if (!fileToSnapshot.has(change.path)) {
+				fileToSnapshot.set(change.path, { snapshotId, action: change.action, snapshotDirectory });
+			}
+		}
+	}
+
+	// Revert each unique file using the earliest snapshot's backup
+	for (const [path, { snapshotId, action, snapshotDirectory }] of fileToSnapshot) {
+		try {
+			await revertSingleFile(projectRoot, path, action, snapshotDirectory, projectId);
+			result.reverted.push({ path, snapshotId, action });
+		} catch (error) {
+			const message = error instanceof Error ? error.message : 'Unknown error';
+			result.failed.push({ path, snapshotId, action, error: message });
+		}
+	}
+
+	return result;
 }
 
 export type SnapshotRoutes = typeof snapshotRoutes;

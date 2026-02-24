@@ -4,6 +4,7 @@
 
 export { BorderBeam, type BorderBeamProperties } from './border-beam';
 export { Button, buttonVariants, type ButtonProps } from './button';
+export { Collapsible, type CollapsibleProperties } from './collapsible';
 export { ConfirmDialog, type ConfirmDialogProperties } from './confirm-dialog';
 export {
 	DropdownMenu,

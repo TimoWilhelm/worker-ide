@@ -21,6 +21,20 @@ interface UseSnapshotsOptions {
 	enabled?: boolean;
 }
 
+/** Per-file result from a cascade revert */
+interface CascadeRevertFileResult {
+	path: string;
+	snapshotId: string;
+	action: 'create' | 'edit' | 'delete';
+}
+
+/** Full result returned by the cascade revert endpoint */
+export interface CascadeRevertResult {
+	reverted: CascadeRevertFileResult[];
+	failed: Array<CascadeRevertFileResult & { error: string }>;
+	missingSnapshots: string[];
+}
+
 // =============================================================================
 // Hook
 // =============================================================================
@@ -79,6 +93,24 @@ export function useSnapshots({ projectId, enabled = true }: UseSnapshotsOptions)
 		},
 	});
 
+	// Revert multiple snapshots in cascade (reverse chronological order)
+	const revertCascadeMutation = useMutation({
+		mutationFn: async (snapshotIds: string[]): Promise<CascadeRevertResult> => {
+			const response = await api.snapshots['revert-cascade'].$post({
+				json: { snapshotIds },
+			});
+			if (!response.ok) {
+				throw new Error('Failed to revert snapshots');
+			}
+			return response.json();
+		},
+		onSuccess: async () => {
+			await queryClient.refetchQueries({ queryKey: ['files', projectId] });
+			await queryClient.refetchQueries({ queryKey: ['file', projectId] });
+			await queryClient.invalidateQueries({ queryKey: ['snapshots', projectId] });
+		},
+	});
+
 	// Revert a single file from a snapshot
 	const revertFileMutation = useMutation({
 		mutationFn: async ({ path, snapshotId }: { path: string; snapshotId: string }) => {
@@ -116,8 +148,9 @@ export function useSnapshots({ projectId, enabled = true }: UseSnapshotsOptions)
 
 		// Mutations
 		revertSnapshotAsync: revertSnapshotMutation.mutateAsync,
+		revertCascadeAsync: revertCascadeMutation.mutateAsync,
 		revertFile: revertFileMutation.mutate,
 		revertFileAsync: revertFileMutation.mutateAsync,
-		isReverting: revertSnapshotMutation.isPending || revertFileMutation.isPending,
+		isReverting: revertSnapshotMutation.isPending || revertFileMutation.isPending || revertCascadeMutation.isPending,
 	};
 }
