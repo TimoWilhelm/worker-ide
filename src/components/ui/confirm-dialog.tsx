@@ -31,7 +31,7 @@ export interface ConfirmDialogProperties {
 	/** Callback when confirmed */
 	onConfirm: () => void;
 	/** Visual variant (default: "default") */
-	variant?: 'default' | 'danger';
+	variant?: 'default' | 'danger' | 'warning';
 }
 
 // =============================================================================
@@ -87,13 +87,18 @@ export function ConfirmDialog({
 								`font-medium text-white transition-colors`,
 								variant === 'danger'
 									? `
-										bg-error
-										hover:bg-red-600
+										bg-red-600
+										hover:bg-red-700
 									`
-									: `
-										bg-accent
-										hover:bg-accent-hover
-									`,
+									: variant === 'warning'
+										? `
+											bg-warning text-black
+											hover:bg-yellow-600
+										`
+										: `
+											bg-accent
+											hover:bg-accent-hover
+										`,
 							)}
 						>
 							{confirmLabel}

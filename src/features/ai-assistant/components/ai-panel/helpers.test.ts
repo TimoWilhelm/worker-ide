@@ -4,6 +4,8 @@
 
 import { describe, expect, it } from 'vitest';
 
+import { toolInputSchemas } from '@shared/validation';
+
 import { isToolName, isRecord, extractCustomEvent, getStringField, getNumberField } from './helpers';
 
 // =============================================================================
@@ -11,22 +13,10 @@ import { isToolName, isRecord, extractCustomEvent, getStringField, getNumberFiel
 // =============================================================================
 
 describe('isToolName', () => {
-	it('returns true for valid tool names', () => {
-		expect(isToolName('file_edit')).toBe(true);
-		expect(isToolName('file_write')).toBe(true);
-		expect(isToolName('file_read')).toBe(true);
-		expect(isToolName('file_grep')).toBe(true);
-		expect(isToolName('file_glob')).toBe(true);
-		expect(isToolName('file_list')).toBe(true);
-		expect(isToolName('files_list')).toBe(true);
-		expect(isToolName('file_delete')).toBe(true);
-		expect(isToolName('file_move')).toBe(true);
-		expect(isToolName('user_question')).toBe(true);
-		expect(isToolName('web_fetch')).toBe(true);
-		expect(isToolName('docs_search')).toBe(true);
-		expect(isToolName('plan_update')).toBe(true);
-		expect(isToolName('todos_get')).toBe(true);
-		expect(isToolName('todos_update')).toBe(true);
+	it('returns true for every tool name in toolInputSchemas', () => {
+		for (const name of Object.keys(toolInputSchemas)) {
+			expect(isToolName(name)).toBe(true);
+		}
 	});
 
 	it('returns false for invalid tool names', () => {

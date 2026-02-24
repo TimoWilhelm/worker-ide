@@ -4,7 +4,9 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { AGENT_TOOLS, ASK_MODE_TOOLS, MUTATION_TOOL_NAMES, PLAN_MODE_TOOLS, READ_ONLY_TOOL_NAMES } from './index';
+import { toolInputSchemas } from '@shared/validation';
+
+import { AGENT_TOOLS, ASK_MODE_TOOLS, MUTATION_TOOL_NAMES, PLAN_MODE_TOOLS, READ_ONLY_TOOL_NAMES, TOOL_EXECUTORS } from './index';
 
 // =============================================================================
 // PLAN_MODE_TOOLS
@@ -81,5 +83,27 @@ describe('MUTATION_TOOL_NAMES', () => {
 		for (const name of MUTATION_TOOL_NAMES) {
 			expect(READ_ONLY_TOOL_NAMES.has(name)).toBe(false);
 		}
+	});
+});
+
+// =============================================================================
+// Tool registration sync
+// =============================================================================
+
+describe('tool registration sync', () => {
+	const executorNames = [...TOOL_EXECUTORS.keys()].toSorted();
+	const definitionNames = AGENT_TOOLS.map((tool) => tool.name).toSorted();
+	const schemaNames = Object.keys(toolInputSchemas).toSorted();
+
+	it('TOOL_EXECUTORS matches AGENT_TOOLS definitions', () => {
+		expect(executorNames).toEqual(definitionNames);
+	});
+
+	it('AGENT_TOOLS definitions match shared validation schemas', () => {
+		expect(definitionNames).toEqual(schemaNames);
+	});
+
+	it('TOOL_EXECUTORS matches shared validation schemas', () => {
+		expect(executorNames).toEqual(schemaNames);
 	});
 });

@@ -295,7 +295,7 @@ export function RevertConfirmDialog({
 							disabled={isLoading || !!fetchError || isReverting}
 							className={cn(
 								'inline-flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5',
-								'text-sm font-medium text-white transition-colors',
+								'text-sm font-medium text-black transition-colors',
 								`
 									bg-warning
 									hover:bg-yellow-600

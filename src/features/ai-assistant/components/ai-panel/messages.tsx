@@ -34,7 +34,6 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { Collapsible } from '@/components/ui/collapsible';
 import { Pill, type PillProperties } from '@/components/ui/pill';
 import { Tooltip } from '@/components/ui/tooltip';
 import { computeDiffHunks } from '@/features/editor/lib/diff-decorations';
@@ -443,7 +442,7 @@ export function AssistantMessage({
 									<ChevronRight className={cn('size-3 shrink-0 transition-transform', isExpanded && 'rotate-90')} />
 									Show thinking
 								</button>
-								<Collapsible open={isExpanded}>
+								{isExpanded && (
 									<div
 										className="
 											overflow-hidden rounded-lg bg-bg-tertiary px-3 py-2.5 text-sm/relaxed
@@ -452,7 +451,7 @@ export function AssistantMessage({
 									>
 										<MarkdownContent content={segment.text} />
 									</div>
-								</Collapsible>
+								)}
 							</div>
 						);
 					}
@@ -504,7 +503,7 @@ export function AssistantMessage({
 								<ChevronRight className={cn('size-3 shrink-0 transition-transform', isExpanded && 'rotate-90')} />
 								Show thinking
 							</button>
-							<Collapsible open={isExpanded}>
+							{isExpanded && (
 								<div
 									className="
 										overflow-hidden rounded-lg bg-bg-tertiary px-3 py-2.5 text-sm/relaxed
@@ -513,7 +512,7 @@ export function AssistantMessage({
 								>
 									<MarkdownContent content={segment.text} />
 								</div>
-							</Collapsible>
+							)}
 						</div>
 					);
 				}
@@ -578,7 +577,7 @@ export function AssistantMessage({
 								<ChevronRight className={cn('size-3 shrink-0 transition-transform', isExpanded && 'rotate-90')} />
 								Show thinking
 							</button>
-							<Collapsible open={isExpanded}>
+							{isExpanded && (
 								<div
 									className="
 										overflow-hidden rounded-lg bg-bg-tertiary px-3 py-2.5 text-sm/relaxed
@@ -587,7 +586,7 @@ export function AssistantMessage({
 								>
 									<MarkdownContent content={segment.text} />
 								</div>
-							</Collapsible>
+							)}
 						</div>
 					);
 				}
@@ -756,6 +755,13 @@ function summarizeToolResult(toolName: ToolName, rawResult: string): string {
 			return 'Written';
 		}
 
+		case 'lint_check': {
+			if (rawResult.includes('No lint issues')) return 'No issues';
+			const issueMatch = rawResult.match(/^Found (\d+) lint issue/);
+			if (issueMatch) return `${issueMatch[1]} issue${issueMatch[1] === '1' ? '' : 's'}`;
+			return 'Checked';
+		}
+
 		case 'lint_fix': {
 			const stats = parseFileEditResult(rawResult);
 			if (stats) return 'Fixed';
@@ -887,7 +893,10 @@ function summarizeToolResult(toolName: ToolName, rawResult: string): string {
 		}
 
 		default: {
-			return rawResult.length > 40 ? rawResult.slice(0, 40) + '...' : rawResult;
+			// Exhaustive check: if a new ToolName is added without a case above,
+			// TypeScript will error here because `toolName` won't be assignable to `never`.
+			const _exhaustiveCheck: never = toolName;
+			return String(_exhaustiveCheck);
 		}
 	}
 }
@@ -1540,8 +1549,9 @@ function InlineToolCall({
 					</span>
 				)}
 			</button>
-			<Collapsible open={isExpanded && hasDetailContent}>
-				{hasDiffContent ? (
+			{isExpanded &&
+				hasDetailContent &&
+				(hasDiffContent ? (
 					<InlineDiffView beforeContent={diffContent.beforeContent} afterContent={diffContent.afterContent} />
 				) : (
 					<pre
@@ -1552,9 +1562,8 @@ function InlineToolCall({
 					>
 						{knownToolName ? getExpandableDetailText(knownToolName, rawResultContent, structuredError) : rawResultContent}
 					</pre>
-				)}
-			</Collapsible>
-			<Collapsible open={!!todos && todos.length > 0}>{todos && todos.length > 0 && <InlineTodoList todos={todos} />}</Collapsible>
+				))}
+			{todos && todos.length > 0 && <InlineTodoList todos={todos} />}
 		</div>
 	);
 }

@@ -247,6 +247,13 @@ export const dependenciesUpdateInputSchema = z.object({
 });
 
 /**
+ * Schema for AI tool: lint_check (check file for lint issues)
+ */
+export const lintCheckInputSchema = z.object({
+	path: filePathSchema,
+});
+
+/**
  * Schema for AI tool: lint_fix (apply safe Biome lint fixes)
  */
 export const lintFixInputSchema = z.object({
@@ -283,6 +290,7 @@ export const toolInputSchemas = {
 	todos_update: updateTodosInputSchema,
 	dependencies_list: dependenciesListInputSchema,
 	dependencies_update: dependenciesUpdateInputSchema,
+	lint_check: lintCheckInputSchema,
 	lint_fix: lintFixInputSchema,
 	cdp_eval: cdpEvalInputSchema,
 } as const;

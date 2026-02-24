@@ -83,8 +83,8 @@ function ToggleableError() {
 			<button
 				onClick={() => setShouldError(true)}
 				className="
-					rounded-sm bg-error px-4 py-2 text-sm text-white
-					hover:bg-red-600
+					rounded-sm bg-red-600 px-4 py-2 text-sm text-white
+					hover:bg-red-700
 				"
 			>
 				Trigger Error

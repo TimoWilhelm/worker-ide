@@ -10,7 +10,7 @@ const meta = {
 	argTypes: {
 		variant: {
 			control: 'select',
-			options: ['default', 'secondary', 'ghost', 'danger', 'outline'],
+			options: ['default', 'secondary', 'ghost', 'danger', 'warning', 'outline'],
 		},
 		size: {
 			control: 'select',
@@ -50,6 +50,13 @@ export const Danger: Story = {
 	args: {
 		children: 'Delete',
 		variant: 'danger',
+	},
+};
+
+export const Warning: Story = {
+	args: {
+		children: 'Warning',
+		variant: 'warning',
 	},
 };
 
@@ -122,6 +129,7 @@ export const AllVariants: Story = {
 			<Button variant="secondary">Secondary</Button>
 			<Button variant="ghost">Ghost</Button>
 			<Button variant="danger">Danger</Button>
+			<Button variant="warning">Warning</Button>
 			<Button variant="outline">Outline</Button>
 		</div>
 	),

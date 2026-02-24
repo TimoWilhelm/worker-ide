@@ -35,7 +35,7 @@ import { ModelSelectorDialog } from './model-selector-dialog';
 import { useAutoScroll } from '../../hooks/use-auto-scroll';
 import { useChangeReview } from '../../hooks/use-change-review';
 import { useFileMention } from '../../hooks/use-file-mention';
-import { segmentsHaveContent, segmentsToPlainText, type InputSegment } from '../../lib/input-segments';
+import { parseTextToSegments, segmentsHaveContent, segmentsToPlainText, type InputSegment } from '../../lib/input-segments';
 import { extractMessageText } from '../../lib/retry-helpers';
 import { pendingChangesMapToRecord } from '../../lib/session-serializers';
 import { AgentModeSelector } from '../agent-mode-selector';
@@ -673,9 +673,10 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 				// Sync to useChat
 				setChatMessages(chatMessages.slice(0, messageIndex));
 
-				// Restore the prompt text into the input
+				// Restore the prompt text into the input, parsing file mentions back into pills
 				if (promptText) {
-					setSegments([{ type: 'text', value: promptText }]);
+					const knownPaths = new Set(files.map((file) => file.path));
+					setSegments(parseTextToSegments(promptText, knownPaths));
 					requestAnimationFrame(() => {
 						inputReference.current?.focus();
 					});
@@ -704,6 +705,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 			isProcessing,
 			chatMessages,
 			projectId,
+			files,
 			stopChat,
 			setProcessing,
 			setStatusMessage,
@@ -841,41 +843,28 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 								</>
 							)}
 							{/* Streaming assistant message */}
-							<Collapsible open={!!streamingAssistantMessage} duration="duration-150">
-								{streamingAssistantMessage && (
-									<AssistantMessage
-										message={streamingAssistantMessage}
-										streaming
-										toolErrors={toolErrors}
-										fileDiffContent={fileDiffContent}
-									/>
-								)}
-							</Collapsible>
+							{streamingAssistantMessage && (
+								<AssistantMessage message={streamingAssistantMessage} streaming toolErrors={toolErrors} fileDiffContent={fileDiffContent} />
+							)}
 							{/* User question prompt — shown when the AI asks a clarifying question */}
-							<Collapsible open={!!pendingQuestion && !isProcessing}>
-								{pendingQuestion && (
-									<UserQuestionPrompt
-										question={pendingQuestion.question}
-										options={pendingQuestion.options}
-										onOptionClick={(option) => void handleSend(option)}
-									/>
-								)}
-							</Collapsible>
+							{pendingQuestion && !isProcessing && (
+								<UserQuestionPrompt
+									question={pendingQuestion.question}
+									options={pendingQuestion.options}
+									onOptionClick={(option) => void handleSend(option)}
+								/>
+							)}
 							{/* Continuation prompt — shown when the agent hit the iteration limit */}
-							<Collapsible open={needsContinuation && !isProcessing}>
+							{needsContinuation && !isProcessing && (
 								<ContinuationPrompt onContinue={() => void handleSend('continue')} onDismiss={() => setNeedsContinuation(false)} />
-							</Collapsible>
+							)}
 							{/* Doom loop alert — shown when the agent was stopped due to repetitive behavior */}
-							<Collapsible open={!!doomLoopMessage && !isProcessing}>
-								{doomLoopMessage && (
-									<DoomLoopAlert message={doomLoopMessage} onRetry={handleRetry} onDismiss={() => setDoomLoopMessage(undefined)} />
-								)}
-							</Collapsible>
+							{doomLoopMessage && !isProcessing && (
+								<DoomLoopAlert message={doomLoopMessage} onRetry={handleRetry} onDismiss={() => setDoomLoopMessage(undefined)} />
+							)}
 							{/* AI Error display */}
-							<Collapsible open={!!aiError}>
-								{aiError && <AIError message={aiError.message} code={aiError.code} onRetry={handleRetry} onDismiss={handleDismissError} />}
-							</Collapsible>
-							<Collapsible open={!!statusMessage} duration="duration-150">
+							{aiError && <AIError message={aiError.message} code={aiError.code} onRetry={handleRetry} onDismiss={handleDismissError} />}
+							{statusMessage ? (
 								<div
 									className="
 										flex animate-chat-item items-center gap-2 px-1 text-xs
@@ -885,7 +874,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 									<Loader2 className="size-3 animate-spin" />
 									{statusMessage}
 								</div>
-							</Collapsible>
+							) : undefined}
 							{/* Invisible anchor for auto-scroll detection */}
 							<div ref={anchorReference} className="h-px shrink-0" aria-hidden />
 						</div>

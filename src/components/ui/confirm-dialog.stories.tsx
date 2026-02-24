@@ -24,7 +24,7 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-const ConfirmDialogDemo = ({ variant = 'default' }: { variant?: 'default' | 'danger' }) => {
+const ConfirmDialogDemo = ({ variant = 'default' }: { variant?: 'default' | 'danger' | 'warning' }) => {
 	const [open, setOpen] = useState(false);
 
 	return (

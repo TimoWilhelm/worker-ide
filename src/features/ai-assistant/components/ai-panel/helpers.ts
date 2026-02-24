@@ -2,6 +2,8 @@
  * Helper functions and constants for the AI Panel.
  */
 
+import { toolInputSchemas } from '@shared/validation';
+
 import type { AgentMode } from '@shared/types';
 import type { ToolName } from '@shared/validation';
 import type { StreamChunk } from '@tanstack/ai';
@@ -10,28 +12,11 @@ import type { StreamChunk } from '@tanstack/ai';
 // Tool name validation
 // =============================================================================
 
-const VALID_TOOL_NAMES: ReadonlySet<string> = new Set<ToolName>([
-	'file_edit',
-	'file_write',
-	'file_read',
-	'file_grep',
-	'file_glob',
-	'file_list',
-	'files_list',
-
-	'file_delete',
-	'file_move',
-	'user_question',
-	'web_fetch',
-	'docs_search',
-	'plan_update',
-	'todos_get',
-	'todos_update',
-	'dependencies_list',
-	'dependencies_update',
-	'lint_fix',
-	'cdp_eval',
-]);
+/**
+ * Derived from toolInputSchemas — adding a new tool to shared/validation.ts
+ * automatically makes it recognized here. No manual list to keep in sync.
+ */
+const VALID_TOOL_NAMES: ReadonlySet<string> = new Set(Object.keys(toolInputSchemas));
 
 export function isToolName(value: unknown): value is ToolName {
 	return typeof value === 'string' && VALID_TOOL_NAMES.has(value);
