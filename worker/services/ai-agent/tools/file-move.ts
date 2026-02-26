@@ -54,7 +54,7 @@ export async function execute(
 		return toolError(ToolErrorCode.NOT_ALLOWED, `Cannot move protected file: ${fromPath}`);
 	}
 
-	await sendEvent('status', { message: `Moving ${fromPath} → ${toPath}...` });
+	sendEvent('status', { message: `Moving ${fromPath} → ${toPath}...` });
 
 	let beforeContent: string;
 	try {

@@ -50,7 +50,7 @@ export async function execute(
 		return toolError(ToolErrorCode.NOT_ALLOWED, `Cannot delete protected file: ${deletePath}`);
 	}
 
-	await sendEvent('status', { message: `Deleting ${deletePath}...` });
+	sendEvent('status', { message: `Deleting ${deletePath}...` });
 
 	let beforeContent: string;
 	try {

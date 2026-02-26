@@ -146,7 +146,7 @@ export async function execute(
 		throw new ToolExecutionError('MISSING_INPUT', 'REPLICATE_API_TOKEN is not configured.');
 	}
 
-	await sendEvent('status', { message: `Fetching ${fetchUrl}...` });
+	sendEvent('status', { message: `Fetching ${fetchUrl}...` });
 
 	try {
 		const parsedUrl = new URL(fetchUrl);
@@ -170,7 +170,7 @@ export async function execute(
 		const raw = await response.text();
 
 		// ── Step 1: Convert to markdown ──────────────────────────────────────
-		await sendEvent('status', { message: 'Converting to markdown...' });
+		sendEvent('status', { message: 'Converting to markdown...' });
 
 		let markdown: string;
 
@@ -197,7 +197,7 @@ export async function execute(
 		}
 
 		// ── Step 2: Summarize ────────────────────────────────────────────────
-		await sendEvent('status', { message: 'Summarizing content...' });
+		sendEvent('status', { message: 'Summarizing content...' });
 
 		try {
 			const summary = await summarizeContent(markdown, userPrompt, fetchUrl, apiKey);

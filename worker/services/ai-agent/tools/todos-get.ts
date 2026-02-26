@@ -34,7 +34,7 @@ export async function execute(
 ): Promise<ToolResult> {
 	const { projectRoot, sessionId } = context;
 
-	await sendEvent('status', { message: 'Reading TODOs...' });
+	sendEvent('status', { message: 'Reading TODOs...' });
 	const todos = await readTodos(projectRoot, sessionId);
 
 	const completed = todos.filter((t) => t.status === 'completed').length;

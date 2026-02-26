@@ -81,7 +81,7 @@ export async function execute(
 ): Promise<ToolResult> {
 	const { projectRoot, sessionId } = context;
 
-	await sendEvent('status', { message: 'Updating TODOs...' });
+	sendEvent('status', { message: 'Updating TODOs...' });
 
 	try {
 		let todosRaw: unknown = input.todos;

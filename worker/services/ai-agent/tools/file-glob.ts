@@ -60,7 +60,7 @@ export async function execute(
 	const globPattern = input.pattern;
 	const searchPath = input.path || '/';
 
-	await sendEvent('status', { message: `Finding files matching "${globPattern}"...` });
+	sendEvent('status', { message: `Finding files matching "${globPattern}"...` });
 
 	// Get all files in the search directory
 	const searchDirectory = searchPath === '/' ? projectRoot : `${projectRoot}${searchPath}`;

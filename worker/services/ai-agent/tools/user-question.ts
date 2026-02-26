@@ -35,12 +35,12 @@ export async function execute(
 	const questionText = input.question;
 	const questionOptions = input.options;
 
-	await sendEvent('status', { message: 'Asking user...' });
+	sendEvent('status', { message: 'Asking user...' });
 
 	// Emit the user_question CUSTOM event so the frontend can show the interactive
 	// question prompt (UserQuestionPrompt component). Without this, the frontend
 	// never knows to display the question UI with clickable option buttons.
-	await sendEvent('user_question', { question: questionText, options: questionOptions });
+	sendEvent('user_question', { question: questionText, options: questionOptions });
 
 	let resultText = `Question for the user: ${questionText}`;
 	if (questionOptions) {

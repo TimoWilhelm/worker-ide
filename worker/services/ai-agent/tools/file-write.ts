@@ -111,7 +111,7 @@ export async function execute(
 		}
 	}
 
-	await sendEvent('status', { message: `Writing ${writePath}...` });
+	sendEvent('status', { message: `Writing ${writePath}...` });
 
 	// Guard: if file exists and content is identical, skip the write.
 	// This prevents empty diffs from appearing in the UI.

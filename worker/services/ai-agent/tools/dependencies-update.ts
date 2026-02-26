@@ -49,7 +49,7 @@ export async function execute(
 
 	const metaPath = `${projectRoot}/.project-meta.json`;
 
-	await sendEvent('status', { message: `Updating dependency: ${name}...` });
+	sendEvent('status', { message: `Updating dependency: ${name}...` });
 
 	let meta: ProjectMeta;
 	try {

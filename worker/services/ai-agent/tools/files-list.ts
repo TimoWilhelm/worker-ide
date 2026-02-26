@@ -31,7 +31,7 @@ export async function execute(
 ): Promise<ToolResult> {
 	const { projectRoot } = context;
 
-	await sendEvent('status', { message: 'Listing files...' });
+	sendEvent('status', { message: 'Listing files...' });
 	const files = await listFilesRecursive(projectRoot);
 	const filtered = files.filter((f) => !f.endsWith('/.initialized') && f !== '/.initialized');
 	return { title: 'project files', metadata: { count: filtered.length }, output: filtered.join('\n') };

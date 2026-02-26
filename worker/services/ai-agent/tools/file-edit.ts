@@ -92,7 +92,7 @@ export async function execute(
 		}
 	}
 
-	await sendEvent('status', { message: `Editing ${editPath}...` });
+	sendEvent('status', { message: `Editing ${editPath}...` });
 
 	// Read file content
 	let content: string;

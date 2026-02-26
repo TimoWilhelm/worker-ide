@@ -33,7 +33,7 @@ export async function execute(
 	context: ToolExecutorContext,
 ): Promise<ToolResult> {
 	const query = input.query;
-	await sendEvent('status', { message: `Searching Cloudflare docs: "${query}"...` });
+	sendEvent('status', { message: `Searching Cloudflare docs: "${query}"...` });
 
 	try {
 		const result = await context.callMcpTool('cloudflare-docs', 'search_cloudflare_documentation', { query });

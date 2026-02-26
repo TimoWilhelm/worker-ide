@@ -39,7 +39,7 @@ export async function execute(
 	const listPath = input.path || '/';
 	const listPattern = input.pattern;
 
-	await sendEvent('status', { message: `Listing ${listPath}...` });
+	sendEvent('status', { message: `Listing ${listPath}...` });
 
 	try {
 		const entries = await fs.readdir(`${projectRoot}${listPath}`, { withFileTypes: true });

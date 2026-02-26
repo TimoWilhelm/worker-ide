@@ -25,7 +25,7 @@ export async function execute(
 ): Promise<ToolResult> {
 	const { projectRoot } = context;
 
-	await sendEvent('status', { message: 'Listing dependencies...' });
+	sendEvent('status', { message: 'Listing dependencies...' });
 
 	try {
 		const metaRaw = await fs.readFile(`${projectRoot}/.project-meta.json`, 'utf8');

@@ -67,7 +67,7 @@ export async function execute(
 	const searchPath = input.path || '/';
 	const includePattern = input.include;
 
-	await sendEvent('status', { message: `Searching for "${grepPattern}"...` });
+	sendEvent('status', { message: `Searching for "${grepPattern}"...` });
 
 	// Compile regex
 	let regex: RegExp;

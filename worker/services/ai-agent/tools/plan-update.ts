@@ -37,7 +37,7 @@ export async function execute(
 	const { projectRoot, sessionId } = context;
 	const content = input.content;
 
-	await sendEvent('status', { message: 'Updating plan...' });
+	sendEvent('status', { message: 'Updating plan...' });
 
 	try {
 		const planDirectory = `${projectRoot}/.agent/plans`;
@@ -53,7 +53,7 @@ export async function execute(
 		}
 
 		await fs.writeFile(planFile, content);
-		await sendEvent('plan_updated', { content });
+		sendEvent('plan_updated', { content });
 
 		const lineCount = content.split('\n').length;
 		const completedCount = (content.match(/- \[x\]/gi) || []).length;

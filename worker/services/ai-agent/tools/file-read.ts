@@ -197,7 +197,7 @@ export async function execute(
 		return toolError(ToolErrorCode.INVALID_PATH, `Access denied: ${readPath}`);
 	}
 
-	await sendEvent('status', { message: `Reading ${readPath}...` });
+	sendEvent('status', { message: `Reading ${readPath}...` });
 
 	const fullPath = `${projectRoot}${readPath}`;
 
