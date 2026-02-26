@@ -12,6 +12,15 @@ import { App } from './app';
 
 import './index.css';
 
+// Safety net: reload once if a lazy-loaded chunk fails after a new deployment
+globalThis.addEventListener('vite:preloadError', () => {
+	const key = 'stale-asset-reload';
+	const last = sessionStorage.getItem(key);
+	if (last && Date.now() - Number(last) < 10_000) return;
+	sessionStorage.setItem(key, String(Date.now()));
+	globalThis.location.reload();
+});
+
 const rootElement = document.querySelector('#root');
 
 if (!rootElement) {

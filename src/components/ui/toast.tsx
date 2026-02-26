@@ -5,7 +5,7 @@
  * Mount `<Toaster />` once near the root of the app.
  */
 
-import { CircleAlert, CircleCheck, X } from 'lucide-react';
+import { CircleAlert, CircleCheck, Info, X } from 'lucide-react';
 import { Toast } from 'radix-ui';
 
 import { removeToast, useToasts } from '@/components/ui/toast-store';
@@ -46,10 +46,35 @@ export function Toaster() {
 				>
 					{item.variant === 'error' ? (
 						<CircleAlert className="mt-0.5 size-4 shrink-0 text-error" />
+					) : item.variant === 'info' ? (
+						<Info className="mt-0.5 size-4 shrink-0 text-accent" />
 					) : (
 						<CircleCheck className="mt-0.5 size-4 shrink-0 text-accent" />
 					)}
-					<Toast.Description className="flex-1 text-sm text-text-primary">{item.message}</Toast.Description>
+					<div className="flex flex-1 flex-col gap-1.5">
+						<Toast.Description className="text-sm text-text-primary">{item.message}</Toast.Description>
+						{item.action && (
+							<button
+								type="button"
+								onClick={() => {
+									item.action?.onClick();
+									removeToast(item.id);
+								}}
+								className={cn(
+									`
+										cursor-pointer self-start rounded-md bg-accent px-2.5 py-1 text-xs
+										font-medium text-white
+									`,
+									`
+										transition-colors
+										hover:bg-accent-hover
+									`,
+								)}
+							>
+								{item.action.label}
+							</button>
+						)}
+					</div>
 					<Toast.Close
 						aria-label="Dismiss"
 						className={cn(

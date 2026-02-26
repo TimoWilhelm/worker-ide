@@ -15,6 +15,7 @@ import { IDEShell } from '@/components/ide-shell';
 import { Spinner } from '@/components/ui/spinner';
 import { Toaster } from '@/components/ui/toast';
 import { LandingPage } from '@/features/landing';
+import { usePwaUpdate } from '@/hooks/use-pwa-update';
 import { trackProject } from '@/lib/recent-projects';
 
 // =============================================================================
@@ -158,6 +159,15 @@ function AppContent() {
 }
 
 // =============================================================================
+// PWA Update Handler
+// =============================================================================
+
+function PwaUpdateHandler(): React.JSX.Element {
+	usePwaUpdate();
+	return <></>;
+}
+
+// =============================================================================
 // Root App Component
 // =============================================================================
 
@@ -166,6 +176,7 @@ export function App() {
 		<ErrorBoundary fallback={ErrorFallback}>
 			<QueryClientProvider client={queryClient}>
 				<AppContent />
+				<PwaUpdateHandler />
 				<Toaster />
 			</QueryClientProvider>
 		</ErrorBoundary>

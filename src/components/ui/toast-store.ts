@@ -11,10 +11,16 @@ import { createStore, useStore } from 'zustand';
 // Types
 // =============================================================================
 
+export interface ToastAction {
+	label: string;
+	onClick: () => void;
+}
+
 export interface ToastItem {
 	id: string;
 	message: string;
-	variant: 'error' | 'success';
+	variant: 'error' | 'info' | 'success';
+	action?: ToastAction;
 }
 
 // =============================================================================
@@ -31,10 +37,14 @@ const toastStore = createStore<ToastState>(() => ({
 	nextId: 0,
 }));
 
-function addToast(message: string, variant: 'error' | 'success') {
+interface AddToastOptions {
+	action?: ToastAction;
+}
+
+function addToast(message: string, variant: 'error' | 'info' | 'success', options?: AddToastOptions) {
 	toastStore.setState((state) => ({
 		nextId: state.nextId + 1,
-		items: [...state.items, { id: String(state.nextId + 1), message, variant }],
+		items: [...state.items, { id: String(state.nextId + 1), message, variant, action: options?.action }],
 	}));
 }
 
@@ -67,8 +77,9 @@ export function useToasts(): ToastItem[] {
  * ```
  */
 export const toast = {
-	error: (message: string) => addToast(message, 'error'),
-	success: (message: string) => addToast(message, 'success'),
+	error: (message: string, options?: AddToastOptions) => addToast(message, 'error', options),
+	info: (message: string, options?: AddToastOptions) => addToast(message, 'info', options),
+	success: (message: string, options?: AddToastOptions) => addToast(message, 'success', options),
 };
 
 // =============================================================================

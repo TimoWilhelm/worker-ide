@@ -29,10 +29,22 @@ const ToastDemo = () => {
 			</Button>
 			<Button
 				onClick={() => {
-					toast.error('Success: File saved!');
+					toast.success('File saved!');
 				}}
 			>
 				Show Success Toast
+			</Button>
+			<Button
+				onClick={() => {
+					toast.info('New version available', {
+						action: {
+							label: 'Reload',
+							onClick: () => globalThis.location.reload(),
+						},
+					});
+				}}
+			>
+				Show Info Toast with Action
 			</Button>
 			<Toaster />
 		</div>
