@@ -28,8 +28,8 @@ describe('cdp_eval', () => {
 			context,
 		);
 
-		expect(result).toHaveProperty('method', 'Runtime.evaluate');
-		expect(result).toHaveProperty('result');
+		expect(result.metadata).toHaveProperty('method', 'Runtime.evaluate');
+		expect(result.metadata).toHaveProperty('result');
 		expect(mockSendCdpCommand).toHaveBeenCalledOnce();
 		// Verify params were parsed and passed
 		const callArguments = mockSendCdpCommand.mock.calls[0];
@@ -43,33 +43,31 @@ describe('cdp_eval', () => {
 
 		const result = await execute({ method: 'DOM.getDocument' }, createMockSendEvent(), context);
 
-		expect(result).toHaveProperty('method', 'DOM.getDocument');
-		expect(result).toHaveProperty('result');
+		expect(result.metadata).toHaveProperty('method', 'DOM.getDocument');
+		expect(result.metadata).toHaveProperty('result');
 	});
 
 	// ── CDP error ─────────────────────────────────────────────────────────
 
-	it('returns error from CDP command', async () => {
+	it('throws error from CDP command', async () => {
 		const mockSendCdpCommand = vi.fn().mockResolvedValue({ error: 'No browser connected' });
 		const context = createMockContext({ sendCdpCommand: mockSendCdpCommand });
 
-		const result = await execute({ method: 'Runtime.evaluate', params: '{"expression": "x"}' }, createMockSendEvent(), context);
-
-		expect(result).toHaveProperty('error', 'No browser connected');
+		await expect(execute({ method: 'Runtime.evaluate', params: '{"expression": "x"}' }, createMockSendEvent(), context)).rejects.toThrow(
+			'No browser connected',
+		);
 	});
 
 	// ── JSON parsing errors ───────────────────────────────────────────────
 
-	it('returns error for invalid params JSON', async () => {
+	it('throws error for invalid params JSON', async () => {
 		const context = createMockContext({
 			sendCdpCommand: vi.fn().mockResolvedValue({ result: 'ok' }),
 		});
 
-		const result = await execute({ method: 'Runtime.evaluate', params: 'not valid json{{{' }, createMockSendEvent(), context);
-
-		expect(result).toHaveProperty('error');
-		const errorResult = result as { error: string };
-		expect(errorResult.error).toContain('Invalid params');
+		await expect(execute({ method: 'Runtime.evaluate', params: 'not valid json{{{' }, createMockSendEvent(), context)).rejects.toThrow(
+			'Invalid params',
+		);
 	});
 
 	it('rejects array params', async () => {
@@ -77,11 +75,9 @@ describe('cdp_eval', () => {
 			sendCdpCommand: vi.fn().mockResolvedValue({ result: 'ok' }),
 		});
 
-		const result = await execute({ method: 'Runtime.evaluate', params: '[1, 2, 3]' }, createMockSendEvent(), context);
-
-		expect(result).toHaveProperty('error');
-		const errorResult = result as { error: string };
-		expect(errorResult.error).toContain('must be a JSON object');
+		await expect(execute({ method: 'Runtime.evaluate', params: '[1, 2, 3]' }, createMockSendEvent(), context)).rejects.toThrow(
+			'must be a JSON object',
+		);
 	});
 
 	it('rejects primitive params', async () => {
@@ -89,37 +85,27 @@ describe('cdp_eval', () => {
 			sendCdpCommand: vi.fn().mockResolvedValue({ result: 'ok' }),
 		});
 
-		const result = await execute({ method: 'Runtime.evaluate', params: '"just a string"' }, createMockSendEvent(), context);
-
-		expect(result).toHaveProperty('error');
-		const errorResult = result as { error: string };
-		expect(errorResult.error).toContain('must be a JSON object');
+		await expect(execute({ method: 'Runtime.evaluate', params: '"just a string"' }, createMockSendEvent(), context)).rejects.toThrow(
+			'must be a JSON object',
+		);
 	});
 
 	// ── No CDP available ──────────────────────────────────────────────────
 
-	it('returns error when sendCdpCommand is not available', async () => {
+	it('throws error when sendCdpCommand is not available', async () => {
 		const context = createMockContext({ sendCdpCommand: undefined });
 
-		const result = await execute({ method: 'Runtime.evaluate' }, createMockSendEvent(), context);
-
-		expect(result).toHaveProperty('error');
-		const errorResult = result as { error: string };
-		expect(errorResult.error).toContain('not available');
+		await expect(execute({ method: 'Runtime.evaluate' }, createMockSendEvent(), context)).rejects.toThrow('not available');
 	});
 
 	// ── Missing method ────────────────────────────────────────────────────
 
-	it('returns error when method is empty', async () => {
+	it('throws error when method is empty', async () => {
 		const context = createMockContext({
 			sendCdpCommand: vi.fn().mockResolvedValue({ result: 'ok' }),
 		});
 
-		const result = await execute({ method: '' }, createMockSendEvent(), context);
-
-		expect(result).toHaveProperty('error');
-		const errorResult = result as { error: string };
-		expect(errorResult.error).toContain('required');
+		await expect(execute({ method: '' }, createMockSendEvent(), context)).rejects.toThrow('required');
 	});
 
 	// ── Status event ──────────────────────────────────────────────────────

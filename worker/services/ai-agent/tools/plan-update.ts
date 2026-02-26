@@ -5,7 +5,9 @@
 
 import fs from 'node:fs/promises';
 
-import type { SendEventFunction, ToolDefinition, ToolExecutorContext } from '../types';
+import { ToolExecutionError } from '@shared/tool-errors';
+
+import type { SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
 
 export const DESCRIPTION = `Update the current implementation plan. Use this to mark steps as complete, add new steps, or revise the plan as you make progress. The plan helps the user understand your approach and track progress.
 
@@ -13,7 +15,7 @@ Usage:
 - Provide the full updated plan content, not just the changes.
 - Use markdown format for structure (headings, lists, checkboxes).
 - Update the plan as you progress through implementation.
-- Keep the plan concise and actionable — avoid unnecessary detail.`;
+- Keep the plan concise and actionable �� avoid unnecessary detail.`;
 
 export const definition: ToolDefinition = {
 	name: 'plan_update',
@@ -31,7 +33,7 @@ export async function execute(
 	input: Record<string, string>,
 	sendEvent: SendEventFunction,
 	context: ToolExecutorContext,
-): Promise<string | object> {
+): Promise<ToolResult> {
 	const { projectRoot, sessionId } = context;
 	const content = input.content;
 
@@ -66,8 +68,8 @@ export async function execute(
 			result += ' (no changes from previous plan)';
 		}
 
-		return { result, path: planFile };
+		return { title: 'plan', metadata: { completedTasks: completedCount, totalTasks }, output: result };
 	} catch (error) {
-		return { error: `Failed to update plan: ${String(error)}` };
+		throw new ToolExecutionError('MISSING_INPUT', `Failed to update plan: ${String(error)}`);
 	}
 }

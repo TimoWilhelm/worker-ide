@@ -30,7 +30,7 @@ const MAX_DEBUG_LOGS = 20;
 const MAX_FIELD_LENGTH = 500;
 
 /** Keys in tool inputs that commonly contain large content (file bodies, etc.). */
-const LARGE_CONTENT_KEYS = new Set(['content', 'file_content', 'patch', 'diff', 'body', 'old_string', 'new_string']);
+const LARGE_CONTENT_KEYS = new Set(['content', 'file_content', 'patch', 'diff', 'body', 'old_string', 'new_string', 'edits']);
 
 // =============================================================================
 // Types

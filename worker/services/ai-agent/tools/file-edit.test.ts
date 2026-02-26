@@ -71,7 +71,7 @@ describe('file_edit', () => {
 
 		const result = await execute({ path: '/src/app.ts', old_string: '"hello"', new_string: '"world"' }, createMockSendEvent(), context());
 
-		expect(result).toHaveProperty('result');
+		expect(result).toHaveProperty('output');
 		const entry = memoryFs.store.get(`${PROJECT_ROOT}/src/app.ts`);
 		expect(entry?.content).toContain('"world"');
 		expect(entry?.content).not.toContain('"hello"');
@@ -86,8 +86,8 @@ describe('file_edit', () => {
 			context(),
 		);
 
-		expect(result).toHaveProperty('linesAdded');
-		expect(result).toHaveProperty('linesRemoved');
+		expect(result.metadata).toHaveProperty('linesAdded');
+		expect(result.metadata).toHaveProperty('linesRemoved');
 	});
 
 	it('replaces all occurrences with replace_all=true', async () => {
@@ -99,7 +99,7 @@ describe('file_edit', () => {
 			context(),
 		);
 
-		expect(result).toHaveProperty('result');
+		expect(result).toHaveProperty('output');
 		const entry = memoryFs.store.get(`${PROJECT_ROOT}/multi.ts`);
 		expect(entry?.content).toBe('qux bar qux baz qux\n');
 	});
@@ -118,7 +118,7 @@ describe('file_edit', () => {
 			context(),
 		);
 
-		expect(result).toHaveProperty('result');
+		expect(result).toHaveProperty('output');
 		const entry = memoryFs.store.get(`${PROJECT_ROOT}/func.ts`);
 		expect(entry?.content).toContain('"hello world"');
 	});
@@ -129,13 +129,7 @@ describe('file_edit', () => {
 		await seedAndRead('/tracked.ts', 'before');
 		const queryChanges: FileChange[] = [];
 
-		await execute(
-			{ path: '/tracked.ts', old_string: 'before', new_string: 'after' },
-			createMockSendEvent(),
-			context(),
-			'tool-456',
-			queryChanges,
-		);
+		await execute({ path: '/tracked.ts', old_string: 'before', new_string: 'after' }, createMockSendEvent(), context(), queryChanges);
 
 		expect(queryChanges).toHaveLength(1);
 		expect(queryChanges[0].action).toBe('edit');

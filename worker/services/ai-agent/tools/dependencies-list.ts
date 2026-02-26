@@ -5,7 +5,7 @@
 
 import fs from 'node:fs/promises';
 
-import type { SendEventFunction, ToolDefinition, ToolExecutorContext } from '../types';
+import type { SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
 import type { ProjectMeta } from '@shared/types';
 
 export const definition: ToolDefinition = {
@@ -22,7 +22,7 @@ export async function execute(
 	_input: Record<string, string>,
 	sendEvent: SendEventFunction,
 	context: ToolExecutorContext,
-): Promise<string | object> {
+): Promise<ToolResult> {
 	const { projectRoot } = context;
 
 	await sendEvent('status', { message: 'Listing dependencies...' });
@@ -31,8 +31,11 @@ export async function execute(
 		const metaRaw = await fs.readFile(`${projectRoot}/.project-meta.json`, 'utf8');
 		const meta: ProjectMeta = JSON.parse(metaRaw);
 		const dependencies = meta.dependencies ?? {};
-		return { dependencies };
+		const output = Object.entries(dependencies)
+			.map(([name, version]) => `${name}: ${version}`)
+			.join('\n');
+		return { title: 'dependencies', metadata: { dependencies }, output: output || 'No dependencies registered.' };
 	} catch {
-		return { dependencies: {}, note: 'No project metadata found.' };
+		return { title: 'dependencies', metadata: { dependencies: {} }, output: 'No project metadata found.' };
 	}
 }

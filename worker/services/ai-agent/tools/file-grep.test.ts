@@ -50,9 +50,9 @@ describe('file_grep', () => {
 
 		const result = await execute({ pattern: 'App' }, createMockSendEvent(), context());
 
-		expect(result).toContain('Found');
-		expect(result).toContain('/src/app.ts');
-		expect(result).toContain('Line');
+		expect(result.output).toContain('Found');
+		expect(result.output).toContain('/src/app.ts');
+		expect(result.output).toContain('Line');
 	});
 
 	it('supports regex patterns', async () => {
@@ -60,9 +60,9 @@ describe('file_grep', () => {
 
 		const result = await execute({ pattern: String.raw`function\s+\w+` }, createMockSendEvent(), context());
 
-		expect(result).toContain('Found 2 matches');
-		expect(result).toContain('function hello');
-		expect(result).toContain('function world');
+		expect(result.output).toContain('Found 2 matches');
+		expect(result.output).toContain('function hello');
+		expect(result.output).toContain('function world');
 	});
 
 	// ── Include filter ────────────────────────────────────────────────────
@@ -74,10 +74,10 @@ describe('file_grep', () => {
 
 		const result = await execute({ pattern: 'target', include: '*.ts' }, createMockSendEvent(), context());
 
-		expect(result).toContain('Found 1 match');
-		expect(result).toContain('file.ts');
-		expect(result).not.toContain('file.js');
-		expect(result).not.toContain('file.css');
+		expect(result.output).toContain('Found 1 match');
+		expect(result.output).toContain('file.ts');
+		expect(result.output).not.toContain('file.js');
+		expect(result.output).not.toContain('file.css');
 	});
 
 	// ── Subdirectory search ───────────────────────────────────────────────
@@ -88,9 +88,9 @@ describe('file_grep', () => {
 
 		const result = await execute({ pattern: 'needle', path: '/src' }, createMockSendEvent(), context());
 
-		expect(result).toContain('Found 1 match');
-		expect(result).toContain('deep/file.ts');
-		expect(result).not.toContain('other');
+		expect(result.output).toContain('Found 1 match');
+		expect(result.output).toContain('deep/file.ts');
+		expect(result.output).not.toContain('other');
 	});
 
 	// ── Binary file skipping ──────────────────────────────────────────────
@@ -101,8 +101,8 @@ describe('file_grep', () => {
 
 		const result = await execute({ pattern: 'needle' }, createMockSendEvent(), context());
 
-		expect(result).toContain('Found 1 match');
-		expect(result).not.toContain('image.png');
+		expect(result.output).toContain('Found 1 match');
+		expect(result.output).not.toContain('image.png');
 	});
 
 	// ── No results ────────────────────────────────────────────────────────
@@ -112,7 +112,7 @@ describe('file_grep', () => {
 
 		const result = await execute({ pattern: 'zzzznonexistent' }, createMockSendEvent(), context());
 
-		expect(result).toBe('No files found');
+		expect(result.output).toBe('No files found');
 	});
 
 	// ── Invalid regex ─────────────────────────────────────────────────────
@@ -129,8 +129,8 @@ describe('file_grep', () => {
 
 		const result = await execute({ pattern: 'match' }, createMockSendEvent(), context());
 
-		expect(result).toContain('...');
-		expect(result).not.toContain('x'.repeat(3000));
+		expect(result.output).toContain('...');
+		expect(result.output).not.toContain('x'.repeat(3000));
 	});
 
 	// ── Case insensitive ──────────────────────────────────────────────────
@@ -140,6 +140,6 @@ describe('file_grep', () => {
 
 		const result = await execute({ pattern: 'hello' }, createMockSendEvent(), context());
 
-		expect(result).toContain('Found 3 matches');
+		expect(result.output).toContain('Found 3 matches');
 	});
 });

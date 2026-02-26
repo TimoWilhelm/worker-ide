@@ -6,8 +6,9 @@
 import fs from 'node:fs/promises';
 
 import { HIDDEN_ENTRIES } from '@shared/constants';
+import { ToolExecutionError } from '@shared/tool-errors';
 
-import type { SendEventFunction, ToolDefinition, ToolExecutorContext } from '../types';
+import type { SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
 
 export const DESCRIPTION = `List files and directories in a given path. Returns immediate children with type and size information.
 
@@ -33,7 +34,7 @@ export async function execute(
 	input: Record<string, string>,
 	sendEvent: SendEventFunction,
 	context: ToolExecutorContext,
-): Promise<string | object> {
+): Promise<ToolResult> {
 	const { projectRoot } = context;
 	const listPath = input.path || '/';
 	const listPattern = input.pattern;
@@ -71,8 +72,12 @@ export async function execute(
 			results = results.filter((entry) => patternRegex.test(entry.name));
 		}
 
-		return { path: listPath, entries: results };
+		const outputText = results
+			.map((entry) => (entry.type === 'directory' ? `${entry.name}/ (directory)` : `${entry.name} (${entry.size ?? 0} bytes)`))
+			.join('\n');
+
+		return { title: listPath, metadata: { entries: results }, output: outputText };
 	} catch {
-		return { error: `Directory not found: ${listPath}` };
+		throw new ToolExecutionError('FILE_NOT_FOUND', `Directory not found: ${listPath}`);
 	}
 }

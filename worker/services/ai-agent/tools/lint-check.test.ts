@@ -81,7 +81,7 @@ describe('lint_check', () => {
 
 		const result = await execute({ path: '/src/clean.ts' }, createMockSendEvent(), context());
 
-		expect(result).toBe('No lint issues found in /src/clean.ts.');
+		expect(result.output).toBe('No lint issues found in /src/clean.ts.');
 	});
 
 	// ── Diagnostics found ─────────────────────────────────────────────────
@@ -95,11 +95,11 @@ describe('lint_check', () => {
 
 		const result = await execute({ path: '/src/app.ts' }, createMockSendEvent(), context());
 
-		expect(result).toContain('Found 2 lint issue(s) in /src/app.ts');
-		expect(result).toContain('Use const or let instead of var');
-		expect(result).toContain('eval is harmful');
-		expect(result).toContain('Error [1:1]');
-		expect(result).toContain('Error [2:1]');
+		expect(result.output).toContain('Found 2 lint issue(s) in /src/app.ts');
+		expect(result.output).toContain('Use const or let instead of var');
+		expect(result.output).toContain('eval is harmful');
+		expect(result.output).toContain('Error [1:1]');
+		expect(result.output).toContain('Error [2:1]');
 	});
 
 	it('indicates fixable count and suggests lint_fix', async () => {
@@ -110,7 +110,7 @@ describe('lint_check', () => {
 
 		const result = await execute({ path: '/src/fixable.ts' }, createMockSendEvent(), context());
 
-		expect(result).toContain('1 issue(s) can be auto-fixed with lint_fix');
+		expect(result.output).toContain('1 issue(s) can be auto-fixed with lint_fix');
 	});
 
 	it('does not suggest lint_fix when no issues are fixable', async () => {
@@ -121,8 +121,8 @@ describe('lint_check', () => {
 
 		const result = await execute({ path: '/src/unfixable.ts' }, createMockSendEvent(), context());
 
-		expect(result).toContain('Found 1 lint issue(s)');
-		expect(result).not.toContain('auto-fixed with lint_fix');
+		expect(result.output).toContain('Found 1 lint issue(s)');
+		expect(result.output).not.toContain('auto-fixed with lint_fix');
 	});
 
 	// ── Read-only (does not modify file) ──────────────────────────────────
@@ -163,9 +163,9 @@ describe('lint_check', () => {
 
 		const result = await execute({ path: '/src/mixed.ts' }, createMockSendEvent(), context());
 
-		expect(result).toContain('Found 2 lint issue(s)');
-		expect(result).toContain('error(s)');
-		expect(result).toContain('warning(s)');
+		expect(result.output).toContain('Found 2 lint issue(s)');
+		expect(result.output).toContain('error(s)');
+		expect(result.output).toContain('warning(s)');
 	});
 
 	// ── Error cases ───────────────────────────────────────────────────────

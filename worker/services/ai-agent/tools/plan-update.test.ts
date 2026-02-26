@@ -49,11 +49,8 @@ describe('plan_update', () => {
 
 		const result = await execute({ content: plan }, createMockSendEvent(), context());
 
-		expect(result).toHaveProperty('result');
-		expect(result).toHaveProperty('path');
-		const resultObject = result as { result: string; path: string };
-		expect(resultObject.result).toContain('Plan updated');
-		expect(resultObject.path).toContain('ses-123.md');
+		expect(result).toHaveProperty('output');
+		expect(result.output).toContain('Plan updated');
 		// File should be written
 		expect(memoryFs.store.has(`${PROJECT_ROOT}/.agent/plans/ses-123.md`)).toBe(true);
 	});
@@ -65,8 +62,9 @@ describe('plan_update', () => {
 
 		const result = await execute({ content: plan }, createMockSendEvent(), context());
 
-		const resultObject = result as { result: string };
-		expect(resultObject.result).toContain('2/3 tasks completed');
+		expect(result.output).toContain('2/3 tasks completed');
+		expect(result.metadata).toHaveProperty('completedTasks', 2);
+		expect(result.metadata).toHaveProperty('totalTasks', 3);
 	});
 
 	it('handles plan with no checkboxes', async () => {
@@ -74,8 +72,9 @@ describe('plan_update', () => {
 
 		const result = await execute({ content: plan }, createMockSendEvent(), context());
 
-		const resultObject = result as { result: string };
-		expect(resultObject.result).not.toContain('tasks completed');
+		expect(result.output).not.toContain('tasks completed');
+		expect(result.metadata).toHaveProperty('completedTasks', 0);
+		expect(result.metadata).toHaveProperty('totalTasks', 0);
 	});
 
 	// ── Plan updates ──────────────────────────────────────────────────────
@@ -87,8 +86,7 @@ describe('plan_update', () => {
 
 		const result = await execute({ content: plan }, createMockSendEvent(), context());
 
-		const resultObject = result as { result: string };
-		expect(resultObject.result).toContain('no changes');
+		expect(result.output).toContain('no changes');
 	});
 
 	// ── Event emission ────────────────────────────────────────────────────
@@ -108,9 +106,8 @@ describe('plan_update', () => {
 	it('uses "default" when sessionId is not set', async () => {
 		const contextWithoutSession = createMockContext({ projectRoot: PROJECT_ROOT, sessionId: undefined });
 
-		const result = await execute({ content: '# Plan' }, createMockSendEvent(), contextWithoutSession);
+		await execute({ content: '# Plan' }, createMockSendEvent(), contextWithoutSession);
 
-		const resultObject = result as { path: string };
-		expect(resultObject.path).toContain('default.md');
+		expect(memoryFs.store.has(`${PROJECT_ROOT}/.agent/plans/default.md`)).toBe(true);
 	});
 });

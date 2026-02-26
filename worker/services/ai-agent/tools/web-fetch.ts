@@ -11,10 +11,11 @@ import { chat, maxIterations } from '@tanstack/ai';
 import { env } from 'cloudflare:workers';
 
 import { SUMMARIZATION_AI_MODEL } from '@shared/constants';
+import { ToolExecutionError } from '@shared/tool-errors';
 
 import { createAdapter } from '../replicate';
 
-import type { SendEventFunction, ToolDefinition, ToolExecutorContext } from '../types';
+import type { SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
 
 export const DESCRIPTION = `Fetch a web page and run a prompt against its content. The page is converted to markdown and summarized, so the returned content is always a processed summary — never raw page text.
 
@@ -136,13 +137,13 @@ export async function execute(
 	input: Record<string, string>,
 	sendEvent: SendEventFunction,
 	_context: ToolExecutorContext,
-): Promise<string | object> {
+): Promise<ToolResult> {
 	const fetchUrl = input.url;
 	const userPrompt = input.prompt;
 
 	const apiKey = env.REPLICATE_API_TOKEN;
 	if (!apiKey) {
-		return { error: 'REPLICATE_API_TOKEN is not configured.' };
+		throw new ToolExecutionError('MISSING_INPUT', 'REPLICATE_API_TOKEN is not configured.');
 	}
 
 	await sendEvent('status', { message: `Fetching ${fetchUrl}...` });
@@ -150,7 +151,7 @@ export async function execute(
 	try {
 		const parsedUrl = new URL(fetchUrl);
 		if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
-			return { error: 'Only http:// and https:// URLs are supported' };
+			throw new ToolExecutionError('MISSING_INPUT', 'Only http:// and https:// URLs are supported');
 		}
 
 		const response = await fetch(fetchUrl, {
@@ -162,7 +163,7 @@ export async function execute(
 		});
 
 		if (!response.ok) {
-			return { error: `HTTP ${response.status}: ${response.statusText}` };
+			throw new ToolExecutionError('MISSING_INPUT', `HTTP ${response.status}: ${response.statusText}`);
 		}
 
 		const contentType = response.headers.get('content-type') ?? '';
@@ -179,11 +180,14 @@ export async function execute(
 			try {
 				const converted = await convertHtmlToMarkdown(raw, env.AI);
 				if (!converted) {
-					return { error: `Failed to convert content from ${fetchUrl} to markdown` };
+					throw new ToolExecutionError('MISSING_INPUT', `Failed to convert content from ${fetchUrl} to markdown`);
 				}
 				markdown = converted;
 			} catch (error) {
-				return { error: `Failed to convert content from ${fetchUrl} to markdown: ${String(error)}` };
+				if (error instanceof ToolExecutionError) {
+					throw error;
+				}
+				throw new ToolExecutionError('MISSING_INPUT', `Failed to convert content from ${fetchUrl} to markdown: ${String(error)}`);
 			}
 		}
 
@@ -197,11 +201,21 @@ export async function execute(
 
 		try {
 			const summary = await summarizeContent(markdown, userPrompt, fetchUrl, apiKey);
-			return { url: fetchUrl, content: summary, length: summary.length };
+			return {
+				title: fetchUrl.length > 60 ? fetchUrl.slice(0, 60) + '...' : fetchUrl,
+				metadata: { url: fetchUrl, contentLength: summary.length },
+				output: summary,
+			};
 		} catch (error) {
-			return { error: `Failed to summarize content from ${fetchUrl}: ${String(error)}` };
+			if (error instanceof ToolExecutionError) {
+				throw error;
+			}
+			throw new ToolExecutionError('MISSING_INPUT', `Failed to summarize content from ${fetchUrl}: ${String(error)}`);
 		}
 	} catch (error) {
-		return { error: `Failed to fetch ${fetchUrl}: ${String(error)}` };
+		if (error instanceof ToolExecutionError) {
+			throw error;
+		}
+		throw new ToolExecutionError('MISSING_INPUT', `Failed to fetch ${fetchUrl}: ${String(error)}`);
 	}
 }

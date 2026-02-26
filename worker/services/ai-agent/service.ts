@@ -866,9 +866,29 @@ export class AIAgentService {
 
 							yield chunk;
 
-							// Drain any CUSTOM events from tool execution
+							// Drain any CUSTOM events from tool execution.
+							// Inject the toolCallId into tool_result and file_changed events
+							// since individual tools don't have access to their call ID.
 							while (eventQueue.length > 0) {
 								const queued = eventQueue.shift();
+								if (
+									queued &&
+									toolCallId &&
+									'name' in queued &&
+									'data' in queued &&
+									typeof queued.name === 'string' &&
+									isRecordObject(queued.data)
+								) {
+									const eventName = queued.name;
+									const eventData = queued.data;
+									if (eventName === 'tool_result' || eventName === 'file_changed') {
+										eventData.toolCallId = toolCallId;
+										// Keep tool_use_id for file_changed (legacy field name used by panel.tsx)
+										if (eventName === 'file_changed') {
+											eventData.tool_use_id = toolCallId;
+										}
+									}
+								}
 								if (queued) yield queued;
 							}
 

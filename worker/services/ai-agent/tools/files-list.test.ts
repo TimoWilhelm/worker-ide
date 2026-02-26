@@ -51,11 +51,11 @@ describe('files_list', () => {
 
 		const result = await execute({}, createMockSendEvent(), context());
 
-		expect(result).toHaveProperty('files');
-		const files = (result as { files: string[] }).files;
+		const files = result.output.split('\n');
 		expect(files).toContain('/index.ts');
 		expect(files).toContain('/src/app.ts');
 		expect(files).toContain('/src/utils/helper.ts');
+		expect(result.metadata.count).toBe(3);
 	});
 
 	// ── Hidden directories excluded ───────────────────────────────────────
@@ -67,7 +67,7 @@ describe('files_list', () => {
 
 		const result = await execute({}, createMockSendEvent(), context());
 
-		const files = (result as { files: string[] }).files;
+		const files = result.output.split('\n');
 		expect(files).toContain('/visible.ts');
 		expect(files.some((f) => f.includes('.agent'))).toBe(false);
 		expect(files.some((f) => f.includes('.git'))).toBe(false);
@@ -81,7 +81,7 @@ describe('files_list', () => {
 
 		const result = await execute({}, createMockSendEvent(), context());
 
-		const files = (result as { files: string[] }).files;
+		const files = result.output.split('\n');
 		expect(files).not.toContain('/.initialized');
 		expect(files).toContain('/real.ts');
 	});
@@ -93,7 +93,7 @@ describe('files_list', () => {
 
 		const result = await execute({}, createMockSendEvent(), context());
 
-		const files = (result as { files: string[] }).files;
-		expect(files).toHaveLength(0);
+		expect(result.metadata.count).toBe(0);
+		expect(result.output).toBe('');
 	});
 });

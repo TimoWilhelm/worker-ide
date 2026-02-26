@@ -9,6 +9,7 @@ This document is a collection of guidelines for agents working on the project.
 - [ ] You ran `bun run typecheck` to check for type errors and it passes with no errors.
 - [ ] You ran `bun run knip` to check for unused dependencies, exports and files and it passes with no errors.
 - [ ] You ran `bun run test:unit --run` to run unit tests and it passes with no errors.
+- [ ] You ran `bun run test:worker --run` to run worker tests and it passes with no errors.
 - [ ] You ran `bun run test:react --run` to run react tests and it passes with no errors.
 - [ ] You ran `bun run test:integration --run` to run integration tests and it passes with no errors.
 - [ ] You ran `bun run test:e2e` to run end-to-end tests and it passes with no errors.
@@ -90,6 +91,7 @@ This document is a collection of guidelines for agents working on the project.
 ## Testing & Quality
 
 - Unit tests: Vitest (`bun run test:unit --run`).
+- Worker tests: Vitest (`bun run test:worker --run`)
 - Integration tests: Vitest (`bun run test:integration --run`).
 - React component tests: Vitest + jsdom (`bun run test:react --run`).
 - Component visual tests: Vitest + Storybook (`bun run test:storybook`).
@@ -108,7 +110,6 @@ Worker code runs in Cloudflare's workerd runtime, which requires special test co
 - Tests run in a simulated Workers environment with isolated storage disabled.
 - The main worker entrypoint must be specified in `poolOptions.workers.main`.
 - Use absolute paths (`path.resolve()`) for all config paths to avoid resolution issues.
-- Run with `bun run test:unit` which includes both worker and shared code tests.
 
 ## Accessibility Testing
 

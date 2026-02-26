@@ -7,7 +7,9 @@
  * frontend client, which forwards it to chobitsu in the preview iframe.
  */
 
-import type { SendEventFunction, ToolDefinition, ToolExecutorContext } from '../types';
+import { ToolExecutionError } from '@shared/tool-errors';
+
+import type { SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
 
 export const DESCRIPTION = `Execute a Chrome DevTools Protocol (CDP) command in the project's live preview iframe. Use this to run JavaScript, inspect the DOM, check network activity, read console output, and debug runtime issues.
 
@@ -50,12 +52,12 @@ export async function execute(
 	input: Record<string, string>,
 	sendEvent: SendEventFunction,
 	context: ToolExecutorContext,
-): Promise<string | object> {
+): Promise<ToolResult> {
 	const method = input.method;
 	const parametersRaw = input.params;
 
 	if (!method) {
-		return { error: 'The "method" parameter is required.' };
+		throw new ToolExecutionError('MISSING_INPUT', 'The "method" parameter is required.');
 	}
 
 	// Parse params JSON if provided
@@ -64,17 +66,20 @@ export async function execute(
 		try {
 			const parsed: unknown = JSON.parse(parametersRaw);
 			if (typeof parsed !== 'object' || !parsed || Array.isArray(parsed)) {
-				return { error: 'Invalid params: must be a JSON object (not array or primitive).' };
+				throw new ToolExecutionError('MISSING_INPUT', 'Invalid params: must be a JSON object (not array or primitive).');
 			}
 			// parsed is a non-null, non-array object at this point
 			parameters = Object.fromEntries(Object.entries(parsed));
-		} catch {
-			return { error: `Invalid params: failed to parse JSON. ${parametersRaw.slice(0, 200)}` };
+		} catch (error) {
+			if (error instanceof ToolExecutionError) {
+				throw error;
+			}
+			throw new ToolExecutionError('MISSING_INPUT', `Invalid params: failed to parse JSON. ${parametersRaw.slice(0, 200)}`);
 		}
 	}
 
 	if (!context.sendCdpCommand) {
-		return { error: 'CDP evaluation is not available in this context.' };
+		throw new ToolExecutionError('MISSING_INPUT', 'CDP evaluation is not available in this context.');
 	}
 
 	sendEvent('status', { message: `Running CDP: ${method}...` });
@@ -83,8 +88,12 @@ export async function execute(
 	const result = await context.sendCdpCommand(id, method, parameters);
 
 	if (result.error) {
-		return { error: result.error };
+		throw new ToolExecutionError('MISSING_INPUT', result.error);
 	}
 
-	return { method, result: result.result };
+	return {
+		title: method,
+		metadata: { method, result: result.result },
+		output: `Method: ${method}\n\nResult: ${typeof result.result === 'string' ? result.result : JSON.stringify(result.result, undefined, 2)}`,
+	};
 }

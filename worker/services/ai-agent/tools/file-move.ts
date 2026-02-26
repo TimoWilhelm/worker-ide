@@ -10,7 +10,7 @@ import { ToolErrorCode, toolError } from '@shared/tool-errors';
 import { coordinatorNamespace } from '../../../lib/durable-object-namespaces';
 import { isHiddenPath, isPathSafe, isProtectedFile } from '../../../lib/path-utilities';
 
-import type { FileChange, SendEventFunction, ToolDefinition, ToolExecutorContext } from '../types';
+import type { FileChange, SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
 
 export const DESCRIPTION = `Move or rename a file within the project.
 
@@ -38,9 +38,8 @@ export async function execute(
 	input: Record<string, string>,
 	sendEvent: SendEventFunction,
 	context: ToolExecutorContext,
-	toolUseId?: string,
 	queryChanges?: FileChange[],
-): Promise<string | object> {
+): Promise<ToolResult> {
 	const { projectRoot, projectId } = context;
 	const fromPath = input.from_path;
 	const toPath = input.to_path;
@@ -83,16 +82,17 @@ export async function execute(
 	const coordinatorStub = coordinatorNamespace.get(coordinatorId);
 	await coordinatorStub.triggerUpdate({ type: 'full-reload', path: toPath, timestamp: Date.now(), isCSS: false });
 
-	await sendEvent('file_changed', {
+	sendEvent('file_changed', {
 		path: `${fromPath} → ${toPath}`,
 		action: 'move',
-		tool_use_id: toolUseId,
 	});
 
-	const fileSize = Buffer.byteLength(beforeContent, 'utf8');
+	const byteCount = Buffer.byteLength(beforeContent, 'utf8');
+	const output = `Moved ${fromPath} → ${toPath} (${byteCount} bytes). Remember to update any import paths that reference the old location.`;
+
 	return {
-		result: `Moved ${fromPath} → ${toPath} (${fileSize} bytes). Remember to update any import paths that reference the old location.`,
-		from: fromPath,
-		to: toPath,
+		title: `${fromPath} → ${toPath}`,
+		metadata: { from: fromPath, to: toPath, byteCount },
+		output,
 	};
 }

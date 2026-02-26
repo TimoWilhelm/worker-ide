@@ -44,7 +44,7 @@ import { FileMentionDropdown } from '../file-mention-dropdown';
 import { RevertConfirmDialog } from '../revert-confirm-dialog';
 import { RichTextInput, type RichTextInputHandle } from '../rich-text-input';
 
-import type { ToolErrorInfo, UIMessage } from '@shared/types';
+import type { ToolErrorInfo, ToolMetadataInfo, UIMessage } from '@shared/types';
 
 // =============================================================================
 // Component
@@ -72,6 +72,9 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	// when chatMessages changes so the JSX reads from state, not refs.
 	const toolErrorsReference = useRef<Map<string, ToolErrorInfo>>(new Map());
 	const [toolErrors, setToolErrors] = useState<Map<string, ToolErrorInfo>>(new Map());
+	// Structured tool result metadata keyed by toolCallId, populated by CUSTOM tool_result events.
+	const toolMetadataReference = useRef<Map<string, ToolMetadataInfo>>(new Map());
+	const [toolMetadata, setToolMetadata] = useState<Map<string, ToolMetadataInfo>>(new Map());
 	// Diff content (before/after) keyed by tool_use_id, populated by CUSTOM file_changed events for inline diff rendering
 	const fileDiffContentReference = useRef<Map<string, { beforeContent: string; afterContent: string }>>(new Map());
 	const [fileDiffContent, setFileDiffContent] = useState<Map<string, { beforeContent: string; afterContent: string }>>(new Map());
@@ -270,6 +273,28 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 				case 'usage': {
 					break;
 				}
+				case 'tool_result': {
+					const toolCallId = getStringField(custom.data, 'toolCallId');
+					if (toolCallId) {
+						if (toolMetadataReference.current.size >= 500) {
+							const firstKey = toolMetadataReference.current.keys().next().value;
+							if (firstKey !== undefined) {
+								toolMetadataReference.current.delete(firstKey);
+							}
+						}
+						const rawMetadata = custom.data.metadata;
+						const isPlainObject = (value: unknown): value is Record<string, unknown> =>
+							!!value && typeof value === 'object' && !Array.isArray(value);
+						const metadataRecord: Record<string, unknown> = isPlainObject(rawMetadata) ? rawMetadata : {};
+						toolMetadataReference.current.set(toolCallId, {
+							toolCallId,
+							toolName: getStringField(custom.data, 'tool_name'),
+							title: getStringField(custom.data, 'title'),
+							metadata: metadataRecord,
+						});
+					}
+					break;
+				}
 				case 'tool_error': {
 					const toolCallId = getStringField(custom.data, 'toolCallId');
 					if (toolCallId) {
@@ -301,6 +326,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 
 			// Flush accumulated ref data to state so the final render sees it
 			setToolErrors(new Map(toolErrorsReference.current));
+			setToolMetadata(new Map(toolMetadataReference.current));
 			setFileDiffContent(new Map(fileDiffContentReference.current));
 
 			// If the agent wrote any files, signal the preview to do a hard
@@ -322,6 +348,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 			setAiError({ message: error.message });
 			// Flush accumulated ref data to state so the error render sees it
 			setToolErrors(new Map(toolErrorsReference.current));
+			setToolMetadata(new Map(toolMetadataReference.current));
 			setFileDiffContent(new Map(fileDiffContentReference.current));
 			// Session is persisted server-side on all termination paths including errors.
 		},
@@ -349,10 +376,11 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	}, [chatMessages]);
 
 	// Flush accumulated ref data to state on each chatMessages change so that
-	// intermediate streaming renders show tool errors and diffs without reading
-	// refs directly in the JSX (which violates react-hooks/refs).
+	// intermediate streaming renders show tool errors, metadata, and diffs without
+	// reading refs directly in the JSX (which violates react-hooks/refs).
 	useEffect(() => {
 		setToolErrors(new Map(toolErrorsReference.current));
+		setToolMetadata(new Map(toolMetadataReference.current));
 		setFileDiffContent(new Map(fileDiffContentReference.current));
 	}, [chatMessages]);
 
@@ -426,8 +454,10 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		setPendingQuestion(undefined);
 		setDoomLoopMessage(undefined);
 		toolErrorsReference.current.clear();
+		toolMetadataReference.current.clear();
 		fileDiffContentReference.current.clear();
 		setToolErrors(new Map());
+		setToolMetadata(new Map());
 		setFileDiffContent(new Map());
 		// Clear AI metadata without touching history (the forward sync handles it)
 		useStore.setState({
@@ -452,8 +482,10 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 			// Note: pendingChanges are NOT cleared here — loadSession() replaces
 			// them with the loaded session's persisted pending changes (or empty).
 			toolErrorsReference.current.clear();
+			toolMetadataReference.current.clear();
 			fileDiffContentReference.current.clear();
 			setToolErrors(new Map());
+			setToolMetadata(new Map());
 			setFileDiffContent(new Map());
 			loadSession(targetSessionId);
 			// Persist the newly loaded session as the active one in localStorage
@@ -841,6 +873,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 											revertingMessageIndex={pendingRevert?.isLoading ? pendingRevert.messageIndex : undefined}
 											onRevert={handleRevert}
 											toolErrors={toolErrors}
+											toolMetadata={toolMetadata}
 											fileDiffContent={fileDiffContent}
 										/>
 									))}
@@ -848,7 +881,13 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 							)}
 							{/* Streaming assistant message */}
 							{streamingAssistantMessage && (
-								<AssistantMessage message={streamingAssistantMessage} streaming toolErrors={toolErrors} fileDiffContent={fileDiffContent} />
+								<AssistantMessage
+									message={streamingAssistantMessage}
+									streaming
+									toolErrors={toolErrors}
+									toolMetadata={toolMetadata}
+									fileDiffContent={fileDiffContent}
+								/>
 							)}
 							{/* User question prompt — shown when the AI asks a clarifying question */}
 							{pendingQuestion && !isProcessing && (

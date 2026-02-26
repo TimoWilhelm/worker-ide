@@ -20,6 +20,7 @@ import * as fileGlobTool from './file-glob';
 import * as fileGrepTool from './file-grep';
 import * as fileListTool from './file-list';
 import * as fileMoveTool from './file-move';
+import * as fileMultieditTool from './file-multiedit';
 import * as fileReadTool from './file-read';
 import * as fileWriteTool from './file-write';
 import * as filesListTool from './files-list';
@@ -50,6 +51,7 @@ import type {
 
 export const TOOL_EXECUTORS: ReadonlyMap<string, ToolExecuteFunction> = new Map([
 	['file_edit', fileEditTool.execute],
+	['file_multiedit', fileMultieditTool.execute],
 	['file_write', fileWriteTool.execute],
 	['file_read', fileReadTool.execute],
 	['file_grep', fileGrepTool.execute],
@@ -78,6 +80,7 @@ export const TOOL_EXECUTORS: ReadonlyMap<string, ToolExecuteFunction> = new Map(
 
 export const AGENT_TOOLS: readonly ToolDefinition[] = [
 	fileEditTool.definition,
+	fileMultieditTool.definition,
 	fileWriteTool.definition,
 	fileReadTool.definition,
 	fileGrepTool.definition,
@@ -133,7 +136,7 @@ export const ASK_MODE_TOOLS: readonly ToolDefinition[] = [];
 // Editing tools blocked in plan mode
 // =============================================================================
 
-const EDITING_TOOL_NAMES = new Set(['file_edit', 'file_write', 'file_delete', 'file_move', 'lint_fix']);
+const EDITING_TOOL_NAMES = new Set(['file_edit', 'file_multiedit', 'file_write', 'file_delete', 'file_move', 'lint_fix']);
 
 /**
  * Read-only tools that can be batched freely within a single iteration.
@@ -156,7 +159,15 @@ export const READ_ONLY_TOOL_NAMES = new Set([
  * Mutation tool names — tools that modify files or project state.
  * Used by the doom loop detector and logging to track mutation activity.
  */
-export const MUTATION_TOOL_NAMES = new Set(['file_edit', 'file_write', 'file_delete', 'file_move', 'lint_fix', 'dependencies_update']);
+export const MUTATION_TOOL_NAMES = new Set([
+	'file_edit',
+	'file_multiedit',
+	'file_write',
+	'file_delete',
+	'file_move',
+	'lint_fix',
+	'dependencies_update',
+]);
 
 // =============================================================================
 // TanStack AI Tool Factory
@@ -299,21 +310,29 @@ export function createServerTools(
 			const timer = logger?.startTimer();
 
 			try {
-				const result = await executor(stringInput, sendEvent, context, undefined, queryChanges);
-				const text = typeof result === 'string' ? result : JSON.stringify(result);
+				const result = await executor(stringInput, sendEvent, context, queryChanges);
 
 				logger?.info(
 					'tool_call',
 					'completed',
 					{
 						toolName: definition.name,
-						resultSummary: summarizeToolResult(text),
-						resultLength: text.length,
+						resultSummary: summarizeToolResult(result.output),
+						resultLength: result.output.length,
 					},
 					{ durationMs: timer?.() },
 				);
 
-				return { content: text };
+				// Emit structured metadata as a CUSTOM event for the UI.
+				// The tool call ID is injected by service.ts when it drains the event queue.
+				sendEvent('tool_result', {
+					tool_name: definition.name,
+					title: result.title,
+					metadata: result.metadata,
+				});
+
+				// Send only the text output to the LLM
+				return { content: result.output };
 			} catch (error) {
 				// ToolExecutionError = expected tool-level failure (file not found, no match, etc.)
 				// Other errors = unexpected crashes in tool code

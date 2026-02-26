@@ -53,9 +53,10 @@ describe('todos_update', () => {
 		// Cast as Record<string, string> since the tool receives input that way
 		const result = await execute({ todos } as unknown as Record<string, string>, createMockSendEvent(), context());
 
-		expect(result).toHaveProperty('success', true);
-		expect(result).toHaveProperty('count', 2);
-		expect(result).toHaveProperty('todos');
+		expect(result).toHaveProperty('output');
+		expect(result.metadata).toHaveProperty('todos');
+		const todosResult = result.metadata.todos as unknown[];
+		expect(todosResult).toHaveLength(2);
 		// File should be written
 		expect(memoryFs.store.has(`${PROJECT_ROOT}/.agent/todo/ses-update.json`)).toBe(true);
 	});
@@ -79,8 +80,9 @@ describe('todos_update', () => {
 
 		const result = await execute({ todos: todosJson } as unknown as Record<string, string>, createMockSendEvent(), context());
 
-		expect(result).toHaveProperty('success', true);
-		expect(result).toHaveProperty('count', 1);
+		expect(result).toHaveProperty('output');
+		const todosResult = result.metadata.todos as unknown[];
+		expect(todosResult).toHaveLength(1);
 	});
 
 	// ── Validation errors ─────────────────────────────────────────────────
@@ -88,27 +90,21 @@ describe('todos_update', () => {
 	it('rejects invalid todo items', async () => {
 		const invalidTodos = [{ id: '', content: '', status: 'bad_status', priority: 'bad_priority' }];
 
-		const result = await execute({ todos: invalidTodos } as unknown as Record<string, string>, createMockSendEvent(), context());
-
-		expect(result).toHaveProperty('error');
-		const errorResult = result as { error: string };
-		expect(errorResult.error).toContain('Invalid TODO item');
+		await expect(execute({ todos: invalidTodos } as unknown as Record<string, string>, createMockSendEvent(), context())).rejects.toThrow(
+			'Invalid TODO item',
+		);
 	});
 
 	it('rejects non-array input', async () => {
-		const result = await execute({ todos: { not: 'an array' } } as unknown as Record<string, string>, createMockSendEvent(), context());
-
-		expect(result).toHaveProperty('error');
-		const errorResult = result as { error: string };
-		expect(errorResult.error).toContain('must be an array');
+		await expect(
+			execute({ todos: { not: 'an array' } } as unknown as Record<string, string>, createMockSendEvent(), context()),
+		).rejects.toThrow('must be an array');
 	});
 
 	it('rejects invalid JSON string', async () => {
-		const result = await execute({ todos: 'not valid json{{{' } as unknown as Record<string, string>, createMockSendEvent(), context());
-
-		expect(result).toHaveProperty('error');
-		const errorResult = result as { error: string };
-		expect(errorResult.error).toContain('Invalid JSON');
+		await expect(
+			execute({ todos: 'not valid json{{{' } as unknown as Record<string, string>, createMockSendEvent(), context()),
+		).rejects.toThrow('Invalid JSON');
 	});
 
 	// ── All valid statuses and priorities ──────────────────────────────────
@@ -122,7 +118,8 @@ describe('todos_update', () => {
 
 		const result = await execute({ todos } as unknown as Record<string, string>, createMockSendEvent(), context());
 
-		expect(result).toHaveProperty('success', true);
-		expect(result).toHaveProperty('count', 3);
+		expect(result).toHaveProperty('output');
+		const todosResult = result.metadata.todos as unknown[];
+		expect(todosResult).toHaveLength(3);
 	});
 });

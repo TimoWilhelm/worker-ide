@@ -3,7 +3,9 @@
  * Search the Cloudflare documentation.
  */
 
-import type { SendEventFunction, ToolDefinition, ToolExecutorContext } from '../types';
+import { ToolExecutionError } from '@shared/tool-errors';
+
+import type { SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
 
 export const DESCRIPTION = `Search the Cloudflare documentation for information about Cloudflare products and features including Workers, Pages, R2, D1, KV, Durable Objects, Queues, AI, Zero Trust, DNS, CDN, and more.
 
@@ -29,14 +31,14 @@ export async function execute(
 	input: Record<string, string>,
 	sendEvent: SendEventFunction,
 	context: ToolExecutorContext,
-): Promise<string | object> {
+): Promise<ToolResult> {
 	const query = input.query;
 	await sendEvent('status', { message: `Searching Cloudflare docs: "${query}"...` });
 
 	try {
 		const result = await context.callMcpTool('cloudflare-docs', 'search_cloudflare_documentation', { query });
-		return { results: result };
+		return { title: query, metadata: { query }, output: typeof result === 'string' ? result : JSON.stringify(result) };
 	} catch (error) {
-		return { error: `Cloudflare docs search failed: ${String(error)}` };
+		throw new ToolExecutionError('MISSING_INPUT', `Cloudflare docs search failed: ${String(error)}`);
 	}
 }

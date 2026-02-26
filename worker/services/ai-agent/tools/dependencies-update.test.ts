@@ -54,9 +54,8 @@ describe('dependencies_update', () => {
 
 		const result = await execute({ action: 'add', name: 'hono', version: '^4.0.0' }, createMockSendEvent(), context());
 
-		expect(result).toHaveProperty('success', true);
-		expect(result).toHaveProperty('action', 'add');
-		const dependencies = (result as { dependencies: Record<string, string> }).dependencies;
+		expect(result.metadata).toHaveProperty('action', 'add');
+		const { dependencies } = result.metadata as { dependencies: Record<string, string> };
 		expect(dependencies).toHaveProperty('hono', '^4.0.0');
 	});
 
@@ -65,18 +64,14 @@ describe('dependencies_update', () => {
 
 		const result = await execute({ action: 'add', name: 'lodash' }, createMockSendEvent(), context());
 
-		const dependencies = (result as { dependencies: Record<string, string> }).dependencies;
+		const { dependencies } = result.metadata as { dependencies: Record<string, string> };
 		expect(dependencies).toHaveProperty('lodash', '*');
 	});
 
 	it('rejects adding a duplicate dependency', async () => {
 		seedMeta({ react: '^18.0.0' });
 
-		const result = await execute({ action: 'add', name: 'react' }, createMockSendEvent(), context());
-
-		expect(result).toHaveProperty('error');
-		const errorResult = result as { error: string };
-		expect(errorResult.error).toContain('already exists');
+		await expect(execute({ action: 'add', name: 'react' }, createMockSendEvent(), context())).rejects.toThrow('already exists');
 	});
 
 	// ── Remove ────────────────────────────────────────────────────────────
@@ -86,8 +81,7 @@ describe('dependencies_update', () => {
 
 		const result = await execute({ action: 'remove', name: 'react' }, createMockSendEvent(), context());
 
-		expect(result).toHaveProperty('success', true);
-		const dependencies = (result as { dependencies: Record<string, string> }).dependencies;
+		const { dependencies } = result.metadata as { dependencies: Record<string, string> };
 		expect(dependencies).not.toHaveProperty('react');
 		expect(dependencies).toHaveProperty('hono');
 	});
@@ -95,11 +89,7 @@ describe('dependencies_update', () => {
 	it('rejects removing a non-existent dependency', async () => {
 		seedMeta({ react: '^18.0.0' });
 
-		const result = await execute({ action: 'remove', name: 'nonexistent' }, createMockSendEvent(), context());
-
-		expect(result).toHaveProperty('error');
-		const errorResult = result as { error: string };
-		expect(errorResult.error).toContain('not registered');
+		await expect(execute({ action: 'remove', name: 'nonexistent' }, createMockSendEvent(), context())).rejects.toThrow('not registered');
 	});
 
 	// ── Update ────────────────────────────────────────────────────────────
@@ -109,49 +99,34 @@ describe('dependencies_update', () => {
 
 		const result = await execute({ action: 'update', name: 'react', version: '^18.0.0' }, createMockSendEvent(), context());
 
-		expect(result).toHaveProperty('success', true);
-		const dependencies = (result as { dependencies: Record<string, string> }).dependencies;
+		const { dependencies } = result.metadata as { dependencies: Record<string, string> };
 		expect(dependencies).toHaveProperty('react', '^18.0.0');
 	});
 
 	it('rejects updating a non-existent dependency', async () => {
 		seedMeta({});
 
-		const result = await execute({ action: 'update', name: 'missing', version: '^1.0.0' }, createMockSendEvent(), context());
-
-		expect(result).toHaveProperty('error');
-		const errorResult = result as { error: string };
-		expect(errorResult.error).toContain('not registered');
+		await expect(execute({ action: 'update', name: 'missing', version: '^1.0.0' }, createMockSendEvent(), context())).rejects.toThrow(
+			'not registered',
+		);
 	});
 
 	// ── Edge cases ────────────────────────────────────────────────────────
 
 	it('returns error when no project metadata exists', async () => {
-		const result = await execute({ action: 'add', name: 'hono' }, createMockSendEvent(), context());
-
-		expect(result).toHaveProperty('error');
-		const errorResult = result as { error: string };
-		expect(errorResult.error).toContain('No project metadata');
+		await expect(execute({ action: 'add', name: 'hono' }, createMockSendEvent(), context())).rejects.toThrow('No project metadata');
 	});
 
 	it('returns error for missing package name', async () => {
 		seedMeta({});
 
-		const result = await execute({ action: 'add', name: '' }, createMockSendEvent(), context());
-
-		expect(result).toHaveProperty('error');
-		const errorResult = result as { error: string };
-		expect(errorResult.error).toContain('name is required');
+		await expect(execute({ action: 'add', name: '' }, createMockSendEvent(), context())).rejects.toThrow('name is required');
 	});
 
 	it('returns error for unknown action', async () => {
 		seedMeta({});
 
-		const result = await execute({ action: 'invalid_action', name: 'pkg' }, createMockSendEvent(), context());
-
-		expect(result).toHaveProperty('error');
-		const errorResult = result as { error: string };
-		expect(errorResult.error).toContain('Unknown action');
+		await expect(execute({ action: 'invalid_action', name: 'pkg' }, createMockSendEvent(), context())).rejects.toThrow('Unknown action');
 	});
 
 	// ── Persistence ───────────────────────────────────────────────────────

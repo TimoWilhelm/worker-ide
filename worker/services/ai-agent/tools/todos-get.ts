@@ -5,7 +5,7 @@
 
 import { readTodos } from '../tool-executor';
 
-import type { SendEventFunction, ToolDefinition, ToolExecutorContext } from '../types';
+import type { SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
 
 export const DESCRIPTION = `Read the current TODO list for this session. Returns an array of TODO items with id, content, status (pending/in_progress/completed), and priority (high/medium/low). Use this tool proactively and frequently to stay aware of the current task list.
 
@@ -31,10 +31,16 @@ export async function execute(
 	_input: Record<string, string>,
 	sendEvent: SendEventFunction,
 	context: ToolExecutorContext,
-): Promise<string | object> {
+): Promise<ToolResult> {
 	const { projectRoot, sessionId } = context;
 
 	await sendEvent('status', { message: 'Reading TODOs...' });
 	const todos = await readTodos(projectRoot, sessionId);
-	return { todos };
+
+	const completed = todos.filter((t) => t.status === 'completed').length;
+	const inProgress = todos.filter((t) => t.status === 'in_progress').length;
+	const pending = todos.filter((t) => t.status === 'pending').length;
+	const output = `${todos.length} TODOs (${completed} completed, ${inProgress} in progress, ${pending} pending)`;
+
+	return { title: 'todos', metadata: { todos }, output };
 }

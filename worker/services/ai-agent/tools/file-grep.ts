@@ -13,7 +13,7 @@ import { ToolErrorCode, toolError } from '@shared/tool-errors';
 import { listFilesRecursive } from '../tool-executor';
 import { isBinaryFilePath } from '../utilities';
 
-import type { SendEventFunction, ToolDefinition, ToolExecutorContext } from '../types';
+import type { SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
 
 // =============================================================================
 // Constants
@@ -57,7 +57,11 @@ export const definition: ToolDefinition = {
 // Execute Function
 // =============================================================================
 
-export async function execute(input: Record<string, string>, sendEvent: SendEventFunction, context: ToolExecutorContext): Promise<string> {
+export async function execute(
+	input: Record<string, string>,
+	sendEvent: SendEventFunction,
+	context: ToolExecutorContext,
+): Promise<ToolResult> {
 	const { projectRoot } = context;
 	const grepPattern = input.pattern;
 	const searchPath = input.path || '/';
@@ -154,7 +158,7 @@ export async function execute(input: Record<string, string>, sendEvent: SendEven
 
 	// Format output
 	if (matches.length === 0) {
-		return 'No files found';
+		return { title: grepPattern, metadata: { matchCount: 0, truncated: false }, output: 'No files found' };
 	}
 
 	const totalMatches = matches.length;
@@ -182,5 +186,5 @@ export async function execute(input: Record<string, string>, sendEvent: SendEven
 		);
 	}
 
-	return outputLines.join('\n');
+	return { title: grepPattern, metadata: { matchCount: totalMatches, truncated }, output: outputLines.join('\n') };
 }

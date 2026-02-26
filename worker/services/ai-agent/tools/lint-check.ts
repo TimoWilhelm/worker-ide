@@ -11,7 +11,13 @@ import { ToolErrorCode, toolError } from '@shared/tool-errors';
 import { isHiddenPath, isPathSafe } from '../../../lib/path-utilities';
 import { formatLintDiagnostics, lintFileForAgent } from '../lib/biome-linter';
 
-import type { SendEventFunction, ToolDefinition, ToolExecutorContext } from '../types';
+import type { SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
+
+// =============================================================================
+// Constants
+// =============================================================================
+
+const MAX_DIAGNOSTICS_PER_FILE = 20;
 
 // =============================================================================
 // Description
@@ -48,7 +54,11 @@ export const definition: ToolDefinition = {
 // Execute
 // =============================================================================
 
-export async function execute(input: Record<string, string>, _sendEvent: SendEventFunction, context: ToolExecutorContext): Promise<string> {
+export async function execute(
+	input: Record<string, string>,
+	_sendEvent: SendEventFunction,
+	context: ToolExecutorContext,
+): Promise<ToolResult> {
 	const { projectRoot } = context;
 	const checkPath = input.path;
 
@@ -73,20 +83,33 @@ export async function execute(input: Record<string, string>, _sendEvent: SendEve
 	}
 
 	// Run lint diagnostics
-	const diagnostics = await lintFileForAgent(checkPath, content);
+	const allDiagnostics = await lintFileForAgent(checkPath, content);
 
-	if (diagnostics.length === 0) {
-		return `No lint issues found in ${checkPath}.`;
+	if (allDiagnostics.length === 0) {
+		return {
+			title: checkPath,
+			metadata: { issueCount: 0, fixableCount: 0, diagnostics: [] },
+			output: `No lint issues found in ${checkPath}.`,
+		};
 	}
 
-	const formatted = formatLintDiagnostics(diagnostics);
-	const fixableCount = diagnostics.filter((diagnostic) => diagnostic.fixable).length;
+	const fixableCount = allDiagnostics.filter((diagnostic) => diagnostic.fixable).length;
+	const limitedDiagnostics = allDiagnostics.slice(0, MAX_DIAGNOSTICS_PER_FILE);
+	const formatted = formatLintDiagnostics(limitedDiagnostics);
 
-	let result = `Found ${diagnostics.length} lint issue(s) in ${checkPath}.\n${formatted}`;
+	let result = `Found ${allDiagnostics.length} lint issue(s) in ${checkPath}.\n${formatted}`;
 
 	if (fixableCount > 0) {
 		result += `\n\n${fixableCount} issue(s) can be auto-fixed with lint_fix.`;
 	}
 
-	return result;
+	if (allDiagnostics.length > MAX_DIAGNOSTICS_PER_FILE) {
+		result += `\n\n(Showing first ${MAX_DIAGNOSTICS_PER_FILE} of ${allDiagnostics.length} diagnostics.)`;
+	}
+
+	return {
+		title: checkPath,
+		metadata: { issueCount: allDiagnostics.length, fixableCount, diagnostics: limitedDiagnostics },
+		output: result,
+	};
 }

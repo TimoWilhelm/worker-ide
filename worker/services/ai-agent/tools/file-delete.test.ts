@@ -58,11 +58,10 @@ describe('file_delete', () => {
 
 		const result = await execute({ path: '/temp.ts' }, createMockSendEvent(), context());
 
-		expect(result).toHaveProperty('result');
-		const resultObject = result as { result: string };
-		expect(resultObject.result).toContain('Deleted /temp.ts');
-		expect(resultObject.result).toMatch(/\d+ lines/);
-		expect(resultObject.result).toMatch(/\d+ bytes/);
+		expect(result).toHaveProperty('output');
+		expect(result.output).toContain('Deleted /temp.ts');
+		expect(result.output).toMatch(/\d+ lines/);
+		expect(result.output).toMatch(/\d+ bytes/);
 		expect(memoryFs.store.has(`${PROJECT_ROOT}/temp.ts`)).toBe(false);
 	});
 
@@ -84,7 +83,7 @@ describe('file_delete', () => {
 		memoryFs.seedFile(`${PROJECT_ROOT}/tracked.ts`, 'content before delete');
 		const queryChanges: FileChange[] = [];
 
-		await execute({ path: '/tracked.ts' }, createMockSendEvent(), context(), 'tool-789', queryChanges);
+		await execute({ path: '/tracked.ts' }, createMockSendEvent(), context(), queryChanges);
 
 		expect(queryChanges).toHaveLength(1);
 		expect(queryChanges[0].action).toBe('delete');

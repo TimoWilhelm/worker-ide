@@ -89,9 +89,9 @@ describe('web_fetch', () => {
 			createMockContext(),
 		);
 
-		expect(result).toHaveProperty('url', 'https://example.com');
-		expect(result).toHaveProperty('content');
-		expect(result).toHaveProperty('length');
+		expect(result.metadata).toHaveProperty('url', 'https://example.com');
+		expect(result.output).toBeDefined();
+		expect(result.metadata).toHaveProperty('contentLength');
 		expect(mockFetch).toHaveBeenCalledOnce();
 	});
 
@@ -100,17 +100,15 @@ describe('web_fetch', () => {
 
 		const result = await execute({ url: 'https://example.com/doc.md', prompt: 'Summarize' }, createMockSendEvent(), createMockContext());
 
-		expect(result).toHaveProperty('content');
+		expect(result.output).toBeDefined();
 	});
 
 	// ── URL validation ────────────────────────────────────────────────────
 
 	it('rejects non-http/https URLs', async () => {
-		const result = await execute({ url: 'ftp://example.com/file', prompt: 'Get info' }, createMockSendEvent(), createMockContext());
-
-		expect(result).toHaveProperty('error');
-		const errorResult = result as { error: string };
-		expect(errorResult.error).toContain('Only http:// and https://');
+		await expect(
+			execute({ url: 'ftp://example.com/file', prompt: 'Get info' }, createMockSendEvent(), createMockContext()),
+		).rejects.toThrow('Only http:// and https://');
 	});
 
 	// ── HTTP errors ───────────────────────────────────────────────────────
@@ -118,11 +116,9 @@ describe('web_fetch', () => {
 	it('returns error for non-OK HTTP response', async () => {
 		mockFetch.mockResolvedValue(makeResponse('Not Found', { status: 404, statusText: 'Not Found' }));
 
-		const result = await execute({ url: 'https://example.com/missing', prompt: 'Info' }, createMockSendEvent(), createMockContext());
-
-		expect(result).toHaveProperty('error');
-		const errorResult = result as { error: string };
-		expect(errorResult.error).toContain('404');
+		await expect(
+			execute({ url: 'https://example.com/missing', prompt: 'Info' }, createMockSendEvent(), createMockContext()),
+		).rejects.toThrow('404');
 	});
 
 	// ── Fetch failure ─────────────────────────────────────────────────────
@@ -130,19 +126,15 @@ describe('web_fetch', () => {
 	it('handles fetch network errors', async () => {
 		mockFetch.mockRejectedValue(new Error('Network unreachable'));
 
-		const result = await execute({ url: 'https://example.com', prompt: 'Info' }, createMockSendEvent(), createMockContext());
-
-		expect(result).toHaveProperty('error');
-		const errorResult = result as { error: string };
-		expect(errorResult.error).toContain('Failed to fetch');
+		await expect(execute({ url: 'https://example.com', prompt: 'Info' }, createMockSendEvent(), createMockContext())).rejects.toThrow(
+			'Failed to fetch',
+		);
 	});
 
 	// ── Invalid URL ───────────────────────────────────────────────────────
 
 	it('returns error for invalid URLs', async () => {
-		const result = await execute({ url: 'not-a-valid-url', prompt: 'Info' }, createMockSendEvent(), createMockContext());
-
-		expect(result).toHaveProperty('error');
+		await expect(execute({ url: 'not-a-valid-url', prompt: 'Info' }, createMockSendEvent(), createMockContext())).rejects.toThrow();
 	});
 
 	// ── Status events ─────────────────────────────────────────────────────

@@ -3,7 +3,7 @@
  * Ask the user clarifying questions.
  */
 
-import type { SendEventFunction, ToolDefinition, ToolExecutorContext } from '../types';
+import type { SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
 
 export const DESCRIPTION = `Ask the user a question that ONLY they can answer. Do NOT use this tool for questions you could resolve by reading files, searching the codebase, or using any other tool. Exhaust all other research options first.
 
@@ -31,7 +31,7 @@ export async function execute(
 	input: Record<string, string>,
 	sendEvent: SendEventFunction,
 	_context: ToolExecutorContext,
-): Promise<string | object> {
+): Promise<ToolResult> {
 	const questionText = input.question;
 	const questionOptions = input.options;
 
@@ -48,5 +48,17 @@ export async function execute(
 	}
 	resultText += '\n\nThe user will respond in their next message.';
 
-	return { question: questionText, options: questionOptions, message: resultText };
+	return {
+		title: questionText.length > 60 ? questionText.slice(0, 60) + '...' : questionText,
+		metadata: {
+			question: questionText,
+			options: questionOptions
+				? questionOptions
+						.split(',')
+						.map((o) => o.trim())
+						.filter(Boolean)
+				: [],
+		},
+		output: resultText,
+	};
 }

@@ -5,7 +5,7 @@
 
 import { listFilesRecursive } from '../tool-executor';
 
-import type { SendEventFunction, ToolDefinition, ToolExecutorContext } from '../types';
+import type { SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
 
 export const DESCRIPTION = `List all files in the project recursively. Returns a flat array of all file paths in the project tree.
 
@@ -28,11 +28,11 @@ export async function execute(
 	_input: Record<string, string>,
 	sendEvent: SendEventFunction,
 	context: ToolExecutorContext,
-): Promise<string | object> {
+): Promise<ToolResult> {
 	const { projectRoot } = context;
 
 	await sendEvent('status', { message: 'Listing files...' });
 	const files = await listFilesRecursive(projectRoot);
 	const filtered = files.filter((f) => !f.endsWith('/.initialized') && f !== '/.initialized');
-	return { files: filtered };
+	return { title: 'project files', metadata: { count: filtered.length }, output: filtered.join('\n') };
 }

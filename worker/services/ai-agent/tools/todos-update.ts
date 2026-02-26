@@ -5,9 +5,10 @@
 
 import fs from 'node:fs/promises';
 
+import { ToolExecutionError } from '@shared/tool-errors';
 import { todoItemSchema } from '@shared/validation';
 
-import type { SendEventFunction, TodoItem, ToolDefinition, ToolExecutorContext } from '../types';
+import type { SendEventFunction, TodoItem, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
 
 export const DESCRIPTION = `Create or update the TODO list for this session. Use this to track progress, organize complex tasks, and help the user understand overall progress. Provide the full list of TODO items. Each item must have id, content, status (pending/in_progress/completed), and priority (high/medium/low).
 
@@ -77,7 +78,7 @@ export async function execute(
 	input: Record<string, string>,
 	sendEvent: SendEventFunction,
 	context: ToolExecutorContext,
-): Promise<string | object> {
+): Promise<ToolResult> {
 	const { projectRoot, sessionId } = context;
 
 	await sendEvent('status', { message: 'Updating TODOs...' });
@@ -88,25 +89,28 @@ export async function execute(
 			try {
 				todosRaw = JSON.parse(todosRaw);
 			} catch {
-				return { error: 'Invalid JSON for todos field' };
+				throw new ToolExecutionError('MISSING_INPUT', 'Invalid JSON for todos field');
 			}
 		}
 		if (!Array.isArray(todosRaw)) {
-			return { error: 'todos must be an array' };
+			throw new ToolExecutionError('MISSING_INPUT', 'todos must be an array');
 		}
 
 		const validated: TodoItem[] = [];
 		for (const item of todosRaw) {
 			const parsed = todoItemSchema.safeParse(item);
 			if (!parsed.success) {
-				return { error: `Invalid TODO item: ${parsed.error.issues.map((issue) => issue.message).join(', ')}` };
+				throw new ToolExecutionError('MISSING_INPUT', `Invalid TODO item: ${parsed.error.issues.map((issue) => issue.message).join(', ')}`);
 			}
 			validated.push(parsed.data);
 		}
 
 		await writeTodos(validated, projectRoot, sessionId);
-		return { success: true, count: validated.length, todos: validated };
+		return { title: 'todos', metadata: { todos: validated }, output: `Updated ${validated.length} TODO(s).` };
 	} catch (error) {
-		return { error: `Failed to update TODOs: ${String(error)}` };
+		if (error instanceof ToolExecutionError) {
+			throw error;
+		}
+		throw new ToolExecutionError('MISSING_INPUT', `Failed to update TODOs: ${String(error)}`);
 	}
 }

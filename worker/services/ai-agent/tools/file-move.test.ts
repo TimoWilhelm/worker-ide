@@ -58,9 +58,9 @@ describe('file_move', () => {
 
 		const result = await execute({ from_path: '/old.ts', to_path: '/new.ts' }, createMockSendEvent(), context());
 
-		expect(result).toHaveProperty('result');
-		expect(result).toHaveProperty('from', '/old.ts');
-		expect(result).toHaveProperty('to', '/new.ts');
+		expect(result).toHaveProperty('output');
+		expect(result.metadata).toHaveProperty('from', '/old.ts');
+		expect(result.metadata).toHaveProperty('to', '/new.ts');
 		expect(memoryFs.store.has(`${PROJECT_ROOT}/old.ts`)).toBe(false);
 		expect(memoryFs.store.has(`${PROJECT_ROOT}/new.ts`)).toBe(true);
 	});
@@ -70,7 +70,7 @@ describe('file_move', () => {
 
 		const result = await execute({ from_path: '/file.ts', to_path: '/src/components/file.ts' }, createMockSendEvent(), context());
 
-		expect(result).toHaveProperty('result');
+		expect(result).toHaveProperty('output');
 		expect(memoryFs.store.has(`${PROJECT_ROOT}/src/components/file.ts`)).toBe(true);
 	});
 
@@ -90,7 +90,7 @@ describe('file_move', () => {
 		memoryFs.seedFile(`${PROJECT_ROOT}/source.ts`, 'content');
 		const queryChanges: FileChange[] = [];
 
-		await execute({ from_path: '/source.ts', to_path: '/dest.ts' }, createMockSendEvent(), context(), 'tool-move', queryChanges);
+		await execute({ from_path: '/source.ts', to_path: '/dest.ts' }, createMockSendEvent(), context(), queryChanges);
 
 		expect(queryChanges).toHaveLength(2);
 		expect(queryChanges[0].action).toBe('delete');

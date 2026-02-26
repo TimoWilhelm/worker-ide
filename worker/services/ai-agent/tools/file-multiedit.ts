@@ -1,7 +1,9 @@
 /**
- * Tool: file_edit
- * Modify existing files using exact string replacements.
- * Uses multiple replacement strategies for robust matching.
+ * Tool: file_multiedit
+ * Apply multiple exact string replacements to a single file in one atomic operation.
+ * All edits are applied sequentially; if any edit fails, none are written to disk.
+ *
+ * Prefer this tool over file_edit when making several changes to the same file.
  */
 
 import fs from 'node:fs/promises';
@@ -12,7 +14,7 @@ import { coordinatorNamespace } from '../../../lib/durable-object-namespaces';
 import { isHiddenPath, isPathSafe } from '../../../lib/path-utilities';
 import { assertFileWasRead, recordFileRead } from '../file-time';
 import { formatLintDiagnostics, lintFileForAgent } from '../lib/biome-linter';
-import { computeDiffStats, generateCompactDiff } from '../utilities';
+import { computeDiffStats, generateCompactDiff, isRecordObject } from '../utilities';
 import { replace } from './replacers';
 
 import type { FileChange, SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
@@ -27,34 +29,83 @@ const MAX_DIAGNOSTICS_PER_FILE = 20;
 // Description
 // =============================================================================
 
-export const DESCRIPTION = `Performs exact string replacements in files.
+export const DESCRIPTION = `Apply multiple exact string replacements to a single file in one atomic operation. All edits are applied sequentially; if any edit fails, none are written to disk.
+
+Prefer this tool over \`file_edit\` when you need to make several changes to the same file — it is more efficient and avoids intermediate writes.
 
 Usage:
 CRITICAL INSTRUCTION: You MUST use your \`Read\` tool at least once in the conversation before editing. This tool will error if you attempt an edit without reading the file.
-- When editing text from Read tool output, ensure you preserve the exact indentation (tabs/spaces) as it appears AFTER the line number prefix. The line number prefix format is: line number + colon + space (e.g., \`1: \`). Everything after that space is the actual file content to match. Never include any part of the line number prefix in the oldString or newString.
+- When editing text from Read tool output, ensure you preserve the exact indentation (tabs/spaces) as it appears AFTER the line number prefix. The line number prefix format is: line number + colon + space (e.g., \`1: \`). Everything after that space is the actual file content to match. Never include any part of the line number prefix in the old_string or new_string.
 CRITICAL INSTRUCTION: ALWAYS prefer editing existing files in the codebase. NEVER write new files unless explicitly required.
-- The edit will FAIL if \`oldString\` is not found in the file with an error "oldString not found in content".
-- The edit will FAIL if \`oldString\` is found multiple times in the file with an error "Found multiple matches for oldString. Provide more surrounding lines in oldString to identify the correct match." Either provide a larger string with more surrounding context to make it unique or use \`replaceAll\` to change every instance of \`oldString\`.
-- Use \`replaceAll\` for replacing and renaming strings across the file. This parameter is useful if you want to rename a variable for instance.`;
+- Each edit in the \`edits\` array contains \`old_string\`, \`new_string\`, and optional \`replace_all\`.
+- Edits are applied in order; each edit operates on the result of the previous one.
+- Plan your edits carefully so that earlier replacements do not affect text that later edits need to find.
+- An edit will FAIL if \`old_string\` is not found in the (possibly already-modified) content.
+- An edit will FAIL if \`old_string\` matches multiple locations (unless \`replace_all\` is \`"true"\`).`;
 
 // =============================================================================
 // Tool Definition
 // =============================================================================
 
 export const definition: ToolDefinition = {
-	name: 'file_edit',
+	name: 'file_multiedit',
 	description: DESCRIPTION,
 	input_schema: {
 		type: 'object',
 		properties: {
 			path: { type: 'string', description: 'The absolute path to the file to modify' },
-			old_string: { type: 'string', description: 'The text to replace' },
-			new_string: { type: 'string', description: 'The text to replace it with (must be different from old_string)' },
-			replace_all: { type: 'string', description: 'Replace all occurrences of old_string (default false). Set to "true" to enable.' },
+			edits: {
+				type: 'string',
+				description:
+					'A JSON array of edit objects. Each object has: "old_string" (text to find), "new_string" (replacement text), and optional "replace_all" ("true" to replace all occurrences). Example: [{"old_string":"foo","new_string":"bar"},{"old_string":"baz","new_string":"qux","replace_all":"true"}]',
+			},
 		},
-		required: ['path', 'old_string', 'new_string'],
+		required: ['path', 'edits'],
 	},
 };
+
+// =============================================================================
+// Edit parsing
+// =============================================================================
+
+interface SingleEdit {
+	old_string: string;
+	new_string: string;
+	replace_all?: string;
+}
+
+function parseEditsInput(raw: string): SingleEdit[] {
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(raw);
+	} catch {
+		return toolError(ToolErrorCode.MISSING_INPUT, 'edits must be a valid JSON array of edit objects');
+	}
+
+	if (!Array.isArray(parsed) || parsed.length === 0) {
+		return toolError(ToolErrorCode.MISSING_INPUT, 'edits must be a non-empty JSON array');
+	}
+
+	const edits: SingleEdit[] = [];
+	const items: unknown[] = parsed;
+	for (const [index, item] of items.entries()) {
+		if (!isRecordObject(item)) {
+			return toolError(ToolErrorCode.MISSING_INPUT, `edits[${index}] must be an object with old_string and new_string`);
+		}
+		if (typeof item.old_string !== 'string' || item.old_string.length === 0) {
+			return toolError(ToolErrorCode.MISSING_INPUT, `edits[${index}].old_string is required and must be a non-empty string`);
+		}
+		if (typeof item.new_string !== 'string') {
+			return toolError(ToolErrorCode.MISSING_INPUT, `edits[${index}].new_string is required and must be a string`);
+		}
+		edits.push({
+			old_string: item.old_string,
+			new_string: item.new_string,
+			replace_all: typeof item.replace_all === 'string' ? item.replace_all : undefined,
+		});
+	}
+	return edits;
+}
 
 // =============================================================================
 // Execute Function
@@ -68,9 +119,7 @@ export async function execute(
 ): Promise<ToolResult> {
 	const { projectRoot, projectId, sessionId } = context;
 	const editPath = input.path;
-	const oldString = input.old_string;
-	const newString = input.new_string;
-	const shouldReplaceAll = input.replace_all === 'true';
+	const editsRaw = input.edits;
 
 	// Validate path
 	if (!isPathSafe(projectRoot, editPath)) {
@@ -80,6 +129,9 @@ export async function execute(
 	if (isHiddenPath(editPath)) {
 		return toolError(ToolErrorCode.INVALID_PATH, `Access denied: ${editPath}`);
 	}
+
+	// Parse edits array
+	const edits = parseEditsInput(editsRaw);
 
 	// Check that file was read first (if session tracking is available)
 	if (sessionId) {
@@ -92,7 +144,7 @@ export async function execute(
 		}
 	}
 
-	await sendEvent('status', { message: `Editing ${editPath}...` });
+	sendEvent('status', { message: `Editing ${editPath} (${edits.length} edit${edits.length === 1 ? '' : 's'})...` });
 
 	// Read file content
 	let content: string;
@@ -104,21 +156,21 @@ export async function execute(
 
 	const beforeContent = content;
 
-	// Use the replace function with multiple strategies
-	try {
-		content = replace(content, oldString, newString, shouldReplaceAll);
-	} catch (error) {
-		const message = error instanceof Error ? error.message : 'Unknown error';
-		return toolError(ToolErrorCode.NO_MATCH, message);
+	// Apply all edits sequentially. On failure, no write happens (atomic).
+	for (const [index, edit] of edits.entries()) {
+		try {
+			content = replace(content, edit.old_string, edit.new_string, edit.replace_all === 'true');
+		} catch (error) {
+			const message = error instanceof Error ? error.message : 'Unknown error';
+			return toolError(ToolErrorCode.NO_MATCH, `Edit ${index + 1}/${edits.length} failed: ${message}`);
+		}
 	}
 
-	// Guard: if the replacement produced no actual change (e.g., fuzzy match found
-	// content that after substitution is identical), skip the write and return early.
-	// This prevents empty diffs from appearing in the UI.
+	// Guard: if all replacements produced no actual change, skip the write
 	if (content === beforeContent) {
 		return {
 			title: editPath,
-			metadata: { linesAdded: 0, linesRemoved: 0, diagnostics: [] },
+			metadata: { editCount: edits.length, linesAdded: 0, linesRemoved: 0, diagnostics: [] },
 			output: 'No changes needed — the file already contains the expected content.',
 		};
 	}
@@ -161,7 +213,7 @@ export async function execute(
 		isBinary: false,
 	});
 
-	// Build result with a compact diff so the model can verify its edit
+	// Build result with a compact diff so the model can verify its edits
 	let output = generateCompactDiff(editPath, beforeContent, content);
 	const lintOutput = formatLintDiagnostics(diagnostics);
 	if (lintOutput) {
@@ -174,6 +226,7 @@ export async function execute(
 	return {
 		title: editPath,
 		metadata: {
+			editCount: edits.length,
 			linesAdded,
 			linesRemoved,
 			diagnostics,

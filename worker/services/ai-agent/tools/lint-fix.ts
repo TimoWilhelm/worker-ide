@@ -14,7 +14,13 @@ import { recordFileRead } from '../file-time';
 import { fixFileForAgent, formatLintResultsForAgent, lintFileForAgent } from '../lib/biome-linter';
 import { computeDiffStats, generateCompactDiff } from '../utilities';
 
-import type { FileChange, SendEventFunction, ToolDefinition, ToolExecutorContext } from '../types';
+import type { FileChange, SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
+
+// =============================================================================
+// Constants
+// =============================================================================
+
+const MAX_DIAGNOSTICS_PER_FILE = 20;
 
 // =============================================================================
 // Description
@@ -55,9 +61,8 @@ export async function execute(
 	input: Record<string, string>,
 	sendEvent: SendEventFunction,
 	context: ToolExecutorContext,
-	toolUseId?: string,
 	queryChanges?: FileChange[],
-): Promise<string | object> {
+): Promise<ToolResult> {
 	const { projectRoot, projectId, sessionId } = context;
 	const fixPath = input.path;
 
@@ -90,10 +95,18 @@ export async function execute(
 
 	if (result.fixCount === 0) {
 		if (result.remainingDiagnostics.length === 0) {
-			return `No lint issues found in ${fixPath}.`;
+			return {
+				title: fixPath,
+				metadata: { linesAdded: 0, linesRemoved: 0, fixedCount: 0, diagnostics: [] },
+				output: `No lint issues found in ${fixPath}.`,
+			};
 		}
 		const lintInfo = await formatLintResultsForAgent(fixPath, originalContent);
-		return `No auto-fixable lint issues in ${fixPath}. ${result.remainingDiagnostics.length} issue(s) require manual fixes.${lintInfo ?? ''}`;
+		return {
+			title: fixPath,
+			metadata: { linesAdded: 0, linesRemoved: 0, fixedCount: 0, diagnostics: [] },
+			output: `No auto-fixable lint issues in ${fixPath}. ${result.remainingDiagnostics.length} issue(s) require manual fixes.${lintInfo ?? ''}`,
+		};
 	}
 
 	// Write the fixed content
@@ -129,13 +142,12 @@ export async function execute(
 	// Compute diff stats and lint errors for the UI
 	const { linesAdded, linesRemoved } = computeDiffStats(originalContent, result.fixedContent);
 	const lintDiagnostics = await lintFileForAgent(fixPath, result.fixedContent);
-	const lintErrorCount = lintDiagnostics.length;
+	const limitedDiagnostics = lintDiagnostics.slice(0, MAX_DIAGNOSTICS_PER_FILE);
 
 	// Send file changed event for UI (carries full content for inline diff)
 	sendEvent('file_changed', {
 		path: fixPath,
 		action: 'edit',
-		tool_use_id: toolUseId,
 		beforeContent: originalContent,
 		afterContent: result.fixedContent,
 		isBinary: false,
@@ -152,5 +164,9 @@ export async function execute(
 		}
 	}
 
-	return { result: resultText, linesAdded, linesRemoved, lintErrorCount };
+	return {
+		title: fixPath,
+		metadata: { linesAdded, linesRemoved, fixedCount: result.fixCount, diagnostics: limitedDiagnostics },
+		output: resultText,
+	};
 }

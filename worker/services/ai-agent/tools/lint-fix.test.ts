@@ -88,11 +88,10 @@ describe('lint_fix', () => {
 
 		const result = await execute({ path: '/src/app.ts' }, createMockSendEvent(), context());
 
-		expect(result).toHaveProperty('result');
-		expect(result).toHaveProperty('linesAdded');
-		expect(result).toHaveProperty('linesRemoved');
-		const resultObject = result as { result: string };
-		expect(resultObject.result).toContain('Fixed 2 lint issue(s)');
+		expect(result).toHaveProperty('output');
+		expect(result.metadata).toHaveProperty('linesAdded');
+		expect(result.metadata).toHaveProperty('linesRemoved');
+		expect(result.output).toContain('Fixed 2 lint issue(s)');
 		// File should be updated in the memory fs
 		const entry = memoryFs.store.get(`${PROJECT_ROOT}/src/app.ts`);
 		expect(entry?.content).toBe(fixed);
@@ -126,7 +125,7 @@ describe('lint_fix', () => {
 
 		const result = await execute({ path: '/clean.ts' }, createMockSendEvent(), context());
 
-		expect(result).toContain('No lint issues found');
+		expect(result.output).toContain('No lint issues found');
 	});
 
 	// ── Remaining diagnostics ─────────────────────────────────────────────
@@ -143,9 +142,8 @@ describe('lint_fix', () => {
 
 		const result = await execute({ path: '/partial.ts' }, createMockSendEvent(), context());
 
-		const resultObject = result as { result: string };
-		expect(resultObject.result).toContain('1 issue(s) remain');
-		expect(resultObject.result).toContain('noEval');
+		expect(result.output).toContain('1 issue(s) remain');
+		expect(result.output).toContain('noEval');
 	});
 
 	it('reports unfixable issues when no auto-fixes are available', async () => {
@@ -160,8 +158,7 @@ describe('lint_fix', () => {
 
 		const result = await execute({ path: '/manual.ts' }, createMockSendEvent(), context());
 
-		expect(typeof result).toBe('string');
-		expect(result).toContain('require manual fixes');
+		expect(result.output).toContain('require manual fixes');
 	});
 
 	// ── Snapshot tracking ─────────────────────────────────────────────────
@@ -175,7 +172,7 @@ describe('lint_fix', () => {
 		};
 		const queryChanges: FileChange[] = [];
 
-		await execute({ path: '/tracked.ts' }, createMockSendEvent(), context(), 'tool-lint', queryChanges);
+		await execute({ path: '/tracked.ts' }, createMockSendEvent(), context(), queryChanges);
 
 		expect(queryChanges).toHaveLength(1);
 		expect(queryChanges[0].action).toBe('edit');

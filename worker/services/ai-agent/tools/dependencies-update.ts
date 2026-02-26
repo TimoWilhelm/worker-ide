@@ -5,7 +5,9 @@
 
 import fs from 'node:fs/promises';
 
-import type { SendEventFunction, ToolDefinition, ToolExecutorContext } from '../types';
+import { ToolExecutionError } from '@shared/tool-errors';
+
+import type { SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
 import type { ProjectMeta } from '@shared/types';
 
 export const definition: ToolDefinition = {
@@ -37,12 +39,12 @@ export async function execute(
 	input: Record<string, string>,
 	sendEvent: SendEventFunction,
 	context: ToolExecutorContext,
-): Promise<string | object> {
+): Promise<ToolResult> {
 	const { projectRoot } = context;
 	const { action, name, version } = input;
 
 	if (!name) {
-		return { error: 'Package name is required.' };
+		throw new ToolExecutionError('MISSING_INPUT', 'Package name is required.');
 	}
 
 	const metaPath = `${projectRoot}/.project-meta.json`;
@@ -54,7 +56,7 @@ export async function execute(
 		const metaRaw = await fs.readFile(metaPath, 'utf8');
 		meta = JSON.parse(metaRaw);
 	} catch {
-		return { error: 'No project metadata found. Cannot manage dependencies.' };
+		throw new ToolExecutionError('FILE_NOT_FOUND', 'No project metadata found. Cannot manage dependencies.');
 	}
 
 	const dependencies = meta.dependencies ?? {};
@@ -62,32 +64,42 @@ export async function execute(
 	switch (action) {
 		case 'add': {
 			if (dependencies[name]) {
-				return { error: `Dependency "${name}" already exists with version "${dependencies[name]}". Use action "update" to change it.` };
+				throw new ToolExecutionError(
+					'NOT_ALLOWED',
+					`Dependency "${name}" already exists with version "${dependencies[name]}". Use action "update" to change it.`,
+				);
 			}
 			dependencies[name] = version || '*';
 			break;
 		}
 		case 'remove': {
 			if (!dependencies[name]) {
-				return { error: `Dependency "${name}" is not registered.` };
+				throw new ToolExecutionError('NOT_ALLOWED', `Dependency "${name}" is not registered.`);
 			}
 			delete dependencies[name];
 			break;
 		}
 		case 'update': {
 			if (!dependencies[name]) {
-				return { error: `Dependency "${name}" is not registered. Use action "add" to add it first.` };
+				throw new ToolExecutionError('NOT_ALLOWED', `Dependency "${name}" is not registered. Use action "add" to add it first.`);
 			}
 			dependencies[name] = version || '*';
 			break;
 		}
 		default: {
-			return { error: `Unknown action "${action}". Use "add", "remove", or "update".` };
+			throw new ToolExecutionError('MISSING_INPUT', `Unknown action "${action}". Use "add", "remove", or "update".`);
 		}
 	}
 
 	meta.dependencies = dependencies;
 	await fs.writeFile(metaPath, JSON.stringify(meta));
 
-	return { success: true, action, name, dependencies };
+	const verbMap: Record<string, string> = { add: 'Added', remove: 'Removed', update: 'Updated' };
+	const verb = verbMap[action] ?? action;
+
+	return {
+		title: name,
+		metadata: { action, name, version: dependencies[name], dependencies },
+		output: `${verb} ${name}@${version || dependencies[name] || '*'}`,
+	};
 }

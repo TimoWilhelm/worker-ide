@@ -62,8 +62,8 @@ describe('file_write', () => {
 	it('creates a new file and returns diff stats', async () => {
 		const result = await execute({ path: '/src/new-file.ts', content: 'export const a = 1;\n' }, createMockSendEvent(), context());
 
-		expect(result).toHaveProperty('result');
-		expect(result).toHaveProperty('linesAdded');
+		expect(result).toHaveProperty('output');
+		expect(result.metadata).toHaveProperty('linesAdded');
 		// File should exist in the memory fs
 		expect(memoryFs.store.has(`${PROJECT_ROOT}/src/new-file.ts`)).toBe(true);
 	});
@@ -89,7 +89,7 @@ describe('file_write', () => {
 
 		const result = await execute({ path: '/existing.ts', content: 'new content' }, createMockSendEvent(), context());
 
-		expect(result).toHaveProperty('result');
+		expect(result).toHaveProperty('output');
 		const entry = memoryFs.store.get(`${PROJECT_ROOT}/existing.ts`);
 		expect(entry?.content).toBe('new content');
 	});
@@ -110,7 +110,7 @@ describe('file_write', () => {
 
 		const result = await execute({ path: '/same.ts', content }, createMockSendEvent(), context());
 
-		expect(result).toBe('No changes needed — the file already contains the expected content.');
+		expect(result.output).toBe('No changes needed — the file already contains the expected content.');
 	});
 
 	// ── Snapshot tracking ─────────────────────────────────────────────────
@@ -118,15 +118,9 @@ describe('file_write', () => {
 	it('tracks file change in queryChanges array', async () => {
 		const queryChanges: FileChange[] = [];
 
-		const result = await execute(
-			{ path: '/tracked.ts', content: 'tracked content' },
-			createMockSendEvent(),
-			context(),
-			'tool-123',
-			queryChanges,
-		);
+		const result = await execute({ path: '/tracked.ts', content: 'tracked content' }, createMockSendEvent(), context(), queryChanges);
 
-		expect(result).toHaveProperty('result');
+		expect(result).toHaveProperty('output');
 		expect(queryChanges).toHaveLength(1);
 		expect(queryChanges[0].path).toBe('/tracked.ts');
 		expect(queryChanges[0].action).toBe('create');

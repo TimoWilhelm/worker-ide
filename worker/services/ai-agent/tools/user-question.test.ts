@@ -2,7 +2,7 @@
  * Integration tests for the user_question tool.
  *
  * Tests event emission, options formatting, and result structure.
- * No external dependencies to mock — this tool is self-contained.
+ * No external dependencies to mock ��� this tool is self-contained.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -20,11 +20,9 @@ describe('user_question', () => {
 	it('returns question text in result', async () => {
 		const result = await execute({ question: 'Which design do you prefer?' }, createMockSendEvent(), createMockContext());
 
-		expect(result).toHaveProperty('question', 'Which design do you prefer?');
-		expect(result).toHaveProperty('message');
-		const message = (result as { message: string }).message;
-		expect(message).toContain('Which design do you prefer?');
-		expect(message).toContain('user will respond');
+		expect(result.metadata).toHaveProperty('question', 'Which design do you prefer?');
+		expect(result.output).toContain('Which design do you prefer?');
+		expect(result.output).toContain('user will respond');
 	});
 
 	// ── With options ──────────────────────────────────────────────────────
@@ -32,9 +30,8 @@ describe('user_question', () => {
 	it('includes options in result', async () => {
 		const result = await execute({ question: 'Pick a color', options: 'red, blue, green' }, createMockSendEvent(), createMockContext());
 
-		expect(result).toHaveProperty('options', 'red, blue, green');
-		const message = (result as { message: string }).message;
-		expect(message).toContain('Suggested options: red, blue, green');
+		expect(result.metadata.options).toEqual(['red', 'blue', 'green']);
+		expect(result.output).toContain('Suggested options: red, blue, green');
 	});
 
 	// ── Without options ───────────────────────────────────────────────────
@@ -42,9 +39,8 @@ describe('user_question', () => {
 	it('works without options', async () => {
 		const result = await execute({ question: 'Open question' }, createMockSendEvent(), createMockContext());
 
-		expect(result).toHaveProperty('question', 'Open question');
-		const message = (result as { message: string }).message;
-		expect(message).not.toContain('Suggested options');
+		expect(result.metadata).toHaveProperty('question', 'Open question');
+		expect(result.output).not.toContain('Suggested options');
 	});
 
 	// ── Event emission ────────────────────────────────────────────────────

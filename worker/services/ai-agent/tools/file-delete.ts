@@ -10,7 +10,7 @@ import { ToolErrorCode, toolError } from '@shared/tool-errors';
 import { coordinatorNamespace } from '../../../lib/durable-object-namespaces';
 import { isHiddenPath, isPathSafe, isProtectedFile } from '../../../lib/path-utilities';
 
-import type { FileChange, SendEventFunction, ToolDefinition, ToolExecutorContext } from '../types';
+import type { FileChange, SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
 
 export const DESCRIPTION = `Delete a file from the project. Use with caution — this action is irreversible.
 
@@ -35,9 +35,8 @@ export async function execute(
 	input: Record<string, string>,
 	sendEvent: SendEventFunction,
 	context: ToolExecutorContext,
-	toolUseId?: string,
 	queryChanges?: FileChange[],
-): Promise<string | object> {
+): Promise<ToolResult> {
 	const { projectRoot, projectId } = context;
 	const deletePath = input.path;
 
@@ -71,18 +70,21 @@ export async function execute(
 	const coordinatorStub = coordinatorNamespace.get(coordinatorId);
 	await coordinatorStub.triggerUpdate({ type: 'full-reload', path: deletePath, timestamp: Date.now(), isCSS: false });
 
-	await sendEvent('file_changed', {
+	sendEvent('file_changed', {
 		path: deletePath,
 		action: 'delete',
-		tool_use_id: toolUseId,
 		// eslint-disable-next-line unicorn/no-null -- JSON wire format
 		afterContent: null,
 		isBinary: false,
 	});
 
 	const lineCount = beforeContent.split('\n').length;
-	const fileSize = Buffer.byteLength(beforeContent, 'utf8');
+	const byteCount = Buffer.byteLength(beforeContent, 'utf8');
+	const output = `Deleted ${deletePath} (${lineCount} lines, ${byteCount} bytes). Remember to remove any imports or references to this file.`;
+
 	return {
-		result: `Deleted ${deletePath} (${lineCount} lines, ${fileSize} bytes). Remember to remove any imports or references to this file.`,
+		title: deletePath,
+		metadata: { lineCount, byteCount },
+		output,
 	};
 }

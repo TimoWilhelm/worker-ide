@@ -56,12 +56,12 @@ describe('file_read', () => {
 
 		const result = await execute({ path: '/src/main.ts' }, createMockSendEvent(), context());
 
-		expect(result).toContain('<path>/src/main.ts</path>');
-		expect(result).toContain('<type>file</type>');
-		expect(result).toContain('1: const x = 1;');
-		expect(result).toContain('2: const y = 2;');
-		expect(result).toContain('3: const z = 3;');
-		expect(result).toContain('End of file');
+		expect(result.output).toContain('<path>/src/main.ts</path>');
+		expect(result.output).toContain('<type>file</type>');
+		expect(result.output).toContain('1: const x = 1;');
+		expect(result.output).toContain('2: const y = 2;');
+		expect(result.output).toContain('3: const z = 3;');
+		expect(result.output).toContain('End of file');
 	});
 
 	it('reads a file with offset and limit', async () => {
@@ -70,12 +70,12 @@ describe('file_read', () => {
 
 		const result = await execute({ path: '/big.txt', offset: '5', limit: '3' }, createMockSendEvent(), context());
 
-		expect(result).toContain('5: line 5');
-		expect(result).toContain('6: line 6');
-		expect(result).toContain('7: line 7');
-		expect(result).not.toContain('4: line 4');
-		expect(result).not.toContain('8: line 8');
-		expect(result).toContain('Use offset=8 to continue reading');
+		expect(result.output).toContain('5: line 5');
+		expect(result.output).toContain('6: line 6');
+		expect(result.output).toContain('7: line 7');
+		expect(result.output).not.toContain('4: line 4');
+		expect(result.output).not.toContain('8: line 8');
+		expect(result.output).toContain('Use offset=8 to continue reading');
 	});
 
 	it('truncates long lines at 2000 characters', async () => {
@@ -84,8 +84,8 @@ describe('file_read', () => {
 
 		const result = await execute({ path: '/long.txt' }, createMockSendEvent(), context());
 
-		expect(result).toContain('line truncated to 2000 chars');
-		expect(result).not.toContain('x'.repeat(3000));
+		expect(result.output).toContain('line truncated to 2000 chars');
+		expect(result.output).not.toContain('x'.repeat(3000));
 	});
 
 	it('respects the 50KB output byte limit', async () => {
@@ -95,7 +95,7 @@ describe('file_read', () => {
 
 		const result = await execute({ path: '/huge.txt' }, createMockSendEvent(), context());
 
-		expect(result).toContain('Output truncated due to size limit');
+		expect(result.output).toContain('Output truncated due to size limit');
 	});
 
 	// ── Directory reading ─────────────────────────────────────────────────
@@ -107,13 +107,13 @@ describe('file_read', () => {
 
 		const result = await execute({ path: '/src' }, createMockSendEvent(), context());
 
-		expect(result).toContain('<type>directory</type>');
-		expect(result).toContain('utils/');
-		expect(result).toContain('app.ts');
-		expect(result).toContain('index.ts');
+		expect(result.output).toContain('<type>directory</type>');
+		expect(result.output).toContain('utils/');
+		expect(result.output).toContain('app.ts');
+		expect(result.output).toContain('index.ts');
 		// Directories should appear before files
-		const utilitiesIndex = (result as string).indexOf('utils/');
-		const appIndex = (result as string).indexOf('app.ts');
+		const utilitiesIndex = result.output.indexOf('utils/');
+		const appIndex = result.output.indexOf('app.ts');
 		expect(utilitiesIndex).toBeLessThan(appIndex);
 	});
 
@@ -124,9 +124,9 @@ describe('file_read', () => {
 
 		const result = await execute({ path: '/' }, createMockSendEvent(), context());
 
-		expect(result).toContain('src/');
-		expect(result).not.toContain('.agent');
-		expect(result).not.toContain('.initialized');
+		expect(result.output).toContain('src/');
+		expect(result.output).not.toContain('.agent');
+		expect(result.output).not.toContain('.initialized');
 	});
 
 	// ── Binary file detection ─────────────────────────────────────────────
@@ -136,8 +136,8 @@ describe('file_read', () => {
 
 		const result = await execute({ path: '/image.png' }, createMockSendEvent(), context());
 
-		expect(result).toContain('<type>binary</type>');
-		expect(result).toContain('Binary file detected');
+		expect(result.output).toContain('<type>binary</type>');
+		expect(result.output).toContain('Binary file detected');
 	});
 
 	it('detects binary content with null bytes', async () => {
@@ -146,7 +146,7 @@ describe('file_read', () => {
 
 		const result = await execute({ path: '/data.custom' }, createMockSendEvent(), context());
 
-		expect(result).toContain('<type>binary</type>');
+		expect(result.output).toContain('<type>binary</type>');
 	});
 
 	// ── Error cases ───────────────────────────────────────────────────────

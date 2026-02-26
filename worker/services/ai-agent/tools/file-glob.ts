@@ -8,7 +8,7 @@ import { minimatch } from 'minimatch';
 
 import { listFilesRecursive } from '../tool-executor';
 
-import type { SendEventFunction, ToolDefinition, ToolExecutorContext } from '../types';
+import type { SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
 
 // =============================================================================
 // Constants
@@ -51,7 +51,11 @@ export const definition: ToolDefinition = {
 // Execute Function
 // =============================================================================
 
-export async function execute(input: Record<string, string>, sendEvent: SendEventFunction, context: ToolExecutorContext): Promise<string> {
+export async function execute(
+	input: Record<string, string>,
+	sendEvent: SendEventFunction,
+	context: ToolExecutorContext,
+): Promise<ToolResult> {
 	const { projectRoot } = context;
 	const globPattern = input.pattern;
 	const searchPath = input.path || '/';
@@ -95,5 +99,5 @@ export async function execute(input: Record<string, string>, sendEvent: SendEven
 		}
 	}
 
-	return outputLines.join('\n');
+	return { title: globPattern, metadata: { count: results.length, truncated }, output: outputLines.join('\n') };
 }

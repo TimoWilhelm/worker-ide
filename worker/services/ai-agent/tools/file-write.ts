@@ -14,7 +14,13 @@ import { assertFileWasRead, recordFileRead } from '../file-time';
 import { formatLintDiagnostics, lintFileForAgent } from '../lib/biome-linter';
 import { computeDiffStats, generateCompactDiff, isBinaryFilePath, toUint8Array } from '../utilities';
 
-import type { FileChange, SendEventFunction, ToolDefinition, ToolExecutorContext } from '../types';
+import type { FileChange, SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
+
+// =============================================================================
+// Constants
+// =============================================================================
+
+const MAX_DIAGNOSTICS_PER_FILE = 20;
 
 // =============================================================================
 // Description
@@ -53,9 +59,8 @@ export async function execute(
 	input: Record<string, string>,
 	sendEvent: SendEventFunction,
 	context: ToolExecutorContext,
-	toolUseId?: string,
 	queryChanges?: FileChange[],
-): Promise<string | object> {
+): Promise<ToolResult> {
 	const { projectRoot, projectId, sessionId } = context;
 	const writePath = input.path;
 	const writeContent = input.content;
@@ -111,7 +116,11 @@ export async function execute(
 	// Guard: if file exists and content is identical, skip the write.
 	// This prevents empty diffs from appearing in the UI.
 	if (fileExists && typeof beforeContent === 'string' && beforeContent === writeContent) {
-		return 'No changes needed — the file already contains the expected content.';
+		return {
+			title: writePath,
+			metadata: { linesAdded: 0, linesRemoved: 0, diagnostics: [], isNew: false },
+			output: 'No changes needed — the file already contains the expected content.',
+		};
 	}
 
 	// Create parent directories if needed
@@ -156,14 +165,13 @@ export async function execute(
 	const { linesAdded, linesRemoved } = writeIsBinary
 		? { linesAdded: 0, linesRemoved: 0 }
 		: computeDiffStats(typeof beforeContent === 'string' ? beforeContent : undefined, writeContent);
-	const lintDiagnostics = writeIsBinary ? [] : await lintFileForAgent(writePath, writeContent);
-	const lintErrorCount = lintDiagnostics.length;
+	const allDiagnostics = writeIsBinary ? [] : await lintFileForAgent(writePath, writeContent);
+	const diagnostics = allDiagnostics.slice(0, MAX_DIAGNOSTICS_PER_FILE);
 
 	// Send file changed event for UI (carries full content for inline diff)
 	sendEvent('file_changed', {
 		path: writePath,
 		action,
-		tool_use_id: toolUseId,
 		// eslint-disable-next-line unicorn/no-null -- JSON wire format for SSE events
 		beforeContent: writeIsBinary ? null : beforeContent,
 		// eslint-disable-next-line unicorn/no-null -- JSON wire format for SSE events
@@ -172,13 +180,25 @@ export async function execute(
 	});
 
 	// Build result with a compact diff so the model can verify the write
-	let result = writeIsBinary
+	let output = writeIsBinary
 		? `Wrote binary file: ${writePath}`
 		: generateCompactDiff(writePath, typeof beforeContent === 'string' ? beforeContent : undefined, writeContent);
-	const lintOutput = writeIsBinary ? undefined : formatLintDiagnostics(lintDiagnostics);
+	const lintOutput = writeIsBinary ? undefined : formatLintDiagnostics(diagnostics);
 	if (lintOutput) {
-		result += `\n${lintOutput}`;
+		output += `\n${lintOutput}`;
+	}
+	if (allDiagnostics.length > MAX_DIAGNOSTICS_PER_FILE) {
+		output += `\n(Showing ${MAX_DIAGNOSTICS_PER_FILE} of ${allDiagnostics.length} diagnostics)`;
 	}
 
-	return { result, linesAdded, linesRemoved, lintErrorCount };
+	return {
+		title: writePath,
+		metadata: {
+			linesAdded,
+			linesRemoved,
+			diagnostics,
+			isNew: !fileExists,
+		},
+		output,
+	};
 }

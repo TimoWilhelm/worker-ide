@@ -53,8 +53,8 @@ describe('dependencies_list', () => {
 
 		const result = await execute({}, createMockSendEvent(), context());
 
-		expect(result).toHaveProperty('dependencies');
-		const dependencies = (result as { dependencies: Record<string, string> }).dependencies;
+		expect(result.metadata).toHaveProperty('dependencies');
+		const { dependencies } = result.metadata as { dependencies: Record<string, string> };
 		expect(dependencies).toHaveProperty('react', '^18.0.0');
 		expect(dependencies).toHaveProperty('hono', '^4.0.0');
 		expect(dependencies).toHaveProperty('zod', '*');
@@ -68,7 +68,7 @@ describe('dependencies_list', () => {
 
 		const result = await execute({}, createMockSendEvent(), context());
 
-		const dependencies = (result as { dependencies: Record<string, string> }).dependencies;
+		const { dependencies } = result.metadata as { dependencies: Record<string, string> };
 		expect(Object.keys(dependencies)).toHaveLength(0);
 	});
 
@@ -77,9 +77,7 @@ describe('dependencies_list', () => {
 	it('returns empty dependencies with note when meta file is missing', async () => {
 		const result = await execute({}, createMockSendEvent(), context());
 
-		expect(result).toHaveProperty('dependencies');
-		expect(result).toHaveProperty('note');
-		const noteResult = result as { note: string };
-		expect(noteResult.note).toContain('No project metadata');
+		expect(result.metadata).toHaveProperty('dependencies');
+		expect(result.output).toContain('No project metadata');
 	});
 });

@@ -50,9 +50,8 @@ describe('file_list', () => {
 
 		const result = await execute({ path: '/' }, createMockSendEvent(), context());
 
-		expect(result).toHaveProperty('path', '/');
-		expect(result).toHaveProperty('entries');
-		const entries = (result as { entries: Array<{ name: string; type: string }> }).entries;
+		expect(result.title).toBe('/');
+		const entries = result.metadata.entries as Array<{ name: string; type: string }>;
 		const fileEntry = entries.find((entry) => entry.name === 'file.ts');
 		const directoryEntry = entries.find((entry) => entry.name === 'src');
 		expect(fileEntry?.type).toBe('file');
@@ -64,7 +63,7 @@ describe('file_list', () => {
 
 		const result = await execute({ path: '/' }, createMockSendEvent(), context());
 
-		const entries = (result as { entries: Array<{ name: string; size?: number }> }).entries;
+		const entries = result.metadata.entries as Array<{ name: string; size?: number }>;
 		const entry = entries.find((entry) => entry.name === 'sized.ts');
 		expect(entry?.size).toBeGreaterThan(0);
 	});
@@ -78,7 +77,7 @@ describe('file_list', () => {
 
 		const result = await execute({ path: '/' }, createMockSendEvent(), context());
 
-		const entries = (result as { entries: Array<{ name: string }> }).entries;
+		const entries = result.metadata.entries as Array<{ name: string }>;
 		const names = entries.map((entry) => entry.name);
 		expect(names).toContain('visible.ts');
 		expect(names).not.toContain('.agent');
@@ -94,7 +93,7 @@ describe('file_list', () => {
 
 		const result = await execute({ path: '/', pattern: '*.ts' }, createMockSendEvent(), context());
 
-		const entries = (result as { entries: Array<{ name: string }> }).entries;
+		const entries = result.metadata.entries as Array<{ name: string }>;
 		const names = entries.map((entry) => entry.name);
 		expect(names).toContain('app.ts');
 		expect(names).toContain('index.ts');
@@ -108,18 +107,14 @@ describe('file_list', () => {
 
 		const result = await execute({}, createMockSendEvent(), context());
 
-		expect(result).toHaveProperty('path', '/');
-		const entries = (result as { entries: Array<{ name: string }> }).entries;
+		expect(result.title).toBe('/');
+		const entries = result.metadata.entries as Array<{ name: string }>;
 		expect(entries.some((entry) => entry.name === 'root-file.ts')).toBe(true);
 	});
 
 	// ── Error case ────────────────────────────────────────────────────────
 
-	it('returns error for non-existent directory', async () => {
-		const result = await execute({ path: '/nonexistent' }, createMockSendEvent(), context());
-
-		expect(result).toHaveProperty('error');
-		const errorResult = result as { error: string };
-		expect(errorResult.error).toContain('Directory not found');
+	it('throws for non-existent directory', async () => {
+		await expect(execute({ path: '/nonexistent' }, createMockSendEvent(), context())).rejects.toThrow('Directory not found');
 	});
 });

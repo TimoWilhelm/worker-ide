@@ -53,8 +53,8 @@ describe('todos_get', () => {
 
 		const result = await execute({}, createMockSendEvent(), context());
 
-		expect(result).toHaveProperty('todos');
-		const todosResult = (result as { todos: unknown[] }).todos;
+		expect(result.metadata).toHaveProperty('todos');
+		const todosResult = result.metadata.todos as unknown[];
 		expect(todosResult).toHaveLength(3);
 		expect(todosResult[0]).toHaveProperty('id', '1');
 		expect(todosResult[0]).toHaveProperty('status', 'pending');
@@ -65,8 +65,8 @@ describe('todos_get', () => {
 	it('returns empty array when no todo file exists', async () => {
 		const result = await execute({}, createMockSendEvent(), context());
 
-		expect(result).toHaveProperty('todos');
-		const todosResult = (result as { todos: unknown[] }).todos;
+		expect(result.metadata).toHaveProperty('todos');
+		const todosResult = result.metadata.todos as unknown[];
 		expect(todosResult).toHaveLength(0);
 	});
 
@@ -82,7 +82,7 @@ describe('todos_get', () => {
 
 		const result = await execute({}, createMockSendEvent(), context());
 
-		const todosResult = (result as { todos: unknown[] }).todos;
+		const todosResult = result.metadata.todos as unknown[];
 		expect(todosResult).toHaveLength(2);
 	});
 
@@ -93,7 +93,7 @@ describe('todos_get', () => {
 
 		const result = await execute({}, createMockSendEvent(), context());
 
-		const todosResult = (result as { todos: unknown[] }).todos;
+		const todosResult = result.metadata.todos as unknown[];
 		expect(todosResult).toHaveLength(0);
 	});
 
@@ -104,7 +104,7 @@ describe('todos_get', () => {
 
 		const result = await execute({}, createMockSendEvent(), context());
 
-		const todosResult = (result as { todos: unknown[] }).todos;
+		const todosResult = result.metadata.todos as unknown[];
 		expect(todosResult).toHaveLength(0);
 	});
 });

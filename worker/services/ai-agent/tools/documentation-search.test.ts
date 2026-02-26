@@ -24,25 +24,21 @@ describe('docs_search', () => {
 
 		const result = await execute({ query: 'Workers AI' }, createMockSendEvent(), context);
 
-		expect(result).toHaveProperty('results', 'Workers AI documentation...');
+		expect(result.output).toBe('Workers AI documentation...');
+		expect(result.metadata).toHaveProperty('query', 'Workers AI');
 		expect(mockCallMcpTool).toHaveBeenCalledWith('cloudflare-docs', 'search_cloudflare_documentation', { query: 'Workers AI' });
 	});
 
 	// ── MCP tool failure ──────────────────────────────────────────────────
 
-	it('returns error when MCP tool throws', async () => {
+	it('throws error when MCP tool throws', async () => {
 		const mockCallMcpTool = vi.fn().mockRejectedValue(new Error('MCP server unavailable'));
 		const context = createMockContext({ callMcpTool: mockCallMcpTool });
 
-		const result = await execute({ query: 'D1 database' }, createMockSendEvent(), context);
-
-		expect(result).toHaveProperty('error');
-		const errorResult = result as { error: string };
-		expect(errorResult.error).toContain('Cloudflare docs search failed');
-		expect(errorResult.error).toContain('MCP server unavailable');
+		await expect(execute({ query: 'D1 database' }, createMockSendEvent(), context)).rejects.toThrow('Cloudflare docs search failed');
 	});
 
-	// ── Status event ──────────────────────────────────────────────────────
+	// ���─ Status event ──────────────────────────────────────────────────────
 
 	it('sends status event with search query', async () => {
 		const sendEvent = createMockSendEvent();

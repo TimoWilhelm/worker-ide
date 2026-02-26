@@ -95,6 +95,24 @@ export interface ToolErrorInfo {
 }
 
 /**
+ * Structured tool result info received via CUSTOM AG-UI `tool_result` events.
+ *
+ * Each successful tool call emits this alongside its text output. The frontend
+ * uses `title` for the collapsed label and `metadata` for rich rendering
+ * (e.g. line stats, diagnostics, todo lists) instead of re-parsing raw strings.
+ *
+ * `metadata` is tool-specific — the UI inspects known fields per tool name.
+ */
+export interface ToolMetadataInfo {
+	toolCallId: string;
+	toolName: string;
+	/** Short label for the collapsed tool row (e.g. relative path, pattern) */
+	title: string;
+	/** Tool-specific structured data — shape varies by tool */
+	metadata: Record<string, unknown>;
+}
+
+/**
  * A saved AI chat session.
  * Uses UIMessage[] from TanStack AI for the history.
  */

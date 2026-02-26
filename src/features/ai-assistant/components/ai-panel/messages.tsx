@@ -46,7 +46,7 @@ import { parseTextToSegments } from '../../lib/input-segments';
 import { FileReference } from '../file-reference';
 import { MarkdownContent } from '../markdown-content';
 
-import type { AgentMode, ToolErrorInfo, UIMessage } from '@shared/types';
+import type { AgentMode, ToolErrorInfo, ToolMetadataInfo, UIMessage } from '@shared/types';
 import type { ToolName } from '@shared/validation';
 
 /** Threshold in pixels — if within this distance of bottom, consider "at bottom" for the thinking box. */
@@ -205,6 +205,7 @@ export function MessageBubble({
 	revertingMessageIndex,
 	onRevert,
 	toolErrors,
+	toolMetadata,
 	fileDiffContent,
 }: {
 	message: UIMessage;
@@ -216,6 +217,7 @@ export function MessageBubble({
 	revertingMessageIndex?: number;
 	onRevert: (snapshotId: string, messageIndex: number) => void;
 	toolErrors?: Map<string, ToolErrorInfo>;
+	toolMetadata?: Map<string, ToolMetadataInfo>;
 	fileDiffContent?: Map<string, { beforeContent: string; afterContent: string }>;
 }) {
 	if (message.role === 'user') {
@@ -231,7 +233,7 @@ export function MessageBubble({
 		);
 	}
 
-	return <AssistantMessage message={message} toolErrors={toolErrors} fileDiffContent={fileDiffContent} />;
+	return <AssistantMessage message={message} toolErrors={toolErrors} toolMetadata={toolMetadata} fileDiffContent={fileDiffContent} />;
 }
 
 // =============================================================================
@@ -354,11 +356,13 @@ export function AssistantMessage({
 	message,
 	streaming,
 	toolErrors,
+	toolMetadata,
 	fileDiffContent,
 }: {
 	message: UIMessage;
 	streaming?: boolean;
 	toolErrors?: Map<string, ToolErrorInfo>;
+	toolMetadata?: Map<string, ToolMetadataInfo>;
 	fileDiffContent?: Map<string, { beforeContent: string; afterContent: string }>;
 }) {
 	const segments = buildRenderSegments(message.parts);
@@ -474,6 +478,7 @@ export function AssistantMessage({
 							toolCall={segment.toolCall}
 							toolResult={segment.toolResult}
 							toolErrors={toolErrors}
+							toolMetadata={toolMetadata}
 							fileDiffContent={fileDiffContent}
 							isExpanded={expandedSections.has(segment.key)}
 							onToggleExpand={() => toggleSection(segment.key)}
@@ -713,8 +718,154 @@ function shortenError(text: string): string {
 }
 
 /**
+ * Build a brief summary from structured metadata (CUSTOM tool_result event).
+ * Returns undefined if no meaningful summary can be derived, so the caller
+ * falls back to raw-parsing.
+ */
+function summarizeFromMetadata(toolName: ToolName | undefined, info: ToolMetadataInfo): string | undefined {
+	const { metadata } = info;
+
+	switch (toolName) {
+		case 'file_read': {
+			if (metadata.type === 'directory' && typeof metadata.entryCount === 'number') {
+				return `${metadata.entryCount} entr${metadata.entryCount === 1 ? 'y' : 'ies'}`;
+			}
+			if (metadata.type === 'binary') return 'Binary file';
+			if (metadata.type === 'file' && typeof metadata.lineCount === 'number') {
+				return `${metadata.lineCount} line${metadata.lineCount === 1 ? '' : 's'}`;
+			}
+			return 'Read';
+		}
+
+		case 'file_edit': {
+			return 'Applied';
+		}
+
+		case 'file_multiedit': {
+			if (typeof metadata.editCount === 'number') {
+				return `${metadata.editCount} edit${metadata.editCount === 1 ? '' : 's'} applied`;
+			}
+			return 'Applied';
+		}
+
+		case 'file_write': {
+			return 'Written';
+		}
+
+		case 'file_delete': {
+			return 'Deleted';
+		}
+
+		case 'file_move': {
+			return 'Moved';
+		}
+
+		case 'file_glob': {
+			if (typeof metadata.count === 'number') {
+				if (metadata.count === 0) return 'No files found';
+				return `${metadata.count} file${metadata.count === 1 ? '' : 's'}`;
+			}
+			return 'Listed';
+		}
+
+		case 'file_grep': {
+			if (typeof metadata.matchCount === 'number') {
+				if (metadata.matchCount === 0) return 'No matches';
+				return `${metadata.matchCount} match${metadata.matchCount === 1 ? '' : 'es'}`;
+			}
+			return 'Searched';
+		}
+
+		case 'file_list': {
+			if (Array.isArray(metadata.entries)) {
+				const count = metadata.entries.length;
+				return `${count} entr${count === 1 ? 'y' : 'ies'}`;
+			}
+			return 'Listed';
+		}
+
+		case 'files_list': {
+			if (typeof metadata.count === 'number') {
+				return `${metadata.count} file${metadata.count === 1 ? '' : 's'}`;
+			}
+			return 'Listed';
+		}
+
+		case 'lint_check': {
+			if (typeof metadata.issueCount === 'number') {
+				if (metadata.issueCount === 0) return 'No issues';
+				return `${metadata.issueCount} issue${metadata.issueCount === 1 ? '' : 's'}`;
+			}
+			return 'Checked';
+		}
+
+		case 'lint_fix': {
+			return 'Fixed';
+		}
+
+		case 'dependencies_list': {
+			if (isRecord(metadata.dependencies)) {
+				const count = Object.keys(metadata.dependencies).length;
+				return `${count} dep${count === 1 ? '' : 's'}`;
+			}
+			return 'Listed';
+		}
+
+		case 'dependencies_update': {
+			if (typeof metadata.action === 'string' && typeof metadata.name === 'string') {
+				const verb = metadata.action === 'add' ? 'Added' : metadata.action === 'remove' ? 'Removed' : 'Updated';
+				return `${verb} ${metadata.name}`;
+			}
+			return 'Updated';
+		}
+
+		case 'plan_update': {
+			if (typeof metadata.completedTasks === 'number' && typeof metadata.totalTasks === 'number') {
+				return `${metadata.completedTasks}/${metadata.totalTasks}`;
+			}
+			return 'Updated';
+		}
+
+		case 'todos_get': {
+			return 'Retrieved';
+		}
+
+		case 'todos_update': {
+			return 'Updated';
+		}
+
+		case 'web_fetch': {
+			if (typeof metadata.contentLength === 'number') {
+				return `${metadata.contentLength} chars`;
+			}
+			return 'Fetched';
+		}
+
+		case 'docs_search': {
+			return 'Results fetched';
+		}
+
+		case 'cdp_eval': {
+			if (typeof metadata.method === 'string') {
+				return metadata.method;
+			}
+			return 'Evaluated';
+		}
+
+		case 'user_question': {
+			return 'Question';
+		}
+
+		default: {
+			return undefined;
+		}
+	}
+}
+
+/**
  * Parse a tool result string into a brief human-readable summary.
  * Each tool gets a custom parser; falls back to a cleaned-up truncation.
+ * Used as a fallback when structured metadata is not available (loaded sessions).
  */
 function summarizeToolResult(toolName: ToolName, rawResult: string): string {
 	// Handle errors first — applies to all tools
@@ -743,6 +894,13 @@ function summarizeToolResult(toolName: ToolName, rawResult: string): string {
 		}
 
 		case 'file_edit': {
+			const stats = parseFileEditResult(rawResult);
+			if (stats) return 'Applied';
+			if (rawResult.includes('No changes needed')) return 'No changes';
+			return rawResult.length > 40 ? rawResult.slice(0, 40) + '...' : rawResult || 'Applied';
+		}
+
+		case 'file_multiedit': {
 			const stats = parseFileEditResult(rawResult);
 			if (stats) return 'Applied';
 			if (rawResult.includes('No changes needed')) return 'No changes';
@@ -1029,6 +1187,7 @@ function formatToolResultDetail(toolName: ToolName, rawResult: string): string {
 		}
 
 		case 'file_edit':
+		case 'file_multiedit':
 		case 'file_write':
 		case 'lint_fix': {
 			// These tools return { result: "diff...", linesAdded, ... }
@@ -1387,10 +1546,51 @@ function InlineDiffView({ beforeContent, afterContent }: { beforeContent: string
 	);
 }
 
+/**
+ * Display a list of lint diagnostics in the tool call expanded view.
+ */
+function InlineDiagnosticsList({ diagnostics }: { diagnostics: unknown[] }) {
+	return (
+		<div
+			className="
+				max-h-40 overflow-auto rounded-md bg-bg-primary p-2 text-2xs/relaxed
+			"
+		>
+			{diagnostics.map((diagnostic, index) => {
+				if (!isRecord(diagnostic)) return;
+				const line = typeof diagnostic.line === 'number' ? diagnostic.line : '?';
+				const column = typeof diagnostic.column === 'number' ? diagnostic.column : '?';
+				const severity = diagnostic.severity === 'error' ? 'error' : 'warning';
+				const rule = typeof diagnostic.rule === 'string' ? diagnostic.rule : '';
+				const message = typeof diagnostic.message === 'string' ? diagnostic.message : '';
+				const fixable = diagnostic.fixable === true;
+
+				return (
+					<div key={index} className="flex items-start gap-2 py-0.5">
+						<span className={cn('shrink-0 font-mono', severity === 'error' ? 'text-error' : 'text-warning')}>
+							{line}:{column}
+						</span>
+						<span className="min-w-0 flex-1 text-text-secondary">
+							{message}
+							{rule && <span className="ml-1.5 text-text-secondary/60">({rule})</span>}
+						</span>
+						{fixable && (
+							<Pill color="muted" size="xs" className="shrink-0">
+								fixable
+							</Pill>
+						)}
+					</div>
+				);
+			})}
+		</div>
+	);
+}
+
 function InlineToolCall({
 	toolCall,
 	toolResult,
 	toolErrors,
+	toolMetadata,
 	fileDiffContent,
 	isExpanded,
 	onToggleExpand,
@@ -1398,6 +1598,7 @@ function InlineToolCall({
 	toolCall: ToolCallPart;
 	toolResult?: ToolResultPart;
 	toolErrors?: Map<string, ToolErrorInfo>;
+	toolMetadata?: Map<string, ToolMetadataInfo>;
 	fileDiffContent?: Map<string, { beforeContent: string; afterContent: string }>;
 	isExpanded: boolean;
 	onToggleExpand: () => void;
@@ -1407,6 +1608,10 @@ function InlineToolCall({
 	const isCompleted = toolCall.state === 'input-complete' && (toolResult !== undefined || toolCall.output !== undefined);
 	const rawResultContent = getToolResultContent(toolCall, toolResult);
 	const isUnknownTool = knownToolName === undefined;
+
+	// Structured metadata from CUSTOM tool_result events (populated during streaming).
+	const structuredMetadata = toolMetadata?.get(toolCall.id);
+	const metadata = structuredMetadata?.metadata;
 
 	// Structured error data from CUSTOM tool_error events (populated during streaming).
 	// Also check tool result content via regex as a fallback for loaded sessions where
@@ -1447,27 +1652,52 @@ function InlineToolCall({
 		extraLabel = input.query;
 	}
 
-	// Extract TODOs from todos_get / todos_update results
-	const todos = knownToolName && rawResultContent ? extractTodosFromResult(knownToolName, rawResultContent) : undefined;
+	// Extract TODOs — prefer structured metadata, fall back to parsing raw result
+	const metadataTodos =
+		metadata && Array.isArray(metadata.todos)
+			? metadata.todos.filter(
+					(item): item is TodoItemDisplay =>
+						isRecord(item) &&
+						typeof item.id === 'string' &&
+						typeof item.content === 'string' &&
+						typeof item.status === 'string' &&
+						typeof item.priority === 'string',
+				)
+			: undefined;
+	const todos = metadataTodos ?? (knownToolName && rawResultContent ? extractTodosFromResult(knownToolName, rawResultContent) : undefined);
 
-	// Parse file-edit stats directly from the structured tool result JSON.
-	const editStats = isCompleted && rawResultContent ? parseFileEditResult(rawResultContent) : undefined;
+	// Extract file-edit stats from structured metadata (file_edit, file_write, lint_fix).
+	// Falls back to parsing the raw JSON result for loaded sessions without metadata.
+	const linesAdded = typeof metadata?.linesAdded === 'number' ? metadata.linesAdded : undefined;
+	const linesRemoved = typeof metadata?.linesRemoved === 'number' ? metadata.linesRemoved : undefined;
+	const lintErrorCount =
+		typeof metadata?.diagnostics === 'object' && Array.isArray(metadata.diagnostics) ? metadata.diagnostics.length : undefined;
+	const editStats =
+		linesAdded === undefined
+			? isCompleted && rawResultContent
+				? parseFileEditResult(rawResultContent)
+				: undefined
+			: { linesAdded, linesRemoved: linesRemoved ?? 0, lintErrorCount: lintErrorCount ?? 0, result: '' };
 	const hasEditStats = editStats !== undefined && (editStats.linesAdded > 0 || editStats.linesRemoved > 0 || editStats.lintErrorCount > 0);
 
 	// Build summary text for the result.
-	// Prefer structured error data from CUSTOM events over regex-parsing [CODE] prefixes.
-	// When file-edit stats are available, skip the generic summary — the stats replace it.
+	// Prefer structured metadata title, then structured error, then raw parsing fallback.
 	const resultSummary = isUnknownTool
 		? `Unknown tool: ${displayToolName}`
 		: structuredError
 			? shortenErrorFromStructured(structuredError)
 			: hasEditStats
 				? undefined
-				: rawResultContent && knownToolName
-					? summarizeToolResult(knownToolName, rawResultContent)
-					: isCompleted
-						? 'No result'
-						: undefined;
+				: structuredMetadata
+					? summarizeFromMetadata(knownToolName, structuredMetadata)
+					: rawResultContent && knownToolName
+						? summarizeToolResult(knownToolName, rawResultContent)
+						: isCompleted
+							? 'No result'
+							: undefined;
+
+	// Diagnostics from metadata for expanded view
+	const diagnostics = metadata && Array.isArray(metadata.diagnostics) ? metadata.diagnostics : undefined;
 
 	// Diff content from the file_changed CUSTOM event (carries beforeContent/afterContent)
 	const diffContent = fileDiffContent?.get(toolCall.id);
@@ -1563,6 +1793,7 @@ function InlineToolCall({
 						{knownToolName ? getExpandableDetailText(knownToolName, rawResultContent, structuredError) : rawResultContent}
 					</pre>
 				))}
+			{isExpanded && diagnostics && diagnostics.length > 0 && <InlineDiagnosticsList diagnostics={diagnostics} />}
 			{todos && todos.length > 0 && <InlineTodoList todos={todos} />}
 		</div>
 	);

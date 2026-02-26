@@ -79,6 +79,21 @@ export interface ToolExecutorContext {
 }
 
 /**
+ * Unified tool result format. All tool execute functions must return this shape.
+ *
+ * - `title`:    Short label for the collapsed tool row in the UI
+ *               (e.g. relative file path, glob pattern, package name).
+ * - `metadata`: Tool-specific structured data for rich UI rendering.
+ *               Sent to the frontend via a CUSTOM `tool_result` AG-UI event.
+ * - `output`:   Plain-text result that goes back to the LLM context.
+ */
+export interface ToolResult<M extends Record<string, unknown> = Record<string, unknown>> {
+	title: string;
+	metadata: M;
+	output: string;
+}
+
+/**
  * Tool execute function signature.
  * Used by individual tool modules, wrapped into TanStack AI tools by tools/index.ts.
  */
@@ -86,9 +101,8 @@ export type ToolExecuteFunction = (
 	input: Record<string, string>,
 	sendEvent: SendEventFunction,
 	context: ToolExecutorContext,
-	toolUseId?: string,
 	queryChanges?: FileChange[],
-) => Promise<string | object>;
+) => Promise<ToolResult>;
 
 /**
  * Tool definition shape used by individual tool modules.

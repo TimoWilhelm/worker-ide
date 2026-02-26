@@ -51,9 +51,9 @@ describe('file_glob', () => {
 
 		const result = await execute({ pattern: '**/*.ts' }, createMockSendEvent(), context());
 
-		expect(result).toContain('/src/app.ts');
-		expect(result).toContain('/src/utils.ts');
-		expect(result).not.toContain('style.css');
+		expect(result.output).toContain('/src/app.ts');
+		expect(result.output).toContain('/src/utils.ts');
+		expect(result.output).not.toContain('style.css');
 	});
 
 	it('supports brace expansion patterns', async () => {
@@ -64,10 +64,10 @@ describe('file_glob', () => {
 
 		const result = await execute({ pattern: '*.{ts,tsx}' }, createMockSendEvent(), context());
 
-		expect(result).toContain('file.ts');
-		expect(result).toContain('file.tsx');
-		expect(result).not.toContain('file.js');
-		expect(result).not.toContain('file.css');
+		expect(result.output).toContain('file.ts');
+		expect(result.output).toContain('file.tsx');
+		expect(result.output).not.toContain('file.js');
+		expect(result.output).not.toContain('file.css');
 	});
 
 	// ── Subdirectory scoping ──────────────────────────────────────────────
@@ -78,8 +78,8 @@ describe('file_glob', () => {
 
 		const result = await execute({ pattern: '**/*.ts', path: '/src' }, createMockSendEvent(), context());
 
-		expect(result).toContain('app.ts');
-		expect(result).not.toContain('test');
+		expect(result.output).toContain('app.ts');
+		expect(result.output).not.toContain('test');
 	});
 
 	// ── No results ────────────────────────────────────────────────────────
@@ -89,7 +89,7 @@ describe('file_glob', () => {
 
 		const result = await execute({ pattern: '**/*.py' }, createMockSendEvent(), context());
 
-		expect(result).toBe('No files found');
+		expect(result.output).toBe('No files found');
 	});
 
 	// ── Deep nesting ──────────────────────────────────────────────────────
@@ -99,7 +99,7 @@ describe('file_glob', () => {
 
 		const result = await execute({ pattern: '**/*.ts' }, createMockSendEvent(), context());
 
-		expect(result).toContain('/a/b/c/d/deep.ts');
+		expect(result.output).toContain('/a/b/c/d/deep.ts');
 	});
 
 	// ── Dot files ─────────────────────────────────────────────────────────
@@ -111,7 +111,7 @@ describe('file_glob', () => {
 		const result = await execute({ pattern: '*.json' }, createMockSendEvent(), context());
 
 		// .eslintrc.json should match due to dot: true option
-		expect(result).toContain('.eslintrc.json');
-		expect(result).toContain('tsconfig.json');
+		expect(result.output).toContain('.eslintrc.json');
+		expect(result.output).toContain('tsconfig.json');
 	});
 });

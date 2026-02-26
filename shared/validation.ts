@@ -192,6 +192,14 @@ export const editInputSchema = z.object({
 });
 
 /**
+ * Schema for AI tool: multiedit (multiple exact string replacements in one file)
+ */
+export const multiEditInputSchema = z.object({
+	path: filePathSchema,
+	edits: z.string().min(1, 'edits JSON array is required'),
+});
+
+/**
  * Schema for AI tool: grep (regex search)
  */
 export const grepInputSchema = z.object({
@@ -273,6 +281,7 @@ export const cdpEvalInputSchema = z.object({
  */
 export const toolInputSchemas = {
 	file_edit: editInputSchema,
+	file_multiedit: multiEditInputSchema,
 	file_write: writeFileInputSchema,
 	file_read: readFileInputSchema,
 	file_grep: grepInputSchema,

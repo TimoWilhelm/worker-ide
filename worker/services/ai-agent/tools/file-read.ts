@@ -12,7 +12,7 @@ import { isHiddenPath, isPathSafe } from '../../../lib/path-utilities';
 import { recordFileRead } from '../file-time';
 import { formatLintResultsForAgent } from '../lib/biome-linter';
 
-import type { SendEventFunction, ToolDefinition, ToolExecutorContext } from '../types';
+import type { SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
 
 // =============================================================================
 // Constants
@@ -181,7 +181,11 @@ async function findSimilarFiles(projectRoot: string, filepath: string): Promise<
 // Execute Function
 // =============================================================================
 
-export async function execute(input: Record<string, string>, sendEvent: SendEventFunction, context: ToolExecutorContext): Promise<string> {
+export async function execute(
+	input: Record<string, string>,
+	sendEvent: SendEventFunction,
+	context: ToolExecutorContext,
+): Promise<ToolResult> {
 	const { projectRoot, sessionId } = context;
 	const readPath = input.path;
 
@@ -213,14 +217,20 @@ export async function execute(input: Record<string, string>, sendEvent: SendEven
 					if (aIsDirectory && !bIsDirectory) return -1;
 					if (!aIsDirectory && bIsDirectory) return 1;
 					return a.localeCompare(b);
-				})
-				.join('\n');
+				});
 
-			return `<path>${readPath}</path>
+			const entryCount = formattedEntries.length;
+			const output = `<path>${readPath}</path>
 <type>directory</type>
 <entries>
-${formattedEntries}
+${formattedEntries.join('\n')}
 </entries>`;
+
+			return {
+				title: readPath,
+				metadata: { type: 'directory', entryCount },
+				output,
+			};
 		}
 
 		// Handle file
@@ -228,11 +238,16 @@ ${formattedEntries}
 
 		// Check for binary file
 		if (isBinaryFile(readPath, buffer)) {
-			return `<path>${readPath}</path>
+			const output = `<path>${readPath}</path>
 <type>binary</type>
 <content>
 Binary file detected. Cannot display content.
 </content>`;
+			return {
+				title: readPath,
+				metadata: { type: 'binary' },
+				output,
+			};
 		}
 
 		const fileContent = buffer.toString('utf8');
@@ -301,7 +316,7 @@ Binary file detected. Cannot display content.
 
 		const lintResults = await formatLintResultsForAgent(readPath, fileContent);
 
-		return `<path>${readPath}</path>
+		const output = `<path>${readPath}</path>
 <type>file</type>
 <content>
 ${content}${message}
@@ -312,6 +327,12 @@ ${content}${message}
 </lint_diagnostics>`
 				: ''
 		}`;
+
+		return {
+			title: readPath,
+			metadata: { type: 'file', lineCount: numberedLines.length },
+			output,
+		};
 	} catch {
 		// File not found - try to suggest similar files
 		const similar = await findSimilarFiles(projectRoot, readPath);
