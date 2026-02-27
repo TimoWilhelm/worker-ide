@@ -28,6 +28,9 @@ export default mergeConfig(
 		define: {
 			__APP_VERSION__: '"storybook"',
 		},
+		optimizeDeps: {
+			include: ['react-dom/client'],
+		},
 	}),
 	defineVitestConfig({
 		test: {
