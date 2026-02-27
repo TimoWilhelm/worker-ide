@@ -10,7 +10,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { formatLintDiagnostics, formatLintResultsForAgent } from './biome-linter';
+import { formatLintDiagnostics } from './biome-linter';
 
 import type { ServerLintDiagnostic } from '@shared/biome-types';
 
@@ -64,24 +64,5 @@ describe('formatLintDiagnostics', () => {
 
 		const unfixableLine = lines.find((line) => line.includes('unfixable issue'));
 		expect(unfixableLine).not.toContain('[auto-fixable]');
-	});
-});
-
-// =============================================================================
-// formatLintResultsForAgent
-// =============================================================================
-
-describe('formatLintResultsForAgent', () => {
-	it('returns undefined for unsupported file types', async () => {
-		const result = await formatLintResultsForAgent('/readme.md', '# Hello');
-		expect(result).toBeUndefined();
-	});
-
-	it('returns undefined when BIOME service is unavailable', async () => {
-		// The BIOME service binding is not wired up in the test workerd environment,
-		// so the RPC call throws and the catch block returns []. This verifies the
-		// graceful fallback path.
-		const result = await formatLintResultsForAgent('/clean.ts', 'const x = 1;');
-		expect(result).toBeUndefined();
 	});
 });

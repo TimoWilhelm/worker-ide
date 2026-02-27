@@ -39,8 +39,10 @@ const biomeMock = vi.hoisted(() => ({
 vi.mock('../lib/biome-linter', () => ({
 	fixFileForAgent: async (_path: string, _content: string) => biomeMock.fixResult,
 	lintFileForAgent: async () => biomeMock.fixResult.remainingDiagnostics,
-	formatLintResultsForAgent: async () => {},
-	formatLintDiagnostics: () => {},
+	formatLintDiagnostics: (diagnostics: Array<{ severity: string; line: number; column: number; message: string; fixable: boolean }>) => {
+		if (diagnostics.length === 0) return;
+		return `Lint diagnostics (${diagnostics.length} issue(s)):\n${diagnostics.map((d) => `${d.severity === 'error' ? 'Error' : 'Warning'} [${d.line}:${d.column}] ${d.message}${d.fixable ? ' [auto-fixable]' : ''}`).join('\n')}`;
+	},
 }));
 
 // ---------------------------------------------------------------------------
@@ -142,8 +144,9 @@ describe('lint_fix', () => {
 
 		const result = await execute({ path: '/partial.ts' }, createMockSendEvent(), context());
 
-		expect(result.output).toContain('1 issue(s) remain');
-		expect(result.output).toContain('noEval');
+		expect(result.output).toContain('Fixed 1 lint issue(s)');
+		expect(result.output).toContain('eval is harmful');
+		expect(result.metadata).toHaveProperty('diagnostics');
 	});
 
 	it('reports unfixable issues when no auto-fixes are available', async () => {
@@ -159,6 +162,8 @@ describe('lint_fix', () => {
 		const result = await execute({ path: '/manual.ts' }, createMockSendEvent(), context());
 
 		expect(result.output).toContain('require manual fixes');
+		expect(result.output).toContain('eval is harmful');
+		expect(result.metadata.diagnostics).toHaveLength(1);
 	});
 
 	// ── Snapshot tracking ─────────────────────────────────────────────────

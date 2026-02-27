@@ -9,6 +9,13 @@
 export const AGENTS_MD_MAX_CHARACTERS = 16_000;
 
 /**
+ * Maximum number of lint diagnostics to include per file in tool results.
+ * Prevents overwhelming the LLM and frontend with hundreds of diagnostics
+ * from files with many issues.
+ */
+export const MAX_DIAGNOSTICS_PER_FILE = 20;
+
+/**
  * Hardcoded MCP server configurations.
  * Users cannot add their own servers.
  */

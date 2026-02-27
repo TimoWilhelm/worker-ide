@@ -5,10 +5,12 @@
 
 import fs from 'node:fs/promises';
 
+import { MAX_DIAGNOSTICS_PER_FILE } from '@shared/constants';
 import { ToolErrorCode, toolError } from '@shared/tool-errors';
 
 import { coordinatorNamespace } from '../../../lib/durable-object-namespaces';
 import { isHiddenPath, isPathSafe, isProtectedFile } from '../../../lib/path-utilities';
+import { formatLintDiagnostics, lintFileForAgent } from '../lib/biome-linter';
 
 import type { FileChange, SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
 
@@ -87,12 +89,23 @@ export async function execute(
 		action: 'move',
 	});
 
+	// Lint the file at its new path so the agent sees any diagnostics
+	const allDiagnostics = await lintFileForAgent(toPath, beforeContent);
+	const diagnostics = allDiagnostics.slice(0, MAX_DIAGNOSTICS_PER_FILE);
+
 	const byteCount = Buffer.byteLength(beforeContent, 'utf8');
-	const output = `Moved ${fromPath} → ${toPath} (${byteCount} bytes). Remember to update any import paths that reference the old location.`;
+	let output = `Moved ${fromPath} → ${toPath} (${byteCount} bytes). Remember to update any import paths that reference the old location.`;
+	const lintOutput = formatLintDiagnostics(diagnostics);
+	if (lintOutput) {
+		output += `\n${lintOutput}`;
+	}
+	if (allDiagnostics.length > MAX_DIAGNOSTICS_PER_FILE) {
+		output += `\n(Showing ${MAX_DIAGNOSTICS_PER_FILE} of ${allDiagnostics.length} diagnostics)`;
+	}
 
 	return {
 		title: `${fromPath} → ${toPath}`,
-		metadata: { from: fromPath, to: toPath, byteCount },
+		metadata: { from: fromPath, to: toPath, byteCount, diagnostics },
 		output,
 	};
 }

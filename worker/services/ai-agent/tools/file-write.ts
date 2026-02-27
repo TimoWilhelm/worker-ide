@@ -6,6 +6,7 @@
 
 import fs from 'node:fs/promises';
 
+import { MAX_DIAGNOSTICS_PER_FILE } from '@shared/constants';
 import { ToolErrorCode, toolError } from '@shared/tool-errors';
 
 import { coordinatorNamespace } from '../../../lib/durable-object-namespaces';
@@ -15,12 +16,6 @@ import { formatLintDiagnostics, lintFileForAgent } from '../lib/biome-linter';
 import { computeDiffStats, generateCompactDiff, isBinaryFilePath, toUint8Array } from '../utilities';
 
 import type { FileChange, SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
-
-// =============================================================================
-// Constants
-// =============================================================================
-
-const MAX_DIAGNOSTICS_PER_FILE = 20;
 
 // =============================================================================
 // Description

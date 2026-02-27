@@ -27,7 +27,6 @@ vi.mock('../../../lib/durable-object-namespaces', () => ({
 }));
 
 vi.mock('../lib/biome-linter', () => ({
-	formatLintResultsForAgent: async () => {},
 	lintFileForAgent: async () => [],
 	formatLintDiagnostics: () => {},
 }));

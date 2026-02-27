@@ -17,11 +17,17 @@ const memoryFs = createMemoryFs();
 
 vi.mock('node:fs/promises', () => memoryFs.asMock());
 
-// Biome linter — return empty diagnostics (not under test here)
+// Biome linter — return empty diagnostics by default (overridable per-test)
+const lintMock = vi.hoisted(() => ({
+	diagnostics: [] as Array<{ line: number; column: number; rule: string; message: string; severity: string; fixable: boolean }>,
+}));
+
 vi.mock('../lib/biome-linter', () => ({
-	formatLintResultsForAgent: async () => {},
-	lintFileForAgent: async () => [],
-	formatLintDiagnostics: () => {},
+	lintFileForAgent: async () => lintMock.diagnostics,
+	formatLintDiagnostics: (diagnostics: Array<{ severity: string; line: number; column: number; message: string; fixable: boolean }>) => {
+		if (diagnostics.length === 0) return;
+		return `Lint diagnostics (${diagnostics.length} issue(s)):\n${diagnostics.map((d) => `${d.severity === 'error' ? 'Error' : 'Warning'} [${d.line}:${d.column}] ${d.message}${d.fixable ? ' [auto-fixable]' : ''}`).join('\n')}`;
+	},
 }));
 
 // ---------------------------------------------------------------------------
@@ -47,6 +53,7 @@ function context() {
 describe('file_read', () => {
 	beforeEach(() => {
 		memoryFs.reset();
+		lintMock.diagnostics = [];
 	});
 
 	// ── Text file reading ─────────────────────────────────────────────────
@@ -171,6 +178,49 @@ describe('file_read', () => {
 
 	it('rejects hidden paths', async () => {
 		await expect(execute({ path: '/.agent/config.json' }, createMockSendEvent(), context())).rejects.toThrow('[INVALID_PATH]');
+	});
+
+	// ── Diagnostics ──────────────────────────────────────────────────────
+
+	it('includes diagnostics in metadata and output', async () => {
+		memoryFs.seedFile(`${PROJECT_ROOT}/lint.ts`, 'var x = 1;\n');
+		lintMock.diagnostics = [
+			{ line: 1, column: 1, rule: 'lint/style/noVar', message: 'Use const or let', severity: 'error', fixable: true },
+		];
+
+		const result = await execute({ path: '/lint.ts' }, createMockSendEvent(), context());
+
+		expect(result.metadata.diagnostics).toHaveLength(1);
+		expect(result.metadata.diagnostics[0]).toHaveProperty('rule', 'lint/style/noVar');
+		expect(result.output).toContain('<lint_diagnostics>');
+		expect(result.output).toContain('Use const or let');
+		expect(result.output).toContain('</lint_diagnostics>');
+	});
+
+	it('caps diagnostics at MAX_DIAGNOSTICS_PER_FILE (20)', async () => {
+		memoryFs.seedFile(`${PROJECT_ROOT}/many-issues.ts`, 'content\n');
+		lintMock.diagnostics = Array.from({ length: 25 }, (_, index) => ({
+			line: index + 1,
+			column: 1,
+			rule: 'lint/style/noVar',
+			message: `Issue ${index + 1}`,
+			severity: 'error' as const,
+			fixable: false,
+		}));
+
+		const result = await execute({ path: '/many-issues.ts' }, createMockSendEvent(), context());
+
+		expect(result.metadata.diagnostics).toHaveLength(20);
+		expect(result.output).toContain('Showing 20 of 25 diagnostics');
+	});
+
+	it('returns empty diagnostics array for clean files', async () => {
+		memoryFs.seedFile(`${PROJECT_ROOT}/clean.ts`, 'const x = 1;\n');
+
+		const result = await execute({ path: '/clean.ts' }, createMockSendEvent(), context());
+
+		expect(result.metadata.diagnostics).toEqual([]);
+		expect(result.output).not.toContain('<lint_diagnostics>');
 	});
 
 	// ── Status events ─────────────────────────────────────────────────────

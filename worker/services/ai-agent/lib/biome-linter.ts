@@ -93,13 +93,3 @@ export function formatLintDiagnostics(diagnostics: ServerLintDiagnostic[]): stri
 
 	return `Lint diagnostics (${summary}):\n${lines.join('\n')}`;
 }
-
-/**
- * Lint a file and format the results as a string suitable for appending to tool results.
- * Returns undefined if there are no diagnostics.
- */
-export async function formatLintResultsForAgent(filePath: string, content: string): Promise<string | undefined> {
-	const diagnostics = await lintFileForAgent(filePath, content);
-	const formatted = formatLintDiagnostics(diagnostics);
-	return formatted ? `\n${formatted}` : undefined;
-}

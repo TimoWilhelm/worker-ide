@@ -5,12 +5,12 @@
 
 import fs from 'node:fs/promises';
 
-import { HIDDEN_ENTRIES } from '@shared/constants';
+import { HIDDEN_ENTRIES, MAX_DIAGNOSTICS_PER_FILE } from '@shared/constants';
 import { ToolErrorCode, toolError } from '@shared/tool-errors';
 
 import { isHiddenPath, isPathSafe } from '../../../lib/path-utilities';
 import { recordFileRead } from '../file-time';
-import { formatLintResultsForAgent } from '../lib/biome-linter';
+import { formatLintDiagnostics, lintFileForAgent } from '../lib/biome-linter';
 
 import type { SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
 
@@ -314,23 +314,28 @@ Binary file detected. Cannot display content.
 			message = `\n\n(End of file - total ${totalLines} lines)`;
 		}
 
-		const lintResults = await formatLintResultsForAgent(readPath, fileContent);
+		const allDiagnostics = await lintFileForAgent(readPath, fileContent);
+		const diagnostics = allDiagnostics.slice(0, MAX_DIAGNOSTICS_PER_FILE);
+
+		let lintSection = '';
+		const lintOutput = formatLintDiagnostics(diagnostics);
+		if (lintOutput) {
+			lintSection = `\n<lint_diagnostics>\n${lintOutput}`;
+			if (allDiagnostics.length > MAX_DIAGNOSTICS_PER_FILE) {
+				lintSection += `\n(Showing ${MAX_DIAGNOSTICS_PER_FILE} of ${allDiagnostics.length} diagnostics)`;
+			}
+			lintSection += `\n</lint_diagnostics>`;
+		}
 
 		const output = `<path>${readPath}</path>
 <type>file</type>
 <content>
 ${content}${message}
-</content>${
-			lintResults
-				? `
-<lint_diagnostics>${lintResults}
-</lint_diagnostics>`
-				: ''
-		}`;
+</content>${lintSection}`;
 
 		return {
 			title: readPath,
-			metadata: { type: 'file', lineCount: numberedLines.length },
+			metadata: { type: 'file', lineCount: numberedLines.length, diagnostics },
 			output,
 		};
 	} catch {

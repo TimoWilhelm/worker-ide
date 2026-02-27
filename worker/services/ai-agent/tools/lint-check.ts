@@ -6,18 +6,13 @@
 
 import fs from 'node:fs/promises';
 
+import { MAX_DIAGNOSTICS_PER_FILE } from '@shared/constants';
 import { ToolErrorCode, toolError } from '@shared/tool-errors';
 
 import { isHiddenPath, isPathSafe } from '../../../lib/path-utilities';
 import { formatLintDiagnostics, lintFileForAgent } from '../lib/biome-linter';
 
 import type { SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
-
-// =============================================================================
-// Constants
-// =============================================================================
-
-const MAX_DIAGNOSTICS_PER_FILE = 20;
 
 // =============================================================================
 // Description

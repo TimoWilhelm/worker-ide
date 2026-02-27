@@ -6,21 +6,16 @@
 
 import fs from 'node:fs/promises';
 
+import { MAX_DIAGNOSTICS_PER_FILE } from '@shared/constants';
 import { ToolErrorCode, toolError } from '@shared/tool-errors';
 
 import { coordinatorNamespace } from '../../../lib/durable-object-namespaces';
 import { isHiddenPath, isPathSafe } from '../../../lib/path-utilities';
 import { recordFileRead } from '../file-time';
-import { fixFileForAgent, formatLintResultsForAgent, lintFileForAgent } from '../lib/biome-linter';
+import { fixFileForAgent, formatLintDiagnostics, lintFileForAgent } from '../lib/biome-linter';
 import { computeDiffStats, generateCompactDiff } from '../utilities';
 
 import type { FileChange, SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
-
-// =============================================================================
-// Constants
-// =============================================================================
-
-const MAX_DIAGNOSTICS_PER_FILE = 20;
 
 // =============================================================================
 // Description
@@ -101,11 +96,20 @@ export async function execute(
 				output: `No lint issues found in ${fixPath}.`,
 			};
 		}
-		const lintInfo = await formatLintResultsForAgent(fixPath, originalContent);
+		const allDiagnostics = await lintFileForAgent(fixPath, originalContent);
+		const diagnostics = allDiagnostics.slice(0, MAX_DIAGNOSTICS_PER_FILE);
+		let noFixOutput = `No auto-fixable lint issues in ${fixPath}. ${result.remainingDiagnostics.length} issue(s) require manual fixes.`;
+		const lintOutput = formatLintDiagnostics(diagnostics);
+		if (lintOutput) {
+			noFixOutput += `\n${lintOutput}`;
+		}
+		if (allDiagnostics.length > MAX_DIAGNOSTICS_PER_FILE) {
+			noFixOutput += `\n(Showing ${MAX_DIAGNOSTICS_PER_FILE} of ${allDiagnostics.length} diagnostics)`;
+		}
 		return {
 			title: fixPath,
-			metadata: { linesAdded: 0, linesRemoved: 0, fixedCount: 0, diagnostics: [] },
-			output: `No auto-fixable lint issues in ${fixPath}. ${result.remainingDiagnostics.length} issue(s) require manual fixes.${lintInfo ?? ''}`,
+			metadata: { linesAdded: 0, linesRemoved: 0, fixedCount: 0, diagnostics },
+			output: noFixOutput,
 		};
 	}
 
@@ -157,11 +161,12 @@ export async function execute(
 	let resultText = generateCompactDiff(fixPath, originalContent, result.fixedContent);
 	resultText += `\n\nFixed ${result.fixCount} lint issue(s) in ${fixPath}.`;
 
-	if (result.remainingDiagnostics.length > 0) {
-		resultText += `\n${result.remainingDiagnostics.length} issue(s) remain and require manual fixes:`;
-		for (const diagnostic of result.remainingDiagnostics) {
-			resultText += `\n  - line ${diagnostic.line}: ${diagnostic.message} (${diagnostic.rule})`;
-		}
+	const lintOutput = formatLintDiagnostics(limitedDiagnostics);
+	if (lintOutput) {
+		resultText += `\n${lintOutput}`;
+	}
+	if (lintDiagnostics.length > MAX_DIAGNOSTICS_PER_FILE) {
+		resultText += `\n(Showing ${MAX_DIAGNOSTICS_PER_FILE} of ${lintDiagnostics.length} diagnostics)`;
 	}
 
 	return {
