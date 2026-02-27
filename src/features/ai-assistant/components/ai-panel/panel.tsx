@@ -12,7 +12,7 @@
 import { fetchServerSentEvents } from '@tanstack/ai-client';
 import { useChat } from '@tanstack/ai-react';
 import { useQueryClient } from '@tanstack/react-query';
-import { ArrowDown, Bot, ChevronDown, Download, Loader2, Map as MapIcon, Plus, Send, Square } from 'lucide-react';
+import { ArrowDown, Bot, Download, History, Loader2, Map as MapIcon, Plus, Send, Square } from 'lucide-react';
 import { ScrollArea } from 'radix-ui';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
@@ -822,7 +822,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 					<DropdownMenu>
 						<DropdownMenuTrigger asChild>
 							<Button variant="ghost" size="icon-sm" title="Sessions">
-								<ChevronDown className="size-3" />
+								<History className="size-3" />
 							</Button>
 						</DropdownMenuTrigger>
 						<DropdownMenuContent align="end" className="max-h-80 w-56 overflow-y-auto">
@@ -924,6 +924,30 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 									{statusMessage}
 								</div>
 							) : undefined}
+
+							{/* Actions for the last agent message (e.g. log download, future feedback) */}
+							{!isProcessing && chatMessages.length > 0 && chatMessages.at(-1)?.role === 'assistant' && (
+								<div className="flex animate-chat-item items-center justify-end gap-2 px-2">
+									{debugLogId && (
+										<button
+											onClick={handleDownloadDebugLog}
+											className={cn(
+												`
+													inline-flex cursor-pointer items-center gap-1.5 rounded-md px-1.5
+													py-1
+												`,
+												'text-xs font-medium text-text-secondary transition-colors',
+												'hover:bg-bg-tertiary hover:text-text-primary',
+											)}
+											title="Download debug log"
+										>
+											<Download className="size-3" />
+											Agent Log
+										</button>
+									)}
+								</div>
+							)}
+
 							{/* Invisible anchor for auto-scroll detection */}
 							<div ref={anchorReference} className="h-px shrink-0" aria-hidden />
 						</div>
@@ -1026,7 +1050,11 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 							</button>
 						)}
 					</Collapsible>
-					<div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 px-1.5 py-1">
+					<div
+						className="
+							flex flex-wrap-reverse items-center gap-x-1.5 gap-y-0.5 px-1.5 py-1
+						"
+					>
 						<AgentModeSelector mode={agentMode} onModeChange={setAgentMode} disabled={isProcessing} />
 						<Pill
 							size="md"
@@ -1039,21 +1067,8 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 						>
 							<span className="truncate">{getModelLabel(selectedModel)}</span>
 						</Pill>
-						<ContextRing tokensUsed={contextTokensUsed} contextWindow={getModelLimits(selectedModel).contextWindow} />
-						<div className="ml-auto flex shrink-0 items-center gap-1">
-							{debugLogId && (
-								<button
-									onClick={handleDownloadDebugLog}
-									className={cn(
-										'inline-flex cursor-pointer items-center gap-1.5 rounded-md p-1.5',
-										'text-xs text-text-secondary transition-colors',
-										'hover:bg-bg-tertiary hover:text-text-primary',
-									)}
-									title="Download debug log"
-								>
-									<Download className="size-3" />
-								</button>
-							)}
+						<div className="flex flex-1 shrink-0 items-center justify-end gap-1">
+							<ContextRing tokensUsed={contextTokensUsed} contextWindow={getModelLimits(selectedModel).contextWindow} />
 							{isProcessing ? (
 								<button
 									onClick={handleCancel}

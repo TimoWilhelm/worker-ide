@@ -39,7 +39,7 @@ describe('cn', () => {
 	it('handles conditional classes', () => {
 		const isFalse = false;
 		const isTrue = true;
-		// eslint-disable-next-line better-tailwindcss/no-unknown-classes -- test-only fake class names
+
 		expect(cn('base', isFalse && 'hidden', isTrue && 'visible')).toBe('base visible');
 	});
 });
