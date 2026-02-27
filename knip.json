@@ -4,7 +4,7 @@
 		"interface": true,
 		"type": true
 	},
-	"exclude": ["exports", "types"],
+	"exclude": ["types"],
 	"entry": ["worker/index.ts", "auxiliary/biome/index.ts"],
 	"project": ["src/**", "worker/**", "auxiliary/**", "shared/**", "test/**"],
 	"ignoreDependencies": ["cloudflare", "codemirror", "@standard-schema/spec"],
