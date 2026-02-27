@@ -15,7 +15,6 @@ describe('Skeleton', () => {
 	});
 
 	it('applies custom className', () => {
-		// eslint-disable-next-line better-tailwindcss/no-unknown-classes -- test-only fake class name
 		const { container } = render(<Skeleton className="custom-skeleton" />);
 		const element = container.firstChild;
 		expect(element).toHaveClass('custom-skeleton');

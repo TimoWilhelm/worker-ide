@@ -30,7 +30,6 @@ describe('Spinner', () => {
 	});
 
 	it('applies custom className', () => {
-		// eslint-disable-next-line better-tailwindcss/no-unknown-classes -- test-only fake class name
 		const { container } = render(<Spinner className="custom" />);
 		const spinner = container.querySelector('[role="status"]');
 		expect(spinner?.className).toContain('custom');

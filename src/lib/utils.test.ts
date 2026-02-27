@@ -25,12 +25,10 @@ import {
 
 describe('cn', () => {
 	it('merges class names', () => {
-		// eslint-disable-next-line better-tailwindcss/no-unknown-classes -- test-only fake class names
 		expect(cn('foo', 'bar')).toBe('foo bar');
 	});
 
 	it('handles undefined and null', () => {
-		// eslint-disable-next-line better-tailwindcss/no-unknown-classes -- test-only fake class names
 		expect(cn('foo', undefined, 'bar')).toBe('foo bar');
 	});
 

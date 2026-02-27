@@ -56,7 +56,6 @@ describe('ModalBody', () => {
 
 	it('applies custom className', () => {
 		const { container } = render(
-			// eslint-disable-next-line better-tailwindcss/no-unknown-classes -- test-only fake class name
 			<ModalBody className="custom-body">
 				<p>Content</p>
 			</ModalBody>,

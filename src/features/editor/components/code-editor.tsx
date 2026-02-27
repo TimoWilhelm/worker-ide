@@ -323,23 +323,3 @@ export function CodeEditor({
 		/>
 	);
 }
-
-// =============================================================================
-// Hooks for external control
-// =============================================================================
-
-/**
- * Hook to get editor view reference for external control.
- */
-// eslint-disable-next-line react-refresh/only-export-components -- hook co-located with editor component
-export function useEditorReference() {
-	const viewReference = useRef<EditorView | undefined>(undefined);
-
-	const setView = useCallback((view: EditorView | undefined) => {
-		viewReference.current = view;
-	}, []);
-
-	const getView = useCallback(() => viewReference.current, []);
-
-	return { setView, getView };
-}

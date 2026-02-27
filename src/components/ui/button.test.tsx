@@ -60,7 +60,6 @@ describe('Button', () => {
 	});
 
 	it('applies custom className', () => {
-		// eslint-disable-next-line better-tailwindcss/no-unknown-classes -- test-only fake class name
 		const { container } = render(<Button className="custom-class">Custom</Button>);
 		const button = container.querySelector('button');
 		expect(button?.className).toContain('custom-class');

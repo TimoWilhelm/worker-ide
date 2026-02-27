@@ -81,7 +81,7 @@ export default defineConfig(
 			'import-x/no-unresolved': [
 				'error',
 				{
-					ignore: ['cloudflare:*'],
+					ignore: ['cloudflare:*', 'virtual:*'],
 				},
 			],
 		},
@@ -115,14 +115,6 @@ export default defineConfig(
 		},
 	},
 
-	// Test files need type assertions to narrow unknown results from tool execute functions
-	{
-		files: ['**/*.test.{ts,tsx}', '**/test-helpers.ts'],
-		rules: {
-			'@typescript-eslint/consistent-type-assertions': 'off',
-		},
-	},
-
 	eslintConfigPrettier,
 
 	{
@@ -146,6 +138,15 @@ export default defineConfig(
 			'better-tailwindcss': {
 				entryPoint: 'src/index.css',
 			},
+		},
+	},
+
+	// Test files need type assertions to narrow unknown results from tool execute functions
+	{
+		files: ['**/*.test.{ts,tsx}', '**/test-helpers.ts'],
+		rules: {
+			'@typescript-eslint/consistent-type-assertions': 'off',
+			'better-tailwindcss/no-unknown-classes': 'off',
 		},
 	},
 );

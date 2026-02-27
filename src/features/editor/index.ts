@@ -5,13 +5,14 @@
  */
 
 // Components
-export { CodeEditor, type CodeEditorProperties, useEditorReference } from './components/code-editor';
+export { CodeEditor, type CodeEditorProperties } from './components/code-editor';
 export { DiffToolbar, type DiffToolbarProperties } from './components/diff-toolbar';
 export { FileTabs, type FileTab, type FileTabsProperties } from './components/file-tabs';
 export { GitDiffToolbar, type GitDiffToolbarProperties } from './components/git-diff-toolbar';
 
 // Hooks
 export { useFileContent, useFileList } from './hooks/use-file-content';
+export { useEditorReference } from './hooks/use-editor-reference';
 
 // Diff utilities
 export {
