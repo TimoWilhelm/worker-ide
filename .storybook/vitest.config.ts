@@ -22,7 +22,11 @@ export default mergeConfig(
 			alias: {
 				'@': path.join(projectRoot, 'src'),
 				'@shared': path.join(projectRoot, 'shared'),
+				'virtual:pwa-register/react': path.join(projectRoot, '.storybook/mock-pwa.ts'),
 			},
+		},
+		define: {
+			__APP_VERSION__: '"storybook"',
 		},
 	}),
 	defineVitestConfig({

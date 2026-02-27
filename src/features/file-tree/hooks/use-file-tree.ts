@@ -239,12 +239,14 @@ export function useFileTree({ projectId, enabled = true }: UseFileTreeOptions) {
 		expandedDirectories,
 		isLoading: query.isLoading,
 		isError: query.isError,
-		error: query.error,
+		error: query.error ?? undefined,
 
 		// Actions
 		selectFile,
 		toggleDirectory,
-		refetch: query.refetch,
+		refetch: async () => {
+			await query.refetch();
+		},
 
 		// Mutations
 		createFile: createFileMutation.mutate,
