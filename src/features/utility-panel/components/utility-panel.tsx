@@ -67,7 +67,7 @@ export function UtilityPanel({ projectId, onToggle, logCounts, headerRight, clas
 				"
 			>
 				{/* Left: chevron + tabs */}
-				<div className="flex items-center gap-0.5">
+				<div className="flex shrink-0 items-center gap-0.5">
 					<button
 						type="button"
 						// Don't stop propagation here so clicking the chevron also triggers the parent onClick (which does the toggle anyway)
@@ -116,7 +116,7 @@ export function UtilityPanel({ projectId, onToggle, logCounts, headerRight, clas
 				</div>
 
 				{/* Right: optional header content (cursor position, etc.) */}
-				{headerRight && <div className="flex items-center gap-2">{headerRight}</div>}
+				{headerRight && <div className="flex min-w-0 items-center gap-2">{headerRight}</div>}
 			</div>
 
 			{/* Tab content */}

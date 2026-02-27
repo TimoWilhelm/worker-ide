@@ -111,7 +111,8 @@ export function OutputPanel({ className }: OutputPanelProperties) {
 			{/* Toolbar */}
 			<div
 				className="
-					flex h-6 shrink-0 items-center justify-between border-b border-border px-2
+					flex shrink-0 flex-wrap items-center justify-between gap-x-2 gap-y-0.5
+					border-b border-border px-2 py-1
 				"
 			>
 				<div role="radiogroup" aria-label="Log filter" className="flex items-center gap-0.5">
@@ -128,14 +129,17 @@ export function OutputPanel({ className }: OutputPanelProperties) {
 						Lint
 					</FilterButton>
 				</div>
-				<div className="flex items-center gap-1.5">
+				<div className="flex shrink-0 items-center gap-1.5">
 					<Tooltip content={preserve ? 'Logs persist across rebuilds' : 'Logs clear on rebuild'}>
 						<button
 							type="button"
 							aria-pressed={preserve}
 							onClick={handleTogglePreserve}
 							className={cn(
-								'cursor-pointer rounded-sm px-1.5 py-px text-xs transition-colors',
+								`
+									cursor-pointer rounded-sm px-1.5 py-px text-xs whitespace-nowrap
+									transition-colors
+								`,
 								preserve ? 'bg-accent/15 text-accent' : 'text-text-secondary hover:text-text-primary',
 							)}
 						>

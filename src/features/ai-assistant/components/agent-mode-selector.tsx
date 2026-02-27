@@ -71,10 +71,10 @@ export function AgentModeSelector({ mode, onModeChange, disabled }: AgentModeSel
 				<Pill
 					size="md"
 					color={config.pillColor}
-					className={cn('cursor-pointer transition-colors', disabled && 'cursor-not-allowed opacity-40')}
+					className={cn('max-w-full min-w-0 cursor-pointer overflow-hidden transition-colors', disabled && 'cursor-not-allowed opacity-40')}
 				>
-					<Icon className="size-3" />
-					{config.label}
+					<Icon className="size-3 shrink-0" />
+					<span className="truncate">{config.label}</span>
 				</Pill>
 			</DropdownMenuTrigger>
 			<DropdownMenuContent align="start" className="w-56">

@@ -797,21 +797,14 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 					flex h-9 shrink-0 items-center justify-between border-b border-border px-3
 				"
 			>
-				<div className="flex items-center gap-2">
-					<Bot className="size-4 text-accent" />
-					<span className="text-xs font-medium text-text-secondary">Agent</span>
-					<Pill color="muted" size="xs">
+				<div className="flex min-w-0 items-center gap-2 overflow-hidden">
+					<Bot className="size-4 shrink-0 text-accent" />
+					<span className="truncate text-xs font-medium text-text-secondary">Agent</span>
+					<Pill color="muted" size="xs" className="shrink-0">
 						Beta
 					</Pill>
 				</div>
-				<div className="flex items-center gap-1">
-					{/* Download debug log */}
-					{debugLogId && (
-						<Button variant="ghost" size="icon-sm" onClick={handleDownloadDebugLog} title="Download debug log">
-							<Download className="size-3.5" />
-						</Button>
-					)}
-
+				<div className="flex shrink-0 items-center gap-1">
 					{/* Session dropdown */}
 					<DropdownMenu>
 						<DropdownMenuTrigger asChild>
@@ -958,7 +951,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 			</div>
 
 			{/* Changed files summary — shown when AI has pending edits */}
-			<Collapsible open={changeReview.sessionPendingCount(sessionId) > 0} className="shrink-0">
+			<Collapsible open={changeReview.sessionPendingCount(sessionId) > 0} className="shrink-0 overflow-hidden">
 				<div className="border-t border-border px-2 pt-2">
 					<ChangedFilesSummary
 						onApproveChange={changeReview.handleApproveChange}
@@ -973,10 +966,13 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 			</Collapsible>
 
 			{/* Input */}
-			<div className="shrink-0 border-t border-border p-2">
+			<div className="shrink-0 overflow-hidden border-t border-border p-2">
 				<div
 					className={cn(
-						'relative rounded-lg border bg-bg-primary transition-colors',
+						`
+							relative overflow-hidden rounded-lg border bg-bg-primary
+							transition-colors
+						`,
 						'focus-within:border-accent',
 						isProcessing ? 'border-warning/40' : 'border-border',
 					)}
@@ -1017,52 +1013,66 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 							</button>
 						)}
 					</Collapsible>
-					<div className="flex items-center justify-between px-1.5 py-1">
-						<div className="flex items-center gap-2">
-							<AgentModeSelector mode={agentMode} onModeChange={setAgentMode} disabled={isProcessing} />
-							<div className="flex items-center gap-1">
-								<Pill
-									size="md"
-									color="muted"
-									className={cn('cursor-pointer transition-colors', isProcessing && 'cursor-not-allowed opacity-40')}
-									onClick={() => !isProcessing && setIsModelSelectorOpen(true)}
+					<div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 px-1.5 py-1">
+						<AgentModeSelector mode={agentMode} onModeChange={setAgentMode} disabled={isProcessing} />
+						<Pill
+							size="md"
+							color="muted"
+							className={cn(
+								'max-w-full min-w-0 cursor-pointer overflow-hidden transition-colors',
+								isProcessing && 'cursor-not-allowed opacity-40',
+							)}
+							onClick={() => !isProcessing && setIsModelSelectorOpen(true)}
+						>
+							<span className="truncate">{getModelLabel(selectedModel)}</span>
+						</Pill>
+						<ContextRing tokensUsed={contextTokensUsed} contextWindow={getModelLimits(selectedModel).contextWindow} />
+						<div className="ml-auto flex shrink-0 items-center gap-1">
+							{debugLogId && (
+								<button
+									onClick={handleDownloadDebugLog}
+									className={cn(
+										'inline-flex cursor-pointer items-center gap-1.5 rounded-md p-1.5',
+										'text-xs text-text-secondary transition-colors',
+										'hover:bg-bg-tertiary hover:text-text-primary',
+									)}
+									title="Download debug log"
 								>
-									{getModelLabel(selectedModel)}
-								</Pill>
-								<ContextRing tokensUsed={contextTokensUsed} contextWindow={getModelLimits(selectedModel).contextWindow} />
-							</div>
+									<Download className="size-3" />
+								</button>
+							)}
+							{isProcessing ? (
+								<button
+									onClick={handleCancel}
+									className={cn(
+										`inline-flex cursor-pointer items-center gap-1.5 rounded-md p-1.5`,
+										'text-xs font-medium text-error transition-colors',
+										'hover:bg-error/10',
+									)}
+									aria-label="Stop"
+								>
+									<Square className="size-3" />
+								</button>
+							) : (
+								<button
+									onClick={() => void handleSend()}
+									disabled={!hasContent}
+									className={cn(
+										'inline-flex items-center gap-1.5 rounded-md p-1.5',
+										'text-xs font-medium transition-colors',
+										hasContent
+											? `
+												cursor-pointer bg-accent text-white
+												hover:bg-accent-hover
+											`
+											: 'cursor-not-allowed text-text-secondary opacity-40',
+									)}
+									aria-label="Send"
+								>
+									<Send className="size-3" />
+								</button>
+							)}
 						</div>
-						{isProcessing ? (
-							<button
-								onClick={handleCancel}
-								className={cn(
-									`inline-flex cursor-pointer items-center gap-1.5 rounded-md p-1.5`,
-									'text-xs font-medium text-error transition-colors',
-									'hover:bg-error/10',
-								)}
-								aria-label="Stop"
-							>
-								<Square className="size-3" />
-							</button>
-						) : (
-							<button
-								onClick={() => void handleSend()}
-								disabled={!hasContent}
-								className={cn(
-									'inline-flex items-center gap-1.5 rounded-md p-1.5',
-									'text-xs font-medium transition-colors',
-									hasContent
-										? `
-											cursor-pointer bg-accent text-white
-											hover:bg-accent-hover
-										`
-										: 'cursor-not-allowed text-text-secondary opacity-40',
-								)}
-								aria-label="Send"
-							>
-								<Send className="size-3" />
-							</button>
-						)}
 					</div>
 				</div>
 			</div>

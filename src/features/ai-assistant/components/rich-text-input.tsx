@@ -407,7 +407,7 @@ export function RichTextInput({
 			{isEmpty && !disabled && (
 				<div
 					className="
-						pointer-events-none absolute inset-0 px-2.5 pt-2 text-sm/relaxed
+						pointer-events-none absolute inset-0 truncate px-2.5 pt-2 text-sm/relaxed
 						text-text-secondary
 					"
 				>

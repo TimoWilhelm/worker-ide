@@ -102,11 +102,11 @@ export function PreviewPanel({ projectId, iframeReference, className }: PreviewP
 					flex h-9 shrink-0 items-center justify-between border-b border-border px-3
 				"
 			>
-				<div className="flex items-center gap-1.5">
-					<span className="text-xs font-medium text-text-secondary">Preview</span>
+				<div className="flex min-w-0 items-center gap-1.5">
+					<span className="truncate text-xs font-medium text-text-secondary">Preview</span>
 				</div>
 
-				<div className="flex items-center gap-1">
+				<div className="flex shrink-0 items-center gap-1">
 					<Tooltip content="Toggle DevTools">
 						<Button variant="ghost" size="icon" className={cn('size-7', devtoolsVisible && 'text-accent')} onClick={toggleDevtools}>
 							<Wrench className="size-3.5" />

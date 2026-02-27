@@ -1868,13 +1868,13 @@ export function ContinuationPrompt({ onContinue, onDismiss }: { onContinue: () =
 			"
 		>
 			<div className="flex items-center gap-2 text-xs font-semibold text-accent">
-				<FastForward className="size-4" />
-				<span>Iteration Limit Reached</span>
+				<FastForward className="size-4 shrink-0" />
+				<span className="truncate">Iteration Limit Reached</span>
 			</div>
 			<div className="text-sm/relaxed text-text-primary">
 				The AI has reached the maximum number of tool iterations. You can continue where it left off or start a new prompt.
 			</div>
-			<div className="flex gap-2">
+			<div className="flex flex-wrap gap-2">
 				<button
 					onClick={onContinue}
 					className={cn(
@@ -1920,11 +1920,11 @@ export function DoomLoopAlert({ message, onRetry, onDismiss }: { message: string
 			"
 		>
 			<div className="flex items-center gap-2 text-xs font-semibold text-warning">
-				<RefreshCw className="size-4" />
-				<span>Loop Detected</span>
+				<RefreshCw className="size-4 shrink-0" />
+				<span className="truncate">Loop Detected</span>
 			</div>
 			<div className="text-sm/relaxed text-text-primary">{message}</div>
-			<div className="flex gap-2">
+			<div className="flex flex-wrap gap-2">
 				<button
 					onClick={onRetry}
 					className={cn(
@@ -1983,11 +1983,11 @@ export function AIError({
 			)}
 		>
 			<div className={cn('flex items-center gap-2 text-xs font-semibold', isRateLimit ? 'text-warning' : 'text-error')}>
-				{isRateLimit ? <Clock className="size-4" /> : <AlertCircle className="size-4" />}
-				<span>{isRateLimit ? 'Rate Limit Exceeded' : 'Error'}</span>
+				{isRateLimit ? <Clock className="size-4 shrink-0" /> : <AlertCircle className="size-4 shrink-0" />}
+				<span className="truncate">{isRateLimit ? 'Rate Limit Exceeded' : 'Error'}</span>
 			</div>
 			<div className="text-sm/relaxed text-text-primary">{message}</div>
-			<div className="flex gap-2">
+			<div className="flex flex-wrap gap-2">
 				{isRetryable && onRetry && (
 					<button
 						onClick={onRetry}

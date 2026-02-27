@@ -2,7 +2,7 @@
  * Git status helper utilities.
  *
  * Maps git file statuses to display labels, colors, and icons
- * for use in the Source Control UI.
+ * for use in the Git UI.
  */
 
 import type { GitFileStatus, GitStatusEntry } from '@shared/types';

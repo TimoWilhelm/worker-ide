@@ -139,7 +139,7 @@ export function GitHistoryPanel({
 						)}
 						style={{ minHeight: 32 }}
 					>
-						<div className="flex items-center gap-1.5">
+						<div className="flex items-center gap-1.5 overflow-hidden">
 							<span className="min-w-0 truncate text-xs text-text-primary">{entry.message.split('\n')[0]}</span>
 							{/* Branch/tag labels */}
 							{entry.branchNames.map((name) => (

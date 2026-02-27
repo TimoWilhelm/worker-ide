@@ -96,5 +96,5 @@ function ActionIcon({ action }: { action: 'create' | 'edit' | 'delete' | 'move' 
 function ActionLabel({ action }: { action: 'create' | 'edit' | 'delete' | 'move' }) {
 	const colorClass =
 		action === 'create' ? 'text-success' : action === 'edit' ? 'text-warning' : action === 'delete' ? 'text-error' : 'text-sky-500';
-	return <span className={cn('text-2xs font-medium', colorClass)}>{action}</span>;
+	return <span className={cn('shrink-0 text-2xs font-medium', colorClass)}>{action}</span>;
 }

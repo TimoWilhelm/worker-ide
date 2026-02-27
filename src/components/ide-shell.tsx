@@ -653,9 +653,16 @@ export function IDEShell({ projectId }: { projectId: string }) {
 						bg-bg-secondary px-3
 					"
 				>
-					<div className="flex items-center gap-2">
+					<div className="flex min-w-0 items-center gap-2">
 						<Tooltip content="Back to home">
-							<a href="/" className="text-accent transition-colors hover:text-accent-hover" aria-label="Back to home">
+							<a
+								href="/"
+								className="
+									shrink-0 text-accent transition-colors
+									hover:text-accent-hover
+								"
+								aria-label="Back to home"
+							>
 								<Hexagon className="size-4" />
 							</a>
 						</Tooltip>
@@ -679,8 +686,8 @@ export function IDEShell({ projectId }: { projectId: string }) {
 								/>
 							</div>
 						) : (
-							<div className="group flex items-center gap-1.5">
-								<h1 className="font-semibold text-text-primary">{projectName ?? 'Worker IDE'}</h1>
+							<div className="group flex min-w-0 items-center gap-1.5">
+								<h1 className="truncate font-semibold text-text-primary">{projectName ?? 'Worker IDE'}</h1>
 								<Tooltip content="Rename project">
 									<button
 										onClick={handleStartRename}
@@ -697,7 +704,7 @@ export function IDEShell({ projectId }: { projectId: string }) {
 							</div>
 						)}
 					</div>
-					<div className="flex items-center gap-2">
+					<div className="flex shrink-0 items-center gap-2">
 						{/* Save indicator */}
 						{isSaving && <span className="text-xs text-text-secondary">Saving...</span>}
 
@@ -1213,10 +1220,14 @@ export function IDEShell({ projectId }: { projectId: string }) {
 															onToggle={toggleUtilityPanel}
 															logCounts={logCounts}
 															headerRight={
-																<div className="flex items-center gap-3 text-xs text-text-secondary">
+																<div
+																	className="
+																		flex min-w-0 items-center gap-3 text-xs text-text-secondary
+																	"
+																>
 																	{activeFile && <span className="truncate">{activeFile}</span>}
 																	{cursorPosition && (
-																		<span>
+																		<span className="shrink-0">
 																			Ln {cursorPosition.line}, Col {cursorPosition.column}
 																		</span>
 																	)}
@@ -1242,7 +1253,7 @@ export function IDEShell({ projectId }: { projectId: string }) {
 											)}
 											aria-label="Show output"
 										>
-											<div className="flex items-center gap-2">
+											<div className="flex shrink-0 items-center gap-2">
 												<ChevronUp className="size-3 text-text-secondary" />
 												<span className="text-xs font-medium text-text-secondary">Output</span>
 												{logCounts.errors > 0 && <Pill color="red">{logCounts.errors}</Pill>}
@@ -1250,12 +1261,12 @@ export function IDEShell({ projectId }: { projectId: string }) {
 											</div>
 											<div
 												className="
-													ml-auto flex items-center gap-3 text-xs text-text-secondary
+													ml-auto flex min-w-0 items-center gap-3 text-xs text-text-secondary
 												"
 											>
 												{activeFile && <span className="truncate">{activeFile}</span>}
 												{cursorPosition && (
-													<span>
+													<span className="shrink-0">
 														Ln {cursorPosition.line}, Col {cursorPosition.column}
 													</span>
 												)}
@@ -1339,39 +1350,42 @@ export function IDEShell({ projectId }: { projectId: string }) {
 								bg-bg-secondary px-3 text-xs text-text-secondary
 							"
 						>
-							<div className="flex items-center gap-4">
+							<div className="flex min-w-0 items-center gap-4 overflow-hidden">
 								{isConnected ? (
-									<span className="flex items-center gap-1.5">
-										<span className="size-1.5 rounded-full" style={{ backgroundColor: localParticipantColor ?? 'var(--color-success)' }} />
-										Connected
+									<span className="flex items-center gap-1.5 overflow-hidden">
+										<span
+											className="size-1.5 shrink-0 rounded-full"
+											style={{ backgroundColor: localParticipantColor ?? 'var(--color-success)' }}
+										/>
+										<span className="shrink-0">Connected</span>
 										{participants.length > 0 && (
-											<span className="flex items-center gap-1">
-												<span className="text-text-secondary">&middot;</span>
+											<span className="flex items-center gap-1 overflow-hidden">
+												<span className="shrink-0 text-text-secondary">&middot;</span>
 												{participants.map((participant) => (
 													<span
 														key={participant.id}
-														className="size-2 rounded-full"
+														className="size-2 shrink-0 rounded-full"
 														style={{ backgroundColor: participant.color }}
 														title={`Collaborator (${participant.id.slice(0, 6)})`}
 													/>
 												))}
-												<span className="text-text-secondary">{participants.length} online</span>
+												<span className="shrink-0 text-text-secondary">{participants.length} online</span>
 											</span>
 										)}
 									</span>
 								) : localParticipantColor ? (
 									<span className="flex items-center gap-1.5">
-										<span className="size-1.5 animate-pulse rounded-full" style={{ backgroundColor: localParticipantColor }} />
+										<span className="size-1.5 shrink-0 animate-pulse rounded-full" style={{ backgroundColor: localParticipantColor }} />
 										Reconnecting
 									</span>
 								) : (
 									<span className="flex items-center gap-1.5">
-										<span className="size-1.5 rounded-full bg-error" />
+										<span className="size-1.5 shrink-0 rounded-full bg-error" />
 										Disconnected
 									</span>
 								)}
 							</div>
-							<div className="flex items-center gap-4">
+							<div className="flex shrink-0 items-center gap-4">
 								{isSaving && <span>Saving...</span>}
 								<a
 									href="https://github.com/TimoWilhelm/worker-ide"

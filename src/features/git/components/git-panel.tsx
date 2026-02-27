@@ -1,13 +1,11 @@
 /**
  * Git Panel
  *
- * Main Source Control sidebar panel. Contains:
+ * Main Git sidebar panel. Contains:
  * - Branch selector
  * - Commit form
  * - Staged / Changed / Untracked file lists
  * - Collapsible history section
- *
- * Designed to match the VS Code Source Control panel layout.
  */
 
 import { GitBranch, History, RotateCcw } from 'lucide-react';
@@ -176,7 +174,7 @@ function GitPanelContent({ projectId, className }: GitPanelProperties) {
 						text-xs font-semibold tracking-wider text-text-secondary uppercase
 					"
 				>
-					Source Control
+					Git
 				</span>
 				<div className="flex items-center gap-0.5">
 					<Tooltip content={showHistory ? 'Show changes' : 'Show history'}>

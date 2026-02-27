@@ -34,7 +34,7 @@ export function GitDiffToolbar({ path, description, onClose }: GitDiffToolbarPro
 			<div className="flex min-w-0 items-center gap-2">
 				<GitCompareArrows className="size-3.5 shrink-0 text-sky-500" />
 				<span className="truncate text-xs font-medium text-text-primary">{path}</span>
-				{description && <span className="text-2xs font-medium text-sky-500">{description}</span>}
+				{description && <span className="shrink-0 text-2xs font-medium whitespace-nowrap text-sky-500">{description}</span>}
 			</div>
 
 			{/* Right: close button */}
@@ -42,7 +42,10 @@ export function GitDiffToolbar({ path, description, onClose }: GitDiffToolbarPro
 				type="button"
 				onClick={onClose}
 				className={cn(
-					'inline-flex cursor-pointer items-center gap-1 rounded-md px-2 py-0.5',
+					`
+						inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-md px-2
+						py-0.5
+					`,
 					'text-2xs font-medium text-text-secondary transition-colors',
 					'hover:bg-bg-tertiary hover:text-text-primary',
 				)}

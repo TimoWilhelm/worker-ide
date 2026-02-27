@@ -2,7 +2,6 @@
  * Activity Bar
  *
  * VS Code-style vertical icon strip on the far left of the IDE.
- * Switches between sidebar views: Explorer and Source Control (Git).
  */
 
 import { Files, GitBranch } from 'lucide-react';
@@ -95,7 +94,7 @@ export function ActivityBar({ className }: ActivityBarProperties) {
 			/>
 			<ActivityBarItem
 				icon={<GitBranch className="size-5" />}
-				label="Source Control"
+				label="Git"
 				view="git"
 				activeView={activeSidebarView}
 				badge={gitChangedCount}

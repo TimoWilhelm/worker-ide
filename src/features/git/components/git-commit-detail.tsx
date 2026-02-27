@@ -59,17 +59,18 @@ export function GitCommitDetail({
 	return (
 		<div className="flex flex-col">
 			{/* Header */}
-			<div className="flex items-center justify-between px-3 py-2">
+			<div className="flex items-center justify-between gap-2 px-3 py-2">
 				<button
 					type="button"
 					onClick={onBack}
 					className="
-						flex items-center gap-1.5 text-xs text-text-secondary transition-colors
+						flex min-w-0 items-center gap-1.5 text-xs text-text-secondary
+						transition-colors
 						hover:text-text-primary
 					"
 				>
-					<ArrowLeft className="size-3" />
-					Back to history
+					<ArrowLeft className="size-3 shrink-0" />
+					<span className="truncate">Back to history</span>
 				</button>
 				<Button
 					variant="ghost"
@@ -77,7 +78,7 @@ export function GitCommitDetail({
 					onClick={() => setCheckoutConfirmOpen(true)}
 					disabled={isCheckoutPending}
 					isLoading={isCheckoutPending}
-					className="h-6 gap-1 px-2 text-xs"
+					className="h-6 shrink-0 gap-1 px-2 text-xs"
 				>
 					<GitCommitHorizontal className="size-3" />
 					Checkout
