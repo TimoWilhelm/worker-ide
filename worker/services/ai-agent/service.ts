@@ -305,6 +305,12 @@ export class AIAgentService {
 
 							break;
 						}
+						case 'snapshot_deleted': {
+							// Empty snapshot was cleaned up — clear so it won't be persisted
+							snapshotId = undefined;
+
+							break;
+						}
 						case 'file_changed': {
 							const data = isRecordObject(chunk.data) ? chunk.data : {};
 							const path = typeof data.path === 'string' ? data.path : undefined;
@@ -1138,9 +1144,10 @@ export class AIAgentService {
 				logger.markIterationLimit();
 			}
 
-			// Clean up empty snapshots
+			// Clean up empty snapshots and notify downstream to clear the snapshot ID
 			if (snapshotContext && queryChanges.length === 0) {
 				await this.deleteDirectoryRecursive(snapshotContext.directory);
+				yield customEvent('snapshot_deleted', { id: snapshotContext.id });
 			}
 
 			// In plan mode, save the plan

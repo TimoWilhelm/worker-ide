@@ -65,7 +65,9 @@ export function ChangedFilesSummary({
 	return (
 		<div className="overflow-hidden rounded-lg border border-accent/25 bg-accent/5">
 			{/* Header */}
-			<div className={cn('flex w-full items-center justify-between gap-1 px-3 py-2', 'text-xs font-medium text-accent transition-colors')}>
+			<div
+				className={cn('flex w-full flex-wrap items-center gap-x-2 gap-y-1 px-3 py-2', 'text-xs font-medium text-accent transition-colors')}
+			>
 				<button
 					type="button"
 					onClick={() => setIsExpanded((previous) => !previous)}
@@ -80,13 +82,13 @@ export function ChangedFilesSummary({
 						{pendingEntries.length} file{pendingEntries.length === 1 ? '' : 's'}
 					</span>
 				</button>
-				<div className="flex shrink-0 items-center gap-0.5">
+				<div className="ml-auto flex flex-wrap items-center gap-1.5">
 					<button
 						type="button"
 						onClick={() => onApproveAll()}
 						disabled={isReverting}
 						className={cn(
-							'inline-flex cursor-pointer items-center gap-1 rounded-md px-1.5 py-0.5',
+							'inline-flex cursor-pointer items-center gap-1 rounded-md px-2 py-1',
 							'text-2xs font-medium text-success transition-colors',
 							'hover:bg-success/10',
 							isReverting && 'cursor-not-allowed opacity-50',
@@ -100,7 +102,7 @@ export function ChangedFilesSummary({
 						onClick={() => void onRejectAll()}
 						disabled={isReverting || !canReject}
 						className={cn(
-							'inline-flex cursor-pointer items-center gap-1 rounded-md px-1.5 py-0.5',
+							'inline-flex cursor-pointer items-center gap-1 rounded-md px-2 py-1',
 							'text-2xs font-medium text-error transition-colors',
 							'hover:bg-error/10',
 							(isReverting || !canReject) && 'cursor-not-allowed opacity-50',
@@ -167,14 +169,14 @@ function ChangedFileRow({
 					<FileReference path={path} className="text-2xs" />
 				</div>
 			</div>
-			<div className="flex shrink-0 items-center gap-0.5">
+			<div className="flex shrink-0 items-center gap-1">
 				<button
 					type="button"
 					onClick={() => onApprove(path)}
 					disabled={isReverting}
 					title="Accept change"
 					className={cn(
-						'inline-flex cursor-pointer items-center rounded-sm p-0.5',
+						'inline-flex cursor-pointer items-center rounded-sm p-1',
 						'text-text-secondary transition-colors',
 						'hover:bg-success/15 hover:text-success',
 						isReverting && 'cursor-not-allowed opacity-50',
@@ -188,7 +190,7 @@ function ChangedFileRow({
 					disabled={isReverting || !hasSnapshot}
 					title={hasSnapshot ? 'Reject change' : 'Waiting for snapshot…'}
 					className={cn(
-						'inline-flex cursor-pointer items-center rounded-sm p-0.5',
+						'inline-flex cursor-pointer items-center rounded-sm p-1',
 						'text-text-secondary transition-colors',
 						'hover:bg-error/15 hover:text-error',
 						(isReverting || !hasSnapshot) && 'cursor-not-allowed opacity-50',

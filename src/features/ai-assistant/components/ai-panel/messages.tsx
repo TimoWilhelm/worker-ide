@@ -734,7 +734,7 @@ function summarizeFromMetadata(toolName: ToolName | undefined, info: ToolMetadat
 			if (metadata.type === 'file' && typeof metadata.lineCount === 'number') {
 				return `${metadata.lineCount} line${metadata.lineCount === 1 ? '' : 's'}`;
 			}
-			return 'Read';
+			return undefined;
 		}
 
 		case 'file_edit': {
@@ -765,7 +765,7 @@ function summarizeFromMetadata(toolName: ToolName | undefined, info: ToolMetadat
 				if (metadata.count === 0) return 'No files found';
 				return `${metadata.count} file${metadata.count === 1 ? '' : 's'}`;
 			}
-			return 'Listed';
+			return undefined;
 		}
 
 		case 'file_grep': {
@@ -773,7 +773,7 @@ function summarizeFromMetadata(toolName: ToolName | undefined, info: ToolMetadat
 				if (metadata.matchCount === 0) return 'No matches';
 				return `${metadata.matchCount} match${metadata.matchCount === 1 ? '' : 'es'}`;
 			}
-			return 'Searched';
+			return undefined;
 		}
 
 		case 'file_list': {
@@ -781,14 +781,19 @@ function summarizeFromMetadata(toolName: ToolName | undefined, info: ToolMetadat
 				const count = metadata.entries.length;
 				return `${count} entr${count === 1 ? 'y' : 'ies'}`;
 			}
-			return 'Listed';
+			if (typeof metadata.count === 'number') {
+				return `${metadata.count} entr${metadata.count === 1 ? 'y' : 'ies'}`;
+			}
+			// Fall through to raw-result parsing which reliably counts entries
+			return undefined;
 		}
 
 		case 'files_list': {
 			if (typeof metadata.count === 'number') {
 				return `${metadata.count} file${metadata.count === 1 ? '' : 's'}`;
 			}
-			return 'Listed';
+			// Fall through to raw-result parsing
+			return undefined;
 		}
 
 		case 'lint_check': {
@@ -796,7 +801,7 @@ function summarizeFromMetadata(toolName: ToolName | undefined, info: ToolMetadat
 				if (metadata.issueCount === 0) return 'No issues';
 				return `${metadata.issueCount} issue${metadata.issueCount === 1 ? '' : 's'}`;
 			}
-			return 'Checked';
+			return undefined;
 		}
 
 		case 'lint_fix': {
@@ -808,7 +813,7 @@ function summarizeFromMetadata(toolName: ToolName | undefined, info: ToolMetadat
 				const count = Object.keys(metadata.dependencies).length;
 				return `${count} dep${count === 1 ? '' : 's'}`;
 			}
-			return 'Listed';
+			return undefined;
 		}
 
 		case 'dependencies_update': {
@@ -816,14 +821,14 @@ function summarizeFromMetadata(toolName: ToolName | undefined, info: ToolMetadat
 				const verb = metadata.action === 'add' ? 'Added' : metadata.action === 'remove' ? 'Removed' : 'Updated';
 				return `${verb} ${metadata.name}`;
 			}
-			return 'Updated';
+			return undefined;
 		}
 
 		case 'plan_update': {
 			if (typeof metadata.completedTasks === 'number' && typeof metadata.totalTasks === 'number') {
 				return `${metadata.completedTasks}/${metadata.totalTasks}`;
 			}
-			return 'Updated';
+			return undefined;
 		}
 
 		case 'todos_get': {
@@ -838,7 +843,7 @@ function summarizeFromMetadata(toolName: ToolName | undefined, info: ToolMetadat
 			if (typeof metadata.contentLength === 'number') {
 				return `${metadata.contentLength} chars`;
 			}
-			return 'Fetched';
+			return undefined;
 		}
 
 		case 'docs_search': {
@@ -849,11 +854,11 @@ function summarizeFromMetadata(toolName: ToolName | undefined, info: ToolMetadat
 			if (typeof metadata.method === 'string') {
 				return metadata.method;
 			}
-			return 'Evaluated';
+			return undefined;
 		}
 
 		case 'user_question': {
-			return 'Question';
+			return undefined;
 		}
 
 		default: {
@@ -945,40 +950,23 @@ function summarizeToolResult(toolName: ToolName, rawResult: string): string {
 		}
 
 		case 'dependencies_update': {
-			try {
-				const parsed: unknown = JSON.parse(rawResult);
-				if (isRecord(parsed) && typeof parsed.action === 'string' && typeof parsed.name === 'string') {
-					const verb = parsed.action === 'add' ? 'Added' : parsed.action === 'remove' ? 'Removed' : 'Updated';
-					return `${verb} ${parsed.name}`;
-				}
-			} catch {
-				/* not JSON */
-			}
+			// Output is plain text like "Added express@*" or "Removed lodash@4.17.21"
+			const depMatch = rawResult.match(/^(Added|Removed|Updated) (\S+)/);
+			if (depMatch) return `${depMatch[1]} ${depMatch[2].split('@')[0]}`;
 			return 'Updated';
 		}
 
 		case 'dependencies_list': {
-			try {
-				const parsed: unknown = JSON.parse(rawResult);
-				if (isRecord(parsed) && isRecord(parsed.dependencies)) {
-					const count = Object.keys(parsed.dependencies).length;
-					return `${count} dep${count === 1 ? '' : 's'}`;
-				}
-			} catch {
-				/* not JSON */
-			}
-			return 'Listed';
+			// Output is "name: version" lines (plain text, not JSON)
+			if (rawResult === 'No dependencies registered.' || rawResult === 'No project metadata found.') return '0 deps';
+			const deps = rawResult.split('\n').filter(Boolean);
+			return `${deps.length} dep${deps.length === 1 ? '' : 's'}`;
 		}
 
 		case 'cdp_eval': {
-			try {
-				const parsed: unknown = JSON.parse(rawResult);
-				if (isRecord(parsed) && typeof parsed.method === 'string') {
-					return parsed.method;
-				}
-			} catch {
-				/* not JSON */
-			}
+			// Output is "Method: X\n\nResult: ..." (plain text, not JSON)
+			const methodMatch = rawResult.match(/^Method: (.+)/);
+			if (methodMatch) return methodMatch[1];
 			return 'Evaluated';
 		}
 
@@ -1010,16 +998,9 @@ function summarizeToolResult(toolName: ToolName, rawResult: string): string {
 		}
 
 		case 'files_list': {
-			try {
-				const parsed: unknown = JSON.parse(rawResult);
-				if (isRecord(parsed) && Array.isArray(parsed.files)) {
-					const files: unknown[] = parsed.files;
-					return `${files.length} file${files.length === 1 ? '' : 's'}`;
-				}
-			} catch {
-				/* not JSON */
-			}
-			return 'Listed';
+			// files_list returns newline-separated file paths (plain text, not JSON)
+			const files = rawResult.split('\n').filter(Boolean);
+			return `${files.length} file${files.length === 1 ? '' : 's'}`;
 		}
 
 		case 'docs_search': {
@@ -1027,25 +1008,16 @@ function summarizeToolResult(toolName: ToolName, rawResult: string): string {
 		}
 
 		case 'web_fetch': {
-			try {
-				const parsed: unknown = JSON.parse(rawResult);
-				if (isRecord(parsed) && typeof parsed.length === 'number') {
-					return `${parsed.length} chars`;
-				}
-			} catch {
-				/* not JSON */
-			}
-			return 'Fetched';
+			// Output is the summarized markdown text (plain text, not JSON)
+			return `${rawResult.length} chars`;
 		}
 
 		case 'user_question': {
-			try {
-				const parsed: unknown = JSON.parse(rawResult);
-				if (isRecord(parsed) && typeof parsed.question === 'string') {
-					return parsed.question.length > 60 ? parsed.question.slice(0, 60) + '...' : parsed.question;
-				}
-			} catch {
-				/* not JSON */
+			// Output is "Question for the user: <question>\n..."
+			const questionMatch = rawResult.match(/^Question for the user: (.+)/);
+			if (questionMatch) {
+				const q = questionMatch[1];
+				return q.length > 60 ? q.slice(0, 60) + '...' : q;
 			}
 			return 'Question';
 		}

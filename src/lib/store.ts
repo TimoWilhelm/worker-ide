@@ -118,6 +118,7 @@ interface AIActions {
 	setSavedSessions: (sessions: Array<{ id: string; label: string; createdAt: number }>) => void;
 	loadSession: (history: UIMessage[], sessionId: string, messageSnapshots?: Map<number, string>, contextTokensUsed?: number) => void;
 	setMessageSnapshot: (messageIndex: number, snapshotId: string) => void;
+	clearMessageSnapshot: (snapshotId: string) => void;
 	removeMessagesAfter: (index: number) => void;
 	removeMessagesFrom: (index: number) => void;
 	setAgentMode: (mode: AgentMode) => void;
@@ -470,6 +471,17 @@ export const useStore = create<StoreState>()(
 					set((state) => {
 						const newMap = new Map(state.messageSnapshots);
 						newMap.set(messageIndex, snapshotId);
+						return { messageSnapshots: newMap };
+					}),
+
+				clearMessageSnapshot: (snapshotId) =>
+					set((state) => {
+						const newMap = new Map(state.messageSnapshots);
+						for (const [key, value] of newMap) {
+							if (value === snapshotId) {
+								newMap.delete(key);
+							}
+						}
 						return { messageSnapshots: newMap };
 					}),
 

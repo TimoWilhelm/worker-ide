@@ -106,6 +106,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		setStatusMessage,
 		setAiError,
 		setMessageSnapshot,
+		clearMessageSnapshot,
 		removeMessagesFrom,
 		setAgentMode,
 		setSelectedModel,
@@ -188,6 +189,18 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 							setMessageSnapshot(userMessageIndexReference.current, snapshotId);
 						}
 						associateSnapshotWithPending(snapshotId);
+					}
+					break;
+				}
+				case 'snapshot_deleted': {
+					// Empty snapshot was cleaned up — remove the mapping so the
+					// Revert button won't appear for messages with no file changes.
+					const deletedId = getStringField(custom.data, 'id');
+					if (deletedId) {
+						if (activeSnapshotIdReference.current === deletedId) {
+							activeSnapshotIdReference.current = undefined;
+						}
+						clearMessageSnapshot(deletedId);
 					}
 					break;
 				}

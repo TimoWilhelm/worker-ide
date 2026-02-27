@@ -82,8 +82,14 @@ export function RevertConfirmDialog({
 	});
 
 	const isLoading = snapshotQueries.some((query) => query.isLoading);
-	const fetchError = snapshotQueries.find((query) => query.error)?.error;
 	const allMetadata = snapshotQueries.map((query) => query.data).filter((data): data is SnapshotMetadata => data !== undefined);
+
+	// Only show a fetch error if some queries failed but others succeeded (partial failure).
+	// If ALL queries failed, the snapshots were likely cleaned up (no file changes) —
+	// treat this as a valid "no changes" case rather than a hard error.
+	const failedCount = snapshotQueries.filter((query) => query.error).length;
+	const allFailed = failedCount > 0 && failedCount === snapshotQueries.length;
+	const fetchError = allFailed ? undefined : snapshotQueries.find((query) => query.error)?.error;
 
 	// Aggregate all file changes across the cascade, deduplicating by path
 	// (the first occurrence wins since snapshots are newest-first, but we
@@ -131,7 +137,7 @@ export function RevertConfirmDialog({
 		return result;
 	}, [aggregatedChanges, pendingChanges, snapshotIds]);
 
-	const hasData = allMetadata.length > 0;
+	const hasData = allMetadata.length > 0 || allFailed;
 	const isCascade = snapshotIds.length > 1;
 
 	return (
@@ -194,9 +200,11 @@ export function RevertConfirmDialog({
 						{hasData && (
 							<div className="flex flex-col gap-3">
 								<AlertDialog.Description className="text-sm text-text-secondary">
-									{isCascade
-										? 'This will undo all changes from this message and all subsequent AI turns. The following operations will be performed:'
-										: 'This will undo all changes made by the AI in response to this prompt. The following operations will be performed:'}
+									{aggregatedChanges.length === 0
+										? 'This undo action will not make any code changes.'
+										: isCascade
+											? 'This will undo all changes from this message and all subsequent AI turns. The following operations will be performed:'
+											: 'This will undo all changes made by the AI in response to this prompt. The following operations will be performed:'}
 								</AlertDialog.Description>
 
 								{/* Conflict warnings */}
@@ -263,10 +271,6 @@ export function RevertConfirmDialog({
 										badgeClass="bg-success/15 text-success"
 										changes={deletedFiles}
 									/>
-								)}
-
-								{aggregatedChanges.length === 0 && (
-									<div className="py-2 text-sm text-text-secondary">No file changes found in this snapshot.</div>
 								)}
 							</div>
 						)}
