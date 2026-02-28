@@ -284,7 +284,7 @@ export interface ServerError {
 	/** Unique identifier for deduplication across channels */
 	id: string;
 	timestamp: number;
-	type: 'bundle' | 'runtime';
+	type: 'bundle' | 'runtime' | 'dependency-warning';
 	message: string;
 	file?: string;
 	line?: number;

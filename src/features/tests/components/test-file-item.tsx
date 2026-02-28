@@ -103,16 +103,16 @@ function buildTestRows(fileResult: TestFileResult | undefined, discoveredTests: 
 function StatusIcon({ status }: { status: TestFileStatus }) {
 	switch (status) {
 		case 'idle': {
-			return <Circle className="size-3.5 text-text-secondary" />;
+			return <Circle className="size-3.5 shrink-0 text-text-secondary" />;
 		}
 		case 'running': {
-			return <Loader2 className="size-3.5 animate-spin text-text-secondary" />;
+			return <Loader2 className="size-3.5 shrink-0 animate-spin text-text-secondary" />;
 		}
 		case 'passed': {
 			return (
 				<CheckCircle2
 					className="
-						size-3.5 text-green-600
+						size-3.5 shrink-0 text-green-600
 						dark:text-green-400
 					"
 				/>
@@ -122,7 +122,7 @@ function StatusIcon({ status }: { status: TestFileStatus }) {
 			return (
 				<XCircle
 					className="
-						size-3.5 text-red-600
+						size-3.5 shrink-0 text-red-600
 						dark:text-red-400
 					"
 				/>

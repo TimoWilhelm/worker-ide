@@ -66,7 +66,7 @@ globalThis.addEventListener('server-error', (event: Event) => {
 		append({
 			id: nextId(),
 			timestamp: error.timestamp,
-			level: 'error',
+			level: error.type === 'dependency-warning' ? 'warning' : 'error',
 			message: parts.join('\n'),
 			source: 'server',
 		});
@@ -185,7 +185,7 @@ globalThis.addEventListener('message', (event: MessageEvent) => {
 		append({
 			id: nextId(),
 			timestamp: error.timestamp ?? Date.now(),
-			level: 'error',
+			level: error.type === 'dependency-warning' ? 'warning' : 'error',
 			message: parts.join('\n'),
 			source: 'client',
 		});

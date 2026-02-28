@@ -599,6 +599,7 @@ async function runSingleTestFile(
 		platform: 'neutral',
 		tsconfigRaw,
 		knownDependencies,
+		reportUnusedDependencies: false,
 	});
 
 	// Load and execute in a WorkerLoader isolate

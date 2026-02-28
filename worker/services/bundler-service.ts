@@ -416,6 +416,8 @@ export interface BundleWithCdnOptions {
 	platform?: 'browser' | 'neutral';
 	/** Known registered dependencies (name → version). Only these are resolved from esm.sh. */
 	knownDependencies?: Map<string, string>;
+	/** Whether to report unused dependencies (registered but not imported). Defaults to true. */
+	reportUnusedDependencies?: boolean;
 }
 
 /**
@@ -434,6 +436,7 @@ export async function bundleWithCdn(options: BundleWithCdnOptions): Promise<Bund
 		tsconfigRaw,
 		platform = 'browser',
 		knownDependencies,
+		reportUnusedDependencies = true,
 	} = options;
 
 	const collectedDependencyErrors: DependencyError[] = [];
@@ -469,8 +472,9 @@ export async function bundleWithCdn(options: BundleWithCdnOptions): Promise<Bund
 		throw new Error('No output generated from esbuild');
 	}
 
-	// Detect unused dependencies: registered in knownDependencies but never imported during bundling
-	if (knownDependencies) {
+	// Detect unused dependencies: registered in knownDependencies but never imported during bundling.
+	// Skipped for test bundles — tests naturally only import a subset of project dependencies.
+	if (reportUnusedDependencies && knownDependencies) {
 		for (const [packageName] of knownDependencies) {
 			if (!resolvedDependencies.has(packageName)) {
 				collectedDependencyErrors.push({
