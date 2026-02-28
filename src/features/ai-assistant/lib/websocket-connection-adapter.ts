@@ -12,6 +12,7 @@
  */
 
 import { startAgentChat } from '@/lib/api-client';
+import { isNetworkError } from '@/lib/utils';
 
 import type { AIModelId } from '@shared/constants';
 import type { AgentMode } from '@shared/types';
@@ -53,13 +54,22 @@ export function createWebSocketConnectionAdapter(options: WebSocketAdapterOption
 			const { projectId, getMode, getSessionId, getModel, getOutputLogs } = options;
 
 			// Start the agent run via HTTP POST (returns immediately)
-			const { sessionId } = await startAgentChat(projectId, {
-				messages,
-				mode: getMode(),
-				sessionId: getSessionId(),
-				model: getModel(),
-				outputLogs: getOutputLogs(),
-			});
+			let sessionId: string;
+			try {
+				const result = await startAgentChat(projectId, {
+					messages,
+					mode: getMode(),
+					sessionId: getSessionId(),
+					model: getModel(),
+					outputLogs: getOutputLogs(),
+				});
+				sessionId = result.sessionId;
+			} catch (error) {
+				if (isNetworkError(error)) {
+					throw new Error('Unable to connect. Check your internet connection and try again.');
+				}
+				throw error;
+			}
 
 			// Create a queue for incoming stream chunks
 			type QueueItem = { type: 'chunk'; chunk: StreamChunk } | { type: 'done' } | { type: 'error'; error: Error };

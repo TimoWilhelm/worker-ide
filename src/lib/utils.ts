@@ -125,6 +125,17 @@ export function sleep(milliseconds: number): Promise<void> {
 }
 
 /**
+ * Check whether an error indicates a network/connection failure.
+ *
+ * `fetch` throws a `TypeError` when the request cannot be sent at all
+ * (offline, DNS failure, CORS pre-flight failure, etc.). This helper
+ * detects that case so callers can show a user-friendly offline message.
+ */
+export function isNetworkError(error: unknown): boolean {
+	return error instanceof TypeError && (error.message === 'Failed to fetch' || error.message === 'Load failed');
+}
+
+/**
  * Generate a random alphanumeric ID.
  */
 export function generateId(length: number = 8): string {

@@ -6,17 +6,20 @@
  * - `/p/<hex64>` renders the IDE shell for a specific project
  */
 
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MutationCache, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Check, ClipboardCopy } from 'lucide-react';
 import { Suspense, useEffect, useState } from 'react';
 
 import { ErrorBoundary } from '@/components/error-boundary';
 import { IDEShell } from '@/components/ide-shell';
+import { OfflineBanner } from '@/components/offline-banner';
 import { Spinner } from '@/components/ui/spinner';
 import { Toaster } from '@/components/ui/toast';
+import { toast } from '@/components/ui/toast-store';
 import { LandingPage } from '@/features/landing';
 import { usePwaUpdate } from '@/hooks/use-pwa-update';
 import { trackProject } from '@/lib/recent-projects';
+import { isNetworkError } from '@/lib/utils';
 
 // =============================================================================
 // Query Client
@@ -30,6 +33,13 @@ const queryClient = new QueryClient({
 			refetchOnWindowFocus: false,
 		},
 	},
+	mutationCache: new MutationCache({
+		onError: (error) => {
+			if (isNetworkError(error)) {
+				toast.error('You appear to be offline. Check your connection and try again.');
+			}
+		},
+	}),
 });
 
 // =============================================================================
@@ -175,6 +185,7 @@ export function App() {
 	return (
 		<ErrorBoundary fallback={ErrorFallback}>
 			<QueryClientProvider client={queryClient}>
+				<OfflineBanner />
 				<AppContent />
 				<PwaUpdateHandler />
 				<Toaster />
