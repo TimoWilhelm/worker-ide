@@ -18,6 +18,7 @@ import {
 	Eye,
 	FastForward,
 	FileText,
+	FlaskConical,
 	FolderSearch,
 	Globe,
 	HelpCircle,
@@ -142,6 +143,9 @@ function ToolIcon({ name, className }: { name: ToolName; className?: string }) {
 		}
 		case 'plan_update': {
 			return <MapIcon className={cn('size-3', className)} />;
+		}
+		case 'test_run': {
+			return <FlaskConical className={cn('size-3', className)} />;
 		}
 		default: {
 			return <FileText className={cn('size-3', className)} />;
@@ -857,6 +861,14 @@ function summarizeFromMetadata(toolName: ToolName | undefined, info: ToolMetadat
 			return undefined;
 		}
 
+		case 'test_run': {
+			if (typeof metadata.passed === 'number' && typeof metadata.failed === 'number') {
+				if (metadata.failed === 0) return `${metadata.passed} passed`;
+				return `${metadata.failed} failed, ${metadata.passed} passed`;
+			}
+			return undefined;
+		}
+
 		case 'user_question': {
 			return undefined;
 		}
@@ -1020,6 +1032,13 @@ function summarizeToolResult(toolName: ToolName, rawResult: string): string {
 				return q.length > 60 ? q.slice(0, 60) + '...' : q;
 			}
 			return 'Question';
+		}
+
+		case 'test_run': {
+			// Output has a summary line like "Tests: 2 failed, 3 passed, 5 total"
+			const testsMatch = rawResult.match(/Tests: (.+)/);
+			if (testsMatch) return testsMatch[1];
+			return 'Tests ran';
 		}
 
 		default: {

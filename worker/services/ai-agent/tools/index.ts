@@ -27,6 +27,7 @@ import * as filesListTool from './files-list';
 import * as lintCheckTool from './lint-check';
 import * as lintFixTool from './lint-fix';
 import * as planUpdateTool from './plan-update';
+import * as testRunTool from './test-run';
 import * as todosGetTool from './todos-get';
 import * as todosUpdateTool from './todos-update';
 import * as userQuestionTool from './user-question';
@@ -72,6 +73,7 @@ export const TOOL_EXECUTORS: ReadonlyMap<string, ToolExecuteFunction> = new Map(
 	['lint_check', lintCheckTool.execute],
 	['lint_fix', lintFixTool.execute],
 	['cdp_eval', cdpEvalTool.execute],
+	['test_run', testRunTool.execute],
 ]);
 
 // =============================================================================
@@ -101,6 +103,7 @@ export const AGENT_TOOLS: readonly ToolDefinition[] = [
 	lintCheckTool.definition,
 	lintFixTool.definition,
 	cdpEvalTool.definition,
+	testRunTool.definition,
 ];
 
 // =============================================================================
@@ -122,6 +125,7 @@ const PLAN_MODE_TOOL_NAMES = new Set([
 	'dependencies_list',
 	'lint_check',
 	'cdp_eval',
+	'test_run',
 ]);
 
 export const PLAN_MODE_TOOLS: readonly ToolDefinition[] = AGENT_TOOLS.filter((tool) => PLAN_MODE_TOOL_NAMES.has(tool.name));
@@ -153,6 +157,7 @@ export const READ_ONLY_TOOL_NAMES = new Set([
 	'dependencies_list',
 	'lint_check',
 	'cdp_eval',
+	'test_run',
 ]);
 
 /**

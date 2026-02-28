@@ -116,6 +116,7 @@ export const projectRoutes = new Hono<AppEnvironment>()
 
 		const hasReact = 'react' in registeredDependencies;
 		const hasTypeScript = Object.keys(projectFiles).some((f) => f.endsWith('.ts') || f.endsWith('.tsx'));
+		const hasTests = Object.keys(projectFiles).some((f) => f.includes('.test.') || f.includes('.spec.') || f.startsWith('test/'));
 
 		const devDependencies: Record<string, string> = {
 			'@cloudflare/vite-plugin': '^1.0.0',
@@ -130,15 +131,23 @@ export const projectRoutes = new Hono<AppEnvironment>()
 		if (hasTypeScript) {
 			devDependencies.typescript = '^5.0.0';
 		}
+		if (hasTests) {
+			devDependencies.vitest = '^3.0.0';
+		}
+
+		const scripts: Record<string, string> = {
+			dev: 'vite dev',
+			build: 'vite build',
+			deploy: 'vite build && wrangler deploy',
+		};
+		if (hasTests) {
+			scripts.test = 'vitest run';
+		}
 
 		const packageJson: Record<string, unknown> = {
 			name: projectName,
 			type: 'module',
-			scripts: {
-				dev: 'vite dev',
-				build: 'vite build',
-				deploy: 'vite build && wrangler deploy',
-			},
+			scripts,
 			dependencies: registeredDependencies,
 			devDependencies,
 		};
@@ -185,6 +194,20 @@ export const projectRoutes = new Hono<AppEnvironment>()
 			'});',
 			'',
 		].join('\n');
+
+		if (hasTests) {
+			zipFiles['vitest.config.ts'] = [
+				"import { defineConfig } from 'vitest/config';",
+				'',
+				'export default defineConfig({',
+				'\ttest: {',
+				'\t\tglobals: true,',
+				"\t\tinclude: ['test/**/*.test.{js,ts,jsx,tsx}', 'src/**/*.test.{js,ts,jsx,tsx}'],",
+				'\t},',
+				'});',
+				'',
+			].join('\n');
+		}
 
 		const zip = createZip(zipFiles);
 		return new Response(zip, {

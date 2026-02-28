@@ -19,6 +19,8 @@ import requestInspectorIndexHtml from './fixtures/example-project/index.html?raw
 import requestInspectorAppTsx from './fixtures/example-project/src/app.tsx?raw';
 import requestInspectorMainTsx from './fixtures/example-project/src/main.tsx?raw';
 import requestInspectorStyleCss from './fixtures/example-project/src/style.css?raw';
+import requestInspectorUtilitiesTs from './fixtures/example-project/src/utilities.ts?raw';
+import requestInspectorTestUtilitiesTs from './fixtures/example-project/test/utilities.test.ts?raw';
 import requestInspectorTsconfig from './fixtures/example-project/tsconfig.json?raw';
 import requestInspectorWorkerIndexTs from './fixtures/example-project/worker/index.ts?raw';
 
@@ -67,6 +69,8 @@ const requestInspectorTemplate: ProjectTemplate = {
 		'src/main.tsx': requestInspectorMainTsx,
 		'src/app.tsx': requestInspectorAppTsx,
 		'src/style.css': requestInspectorStyleCss,
+		'src/utilities.ts': requestInspectorUtilitiesTs,
+		'test/utilities.test.ts': requestInspectorTestUtilitiesTs,
 		'worker/index.ts': requestInspectorWorkerIndexTs,
 		'.gitignore': requestInspectorGitignore,
 	},

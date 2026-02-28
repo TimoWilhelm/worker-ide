@@ -277,6 +277,13 @@ export const cdpEvalInputSchema = z.object({
 });
 
 /**
+ * Schema for AI tool: test_run (run tests in a Worker sandbox)
+ */
+export const testRunInputSchema = z.object({
+	pattern: z.string().optional(),
+});
+
+/**
  * Union of all tool input schemas
  */
 export const toolInputSchemas = {
@@ -302,6 +309,7 @@ export const toolInputSchemas = {
 	lint_check: lintCheckInputSchema,
 	lint_fix: lintFixInputSchema,
 	cdp_eval: cdpEvalInputSchema,
+	test_run: testRunInputSchema,
 } as const;
 
 export type ToolName = keyof typeof toolInputSchemas;

@@ -55,6 +55,7 @@ export interface MemoryFs {
 					  }
 				>
 			>;
+			access: (path: string) => Promise<void>;
 			mkdir: (path: string, options?: { recursive?: boolean }) => Promise<void>;
 			unlink: (path: string) => Promise<void>;
 			rename: (from: string, to: string) => Promise<void>;
@@ -190,6 +191,13 @@ export function createMemoryFs(): MemoryFs {
 					}
 
 					return [...childrenMap.keys()];
+				},
+
+				access: async (path: string): Promise<void> => {
+					const entry = store.get(path);
+					if (!entry) {
+						throw makeEnoentError(path);
+					}
 				},
 
 				mkdir: async (_path: string, _options?: { recursive?: boolean }): Promise<void> => {
