@@ -248,7 +248,7 @@ export function useProjectSocket({ projectId, enabled = true }: UseProjectSocket
 							// Update local test results cache with the broadcast data.
 							// For single-test runs, merge into existing results so other
 							// tests are not lost.
-							if (message.testName) {
+							if (message.pattern) {
 								const existing = queryClientCurrent.getQueryData<TestRunResponse>(['test-results', projectIdCurrent]);
 								if (existing) {
 									queryClientCurrent.setQueryData(['test-results', projectIdCurrent], mergeTestRunResults(existing, message.results));

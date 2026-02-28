@@ -7,7 +7,7 @@
  * execution results (after running), with per-test play buttons.
  */
 
-import { CheckCircle2, ChevronDown, ChevronRight, Circle, File, Loader2, Play, XCircle } from 'lucide-react';
+import { CheckCircle2, ChevronDown, ChevronRight, Circle, CircleDashed, File, Loader2, Play, XCircle } from 'lucide-react';
 import { useState } from 'react';
 
 import { cn } from '@/lib/utils';
@@ -18,7 +18,7 @@ import type { DiscoveredTest, TestFileResult } from '@shared/types';
 // Types
 // =============================================================================
 
-type TestFileStatus = 'idle' | 'running' | 'passed' | 'failed';
+type TestFileStatus = 'idle' | 'running' | 'passed' | 'failed' | 'partial-passed';
 
 interface TestFileItemProperties {
 	/** Relative file path (e.g., "test/math.test.ts") */
@@ -31,6 +31,8 @@ interface TestFileItemProperties {
 	isRunning?: boolean;
 	/** Called when the user clicks to open the file in the editor */
 	onOpenFile?: (path: string) => void;
+	/** Called when the user clicks a test to navigate to its line in the source */
+	onOpenTest?: (path: string, line: number) => void;
 	/** Called when the user clicks the play button to run this single file */
 	onRunFile?: (path: string) => void;
 	/** Called when the user clicks the play button on an individual test */
@@ -43,17 +45,25 @@ interface TestRowData {
 	label: string;
 	status?: 'passed' | 'failed';
 	error?: string;
+	line?: number;
 }
 
 // =============================================================================
 // Helpers
 // =============================================================================
 
-function getFileStatus(fileResult: TestFileResult | undefined, isRunning: boolean): TestFileStatus {
+function getFileStatus(
+	fileResult: TestFileResult | undefined,
+	isRunning: boolean,
+	discoveredTests: DiscoveredTest[] | undefined,
+): TestFileStatus {
 	if (isRunning) return 'running';
 	if (!fileResult) return 'idle';
+
 	if (fileResult.results.error || fileResult.results.failed > 0) return 'failed';
-	return 'passed';
+
+	const isPartial = discoveredTests !== undefined && discoveredTests.length > 0 && fileResult.results.total < discoveredTests.length;
+	return isPartial ? 'partial-passed' : 'passed';
 }
 
 /**
@@ -80,7 +90,7 @@ function buildTestRows(fileResult: TestFileResult | undefined, discoveredTests: 
 			const key = `${test.suiteName}/${test.name}`;
 			const label = test.suiteName === '(top-level)' ? test.name : `${test.suiteName} > ${test.name}`;
 			const executed = executedTests.get(key);
-			return { key, label, status: executed?.status, error: executed?.error };
+			return { key, label, status: executed?.status, error: executed?.error, line: test.line };
 		});
 	}
 
@@ -111,6 +121,16 @@ function StatusIcon({ status }: { status: TestFileStatus }) {
 		case 'passed': {
 			return (
 				<CheckCircle2
+					className="
+						size-3.5 shrink-0 text-green-600
+						dark:text-green-400
+					"
+				/>
+			);
+		}
+		case 'partial-passed': {
+			return (
+				<CircleDashed
 					className="
 						size-3.5 shrink-0 text-green-600
 						dark:text-green-400
@@ -151,11 +171,12 @@ export function TestFileItem({
 	fileResult,
 	isRunning = false,
 	onOpenFile,
+	onOpenTest,
 	onRunFile,
 	onRunTest,
 }: TestFileItemProperties) {
 	const [expanded, setExpanded] = useState(false);
-	const status = getFileStatus(fileResult, isRunning);
+	const status = getFileStatus(fileResult, isRunning, discoveredTests);
 	const testRows = buildTestRows(fileResult, discoveredTests);
 	const canExpand = testRows.length > 0;
 
@@ -165,23 +186,26 @@ export function TestFileItem({
 			<div
 				className={cn('group flex cursor-pointer items-center gap-1.5 px-2 py-1', 'transition-colors hover:bg-bg-tertiary')}
 				onClick={() => {
+					onOpenFile?.(`/${filePath}`);
 					if (canExpand) {
-						setExpanded(!expanded);
-					} else {
-						onOpenFile?.(`/${filePath}`);
+						setExpanded(true);
 					}
 				}}
 			>
 				{/* Expand chevron */}
 				{canExpand ? (
 					<button
-						className="flex size-4 shrink-0 items-center justify-center"
+						className={cn(
+							'flex size-5 shrink-0 cursor-pointer items-center justify-center',
+							'rounded-sm text-text-secondary transition-colors',
+							'hover:bg-bg-tertiary hover:text-text-primary',
+						)}
 						onClick={(event) => {
 							event.stopPropagation();
 							setExpanded(!expanded);
 						}}
 					>
-						{expanded ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
+						{expanded ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
 					</button>
 				) : (
 					<span className="size-4 shrink-0" />
@@ -197,28 +221,30 @@ export function TestFileItem({
 				<span className="min-w-0 truncate text-text-primary">{filePath}</span>
 
 				{/* Counts badge */}
-				{fileResult && status !== 'running' && (
-					<span className="ml-auto shrink-0 text-xs text-text-secondary">
-						{fileResult.results.passed}/{fileResult.results.total}
+				{fileResult && (
+					<span className={cn('ml-auto shrink-0 text-xs text-text-secondary', status === 'running' && 'invisible')}>
+						{fileResult.results.passed}/
+						{discoveredTests ? Math.max(discoveredTests.length, fileResult.results.total) : fileResult.results.total}
 					</span>
 				)}
 
 				{/* Run single file button */}
-				{onRunFile && !isRunning && (
+				{onRunFile && (
 					<button
 						className={cn(
-							`
-								flex size-5 shrink-0 items-center justify-center rounded-sm
-								text-text-secondary
-							`,
-							`
-								opacity-0 transition-opacity
-								group-hover:opacity-100
-							`,
-							'hover:bg-bg-tertiary hover:text-text-primary',
+							'flex size-5 shrink-0 cursor-pointer items-center justify-center',
+							'rounded-sm text-text-secondary transition-colors',
+							!isRunning &&
+								`
+									opacity-0
+									group-hover:opacity-100
+								`,
+							!isRunning && 'hover:bg-bg-tertiary hover:text-text-primary',
+							isRunning && 'invisible',
 							!fileResult && 'ml-auto',
 						)}
 						onClick={(event) => {
+							if (isRunning) return;
 							event.stopPropagation();
 							onRunFile(filePath);
 						}}
@@ -236,32 +262,47 @@ export function TestFileItem({
 
 					{/* Test rows */}
 					{testRows.map((row) => (
-						<div key={row.key} className="group/test flex items-start gap-1.5 py-0.5 pl-1">
+						<div
+							key={row.key}
+							className={cn(
+								'group/test flex items-start gap-1.5 px-1 py-0.5',
+								row.line && onOpenTest && 'cursor-pointer rounded-sm hover:bg-bg-tertiary',
+							)}
+							onClick={() => {
+								if (row.line && onOpenTest) {
+									onOpenTest(`/${filePath}`, row.line);
+								}
+							}}
+						>
 							<TestStatusIcon status={row.status} />
 							<div className="min-w-0 flex-1">
 								<span className="text-xs text-text-primary">{row.label}</span>
 								{row.error && <div className="mt-0.5 text-xs text-red-600 dark:text-red-400">{row.error}</div>}
 							</div>
 							{/* Run single test button */}
-							{onRunTest && !isRunning && (
+							{onRunTest && (
 								<button
 									className={cn(
 										`
-											flex size-4 shrink-0 items-center justify-center rounded-sm
-											text-text-secondary
+											flex size-5 shrink-0 cursor-pointer items-center justify-center
+											rounded-sm
 										`,
-										`
-											opacity-0 transition-opacity
-											group-hover/test:opacity-100
-										`,
-										'hover:text-text-primary',
+										'text-text-secondary transition-colors',
+										!isRunning &&
+											`
+												opacity-0
+												group-hover/test:opacity-100
+											`,
+										!isRunning && 'hover:bg-bg-tertiary hover:text-text-primary',
+										isRunning && 'invisible',
 									)}
 									onClick={(event) => {
+										if (isRunning) return;
 										event.stopPropagation();
 										onRunTest(filePath, row.label);
 									}}
 								>
-									<Play className="size-2.5" />
+									<Play className="size-3" />
 								</button>
 							)}
 						</div>

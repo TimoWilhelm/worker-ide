@@ -12,6 +12,7 @@ import { ScrollArea } from 'radix-ui';
 import { useMemo } from 'react';
 
 import { Button, Spinner, Tooltip } from '@/components/ui';
+import { useStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 
 import { TestFileItem } from './test-file-item';
@@ -47,6 +48,8 @@ function buildResultsMap(results: TestRunResponse | undefined): Map<string, Test
 // =============================================================================
 
 export function TestsPanel({ projectId, className }: TestsPanelProperties) {
+	const goToFilePosition = useStore((state) => state.goToFilePosition);
+	const openFile = useStore((state) => state.openFile);
 	const { discoveredFiles, isLoading: isLoadingFiles, isRefreshing, refresh: refreshFiles } = useTestDiscovery({ projectId });
 	const { results } = useTestResults({ projectId });
 	const { runTests, isRunning, error, openTestFile } = useRunTests({ projectId });
@@ -97,11 +100,11 @@ export function TestsPanel({ projectId, className }: TestsPanelProperties) {
 					<Button
 						variant="ghost"
 						size="sm"
-						className="h-6 gap-1 px-2 text-xs"
+						className={cn('h-6 gap-1 px-2 text-xs transition-colors', 'hover:bg-bg-tertiary hover:text-text-primary')}
 						onClick={() => runTests()}
 						disabled={isRunning || !hasTestFiles}
 					>
-						{isRunning ? <Spinner className="size-3" /> : <Play className="size-3" />}
+						{isRunning ? <Spinner size="xs" /> : <Play className="size-3" />}
 						Run
 					</Button>
 				</Tooltip>
@@ -110,13 +113,21 @@ export function TestsPanel({ projectId, className }: TestsPanelProperties) {
 			{/* Summary bar (when results exist) */}
 			{hasResults && results && (
 				<div
-					className="
-						flex shrink-0 items-center gap-3 border-b border-border px-3 py-1.5
-						text-xs
-					"
+					className={cn(
+						`
+							flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border px-3
+							py-1.5
+						`,
+						'text-xs',
+					)}
 				>
 					{results.metadata.passed > 0 && (
-						<span className="flex items-center gap-1 text-green-600 dark:text-green-400">
+						<span
+							className="
+								flex items-center gap-1 text-green-600
+								dark:text-green-400
+							"
+						>
 							<CheckCircle2 className="size-3" />
 							{results.metadata.passed} passed
 						</span>
@@ -132,7 +143,9 @@ export function TestsPanel({ projectId, className }: TestsPanelProperties) {
 							{results.metadata.failed} failed
 						</span>
 					)}
-					<span className="text-text-secondary">{results.metadata.total} total</span>
+					<span className="text-text-secondary">
+						{hasTestFiles ? discoveredFiles.reduce((sum, f) => sum + f.tests.length, 0) : results.metadata.total} total
+					</span>
 					<span className="ml-auto text-text-secondary">
 						{results.metadata.files} file{results.metadata.files === 1 ? '' : 's'}
 					</span>
@@ -168,6 +181,12 @@ export function TestsPanel({ projectId, className }: TestsPanelProperties) {
 									fileResult={resultsMap.get(discovered.file)}
 									isRunning={isRunning}
 									onOpenFile={openTestFile}
+									onOpenTest={(path, line) => {
+										// Needs both: goToFilePosition to set the target line, and openFile to ensure
+										// it becomes the active tab if it's already open but in the background.
+										goToFilePosition(path, { line, column: 1 });
+										openFile(path);
+									}}
 									onRunFile={(path) => runTests({ pattern: path })}
 									onRunTest={(filePath, testName) => runTests({ pattern: filePath, testName })}
 								/>

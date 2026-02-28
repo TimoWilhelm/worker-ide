@@ -63,7 +63,13 @@ export function parseTestNames(source: string): DiscoveredTest[] {
 			}
 		}
 
-		tests.push({ name: testMatch[2], suiteName });
+		// Compute 1-based line number from character offset
+		let line = 1;
+		for (let index = 0; index < position; index++) {
+			if (source[index] === '\n') line++;
+		}
+
+		tests.push({ name: testMatch[2], suiteName, line });
 	}
 
 	return tests;
@@ -102,6 +108,7 @@ export const testRoutes = new Hono<AppEnvironment>()
 					type: 'test-results-changed',
 					results: testResponse,
 					testName,
+					pattern,
 				});
 			} catch {
 				// Non-critical — caller still gets results directly

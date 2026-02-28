@@ -365,6 +365,8 @@ export interface ProjectMeta {
 export interface DiscoveredTest {
 	name: string;
 	suiteName: string;
+	/** 1-based line number of the test in the source file (for click-to-navigate) */
+	line?: number;
 }
 
 /** Discovered test structure for a single file (from static parsing) */
@@ -429,39 +431,59 @@ export function mergeTestRunResults(existing: TestRunResponse, incoming: TestRun
 		const incomingFile = incoming.fileResults.find((f) => f.file === existingFile.file);
 		if (!incomingFile) return existingFile;
 
-		// Build a lookup of incoming test results: "suiteName/testName" → result
-		const incomingTests = new Map<string, TestSuiteResult['tests'][number]>();
-		for (const suite of incomingFile.results.suites) {
+		// Group all tests (existing and incoming) by suite so we don't lose any
+		const mergedSuitesMap = new Map<string, Map<string, TestSuiteResult['tests'][number]>>();
+
+		// 1. Add all existing tests into the map
+		for (const suite of existingFile.results.suites) {
+			const suiteMap = new Map<string, TestSuiteResult['tests'][number]>();
 			for (const test of suite.tests) {
-				incomingTests.set(`${suite.name}/${test.name}`, test);
+				suiteMap.set(test.name, test);
+			}
+			mergedSuitesMap.set(suite.name, suiteMap);
+		}
+
+		// 2. Overlay incoming tests (adding new ones, replacing existing ones)
+		for (const suite of incomingFile.results.suites) {
+			let suiteMap = mergedSuitesMap.get(suite.name);
+			if (!suiteMap) {
+				suiteMap = new Map<string, TestSuiteResult['tests'][number]>();
+				mergedSuitesMap.set(suite.name, suiteMap);
+			}
+			for (const test of suite.tests) {
+				suiteMap.set(test.name, test);
 			}
 		}
 
-		// Update matching tests in existing suites, keep the rest unchanged
-		const mergedSuites: TestSuiteResult[] = existingFile.results.suites.map((suite) => {
-			let passed = 0;
-			let failed = 0;
-			const mergedTests = suite.tests.map((test) => {
-				const key = `${suite.name}/${test.name}`;
-				const updated = incomingTests.get(key);
-				const result = updated ?? test;
-				if (result.status === 'passed') {
-					passed++;
-				} else {
-					failed++;
-				}
-				return result;
-			});
-			return { ...suite, tests: mergedTests, passed, failed };
-		});
-
+		// 3. Rebuild the suites array and aggregate counts
+		const mergedSuites: TestSuiteResult[] = [];
 		let totalPassed = 0;
 		let totalFailed = 0;
 		let totalCount = 0;
-		for (const suite of mergedSuites) {
-			totalPassed += suite.passed;
-			totalFailed += suite.failed;
-			totalCount += suite.tests.length;
+
+		for (const [suiteName, testsMap] of mergedSuitesMap.entries()) {
+			let suitePassed = 0;
+			let suiteFailed = 0;
+			const mergedTests = [...testsMap.values()];
+
+			for (const test of mergedTests) {
+				if (test.status === 'passed') {
+					suitePassed++;
+				} else {
+					suiteFailed++;
+				}
+			}
+
+			mergedSuites.push({
+				name: suiteName,
+				tests: mergedTests,
+				passed: suitePassed,
+				failed: suiteFailed,
+			});
+
+			totalPassed += suitePassed;
+			totalFailed += suiteFailed;
+			totalCount += mergedTests.length;
 		}
 
 		return {

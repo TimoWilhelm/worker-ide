@@ -74,27 +74,30 @@ function ErrorFallback({ error, resetErrorBoundary }: { error: Error; resetError
 					max-w-lg rounded-xl border border-error/50 bg-bg-secondary p-10 shadow-lg
 				"
 			>
-				<div className="mb-4 flex items-center justify-between">
+				<div className="mb-3 flex items-center justify-between">
 					<h1 className="text-xl font-semibold text-error">Something went wrong</h1>
 					<button
 						onClick={handleCopy}
 						title="Copy error to clipboard"
 						className="
-							cursor-pointer rounded-md p-1.5 text-text-secondary transition-colors
+							-mr-1.5 cursor-pointer rounded-md p-1.5 text-text-secondary
+							transition-colors
 							hover:bg-bg-tertiary hover:text-text-primary
 						"
 					>
 						{copied ? <Check className="size-4 text-green-500" /> : <ClipboardCopy className="size-4" />}
 					</button>
 				</div>
-				<pre
-					className="
-						mb-8 max-h-48 overflow-auto rounded-md bg-bg-tertiary p-5 font-mono
-						text-sm/relaxed text-text-secondary
-					"
-				>
-					{error.message}
-				</pre>
+				<div className="mb-8">
+					<pre
+						className="
+							max-h-48 overflow-auto rounded-md bg-bg-tertiary p-5 font-mono
+							text-sm/relaxed text-text-secondary
+						"
+					>
+						{error.message}
+					</pre>
+				</div>
 				<button
 					onClick={resetErrorBoundary}
 					className="

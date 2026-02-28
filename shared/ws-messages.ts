@@ -252,6 +252,8 @@ export interface TestResultsChangedMessage {
 	};
 	/** When set, this was a single-test run and clients should merge into existing results */
 	testName?: string;
+	/** When set, this was a partial run (single file or single test) and clients should merge */
+	pattern?: string;
 }
 
 /**
@@ -503,6 +505,7 @@ export const serverMessageSchema = z.discriminatedUnion('type', [
 			timestamp: z.number(),
 		}),
 		testName: z.string().optional(),
+		pattern: z.string().optional(),
 	}),
 	z.object({
 		type: z.literal('cdp-request'),

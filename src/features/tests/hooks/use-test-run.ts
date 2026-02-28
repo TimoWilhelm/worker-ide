@@ -125,10 +125,10 @@ export function useRunTests({ projectId }: UseRunTestsOptions) {
 			return data;
 		},
 		onSuccess: (data, variables) => {
-			const isTestNameRun = variables && variables.testName;
+			const isPartialRun = variables && variables.pattern;
 
-			if (isTestNameRun) {
-				// Single-test run: merge into existing results so other tests aren't lost
+			if (isPartialRun) {
+				// Single-file or single-test run: merge into existing results
 				const existing = queryClient.getQueryData<TestRunResponse>(['test-results', projectId]);
 				if (existing) {
 					queryClient.setQueryData(['test-results', projectId], mergeTestRunResults(existing, data));
