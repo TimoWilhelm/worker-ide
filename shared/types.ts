@@ -272,7 +272,7 @@ export interface DependencyError {
 	/** The npm package name (e.g. "react", "@scope/pkg") */
 	packageName: string;
 	/** The kind of dependency problem */
-	code: 'unregistered' | 'not-found' | 'resolve-failed';
+	code: 'unregistered' | 'not-found' | 'resolve-failed' | 'unused';
 	/** Human-readable description */
 	message: string;
 }

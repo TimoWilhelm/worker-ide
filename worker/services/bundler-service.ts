@@ -271,6 +271,7 @@ function createVirtualFsPlugin(
 	resolveBareFromCdn: boolean,
 	knownDependencies?: Map<string, string>,
 	dependencyErrors?: DependencyError[],
+	resolvedDependencies?: Set<string>,
 ): esbuild.Plugin {
 	return {
 		name: 'virtual-fs',
@@ -311,6 +312,8 @@ function createVirtualFsPlugin(
 									errors: [{ text: errorMessage }],
 								};
 							}
+							// Track that this dependency was actually used during bundling
+							resolvedDependencies?.add(packageName);
 							// Use the registered version in the esm.sh URL
 							const versionedPackage = version && version !== '*' ? `${packageName}@${version}` : packageName;
 							const cdnPath = subpath ? `${versionedPackage}/${subpath}` : versionedPackage;
@@ -434,7 +437,8 @@ export async function bundleWithCdn(options: BundleWithCdnOptions): Promise<Bund
 	} = options;
 
 	const collectedDependencyErrors: DependencyError[] = [];
-	const virtualFsPlugin = createVirtualFsPlugin(files, externals, true, knownDependencies, collectedDependencyErrors);
+	const resolvedDependencies = new Set<string>();
+	const virtualFsPlugin = createVirtualFsPlugin(files, externals, true, knownDependencies, collectedDependencyErrors, resolvedDependencies);
 
 	let result: esbuild.BuildResult;
 	try {
@@ -463,6 +467,19 @@ export async function bundleWithCdn(options: BundleWithCdnOptions): Promise<Bund
 	const output = result.outputFiles?.[0];
 	if (!output) {
 		throw new Error('No output generated from esbuild');
+	}
+
+	// Detect unused dependencies: registered in knownDependencies but never imported during bundling
+	if (knownDependencies) {
+		for (const [packageName] of knownDependencies) {
+			if (!resolvedDependencies.has(packageName)) {
+				collectedDependencyErrors.push({
+					packageName,
+					code: 'unused',
+					message: `"${packageName}" is listed as a dependency but is not imported by any file.`,
+				});
+			}
+		}
 	}
 
 	return {

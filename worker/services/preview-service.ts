@@ -208,6 +208,18 @@ export class PreviewService {
 					knownDependencies,
 				});
 
+				// Broadcast dependency warnings (e.g. unused) even on successful builds
+				if (bundled.dependencyErrors && bundled.dependencyErrors.length > 0) {
+					const serverError: ServerError = {
+						id: crypto.randomUUID(),
+						timestamp: Date.now(),
+						type: 'bundle',
+						message: 'Dependency warnings detected',
+						dependencyErrors: bundled.dependencyErrors,
+					};
+					await this.broadcastError(serverError).catch(() => {});
+				}
+
 				return new Response(bundled.code, {
 					headers: {
 						'Content-Type': 'application/javascript',

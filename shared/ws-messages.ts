@@ -373,7 +373,7 @@ const participantSchema = z.object({
 
 const dependencyErrorSchema = z.object({
 	packageName: z.string(),
-	code: z.enum(['unregistered', 'not-found', 'resolve-failed']),
+	code: z.enum(['unregistered', 'not-found', 'resolve-failed', 'unused']),
 	message: z.string(),
 });
 

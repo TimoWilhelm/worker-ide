@@ -8,7 +8,7 @@ import { AlertTriangle, ChevronDown, ChevronUp, Package, Pencil, Plus, Trash2 } 
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { toast } from '@/components/ui/toast-store';
-import { removeInvalid, removeMissing, useDependencyErrors } from '@/features/file-tree/dependency-error-store';
+import { removeInvalid, removeMissing, removeUnused, useDependencyErrors } from '@/features/file-tree/dependency-error-store';
 import { fetchProjectMeta, updateDependencies } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
 import { validateDependencyName, validateDependencyVersion } from '@shared/validation';
@@ -49,7 +49,7 @@ function DependencyPanel({ projectId, collapsed = false, onToggle, className }: 
 	const editCommittedReference = useRef(false);
 
 	// Read dependency errors from the global store (active even when this component is unmounted)
-	const { missing: missingDependencies, invalid: invalidDependencies } = useDependencyErrors();
+	const { missing: missingDependencies, invalid: invalidDependencies, unused: unusedDependencies } = useDependencyErrors();
 
 	// Load dependencies from project meta
 	const loadDependencies = useCallback(async () => {
@@ -164,6 +164,15 @@ function DependencyPanel({ projectId, collapsed = false, onToggle, className }: 
 	const handleRemove = useCallback(
 		async (name: string) => {
 			const updated = dependencies.filter((d) => d.name !== name);
+			await saveDependencies(updated);
+		},
+		[dependencies, saveDependencies],
+	);
+
+	const handleRemoveUnused = useCallback(
+		async (name: string) => {
+			const updated = dependencies.filter((d) => d.name !== name);
+			removeUnused(name);
 			await saveDependencies(updated);
 		},
 		[dependencies, saveDependencies],
@@ -351,6 +360,38 @@ function DependencyPanel({ projectId, collapsed = false, onToggle, className }: 
 								<Plus className="size-2.5" />
 								<span className="flex-1 truncate text-left">{name}</span>
 								<span className="text-3xs opacity-60">@*</span>
+							</button>
+						))}
+					</div>
+				)}
+
+				{/* Unused dependencies */}
+				{unusedDependencies.size > 0 && (
+					<div
+						className={`
+							flex flex-col gap-0.5 rounded-sm border border-text-secondary/30
+							bg-text-secondary/5 p-1
+						`}
+					>
+						<span className="flex items-center gap-1 px-0.5 text-3xs text-text-secondary">
+							<Package className="size-3" />
+							Unused
+						</span>
+						{[...unusedDependencies].map((name) => (
+							<button
+								key={name}
+								type="button"
+								onClick={() => void handleRemoveUnused(name)}
+								disabled={isLoading}
+								className={`
+									flex h-5 cursor-pointer items-center gap-1 rounded-sm px-1 text-2xs
+									text-text-secondary
+									hover:bg-text-secondary/10
+									disabled:opacity-50
+								`}
+							>
+								<Trash2 className="size-2.5" />
+								<span className="flex-1 truncate text-left">{name}</span>
 							</button>
 						))}
 					</div>

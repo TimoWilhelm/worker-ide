@@ -213,6 +213,73 @@ describe('DependencyPanel validation', () => {
 	});
 });
 
+describe('DependencyPanel unused dependencies', () => {
+	it('shows unused dependencies section when server-error with unused code is dispatched', async () => {
+		render(<DependencyPanel projectId="test" />);
+
+		await waitFor(() => {
+			expect(screen.getByText('react')).toBeInTheDocument();
+		});
+
+		act(() => {
+			globalThis.dispatchEvent(
+				new CustomEvent('server-error', {
+					detail: {
+						message: 'Dependency warnings detected',
+						dependencyErrors: [{ packageName: 'zustand', code: 'unused', message: 'Not imported by any file.' }],
+					},
+				}),
+			);
+		});
+
+		await waitFor(() => {
+			expect(screen.getByText('Unused')).toBeInTheDocument();
+			// zustand appears in both the unused section and the dependency list
+			expect(screen.getAllByText('zustand')).toHaveLength(2);
+		});
+	});
+
+	it('clears stale unused dependencies when a new build reports none', async () => {
+		render(<DependencyPanel projectId="test" />);
+
+		await waitFor(() => {
+			expect(screen.getByText('react')).toBeInTheDocument();
+		});
+
+		// First build reports zustand as unused
+		act(() => {
+			globalThis.dispatchEvent(
+				new CustomEvent('server-error', {
+					detail: {
+						message: 'Dependency warnings detected',
+						dependencyErrors: [{ packageName: 'zustand', code: 'unused', message: 'Not imported.' }],
+					},
+				}),
+			);
+		});
+
+		await waitFor(() => {
+			expect(screen.getByText('Unused')).toBeInTheDocument();
+		});
+
+		// Second build reports no unused dependencies (empty errors array clears unused set)
+		act(() => {
+			globalThis.dispatchEvent(
+				new CustomEvent('server-error', {
+					detail: {
+						message: 'Dependency warnings detected',
+						dependencyErrors: [],
+					},
+				}),
+			);
+		});
+
+		await waitFor(() => {
+			expect(screen.queryByText('Unused')).not.toBeInTheDocument();
+		});
+	});
+});
+
 describe('DependencyPanel auto-expand', () => {
 	/**
 	 * Small wrapper that replicates the auto-expand pattern used in ide-shell.tsx.

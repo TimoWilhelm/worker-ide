@@ -18,6 +18,7 @@ const ERROR_MESSAGES: Record<DependencyError['code'], string> = {
 	unregistered: 'Not registered. Add it via the Dependencies panel.',
 	'not-found': 'Package not found. Check the name and version.',
 	'resolve-failed': 'Failed to resolve from CDN. The version may be invalid.',
+	unused: 'Not imported by any file. Consider removing it.',
 };
 
 // =============================================================================
@@ -27,16 +28,20 @@ const ERROR_MESSAGES: Record<DependencyError['code'], string> = {
 interface DependencyErrorState {
 	missing: Set<string>;
 	invalid: Map<string, string>;
+	unused: Set<string>;
 	addMissing: (packageName: string) => void;
 	addInvalid: (packageName: string, message: string) => void;
+	setUnused: (packageNames: Set<string>) => void;
 	removeMissing: (packageName: string) => void;
 	removeInvalid: (packageName: string) => void;
+	removeUnused: (packageName: string) => void;
 	reset: () => void;
 }
 
 const dependencyErrorStore = createStore<DependencyErrorState>((set, get) => ({
 	missing: new Set<string>(),
 	invalid: new Map<string, string>(),
+	unused: new Set<string>(),
 
 	addMissing: (packageName) => {
 		if (get().missing.has(packageName)) return;
@@ -54,6 +59,13 @@ const dependencyErrorStore = createStore<DependencyErrorState>((set, get) => ({
 			next.set(packageName, message);
 			return { invalid: next };
 		});
+	},
+
+	setUnused: (packageNames) => {
+		const current = get().unused;
+		// Skip update if the sets are identical
+		if (current.size === packageNames.size && [...packageNames].every((name) => current.has(name))) return;
+		set({ unused: new Set(packageNames) });
 	},
 
 	removeMissing: (packageName) => {
@@ -74,7 +86,16 @@ const dependencyErrorStore = createStore<DependencyErrorState>((set, get) => ({
 		});
 	},
 
-	reset: () => set({ missing: new Set(), invalid: new Map() }),
+	removeUnused: (packageName) => {
+		if (!get().unused.has(packageName)) return;
+		set((state) => {
+			const next = new Set(state.unused);
+			next.delete(packageName);
+			return { unused: next };
+		});
+	},
+
+	reset: () => set({ missing: new Set(), invalid: new Map(), unused: new Set() }),
 }));
 
 // =============================================================================
@@ -97,6 +118,10 @@ function removeInvalid(packageName: string) {
 	dependencyErrorStore.getState().removeInvalid(packageName);
 }
 
+function removeUnused(packageName: string) {
+	dependencyErrorStore.getState().removeUnused(packageName);
+}
+
 function resetDependencyErrors() {
 	dependencyErrorStore.getState().reset();
 }
@@ -116,14 +141,24 @@ function extractDependencyErrors(errorObject: unknown): DependencyError[] | unde
 }
 
 function processDependencyErrors(errors: DependencyError[]) {
-	const { addMissing, addInvalid } = dependencyErrorStore.getState();
+	const { addMissing, addInvalid, setUnused } = dependencyErrorStore.getState();
+
+	// Collect unused packages from this batch and replace the set entirely
+	// (each successful build reports the full list of unused dependencies)
+	const unusedPackages = new Set<string>();
+
 	for (const dependencyError of errors) {
 		if (dependencyError.code === 'unregistered') {
 			addMissing(dependencyError.packageName);
+		} else if (dependencyError.code === 'unused') {
+			unusedPackages.add(dependencyError.packageName);
 		} else {
 			addInvalid(dependencyError.packageName, ERROR_MESSAGES[dependencyError.code]);
 		}
 	}
+
+	// Replace the unused set so stale entries are cleared on each build
+	setUnused(unusedPackages);
 }
 
 // Channel 1: WebSocket server-error dispatched as CustomEvent
@@ -153,8 +188,16 @@ function subscribeDependencyErrors(listener: () => void) {
 }
 
 function getDependencyErrorCount() {
-	const { missing, invalid } = dependencyErrorStore.getState();
-	return missing.size + invalid.size;
+	const { missing, invalid, unused } = dependencyErrorStore.getState();
+	return missing.size + invalid.size + unused.size;
 }
 
-export { useDependencyErrors, removeMissing, removeInvalid, resetDependencyErrors, subscribeDependencyErrors, getDependencyErrorCount };
+export {
+	useDependencyErrors,
+	removeMissing,
+	removeInvalid,
+	removeUnused,
+	resetDependencyErrors,
+	subscribeDependencyErrors,
+	getDependencyErrorCount,
+};
