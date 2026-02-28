@@ -272,7 +272,7 @@ export interface DependencyError {
 	/** The npm package name (e.g. "react", "@scope/pkg") */
 	packageName: string;
 	/** The kind of dependency problem */
-	code: 'unregistered' | 'not-found' | 'resolve-failed' | 'unused';
+	code: 'unregistered' | 'not-found' | 'resolve-failed';
 	/** Human-readable description */
 	message: string;
 }
@@ -284,7 +284,7 @@ export interface ServerError {
 	/** Unique identifier for deduplication across channels */
 	id: string;
 	timestamp: number;
-	type: 'bundle' | 'runtime' | 'dependency-warning';
+	type: 'bundle' | 'runtime';
 	message: string;
 	file?: string;
 	line?: number;

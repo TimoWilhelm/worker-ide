@@ -208,20 +208,6 @@ export class PreviewService {
 					knownDependencies,
 				});
 
-				// Broadcast dependency warnings (e.g. unused) even on successful builds.
-				// Use 'dependency-warning' type so the HMR error overlay is NOT shown —
-				// the overlay only triggers for type === 'bundle'.
-				if (bundled.dependencyErrors && bundled.dependencyErrors.length > 0) {
-					const serverError: ServerError = {
-						id: crypto.randomUUID(),
-						timestamp: Date.now(),
-						type: 'dependency-warning',
-						message: 'Dependency warnings detected',
-						dependencyErrors: bundled.dependencyErrors,
-					};
-					await this.broadcastError(serverError).catch(() => {});
-				}
-
 				return new Response(bundled.code, {
 					headers: {
 						'Content-Type': 'application/javascript',

@@ -373,14 +373,14 @@ const participantSchema = z.object({
 
 const dependencyErrorSchema = z.object({
 	packageName: z.string(),
-	code: z.enum(['unregistered', 'not-found', 'resolve-failed', 'unused']),
+	code: z.enum(['unregistered', 'not-found', 'resolve-failed']),
 	message: z.string(),
 });
 
 const serverErrorSchema = z.object({
 	id: z.string(),
 	timestamp: z.number(),
-	type: z.enum(['bundle', 'runtime', 'dependency-warning']),
+	type: z.enum(['bundle', 'runtime']),
 	message: z.string(),
 	file: z.string().optional(),
 	line: z.number().optional(),
