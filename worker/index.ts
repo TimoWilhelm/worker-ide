@@ -50,7 +50,7 @@ function getPreviewService(projectRoot: string, projectId: string): PreviewServi
 }
 
 // Re-export Durable Objects for wrangler
-export { DurableObjectFilesystem, ProjectCoordinator } from './durable';
+export { AgentRunner, DurableObjectFilesystem, ProjectCoordinator } from './durable';
 
 // Re-export LogTailer so it's available on ctx.exports for WorkerLoader tails
 export { LogTailer } from './services/log-tailer';

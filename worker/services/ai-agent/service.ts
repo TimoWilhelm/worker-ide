@@ -14,7 +14,7 @@ import fs from 'node:fs/promises';
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import { chat, maxIterations, StreamProcessor, toServerSentEventsResponse } from '@tanstack/ai';
+import { chat, maxIterations, StreamProcessor } from '@tanstack/ai';
 import { mount, withMounts } from 'worker-fs-mount';
 
 import {
@@ -31,6 +31,7 @@ import { estimateMessagesTokens, getContextUtilization, hasContextBudget, pruneT
 import { detectDoomLoop, MUTATION_FAILURE_TAG } from './doom-loop';
 import { createAdapter, getModelLimits } from './replicate';
 import { classifyRetryableError, calculateRetryDelay, sleep } from './retry';
+import { deriveFallbackTitle, generateSessionTitle } from './title-generator';
 import { TokenTracker } from './token-tracker';
 import { createSendEvent, createServerTools, MUTATION_TOOL_NAMES } from './tools';
 import { isRecordObject, parseApiError } from './utilities';
@@ -210,28 +211,25 @@ export class AIAgentService {
 	) {}
 
 	/**
-	 * Run the AI agent chat loop with streaming response.
-	 * Returns a Response with AG-UI SSE events via toServerSentEventsResponse().
+	 * Run the AI agent chat loop, returning a teed async iterable of stream chunks.
 	 *
 	 * The stream is "teed" through a server-side StreamProcessor that mirrors the
 	 * client's UIMessage building. This enables the server to persist the session
 	 * incrementally during streaming and on all termination paths (including client
 	 * disconnect), producing UIMessage[] identical to what the client would build.
+	 *
+	 * Callers can consume the returned iterable however they wish:
+	 * - Convert to SSE via `toServerSentEventsResponse()`
+	 * - Broadcast chunks over WebSocket
+	 * - Both (the AgentRunner DO does this)
 	 */
-	async runAgentChat(
+	runAgentStream(
 		messages: ModelMessage[],
 		uiMessages: unknown[],
 		apiKey: string,
-		signal?: AbortSignal,
+		abortController: AbortController,
 		outputLogs?: string,
-	): Promise<Response> {
-		const abortController = new AbortController();
-
-		// Forward external signal to our controller
-		if (signal) {
-			signal.addEventListener('abort', () => abortController.abort(), { once: true });
-		}
-
+	): AsyncIterable<StreamChunk> {
 		// Server-side StreamProcessor mirrors the client's UIMessage building.
 		// Initialized with the conversation history the client sent (UIMessage[]),
 		// so the processor already contains all prior messages when the new
@@ -247,9 +245,7 @@ export class AIAgentService {
 
 		// Tee the stream: feed chunks to both the SSE response and the server-side
 		// StreamProcessor for session persistence.
-		const teedStream = this.createTeedStream(innerStream, processor);
-
-		return toServerSentEventsResponse(teedStream, { abortController });
+		return this.createTeedStream(innerStream, processor);
 	}
 
 	/**
@@ -399,28 +395,21 @@ export class AIAgentService {
 			const history = processor.getMessages();
 			if (history.length === 0) return;
 
-			// Derive label from the first user message
-			const firstUserMessage = history.find((message) => message.role === 'user');
-			let label = 'New chat';
-			if (firstUserMessage) {
-				const textParts = firstUserMessage.parts
-					.filter((part): part is { type: 'text'; content: string } => part.type === 'text')
-					.map((part) => part.content)
-					.join(' ')
-					.trim();
-				label = textParts.length > 50 ? textParts.slice(0, 50) + '...' : textParts || 'New chat';
-			}
-
-			// Read the existing session to preserve createdAt, merge messageSnapshots,
+			// Read the existing session to preserve createdAt, title, merge messageSnapshots,
 			// and detect revert races.
 			let createdAt = Date.now();
+			let existingTitle: string | undefined;
 			let existingMessageSnapshots: Record<string, string> = {};
 			const sessionPath = `${this.projectRoot}/.agent/sessions/${this.sessionId}.json`;
 			try {
 				const existing = await fs.readFile(sessionPath, 'utf8');
-				const parsed: { createdAt?: number; messageSnapshots?: Record<string, string>; revertedAt?: number } = JSON.parse(existing);
+				const parsed: { createdAt?: number; title?: string; messageSnapshots?: Record<string, string>; revertedAt?: number } =
+					JSON.parse(existing);
 				if (typeof parsed.createdAt === 'number') {
 					createdAt = parsed.createdAt;
+				}
+				if (typeof parsed.title === 'string' && parsed.title.length > 0) {
+					existingTitle = parsed.title;
 				}
 				if (parsed.messageSnapshots && typeof parsed.messageSnapshots === 'object') {
 					existingMessageSnapshots = parsed.messageSnapshots;
@@ -436,6 +425,19 @@ export class AIAgentService {
 				// New session or read error — use current timestamp
 			}
 
+			// Derive title: use existing AI-generated title if available, otherwise
+			// derive a fallback from the first user message. AI title generation
+			// runs asynchronously after the initial persist.
+			const firstUserMessage = history.find((message) => message.role === 'user');
+			const firstUserText = firstUserMessage
+				? firstUserMessage.parts
+						.filter((part): part is { type: 'text'; content: string } => part.type === 'text')
+						.map((part) => part.content)
+						.join(' ')
+						.trim()
+				: '';
+			const title = existingTitle ?? deriveFallbackTitle(firstUserText);
+
 			// Build messageSnapshots: merge with existing snapshots so multi-turn
 			// conversations retain all snapshot mappings, not just the current turn's.
 			const messageSnapshots: Record<string, string> = { ...existingMessageSnapshots };
@@ -445,7 +447,7 @@ export class AIAgentService {
 
 			const session = {
 				id: this.sessionId,
-				label,
+				title,
 				createdAt,
 				history,
 				messageSnapshots: Object.keys(messageSnapshots).length > 0 ? messageSnapshots : undefined,
@@ -456,6 +458,33 @@ export class AIAgentService {
 			const sessionsDirectory = `${agentDirectory}/sessions`;
 			await fs.mkdir(sessionsDirectory, { recursive: true });
 			await fs.writeFile(sessionPath, JSON.stringify(session));
+
+			// Generate an AI title asynchronously after first persist if no title exists yet.
+			// Requires both a user message and an assistant response.
+			if (!existingTitle && firstUserText.length > 0) {
+				const firstAssistantMessage = history.find((message) => message.role === 'assistant');
+				const firstAssistantText = firstAssistantMessage
+					? firstAssistantMessage.parts
+							.filter((part): part is { type: 'text'; content: string } => part.type === 'text')
+							.map((part) => part.content)
+							.join(' ')
+							.trim()
+					: '';
+				if (firstAssistantText.length > 0) {
+					// Fire-and-forget: generate title and update the session file.
+					// Failures are non-fatal — the fallback title is already persisted.
+					void generateSessionTitle(firstUserText, firstAssistantText).then(async (generatedTitle) => {
+						try {
+							const raw = await fs.readFile(sessionPath, 'utf8');
+							const parsed = JSON.parse(raw);
+							parsed.title = generatedTitle;
+							await fs.writeFile(sessionPath, JSON.stringify(parsed));
+						} catch {
+							// Non-fatal — title update failed, fallback title remains
+						}
+					});
+				}
+			}
 
 			// Persist pending changes to the project-level file.
 			// Read existing file, overlay this session's stream-accumulated changes,

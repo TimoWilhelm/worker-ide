@@ -2,6 +2,7 @@
  * Durable Object exports
  */
 
+export { AgentRunner } from './agent-runner';
 export { ExpiringFilesystem } from './expiring-filesystem';
 export { ProjectCoordinator } from './project-coordinator';
 

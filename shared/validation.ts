@@ -23,7 +23,7 @@ export const LIMITS = {
 	/** Maximum snapshot ID length */
 	SNAPSHOT_ID_MAX_LENGTH: 64,
 	/** Maximum label length */
-	LABEL_MAX_LENGTH: 200,
+	TITLE_MAX_LENGTH: 100,
 } as const;
 
 // =============================================================================
@@ -367,7 +367,7 @@ export const pendingChangesFileSchema = z.record(z.string(), pendingFileChangeSc
 
 export const saveSessionSchema = z.object({
 	id: sessionIdSchema,
-	label: z.string().min(1).max(LIMITS.LABEL_MAX_LENGTH),
+	title: z.string().min(1).max(LIMITS.TITLE_MAX_LENGTH),
 	history: z.array(z.unknown()),
 	createdAt: z.number(),
 	messageSnapshots: z.record(z.string(), z.string()).optional(),

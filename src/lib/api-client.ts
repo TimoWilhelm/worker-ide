@@ -10,7 +10,8 @@ import { hc } from 'hono/client';
 import { serializeMessage, parseServerMessage, type ClientMessage, type ServerMessage } from '@shared/ws-messages';
 
 import type { ApiRoutes } from '@server/routes';
-import type { AiSession, PendingFileChange } from '@shared/types';
+import type { AIModelId } from '@shared/constants';
+import type { ActiveAgentSession, AgentMode, AiSession, PendingFileChange } from '@shared/types';
 
 /**
  * Create a typed API client for a specific project.
@@ -153,13 +154,13 @@ export async function downloadProject(projectId: string): Promise<Blob> {
 /**
  * List all saved AI sessions for a project.
  */
-export async function listAiSessions(projectId: string): Promise<Array<{ id: string; label: string; createdAt: number }>> {
+export async function listAiSessions(projectId: string): Promise<Array<{ id: string; title: string; createdAt: number }>> {
 	const api = createApiClient(projectId);
 	const response = await api['ai-sessions'].$get({});
 	if (!response.ok) {
 		throw new Error('Failed to list AI sessions');
 	}
-	const data: { sessions: Array<{ id: string; label: string; createdAt: number }> } = await response.json();
+	const data: { sessions: Array<{ id: string; title: string; createdAt: number }> } = await response.json();
 	return data.sessions;
 }
 
@@ -293,6 +294,71 @@ export async function downloadDebugLog(projectId: string, logId: string, session
 	anchor.click();
 	anchor.remove();
 	URL.revokeObjectURL(url);
+}
+
+// =============================================================================
+// AI Agent Control
+// =============================================================================
+
+/**
+ * Parameters for starting an AI agent chat run.
+ */
+export interface StartAgentChatParameters {
+	messages: unknown[];
+	mode?: AgentMode;
+	sessionId?: string;
+	model?: AIModelId;
+	outputLogs?: string;
+}
+
+/**
+ * Start an AI agent chat run.
+ *
+ * The agent loop runs in the AgentRunner Durable Object independently
+ * of this HTTP request. Stream events are delivered via WebSocket
+ * through the ProjectCoordinator.
+ *
+ * @returns The session ID and initial status
+ */
+export async function startAgentChat(
+	projectId: string,
+	parameters: StartAgentChatParameters,
+): Promise<{ sessionId: string; status: string }> {
+	const response = await fetch(`/p/${projectId}/api/ai/chat`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify(parameters),
+	});
+	if (!response.ok) {
+		const data: { error?: string; code?: string } = await response.json().catch(() => ({}));
+		const error = new Error(data.error || 'Failed to start agent');
+		if (data.code) {
+			// Attach error code for upstream handling (e.g. RATE_LIMIT_EXCEEDED)
+			Object.defineProperty(error, 'code', { value: data.code, enumerable: true });
+		}
+		throw error;
+	}
+	return response.json();
+}
+
+/**
+ * Abort a currently running AI agent.
+ */
+export async function abortAgent(projectId: string): Promise<void> {
+	const response = await fetch(`/p/${projectId}/api/ai/abort`, { method: 'POST' });
+	if (!response.ok) {
+		throw new Error('Failed to abort agent');
+	}
+}
+
+/**
+ * Get the current agent session status.
+ */
+export async function getAgentStatus(projectId: string): Promise<ActiveAgentSession | undefined> {
+	const response = await fetch(`/p/${projectId}/api/ai/agent-status`);
+	if (!response.ok) return undefined;
+	const data: { session?: ActiveAgentSession } = await response.json();
+	return data.session;
 }
 
 // =============================================================================

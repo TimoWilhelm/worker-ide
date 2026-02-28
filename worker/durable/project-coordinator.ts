@@ -3,7 +3,9 @@ import { DurableObject } from 'cloudflare:workers';
 import { COLLAB_COLORS } from '@shared/constants';
 import { serializeMessage, parseClientMessage } from '@shared/ws-messages';
 
-import type { HmrUpdate, Participant } from '@shared/types';
+import { agentRunnerNamespace } from '../lib/durable-object-namespaces';
+
+import type { ActiveAgentSession, HmrUpdate, Participant } from '@shared/types';
 import type { ServerMessage } from '@shared/ws-messages';
 
 /**
@@ -253,6 +255,79 @@ export class ProjectCoordinator extends DurableObject {
 		return this.outputLogs;
 	}
 
+	/**
+	 * Get the active agent session state by querying the AgentRunner DO.
+	 * Used to include agent status in collab-state for late-joining clients.
+	 */
+	async getActiveAgentSession(): Promise<ActiveAgentSession | undefined> {
+		try {
+			const projectId = this.deriveProjectId();
+			if (!projectId) return undefined;
+			const agentRunnerId = agentRunnerNamespace.idFromName(`agent:${projectId}`);
+			const agentRunnerStub = agentRunnerNamespace.get(agentRunnerId);
+			return await agentRunnerStub.getAgentStatus();
+		} catch {
+			return undefined;
+		}
+	}
+
+	/**
+	 * Derive the project ID from the DO name.
+	 * The coordinator is keyed as `project:${projectId}`.
+	 */
+	private deriveProjectId(): string | undefined {
+		const name = this.ctx.id.name;
+		if (!name) return undefined;
+		return name.startsWith('project:') ? name.slice(8) : name;
+	}
+
+	/**
+	 * Forward an agent-abort request to the AgentRunner DO.
+	 */
+	private async forwardAgentAbort(): Promise<void> {
+		try {
+			const projectId = this.deriveProjectId();
+			if (!projectId) return;
+			const agentRunnerId = agentRunnerNamespace.idFromName(`agent:${projectId}`);
+			const agentRunnerStub = agentRunnerNamespace.get(agentRunnerId);
+			await agentRunnerStub.abortAgent();
+		} catch (error) {
+			console.error('Failed to forward agent abort:', error);
+		}
+	}
+
+	/**
+	 * Send the initial collab-state message to a newly joined client.
+	 * Includes the active agent session status if one is running.
+	 */
+	private async sendCollabState(ws: WebSocket, attachment: ParticipantAttachment): Promise<void> {
+		let activeAgentSession: ActiveAgentSession | undefined;
+		try {
+			activeAgentSession = await this.getActiveAgentSession();
+			// Only include sessions with 'running' status — completed/error/aborted
+			// are stale and not useful to late joiners.
+			if (activeAgentSession && activeAgentSession.status !== 'running') {
+				activeAgentSession = undefined;
+			}
+		} catch {
+			// Non-fatal — proceed without agent session info
+		}
+
+		try {
+			ws.send(
+				serializeMessage({
+					type: 'collab-state',
+					selfId: attachment.id,
+					selfColor: attachment.color,
+					participants: this.getAllParticipants(attachment.id),
+					...(activeAgentSession ? { activeAgentSession } : {}),
+				}),
+			);
+		} catch {
+			// Ignore send errors — client may have disconnected
+		}
+	}
+
 	private async broadcastHmrUpdate(update: HmrUpdate): Promise<void> {
 		let updateType: 'css-update' | 'js-update' | 'full-reload';
 		if (update.type === 'full-reload') {
@@ -331,14 +406,12 @@ export class ProjectCoordinator extends DurableObject {
 				if (!att) return;
 				att.joined = true;
 				this.setAttachment(ws, att);
-				ws.send(
-					serializeMessage({
-						type: 'collab-state',
-						selfId: att.id,
-						selfColor: att.color,
-						participants: this.getAllParticipants(att.id),
-					}),
-				);
+
+				// Send initial collab state with active agent session (if any).
+				// The agent status query is async, so we send the base state first
+				// and include agent status if we can fetch it quickly.
+				void this.sendCollabState(ws, att);
+
 				// Replay last server-error to late-joining clients
 				const lastError = this.lastServerError;
 				if (lastError) {
@@ -413,6 +486,12 @@ export class ProjectCoordinator extends DurableObject {
 
 			if (data.type === 'output-logs-sync') {
 				this.outputLogs = data.logs;
+				return;
+			}
+
+			if (data.type === 'agent-abort') {
+				// Forward the abort to the AgentRunner DO
+				void this.forwardAgentAbort();
 				return;
 			}
 		} catch {

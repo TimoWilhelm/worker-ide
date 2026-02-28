@@ -118,7 +118,8 @@ export interface ToolMetadataInfo {
  */
 export interface AiSession {
 	id: string;
-	label: string;
+	/** Short AI-generated title (<10 words), or fallback derived from first user message. */
+	title: string;
 	createdAt: number;
 	history: unknown[];
 	/** Maps message index (as string key) to snapshot ID for revert buttons */
@@ -135,8 +136,20 @@ export interface AiSession {
  */
 export interface AiSessionSummary {
 	id: string;
-	label: string;
+	title: string;
 	createdAt: number;
+}
+
+/**
+ * State of an active AI agent session, broadcast via WebSocket.
+ */
+export type AgentSessionStatus = 'running' | 'completed' | 'error' | 'aborted';
+
+export interface ActiveAgentSession {
+	sessionId: string;
+	status: AgentSessionStatus;
+	title?: string;
+	startedAt: number;
 }
 
 // =============================================================================

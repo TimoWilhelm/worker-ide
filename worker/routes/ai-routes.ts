@@ -1,26 +1,22 @@
 /**
  * AI Agent routes.
- * Handles AI chat and session management.
+ * Handles AI chat, abort, status, and debug log endpoints.
  *
- * The chat endpoint accepts the TanStack AI fetchServerSentEvents format:
- * POST body: { messages: UIMessage[], data?: {...}, mode?, sessionId?, model? }
- *
- * Messages are converted from UIMessage[] to ModelMessage[] using TanStack AI's
- * convertMessagesToModelMessages() utility.
+ * The chat endpoint delegates to the AgentRunner Durable Object which
+ * executes the agent loop independently of client connections. Stream
+ * events are broadcast to clients via WebSocket through the ProjectCoordinator.
  */
 
 import fs from 'node:fs/promises';
 
 import { zValidator } from '@hono/zod-validator';
-import { convertMessagesToModelMessages } from '@tanstack/ai';
 import { env } from 'cloudflare:workers';
 import { Hono } from 'hono';
 import { z } from 'zod';
 
-import { DEFAULT_AI_MODEL } from '@shared/constants';
 import { aiChatMessageSchema, debugLogIdSchema } from '@shared/validation';
 
-import { AIAgentService } from '../services/ai-agent';
+import { agentRunnerNamespace } from '../lib/durable-object-namespaces';
 
 import type { AppEnvironment } from '../types';
 
@@ -28,11 +24,9 @@ import type { AppEnvironment } from '../types';
  * AI routes - all routes are prefixed with /api
  */
 export const aiRoutes = new Hono<AppEnvironment>()
-	// POST /api/ai/chat - Start AI chat with streaming response
+	// POST /api/ai/chat - Start AI agent run (delegated to AgentRunner DO)
 	.post('/ai/chat', zValidator('json', aiChatMessageSchema), async (c) => {
-		const projectRoot = c.get('projectRoot');
 		const projectId = c.get('projectId');
-		const fsStub = c.get('fsStub');
 
 		const apiToken = env.REPLICATE_API_TOKEN;
 		if (!apiToken) {
@@ -60,27 +54,42 @@ export const aiRoutes = new Hono<AppEnvironment>()
 
 		const { messages, mode, sessionId, model, outputLogs } = c.req.valid('json');
 
-		// Convert UIMessage[] (from frontend) to ModelMessage[] (for the adapter)
-		// eslint-disable-next-line @typescript-eslint/consistent-type-assertions, @typescript-eslint/no-explicit-any -- UIMessage format from frontend is loosely typed at the wire boundary
-		const modelMessages = convertMessagesToModelMessages(messages as any);
+		// Delegate to the AgentRunner DO which runs the agent loop
+		// independently of this HTTP request lifecycle.
+		const agentRunnerId = agentRunnerNamespace.idFromName(`agent:${projectId}`);
+		const agentRunnerStub = agentRunnerNamespace.get(agentRunnerId);
 
-		// Use the validated model from the request, or fall back to the default
-		const selectedModel = model ?? DEFAULT_AI_MODEL;
+		const session = await agentRunnerStub.startAgent({
+			messages,
+			mode,
+			sessionId,
+			model,
+			outputLogs,
+		});
 
-		const agentService = new AIAgentService(projectRoot, projectId, fsStub, sessionId, mode, selectedModel);
-		// Pass both modelMessages (for the LLM) and the raw UIMessages (for session persistence).
-		// The raw messages array preserves the UIMessage format that the frontend expects when
-		// loading a session, so the server-side StreamProcessor can mirror the client exactly.
-		const response = await agentService.runAgentChat(modelMessages, messages, apiToken, c.req.raw.signal, outputLogs);
-
-		return response;
+		return c.json({ sessionId: session.sessionId, status: session.status });
 	})
 
-	// POST /api/ai/abort - Abort current AI chat (handled via request signal)
+	// POST /api/ai/abort - Abort current AI agent run
 	.post('/ai/abort', async (c) => {
-		// The abort is handled via the AbortController signal in the browser
-		// This endpoint exists for explicit abort requests if needed
+		const projectId = c.get('projectId');
+
+		const agentRunnerId = agentRunnerNamespace.idFromName(`agent:${projectId}`);
+		const agentRunnerStub = agentRunnerNamespace.get(agentRunnerId);
+		await agentRunnerStub.abortAgent();
+
 		return c.json({ success: true });
+	})
+
+	// GET /api/ai/agent-status - Get current agent status
+	.get('/ai/agent-status', async (c) => {
+		const projectId = c.get('projectId');
+
+		const agentRunnerId = agentRunnerNamespace.idFromName(`agent:${projectId}`);
+		const agentRunnerStub = agentRunnerNamespace.get(agentRunnerId);
+		const status = await agentRunnerStub.getAgentStatus();
+
+		return c.json({ session: status ?? undefined });
 	})
 
 	// GET /api/ai/latest-debug-log-id?sessionId=X - Get the latest debug log ID for a session

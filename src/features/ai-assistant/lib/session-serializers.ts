@@ -8,9 +8,10 @@
 import type { PendingFileChange, UIMessage } from '@shared/types';
 
 /**
- * Derive a session label from the first user message (truncated to 50 chars).
+ * Derive a fallback session title from the first user message (truncated to 50 chars).
+ * Used client-side only for reverts and saves before the server generates an AI title.
  */
-export function deriveLabel(history: UIMessage[]): string {
+export function deriveFallbackTitle(history: UIMessage[]): string {
 	const firstUserMessage = history.find((message) => message.role === 'user');
 	if (!firstUserMessage) return 'New chat';
 

@@ -196,6 +196,10 @@ export function useProjectSocket({ projectId, enabled = true }: UseProjectSocket
 							if ('selfColor' in message && typeof message.selfColor === 'string') {
 								setLocalParticipantColor(message.selfColor);
 							}
+							// Sync active agent session from collab state (for late-joining clients)
+							if ('activeAgentSession' in message && message.activeAgentSession) {
+								useStore.getState().setActiveAgentSession(message.activeAgentSession);
+							}
 							break;
 						}
 						case 'participant-joined': {
@@ -251,6 +255,44 @@ export function useProjectSocket({ projectId, enabled = true }: UseProjectSocket
 							if (!currentSessionId || message.sessionId === currentSessionId) {
 								useStore.getState().setDebugLogId(message.id);
 							}
+							break;
+						}
+						case 'agent-stream-event': {
+							// Forward AG-UI stream chunks to the AI panel's ConnectionAdapter
+							// via a CustomEvent. The adapter's async generator listens for these.
+							globalThis.dispatchEvent(
+								new CustomEvent('agent-stream-event', {
+									detail: {
+										sessionId: message.sessionId,
+										chunk: message.chunk,
+										index: message.index,
+									},
+								}),
+							);
+							break;
+						}
+						case 'agent-status-changed': {
+							const store = useStore.getState();
+							if (message.status === 'running') {
+								store.setActiveAgentSession({
+									sessionId: message.sessionId,
+									status: 'running',
+									title: message.title,
+									startedAt: Date.now(),
+								});
+							} else {
+								store.updateActiveAgentSessionStatus(message.status, message.title);
+							}
+							// Dispatch a CustomEvent so the ConnectionAdapter can detect completion
+							globalThis.dispatchEvent(
+								new CustomEvent('agent-status-changed', {
+									detail: {
+										sessionId: message.sessionId,
+										status: message.status,
+										title: message.title,
+									},
+								}),
+							);
 							break;
 						}
 						case 'pong':

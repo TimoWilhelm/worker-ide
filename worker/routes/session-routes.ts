@@ -25,14 +25,14 @@ export const sessionRoutes = new Hono<AppEnvironment>()
 		const sessionsDirectory = `${projectRoot}/.agent/sessions`;
 		try {
 			const entries = await fs.readdir(sessionsDirectory);
-			const sessions: Array<{ id: string; label: string; createdAt: number }> = [];
+			const sessions: Array<{ id: string; title: string; createdAt: number }> = [];
 
 			for (const name of entries) {
 				if (!name.endsWith('.json')) continue;
 				try {
 					const raw = await fs.readFile(`${sessionsDirectory}/${name}`, 'utf8');
-					const session: { id: string; label: string; createdAt: number } = JSON.parse(raw);
-					sessions.push({ id: session.id, label: session.label, createdAt: session.createdAt });
+					const session: { id: string; title: string; createdAt: number } = JSON.parse(raw);
+					sessions.push({ id: session.id, title: session.title, createdAt: session.createdAt });
 				} catch {
 					// Skip invalid session files
 				}

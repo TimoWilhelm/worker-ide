@@ -12,7 +12,7 @@
 
 import { z } from 'zod';
 
-import type { CursorPosition, Participant, SelectionRange, ServerError, ServerLogEntry } from './types';
+import type { ActiveAgentSession, CursorPosition, Participant, SelectionRange, ServerError, ServerLogEntry } from './types';
 
 // =============================================================================
 // Client -> Server Messages
@@ -85,6 +85,13 @@ export interface OutputLogsSyncMessage {
 	logs: string;
 }
 
+/**
+ * Client message to abort a running AI agent session.
+ */
+export interface AgentAbortMessage {
+	type: 'agent-abort';
+}
+
 export type ClientMessage =
 	| PingMessage
 	| CollabJoinMessage
@@ -92,7 +99,8 @@ export type ClientMessage =
 	| FileEditMessage
 	| HmrConnectMessage
 	| CdpResponseMessage
-	| OutputLogsSyncMessage;
+	| OutputLogsSyncMessage
+	| AgentAbortMessage;
 
 // =============================================================================
 // Server -> Client Messages
@@ -113,6 +121,8 @@ export interface CollabStateMessage {
 	selfId: string;
 	selfColor: string;
 	participants: Participant[];
+	/** Active agent session, if one is currently running. Included for late-joining clients. */
+	activeAgentSession?: ActiveAgentSession;
 }
 
 /**
@@ -220,6 +230,30 @@ export interface DebugLogReadyMessage {
 	sessionId: string;
 }
 
+/**
+ * Server message containing a single AG-UI stream chunk from the AI agent.
+ * Broadcast to all connected clients so collaborators can observe the agent.
+ */
+export interface AgentStreamEventMessage {
+	type: 'agent-stream-event';
+	sessionId: string;
+	/** AG-UI StreamChunk — serialized as unknown for wire format flexibility. */
+	chunk: unknown;
+	/** Monotonic event index within this agent run, for reconnection. */
+	index: number;
+}
+
+/**
+ * Server message indicating the AI agent's status has changed.
+ * Broadcast when the agent starts, completes, errors, or is aborted.
+ */
+export interface AgentStatusChangedMessage {
+	type: 'agent-status-changed';
+	sessionId: string;
+	status: 'running' | 'completed' | 'error' | 'aborted';
+	title?: string;
+}
+
 export type ServerMessage =
 	| PongMessage
 	| CollabStateMessage
@@ -232,7 +266,9 @@ export type ServerMessage =
 	| ServerLogsMessage
 	| GitStatusChangedMessage
 	| CdpRequestMessage
-	| DebugLogReadyMessage;
+	| DebugLogReadyMessage
+	| AgentStreamEventMessage
+	| AgentStatusChangedMessage;
 
 // =============================================================================
 // Zod Schemas for Validation
@@ -277,6 +313,7 @@ export const clientMessageSchema = z.discriminatedUnion('type', [
 		type: z.literal('output-logs-sync'),
 		logs: z.string(),
 	}),
+	z.object({ type: z.literal('agent-abort') }),
 ]);
 
 // Server message schemas (for client-side validation)
@@ -325,6 +362,14 @@ export const serverMessageSchema = z.discriminatedUnion('type', [
 		selfId: z.string(),
 		selfColor: z.string(),
 		participants: z.array(participantSchema),
+		activeAgentSession: z
+			.object({
+				sessionId: z.string(),
+				status: z.enum(['running', 'completed', 'error', 'aborted']),
+				title: z.string().optional(),
+				startedAt: z.number(),
+			})
+			.optional(),
 	}),
 	z.object({
 		type: z.literal('participant-joined'),
@@ -379,6 +424,18 @@ export const serverMessageSchema = z.discriminatedUnion('type', [
 		type: z.literal('debug-log-ready'),
 		id: z.string(),
 		sessionId: z.string(),
+	}),
+	z.object({
+		type: z.literal('agent-stream-event'),
+		sessionId: z.string(),
+		chunk: z.unknown(),
+		index: z.number(),
+	}),
+	z.object({
+		type: z.literal('agent-status-changed'),
+		sessionId: z.string(),
+		status: z.enum(['running', 'completed', 'error', 'aborted']),
+		title: z.string().optional(),
 	}),
 ]);
 

@@ -47,3 +47,9 @@ export const filesystemNamespace = lazyNamespace(() => exports.DurableObjectFile
  * Used for HMR broadcasts, WebSocket messages, and real-time collaboration.
  */
 export const coordinatorNamespace = lazyNamespace(() => exports.ProjectCoordinator);
+
+/**
+ * Agent Runner Durable Object namespace with automatic retry.
+ * Used for running AI agent loops independently of client connections.
+ */
+export const agentRunnerNamespace = lazyNamespace(() => exports.AgentRunner);

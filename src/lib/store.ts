@@ -10,7 +10,9 @@ import { devtools, persist } from 'zustand/middleware';
 import { DEFAULT_AI_MODEL, type AIModelId } from '@shared/constants';
 
 import type {
+	ActiveAgentSession,
 	AgentMode,
+	AgentSessionStatus,
 	FileInfo,
 	GitBranchInfo,
 	GitStatusEntry,
@@ -95,7 +97,7 @@ interface AIState {
 	/** Session ID for persistence */
 	sessionId: string | undefined;
 	/** List of saved sessions */
-	savedSessions: Array<{ id: string; label: string; createdAt: number }>;
+	savedSessions: Array<{ id: string; title: string; createdAt: number }>;
 	/** Maps message index to snapshot ID (for revert buttons on user messages) */
 	messageSnapshots: Map<number, string>;
 	/** Current agent operating mode */
@@ -106,6 +108,8 @@ interface AIState {
 	debugLogId: string | undefined;
 	/** Cumulative input tokens used in the current session (for context window indicator) */
 	contextTokensUsed: number;
+	/** Active agent session running in the AgentRunner DO (broadcast via WebSocket) */
+	activeAgentSession: ActiveAgentSession | undefined;
 }
 
 interface AIActions {
@@ -115,7 +119,7 @@ interface AIActions {
 	setStatusMessage: (message: string | undefined) => void;
 	setAiError: (error: AIError | undefined) => void;
 	setSessionId: (id: string | undefined) => void;
-	setSavedSessions: (sessions: Array<{ id: string; label: string; createdAt: number }>) => void;
+	setSavedSessions: (sessions: Array<{ id: string; title: string; createdAt: number }>) => void;
 	loadSession: (history: UIMessage[], sessionId: string, messageSnapshots?: Map<number, string>, contextTokensUsed?: number) => void;
 	setMessageSnapshot: (messageIndex: number, snapshotId: string) => void;
 	clearMessageSnapshot: (snapshotId: string) => void;
@@ -125,6 +129,8 @@ interface AIActions {
 	setSelectedModel: (model: AIModelId) => void;
 	setDebugLogId: (id: string | undefined) => void;
 	setContextTokensUsed: (tokens: number) => void;
+	setActiveAgentSession: (session: ActiveAgentSession | undefined) => void;
+	updateActiveAgentSessionStatus: (status: AgentSessionStatus, title?: string) => void;
 }
 
 // =============================================================================
@@ -431,6 +437,7 @@ export const useStore = create<StoreState>()(
 				selectedModel: DEFAULT_AI_MODEL,
 				debugLogId: undefined,
 				contextTokensUsed: 0,
+				activeAgentSession: undefined,
 
 				addMessage: (message) =>
 					set((state) => ({
@@ -508,6 +515,20 @@ export const useStore = create<StoreState>()(
 						return {
 							history: state.history.slice(0, index),
 							messageSnapshots: newSnapshots,
+						};
+					}),
+
+				setActiveAgentSession: (session) => set({ activeAgentSession: session }),
+
+				updateActiveAgentSessionStatus: (status, title) =>
+					set((state) => {
+						if (!state.activeAgentSession) return {};
+						return {
+							activeAgentSession: {
+								...state.activeAgentSession,
+								status,
+								...(title === undefined ? {} : { title }),
+							},
 						};
 					}),
 

@@ -19,7 +19,7 @@ import {
 } from '@/lib/api-client';
 import { useStore } from '@/lib/store';
 
-import { deriveLabel, pendingChangesRecordToMap, snapshotsMapToRecord, snapshotsRecordToMap } from '../lib/session-serializers';
+import { deriveFallbackTitle, pendingChangesRecordToMap, snapshotsMapToRecord, snapshotsRecordToMap } from '../lib/session-serializers';
 
 // =============================================================================
 // Helpers
@@ -204,7 +204,7 @@ export function useAiSessions({ projectId }: { projectId: string }) {
 
 				await saveAiSession(projectId, {
 					id: currentSessionId,
-					label: deriveLabel(history),
+					title: deriveFallbackTitle(history),
 					createdAt: createdAtReference.current ?? Date.now(),
 					history,
 					messageSnapshots: snapshotsMapToRecord(messageSnapshots),

@@ -9,7 +9,6 @@
  * snapshot revert buttons on user messages, CUSTOM event handling.
  */
 
-import { fetchServerSentEvents } from '@tanstack/ai-client';
 import { useChat } from '@tanstack/ai-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { ArrowDown, Bot, Download, History, Loader2, Map as MapIcon, Plus, Send, Square } from 'lucide-react';
@@ -23,7 +22,7 @@ import { Pill } from '@/components/ui/pill';
 import { setActiveSessionId, useAiSessions } from '@/features/ai-assistant/hooks/use-ai-sessions';
 import { getLogSnapshot } from '@/features/output';
 import { useSnapshots } from '@/features/snapshots';
-import { createApiClient, downloadDebugLog, saveProjectPendingChanges } from '@/lib/api-client';
+import { abortAgent, createApiClient, downloadDebugLog, saveProjectPendingChanges } from '@/lib/api-client';
 import { useStore } from '@/lib/store';
 import { cn, formatRelativeTime } from '@/lib/utils';
 
@@ -38,6 +37,7 @@ import { useFileMention } from '../../hooks/use-file-mention';
 import { parseTextToSegments, segmentsHaveContent, segmentsToPlainText, type InputSegment } from '../../lib/input-segments';
 import { extractMessageText } from '../../lib/retry-helpers';
 import { pendingChangesMapToRecord } from '../../lib/session-serializers';
+import { createWebSocketConnectionAdapter } from '../../lib/websocket-connection-adapter';
 import { AgentModeSelector } from '../agent-mode-selector';
 import { ChangedFilesSummary } from '../changed-files-summary';
 import { FileMentionDropdown } from '../file-mention-dropdown';
@@ -137,26 +137,23 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	// TanStack AI useChat setup
 	// =========================================================================
 
-	const chatUrl = useMemo(() => `/p/${projectId}/api/ai/chat`, [projectId]);
-
-	// Connection adapter — fetchServerSentEvents POSTs { messages, data, ...body }
-	// We pass mode, sessionId, model in the body config (read from refs for freshness).
-	// The config factory is wrapped in useCallback so refs are read at request time, not render time.
-	const connectionConfigFactory = useCallback(
-		() => ({
-			body: {
-				mode: agentModeReference.current,
-				sessionId: sessionIdReference.current,
-				model: selectedModelReference.current,
-				outputLogs: getLogSnapshot(),
-			},
-		}),
-		[],
+	// WebSocket-based connection adapter. The agent runs in the AgentRunner DO;
+	// stream events arrive via the project WebSocket, not SSE.
+	// The adapter reads refs at connect() time (inside the async generator),
+	// never during render — safe to capture in getter closures.
+	/* eslint-disable react-hooks/refs -- getter closures capture refs but only read `.current` at connect() time, never during render */
+	const connection = useMemo(
+		() =>
+			createWebSocketConnectionAdapter({
+				projectId,
+				getMode: () => agentModeReference.current,
+				getSessionId: () => sessionIdReference.current,
+				getModel: () => selectedModelReference.current,
+				getOutputLogs: () => getLogSnapshot(),
+			}),
+		[projectId],
 	);
-	// The config factory reads refs at request time (not render time), but ESLint's
-	// react-hooks/refs rule cannot distinguish deferred execution from render-time access.
-	// eslint-disable-next-line react-hooks/refs -- factory is invoked at fetch time, not render
-	const connection = useMemo(() => fetchServerSentEvents(chatUrl, connectionConfigFactory), [chatUrl, connectionConfigFactory]);
+	/* eslint-enable react-hooks/refs */
 
 	const {
 		messages: chatMessages,
@@ -576,14 +573,17 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		[handleSend, handleFileMentionKeyDown],
 	);
 
-	// Cancel current request
-	// Session is persisted server-side when the stream is aborted (via the
-	// generator's finally block), so no client-side save is needed here.
+	// Cancel current request.
+	// Tells the AgentRunner DO to abort the agent loop, and stops
+	// the local useChat stream consumer. Session is persisted server-side
+	// when the agent is aborted, so no client-side save is needed here.
 	const handleCancel = useCallback(() => {
 		stopChat();
 		setProcessing(false);
 		setStatusMessage(undefined);
-	}, [stopChat, setProcessing, setStatusMessage]);
+		// Fire-and-forget abort to the AgentRunner DO
+		void abortAgent(projectId);
+	}, [stopChat, setProcessing, setStatusMessage, projectId]);
 
 	// Retry last message.
 	// We trim messages synchronously via setChatMessages, then defer the re-send
@@ -832,7 +832,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 								savedSessions.map((session) => (
 									<DropdownMenuItem key={session.id} onSelect={() => handleLoadSession(session.id)}>
 										<div className="flex w-full items-center justify-between">
-											<span className="truncate text-sm">{session.label}</span>
+											<span className="truncate text-sm">{session.title}</span>
 											<span className="ml-2 shrink-0 text-2xs text-text-secondary">{formatRelativeTime(session.createdAt)}</span>
 										</div>
 									</DropdownMenuItem>
