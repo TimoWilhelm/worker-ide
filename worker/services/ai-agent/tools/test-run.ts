@@ -34,9 +34,13 @@ const DEFAULT_GLOB = 'test/**/*.test.{js,ts,jsx,tsx}';
 
 export const DESCRIPTION = `Run JavaScript/TypeScript tests in a sandboxed Worker isolate. Tests use a built-in test harness with describe/it/expect — no extra dependencies are needed.
 
+Granularity:
+- Run ALL tests: omit both parameters (defaults to "test/**/*.test.{js,ts,jsx,tsx}").
+- Run a SPECIFIC FILE: set pattern to a file path (e.g., pattern: "test/math.test.ts").
+- Run a GLOB of files: set pattern to a glob (e.g., pattern: "test/**/*.spec.ts").
+- Run a SINGLE TEST: set testName to the full test name (e.g., testName: "add > adds two positive numbers"). Combine with pattern to target the file containing the test for faster execution.
+
 Usage:
-- Provide a glob pattern or a specific file path to select which tests to run.
-- If no pattern is provided, defaults to "test/**/*.test.{js,ts,jsx,tsx}".
 - Tests can import project source files (e.g., import { add } from '../src/math.ts').
 - The test harness provides describe(), it(), and expect() globally — no imports needed in test files.
 - expect(value) supports: .toBe(), .toEqual(), .toBeTruthy(), .toBeFalsy(), .toBeUndefined(), .toBeNull(), .toContain(), .toThrow(), .toHaveLength(), .toBeGreaterThan(), .toBeLessThan(), .toMatch(), and .not for negation.
@@ -78,6 +82,11 @@ export const definition: ToolDefinition = {
 				type: 'string',
 				description:
 					'Glob pattern or file path for test files. Defaults to "test/**/*.test.{js,ts,jsx,tsx}". Examples: "test/math.test.ts", "test/**/*.test.ts", "src/**/*.spec.ts".',
+			},
+			testName: {
+				type: 'string',
+				description:
+					'Run a single test by its full name (e.g., "add > adds two positive numbers"). When provided, only the matching test is executed. The name must match exactly as shown in test results, using " > " to separate suite and test names. Combine with pattern to target the specific file for faster execution.',
 			},
 		},
 	},
@@ -231,7 +240,7 @@ globalThis.expect = function expect(actual) {
 };
 
 // ── Runner ────────────────────────────────────────────────────────────────────
-globalThis.__runTests = async function __runTests() {
+globalThis.__runTests = async function __runTests(testNameFilter) {
   const results = { suites: [], passed: 0, failed: 0, total: 0, duration: 0 };
   const startTime = Date.now();
 
@@ -239,6 +248,12 @@ globalThis.__runTests = async function __runTests() {
     const suiteResult = { name: suite.name, tests: [], passed: 0, failed: 0 };
 
     for (const test of suite.tests) {
+      // When a filter is provided, skip tests that don't match
+      if (testNameFilter) {
+        const fullName = suite.name === '(top-level)' ? test.name : suite.name + ' > ' + test.name;
+        if (fullName !== testNameFilter) continue;
+      }
+
       const testStart = Date.now();
       let status = 'passed';
       let error = undefined;
@@ -267,7 +282,9 @@ globalThis.__runTests = async function __runTests() {
       results.total++;
     }
 
-    results.suites.push(suiteResult);
+    if (suiteResult.tests.length > 0) {
+      results.suites.push(suiteResult);
+    }
   }
 
   results.duration = Date.now() - startTime;
@@ -280,14 +297,17 @@ globalThis.__runTests = async function __runTests() {
  * Worker entry point wrapping: imports the test bundle, runs tests, returns JSON.
  * The harness + test code is prepended as a separate module that the entry point imports.
  */
-function buildTestWorkerEntry(testModuleName: string): string {
+function buildTestWorkerEntry(harnessModuleName: string, testFilePath: string): string {
 	return [
-		`import './${testModuleName}';`,
+		`import './${harnessModuleName}';`,
+		`import './${testFilePath}';`,
 		'',
 		'export default {',
-		'  async fetch() {',
+		'  async fetch(request) {',
 		'    try {',
-		'      const results = await globalThis.__runTests();',
+		'      const url = new URL(request.url);',
+		'      const testNameFilter = url.searchParams.get("testName") || undefined;',
+		'      const results = await globalThis.__runTests(testNameFilter);',
 		'      return Response.json(results);',
 		'    } catch (error) {',
 		'      return Response.json({',
@@ -332,18 +352,36 @@ interface TestRunResults {
 }
 
 // =============================================================================
-// Execute
+// Structured Test Runner (shared between tool and API route)
 // =============================================================================
 
-export async function execute(
-	input: Record<string, string>,
-	sendEvent: SendEventFunction,
-	context: ToolExecutorContext,
-): Promise<ToolResult> {
-	const { projectRoot } = context;
-	const pattern = input.pattern || DEFAULT_GLOB;
+export interface StructuredTestRunResult {
+	title: string;
+	output: string;
+	metadata: {
+		passed: number;
+		failed: number;
+		total: number;
+		files: number;
+		bundleErrors: number;
+	};
+	fileResults: Array<{ file: string; results: TestRunResults }>;
+	bundleErrors: Array<{ file: string; error: string }>;
+}
 
-	sendEvent('status', { message: `Finding test files matching "${pattern}"...` });
+/**
+ * Core test runner logic. Discovers test files, bundles and executes each one,
+ * and returns structured results. Used by both the AI tool and the API route.
+ */
+export async function runTests(
+	projectRoot: string,
+	pattern: string = DEFAULT_GLOB,
+	onStatus?: (message: string) => void,
+	testName?: string,
+): Promise<StructuredTestRunResult> {
+	const report = (message: string) => onStatus?.(message);
+
+	report(`Finding test files matching "${pattern}"...`);
 
 	// Discover test files
 	const testFiles = await discoverTestFiles(projectRoot, pattern);
@@ -362,7 +400,7 @@ export async function execute(
 		);
 	}
 
-	sendEvent('status', { message: `Running ${testFiles.length} test file${testFiles.length === 1 ? '' : 's'}...` });
+	report(`Running ${testFiles.length} test file${testFiles.length === 1 ? '' : 's'}...`);
 
 	// Collect all project source files for bundling
 	const allFiles = await collectProjectFiles(projectRoot);
@@ -381,7 +419,7 @@ export async function execute(
 	const knownDependencies = await loadKnownDependencies(projectRoot);
 
 	// Run each test file
-	const allResults: Array<{ file: string; results: TestRunResults }> = [];
+	const fileResults: Array<{ file: string; results: TestRunResults }> = [];
 	let totalPassed = 0;
 	let totalFailed = 0;
 	let totalCount = 0;
@@ -389,11 +427,11 @@ export async function execute(
 
 	for (const testFile of testFiles) {
 		const relativePath = testFile.startsWith('/') ? testFile.slice(1) : testFile;
-		sendEvent('status', { message: `Running ${relativePath}...` });
+		report(`Running ${relativePath}...`);
 
 		try {
-			const results = await runSingleTestFile(relativePath, allFiles, tsconfigRaw, knownDependencies);
-			allResults.push({ file: relativePath, results });
+			const results = await runSingleTestFile(relativePath, allFiles, tsconfigRaw, knownDependencies, testName);
+			fileResults.push({ file: relativePath, results });
 			totalPassed += results.passed;
 			totalFailed += results.failed;
 			totalCount += results.total;
@@ -406,12 +444,13 @@ export async function execute(
 	}
 
 	// Format output
-	const output = formatTestOutput(allResults, bundleErrors, totalPassed, totalFailed, totalCount);
+	const output = formatTestOutput(fileResults, bundleErrors, totalPassed, totalFailed, totalCount);
 
 	const allPassed = totalFailed === 0 && bundleErrors.length === 0;
 
 	return {
 		title: allPassed ? `${totalPassed} passed` : `${totalFailed} failed, ${totalPassed} passed`,
+		output,
 		metadata: {
 			passed: totalPassed,
 			failed: totalFailed,
@@ -419,7 +458,33 @@ export async function execute(
 			files: testFiles.length,
 			bundleErrors: bundleErrors.length,
 		},
-		output,
+		fileResults,
+		bundleErrors,
+	};
+}
+
+// =============================================================================
+// Execute (AI tool wrapper)
+// =============================================================================
+
+export async function execute(
+	input: Record<string, string>,
+	sendEvent: SendEventFunction,
+	context: ToolExecutorContext,
+): Promise<ToolResult> {
+	const result = await runTests(
+		context.projectRoot,
+		input.pattern,
+		(message) => {
+			sendEvent('status', { message });
+		},
+		input.testName,
+	);
+
+	return {
+		title: result.title,
+		metadata: result.metadata,
+		output: result.output,
 	};
 }
 
@@ -507,25 +572,24 @@ async function runSingleTestFile(
 	allFiles: Record<string, string>,
 	tsconfigRaw: string | undefined,
 	knownDependencies: Map<string, string>,
+	testName?: string,
 ): Promise<TestRunResults> {
 	// We use bundleWithCdn to bundle the test file and resolve imports (including CDN deps).
 	// Imported lazily to avoid circular dependency at module load time.
 	const { bundleWithCdn } = await import('../../bundler-service');
 
-	// Create a virtual entry point that includes the test harness + imports the test file
-	const testModuleName = `__test_module__.js`;
+	// The entry point imports the harness module first (which sets up globalThis.describe
+	// etc.), then imports the test file. ESM guarantees sequential evaluation of imports,
+	// so the harness globals are available when the test file's top-level code runs.
+	const harnessModuleName = '__test_harness__.js';
 	const entryName = '__test_entry__.js';
 
-	// The test module combines the harness source with the user's test code.
-	// We import the test file from the virtual FS so that esbuild resolves its imports.
-	const testModuleSource = TEST_HARNESS_SOURCE + `\n// ── User Test ──\nimport './${testFilePath}';\n`;
-
-	const entrySource = buildTestWorkerEntry(testModuleName);
+	const entrySource = buildTestWorkerEntry(harnessModuleName, testFilePath);
 
 	// Add virtual entry files to the file set
 	const bundleFiles: Record<string, string> = {
 		...allFiles,
-		[testModuleName]: testModuleSource,
+		[harnessModuleName]: TEST_HARNESS_SOURCE,
 		[entryName]: entrySource,
 	};
 
@@ -556,7 +620,8 @@ async function runSingleTestFile(
 	const timeout = setTimeout(() => controller.abort(), TEST_TIMEOUT_MS);
 
 	try {
-		const response = await entrypoint.fetch('http://test-runner/', { signal: controller.signal });
+		const fetchUrl = testName ? `http://test-runner/?testName=${encodeURIComponent(testName)}` : 'http://test-runner/';
+		const response = await entrypoint.fetch(fetchUrl, { signal: controller.signal });
 		const results: TestRunResults = await response.json();
 		return results;
 	} catch (error) {

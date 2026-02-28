@@ -274,13 +274,14 @@ describe('test_run', () => {
 
 			// Should include project source files
 			expect(callArguments.files).toHaveProperty('src/math.ts');
-			// Should include test module that contains the harness
-			expect(callArguments.files).toHaveProperty('__test_module__.js');
-			// The test module should contain harness code
-			expect(callArguments.files['__test_module__.js']).toContain('globalThis.describe');
-			expect(callArguments.files['__test_module__.js']).toContain('globalThis.expect');
-			// Should include the entry point
+			// Should include harness module that sets up globals
+			expect(callArguments.files).toHaveProperty('__test_harness__.js');
+			// The harness module should contain harness code
+			expect(callArguments.files['__test_harness__.js']).toContain('globalThis.describe');
+			expect(callArguments.files['__test_harness__.js']).toContain('globalThis.expect');
+			// Should include the entry point that imports harness then test file
 			expect(callArguments.files).toHaveProperty('__test_entry__.js');
+			expect(callArguments.files['__test_entry__.js']).toContain('__test_harness__');
 			expect(callArguments.entryPoint).toBe('__test_entry__.js');
 		});
 
@@ -432,6 +433,103 @@ describe('test_run', () => {
 
 			// Default passing result has duration: 1, should not show (< 100ms)
 			expect(result.output).not.toContain('1ms');
+		});
+	});
+
+	// ── testName filtering ──────────────────────────────────────────────
+
+	describe('testName filtering', () => {
+		it('passes testName as query parameter to the worker', async () => {
+			seedTestProject();
+
+			let capturedUrl = '';
+			mocks.loader.get.mockReturnValue({
+				getEntrypoint: () => ({
+					fetch: vi.fn().mockImplementation((url: string) => {
+						capturedUrl = url;
+						return Promise.resolve(Response.json(passingResults()));
+					}),
+				}),
+			});
+
+			await execute({ testName: 'math > adds' }, createMockSendEvent(), context());
+
+			expect(capturedUrl).toContain('testName=');
+			expect(capturedUrl).toContain(encodeURIComponent('math > adds'));
+		});
+
+		it('returns only the filtered test in results', async () => {
+			seedTestProject();
+
+			// Simulate harness returning only the matched test
+			const filteredResults = {
+				suites: [
+					{
+						name: 'math',
+						tests: [{ name: 'adds', status: 'passed', duration: 1 }],
+						passed: 1,
+						failed: 0,
+					},
+				],
+				passed: 1,
+				failed: 0,
+				total: 1,
+				duration: 2,
+			};
+			mocks.loader.get.mockReturnValue({
+				getEntrypoint: () => ({
+					fetch: vi.fn().mockResolvedValue(Response.json(filteredResults)),
+				}),
+			});
+
+			const result = await execute({ testName: 'math > adds' }, createMockSendEvent(), context());
+
+			expect(result.metadata).toEqual(
+				expect.objectContaining({
+					passed: 1,
+					failed: 0,
+					total: 1,
+				}),
+			);
+		});
+
+		it('returns empty suites when testName does not match any test', async () => {
+			seedTestProject();
+
+			// Harness skips all tests → empty suites
+			const emptyResults = {
+				suites: [],
+				passed: 0,
+				failed: 0,
+				total: 0,
+				duration: 1,
+			};
+			mocks.loader.get.mockReturnValue({
+				getEntrypoint: () => ({
+					fetch: vi.fn().mockResolvedValue(Response.json(emptyResults)),
+				}),
+			});
+
+			const result = await execute({ testName: 'nonexistent > test' }, createMockSendEvent(), context());
+
+			expect(result.metadata).toEqual(
+				expect.objectContaining({
+					passed: 0,
+					failed: 0,
+					total: 0,
+				}),
+			);
+		});
+
+		it('combines testName with pattern to target a specific file', async () => {
+			memoryFs.seedFile(`${PROJECT_ROOT}/src/math.ts`, 'export const add = (a, b) => a + b;');
+			memoryFs.seedFile(`${PROJECT_ROOT}/test/math.test.ts`, 'it("adds", () => {});');
+			memoryFs.seedFile(`${PROJECT_ROOT}/test/string.test.ts`, 'it("trims", () => {});');
+
+			await execute({ pattern: 'test/math.test.ts', testName: 'adds' }, createMockSendEvent(), context());
+
+			// Should only bundle one file
+			expect(mocks.bundleWithCdn).toHaveBeenCalledOnce();
 		});
 	});
 });

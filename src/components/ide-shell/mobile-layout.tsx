@@ -12,6 +12,7 @@ import { PanelSkeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
 import { DependencyPanel, FileTree, type useFileTree } from '@/features/file-tree';
 import { GitPanel } from '@/features/git';
+import { TestsPanel } from '@/features/tests';
 import { useStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 
@@ -180,6 +181,9 @@ export function MobileLayout({
 
 				{/* Git view */}
 				{activeMobilePanel === 'git' && <GitPanel projectId={projectId} className="h-full" />}
+
+				{/* Tests view */}
+				{activeMobilePanel === 'tests' && <TestsPanel projectId={projectId} className="h-full" />}
 
 				{/* Agent view */}
 				{activeMobilePanel === 'agent' && (

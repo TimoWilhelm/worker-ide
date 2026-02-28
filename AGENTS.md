@@ -30,6 +30,54 @@ This document is a collection of guidelines for agents working on the project.
 - Install all dependencies as devDependencies (`bun add -d`) since everything is bundled with Vite.
 - Use `bun` as the package manager (not npm/yarn/pnpm).
 
+## API Communication (Hono RPC)
+
+All frontend-to-backend API calls **must** use the Hono RPC client (`createApiClient(projectId)` from `@/lib/api-client`). This gives fully type-safe requests and responses inferred from route definitions.
+
+**Rules:**
+
+- **NEVER use raw `fetch()`** to call backend API routes. Always use the typed RPC client (e.g., `api.git.status.$get({})`).
+- **NEVER use `response.text()` + `JSON.parse()`** to parse responses. The RPC client's `response.json()` returns the correctly typed result.
+- **In the `!response.ok` branch**, throw a plain `Error` with a fallback message — do NOT try to parse the error body. The error body is not part of the typed schema.
+- **In the success branch**, call `response.json()` directly — the return type is clean (no union with error types).
+
+**Example (correct):**
+
+```ts
+const api = createApiClient(projectId);
+const response = await api.git.status.$get({});
+if (!response.ok) {
+  throw new Error('Failed to get git status');
+}
+const data = await response.json(); // ← fully typed, no assertion needed
+```
+
+**Why this matters:** Hono infers response types from all `return c.json(...)` calls in a route. If a route returns both `c.json(successData, 200)` and `c.json({ error: '...' }, 500)`, the inferred type becomes an unresolvable union. We solved this by using `throw httpError()` for all errors (see Error Handling below), which keeps error types OUT of the route schema. Using raw `fetch()` or `response.text()` workarounds bypasses this type safety and must not be reintroduced.
+
+## Error Handling in Route Handlers
+
+All route handler errors **must** use `throw httpError(status, message)` from `worker/lib/http-error.ts` instead of `return c.json({ error: '...' }, status)`.
+
+**Rules:**
+
+- **NEVER use `return c.json({ error: '...' }, statusCode)`** in route handlers under `worker/routes/`. This pollutes Hono's typed response schema with error union types.
+- **Always use `throw httpError(statusCode, message)`** — this throws an `HTTPException` that Hono handles outside the typed route schema, keeping return types clean for the RPC client.
+- **Exception:** Root-level routes in `worker/index.ts` (project creation, template loading) are NOT consumed via the RPC client, so they may use `c.json({ error }, status)` directly.
+
+**Example (correct):**
+
+```ts
+import { httpError } from '../lib/http-error';
+
+const route = new Hono<AppEnvironment>().post('/example', async (c) => {
+  const data = await someOperation();
+  if (!data) {
+    throw httpError(404, 'Resource not found');
+  }
+  return c.json({ result: data });
+});
+```
+
 ## React Best Practices
 
 - If you can calculate something during render, you don't need an Effect.
@@ -52,9 +100,9 @@ This document is a collection of guidelines for agents working on the project.
 ## Directories
 
 - `src/` - React app sources.
-  - `components/` - Reusable UI components (e.g., `error-boundary`, `ui/button`).
-  - `features/` - Feature-based modules (e.g., `editor/`, `file-tree/`, `preview/`, `terminal/`, `ai-assistant/`, `snapshots/`).
-  - `lib/` - Shared utilities and libraries (`store.ts`, `api-client.ts`, `utils.ts`).
+  - `components/` - Reusable UI components.
+  - `features/` - Feature-based modules, one folder per IDE feature.
+  - `lib/` - Shared utilities and libraries.
   - `hooks/` - Shared global hooks.
 - `worker/` - Cloudflare Worker (API routes, Durable Objects, services).
 - `shared/` - Shared code between frontend and worker (types, constants, validation, errors).
@@ -67,10 +115,10 @@ This document is a collection of guidelines for agents working on the project.
 
 - React 19 with TypeScript.
 - Tailwind CSS v4 for styling.
-- Zustand for client state management (6 slices + persist middleware).
+- Zustand for client state management.
 - CodeMirror 6 for the code editor.
 - Hono RPC client for type-safe API calls.
-- TanStack AI (`@tanstack/ai-react`, `@tanstack/ai-client`) for the AI chat UI.
+- TanStack AI for the AI chat UI.
 
 ### Backend
 
@@ -78,14 +126,14 @@ This document is a collection of guidelines for agents working on the project.
 - Cloudflare Durable Objects for filesystem and project coordination.
 - WebSockets (hibernation API) for real-time communication.
 - Durable Objects SQLite for storage.
-- TanStack AI (`@tanstack/ai`) for the AI agent loop and AG-UI streaming protocol.
+- TanStack AI for the AI agent loop and AG-UI streaming protocol.
 
 ### Build and Tooling
 
 - Package manager: bun (use bun commands, not npm/yarn/pnpm).
 - Build tool: Vite with @cloudflare/vite-plugin.
-- Dev server: `bun run dev` (runs at localhost:3000).
-- Turborepo for task caching (`turbo.json`).
+- Dev server: `bun run dev`.
+- Turborepo for task caching.
 - Install all dependencies as dev dependencies (`bun add -d`) since they are bundled with Vite.
 
 ## Testing & Quality
@@ -106,10 +154,8 @@ This document is a collection of guidelines for agents working on the project.
 Worker code runs in Cloudflare's workerd runtime, which requires special test configuration.
 
 - Worker tests are located in `worker/**/*.test.ts` and `shared/**/*.test.ts`.
-- Configuration is in `test/unit/vitest.config.mts` using `defineWorkersConfig` from `@cloudflare/vitest-pool-workers`.
+- Configuration uses `@cloudflare/vitest-pool-workers` — see `vitest.config.ts` for details.
 - Tests run in a simulated Workers environment with isolated storage disabled.
-- The main worker entrypoint must be specified in `poolOptions.workers.main`.
-- Use absolute paths (`path.resolve()`) for all config paths to avoid resolution issues.
 
 ## Accessibility Testing
 

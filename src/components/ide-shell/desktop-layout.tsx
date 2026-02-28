@@ -12,6 +12,7 @@ import { PanelSkeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
 import { DependencyPanel, FileTree, type useFileTree } from '@/features/file-tree';
 import { GitPanel } from '@/features/git';
+import { TestsPanel } from '@/features/tests';
 import { useStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 
@@ -186,6 +187,8 @@ export function DesktopLayout({
 									</PanelGroup>
 									{!dependenciesPanelVisible && <DependencyPanel projectId={projectId} collapsed onToggle={toggleDependenciesPanel} />}
 								</>
+							) : activeSidebarView === 'tests' ? (
+								<TestsPanel projectId={projectId} className="flex-1" />
 							) : (
 								<GitPanel projectId={projectId} className="flex-1" />
 							)}

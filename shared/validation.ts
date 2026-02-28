@@ -281,6 +281,7 @@ export const cdpEvalInputSchema = z.object({
  */
 export const testRunInputSchema = z.object({
 	pattern: z.string().optional(),
+	testName: z.string().optional(),
 });
 
 /**
@@ -496,6 +497,20 @@ export const projectMetaSchema = z.object({
 });
 
 export type ProjectMetaInput = z.infer<typeof projectMetaSchema>;
+
+// =============================================================================
+// Test Run Schemas
+// =============================================================================
+
+/**
+ * Schema for test run request body
+ */
+export const testRunRequestSchema = z.object({
+	pattern: z.string().max(500, 'Pattern must be at most 500 characters').optional(),
+	testName: z.string().max(500, 'Test name must be at most 500 characters').optional(),
+});
+
+export type TestRunRequestInput = z.infer<typeof testRunRequestSchema>;
 
 // =============================================================================
 // Transform Schemas

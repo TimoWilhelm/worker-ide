@@ -17,6 +17,7 @@ import { z } from 'zod';
 import { aiChatMessageSchema, debugLogIdSchema } from '@shared/validation';
 
 import { agentRunnerNamespace } from '../lib/durable-object-namespaces';
+import { httpError } from '../lib/http-error';
 
 import type { AppEnvironment } from '../types';
 
@@ -30,25 +31,14 @@ export const aiRoutes = new Hono<AppEnvironment>()
 
 		const apiToken = env.REPLICATE_API_TOKEN;
 		if (!apiToken) {
-			return c.json(
-				{
-					error: 'REPLICATE_API_TOKEN not configured. Please set it using: wrangler secret put REPLICATE_API_TOKEN',
-				},
-				500,
-			);
+			throw httpError(500, 'REPLICATE_API_TOKEN not configured. Please set it using: wrangler secret put REPLICATE_API_TOKEN');
 		}
 
 		// Rate limit check
 		if (env.AI_RATE_LIMITER) {
 			const { success } = await env.AI_RATE_LIMITER.limit({ key: projectId });
 			if (!success) {
-				return c.json(
-					{
-						error: 'Rate limit exceeded. Please wait before making more AI requests.',
-						code: 'RATE_LIMIT_EXCEEDED',
-					},
-					429,
-				);
+				throw httpError(429, 'Rate limit exceeded. Please wait before making more AI requests.');
 			}
 		}
 
@@ -135,10 +125,10 @@ export const aiRoutes = new Hono<AppEnvironment>()
 			content = await fs.readFile(logPath, 'utf8');
 		} catch (error) {
 			if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
-				return c.json({ error: 'Debug log not found' }, 404);
+				throw httpError(404, 'Debug log not found');
 			}
 			console.error('Failed to read debug log file:', error);
-			return c.json({ error: 'Failed to read debug log' }, 500);
+			throw httpError(500, 'Failed to read debug log');
 		}
 
 		// Validate JSON before returning — corrupted/truncated logs should
@@ -147,7 +137,7 @@ export const aiRoutes = new Hono<AppEnvironment>()
 			JSON.parse(content);
 		} catch {
 			console.error(`Debug log file contains invalid JSON: ${logPath}`);
-			return c.json({ error: 'Debug log file is corrupted' }, 422);
+			throw httpError(422, 'Debug log file is corrupted');
 		}
 
 		return c.body(content, 200, { 'Content-Type': 'application/json' });

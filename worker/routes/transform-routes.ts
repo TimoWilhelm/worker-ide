@@ -8,6 +8,7 @@ import { Hono } from 'hono';
 
 import { transformCodeSchema } from '@shared/validation';
 
+import { httpError } from '../lib/http-error';
 import { transformCode } from '../services/bundler-service';
 
 import type { AppEnvironment } from '../types';
@@ -28,7 +29,7 @@ export const transformRoutes = new Hono<AppEnvironment>()
 			});
 		} catch (error) {
 			const message = error instanceof Error ? error.message : 'Transform failed';
-			return c.json({ error: message }, 500);
+			throw httpError(500, message);
 		}
 	});
 

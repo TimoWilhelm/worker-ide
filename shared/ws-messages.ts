@@ -210,6 +210,51 @@ export interface GitStatusChangedMessage {
 }
 
 /**
+ * Server message carrying test run results.
+ * Broadcast when any collaborator runs tests so all clients
+ * can update their local state without needing a server-side cache.
+ */
+export interface TestResultsChangedMessage {
+	type: 'test-results-changed';
+	results: {
+		title: string;
+		output: string;
+		metadata: {
+			passed: number;
+			failed: number;
+			total: number;
+			files: number;
+			bundleErrors: number;
+		};
+		fileResults: Array<{
+			file: string;
+			results: {
+				suites: Array<{
+					name: string;
+					tests: Array<{
+						name: string;
+						status: 'passed' | 'failed';
+						error?: string;
+						duration: number;
+					}>;
+					passed: number;
+					failed: number;
+				}>;
+				passed: number;
+				failed: number;
+				total: number;
+				duration: number;
+				error?: string;
+			};
+		}>;
+		bundleErrors: Array<{ file: string; error: string }>;
+		timestamp: number;
+	};
+	/** When set, this was a single-test run and clients should merge into existing results */
+	testName?: string;
+}
+
+/**
  * Server message requesting the frontend to execute a CDP command
  * in the preview iframe via chobitsu.
  */
@@ -265,6 +310,7 @@ export type ServerMessage =
 	| ServerErrorMessage
 	| ServerLogsMessage
 	| GitStatusChangedMessage
+	| TestResultsChangedMessage
 	| CdpRequestMessage
 	| DebugLogReadyMessage
 	| AgentStreamEventMessage
@@ -413,6 +459,50 @@ export const serverMessageSchema = z.discriminatedUnion('type', [
 	}),
 	z.object({
 		type: z.literal('git-status-changed'),
+	}),
+	z.object({
+		type: z.literal('test-results-changed'),
+		results: z.object({
+			title: z.string(),
+			output: z.string(),
+			metadata: z.object({
+				passed: z.number(),
+				failed: z.number(),
+				total: z.number(),
+				files: z.number(),
+				bundleErrors: z.number(),
+			}),
+			fileResults: z.array(
+				z.object({
+					file: z.string(),
+					results: z.object({
+						suites: z.array(
+							z.object({
+								name: z.string(),
+								tests: z.array(
+									z.object({
+										name: z.string(),
+										status: z.enum(['passed', 'failed']),
+										error: z.string().optional(),
+										duration: z.number(),
+									}),
+								),
+								passed: z.number(),
+								failed: z.number(),
+							}),
+						),
+						passed: z.number(),
+						failed: z.number(),
+						total: z.number(),
+						duration: z.number(),
+						error: z.string().optional(),
+					}),
+				}),
+			),
+			bundleErrors: z.array(z.object({ file: z.string(), error: z.string() })),
+			timestamp: z.number(),
+		}),
+		testName: z.string().optional(),
 	}),
 	z.object({
 		type: z.literal('cdp-request'),

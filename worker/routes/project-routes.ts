@@ -12,6 +12,7 @@ import { generateHumanId } from '@shared/human-id';
 import { projectMetaSchema } from '@shared/validation';
 
 import { coordinatorNamespace, filesystemNamespace } from '../lib/durable-object-namespaces';
+import { httpError } from '../lib/http-error';
 import { createZip } from '../lib/zip';
 
 import type { AppEnvironment } from '../types';
@@ -53,7 +54,7 @@ export const projectRoutes = new Hono<AppEnvironment>()
 		const body = await c.req.json();
 		const parsed = projectMetaSchema.safeParse(body);
 		if (!parsed.success) {
-			return c.json({ error: parsed.error.message }, 400);
+			throw httpError(400, parsed.error.message);
 		}
 
 		let meta: ProjectMeta;

@@ -13,6 +13,7 @@ import { BINARY_EXTENSIONS } from '@shared/constants';
 import { snapshotIdSchema, revertFileSchema, revertCascadeSchema, filePathSchema } from '@shared/validation';
 
 import { coordinatorNamespace } from '../lib/durable-object-namespaces';
+import { httpError } from '../lib/http-error';
 
 import type { AppEnvironment } from '../types';
 
@@ -54,7 +55,7 @@ export const snapshotRoutes = new Hono<AppEnvironment>()
 
 		const metadata = await getSnapshotMetadata(projectRoot, id);
 		if (!metadata) {
-			return c.json({ error: 'Snapshot not found' }, 404);
+			throw httpError(404, 'Snapshot not found');
 		}
 
 		return c.json({ snapshot: metadata });
@@ -68,7 +69,7 @@ export const snapshotRoutes = new Hono<AppEnvironment>()
 
 		const success = await revertSnapshot(projectRoot, id, projectId);
 		if (!success) {
-			return c.json({ error: 'Failed to revert snapshot' }, 500);
+			throw httpError(500, 'Failed to revert snapshot');
 		}
 
 		return c.json({ success: true });
@@ -82,7 +83,7 @@ export const snapshotRoutes = new Hono<AppEnvironment>()
 
 		const success = await revertFileFromSnapshot(projectRoot, path, snapshotId, projectId);
 		if (!success) {
-			return c.json({ error: 'Failed to revert file' }, 500);
+			throw httpError(500, 'Failed to revert file');
 		}
 
 		return c.json({ success: true });
@@ -114,12 +115,12 @@ export const snapshotRoutes = new Hono<AppEnvironment>()
 			const metadata = await getSnapshotMetadata(projectRoot, id);
 
 			if (!metadata) {
-				return c.json({ error: 'Snapshot not found' }, 404);
+				throw httpError(404, 'Snapshot not found');
 			}
 
 			const change = metadata.changes.find((ch) => ch.path === path);
 			if (!change) {
-				return c.json({ error: 'File not in snapshot' }, 404);
+				throw httpError(404, 'File not in snapshot');
 			}
 
 			// For created files, there's no before content
@@ -137,7 +138,7 @@ export const snapshotRoutes = new Hono<AppEnvironment>()
 				const content = await fs.readFile(`${snapshotDirectory}${path}`, 'utf8');
 				return c.json({ path, content, action: change.action });
 			} catch {
-				return c.json({ error: 'File not found in snapshot' }, 404);
+				throw httpError(404, 'File not found in snapshot');
 			}
 		},
 	);

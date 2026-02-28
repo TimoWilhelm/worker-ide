@@ -25,7 +25,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from '@/components/ui/toast-store';
 import { createApiClient } from '@/lib/api-client';
 
-import type { GitMergeResult, GitFileStatus, GitStatusEntry } from '@shared/types';
+import type { GitFileStatus, GitStatusEntry } from '@shared/types';
 
 // =============================================================================
 // Types
@@ -129,39 +129,6 @@ function optimisticDiscardAll(entries: GitStatusEntry[]): GitStatusEntry[] {
 }
 
 // =============================================================================
-// Helpers
-// =============================================================================
-
-/**
- * Parse an error message from a failed response.
- * Uses response.text() + JSON.parse to escape Hono RPC's typed json() union.
- */
-async function parseErrorMessage(response: Response, fallback: string): Promise<string> {
-	try {
-		const text = await response.text();
-		const data: unknown = JSON.parse(text);
-		if (data && typeof data === 'object' && 'error' in data) {
-			const { error } = data;
-			return String(error);
-		}
-	} catch {
-		// Ignore parse errors
-	}
-	return fallback;
-}
-
-/**
- * Parse the mutation response body. We use response.text() + JSON.parse
- * instead of response.json() to avoid Hono RPC's typed union inference
- * which merges success and error response types.
- */
-async function parseMutationResponse<T>(response: Response): Promise<T> {
-	const text = await response.text();
-	const data: T = JSON.parse(text);
-	return data;
-}
-
-// =============================================================================
 // Hook
 // =============================================================================
 
@@ -224,9 +191,9 @@ export function useGitMutations({ projectId }: UseGitMutationsOptions) {
 		mutationFn: async () => {
 			const response = await api.git.init.$post({});
 			if (!response.ok) {
-				throw new Error(await parseErrorMessage(response, 'Failed to initialize git repository'));
+				throw new Error('Failed to initialize git repository');
 			}
-			return parseMutationResponse<{ success: boolean }>(response);
+			return response.json();
 		},
 		onSuccess: async () => {
 			await Promise.all([queryClient.invalidateQueries({ queryKey: statusQueryKey }), invalidateNonStatusGitQueries()]);
@@ -246,7 +213,7 @@ export function useGitMutations({ projectId }: UseGitMutationsOptions) {
 			if (!response.ok) {
 				throw new Error('Failed to stage files');
 			}
-			return parseMutationResponse<{ success: boolean; gitStatus?: GitStatusResponse }>(response);
+			return response.json();
 		},
 		onMutate: async (paths) => {
 			const context = await snapshotStatus();
@@ -271,7 +238,7 @@ export function useGitMutations({ projectId }: UseGitMutationsOptions) {
 			if (!response.ok) {
 				throw new Error('Failed to unstage files');
 			}
-			return parseMutationResponse<{ success: boolean; gitStatus?: GitStatusResponse }>(response);
+			return response.json();
 		},
 		onMutate: async (paths) => {
 			const context = await snapshotStatus();
@@ -296,7 +263,7 @@ export function useGitMutations({ projectId }: UseGitMutationsOptions) {
 			if (!response.ok) {
 				throw new Error('Failed to stage all files');
 			}
-			return parseMutationResponse<{ success: boolean; gitStatus?: GitStatusResponse }>(response);
+			return response.json();
 		},
 		onMutate: async () => {
 			const context = await snapshotStatus();
@@ -321,7 +288,7 @@ export function useGitMutations({ projectId }: UseGitMutationsOptions) {
 			if (!response.ok) {
 				throw new Error('Failed to unstage all files');
 			}
-			return parseMutationResponse<{ success: boolean; gitStatus?: GitStatusResponse }>(response);
+			return response.json();
 		},
 		onMutate: async () => {
 			const context = await snapshotStatus();
@@ -350,7 +317,7 @@ export function useGitMutations({ projectId }: UseGitMutationsOptions) {
 			if (!response.ok) {
 				throw new Error('Failed to discard changes');
 			}
-			return parseMutationResponse<{ success: boolean; gitStatus?: GitStatusResponse }>(response);
+			return response.json();
 		},
 		onMutate: async (path) => {
 			const context = await snapshotStatus();
@@ -379,7 +346,7 @@ export function useGitMutations({ projectId }: UseGitMutationsOptions) {
 			if (!response.ok) {
 				throw new Error('Failed to discard all changes');
 			}
-			return parseMutationResponse<{ success: boolean; gitStatus?: GitStatusResponse }>(response);
+			return response.json();
 		},
 		onMutate: async () => {
 			const context = await snapshotStatus();
@@ -410,9 +377,9 @@ export function useGitMutations({ projectId }: UseGitMutationsOptions) {
 		mutationFn: async (parameters: { message: string; amend?: boolean }) => {
 			const response = await api.git.commit.$post({ json: parameters });
 			if (!response.ok) {
-				throw new Error(await parseErrorMessage(response, 'Failed to create commit'));
+				throw new Error('Failed to create commit');
 			}
-			return parseMutationResponse<{ objectId: string; gitStatus?: GitStatusResponse }>(response);
+			return response.json();
 		},
 		onSuccess: async (data) => {
 			applyInlineGitStatus(data.gitStatus);
@@ -430,7 +397,7 @@ export function useGitMutations({ projectId }: UseGitMutationsOptions) {
 		mutationFn: async (parameters: { name: string; checkout?: boolean }) => {
 			const response = await api.git.branch.$post({ json: parameters });
 			if (!response.ok) {
-				throw new Error(await parseErrorMessage(response, 'Failed to create branch'));
+				throw new Error('Failed to create branch');
 			}
 		},
 		onSuccess: invalidateNonStatusGitQueries,
@@ -443,7 +410,7 @@ export function useGitMutations({ projectId }: UseGitMutationsOptions) {
 		mutationFn: async (name: string) => {
 			const response = await api.git.branch.$delete({ query: { name } });
 			if (!response.ok) {
-				throw new Error(await parseErrorMessage(response, 'Failed to delete branch'));
+				throw new Error('Failed to delete branch');
 			}
 		},
 		onSuccess: invalidateNonStatusGitQueries,
@@ -456,7 +423,7 @@ export function useGitMutations({ projectId }: UseGitMutationsOptions) {
 		mutationFn: async (parameters: { oldName: string; newName: string }) => {
 			const response = await api.git.branch.rename.$post({ json: parameters });
 			if (!response.ok) {
-				throw new Error(await parseErrorMessage(response, 'Failed to rename branch'));
+				throw new Error('Failed to rename branch');
 			}
 		},
 		onSuccess: invalidateNonStatusGitQueries,
@@ -469,9 +436,9 @@ export function useGitMutations({ projectId }: UseGitMutationsOptions) {
 		mutationFn: async (reference: string) => {
 			const response = await api.git.checkout.$post({ json: { reference } });
 			if (!response.ok) {
-				throw new Error(await parseErrorMessage(response, 'Failed to checkout'));
+				throw new Error('Failed to checkout');
 			}
-			return parseMutationResponse<{ success: boolean; gitStatus?: GitStatusResponse }>(response);
+			return response.json();
 		},
 		onSuccess: async (data) => {
 			applyInlineGitStatus(data.gitStatus);
@@ -494,9 +461,9 @@ export function useGitMutations({ projectId }: UseGitMutationsOptions) {
 		mutationFn: async (branch: string) => {
 			const response = await api.git.merge.$post({ json: { branch } });
 			if (!response.ok) {
-				throw new Error(await parseErrorMessage(response, 'Failed to merge'));
+				throw new Error('Failed to merge');
 			}
-			return parseMutationResponse<GitMergeResult & { gitStatus?: GitStatusResponse }>(response);
+			return response.json();
 		},
 		onSuccess: async (data) => {
 			applyInlineGitStatus(data.gitStatus);
@@ -519,7 +486,7 @@ export function useGitMutations({ projectId }: UseGitMutationsOptions) {
 		mutationFn: async (parameters: { name: string; reference?: string }) => {
 			const response = await api.git.tag.$post({ json: parameters });
 			if (!response.ok) {
-				throw new Error(await parseErrorMessage(response, 'Failed to create tag'));
+				throw new Error('Failed to create tag');
 			}
 		},
 		onSuccess: invalidateNonStatusGitQueries,
@@ -532,7 +499,7 @@ export function useGitMutations({ projectId }: UseGitMutationsOptions) {
 		mutationFn: async (name: string) => {
 			const response = await api.git.tag.$delete({ query: { name } });
 			if (!response.ok) {
-				throw new Error(await parseErrorMessage(response, 'Failed to delete tag'));
+				throw new Error('Failed to delete tag');
 			}
 		},
 		onSuccess: invalidateNonStatusGitQueries,
@@ -551,7 +518,7 @@ export function useGitMutations({ projectId }: UseGitMutationsOptions) {
 			if (!response.ok) {
 				throw new Error('Failed to push stash');
 			}
-			return parseMutationResponse<{ success: boolean; gitStatus?: GitStatusResponse }>(response);
+			return response.json();
 		},
 		onSuccess: (data) => {
 			applyInlineGitStatus(data.gitStatus);
@@ -567,7 +534,7 @@ export function useGitMutations({ projectId }: UseGitMutationsOptions) {
 			if (!response.ok) {
 				throw new Error('Failed to pop stash');
 			}
-			return parseMutationResponse<{ success: boolean; gitStatus?: GitStatusResponse }>(response);
+			return response.json();
 		},
 		onSuccess: async (data) => {
 			applyInlineGitStatus(data.gitStatus);
@@ -587,7 +554,7 @@ export function useGitMutations({ projectId }: UseGitMutationsOptions) {
 			if (!response.ok) {
 				throw new Error('Failed to apply stash');
 			}
-			return parseMutationResponse<{ success: boolean; gitStatus?: GitStatusResponse }>(response);
+			return response.json();
 		},
 		onSuccess: async (data) => {
 			applyInlineGitStatus(data.gitStatus);
@@ -607,7 +574,7 @@ export function useGitMutations({ projectId }: UseGitMutationsOptions) {
 			if (!response.ok) {
 				throw new Error('Failed to drop stash');
 			}
-			return parseMutationResponse<{ success: boolean; gitStatus?: GitStatusResponse }>(response);
+			return response.json();
 		},
 		onSuccess: (data) => {
 			applyInlineGitStatus(data.gitStatus);
@@ -623,7 +590,7 @@ export function useGitMutations({ projectId }: UseGitMutationsOptions) {
 			if (!response.ok) {
 				throw new Error('Failed to clear stash');
 			}
-			return parseMutationResponse<{ success: boolean; gitStatus?: GitStatusResponse }>(response);
+			return response.json();
 		},
 		onSuccess: (data) => {
 			applyInlineGitStatus(data.gitStatus);

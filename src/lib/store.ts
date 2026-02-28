@@ -210,9 +210,9 @@ interface PendingChangesActions {
 
 type ColorScheme = 'light' | 'dark' | 'system';
 
-export type MobilePanel = 'editor' | 'preview' | 'git' | 'agent';
+export type MobilePanel = 'editor' | 'preview' | 'git' | 'agent' | 'tests';
 
-export type SidebarView = 'explorer' | 'git';
+export type SidebarView = 'explorer' | 'git' | 'tests';
 
 interface UIState {
 	/** Whether sidebar is visible */

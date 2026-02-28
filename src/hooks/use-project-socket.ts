@@ -13,7 +13,9 @@ import { useShallow } from 'zustand/react/shallow';
 import { previewIframeReference } from '@/features/preview/preview-iframe-reference';
 import { connectProjectSocket } from '@/lib/api-client';
 import { useStore } from '@/lib/store';
+import { mergeTestRunResults } from '@shared/types';
 
+import type { TestRunResponse } from '@shared/types';
 import type { ClientMessage } from '@shared/ws-messages';
 
 // =============================================================================
@@ -240,6 +242,20 @@ export function useProjectSocket({ projectId, enabled = true }: UseProjectSocket
 							void queryClientCurrent.invalidateQueries({
 								queryKey: ['git-log', projectIdCurrent],
 							});
+							break;
+						}
+						case 'test-results-changed': {
+							// Update local test results cache with the broadcast data.
+							// For single-test runs, merge into existing results so other
+							// tests are not lost.
+							if (message.testName) {
+								const existing = queryClientCurrent.getQueryData<TestRunResponse>(['test-results', projectIdCurrent]);
+								if (existing) {
+									queryClientCurrent.setQueryData(['test-results', projectIdCurrent], mergeTestRunResults(existing, message.results));
+									break;
+								}
+							}
+							queryClientCurrent.setQueryData(['test-results', projectIdCurrent], message.results);
 							break;
 						}
 						case 'cdp-request': {

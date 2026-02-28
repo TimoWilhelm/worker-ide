@@ -358,6 +358,149 @@ export interface ProjectMeta {
 }
 
 // =============================================================================
+// Test Types
+// =============================================================================
+
+/** A discovered test name within a suite (before execution) */
+export interface DiscoveredTest {
+	name: string;
+	suiteName: string;
+}
+
+/** Discovered test structure for a single file (from static parsing) */
+export interface DiscoveredTestFile {
+	file: string;
+	tests: DiscoveredTest[];
+}
+
+/** Individual test result within a suite */
+export interface TestResultEntry {
+	name: string;
+	status: 'passed' | 'failed';
+	error?: string;
+	duration: number;
+}
+
+/** Result for a single test suite (describe block) */
+export interface TestSuiteResult {
+	name: string;
+	tests: TestResultEntry[];
+	passed: number;
+	failed: number;
+}
+
+/** Full results for a single test file */
+export interface TestFileResult {
+	file: string;
+	results: {
+		suites: TestSuiteResult[];
+		passed: number;
+		failed: number;
+		total: number;
+		duration: number;
+		error?: string;
+	};
+}
+
+/** Response from POST /api/test/run and GET /api/test/results */
+export interface TestRunResponse {
+	title: string;
+	output: string;
+	metadata: {
+		passed: number;
+		failed: number;
+		total: number;
+		files: number;
+		bundleErrors: number;
+	};
+	fileResults: TestFileResult[];
+	bundleErrors: Array<{ file: string; error: string }>;
+	timestamp: number;
+}
+
+/**
+ * Merge a single-test run result into an existing full result set.
+ * Updates only the specific test(s) that were re-run, keeping all other tests intact.
+ * Used client-side when a single test is re-run (from the mutation onSuccess handler
+ * and the WebSocket broadcast handler).
+ */
+export function mergeTestRunResults(existing: TestRunResponse, incoming: TestRunResponse): TestRunResponse {
+	const updatedFileResults: TestFileResult[] = existing.fileResults.map((existingFile) => {
+		const incomingFile = incoming.fileResults.find((f) => f.file === existingFile.file);
+		if (!incomingFile) return existingFile;
+
+		// Build a lookup of incoming test results: "suiteName/testName" → result
+		const incomingTests = new Map<string, TestSuiteResult['tests'][number]>();
+		for (const suite of incomingFile.results.suites) {
+			for (const test of suite.tests) {
+				incomingTests.set(`${suite.name}/${test.name}`, test);
+			}
+		}
+
+		// Update matching tests in existing suites, keep the rest unchanged
+		const mergedSuites: TestSuiteResult[] = existingFile.results.suites.map((suite) => {
+			let passed = 0;
+			let failed = 0;
+			const mergedTests = suite.tests.map((test) => {
+				const key = `${suite.name}/${test.name}`;
+				const updated = incomingTests.get(key);
+				const result = updated ?? test;
+				if (result.status === 'passed') {
+					passed++;
+				} else {
+					failed++;
+				}
+				return result;
+			});
+			return { ...suite, tests: mergedTests, passed, failed };
+		});
+
+		let totalPassed = 0;
+		let totalFailed = 0;
+		let totalCount = 0;
+		for (const suite of mergedSuites) {
+			totalPassed += suite.passed;
+			totalFailed += suite.failed;
+			totalCount += suite.tests.length;
+		}
+
+		return {
+			file: existingFile.file,
+			results: {
+				...existingFile.results,
+				suites: mergedSuites,
+				passed: totalPassed,
+				failed: totalFailed,
+				total: totalCount,
+			},
+		};
+	});
+
+	// Recompute top-level metadata
+	let passed = 0;
+	let failed = 0;
+	let total = 0;
+	for (const fileResult of updatedFileResults) {
+		passed += fileResult.results.passed;
+		failed += fileResult.results.failed;
+		total += fileResult.results.total;
+	}
+
+	return {
+		...existing,
+		fileResults: updatedFileResults,
+		metadata: {
+			...existing.metadata,
+			passed,
+			failed,
+			total,
+		},
+		title: failed === 0 ? `${passed} passed` : `${failed} failed, ${passed} passed`,
+		timestamp: incoming.timestamp,
+	};
+}
+
+// =============================================================================
 // Git Types
 // =============================================================================
 

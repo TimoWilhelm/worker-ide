@@ -11,6 +11,7 @@ import { gitRoutes } from './git-routes';
 import { projectRoutes } from './project-routes';
 import { sessionRoutes } from './session-routes';
 import { snapshotRoutes } from './snapshot-routes';
+import { testRoutes } from './test-routes';
 import { transformRoutes } from './transform-routes';
 
 import type { AppEnvironment } from '../types';
@@ -26,7 +27,8 @@ export const apiRoutes = new Hono<AppEnvironment>()
 	.route('', snapshotRoutes)
 	.route('', aiRoutes)
 	.route('', transformRoutes)
-	.route('', gitRoutes);
+	.route('', gitRoutes)
+	.route('', testRoutes);
 
 /**
  * Export the full API routes type for client-side type inference.
@@ -37,8 +39,9 @@ export type ApiRoutes = typeof apiRoutes;
 // Re-export individual route modules
 export { aiRoutes } from './ai-routes';
 export { fileRoutes } from './file-routes';
+export { gitRoutes } from './git-routes';
 export { projectRoutes } from './project-routes';
 export { sessionRoutes } from './session-routes';
 export { snapshotRoutes } from './snapshot-routes';
-export { gitRoutes } from './git-routes';
+export { testRoutes } from './test-routes';
 export { transformRoutes } from './transform-routes';

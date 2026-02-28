@@ -4,7 +4,7 @@
  * VS Code-style vertical icon strip on the far left of the IDE.
  */
 
-import { Files, GitBranch } from 'lucide-react';
+import { Files, FlaskConical, GitBranch } from 'lucide-react';
 
 import { Tooltip } from '@/components/ui';
 import { useStore, selectActiveSidebarView, selectGitChangedFileCount, type SidebarView } from '@/lib/store';
@@ -98,6 +98,13 @@ export function ActivityBar({ className }: ActivityBarProperties) {
 				view="git"
 				activeView={activeSidebarView}
 				badge={gitChangedCount}
+				onSelect={setActiveSidebarView}
+			/>
+			<ActivityBarItem
+				icon={<FlaskConical className="size-5" />}
+				label="Tests"
+				view="tests"
+				activeView={activeSidebarView}
 				onSelect={setActiveSidebarView}
 			/>
 		</div>

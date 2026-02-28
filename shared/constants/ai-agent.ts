@@ -112,6 +112,7 @@ CRITICAL INSTRUCTION: NEVER assume a package is installed. Always verify with \`
 - Test files use a built-in test harness with \`describe()\`, \`it()\`, and \`expect()\` — no extra dependencies or imports needed for the harness.
 - Place tests in a \`test/\` directory (e.g., \`test/math.test.ts\`). Tests can import project source files (e.g., \`import { add } from '../src/math.ts'\`).
 - After writing or editing code, run relevant tests to verify correctness.
+- Granularity: run all tests (omit both parameters), a specific file (\`pattern: "test/math.test.ts"\`), a glob of files (\`pattern: "test/**/*.spec.ts"\`), or a single test by name (\`testName: "add > adds two positive numbers"\`, combined with \`pattern\` to target the file).
 
 # Security
 - Follow security best practices. Never introduce code that exposes or logs secrets, API keys, or credentials.

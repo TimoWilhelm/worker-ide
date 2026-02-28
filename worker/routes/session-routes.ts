@@ -11,6 +11,8 @@ import { z } from 'zod';
 
 import { sessionIdSchema, saveSessionSchema, pendingChangesFileSchema } from '@shared/validation';
 
+import { httpError } from '../lib/http-error';
+
 const sessionIdQuerySchema = z.object({ id: sessionIdSchema });
 
 import type { AppEnvironment } from '../types';
@@ -54,7 +56,7 @@ export const sessionRoutes = new Hono<AppEnvironment>()
 			const raw = await fs.readFile(`${projectRoot}/.agent/sessions/${id}.json`, 'utf8');
 			return c.json(JSON.parse(raw));
 		} catch {
-			return c.json({ error: 'Session not found' }, 404);
+			throw httpError(404, 'Session not found');
 		}
 	})
 
