@@ -90,6 +90,7 @@ export interface OutputLogsSyncMessage {
  */
 export interface AgentAbortMessage {
 	type: 'agent-abort';
+	sessionId?: string;
 }
 
 export type ClientMessage =
@@ -363,7 +364,7 @@ export const clientMessageSchema = z.discriminatedUnion('type', [
 		type: z.literal('output-logs-sync'),
 		logs: z.string(),
 	}),
-	z.object({ type: z.literal('agent-abort') }),
+	z.object({ type: z.literal('agent-abort'), sessionId: z.string().optional() }),
 ]);
 
 // Server message schemas (for client-side validation)

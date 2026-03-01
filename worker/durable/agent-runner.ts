@@ -6,6 +6,15 @@
  * - Collaboration users can observe ongoing agent sessions in real-time
  * - Explicit abort via WebSocket message or RPC
  *
+ * **Alarm-based resilience:** When a Durable Object is evicted mid-execution
+ * (no shutdown hooks exist), in-memory state is lost. To survive this:
+ * - Before starting an agent loop, parameters are persisted to `running:{sessionId}` KV
+ * - A heartbeat alarm is set and periodically rescheduled while the loop runs
+ * - On normal completion, the `running:` entry is deleted
+ * - If the DO is evicted, the alarm fires on the new instance, finds the
+ *   orphaned `running:` entry, and **restarts** the agent loop from scratch
+ * - `getRunningSessionIds()` reads from durable `running:` KV, not volatile maps
+ *
  * One instance per project, keyed by `agent:${projectId}`.
  * Communicates with ProjectCoordinator (for event broadcast) and
  * ExpiringFilesystem (for file operations) via RPC — no self-referential calls.
@@ -22,7 +31,7 @@ import { AIAgentService } from '../services/ai-agent';
 import { cleanupSessionArtifacts, cleanupTimestampPlans } from '../services/ai-agent/session-cleanup';
 
 import type { AIModelId } from '@shared/constants';
-import type { ActiveAgentSession, AgentSessionStatus, AiSession, PendingFileChange } from '@shared/types';
+import type { AgentSessionStatus, AiSession, PendingFileChange } from '@shared/types';
 
 /**
  * Maximum number of recent stream events to buffer for reconnection.
@@ -44,6 +53,14 @@ const PROJECT_ROOT = '/project';
 const MAX_SESSIONS = 50;
 
 /**
+ * Heartbeat interval for the alarm-based resilience mechanism (ms).
+ * While an agent loop is running, the alarm is rescheduled at this interval.
+ * If the DO is evicted and the alarm fires without an active abort controller,
+ * the agent loop is restarted from the persisted parameters.
+ */
+const HEARTBEAT_INTERVAL_MS = 30_000;
+
+/**
  * Parameters for starting an agent run.
  */
 export interface StartAgentParameters {
@@ -57,125 +74,153 @@ export interface StartAgentParameters {
 
 export class AgentRunner extends DurableObject {
 	/**
-	 * In-memory abort controllers keyed by sessionId
+	 * In-memory abort controllers keyed by sessionId.
+	 * Volatile — lost on eviction. Used for graceful abort and to detect
+	 * whether the current instance owns a running loop.
 	 */
 	private agentAbortControllers = new Map<string, AbortController>();
 
 	/**
 	 * Ring buffers of recent stream events for late-joining clients, keyed by sessionId.
+	 * Volatile — lost on eviction. Reconnecting clients get an empty buffer
+	 * and the stale-session timeout in the adapter handles the fallback.
 	 */
 	private eventBuffers = new Map<string, Array<{ chunk: unknown; index: number }>>();
 
 	/**
 	 * Monotonic event indices within the current agent run, keyed by sessionId.
+	 * Volatile — reset when the loop starts.
 	 */
 	private eventIndices = new Map<string, number>();
+
+	// =========================================================================
+	// Alarm Handler — session resilience
+	// =========================================================================
+
+	/**
+	 * Called by the runtime when the heartbeat alarm fires.
+	 *
+	 * If an agent loop is still actively running (abort controller exists),
+	 * this is a no-op — the loop itself reschedules the alarm.
+	 *
+	 * If no abort controller exists but a `running:{sessionId}` KV entry
+	 * is present, the DO was evicted mid-execution. Restart the loop from
+	 * the persisted parameters.
+	 */
+	async alarm(): Promise<void> {
+		const orphaned = this.getOrphanedRunningSessions();
+		if (orphaned.length === 0) return;
+
+		for (const { sessionId, parameters } of orphaned) {
+			console.log(`[AgentRunner] Alarm: restarting evicted session ${sessionId}`);
+			this.launchAgentLoop(parameters, sessionId);
+			await this.broadcastStatusChanged(parameters.projectId, sessionId, 'running');
+		}
+
+		// Reschedule for any remaining sessions
+		this.scheduleHeartbeatAlarm();
+	}
 
 	// =========================================================================
 	// RPC Methods
 	// =========================================================================
 
 	/**
-	 * Start an AI agent run. Returns immediately with the session state.
+	 * Start an AI agent run. Returns immediately with the session ID.
 	 * The agent loop continues running asynchronously within the DO.
 	 *
-	 * If an agent is already running, returns the existing session state
-	 * without starting a new one.
+	 * Dedup: if `running:{sessionId}` KV already exists, the session is
+	 * either actively running or will be restarted by the alarm. In either
+	 * case, we return without launching a duplicate loop.
 	 */
-	async startAgent(parameters: StartAgentParameters): Promise<ActiveAgentSession> {
+	async startAgent(parameters: StartAgentParameters): Promise<{ sessionId: string }> {
 		const sessionId = parameters.sessionId ?? crypto.randomUUID().replaceAll('-', '').slice(0, 16);
-		const existing = this.getActiveSession(sessionId);
 
-		// If the session claims to be running, but we don't have an abort controller
-		// in memory, the DO was evicted or crashed. Treat it as not running.
-		if (existing?.status === 'running' && this.agentAbortControllers.has(sessionId)) {
-			return existing;
+		// Already tracked as running (durable check — survives eviction)
+		if (this.ctx.storage.kv.get(`running:${sessionId}`) !== undefined) {
+			return { sessionId };
 		}
 
-		const session: ActiveAgentSession = {
-			sessionId,
-			status: 'running',
-			startedAt: Date.now(),
-		};
+		// Persist restart parameters BEFORE launching so the alarm can recover
+		this.ctx.storage.kv.put(`running:${sessionId}`, parameters);
 
-		this.setActiveSession(sessionId, session);
-
-		// Reset event buffer for the new run
-		this.eventBuffers.set(sessionId, []);
-		this.eventIndices.set(sessionId, 0);
-
-		// Create a new abort controller for this run
-		this.agentAbortControllers.set(sessionId, new AbortController());
-
-		// Start the agent loop asynchronously — does not block the RPC response.
-		// The DO stays alive as long as this async work is in progress.
-		this.ctx.waitUntil(
-			this.executeAgentLoop(parameters, sessionId).catch((error) => {
-				console.error(`[AgentRunner ${sessionId}] Unhandled error from executeAgentLoop:`, error);
-			}),
-		);
+		this.launchAgentLoop(parameters, sessionId);
 
 		// Broadcast the status change to all connected clients
 		await this.broadcastStatusChanged(parameters.projectId, sessionId, 'running');
 
-		return session;
+		// Set the heartbeat alarm
+		this.scheduleHeartbeatAlarm();
+
+		return { sessionId };
 	}
 
 	/**
 	 * Abort the currently running agent or a specific agent session.
+	 *
+	 * If the loop is active in this instance, the abort controller is signaled
+	 * and the `finally` block handles cleanup + broadcast.
+	 *
+	 * If the loop is NOT active (post-eviction, pre-alarm), we delete the
+	 * durable `running:` marker to prevent alarm restart and broadcast
+	 * the abort status directly.
 	 */
 	async abortAgent(sessionId?: string): Promise<void> {
 		if (sessionId) {
 			const controller = this.agentAbortControllers.get(sessionId);
 			if (controller) {
+				// Active loop — abort it; the finally block handles broadcast
 				controller.abort();
 				this.agentAbortControllers.delete(sessionId);
 			}
+			// Remove the durable marker — prevents alarm from restarting
+			const parameters = this.ctx.storage.kv.get<StartAgentParameters>(`running:${sessionId}`);
+			this.ctx.storage.kv.delete(`running:${sessionId}`);
+
+			// If no active loop, broadcast abort directly (the finally block won't run)
+			if (!controller && parameters) {
+				await this.broadcastStatusChanged(parameters.projectId, sessionId, 'aborted');
+			}
 		} else {
 			// Abort all running agents
+			const activeIds = new Set(this.agentAbortControllers.keys());
 			for (const controller of this.agentAbortControllers.values()) {
 				controller.abort();
 			}
 			this.agentAbortControllers.clear();
-		}
-	}
 
-	/**
-	 * Get the current agent session state for a specific ID,
-	 * or the most recently started active session if no ID is specified.
-	 */
-	async getAgentStatus(sessionId?: string): Promise<ActiveAgentSession | undefined> {
-		if (sessionId) {
-			return this.getActiveSession(sessionId);
-		}
-
-		// Fallback: get the latest running session
-		const sessions = this.ctx.storage.kv.list<ActiveAgentSession>({ prefix: 'session:' });
-
-		const activeSessions: ActiveAgentSession[] = [];
-		for (const [_, session] of sessions) {
-			if (session.status === 'running') {
-				activeSessions.push(session);
+			// Remove all durable running markers and broadcast for orphaned ones
+			for (const [key, parameters] of this.ctx.storage.kv.list<StartAgentParameters>({ prefix: 'running:' })) {
+				const id = key.slice('running:'.length);
+				this.ctx.storage.kv.delete(key);
+				// Broadcast for sessions that had no active loop
+				if (!activeIds.has(id)) {
+					await this.broadcastStatusChanged(parameters.projectId, id, 'aborted');
+				}
 			}
 		}
-
-		activeSessions.sort((a, b) => b.startedAt - a.startedAt);
-
-		return activeSessions[0];
 	}
 
 	/**
 	 * Get the IDs of all sessions that are currently running.
-	 * Only returns sessions that have an in-memory abort controller
-	 * (i.e. genuinely active, not stale from a DO eviction).
+	 *
+	 * Reads from durable `running:{sessionId}` KV entries, which survive
+	 * DO eviction. This is the source of truth for "is something running?"
 	 */
 	async getRunningSessionIds(): Promise<string[]> {
-		return [...this.agentAbortControllers.keys()];
+		const ids: string[] = [];
+		for (const [key] of this.ctx.storage.kv.list({ prefix: 'running:' })) {
+			ids.push(key.slice('running:'.length));
+		}
+		return ids;
 	}
 
 	/**
 	 * Get buffered events since a given index for reconnection.
 	 * Returns events with index > lastEventIndex.
+	 *
+	 * After DO eviction the buffer is empty — the reconnecting client's
+	 * stale-session timeout handles this gracefully.
 	 */
 	async getBufferedEvents(sessionId: string, lastEventIndex: number): Promise<Array<{ chunk: unknown; index: number }>> {
 		const buffer = this.eventBuffers.get(sessionId) || [];
@@ -190,6 +235,7 @@ export class AgentRunner extends DurableObject {
 	 * List all saved sessions (summary only: id, title, createdAt).
 	 */
 	async listSessions(): Promise<Array<{ id: string; title: string; createdAt: number; isRunning: boolean }>> {
+		const runningIds = new Set(await this.getRunningSessionIds());
 		const sessions: Array<{ id: string; title: string; createdAt: number; isRunning: boolean }> = [];
 		const entries = this.ctx.storage.kv.list<AiSession>({ prefix: 'sessionData:' });
 		for (const [, data] of entries) {
@@ -198,7 +244,7 @@ export class AgentRunner extends DurableObject {
 					id: data.id,
 					title: data.title,
 					createdAt: data.createdAt,
-					isRunning: this.agentAbortControllers.has(data.id),
+					isRunning: runningIds.has(data.id),
 				});
 			}
 		}
@@ -224,7 +270,6 @@ export class AgentRunner extends DurableObject {
 		if (messageIndex <= 0) {
 			// Full revert — delete the session
 			this.ctx.storage.kv.delete(`sessionData:${sessionId}`);
-			this.ctx.storage.kv.delete(`session:${sessionId}`);
 			return;
 		}
 
@@ -259,7 +304,6 @@ export class AgentRunner extends DurableObject {
 	 */
 	async deleteSession(projectId: string, sessionId: string): Promise<void> {
 		this.ctx.storage.kv.delete(`sessionData:${sessionId}`);
-		this.ctx.storage.kv.delete(`session:${sessionId}`);
 
 		this.removePendingChangesForSessions(new Set([sessionId]));
 		const survivingSnapshotIds = this.getSurvivingSnapshotIds();
@@ -286,7 +330,7 @@ export class AgentRunner extends DurableObject {
 	 *
 	 * Deletes the oldest sessions (by createdAt) that exceed MAX_SESSIONS,
 	 * skipping any that are currently running. Also cleans up:
-	 * - KV: sessionData, active session markers, pending changes entries
+	 * - KV: sessionData, pending changes entries
 	 * - Filesystem: .agent/sessions/{id}/, .agent/todo/{id}.json,
 	 *   .agent/plans/{id}.md, orphaned snapshots
 	 *
@@ -306,7 +350,7 @@ export class AgentRunner extends DurableObject {
 		if (allSessions.length <= MAX_SESSIONS) return;
 
 		// Identify sessions to prune (oldest beyond the limit, skipping running ones)
-		const runningIds = new Set(this.agentAbortControllers.keys());
+		const runningIds = new Set(await this.getRunningSessionIds());
 		const sessionsToPrune: string[] = [];
 		for (const session of allSessions.slice(MAX_SESSIONS)) {
 			if (!runningIds.has(session.id)) {
@@ -321,7 +365,6 @@ export class AgentRunner extends DurableObject {
 		// --- KV Cleanup ---
 		for (const sessionId of sessionsToPrune) {
 			this.ctx.storage.kv.delete(`sessionData:${sessionId}`);
-			this.ctx.storage.kv.delete(`session:${sessionId}`);
 		}
 
 		// Remove pending changes belonging to pruned sessions.
@@ -371,8 +414,29 @@ export class AgentRunner extends DurableObject {
 	}
 
 	// =========================================================================
-	// Agent Loop Execution
+	// Agent Loop Lifecycle
 	// =========================================================================
+
+	/**
+	 * Prepare in-memory state and launch the agent loop asynchronously.
+	 * Does not block — the caller should broadcast status after calling this.
+	 */
+	private launchAgentLoop(parameters: StartAgentParameters, sessionId: string): void {
+		// Reset event buffer for the new run
+		this.eventBuffers.set(sessionId, []);
+		this.eventIndices.set(sessionId, 0);
+
+		// Create a new abort controller for this run
+		this.agentAbortControllers.set(sessionId, new AbortController());
+
+		// Start the agent loop asynchronously — does not block the RPC response.
+		// The DO stays alive as long as this async work is in progress.
+		this.ctx.waitUntil(
+			this.executeAgentLoop(parameters, sessionId).catch((error) => {
+				console.error(`[AgentRunner ${sessionId}] Unhandled error from executeAgentLoop:`, error);
+			}),
+		);
+	}
 
 	private async executeAgentLoop(parameters: StartAgentParameters, sessionId: string): Promise<void> {
 		const projectId = parameters.projectId;
@@ -440,6 +504,9 @@ export class AgentRunner extends DurableObject {
 			const coordinatorId = coordinatorNamespace.idFromName(`project:${projectId}`);
 			const coordinatorStub = coordinatorNamespace.get(coordinatorId);
 
+			// Track last heartbeat reschedule to throttle alarm writes
+			let lastHeartbeat = Date.now();
+
 			// Consume the stream and broadcast each chunk
 			for await (const chunk of stream) {
 				const index = this.eventIndices.get(sessionId) ?? 0;
@@ -451,6 +518,13 @@ export class AgentRunner extends DurableObject {
 				buffer.push({ chunk, index });
 				if (buffer.length > EVENT_BUFFER_CAPACITY) {
 					buffer.shift();
+				}
+
+				// Reschedule heartbeat alarm periodically (throttled)
+				const now = Date.now();
+				if (now - lastHeartbeat >= HEARTBEAT_INTERVAL_MS) {
+					lastHeartbeat = now;
+					this.scheduleHeartbeatAlarm();
 				}
 
 				// Broadcast to all connected WebSocket clients via the coordinator
@@ -508,12 +582,8 @@ export class AgentRunner extends DurableObject {
 				}
 			}
 		} finally {
-			// Update the active session status
-			const session = this.getActiveSession(sessionId);
-			if (session) {
-				session.status = finalStatus;
-				this.setActiveSession(sessionId, session);
-			}
+			// Remove the durable running marker — this session completed
+			this.ctx.storage.kv.delete(`running:${sessionId}`);
 
 			// Clean up in-memory state
 			this.agentAbortControllers.delete(sessionId);
@@ -557,20 +627,35 @@ export class AgentRunner extends DurableObject {
 	}
 
 	// =========================================================================
-	// Storage Helpers
+	// Alarm Helpers
 	// =========================================================================
 
-	private getActiveSession(sessionId: string): ActiveAgentSession | undefined {
-		return this.ctx.storage.kv.get<ActiveAgentSession>(`session:${sessionId}`);
+	/**
+	 * Schedule (or reschedule) the heartbeat alarm.
+	 * Only one alarm can exist per DO — each call replaces the previous one.
+	 */
+	private scheduleHeartbeatAlarm(): void {
+		void this.ctx.storage.setAlarm(Date.now() + HEARTBEAT_INTERVAL_MS);
 	}
 
-	private setActiveSession(sessionId: string, session: ActiveAgentSession | undefined): void {
-		if (session === undefined) {
-			this.ctx.storage.kv.delete(`session:${sessionId}`);
-		} else {
-			this.ctx.storage.kv.put(`session:${sessionId}`, session);
+	/**
+	 * Find `running:{sessionId}` entries that have no in-memory abort controller.
+	 * These represent sessions that were interrupted by DO eviction.
+	 */
+	private getOrphanedRunningSessions(): Array<{ sessionId: string; parameters: StartAgentParameters }> {
+		const orphaned: Array<{ sessionId: string; parameters: StartAgentParameters }> = [];
+		for (const [key, parameters] of this.ctx.storage.kv.list<StartAgentParameters>({ prefix: 'running:' })) {
+			const sessionId = key.slice('running:'.length);
+			if (!this.agentAbortControllers.has(sessionId)) {
+				orphaned.push({ sessionId, parameters });
+			}
 		}
+		return orphaned;
 	}
+
+	// =========================================================================
+	// Storage Helpers
+	// =========================================================================
 
 	/**
 	 * Remove pending change entries belonging to the given session IDs.

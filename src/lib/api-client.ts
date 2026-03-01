@@ -11,7 +11,7 @@ import { serializeMessage, parseServerMessage, type ClientMessage, type ServerMe
 
 import type { ApiRoutes } from '@server/routes';
 import type { AIModelId } from '@shared/constants';
-import type { ActiveAgentSession, AgentMode, AiSession, PendingFileChange } from '@shared/types';
+import type { AgentMode, AiSession, PendingFileChange } from '@shared/types';
 
 /**
  * Create a typed API client for a specific project.
@@ -28,20 +28,6 @@ export function createApiClient(projectId: string) {
  * API client type for use in components.
  */
 export type ApiClient = ReturnType<typeof createApiClient>;
-
-// =============================================================================
-// Utility Types
-// =============================================================================
-
-/**
- * Extract the response type from an API endpoint.
- */
-export type ApiResponse<T> = T extends Promise<infer R> ? R : never;
-
-/**
- * Extract the JSON response type from a fetch response.
- */
-export type JsonResponse<T> = T extends { json(): Promise<infer R> } ? R : never;
 
 // =============================================================================
 // Project Management
@@ -154,15 +140,13 @@ export async function downloadProject(projectId: string): Promise<Blob> {
 /**
  * List all saved AI sessions for a project.
  */
-export async function listAiSessions(
-	projectId: string,
-): Promise<Array<{ id: string; title: string; createdAt: number; isRunning: boolean }>> {
+export async function listAiSessions(projectId: string) {
 	const api = createApiClient(projectId);
 	const response = await api['ai-sessions'].$get({});
 	if (!response.ok) {
 		throw new Error('Failed to list AI sessions');
 	}
-	const data: { sessions: Array<{ id: string; title: string; createdAt: number; isRunning: boolean }> } = await response.json();
+	const data = await response.json();
 	return data.sessions;
 }
 
@@ -191,18 +175,6 @@ export async function revertAiSession(projectId: string, sessionId: string, mess
 	});
 	if (!response.ok) {
 		throw new Error('Failed to revert AI session');
-	}
-}
-
-/**
- * Delete an AI session from the backend.
- */
-export async function deleteAiSession(projectId: string, sessionId: string): Promise<void> {
-	const response = await fetch(`/p/${projectId}/api/ai-session?id=${encodeURIComponent(sessionId)}`, {
-		method: 'DELETE',
-	});
-	if (!response.ok) {
-		throw new Error('Failed to delete AI session');
 	}
 }
 
@@ -318,12 +290,9 @@ export interface StartAgentChatParameters {
  * of this HTTP request. Stream events are delivered via WebSocket
  * through the ProjectCoordinator.
  *
- * @returns The session ID and initial status
+ * @returns The session ID
  */
-export async function startAgentChat(
-	projectId: string,
-	parameters: StartAgentChatParameters,
-): Promise<{ sessionId: string; status: string }> {
+export async function startAgentChat(projectId: string, parameters: StartAgentChatParameters): Promise<{ sessionId: string }> {
 	const response = await fetch(`/p/${projectId}/api/ai/chat`, {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
@@ -342,33 +311,17 @@ export async function startAgentChat(
 }
 
 /**
- * Abort a currently running AI agent.
+ * Abort a running AI agent session.
+ *
+ * @param projectId - The project ID
+ * @param sessionId - The session to abort. If omitted, aborts ALL running sessions.
  */
-export async function abortAgent(projectId: string): Promise<void> {
-	const response = await fetch(`/p/${projectId}/api/ai/abort`, { method: 'POST' });
+export async function abortAgent(projectId: string, sessionId?: string): Promise<void> {
+	const api = createApiClient(projectId);
+	const response = await api.ai.abort.$post({ json: { sessionId } });
 	if (!response.ok) {
 		throw new Error('Failed to abort agent');
 	}
-}
-
-/**
- * Get the current agent session status.
- */
-export async function getAgentStatus(projectId: string): Promise<ActiveAgentSession | undefined> {
-	const response = await fetch(`/p/${projectId}/api/ai/agent-status`);
-	if (!response.ok) return undefined;
-	const data: { session?: ActiveAgentSession } = await response.json();
-	return data.session;
-}
-
-/**
- * Get the IDs of all currently running agent sessions for a project.
- */
-export async function getRunningSessionIds(projectId: string): Promise<string[]> {
-	const response = await fetch(`/p/${projectId}/api/ai/running-sessions`);
-	if (!response.ok) return [];
-	const data: { sessionIds: string[] } = await response.json();
-	return data.sessionIds;
 }
 
 /**

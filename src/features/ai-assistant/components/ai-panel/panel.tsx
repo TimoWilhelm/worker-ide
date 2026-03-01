@@ -523,6 +523,11 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	// AI-related metadata (sessionId, snapshots, error) to avoid creating a
 	// second competing [] reference that would cause a sync loop.
 	const clearHistory = useCallback(() => {
+		// Stop any active stream for the current session (the DO agent
+		// keeps running — we're just detaching the local listener).
+		if (isChatLoading) {
+			stopChat();
+		}
 		setPlanPath(undefined);
 		setNeedsContinuation(false);
 		setPendingQuestion(undefined);
@@ -543,10 +548,12 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		});
 		// Clear the project-scoped active session pointer in localStorage
 		setActiveSessionId(projectId, undefined);
+		// Reset reconnect flag so the reconnection effect can fire for future sessions
+		hasTriggeredReconnectReference.current = false;
 		// clearChat() must be last — it sets chatMessages=[] which the forward-sync
 		// effect will propagate to the store's history.
 		clearChat();
-	}, [clearChat, projectId]);
+	}, [clearChat, projectId, isChatLoading, stopChat]);
 
 	// Wrap handleLoadSession to also clear pending changes and sync to useChat.
 	// loadSession updates the store's history, and the reverse-sync effect
@@ -645,15 +652,15 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	);
 
 	// Cancel current request.
-	// Tells the AgentRunner DO to abort the agent loop, and stops
+	// Tells the AgentRunner DO to abort the specific session, and stops
 	// the local useChat stream consumer. Session is persisted server-side
 	// when the agent is aborted, so no client-side save is needed here.
 	const handleCancel = useCallback(() => {
 		stopChat();
 		setProcessing(false);
 		setStatusMessage(undefined);
-		// Fire-and-forget abort to the AgentRunner DO
-		void abortAgent(projectId);
+		// Fire-and-forget abort to the AgentRunner DO (session-scoped)
+		void abortAgent(projectId, sessionIdReference.current);
 	}, [stopChat, setProcessing, setStatusMessage, projectId]);
 
 	// Retry last message.
@@ -915,10 +922,10 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 						</DropdownMenuContent>
 					</DropdownMenu>
 
-					{/* New session — always available when there's history, even if other sessions are running */}
+					{/* New session — always available when there's history, even while streaming */}
 					{chatMessages.length > 0 && (
 						<Tooltip content="New session" side="bottom">
-							<Button variant="ghost" size="icon-sm" onClick={clearHistory} disabled={isChatLoading}>
+							<Button variant="ghost" size="icon-sm" onClick={clearHistory}>
 								<Plus className="size-3.5" />
 							</Button>
 						</Tooltip>

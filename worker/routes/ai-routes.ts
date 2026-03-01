@@ -58,29 +58,19 @@ export const aiRoutes = new Hono<AppEnvironment>()
 			outputLogs,
 		});
 
-		return c.json({ sessionId: session.sessionId, status: session.status });
+		return c.json({ sessionId: session.sessionId });
 	})
 
-	// POST /api/ai/abort - Abort current AI agent run
-	.post('/ai/abort', async (c) => {
+	// POST /api/ai/abort - Abort a running AI agent session
+	.post('/ai/abort', zValidator('json', z.object({ sessionId: z.string().min(1).optional() })), async (c) => {
 		const projectId = c.get('projectId');
+		const { sessionId } = c.req.valid('json');
 
 		const agentRunnerId = agentRunnerNamespace.idFromName(`agent:${projectId}`);
 		const agentRunnerStub = agentRunnerNamespace.get(agentRunnerId);
-		await agentRunnerStub.abortAgent();
+		await agentRunnerStub.abortAgent(sessionId);
 
 		return c.json({ success: true });
-	})
-
-	// GET /api/ai/agent-status - Get current agent status
-	.get('/ai/agent-status', async (c) => {
-		const projectId = c.get('projectId');
-
-		const agentRunnerId = agentRunnerNamespace.idFromName(`agent:${projectId}`);
-		const agentRunnerStub = agentRunnerNamespace.get(agentRunnerId);
-		const status = await agentRunnerStub.getAgentStatus();
-
-		return c.json({ session: status ?? undefined });
 	})
 
 	// GET /api/ai/buffered-events?sessionId=X&lastEventIndex=Y - Get buffered stream events for reconnection
@@ -100,18 +90,6 @@ export const aiRoutes = new Hono<AppEnvironment>()
 			return c.json({ events });
 		},
 	)
-
-	// GET /api/ai/running-sessions - Get IDs of all currently running agent sessions
-	.get('/ai/running-sessions', async (c) => {
-		const projectId = c.get('projectId');
-
-		const agentRunnerId = agentRunnerNamespace.idFromName(`agent:${projectId}`);
-		const agentRunnerStub = agentRunnerNamespace.get(agentRunnerId);
-		const rpcIds = await agentRunnerStub.getRunningSessionIds();
-		const sessionIds = [...rpcIds];
-
-		return c.json({ sessionIds });
-	})
 
 	// GET /api/ai/latest-debug-log-id?sessionId=X - Get the latest debug log ID for a session
 	.get('/ai/latest-debug-log-id', zValidator('query', z.object({ sessionId: z.string().min(1) })), async (c) => {

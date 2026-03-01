@@ -59,6 +59,22 @@ export interface ToolFailureRecord {
 export type ToolFailureQueue = ToolFailureRecord[];
 
 /**
+ * Mutable ref holding the toolCallId of the currently-executing tool.
+ * Set by the tool wrapper before execution, read by `createSendEvent`
+ * to auto-inject toolCallId into CUSTOM events (tool_result, file_changed).
+ */
+export interface ToolCallIdReference {
+	current: string | undefined;
+}
+
+/**
+ * Ordered queue of toolCallIds from Phase 1 TOOL_CALL_END events.
+ * Each tool wrapper `shift()`s the next ID before executing.
+ * This matches the execution order guaranteed by TanStack AI's sequential tool execution.
+ */
+export type PendingToolCallIds = string[];
+
+/**
  * Function to emit a CUSTOM AG-UI event from a tool executor.
  * Pushes events into the shared CustomEventQueue which is drained
  * by the stream wrapper and sent to the client.

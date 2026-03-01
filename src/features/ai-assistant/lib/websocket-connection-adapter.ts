@@ -25,6 +25,13 @@ import type { AgentMode } from '@shared/types';
 import type { StreamChunk } from '@tanstack/ai';
 
 /**
+ * Timeout for stale session detection during reconnection (ms).
+ * If the event buffer is empty (DO was evicted) and no live events arrive
+ * within this window, assume the session is stale and stop listening.
+ */
+const RECONNECT_STALE_TIMEOUT_MS = 10_000;
+
+/**
  * Options for the WebSocket connection adapter.
  */
 interface WebSocketAdapterOptions {
@@ -179,10 +186,31 @@ export function createWebSocketConnectionAdapter(options: WebSocketAdapterOption
 						highestBufferedIndex = Math.max(highestBufferedIndex, event.index);
 					}
 
-					// 4. Drain the live queue, skipping events already yielded
+					// 4. If the buffer was empty and no live events have arrived,
+					//    the DO was likely evicted (in-memory buffer lost). Apply a
+					//    timeout so we don't hang forever waiting for events that
+					//    will never come.
+					const needsStaleTimeout = buffered.length === 0 && queue.length === 0;
+
+					// 5. Drain the live queue, skipping events already yielded
 					//    from the buffer (deduplicate by event index).
+					let receivedLiveEvent = false;
 					while (true) {
-						await waitForItem();
+						if (needsStaleTimeout && !receivedLiveEvent) {
+							// Race waitForItem against a stale-session timeout.
+							// If no event arrives within RECONNECT_STALE_TIMEOUT_MS,
+							// assume the session is stale and stop listening.
+							const timeout = new Promise<'timeout'>((resolve) => {
+								setTimeout(() => resolve('timeout'), RECONNECT_STALE_TIMEOUT_MS);
+							});
+							const result = await Promise.race([waitForItem().then(() => 'item' as const), timeout]);
+							if (result === 'timeout') {
+								// Session is stale — signal completion to useChat
+								return;
+							}
+						} else {
+							await waitForItem();
+						}
 
 						while (queue.length > 0) {
 							const item = queue.shift()!;
@@ -200,6 +228,7 @@ export function createWebSocketConnectionAdapter(options: WebSocketAdapterOption
 								continue;
 							}
 
+							receivedLiveEvent = true;
 							yield item.chunk;
 						}
 					}

@@ -150,13 +150,6 @@ export interface AiSessionSummary {
  */
 export type AgentSessionStatus = 'running' | 'completed' | 'error' | 'aborted';
 
-export interface ActiveAgentSession {
-	sessionId: string;
-	status: AgentSessionStatus;
-	title?: string;
-	startedAt: number;
-}
-
 // =============================================================================
 // TODO Item Types
 // =============================================================================

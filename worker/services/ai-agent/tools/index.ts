@@ -39,7 +39,9 @@ import type { AgentLogger } from '../agent-logger';
 import type {
 	CustomEventQueue,
 	FileChange,
+	PendingToolCallIds,
 	SendEventFunction,
+	ToolCallIdReference,
 	ToolDefinition,
 	ToolExecuteFunction,
 	ToolExecutorContext,
@@ -255,9 +257,22 @@ function jsonSchemaToZod(properties: Record<string, unknown>, required: string[]
  * Create a SendEventFunction that pushes CUSTOM AG-UI events into the shared queue.
  * Tools call `sendEvent('file_changed', { path, action, ... })` and it becomes
  * a `{ type: 'CUSTOM', name: 'file_changed', data: { path, action, ... }, timestamp }` event.
+ *
+ * The `toolCallIdRef` is a mutable ref set by each tool wrapper before execution.
+ * For `tool_result` and `file_changed` events, the current toolCallId is auto-injected
+ * so that the frontend can correlate events with specific tool call UI elements.
  */
-export function createSendEvent(eventQueue: CustomEventQueue): SendEventFunction {
+export function createSendEvent(eventQueue: CustomEventQueue, toolCallIdReference: ToolCallIdReference): SendEventFunction {
 	return (type: string, data: Record<string, unknown>) => {
+		// Auto-inject toolCallId for events that need frontend correlation.
+		// Individual tools don't know their call ID; the wrapper sets the ref.
+		if (toolCallIdReference.current && (type === 'tool_result' || type === 'file_changed')) {
+			data.toolCallId = toolCallIdReference.current;
+			// Legacy field name used by panel.tsx for fileDiffContent keying
+			if (type === 'file_changed') {
+				data.tool_use_id = toolCallIdReference.current;
+			}
+		}
 		eventQueue.push({
 			type: 'CUSTOM',
 			name: type,
@@ -274,12 +289,22 @@ export function createSendEvent(eventQueue: CustomEventQueue): SendEventFunction
  * - sendEvent: callback to push CUSTOM AG-UI events to the event queue
  * - context: project root, mode, session ID, MCP client
  * - queryChanges: mutable array for tracking file changes (for snapshots)
+ * - toolCallIdRef: mutable ref for the current tool call's ID
+ * - pendingToolCallIds: ordered queue of tool call IDs from Phase 1 events
+ *
+ * Before each tool executes, the wrapper `shift()`s the next toolCallId from
+ * `pendingToolCallIds` and sets `toolCallIdRef.current`. This allows `sendEvent`
+ * to auto-inject the correct toolCallId into CUSTOM events (tool_result,
+ * file_changed) without tools needing to know their call ID.
  *
  * @param sendEvent - Function to push CUSTOM events to the event queue
  * @param context - Tool executor context (project root, mode, etc.)
  * @param queryChanges - Mutable array for tracking file changes
  * @param mode - Agent mode (code, plan, ask) — determines which tools are available
  * @param logger - Optional debug logger for structured tool call logging
+ * @param toolFailures - Mutable array for doom-loop detection
+ * @param toolCallIdRef - Mutable ref for the currently-executing tool call ID
+ * @param pendingToolCallIds - Ordered queue of tool call IDs populated by Phase 1 events
  */
 export function createServerTools(
 	sendEvent: SendEventFunction,
@@ -288,6 +313,8 @@ export function createServerTools(
 	mode: 'code' | 'plan' | 'ask',
 	logger?: AgentLogger,
 	toolFailures?: ToolFailureQueue,
+	toolCallIdReference?: ToolCallIdReference,
+	pendingToolCallIds?: PendingToolCallIds,
 ) {
 	// Select which tool definitions to use based on mode
 	const activeToolDefinitions = mode === 'ask' ? ASK_MODE_TOOLS : mode === 'plan' ? PLAN_MODE_TOOLS : AGENT_TOOLS;
@@ -305,80 +332,94 @@ export function createServerTools(
 			description: definition.description,
 			inputSchema,
 		}).server(async (input) => {
-			// Defense-in-depth: reject editing tools in non-code modes
-			if (mode !== 'code' && EDITING_TOOL_NAMES.has(definition.name)) {
-				logger?.warn('tool_call', 'blocked', {
-					toolName: definition.name,
-					reason: 'editing_tool_in_non_code_mode',
-					mode,
-				});
-				// Return a JSON object — @tanstack/ai's executeToolCalls() calls
-				// JSON.parse() on string results, so plain strings would throw.
-				return { content: 'File editing tools are not available in this mode. Switch to Code mode to make changes.' };
+			// Set the current tool call ID from the ordered Phase 1 queue.
+			// TanStack AI executes tools sequentially in the same order as
+			// TOOL_CALL_START events, so shift() gives us the correct ID.
+			if (toolCallIdReference && pendingToolCallIds) {
+				toolCallIdReference.current = pendingToolCallIds.shift();
 			}
-
-			// Coerce input values to strings (tool executors expect Record<string, string>)
-			const stringInput: Record<string, string> = {};
-			for (const [key, value] of Object.entries(input)) {
-				stringInput[key] = String(value);
-			}
-
-			logger?.info('tool_call', 'started', {
-				toolName: definition.name,
-				input: sanitizeToolInput(stringInput),
-			});
-			const timer = logger?.startTimer();
 
 			try {
-				const result = await executor(stringInput, sendEvent, context, queryChanges);
-
-				logger?.info(
-					'tool_call',
-					'completed',
-					{
+				// Defense-in-depth: reject editing tools in non-code modes
+				if (mode !== 'code' && EDITING_TOOL_NAMES.has(definition.name)) {
+					logger?.warn('tool_call', 'blocked', {
 						toolName: definition.name,
-						resultSummary: summarizeToolResult(result.output),
-						resultLength: result.output.length,
-					},
-					{ durationMs: timer?.() },
-				);
+						reason: 'editing_tool_in_non_code_mode',
+						mode,
+					});
+					// Return a JSON object — @tanstack/ai's executeToolCalls() calls
+					// JSON.parse() on string results, so plain strings would throw.
+					return { content: 'File editing tools are not available in this mode. Switch to Code mode to make changes.' };
+				}
 
-				// Emit structured metadata as a CUSTOM event for the UI.
-				// The tool call ID is injected by service.ts when it drains the event queue.
-				sendEvent('tool_result', {
-					tool_name: definition.name,
-					title: result.title,
-					metadata: result.metadata,
+				// Coerce input values to strings (tool executors expect Record<string, string>)
+				const stringInput: Record<string, string> = {};
+				for (const [key, value] of Object.entries(input)) {
+					stringInput[key] = String(value);
+				}
+
+				logger?.info('tool_call', 'started', {
+					toolName: definition.name,
+					input: sanitizeToolInput(stringInput),
 				});
+				const timer = logger?.startTimer();
 
-				// Send only the text output to the LLM
-				return { content: result.output };
-			} catch (error) {
-				// ToolExecutionError = expected tool-level failure (file not found, no match, etc.)
-				// Other errors = unexpected crashes in tool code
-				const isToolError = error instanceof ToolExecutionError;
-				const logMethod = isToolError ? 'warn' : 'error';
-				const event = isToolError ? 'tool_error' : 'error';
-				logger?.[logMethod](
-					'tool_call',
-					event,
-					{
+				try {
+					const result = await executor(stringInput, sendEvent, context, queryChanges);
+
+					logger?.info(
+						'tool_call',
+						'completed',
+						{
+							toolName: definition.name,
+							resultSummary: summarizeToolResult(result.output),
+							resultLength: result.output.length,
+						},
+						{ durationMs: timer?.() },
+					);
+
+					// Emit structured metadata as a CUSTOM event for the UI.
+					// toolCallId is auto-injected by sendEvent via toolCallIdRef.
+					sendEvent('tool_result', {
+						tool_name: definition.name,
+						title: result.title,
+						metadata: result.metadata,
+					});
+
+					// Send only the text output to the LLM
+					return { content: result.output };
+				} catch (error) {
+					// ToolExecutionError = expected tool-level failure (file not found, no match, etc.)
+					// Other errors = unexpected crashes in tool code
+					const isToolError = error instanceof ToolExecutionError;
+					const logMethod = isToolError ? 'warn' : 'error';
+					const event = isToolError ? 'tool_error' : 'error';
+					logger?.[logMethod](
+						'tool_call',
+						event,
+						{
+							toolName: definition.name,
+							errorCode: isToolError ? error.code : undefined,
+							error: error instanceof Error ? error.message : String(error),
+							stack: isToolError ? undefined : error instanceof Error ? error.stack : undefined,
+						},
+						{ durationMs: timer?.() },
+					);
+
+					// Push typed failure record for doom-loop detection and frontend error display
+					toolFailures?.push({
 						toolName: definition.name,
 						errorCode: isToolError ? error.code : undefined,
-						error: error instanceof Error ? error.message : String(error),
-						stack: isToolError ? undefined : error instanceof Error ? error.stack : undefined,
-					},
-					{ durationMs: timer?.() },
-				);
+						errorMessage: error instanceof Error ? error.message : String(error),
+					});
 
-				// Push typed failure record for doom-loop detection and frontend error display
-				toolFailures?.push({
-					toolName: definition.name,
-					errorCode: isToolError ? error.code : undefined,
-					errorMessage: error instanceof Error ? error.message : String(error),
-				});
-
-				throw error;
+					throw error;
+				}
+			} finally {
+				// Clear the ref so events from non-tool code don't get a stale ID
+				if (toolCallIdReference) {
+					toolCallIdReference.current = undefined;
+				}
 			}
 		});
 	});

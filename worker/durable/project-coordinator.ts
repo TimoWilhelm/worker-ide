@@ -290,13 +290,13 @@ export class ProjectCoordinator extends DurableObject {
 	/**
 	 * Forward an agent-abort request to the AgentRunner DO.
 	 */
-	private async forwardAgentAbort(): Promise<void> {
+	private async forwardAgentAbort(sessionId?: string): Promise<void> {
 		try {
 			const projectId = this.deriveProjectId();
 			if (!projectId) return;
 			const agentRunnerId = agentRunnerNamespace.idFromName(`agent:${projectId}`);
 			const agentRunnerStub = agentRunnerNamespace.get(agentRunnerId);
-			await agentRunnerStub.abortAgent();
+			await agentRunnerStub.abortAgent(sessionId);
 		} catch (error) {
 			console.error('Failed to forward agent abort:', error);
 		}
@@ -487,7 +487,7 @@ export class ProjectCoordinator extends DurableObject {
 
 			if (data.type === 'agent-abort') {
 				// Forward the abort to the AgentRunner DO
-				void this.forwardAgentAbort();
+				void this.forwardAgentAbort(data.sessionId);
 				return;
 			}
 		} catch {

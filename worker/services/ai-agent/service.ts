@@ -38,7 +38,16 @@ import { createSendEvent, createServerTools, MUTATION_TOOL_NAMES } from './tools
 import { isRecordObject, parseApiError } from './utilities';
 import { coordinatorNamespace } from '../../lib/durable-object-namespaces';
 
-import type { CustomEventQueue, FileChange, ModelMessage, SnapshotMetadata, ToolExecutorContext, ToolFailureRecord } from './types';
+import type {
+	CustomEventQueue,
+	FileChange,
+	ModelMessage,
+	PendingToolCallIds,
+	SnapshotMetadata,
+	ToolCallIdReference,
+	ToolExecutorContext,
+	ToolFailureRecord,
+} from './types';
 import type { ExpiringFilesystem } from '../../durable/expiring-filesystem';
 import type { AIModelId } from '@shared/constants';
 import type { PendingFileChange, ToolErrorInfo, ToolMetadataInfo } from '@shared/types';
@@ -553,8 +562,18 @@ export class AIAgentService {
 			softLimit: SOFT_ITERATION_LIMIT,
 		});
 
+		// Mutable ref for the currently-executing tool call ID.
+		// Set by each tool wrapper before execution; read by sendEvent to auto-inject
+		// toolCallId into CUSTOM events (tool_result, file_changed).
+		const toolCallIdReference: ToolCallIdReference = { current: undefined };
+
+		// Ordered queue of tool call IDs from Phase 1 TOOL_CALL_END events.
+		// Each tool wrapper shift()s the next ID before executing, matching the
+		// sequential execution order guaranteed by TanStack AI.
+		const pendingToolCallIds: PendingToolCallIds = [];
+
 		// Create the sendEvent function that pushes CUSTOM events to the queue
-		const sendEvent = createSendEvent(eventQueue);
+		const sendEvent = createSendEvent(eventQueue, toolCallIdReference);
 
 		// Eagerly create a snapshot directory for code mode
 		let snapshotContext: { id: string; directory: string; savedPaths: Set<string> } | undefined;
@@ -691,9 +710,21 @@ export class AIAgentService {
 				// Track file changes before this iteration for snapshot
 				const changeCountBefore = queryChanges.length;
 
-				// Create tools fresh each iteration (they capture the mutable queryChanges array)
+				// Create tools fresh each iteration (they capture the mutable queryChanges array).
+				// Pass toolCallIdRef and pendingToolCallIds so each tool wrapper can set the
+				// current toolCallId before executing (for sendEvent auto-injection).
 				const toolFailures: ToolFailureRecord[] = [];
-				const tools = createServerTools(sendEvent, toolContext, queryChanges, this.mode, logger, toolFailures);
+				pendingToolCallIds.length = 0; // Reset for this iteration
+				const tools = createServerTools(
+					sendEvent,
+					toolContext,
+					queryChanges,
+					this.mode,
+					logger,
+					toolFailures,
+					toolCallIdReference,
+					pendingToolCallIds,
+				);
 
 				// Call the LLM with retry
 				let chatResult: AsyncIterable<StreamChunk>;
@@ -762,11 +793,11 @@ export class AIAgentService {
 				for await (const chunk of chatResult) {
 					if (signal.aborted) break;
 
-					// Drain any CUSTOM events queued by tool executors
-					while (eventQueue.length > 0) {
-						const queued = eventQueue.shift();
-						if (queued) yield queued;
-					}
+					// NOTE: Do NOT drain eventQueue here. CUSTOM events pushed by tool
+					// executors must be drained inside the TOOL_CALL_END handler so
+					// they appear after the corresponding TOOL_CALL_END chunk in the
+					// stream. The toolCallId is auto-injected at push time by sendEvent
+					// (via toolCallIdRef), so no post-hoc injection is needed.
 
 					if (!isRecordObject(chunk)) continue;
 					const eventType = getEventField(chunk, 'type');
@@ -876,6 +907,9 @@ export class AIAgentService {
 										arguments: currentToolArguments,
 										input: toolInput,
 									});
+									// Queue the ID for the tool wrapper to shift() before executing.
+									// Order matches TanStack AI's sequential tool execution order.
+									pendingToolCallIds.push(toolCallId);
 								}
 
 								logger.info('tool_call', 'args_complete', {
@@ -899,28 +933,10 @@ export class AIAgentService {
 							yield chunk;
 
 							// Drain any CUSTOM events from tool execution.
-							// Inject the toolCallId into tool_result and file_changed events
-							// since individual tools don't have access to their call ID.
+							// toolCallId is already injected by sendEvent (via toolCallIdRef)
+							// so no post-hoc injection is needed here.
 							while (eventQueue.length > 0) {
 								const queued = eventQueue.shift();
-								if (
-									queued &&
-									toolCallId &&
-									'name' in queued &&
-									'data' in queued &&
-									typeof queued.name === 'string' &&
-									isRecordObject(queued.data)
-								) {
-									const eventName = queued.name;
-									const eventData = queued.data;
-									if (eventName === 'tool_result' || eventName === 'file_changed') {
-										eventData.toolCallId = toolCallId;
-										// Keep tool_use_id for file_changed (legacy field name used by panel.tsx)
-										if (eventName === 'file_changed') {
-											eventData.tool_use_id = toolCallId;
-										}
-									}
-								}
 								if (queued) yield queued;
 							}
 
