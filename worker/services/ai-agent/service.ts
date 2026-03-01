@@ -51,7 +51,7 @@ import type {
 } from './types';
 import type { ExpiringFilesystem } from '../../durable/expiring-filesystem';
 import type { AIModelId } from '@shared/constants';
-import type { PendingFileChange, ToolErrorInfo, ToolMetadataInfo } from '@shared/types';
+import type { AgentMode, PendingFileChange, ToolErrorInfo, ToolMetadataInfo } from '@shared/types';
 import type { StreamChunk, UIMessage } from '@tanstack/ai';
 
 // =============================================================================
@@ -226,6 +226,7 @@ export class AIAgentService {
 				title?: string;
 				history: unknown[];
 				messageSnapshots?: Record<string, string>;
+				messageModes?: Record<string, AgentMode>;
 				contextTokensUsed?: number;
 				toolMetadata?: Record<string, ToolMetadataInfo>;
 				toolErrors?: Record<string, ToolErrorInfo>;
@@ -493,6 +494,13 @@ export class AIAgentService {
 				messageSnapshots[String(userMessageIndex)] = snapshotId;
 			}
 
+			// Record the agent mode for this user message so the UI can display
+			// mode badges per-message even after session reload / DO eviction.
+			const messageModes: Record<string, AgentMode> = {};
+			if (userMessageIndex >= 0) {
+				messageModes[String(userMessageIndex)] = this.mode;
+			}
+
 			// Derive title: use existing AI-generated title if available, otherwise
 			// derive a fallback from the first user message.
 			const firstUserMessage = history.find((message) => message.role === 'user');
@@ -510,6 +518,7 @@ export class AIAgentService {
 				title,
 				history,
 				messageSnapshots: Object.keys(messageSnapshots).length > 0 ? messageSnapshots : undefined,
+				messageModes: Object.keys(messageModes).length > 0 ? messageModes : undefined,
 				contextTokensUsed: contextTokensUsed > 0 ? contextTokensUsed : undefined,
 				toolMetadata: streamToolMetadata && streamToolMetadata.size > 0 ? Object.fromEntries(streamToolMetadata) : undefined,
 				toolErrors: streamToolErrors && streamToolErrors.size > 0 ? Object.fromEntries(streamToolErrors) : undefined,

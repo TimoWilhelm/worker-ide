@@ -5,7 +5,7 @@
  * to avoid duplicating conversion logic.
  */
 
-import type { PendingFileChange, UIMessage } from '@shared/types';
+import type { AgentMode, PendingFileChange, UIMessage } from '@shared/types';
 
 /**
  * Derive a fallback session title from the first user message (truncated to 50 chars).
@@ -44,6 +44,21 @@ export function snapshotsRecordToMap(record: Record<string, string> | undefined)
 	for (const [key, value] of Object.entries(record)) {
 		const index = Number(key);
 		if (Number.isFinite(index)) {
+			map.set(index, value);
+		}
+	}
+	return map;
+}
+
+/**
+ * Convert a Record<string, AgentMode> back to a Map<number, AgentMode>.
+ */
+export function messageModesRecordToMap(record: Record<string, AgentMode> | undefined): Map<number, AgentMode> {
+	const map = new Map<number, AgentMode>();
+	if (!record) return map;
+	for (const [key, value] of Object.entries(record)) {
+		const index = Number(key);
+		if (Number.isFinite(index) && (value === 'code' || value === 'plan' || value === 'ask')) {
 			map.set(index, value);
 		}
 	}

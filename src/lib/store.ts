@@ -98,6 +98,8 @@ interface AIState {
 	savedSessions: Array<{ id: string; title: string; createdAt: number; isRunning: boolean }>;
 	/** Maps message index to snapshot ID (for revert buttons on user messages) */
 	messageSnapshots: Map<number, string>;
+	/** Maps user-message index to the AgentMode that was active when the message was sent */
+	messageModes: Map<number, AgentMode>;
 	/** Current agent operating mode */
 	agentMode: AgentMode;
 	/** Selected AI model identifier */
@@ -118,9 +120,16 @@ interface AIActions {
 	setAiError: (error: AIError | undefined) => void;
 	setSessionId: (id: string | undefined) => void;
 	setSavedSessions: (sessions: Array<{ id: string; title: string; createdAt: number; isRunning: boolean }>) => void;
-	loadSession: (history: UIMessage[], sessionId: string, messageSnapshots?: Map<number, string>, contextTokensUsed?: number) => void;
+	loadSession: (
+		history: UIMessage[],
+		sessionId: string,
+		messageSnapshots?: Map<number, string>,
+		contextTokensUsed?: number,
+		messageModes?: Map<number, AgentMode>,
+	) => void;
 	setMessageSnapshot: (messageIndex: number, snapshotId: string) => void;
 	clearMessageSnapshot: (snapshotId: string) => void;
+	setMessageMode: (messageIndex: number, mode: AgentMode) => void;
 	removeMessagesAfter: (index: number) => void;
 	removeMessagesFrom: (index: number) => void;
 	setAgentMode: (mode: AgentMode) => void;
@@ -432,6 +441,7 @@ export const useStore = create<StoreState>()(
 				sessionId: undefined,
 				savedSessions: [],
 				messageSnapshots: new Map(),
+				messageModes: new Map(),
 				agentMode: 'code',
 				selectedModel: DEFAULT_AI_MODEL,
 				debugLogId: undefined,
@@ -448,6 +458,7 @@ export const useStore = create<StoreState>()(
 						history: [],
 						sessionId: undefined,
 						messageSnapshots: new Map(),
+						messageModes: new Map(),
 						aiError: undefined,
 						debugLogId: undefined,
 						contextTokensUsed: 0,
@@ -463,11 +474,12 @@ export const useStore = create<StoreState>()(
 
 				setSavedSessions: (sessions) => set({ savedSessions: sessions }),
 
-				loadSession: (history, sessionId, messageSnapshots, contextTokensUsed) =>
+				loadSession: (history, sessionId, messageSnapshots, contextTokensUsed, messageModes) =>
 					set({
 						history,
 						sessionId,
 						messageSnapshots: messageSnapshots ?? new Map(),
+						messageModes: messageModes ?? new Map(),
 						aiError: undefined,
 						debugLogId: undefined,
 						contextTokensUsed: contextTokensUsed ?? 0,
@@ -491,6 +503,13 @@ export const useStore = create<StoreState>()(
 						return { messageSnapshots: newMap };
 					}),
 
+				setMessageMode: (messageIndex, mode) =>
+					set((state) => {
+						const newMap = new Map(state.messageModes);
+						newMap.set(messageIndex, mode);
+						return { messageModes: newMap };
+					}),
+
 				removeMessagesAfter: (index) =>
 					set((state) => ({
 						history: state.history.slice(0, index + 1),
@@ -511,9 +530,16 @@ export const useStore = create<StoreState>()(
 								newSnapshots.set(key, value);
 							}
 						}
+						const newModes = new Map<number, AgentMode>();
+						for (const [key, value] of state.messageModes) {
+							if (key < index) {
+								newModes.set(key, value);
+							}
+						}
 						return {
 							history: state.history.slice(0, index),
 							messageSnapshots: newSnapshots,
+							messageModes: newModes,
 						};
 					}),
 

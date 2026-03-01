@@ -276,7 +276,7 @@ export class AgentRunner extends DurableObject {
 		const session = this.ctx.storage.kv.get<AiSession>(`sessionData:${sessionId}`);
 		if (!session) return;
 
-		// Truncate history and prune snapshot mappings above the cut point
+		// Truncate history and prune snapshot/mode mappings above the cut point
 		const truncatedHistory = session.history.slice(0, messageIndex);
 		let prunedSnapshots: Record<string, string> | undefined;
 		if (session.messageSnapshots) {
@@ -290,11 +290,24 @@ export class AgentRunner extends DurableObject {
 				prunedSnapshots = undefined;
 			}
 		}
+		let prunedModes: Record<string, string> | undefined;
+		if (session.messageModes) {
+			prunedModes = {};
+			for (const [key, value] of Object.entries(session.messageModes)) {
+				if (Number(key) < messageIndex) {
+					prunedModes[key] = value;
+				}
+			}
+			if (Object.keys(prunedModes).length === 0) {
+				prunedModes = undefined;
+			}
+		}
 
 		this.ctx.storage.kv.put(`sessionData:${sessionId}`, {
 			...session,
 			history: truncatedHistory,
 			messageSnapshots: prunedSnapshots,
+			messageModes: prunedModes,
 			revertedAt: Date.now(),
 		});
 	}
@@ -494,6 +507,10 @@ export class AgentRunner extends DurableObject {
 							? { ...existing?.messageSnapshots, ...sessionData.messageSnapshots }
 							: undefined;
 
+					// Merge messageModes: existing + current turn's new entry
+					const messageModes =
+						existing?.messageModes || sessionData.messageModes ? { ...existing?.messageModes, ...sessionData.messageModes } : undefined;
+
 					// Merge tool metadata and errors: existing + current turn's new entries
 					const toolMetadata =
 						existing?.toolMetadata || sessionData.toolMetadata ? { ...existing?.toolMetadata, ...sessionData.toolMetadata } : undefined;
@@ -513,6 +530,7 @@ export class AgentRunner extends DurableObject {
 						createdAt,
 						title,
 						messageSnapshots,
+						messageModes,
 						toolMetadata,
 						toolErrors,
 					});

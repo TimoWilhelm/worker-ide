@@ -205,6 +205,7 @@ export function MessageBubble({
 	message,
 	messageIndex,
 	snapshotId,
+	agentMode,
 	isReverting,
 	revertingMessageIndex,
 	onRevert,
@@ -215,6 +216,8 @@ export function MessageBubble({
 	message: UIMessage;
 	messageIndex: number;
 	snapshotId?: string;
+	/** The agent mode that was active when this user message was sent */
+	agentMode?: AgentMode;
 	/** Whether any revert operation is in progress (disables all revert buttons) */
 	isReverting: boolean;
 	/** The message index currently being reverted (shows spinner on that specific button) */
@@ -230,6 +233,7 @@ export function MessageBubble({
 				message={message}
 				messageIndex={messageIndex}
 				snapshotId={snapshotId}
+				agentMode={agentMode}
 				isReverting={isReverting}
 				isRevertingThis={revertingMessageIndex === messageIndex}
 				onRevert={onRevert}
@@ -244,10 +248,27 @@ export function MessageBubble({
 // User Message
 // =============================================================================
 
+/**
+ * Mode-specific border and background colors for user message bubbles.
+ * Falls back to the default accent color when no mode is provided.
+ */
+const MODE_BUBBLE_STYLES: Record<AgentMode, string> = {
+	code: 'border-emerald-500/25 bg-emerald-500/8',
+	plan: 'border-amber-500/25 bg-amber-500/8',
+	ask: 'border-sky-500/25 bg-sky-500/8',
+};
+
+const MODE_BADGE_STYLES: Record<AgentMode, { label: string; pillColor: NonNullable<PillProperties['color']> }> = {
+	code: { label: 'Code', pillColor: 'emerald' },
+	plan: { label: 'Plan', pillColor: 'amber' },
+	ask: { label: 'Ask', pillColor: 'sky' },
+};
+
 function UserMessage({
 	message,
 	messageIndex,
 	snapshotId,
+	agentMode,
 	isReverting,
 	isRevertingThis,
 	onRevert,
@@ -255,6 +276,8 @@ function UserMessage({
 	message: UIMessage;
 	messageIndex: number;
 	snapshotId?: string;
+	/** The agent mode that was active when this message was sent */
+	agentMode?: AgentMode;
 	/** Whether any revert operation is in progress (disables this button) */
 	isReverting: boolean;
 	/** Whether this specific message is being reverted (shows spinner) */
@@ -271,10 +294,20 @@ function UserMessage({
 	const knownPaths = useMemo(() => new Set(files.map((file) => file.path)), [files]);
 	const segments = useMemo(() => parseTextToSegments(text, knownPaths), [text, knownPaths]);
 
+	const bubbleStyle = agentMode ? MODE_BUBBLE_STYLES[agentMode] : 'border-accent/20 bg-accent/10';
+	const badge = agentMode ? MODE_BADGE_STYLES[agentMode] : undefined;
+
 	return (
 		<div className="flex min-w-0 animate-chat-item flex-col gap-1">
 			<div className="flex items-center justify-between">
-				<div className="text-2xs font-semibold tracking-wider text-accent uppercase">You</div>
+				<div className="flex items-center gap-1.5">
+					<span className="text-2xs font-semibold tracking-wider text-accent uppercase">You</span>
+					{badge && (
+						<Pill size="xs" color={badge.pillColor}>
+							{badge.label}
+						</Pill>
+					)}
+				</div>
 				{snapshotId && (
 					<Tooltip content="Revert files to before this message">
 						<button
@@ -293,7 +326,7 @@ function UserMessage({
 					</Tooltip>
 				)}
 			</div>
-			<div className={cn(`rounded-lg border border-accent/20 bg-accent/10 px-3 py-2.5`, `text-sm/relaxed text-text-primary`)}>
+			<div className={cn('rounded-lg border px-3 py-2.5', bubbleStyle, 'text-sm/relaxed text-text-primary')}>
 				<span className="whitespace-pre-wrap">
 					{segments.map((segment, index) =>
 						segment.type === 'mention' ? <FileReference key={index} path={segment.path} /> : <span key={index}>{segment.value}</span>,

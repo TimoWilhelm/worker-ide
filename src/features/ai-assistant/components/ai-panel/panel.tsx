@@ -98,6 +98,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		statusMessage,
 		aiError,
 		messageSnapshots,
+		messageModes,
 		files,
 		agentMode,
 		sessionId,
@@ -109,6 +110,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		setAiError,
 		setMessageSnapshot,
 		clearMessageSnapshot,
+		setMessageMode,
 		removeMessagesFrom,
 		setAgentMode,
 		setSelectedModel,
@@ -564,6 +566,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		useStore.setState({
 			sessionId: undefined,
 			messageSnapshots: new Map(),
+			messageModes: new Map(),
 			aiError: undefined,
 			debugLogId: undefined,
 			contextTokensUsed: 0,
@@ -641,6 +644,13 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 
 			// Track the index of this user message for snapshot association
 			userMessageIndexReference.current = chatMessages.length; // index of the user message about to be added
+			// Record the active agent mode for this user message (used for badge + color coding).
+			// Read from the store directly (not the ref) because setAgentMode updates the store
+			// synchronously, while the useEffect that syncs the ref is deferred to after render.
+			// This matters when the welcome screen changes the mode and sends in the same tick.
+			const currentMode = useStore.getState().agentMode;
+			agentModeReference.current = currentMode;
+			setMessageMode(chatMessages.length, currentMode);
 			setSegments([]);
 			inputReference.current?.clear();
 			setProcessing(true);
@@ -656,7 +666,17 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 				// Other errors are handled by onError callback
 			}
 		},
-		[inputPlainText, isProcessing, chatMessages.length, setAiError, setProcessing, setStatusMessage, sendMessage, projectId],
+		[
+			inputPlainText,
+			isProcessing,
+			chatMessages.length,
+			setAiError,
+			setProcessing,
+			setStatusMessage,
+			setMessageMode,
+			sendMessage,
+			projectId,
+		],
 	);
 
 	// Handle keyboard shortcuts
@@ -980,6 +1000,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 											message={message}
 											messageIndex={index}
 											snapshotId={messageSnapshots.get(index)}
+											agentMode={messageModes.get(index)}
 											isReverting={isReverting}
 											revertingMessageIndex={pendingRevert?.isLoading ? pendingRevert.messageIndex : undefined}
 											onRevert={handleRevert}

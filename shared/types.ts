@@ -124,6 +124,8 @@ export interface AiSession {
 	history: unknown[];
 	/** Maps message index (as string key) to snapshot ID for revert buttons */
 	messageSnapshots?: Record<string, string>;
+	/** Maps message index (as string key) to the AgentMode that was active when the user message was sent */
+	messageModes?: Record<string, AgentMode>;
 	/** Last known context window token usage (for the context ring indicator) */
 	contextTokensUsed?: number;
 	/** Set by the client after a revert to prevent the server-side stream
