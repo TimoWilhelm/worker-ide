@@ -13,14 +13,16 @@
 
 import { convertMessagesToModelMessages } from '@tanstack/ai';
 import { DurableObject, env } from 'cloudflare:workers';
+import { mount, withMounts } from 'worker-fs-mount';
 
 import { DEFAULT_AI_MODEL } from '@shared/constants';
 
 import { coordinatorNamespace, filesystemNamespace } from '../lib/durable-object-namespaces';
 import { AIAgentService } from '../services/ai-agent';
+import { cleanupSessionArtifacts, cleanupTimestampPlans } from '../services/ai-agent/session-cleanup';
 
 import type { AIModelId } from '@shared/constants';
-import type { ActiveAgentSession, AgentSessionStatus, AiSession } from '@shared/types';
+import type { ActiveAgentSession, AgentSessionStatus, AiSession, PendingFileChange } from '@shared/types';
 
 /**
  * Maximum number of recent stream events to buffer for reconnection.
@@ -32,6 +34,14 @@ const EVENT_BUFFER_CAPACITY = 500;
  * Project root path used by the filesystem mount.
  */
 const PROJECT_ROOT = '/project';
+
+/**
+ * Maximum number of sessions to retain. When exceeded after a new session
+ * is persisted, the oldest sessions (by createdAt) are pruned along with
+ * all their filesystem artifacts (debug logs, filetime, plans, todos,
+ * orphaned snapshots).
+ */
+const MAX_SESSIONS = 50;
 
 /**
  * Parameters for starting an agent run.
@@ -193,7 +203,7 @@ export class AgentRunner extends DurableObject {
 			}
 		}
 		sessions.sort((a, b) => b.createdAt - a.createdAt);
-		return sessions.slice(0, 100);
+		return sessions;
 	}
 
 	/**
@@ -245,12 +255,94 @@ export class AgentRunner extends DurableObject {
 	}
 
 	/**
-	 * Delete a session.
+	 * Delete a session and all its associated artifacts.
 	 */
-	async deleteSession(sessionId: string): Promise<void> {
+	async deleteSession(projectId: string, sessionId: string): Promise<void> {
 		this.ctx.storage.kv.delete(`sessionData:${sessionId}`);
-		// Also clean up the active session marker if it exists
 		this.ctx.storage.kv.delete(`session:${sessionId}`);
+
+		this.removePendingChangesForSessions(new Set([sessionId]));
+		const survivingSnapshotIds = this.getSurvivingSnapshotIds();
+
+		try {
+			const fsId = filesystemNamespace.idFromString(projectId);
+			const fsStub = filesystemNamespace.get(fsId);
+
+			await withMounts(async () => {
+				mount(PROJECT_ROOT, fsStub);
+				await cleanupSessionArtifacts(PROJECT_ROOT, new Set([sessionId]), survivingSnapshotIds);
+			});
+		} catch (error) {
+			console.error('[AgentRunner] Failed to clean up filesystem artifacts for deleted session:', error);
+		}
+	}
+
+	// =========================================================================
+	// Session Pruning
+	// =========================================================================
+
+	/**
+	 * Prune sessions beyond the rolling limit.
+	 *
+	 * Deletes the oldest sessions (by createdAt) that exceed MAX_SESSIONS,
+	 * skipping any that are currently running. Also cleans up:
+	 * - KV: sessionData, active session markers, pending changes entries
+	 * - Filesystem: .agent/sessions/{id}/, .agent/todo/{id}.json,
+	 *   .agent/plans/{id}.md, orphaned snapshots
+	 *
+	 * Called after each agent run completes in executeAgentLoop.
+	 */
+	private async pruneOldSessions(projectId: string): Promise<void> {
+		// Collect all sessions sorted by createdAt descending
+		const allSessions: Array<{ id: string; createdAt: number }> = [];
+		const entries = this.ctx.storage.kv.list<AiSession>({ prefix: 'sessionData:' });
+		for (const [, data] of entries) {
+			if (data?.id && typeof data.createdAt === 'number') {
+				allSessions.push({ id: data.id, createdAt: data.createdAt });
+			}
+		}
+		allSessions.sort((a, b) => b.createdAt - a.createdAt);
+
+		if (allSessions.length <= MAX_SESSIONS) return;
+
+		// Identify sessions to prune (oldest beyond the limit, skipping running ones)
+		const runningIds = new Set(this.agentAbortControllers.keys());
+		const sessionsToPrune: string[] = [];
+		for (const session of allSessions.slice(MAX_SESSIONS)) {
+			if (!runningIds.has(session.id)) {
+				sessionsToPrune.push(session.id);
+			}
+		}
+
+		if (sessionsToPrune.length === 0) return;
+
+		const prunedSessionIds = new Set(sessionsToPrune);
+
+		// --- KV Cleanup ---
+		for (const sessionId of sessionsToPrune) {
+			this.ctx.storage.kv.delete(`sessionData:${sessionId}`);
+			this.ctx.storage.kv.delete(`session:${sessionId}`);
+		}
+
+		// Remove pending changes belonging to pruned sessions.
+		// Pending changes are NOT auto-accepted — they are simply discarded.
+		this.removePendingChangesForSessions(prunedSessionIds);
+		const survivingSnapshotIds = this.getSurvivingSnapshotIds();
+
+		// --- Filesystem Cleanup ---
+		try {
+			const fsId = filesystemNamespace.idFromString(projectId);
+			const fsStub = filesystemNamespace.get(fsId);
+
+			await withMounts(async () => {
+				mount(PROJECT_ROOT, fsStub);
+				await cleanupSessionArtifacts(PROJECT_ROOT, prunedSessionIds, survivingSnapshotIds);
+				await cleanupTimestampPlans(PROJECT_ROOT);
+			});
+		} catch (error) {
+			// Non-fatal — KV cleanup already succeeded, filesystem is best-effort
+			console.error('[AgentRunner] Failed to clean up filesystem artifacts:', error);
+		}
 	}
 
 	// =========================================================================
@@ -423,13 +515,18 @@ export class AgentRunner extends DurableObject {
 				this.setActiveSession(sessionId, session);
 			}
 
-			// Clean up
+			// Clean up in-memory state
 			this.agentAbortControllers.delete(sessionId);
 			this.eventBuffers.delete(sessionId);
 			this.eventIndices.delete(sessionId);
 
 			// Broadcast the final status (with sanitized error message if applicable)
 			await this.broadcastStatusChanged(parameters.projectId, sessionId, finalStatus, undefined, errorMessage).catch(() => {});
+
+			// Prune old sessions beyond the rolling limit (best-effort, non-blocking)
+			await this.pruneOldSessions(projectId).catch((error) => {
+				console.error('[AgentRunner] Session pruning failed:', error);
+			});
 		}
 	}
 
@@ -473,5 +570,56 @@ export class AgentRunner extends DurableObject {
 		} else {
 			this.ctx.storage.kv.put(`session:${sessionId}`, session);
 		}
+	}
+
+	/**
+	 * Remove pending change entries belonging to the given session IDs.
+	 * Pending changes are NOT auto-accepted — they are simply discarded.
+	 */
+	private removePendingChangesForSessions(sessionIds: Set<string>): void {
+		const raw = this.ctx.storage.kv.get<string>('pendingChanges');
+		if (!raw) return;
+
+		try {
+			const parsed: Record<string, PendingFileChange> = JSON.parse(raw);
+			let changed = false;
+			for (const [path, change] of Object.entries(parsed)) {
+				if (sessionIds.has(change.sessionId)) {
+					delete parsed[path];
+					changed = true;
+				}
+			}
+			if (changed) {
+				if (Object.keys(parsed).length === 0) {
+					this.ctx.storage.kv.delete('pendingChanges');
+				} else {
+					this.ctx.storage.kv.put('pendingChanges', JSON.stringify(parsed));
+				}
+			}
+		} catch {
+			// Malformed JSON — leave it alone
+		}
+	}
+
+	/**
+	 * Collect snapshot IDs still referenced by surviving pending changes.
+	 * These must not be deleted during filesystem cleanup.
+	 */
+	private getSurvivingSnapshotIds(): Set<string> {
+		const surviving = new Set<string>();
+		const raw = this.ctx.storage.kv.get<string>('pendingChanges');
+		if (!raw) return surviving;
+
+		try {
+			const parsed: Record<string, { snapshotId?: string }> = JSON.parse(raw);
+			for (const change of Object.values(parsed)) {
+				if (change.snapshotId) {
+					surviving.add(change.snapshotId);
+				}
+			}
+		} catch {
+			// Ignore
+		}
+		return surviving;
 	}
 }

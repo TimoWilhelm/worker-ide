@@ -31,6 +31,7 @@ import { estimateMessagesTokens, getContextUtilization, hasContextBudget, pruneT
 import { detectDoomLoop, MUTATION_FAILURE_TAG } from './doom-loop';
 import { createAdapter, getModelLimits } from './replicate';
 import { classifyRetryableError, calculateRetryDelay, sleep } from './retry';
+import { cleanupTimestampPlans } from './session-cleanup';
 import { deriveFallbackTitle } from './title-generator';
 import { TokenTracker } from './token-tracker';
 import { createSendEvent, createServerTools, MUTATION_TOOL_NAMES } from './tools';
@@ -1422,10 +1423,6 @@ export class AIAgentService {
 		const snapshotsDirectory = `${this.projectRoot}/.agent/snapshots`;
 
 		try {
-			// Read the set of snapshot IDs still referenced by pending changes.
-			// These must never be deleted even if they exceed the keepCount.
-			const referencedSnapshotIds = await this.getReferencedSnapshotIds();
-
 			const entries = await fs.readdir(snapshotsDirectory);
 			const snapshots: Array<{ id: string; timestamp: number }> = [];
 
@@ -1442,42 +1439,16 @@ export class AIAgentService {
 
 			snapshots.sort((a, b) => b.timestamp - a.timestamp);
 
-			// Only delete unreferenced snapshots beyond the keep count
-			let unreferencedCount = 0;
-			for (const snapshot of snapshots) {
-				if (referencedSnapshotIds.has(snapshot.id)) {
-					// Always keep referenced snapshots
-					continue;
-				}
-				unreferencedCount++;
-				if (unreferencedCount > keepCount) {
-					await this.deleteDirectoryRecursive(`${snapshotsDirectory}/${snapshot.id}`);
-				}
+			// Delete snapshots beyond the keep count.
+			// Session-aware cleanup (preserving snapshots referenced by
+			// surviving pending changes) is handled separately by
+			// pruneOldSessions in the AgentRunner DO.
+			for (const snapshot of snapshots.slice(keepCount)) {
+				await this.deleteDirectoryRecursive(`${snapshotsDirectory}/${snapshot.id}`);
 			}
 		} catch {
 			// No-op
 		}
-	}
-
-	/**
-	 * Read the set of snapshot IDs referenced by pending changes.
-	 * These snapshots must be preserved during cleanup.
-	 */
-	private async getReferencedSnapshotIds(): Promise<Set<string>> {
-		const referenced = new Set<string>();
-		try {
-			const pendingChangesPath = `${this.projectRoot}/.agent/pending-changes.json`;
-			const raw = await fs.readFile(pendingChangesPath, 'utf8');
-			const record: Record<string, { snapshotId?: string }> = JSON.parse(raw);
-			for (const value of Object.values(record)) {
-				if (value.snapshotId) {
-					referenced.add(value.snapshotId);
-				}
-			}
-		} catch {
-			// No pending changes file — nothing to protect
-		}
-		return referenced;
 	}
 
 	private async deleteDirectoryRecursive(directoryPath: string): Promise<void> {
@@ -1554,6 +1525,9 @@ export class AIAgentService {
 			const promptText = typeof firstUserMessage?.content === 'string' ? firstUserMessage.content : '';
 			const header = `# Plan: ${promptText.slice(0, 80)}${promptText.length > 80 ? '...' : ''}\n\n_Generated at ${new Date(timestamp).toISOString()}_\n\n---\n\n`;
 			await fs.writeFile(planPath, header + planContent);
+
+			// Clean up old timestamped plans to prevent unbounded growth
+			await cleanupTimestampPlans(this.projectRoot);
 
 			yield customEvent('plan_created', {
 				path: `/.agent/plans/${planFileName}`,

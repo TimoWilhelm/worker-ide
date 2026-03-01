@@ -75,7 +75,7 @@ export const sessionRoutes = new Hono<AppEnvironment>()
 		const projectId = c.get('projectId');
 		const { id } = c.req.valid('query');
 		const stub = getAgentRunnerStub(projectId);
-		await stub.deleteSession(id);
+		await stub.deleteSession(projectId, id);
 		return c.json({ success: true });
 	})
 
