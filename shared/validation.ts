@@ -374,20 +374,6 @@ export const pendingFileChangeSchema = z.object({
  */
 export const pendingChangesFileSchema = z.record(z.string(), pendingFileChangeSchema);
 
-export const saveSessionSchema = z.object({
-	id: sessionIdSchema,
-	title: z.string().min(1).max(LIMITS.TITLE_MAX_LENGTH),
-	history: z.array(z.unknown()),
-	createdAt: z.number(),
-	messageSnapshots: z.record(z.string(), z.string()).optional(),
-	contextTokensUsed: z.number().int().nonnegative().optional(),
-	/** Set by the client after a revert to prevent the server-side stream
-	 *  `finally` block from overwriting the truncated history. */
-	revertedAt: z.number().optional(),
-});
-
-export type SaveSessionInput = z.infer<typeof saveSessionSchema>;
-
 // =============================================================================
 // Debug Log Schemas
 // =============================================================================

@@ -204,10 +204,44 @@ export class AgentRunner extends DurableObject {
 	}
 
 	/**
-	 * Save (create or update) a session.
+	 * Revert a session by truncating history to a given message index.
+	 * Sets `revertedAt` to prevent the server-side stream `finally` block
+	 * from overwriting the truncated history with the pre-revert version.
+	 *
+	 * If `messageIndex` is 0, deletes the session entirely.
 	 */
-	async saveSession(sessionId: string, data: AiSession): Promise<void> {
-		this.ctx.storage.kv.put(`sessionData:${sessionId}`, data);
+	async revertSession(sessionId: string, messageIndex: number): Promise<void> {
+		if (messageIndex <= 0) {
+			// Full revert — delete the session
+			this.ctx.storage.kv.delete(`sessionData:${sessionId}`);
+			this.ctx.storage.kv.delete(`session:${sessionId}`);
+			return;
+		}
+
+		const session = this.ctx.storage.kv.get<AiSession>(`sessionData:${sessionId}`);
+		if (!session) return;
+
+		// Truncate history and prune snapshot mappings above the cut point
+		const truncatedHistory = session.history.slice(0, messageIndex);
+		let prunedSnapshots: Record<string, string> | undefined;
+		if (session.messageSnapshots) {
+			prunedSnapshots = {};
+			for (const [key, value] of Object.entries(session.messageSnapshots)) {
+				if (Number(key) < messageIndex) {
+					prunedSnapshots[key] = value;
+				}
+			}
+			if (Object.keys(prunedSnapshots).length === 0) {
+				prunedSnapshots = undefined;
+			}
+		}
+
+		this.ctx.storage.kv.put(`sessionData:${sessionId}`, {
+			...session,
+			history: truncatedHistory,
+			messageSnapshots: prunedSnapshots,
+			revertedAt: Date.now(),
+		});
 	}
 
 	/**

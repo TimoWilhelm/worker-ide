@@ -10,7 +10,7 @@ import { zValidator } from '@hono/zod-validator';
 import { Hono } from 'hono';
 import { z } from 'zod';
 
-import { sessionIdSchema, saveSessionSchema, pendingChangesFileSchema } from '@shared/validation';
+import { sessionIdSchema, pendingChangesFileSchema } from '@shared/validation';
 
 import { agentRunnerNamespace } from '../lib/durable-object-namespaces';
 import { httpError } from '../lib/http-error';
@@ -57,23 +57,18 @@ export const sessionRoutes = new Hono<AppEnvironment>()
 		return c.json(session);
 	})
 
-	// PUT /api/ai-session - Save an AI session
-	.put('/ai-session', zValidator('json', saveSessionSchema), async (c) => {
-		const projectId = c.get('projectId');
-		const body = c.req.valid('json');
-		const stub = getAgentRunnerStub(projectId);
-		await stub.saveSession(body.id, body);
-		return c.json({ success: true });
-	})
-
-	// POST /api/ai-session - Save an AI session (for sendBeacon)
-	.post('/ai-session', zValidator('json', saveSessionSchema), async (c) => {
-		const projectId = c.get('projectId');
-		const body = c.req.valid('json');
-		const stub = getAgentRunnerStub(projectId);
-		await stub.saveSession(body.id, body);
-		return c.json({ success: true });
-	})
+	// POST /api/ai-session/revert - Revert a session to a given message index
+	.post(
+		'/ai-session/revert',
+		zValidator('json', z.object({ id: sessionIdSchema, messageIndex: z.number().int().nonnegative() })),
+		async (c) => {
+			const projectId = c.get('projectId');
+			const { id, messageIndex } = c.req.valid('json');
+			const stub = getAgentRunnerStub(projectId);
+			await stub.revertSession(id, messageIndex);
+			return c.json({ success: true });
+		},
+	)
 
 	// DELETE /api/ai-session?id=X - Delete an AI session
 	.delete('/ai-session', zValidator('query', z.object({ id: sessionIdSchema })), async (c) => {

@@ -613,45 +613,6 @@ export function AssistantMessage({
 // =============================================================================
 
 /**
- * Parsed stats from a structured file-editing tool result.
- * Tools like file_edit, file_write, lint_fix return JSON objects
- * with a `result` field (diff or summary) and numeric stats.
- */
-interface FileEditResultStats {
-	result: string;
-	linesAdded: number;
-	linesRemoved: number;
-	lintErrorCount: number;
-}
-
-/**
- * Try to parse a structured file-edit result from a raw tool result string.
- * Returns undefined if the result is not a structured edit result.
- */
-function parseFileEditResult(rawResult: string): FileEditResultStats | undefined {
-	try {
-		const parsed: unknown = JSON.parse(rawResult);
-		if (
-			isRecord(parsed) &&
-			typeof parsed.result === 'string' &&
-			typeof parsed.linesAdded === 'number' &&
-			typeof parsed.linesRemoved === 'number' &&
-			typeof parsed.lintErrorCount === 'number'
-		) {
-			return {
-				result: parsed.result,
-				linesAdded: parsed.linesAdded,
-				linesRemoved: parsed.linesRemoved,
-				lintErrorCount: parsed.lintErrorCount,
-			};
-		}
-	} catch {
-		// Not JSON or wrong shape
-	}
-	return undefined;
-}
-
-/**
  * Extract text content from an XML-like tag, e.g. `<error>msg</error>` -> `msg`.
  * Returns undefined if the tag is not found.
  */
@@ -691,34 +652,6 @@ function shortenErrorFromStructured(error: ToolErrorInfo): string {
 	// Strip the [CODE] prefix from errorMessage if present (ToolExecutionError format)
 	const stripped = error.errorMessage.replace(/^\[[A-Z_]+\] /, '');
 	return stripped.length > 40 ? stripped.slice(0, 40) + '...' : stripped || 'Error';
-}
-
-/**
- * Get a short label for an error.
- *
- * Extracts the error code from `[CODE] message` format and maps it to a
- * human-readable label. Falls back to truncating the message.
- */
-function shortenError(text: string): string {
-	// ToolExecutionError format: "[CODE] message"
-	const bracketMatch = text.match(/^\[([A-Z_]+)\] (.*)/);
-	if (bracketMatch) {
-		const code = bracketMatch[1];
-		const label = errorLabels[code];
-		if (label) return label;
-		const message = bracketMatch[2];
-		return message.length > 40 ? message.slice(0, 40) + '...' : message;
-	}
-
-	// Framework-level errors
-	if (text.startsWith('Error executing tool: ')) {
-		const message = text.slice('Error executing tool: '.length);
-		return message.length > 40 ? message.slice(0, 40) + '...' : message;
-	}
-	if (text.startsWith('Input validation failed')) {
-		return 'Validation failed';
-	}
-	return text.length > 40 ? text.slice(0, 40) + '...' : 'Error';
 }
 
 /**
@@ -879,177 +812,6 @@ function summarizeFromMetadata(toolName: ToolName | undefined, info: ToolMetadat
 	}
 }
 
-/**
- * Parse a tool result string into a brief human-readable summary.
- * Each tool gets a custom parser; falls back to a cleaned-up truncation.
- * Used as a fallback when structured metadata is not available (loaded sessions).
- */
-function summarizeToolResult(toolName: ToolName, rawResult: string): string {
-	// Handle errors first — applies to all tools
-	if (isErrorResult(rawResult)) {
-		return shortenError(rawResult);
-	}
-
-	switch (toolName) {
-		case 'file_read': {
-			const type = extractTag(rawResult, 'type');
-			if (type === 'directory') {
-				const entries = extractTag(rawResult, 'entries');
-				if (entries) {
-					const count = entries.split('\n').filter(Boolean).length;
-					return `${count} entr${count === 1 ? 'y' : 'ies'}`;
-				}
-				return 'Directory';
-			}
-			if (type === 'binary') return 'Binary file';
-			const content = extractTag(rawResult, 'content');
-			if (content) {
-				const lines = content.split('\n').filter(Boolean);
-				return `${lines.length} line${lines.length === 1 ? '' : 's'}`;
-			}
-			return 'Read';
-		}
-
-		case 'file_edit': {
-			const stats = parseFileEditResult(rawResult);
-			if (stats) return 'Applied';
-			if (rawResult.includes('No changes needed')) return 'No changes';
-			return rawResult.length > 40 ? rawResult.slice(0, 40) + '...' : rawResult || 'Applied';
-		}
-
-		case 'file_multiedit': {
-			const stats = parseFileEditResult(rawResult);
-			if (stats) return 'Applied';
-			if (rawResult.includes('No changes needed')) return 'No changes';
-			return rawResult.length > 40 ? rawResult.slice(0, 40) + '...' : rawResult || 'Applied';
-		}
-
-		case 'file_write': {
-			const stats = parseFileEditResult(rawResult);
-			if (stats) return 'Written';
-			return 'Written';
-		}
-
-		case 'lint_check': {
-			if (rawResult.includes('No lint issues')) return 'No issues';
-			const issueMatch = rawResult.match(/^Found (\d+) lint issue/);
-			if (issueMatch) return `${issueMatch[1]} issue${issueMatch[1] === '1' ? '' : 's'}`;
-			return 'Checked';
-		}
-
-		case 'lint_fix': {
-			const stats = parseFileEditResult(rawResult);
-			if (stats) return 'Fixed';
-			return rawResult.includes('No lint issues') ? 'No issues' : 'Fixed';
-		}
-
-		case 'file_delete': {
-			return 'Deleted';
-		}
-
-		case 'file_move': {
-			return 'Moved';
-		}
-
-		case 'plan_update': {
-			const result = extractResultField(rawResult);
-			if (result) {
-				// Extract progress info like "3/7 tasks completed"
-				const progress = result.match(/(\d+\/\d+) tasks/);
-				if (progress) return progress[1];
-			}
-			return 'Updated';
-		}
-
-		case 'dependencies_update': {
-			// Output is plain text like "Added express@*" or "Removed lodash@4.17.21"
-			const depMatch = rawResult.match(/^(Added|Removed|Updated) (\S+)/);
-			if (depMatch) return `${depMatch[1]} ${depMatch[2].split('@')[0]}`;
-			return 'Updated';
-		}
-
-		case 'dependencies_list': {
-			// Output is "name: version" lines (plain text, not JSON)
-			if (rawResult === 'No dependencies registered.' || rawResult === 'No project metadata found.') return '0 deps';
-			const deps = rawResult.split('\n').filter(Boolean);
-			return `${deps.length} dep${deps.length === 1 ? '' : 's'}`;
-		}
-
-		case 'cdp_eval': {
-			// Output is "Method: X\n\nResult: ..." (plain text, not JSON)
-			const methodMatch = rawResult.match(/^Method: (.+)/);
-			if (methodMatch) return methodMatch[1];
-			return 'Evaluated';
-		}
-
-		case 'todos_get': {
-			return 'Retrieved';
-		}
-
-		case 'todos_update': {
-			return 'Updated';
-		}
-
-		case 'file_grep': {
-			// "Found N matches..." or "No files found"
-			const matchCount = rawResult.match(/^Found (\d+) match/);
-			if (matchCount) return `${matchCount[1]} match${matchCount[1] === '1' ? '' : 'es'}`;
-			if (rawResult.startsWith('No files found')) return 'No matches';
-			return rawResult.length > 40 ? rawResult.slice(0, 40) + '...' : rawResult;
-		}
-
-		case 'file_glob': {
-			if (rawResult.startsWith('No files found')) return 'No files found';
-			const files = rawResult.split('\n').filter((l) => l && !l.startsWith('('));
-			return `${files.length} file${files.length === 1 ? '' : 's'}`;
-		}
-
-		case 'file_list': {
-			const entries = rawResult.split('\n').filter(Boolean);
-			return `${entries.length} entr${entries.length === 1 ? 'y' : 'ies'}`;
-		}
-
-		case 'files_list': {
-			// files_list returns newline-separated file paths (plain text, not JSON)
-			const files = rawResult.split('\n').filter(Boolean);
-			return `${files.length} file${files.length === 1 ? '' : 's'}`;
-		}
-
-		case 'docs_search': {
-			return 'Results fetched';
-		}
-
-		case 'web_fetch': {
-			// Output is the summarized markdown text (plain text, not JSON)
-			return `${rawResult.length} chars`;
-		}
-
-		case 'user_question': {
-			// Output is "Question for the user: <question>\n..."
-			const questionMatch = rawResult.match(/^Question for the user: (.+)/);
-			if (questionMatch) {
-				const q = questionMatch[1];
-				return q.length > 60 ? q.slice(0, 60) + '...' : q;
-			}
-			return 'Question';
-		}
-
-		case 'test_run': {
-			// Output has a summary line like "Tests: 2 failed, 3 passed, 5 total"
-			const testsMatch = rawResult.match(/Tests: (.+)/);
-			if (testsMatch) return testsMatch[1];
-			return 'Tests ran';
-		}
-
-		default: {
-			// Exhaustive check: if a new ToolName is added without a case above,
-			// TypeScript will error here because `toolName` won't be assignable to `never`.
-			const _exhaustiveCheck: never = toolName;
-			return String(_exhaustiveCheck);
-		}
-	}
-}
-
 interface TodoItemDisplay {
 	id: string;
 	content: string;
@@ -1118,32 +880,8 @@ function InlineTodoList({ todos }: { todos: TodoItemDisplay[] }) {
 }
 
 /**
- * Try to extract a TODO list from a tool result JSON string.
- */
-function extractTodosFromResult(toolName: ToolName, rawResult: string): TodoItemDisplay[] | undefined {
-	if (toolName !== 'todos_get' && toolName !== 'todos_update') return undefined;
-	try {
-		const parsed: unknown = JSON.parse(rawResult);
-		if (!isRecord(parsed) || !Array.isArray(parsed.todos)) return undefined;
-		const todos: unknown[] = parsed.todos;
-		if (todos.length === 0) return undefined;
-		return todos.filter(
-			(item): item is TodoItemDisplay =>
-				isRecord(item) &&
-				typeof item.id === 'string' &&
-				typeof item.content === 'string' &&
-				typeof item.status === 'string' &&
-				typeof item.priority === 'string',
-		);
-	} catch {
-		return undefined;
-	}
-}
-
-/**
  * Extract the `result` string from a structured tool result JSON.
- * Tools like file_edit, file_write, lint_fix, plan_update, file_move, file_delete
- * return `{ result: "...", ... }`. This extracts the human-readable `result` field.
+ * Used by the expandable detail view to display the human-readable diff/summary.
  */
 function extractResultField(rawResult: string): string | undefined {
 	try {
@@ -1655,24 +1393,18 @@ function InlineToolCall({
 						typeof item.priority === 'string',
 				)
 			: undefined;
-	const todos = metadataTodos ?? (knownToolName && rawResultContent ? extractTodosFromResult(knownToolName, rawResultContent) : undefined);
+	const todos = metadataTodos;
 
 	// Extract file-edit stats from structured metadata (file_edit, file_write, lint_fix).
-	// Falls back to parsing the raw JSON result for loaded sessions without metadata.
+	// Metadata is always available — persisted with the session for loaded sessions.
 	const linesAdded = typeof metadata?.linesAdded === 'number' ? metadata.linesAdded : undefined;
 	const linesRemoved = typeof metadata?.linesRemoved === 'number' ? metadata.linesRemoved : undefined;
 	const lintErrorCount =
 		typeof metadata?.diagnostics === 'object' && Array.isArray(metadata.diagnostics) ? metadata.diagnostics.length : undefined;
-	const editStats =
-		linesAdded === undefined
-			? isCompleted && rawResultContent
-				? parseFileEditResult(rawResultContent)
-				: undefined
-			: { linesAdded, linesRemoved: linesRemoved ?? 0, lintErrorCount: lintErrorCount ?? 0, result: '' };
-	const hasEditStats = editStats !== undefined && (editStats.linesAdded > 0 || editStats.linesRemoved > 0 || editStats.lintErrorCount > 0);
+	const hasEditStats = linesAdded !== undefined && (linesAdded > 0 || (linesRemoved ?? 0) > 0 || (lintErrorCount ?? 0) > 0);
 
-	// Build summary text for the result.
-	// Prefer structured metadata title, then structured error, then raw parsing fallback.
+	// Build summary text from structured metadata (single code path for both
+	// live-streamed and loaded sessions — no raw-text fallbacks).
 	const resultSummary = isUnknownTool
 		? `Unknown tool: ${displayToolName}`
 		: structuredError
@@ -1681,11 +1413,9 @@ function InlineToolCall({
 				? undefined
 				: structuredMetadata
 					? summarizeFromMetadata(knownToolName, structuredMetadata)
-					: rawResultContent && knownToolName
-						? summarizeToolResult(knownToolName, rawResultContent)
-						: isCompleted
-							? 'No result'
-							: undefined;
+					: isCompleted
+						? 'Completed'
+						: undefined;
 
 	// Diagnostics from metadata for expanded view
 	const diagnostics = metadata && Array.isArray(metadata.diagnostics) ? metadata.diagnostics : undefined;
@@ -1744,27 +1474,21 @@ function InlineToolCall({
 				)}
 				{resultSummary && <span className="ml-auto min-w-0 truncate text-text-secondary">{resultSummary}</span>}
 				{/* File edit stats: lines added, removed, lint errors */}
-				{hasEditStats && editStats && (
+				{hasEditStats && (
 					<span className={cn('flex shrink-0 items-center gap-1.5', !resultSummary && 'ml-auto')}>
-						{editStats.linesAdded > 0 && (
-							<span className="font-mono text-success" title={`${editStats.linesAdded} line${editStats.linesAdded === 1 ? '' : 's'} added`}>
-								+{editStats.linesAdded}
+						{linesAdded !== undefined && linesAdded > 0 && (
+							<span className="font-mono text-success" title={`${linesAdded} line${linesAdded === 1 ? '' : 's'} added`}>
+								+{linesAdded}
 							</span>
 						)}
-						{editStats.linesRemoved > 0 && (
-							<span
-								className="font-mono text-error"
-								title={`${editStats.linesRemoved} line${editStats.linesRemoved === 1 ? '' : 's'} removed`}
-							>
-								-{editStats.linesRemoved}
+						{linesRemoved !== undefined && linesRemoved > 0 && (
+							<span className="font-mono text-error" title={`${linesRemoved} line${linesRemoved === 1 ? '' : 's'} removed`}>
+								-{linesRemoved}
 							</span>
 						)}
-						{editStats.lintErrorCount > 0 && (
-							<span
-								className="font-mono text-warning"
-								title={`${editStats.lintErrorCount} lint error${editStats.lintErrorCount === 1 ? '' : 's'}`}
-							>
-								⚠ {editStats.lintErrorCount}
+						{lintErrorCount !== undefined && lintErrorCount > 0 && (
+							<span className="font-mono text-warning" title={`${lintErrorCount} lint error${lintErrorCount === 1 ? '' : 's'}`}>
+								⚠ {lintErrorCount}
 							</span>
 						)}
 					</span>

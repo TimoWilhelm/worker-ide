@@ -129,6 +129,11 @@ export interface AiSession {
 	/** Set by the client after a revert to prevent the server-side stream
 	 *  `finally` block from overwriting the truncated history. */
 	revertedAt?: number;
+	/** Structured tool result metadata keyed by toolCallId, persisted so loaded sessions
+	 *  render the same rich UI (edit stats, line counts, etc.) as live-streamed ones. */
+	toolMetadata?: Record<string, ToolMetadataInfo>;
+	/** Structured tool error data keyed by toolCallId, persisted for the same reason. */
+	toolErrors?: Record<string, ToolErrorInfo>;
 }
 
 /**

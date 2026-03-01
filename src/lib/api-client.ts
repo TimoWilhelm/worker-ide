@@ -180,19 +180,17 @@ export async function loadAiSession(projectId: string, sessionId: string): Promi
 }
 
 /**
- * Save an AI session to the backend.
- *
- * Uses raw fetch because the Zod schema uses `z.unknown()` for history,
- * causing a type mismatch with the `AiSession` interface.
+ * Revert an AI session to a given message index (server-side truncation).
+ * If messageIndex is 0, the session is deleted entirely.
  */
-export async function saveAiSession(projectId: string, session: AiSession): Promise<void> {
-	const response = await fetch(`/p/${projectId}/api/ai-session`, {
-		method: 'PUT',
+export async function revertAiSession(projectId: string, sessionId: string, messageIndex: number): Promise<void> {
+	const response = await fetch(`/p/${projectId}/api/ai-session/revert`, {
+		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify(session),
+		body: JSON.stringify({ id: sessionId, messageIndex }),
 	});
 	if (!response.ok) {
-		throw new Error('Failed to save AI session');
+		throw new Error('Failed to revert AI session');
 	}
 }
 

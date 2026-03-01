@@ -15,14 +15,14 @@ describe('parseTestNames', () => {
 		const source = `it('adds numbers', () => { expect(1+1).toBe(2); });`;
 		const tests = parseTestNames(source);
 
-		expect(tests).toEqual([{ name: 'adds numbers', suiteName: '(top-level)' }]);
+		expect(tests).toEqual([{ name: 'adds numbers', suiteName: '(top-level)', line: 1 }]);
 	});
 
 	it('parses a single top-level test()', () => {
 		const source = `test('adds numbers', () => { expect(1+1).toBe(2); });`;
 		const tests = parseTestNames(source);
 
-		expect(tests).toEqual([{ name: 'adds numbers', suiteName: '(top-level)' }]);
+		expect(tests).toEqual([{ name: 'adds numbers', suiteName: '(top-level)', line: 1 }]);
 	});
 
 	it('parses it() inside a describe()', () => {
@@ -34,8 +34,8 @@ describe('math', () => {
 		const tests = parseTestNames(source);
 
 		expect(tests).toEqual([
-			{ name: 'adds', suiteName: 'math' },
-			{ name: 'subtracts', suiteName: 'math' },
+			{ name: 'adds', suiteName: 'math', line: 3 },
+			{ name: 'subtracts', suiteName: 'math', line: 4 },
 		]);
 	});
 
@@ -50,8 +50,8 @@ describe('string', () => {
 		const tests = parseTestNames(source);
 
 		expect(tests).toEqual([
-			{ name: 'adds', suiteName: 'math' },
-			{ name: 'trims', suiteName: 'string' },
+			{ name: 'adds', suiteName: 'math', line: 3 },
+			{ name: 'trims', suiteName: 'string', line: 6 },
 		]);
 	});
 
@@ -59,14 +59,14 @@ describe('string', () => {
 		const source = `describe("math", () => { it("adds", () => {}); });`;
 		const tests = parseTestNames(source);
 
-		expect(tests).toEqual([{ name: 'adds', suiteName: 'math' }]);
+		expect(tests).toEqual([{ name: 'adds', suiteName: 'math', line: 1 }]);
 	});
 
 	it('handles backtick-quoted strings', () => {
 		const source = 'describe(`math`, () => { it(`adds`, () => {}); });';
 		const tests = parseTestNames(source);
 
-		expect(tests).toEqual([{ name: 'adds', suiteName: 'math' }]);
+		expect(tests).toEqual([{ name: 'adds', suiteName: 'math', line: 1 }]);
 	});
 
 	it('handles mixed quote styles', () => {
@@ -78,8 +78,8 @@ describe('math', () => {
 		const tests = parseTestNames(source);
 
 		expect(tests).toEqual([
-			{ name: 'adds', suiteName: 'math' },
-			{ name: 'subtracts', suiteName: 'math' },
+			{ name: 'adds', suiteName: 'math', line: 3 },
+			{ name: 'subtracts', suiteName: 'math', line: 4 },
 		]);
 	});
 
@@ -110,9 +110,9 @@ it('test 3', () => {});`;
 
 		// test 3 appears after suite B, so the heuristic assigns it to suite B
 		expect(tests).toEqual([
-			{ name: 'test 1', suiteName: 'suite A' },
-			{ name: 'test 2', suiteName: 'suite B' },
-			{ name: 'test 3', suiteName: 'suite B' },
+			{ name: 'test 1', suiteName: 'suite A', line: 3 },
+			{ name: 'test 2', suiteName: 'suite B', line: 7 },
+			{ name: 'test 3', suiteName: 'suite B', line: 10 },
 		]);
 	});
 

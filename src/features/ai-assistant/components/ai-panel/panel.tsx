@@ -480,8 +480,34 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		onSelect: handleFileMentionSelect,
 	});
 
-	// Session persistence
-	const { savedSessions, handleLoadSession: loadSession, saveCurrentSession } = useAiSessions({ projectId });
+	// Session persistence — wire metadata round-trip callbacks so loaded
+	// sessions render the same rich UI as live-streamed ones.
+	const handleSessionLoaded = useCallback(
+		(data: { toolMetadata?: Record<string, ToolMetadataInfo>; toolErrors?: Record<string, ToolErrorInfo> }) => {
+			// Populate refs and state from persisted metadata
+			if (data.toolMetadata) {
+				for (const [key, value] of Object.entries(data.toolMetadata)) {
+					toolMetadataReference.current.set(key, value);
+				}
+				setToolMetadata(new Map(toolMetadataReference.current));
+			}
+			if (data.toolErrors) {
+				for (const [key, value] of Object.entries(data.toolErrors)) {
+					toolErrorsReference.current.set(key, value);
+				}
+				setToolErrors(new Map(toolErrorsReference.current));
+			}
+		},
+		[],
+	);
+	const {
+		savedSessions,
+		handleLoadSession: loadSession,
+		revertSession,
+	} = useAiSessions({
+		projectId,
+		onSessionLoaded: handleSessionLoaded,
+	});
 
 	// Snapshot hook for revert
 	const { revertCascadeAsync, isReverting } = useSnapshots({ projectId });
@@ -771,14 +797,12 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 					});
 				}
 
-				// Persist the updated pending changes and session.
-				// Pass `revertedAt` so the server-side `persistSession` (which may
-				// still fire from the cancelled stream's `finally` block) knows not
-				// to overwrite the truncated history with the pre-revert version.
-				const revertedAt = Date.now();
+				// Persist the updated pending changes and revert the session server-side.
+				// The DO truncates history, prunes snapshots, and sets revertedAt to
+				// prevent the stream's `finally` block from overwriting the reverted state.
 				queueMicrotask(() => {
 					void persistPendingChangesAfterRevert();
-					void saveCurrentSession({ revertedAt });
+					void revertSession(messageIndex);
 				});
 
 				// Close the dialog on success
@@ -808,7 +832,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 			removeMessagesFrom,
 			setChatMessages,
 			persistPendingChangesAfterRevert,
-			saveCurrentSession,
+			revertSession,
 		],
 	);
 

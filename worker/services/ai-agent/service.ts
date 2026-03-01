@@ -40,7 +40,7 @@ import { coordinatorNamespace } from '../../lib/durable-object-namespaces';
 import type { CustomEventQueue, FileChange, ModelMessage, SnapshotMetadata, ToolExecutorContext, ToolFailureRecord } from './types';
 import type { ExpiringFilesystem } from '../../durable/expiring-filesystem';
 import type { AIModelId } from '@shared/constants';
-import type { PendingFileChange } from '@shared/types';
+import type { PendingFileChange, ToolErrorInfo, ToolMetadataInfo } from '@shared/types';
 import type { StreamChunk, UIMessage } from '@tanstack/ai';
 
 // =============================================================================
@@ -216,6 +216,8 @@ export class AIAgentService {
 				history: unknown[];
 				messageSnapshots?: Record<string, string>;
 				contextTokensUsed?: number;
+				toolMetadata?: Record<string, ToolMetadataInfo>;
+				toolErrors?: Record<string, ToolErrorInfo>;
 			},
 			pendingChanges?: Record<string, PendingFileChange>,
 		) => Promise<void>,
@@ -312,11 +314,24 @@ export class AIAgentService {
 		// Mirrors the client-side addPendingChange dedup logic so the server
 		// builds the same net result without relying on client-side saves.
 		const streamPendingChanges = new Map<string, PendingFileChange>();
+		// Accumulate structured tool metadata and errors for session persistence.
+		// These are keyed by toolCallId so loaded sessions render the same rich UI
+		// (edit stats, line counts, error labels) as live-streamed ones.
+		const streamToolMetadata = new Map<string, ToolMetadataInfo>();
+		const streamToolErrors = new Map<string, ToolErrorInfo>();
 
 		const persistSession = async () => {
 			processor.finalizeStream();
 			sessionPersisted = true;
-			await this.persistSession(processor, snapshotId, userMessageIndex, contextTokensUsed, streamPendingChanges);
+			await this.persistSession(
+				processor,
+				snapshotId,
+				userMessageIndex,
+				contextTokensUsed,
+				streamPendingChanges,
+				streamToolMetadata,
+				streamToolErrors,
+			);
 		};
 
 		try {
@@ -358,6 +373,36 @@ export class AIAgentService {
 
 							break;
 						}
+						case 'tool_result': {
+							const data = isRecordObject(chunk.data) ? chunk.data : {};
+							const toolCallId = typeof data.toolCallId === 'string' ? data.toolCallId : undefined;
+							if (toolCallId) {
+								const rawMetadata = data.metadata;
+								const metadataRecord: Record<string, unknown> = isRecordObject(rawMetadata) ? rawMetadata : {};
+								streamToolMetadata.set(toolCallId, {
+									toolCallId,
+									toolName: typeof data.tool_name === 'string' ? data.tool_name : '',
+									title: typeof data.title === 'string' ? data.title : '',
+									metadata: metadataRecord,
+								});
+							}
+
+							break;
+						}
+						case 'tool_error': {
+							const data = isRecordObject(chunk.data) ? chunk.data : {};
+							const toolCallId = typeof data.toolCallId === 'string' ? data.toolCallId : undefined;
+							if (toolCallId) {
+								streamToolErrors.set(toolCallId, {
+									toolCallId,
+									toolName: typeof data.toolName === 'string' ? data.toolName : '',
+									errorCode: typeof data.errorCode === 'string' ? data.errorCode : '',
+									errorMessage: typeof data.errorMessage === 'string' ? data.errorMessage : '',
+								});
+							}
+
+							break;
+						}
 						case 'context_utilization': {
 							const data = isRecordObject(chunk.data) ? chunk.data : {};
 							const tokens = typeof data.estimatedTokens === 'number' ? data.estimatedTokens : 0;
@@ -370,7 +415,15 @@ export class AIAgentService {
 							const now = Date.now();
 							if (now - lastSaveTimestamp >= SESSION_SAVE_THROTTLE_MS) {
 								lastSaveTimestamp = now;
-								await this.persistSession(processor, snapshotId, userMessageIndex, contextTokensUsed, streamPendingChanges);
+								await this.persistSession(
+									processor,
+									snapshotId,
+									userMessageIndex,
+									contextTokensUsed,
+									streamPendingChanges,
+									streamToolMetadata,
+									streamToolErrors,
+								);
 							}
 
 							break;
@@ -412,6 +465,8 @@ export class AIAgentService {
 		userMessageIndex: number,
 		contextTokensUsed: number,
 		streamPendingChanges?: Map<string, PendingFileChange>,
+		streamToolMetadata?: Map<string, ToolMetadataInfo>,
+		streamToolErrors?: Map<string, ToolErrorInfo>,
 	): Promise<void> {
 		if (!this.sessionId || !this.onPersistSession) return;
 
@@ -445,6 +500,8 @@ export class AIAgentService {
 				history,
 				messageSnapshots: Object.keys(messageSnapshots).length > 0 ? messageSnapshots : undefined,
 				contextTokensUsed: contextTokensUsed > 0 ? contextTokensUsed : undefined,
+				toolMetadata: streamToolMetadata && streamToolMetadata.size > 0 ? Object.fromEntries(streamToolMetadata) : undefined,
+				toolErrors: streamToolErrors && streamToolErrors.size > 0 ? Object.fromEntries(streamToolErrors) : undefined,
 			};
 
 			const pendingChangesRecord = streamPendingChanges ? pendingChangesMapToRecord(streamPendingChanges) : undefined;

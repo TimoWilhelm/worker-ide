@@ -9,29 +9,16 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef } from 'react';
 
-import {
-	deleteAiSession,
-	fetchLatestDebugLogId,
-	listAiSessions,
-	loadAiSession,
-	loadProjectPendingChanges,
-	saveAiSession,
-} from '@/lib/api-client';
+import { fetchLatestDebugLogId, listAiSessions, loadAiSession, loadProjectPendingChanges, revertAiSession } from '@/lib/api-client';
 import { useStore } from '@/lib/store';
 
-import { deriveFallbackTitle, pendingChangesRecordToMap, snapshotsMapToRecord, snapshotsRecordToMap } from '../lib/session-serializers';
+import { pendingChangesRecordToMap, snapshotsRecordToMap } from '../lib/session-serializers';
+
+import type { ToolErrorInfo, ToolMetadataInfo } from '@shared/types';
 
 // =============================================================================
 // Helpers
 // =============================================================================
-
-/**
- * Generate a session ID: 16 lowercase hex characters (satisfies the
- * backend schema `^[a-z0-9]+$` with max 32 chars).
- */
-function generateSessionId(): string {
-	return crypto.randomUUID().replaceAll('-', '').slice(0, 16);
-}
 
 /**
  * localStorage key for the active session ID, scoped per project.
@@ -70,13 +57,19 @@ export function setActiveSessionId(projectId: string, sessionId: string | undefi
 // Hook
 // =============================================================================
 
-export function useAiSessions({ projectId }: { projectId: string }) {
+export function useAiSessions({
+	projectId,
+	onSessionLoaded,
+}: {
+	projectId: string;
+	/** Called after a session is loaded (explicit or auto-restore) with persisted metadata.
+	 *  The panel uses this to populate its toolMetadata and toolErrors refs/state. */
+	onSessionLoaded?: (data: { toolMetadata?: Record<string, ToolMetadataInfo>; toolErrors?: Record<string, ToolErrorInfo> }) => void;
+}) {
 	const queryClient = useQueryClient();
-	const { setSavedSessions, setSessionId, loadSession, setDebugLogId } = useStore();
+	const { setSavedSessions, loadSession, setDebugLogId } = useStore();
 
-	// Track whether a save is already in flight to avoid overlapping saves
-	const isSavingReference = useRef(false);
-	// Preserve the original creation timestamp across saves
+	// Preserve the original creation timestamp across session loads
 	const createdAtReference = useRef<number | undefined>(undefined);
 
 	// =========================================================================
@@ -113,6 +106,9 @@ export function useAiSessions({ projectId }: { projectId: string }) {
 			// Cast to UIMessage[] — the store expects UIMessage[].
 			// eslint-disable-next-line @typescript-eslint/consistent-type-assertions, @typescript-eslint/no-explicit-any -- wire format cast
 			loadSession(data.history as any[], data.id, restoredSnapshots, data.contextTokensUsed);
+			// Restore persisted tool metadata and errors so loaded sessions render
+			// the same rich UI (edit stats, line counts, error labels) as live ones.
+			onSessionLoaded?.({ toolMetadata: data.toolMetadata, toolErrors: data.toolErrors });
 			// Restore the latest debug log download button for this session
 			void fetchLatestDebugLogId(projectId, data.id).then((logId) => {
 				if (logId) setDebugLogId(logId);
@@ -155,84 +151,40 @@ export function useAiSessions({ projectId }: { projectId: string }) {
 				createdAtReference.current = data.createdAt;
 				// eslint-disable-next-line @typescript-eslint/consistent-type-assertions, @typescript-eslint/no-explicit-any -- wire format cast
 				loadSession(data.history as any[], data.id, restoredSnapshots, data.contextTokensUsed);
+				// Restore persisted tool metadata and errors
+				onSessionLoaded?.({ toolMetadata: data.toolMetadata, toolErrors: data.toolErrors });
 				// Restore the latest debug log download button for this session
 				void fetchLatestDebugLogId(projectId, data.id).then((logId) => {
 					if (logId) setDebugLogId(logId);
 				});
 			});
 		}
-	}, [projectId, loadSession, setSessionId, setDebugLogId]);
+	}, [projectId, loadSession, setDebugLogId, onSessionLoaded]);
 
 	// =========================================================================
-	// Save current session to the backend (used only for client-only operations
-	// like revert — normal streaming persistence is handled server-side)
+	// Revert session (server-side truncation — the DO owns all session mutations)
 	// =========================================================================
 
-	const saveCurrentSession = useCallback(
-		async (options?: { revertedAt?: number }) => {
-			// Read directly from the store so we always get the latest state,
-			// even when called from a microtask before React re-renders.
-			const { history, sessionId, messageSnapshots, contextTokensUsed } = useStore.getState();
+	const revertSession = useCallback(
+		async (messageIndex: number) => {
+			const { sessionId } = useStore.getState();
+			if (!sessionId) return;
 
-			if (isSavingReference.current) return;
-
-			// After a full revert (all messages removed), delete the session file
-			// and clear the active session pointer so a page refresh starts fresh.
-			if (history.length === 0) {
-				if (sessionId) {
-					isSavingReference.current = true;
-					try {
-						await deleteAiSession(projectId, sessionId);
-						setActiveSessionId(projectId, undefined);
-						useStore.setState({ sessionId: undefined });
-						await queryClient.invalidateQueries({ queryKey: ['ai-sessions', projectId] });
-					} catch (error) {
-						console.error('Failed to delete AI session after full revert:', error);
-					} finally {
-						isSavingReference.current = false;
-					}
-				}
-				return;
-			}
-
-			isSavingReference.current = true;
 			try {
-				// Generate a session ID if this is a new conversation
-				let currentSessionId = sessionId;
-				const isNewSession = !currentSessionId;
-				if (!currentSessionId) {
-					currentSessionId = generateSessionId();
-					createdAtReference.current = Date.now();
+				await revertAiSession(projectId, sessionId, messageIndex);
+
+				// Full revert (all messages removed) — clear client-side pointers
+				if (messageIndex === 0) {
+					setActiveSessionId(projectId, undefined);
+					useStore.setState({ sessionId: undefined });
 				}
 
-				await saveAiSession(projectId, {
-					id: currentSessionId,
-					title: deriveFallbackTitle(history),
-					createdAt: createdAtReference.current ?? Date.now(),
-					history,
-					messageSnapshots: snapshotsMapToRecord(messageSnapshots),
-					contextTokensUsed: contextTokensUsed > 0 ? contextTokensUsed : undefined,
-					revertedAt: options?.revertedAt,
-				});
-
-				// Only persist the session ID after the backend confirms the save,
-				// so we never rehydrate a sessionId that doesn't exist on disk.
-				if (isNewSession) {
-					setSessionId(currentSessionId);
-					// Persist the active session pointer in localStorage (scoped
-					// per project) so it survives page reloads.
-					setActiveSessionId(projectId, currentSessionId);
-				}
-
-				// Refresh the sessions list
 				await queryClient.invalidateQueries({ queryKey: ['ai-sessions', projectId] });
 			} catch (error) {
-				console.error('Failed to save AI session:', error);
-			} finally {
-				isSavingReference.current = false;
+				console.error('Failed to revert AI session:', error);
 			}
 		},
-		[projectId, setSessionId, queryClient],
+		[projectId, queryClient],
 	);
 
 	// =========================================================================
@@ -248,7 +200,8 @@ export function useAiSessions({ projectId }: { projectId: string }) {
 		handleLoadSession: loadSessionMutation.mutate,
 		/** Whether a session is currently being loaded */
 		isLoadingSession: loadSessionMutation.isPending,
-		/** Save the current session state to the backend (revert-only — streaming persistence is server-side) */
-		saveCurrentSession,
+		/** Revert a session to a given message index (server-side truncation).
+		 *  The DO truncates history, prunes snapshots, and sets revertedAt. */
+		revertSession,
 	};
 }
