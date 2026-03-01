@@ -42,7 +42,7 @@ const MODE_CONFIG: Record<AgentMode, ModeConfig> = {
 	},
 	ask: {
 		label: 'Ask',
-		description: 'No tools — conversational Q&A only',
+		description: 'Read-only tools — conversational Q&A',
 		icon: MessageCircleQuestion,
 		colorClass: 'text-sky-600 dark:text-sky-400',
 		pillColor: 'sky',

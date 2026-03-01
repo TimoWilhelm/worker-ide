@@ -426,6 +426,14 @@ export class AgentRunner extends DurableObject {
 		this.eventBuffers.set(sessionId, []);
 		this.eventIndices.set(sessionId, 0);
 
+		// Clear the revertedAt flag so that persist callbacks from this new run
+		// are not blocked. revertedAt is set by revertSession() to prevent a
+		// stale in-flight run's finally block from overwriting a reverted session.
+		const existingSession = this.ctx.storage.kv.get<AiSession>(`sessionData:${sessionId}`);
+		if (existingSession?.revertedAt) {
+			this.ctx.storage.kv.put(`sessionData:${sessionId}`, { ...existingSession, revertedAt: undefined });
+		}
+
 		// Create a new abort controller for this run
 		this.agentAbortControllers.set(sessionId, new AbortController());
 
@@ -469,8 +477,45 @@ export class AgentRunner extends DurableObject {
 				mode,
 				model,
 				async (sid, sessionData, pendingChanges) => {
-					// Persist session history metadata to DO storage
-					this.ctx.storage.kv.put(`sessionData:${sid}`, { ...sessionData, id: sid });
+					// Merge with existing session data to preserve fields from prior turns
+					// (createdAt, messageSnapshots, title, toolMetadata, toolErrors).
+					// The service sends only the current turn's data for these fields.
+					const existing = this.ctx.storage.kv.get<AiSession>(`sessionData:${sid}`);
+
+					// Preserve the original creation timestamp
+					const createdAt = existing?.createdAt ?? sessionData.createdAt;
+
+					// Preserve the AI-generated title once set (don't regress to fallback)
+					const title = existing?.title ?? sessionData.title;
+
+					// Merge messageSnapshots: existing + current turn's new entry
+					const messageSnapshots =
+						existing?.messageSnapshots || sessionData.messageSnapshots
+							? { ...existing?.messageSnapshots, ...sessionData.messageSnapshots }
+							: undefined;
+
+					// Merge tool metadata and errors: existing + current turn's new entries
+					const toolMetadata =
+						existing?.toolMetadata || sessionData.toolMetadata ? { ...existing?.toolMetadata, ...sessionData.toolMetadata } : undefined;
+					const toolErrors =
+						existing?.toolErrors || sessionData.toolErrors ? { ...existing?.toolErrors, ...sessionData.toolErrors } : undefined;
+
+					// If the session was reverted while the agent was running,
+					// skip this persist to avoid overwriting the truncated history.
+					// The revertedAt flag is cleared on the next user-initiated run.
+					if (existing?.revertedAt) {
+						return;
+					}
+
+					this.ctx.storage.kv.put(`sessionData:${sid}`, {
+						...sessionData,
+						id: sid,
+						createdAt,
+						title,
+						messageSnapshots,
+						toolMetadata,
+						toolErrors,
+					});
 
 					// Merge project-wide pending changes
 					if (pendingChanges) {

@@ -21,6 +21,7 @@ import {
 	AGENT_SYSTEM_PROMPT,
 	AGENTS_MD_MAX_CHARACTERS,
 	ASK_MODE_SYSTEM_PROMPT,
+	CODE_MODE_SYSTEM_PROMPT,
 	DEFAULT_AI_MODEL,
 	MCP_SERVERS,
 	PLAN_MODE_SYSTEM_PROMPT,
@@ -1347,10 +1348,23 @@ export class AIAgentService {
 		}
 
 		// Add mode-specific addendum
-		if (this.mode === 'plan') {
-			mainPrompt += PLAN_MODE_SYSTEM_PROMPT;
-		} else if (this.mode === 'ask') {
-			mainPrompt += ASK_MODE_SYSTEM_PROMPT;
+		switch (this.mode) {
+			case 'code': {
+				mainPrompt += CODE_MODE_SYSTEM_PROMPT;
+
+				break;
+			}
+			case 'plan': {
+				mainPrompt += PLAN_MODE_SYSTEM_PROMPT;
+
+				break;
+			}
+			case 'ask': {
+				mainPrompt += ASK_MODE_SYSTEM_PROMPT;
+
+				break;
+			}
+			// No default
 		}
 
 		// Add latest plan context (in code mode only)

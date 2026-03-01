@@ -23,7 +23,7 @@ import { Tooltip } from '@/components/ui/tooltip';
 import { setActiveSessionId, useAiSessions } from '@/features/ai-assistant/hooks/use-ai-sessions';
 import { getLogSnapshot } from '@/features/output';
 import { useSnapshots } from '@/features/snapshots';
-import { abortAgent, createApiClient, downloadDebugLog, saveProjectPendingChanges } from '@/lib/api-client';
+import { abortAgent, createApiClient, downloadDebugLog, loadAiSession, saveProjectPendingChanges } from '@/lib/api-client';
 import { useStore } from '@/lib/store';
 import { cn, formatRelativeTime } from '@/lib/utils';
 
@@ -355,6 +355,23 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 			// Session is persisted server-side — refresh the sessions list so the
 			// dropdown reflects the latest state.
 			void queryClient.invalidateQueries({ queryKey: ['ai-sessions', projectId] });
+
+			// After a reconnected stream completes, the local message list may be
+			// incomplete (reload() truncated to the last user message, and stream
+			// chunks don't include other users' user messages). Reload the full
+			// server-side session to restore the correct conversation history.
+			if (isReconnectedStreamReference.current) {
+				isReconnectedStreamReference.current = false;
+				const currentSessionId = useStore.getState().sessionId;
+				if (currentSessionId) {
+					void loadAiSession(projectId, currentSessionId).then((serverSession) => {
+						if (serverSession && serverSession.history.length > 0) {
+							// eslint-disable-next-line @typescript-eslint/consistent-type-assertions, @typescript-eslint/no-explicit-any -- wire format cast
+							setChatMessages(serverSession.history as any[]);
+						}
+					});
+				}
+			}
 		},
 		onError: (error) => {
 			// Ignore abort errors — the user intentionally cancelled
@@ -427,14 +444,18 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	}, [isChatLoading, isCurrentSessionRunning, isProcessing, setProcessing, setStatusMessage]);
 
 	// Reconnection effect: when the current session is running in the DO
-	// but useChat isn't streaming (e.g. after page refresh or switching to
-	// a running session from history), trigger useChat.reload().
+	// but useChat isn't streaming (e.g. after page refresh, switching to
+	// a running session from history, or another user sending a message),
+	// trigger useChat.reload() to attach to the live stream.
 	//
-	// The ConnectionAdapter's connect() detects that the session is already
-	// running (via runningSessionIds) and skips the HTTP POST, just listening
-	// for WebSocket events. This means useChat processes the chunks normally
-	// — building messages, firing onChunk, showing streaming text in real-time.
+	// reload() truncates local messages to the last user message and calls
+	// connection.connect(), which enters the reconnection path and yields
+	// live stream chunks. During streaming, the local message list may be
+	// temporarily incomplete (e.g. missing another user's user message).
+	// After the stream completes, isReconnectedStreamReference triggers a
+	// server-side session reload in onFinish to correct the local state.
 	const hasTriggeredReconnectReference = useRef(false);
+	const isReconnectedStreamReference = useRef(false);
 
 	useEffect(() => {
 		// Reset the flag when session changes
@@ -446,6 +467,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		if (hasTriggeredReconnectReference.current) return;
 
 		hasTriggeredReconnectReference.current = true;
+		isReconnectedStreamReference.current = true;
 
 		// reload() calls connection.connect() with the existing messages.
 		// The adapter sees the session is running and just listens.

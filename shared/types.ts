@@ -77,7 +77,7 @@ export type { UIMessage } from '@tanstack/ai-client';
  * Agent operating mode.
  * - code: Full tool access — reads, writes, edits, deletes files (default).
  * - plan: Read-only research + produces an implementation plan.
- * - ask: No tools — conversational Q&A only.
+ * - ask: Read-only tools — conversational Q&A grounded in the codebase.
  */
 export type AgentMode = 'code' | 'plan' | 'ask';
 
