@@ -9,6 +9,7 @@ import { ArrowRightLeft, Check, ChevronDown, ChevronRight, FileMinus, FilePen, F
 import { useMemo, useState } from 'react';
 
 import { Pill } from '@/components/ui/pill';
+import { Tooltip } from '@/components/ui/tooltip';
 import { useStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 
@@ -170,34 +171,36 @@ function ChangedFileRow({
 				</div>
 			</div>
 			<div className="flex shrink-0 items-center gap-1">
-				<button
-					type="button"
-					onClick={() => onApprove(path)}
-					disabled={isReverting}
-					title="Accept change"
-					className={cn(
-						'inline-flex cursor-pointer items-center rounded-sm p-1',
-						'text-text-secondary transition-colors',
-						'hover:bg-success/15 hover:text-success',
-						isReverting && 'cursor-not-allowed opacity-50',
-					)}
-				>
-					<Check className="size-3.5" />
-				</button>
-				<button
-					type="button"
-					onClick={() => onReject(path)}
-					disabled={isReverting || !hasSnapshot}
-					title={hasSnapshot ? 'Reject change' : 'Waiting for snapshot…'}
-					className={cn(
-						'inline-flex cursor-pointer items-center rounded-sm p-1',
-						'text-text-secondary transition-colors',
-						'hover:bg-error/15 hover:text-error',
-						(isReverting || !hasSnapshot) && 'cursor-not-allowed opacity-50',
-					)}
-				>
-					<X className="size-3.5" />
-				</button>
+				<Tooltip content="Accept change">
+					<button
+						type="button"
+						onClick={() => onApprove(path)}
+						disabled={isReverting}
+						className={cn(
+							'inline-flex cursor-pointer items-center rounded-sm p-1',
+							'text-text-secondary transition-colors',
+							'hover:bg-success/15 hover:text-success',
+							isReverting && 'cursor-not-allowed opacity-50',
+						)}
+					>
+						<Check className="size-3.5" />
+					</button>
+				</Tooltip>
+				<Tooltip content={hasSnapshot ? 'Reject change' : 'Waiting for snapshot…'}>
+					<button
+						type="button"
+						onClick={() => onReject(path)}
+						disabled={isReverting || !hasSnapshot}
+						className={cn(
+							'inline-flex cursor-pointer items-center rounded-sm p-1',
+							'text-text-secondary transition-colors',
+							'hover:bg-error/15 hover:text-error',
+							(isReverting || !hasSnapshot) && 'cursor-not-allowed opacity-50',
+						)}
+					>
+						<X className="size-3.5" />
+					</button>
+				</Tooltip>
 			</div>
 		</div>
 	);

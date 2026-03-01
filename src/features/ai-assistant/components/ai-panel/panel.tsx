@@ -19,6 +19,7 @@ import { Button } from '@/components/ui/button';
 import { Collapsible } from '@/components/ui/collapsible';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Pill } from '@/components/ui/pill';
+import { Tooltip } from '@/components/ui/tooltip';
 import { setActiveSessionId, useAiSessions } from '@/features/ai-assistant/hooks/use-ai-sessions';
 import { getLogSnapshot } from '@/features/output';
 import { useSnapshots } from '@/features/snapshots';
@@ -888,11 +889,13 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 				<div className="flex shrink-0 items-center gap-1">
 					{/* Session dropdown */}
 					<DropdownMenu>
-						<DropdownMenuTrigger asChild>
-							<Button variant="ghost" size="icon-sm" title="Sessions">
-								<History className="size-3" />
-							</Button>
-						</DropdownMenuTrigger>
+						<Tooltip content="Sessions" side="bottom">
+							<DropdownMenuTrigger asChild>
+								<Button variant="ghost" size="icon-sm">
+									<History className="size-3" />
+								</Button>
+							</DropdownMenuTrigger>
+						</Tooltip>
 						<DropdownMenuContent align="end" className="max-h-80 w-56 overflow-y-auto">
 							{savedSessions.length === 0 ? (
 								<div className="px-3 py-2 text-xs text-text-secondary">No recent sessions</div>
@@ -914,9 +917,11 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 
 					{/* New session — always available when there's history, even if other sessions are running */}
 					{chatMessages.length > 0 && (
-						<Button variant="ghost" size="icon-sm" onClick={clearHistory} title="New session" disabled={isChatLoading}>
-							<Plus className="size-3.5" />
-						</Button>
+						<Tooltip content="New session" side="bottom">
+							<Button variant="ghost" size="icon-sm" onClick={clearHistory} disabled={isChatLoading}>
+								<Plus className="size-3.5" />
+							</Button>
+						</Tooltip>
 					)}
 				</div>
 			</div>
@@ -1000,21 +1005,22 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 							{!isProcessing && chatMessages.length > 0 && chatMessages.at(-1)?.role === 'assistant' && (
 								<div className="flex animate-chat-item items-center justify-end gap-2 px-2">
 									{debugLogId && (
-										<button
-											onClick={handleDownloadDebugLog}
-											className={cn(
-												`
-													inline-flex cursor-pointer items-center gap-1.5 rounded-md px-1.5
-													py-1
-												`,
-												'text-xs font-medium text-text-secondary transition-colors',
-												'hover:bg-bg-tertiary hover:text-text-primary',
-											)}
-											title="Download debug log"
-										>
-											<Download className="size-3" />
-											Agent Log
-										</button>
+										<Tooltip content="Download debug log" side="bottom">
+											<button
+												onClick={handleDownloadDebugLog}
+												className={cn(
+													`
+														inline-flex cursor-pointer items-center gap-1.5 rounded-md px-1.5
+														py-1
+													`,
+													'text-xs font-medium text-text-secondary transition-colors',
+													'hover:bg-bg-tertiary hover:text-text-primary',
+												)}
+											>
+												<Download className="size-3" />
+												Agent Log
+											</button>
+										</Tooltip>
 									)}
 								</div>
 							)}

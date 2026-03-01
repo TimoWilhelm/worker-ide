@@ -7,6 +7,7 @@
 
 import { FileText } from 'lucide-react';
 
+import { Tooltip } from '@/components/ui/tooltip';
 import { useStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 
@@ -40,17 +41,21 @@ export function FileReference({
 
 	if (!interactive) {
 		return (
-			<span className={sharedClassName} title={path}>
-				<FileText className="size-3 shrink-0" />
-				<span>{fileName}</span>
-			</span>
+			<Tooltip content={path} side="bottom">
+				<span className={sharedClassName}>
+					<FileText className="size-3 shrink-0" />
+					<span>{fileName}</span>
+				</span>
+			</Tooltip>
 		);
 	}
 
 	return (
-		<button type="button" onClick={() => openFile(path)} className={sharedClassName} title={path}>
-			<FileText className="size-3 shrink-0" />
-			<span>{fileName}</span>
-		</button>
+		<Tooltip content={path} side="bottom">
+			<button type="button" onClick={() => openFile(path)} className={sharedClassName}>
+				<FileText className="size-3 shrink-0" />
+				<span>{fileName}</span>
+			</button>
+		</Tooltip>
 	);
 }

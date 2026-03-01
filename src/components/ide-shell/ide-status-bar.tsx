@@ -4,6 +4,7 @@
 
 import { Github } from 'lucide-react';
 
+import { Tooltip } from '@/components/ui/tooltip';
 import { VersionBadge } from '@/components/version-badge';
 
 interface IDEStatusBarProperties {
@@ -30,12 +31,9 @@ export function IDEStatusBar({ isConnected, localParticipantColor, participants,
 							<span className="flex items-center gap-1 overflow-hidden">
 								<span className="shrink-0 text-text-secondary">&middot;</span>
 								{participants.map((participant) => (
-									<span
-										key={participant.id}
-										className="size-2 shrink-0 rounded-full"
-										style={{ backgroundColor: participant.color }}
-										title={`Collaborator (${participant.id.slice(0, 6)})`}
-									/>
+									<Tooltip key={participant.id} content={`Collaborator (${participant.id.slice(0, 6)})`}>
+										<span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: participant.color }} />
+									</Tooltip>
 								))}
 								<span className="shrink-0 text-text-secondary">{participants.length} online</span>
 							</span>
@@ -55,18 +53,19 @@ export function IDEStatusBar({ isConnected, localParticipantColor, participants,
 			</div>
 			<div className="flex shrink-0 items-center gap-4">
 				{isSaving && <span>Saving...</span>}
-				<a
-					href="https://github.com/TimoWilhelm/worker-ide"
-					target="_blank"
-					rel="noopener noreferrer"
-					className="
-						transition-colors
-						hover:text-accent
-					"
-					title="GitHub"
-				>
-					<Github className="size-3.5" />
-				</a>
+				<Tooltip content="GitHub">
+					<a
+						href="https://github.com/TimoWilhelm/worker-ide"
+						target="_blank"
+						rel="noopener noreferrer"
+						className="
+							transition-colors
+							hover:text-accent
+						"
+					>
+						<Github className="size-3.5" />
+					</a>
+				</Tooltip>
 				<a href="/docs" target="_blank" rel="noopener noreferrer" className="transition-colors hover:text-accent">
 					Worker IDE
 				</a>

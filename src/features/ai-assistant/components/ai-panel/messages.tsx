@@ -1463,14 +1463,16 @@ function InlineToolCall({
 					</span>
 				)}
 				{pattern && (
-					<span className="max-w-48 truncate font-mono text-text-secondary" title={pattern}>
-						{pattern}
-					</span>
+					<Tooltip content={pattern} side="bottom">
+						<span className="max-w-48 truncate font-mono text-text-secondary">{pattern}</span>
+					</Tooltip>
 				)}
 				{!singlePath && !fromPath && !pattern && extraLabel && (
-					<span className="max-w-48 truncate text-text-secondary" title={extraLabel}>
-						{extraLabel.length > 60 ? extraLabel.slice(0, 60) + '...' : extraLabel}
-					</span>
+					<Tooltip content={extraLabel} side="bottom">
+						<span className="max-w-48 truncate text-text-secondary">
+							{extraLabel.length > 60 ? extraLabel.slice(0, 60) + '...' : extraLabel}
+						</span>
+					</Tooltip>
 				)}
 				{resultSummary && <span className="ml-auto min-w-0 truncate text-text-secondary">{resultSummary}</span>}
 				{/* File edit stats: lines added, removed, lint errors */}

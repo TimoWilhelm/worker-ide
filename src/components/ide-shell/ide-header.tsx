@@ -125,8 +125,8 @@ export function IDEHeader({
 
 					{/* AI toggle (desktop only — mobile uses bottom tab bar) */}
 					{!isMobile && (
-						<Tooltip content="Toggle Agent panel">
-							<div className="relative">
+						<div className="relative">
+							<Tooltip content="Toggle Agent panel">
 								<Button
 									variant="ghost"
 									size="icon"
@@ -136,9 +136,9 @@ export function IDEHeader({
 								>
 									<Bot className="size-4" />
 								</Button>
-								{isAiProcessing && !aiPanelVisible && <BorderBeam duration={1.5} />}
-							</div>
-						</Tooltip>
+							</Tooltip>
+							{isAiProcessing && !aiPanelVisible && <BorderBeam duration={1.5} />}
+						</div>
 					)}
 
 					{/* Theme toggle */}

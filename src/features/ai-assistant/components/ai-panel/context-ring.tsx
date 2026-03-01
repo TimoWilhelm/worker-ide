@@ -60,7 +60,7 @@ export function ContextRing({ tokensUsed, contextWindow, className }: ContextRin
 
 	return (
 		<Tooltip content={tooltipContent} side="top">
-			<span className={cn('inline-flex items-center', className)}>
+			<span tabIndex={0} className={cn('inline-flex items-center', className)}>
 				<svg
 					width={SIZE}
 					height={SIZE}

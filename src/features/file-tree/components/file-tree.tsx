@@ -867,7 +867,9 @@ function FileTreeNode({
 				)}
 				{isProtected && (
 					<Tooltip content="Protected: Cannot be renamed or deleted">
-						<Lock className="ml-1.5 size-3 shrink-0 text-text-secondary/50" />
+						<span tabIndex={0} role="img" aria-label="Protected" className="ml-1.5 inline-flex shrink-0">
+							<Lock className="size-3 text-text-secondary/50" />
+						</span>
 					</Tooltip>
 				)}
 				{/* Collaborator presence dots — always visible */}
