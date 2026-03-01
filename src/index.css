@@ -109,7 +109,37 @@ html,
 body,
 #root {
 	height: 100%;
+	overflow: hidden;
 	overscroll-behavior-y: none;
+}
+
+/* Window Controls Overlay (PWA installed with display_override: window-controls-overlay) */
+@utility wco-titlebar {
+	-webkit-app-region: drag;
+	app-region: drag;
+	padding-left: env(titlebar-area-x, 0.75rem);
+}
+
+@utility wco-interactive {
+	-webkit-app-region: no-drag;
+	app-region: no-drag;
+}
+
+/* Safe-area inset utilities (requires viewport-fit=cover in the viewport meta tag) */
+@utility safe-area-b {
+	padding-bottom: env(safe-area-inset-bottom);
+}
+
+@utility safe-area-t {
+	padding-top: env(safe-area-inset-top);
+}
+
+@utility safe-area-l {
+	padding-left: env(safe-area-inset-left);
+}
+
+@utility safe-area-r {
+	padding-right: env(safe-area-inset-right);
 }
 
 body {

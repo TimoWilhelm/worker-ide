@@ -62,10 +62,10 @@ export function IDEHeader({
 			<header
 				className="
 					flex h-10 shrink-0 items-center justify-between border-b border-border
-					bg-bg-secondary px-3
+					bg-bg-secondary pr-3 wco-titlebar
 				"
 			>
-				<div className="flex min-w-0 items-center gap-2">
+				<div className="flex min-w-0 items-center gap-2 wco-interactive">
 					<Tooltip content="Back to home">
 						<a
 							href="/"
@@ -116,7 +116,7 @@ export function IDEHeader({
 						</div>
 					)}
 				</div>
-				<div className="flex shrink-0 items-center gap-2">
+				<div className="flex shrink-0 items-center gap-2 wco-interactive">
 					{/* Save indicator */}
 					{isSaving && <span className="text-xs text-text-secondary">Saving...</span>}
 

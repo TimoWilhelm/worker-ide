@@ -33,7 +33,7 @@ export function MobileTabBar() {
 		<nav
 			className="
 				flex h-12 shrink-0 items-stretch border-t border-border bg-bg-secondary
-				pb-[env(safe-area-inset-bottom)]
+				safe-area-b
 			"
 		>
 			{/* Panel tabs */}

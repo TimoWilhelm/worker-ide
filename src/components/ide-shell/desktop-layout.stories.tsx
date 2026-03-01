@@ -116,7 +116,7 @@ const meta = {
 	decorators: [
 		(Story) => (
 			<Suspense fallback={<div>Loading...</div>}>
-				<div className="flex h-dvh flex-col overflow-hidden bg-bg-primary">
+				<div className="flex h-full flex-col overflow-hidden bg-bg-primary">
 					<Story />
 				</div>
 			</Suspense>
