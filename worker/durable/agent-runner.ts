@@ -13,7 +13,6 @@
 
 import { convertMessagesToModelMessages } from '@tanstack/ai';
 import { DurableObject, env } from 'cloudflare:workers';
-import { mount, withMounts } from 'worker-fs-mount';
 
 import { DEFAULT_AI_MODEL } from '@shared/constants';
 
@@ -21,15 +20,7 @@ import { coordinatorNamespace, filesystemNamespace } from '../lib/durable-object
 import { AIAgentService } from '../services/ai-agent';
 
 import type { AIModelId } from '@shared/constants';
-import type { ActiveAgentSession, AgentSessionStatus } from '@shared/types';
-
-/**
- * Storage keys used by the synchronous KV API (`ctx.storage.kv`).
- */
-const STORAGE_KEY = {
-	/** Active agent session state (serialized ActiveAgentSession or undefined). */
-	ACTIVE_SESSION: 'activeAgentSession',
-} as const;
+import type { ActiveAgentSession, AgentSessionStatus, AiSession } from '@shared/types';
 
 /**
  * Maximum number of recent stream events to buffer for reconnection.
@@ -46,6 +37,7 @@ const PROJECT_ROOT = '/project';
  * Parameters for starting an agent run.
  */
 export interface StartAgentParameters {
+	projectId: string;
 	messages: unknown[];
 	mode?: 'code' | 'plan' | 'ask';
 	sessionId?: string;
@@ -55,32 +47,19 @@ export interface StartAgentParameters {
 
 export class AgentRunner extends DurableObject {
 	/**
-	 * In-memory abort controller for the currently running agent.
-	 * Not serializable — if the DO is evicted mid-run, the agent loop
-	 * terminates naturally and the session is persisted.
+	 * In-memory abort controllers keyed by sessionId
 	 */
-	private agentAbortController: AbortController | undefined;
+	private agentAbortControllers = new Map<string, AbortController>();
 
 	/**
-	 * Ring buffer of recent stream events for late-joining clients.
-	 * Cleared when the agent run completes.
+	 * Ring buffers of recent stream events for late-joining clients, keyed by sessionId.
 	 */
-	private eventBuffer: Array<{ chunk: unknown; index: number }> = [];
+	private eventBuffers = new Map<string, Array<{ chunk: unknown; index: number }>>();
 
 	/**
-	 * Monotonic event index within the current agent run.
+	 * Monotonic event indices within the current agent run, keyed by sessionId.
 	 */
-	private eventIndex = 0;
-
-	/**
-	 * The project ID, derived from the DO name.
-	 */
-	private get projectId(): string {
-		const name = this.ctx.id.name;
-		if (!name) throw new Error('AgentRunner DO must be created with idFromName');
-		// Keyed as "agent:{projectId}" — strip the prefix
-		return name.startsWith('agent:') ? name.slice(6) : name;
-	}
+	private eventIndices = new Map<string, number>();
 
 	// =========================================================================
 	// RPC Methods
@@ -94,58 +73,175 @@ export class AgentRunner extends DurableObject {
 	 * without starting a new one.
 	 */
 	async startAgent(parameters: StartAgentParameters): Promise<ActiveAgentSession> {
-		const existing = this.getActiveSession();
-		if (existing?.status === 'running') {
+		const sessionId = parameters.sessionId ?? crypto.randomUUID().replaceAll('-', '').slice(0, 16);
+		const existing = this.getActiveSession(sessionId);
+
+		// If the session claims to be running, but we don't have an abort controller
+		// in memory, the DO was evicted or crashed. Treat it as not running.
+		if (existing?.status === 'running' && this.agentAbortControllers.has(sessionId)) {
 			return existing;
 		}
 
-		const sessionId = parameters.sessionId ?? crypto.randomUUID().replaceAll('-', '').slice(0, 16);
 		const session: ActiveAgentSession = {
 			sessionId,
 			status: 'running',
 			startedAt: Date.now(),
 		};
-		this.setActiveSession(session);
+
+		this.setActiveSession(sessionId, session);
 
 		// Reset event buffer for the new run
-		this.eventBuffer = [];
-		this.eventIndex = 0;
+		this.eventBuffers.set(sessionId, []);
+		this.eventIndices.set(sessionId, 0);
 
 		// Create a new abort controller for this run
-		this.agentAbortController = new AbortController();
+		this.agentAbortControllers.set(sessionId, new AbortController());
 
 		// Start the agent loop asynchronously — does not block the RPC response.
 		// The DO stays alive as long as this async work is in progress.
-		this.ctx.waitUntil(this.executeAgentLoop(parameters, sessionId));
+		this.ctx.waitUntil(
+			this.executeAgentLoop(parameters, sessionId).catch((error) => {
+				console.error(`[AgentRunner ${sessionId}] Unhandled error from executeAgentLoop:`, error);
+			}),
+		);
 
 		// Broadcast the status change to all connected clients
-		await this.broadcastStatusChanged(sessionId, 'running');
+		await this.broadcastStatusChanged(parameters.projectId, sessionId, 'running');
 
 		return session;
 	}
 
 	/**
-	 * Abort the currently running agent. No-op if no agent is running.
+	 * Abort the currently running agent or a specific agent session.
 	 */
-	async abortAgent(): Promise<void> {
-		if (this.agentAbortController) {
-			this.agentAbortController.abort();
+	async abortAgent(sessionId?: string): Promise<void> {
+		if (sessionId) {
+			const controller = this.agentAbortControllers.get(sessionId);
+			if (controller) {
+				controller.abort();
+				this.agentAbortControllers.delete(sessionId);
+			}
+		} else {
+			// Abort all running agents
+			for (const controller of this.agentAbortControllers.values()) {
+				controller.abort();
+			}
+			this.agentAbortControllers.clear();
 		}
 	}
 
 	/**
-	 * Get the current agent session state.
+	 * Get the current agent session state for a specific ID,
+	 * or the most recently started active session if no ID is specified.
 	 */
-	async getAgentStatus(): Promise<ActiveAgentSession | undefined> {
-		return this.getActiveSession();
+	async getAgentStatus(sessionId?: string): Promise<ActiveAgentSession | undefined> {
+		if (sessionId) {
+			return this.getActiveSession(sessionId);
+		}
+
+		// Fallback: get the latest running session
+		const sessions = this.ctx.storage.kv.list<ActiveAgentSession>({ prefix: 'session:' });
+
+		const activeSessions: ActiveAgentSession[] = [];
+		for (const [_, session] of sessions) {
+			if (session.status === 'running') {
+				activeSessions.push(session);
+			}
+		}
+
+		activeSessions.sort((a, b) => b.startedAt - a.startedAt);
+
+		return activeSessions[0];
+	}
+
+	/**
+	 * Get the IDs of all sessions that are currently running.
+	 * Only returns sessions that have an in-memory abort controller
+	 * (i.e. genuinely active, not stale from a DO eviction).
+	 */
+	async getRunningSessionIds(): Promise<string[]> {
+		return [...this.agentAbortControllers.keys()];
 	}
 
 	/**
 	 * Get buffered events since a given index for reconnection.
 	 * Returns events with index > lastEventIndex.
 	 */
-	async getBufferedEvents(lastEventIndex: number): Promise<Array<{ chunk: unknown; index: number }>> {
-		return this.eventBuffer.filter((event) => event.index > lastEventIndex);
+	async getBufferedEvents(sessionId: string, lastEventIndex: number): Promise<Array<{ chunk: unknown; index: number }>> {
+		const buffer = this.eventBuffers.get(sessionId) || [];
+		return buffer.filter((event) => event.index > lastEventIndex);
+	}
+
+	// =========================================================================
+	// Session CRUD
+	// =========================================================================
+
+	/**
+	 * List all saved sessions (summary only: id, title, createdAt).
+	 */
+	async listSessions(): Promise<Array<{ id: string; title: string; createdAt: number; isRunning: boolean }>> {
+		const sessions: Array<{ id: string; title: string; createdAt: number; isRunning: boolean }> = [];
+		const entries = this.ctx.storage.kv.list<AiSession>({ prefix: 'sessionData:' });
+		for (const [, data] of entries) {
+			if (data && typeof data.title === 'string' && typeof data.createdAt === 'number') {
+				sessions.push({
+					id: data.id,
+					title: data.title,
+					createdAt: data.createdAt,
+					isRunning: this.agentAbortControllers.has(data.id),
+				});
+			}
+		}
+		sessions.sort((a, b) => b.createdAt - a.createdAt);
+		return sessions.slice(0, 100);
+	}
+
+	/**
+	 * Load a single session by ID.
+	 */
+	async loadSession(sessionId: string): Promise<AiSession | undefined> {
+		return this.ctx.storage.kv.get<AiSession>(`sessionData:${sessionId}`);
+	}
+
+	/**
+	 * Save (create or update) a session.
+	 */
+	async saveSession(sessionId: string, data: AiSession): Promise<void> {
+		this.ctx.storage.kv.put(`sessionData:${sessionId}`, data);
+	}
+
+	/**
+	 * Delete a session.
+	 */
+	async deleteSession(sessionId: string): Promise<void> {
+		this.ctx.storage.kv.delete(`sessionData:${sessionId}`);
+		// Also clean up the active session marker if it exists
+		this.ctx.storage.kv.delete(`session:${sessionId}`);
+	}
+
+	// =========================================================================
+	// Pending Changes
+	// =========================================================================
+
+	/**
+	 * Load project-level pending changes.
+	 */
+	async loadPendingChanges(): Promise<Record<string, unknown>> {
+		const raw = this.ctx.storage.kv.get<string>('pendingChanges');
+		if (!raw) return {};
+		try {
+			// eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- JSON parse returns unknown
+			return JSON.parse(raw) as Record<string, unknown>;
+		} catch {
+			return {};
+		}
+	}
+
+	/**
+	 * Save project-level pending changes.
+	 */
+	async savePendingChanges(changes: Record<string, unknown>): Promise<void> {
+		this.ctx.storage.kv.put('pendingChanges', JSON.stringify(changes));
 	}
 
 	// =========================================================================
@@ -153,8 +249,9 @@ export class AgentRunner extends DurableObject {
 	// =========================================================================
 
 	private async executeAgentLoop(parameters: StartAgentParameters, sessionId: string): Promise<void> {
-		const projectId = this.projectId;
+		const projectId = parameters.projectId;
 		let finalStatus: AgentSessionStatus = 'completed';
+		let errorMessage: string | undefined;
 
 		try {
 			const apiToken = env.REPLICATE_API_TOKEN;
@@ -174,14 +271,44 @@ export class AgentRunner extends DurableObject {
 			// eslint-disable-next-line @typescript-eslint/consistent-type-assertions, @typescript-eslint/no-explicit-any -- UIMessage format from frontend is loosely typed at the wire boundary
 			const modelMessages = convertMessagesToModelMessages(parameters.messages as any);
 
-			const agentService = new AIAgentService(PROJECT_ROOT, projectId, fsStub, sessionId, mode, model);
+			const agentService = new AIAgentService(
+				PROJECT_ROOT,
+				projectId,
+				fsStub,
+				sessionId,
+				mode,
+				model,
+				async (sid, sessionData, pendingChanges) => {
+					// Persist session history metadata to DO storage
+					this.ctx.storage.kv.put(`sessionData:${sid}`, { ...sessionData, id: sid });
 
-			// Run the agent stream within a filesystem mount scope
-			const stream = withMounts(() => {
-				mount(PROJECT_ROOT, fsStub);
-				const abortController = this.agentAbortController ?? new AbortController();
-				return agentService.runAgentStream(modelMessages, parameters.messages, apiToken, abortController, parameters.outputLogs);
-			});
+					// Merge project-wide pending changes
+					if (pendingChanges) {
+						const existingString = this.ctx.storage.kv.get<string | undefined>('pendingChanges');
+						let existing = {};
+						if (existingString) {
+							try {
+								existing = JSON.parse(existingString);
+							} catch {
+								// Ignore invalid JSON
+							}
+						}
+
+						this.ctx.storage.kv.put(
+							'pendingChanges',
+							JSON.stringify({
+								...existing,
+								...pendingChanges,
+							}),
+						);
+					}
+				},
+			);
+
+			// runAgentStream handles filesystem mounting internally via
+			// a withMounts-scoped async producer piped through a TransformStream.
+			const abortController = this.agentAbortControllers.get(sessionId) ?? new AbortController();
+			const stream = agentService.runAgentStream(modelMessages, parameters.messages, apiToken, abortController, parameters.outputLogs);
 
 			// Get the coordinator stub for broadcasting events
 			const coordinatorId = coordinatorNamespace.idFromName(`project:${projectId}`);
@@ -189,12 +316,15 @@ export class AgentRunner extends DurableObject {
 
 			// Consume the stream and broadcast each chunk
 			for await (const chunk of stream) {
-				const index = this.eventIndex++;
+				const index = this.eventIndices.get(sessionId) ?? 0;
+				this.eventIndices.set(sessionId, index + 1);
 
 				// Buffer the event for late-joining clients
-				this.eventBuffer.push({ chunk, index });
-				if (this.eventBuffer.length > EVENT_BUFFER_CAPACITY) {
-					this.eventBuffer.shift();
+				const buffer = this.eventBuffers.get(sessionId) ?? [];
+				this.eventBuffers.set(sessionId, buffer);
+				buffer.push({ chunk, index });
+				if (buffer.length > EVENT_BUFFER_CAPACITY) {
+					buffer.shift();
 				}
 
 				// Broadcast to all connected WebSocket clients via the coordinator
@@ -215,21 +345,57 @@ export class AgentRunner extends DurableObject {
 				finalStatus = 'aborted';
 			} else {
 				finalStatus = 'error';
-				console.error('Agent loop error in AgentRunner DO:', error);
+				console.error(`Agent loop error in AgentRunner DO [${sessionId}]:`, error);
+
+				// Emit a RUN_ERROR chunk so the UI shows an error message.
+				// Sanitize: never expose internal error details to clients.
+				const sanitizedMessage =
+					error instanceof Error && error.message === 'REPLICATE_API_TOKEN not configured'
+						? 'AI service is not configured. Please contact the project owner.'
+						: 'An unexpected error occurred during generation. Please try again.';
+				errorMessage = sanitizedMessage;
+
+				const errorChunk = {
+					type: 'RUN_ERROR',
+					timestamp: Date.now(),
+					error: { message: sanitizedMessage },
+				};
+
+				// Buffer and broadcast the error chunk so all clients see it
+				const index = this.eventIndices.get(sessionId) ?? 0;
+				this.eventIndices.set(sessionId, index + 1);
+				const buffer = this.eventBuffers.get(sessionId) ?? [];
+				this.eventBuffers.set(sessionId, buffer);
+				buffer.push({ chunk: errorChunk, index });
+
+				try {
+					const coordinatorId = coordinatorNamespace.idFromName(`project:${projectId}`);
+					const coordinatorStub = coordinatorNamespace.get(coordinatorId);
+					await coordinatorStub.sendMessage({
+						type: 'agent-stream-event',
+						sessionId,
+						chunk: errorChunk,
+						index,
+					});
+				} catch {
+					// Non-fatal
+				}
 			}
 		} finally {
-			// Update the session status
-			const session = this.getActiveSession();
+			// Update the active session status
+			const session = this.getActiveSession(sessionId);
 			if (session) {
 				session.status = finalStatus;
-				this.setActiveSession(session);
+				this.setActiveSession(sessionId, session);
 			}
 
 			// Clean up
-			this.agentAbortController = undefined;
+			this.agentAbortControllers.delete(sessionId);
+			this.eventBuffers.delete(sessionId);
+			this.eventIndices.delete(sessionId);
 
-			// Broadcast the final status
-			await this.broadcastStatusChanged(sessionId, finalStatus).catch(() => {});
+			// Broadcast the final status (with sanitized error message if applicable)
+			await this.broadcastStatusChanged(parameters.projectId, sessionId, finalStatus, undefined, errorMessage).catch(() => {});
 		}
 	}
 
@@ -237,15 +403,22 @@ export class AgentRunner extends DurableObject {
 	// Status Broadcasting
 	// =========================================================================
 
-	private async broadcastStatusChanged(sessionId: string, status: AgentSessionStatus, title?: string): Promise<void> {
+	private async broadcastStatusChanged(
+		projectId: string,
+		sessionId: string,
+		status: AgentSessionStatus,
+		title?: string,
+		errorMessage?: string,
+	): Promise<void> {
 		try {
-			const coordinatorId = coordinatorNamespace.idFromName(`project:${this.projectId}`);
+			const coordinatorId = coordinatorNamespace.idFromName(`project:${projectId}`);
 			const coordinatorStub = coordinatorNamespace.get(coordinatorId);
 			await coordinatorStub.sendMessage({
 				type: 'agent-status-changed',
 				sessionId,
 				status,
 				title,
+				...(errorMessage ? { errorMessage } : {}),
 			});
 		} catch {
 			// Non-fatal
@@ -256,15 +429,15 @@ export class AgentRunner extends DurableObject {
 	// Storage Helpers
 	// =========================================================================
 
-	private getActiveSession(): ActiveAgentSession | undefined {
-		return this.ctx.storage.kv.get<ActiveAgentSession>(STORAGE_KEY.ACTIVE_SESSION);
+	private getActiveSession(sessionId: string): ActiveAgentSession | undefined {
+		return this.ctx.storage.kv.get<ActiveAgentSession>(`session:${sessionId}`);
 	}
 
-	private setActiveSession(session: ActiveAgentSession | undefined): void {
+	private setActiveSession(sessionId: string, session: ActiveAgentSession | undefined): void {
 		if (session === undefined) {
-			this.ctx.storage.kv.delete(STORAGE_KEY.ACTIVE_SESSION);
+			this.ctx.storage.kv.delete(`session:${sessionId}`);
 		} else {
-			this.ctx.storage.kv.put(STORAGE_KEY.ACTIVE_SESSION, session);
+			this.ctx.storage.kv.put(`session:${sessionId}`, session);
 		}
 	}
 }

@@ -89,10 +89,13 @@ export function useAiSessions({ projectId }: { projectId: string }) {
 		staleTime: 1000 * 30,
 	});
 
-	// Sync sessions list to the store
+	// Sync sessions list and running session IDs to the store
 	useEffect(() => {
 		if (sessionsQuery.data) {
 			setSavedSessions(sessionsQuery.data);
+			// Derive running session IDs from the sessions list
+			const runningIds = new Set(sessionsQuery.data.filter((session) => session.isRunning).map((session) => session.id));
+			useStore.getState().setRunningSessionIds(runningIds);
 		}
 	}, [sessionsQuery.data, setSavedSessions]);
 

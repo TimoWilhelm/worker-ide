@@ -190,6 +190,20 @@ export function useProjectSocket({ projectId, enabled = true }: UseProjectSocket
 							globalThis.dispatchEvent(new CustomEvent('rebuild'));
 							break;
 						}
+						case 'file-edited': {
+							// Invalidate queries for updated file paths, but skip
+							// the currently active file — its content is managed
+							// locally by the editor and refetching would race with
+							// unsaved edits.
+							const activeFilePath = storeActionsReference.current.activeFile;
+							for (const update of message.path) {
+								if (update === activeFilePath) continue;
+								void queryClientCurrent.invalidateQueries({
+									queryKey: ['file', projectIdCurrent, update],
+								});
+							}
+							break;
+						}
 						case 'collab-state': {
 							setParticipants(message.participants);
 							if ('selfId' in message && typeof message.selfId === 'string') {
@@ -198,9 +212,9 @@ export function useProjectSocket({ projectId, enabled = true }: UseProjectSocket
 							if ('selfColor' in message && typeof message.selfColor === 'string') {
 								setLocalParticipantColor(message.selfColor);
 							}
-							// Sync active agent session from collab state (for late-joining clients)
-							if ('activeAgentSession' in message && message.activeAgentSession) {
-								useStore.getState().setActiveAgentSession(message.activeAgentSession);
+							// Sync running agent sessions from collab state (for late-joining clients)
+							if ('runningSessionIds' in message && Array.isArray(message.runningSessionIds)) {
+								useStore.getState().setRunningSessionIds(new Set(message.runningSessionIds));
 							}
 							break;
 						}
@@ -290,14 +304,13 @@ export function useProjectSocket({ projectId, enabled = true }: UseProjectSocket
 						case 'agent-status-changed': {
 							const store = useStore.getState();
 							if (message.status === 'running') {
-								store.setActiveAgentSession({
-									sessionId: message.sessionId,
-									status: 'running',
-									title: message.title,
-									startedAt: Date.now(),
-								});
+								store.addRunningSession(message.sessionId);
 							} else {
-								store.updateActiveAgentSessionStatus(message.status, message.title);
+								store.removeRunningSession(message.sessionId);
+							}
+							// Surface error messages to the UI for the active session
+							if (message.status === 'error' && message.errorMessage && message.sessionId === store.sessionId) {
+								store.setAiError({ message: message.errorMessage });
 							}
 							// Dispatch a CustomEvent so the ConnectionAdapter can detect completion
 							globalThis.dispatchEvent(
@@ -306,13 +319,18 @@ export function useProjectSocket({ projectId, enabled = true }: UseProjectSocket
 										sessionId: message.sessionId,
 										status: message.status,
 										title: message.title,
+										errorMessage: message.errorMessage,
 									},
 								}),
 							);
+							// Refresh the sessions list so collaborators see new/completed
+							// sessions in the dropdown immediately.
+							void queryClientReference.current.invalidateQueries({
+								queryKey: ['ai-sessions', projectIdReference.current],
+							});
 							break;
 						}
-						case 'pong':
-						case 'file-edited': {
+						case 'pong': {
 							// Handled elsewhere or ignored
 							break;
 						}

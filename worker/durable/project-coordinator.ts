@@ -5,7 +5,7 @@ import { serializeMessage, parseClientMessage } from '@shared/ws-messages';
 
 import { agentRunnerNamespace } from '../lib/durable-object-namespaces';
 
-import type { ActiveAgentSession, HmrUpdate, Participant } from '@shared/types';
+import type { HmrUpdate, Participant } from '@shared/types';
 import type { ServerMessage } from '@shared/ws-messages';
 
 /**
@@ -48,6 +48,11 @@ const STORAGE_KEY = {
  * transient data (pending CDP promise callbacks) is kept in-memory.
  */
 export class ProjectCoordinator extends DurableObject {
+	constructor(state: DurableObjectState, environment: Env) {
+		super(state, environment);
+		this.ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'));
+	}
+
 	/**
 	 * Pending CDP command requests awaiting a response from a frontend client.
 	 *
@@ -256,18 +261,19 @@ export class ProjectCoordinator extends DurableObject {
 	}
 
 	/**
-	 * Get the active agent session state by querying the AgentRunner DO.
-	 * Used to include agent status in collab-state for late-joining clients.
+	 * Get the IDs of all running agent sessions by querying the AgentRunner DO.
+	 * Used to include running session info in collab-state for late-joining clients.
 	 */
-	async getActiveAgentSession(): Promise<ActiveAgentSession | undefined> {
+	private async getRunningSessionIds(): Promise<string[]> {
 		try {
 			const projectId = this.deriveProjectId();
-			if (!projectId) return undefined;
+			if (!projectId) return [];
 			const agentRunnerId = agentRunnerNamespace.idFromName(`agent:${projectId}`);
 			const agentRunnerStub = agentRunnerNamespace.get(agentRunnerId);
-			return await agentRunnerStub.getAgentStatus();
+			const rpcIds = await agentRunnerStub.getRunningSessionIds();
+			return [...rpcIds];
 		} catch {
-			return undefined;
+			return [];
 		}
 	}
 
@@ -298,17 +304,12 @@ export class ProjectCoordinator extends DurableObject {
 
 	/**
 	 * Send the initial collab-state message to a newly joined client.
-	 * Includes the active agent session status if one is running.
+	 * Includes the IDs of running agent sessions.
 	 */
 	private async sendCollabState(ws: WebSocket, attachment: ParticipantAttachment): Promise<void> {
-		let activeAgentSession: ActiveAgentSession | undefined;
+		let runningSessionIds: string[] = [];
 		try {
-			activeAgentSession = await this.getActiveAgentSession();
-			// Only include sessions with 'running' status — completed/error/aborted
-			// are stale and not useful to late joiners.
-			if (activeAgentSession && activeAgentSession.status !== 'running') {
-				activeAgentSession = undefined;
-			}
+			runningSessionIds = await this.getRunningSessionIds();
 		} catch {
 			// Non-fatal — proceed without agent session info
 		}
@@ -320,7 +321,7 @@ export class ProjectCoordinator extends DurableObject {
 					selfId: attachment.id,
 					selfColor: attachment.color,
 					participants: this.getAllParticipants(attachment.id),
-					...(activeAgentSession ? { activeAgentSession } : {}),
+					...(runningSessionIds.length > 0 ? { runningSessionIds } : {}),
 				}),
 			);
 		} catch {
@@ -367,11 +368,6 @@ export class ProjectCoordinator extends DurableObject {
 			const parsed = parseClientMessage(messageString);
 			if (!parsed.success) return;
 			const data = parsed.data;
-
-			if (data.type === 'ping') {
-				ws.send(serializeMessage({ type: 'pong' }));
-				return;
-			}
 
 			if (data.type === 'hmr-connect') {
 				// The HMR client sends its last-seen version after connecting

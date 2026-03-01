@@ -154,13 +154,15 @@ export async function downloadProject(projectId: string): Promise<Blob> {
 /**
  * List all saved AI sessions for a project.
  */
-export async function listAiSessions(projectId: string): Promise<Array<{ id: string; title: string; createdAt: number }>> {
+export async function listAiSessions(
+	projectId: string,
+): Promise<Array<{ id: string; title: string; createdAt: number; isRunning: boolean }>> {
 	const api = createApiClient(projectId);
 	const response = await api['ai-sessions'].$get({});
 	if (!response.ok) {
 		throw new Error('Failed to list AI sessions');
 	}
-	const data: { sessions: Array<{ id: string; title: string; createdAt: number }> } = await response.json();
+	const data: { sessions: Array<{ id: string; title: string; createdAt: number; isRunning: boolean }> } = await response.json();
 	return data.sessions;
 }
 
@@ -359,6 +361,32 @@ export async function getAgentStatus(projectId: string): Promise<ActiveAgentSess
 	if (!response.ok) return undefined;
 	const data: { session?: ActiveAgentSession } = await response.json();
 	return data.session;
+}
+
+/**
+ * Get the IDs of all currently running agent sessions for a project.
+ */
+export async function getRunningSessionIds(projectId: string): Promise<string[]> {
+	const response = await fetch(`/p/${projectId}/api/ai/running-sessions`);
+	if (!response.ok) return [];
+	const data: { sessionIds: string[] } = await response.json();
+	return data.sessionIds;
+}
+
+/**
+ * Fetch buffered stream events for reconnection to an ongoing session.
+ * Returns events with index > lastEventIndex so the client can catch up.
+ */
+export async function getBufferedEvents(
+	projectId: string,
+	sessionId: string,
+	lastEventIndex = 0,
+): Promise<Array<{ chunk: unknown; index: number }>> {
+	const parameters = new URLSearchParams({ sessionId, lastEventIndex: String(lastEventIndex) });
+	const response = await fetch(`/p/${projectId}/api/ai/buffered-events?${parameters.toString()}`);
+	if (!response.ok) return [];
+	const data: { events: Array<{ chunk: unknown; index: number }> } = await response.json();
+	return data.events;
 }
 
 // =============================================================================

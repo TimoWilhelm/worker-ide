@@ -50,6 +50,7 @@ export const aiRoutes = new Hono<AppEnvironment>()
 		const agentRunnerStub = agentRunnerNamespace.get(agentRunnerId);
 
 		const session = await agentRunnerStub.startAgent({
+			projectId,
 			messages,
 			mode,
 			sessionId,
@@ -80,6 +81,36 @@ export const aiRoutes = new Hono<AppEnvironment>()
 		const status = await agentRunnerStub.getAgentStatus();
 
 		return c.json({ session: status ?? undefined });
+	})
+
+	// GET /api/ai/buffered-events?sessionId=X&lastEventIndex=Y - Get buffered stream events for reconnection
+	.get(
+		'/ai/buffered-events',
+		zValidator('query', z.object({ sessionId: z.string().min(1), lastEventIndex: z.coerce.number().int().min(0).default(0) })),
+		async (c) => {
+			const projectId = c.get('projectId');
+			const { sessionId, lastEventIndex } = c.req.valid('query');
+
+			const agentRunnerId = agentRunnerNamespace.idFromName(`agent:${projectId}`);
+			const agentRunnerStub = agentRunnerNamespace.get(agentRunnerId);
+			const rpcEvents = await agentRunnerStub.getBufferedEvents(sessionId, lastEventIndex);
+			// eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- DO RPC serialization loses array type
+			const events = structuredClone(rpcEvents) as Array<{ chunk: unknown; index: number }>;
+
+			return c.json({ events });
+		},
+	)
+
+	// GET /api/ai/running-sessions - Get IDs of all currently running agent sessions
+	.get('/ai/running-sessions', async (c) => {
+		const projectId = c.get('projectId');
+
+		const agentRunnerId = agentRunnerNamespace.idFromName(`agent:${projectId}`);
+		const agentRunnerStub = agentRunnerNamespace.get(agentRunnerId);
+		const rpcIds = await agentRunnerStub.getRunningSessionIds();
+		const sessionIds = [...rpcIds];
+
+		return c.json({ sessionIds });
 	})
 
 	// GET /api/ai/latest-debug-log-id?sessionId=X - Get the latest debug log ID for a session

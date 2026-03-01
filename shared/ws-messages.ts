@@ -12,7 +12,7 @@
 
 import { z } from 'zod';
 
-import type { ActiveAgentSession, CursorPosition, Participant, SelectionRange, ServerError, ServerLogEntry } from './types';
+import type { CursorPosition, Participant, SelectionRange, ServerError, ServerLogEntry } from './types';
 
 // =============================================================================
 // Client -> Server Messages
@@ -121,8 +121,8 @@ export interface CollabStateMessage {
 	selfId: string;
 	selfColor: string;
 	participants: Participant[];
-	/** Active agent session, if one is currently running. Included for late-joining clients. */
-	activeAgentSession?: ActiveAgentSession;
+	/** IDs of agent sessions currently running in the AgentRunner DO. */
+	runningSessionIds?: string[];
 }
 
 /**
@@ -299,6 +299,8 @@ export interface AgentStatusChangedMessage {
 	sessionId: string;
 	status: 'running' | 'completed' | 'error' | 'aborted';
 	title?: string;
+	/** Sanitized error message for the UI (only present when status is 'error'). */
+	errorMessage?: string;
 }
 
 export type ServerMessage =
@@ -410,14 +412,7 @@ export const serverMessageSchema = z.discriminatedUnion('type', [
 		selfId: z.string(),
 		selfColor: z.string(),
 		participants: z.array(participantSchema),
-		activeAgentSession: z
-			.object({
-				sessionId: z.string(),
-				status: z.enum(['running', 'completed', 'error', 'aborted']),
-				title: z.string().optional(),
-				startedAt: z.number(),
-			})
-			.optional(),
+		runningSessionIds: z.array(z.string()).optional(),
 	}),
 	z.object({
 		type: z.literal('participant-joined'),
@@ -529,6 +524,7 @@ export const serverMessageSchema = z.discriminatedUnion('type', [
 		sessionId: z.string(),
 		status: z.enum(['running', 'completed', 'error', 'aborted']),
 		title: z.string().optional(),
+		errorMessage: z.string().optional(),
 	}),
 ]);
 

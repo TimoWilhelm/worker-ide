@@ -1,9 +1,10 @@
 /**
  * AI session management routes.
  * Handles CRUD operations for AI chat sessions.
+ *
+ * All session and pending-changes data is stored in the AgentRunner
+ * Durable Object (DO storage is the source of truth).
  */
-
-import fs from 'node:fs/promises';
 
 import { zValidator } from '@hono/zod-validator';
 import { Hono } from 'hono';
@@ -11,11 +12,18 @@ import { z } from 'zod';
 
 import { sessionIdSchema, saveSessionSchema, pendingChangesFileSchema } from '@shared/validation';
 
+import { agentRunnerNamespace } from '../lib/durable-object-namespaces';
 import { httpError } from '../lib/http-error';
 
-const sessionIdQuerySchema = z.object({ id: sessionIdSchema });
-
 import type { AppEnvironment } from '../types';
+
+/**
+ * Get the AgentRunner stub for a project.
+ */
+function getAgentRunnerStub(projectId: string) {
+	const id = agentRunnerNamespace.idFromName(`agent:${projectId}`);
+	return agentRunnerNamespace.get(id);
+}
 
 /**
  * Session routes - all routes are prefixed with /api
@@ -23,96 +31,70 @@ import type { AppEnvironment } from '../types';
 export const sessionRoutes = new Hono<AppEnvironment>()
 	// GET /api/ai-sessions - List all saved AI sessions
 	.get('/ai-sessions', async (c) => {
-		const projectRoot = c.get('projectRoot');
-		const sessionsDirectory = `${projectRoot}/.agent/sessions`;
-		try {
-			const entries = await fs.readdir(sessionsDirectory);
-			const sessions: Array<{ id: string; title: string; createdAt: number }> = [];
-
-			for (const name of entries) {
-				if (!name.endsWith('.json')) continue;
-				try {
-					const raw = await fs.readFile(`${sessionsDirectory}/${name}`, 'utf8');
-					const session: { id: string; title: string; createdAt: number } = JSON.parse(raw);
-					sessions.push({ id: session.id, title: session.title, createdAt: session.createdAt });
-				} catch {
-					// Skip invalid session files
-				}
-			}
-
-			sessions.sort((a, b) => b.createdAt - a.createdAt);
-			return c.json({ sessions: sessions.slice(0, 100) });
-		} catch {
-			return c.json({ sessions: [] });
-		}
+		const projectId = c.get('projectId');
+		const stub = getAgentRunnerStub(projectId);
+		const rpcSessions = await stub.listSessions();
+		// Map explicitly to restore the proper typed array after DO RPC
+		// serialization (which loses exact array methods and field types).
+		const sessions = rpcSessions.map((session) => ({
+			id: session.id,
+			title: session.title,
+			createdAt: session.createdAt,
+			isRunning: session.isRunning,
+		}));
+		return c.json({ sessions });
 	})
 
 	// GET /api/ai-session?id=X - Load a single AI session
-	.get('/ai-session', zValidator('query', sessionIdQuerySchema), async (c) => {
-		const projectRoot = c.get('projectRoot');
+	.get('/ai-session', zValidator('query', z.object({ id: sessionIdSchema })), async (c) => {
+		const projectId = c.get('projectId');
 		const { id } = c.req.valid('query');
-
-		try {
-			const raw = await fs.readFile(`${projectRoot}/.agent/sessions/${id}.json`, 'utf8');
-			return c.json(JSON.parse(raw));
-		} catch {
+		const stub = getAgentRunnerStub(projectId);
+		const session = await stub.loadSession(id);
+		if (!session) {
 			throw httpError(404, 'Session not found');
 		}
+		return c.json(session);
 	})
 
 	// PUT /api/ai-session - Save an AI session
 	.put('/ai-session', zValidator('json', saveSessionSchema), async (c) => {
-		const projectRoot = c.get('projectRoot');
+		const projectId = c.get('projectId');
 		const body = c.req.valid('json');
-
-		const sessionsDirectory = `${projectRoot}/.agent/sessions`;
-		await fs.mkdir(sessionsDirectory, { recursive: true });
-		await fs.writeFile(`${sessionsDirectory}/${body.id}.json`, JSON.stringify(body));
-
+		const stub = getAgentRunnerStub(projectId);
+		await stub.saveSession(body.id, body);
 		return c.json({ success: true });
 	})
 
 	// POST /api/ai-session - Save an AI session (for sendBeacon)
 	.post('/ai-session', zValidator('json', saveSessionSchema), async (c) => {
-		const projectRoot = c.get('projectRoot');
+		const projectId = c.get('projectId');
 		const body = c.req.valid('json');
-
-		const sessionsDirectory = `${projectRoot}/.agent/sessions`;
-		await fs.mkdir(sessionsDirectory, { recursive: true });
-		await fs.writeFile(`${sessionsDirectory}/${body.id}.json`, JSON.stringify(body));
-
+		const stub = getAgentRunnerStub(projectId);
+		await stub.saveSession(body.id, body);
 		return c.json({ success: true });
 	})
 
 	// DELETE /api/ai-session?id=X - Delete an AI session
-	.delete('/ai-session', zValidator('query', sessionIdQuerySchema), async (c) => {
-		const projectRoot = c.get('projectRoot');
+	.delete('/ai-session', zValidator('query', z.object({ id: sessionIdSchema })), async (c) => {
+		const projectId = c.get('projectId');
 		const { id } = c.req.valid('query');
-
-		try {
-			await fs.unlink(`${projectRoot}/.agent/sessions/${id}.json`);
-		} catch {
-			// Ignore errors if file doesn't exist
-		}
+		const stub = getAgentRunnerStub(projectId);
+		await stub.deleteSession(id);
 		return c.json({ success: true });
 	})
 
 	// GET /api/pending-changes - Load project-level pending changes
 	.get('/pending-changes', async (c) => {
-		const projectRoot = c.get('projectRoot');
-		const pendingChangesPath = `${projectRoot}/.agent/pending-changes.json`;
-
-		try {
-			const raw = await fs.readFile(pendingChangesPath, 'utf8');
-			return c.json(JSON.parse(raw));
-		} catch {
-			return c.json({});
-		}
+		const projectId = c.get('projectId');
+		const stub = getAgentRunnerStub(projectId);
+		const changes = await stub.loadPendingChanges();
+		return c.json(changes);
 	})
 
 	// PUT /api/pending-changes - Save project-level pending changes
 	.put('/pending-changes', zValidator('json', pendingChangesFileSchema), async (c) => {
-		const projectRoot = c.get('projectRoot');
+		const projectId = c.get('projectId');
 		const body = c.req.valid('json');
 
 		// Strip non-pending entries before writing
@@ -123,10 +105,8 @@ export const sessionRoutes = new Hono<AppEnvironment>()
 			}
 		}
 
-		const agentDirectory = `${projectRoot}/.agent`;
-		await fs.mkdir(agentDirectory, { recursive: true });
-		await fs.writeFile(`${agentDirectory}/pending-changes.json`, JSON.stringify(filtered));
-
+		const stub = getAgentRunnerStub(projectId);
+		await stub.savePendingChanges(filtered);
 		return c.json({ success: true });
 	});
 

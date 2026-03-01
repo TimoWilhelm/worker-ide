@@ -102,6 +102,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		sessionId,
 		selectedModel,
 		contextTokensUsed,
+		runningSessionIds,
 		setProcessing,
 		setStatusMessage,
 		setAiError,
@@ -118,6 +119,9 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		clearPendingChangesByPaths,
 		debugLogId,
 	} = useStore();
+
+	// Whether the currently viewed session has a running agent
+	const isCurrentSessionRunning = sessionId ? runningSessionIds.has(sessionId) : false;
 
 	// Keep stable references for useChat callbacks (avoid re-creating connection)
 	const agentModeReference = useRef(agentMode);
@@ -158,6 +162,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	const {
 		messages: chatMessages,
 		sendMessage,
+		reload,
 		isLoading: isChatLoading,
 		stop: stopChat,
 		error: chatError,
@@ -404,15 +409,47 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		setChatMessages(history);
 	}, [history, setChatMessages]);
 
-	// Sync isLoading to isProcessing (both directions for safety)
+	// Sync isLoading to isProcessing (both directions for safety).
+	// Also accounts for reconnection state: if the current session is
+	// running in the DO but useChat isn't loading, we set isProcessing
+	// so the UI shows the thinking indicator and stop button.
 	useEffect(() => {
-		if (isChatLoading && !isProcessing) {
+		if ((isChatLoading || isCurrentSessionRunning) && !isProcessing) {
 			setProcessing(true);
-		} else if (!isChatLoading && isProcessing) {
+			if (!isChatLoading && isCurrentSessionRunning) {
+				setStatusMessage('Reconnecting to session...');
+			}
+		} else if (!isChatLoading && !isCurrentSessionRunning && isProcessing) {
 			setProcessing(false);
 			setStatusMessage(undefined);
 		}
-	}, [isChatLoading, isProcessing, setProcessing, setStatusMessage]);
+	}, [isChatLoading, isCurrentSessionRunning, isProcessing, setProcessing, setStatusMessage]);
+
+	// Reconnection effect: when the current session is running in the DO
+	// but useChat isn't streaming (e.g. after page refresh or switching to
+	// a running session from history), trigger useChat.reload().
+	//
+	// The ConnectionAdapter's connect() detects that the session is already
+	// running (via runningSessionIds) and skips the HTTP POST, just listening
+	// for WebSocket events. This means useChat processes the chunks normally
+	// — building messages, firing onChunk, showing streaming text in real-time.
+	const hasTriggeredReconnectReference = useRef(false);
+
+	useEffect(() => {
+		// Reset the flag when session changes
+		hasTriggeredReconnectReference.current = false;
+	}, [sessionId]);
+
+	useEffect(() => {
+		if (!isCurrentSessionRunning || isChatLoading || !sessionId) return;
+		if (hasTriggeredReconnectReference.current) return;
+
+		hasTriggeredReconnectReference.current = true;
+
+		// reload() calls connection.connect() with the existing messages.
+		// The adapter sees the session is running and just listens.
+		void reload();
+	}, [isCurrentSessionRunning, isChatLoading, sessionId, reload]);
 
 	// Sync chatError to aiError (for RUN_ERROR events).
 	// Only surface a chatError once — if the user dismisses it, don't re-trigger
@@ -489,6 +526,11 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	// will propagate that into useChat automatically.
 	const handleLoadSession = useCallback(
 		(targetSessionId: string) => {
+			// Stop any active stream for the current session (the DO agent
+			// keeps running — we're just detaching the local listener).
+			if (isChatLoading) {
+				stopChat();
+			}
 			// Note: pendingChanges are NOT cleared here — loadSession() replaces
 			// them with the loaded session's persisted pending changes (or empty).
 			toolErrorsReference.current.clear();
@@ -497,11 +539,13 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 			setToolErrors(new Map());
 			setToolMetadata(new Map());
 			setFileDiffContent(new Map());
+			// Reset reconnect flag so the reconnection effect can fire for the new session
+			hasTriggeredReconnectReference.current = false;
 			loadSession(targetSessionId);
 			// Persist the newly loaded session as the active one in localStorage
 			setActiveSessionId(projectId, targetSessionId);
 		},
-		[loadSession, projectId],
+		[loadSession, projectId, isChatLoading, stopChat],
 	);
 
 	// Smart auto-scroll: stops when user scrolls up, shows pill for new content
@@ -827,13 +871,16 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 						</DropdownMenuTrigger>
 						<DropdownMenuContent align="end" className="max-h-80 w-56 overflow-y-auto">
 							{savedSessions.length === 0 ? (
-								<div className="px-3 py-2 text-xs text-text-secondary">No saved sessions</div>
+								<div className="px-3 py-2 text-xs text-text-secondary">No recent sessions</div>
 							) : (
 								savedSessions.map((session) => (
 									<DropdownMenuItem key={session.id} onSelect={() => handleLoadSession(session.id)}>
-										<div className="flex w-full items-center justify-between">
+										<div className="flex w-full items-center justify-between gap-2">
 											<span className="truncate text-sm">{session.title}</span>
-											<span className="ml-2 shrink-0 text-2xs text-text-secondary">{formatRelativeTime(session.createdAt)}</span>
+											<div className="flex shrink-0 items-center gap-1">
+												{session.isRunning && <Loader2 className="size-3 animate-spin text-warning" />}
+												<span className="text-2xs text-text-secondary">{formatRelativeTime(session.createdAt)}</span>
+											</div>
 										</div>
 									</DropdownMenuItem>
 								))
@@ -841,9 +888,9 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 						</DropdownMenuContent>
 					</DropdownMenu>
 
-					{/* New session */}
+					{/* New session — always available when there's history, even if other sessions are running */}
 					{chatMessages.length > 0 && (
-						<Button variant="ghost" size="icon-sm" onClick={clearHistory} title="New session">
+						<Button variant="ghost" size="icon-sm" onClick={clearHistory} title="New session" disabled={isChatLoading}>
 							<Plus className="size-3.5" />
 						</Button>
 					)}

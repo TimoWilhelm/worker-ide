@@ -6,12 +6,18 @@
  * 2. Receives AG-UI stream chunks via the project WebSocket (as CustomEvents)
  * 3. Yields each chunk to useChat's StreamProcessor
  *
- * This enables disconnect-resilient agent sessions: the AgentRunner DO
- * continues running even if the browser disconnects. Reconnecting clients
- * catch up via buffered events.
+ * Reconnection-aware: when `connect()` is called and the session is already
+ * running in the AgentRunner DO, the adapter skips the POST and just listens
+ * for WebSocket events. This allows `useChat` to process chunks normally —
+ * building messages, firing onChunk, showing streaming text — even after a
+ * page refresh or when switching to a running session from the history.
+ *
+ * Trigger reconnection by calling `useChat.reload()` after loading a running
+ * session's history into the store.
  */
 
-import { startAgentChat } from '@/lib/api-client';
+import { getBufferedEvents, startAgentChat } from '@/lib/api-client';
+import { useStore } from '@/lib/store';
 import { isNetworkError } from '@/lib/utils';
 
 import type { AIModelId } from '@shared/constants';
@@ -41,110 +47,191 @@ export interface ConnectionAdapter {
 	connect: (messages: Array<unknown>, data?: Record<string, unknown>, abortSignal?: AbortSignal) => AsyncIterable<StreamChunk>;
 }
 
+// =============================================================================
+// Shared event queue helpers
+// =============================================================================
+
+type QueueItem = { type: 'chunk'; chunk: StreamChunk; eventIndex: number } | { type: 'done' } | { type: 'error'; error: Error };
+
+function createEventQueue() {
+	const queue: QueueItem[] = [];
+	let resolve: (() => void) | undefined;
+
+	const enqueue = (item: QueueItem) => {
+		queue.push(item);
+		if (resolve) {
+			resolve();
+			resolve = undefined;
+		}
+	};
+
+	const waitForItem = (): Promise<void> => {
+		if (queue.length > 0) return Promise.resolve();
+		return new Promise<void>((r) => {
+			resolve = r;
+		});
+	};
+
+	return { queue, enqueue, waitForItem };
+}
+
+function createEventListeners(sessionId: string, enqueue: (item: QueueItem) => void, abortSignal?: AbortSignal) {
+	const handleStreamEvent = (event: Event) => {
+		if (!(event instanceof CustomEvent)) return;
+		const detail: { sessionId?: string; chunk?: StreamChunk; index?: number } = event.detail;
+		if (detail.sessionId !== sessionId) return;
+		if (detail.chunk !== undefined) {
+			enqueue({ type: 'chunk', chunk: detail.chunk, eventIndex: detail.index ?? -1 });
+		}
+	};
+
+	const handleStatusChanged = (event: Event) => {
+		if (!(event instanceof CustomEvent)) return;
+		const detail: { sessionId?: string; status?: string } = event.detail;
+		if (detail.sessionId !== sessionId) return;
+		if (detail.status === 'completed' || detail.status === 'error' || detail.status === 'aborted') {
+			enqueue({ type: 'done' });
+		}
+	};
+
+	const handleAbort = () => {
+		enqueue({ type: 'error', error: new DOMException('Aborted', 'AbortError') });
+	};
+
+	globalThis.addEventListener('agent-stream-event', handleStreamEvent);
+	globalThis.addEventListener('agent-status-changed', handleStatusChanged);
+	abortSignal?.addEventListener('abort', handleAbort);
+
+	return () => {
+		globalThis.removeEventListener('agent-stream-event', handleStreamEvent);
+		globalThis.removeEventListener('agent-status-changed', handleStatusChanged);
+		abortSignal?.removeEventListener('abort', handleAbort);
+	};
+}
+
+async function* drainQueue(queue: QueueItem[], waitForItem: () => Promise<void>): AsyncGenerator<StreamChunk, void, unknown> {
+	while (true) {
+		await waitForItem();
+
+		while (queue.length > 0) {
+			const item = queue.shift()!;
+
+			if (item.type === 'error') {
+				throw item.error;
+			}
+
+			if (item.type === 'done') {
+				return;
+			}
+
+			yield item.chunk;
+		}
+	}
+}
+
+// =============================================================================
+// Connection Adapter
+// =============================================================================
+
 /**
  * Create a WebSocket-based ConnectionAdapter for useChat.
  *
- * The adapter POSTs to the AI chat endpoint to start the agent,
- * then yields AG-UI stream chunks received via CustomEvents from
- * the project WebSocket connection.
+ * The adapter is reconnection-aware: if the current session is already
+ * running in the AgentRunner DO, it skips the HTTP POST and immediately
+ * starts listening for stream events via WebSocket CustomEvents.
+ *
+ * For new sessions, it POSTs to /api/ai/chat to start the agent, then
+ * listens for chunks the same way.
  */
 export function createWebSocketConnectionAdapter(options: WebSocketAdapterOptions): ConnectionAdapter {
 	return {
 		async *connect(messages, _data, abortSignal) {
 			const { projectId, getMode, getSessionId, getModel, getOutputLogs } = options;
+			const currentSessionId = getSessionId();
 
-			// Start the agent run via HTTP POST (returns immediately)
+			// Check if this session is already running in the DO.
+			// If so, skip the POST and just listen (reconnection mode).
+			const isAlreadyRunning = currentSessionId ? useStore.getState().runningSessionIds.has(currentSessionId) : false;
+
 			let sessionId: string;
-			try {
-				const result = await startAgentChat(projectId, {
-					messages,
-					mode: getMode(),
-					sessionId: getSessionId(),
-					model: getModel(),
-					outputLogs: getOutputLogs(),
-				});
-				sessionId = result.sessionId;
-			} catch (error) {
-				if (isNetworkError(error)) {
-					throw new Error('Unable to connect. Check your internet connection and try again.');
-				}
-				throw error;
-			}
 
-			// Create a queue for incoming stream chunks
-			type QueueItem = { type: 'chunk'; chunk: StreamChunk } | { type: 'done' } | { type: 'error'; error: Error };
-			const queue: QueueItem[] = [];
-			let resolve: (() => void) | undefined;
+			if (isAlreadyRunning && currentSessionId) {
+				// Reconnection: session is already running, just listen.
+				sessionId = currentSessionId;
 
-			const enqueue = (item: QueueItem) => {
-				queue.push(item);
-				if (resolve) {
-					resolve();
-					resolve = undefined;
-				}
-			};
+				// 1. Start listening for live events FIRST (so we don't miss any
+				//    that arrive while we fetch the buffer).
+				const { queue, enqueue, waitForItem } = createEventQueue();
+				const cleanup = createEventListeners(sessionId, enqueue, abortSignal);
 
-			const waitForItem = (): Promise<void> => {
-				if (queue.length > 0) return Promise.resolve();
-				return new Promise<void>((r) => {
-					resolve = r;
-				});
-			};
+				try {
+					// 2. Fetch buffered events from the DO to catch up.
+					//    These are all events since index 0 (full replay).
+					// eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- chunk is StreamChunk from the DO buffer
+					const buffered = (await getBufferedEvents(projectId, sessionId, 0)) as Array<{ chunk: StreamChunk; index: number }>;
 
-			// Listen for AG-UI stream chunks from the project WebSocket.
-			// CustomEvent detail is typed as `any` by the DOM spec — we extract
-			// fields via property access to avoid `as` assertions.
-			const handleStreamEvent = (event: Event) => {
-				if (!(event instanceof CustomEvent)) return;
-				const detail: { sessionId?: string; chunk?: StreamChunk } = event.detail;
-				if (detail.sessionId !== sessionId) return;
-				if (detail.chunk !== undefined) {
-					enqueue({ type: 'chunk', chunk: detail.chunk });
-				}
-			};
-
-			// Listen for agent status changes (completion/error/abort)
-			const handleStatusChanged = (event: Event) => {
-				if (!(event instanceof CustomEvent)) return;
-				const detail: { sessionId?: string; status?: string } = event.detail;
-				if (detail.sessionId !== sessionId) return;
-				if (detail.status === 'completed' || detail.status === 'error' || detail.status === 'aborted') {
-					enqueue({ type: 'done' });
-				}
-			};
-
-			// Handle abort signal
-			const handleAbort = () => {
-				enqueue({ type: 'error', error: new DOMException('Aborted', 'AbortError') });
-			};
-
-			globalThis.addEventListener('agent-stream-event', handleStreamEvent);
-			globalThis.addEventListener('agent-status-changed', handleStatusChanged);
-			abortSignal?.addEventListener('abort', handleAbort);
-
-			try {
-				// Yield chunks as they arrive
-				while (true) {
-					await waitForItem();
-
-					while (queue.length > 0) {
-						const item = queue.shift()!;
-
-						if (item.type === 'error') {
-							throw item.error;
-						}
-
-						if (item.type === 'done') {
-							return;
-						}
-
-						yield item.chunk;
+					// 3. Yield buffered events first. The live listener may have
+					//    already enqueued some events that overlap with the buffer.
+					//    Track the highest buffered index to deduplicate.
+					let highestBufferedIndex = -1;
+					for (const event of buffered) {
+						yield event.chunk;
+						highestBufferedIndex = Math.max(highestBufferedIndex, event.index);
 					}
+
+					// 4. Drain the live queue, skipping events already yielded
+					//    from the buffer (deduplicate by event index).
+					while (true) {
+						await waitForItem();
+
+						while (queue.length > 0) {
+							const item = queue.shift()!;
+
+							if (item.type === 'error') {
+								throw item.error;
+							}
+
+							if (item.type === 'done') {
+								return;
+							}
+
+							// Skip events we already yielded from the buffer
+							if (item.eventIndex >= 0 && item.eventIndex <= highestBufferedIndex) {
+								continue;
+							}
+
+							yield item.chunk;
+						}
+					}
+				} finally {
+					cleanup();
 				}
-			} finally {
-				globalThis.removeEventListener('agent-stream-event', handleStreamEvent);
-				globalThis.removeEventListener('agent-status-changed', handleStatusChanged);
-				abortSignal?.removeEventListener('abort', handleAbort);
+			} else {
+				// New session: start the agent via HTTP POST
+				try {
+					const result = await startAgentChat(projectId, {
+						messages,
+						mode: getMode(),
+						sessionId: currentSessionId,
+						model: getModel(),
+						outputLogs: getOutputLogs(),
+					});
+					sessionId = result.sessionId;
+				} catch (error) {
+					if (isNetworkError(error)) {
+						throw new Error('Unable to connect. Check your internet connection and try again.');
+					}
+					throw error;
+				}
+
+				const { queue, enqueue, waitForItem } = createEventQueue();
+				const cleanup = createEventListeners(sessionId, enqueue, abortSignal);
+
+				try {
+					yield* drainQueue(queue, waitForItem);
+				} finally {
+					cleanup();
+				}
 			}
 		},
 	};

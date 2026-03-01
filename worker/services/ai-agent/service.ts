@@ -31,7 +31,7 @@ import { estimateMessagesTokens, getContextUtilization, hasContextBudget, pruneT
 import { detectDoomLoop, MUTATION_FAILURE_TAG } from './doom-loop';
 import { createAdapter, getModelLimits } from './replicate';
 import { classifyRetryableError, calculateRetryDelay, sleep } from './retry';
-import { deriveFallbackTitle, generateSessionTitle } from './title-generator';
+import { deriveFallbackTitle } from './title-generator';
 import { TokenTracker } from './token-tracker';
 import { createSendEvent, createServerTools, MUTATION_TOOL_NAMES } from './tools';
 import { isRecordObject, parseApiError } from './utilities';
@@ -208,6 +208,17 @@ export class AIAgentService {
 		private sessionId?: string,
 		private mode: 'code' | 'plan' | 'ask' = 'code',
 		private model: AIModelId = DEFAULT_AI_MODEL,
+		private onPersistSession?: (
+			sessionId: string,
+			sessionData: {
+				createdAt: number;
+				title?: string;
+				history: unknown[];
+				messageSnapshots?: Record<string, string>;
+				contextTokensUsed?: number;
+			},
+			pendingChanges?: Record<string, PendingFileChange>,
+		) => Promise<void>,
 	) {}
 
 	/**
@@ -237,15 +248,40 @@ export class AIAgentService {
 		// eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- wire format cast: uiMessages is UIMessage[] from the frontend
 		const processor = new StreamProcessor({ initialMessages: uiMessages as UIMessage[] });
 
-		// Run the agent loop in a mount scope (for worker-fs-mount)
-		const innerStream = withMounts(() => {
+		// Mount the filesystem *before* creating the stream so that the
+		// AsyncLocalStorage context established by withMounts() propagates
+		// through the entire async generator chain. withMounts() uses
+		// AsyncLocalStorage.run(), which preserves the store across awaits
+		// *only* for async work that originates inside the callback. By
+		// passing an async callback whose body awaits the full stream
+		// consumption, every fs call inside the generators (e.g.
+		// initSnapshot's fs.mkdir) sees the active mount.
+		//
+		// We use a ReadableStream as the bridge: the withMounts async
+		// callback writes chunks into it, and the caller iterates the
+		// readable side outside the ALS scope (reading doesn't need mounts).
+		const { readable, writable } = new TransformStream<StreamChunk>();
+		const writer = writable.getWriter();
+
+		// Start the mount-scoped producer. The promise is intentionally
+		// detached — the consumer drives backpressure via the stream.
+		void withMounts(async () => {
 			mount(this.projectRoot, this.fsStub);
-			return this.createAgentStream(messages, apiKey, abortController, outputLogs);
+			const innerStream = this.createAgentStream(messages, apiKey, abortController, outputLogs);
+			const teedStream = this.createTeedStream(innerStream, processor);
+
+			try {
+				for await (const chunk of teedStream) {
+					await writer.write(chunk);
+				}
+				await writer.close();
+			} catch (error) {
+				await writer.abort(error);
+			}
 		});
 
-		// Tee the stream: feed chunks to both the SSE response and the server-side
-		// StreamProcessor for session persistence.
-		return this.createTeedStream(innerStream, processor);
+		// Return an async iterable over the readable side
+		return readable;
 	}
 
 	/**
@@ -272,8 +308,6 @@ export class AIAgentService {
 		let lastSaveTimestamp = 0;
 		// Track whether the session was already persisted (idempotent guard for finally)
 		let sessionPersisted = false;
-		// Timestamp when this stream started — used to detect revert races.
-		const streamStartedAt = Date.now();
 		// Accumulate file_changed events for pending changes persistence.
 		// Mirrors the client-side addPendingChange dedup logic so the server
 		// builds the same net result without relying on client-side saves.
@@ -282,7 +316,7 @@ export class AIAgentService {
 		const persistSession = async () => {
 			processor.finalizeStream();
 			sessionPersisted = true;
-			await this.persistSession(processor, snapshotId, userMessageIndex, contextTokensUsed, streamPendingChanges, streamStartedAt);
+			await this.persistSession(processor, snapshotId, userMessageIndex, contextTokensUsed, streamPendingChanges);
 		};
 
 		try {
@@ -336,14 +370,7 @@ export class AIAgentService {
 							const now = Date.now();
 							if (now - lastSaveTimestamp >= SESSION_SAVE_THROTTLE_MS) {
 								lastSaveTimestamp = now;
-								await this.persistSession(
-									processor,
-									snapshotId,
-									userMessageIndex,
-									contextTokensUsed,
-									streamPendingChanges,
-									streamStartedAt,
-								);
+								await this.persistSession(processor, snapshotId, userMessageIndex, contextTokensUsed, streamPendingChanges);
 							}
 
 							break;
@@ -369,15 +396,13 @@ export class AIAgentService {
 	}
 
 	/**
-	 * Persist the current session state to disk.
+	 * Persist the current session state via the provided callback.
 	 *
-	 * Writes the UIMessage[] from the StreamProcessor (which mirrors what the
-	 * client would have built) to `.agent/sessions/{sessionId}.json`.
+	 * Passes the UIMessage[] from the StreamProcessor (which mirrors what the
+	 * client would have built) to the AgentRunner DO for storage.
 	 * Includes messageSnapshots and contextTokensUsed metadata.
 	 *
-	 * Pending changes are written to a separate project-level file at
-	 * `.agent/pending-changes.json`. Changes from the current stream are
-	 * merged with existing changes from all sessions.
+	 * Pending changes are also passed to the DO to overlay with existing changes.
 	 *
 	 * Non-fatal: errors are logged but never propagate to the caller.
 	 */
@@ -387,47 +412,23 @@ export class AIAgentService {
 		userMessageIndex: number,
 		contextTokensUsed: number,
 		streamPendingChanges?: Map<string, PendingFileChange>,
-		streamStartedAt?: number,
 	): Promise<void> {
-		if (!this.sessionId) return;
+		if (!this.sessionId || !this.onPersistSession) return;
 
 		try {
 			const history = processor.getMessages();
 			if (history.length === 0) return;
 
-			// Read the existing session to preserve createdAt, title, merge messageSnapshots,
-			// and detect revert races.
-			let createdAt = Date.now();
+			const createdAt = Date.now();
 			let existingTitle: string | undefined;
-			let existingMessageSnapshots: Record<string, string> = {};
-			const sessionPath = `${this.projectRoot}/.agent/sessions/${this.sessionId}.json`;
-			try {
-				const existing = await fs.readFile(sessionPath, 'utf8');
-				const parsed: { createdAt?: number; title?: string; messageSnapshots?: Record<string, string>; revertedAt?: number } =
-					JSON.parse(existing);
-				if (typeof parsed.createdAt === 'number') {
-					createdAt = parsed.createdAt;
-				}
-				if (typeof parsed.title === 'string' && parsed.title.length > 0) {
-					existingTitle = parsed.title;
-				}
-				if (parsed.messageSnapshots && typeof parsed.messageSnapshots === 'object') {
-					existingMessageSnapshots = parsed.messageSnapshots;
-				}
-				// Race condition guard: if the client reverted after this stream
-				// started, the session file contains truncated history with a
-				// `revertedAt` timestamp. Do NOT overwrite it with the pre-revert
-				// history from this stream.
-				if (typeof parsed.revertedAt === 'number' && streamStartedAt && parsed.revertedAt >= streamStartedAt) {
-					return;
-				}
-			} catch {
-				// New session or read error — use current timestamp
+			const messageSnapshots: Record<string, string> = {};
+
+			if (snapshotId && userMessageIndex >= 0) {
+				messageSnapshots[String(userMessageIndex)] = snapshotId;
 			}
 
 			// Derive title: use existing AI-generated title if available, otherwise
-			// derive a fallback from the first user message. AI title generation
-			// runs asynchronously after the initial persist.
+			// derive a fallback from the first user message.
 			const firstUserMessage = history.find((message) => message.role === 'user');
 			const firstUserText = firstUserMessage
 				? firstUserMessage.parts
@@ -438,79 +439,17 @@ export class AIAgentService {
 				: '';
 			const title = existingTitle ?? deriveFallbackTitle(firstUserText);
 
-			// Build messageSnapshots: merge with existing snapshots so multi-turn
-			// conversations retain all snapshot mappings, not just the current turn's.
-			const messageSnapshots: Record<string, string> = { ...existingMessageSnapshots };
-			if (snapshotId && userMessageIndex >= 0) {
-				messageSnapshots[String(userMessageIndex)] = snapshotId;
-			}
-
-			const session = {
-				id: this.sessionId,
-				title,
+			const sessionData = {
 				createdAt,
+				title,
 				history,
 				messageSnapshots: Object.keys(messageSnapshots).length > 0 ? messageSnapshots : undefined,
 				contextTokensUsed: contextTokensUsed > 0 ? contextTokensUsed : undefined,
 			};
 
-			const agentDirectory = `${this.projectRoot}/.agent`;
-			const sessionsDirectory = `${agentDirectory}/sessions`;
-			await fs.mkdir(sessionsDirectory, { recursive: true });
-			await fs.writeFile(sessionPath, JSON.stringify(session));
+			const pendingChangesRecord = streamPendingChanges ? pendingChangesMapToRecord(streamPendingChanges) : undefined;
 
-			// Generate an AI title asynchronously after first persist if no title exists yet.
-			// Requires both a user message and an assistant response.
-			if (!existingTitle && firstUserText.length > 0) {
-				const firstAssistantMessage = history.find((message) => message.role === 'assistant');
-				const firstAssistantText = firstAssistantMessage
-					? firstAssistantMessage.parts
-							.filter((part): part is { type: 'text'; content: string } => part.type === 'text')
-							.map((part) => part.content)
-							.join(' ')
-							.trim()
-					: '';
-				if (firstAssistantText.length > 0) {
-					// Fire-and-forget: generate title and update the session file.
-					// Failures are non-fatal — the fallback title is already persisted.
-					void generateSessionTitle(firstUserText, firstAssistantText).then(async (generatedTitle) => {
-						try {
-							const raw = await fs.readFile(sessionPath, 'utf8');
-							const parsed = JSON.parse(raw);
-							parsed.title = generatedTitle;
-							await fs.writeFile(sessionPath, JSON.stringify(parsed));
-						} catch {
-							// Non-fatal — title update failed, fallback title remains
-						}
-					});
-				}
-			}
-
-			// Persist pending changes to the project-level file.
-			// Read existing file, overlay this session's stream-accumulated changes,
-			// and write back. This preserves other sessions' pending changes.
-			if (streamPendingChanges && streamPendingChanges.size > 0) {
-				const pendingChangesPath = `${agentDirectory}/pending-changes.json`;
-
-				// Read existing pending changes from all sessions
-				let existingChanges: Record<string, PendingFileChange> = {};
-				try {
-					const raw = await fs.readFile(pendingChangesPath, 'utf8');
-					existingChanges = JSON.parse(raw);
-				} catch {
-					// No existing file — start fresh
-				}
-
-				// Overlay new stream changes (these have dedup already applied)
-				const streamRecord = pendingChangesMapToRecord(streamPendingChanges);
-				if (streamRecord) {
-					for (const [key, value] of Object.entries(streamRecord)) {
-						existingChanges[key] = value;
-					}
-				}
-
-				await fs.writeFile(pendingChangesPath, JSON.stringify(existingChanges));
-			}
+			await this.onPersistSession(this.sessionId, sessionData, pendingChangesRecord);
 		} catch (error) {
 			// Non-fatal — don't let session persistence break the agent stream
 			console.error('Failed to persist AI session:', error);
