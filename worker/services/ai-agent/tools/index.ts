@@ -131,10 +131,25 @@ const PLAN_MODE_TOOL_NAMES = new Set([
 export const PLAN_MODE_TOOLS: readonly ToolDefinition[] = AGENT_TOOLS.filter((tool) => PLAN_MODE_TOOL_NAMES.has(tool.name));
 
 // =============================================================================
-// Ask mode tools (no tools — conversational only)
+// Ask mode tools (read-only subset — no plan, or mutation tools)
 // =============================================================================
 
-export const ASK_MODE_TOOLS: readonly ToolDefinition[] = [];
+const ASK_MODE_TOOL_NAMES = new Set([
+	'file_read',
+	'file_grep',
+	'file_glob',
+	'file_list',
+	'files_list',
+	'user_question',
+	'web_fetch',
+	'docs_search',
+	'dependencies_list',
+	'lint_check',
+	'cdp_eval',
+	'test_run',
+]);
+
+export const ASK_MODE_TOOLS: readonly ToolDefinition[] = AGENT_TOOLS.filter((tool) => ASK_MODE_TOOL_NAMES.has(tool.name));
 
 // =============================================================================
 // Editing tools blocked in plan mode

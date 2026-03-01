@@ -49,8 +49,45 @@ describe('PLAN_MODE_TOOLS', () => {
 // =============================================================================
 
 describe('ASK_MODE_TOOLS', () => {
-	it('has no tools (conversational only)', () => {
-		expect(ASK_MODE_TOOLS).toHaveLength(0);
+	it('includes read-only tools', () => {
+		const toolNames = ASK_MODE_TOOLS.map((tool) => tool.name);
+		expect(toolNames).toContain('file_read');
+		expect(toolNames).toContain('file_grep');
+		expect(toolNames).toContain('file_glob');
+		expect(toolNames).toContain('file_list');
+		expect(toolNames).toContain('files_list');
+		expect(toolNames).toContain('docs_search');
+		expect(toolNames).toContain('web_fetch');
+		expect(toolNames).toContain('user_question');
+		expect(toolNames).toContain('dependencies_list');
+		expect(toolNames).toContain('lint_check');
+		expect(toolNames).toContain('cdp_eval');
+		expect(toolNames).toContain('test_run');
+	});
+
+	it('excludes TODO and plan tools', () => {
+		const toolNames = ASK_MODE_TOOLS.map((tool) => tool.name);
+		expect(toolNames).not.toContain('todos_get');
+		expect(toolNames).not.toContain('todos_update');
+		expect(toolNames).not.toContain('plan_update');
+	});
+
+	it('excludes file-editing tools', () => {
+		const toolNames = ASK_MODE_TOOLS.map((tool) => tool.name);
+		expect(toolNames).not.toContain('file_edit');
+		expect(toolNames).not.toContain('file_multiedit');
+		expect(toolNames).not.toContain('file_write');
+		expect(toolNames).not.toContain('file_delete');
+		expect(toolNames).not.toContain('file_move');
+		expect(toolNames).not.toContain('lint_fix');
+		expect(toolNames).not.toContain('dependencies_update');
+	});
+
+	it('is a subset of AGENT_TOOLS', () => {
+		const agentToolNames = new Set(AGENT_TOOLS.map((tool) => tool.name));
+		for (const tool of ASK_MODE_TOOLS) {
+			expect(agentToolNames.has(tool.name)).toBe(true);
+		}
 	});
 });
 
