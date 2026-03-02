@@ -148,7 +148,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	// stream events arrive via the project WebSocket, not SSE.
 	// The adapter reads refs at connect() time (inside the async generator),
 	// never during render — safe to capture in getter closures.
-	/* eslint-disable react-hooks/refs -- getter closures capture refs but only read `.current` at connect() time, never during render */
+
 	const connection = useMemo(
 		() =>
 			createWebSocketConnectionAdapter({
@@ -160,7 +160,6 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 			}),
 		[projectId],
 	);
-	/* eslint-enable react-hooks/refs */
 
 	const {
 		messages: chatMessages,
@@ -435,6 +434,10 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	// so the UI shows the thinking indicator and stop button.
 	useEffect(() => {
 		if ((isChatLoading || isCurrentSessionRunning) && !isProcessing) {
+			// If the user already cancelled this session, don't re-enable
+			// isProcessing — the server abort is in-flight and the broadcast
+			// will clear isCurrentSessionRunning shortly.
+			if (hasCancelledSessionReference.current) return;
 			setProcessing(true);
 			if (!isChatLoading && isCurrentSessionRunning) {
 				setStatusMessage('Reconnecting to session...');
@@ -442,6 +445,11 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		} else if (!isChatLoading && !isCurrentSessionRunning && isProcessing) {
 			setProcessing(false);
 			setStatusMessage(undefined);
+		}
+		// Clear the cancelled flag once the server broadcast arrives
+		// (isCurrentSessionRunning becomes false)
+		if (!isCurrentSessionRunning) {
+			hasCancelledSessionReference.current = false;
 		}
 	}, [isChatLoading, isCurrentSessionRunning, isProcessing, setProcessing, setStatusMessage]);
 
@@ -458,10 +466,15 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	// server-side session reload in onFinish to correct the local state.
 	const hasTriggeredReconnectReference = useRef(false);
 	const isReconnectedStreamReference = useRef(false);
+	// Set by handleCancel to prevent the sync effect from re-enabling
+	// isProcessing before the server broadcast clears isCurrentSessionRunning.
+	const hasCancelledSessionReference = useRef(false);
 
 	useEffect(() => {
-		// Reset the flag when session changes
+		// Reset flags when session changes
 		hasTriggeredReconnectReference.current = false;
+		// eslint-disable-next-line react-hooks/immutability -- intentional cross-effect ref for cancel coordination
+		hasCancelledSessionReference.current = false;
 	}, [sessionId]);
 
 	useEffect(() => {
@@ -701,6 +714,12 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		stopChat();
 		setProcessing(false);
 		setStatusMessage(undefined);
+		// Tell the sync effect not to re-enable isProcessing while we
+		// wait for the server broadcast to clear isCurrentSessionRunning.
+		// eslint-disable-next-line react-hooks/immutability -- intentional cross-effect ref for cancel coordination
+		hasCancelledSessionReference.current = true;
+		// Prevent the reconnection effect from re-triggering
+		hasTriggeredReconnectReference.current = true;
 		// Fire-and-forget abort to the AgentRunner DO (session-scoped)
 		void abortAgent(projectId, sessionIdReference.current);
 	}, [stopChat, setProcessing, setStatusMessage, projectId]);

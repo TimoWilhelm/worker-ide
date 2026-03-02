@@ -160,14 +160,17 @@ function RecentProjectRow({
 	project,
 	isMostRecent,
 	onDelete,
+	onNavigate,
 }: {
 	project: RecentProject;
 	isMostRecent: boolean;
 	onDelete: (projectId: string) => void;
+	onNavigate: () => void;
 }) {
 	return (
 		<a
 			href={`/p/${project.id}`}
+			onClick={onNavigate}
 			className={cn(
 				`
 					group/row flex items-center justify-between px-3 py-2 transition-colors
@@ -287,6 +290,10 @@ export default function LandingPage() {
 	const handleDeleteProject = useCallback((projectId: string) => {
 		removeProject(projectId);
 		setRecentProjects((previous) => previous.filter((project) => project.id !== projectId));
+	}, []);
+
+	const handleOpenProject = useCallback(() => {
+		setLoadingMessage('Loading project...');
 	}, []);
 
 	// Clear loading state when the page is restored from bfcache (browser back)
@@ -453,7 +460,13 @@ export default function LandingPage() {
 							)}
 						>
 							{recentProjects.map((project, index) => (
-								<RecentProjectRow key={project.id} project={project} isMostRecent={index === 0} onDelete={handleDeleteProject} />
+								<RecentProjectRow
+									key={project.id}
+									project={project}
+									isMostRecent={index === 0}
+									onDelete={handleDeleteProject}
+									onNavigate={handleOpenProject}
+								/>
 							))}
 						</div>
 					</section>
