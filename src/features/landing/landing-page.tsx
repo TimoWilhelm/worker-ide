@@ -156,14 +156,66 @@ function TemplateCard({
 // Recent project row
 // =============================================================================
 
-function RecentProjectRow({
+function LastOpenedCard({
 	project,
-	isMostRecent,
 	onDelete,
 	onNavigate,
 }: {
 	project: RecentProject;
-	isMostRecent: boolean;
+	onDelete: (projectId: string) => void;
+	onNavigate: () => void;
+}) {
+	return (
+		<a
+			href={`/p/${project.id}`}
+			onClick={onNavigate}
+			className={cn(
+				'group/card relative block rounded-lg border border-border p-4',
+				'bg-bg-secondary/60 backdrop-blur-sm transition-all',
+				'hover:border-accent/50 hover:bg-bg-secondary/80',
+				`
+					focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2
+					focus-visible:ring-offset-bg-primary focus-visible:outline-none
+				`,
+			)}
+		>
+			<div className="flex items-center justify-between">
+				<div className="flex flex-col gap-1">
+					<span className="text-sm font-semibold text-text-primary">{project.name ?? project.id.slice(0, 12)}</span>
+					<span className="text-xs text-text-secondary/60">{formatRelativeTime(project.timestamp)}</span>
+				</div>
+				<button
+					onClick={(event) => {
+						event.preventDefault();
+						event.stopPropagation();
+						onDelete(project.id);
+					}}
+					className={cn(
+						'rounded-sm p-1 text-text-secondary/60 transition-colors',
+						`
+							opacity-0
+							group-hover/card:opacity-100
+						`,
+						`
+							cursor-pointer
+							hover:text-error
+						`,
+					)}
+					aria-label={`Remove ${project.name ?? project.id.slice(0, 12)} from recent projects`}
+				>
+					<X className="size-3.5" />
+				</button>
+			</div>
+		</a>
+	);
+}
+
+function RecentProjectRow({
+	project,
+	onDelete,
+	onNavigate,
+}: {
+	project: RecentProject;
 	onDelete: (projectId: string) => void;
 	onNavigate: () => void;
 }) {
@@ -180,7 +232,6 @@ function RecentProjectRow({
 					text-text-secondary
 					hover:bg-bg-tertiary/60 hover:text-text-primary
 				`,
-				isMostRecent && 'text-text-primary',
 			)}
 		>
 			<span className="truncate text-xs">{project.name ?? project.id.slice(0, 12)}</span>
@@ -310,7 +361,7 @@ export default function LandingPage() {
 	const isLoading = loadingMessage !== undefined;
 
 	return (
-		<div className="relative flex min-h-dvh flex-col items-center justify-center">
+		<div className="relative flex h-dvh flex-col items-center overflow-y-auto">
 			{/* Halftone shader background */}
 			<Suspense fallback={undefined}>
 				<HalftoneBackground />
@@ -351,13 +402,27 @@ export default function LandingPage() {
 			</div>
 
 			{/* Main content */}
-			<main className="relative z-0 w-full max-w-lg px-6 pt-16 pb-12">
+			<main className="relative z-0 my-auto w-full max-w-lg px-6 pt-16 pb-12">
 				{/* Header / Branding */}
 				<div className="mb-10 flex flex-col items-center gap-3">
 					<Hexagon className="size-8 text-accent" strokeWidth={1.5} />
 					<h1 className="text-xl font-semibold tracking-tight text-text-primary">Worker IDE</h1>
 					<p className="text-center text-xs text-text-secondary">Build and preview Cloudflare Workers in the browser</p>
 				</div>
+
+				{/* Continue — last opened project */}
+				{recentProjects.length > 0 && (
+					<section className="mb-8">
+						<h2
+							className="
+								mb-3 text-xs font-medium tracking-wider text-text-secondary uppercase
+							"
+						>
+							Continue
+						</h2>
+						<LastOpenedCard project={recentProjects[0]} onDelete={handleDeleteProject} onNavigate={handleOpenProject} />
+					</section>
+				)}
 
 				{/* Template cards */}
 				<section className="mb-8">
@@ -441,7 +506,7 @@ export default function LandingPage() {
 				</section>
 
 				{/* Recent projects */}
-				{recentProjects.length > 0 && (
+				{recentProjects.length > 1 && (
 					<section>
 						<h2
 							className="
@@ -459,14 +524,8 @@ export default function LandingPage() {
 								'divide-y divide-border',
 							)}
 						>
-							{recentProjects.map((project, index) => (
-								<RecentProjectRow
-									key={project.id}
-									project={project}
-									isMostRecent={index === 0}
-									onDelete={handleDeleteProject}
-									onNavigate={handleOpenProject}
-								/>
+							{recentProjects.slice(1).map((project) => (
+								<RecentProjectRow key={project.id} project={project} onDelete={handleDeleteProject} onNavigate={handleOpenProject} />
 							))}
 						</div>
 					</section>
