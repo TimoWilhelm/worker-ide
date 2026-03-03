@@ -10,6 +10,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 
 import { HIDDEN_ENTRIES } from '@shared/constants';
+import { createHmrUpdateForFile } from '@shared/types';
 import { filePathSchema, writeFileSchema, mkdirSchema, moveFileSchema } from '@shared/validation';
 
 import { coordinatorNamespace } from '../lib/durable-object-namespaces';
@@ -76,16 +77,10 @@ export const fileRoutes = new Hono<AppEnvironment>()
 			invalidateTsConfigCache(projectRoot);
 		}
 
-		// Trigger HMR update
+		// Trigger HMR update (CSS/JS get hot updates, other files trigger full reload)
 		const coordinatorId = coordinatorNamespace.idFromName(`project:${projectId}`);
 		const coordinatorStub = coordinatorNamespace.get(coordinatorId);
-		const isCSS = path.endsWith('.css');
-		await coordinatorStub.triggerUpdate({
-			type: isCSS ? 'update' : 'full-reload',
-			path,
-			timestamp: Date.now(),
-			isCSS,
-		});
+		await coordinatorStub.triggerUpdate(createHmrUpdateForFile(path));
 
 		// Notify clients that git status may have changed
 		await coordinatorStub.sendMessage({ type: 'git-status-changed' });

@@ -261,6 +261,31 @@ export interface HmrUpdate {
 	isCSS?: boolean;
 }
 
+/** File extensions that support hot module replacement (CSS and JS/TS). */
+const HMR_CAPABLE_EXTENSIONS = new Set(['.css', '.js', '.jsx', '.ts', '.tsx', '.mjs', '.mts']);
+
+/**
+ * Create an HmrUpdate for a file content change (write, edit, lint-fix).
+ *
+ * Determines whether the change can be applied as a hot update or requires
+ * a full page reload based on the file extension:
+ * - CSS files → hot CSS swap (update in-place)
+ * - JS/TS/JSX/TSX files → hot JS update (re-bundle + React Fast Refresh)
+ * - Other files (HTML, JSON, config) → full page reload
+ */
+export function createHmrUpdateForFile(path: string): HmrUpdate {
+	const extension = path.slice(path.lastIndexOf('.')).toLowerCase();
+	const isCSS = extension === '.css';
+	const isHmrCapable = HMR_CAPABLE_EXTENSIONS.has(extension);
+
+	return {
+		type: isHmrCapable ? 'update' : 'full-reload',
+		path,
+		timestamp: Date.now(),
+		isCSS,
+	};
+}
+
 // =============================================================================
 // Server Error Types
 // =============================================================================

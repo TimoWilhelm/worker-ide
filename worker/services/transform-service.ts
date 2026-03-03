@@ -445,9 +445,26 @@ function generatePreviewConfig(wsUrl: string, baseUrl: string): string {
  * All logic lives in separate .js files served by preview-service at /__*.js.
  * Uses relative paths (no leading /) so the browser resolves them relative
  * to the current preview URL (e.g. /p/:projectId/preview/__hmr-client.js).
+ *
+ * IMPORTANT: Script order matters!
+ * 1. react-refresh-preamble — MUST run before React loads (hooks into DevTools global)
+ * 2. fetch-interceptor — rewrites /api/* requests
+ * 3. error-overlay — shows build errors
+ * 4. hmr-client — handles hot module replacement
+ * 5. chobitsu + chobitsu-init — Chrome DevTools Protocol bridge
  */
 function generatePreviewScriptTags(integrityHashes?: Record<string, string>): string {
-	const scripts = ['__fetch-interceptor.js', '__error-overlay.js', '__hmr-client.js', '__chobitsu.js', '__chobitsu-init.js'];
+	const scripts = [
+		// React Fast Refresh runtime preamble — MUST be first so it runs before
+		// React is loaded by user scripts. It sets up __REACT_DEVTOOLS_GLOBAL_HOOK__
+		// which React reads during initialization.
+		'__react-refresh-preamble.js',
+		'__fetch-interceptor.js',
+		'__error-overlay.js',
+		'__hmr-client.js',
+		'__chobitsu.js',
+		'__chobitsu-init.js',
+	];
 	return scripts
 		.map((source) => {
 			const hash = integrityHashes?.[source];

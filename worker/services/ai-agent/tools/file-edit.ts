@@ -8,6 +8,7 @@ import fs from 'node:fs/promises';
 
 import { MAX_DIAGNOSTICS_PER_FILE } from '@shared/constants';
 import { ToolErrorCode, toolError } from '@shared/tool-errors';
+import { createHmrUpdateForFile } from '@shared/types';
 
 import { coordinatorNamespace } from '../../../lib/durable-object-namespaces';
 import { isHiddenPath, isPathSafe } from '../../../lib/path-utilities';
@@ -131,16 +132,10 @@ export async function execute(
 		queryChanges.push({ path: editPath, action: 'edit', beforeContent, afterContent: content, isBinary: false });
 	}
 
-	// Trigger live reload
+	// Trigger HMR update (CSS/JS get hot updates, other files trigger full reload)
 	const coordinatorId = coordinatorNamespace.idFromName(`project:${projectId}`);
 	const coordinatorStub = coordinatorNamespace.get(coordinatorId);
-	const isCSS = editPath.endsWith('.css');
-	await coordinatorStub.triggerUpdate({
-		type: isCSS ? 'update' : 'full-reload',
-		path: editPath,
-		timestamp: Date.now(),
-		isCSS,
-	});
+	await coordinatorStub.triggerUpdate(createHmrUpdateForFile(editPath));
 
 	// Compute diff stats and lint errors for the UI
 	const { linesAdded, linesRemoved } = computeDiffStats(beforeContent, content);

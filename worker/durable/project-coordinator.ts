@@ -333,12 +333,16 @@ export class ProjectCoordinator extends DurableObject {
 		let updateType: 'css-update' | 'js-update' | 'full-reload';
 		if (update.type === 'full-reload') {
 			updateType = 'full-reload';
-			// Clear stale error on successful reload
-			this.lastServerError = undefined;
 		} else if (update.isCSS) {
 			updateType = 'css-update';
 		} else {
 			updateType = 'js-update';
+		}
+
+		// Clear stale error on any successful update (full-reload, JS, or CSS).
+		// A successful file write means the previous error may no longer apply.
+		if (this.lastServerError !== undefined) {
+			this.lastServerError = undefined;
 		}
 
 		// Increment the monotonic version counter. Clients track the latest

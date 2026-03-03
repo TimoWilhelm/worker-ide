@@ -18,6 +18,10 @@ import { source as chobitsuInitSource, hash as chobitsuInitHash } from '../lib/p
 import { source as errorOverlaySource, hash as errorOverlayHash } from '../lib/preview-scripts/error-overlay.js?raw-minified';
 import { source as fetchInterceptorSource, hash as fetchInterceptorHash } from '../lib/preview-scripts/fetch-interceptor.js?raw-minified';
 import { source as hmrClientSource, hash as hmrClientHash } from '../lib/preview-scripts/hmr-client.js?raw-minified';
+import {
+	source as reactRefreshPreambleSource,
+	hash as reactRefreshPreambleHash,
+} from '../lib/preview-scripts/react-refresh-preamble.js?raw-minified';
 
 import type { ServerError } from '@shared/types';
 import type { ServerMessage } from '@shared/ws-messages';
@@ -57,6 +61,7 @@ const scriptIntegrityHashes: Record<string, string> = {
 	'__error-overlay.js': errorOverlayHash,
 	'__fetch-interceptor.js': fetchInterceptorHash,
 	'__hmr-client.js': hmrClientHash,
+	'__react-refresh-preamble.js': reactRefreshPreambleHash,
 };
 
 // =============================================================================
@@ -83,6 +88,7 @@ export class PreviewService {
 			'/__error-overlay.js': errorOverlaySource,
 			'/__hmr-client.js': hmrClientSource,
 			'/__fetch-interceptor.js': fetchInterceptorSource,
+			'/__react-refresh-preamble.js': reactRefreshPreambleSource,
 		};
 		// Strip query params for internal script lookup (cache-buster ?v=... in URL)
 		const scriptLookupPath = filePath.split('?')[0];
@@ -99,8 +105,15 @@ export class PreviewService {
 			return new Response(undefined, { status: 204 });
 		}
 
-		// Check for raw query param (used by HMR for CSS)
+		// Check for raw query param (used by HMR for CSS hot-swap)
 		const isRawRequest = url.searchParams.has('raw');
+
+		// Check the Accept header to determine if the browser expects CSS
+		// (e.g. <link rel="stylesheet"> sends Accept: text/css).
+		// This distinguishes between CSS loaded via <link> tags (wants raw CSS)
+		// and CSS imported from JS (wants the JS wrapper that injects <style>).
+		const acceptHeader = request.headers.get('Accept') || '';
+		const isCssAccept = acceptHeader.includes('text/css');
 
 		// Strip query params for file lookup
 		filePath = filePath.split('?')[0];
@@ -176,8 +189,10 @@ export class PreviewService {
 				});
 			}
 
-			// Serve raw CSS for HMR updates
-			if (isRawRequest && extension === '.css') {
+			// Serve raw CSS when:
+			// 1. ?raw query param is present (used by HMR client for hot-swap)
+			// 2. Accept header includes text/css (browser <link rel="stylesheet"> request)
+			if (extension === '.css' && (isRawRequest || isCssAccept)) {
 				return new Response(textContent, {
 					headers: {
 						'Content-Type': 'text/css',
@@ -206,6 +221,11 @@ export class PreviewService {
 					platform: 'browser',
 					tsconfigRaw,
 					knownDependencies,
+					// Enable React Fast Refresh for browser bundles.
+					// This injects $RefreshReg$ registration wrappers around each
+					// user module so the refresh runtime can track component families
+					// and perform state-preserving hot updates.
+					reactRefresh: true,
 				});
 
 				return new Response(bundled.code, {
