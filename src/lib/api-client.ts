@@ -155,10 +155,16 @@ export async function listAiSessions(projectId: string) {
  *
  * Uses raw fetch because the backend returns untyped `JSON.parse(raw)`,
  * which Hono RPC cannot infer as `AiSession`.
+ *
+ * Returns `undefined` only when the session genuinely does not exist (404).
+ * Throws on transient errors (500, network failures) so callers can retry.
  */
 export async function loadAiSession(projectId: string, sessionId: string): Promise<AiSession | undefined> {
 	const response = await fetch(`/p/${projectId}/api/ai-session?id=${encodeURIComponent(sessionId)}`);
-	if (!response.ok) return undefined;
+	if (response.status === 404) return undefined;
+	if (!response.ok) {
+		throw new Error(`Failed to load session (${response.status})`);
+	}
 	const data: AiSession = await response.json();
 	return data;
 }

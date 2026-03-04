@@ -541,6 +541,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	const {
 		savedSessions,
 		handleLoadSession: loadSession,
+		isRestoringSession,
 		revertSession,
 	} = useAiSessions({
 		projectId,
@@ -1010,7 +1011,19 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 					<ScrollArea.Viewport ref={scrollReference} className="size-full [&>div]:block!">
 						<div className="flex min-w-0 flex-col gap-3 p-2">
 							{displayMessages.length === 0 && !streamingAssistantMessage ? (
-								<WelcomeScreen onSuggestionClick={handleSuggestion} onModeChange={setAgentMode} />
+								isRestoringSession ? (
+									<div
+										className="
+											flex flex-1 flex-col items-center justify-center gap-2 py-12
+											text-text-secondary
+										"
+									>
+										<Loader2 className="size-5 animate-spin" />
+										<span className="text-sm">Restoring session...</span>
+									</div>
+								) : (
+									<WelcomeScreen onSuggestionClick={handleSuggestion} onModeChange={setAgentMode} />
+								)
 							) : (
 								<>
 									{displayMessages.map((message, index) => (

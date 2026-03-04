@@ -7,10 +7,12 @@
  */
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { toast } from '@/components/ui/toast-store';
 import { fetchLatestDebugLogId, listAiSessions, loadAiSession, loadProjectPendingChanges, revertAiSession } from '@/lib/api-client';
 import { useStore } from '@/lib/store';
+import { sleep } from '@/lib/utils';
 
 import { messageModesRecordToMap, pendingChangesRecordToMap, snapshotsRecordToMap } from '../lib/session-serializers';
 
@@ -123,17 +125,27 @@ export function useAiSessions({
 
 	const hasRestoredReference = useRef(false);
 
+	// Eagerly check if there's a session to restore so the loading indicator
+	// renders on the very first frame, avoiding a flash of the welcome screen.
+	const [isRestoringSession, setIsRestoringSession] = useState(
+		() => useStore.getState().history.length === 0 && !!getActiveSessionId(projectId),
+	);
+
 	useEffect(() => {
 		if (hasRestoredReference.current) return;
 		hasRestoredReference.current = true;
 
 		// Load project-level pending changes (independent of session)
-		void loadProjectPendingChanges(projectId).then((pendingRecord) => {
-			const pendingMap = pendingChangesRecordToMap(pendingRecord);
-			if (pendingMap.size > 0) {
-				useStore.getState().loadPendingChanges(pendingMap);
-			}
-		});
+		void loadProjectPendingChanges(projectId)
+			.then((pendingRecord) => {
+				const pendingMap = pendingChangesRecordToMap(pendingRecord);
+				if (pendingMap.size > 0) {
+					useStore.getState().loadPendingChanges(pendingMap);
+				}
+			})
+			.catch((error: unknown) => {
+				console.error('Failed to load pending changes:', error);
+			});
 
 		const { history } = useStore.getState();
 		// Only attempt restore when there is no in-memory history.
@@ -142,24 +154,49 @@ export function useAiSessions({
 		if (history.length === 0) {
 			const activeId = getActiveSessionId(projectId);
 			if (!activeId) return;
-			void loadAiSession(projectId, activeId).then((data) => {
-				if (!data) {
-					// Session file was deleted — clear the stale pointer.
-					setActiveSessionId(projectId, undefined);
-					return;
+
+			void (async () => {
+				const maxRetries = 3;
+				let lastError: unknown;
+
+				for (let attempt = 0; attempt < maxRetries; attempt++) {
+					try {
+						if (attempt > 0) await sleep(1000 * attempt);
+
+						const data = await loadAiSession(projectId, activeId);
+
+						if (!data) {
+							// 404 — session genuinely deleted. Clear the stale pointer.
+							setActiveSessionId(projectId, undefined);
+							setIsRestoringSession(false);
+							return;
+						}
+
+						const restoredSnapshots = snapshotsRecordToMap(data.messageSnapshots);
+						const restoredModes = messageModesRecordToMap(data.messageModes);
+						createdAtReference.current = data.createdAt;
+						// eslint-disable-next-line @typescript-eslint/consistent-type-assertions, @typescript-eslint/no-explicit-any -- wire format cast
+						loadSession(data.history as any[], data.id, restoredSnapshots, data.contextTokensUsed, restoredModes);
+						// Restore persisted tool metadata and errors
+						onSessionLoaded?.({ toolMetadata: data.toolMetadata, toolErrors: data.toolErrors });
+						// Restore the latest debug log download button for this session
+						void fetchLatestDebugLogId(projectId, data.id).then((logId) => {
+							if (logId) setDebugLogId(logId);
+						});
+
+						setIsRestoringSession(false);
+						return;
+					} catch (error: unknown) {
+						lastError = error;
+					}
 				}
-				const restoredSnapshots = snapshotsRecordToMap(data.messageSnapshots);
-				const restoredModes = messageModesRecordToMap(data.messageModes);
-				createdAtReference.current = data.createdAt;
-				// eslint-disable-next-line @typescript-eslint/consistent-type-assertions, @typescript-eslint/no-explicit-any -- wire format cast
-				loadSession(data.history as any[], data.id, restoredSnapshots, data.contextTokensUsed, restoredModes);
-				// Restore persisted tool metadata and errors
-				onSessionLoaded?.({ toolMetadata: data.toolMetadata, toolErrors: data.toolErrors });
-				// Restore the latest debug log download button for this session
-				void fetchLatestDebugLogId(projectId, data.id).then((logId) => {
-					if (logId) setDebugLogId(logId);
-				});
-			});
+
+				// All retries exhausted — show error but do NOT clear localStorage.
+				// The session still exists server-side; the user can retry by refreshing.
+				console.error('Failed to restore AI session after retries:', lastError);
+				toast.error('Failed to restore your previous session. Try refreshing the page.');
+				setIsRestoringSession(false);
+			})();
 		}
 	}, [projectId, loadSession, setDebugLogId, onSessionLoaded]);
 
@@ -202,6 +239,8 @@ export function useAiSessions({
 		handleLoadSession: loadSessionMutation.mutate,
 		/** Whether a session is currently being loaded */
 		isLoadingSession: loadSessionMutation.isPending,
+		/** Whether the auto-restore of the last active session is in progress */
+		isRestoringSession,
 		/** Revert a session to a given message index (server-side truncation).
 		 *  The DO truncates history, prunes snapshots, and sets revertedAt. */
 		revertSession,
