@@ -88,6 +88,26 @@ export async function execute(
 	const result = await context.sendCdpCommand(id, method, parameters);
 
 	if (result.error) {
+		// Return connection-related errors as informative results instead of
+		// throwing. The agent loop runs independently of client connections
+		// (e.g., the user may have closed their browser), so these are not
+		// actionable failures — the LLM should gracefully skip or defer.
+		const isConnectionError =
+			result.error.includes('No browser is connected') ||
+			result.error.includes('Failed to send CDP command') ||
+			result.error.includes('timed out');
+
+		if (isConnectionError) {
+			return {
+				title: method,
+				metadata: { method, error: result.error },
+				output:
+					`CDP command "${method}" could not be executed: ${result.error}\n\n` +
+					'This is expected when no browser client is currently connected to the project. ' +
+					'You can proceed without the CDP result — do not retry this command repeatedly.',
+			};
+		}
+
 		throw new ToolExecutionError('MISSING_INPUT', result.error);
 	}
 

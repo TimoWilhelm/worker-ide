@@ -47,14 +47,51 @@ describe('cdp_eval', () => {
 		expect(result.metadata).toHaveProperty('result');
 	});
 
-	// ── CDP error ─────────────────────────────────────────────────────────
+	// ── CDP errors ────────────────────────────────────────────────────────
 
-	it('throws error from CDP command', async () => {
-		const mockSendCdpCommand = vi.fn().mockResolvedValue({ error: 'No browser connected' });
+	it('returns graceful result when no browser is connected', async () => {
+		const mockSendCdpCommand = vi.fn().mockResolvedValue({
+			error: 'No browser is connected to the project. The CDP command cannot be relayed to a preview iframe.',
+		});
+		const context = createMockContext({ sendCdpCommand: mockSendCdpCommand });
+
+		const result = await execute({ method: 'Runtime.evaluate', params: '{"expression": "x"}' }, createMockSendEvent(), context);
+
+		expect(result.output).toContain('could not be executed');
+		expect(result.output).toContain('No browser is connected');
+		expect(result.output).toContain('do not retry');
+	});
+
+	it('returns graceful result when CDP command times out', async () => {
+		const mockSendCdpCommand = vi.fn().mockResolvedValue({
+			error: 'CDP command timed out. The preview iframe may not be loaded or chobitsu is not responding.',
+		});
+		const context = createMockContext({ sendCdpCommand: mockSendCdpCommand });
+
+		const result = await execute({ method: 'Runtime.evaluate', params: '{"expression": "x"}' }, createMockSendEvent(), context);
+
+		expect(result.output).toContain('could not be executed');
+		expect(result.output).toContain('timed out');
+	});
+
+	it('returns graceful result when client connection fails', async () => {
+		const mockSendCdpCommand = vi.fn().mockResolvedValue({
+			error: 'Failed to send CDP command to the client. The connection may have closed.',
+		});
+		const context = createMockContext({ sendCdpCommand: mockSendCdpCommand });
+
+		const result = await execute({ method: 'Runtime.evaluate', params: '{"expression": "x"}' }, createMockSendEvent(), context);
+
+		expect(result.output).toContain('could not be executed');
+		expect(result.output).toContain('Failed to send CDP command');
+	});
+
+	it('throws error for non-connection CDP errors', async () => {
+		const mockSendCdpCommand = vi.fn().mockResolvedValue({ error: 'Unexpected protocol error' });
 		const context = createMockContext({ sendCdpCommand: mockSendCdpCommand });
 
 		await expect(execute({ method: 'Runtime.evaluate', params: '{"expression": "x"}' }, createMockSendEvent(), context)).rejects.toThrow(
-			'No browser connected',
+			'Unexpected protocol error',
 		);
 	});
 
