@@ -7,7 +7,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { cloneProject, createProject } from './api-client';
+import { cloneProject, createProject, fetchTemplates } from './api-client';
 
 // =============================================================================
 // Mocks
@@ -131,5 +131,41 @@ describe('cloneProject', () => {
 		fetchMock.mockRejectedValueOnce(new Error('Connection refused'));
 
 		await expect(cloneProject(sourceId)).rejects.toThrow('Connection refused');
+	});
+});
+
+// =============================================================================
+// fetchTemplates
+// =============================================================================
+
+describe('fetchTemplates', () => {
+	it('fetches templates successfully', async () => {
+		const templatesData = [
+			{
+				id: 'request-inspector',
+				name: 'Request Inspector',
+				description: 'Inspect HTTP headers.',
+				icon: 'Search',
+			},
+		];
+		fetchMock.mockResolvedValueOnce(jsonResponse({ templates: templatesData }));
+
+		const result = await fetchTemplates();
+
+		expect(fetchMock).toHaveBeenCalledOnce();
+		expect(fetchMock).toHaveBeenCalledWith('/api/templates');
+		expect(result).toEqual(templatesData);
+	});
+
+	it('throws on non-OK response', async () => {
+		fetchMock.mockResolvedValueOnce(jsonResponse({ error: 'Server error' }, 500));
+
+		await expect(fetchTemplates()).rejects.toThrow('Failed to fetch templates');
+	});
+
+	it('throws on network error', async () => {
+		fetchMock.mockRejectedValueOnce(new Error('Network error'));
+
+		await expect(fetchTemplates()).rejects.toThrow('Network error');
 	});
 });

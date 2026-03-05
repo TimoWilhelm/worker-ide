@@ -54,6 +54,12 @@ describe('TEMPLATES', () => {
 			}
 		}
 	});
+
+	it('no template includes template.json in its files', () => {
+		for (const template of TEMPLATES) {
+			expect(template.files).not.toHaveProperty('template.json');
+		}
+	});
 });
 
 // =============================================================================

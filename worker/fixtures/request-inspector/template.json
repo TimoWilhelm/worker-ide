@@ -1,0 +1,11 @@
+{
+	"id": "request-inspector",
+	"name": "Request Inspector",
+	"description": "Inspect incoming HTTP request headers, geolocation, and connection info from a Cloudflare Worker.",
+	"icon": "Search",
+	"dependencies": {
+		"hono": "^4.0.0",
+		"react": "^19.0.0",
+		"react-dom": "^19.0.0"
+	}
+}

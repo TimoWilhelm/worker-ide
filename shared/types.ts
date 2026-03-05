@@ -329,6 +329,25 @@ export interface ServerLogEntry {
 }
 
 // =============================================================================
+// Template Types
+// =============================================================================
+
+/**
+ * Metadata for a project template (without file contents).
+ * Used by both the GET /api/templates endpoint and the landing page.
+ */
+export interface ProjectTemplateMeta {
+	/** Unique template identifier (kebab-case) */
+	id: string;
+	/** Human-readable template name */
+	name: string;
+	/** Short description of what the template demonstrates */
+	description: string;
+	/** Lucide icon name for display on the frontend */
+	icon: string;
+}
+
+// =============================================================================
 // API Response Types
 // =============================================================================
 

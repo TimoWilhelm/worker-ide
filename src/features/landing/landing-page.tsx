@@ -3,7 +3,7 @@
  *
  * Minimalist landing page for Worker IDE. Displays over a halftone shader
  * background and allows users to:
- * - Start a new project from a template
+ * - Start a new project from a template (compact cards + detail modal)
  * - Open a recent project
  * - Clone/remix a project by ID or URL
  *
@@ -15,10 +15,11 @@ import { BookOpen, Copy, Github, Hexagon, Moon, Search, Sun, X } from 'lucide-re
 import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 
 import { Button, buttonVariants } from '@/components/ui/button';
+import { Modal, ModalBody, ModalFooter } from '@/components/ui/modal';
 import { Spinner } from '@/components/ui/spinner';
 import { VersionBadge } from '@/components/version-badge';
 import { useTheme } from '@/hooks/use-theme';
-import { cloneProject, createProject } from '@/lib/api-client';
+import { cloneProject, createProject, fetchTemplates } from '@/lib/api-client';
 import { getRecentProjects, removeProject, trackProject } from '@/lib/recent-projects';
 import { useStore } from '@/lib/store';
 import { cn, formatRelativeTime } from '@/lib/utils';
@@ -26,37 +27,11 @@ import { cn, formatRelativeTime } from '@/lib/utils';
 import { HalftoneBackground } from './halftone-background';
 
 import type { RecentProject } from '@/lib/recent-projects';
+import type { ProjectTemplateMeta } from '@shared/types';
 
 // =============================================================================
 // Constants
 // =============================================================================
-
-/**
- * Template definitions for the landing page.
- *
- * These are defined client-side to avoid an API call on page load.
- * They must stay in sync with the template registry in worker/templates.ts.
- * Only the display metadata is needed here — file contents live server-side.
- *
- * To add a new template:
- * 1. Add the template files and entry in worker/templates.ts
- * 2. Add a matching entry here with the same ID
- */
-const TEMPLATE_CARDS: TemplateCardData[] = [
-	{
-		id: 'request-inspector',
-		name: 'Request Inspector',
-		description: 'Inspect HTTP headers, geolocation, and connection info from a Cloudflare Worker.',
-		icon: 'Search',
-	},
-];
-
-interface TemplateCardData {
-	id: string;
-	name: string;
-	description: string;
-	icon: string;
-}
 
 /**
  * Regex to extract a 64-character hex project ID from various input formats:
@@ -105,7 +80,7 @@ function LoadingOverlay({ message }: { message: string }) {
 }
 
 // =============================================================================
-// Template card component
+// Template card (small box)
 // =============================================================================
 
 function TemplateCard({
@@ -113,7 +88,7 @@ function TemplateCard({
 	onSelect,
 	disabled,
 }: {
-	template: TemplateCardData;
+	template: ProjectTemplateMeta;
 	onSelect: (templateId: string) => void;
 	disabled: boolean;
 }) {
@@ -123,8 +98,8 @@ function TemplateCard({
 			disabled={disabled}
 			className={cn(
 				`
-					group flex cursor-pointer flex-col gap-3 rounded-lg border border-border
-					p-5
+					group flex cursor-pointer flex-col items-center gap-2 rounded-lg border
+					border-border p-4
 				`,
 				'bg-bg-secondary/60 backdrop-blur-sm transition-all',
 				'hover:border-accent/50 hover:bg-bg-secondary/80',
@@ -135,20 +110,67 @@ function TemplateCard({
 				'disabled:pointer-events-none disabled:opacity-50',
 			)}
 		>
-			<div className="flex items-center gap-3">
-				<div
-					className={cn(
-						'flex size-9 items-center justify-center rounded-md',
-						'bg-accent/10 text-accent transition-colors',
-						'group-hover:bg-accent/20',
-					)}
-				>
-					<TemplateIcon name={template.icon} className="size-4" />
-				</div>
-				<h3 className="text-sm font-semibold text-text-primary">{template.name}</h3>
+			<div
+				className={cn(
+					'flex size-8 items-center justify-center rounded-md',
+					'bg-accent/10 text-accent transition-colors',
+					'group-hover:bg-accent/20',
+				)}
+			>
+				<TemplateIcon name={template.icon} className="size-4" />
 			</div>
-			<p className="text-left text-xs/relaxed text-text-secondary">{template.description}</p>
+			<span className="text-center text-xs font-medium text-text-primary">{template.name}</span>
 		</button>
+	);
+}
+
+function TemplateCardSkeleton() {
+	return (
+		<div className={cn('flex flex-col items-center gap-2 rounded-lg border border-border p-4', 'bg-bg-secondary/40 backdrop-blur-sm')}>
+			<div className="size-8 animate-pulse rounded-md bg-bg-tertiary" />
+			<div className="h-4 w-16 animate-pulse rounded-sm bg-bg-tertiary" />
+		</div>
+	);
+}
+
+// =============================================================================
+// Template detail modal
+// =============================================================================
+
+function TemplateDetailModal({
+	template,
+	open,
+	onOpenChange,
+	onCreateProject,
+	isLoading,
+}: {
+	template: ProjectTemplateMeta | undefined;
+	open: boolean;
+	onOpenChange: (open: boolean) => void;
+	onCreateProject: (templateId: string) => void;
+	isLoading: boolean;
+}) {
+	if (!template) return;
+
+	return (
+		<Modal open={open} onOpenChange={onOpenChange} title={template.name}>
+			<ModalBody>
+				<div className="flex items-start gap-4">
+					<div className={cn('flex size-10 shrink-0 items-center justify-center rounded-lg', 'bg-accent/10 text-accent')}>
+						<TemplateIcon name={template.icon} className="size-5" />
+					</div>
+					<p className="text-sm/relaxed text-text-secondary">{template.description}</p>
+				</div>
+			</ModalBody>
+			<ModalFooter>
+				<Button variant="secondary" size="sm" onClick={() => onOpenChange(false)}>
+					Cancel
+				</Button>
+				<Button size="sm" onClick={() => onCreateProject(template.id)} disabled={isLoading} isLoading={isLoading} loadingText="Creating...">
+					Create Project
+				</Button>
+			</ModalFooter>
+		</Modal>
 	);
 }
 
@@ -286,6 +308,9 @@ function navigateToProject(url: string): void {
  * Default export for React.lazy() compatibility.
  */
 export default function LandingPage() {
+	const [templates, setTemplates] = useState<ProjectTemplateMeta[]>([]);
+	const [templatesLoaded, setTemplatesLoaded] = useState(false);
+	const [selectedTemplateId, setSelectedTemplateId] = useState<string | undefined>();
 	const [recentProjects, setRecentProjects] = useState(getRecentProjects);
 	const [cloneInput, setCloneInput] = useState('');
 	const [loadingMessage, setLoadingMessage] = useState<string | undefined>();
@@ -293,6 +318,22 @@ export default function LandingPage() {
 
 	const resolvedTheme = useTheme();
 	const setColorScheme = useStore((state) => state.setColorScheme);
+
+	// Fetch template metadata from the API
+	useEffect(() => {
+		let cancelled = false;
+		void fetchTemplates().then((data) => {
+			if (!cancelled) {
+				setTemplates(data);
+				setTemplatesLoaded(true);
+			}
+		});
+		return () => {
+			cancelled = true;
+		};
+	}, []);
+
+	const selectedTemplate = useMemo(() => templates.find((template) => template.id === selectedTemplateId), [templates, selectedTemplateId]);
 
 	// Determine if the clone input contains a valid project ID
 	const parsedProjectId = useMemo(() => {
@@ -302,6 +343,16 @@ export default function LandingPage() {
 	}, [cloneInput]);
 
 	// --- Handlers ---
+
+	const handleSelectTemplate = useCallback((templateId: string) => {
+		setSelectedTemplateId(templateId);
+	}, []);
+
+	const handleCloseTemplateModal = useCallback((open: boolean) => {
+		if (!open) {
+			setSelectedTemplateId(undefined);
+		}
+	}, []);
 
 	const handleCreateFromTemplate = useCallback(async (templateId: string) => {
 		setLoadingMessage('Creating project...');
@@ -370,6 +421,15 @@ export default function LandingPage() {
 			{/* Loading overlay */}
 			{isLoading && <LoadingOverlay message={loadingMessage} />}
 
+			{/* Template detail modal */}
+			<TemplateDetailModal
+				template={selectedTemplate}
+				open={selectedTemplateId !== undefined && !isLoading}
+				onOpenChange={handleCloseTemplateModal}
+				onCreateProject={handleCreateFromTemplate}
+				isLoading={isLoading}
+			/>
+
 			{/* Header actions — top right */}
 			<div className="fixed top-4 right-4 z-10 flex items-center gap-1">
 				<a
@@ -402,7 +462,12 @@ export default function LandingPage() {
 			</div>
 
 			{/* Main content */}
-			<main className="relative z-0 my-auto w-full max-w-lg px-6 pt-16 pb-12">
+			<main
+				className="
+					relative z-0 w-full max-w-lg px-6 pt-24 pb-12
+					sm:pt-32
+				"
+			>
 				{/* Header / Branding */}
 				<div className="mb-10 flex flex-col items-center gap-3">
 					<Hexagon className="size-8 text-accent" strokeWidth={1.5} />
@@ -435,13 +500,15 @@ export default function LandingPage() {
 					</h2>
 					<div
 						className="
-							grid grid-cols-1 gap-3
-							sm:grid-cols-2
+							grid grid-cols-3 gap-2
+							sm:grid-cols-4
 						"
 					>
-						{TEMPLATE_CARDS.map((template) => (
-							<TemplateCard key={template.id} template={template} onSelect={handleCreateFromTemplate} disabled={isLoading} />
-						))}
+						{templatesLoaded
+							? templates.map((template) => (
+									<TemplateCard key={template.id} template={template} onSelect={handleSelectTemplate} disabled={isLoading} />
+								))
+							: Array.from({ length: 4 }, (_, index) => <TemplateCardSkeleton key={index} />)}
 					</div>
 				</section>
 

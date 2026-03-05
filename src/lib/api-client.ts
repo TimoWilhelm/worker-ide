@@ -11,7 +11,7 @@ import { serializeMessage, parseServerMessage, type ClientMessage, type ServerMe
 
 import type { ApiRoutes } from '@server/routes';
 import type { AIModelId } from '@shared/constants';
-import type { AgentMode, AiSession, PendingFileChange } from '@shared/types';
+import type { AgentMode, AiSession, PendingFileChange, ProjectTemplateMeta } from '@shared/types';
 
 /**
  * Create a typed API client for a specific project.
@@ -77,6 +77,21 @@ export async function cloneProject(sourceProjectId: string): Promise<{ projectId
 	}
 	const data: { projectId: string; url: string; name: string } = await response.json();
 	return data;
+}
+
+/**
+ * Fetch available project templates.
+ *
+ * Uses raw fetch because this is a root-level endpoint (`/api/templates`)
+ * outside the project-scoped RPC client.
+ */
+export async function fetchTemplates(): Promise<ProjectTemplateMeta[]> {
+	const response = await fetch('/api/templates');
+	if (!response.ok) {
+		throw new Error('Failed to fetch templates');
+	}
+	const data: { templates: ProjectTemplateMeta[] } = await response.json();
+	return data.templates;
 }
 
 /**

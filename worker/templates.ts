@@ -2,41 +2,40 @@
  * Project Template Registry
  *
  * Centralized registry of all available project templates/starters.
- * Each template defines its files, dependencies, and metadata.
+ * Each template lives in its own directory under worker/fixtures/<template-id>/
+ * with a template.json file containing metadata (name, description, icon, dependencies).
  *
  * To add a new template:
- * 1. Create a fixture directory under worker/fixtures/<template-name>/
- * 2. Import the fixture files as raw strings below
- * 3. Add a new entry to the TEMPLATES array
+ * 1. Create a fixture directory under worker/fixtures/<template-id>/
+ * 2. Add a template.json with { id, name, description, icon, dependencies }
+ * 3. Import the fixture files as raw strings below
+ * 4. Add a new entry to the TEMPLATES array using defineTemplate()
  */
 
 // =============================================================================
 // Request Inspector template
 // =============================================================================
 
-import requestInspectorGitignore from './fixtures/example-project/gitignore.txt?raw';
-import requestInspectorIndexHtml from './fixtures/example-project/index.html?raw';
-import requestInspectorAppTsx from './fixtures/example-project/src/app.tsx?raw';
-import requestInspectorMainTsx from './fixtures/example-project/src/main.tsx?raw';
-import requestInspectorStyleCss from './fixtures/example-project/src/style.css?raw';
-import requestInspectorUtilitiesTs from './fixtures/example-project/src/utilities.ts?raw';
-import requestInspectorTestUtilitiesTs from './fixtures/example-project/test/utilities.test.ts?raw';
-import requestInspectorTsconfig from './fixtures/example-project/tsconfig.json?raw';
-import requestInspectorWorkerIndexTs from './fixtures/example-project/worker/index.ts?raw';
+import requestInspectorGitignore from './fixtures/request-inspector/gitignore.txt?raw';
+import requestInspectorIndexHtml from './fixtures/request-inspector/index.html?raw';
+import requestInspectorAppTsx from './fixtures/request-inspector/src/app.tsx?raw';
+import requestInspectorMainTsx from './fixtures/request-inspector/src/main.tsx?raw';
+import requestInspectorStyleCss from './fixtures/request-inspector/src/style.css?raw';
+import requestInspectorUtilitiesTs from './fixtures/request-inspector/src/utilities.ts?raw';
+import requestInspectorMetaRaw from './fixtures/request-inspector/template.json?raw';
+import requestInspectorTestUtilitiesTs from './fixtures/request-inspector/test/utilities.test.ts?raw';
+import requestInspectorTsconfig from './fixtures/request-inspector/tsconfig.json?raw';
+import requestInspectorWorkerIndexTs from './fixtures/request-inspector/worker/index.ts?raw';
+
+import type { ProjectTemplateMeta } from '@shared/types';
+
+// Re-export for convenience
 
 // =============================================================================
 // Template types
 // =============================================================================
 
-export interface ProjectTemplate {
-	/** Unique template identifier (kebab-case) */
-	id: string;
-	/** Human-readable template name */
-	name: string;
-	/** Short description of what the template demonstrates */
-	description: string;
-	/** Lucide icon name for display on the frontend */
-	icon: string;
+export interface ProjectTemplate extends ProjectTemplateMeta {
 	/** Map of relative file paths to file contents */
 	files: Record<string, string>;
 	/** npm dependencies for the template */
@@ -44,42 +43,48 @@ export interface ProjectTemplate {
 }
 
 /**
- * Metadata-only type for the GET /api/templates response.
- * Excludes file contents to keep the response lightweight.
+ * Shape of each template's template.json file.
+ * Contains display metadata and dependency information.
  */
-export interface ProjectTemplateMeta {
-	id: string;
-	name: string;
-	description: string;
-	icon: string;
+interface TemplateManifest extends ProjectTemplateMeta {
+	dependencies: Record<string, string>;
+}
+
+// =============================================================================
+// Helper
+// =============================================================================
+
+/**
+ * Parse a raw JSON string from a template.json import and combine it
+ * with a file map to produce a full ProjectTemplate.
+ */
+function defineTemplate(metaRaw: string, files: Record<string, string>): ProjectTemplate {
+	const meta: TemplateManifest = JSON.parse(metaRaw);
+	return {
+		id: meta.id,
+		name: meta.name,
+		description: meta.description,
+		icon: meta.icon,
+		files,
+		dependencies: meta.dependencies,
+	};
 }
 
 // =============================================================================
 // Template definitions
 // =============================================================================
 
-const requestInspectorTemplate: ProjectTemplate = {
-	id: 'request-inspector',
-	name: 'Request Inspector',
-	description: 'Inspect incoming HTTP request headers, geolocation, and connection info from a Cloudflare Worker.',
-	icon: 'Search',
-	files: {
-		'tsconfig.json': requestInspectorTsconfig,
-		'index.html': requestInspectorIndexHtml,
-		'src/main.tsx': requestInspectorMainTsx,
-		'src/app.tsx': requestInspectorAppTsx,
-		'src/style.css': requestInspectorStyleCss,
-		'src/utilities.ts': requestInspectorUtilitiesTs,
-		'test/utilities.test.ts': requestInspectorTestUtilitiesTs,
-		'worker/index.ts': requestInspectorWorkerIndexTs,
-		'.gitignore': requestInspectorGitignore,
-	},
-	dependencies: {
-		hono: '^4.0.0',
-		react: '^19.0.0',
-		'react-dom': '^19.0.0',
-	},
-};
+const requestInspectorTemplate = defineTemplate(requestInspectorMetaRaw, {
+	'tsconfig.json': requestInspectorTsconfig,
+	'index.html': requestInspectorIndexHtml,
+	'src/main.tsx': requestInspectorMainTsx,
+	'src/app.tsx': requestInspectorAppTsx,
+	'src/style.css': requestInspectorStyleCss,
+	'src/utilities.ts': requestInspectorUtilitiesTs,
+	'test/utilities.test.ts': requestInspectorTestUtilitiesTs,
+	'worker/index.ts': requestInspectorWorkerIndexTs,
+	'.gitignore': requestInspectorGitignore,
+});
 
 // =============================================================================
 // Registry
@@ -104,7 +109,7 @@ export function getTemplate(templateId: string): ProjectTemplate | undefined {
 
 /**
  * Get metadata for all templates (without file contents).
- * Used by the GET /api/templates endpoint.
+ * Used by the GET /api/templates endpoint and the landing page.
  */
 export function getTemplateMetadata(): ProjectTemplateMeta[] {
 	return TEMPLATES.map((template) => ({
@@ -114,3 +119,5 @@ export function getTemplateMetadata(): ProjectTemplateMeta[] {
 		icon: template.icon,
 	}));
 }
+
+export { type ProjectTemplateMeta } from '@shared/types';

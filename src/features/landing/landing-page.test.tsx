@@ -2,10 +2,11 @@
  * React component tests for the Landing Page.
  *
  * Mocks API calls and WebGL (jsdom has no WebGL support) to test
- * user interactions: template selection, clone input, recent projects.
+ * user interactions: template selection, detail modal, clone input,
+ * recent projects, and back button handling.
  */
 
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -19,12 +20,23 @@ import LandingPage from './landing-page';
 vi.mock('@/lib/api-client', () => ({
 	createProject: vi.fn(),
 	cloneProject: vi.fn(),
+	fetchTemplates: vi.fn(() =>
+		Promise.resolve([
+			{
+				id: 'request-inspector',
+				name: 'Request Inspector',
+				description: 'Inspect HTTP headers, geolocation, and connection info from a Cloudflare Worker.',
+				icon: 'Search',
+			},
+		]),
+	),
 }));
 
 // Mock recent-projects to return controlled data
 vi.mock('@/lib/recent-projects', () => ({
 	getRecentProjects: vi.fn(() => []),
 	trackProject: vi.fn(),
+	removeProject: vi.fn(),
 }));
 
 // Mock the store (for theme toggle)
@@ -87,11 +99,13 @@ describe('LandingPage', () => {
 		expect(screen.getByTestId('halftone-background')).toBeInTheDocument();
 	});
 
-	it('renders template cards', () => {
+	it('renders template cards', async () => {
 		render(<LandingPage />);
 
 		expect(screen.getByText('Start a new project')).toBeInTheDocument();
-		expect(screen.getByText('Request Inspector')).toBeInTheDocument();
+		await waitFor(() => {
+			expect(screen.getByText('Request Inspector')).toBeInTheDocument();
+		});
 	});
 
 	it('renders the clone section', () => {
@@ -109,10 +123,32 @@ describe('LandingPage', () => {
 	});
 
 	// ---------------------------------------------------------------------------
-	// Template creation
+	// Template detail modal
 	// ---------------------------------------------------------------------------
 
-	it('creates a project when a template card is clicked', async () => {
+	it('opens template detail modal when a card is clicked', async () => {
+		render(<LandingPage />);
+
+		// Wait for templates to load
+		const templateButton = await waitFor(() => {
+			const button = screen.getByText('Request Inspector').closest('button');
+			expect(button).toBeTruthy();
+			return button!;
+		});
+		fireEvent.click(templateButton);
+
+		// Modal should be open with template details
+		await waitFor(() => {
+			expect(screen.getByRole('dialog')).toBeInTheDocument();
+		});
+
+		const dialog = screen.getByRole('dialog');
+		expect(within(dialog).getByText('Request Inspector')).toBeInTheDocument();
+		expect(within(dialog).getByText(/Inspect HTTP headers/)).toBeInTheDocument();
+		expect(within(dialog).getByRole('button', { name: 'Create Project' })).toBeInTheDocument();
+	});
+
+	it('creates a project when Create Project is clicked in the modal', async () => {
 		const mockedCreateProject = vi.mocked(createProject);
 		mockedCreateProject.mockResolvedValueOnce({
 			projectId: 'abc123',
@@ -122,15 +158,50 @@ describe('LandingPage', () => {
 
 		render(<LandingPage />);
 
-		const templateButton = screen.getByText('Request Inspector').closest('button');
-		expect(templateButton).toBeTruthy();
-		fireEvent.click(templateButton!);
+		// Open the detail modal
+		const templateButton = await waitFor(() => {
+			const button = screen.getByText('Request Inspector').closest('button');
+			expect(button).toBeTruthy();
+			return button!;
+		});
+		fireEvent.click(templateButton);
+
+		// Click "Create Project" in the modal
+		await waitFor(() => {
+			expect(screen.getByRole('dialog')).toBeInTheDocument();
+		});
+		const createButton = within(screen.getByRole('dialog')).getByRole('button', { name: 'Create Project' });
+		fireEvent.click(createButton);
 
 		// Should show loading overlay
 		expect(screen.getByText('Creating project...')).toBeInTheDocument();
 
 		await waitFor(() => {
 			expect(mockedCreateProject).toHaveBeenCalledWith('request-inspector');
+		});
+	});
+
+	it('closes the modal when Cancel is clicked', async () => {
+		render(<LandingPage />);
+
+		// Open the detail modal
+		const templateButton = await waitFor(() => {
+			const button = screen.getByText('Request Inspector').closest('button');
+			expect(button).toBeTruthy();
+			return button!;
+		});
+		fireEvent.click(templateButton);
+
+		await waitFor(() => {
+			expect(screen.getByRole('dialog')).toBeInTheDocument();
+		});
+
+		// Click Cancel
+		const cancelButton = within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancel' });
+		fireEvent.click(cancelButton);
+
+		await waitFor(() => {
+			expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
 		});
 	});
 
