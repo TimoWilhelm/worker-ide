@@ -1,0 +1,303 @@
+/**
+ * Unit tests for deploy route helper functions.
+ */
+
+import { describe, expect, it } from 'vitest';
+
+import {
+	extractFrontendEntryPoint,
+	generateProductionHtml,
+	hashFileForManifest,
+	isConfigFile,
+	isSourceFile,
+	sanitizeWorkerName,
+} from './deploy-routes';
+
+// =============================================================================
+// sanitizeWorkerName
+// =============================================================================
+
+describe('sanitizeWorkerName', () => {
+	it('lowercases uppercase characters', () => {
+		expect(sanitizeWorkerName('MyWorker')).toBe('myworker');
+	});
+
+	it('replaces non-alphanumeric characters with hyphens', () => {
+		expect(sanitizeWorkerName('my worker app')).toBe('my-worker-app');
+	});
+
+	it('collapses multiple hyphens into one', () => {
+		expect(sanitizeWorkerName('my---worker')).toBe('my-worker');
+	});
+
+	it('strips leading and trailing hyphens', () => {
+		expect(sanitizeWorkerName('-my-worker-')).toBe('my-worker');
+	});
+
+	it('handles special characters', () => {
+		expect(sanitizeWorkerName('my_worker@v2')).toBe('my-worker-v2');
+	});
+
+	it('truncates to 63 characters', () => {
+		const longName = 'a'.repeat(100);
+		expect(sanitizeWorkerName(longName)).toHaveLength(63);
+	});
+
+	it('returns my-worker for empty string', () => {
+		expect(sanitizeWorkerName('')).toBe('my-worker');
+	});
+
+	it('returns my-worker for string of only special characters', () => {
+		expect(sanitizeWorkerName('!!!')).toBe('my-worker');
+	});
+
+	it('preserves valid names unchanged', () => {
+		expect(sanitizeWorkerName('my-worker-123')).toBe('my-worker-123');
+	});
+});
+
+// =============================================================================
+// extractFrontendEntryPoint
+// =============================================================================
+
+describe('extractFrontendEntryPoint', () => {
+	it('extracts src path from script type=module tag', () => {
+		const html = '<html><body><script type="module" src="/src/main.tsx"></script></body></html>';
+		expect(extractFrontendEntryPoint(html)).toBe('src/main.tsx');
+	});
+
+	it('extracts src path from plain script tag', () => {
+		const html = '<html><body><script src="src/app.js"></script></body></html>';
+		expect(extractFrontendEntryPoint(html)).toBe('src/app.js');
+	});
+
+	it('strips leading slash from src path', () => {
+		const html = '<script type="module" src="/src/main.tsx"></script>';
+		expect(extractFrontendEntryPoint(html)).toBe('src/main.tsx');
+	});
+
+	it('skips external scripts (https)', () => {
+		const html = `
+			<script src="https://cdn.example.com/lib.js"></script>
+			<script type="module" src="/src/main.tsx"></script>
+		`;
+		expect(extractFrontendEntryPoint(html)).toBe('src/main.tsx');
+	});
+
+	it('skips external scripts (http)', () => {
+		const html = `
+			<script src="http://cdn.example.com/lib.js"></script>
+			<script type="module" src="/src/main.tsx"></script>
+		`;
+		expect(extractFrontendEntryPoint(html)).toBe('src/main.tsx');
+	});
+
+	it('skips internal preview scripts starting with __', () => {
+		const html = `
+			<script type="module" src="__preview/client.js"></script>
+			<script type="module" src="/src/main.tsx"></script>
+		`;
+		expect(extractFrontendEntryPoint(html)).toBe('src/main.tsx');
+	});
+
+	it('returns undefined when no script tags exist', () => {
+		const html = '<html><body><p>Hello</p></body></html>';
+		expect(extractFrontendEntryPoint(html)).toBeUndefined();
+	});
+
+	it('returns undefined when only external scripts exist', () => {
+		const html = '<script src="https://cdn.example.com/lib.js"></script>';
+		expect(extractFrontendEntryPoint(html)).toBeUndefined();
+	});
+
+	it('handles single-quoted src attributes', () => {
+		const html = "<script type='module' src='/src/main.tsx'></script>";
+		expect(extractFrontendEntryPoint(html)).toBe('src/main.tsx');
+	});
+});
+
+// =============================================================================
+// isSourceFile
+// =============================================================================
+
+describe('isSourceFile', () => {
+	it('returns true for .ts files', () => {
+		expect(isSourceFile('src/utils.ts')).toBe(true);
+	});
+
+	it('returns true for .tsx files', () => {
+		expect(isSourceFile('src/app.tsx')).toBe(true);
+	});
+
+	it('returns true for .jsx files', () => {
+		expect(isSourceFile('components/button.jsx')).toBe(true);
+	});
+
+	it('returns true for .mts files', () => {
+		expect(isSourceFile('worker/index.mts')).toBe(true);
+	});
+
+	it('returns true for .mjs files', () => {
+		expect(isSourceFile('worker/index.mjs')).toBe(true);
+	});
+
+	it('returns true for .js files under src/', () => {
+		expect(isSourceFile('src/main.js')).toBe(true);
+	});
+
+	it('returns false for .js files outside src/', () => {
+		expect(isSourceFile('public/script.js')).toBe(false);
+	});
+
+	it('returns false for .css files', () => {
+		expect(isSourceFile('src/style.css')).toBe(false);
+	});
+
+	it('returns false for .html files', () => {
+		expect(isSourceFile('index.html')).toBe(false);
+	});
+
+	it('returns false for .json files', () => {
+		expect(isSourceFile('package.json')).toBe(false);
+	});
+
+	it('returns false for image files', () => {
+		expect(isSourceFile('public/logo.png')).toBe(false);
+	});
+});
+
+// =============================================================================
+// generateProductionHtml
+// =============================================================================
+
+describe('generateProductionHtml', () => {
+	it('replaces the original entry path with the bundled path', () => {
+		const html = '<html><body><script type="module" src="/src/main.tsx"></script></body></html>';
+		const result = generateProductionHtml(html, 'src/main.tsx', '/assets/bundle-abc12345.js');
+		expect(result).toBe('<html><body><script type="module" src="/assets/bundle-abc12345.js"></script></body></html>');
+	});
+
+	it('handles entry path with leading slash', () => {
+		const html = '<script type="module" src="/src/main.tsx"></script>';
+		const result = generateProductionHtml(html, 'src/main.tsx', '/assets/bundle.js');
+		expect(result).toBe('<script type="module" src="/assets/bundle.js"></script>');
+	});
+
+	it('handles entry path without leading slash in HTML', () => {
+		const html = '<script type="module" src="src/main.tsx"></script>';
+		const result = generateProductionHtml(html, 'src/main.tsx', '/assets/bundle.js');
+		expect(result).toBe('<script type="module" src="/assets/bundle.js"></script>');
+	});
+
+	it('preserves other HTML content', () => {
+		const html = `<!DOCTYPE html>
+<html>
+<head><title>App</title></head>
+<body>
+  <div id="root"></div>
+  <script type="module" src="/src/main.tsx"></script>
+</body>
+</html>`;
+		const result = generateProductionHtml(html, 'src/main.tsx', '/assets/bundle-abc.js');
+		expect(result).toContain('<title>App</title>');
+		expect(result).toContain('<div id="root"></div>');
+		expect(result).toContain('src="/assets/bundle-abc.js"');
+		expect(result).not.toContain('src/main.tsx');
+	});
+
+	it('does not modify unrelated script tags', () => {
+		const html = `
+<script src="https://cdn.example.com/lib.js"></script>
+<script type="module" src="/src/main.tsx"></script>`;
+		const result = generateProductionHtml(html, 'src/main.tsx', '/assets/bundle.js');
+		expect(result).toContain('src="https://cdn.example.com/lib.js"');
+		expect(result).toContain('src="/assets/bundle.js"');
+	});
+});
+
+// =============================================================================
+// hashFileForManifest
+// =============================================================================
+
+describe('hashFileForManifest', () => {
+	it('returns a 32-character hex string', async () => {
+		const content = new TextEncoder().encode('hello world');
+		const hash = await hashFileForManifest(content, '/index.html');
+		expect(hash).toMatch(/^[\da-f]{32}$/);
+	});
+
+	it('is deterministic for same content and path', async () => {
+		const content = new TextEncoder().encode('test content');
+		const hash1 = await hashFileForManifest(content, '/app.js');
+		const hash2 = await hashFileForManifest(content, '/app.js');
+		expect(hash1).toBe(hash2);
+	});
+
+	it('produces different hashes for different content', async () => {
+		const content1 = new TextEncoder().encode('file one');
+		const content2 = new TextEncoder().encode('file two');
+		const hash1 = await hashFileForManifest(content1, '/app.js');
+		const hash2 = await hashFileForManifest(content2, '/app.js');
+		expect(hash1).not.toBe(hash2);
+	});
+
+	it('produces different hashes for different file extensions', async () => {
+		const content = new TextEncoder().encode('same content');
+		const hashHtml = await hashFileForManifest(content, '/index.html');
+		const hashJs = await hashFileForManifest(content, '/index.js');
+		expect(hashHtml).not.toBe(hashJs);
+	});
+
+	it('handles empty content', async () => {
+		const content = new Uint8Array(0);
+		const hash = await hashFileForManifest(content, '/empty.txt');
+		expect(hash).toMatch(/^[\da-f]{32}$/);
+	});
+
+	it('handles files without extension', async () => {
+		const content = new TextEncoder().encode('no ext');
+		const hash = await hashFileForManifest(content, '/Dockerfile');
+		expect(hash).toMatch(/^[\da-f]{32}$/);
+	});
+
+	it('produces different hashes for same content and extension but different paths', async () => {
+		const content = new TextEncoder().encode('same content');
+		const hash1 = await hashFileForManifest(content, '/assets/a.js');
+		const hash2 = await hashFileForManifest(content, '/assets/b.js');
+		expect(hash1).not.toBe(hash2);
+	});
+});
+
+// =============================================================================
+// isConfigFile
+// =============================================================================
+
+describe('isConfigFile', () => {
+	it('returns true for package.json', () => {
+		expect(isConfigFile('package.json')).toBe(true);
+	});
+
+	it('returns true for tsconfig.json', () => {
+		expect(isConfigFile('tsconfig.json')).toBe(true);
+	});
+
+	it('returns true for .project-meta.json', () => {
+		expect(isConfigFile('.project-meta.json')).toBe(true);
+	});
+
+	it('returns true for .gitignore', () => {
+		expect(isConfigFile('.gitignore')).toBe(true);
+	});
+
+	it('returns false for CSS files', () => {
+		expect(isConfigFile('style.css')).toBe(false);
+	});
+
+	it('returns false for image files', () => {
+		expect(isConfigFile('logo.png')).toBe(false);
+	});
+
+	it('returns false for nested config-like files', () => {
+		expect(isConfigFile('src/package.json')).toBe(false);
+	});
+});

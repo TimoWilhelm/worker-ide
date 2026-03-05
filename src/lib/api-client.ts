@@ -134,6 +134,41 @@ export async function downloadProject(projectId: string): Promise<Blob> {
 }
 
 // =============================================================================
+// Deployment
+// =============================================================================
+
+/**
+ * Credentials needed to deploy to a user's Cloudflare account.
+ */
+export interface DeployCredentials {
+	accountId: string;
+	apiToken: string;
+	workerName?: string;
+}
+
+/**
+ * Deploy a project to the user's Cloudflare account.
+ *
+ * The backend collects project files, builds the multipart payload,
+ * and uploads to the Cloudflare Workers API on the user's behalf.
+ * The API token is used only for the duration of this request.
+ */
+export async function deployProject(
+	projectId: string,
+	credentials: DeployCredentials,
+): Promise<{ success: boolean; workerName: string; workerUrl?: string }> {
+	const response = await fetch(`/p/${projectId}/api/deploy`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify(credentials),
+	});
+	if (!response.ok) {
+		throw new Error('Failed to deploy project');
+	}
+	return response.json();
+}
+
+// =============================================================================
 // AI Session Management
 // =============================================================================
 

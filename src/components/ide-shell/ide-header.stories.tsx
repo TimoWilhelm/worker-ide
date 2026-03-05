@@ -33,6 +33,7 @@ const meta = {
 		mobileMenuOpen: false,
 		setMobileMenuOpen: fn(),
 		onDownload: fn(),
+		onDeploy: fn(),
 		onNewProject: fn(),
 	},
 } satisfies Meta<typeof IDEHeader>;

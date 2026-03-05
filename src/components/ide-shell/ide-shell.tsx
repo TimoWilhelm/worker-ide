@@ -8,6 +8,7 @@
 import { useCallback, useRef, useState } from 'react';
 
 import { TooltipProvider } from '@/components/ui/tooltip';
+import { DeployModal } from '@/features/deploy';
 import { useFileTree } from '@/features/file-tree';
 import { useIsMobile, useProjectSocket, useTheme } from '@/hooks';
 import { downloadProject } from '@/lib/api-client';
@@ -33,6 +34,9 @@ export function IDEShell({ projectId }: { projectId: string }) {
 	// Mobile layout
 	const isMobile = useIsMobile();
 	const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+	// Deploy modal
+	const [deployModalOpen, setDeployModalOpen] = useState(false);
 
 	// AI panel toggle
 	const toggleAIPanel = useStore((state) => state.toggleAIPanel);
@@ -76,6 +80,11 @@ export function IDEShell({ projectId }: { projectId: string }) {
 		}
 	}, [projectId, projectNameState.projectName]);
 
+	// Handle deploy
+	const handleDeploy = useCallback(() => {
+		setDeployModalOpen(true);
+	}, []);
+
 	// Navigate to landing page to create a new project
 	const handleNewProject = useCallback(() => {
 		globalThis.location.href = '/';
@@ -97,6 +106,7 @@ export function IDEShell({ projectId }: { projectId: string }) {
 					mobileMenuOpen={mobileMenuOpen}
 					setMobileMenuOpen={setMobileMenuOpen}
 					onDownload={handleDownload}
+					onDeploy={handleDeploy}
 					onNewProject={handleNewProject}
 				/>
 
@@ -120,6 +130,12 @@ export function IDEShell({ projectId }: { projectId: string }) {
 						previewIframeReference={previewIframeReference}
 					/>
 				)}
+				<DeployModal
+					open={deployModalOpen}
+					onOpenChange={setDeployModalOpen}
+					projectId={projectId}
+					projectName={projectNameState.projectName ?? `project-${projectId.slice(0, 8)}`}
+				/>
 			</div>
 		</TooltipProvider>
 	);

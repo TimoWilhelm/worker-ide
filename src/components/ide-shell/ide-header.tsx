@@ -2,7 +2,7 @@
  * IDE header bar with project name, AI toggle, theme toggle, download, and mobile menu.
  */
 
-import { BookOpen, Bot, Download, EllipsisVertical, Github, Hexagon, Moon, Pencil, Sun } from 'lucide-react';
+import { BookOpen, Bot, Download, EllipsisVertical, Github, Hexagon, Moon, Pencil, Rocket, Sun } from 'lucide-react';
 
 import { BorderBeam } from '@/components/ui/border-beam';
 import { Button } from '@/components/ui/button';
@@ -28,6 +28,7 @@ interface IDEHeaderProperties {
 	mobileMenuOpen: boolean;
 	setMobileMenuOpen: (open: boolean) => void;
 	onDownload: () => void;
+	onDeploy: () => void;
 	onNewProject: () => void;
 }
 
@@ -44,6 +45,7 @@ export function IDEHeader({
 	mobileMenuOpen,
 	setMobileMenuOpen,
 	onDownload,
+	onDeploy,
 	onNewProject,
 }: IDEHeaderProperties) {
 	const {
@@ -150,6 +152,13 @@ export function IDEHeader({
 							onClick={() => setColorScheme(resolvedTheme === 'dark' ? 'light' : 'dark')}
 						>
 							{resolvedTheme === 'dark' ? <Sun className="size-4" /> : <Moon className="size-4" />}
+						</Button>
+					</Tooltip>
+
+					{/* Deploy */}
+					<Tooltip content="Deploy to Cloudflare">
+						<Button variant="ghost" size="icon" aria-label="Deploy to Cloudflare" onClick={onDeploy}>
+							<Rocket className="size-4" />
 						</Button>
 					</Tooltip>
 

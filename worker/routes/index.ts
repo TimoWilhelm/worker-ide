@@ -6,6 +6,7 @@
 import { Hono } from 'hono';
 
 import { aiRoutes } from './ai-routes';
+import { deployRoutes } from './deploy-routes';
 import { fileRoutes } from './file-routes';
 import { gitRoutes } from './git-routes';
 import { projectRoutes } from './project-routes';
@@ -28,7 +29,8 @@ export const apiRoutes = new Hono<AppEnvironment>()
 	.route('', aiRoutes)
 	.route('', transformRoutes)
 	.route('', gitRoutes)
-	.route('', testRoutes);
+	.route('', testRoutes)
+	.route('', deployRoutes);
 
 /**
  * Export the full API routes type for client-side type inference.
@@ -38,6 +40,7 @@ export type ApiRoutes = typeof apiRoutes;
 
 // Re-export individual route modules
 export { aiRoutes } from './ai-routes';
+export { deployRoutes } from './deploy-routes';
 export { fileRoutes } from './file-routes';
 export { gitRoutes } from './git-routes';
 export { projectRoutes } from './project-routes';
