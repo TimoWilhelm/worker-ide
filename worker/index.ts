@@ -20,7 +20,7 @@ import { generateHumanId } from '@shared/human-id';
 import { coordinatorNamespace, filesystemNamespace } from './lib/durable-object-namespaces';
 import { apiRoutes } from './routes';
 import { PreviewService } from './services/preview-service';
-import { DEFAULT_TEMPLATE_ID, getTemplate, getTemplateMetadata } from './templates';
+import { getTemplate, getTemplateMetadata } from './templates';
 
 import type { AppEnvironment } from './types';
 /**
@@ -63,101 +63,44 @@ const PROJECT_ROOT = '/project';
 const PROJECT_ID_PATTERN = /^[a-f0-9]{64}$/i;
 
 /**
- * Initialize a project with template files if not already initialized.
- * Uses a sentinel file on disk as the source of truth so that
- * re-initialization happens correctly after a DO storage wipe.
- *
- * If a `.template` marker file exists (written by the new-project endpoint),
- * the template specified in that file is used. Otherwise falls back to the
- * default template.
- *
- * Returns `true` if the project was freshly initialized (first request),
- * signaling the caller to run git initialization via the DO.
+ * Check whether a project exists by looking for the `.initialized` sentinel.
+ * Projects are fully initialized at creation time by `/api/new-project` or
+ * `/api/clone-project`, so if the sentinel is missing the project was never
+ * created.
  */
-async function initializeProject(projectRoot: string): Promise<boolean> {
-	// Dynamic import to allow alias resolution at build time
+async function projectExists(projectRoot: string): Promise<boolean> {
 	const fs = await import('node:fs/promises');
-
-	const sentinelPath = `${projectRoot}/.initialized`;
 	try {
-		await fs.readFile(sentinelPath);
+		await fs.readFile(`${projectRoot}/.initialized`);
+		return true;
+	} catch {
 		return false;
-	} catch {
-		// Not yet initialized
 	}
-
-	// Determine which template to use
-	let templateId = DEFAULT_TEMPLATE_ID;
-	const templateMarkerPath = `${projectRoot}/.template`;
-	try {
-		const marker = await fs.readFile(templateMarkerPath, 'utf8');
-		if (marker.trim()) {
-			templateId = marker.trim();
-		}
-	} catch {
-		// No marker file — use default template
-	}
-
-	const template = getTemplate(templateId);
-	if (template) {
-		await writeTemplateFiles(fs, projectRoot, template.files, template.dependencies);
-	} else {
-		// Fallback to default if requested template doesn't exist
-		const fallbackTemplate = getTemplate(DEFAULT_TEMPLATE_ID);
-		if (!fallbackTemplate) {
-			// Should never happen — write sentinel and bail
-			await fs.writeFile(sentinelPath, '1');
-			return false;
-		}
-		// Use fallback
-		await writeTemplateFiles(fs, projectRoot, fallbackTemplate.files, fallbackTemplate.dependencies);
-	}
-
-	// Clean up the template marker file if it exists
-	try {
-		await fs.unlink(templateMarkerPath);
-	} catch {
-		// Ignore — file may not exist
-	}
-
-	await fs.writeFile(sentinelPath, '1');
-	return true;
 }
 
 /**
  * Write template files and project metadata to the filesystem.
- * Only writes files that don't already exist (preserves manual edits).
  */
 async function writeTemplateFiles(
 	fs: typeof import('node:fs/promises'),
 	projectRoot: string,
 	files: Record<string, string>,
 	dependencies: Record<string, string>,
+	humanId: string,
 ): Promise<void> {
 	for (const [filePath, content] of Object.entries(files)) {
 		const fullPath = `${projectRoot}/${filePath}`;
-		try {
-			await fs.readFile(fullPath);
-		} catch {
-			const directory = fullPath.slice(0, fullPath.lastIndexOf('/'));
-			await fs.mkdir(directory, { recursive: true });
-			await fs.writeFile(fullPath, content);
-		}
+		const directory = fullPath.slice(0, fullPath.lastIndexOf('/'));
+		await fs.mkdir(directory, { recursive: true });
+		await fs.writeFile(fullPath, content);
 	}
 
 	// Write initial project metadata with template dependencies
-	const metaPath = `${projectRoot}/.project-meta.json`;
-	try {
-		await fs.readFile(metaPath);
-	} catch {
-		const humanId = generateHumanId();
-		const meta = {
-			name: humanId,
-			humanId,
-			dependencies,
-		};
-		await fs.writeFile(metaPath, JSON.stringify(meta));
-	}
+	const meta = { name: humanId, humanId, dependencies };
+	await fs.writeFile(`${projectRoot}/.project-meta.json`, JSON.stringify(meta));
+
+	// Mark project as initialized
+	await fs.writeFile(`${projectRoot}/.initialized`, '1');
 }
 
 /**
@@ -189,42 +132,47 @@ app.use('/p/*/api/*', cors());
 /**
  * POST /api/new-project
  *
- * Create a new project. Accepts an optional template ID in the request body.
- * If a template is specified, a `.template` marker file is written into the
- * new project's Durable Object so that `initializeProject()` uses the
- * correct template on first access.
+ * Create a new project. Requires a `template` ID in the request body.
+ * The project is fully initialized (template files written, `.initialized`
+ * sentinel set) before the response is returned.
  */
 app.post('/api/new-project', async (c) => {
+	let templateId: string;
+	try {
+		const body: { template: string } = await c.req.json();
+		templateId = body.template;
+	} catch {
+		return c.json({ error: 'Request body must contain a template ID' }, 400);
+	}
+
+	if (!templateId) {
+		return c.json({ error: 'Request body must contain a template ID' }, 400);
+	}
+
+	const template = getTemplate(templateId);
+	if (!template) {
+		return c.json({ error: `Unknown template: ${templateId}` }, 400);
+	}
+
 	const id = filesystemNamespace.newUniqueId();
 	const projectId = id.toString();
 	const humanId = generateHumanId();
 
-	// Parse optional template from request body
-	let templateId: string | undefined;
-	try {
-		const body: { template?: string } = await c.req.json();
-		templateId = body.template;
-	} catch {
-		// No body or invalid JSON — use default template
-	}
+	await withMounts(async () => {
+		const fsStub = filesystemNamespace.get(id);
+		mount(PROJECT_ROOT, fsStub);
 
-	// If a non-default template was requested, write a marker file
-	// so initializeProject() knows which template to use
-	if (templateId && templateId !== DEFAULT_TEMPLATE_ID) {
-		// Validate the template exists
-		const template = getTemplate(templateId);
-		if (!template) {
-			return c.json({ error: `Unknown template: ${templateId}` }, 400);
-		}
+		const fs = await import('node:fs/promises');
+		await writeTemplateFiles(fs, PROJECT_ROOT, template.files, template.dependencies, humanId);
+	});
 
-		await withMounts(async () => {
-			const fsStub = filesystemNamespace.get(id);
-			mount(PROJECT_ROOT, fsStub);
-
-			const fs = await import('node:fs/promises');
-			await fs.writeFile(`${PROJECT_ROOT}/.template`, templateId);
-		});
-	}
+	// Run git init inside the DO — single-threaded, no race conditions.
+	const fsStub = filesystemNamespace.get(id);
+	c.executionCtx.waitUntil(
+		fsStub.gitInit().catch((error) => {
+			console.error('Git initialization failed:', error);
+		}),
+	);
 
 	return c.json({ projectId, url: `/p/${projectId}`, name: humanId });
 });
@@ -257,13 +205,20 @@ app.post('/api/clone-project', async (c) => {
 
 	sourceProjectId = sourceProjectId.toLowerCase();
 
+	let sourceId: DurableObjectId;
+	try {
+		sourceId = filesystemNamespace.idFromString(sourceProjectId);
+	} catch {
+		return c.json({ error: 'Invalid source project ID.' }, 400);
+	}
+
 	const newId = filesystemNamespace.newUniqueId();
 	const newProjectId = newId.toString();
 	const humanId = generateHumanId();
 
 	try {
 		await withMounts(async () => {
-			const sourceStub = filesystemNamespace.get(filesystemNamespace.idFromString(sourceProjectId));
+			const sourceStub = filesystemNamespace.get(sourceId);
 			const destinationStub = filesystemNamespace.get(newId);
 			mount('/source', sourceStub);
 			mount('/destination', destinationStub);
@@ -300,13 +255,6 @@ app.post('/api/clone-project', async (c) => {
 
 			await fs.writeFile('/destination/.project-meta.json', JSON.stringify(meta));
 			await fs.writeFile('/destination/.initialized', '1');
-
-			// Remove the template marker from the clone (if it somehow exists)
-			try {
-				await fs.unlink('/destination/.template');
-			} catch {
-				// Ignore
-			}
 
 			// Refresh expiration on the new project
 			await destinationStub.refreshExpiration();
@@ -369,23 +317,20 @@ app.all('/p/:projectId/*', async (c) => {
 
 	const { projectId, subPath } = projectRoute;
 
+	let fsId: DurableObjectId;
+	try {
+		fsId = filesystemNamespace.idFromString(projectId);
+	} catch {
+		return c.notFound();
+	}
+
 	return withMounts(async () => {
-		const fsId = filesystemNamespace.idFromString(projectId);
 		const fsStub = filesystemNamespace.get(fsId);
 		mount(PROJECT_ROOT, fsStub);
 
-		// Initialize project if needed (always checks sentinel file on disk)
-		const needsGitInit = await initializeProject(PROJECT_ROOT);
-
-		// Run git init inside the DO — single-threaded, no race conditions.
-		// This is safe to fire-and-forget because the DO serializes all RPC
-		// calls. Any subsequent git API request will queue behind this.
-		if (needsGitInit) {
-			c.executionCtx.waitUntil(
-				fsStub.gitInit().catch((error) => {
-					console.error('Git initialization failed:', error);
-				}),
-			);
+		// Verify the project exists (was created via /api/new-project or /api/clone-project)
+		if (!(await projectExists(PROJECT_ROOT))) {
+			return c.notFound();
 		}
 
 		// Refresh expiration timer
@@ -474,7 +419,7 @@ export default app;
  * Hidden entries that should not be copied during cloning.
  * These are internal sentinel/metadata files managed by the IDE.
  */
-const CLONE_SKIP_ENTRIES = new Set(['.initialized', '.project-meta.json', '.template', '.agent', '.git']);
+const CLONE_SKIP_ENTRIES = new Set(['.initialized', '.project-meta.json', '.agent', '.git']);
 
 /**
  * Recursively copy files from source to destination, one file at a time.

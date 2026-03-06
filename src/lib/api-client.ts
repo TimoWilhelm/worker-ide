@@ -39,16 +39,14 @@ export type ApiClient = ReturnType<typeof createApiClient>;
  * Uses raw fetch because this is a root-level endpoint (`/api/new-project`)
  * outside the project-scoped RPC client.
  *
- * @param templateId - Optional template ID to initialize the project with.
- *                     Defaults to 'request-inspector' on the server if omitted.
+ * @param templateId - Template ID to initialize the project with.
  */
-export async function createProject(templateId?: string): Promise<{ projectId: string; url: string; name: string }> {
-	const body = templateId ? JSON.stringify({ template: templateId }) : undefined;
-	const headers: Record<string, string> = {};
-	if (body) {
-		headers['Content-Type'] = 'application/json';
-	}
-	const response = await fetch('/api/new-project', { method: 'POST', body, headers });
+export async function createProject(templateId: string): Promise<{ projectId: string; url: string; name: string }> {
+	const response = await fetch('/api/new-project', {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ template: templateId }),
+	});
 	if (!response.ok) {
 		throw new Error('Failed to create project');
 	}

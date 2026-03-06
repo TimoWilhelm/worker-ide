@@ -20,7 +20,7 @@ const PROJECT_ROOT = '/project';
  * Entries to skip when staging files for the initial git commit.
  * These are internal sentinel/metadata files that should not be tracked.
  */
-const GIT_INIT_SKIP_ENTRIES = new Set(['.initialized', '.project-meta.json', '.template', '.agent', '.git']);
+const GIT_INIT_SKIP_ENTRIES = new Set(['.initialized', '.project-meta.json', '.agent', '.git']);
 
 /**
  * Content for `.git/info/exclude` — git's built-in local-only ignore file.
@@ -34,7 +34,6 @@ const GIT_INIT_SKIP_ENTRIES = new Set(['.initialized', '.project-meta.json', '.t
 const GIT_EXCLUDE_CONTENT = `# IDE platform files (managed automatically)
 .initialized
 .project-meta.json
-.template
 .agent
 `;
 

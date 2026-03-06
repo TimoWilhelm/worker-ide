@@ -25,7 +25,7 @@ async function createProject(): Promise<string> {
 	const response = await fetch(`${BASE_URL}/api/new-project`, {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify({}),
+		body: JSON.stringify({ template: 'request-inspector' }),
 	});
 	const result: { projectId: string } = await response.json();
 	// Trigger initialization by listing files

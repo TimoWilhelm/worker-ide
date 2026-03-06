@@ -36,7 +36,7 @@ describe('REST API Integration Tests', () => {
 			const response = await fetch(`${BASE_URL}/api/new-project`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({}),
+				body: JSON.stringify({ template: 'request-inspector' }),
 			});
 
 			expect(response.ok).toBe(true);
@@ -90,7 +90,7 @@ describe('REST API Integration Tests', () => {
 			const createResponse = await fetch(`${BASE_URL}/api/new-project`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({}),
+				body: JSON.stringify({ template: 'request-inspector' }),
 			});
 			const { projectId: sourceProjectId }: { projectId: string } = await createResponse.json();
 
@@ -140,7 +140,7 @@ describe('REST API Integration Tests', () => {
 			const response = await fetch(`${BASE_URL}/api/new-project`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({}),
+				body: JSON.stringify({ template: 'request-inspector' }),
 			});
 			const result: { projectId: string } = await response.json();
 			projectId = result.projectId;

@@ -38,49 +38,31 @@ function jsonResponse(body: unknown, status = 200): Response {
 // =============================================================================
 
 describe('createProject', () => {
-	it('creates a project without a template (default)', async () => {
+	it('creates a project with a template', async () => {
 		const responseData = { projectId: 'abc123', url: '/p/abc123', name: 'gentle-wave' };
-		fetchMock.mockResolvedValueOnce(jsonResponse(responseData));
-
-		const result = await createProject();
-
-		expect(fetchMock).toHaveBeenCalledOnce();
-		expect(fetchMock).toHaveBeenCalledWith('/api/new-project', {
-			method: 'POST',
-			body: undefined,
-			headers: {},
-		});
-		expect(result).toEqual(responseData);
-	});
-
-	it('creates a project with a specific template', async () => {
-		const responseData = { projectId: 'def456', url: '/p/def456', name: 'bright-sun' };
 		fetchMock.mockResolvedValueOnce(jsonResponse(responseData));
 
 		const result = await createProject('request-inspector');
 
 		expect(fetchMock).toHaveBeenCalledOnce();
-		expect(fetchMock).toHaveBeenCalledWith(
-			'/api/new-project',
-			expect.objectContaining({
-				method: 'POST',
-				body: JSON.stringify({ template: 'request-inspector' }),
-				headers: { 'Content-Type': 'application/json' },
-			}),
-		);
+		expect(fetchMock).toHaveBeenCalledWith('/api/new-project', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ template: 'request-inspector' }),
+		});
 		expect(result).toEqual(responseData);
 	});
 
 	it('throws on non-OK response', async () => {
 		fetchMock.mockResolvedValueOnce(jsonResponse({ error: 'Bad request' }, 400));
 
-		await expect(createProject()).rejects.toThrow('Failed to create project');
+		await expect(createProject('request-inspector')).rejects.toThrow('Failed to create project');
 	});
 
 	it('throws on network error', async () => {
 		fetchMock.mockRejectedValueOnce(new Error('Network error'));
 
-		await expect(createProject()).rejects.toThrow('Network error');
+		await expect(createProject('request-inspector')).rejects.toThrow('Network error');
 	});
 });
 
