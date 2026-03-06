@@ -9,6 +9,7 @@ import { source as chobitsuSource, hash as chobitsuHash } from 'chobitsu?raw-min
 import { env, exports } from 'cloudflare:workers';
 
 import { HIDDEN_ENTRIES } from '@shared/constants';
+import { resolveAssetSettings } from '@shared/types';
 
 import { bundleWithCdn, BundleDependencyError } from './bundler-service';
 import { parseDependencyErrorsFromMessage } from './dependency-error-parser';
@@ -23,7 +24,7 @@ import {
 	hash as reactRefreshPreambleHash,
 } from '../lib/preview-scripts/react-refresh-preamble.js?raw-minified';
 
-import type { AssetSettings, ServerError } from '@shared/types';
+import type { ResolvedAssetSettings, ServerError } from '@shared/types';
 import type { ServerMessage } from '@shared/ws-messages';
 
 // Content-Security-Policy for preview HTML responses.
@@ -77,13 +78,13 @@ export class PreviewService {
 	/**
 	 * Load asset settings from .project-meta.json.
 	 */
-	async loadAssetSettings(): Promise<AssetSettings> {
+	async loadAssetSettings(): Promise<ResolvedAssetSettings> {
 		try {
 			const raw = await fs.readFile(`${this.projectRoot}/.project-meta.json`, 'utf8');
 			const meta = JSON.parse(raw);
-			return meta.assetSettings ?? {};
+			return resolveAssetSettings(meta.assetSettings);
 		} catch {
-			return {};
+			return resolveAssetSettings();
 		}
 	}
 
@@ -91,8 +92,8 @@ export class PreviewService {
 	 * Check if a request path matches the run_worker_first configuration.
 	 * Supports boolean values and arrays of glob patterns (with ! negation prefix).
 	 */
-	matchesRunWorkerFirst(pathname: string, runWorkerFirst: boolean | string[] | undefined): boolean {
-		if (runWorkerFirst === undefined || runWorkerFirst === false) {
+	matchesRunWorkerFirst(pathname: string, runWorkerFirst: boolean | string[]): boolean {
+		if (runWorkerFirst === false) {
 			return false;
 		}
 		if (runWorkerFirst === true) {
@@ -133,7 +134,7 @@ export class PreviewService {
 	/**
 	 * Serve a file from the project for preview.
 	 */
-	async serveFile(request: Request, baseUrl: string, preloadedAssetSettings?: AssetSettings): Promise<Response> {
+	async serveFile(request: Request, baseUrl: string, preloadedAssetSettings?: ResolvedAssetSettings): Promise<Response> {
 		const url = new URL(request.url);
 		let filePath = url.pathname === '/' ? '/index.html' : url.pathname;
 

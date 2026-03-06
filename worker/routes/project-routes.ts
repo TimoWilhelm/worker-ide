@@ -9,6 +9,7 @@ import { Hono } from 'hono';
 
 import { HIDDEN_ENTRIES } from '@shared/constants';
 import { generateHumanId } from '@shared/human-id';
+import { resolveAssetSettings } from '@shared/types';
 import { projectMetaSchema } from '@shared/validation';
 
 import { coordinatorNamespace, filesystemNamespace } from '../lib/durable-object-namespaces';
@@ -166,20 +167,7 @@ export const projectRoutes = new Hono<AppEnvironment>()
 
 		zipFiles['package.json'] = JSON.stringify(packageJson, undefined, 2);
 
-		// Build assets config from project asset settings, only including non-default values
-		const assetsConfig: Record<string, unknown> = {};
-		const notFoundHandling = assetSettings?.not_found_handling ?? 'none';
-		if (notFoundHandling !== 'none') {
-			assetsConfig.not_found_handling = notFoundHandling;
-		}
-		const htmlHandling = assetSettings?.html_handling ?? 'auto-trailing-slash';
-		if (htmlHandling !== 'auto-trailing-slash') {
-			assetsConfig.html_handling = htmlHandling;
-		}
-		const runWorkerFirst = assetSettings?.run_worker_first ?? false;
-		if (runWorkerFirst !== false) {
-			assetsConfig.run_worker_first = runWorkerFirst;
-		}
+		const assetsConfig = resolveAssetSettings(assetSettings);
 
 		zipFiles['wrangler.jsonc'] = JSON.stringify(
 			{

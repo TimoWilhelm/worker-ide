@@ -405,6 +405,20 @@ export interface AssetSettings {
 	run_worker_first?: boolean | string[];
 }
 
+export interface ResolvedAssetSettings {
+	not_found_handling: NotFoundHandling;
+	html_handling: HtmlHandling;
+	run_worker_first: boolean | string[];
+}
+
+export function resolveAssetSettings(settings?: AssetSettings): ResolvedAssetSettings {
+	return {
+		not_found_handling: settings?.not_found_handling ?? 'none',
+		html_handling: settings?.html_handling ?? 'auto-trailing-slash',
+		run_worker_first: settings?.run_worker_first ?? false,
+	};
+}
+
 /**
  * Project metadata stored in .project-meta.json
  */

@@ -5,6 +5,8 @@
 
 import fs from 'node:fs/promises';
 
+import { resolveAssetSettings } from '@shared/types';
+
 import type { SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
 import type { ProjectMeta } from '@shared/types';
 
@@ -28,34 +30,28 @@ export async function execute(
 
 	sendEvent('status', { message: 'Reading asset settings...' });
 
+	let rawSettings;
 	try {
 		const metaRaw = await fs.readFile(`${projectRoot}/.project-meta.json`, 'utf8');
 		const meta: ProjectMeta = JSON.parse(metaRaw);
-		const settings = meta.assetSettings ?? {};
-
-		const lines: string[] = [
-			`not_found_handling: ${settings.not_found_handling ?? 'none'} (options: none, single-page-application, 404-page)`,
-			`html_handling: ${settings.html_handling ?? 'auto-trailing-slash'} (options: auto-trailing-slash, force-trailing-slash, drop-trailing-slash, none)`,
-		];
-
-		const runWorkerFirst = settings.run_worker_first ?? false;
-		if (Array.isArray(runWorkerFirst)) {
-			lines.push(`run_worker_first: [${runWorkerFirst.join(', ')}]`);
-		} else {
-			lines.push(`run_worker_first: ${String(runWorkerFirst)}`);
-		}
-
-		return {
-			title: 'asset settings',
-			metadata: { assetSettings: settings },
-			output: lines.join('\n'),
-		};
+		rawSettings = meta.assetSettings;
 	} catch {
-		return {
-			title: 'asset settings',
-			metadata: { assetSettings: {} },
-			output:
-				'No asset settings configured (using defaults: not_found_handling=none, html_handling=auto-trailing-slash, run_worker_first=false).',
-		};
+		// Use defaults if metadata is missing
 	}
+
+	const settings = resolveAssetSettings(rawSettings);
+
+	const runWorkerFirstDisplay = Array.isArray(settings.run_worker_first)
+		? `[${settings.run_worker_first.join(', ')}]`
+		: String(settings.run_worker_first);
+
+	return {
+		title: 'asset settings',
+		metadata: { assetSettings: settings },
+		output: [
+			`not_found_handling: ${settings.not_found_handling} (options: none, single-page-application, 404-page)`,
+			`html_handling: ${settings.html_handling} (options: auto-trailing-slash, force-trailing-slash, drop-trailing-slash, none)`,
+			`run_worker_first: ${runWorkerFirstDisplay}`,
+		].join('\n'),
+	};
 }

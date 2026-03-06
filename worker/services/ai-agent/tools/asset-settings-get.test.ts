@@ -35,7 +35,13 @@ describe('asset_settings_get', () => {
 		const sendEvent = createMockSendEvent();
 		const result = await execute({}, sendEvent, context());
 
-		expect(result.metadata).toEqual({ assetSettings: {} });
+		expect(result.metadata).toEqual({
+			assetSettings: {
+				not_found_handling: 'none',
+				html_handling: 'auto-trailing-slash',
+				run_worker_first: false,
+			},
+		});
 		expect(result.output).toContain('not_found_handling: none');
 		expect(result.output).toContain('html_handling: auto-trailing-slash');
 		expect(result.output).toContain('run_worker_first: false');
@@ -84,7 +90,13 @@ describe('asset_settings_get', () => {
 		const sendEvent = createMockSendEvent();
 		const result = await execute({}, sendEvent, context());
 
-		expect(result.metadata).toEqual({ assetSettings: {} });
-		expect(result.output).toContain('No asset settings configured');
+		expect(result.metadata).toEqual({
+			assetSettings: {
+				not_found_handling: 'none',
+				html_handling: 'auto-trailing-slash',
+				run_worker_first: false,
+			},
+		});
+		expect(result.output).toContain('not_found_handling: none');
 	});
 });

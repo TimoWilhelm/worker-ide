@@ -17,6 +17,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 
 import { HIDDEN_ENTRIES } from '@shared/constants';
+import { resolveAssetSettings } from '@shared/types';
 
 import { getContentType } from '../lib/content-type';
 import { httpError } from '../lib/http-error';
@@ -517,23 +518,9 @@ async function uploadWorkerScript(
 	};
 
 	if (assetsCompletionJwt) {
-		const assetsConfig: Record<string, unknown> = {};
-		const notFoundHandling = assetSettings?.not_found_handling ?? 'none';
-		if (notFoundHandling !== 'none') {
-			assetsConfig.not_found_handling = notFoundHandling;
-		}
-		const htmlHandling = assetSettings?.html_handling ?? 'auto-trailing-slash';
-		if (htmlHandling !== 'auto-trailing-slash') {
-			assetsConfig.html_handling = htmlHandling;
-		}
-		const runWorkerFirst = assetSettings?.run_worker_first ?? false;
-		if (runWorkerFirst !== false) {
-			assetsConfig.run_worker_first = runWorkerFirst;
-		}
-
 		metadata.assets = {
 			jwt: assetsCompletionJwt,
-			config: assetsConfig,
+			config: resolveAssetSettings(assetSettings),
 		};
 		metadata.bindings = [{ type: 'assets', name: 'ASSETS' }];
 	}
