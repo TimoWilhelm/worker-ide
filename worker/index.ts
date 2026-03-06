@@ -321,7 +321,21 @@ app.all('/p/:projectId/*', async (c) => {
 	try {
 		fsId = filesystemNamespace.idFromString(projectId);
 	} catch {
-		return c.notFound();
+		// Invalid DO ID — serve the SPA so the frontend shows ProjectNotFound
+		return env.ASSETS.fetch(new Request(new URL('/', c.req.url), c.req.raw));
+	}
+
+	// For non-API, non-WS, non-preview routes, always serve the SPA.
+	// The frontend ProjectGate handles the not-found case so the user
+	// sees the styled ProjectNotFound page instead of a bare 404.
+	const isBackendRoute =
+		subPath.startsWith('/api/') ||
+		subPath === '/__ws' ||
+		subPath.startsWith('/__ws') ||
+		subPath === '/preview' ||
+		subPath.startsWith('/preview/');
+	if (!isBackendRoute) {
+		return env.ASSETS.fetch(new Request(new URL('/', c.req.url), c.req.raw));
 	}
 
 	return withMounts(async () => {
@@ -369,33 +383,28 @@ app.all('/p/:projectId/*', async (c) => {
 		}
 
 		// Handle preview routes (serve user's frontend files and backend code)
-		if (subPath === '/preview' || subPath.startsWith('/preview/')) {
-			const basePrefix = `/p/${projectId}`;
-			const previewService = getPreviewService(PROJECT_ROOT, projectId);
-			const previewPath = subPath === '/preview' ? '/' : subPath.replace(/^\/preview/, '');
+		const basePrefix = `/p/${projectId}`;
+		const previewService = getPreviewService(PROJECT_ROOT, projectId);
+		const previewPath = subPath === '/preview' ? '/' : subPath.replace(/^\/preview/, '');
 
-			// Always route /api/* paths to the user's backend worker code
-			if (previewPath.startsWith('/api/')) {
-				return previewService.handlePreviewAPI(c.req.raw, previewPath);
-			}
-
-			// Load asset settings once for both run_worker_first check and serveFile
-			const assetSettings = await previewService.loadAssetSettings();
-
-			// Check run_worker_first setting to decide if the user's worker should handle this path
-			if (previewService.matchesRunWorkerFirst(previewPath, assetSettings.run_worker_first)) {
-				// run_worker_first matched — route to user's backend code first
-				return previewService.handlePreviewAPI(c.req.raw, previewPath);
-			}
-
-			// Serve static file
-			const previewUrl = new URL(c.req.url);
-			previewUrl.pathname = previewPath;
-			return previewService.serveFile(new Request(previewUrl, c.req.raw), `${basePrefix}/preview`, assetSettings);
+		// Always route /api/* paths to the user's backend worker code
+		if (previewPath.startsWith('/api/')) {
+			return previewService.handlePreviewAPI(c.req.raw, previewPath);
 		}
 
-		// Serve the SPA for all other routes
-		return env.ASSETS.fetch(new Request(new URL('/', c.req.url), c.req.raw));
+		// Load asset settings once for both run_worker_first check and serveFile
+		const assetSettings = await previewService.loadAssetSettings();
+
+		// Check run_worker_first setting to decide if the user's worker should handle this path
+		if (previewService.matchesRunWorkerFirst(previewPath, assetSettings.run_worker_first)) {
+			// run_worker_first matched — route to user's backend code first
+			return previewService.handlePreviewAPI(c.req.raw, previewPath);
+		}
+
+		// Serve static file
+		const previewUrl = new URL(c.req.url);
+		previewUrl.pathname = previewPath;
+		return previewService.serveFile(new Request(previewUrl, c.req.raw), `${basePrefix}/preview`, assetSettings);
 	});
 });
 

@@ -8,16 +8,18 @@
 
 import { MutationCache, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Check, ClipboardCopy } from 'lucide-react';
-import { Suspense, useEffect, useState } from 'react';
+import { Suspense, use, useEffect, useState } from 'react';
 
 import { ErrorBoundary } from '@/components/error-boundary';
 import { IDEShell } from '@/components/ide-shell';
 import { OfflineBanner } from '@/components/offline-banner';
+import { ProjectNotFound } from '@/components/project-not-found';
 import { Spinner } from '@/components/ui/spinner';
 import { Toaster } from '@/components/ui/toast';
 import { toast } from '@/components/ui/toast-store';
 import { LandingPage } from '@/features/landing';
 import { usePwaUpdate } from '@/hooks/use-pwa-update';
+import { fetchProjectMeta } from '@/lib/api-client';
 import { trackProject } from '@/lib/recent-projects';
 import { isNetworkError } from '@/lib/utils';
 
@@ -138,6 +140,38 @@ function isLandingPage(): boolean {
 	return !getProjectIdFromUrl() && (path === '/' || path === '');
 }
 
+/**
+ * Cache of project existence check promises, keyed by projectId.
+ * Prevents duplicate fetches when React re-renders during Suspense.
+ */
+const projectExistsCache = new Map<string, Promise<boolean>>();
+
+function checkProjectExists(projectId: string): Promise<boolean> {
+	let promise = projectExistsCache.get(projectId);
+	if (!promise) {
+		promise = fetchProjectMeta(projectId)
+			.then(() => true)
+			.catch(() => false);
+		projectExistsCache.set(projectId, promise);
+	}
+	return promise;
+}
+
+/**
+ * Gate component that verifies a project exists before mounting the full IDE.
+ * Uses React 19 `use()` to suspend until the existence check resolves.
+ * Suspense shows the loading spinner; IDEShell only mounts for valid projects.
+ */
+function ProjectGate({ projectId }: { projectId: string }) {
+	const exists = use(checkProjectExists(projectId));
+
+	if (!exists) {
+		return <ProjectNotFound />;
+	}
+
+	return <IDEShell projectId={projectId} />;
+}
+
 function AppContent() {
 	const [projectId] = useState(getProjectIdFromUrl);
 	const [showLanding] = useState(isLandingPage);
@@ -162,7 +196,7 @@ function AppContent() {
 	if (projectId) {
 		return (
 			<Suspense fallback={<LoadingFallback />}>
-				<IDEShell projectId={projectId} />
+				<ProjectGate projectId={projectId} />
 			</Suspense>
 		);
 	}

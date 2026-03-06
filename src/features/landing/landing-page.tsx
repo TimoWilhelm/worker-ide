@@ -178,19 +178,10 @@ function TemplateDetailModal({
 // Recent project row
 // =============================================================================
 
-function LastOpenedCard({
-	project,
-	onDelete,
-	onNavigate,
-}: {
-	project: RecentProject;
-	onDelete: (projectId: string) => void;
-	onNavigate: () => void;
-}) {
+function LastOpenedCard({ project, onDelete }: { project: RecentProject; onDelete: (projectId: string) => void }) {
 	return (
 		<a
 			href={`/p/${project.id}`}
-			onClick={onNavigate}
 			className={cn(
 				'group/card relative block rounded-lg border border-border p-4',
 				'bg-bg-secondary/60 backdrop-blur-sm transition-all',
@@ -232,19 +223,10 @@ function LastOpenedCard({
 	);
 }
 
-function RecentProjectRow({
-	project,
-	onDelete,
-	onNavigate,
-}: {
-	project: RecentProject;
-	onDelete: (projectId: string) => void;
-	onNavigate: () => void;
-}) {
+function RecentProjectRow({ project, onDelete }: { project: RecentProject; onDelete: (projectId: string) => void }) {
 	return (
 		<a
 			href={`/p/${project.id}`}
-			onClick={onNavigate}
 			className={cn(
 				`
 					group/row flex items-center justify-between px-3 py-2 transition-colors
@@ -394,10 +376,6 @@ export default function LandingPage() {
 		setRecentProjects((previous) => previous.filter((project) => project.id !== projectId));
 	}, []);
 
-	const handleOpenProject = useCallback(() => {
-		setLoadingMessage('Loading project...');
-	}, []);
-
 	// Clear loading state when the page is restored from bfcache (browser back)
 	useEffect(() => {
 		function handlePageShow(event: PageTransitionEvent) {
@@ -485,7 +463,7 @@ export default function LandingPage() {
 						>
 							Continue
 						</h2>
-						<LastOpenedCard project={recentProjects[0]} onDelete={handleDeleteProject} onNavigate={handleOpenProject} />
+						<LastOpenedCard project={recentProjects[0]} onDelete={handleDeleteProject} />
 					</section>
 				)}
 
@@ -592,7 +570,7 @@ export default function LandingPage() {
 							)}
 						>
 							{recentProjects.slice(1).map((project) => (
-								<RecentProjectRow key={project.id} project={project} onDelete={handleDeleteProject} onNavigate={handleOpenProject} />
+								<RecentProjectRow key={project.id} project={project} onDelete={handleDeleteProject} />
 							))}
 						</div>
 					</section>
