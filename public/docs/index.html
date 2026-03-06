@@ -558,7 +558,7 @@
 				}
 			}
 
-			/* Very small screens: stack the flow grid vertically */
+			/* Very small screens: keep grid layout, allow horizontal scroll */
 			@media (max-width: 480px) {
 				.hero {
 					padding: 80px 0 16px;
@@ -571,6 +571,8 @@
 				}
 				.lane {
 					padding: 12px 8px 12px;
+					overflow-x: auto;
+					-webkit-overflow-scrolling: touch;
 				}
 				.lane-header {
 					margin-bottom: 16px;
@@ -579,75 +581,9 @@
 				.lane-title {
 					font-size: 13px;
 				}
+				/* Keep the grid but enforce a minimum width so it scrolls */
 				.flow-grid {
-					display: flex;
-					flex-direction: column;
-					align-items: stretch;
-					gap: 0;
-				}
-				/* Reset grid overrides in stacked mode */
-				.flow-grid > [class*='col-'] {
-					grid-column: unset !important;
-					grid-row: unset !important;
-					height: auto !important;
-					align-self: auto !important;
-				}
-				.node {
-					padding: 8px 10px;
-					text-align: left;
-				}
-				.node-name {
-					font-size: 11px;
-				}
-				.node-detail {
-					font-size: 10px;
-				}
-				/* Turn horizontal arrows into vertical connectors */
-				.h-arrow {
-					min-width: unset;
-					padding: 4px 0;
-					align-items: flex-start;
-					padding-left: 20px;
-				}
-				.h-arrow-line {
-					width: 0;
-					height: 24px;
-					border-top: none;
-					border-left: 1px dashed var(--arrow-color, var(--text-dim));
-				}
-				.h-arrow-line::after {
-					right: auto;
-					left: -4px;
-					top: auto;
-					bottom: -1px;
-					border-left: 4px solid transparent;
-					border-right: 4px solid transparent;
-					border-top: 6px solid var(--arrow-color, var(--text-dim));
-					border-bottom: none;
-				}
-				.h-arrow.reverse .h-arrow-line::after {
-					border-right: 4px solid transparent;
-					border-left: 4px solid transparent;
-					border-top: 6px solid var(--arrow-color, var(--text-dim));
-					border-bottom: none;
-					left: -4px;
-					right: auto;
-				}
-				.h-arrow-label {
-					font-size: 8px;
-					margin-bottom: 2px;
-					margin-left: 12px;
-				}
-				.v-connector {
-					min-height: 24px;
-					padding-left: 20px;
-					justify-content: flex-start;
-				}
-				.v-connector.right {
-					flex-direction: row;
-				}
-				.v-connector-line {
-					height: 24px;
+					min-width: 480px;
 				}
 				.legend-item {
 					font-size: 10px;
