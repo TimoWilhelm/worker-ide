@@ -282,15 +282,18 @@ app.post('/api/clone-project', async (c) => {
 			await copyDirectoryRecursive(fs, '/source', '/destination');
 
 			// Write fresh metadata for the cloned project
-			const meta: { name: string; humanId: string; dependencies: Record<string, string> } = {
+			const meta: { name: string; humanId: string; dependencies: Record<string, string>; assetSettings?: Record<string, unknown> } = {
 				name: humanId,
 				humanId,
 				dependencies: {},
 			};
 			try {
 				const sourceMetaRaw = await fs.readFile('/source/.project-meta.json', 'utf8');
-				const sourceMeta: { dependencies?: Record<string, string> } = JSON.parse(sourceMetaRaw);
+				const sourceMeta: { dependencies?: Record<string, string>; assetSettings?: Record<string, unknown> } = JSON.parse(sourceMetaRaw);
 				meta.dependencies = sourceMeta.dependencies ?? {};
+				if (sourceMeta.assetSettings) {
+					meta.assetSettings = sourceMeta.assetSettings;
+				}
 			} catch {
 				// Use empty dependencies if source has no metadata
 			}
@@ -420,21 +423,30 @@ app.all('/p/:projectId/*', async (c) => {
 			return projectApp.fetch(new Request(apiUrl, c.req.raw), env, c.executionCtx);
 		}
 
-		// Handle preview API routes (user's backend code)
-		if (subPath.startsWith('/preview/api/')) {
-			const previewService = getPreviewService(PROJECT_ROOT, projectId);
-			const apiPath = subPath.replace('/preview', '');
-			return previewService.handlePreviewAPI(c.req.raw, apiPath);
-		}
-
-		// Handle preview routes (serve user's frontend files)
+		// Handle preview routes (serve user's frontend files and backend code)
 		if (subPath === '/preview' || subPath.startsWith('/preview/')) {
 			const basePrefix = `/p/${projectId}`;
 			const previewService = getPreviewService(PROJECT_ROOT, projectId);
 			const previewPath = subPath === '/preview' ? '/' : subPath.replace(/^\/preview/, '');
+
+			// Always route /api/* paths to the user's backend worker code
+			if (previewPath.startsWith('/api/')) {
+				return previewService.handlePreviewAPI(c.req.raw, previewPath);
+			}
+
+			// Load asset settings once for both run_worker_first check and serveFile
+			const assetSettings = await previewService.loadAssetSettings();
+
+			// Check run_worker_first setting to decide if the user's worker should handle this path
+			if (previewService.matchesRunWorkerFirst(previewPath, assetSettings.run_worker_first)) {
+				// run_worker_first matched — route to user's backend code first
+				return previewService.handlePreviewAPI(c.req.raw, previewPath);
+			}
+
+			// Serve static file
 			const previewUrl = new URL(c.req.url);
 			previewUrl.pathname = previewPath;
-			return previewService.serveFile(new Request(previewUrl, c.req.raw), `${basePrefix}/preview`);
+			return previewService.serveFile(new Request(previewUrl, c.req.raw), `${basePrefix}/preview`, assetSettings);
 		}
 
 		// Serve the SPA for all other routes

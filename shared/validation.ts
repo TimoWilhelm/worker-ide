@@ -255,6 +255,20 @@ export const dependenciesUpdateInputSchema = z.object({
 });
 
 /**
+ * Schema for AI tool: asset_settings_get (read asset routing settings)
+ */
+export const assetSettingsGetInputSchema = z.object({});
+
+/**
+ * Schema for AI tool: asset_settings_update (update asset routing settings)
+ */
+export const assetSettingsUpdateInputSchema = z.object({
+	not_found_handling: z.string().optional(),
+	html_handling: z.string().optional(),
+	run_worker_first: z.string().optional(),
+});
+
+/**
  * Schema for AI tool: lint_check (check file for lint issues)
  */
 export const lintCheckInputSchema = z.object({
@@ -307,6 +321,8 @@ export const toolInputSchemas = {
 	todos_update: updateTodosInputSchema,
 	dependencies_list: dependenciesListInputSchema,
 	dependencies_update: dependenciesUpdateInputSchema,
+	asset_settings_get: assetSettingsGetInputSchema,
+	asset_settings_update: assetSettingsUpdateInputSchema,
 	lint_check: lintCheckInputSchema,
 	lint_fix: lintFixInputSchema,
 	cdp_eval: cdpEvalInputSchema,
@@ -475,11 +491,23 @@ export function validateDependencyVersion(version: string): string | undefined {
 // =============================================================================
 
 /**
+ * Schema for Cloudflare Workers asset routing settings.
+ */
+export const assetSettingsSchema = z.object({
+	not_found_handling: z.enum(['none', 'single-page-application', '404-page']).optional(),
+	html_handling: z.enum(['auto-trailing-slash', 'force-trailing-slash', 'drop-trailing-slash', 'none']).optional(),
+	run_worker_first: z.union([z.boolean(), z.array(z.string().regex(/^!?\//, 'Patterns must begin with / or !/'))]).optional(),
+});
+
+export type AssetSettingsInput = z.infer<typeof assetSettingsSchema>;
+
+/**
  * Schema for updating project metadata (name)
  */
 export const projectMetaSchema = z.object({
 	name: z.string().min(1, 'Name is required').max(60, 'Name must be at most 60 characters').optional(),
 	dependencies: z.record(z.string(), z.string()).optional(),
+	assetSettings: assetSettingsSchema.optional(),
 });
 
 export type ProjectMetaInput = z.infer<typeof projectMetaSchema>;

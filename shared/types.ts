@@ -393,12 +393,26 @@ export interface NewProjectResponse {
 }
 
 /**
+ * Cloudflare Workers asset routing configuration.
+ * @see https://developers.cloudflare.com/workers/static-assets/
+ */
+export type NotFoundHandling = 'none' | 'single-page-application' | '404-page';
+export type HtmlHandling = 'auto-trailing-slash' | 'force-trailing-slash' | 'drop-trailing-slash' | 'none';
+
+export interface AssetSettings {
+	not_found_handling?: NotFoundHandling;
+	html_handling?: HtmlHandling;
+	run_worker_first?: boolean | string[];
+}
+
+/**
  * Project metadata stored in .project-meta.json
  */
 export interface ProjectMeta {
 	name: string;
 	humanId: string;
 	dependencies?: Record<string, string>;
+	assetSettings?: AssetSettings;
 }
 
 // =============================================================================

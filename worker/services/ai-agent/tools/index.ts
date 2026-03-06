@@ -10,6 +10,8 @@ import { z } from 'zod';
 
 import { ToolExecutionError } from '@shared/tool-errors';
 
+import * as assetSettingsGetTool from './asset-settings-get';
+import * as assetSettingsUpdateTool from './asset-settings-update';
 import * as cdpEvalTool from './cdp-eval';
 import * as dependenciesListTool from './dependencies-list';
 import * as dependenciesUpdateTool from './dependencies-update';
@@ -72,6 +74,8 @@ export const TOOL_EXECUTORS: ReadonlyMap<string, ToolExecuteFunction> = new Map(
 	['todos_update', todosUpdateTool.execute],
 	['dependencies_list', dependenciesListTool.execute],
 	['dependencies_update', dependenciesUpdateTool.execute],
+	['asset_settings_get', assetSettingsGetTool.execute],
+	['asset_settings_update', assetSettingsUpdateTool.execute],
 	['lint_check', lintCheckTool.execute],
 	['lint_fix', lintFixTool.execute],
 	['cdp_eval', cdpEvalTool.execute],
@@ -102,6 +106,8 @@ export const AGENT_TOOLS: readonly ToolDefinition[] = [
 	todosUpdateTool.definition,
 	dependenciesListTool.definition,
 	dependenciesUpdateTool.definition,
+	assetSettingsGetTool.definition,
+	assetSettingsUpdateTool.definition,
 	lintCheckTool.definition,
 	lintFixTool.definition,
 	cdpEvalTool.definition,
@@ -125,6 +131,7 @@ const PLAN_MODE_TOOL_NAMES = new Set([
 	'todos_get',
 	'todos_update',
 	'dependencies_list',
+	'asset_settings_get',
 	'lint_check',
 	'cdp_eval',
 	'test_run',
@@ -146,6 +153,7 @@ const ASK_MODE_TOOL_NAMES = new Set([
 	'web_fetch',
 	'docs_search',
 	'dependencies_list',
+	'asset_settings_get',
 	'lint_check',
 	'cdp_eval',
 	'test_run',
@@ -172,6 +180,7 @@ export const READ_ONLY_TOOL_NAMES = new Set([
 	'docs_search',
 	'todos_get',
 	'dependencies_list',
+	'asset_settings_get',
 	'lint_check',
 	'cdp_eval',
 	'test_run',
@@ -189,6 +198,7 @@ export const MUTATION_TOOL_NAMES = new Set([
 	'file_move',
 	'lint_fix',
 	'dependencies_update',
+	'asset_settings_update',
 ]);
 
 // =============================================================================

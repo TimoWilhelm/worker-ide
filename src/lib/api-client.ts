@@ -11,7 +11,7 @@ import { serializeMessage, parseServerMessage, type ClientMessage, type ServerMe
 
 import type { ApiRoutes } from '@server/routes';
 import type { AIModelId } from '@shared/constants';
-import type { AgentMode, AiSession, PendingFileChange, ProjectTemplateMeta } from '@shared/types';
+import type { AgentMode, AiSession, AssetSettings, PendingFileChange, ProjectTemplateMeta } from '@shared/types';
 
 /**
  * Create a typed API client for a specific project.
@@ -95,11 +95,11 @@ export async function fetchTemplates(): Promise<ProjectTemplateMeta[]> {
 }
 
 /**
- * Fetch project metadata (name, humanId, dependencies).
+ * Fetch project metadata (name, humanId, dependencies, assetSettings).
  */
 export async function fetchProjectMeta(
 	projectId: string,
-): Promise<{ name: string; humanId: string; dependencies?: Record<string, string> }> {
+): Promise<{ name: string; humanId: string; dependencies?: Record<string, string>; assetSettings?: AssetSettings }> {
 	const api = createApiClient(projectId);
 	const response = await api.project.meta.$get({});
 	if (!response.ok) {
@@ -131,6 +131,21 @@ export async function updateDependencies(
 	const response = await api.project.meta.$put({ json: { dependencies } });
 	if (!response.ok) {
 		throw new Error('Failed to update dependencies');
+	}
+	return response.json();
+}
+
+/**
+ * Update project asset settings.
+ */
+export async function updateAssetSettings(
+	projectId: string,
+	assetSettings: AssetSettings,
+): Promise<{ name: string; humanId: string; assetSettings?: AssetSettings }> {
+	const api = createApiClient(projectId);
+	const response = await api.project.meta.$put({ json: { assetSettings } });
+	if (!response.ok) {
+		throw new Error('Failed to update asset settings');
 	}
 	return response.json();
 }

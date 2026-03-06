@@ -2,7 +2,7 @@
  * IDE header bar with project name, AI toggle, theme toggle, download, and mobile menu.
  */
 
-import { BookOpen, Bot, Download, EllipsisVertical, Github, Hexagon, Moon, Pencil, Rocket, Sun } from 'lucide-react';
+import { BookOpen, Bot, Download, EllipsisVertical, Github, Hexagon, Moon, Pencil, Rocket, Settings, Sun } from 'lucide-react';
 
 import { BorderBeam } from '@/components/ui/border-beam';
 import { Button } from '@/components/ui/button';
@@ -30,6 +30,7 @@ interface IDEHeaderProperties {
 	onDownload: () => void;
 	onDeploy: () => void;
 	onNewProject: () => void;
+	onSettings: () => void;
 }
 
 export function IDEHeader({
@@ -47,6 +48,7 @@ export function IDEHeader({
 	onDownload,
 	onDeploy,
 	onNewProject,
+	onSettings,
 }: IDEHeaderProperties) {
 	const {
 		projectName,
@@ -152,6 +154,13 @@ export function IDEHeader({
 							onClick={() => setColorScheme(resolvedTheme === 'dark' ? 'light' : 'dark')}
 						>
 							{resolvedTheme === 'dark' ? <Sun className="size-4" /> : <Moon className="size-4" />}
+						</Button>
+					</Tooltip>
+
+					{/* Project Settings */}
+					<Tooltip content="Project settings">
+						<Button variant="ghost" size="icon" aria-label="Project settings" onClick={onSettings}>
+							<Settings className="size-4" />
 						</Button>
 					</Tooltip>
 

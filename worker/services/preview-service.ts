@@ -23,7 +23,7 @@ import {
 	hash as reactRefreshPreambleHash,
 } from '../lib/preview-scripts/react-refresh-preamble.js?raw-minified';
 
-import type { ServerError } from '@shared/types';
+import type { AssetSettings, ServerError } from '@shared/types';
 import type { ServerMessage } from '@shared/ws-messages';
 
 // Content-Security-Policy for preview HTML responses.
@@ -75,9 +75,65 @@ export class PreviewService {
 	) {}
 
 	/**
+	 * Load asset settings from .project-meta.json.
+	 */
+	async loadAssetSettings(): Promise<AssetSettings> {
+		try {
+			const raw = await fs.readFile(`${this.projectRoot}/.project-meta.json`, 'utf8');
+			const meta = JSON.parse(raw);
+			return meta.assetSettings ?? {};
+		} catch {
+			return {};
+		}
+	}
+
+	/**
+	 * Check if a request path matches the run_worker_first configuration.
+	 * Supports boolean values and arrays of glob patterns (with ! negation prefix).
+	 */
+	matchesRunWorkerFirst(pathname: string, runWorkerFirst: boolean | string[] | undefined): boolean {
+		if (runWorkerFirst === undefined || runWorkerFirst === false) {
+			return false;
+		}
+		if (runWorkerFirst === true) {
+			return true;
+		}
+		// Array of patterns: non-negative patterns match, negative patterns (!) exclude
+		const positivePatterns = runWorkerFirst.filter((p) => !p.startsWith('!'));
+		const negativePatterns = runWorkerFirst.filter((p) => p.startsWith('!')).map((p) => p.slice(1));
+
+		// Negative patterns take precedence: if any negative matches, do NOT run worker first
+		for (const pattern of negativePatterns) {
+			if (this.matchRoutePattern(pathname, pattern)) {
+				return false;
+			}
+		}
+		// If any positive pattern matches, run worker first
+		for (const pattern of positivePatterns) {
+			if (this.matchRoutePattern(pathname, pattern)) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * Match a pathname against a route pattern with glob support.
+	 * Patterns like /api/* match /api/foo, /api/foo/bar, etc.
+	 */
+	private matchRoutePattern(pathname: string, pattern: string): boolean {
+		// Convert route pattern to regex:
+		// 1. Escape all regex-special characters except *
+		// 2. Replace * with .* to match any sequence of characters including /
+		const escaped = pattern.replaceAll(/[.+?^${}()|[\]\\]/g, String.raw`\$&`);
+		const regexString = '^' + escaped.replaceAll('*', '.*') + '$';
+		return new RegExp(regexString).test(pathname);
+	}
+
+	/**
 	 * Serve a file from the project for preview.
 	 */
-	async serveFile(request: Request, baseUrl: string): Promise<Response> {
+	async serveFile(request: Request, baseUrl: string, preloadedAssetSettings?: AssetSettings): Promise<Response> {
 		const url = new URL(request.url);
 		let filePath = url.pathname === '/' ? '/index.html' : url.pathname;
 
@@ -117,6 +173,15 @@ export class PreviewService {
 
 		// Strip query params for file lookup
 		filePath = filePath.split('?')[0];
+
+		// Use preloaded asset settings if provided, otherwise load from disk
+		const assetSettings = preloadedAssetSettings ?? (await this.loadAssetSettings());
+
+		// Handle html_handling redirects before file resolution
+		const htmlHandlingRedirect = await this.handleHtmlRedirects(url, filePath, baseUrl, assetSettings.html_handling);
+		if (htmlHandlingRedirect) {
+			return htmlHandlingRedirect;
+		}
 
 		// Create filesystem adapter
 		const viteFs: FileSystem = {
@@ -170,23 +235,7 @@ export class PreviewService {
 
 			// Handle HTML files
 			if (extension === '.html') {
-				const protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
-				const projectPrefix = baseUrl.replace(/\/preview\/?$/, '');
-				const wsUrl = `${protocol}//${url.host}${projectPrefix}/__ws`;
-				const html = await processHTML(textContent, filePath, {
-					fs: viteFs,
-					projectRoot: this.projectRoot,
-					baseUrl,
-					wsUrl,
-					scriptIntegrityHashes,
-				});
-				return new Response(html, {
-					headers: {
-						'Content-Type': 'text/html',
-						'Cache-Control': 'no-cache',
-						'Content-Security-Policy': PREVIEW_CSP,
-					},
-				});
+				return this.serveHtmlFile(textContent, filePath, url, baseUrl, viteFs);
 			}
 
 			// Serve raw CSS when:
@@ -250,8 +299,16 @@ export class PreviewService {
 				},
 			});
 		} catch (error) {
-			console.error('serveFile error:', error);
+			// Apply not_found_handling fallback for ENOENT errors
 			const errorMessage = error instanceof Error ? error.message : String(error);
+			if (errorMessage.includes('ENOENT')) {
+				const fallbackResponse = await this.handleNotFoundFallback(url, baseUrl, assetSettings.not_found_handling);
+				if (fallbackResponse) {
+					return fallbackResponse;
+				}
+			}
+
+			console.error('serveFile error:', error);
 			const locMatch = errorMessage.match(/([^\s:]+):(\d+):(\d+):\s*ERROR:\s*(.*)/);
 			const serverError: ServerError = {
 				id: crypto.randomUUID(),
@@ -273,6 +330,206 @@ export class PreviewService {
 				headers: { 'Content-Type': 'application/javascript', 'Cache-Control': 'no-cache' },
 			});
 		}
+	}
+
+	/**
+	 * Serve an HTML file with preview scripts injected.
+	 */
+	private async serveHtmlFile(textContent: string, filePath: string, url: URL, baseUrl: string, viteFs: FileSystem): Promise<Response> {
+		const protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+		const projectPrefix = baseUrl.replace(/\/preview\/?$/, '');
+		const wsUrl = `${protocol}//${url.host}${projectPrefix}/__ws`;
+		const html = await processHTML(textContent, filePath, {
+			fs: viteFs,
+			projectRoot: this.projectRoot,
+			baseUrl,
+			wsUrl,
+			scriptIntegrityHashes,
+		});
+		return new Response(html, {
+			headers: {
+				'Content-Type': 'text/html',
+				'Cache-Control': 'no-cache',
+				'Content-Security-Policy': PREVIEW_CSP,
+			},
+		});
+	}
+
+	/**
+	 * Handle not_found_handling fallback when a file is not found.
+	 *
+	 * - "single-page-application": Serve /index.html with 200
+	 * - "404-page": Serve the nearest 404.html with 404 status
+	 * - "none" (default): Return undefined to let the normal error handling take over
+	 */
+	private async handleNotFoundFallback(url: URL, baseUrl: string, notFoundHandling: string | undefined): Promise<Response | undefined> {
+		const viteFs: FileSystem = {
+			readFile: (path: string) => fs.readFile(path),
+			access: (path: string) => fs.access(path),
+		};
+
+		if (notFoundHandling === 'single-page-application') {
+			try {
+				const indexPath = `${this.projectRoot}/index.html`;
+				const content = await fs.readFile(indexPath);
+				const textContent = typeof content === 'string' ? content : new TextDecoder().decode(content);
+				const protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+				const projectPrefix = baseUrl.replace(/\/preview\/?$/, '');
+				const wsUrl = `${protocol}//${url.host}${projectPrefix}/__ws`;
+				const html = await processHTML(textContent, '/index.html', {
+					fs: viteFs,
+					projectRoot: this.projectRoot,
+					baseUrl,
+					wsUrl,
+					scriptIntegrityHashes,
+				});
+				return new Response(html, {
+					headers: {
+						'Content-Type': 'text/html',
+						'Cache-Control': 'no-cache',
+						'Content-Security-Policy': PREVIEW_CSP,
+					},
+				});
+			} catch {
+				// index.html not found — fall through to error
+				return undefined;
+			}
+		}
+
+		if (notFoundHandling === '404-page') {
+			// Search for the nearest 404.html starting from the requested path
+			const pathname = url.pathname;
+			const segments = pathname.split('/').filter(Boolean);
+
+			// Try progressively higher directories: /foo/bar/404.html, /foo/404.html, /404.html
+			for (let index = segments.length; index >= 0; index--) {
+				const directory = index === 0 ? '' : '/' + segments.slice(0, index).join('/');
+				const notFoundPath = `${this.projectRoot}${directory}/404.html`;
+				try {
+					const content = await fs.readFile(notFoundPath);
+					const textContent = typeof content === 'string' ? content : new TextDecoder().decode(content);
+					const protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+					const projectPrefix = baseUrl.replace(/\/preview\/?$/, '');
+					const wsUrl = `${protocol}//${url.host}${projectPrefix}/__ws`;
+					const html = await processHTML(textContent, `${directory}/404.html`, {
+						fs: viteFs,
+						projectRoot: this.projectRoot,
+						baseUrl,
+						wsUrl,
+						scriptIntegrityHashes,
+					});
+					return new Response(html, {
+						status: 404,
+						headers: {
+							'Content-Type': 'text/html',
+							'Cache-Control': 'no-cache',
+							'Content-Security-Policy': PREVIEW_CSP,
+						},
+					});
+				} catch {
+					// 404.html not found at this level, try parent
+				}
+			}
+			return undefined;
+		}
+
+		// "none" or unset — no fallback
+		return undefined;
+	}
+
+	/**
+	 * Handle html_handling redirects for HTML content requests.
+	 *
+	 * - "auto-trailing-slash" (default): Redirect /foo → /foo/ if foo/index.html exists,
+	 *   redirect /foo/ �� /foo if foo.html exists (and foo/index.html does not).
+	 * - "force-trailing-slash": Always redirect to trailing slash for HTML pages.
+	 * - "drop-trailing-slash": Always redirect to remove trailing slash for HTML pages.
+	 * - "none": No redirects.
+	 */
+	private async handleHtmlRedirects(
+		url: URL,
+		filePath: string,
+		baseUrl: string,
+		htmlHandling = 'auto-trailing-slash',
+	): Promise<Response | undefined> {
+		if (htmlHandling === 'none') {
+			return undefined;
+		}
+
+		// Only process paths without file extensions (potential HTML routes)
+		const extension = this.getExtension(filePath);
+		if (extension && extension !== '.html') {
+			return undefined;
+		}
+
+		const pathname = filePath;
+		const hasTrailingSlash = pathname.endsWith('/') && pathname !== '/';
+
+		if (htmlHandling === 'force-trailing-slash') {
+			if (!hasTrailingSlash && pathname !== '/') {
+				// Check if there's an index.html in a directory with this name
+				try {
+					await fs.access(`${this.projectRoot}${pathname}/index.html`);
+					const redirectUrl = new URL(url);
+					redirectUrl.pathname = `${baseUrl}${pathname}/`;
+					return Response.redirect(redirectUrl.toString(), 308);
+				} catch {
+					// No directory/index.html — no redirect needed
+				}
+			}
+			return undefined;
+		}
+
+		if (htmlHandling === 'drop-trailing-slash') {
+			if (hasTrailingSlash) {
+				const withoutSlash = pathname.slice(0, -1);
+				// Check if there's a direct .html file
+				try {
+					await fs.access(`${this.projectRoot}${withoutSlash}.html`);
+					const redirectUrl = new URL(url);
+					redirectUrl.pathname = `${baseUrl}${withoutSlash}`;
+					return Response.redirect(redirectUrl.toString(), 308);
+				} catch {
+					// No .html file — no redirect needed
+				}
+			}
+			return undefined;
+		}
+
+		// "auto-trailing-slash" (default)
+		if (!hasTrailingSlash && pathname !== '/') {
+			// /foo → /foo/ if foo/index.html exists
+			try {
+				await fs.access(`${this.projectRoot}${pathname}/index.html`);
+				const redirectUrl = new URL(url);
+				redirectUrl.pathname = `${baseUrl}${pathname}/`;
+				return Response.redirect(redirectUrl.toString(), 308);
+			} catch {
+				// No directory/index.html
+			}
+		} else if (hasTrailingSlash) {
+			// /foo/ → /foo if foo.html exists and foo/index.html does NOT exist
+			const withoutSlash = pathname.slice(0, -1);
+			let hasIndexHtml = false;
+			try {
+				await fs.access(`${this.projectRoot}${pathname}index.html`);
+				hasIndexHtml = true;
+			} catch {
+				// No index.html in directory
+			}
+			if (!hasIndexHtml) {
+				try {
+					await fs.access(`${this.projectRoot}${withoutSlash}.html`);
+					const redirectUrl = new URL(url);
+					redirectUrl.pathname = `${baseUrl}${withoutSlash}`;
+					return Response.redirect(redirectUrl.toString(), 308);
+				} catch {
+					// No .html file either
+				}
+			}
+		}
+
+		return undefined;
 	}
 
 	/**

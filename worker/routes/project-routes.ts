@@ -16,7 +16,7 @@ import { httpError } from '../lib/http-error';
 import { createZip } from '../lib/zip';
 
 import type { AppEnvironment } from '../types';
-import type { ProjectMeta } from '@shared/types';
+import type { AssetSettings, ProjectMeta } from '@shared/types';
 
 /**
  * Project routes - all routes are prefixed with /api
@@ -47,7 +47,7 @@ export const projectRoutes = new Hono<AppEnvironment>()
 		}
 	})
 
-	// PUT /api/project/meta - Update project metadata (rename)
+	// PUT /api/project/meta - Update project metadata (rename, dependencies, asset settings)
 	.put('/project/meta', async (c) => {
 		const projectRoot = c.get('projectRoot');
 		const metaPath = `${projectRoot}/.project-meta.json`;
@@ -67,10 +67,12 @@ export const projectRoutes = new Hono<AppEnvironment>()
 		if (parsed.data.name) meta.name = parsed.data.name;
 		const dependenciesChanged = parsed.data.dependencies !== undefined;
 		if (dependenciesChanged) meta.dependencies = parsed.data.dependencies;
+		const assetSettingsChanged = parsed.data.assetSettings !== undefined;
+		if (assetSettingsChanged) meta.assetSettings = parsed.data.assetSettings;
 		await fs.writeFile(metaPath, JSON.stringify(meta));
 
-		// Trigger full reload when dependencies change so the preview rebundles
-		if (dependenciesChanged) {
+		// Trigger full reload when dependencies or asset settings change so the preview rebundles
+		if (dependenciesChanged || assetSettingsChanged) {
 			const projectId = c.get('projectId');
 			const coordinatorId = coordinatorNamespace.idFromName(`project:${projectId}`);
 			const coordinatorStub = coordinatorNamespace.get(coordinatorId);
@@ -104,13 +106,15 @@ export const projectRoutes = new Hono<AppEnvironment>()
 
 		let projectName = 'my-worker-app';
 		let registeredDependencies: Record<string, string> = {};
+		let assetSettings: AssetSettings | undefined;
 
-		// Read project metadata for name and dependencies
+		// Read project metadata for name, dependencies, and asset settings
 		try {
 			const metaRaw = await fs.readFile(`${projectRoot}/.project-meta.json`, 'utf8');
 			const meta: ProjectMeta = JSON.parse(metaRaw);
 			projectName = meta.name || meta.humanId || projectName;
 			registeredDependencies = meta.dependencies ?? {};
+			assetSettings = meta.assetSettings;
 		} catch {
 			// Fall back to defaults
 		}
@@ -162,15 +166,28 @@ export const projectRoutes = new Hono<AppEnvironment>()
 
 		zipFiles['package.json'] = JSON.stringify(packageJson, undefined, 2);
 
+		// Build assets config from project asset settings, only including non-default values
+		const assetsConfig: Record<string, unknown> = {};
+		const notFoundHandling = assetSettings?.not_found_handling ?? 'none';
+		if (notFoundHandling !== 'none') {
+			assetsConfig.not_found_handling = notFoundHandling;
+		}
+		const htmlHandling = assetSettings?.html_handling ?? 'auto-trailing-slash';
+		if (htmlHandling !== 'auto-trailing-slash') {
+			assetsConfig.html_handling = htmlHandling;
+		}
+		const runWorkerFirst = assetSettings?.run_worker_first ?? false;
+		if (runWorkerFirst !== false) {
+			assetsConfig.run_worker_first = runWorkerFirst;
+		}
+
 		zipFiles['wrangler.jsonc'] = JSON.stringify(
 			{
 				$schema: 'node_modules/wrangler/config-schema.json',
 				name: projectName,
 				main: 'worker/index.ts',
 				compatibility_date: '2026-01-31',
-				assets: {
-					not_found_handling: 'single-page-application',
-				},
+				assets: assetsConfig,
 				observability: {
 					enabled: true,
 				},

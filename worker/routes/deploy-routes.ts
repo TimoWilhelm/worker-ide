@@ -24,7 +24,7 @@ import { bundleWithCdn } from '../services/bundler-service';
 import { toEsbuildTsconfigRaw } from '../services/transform-service';
 
 import type { AppEnvironment } from '../types';
-import type { ProjectMeta } from '@shared/types';
+import type { AssetSettings, ProjectMeta } from '@shared/types';
 
 // =============================================================================
 // Constants
@@ -56,9 +56,10 @@ export const deployRoutes = new Hono<AppEnvironment>().post('/deploy', async (c)
 
 	const projectRoot = c.get('projectRoot');
 
-	// Read project metadata for name and dependencies
+	// Read project metadata for name, dependencies, and asset settings
 	let projectName = 'my-worker';
 	let registeredDependencies = new Map<string, string>();
+	let assetSettings: AssetSettings | undefined;
 	try {
 		const metaRaw = await fs.readFile(`${projectRoot}/.project-meta.json`, 'utf8');
 		const meta: ProjectMeta = JSON.parse(metaRaw);
@@ -66,6 +67,7 @@ export const deployRoutes = new Hono<AppEnvironment>().post('/deploy', async (c)
 		if (meta.dependencies && typeof meta.dependencies === 'object') {
 			registeredDependencies = new Map(Object.entries(meta.dependencies));
 		}
+		assetSettings = meta.assetSettings;
 	} catch {
 		// Fall back to defaults
 	}
@@ -195,7 +197,7 @@ export const deployRoutes = new Hono<AppEnvironment>().post('/deploy', async (c)
 	// =========================================================================
 	// Step 4: Deploy the worker script
 	// =========================================================================
-	await uploadWorkerScript(accountId.trim(), apiToken.trim(), sanitizedWorkerName, bundledWorkerCode, assetsCompletionJwt);
+	await uploadWorkerScript(accountId.trim(), apiToken.trim(), sanitizedWorkerName, bundledWorkerCode, assetsCompletionJwt, assetSettings);
 
 	// =========================================================================
 	// Step 5: Enable the workers.dev subdomain route
@@ -486,6 +488,7 @@ async function uploadWorkerScript(
 	workerName: string,
 	workerCode: string,
 	assetsCompletionJwt: string | undefined,
+	assetSettings?: AssetSettings,
 ): Promise<void> {
 	const formData = new FormData();
 
@@ -495,7 +498,14 @@ async function uploadWorkerScript(
 		compatibility_date: string;
 		compatibility_flags: string[];
 		observability: { enabled: boolean };
-		assets?: { jwt: string; config: { not_found_handling: string } };
+		assets?: {
+			jwt: string;
+			config: {
+				not_found_handling?: string;
+				html_handling?: string;
+				run_worker_first?: boolean | string[];
+			};
+		};
 		bindings?: Array<{ type: string; name: string }>;
 	}
 
@@ -507,11 +517,23 @@ async function uploadWorkerScript(
 	};
 
 	if (assetsCompletionJwt) {
+		const assetsConfig: Record<string, unknown> = {};
+		const notFoundHandling = assetSettings?.not_found_handling ?? 'none';
+		if (notFoundHandling !== 'none') {
+			assetsConfig.not_found_handling = notFoundHandling;
+		}
+		const htmlHandling = assetSettings?.html_handling ?? 'auto-trailing-slash';
+		if (htmlHandling !== 'auto-trailing-slash') {
+			assetsConfig.html_handling = htmlHandling;
+		}
+		const runWorkerFirst = assetSettings?.run_worker_first ?? false;
+		if (runWorkerFirst !== false) {
+			assetsConfig.run_worker_first = runWorkerFirst;
+		}
+
 		metadata.assets = {
 			jwt: assetsCompletionJwt,
-			config: {
-				not_found_handling: 'single-page-application',
-			},
+			config: assetsConfig,
 		};
 		metadata.bindings = [{ type: 'assets', name: 'ASSETS' }];
 	}

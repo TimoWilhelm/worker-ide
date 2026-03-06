@@ -35,6 +35,7 @@ const meta = {
 		onDownload: fn(),
 		onDeploy: fn(),
 		onNewProject: fn(),
+		onSettings: fn(),
 	},
 } satisfies Meta<typeof IDEHeader>;
 
