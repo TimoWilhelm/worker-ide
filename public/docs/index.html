@@ -44,6 +44,16 @@
 				--cyan-dim: rgba(92, 200, 255, 0.12);
 				--emerald: #50e8a0;
 				--emerald-dim: rgba(80, 232, 160, 0.12);
+				--ai: #ffb347;
+				--ai-dim: rgba(255, 179, 71, 0.12);
+				--test: #ff6b9d;
+				--test-dim: rgba(255, 107, 157, 0.12);
+				--deploy: #4ecdc4;
+				--deploy-dim: rgba(78, 205, 196, 0.12);
+				--snapshot: #b8a9e8;
+				--snapshot-dim: rgba(184, 169, 232, 0.12);
+				--collab: #6ec6ff;
+				--collab-dim: rgba(110, 198, 255, 0.12);
 
 				/* Component colors - warm palette */
 				--orange: #ff8c5a;
@@ -170,6 +180,15 @@
 				letter-spacing: 0.04em;
 				padding: 6px 16px;
 				border-radius: 100px;
+				text-decoration: none;
+				cursor: pointer;
+				transition:
+					opacity 0.2s,
+					transform 0.2s;
+			}
+			.legend-item:hover {
+				opacity: 0.85;
+				transform: translateY(-1px);
 			}
 			.legend-item .dot {
 				width: 8px;
@@ -213,6 +232,7 @@
 				padding: 24px 28px 28px;
 				margin-bottom: 24px;
 				position: relative;
+				scroll-margin-top: 72px;
 			}
 			.lane-header {
 				display: flex;
@@ -488,22 +508,160 @@
 					display: none;
 				}
 				.flow-grid {
-					grid-template-columns: 1fr minmax(40px, auto) 1fr minmax(40px, auto) 1fr;
+					grid-template-columns: 1fr minmax(32px, auto) 1fr minmax(32px, auto) 1fr;
 				}
 				.node {
-					padding: 6px 8px;
+					padding: 6px 6px;
 				}
 				.node-name {
 					font-size: 10px;
+					white-space: normal;
+					overflow-wrap: break-word;
+					word-break: break-word;
 				}
 				.node-detail {
 					font-size: 9px;
+					white-space: normal;
+					overflow-wrap: break-word;
+					word-break: break-word;
 				}
 				.h-arrow {
-					min-width: 32px;
+					min-width: 24px;
+				}
+				.h-arrow-label {
+					font-size: 7px;
+					white-space: normal;
+					text-align: center;
+					line-height: 1.2;
+				}
+				.v-connector-label {
+					white-space: normal;
+					text-align: center;
+					font-size: 8px;
+				}
+				.legend {
+					gap: 8px;
+				}
+				.legend-item {
+					font-size: 11px;
+					padding: 4px 10px;
+				}
+				.nav-links {
+					gap: 12px;
+				}
+				.lane-note code {
+					font-size: 11px;
+					word-break: break-all;
+				}
+				.flow-label {
+					font-size: 11px;
+				}
+			}
+
+			/* Very small screens: stack the flow grid vertically */
+			@media (max-width: 480px) {
+				.hero {
+					padding: 80px 0 16px;
+				}
+				.hero p {
+					font-size: 15px;
+				}
+				.container {
+					padding: 0 8px;
+				}
+				.lane {
+					padding: 12px 8px 12px;
+				}
+				.lane-header {
+					margin-bottom: 16px;
+					padding-bottom: 12px;
+				}
+				.lane-title {
+					font-size: 13px;
+				}
+				.flow-grid {
+					display: flex;
+					flex-direction: column;
+					align-items: stretch;
+					gap: 0;
+				}
+				/* Reset grid overrides in stacked mode */
+				.flow-grid > [class*='col-'] {
+					grid-column: unset !important;
+					grid-row: unset !important;
+					height: auto !important;
+					align-self: auto !important;
+				}
+				.node {
+					padding: 8px 10px;
+					text-align: left;
+				}
+				.node-name {
+					font-size: 11px;
+				}
+				.node-detail {
+					font-size: 10px;
+				}
+				/* Turn horizontal arrows into vertical connectors */
+				.h-arrow {
+					min-width: unset;
+					padding: 4px 0;
+					align-items: flex-start;
+					padding-left: 20px;
+				}
+				.h-arrow-line {
+					width: 0;
+					height: 24px;
+					border-top: none;
+					border-left: 1px dashed var(--arrow-color, var(--text-dim));
+				}
+				.h-arrow-line::after {
+					right: auto;
+					left: -4px;
+					top: auto;
+					bottom: -1px;
+					border-left: 4px solid transparent;
+					border-right: 4px solid transparent;
+					border-top: 6px solid var(--arrow-color, var(--text-dim));
+					border-bottom: none;
+				}
+				.h-arrow.reverse .h-arrow-line::after {
+					border-right: 4px solid transparent;
+					border-left: 4px solid transparent;
+					border-top: 6px solid var(--arrow-color, var(--text-dim));
+					border-bottom: none;
+					left: -4px;
+					right: auto;
 				}
 				.h-arrow-label {
 					font-size: 8px;
+					margin-bottom: 2px;
+					margin-left: 12px;
+				}
+				.v-connector {
+					min-height: 24px;
+					padding-left: 20px;
+					justify-content: flex-start;
+				}
+				.v-connector.right {
+					flex-direction: row;
+				}
+				.v-connector-line {
+					height: 24px;
+				}
+				.legend-item {
+					font-size: 10px;
+					padding: 3px 8px;
+				}
+				.legend-item .dot {
+					width: 6px;
+					height: 6px;
+				}
+				.lane-note {
+					font-size: 13px;
+				}
+				.flow-connector-text {
+					font-size: 13px;
 				}
 			}
 		</style>
@@ -524,19 +682,53 @@
 					<h1>How <span class="grad">Worker IDE</span> works</h1>
 					<p>
 						A browser-based development environment running entirely on Cloudflare's edge — Durable Objects for storage, esbuild-wasm for
-						transforms, and dynamic V8 isolates for user code.
+						transforms, dynamic V8 isolates for user code, and an AI coding agent with 24 tools.
 					</p>
 					<div class="legend">
-						<span class="legend-item asset"><span class="dot"></span>Asset Pipeline + HMR</span>
-						<span class="legend-item worker"><span class="dot"></span>Worker Execution</span>
-						<span class="legend-item ws"><span class="dot"></span>WebSocket Feedback</span>
-						<span class="legend-item" style="color: var(--cyan); background: var(--cyan-dim); border: 1px solid rgba(77, 184, 255, 0.2)"
-							><span class="dot" style="background: var(--cyan)"></span>Dependency Resolution</span
+						<a href="#asset-pipeline" class="legend-item asset"><span class="dot"></span>Asset Pipeline + HMR</a>
+						<a href="#worker-execution" class="legend-item worker"><span class="dot"></span>Worker Execution</a>
+						<a href="#websocket-feedback" class="legend-item ws"><span class="dot"></span>WebSocket Feedback</a>
+						<a
+							href="#dependency-resolution"
+							class="legend-item"
+							style="color: var(--cyan); background: var(--cyan-dim); border: 1px solid rgba(77, 184, 255, 0.2)"
+							><span class="dot" style="background: var(--cyan)"></span>Dependency Resolution</a
 						>
-						<span
+						<a
+							href="#git-integration"
 							class="legend-item"
 							style="color: var(--emerald); background: var(--emerald-dim); border: 1px solid rgba(94, 255, 58, 0.2)"
-							><span class="dot" style="background: var(--emerald)"></span>Git Integration</span
+							><span class="dot" style="background: var(--emerald)"></span>Git Integration</a
+						>
+						<a
+							href="#ai-agent"
+							class="legend-item"
+							style="color: var(--ai); background: var(--ai-dim); border: 1px solid rgba(255, 179, 71, 0.2)"
+							><span class="dot" style="background: var(--ai)"></span>AI Agent</a
+						>
+						<a
+							href="#test-runner"
+							class="legend-item"
+							style="color: var(--test); background: var(--test-dim); border: 1px solid rgba(255, 107, 157, 0.2)"
+							><span class="dot" style="background: var(--test)"></span>Test Runner</a
+						>
+						<a
+							href="#deploy-pipeline"
+							class="legend-item"
+							style="color: var(--deploy); background: var(--deploy-dim); border: 1px solid rgba(78, 205, 196, 0.2)"
+							><span class="dot" style="background: var(--deploy)"></span>Deploy Pipeline</a
+						>
+						<a
+							href="#snapshots"
+							class="legend-item"
+							style="color: var(--snapshot); background: var(--snapshot-dim); border: 1px solid rgba(184, 169, 232, 0.2)"
+							><span class="dot" style="background: var(--snapshot)"></span>Snapshots</a
+						>
+						<a
+							href="#collaboration"
+							class="legend-item"
+							style="color: var(--collab); background: var(--collab-dim); border: 1px solid rgba(110, 198, 255, 0.2)"
+							><span class="dot" style="background: var(--collab)"></span>Collaboration</a
 						>
 					</div>
 				</div>
@@ -545,7 +737,7 @@
 			<section class="diagram-section">
 				<div class="container">
 					<!-- LANE 1: ASSET PIPELINE + HMR -->
-					<div class="lane">
+					<div id="asset-pipeline" class="lane">
 						<div class="lane-header">
 							<span class="lane-dot" style="background: var(--asset)"></span>
 							<span class="lane-title" style="color: var(--asset)">Asset Pipeline + HMR</span>
@@ -661,7 +853,7 @@
 					</div>
 
 					<!--LANE 2: WORKER EXECUTION-->
-					<div class="lane">
+					<div id="worker-execution" class="lane">
 						<div class="lane-header">
 							<span class="lane-dot" style="background: var(--worker)"></span>
 							<span class="lane-title" style="color: var(--worker)">Worker Execution</span>
@@ -728,7 +920,7 @@
 					</div>
 
 					<!-- LANE 3: WEBSOCKET FEEDBACK -->
-					<div class="lane">
+					<div id="websocket-feedback" class="lane">
 						<div class="lane-header">
 							<span class="lane-dot" style="background: var(--ws)"></span>
 							<span class="lane-title" style="color: var(--ws)">WebSocket Feedback</span>
@@ -798,7 +990,7 @@
 					</div>
 
 					<!-- LANE 4: DEPENDENCY RESOLUTION -->
-					<div class="lane">
+					<div id="dependency-resolution" class="lane">
 						<div class="lane-header">
 							<span class="lane-dot" style="background: var(--cyan)"></span>
 							<span class="lane-title" style="color: var(--cyan)">Dependency Resolution</span>
@@ -865,7 +1057,7 @@
 					</div>
 
 					<!-- LANE 5: GIT INTEGRATION -->
-					<div class="lane">
+					<div id="git-integration" class="lane">
 						<div class="lane-header">
 							<span class="lane-dot" style="background: var(--emerald)"></span>
 							<span class="lane-title" style="color: var(--emerald)">Git Integration</span>
@@ -899,7 +1091,7 @@
 							<!-- Connector: Mount context -->
 							<div class="v-connector col-5" style="--arrow-color: var(--emerald)">
 								<div class="v-connector-line"></div>
-								<span class="v-connector-label">withGitMount()</span>
+								<span class="v-connector-label">withMounts()</span>
 							</div>
 
 							<!-- Row 2: Git service -->
@@ -961,6 +1153,408 @@
 						<p class="lane-note">
 							Git operations run inside the Durable Object's single-threaded context, avoiding race conditions with isomorphic-git's
 							AsyncLock. The <code>node:fs/promises</code> import is aliased to <code>worker-fs-mount/fs</code> at build time.
+						</p>
+					</div>
+
+					<!-- LANE 6: AI AGENT SYSTEM -->
+					<div id="ai-agent" class="lane">
+						<div class="lane-header">
+							<span class="lane-dot" style="background: var(--ai)"></span>
+							<span class="lane-title" style="color: var(--ai)">AI Agent System</span>
+							<span class="lane-desc">Autonomous coding agent with 24 tools, running in a dedicated Durable Object</span>
+						</div>
+
+						<div class="flow-label" style="color: var(--ai)">Agent Loop</div>
+						<div class="flow-grid">
+							<!-- Row 1: Request to AgentRunner -->
+							<div class="node col-1" style="--node-color: var(--text)">
+								<div class="node-name">Editor UI</div>
+								<div class="node-detail">chat message</div>
+							</div>
+							<div class="h-arrow col-2" style="--arrow-color: var(--ai)">
+								<span class="h-arrow-label">POST /api/ai/chat</span>
+								<div class="h-arrow-line"></div>
+							</div>
+							<div class="node col-3" style="--node-color: var(--orange)">
+								<div class="node-name">Host Worker</div>
+								<div class="node-detail">rate limit + validate</div>
+							</div>
+							<div class="h-arrow col-4" style="--arrow-color: var(--ai)">
+								<span class="h-arrow-label">RPC</span>
+								<div class="h-arrow-line"></div>
+							</div>
+							<div class="node col-5" style="--node-color: var(--ai)">
+								<div class="node-name">AgentRunner DO</div>
+								<div class="node-detail">per-project Durable Object</div>
+							</div>
+
+							<!-- Connector: Agent loop starts -->
+							<div class="v-connector col-5" style="--arrow-color: var(--ai)">
+								<div class="v-connector-line"></div>
+								<span class="v-connector-label">ctx.waitUntil()</span>
+							</div>
+
+							<!-- Row 2: Agent service + tools -->
+							<div class="node col-1" style="--node-color: var(--magenta)">
+								<div class="node-name">ExpiringFilesystem</div>
+								<div class="node-detail">file read / write</div>
+							</div>
+							<div class="h-arrow reverse col-2" style="--arrow-color: var(--magenta)">
+								<span class="h-arrow-label">tool execution</span>
+								<div class="h-arrow-line"></div>
+							</div>
+							<div class="node col-3" style="--node-color: var(--ai)">
+								<div class="node-name">AIAgentService</div>
+								<div class="node-detail">24 tools, 3 modes</div>
+							</div>
+							<div class="h-arrow col-4" style="--arrow-color: var(--yellow)">
+								<span class="h-arrow-label">LLM call</span>
+								<div class="h-arrow-line"></div>
+							</div>
+							<div class="node col-5" style="--node-color: var(--yellow)">
+								<div class="node-name">Claude (Replicate)</div>
+								<div class="node-detail">chat() with retry</div>
+							</div>
+						</div>
+
+						<div class="flow-connector">
+							<span class="flow-connector-icon">↓</span>
+							<span class="flow-connector-text">Stream chunks broadcast to all connected clients via WebSocket</span>
+						</div>
+
+						<div class="flow-label" style="color: var(--ws)">AG-UI Streaming</div>
+						<div class="flow-grid">
+							<!-- Row 1: Streaming path -->
+							<div class="node col-1" style="--node-color: var(--ai)">
+								<div class="node-name">AgentRunner DO</div>
+								<div class="node-detail">buffer + index chunks</div>
+							</div>
+							<div class="h-arrow col-2" style="--arrow-color: var(--ws)">
+								<span class="h-arrow-label">sendMessage()</span>
+								<div class="h-arrow-line"></div>
+							</div>
+							<div class="node col-3" style="--node-color: var(--ws)">
+								<div class="node-name">ProjectCoordinator</div>
+								<div class="node-detail">WS fan-out</div>
+							</div>
+							<div class="h-arrow col-4" style="--arrow-color: var(--ws)">
+								<span class="h-arrow-label">agent-stream-event</span>
+								<div class="h-arrow-line"></div>
+							</div>
+							<div class="node col-5" style="--node-color: var(--text)">
+								<div class="node-name">Editor UI</div>
+								<div class="node-detail">useChat + StreamProcessor</div>
+							</div>
+						</div>
+
+						<p class="lane-note">
+							The agent runs <strong>independently of client connections</strong> inside the AgentRunner DO. A heartbeat alarm reschedules
+							every 30s — if the DO is evicted, the alarm restarts the loop from persisted parameters. Three modes: <code>code</code> (full
+							tool access), <code>plan</code> (read-only + planning), <code>ask</code> (read-only Q&amp;A). Tools include file CRUD,
+							grep/glob, lint check/fix (via Biome service binding), test execution, CDP evaluation in the preview iframe, web fetch, and
+							Cloudflare docs search via MCP.
+						</p>
+					</div>
+
+					<!-- LANE 7: TEST RUNNER -->
+					<div id="test-runner" class="lane">
+						<div class="lane-header">
+							<span class="lane-dot" style="background: var(--test)"></span>
+							<span class="lane-title" style="color: var(--test)">Test Runner</span>
+							<span class="lane-desc">In-browser test execution with a built-in describe/it/expect harness</span>
+						</div>
+
+						<div class="flow-label" style="color: var(--test)">Test Execution</div>
+						<div class="flow-grid">
+							<!-- Row 1: Trigger to bundle -->
+							<div class="node col-1" style="--node-color: var(--text)">
+								<div class="node-name">Tests Panel</div>
+								<div class="node-detail">run all / file / test</div>
+							</div>
+							<div class="h-arrow col-2" style="--arrow-color: var(--test)">
+								<span class="h-arrow-label">POST /api/test/run</span>
+								<div class="h-arrow-line"></div>
+							</div>
+							<div class="node col-3" style="--node-color: var(--orange)">
+								<div class="node-name">Host Worker</div>
+								<div class="node-detail">discover + collect</div>
+							</div>
+							<div class="h-arrow col-4" style="--arrow-color: var(--yellow)">
+								<span class="h-arrow-label">bundleWithCdn()</span>
+								<div class="h-arrow-line"></div>
+							</div>
+							<div class="node col-5" style="--node-color: var(--yellow)">
+								<div class="node-name">esbuild-wasm</div>
+								<div class="node-detail">harness + test file</div>
+							</div>
+
+							<!-- Connector: Run in isolate -->
+							<div class="v-connector col-5" style="--arrow-color: var(--worker)">
+								<div class="v-connector-line"></div>
+								<span class="v-connector-label">runs in isolate</span>
+							</div>
+
+							<!-- Row 2: WorkerLoader -->
+							<div class="node col-3" style="--node-color: var(--test)">
+								<div class="node-name">Tests Panel</div>
+								<div class="node-detail">receives JSON results</div>
+							</div>
+							<div class="h-arrow reverse col-4" style="--arrow-color: var(--test)">
+								<span class="h-arrow-label">TestRunResponse</span>
+								<div class="h-arrow-line"></div>
+							</div>
+							<div class="node col-5" style="--node-color: var(--worker)">
+								<div class="node-name">WorkerLoader</div>
+								<div class="node-detail">sandboxed V8 isolate</div>
+							</div>
+						</div>
+
+						<div class="flow-connector">
+							<span class="flow-connector-icon">↓</span>
+							<span class="flow-connector-text">Results broadcast to all collaborators via WebSocket</span>
+						</div>
+
+						<div class="flow-label" style="color: var(--ws)">Result Broadcasting</div>
+						<div class="flow-grid">
+							<div class="node col-1" style="--node-color: var(--orange)">
+								<div class="node-name">Host Worker</div>
+								<div class="node-detail">sendMessage()</div>
+							</div>
+							<div class="h-arrow col-2" style="--arrow-color: var(--ws)">
+								<span class="h-arrow-label">RPC</span>
+								<div class="h-arrow-line"></div>
+							</div>
+							<div class="node col-3" style="--node-color: var(--ws)">
+								<div class="node-name">ProjectCoordinator</div>
+								<div class="node-detail">WS broadcast</div>
+							</div>
+							<div class="h-arrow col-4" style="--arrow-color: var(--ws)">
+								<span class="h-arrow-label">test-results-changed</span>
+								<div class="h-arrow-line"></div>
+							</div>
+							<div class="node col-5" style="--node-color: var(--text)">
+								<div class="node-name">Tests Panel</div>
+								<div class="node-detail">merge into cache</div>
+							</div>
+						</div>
+
+						<p class="lane-note">
+							Tests use a built-in <code>describe</code>/<code>it</code>/<code>expect</code> harness — no Vitest or Jest dependency. Each
+							test file is bundled with the harness and executed in an isolated WorkerLoader V8 sandbox (max 30s timeout). The AI agent's
+							<code>test_run</code> tool shares the same runner. Partial re-runs merge results at the suite level via
+							<code>mergeTestRunResults()</code>.
+						</p>
+					</div>
+
+					<!-- LANE 8: DEPLOY PIPELINE -->
+					<div id="deploy-pipeline" class="lane">
+						<div class="lane-header">
+							<span class="lane-dot" style="background: var(--deploy)"></span>
+							<span class="lane-title" style="color: var(--deploy)">Deploy Pipeline</span>
+							<span class="lane-desc">One-click production deployment to Cloudflare Workers</span>
+						</div>
+
+						<div class="flow-label" style="color: var(--deploy)">Deploy Flow</div>
+						<div class="flow-grid">
+							<!-- Row 1: Trigger to file collection -->
+							<div class="node col-1" style="--node-color: var(--text)">
+								<div class="node-name">Deploy Modal</div>
+								<div class="node-detail">credentials + deploy</div>
+							</div>
+							<div class="h-arrow col-2" style="--arrow-color: var(--deploy)">
+								<span class="h-arrow-label">POST /api/deploy</span>
+								<div class="h-arrow-line"></div>
+							</div>
+							<div class="node col-3" style="--node-color: var(--orange)">
+								<div class="node-name">Host Worker</div>
+								<div class="node-detail">collectProjectFiles()</div>
+							</div>
+							<div class="h-arrow col-4" style="--arrow-color: var(--magenta)">
+								<span class="h-arrow-label">read all files</span>
+								<div class="h-arrow-line"></div>
+							</div>
+							<div class="node col-5" style="--node-color: var(--magenta)">
+								<div class="node-name">DO Filesystem</div>
+								<div class="node-detail">worker/ + src/ files</div>
+							</div>
+
+							<!-- Connector: Bundle -->
+							<div class="v-connector col-3" style="--arrow-color: var(--yellow)">
+								<div class="v-connector-line"></div>
+								<span class="v-connector-label">esbuild bundle</span>
+							</div>
+
+							<!-- Row 2: Bundle step -->
+							<div class="node col-3" style="--node-color: var(--yellow)">
+								<div class="node-name">esbuild-wasm</div>
+								<div class="node-detail">worker + frontend bundles</div>
+							</div>
+
+							<!-- Connector: Upload -->
+							<div class="v-connector col-3" style="--arrow-color: var(--deploy)">
+								<div class="v-connector-line"></div>
+								<span class="v-connector-label">upload to Cloudflare</span>
+							</div>
+
+							<!-- Row 3: Cloudflare API -->
+							<div class="node col-1" style="--node-color: var(--text)">
+								<div class="node-name">Deploy Modal</div>
+								<div class="node-detail">receives worker URL</div>
+							</div>
+							<div class="h-arrow reverse col-2" style="--arrow-color: var(--deploy)">
+								<span class="h-arrow-label">workerUrl</span>
+								<div class="h-arrow-line"></div>
+							</div>
+							<div class="node col-3" style="--node-color: var(--deploy)">
+								<div class="node-name">Cloudflare API</div>
+								<div class="node-detail">Direct Upload + Script PUT</div>
+							</div>
+						</div>
+
+						<p class="lane-note">
+							Static assets are uploaded via the Direct Upload API (content-hashed manifest + batched uploads), then the bundled worker
+							script is deployed with a completion JWT linking assets to the script. Asset settings (<code>not_found_handling</code>,
+							<code>html_handling</code>, <code>run_worker_first</code>) from the project configuration are included in the deploy metadata.
+							Credentials are stored client-side in localStorage.
+						</p>
+					</div>
+
+					<!-- LANE 9: SNAPSHOT & REVERT SYSTEM -->
+					<div id="snapshots" class="lane">
+						<div class="lane-header">
+							<span class="lane-dot" style="background: var(--snapshot)"></span>
+							<span class="lane-title" style="color: var(--snapshot)">Snapshot &amp; Revert</span>
+							<span class="lane-desc">Point-in-time backups of files before AI agent modifications</span>
+						</div>
+
+						<div class="flow-label" style="color: var(--snapshot)">Snapshot Creation (during AI runs)</div>
+						<div class="flow-grid">
+							<!-- Row 1: Agent creates snapshot -->
+							<div class="node col-1" style="--node-color: var(--ai)">
+								<div class="node-name">AIAgentService</div>
+								<div class="node-detail">code mode run</div>
+							</div>
+							<div class="h-arrow col-2" style="--arrow-color: var(--snapshot)">
+								<span class="h-arrow-label">file mutation</span>
+								<div class="h-arrow-line"></div>
+							</div>
+							<div class="node col-3" style="--node-color: var(--snapshot)">
+								<div class="node-name">addFileToSnapshot()</div>
+								<div class="node-detail">saves before-content</div>
+							</div>
+							<div class="h-arrow col-4" style="--arrow-color: var(--magenta)">
+								<span class="h-arrow-label">fs.writeFile()</span>
+								<div class="h-arrow-line"></div>
+							</div>
+							<div class="node col-5" style="--node-color: var(--magenta)">
+								<div class="node-name">.agent/snapshots/</div>
+								<div class="node-detail">metadata.json + files</div>
+							</div>
+						</div>
+
+						<div class="flow-connector">
+							<span class="flow-connector-icon">↓</span>
+							<span class="flow-connector-text">Users can revert files to their pre-AI state</span>
+						</div>
+
+						<div class="flow-label" style="color: var(--snapshot)">Revert Flow</div>
+						<div class="flow-grid">
+							<div class="node col-1" style="--node-color: var(--text)">
+								<div class="node-name">Editor UI</div>
+								<div class="node-detail">revert snapshot</div>
+							</div>
+							<div class="h-arrow col-2" style="--arrow-color: var(--snapshot)">
+								<span class="h-arrow-label">POST /api/snapshot/revert</span>
+								<div class="h-arrow-line"></div>
+							</div>
+							<div class="node col-3" style="--node-color: var(--orange)">
+								<div class="node-name">Host Worker</div>
+								<div class="node-detail">restore files</div>
+							</div>
+							<div class="h-arrow col-4" style="--arrow-color: var(--magenta)">
+								<span class="h-arrow-label">fs.writeFile()</span>
+								<div class="h-arrow-line"></div>
+							</div>
+							<div class="node col-5" style="--node-color: var(--magenta)">
+								<div class="node-name">DO Filesystem</div>
+								<div class="node-detail">overwrites with backup</div>
+							</div>
+						</div>
+
+						<p class="lane-note">
+							Snapshots are created automatically at the start of each AI <code>code</code> mode run. The before-content of every mutated
+							file is saved to <code>.agent/snapshots/&lt;id&gt;/</code>. Supports single-file revert, full-snapshot revert, and cascade
+							revert (multiple snapshots in reverse-chronological order with per-file deduplication). Rolling limit of 10 snapshots. Reverts
+							trigger HMR <code>full-reload</code> via the ProjectCoordinator.
+						</p>
+					</div>
+
+					<!-- LANE 10: REAL-TIME COLLABORATION -->
+					<div id="collaboration" class="lane">
+						<div class="lane-header">
+							<span class="lane-dot" style="background: var(--collab)"></span>
+							<span class="lane-title" style="color: var(--collab)">Real-time Collaboration</span>
+							<span class="lane-desc">Multi-user editing with cursor sharing and file edit broadcasting</span>
+						</div>
+
+						<div class="flow-grid">
+							<!-- Row 1: Cursor sharing -->
+							<div class="node col-1" style="grid-row: 1; --node-color: var(--collab)">
+								<div class="node-name">Editor A</div>
+								<div class="node-detail">cursor-update</div>
+							</div>
+							<div class="h-arrow col-span-3" style="grid-row: 1; --arrow-color: var(--collab)">
+								<span class="h-arrow-label">cursor position + selection</span>
+								<div class="h-arrow-line"></div>
+							</div>
+
+							<!-- Row 2: File edit -->
+							<div class="node col-1" style="grid-row: 2; margin-top: 12px; --node-color: var(--collab)">
+								<div class="node-name">Editor B</div>
+								<div class="node-detail">file-edit</div>
+							</div>
+							<div class="h-arrow col-span-3" style="grid-row: 2; margin-top: 12px; --arrow-color: var(--asset)">
+								<span class="h-arrow-label">path + content</span>
+								<div class="h-arrow-line"></div>
+							</div>
+
+							<!-- Aggregator: ProjectCoordinator (Spans Rows 1-2) -->
+							<div
+								class="node col-5"
+								style="
+									grid-row: 1 / span 2;
+									align-self: center;
+									height: 100%;
+									display: flex;
+									flex-direction: column;
+									justify-content: center;
+									--node-color: var(--ws);
+									z-index: 2;
+								"
+							>
+								<div class="node-name">ProjectCoordinator</div>
+								<div class="node-detail">WS Hibernation API</div>
+							</div>
+
+							<!-- Connector: Broadcast -->
+							<div class="v-connector col-5" style="grid-row: 3; --arrow-color: var(--ws)">
+								<div class="v-connector-line"></div>
+								<span class="v-connector-label">broadcast to others</span>
+							</div>
+
+							<!-- Destination: All Editors -->
+							<div class="node col-5" style="grid-row: 4; --node-color: var(--text)">
+								<div class="node-name">All Editors</div>
+								<div class="node-detail">cursor-updated / file-edited</div>
+							</div>
+						</div>
+
+						<p class="lane-note">
+							All real-time features share a single WebSocket connection per client through the ProjectCoordinator DO (keyed
+							<code>project:&lt;id&gt;</code>). Uses the WebSocket Hibernation API — connections survive DO eviction. On
+							<code>collab-join</code>, the server sends back <code>collab-state</code> with participant list, self-id, assigned color, and
+							any running AI sessions. The full protocol has 8 client message types and 16 server message types covering HMR, collaboration,
+							errors/logs, CDP relay, AI streaming, git status, and test results.
 						</p>
 					</div>
 				</div>

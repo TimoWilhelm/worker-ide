@@ -77,14 +77,13 @@ function GitPanelContent({ projectId, className }: GitPanelProperties) {
 
 			try {
 				const response = await apiClient.git.diff.$get({ query: { path: gitPath } });
-				const data = JSON.parse(await response.text());
-
-				if ('error' in data) {
+				if (!response.ok) {
 					// Fallback: just open the file without diff
 					openFile(normalizedPath);
 					return;
 				}
 
+				const data = await response.json();
 				const diff = data.diff;
 				if (diff?.beforeContent !== undefined && diff?.afterContent !== undefined) {
 					showGitDiff({
@@ -113,13 +112,12 @@ function GitPanelContent({ projectId, className }: GitPanelProperties) {
 
 			try {
 				const response = await apiClient.git.diff.file.$get({ query: { objectId, path: gitPath } });
-				const data = JSON.parse(await response.text());
-
-				if ('error' in data) {
+				if (!response.ok) {
 					openFile(normalizedPath);
 					return;
 				}
 
+				const data = await response.json();
 				const diff = data.diff;
 				if (diff?.beforeContent !== undefined && diff?.afterContent !== undefined) {
 					showGitDiff({

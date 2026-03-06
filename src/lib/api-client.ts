@@ -72,8 +72,7 @@ export async function cloneProject(sourceProjectId: string): Promise<{ projectId
 		body: JSON.stringify({ sourceProjectId }),
 	});
 	if (!response.ok) {
-		const errorData: { error?: string } = await response.json().catch(() => ({ error: 'Clone failed' }));
-		throw new Error(errorData.error || 'Failed to clone project');
+		throw new Error('Failed to clone project');
 	}
 	const data: { projectId: string; url: string; name: string } = await response.json();
 	return data;
@@ -315,17 +314,7 @@ export async function downloadDebugLog(projectId: string, logId: string, session
 	}
 	const response = await fetch(`/p/${projectId}/api/ai/debug-log?${parameters.toString()}`);
 	if (!response.ok) {
-		let detail = response.statusText;
-		try {
-			const body: unknown = await response.json();
-			if (body && typeof body === 'object' && 'error' in body) {
-				const { error } = body;
-				detail = String(error);
-			}
-		} catch {
-			// Use statusText as fallback
-		}
-		throw new Error(`Failed to download debug log: ${detail}`);
+		throw new Error('Failed to download debug log');
 	}
 	const data: unknown = await response.json();
 	const blob = new Blob([JSON.stringify(data, undefined, 2)], { type: 'application/json' });
@@ -370,13 +359,7 @@ export async function startAgentChat(projectId: string, parameters: StartAgentCh
 		body: JSON.stringify(parameters),
 	});
 	if (!response.ok) {
-		const data: { error?: string; code?: string } = await response.json().catch(() => ({}));
-		const error = new Error(data.error || 'Failed to start agent');
-		if (data.code) {
-			// Attach error code for upstream handling (e.g. RATE_LIMIT_EXCEEDED)
-			Object.defineProperty(error, 'code', { value: data.code, enumerable: true });
-		}
-		throw error;
+		throw new Error('Failed to start agent');
 	}
 	return response.json();
 }

@@ -109,22 +109,22 @@ describe('cloneProject', () => {
 		expect(result).toEqual(responseData);
 	});
 
-	it('throws with server error message on 404', async () => {
+	it('throws on 404', async () => {
 		fetchMock.mockResolvedValueOnce(jsonResponse({ error: 'Source project not found or not initialized' }, 404));
 
-		await expect(cloneProject(sourceId)).rejects.toThrow('Source project not found or not initialized');
+		await expect(cloneProject(sourceId)).rejects.toThrow('Failed to clone project');
 	});
 
-	it('throws with server error message on 400', async () => {
+	it('throws on 400', async () => {
 		fetchMock.mockResolvedValueOnce(jsonResponse({ error: 'Invalid source project ID. Must be a 64-character hex string.' }, 400));
 
-		await expect(cloneProject(sourceId)).rejects.toThrow('Invalid source project ID');
+		await expect(cloneProject(sourceId)).rejects.toThrow('Failed to clone project');
 	});
 
-	it('throws generic message when error response has no body', async () => {
+	it('throws on 500 with non-JSON body', async () => {
 		fetchMock.mockResolvedValueOnce(new Response('not json', { status: 500 }));
 
-		await expect(cloneProject(sourceId)).rejects.toThrow('Clone failed');
+		await expect(cloneProject(sourceId)).rejects.toThrow('Failed to clone project');
 	});
 
 	it('throws on network error', async () => {
