@@ -1,6 +1,6 @@
 /**
- * Zod validation schemas for the Worker IDE application.
- * Used for both frontend form validation and backend request validation.
+ * Zod parse schemas for the Worker IDE application.
+ * Used for both frontend form parsing and backend request parsing.
  */
 
 import { z } from 'zod';
@@ -716,6 +716,55 @@ export const gitBranchNameQuerySchema = z.object({
 export const gitTagNameQuerySchema = z.object({
 	name: z.string().min(1, 'Tag name is required'),
 });
+
+// =============================================================================
+// localStorage Schemas
+// =============================================================================
+
+/**
+ * Schema for a single recent project entry (localStorage).
+ */
+export const recentProjectSchema = z.object({
+	id: z.string(),
+	timestamp: z.number(),
+	name: z.string().optional(),
+});
+
+export type RecentProjectParsed = z.infer<typeof recentProjectSchema>;
+
+/**
+ * Schema for the recent projects array (localStorage).
+ */
+export const recentProjectsSchema = z.array(recentProjectSchema);
+
+/**
+ * Schema for saved deploy credentials (localStorage).
+ */
+export const savedCredentialsSchema = z.object({
+	accountId: z.string(),
+	apiToken: z.string(),
+});
+
+export type SavedCredentialsParsed = z.infer<typeof savedCredentialsSchema>;
+
+/**
+ * Schema for the Zustand persisted store state (localStorage).
+ * Must match the shape produced by the `partialize` option in store.ts.
+ */
+export const persistedStoreSchema = z.object({
+	sidebarVisible: z.boolean(),
+	utilityPanelVisible: z.boolean(),
+	aiPanelVisible: z.boolean(),
+	devtoolsVisible: z.boolean(),
+	dependenciesPanelVisible: z.boolean(),
+	colorScheme: z.enum(['light', 'dark', 'system']),
+	activeMobilePanel: z.enum(['editor', 'preview', 'git', 'agent', 'tests']),
+	activeSidebarView: z.enum(['explorer', 'git', 'tests']),
+	expandedDirs: z.array(z.string()),
+	selectedModel: aiModelSchema,
+});
+
+export type PersistedStoreParsed = z.infer<typeof persistedStoreSchema>;
 
 // =============================================================================
 // Validation Helpers

@@ -8,6 +8,7 @@ import { create } from 'zustand';
 import { devtools, persist } from 'zustand/middleware';
 
 import { DEFAULT_AI_MODEL, type AIModelId } from '@shared/constants';
+import { persistedStoreSchema } from '@shared/validation';
 
 import type {
 	AgentMode,
@@ -321,14 +322,30 @@ type StoreState = EditorState &
 	GitActions;
 
 /**
- * Rehydrate expandedDirs from persisted array back to Set.
+ * Parse and rehydrate persisted state from localStorage.
+ * Uses Zod to strip unknown keys and reject malformed data.
+ * Converts expandedDirs from persisted array back to Set.
  */
-function rehydrateExpandedDirectories(state: StoreState | undefined): void {
+function rehydratePersistedState(state: StoreState | undefined): void {
 	if (!state) return;
-	// The persisted value is serialized as a string array
-	const { expandedDirs } = state;
-	if (Array.isArray(expandedDirs)) {
-		state.expandedDirs = new Set(expandedDirs);
+
+	// Zustand persist stores the partialized shape under `state`.
+	// Parse the fields that came from localStorage.
+	const result = persistedStoreSchema.safeParse(state);
+	if (result.success) {
+		state.expandedDirs = new Set(result.data.expandedDirs);
+	} else {
+		// Persisted data is corrupt — reset to defaults
+		state.expandedDirs = new Set(['/src', '/worker']);
+		state.sidebarVisible = true;
+		state.utilityPanelVisible = true;
+		state.aiPanelVisible = false;
+		state.devtoolsVisible = false;
+		state.dependenciesPanelVisible = true;
+		state.colorScheme = 'dark';
+		state.activeMobilePanel = 'editor';
+		state.activeSidebarView = 'explorer';
+		state.selectedModel = DEFAULT_AI_MODEL;
 	}
 }
 
@@ -907,7 +924,7 @@ export const useStore = create<StoreState>()(
 					selectedModel: state.selectedModel,
 				}),
 				// Rehydrate expandedDirs as Set
-				onRehydrateStorage: () => rehydrateExpandedDirectories,
+				onRehydrateStorage: () => rehydratePersistedState,
 			},
 		),
 		{ name: 'WorkerIDE' },

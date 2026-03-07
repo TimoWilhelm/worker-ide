@@ -12,6 +12,9 @@ import { Button } from '@/components/ui/button';
 import { Modal, ModalBody, ModalFooter } from '@/components/ui/modal';
 import { deployProject } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
+import { savedCredentialsSchema } from '@shared/validation';
+
+import type { SavedCredentialsParsed } from '@shared/validation';
 
 // =============================================================================
 // Constants
@@ -30,10 +33,7 @@ const CREATE_TOKEN_URL =
 // Types
 // =============================================================================
 
-interface SavedCredentials {
-	accountId: string;
-	apiToken: string;
-}
+type SavedCredentials = SavedCredentialsParsed;
 
 interface DeployModalProperties {
 	open: boolean;
@@ -56,13 +56,8 @@ function loadSavedCredentials(): SavedCredentials | undefined {
 	try {
 		const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
 		if (!raw) return undefined;
-		const parsed: Record<string, unknown> = JSON.parse(raw);
-		if (typeof parsed.accountId === 'string' && typeof parsed.apiToken === 'string') {
-			return {
-				accountId: parsed.accountId,
-				apiToken: parsed.apiToken,
-			};
-		}
+		const result = savedCredentialsSchema.safeParse(JSON.parse(raw));
+		if (result.success) return result.data;
 	} catch {
 		// Ignore invalid stored data
 	}

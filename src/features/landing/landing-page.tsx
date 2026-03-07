@@ -376,15 +376,32 @@ export default function LandingPage() {
 		setRecentProjects((previous) => previous.filter((project) => project.id !== projectId));
 	}, []);
 
-	// Clear loading state when the page is restored from bfcache (browser back)
+	// Refresh recent projects & clear loading state when the page is restored
+	// from bfcache (browser back) or when the tab becomes visible again.
 	useEffect(() => {
+		function refreshRecentProjects() {
+			setRecentProjects(getRecentProjects());
+		}
+
 		function handlePageShow(event: PageTransitionEvent) {
 			if (event.persisted) {
 				setLoadingMessage(undefined);
+				refreshRecentProjects();
 			}
 		}
+
+		function handleVisibilityChange() {
+			if (document.visibilityState === 'visible') {
+				refreshRecentProjects();
+			}
+		}
+
 		globalThis.addEventListener('pageshow', handlePageShow);
-		return () => globalThis.removeEventListener('pageshow', handlePageShow);
+		document.addEventListener('visibilitychange', handleVisibilityChange);
+		return () => {
+			globalThis.removeEventListener('pageshow', handlePageShow);
+			document.removeEventListener('visibilitychange', handleVisibilityChange);
+		};
 	}, []);
 
 	const isLoading = loadingMessage !== undefined;
