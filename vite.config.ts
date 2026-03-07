@@ -89,7 +89,7 @@ export default defineConfig({
 				id: '7c3a8f1e-9d4b-4e2a-b6f5-1a2d3c4e5f6a',
 				name: 'Worker IDE',
 				short_name: 'Worker IDE',
-				description: 'Build and preview Cloudflare Workers in the browser',
+				description: 'Build Cloudflare Workers in the browser',
 				orientation: 'natural',
 				start_url: '/',
 				scope: '/',

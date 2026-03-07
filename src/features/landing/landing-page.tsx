@@ -12,7 +12,7 @@
  */
 
 import { BookOpen, Copy, Github, Hexagon, Moon, Search, Sun, X } from 'lucide-react';
-import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Modal, ModalBody, ModalFooter } from '@/components/ui/modal';
@@ -175,53 +175,122 @@ function TemplateDetailModal({
 }
 
 // =============================================================================
-// Recent project row
+// Clone card (appears in the template grid)
 // =============================================================================
 
-function LastOpenedCard({ project, onDelete }: { project: RecentProject; onDelete: (projectId: string) => void }) {
+function CloneCard({ onSelect, disabled }: { onSelect: () => void; disabled: boolean }) {
 	return (
-		<a
-			href={`/p/${project.id}`}
+		<button
+			onClick={onSelect}
+			disabled={disabled}
 			className={cn(
-				'group/card relative block rounded-lg border border-border p-4',
+				`
+					group flex cursor-pointer flex-col items-center gap-2 rounded-lg border
+					border-border p-4
+				`,
 				'bg-bg-secondary/60 backdrop-blur-sm transition-all',
 				'hover:border-accent/50 hover:bg-bg-secondary/80',
 				`
 					focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2
 					focus-visible:ring-offset-bg-primary focus-visible:outline-none
 				`,
+				'disabled:pointer-events-none disabled:opacity-50',
 			)}
 		>
-			<div className="flex items-center justify-between">
-				<div className="flex flex-col gap-1">
-					<span className="text-sm font-semibold text-text-primary">{project.name ?? project.id.slice(0, 12)}</span>
-					<span className="text-xs text-text-secondary/60">{formatRelativeTime(project.timestamp)}</span>
-				</div>
-				<button
-					onClick={(event) => {
-						event.preventDefault();
-						event.stopPropagation();
-						onDelete(project.id);
-					}}
-					className={cn(
-						'rounded-sm p-1 text-text-secondary/60 transition-colors',
-						`
-							opacity-0
-							group-hover/card:opacity-100
-						`,
-						`
-							cursor-pointer
-							hover:text-error
-						`,
-					)}
-					aria-label={`Remove ${project.name ?? project.id.slice(0, 12)} from recent projects`}
-				>
-					<X className="size-3.5" />
-				</button>
+			<div
+				className={cn(
+					'flex size-8 items-center justify-center rounded-md',
+					'bg-accent/10 text-accent transition-colors',
+					'group-hover:bg-accent/20',
+				)}
+			>
+				<Copy className="size-4" />
 			</div>
-		</a>
+			<span className="text-center text-xs font-medium text-text-primary">Clone a project</span>
+		</button>
 	);
 }
+
+// =============================================================================
+// Clone modal
+// =============================================================================
+
+function CloneModal({
+	open,
+	onOpenChange,
+	cloneInput,
+	onCloneInputChange,
+	parsedProjectId,
+	onClone,
+	cloneError,
+	isLoading,
+}: {
+	open: boolean;
+	onOpenChange: (open: boolean) => void;
+	cloneInput: string;
+	onCloneInputChange: (value: string) => void;
+	parsedProjectId: string | undefined;
+	onClone: () => void;
+	cloneError: string | undefined;
+	isLoading: boolean;
+}) {
+	const inputReference = useRef<HTMLInputElement>(null);
+
+	return (
+		<Modal open={open} onOpenChange={onOpenChange} title="Clone a project">
+			<ModalBody>
+				<p className="mb-3 text-sm text-text-secondary">Paste a project URL or ID to create a copy.</p>
+				<div className="relative">
+					<Copy
+						className="
+							pointer-events-none absolute top-1/2 left-3 z-10 size-3.5
+							-translate-y-1/2 text-text-secondary
+						"
+					/>
+					<input
+						ref={inputReference}
+						type="text"
+						value={cloneInput}
+						onChange={(event) => onCloneInputChange(event.target.value)}
+						onKeyDown={(event) => {
+							if (event.key === 'Enter' && parsedProjectId) {
+								onClone();
+							}
+						}}
+						placeholder="Project URL or ID"
+						disabled={isLoading}
+						className={cn(
+							'h-9 w-full rounded-md border bg-bg-secondary/60 pr-3 pl-9',
+							`
+								text-xs text-text-primary
+								placeholder:text-text-secondary/50
+							`,
+							'backdrop-blur-sm transition-colors',
+							`
+								focus-within:border-accent
+								focus:outline-none
+							`,
+							cloneError ? 'border-error/50' : 'border-border',
+						)}
+					/>
+				</div>
+				{cloneError && <p className="mt-2 text-xs text-error">{cloneError}</p>}
+			</ModalBody>
+			<ModalFooter>
+				<Button variant="secondary" size="sm" onClick={() => onOpenChange(false)}>
+					Cancel
+				</Button>
+				<Button size="sm" onClick={onClone} disabled={isLoading || !parsedProjectId} isLoading={isLoading} loadingText="Cloning...">
+					Clone
+				</Button>
+			</ModalFooter>
+		</Modal>
+	);
+}
+
+// =============================================================================
+// Recent project row
+// =============================================================================
 
 function RecentProjectRow({ project, onDelete }: { project: RecentProject; onDelete: (projectId: string) => void }) {
 	return (
@@ -295,6 +364,7 @@ export default function LandingPage() {
 	const [selectedTemplateId, setSelectedTemplateId] = useState<string | undefined>();
 	const [recentProjects, setRecentProjects] = useState(getRecentProjects);
 	const [cloneInput, setCloneInput] = useState('');
+	const [cloneModalOpen, setCloneModalOpen] = useState(false);
 	const [loadingMessage, setLoadingMessage] = useState<string | undefined>();
 	const [cloneError, setCloneError] = useState<string | undefined>();
 
@@ -347,6 +417,24 @@ export default function LandingPage() {
 		}
 	}, []);
 
+	const handleOpenCloneModal = useCallback(() => {
+		setCloneModalOpen(true);
+		setCloneInput('');
+		setCloneError(undefined);
+	}, []);
+
+	const handleCloseCloneModal = useCallback((open: boolean) => {
+		if (!open) {
+			setCloneModalOpen(false);
+			setCloneError(undefined);
+		}
+	}, []);
+
+	const handleCloneInputChange = useCallback((value: string) => {
+		setCloneInput(value);
+		setCloneError(undefined);
+	}, []);
+
 	const handleClone = useCallback(async () => {
 		if (!parsedProjectId) return;
 
@@ -361,15 +449,6 @@ export default function LandingPage() {
 			setCloneError(error instanceof Error ? error.message : 'Failed to clone project');
 		}
 	}, [parsedProjectId]);
-
-	const handleCloneKeyDown = useCallback(
-		(event: React.KeyboardEvent) => {
-			if (event.key === 'Enter' && parsedProjectId) {
-				void handleClone();
-			}
-		},
-		[handleClone, parsedProjectId],
-	);
 
 	const handleDeleteProject = useCallback((projectId: string) => {
 		removeProject(projectId);
@@ -425,6 +504,18 @@ export default function LandingPage() {
 				isLoading={isLoading}
 			/>
 
+			{/* Clone modal */}
+			<CloneModal
+				open={cloneModalOpen && !isLoading}
+				onOpenChange={handleCloseCloneModal}
+				cloneInput={cloneInput}
+				onCloneInputChange={handleCloneInputChange}
+				parsedProjectId={parsedProjectId}
+				onClone={() => void handleClone()}
+				cloneError={cloneError}
+				isLoading={isLoading}
+			/>
+
 			{/* Header actions — top right */}
 			<div className="fixed top-4 right-4 z-10 flex items-center gap-1">
 				<a
@@ -467,22 +558,7 @@ export default function LandingPage() {
 				<div className="mb-10 flex flex-col items-center gap-3">
 					<Hexagon className="size-8 text-accent" strokeWidth={1.5} />
 					<h1 className="text-xl font-semibold tracking-tight text-text-primary">Worker IDE</h1>
-					<p className="text-center text-xs text-text-secondary">Build and preview Cloudflare Workers in the browser</p>
 				</div>
-
-				{/* Continue — last opened project */}
-				{recentProjects.length > 0 && (
-					<section className="mb-8">
-						<h2
-							className="
-								mb-3 text-xs font-medium tracking-wider text-text-secondary uppercase
-							"
-						>
-							Continue
-						</h2>
-						<LastOpenedCard project={recentProjects[0]} onDelete={handleDeleteProject} />
-					</section>
-				)}
 
 				{/* Template cards */}
 				<section className="mb-8">
@@ -499,76 +575,21 @@ export default function LandingPage() {
 							sm:grid-cols-4
 						"
 					>
-						{templatesLoaded
-							? templates.map((template) => (
+						{templatesLoaded ? (
+							<>
+								{templates.map((template) => (
 									<TemplateCard key={template.id} template={template} onSelect={handleSelectTemplate} disabled={isLoading} />
-								))
-							: Array.from({ length: 4 }, (_, index) => <TemplateCardSkeleton key={index} />)}
+								))}
+								<CloneCard onSelect={handleOpenCloneModal} disabled={isLoading} />
+							</>
+						) : (
+							Array.from({ length: 4 }, (_, index) => <TemplateCardSkeleton key={index} />)
+						)}
 					</div>
-				</section>
-
-				{/* Clone / Remix */}
-				<section className="mb-8">
-					<h2
-						className="
-							mb-3 text-xs font-medium tracking-wider text-text-secondary uppercase
-						"
-					>
-						Clone a project
-					</h2>
-					<div className="relative">
-						<Copy
-							className="
-								pointer-events-none absolute top-1/2 left-3 z-10 size-3.5
-								-translate-y-1/2 text-text-secondary
-							"
-						/>
-						<input
-							type="text"
-							value={cloneInput}
-							onChange={(event) => {
-								setCloneInput(event.target.value);
-								setCloneError(undefined);
-							}}
-							onKeyDown={handleCloneKeyDown}
-							placeholder="Paste project URL or ID"
-							disabled={isLoading}
-							className={cn(
-								'h-9 w-full rounded-md border bg-bg-secondary/60 pr-16 pl-9',
-								`
-									text-xs text-text-primary
-									placeholder:text-text-secondary/50
-								`,
-								'backdrop-blur-sm transition-colors',
-								`
-									focus-within:border-accent
-									focus:outline-none
-								`,
-								cloneError ? 'border-error/50' : 'border-border',
-							)}
-						/>
-						<button
-							onClick={() => void handleClone()}
-							disabled={isLoading || !parsedProjectId}
-							className={cn(
-								'absolute top-1/2 right-1.5 -translate-y-1/2 rounded-sm px-2.5 py-1',
-								'text-xs font-medium transition-colors',
-								parsedProjectId && !isLoading
-									? `
-										cursor-pointer bg-accent text-white
-										hover:bg-accent-hover
-									`
-									: 'cursor-not-allowed text-text-secondary opacity-40',
-							)}
-						>
-							Clone
-						</button>
-					</div>
-					{cloneError && <p className="mt-2 text-xs text-error">{cloneError}</p>}
 				</section>
 
 				{/* Recent projects */}
-				{recentProjects.length > 1 && (
+				{recentProjects.length > 0 && (
 					<section>
 						<h2
 							className="
@@ -586,7 +607,7 @@ export default function LandingPage() {
 								'divide-y divide-border',
 							)}
 						>
-							{recentProjects.slice(1).map((project) => (
+							{recentProjects.map((project) => (
 								<RecentProjectRow key={project.id} project={project} onDelete={handleDeleteProject} />
 							))}
 						</div>

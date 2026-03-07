@@ -86,11 +86,10 @@ const { getRecentProjects } = await import('@/lib/recent-projects');
 // =============================================================================
 
 describe('LandingPage', () => {
-	it('renders the page title and description', () => {
+	it('renders the page title', () => {
 		render(<LandingPage />);
 
 		expect(screen.getByText('Worker IDE')).toBeInTheDocument();
-		expect(screen.getByText('Build and preview Cloudflare Workers in the browser')).toBeInTheDocument();
 	});
 
 	it('renders the halftone background', () => {
@@ -108,12 +107,31 @@ describe('LandingPage', () => {
 		});
 	});
 
-	it('renders the clone section', () => {
+	it('renders a clone card in the template grid', async () => {
 		render(<LandingPage />);
 
-		expect(screen.getByText('Clone a project')).toBeInTheDocument();
-		expect(screen.getByPlaceholderText('Paste project URL or ID')).toBeInTheDocument();
-		expect(screen.getByRole('button', { name: 'Clone' })).toBeInTheDocument();
+		await waitFor(() => {
+			const cloneCard = screen.getByText('Clone a project').closest('button');
+			expect(cloneCard).toBeTruthy();
+		});
+	});
+
+	it('opens clone modal when clone card is clicked', async () => {
+		render(<LandingPage />);
+
+		await waitFor(() => {
+			expect(screen.getByText('Clone a project').closest('button')).toBeTruthy();
+		});
+
+		const cloneCard = screen.getByText('Clone a project').closest('button')!;
+		fireEvent.click(cloneCard);
+
+		await waitFor(() => {
+			expect(screen.getByRole('dialog')).toBeInTheDocument();
+		});
+
+		const dialog = screen.getByRole('dialog');
+		expect(within(dialog).getByPlaceholderText('Paste project URL or ID')).toBeInTheDocument();
 	});
 
 	it('renders theme toggle button', () => {
@@ -209,49 +227,93 @@ describe('LandingPage', () => {
 	// Clone input
 	// ---------------------------------------------------------------------------
 
-	it('disables clone button when input is empty', () => {
+	it('disables clone button in modal when input is empty', async () => {
 		render(<LandingPage />);
 
-		const cloneButton = screen.getByRole('button', { name: 'Clone' });
+		// Open clone modal
+		await waitFor(() => {
+			expect(screen.getByText('Clone a project').closest('button')).toBeTruthy();
+		});
+		fireEvent.click(screen.getByText('Clone a project').closest('button')!);
+
+		await waitFor(() => {
+			expect(screen.getByRole('dialog')).toBeInTheDocument();
+		});
+
+		const dialog = screen.getByRole('dialog');
+		const cloneButton = within(dialog).getByRole('button', { name: 'Clone' });
 		expect(cloneButton).toBeDisabled();
 	});
 
-	it('enables clone button when a valid 64-char hex ID is entered', async () => {
+	it('enables clone button in modal when a valid 64-char hex ID is entered', async () => {
 		const user = userEvent.setup();
 		render(<LandingPage />);
 
-		const input = screen.getByPlaceholderText('Paste project URL or ID');
+		// Open clone modal
+		await waitFor(() => {
+			expect(screen.getByText('Clone a project').closest('button')).toBeTruthy();
+		});
+		fireEvent.click(screen.getByText('Clone a project').closest('button')!);
+
+		await waitFor(() => {
+			expect(screen.getByRole('dialog')).toBeInTheDocument();
+		});
+
+		const dialog = screen.getByRole('dialog');
+		const input = within(dialog).getByPlaceholderText('Paste project URL or ID');
 		const validId = 'a'.repeat(64);
 		await user.type(input, validId);
 
-		const cloneButton = screen.getByRole('button', { name: 'Clone' });
+		const cloneButton = within(dialog).getByRole('button', { name: 'Clone' });
 		expect(cloneButton).not.toBeDisabled();
 	});
 
-	it('enables clone button when a full project URL is entered', async () => {
+	it('enables clone button in modal when a full project URL is entered', async () => {
 		const user = userEvent.setup();
 		render(<LandingPage />);
 
-		const input = screen.getByPlaceholderText('Paste project URL or ID');
+		// Open clone modal
+		await waitFor(() => {
+			expect(screen.getByText('Clone a project').closest('button')).toBeTruthy();
+		});
+		fireEvent.click(screen.getByText('Clone a project').closest('button')!);
+
+		await waitFor(() => {
+			expect(screen.getByRole('dialog')).toBeInTheDocument();
+		});
+
+		const dialog = screen.getByRole('dialog');
+		const input = within(dialog).getByPlaceholderText('Paste project URL or ID');
 		const validUrl = `https://example.dev/p/${'b'.repeat(64)}`;
 		await user.type(input, validUrl);
 
-		const cloneButton = screen.getByRole('button', { name: 'Clone' });
+		const cloneButton = within(dialog).getByRole('button', { name: 'Clone' });
 		expect(cloneButton).not.toBeDisabled();
 	});
 
-	it('keeps clone button disabled for invalid input', async () => {
+	it('keeps clone button disabled for invalid input in modal', async () => {
 		const user = userEvent.setup();
 		render(<LandingPage />);
 
-		const input = screen.getByPlaceholderText('Paste project URL or ID');
+		// Open clone modal
+		await waitFor(() => {
+			expect(screen.getByText('Clone a project').closest('button')).toBeTruthy();
+		});
+		fireEvent.click(screen.getByText('Clone a project').closest('button')!);
+
+		await waitFor(() => {
+			expect(screen.getByRole('dialog')).toBeInTheDocument();
+		});
+
+		const dialog = screen.getByRole('dialog');
+		const input = within(dialog).getByPlaceholderText('Paste project URL or ID');
 		await user.type(input, 'not-a-valid-id');
 
-		const cloneButton = screen.getByRole('button', { name: 'Clone' });
+		const cloneButton = within(dialog).getByRole('button', { name: 'Clone' });
 		expect(cloneButton).toBeDisabled();
 	});
 
-	it('clones a project when clone button is clicked', async () => {
+	it('clones a project when clone button is clicked in modal', async () => {
 		const user = userEvent.setup();
 		const mockedCloneProject = vi.mocked(cloneProject);
 		mockedCloneProject.mockResolvedValueOnce({
@@ -262,11 +324,22 @@ describe('LandingPage', () => {
 
 		render(<LandingPage />);
 
-		const input = screen.getByPlaceholderText('Paste project URL or ID');
+		// Open clone modal
+		await waitFor(() => {
+			expect(screen.getByText('Clone a project').closest('button')).toBeTruthy();
+		});
+		fireEvent.click(screen.getByText('Clone a project').closest('button')!);
+
+		await waitFor(() => {
+			expect(screen.getByRole('dialog')).toBeInTheDocument();
+		});
+
+		const dialog = screen.getByRole('dialog');
+		const input = within(dialog).getByPlaceholderText('Paste project URL or ID');
 		const validId = 'c'.repeat(64);
 		await user.type(input, validId);
 
-		const cloneButton = screen.getByRole('button', { name: 'Clone' });
+		const cloneButton = within(dialog).getByRole('button', { name: 'Clone' });
 		fireEvent.click(cloneButton);
 
 		expect(screen.getByText('Cloning project...')).toBeInTheDocument();
@@ -283,11 +356,22 @@ describe('LandingPage', () => {
 
 		render(<LandingPage />);
 
-		const input = screen.getByPlaceholderText('Paste project URL or ID');
+		// Open clone modal
+		await waitFor(() => {
+			expect(screen.getByText('Clone a project').closest('button')).toBeTruthy();
+		});
+		fireEvent.click(screen.getByText('Clone a project').closest('button')!);
+
+		await waitFor(() => {
+			expect(screen.getByRole('dialog')).toBeInTheDocument();
+		});
+
+		const dialog = screen.getByRole('dialog');
+		const input = within(dialog).getByPlaceholderText('Paste project URL or ID');
 		const validId = 'd'.repeat(64);
 		await user.type(input, validId);
 
-		const cloneButton = screen.getByRole('button', { name: 'Clone' });
+		const cloneButton = within(dialog).getByRole('button', { name: 'Clone' });
 		fireEvent.click(cloneButton);
 
 		await waitFor(() => {
@@ -305,7 +389,16 @@ describe('LandingPage', () => {
 		expect(screen.queryByText('Recent projects')).not.toBeInTheDocument();
 	});
 
-	it('renders recent projects when available', () => {
+	it('renders recent projects section with a single project', () => {
+		vi.mocked(getRecentProjects).mockReturnValue([{ id: 'e'.repeat(64), timestamp: Date.now() - 3_600_000, name: 'My Project' }]);
+
+		render(<LandingPage />);
+
+		expect(screen.getByText('Recent projects')).toBeInTheDocument();
+		expect(screen.getByText('My Project')).toBeInTheDocument();
+	});
+
+	it('renders all recent projects when multiple available', () => {
 		vi.mocked(getRecentProjects).mockReturnValue([
 			{ id: 'e'.repeat(64), timestamp: Date.now() - 3_600_000, name: 'My Project' },
 			{ id: 'f'.repeat(64), timestamp: Date.now() - 86_400_000, name: 'Old Project' },
