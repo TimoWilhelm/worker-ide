@@ -11,7 +11,7 @@ import { serializeMessage, parseServerMessage, type ClientMessage, type ServerMe
 
 import type { ApiRoutes } from '@server/routes';
 import type { AIModelId } from '@shared/constants';
-import type { AgentMode, AiSession, AssetSettings, PendingFileChange, ProjectTemplateMeta } from '@shared/types';
+import type { AgentMode, AiSession, AssetSettings, PendingFileChange, ProjectTemplateMeta, UIMessage } from '@shared/types';
 
 /**
  * Create a typed API client for a specific project.
@@ -334,7 +334,7 @@ export async function downloadDebugLog(projectId: string, logId: string, session
  * Parameters for starting an AI agent chat run.
  */
 export interface StartAgentChatParameters {
-	messages: unknown[];
+	messages: UIMessage[];
 	mode?: AgentMode;
 	sessionId?: string;
 	model?: AIModelId;

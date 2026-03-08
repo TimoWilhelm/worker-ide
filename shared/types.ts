@@ -3,6 +3,8 @@
  * These types are used by both the frontend and worker backend.
  */
 
+import type { UIMessage } from '@tanstack/ai-client';
+
 // =============================================================================
 // File System Types
 // =============================================================================
@@ -71,7 +73,6 @@ export interface SelectionRange {
  * Re-export UIMessage from TanStack AI for use throughout the app.
  * This is the primary message type for the AI chat interface.
  */
-export type { UIMessage } from '@tanstack/ai-client';
 
 /**
  * Agent operating mode.
@@ -121,7 +122,7 @@ export interface AiSession {
 	/** Short AI-generated title (<10 words), or fallback derived from first user message. */
 	title: string;
 	createdAt: number;
-	history: unknown[];
+	history: UIMessage[];
 	/** Maps message index (as string key) to snapshot ID for revert buttons */
 	messageSnapshots?: Record<string, string>;
 	/** Maps message index (as string key) to the AgentMode that was active when the user message was sent */
@@ -754,3 +755,5 @@ export interface GitMergeResult {
 	/** Paths with conflicts, if any */
 	conflicts?: string[];
 }
+
+export { type UIMessage } from '@tanstack/ai-client';

@@ -337,8 +337,7 @@ export class AgentLogger {
 			await fs.mkdir(logsDirectory, { recursive: true });
 
 			const logData = this.toJSON();
-			// eslint-disable-next-line unicorn/no-null -- JSON.stringify requires null as replacer argument
-			await fs.writeFile(`${logsDirectory}/${this.id}.json`, JSON.stringify(logData, null, 2));
+			await fs.writeFile(`${logsDirectory}/${this.id}.json`, JSON.stringify(logData, undefined, 2));
 
 			await this.cleanupOldLogs(logsDirectory);
 		} catch (error) {

@@ -20,6 +20,7 @@ import { agentRunnerNamespace } from '../lib/durable-object-namespaces';
 import { httpError } from '../lib/http-error';
 
 import type { AppEnvironment } from '../types';
+import type { UIMessage } from '@shared/types';
 
 /**
  * AI routes - all routes are prefixed with /api
@@ -51,7 +52,8 @@ export const aiRoutes = new Hono<AppEnvironment>()
 
 		const session = await agentRunnerStub.startAgent({
 			projectId,
-			messages,
+			// eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- Zod validates structure; UIMessage[] assertion at the single wire boundary
+			messages: messages as UIMessage[],
 			mode,
 			sessionId,
 			model,

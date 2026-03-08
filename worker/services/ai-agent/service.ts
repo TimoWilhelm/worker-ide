@@ -224,7 +224,7 @@ export class AIAgentService {
 			sessionData: {
 				createdAt: number;
 				title?: string;
-				history: unknown[];
+				history: UIMessage[];
 				messageSnapshots?: Record<string, string>;
 				messageModes?: Record<string, AgentMode>;
 				contextTokensUsed?: number;
@@ -250,7 +250,7 @@ export class AIAgentService {
 	 */
 	runAgentStream(
 		messages: ModelMessage[],
-		uiMessages: unknown[],
+		uiMessages: UIMessage[],
 		apiKey: string,
 		abortController: AbortController,
 		outputLogs?: string,
@@ -259,8 +259,7 @@ export class AIAgentService {
 		// Initialized with the conversation history the client sent (UIMessage[]),
 		// so the processor already contains all prior messages when the new
 		// assistant message is appended during streaming.
-		// eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- wire format cast: uiMessages is UIMessage[] from the frontend
-		const processor = new StreamProcessor({ initialMessages: uiMessages as UIMessage[] });
+		const processor = new StreamProcessor({ initialMessages: uiMessages });
 
 		// Mount the filesystem *before* creating the stream so that the
 		// AsyncLocalStorage context established by withMounts() propagates
@@ -1418,8 +1417,7 @@ export class AIAgentService {
 			sessionId: this.sessionId,
 			changes: [],
 		};
-		// eslint-disable-next-line unicorn/no-null -- JSON.stringify requires null as replacer argument
-		await fs.writeFile(`${snapshotDirectory}/metadata.json`, JSON.stringify(metadata, null, 2));
+		await fs.writeFile(`${snapshotDirectory}/metadata.json`, JSON.stringify(metadata, undefined, 2));
 
 		await this.cleanupOldSnapshots(10);
 
@@ -1451,8 +1449,7 @@ export class AIAgentService {
 			const raw = await fs.readFile(metadataPath, 'utf8');
 			const metadata: SnapshotMetadata = JSON.parse(raw);
 			metadata.changes.push({ path: change.path, action: change.action });
-			// eslint-disable-next-line unicorn/no-null -- JSON.stringify requires null as replacer argument
-			await fs.writeFile(metadataPath, JSON.stringify(metadata, null, 2));
+			await fs.writeFile(metadataPath, JSON.stringify(metadata, undefined, 2));
 		} catch {
 			// Non-fatal
 		}

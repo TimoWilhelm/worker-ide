@@ -363,8 +363,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 			if (currentSessionId) {
 				void loadAiSession(projectId, currentSessionId).then((serverSession) => {
 					if (serverSession && serverSession.history.length > 0) {
-						// eslint-disable-next-line @typescript-eslint/consistent-type-assertions, @typescript-eslint/no-explicit-any -- wire format cast
-						setChatMessages(serverSession.history as any[]);
+						setChatMessages(serverSession.history);
 					}
 				});
 			}
@@ -503,15 +502,12 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 				}
 
 				if (serverSession && serverSession.history.length > 0) {
-					// eslint-disable-next-line @typescript-eslint/consistent-type-assertions, @typescript-eslint/no-explicit-any -- wire format cast
-					const snapshotMessages = serverSession.history as any[];
-
 					// Update both useChat AND the Zustand store atomically to
 					// prevent the bi-directional sync from echoing.
 					skipNextReverseSyncReference.current = true;
 					skipNextForwardSyncReference.current = true;
-					useStore.setState({ history: snapshotMessages });
-					setChatMessages(snapshotMessages);
+					useStore.setState({ history: serverSession.history });
+					setChatMessages(serverSession.history);
 
 					// Restore tool metadata and errors from the snapshot
 					handleSessionLoaded({

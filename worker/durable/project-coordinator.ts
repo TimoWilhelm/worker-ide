@@ -177,17 +177,16 @@ export class ProjectCoordinator extends DurableObject {
 
 			const participantId = crypto.randomUUID();
 			const color = this.nextColor();
+			/* eslint-disable unicorn/no-null -- Participant wire format uses null */
 			const attachment: ParticipantAttachment = {
 				id: participantId,
 				color,
-				// eslint-disable-next-line unicorn/no-null -- Participant wire format uses null
 				file: null,
-				// eslint-disable-next-line unicorn/no-null -- Participant wire format uses null
 				cursor: null,
-				// eslint-disable-next-line unicorn/no-null -- Participant wire format uses null
 				selection: null,
 				joined: false,
 			};
+			/* eslint-enable unicorn/no-null */
 
 			this.ctx.acceptWebSocket(server);
 			this.setAttachment(server, attachment);
@@ -472,12 +471,11 @@ export class ProjectCoordinator extends DurableObject {
 			if (data.type === 'cursor-update') {
 				const att = this.getAttachment(ws);
 				if (!att?.joined) return;
-				// eslint-disable-next-line unicorn/no-null -- Participant wire format uses null
+				/* eslint-disable unicorn/no-null -- Participant wire format uses null */
 				att.file = data.file ?? null;
-				// eslint-disable-next-line unicorn/no-null -- Participant wire format uses null
 				att.cursor = data.cursor ?? null;
-				// eslint-disable-next-line unicorn/no-null -- Participant wire format uses null
 				att.selection = data.selection ?? null;
+				/* eslint-enable unicorn/no-null */
 				this.setAttachment(ws, att);
 				this.sendToOthersJoined(
 					ws,

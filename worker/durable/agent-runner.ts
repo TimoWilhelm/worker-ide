@@ -31,7 +31,7 @@ import { AIAgentService } from '../services/ai-agent';
 import { cleanupSessionArtifacts, cleanupTimestampPlans } from '../services/ai-agent/session-cleanup';
 
 import type { AIModelId } from '@shared/constants';
-import type { AgentSessionStatus, AiSession, PendingFileChange } from '@shared/types';
+import type { AgentSessionStatus, AiSession, PendingFileChange, UIMessage } from '@shared/types';
 
 /**
  * Maximum number of recent stream events to buffer for reconnection.
@@ -65,7 +65,7 @@ const HEARTBEAT_INTERVAL_MS = 30_000;
  */
 export interface StartAgentParameters {
 	projectId: string;
-	messages: unknown[];
+	messages: UIMessage[];
 	mode?: 'code' | 'plan' | 'ask';
 	sessionId?: string;
 	model?: string;
@@ -450,14 +450,19 @@ export class AgentRunner extends DurableObject {
 		// Early-persist the session with the incoming messages so that a
 		// reconnecting client (e.g. browser back/forward) sees the full
 		// conversation history even if the agent loop hasn't persisted yet.
-		// eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- wire format from frontend
-		const incomingHistory = parameters.messages as AiSession['history'];
-		// eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- fallback for first-ever persist
-		const base = existingSession ?? ({} as Partial<AiSession>);
+		const incomingHistory = parameters.messages;
+		const emptySession: Partial<AiSession> = {};
+		const base = existingSession ?? emptySession;
+
+		// Derive a placeholder title from the last user message until the AI generates a proper one
+		const lastUserMessage = parameters.messages.toReversed().find((message) => message.role === 'user');
+		const firstTextPart = lastUserMessage?.parts.find((part) => part.type === 'text');
+		const promptPreview = (firstTextPart?.type === 'text' ? firstTextPart.content.slice(0, 80) : undefined) || 'New session';
+
 		this.ctx.storage.kv.put(`sessionData:${sessionId}`, {
 			...base,
 			id: sessionId,
-			title: base.title ?? 'New session',
+			title: base.title ?? promptPreview,
 			createdAt: base.createdAt ?? Date.now(),
 			history: incomingHistory,
 			revertedAt: undefined,
@@ -495,8 +500,7 @@ export class AgentRunner extends DurableObject {
 			const model = (parameters.model ?? DEFAULT_AI_MODEL) as AIModelId;
 
 			// Convert UIMessage[] to ModelMessage[]
-			// eslint-disable-next-line @typescript-eslint/consistent-type-assertions, @typescript-eslint/no-explicit-any -- UIMessage format from frontend is loosely typed at the wire boundary
-			const modelMessages = convertMessagesToModelMessages(parameters.messages as any);
+			const modelMessages = convertMessagesToModelMessages(parameters.messages);
 
 			const agentService = new AIAgentService(
 				PROJECT_ROOT,

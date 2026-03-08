@@ -105,10 +105,7 @@ export function useAiSessions({
 			const restoredSnapshots = snapshotsRecordToMap(data.messageSnapshots);
 			const restoredModes = messageModesRecordToMap(data.messageModes);
 			createdAtReference.current = data.createdAt;
-			// AiSession.history is unknown[] for wire-format flexibility.
-			// Cast to UIMessage[] — the store expects UIMessage[].
-			// eslint-disable-next-line @typescript-eslint/consistent-type-assertions, @typescript-eslint/no-explicit-any -- wire format cast
-			loadSession(data.history as any[], data.id, restoredSnapshots, data.contextTokensUsed, restoredModes);
+			loadSession(data.history, data.id, restoredSnapshots, data.contextTokensUsed, restoredModes);
 			// Restore persisted tool metadata and errors so loaded sessions render
 			// the same rich UI (edit stats, line counts, error labels) as live ones.
 			onSessionLoaded?.({ toolMetadata: data.toolMetadata, toolErrors: data.toolErrors });
@@ -175,8 +172,7 @@ export function useAiSessions({
 						const restoredSnapshots = snapshotsRecordToMap(data.messageSnapshots);
 						const restoredModes = messageModesRecordToMap(data.messageModes);
 						createdAtReference.current = data.createdAt;
-						// eslint-disable-next-line @typescript-eslint/consistent-type-assertions, @typescript-eslint/no-explicit-any -- wire format cast
-						loadSession(data.history as any[], data.id, restoredSnapshots, data.contextTokensUsed, restoredModes);
+						loadSession(data.history, data.id, restoredSnapshots, data.contextTokensUsed, restoredModes);
 						// Restore persisted tool metadata and errors
 						onSessionLoaded?.({ toolMetadata: data.toolMetadata, toolErrors: data.toolErrors });
 						// Restore the latest debug log download button for this session

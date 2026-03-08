@@ -21,8 +21,8 @@ import { useStore } from '@/lib/store';
 import { isNetworkError } from '@/lib/utils';
 
 import type { AIModelId } from '@shared/constants';
-import type { AgentMode } from '@shared/types';
-import type { StreamChunk } from '@tanstack/ai';
+import type { AgentMode, UIMessage } from '@shared/types';
+import type { ModelMessage, StreamChunk } from '@tanstack/ai';
 
 /**
  * Timeout for stale session detection during reconnection (ms).
@@ -51,7 +51,11 @@ interface WebSocketAdapterOptions {
  * We define it here to avoid importing internal types.
  */
 export interface ConnectionAdapter {
-	connect: (messages: Array<unknown>, data?: Record<string, unknown>, abortSignal?: AbortSignal) => AsyncIterable<StreamChunk>;
+	connect: (
+		messages: UIMessage[] | ModelMessage[],
+		data?: Record<string, unknown>,
+		abortSignal?: AbortSignal,
+	) => AsyncIterable<StreamChunk>;
 }
 
 // =============================================================================
@@ -214,7 +218,8 @@ export function createWebSocketConnectionAdapter(options: WebSocketAdapterOption
 				// New session: start the agent via HTTP POST
 				try {
 					const result = await startAgentChat(projectId, {
-						messages,
+						// eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- useChat always passes UIMessage[]; narrow at adapter boundary
+						messages: messages as UIMessage[],
 						mode: getMode(),
 						sessionId: currentSessionId,
 						model: getModel(),

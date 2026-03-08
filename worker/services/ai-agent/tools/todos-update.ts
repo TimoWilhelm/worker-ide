@@ -70,8 +70,7 @@ async function writeTodos(todos: TodoItem[], projectRoot: string, sessionId?: st
 	const filePath = getTodoFilePath(projectRoot, sessionId);
 	const directory = filePath.slice(0, filePath.lastIndexOf('/'));
 	await fs.mkdir(directory, { recursive: true });
-	// eslint-disable-next-line unicorn/no-null -- JSON.stringify requires null as replacer argument
-	await fs.writeFile(filePath, JSON.stringify(todos, null, 2));
+	await fs.writeFile(filePath, JSON.stringify(todos, undefined, 2));
 }
 
 export async function execute(

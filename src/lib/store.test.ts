@@ -188,31 +188,29 @@ describe('AI slice', () => {
 
 describe('Collaboration slice', () => {
 	it('adds a participant', () => {
+		/* eslint-disable unicorn/no-null -- Participant wire format uses null */
 		useStore.getState().addParticipant({
 			id: 'user1',
 			color: '#f97316',
-			// eslint-disable-next-line unicorn/no-null -- Participant type uses null
 			file: null,
-			// eslint-disable-next-line unicorn/no-null -- Participant type uses null
 			cursor: null,
-			// eslint-disable-next-line unicorn/no-null -- Participant type uses null
 			selection: null,
 		});
+		/* eslint-enable unicorn/no-null */
 
 		expect(useStore.getState().participants).toHaveLength(1);
 	});
 
 	it('removes a participant', () => {
+		/* eslint-disable unicorn/no-null -- Participant wire format uses null */
 		useStore.getState().addParticipant({
 			id: 'user1',
 			color: '#f97316',
-			// eslint-disable-next-line unicorn/no-null -- Participant type uses null
 			file: null,
-			// eslint-disable-next-line unicorn/no-null -- Participant type uses null
 			cursor: null,
-			// eslint-disable-next-line unicorn/no-null -- Participant type uses null
 			selection: null,
 		});
+		/* eslint-enable unicorn/no-null */
 		useStore.getState().removeParticipant('user1');
 
 		expect(useStore.getState().participants).toHaveLength(0);
