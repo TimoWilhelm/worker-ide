@@ -86,7 +86,10 @@ export function PreviewPanel({ projectId, iframeReference, className }: PreviewP
 		};
 	}, [handleRefresh]);
 
-	// Sync the global ref with the prop-based ref so the WebSocket handler can access the iframe
+	// Sync the global ref with the local ref so the WebSocket handler can
+	// access the iframe. Intentionally has no dependency array — the global
+	// ref must stay in sync after every render since React may replace the
+	// underlying DOM node (e.g. when the iframe key changes on refresh).
 	useEffect(() => {
 		previewIframeReference.current = iframeReference.current ?? undefined;
 		return () => {

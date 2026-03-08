@@ -310,13 +310,16 @@ export function useChangeReview({ projectId }: { projectId: string }) {
 		async (sessionId?: string) => {
 			const revertPromises: Promise<unknown>[] = [];
 
+			// Snapshot the pending entries we need to act on BEFORE mutating the
+			// store. This avoids reading stale closure state after rejectAllChanges.
+			const changesToReject = [...pendingChanges.values()].filter(
+				(change) => change.status === 'pending' && (!sessionId || change.sessionId === sessionId),
+			);
+
 			// Optimistically update the cache for every pending file before any
 			// network requests. For edits with beforeContent, show the original
 			// content immediately. For partial reviews, compute the reconstruction.
-			for (const change of pendingChanges.values()) {
-				if (change.status !== 'pending') continue;
-				if (sessionId && change.sessionId !== sessionId) continue;
-
+			for (const change of changesToReject) {
 				const hasAcceptedHunks = change.hunkStatuses.includes('approved');
 
 				if (hasAcceptedHunks && change.beforeContent && change.afterContent) {
@@ -332,13 +335,11 @@ export function useChangeReview({ projectId }: { projectId: string }) {
 				}
 			}
 
-			// First pass: mark all pending hunkStatuses as rejected (session-scoped if provided)
+			// Mark all pending hunkStatuses as rejected (session-scoped if provided)
 			rejectAllChanges(sessionId);
 
-			for (const change of pendingChanges.values()) {
-				if (change.status !== 'pending') continue;
-				if (sessionId && change.sessionId !== sessionId) continue;
-
+			// Issue revert actions using the pre-mutation snapshot
+			for (const change of changesToReject) {
 				const hasAcceptedHunks = change.hunkStatuses.includes('approved');
 
 				if (hasAcceptedHunks) {
@@ -391,6 +392,7 @@ export function useChangeReview({ projectId }: { projectId: string }) {
 		sessionPendingCount,
 		canReject,
 		isReverting,
+		persistPendingChanges,
 		handleApproveChange,
 		handleRejectChange,
 		handleApproveHunk,

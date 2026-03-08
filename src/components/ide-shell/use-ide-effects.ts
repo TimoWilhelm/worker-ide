@@ -132,5 +132,5 @@ export function useIDEEffects({
 		return () => {
 			clearTimeout(timeoutId);
 		};
-	}, [cursorUpdateTimeoutReference]);
+	});
 }

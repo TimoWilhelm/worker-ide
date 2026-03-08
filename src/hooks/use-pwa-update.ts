@@ -6,12 +6,14 @@
  * with a "Reload" action when an update is available.
  */
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useRegisterSW } from 'virtual:pwa-register/react';
 
 import { toast } from '@/components/ui/toast-store';
 
 export function usePwaUpdate() {
+	const updateIntervalReference = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
+
 	const {
 		needRefresh: [needRefresh],
 		updateServiceWorker,
@@ -19,7 +21,7 @@ export function usePwaUpdate() {
 		onRegisteredSW(_swUrl, registration) {
 			if (registration) {
 				const intervalMs = 5 * 60 * 1000;
-				setInterval(async () => {
+				updateIntervalReference.current = setInterval(async () => {
 					if (!(!registration.installing && navigator)) return;
 
 					if ('connection' in navigator && !navigator.onLine) return;
@@ -36,6 +38,13 @@ export function usePwaUpdate() {
 			}
 		},
 	});
+
+	// Clean up the periodic update check interval on unmount
+	useEffect(() => {
+		return () => {
+			clearInterval(updateIntervalReference.current);
+		};
+	}, []);
 
 	useEffect(() => {
 		if (!needRefresh) return;

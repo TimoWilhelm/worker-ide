@@ -3,6 +3,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 
 import { useChangeReview } from '@/features/ai-assistant/hooks/use-change-review';
 import { computeDiffData, groupHunksIntoChanges, useFileContent } from '@/features/editor';
@@ -28,7 +29,23 @@ export function useEditorState({ projectId }: { projectId: string }) {
 		approveChange,
 		participants,
 		cursorPosition,
-	} = useStore();
+	} = useStore(
+		useShallow((state) => ({
+			activeFile: state.activeFile,
+			openFiles: state.openFiles,
+			unsavedChanges: state.unsavedChanges,
+			closeFile: state.closeFile,
+			markFileChanged: state.markFileChanged,
+			setCursorPosition: state.setCursorPosition,
+			goToFilePosition: state.goToFilePosition,
+			clearPendingGoTo: state.clearPendingGoTo,
+			pendingGoTo: state.pendingGoTo,
+			pendingChanges: state.pendingChanges,
+			approveChange: state.approveChange,
+			participants: state.participants,
+			cursorPosition: state.cursorPosition,
+		})),
+	);
 
 	// Git diff view (read-only git diffs in the editor)
 	const gitDiffView = useStore(selectGitDiffView);

@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Suspense } from 'react';
 import { expect, fn, within } from 'storybook/test';
 
@@ -20,6 +21,7 @@ const mockChangeReview: ReturnType<typeof useEditorState>['changeReview'] = {
 	unresolvedChanges: [],
 	pendingCount: 0,
 	sessionPendingCount: () => 0,
+	persistPendingChanges: fn(() => Promise.resolve()),
 	handleRejectAll: fn(() => Promise.resolve()),
 	handleApproveAll: fn(() => Promise.resolve()),
 };
@@ -97,6 +99,8 @@ const mockLayouts: ReturnType<typeof usePanelLayouts> = {
 
 const defaultMockLogCounts: LogCounts = { errors: 0, warnings: 0, logs: 0 };
 
+const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
 const meta = {
 	title: 'IDE/DesktopLayout',
 	component: DesktopLayout,
@@ -115,11 +119,13 @@ const meta = {
 	},
 	decorators: [
 		(Story) => (
-			<Suspense fallback={<div>Loading...</div>}>
-				<div className="flex h-full flex-col overflow-hidden bg-bg-primary">
-					<Story />
-				</div>
-			</Suspense>
+			<QueryClientProvider client={queryClient}>
+				<Suspense fallback={<div>Loading...</div>}>
+					<div className="flex h-full flex-col overflow-hidden bg-bg-primary">
+						<Story />
+					</div>
+				</Suspense>
+			</QueryClientProvider>
 		),
 	],
 } satisfies Meta<typeof DesktopLayout>;

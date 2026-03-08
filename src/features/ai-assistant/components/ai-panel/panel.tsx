@@ -23,7 +23,7 @@ import { Tooltip } from '@/components/ui/tooltip';
 import { setActiveSessionId, useAiSessions } from '@/features/ai-assistant/hooks/use-ai-sessions';
 import { getLogSnapshot } from '@/features/output';
 import { useSnapshots } from '@/features/snapshots';
-import { abortAgent, createApiClient, downloadDebugLog, loadAiSession, saveProjectPendingChanges } from '@/lib/api-client';
+import { abortAgent, createApiClient, downloadDebugLog, loadAiSession } from '@/lib/api-client';
 import { useStore } from '@/lib/store';
 import { cn, formatRelativeTime } from '@/lib/utils';
 import { retry } from '@shared/retry';
@@ -38,7 +38,6 @@ import { useChangeReview } from '../../hooks/use-change-review';
 import { useFileMention } from '../../hooks/use-file-mention';
 import { parseTextToSegments, segmentsHaveContent, segmentsToPlainText, type InputSegment } from '../../lib/input-segments';
 import { extractMessageText } from '../../lib/retry-helpers';
-import { pendingChangesMapToRecord } from '../../lib/session-serializers';
 import { createWebSocketConnectionAdapter, type ConnectionAdapter } from '../../lib/websocket-connection-adapter';
 import { AgentModeSelector } from '../agent-mode-selector';
 import { ChangedFilesSummary } from '../changed-files-summary';
@@ -126,19 +125,16 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	// Whether the currently viewed session has a running agent
 	const isCurrentSessionRunning = sessionId ? runningSessionIds.has(sessionId) : false;
 
-	// Keep stable references for useChat callbacks (avoid re-creating connection)
+	// Keep stable references for useChat callbacks (avoid re-creating connection).
+	// Synced in a single effect to reduce overhead.
 	const agentModeReference = useRef(agentMode);
 	const sessionIdReference = useRef(sessionId);
 	const selectedModelReference = useRef(selectedModel);
 	useEffect(() => {
 		agentModeReference.current = agentMode;
-	}, [agentMode]);
-	useEffect(() => {
 		sessionIdReference.current = sessionId;
-	}, [sessionId]);
-	useEffect(() => {
 		selectedModelReference.current = selectedModel;
-	}, [selectedModel]);
+	}, [agentMode, sessionId, selectedModel]);
 
 	// =========================================================================
 	// TanStack AI useChat setup
@@ -592,6 +588,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 
 	// Change review hook for accept/reject UI
 	const changeReview = useChangeReview({ projectId });
+	const { persistPendingChanges } = changeReview;
 
 	// Wrap clearHistory to start a new session.
 	// Pending changes are NOT cleared — they persist across sessions at the project level.
@@ -810,17 +807,6 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		[messageSnapshots],
 	);
 
-	// Persist updated pending changes to the project-level file after revert.
-	const persistPendingChangesAfterRevert = useCallback(async () => {
-		const { pendingChanges: currentPendingChanges } = useStore.getState();
-		try {
-			const record = pendingChangesMapToRecord(currentPendingChanges);
-			await saveProjectPendingChanges(projectId, record ?? {});
-		} catch (error) {
-			console.error('Failed to persist pending changes after revert:', error);
-		}
-	}, [projectId]);
-
 	// Confirm revert (called from the dialog).
 	// Cascade-reverts all snapshots from the clicked message forward within the session,
 	// then surgically clears only the affected pending changes.
@@ -895,7 +881,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 				// The DO truncates history, prunes snapshots, and sets revertedAt to
 				// prevent the stream's `finally` block from overwriting the reverted state.
 				queueMicrotask(() => {
-					void persistPendingChangesAfterRevert();
+					void persistPendingChanges();
 					void revertSession(messageIndex);
 				});
 
@@ -923,7 +909,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 			clearPendingChangesBySnapshots,
 			removeMessagesFrom,
 			setChatMessages,
-			persistPendingChangesAfterRevert,
+			persistPendingChanges,
 			revertSession,
 		],
 	);

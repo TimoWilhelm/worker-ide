@@ -17,6 +17,7 @@ const mockChangeReview = {
 	unresolvedChanges: [],
 	pendingCount: 0,
 	sessionPendingCount: () => 0,
+	persistPendingChanges: fn(() => Promise.resolve()),
 	handleRejectAll: fn(() => Promise.resolve()),
 	handleApproveAll: fn(() => Promise.resolve()),
 };

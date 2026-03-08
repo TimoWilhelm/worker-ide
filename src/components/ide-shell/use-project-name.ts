@@ -16,15 +16,21 @@ export function useProjectName({ projectId }: { projectId: string }) {
 
 	// Fetch project meta on mount
 	useEffect(() => {
+		let stale = false;
 		void (async () => {
 			try {
 				const meta = await fetchProjectMeta(projectId);
-				setProjectName(meta.name);
-				trackProject(projectId, meta.name);
+				if (!stale) {
+					setProjectName(meta.name);
+					trackProject(projectId, meta.name);
+				}
 			} catch {
 				// Project meta not available, use fallback
 			}
 		})();
+		return () => {
+			stale = true;
+		};
 	}, [projectId]);
 
 	// Focus name input when editing starts

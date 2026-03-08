@@ -63,10 +63,15 @@ function ErrorFallback({ error, resetErrorBoundary }: { error: Error; resetError
 	const [copied, setCopied] = useState(false);
 
 	function handleCopy() {
-		void navigator.clipboard.writeText(error.message).then(() => {
-			setCopied(true);
-			setTimeout(() => setCopied(false), 2000);
-		});
+		void navigator.clipboard
+			?.writeText(error.message)
+			.then(() => {
+				setCopied(true);
+				setTimeout(() => setCopied(false), 2000);
+			})
+			.catch(() => {
+				// Clipboard API unavailable (HTTP context, iframe restrictions, etc.)
+			});
 	}
 
 	return (
@@ -143,15 +148,24 @@ function isLandingPage(): boolean {
 /**
  * Cache of project existence check promises, keyed by projectId.
  * Prevents duplicate fetches when React re-renders during Suspense.
+ * False results are evicted after a short TTL so a page refresh can
+ * detect a project that was created after the initial check.
  */
 const projectExistsCache = new Map<string, Promise<boolean>>();
+const FALSE_RESULT_TTL_MS = 30_000;
 
 function checkProjectExists(projectId: string): Promise<boolean> {
 	let promise = projectExistsCache.get(projectId);
 	if (!promise) {
 		promise = fetchProjectMeta(projectId)
 			.then(() => true)
-			.catch(() => false);
+			.catch(() => false)
+			.then((exists) => {
+				if (!exists) {
+					setTimeout(() => projectExistsCache.delete(projectId), FALSE_RESULT_TTL_MS);
+				}
+				return exists;
+			});
 		projectExistsCache.set(projectId, promise);
 	}
 	return promise;
