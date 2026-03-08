@@ -12,10 +12,16 @@
  * 4. Add a new entry to the TEMPLATES array using defineTemplate()
  */
 
-// =============================================================================
-// Request Inspector template
-// =============================================================================
-
+import minimalGitignore from './fixtures/minimal/gitignore.txt?raw';
+import minimalIndexHtml from './fixtures/minimal/index.html?raw';
+import minimalAppTsx from './fixtures/minimal/src/app.tsx?raw';
+import minimalMainTsx from './fixtures/minimal/src/main.tsx?raw';
+import minimalStyleCss from './fixtures/minimal/src/style.css?raw';
+import minimalUtilitiesTs from './fixtures/minimal/src/utilities.ts?raw';
+import minimalMetaRaw from './fixtures/minimal/template.json?raw';
+import minimalTestUtilitiesTs from './fixtures/minimal/test/utilities.test.ts?raw';
+import minimalTsconfig from './fixtures/minimal/tsconfig.json?raw';
+import minimalWorkerIndexTs from './fixtures/minimal/worker/index.ts?raw';
 import requestInspectorGitignore from './fixtures/request-inspector/gitignore.txt?raw';
 import requestInspectorIndexHtml from './fixtures/request-inspector/index.html?raw';
 import requestInspectorAppTsx from './fixtures/request-inspector/src/app.tsx?raw';
@@ -74,6 +80,18 @@ function defineTemplate(metaRaw: string, files: Record<string, string>): Project
 // Template definitions
 // =============================================================================
 
+const minimalTemplate = defineTemplate(minimalMetaRaw, {
+	'tsconfig.json': minimalTsconfig,
+	'index.html': minimalIndexHtml,
+	'src/main.tsx': minimalMainTsx,
+	'src/app.tsx': minimalAppTsx,
+	'src/style.css': minimalStyleCss,
+	'src/utilities.ts': minimalUtilitiesTs,
+	'test/utilities.test.ts': minimalTestUtilitiesTs,
+	'worker/index.ts': minimalWorkerIndexTs,
+	'.gitignore': minimalGitignore,
+});
+
 const requestInspectorTemplate = defineTemplate(requestInspectorMetaRaw, {
 	'tsconfig.json': requestInspectorTsconfig,
 	'index.html': requestInspectorIndexHtml,
@@ -94,7 +112,7 @@ const requestInspectorTemplate = defineTemplate(requestInspectorMetaRaw, {
  * All available project templates.
  * The first template in the array is the default.
  */
-export const TEMPLATES: ProjectTemplate[] = [requestInspectorTemplate];
+export const TEMPLATES: ProjectTemplate[] = [requestInspectorTemplate, minimalTemplate];
 
 /** The default template used when no template is specified */
 export const DEFAULT_TEMPLATE_ID = 'request-inspector';

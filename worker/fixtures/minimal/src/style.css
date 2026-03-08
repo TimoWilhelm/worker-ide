@@ -1,0 +1,96 @@
+:root {
+	font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+	background: #f8f9fa;
+	color: #1a1a2e;
+}
+
+body {
+	margin: 0;
+	min-width: 320px;
+}
+
+#app {
+	max-width: 480px;
+	margin: 0 auto;
+	padding: 4rem 1rem;
+	text-align: center;
+}
+
+h1 {
+	font-size: 2em;
+	margin-bottom: 0.2em;
+}
+
+.subtitle {
+	color: #64748b;
+	margin-bottom: 2em;
+}
+
+.card {
+	background: #ffffff;
+	box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+	border-radius: 12px;
+	padding: 1.5em;
+	margin: 1em 0;
+}
+
+.message {
+	font-size: 1.1em;
+	font-weight: 500;
+	margin: 0 0 0.5em;
+}
+
+.timestamp {
+	color: #64748b;
+	font-size: 0.85em;
+	margin: 0 0 1em;
+}
+
+.error {
+	background: #fef2f2;
+	color: #dc2626;
+	padding: 0.75em 1em;
+	border-radius: 8px;
+	font-size: 0.9em;
+}
+
+.loading {
+	color: #64748b;
+}
+
+button {
+	border-radius: 6px;
+	border: none;
+	padding: 0.5em 1em;
+	font-size: 0.9em;
+	font-weight: 500;
+	cursor: pointer;
+	transition: all 0.2s;
+}
+
+button:disabled {
+	opacity: 0.5;
+	cursor: not-allowed;
+}
+
+.btn-primary {
+	background-color: #646cff;
+	color: white;
+}
+
+.btn-primary:hover:not(:disabled) {
+	background-color: #535bf2;
+}
+
+code {
+	background: #f1f5f9;
+	padding: 0.15em 0.4em;
+	border-radius: 4px;
+	font-size: 0.9em;
+}
+
+.hint {
+	font-size: 0.85em;
+	opacity: 0.6;
+	margin-top: 2em;
+}

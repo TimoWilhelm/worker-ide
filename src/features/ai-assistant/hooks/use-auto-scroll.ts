@@ -29,6 +29,8 @@ interface UseAutoScrollReturn {
 	hasNewContent: boolean;
 	/** Smoothly scroll to the bottom and re-enable auto-scroll. */
 	scrollToBottom: () => void;
+	/** Reset all scroll tracking state (call after replacing message history). */
+	resetScrollState: () => void;
 }
 
 /** Threshold in pixels — if within this distance of the bottom, consider "at bottom". */
@@ -50,6 +52,10 @@ export function useAutoScroll(): UseAutoScrollReturn {
 
 	// Track previous scrollHeight to detect new content
 	const previousScrollHeightReference = useRef(0);
+
+	// Guard: set to true before programmatic scrolls so the scroll event
+	// handler does not mistake them for user-initiated scroll-away.
+	const isProgrammaticScrollReference = useRef(false);
 
 	// ── Scroll-position tracking (for fade edges) ──────────────────────
 	// Updates data attributes on the wrapper DOM element directly,
@@ -126,6 +132,12 @@ export function useAutoScroll(): UseAutoScrollReturn {
 				ticking = false;
 				updateScrollEdges();
 
+				// Skip user-scroll-away detection for programmatic scrolls
+				if (isProgrammaticScrollReference.current) {
+					isProgrammaticScrollReference.current = false;
+					return;
+				}
+
 				// Detect if user is near the bottom
 				const { scrollTop, scrollHeight, clientHeight } = element;
 				const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
@@ -184,6 +196,7 @@ export function useAutoScroll(): UseAutoScrollReturn {
 						// User is at bottom — auto-scroll regardless of streaming state.
 						// This handles all cases: initial load, session restore,
 						// reconnection, and live streaming.
+						isProgrammaticScrollReference.current = true;
 						element.scrollTop = element.scrollHeight;
 					}
 				}
@@ -217,11 +230,24 @@ export function useAutoScroll(): UseAutoScrollReturn {
 		hasNewContentReference.current = false;
 		setHasNewContent(false);
 		isAtBottomReference.current = true;
+		isProgrammaticScrollReference.current = true;
 
 		element.scrollTo({
 			top: element.scrollHeight,
 			behavior: 'smooth',
 		});
+	}, []);
+
+	// ── resetScrollState ─────────────────────────────────────────────
+	// Call after replacing message history (reconnect, session load) so
+	// auto-scroll resumes cleanly from the new content.
+	const resetScrollState = useCallback(() => {
+		userScrolledAwayReference.current = false;
+		hasNewContentReference.current = false;
+		setHasNewContent(false);
+		isAtBottomReference.current = true;
+		isProgrammaticScrollReference.current = true;
+		previousScrollHeightReference.current = 0;
 	}, []);
 
 	return {
@@ -230,5 +256,6 @@ export function useAutoScroll(): UseAutoScrollReturn {
 		wrapperReference,
 		hasNewContent,
 		scrollToBottom,
+		resetScrollState,
 	};
 }

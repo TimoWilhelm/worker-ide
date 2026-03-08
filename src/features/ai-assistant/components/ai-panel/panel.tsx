@@ -11,7 +11,7 @@
 
 import { useChat } from '@tanstack/ai-react';
 import { useQueryClient } from '@tanstack/react-query';
-import { ArrowDown, Bot, Download, History, Loader2, Map as MapIcon, Plus, Send, Square } from 'lucide-react';
+import { ArrowDown, Bot, Download, History, Loader2, Map as MapIcon, MessageCircleQuestion, Plus, Send, Square } from 'lucide-react';
 import { ScrollArea } from 'radix-ui';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
@@ -442,7 +442,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	);
 
 	// Smart auto-scroll: stops when user scrolls up, shows pill for new content.
-	const { scrollReference, anchorReference, wrapperReference, hasNewContent, scrollToBottom } = useAutoScroll();
+	const { scrollReference, anchorReference, wrapperReference, hasNewContent, scrollToBottom, resetScrollState } = useAutoScroll();
 
 	// Reconnection effect: when the current session is running in the DO
 	// but useChat isn't streaming (e.g. after page refresh, switching to
@@ -508,6 +508,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 					skipNextForwardSyncReference.current = true;
 					useStore.setState({ history: serverSession.history });
 					setChatMessages(serverSession.history);
+					resetScrollState();
 
 					// Restore tool metadata and errors from the snapshot
 					handleSessionLoaded({
@@ -538,7 +539,17 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 				setChatMessages(snapshot as any[]);
 			}
 		})();
-	}, [isCurrentSessionRunning, isChatLoading, sessionId, reload, projectId, setChatMessages, handleSessionLoaded, chatMessages.length]);
+	}, [
+		isCurrentSessionRunning,
+		isChatLoading,
+		sessionId,
+		reload,
+		projectId,
+		setChatMessages,
+		handleSessionLoaded,
+		chatMessages.length,
+		resetScrollState,
+	]);
 
 	// Sync chatError to aiError (for RUN_ERROR events).
 	// Only surface a chatError once — if the user dismisses it, don't re-trigger
@@ -648,11 +659,12 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 			// Reset reconnect flag so the reconnection effect can fire for the new session
 			hasTriggeredReconnectReference.current = false;
 			reconnectSnapshotReference.current = undefined;
+			resetScrollState();
 			loadSession(targetSessionId);
 			// Persist the newly loaded session as the active one in localStorage
 			setActiveSessionId(projectId, targetSessionId);
 		},
-		[loadSession, projectId, isChatLoading, stopChat],
+		[loadSession, projectId, isChatLoading, stopChat, resetScrollState],
 	);
 
 	// Focus input on mount
@@ -697,6 +709,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 			setSegments([]);
 			inputReference.current?.clear();
 			setStatusMessage('Thinking...');
+			scrollToBottom();
 
 			try {
 				await sendMessage(messageText);
@@ -708,7 +721,17 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 				// Other errors are handled by onError callback
 			}
 		},
-		[inputPlainText, isProcessing, chatMessages.length, setAiError, setStatusMessage, setMessageMode, sendMessage, projectId],
+		[
+			inputPlainText,
+			isProcessing,
+			chatMessages.length,
+			setAiError,
+			setStatusMessage,
+			setMessageMode,
+			sendMessage,
+			projectId,
+			scrollToBottom,
+		],
 	);
 
 	// Handle keyboard shortcuts
@@ -975,7 +998,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 							) : (
 								savedSessions.map((session) => (
 									<DropdownMenuItem key={session.id} onSelect={() => handleLoadSession(session.id)}>
-										<div className="flex w-full items-center justify-between gap-2">
+										<div className="flex w-full items-center justify-between gap-2" title={session.title}>
 											<span className="truncate text-sm">{session.title}</span>
 											<div className="flex shrink-0 items-center gap-1">
 												{session.isRunning && <Loader2 className="size-3 animate-spin text-warning" />}
@@ -998,6 +1021,33 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 					)}
 				</div>
 			</div>
+
+			{/* Current session title bar with status indicator */}
+			{chatMessages.length > 0 &&
+				(() => {
+					const currentSession = savedSessions.find((session) => session.id === sessionId);
+					const sessionTitle = currentSession?.title ?? 'New session';
+					const needsAttention = !!pendingQuestion || needsContinuation || !!doomLoopMessage;
+					return (
+						<div
+							className="
+								flex h-7 shrink-0 items-center gap-1.5 border-b border-border px-3
+							"
+							title={sessionTitle}
+						>
+							{isProcessing ? (
+								<Tooltip content="Session is running">
+									<Loader2 className="size-3 shrink-0 animate-spin text-warning" />
+								</Tooltip>
+							) : needsAttention ? (
+								<Tooltip content="Action required">
+									<MessageCircleQuestion className="size-3 shrink-0 text-accent" />
+								</Tooltip>
+							) : undefined}
+							<span className="truncate text-2xs text-text-secondary">{sessionTitle}</span>
+						</div>
+					);
+				})()}
 
 			{/* Messages — with fade edges and smart auto-scroll */}
 			<div ref={wrapperReference} className="group/scroll relative flex-1 overflow-hidden">

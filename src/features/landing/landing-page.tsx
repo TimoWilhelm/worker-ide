@@ -50,6 +50,7 @@ const PROJECT_ID_REGEX = /(?:\/p\/)?([a-f0-9]{64})/i;
  * Add entries here when adding new templates with different icons.
  */
 const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
+	Hexagon,
 	Search,
 };
 
