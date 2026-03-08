@@ -361,7 +361,7 @@ const coreDiffTheme = EditorView.baseTheme({
 	'.cm-diff-added': {
 		backgroundColor: 'rgba(94, 255, 58, 0.08)',
 	},
-	// Each removed line is its own block widget.  The gutter line
+	// Each removed line is its own block widget. The gutter line
 	// number and "−" marker are rendered natively by CodeMirror; this
 	// only styles the content area.
 	'.cm-diff-removed-line': {
@@ -369,7 +369,7 @@ const coreDiffTheme = EditorView.baseTheme({
 		color: 'rgba(255, 94, 94, 0.7)',
 		whiteSpace: 'pre',
 		'& del': {
-			textDecoration: 'line-through',
+			textDecoration: 'none',
 			padding: '0 4px',
 		},
 	},
