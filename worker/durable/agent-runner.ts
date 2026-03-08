@@ -447,6 +447,22 @@ export class AgentRunner extends DurableObject {
 			this.ctx.storage.kv.put(`sessionData:${sessionId}`, { ...existingSession, revertedAt: undefined });
 		}
 
+		// Early-persist the session with the incoming messages so that a
+		// reconnecting client (e.g. browser back/forward) sees the full
+		// conversation history even if the agent loop hasn't persisted yet.
+		// eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- wire format from frontend
+		const incomingHistory = parameters.messages as AiSession['history'];
+		// eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- fallback for first-ever persist
+		const base = existingSession ?? ({} as Partial<AiSession>);
+		this.ctx.storage.kv.put(`sessionData:${sessionId}`, {
+			...base,
+			id: sessionId,
+			title: base.title ?? 'New session',
+			createdAt: base.createdAt ?? Date.now(),
+			history: incomingHistory,
+			revertedAt: undefined,
+		});
+
 		// Create a new abort controller for this run
 		this.agentAbortControllers.set(sessionId, new AbortController());
 

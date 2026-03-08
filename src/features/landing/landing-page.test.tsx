@@ -131,7 +131,7 @@ describe('LandingPage', () => {
 		});
 
 		const dialog = screen.getByRole('dialog');
-		expect(within(dialog).getByPlaceholderText('Paste project URL or ID')).toBeInTheDocument();
+		expect(within(dialog).getByPlaceholderText('Project URL or ID')).toBeInTheDocument();
 	});
 
 	it('renders theme toggle button', () => {
@@ -260,7 +260,7 @@ describe('LandingPage', () => {
 		});
 
 		const dialog = screen.getByRole('dialog');
-		const input = within(dialog).getByPlaceholderText('Paste project URL or ID');
+		const input = within(dialog).getByPlaceholderText('Project URL or ID');
 		const validId = 'a'.repeat(64);
 		await user.type(input, validId);
 
@@ -283,7 +283,7 @@ describe('LandingPage', () => {
 		});
 
 		const dialog = screen.getByRole('dialog');
-		const input = within(dialog).getByPlaceholderText('Paste project URL or ID');
+		const input = within(dialog).getByPlaceholderText('Project URL or ID');
 		const validUrl = `https://example.dev/p/${'b'.repeat(64)}`;
 		await user.type(input, validUrl);
 
@@ -306,7 +306,7 @@ describe('LandingPage', () => {
 		});
 
 		const dialog = screen.getByRole('dialog');
-		const input = within(dialog).getByPlaceholderText('Paste project URL or ID');
+		const input = within(dialog).getByPlaceholderText('Project URL or ID');
 		await user.type(input, 'not-a-valid-id');
 
 		const cloneButton = within(dialog).getByRole('button', { name: 'Clone' });
@@ -335,7 +335,7 @@ describe('LandingPage', () => {
 		});
 
 		const dialog = screen.getByRole('dialog');
-		const input = within(dialog).getByPlaceholderText('Paste project URL or ID');
+		const input = within(dialog).getByPlaceholderText('Project URL or ID');
 		const validId = 'c'.repeat(64);
 		await user.type(input, validId);
 
@@ -367,7 +367,7 @@ describe('LandingPage', () => {
 		});
 
 		const dialog = screen.getByRole('dialog');
-		const input = within(dialog).getByPlaceholderText('Paste project URL or ID');
+		const input = within(dialog).getByPlaceholderText('Project URL or ID');
 		const validId = 'd'.repeat(64);
 		await user.type(input, validId);
 

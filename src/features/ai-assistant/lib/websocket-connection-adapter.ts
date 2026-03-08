@@ -16,7 +16,7 @@
  * session's history into the store.
  */
 
-import { getBufferedEvents, startAgentChat } from '@/lib/api-client';
+import { startAgentChat } from '@/lib/api-client';
 import { useStore } from '@/lib/store';
 import { isNetworkError } from '@/lib/utils';
 
@@ -163,53 +163,33 @@ export function createWebSocketConnectionAdapter(options: WebSocketAdapterOption
 			let sessionId: string;
 
 			if (isAlreadyRunning && currentSessionId) {
-				// Reconnection: session is already running, just listen.
+				// Reconnection: session is already running, just listen for NEW
+				// live events. The panel loads the server snapshot into
+				// chatMessages before and after reload(), so all prior content
+				// is visible without re-streaming. We only yield events that
+				// arrive from this point on — new content gets the normal
+				// typing effect while old content stays static.
 				sessionId = currentSessionId;
 
-				// 1. Start listening for live events FIRST (so we don't miss any
-				//    that arrive while we fetch the buffer).
 				const { queue, enqueue, waitForItem } = createEventQueue();
 				const cleanup = createEventListeners(sessionId, enqueue, abortSignal);
 
 				try {
-					// 2. Fetch buffered events from the DO to catch up.
-					//    These are all events since index 0 (full replay).
-					// eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- chunk is StreamChunk from the DO buffer
-					const buffered = (await getBufferedEvents(projectId, sessionId, 0)) as Array<{ chunk: StreamChunk; index: number }>;
-
-					// 3. Yield buffered events first. The live listener may have
-					//    already enqueued some events that overlap with the buffer.
-					//    Track the highest buffered index to deduplicate.
-					let highestBufferedIndex = -1;
-					for (const event of buffered) {
-						yield event.chunk;
-						highestBufferedIndex = Math.max(highestBufferedIndex, event.index);
-					}
-
-					// 4. If the buffer was empty and no live events have arrived,
-					//    the DO was likely evicted (in-memory buffer lost). Apply a
-					//    timeout so we don't hang forever waiting for events that
-					//    will never come.
-					const needsStaleTimeout = buffered.length === 0 && queue.length === 0;
-
-					// 5. Drain the live queue, skipping events already yielded
-					//    from the buffer (deduplicate by event index).
+					// Stale-session guard: if no event arrives within the
+					// timeout, assume the session completed between our check
+					// and the time we started listening.
 					let receivedLiveEvent = false;
 					while (true) {
-						if (needsStaleTimeout && !receivedLiveEvent) {
-							// Race waitForItem against a stale-session timeout.
-							// If no event arrives within RECONNECT_STALE_TIMEOUT_MS,
-							// assume the session is stale and stop listening.
+						if (receivedLiveEvent) {
+							await waitForItem();
+						} else {
 							const timeout = new Promise<'timeout'>((resolve) => {
 								setTimeout(() => resolve('timeout'), RECONNECT_STALE_TIMEOUT_MS);
 							});
 							const result = await Promise.race([waitForItem().then(() => 'item' as const), timeout]);
 							if (result === 'timeout') {
-								// Session is stale — signal completion to useChat
 								return;
 							}
-						} else {
-							await waitForItem();
 						}
 
 						while (queue.length > 0) {
@@ -221,11 +201,6 @@ export function createWebSocketConnectionAdapter(options: WebSocketAdapterOption
 
 							if (item.type === 'done') {
 								return;
-							}
-
-							// Skip events we already yielded from the buffer
-							if (item.eventIndex >= 0 && item.eventIndex <= highestBufferedIndex) {
-								continue;
 							}
 
 							receivedLiveEvent = true;

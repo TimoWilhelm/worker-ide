@@ -7,7 +7,7 @@
  * Behavior:
  * - Auto-scrolls to bottom when new content arrives AND user is at the bottom.
  * - Stops auto-scrolling when the user scrolls up (anchor leaves viewport).
- * - Exposes `isAtBottom` so the UI can show a "new content" pill.
+ * - Tracks `isAtBottom` internally (ref-only, no re-renders).
  * - Exposes `canScrollUp` / `canScrollDown` for fade-edge indicators.
  * - `scrollToBottom()` programmatically scrolls down and re-enables auto-scroll.
  *
@@ -18,25 +18,13 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-interface UseAutoScrollOptions {
-	/**
-	 * Whether auto-scroll should be active (e.g. when streaming).
-	 * When false, the hook still tracks position but won't force-scroll.
-	 */
-	enabled?: boolean;
-}
-
 interface UseAutoScrollReturn {
 	/** Ref to attach to the scroll viewport element. */
 	scrollReference: React.RefObject<HTMLDivElement | null>;
 	/** Ref to attach to an invisible anchor div at the bottom of content. */
 	anchorReference: React.RefObject<HTMLDivElement | null>;
-	/** Whether the bottom anchor is currently visible (user is at bottom). */
-	isAtBottom: boolean;
-	/** Whether there is content above the visible area. */
-	canScrollUp: boolean;
-	/** Whether there is content below the visible area (user scrolled up). */
-	canScrollDown: boolean;
+	/** Ref to attach to the wrapper div around the scroll area + fade edges. */
+	wrapperReference: React.RefObject<HTMLDivElement | null>;
 	/** Whether new content arrived while the user was scrolled up. */
 	hasNewContent: boolean;
 	/** Smoothly scroll to the bottom and re-enable auto-scroll. */
@@ -46,14 +34,14 @@ interface UseAutoScrollReturn {
 /** Threshold in pixels — if within this distance of the bottom, consider "at bottom". */
 const BOTTOM_THRESHOLD = 24;
 
-export function useAutoScroll({ enabled = true }: UseAutoScrollOptions = {}): UseAutoScrollReturn {
+export function useAutoScroll(): UseAutoScrollReturn {
 	const scrollReference = useRef<HTMLDivElement>(null);
 	const anchorReference = useRef<HTMLDivElement>(null);
+	const wrapperReference = useRef<HTMLDivElement>(null);
 
-	const [isAtBottom, setIsAtBottom] = useState(true);
-	const [canScrollUp, setCanScrollUp] = useState(false);
-	const [canScrollDown, setCanScrollDown] = useState(false);
+	const isAtBottomReference = useRef(true);
 	const [hasNewContent, setHasNewContent] = useState(false);
+	const hasNewContentReference = useRef(false);
 
 	// Track whether the user manually scrolled away. We use a ref so the
 	// IntersectionObserver callback (which captures stale closures) always
@@ -64,13 +52,31 @@ export function useAutoScroll({ enabled = true }: UseAutoScrollOptions = {}): Us
 	const previousScrollHeightReference = useRef(0);
 
 	// ── Scroll-position tracking (for fade edges) ──────────────────────
+	// Updates data attributes on the wrapper DOM element directly,
+	// bypassing React state to avoid re-rendering the entire panel on
+	// every scroll frame. CSS attribute selectors drive gradient opacity.
 	const updateScrollEdges = useCallback(() => {
 		const element = scrollReference.current;
-		if (!element) return;
+		const wrapper = wrapperReference.current;
+		if (!element || !wrapper) return;
 
 		const { scrollTop, scrollHeight, clientHeight } = element;
-		setCanScrollUp(scrollTop > 4);
-		setCanScrollDown(scrollTop + clientHeight < scrollHeight - 4);
+
+		if (scrollTop > 4) {
+			wrapper.dataset.canScrollUp = '';
+		} else {
+			delete wrapper.dataset.canScrollUp;
+		}
+
+		// When auto-scrolling (user hasn't scrolled away), content can
+		// momentarily outgrow scrollTop between frames, creating a false
+		// "can scroll down" signal that flickers the bottom gradient.
+		// Only show the bottom fade when the user has genuinely scrolled away.
+		if (userScrolledAwayReference.current && scrollTop + clientHeight < scrollHeight - 4) {
+			wrapper.dataset.canScrollDown = '';
+		} else {
+			delete wrapper.dataset.canScrollDown;
+		}
 	}, []);
 
 	// ── IntersectionObserver on the anchor ─────────────────────────────
@@ -83,12 +89,15 @@ export function useAutoScroll({ enabled = true }: UseAutoScrollOptions = {}): Us
 			([entry]) => {
 				if (!entry) return;
 				const visible = entry.isIntersecting;
-				setIsAtBottom(visible);
+				isAtBottomReference.current = visible;
 
 				if (visible) {
 					// User scrolled back to bottom — clear "new content" flag
 					userScrolledAwayReference.current = false;
-					setHasNewContent(false);
+					if (hasNewContentReference.current) {
+						hasNewContentReference.current = false;
+						setHasNewContent(false);
+					}
 				}
 			},
 			{
@@ -125,7 +134,10 @@ export function useAutoScroll({ enabled = true }: UseAutoScrollOptions = {}): Us
 					userScrolledAwayReference.current = true;
 				} else {
 					userScrolledAwayReference.current = false;
-					setHasNewContent(false);
+					if (hasNewContentReference.current) {
+						hasNewContentReference.current = false;
+						setHasNewContent(false);
+					}
 				}
 			});
 		};
@@ -144,24 +156,41 @@ export function useAutoScroll({ enabled = true }: UseAutoScrollOptions = {}): Us
 		const element = scrollReference.current;
 		if (!element) return;
 
+		// Throttle mutation handling to once per animation frame to prevent
+		// layout thrashing in Chrome. The MutationObserver fires on every
+		// characterData / childList change during streaming — reading
+		// scrollHeight then writing scrollTop in each callback causes
+		// repeated synchronous reflows. Batching into a single rAF per
+		// frame eliminates the lag.
+		let mutationFrameId = 0;
 		const observer = new MutationObserver(() => {
-			const { scrollHeight } = element;
-			const previousHeight = previousScrollHeightReference.current;
-			previousScrollHeightReference.current = scrollHeight;
+			if (mutationFrameId) return;
+			mutationFrameId = requestAnimationFrame(() => {
+				mutationFrameId = 0;
 
-			// Content grew
-			if (scrollHeight > previousHeight) {
-				if (enabled && !userScrolledAwayReference.current) {
-					// User is at bottom — auto-scroll
-					element.scrollTop = element.scrollHeight;
-				} else if (userScrolledAwayReference.current) {
-					// User scrolled away — flag new content
-					setHasNewContent(true);
+				const { scrollHeight } = element;
+				const previousHeight = previousScrollHeightReference.current;
+				previousScrollHeightReference.current = scrollHeight;
+
+				// Content grew
+				if (scrollHeight > previousHeight) {
+					if (userScrolledAwayReference.current) {
+						// User scrolled away — flag new content
+						if (!hasNewContentReference.current) {
+							hasNewContentReference.current = true;
+							setHasNewContent(true);
+						}
+					} else {
+						// User is at bottom — auto-scroll regardless of streaming state.
+						// This handles all cases: initial load, session restore,
+						// reconnection, and live streaming.
+						element.scrollTop = element.scrollHeight;
+					}
 				}
-			}
 
-			// Update fade edges after content change
-			updateScrollEdges();
+				// Update fade edges after content change
+				updateScrollEdges();
+			});
 		});
 
 		observer.observe(element, {
@@ -173,8 +202,11 @@ export function useAutoScroll({ enabled = true }: UseAutoScrollOptions = {}): Us
 		// Capture initial scrollHeight
 		previousScrollHeightReference.current = element.scrollHeight;
 
-		return () => observer.disconnect();
-	}, [enabled, updateScrollEdges]);
+		return () => {
+			observer.disconnect();
+			cancelAnimationFrame(mutationFrameId);
+		};
+	}, [updateScrollEdges]);
 
 	// ── scrollToBottom ─────────────────────────────────────────────────
 	const scrollToBottom = useCallback(() => {
@@ -182,8 +214,9 @@ export function useAutoScroll({ enabled = true }: UseAutoScrollOptions = {}): Us
 		if (!element) return;
 
 		userScrolledAwayReference.current = false;
+		hasNewContentReference.current = false;
 		setHasNewContent(false);
-		setIsAtBottom(true);
+		isAtBottomReference.current = true;
 
 		element.scrollTo({
 			top: element.scrollHeight,
@@ -194,9 +227,7 @@ export function useAutoScroll({ enabled = true }: UseAutoScrollOptions = {}): Us
 	return {
 		scrollReference,
 		anchorReference,
-		isAtBottom,
-		canScrollUp,
-		canScrollDown,
+		wrapperReference,
 		hasNewContent,
 		scrollToBottom,
 	};
