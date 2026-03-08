@@ -37,9 +37,9 @@ export interface CollabJoinMessage {
  */
 export interface CursorUpdateMessage {
 	type: 'cursor-update';
-	file: string | null;
-	cursor: CursorPosition | null;
-	selection: SelectionRange | null;
+	file?: string;
+	cursor?: CursorPosition;
+	selection?: SelectionRange;
 }
 
 /**
@@ -149,9 +149,9 @@ export interface CursorUpdatedMessage {
 	type: 'cursor-updated';
 	id: string;
 	color: string;
-	file: string | null;
-	cursor: CursorPosition | null;
-	selection: SelectionRange | null;
+	file?: string;
+	cursor?: CursorPosition;
+	selection?: SelectionRange;
 }
 
 /**
@@ -341,9 +341,9 @@ export const clientMessageSchema = z.discriminatedUnion('type', [
 	z.object({ type: z.literal('collab-join') }),
 	z.object({
 		type: z.literal('cursor-update'),
-		file: z.string().nullable(),
-		cursor: cursorPositionSchema.nullable(),
-		selection: selectionRangeSchema.nullable(),
+		file: z.string().optional(),
+		cursor: cursorPositionSchema.optional(),
+		selection: selectionRangeSchema.optional(),
 	}),
 	z.object({
 		type: z.literal('file-edit'),
@@ -371,9 +371,9 @@ export const clientMessageSchema = z.discriminatedUnion('type', [
 const participantSchema = z.object({
 	id: z.string(),
 	color: z.string(),
-	file: z.string().nullable(),
-	cursor: cursorPositionSchema.nullable(),
-	selection: selectionRangeSchema.nullable(),
+	file: z.string().optional(),
+	cursor: cursorPositionSchema.optional(),
+	selection: selectionRangeSchema.optional(),
 });
 
 const dependencyErrorSchema = z.object({
@@ -427,9 +427,9 @@ export const serverMessageSchema = z.discriminatedUnion('type', [
 		type: z.literal('cursor-updated'),
 		id: z.string(),
 		color: z.string(),
-		file: z.string().nullable(),
-		cursor: cursorPositionSchema.nullable(),
-		selection: selectionRangeSchema.nullable(),
+		file: z.string().optional(),
+		cursor: cursorPositionSchema.optional(),
+		selection: selectionRangeSchema.optional(),
 	}),
 	z.object({
 		type: z.literal('file-edited'),

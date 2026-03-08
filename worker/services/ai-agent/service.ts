@@ -1273,7 +1273,7 @@ export class AIAgentService {
 			yield {
 				type: 'RUN_ERROR',
 				timestamp: Date.now(),
-				error: { message: parsed.message, code: parsed.code ?? undefined },
+				error: { message: parsed.message, code: parsed.code },
 			};
 		} finally {
 			// When the SSE consumer stops iterating (e.g., client disconnects and
@@ -1435,7 +1435,7 @@ export class AIAgentService {
 		if (context.savedPaths.has(change.path)) return;
 		context.savedPaths.add(change.path);
 
-		if (change.action !== 'create' && change.beforeContent !== null) {
+		if (change.action !== 'create' && change.beforeContent !== undefined) {
 			const filePath = `${context.directory}${change.path}`;
 			const directory = filePath.slice(0, filePath.lastIndexOf('/'));
 			if (directory && directory !== context.directory) {

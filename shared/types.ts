@@ -203,8 +203,8 @@ export interface PendingFileChange {
 export interface FileChange {
 	path: string;
 	action: 'create' | 'edit' | 'delete';
-	beforeContent: string | null;
-	afterContent: string | null;
+	beforeContent: string | undefined;
+	afterContent: string | undefined;
 	isBinary: boolean;
 }
 
@@ -243,9 +243,9 @@ export interface SnapshotSummary {
 export interface Participant {
 	id: string;
 	color: string;
-	file: string | null;
-	cursor: CursorPosition | null;
-	selection: SelectionRange | null;
+	file?: string;
+	cursor?: CursorPosition;
+	selection?: SelectionRange;
 }
 
 // =============================================================================
@@ -380,8 +380,8 @@ export interface FileResponse {
  * Response for project expiration endpoint
  */
 export interface ExpirationResponse {
-	expiresAt: number | null;
-	expiresIn: number | null;
+	expiresAt?: number;
+	expiresIn?: number;
 }
 
 /**

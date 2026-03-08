@@ -80,8 +80,7 @@ export async function execute(
 
 	// Check if file exists
 	let fileExists = false;
-	// eslint-disable-next-line unicorn/no-null -- JSON wire format for SSE events
-	let beforeContent: string | Uint8Array | null = null;
+	let beforeContent: string | Uint8Array | undefined;
 	const writeIsBinary = isBinaryFilePath(writePath);
 
 	try {
@@ -162,10 +161,8 @@ export async function execute(
 	sendEvent('file_changed', {
 		path: writePath,
 		action,
-		// eslint-disable-next-line unicorn/no-null -- JSON wire format for SSE events
-		beforeContent: writeIsBinary ? null : beforeContent,
-		// eslint-disable-next-line unicorn/no-null -- JSON wire format for SSE events
-		afterContent: writeIsBinary ? null : writeContent,
+		beforeContent: writeIsBinary ? undefined : beforeContent,
+		afterContent: writeIsBinary ? undefined : writeContent,
 		isBinary: writeIsBinary,
 	});
 

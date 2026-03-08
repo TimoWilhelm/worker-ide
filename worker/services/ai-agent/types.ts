@@ -15,8 +15,8 @@ import type { StreamChunk } from '@tanstack/ai';
 export interface FileChange {
 	path: string;
 	action: 'create' | 'edit' | 'delete';
-	beforeContent: string | Uint8Array | null;
-	afterContent: string | Uint8Array | null;
+	beforeContent: string | Uint8Array | undefined;
+	afterContent: string | Uint8Array | undefined;
 	isBinary: boolean;
 }
 

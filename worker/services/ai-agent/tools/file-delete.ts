@@ -62,8 +62,7 @@ export async function execute(
 	await fs.unlink(`${projectRoot}${deletePath}`);
 
 	if (queryChanges) {
-		// eslint-disable-next-line unicorn/no-null -- JSON wire format
-		queryChanges.push({ path: deletePath, action: 'delete', beforeContent, afterContent: null, isBinary: false });
+		queryChanges.push({ path: deletePath, action: 'delete', beforeContent, afterContent: undefined, isBinary: false });
 	}
 
 	const coordinatorId = coordinatorNamespace.idFromName(`project:${projectId}`);
@@ -73,8 +72,6 @@ export async function execute(
 	sendEvent('file_changed', {
 		path: deletePath,
 		action: 'delete',
-		// eslint-disable-next-line unicorn/no-null -- JSON wire format
-		afterContent: null,
 		isBinary: false,
 	});
 

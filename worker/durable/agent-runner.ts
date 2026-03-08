@@ -85,7 +85,7 @@ export class AgentRunner extends DurableObject {
 	 * Volatile — lost on eviction. Reconnecting clients get an empty buffer
 	 * and the stale-session timeout in the adapter handles the fallback.
 	 */
-	private eventBuffers = new Map<string, Array<{ chunk: unknown; index: number }>>();
+	private eventBuffers = new Map<string, Array<{ chunk: object; index: number }>>();
 
 	/**
 	 * Monotonic event indices within the current agent run, keyed by sessionId.
@@ -222,7 +222,7 @@ export class AgentRunner extends DurableObject {
 	 * After DO eviction the buffer is empty — the reconnecting client's
 	 * stale-session timeout handles this gracefully.
 	 */
-	async getBufferedEvents(sessionId: string, lastEventIndex: number): Promise<Array<{ chunk: unknown; index: number }>> {
+	async getBufferedEvents(sessionId: string, lastEventIndex: number): Promise<Array<{ chunk: object; index: number }>> {
 		const buffer = this.eventBuffers.get(sessionId) || [];
 		return buffer.filter((event) => event.index > lastEventIndex);
 	}

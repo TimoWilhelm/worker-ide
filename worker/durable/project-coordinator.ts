@@ -14,9 +14,9 @@ import type { ServerMessage } from '@shared/ws-messages';
 interface ParticipantAttachment {
 	id: string;
 	color: string;
-	file: string | null;
-	cursor: { line: number; ch: number } | null;
-	selection: { anchor: { line: number; ch: number }; head: { line: number; ch: number } } | null;
+	file?: string;
+	cursor?: { line: number; ch: number };
+	selection?: { anchor: { line: number; ch: number }; head: { line: number; ch: number } };
 	joined: boolean;
 }
 
@@ -177,22 +177,16 @@ export class ProjectCoordinator extends DurableObject {
 
 			const participantId = crypto.randomUUID();
 			const color = this.nextColor();
-			/* eslint-disable unicorn/no-null -- Participant wire format uses null */
 			const attachment: ParticipantAttachment = {
 				id: participantId,
 				color,
-				file: null,
-				cursor: null,
-				selection: null,
 				joined: false,
 			};
-			/* eslint-enable unicorn/no-null */
 
 			this.ctx.acceptWebSocket(server);
 			this.setAttachment(server, attachment);
 
-			// eslint-disable-next-line unicorn/no-null -- WebSocket API requires null body
-			return new Response(null, { status: 101, webSocket: client });
+			return new Response(undefined, { status: 101, webSocket: client });
 		}
 
 		return new Response('Not found', { status: 404 });
@@ -471,11 +465,9 @@ export class ProjectCoordinator extends DurableObject {
 			if (data.type === 'cursor-update') {
 				const att = this.getAttachment(ws);
 				if (!att?.joined) return;
-				/* eslint-disable unicorn/no-null -- Participant wire format uses null */
-				att.file = data.file ?? null;
-				att.cursor = data.cursor ?? null;
-				att.selection = data.selection ?? null;
-				/* eslint-enable unicorn/no-null */
+				att.file = data.file;
+				att.cursor = data.cursor;
+				att.selection = data.selection;
 				this.setAttachment(ws, att);
 				this.sendToOthersJoined(
 					ws,

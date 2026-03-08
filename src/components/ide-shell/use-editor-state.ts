@@ -242,8 +242,6 @@ export function useEditorState({ projectId }: { projectId: string }) {
 					type: 'cursor-update',
 					file: activeFile ?? '',
 					cursor: { line: position.line, ch: position.column },
-					// eslint-disable-next-line unicorn/no-null -- WebSocket wire format uses null
-					selection: null,
 				});
 			}, 100);
 		},

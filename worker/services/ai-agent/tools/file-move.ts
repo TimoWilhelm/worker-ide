@@ -73,10 +73,8 @@ export async function execute(
 
 	if (queryChanges) {
 		queryChanges.push(
-			// eslint-disable-next-line unicorn/no-null -- JSON wire format
-			{ path: fromPath, action: 'delete', beforeContent, afterContent: null, isBinary: false },
-			// eslint-disable-next-line unicorn/no-null -- JSON wire format
-			{ path: toPath, action: 'create', beforeContent: null, afterContent: beforeContent, isBinary: false },
+			{ path: fromPath, action: 'delete', beforeContent, afterContent: undefined, isBinary: false },
+			{ path: toPath, action: 'create', beforeContent: undefined, afterContent: beforeContent, isBinary: false },
 		);
 	}
 

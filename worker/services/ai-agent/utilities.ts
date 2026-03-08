@@ -48,9 +48,8 @@ function getErrorResponse(error: unknown): Response | undefined {
 
 /**
  * Parse API errors into structured format.
- * Return type uses null for `code` because the result is serialized to JSON via SSE.
  */
-export function parseApiError(error: unknown): { message: string; code: string | null } {
+export function parseApiError(error: unknown): { message: string; code: string | undefined } {
 	const raw = error instanceof Error ? error.message : String(error);
 	const response = getErrorResponse(error);
 	const status = response?.status;
@@ -114,8 +113,7 @@ export function parseApiError(error: unknown): { message: string; code: string |
 		return { message: 'Request was cancelled.', code: 'ABORTED' };
 	}
 
-	// eslint-disable-next-line unicorn/no-null -- JSON wire format for SSE events
-	return { message: upstreamMessage || raw, code: null };
+	return { message: upstreamMessage || raw, code: undefined };
 }
 
 // =============================================================================

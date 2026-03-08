@@ -85,9 +85,7 @@ export const aiRoutes = new Hono<AppEnvironment>()
 
 			const agentRunnerId = agentRunnerNamespace.idFromName(`agent:${projectId}`);
 			const agentRunnerStub = agentRunnerNamespace.get(agentRunnerId);
-			const rpcEvents = await agentRunnerStub.getBufferedEvents(sessionId, lastEventIndex);
-			// eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- DO RPC serialization loses array type
-			const events = structuredClone(rpcEvents) as Array<{ chunk: unknown; index: number }>;
+			const events = await agentRunnerStub.getBufferedEvents(sessionId, lastEventIndex);
 
 			return c.json({ events });
 		},

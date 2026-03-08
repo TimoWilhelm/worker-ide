@@ -93,7 +93,7 @@ export const projectRoutes = new Hono<AppEnvironment>()
 		const fsStub = c.get('fsStub');
 		const expirationTime = await fsStub.getExpirationTime();
 		return c.json({
-			expiresAt: expirationTime,
+			expiresAt: expirationTime ?? undefined,
 			expiresIn: expirationTime ? expirationTime - Date.now() : undefined,
 		});
 	})

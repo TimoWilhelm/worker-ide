@@ -142,6 +142,9 @@ function createStubProxy<T extends Rpc.DurableObjectBranded>(getStub: StubGetter
 						attempt++;
 					}
 				}
+
+				// Unreachable — the loop always returns or throws
+				throw new Error('Retry loop exited unexpectedly');
 			};
 		},
 	});
