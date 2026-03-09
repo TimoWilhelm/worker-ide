@@ -1,37 +1,48 @@
 /**
- * Mobile Keyboard-Aware Height Hook
+ * Mobile Keyboard-Aware Layout Hook
  *
- * Uses the VisualViewport API to detect when the virtual keyboard is open on mobile
- * and returns inline styles that resize the consuming container to the visible area
- * above the keyboard, keeping all flex children (header, input) on screen.
+ * Returns inline styles that keep a container fully visible above the virtual
+ * keyboard on mobile. When the keyboard is open the container switches to
+ * `position: fixed` so it is immune to the browser's automatic
+ * scroll-into-view behaviour that would otherwise push elements off-screen.
  *
- * Uses `useSyncExternalStore` to subscribe to visual-viewport resize events,
- * avoiding synchronous setState inside effects.
+ * **How it works — two layers:**
+ *
+ * 1. A `useSyncExternalStore` subscription on the VisualViewport API detects
+ *    the keyboard and computes the available height.
+ * 2. When the keyboard is detected, the hook returns `position: fixed` styles
+ *    that pin the container to the top-left of its original position with the
+ *    computed height. Because `position: fixed` elements live in viewport
+ *    space, page-level scrolling (which we cannot reliably prevent on iOS
+ *    Safari) simply has no effect.
+ *
+ * When the keyboard closes the hook returns `undefined` and the container
+ * falls back to its normal flow layout (e.g. `h-full`).
  *
  * Edge cases handled:
- * - VisualViewport API not available → returns undefined (no-op)
- * - Not on mobile → returns undefined (no-op)
- * - Address bar hide/show → uses a threshold to distinguish from real keyboard
- * - Orientation changes → recalculates
- * - Browser page-scroll on focus → counteracted via scrollTo(0,0)
+ * - VisualViewport API not available → no-op
+ * - Desktop → no-op (guarded by `useIsMobile`)
+ * - Address bar show/hide → 100 px threshold filters false positives
+ * - Orientation change → recalculates via `orientationchange` listener
+ * - SSR → `getServerSnapshot` returns undefined
+ * - Referential stability → cached style object avoids unnecessary re-renders
  */
 
-import { useSyncExternalStore } from 'react';
+import { useCallback, useState, useSyncExternalStore } from 'react';
 
 import { useIsMobile } from './use-is-mobile';
 
-import type { CSSProperties } from 'react';
+import type { CSSProperties, RefCallback } from 'react';
 
 /**
- * Minimum height difference (in px) between window.innerHeight and
- * visualViewport.height to consider the keyboard "open". This avoids
- * false positives from mobile browser chrome (address bar) showing/hiding,
- * which typically changes the viewport by ~50–70 px.
+ * Minimum height difference (in px) between `window.innerHeight` and
+ * `visualViewport.height` to consider the keyboard "open". Mobile browser
+ * chrome (address bar) typically changes the height by ~50–70 px.
  */
 const KEYBOARD_THRESHOLD_PX = 100;
 
 // ---------------------------------------------------------------------------
-// Shared subscription for the VisualViewport external store
+// External store — derives keyboard-aware height from the VisualViewport API
 // ---------------------------------------------------------------------------
 
 function subscribe(callback: () => void): () => void {
@@ -51,7 +62,8 @@ function subscribe(callback: () => void): () => void {
 	};
 }
 
-function getSnapshot(): CSSProperties | undefined {
+/** Returns the visual-viewport height when the keyboard is open, else `undefined`. */
+function getSnapshot(): number | undefined {
 	const viewport = globalThis.visualViewport;
 	if (!viewport) {
 		return undefined;
@@ -59,58 +71,109 @@ function getSnapshot(): CSSProperties | undefined {
 
 	const viewportHeight = viewport.height;
 	const windowHeight = globalThis.innerHeight;
-	const heightDifference = windowHeight - viewportHeight;
 
-	if (heightDifference < KEYBOARD_THRESHOLD_PX) {
+	if (windowHeight - viewportHeight < KEYBOARD_THRESHOLD_PX) {
 		return undefined;
 	}
 
-	// Keyboard is open — reset any browser-initiated page scroll so the
-	// container stays at the top of the visible area.
-	if (globalThis.scrollY !== 0) {
-		globalThis.scrollTo(0, 0);
-	}
-
-	// Sanity: don't apply if the height would be unusably small
 	if (viewportHeight < 200 || viewportHeight >= windowHeight) {
 		return undefined;
 	}
 
-	return keyboardStyleForHeight(viewportHeight);
+	return viewportHeight;
 }
 
 function getServerSnapshot(): undefined {
 	return undefined;
 }
 
-// Cache the last returned object to keep referential identity when the value
-// hasn't changed, preventing unnecessary re-renders.
+// ---------------------------------------------------------------------------
+// Style cache — keep referential identity to avoid re-renders
+// ---------------------------------------------------------------------------
+
 let cachedHeight = 0;
+let cachedTop = 0;
+let cachedLeft = 0;
+let cachedWidth = 0;
 let cachedStyle: CSSProperties | undefined;
 
-function keyboardStyleForHeight(height: number): CSSProperties {
-	if (height === cachedHeight && cachedStyle) {
+function fixedStyleFor(top: number, left: number, width: number, height: number): CSSProperties {
+	if (cachedStyle && height === cachedHeight && top === cachedTop && left === cachedLeft && width === cachedWidth) {
 		return cachedStyle;
 	}
 	cachedHeight = height;
-	cachedStyle = { height };
+	cachedTop = top;
+	cachedLeft = left;
+	cachedWidth = width;
+	cachedStyle = {
+		position: 'fixed',
+		top,
+		left,
+		width,
+		height,
+		zIndex: 40,
+	};
 	return cachedStyle;
 }
 
+// ---------------------------------------------------------------------------
+// Hook
+// ---------------------------------------------------------------------------
+
+interface ElementRect {
+	top: number;
+	left: number;
+	width: number;
+}
+
+const INITIAL_RECT: ElementRect = { top: 0, left: 0, width: 0 };
+
+export interface MobileKeyboardLayout {
+	/** Inline styles to spread onto the container element. */
+	style: CSSProperties | undefined;
+	/**
+	 * Ref callback — attach to the container element so the hook can measure
+	 * its position before it goes fixed.
+	 */
+	ref: RefCallback<HTMLElement>;
+	/**
+	 * `true` while the keyboard is open on mobile.
+	 */
+	isKeyboardOpen: boolean;
+}
+
 /**
- * Returns a `CSSProperties` object to apply on the panel container when the
- * virtual keyboard is open on mobile. Returns `undefined` when the keyboard
- * is closed or on desktop — callers should use their default sizing.
+ * Returns layout props to apply on a container so it stays fully visible
+ * above the virtual keyboard on mobile.
  */
-export function useMobileKeyboardStyle(): CSSProperties | undefined {
+export function useMobileKeyboardLayout(): MobileKeyboardLayout {
 	const isMobile = useIsMobile();
+	const keyboardHeight = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 
-	const style = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
+	// Store the element's document-flow rect in state (not a ref) so it can be
+	// safely read during render without violating the refs-in-render lint rule.
+	const [rect, setRect] = useState<ElementRect>(INITIAL_RECT);
 
-	// On desktop the hook is a no-op regardless of what the store says.
-	if (!isMobile) {
-		return undefined;
+	const reference: RefCallback<HTMLElement> = useCallback((node: HTMLElement | null) => {
+		if (node) {
+			const domRect = node.getBoundingClientRect();
+			setRect((previous) => {
+				if (previous.top === domRect.top && previous.left === domRect.left && previous.width === domRect.width) {
+					return previous;
+				}
+				return { top: domRect.top, left: domRect.left, width: domRect.width };
+			});
+		}
+	}, []);
+
+	const isKeyboardOpen = isMobile && keyboardHeight !== undefined;
+
+	let style: CSSProperties | undefined;
+
+	if (isKeyboardOpen && keyboardHeight !== undefined) {
+		const width = rect.width || globalThis.innerWidth;
+		style = fixedStyleFor(rect.top, rect.left, width, keyboardHeight - rect.top);
 	}
 
-	return style;
+	return { style, ref: reference, isKeyboardOpen };
 }
