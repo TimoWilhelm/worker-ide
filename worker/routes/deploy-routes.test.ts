@@ -281,6 +281,14 @@ describe('isConfigFile', () => {
 		expect(isConfigFile('tsconfig.json')).toBe(true);
 	});
 
+	it('returns true for tsconfig.app.json', () => {
+		expect(isConfigFile('tsconfig.app.json')).toBe(true);
+	});
+
+	it('returns true for tsconfig.worker.json', () => {
+		expect(isConfigFile('tsconfig.worker.json')).toBe(true);
+	});
+
 	it('returns true for .project-meta.json', () => {
 		expect(isConfigFile('.project-meta.json')).toBe(true);
 	});

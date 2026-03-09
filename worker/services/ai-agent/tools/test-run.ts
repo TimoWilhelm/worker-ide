@@ -12,6 +12,7 @@ import fs from 'node:fs/promises';
 
 import { env } from 'cloudflare:workers';
 import { minimatch } from 'minimatch';
+import stripJsonComments from 'strip-json-comments';
 
 import { HIDDEN_ENTRIES } from '@shared/constants';
 import { ToolExecutionError } from '@shared/tool-errors';
@@ -547,7 +548,20 @@ async function collectProjectFiles(projectRoot: string): Promise<Record<string, 
 
 async function loadTsconfigRaw(projectRoot: string): Promise<string | undefined> {
 	try {
-		return await fs.readFile(`${projectRoot}/tsconfig.json`, 'utf8');
+		const content = await fs.readFile(`${projectRoot}/tsconfig.json`, 'utf8');
+		const parsed = JSON.parse(stripJsonComments(content));
+
+		// If the root tsconfig is a solution-style project references file (no compilerOptions),
+		// try loading tsconfig.app.json which has the frontend compiler settings (jsx, etc.)
+		if (!parsed.compilerOptions) {
+			try {
+				return await fs.readFile(`${projectRoot}/tsconfig.app.json`, 'utf8');
+			} catch {
+				return undefined;
+			}
+		}
+
+		return content;
 	} catch {
 		return undefined;
 	}

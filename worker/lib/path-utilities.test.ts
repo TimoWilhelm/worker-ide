@@ -44,6 +44,8 @@ describe('isProtectedFile', () => {
 		expect(isProtectedFile('/worker/index.ts')).toBe(true);
 		expect(isProtectedFile('/worker/index.js')).toBe(true);
 		expect(isProtectedFile('/tsconfig.json')).toBe(true);
+		expect(isProtectedFile('/tsconfig.app.json')).toBe(true);
+		expect(isProtectedFile('/tsconfig.worker.json')).toBe(true);
 		expect(isProtectedFile('/package.json')).toBe(true);
 	});
 

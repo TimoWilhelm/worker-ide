@@ -14,6 +14,7 @@
 import fs from 'node:fs/promises';
 
 import { Hono } from 'hono';
+import stripJsonComments from 'strip-json-comments';
 import { z } from 'zod';
 
 import { HIDDEN_ENTRIES } from '@shared/constants';
@@ -309,6 +310,8 @@ const CONFIG_FILES = new Set([
 	'.initialized',
 	'.project-meta.json',
 	'tsconfig.json',
+	'tsconfig.app.json',
+	'tsconfig.worker.json',
 	'package.json',
 	'package-lock.json',
 	'bun.lockb',
@@ -338,7 +341,19 @@ function generateProductionHtml(html: string, originalEntry: string, bundledPath
 async function loadTsconfigRaw(projectRoot: string): Promise<string | undefined> {
 	try {
 		const content = await fs.readFile(`${projectRoot}/tsconfig.json`, 'utf8');
-		const tsConfig = JSON.parse(content);
+		const tsConfig = JSON.parse(stripJsonComments(content));
+
+		// If the root tsconfig is a solution-style project references file (no compilerOptions),
+		// try loading tsconfig.app.json which has the frontend compiler settings (jsx, etc.)
+		if (!tsConfig.compilerOptions) {
+			try {
+				const appContent = await fs.readFile(`${projectRoot}/tsconfig.app.json`, 'utf8');
+				return toEsbuildTsconfigRaw(JSON.parse(stripJsonComments(appContent)));
+			} catch {
+				return undefined;
+			}
+		}
+
 		return toEsbuildTsconfigRaw(tsConfig);
 	} catch {
 		return undefined;

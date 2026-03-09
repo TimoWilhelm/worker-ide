@@ -20,7 +20,9 @@ import minimalStyleCss from './fixtures/minimal/src/style.css?raw';
 import minimalUtilitiesTs from './fixtures/minimal/src/utilities.ts?raw';
 import minimalMetaRaw from './fixtures/minimal/template.json?raw';
 import minimalTestUtilitiesTs from './fixtures/minimal/test/utilities.test.ts?raw';
+import minimalTsconfigApp from './fixtures/minimal/tsconfig.app.json?raw';
 import minimalTsconfig from './fixtures/minimal/tsconfig.json?raw';
+import minimalTsconfigWorker from './fixtures/minimal/tsconfig.worker.json?raw';
 import minimalWorkerIndexTs from './fixtures/minimal/worker/index.ts?raw';
 import requestInspectorGitignore from './fixtures/request-inspector/gitignore.txt?raw';
 import requestInspectorIndexHtml from './fixtures/request-inspector/index.html?raw';
@@ -30,7 +32,9 @@ import requestInspectorStyleCss from './fixtures/request-inspector/src/style.css
 import requestInspectorUtilitiesTs from './fixtures/request-inspector/src/utilities.ts?raw';
 import requestInspectorMetaRaw from './fixtures/request-inspector/template.json?raw';
 import requestInspectorTestUtilitiesTs from './fixtures/request-inspector/test/utilities.test.ts?raw';
+import requestInspectorTsconfigApp from './fixtures/request-inspector/tsconfig.app.json?raw';
 import requestInspectorTsconfig from './fixtures/request-inspector/tsconfig.json?raw';
+import requestInspectorTsconfigWorker from './fixtures/request-inspector/tsconfig.worker.json?raw';
 import requestInspectorWorkerIndexTs from './fixtures/request-inspector/worker/index.ts?raw';
 
 import type { ProjectTemplateMeta } from '@shared/types';
@@ -82,6 +86,8 @@ function defineTemplate(metaRaw: string, files: Record<string, string>): Project
 
 const minimalTemplate = defineTemplate(minimalMetaRaw, {
 	'tsconfig.json': minimalTsconfig,
+	'tsconfig.app.json': minimalTsconfigApp,
+	'tsconfig.worker.json': minimalTsconfigWorker,
 	'index.html': minimalIndexHtml,
 	'src/main.tsx': minimalMainTsx,
 	'src/app.tsx': minimalAppTsx,
@@ -94,6 +100,8 @@ const minimalTemplate = defineTemplate(minimalMetaRaw, {
 
 const requestInspectorTemplate = defineTemplate(requestInspectorMetaRaw, {
 	'tsconfig.json': requestInspectorTsconfig,
+	'tsconfig.app.json': requestInspectorTsconfigApp,
+	'tsconfig.worker.json': requestInspectorTsconfigWorker,
 	'index.html': requestInspectorIndexHtml,
 	'src/main.tsx': requestInspectorMainTsx,
 	'src/app.tsx': requestInspectorAppTsx,

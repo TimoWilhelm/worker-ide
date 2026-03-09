@@ -3,6 +3,8 @@
  * Handles import rewriting, module resolution, and TypeScript/JSX transformation.
  */
 
+import stripJsonComments from 'strip-json-comments';
+
 import { transformCode } from './bundler-service';
 
 const ESM_CDN = 'https://esm.sh';
@@ -112,7 +114,25 @@ async function loadTsConfig(fs: FileSystem, projectRoot: string): Promise<TsConf
 	try {
 		const content = await fs.readFile(`${projectRoot}/tsconfig.json`);
 		const text = typeof content === 'string' ? content : new TextDecoder().decode(content);
-		return JSON.parse(text);
+		const config: TsConfig = JSON.parse(stripJsonComments(text));
+
+		// If the root tsconfig is a solution-style project references file (no compilerOptions),
+		// try loading tsconfig.app.json which has the frontend compiler settings (jsx, paths, etc.)
+		if (!config.compilerOptions) {
+			return await loadTsConfigFile(fs, `${projectRoot}/tsconfig.app.json`);
+		}
+
+		return config;
+	} catch {
+		return undefined;
+	}
+}
+
+async function loadTsConfigFile(fs: FileSystem, filePath: string): Promise<TsConfig | undefined> {
+	try {
+		const content = await fs.readFile(filePath);
+		const text = typeof content === 'string' ? content : new TextDecoder().decode(content);
+		return JSON.parse(stripJsonComments(text));
 	} catch {
 		return undefined;
 	}

@@ -5,7 +5,15 @@
 /**
  * Protected files that cannot be deleted
  */
-export const PROTECTED_FILES = new Set(['/worker/index.ts', '/worker/index.js', '/tsconfig.json', '/package.json', '/index.html']);
+export const PROTECTED_FILES = new Set([
+	'/worker/index.ts',
+	'/worker/index.js',
+	'/tsconfig.json',
+	'/tsconfig.app.json',
+	'/tsconfig.worker.json',
+	'/package.json',
+	'/index.html',
+]);
 
 /**
  * Binary file extensions for snapshot handling

@@ -7,6 +7,7 @@ import fs from 'node:fs/promises';
 
 import { source as chobitsuSource, hash as chobitsuHash } from 'chobitsu?raw-minified';
 import { env, exports } from 'cloudflare:workers';
+import stripJsonComments from 'strip-json-comments';
 
 import { HIDDEN_ENTRIES } from '@shared/constants';
 import { resolveAssetSettings } from '@shared/types';
@@ -661,7 +662,19 @@ export class PreviewService {
 	private async loadTsconfigRaw(): Promise<string | undefined> {
 		try {
 			const content = await fs.readFile(`${this.projectRoot}/tsconfig.json`, 'utf8');
-			const tsConfig = JSON.parse(content);
+			const tsConfig = JSON.parse(stripJsonComments(content));
+
+			// If the root tsconfig is a solution-style project references file (no compilerOptions),
+			// try loading tsconfig.app.json which has the frontend compiler settings (jsx, etc.)
+			if (!tsConfig.compilerOptions) {
+				try {
+					const appContent = await fs.readFile(`${this.projectRoot}/tsconfig.app.json`, 'utf8');
+					return toEsbuildTsconfigRaw(JSON.parse(stripJsonComments(appContent)));
+				} catch {
+					return undefined;
+				}
+			}
+
 			return toEsbuildTsconfigRaw(tsConfig);
 		} catch {
 			return undefined;
