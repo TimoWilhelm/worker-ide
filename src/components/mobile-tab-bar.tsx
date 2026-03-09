@@ -13,6 +13,24 @@ import { cn } from '@/lib/utils';
 import type { MobilePanel } from '@/lib/store';
 
 // =============================================================================
+// Helpers
+// =============================================================================
+
+function useMobileTabAction() {
+	const activeMobilePanel = useStore((state) => state.activeMobilePanel);
+	const setActiveMobilePanel = useStore((state) => state.setActiveMobilePanel);
+	const toggleMobileFileTree = useStore((state) => state.toggleMobileFileTree);
+
+	return (panel: MobilePanel) => {
+		if (panel === 'editor' && activeMobilePanel === 'editor') {
+			toggleMobileFileTree();
+		} else {
+			setActiveMobilePanel(panel);
+		}
+	};
+}
+
+// =============================================================================
 // Component
 // =============================================================================
 
@@ -26,7 +44,7 @@ const TABS: Array<{ panel: MobilePanel; label: string; icon: typeof Code }> = [
 
 export function MobileTabBar() {
 	const activeMobilePanel = useStore((state) => state.activeMobilePanel);
-	const setActiveMobilePanel = useStore((state) => state.setActiveMobilePanel);
+	const handleTabPress = useMobileTabAction();
 	const isProcessing = useStore(selectIsProcessing);
 
 	return (
@@ -45,7 +63,7 @@ export function MobileTabBar() {
 					<button
 						key={panel}
 						type="button"
-						onClick={() => setActiveMobilePanel(panel)}
+						onClick={() => handleTabPress(panel)}
 						className={cn(
 							`
 								relative flex flex-1 cursor-pointer flex-col items-center justify-center
