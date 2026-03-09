@@ -23,7 +23,8 @@ import { Tooltip } from '@/components/ui/tooltip';
 import { setActiveSessionId, useAiSessions } from '@/features/ai-assistant/hooks/use-ai-sessions';
 import { getLogSnapshot } from '@/features/output';
 import { useSnapshots } from '@/features/snapshots';
-import { abortAgent, createApiClient, downloadDebugLog, loadAiSession } from '@/lib/api-client';
+import { useMobileKeyboardStyle } from '@/hooks/use-mobile-keyboard-height';
+import { abortAgent, createApiClient, downloadDebugLog, loadAiSession, saveProjectPendingChanges } from '@/lib/api-client';
 import { useStore } from '@/lib/store';
 import { cn, formatRelativeTime } from '@/lib/utils';
 import { retry } from '@shared/retry';
@@ -56,6 +57,9 @@ import type { ToolErrorInfo, ToolMetadataInfo, UIMessage } from '@shared/types';
  */
 export function AIPanel({ projectId, className }: { projectId: string; className?: string }) {
 	const queryClient = useQueryClient();
+	// On mobile, when the virtual keyboard opens, override the panel height so that
+	// the header and input stay visible while the messages area shrinks.
+	const mobileKeyboardStyle = useMobileKeyboardStyle();
 	const [segments, setSegments] = useState<InputSegment[]>([]);
 	const [cursorPosition, setCursorPosition] = useState(0);
 	const [needsContinuation, setNeedsContinuation] = useState(false);
@@ -968,7 +972,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	}, [chatMessages, streamingAssistantMessage]);
 
 	return (
-		<div className={cn('flex h-full flex-col bg-bg-secondary', className)}>
+		<div className={cn('flex h-full flex-col bg-bg-secondary', className)} style={mobileKeyboardStyle}>
 			{/* Header */}
 			<div
 				className="
