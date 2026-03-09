@@ -221,6 +221,36 @@ export function useAutoScroll(): UseAutoScrollReturn {
 		};
 	}, [updateScrollEdges]);
 
+	// ── Maintain scroll-to-bottom on container resize ─────────────────
+	// When the scroll container shrinks (e.g. virtual keyboard opens on
+	// mobile) and the user was at the bottom, scroll to the new bottom so
+	// the latest messages stay visible.
+	useEffect(() => {
+		const element = scrollReference.current;
+		if (!element) return;
+
+		let previousHeight = element.clientHeight;
+
+		const observer = new ResizeObserver(() => {
+			const currentHeight = element.clientHeight;
+			if (currentHeight !== previousHeight) {
+				const shrunk = currentHeight < previousHeight;
+				previousHeight = currentHeight;
+
+				if (shrunk && !userScrolledAwayReference.current) {
+					// Container got smaller while user was at the bottom — stay there
+					isProgrammaticScrollReference.current = true;
+					element.scrollTop = element.scrollHeight;
+				}
+
+				updateScrollEdges();
+			}
+		});
+
+		observer.observe(element);
+		return () => observer.disconnect();
+	}, [updateScrollEdges]);
+
 	// ── scrollToBottom ─────────────────────────────────────────────────
 	const scrollToBottom = useCallback(() => {
 		const element = scrollReference.current;
