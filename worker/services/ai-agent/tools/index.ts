@@ -29,6 +29,7 @@ import * as filesListTool from './files-list';
 import * as lintCheckTool from './lint-check';
 import * as lintFixTool from './lint-fix';
 import * as planUpdateTool from './plan-update';
+import * as previewFetchTool from './preview-fetch';
 import * as testRunTool from './test-run';
 import * as todosGetTool from './todos-get';
 import * as todosUpdateTool from './todos-update';
@@ -79,6 +80,7 @@ export const TOOL_EXECUTORS: ReadonlyMap<string, ToolExecuteFunction> = new Map(
 	['lint_check', lintCheckTool.execute],
 	['lint_fix', lintFixTool.execute],
 	['cdp_eval', cdpEvalTool.execute],
+	['preview_fetch', previewFetchTool.execute],
 	['test_run', testRunTool.execute],
 ]);
 
@@ -111,6 +113,7 @@ export const AGENT_TOOLS: readonly ToolDefinition[] = [
 	lintCheckTool.definition,
 	lintFixTool.definition,
 	cdpEvalTool.definition,
+	previewFetchTool.definition,
 	testRunTool.definition,
 ];
 
@@ -134,6 +137,7 @@ const PLAN_MODE_TOOL_NAMES = new Set([
 	'asset_settings_get',
 	'lint_check',
 	'cdp_eval',
+	'preview_fetch',
 	'test_run',
 ]);
 
@@ -156,6 +160,7 @@ const ASK_MODE_TOOL_NAMES = new Set([
 	'asset_settings_get',
 	'lint_check',
 	'cdp_eval',
+	'preview_fetch',
 	'test_run',
 ]);
 
@@ -183,6 +188,7 @@ export const READ_ONLY_TOOL_NAMES = new Set([
 	'asset_settings_get',
 	'lint_check',
 	'cdp_eval',
+	'preview_fetch',
 	'test_run',
 ]);
 

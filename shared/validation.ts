@@ -291,6 +291,17 @@ export const cdpEvalInputSchema = z.object({
 });
 
 /**
+ * Schema for AI tool: preview_fetch (send HTTP request to the project preview)
+ */
+export const previewFetchInputSchema = z.object({
+	path: z.string().min(1, 'Path is required'),
+	method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']).optional(),
+	headers: z.string().optional(),
+	body: z.string().optional(),
+	format: z.enum(['raw', 'markdown']).optional(),
+});
+
+/**
  * Schema for AI tool: test_run (run tests in a Worker sandbox)
  */
 export const testRunInputSchema = z.object({
@@ -326,6 +337,7 @@ export const toolInputSchemas = {
 	lint_check: lintCheckInputSchema,
 	lint_fix: lintFixInputSchema,
 	cdp_eval: cdpEvalInputSchema,
+	preview_fetch: previewFetchInputSchema,
 	test_run: testRunInputSchema,
 } as const;
 
