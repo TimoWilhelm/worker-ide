@@ -24,7 +24,7 @@ import { setActiveSessionId, useAiSessions } from '@/features/ai-assistant/hooks
 import { getLogSnapshot } from '@/features/output';
 import { useSnapshots } from '@/features/snapshots';
 import { useMobileKeyboardStyle } from '@/hooks/use-mobile-keyboard-height';
-import { abortAgent, createApiClient, downloadDebugLog, loadAiSession, saveProjectPendingChanges } from '@/lib/api-client';
+import { abortAgent, createApiClient, downloadDebugLog, loadAiSession } from '@/lib/api-client';
 import { useStore } from '@/lib/store';
 import { cn, formatRelativeTime } from '@/lib/utils';
 import { retry } from '@shared/retry';
