@@ -8,6 +8,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useEffect } from 'react';
 
 import { createApiClient } from '@/lib/api-client';
+import { throwApiError } from '@/lib/api-error';
 import { useStore } from '@/lib/store';
 
 import type { GitBranchInfo } from '@shared/types';
@@ -43,7 +44,7 @@ export function useGitBranches({ projectId, enabled = true }: UseGitBranchesOpti
 		queryFn: async (): Promise<BranchesResponse> => {
 			const response = await api.git.branches.$get({});
 			if (!response.ok) {
-				throw new Error('Failed to fetch branches');
+				await throwApiError(response, 'Failed to fetch branches');
 			}
 			const data = await response.json();
 			const current = 'current' in data && typeof data.current === 'string' ? data.current : undefined;

@@ -1,15 +1,16 @@
 /**
  * Code transformation routes.
- * Handles TypeScript/JSX compilation and bundling via esbuild-wasm.
+ * Handles TypeScript/JSX compilation and bundling via the bundler service.
  */
 
 import { zValidator } from '@hono/zod-validator';
 import { Hono } from 'hono';
 
+import { HttpErrorCode } from '@shared/http-errors';
 import { transformCodeSchema } from '@shared/validation';
 
 import { httpError } from '../lib/http-error';
-import { transformCode } from '../services/bundler-service';
+import { transformCode } from '../services/bundler-client';
 
 import type { AppEnvironment } from '../types';
 
@@ -29,7 +30,7 @@ export const transformRoutes = new Hono<AppEnvironment>()
 			});
 		} catch (error) {
 			const message = error instanceof Error ? error.message : 'Transform failed';
-			throw httpError(500, message);
+			throw httpError(HttpErrorCode.INTERNAL_ERROR, message);
 		}
 	});
 

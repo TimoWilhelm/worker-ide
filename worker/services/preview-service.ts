@@ -13,7 +13,7 @@ import { HIDDEN_ENTRIES } from '@shared/constants';
 import { resolveAssetSettings } from '@shared/types';
 
 import { getCachedBundle, putCachedBundle } from './bundle-cache-service';
-import { bundleWithCdn, BundleDependencyError } from './bundler-service';
+import { bundleWithCdn, BundleDependencyError } from './bundler-client';
 import { parseDependencyErrorsFromMessage } from './dependency-error-parser';
 import { transformModule, processHTML, toEsbuildTsconfigRaw, type FileSystem } from './transform-service';
 import { coordinatorNamespace } from '../lib/durable-object-namespaces';

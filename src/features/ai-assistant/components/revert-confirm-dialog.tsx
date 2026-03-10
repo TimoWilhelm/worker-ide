@@ -19,6 +19,7 @@ import { AlertDialog } from 'radix-ui';
 import { useMemo } from 'react';
 
 import { createApiClient } from '@/lib/api-client';
+import { throwApiError } from '@/lib/api-error';
 import { useStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 
@@ -71,7 +72,7 @@ export function RevertConfirmDialog({
 				const api = createApiClient(projectId);
 				const response = await api.snapshot[':id'].$get({ param: { id: snapshotId } });
 				if (!response.ok) {
-					throw new Error(`Failed to load snapshot ${snapshotId}`);
+					await throwApiError(response, `Failed to load snapshot ${snapshotId}`);
 				}
 				const data: { snapshot: SnapshotMetadata } = await response.json();
 				return data.snapshot;

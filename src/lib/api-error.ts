@@ -1,0 +1,103 @@
+/**
+ * API Error Handling
+ *
+ * Provides `ApiError` — a typed error class that carries the server's
+ * `HttpErrorCode` and descriptive message — and `throwApiError()`, a helper
+ * that parses the `{ error, code }` JSON body from failed HTTP responses.
+ *
+ * Usage in frontend API callers:
+ * ```ts
+ * if (!response.ok) {
+ *   await throwApiError(response, 'Failed to delete file');
+ * }
+ * ```
+ *
+ * The helper reads the server's real error message from the response body
+ * and throws an `ApiError` with the typed code. The fallback string is only
+ * used when the body cannot be parsed (e.g. network interruption mid-stream).
+ *
+ * Because `ApiError` extends `Error`, existing `catch` blocks and
+ * `toast.error(error.message)` patterns continue to work — but now
+ * `error.message` contains the server's descriptive text instead of a
+ * hardcoded generic string.
+ */
+
+import { HttpErrorCode } from '@shared/http-errors';
+
+type HttpErrorCodeValue = (typeof HttpErrorCode)[keyof typeof HttpErrorCode];
+
+const HTTP_ERROR_CODES = new Set<string>(Object.values(HttpErrorCode));
+
+function isHttpErrorCode(value: string): value is HttpErrorCodeValue {
+	return HTTP_ERROR_CODES.has(value);
+}
+
+/**
+ * Typed API error with the server's error code and message.
+ *
+ * Use `error.code` for conditional error handling:
+ * ```ts
+ * if (error instanceof ApiError && error.code === 'RATE_LIMITED') {
+ *   showRetryDialog();
+ * }
+ * ```
+ */
+export class ApiError extends Error {
+	readonly code: HttpErrorCodeValue | undefined;
+	readonly status: number;
+
+	constructor(message: string, status: number, code?: HttpErrorCodeValue) {
+		super(message);
+		this.name = 'ApiError';
+		this.code = code;
+		this.status = status;
+	}
+}
+
+/**
+ * Wire format for error responses from `httpError()`.
+ */
+interface ErrorResponseBody {
+	error: string;
+	code?: string;
+}
+
+/**
+ * Attempt to parse a JSON `{ error, code }` body from a non-OK response.
+ * Returns `undefined` if the body cannot be read or parsed.
+ */
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === 'object' && value !== undefined;
+}
+
+async function parseErrorBody(response: Response): Promise<ErrorResponseBody | undefined> {
+	try {
+		const body: unknown = await response.json();
+		if (isRecord(body) && 'error' in body) {
+			return {
+				error: String(body.error),
+				code: typeof body.code === 'string' ? body.code : undefined,
+			};
+		}
+	} catch {
+		// Body not parseable — fall through
+	}
+	return undefined;
+}
+
+/**
+ * Parse the error body from a failed response and throw an `ApiError`.
+ *
+ * The server's error message is preferred over the fallback. The fallback
+ * is only used when the response body cannot be parsed.
+ *
+ * @param response - The failed HTTP response (`!response.ok`)
+ * @param fallback - Fallback error message if the body can't be parsed
+ * @returns Never — always throws
+ */
+export async function throwApiError(response: Response, fallback: string): Promise<never> {
+	const body = await parseErrorBody(response);
+	const message = body?.error || fallback;
+	const code = body?.code && isHttpErrorCode(body.code) ? body.code : undefined;
+	throw new ApiError(message, response.status, code);
+}

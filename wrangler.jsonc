@@ -64,5 +64,9 @@
 			"binding": "BIOME",
 			"service": "biome-worker",
 		},
+		{
+			"binding": "ESBUILD",
+			"service": "esbuild-worker",
+		},
 	],
 }

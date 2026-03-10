@@ -1,14 +1,25 @@
 /**
- * Bundler Service.
- * Handles TypeScript/JSX transformation and bundling via esbuild-wasm.
+ * Esbuild Core — standalone esbuild-wasm logic
+ *
+ * Contains all transform/bundle logic without any Cloudflare-specific imports.
+ * This module is imported by both:
+ *   - `index.ts` (WorkerEntrypoint wrapper for RPC)
+ *   - Tests that need real esbuild WASM without cloudflare:workers
  */
 
 import * as esbuild from 'esbuild-wasm';
 
-// @ts-expect-error - WASM module import
+import { BundleDependencyError } from '@shared/bundler-types';
+
+// @ts-expect-error -- WASM module import resolved to WebAssembly.Module by Cloudflare at deploy time
 import esbuildWasm from '../../vendor/esbuild.wasm';
 
+import type { BundleResult, BundleWithCdnOptions, TransformOptions, TransformResult } from '@shared/bundler-types';
 import type { DependencyError } from '@shared/types';
+
+// =============================================================================
+// Initialization
+// =============================================================================
 
 let esbuildInitialized = false;
 let esbuildInitializePromise: Promise<void> | undefined;
@@ -40,6 +51,10 @@ async function initializeEsbuild(): Promise<void> {
 	return esbuildInitializePromise;
 }
 
+// =============================================================================
+// Loader Helpers
+// =============================================================================
+
 function getLoader(path: string): esbuild.Loader {
 	if (path.endsWith('.ts') || path.endsWith('.mts')) return 'ts';
 	if (path.endsWith('.tsx')) return 'tsx';
@@ -47,20 +62,6 @@ function getLoader(path: string): esbuild.Loader {
 	if (path.endsWith('.json')) return 'json';
 	if (path.endsWith('.css')) return 'css';
 	return 'js';
-}
-
-// =============================================================================
-// Transform Types
-// =============================================================================
-
-export interface TransformResult {
-	code: string;
-	map?: string;
-}
-
-export interface TransformOptions {
-	sourcemap?: boolean;
-	tsconfigRaw?: string;
 }
 
 // =============================================================================
@@ -91,27 +92,6 @@ export async function transformCode(code: string, filename: string, options?: Tr
 }
 
 // =============================================================================
-// Bundle Types
-// =============================================================================
-
-export interface BundleOptions {
-	files: Record<string, string>;
-	entryPoint: string;
-	externals?: string[];
-	minify?: boolean;
-	sourcemap?: boolean;
-	tsconfigRaw?: string;
-}
-
-export interface BundleResult {
-	code: string;
-	map?: string;
-	warnings?: string[];
-	/** Structured dependency errors collected during bundling */
-	dependencyErrors?: DependencyError[];
-}
-
-// =============================================================================
 // ESM CDN Resolution
 // =============================================================================
 
@@ -119,19 +99,6 @@ const ESM_CDN = 'https://esm.sh';
 
 /** In-memory cache for modules fetched from esm.sh. */
 const esmCdnCache = new Map<string, string>();
-
-/**
- * Error class that carries structured dependency errors alongside the original build error.
- * The preview service checks for this to populate ServerError.dependencyErrors.
- */
-export class BundleDependencyError extends Error {
-	readonly dependencyErrors: DependencyError[];
-	constructor(originalError: unknown, dependencyErrors: DependencyError[]) {
-		super(originalError instanceof Error ? originalError.message : String(originalError));
-		this.name = 'BundleDependencyError';
-		this.dependencyErrors = dependencyErrors;
-	}
-}
 
 /**
  * Extract package name from an esm.sh URL path, stripping version and subpath.
@@ -221,7 +188,7 @@ function createEsmCdnPlugin(dependencyErrors?: DependencyError[]): esbuild.Plugi
 }
 
 // =============================================================================
-// Bundle Function
+// Virtual Filesystem Plugin
 // =============================================================================
 
 function resolveRelativePath(resolveDirectory: string, relativePath: string, files: Record<string, string>): string | undefined {
@@ -389,39 +356,6 @@ function createVirtualFsPlugin(
 	};
 }
 
-/**
- * Bundle multiple files into a single JavaScript bundle using esbuild.
- */
-export async function bundleCode(options: BundleOptions): Promise<BundleResult> {
-	await initializeEsbuild();
-
-	const { files, entryPoint, externals = [], minify = false, sourcemap = false, tsconfigRaw } = options;
-
-	const result = await esbuild.build({
-		entryPoints: [entryPoint],
-		bundle: true,
-		write: false,
-		format: 'esm',
-		platform: 'browser',
-		target: 'es2022',
-		minify,
-		sourcemap: sourcemap ? 'inline' : false,
-		plugins: [createVirtualFsPlugin(files, externals, false)],
-		outfile: 'bundle.js',
-		tsconfigRaw,
-	});
-
-	const output = result.outputFiles?.[0];
-	if (!output) {
-		throw new Error('No output generated from esbuild');
-	}
-
-	return {
-		code: output.text,
-		warnings: result.warnings.map((w) => w.text),
-	};
-}
-
 // =============================================================================
 // React Fast Refresh Transform
 // =============================================================================
@@ -510,22 +444,8 @@ function isJsxOrTsxFile(filePath: string): boolean {
 }
 
 // =============================================================================
-// Bundle with CDN Types
+// Bundle with CDN
 // =============================================================================
-
-export interface BundleWithCdnOptions {
-	files: Record<string, string>;
-	entryPoint: string;
-	externals?: string[];
-	minify?: boolean;
-	sourcemap?: boolean;
-	tsconfigRaw?: string;
-	platform?: 'browser' | 'neutral';
-	/** Known registered dependencies (name → version). Only these are resolved from esm.sh. */
-	knownDependencies?: Map<string, string>;
-	/** When true, inject React Fast Refresh registration wrappers into user modules. */
-	reactRefresh?: boolean;
-}
 
 /**
  * Bundle files into a single JavaScript module, resolving bare package imports
@@ -574,7 +494,7 @@ export async function bundleWithCdn(options: BundleWithCdnOptions): Promise<Bund
 			tsconfigRaw,
 		});
 	} catch (error) {
-		// Re-throw with collected dependency errors attached so the preview service can use them
+		// Re-throw with collected dependency errors attached so the caller can use them
 		if (collectedDependencyErrors.length > 0) {
 			// Safe to assert non-undefined: we checked length > 0
 			throw new BundleDependencyError(error, deduplicateDependencyErrors(collectedDependencyErrors)!);
@@ -603,6 +523,10 @@ export async function bundleWithCdn(options: BundleWithCdnOptions): Promise<Bund
 		dependencyErrors: deduplicateDependencyErrors(collectedDependencyErrors),
 	};
 }
+
+// =============================================================================
+// Helpers
+// =============================================================================
 
 /**
  * Deduplicate dependency errors by package name (same package may be imported multiple times).

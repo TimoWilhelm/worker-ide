@@ -10,6 +10,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 
 import { BINARY_EXTENSIONS } from '@shared/constants';
+import { HttpErrorCode } from '@shared/http-errors';
 import { snapshotIdSchema, revertFileSchema, revertCascadeSchema, filePathSchema } from '@shared/validation';
 
 import { coordinatorNamespace } from '../lib/durable-object-namespaces';
@@ -55,7 +56,7 @@ export const snapshotRoutes = new Hono<AppEnvironment>()
 
 		const metadata = await getSnapshotMetadata(projectRoot, id);
 		if (!metadata) {
-			throw httpError(404, 'Snapshot not found');
+			throw httpError(HttpErrorCode.SNAPSHOT_NOT_FOUND, 'Snapshot not found');
 		}
 
 		return c.json({ snapshot: metadata });
@@ -69,7 +70,7 @@ export const snapshotRoutes = new Hono<AppEnvironment>()
 
 		const success = await revertSnapshot(projectRoot, id, projectId);
 		if (!success) {
-			throw httpError(500, 'Failed to revert snapshot');
+			throw httpError(HttpErrorCode.INTERNAL_ERROR, 'Failed to revert snapshot');
 		}
 
 		return c.json({ success: true });
@@ -83,7 +84,7 @@ export const snapshotRoutes = new Hono<AppEnvironment>()
 
 		const success = await revertFileFromSnapshot(projectRoot, path, snapshotId, projectId);
 		if (!success) {
-			throw httpError(500, 'Failed to revert file');
+			throw httpError(HttpErrorCode.INTERNAL_ERROR, 'Failed to revert file');
 		}
 
 		return c.json({ success: true });
@@ -115,12 +116,12 @@ export const snapshotRoutes = new Hono<AppEnvironment>()
 			const metadata = await getSnapshotMetadata(projectRoot, id);
 
 			if (!metadata) {
-				throw httpError(404, 'Snapshot not found');
+				throw httpError(HttpErrorCode.SNAPSHOT_NOT_FOUND, 'Snapshot not found');
 			}
 
 			const change = metadata.changes.find((ch) => ch.path === path);
 			if (!change) {
-				throw httpError(404, 'File not in snapshot');
+				throw httpError(HttpErrorCode.NOT_FOUND, 'File not in snapshot');
 			}
 
 			// For created files, there's no before content
@@ -138,7 +139,7 @@ export const snapshotRoutes = new Hono<AppEnvironment>()
 				const content = await fs.readFile(`${snapshotDirectory}${path}`, 'utf8');
 				return c.json({ path, content, action: change.action });
 			} catch {
-				throw httpError(404, 'File not found in snapshot');
+				throw httpError(HttpErrorCode.FILE_NOT_FOUND, 'File not found in snapshot');
 			}
 		},
 	);

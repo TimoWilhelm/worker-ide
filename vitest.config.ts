@@ -54,6 +54,7 @@ export default defineConfig({
 								// gracefully (returns [] / failure objects).
 								serviceBindings: {
 									BIOME: () => new Response('service unavailable', { status: 503 }),
+									ESBUILD: () => new Response('service unavailable', { status: 503 }),
 								},
 							},
 							wrangler: {

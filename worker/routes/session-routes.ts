@@ -10,6 +10,7 @@ import { zValidator } from '@hono/zod-validator';
 import { Hono } from 'hono';
 import { z } from 'zod';
 
+import { HttpErrorCode } from '@shared/http-errors';
 import { sessionIdSchema, pendingChangesFileSchema } from '@shared/validation';
 
 import { agentRunnerNamespace } from '../lib/durable-object-namespaces';
@@ -52,7 +53,7 @@ export const sessionRoutes = new Hono<AppEnvironment>()
 		const stub = getAgentRunnerStub(projectId);
 		const session = await stub.loadSession(id);
 		if (!session) {
-			throw httpError(404, 'Session not found');
+			throw httpError(HttpErrorCode.SESSION_NOT_FOUND, 'Session not found');
 		}
 		return c.json(session);
 	})

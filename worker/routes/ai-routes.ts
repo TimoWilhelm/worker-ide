@@ -14,6 +14,7 @@ import { env } from 'cloudflare:workers';
 import { Hono } from 'hono';
 import { z } from 'zod';
 
+import { HttpErrorCode } from '@shared/http-errors';
 import { aiChatMessageSchema, debugLogIdSchema } from '@shared/validation';
 
 import { agentRunnerNamespace } from '../lib/durable-object-namespaces';
@@ -32,14 +33,17 @@ export const aiRoutes = new Hono<AppEnvironment>()
 
 		const apiToken = env.REPLICATE_API_TOKEN;
 		if (!apiToken) {
-			throw httpError(500, 'REPLICATE_API_TOKEN not configured. Please set it using: wrangler secret put REPLICATE_API_TOKEN');
+			throw httpError(
+				HttpErrorCode.NOT_CONFIGURED,
+				'REPLICATE_API_TOKEN not configured. Please set it using: wrangler secret put REPLICATE_API_TOKEN',
+			);
 		}
 
 		// Rate limit check
 		if (env.AI_RATE_LIMITER) {
 			const { success } = await env.AI_RATE_LIMITER.limit({ key: projectId });
 			if (!success) {
-				throw httpError(429, 'Rate limit exceeded. Please wait before making more AI requests.');
+				throw httpError(HttpErrorCode.RATE_LIMITED, 'Rate limit exceeded. Please wait before making more AI requests.');
 			}
 		}
 
@@ -134,10 +138,10 @@ export const aiRoutes = new Hono<AppEnvironment>()
 			content = await fs.readFile(logPath, 'utf8');
 		} catch (error) {
 			if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
-				throw httpError(404, 'Debug log not found');
+				throw httpError(HttpErrorCode.NOT_FOUND, 'Debug log not found');
 			}
 			console.error('Failed to read debug log file:', error);
-			throw httpError(500, 'Failed to read debug log');
+			throw httpError(HttpErrorCode.INTERNAL_ERROR, 'Failed to read debug log');
 		}
 
 		// Validate JSON before returning — corrupted/truncated logs should
@@ -146,7 +150,7 @@ export const aiRoutes = new Hono<AppEnvironment>()
 			JSON.parse(content);
 		} catch {
 			console.error(`Debug log file contains invalid JSON: ${logPath}`);
-			throw httpError(422, 'Debug log file is corrupted');
+			throw httpError(HttpErrorCode.DATA_CORRUPTED, 'Debug log file is corrupted');
 		}
 
 		return c.body(content, 200, { 'Content-Type': 'application/json' });

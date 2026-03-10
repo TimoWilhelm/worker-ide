@@ -24,6 +24,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 
 import { toast } from '@/components/ui/toast-store';
 import { createApiClient } from '@/lib/api-client';
+import { throwApiError } from '@/lib/api-error';
 
 import type { GitFileStatus, GitStatusEntry } from '@shared/types';
 
@@ -191,7 +192,7 @@ export function useGitMutations({ projectId }: UseGitMutationsOptions) {
 		mutationFn: async () => {
 			const response = await api.git.init.$post({});
 			if (!response.ok) {
-				throw new Error('Failed to initialize git repository');
+				await throwApiError(response, 'Failed to initialize git repository');
 			}
 			return response.json();
 		},
@@ -211,7 +212,7 @@ export function useGitMutations({ projectId }: UseGitMutationsOptions) {
 		mutationFn: async (paths: string[]) => {
 			const response = await api.git.stage.$post({ json: { paths } });
 			if (!response.ok) {
-				throw new Error('Failed to stage files');
+				await throwApiError(response, 'Failed to stage files');
 			}
 			return response.json();
 		},
@@ -236,7 +237,7 @@ export function useGitMutations({ projectId }: UseGitMutationsOptions) {
 		mutationFn: async (paths: string[]) => {
 			const response = await api.git.unstage.$post({ json: { paths } });
 			if (!response.ok) {
-				throw new Error('Failed to unstage files');
+				await throwApiError(response, 'Failed to unstage files');
 			}
 			return response.json();
 		},
@@ -261,7 +262,7 @@ export function useGitMutations({ projectId }: UseGitMutationsOptions) {
 		mutationFn: async () => {
 			const response = await api.git['stage-all'].$post({});
 			if (!response.ok) {
-				throw new Error('Failed to stage all files');
+				await throwApiError(response, 'Failed to stage all files');
 			}
 			return response.json();
 		},
@@ -286,7 +287,7 @@ export function useGitMutations({ projectId }: UseGitMutationsOptions) {
 		mutationFn: async () => {
 			const response = await api.git['unstage-all'].$post({});
 			if (!response.ok) {
-				throw new Error('Failed to unstage all files');
+				await throwApiError(response, 'Failed to unstage all files');
 			}
 			return response.json();
 		},
@@ -315,7 +316,7 @@ export function useGitMutations({ projectId }: UseGitMutationsOptions) {
 		mutationFn: async (path: string) => {
 			const response = await api.git.discard.$post({ json: { path } });
 			if (!response.ok) {
-				throw new Error('Failed to discard changes');
+				await throwApiError(response, 'Failed to discard changes');
 			}
 			return response.json();
 		},
@@ -344,7 +345,7 @@ export function useGitMutations({ projectId }: UseGitMutationsOptions) {
 		mutationFn: async () => {
 			const response = await api.git['discard-all'].$post({});
 			if (!response.ok) {
-				throw new Error('Failed to discard all changes');
+				await throwApiError(response, 'Failed to discard all changes');
 			}
 			return response.json();
 		},
@@ -377,7 +378,7 @@ export function useGitMutations({ projectId }: UseGitMutationsOptions) {
 		mutationFn: async (parameters: { message: string; amend?: boolean }) => {
 			const response = await api.git.commit.$post({ json: parameters });
 			if (!response.ok) {
-				throw new Error('Failed to create commit');
+				await throwApiError(response, 'Failed to create commit');
 			}
 			return response.json();
 		},
@@ -397,7 +398,7 @@ export function useGitMutations({ projectId }: UseGitMutationsOptions) {
 		mutationFn: async (parameters: { name: string; checkout?: boolean }) => {
 			const response = await api.git.branch.$post({ json: parameters });
 			if (!response.ok) {
-				throw new Error('Failed to create branch');
+				await throwApiError(response, 'Failed to create branch');
 			}
 		},
 		onSuccess: invalidateNonStatusGitQueries,
@@ -410,7 +411,7 @@ export function useGitMutations({ projectId }: UseGitMutationsOptions) {
 		mutationFn: async (name: string) => {
 			const response = await api.git.branch.$delete({ query: { name } });
 			if (!response.ok) {
-				throw new Error('Failed to delete branch');
+				await throwApiError(response, 'Failed to delete branch');
 			}
 		},
 		onSuccess: invalidateNonStatusGitQueries,
@@ -423,7 +424,7 @@ export function useGitMutations({ projectId }: UseGitMutationsOptions) {
 		mutationFn: async (parameters: { oldName: string; newName: string }) => {
 			const response = await api.git.branch.rename.$post({ json: parameters });
 			if (!response.ok) {
-				throw new Error('Failed to rename branch');
+				await throwApiError(response, 'Failed to rename branch');
 			}
 		},
 		onSuccess: invalidateNonStatusGitQueries,
@@ -436,7 +437,7 @@ export function useGitMutations({ projectId }: UseGitMutationsOptions) {
 		mutationFn: async (reference: string) => {
 			const response = await api.git.checkout.$post({ json: { reference } });
 			if (!response.ok) {
-				throw new Error('Failed to checkout');
+				await throwApiError(response, 'Failed to checkout');
 			}
 			return response.json();
 		},
@@ -461,7 +462,7 @@ export function useGitMutations({ projectId }: UseGitMutationsOptions) {
 		mutationFn: async (branch: string) => {
 			const response = await api.git.merge.$post({ json: { branch } });
 			if (!response.ok) {
-				throw new Error('Failed to merge');
+				await throwApiError(response, 'Failed to merge');
 			}
 			return response.json();
 		},
@@ -486,7 +487,7 @@ export function useGitMutations({ projectId }: UseGitMutationsOptions) {
 		mutationFn: async (parameters: { name: string; reference?: string }) => {
 			const response = await api.git.tag.$post({ json: parameters });
 			if (!response.ok) {
-				throw new Error('Failed to create tag');
+				await throwApiError(response, 'Failed to create tag');
 			}
 		},
 		onSuccess: invalidateNonStatusGitQueries,
@@ -499,7 +500,7 @@ export function useGitMutations({ projectId }: UseGitMutationsOptions) {
 		mutationFn: async (name: string) => {
 			const response = await api.git.tag.$delete({ query: { name } });
 			if (!response.ok) {
-				throw new Error('Failed to delete tag');
+				await throwApiError(response, 'Failed to delete tag');
 			}
 		},
 		onSuccess: invalidateNonStatusGitQueries,
@@ -516,7 +517,7 @@ export function useGitMutations({ projectId }: UseGitMutationsOptions) {
 		mutationFn: async (message?: string) => {
 			const response = await api.git.stash.$post({ json: { action: 'push', message } });
 			if (!response.ok) {
-				throw new Error('Failed to push stash');
+				await throwApiError(response, 'Failed to push stash');
 			}
 			return response.json();
 		},
@@ -532,7 +533,7 @@ export function useGitMutations({ projectId }: UseGitMutationsOptions) {
 		mutationFn: async (index?: number) => {
 			const response = await api.git.stash.$post({ json: { action: 'pop', index } });
 			if (!response.ok) {
-				throw new Error('Failed to pop stash');
+				await throwApiError(response, 'Failed to pop stash');
 			}
 			return response.json();
 		},
@@ -552,7 +553,7 @@ export function useGitMutations({ projectId }: UseGitMutationsOptions) {
 		mutationFn: async (index?: number) => {
 			const response = await api.git.stash.$post({ json: { action: 'apply', index } });
 			if (!response.ok) {
-				throw new Error('Failed to apply stash');
+				await throwApiError(response, 'Failed to apply stash');
 			}
 			return response.json();
 		},
@@ -572,7 +573,7 @@ export function useGitMutations({ projectId }: UseGitMutationsOptions) {
 		mutationFn: async (index?: number) => {
 			const response = await api.git.stash.$post({ json: { action: 'drop', index } });
 			if (!response.ok) {
-				throw new Error('Failed to drop stash');
+				await throwApiError(response, 'Failed to drop stash');
 			}
 			return response.json();
 		},
@@ -588,7 +589,7 @@ export function useGitMutations({ projectId }: UseGitMutationsOptions) {
 		mutationFn: async () => {
 			const response = await api.git.stash.$post({ json: { action: 'clear' } });
 			if (!response.ok) {
-				throw new Error('Failed to clear stash');
+				await throwApiError(response, 'Failed to clear stash');
 			}
 			return response.json();
 		},

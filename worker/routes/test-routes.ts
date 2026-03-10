@@ -13,6 +13,7 @@ import { zValidator } from '@hono/zod-validator';
 import { Hono } from 'hono';
 
 import { HIDDEN_ENTRIES } from '@shared/constants/file-system';
+import { HttpErrorCode } from '@shared/http-errors';
 import { ToolExecutionError } from '@shared/tool-errors';
 import { testRunRequestSchema } from '@shared/validation';
 
@@ -118,12 +119,12 @@ export const testRoutes = new Hono<AppEnvironment>()
 		} catch (error) {
 			if (error instanceof ToolExecutionError) {
 				if (error.code === 'FILE_NOT_FOUND') {
-					throw httpError(404, error.message);
+					throw httpError(HttpErrorCode.FILE_NOT_FOUND, error.message);
 				}
-				throw httpError(400, error.message);
+				throw httpError(HttpErrorCode.VALIDATION_ERROR, error.message);
 			}
 			const message = error instanceof Error ? error.message : 'Test run failed';
-			throw httpError(500, message);
+			throw httpError(HttpErrorCode.INTERNAL_ERROR, message);
 		}
 	})
 

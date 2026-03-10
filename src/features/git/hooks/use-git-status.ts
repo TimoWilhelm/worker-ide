@@ -9,6 +9,7 @@ import { useQuery, useSuspenseQuery } from '@tanstack/react-query';
 import { useEffect } from 'react';
 
 import { createApiClient } from '@/lib/api-client';
+import { throwApiError } from '@/lib/api-error';
 import { useStore } from '@/lib/store';
 
 import type { GitStatusEntry } from '@shared/types';
@@ -39,7 +40,7 @@ export function useGitStatus({ projectId, enabled = true }: UseGitStatusOptions)
 		queryFn: async (): Promise<{ entries: GitStatusEntry[]; initialized: boolean }> => {
 			const response = await api.git.status.$get({});
 			if (!response.ok) {
-				throw new Error('Failed to fetch git status');
+				await throwApiError(response, 'Failed to fetch git status');
 			}
 			const data: { entries: GitStatusEntry[]; initialized: boolean } = await response.json();
 			return data;
@@ -90,7 +91,7 @@ export function useGitStatusSuspense({ projectId }: UseGitStatusSuspenseOptions)
 		queryFn: async (): Promise<{ entries: GitStatusEntry[]; initialized: boolean }> => {
 			const response = await api.git.status.$get({});
 			if (!response.ok) {
-				throw new Error('Failed to fetch git status');
+				await throwApiError(response, 'Failed to fetch git status');
 			}
 			const data: { entries: GitStatusEntry[]; initialized: boolean } = await response.json();
 			return data;

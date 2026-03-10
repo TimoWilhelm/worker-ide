@@ -8,6 +8,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useCallback } from 'react';
 
 import { createApiClient } from '@/lib/api-client';
+import { throwApiError } from '@/lib/api-error';
 
 // =============================================================================
 // Types
@@ -46,7 +47,7 @@ export function useFileContent({ projectId, path, enabled = true }: UseFileConte
 			const response = await api.file.$get({ query: { path } });
 
 			if (!response.ok) {
-				throw new Error('Failed to load file');
+				await throwApiError(response, 'Failed to load file');
 			}
 
 			const data: FileContent = await response.json();
@@ -64,7 +65,7 @@ export function useFileContent({ projectId, path, enabled = true }: UseFileConte
 			});
 
 			if (!response.ok) {
-				throw new Error('Failed to save file');
+				await throwApiError(response, 'Failed to save file');
 			}
 
 			return response.json();
@@ -120,7 +121,7 @@ export function useFileList({ projectId, enabled = true }: UseFileListOptions) {
 			const response = await api.files.$get({});
 
 			if (!response.ok) {
-				throw new Error('Failed to load files');
+				await throwApiError(response, 'Failed to load files');
 			}
 
 			const data = await response.json();

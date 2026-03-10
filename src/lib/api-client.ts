@@ -9,6 +9,8 @@ import { hc } from 'hono/client';
 
 import { serializeMessage, parseServerMessage, type ClientMessage, type ServerMessage } from '@shared/ws-messages';
 
+import { throwApiError } from './api-error';
+
 import type { ApiRoutes } from '@server/routes';
 import type { AIModelId } from '@shared/constants';
 import type { AgentMode, AiSession, AssetSettings, PendingFileChange, ProjectTemplateMeta, UIMessage } from '@shared/types';
@@ -48,7 +50,7 @@ export async function createProject(templateId: string): Promise<{ projectId: st
 		body: JSON.stringify({ template: templateId }),
 	});
 	if (!response.ok) {
-		throw new Error('Failed to create project');
+		await throwApiError(response, 'Failed to create project');
 	}
 	const data: { projectId: string; url: string; name: string } = await response.json();
 	return data;
@@ -70,7 +72,7 @@ export async function cloneProject(sourceProjectId: string): Promise<{ projectId
 		body: JSON.stringify({ sourceProjectId }),
 	});
 	if (!response.ok) {
-		throw new Error('Failed to clone project');
+		await throwApiError(response, 'Failed to clone project');
 	}
 	const data: { projectId: string; url: string; name: string } = await response.json();
 	return data;
@@ -85,7 +87,7 @@ export async function cloneProject(sourceProjectId: string): Promise<{ projectId
 export async function fetchTemplates(): Promise<ProjectTemplateMeta[]> {
 	const response = await fetch('/api/templates');
 	if (!response.ok) {
-		throw new Error('Failed to fetch templates');
+		await throwApiError(response, 'Failed to fetch templates');
 	}
 	const data: { templates: ProjectTemplateMeta[] } = await response.json();
 	return data.templates;
@@ -100,7 +102,7 @@ export async function fetchProjectMeta(
 	const api = createApiClient(projectId);
 	const response = await api.project.meta.$get({});
 	if (!response.ok) {
-		throw new Error('Failed to fetch project meta');
+		await throwApiError(response, 'Failed to fetch project meta');
 	}
 	return response.json();
 }
@@ -112,7 +114,7 @@ export async function updateProjectMeta(projectId: string, name: string): Promis
 	const api = createApiClient(projectId);
 	const response = await api.project.meta.$put({ json: { name } });
 	if (!response.ok) {
-		throw new Error('Failed to update project meta');
+		await throwApiError(response, 'Failed to update project meta');
 	}
 	return response.json();
 }
@@ -127,7 +129,7 @@ export async function updateDependencies(
 	const api = createApiClient(projectId);
 	const response = await api.project.meta.$put({ json: { dependencies } });
 	if (!response.ok) {
-		throw new Error('Failed to update dependencies');
+		await throwApiError(response, 'Failed to update dependencies');
 	}
 	return response.json();
 }
@@ -142,7 +144,7 @@ export async function updateAssetSettings(
 	const api = createApiClient(projectId);
 	const response = await api.project.meta.$put({ json: { assetSettings } });
 	if (!response.ok) {
-		throw new Error('Failed to update asset settings');
+		await throwApiError(response, 'Failed to update asset settings');
 	}
 	return response.json();
 }
@@ -155,7 +157,7 @@ export async function updateAssetSettings(
 export async function downloadProject(projectId: string): Promise<Blob> {
 	const response = await fetch(`/p/${projectId}/api/download`);
 	if (!response.ok) {
-		throw new Error('Failed to download project');
+		await throwApiError(response, 'Failed to download project');
 	}
 	return response.blob();
 }
@@ -190,7 +192,7 @@ export async function deployProject(
 		body: JSON.stringify(credentials),
 	});
 	if (!response.ok) {
-		throw new Error('Failed to deploy project');
+		await throwApiError(response, 'Failed to deploy project');
 	}
 	return response.json();
 }
@@ -206,7 +208,7 @@ export async function listAiSessions(projectId: string) {
 	const api = createApiClient(projectId);
 	const response = await api['ai-sessions'].$get({});
 	if (!response.ok) {
-		throw new Error('Failed to list AI sessions');
+		await throwApiError(response, 'Failed to list AI sessions');
 	}
 	const data = await response.json();
 	return data.sessions;
@@ -225,7 +227,7 @@ export async function loadAiSession(projectId: string, sessionId: string): Promi
 	const response = await fetch(`/p/${projectId}/api/ai-session?id=${encodeURIComponent(sessionId)}`);
 	if (response.status === 404) return undefined;
 	if (!response.ok) {
-		throw new Error(`Failed to load session (${response.status})`);
+		await throwApiError(response, 'Failed to load session');
 	}
 	const data: AiSession = await response.json();
 	return data;
@@ -242,7 +244,7 @@ export async function revertAiSession(projectId: string, sessionId: string, mess
 		body: JSON.stringify({ id: sessionId, messageIndex }),
 	});
 	if (!response.ok) {
-		throw new Error('Failed to revert AI session');
+		await throwApiError(response, 'Failed to revert AI session');
 	}
 }
 
@@ -272,7 +274,7 @@ export async function saveProjectPendingChanges(projectId: string, changes: Reco
 		body: JSON.stringify(changes),
 	});
 	if (!response.ok) {
-		throw new Error('Failed to save pending changes');
+		await throwApiError(response, 'Failed to save pending changes');
 	}
 }
 
@@ -312,7 +314,7 @@ export async function downloadDebugLog(projectId: string, logId: string, session
 	}
 	const response = await fetch(`/p/${projectId}/api/ai/debug-log?${parameters.toString()}`);
 	if (!response.ok) {
-		throw new Error('Failed to download debug log');
+		await throwApiError(response, 'Failed to download debug log');
 	}
 	const data: unknown = await response.json();
 	const blob = new Blob([JSON.stringify(data, undefined, 2)], { type: 'application/json' });
@@ -357,7 +359,7 @@ export async function startAgentChat(projectId: string, parameters: StartAgentCh
 		body: JSON.stringify(parameters),
 	});
 	if (!response.ok) {
-		throw new Error('Failed to start agent');
+		await throwApiError(response, 'Failed to start agent');
 	}
 	return response.json();
 }
@@ -372,7 +374,7 @@ export async function abortAgent(projectId: string, sessionId?: string): Promise
 	const api = createApiClient(projectId);
 	const response = await api.ai.abort.$post({ json: { sessionId } });
 	if (!response.ok) {
-		throw new Error('Failed to abort agent');
+		await throwApiError(response, 'Failed to abort agent');
 	}
 }
 

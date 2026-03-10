@@ -9,6 +9,7 @@ import { useEffect } from 'react';
 
 import { toast } from '@/components/ui/toast-store';
 import { createApiClient } from '@/lib/api-client';
+import { throwApiError } from '@/lib/api-error';
 import { useStore } from '@/lib/store';
 
 import type { FileInfo } from '@shared/types';
@@ -53,7 +54,7 @@ export function useFileTree({ projectId, enabled = true }: UseFileTreeOptions) {
 			const response = await api.files.$get({});
 
 			if (!response.ok) {
-				throw new Error('Failed to load files');
+				await throwApiError(response, 'Failed to load files');
 			}
 
 			const data: { files: FileInfo[] } = await response.json();
@@ -79,7 +80,7 @@ export function useFileTree({ projectId, enabled = true }: UseFileTreeOptions) {
 			});
 
 			if (!response.ok) {
-				throw new Error('Failed to create file');
+				await throwApiError(response, 'Failed to create file');
 			}
 
 			return response.json();
@@ -116,7 +117,7 @@ export function useFileTree({ projectId, enabled = true }: UseFileTreeOptions) {
 			});
 
 			if (!response.ok) {
-				throw new Error('Failed to delete file');
+				await throwApiError(response, 'Failed to delete file');
 			}
 
 			return response.json();
@@ -151,7 +152,7 @@ export function useFileTree({ projectId, enabled = true }: UseFileTreeOptions) {
 			});
 
 			if (!response.ok) {
-				throw new Error('Failed to rename file');
+				await throwApiError(response, 'Failed to rename file');
 			}
 
 			return response.json();
@@ -199,7 +200,7 @@ export function useFileTree({ projectId, enabled = true }: UseFileTreeOptions) {
 			});
 
 			if (!response.ok) {
-				throw new Error('Failed to create folder');
+				await throwApiError(response, 'Failed to create folder');
 			}
 
 			return response.json();

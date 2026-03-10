@@ -53,7 +53,7 @@ vi.mock('cloudflare:workers', () => ({
 	},
 }));
 
-vi.mock('../../bundler-service', () => ({
+vi.mock('../../bundler-client', () => ({
 	bundleWithCdn: mocks.bundleWithCdn,
 }));
 

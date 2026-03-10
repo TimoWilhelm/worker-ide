@@ -8,6 +8,7 @@ import fs from 'node:fs/promises';
 import { Hono } from 'hono';
 
 import { HIDDEN_ENTRIES } from '@shared/constants';
+import { HttpErrorCode } from '@shared/http-errors';
 import { generateHumanId } from '@shared/human-id';
 import { resolveAssetSettings } from '@shared/types';
 import { projectMetaSchema } from '@shared/validation';
@@ -55,7 +56,7 @@ export const projectRoutes = new Hono<AppEnvironment>()
 		const body = await c.req.json();
 		const parsed = projectMetaSchema.safeParse(body);
 		if (!parsed.success) {
-			throw httpError(400, parsed.error.message);
+			throw httpError(HttpErrorCode.VALIDATION_ERROR, parsed.error.message);
 		}
 
 		let meta: ProjectMeta;

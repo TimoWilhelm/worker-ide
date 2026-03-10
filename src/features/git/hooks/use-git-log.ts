@@ -7,6 +7,7 @@
 import { useQuery } from '@tanstack/react-query';
 
 import { createApiClient } from '@/lib/api-client';
+import { throwApiError } from '@/lib/api-error';
 
 import type { GitCommitEntry } from '@shared/types';
 
@@ -46,7 +47,7 @@ export function useGitLog({ projectId, enabled = true, depth = 50, reference }: 
 
 			const response = await api.git.log.$get({ query: queryParameters });
 			if (!response.ok) {
-				throw new Error('Failed to fetch git log');
+				await throwApiError(response, 'Failed to fetch git log');
 			}
 			const data: { commits: GitCommitEntry[] } = await response.json();
 			return data.commits;

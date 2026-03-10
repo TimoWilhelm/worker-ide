@@ -56,7 +56,7 @@ describe('createProject', () => {
 	it('throws on non-OK response', async () => {
 		fetchMock.mockResolvedValueOnce(jsonResponse({ error: 'Bad request' }, 400));
 
-		await expect(createProject('request-inspector')).rejects.toThrow('Failed to create project');
+		await expect(createProject('request-inspector')).rejects.toThrow('Bad request');
 	});
 
 	it('throws on network error', async () => {
@@ -94,13 +94,13 @@ describe('cloneProject', () => {
 	it('throws on 404', async () => {
 		fetchMock.mockResolvedValueOnce(jsonResponse({ error: 'Source project not found or not initialized' }, 404));
 
-		await expect(cloneProject(sourceId)).rejects.toThrow('Failed to clone project');
+		await expect(cloneProject(sourceId)).rejects.toThrow('Source project not found or not initialized');
 	});
 
 	it('throws on 400', async () => {
 		fetchMock.mockResolvedValueOnce(jsonResponse({ error: 'Invalid source project ID. Must be a 64-character hex string.' }, 400));
 
-		await expect(cloneProject(sourceId)).rejects.toThrow('Failed to clone project');
+		await expect(cloneProject(sourceId)).rejects.toThrow('Invalid source project ID');
 	});
 
 	it('throws on 500 with non-JSON body', async () => {
@@ -142,7 +142,7 @@ describe('fetchTemplates', () => {
 	it('throws on non-OK response', async () => {
 		fetchMock.mockResolvedValueOnce(jsonResponse({ error: 'Server error' }, 500));
 
-		await expect(fetchTemplates()).rejects.toThrow('Failed to fetch templates');
+		await expect(fetchTemplates()).rejects.toThrow('Server error');
 	});
 
 	it('throws on network error', async () => {

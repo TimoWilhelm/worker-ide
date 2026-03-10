@@ -590,7 +590,7 @@ async function runSingleTestFile(
 ): Promise<TestRunResults> {
 	// We use bundleWithCdn to bundle the test file and resolve imports (including CDN deps).
 	// Imported lazily to avoid circular dependency at module load time.
-	const { bundleWithCdn } = await import('../../bundler-service');
+	const { bundleWithCdn } = await import('../../bundler-client');
 
 	// The entry point imports the harness module first (which sets up globalThis.describe
 	// etc.), then imports the test file. ESM guarantees sequential evaluation of imports,

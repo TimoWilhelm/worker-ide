@@ -10,6 +10,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo } from 'react';
 
 import { createApiClient } from '@/lib/api-client';
+import { throwApiError } from '@/lib/api-error';
 import { useStore } from '@/lib/store';
 import { mergeTestRunResults } from '@shared/types';
 
@@ -37,7 +38,7 @@ export function useTestDiscovery({ projectId, enabled = true }: UseTestDiscovery
 		queryFn: async (): Promise<DiscoveredTestFile[]> => {
 			const response = await api.test.discover.$get({});
 			if (!response.ok) {
-				throw new Error('Failed to discover tests');
+				await throwApiError(response, 'Failed to discover tests');
 			}
 			const data = await response.json();
 			return data.files;
@@ -119,7 +120,7 @@ export function useRunTests({ projectId }: UseRunTestsOptions) {
 				},
 			});
 			if (!response.ok) {
-				throw new Error('Test run failed');
+				await throwApiError(response, 'Test run failed');
 			}
 			const data = await response.json();
 			return data;

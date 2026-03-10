@@ -10,6 +10,7 @@ import { Clock } from 'lucide-react';
 import { useCallback, useMemo, useState } from 'react';
 
 import { createApiClient } from '@/lib/api-client';
+import { throwApiError } from '@/lib/api-error';
 import { cn } from '@/lib/utils';
 
 import { GitCommitDetail } from './git-commit-detail';
@@ -77,7 +78,7 @@ export function GitHistoryPanel({
 				query: { objectId: selectedCommit.objectId },
 			});
 			if (!response.ok) {
-				throw new Error('Failed to fetch commit diff');
+				await throwApiError(response, 'Failed to fetch commit diff');
 			}
 			const data: { files: GitFileDiff[] } = await response.json();
 			return data.files;

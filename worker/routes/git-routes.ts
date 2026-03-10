@@ -12,6 +12,7 @@
 import { zValidator } from '@hono/zod-validator';
 import { Hono } from 'hono';
 
+import { HttpErrorCode } from '@shared/http-errors';
 import {
 	gitStageSchema,
 	gitDiscardSchema,
@@ -57,7 +58,7 @@ export const gitRoutes = new Hono<AppEnvironment>()
 		} catch (error) {
 			console.error('Git init error:', error);
 			const errorMessage = error instanceof Error ? error.message : 'Failed to initialize git repository';
-			throw httpError(500, errorMessage);
+			throw httpError(HttpErrorCode.GIT_OPERATION_FAILED, errorMessage);
 		}
 	})
 
@@ -77,7 +78,7 @@ export const gitRoutes = new Hono<AppEnvironment>()
 			return c.json({ ...result, entries: [...result.entries] });
 		} catch (error) {
 			console.error('Git status error:', error);
-			throw httpError(500, 'Failed to get git status');
+			throw httpError(HttpErrorCode.GIT_OPERATION_FAILED, 'Failed to get git status');
 		}
 	})
 
@@ -97,7 +98,7 @@ export const gitRoutes = new Hono<AppEnvironment>()
 			return c.json(result);
 		} catch (error) {
 			console.error('Git stage error:', error);
-			throw httpError(500, 'Failed to stage files');
+			throw httpError(HttpErrorCode.GIT_OPERATION_FAILED, 'Failed to stage files');
 		}
 	})
 
@@ -113,7 +114,7 @@ export const gitRoutes = new Hono<AppEnvironment>()
 			return c.json(result);
 		} catch (error) {
 			console.error('Git unstage error:', error);
-			throw httpError(500, 'Failed to unstage files');
+			throw httpError(HttpErrorCode.GIT_OPERATION_FAILED, 'Failed to unstage files');
 		}
 	})
 
@@ -128,7 +129,7 @@ export const gitRoutes = new Hono<AppEnvironment>()
 			return c.json(result);
 		} catch (error) {
 			console.error('Git stage-all error:', error);
-			throw httpError(500, 'Failed to stage all files');
+			throw httpError(HttpErrorCode.GIT_OPERATION_FAILED, 'Failed to stage all files');
 		}
 	})
 
@@ -143,7 +144,7 @@ export const gitRoutes = new Hono<AppEnvironment>()
 			return c.json(result);
 		} catch (error) {
 			console.error('Git unstage-all error:', error);
-			throw httpError(500, 'Failed to unstage all files');
+			throw httpError(HttpErrorCode.GIT_OPERATION_FAILED, 'Failed to unstage all files');
 		}
 	})
 
@@ -159,7 +160,7 @@ export const gitRoutes = new Hono<AppEnvironment>()
 			return c.json(result);
 		} catch (error) {
 			console.error('Git discard error:', error);
-			throw httpError(500, 'Failed to discard changes');
+			throw httpError(HttpErrorCode.GIT_OPERATION_FAILED, 'Failed to discard changes');
 		}
 	})
 
@@ -174,7 +175,7 @@ export const gitRoutes = new Hono<AppEnvironment>()
 			return c.json(result);
 		} catch (error) {
 			console.error('Git discard-all error:', error);
-			throw httpError(500, 'Failed to discard all changes');
+			throw httpError(HttpErrorCode.GIT_OPERATION_FAILED, 'Failed to discard all changes');
 		}
 	})
 
@@ -195,7 +196,7 @@ export const gitRoutes = new Hono<AppEnvironment>()
 		} catch (error) {
 			console.error('Git commit error:', error);
 			const errorMessage = error instanceof Error ? error.message : 'Failed to create commit';
-			throw httpError(500, errorMessage);
+			throw httpError(HttpErrorCode.GIT_OPERATION_FAILED, errorMessage);
 		}
 	})
 
@@ -212,7 +213,7 @@ export const gitRoutes = new Hono<AppEnvironment>()
 			return c.json({ commits: [...commits] });
 		} catch (error) {
 			console.error('Git log error:', error);
-			throw httpError(500, 'Failed to get git log');
+			throw httpError(HttpErrorCode.GIT_OPERATION_FAILED, 'Failed to get git log');
 		}
 	})
 
@@ -229,7 +230,7 @@ export const gitRoutes = new Hono<AppEnvironment>()
 			return c.json({ commits: [...commits] });
 		} catch (error) {
 			console.error('Git graph error:', error);
-			throw httpError(500, 'Failed to get git graph');
+			throw httpError(HttpErrorCode.GIT_OPERATION_FAILED, 'Failed to get git graph');
 		}
 	})
 
@@ -249,7 +250,7 @@ export const gitRoutes = new Hono<AppEnvironment>()
 			return c.json({ ...result, branches: [...result.branches] });
 		} catch (error) {
 			console.error('Git branches error:', error);
-			throw httpError(500, 'Failed to list branches');
+			throw httpError(HttpErrorCode.GIT_OPERATION_FAILED, 'Failed to list branches');
 		}
 	})
 
@@ -266,7 +267,7 @@ export const gitRoutes = new Hono<AppEnvironment>()
 		} catch (error) {
 			console.error('Git create branch error:', error);
 			const errorMessage = error instanceof Error ? error.message : 'Failed to create branch';
-			throw httpError(500, errorMessage);
+			throw httpError(HttpErrorCode.GIT_OPERATION_FAILED, errorMessage);
 		}
 	})
 
@@ -283,7 +284,7 @@ export const gitRoutes = new Hono<AppEnvironment>()
 		} catch (error) {
 			console.error('Git delete branch error:', error);
 			const errorMessage = error instanceof Error ? error.message : 'Failed to delete branch';
-			throw httpError(500, errorMessage);
+			throw httpError(HttpErrorCode.GIT_OPERATION_FAILED, errorMessage);
 		}
 	})
 
@@ -300,7 +301,7 @@ export const gitRoutes = new Hono<AppEnvironment>()
 		} catch (error) {
 			console.error('Git rename branch error:', error);
 			const errorMessage = error instanceof Error ? error.message : 'Failed to rename branch';
-			throw httpError(500, errorMessage);
+			throw httpError(HttpErrorCode.GIT_OPERATION_FAILED, errorMessage);
 		}
 	})
 
@@ -317,7 +318,7 @@ export const gitRoutes = new Hono<AppEnvironment>()
 		} catch (error) {
 			console.error('Git checkout error:', error);
 			const errorMessage = error instanceof Error ? error.message : 'Failed to checkout';
-			throw httpError(500, errorMessage);
+			throw httpError(HttpErrorCode.GIT_OPERATION_FAILED, errorMessage);
 		}
 	})
 
@@ -334,7 +335,7 @@ export const gitRoutes = new Hono<AppEnvironment>()
 		} catch (error) {
 			console.error('Git merge error:', error);
 			const errorMessage = error instanceof Error ? error.message : 'Failed to merge';
-			throw httpError(500, errorMessage);
+			throw httpError(HttpErrorCode.GIT_OPERATION_FAILED, errorMessage);
 		}
 	})
 
@@ -354,7 +355,7 @@ export const gitRoutes = new Hono<AppEnvironment>()
 			return c.json({ tags: [...tags] });
 		} catch (error) {
 			console.error('Git tags error:', error);
-			throw httpError(500, 'Failed to list tags');
+			throw httpError(HttpErrorCode.GIT_OPERATION_FAILED, 'Failed to list tags');
 		}
 	})
 
@@ -371,7 +372,7 @@ export const gitRoutes = new Hono<AppEnvironment>()
 		} catch (error) {
 			console.error('Git create tag error:', error);
 			const errorMessage = error instanceof Error ? error.message : 'Failed to create tag';
-			throw httpError(500, errorMessage);
+			throw httpError(HttpErrorCode.GIT_OPERATION_FAILED, errorMessage);
 		}
 	})
 
@@ -388,7 +389,7 @@ export const gitRoutes = new Hono<AppEnvironment>()
 		} catch (error) {
 			console.error('Git delete tag error:', error);
 			const errorMessage = error instanceof Error ? error.message : 'Failed to delete tag';
-			throw httpError(500, errorMessage);
+			throw httpError(HttpErrorCode.GIT_OPERATION_FAILED, errorMessage);
 		}
 	})
 
@@ -409,7 +410,7 @@ export const gitRoutes = new Hono<AppEnvironment>()
 		} catch (error) {
 			console.error('Git stash error:', error);
 			const errorMessage = error instanceof Error ? error.message : 'Failed to perform stash operation';
-			throw httpError(500, errorMessage);
+			throw httpError(HttpErrorCode.GIT_OPERATION_FAILED, errorMessage);
 		}
 	})
 
@@ -425,7 +426,7 @@ export const gitRoutes = new Hono<AppEnvironment>()
 			return c.json({ entries: [...entries] });
 		} catch (error) {
 			console.error('Git stash list error:', error);
-			throw httpError(500, 'Failed to list stash entries');
+			throw httpError(HttpErrorCode.GIT_OPERATION_FAILED, 'Failed to list stash entries');
 		}
 	})
 
@@ -445,7 +446,7 @@ export const gitRoutes = new Hono<AppEnvironment>()
 			return c.json({ diff });
 		} catch (error) {
 			console.error('Git diff error:', error);
-			throw httpError(500, 'Failed to get file diff');
+			throw httpError(HttpErrorCode.GIT_OPERATION_FAILED, 'Failed to get file diff');
 		}
 	})
 
@@ -462,7 +463,7 @@ export const gitRoutes = new Hono<AppEnvironment>()
 			return c.json({ files: [...files] });
 		} catch (error) {
 			console.error('Git commit diff error:', error);
-			throw httpError(500, 'Failed to get commit diff');
+			throw httpError(HttpErrorCode.GIT_OPERATION_FAILED, 'Failed to get commit diff');
 		}
 	})
 
@@ -478,7 +479,7 @@ export const gitRoutes = new Hono<AppEnvironment>()
 			return c.json({ diff });
 		} catch (error) {
 			console.error('Git file diff at commit error:', error);
-			throw httpError(500, 'Failed to get file diff at commit');
+			throw httpError(HttpErrorCode.GIT_OPERATION_FAILED, 'Failed to get file diff at commit');
 		}
 	});
 

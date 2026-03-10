@@ -4,8 +4,8 @@
  *
  * The deploy pipeline:
  * 1. Collect all project files from the Durable Object filesystem
- * 2. Bundle the worker entry point (worker/index.ts) with esbuild-wasm
- * 3. Bundle the frontend entry point (from index.html) with esbuild-wasm
+ * 2. Bundle the worker entry point (worker/index.ts) with the bundler service
+ * 3. Bundle the frontend entry point (from index.html) with the bundler service
  * 4. Generate production HTML referencing the bundled frontend JS
  * 5. Upload static assets (HTML, bundled JS) via the Cloudflare Direct Upload API
  * 6. Deploy the bundled worker script with the assets completion JWT
@@ -18,11 +18,12 @@ import stripJsonComments from 'strip-json-comments';
 import { z } from 'zod';
 
 import { HIDDEN_ENTRIES } from '@shared/constants';
+import { HttpErrorCode } from '@shared/http-errors';
 import { resolveAssetSettings } from '@shared/types';
 
 import { getContentType } from '../lib/content-type';
 import { httpError } from '../lib/http-error';
-import { bundleWithCdn } from '../services/bundler-service';
+import { bundleWithCdn } from '../services/bundler-client';
 import { toEsbuildTsconfigRaw } from '../services/transform-service';
 
 import type { AppEnvironment } from '../types';
@@ -52,7 +53,7 @@ export const deployRoutes = new Hono<AppEnvironment>().post('/deploy', async (c)
 	const body = await c.req.json();
 	const parsed = deployRequestSchema.safeParse(body);
 	if (!parsed.success) {
-		throw httpError(400, parsed.error.message);
+		throw httpError(HttpErrorCode.VALIDATION_ERROR, parsed.error.message);
 	}
 	const { accountId, apiToken, workerName } = parsed.data;
 
@@ -97,7 +98,10 @@ export const deployRoutes = new Hono<AppEnvironment>().post('/deploy', async (c)
 
 	const workerEntry = findWorkerEntryPoint(workerBundleFiles);
 	if (!workerEntry) {
-		throw httpError(400, 'No worker entry point found. Expected worker/index.ts, worker/index.js, src/index.ts, or index.ts');
+		throw httpError(
+			HttpErrorCode.VALIDATION_ERROR,
+			'No worker entry point found. Expected worker/index.ts, worker/index.js, src/index.ts, or index.ts',
+		);
 	}
 
 	let bundledWorkerCode: string;
@@ -113,7 +117,7 @@ export const deployRoutes = new Hono<AppEnvironment>().post('/deploy', async (c)
 		bundledWorkerCode = workerBundle.code;
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
-		throw httpError(400, `Failed to bundle worker code: ${message}`);
+		throw httpError(HttpErrorCode.BUILD_FAILED, `Failed to bundle worker code: ${message}`);
 	}
 
 	// =========================================================================
@@ -152,7 +156,7 @@ export const deployRoutes = new Hono<AppEnvironment>().post('/deploy', async (c)
 				bundledFrontendCode = frontendBundle.code;
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
-				throw httpError(400, `Failed to bundle frontend code: ${message}`);
+				throw httpError(HttpErrorCode.BUILD_FAILED, `Failed to bundle frontend code: ${message}`);
 			}
 
 			// Generate content hash for cache busting
@@ -435,7 +439,10 @@ async function uploadStaticAssets(
 
 	if (!sessionResponse.ok) {
 		const errorText = await sessionResponse.text();
-		throw httpError(502, `Failed to create asset upload session: ${extractApiError(errorText, sessionResponse.status)}`);
+		throw httpError(
+			HttpErrorCode.UPSTREAM_ERROR,
+			`Failed to create asset upload session: ${extractApiError(errorText, sessionResponse.status)}`,
+		);
 	}
 
 	const sessionData: {
@@ -446,7 +453,7 @@ async function uploadStaticAssets(
 	const buckets = sessionData.result?.buckets;
 
 	if (!uploadJwt) {
-		throw httpError(502, 'Asset upload session did not return a JWT');
+		throw httpError(HttpErrorCode.UPSTREAM_ERROR, 'Asset upload session did not return a JWT');
 	}
 
 	// If buckets is empty, all files already exist — use the upload JWT as completion JWT
@@ -478,7 +485,7 @@ async function uploadStaticAssets(
 
 		if (!uploadResponse.ok) {
 			const errorText = await uploadResponse.text();
-			throw httpError(502, `Failed to upload assets: ${extractApiError(errorText, uploadResponse.status)}`);
+			throw httpError(HttpErrorCode.UPSTREAM_ERROR, `Failed to upload assets: ${extractApiError(errorText, uploadResponse.status)}`);
 		}
 
 		const uploadData: { result?: { jwt?: string } } = await uploadResponse.json();
@@ -488,7 +495,7 @@ async function uploadStaticAssets(
 	}
 
 	if (!completionJwt) {
-		throw httpError(502, 'Asset upload completed but no completion JWT was received');
+		throw httpError(HttpErrorCode.UPSTREAM_ERROR, 'Asset upload completed but no completion JWT was received');
 	}
 
 	return completionJwt;
@@ -555,7 +562,7 @@ async function uploadWorkerScript(
 
 	if (!uploadResponse.ok) {
 		const errorText = await uploadResponse.text();
-		throw httpError(502, `Failed to deploy worker: ${extractApiError(errorText, uploadResponse.status)}`);
+		throw httpError(HttpErrorCode.UPSTREAM_ERROR, `Failed to deploy worker: ${extractApiError(errorText, uploadResponse.status)}`);
 	}
 }
 
@@ -575,7 +582,7 @@ async function enableWorkersDevelopmentSubdomain(accountId: string, apiToken: st
 
 	if (!response.ok) {
 		const errorText = await response.text();
-		throw httpError(502, `Failed to enable workers.dev subdomain: ${extractApiError(errorText, response.status)}`);
+		throw httpError(HttpErrorCode.UPSTREAM_ERROR, `Failed to enable workers.dev subdomain: ${extractApiError(errorText, response.status)}`);
 	}
 }
 

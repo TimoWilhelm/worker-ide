@@ -8,6 +8,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 
 import { createApiClient } from '@/lib/api-client';
+import { throwApiError } from '@/lib/api-error';
 import { useStore } from '@/lib/store';
 
 import type { SnapshotMetadata, SnapshotSummary } from '@shared/types';
@@ -53,7 +54,7 @@ export function useSnapshots({ projectId, enabled = true }: UseSnapshotsOptions)
 		queryFn: async () => {
 			const response = await api.snapshots.$get({});
 			if (!response.ok) {
-				throw new Error('Failed to load snapshots');
+				await throwApiError(response, 'Failed to load snapshots');
 			}
 			const data: { snapshots: SnapshotSummary[] } = await response.json();
 			return data.snapshots;
@@ -79,7 +80,7 @@ export function useSnapshots({ projectId, enabled = true }: UseSnapshotsOptions)
 				param: { id: snapshotId },
 			});
 			if (!response.ok) {
-				throw new Error('Failed to revert snapshot');
+				await throwApiError(response, 'Failed to revert snapshot');
 			}
 			return response.json();
 		},
@@ -100,7 +101,7 @@ export function useSnapshots({ projectId, enabled = true }: UseSnapshotsOptions)
 				json: { snapshotIds },
 			});
 			if (!response.ok) {
-				throw new Error('Failed to revert snapshots');
+				await throwApiError(response, 'Failed to revert snapshots');
 			}
 			return response.json();
 		},
@@ -118,7 +119,7 @@ export function useSnapshots({ projectId, enabled = true }: UseSnapshotsOptions)
 				json: { path, snapshotId },
 			});
 			if (!response.ok) {
-				throw new Error('Failed to revert file');
+				await throwApiError(response, 'Failed to revert file');
 			}
 			return response.json();
 		},

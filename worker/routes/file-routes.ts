@@ -10,6 +10,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 
 import { HIDDEN_ENTRIES } from '@shared/constants';
+import { HttpErrorCode } from '@shared/http-errors';
 import { createHmrUpdateForFile } from '@shared/types';
 import { filePathSchema, writeFileSchema, mkdirSchema, moveFileSchema } from '@shared/validation';
 
@@ -39,14 +40,14 @@ export const fileRoutes = new Hono<AppEnvironment>()
 		const { path } = c.req.valid('query');
 
 		if (!isPathSafe(projectRoot, path)) {
-			throw httpError(400, 'Invalid path');
+			throw httpError(HttpErrorCode.INVALID_PATH, 'Invalid path');
 		}
 
 		try {
 			const content = await fs.readFile(`${projectRoot}${path}`, 'utf8');
 			return c.json({ path, content });
 		} catch {
-			throw httpError(404, 'File not found');
+			throw httpError(HttpErrorCode.FILE_NOT_FOUND, 'File not found');
 		}
 	})
 
@@ -57,11 +58,14 @@ export const fileRoutes = new Hono<AppEnvironment>()
 		const { path, content } = c.req.valid('json');
 
 		if (!isPathSafe(projectRoot, path)) {
-			throw httpError(400, 'Invalid path');
+			throw httpError(HttpErrorCode.INVALID_PATH, 'Invalid path');
 		}
 
 		if (path === '/package.json') {
-			throw httpError(400, 'Dependencies are managed at the project level. Use the Dependencies panel in the sidebar.');
+			throw httpError(
+				HttpErrorCode.VALIDATION_ERROR,
+				'Dependencies are managed at the project level. Use the Dependencies panel in the sidebar.',
+			);
 		}
 
 		// Ensure directory exists
@@ -94,15 +98,15 @@ export const fileRoutes = new Hono<AppEnvironment>()
 		const { path } = c.req.valid('query');
 
 		if (!isPathSafe(projectRoot, path)) {
-			throw httpError(400, 'Invalid path');
+			throw httpError(HttpErrorCode.INVALID_PATH, 'Invalid path');
 		}
 
 		if (isProtectedFile(path)) {
-			throw httpError(403, 'Cannot delete protected file');
+			throw httpError(HttpErrorCode.PROTECTED_FILE, 'Cannot delete protected file');
 		}
 
 		if (path === '/.git' || path.startsWith('/.git/')) {
-			throw httpError(403, 'Cannot modify git repository internals');
+			throw httpError(HttpErrorCode.PROTECTED_FILE, 'Cannot modify git repository internals');
 		}
 
 		try {
@@ -124,7 +128,7 @@ export const fileRoutes = new Hono<AppEnvironment>()
 
 			return c.json({ success: true });
 		} catch {
-			throw httpError(500, 'Failed to delete file');
+			throw httpError(HttpErrorCode.INTERNAL_ERROR, 'Failed to delete file');
 		}
 	})
 
@@ -135,11 +139,11 @@ export const fileRoutes = new Hono<AppEnvironment>()
 		const { from_path: fromPath, to_path: toPath } = c.req.valid('json');
 
 		if (!isPathSafe(projectRoot, fromPath) || !isPathSafe(projectRoot, toPath)) {
-			throw httpError(400, 'Invalid path');
+			throw httpError(HttpErrorCode.INVALID_PATH, 'Invalid path');
 		}
 
 		if (isProtectedFile(fromPath)) {
-			throw httpError(403, 'Cannot move protected file');
+			throw httpError(HttpErrorCode.PROTECTED_FILE, 'Cannot move protected file');
 		}
 
 		try {
@@ -166,7 +170,7 @@ export const fileRoutes = new Hono<AppEnvironment>()
 
 			return c.json({ success: true, from: fromPath, to: toPath });
 		} catch {
-			throw httpError(500, 'Failed to move file');
+			throw httpError(HttpErrorCode.INTERNAL_ERROR, 'Failed to move file');
 		}
 	})
 
@@ -176,7 +180,7 @@ export const fileRoutes = new Hono<AppEnvironment>()
 		const { path } = c.req.valid('json');
 
 		if (!isPathSafe(projectRoot, path)) {
-			throw httpError(400, 'Invalid path');
+			throw httpError(HttpErrorCode.INVALID_PATH, 'Invalid path');
 		}
 
 		await fs.mkdir(`${projectRoot}${path}`, { recursive: true });

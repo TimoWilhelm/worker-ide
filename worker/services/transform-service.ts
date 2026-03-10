@@ -1,11 +1,11 @@
 /**
- * Dev server module transform pipeline using esbuild-wasm.
+ * Dev server module transform pipeline using the bundler service.
  * Handles import rewriting, module resolution, and TypeScript/JSX transformation.
  */
 
 import stripJsonComments from 'strip-json-comments';
 
-import { transformCode } from './bundler-service';
+import { transformCode } from './bundler-client';
 
 const ESM_CDN = 'https://esm.sh';
 
