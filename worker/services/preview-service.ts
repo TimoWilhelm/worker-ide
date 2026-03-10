@@ -12,8 +12,8 @@ import stripJsonComments from 'strip-json-comments';
 import { HIDDEN_ENTRIES } from '@shared/constants';
 import { resolveAssetSettings } from '@shared/types';
 
-import { getCachedBundle, putCachedBundle } from './bundle-cache-service';
-import { bundleWithCdn, BundleDependencyError } from './bundler-client';
+import { bundleFiles } from './bundle-service';
+import { BundleDependencyError } from './bundler-client';
 import { parseDependencyErrorsFromMessage } from './dependency-error-parser';
 import { transformModule, processHTML, toEsbuildTsconfigRaw, type FileSystem } from './transform-service';
 import { coordinatorNamespace } from '../lib/durable-object-namespaces';
@@ -267,19 +267,9 @@ export class PreviewService {
 				const tsconfigRaw = await this.loadTsconfigRaw();
 				const knownDependencies = await this.loadKnownDependencies();
 
-				// Check the Workers Cache API for a previously built bundle
-				// with the same content hash (source files + dependencies + tsconfig).
-				const cached = await getCachedBundle(allFiles, relativeFilePath, knownDependencies, tsconfigRaw);
-				if (cached !== undefined) {
-					return new Response(cached, {
-						headers: {
-							'Content-Type': 'application/javascript',
-							'Cache-Control': 'no-cache',
-						},
-					});
-				}
-
-				const bundled = await bundleWithCdn({
+				// Bundle with transparent content-addressable caching.
+				// On cache hit the esbuild step is skipped entirely.
+				const bundled = await bundleFiles({
 					files: allFiles,
 					entryPoint: relativeFilePath,
 					platform: 'browser',
@@ -291,10 +281,6 @@ export class PreviewService {
 					// and perform state-preserving hot updates.
 					reactRefresh: true,
 				});
-
-				// Store the bundle in the Workers Cache API so subsequent
-				// requests with identical inputs skip the esbuild step.
-				putCachedBundle(allFiles, relativeFilePath, knownDependencies, tsconfigRaw, bundled.code);
 
 				return new Response(bundled.code, {
 					headers: {
@@ -581,7 +567,7 @@ export class PreviewService {
 			const worker = env.LOADER.get(`worker:${contentHash}`, async () => {
 				const tsconfigRaw = await this.loadTsconfigRaw();
 
-				const bundled = await bundleWithCdn({
+				const bundled = await bundleFiles({
 					files,
 					entryPoint: workerEntry,
 					platform: 'neutral',

@@ -97,9 +97,6 @@ export async function transformCode(code: string, filename: string, options?: Tr
 
 const ESM_CDN = 'https://esm.sh';
 
-/** In-memory cache for modules fetched from esm.sh. */
-const esmCdnCache = new Map<string, string>();
-
 /**
  * Extract package name from an esm.sh URL path, stripping version and subpath.
  */
@@ -112,13 +109,10 @@ function extractPackageName(urlPath: string): string {
 }
 
 /**
- * Fetch a module from esm.sh, following redirects, and cache the result.
+ * Fetch a module from esm.sh, following redirects.
  * Pushes structured errors into the collector when a package cannot be resolved.
  */
 async function fetchFromCdn(url: string, dependencyErrors?: DependencyError[]): Promise<string> {
-	const cached = esmCdnCache.get(url);
-	if (cached !== undefined) return cached;
-
 	const response = await fetch(url, { redirect: 'follow' });
 	if (!response.ok) {
 		const urlPath = url.replace(ESM_CDN + '/', '');
@@ -132,15 +126,7 @@ async function fetchFromCdn(url: string, dependencyErrors?: DependencyError[]): 
 		dependencyErrors?.push({ packageName, code: 'resolve-failed', message });
 		throw new Error(message);
 	}
-	const text = await response.text();
-
-	// Cache both the original URL and the final URL (after redirects)
-	esmCdnCache.set(url, text);
-	if (response.url !== url) {
-		esmCdnCache.set(response.url, text);
-	}
-
-	return text;
+	return response.text();
 }
 
 /**

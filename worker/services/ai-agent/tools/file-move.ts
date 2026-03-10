@@ -10,7 +10,7 @@ import { ToolErrorCode, toolError } from '@shared/tool-errors';
 
 import { coordinatorNamespace } from '../../../lib/durable-object-namespaces';
 import { isHiddenPath, isPathSafe, isProtectedFile } from '../../../lib/path-utilities';
-import { formatLintDiagnostics, lintFileForAgent } from '../lib/biome-linter';
+import { formatLintDiagnostics, lintFile } from '../../../services/lint-service';
 
 import type { FileChange, SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
 
@@ -88,7 +88,7 @@ export async function execute(
 	});
 
 	// Lint the file at its new path so the agent sees any diagnostics
-	const allDiagnostics = await lintFileForAgent(toPath, beforeContent);
+	const allDiagnostics = await lintFile(toPath, beforeContent);
 	const diagnostics = allDiagnostics.slice(0, MAX_DIAGNOSTICS_PER_FILE);
 
 	const byteCount = Buffer.byteLength(beforeContent, 'utf8');

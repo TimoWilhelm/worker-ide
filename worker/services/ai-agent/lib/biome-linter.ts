@@ -1,10 +1,13 @@
 /**
- * Server-side Biome Linter — RPC Client
+ * Biome Linter — RPC Client
  *
  * Thin wrapper that delegates lint and fix operations to the Biome auxiliary
  * worker via a service binding (RPC). The heavy WASM binary lives in the
  * auxiliary worker; this module only handles request forwarding and result
  * formatting.
+ *
+ * This is the low-level implementation layer. Callers should generally use
+ * `lint-service.ts` which adds transparent content-addressable caching.
  *
  * If the service binding call fails for any reason, lint calls silently
  * return empty results so they never block file operations.
@@ -29,11 +32,11 @@ function isLintableFile(filePath: string): boolean {
 }
 
 // =============================================================================
-// Public API — delegates to Biome auxiliary worker via service binding
+// RPC Client — delegates to Biome auxiliary worker via service binding
 // =============================================================================
 
 /**
- * Lint a file and return diagnostics formatted for AI agent consumption.
+ * Lint a file and return diagnostics.
  * Returns an empty array if the file type is unsupported or the Biome worker is unavailable.
  */
 export async function lintFileForAgent(filePath: string, content: string): Promise<ServerLintDiagnostic[]> {

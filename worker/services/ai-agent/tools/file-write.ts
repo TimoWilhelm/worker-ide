@@ -12,8 +12,8 @@ import { createHmrUpdateForFile } from '@shared/types';
 
 import { coordinatorNamespace } from '../../../lib/durable-object-namespaces';
 import { isHiddenPath, isPathSafe } from '../../../lib/path-utilities';
+import { formatLintDiagnostics, lintFile } from '../../../services/lint-service';
 import { assertFileWasRead, recordFileRead } from '../file-time';
-import { formatLintDiagnostics, lintFileForAgent } from '../lib/biome-linter';
 import { computeDiffStats, generateCompactDiff, isBinaryFilePath, toUint8Array } from '../utilities';
 
 import type { FileChange, SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
@@ -154,7 +154,7 @@ export async function execute(
 	const { linesAdded, linesRemoved } = writeIsBinary
 		? { linesAdded: 0, linesRemoved: 0 }
 		: computeDiffStats(typeof beforeContent === 'string' ? beforeContent : undefined, writeContent);
-	const allDiagnostics = writeIsBinary ? [] : await lintFileForAgent(writePath, writeContent);
+	const allDiagnostics = writeIsBinary ? [] : await lintFile(writePath, writeContent);
 	const diagnostics = allDiagnostics.slice(0, MAX_DIAGNOSTICS_PER_FILE);
 
 	// Send file changed event for UI (carries full content for inline diff)

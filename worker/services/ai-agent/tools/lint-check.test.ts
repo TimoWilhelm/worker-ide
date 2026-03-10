@@ -25,8 +25,8 @@ const biomeMock = vi.hoisted(() => ({
 
 const severityLabel = (severity: string) => (severity === 'error' ? 'Error' : 'Warning');
 
-vi.mock('../lib/biome-linter', () => ({
-	lintFileForAgent: async () => biomeMock.diagnostics,
+vi.mock('../../../services/lint-service', () => ({
+	lintFile: async () => biomeMock.diagnostics,
 	formatLintDiagnostics: (
 		diagnostics: Array<{ line: number; column: number; rule: string; message: string; severity: string; fixable: boolean }>,
 	) => {

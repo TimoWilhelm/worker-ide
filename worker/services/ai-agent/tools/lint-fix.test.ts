@@ -36,9 +36,9 @@ const biomeMock = vi.hoisted(() => ({
 	},
 }));
 
-vi.mock('../lib/biome-linter', () => ({
-	fixFileForAgent: async (_path: string, _content: string) => biomeMock.fixResult,
-	lintFileForAgent: async () => biomeMock.fixResult.remainingDiagnostics,
+vi.mock('../../../services/lint-service', () => ({
+	fixFile: async (_path: string, _content: string) => biomeMock.fixResult,
+	lintFile: async () => biomeMock.fixResult.remainingDiagnostics,
 	formatLintDiagnostics: (diagnostics: Array<{ severity: string; line: number; column: number; message: string; fixable: boolean }>) => {
 		if (diagnostics.length === 0) return;
 		return `Lint diagnostics (${diagnostics.length} issue(s)):\n${diagnostics.map((d) => `${d.severity === 'error' ? 'Error' : 'Warning'} [${d.line}:${d.column}] ${d.message}${d.fixable ? ' [auto-fixable]' : ''}`).join('\n')}`;

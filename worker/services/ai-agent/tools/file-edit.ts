@@ -10,12 +10,12 @@ import { MAX_DIAGNOSTICS_PER_FILE } from '@shared/constants';
 import { ToolErrorCode, toolError } from '@shared/tool-errors';
 import { createHmrUpdateForFile } from '@shared/types';
 
+import { replace } from './replacers';
 import { coordinatorNamespace } from '../../../lib/durable-object-namespaces';
 import { isHiddenPath, isPathSafe } from '../../../lib/path-utilities';
+import { formatLintDiagnostics, lintFile } from '../../../services/lint-service';
 import { assertFileWasRead, recordFileRead } from '../file-time';
-import { formatLintDiagnostics, lintFileForAgent } from '../lib/biome-linter';
 import { computeDiffStats, generateCompactDiff } from '../utilities';
-import { replace } from './replacers';
 
 import type { FileChange, SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
 
@@ -139,7 +139,7 @@ export async function execute(
 
 	// Compute diff stats and lint errors for the UI
 	const { linesAdded, linesRemoved } = computeDiffStats(beforeContent, content);
-	const allDiagnostics = await lintFileForAgent(editPath, content);
+	const allDiagnostics = await lintFile(editPath, content);
 	const diagnostics = allDiagnostics.slice(0, MAX_DIAGNOSTICS_PER_FILE);
 
 	// Send file changed event for UI (carries full content for inline diff)

@@ -12,8 +12,8 @@ import { createHmrUpdateForFile } from '@shared/types';
 
 import { coordinatorNamespace } from '../../../lib/durable-object-namespaces';
 import { isHiddenPath, isPathSafe } from '../../../lib/path-utilities';
+import { fixFile, formatLintDiagnostics, lintFile } from '../../../services/lint-service';
 import { recordFileRead } from '../file-time';
-import { fixFileForAgent, formatLintDiagnostics, lintFileForAgent } from '../lib/biome-linter';
 import { computeDiffStats, generateCompactDiff } from '../utilities';
 
 import type { FileChange, SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
@@ -83,7 +83,7 @@ export async function execute(
 	}
 
 	// Apply fixes
-	const result = await fixFileForAgent(fixPath, originalContent);
+	const result = await fixFile(fixPath, originalContent);
 
 	if ('failed' in result) {
 		return toolError(ToolErrorCode.LINT_FIX_FAILED, result.reason);
@@ -97,7 +97,7 @@ export async function execute(
 				output: `No lint issues found in ${fixPath}.`,
 			};
 		}
-		const allDiagnostics = await lintFileForAgent(fixPath, originalContent);
+		const allDiagnostics = await lintFile(fixPath, originalContent);
 		const diagnostics = allDiagnostics.slice(0, MAX_DIAGNOSTICS_PER_FILE);
 		let noFixOutput = `No auto-fixable lint issues in ${fixPath}. ${result.remainingDiagnostics.length} issue(s) require manual fixes.`;
 		const lintOutput = formatLintDiagnostics(diagnostics);
@@ -140,7 +140,7 @@ export async function execute(
 
 	// Compute diff stats and lint errors for the UI
 	const { linesAdded, linesRemoved } = computeDiffStats(originalContent, result.fixedContent);
-	const lintDiagnostics = await lintFileForAgent(fixPath, result.fixedContent);
+	const lintDiagnostics = await lintFile(fixPath, result.fixedContent);
 	const limitedDiagnostics = lintDiagnostics.slice(0, MAX_DIAGNOSTICS_PER_FILE);
 
 	// Send file changed event for UI (carries full content for inline diff)

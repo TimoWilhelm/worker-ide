@@ -9,8 +9,8 @@ import { HIDDEN_ENTRIES, MAX_DIAGNOSTICS_PER_FILE } from '@shared/constants';
 import { ToolErrorCode, toolError } from '@shared/tool-errors';
 
 import { isHiddenPath, isPathSafe } from '../../../lib/path-utilities';
+import { formatLintDiagnostics, lintFile } from '../../../services/lint-service';
 import { recordFileRead } from '../file-time';
-import { formatLintDiagnostics, lintFileForAgent } from '../lib/biome-linter';
 
 import type { SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
 
@@ -314,7 +314,7 @@ Binary file detected. Cannot display content.
 			message = `\n\n(End of file - total ${totalLines} lines)`;
 		}
 
-		const allDiagnostics = await lintFileForAgent(readPath, fileContent);
+		const allDiagnostics = await lintFile(readPath, fileContent);
 		const diagnostics = allDiagnostics.slice(0, MAX_DIAGNOSTICS_PER_FILE);
 
 		let lintSection = '';

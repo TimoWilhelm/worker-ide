@@ -10,7 +10,7 @@ import { MAX_DIAGNOSTICS_PER_FILE } from '@shared/constants';
 import { ToolErrorCode, toolError } from '@shared/tool-errors';
 
 import { isHiddenPath, isPathSafe } from '../../../lib/path-utilities';
-import { formatLintDiagnostics, lintFileForAgent } from '../lib/biome-linter';
+import { formatLintDiagnostics, lintFile } from '../../../services/lint-service';
 
 import type { SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
 
@@ -78,7 +78,7 @@ export async function execute(
 	}
 
 	// Run lint diagnostics
-	const allDiagnostics = await lintFileForAgent(checkPath, content);
+	const allDiagnostics = await lintFile(checkPath, content);
 
 	if (allDiagnostics.length === 0) {
 		return {
