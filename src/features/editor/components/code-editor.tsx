@@ -208,6 +208,8 @@ export function CodeEditor({
 		onViewReadyReference.current?.(view);
 
 		return () => {
+			// Flush unsaved content before the view is destroyed.
+			onBlurReference.current?.();
 			onViewReadyReference.current?.();
 			view.destroy();
 			viewReference.current = undefined;
