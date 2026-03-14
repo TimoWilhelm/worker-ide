@@ -22,7 +22,7 @@ const meta = {
 	},
 	tags: ['autodocs'],
 	args: {
-		projectId: 'test-project-123',
+		projectId: 'a'.repeat(64),
 	},
 	decorators: [
 		(Story) => (

@@ -98,7 +98,7 @@ const meta = {
 	},
 	tags: ['autodocs'],
 	args: {
-		projectId: 'test-project',
+		projectId: 'a'.repeat(64),
 		resolvedTheme: 'dark',
 		editorState: defaultMockEditorState,
 		fileTree: defaultMockFileTree,
