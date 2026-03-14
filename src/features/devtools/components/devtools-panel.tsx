@@ -16,6 +16,7 @@
 
 import { useEffect, useMemo, useRef } from 'react';
 
+import { useTheme } from '@/hooks/use-theme';
 import { cn } from '@/lib/utils';
 
 // =============================================================================
@@ -61,6 +62,37 @@ function notifyDevtoolsOfNavigation(devtoolsWindow: Window, previewWindow: Windo
 	devtoolsWindow.postMessage(JSON.stringify({ method: 'DOM.documentUpdated' }), '*');
 }
 
+/**
+ * Apply the resolved editor theme to the DevTools iframe.
+ *
+ * The chii DevTools frontend uses `prefers-color-scheme` media queries and
+ * the `.-theme-with-dark-background` CSS class on `<html>` to switch themes.
+ * Because the iframe is a same-origin blob URL we can manipulate its DOM
+ * directly.  We:
+ *   1. Set `<meta name="color-scheme">` so internal media queries resolve
+ *      to the correct scheme (overrides the OS-level preference).
+ *   2. Toggle the `.-theme-with-dark-background` class that the DevTools
+ *      CSS hooks into for dark-mode styles.
+ */
+function applyThemeToDevtools(iframe: HTMLIFrameElement | null, theme: 'light' | 'dark'): void {
+	const document_ = iframe?.contentDocument;
+	if (!document_) return;
+
+	const isDark = theme === 'dark';
+
+	// 1. Ensure a <meta name="color-scheme"> exists and reflects the theme.
+	let meta = document_.head.querySelector<HTMLMetaElement>('meta[name="color-scheme"]');
+	if (!meta) {
+		meta = document_.createElement('meta');
+		meta.name = 'color-scheme';
+		document_.head.append(meta);
+	}
+	meta.content = isDark ? 'dark' : 'light';
+
+	// 2. Toggle the class that the DevTools frontend checks for dark mode.
+	document_.documentElement.classList.toggle('-theme-with-dark-background', isDark);
+}
+
 // =============================================================================
 // Component
 // =============================================================================
@@ -68,6 +100,7 @@ function notifyDevtoolsOfNavigation(devtoolsWindow: Window, previewWindow: Windo
 export function DevelopmentToolsPanel({ previewIframeReference, previewOrigin, className }: DevelopmentToolsPanelProperties) {
 	const devtoolsIframeReference = useRef<HTMLIFrameElement>(null);
 	const devtoolsReadyReference = useRef(false);
+	const resolvedTheme = useTheme();
 
 	// Generate the DevTools frontend URL using chii's hosted build
 	const devtoolsSource = useMemo(() => {
@@ -138,8 +171,16 @@ export function DevelopmentToolsPanel({ previewIframeReference, previewOrigin, c
 	// Also send LOADED in case the preview's __chobitsu-ready arrived first.
 	const handleDevtoolsLoad = () => {
 		devtoolsReadyReference.current = true;
+		applyThemeToDevtools(devtoolsIframeReference.current, resolvedTheme);
 		previewIframeReference.current?.contentWindow?.postMessage({ event: 'LOADED' }, previewOrigin);
 	};
+
+	// Re-apply theme whenever the editor theme changes after initial load.
+	useEffect(() => {
+		if (devtoolsReadyReference.current) {
+			applyThemeToDevtools(devtoolsIframeReference.current, resolvedTheme);
+		}
+	}, [resolvedTheme]);
 
 	return (
 		<div className={cn('flex h-full flex-col overflow-hidden', className)}>
