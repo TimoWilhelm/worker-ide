@@ -135,7 +135,7 @@ export function getTemplate(templateId: string): ProjectTemplate | undefined {
 
 /**
  * Get metadata for all templates (without file contents).
- * Used by the GET /api/templates endpoint and the landing page.
+ * Used by the GET /api/templates endpoint and the dashboard page.
  */
 export function getTemplateMetadata(): ProjectTemplateMeta[] {
 	return TEMPLATES.map((template) => ({

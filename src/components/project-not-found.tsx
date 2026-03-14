@@ -2,7 +2,7 @@
  * Project Not Found Page
  *
  * Displayed when navigating to a project ID that doesn't exist
- * (never created, or expired). Offers a link back to the landing page.
+ * (never created, or expired). Offers a link back to the dashboard.
  */
 
 import { FolderX, Home } from 'lucide-react';

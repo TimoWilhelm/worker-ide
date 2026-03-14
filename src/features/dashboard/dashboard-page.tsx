@@ -1,8 +1,7 @@
 /**
- * Landing Page
+ * Dashboard Page
  *
- * Minimalist landing page for Worker IDE. Displays over a halftone shader
- * background and allows users to:
+ * Displays over a halftone shader background and allows users to:
  * - Start a new project from a template (compact cards + detail modal)
  * - Open a recent project
  * - Clone/remix a project by ID or URL
@@ -353,14 +352,14 @@ function navigateToProject(url: string): void {
 }
 
 // =============================================================================
-// Main landing page component
+// Main dashboard page component
 // =============================================================================
 
 /**
- * Landing page component.
+ * Dashboard page component.
  * Default export for React.lazy() compatibility.
  */
-export default function LandingPage() {
+export default function DashboardPage() {
 	const [templates, setTemplates] = useState<ProjectTemplateMeta[]>([]);
 	const [templatesLoaded, setTemplatesLoaded] = useState(false);
 	const [selectedTemplateId, setSelectedTemplateId] = useState<string | undefined>();

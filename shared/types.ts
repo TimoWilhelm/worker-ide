@@ -335,7 +335,7 @@ export interface ServerLogEntry {
 
 /**
  * Metadata for a project template (without file contents).
- * Used by both the GET /api/templates endpoint and the landing page.
+ * Used by both the GET /api/templates endpoint and the dashboard page.
  */
 export interface ProjectTemplateMeta {
 	/** Unique template identifier (kebab-case) */

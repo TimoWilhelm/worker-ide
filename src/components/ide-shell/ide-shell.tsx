@@ -94,7 +94,7 @@ export function IDEShell({ projectId }: { projectId: string }) {
 		setSettingsModalOpen(true);
 	}, []);
 
-	// Navigate to landing page to create a new project
+	// Navigate to dashboard to create a new project
 	const handleNewProject = useCallback(() => {
 		globalThis.location.href = '/';
 	}, []);

@@ -422,7 +422,7 @@ export default {
 			}
 
 			// Bare domain — root-level APIs (/api/*) are handled by the Hono
-			// app; everything else serves static assets (splash page).
+			// app; everything else serves static assets (landing page).
 			case 'landing': {
 				if (url.pathname.startsWith('/api/')) {
 					return app.fetch(request, environment, executionContext);

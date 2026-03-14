@@ -1,9 +1,8 @@
 /**
- * Splash Page
+ * Landing Page
  *
  * Shown on the bare domain (e.g., `localhost:3000`).
- * A simple marketing/info page that explains the project
- * and links to the app subdomain where the actual IDE lives.
+ * Links to the app subdomain where the actual IDE lives.
  */
 
 import { ArrowRight, Cloud, Code, Github, Hexagon, Moon, Sun, Zap } from 'lucide-react';
@@ -11,7 +10,7 @@ import { Suspense } from 'react';
 
 import { Button, buttonVariants } from '@/components/ui/button';
 import { VersionBadge } from '@/components/version-badge';
-import { HalftoneBackground } from '@/features/landing/halftone-background';
+import { HalftoneBackground } from '@/features/dashboard/halftone-background';
 import { useTheme } from '@/hooks/use-theme';
 import { getIdeOrigin } from '@/lib/preview-origin';
 import { useStore } from '@/lib/store';
@@ -37,7 +36,7 @@ const FEATURES = [
 	},
 ];
 
-export function SplashPage() {
+export function LandingPage() {
 	const resolvedTheme = useTheme();
 	const setColorScheme = useStore((state) => state.setColorScheme);
 

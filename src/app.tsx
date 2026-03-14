@@ -4,8 +4,8 @@
  * Sets up global providers (React Query, error boundaries) and routes.
  *
  * Routing is driven by the subdomain (host type):
- * - Bare domain  → splash/info page with "Open App" link
- * - app.*        → IDE: `/` shows template picker, `/p/<hex64>` shows project
+ * - Bare domain  → landing page with "Open App" link
+ * - app.*        → IDE: `/` shows dashboard, `/p/<hex64>` shows project
  * - preview.*    → handled entirely by the worker (never loads the SPA)
  */
 
@@ -15,14 +15,14 @@ import { Suspense, use, useEffect, useState } from 'react';
 
 import { ErrorBoundary } from '@/components/error-boundary';
 import { IDEShell } from '@/components/ide-shell';
+import { LandingPage } from '@/components/landing-page';
 import { NotFoundPage } from '@/components/not-found-page';
 import { OfflineBanner } from '@/components/offline-banner';
 import { ProjectNotFound } from '@/components/project-not-found';
-import { SplashPage } from '@/components/splash-page';
 import { Spinner } from '@/components/ui/spinner';
 import { Toaster } from '@/components/ui/toast';
 import { toast } from '@/components/ui/toast-store';
-import { LandingPage } from '@/features/landing';
+import { DashboardPage } from '@/features/dashboard';
 import { usePwaUpdate } from '@/hooks/use-pwa-update';
 import { fetchProjectMeta } from '@/lib/api-client';
 import { trackProject } from '@/lib/recent-projects';
@@ -216,12 +216,12 @@ function AppContent() {
 			);
 		}
 
-		// app.<baseDomain>/ — landing page (template selection, recent projects)
+		// app.<baseDomain>/ — dashboard (template selection, recent projects)
 		const path = globalThis.location.pathname;
 		if (path === '/' || path === '') {
 			return (
 				<Suspense fallback={<LoadingFallback />}>
-					<LandingPage />
+					<DashboardPage />
 				</Suspense>
 			);
 		}
@@ -230,9 +230,9 @@ function AppContent() {
 		return <NotFoundPage />;
 	}
 
-	// Bare domain — splash/info page
+	// Bare domain — landing page
 	if (hostType === 'landing') {
-		return <SplashPage />;
+		return <LandingPage />;
 	}
 
 	// Any other host type (unknown, preview served by worker directly)

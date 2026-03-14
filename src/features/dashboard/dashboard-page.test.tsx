@@ -1,5 +1,5 @@
 /**
- * React component tests for the Landing Page.
+ * React component tests for the Dashboard Page.
  *
  * Mocks API calls and WebGL (jsdom has no WebGL support) to test
  * user interactions: template selection, detail modal, clone input,
@@ -10,7 +10,7 @@ import { render, screen, fireEvent, waitFor, within } from '@testing-library/rea
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import LandingPage from './landing-page';
+import DashboardPage from './dashboard-page';
 
 // =============================================================================
 // Mocks
@@ -85,21 +85,21 @@ const { getRecentProjects } = await import('@/lib/recent-projects');
 // Tests
 // =============================================================================
 
-describe('LandingPage', () => {
+describe('DashboardPage', () => {
 	it('renders the page title', () => {
-		render(<LandingPage />);
+		render(<DashboardPage />);
 
 		expect(screen.getByText('Worker IDE')).toBeInTheDocument();
 	});
 
 	it('renders the halftone background', () => {
-		render(<LandingPage />);
+		render(<DashboardPage />);
 
 		expect(screen.getByTestId('halftone-background')).toBeInTheDocument();
 	});
 
 	it('renders template cards', async () => {
-		render(<LandingPage />);
+		render(<DashboardPage />);
 
 		expect(screen.getByText('Start a new project')).toBeInTheDocument();
 		await waitFor(() => {
@@ -108,7 +108,7 @@ describe('LandingPage', () => {
 	});
 
 	it('renders a clone card in the template grid', async () => {
-		render(<LandingPage />);
+		render(<DashboardPage />);
 
 		await waitFor(() => {
 			const cloneCard = screen.getByText('Clone a project').closest('button');
@@ -117,7 +117,7 @@ describe('LandingPage', () => {
 	});
 
 	it('opens clone modal when clone card is clicked', async () => {
-		render(<LandingPage />);
+		render(<DashboardPage />);
 
 		await waitFor(() => {
 			expect(screen.getByText('Clone a project').closest('button')).toBeTruthy();
@@ -135,7 +135,7 @@ describe('LandingPage', () => {
 	});
 
 	it('renders theme toggle button', () => {
-		render(<LandingPage />);
+		render(<DashboardPage />);
 
 		expect(screen.getByLabelText(/Switch to light mode/i)).toBeInTheDocument();
 	});
@@ -145,7 +145,7 @@ describe('LandingPage', () => {
 	// ---------------------------------------------------------------------------
 
 	it('opens template detail modal when a card is clicked', async () => {
-		render(<LandingPage />);
+		render(<DashboardPage />);
 
 		// Wait for templates to load
 		const templateButton = await waitFor(() => {
@@ -174,7 +174,7 @@ describe('LandingPage', () => {
 			name: 'my-project',
 		});
 
-		render(<LandingPage />);
+		render(<DashboardPage />);
 
 		// Open the detail modal
 		const templateButton = await waitFor(() => {
@@ -200,7 +200,7 @@ describe('LandingPage', () => {
 	});
 
 	it('closes the modal when Cancel is clicked', async () => {
-		render(<LandingPage />);
+		render(<DashboardPage />);
 
 		// Open the detail modal
 		const templateButton = await waitFor(() => {
@@ -228,7 +228,7 @@ describe('LandingPage', () => {
 	// ---------------------------------------------------------------------------
 
 	it('disables clone button in modal when input is empty', async () => {
-		render(<LandingPage />);
+		render(<DashboardPage />);
 
 		// Open clone modal
 		await waitFor(() => {
@@ -247,7 +247,7 @@ describe('LandingPage', () => {
 
 	it('enables clone button in modal when a valid 64-char hex ID is entered', async () => {
 		const user = userEvent.setup();
-		render(<LandingPage />);
+		render(<DashboardPage />);
 
 		// Open clone modal
 		await waitFor(() => {
@@ -270,7 +270,7 @@ describe('LandingPage', () => {
 
 	it('enables clone button in modal when a full project URL is entered', async () => {
 		const user = userEvent.setup();
-		render(<LandingPage />);
+		render(<DashboardPage />);
 
 		// Open clone modal
 		await waitFor(() => {
@@ -293,7 +293,7 @@ describe('LandingPage', () => {
 
 	it('keeps clone button disabled for invalid input in modal', async () => {
 		const user = userEvent.setup();
-		render(<LandingPage />);
+		render(<DashboardPage />);
 
 		// Open clone modal
 		await waitFor(() => {
@@ -322,7 +322,7 @@ describe('LandingPage', () => {
 			name: 'cloned-project',
 		});
 
-		render(<LandingPage />);
+		render(<DashboardPage />);
 
 		// Open clone modal
 		await waitFor(() => {
@@ -354,7 +354,7 @@ describe('LandingPage', () => {
 		const mockedCloneProject = vi.mocked(cloneProject);
 		mockedCloneProject.mockRejectedValueOnce(new Error('Source project not found or not initialized'));
 
-		render(<LandingPage />);
+		render(<DashboardPage />);
 
 		// Open clone modal
 		await waitFor(() => {
@@ -384,7 +384,7 @@ describe('LandingPage', () => {
 	// ---------------------------------------------------------------------------
 
 	it('does not render recent projects section when empty', () => {
-		render(<LandingPage />);
+		render(<DashboardPage />);
 
 		expect(screen.queryByText('Recent projects')).not.toBeInTheDocument();
 	});
@@ -392,7 +392,7 @@ describe('LandingPage', () => {
 	it('renders recent projects section with a single project', () => {
 		vi.mocked(getRecentProjects).mockReturnValue([{ id: 'e'.repeat(64), timestamp: Date.now() - 3_600_000, name: 'My Project' }]);
 
-		render(<LandingPage />);
+		render(<DashboardPage />);
 
 		expect(screen.getByText('Recent projects')).toBeInTheDocument();
 		expect(screen.getByText('My Project')).toBeInTheDocument();
@@ -404,7 +404,7 @@ describe('LandingPage', () => {
 			{ id: 'f'.repeat(64), timestamp: Date.now() - 86_400_000, name: 'Old Project' },
 		]);
 
-		render(<LandingPage />);
+		render(<DashboardPage />);
 
 		expect(screen.getByText('Recent projects')).toBeInTheDocument();
 		expect(screen.getByText('My Project')).toBeInTheDocument();
@@ -415,7 +415,7 @@ describe('LandingPage', () => {
 		const projectId = 'a'.repeat(64);
 		vi.mocked(getRecentProjects).mockReturnValue([{ id: projectId, timestamp: Date.now(), name: 'Test Project' }]);
 
-		render(<LandingPage />);
+		render(<DashboardPage />);
 
 		const link = screen.getByText('Test Project').closest('a');
 		expect(link).toBeTruthy();
