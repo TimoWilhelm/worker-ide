@@ -1,16 +1,16 @@
 /**
  * Preview Panel Component
  *
- * Displays the live preview of the project in an iframe.
- * Simple responsive preview without device emulation.
+ * Displays the live preview in a cross-origin iframe on a preview subdomain.
  */
 
 import { ExternalLink, RefreshCw, Wrench } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Tooltip } from '@/components/ui/tooltip';
 import { previewIframeReference } from '@/features/preview/preview-iframe-reference';
+import { getPreviewUrl } from '@/lib/preview-origin';
 import { useStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 
@@ -31,42 +31,28 @@ export interface PreviewPanelProperties {
 // Component
 // =============================================================================
 
-/**
- * Preview panel component showing live preview of the project.
- */
 export function PreviewPanel({ projectId, iframeReference, className }: PreviewPanelProperties) {
 	const [isLoading, setIsLoading] = useState(true);
 	const [previewKey, setPreviewKey] = useState(0);
 	const devtoolsVisible = useStore((state) => state.devtoolsVisible);
 	const toggleDevtools = useStore((state) => state.toggleDevtools);
 
-	// Preview URL — must match the worker route at /p/:projectId/preview/
-	const previewUrl = `/p/${projectId}/preview/`;
+	const previewUrl = useMemo(() => getPreviewUrl(projectId), [projectId]);
 
-	// Handle iframe load
 	const handleLoad = useCallback(() => {
 		setIsLoading(false);
 	}, []);
 
-	// Refresh preview
 	const handleRefresh = useCallback(() => {
 		setIsLoading(true);
 		setPreviewKey((previous) => previous + 1);
 		globalThis.dispatchEvent(new CustomEvent('preview-refresh'));
 	}, []);
 
-	// Open in new tab
 	const handleOpenExternal = useCallback(() => {
 		window.open(previewUrl, '_blank');
 	}, [previewUrl]);
 
-	// The preview iframe has its own HMR WebSocket client (injected by
-	// processHTML) that handles full-reload and CSS hot-swap internally.
-	// Chobitsu (CDP implementation) is also injected for DevTools support.
-
-	// Listen for force-refresh requests from other parts of the app (e.g.
-	// after the AI agent finishes writing files). Delays slightly past the
-	// HMR debounce window (200ms) so any in-flight reload settles first.
 	useEffect(() => {
 		const FORCE_REFRESH_DELAY_MS = 500;
 		let timer: ReturnType<typeof setTimeout> | undefined;
@@ -86,10 +72,6 @@ export function PreviewPanel({ projectId, iframeReference, className }: PreviewP
 		};
 	}, [handleRefresh]);
 
-	// Sync the global ref with the local ref so the WebSocket handler can
-	// access the iframe. Intentionally has no dependency array — the global
-	// ref must stay in sync after every render since React may replace the
-	// underlying DOM node (e.g. when the iframe key changes on refresh).
 	useEffect(() => {
 		previewIframeReference.current = iframeReference.current ?? undefined;
 		return () => {
@@ -130,7 +112,6 @@ export function PreviewPanel({ projectId, iframeReference, className }: PreviewP
 
 			{/* Preview area */}
 			<div className="relative flex-1 overflow-hidden">
-				{/* Loading overlay */}
 				{isLoading && (
 					<div
 						className="
@@ -144,7 +125,7 @@ export function PreviewPanel({ projectId, iframeReference, className }: PreviewP
 					</div>
 				)}
 
-				{/* Iframe - full responsive, no device emulation */}
+				{/* Cross-origin iframe — preview runs on its own subdomain */}
 				<iframe
 					key={previewKey}
 					ref={iframeReference}

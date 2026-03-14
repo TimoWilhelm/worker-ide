@@ -3,7 +3,7 @@
  */
 
 import { ChevronUp } from 'lucide-react';
-import { lazy, Suspense, useCallback } from 'react';
+import { lazy, Suspense, useCallback, useMemo } from 'react';
 import { Group as PanelGroup, Panel, Separator as ResizeHandle } from 'react-resizable-panels';
 
 import { ActivityBar } from '@/components/activity-bar';
@@ -13,6 +13,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { DependencyPanel, FileTree, type useFileTree } from '@/features/file-tree';
 import { GitPanel } from '@/features/git';
 import { TestsPanel } from '@/features/tests';
+import { getPreviewOrigin } from '@/lib/preview-origin';
 import { useStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 
@@ -47,6 +48,7 @@ export function DesktopLayout({
 	logCounts,
 	previewIframeReference,
 }: DesktopLayoutProperties) {
+	const previewOrigin = useMemo(() => getPreviewOrigin(projectId), [projectId]);
 	const activeSidebarView = useStore((state) => state.activeSidebarView);
 	const toggleUtilityPanel = useStore((state) => state.toggleUtilityPanel);
 	const toggleDependenciesPanel = useStore((state) => state.toggleDependenciesPanel);
@@ -333,7 +335,11 @@ export function DesktopLayout({
 								/>
 								<Panel id="devtools" defaultSize="30%" minSize="15%" maxSize="80%">
 									<Suspense fallback={<PanelSkeleton label="Loading DevTools..." />}>
-										<DevelopmentToolsPanel previewIframeReference={previewIframeReference} className="h-full" />
+										<DevelopmentToolsPanel
+											previewIframeReference={previewIframeReference}
+											previewOrigin={previewOrigin}
+											className="h-full"
+										/>
 									</Suspense>
 								</Panel>
 							</>

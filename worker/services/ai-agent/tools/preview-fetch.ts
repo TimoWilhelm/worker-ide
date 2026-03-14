@@ -208,8 +208,10 @@ export async function execute(
 		} else if (previewService.matchesRunWorkerFirst(normalizedPath, assetSettings.run_worker_first)) {
 			response = await previewService.handlePreviewAPI(request, normalizedPath);
 		} else {
-			const basePrefix = `/p/${context.projectId}/preview`;
-			response = await previewService.serveFile(request, basePrefix, assetSettings);
+			// Placeholder IDE origin — preview-fetch runs server-side so the CSP
+			// frame-ancestors and injected __PREVIEW_CONFIG.ideOrigin are never
+			// evaluated by a browser. The HTML is only consumed as text.
+			response = await previewService.serveFile(request, 'http://localhost', assetSettings);
 		}
 
 		// Read response body

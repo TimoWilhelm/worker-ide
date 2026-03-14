@@ -114,6 +114,34 @@ interface GitCheckoutResponse {
  */
 export class ExpiringFilesystem extends DurableObjectFilesystem {
 	// =========================================================================
+	// Project existence check
+	// =========================================================================
+
+	/**
+	 * Check if this project has been initialized, without creating any state.
+	 *
+	 * Queries SQLite directly for the `.initialized` sentinel file.
+	 * If the filesystem schema hasn't been created yet (the DO was never
+	 * used), this returns false without creating any tables or rows.
+	 */
+	projectExists(): boolean {
+		try {
+			// Check if the entries table exists — if not, the DO was never used
+			const tableCheck = this.ctx.storage.sql.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='entries' LIMIT 1");
+			if ([...tableCheck].length === 0) {
+				return false;
+			}
+
+			// Check if the .initialized sentinel file exists.
+			// Paths in the DO's SQLite are relative to the mount root (no /project prefix).
+			const result = this.ctx.storage.sql.exec("SELECT 1 FROM entries WHERE path = '/.initialized' AND type = 'file' LIMIT 1");
+			return [...result].length > 0;
+		} catch {
+			return false;
+		}
+	}
+
+	// =========================================================================
 	// Expiration
 	// =========================================================================
 

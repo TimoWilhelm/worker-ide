@@ -21,7 +21,6 @@ export interface FileSystem {
 export interface TransformOptions {
 	fs: FileSystem;
 	projectRoot: string;
-	baseUrl: string;
 }
 
 interface ResolvedImport {
@@ -107,17 +106,12 @@ async function probeExtensions(fs: FileSystem, basePath: string, extensions: str
 	return undefined;
 }
 
-/**
- * Parse and cache tsconfig for a project.
- */
 async function loadTsConfig(fs: FileSystem, projectRoot: string): Promise<TsConfig | undefined> {
 	try {
 		const content = await fs.readFile(`${projectRoot}/tsconfig.json`);
 		const text = typeof content === 'string' ? content : new TextDecoder().decode(content);
 		const config: TsConfig = JSON.parse(stripJsonComments(text));
 
-		// If the root tsconfig is a solution-style project references file (no compilerOptions),
-		// try loading tsconfig.app.json which has the frontend compiler settings (jsx, paths, etc.)
 		if (!config.compilerOptions) {
 			return await loadTsConfigFile(fs, `${projectRoot}/tsconfig.app.json`);
 		}
@@ -138,9 +132,6 @@ async function loadTsConfigFile(fs: FileSystem, filePath: string): Promise<TsCon
 	}
 }
 
-/**
- * Resolve a path alias from tsconfig paths.
- */
 function resolvePathAlias(specifier: string, tsConfig: TsConfig | undefined): string | undefined {
 	if (!tsConfig?.compilerOptions?.paths) return undefined;
 
@@ -182,7 +173,6 @@ async function resolveImport(
 	importer: string,
 	fs: FileSystem,
 	projectRoot: string,
-	baseUrl: string,
 	tsConfig: TsConfig | undefined,
 ): Promise<ResolvedImport> {
 	// Check tsconfig paths first for non-relative imports
@@ -193,34 +183,17 @@ async function resolveImport(
 			if (!extension) {
 				const directExtension = await probeExtensions(fs, `${projectRoot}${aliasResolved}`, EXTENSIONS);
 				if (directExtension) {
-					return {
-						original: specifier,
-						resolved: `${baseUrl}${aliasResolved}${directExtension}`,
-						isBare: false,
-					};
+					return { original: specifier, resolved: `${aliasResolved}${directExtension}`, isBare: false };
 				}
 				const indexExtension = await probeExtensions(fs, `${projectRoot}${aliasResolved}/index`, EXTENSIONS);
 				if (indexExtension) {
-					return {
-						original: specifier,
-						resolved: `${baseUrl}${aliasResolved}/index${indexExtension}`,
-						isBare: false,
-					};
+					return { original: specifier, resolved: `${aliasResolved}/index${indexExtension}`, isBare: false };
 				}
 			}
-			return {
-				original: specifier,
-				resolved: `${baseUrl}${aliasResolved}`,
-				isBare: false,
-			};
+			return { original: specifier, resolved: aliasResolved, isBare: false };
 		}
 
-		// Bare imports (packages) -> redirect to esm.sh CDN
-		return {
-			original: specifier,
-			resolved: `${ESM_CDN}/${specifier}`,
-			isBare: true,
-		};
+		return { original: specifier, resolved: `${ESM_CDN}/${specifier}`, isBare: true };
 	}
 
 	// Relative imports
@@ -243,47 +216,30 @@ async function resolveImport(
 		targetPath = '/' + parts.join('/');
 	}
 
-	// Try to resolve with extensions if no extension provided
 	const extension = getExtension(targetPath);
 	if (!extension) {
 		const directExtension = await probeExtensions(fs, `${projectRoot}${targetPath}`, EXTENSIONS);
 		if (directExtension) {
-			return {
-				original: specifier,
-				resolved: `${baseUrl}${targetPath}${directExtension}`,
-				isBare: false,
-			};
+			return { original: specifier, resolved: `${targetPath}${directExtension}`, isBare: false };
 		}
 		const indexExtension = await probeExtensions(fs, `${projectRoot}${targetPath}/index`, EXTENSIONS);
 		if (indexExtension) {
-			return {
-				original: specifier,
-				resolved: `${baseUrl}${targetPath}/index${indexExtension}`,
-				isBare: false,
-			};
+			return { original: specifier, resolved: `${targetPath}/index${indexExtension}`, isBare: false };
 		}
 	}
 
-	return {
-		original: specifier,
-		resolved: `${baseUrl}${targetPath}`,
-		isBare: false,
-	};
+	return { original: specifier, resolved: targetPath, isBare: false };
 }
 
 // =============================================================================
 // Import Rewriting
 // =============================================================================
 
-/**
- * Rewrite import statements in transformed code.
- */
 async function rewriteImports(
 	code: string,
 	filePath: string,
 	fs: FileSystem,
 	projectRoot: string,
-	baseUrl: string,
 	tsConfig: TsConfig | undefined,
 ): Promise<string> {
 	const importRegex = /(?:import|export)\s*(?:(?:\{[^}]*\}|\*\s+as\s+\w+|\w+)\s*,?\s*)*(?:from\s*)?['"]([^'"]+)['"]/g;
@@ -293,27 +249,17 @@ async function rewriteImports(
 
 	let match: RegExpExecArray | null;
 	while ((match = importRegex.exec(code)) !== null) {
-		imports.push({
-			match: match[0],
-			specifier: match[1],
-			start: match.index,
-			end: match.index + match[0].length,
-		});
+		imports.push({ match: match[0], specifier: match[1], start: match.index, end: match.index + match[0].length });
 	}
 
 	while ((match = dynamicImportRegex.exec(code)) !== null) {
-		imports.push({
-			match: match[0],
-			specifier: match[1],
-			start: match.index,
-			end: match.index + match[0].length,
-		});
+		imports.push({ match: match[0], specifier: match[1], start: match.index, end: match.index + match[0].length });
 	}
 
 	const resolved = await Promise.all(
 		imports.map(async (imp) => ({
 			...imp,
-			resolution: await resolveImport(imp.specifier, filePath, fs, projectRoot, baseUrl, tsConfig),
+			resolution: await resolveImport(imp.specifier, filePath, fs, projectRoot, tsConfig),
 		})),
 	);
 
@@ -337,19 +283,17 @@ const MAX_TSCONFIG_CACHE = 100;
 /**
  * Invalidate cached tsconfig for a project so the next transform picks up changes.
  */
-export function invalidateTsConfigCache(projectRoot: string, baseUrl?: string): void {
-	const key = baseUrl ? `${projectRoot}:${baseUrl}` : projectRoot;
-	tsConfigCache.delete(key);
+export function invalidateTsConfigCache(projectRoot: string): void {
+	tsConfigCache.delete(projectRoot);
 }
 
-async function getTsConfig(fs: FileSystem, projectRoot: string, cacheKey?: string): Promise<TsConfig | undefined> {
-	const key = cacheKey || projectRoot;
-	const cached = tsConfigCache.get(key);
+async function getTsConfig(fs: FileSystem, projectRoot: string): Promise<TsConfig | undefined> {
+	const cached = tsConfigCache.get(projectRoot);
 	if (cached && Date.now() < cached.expiry) {
 		return cached.config;
 	}
 	const config = await loadTsConfig(fs, projectRoot);
-	tsConfigCache.set(key, { config, expiry: Date.now() + TSCONFIG_TTL_MS });
+	tsConfigCache.set(projectRoot, { config, expiry: Date.now() + TSCONFIG_TTL_MS });
 	while (tsConfigCache.size > MAX_TSCONFIG_CACHE) {
 		const first = tsConfigCache.keys().next().value;
 		if (first === undefined) {
@@ -390,25 +334,22 @@ export async function transformModule(
 	content: string,
 	options: TransformOptions,
 ): Promise<{ code: string; contentType: string }> {
-	const { fs, projectRoot, baseUrl } = options;
+	const { fs, projectRoot } = options;
 	const extension = getExtension(filePath);
-	const tsConfig = await getTsConfig(fs, projectRoot, `${projectRoot}:${baseUrl}`);
+	const tsConfig = await getTsConfig(fs, projectRoot);
 
-	// Transform TypeScript/JSX
 	if (['.ts', '.tsx', '.jsx', '.mts'].includes(extension)) {
 		const tsconfigRaw = toEsbuildTsconfigRaw(tsConfig);
 		const transformed = await transformCode(content, filePath, { sourcemap: true, tsconfigRaw });
-		const rewritten = await rewriteImports(transformed.code, filePath, fs, projectRoot, baseUrl, tsConfig);
+		const rewritten = await rewriteImports(transformed.code, filePath, fs, projectRoot, tsConfig);
 		return { code: rewritten, contentType: 'application/javascript' };
 	}
 
-	// Transform JS files (just rewrite imports)
 	if (['.js', '.mjs'].includes(extension)) {
-		const rewritten = await rewriteImports(content, filePath, fs, projectRoot, baseUrl, tsConfig);
+		const rewritten = await rewriteImports(content, filePath, fs, projectRoot, tsConfig);
 		return { code: rewritten, contentType: 'application/javascript' };
 	}
 
-	// Transform CSS to JS module that injects styles
 	if (extension === '.css') {
 		const cssContent = JSON.stringify(content);
 		const code = `
@@ -422,15 +363,10 @@ export default css;
 		return { code, contentType: 'application/javascript' };
 	}
 
-	// Transform JSON to JS module
 	if (extension === '.json') {
-		return {
-			code: `export default ${content};`,
-			contentType: 'application/javascript',
-		};
+		return { code: `export default ${content};`, contentType: 'application/javascript' };
 	}
 
-	// Return as-is for other files
 	return { code: content, contentType: getContentType(extension) };
 }
 
@@ -438,9 +374,6 @@ export default css;
 // HTML Processing
 // =============================================================================
 
-/**
- * Escape a string for safe embedding inside a JSON value within a <script> tag.
- */
 function escapeForScriptTag(s: string): string {
 	return s
 		.replaceAll('\\', '\\\\')
@@ -450,101 +383,56 @@ function escapeForScriptTag(s: string): string {
 		.replaceAll(/<\/(script)/gi, String.raw`<\/$1`);
 }
 
-/**
- * Generate the tiny inline config script that external preview scripts read.
- * This is the ONLY inline JS injected into the preview HTML.
- */
-function generatePreviewConfig(wsUrl: string, baseUrl: string): string {
+/** Generate the inline config script that preview scripts read. */
+function generatePreviewConfig(wsUrl: string, ideOrigin: string, projectId: string): string {
 	const safeWsUrl = escapeForScriptTag(wsUrl);
-	const safeBaseUrl = escapeForScriptTag(baseUrl);
-	return `<script>window.__PREVIEW_CONFIG={wsUrl:'${safeWsUrl}',baseUrl:'${safeBaseUrl}'};</script>`;
+	const safeIdeOrigin = escapeForScriptTag(ideOrigin);
+	const safeProjectId = escapeForScriptTag(projectId);
+	return `<script>window.__PREVIEW_CONFIG={wsUrl:'${safeWsUrl}',ideOrigin:'${safeIdeOrigin}',projectId:'${safeProjectId}'};</script>`;
 }
 
 /**
- * Generate the external script tags for preview infrastructure.
- * All logic lives in separate .js files served by preview-service at /__*.js.
- * Uses relative paths (no leading /) so the browser resolves them relative
- * to the current preview URL (e.g. /p/:projectId/preview/__hmr-client.js).
+ * Generate script tags for preview infrastructure.
  *
- * IMPORTANT: Script order matters!
- * 1. react-refresh-preamble — MUST run before React loads (hooks into DevTools global)
- * 2. fetch-interceptor — rewrites /api/* requests
- * 3. error-overlay — shows build errors
- * 4. hmr-client — handles hot module replacement
- * 5. chobitsu + chobitsu-init — Chrome DevTools Protocol bridge
+ * Script order matters:
+ * 1. react-refresh-preamble — MUST run before React loads
+ * 2. error-overlay — shows build errors
+ * 3. hmr-client — handles hot module replacement
+ * 4. chobitsu + chobitsu-init — Chrome DevTools Protocol bridge
  */
 function generatePreviewScriptTags(integrityHashes?: Record<string, string>): string {
-	const scripts = [
-		// React Fast Refresh runtime preamble — MUST be first so it runs before
-		// React is loaded by user scripts. It sets up __REACT_DEVTOOLS_GLOBAL_HOOK__
-		// which React reads during initialization.
-		'__react-refresh-preamble.js',
-		'__fetch-interceptor.js',
-		'__error-overlay.js',
-		'__hmr-client.js',
-		'__chobitsu.js',
-		'__chobitsu-init.js',
-	];
+	const scripts = ['__react-refresh-preamble.js', '__error-overlay.js', '__hmr-client.js', '__chobitsu.js', '__chobitsu-init.js'];
 	return scripts
 		.map((source) => {
 			const hash = integrityHashes?.[source];
-			// Use hash as cache-buster query param to avoid stale scripts after deploy.
-			// SRI integrity is same-origin so no crossorigin attribute needed.
 			const cacheBuster = hash ? `?v=${hash.slice(7, 15)}` : '';
 			const integrity = hash ? ` integrity="${hash}"` : '';
-			return `<script src="${source}${cacheBuster}"${integrity}></script>`;
+			return `<script src="/${source}${cacheBuster}"${integrity}></script>`;
 		})
 		.join('\n');
 }
 
-/**
- * Process HTML file using HTMLRewriter - inject preview config and rewrite script/link tags.
- */
-export async function processHTML(
-	html: string,
-	_filePath: string,
-	options: TransformOptions & { wsUrl: string; scriptIntegrityHashes?: Record<string, string> },
-): Promise<string> {
-	const { baseUrl, wsUrl, scriptIntegrityHashes } = options;
+export interface ProcessHtmlOptions extends TransformOptions {
+	wsUrl: string;
+	ideOrigin: string;
+	projectId: string;
+	scriptIntegrityHashes?: Record<string, string>;
+}
 
-	const previewConfig = generatePreviewConfig(wsUrl, baseUrl);
+/** Process HTML file — inject preview config and scripts. */
+export async function processHTML(html: string, _filePath: string, options: ProcessHtmlOptions): Promise<string> {
+	const { wsUrl, ideOrigin, projectId, scriptIntegrityHashes } = options;
+
+	const previewConfig = generatePreviewConfig(wsUrl, ideOrigin, projectId);
 	const previewScripts = generatePreviewScriptTags(scriptIntegrityHashes);
 
-	const rewriter = new HTMLRewriter()
-		.on('head', {
-			element(element) {
-				element.append(previewConfig + previewScripts, { html: true });
-			},
-		})
-		.on('script[src]', {
-			element(element) {
-				const source = element.getAttribute('src');
-				if (!source || source.startsWith('http://') || source.startsWith('https://') || source.startsWith('__')) {
-					return;
-				}
-				const newSource = source.startsWith('/') ? `${baseUrl}${source}` : `${baseUrl}/${source}`;
-				element.setAttribute('src', newSource);
-			},
-		})
-		.on('link[href]', {
-			element(element) {
-				const href = element.getAttribute('href');
-				if (!href || href.startsWith('http://') || href.startsWith('https://')) {
-					return;
-				}
-				if (!href.endsWith('.css')) {
-					return;
-				}
-				const newHref = href.startsWith('/') ? `${baseUrl}${href}` : `${baseUrl}/${href}`;
-				element.setAttribute('href', newHref);
-			},
-		});
+	const rewriter = new HTMLRewriter().on('head', {
+		element(element) {
+			element.append(previewConfig + previewScripts, { html: true });
+		},
+	});
 
-	const response = rewriter.transform(
-		new Response(html, {
-			headers: { 'Content-Type': 'text/html' },
-		}),
-	);
+	const response = rewriter.transform(new Response(html, { headers: { 'Content-Type': 'text/html' } }));
 
 	return response.text();
 }

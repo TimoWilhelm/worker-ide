@@ -11,6 +11,8 @@
 
 import { createStore, useStore } from 'zustand';
 
+import { isMessageFromPreview } from '@/lib/preview-origin';
+
 import type { LogEntry } from '../types';
 import type { ServerError, ServerLogEntry } from '@shared/types';
 
@@ -148,10 +150,11 @@ globalThis.addEventListener('lint-diagnostics', (event: Event) => {
  * Listen for postMessage events from the preview iframe:
  * - __console-log: forwarded by chobitsu CDP Runtime.consoleAPICalled events
  * - __server-error: forwarded by the preview HMR client when it receives a server error
+ *
+ * The preview runs on a separate subdomain, so we validate the origin.
  */
 globalThis.addEventListener('message', (event: MessageEvent) => {
-	// Only accept messages from same origin (preview iframe)
-	if (event.origin !== globalThis.location.origin) return;
+	if (!isMessageFromPreview(event)) return;
 
 	const { type } = event.data ?? {};
 

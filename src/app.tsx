@@ -2,8 +2,11 @@
  * Root Application Component
  *
  * Sets up global providers (React Query, error boundaries) and routes.
- * - `/` renders the landing page (template selection, clone, recent projects)
- * - `/p/<hex64>` renders the IDE shell for a specific project
+ *
+ * Routing is driven by the subdomain (host type):
+ * - Bare domain  → splash/info page with "Open App" link
+ * - app.*        → IDE: `/` shows template picker, `/p/<hex64>` shows project
+ * - preview.*    → handled entirely by the worker (never loads the SPA)
  */
 
 import { MutationCache, QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -12,8 +15,10 @@ import { Suspense, use, useEffect, useState } from 'react';
 
 import { ErrorBoundary } from '@/components/error-boundary';
 import { IDEShell } from '@/components/ide-shell';
+import { NotFoundPage } from '@/components/not-found-page';
 import { OfflineBanner } from '@/components/offline-banner';
 import { ProjectNotFound } from '@/components/project-not-found';
+import { SplashPage } from '@/components/splash-page';
 import { Spinner } from '@/components/ui/spinner';
 import { Toaster } from '@/components/ui/toast';
 import { toast } from '@/components/ui/toast-store';
@@ -22,6 +27,7 @@ import { usePwaUpdate } from '@/hooks/use-pwa-update';
 import { fetchProjectMeta } from '@/lib/api-client';
 import { trackProject } from '@/lib/recent-projects';
 import { isNetworkError } from '@/lib/utils';
+import { parseHost } from '@shared/domain';
 
 // =============================================================================
 // Query Client
@@ -125,6 +131,12 @@ function ErrorFallback({ error, resetErrorBoundary }: { error: Error; resetError
 // =============================================================================
 
 /**
+ * Determine the host type once at module load.
+ * This drives top-level routing decisions in the SPA.
+ */
+const hostType = parseHost(globalThis.location.host).type;
+
+/**
  * Extract a project ID from the current URL path.
  * Returns undefined if not on a project route.
  */
@@ -135,14 +147,6 @@ function getProjectIdFromUrl(): string | undefined {
 		return match[1].toLowerCase();
 	}
 	return undefined;
-}
-
-/**
- * Check if the current URL is the landing page (root path).
- */
-function isLandingPage(): boolean {
-	const path = globalThis.location.pathname;
-	return !getProjectIdFromUrl() && (path === '/' || path === '');
 }
 
 /**
@@ -183,40 +187,56 @@ function ProjectGate({ projectId }: { projectId: string }) {
 		return <ProjectNotFound />;
 	}
 
+	return <ValidProject projectId={projectId} />;
+}
+
+/**
+ * Wrapper that tracks the project in recent projects only after
+ * we've confirmed it exists. This prevents invalid/nonexistent
+ * project IDs from polluting the recent projects list.
+ */
+function ValidProject({ projectId }: { projectId: string }) {
+	useEffect(() => {
+		trackProject(projectId);
+	}, [projectId]);
+
 	return <IDEShell projectId={projectId} />;
 }
 
 function AppContent() {
 	const [projectId] = useState(getProjectIdFromUrl);
-	const [showLanding] = useState(isLandingPage);
 
-	// Track current project in recent list
-	useEffect(() => {
+	// IDE — app.<baseDomain>
+	if (hostType === 'ide') {
 		if (projectId) {
-			trackProject(projectId);
+			return (
+				<Suspense fallback={<LoadingFallback />}>
+					<ProjectGate projectId={projectId} />
+				</Suspense>
+			);
 		}
-	}, [projectId]);
 
-	// Landing page at root
-	if (showLanding) {
-		return (
-			<Suspense fallback={<LoadingFallback />}>
-				<LandingPage />
-			</Suspense>
-		);
+		// app.<baseDomain>/ — landing page (template selection, recent projects)
+		const path = globalThis.location.pathname;
+		if (path === '/' || path === '') {
+			return (
+				<Suspense fallback={<LoadingFallback />}>
+					<LandingPage />
+				</Suspense>
+			);
+		}
+
+		// Unknown path on app subdomain
+		return <NotFoundPage />;
 	}
 
-	// IDE shell for project routes
-	if (projectId) {
-		return (
-			<Suspense fallback={<LoadingFallback />}>
-				<ProjectGate projectId={projectId} />
-			</Suspense>
-		);
+	// Bare domain — splash/info page
+	if (hostType === 'landing') {
+		return <SplashPage />;
 	}
 
-	// Fallback (unknown route)
-	return <LoadingFallback />;
+	// Any other host type (unknown, preview served by worker directly)
+	return <NotFoundPage />;
 }
 
 // =============================================================================

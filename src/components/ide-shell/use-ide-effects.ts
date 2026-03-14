@@ -6,6 +6,7 @@
 import { useEffect, useRef } from 'react';
 
 import { getDependencyErrorCount, subscribeDependencyErrors } from '@/features/file-tree/dependency-error-store';
+import { getPreviewOrigin, isMessageFromPreview } from '@/lib/preview-origin';
 import { useStore } from '@/lib/store';
 
 import type { MutableRefObject } from 'react';
@@ -38,10 +39,10 @@ export function useIDEEffects({
 		});
 	}, [showDependenciesPanel]);
 
-	// Listen for __open-file messages from the preview iframe (error overlay)
+	// Listen for __open-file messages from the preview iframe (error overlay).
 	useEffect(() => {
 		const handleMessage = (event: MessageEvent) => {
-			if (event.origin !== globalThis.location.origin) return;
+			if (!isMessageFromPreview(event)) return;
 			if (event.data?.type === '__open-file' && typeof event.data.file === 'string') {
 				const file: string = event.data.file.startsWith('/') ? event.data.file : `/${event.data.file}`;
 				const line = typeof event.data.line === 'number' ? event.data.line : 1;
@@ -100,18 +101,20 @@ export function useIDEEffects({
 		history.replaceState(undefined, '', globalThis.location.pathname + globalThis.location.search);
 	}, [goToFilePosition]);
 
-	// Forward bundle errors to the preview iframe so the error overlay shows
+	// Forward bundle errors to the preview iframe so the error overlay shows.
+	// The preview is cross-origin, so target its specific origin.
+	const previewOrigin = getPreviewOrigin(projectId);
 	useEffect(() => {
 		const handleServerError = (event: Event) => {
 			if (!(event instanceof CustomEvent)) return;
 			const error = event.detail;
 			if (error?.type !== 'bundle') return;
-			previewIframeReference.current?.contentWindow?.postMessage({ type: '__show-error-overlay', error }, globalThis.location.origin);
+			previewIframeReference.current?.contentWindow?.postMessage({ type: '__show-error-overlay', error }, previewOrigin);
 		};
 
 		globalThis.addEventListener('server-error', handleServerError);
 		return () => globalThis.removeEventListener('server-error', handleServerError);
-	}, [previewIframeReference]);
+	}, [previewIframeReference, previewOrigin]);
 
 	// Keyboard shortcuts
 	useEffect(() => {

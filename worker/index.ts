@@ -1,13 +1,11 @@
 /**
  * Worker IDE - Main Entry Point
  *
- * This is the main Cloudflare Worker entry point using Hono for routing.
- * The worker handles:
- * - API routes for file operations, sessions, snapshots
- * - Project-scoped routes (/p/:projectId/*)
- * - Project WebSocket connections (HMR, collaboration, server events)
- * - Preview serving for user projects
- * - Template listing and project cloning (root-level API)
+ * Routing is split by subdomain:
+ * - `app.<baseDomain>`                       → IDE (SPA, API, WebSocket)
+ * - `<encoded-id>.preview.<baseDomain>`      → Live preview of user projects
+ *
+ * The base domain is derived at runtime from the Host header.
  */
 
 import { env } from 'cloudflare:workers';
@@ -15,29 +13,31 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { mount, withMounts } from 'worker-fs-mount';
 
+import { buildIdeOrigin, parseHost } from '@shared/domain';
 import { generateHumanId } from '@shared/human-id';
 
 import { coordinatorNamespace, filesystemNamespace } from './lib/durable-object-namespaces';
+import { errorPage } from './lib/error-page';
 import { apiRoutes } from './routes';
 import { PreviewService } from './services/preview-service';
 import { getTemplate, getTemplateMetadata } from './templates';
 
 import type { AppEnvironment } from './types';
-/**
- * Cache PreviewService instances per projectId so that error deduplication
- * (lastErrorMessage) works across requests within the same isolate.
- */
+
+// =============================================================================
+// Preview Service Cache
+// =============================================================================
+
 const MAX_PREVIEW_SERVICE_CACHE_SIZE = 100;
 const previewServiceCache = new Map<string, PreviewService>();
+
 function getPreviewService(projectRoot: string, projectId: string): PreviewService {
 	let service = previewServiceCache.get(projectId);
 	if (service) {
-		// Move to end (most recently used)
 		previewServiceCache.delete(projectId);
 		previewServiceCache.set(projectId, service);
 		return service;
 	}
-	// Evict oldest entry if cache is full
 	if (previewServiceCache.size >= MAX_PREVIEW_SERVICE_CACHE_SIZE) {
 		const oldestKey = previewServiceCache.keys().next().value;
 		if (oldestKey !== undefined) {
@@ -49,38 +49,24 @@ function getPreviewService(projectRoot: string, projectId: string): PreviewServi
 	return service;
 }
 
-// Re-export Durable Objects for wrangler
-export { AgentRunner, DurableObjectFilesystem, ProjectCoordinator } from './durable';
+// =============================================================================
+// Re-exports for wrangler
+// =============================================================================
 
-// Re-export LogTailer so it's available on ctx.exports for WorkerLoader tails
+export { AgentRunner, DurableObjectFilesystem, ProjectCoordinator } from './durable';
 export { LogTailer } from './services/log-tailer';
 
+// =============================================================================
+// Constants
+// =============================================================================
+
 const PROJECT_ROOT = '/project';
+const PROJECT_ID_PATTERN = /^[a-f\d]{64}$/i;
 
-/**
- * Regex for validating 64-character hexadecimal project IDs (Durable Object IDs).
- */
-const PROJECT_ID_PATTERN = /^[a-f0-9]{64}$/i;
+// =============================================================================
+// Helpers
+// =============================================================================
 
-/**
- * Check whether a project exists by looking for the `.initialized` sentinel.
- * Projects are fully initialized at creation time by `/api/new-project` or
- * `/api/clone-project`, so if the sentinel is missing the project was never
- * created.
- */
-async function projectExists(projectRoot: string): Promise<boolean> {
-	const fs = await import('node:fs/promises');
-	try {
-		await fs.readFile(`${projectRoot}/.initialized`);
-		return true;
-	} catch {
-		return false;
-	}
-}
-
-/**
- * Write template files and project metadata to the filesystem.
- */
 async function writeTemplateFiles(
 	fs: typeof import('node:fs/promises'),
 	projectRoot: string,
@@ -95,47 +81,125 @@ async function writeTemplateFiles(
 		await fs.writeFile(fullPath, content);
 	}
 
-	// Write initial project metadata with template dependencies
 	const meta = { name: humanId, humanId, dependencies };
 	await fs.writeFile(`${projectRoot}/.project-meta.json`, JSON.stringify(meta));
-
-	// Mark project as initialized
 	await fs.writeFile(`${projectRoot}/.initialized`, '1');
 }
 
-/**
- * Parse project route from URL path.
- */
 function parseProjectRoute(path: string): { projectId: string; subPath: string } | undefined {
-	const match = path.match(/^\/p\/([a-f0-9]{64})(\/.*)$/i);
+	const match = path.match(/^\/p\/([a-f\d]{64})(\/.*)$/i);
 	if (match) {
 		return { projectId: match[1].toLowerCase(), subPath: match[2] };
 	}
-	const exactMatch = path.match(/^\/p\/([a-f0-9]{64})$/i);
+	const exactMatch = path.match(/^\/p\/([a-f\d]{64})$/i);
 	if (exactMatch) {
 		return { projectId: exactMatch[1].toLowerCase(), subPath: '/' };
 	}
 	return undefined;
 }
 
-// Create the main Hono app
+// =============================================================================
+// Hono App
+// =============================================================================
+
 const app = new Hono<{ Bindings: Env }>();
 
-// CORS middleware for API routes
 app.use('/api/*', cors());
 app.use('/p/*/api/*', cors());
 
 // =============================================================================
-// Root-level API routes (outside project scope)
+// Preview subdomain handler
 // =============================================================================
 
 /**
- * POST /api/new-project
- *
- * Create a new project. Requires a `template` ID in the request body.
- * The project is fully initialized (template files written, `.initialized`
- * sentinel set) before the response is returned.
+ * Paths that belong to the IDE's dev infrastructure (Vite, PWA, etc.)
+ * rather than user project files. When these are requested on a preview
+ * subdomain (due to the browser's service worker, favicon probe, etc.)
+ * we delegate to the asset pipeline instead of the preview filesystem.
  */
+const DEV_INFRASTRUCTURE_PREFIXES = ['/@vite/', '/@vite-plugin-', '/@fs/', '/@id/', '/.well-known/', '/workbox-'];
+const DEV_INFRASTRUCTURE_EXACT = new Set(['/@react-refresh', '/dev-sw.js', '/sw.js', '/sw.js.map']);
+
+function isDevelopmentInfrastructurePath(pathname: string): boolean {
+	if (DEV_INFRASTRUCTURE_EXACT.has(pathname)) return true;
+	return DEV_INFRASTRUCTURE_PREFIXES.some((prefix) => pathname.startsWith(prefix));
+}
+
+/**
+ * Handle all requests on `<encoded-id>.preview.<baseDomain>`.
+ *
+ * The request path maps directly to the user's project filesystem.
+ */
+async function handlePreviewRequest(request: Request, projectId: string): Promise<Response> {
+	const url = new URL(request.url);
+
+	// Delegate IDE dev infrastructure requests to the asset pipeline
+	// so they don't hit the project filesystem and cause ENOENT errors.
+	if (isDevelopmentInfrastructurePath(url.pathname)) {
+		return env.ASSETS.fetch(request);
+	}
+	const ideOrigin = buildIdeOrigin(parseHost(url.host).baseDomain, url.protocol);
+
+	const homeUrl = `${ideOrigin}/`;
+
+	let fsId: DurableObjectId;
+	try {
+		fsId = filesystemNamespace.idFromString(projectId);
+	} catch {
+		return errorPage({
+			heading: 'Invalid project',
+			message: 'The project ID in this URL is not valid.',
+			homeUrl,
+			status: 400,
+		});
+	}
+
+	// Stateless existence check — queries SQLite directly without creating
+	// any tables or rows if the project was never initialized.
+	const fsStub = filesystemNamespace.get(fsId);
+	if (!(await fsStub.projectExists())) {
+		return errorPage({
+			heading: 'Project not found',
+			message: "The project you're looking for doesn't exist or has expired.",
+			homeUrl,
+			status: 404,
+		});
+	}
+
+	return withMounts(async () => {
+		mount(PROJECT_ROOT, fsStub);
+		await fsStub.refreshExpiration();
+
+		// WebSocket endpoint for HMR
+		if (url.pathname === '/__ws' || url.pathname.startsWith('/__ws')) {
+			const coordinatorId = coordinatorNamespace.idFromName(`project:${projectId}`);
+			const coordinatorStub = coordinatorNamespace.get(coordinatorId);
+			const wsUrl = new URL(request.url);
+			wsUrl.pathname = '/ws';
+			return coordinatorStub.fetch(new Request(wsUrl, request));
+		}
+
+		const previewService = getPreviewService(PROJECT_ROOT, projectId);
+		const assetSettings = await previewService.loadAssetSettings();
+
+		// Route to user's backend worker code
+		if (url.pathname.startsWith('/api/')) {
+			return previewService.handlePreviewAPI(request, url.pathname);
+		}
+
+		if (previewService.matchesRunWorkerFirst(url.pathname, assetSettings.run_worker_first)) {
+			return previewService.handlePreviewAPI(request, url.pathname);
+		}
+
+		// Serve static file — no path prefix needed
+		return previewService.serveFile(request, ideOrigin, assetSettings);
+	});
+}
+
+// =============================================================================
+// Root-level API routes
+// =============================================================================
+
 app.post('/api/new-project', async (c) => {
 	let templateId: string;
 	try {
@@ -166,7 +230,6 @@ app.post('/api/new-project', async (c) => {
 		await writeTemplateFiles(fs, PROJECT_ROOT, template.files, template.dependencies, humanId);
 	});
 
-	// Run git init inside the DO — single-threaded, no race conditions.
 	const fsStub = filesystemNamespace.get(id);
 	c.executionCtx.waitUntil(
 		fsStub.gitInit().catch((error) => {
@@ -177,19 +240,6 @@ app.post('/api/new-project', async (c) => {
 	return c.json({ projectId, url: `/p/${projectId}`, name: humanId });
 });
 
-/**
- * POST /api/clone-project
- *
- * Clone an existing project by copying all files from the source project
- * into a new Durable Object. Uses streaming file-by-file copy to stay
- * within Cloudflare Workers memory limits (128 MB per isolate).
- *
- * Limits analysis:
- * - CPU time: Mostly I/O wait (DO reads/writes), well under 30s default
- * - Subrequests: ~2 per file (read + write) + directory ops, well under 10,000
- * - Memory: Files are copied one at a time, peak = largest single file
- * - Connections: 2 DO stubs mounted simultaneously (within 6 connection limit)
- */
 app.post('/api/clone-project', async (c) => {
 	let sourceProjectId: string;
 	try {
@@ -212,61 +262,46 @@ app.post('/api/clone-project', async (c) => {
 		return c.json({ error: 'Invalid source project ID.' }, 400);
 	}
 
+	// Stateless check: verify source project exists before mounting anything
+	const sourceStub = filesystemNamespace.get(sourceId);
+	if (!(await sourceStub.projectExists())) {
+		return c.json({ error: 'Source project not found or not initialized' }, 404);
+	}
+
 	const newId = filesystemNamespace.newUniqueId();
 	const newProjectId = newId.toString();
 	const humanId = generateHumanId();
 
-	try {
-		await withMounts(async () => {
-			const sourceStub = filesystemNamespace.get(sourceId);
-			const destinationStub = filesystemNamespace.get(newId);
-			mount('/source', sourceStub);
-			mount('/destination', destinationStub);
+	await withMounts(async () => {
+		const destinationStub = filesystemNamespace.get(newId);
+		mount('/source', sourceStub);
+		mount('/destination', destinationStub);
 
-			const fs = await import('node:fs/promises');
+		const fs = await import('node:fs/promises');
 
-			// Verify source project exists by checking for the sentinel file
-			try {
-				await fs.readFile('/source/.initialized');
-			} catch {
-				throw new Error('SOURCE_NOT_FOUND');
+		await copyDirectoryRecursive(fs, '/source', '/destination');
+
+		const meta: { name: string; humanId: string; dependencies: Record<string, string>; assetSettings?: Record<string, unknown> } = {
+			name: humanId,
+			humanId,
+			dependencies: {},
+		};
+		try {
+			const sourceMetaRaw = await fs.readFile('/source/.project-meta.json', 'utf8');
+			const sourceMeta: { dependencies?: Record<string, string>; assetSettings?: Record<string, unknown> } = JSON.parse(sourceMetaRaw);
+			meta.dependencies = sourceMeta.dependencies ?? {};
+			if (sourceMeta.assetSettings) {
+				meta.assetSettings = sourceMeta.assetSettings;
 			}
-
-			// Copy all files from source to destination, file by file.
-			// This is memory-efficient: only one file's content is in memory at a time.
-			await copyDirectoryRecursive(fs, '/source', '/destination');
-
-			// Write fresh metadata for the cloned project
-			const meta: { name: string; humanId: string; dependencies: Record<string, string>; assetSettings?: Record<string, unknown> } = {
-				name: humanId,
-				humanId,
-				dependencies: {},
-			};
-			try {
-				const sourceMetaRaw = await fs.readFile('/source/.project-meta.json', 'utf8');
-				const sourceMeta: { dependencies?: Record<string, string>; assetSettings?: Record<string, unknown> } = JSON.parse(sourceMetaRaw);
-				meta.dependencies = sourceMeta.dependencies ?? {};
-				if (sourceMeta.assetSettings) {
-					meta.assetSettings = sourceMeta.assetSettings;
-				}
-			} catch {
-				// Use empty dependencies if source has no metadata
-			}
-
-			await fs.writeFile('/destination/.project-meta.json', JSON.stringify(meta));
-			await fs.writeFile('/destination/.initialized', '1');
-
-			// Refresh expiration on the new project
-			await destinationStub.refreshExpiration();
-		});
-	} catch (error) {
-		if (error instanceof Error && error.message === 'SOURCE_NOT_FOUND') {
-			return c.json({ error: 'Source project not found or not initialized' }, 404);
+		} catch {
+			// Use empty dependencies if source has no metadata
 		}
-		throw error;
-	}
 
-	// Run git initialization inside the DO — single-threaded, no race conditions.
+		await fs.writeFile('/destination/.project-meta.json', JSON.stringify(meta));
+		await fs.writeFile('/destination/.initialized', '1');
+		await destinationStub.refreshExpiration();
+	});
+
 	const newFsStub = filesystemNamespace.get(newId);
 	c.executionCtx.waitUntil(
 		newFsStub.gitInit().catch((error) => {
@@ -277,23 +312,10 @@ app.post('/api/clone-project', async (c) => {
 	return c.json({ projectId: newProjectId, url: `/p/${newProjectId}`, name: humanId });
 });
 
-/**
- * GET /api/templates
- *
- * Returns metadata for all available project templates (without file contents).
- * Used by the landing page to display template cards.
- */
 app.get('/api/templates', (c) => {
 	return c.json({ templates: getTemplateMetadata() });
 });
 
-/**
- * GET /api/version
- *
- * Returns the Cloudflare deployment version metadata.
- * Used by the frontend to display the deployment version alongside the
- * build-time git commit hash injected via Vite's `define`.
- */
 app.get('/api/version', (c) => {
 	const metadata = env.CF_VERSION_METADATA;
 	return c.json({
@@ -304,7 +326,7 @@ app.get('/api/version', (c) => {
 });
 
 // =============================================================================
-// Project-scoped routes
+// Project-scoped IDE routes
 // =============================================================================
 
 app.all('/p/:projectId/*', async (c) => {
@@ -321,36 +343,33 @@ app.all('/p/:projectId/*', async (c) => {
 	try {
 		fsId = filesystemNamespace.idFromString(projectId);
 	} catch {
-		// Invalid DO ID — serve the SPA so the frontend shows ProjectNotFound
+		// Invalid Durable Object ID — not a project created by this app.
+		// For API/WS routes, return 404. For page navigations, serve the SPA
+		// which will show the ProjectNotFound component via ProjectGate.
+		if (subPath.startsWith('/api/') || subPath === '/__ws' || subPath.startsWith('/__ws')) {
+			return c.notFound();
+		}
 		return env.ASSETS.fetch(new Request(new URL('/', c.req.url), c.req.raw));
 	}
 
-	// For non-API, non-WS, non-preview routes, always serve the SPA.
-	// The frontend ProjectGate handles the not-found case so the user
-	// sees the styled ProjectNotFound page instead of a bare 404.
-	const isBackendRoute =
-		subPath.startsWith('/api/') ||
-		subPath === '/__ws' ||
-		subPath.startsWith('/__ws') ||
-		subPath === '/preview' ||
-		subPath.startsWith('/preview/');
+	// Only API and WebSocket routes hit the worker — everything else is the SPA
+	const isBackendRoute = subPath.startsWith('/api/') || subPath === '/__ws' || subPath.startsWith('/__ws');
 	if (!isBackendRoute) {
 		return env.ASSETS.fetch(new Request(new URL('/', c.req.url), c.req.raw));
 	}
 
+	// Stateless existence check — queries SQLite directly without creating
+	// any tables or rows if the project was never initialized.
+	const fsStub = filesystemNamespace.get(fsId);
+	if (!(await fsStub.projectExists())) {
+		return c.notFound();
+	}
+
 	return withMounts(async () => {
-		const fsStub = filesystemNamespace.get(fsId);
 		mount(PROJECT_ROOT, fsStub);
-
-		// Verify the project exists (was created via /api/new-project or /api/clone-project)
-		if (!(await projectExists(PROJECT_ROOT))) {
-			return c.notFound();
-		}
-
-		// Refresh expiration timer
 		await fsStub.refreshExpiration();
 
-		// Handle WebSocket endpoint
+		// WebSocket endpoint
 		if (subPath === '/__ws' || subPath.startsWith('/__ws')) {
 			const coordinatorId = coordinatorNamespace.idFromName(`project:${projectId}`);
 			const coordinatorStub = coordinatorNamespace.get(coordinatorId);
@@ -359,56 +378,25 @@ app.all('/p/:projectId/*', async (c) => {
 			return coordinatorStub.fetch(new Request(wsUrl, c.req.raw));
 		}
 
-		// Handle API routes
-		if (subPath.startsWith('/api/')) {
-			// Create a sub-app with project context
-			const projectApp = new Hono<AppEnvironment>();
+		// API routes
+		const projectApp = new Hono<AppEnvironment>();
 
-			// Set project context
-			projectApp.use('*', async (context, innerNext) => {
-				context.set('projectId', projectId);
-				context.set('projectRoot', PROJECT_ROOT);
-				context.set('fsStub', fsStub);
-				await innerNext();
-			});
+		projectApp.use('*', async (context, innerNext) => {
+			context.set('projectId', projectId);
+			context.set('projectRoot', PROJECT_ROOT);
+			context.set('fsStub', fsStub);
+			await innerNext();
+		});
 
-			// Mount API routes
-			projectApp.route('/api', apiRoutes);
+		projectApp.route('/api', apiRoutes);
 
-			// Rewrite the request URL to match the sub-app routes
-			const apiUrl = new URL(c.req.url);
-			apiUrl.pathname = subPath;
+		const apiUrl = new URL(c.req.url);
+		apiUrl.pathname = subPath;
 
-			return projectApp.fetch(new Request(apiUrl, c.req.raw), env, c.executionCtx);
-		}
-
-		// Handle preview routes (serve user's frontend files and backend code)
-		const basePrefix = `/p/${projectId}`;
-		const previewService = getPreviewService(PROJECT_ROOT, projectId);
-		const previewPath = subPath === '/preview' ? '/' : subPath.replace(/^\/preview/, '');
-
-		// Always route /api/* paths to the user's backend worker code
-		if (previewPath.startsWith('/api/')) {
-			return previewService.handlePreviewAPI(c.req.raw, previewPath);
-		}
-
-		// Load asset settings once for both run_worker_first check and serveFile
-		const assetSettings = await previewService.loadAssetSettings();
-
-		// Check run_worker_first setting to decide if the user's worker should handle this path
-		if (previewService.matchesRunWorkerFirst(previewPath, assetSettings.run_worker_first)) {
-			// run_worker_first matched — route to user's backend code first
-			return previewService.handlePreviewAPI(c.req.raw, previewPath);
-		}
-
-		// Serve static file
-		const previewUrl = new URL(c.req.url);
-		previewUrl.pathname = previewPath;
-		return previewService.serveFile(new Request(previewUrl, c.req.raw), `${basePrefix}/preview`, assetSettings);
+		return projectApp.fetch(new Request(apiUrl, c.req.raw), env, c.executionCtx);
 	});
 });
 
-// Project root without trailing content
 app.get('/p/:projectId', async (c) => {
 	return env.ASSETS.fetch(c.req.raw);
 });
@@ -418,35 +406,59 @@ app.all('*', (c) => {
 	return env.ASSETS.fetch(c.req.raw);
 });
 
-export default app;
-
 // =============================================================================
-// Helper functions
+// Top-level fetch handler — routes by subdomain
 // =============================================================================
 
-/**
- * Hidden entries that should not be copied during cloning.
- * These are internal sentinel/metadata files managed by the IDE.
- */
+export default {
+	async fetch(request: Request, environment: Env, executionContext: ExecutionContext): Promise<Response> {
+		const url = new URL(request.url);
+		const parsed = parseHost(url.host);
+
+		switch (parsed.type) {
+			// Preview subdomain: <encoded-id>.preview.<baseDomain>
+			case 'preview': {
+				return handlePreviewRequest(request, parsed.projectId);
+			}
+
+			// Bare domain — root-level APIs (/api/*) are handled by the Hono
+			// app; everything else serves static assets (splash page).
+			case 'landing': {
+				if (url.pathname.startsWith('/api/')) {
+					return app.fetch(request, environment, executionContext);
+				}
+				return env.ASSETS.fetch(request);
+			}
+
+			// IDE routes (app.<baseDomain>)
+			case 'ide': {
+				return app.fetch(request, environment, executionContext);
+			}
+
+			// Unknown subdomain → 404
+			case 'unknown': {
+				const homeUrl = `${url.protocol}//app.${parsed.baseDomain}/`;
+				return errorPage({
+					heading: 'Page not found',
+					message: "The page you're looking for doesn't exist.",
+					homeUrl,
+					status: 404,
+				});
+			}
+		}
+	},
+};
+
+// =============================================================================
+// Clone helpers
+// =============================================================================
+
 const CLONE_SKIP_ENTRIES = new Set(['.initialized', '.project-meta.json', '.agent', '.git']);
 
-/**
- * Recursively copy files from source to destination, one file at a time.
- *
- * This approach is memory-efficient because only one file's content is held
- * in memory at any point. This avoids hitting the 128 MB isolate memory limit
- * even for projects with many or large files.
- *
- * Each file read/write goes through worker-fs-mount to the Durable Object,
- * which counts as a subrequest. For a project with N files, this uses
- * approximately 2N + D subrequests (N reads + N writes + D directory reads),
- * well within the 10,000 default subrequest limit.
- */
 async function copyDirectoryRecursive(fs: typeof import('node:fs/promises'), source: string, destination: string): Promise<void> {
 	const entries = await fs.readdir(source, { withFileTypes: true });
 
 	for (const entry of entries) {
-		// Skip internal IDE files
 		if (CLONE_SKIP_ENTRIES.has(entry.name)) {
 			continue;
 		}
@@ -458,7 +470,6 @@ async function copyDirectoryRecursive(fs: typeof import('node:fs/promises'), sou
 			await fs.mkdir(destinationPath, { recursive: true });
 			await copyDirectoryRecursive(fs, sourcePath, destinationPath);
 		} else {
-			// Read and write one file at a time to bound memory usage
 			const content = await fs.readFile(sourcePath);
 			const directory = destinationPath.slice(0, destinationPath.lastIndexOf('/'));
 			await fs.mkdir(directory, { recursive: true });

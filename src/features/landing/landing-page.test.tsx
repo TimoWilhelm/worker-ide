@@ -411,7 +411,7 @@ describe('LandingPage', () => {
 		expect(screen.getByText('Old Project')).toBeInTheDocument();
 	});
 
-	it('recent project rows are links to the project', () => {
+	it('recent project rows are links to the IDE app subdomain', () => {
 		const projectId = 'a'.repeat(64);
 		vi.mocked(getRecentProjects).mockReturnValue([{ id: projectId, timestamp: Date.now(), name: 'Test Project' }]);
 
@@ -419,6 +419,9 @@ describe('LandingPage', () => {
 
 		const link = screen.getByText('Test Project').closest('a');
 		expect(link).toBeTruthy();
-		expect(link?.getAttribute('href')).toBe(`/p/${projectId}`);
+		// Links should point to the app subdomain
+		const href = link?.getAttribute('href') ?? '';
+		expect(href).toContain(`/p/${projectId}`);
+		expect(href).toContain('app.');
 	});
 });

@@ -3,7 +3,7 @@
  */
 
 import { ChevronUp, FolderOpen } from 'lucide-react';
-import { lazy, Suspense, useCallback } from 'react';
+import { lazy, Suspense, useCallback, useMemo } from 'react';
 
 import { MobileFileDrawer } from '@/components/mobile-file-drawer';
 import { MobileTabBar } from '@/components/mobile-tab-bar';
@@ -13,6 +13,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { DependencyPanel, FileTree, type useFileTree } from '@/features/file-tree';
 import { GitPanel } from '@/features/git';
 import { TestsPanel } from '@/features/tests';
+import { getPreviewOrigin } from '@/lib/preview-origin';
 import { useStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 
@@ -43,6 +44,7 @@ export function MobileLayout({
 	logCounts,
 	previewIframeReference,
 }: MobileLayoutProperties) {
+	const previewOrigin = useMemo(() => getPreviewOrigin(projectId), [projectId]);
 	const activeMobilePanel = useStore((state) => state.activeMobilePanel);
 	const mobileFileTreeOpen = useStore((state) => state.mobileFileTreeOpen);
 	const toggleMobileFileTree = useStore((state) => state.toggleMobileFileTree);
@@ -173,7 +175,7 @@ export function MobileLayout({
 					{devtoolsVisible && (
 						<div className="h-1/2 border-t border-border">
 							<Suspense fallback={<PanelSkeleton label="Loading DevTools..." />}>
-								<DevelopmentToolsPanel previewIframeReference={previewIframeReference} className="h-full" />
+								<DevelopmentToolsPanel previewIframeReference={previewIframeReference} previewOrigin={previewOrigin} className="h-full" />
 							</Suspense>
 						</div>
 					)}

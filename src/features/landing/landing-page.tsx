@@ -20,6 +20,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { VersionBadge } from '@/components/version-badge';
 import { useTheme } from '@/hooks/use-theme';
 import { cloneProject, createProject, fetchTemplates } from '@/lib/api-client';
+import { getIdeProjectUrl } from '@/lib/preview-origin';
 import { getRecentProjects, removeProject, trackProject } from '@/lib/recent-projects';
 import { useStore } from '@/lib/store';
 import { cn, formatRelativeTime } from '@/lib/utils';
@@ -296,7 +297,7 @@ function CloneModal({
 function RecentProjectRow({ project, onDelete }: { project: RecentProject; onDelete: (projectId: string) => void }) {
 	return (
 		<a
-			href={`/p/${project.id}`}
+			href={getIdeProjectUrl(project.id)}
 			className={cn(
 				`
 					group/row flex items-center justify-between px-3 py-2 transition-colors
@@ -412,7 +413,7 @@ export default function LandingPage() {
 		try {
 			const data = await createProject(templateId);
 			trackProject(data.projectId, data.name);
-			navigateToProject(data.url);
+			navigateToProject(getIdeProjectUrl(data.projectId));
 		} catch {
 			setLoadingMessage(undefined);
 		}
@@ -444,7 +445,7 @@ export default function LandingPage() {
 		try {
 			const data = await cloneProject(parsedProjectId);
 			trackProject(data.projectId, data.name);
-			navigateToProject(data.url);
+			navigateToProject(getIdeProjectUrl(data.projectId));
 		} catch (error) {
 			setLoadingMessage(undefined);
 			setCloneError(error instanceof Error ? error.message : 'Failed to clone project');

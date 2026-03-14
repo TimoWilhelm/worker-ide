@@ -8,6 +8,8 @@
 
 import { createStore, useStore } from 'zustand';
 
+import { isMessageFromPreview } from '@/lib/preview-origin';
+
 import type { DependencyError } from '@shared/types';
 
 // =============================================================================
@@ -135,8 +137,9 @@ function handleServerError(event: Event) {
 }
 
 // Channel 2: Preview iframe postMessage (__server-error)
+// The preview runs on a separate subdomain, so validate origin accordingly.
 function handleMessage(event: MessageEvent) {
-	if (event.origin !== globalThis.location.origin) return;
+	if (!isMessageFromPreview(event)) return;
 	if (event.data?.type !== '__server-error') return;
 	const errors = extractDependencyErrors(event.data?.error);
 	if (errors) processDependencyErrors(errors);

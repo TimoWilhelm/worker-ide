@@ -9,16 +9,23 @@
  * The remaining CDP domains are enabled when the DevTools panel sends LOADED.
  *
  * Must be loaded after __chobitsu.js (which defines the global `chobitsu`).
+ *
+ * Reads config from window.__PREVIEW_CONFIG:
+ *   { ideOrigin: string }
  */
 (function () {
 	if (typeof chobitsu === 'undefined') {
 		console.error('[devtools] chobitsu not available after script load');
 		return;
 	}
+
+	var ideOrigin = (window.__PREVIEW_CONFIG && window.__PREVIEW_CONFIG.ideOrigin) || '*';
 	var id = 0;
 
+	var isEmbedded = window.parent !== window;
+
 	function sendToDevtools(message) {
-		window.parent.postMessage(message, '*');
+		if (isEmbedded) window.parent.postMessage(message, ideOrigin);
 	}
 
 	function sendToChobitsu(message) {
@@ -54,7 +61,6 @@
 
 	chobitsu.setOnMessage(function (message) {
 		if (message.includes('"id":"tmp')) return;
-		// Intercept Runtime.consoleAPICalled to forward logs to the parent IDE
 		try {
 			if (message.includes('"Runtime.consoleAPICalled"')) {
 				var parsed = JSON.parse(message);
@@ -69,7 +75,7 @@
 							return a.type;
 						})
 						.join(' ');
-					if (!text.startsWith('[hmr]')) {
+					if (!text.startsWith('[hmr]') && isEmbedded) {
 						window.parent.postMessage(
 							{
 								type: '__console-log',
@@ -77,12 +83,11 @@
 								message: text,
 								timestamp: parsed.params.timestamp ? Math.floor(parsed.params.timestamp) : Date.now(),
 							},
-							location.origin,
+							ideOrigin,
 						);
 					}
 				}
 			}
-			// Intercept Log.entryAdded to forward browser issues (CORS, CSP, network, deprecations) to the output panel
 			if (message.includes('"Log.entryAdded"')) {
 				var parsedLog = JSON.parse(message);
 				if (parsedLog.method === 'Log.entryAdded' && parsedLog.params && parsedLog.params.entry) {
@@ -92,7 +97,7 @@
 					if (entry.url) {
 						logText += '\n  at ' + entry.url + (entry.lineNumber ? ':' + entry.lineNumber : '');
 					}
-					if (logText) {
+					if (logText && isEmbedded) {
 						window.parent.postMessage(
 							{
 								type: '__console-log',
@@ -100,12 +105,11 @@
 								message: logText,
 								timestamp: entry.timestamp ? Math.floor(entry.timestamp) : Date.now(),
 							},
-							location.origin,
+							ideOrigin,
 						);
 					}
 				}
 			}
-			// Intercept Runtime.exceptionThrown to forward JS errors to the output panel
 			if (message.includes('"Runtime.exceptionThrown"')) {
 				var parsedException = JSON.parse(message);
 				if (parsedException.method === 'Runtime.exceptionThrown' && parsedException.params) {
@@ -117,7 +121,7 @@
 						} else if (detail.text) {
 							errorText = detail.text;
 						}
-						if (errorText) {
+						if (errorText && isEmbedded) {
 							window.parent.postMessage(
 								{
 									type: '__console-log',
@@ -125,7 +129,7 @@
 									message: errorText,
 									timestamp: parsedException.params.timestamp ? Math.floor(parsedException.params.timestamp) : Date.now(),
 								},
-								location.origin,
+								ideOrigin,
 							);
 						}
 					}
@@ -152,5 +156,5 @@
 	});
 
 	// Notify parent that chobitsu is ready
-	window.parent.postMessage({ type: '__chobitsu-ready' }, location.origin);
+	if (isEmbedded) window.parent.postMessage({ type: '__chobitsu-ready' }, ideOrigin);
 })();

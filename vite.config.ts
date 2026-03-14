@@ -168,9 +168,7 @@ export default defineConfig({
 	},
 	server: {
 		port: 3000,
-		hmr: {
-			protocol: 'ws',
-			host: 'localhost',
-		},
+		// Allow all localhost subdomains (app.localhost, *.preview.localhost, etc.)
+		allowedHosts: ['localhost', '.localhost'],
 	},
 });

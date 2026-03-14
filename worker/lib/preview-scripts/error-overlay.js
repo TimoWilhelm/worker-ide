@@ -9,17 +9,18 @@
  * parent IDE frame so it can open the file at the error position.
  * When opened full-screen (no parent frame), it uses BroadcastChannel
  * to reach an existing IDE tab, or opens a new IDE tab with a #goto hash.
+ *
+ * Reads config from window.__PREVIEW_CONFIG:
+ *   { ideOrigin: string, projectId: string }
  */
 (function () {
+	var config = window.__PREVIEW_CONFIG || {};
+	var ideOrigin = config.ideOrigin || '*';
+	var projectId = config.projectId || null;
 	var lastError = null;
 
 	function esc(s) {
 		return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-	}
-
-	function getProjectIdFromPath() {
-		var m = location.pathname.match(/^\/p\/([a-f0-9]{64})/i);
-		return m ? m[1].toLowerCase() : null;
 	}
 
 	function linkifyFiles(escaped) {
@@ -86,7 +87,7 @@
 		lastError = err;
 		// Notify the parent IDE frame so panels (e.g. dependency panel) can react
 		if (window.parent !== window) {
-			window.parent.postMessage({ type: '__server-error', error: err }, location.origin);
+			window.parent.postMessage({ type: '__server-error', error: err }, ideOrigin);
 		}
 		var overlay = document.createElement('div');
 		overlay.id = '__error-overlay';
@@ -168,30 +169,25 @@
 
 			// When inside the IDE iframe, postMessage to the parent frame
 			if (window.parent !== window) {
-				window.parent.postMessage(payload, location.origin);
+				window.parent.postMessage(payload, ideOrigin);
 				return;
 			}
 
 			// Full-screen preview: focus the existing IDE tab (or open a new one).
-			// window.open() with a named target focuses the tab from the *calling* tab,
-			// which browsers allow (unlike window.focus() in a background tab).
-			var projectId = getProjectIdFromPath();
 			if (!projectId) return;
 
-			var ideUrl = '/p/' + projectId;
+			// Build IDE URL from ideOrigin
+			var ideUrl = ideOrigin + '/p/' + projectId;
 			var windowName = 'worker-ide:' + projectId;
 			var hash = '#goto=' + encodeURIComponent(file) + ':' + line + ':' + column;
 
-			// Send file position via BroadcastChannel for an already-open IDE tab
 			var channelName = 'worker-ide:' + projectId;
 			var bc = new BroadcastChannel(channelName);
 			bc.postMessage(payload);
-			// Close after a short delay to allow delivery
 			setTimeout(function () {
 				bc.close();
 			}, 500);
 
-			// Focus the existing IDE tab by name, or open a new one with goto hash
 			window.open(ideUrl + hash, windowName);
 		}
 

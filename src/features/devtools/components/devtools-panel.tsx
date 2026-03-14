@@ -25,6 +25,8 @@ import { cn } from '@/lib/utils';
 export interface DevelopmentToolsPanelProperties {
 	/** Ref to the preview iframe for message relay */
 	previewIframeReference: React.RefObject<HTMLIFrameElement | null>;
+	/** The preview iframe's origin for secure postMessage targeting */
+	previewOrigin: string;
 	/** CSS class name */
 	className?: string;
 }
@@ -37,8 +39,14 @@ export interface DevelopmentToolsPanelProperties {
  * Send navigation reset CDP events to the DevTools frontend so it
  * refreshes Elements/Console/Network after a preview reload.
  */
-function notifyDevtoolsOfNavigation(devtoolsWindow: Window, previewWindow: Window | undefined | null): void {
-	const url = previewWindow ? String(previewWindow.location.href) : globalThis.location.origin;
+function notifyDevtoolsOfNavigation(devtoolsWindow: Window, previewWindow: Window | undefined | null, previewOrigin: string): void {
+	let url: string;
+	try {
+		// Cross-origin iframes block access to location.href — fall back to the preview origin.
+		url = previewWindow ? String(previewWindow.location.href) : previewOrigin;
+	} catch {
+		url = previewOrigin;
+	}
 	devtoolsWindow.postMessage(
 		JSON.stringify({
 			method: 'Page.frameNavigated',
@@ -57,7 +65,7 @@ function notifyDevtoolsOfNavigation(devtoolsWindow: Window, previewWindow: Windo
 // Component
 // =============================================================================
 
-export function DevelopmentToolsPanel({ previewIframeReference, className }: DevelopmentToolsPanelProperties) {
+export function DevelopmentToolsPanel({ previewIframeReference, previewOrigin, className }: DevelopmentToolsPanelProperties) {
 	const devtoolsIframeReference = useRef<HTMLIFrameElement>(null);
 	const devtoolsReadyReference = useRef(false);
 
@@ -103,8 +111,8 @@ export function DevelopmentToolsPanel({ previewIframeReference, className }: Dev
 			// DevTools frontend that the page has navigated so it refreshes.
 			if (isFromPreview && typeof event.data === 'object' && event.data?.type === '__chobitsu-ready') {
 				if (devtoolsReadyReference.current && devtoolsWindow) {
-					previewWindow?.postMessage({ event: 'LOADED' }, globalThis.location.origin);
-					notifyDevtoolsOfNavigation(devtoolsWindow, previewWindow);
+					previewWindow?.postMessage({ event: 'LOADED' }, previewOrigin);
+					notifyDevtoolsOfNavigation(devtoolsWindow, previewWindow, previewOrigin);
 				}
 				return;
 			}
@@ -117,20 +125,20 @@ export function DevelopmentToolsPanel({ previewIframeReference, className }: Dev
 
 			// From devtools → preview: wrap as { event: 'DEV', data }
 			if (isFromDevtools) {
-				previewWindow?.postMessage({ event: 'DEV', data: event.data }, globalThis.location.origin);
+				previewWindow?.postMessage({ event: 'DEV', data: event.data }, previewOrigin);
 				return;
 			}
 		};
 
 		globalThis.addEventListener('message', handleMessage);
 		return () => globalThis.removeEventListener('message', handleMessage);
-	}, [previewIframeReference]);
+	}, [previewIframeReference, previewOrigin]);
 
 	// Mark DevTools frontend as ready once its iframe loads.
 	// Also send LOADED in case the preview's __chobitsu-ready arrived first.
 	const handleDevtoolsLoad = () => {
 		devtoolsReadyReference.current = true;
-		previewIframeReference.current?.contentWindow?.postMessage({ event: 'LOADED' }, globalThis.location.origin);
+		previewIframeReference.current?.contentWindow?.postMessage({ event: 'LOADED' }, previewOrigin);
 	};
 
 	return (

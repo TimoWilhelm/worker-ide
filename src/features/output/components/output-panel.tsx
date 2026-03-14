@@ -26,7 +26,41 @@ import type { LogEntry, OutputPanelProperties } from '../types';
  * Regex to match file references like `worker/database.ts:10:26` or
  * `at worker/database.ts:10:26` in log messages.
  */
-const FILE_REFERENCE_PATTERN = /(?:at\s+)?(\S+\.(?:ts|tsx|js|jsx|mts|css|html)):(\d+)(?::(\d+))?/g;
+const FILE_REFERENCE_PATTERN = /(?:at\s+)?(\S+\.(?:ts|tsx|js|jsx|mts|css|html))(?:\?[^\s:]*)?:(\d+)(?::(\d+))?/g;
+
+/**
+ * Normalize a captured file path to a project-relative path:
+ * - Strip `virtual:` prefix from esbuild bundle error paths
+ * - Extract `/src/...` from full preview-subdomain URLs
+ * - Strip query strings left over from cache-busted URLs
+ */
+function normalizeFilePath(raw: string): string | undefined {
+	let path = raw;
+
+	// Strip esbuild virtual module prefix (e.g. "virtual:src/main.tsx" → "src/main.tsx")
+	if (path.startsWith('virtual:')) {
+		path = path.slice('virtual:'.length);
+	}
+
+	// Extract project-relative path from full preview URLs
+	// e.g. "https://<encoded>.preview.example.com/src/main.tsx" → "/src/main.tsx"
+	if (path.startsWith('http://') || path.startsWith('https://')) {
+		try {
+			const url = new URL(path);
+			path = url.pathname;
+		} catch {
+			return undefined;
+		}
+	}
+
+	// Strip leading query string remnants (shouldn't happen after URL parsing, but safety net)
+	const queryIndex = path.indexOf('?');
+	if (queryIndex !== -1) {
+		path = path.slice(0, queryIndex);
+	}
+
+	return path;
+}
 
 interface MessageSegment {
 	type: 'text' | 'file-link';
@@ -49,13 +83,18 @@ function parseMessage(message: string): MessageSegment[] {
 		if (matchStart > lastIndex) {
 			segments.push({ type: 'text', value: message.slice(lastIndex, matchStart) });
 		}
-		segments.push({
-			type: 'file-link',
-			value: match[0],
-			file: match[1],
-			line: Number(match[2]),
-			column: match[3] ? Number(match[3]) : undefined,
-		});
+		const normalizedFile = normalizeFilePath(match[1]);
+		if (normalizedFile) {
+			segments.push({
+				type: 'file-link',
+				value: match[0],
+				file: normalizedFile,
+				line: Number(match[2]),
+				column: match[3] ? Number(match[3]) : undefined,
+			});
+		} else {
+			segments.push({ type: 'text', value: match[0] });
+		}
 		lastIndex = matchStart + match[0].length;
 	}
 
