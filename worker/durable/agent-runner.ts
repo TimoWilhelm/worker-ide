@@ -27,6 +27,7 @@ import { mount, withMounts } from 'worker-fs-mount';
 import { DEFAULT_AI_MODEL } from '@shared/constants';
 
 import { coordinatorNamespace, filesystemNamespace } from '../lib/durable-object-namespaces';
+import { toDurableObjectId } from '../lib/project-id';
 import { AIAgentService } from '../services/ai-agent';
 import { cleanupSessionArtifacts, cleanupTimestampPlans } from '../services/ai-agent/session-cleanup';
 
@@ -322,7 +323,7 @@ export class AgentRunner extends DurableObject {
 		const survivingSnapshotIds = this.getSurvivingSnapshotIds();
 
 		try {
-			const fsId = filesystemNamespace.idFromString(projectId);
+			const fsId = toDurableObjectId(filesystemNamespace, projectId);
 			const fsStub = filesystemNamespace.get(fsId);
 
 			await withMounts(async () => {
@@ -387,7 +388,7 @@ export class AgentRunner extends DurableObject {
 
 		// --- Filesystem Cleanup ---
 		try {
-			const fsId = filesystemNamespace.idFromString(projectId);
+			const fsId = toDurableObjectId(filesystemNamespace, projectId);
 			const fsStub = filesystemNamespace.get(fsId);
 
 			await withMounts(async () => {
@@ -492,7 +493,7 @@ export class AgentRunner extends DurableObject {
 			}
 
 			// Get the filesystem stub for this project
-			const fsId = filesystemNamespace.idFromString(projectId);
+			const fsId = toDurableObjectId(filesystemNamespace, projectId);
 			const fsStub = filesystemNamespace.get(fsId);
 
 			const mode = parameters.mode ?? 'code';

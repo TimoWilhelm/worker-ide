@@ -46,8 +46,7 @@ describe('REST API Integration Tests', () => {
 			expect(result).toHaveProperty('url');
 			expect(result).toHaveProperty('name');
 
-			// projectId should be a 64-char hex string
-			expect(result.projectId).toMatch(/^[a-f0-9]{64}$/i);
+			expect(result.projectId).toMatch(/^[a-z\d]{1,50}$/);
 			// url should contain the projectId
 			expect(result.url).toBe(`/p/${result.projectId}`);
 			// name should be a human-readable ID

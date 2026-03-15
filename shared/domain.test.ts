@@ -1,37 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildAppOrigin, buildPreviewOrigin, decodeProjectId, encodeProjectId, getBaseDomain, isPreviewOrigin, parseHost } from './domain';
+import { buildAppOrigin, buildPreviewOrigin, getBaseDomain, isPreviewOrigin, parseHost } from './domain';
+import { fromHex } from './project-id';
 
-// A valid 64-char hex project ID for testing
-const PROJECT_ID = 'a'.repeat(64);
-const ENCODED_ID = encodeProjectId(PROJECT_ID);
-
-// -- Base36 encoding ----------------------------------------------------------
-
-describe('encodeProjectId / decodeProjectId', () => {
-	it('round-trips a 64-char hex ID', () => {
-		const encoded = encodeProjectId(PROJECT_ID);
-		expect(decodeProjectId(encoded)).toBe(PROJECT_ID);
-	});
-
-	it('produces a string ≤50 chars', () => {
-		expect(ENCODED_ID.length).toBeLessThanOrEqual(50);
-	});
-
-	it('produces only lowercase alphanumeric chars', () => {
-		expect(ENCODED_ID).toMatch(/^[a-z\d]+$/);
-	});
-
-	it('round-trips the max hex value (all f)', () => {
-		const maxId = 'f'.repeat(64);
-		expect(decodeProjectId(encodeProjectId(maxId))).toBe(maxId);
-	});
-
-	it('round-trips the min hex value (all 0 except last)', () => {
-		const minId = '0'.repeat(63) + '1';
-		expect(decodeProjectId(encodeProjectId(minId))).toBe(minId);
-	});
-});
+const PROJECT_ID = fromHex('a'.repeat(64));
 
 // -- parseHost ----------------------------------------------------------------
 
@@ -42,8 +14,8 @@ describe('parseHost', () => {
 			expect(result).toEqual({ type: 'app', baseDomain: 'localhost:3000' });
 		});
 
-		it('preview subdomain → preview with decoded project ID', () => {
-			const result = parseHost(`${ENCODED_ID}.preview.localhost:3000`);
+		it('preview subdomain → preview with project ID', () => {
+			const result = parseHost(`${PROJECT_ID}.preview.localhost:3000`);
 			expect(result).toEqual({ type: 'preview', projectId: PROJECT_ID, baseDomain: 'localhost:3000' });
 		});
 
@@ -65,7 +37,7 @@ describe('parseHost', () => {
 		});
 
 		it('preview subdomain → preview', () => {
-			const result = parseHost(`${ENCODED_ID}.preview.example.com`);
+			const result = parseHost(`${PROJECT_ID}.preview.example.com`);
 			expect(result).toEqual({ type: 'preview', projectId: PROJECT_ID, baseDomain: 'example.com' });
 		});
 
@@ -73,20 +45,15 @@ describe('parseHost', () => {
 			const result = parseHost('random.example.com');
 			expect(result).toEqual({ type: 'unknown', baseDomain: 'example.com' });
 		});
-
-		it('old "app" subdomain → unknown', () => {
-			const result = parseHost('app.example.com');
-			expect(result).toEqual({ type: 'unknown', baseDomain: 'example.com' });
-		});
 	});
 
 	describe('edge cases', () => {
-		it('empty encoded ID in preview position → unknown', () => {
+		it('empty string in preview position → unknown', () => {
 			const result = parseHost('.preview.localhost:3000');
 			expect(result).toEqual({ type: 'unknown', baseDomain: 'localhost:3000' });
 		});
 
-		it('overly long encoded ID in preview position → unknown', () => {
+		it('overly long ID in preview position → unknown', () => {
 			const result = parseHost(`${'a'.repeat(51)}.preview.localhost:3000`);
 			expect(result).toEqual({ type: 'unknown', baseDomain: 'localhost:3000' });
 		});
@@ -111,7 +78,7 @@ describe('getBaseDomain', () => {
 	});
 
 	it('extracts base from preview subdomain', () => {
-		expect(getBaseDomain(`${ENCODED_ID}.preview.example.com`)).toBe('example.com');
+		expect(getBaseDomain(`${PROJECT_ID}.preview.example.com`)).toBe('example.com');
 	});
 });
 
@@ -130,14 +97,14 @@ describe('buildAppOrigin', () => {
 // -- buildPreviewOrigin -------------------------------------------------------
 
 describe('buildPreviewOrigin', () => {
-	it('builds a preview origin with encoded project ID', () => {
+	it('builds a preview origin with the project ID as subdomain', () => {
 		const origin = buildPreviewOrigin(PROJECT_ID, 'localhost:3000', 'http:');
-		expect(origin).toBe(`http://${ENCODED_ID}.preview.localhost:3000`);
+		expect(origin).toBe(`http://${PROJECT_ID}.preview.localhost:3000`);
 	});
 
 	it('uses https by default', () => {
 		const origin = buildPreviewOrigin(PROJECT_ID, 'example.com');
-		expect(origin).toBe(`https://${ENCODED_ID}.preview.example.com`);
+		expect(origin).toBe(`https://${PROJECT_ID}.preview.example.com`);
 	});
 });
 
@@ -145,7 +112,7 @@ describe('buildPreviewOrigin', () => {
 
 describe('isPreviewOrigin', () => {
 	it('returns true for a valid preview origin', () => {
-		expect(isPreviewOrigin(`http://${ENCODED_ID}.preview.localhost:3000`, 'localhost:3000')).toBe(true);
+		expect(isPreviewOrigin(`http://${PROJECT_ID}.preview.localhost:3000`, 'localhost:3000')).toBe(true);
 	});
 
 	it('returns false for the app origin', () => {
@@ -153,7 +120,7 @@ describe('isPreviewOrigin', () => {
 	});
 
 	it('returns false for a different base domain', () => {
-		expect(isPreviewOrigin(`http://${ENCODED_ID}.preview.other.com`, 'localhost:3000')).toBe(false);
+		expect(isPreviewOrigin(`http://${PROJECT_ID}.preview.other.com`, 'localhost:3000')).toBe(false);
 	});
 
 	it('returns false for invalid URL', () => {

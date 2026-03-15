@@ -245,7 +245,7 @@ describe('DashboardPage', () => {
 		expect(cloneButton).toBeDisabled();
 	});
 
-	it('enables clone button in modal when a valid 64-char hex ID is entered', async () => {
+	it('enables clone button in modal when a valid project ID is entered', async () => {
 		const user = userEvent.setup();
 		render(<DashboardPage />);
 
@@ -261,7 +261,7 @@ describe('DashboardPage', () => {
 
 		const dialog = screen.getByRole('dialog');
 		const input = within(dialog).getByPlaceholderText('Project URL or ID');
-		const validId = 'a'.repeat(64);
+		const validId = '494rtk7ddoepe5ru2lx4oc855i6lc23p3apolh04feq8q517sa';
 		await user.type(input, validId);
 
 		const cloneButton = within(dialog).getByRole('button', { name: 'Clone' });
@@ -284,7 +284,7 @@ describe('DashboardPage', () => {
 
 		const dialog = screen.getByRole('dialog');
 		const input = within(dialog).getByPlaceholderText('Project URL or ID');
-		const validUrl = `https://example.dev/p/${'b'.repeat(64)}`;
+		const validUrl = `https://example.dev/p/${'4og1sx0wpug6bz5f2vb8qruk2geg9nwv786ngf3qgy79ljxqkb'}`;
 		await user.type(input, validUrl);
 
 		const cloneButton = within(dialog).getByRole('button', { name: 'Clone' });
@@ -336,7 +336,7 @@ describe('DashboardPage', () => {
 
 		const dialog = screen.getByRole('dialog');
 		const input = within(dialog).getByPlaceholderText('Project URL or ID');
-		const validId = 'c'.repeat(64);
+		const validId = '53rbs9ug20hn9sj034pct7gyzemb79q1b5nmbd7cihoagyu9cc';
 		await user.type(input, validId);
 
 		const cloneButton = within(dialog).getByRole('button', { name: 'Clone' });
@@ -368,7 +368,7 @@ describe('DashboardPage', () => {
 
 		const dialog = screen.getByRole('dialog');
 		const input = within(dialog).getByPlaceholderText('Project URL or ID');
-		const validId = 'd'.repeat(64);
+		const validId = '5j2lrmnze6j47lwl3e3gvn3dwcu64vj7f34l6bayk15bcdqs4d';
 		await user.type(input, validId);
 
 		const cloneButton = within(dialog).getByRole('button', { name: 'Clone' });
@@ -390,7 +390,9 @@ describe('DashboardPage', () => {
 	});
 
 	it('renders recent projects section with a single project', () => {
-		vi.mocked(getRecentProjects).mockReturnValue([{ id: 'e'.repeat(64), timestamp: Date.now() - 3_600_000, name: 'My Project' }]);
+		vi.mocked(getRecentProjects).mockReturnValue([
+			{ id: '5ydvqzhiqckl5fa63nhky2pstb212hcdj0lk19eklkmc7snawe', timestamp: Date.now() - 3_600_000, name: 'My Project' },
+		]);
 
 		render(<DashboardPage />);
 
@@ -400,8 +402,8 @@ describe('DashboardPage', () => {
 
 	it('renders all recent projects when multiple available', () => {
 		vi.mocked(getRecentProjects).mockReturnValue([
-			{ id: 'e'.repeat(64), timestamp: Date.now() - 3_600_000, name: 'My Project' },
-			{ id: 'f'.repeat(64), timestamp: Date.now() - 86_400_000, name: 'Old Project' },
+			{ id: '5ydvqzhiqckl5fa63nhky2pstb212hcdj0lk19eklkmc7snawe', timestamp: Date.now() - 3_600_000, name: 'My Project' },
+			{ id: '6dp5qcb22im238nr3wvp0ic7q99w035jmy2iw7i6n43d37jtof', timestamp: Date.now() - 86_400_000, name: 'Old Project' },
 		]);
 
 		render(<DashboardPage />);
@@ -412,7 +414,7 @@ describe('DashboardPage', () => {
 	});
 
 	it('recent project rows are links to the project page', () => {
-		const projectId = 'a'.repeat(64);
+		const projectId = '494rtk7ddoepe5ru2lx4oc855i6lc23p3apolh04feq8q517sa';
 		vi.mocked(getRecentProjects).mockReturnValue([{ id: projectId, timestamp: Date.now(), name: 'Test Project' }]);
 
 		render(<DashboardPage />);

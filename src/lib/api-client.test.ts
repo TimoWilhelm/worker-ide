@@ -71,7 +71,7 @@ describe('createProject', () => {
 // =============================================================================
 
 describe('cloneProject', () => {
-	const sourceId = 'a'.repeat(64);
+	const sourceId = '494rtk7ddoepe5ru2lx4oc855i6lc23p3apolh04feq8q517sa';
 
 	it('clones a project successfully', async () => {
 		const responseData = { projectId: 'new123', url: '/p/new123', name: 'cloned-project' };
@@ -98,7 +98,7 @@ describe('cloneProject', () => {
 	});
 
 	it('throws on 400', async () => {
-		fetchMock.mockResolvedValueOnce(jsonResponse({ error: 'Invalid source project ID. Must be a 64-character hex string.' }, 400));
+		fetchMock.mockResolvedValueOnce(jsonResponse({ error: 'Invalid source project ID.' }, 400));
 
 		await expect(cloneProject(sourceId)).rejects.toThrow('Invalid source project ID');
 	});

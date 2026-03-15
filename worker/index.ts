@@ -3,7 +3,7 @@
  *
  * Routing is split by subdomain:
  * - `<baseDomain>`                          → App (SPA, API, WebSocket)
- * - `<encoded-id>.preview.<baseDomain>`     → Live preview of user projects
+ * - `<projectId>.preview.<baseDomain>`       → Live preview of user projects
  *
  * The base domain is derived at runtime from the Host header.
  */
@@ -15,9 +15,11 @@ import { mount, withMounts } from 'worker-fs-mount';
 
 import { buildAppOrigin, parseHost } from '@shared/domain';
 import { generateHumanId } from '@shared/human-id';
+import { isValidProjectId } from '@shared/project-id';
 
 import { coordinatorNamespace, filesystemNamespace } from './lib/durable-object-namespaces';
 import { errorPage } from './lib/error-page';
+import { generateProjectId, toDurableObjectId } from './lib/project-id';
 import { apiRoutes } from './routes';
 import { PreviewService } from './services/preview-service';
 import { getTemplate, getTemplateMetadata } from './templates';
@@ -61,7 +63,6 @@ export { LogTailer } from './services/log-tailer';
 // =============================================================================
 
 const PROJECT_ROOT = '/project';
-const PROJECT_ID_PATTERN = /^[a-f\d]{64}$/i;
 
 // =============================================================================
 // Helpers
@@ -87,13 +88,13 @@ async function writeTemplateFiles(
 }
 
 function parseProjectRoute(path: string): { projectId: string; subPath: string } | undefined {
-	const match = path.match(/^\/p\/([a-f\d]{64})(\/.*)$/i);
+	const match = path.match(/^\/p\/([a-z\d]{1,50})(\/.*)$/);
 	if (match) {
-		return { projectId: match[1].toLowerCase(), subPath: match[2] };
+		return { projectId: match[1], subPath: match[2] };
 	}
-	const exactMatch = path.match(/^\/p\/([a-f\d]{64})$/i);
+	const exactMatch = path.match(/^\/p\/([a-z\d]{1,50})$/);
 	if (exactMatch) {
-		return { projectId: exactMatch[1].toLowerCase(), subPath: '/' };
+		return { projectId: exactMatch[1], subPath: '/' };
 	}
 	return undefined;
 }
@@ -126,7 +127,7 @@ function isDevelopmentInfrastructurePath(pathname: string): boolean {
 }
 
 /**
- * Handle all requests on `<encoded-id>.preview.<baseDomain>`.
+ * Handle all requests on `<projectId>.preview.<baseDomain>`.
  * The request path maps directly to the user's project filesystem.
  */
 async function handlePreviewRequest(request: Request, projectId: string): Promise<Response> {
@@ -141,7 +142,7 @@ async function handlePreviewRequest(request: Request, projectId: string): Promis
 
 	let fsId: DurableObjectId;
 	try {
-		fsId = filesystemNamespace.idFromString(projectId);
+		fsId = toDurableObjectId(filesystemNamespace, projectId);
 	} catch {
 		return errorPage({
 			heading: 'Invalid project',
@@ -210,19 +211,19 @@ app.post('/api/new-project', async (c) => {
 		return c.json({ error: `Unknown template: ${templateId}` }, 400);
 	}
 
-	const id = filesystemNamespace.newUniqueId();
-	const projectId = id.toString();
+	const doId = filesystemNamespace.newUniqueId();
+	const projectId = generateProjectId(doId);
 	const humanId = generateHumanId();
 
 	await withMounts(async () => {
-		const fsStub = filesystemNamespace.get(id);
+		const fsStub = filesystemNamespace.get(doId);
 		mount(PROJECT_ROOT, fsStub);
 
 		const fs = await import('node:fs/promises');
 		await writeTemplateFiles(fs, PROJECT_ROOT, template.files, template.dependencies, humanId);
 	});
 
-	const fsStub = filesystemNamespace.get(id);
+	const fsStub = filesystemNamespace.get(doId);
 	c.executionCtx.waitUntil(
 		fsStub.gitInit().catch((error) => {
 			console.error('Git initialization failed:', error);
@@ -241,15 +242,13 @@ app.post('/api/clone-project', async (c) => {
 		return c.json({ error: 'Request body must contain sourceProjectId' }, 400);
 	}
 
-	if (!sourceProjectId || !PROJECT_ID_PATTERN.test(sourceProjectId)) {
-		return c.json({ error: 'Invalid source project ID. Must be a 64-character hex string.' }, 400);
+	if (!sourceProjectId || !isValidProjectId(sourceProjectId)) {
+		return c.json({ error: 'Invalid source project ID.' }, 400);
 	}
-
-	sourceProjectId = sourceProjectId.toLowerCase();
 
 	let sourceId: DurableObjectId;
 	try {
-		sourceId = filesystemNamespace.idFromString(sourceProjectId);
+		sourceId = toDurableObjectId(filesystemNamespace, sourceProjectId);
 	} catch {
 		return c.json({ error: 'Invalid source project ID.' }, 400);
 	}
@@ -259,12 +258,12 @@ app.post('/api/clone-project', async (c) => {
 		return c.json({ error: 'Source project not found or not initialized' }, 404);
 	}
 
-	const newId = filesystemNamespace.newUniqueId();
-	const newProjectId = newId.toString();
+	const newDoId = filesystemNamespace.newUniqueId();
+	const newProjectId = generateProjectId(newDoId);
 	const humanId = generateHumanId();
 
 	await withMounts(async () => {
-		const destinationStub = filesystemNamespace.get(newId);
+		const destinationStub = filesystemNamespace.get(newDoId);
 		mount('/source', sourceStub);
 		mount('/destination', destinationStub);
 
@@ -293,7 +292,7 @@ app.post('/api/clone-project', async (c) => {
 		await destinationStub.refreshExpiration();
 	});
 
-	const newFsStub = filesystemNamespace.get(newId);
+	const newFsStub = filesystemNamespace.get(newDoId);
 	c.executionCtx.waitUntil(
 		newFsStub.gitInit().catch((error) => {
 			console.error('Git initialization failed for clone:', error);
@@ -332,10 +331,8 @@ app.all('/p/:projectId/*', async (c) => {
 
 	let fsId: DurableObjectId;
 	try {
-		fsId = filesystemNamespace.idFromString(projectId);
+		fsId = toDurableObjectId(filesystemNamespace, projectId);
 	} catch {
-		// Invalid Durable Object ID — for API/WS routes, return 404.
-		// For page navigations, serve the SPA (shows ProjectNotFound via ProjectGate).
 		if (subPath.startsWith('/api/') || subPath === '/__ws' || subPath.startsWith('/__ws')) {
 			return c.notFound();
 		}

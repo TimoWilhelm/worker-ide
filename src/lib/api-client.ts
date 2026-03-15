@@ -63,7 +63,7 @@ export async function createProject(templateId: string): Promise<{ projectId: st
  * The clone runs server-side; this function waits for it to complete.
  * Typical projects clone in under 2 seconds.
  *
- * @param sourceProjectId - The 64-character hex ID of the project to clone
+ * @param sourceProjectId - The ID of the project to clone
  */
 export async function cloneProject(sourceProjectId: string): Promise<{ projectId: string; url: string; name: string }> {
 	const response = await fetch('/api/clone-project', {

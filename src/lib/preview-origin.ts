@@ -9,7 +9,7 @@ export function getProjectUrl(projectId: string): string {
 	return `/p/${projectId}`;
 }
 
-/** Get the preview origin for a project (e.g., `http://<encoded>.preview.localhost:3000`). */
+/** Get the preview origin for a project (e.g., `http://<projectId>.preview.localhost:3000`). */
 export function getPreviewOrigin(projectId: string): string {
 	const { protocol, host } = globalThis.location;
 	return buildPreviewOrigin(projectId, getBaseDomain(host), protocol);

@@ -15,6 +15,7 @@ import { projectMetaSchema } from '@shared/validation';
 
 import { coordinatorNamespace, filesystemNamespace } from '../lib/durable-object-namespaces';
 import { httpError } from '../lib/http-error';
+import { generateProjectId } from '../lib/project-id';
 import { createZip } from '../lib/zip';
 
 import type { AppEnvironment } from '../types';
@@ -26,8 +27,8 @@ import type { AssetSettings, ProjectMeta } from '@shared/types';
 export const projectRoutes = new Hono<AppEnvironment>()
 	// POST /api/new-project - Create a new project
 	.post('/new-project', async (c) => {
-		const id = filesystemNamespace.newUniqueId();
-		const projectId = id.toString();
+		const doId = filesystemNamespace.newUniqueId();
+		const projectId = generateProjectId(doId);
 		const projectName = generateHumanId();
 		return c.json({ projectId, url: `/p/${projectId}`, name: projectName });
 	})

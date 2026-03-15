@@ -4,7 +4,7 @@
  * Sets up global providers (React Query, error boundaries) and routes.
  *
  * Routing is driven by the subdomain (host type):
- * - Bare domain  → dashboard at `/`, project IDE at `/p/<hex64>`
+ * - Bare domain  → dashboard at `/`, project IDE at `/p/<projectId>`
  * - preview.*    → handled entirely by the worker (never loads the SPA)
  */
 
@@ -26,6 +26,7 @@ import { fetchProjectMeta } from '@/lib/api-client';
 import { trackProject } from '@/lib/recent-projects';
 import { isNetworkError } from '@/lib/utils';
 import { parseHost } from '@shared/domain';
+import { PROJECT_ID_PATTERN } from '@shared/project-id';
 
 // =============================================================================
 // Query Client
@@ -132,9 +133,9 @@ const hostType = parseHost(globalThis.location.host).type;
 
 function getProjectIdFromUrl(): string | undefined {
 	const path = globalThis.location.pathname;
-	const match = path.match(/^\/p\/([a-f0-9]{64})/i);
-	if (match) {
-		return match[1].toLowerCase();
+	const match = path.match(/^\/p\/([a-z\d]{1,50})/);
+	if (match && PROJECT_ID_PATTERN.test(match[1])) {
+		return match[1];
 	}
 	return undefined;
 }

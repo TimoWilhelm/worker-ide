@@ -23,6 +23,7 @@ import { getProjectUrl } from '@/lib/preview-origin';
 import { getRecentProjects, removeProject, trackProject } from '@/lib/recent-projects';
 import { useStore } from '@/lib/store';
 import { cn, formatRelativeTime } from '@/lib/utils';
+import { isValidProjectId } from '@shared/project-id';
 
 import { HalftoneBackground } from './halftone-background';
 
@@ -34,12 +35,18 @@ import type { ProjectTemplateMeta } from '@shared/types';
 // =============================================================================
 
 /**
- * Regex to extract a 64-character hex project ID from various input formats:
- * - Full URL: https://anything.dev/p/<hex64>
- * - Path: /p/<hex64>
- * - Bare ID: <hex64>
+ * Extract a project ID from various input formats:
+ * - Full URL: https://anything.dev/p/<id>
+ * - Path: /p/<id>
+ * - Bare ID: <id>
  */
-const PROJECT_ID_REGEX = /(?:\/p\/)?([a-f0-9]{64})/i;
+function extractProjectId(input: string): string | undefined {
+	const pathMatch = input.match(/\/p\/([a-z\d]{1,50})(?:\/|$)/);
+	if (pathMatch) return pathMatch[1];
+	const bareMatch = input.match(/^([a-z\d]{1,50})$/);
+	if (bareMatch) return bareMatch[1];
+	return undefined;
+}
 
 // =============================================================================
 // Icon mapping
@@ -388,11 +395,10 @@ export default function DashboardPage() {
 
 	const selectedTemplate = useMemo(() => templates.find((template) => template.id === selectedTemplateId), [templates, selectedTemplateId]);
 
-	// Determine if the clone input contains a valid project ID
 	const parsedProjectId = useMemo(() => {
 		if (!cloneInput.trim()) return;
-		const match = cloneInput.trim().match(PROJECT_ID_REGEX);
-		return match ? match[1].toLowerCase() : undefined;
+		const candidate = extractProjectId(cloneInput.trim());
+		return candidate && isValidProjectId(candidate) ? candidate : undefined;
 	}, [cloneInput]);
 
 	// --- Handlers ---
