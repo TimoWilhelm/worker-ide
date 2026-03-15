@@ -67,7 +67,7 @@ describe('REST API Integration Tests', () => {
 
 			expect(response.ok).toBe(true);
 			const result: { projectId: string; url: string; name: string } = await response.json();
-			expect(result.projectId).toMatch(/^[a-f0-9]{64}$/i);
+			expect(result.projectId).toMatch(/^[a-z\d]{1,50}$/);
 		});
 
 		it('POST /api/new-project with invalid template returns 400', async () => {
@@ -93,7 +93,7 @@ describe('REST API Integration Tests', () => {
 			});
 			const { projectId: sourceProjectId }: { projectId: string } = await createResponse.json();
 
-			// Access the project to trigger initialization (uses app subdomain)
+			// Access the project to trigger initialization
 			await fetch(`${BASE_URL}/p/${sourceProjectId}/api/files`);
 
 			// Clone it
@@ -105,7 +105,7 @@ describe('REST API Integration Tests', () => {
 
 			expect(cloneResponse.ok).toBe(true);
 			const result: { projectId: string; url: string; name: string } = await cloneResponse.json();
-			expect(result.projectId).toMatch(/^[a-f0-9]{64}$/i);
+			expect(result.projectId).toMatch(/^[a-z\d]{1,50}$/);
 			expect(result.projectId).not.toBe(sourceProjectId);
 			expect(result.url).toBe(`/p/${result.projectId}`);
 		});
