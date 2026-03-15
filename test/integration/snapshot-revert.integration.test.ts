@@ -14,11 +14,7 @@
 
 import { beforeAll, describe, expect, it } from 'vitest';
 
-/** Landing page origin — serves root APIs (new-project). */
-const LANDING_URL = process.env.TEST_LANDING_URL || 'http://localhost:3000';
-
-/** IDE origin — serves project-scoped API routes (/p/<id>/api/*). */
-const APP_URL = process.env.TEST_APP_URL || 'http://app.localhost:3000';
+const BASE_URL = process.env.TEST_BASE_URL || 'http://localhost:3000';
 
 // =============================================================================
 // Helpers
@@ -26,20 +22,20 @@ const APP_URL = process.env.TEST_APP_URL || 'http://app.localhost:3000';
 
 /** Create a fresh project and return its ID. */
 async function createProject(): Promise<string> {
-	const response = await fetch(`${LANDING_URL}/api/new-project`, {
+	const response = await fetch(`${BASE_URL}/api/new-project`, {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
 		body: JSON.stringify({ template: 'request-inspector' }),
 	});
 	const result: { projectId: string } = await response.json();
 	// Trigger initialization by listing files
-	await fetch(`${APP_URL}/p/${result.projectId}/api/files`);
+	await fetch(`${BASE_URL}/p/${result.projectId}/api/files`);
 	return result.projectId;
 }
 
 /** Write a file to the project. */
 async function writeFile(projectId: string, path: string, content: string): Promise<void> {
-	const response = await fetch(`${APP_URL}/p/${projectId}/api/file`, {
+	const response = await fetch(`${BASE_URL}/p/${projectId}/api/file`, {
 		method: 'PUT',
 		headers: { 'Content-Type': 'application/json' },
 		body: JSON.stringify({ path, content }),
@@ -49,7 +45,7 @@ async function writeFile(projectId: string, path: string, content: string): Prom
 
 /** Read a file's content. Returns undefined if not found. */
 async function readFile(projectId: string, path: string): Promise<string | undefined> {
-	const response = await fetch(`${APP_URL}/p/${projectId}/api/file?path=${encodeURIComponent(path)}`);
+	const response = await fetch(`${BASE_URL}/p/${projectId}/api/file?path=${encodeURIComponent(path)}`);
 	if (!response.ok) return undefined;
 	const result: { content: string } = await response.json();
 	return result.content;
@@ -57,14 +53,14 @@ async function readFile(projectId: string, path: string): Promise<string | undef
 
 /** Delete a file from the project. */
 async function deleteFile(projectId: string, path: string): Promise<void> {
-	await fetch(`${APP_URL}/p/${projectId}/api/file?path=${encodeURIComponent(path)}`, {
+	await fetch(`${BASE_URL}/p/${projectId}/api/file?path=${encodeURIComponent(path)}`, {
 		method: 'DELETE',
 	});
 }
 
 /** Check whether a file exists. */
 async function fileExists(projectId: string, path: string): Promise<boolean> {
-	const response = await fetch(`${APP_URL}/p/${projectId}/api/file?path=${encodeURIComponent(path)}`);
+	const response = await fetch(`${BASE_URL}/p/${projectId}/api/file?path=${encodeURIComponent(path)}`);
 	return response.ok;
 }
 
@@ -122,7 +118,7 @@ async function savePendingChanges(
 		}
 	>,
 ): Promise<void> {
-	const response = await fetch(`${APP_URL}/p/${projectId}/api/pending-changes`, {
+	const response = await fetch(`${BASE_URL}/p/${projectId}/api/pending-changes`, {
 		method: 'PUT',
 		headers: { 'Content-Type': 'application/json' },
 		body: JSON.stringify(changes),
@@ -132,7 +128,7 @@ async function savePendingChanges(
 
 /** Load pending changes from the project. */
 async function loadPendingChanges(projectId: string): Promise<Record<string, unknown>> {
-	const response = await fetch(`${APP_URL}/p/${projectId}/api/pending-changes`);
+	const response = await fetch(`${BASE_URL}/p/${projectId}/api/pending-changes`);
 	expect(response.ok).toBe(true);
 	return response.json();
 }
@@ -168,7 +164,7 @@ describe('Snapshot & Revert Integration Tests', () => {
 
 	describe('Snapshot Listing & Detail', () => {
 		it('GET /api/snapshots returns empty array for a fresh project', async () => {
-			const response = await fetch(`${APP_URL}/p/${projectId}/api/snapshots`);
+			const response = await fetch(`${BASE_URL}/p/${projectId}/api/snapshots`);
 			expect(response.ok).toBe(true);
 			const result: { snapshots: SnapshotSummary[] } = await response.json();
 			expect(Array.isArray(result.snapshots)).toBe(true);
@@ -185,7 +181,7 @@ describe('Snapshot & Revert Integration Tests', () => {
 			// Also create the file so the project is consistent
 			await writeFile(projectId, '/src/list-test.ts', 'created by AI');
 
-			const response = await fetch(`${APP_URL}/p/${projectId}/api/snapshots`);
+			const response = await fetch(`${BASE_URL}/p/${projectId}/api/snapshots`);
 			const result: { snapshots: SnapshotSummary[] } = await response.json();
 			const snapshot = result.snapshots.find((s) => s.id === 'aabb0001');
 			expect(snapshot).toBeDefined();
@@ -194,7 +190,7 @@ describe('Snapshot & Revert Integration Tests', () => {
 		});
 
 		it('GET /api/snapshot/:id returns full metadata', async () => {
-			const response = await fetch(`${APP_URL}/p/${projectId}/api/snapshot/aabb0001`);
+			const response = await fetch(`${BASE_URL}/p/${projectId}/api/snapshot/aabb0001`);
 			expect(response.ok).toBe(true);
 			const result: { snapshot: SnapshotMetadata } = await response.json();
 			expect(result.snapshot.id).toBe('aabb0001');
@@ -204,7 +200,7 @@ describe('Snapshot & Revert Integration Tests', () => {
 		});
 
 		it('GET /api/snapshot/:id returns 404 for non-existent snapshot', async () => {
-			const response = await fetch(`${APP_URL}/p/${projectId}/api/snapshot/00000000`);
+			const response = await fetch(`${BASE_URL}/p/${projectId}/api/snapshot/00000000`);
 			expect(response.status).toBe(404);
 		});
 	});
@@ -228,7 +224,7 @@ describe('Snapshot & Revert Integration Tests', () => {
 			});
 
 			// Revert
-			const response = await fetch(`${APP_URL}/p/${revertProjectId}/api/snapshot/aabb0010/revert`, {
+			const response = await fetch(`${BASE_URL}/p/${revertProjectId}/api/snapshot/aabb0010/revert`, {
 				method: 'POST',
 			});
 			expect(response.ok).toBe(true);
@@ -248,7 +244,7 @@ describe('Snapshot & Revert Integration Tests', () => {
 			await writeFile(revertProjectId, '/src/edited.ts', 'AI modified content');
 
 			// Revert
-			const response = await fetch(`${APP_URL}/p/${revertProjectId}/api/snapshot/aabb0011/revert`, {
+			const response = await fetch(`${BASE_URL}/p/${revertProjectId}/api/snapshot/aabb0011/revert`, {
 				method: 'POST',
 			});
 			expect(response.ok).toBe(true);
@@ -267,7 +263,7 @@ describe('Snapshot & Revert Integration Tests', () => {
 			await deleteFile(revertProjectId, '/src/deleted.ts');
 
 			// Revert
-			const response = await fetch(`${APP_URL}/p/${revertProjectId}/api/snapshot/aabb0012/revert`, {
+			const response = await fetch(`${BASE_URL}/p/${revertProjectId}/api/snapshot/aabb0012/revert`, {
 				method: 'POST',
 			});
 			expect(response.ok).toBe(true);
@@ -278,7 +274,7 @@ describe('Snapshot & Revert Integration Tests', () => {
 		});
 
 		it('returns 404 when reverting a non-existent snapshot', async () => {
-			const response = await fetch(`${APP_URL}/p/${revertProjectId}/api/snapshot/deadbeef/revert`, {
+			const response = await fetch(`${BASE_URL}/p/${revertProjectId}/api/snapshot/deadbeef/revert`, {
 				method: 'POST',
 			});
 			expect(response.status).toBe(500);
@@ -312,7 +308,7 @@ describe('Snapshot & Revert Integration Tests', () => {
 			await writeFile(fileRevertProjectId, '/src/revert-me.ts', 'AI changed');
 
 			// Revert only one file
-			const response = await fetch(`${APP_URL}/p/${fileRevertProjectId}/api/snapshot/revert-file`, {
+			const response = await fetch(`${BASE_URL}/p/${fileRevertProjectId}/api/snapshot/revert-file`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ path: '/src/revert-me.ts', snapshotId: 'aabb0020' }),
@@ -325,7 +321,7 @@ describe('Snapshot & Revert Integration Tests', () => {
 		});
 
 		it('returns 500 for a file not in the snapshot', async () => {
-			const response = await fetch(`${APP_URL}/p/${fileRevertProjectId}/api/snapshot/revert-file`, {
+			const response = await fetch(`${BASE_URL}/p/${fileRevertProjectId}/api/snapshot/revert-file`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ path: '/src/not-in-snapshot.ts', snapshotId: 'aabb0020' }),
@@ -334,7 +330,7 @@ describe('Snapshot & Revert Integration Tests', () => {
 		});
 
 		it('returns 500 for a non-existent snapshot', async () => {
-			const response = await fetch(`${APP_URL}/p/${fileRevertProjectId}/api/snapshot/revert-file`, {
+			const response = await fetch(`${BASE_URL}/p/${fileRevertProjectId}/api/snapshot/revert-file`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ path: '/src/revert-me.ts', snapshotId: 'deadbeef' }),
@@ -361,7 +357,7 @@ describe('Snapshot & Revert Integration Tests', () => {
 			});
 			await writeFile(cascadeProjectId, '/src/single.ts', 'AI v1');
 
-			const response = await fetch(`${APP_URL}/p/${cascadeProjectId}/api/snapshots/revert-cascade`, {
+			const response = await fetch(`${BASE_URL}/p/${cascadeProjectId}/api/snapshots/revert-cascade`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ snapshotIds: ['cc000001'] }),
@@ -402,7 +398,7 @@ describe('Snapshot & Revert Integration Tests', () => {
 			await writeFile(cascadeProjectId, '/src/file-c.ts', 'c-created');
 
 			// Cascade revert: newest first (cc000011, then cc000010)
-			const response = await fetch(`${APP_URL}/p/${cascadeProjectId}/api/snapshots/revert-cascade`, {
+			const response = await fetch(`${BASE_URL}/p/${cascadeProjectId}/api/snapshots/revert-cascade`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ snapshotIds: ['cc000011', 'cc000010'] }),
@@ -457,7 +453,7 @@ describe('Snapshot & Revert Integration Tests', () => {
 			await writeFile(dedupProjectId, '/src/shared.ts', 'v3-from-turn3');
 
 			// Cascade revert all three (newest first)
-			const response = await fetch(`${APP_URL}/p/${dedupProjectId}/api/snapshots/revert-cascade`, {
+			const response = await fetch(`${BASE_URL}/p/${dedupProjectId}/api/snapshots/revert-cascade`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ snapshotIds: ['dd000003', 'dd000002', 'dd000001'] }),
@@ -489,7 +485,7 @@ describe('Snapshot & Revert Integration Tests', () => {
 			await writeFile(dedupProjectId, '/src/new-file.ts', 'updated content');
 
 			// Cascade revert → earliest action is 'create' → should delete the file
-			const response = await fetch(`${APP_URL}/p/${dedupProjectId}/api/snapshots/revert-cascade`, {
+			const response = await fetch(`${BASE_URL}/p/${dedupProjectId}/api/snapshots/revert-cascade`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ snapshotIds: ['dd000011', 'dd000010'] }),
@@ -522,7 +518,7 @@ describe('Snapshot & Revert Integration Tests', () => {
 			await writeFile(missingProjectId, '/src/available.ts', 'modified');
 
 			// Cascade with one real and one missing snapshot
-			const response = await fetch(`${APP_URL}/p/${missingProjectId}/api/snapshots/revert-cascade`, {
+			const response = await fetch(`${BASE_URL}/p/${missingProjectId}/api/snapshots/revert-cascade`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ snapshotIds: ['deadbeef', 'ee000001'] }),
@@ -538,7 +534,7 @@ describe('Snapshot & Revert Integration Tests', () => {
 		});
 
 		it('reports all snapshots as missing when none exist', async () => {
-			const response = await fetch(`${APP_URL}/p/${missingProjectId}/api/snapshots/revert-cascade`, {
+			const response = await fetch(`${BASE_URL}/p/${missingProjectId}/api/snapshots/revert-cascade`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ snapshotIds: ['aaaaaaaa', 'bbbbbbbb'] }),
@@ -564,7 +560,7 @@ describe('Snapshot & Revert Integration Tests', () => {
 		});
 
 		it('rejects empty snapshotIds array', async () => {
-			const response = await fetch(`${APP_URL}/p/${validationProjectId}/api/snapshots/revert-cascade`, {
+			const response = await fetch(`${BASE_URL}/p/${validationProjectId}/api/snapshots/revert-cascade`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ snapshotIds: [] }),
@@ -573,7 +569,7 @@ describe('Snapshot & Revert Integration Tests', () => {
 		});
 
 		it('rejects non-hex snapshot IDs', async () => {
-			const response = await fetch(`${APP_URL}/p/${validationProjectId}/api/snapshots/revert-cascade`, {
+			const response = await fetch(`${BASE_URL}/p/${validationProjectId}/api/snapshots/revert-cascade`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ snapshotIds: ['not-hex!!!'] }),
@@ -582,7 +578,7 @@ describe('Snapshot & Revert Integration Tests', () => {
 		});
 
 		it('rejects missing body', async () => {
-			const response = await fetch(`${APP_URL}/p/${validationProjectId}/api/snapshots/revert-cascade`, {
+			const response = await fetch(`${BASE_URL}/p/${validationProjectId}/api/snapshots/revert-cascade`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({}),
@@ -635,7 +631,7 @@ describe('Snapshot & Revert Integration Tests', () => {
 			await createSnapshot(pendingProjectId, 'ff000001', {
 				changes: [{ path: '/src/from-snap-a.ts', action: 'edit', beforeContent: 'original-a' }],
 			});
-			const response = await fetch(`${APP_URL}/p/${pendingProjectId}/api/snapshot/ff000001/revert`, {
+			const response = await fetch(`${BASE_URL}/p/${pendingProjectId}/api/snapshot/ff000001/revert`, {
 				method: 'POST',
 			});
 			expect(response.ok).toBe(true);
@@ -688,7 +684,7 @@ describe('Snapshot & Revert Integration Tests', () => {
 
 		it('returns file content from a snapshot', async () => {
 			const response = await fetch(
-				`${APP_URL}/p/${fileContentProjectId}/api/snapshot/aa110001/file?path=${encodeURIComponent('/src/backed-up.ts')}`,
+				`${BASE_URL}/p/${fileContentProjectId}/api/snapshot/aa110001/file?path=${encodeURIComponent('/src/backed-up.ts')}`,
 			);
 			expect(response.ok).toBe(true);
 			const result: { path: string; content: string; action: string } = await response.json();
@@ -698,7 +694,7 @@ describe('Snapshot & Revert Integration Tests', () => {
 
 		it('returns undefined content for created files (no before content)', async () => {
 			const response = await fetch(
-				`${APP_URL}/p/${fileContentProjectId}/api/snapshot/aa110001/file?path=${encodeURIComponent('/src/was-created.ts')}`,
+				`${BASE_URL}/p/${fileContentProjectId}/api/snapshot/aa110001/file?path=${encodeURIComponent('/src/was-created.ts')}`,
 			);
 			expect(response.ok).toBe(true);
 			const result: { path: string; content: undefined; action: string } = await response.json();
@@ -708,14 +704,14 @@ describe('Snapshot & Revert Integration Tests', () => {
 
 		it('returns 404 for a file not in the snapshot', async () => {
 			const response = await fetch(
-				`${APP_URL}/p/${fileContentProjectId}/api/snapshot/aa110001/file?path=${encodeURIComponent('/src/not-here.ts')}`,
+				`${BASE_URL}/p/${fileContentProjectId}/api/snapshot/aa110001/file?path=${encodeURIComponent('/src/not-here.ts')}`,
 			);
 			expect(response.status).toBe(404);
 		});
 
 		it('returns 404 for a non-existent snapshot', async () => {
 			const response = await fetch(
-				`${APP_URL}/p/${fileContentProjectId}/api/snapshot/deadbeef/file?path=${encodeURIComponent('/src/backed-up.ts')}`,
+				`${BASE_URL}/p/${fileContentProjectId}/api/snapshot/deadbeef/file?path=${encodeURIComponent('/src/backed-up.ts')}`,
 			);
 			expect(response.status).toBe(404);
 		});
@@ -739,7 +735,7 @@ describe('Snapshot & Revert Integration Tests', () => {
 			});
 			// File doesn't exist on disk (user deleted it or it was never truly written)
 
-			const response = await fetch(`${APP_URL}/p/${edgeProjectId}/api/snapshot/ef000001/revert`, {
+			const response = await fetch(`${BASE_URL}/p/${edgeProjectId}/api/snapshot/ef000001/revert`, {
 				method: 'POST',
 			});
 			// Should succeed (delete of non-existent file is a no-op)
@@ -776,7 +772,7 @@ describe('Snapshot & Revert Integration Tests', () => {
 			await writeFile(multiSessionProjectId, '/src/shared.ts', 'v2-from-s2');
 
 			// Cascade revert ONLY session 2's snapshot
-			const response = await fetch(`${APP_URL}/p/${multiSessionProjectId}/api/snapshots/revert-cascade`, {
+			const response = await fetch(`${BASE_URL}/p/${multiSessionProjectId}/api/snapshots/revert-cascade`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ snapshotIds: ['ab000002'] }),
@@ -790,7 +786,7 @@ describe('Snapshot & Revert Integration Tests', () => {
 			expect(await readFile(multiSessionProjectId, '/src/shared.ts')).toBe('v1-from-s1');
 
 			// Session 1's snapshot is still intact
-			const snap1 = await fetch(`${APP_URL}/p/${multiSessionProjectId}/api/snapshot/ab000001`);
+			const snap1 = await fetch(`${BASE_URL}/p/${multiSessionProjectId}/api/snapshot/ab000001`);
 			expect(snap1.ok).toBe(true);
 		});
 
@@ -810,7 +806,7 @@ describe('Snapshot & Revert Integration Tests', () => {
 			await writeFile(multiSessionProjectId, '/src/shared.ts', 'v2');
 
 			// Cascade revert both session 1 snapshots
-			const response = await fetch(`${APP_URL}/p/${multiSessionProjectId}/api/snapshots/revert-cascade`, {
+			const response = await fetch(`${BASE_URL}/p/${multiSessionProjectId}/api/snapshots/revert-cascade`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ snapshotIds: ['ab000011', 'ab000010'] }),
@@ -854,7 +850,7 @@ describe('Snapshot & Revert Integration Tests', () => {
 			await writeFile(disjointProjectId, '/src/file-c.ts', 'c-modified');
 
 			// Cascade revert all three
-			const response = await fetch(`${APP_URL}/p/${disjointProjectId}/api/snapshots/revert-cascade`, {
+			const response = await fetch(`${BASE_URL}/p/${disjointProjectId}/api/snapshots/revert-cascade`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ snapshotIds: ['ba000003', 'ba000002', 'ba000001'] }),
@@ -892,7 +888,7 @@ describe('Snapshot & Revert Integration Tests', () => {
 				changes: [{ path: '/src/test.ts', action: 'create' }],
 			});
 
-			const response = await fetch(`${APP_URL}/p/${sessionIdProjectId}/api/snapshot/ca000001`);
+			const response = await fetch(`${BASE_URL}/p/${sessionIdProjectId}/api/snapshot/ca000001`);
 			expect(response.ok).toBe(true);
 			const result: { snapshot: SnapshotMetadata } = await response.json();
 			expect(result.snapshot.sessionId).toBe('sess-abc123');
@@ -908,7 +904,7 @@ describe('Snapshot & Revert Integration Tests', () => {
 			};
 			await writeFile(sessionIdProjectId, '/.agent/snapshots/ca000002/metadata.json', JSON.stringify(metadata));
 
-			const response = await fetch(`${APP_URL}/p/${sessionIdProjectId}/api/snapshot/ca000002`);
+			const response = await fetch(`${BASE_URL}/p/${sessionIdProjectId}/api/snapshot/ca000002`);
 			expect(response.ok).toBe(true);
 			const result: { snapshot: SnapshotMetadata } = await response.json();
 			expect(result.snapshot.sessionId).toBeUndefined();
@@ -935,7 +931,7 @@ describe('Snapshot & Revert Integration Tests', () => {
 			await writeFile(idempotentProjectId, '/src/idempotent.ts', 'modified');
 
 			// First revert
-			const response1 = await fetch(`${APP_URL}/p/${idempotentProjectId}/api/snapshots/revert-cascade`, {
+			const response1 = await fetch(`${BASE_URL}/p/${idempotentProjectId}/api/snapshots/revert-cascade`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ snapshotIds: ['da000001'] }),
@@ -944,7 +940,7 @@ describe('Snapshot & Revert Integration Tests', () => {
 			expect(await readFile(idempotentProjectId, '/src/idempotent.ts')).toBe('original');
 
 			// Second revert — should still succeed, file is already at original
-			const response2 = await fetch(`${APP_URL}/p/${idempotentProjectId}/api/snapshots/revert-cascade`, {
+			const response2 = await fetch(`${BASE_URL}/p/${idempotentProjectId}/api/snapshots/revert-cascade`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ snapshotIds: ['da000001'] }),
@@ -960,7 +956,7 @@ describe('Snapshot & Revert Integration Tests', () => {
 			});
 
 			// First revert → deletes the file
-			await fetch(`${APP_URL}/p/${idempotentProjectId}/api/snapshots/revert-cascade`, {
+			await fetch(`${BASE_URL}/p/${idempotentProjectId}/api/snapshots/revert-cascade`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ snapshotIds: ['da000002'] }),
@@ -968,7 +964,7 @@ describe('Snapshot & Revert Integration Tests', () => {
 			expect(await fileExists(idempotentProjectId, '/src/created-twice.ts')).toBe(false);
 
 			// Second revert → file already gone, should still succeed
-			const response = await fetch(`${APP_URL}/p/${idempotentProjectId}/api/snapshots/revert-cascade`, {
+			const response = await fetch(`${BASE_URL}/p/${idempotentProjectId}/api/snapshots/revert-cascade`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ snapshotIds: ['da000002'] }),
@@ -1006,7 +1002,7 @@ describe('Snapshot & Revert Integration Tests', () => {
 			}
 
 			// Cascade revert all (newest first)
-			const response = await fetch(`${APP_URL}/p/${largeProjectId}/api/snapshots/revert-cascade`, {
+			const response = await fetch(`${BASE_URL}/p/${largeProjectId}/api/snapshots/revert-cascade`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ snapshotIds: snapshotIds.toReversed() }),
@@ -1049,7 +1045,7 @@ describe('Snapshot & Revert Integration Tests', () => {
 				changes: [{ path: '/src/b.ts', action: 'create' }],
 			});
 
-			const response = await fetch(`${APP_URL}/p/${orderProjectId}/api/snapshots`);
+			const response = await fetch(`${BASE_URL}/p/${orderProjectId}/api/snapshots`);
 			const result: { snapshots: SnapshotSummary[] } = await response.json();
 
 			const ourSnapshots = result.snapshots.filter((s) => s.id === 'aa000001' || s.id === 'aa000002');

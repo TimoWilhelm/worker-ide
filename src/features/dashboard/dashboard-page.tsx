@@ -19,7 +19,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { VersionBadge } from '@/components/version-badge';
 import { useTheme } from '@/hooks/use-theme';
 import { cloneProject, createProject, fetchTemplates } from '@/lib/api-client';
-import { getIdeProjectUrl } from '@/lib/preview-origin';
+import { getProjectUrl } from '@/lib/preview-origin';
 import { getRecentProjects, removeProject, trackProject } from '@/lib/recent-projects';
 import { useStore } from '@/lib/store';
 import { cn, formatRelativeTime } from '@/lib/utils';
@@ -296,7 +296,7 @@ function CloneModal({
 function RecentProjectRow({ project, onDelete }: { project: RecentProject; onDelete: (projectId: string) => void }) {
 	return (
 		<a
-			href={getIdeProjectUrl(project.id)}
+			href={getProjectUrl(project.id)}
 			className={cn(
 				`
 					group/row flex items-center justify-between px-3 py-2 transition-colors
@@ -412,7 +412,7 @@ export default function DashboardPage() {
 		try {
 			const data = await createProject(templateId);
 			trackProject(data.projectId, data.name);
-			navigateToProject(getIdeProjectUrl(data.projectId));
+			navigateToProject(getProjectUrl(data.projectId));
 		} catch {
 			setLoadingMessage(undefined);
 		}
@@ -444,7 +444,7 @@ export default function DashboardPage() {
 		try {
 			const data = await cloneProject(parsedProjectId);
 			trackProject(data.projectId, data.name);
-			navigateToProject(getIdeProjectUrl(data.projectId));
+			navigateToProject(getProjectUrl(data.projectId));
 		} catch (error) {
 			setLoadingMessage(undefined);
 			setCloneError(error instanceof Error ? error.message : 'Failed to clone project');

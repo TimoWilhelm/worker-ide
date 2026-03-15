@@ -1,10 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-/** Landing page origin — serves root APIs (templates, new-project, clone-project). */
-const LANDING_URL = process.env.TEST_LANDING_URL || 'http://localhost:3000';
-
-/** IDE origin — serves project-scoped API routes (/p/<id>/api/*). */
-const APP_URL = process.env.TEST_APP_URL || 'http://app.localhost:3000';
+const BASE_URL = process.env.TEST_BASE_URL || 'http://localhost:3000';
 
 /**
  * Integration tests for REST API endpoints.
@@ -12,20 +8,15 @@ const APP_URL = process.env.TEST_APP_URL || 'http://app.localhost:3000';
  */
 describe('REST API Integration Tests', () => {
 	describe('Health & Availability', () => {
-		it('should serve the landing page root', async () => {
-			const response = await fetch(`${LANDING_URL}/`);
-			expect(response.ok).toBe(true);
-		});
-
 		it('should serve the app root', async () => {
-			const response = await fetch(`${APP_URL}/`);
+			const response = await fetch(`${BASE_URL}/`);
 			expect(response.ok).toBe(true);
 		});
 	});
 
 	describe('Templates API', () => {
 		it('GET /api/templates returns available templates', async () => {
-			const response = await fetch(`${LANDING_URL}/api/templates`);
+			const response = await fetch(`${BASE_URL}/api/templates`);
 			expect(response.ok).toBe(true);
 
 			const result: { templates: Array<{ id: string; name: string; description: string }> } = await response.json();
@@ -42,7 +33,7 @@ describe('REST API Integration Tests', () => {
 
 	describe('Project Creation API', () => {
 		it('POST /api/new-project creates a new project', async () => {
-			const response = await fetch(`${LANDING_URL}/api/new-project`, {
+			const response = await fetch(`${BASE_URL}/api/new-project`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ template: 'request-inspector' }),
@@ -65,11 +56,11 @@ describe('REST API Integration Tests', () => {
 
 		it('POST /api/new-project with template creates project with specified template', async () => {
 			// First get available templates
-			const templatesResponse = await fetch(`${LANDING_URL}/api/templates`);
+			const templatesResponse = await fetch(`${BASE_URL}/api/templates`);
 			const { templates }: { templates: Array<{ id: string }> } = await templatesResponse.json();
 			const templateId = templates[0].id;
 
-			const response = await fetch(`${LANDING_URL}/api/new-project`, {
+			const response = await fetch(`${BASE_URL}/api/new-project`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ template: templateId }),
@@ -81,7 +72,7 @@ describe('REST API Integration Tests', () => {
 		});
 
 		it('POST /api/new-project with invalid template returns 400', async () => {
-			const response = await fetch(`${LANDING_URL}/api/new-project`, {
+			const response = await fetch(`${BASE_URL}/api/new-project`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ template: 'nonexistent-template-id' }),
@@ -96,7 +87,7 @@ describe('REST API Integration Tests', () => {
 	describe('Project Clone API', () => {
 		it('POST /api/clone-project clones an existing project', async () => {
 			// Create a project first
-			const createResponse = await fetch(`${LANDING_URL}/api/new-project`, {
+			const createResponse = await fetch(`${BASE_URL}/api/new-project`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ template: 'request-inspector' }),
@@ -104,10 +95,10 @@ describe('REST API Integration Tests', () => {
 			const { projectId: sourceProjectId }: { projectId: string } = await createResponse.json();
 
 			// Access the project to trigger initialization (uses app subdomain)
-			await fetch(`${APP_URL}/p/${sourceProjectId}/api/files`);
+			await fetch(`${BASE_URL}/p/${sourceProjectId}/api/files`);
 
 			// Clone it
-			const cloneResponse = await fetch(`${LANDING_URL}/api/clone-project`, {
+			const cloneResponse = await fetch(`${BASE_URL}/api/clone-project`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ sourceProjectId }),
@@ -121,7 +112,7 @@ describe('REST API Integration Tests', () => {
 		});
 
 		it('POST /api/clone-project with invalid sourceProjectId returns 400', async () => {
-			const response = await fetch(`${LANDING_URL}/api/clone-project`, {
+			const response = await fetch(`${BASE_URL}/api/clone-project`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ sourceProjectId: 'not-a-valid-id' }),
@@ -131,7 +122,7 @@ describe('REST API Integration Tests', () => {
 		});
 
 		it('POST /api/clone-project without body returns 400', async () => {
-			const response = await fetch(`${LANDING_URL}/api/clone-project`, {
+			const response = await fetch(`${BASE_URL}/api/clone-project`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({}),
@@ -146,7 +137,7 @@ describe('REST API Integration Tests', () => {
 
 		// Create a fresh project for file tests
 		it('should create a project for file operations', async () => {
-			const response = await fetch(`${LANDING_URL}/api/new-project`, {
+			const response = await fetch(`${BASE_URL}/api/new-project`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ template: 'request-inspector' }),
@@ -157,7 +148,7 @@ describe('REST API Integration Tests', () => {
 		});
 
 		it('GET /api/files returns the project file listing', async () => {
-			const response = await fetch(`${APP_URL}/p/${projectId}/api/files`);
+			const response = await fetch(`${BASE_URL}/p/${projectId}/api/files`);
 			expect(response.ok).toBe(true);
 
 			const result: { files: Array<{ path: string; name: string; isDirectory: boolean }> } = await response.json();
@@ -173,7 +164,7 @@ describe('REST API Integration Tests', () => {
 
 		it('GET /api/file?path= returns file content', async () => {
 			// Read the index.html which should exist from the template
-			const response = await fetch(`${APP_URL}/p/${projectId}/api/file?path=/index.html`);
+			const response = await fetch(`${BASE_URL}/p/${projectId}/api/file?path=/index.html`);
 			expect(response.ok).toBe(true);
 
 			const result: { path: string; content: string } = await response.json();
@@ -184,7 +175,7 @@ describe('REST API Integration Tests', () => {
 
 		it('PUT /api/file creates or updates a file', async () => {
 			const testContent = '// integration test file\nconsole.log("hello");\n';
-			const response = await fetch(`${APP_URL}/p/${projectId}/api/file`, {
+			const response = await fetch(`${BASE_URL}/p/${projectId}/api/file`, {
 				method: 'PUT',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ path: '/test-file.js', content: testContent }),
@@ -193,27 +184,27 @@ describe('REST API Integration Tests', () => {
 			expect(response.ok).toBe(true);
 
 			// Verify the file was written
-			const readResponse = await fetch(`${APP_URL}/p/${projectId}/api/file?path=/test-file.js`);
+			const readResponse = await fetch(`${BASE_URL}/p/${projectId}/api/file?path=/test-file.js`);
 			const readResult: { content: string } = await readResponse.json();
 			expect(readResult.content).toBe(testContent);
 		});
 
 		it('DELETE /api/file?path= deletes a file', async () => {
 			// Create a file to delete
-			await fetch(`${APP_URL}/p/${projectId}/api/file`, {
+			await fetch(`${BASE_URL}/p/${projectId}/api/file`, {
 				method: 'PUT',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ path: '/to-delete.txt', content: 'delete me' }),
 			});
 
-			const deleteResponse = await fetch(`${APP_URL}/p/${projectId}/api/file?path=/to-delete.txt`, {
+			const deleteResponse = await fetch(`${BASE_URL}/p/${projectId}/api/file?path=/to-delete.txt`, {
 				method: 'DELETE',
 			});
 
 			expect(deleteResponse.ok).toBe(true);
 
 			// Verify the file is gone
-			const readResponse = await fetch(`${APP_URL}/p/${projectId}/api/file?path=/to-delete.txt`);
+			const readResponse = await fetch(`${BASE_URL}/p/${projectId}/api/file?path=/to-delete.txt`);
 			expect(readResponse.ok).toBe(false);
 		});
 	});

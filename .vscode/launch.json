@@ -15,7 +15,7 @@
 			"name": "Debug in Chrome (Client)",
 			"type": "chrome",
 			"request": "launch",
-			"url": "http://app.localhost:3000",
+			"url": "http://localhost:3000",
 			"webRoot": "${workspaceFolder}/src",
 			"sourceMaps": true
 		},

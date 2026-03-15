@@ -2,8 +2,8 @@
  * Worker IDE - Main Entry Point
  *
  * Routing is split by subdomain:
- * - `app.<baseDomain>`                       → IDE (SPA, API, WebSocket)
- * - `<encoded-id>.preview.<baseDomain>`      → Live preview of user projects
+ * - `<baseDomain>`                          → App (SPA, API, WebSocket)
+ * - `<encoded-id>.preview.<baseDomain>`     → Live preview of user projects
  *
  * The base domain is derived at runtime from the Host header.
  */
@@ -13,7 +13,7 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { mount, withMounts } from 'worker-fs-mount';
 
-import { buildIdeOrigin, parseHost } from '@shared/domain';
+import { buildAppOrigin, parseHost } from '@shared/domain';
 import { generateHumanId } from '@shared/human-id';
 
 import { coordinatorNamespace, filesystemNamespace } from './lib/durable-object-namespaces';
@@ -127,20 +127,17 @@ function isDevelopmentInfrastructurePath(pathname: string): boolean {
 
 /**
  * Handle all requests on `<encoded-id>.preview.<baseDomain>`.
- *
  * The request path maps directly to the user's project filesystem.
  */
 async function handlePreviewRequest(request: Request, projectId: string): Promise<Response> {
 	const url = new URL(request.url);
 
-	// Delegate IDE dev infrastructure requests to the asset pipeline
-	// so they don't hit the project filesystem and cause ENOENT errors.
 	if (isDevelopmentInfrastructurePath(url.pathname)) {
 		return env.ASSETS.fetch(request);
 	}
-	const ideOrigin = buildIdeOrigin(parseHost(url.host).baseDomain, url.protocol);
+	const appOrigin = buildAppOrigin(parseHost(url.host).baseDomain, url.protocol);
 
-	const homeUrl = `${ideOrigin}/`;
+	const homeUrl = `${appOrigin}/`;
 
 	let fsId: DurableObjectId;
 	try {
@@ -154,8 +151,6 @@ async function handlePreviewRequest(request: Request, projectId: string): Promis
 		});
 	}
 
-	// Stateless existence check — queries SQLite directly without creating
-	// any tables or rows if the project was never initialized.
 	const fsStub = filesystemNamespace.get(fsId);
 	if (!(await fsStub.projectExists())) {
 		return errorPage({
@@ -170,7 +165,6 @@ async function handlePreviewRequest(request: Request, projectId: string): Promis
 		mount(PROJECT_ROOT, fsStub);
 		await fsStub.refreshExpiration();
 
-		// WebSocket endpoint for HMR
 		if (url.pathname === '/__ws' || url.pathname.startsWith('/__ws')) {
 			const coordinatorId = coordinatorNamespace.idFromName(`project:${projectId}`);
 			const coordinatorStub = coordinatorNamespace.get(coordinatorId);
@@ -182,7 +176,6 @@ async function handlePreviewRequest(request: Request, projectId: string): Promis
 		const previewService = getPreviewService(PROJECT_ROOT, projectId);
 		const assetSettings = await previewService.loadAssetSettings();
 
-		// Route to user's backend worker code
 		if (url.pathname.startsWith('/api/')) {
 			return previewService.handlePreviewAPI(request, url.pathname);
 		}
@@ -191,8 +184,7 @@ async function handlePreviewRequest(request: Request, projectId: string): Promis
 			return previewService.handlePreviewAPI(request, url.pathname);
 		}
 
-		// Serve static file — no path prefix needed
-		return previewService.serveFile(request, ideOrigin, assetSettings);
+		return previewService.serveFile(request, appOrigin, assetSettings);
 	});
 }
 
@@ -262,7 +254,6 @@ app.post('/api/clone-project', async (c) => {
 		return c.json({ error: 'Invalid source project ID.' }, 400);
 	}
 
-	// Stateless check: verify source project exists before mounting anything
 	const sourceStub = filesystemNamespace.get(sourceId);
 	if (!(await sourceStub.projectExists())) {
 		return c.json({ error: 'Source project not found or not initialized' }, 404);
@@ -343,23 +334,19 @@ app.all('/p/:projectId/*', async (c) => {
 	try {
 		fsId = filesystemNamespace.idFromString(projectId);
 	} catch {
-		// Invalid Durable Object ID — not a project created by this app.
-		// For API/WS routes, return 404. For page navigations, serve the SPA
-		// which will show the ProjectNotFound component via ProjectGate.
+		// Invalid Durable Object ID — for API/WS routes, return 404.
+		// For page navigations, serve the SPA (shows ProjectNotFound via ProjectGate).
 		if (subPath.startsWith('/api/') || subPath === '/__ws' || subPath.startsWith('/__ws')) {
 			return c.notFound();
 		}
 		return env.ASSETS.fetch(new Request(new URL('/', c.req.url), c.req.raw));
 	}
 
-	// Only API and WebSocket routes hit the worker — everything else is the SPA
 	const isBackendRoute = subPath.startsWith('/api/') || subPath === '/__ws' || subPath.startsWith('/__ws');
 	if (!isBackendRoute) {
 		return env.ASSETS.fetch(new Request(new URL('/', c.req.url), c.req.raw));
 	}
 
-	// Stateless existence check — queries SQLite directly without creating
-	// any tables or rows if the project was never initialized.
 	const fsStub = filesystemNamespace.get(fsId);
 	if (!(await fsStub.projectExists())) {
 		return c.notFound();
@@ -369,7 +356,6 @@ app.all('/p/:projectId/*', async (c) => {
 		mount(PROJECT_ROOT, fsStub);
 		await fsStub.refreshExpiration();
 
-		// WebSocket endpoint
 		if (subPath === '/__ws' || subPath.startsWith('/__ws')) {
 			const coordinatorId = coordinatorNamespace.idFromName(`project:${projectId}`);
 			const coordinatorStub = coordinatorNamespace.get(coordinatorId);
@@ -378,7 +364,6 @@ app.all('/p/:projectId/*', async (c) => {
 			return coordinatorStub.fetch(new Request(wsUrl, c.req.raw));
 		}
 
-		// API routes
 		const projectApp = new Hono<AppEnvironment>();
 
 		projectApp.use('*', async (context, innerNext) => {
@@ -416,28 +401,16 @@ export default {
 		const parsed = parseHost(url.host);
 
 		switch (parsed.type) {
-			// Preview subdomain: <encoded-id>.preview.<baseDomain>
 			case 'preview': {
 				return handlePreviewRequest(request, parsed.projectId);
 			}
 
-			// Bare domain — root-level APIs (/api/*) are handled by the Hono
-			// app; everything else serves static assets (landing page).
-			case 'landing': {
-				if (url.pathname.startsWith('/api/')) {
-					return app.fetch(request, environment, executionContext);
-				}
-				return env.ASSETS.fetch(request);
-			}
-
-			// IDE routes (app.<baseDomain>)
-			case 'ide': {
+			case 'app': {
 				return app.fetch(request, environment, executionContext);
 			}
 
-			// Unknown subdomain → 404
 			case 'unknown': {
-				const homeUrl = `${url.protocol}//app.${parsed.baseDomain}/`;
+				const homeUrl = `${url.protocol}//${parsed.baseDomain}/`;
 				return errorPage({
 					heading: 'Page not found',
 					message: "The page you're looking for doesn't exist.",

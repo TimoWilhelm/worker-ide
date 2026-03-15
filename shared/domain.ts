@@ -2,8 +2,7 @@
  * Domain parsing and preview URL utilities.
  *
  * Subdomain layout:
- * - Landing: <baseDomain>                        (localhost:3000, example.com)
- * - IDE:     app.<baseDomain>                    (app.localhost:3000)
+ * - App:     <baseDomain>                        (localhost:3000, example.com)
  * - Preview: <encoded-id>.preview.<baseDomain>   (x7f3k2.preview.localhost:3000)
  *
  * Project IDs are 64-char hex strings (Durable Object IDs). For DNS-safe
@@ -25,8 +24,7 @@ const SINGLE_SEGMENT_HOSTS = new Set(['localhost']);
 
 type ParsedHost =
 	| { type: 'preview'; projectId: string; baseDomain: string }
-	| { type: 'ide'; baseDomain: string }
-	| { type: 'landing'; baseDomain: string }
+	| { type: 'app'; baseDomain: string }
 	| { type: 'unknown'; baseDomain: string };
 
 // -- Base36 encoding ----------------------------------------------------------
@@ -38,7 +36,6 @@ export function encodeProjectId(hex: string): string {
 
 /** Decode a base36-encoded project ID back to a 64-char hex string. */
 export function decodeProjectId(encoded: string): string {
-	// BigInt doesn't have a native parseRadix — convert via digit accumulation
 	let value = 0n;
 	for (const char of encoded) {
 		const digit = Number.parseInt(char, 36);
@@ -71,8 +68,7 @@ function getBaseDomainSegmentCount(parts: string[]): number {
  * Parse a hostname to determine its routing role.
  *
  * Detection logic after extracting the base domain:
- * - No subdomain               → landing
- * - "app"                      → IDE
+ * - No subdomain               → app (dashboard + IDE)
  * - "<encoded>.preview"        → preview (decoded to 64-char hex)
  * - Anything else              → unknown
  */
@@ -81,18 +77,14 @@ export function parseHost(host: string): ParsedHost {
 	const baseSegments = getBaseDomainSegmentCount(parts);
 
 	if (parts.length < baseSegments) {
-		return { type: 'landing', baseDomain: host };
+		return { type: 'app', baseDomain: host };
 	}
 
 	const baseDomain = parts.slice(-baseSegments).join('.');
 	const subdomainParts = parts.slice(0, -baseSegments);
 
 	if (subdomainParts.length === 0) {
-		return { type: 'landing', baseDomain };
-	}
-
-	if (subdomainParts.length === 1 && subdomainParts[0] === 'app') {
-		return { type: 'ide', baseDomain };
+		return { type: 'app', baseDomain };
 	}
 
 	if (subdomainParts.length === 2 && subdomainParts[1] === 'preview' && isValidEncodedId(subdomainParts[0])) {
@@ -108,12 +100,12 @@ export function getBaseDomain(host: string): string {
 	return parseHost(host).baseDomain;
 }
 
-export function buildPreviewOrigin(projectId: string, baseDomain: string, protocol = 'https:'): string {
-	return `${protocol}//${encodeProjectId(projectId)}.preview.${baseDomain}`;
+export function buildAppOrigin(baseDomain: string, protocol = 'https:'): string {
+	return `${protocol}//${baseDomain}`;
 }
 
-export function buildIdeOrigin(baseDomain: string, protocol = 'https:'): string {
-	return `${protocol}//app.${baseDomain}`;
+export function buildPreviewOrigin(projectId: string, baseDomain: string, protocol = 'https:'): string {
+	return `${protocol}//${encodeProjectId(projectId)}.preview.${baseDomain}`;
 }
 
 export function isPreviewOrigin(origin: string, baseDomain: string): boolean {

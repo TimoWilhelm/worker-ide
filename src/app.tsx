@@ -4,8 +4,7 @@
  * Sets up global providers (React Query, error boundaries) and routes.
  *
  * Routing is driven by the subdomain (host type):
- * - Bare domain  → landing page with "Open App" link
- * - app.*        → IDE: `/` shows dashboard, `/p/<hex64>` shows project
+ * - Bare domain  → dashboard at `/`, project IDE at `/p/<hex64>`
  * - preview.*    → handled entirely by the worker (never loads the SPA)
  */
 
@@ -15,7 +14,6 @@ import { Suspense, use, useEffect, useState } from 'react';
 
 import { ErrorBoundary } from '@/components/error-boundary';
 import { IDEShell } from '@/components/ide-shell';
-import { LandingPage } from '@/components/landing-page';
 import { NotFoundPage } from '@/components/not-found-page';
 import { OfflineBanner } from '@/components/offline-banner';
 import { ProjectNotFound } from '@/components/project-not-found';
@@ -130,16 +128,8 @@ function ErrorFallback({ error, resetErrorBoundary }: { error: Error; resetError
 // Routing
 // =============================================================================
 
-/**
- * Determine the host type once at module load.
- * This drives top-level routing decisions in the SPA.
- */
 const hostType = parseHost(globalThis.location.host).type;
 
-/**
- * Extract a project ID from the current URL path.
- * Returns undefined if not on a project route.
- */
 function getProjectIdFromUrl(): string | undefined {
 	const path = globalThis.location.pathname;
 	const match = path.match(/^\/p\/([a-f0-9]{64})/i);
@@ -178,7 +168,6 @@ function checkProjectExists(projectId: string): Promise<boolean> {
 /**
  * Gate component that verifies a project exists before mounting the full IDE.
  * Uses React 19 `use()` to suspend until the existence check resolves.
- * Suspense shows the loading spinner; IDEShell only mounts for valid projects.
  */
 function ProjectGate({ projectId }: { projectId: string }) {
 	const exists = use(checkProjectExists(projectId));
@@ -192,8 +181,7 @@ function ProjectGate({ projectId }: { projectId: string }) {
 
 /**
  * Wrapper that tracks the project in recent projects only after
- * we've confirmed it exists. This prevents invalid/nonexistent
- * project IDs from polluting the recent projects list.
+ * we've confirmed it exists.
  */
 function ValidProject({ projectId }: { projectId: string }) {
 	useEffect(() => {
@@ -206,8 +194,7 @@ function ValidProject({ projectId }: { projectId: string }) {
 function AppContent() {
 	const [projectId] = useState(getProjectIdFromUrl);
 
-	// IDE — app.<baseDomain>
-	if (hostType === 'ide') {
+	if (hostType === 'app') {
 		if (projectId) {
 			return (
 				<Suspense fallback={<LoadingFallback />}>
@@ -216,7 +203,6 @@ function AppContent() {
 			);
 		}
 
-		// app.<baseDomain>/ — dashboard (template selection, recent projects)
 		const path = globalThis.location.pathname;
 		if (path === '/' || path === '') {
 			return (
@@ -226,16 +212,9 @@ function AppContent() {
 			);
 		}
 
-		// Unknown path on app subdomain
 		return <NotFoundPage />;
 	}
 
-	// Bare domain — landing page
-	if (hostType === 'landing') {
-		return <LandingPage />;
-	}
-
-	// Any other host type (unknown, preview served by worker directly)
 	return <NotFoundPage />;
 }
 

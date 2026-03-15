@@ -2,17 +2,11 @@
  * Frontend origin utilities for subdomain URLs and cross-origin message validation.
  */
 
-import { buildIdeOrigin, buildPreviewOrigin, getBaseDomain, isPreviewOrigin } from '@shared/domain';
+import { buildPreviewOrigin, getBaseDomain, isPreviewOrigin } from '@shared/domain';
 
-/** Get the IDE app origin (e.g., `http://app.localhost:3000`). */
-export function getIdeOrigin(): string {
-	const { protocol, host } = globalThis.location;
-	return buildIdeOrigin(getBaseDomain(host), protocol);
-}
-
-/** Get the full IDE URL for a project. */
-export function getIdeProjectUrl(projectId: string): string {
-	return `${getIdeOrigin()}/p/${projectId}`;
+/** Get the URL path for a project (same-origin navigation). */
+export function getProjectUrl(projectId: string): string {
+	return `/p/${projectId}`;
 }
 
 /** Get the preview origin for a project (e.g., `http://<encoded>.preview.localhost:3000`). */
