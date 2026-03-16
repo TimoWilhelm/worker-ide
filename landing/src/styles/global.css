@@ -1,0 +1,277 @@
+@import 'tailwindcss';
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ── Design tokens ─────────────────────────────────────── */
+@theme {
+	--color-bg-primary: #fffdfb;
+	--color-bg-secondary: #fffbf5;
+	--color-bg-tertiary: #fef7ed;
+	--color-border: #ebd5c180;
+	--color-border-solid: #ebd5c1;
+	--color-text-primary: #521000;
+	--color-text-secondary: #52100090;
+	--color-accent: #ff4801;
+	--color-accent-hover: #ff7038;
+	--color-success: #15a800;
+	--color-warning: #d97706;
+	--color-error: #e93e3e;
+
+	--color-selection-bg: #ffe9e0;
+	--color-selection-text: #ff500a;
+
+	--font-sans: 'Space Grotesk', sans-serif;
+	--font-mono: 'Space Mono', monospace;
+
+	/* Orchestrated page-load animations */
+	--animate-reveal-1: reveal 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.05s both;
+	--animate-reveal-2: reveal 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.15s both;
+	--animate-reveal-3: reveal 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.25s both;
+	--animate-reveal-4: reveal 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.35s both;
+	--animate-reveal-5: reveal 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.45s both;
+	--animate-reveal-6: reveal 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.55s both;
+	--animate-reveal-7: reveal 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.7s both;
+
+	/* Infinite ambient animations */
+	--animate-float: float 6s ease-in-out infinite;
+	--animate-glow-pulse: glow-pulse 3s ease-in-out infinite;
+	--animate-border-beam: border-beam 4s linear infinite;
+}
+
+/* ── Dark mode overrides ───────────────────────────────── */
+.dark {
+	--color-bg-primary: #121212;
+	--color-bg-secondary: #191817;
+	--color-bg-tertiary: #2a2927;
+	--color-border: #f0e3de20;
+	--color-border-solid: #302c2a;
+	--color-text-primary: #f0e3de;
+	--color-text-secondary: #fffdfb90;
+	--color-accent: #f14602;
+	--color-accent-hover: #ff6d33;
+	--color-success: #5eff3a;
+	--color-warning: #ffc84d;
+	--color-error: #ff5e5e;
+
+	--color-selection-bg: #3d1f0f;
+	--color-selection-text: #ff7038;
+}
+
+/* ── Base styles ───────────────────────────────────────── */
+html {
+	scroll-behavior: smooth;
+}
+
+body {
+	font-family: var(--font-sans);
+	background: var(--color-bg-primary);
+	color: var(--color-text-primary);
+	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
+}
+
+::selection {
+	background: var(--color-selection-bg);
+	color: var(--color-selection-text);
+}
+
+:focus-visible {
+	outline: 2px solid var(--color-accent-hover);
+	outline-offset: 2px;
+}
+
+/* ── Scrollbar ─────────────────────────────────────────── */
+::-webkit-scrollbar {
+	width: 6px;
+	height: 6px;
+}
+
+::-webkit-scrollbar-track {
+	background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+	background: var(--color-border-solid);
+	border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+	background: var(--color-text-secondary);
+}
+
+* {
+	scrollbar-width: thin;
+	scrollbar-color: var(--color-border-solid) transparent;
+}
+
+/* ── Keyframes ─────────────────────────────────────────── */
+
+/* Staggered page-load reveal (slide up + fade) */
+@keyframes reveal {
+	from {
+		opacity: 0;
+		transform: translateY(24px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
+/* Gentle floating oscillation */
+@keyframes float {
+	0%,
+	100% {
+		transform: translateY(0);
+	}
+	50% {
+		transform: translateY(-6px);
+	}
+}
+
+/* CTA glow pulse */
+@keyframes glow-pulse {
+	0%,
+	100% {
+		box-shadow:
+			0 0 20px color-mix(in srgb, var(--color-accent) 25%, transparent),
+			0 0 60px color-mix(in srgb, var(--color-accent) 8%, transparent);
+	}
+	50% {
+		box-shadow:
+			0 0 30px color-mix(in srgb, var(--color-accent) 40%, transparent),
+			0 0 80px color-mix(in srgb, var(--color-accent) 15%, transparent);
+	}
+}
+
+/* Rotating border beam (uses CSS Houdini @property) */
+@keyframes border-beam {
+	from {
+		--border-beam-angle: 0deg;
+	}
+	to {
+		--border-beam-angle: 360deg;
+	}
+}
+
+/* Scroll-triggered reveal for cards */
+@keyframes scroll-reveal {
+	from {
+		opacity: 0;
+		transform: translateY(32px) scale(0.97);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0) scale(1);
+	}
+}
+
+/* Shimmer sweep for card hover */
+@keyframes shimmer {
+	from {
+		transform: translateX(-100%);
+	}
+	to {
+		transform: translateX(100%);
+	}
+}
+
+/* ── CSS Houdini property for border beam ──────────────── */
+@property --border-beam-angle {
+	syntax: '<angle>';
+	inherits: false;
+	initial-value: 0deg;
+}
+
+/* ── Border beam utility ───────────────────────────────── */
+.border-beam {
+	position: relative;
+	overflow: hidden;
+}
+
+.border-beam::before {
+	content: '';
+	position: absolute;
+	inset: 0;
+	border-radius: inherit;
+	padding: 1.5px;
+	background: conic-gradient(
+		from var(--border-beam-angle),
+		transparent 0%,
+		transparent 70%,
+		var(--color-accent) 85%,
+		var(--color-accent-hover) 92%,
+		transparent 100%
+	);
+	animation: var(--animate-border-beam);
+	mask:
+		linear-gradient(#fff 0 0) content-box,
+		linear-gradient(#fff 0 0);
+	mask-composite: exclude;
+}
+
+/* ── Grain overlay texture ─────────────────────────────── */
+.grain::after {
+	content: '';
+	position: absolute;
+	inset: 0;
+	pointer-events: none;
+	opacity: 0.035;
+	mix-blend-mode: overlay;
+	background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+	background-size: 200px 200px;
+}
+
+/* ── Geometric grid background ─────────────────────────── */
+.geo-grid {
+	background-image:
+		linear-gradient(
+			color-mix(in srgb, var(--color-accent) 6%, transparent) 1px,
+			transparent 1px
+		),
+		linear-gradient(
+			90deg,
+			color-mix(in srgb, var(--color-accent) 6%, transparent) 1px,
+			transparent 1px
+		);
+	background-size: 60px 60px;
+}
+
+/* ── Scroll-triggered reveal ───────────────────────────── */
+.scroll-reveal {
+	opacity: 0;
+	transform: translateY(32px) scale(0.97);
+	transition:
+		opacity 0.6s cubic-bezier(0.16, 1, 0.3, 1),
+		transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.scroll-reveal.visible {
+	opacity: 1;
+	transform: translateY(0) scale(1);
+}
+
+/* ── Shimmer hover effect on cards ─────────────────────── */
+.shimmer-card {
+	position: relative;
+	overflow: hidden;
+}
+
+.shimmer-card::after {
+	content: '';
+	position: absolute;
+	inset: 0;
+	background: linear-gradient(
+		110deg,
+		transparent 25%,
+		color-mix(in srgb, var(--color-accent) 5%, transparent) 50%,
+		transparent 75%
+	);
+	transform: translateX(-100%);
+	transition: none;
+	pointer-events: none;
+}
+
+.shimmer-card:hover::after {
+	animation: shimmer 0.8s ease-out;
+}

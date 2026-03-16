@@ -1,0 +1,183 @@
+---
+const appUrl = 'https://codemaxxing.app';
+---
+
+<section class="relative overflow-hidden pt-32 pb-24 sm:pt-44 sm:pb-32">
+	<!-- ── Atmospheric background layers ──────────────── -->
+	<div
+		class="pointer-events-none absolute inset-0 overflow-hidden"
+		aria-hidden="true"
+	>
+		<!-- Geometric grid -->
+		<div class="geo-grid absolute inset-0 opacity-40"></div>
+
+		<!-- Radial fire glow from bottom center -->
+		<div
+			class="absolute inset-x-0 -bottom-1/3 h-[80%]"
+			style="background: radial-gradient(ellipse 70% 50% at 50% 100%, color-mix(in srgb, var(--color-accent) 12%, transparent) 0%, transparent 70%);"
+		>
+		</div>
+
+		<!-- Offset accent orb — top right -->
+		<div
+			class="absolute -top-20 -right-32 h-[500px] w-[500px] rounded-full opacity-20 blur-[120px]"
+			style="background: var(--color-accent);"
+		>
+		</div>
+
+		<!-- Grain texture -->
+		<div class="grain absolute inset-0"></div>
+
+		<!-- Vignette -->
+		<div
+			class="absolute inset-0"
+			style="background: radial-gradient(ellipse at center, transparent 50%, var(--color-bg-primary) 100%);"
+		>
+		</div>
+	</div>
+
+	<div class="relative mx-auto max-w-5xl px-6">
+		<!-- Badge -->
+		<div class="mb-10 flex justify-center animate-reveal-1">
+			<span
+				class="inline-flex items-center gap-2.5 rounded-full border border-border bg-bg-secondary/40 px-4 py-1.5 text-xs font-medium tracking-wide text-text-secondary backdrop-blur-sm"
+			>
+				<span class="relative flex h-2 w-2">
+					<span
+						class="absolute inline-flex h-full w-full animate-ping rounded-full bg-success opacity-60"
+					></span>
+					<span
+						class="relative inline-flex h-2 w-2 rounded-full bg-success"
+					></span>
+				</span>
+				Powered by Cloudflare Workers
+			</span>
+		</div>
+
+		<!-- Headline — staggered lines -->
+		<div class="text-center">
+			<h1
+				class="text-4xl leading-[1.1] font-bold tracking-tight sm:text-5xl md:text-6xl lg:text-7xl"
+			>
+				<span class="block animate-reveal-2">Code, Build & Deploy</span>
+				<span
+					class="mt-2 block animate-reveal-3 text-accent sm:mt-3"
+					style="text-shadow: 0 0 60px color-mix(in srgb, var(--color-accent) 25%, transparent);"
+				>
+					from your browser
+				</span>
+			</h1>
+		</div>
+
+		<!-- Subtitle -->
+		<p
+			class="mx-auto mt-7 max-w-2xl text-center text-lg leading-relaxed text-text-secondary animate-reveal-4 sm:text-xl"
+		>
+			A full-featured cloud IDE with real-time collaboration, AI assistant,
+			and instant preview. No setup required — just open and start building.
+		</p>
+
+		<!-- CTA buttons -->
+		<div
+			class="mt-12 flex flex-col items-center justify-center gap-4 animate-reveal-5 sm:flex-row"
+		>
+			<!-- Primary CTA with border beam -->
+			<a
+				href={appUrl}
+				class="border-beam inline-flex items-center gap-2 rounded-full bg-accent px-8 py-3.5 text-base font-bold text-white animate-glow-pulse transition-all hover:brightness-110"
+			>
+				Start Building
+				<svg
+					xmlns="http://www.w3.org/2000/svg"
+					width="18"
+					height="18"
+					viewBox="0 0 24 24"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="2.5"
+					stroke-linecap="round"
+					stroke-linejoin="round"
+				>
+					<path d="M5 12h14"></path>
+					<path d="m12 5 7 7-7 7"></path>
+				</svg>
+			</a>
+
+			<!-- Secondary CTA — frosted glass -->
+			<a
+				href="#features"
+				class="inline-flex items-center gap-2 rounded-full border border-border bg-bg-secondary/40 px-8 py-3.5 text-base font-semibold backdrop-blur-sm transition-all hover:border-accent/40 hover:bg-bg-secondary/60"
+			>
+				See Features
+			</a>
+		</div>
+
+		<!-- Editor preview mock — floating, frosted, with border beam -->
+		<div class="mt-20 animate-reveal-7">
+			<div class="border-beam mx-auto max-w-4xl animate-float rounded-xl">
+				<div
+					class="overflow-hidden rounded-xl border border-border bg-bg-secondary/60 backdrop-blur-md"
+				>
+					<!-- Title bar -->
+					<div
+						class="flex items-center gap-2 border-b border-border bg-bg-tertiary/60 px-4 py-2.5"
+					>
+						<div class="flex gap-1.5">
+							<div class="h-2.5 w-2.5 rounded-full bg-error/50"
+							></div>
+							<div class="h-2.5 w-2.5 rounded-full bg-warning/50"
+							></div>
+							<div class="h-2.5 w-2.5 rounded-full bg-success/50"
+							></div>
+						</div>
+						<span
+							class="ml-2 font-mono text-[11px] text-text-secondary"
+							>index.tsx — Codemaxxing</span
+						>
+					</div>
+
+					<!-- Code area -->
+					<div
+						class="p-6 text-left font-mono text-sm leading-relaxed"
+					>
+						<div>
+							<span class="text-accent">export default</span>
+							<span class="text-text-secondary"> {</span>
+						</div>
+						<div class="pl-6">
+							<span class="text-success">async</span>
+							<span class="text-text-primary"> fetch</span><span
+								class="text-text-secondary">(</span
+							><span class="text-warning">request</span><span
+								class="text-text-secondary">,</span
+							>
+							<span class="text-warning">env</span><span
+								class="text-text-secondary">)</span
+							>
+							<span class="text-text-secondary"> {</span>
+						</div>
+						<div class="pl-12">
+							<span class="text-accent">return new</span>
+							<span class="text-text-primary"> Response</span
+							><span class="text-text-secondary">(</span>
+						</div>
+						<div class="pl-16">
+							<span class="text-success"
+								>&quot;Hello from the edge!&quot;</span
+							>
+						</div>
+						<div class="pl-12">
+							<span class="text-text-secondary">);</span>
+						</div>
+						<div class="pl-6">
+							<span class="text-text-secondary">}</span>
+						</div>
+						<div>
+							<span class="text-text-secondary">};</span>
+						</div>
+					</div>
+				</div>
+			</div>
+		</div>
+	</div>
+</section>

@@ -1,0 +1,21 @@
+---
+import CtaSection from '../components/cta-section.astro';
+import Features from '../components/features.astro';
+import Footer from '../components/footer.astro';
+import Header from '../components/header.astro';
+import Hero from '../components/hero.astro';
+import BaseLayout from '../layouts/base-layout.astro';
+---
+
+<BaseLayout
+	title="Codemaxxing — Cloud IDE for Cloudflare Workers"
+	description="A full-featured cloud IDE with real-time collaboration, AI assistant, and instant preview. Build and deploy to Cloudflare Workers from your browser."
+>
+	<Header />
+	<main>
+		<Hero />
+		<Features />
+		<CtaSection />
+	</main>
+	<Footer />
+</BaseLayout>

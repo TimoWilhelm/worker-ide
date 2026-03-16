@@ -156,7 +156,8 @@ export async function execute(
 
 		const response = await fetch(fetchUrl, {
 			headers: {
-				'User-Agent': 'WorkerIDE-Agent/1.0',
+				'User-Agent':
+					'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; Codemaxxing.ai-Agent/1.0) Chrome/131.0.6778.135 Safari/537.36',
 				Accept: 'text/markdown, text/html',
 			},
 			signal: AbortSignal.timeout(10_000),

@@ -3,8 +3,36 @@ name: CI
 on:
   push:
     branches: [main]
+    paths:
+      - 'src/**'
+      - 'worker/**'
+      - 'shared/**'
+      - 'auxiliary/**'
+      - 'test/**'
+      - 'public/**'
+      - '.storybook/**'
+      - '*.ts'
+      - '*.json'
+      - '*.js'
+      - 'bun.lock'
+      - '.github/workflows/ci.yml'
+      - '.github/workflows/deploy.yml'
   pull_request:
     branches: [main]
+    paths:
+      - 'src/**'
+      - 'worker/**'
+      - 'shared/**'
+      - 'auxiliary/**'
+      - 'test/**'
+      - 'public/**'
+      - '.storybook/**'
+      - '*.ts'
+      - '*.json'
+      - '*.js'
+      - 'bun.lock'
+      - '.github/workflows/ci.yml'
+      - '.github/workflows/deploy.yml'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -38,8 +66,10 @@ jobs:
         id: cache-modules
         uses: actions/cache@v4
         with:
-          path: node_modules
-          key: ${{ runner.os }}-modules-${{ hashFiles('bun.lock') }}
+          path: |
+            node_modules
+            landing/node_modules
+          key: ${{ runner.os }}-modules-v2-${{ hashFiles('bun.lock') }}
 
       - name: Install dependencies
         if: steps.cache-modules.outputs.cache-hit != 'true'
@@ -70,8 +100,10 @@ jobs:
       - name: Restore node_modules
         uses: actions/cache@v4
         with:
-          path: node_modules
-          key: ${{ runner.os }}-modules-${{ hashFiles('bun.lock') }}
+          path: |
+            node_modules
+            landing/node_modules
+          key: ${{ runner.os }}-modules-v2-${{ hashFiles('bun.lock') }}
           fail-on-cache-miss: true
 
       - name: Run lint
@@ -95,8 +127,10 @@ jobs:
       - name: Restore node_modules
         uses: actions/cache@v4
         with:
-          path: node_modules
-          key: ${{ runner.os }}-modules-${{ hashFiles('bun.lock') }}
+          path: |
+            node_modules
+            landing/node_modules
+          key: ${{ runner.os }}-modules-v2-${{ hashFiles('bun.lock') }}
           fail-on-cache-miss: true
 
       - name: Cache turbo
@@ -128,8 +162,10 @@ jobs:
       - name: Restore node_modules
         uses: actions/cache@v4
         with:
-          path: node_modules
-          key: ${{ runner.os }}-modules-${{ hashFiles('bun.lock') }}
+          path: |
+            node_modules
+            landing/node_modules
+          key: ${{ runner.os }}-modules-v2-${{ hashFiles('bun.lock') }}
           fail-on-cache-miss: true
 
       - name: Run Knip
@@ -159,8 +195,10 @@ jobs:
       - name: Restore node_modules
         uses: actions/cache@v4
         with:
-          path: node_modules
-          key: ${{ runner.os }}-modules-${{ hashFiles('bun.lock') }}
+          path: |
+            node_modules
+            landing/node_modules
+          key: ${{ runner.os }}-modules-v2-${{ hashFiles('bun.lock') }}
           fail-on-cache-miss: true
 
       - name: Create dist directory
@@ -196,8 +234,10 @@ jobs:
       - name: Restore node_modules
         uses: actions/cache@v4
         with:
-          path: node_modules
-          key: ${{ runner.os }}-modules-${{ hashFiles('bun.lock') }}
+          path: |
+            node_modules
+            landing/node_modules
+          key: ${{ runner.os }}-modules-v2-${{ hashFiles('bun.lock') }}
           fail-on-cache-miss: true
 
       - name: Run React tests
@@ -226,8 +266,10 @@ jobs:
       - name: Restore node_modules
         uses: actions/cache@v4
         with:
-          path: node_modules
-          key: ${{ runner.os }}-modules-${{ hashFiles('bun.lock') }}
+          path: |
+            node_modules
+            landing/node_modules
+          key: ${{ runner.os }}-modules-v2-${{ hashFiles('bun.lock') }}
           fail-on-cache-miss: true
 
       - name: Cache Playwright
@@ -268,8 +310,10 @@ jobs:
       - name: Restore node_modules
         uses: actions/cache@v4
         with:
-          path: node_modules
-          key: ${{ runner.os }}-modules-${{ hashFiles('bun.lock') }}
+          path: |
+            node_modules
+            landing/node_modules
+          key: ${{ runner.os }}-modules-v2-${{ hashFiles('bun.lock') }}
           fail-on-cache-miss: true
 
       - name: Start dev server
@@ -321,8 +365,10 @@ jobs:
       - name: Restore node_modules
         uses: actions/cache@v4
         with:
-          path: node_modules
-          key: ${{ runner.os }}-modules-${{ hashFiles('bun.lock') }}
+          path: |
+            node_modules
+            landing/node_modules
+          key: ${{ runner.os }}-modules-v2-${{ hashFiles('bun.lock') }}
           fail-on-cache-miss: true
 
       - name: Cache Playwright

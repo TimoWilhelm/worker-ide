@@ -27,6 +27,36 @@
 					"endsPattern": ".*Storybook ready!.*"
 				}
 			}
+		},
+		{
+			"label": "landing-dev",
+			"type": "shell",
+			"command": "bun",
+			"args": ["run", "dev"],
+			"options": {
+				"cwd": "${workspaceFolder}/landing"
+			},
+			"group": {
+				"kind": "build"
+			},
+			"presentation": {
+				"group": "run",
+				"reveal": "always",
+				"focus": false,
+				"panel": "dedicated"
+			},
+			"isBackground": true,
+			"problemMatcher": {
+				"owner": "custom",
+				"pattern": {
+					"regexp": "^$"
+				},
+				"background": {
+					"activeOnStart": true,
+					"beginsPattern": ".*watching for file changes.*",
+					"endsPattern": ".*astro.*ready.*"
+				}
+			}
 		}
 	]
 }

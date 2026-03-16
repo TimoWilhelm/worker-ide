@@ -14,5 +14,6 @@
 		"shared/ws-messages.ts",
 		"src/components/ui/index.ts",
 		"worker/lib/preview-scripts/*.js"
-	]
+	],
+	"ignoreWorkspaces": ["landing"]
 }

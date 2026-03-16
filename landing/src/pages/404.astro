@@ -1,0 +1,51 @@
+---
+import BaseLayout from '../layouts/base-layout.astro';
+
+const appUrl = 'https://codemaxxing.app';
+---
+
+<BaseLayout
+	title="Page Not Found — Codemaxxing"
+	description="The page you are looking for does not exist."
+>
+	<div
+		class="relative flex min-h-screen flex-col items-center justify-center px-6 text-center"
+	>
+		<!-- Background glow -->
+		<div
+			class="pointer-events-none absolute inset-0"
+			aria-hidden="true"
+			style="background: radial-gradient(ellipse 50% 40% at 50% 50%, color-mix(in srgb, var(--color-accent) 6%, transparent) 0%, transparent 70%);"
+		>
+		</div>
+
+		<div class="grain absolute inset-0 pointer-events-none" aria-hidden="true"></div>
+
+		<div class="relative">
+			<p
+				class="font-mono text-8xl font-bold text-accent"
+				style="text-shadow: 0 0 80px color-mix(in srgb, var(--color-accent) 30%, transparent);"
+			>
+				404
+			</p>
+			<p class="mt-4 text-lg text-text-secondary">
+				This page doesn&apos;t exist.
+			</p>
+			<div class="mt-8 flex items-center justify-center gap-4">
+				<a
+					href="/"
+					class="inline-flex items-center gap-2 rounded-full border border-border bg-bg-secondary/40 px-6 py-2.5 text-sm font-semibold backdrop-blur-sm transition-all hover:border-accent/40 hover:bg-bg-secondary/60"
+				>
+					Back to Home
+				</a>
+				<a
+					href={appUrl}
+					class="inline-flex items-center gap-2 rounded-full bg-accent px-6 py-2.5 text-sm font-semibold text-white transition-all hover:brightness-110"
+					style="box-shadow: 0 0 20px color-mix(in srgb, var(--color-accent) 30%, transparent);"
+				>
+					Launch IDE
+				</a>
+			</div>
+		</div>
+	</div>
+</BaseLayout>

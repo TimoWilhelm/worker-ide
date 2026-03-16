@@ -1,0 +1,23 @@
+{
+	"name": "codemaxxing-landing",
+	"version": "0.0.0",
+	"type": "module",
+	"private": true,
+	"scripts": {
+		"dev": "astro dev",
+		"build": "astro build",
+		"preview": "astro preview",
+		"typecheck": "astro check",
+		"deploy": "astro build && wrangler deploy"
+	},
+	"devDependencies": {
+		"@astrojs/check": "^0.9.8",
+		"@astrojs/cloudflare": "^13.1.2",
+		"@astrojs/sitemap": "^3.7.1",
+		"@tailwindcss/vite": "^4.1.7",
+		"astro": "^6.0.5",
+		"tailwindcss": "^4.1.7",
+		"typescript": "^5.5.2",
+		"wrangler": "^4.73.0"
+	}
+}
