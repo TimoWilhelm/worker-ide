@@ -1,0 +1,145 @@
+---
+interface Feature {
+	title: string;
+	description: string;
+	icon: string;
+}
+
+const features: Feature[] = [
+	{
+		title: 'Cloud-Native Editor',
+		description:
+			'Full CodeMirror 6 editor with syntax highlighting, autocomplete, linting, and multi-file support — all running in your browser.',
+		icon: 'code',
+	},
+	{
+		title: 'Real-Time Collaboration',
+		description:
+			'Work together with live cursors, selections, and instant sync. See your teammates code in real time like Google Docs for developers.',
+		icon: 'users',
+	},
+	{
+		title: 'AI Assistant',
+		description:
+			'Built-in AI agent that understands your project context. Generate code, debug issues, and refactor — directly in the editor.',
+		icon: 'sparkles',
+	},
+	{
+		title: 'Instant Preview',
+		description:
+			'Every project gets a live preview URL. See changes instantly as you type, with full DevTools support built right in.',
+		icon: 'eye',
+	},
+	{
+		title: 'Git Integration',
+		description:
+			'Commit, branch, diff, and push without leaving the IDE. Full isomorphic Git support runs natively in the browser.',
+		icon: 'git-branch',
+	},
+	{
+		title: 'Deploy to the Edge',
+		description:
+			'Ship to Cloudflare Workers in one click. Your app runs on 300+ data centers worldwide with zero cold starts.',
+		icon: 'rocket',
+	},
+];
+
+const iconPaths: Record<string, string> = {
+	code: 'M16 18l6-6-6-6M8 6l-6 6 6 6',
+	users: 'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 3a4 4 0 1 0 0 8 4 4 0 0 0 0-8zM22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75',
+	sparkles:
+		'M12 3l1.912 5.813L20 10.5l-6.088 1.688L12 18l-1.912-5.813L4 10.5l6.088-1.688L12 3zM5 3v4M19 17v4M3 5h4M17 19h4',
+	eye: 'M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8zM12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6z',
+	'git-branch':
+		'M6 3v12M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM18 9a9 9 0 0 1-9 9',
+	rocket: 'M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09zM12 15l-3-3M22 2l-7.5 7.5M9.75 14.25L8 16M15 9.5l1.5-1.5M22 2l-5 5M11.25 11.25 10 13',
+};
+---
+
+<section id="features" class="relative py-24 sm:py-32">
+	<!-- Subtle radial glow behind the section -->
+	<div
+		class="pointer-events-none absolute inset-0"
+		aria-hidden="true"
+		style="background: radial-gradient(ellipse 60% 40% at 50% 30%, color-mix(in srgb, var(--color-accent) 4%, transparent) 0%, transparent 70%);"
+	>
+	</div>
+
+	<div class="relative mx-auto max-w-6xl px-6">
+		<!-- Section header -->
+		<div class="mx-auto mb-16 max-w-2xl text-center">
+			<p
+				class="mb-4 font-mono text-xs uppercase tracking-widest text-accent"
+			>
+				Features
+			</p>
+			<h2 class="text-3xl font-bold tracking-tight sm:text-4xl">
+				Everything you need to build on the edge
+			</h2>
+			<p class="mt-4 text-lg leading-relaxed text-text-secondary">
+				A complete development environment that runs entirely in the
+				cloud. No downloads, no configuration, no waiting.
+			</p>
+		</div>
+
+		<!-- Feature grid -->
+		<div class="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+			{
+				features.map((feature, index) => (
+					<div
+						class="shimmer-card scroll-reveal group rounded-xl border border-border bg-bg-secondary/60 p-6 backdrop-blur-sm transition-all hover:border-accent/30 hover:bg-bg-secondary/80"
+						style={`transition-delay: ${index * 80}ms;`}
+						data-reveal
+					>
+						<div class="mb-4 inline-flex rounded-lg bg-accent/10 p-2.5 transition-colors group-hover:bg-accent/20">
+							<svg
+								xmlns="http://www.w3.org/2000/svg"
+								width="22"
+								height="22"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="1.5"
+								stroke-linecap="round"
+								stroke-linejoin="round"
+								class="text-accent"
+							>
+								<path d={iconPaths[feature.icon]} />
+							</svg>
+						</div>
+						<h3 class="mb-2 text-base font-semibold">
+							{feature.title}
+						</h3>
+						<p class="text-sm leading-relaxed text-text-secondary">
+							{feature.description}
+						</p>
+					</div>
+				))
+			}
+		</div>
+	</div>
+</section>
+
+<!-- Scroll-reveal observer -->
+<script is:inline>
+	(function () {
+		var elements = document.querySelectorAll('[data-reveal]');
+		if (!elements.length) return;
+
+		var observer = new IntersectionObserver(
+			function (entries) {
+				entries.forEach(function (entry) {
+					if (entry.isIntersecting) {
+						entry.target.classList.add('visible');
+						observer.unobserve(entry.target);
+					}
+				});
+			},
+			{ threshold: 0.15, rootMargin: '0px 0px -40px 0px' }
+		);
+
+		elements.forEach(function (element) {
+			observer.observe(element);
+		});
+	})();
+</script>

@@ -1,0 +1,71 @@
+---
+const appUrl = 'https://codemaxxing.app';
+
+const navigationLinks = [
+	{ label: 'Features', href: '#features' },
+	{ label: 'Get Started', href: '#cta' },
+];
+---
+
+<header
+	class="fixed top-0 right-0 left-0 z-50 border-b border-border bg-bg-primary/60 backdrop-blur-xl"
+>
+	<nav class="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
+		<a
+			href="/"
+			class="flex items-center gap-2.5 text-lg font-semibold tracking-tight"
+		>
+			<svg
+				xmlns="http://www.w3.org/2000/svg"
+				width="22"
+				height="22"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				stroke-width="1.5"
+				stroke-linecap="round"
+				stroke-linejoin="round"
+				class="text-accent"
+			>
+				<path
+					d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"
+				></path>
+			</svg>
+			<span>Codemaxxing</span>
+		</a>
+
+		<div class="flex items-center gap-8">
+			{
+				navigationLinks.map((link) => (
+					<a
+						href={link.href}
+						class="hidden font-mono text-xs uppercase tracking-widest text-text-secondary transition-colors hover:text-accent sm:inline"
+					>
+						{link.label}
+					</a>
+				))
+			}
+			<a
+				href={appUrl}
+				class="inline-flex items-center gap-2 rounded-full bg-accent px-5 py-2 text-sm font-semibold text-white transition-all hover:brightness-110"
+				style="box-shadow: 0 0 20px color-mix(in srgb, var(--color-accent) 30%, transparent);"
+			>
+				Launch IDE
+				<svg
+					xmlns="http://www.w3.org/2000/svg"
+					width="14"
+					height="14"
+					viewBox="0 0 24 24"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="2.5"
+					stroke-linecap="round"
+					stroke-linejoin="round"
+				>
+					<path d="M5 12h14"></path>
+					<path d="m12 5 7 7-7 7"></path>
+				</svg>
+			</a>
+		</div>
+	</nav>
+</header>

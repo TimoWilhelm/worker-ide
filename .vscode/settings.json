@@ -3,7 +3,8 @@
 	"typescript.enablePromptUseWorkspaceTsdk": true,
 	"files.associations": {
 		"wrangler.json": "jsonc",
-		"*.css": "tailwindcss"
+		"*.css": "tailwindcss",
+		"*.astro": "astro"
 	},
 	"editor.inlineSuggest.enabled": true,
 	"editor.quickSuggestions": {
@@ -29,11 +30,14 @@
 	"[tailwindcss]": {
 		"editor.defaultFormatter": "esbenp.prettier-vscode"
 	},
+	"[astro]": {
+		"editor.defaultFormatter": "astro-build.astro-vscode"
+	},
 	"editor.codeActionsOnSave": {
 		"source.fixAll": "explicit"
 	},
 	"eslint.runtime": "bun",
-	"eslint.validate": ["javascript", "javascriptreact", "typescript", "typescriptreact"],
+	"eslint.validate": ["javascript", "javascriptreact", "typescript", "typescriptreact", "astro"],
 	"eslint.workingDirectories": [
 		{
 			"mode": "auto"

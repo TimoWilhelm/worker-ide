@@ -25,6 +25,25 @@
 			"request": "launch",
 			"url": "http://localhost:6006",
 			"preLaunchTask": "storybook"
+		},
+		{
+			"name": "Landing Page",
+			"type": "chrome",
+			"request": "launch",
+			"url": "http://localhost:4321",
+			"webRoot": "${workspaceFolder}/landing/src",
+			"sourceMaps": true,
+			"preLaunchTask": "landing-dev"
+		},
+		{
+			"name": "Attach to Landing Worker",
+			"type": "node",
+			"request": "attach",
+			"port": 9230,
+			"restart": true,
+			"localRoot": "${workspaceFolder}/landing",
+			"remoteRoot": "${workspaceFolder}/landing",
+			"skipFiles": ["<node_internals>/**"]
 		}
 	],
 	"compounds": [

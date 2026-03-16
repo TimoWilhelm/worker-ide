@@ -103,7 +103,6 @@ const NOUNS = [
 	'sage',
 	'sand',
 	'seal',
-	'seed',
 	'tide',
 	'vale',
 	'vine',

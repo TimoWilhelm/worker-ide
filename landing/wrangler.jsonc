@@ -1,0 +1,14 @@
+{
+	"name": "codemaxxing-landing",
+	"compatibility_date": "2026-01-31",
+	"compatibility_flags": ["nodejs_compat"],
+	"assets": {
+		"directory": "./dist",
+		"binding": "ASSETS",
+		"not_found_handling": "404-page",
+	},
+	"observability": {
+		"enabled": true,
+	},
+	"account_id": "d64471fef208e0cf9687449dc8a5878b",
+}

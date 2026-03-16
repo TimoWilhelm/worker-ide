@@ -45,6 +45,15 @@
 			"inputs": ["src/**", "worker/**", "auxiliary/**", "shared/**", "test/e2e/**", "playwright.config.ts"],
 			"env": ["CI"],
 			"cache": false
+		},
+		"landing#build": {
+			"outputs": ["landing/dist/**"],
+			"inputs": ["landing/src/**", "landing/public/**", "landing/astro.config.ts", "landing/tsconfig.json"],
+			"cache": true
+		},
+		"landing#typecheck": {
+			"inputs": ["landing/src/**", "landing/astro.config.ts", "landing/tsconfig.json"],
+			"cache": true
 		}
 	}
 }
