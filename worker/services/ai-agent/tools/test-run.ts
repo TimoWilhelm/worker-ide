@@ -33,7 +33,7 @@ const DEFAULT_GLOB = 'test/**/*.test.{js,ts,jsx,tsx}';
 // Description
 // =============================================================================
 
-export const DESCRIPTION = `Run JavaScript/TypeScript tests in a sandboxed Worker isolate. Tests use a built-in test harness with describe/it/expect — no extra dependencies are needed.
+const DESCRIPTION = `Run JavaScript/TypeScript tests in a sandboxed Worker isolate. Tests use a built-in test harness with describe/it/expect — no extra dependencies are needed.
 
 Granularity:
 - Run ALL tests: omit both parameters (defaults to "test/**/*.test.{js,ts,jsx,tsx}").

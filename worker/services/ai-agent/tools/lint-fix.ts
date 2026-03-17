@@ -22,7 +22,7 @@ import type { FileChange, SendEventFunction, ToolDefinition, ToolExecutorContext
 // Description
 // =============================================================================
 
-export const DESCRIPTION = `Apply safe Biome lint fixes to a file automatically.
+const DESCRIPTION = `Apply safe Biome lint fixes to a file automatically.
 
 Usage:
 - Reads the file, applies all safe lint autofixes using Biome, and writes the fixed content back.

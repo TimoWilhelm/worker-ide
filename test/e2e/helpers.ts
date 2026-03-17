@@ -13,7 +13,7 @@ const BASE_URL = process.env.TEST_BASE_URL || 'http://localhost:3000';
 /**
  * Create a new project via the API and return the project ID and URL.
  */
-export async function createProject(): Promise<{ projectId: string; url: string }> {
+async function createProject(): Promise<{ projectId: string; url: string }> {
 	const response = await fetch(`${BASE_URL}/api/new-project`, {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },

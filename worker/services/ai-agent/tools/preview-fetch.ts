@@ -15,7 +15,7 @@ import { ToolExecutionError } from '@shared/tool-errors';
 
 import type { SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
 
-export const DESCRIPTION = `Send an HTTP request to the project's live preview and return the response. Use this to debug pages, test API endpoints, verify server responses, and inspect rendered output.
+const DESCRIPTION = `Send an HTTP request to the project's live preview and return the response. Use this to debug pages, test API endpoints, verify server responses, and inspect rendered output.
 
 Usage:
 - The \`path\` parameter is a relative URL path (e.g. "/", "/about", "/api/users").

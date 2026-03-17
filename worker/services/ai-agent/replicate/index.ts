@@ -10,5 +10,3 @@
 
 export { createAdapter } from './adapter';
 export { getModelLimits } from '@shared/constants';
-export { normalizeFunctionCallsFormat, parseToolCalls, repairToolCallJson } from './tool-call-parser';
-export type { ParsedToolCall } from './tool-call-parser';

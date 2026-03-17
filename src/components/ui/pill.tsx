@@ -76,6 +76,5 @@ function Pill({ className, size, rounded, color, ref, ...properties }: PillPrope
 	return <span className={cn(pillVariants({ size, rounded, color }), className)} ref={ref} {...properties} />;
 }
 
-// eslint-disable-next-line react-refresh/only-export-components
-export { Pill, pillVariants };
+export { Pill };
 export type { PillProperties };

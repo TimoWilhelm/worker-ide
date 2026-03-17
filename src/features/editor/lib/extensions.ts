@@ -222,7 +222,7 @@ export function getLanguageExtension(filename: string): Extension | undefined {
 /**
  * Basic editor extensions for all files.
  */
-export function getBaseExtensions(): Extension[] {
+function getBaseExtensions(): Extension[] {
 	return [
 		lineNumbers(),
 		highlightActiveLineGutter(),

@@ -32,18 +32,3 @@ export function maskSensitiveValue(value: string, visibleChars = 4): string {
 	if (value.length <= visibleChars) return '****';
 	return value.slice(0, visibleChars) + '****';
 }
-
-/**
- * Calculate relative time string from a timestamp.
- */
-export function relativeTime(timestamp: string | number): string {
-	const now = Date.now();
-	const then = typeof timestamp === 'string' ? new Date(timestamp).getTime() : timestamp;
-	const diffMs = now - then;
-
-	if (diffMs < 1000) return 'just now';
-	if (diffMs < 60_000) return `${Math.floor(diffMs / 1000)}s ago`;
-	if (diffMs < 3_600_000) return `${Math.floor(diffMs / 60_000)}m ago`;
-	if (diffMs < 86_400_000) return `${Math.floor(diffMs / 3_600_000)}h ago`;
-	return `${Math.floor(diffMs / 86_400_000)}d ago`;
-}

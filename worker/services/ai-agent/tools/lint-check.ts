@@ -18,7 +18,7 @@ import type { SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult
 // Description
 // =============================================================================
 
-export const DESCRIPTION = `Check a file for Biome lint issues without applying fixes.
+const DESCRIPTION = `Check a file for Biome lint issues without applying fixes.
 
 Usage:
 - Reads the file and runs Biome lint diagnostics to report any issues.

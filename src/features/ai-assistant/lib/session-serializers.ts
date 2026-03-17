@@ -5,35 +5,7 @@
  * to avoid duplicating conversion logic.
  */
 
-import type { AgentMode, PendingFileChange, UIMessage } from '@shared/types';
-
-/**
- * Derive a fallback session title from the first user message (truncated to 50 chars).
- * Used client-side only for reverts and saves before the server generates an AI title.
- */
-export function deriveFallbackTitle(history: UIMessage[]): string {
-	const firstUserMessage = history.find((message) => message.role === 'user');
-	if (!firstUserMessage) return 'New chat';
-
-	const text = firstUserMessage.parts
-		.filter((part): part is { type: 'text'; content: string } => part.type === 'text')
-		.map((part) => part.content)
-		.join(' ')
-		.trim();
-
-	return text.length > 50 ? text.slice(0, 50) + '...' : text || 'New chat';
-}
-
-/**
- * Convert a Map<number, string> to a JSON-safe Record<string, string>.
- */
-export function snapshotsMapToRecord(snapshotsMap: Map<number, string>): Record<string, string> {
-	const record: Record<string, string> = {};
-	for (const [key, value] of snapshotsMap) {
-		record[String(key)] = value;
-	}
-	return record;
-}
+import type { AgentMode, PendingFileChange } from '@shared/types';
 
 /**
  * Convert a Record<string, string> back to a Map<number, string>.

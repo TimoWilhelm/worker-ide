@@ -23,7 +23,7 @@ import type { FileChange, SendEventFunction, ToolDefinition, ToolExecutorContext
 // Description
 // =============================================================================
 
-export const DESCRIPTION = `Performs exact string replacements in files.
+const DESCRIPTION = `Performs exact string replacements in files.
 
 Usage:
 CRITICAL INSTRUCTION: You MUST use your \`Read\` tool at least once in the conversation before editing. This tool will error if you attempt an edit without reading the file.

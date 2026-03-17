@@ -10,7 +10,7 @@ import { todoItemSchema } from '@shared/validation';
 
 import type { SendEventFunction, TodoItem, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
 
-export const DESCRIPTION = `Create or update the TODO list for this session. Use this to track progress, organize complex tasks, and help the user understand overall progress. Provide the full list of TODO items. Each item must have id, content, status (pending/in_progress/completed), and priority (high/medium/low).
+const DESCRIPTION = `Create or update the TODO list for this session. Use this to track progress, organize complex tasks, and help the user understand overall progress. Provide the full list of TODO items. Each item must have id, content, status (pending/in_progress/completed), and priority (high/medium/low).
 
 When to use:
 - Complex multistep tasks that require 3 or more distinct steps.

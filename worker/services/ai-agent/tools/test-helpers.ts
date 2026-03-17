@@ -263,19 +263,3 @@ export function createMockSendEvent(): SendEventFunction & { calls: Array<[strin
 	function_.calls = calls;
 	return function_ as SendEventFunction & { calls: Array<[string, Record<string, unknown>]> };
 }
-
-// =============================================================================
-// Mock Coordinator
-// =============================================================================
-
-const noopTriggerUpdate = async (_update: unknown) => {};
-
-export function createCoordinatorMock() {
-	return {
-		triggerUpdate: noopTriggerUpdate,
-		mockNamespace: {
-			idFromName: (_name: string) => ({ toString: () => 'mock-id' }),
-			get: (_id: unknown) => ({ triggerUpdate: noopTriggerUpdate }),
-		},
-	};
-}

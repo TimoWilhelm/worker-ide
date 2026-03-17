@@ -14,7 +14,7 @@ import { formatLintDiagnostics, lintFile } from '../../../services/lint-service'
 
 import type { FileChange, SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
 
-export const DESCRIPTION = `Move or rename a file within the project.
+const DESCRIPTION = `Move or rename a file within the project.
 
 Usage:
 - Both from_path and to_path must start with /.

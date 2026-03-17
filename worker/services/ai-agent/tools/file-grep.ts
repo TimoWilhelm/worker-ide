@@ -28,7 +28,7 @@ const BATCH_SIZE = 10;
 // Description
 // =============================================================================
 
-export const DESCRIPTION = String.raw`- Fast content search tool that works with any codebase size
+const DESCRIPTION = String.raw`- Fast content search tool that works with any codebase size
 - Searches file contents using regular expressions
 - Supports full regex syntax (eg. "log.*Error", "function\s+\w+", etc.)
 - Filter files by pattern with the include parameter (eg. "*.js", "*.{ts,tsx}")

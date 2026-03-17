@@ -5,7 +5,7 @@
 
 import type { SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
 
-export const DESCRIPTION = `Ask the user a question that ONLY they can answer. Do NOT use this tool for questions you could resolve by reading files, searching the codebase, or using any other tool. Exhaust all other research options first.
+const DESCRIPTION = `Ask the user a question that ONLY they can answer. Do NOT use this tool for questions you could resolve by reading files, searching the codebase, or using any other tool. Exhaust all other research options first.
 
 Usage:
 - ONLY use this when the answer requires human judgment, preference, or information not available in the project (e.g. choosing between design alternatives, confirming destructive actions, or requesting credentials/config values).
