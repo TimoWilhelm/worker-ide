@@ -7,7 +7,7 @@ import { readTodos } from '../tool-executor';
 
 import type { SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
 
-export const DESCRIPTION = `Read the current TODO list for this session. Returns an array of TODO items with id, content, status (pending/in_progress/completed), and priority (high/medium/low). Use this tool proactively and frequently to stay aware of the current task list.
+const DESCRIPTION = `Read the current TODO list for this session. Returns an array of TODO items with id, content, status (pending/in_progress/completed), and priority (high/medium/low). Use this tool proactively and frequently to stay aware of the current task list.
 
 Usage:
 - At the beginning of conversations to see what's pending.

@@ -12,7 +12,7 @@ import { isHiddenPath, isPathSafe, isProtectedFile } from '../../../lib/path-uti
 
 import type { FileChange, SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
 
-export const DESCRIPTION = `Delete a file from the project. Use with caution — this action is irreversible.
+const DESCRIPTION = `Delete a file from the project. Use with caution — this action is irreversible.
 
 Usage:
 - The file must exist. Returns an error if the file is not found.

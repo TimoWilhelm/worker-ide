@@ -16,13 +16,6 @@ export function isBinaryFilePath(path: string): boolean {
 }
 
 /**
- * Type guard for ToolName.
- */
-export function isToolName(name: string): name is ToolName {
-	return name in toolInputSchemas;
-}
-
-/**
  * Type guard for checking if a value is a non-null object (not array).
  */
 export function isRecordObject(value: unknown): value is Record<string, unknown> {

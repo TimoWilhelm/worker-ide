@@ -7,7 +7,7 @@ import { ToolExecutionError } from '@shared/tool-errors';
 
 import type { SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
 
-export const DESCRIPTION = `Search the Cloudflare documentation for information about Cloudflare products and features including Workers, Pages, R2, D1, KV, Durable Objects, Queues, AI, Zero Trust, DNS, CDN, and more.
+const DESCRIPTION = `Search the Cloudflare documentation for information about Cloudflare products and features including Workers, Pages, R2, D1, KV, Durable Objects, Queues, AI, Zero Trust, DNS, CDN, and more.
 
 Usage:
 - Prefer this tool over web_fetch when looking up Cloudflare-specific information.

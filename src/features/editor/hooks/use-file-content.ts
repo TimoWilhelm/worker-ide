@@ -14,8 +14,6 @@ import { throwApiError } from '@/lib/api-error';
 // Types
 // =============================================================================
 
-import type { FileInfo } from '@shared/types';
-
 interface UseFileContentOptions {
 	projectId: string;
 	path: string | undefined;
@@ -98,36 +96,4 @@ export function useFileContent({ projectId, path, enabled = true }: UseFileConte
 		saveFile,
 		refetch: query.refetch,
 	};
-}
-
-// =============================================================================
-// useFileList Hook
-// =============================================================================
-
-interface UseFileListOptions {
-	projectId: string;
-	enabled?: boolean;
-}
-
-/**
- * Hook for loading file list.
- */
-export function useFileList({ projectId, enabled = true }: UseFileListOptions) {
-	const api = createApiClient(projectId);
-
-	return useQuery({
-		queryKey: ['files', projectId],
-		queryFn: async () => {
-			const response = await api.files.$get({});
-
-			if (!response.ok) {
-				await throwApiError(response, 'Failed to load files');
-			}
-
-			const data = await response.json();
-			return (data.files satisfies FileInfo[]).map((f) => f.path);
-		},
-		enabled,
-		staleTime: 1000 * 30, // 30 seconds
-	});
 }

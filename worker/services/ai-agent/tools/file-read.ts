@@ -74,7 +74,7 @@ const BINARY_EXTENSIONS = new Set([
 // Description
 // =============================================================================
 
-export const DESCRIPTION = `Read a file or directory from the local filesystem. If the path does not exist, an error is returned.
+const DESCRIPTION = `Read a file or directory from the local filesystem. If the path does not exist, an error is returned.
 
 Usage:
 - The filePath parameter should be an absolute path.

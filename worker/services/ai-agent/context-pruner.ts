@@ -39,7 +39,7 @@ const CONTEXT_BUDGET_BUFFER = 20_000;
  * Estimate token count from a string using the character heuristic.
  * This avoids a tokenizer dependency — accuracy is good enough for pruning decisions.
  */
-export function estimateTokens(text: string): number {
+function estimateTokens(text: string): number {
 	return Math.round(text.length / CHARACTERS_PER_TOKEN);
 }
 

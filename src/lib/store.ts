@@ -935,27 +935,9 @@ export const useStore = create<StoreState>()(
 // Selectors (for optimized re-renders)
 // =============================================================================
 
-export const selectActiveFile = (state: StoreState) => state.activeFile;
-export const selectOpenFiles = (state: StoreState) => state.openFiles;
-export const selectFiles = (state: StoreState) => state.files;
 export const selectIsProcessing = (state: StoreState) => state.isProcessing;
-export const selectParticipants = (state: StoreState) => state.participants;
-export const selectSnapshots = (state: StoreState) => state.snapshots;
-export const selectPendingChanges = (state: StoreState) => state.pendingChanges;
 export const selectColorScheme = (state: StoreState) => state.colorScheme;
-export const selectHasPendingChanges = (state: StoreState) => {
-	for (const change of state.pendingChanges.values()) {
-		if (change.status === 'pending') return true;
-	}
-	return false;
-};
 export const selectGitStatus = (state: StoreState) => state.gitStatus;
-export const selectGitBranches = (state: StoreState) => state.gitBranches;
-export const selectGitStatusLoading = (state: StoreState) => state.gitStatusLoading;
-export const selectGitInitialized = (state: StoreState) => state.gitInitialized;
 export const selectActiveSidebarView = (state: StoreState) => state.activeSidebarView;
-export const selectCurrentBranch = (state: StoreState) => state.gitBranches.find((branch) => branch.isCurrent);
 export const selectGitChangedFileCount = (state: StoreState) => state.gitStatus.filter((entry) => entry.status !== 'unmodified').length;
 export const selectGitDiffView = (state: StoreState) => state.gitDiffView;
-export const selectContextTokensUsed = (state: StoreState) => state.contextTokensUsed;
-export const selectSelectedModel = (state: StoreState) => state.selectedModel;

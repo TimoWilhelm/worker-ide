@@ -25,7 +25,7 @@ import type { FileChange, SendEventFunction, ToolDefinition, ToolExecutorContext
 // Description
 // =============================================================================
 
-export const DESCRIPTION = `Apply multiple exact string replacements to a single file in one atomic operation. All edits are applied sequentially; if any edit fails, none are written to disk.
+const DESCRIPTION = `Apply multiple exact string replacements to a single file in one atomic operation. All edits are applied sequentially; if any edit fails, none are written to disk.
 
 Prefer this tool over \`file_edit\` when you need to make several changes to the same file — it is more efficient and avoids intermediate writes.
 

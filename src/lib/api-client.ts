@@ -378,22 +378,6 @@ export async function abortAgent(projectId: string, sessionId?: string): Promise
 	}
 }
 
-/**
- * Fetch buffered stream events for reconnection to an ongoing session.
- * Returns events with index > lastEventIndex so the client can catch up.
- */
-export async function getBufferedEvents(
-	projectId: string,
-	sessionId: string,
-	lastEventIndex = 0,
-): Promise<Array<{ chunk: unknown; index: number }>> {
-	const parameters = new URLSearchParams({ sessionId, lastEventIndex: String(lastEventIndex) });
-	const response = await fetch(`/p/${projectId}/api/ai/buffered-events?${parameters.toString()}`);
-	if (!response.ok) return [];
-	const data: { events: Array<{ chunk: unknown; index: number }> } = await response.json();
-	return data.events;
-}
-
 // =============================================================================
 // WebSocket Connection
 // =============================================================================

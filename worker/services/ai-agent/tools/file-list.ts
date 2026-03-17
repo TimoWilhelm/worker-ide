@@ -10,7 +10,7 @@ import { ToolExecutionError } from '@shared/tool-errors';
 
 import type { SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
 
-export const DESCRIPTION = `List files and directories in a given path. Returns immediate children with type and size information.
+const DESCRIPTION = `List files and directories in a given path. Returns immediate children with type and size information.
 
 Usage:
 - path defaults to /. Lists immediate children (files and directories) with sizes.

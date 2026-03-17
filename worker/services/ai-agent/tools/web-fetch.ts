@@ -17,7 +17,7 @@ import { createAdapter } from '../replicate';
 
 import type { SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
 
-export const DESCRIPTION = `Fetch a web page and run a prompt against its content. The page is converted to markdown and summarized, so the returned content is always a processed summary — never raw page text.
+const DESCRIPTION = `Fetch a web page and run a prompt against its content. The page is converted to markdown and summarized, so the returned content is always a processed summary — never raw page text.
 
 Usage:
 CRITICAL INSTRUCTION: If another tool is available that offers more targeted information (e.g. docs_search for Cloudflare documentation), prefer using that tool instead of this one.

@@ -7,8 +7,9 @@
  *   - Tests that need real esbuild WASM without cloudflare:workers
  */
 
-import { BundleDependencyError } from '@shared/bundler-types';
 import * as esbuild from 'esbuild-wasm';
+
+import { BundleDependencyError } from '@shared/bundler-types';
 
 // @ts-expect-error -- WASM module import resolved to WebAssembly.Module by Cloudflare at deploy time
 import esbuildWasm from '../../vendor/esbuild.wasm';

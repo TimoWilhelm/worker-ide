@@ -22,7 +22,7 @@ import type { FileChange, SendEventFunction, ToolDefinition, ToolExecutorContext
 // Description
 // =============================================================================
 
-export const DESCRIPTION = `Writes a file to the local filesystem.
+const DESCRIPTION = `Writes a file to the local filesystem.
 
 Usage:
 - This tool will overwrite the existing file if there is one at the provided path.

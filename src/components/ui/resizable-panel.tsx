@@ -130,23 +130,3 @@ export function ResizablePanel({
 		</div>
 	);
 }
-
-// =============================================================================
-// Panel Group Component
-// =============================================================================
-
-export interface PanelGroupProperties {
-	/** Panel content */
-	children: React.ReactNode;
-	/** Direction of the panel group */
-	direction: 'horizontal' | 'vertical';
-	/** CSS class name */
-	className?: string;
-}
-
-/**
- * Container for resizable panels.
- */
-export function PanelGroup({ children, direction, className }: PanelGroupProperties) {
-	return <div className={cn('flex', direction === 'horizontal' ? 'flex-row' : 'flex-col', className)}>{children}</div>;
-}

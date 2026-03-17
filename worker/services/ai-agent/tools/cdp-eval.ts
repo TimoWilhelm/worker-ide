@@ -11,7 +11,7 @@ import { ToolExecutionError } from '@shared/tool-errors';
 
 import type { SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
 
-export const DESCRIPTION = `Execute a Chrome DevTools Protocol (CDP) command in the project's live preview iframe. Use this to run JavaScript, inspect the DOM, check network activity, read console output, and debug runtime issues.
+const DESCRIPTION = `Execute a Chrome DevTools Protocol (CDP) command in the project's live preview iframe. Use this to run JavaScript, inspect the DOM, check network activity, read console output, and debug runtime issues.
 
 Common CDP methods:
 - Runtime.evaluate: Execute JavaScript in the preview. Params: { "expression": "document.title" }

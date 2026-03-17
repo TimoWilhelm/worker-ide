@@ -21,9 +21,6 @@ const RETRY_MAX_DELAY_NO_HEADERS = 30_000;
 /** Maximum safe timeout value to prevent overflow */
 const RETRY_MAX_DELAY = 2_147_483_647;
 
-/** Maximum number of retry attempts before giving up */
-const RETRY_MAX_ATTEMPTS = 10;
-
 // =============================================================================
 // Error Classification
 // =============================================================================
@@ -164,42 +161,4 @@ export function sleep(milliseconds: number, signal?: AbortSignal): Promise<void>
 
 		signal?.addEventListener('abort', onAbort, { once: true });
 	});
-}
-
-// =============================================================================
-// Retry Wrapper
-// =============================================================================
-
-/**
- * Execute an async function with automatic retry on retryable errors.
- * Returns the result of the function, or throws the last non-retryable error.
- */
-export async function withRetry<T>(
-	function_: () => Promise<T>,
-	options?: {
-		signal?: AbortSignal;
-		maxAttempts?: number;
-		onRetry?: (attempt: number, reason: string, delayMs: number) => void;
-	},
-): Promise<T> {
-	const maxAttempts = options?.maxAttempts ?? RETRY_MAX_ATTEMPTS;
-	let attempt = 0;
-
-	while (true) {
-		try {
-			return await function_();
-		} catch (error) {
-			attempt++;
-
-			const retryReason = classifyRetryableError(error);
-			if (!retryReason || attempt >= maxAttempts) {
-				throw error;
-			}
-
-			const delay = calculateRetryDelay(attempt, error);
-			options?.onRetry?.(attempt, retryReason, delay);
-
-			await sleep(delay, options?.signal);
-		}
-	}
 }

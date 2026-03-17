@@ -51,12 +51,6 @@ const ORPHANED_XML_PATTERN =
 	/<\/?(?:parameter|antml:parameter)[^>]*>|<\/(?:function_calls|antml:function_calls|invoke|antml:invoke|tool_use|tool_call)>/g;
 
 /**
- * Exported for use in `containsToolCallXml` detection. Matches any recognized
- * tool call XML opening tag.
- */
-export const XML_TOOL_CALL_PATTERN = /<(?:function_calls|antml:function_calls|invoke\s|antml:invoke|tool_use|tool_call)[^>]*>/;
-
-/**
  * Strip XML-like tool call fragments from text.
  *
  * Uses a multi-pass approach to handle nested XML formats correctly:
@@ -85,11 +79,6 @@ export function stripPartialToolCalls(text: string): string {
 	result = result.replaceAll(ORPHANED_XML_PATTERN, '');
 
 	return result;
-}
-
-/** Check whether text contains tool call XML fragments. */
-export function containsToolCallXml(text: string): boolean {
-	return XML_TOOL_CALL_PATTERN.test(text);
 }
 
 /**
