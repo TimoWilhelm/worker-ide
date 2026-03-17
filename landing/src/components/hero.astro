@@ -1,5 +1,16 @@
 ---
+import { highlight } from 'sugar-high';
+
 const appUrl = 'https://codemaxxing.app';
+
+const code = `export default {
+  async fetch(request: Request, env: Env) {
+    const url = new URL(request.url);
+    return new Response(\`Hello from \${url.hostname}!\`);
+  },
+};`;
+
+const highlightedCode = highlight(code);
 ---
 
 <section class="relative overflow-hidden pt-32 pb-24 sm:pt-44 sm:pb-32">
@@ -112,9 +123,9 @@ const appUrl = 'https://codemaxxing.app';
 			</a>
 		</div>
 
-		<!-- Editor preview mock — floating, frosted, with border beam -->
+		<!-- Editor preview mock -->
 		<div class="mt-20 animate-reveal-7">
-			<div class="border-beam mx-auto max-w-4xl animate-float rounded-xl">
+			<div class="border-beam mx-auto max-w-4xl rounded-xl">
 				<div
 					class="overflow-hidden rounded-xl border border-border bg-bg-secondary/60 backdrop-blur-md"
 				>
@@ -123,59 +134,18 @@ const appUrl = 'https://codemaxxing.app';
 						class="flex items-center gap-2 border-b border-border bg-bg-tertiary/60 px-4 py-2.5"
 					>
 						<div class="flex gap-1.5">
-							<div class="h-2.5 w-2.5 rounded-full bg-error/50"
-							></div>
-							<div class="h-2.5 w-2.5 rounded-full bg-warning/50"
-							></div>
-							<div class="h-2.5 w-2.5 rounded-full bg-success/50"
-							></div>
+							<div class="h-2.5 w-2.5 rounded-full bg-text-secondary/20"></div>
+							<div class="h-2.5 w-2.5 rounded-full bg-text-secondary/20"></div>
+							<div class="h-2.5 w-2.5 rounded-full bg-text-secondary/20"></div>
 						</div>
 						<span
 							class="ml-2 font-mono text-[11px] text-text-secondary"
-							>index.tsx — Codemaxxing</span
+							>index.ts</span
 						>
 					</div>
 
-					<!-- Code area -->
-					<div
-						class="p-6 text-left font-mono text-sm leading-relaxed"
-					>
-						<div>
-							<span class="text-accent">export default</span>
-							<span class="text-text-secondary"> {</span>
-						</div>
-						<div class="pl-6">
-							<span class="text-success">async</span>
-							<span class="text-text-primary"> fetch</span><span
-								class="text-text-secondary">(</span
-							><span class="text-warning">request</span><span
-								class="text-text-secondary">,</span
-							>
-							<span class="text-warning">env</span><span
-								class="text-text-secondary">)</span
-							>
-							<span class="text-text-secondary"> {</span>
-						</div>
-						<div class="pl-12">
-							<span class="text-accent">return new</span>
-							<span class="text-text-primary"> Response</span
-							><span class="text-text-secondary">(</span>
-						</div>
-						<div class="pl-16">
-							<span class="text-success"
-								>&quot;Hello from the edge!&quot;</span
-							>
-						</div>
-						<div class="pl-12">
-							<span class="text-text-secondary">);</span>
-						</div>
-						<div class="pl-6">
-							<span class="text-text-secondary">}</span>
-						</div>
-						<div>
-							<span class="text-text-secondary">};</span>
-						</div>
-					</div>
+					<!-- Code area (sugar-high, rendered at build time) -->
+					<pre class="p-6 text-left font-mono text-sm leading-relaxed"><code set:html={highlightedCode} /></pre>
 				</div>
 			</div>
 		</div>

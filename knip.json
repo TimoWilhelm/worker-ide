@@ -5,15 +5,28 @@
 		"type": true
 	},
 	"exclude": ["types"],
-	"entry": ["worker/index.ts", "auxiliary/biome/index.ts", "auxiliary/esbuild/index.ts"],
-	"project": ["src/**", "worker/**", "auxiliary/**", "shared/**", "test/**"],
-	"ignoreDependencies": ["cloudflare", "codemirror", "@standard-schema/spec"],
-	"ignoreFiles": [
-		"src/vite-env.d.ts",
-		"playwright.config.ts",
-		"shared/ws-messages.ts",
-		"src/components/ui/index.ts",
-		"worker/lib/preview-scripts/*.js"
-	],
-	"ignoreWorkspaces": ["landing"]
+	"workspaces": {
+		".": {
+			"entry": ["worker/index.ts"],
+			"project": ["src/**", "worker/**", "test/**"],
+			"ignoreDependencies": ["cloudflare", "codemirror", "@standard-schema/spec"],
+			"ignoreFiles": ["src/vite-env.d.ts", "playwright.config.ts", "src/components/ui/index.ts", "worker/lib/preview-scripts/*.js"]
+		},
+		"shared": {
+			"entry": ["**/*.ts", "!**/*.test.ts"],
+			"project": ["**/*.ts"]
+		},
+		"auxiliary/biome": {
+			"entry": ["index.ts"],
+			"project": ["**/*.ts", "!**/*.test.ts"]
+		},
+		"auxiliary/esbuild": {
+			"entry": ["index.ts"],
+			"project": ["**/*.ts", "!**/*.test.ts"]
+		},
+		"landing": {
+			"entry": ["src/pages/**/*.astro"],
+			"project": ["src/**/*.{astro,ts,tsx}"]
+		}
+	}
 }

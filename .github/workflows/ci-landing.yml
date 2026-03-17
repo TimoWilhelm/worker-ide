@@ -30,36 +30,8 @@ env:
   DO_NOT_TRACK: 1
 
 jobs:
-  setup:
-    name: Setup
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-
-      - name: Cache node_modules
-        id: cache-modules
-        uses: actions/cache@v4
-        with:
-          path: |
-            node_modules
-            landing/node_modules
-          key: ${{ runner.os }}-modules-v2-${{ hashFiles('bun.lock') }}
-
-      - name: Install dependencies
-        if: steps.cache-modules.outputs.cache-hit != 'true'
-        run: bun install --frozen-lockfile
-
   typecheck:
     name: Typecheck
-    needs: setup
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
@@ -77,21 +49,21 @@ jobs:
         with:
           bun-version: latest
 
-      - name: Restore node_modules
+      - name: Cache bun downloads
         uses: actions/cache@v4
         with:
-          path: |
-            node_modules
-            landing/node_modules
-          key: ${{ runner.os }}-modules-v2-${{ hashFiles('bun.lock') }}
-          fail-on-cache-miss: true
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: ${{ runner.os }}-bun-
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
 
       - name: Typecheck landing
         run: bun run --cwd landing typecheck
 
   build:
     name: Build
-    needs: setup
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
@@ -109,14 +81,15 @@ jobs:
         with:
           bun-version: latest
 
-      - name: Restore node_modules
+      - name: Cache bun downloads
         uses: actions/cache@v4
         with:
-          path: |
-            node_modules
-            landing/node_modules
-          key: ${{ runner.os }}-modules-v2-${{ hashFiles('bun.lock') }}
-          fail-on-cache-miss: true
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: ${{ runner.os }}-bun-
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
 
       - name: Build landing
         run: bun run --cwd landing build

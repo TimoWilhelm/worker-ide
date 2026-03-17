@@ -57,6 +57,20 @@
 	--color-selection-text: #ff7038;
 }
 
+/* ── Sugar-high syntax highlighting ─────────────────────── */
+:root {
+	--sh-keyword: var(--color-accent);
+	--sh-string: var(--color-success);
+	--sh-class: var(--color-accent);
+	--sh-identifier: var(--color-text-primary);
+	--sh-sign: var(--color-text-secondary);
+	--sh-property: var(--color-warning);
+	--sh-entity: var(--color-warning);
+	--sh-jsxliterals: var(--color-text-primary);
+	--sh-comment: var(--color-text-secondary);
+	--sh-space: inherit;
+}
+
 /* ── Base styles ───────────────────────────────────────── */
 html {
 	scroll-behavior: smooth;
