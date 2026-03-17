@@ -1,0 +1,10 @@
+{
+	"name": "@worker-ide/esbuild-worker",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"devDependencies": {
+		"@worker-ide/shared": "workspace:*",
+		"esbuild-wasm": "^0.27.0"
+	}
+}

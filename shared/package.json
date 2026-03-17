@@ -1,0 +1,10 @@
+{
+	"name": "@worker-ide/shared",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"devDependencies": {
+		"@tanstack/ai-client": "^0.4.5",
+		"zod": "^4.2.1"
+	}
+}
