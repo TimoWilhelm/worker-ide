@@ -4,13 +4,8 @@ import BaseLayout from '../layouts/base-layout.astro';
 const appUrl = 'https://codemaxxing.app';
 ---
 
-<BaseLayout
-	title="Page Not Found — Codemaxxing"
-	description="The page you are looking for does not exist."
->
-	<div
-		class="relative flex min-h-screen flex-col items-center justify-center px-6 text-center"
-	>
+<BaseLayout title="Page Not Found — Codemaxxing" description="The page you are looking for does not exist.">
+	<div class="relative flex min-h-screen flex-col items-center justify-center px-6 text-center">
 		<!-- Background glow -->
 		<div
 			class="pointer-events-none absolute inset-0"
@@ -28,9 +23,7 @@ const appUrl = 'https://codemaxxing.app';
 			>
 				404
 			</p>
-			<p class="mt-4 text-lg text-text-secondary">
-				This page doesn&apos;t exist.
-			</p>
+			<p class="mt-4 text-lg text-text-secondary">This page doesn&apos;t exist.</p>
 			<div class="mt-8 flex items-center justify-center gap-4">
 				<a
 					href="/"

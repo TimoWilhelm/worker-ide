@@ -8,12 +8,7 @@ interface Props {
 	ogImage?: string;
 }
 
-const {
-	title,
-	description,
-	canonicalUrl = Astro.url.href,
-	ogImage = new URL('/og-image.png', Astro.site).href,
-} = Astro.props;
+const { title, description, canonicalUrl = Astro.url.href, ogImage = new URL('/og-image.png', Astro.site).href } = Astro.props;
 
 const siteName = 'Codemaxxing';
 const appUrl = 'https://codemaxxing.app';

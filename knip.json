@@ -23,10 +23,6 @@
 		"auxiliary/esbuild": {
 			"entry": ["index.ts"],
 			"project": ["**/*.ts", "!**/*.test.ts"]
-		},
-		"landing": {
-			"entry": ["src/pages/**/*.astro"],
-			"project": ["src/**/*.{astro,ts,tsx}"]
 		}
 	}
 }

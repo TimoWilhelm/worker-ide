@@ -5,16 +5,12 @@ on:
     branches: [main]
     paths:
       - 'landing/**'
-      - 'bun.lock'
-      - 'package.json'
       - '.github/workflows/ci-landing.yml'
       - '.github/workflows/deploy-landing.yml'
   pull_request:
     branches: [main]
     paths:
       - 'landing/**'
-      - 'bun.lock'
-      - 'package.json'
       - '.github/workflows/ci-landing.yml'
       - '.github/workflows/deploy-landing.yml'
 
@@ -25,11 +21,45 @@ concurrency:
 defaults:
   run:
     shell: bash -Eeuxo pipefail {0}
+    working-directory: landing
 
 env:
   DO_NOT_TRACK: 1
 
 jobs:
+  check:
+    name: Format, Lint & Knip
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Cache bun downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-landing-${{ hashFiles('landing/bun.lock') }}
+          restore-keys: ${{ runner.os }}-bun-landing-
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Format
+        run: bun run format
+
+      - name: Lint
+        run: bun run lint
+
+      - name: Knip
+        run: bun run knip
+
   typecheck:
     name: Typecheck
     runs-on: ubuntu-latest
@@ -53,14 +83,14 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.bun/install/cache
-          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
-          restore-keys: ${{ runner.os }}-bun-
+          key: ${{ runner.os }}-bun-landing-${{ hashFiles('landing/bun.lock') }}
+          restore-keys: ${{ runner.os }}-bun-landing-
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Typecheck landing
-        run: bun run --cwd landing typecheck
+      - name: Typecheck
+        run: bun run typecheck
 
   build:
     name: Build
@@ -85,11 +115,11 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.bun/install/cache
-          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
-          restore-keys: ${{ runner.os }}-bun-
+          key: ${{ runner.os }}-bun-landing-${{ hashFiles('landing/bun.lock') }}
+          restore-keys: ${{ runner.os }}-bun-landing-
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Build landing
-        run: bun run --cwd landing build
+      - name: Build
+        run: bun run build
