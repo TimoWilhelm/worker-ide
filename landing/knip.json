@@ -1,0 +1,6 @@
+{
+	"$schema": "https://unpkg.com/knip@5/schema.json",
+	"entry": ["src/pages/**/*.astro"],
+	"project": ["src/**/*.{astro,ts,tsx}"],
+	"ignoreDependencies": ["tailwindcss"]
+}

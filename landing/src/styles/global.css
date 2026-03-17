@@ -239,15 +239,8 @@ body {
 /* ── Geometric grid background ─────────────────────────── */
 .geo-grid {
 	background-image:
-		linear-gradient(
-			color-mix(in srgb, var(--color-accent) 6%, transparent) 1px,
-			transparent 1px
-		),
-		linear-gradient(
-			90deg,
-			color-mix(in srgb, var(--color-accent) 6%, transparent) 1px,
-			transparent 1px
-		);
+		linear-gradient(color-mix(in srgb, var(--color-accent) 6%, transparent) 1px, transparent 1px),
+		linear-gradient(90deg, color-mix(in srgb, var(--color-accent) 6%, transparent) 1px, transparent 1px);
 	background-size: 60px 60px;
 }
 
@@ -275,12 +268,7 @@ body {
 	content: '';
 	position: absolute;
 	inset: 0;
-	background: linear-gradient(
-		110deg,
-		transparent 25%,
-		color-mix(in srgb, var(--color-accent) 5%, transparent) 50%,
-		transparent 75%
-	);
+	background: linear-gradient(110deg, transparent 25%, color-mix(in srgb, var(--color-accent) 5%, transparent) 50%, transparent 75%);
 	transform: translateX(-100%);
 	transition: none;
 	pointer-events: none;
