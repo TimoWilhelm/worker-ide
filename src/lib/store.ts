@@ -36,6 +36,8 @@ interface EditorState {
 	pendingGoTo: { line: number; column: number } | undefined;
 	/** Unsaved changes per file */
 	unsavedChanges: Map<string, boolean>;
+	/** Per-file scroll top in pixels (for restoring on tab switch / reload) */
+	fileScrollPositions: Map<string, number>;
 }
 
 interface EditorActions {
@@ -49,6 +51,10 @@ interface EditorActions {
 	clearPendingGoTo: () => void;
 	markFileChanged: (path: string, changed: boolean) => void;
 	closeAllFiles: () => void;
+	/** Save scroll top for a specific file */
+	setFileScrollPosition: (path: string, scrollTop: number) => void;
+	/** Bulk-restore file scroll positions (used on session reload) */
+	restoreFileScrollPositions: (positions: Map<string, number>) => void;
 }
 
 // =============================================================================
@@ -362,6 +368,7 @@ export const useStore = create<StoreState>()(
 				cursorPosition: undefined,
 				pendingGoTo: undefined,
 				unsavedChanges: new Map(),
+				fileScrollPositions: new Map(),
 
 				setActiveFile: (path) => set({ activeFile: path }),
 
@@ -376,10 +383,13 @@ export const useStore = create<StoreState>()(
 						const newOpenFiles = state.openFiles.filter((f) => f !== path);
 						const newUnsavedChanges = new Map(state.unsavedChanges);
 						newUnsavedChanges.delete(path);
+						const newFileScrollPositions = new Map(state.fileScrollPositions);
+						newFileScrollPositions.delete(path);
 						return {
 							openFiles: newOpenFiles,
 							activeFile: state.activeFile === path ? newOpenFiles.at(-1) : state.activeFile,
 							unsavedChanges: newUnsavedChanges,
+							fileScrollPositions: newFileScrollPositions,
 						};
 					}),
 
@@ -410,7 +420,17 @@ export const useStore = create<StoreState>()(
 						openFiles: [],
 						activeFile: undefined,
 						unsavedChanges: new Map(),
+						fileScrollPositions: new Map(),
 					}),
+
+				setFileScrollPosition: (path, scrollTop) =>
+					set((state) => {
+						const newMap = new Map(state.fileScrollPositions);
+						newMap.set(path, scrollTop);
+						return { fileScrollPositions: newMap };
+					}),
+
+				restoreFileScrollPositions: (positions) => set({ fileScrollPositions: positions }),
 
 				// =============================================================================
 				// File Tree State & Actions

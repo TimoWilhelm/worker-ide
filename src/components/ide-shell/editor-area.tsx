@@ -4,14 +4,17 @@
  */
 
 import { Loader2, Sparkles } from 'lucide-react';
+import { useCallback } from 'react';
 
 import { Spinner } from '@/components/ui/spinner';
 import { Tooltip } from '@/components/ui/tooltip';
 import { CodeEditor, DiffToolbar, FileTabs, GitDiffToolbar } from '@/features/editor';
+import { useCollabCursors } from '@/features/editor/hooks/use-collab-cursors';
 import { isLintableFile } from '@/lib/biome-linter';
 import { cn } from '@/lib/utils';
 
 import type { useEditorState } from './use-editor-state';
+import type { EditorView } from '@codemirror/view';
 
 type EditorState = ReturnType<typeof useEditorState>;
 
@@ -47,6 +50,18 @@ export function EditorArea({ resolvedTheme, editorState, onSelectFile, tabsPrefi
 		pendingGoTo,
 		clearPendingGoTo,
 	} = editorState;
+
+	// Remote collaboration cursors extension
+	const { extension: collabCursorsExtension, handleViewReady: handleCollabViewReady } = useCollabCursors(activeFile);
+
+	// Combine the editor state's view-ready handler with the collab cursors handler
+	const combinedHandleViewReady = useCallback(
+		(view?: EditorView) => {
+			handleViewReady(view);
+			handleCollabViewReady(view);
+		},
+		[handleViewReady, handleCollabViewReady],
+	);
 
 	return (
 		<>
@@ -130,7 +145,8 @@ export function EditorArea({ resolvedTheme, editorState, onSelectFile, tabsPrefi
 									: undefined
 							}
 							resolvedTheme={resolvedTheme}
-							onViewReady={handleViewReady}
+							extensions={[collabCursorsExtension]}
+							onViewReady={combinedHandleViewReady}
 						/>
 					)
 				) : (

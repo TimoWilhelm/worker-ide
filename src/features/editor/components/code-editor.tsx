@@ -62,8 +62,8 @@ export interface CodeEditorProperties {
 	filename: string;
 	/** Called when content changes */
 	onChange?: (value: string) => void;
-	/** Called when cursor position changes */
-	onCursorChange?: (position: { line: number; column: number }) => void;
+	/** Called when cursor position changes (includes selection range) */
+	onCursorChange?: (position: { line: number; column: number; anchorLine: number; anchorColumn: number }) => void;
 	/** Called when the editor loses focus (for auto-save on focus change) */
 	onBlur?: () => void;
 	/** Navigate to a specific position (line/column). Consumed once when set. */
@@ -155,11 +155,15 @@ export function CodeEditor({
 			}
 
 			if (update.selectionSet) {
-				const position = update.state.selection.main.head;
-				const line = update.state.doc.lineAt(position);
+				const head = update.state.selection.main.head;
+				const headLine = update.state.doc.lineAt(head);
+				const anchor = update.state.selection.main.anchor;
+				const anchorLine = update.state.doc.lineAt(anchor);
 				onCursorChangeReference.current?.({
-					line: line.number,
-					column: position - line.from + 1,
+					line: headLine.number,
+					column: head - headLine.from + 1,
+					anchorLine: anchorLine.number,
+					anchorColumn: anchor - anchorLine.from + 1,
 				});
 			}
 

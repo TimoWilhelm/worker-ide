@@ -238,30 +238,15 @@ body {
 	opacity: 0.85;
 }
 
-/* Remote cursor styles for collaboration */
-.remote-cursor {
-	position: absolute;
+/* Remote cursor styles for collaboration —
+   Cursors are rendered in CM6's layer system to avoid affecting text layout. */
+.remote-cursor-layer > .remote-cursor {
 	width: 2px;
-	pointer-events: none;
-	z-index: 10;
-}
-
-.remote-cursor-flag {
-	position: absolute;
-	top: -18px;
-	left: 0;
-	padding: 2px 6px;
-	font-size: var(--text-2xs);
-	font-weight: 500;
-	border-radius: 3px;
-	white-space: nowrap;
-	color: white;
+	border: none;
 }
 
 .remote-selection {
-	position: absolute;
 	pointer-events: none;
-	opacity: 0.3;
 }
 
 /* Animation utilities */
@@ -330,11 +315,11 @@ body {
 
 /* Diff viewer styles */
 .diff-line-added {
-	background: rgba(94, 255, 58, 0.1);
+	background: color-mix(in srgb, var(--color-success) 10%, transparent);
 }
 
 .diff-line-removed {
-	background: rgba(255, 94, 94, 0.1);
+	background: color-mix(in srgb, var(--color-error) 12%, transparent);
 }
 
 .diff-line-context {

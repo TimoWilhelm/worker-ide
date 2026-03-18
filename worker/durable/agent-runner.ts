@@ -599,6 +599,20 @@ export class AgentRunner extends DurableObject {
 					buffer.shift();
 				}
 
+				// Detect RUN_ERROR chunks yielded by the agent stream. These
+				// signal an error that the stream handled gracefully (e.g. LLM
+				// API failure, tool execution error) rather than throwing. Without
+				// this check, the session would be persisted as 'completed' even
+				// though the agent produced an error.
+				if (chunk.type === 'RUN_ERROR') {
+					finalStatus = 'error';
+					const chunkError = 'error' in chunk && typeof chunk.error === 'object' && chunk.error !== null ? chunk.error : undefined;
+					errorMessage =
+						chunkError && 'message' in chunkError && typeof chunkError.message === 'string'
+							? chunkError.message
+							: 'An unexpected error occurred during generation.';
+				}
+
 				// Reschedule heartbeat alarm periodically (throttled)
 				const now = Date.now();
 				if (now - lastHeartbeat >= HEARTBEAT_INTERVAL_MS) {

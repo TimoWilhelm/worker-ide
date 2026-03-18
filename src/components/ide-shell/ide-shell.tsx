@@ -18,6 +18,7 @@ import { selectIsProcessing, useStore } from '@/lib/store';
 import { DesktopLayout } from './desktop-layout';
 import { IDEHeader } from './ide-header';
 import { MobileLayout } from './mobile-layout';
+import { useEditorSessionPersistence } from './use-editor-session-persistence';
 import { useEditorState } from './use-editor-state';
 import { useIDEEffects } from './use-ide-effects';
 import { useLogCounts } from './use-log-counts';
@@ -25,6 +26,10 @@ import { usePanelLayouts } from './use-panel-layouts';
 import { useProjectName } from './use-project-name';
 
 export function IDEShell({ projectId }: { projectId: string }) {
+	// Restore and persist editor session (open tabs, active file, cursor/scroll positions)
+	// Must run before useEditorState so the store is populated before the first render
+	useEditorSessionPersistence({ projectId });
+
 	// Project WebSocket connection (HMR notifications, collaboration, server events)
 	useProjectSocket({ projectId });
 

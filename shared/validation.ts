@@ -778,6 +778,18 @@ export const persistedStoreSchema = z.object({
 
 export type PersistedStoreParsed = z.infer<typeof persistedStoreSchema>;
 
+/**
+ * Schema for the editor session persisted per project (localStorage).
+ */
+export const editorSessionSchema = z.object({
+	openFiles: z.array(z.string()),
+	activeFile: z.string().optional(),
+	/** Scroll top (px) per file path */
+	scrollPositions: z.record(z.string(), z.number()).default({}),
+});
+
+export type EditorSessionParsed = z.infer<typeof editorSessionSchema>;
+
 // =============================================================================
 // Validation Helpers
 // =============================================================================

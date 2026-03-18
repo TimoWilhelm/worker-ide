@@ -22,6 +22,7 @@ export function useEditorState({ projectId }: { projectId: string }) {
 		closeFile,
 		markFileChanged,
 		setCursorPosition,
+		setFileScrollPosition,
 		goToFilePosition,
 		clearPendingGoTo,
 		pendingGoTo,
@@ -37,6 +38,7 @@ export function useEditorState({ projectId }: { projectId: string }) {
 			closeFile: state.closeFile,
 			markFileChanged: state.markFileChanged,
 			setCursorPosition: state.setCursorPosition,
+			setFileScrollPosition: state.setFileScrollPosition,
 			goToFilePosition: state.goToFilePosition,
 			clearPendingGoTo: state.clearPendingGoTo,
 			pendingGoTo: state.pendingGoTo,
@@ -172,8 +174,56 @@ export function useEditorState({ projectId }: { projectId: string }) {
 
 	// Editor view ref for direct CodeMirror dispatch (preserves scroll position)
 	const editorViewReference = useRef<EditorView | undefined>(undefined);
-	const handleViewReady = useCallback((view?: EditorView) => {
-		editorViewReference.current = view;
+	const scrollListenerReference = useRef<(() => void) | undefined>(undefined);
+
+	const handleViewReady = useCallback(
+		(view?: EditorView) => {
+			// Clean up previous scroll listener
+			scrollListenerReference.current?.();
+			scrollListenerReference.current = undefined;
+
+			editorViewReference.current = view;
+
+			if (view && activeFile) {
+				// Restore saved scroll position for this file.
+				// Read from the store directly to avoid a stale closure.
+				// Clamp to the actual scrollable range so shortened files don't
+				// leave the editor stuck past the end.
+				const savedScroll = useStore.getState().fileScrollPositions.get(activeFile);
+				if (savedScroll !== undefined && savedScroll > 0) {
+					requestAnimationFrame(() => {
+						const maxScroll = view.scrollDOM.scrollHeight - view.scrollDOM.clientHeight;
+						view.scrollDOM.scrollTop = Math.min(savedScroll, Math.max(0, maxScroll));
+					});
+				}
+
+				// Track scroll position changes (throttled to reduce store churn)
+				let scrollThrottleId: ReturnType<typeof setTimeout> | undefined;
+				const scrollHandler = () => {
+					if (scrollThrottleId !== undefined) return;
+					scrollThrottleId = setTimeout(() => {
+						scrollThrottleId = undefined;
+						const currentFile = useStore.getState().activeFile;
+						if (currentFile) {
+							setFileScrollPosition(currentFile, view.scrollDOM.scrollTop);
+						}
+					}, 150);
+				};
+				view.scrollDOM.addEventListener('scroll', scrollHandler, { passive: true });
+				scrollListenerReference.current = () => {
+					view.scrollDOM.removeEventListener('scroll', scrollHandler);
+					clearTimeout(scrollThrottleId);
+				};
+			}
+		},
+		[activeFile, setFileScrollPosition],
+	);
+
+	// Clean up scroll listener on unmount
+	useEffect(() => {
+		return () => {
+			scrollListenerReference.current?.();
+		};
 	}, []);
 
 	// Prettify: apply all Biome fixes + formatting to the active file
@@ -207,14 +257,19 @@ export function useEditorState({ projectId }: { projectId: string }) {
 	}, [activeFile, editorContent, isGitDiffActive, markFileChanged]);
 
 	// Wrap selectFile from file tree: autosave current file before switching + clear git diff
+	// Also save current scroll position before switching to the new file
 	const selectFileFromTree = useCallback(
 		(path: string) => {
+			// Save scroll position for the file we are leaving
+			if (activeFile && editorViewReference.current) {
+				setFileScrollPosition(activeFile, editorViewReference.current.scrollDOM.scrollTop);
+			}
 			void handleSaveReference.current();
 			if (gitDiffView && gitDiffView.path !== path) {
 				clearGitDiff();
 			}
 		},
-		[gitDiffView, clearGitDiff],
+		[activeFile, gitDiffView, clearGitDiff, setFileScrollPosition],
 	);
 
 	// Wrap closeFile: autosave current file before closing + clear git diff if closing diffed file
@@ -232,16 +287,25 @@ export function useEditorState({ projectId }: { projectId: string }) {
 	// Send cursor updates to collaborators (debounced)
 	const cursorUpdateTimeoutReference = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 	const handleCursorChange = useCallback(
-		(position: { line: number; column: number }) => {
-			setCursorPosition(position);
+		(position: { line: number; column: number; anchorLine: number; anchorColumn: number }) => {
+			setCursorPosition({ line: position.line, column: position.column });
 
 			// Debounce WebSocket cursor update
 			clearTimeout(cursorUpdateTimeoutReference.current);
 			cursorUpdateTimeoutReference.current = setTimeout(() => {
+				const hasSelection = position.line !== position.anchorLine || position.column !== position.anchorColumn;
 				projectSocketSendReference.current?.({
 					type: 'cursor-update',
 					file: activeFile ?? '',
 					cursor: { line: position.line, ch: position.column },
+					...(hasSelection
+						? {
+								selection: {
+									anchor: { line: position.anchorLine, ch: position.anchorColumn },
+									head: { line: position.line, ch: position.column },
+								},
+							}
+						: {}),
 				});
 			}, 100);
 		},
