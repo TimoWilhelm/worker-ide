@@ -2,9 +2,15 @@
  * Unit tests for tool definitions and plan mode filtering.
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { toolInputSchemas } from '@shared/validation';
+
+// Mock @cloudflare/tanstack-ai to prevent transitive google-auth-library load
+// (google-auth-library requires node:child_process which is unavailable in workerd)
+vi.mock('@cloudflare/tanstack-ai', () => ({
+	createWorkersAiChat: () => ({}),
+}));
 
 import { AGENT_TOOLS, ASK_MODE_TOOLS, MUTATION_TOOL_NAMES, PLAN_MODE_TOOLS, READ_ONLY_TOOL_NAMES, TOOL_EXECUTORS } from './index';
 

@@ -127,6 +127,7 @@ interface AIActions {
 		messageSnapshots?: Map<number, string>,
 		contextTokensUsed?: number,
 		messageModes?: Map<number, AgentMode>,
+		error?: AIError,
 	) => void;
 	setMessageSnapshot: (messageIndex: number, snapshotId: string) => void;
 	clearMessageSnapshot: (snapshotId: string) => void;
@@ -491,13 +492,13 @@ export const useStore = create<StoreState>()(
 
 				setSavedSessions: (sessions) => set({ savedSessions: sessions }),
 
-				loadSession: (history, sessionId, messageSnapshots, contextTokensUsed, messageModes) =>
+				loadSession: (history, sessionId, messageSnapshots, contextTokensUsed, messageModes, error) =>
 					set({
 						history,
 						sessionId,
 						messageSnapshots: messageSnapshots ?? new Map(),
 						messageModes: messageModes ?? new Map(),
-						aiError: undefined,
+						aiError: error,
 						debugLogId: undefined,
 						contextTokensUsed: contextTokensUsed ?? 0,
 					}),

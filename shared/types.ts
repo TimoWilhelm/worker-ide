@@ -137,6 +137,11 @@ export interface AiSession {
 	toolMetadata?: Record<string, ToolMetadataInfo>;
 	/** Structured tool error data keyed by toolCallId, persisted for the same reason. */
 	toolErrors?: Record<string, ToolErrorInfo>;
+	/** Terminal status of the last agent run. Set by the agent-runner after
+	 *  the loop finishes so reloaded sessions can restore the AIError UI. */
+	status?: AgentSessionStatus;
+	/** Sanitized error message when status is 'error'. */
+	errorMessage?: string;
 }
 
 /**

@@ -21,7 +21,7 @@
  */
 
 import { convertMessagesToModelMessages } from '@tanstack/ai';
-import { DurableObject, env } from 'cloudflare:workers';
+import { DurableObject } from 'cloudflare:workers';
 import { mount, withMounts } from 'worker-fs-mount';
 
 import { DEFAULT_AI_MODEL } from '@shared/constants';
@@ -487,11 +487,6 @@ export class AgentRunner extends DurableObject {
 		let errorMessage: string | undefined;
 
 		try {
-			const apiToken = env.REPLICATE_API_TOKEN;
-			if (!apiToken) {
-				throw new Error('REPLICATE_API_TOKEN not configured');
-			}
-
 			// Get the filesystem stub for this project
 			const fsId = toDurableObjectId(filesystemNamespace, projectId);
 			const fsStub = filesystemNamespace.get(fsId);
@@ -582,7 +577,7 @@ export class AgentRunner extends DurableObject {
 			// runAgentStream handles filesystem mounting internally via
 			// a withMounts-scoped async producer piped through a TransformStream.
 			const abortController = this.agentAbortControllers.get(sessionId) ?? new AbortController();
-			const stream = agentService.runAgentStream(modelMessages, parameters.messages, apiToken, abortController, parameters.outputLogs);
+			const stream = agentService.runAgentStream(modelMessages, parameters.messages, abortController, parameters.outputLogs);
 
 			// Get the coordinator stub for broadcasting events
 			const coordinatorId = coordinatorNamespace.idFromName(`project:${projectId}`);
@@ -633,10 +628,11 @@ export class AgentRunner extends DurableObject {
 
 				// Emit a RUN_ERROR chunk so the UI shows an error message.
 				// Sanitize: never expose internal error details to clients.
-				const sanitizedMessage =
-					error instanceof Error && error.message === 'REPLICATE_API_TOKEN not configured'
-						? 'AI service is not configured. Please contact the project owner.'
-						: 'An unexpected error occurred during generation. Please try again.';
+				const isConfigError =
+					error instanceof Error && (error.message.includes('REPLICATE_API_TOKEN') || error.message.includes('Workers AI binding'));
+				const sanitizedMessage = isConfigError
+					? 'AI service is not configured. Please contact the project owner.'
+					: 'An unexpected error occurred during generation. Please try again.';
 				errorMessage = sanitizedMessage;
 
 				const errorChunk = {
@@ -676,6 +672,17 @@ export class AgentRunner extends DurableObject {
 
 			// Broadcast the final status (with sanitized error message if applicable)
 			await this.broadcastStatusChanged(parameters.projectId, sessionId, finalStatus, undefined, errorMessage).catch(() => {});
+
+			// Persist the terminal status so reloaded sessions can restore the
+			// AIError UI without relying on the WebSocket broadcast.
+			const sessionData = this.ctx.storage.kv.get<AiSession>(`sessionData:${sessionId}`);
+			if (sessionData) {
+				this.ctx.storage.kv.put(`sessionData:${sessionId}`, {
+					...sessionData,
+					status: finalStatus,
+					errorMessage: finalStatus === 'error' ? errorMessage : undefined,
+				});
+			}
 
 			// Prune old sessions beyond the rolling limit (best-effort, non-blocking)
 			await this.pruneOldSessions(projectId).catch((error) => {

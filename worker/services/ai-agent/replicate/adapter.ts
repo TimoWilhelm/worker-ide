@@ -12,6 +12,7 @@
 
 import { convertSchemaToJsonSchema } from '@tanstack/ai';
 import { BaseTextAdapter } from '@tanstack/ai/adapters';
+import { env } from 'cloudflare:workers';
 import Replicate from 'replicate';
 
 import { isRecordObject } from '../utilities';
@@ -207,9 +208,9 @@ class ReplicateTextAdapter extends BaseTextAdapter<string, Record<string, never>
 	private replicate: Replicate;
 	private logger?: AgentLogger;
 
-	constructor(apiKey: string, model: string, logger?: AgentLogger) {
-		super({ apiKey }, model);
-		this.replicate = new Replicate({ auth: apiKey });
+	constructor(model: string, logger?: AgentLogger) {
+		super({ apiKey: env.REPLICATE_API_TOKEN }, model);
+		this.replicate = new Replicate({ auth: env.REPLICATE_API_TOKEN });
 		this.logger = logger;
 	}
 
@@ -689,9 +690,8 @@ class ReplicateTextAdapter extends BaseTextAdapter<string, Record<string, never>
  * The adapter handles message formatting, tool descriptions, streaming, and tool call parsing.
  *
  * @param modelId - Replicate model ID (e.g., "anthropic/claude-4.5-haiku")
- * @param apiKey - Replicate API token
  * @param logger - Optional debug logger for structured logging of LLM interactions
  */
-export function createAdapter(modelId: AIModelId | string, apiKey: string, logger?: AgentLogger): ReplicateTextAdapter {
-	return new ReplicateTextAdapter(apiKey, modelId, logger);
+export function createAdapter(modelId: AIModelId | string, logger?: AgentLogger): ReplicateTextAdapter {
+	return new ReplicateTextAdapter(modelId, logger);
 }

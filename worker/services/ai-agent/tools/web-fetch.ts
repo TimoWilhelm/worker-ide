@@ -13,7 +13,7 @@ import { env } from 'cloudflare:workers';
 import { SUMMARIZATION_AI_MODEL } from '@shared/constants';
 import { ToolExecutionError } from '@shared/tool-errors';
 
-import { createAdapter } from '../replicate';
+import { createAdapter } from '../workers-ai';
 
 import type { SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
 
@@ -70,9 +70,9 @@ function isMarkdownContent(contentType: string, body: string): boolean {
  * Convert raw HTML to markdown using Cloudflare Workers AI `toMarkdown()`.
  * Returns `undefined` on conversion failure.
  */
-async function convertHtmlToMarkdown(html: string, ai: Ai): Promise<string | undefined> {
+async function convertHtmlToMarkdown(html: string): Promise<string | undefined> {
 	const blob = new Blob([html], { type: 'text/html' });
-	const results = await ai.toMarkdown([{ name: 'page.html', blob }]);
+	const results = await env.AI.toMarkdown([{ name: 'page.html', blob }]);
 	const result = results[0];
 	if (!result || result.format === 'error') {
 		return undefined;
@@ -89,8 +89,8 @@ async function convertHtmlToMarkdown(html: string, ai: Ai): Promise<string | und
  * The summarization model treats the fetched content as data, preventing
  * prompt injection from reaching the calling agent.
  */
-async function summarizeContent(markdownContent: string, userPrompt: string, url: string, apiKey: string): Promise<string> {
-	const adapter = createAdapter(SUMMARIZATION_AI_MODEL, apiKey);
+async function summarizeContent(markdownContent: string, userPrompt: string, url: string): Promise<string> {
+	const adapter = createAdapter(SUMMARIZATION_AI_MODEL);
 
 	const systemPrompt = [
 		'You are a web content summarization assistant.',
@@ -141,11 +141,6 @@ export async function execute(
 	const fetchUrl = input.url;
 	const userPrompt = input.prompt;
 
-	const apiKey = env.REPLICATE_API_TOKEN;
-	if (!apiKey) {
-		throw new ToolExecutionError('MISSING_INPUT', 'REPLICATE_API_TOKEN is not configured.');
-	}
-
 	sendEvent('status', { message: `Fetching ${fetchUrl}...` });
 
 	try {
@@ -179,7 +174,7 @@ export async function execute(
 			markdown = raw.trim();
 		} else {
 			try {
-				const converted = await convertHtmlToMarkdown(raw, env.AI);
+				const converted = await convertHtmlToMarkdown(raw);
 				if (!converted) {
 					throw new ToolExecutionError('MISSING_INPUT', `Failed to convert content from ${fetchUrl} to markdown`);
 				}
@@ -201,7 +196,7 @@ export async function execute(
 		sendEvent('status', { message: 'Summarizing content...' });
 
 		try {
-			const summary = await summarizeContent(markdown, userPrompt, fetchUrl, apiKey);
+			const summary = await summarizeContent(markdown, userPrompt, fetchUrl);
 			return {
 				title: fetchUrl.length > 60 ? fetchUrl.slice(0, 60) + '...' : fetchUrl,
 				metadata: { url: fetchUrl, contentLength: summary.length },

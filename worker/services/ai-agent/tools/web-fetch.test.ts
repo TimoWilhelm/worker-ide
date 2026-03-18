@@ -19,7 +19,6 @@ vi.stubGlobal('fetch', mockFetch);
 // Mock cloudflare:workers env
 vi.mock('cloudflare:workers', () => ({
 	env: {
-		REPLICATE_API_TOKEN: 'test-api-key',
 		AI: {
 			toMarkdown: async (files: Array<{ name: string; blob: Blob }>) => {
 				// Simulate AI markdown conversion
@@ -43,8 +42,8 @@ vi.mock('@tanstack/ai', () => ({
 	maxIterations: () => ({}),
 }));
 
-// Mock the replicate adapter
-vi.mock('../replicate', () => ({
+// Mock the workers-ai adapter
+vi.mock('../workers-ai', () => ({
 	createAdapter: () => ({}),
 }));
 
