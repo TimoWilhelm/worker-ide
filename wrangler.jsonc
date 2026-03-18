@@ -8,6 +8,25 @@
 	"main": "worker/index.ts",
 	"compatibility_date": "2026-01-31",
 	"compatibility_flags": ["nodejs_compat", "no_handle_cross_request_promise_resolution"],
+	"workers_dev": false,
+	"preview_urls": false,
+	"observability": {
+		"logs": { "enabled": true },
+		"traces": { "enabled": true },
+	},
+	"version_metadata": {
+		"binding": "CF_VERSION_METADATA",
+	},
+	"assets": {
+		"directory": "./dist/client",
+		"binding": "ASSETS",
+		"not_found_handling": "single-page-application",
+		"run_worker_first": true,
+	},
+	"ai": {
+		"binding": "AI",
+		"remote": true,
+	},
 	"migrations": [
 		{
 			"new_sqlite_classes": ["DurableObjectFilesystem", "HMRCoordinator"],
@@ -27,17 +46,6 @@
 			"tag": "v4",
 		},
 	],
-
-	"assets": {
-		"directory": "./dist/client",
-		"binding": "ASSETS",
-		"not_found_handling": "single-page-application",
-		"run_worker_first": true,
-	},
-	"observability": {
-		"logs": { "enabled": true },
-		"traces": { "enabled": true },
-	},
 	"worker_loaders": [
 		{
 			"binding": "LOADER",
@@ -53,13 +61,6 @@
 			},
 		},
 	],
-	"ai": {
-		"binding": "AI",
-		"remote": true,
-	},
-	"version_metadata": {
-		"binding": "CF_VERSION_METADATA",
-	},
 	"services": [
 		{
 			"binding": "BIOME",
