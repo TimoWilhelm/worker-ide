@@ -38,12 +38,21 @@ interface ToolCallRecord {
  *
  * Mutation failures are detected via the MUTATION_FAILURE_TAG that the agent loop
  * injects into corrective user messages, not by parsing natural-language content.
+ *
+ * @param messages - The full working message history.
+ * @param currentRunStartIndex - Index in `messages` where the current agent run begins.
+ *   Only tool calls from this index onward are considered for the identical-calls check,
+ *   preventing false positives when the same files are read across separate user turns
+ *   in the same session. Defaults to 0 (scan all messages) for backwards compatibility.
  */
-export function detectDoomLoop(messages: ModelMessage[]): DoomLoopResult {
+export function detectDoomLoop(messages: ModelMessage[], currentRunStartIndex = 0): DoomLoopResult {
 	const toolCalls: ToolCallRecord[] = [];
 
-	// Extract all tool calls in order
-	for (const message of messages) {
+	// Extract tool calls only from the current agent run (startIndex onward)
+	// to avoid false positives from previous user turns reading the same files.
+	const startIndex = Math.max(0, Math.min(currentRunStartIndex, messages.length));
+	for (let index = startIndex; index < messages.length; index++) {
+		const message = messages[index];
 		if (message.role === 'assistant' && Array.isArray(message.toolCalls)) {
 			for (const tc of message.toolCalls) {
 				if (tc.type === 'function') {

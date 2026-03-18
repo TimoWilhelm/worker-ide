@@ -292,3 +292,118 @@ describe('combined detection', () => {
 		expect(detectDoomLoop(messages).isDoomLoop).toBe(false);
 	});
 });
+
+// =============================================================================
+// currentRunStartIndex (scoping to current agent run)
+// =============================================================================
+
+describe('currentRunStartIndex', () => {
+	it('ignores identical tool calls from prior turns when startIndex is set', () => {
+		// Simulate prior turn: 3 identical file_read calls (would normally trigger)
+		const priorTurnMessages: ModelMessage[] = [
+			...buildIteration([{ name: 'file_read', arguments: { path: '/a.txt' } }]),
+			...buildIteration([{ name: 'file_read', arguments: { path: '/a.txt' } }]),
+			...buildIteration([{ name: 'file_read', arguments: { path: '/a.txt' } }]),
+		];
+		// Current turn: assistant replies with no tool calls
+		const currentTurnMessages: ModelMessage[] = [{ role: 'assistant', content: 'Here is what the file contains...' }];
+
+		const allMessages = [...priorTurnMessages, ...currentTurnMessages];
+
+		// Without startIndex (legacy behavior) — triggers
+		expect(detectDoomLoop(allMessages).isDoomLoop).toBe(true);
+
+		// With startIndex pointing to current turn — does NOT trigger
+		expect(detectDoomLoop(allMessages, priorTurnMessages.length).isDoomLoop).toBe(false);
+	});
+
+	it('detects identical calls within the current run even with prior history', () => {
+		// Prior turn: different tool calls
+		const priorTurnMessages: ModelMessage[] = [...buildIteration([{ name: 'file_read', arguments: { path: '/a.txt' } }])];
+		// Current turn: 3 identical calls (should trigger)
+		const currentTurnMessages: ModelMessage[] = [
+			...buildIteration([{ name: 'file_read', arguments: { path: '/b.txt' } }]),
+			...buildIteration([{ name: 'file_read', arguments: { path: '/b.txt' } }]),
+			...buildIteration([{ name: 'file_read', arguments: { path: '/b.txt' } }]),
+		];
+
+		const allMessages = [...priorTurnMessages, ...currentTurnMessages];
+		const result = detectDoomLoop(allMessages, priorTurnMessages.length);
+		expect(result.isDoomLoop).toBe(true);
+		expect(result.reason).toBe('identical_calls');
+		expect(result.toolName).toBe('file_read');
+	});
+
+	it('does not trigger when prior + current calls total 3 but current has fewer', () => {
+		// Prior turn: 2 identical calls
+		const priorTurnMessages: ModelMessage[] = [
+			...buildIteration([{ name: 'file_read', arguments: { path: '/a.txt' } }]),
+			...buildIteration([{ name: 'file_read', arguments: { path: '/a.txt' } }]),
+		];
+		// Current turn: 1 identical call (total 3 across turns, but only 1 in current)
+		const currentTurnMessages: ModelMessage[] = [...buildIteration([{ name: 'file_read', arguments: { path: '/a.txt' } }])];
+
+		const allMessages = [...priorTurnMessages, ...currentTurnMessages];
+
+		// Without startIndex — triggers (3 total)
+		expect(detectDoomLoop(allMessages).isDoomLoop).toBe(true);
+
+		// With startIndex — does NOT trigger (only 1 in current run)
+		expect(detectDoomLoop(allMessages, priorTurnMessages.length).isDoomLoop).toBe(false);
+	});
+
+	it('still detects mutation failure loop across current run iterations', () => {
+		// Prior turn: successful
+		const priorTurnMessages: ModelMessage[] = [...buildIteration([{ name: 'file_edit', arguments: { path: '/a.txt' } }])];
+		// Current turn: 2 consecutive mutation failures
+		const currentTurnMessages: ModelMessage[] = [
+			...buildIteration([{ name: 'file_edit', arguments: { path: '/b.txt' } }], { mutationFailure: true }),
+			...buildIteration([{ name: 'file_edit', arguments: { path: '/c.txt' } }], { mutationFailure: true }),
+		];
+
+		const allMessages = [...priorTurnMessages, ...currentTurnMessages];
+		// Mutation failure detection still uses full history (scans backwards),
+		// but the successful prior iteration breaks the streak naturally
+		const result = detectDoomLoop(allMessages, priorTurnMessages.length);
+		expect(result.isDoomLoop).toBe(true);
+		expect(result.reason).toBe('mutation_failure_loop');
+	});
+
+	it('handles startIndex at 0 (same as no argument)', () => {
+		const messages: ModelMessage[] = [
+			...buildIteration([{ name: 'file_read', arguments: { path: '/a.txt' } }]),
+			...buildIteration([{ name: 'file_read', arguments: { path: '/a.txt' } }]),
+			...buildIteration([{ name: 'file_read', arguments: { path: '/a.txt' } }]),
+		];
+		expect(detectDoomLoop(messages, 0).isDoomLoop).toBe(true);
+	});
+
+	it('handles startIndex beyond message length gracefully', () => {
+		const messages: ModelMessage[] = [
+			...buildIteration([{ name: 'file_read', arguments: { path: '/a.txt' } }]),
+			...buildIteration([{ name: 'file_read', arguments: { path: '/a.txt' } }]),
+			...buildIteration([{ name: 'file_read', arguments: { path: '/a.txt' } }]),
+		];
+		// startIndex beyond messages — no tool calls to analyze
+		expect(detectDoomLoop(messages, messages.length + 10).isDoomLoop).toBe(false);
+	});
+
+	it('does not false-positive when empty arguments from prior turns look identical', () => {
+		// This is the exact scenario from the bug report: prior turn had tool calls
+		// with empty arguments (non-streaming adapter), and current turn has none.
+		const priorTurnMessages: ModelMessage[] = [
+			...buildIteration([{ name: 'file_read', arguments: {} }]),
+			...buildIteration([{ name: 'file_read', arguments: {} }]),
+			...buildIteration([{ name: 'file_read', arguments: {} }]),
+		];
+		const currentTurnMessages: ModelMessage[] = [{ role: 'assistant', content: 'Here is the answer.' }];
+
+		const allMessages = [...priorTurnMessages, ...currentTurnMessages];
+
+		// Without startIndex — would trigger (3 identical empty-arg calls)
+		expect(detectDoomLoop(allMessages).isDoomLoop).toBe(true);
+
+		// With startIndex — does NOT trigger (no tool calls in current run)
+		expect(detectDoomLoop(allMessages, priorTurnMessages.length).isDoomLoop).toBe(false);
+	});
+});

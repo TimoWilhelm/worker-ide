@@ -646,6 +646,10 @@ export class AIAgentService {
 			// Mutable copy of messages for the agent loop
 			const workingMessages = [...messages];
 
+			// Track where this run's messages begin, so doom loop detection only
+			// considers tool calls from the current run (not prior user turns).
+			const currentRunStartIndex = workingMessages.length;
+
 			let continueLoop = true;
 			let iteration = 0;
 			let hitIterationLimit = false;
@@ -913,6 +917,18 @@ export class AIAgentService {
 								// Parse and store args, record for doom detection, but don't add
 								// to completedToolCalls yet — wait for the execution result.
 								let toolInput: Record<string, unknown> = {};
+
+								// Some adapters (e.g. Workers AI non-streaming fallback) may not
+								// emit TOOL_CALL_ARGS events, instead providing the parsed input
+								// directly on the TOOL_CALL_END chunk. Fall back to that when the
+								// accumulated argument string is empty to ensure message history
+								// records the actual arguments (preventing false doom-loop positives
+								// from all tool calls appearing identical with empty arguments).
+								const chunkInput = getEventRecord(chunk, 'input');
+								if (!currentToolArguments && chunkInput) {
+									currentToolArguments = JSON.stringify(chunkInput);
+								}
+
 								if (toolName) {
 									try {
 										toolInput = JSON.parse(currentToolArguments || '{}');
@@ -1217,7 +1233,7 @@ export class AIAgentService {
 						// Non-fatal — coordinator may be unreachable
 					}
 				}
-				const loopResult = continueLoop ? detectDoomLoop(workingMessages) : { isDoomLoop: false };
+				const loopResult = continueLoop ? detectDoomLoop(workingMessages, currentRunStartIndex) : { isDoomLoop: false };
 				if (loopResult.isDoomLoop) {
 					logger.warn('agent_loop', 'doom_loop_detected', {
 						reason: loopResult.reason,

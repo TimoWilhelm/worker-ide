@@ -480,10 +480,15 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	// body) avoids both set-state-in-effect and ref-access-during-render.
 	useEffect(() => {
 		return useStore.subscribe((state, previousState) => {
-			// Session changed → reset reconnect and cancelled flags
+			// Session changed → reset per-session UI state to prevent
+			// stale alerts/prompts from a previous session leaking through.
 			if (state.sessionId !== previousState.sessionId) {
 				hasTriggeredReconnectReference.current = false;
 				setHasCancelled(false);
+				setDoomLoopMessage(undefined);
+				setNeedsContinuation(false);
+				setPendingQuestion(undefined);
+				setPlanPath(undefined);
 			}
 		});
 	}, []);
@@ -652,6 +657,13 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 			if (isChatLoading) {
 				stopChat();
 			}
+			// Clear per-turn UI state that must not leak across sessions.
+			// These are local useState values that persist because the AIPanel
+			// component stays mounted across session switches.
+			setPlanPath(undefined);
+			setNeedsContinuation(false);
+			setPendingQuestion(undefined);
+			setDoomLoopMessage(undefined);
 			// Note: pendingChanges are NOT cleared here — loadSession() replaces
 			// them with the loaded session's persisted pending changes (or empty).
 			toolErrorsReference.current.clear();
