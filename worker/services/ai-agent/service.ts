@@ -3,7 +3,7 @@
  * Handles the AI agent loop with streaming response using TanStack AI.
  *
  * Key architecture:
- * - Uses TanStack AI chat() with custom Replicate adapter for the agentic loop
+ * - Uses TanStack AI chat() with provider-specific adapters for the agent loop
  * - Emits native AG-UI protocol events via toServerSentEventsResponse()
  * - App-specific events (snapshots, file changes, etc.) are sent as CUSTOM AG-UI events
  * - Frontend uses useChat + fetchServerSentEvents to consume the stream natively
@@ -25,18 +25,21 @@ import {
 	DEFAULT_AI_MODEL,
 	MCP_SERVERS,
 	PLAN_MODE_SYSTEM_PROMPT,
+	getModelConfig,
+	getModelLimits,
 } from '@shared/constants';
 
 import { AgentLogger, sanitizeToolInput, summarizeToolResult } from './agent-logger';
 import { estimateMessagesTokens, getContextUtilization, hasContextBudget, pruneToolOutputs } from './context-pruner';
 import { detectDoomLoop, MUTATION_FAILURE_TAG } from './doom-loop';
-import { createAdapter, getModelLimits } from './replicate';
+import { createAdapter as createReplicateAdapter } from './replicate';
 import { classifyRetryableError, calculateRetryDelay, sleep } from './retry';
 import { cleanupTimestampPlans } from './session-cleanup';
 import { deriveFallbackTitle } from './title-generator';
 import { TokenTracker } from './token-tracker';
 import { createSendEvent, createServerTools, MUTATION_TOOL_NAMES } from './tools';
 import { isRecordObject, parseApiError } from './utilities';
+import { createAdapter as createWorkersAiAdapter } from './workers-ai';
 import { coordinatorNamespace } from '../../lib/durable-object-namespaces';
 
 import type {
@@ -230,6 +233,7 @@ export class AIAgentService {
 				contextTokensUsed?: number;
 				toolMetadata?: Record<string, ToolMetadataInfo>;
 				toolErrors?: Record<string, ToolErrorInfo>;
+				error?: { message: string; code?: string };
 			},
 			pendingChanges?: Record<string, PendingFileChange>,
 		) => Promise<void>,
@@ -251,7 +255,6 @@ export class AIAgentService {
 	runAgentStream(
 		messages: ModelMessage[],
 		uiMessages: UIMessage[],
-		apiKey: string,
 		abortController: AbortController,
 		outputLogs?: string,
 	): AsyncIterable<StreamChunk> {
@@ -280,7 +283,7 @@ export class AIAgentService {
 		// detached — the consumer drives backpressure via the stream.
 		void withMounts(async () => {
 			mount(this.projectRoot, this.fsStub);
-			const innerStream = this.createAgentStream(messages, apiKey, abortController, outputLogs);
+			const innerStream = this.createAgentStream(messages, abortController, outputLogs);
 			const teedStream = this.createTeedStream(innerStream, processor);
 
 			try {
@@ -333,6 +336,15 @@ export class AIAgentService {
 
 		const persistSession = async () => {
 			processor.finalizeStream();
+
+			// Drop empty assistant messages left by stream errors — the
+			// agent-runner persists the terminal status separately.
+			const messages = processor.getMessages();
+			const lastMessage = messages.at(-1);
+			if (lastMessage?.role === 'assistant' && lastMessage.parts.length === 0) {
+				processor.setMessages(messages.slice(0, -1));
+			}
+
 			sessionPersisted = true;
 			await this.persistSession(
 				processor,
@@ -552,7 +564,6 @@ export class AIAgentService {
 	 */
 	private async *createAgentStream(
 		messages: ModelMessage[],
-		apiKey: string,
 		abortController: AbortController,
 		outputLogs?: string,
 	): AsyncIterable<StreamChunk> {
@@ -615,8 +626,13 @@ export class AIAgentService {
 				totalLength: systemPrompts.reduce((sum, p) => sum + p.length, 0),
 			});
 
-			// Create the Replicate adapter
-			const adapter = createAdapter(this.model, apiKey, logger);
+			const modelConfig = getModelConfig(this.model);
+			if (!modelConfig) {
+				throw new Error(`Unknown model: ${this.model}`);
+			}
+			const provider = modelConfig.provider;
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Both adapters implement chatStream but have different generic params; chat() accepts AnyTextAdapter
+			const adapter: any = provider === 'workers-ai' ? createWorkersAiAdapter(this.model) : createReplicateAdapter(this.model, logger);
 			const modelLimits = getModelLimits(this.model);
 			const toolContext: ToolExecutorContext = {
 				projectRoot: this.projectRoot,
@@ -786,9 +802,13 @@ export class AIAgentService {
 				let hadToolCalls = false;
 				let hadUserQuestion = false;
 				let hadMutationFailure = false;
+				let streamError: string | undefined;
 				let currentToolCallId: string | undefined;
 				let currentToolName: string | undefined;
 				let currentToolArguments = '';
+				let streamChunkCount = 0;
+				let hadRunStarted = false;
+				let hadRunFinished = false;
 				const completedToolCalls: Array<{ id: string; name: string; arguments: string }> = [];
 				const toolResults: Array<{ toolCallId: string; content: string }> = [];
 
@@ -801,12 +821,7 @@ export class AIAgentService {
 
 				for await (const chunk of chatResult) {
 					if (signal.aborted) break;
-
-					// NOTE: Do NOT drain eventQueue here. CUSTOM events pushed by tool
-					// executors must be drained inside the TOOL_CALL_END handler so
-					// they appear after the corresponding TOOL_CALL_END chunk in the
-					// stream. The toolCallId is auto-injected at push time by sendEvent
-					// (via toolCallIdRef), so no post-hoc injection is needed.
+					streamChunkCount++;
 
 					if (!isRecordObject(chunk)) continue;
 					const eventType = getEventField(chunk, 'type');
@@ -823,10 +838,12 @@ export class AIAgentService {
 						}
 						case 'TEXT_MESSAGE_START': {
 							lastAssistantText = '';
+							logger.debug('llm', 'text_message_start', { chunksReceived: streamChunkCount });
 							yield chunk;
 							break;
 						}
 						case 'TEXT_MESSAGE_END': {
+							logger.debug('llm', 'text_message_end', { textLength: lastAssistantText.length });
 							yield chunk;
 							break;
 						}
@@ -952,7 +969,7 @@ export class AIAgentService {
 							break;
 						}
 						case 'RUN_FINISHED': {
-							// Extract usage data if available
+							hadRunFinished = true;
 							const usage = getEventRecord(chunk, 'usage');
 							const finishReason = getEventField(chunk, 'finishReason');
 							const inputTokens = usage ? getNumberField(usage, 'inputTokens') || getNumberField(usage, 'input_tokens') : 0;
@@ -996,26 +1013,83 @@ export class AIAgentService {
 						}
 						case 'RUN_ERROR': {
 							const errorData = getEventRecord(chunk, 'error');
+							const errorMessage = errorData ? getEventField(errorData, 'message') : 'Unknown error';
+							const errorCode = errorData ? getEventField(errorData, 'code') : undefined;
+							// Log full streaming state at the time of error for diagnostics
 							logger.error('llm', 'stream_error', {
-								message: errorData ? getEventField(errorData, 'message') : 'Unknown error',
+								message: errorMessage,
+								code: errorCode,
+								streamState: {
+									chunksReceived: streamChunkCount,
+									hadRunStarted,
+									hadRunFinished,
+									textAccumulated: lastAssistantText.length,
+									toolCallsInProgress: currentToolCallId
+										? { id: currentToolCallId, name: currentToolName, argumentsLength: currentToolArguments.length }
+										: undefined,
+									completedToolCalls: completedToolCalls.length,
+									pendingToolCallIds: toolCallArgumentsById.size,
+								},
 							});
-							// Pass through — retries are handled at the outer chat() call level,
-							// not inside the stream consumption loop.
+							streamError = errorMessage ?? 'Unknown error';
 							yield chunk;
 							break;
 						}
 						default: {
-							// Pass through other AG-UI events (RUN_STARTED, STEP_STARTED, etc.)
+							switch (eventType) {
+								case 'RUN_STARTED': {
+									hadRunStarted = true;
+									logger.debug('llm', 'run_started', { runId: getEventField(chunk, 'runId') });
+
+									break;
+								}
+								case 'STEP_STARTED': {
+									logger.debug('llm', 'step_started', {
+										stepId: getEventField(chunk, 'stepId'),
+										stepType: getEventField(chunk, 'stepType'),
+									});
+
+									break;
+								}
+								case 'STEP_FINISHED': {
+									const delta = getEventField(chunk, 'delta');
+									logger.debug('llm', 'step_finished', {
+										stepId: getEventField(chunk, 'stepId'),
+										deltaLength: delta?.length ?? 0,
+									});
+
+									break;
+								}
+								// No default
+							}
 							yield chunk;
 							break;
 						}
 					}
 				}
 
+				// Log if the stream ended without a proper termination event
+				if (hadRunStarted && !hadRunFinished && !streamError) {
+					logger.warn('llm', 'stream_ended_prematurely', {
+						chunksReceived: streamChunkCount,
+						textAccumulated: lastAssistantText.length,
+						completedToolCalls: completedToolCalls.length,
+						pendingToolCallIds: toolCallArgumentsById.size,
+						inProgressToolCall: currentToolCallId ? { id: currentToolCallId, name: currentToolName } : undefined,
+					});
+				}
+
 				// Drain any remaining CUSTOM events from the last tool execution
 				while (eventQueue.length > 0) {
 					const queued = eventQueue.shift();
 					if (queued) yield queued;
+				}
+
+				// If the adapter emitted RUN_ERROR, stop the agent loop.
+				// The RUN_ERROR chunk was already yielded to the client above.
+				if (streamError) {
+					continueLoop = false;
+					break;
 				}
 
 				// Incrementally persist new file changes to the snapshot
@@ -1025,10 +1099,11 @@ export class AIAgentService {
 					}
 				}
 
-				// Update messages for next iteration.
-				// When tool calls occurred, reconstruct the full assistant + tool result
-				// messages so the LLM sees the complete context on the next iteration.
-				if (hadToolCalls && completedToolCalls.length > 0) {
+				// Skip message reconstruction and loop continuation logic when the
+				// adapter reported a stream-level error — the loop is about to exit.
+				if (streamError) {
+					// fall through to iteration_end logging below
+				} else if (hadToolCalls && completedToolCalls.length > 0) {
 					logger.debug('message', 'messages_reconstructed', {
 						toolCallCount: completedToolCalls.length,
 						toolNames: completedToolCalls.map((tc) => tc.name),
@@ -1142,7 +1217,7 @@ export class AIAgentService {
 						// Non-fatal — coordinator may be unreachable
 					}
 				}
-				const loopResult = detectDoomLoop(workingMessages);
+				const loopResult = continueLoop ? detectDoomLoop(workingMessages) : { isDoomLoop: false };
 				if (loopResult.isDoomLoop) {
 					logger.warn('agent_loop', 'doom_loop_detected', {
 						reason: loopResult.reason,

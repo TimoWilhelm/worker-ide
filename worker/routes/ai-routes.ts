@@ -14,6 +14,7 @@ import { env } from 'cloudflare:workers';
 import { Hono } from 'hono';
 import { z } from 'zod';
 
+import { getModelConfig, DEFAULT_AI_MODEL } from '@shared/constants';
 import { HttpErrorCode } from '@shared/http-errors';
 import { aiChatMessageSchema, debugLogIdSchema } from '@shared/validation';
 
@@ -31,12 +32,16 @@ export const aiRoutes = new Hono<AppEnvironment>()
 	.post('/ai/chat', zValidator('json', aiChatMessageSchema), async (c) => {
 		const projectId = c.get('projectId');
 
-		const apiToken = env.REPLICATE_API_TOKEN;
-		if (!apiToken) {
+		const selectedModel = c.req.valid('json').model ?? DEFAULT_AI_MODEL;
+		const modelConfig = getModelConfig(selectedModel);
+		if (modelConfig?.provider === 'replicate' && !env.REPLICATE_API_TOKEN) {
 			throw httpError(
 				HttpErrorCode.NOT_CONFIGURED,
 				'REPLICATE_API_TOKEN not configured. Please set it using: wrangler secret put REPLICATE_API_TOKEN',
 			);
+		}
+		if (modelConfig?.provider === 'workers-ai' && !env.AI) {
+			throw httpError(HttpErrorCode.NOT_CONFIGURED, 'Workers AI binding (AI) is not configured.');
 		}
 
 		// Rate limit check

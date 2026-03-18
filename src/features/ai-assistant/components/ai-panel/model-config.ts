@@ -1,10 +1,5 @@
 /**
- * AI Model Configuration
- *
- * Re-exports the AI model configuration from shared constants.
- * This ensures frontend and backend use the same model definitions.
- *
- * To add a new model, update AI_MODELS in shared/constants.ts.
+ * Re-exports AI model configuration from shared constants.
  */
 
-export { AI_MODELS, getModelLabel, getModelLimits, type AIModelConfig, type AIModelId } from '@shared/constants';
+export { AI_MODELS, getModelLabel, getModelLimits, type AIModelConfig, type AIModelId, type AIModelProvider } from '@shared/constants';

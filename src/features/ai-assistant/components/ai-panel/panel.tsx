@@ -770,36 +770,13 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		});
 	}, [stopChat, projectId]);
 
-	// Retry last message.
-	// We trim messages synchronously via setChatMessages, then defer the re-send
-	// to a microtask so useChat has processed the trimmed state before sendMessage runs.
+	// Retry: use useChat's reload() which atomically trims messages after
+	// the last user message and re-streams, avoiding race conditions with
+	// the bi-directional chatMessages ↔ Zustand sync.
 	const handleRetry = useCallback(() => {
-		// Find the last user message text
-		const lastUserMessage = [...chatMessages].toReversed().find((message) => message.role === 'user');
-		if (!lastUserMessage) return;
-
-		const text = extractMessageText(lastUserMessage);
-
-		// Clear the error
 		setAiError(undefined);
-
-		// Remove the errored assistant message and/or the last user message to
-		// avoid duplicating it when handleSend adds it back.
-		const lastMessage = chatMessages.at(-1);
-		if (lastMessage && lastMessage.role === 'assistant') {
-			// Remove both the assistant reply and the user message before it
-			setChatMessages(chatMessages.slice(0, -2));
-		} else if (lastMessage && lastMessage.role === 'user') {
-			// Error occurred before an assistant message was added — remove the
-			// dangling user message so handleSend doesn't duplicate it.
-			setChatMessages(chatMessages.slice(0, -1));
-		}
-
-		// Defer re-send so useChat processes the trimmed messages first
-		queueMicrotask(() => {
-			void handleSend(text);
-		});
-	}, [chatMessages, setAiError, handleSend, setChatMessages]);
+		void reload();
+	}, [setAiError, reload]);
 
 	// Dismiss error
 	const handleDismissError = useCallback(() => {

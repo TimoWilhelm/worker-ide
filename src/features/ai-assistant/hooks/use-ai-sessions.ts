@@ -105,11 +105,9 @@ export function useAiSessions({
 			const restoredSnapshots = snapshotsRecordToMap(data.messageSnapshots);
 			const restoredModes = messageModesRecordToMap(data.messageModes);
 			createdAtReference.current = data.createdAt;
-			loadSession(data.history, data.id, restoredSnapshots, data.contextTokensUsed, restoredModes);
-			// Restore persisted tool metadata and errors so loaded sessions render
-			// the same rich UI (edit stats, line counts, error labels) as live ones.
+			const restoredError = data.status === 'error' && data.errorMessage ? { message: data.errorMessage } : undefined;
+			loadSession(data.history, data.id, restoredSnapshots, data.contextTokensUsed, restoredModes, restoredError);
 			onSessionLoaded?.({ toolMetadata: data.toolMetadata, toolErrors: data.toolErrors });
-			// Restore the latest debug log download button for this session
 			void fetchLatestDebugLogId(projectId, data.id).then((logId) => {
 				if (logId) setDebugLogId(logId);
 			});
@@ -172,10 +170,9 @@ export function useAiSessions({
 						const restoredSnapshots = snapshotsRecordToMap(data.messageSnapshots);
 						const restoredModes = messageModesRecordToMap(data.messageModes);
 						createdAtReference.current = data.createdAt;
-						loadSession(data.history, data.id, restoredSnapshots, data.contextTokensUsed, restoredModes);
-						// Restore persisted tool metadata and errors
+						const restoredError = data.status === 'error' && data.errorMessage ? { message: data.errorMessage } : undefined;
+						loadSession(data.history, data.id, restoredSnapshots, data.contextTokensUsed, restoredModes, restoredError);
 						onSessionLoaded?.({ toolMetadata: data.toolMetadata, toolErrors: data.toolErrors });
-						// Restore the latest debug log download button for this session
 						void fetchLatestDebugLogId(projectId, data.id).then((logId) => {
 							if (logId) setDebugLogId(logId);
 						});

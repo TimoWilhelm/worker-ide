@@ -1,0 +1,17 @@
+diff --git a/dist/chunk-O7MBRPCW.js b/dist/chunk-O7MBRPCW.js
+index 7aa840486e12e772b613799181337c06e5e3cc9a..7060df9980bf2feca14c39c56e4809695b7f4dfb 100644
+--- a/dist/chunk-O7MBRPCW.js
++++ b/dist/chunk-O7MBRPCW.js
+@@ -102,8 +102,10 @@ function normalizeMessagesForBinding(messages) {
+   });
+ }
+ function sanitizeToolCallId(id) {
+-  const alphanumeric = id.replace(/[^a-zA-Z0-9]/g, "");
+-  return alphanumeric.slice(0, 9).padEnd(9, "0");
++  // PATCHED: Return ID unchanged. The original truncated to 9 alphanumeric
++  // chars, causing tool_call_id mismatches that trigger Workers AI 3030
++  // Internal Server Error on multi-turn tool conversations.
++  return id;
+ }
+ function createWorkersAiBindingFetch(binding) {
+   return async (_input, init) => {
