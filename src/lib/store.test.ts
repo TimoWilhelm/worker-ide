@@ -13,6 +13,7 @@ beforeEach(() => {
 		openFiles: [],
 		cursorPosition: undefined,
 		unsavedChanges: new Map(),
+		fileScrollPositions: new Map(),
 		files: [],
 		selectedFile: undefined,
 		expandedDirs: new Set(),
@@ -101,6 +102,38 @@ describe('Editor slice', () => {
 		const state = useStore.getState();
 		expect(state.openFiles).toHaveLength(0);
 		expect(state.activeFile).toBeUndefined();
+	});
+
+	it('closes all files and clears per-file scroll positions', () => {
+		useStore.getState().openFile('/src/a.ts');
+		useStore.getState().setFileScrollPosition('/src/a.ts', 100);
+		useStore.getState().closeAllFiles();
+
+		expect(useStore.getState().fileScrollPositions.size).toBe(0);
+	});
+
+	it('sets per-file scroll position', () => {
+		useStore.getState().setFileScrollPosition('/src/main.ts', 250);
+
+		expect(useStore.getState().fileScrollPositions.get('/src/main.ts')).toBe(250);
+	});
+
+	it('cleans up per-file scroll position when closing a file', () => {
+		useStore.getState().openFile('/src/main.ts');
+		useStore.getState().setFileScrollPosition('/src/main.ts', 50);
+		useStore.getState().closeFile('/src/main.ts');
+
+		expect(useStore.getState().fileScrollPositions.has('/src/main.ts')).toBe(false);
+	});
+
+	it('bulk-restores per-file scroll positions', () => {
+		const positions = new Map([
+			['/src/a.ts', 0],
+			['/src/b.ts', 300],
+		]);
+		useStore.getState().restoreFileScrollPositions(positions);
+
+		expect(useStore.getState().fileScrollPositions).toEqual(positions);
 	});
 });
 

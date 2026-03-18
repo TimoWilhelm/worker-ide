@@ -359,14 +359,15 @@ function createDiffGutter(hunks: DiffHunk[]): Extension {
 
 const coreDiffTheme = EditorView.baseTheme({
 	'.cm-diff-added': {
-		backgroundColor: 'rgba(94, 255, 58, 0.08)',
+		backgroundColor: 'color-mix(in srgb, var(--color-success) 10%, transparent)',
 	},
 	// Each removed line is its own block widget. The gutter line
 	// number and "−" marker are rendered natively by CodeMirror; this
 	// only styles the content area.
 	'.cm-diff-removed-line': {
-		backgroundColor: 'rgba(255, 94, 94, 0.08)',
-		color: 'rgba(255, 94, 94, 0.7)',
+		backgroundColor: 'color-mix(in srgb, var(--color-error) 12%, transparent)',
+		color: 'var(--color-error)',
+		opacity: '0.85',
 		whiteSpace: 'pre',
 		'& del': {
 			textDecoration: 'none',
@@ -377,12 +378,12 @@ const coreDiffTheme = EditorView.baseTheme({
 		width: '12px',
 	},
 	'.cm-diff-gutter-added': {
-		color: 'rgba(94, 255, 58, 0.8)',
+		color: 'var(--color-success)',
 		fontWeight: 'bold',
 		fontSize: '12px',
 	},
 	'.cm-diff-gutter-removed': {
-		color: 'rgba(255, 94, 94, 0.8)',
+		color: 'var(--color-error)',
 		fontWeight: 'bold',
 		fontSize: '12px',
 	},
