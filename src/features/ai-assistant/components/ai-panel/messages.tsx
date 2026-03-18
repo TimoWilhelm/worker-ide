@@ -409,6 +409,7 @@ export function AssistantMessage({
 
 	const hasToolCalls = segments.some((segment) => segment.kind === 'tool');
 	const lastTextIndex = segments.findLastIndex((segment) => segment.kind === 'text');
+	const lastThinkingIndex = segments.findLastIndex((segment) => segment.kind === 'thinking');
 
 	// Auto-scroll the active streaming thinking box (respects user scroll-up)
 	useEffect(() => {
@@ -523,8 +524,33 @@ export function AssistantMessage({
 					);
 				}
 
-				// Thinking segments — collapsible
+				// Thinking segments
 				if (segment.kind === 'thinking') {
+					// Active streaming thinking: show in contained box when this is the
+					// last thinking segment, we're streaming, and no text has appeared yet
+					const isActiveStreamingThinking = streaming && index === lastThinkingIndex && lastTextIndex === -1;
+
+					if (isActiveStreamingThinking) {
+						return (
+							<div
+								key={segment.key}
+								ref={scrollReference}
+								onScroll={handleThinkingBoxScroll}
+								className="
+									max-h-48 overflow-y-auto rounded-lg border border-accent/20
+									bg-bg-tertiary
+								"
+							>
+								<div className="p-2.5">
+									<div className="overflow-hidden text-sm/relaxed text-text-primary">
+										<MarkdownContent content={segment.text} />
+									</div>
+								</div>
+							</div>
+						);
+					}
+
+					// Completed thinking — collapsible
 					const isExpanded = expandedSections.has(segment.key);
 					return (
 						<div key={segment.key} className="flex flex-col gap-1.5">
