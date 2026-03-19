@@ -121,6 +121,8 @@ export interface AiSession {
 	id: string;
 	/** Short AI-generated title (<10 words), or fallback derived from first user message. */
 	title: string;
+	/** True once an AI-generated title has been set. */
+	titleGenerated?: boolean;
 	createdAt: number;
 	history: UIMessage[];
 	/** Maps message index (as string key) to snapshot ID for revert buttons */

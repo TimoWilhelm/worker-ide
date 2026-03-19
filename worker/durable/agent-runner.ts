@@ -31,6 +31,7 @@ import { toDurableObjectId } from '../lib/project-id';
 import { AIAgentService } from '../services/ai-agent';
 import { estimateMessagesTokens } from '../services/ai-agent/context-pruner';
 import { cleanupSessionArtifacts, cleanupTimestampPlans } from '../services/ai-agent/session-cleanup';
+import { generateSessionTitle } from '../services/ai-agent/title-generator';
 
 import type { AIModelId } from '@shared/constants';
 import type { AgentSessionStatus, AiSession, PendingFileChange, UIMessage } from '@shared/types';
@@ -94,6 +95,9 @@ export class AgentRunner extends DurableObject {
 	 * Volatile — reset when the loop starts.
 	 */
 	private eventIndices = new Map<string, number>();
+
+	/** Guards against concurrent generateTitle calls for the same session. */
+	private titleGenerationInFlight = new Set<string>();
 
 	// =========================================================================
 	// Alarm Handler — session resilience
@@ -481,16 +485,17 @@ export class AgentRunner extends DurableObject {
 		// Create a new abort controller for this run
 		this.agentAbortControllers.set(sessionId, new AbortController());
 
-		// Start the agent loop asynchronously — does not block the RPC response.
-		// The DO stays alive as long as this async work is in progress.
+		// Skip title generation if a previous run already produced one.
+		const needsTitleGeneration = !this.ctx.storage.kv.get<AiSession>(`sessionData:${sessionId}`)?.titleGenerated;
+
 		this.ctx.waitUntil(
-			this.executeAgentLoop(parameters, sessionId).catch((error) => {
+			this.executeAgentLoop(parameters, sessionId, needsTitleGeneration).catch((error) => {
 				console.error(`[AgentRunner ${sessionId}] Unhandled error from executeAgentLoop:`, error);
 			}),
 		);
 	}
 
-	private async executeAgentLoop(parameters: StartAgentParameters, sessionId: string): Promise<void> {
+	private async executeAgentLoop(parameters: StartAgentParameters, sessionId: string, needsTitleGeneration = false): Promise<void> {
 		const projectId = parameters.projectId;
 		let finalStatus: AgentSessionStatus = 'completed';
 		let errorMessage: string | undefined;
@@ -525,6 +530,7 @@ export class AgentRunner extends DurableObject {
 
 					// Preserve the AI-generated title once set (don't regress to fallback)
 					const title = existing?.title ?? sessionData.title;
+					const titleGenerated = existing?.titleGenerated;
 
 					// Merge messageSnapshots: existing + current turn's new entry
 					const messageSnapshots =
@@ -554,6 +560,7 @@ export class AgentRunner extends DurableObject {
 						id: sid,
 						createdAt,
 						title,
+						titleGenerated,
 						messageSnapshots,
 						messageModes,
 						toolMetadata,
@@ -592,10 +599,8 @@ export class AgentRunner extends DurableObject {
 			const coordinatorId = coordinatorNamespace.idFromName(`project:${projectId}`);
 			const coordinatorStub = coordinatorNamespace.get(coordinatorId);
 
-			// Track last heartbeat reschedule to throttle alarm writes
 			let lastHeartbeat = Date.now();
-
-			// Consume the stream and broadcast each chunk
+			let titleGenerationTriggered = !needsTitleGeneration;
 			for await (const chunk of stream) {
 				const index = this.eventIndices.get(sessionId) ?? 0;
 				this.eventIndices.set(sessionId, index + 1);
@@ -620,6 +625,12 @@ export class AgentRunner extends DurableObject {
 						chunkError && 'message' in chunkError && typeof chunkError.message === 'string'
 							? chunkError.message
 							: 'An unexpected error occurred during generation.';
+				}
+
+				// Fire title generation once on the first turn_complete of new sessions.
+				if (!titleGenerationTriggered && 'type' in chunk && chunk.type === 'CUSTOM' && 'name' in chunk && chunk.name === 'turn_complete') {
+					titleGenerationTriggered = true;
+					void this.generateTitle(sessionId, projectId);
 				}
 
 				// Reschedule heartbeat alarm periodically (throttled)
@@ -737,6 +748,42 @@ export class AgentRunner extends DurableObject {
 			});
 		} catch {
 			// Non-fatal
+		}
+	}
+
+	// =========================================================================
+	// Title Generation
+	// =========================================================================
+
+	private async generateTitle(sessionId: string, projectId: string): Promise<void> {
+		if (this.titleGenerationInFlight.has(sessionId)) return;
+		this.titleGenerationInFlight.add(sessionId);
+
+		try {
+			const sessionData = this.ctx.storage.kv.get<AiSession>(`sessionData:${sessionId}`);
+			if (!sessionData) return;
+
+			const firstUserMessage = sessionData.history.find((message) => message.role === 'user');
+			const firstUserText = firstUserMessage?.parts.find((part) => part.type === 'text');
+			const userText = firstUserText?.type === 'text' ? firstUserText.content : '';
+			if (userText.length === 0) return;
+
+			const firstAssistantMessage = sessionData.history.find((message) => message.role === 'assistant');
+			const firstAssistantText = firstAssistantMessage?.parts.find((part) => part.type === 'text');
+			const assistantText = firstAssistantText?.type === 'text' ? firstAssistantText.content : '';
+
+			const generatedTitle = await generateSessionTitle(userText, assistantText);
+			// Re-read to avoid overwriting concurrent persist-callback writes.
+			const latest = this.ctx.storage.kv.get<AiSession>(`sessionData:${sessionId}`);
+			if (latest) {
+				this.ctx.storage.kv.put(`sessionData:${sessionId}`, { ...latest, title: generatedTitle, titleGenerated: true });
+			}
+			// Must use 'running' — a terminal status would remove the session from runningSessionIds mid-stream.
+			await this.broadcastStatusChanged(projectId, sessionId, 'running', generatedTitle);
+		} catch {
+			// Non-fatal — placeholder title remains
+		} finally {
+			this.titleGenerationInFlight.delete(sessionId);
 		}
 	}
 
