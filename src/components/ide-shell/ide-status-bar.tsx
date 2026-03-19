@@ -2,7 +2,7 @@
  * IDE status bar (footer) showing connection state, participants, and links.
  */
 
-import { Github } from 'lucide-react';
+import { BookOpen, Github } from 'lucide-react';
 
 import { Tooltip } from '@/components/ui/tooltip';
 import { VersionBadge } from '@/components/version-badge';
@@ -66,9 +66,19 @@ export function IDEStatusBar({ isConnected, localParticipantColor, participants,
 						<Github className="size-3.5" />
 					</a>
 				</Tooltip>
-				<a href="/docs" target="_blank" rel="noopener noreferrer" className="transition-colors hover:text-accent">
-					Codemaxxing
-				</a>
+				<Tooltip content="Docs">
+					<a
+						href="/docs"
+						target="_blank"
+						rel="noopener noreferrer"
+						className="
+							transition-colors
+							hover:text-accent
+						"
+					>
+						<BookOpen className="size-3.5" />
+					</a>
+				</Tooltip>
 				<VersionBadge withProvider={false} />
 			</div>
 		</footer>

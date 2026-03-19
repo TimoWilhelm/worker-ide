@@ -39,7 +39,7 @@ interface TestFileItemProperties {
 	onRunTest?: (filePath: string, testName: string) => void;
 }
 
-/** Normalized test row �� used for both discovered and executed tests */
+/** Normalized test row used for both discovered and executed tests */
 interface TestRowData {
 	key: string;
 	label: string;

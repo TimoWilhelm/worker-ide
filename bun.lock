@@ -99,6 +99,9 @@
       },
     },
   },
+  "patchedDependencies": {
+    "@cloudflare/tanstack-ai@0.1.3": "patches/@cloudflare%2Ftanstack-ai@0.1.3.patch",
+  },
   "overrides": {
     "@vitest/expect": "3.2.4",
     "@vitest/spy": "3.2.4",

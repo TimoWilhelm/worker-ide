@@ -139,7 +139,7 @@ interface AIActions {
 	clearMessageSnapshot: (snapshotId: string) => void;
 	setMessageMode: (messageIndex: number, mode: AgentMode) => void;
 	removeMessagesAfter: (index: number) => void;
-	removeMessagesFrom: (index: number) => void;
+	removeMessagesFrom: (index: number, contextTokensUsed?: number) => void;
 	setAgentMode: (mode: AgentMode) => void;
 	setSelectedModel: (model: AIModelId) => void;
 	setDebugLogId: (id: string | undefined) => void;
@@ -560,7 +560,7 @@ export const useStore = create<StoreState>()(
 
 				setContextTokensUsed: (tokens) => set({ contextTokensUsed: tokens }),
 
-				removeMessagesFrom: (index) =>
+				removeMessagesFrom: (index, contextTokensUsed) =>
 					set((state) => {
 						const newSnapshots = new Map<number, string>();
 						for (const [key, value] of state.messageSnapshots) {
@@ -578,6 +578,7 @@ export const useStore = create<StoreState>()(
 							history: state.history.slice(0, index),
 							messageSnapshots: newSnapshots,
 							messageModes: newModes,
+							contextTokensUsed: contextTokensUsed ?? 0,
 						};
 					}),
 

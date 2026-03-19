@@ -499,6 +499,9 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 
 		hasTriggeredReconnectReference.current = true;
 
+		// Show "Thinking..." immediately so the user knows the session is active.
+		setStatusMessage('Thinking...');
+
 		void (async () => {
 			try {
 				// Fetch the persisted session for instant rendering
@@ -507,6 +510,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 				// Guard: session may have completed while we were fetching.
 				if (!useStore.getState().runningSessionIds.has(sessionId)) {
 					hasTriggeredReconnectReference.current = false;
+					setStatusMessage(undefined);
 					return;
 				}
 
@@ -558,6 +562,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		handleSessionLoaded,
 		chatMessages.length,
 		resetScrollState,
+		setStatusMessage,
 	]);
 
 	// Sync chatError to aiError (for RUN_ERROR events).
@@ -892,9 +897,15 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 				// Persist the updated pending changes and revert the session server-side.
 				// The DO truncates history, prunes snapshots, and sets revertedAt to
 				// prevent the stream's `finally` block from overwriting the reverted state.
+				// The revert response includes the estimated context token usage for the
+				// truncated history, which we use to update the context ring accurately.
 				queueMicrotask(() => {
 					void persistPendingChanges();
-					void revertSession(messageIndex);
+					void revertSession(messageIndex).then((result) => {
+						if (result) {
+							setContextTokensUsed(result.contextTokensUsed);
+						}
+					});
 				});
 
 				// Close the dialog on success
@@ -923,6 +934,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 			setChatMessages,
 			persistPendingChanges,
 			revertSession,
+			setContextTokensUsed,
 		],
 	);
 

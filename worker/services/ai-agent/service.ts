@@ -1,6 +1,7 @@
 /**
  * AI Agent Service.
- * Handles the AI agent loop with streaming response using TanStack AI.
+ *
+ * Orchestrates the AI agent loop with streaming response using TanStack AI.
  *
  * Key architecture:
  * - Uses TanStack AI chat() with provider-specific adapters for the agent loop
@@ -8,33 +9,32 @@
  * - App-specific events (snapshots, file changes, etc.) are sent as CUSTOM AG-UI events
  * - Frontend uses useChat + fetchServerSentEvents to consume the stream natively
  * - Integrates retry, doom loop detection, context pruning, and token tracking
+ *
+ * Extracted modules:
+ * - event-helpers.ts    — AG-UI event parsing and construction
+ * - pending-changes.ts  — Server-side pending changes accumulation
+ * - snapshot-manager.ts — Snapshot lifecycle (create, populate, cleanup)
+ * - system-prompt-builder.ts — System prompt assembly
+ * - plan-saver.ts       — Plan mode output persistence
+ * - mcp-client.ts       — MCP client connection management
  */
 
-import fs from 'node:fs/promises';
-
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { chat, maxIterations, StreamProcessor } from '@tanstack/ai';
 import { mount, withMounts } from 'worker-fs-mount';
 
-import {
-	AGENT_SYSTEM_PROMPT,
-	AGENTS_MD_MAX_CHARACTERS,
-	ASK_MODE_SYSTEM_PROMPT,
-	CODE_MODE_SYSTEM_PROMPT,
-	DEFAULT_AI_MODEL,
-	MCP_SERVERS,
-	PLAN_MODE_SYSTEM_PROMPT,
-	getModelConfig,
-	getModelLimits,
-} from '@shared/constants';
+import { DEFAULT_AI_MODEL, getModelConfig, getModelLimits } from '@shared/constants';
 
 import { AgentLogger, sanitizeToolInput, summarizeToolResult } from './agent-logger';
 import { estimateMessagesTokens, getContextUtilization, hasContextBudget, pruneToolOutputs } from './context-pruner';
 import { detectDoomLoop, MUTATION_FAILURE_TAG } from './doom-loop';
+import { customEvent, getEventField, getEventRecord, getNumberField } from './event-helpers';
+import { McpClientManager } from './mcp-client';
+import { accumulatePendingChange, pendingChangesMapToRecord } from './pending-changes';
+import { savePlan } from './plan-saver';
 import { createAdapter as createReplicateAdapter } from './replicate';
 import { classifyRetryableError, calculateRetryDelay, sleep } from './retry';
-import { cleanupTimestampPlans } from './session-cleanup';
+import { addFileToSnapshot, deleteDirectoryRecursive, initSnapshot } from './snapshot-manager';
+import { buildSystemPrompts } from './system-prompt-builder';
 import { deriveFallbackTitle } from './title-generator';
 import { TokenTracker } from './token-tracker';
 import { createSendEvent, createServerTools, MUTATION_TOOL_NAMES } from './tools';
@@ -42,12 +42,12 @@ import { isRecordObject, parseApiError } from './utilities';
 import { createAdapter as createWorkersAiAdapter } from './workers-ai';
 import { coordinatorNamespace } from '../../lib/durable-object-namespaces';
 
+import type { SnapshotContext } from './snapshot-manager';
 import type {
 	CustomEventQueue,
 	FileChange,
 	ModelMessage,
 	PendingToolCallIds,
-	SnapshotMetadata,
 	ToolCallIdReference,
 	ToolExecutorContext,
 	ToolFailureRecord,
@@ -56,123 +56,6 @@ import type { ExpiringFilesystem } from '../../durable/expiring-filesystem';
 import type { AIModelId } from '@shared/constants';
 import type { AgentMode, PendingFileChange, ToolErrorInfo, ToolMetadataInfo } from '@shared/types';
 import type { StreamChunk, UIMessage } from '@tanstack/ai';
-
-// =============================================================================
-// AG-UI Event Helpers
-// =============================================================================
-
-/**
- * Safely extract a string field from an unknown AG-UI event object.
- */
-function getEventField(event: unknown, field: string): string | undefined {
-	if (!isRecordObject(event)) return undefined;
-	const value = event[field];
-	return typeof value === 'string' ? value : undefined;
-}
-
-/**
- * Safely extract a record field from an unknown AG-UI event object.
- */
-function getEventRecord(event: unknown, field: string): Record<string, unknown> | undefined {
-	if (!isRecordObject(event)) return undefined;
-	const value = event[field];
-	return isRecordObject(value) ? value : undefined;
-}
-
-/**
- * Safely extract a number from a record by key.
- */
-function getNumberField(record: Record<string, unknown>, field: string): number {
-	const value = record[field];
-	return typeof value === 'number' ? value : 0;
-}
-
-/**
- * Create a CUSTOM AG-UI event.
- */
-function customEvent(name: string, data: Record<string, unknown>): StreamChunk {
-	return { type: 'CUSTOM', name, data, timestamp: Date.now() };
-}
-
-// =============================================================================
-// Server-Side Pending Changes Accumulation
-// =============================================================================
-
-/**
- * Accumulate a file_changed event into a pending changes map.
- * Mirrors the deduplication logic from the client-side addPendingChange
- * (store.ts) so the server builds the same net result.
- */
-function accumulatePendingChange(
-	pendingChanges: Map<string, PendingFileChange>,
-	change: Omit<PendingFileChange, 'status' | 'hunkStatuses'>,
-): void {
-	const existing = pendingChanges.get(change.path);
-
-	if (!existing) {
-		// Skip if content is identical (no actual change)
-		if (change.action !== 'move' && change.beforeContent !== undefined && change.beforeContent === change.afterContent) {
-			return;
-		}
-		pendingChanges.set(change.path, { ...change, status: 'pending', hunkStatuses: [] });
-		return;
-	}
-
-	// Keep the first beforeContent and existing snapshotId for dedup
-	const beforeContent = existing.beforeContent;
-	const snapshotId = existing.snapshotId ?? change.snapshotId;
-	const originalAction = existing.action;
-	const newAction = change.action;
-
-	// create -> delete = net no-op
-	if (originalAction === 'create' && newAction === 'delete') {
-		pendingChanges.delete(change.path);
-		return;
-	}
-
-	// create -> edit = still a create (with updated content)
-	if (originalAction === 'create' && newAction === 'edit') {
-		if (beforeContent !== undefined && beforeContent === change.afterContent) {
-			pendingChanges.delete(change.path);
-			return;
-		}
-		pendingChanges.set(change.path, { ...change, action: 'create', beforeContent, snapshotId, status: 'pending', hunkStatuses: [] });
-		return;
-	}
-
-	// delete -> create = effectively an edit
-	if (originalAction === 'delete' && newAction === 'create') {
-		if (beforeContent !== undefined && beforeContent === change.afterContent) {
-			pendingChanges.delete(change.path);
-			return;
-		}
-		pendingChanges.set(change.path, { ...change, action: 'edit', beforeContent, snapshotId, status: 'pending', hunkStatuses: [] });
-		return;
-	}
-
-	// All other cases: keep original beforeContent, use new action & afterContent
-	if (newAction !== 'move' && beforeContent !== undefined && beforeContent === change.afterContent) {
-		pendingChanges.delete(change.path);
-		return;
-	}
-	pendingChanges.set(change.path, { ...change, beforeContent, snapshotId, status: 'pending', hunkStatuses: [] });
-}
-
-/**
- * Convert a pending changes Map to a JSON-safe Record, filtering to only
- * entries with 'pending' status.
- */
-function pendingChangesMapToRecord(pendingChanges: Map<string, PendingFileChange>): Record<string, PendingFileChange> | undefined {
-	const record: Record<string, PendingFileChange> = {};
-	let hasEntries = false;
-	for (const [key, value] of pendingChanges) {
-		if (value.status === 'pending') {
-			record[key] = value;
-			hasEntries = true;
-		}
-	}
-	return hasEntries ? record : undefined;
-}
 
 // =============================================================================
 // Constants
@@ -196,6 +79,13 @@ const MAX_RETRY_ATTEMPTS = 5;
 const SOFT_ITERATION_LIMIT = 50;
 
 /**
+ * Maximum number of continuation nudges when the model produces text
+ * without tool calls but the task completion evaluator determines it
+ * hasn't finished yet. Each nudge injects a corrective message and
+ * retries. After this limit, the loop stops regardless.
+ */
+
+/**
  * Context utilization threshold at which we proactively prune.
  * Pruning at 70% gives headroom before hitting the hard overflow limit.
  */
@@ -213,7 +103,7 @@ const SESSION_SAVE_THROTTLE_MS = 3000;
 // =============================================================================
 
 export class AIAgentService {
-	private mcpClients = new Map<string, Client>();
+	private mcpClientManager = new McpClientManager();
 
 	constructor(
 		private projectRoot: string,
@@ -301,6 +191,17 @@ export class AIAgentService {
 	}
 
 	/**
+	 * Get the filesystem stub for use in tool context.
+	 */
+	getFsStub(): DurableObjectStub<ExpiringFilesystem> {
+		return this.fsStub;
+	}
+
+	// =============================================================================
+	// Session Persistence (Teed Stream)
+	// =============================================================================
+
+	/**
 	 * Wraps the agent stream, mirroring every chunk to a server-side
 	 * StreamProcessor and persisting the session on all termination paths.
 	 *
@@ -325,12 +226,8 @@ export class AIAgentService {
 		// Track whether the session was already persisted (idempotent guard for finally)
 		let sessionPersisted = false;
 		// Accumulate file_changed events for pending changes persistence.
-		// Mirrors the client-side addPendingChange dedup logic so the server
-		// builds the same net result without relying on client-side saves.
 		const streamPendingChanges = new Map<string, PendingFileChange>();
 		// Accumulate structured tool metadata and errors for session persistence.
-		// These are keyed by toolCallId so loaded sessions render the same rich UI
-		// (edit stats, line counts, error labels) as live-streamed ones.
 		const streamToolMetadata = new Map<string, ToolMetadataInfo>();
 		const streamToolErrors = new Map<string, ToolErrorInfo>();
 
@@ -374,7 +271,6 @@ export class AIAgentService {
 							break;
 						}
 						case 'snapshot_deleted': {
-							// Empty snapshot was cleaned up — clear so it won't be persisted
 							snapshotId = undefined;
 
 							break;
@@ -476,9 +372,6 @@ export class AIAgentService {
 	 *
 	 * Passes the UIMessage[] from the StreamProcessor (which mirrors what the
 	 * client would have built) to the AgentRunner DO for storage.
-	 * Includes messageSnapshots and contextTokensUsed metadata.
-	 *
-	 * Pending changes are also passed to the DO to overlay with existing changes.
 	 *
 	 * Non-fatal: errors are logged but never propagate to the caller.
 	 */
@@ -498,7 +391,6 @@ export class AIAgentService {
 			if (history.length === 0) return;
 
 			const createdAt = Date.now();
-			let existingTitle: string | undefined;
 			const messageSnapshots: Record<string, string> = {};
 
 			if (snapshotId && userMessageIndex >= 0) {
@@ -512,8 +404,7 @@ export class AIAgentService {
 				messageModes[String(userMessageIndex)] = this.mode;
 			}
 
-			// Derive title: use existing AI-generated title if available, otherwise
-			// derive a fallback from the first user message.
+			// Derive title from the first user message
 			const firstUserMessage = history.find((message) => message.role === 'user');
 			const firstUserText = firstUserMessage
 				? firstUserMessage.parts
@@ -522,7 +413,7 @@ export class AIAgentService {
 						.join(' ')
 						.trim()
 				: '';
-			const title = existingTitle ?? deriveFallbackTitle(firstUserText);
+			const title = deriveFallbackTitle(firstUserText);
 
 			const sessionData = {
 				createdAt,
@@ -544,12 +435,9 @@ export class AIAgentService {
 		}
 	}
 
-	/**
-	 * Get the filesystem stub for use in tool context.
-	 */
-	getFsStub(): DurableObjectStub<ExpiringFilesystem> {
-		return this.fsStub;
-	}
+	// =============================================================================
+	// Agent Loop
+	// =============================================================================
 
 	/**
 	 * Create the AG-UI event stream that wraps chat() with app-specific CUSTOM events.
@@ -596,9 +484,9 @@ export class AIAgentService {
 		const sendEvent = createSendEvent(eventQueue, toolCallIdReference);
 
 		// Eagerly create a snapshot directory for code mode
-		let snapshotContext: { id: string; directory: string; savedPaths: Set<string> } | undefined;
+		let snapshotContext: SnapshotContext | undefined;
 		if (this.mode === 'code') {
-			snapshotContext = await this.initSnapshot(messages, sendEvent);
+			snapshotContext = await initSnapshot(this.projectRoot, this.sessionId, messages, sendEvent);
 			logger.debug('snapshot', 'created', { snapshotId: snapshotContext.id });
 			// Drain snapshot events
 			while (eventQueue.length > 0) {
@@ -620,7 +508,7 @@ export class AIAgentService {
 			yield customEvent('status', { message: 'Starting...' });
 
 			// Build system prompts
-			const systemPrompts = await this.buildSystemPrompts(outputLogs);
+			const systemPrompts = await buildSystemPrompts(this.projectRoot, this.mode, outputLogs);
 			logger.debug('message', 'system_prompt_built', {
 				promptCount: systemPrompts.length,
 				totalLength: systemPrompts.reduce((sum, p) => sum + p.length, 0),
@@ -639,7 +527,7 @@ export class AIAgentService {
 				projectId: this.projectId,
 				mode: this.mode,
 				sessionId: this.sessionId,
-				callMcpTool: (serverId, toolName, arguments_) => this.callMcpTool(serverId, toolName, arguments_),
+				callMcpTool: (serverId, toolName, arguments_) => this.mcpClientManager.callTool(serverId, toolName, arguments_),
 				sendCdpCommand: (id, method, parameters) => coordinatorStub.sendCdpCommand(id, method, parameters),
 			};
 
@@ -654,7 +542,6 @@ export class AIAgentService {
 			let iteration = 0;
 			let hitIterationLimit = false;
 			let lastAssistantText = '';
-			let xmlRetried = false;
 			let softLimitNudged = false;
 
 			while (continueLoop && iteration < MAX_ITERATIONS) {
@@ -740,8 +627,6 @@ export class AIAgentService {
 				const changeCountBefore = queryChanges.length;
 
 				// Create tools fresh each iteration (they capture the mutable queryChanges array).
-				// Pass toolCallIdRef and pendingToolCallIds so each tool wrapper can set the
-				// current toolCallId before executing (for sendEvent auto-injection).
 				const toolFailures: ToolFailureRecord[] = [];
 				pendingToolCallIds.length = 0; // Reset for this iteration
 				const tools = createServerTools(
@@ -755,10 +640,18 @@ export class AIAgentService {
 					pendingToolCallIds,
 				);
 
-				// Call the LLM with retry
-				let chatResult: AsyncIterable<StreamChunk>;
+				// Call the LLM and consume its stream, with unified retry for both
+				// connection-phase errors (chat() throws synchronously) and mid-stream
+				// errors (for-await throws or adapter emits RUN_ERROR with a retryable message).
+				let hadToolCalls = false;
+				let hadUserQuestion = false;
+				let hadMutationFailure = false;
+				let hadStreamError = false;
 				let retryAttempt = 0;
 				let llmTimer = logger.startTimer();
+				const completedToolCalls: Array<{ id: string; name: string; arguments: string }> = [];
+				const toolResults: Array<{ toolCallId: string; content: string }> = [];
+				const toolCallArgumentsById = new Map<string, { name: string; arguments: string; input: Record<string, unknown> }>();
 
 				logger.info('llm', 'request_start', {
 					model: this.model,
@@ -766,12 +659,30 @@ export class AIAgentService {
 					toolCount: tools.length,
 				});
 
+				// Track text from a previous attempt that was interrupted mid-stream.
+				// When non-empty, the first TEXT_MESSAGE_START from the retry is
+				// suppressed so the StreamProcessor keeps accumulating into the
+				// same TextPart instead of replacing it.
+				let partialTextBeforeRetry = '';
+
 				while (true) {
+					// Per-attempt stream state — reset on each retry
+					let streamError: string | undefined;
+					let streamErrorRaw: unknown;
+					let currentToolCallId: string | undefined;
+					let currentToolName: string | undefined;
+					let currentToolArguments = '';
+					let streamChunkCount = 0;
+					let hadRunStarted = false;
+					let hadRunFinished = false;
+					let caughtStreamError: unknown;
+					let suppressedTextMessageStart = false;
+
 					try {
 						llmTimer = logger.startTimer();
 						// eslint-disable-next-line @typescript-eslint/no-explicit-any -- TanStack AI message types are restrictive
 						const messagesCopy: any = [...workingMessages];
-						chatResult = chat({
+						const chatResult = chat({
 							adapter,
 							messages: messagesCopy,
 							systemPrompts,
@@ -779,345 +690,409 @@ export class AIAgentService {
 							maxTokens: 8192,
 							agentLoopStrategy: maxIterations(1),
 						});
-						break;
+
+						// Consume the AG-UI event stream from chat()
+						for await (const chunk of chatResult) {
+							if (signal.aborted) break;
+							streamChunkCount++;
+
+							if (!isRecordObject(chunk)) continue;
+							const eventType = getEventField(chunk, 'type');
+
+							switch (eventType) {
+								case 'TEXT_MESSAGE_CONTENT': {
+									const delta = getEventField(chunk, 'delta');
+									if (delta) {
+										lastAssistantText += delta;
+									}
+									yield chunk;
+									break;
+								}
+								case 'TEXT_MESSAGE_START': {
+									// On a retry after partial text, suppress the first
+									// TEXT_MESSAGE_START so the downstream StreamProcessor
+									// keeps accumulating into the existing TextPart instead
+									// of resetting and replacing the partial text.
+									if (partialTextBeforeRetry && !suppressedTextMessageStart) {
+										suppressedTextMessageStart = true;
+										logger.debug('llm', 'text_message_start_suppressed', {
+											partialTextLength: partialTextBeforeRetry.length,
+										});
+										break;
+									}
+									lastAssistantText = '';
+									logger.debug('llm', 'text_message_start', { chunksReceived: streamChunkCount });
+									yield chunk;
+									break;
+								}
+								case 'TEXT_MESSAGE_END': {
+									logger.debug('llm', 'text_message_end', { textLength: lastAssistantText.length });
+									yield chunk;
+									break;
+								}
+								case 'TOOL_CALL_START': {
+									hadToolCalls = true;
+									currentToolCallId = getEventField(chunk, 'toolCallId');
+									currentToolName = getEventField(chunk, 'toolName');
+									currentToolArguments = '';
+									logger.debug('tool_call', 'stream_start', {
+										toolCallId: currentToolCallId,
+										toolName: currentToolName,
+									});
+									yield chunk;
+									break;
+								}
+								case 'TOOL_CALL_ARGS': {
+									currentToolArguments += getEventField(chunk, 'delta') ?? '';
+									yield chunk;
+									break;
+								}
+								case 'TOOL_CALL_END': {
+									const toolCallId = getEventField(chunk, 'toolCallId') || currentToolCallId || '';
+									const toolName = getEventField(chunk, 'toolName') || currentToolName;
+									const resultContent = getEventField(chunk, 'result');
+									const hasResult = resultContent !== undefined && resultContent !== '';
+
+									if (hasResult) {
+										// Phase 2: TanStack AI signals tool execution is done (has result).
+										const stored = toolCallArgumentsById.get(toolCallId);
+										const resolvedName = toolName || stored?.name || 'unknown';
+										const resolvedArguments = stored?.arguments ?? '';
+										const resolvedInput = stored?.input ?? {};
+
+										completedToolCalls.push({ id: toolCallId, name: resolvedName, arguments: resolvedArguments });
+										toolResults.push({ toolCallId, content: resultContent });
+
+										logger.info('tool_call', 'execution_result', {
+											toolCallId,
+											toolName: resolvedName,
+											input: sanitizeToolInput(resolvedInput),
+											resultSummary: summarizeToolResult(resultContent),
+											resultLength: resultContent.length,
+										});
+
+										// Drain typed failure records from the tool executor.
+										for (const failure of toolFailures) {
+											if (MUTATION_TOOL_NAMES.has(failure.toolName)) {
+												hadMutationFailure = true;
+											}
+											yield customEvent('tool_error', {
+												toolCallId,
+												toolName: failure.toolName,
+												errorCode: failure.errorCode ?? '',
+												errorMessage: failure.errorMessage,
+											});
+										}
+										toolFailures.length = 0;
+
+										toolCallArgumentsById.delete(toolCallId);
+									} else {
+										// Phase 1: Adapter signals arguments are finalized (no result yet).
+										let toolInput: Record<string, unknown> = {};
+
+										// Some adapters may not emit TOOL_CALL_ARGS events, instead
+										// providing the parsed input directly on the TOOL_CALL_END chunk.
+										const chunkInput = getEventRecord(chunk, 'input');
+										if (!currentToolArguments && chunkInput) {
+											currentToolArguments = JSON.stringify(chunkInput);
+										}
+
+										if (toolName) {
+											try {
+												toolInput = JSON.parse(currentToolArguments || '{}');
+											} catch {
+												logger.warn('tool_call', 'arguments_parse_error', {
+													toolCallId,
+													toolName,
+													rawArguments: currentToolArguments.slice(0, 200),
+												});
+											}
+											logger.recordToolCall(toolName);
+										}
+
+										if (toolCallId) {
+											toolCallArgumentsById.set(toolCallId, {
+												name: toolName ?? 'unknown',
+												arguments: currentToolArguments,
+												input: toolInput,
+											});
+											pendingToolCallIds.push(toolCallId);
+										}
+
+										logger.info('tool_call', 'args_complete', {
+											toolCallId,
+											toolName,
+											input: sanitizeToolInput(toolInput),
+										});
+
+										currentToolCallId = undefined;
+										currentToolName = undefined;
+										currentToolArguments = '';
+									}
+
+									// Check if user_question was used — stop the loop
+									if (toolName === 'user_question') {
+										logger.info('agent_loop', 'user_question_stop', { toolCallId });
+										hadUserQuestion = true;
+									}
+
+									yield chunk;
+
+									// Drain any CUSTOM events from tool execution.
+									while (eventQueue.length > 0) {
+										const queued = eventQueue.shift();
+										if (queued) yield queued;
+									}
+
+									break;
+								}
+								case 'RUN_FINISHED': {
+									hadRunFinished = true;
+									const usage = getEventRecord(chunk, 'usage');
+									const finishReason = getEventField(chunk, 'finishReason');
+									const inputTokens = usage ? getNumberField(usage, 'inputTokens') || getNumberField(usage, 'input_tokens') : 0;
+									const outputTokens = usage ? getNumberField(usage, 'outputTokens') || getNumberField(usage, 'output_tokens') : 0;
+									if (usage) {
+										tokenTracker.recordTurn(this.model, {
+											inputTokens,
+											outputTokens,
+											cacheReadInputTokens:
+												getNumberField(usage, 'cacheReadInputTokens') || getNumberField(usage, 'cache_read_input_tokens'),
+											cacheCreationInputTokens:
+												getNumberField(usage, 'cacheCreationInputTokens') || getNumberField(usage, 'cache_creation_input_tokens'),
+										});
+										logger.recordTokenUsage(inputTokens, outputTokens);
+										if (inputTokens > 0) {
+											yield customEvent('context_utilization', {
+												estimatedTokens: inputTokens,
+												contextWindow: modelLimits.contextWindow,
+												utilization: Math.round((inputTokens / (modelLimits.contextWindow - modelLimits.maxOutput)) * 100),
+											});
+										}
+									}
+									logger.info(
+										'llm',
+										'request_end',
+										{
+											finishReason,
+											inputTokens,
+											outputTokens,
+											toolCallCount: completedToolCalls.length,
+											textLength: lastAssistantText.length,
+											outputSnippet: lastAssistantText.slice(0, 500),
+										},
+										{ durationMs: llmTimer() },
+									);
+									yield chunk;
+									break;
+								}
+								case 'RUN_ERROR': {
+									const errorData = getEventRecord(chunk, 'error');
+									const errorMessage = errorData ? getEventField(errorData, 'message') : 'Unknown error';
+									const errorCode = errorData ? getEventField(errorData, 'code') : undefined;
+									logger.error('llm', 'stream_error', {
+										message: errorMessage,
+										code: errorCode,
+										streamState: {
+											chunksReceived: streamChunkCount,
+											hadRunStarted,
+											hadRunFinished,
+											textAccumulated: lastAssistantText.length,
+											toolCallsInProgress: currentToolCallId
+												? {
+														id: currentToolCallId,
+														name: currentToolName,
+														argumentsLength: currentToolArguments.length,
+													}
+												: undefined,
+											completedToolCalls: completedToolCalls.length,
+											pendingToolCallIds: toolCallArgumentsById.size,
+										},
+									});
+									streamError = errorMessage ?? 'Unknown error';
+									// Build an Error for classification so classifyRetryableError can inspect it
+									streamErrorRaw = new Error(streamError);
+									// Don't yield the RUN_ERROR yet — we may retry
+									break;
+								}
+								default: {
+									switch (eventType) {
+										case 'RUN_STARTED': {
+											hadRunStarted = true;
+											logger.debug('llm', 'run_started', {
+												runId: getEventField(chunk, 'runId'),
+											});
+
+											break;
+										}
+										case 'STEP_STARTED': {
+											logger.debug('llm', 'step_started', {
+												stepId: getEventField(chunk, 'stepId'),
+												stepType: getEventField(chunk, 'stepType'),
+											});
+
+											break;
+										}
+										case 'STEP_FINISHED': {
+											const delta = getEventField(chunk, 'delta');
+											logger.debug('llm', 'step_finished', {
+												stepId: getEventField(chunk, 'stepId'),
+												deltaLength: delta?.length ?? 0,
+											});
+
+											break;
+										}
+										// No default
+									}
+									yield chunk;
+									break;
+								}
+							}
+						}
 					} catch (error) {
+						caughtStreamError = error;
+					}
+
+					// Log if the stream ended without a proper termination event
+					if (hadRunStarted && !hadRunFinished && !streamError && !caughtStreamError) {
+						logger.warn('llm', 'stream_ended_prematurely', {
+							chunksReceived: streamChunkCount,
+							textAccumulated: lastAssistantText.length,
+							completedToolCalls: completedToolCalls.length,
+							pendingToolCallIds: toolCallArgumentsById.size,
+							inProgressToolCall: currentToolCallId ? { id: currentToolCallId, name: currentToolName } : undefined,
+						});
+					}
+
+					// Drain any remaining CUSTOM events from the last tool execution
+					while (eventQueue.length > 0) {
+						const queued = eventQueue.shift();
+						if (queued) yield queued;
+					}
+
+					// Determine if we should retry based on the error source
+					const errorToClassify = caughtStreamError ?? streamErrorRaw;
+					if (errorToClassify) {
+						// Abort errors are never retryable
+						if (errorToClassify instanceof Error && errorToClassify.name === 'AbortError') {
+							throw errorToClassify;
+						}
+
 						retryAttempt++;
-						const retryReason = classifyRetryableError(error);
-						if (!retryReason || retryAttempt >= MAX_RETRY_ATTEMPTS) {
+						const retryReason = classifyRetryableError(errorToClassify);
+
+						if (retryReason && retryAttempt < MAX_RETRY_ATTEMPTS) {
+							const delay = calculateRetryDelay(retryAttempt, errorToClassify);
+							const hadPartialOutput = lastAssistantText.length > 0 || completedToolCalls.length > 0;
+							logger.warn('llm', 'retry', {
+								retryAttempt,
+								reason: retryReason,
+								delayMs: delay,
+								phase: caughtStreamError ? 'stream' : 'adapter_error',
+								partialTextLength: lastAssistantText.length,
+								completedToolCallsBeforeError: completedToolCalls.length,
+							});
+							yield customEvent('status', { message: `Retrying (${retryReason})...` });
+							await sleep(delay, signal);
+
+							// Preserve partial output so the model can resume from where
+							// it left off instead of regenerating from scratch.
+							if (hadPartialOutput) {
+								if (completedToolCalls.length > 0) {
+									// Tool calls that fully executed (with results) are committed
+									// to the message history — their side effects already happened.
+									workingMessages.push({
+										role: 'assistant',
+										// eslint-disable-next-line unicorn/no-null -- ModelMessage.content requires null, not undefined
+										content: lastAssistantText || null,
+										toolCalls: completedToolCalls.map((tc) => ({
+											id: tc.id,
+											type: 'function' as const,
+											function: { name: tc.name, arguments: tc.arguments },
+										})),
+									});
+									for (const result of toolResults) {
+										workingMessages.push({
+											role: 'tool',
+											content: result.content,
+											toolCallId: result.toolCallId,
+										});
+									}
+									// After tool results, the UI's last part is a tool-result —
+									// the retry's TEXT_MESSAGE_START should flow through normally
+									// so updateTextPart pushes a new TextPart.
+									partialTextBeforeRetry = '';
+								} else if (lastAssistantText) {
+									// Only text was generated — append it so the model
+									// sees what it already wrote and continues.
+									workingMessages.push({
+										role: 'assistant',
+										content: lastAssistantText,
+									});
+									// Signal the next attempt to suppress TEXT_MESSAGE_START
+									// so the StreamProcessor continues accumulating into the
+									// same TextPart instead of replacing it.
+									partialTextBeforeRetry = lastAssistantText;
+								}
+								workingMessages.push({
+									role: 'user',
+									content:
+										'SYSTEM: Your previous response was interrupted by a connection error. ' +
+										'Continue from where you left off. Do NOT repeat what you already said or re-call tools that already succeeded.',
+								});
+							} else {
+								// No partial output — fresh retry, no suppression needed
+								partialTextBeforeRetry = '';
+							}
+
+							// Reset accumulation state for the next attempt
+							lastAssistantText = '';
+							completedToolCalls.length = 0;
+							toolResults.length = 0;
+							toolCallArgumentsById.clear();
+							continue;
+						}
+
+						// Non-retryable or retries exhausted
+						if (caughtStreamError) {
 							logger.error('llm', 'request_failed', {
 								retryAttempt,
 								reason: retryReason ?? 'non_retryable',
-								error: error instanceof Error ? error.message : String(error),
+								error: caughtStreamError instanceof Error ? caughtStreamError.message : String(caughtStreamError),
 							});
-							throw error;
+							throw caughtStreamError;
 						}
-						const delay = calculateRetryDelay(retryAttempt, error);
-						logger.warn('llm', 'retry', {
+
+						// streamError from RUN_ERROR — yield the error event and stop the loop
+						const errorMessage = streamError ?? 'Unknown error';
+						logger.error('llm', 'request_failed', {
 							retryAttempt,
-							reason: retryReason,
-							delayMs: delay,
+							reason: retryReason ?? 'non_retryable',
+							error: errorMessage,
 						});
-						yield customEvent('status', { message: `Retrying (${retryReason})...` });
-						await sleep(delay, signal);
+						yield {
+							type: 'RUN_ERROR',
+							timestamp: Date.now(),
+							error: { message: errorMessage },
+						};
+						hadStreamError = true;
+						continueLoop = false;
+						break;
 					}
-				}
 
-				// Consume the AG-UI event stream from chat()
-				let hadToolCalls = false;
-				let hadUserQuestion = false;
-				let hadMutationFailure = false;
-				let streamError: string | undefined;
-				let currentToolCallId: string | undefined;
-				let currentToolName: string | undefined;
-				let currentToolArguments = '';
-				let streamChunkCount = 0;
-				let hadRunStarted = false;
-				let hadRunFinished = false;
-				const completedToolCalls: Array<{ id: string; name: string; arguments: string }> = [];
-				const toolResults: Array<{ toolCallId: string; content: string }> = [];
-
-				// Track tool call arguments by ID for the TOOL_CALL_END dual-role handling.
-				// TanStack AI emits two TOOL_CALL_END events per tool call:
-				// 1. From adapter (no result): signals arguments are finalized
-				// 2. From executeToolCalls (with result): signals execution is done
-				// We need the args from event #1 when processing event #2.
-				const toolCallArgumentsById = new Map<string, { name: string; arguments: string; input: Record<string, unknown> }>();
-
-				for await (const chunk of chatResult) {
-					if (signal.aborted) break;
-					streamChunkCount++;
-
-					if (!isRecordObject(chunk)) continue;
-					const eventType = getEventField(chunk, 'type');
-
-					switch (eventType) {
-						case 'TEXT_MESSAGE_CONTENT': {
-							const delta = getEventField(chunk, 'delta');
-							if (delta) {
-								lastAssistantText += delta;
-							}
-							// Pass through to client
-							yield chunk;
-							break;
-						}
-						case 'TEXT_MESSAGE_START': {
-							lastAssistantText = '';
-							logger.debug('llm', 'text_message_start', { chunksReceived: streamChunkCount });
-							yield chunk;
-							break;
-						}
-						case 'TEXT_MESSAGE_END': {
-							logger.debug('llm', 'text_message_end', { textLength: lastAssistantText.length });
-							yield chunk;
-							break;
-						}
-						case 'TOOL_CALL_START': {
-							hadToolCalls = true;
-							currentToolCallId = getEventField(chunk, 'toolCallId');
-							currentToolName = getEventField(chunk, 'toolName');
-							currentToolArguments = '';
-							logger.debug('tool_call', 'stream_start', {
-								toolCallId: currentToolCallId,
-								toolName: currentToolName,
-							});
-							yield chunk;
-							break;
-						}
-						case 'TOOL_CALL_ARGS': {
-							currentToolArguments += getEventField(chunk, 'delta') ?? '';
-							yield chunk;
-							break;
-						}
-						case 'TOOL_CALL_END': {
-							const toolCallId = getEventField(chunk, 'toolCallId') || currentToolCallId || '';
-							const toolName = getEventField(chunk, 'toolName') || currentToolName;
-							const resultContent = getEventField(chunk, 'result');
-							const hasResult = resultContent !== undefined && resultContent !== '';
-
-							if (hasResult) {
-								// Phase 2: TanStack AI signals tool execution is done (has result).
-								// Look up the stored args from phase 1.
-								const stored = toolCallArgumentsById.get(toolCallId);
-								const resolvedName = toolName || stored?.name || 'unknown';
-								const resolvedArguments = stored?.arguments ?? '';
-								const resolvedInput = stored?.input ?? {};
-
-								// Add to completedToolCalls for message reconstruction
-								completedToolCalls.push({ id: toolCallId, name: resolvedName, arguments: resolvedArguments });
-								toolResults.push({ toolCallId, content: resultContent });
-
-								logger.info('tool_call', 'execution_result', {
-									toolCallId,
-									toolName: resolvedName,
-									input: sanitizeToolInput(resolvedInput),
-									resultSummary: summarizeToolResult(resultContent),
-									resultLength: resultContent.length,
-								});
-
-								// Drain typed failure records from the tool executor.
-								// Emit CUSTOM events so the frontend gets structured error data
-								// instead of having to regex-parse "[CODE] message" prefixes.
-								for (const failure of toolFailures) {
-									if (MUTATION_TOOL_NAMES.has(failure.toolName)) {
-										hadMutationFailure = true;
-									}
-									yield customEvent('tool_error', {
-										toolCallId,
-										toolName: failure.toolName,
-										errorCode: failure.errorCode ?? '',
-										errorMessage: failure.errorMessage,
-									});
-								}
-								toolFailures.length = 0;
-
-								// Clean up stored args
-								toolCallArgumentsById.delete(toolCallId);
-							} else {
-								// Phase 1: Adapter signals arguments are finalized (no result yet).
-								// Parse and store args, record for doom detection, but don't add
-								// to completedToolCalls yet — wait for the execution result.
-								let toolInput: Record<string, unknown> = {};
-
-								// Some adapters (e.g. Workers AI non-streaming fallback) may not
-								// emit TOOL_CALL_ARGS events, instead providing the parsed input
-								// directly on the TOOL_CALL_END chunk. Fall back to that when the
-								// accumulated argument string is empty to ensure message history
-								// records the actual arguments (preventing false doom-loop positives
-								// from all tool calls appearing identical with empty arguments).
-								const chunkInput = getEventRecord(chunk, 'input');
-								if (!currentToolArguments && chunkInput) {
-									currentToolArguments = JSON.stringify(chunkInput);
-								}
-
-								if (toolName) {
-									try {
-										toolInput = JSON.parse(currentToolArguments || '{}');
-									} catch {
-										logger.warn('tool_call', 'arguments_parse_error', {
-											toolCallId,
-											toolName,
-											rawArguments: currentToolArguments.slice(0, 200),
-										});
-									}
-									logger.recordToolCall(toolName);
-								}
-
-								// Store args for phase 2 lookup
-								if (toolCallId) {
-									toolCallArgumentsById.set(toolCallId, {
-										name: toolName ?? 'unknown',
-										arguments: currentToolArguments,
-										input: toolInput,
-									});
-									// Queue the ID for the tool wrapper to shift() before executing.
-									// Order matches TanStack AI's sequential tool execution order.
-									pendingToolCallIds.push(toolCallId);
-								}
-
-								logger.info('tool_call', 'args_complete', {
-									toolCallId,
-									toolName,
-									input: sanitizeToolInput(toolInput),
-								});
-
-								// Reset streaming state (args accumulation is done)
-								currentToolCallId = undefined;
-								currentToolName = undefined;
-								currentToolArguments = '';
-							}
-
-							// Check if user_question was used — stop the loop
-							if (toolName === 'user_question') {
-								logger.info('agent_loop', 'user_question_stop', { toolCallId });
-								hadUserQuestion = true;
-							}
-
-							yield chunk;
-
-							// Drain any CUSTOM events from tool execution.
-							// toolCallId is already injected by sendEvent (via toolCallIdRef)
-							// so no post-hoc injection is needed here.
-							while (eventQueue.length > 0) {
-								const queued = eventQueue.shift();
-								if (queued) yield queued;
-							}
-
-							break;
-						}
-						case 'RUN_FINISHED': {
-							hadRunFinished = true;
-							const usage = getEventRecord(chunk, 'usage');
-							const finishReason = getEventField(chunk, 'finishReason');
-							const inputTokens = usage ? getNumberField(usage, 'inputTokens') || getNumberField(usage, 'input_tokens') : 0;
-							const outputTokens = usage ? getNumberField(usage, 'outputTokens') || getNumberField(usage, 'output_tokens') : 0;
-							if (usage) {
-								tokenTracker.recordTurn(this.model, {
-									inputTokens,
-									outputTokens,
-									cacheReadInputTokens: getNumberField(usage, 'cacheReadInputTokens') || getNumberField(usage, 'cache_read_input_tokens'),
-									cacheCreationInputTokens:
-										getNumberField(usage, 'cacheCreationInputTokens') || getNumberField(usage, 'cache_creation_input_tokens'),
-								});
-								logger.recordTokenUsage(inputTokens, outputTokens);
-								// Emit real-time context utilization with API-reported token count
-								if (inputTokens > 0) {
-									yield customEvent('context_utilization', {
-										estimatedTokens: inputTokens,
-										contextWindow: modelLimits.contextWindow,
-										utilization: Math.round((inputTokens / (modelLimits.contextWindow - modelLimits.maxOutput)) * 100),
-									});
-								}
-							}
-							logger.info(
-								'llm',
-								'request_end',
-								{
-									finishReason,
-									inputTokens,
-									outputTokens,
-									toolCallCount: completedToolCalls.length,
-									textLength: lastAssistantText.length,
-									// Include a truncated snippet of the raw output for debugging.
-									// Especially useful when toolCallCount is 0 (model didn't call tools).
-									outputSnippet: lastAssistantText.slice(0, 500),
-								},
-								{ durationMs: llmTimer() },
-							);
-							// Pass through — this is the per-iteration RUN_FINISHED
-							yield chunk;
-							break;
-						}
-						case 'RUN_ERROR': {
-							const errorData = getEventRecord(chunk, 'error');
-							const errorMessage = errorData ? getEventField(errorData, 'message') : 'Unknown error';
-							const errorCode = errorData ? getEventField(errorData, 'code') : undefined;
-							// Log full streaming state at the time of error for diagnostics
-							logger.error('llm', 'stream_error', {
-								message: errorMessage,
-								code: errorCode,
-								streamState: {
-									chunksReceived: streamChunkCount,
-									hadRunStarted,
-									hadRunFinished,
-									textAccumulated: lastAssistantText.length,
-									toolCallsInProgress: currentToolCallId
-										? { id: currentToolCallId, name: currentToolName, argumentsLength: currentToolArguments.length }
-										: undefined,
-									completedToolCalls: completedToolCalls.length,
-									pendingToolCallIds: toolCallArgumentsById.size,
-								},
-							});
-							streamError = errorMessage ?? 'Unknown error';
-							yield chunk;
-							break;
-						}
-						default: {
-							switch (eventType) {
-								case 'RUN_STARTED': {
-									hadRunStarted = true;
-									logger.debug('llm', 'run_started', { runId: getEventField(chunk, 'runId') });
-
-									break;
-								}
-								case 'STEP_STARTED': {
-									logger.debug('llm', 'step_started', {
-										stepId: getEventField(chunk, 'stepId'),
-										stepType: getEventField(chunk, 'stepType'),
-									});
-
-									break;
-								}
-								case 'STEP_FINISHED': {
-									const delta = getEventField(chunk, 'delta');
-									logger.debug('llm', 'step_finished', {
-										stepId: getEventField(chunk, 'stepId'),
-										deltaLength: delta?.length ?? 0,
-									});
-
-									break;
-								}
-								// No default
-							}
-							yield chunk;
-							break;
-						}
-					}
-				}
-
-				// Log if the stream ended without a proper termination event
-				if (hadRunStarted && !hadRunFinished && !streamError) {
-					logger.warn('llm', 'stream_ended_prematurely', {
-						chunksReceived: streamChunkCount,
-						textAccumulated: lastAssistantText.length,
-						completedToolCalls: completedToolCalls.length,
-						pendingToolCallIds: toolCallArgumentsById.size,
-						inProgressToolCall: currentToolCallId ? { id: currentToolCallId, name: currentToolName } : undefined,
-					});
-				}
-
-				// Drain any remaining CUSTOM events from the last tool execution
-				while (eventQueue.length > 0) {
-					const queued = eventQueue.shift();
-					if (queued) yield queued;
-				}
-
-				// If the adapter emitted RUN_ERROR, stop the agent loop.
-				// The RUN_ERROR chunk was already yielded to the client above.
-				if (streamError) {
-					continueLoop = false;
+					// Success — exit the retry loop
 					break;
 				}
 
 				// Incrementally persist new file changes to the snapshot
 				if (snapshotContext && queryChanges.length > changeCountBefore) {
 					for (let index = changeCountBefore; index < queryChanges.length; index++) {
-						await this.addFileToSnapshot(snapshotContext, queryChanges[index]);
+						await addFileToSnapshot(snapshotContext, queryChanges[index]);
 					}
 				}
 
-				// Skip message reconstruction and loop continuation logic when the
-				// adapter reported a stream-level error — the loop is about to exit.
-				if (streamError) {
+				// Reconstruct messages for the next iteration
+				if (hadStreamError) {
 					// fall through to iteration_end logging below
 				} else if (hadToolCalls && completedToolCalls.length > 0) {
 					logger.debug('message', 'messages_reconstructed', {
@@ -1145,7 +1120,6 @@ export class AIAgentService {
 					}
 
 					// Inject a corrective message when mutation tools failed.
-					// This teaches the LLM to re-read files before retrying.
 					if (hadMutationFailure) {
 						logger.info('agent_loop', 'mutation_failure_correction', {
 							iteration,
@@ -1164,48 +1138,14 @@ export class AIAgentService {
 					completedToolCalls.length = 0;
 					toolResults.length = 0;
 				} else {
+					// No tool calls — the model produced text only, stop the loop.
 					if (lastAssistantText) {
 						workingMessages.push({ role: 'assistant', content: lastAssistantText });
 					}
-
-					// Detect XML output that looks like failed tool calls.
-					// Some models emit tool calls as XML text instead of using the
-					// tool-calling API. When detected, inject a corrective message
-					// and retry once so the model uses proper tool calls.
-					const xmlToolCallPattern = /<(?:function_calls|invoke\s|tool_use|tool_call|antml:invoke)/;
-					const containsXmlToolCalls = xmlToolCallPattern.test(lastAssistantText);
-
-					if (containsXmlToolCalls && !xmlRetried) {
-						xmlRetried = true;
-						logger.warn('agent_loop', 'xml_tool_call_detected', {
-							outputSnippet: lastAssistantText.slice(0, 500),
-						});
-						yield customEvent('status', {
-							message: 'Detected XML tool output — retrying with proper tool calls...',
-						});
-						workingMessages.push({
-							role: 'user',
-							content:
-								'SYSTEM: Your previous response contained XML-formatted tool calls (e.g. <function_calls>, <invoke>, <tool_use>) as plain text. ' +
-								'CRITICAL INSTRUCTION: You MUST use the tool-calling API provided to you, not XML tags. ' +
-								'Please retry your intended action using the actual tool functions available to you. ' +
-								'Do NOT output XML tags. Call the tools directly.',
-						});
-						// Continue the loop — the model will retry with proper tool calls
-					} else {
-						logger.info('agent_loop', 'no_tool_calls_stop', {
-							textLength: lastAssistantText.length,
-							outputSnippet: lastAssistantText.slice(0, 500),
-							containsXmlToolCalls,
-						});
-						continueLoop = false;
-					}
+					continueLoop = false;
 				}
 
 				// Proactively check for new errors/warnings in the IDE output.
-				// After file mutations, the preview rebuilds and may produce new errors.
-				// The frontend pushes fresh output logs to the coordinator via WebSocket.
-				// If new errors appeared, inject a system message so the agent can react.
 				const fileChangesThisIteration = queryChanges.length - changeCountBefore;
 				if (continueLoop && fileChangesThisIteration > 0) {
 					try {
@@ -1213,7 +1153,6 @@ export class AIAgentService {
 						await sleep(2000, signal);
 						const freshLogs = await coordinatorStub.getOutputLogs();
 						if (freshLogs && freshLogs !== (outputLogs ?? '')) {
-							// Check if the fresh logs contain errors or warnings
 							const hasErrors = /\bERROR:/i.test(freshLogs) || /\bWARNING:/i.test(freshLogs);
 							if (hasErrors) {
 								logger.info('agent_loop', 'output_errors_detected', {
@@ -1256,11 +1195,6 @@ export class AIAgentService {
 					continueLoop = false;
 				}
 
-				// If no tool calls, we're done
-				if (!hadToolCalls) {
-					continueLoop = false;
-				}
-
 				logger.info('agent_loop', 'iteration_end', {
 					iteration,
 					hadToolCalls,
@@ -1272,8 +1206,7 @@ export class AIAgentService {
 				yield customEvent('turn_complete', {});
 			}
 
-			// Detect iteration limit hit (hard ceiling or context exhaustion — hitIterationLimit
-			// may already be true if the loop broke due to context budget exhaustion)
+			// Detect iteration limit hit
 			if (!hitIterationLimit && continueLoop && iteration >= MAX_ITERATIONS && !signal.aborted) {
 				hitIterationLimit = true;
 			}
@@ -1288,13 +1221,13 @@ export class AIAgentService {
 
 			// Clean up empty snapshots and notify downstream to clear the snapshot ID
 			if (snapshotContext && queryChanges.length === 0) {
-				await this.deleteDirectoryRecursive(snapshotContext.directory);
+				await deleteDirectoryRecursive(snapshotContext.directory);
 				yield customEvent('snapshot_deleted', { id: snapshotContext.id });
 			}
 
 			// In plan mode, save the plan
 			if (this.mode === 'plan' && lastAssistantText.trim()) {
-				yield* this.savePlan(lastAssistantText, workingMessages);
+				yield* savePlan(this.projectRoot, lastAssistantText, workingMessages);
 			}
 
 			if (hitIterationLimit) {
@@ -1304,8 +1237,6 @@ export class AIAgentService {
 			// Emit token usage summary
 			const totalUsage = tokenTracker.getTotalUsage();
 			if (totalUsage.input > 0 || totalUsage.output > 0) {
-				// The last turn's input tokens reflect the current context window
-				// utilization (the full conversation size sent to the model).
 				const turns = tokenTracker.getTurns();
 				const lastTurn = turns.at(-1);
 				const lastTurnInput = lastTurn ? lastTurn.usage.input : 0;
@@ -1334,7 +1265,7 @@ export class AIAgentService {
 				await logger.flush(this.projectRoot);
 				if (snapshotContext && queryChanges.length === 0) {
 					try {
-						await this.deleteDirectoryRecursive(snapshotContext.directory);
+						await deleteDirectoryRecursive(snapshotContext.directory);
 					} catch {
 						// No-op
 					}
@@ -1347,14 +1278,10 @@ export class AIAgentService {
 				message: error instanceof Error ? error.message : String(error),
 				stack: error instanceof Error ? error.stack : undefined,
 			});
-			// Flush and broadcast BEFORE yielding the error event.
-			// The yield can throw if the stream consumer has already disconnected,
-			// which would skip everything after it. Persisting the debug log is
-			// more important than delivering the SSE error event.
 			await logger.flush(this.projectRoot);
 			if (snapshotContext && queryChanges.length === 0) {
 				try {
-					await this.deleteDirectoryRecursive(snapshotContext.directory);
+					await deleteDirectoryRecursive(snapshotContext.directory);
 				} catch {
 					// No-op
 				}
@@ -1367,37 +1294,22 @@ export class AIAgentService {
 				error: { message: parsed.message, code: parsed.code },
 			};
 		} finally {
-			// When the SSE consumer stops iterating (e.g., client disconnects and
-			// the ReadableStream is cancelled), the generator's return() is invoked
-			// which skips both the try-block completion path and the catch block —
-			// only this finally block runs. Ensure the debug log is still flushed
-			// and broadcast so the download button appears on the frontend.
-			//
-			// flush() is idempotent — if it already succeeded in the try/catch
-			// paths above, this is a no-op. If the previous flush failed (e.g.,
-			// filesystem error), the idempotency flag was reset and this retries.
 			if (!logger.isFlushed) {
 				logger.info('agent_loop', 'aborted');
 				logger.markAborted();
 				await logger.flush(this.projectRoot).catch(() => {});
 				if (snapshotContext && queryChanges.length === 0) {
 					try {
-						await this.deleteDirectoryRecursive(snapshotContext.directory);
+						await deleteDirectoryRecursive(snapshotContext.directory);
 					} catch {
 						// No-op
 					}
 				}
 			}
-			// Always retry the broadcast if it hasn't succeeded yet. This
-			// covers two scenarios: (1) the generator was returned via
-			// ReadableStream cancel and no catch block ran, (2) a catch block
-			// flushed the log but the coordinator RPC failed — previously the
-			// finally guard only checked logger.isFlushed which would skip
-			// the broadcast retry.
 			if (!debugLogBroadcasted) {
 				await this.broadcastDebugLogReady(coordinatorStub, logger.id);
 			}
-			await this.closeMcpClients();
+			await this.mcpClientManager.closeAll();
 		}
 	}
 
@@ -1407,12 +1319,10 @@ export class AIAgentService {
 
 	/**
 	 * Broadcast a debug-log-ready message to all connected clients via the
-	 * project coordinator WebSocket. This replaces the previous approach of
-	 * emitting the debug_log ID as a CUSTOM AG-UI SSE event, ensuring the
-	 * notification arrives even when the SSE stream is interrupted (cancel/error).
+	 * project coordinator WebSocket.
 	 *
 	 * Returns `true` if the broadcast succeeded, `false` if it failed.
-	 * Failures are non-fatal — they are logged but never propagate to the caller.
+	 * Failures are non-fatal.
 	 */
 	private async broadcastDebugLogReady(
 		coordinatorStub: DurableObjectStub<import('../../durable/project-coordinator').ProjectCoordinator>,
@@ -1428,291 +1338,6 @@ export class AIAgentService {
 		} catch (error) {
 			console.error('Failed to broadcast debug-log-ready:', error);
 			return false;
-		}
-	}
-
-	// =============================================================================
-	// System Prompt Builder
-	// =============================================================================
-
-	private async buildSystemPrompts(outputLogs?: string): Promise<string[]> {
-		const prompts: string[] = [];
-
-		let mainPrompt = AGENT_SYSTEM_PROMPT;
-
-		// Add AGENTS.md context
-		const agentsContext = await this.readAgentsContext();
-		if (agentsContext) {
-			mainPrompt += `\n\n## Project Guidelines (from AGENTS.md)\n${agentsContext}`;
-		}
-
-		// Add mode-specific addendum
-		switch (this.mode) {
-			case 'code': {
-				mainPrompt += CODE_MODE_SYSTEM_PROMPT;
-
-				break;
-			}
-			case 'plan': {
-				mainPrompt += PLAN_MODE_SYSTEM_PROMPT;
-
-				break;
-			}
-			case 'ask': {
-				mainPrompt += ASK_MODE_SYSTEM_PROMPT;
-
-				break;
-			}
-			// No default
-		}
-
-		// Add latest plan context (in code mode only)
-		if (this.mode !== 'plan') {
-			const latestPlan = await this.readLatestPlan();
-			if (latestPlan) {
-				mainPrompt += `\n\n## Active Implementation Plan\nFollow this plan for all implementation steps. Reference it to decide what to do next and mark steps as complete when done.\n\n${latestPlan}`;
-			}
-		}
-
-		// Append IDE output logs (bundle errors, server logs, client console, lint)
-		if (outputLogs && outputLogs.trim().length > 0) {
-			mainPrompt += `\n\n## IDE Output Logs\nThe following are recent output messages from the IDE (bundle errors, server logs, client console logs, lint diagnostics). Use these to diagnose issues the user may be experiencing.\n\n<output_logs>\n${outputLogs}\n</output_logs>`;
-		}
-
-		prompts.push(mainPrompt);
-		return prompts;
-	}
-
-	// =============================================================================
-	// Snapshot Management
-	// =============================================================================
-
-	private async initSnapshot(
-		messages: ModelMessage[],
-		sendEvent: (type: string, data: Record<string, unknown>) => void,
-	): Promise<{ id: string; directory: string; savedPaths: Set<string> }> {
-		const snapshotId = crypto.randomUUID().slice(0, 8);
-		const snapshotDirectory = `${this.projectRoot}/.agent/snapshots/${snapshotId}`;
-
-		await fs.mkdir(snapshotDirectory, { recursive: true });
-
-		// Derive label from the last user message
-		const lastUserMessage = [...messages].toReversed().find((m) => m.role === 'user');
-		const promptText = typeof lastUserMessage?.content === 'string' ? lastUserMessage.content : '';
-		const label = promptText.slice(0, 50) + (promptText.length > 50 ? '...' : '');
-
-		const metadata: SnapshotMetadata = {
-			id: snapshotId,
-			timestamp: Date.now(),
-			label,
-			sessionId: this.sessionId,
-			changes: [],
-		};
-		await fs.writeFile(`${snapshotDirectory}/metadata.json`, JSON.stringify(metadata, undefined, 2));
-
-		await this.cleanupOldSnapshots(10);
-
-		sendEvent('snapshot_created', {
-			id: snapshotId,
-			label: metadata.label,
-			timestamp: metadata.timestamp,
-			changes: [],
-		});
-
-		return { id: snapshotId, directory: snapshotDirectory, savedPaths: new Set() };
-	}
-
-	private async addFileToSnapshot(context: { id: string; directory: string; savedPaths: Set<string> }, change: FileChange): Promise<void> {
-		if (context.savedPaths.has(change.path)) return;
-		context.savedPaths.add(change.path);
-
-		if (change.action !== 'create' && change.beforeContent !== undefined) {
-			const filePath = `${context.directory}${change.path}`;
-			const directory = filePath.slice(0, filePath.lastIndexOf('/'));
-			if (directory && directory !== context.directory) {
-				await fs.mkdir(directory, { recursive: true });
-			}
-			await fs.writeFile(filePath, change.beforeContent);
-		}
-
-		try {
-			const metadataPath = `${context.directory}/metadata.json`;
-			const raw = await fs.readFile(metadataPath, 'utf8');
-			const metadata: SnapshotMetadata = JSON.parse(raw);
-			metadata.changes.push({ path: change.path, action: change.action });
-			await fs.writeFile(metadataPath, JSON.stringify(metadata, undefined, 2));
-		} catch {
-			// Non-fatal
-		}
-	}
-
-	private async cleanupOldSnapshots(keepCount: number): Promise<void> {
-		const snapshotsDirectory = `${this.projectRoot}/.agent/snapshots`;
-
-		try {
-			const entries = await fs.readdir(snapshotsDirectory);
-			const snapshots: Array<{ id: string; timestamp: number }> = [];
-
-			for (const entry of entries) {
-				try {
-					const metadataPath = `${snapshotsDirectory}/${entry}/metadata.json`;
-					const metadataRaw = await fs.readFile(metadataPath, 'utf8');
-					const metadata: SnapshotMetadata = JSON.parse(metadataRaw);
-					snapshots.push({ id: entry, timestamp: metadata.timestamp });
-				} catch {
-					// No-op
-				}
-			}
-
-			snapshots.sort((a, b) => b.timestamp - a.timestamp);
-
-			// Delete snapshots beyond the keep count.
-			// Session-aware cleanup (preserving snapshots referenced by
-			// surviving pending changes) is handled separately by
-			// pruneOldSessions in the AgentRunner DO.
-			for (const snapshot of snapshots.slice(keepCount)) {
-				await this.deleteDirectoryRecursive(`${snapshotsDirectory}/${snapshot.id}`);
-			}
-		} catch {
-			// No-op
-		}
-	}
-
-	private async deleteDirectoryRecursive(directoryPath: string): Promise<void> {
-		try {
-			const entries = await fs.readdir(directoryPath, { withFileTypes: true });
-			for (const entry of entries) {
-				const fullPath = `${directoryPath}/${entry.name}`;
-				await (entry.isDirectory() ? this.deleteDirectoryRecursive(fullPath) : fs.unlink(fullPath));
-			}
-			await fs.rmdir(directoryPath);
-		} catch {
-			// No-op
-		}
-	}
-
-	// =============================================================================
-	// AGENTS.md Context
-	// =============================================================================
-
-	private async readAgentsContext(): Promise<string | undefined> {
-		try {
-			const entries = await fs.readdir(this.projectRoot);
-			const agentsFile = entries.find((entry) => entry.toLowerCase() === 'agents.md');
-			if (!agentsFile) return undefined;
-
-			let content = await fs.readFile(`${this.projectRoot}/${agentsFile}`, 'utf8');
-			if (content.length > AGENTS_MD_MAX_CHARACTERS) {
-				content = content.slice(0, AGENTS_MD_MAX_CHARACTERS) + '\n...(truncated)';
-			}
-			return content;
-		} catch {
-			return undefined;
-		}
-	}
-
-	// =============================================================================
-	// Plan Context
-	// =============================================================================
-
-	private async readLatestPlan(): Promise<string | undefined> {
-		try {
-			const plansDirectory = `${this.projectRoot}/.agent/plans`;
-			const entries = await fs.readdir(plansDirectory);
-			const planFiles = entries.filter((entry) => entry.endsWith('-plan.md')).toSorted();
-			if (planFiles.length === 0) return undefined;
-
-			const latestFile = planFiles.at(-1);
-			if (!latestFile) return undefined;
-
-			const content = await fs.readFile(`${plansDirectory}/${latestFile}`, 'utf8');
-			if (!content.trim()) return undefined;
-
-			return content;
-		} catch {
-			return undefined;
-		}
-	}
-
-	// =============================================================================
-	// Plan Mode
-	// =============================================================================
-
-	private async *savePlan(planContent: string, messages: ModelMessage[]): AsyncIterable<StreamChunk> {
-		try {
-			const plansDirectory = `${this.projectRoot}/.agent/plans`;
-			await fs.mkdir(plansDirectory, { recursive: true });
-
-			const timestamp = Date.now();
-			const planFileName = `${timestamp}-plan.md`;
-			const planPath = `${plansDirectory}/${planFileName}`;
-
-			// Derive prompt text from the first user message
-			const firstUserMessage = messages.find((m) => m.role === 'user');
-			const promptText = typeof firstUserMessage?.content === 'string' ? firstUserMessage.content : '';
-			const header = `# Plan: ${promptText.slice(0, 80)}${promptText.length > 80 ? '...' : ''}\n\n_Generated at ${new Date(timestamp).toISOString()}_\n\n---\n\n`;
-			await fs.writeFile(planPath, header + planContent);
-
-			// Clean up old timestamped plans to prevent unbounded growth
-			await cleanupTimestampPlans(this.projectRoot);
-
-			yield customEvent('plan_created', {
-				path: `/.agent/plans/${planFileName}`,
-				content: planContent,
-			});
-		} catch (error) {
-			console.error('Failed to save plan:', error);
-		}
-	}
-
-	// =============================================================================
-	// MCP Client
-	// =============================================================================
-
-	private async getMcpClient(serverId: string): Promise<Client> {
-		const existing = this.mcpClients.get(serverId);
-		if (existing) return existing;
-
-		const serverConfig = MCP_SERVERS.find((server) => server.id === serverId);
-		if (!serverConfig) {
-			throw new Error(`Unknown MCP server: ${serverId}`);
-		}
-
-		const client = new Client({ name: 'worker-ide-agent', version: '1.0.0' });
-		const transport = new StreamableHTTPClientTransport(new URL(serverConfig.endpoint));
-		await client.connect(transport);
-
-		this.mcpClients.set(serverId, client);
-		return client;
-	}
-
-	private async callMcpTool(serverId: string, toolName: string, arguments_: Record<string, unknown>): Promise<string> {
-		const client = await this.getMcpClient(serverId);
-		const result = await client.callTool({ name: toolName, arguments: arguments_ });
-
-		if (result.content && Array.isArray(result.content)) {
-			const textParts: string[] = [];
-			for (const item of result.content) {
-				if (isRecordObject(item) && item.type === 'text' && typeof item.text === 'string') {
-					textParts.push(item.text);
-				}
-			}
-			if (textParts.length > 0) {
-				return textParts.join('\n');
-			}
-		}
-
-		return JSON.stringify(result.content);
-	}
-
-	private async closeMcpClients(): Promise<void> {
-		for (const [serverId, client] of this.mcpClients) {
-			try {
-				await client.close();
-			} catch {
-				// No-op
-			}
-			this.mcpClients.delete(serverId);
 		}
 	}
 }

@@ -1,0 +1,62 @@
+diff --git a/dist/chunk-DTGQYEJ2.cjs b/dist/chunk-DTGQYEJ2.cjs
+index 4c431902d4455c33d237f5fb16ef71fbbe7730f7..8e9e2cce49c24c76aed0b1714874855e75b0a015 100644
+--- a/dist/chunk-DTGQYEJ2.cjs
++++ b/dist/chunk-DTGQYEJ2.cjs
+@@ -157,7 +157,7 @@ var WorkersAiTextAdapter = class extends _adapters.BaseTextAdapter {
+     this.client = buildWorkersAiClient(config);
+   }
+   async *chatStream(options) {
+-    const { systemPrompts, messages, tools, temperature, model } = options;
++    const { systemPrompts, messages, tools, temperature, maxTokens, model } = options;
+     const openAIMessages = buildOpenAIMessages(systemPrompts, messages);
+     const openAITools = buildOpenAITools(tools);
+     const timestamp = Date.now();
+@@ -179,6 +179,7 @@ var WorkersAiTextAdapter = class extends _adapters.BaseTextAdapter {
+           messages: openAIMessages,
+           tools: openAITools,
+           temperature,
++          max_tokens: maxTokens,
+           stream: true,
+           stream_options: { include_usage: true }
+         });
+@@ -191,7 +192,8 @@ var WorkersAiTextAdapter = class extends _adapters.BaseTextAdapter {
+           model: _nullishCoalesce(model, () => ( this.model)),
+           messages: openAIMessages,
+           tools: openAITools,
+-          temperature
++          temperature,
++          max_tokens: maxTokens
+         });
+         yield {
+           type: "RUN_STARTED",
+diff --git a/dist/chunk-HDDZEGLC.js b/dist/chunk-HDDZEGLC.js
+index 12c10bf26d3ac7e30ba9d44d9a167cdd3c3b2c2d..0ae3aee344b4434f12b22ddb25a383b81e93b5d2 100644
+--- a/dist/chunk-HDDZEGLC.js
++++ b/dist/chunk-HDDZEGLC.js
+@@ -157,7 +157,7 @@ var WorkersAiTextAdapter = class extends BaseTextAdapter {
+     this.client = buildWorkersAiClient(config);
+   }
+   async *chatStream(options) {
+-    const { systemPrompts, messages, tools, temperature, model } = options;
++    const { systemPrompts, messages, tools, temperature, maxTokens, model } = options;
+     const openAIMessages = buildOpenAIMessages(systemPrompts, messages);
+     const openAITools = buildOpenAITools(tools);
+     const timestamp = Date.now();
+@@ -179,6 +179,7 @@ var WorkersAiTextAdapter = class extends BaseTextAdapter {
+           messages: openAIMessages,
+           tools: openAITools,
+           temperature,
++          max_tokens: maxTokens,
+           stream: true,
+           stream_options: { include_usage: true }
+         });
+@@ -191,7 +192,8 @@ var WorkersAiTextAdapter = class extends BaseTextAdapter {
+           model: model ?? this.model,
+           messages: openAIMessages,
+           tools: openAITools,
+-          temperature
++          temperature,
++          max_tokens: maxTokens
+         });
+         yield {
+           type: "RUN_STARTED",

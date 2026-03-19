@@ -106,7 +106,6 @@ export const definition: ToolDefinition = {
  * `globalThis.__TEST_RESULTS__`.
  */
 const TEST_HARNESS_SOURCE = `
-// ���─ Test Harness ──────────────────────────────────────────────────────────────
 const __suites = [];
 let __currentSuite = null;
 
@@ -291,7 +290,6 @@ globalThis.__runTests = async function __runTests(testNameFilter) {
   results.duration = Date.now() - startTime;
   return results;
 };
-// ���─ End Test Harness ──────────────────────────────────────────────────────────
 `;
 
 /**
