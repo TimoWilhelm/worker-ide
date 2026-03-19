@@ -58,7 +58,7 @@ function LoadingFallback() {
 		<div className="flex h-dvh items-center justify-center bg-bg-primary">
 			<div className="flex flex-col items-center gap-4">
 				<Spinner size="lg" />
-				<p className="text-text-secondary">Loading Worker IDE...</p>
+				<p className="text-text-secondary">Loading Codemaxxing...</p>
 			</div>
 		</div>
 	);

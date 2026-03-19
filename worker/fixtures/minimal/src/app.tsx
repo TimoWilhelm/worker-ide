@@ -34,7 +34,7 @@ export function App() {
 	return (
 		<div className="app">
 			<h1>{greet('World')}</h1>
-			<p className="subtitle">A minimal React + Hono starter on Cloudflare Workers</p>
+			<p className="subtitle">A minimal React + Hono starter</p>
 
 			{error && <p className="error">{error}</p>}
 

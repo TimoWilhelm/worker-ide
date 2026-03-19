@@ -564,7 +564,7 @@ export default function DashboardPage() {
 				{/* Header / Branding */}
 				<div className="mb-10 flex flex-col items-center gap-3">
 					<Hexagon className="size-8 text-accent" strokeWidth={1.5} />
-					<h1 className="text-xl font-semibold tracking-tight text-text-primary">Worker IDE</h1>
+					<h1 className="text-xl font-semibold tracking-tight text-text-primary">Codemaxxing</h1>
 				</div>
 
 				{/* Template cards */}

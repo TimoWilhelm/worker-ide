@@ -17,7 +17,7 @@ export const AI_MODELS = [
 	{
 		id: '@cf/moonshotai/kimi-k2.5',
 		label: 'Kimi K2.5',
-		description: 'Powerful reasoning model on Cloudflare Workers AI',
+		description: 'Powerful reasoning model',
 		provider: 'workers-ai',
 		contextWindow: 131_072,
 		maxOutput: 8192,
