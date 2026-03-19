@@ -21,8 +21,9 @@ const RETRY_INITIAL_DELAY_MS = 1000;
 const MAX_TITLE_LENGTH = 100;
 const FALLBACK_TRUNCATION_LENGTH = 50;
 
-/** Workers AI model used for title generation. Typed to satisfy `env.AI.run()` overloads. */
-const TITLE_MODEL: Parameters<typeof env.AI.run>[0] = '@cf/meta/llama-3.2-3b-instruct';
+/** Workers AI model used for title generation. Cast required — model exists but is not yet in generated AiModels types. */
+// eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- Model exists on Workers AI but is missing from generated wrangler types
+const TITLE_MODEL = '@cf/moonshotai/kimi-k2.5' as Parameters<typeof env.AI.run>[0];
 
 /**
  * Generate a short title for an AI agent session.

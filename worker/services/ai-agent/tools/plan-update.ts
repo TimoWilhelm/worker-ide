@@ -15,7 +15,7 @@ Usage:
 - Provide the full updated plan content, not just the changes.
 - Use markdown format for structure (headings, lists, checkboxes).
 - Update the plan as you progress through implementation.
-- Keep the plan concise and actionable �� avoid unnecessary detail.`;
+- Keep the plan concise and actionable. Avoid unnecessary detail.`;
 
 export const definition: ToolDefinition = {
 	name: 'plan_update',

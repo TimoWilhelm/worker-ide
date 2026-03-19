@@ -131,5 +131,8 @@
 		"storybook": "storybook dev -p 6006",
 		"build-storybook": "storybook build"
 	},
-	"type": "module"
+	"type": "module",
+	"patchedDependencies": {
+		"@cloudflare/tanstack-ai@0.1.3": "patches/@cloudflare%2Ftanstack-ai@0.1.3.patch"
+	}
 }

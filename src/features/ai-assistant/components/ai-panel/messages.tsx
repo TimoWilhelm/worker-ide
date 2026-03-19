@@ -1374,6 +1374,36 @@ function InlineDiagnosticsList({ diagnostics }: { diagnostics: unknown[] }) {
 	);
 }
 
+/**
+ * Try to parse a (possibly incomplete) JSON arguments string.
+ * Falls back to regex extraction of string values for key fields when
+ * the JSON is partial (still streaming).
+ */
+function parsePartialArguments(argumentsString: string): Record<string, unknown> {
+	if (!argumentsString) return {};
+	try {
+		const parsed: unknown = JSON.parse(argumentsString);
+		return isRecord(parsed) ? parsed : {};
+	} catch {
+		// Partial JSON — extract string fields with regex
+		const result: Record<string, unknown> = {};
+		for (const key of ['path', 'from_path', 'to_path', 'pattern', 'url', 'query', 'content', 'new_string']) {
+			const match = new RegExp(String.raw`"${key}"\s*:\s*"((?:[^"\\]|\\.)*)"`).exec(argumentsString);
+			if (match) {
+				try {
+					result[key] = JSON.parse(`"${match[1]}"`);
+				} catch {
+					result[key] = match[1];
+				}
+			}
+		}
+		return result;
+	}
+}
+
+/** Names of tools that write content (show streaming preview). */
+const CONTENT_STREAMING_TOOLS = new Set<string>(['file_write', 'file_edit', 'file_multiedit']);
+
 function InlineToolCall({
 	toolCall,
 	toolResult,
@@ -1394,6 +1424,8 @@ function InlineToolCall({
 	const knownToolName: ToolName | undefined = isToolName(toolCall.name) ? toolCall.name : undefined;
 	const displayToolName = toolCall.name || 'unknown';
 	const isCompleted = toolCall.state === 'input-complete' && (toolResult !== undefined || toolCall.output !== undefined);
+	const isStreaming = toolCall.state === 'input-streaming' || toolCall.state === 'awaiting-input';
+	const isExecuting = toolCall.state === 'input-complete' && !isCompleted;
 	const rawResultContent = getToolResultContent(toolCall, toolResult);
 	const isUnknownTool = knownToolName === undefined;
 
@@ -1409,16 +1441,19 @@ function InlineToolCall({
 
 	// Extract file paths from tool input.
 	// Prefer toolCall.input (parsed object), fall back to parsing toolCall.arguments (JSON string).
+	// During streaming, arguments may be partial JSON — use lenient parsing.
 	const input = isRecord(toolCall.input)
 		? toolCall.input
-		: (() => {
-				try {
-					const parsed: unknown = JSON.parse(toolCall.arguments);
-					return isRecord(parsed) ? parsed : {};
-				} catch {
-					return {};
-				}
-			})();
+		: isStreaming
+			? parsePartialArguments(toolCall.arguments)
+			: (() => {
+					try {
+						const parsed: unknown = JSON.parse(toolCall.arguments);
+						return isRecord(parsed) ? parsed : {};
+					} catch {
+						return {};
+					}
+				})();
 	let singlePath: string | undefined;
 	let fromPath: string | undefined;
 	let toPath: string | undefined;
@@ -1439,6 +1474,25 @@ function InlineToolCall({
 	if (typeof input.query === 'string') {
 		extraLabel = input.query;
 	}
+
+	// Streaming content preview for file-writing tools.
+	// Extract the content or new_string being streamed from partial arguments.
+	const streamingContent =
+		isStreaming && CONTENT_STREAMING_TOOLS.has(toolCall.name)
+			? typeof input.content === 'string'
+				? input.content
+				: typeof input.new_string === 'string'
+					? input.new_string
+					: undefined
+			: undefined;
+
+	// Auto-scroll ref for the streaming content preview
+	const streamingPreviewReference = useRef<HTMLPreElement>(null);
+	useEffect(() => {
+		if (streamingContent && streamingPreviewReference.current) {
+			streamingPreviewReference.current.scrollTop = streamingPreviewReference.current.scrollHeight;
+		}
+	}, [streamingContent]);
 
 	// Extract TODOs — prefer structured metadata, fall back to parsing raw result
 	const metadataTodos =
@@ -1474,7 +1528,9 @@ function InlineToolCall({
 					? summarizeFromMetadata(knownToolName, structuredMetadata)
 					: isCompleted
 						? 'Completed'
-						: undefined;
+						: isExecuting
+							? 'Running...'
+							: undefined;
 
 	// Diagnostics from metadata for expanded view
 	const diagnostics = metadata && Array.isArray(metadata.diagnostics) ? metadata.diagnostics : undefined;
@@ -1508,7 +1564,11 @@ function InlineToolCall({
 						`,
 				)}
 			>
-				{expandable && <ChevronRight className={cn('size-3 shrink-0 transition-transform', isExpanded && 'rotate-90')} />}
+				{expandable ? (
+					<ChevronRight className={cn('size-3 shrink-0 transition-transform', isExpanded && 'rotate-90')} />
+				) : !isCompleted && !isError ? (
+					<Loader2 className="size-3 shrink-0 animate-spin text-accent" />
+				) : undefined}
 				<span className={cn('shrink-0', isCompleted && !isError && 'text-success', isError && 'text-error')}>
 					{knownToolName ? <ToolIcon name={knownToolName} /> : <AlertCircle className="size-3" />}
 				</span>
@@ -1555,6 +1615,19 @@ function InlineToolCall({
 					</span>
 				)}
 			</button>
+			{/* Streaming content preview for file-writing tools */}
+			{streamingContent && (
+				<pre
+					ref={streamingPreviewReference}
+					className="
+						max-h-40 overflow-auto rounded-md border border-accent/20 bg-bg-primary
+						p-2.5 font-mono text-2xs/relaxed break-all whitespace-pre-wrap
+						text-text-secondary
+					"
+				>
+					{streamingContent}
+				</pre>
+			)}
 			{isExpanded &&
 				hasDetailContent &&
 				(hasDiffContent ? (

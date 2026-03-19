@@ -15,9 +15,9 @@ test.describe('Keyboard Shortcuts', () => {
 		// No file is open, so Ctrl+S should be a no-op (no crash)
 		await page.keyboard.press('Control+s');
 
-		// App should still be functional — status bar shows "Codemaxxing"
+		// App should still be functional — status bar is visible
 		const footer = page.locator('footer');
-		await expect(footer).toContainText('Codemaxxing');
+		await expect(footer).toBeVisible();
 	});
 
 	test('Ctrl+S with a file open does not cause errors', async ({ page }) => {

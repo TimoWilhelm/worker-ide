@@ -19,7 +19,7 @@ export const AI_MODELS = [
 		label: 'Kimi K2.5',
 		description: 'Powerful reasoning model',
 		provider: 'workers-ai',
-		contextWindow: 131_072,
+		contextWindow: 256_000,
 		maxOutput: 8192,
 	},
 	{

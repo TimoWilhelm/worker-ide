@@ -38,7 +38,7 @@ describe('docs_search', () => {
 		await expect(execute({ query: 'D1 database' }, createMockSendEvent(), context)).rejects.toThrow('Cloudflare docs search failed');
 	});
 
-	// ���─ Status event ──────────────────────────────────────────────────────
+	// --─ Status event ──────────────────────────────────────────────────────
 
 	it('sends status event with search query', async () => {
 		const sendEvent = createMockSendEvent();

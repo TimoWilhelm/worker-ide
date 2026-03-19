@@ -66,8 +66,8 @@ export const sessionRoutes = new Hono<AppEnvironment>()
 			const projectId = c.get('projectId');
 			const { id, messageIndex } = c.req.valid('json');
 			const stub = getAgentRunnerStub(projectId);
-			await stub.revertSession(id, messageIndex);
-			return c.json({ success: true });
+			const result = await stub.revertSession(id, messageIndex);
+			return c.json({ success: true, contextTokensUsed: result.contextTokensUsed });
 		},
 	)
 

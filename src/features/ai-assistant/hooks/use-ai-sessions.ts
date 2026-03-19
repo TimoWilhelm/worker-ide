@@ -198,12 +198,12 @@ export function useAiSessions({
 	// =========================================================================
 
 	const revertSession = useCallback(
-		async (messageIndex: number) => {
+		async (messageIndex: number): Promise<{ contextTokensUsed: number } | undefined> => {
 			const { sessionId } = useStore.getState();
-			if (!sessionId) return;
+			if (!sessionId) return undefined;
 
 			try {
-				await revertAiSession(projectId, sessionId, messageIndex);
+				const result = await revertAiSession(projectId, sessionId, messageIndex);
 
 				// Full revert (all messages removed) — clear client-side pointers
 				if (messageIndex === 0) {
@@ -212,8 +212,10 @@ export function useAiSessions({
 				}
 
 				await queryClient.invalidateQueries({ queryKey: ['ai-sessions', projectId] });
+				return result;
 			} catch (error) {
 				console.error('Failed to revert AI session:', error);
+				return undefined;
 			}
 		},
 		[projectId, queryClient],

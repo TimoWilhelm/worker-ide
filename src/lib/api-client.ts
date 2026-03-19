@@ -236,8 +236,9 @@ export async function loadAiSession(projectId: string, sessionId: string): Promi
 /**
  * Revert an AI session to a given message index (server-side truncation).
  * If messageIndex is 0, the session is deleted entirely.
+ * Returns the estimated context token usage for the truncated history.
  */
-export async function revertAiSession(projectId: string, sessionId: string, messageIndex: number): Promise<void> {
+export async function revertAiSession(projectId: string, sessionId: string, messageIndex: number): Promise<{ contextTokensUsed: number }> {
 	const response = await fetch(`/p/${projectId}/api/ai-session/revert`, {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
@@ -246,6 +247,8 @@ export async function revertAiSession(projectId: string, sessionId: string, mess
 	if (!response.ok) {
 		await throwApiError(response, 'Failed to revert AI session');
 	}
+	const data: { contextTokensUsed?: number } = await response.json();
+	return { contextTokensUsed: data.contextTokensUsed ?? 0 };
 }
 
 // =============================================================================

@@ -29,6 +29,7 @@ import { DEFAULT_AI_MODEL } from '@shared/constants';
 import { coordinatorNamespace, filesystemNamespace } from '../lib/durable-object-namespaces';
 import { toDurableObjectId } from '../lib/project-id';
 import { AIAgentService } from '../services/ai-agent';
+import { estimateMessagesTokens } from '../services/ai-agent/context-pruner';
 import { cleanupSessionArtifacts, cleanupTimestampPlans } from '../services/ai-agent/session-cleanup';
 
 import type { AIModelId } from '@shared/constants';
@@ -267,15 +268,15 @@ export class AgentRunner extends DurableObject {
 	 *
 	 * If `messageIndex` is 0, deletes the session entirely.
 	 */
-	async revertSession(sessionId: string, messageIndex: number): Promise<void> {
+	async revertSession(sessionId: string, messageIndex: number): Promise<{ contextTokensUsed: number }> {
 		if (messageIndex <= 0) {
 			// Full revert — delete the session
 			this.ctx.storage.kv.delete(`sessionData:${sessionId}`);
-			return;
+			return { contextTokensUsed: 0 };
 		}
 
 		const session = this.ctx.storage.kv.get<AiSession>(`sessionData:${sessionId}`);
-		if (!session) return;
+		if (!session) return { contextTokensUsed: 0 };
 
 		// Truncate history and prune snapshot/mode mappings above the cut point
 		const truncatedHistory = session.history.slice(0, messageIndex);
@@ -304,13 +305,21 @@ export class AgentRunner extends DurableObject {
 			}
 		}
 
+		// Estimate the context token usage for the truncated history so the
+		// frontend context ring reflects the state at this point in the conversation.
+		const modelMessages = convertMessagesToModelMessages(truncatedHistory);
+		const contextTokensUsed = estimateMessagesTokens(modelMessages);
+
 		this.ctx.storage.kv.put(`sessionData:${sessionId}`, {
 			...session,
 			history: truncatedHistory,
 			messageSnapshots: prunedSnapshots,
 			messageModes: prunedModes,
+			contextTokensUsed: contextTokensUsed > 0 ? contextTokensUsed : undefined,
 			revertedAt: Date.now(),
 		});
+
+		return { contextTokensUsed };
 	}
 
 	/**

@@ -32,6 +32,60 @@ const NON_RETRYABLE_CODES = new Set(['AUTH_ERROR', 'INVALID_REQUEST', 'ABORTED']
 const RETRYABLE_CODES = new Set(['OVERLOADED', 'RATE_LIMIT', 'SERVER_ERROR']);
 
 /**
+ * Network/system error codes that indicate a transient connection failure.
+ * These are always retryable regardless of HTTP status.
+ */
+const RETRYABLE_NETWORK_CODES = new Set(['ECONNRESET', 'ETIMEDOUT', 'EPIPE', 'ENOTFOUND', 'EAI_AGAIN', 'ECONNREFUSED', 'EPROTO']);
+
+/** Maximum depth to walk the error `.cause` chain when looking for network codes */
+const MAX_CAUSE_DEPTH = 5;
+
+/**
+ * Extract the `code` property from an error-like value, if present.
+ */
+function getErrorCode(error: unknown): string | undefined {
+	if (typeof error === 'object' && error !== undefined && error !== null && 'code' in error) {
+		const { code } = error;
+		return typeof code === 'string' ? code : undefined;
+	}
+	return undefined;
+}
+
+/**
+ * Classify a connection/network error.
+ *
+ * Checks the error (and its `.cause` chain up to {@link MAX_CAUSE_DEPTH} levels)
+ * for known network error codes, and falls back to pattern-matching the error
+ * message for common network failure strings.
+ *
+ * Returns a human-readable reason if the error is a transient connection failure,
+ * or `undefined` if it is not.
+ */
+export function classifyConnectionError(error: unknown): string | undefined {
+	// Walk the error + its cause chain looking for a retryable network code
+	let current: unknown = error;
+	for (let depth = 0; depth < MAX_CAUSE_DEPTH && current !== undefined; depth++) {
+		const code = getErrorCode(current);
+		if (code && RETRYABLE_NETWORK_CODES.has(code)) {
+			return code === 'ETIMEDOUT' ? 'Network timeout' : 'Connection error';
+		}
+		// Traverse .cause
+		current = typeof current === 'object' && current !== null && 'cause' in current ? current.cause : undefined;
+	}
+
+	// Pattern-match on the top-level error message
+	if (error instanceof Error) {
+		const message = error.message;
+		if (/\bfetch failed\b/i.test(message)) return 'Connection error';
+		if (/\bsocket hang up\b/i.test(message)) return 'Connection error';
+		if (/\bnetwork\b.*\berror\b/i.test(message)) return 'Connection error';
+		if (/\bssl\b/i.test(message) && /\berror\b/i.test(message)) return 'Connection error';
+	}
+
+	return undefined;
+}
+
+/**
  * Determine if an error is retryable.
  * Returns a human-readable reason string if retryable, undefined if not.
  */
@@ -66,6 +120,12 @@ export function classifyRetryableError(error: unknown): string | undefined {
 	}
 	if (/exhausted|unavailable/i.test(message)) {
 		return 'Provider is unavailable';
+	}
+
+	// Check for transient connection/network errors
+	const connectionReason = classifyConnectionError(error);
+	if (connectionReason) {
+		return connectionReason;
 	}
 
 	return undefined;
