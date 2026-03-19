@@ -106,7 +106,7 @@ async function initBiome(): Promise<void> {
 	// The default() init function detects the URL string and fetches it.
 	const wasmModule = await import('@biomejs/wasm-web');
 	const { default: biomeWasmUrl } = await import('../../vendor/biome_wasm_bg.wasm?url');
-	await wasmModule.default(biomeWasmUrl);
+	await wasmModule.default({ module_or_path: biomeWasmUrl });
 
 	const { Biome, Distribution } = await import('@biomejs/js-api');
 	const biome = await Biome.create({ distribution: Distribution.WEB });

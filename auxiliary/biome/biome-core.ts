@@ -83,7 +83,7 @@ async function initBiome(): Promise<void> {
 	// @ts-expect-error -- WASM module import resolved to WebAssembly.Module by Cloudflare at deploy time
 	const { default: biomeWasm } = await import('../../vendor/biome_wasm_bg.wasm');
 	const wasmModule = await import('@biomejs/wasm-web');
-	await wasmModule.default(biomeWasm);
+	await wasmModule.default({ module_or_path: biomeWasm });
 
 	const { Biome, Distribution } = await import('@biomejs/js-api');
 	const biome = await Biome.create({ distribution: Distribution.WEB });

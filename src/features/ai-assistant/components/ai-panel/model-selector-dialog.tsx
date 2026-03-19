@@ -45,10 +45,10 @@ export function ModelSelectorDialog({ open, onOpenChange, selectedModel, onSelec
 							onClick={() => handleSelectModel(model.id)}
 							className={cn(
 								`
-									flex w-full items-center gap-3 rounded-md px-3 py-2 text-left
-									transition-colors
+									flex w-full cursor-pointer items-center gap-3 rounded-md border-2
+									border-transparent px-3 py-2 text-left transition-colors
 								`,
-								isSelected ? 'bg-accent/10 text-accent' : 'hover:bg-bg-tertiary',
+								isSelected ? 'border-accent bg-accent/10 text-accent' : 'hover:border-border hover:bg-bg-tertiary',
 							)}
 						>
 							<div className="flex-1">
