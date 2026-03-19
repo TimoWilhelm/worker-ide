@@ -72,6 +72,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	const activeSnapshotIdReference = useRef<string | undefined>(undefined);
 	// Track the last chatError we already surfaced so dismissing it doesn't re-trigger
 	const lastSurfacedChatErrorReference = useRef<Error | undefined>(undefined);
+	const revertInProgressReference = useRef(false);
 	// Structured tool error data keyed by toolCallId, populated by CUSTOM tool_error events.
 	// Refs accumulate data during streaming (no re-renders); state mirrors are flushed
 	// when chatMessages changes so the JSX reads from state, not refs.
@@ -361,11 +362,18 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 			// dropdown reflects the latest state.
 			void queryClient.invalidateQueries({ queryKey: ['ai-sessions', projectId] });
 
+			// Skip session reload during revert — it would race with revertSession
+			// and restore stale history without matching messageSnapshots.
+			if (revertInProgressReference.current) {
+				return;
+			}
+
 			// Reload the full server-side session to capture the final
 			// persisted state (covers both fresh runs and reconnections).
 			const currentSessionId = useStore.getState().sessionId;
 			if (currentSessionId) {
 				void loadAiSession(projectId, currentSessionId).then((serverSession) => {
+					if (revertInProgressReference.current) return;
 					if (serverSession && serverSession.history.length > 0) {
 						setChatMessages(serverSession.history);
 					}
@@ -490,11 +498,21 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 				setPendingQuestion(undefined);
 				setPlanPath(undefined);
 			}
+
+			// Reset hasCancelled when the server confirms session stopped running.
+			if (
+				state.sessionId &&
+				state.runningSessionIds !== previousState.runningSessionIds &&
+				previousState.runningSessionIds.has(state.sessionId) &&
+				!state.runningSessionIds.has(state.sessionId)
+			) {
+				setHasCancelled(false);
+			}
 		});
 	}, []);
 
 	useEffect(() => {
-		if (!isCurrentSessionRunning || isChatLoading || !sessionId) return;
+		if (!isCurrentSessionRunning || isChatLoading || !sessionId || hasCancelled) return;
 		if (hasTriggeredReconnectReference.current) return;
 
 		hasTriggeredReconnectReference.current = true;
@@ -563,6 +581,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		chatMessages.length,
 		resetScrollState,
 		setStatusMessage,
+		hasCancelled,
 	]);
 
 	// Sync chatError to aiError (for RUN_ERROR events).
@@ -708,6 +727,12 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 			setPendingQuestion(undefined);
 			setDoomLoopMessage(undefined);
 
+			// Reset hasCancelled so the new run's isProcessing correctly
+			// reflects the loading state. Without this, if the user cancels
+			// and sends before the server confirms the abort, isProcessing
+			// stays false and the stop button never appears for the new run.
+			setHasCancelled(false);
+
 			// Eagerly generate a session ID so the server-side persistence always
 			// has a valid ID. Update the ref directly so the SSE connection body
 			// picks it up immediately (the useEffect sync is deferred).
@@ -777,6 +802,8 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		const currentSessionId = useStore.getState().sessionId;
 		stopChat();
 		setHasCancelled(true);
+		// Clear status immediately so "Thinking..." doesn't linger
+		setStatusMessage(undefined);
 		// Prevent the reconnection effect from re-triggering
 		hasTriggeredReconnectReference.current = true;
 		// Abort the agent in the DO with retry — critical for multi-window
@@ -785,7 +812,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		void retry(() => abortAgent(projectId, currentSessionId)).catch((error) => {
 			console.error('[AIPanel] Failed to abort agent after retries:', error);
 		});
-	}, [stopChat, projectId]);
+	}, [stopChat, projectId, setStatusMessage]);
 
 	// Retry: use useChat's reload() which atomically trims messages after
 	// the last user message and re-streams, avoiding race conditions with
@@ -832,10 +859,12 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 			// Mark loading state on the dialog
 			setPendingRevert((previous) => (previous ? { ...previous, isLoading: true, error: undefined } : previous));
 
-			// Cancel any ongoing generation first
+			// Must be set before stopChat() — onFinish reads this synchronously.
+			revertInProgressReference.current = true;
 			if (isProcessing) {
 				stopChat();
 				setHasCancelled(true);
+				setStatusMessage(undefined);
 			}
 
 			// Extract the user prompt text before removing messages
@@ -879,10 +908,10 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 				const snapshotIdSet = new Set(snapshotIds);
 				clearPendingChangesBySnapshots(snapshotIdSet);
 
-				// Remove the user message and all subsequent messages, clean up snapshot associations
+				// Skip bi-directional sync to avoid echo cycles (same pattern as reconnection effect).
+				skipNextReverseSyncReference.current = true;
+				skipNextForwardSyncReference.current = true;
 				removeMessagesFrom(messageIndex);
-
-				// Sync to useChat
 				setChatMessages(chatMessages.slice(0, messageIndex));
 
 				// Restore the prompt text into the input, parsing file mentions back into pills
@@ -901,11 +930,15 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 				// truncated history, which we use to update the context ring accurately.
 				queueMicrotask(() => {
 					void persistPendingChanges();
-					void revertSession(messageIndex).then((result) => {
-						if (result) {
-							setContextTokensUsed(result.contextTokensUsed);
-						}
-					});
+					void revertSession(messageIndex)
+						.then((result) => {
+							if (result) {
+								setContextTokensUsed(result.contextTokensUsed);
+							}
+						})
+						.finally(() => {
+							revertInProgressReference.current = false;
+						});
 				});
 
 				// Close the dialog on success
@@ -916,6 +949,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 					console.warn('Some snapshots were not found during cascade revert:', result.missingSnapshots);
 				}
 			} catch (error) {
+				revertInProgressReference.current = false;
 				// Show error in the dialog — don't close it, let the user retry or cancel
 				const message = error instanceof Error ? error.message : 'Failed to revert changes';
 				setPendingRevert((previous) => (previous ? { ...previous, isLoading: false, error: message } : previous));
@@ -935,6 +969,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 			persistPendingChanges,
 			revertSession,
 			setContextTokensUsed,
+			setStatusMessage,
 		],
 	);
 
