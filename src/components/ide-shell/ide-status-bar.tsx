@@ -67,7 +67,7 @@ export function IDEStatusBar({ isConnected, localParticipantColor, participants,
 					</a>
 				</Tooltip>
 				<a href="/docs" target="_blank" rel="noopener noreferrer" className="transition-colors hover:text-accent">
-					Worker IDE
+					Codemaxxing
 				</a>
 				<VersionBadge withProvider={false} />
 			</div>

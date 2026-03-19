@@ -25,7 +25,7 @@ vi.mock('@/lib/api-client', () => ({
 			{
 				id: 'request-inspector',
 				name: 'Request Inspector',
-				description: 'Inspect HTTP headers, geolocation, and connection info from a Cloudflare Worker.',
+				description: 'Inspect incoming HTTP request headers, geolocation, and connection info.',
 				icon: 'Search',
 			},
 		]),
@@ -89,7 +89,7 @@ describe('DashboardPage', () => {
 	it('renders the page title', () => {
 		render(<DashboardPage />);
 
-		expect(screen.getByText('Worker IDE')).toBeInTheDocument();
+		expect(screen.getByText('Codemaxxing')).toBeInTheDocument();
 	});
 
 	it('renders the halftone background', () => {
@@ -162,7 +162,7 @@ describe('DashboardPage', () => {
 
 		const dialog = screen.getByRole('dialog');
 		expect(within(dialog).getByText('Request Inspector')).toBeInTheDocument();
-		expect(within(dialog).getByText(/Inspect HTTP headers/)).toBeInTheDocument();
+		expect(within(dialog).getByText(/Inspect incoming HTTP request headers/)).toBeInTheDocument();
 		expect(within(dialog).getByRole('button', { name: 'Create Project' })).toBeInTheDocument();
 	});
 

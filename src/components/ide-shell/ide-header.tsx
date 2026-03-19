@@ -103,7 +103,7 @@ export function IDEHeader({
 						</div>
 					) : (
 						<div className="group flex min-w-0 items-center gap-1.5">
-							<h1 className="truncate font-semibold text-text-primary">{projectName ?? 'Worker IDE'}</h1>
+							<h1 className="truncate font-semibold text-text-primary">{projectName ?? 'Codemaxxing'}</h1>
 							<Tooltip content="Rename project">
 								<button
 									onClick={handleStartRename}

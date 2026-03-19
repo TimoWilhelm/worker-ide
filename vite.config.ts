@@ -87,9 +87,10 @@ export default defineConfig({
 			registerType: 'prompt',
 			manifest: {
 				id: '7c3a8f1e-9d4b-4e2a-b6f5-1a2d3c4e5f6a',
-				name: 'Worker IDE',
-				short_name: 'Worker IDE',
-				description: 'Build Cloudflare Workers in the browser',
+				name: 'Codemaxxing',
+				short_name: 'Codemaxxing',
+				description:
+					'A full-featured cloud IDE with real-time collaboration, AI assistant, and instant preview. Build and deploy directly from your browser.',
 				orientation: 'natural',
 				start_url: '/',
 				scope: '/',
