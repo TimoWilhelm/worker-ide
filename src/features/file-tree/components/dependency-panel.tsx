@@ -4,8 +4,9 @@
  * Collapsible panel below the file tree for managing project dependencies.
  */
 
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, ChevronDown, ChevronUp, Package, Pencil, Plus, Trash2 } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 
 import { toast } from '@/components/ui/toast-store';
 import { removeInvalid, removeMissing, useDependencyErrors } from '@/features/file-tree/dependency-error-store';
@@ -36,7 +37,7 @@ interface DependencyEntry {
 // =============================================================================
 
 function DependencyPanel({ projectId, collapsed = false, onToggle, className }: DependencyPanelProperties) {
-	const [dependencies, setDependencies] = useState<DependencyEntry[]>([]);
+	const queryClient = useQueryClient();
 	const [isAdding, setIsAdding] = useState(false);
 	const [editingName, setEditingName] = useState<string | undefined>();
 	const [addInput, setAddInput] = useState('');
@@ -51,58 +52,42 @@ function DependencyPanel({ projectId, collapsed = false, onToggle, className }: 
 	// Read dependency errors from the global store (active even when this component is unmounted)
 	const { missing: missingDependencies, invalid: invalidDependencies } = useDependencyErrors();
 
-	// Load dependencies from project meta
-	const loadDependencies = useCallback(async () => {
-		try {
-			const meta = await fetchProjectMeta(projectId);
-			const dependencyRecord = meta.dependencies ?? {};
-			const entries = Object.entries(dependencyRecord)
-				.map(([name, version]) => ({ name, version }))
-				.toSorted((a, b) => a.name.localeCompare(b.name));
-			setDependencies(entries);
-		} catch {
-			// Ignore errors on initial load
-		}
-	}, [projectId]);
-
-	useEffect(() => {
-		void loadDependencies();
-	}, [loadDependencies]);
-
-	// Focus name input when adding
-	useEffect(() => {
-		if (isAdding && nameInputReference.current) {
-			nameInputReference.current.focus();
-		}
-	}, [isAdding]);
-
-	// Focus edit input when editing
-	useEffect(() => {
-		if (editingName && editInputReference.current) {
-			editInputReference.current.focus();
-			editInputReference.current.select();
-		}
-	}, [editingName]);
+	// Load dependencies from project meta via React Query
+	const metaQuery = useQuery({
+		queryKey: ['project-meta-deps', projectId],
+		queryFn: () => fetchProjectMeta(projectId),
+		staleTime: 1000 * 30,
+	});
+	const dependencies = useMemo(() => {
+		const dependencyRecord = metaQuery.data?.dependencies ?? {};
+		return Object.entries(dependencyRecord)
+			.map(([name, version]) => ({ name, version }))
+			.toSorted((a, b) => a.name.localeCompare(b.name));
+	}, [metaQuery.data?.dependencies]);
 
 	const saveDependencies = useCallback(
 		async (entries: DependencyEntry[]) => {
-			const previousDependencies = dependencies;
-			setDependencies(entries.toSorted((a, b) => a.name.localeCompare(b.name)));
+			const queryKey = ['project-meta-deps', projectId];
+			const previousData = queryClient.getQueryData(queryKey);
+			// Optimistic update: write new dependencies into the query cache
+			const newRecord: Record<string, string> = {};
+			for (const entry of entries) {
+				newRecord[entry.name] = entry.version;
+			}
+			queryClient.setQueryData(queryKey, (old: Awaited<ReturnType<typeof fetchProjectMeta>> | undefined) =>
+				old ? { ...old, dependencies: newRecord } : old,
+			);
 			setIsLoading(true);
 			try {
-				const record: Record<string, string> = {};
-				for (const entry of entries) {
-					record[entry.name] = entry.version;
-				}
-				await updateDependencies(projectId, record);
+				await updateDependencies(projectId, newRecord);
 			} catch {
-				setDependencies(previousDependencies);
+				queryClient.setQueryData(queryKey, previousData);
 				toast.error('Failed to update dependencies');
 			} finally {
 				setIsLoading(false);
 			}
 		},
-		[projectId, dependencies],
+		[projectId, queryClient],
 	);
 
 	const parseAddInput = useCallback((input: string): { name: string; version: string } | undefined => {
@@ -176,6 +161,10 @@ function DependencyPanel({ projectId, collapsed = false, onToggle, className }: 
 				editCommittedReference.current = false;
 				setEditingName(name);
 				setEditVersion(entry.version);
+				requestAnimationFrame(() => {
+					editInputReference.current?.focus();
+					editInputReference.current?.select();
+				});
 			}
 		},
 		[dependencies],
@@ -309,7 +298,10 @@ function DependencyPanel({ projectId, collapsed = false, onToggle, className }: 
 				) : (
 					<button
 						type="button"
-						onClick={() => setIsAdding(true)}
+						onClick={() => {
+							setIsAdding(true);
+							requestAnimationFrame(() => nameInputReference.current?.focus());
+						}}
 						disabled={isLoading}
 						className={`
 							flex h-6 cursor-pointer items-center gap-1.5 rounded-sm px-1.5 text-2xs

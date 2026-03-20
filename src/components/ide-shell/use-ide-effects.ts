@@ -9,14 +9,14 @@ import { getDependencyErrorCount, subscribeDependencyErrors } from '@/features/f
 import { getPreviewOrigin, isMessageFromPreview } from '@/lib/preview-origin';
 import { useStore } from '@/lib/store';
 
-import type { MutableRefObject } from 'react';
+import type { RefObject } from 'react';
 
 interface UseIDEEffectsOptions {
 	projectId: string;
 	goToFilePosition: (file: string, position: { line: number; column: number }) => void;
-	handleSaveReference: MutableRefObject<() => Promise<void>>;
-	previewIframeReference: MutableRefObject<HTMLIFrameElement | null>;
-	cursorUpdateTimeoutReference: MutableRefObject<ReturnType<typeof setTimeout> | undefined>;
+	handleSaveReference: RefObject<() => Promise<void>>;
+	previewIframeReference: RefObject<HTMLIFrameElement | null>;
+	cursorUpdateTimeoutReference: RefObject<ReturnType<typeof setTimeout> | undefined>;
 }
 
 export function useIDEEffects({

@@ -2,6 +2,7 @@
  * Component tests for DependencyPanel accessibility and validation.
  */
 
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, render, screen, waitFor, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useEffect, useRef, useState } from 'react';
@@ -18,13 +19,28 @@ import { getDependencyErrorCount, resetDependencyErrors, subscribeDependencyErro
 
 import { DependencyPanel } from './dependency-panel';
 
+function createTestQueryClient() {
+	return new QueryClient({
+		defaultOptions: { queries: { retry: false } },
+	});
+}
+
+function Wrapper({ children }: { children: React.ReactNode }) {
+	const [queryClient] = useState(createTestQueryClient);
+	return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+}
+
+function renderWithQuery(ui: React.ReactElement) {
+	return render(ui, { wrapper: Wrapper });
+}
+
 afterEach(() => {
 	resetDependencyErrors();
 });
 
 describe('DependencyPanel accessibility', () => {
 	it('edit and remove buttons have aria-labels', async () => {
-		render(<DependencyPanel projectId="test" />);
+		renderWithQuery(<DependencyPanel projectId="test" />);
 
 		await waitFor(() => {
 			expect(screen.getByText('react')).toBeInTheDocument();
@@ -37,7 +53,7 @@ describe('DependencyPanel accessibility', () => {
 	});
 
 	it('action buttons are not in the tab order', async () => {
-		render(<DependencyPanel projectId="test" />);
+		renderWithQuery(<DependencyPanel projectId="test" />);
 
 		await waitFor(() => {
 			expect(screen.getByText('react')).toBeInTheDocument();
@@ -51,7 +67,7 @@ describe('DependencyPanel accessibility', () => {
 	});
 
 	it('dependency rows support ArrowDown/ArrowUp navigation', async () => {
-		render(<DependencyPanel projectId="test" />);
+		renderWithQuery(<DependencyPanel projectId="test" />);
 
 		await waitFor(() => {
 			expect(screen.getByText('react')).toBeInTheDocument();
@@ -69,7 +85,7 @@ describe('DependencyPanel accessibility', () => {
 	});
 
 	it('collapsed header has an accessible label', () => {
-		render(<DependencyPanel projectId="test" collapsed onToggle={vi.fn()} />);
+		renderWithQuery(<DependencyPanel projectId="test" collapsed onToggle={vi.fn()} />);
 
 		expect(screen.getByLabelText('Show dependencies')).toBeInTheDocument();
 	});
@@ -78,7 +94,7 @@ describe('DependencyPanel accessibility', () => {
 describe('DependencyPanel validation', () => {
 	it('shows error for invalid package name on add', async () => {
 		const user = userEvent.setup();
-		render(<DependencyPanel projectId="test" />);
+		renderWithQuery(<DependencyPanel projectId="test" />);
 
 		await waitFor(() => {
 			expect(screen.getByText('react')).toBeInTheDocument();
@@ -96,7 +112,7 @@ describe('DependencyPanel validation', () => {
 
 	it('shows error for invalid version on add', async () => {
 		const user = userEvent.setup();
-		render(<DependencyPanel projectId="test" />);
+		renderWithQuery(<DependencyPanel projectId="test" />);
 
 		await waitFor(() => {
 			expect(screen.getByText('react')).toBeInTheDocument();
@@ -114,7 +130,7 @@ describe('DependencyPanel validation', () => {
 
 	it('shows error when adding a duplicate dependency', async () => {
 		const user = userEvent.setup();
-		render(<DependencyPanel projectId="test" />);
+		renderWithQuery(<DependencyPanel projectId="test" />);
 
 		await waitFor(() => {
 			expect(screen.getByText('react')).toBeInTheDocument();
@@ -132,7 +148,7 @@ describe('DependencyPanel validation', () => {
 
 	it('clears add error when input changes', async () => {
 		const user = userEvent.setup();
-		render(<DependencyPanel projectId="test" />);
+		renderWithQuery(<DependencyPanel projectId="test" />);
 
 		await waitFor(() => {
 			expect(screen.getByText('react')).toBeInTheDocument();
@@ -151,7 +167,7 @@ describe('DependencyPanel validation', () => {
 	});
 
 	it('marks dependencies as invalid when server-error with not-found dependencyErrors is dispatched', async () => {
-		render(<DependencyPanel projectId="test" />);
+		renderWithQuery(<DependencyPanel projectId="test" />);
 
 		await waitFor(() => {
 			expect(screen.getByText('react')).toBeInTheDocument();
@@ -172,7 +188,7 @@ describe('DependencyPanel validation', () => {
 	});
 
 	it('marks dependencies as invalid when server-error with resolve-failed dependencyErrors is dispatched', async () => {
-		render(<DependencyPanel projectId="test" />);
+		renderWithQuery(<DependencyPanel projectId="test" />);
 
 		await waitFor(() => {
 			expect(screen.getByText('react')).toBeInTheDocument();
@@ -193,7 +209,7 @@ describe('DependencyPanel validation', () => {
 	});
 
 	it('adds unregistered dependencies to missing set when server-error is dispatched', async () => {
-		render(<DependencyPanel projectId="test" />);
+		renderWithQuery(<DependencyPanel projectId="test" />);
 
 		await waitFor(() => {
 			expect(screen.getByText('react')).toBeInTheDocument();
@@ -241,7 +257,7 @@ describe('DependencyPanel auto-expand', () => {
 	}
 
 	it('expands automatically when a missing dependency error arrives', async () => {
-		render(<AutoExpandWrapper />);
+		renderWithQuery(<AutoExpandWrapper />);
 
 		// Should start collapsed
 		expect(screen.getByLabelText('Show dependencies')).toBeInTheDocument();
@@ -266,7 +282,7 @@ describe('DependencyPanel auto-expand', () => {
 	});
 
 	it('expands automatically when an invalid dependency error arrives', async () => {
-		render(<AutoExpandWrapper />);
+		renderWithQuery(<AutoExpandWrapper />);
 
 		// Should start collapsed
 		expect(screen.getByLabelText('Show dependencies')).toBeInTheDocument();
@@ -291,7 +307,7 @@ describe('DependencyPanel auto-expand', () => {
 
 	it('does not re-expand when user collapses while errors exist', async () => {
 		const user = userEvent.setup();
-		render(<AutoExpandWrapper />);
+		renderWithQuery(<AutoExpandWrapper />);
 
 		// Trigger an error to expand
 		act(() => {

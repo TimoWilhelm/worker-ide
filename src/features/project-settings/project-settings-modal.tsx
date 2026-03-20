@@ -5,7 +5,8 @@
  * Controls not_found_handling, html_handling, and run_worker_first.
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useSuspenseQuery } from '@tanstack/react-query';
+import { Suspense, useCallback, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Modal, ModalBody, ModalFooter } from '@/components/ui/modal';
@@ -106,7 +107,17 @@ function parseHtmlHandling(value: string): HtmlHandling {
 export function ProjectSettingsModal({ open, onOpenChange, projectId }: ProjectSettingsModalProperties) {
 	return (
 		<Modal open={open} onOpenChange={onOpenChange} title="Project Settings" className="w-[480px]">
-			{open && <ProjectSettingsContent onOpenChange={onOpenChange} projectId={projectId} />}
+			{open && (
+				<Suspense
+					fallback={
+						<ModalBody className="flex h-[460px] items-center justify-center">
+							<p className="text-sm text-text-secondary">Loading settings...</p>
+						</ModalBody>
+					}
+				>
+					<ProjectSettingsContent onOpenChange={onOpenChange} projectId={projectId} />
+				</Suspense>
+			)}
 		</Modal>
 	);
 }
@@ -116,38 +127,26 @@ export function ProjectSettingsModal({ open, onOpenChange, projectId }: ProjectS
  * Remounts each time the modal opens, so state is always fresh.
  */
 function ProjectSettingsContent({ onOpenChange, projectId }: { onOpenChange: (open: boolean) => void; projectId: string }) {
-	const [isLoading, setIsLoading] = useState(true);
 	const [isSaving, setIsSaving] = useState(false);
 	const [error, setError] = useState<string | undefined>();
 
-	// Asset settings form state
-	const [notFoundHandling, setNotFoundHandling] = useState<NotFoundHandling>('none');
-	const [htmlHandling, setHtmlHandling] = useState<HtmlHandling>('auto-trailing-slash');
-	const [runWorkerFirstMode, setRunWorkerFirstMode] = useState<RunWorkerFirstMode>('off');
-	const [runWorkerFirstPatterns, setRunWorkerFirstPatterns] = useState('');
+	// Load current settings via React Query (suspends until data is available)
+	const settingsQuery = useSuspenseQuery({
+		queryKey: ['project-settings', projectId],
+		queryFn: () => fetchProjectMeta(projectId),
+		staleTime: 0,
+	});
+	const loadedSettings = settingsQuery.data.assetSettings;
 
-	// Load current settings on mount
-	useEffect(() => {
-		let cancelled = false;
-		void (async () => {
-			try {
-				const meta = await fetchProjectMeta(projectId);
-				if (cancelled) return;
-				const settings = meta.assetSettings;
-				setNotFoundHandling(settings?.not_found_handling ?? 'none');
-				setHtmlHandling(settings?.html_handling ?? 'auto-trailing-slash');
-				setRunWorkerFirstMode(getRunWorkerFirstMode(settings?.run_worker_first));
-				setRunWorkerFirstPatterns(getRunWorkerFirstPatterns(settings?.run_worker_first));
-			} catch {
-				if (!cancelled) setError('Failed to load project settings');
-			} finally {
-				if (!cancelled) setIsLoading(false);
-			}
-		})();
-		return () => {
-			cancelled = true;
-		};
-	}, [projectId]);
+	// Asset settings form state — initialized from loaded data
+	const [notFoundHandling, setNotFoundHandling] = useState<NotFoundHandling>(() => loadedSettings?.not_found_handling ?? 'none');
+	const [htmlHandling, setHtmlHandling] = useState<HtmlHandling>(() => loadedSettings?.html_handling ?? 'auto-trailing-slash');
+	const [runWorkerFirstMode, setRunWorkerFirstMode] = useState<RunWorkerFirstMode>(() =>
+		getRunWorkerFirstMode(loadedSettings?.run_worker_first),
+	);
+	const [runWorkerFirstPatterns, setRunWorkerFirstPatterns] = useState(() => getRunWorkerFirstPatterns(loadedSettings?.run_worker_first));
+
+	const displayError = error;
 
 	const handleSave = useCallback(async () => {
 		setIsSaving(true);
@@ -191,20 +190,12 @@ function ProjectSettingsContent({ onOpenChange, projectId }: { onOpenChange: (op
 		}
 	}, [projectId, notFoundHandling, htmlHandling, runWorkerFirstMode, runWorkerFirstPatterns, onOpenChange]);
 
-	if (isLoading) {
-		return (
-			<ModalBody className="flex items-center justify-center py-8">
-				<p className="text-sm text-text-secondary">Loading settings...</p>
-			</ModalBody>
-		);
-	}
-
 	return (
 		<>
-			<ModalBody className="flex max-h-[70vh] flex-col gap-5 overflow-y-auto">
-				{error && (
+			<ModalBody className="flex h-[460px] flex-col gap-5 overflow-y-auto">
+				{displayError && (
 					<div className="rounded-md border border-red-500/30 bg-red-500/10 p-2.5">
-						<p className="text-xs text-red-500">{error}</p>
+						<p className="text-xs text-red-500">{displayError}</p>
 					</div>
 				)}
 

@@ -1,3 +1,6 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { useState } from 'react';
+
 import type { Preview } from '@storybook/react-vite';
 
 import '../src/index.css';
@@ -22,11 +25,16 @@ const preview: Preview = {
 	},
 	tags: ['autodocs'],
 	decorators: [
-		(Story) => (
-			<TooltipProvider>
-				<Story />
-			</TooltipProvider>
-		),
+		(Story) => {
+			const [queryClient] = useState(() => new QueryClient({ defaultOptions: { queries: { retry: false } } }));
+			return (
+				<QueryClientProvider client={queryClient}>
+					<TooltipProvider>
+						<Story />
+					</TooltipProvider>
+				</QueryClientProvider>
+			);
+		},
 	],
 };
 

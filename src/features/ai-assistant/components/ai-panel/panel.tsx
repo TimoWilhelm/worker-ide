@@ -21,6 +21,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Pill } from '@/components/ui/pill';
 import { Tooltip } from '@/components/ui/tooltip';
 import { setActiveSessionId, useAiSessions } from '@/features/ai-assistant/hooks/use-ai-sessions';
+import { messageModesRecordToMap, snapshotsRecordToMap } from '@/features/ai-assistant/lib/session-serializers';
 import { getLogSnapshot } from '@/features/output';
 import { useSnapshots } from '@/features/snapshots';
 import { useMobileKeyboardLayout } from '@/hooks/use-mobile-keyboard-height';
@@ -376,6 +377,13 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 					if (revertInProgressReference.current) return;
 					if (serverSession && serverSession.history.length > 0) {
 						setChatMessages(serverSession.history);
+						// Restore canonical messageSnapshots and messageModes from the
+						// server so revert buttons survive turns where snapshot_deleted
+						// cleared the client-side state (e.g. no file changes this turn).
+						useStore.setState({
+							messageSnapshots: snapshotsRecordToMap(serverSession.messageSnapshots),
+							messageModes: messageModesRecordToMap(serverSession.messageModes),
+						});
 					}
 				});
 			}
