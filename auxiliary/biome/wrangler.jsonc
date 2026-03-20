@@ -4,4 +4,10 @@
 	"main": "index.ts",
 	"compatibility_date": "2026-01-31",
 	"compatibility_flags": ["nodejs_compat"],
+	"workers_dev": false,
+	"preview_urls": false,
+	"observability": {
+		"logs": { "enabled": true },
+		"traces": { "enabled": true },
+	},
 }

@@ -10,6 +10,7 @@
  * out of the main IDE bundle.
  */
 
+import { useQuery } from '@tanstack/react-query';
 import { BookOpen, Copy, Github, Hexagon, Moon, Search, Sun, X } from 'lucide-react';
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
@@ -367,8 +368,6 @@ function navigateToProject(url: string): void {
  * Default export for React.lazy() compatibility.
  */
 export default function DashboardPage() {
-	const [templates, setTemplates] = useState<ProjectTemplateMeta[]>([]);
-	const [templatesLoaded, setTemplatesLoaded] = useState(false);
 	const [selectedTemplateId, setSelectedTemplateId] = useState<string | undefined>();
 	const [recentProjects, setRecentProjects] = useState(getRecentProjects);
 	const [cloneInput, setCloneInput] = useState('');
@@ -380,18 +379,13 @@ export default function DashboardPage() {
 	const setColorScheme = useStore((state) => state.setColorScheme);
 
 	// Fetch template metadata from the API
-	useEffect(() => {
-		let cancelled = false;
-		void fetchTemplates().then((data) => {
-			if (!cancelled) {
-				setTemplates(data);
-				setTemplatesLoaded(true);
-			}
-		});
-		return () => {
-			cancelled = true;
-		};
-	}, []);
+	const templatesQuery = useQuery({
+		queryKey: ['templates'],
+		queryFn: fetchTemplates,
+		staleTime: 1000 * 60 * 5,
+	});
+	const templates = useMemo(() => templatesQuery.data ?? [], [templatesQuery.data]);
+	const templatesLoaded = !templatesQuery.isLoading;
 
 	const selectedTemplate = useMemo(() => templates.find((template) => template.id === selectedTemplateId), [templates, selectedTemplateId]);
 

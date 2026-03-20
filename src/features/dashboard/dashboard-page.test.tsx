@@ -6,8 +6,10 @@
  * recent projects, and back button handling.
  */
 
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import DashboardPage from './dashboard-page';
@@ -58,6 +60,21 @@ vi.mock('./halftone-background', () => ({
 	HalftoneBackground: () => <canvas data-testid="halftone-background" />,
 }));
 
+function createTestQueryClient() {
+	return new QueryClient({
+		defaultOptions: { queries: { retry: false } },
+	});
+}
+
+function QueryWrapper({ children }: { children: React.ReactNode }) {
+	const [queryClient] = useState(createTestQueryClient);
+	return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+}
+
+function renderWithQuery(ui: React.ReactElement) {
+	return render(ui, { wrapper: QueryWrapper });
+}
+
 // Prevent navigation during tests
 const originalLocation = globalThis.location;
 
@@ -87,19 +104,19 @@ const { getRecentProjects } = await import('@/lib/recent-projects');
 
 describe('DashboardPage', () => {
 	it('renders the page title', () => {
-		render(<DashboardPage />);
+		renderWithQuery(<DashboardPage />);
 
 		expect(screen.getByText('Codemaxxing')).toBeInTheDocument();
 	});
 
 	it('renders the halftone background', () => {
-		render(<DashboardPage />);
+		renderWithQuery(<DashboardPage />);
 
 		expect(screen.getByTestId('halftone-background')).toBeInTheDocument();
 	});
 
 	it('renders template cards', async () => {
-		render(<DashboardPage />);
+		renderWithQuery(<DashboardPage />);
 
 		expect(screen.getByText('Start a new project')).toBeInTheDocument();
 		await waitFor(() => {
@@ -108,7 +125,7 @@ describe('DashboardPage', () => {
 	});
 
 	it('renders a clone card in the template grid', async () => {
-		render(<DashboardPage />);
+		renderWithQuery(<DashboardPage />);
 
 		await waitFor(() => {
 			const cloneCard = screen.getByText('Clone a project').closest('button');
@@ -117,7 +134,7 @@ describe('DashboardPage', () => {
 	});
 
 	it('opens clone modal when clone card is clicked', async () => {
-		render(<DashboardPage />);
+		renderWithQuery(<DashboardPage />);
 
 		await waitFor(() => {
 			expect(screen.getByText('Clone a project').closest('button')).toBeTruthy();
@@ -135,7 +152,7 @@ describe('DashboardPage', () => {
 	});
 
 	it('renders theme toggle button', () => {
-		render(<DashboardPage />);
+		renderWithQuery(<DashboardPage />);
 
 		expect(screen.getByLabelText(/Switch to light mode/i)).toBeInTheDocument();
 	});
@@ -145,7 +162,7 @@ describe('DashboardPage', () => {
 	// ---------------------------------------------------------------------------
 
 	it('opens template detail modal when a card is clicked', async () => {
-		render(<DashboardPage />);
+		renderWithQuery(<DashboardPage />);
 
 		// Wait for templates to load
 		const templateButton = await waitFor(() => {
@@ -174,7 +191,7 @@ describe('DashboardPage', () => {
 			name: 'my-project',
 		});
 
-		render(<DashboardPage />);
+		renderWithQuery(<DashboardPage />);
 
 		// Open the detail modal
 		const templateButton = await waitFor(() => {
@@ -200,7 +217,7 @@ describe('DashboardPage', () => {
 	});
 
 	it('closes the modal when Cancel is clicked', async () => {
-		render(<DashboardPage />);
+		renderWithQuery(<DashboardPage />);
 
 		// Open the detail modal
 		const templateButton = await waitFor(() => {
@@ -228,7 +245,7 @@ describe('DashboardPage', () => {
 	// ---------------------------------------------------------------------------
 
 	it('disables clone button in modal when input is empty', async () => {
-		render(<DashboardPage />);
+		renderWithQuery(<DashboardPage />);
 
 		// Open clone modal
 		await waitFor(() => {
@@ -247,7 +264,7 @@ describe('DashboardPage', () => {
 
 	it('enables clone button in modal when a valid project ID is entered', async () => {
 		const user = userEvent.setup();
-		render(<DashboardPage />);
+		renderWithQuery(<DashboardPage />);
 
 		// Open clone modal
 		await waitFor(() => {
@@ -270,7 +287,7 @@ describe('DashboardPage', () => {
 
 	it('enables clone button in modal when a full project URL is entered', async () => {
 		const user = userEvent.setup();
-		render(<DashboardPage />);
+		renderWithQuery(<DashboardPage />);
 
 		// Open clone modal
 		await waitFor(() => {
@@ -293,7 +310,7 @@ describe('DashboardPage', () => {
 
 	it('keeps clone button disabled for invalid input in modal', async () => {
 		const user = userEvent.setup();
-		render(<DashboardPage />);
+		renderWithQuery(<DashboardPage />);
 
 		// Open clone modal
 		await waitFor(() => {
@@ -322,7 +339,7 @@ describe('DashboardPage', () => {
 			name: 'cloned-project',
 		});
 
-		render(<DashboardPage />);
+		renderWithQuery(<DashboardPage />);
 
 		// Open clone modal
 		await waitFor(() => {
@@ -354,7 +371,7 @@ describe('DashboardPage', () => {
 		const mockedCloneProject = vi.mocked(cloneProject);
 		mockedCloneProject.mockRejectedValueOnce(new Error('Source project not found or not initialized'));
 
-		render(<DashboardPage />);
+		renderWithQuery(<DashboardPage />);
 
 		// Open clone modal
 		await waitFor(() => {
@@ -384,7 +401,7 @@ describe('DashboardPage', () => {
 	// ---------------------------------------------------------------------------
 
 	it('does not render recent projects section when empty', () => {
-		render(<DashboardPage />);
+		renderWithQuery(<DashboardPage />);
 
 		expect(screen.queryByText('Recent projects')).not.toBeInTheDocument();
 	});
@@ -394,7 +411,7 @@ describe('DashboardPage', () => {
 			{ id: '5ydvqzhiqckl5fa63nhky2pstb212hcdj0lk19eklkmc7snawe', timestamp: Date.now() - 3_600_000, name: 'My Project' },
 		]);
 
-		render(<DashboardPage />);
+		renderWithQuery(<DashboardPage />);
 
 		expect(screen.getByText('Recent projects')).toBeInTheDocument();
 		expect(screen.getByText('My Project')).toBeInTheDocument();
@@ -406,7 +423,7 @@ describe('DashboardPage', () => {
 			{ id: '6dp5qcb22im238nr3wvp0ic7q99w035jmy2iw7i6n43d37jtof', timestamp: Date.now() - 86_400_000, name: 'Old Project' },
 		]);
 
-		render(<DashboardPage />);
+		renderWithQuery(<DashboardPage />);
 
 		expect(screen.getByText('Recent projects')).toBeInTheDocument();
 		expect(screen.getByText('My Project')).toBeInTheDocument();
@@ -417,7 +434,7 @@ describe('DashboardPage', () => {
 		const projectId = '494rtk7ddoepe5ru2lx4oc855i6lc23p3apolh04feq8q517sa';
 		vi.mocked(getRecentProjects).mockReturnValue([{ id: projectId, timestamp: Date.now(), name: 'Test Project' }]);
 
-		render(<DashboardPage />);
+		renderWithQuery(<DashboardPage />);
 
 		const link = screen.getByText('Test Project').closest('a');
 		expect(link).toBeTruthy();

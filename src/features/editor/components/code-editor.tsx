@@ -133,19 +133,21 @@ export function CodeEditor({
 	// at mount) always calls the latest version without needing to
 	// reconfigure the editor.
 	const onChangeReference = useRef(onChange);
-	onChangeReference.current = onChange;
 	const onCursorChangeReference = useRef(onCursorChange);
-	onCursorChangeReference.current = onCursorChange;
 	const onBlurReference = useRef(onBlur);
-	onBlurReference.current = onBlur;
 	const onViewReadyReference = useRef(onViewReady);
-	onViewReadyReference.current = onViewReady;
 	const hunkStatusesReference = useRef(hunkStatuses);
-	hunkStatusesReference.current = hunkStatuses;
 	const onDiffApproveReference = useRef(onDiffApprove);
-	onDiffApproveReference.current = onDiffApprove;
 	const onDiffRejectReference = useRef(onDiffReject);
-	onDiffRejectReference.current = onDiffReject;
+	useEffect(() => {
+		onChangeReference.current = onChange;
+		onCursorChangeReference.current = onCursorChange;
+		onBlurReference.current = onBlur;
+		onViewReadyReference.current = onViewReady;
+		hunkStatusesReference.current = hunkStatuses;
+		onDiffApproveReference.current = onDiffApprove;
+		onDiffRejectReference.current = onDiffReject;
+	});
 
 	// Create update listener extension — uses refs so it never goes stale
 	const createUpdateListener = useCallback(() => {

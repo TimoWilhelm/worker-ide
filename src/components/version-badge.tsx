@@ -9,7 +9,8 @@
  * to enrich the tooltip with deployment metadata.
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { useCallback } from 'react';
 
 import { toast } from '@/components/ui/toast-store';
 import { Tooltip, TooltipProvider } from '@/components/ui/tooltip';
@@ -40,31 +41,19 @@ interface CloudflareVersionMetadata {
 // =============================================================================
 
 function useCloudflareVersion(): CloudflareVersionMetadata | undefined {
-	const [metadata, setMetadata] = useState<CloudflareVersionMetadata | undefined>();
+	const query = useQuery({
+		queryKey: ['cf-version'],
+		queryFn: async () => {
+			const response = await fetch('/api/version');
+			if (!response.ok) return;
+			const data: CloudflareVersionMetadata = await response.json();
+			return data.id ? data : undefined;
+		},
+		staleTime: 1000 * 60 * 10,
+		retry: false,
+	});
 
-	useEffect(() => {
-		let cancelled = false;
-
-		void fetch('/api/version')
-			.then((response) => {
-				if (!response.ok) return;
-				return response.json();
-			})
-			.then((data: CloudflareVersionMetadata | undefined) => {
-				if (!cancelled && data?.id) {
-					setMetadata(data);
-				}
-			})
-			.catch(() => {
-				// Silently ignore — CF version is optional enrichment
-			});
-
-		return () => {
-			cancelled = true;
-		};
-	}, []);
-
-	return metadata;
+	return query.data ?? undefined;
 }
 
 // =============================================================================

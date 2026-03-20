@@ -225,10 +225,8 @@ export function RichTextInput({
 	const onCursorChangeReference = useRef(onCursorChange);
 	useEffect(() => {
 		onSegmentsChangeReference.current = onSegmentsChange;
-	}, [onSegmentsChange]);
-	useEffect(() => {
 		onCursorChangeReference.current = onCursorChange;
-	}, [onCursorChange]);
+	}, [onSegmentsChange, onCursorChange]);
 
 	// Render segments into the DOM
 	const renderSegments = useCallback(() => {
