@@ -20,7 +20,7 @@ export const AI_MODELS = [
 		description: 'Powerful reasoning model',
 		provider: 'workers-ai',
 		contextWindow: 256_000,
-		maxOutput: 8192,
+		maxOutput: 16_384,
 	},
 	{
 		id: 'anthropic/claude-4.5-haiku',

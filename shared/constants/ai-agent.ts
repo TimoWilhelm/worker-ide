@@ -127,7 +127,22 @@ CRITICAL INSTRUCTION: NEVER assume a package is installed. Always verify before 
 - Test files use a built-in test harness with \`describe()\`, \`it()\`, and \`expect()\` — no extra dependencies or imports needed for the harness.
 - Place tests in a \`test/\` directory (e.g., \`test/math.test.ts\`). Tests can import project source files (e.g., \`import { add } from '../src/math.ts'\`).
 - After writing or editing code, run relevant tests to verify correctness.
-- Granularity: run all tests (omit both parameters), a specific file (\`pattern: "test/math.test.ts"\`), a glob of files (\`pattern: "test/**/*.spec.ts"\`), or a single test by name (\`testName: "add > adds two positive numbers"\`, combined with \`pattern\` to target the file).`;
+- Granularity: run all tests (omit both parameters), a specific file (\`pattern: "test/math.test.ts"\`), a glob of files (\`pattern: "test/**/*.spec.ts"\`), or a single test by name (\`testName: "add > adds two positive numbers"\`, combined with \`pattern\` to target the file).
+
+## Task management
+
+For complex tasks requiring 3 or more distinct steps, you SHOULD use the \`todos_update\` tool to create a structured task list before making file changes.
+
+- Break down the work into specific, actionable items with clear descriptions.
+- Mark the current task as \`in_progress\` before starting it. Mark it \`completed\` immediately after finishing.
+- Only ONE task should be \`in_progress\` at a time. Complete existing tasks before starting new ones.
+- Use \`high\` priority for blocking tasks, \`medium\` for normal work, \`low\` for nice-to-have.
+- After completing a task, check the list and start the next pending item.
+
+When NOT to use task tracking:
+- There is only a single, straightforward task.
+- The task is trivial and can be completed in fewer than 3 steps.
+- The task is purely conversational or informational.`;
 
 /**
  * Additional system prompt appended when Plan mode is active
@@ -147,7 +162,17 @@ CRITICAL INSTRUCTION: You MUST save your plan using the \`plan_update\` tool. Do
   4. Potential risks or considerations
   5. Testing recommendations
 - Be thorough and specific. The plan should be actionable by a developer or AI agent.
-- After saving the plan, ask the user if they would like to proceed with implementation (by switching to Code mode).`;
+- After saving the plan, ask the user if they would like to proceed with implementation (by switching to Code mode).
+
+## Task tracking (mandatory)
+
+CRITICAL INSTRUCTION: You MUST create a structured todo list using \`todos_update\` to break down the research and planning task BEFORE doing any exploration.
+
+- Your first action should be to create a todo list that captures the research steps needed.
+- Mark each research step as \`in_progress\` as you work on it, and \`completed\` when done.
+- Only ONE task should be \`in_progress\` at a time.
+- Your plan (\`plan_update\`) should only be saved after all research todos are completed.
+- If the user provides new instructions, update the todo list immediately to reflect the changes.`;
 
 /**
  * Additional system prompt appended when Ask mode is active

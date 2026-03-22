@@ -24,7 +24,7 @@ import { mount, withMounts } from 'worker-fs-mount';
 
 import { DEFAULT_AI_MODEL, getModelConfig, getModelLimits } from '@shared/constants';
 
-import { AgentLogger, sanitizeToolInput, summarizeToolResult } from './agent-logger';
+import { AgentLogger, sanitizeToolInput, serializeMessagesForLog, summarizeToolResult, truncateContent } from './agent-logger';
 import { estimateMessagesTokens, getContextUtilization, hasContextBudget, pruneToolOutputs } from './context-pruner';
 import { detectDoomLoop, MUTATION_FAILURE_TAG } from './doom-loop';
 import { customEvent, getEventField, getEventRecord, getNumberField } from './event-helpers';
@@ -37,6 +37,7 @@ import { addFileToSnapshot, deleteDirectoryRecursive, initSnapshot } from './sna
 import { buildSystemPrompts } from './system-prompt-builder';
 import { deriveFallbackTitle } from './title-generator';
 import { TokenTracker } from './token-tracker';
+import { readTodos } from './tool-executor';
 import { createSendEvent, createServerTools, MUTATION_TOOL_NAMES } from './tools';
 import { isRecordObject, parseApiError } from './utilities';
 import { createAdapter as createWorkersAiAdapter } from './workers-ai';
@@ -105,6 +106,19 @@ const SESSION_SAVE_THROTTLE_MS = 3000;
 export class AIAgentService {
 	private mcpClientManager = new McpClientManager();
 
+	/** Shared logger instance, created at stream start and accessible to callers for post-stream logging. */
+	private agentLogger: AgentLogger | undefined;
+
+	/**
+	 * Get the debug logger for this agent run.
+	 * Available after `runAgentStream()` is called. The agent-runner uses this
+	 * to append session-level log entries (title generation, status broadcasts)
+	 * that are captured in the same debug log file.
+	 */
+	getLogger(): AgentLogger | undefined {
+		return this.agentLogger;
+	}
+
 	constructor(
 		private projectRoot: string,
 		private projectId: string,
@@ -171,10 +185,17 @@ export class AIAgentService {
 
 		// Start the mount-scoped producer. The promise is intentionally
 		// detached — the consumer drives backpressure via the stream.
+		// Create the logger before the mount scope so it's accessible to the
+		// agent-runner via getLogger() for session-level logging (title generation,
+		// status broadcasts, etc.). Entries added by the agent-runner during the
+		// for-await loop are included in the flush at the end of createAgentStream.
+		const logger = new AgentLogger(this.sessionId, this.projectId, this.model, this.mode);
+		this.agentLogger = logger;
+
 		void withMounts(async () => {
 			mount(this.projectRoot, this.fsStub);
-			const innerStream = this.createAgentStream(messages, abortController, outputLogs);
-			const teedStream = this.createTeedStream(innerStream, processor);
+			const innerStream = this.createAgentStream(messages, abortController, outputLogs, logger);
+			const teedStream = this.createTeedStream(innerStream, processor, logger);
 
 			try {
 				for await (const chunk of teedStream) {
@@ -188,6 +209,25 @@ export class AIAgentService {
 
 		// Return an async iterable over the readable side
 		return readable;
+	}
+
+	/**
+	 * Re-flush the shared logger inside a mount scope.
+	 *
+	 * The primary flush happens at the end of `createAgentStream` (inside
+	 * `withMounts`). If the caller adds log entries *after* the stream ends
+	 * (e.g. agent-runner session-level events), those entries won't be
+	 * persisted because the mount scope has closed. This method opens a
+	 * fresh mount scope so `fs.writeFile` inside `flush()` can succeed.
+	 */
+	async flushLogger(): Promise<void> {
+		const logger = this.agentLogger;
+		if (!logger || logger.isFlushed) return;
+
+		await withMounts(async () => {
+			mount(this.projectRoot, this.fsStub);
+			await logger.flush(this.projectRoot);
+		});
 	}
 
 	/**
@@ -212,7 +252,11 @@ export class AIAgentService {
 	 * - Persists the session in `finally` (handles client disconnect)
 	 * - Tracks snapshot IDs and context token usage for session metadata
 	 */
-	private async *createTeedStream(innerStream: AsyncIterable<StreamChunk>, processor: StreamProcessor): AsyncIterable<StreamChunk> {
+	private async *createTeedStream(
+		innerStream: AsyncIterable<StreamChunk>,
+		processor: StreamProcessor,
+		logger: AgentLogger,
+	): AsyncIterable<StreamChunk> {
 		processor.prepareAssistantMessage();
 
 		// Snapshot ID emitted by the agent loop (set via snapshot_created CUSTOM event)
@@ -332,8 +376,17 @@ export class AIAgentService {
 						case 'turn_complete': {
 							// Incrementally persist after each agent turn (throttled)
 							const now = Date.now();
-							if (now - lastSaveTimestamp >= SESSION_SAVE_THROTTLE_MS) {
+							const timeSinceLastSave = now - lastSaveTimestamp;
+							if (timeSinceLastSave >= SESSION_SAVE_THROTTLE_MS) {
 								lastSaveTimestamp = now;
+								logger.debug('session', 'incremental_persist', {
+									snapshotId,
+									contextTokensUsed,
+									pendingChangeCount: streamPendingChanges.size,
+									toolMetadataCount: streamToolMetadata.size,
+									toolErrorCount: streamToolErrors.size,
+									messageCount: processor.getMessages().length,
+								});
 								await this.persistSession(
 									processor,
 									snapshotId,
@@ -343,6 +396,11 @@ export class AIAgentService {
 									streamToolMetadata,
 									streamToolErrors,
 								);
+							} else {
+								logger.debug('session', 'incremental_persist_throttled', {
+									timeSinceLastSaveMs: timeSinceLastSave,
+									throttleMs: SESSION_SAVE_THROTTLE_MS,
+								});
 							}
 
 							break;
@@ -355,6 +413,12 @@ export class AIAgentService {
 			}
 
 			// Normal completion — persist the final state
+			logger.info('session', 'final_persist', {
+				snapshotId,
+				contextTokensUsed,
+				pendingChangeCount: streamPendingChanges.size,
+				messageCount: processor.getMessages().length,
+			});
 			await persistSession();
 		} finally {
 			// Safety net: if the stream was cancelled (client disconnect) or an
@@ -362,6 +426,10 @@ export class AIAgentService {
 			// progress was made. The `finally` block runs even when the generator's
 			// return() is invoked by ReadableStream cancel().
 			if (!sessionPersisted) {
+				logger.info('session', 'safety_persist', {
+					reason: 'stream_cancelled_or_error',
+					messageCount: processor.getMessages().length,
+				});
 				await persistSession().catch(() => {});
 			}
 		}
@@ -388,7 +456,10 @@ export class AIAgentService {
 
 		try {
 			const history = processor.getMessages();
-			if (history.length === 0) return;
+			if (history.length === 0) {
+				this.agentLogger?.debug('session', 'persist_skipped', { reason: 'empty_history' });
+				return;
+			}
 
 			const createdAt = Date.now();
 			const messageSnapshots: Record<string, string> = {};
@@ -415,6 +486,16 @@ export class AIAgentService {
 				: '';
 			const title = deriveFallbackTitle(firstUserText);
 
+			this.agentLogger?.debug('session', 'persist_session_data', {
+				historyLength: history.length,
+				fallbackTitle: title,
+				firstUserTextLength: firstUserText.length,
+				snapshotId,
+				userMessageIndex,
+				contextTokensUsed,
+				mode: this.mode,
+			});
+
 			const sessionData = {
 				createdAt,
 				title,
@@ -431,6 +512,9 @@ export class AIAgentService {
 			await this.onPersistSession(this.sessionId, sessionData, pendingChangesRecord);
 		} catch (error) {
 			// Non-fatal — don't let session persistence break the agent stream
+			this.agentLogger?.error('session', 'persist_failed', {
+				error: error instanceof Error ? error.message : String(error),
+			});
 			console.error('Failed to persist AI session:', error);
 		}
 	}
@@ -454,12 +538,14 @@ export class AIAgentService {
 		messages: ModelMessage[],
 		abortController: AbortController,
 		outputLogs?: string,
+		logger?: AgentLogger,
 	): AsyncIterable<StreamChunk> {
 		const signal = abortController.signal;
 		const queryChanges: FileChange[] = [];
 		const tokenTracker = new TokenTracker();
 		const eventQueue: CustomEventQueue = [];
-		const logger = new AgentLogger(this.sessionId, this.projectId, this.model, this.mode);
+		// Use the provided logger or create a local one as fallback
+		logger ??= new AgentLogger(this.sessionId, this.projectId, this.model, this.mode);
 
 		logger.info('agent_loop', 'started', {
 			mode: this.mode,
@@ -508,10 +594,15 @@ export class AIAgentService {
 			yield customEvent('status', { message: 'Starting...' });
 
 			// Build system prompts
-			const systemPrompts = await buildSystemPrompts(this.projectRoot, this.mode, outputLogs);
+			const systemPrompts = await buildSystemPrompts(this.projectRoot, this.mode, outputLogs, this.sessionId);
 			logger.debug('message', 'system_prompt_built', {
 				promptCount: systemPrompts.length,
 				totalLength: systemPrompts.reduce((sum, p) => sum + p.length, 0),
+				prompts: systemPrompts.map((prompt, index) => ({
+					index,
+					content: truncateContent(prompt),
+					length: prompt.length,
+				})),
 			});
 
 			const modelConfig = getModelConfig(this.model);
@@ -543,6 +634,7 @@ export class AIAgentService {
 			let hitIterationLimit = false;
 			let lastAssistantText = '';
 			let softLimitNudged = false;
+			let planModeTodoNudged = false;
 
 			while (continueLoop && iteration < MAX_ITERATIONS) {
 				if (signal.aborted) {
@@ -655,8 +747,9 @@ export class AIAgentService {
 
 				logger.info('llm', 'request_start', {
 					model: this.model,
-					maxTokens: 8192,
+					maxTokens: modelLimits.maxOutput,
 					toolCount: tools.length,
+					messages: serializeMessagesForLog(workingMessages),
 				});
 
 				// Track text from a previous attempt that was interrupted mid-stream.
@@ -687,7 +780,7 @@ export class AIAgentService {
 							messages: messagesCopy,
 							systemPrompts,
 							tools,
-							maxTokens: 8192,
+							maxTokens: modelLimits.maxOutput,
 							agentLoopStrategy: maxIterations(1),
 						});
 
@@ -727,6 +820,13 @@ export class AIAgentService {
 								}
 								case 'TEXT_MESSAGE_END': {
 									logger.debug('llm', 'text_message_end', { textLength: lastAssistantText.length });
+									// Log the full text content for debugging
+									if (lastAssistantText.length > 0) {
+										logger.debug('llm', 'text_content', {
+											content: truncateContent(lastAssistantText),
+											contentLength: lastAssistantText.length,
+										});
+									}
 									yield chunk;
 									break;
 								}
@@ -879,7 +979,7 @@ export class AIAgentService {
 											outputTokens,
 											toolCallCount: completedToolCalls.length,
 											textLength: lastAssistantText.length,
-											outputSnippet: lastAssistantText.slice(0, 500),
+											output: truncateContent(lastAssistantText),
 										},
 										{ durationMs: llmTimer() },
 									);
@@ -938,6 +1038,7 @@ export class AIAgentService {
 											logger.debug('llm', 'step_finished', {
 												stepId: getEventField(chunk, 'stepId'),
 												deltaLength: delta?.length ?? 0,
+												...(delta ? { delta: truncateContent(delta) } : {}),
 											});
 
 											break;
@@ -1086,6 +1187,12 @@ export class AIAgentService {
 
 				// Incrementally persist new file changes to the snapshot
 				if (snapshotContext && queryChanges.length > changeCountBefore) {
+					const newChanges = queryChanges.length - changeCountBefore;
+					logger.debug('snapshot', 'persisting_file_changes', {
+						newChangeCount: newChanges,
+						totalChangeCount: queryChanges.length,
+						snapshotId: snapshotContext.id,
+					});
 					for (let index = changeCountBefore; index < queryChanges.length; index++) {
 						await addFileToSnapshot(snapshotContext, queryChanges[index]);
 					}
@@ -1135,10 +1242,32 @@ export class AIAgentService {
 						});
 					}
 
+					// Plan mode enforcement: nudge the agent to create a todo list if
+					// it has been working (iteration > 1) without one.
+					if (this.mode === 'plan' && !planModeTodoNudged && iteration > 1) {
+						const currentTodos = await readTodos(this.projectRoot, this.sessionId);
+						if (currentTodos.length === 0) {
+							planModeTodoNudged = true;
+							logger.info('agent_loop', 'plan_mode_todo_nudge', { iteration });
+							workingMessages.push({
+								role: 'user',
+								content:
+									'SYSTEM: You are in PLAN MODE. You MUST create a structured todo list using `todos_update` ' +
+									'to track your research tasks before continuing. Break down the planning work into ' +
+									'specific steps and mark the current step as in_progress.',
+							});
+						}
+					}
+
 					completedToolCalls.length = 0;
 					toolResults.length = 0;
 				} else {
 					// No tool calls — the model produced text only, stop the loop.
+					logger.info('agent_loop', 'text_only_stop', {
+						iteration,
+						textLength: lastAssistantText.length,
+						reason: 'no_tool_calls',
+					});
 					if (lastAssistantText) {
 						workingMessages.push({ role: 'assistant', content: lastAssistantText });
 					}
@@ -1192,6 +1321,7 @@ export class AIAgentService {
 
 				// Check user question
 				if (hadUserQuestion) {
+					logger.info('agent_loop', 'user_question_stop', { iteration });
 					continueLoop = false;
 				}
 
@@ -1203,6 +1333,7 @@ export class AIAgentService {
 					fileChangesThisIteration,
 				});
 
+				logger.debug('agent_loop', 'turn_complete_emitted', { iteration });
 				yield customEvent('turn_complete', {});
 			}
 
@@ -1221,12 +1352,19 @@ export class AIAgentService {
 
 			// Clean up empty snapshots and notify downstream to clear the snapshot ID
 			if (snapshotContext && queryChanges.length === 0) {
+				logger.debug('snapshot', 'cleanup_empty', { snapshotId: snapshotContext.id });
 				await deleteDirectoryRecursive(snapshotContext.directory);
 				yield customEvent('snapshot_deleted', { id: snapshotContext.id });
+			} else if (snapshotContext) {
+				logger.debug('snapshot', 'retained', {
+					snapshotId: snapshotContext.id,
+					fileChangeCount: queryChanges.length,
+				});
 			}
 
 			// In plan mode, save the plan
 			if (this.mode === 'plan' && lastAssistantText.trim()) {
+				logger.info('agent_loop', 'plan_save', { textLength: lastAssistantText.length });
 				yield* savePlan(this.projectRoot, lastAssistantText, workingMessages);
 			}
 

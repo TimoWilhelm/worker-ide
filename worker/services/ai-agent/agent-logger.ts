@@ -29,6 +29,9 @@ const MAX_DEBUG_LOGS = 20;
 /** Maximum characters to include for large string fields in log data. */
 const MAX_FIELD_LENGTH = 500;
 
+/** Maximum characters for full-content fields (system prompts, messages, LLM responses). */
+const MAX_CONTENT_FIELD_LENGTH = 10_000;
+
 /** Keys in tool inputs that commonly contain large content (file bodies, etc.). */
 const LARGE_CONTENT_KEYS = new Set(['content', 'file_content', 'patch', 'diff', 'body', 'old_string', 'new_string', 'edits']);
 
@@ -38,7 +41,7 @@ const LARGE_CONTENT_KEYS = new Set(['content', 'file_content', 'patch', 'diff', 
 
 export type LogLevel = 'debug' | 'info' | 'warning' | 'error';
 
-export type LogCategory = 'agent_loop' | 'llm' | 'tool_call' | 'tool_parse' | 'message' | 'snapshot' | 'context' | 'mcp';
+export type LogCategory = 'agent_loop' | 'llm' | 'tool_call' | 'tool_parse' | 'message' | 'snapshot' | 'context' | 'mcp' | 'session';
 
 export interface AgentLogEntry {
 	/** ISO-8601 timestamp */
@@ -132,6 +135,39 @@ export function summarizeToolResult(result: string): string {
 	return truncateString(result);
 }
 
+/**
+ * Truncate a string for full-content logging (system prompts, messages, LLM responses).
+ * Uses a much higher limit than tool input sanitization.
+ */
+export function truncateContent(value: string): string {
+	return truncateString(value, MAX_CONTENT_FIELD_LENGTH);
+}
+
+/**
+ * Serialize a message array for debug logging.
+ * Each message is represented with its role and truncated content.
+ */
+export function serializeMessagesForLog(
+	messages: Array<{ role: string; content?: string | null | unknown; toolCalls?: unknown }>,
+): Array<Record<string, unknown>> {
+	return messages.map((message) => {
+		const entry: Record<string, unknown> = { role: message.role };
+		if (typeof message.content === 'string') {
+			entry.content = truncateString(message.content, MAX_CONTENT_FIELD_LENGTH);
+			entry.contentLength = message.content.length;
+		} else if (message.content !== undefined && message.content !== null) {
+			// Array content (multi-part messages)
+			const serialized = JSON.stringify(message.content);
+			entry.content = truncateString(serialized, MAX_CONTENT_FIELD_LENGTH);
+			entry.contentLength = serialized.length;
+		}
+		if (message.toolCalls) {
+			entry.hasToolCalls = true;
+		}
+		return entry;
+	});
+}
+
 // =============================================================================
 // AgentLogger Class
 // =============================================================================
@@ -155,6 +191,9 @@ export class AgentLogger {
 
 	/** Whether flush() has already been called (idempotency guard). */
 	private flushed = false;
+
+	/** Number of entries at the time of the last successful flush. */
+	private entriesAtFlush = 0;
 
 	constructor(
 		private readonly sessionId: string | undefined,
@@ -186,6 +225,13 @@ export class AgentLogger {
 			...(options?.durationMs !== undefined && { durationMs: options.durationMs }),
 		};
 		this.entries.push(entry);
+
+		// Allow re-flushing if new entries arrive after a previous flush.
+		// Safe because flushes are always sequential (first in createAgentStream,
+		// then in agent-runner's finally block after the stream completes).
+		if (this.flushed && this.entries.length > this.entriesAtFlush) {
+			this.flushed = false;
+		}
 
 		// Update summary counters
 		if (level === 'error') this.errorCount++;
@@ -338,6 +384,8 @@ export class AgentLogger {
 
 			const logData = this.toJSON();
 			await fs.writeFile(`${logsDirectory}/${this.id}.json`, JSON.stringify(logData, undefined, 2));
+
+			this.entriesAtFlush = this.entries.length;
 
 			await this.cleanupOldLogs(logsDirectory);
 		} catch (error) {

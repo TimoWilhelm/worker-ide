@@ -310,6 +310,14 @@ export const testRunInputSchema = z.object({
 });
 
 /**
+ * Schema for AI tool: image_generate (generate images from text prompts)
+ */
+export const imageGenerateInputSchema = z.object({
+	prompt: z.string().min(1, 'Prompt is required'),
+	path: filePathSchema,
+});
+
+/**
  * Union of all tool input schemas
  */
 export const toolInputSchemas = {
@@ -339,6 +347,7 @@ export const toolInputSchemas = {
 	cdp_eval: cdpEvalInputSchema,
 	preview_fetch: previewFetchInputSchema,
 	test_run: testRunInputSchema,
+	image_generate: imageGenerateInputSchema,
 } as const;
 
 export type ToolName = keyof typeof toolInputSchemas;

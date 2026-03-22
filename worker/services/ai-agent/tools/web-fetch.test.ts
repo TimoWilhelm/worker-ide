@@ -32,12 +32,8 @@ vi.mock('cloudflare:workers', () => ({
 // Mock @tanstack/ai chat to avoid real LLM calls
 vi.mock('@tanstack/ai', () => ({
 	chat: () => {
-		// Return an async iterable that yields a TEXT_MESSAGE_CONTENT chunk
-		return {
-			[Symbol.asyncIterator]: async function* () {
-				yield { type: 'TEXT_MESSAGE_CONTENT', delta: 'Summarized: page content about testing.' };
-			},
-		};
+		// Return a resolved structured output object matching summarySchema
+		return Promise.resolve({ summary: 'Summarized: page content about testing.' });
 	},
 	maxIterations: () => ({}),
 }));

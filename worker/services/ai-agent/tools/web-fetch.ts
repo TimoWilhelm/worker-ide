@@ -9,6 +9,7 @@
 
 import { chat, maxIterations } from '@tanstack/ai';
 import { env } from 'cloudflare:workers';
+import { z } from 'zod';
 
 import { SUMMARIZATION_AI_MODEL } from '@shared/constants';
 import { ToolExecutionError } from '@shared/tool-errors';
@@ -89,6 +90,10 @@ async function convertHtmlToMarkdown(html: string): Promise<string | undefined> 
  * The summarization model treats the fetched content as data, preventing
  * prompt injection from reaching the calling agent.
  */
+const summarySchema = z.object({
+	summary: z.string().describe('A concise, factual answer to the user prompt based on the web page content'),
+});
+
 async function summarizeContent(markdownContent: string, userPrompt: string, url: string): Promise<string> {
 	const adapter = createAdapter(SUMMARIZATION_AI_MODEL);
 
@@ -110,23 +115,17 @@ async function summarizeContent(markdownContent: string, userPrompt: string, url
 		`User prompt: ${userPrompt}`,
 	].join('\n');
 
-	const stream = chat({
+	const result = await chat({
 		adapter,
 		messages: [{ role: 'user', content: userMessage }],
 		systemPrompts: [systemPrompt],
 		maxTokens: 4096,
 		agentLoopStrategy: maxIterations(1),
+		outputSchema: summarySchema,
+		stream: false,
 	});
 
-	// Collect text deltas from the AG-UI stream
-	let result = '';
-	for await (const chunk of stream) {
-		if (chunk.type === 'TEXT_MESSAGE_CONTENT' && 'delta' in chunk && typeof chunk.delta === 'string') {
-			result += chunk.delta;
-		}
-	}
-
-	return result.trim();
+	return result.summary.trim();
 }
 
 // =============================================================================
