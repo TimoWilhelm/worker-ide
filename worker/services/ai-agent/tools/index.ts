@@ -281,9 +281,21 @@ function jsonSchemaToZod(properties: Record<string, unknown>, required: string[]
  * The `toolCallIdRef` is a mutable ref set by each tool wrapper before execution.
  * For `tool_result` and `file_changed` events, the current toolCallId is auto-injected
  * so that the frontend can correlate events with specific tool call UI elements.
+ *
+ * When an `abortSignal` is provided, events are silently dropped after the signal
+ * fires. This prevents tools that are finishing after cancellation from pushing
+ * stale events into the queue.
  */
-export function createSendEvent(eventQueue: CustomEventQueue, toolCallIdReference: ToolCallIdReference): SendEventFunction {
+export function createSendEvent(
+	eventQueue: CustomEventQueue,
+	toolCallIdReference: ToolCallIdReference,
+	abortSignal?: AbortSignal,
+): SendEventFunction {
 	return (type: string, data: Record<string, unknown>) => {
+		// Drop events after cancellation — the stream is tearing down and
+		// no consumer will process these.
+		if (abortSignal?.aborted) return;
+
 		// Auto-inject toolCallId for events that need frontend correlation.
 		// Individual tools don't know their call ID; the wrapper sets the ref.
 		if (toolCallIdReference.current && (type === 'tool_result' || type === 'file_changed')) {
@@ -360,6 +372,14 @@ export function createServerTools(
 			}
 
 			try {
+				// Bail out immediately if the agent was cancelled. The agent
+				// loop checks signal.aborted between chunks, but during tool
+				// execution the for-await loop is blocked. This check prevents
+				// new tools from starting after the user clicks Stop.
+				if (context.abortSignal?.aborted) {
+					throw new DOMException('Aborted', 'AbortError');
+				}
+
 				// Defense-in-depth: reject editing tools in non-code modes
 				if (mode !== 'code' && EDITING_TOOL_NAMES.has(definition.name)) {
 					logger?.warn('tool_call', 'blocked', {

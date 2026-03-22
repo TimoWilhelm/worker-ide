@@ -67,8 +67,10 @@ type QueueItem = { type: 'chunk'; chunk: StreamChunk; eventIndex: number } | { t
 function createEventQueue() {
 	const queue: QueueItem[] = [];
 	let resolve: (() => void) | undefined;
+	let aborted = false;
 
 	const enqueue = (item: QueueItem) => {
+		if (aborted) return;
 		queue.push(item);
 		if (resolve) {
 			resolve();
@@ -77,16 +79,33 @@ function createEventQueue() {
 	};
 
 	const waitForItem = (): Promise<void> => {
-		if (queue.length > 0) return Promise.resolve();
+		if (aborted || queue.length > 0) return Promise.resolve();
 		return new Promise<void>((r) => {
 			resolve = r;
 		});
 	};
 
-	return { queue, enqueue, waitForItem };
+	/**
+	 * Immediately mark the queue as aborted. Flushes all pending items
+	 * and wakes the generator so it exits on the next iteration.
+	 * This is the key fix: abort is not enqueued behind pending chunks
+	 * but instead short-circuits the entire drain loop.
+	 */
+	const abort = () => {
+		aborted = true;
+		queue.length = 0;
+		if (resolve) {
+			resolve();
+			resolve = undefined;
+		}
+	};
+
+	const isAborted = () => aborted;
+
+	return { queue, enqueue, waitForItem, abort, isAborted };
 }
 
-function createEventListeners(sessionId: string, enqueue: (item: QueueItem) => void, abortSignal?: AbortSignal) {
+function createEventListeners(sessionId: string, enqueue: (item: QueueItem) => void, abortQueue: () => void, abortSignal?: AbortSignal) {
 	const handleStreamEvent = (event: Event) => {
 		if (!(event instanceof CustomEvent)) return;
 		const detail: { sessionId?: string; chunk?: StreamChunk; index?: number } = event.detail;
@@ -105,8 +124,11 @@ function createEventListeners(sessionId: string, enqueue: (item: QueueItem) => v
 		}
 	};
 
+	// Abort flushes the queue and sets the aborted flag instead of
+	// enqueuing an error item. This ensures the generator exits
+	// immediately without yielding any stale chunks.
 	const handleAbort = () => {
-		enqueue({ type: 'error', error: new DOMException('Aborted', 'AbortError') });
+		abortQueue();
 	};
 
 	globalThis.addEventListener('agent-stream-event', handleStreamEvent);
@@ -120,9 +142,20 @@ function createEventListeners(sessionId: string, enqueue: (item: QueueItem) => v
 	};
 }
 
-async function* drainQueue(queue: QueueItem[], waitForItem: () => Promise<void>): AsyncGenerator<StreamChunk, void, unknown> {
+async function* drainQueue(
+	queue: QueueItem[],
+	waitForItem: () => Promise<void>,
+	isAborted: () => boolean,
+): AsyncGenerator<StreamChunk, void, unknown> {
 	while (true) {
 		await waitForItem();
+
+		// Check the aborted flag before processing any items.
+		// When abort fires, the queue is flushed and this flag is set
+		// synchronously, so we exit before yielding stale chunks.
+		if (isAborted()) {
+			throw new DOMException('Aborted', 'AbortError');
+		}
 
 		while (queue.length > 0) {
 			const item = queue.shift()!;
@@ -136,6 +169,12 @@ async function* drainQueue(queue: QueueItem[], waitForItem: () => Promise<void>)
 			}
 
 			yield item.chunk;
+
+			// Re-check after each yield — abort may have fired while
+			// processStream was handling the yielded chunk.
+			if (isAborted()) {
+				throw new DOMException('Aborted', 'AbortError');
+			}
 		}
 	}
 }
@@ -175,8 +214,8 @@ export function createWebSocketConnectionAdapter(options: WebSocketAdapterOption
 				// typing effect while old content stays static.
 				sessionId = currentSessionId;
 
-				const { queue, enqueue, waitForItem } = createEventQueue();
-				const cleanup = createEventListeners(sessionId, enqueue, abortSignal);
+				const { queue, enqueue, waitForItem, abort: abortQueue, isAborted } = createEventQueue();
+				const cleanup = createEventListeners(sessionId, enqueue, abortQueue, abortSignal);
 
 				try {
 					// Stale-session guard: if no event arrives within the
@@ -196,6 +235,10 @@ export function createWebSocketConnectionAdapter(options: WebSocketAdapterOption
 							}
 						}
 
+						if (isAborted()) {
+							throw new DOMException('Aborted', 'AbortError');
+						}
+
 						while (queue.length > 0) {
 							const item = queue.shift()!;
 
@@ -209,6 +252,10 @@ export function createWebSocketConnectionAdapter(options: WebSocketAdapterOption
 
 							receivedLiveEvent = true;
 							yield item.chunk;
+
+							if (isAborted()) {
+								throw new DOMException('Aborted', 'AbortError');
+							}
 						}
 					}
 				} finally {
@@ -233,11 +280,11 @@ export function createWebSocketConnectionAdapter(options: WebSocketAdapterOption
 					throw error;
 				}
 
-				const { queue, enqueue, waitForItem } = createEventQueue();
-				const cleanup = createEventListeners(sessionId, enqueue, abortSignal);
+				const { queue, enqueue, waitForItem, abort: abortQueue, isAborted } = createEventQueue();
+				const cleanup = createEventListeners(sessionId, enqueue, abortQueue, abortSignal);
 
 				try {
-					yield* drainQueue(queue, waitForItem);
+					yield* drainQueue(queue, waitForItem, isAborted);
 				} finally {
 					cleanup();
 				}

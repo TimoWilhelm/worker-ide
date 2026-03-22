@@ -135,7 +135,7 @@ async function summarizeContent(markdownContent: string, userPrompt: string, url
 export async function execute(
 	input: Record<string, string>,
 	sendEvent: SendEventFunction,
-	_context: ToolExecutorContext,
+	context: ToolExecutorContext,
 ): Promise<ToolResult> {
 	const fetchUrl = input.url;
 	const userPrompt = input.prompt;
@@ -148,13 +148,19 @@ export async function execute(
 			throw new ToolExecutionError('MISSING_INPUT', 'Only http:// and https:// URLs are supported');
 		}
 
+		// Combine the 10s timeout with the parent abort signal so
+		// cancelling the agent also cancels the in-flight fetch.
+		const signals = [AbortSignal.timeout(10_000)];
+		if (context.abortSignal) signals.push(context.abortSignal);
+		const combinedSignal = AbortSignal.any(signals);
+
 		const response = await fetch(fetchUrl, {
 			headers: {
 				'User-Agent':
 					'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; Codemaxxing.ai-Agent/1.0) Chrome/131.0.6778.135 Safari/537.36',
 				Accept: 'text/markdown, text/html',
 			},
-			signal: AbortSignal.timeout(10_000),
+			signal: combinedSignal,
 		});
 
 		if (!response.ok) {

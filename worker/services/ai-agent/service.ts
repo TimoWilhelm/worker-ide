@@ -566,8 +566,9 @@ export class AIAgentService {
 		// sequential execution order guaranteed by TanStack AI.
 		const pendingToolCallIds: PendingToolCallIds = [];
 
-		// Create the sendEvent function that pushes CUSTOM events to the queue
-		const sendEvent = createSendEvent(eventQueue, toolCallIdReference);
+		// Create the sendEvent function that pushes CUSTOM events to the queue.
+		// The signal is passed so events are silently dropped after cancellation.
+		const sendEvent = createSendEvent(eventQueue, toolCallIdReference, signal);
 
 		// Eagerly create a snapshot directory for code mode
 		let snapshotContext: SnapshotContext | undefined;
@@ -618,6 +619,7 @@ export class AIAgentService {
 				projectId: this.projectId,
 				mode: this.mode,
 				sessionId: this.sessionId,
+				abortSignal: signal,
 				callMcpTool: (serverId, toolName, arguments_) => this.mcpClientManager.callTool(serverId, toolName, arguments_),
 				sendCdpCommand: (id, method, parameters) => coordinatorStub.sendCdpCommand(id, method, parameters),
 			};
@@ -939,9 +941,15 @@ export class AIAgentService {
 									yield chunk;
 
 									// Drain any CUSTOM events from tool execution.
-									while (eventQueue.length > 0) {
-										const queued = eventQueue.shift();
-										if (queued) yield queued;
+									// Skip if aborted — a finishing tool may have pushed
+									// events after the signal fired.
+									if (signal.aborted) {
+										eventQueue.length = 0;
+									} else {
+										while (eventQueue.length > 0) {
+											const queued = eventQueue.shift();
+											if (queued) yield queued;
+										}
 									}
 
 									break;
@@ -1065,10 +1073,15 @@ export class AIAgentService {
 						});
 					}
 
-					// Drain any remaining CUSTOM events from the last tool execution
-					while (eventQueue.length > 0) {
-						const queued = eventQueue.shift();
-						if (queued) yield queued;
+					// Drain any remaining CUSTOM events from the last tool execution.
+					// Flush the queue without yielding if aborted.
+					if (signal.aborted) {
+						eventQueue.length = 0;
+					} else {
+						while (eventQueue.length > 0) {
+							const queued = eventQueue.shift();
+							if (queued) yield queued;
+						}
 					}
 
 					// Determine if we should retry based on the error source
