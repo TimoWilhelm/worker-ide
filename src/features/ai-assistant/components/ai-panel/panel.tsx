@@ -11,7 +11,20 @@
 
 import { useChat } from '@tanstack/ai-react';
 import { useQueryClient } from '@tanstack/react-query';
-import { ArrowDown, Bot, Download, History, Loader2, Map as MapIcon, MessageCircleQuestion, Plus, Send, Square } from 'lucide-react';
+import {
+	ArrowDown,
+	Bot,
+	Download,
+	History,
+	Loader2,
+	Map as MapIcon,
+	MessageCircleQuestion,
+	Plus,
+	Send,
+	SendHorizonal,
+	Square,
+	X,
+} from 'lucide-react';
 import { ScrollArea } from 'radix-ui';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
@@ -68,6 +81,8 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	const [doomLoopMessage, setDoomLoopMessage] = useState<string | undefined>();
 	const [planPath, setPlanPath] = useState<string | undefined>();
 	const [isModelSelectorOpen, setIsModelSelectorOpen] = useState(false);
+	const [showInterruptConfirm, setShowInterruptConfirm] = useState(false);
+	const pendingInterruptMessageReference = useRef<string | undefined>(undefined);
 	const inputReference = useRef<RichTextInputHandle>(null);
 	const userMessageIndexReference = useRef<number>(-1);
 	const activeSnapshotIdReference = useRef<string | undefined>(undefined);
@@ -505,6 +520,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 				setNeedsContinuation(false);
 				setPendingQuestion(undefined);
 				setPlanPath(undefined);
+				setShowInterruptConfirm(false);
 			}
 
 			// Reset hasCancelled when the server confirms session stopped running.
@@ -515,6 +531,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 				!state.runningSessionIds.has(state.sessionId)
 			) {
 				setHasCancelled(false);
+				setShowInterruptConfirm(false);
 			}
 		});
 	}, []);
@@ -788,20 +805,6 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		],
 	);
 
-	// Handle keyboard shortcuts
-	const handleKeyDown = useCallback(
-		(event: React.KeyboardEvent) => {
-			// Let file mention dropdown handle keys first
-			if (handleFileMentionKeyDown(event)) return;
-
-			if (event.key === 'Enter' && !event.shiftKey) {
-				event.preventDefault();
-				void handleSend();
-			}
-		},
-		[handleSend, handleFileMentionKeyDown],
-	);
-
 	// Cancel current request.
 	// Tells the AgentRunner DO to abort the specific session, and stops
 	// the local useChat stream consumer. Session is persisted server-side
@@ -821,6 +824,59 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 			console.error('[AIPanel] Failed to abort agent after retries:', error);
 		});
 	}, [stopChat, projectId, setStatusMessage]);
+
+	// Interrupt current generation and queue the message for sending.
+	// The queued message is sent by an effect when isProcessing becomes false.
+	const handleInterruptAndSend = useCallback(() => {
+		const messageText = inputPlainText.trim();
+		setShowInterruptConfirm(false);
+		if (messageText) {
+			pendingInterruptMessageReference.current = messageText;
+		}
+		handleCancel();
+	}, [handleCancel, inputPlainText]);
+
+	// Effect: send the queued interrupt message once processing stops.
+	useEffect(() => {
+		if (!isProcessing && pendingInterruptMessageReference.current) {
+			const messageText = pendingInterruptMessageReference.current;
+			pendingInterruptMessageReference.current = undefined;
+			void handleSend(messageText);
+		}
+	}, [isProcessing, handleSend]);
+
+	// Handle keyboard shortcuts
+	const handleKeyDown = useCallback(
+		(event: React.KeyboardEvent) => {
+			// Let file mention dropdown handle keys first
+			if (handleFileMentionKeyDown(event)) return;
+
+			// Interrupt confirm bar is showing — Enter confirms, Escape dismisses
+			if (showInterruptConfirm) {
+				if (event.key === 'Enter' && !event.shiftKey) {
+					event.preventDefault();
+					handleInterruptAndSend();
+					return;
+				}
+				if (event.key === 'Escape') {
+					event.preventDefault();
+					setShowInterruptConfirm(false);
+					return;
+				}
+			}
+
+			if (event.key === 'Enter' && !event.shiftKey) {
+				event.preventDefault();
+				if (isProcessing && hasContent) {
+					// Show interrupt confirmation instead of sending
+					setShowInterruptConfirm(true);
+					return;
+				}
+				void handleSend();
+			}
+		},
+		[handleSend, handleFileMentionKeyDown, isProcessing, hasContent, showInterruptConfirm, handleInterruptAndSend],
+	);
 
 	// Retry: use useChat's reload() which atomically trims messages after
 	// the last user message and re-streams, avoiding race conditions with
@@ -1262,7 +1318,11 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 			</Collapsible>
 
 			{/* Input */}
-			<div className="shrink-0 overflow-hidden border-t border-border p-2">
+			<div className="relative shrink-0 border-t border-border p-2">
+				{/* File mention autocomplete dropdown — must be outside overflow-hidden */}
+				{isFileMentionOpen && (
+					<FileMentionDropdown results={fileMentionResults} selectedIndex={fileMentionSelectedIndex} onSelect={selectMentionFile} />
+				)}
 				<div
 					className={cn(
 						`
@@ -1273,10 +1333,6 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 						isProcessing ? 'border-warning/40' : 'border-border',
 					)}
 				>
-					{/* File mention autocomplete dropdown */}
-					{isFileMentionOpen && (
-						<FileMentionDropdown results={fileMentionResults} selectedIndex={fileMentionSelectedIndex} onSelect={selectMentionFile} />
-					)}
 					<RichTextInput
 						ref={inputReference}
 						segments={segments}
@@ -1285,14 +1341,13 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 						onCursorChange={setCursorPosition}
 						placeholder={
 							isProcessing
-								? 'AI is responding...'
+								? 'Type your next message...'
 								: agentMode === 'plan'
 									? 'Describe what to plan...'
 									: agentMode === 'ask'
 										? 'Ask a question...'
 										: 'Ask the AI to help...'
 						}
-						disabled={isProcessing}
 					/>
 					<Collapsible open={!!planPath}>
 						{planPath && (
@@ -1308,6 +1363,41 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 								<span className="truncate">View plan: {planPath.split('/').pop()}</span>
 							</button>
 						)}
+					</Collapsible>
+					{/* Interrupt confirmation bar */}
+					<Collapsible open={showInterruptConfirm}>
+						<div
+							className="
+								flex items-center gap-2 border-t border-warning/30 bg-warning/5 px-2.5
+								py-1.5
+							"
+						>
+							<span className="flex-1 text-xs text-text-secondary">Interrupt and send now?</span>
+							<button
+								type="button"
+								onClick={() => setShowInterruptConfirm(false)}
+								className="
+									inline-flex cursor-pointer items-center rounded-sm p-0.5
+									text-text-secondary transition-colors
+									hover:bg-bg-tertiary hover:text-text-primary
+								"
+								aria-label="Dismiss"
+							>
+								<X className="size-3" />
+							</button>
+							<button
+								type="button"
+								onClick={handleInterruptAndSend}
+								className="
+									inline-flex cursor-pointer items-center gap-1 rounded-md bg-warning/15
+									px-2 py-0.5 text-xs font-medium text-warning transition-colors
+									hover:bg-warning/25
+								"
+							>
+								<SendHorizonal className="size-3" />
+								Send
+							</button>
+						</div>
 					</Collapsible>
 					<div
 						className="

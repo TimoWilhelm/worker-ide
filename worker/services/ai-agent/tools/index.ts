@@ -26,6 +26,7 @@ import * as fileMultieditTool from './file-multiedit';
 import * as fileReadTool from './file-read';
 import * as fileWriteTool from './file-write';
 import * as filesListTool from './files-list';
+import * as imageGenerateTool from './image-generate';
 import * as lintCheckTool from './lint-check';
 import * as lintFixTool from './lint-fix';
 import * as planUpdateTool from './plan-update';
@@ -82,6 +83,7 @@ export const TOOL_EXECUTORS: ReadonlyMap<string, ToolExecuteFunction> = new Map(
 	['cdp_eval', cdpEvalTool.execute],
 	['preview_fetch', previewFetchTool.execute],
 	['test_run', testRunTool.execute],
+	['image_generate', imageGenerateTool.execute],
 ]);
 
 // =============================================================================
@@ -115,6 +117,7 @@ export const AGENT_TOOLS: readonly ToolDefinition[] = [
 	cdpEvalTool.definition,
 	previewFetchTool.definition,
 	testRunTool.definition,
+	imageGenerateTool.definition,
 ];
 
 // =============================================================================
@@ -170,7 +173,7 @@ export const ASK_MODE_TOOLS: readonly ToolDefinition[] = AGENT_TOOLS.filter((too
 // Editing tools blocked in plan mode
 // =============================================================================
 
-const EDITING_TOOL_NAMES = new Set(['file_edit', 'file_multiedit', 'file_write', 'file_delete', 'file_move', 'lint_fix']);
+const EDITING_TOOL_NAMES = new Set(['file_edit', 'file_multiedit', 'file_write', 'file_delete', 'file_move', 'lint_fix', 'image_generate']);
 
 /**
  * Read-only tools that can be batched freely within a single iteration.
@@ -205,6 +208,7 @@ export const MUTATION_TOOL_NAMES = new Set([
 	'lint_fix',
 	'dependencies_update',
 	'asset_settings_update',
+	'image_generate',
 ]);
 
 // =============================================================================

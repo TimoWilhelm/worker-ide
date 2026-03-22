@@ -19,14 +19,22 @@ import {
 	PLAN_MODE_SYSTEM_PROMPT,
 } from '@shared/constants';
 
+import { readTodos } from './tool-executor';
+
 /**
  * Build the complete system prompts array for the agent.
  *
  * @param projectRoot - Absolute path to the project root
  * @param mode - Current agent mode (code, plan, ask)
  * @param outputLogs - Optional IDE output logs to include
+ * @param sessionId - Optional session ID for reading session-scoped todos
  */
-export async function buildSystemPrompts(projectRoot: string, mode: 'code' | 'plan' | 'ask', outputLogs?: string): Promise<string[]> {
+export async function buildSystemPrompts(
+	projectRoot: string,
+	mode: 'code' | 'plan' | 'ask',
+	outputLogs?: string,
+	sessionId?: string,
+): Promise<string[]> {
 	const prompts: string[] = [];
 
 	let mainPrompt = AGENT_SYSTEM_PROMPT;
@@ -65,6 +73,14 @@ export async function buildSystemPrompts(projectRoot: string, mode: 'code' | 'pl
 		}
 	}
 
+	// Inject current todo list for code and plan modes
+	if (mode !== 'ask') {
+		const todosContext = await readCurrentTodos(projectRoot, sessionId);
+		if (todosContext) {
+			mainPrompt += `\n\n## Active Todo List\nThis is your current task list. Use it to track progress and decide what to work on next.\n\n${todosContext}`;
+		}
+	}
+
 	// Append IDE output logs (bundle errors, server logs, client console, lint)
 	if (outputLogs && outputLogs.trim().length > 0) {
 		mainPrompt += `\n\n## IDE Output Logs\nThe following are recent output messages from the IDE (bundle errors, server logs, client console logs, lint diagnostics). Use these to diagnose issues the user may be experiencing.\n\n<output_logs>\n${outputLogs}\n</output_logs>`;
@@ -89,6 +105,25 @@ async function readAgentsContext(projectRoot: string): Promise<string | undefine
 			content = content.slice(0, AGENTS_MD_MAX_CHARACTERS) + '\n...(truncated)';
 		}
 		return content;
+	} catch {
+		return undefined;
+	}
+}
+
+/**
+ * Read the current todo list for a session.
+ * Returns a formatted string of todos, or undefined if none exist.
+ */
+async function readCurrentTodos(projectRoot: string, sessionId?: string): Promise<string | undefined> {
+	try {
+		const todos = await readTodos(projectRoot, sessionId);
+		if (todos.length === 0) return undefined;
+
+		const lines = todos.map((todo) => {
+			const statusIcon = todo.status === 'completed' ? '[x]' : todo.status === 'in_progress' ? '[~]' : '[ ]';
+			return `- ${statusIcon} (${todo.priority}) ${todo.content}`;
+		});
+		return lines.join('\n');
 	} catch {
 		return undefined;
 	}

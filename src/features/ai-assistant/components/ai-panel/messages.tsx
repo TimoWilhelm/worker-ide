@@ -22,6 +22,7 @@ import {
 	FolderSearch,
 	Globe,
 	HelpCircle,
+	Image,
 	ListTodo,
 	Loader2,
 	Map as MapIcon,
@@ -146,6 +147,9 @@ function ToolIcon({ name, className }: { name: ToolName; className?: string }) {
 		}
 		case 'test_run': {
 			return <FlaskConical className={cn('size-3', className)} />;
+		}
+		case 'image_generate': {
+			return <Image className={cn('size-3', className)} />;
 		}
 		default: {
 			return <FileText className={cn('size-3', className)} />;
@@ -518,6 +522,7 @@ export function AssistantMessage({
 							toolErrors={toolErrors}
 							toolMetadata={toolMetadata}
 							fileDiffContent={fileDiffContent}
+							isStreaming={streaming}
 							isExpanded={expandedSections.has(segment.key)}
 							onToggleExpand={() => toggleSection(segment.key)}
 						/>
@@ -859,6 +864,13 @@ function summarizeFromMetadata(toolName: ToolName | undefined, info: ToolMetadat
 				return `${metadata.failed} failed, ${metadata.passed} passed`;
 			}
 			return undefined;
+		}
+
+		case 'image_generate': {
+			if (typeof metadata.sizeKilobytes === 'string') {
+				return `Generated (${metadata.sizeKilobytes} KB)`;
+			}
+			return 'Generated';
 		}
 
 		case 'user_question': {
@@ -1410,6 +1422,7 @@ function InlineToolCall({
 	toolErrors,
 	toolMetadata,
 	fileDiffContent,
+	isStreaming,
 	isExpanded,
 	onToggleExpand,
 }: {
@@ -1418,14 +1431,17 @@ function InlineToolCall({
 	toolErrors?: Map<string, ToolErrorInfo>;
 	toolMetadata?: Map<string, ToolMetadataInfo>;
 	fileDiffContent?: Map<string, { beforeContent: string; afterContent: string }>;
+	isStreaming?: boolean;
 	isExpanded: boolean;
 	onToggleExpand: () => void;
 }) {
 	const knownToolName: ToolName | undefined = isToolName(toolCall.name) ? toolCall.name : undefined;
 	const displayToolName = toolCall.name || 'unknown';
 	const isCompleted = toolCall.state === 'input-complete' && (toolResult !== undefined || toolCall.output !== undefined);
-	const isStreaming = toolCall.state === 'input-streaming' || toolCall.state === 'awaiting-input';
+	const isInputStreaming = toolCall.state === 'input-streaming' || toolCall.state === 'awaiting-input';
 	const isExecuting = toolCall.state === 'input-complete' && !isCompleted;
+	// Tool call was in-flight when the stream was cancelled — no result will arrive.
+	const isCancelled = isExecuting && !isStreaming;
 	const rawResultContent = getToolResultContent(toolCall, toolResult);
 	const isUnknownTool = knownToolName === undefined;
 
@@ -1478,7 +1494,7 @@ function InlineToolCall({
 	// Streaming content preview for file-writing tools.
 	// Extract the content or new_string being streamed from partial arguments.
 	const streamingContent =
-		isStreaming && CONTENT_STREAMING_TOOLS.has(toolCall.name)
+		isInputStreaming && CONTENT_STREAMING_TOOLS.has(toolCall.name)
 			? typeof input.content === 'string'
 				? input.content
 				: typeof input.new_string === 'string'
@@ -1528,9 +1544,11 @@ function InlineToolCall({
 					? summarizeFromMetadata(knownToolName, structuredMetadata)
 					: isCompleted
 						? 'Completed'
-						: isExecuting
-							? 'Running...'
-							: undefined;
+						: isCancelled
+							? 'Cancelled'
+							: isExecuting
+								? 'Running...'
+								: undefined;
 
 	// Diagnostics from metadata for expanded view
 	const diagnostics = metadata && Array.isArray(metadata.diagnostics) ? metadata.diagnostics : undefined;
@@ -1566,7 +1584,7 @@ function InlineToolCall({
 			>
 				{expandable ? (
 					<ChevronRight className={cn('size-3 shrink-0 transition-transform', isExpanded && 'rotate-90')} />
-				) : !isCompleted && !isError ? (
+				) : !isCompleted && !isError && !isCancelled ? (
 					<Loader2 className="size-3 shrink-0 animate-spin text-accent" />
 				) : undefined}
 				<span className={cn('shrink-0', isCompleted && !isError && 'text-success', isError && 'text-error')}>

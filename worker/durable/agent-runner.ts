@@ -71,7 +71,7 @@ export interface StartAgentParameters {
 	messages: UIMessage[];
 	mode?: 'code' | 'plan' | 'ask';
 	sessionId?: string;
-	model?: string;
+	model?: AIModelId;
 	outputLogs?: string;
 }
 
@@ -499,6 +499,9 @@ export class AgentRunner extends DurableObject {
 		const projectId = parameters.projectId;
 		let finalStatus: AgentSessionStatus = 'completed';
 		let errorMessage: string | undefined;
+		// Declared here so catch/finally can log session-level events
+		let logger: import('../services/ai-agent/agent-logger').AgentLogger | undefined;
+		let agentService: import('../services/ai-agent/service').AIAgentService | undefined;
 
 		try {
 			// Get the filesystem stub for this project
@@ -506,13 +509,12 @@ export class AgentRunner extends DurableObject {
 			const fsStub = filesystemNamespace.get(fsId);
 
 			const mode = parameters.mode ?? 'code';
-			// eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- model ID validated upstream
-			const model = (parameters.model ?? DEFAULT_AI_MODEL) as AIModelId;
+			const model = parameters.model ?? DEFAULT_AI_MODEL;
 
 			// Convert UIMessage[] to ModelMessage[]
 			const modelMessages = convertMessagesToModelMessages(parameters.messages);
 
-			const agentService = new AIAgentService(
+			agentService = new AIAgentService(
 				PROJECT_ROOT,
 				projectId,
 				fsStub,
@@ -595,12 +597,23 @@ export class AgentRunner extends DurableObject {
 			const abortController = this.agentAbortControllers.get(sessionId) ?? new AbortController();
 			const stream = agentService.runAgentStream(modelMessages, parameters.messages, abortController, parameters.outputLogs);
 
+			// Access the shared logger so agent-runner events appear in the same debug log
+			logger = agentService.getLogger();
+
+			// Log the title generation decision with full context for debugging
+			const existingSessionData = this.ctx.storage.kv.get<AiSession>(`sessionData:${sessionId}`);
+			logger?.info('session', 'title_generation_decision', {
+				needsTitleGeneration,
+				existingTitleGenerated: existingSessionData?.titleGenerated ?? false,
+				existingTitle: existingSessionData?.title,
+			});
+
 			// Get the coordinator stub for broadcasting events
 			const coordinatorId = coordinatorNamespace.idFromName(`project:${projectId}`);
 			const coordinatorStub = coordinatorNamespace.get(coordinatorId);
 
 			let lastHeartbeat = Date.now();
-			let titleGenerationTriggered = !needsTitleGeneration;
+			let titleGenerationPromise: Promise<void> | undefined;
 			for await (const chunk of stream) {
 				const index = this.eventIndices.get(sessionId) ?? 0;
 				this.eventIndices.set(sessionId, index + 1);
@@ -625,12 +638,20 @@ export class AgentRunner extends DurableObject {
 						chunkError && 'message' in chunkError && typeof chunkError.message === 'string'
 							? chunkError.message
 							: 'An unexpected error occurred during generation.';
+					logger?.info('session', 'run_error_received', { errorMessage });
 				}
 
 				// Fire title generation once on the first turn_complete of new sessions.
-				if (!titleGenerationTriggered && 'type' in chunk && chunk.type === 'CUSTOM' && 'name' in chunk && chunk.name === 'turn_complete') {
-					titleGenerationTriggered = true;
-					void this.generateTitle(sessionId, projectId);
+				if ('type' in chunk && chunk.type === 'CUSTOM' && 'name' in chunk && chunk.name === 'turn_complete') {
+					if (needsTitleGeneration && !titleGenerationPromise) {
+						logger?.info('session', 'title_generation_triggered', { sessionId });
+						titleGenerationPromise = this.generateTitle(sessionId, projectId, logger);
+					} else {
+						logger?.debug('session', 'turn_complete_received', {
+							titleGenerationSkipped: true,
+							reason: titleGenerationPromise ? 'already_in_flight' : 'not_needed',
+						});
+					}
 				}
 
 				// Reschedule heartbeat alarm periodically (throttled)
@@ -653,11 +674,25 @@ export class AgentRunner extends DurableObject {
 					// is still buffered for reconnection
 				}
 			}
+			// Await title generation so its logs are captured before the logger flushes.
+			if (titleGenerationPromise) {
+				await titleGenerationPromise.catch(() => {});
+			}
+
+			logger?.info('session', 'stream_completed', {
+				finalStatus,
+				titleGenerationTriggered: titleGenerationPromise !== undefined,
+				errorMessage,
+			});
 		} catch (error) {
 			if (error instanceof Error && error.name === 'AbortError') {
 				finalStatus = 'aborted';
+				logger?.info('session', 'aborted');
 			} else {
 				finalStatus = 'error';
+				logger?.error('session', 'unhandled_error', {
+					error: error instanceof Error ? error.message : String(error),
+				});
 				console.error(`Agent loop error in AgentRunner DO [${sessionId}]:`, error);
 
 				// Emit a RUN_ERROR chunk so the UI shows an error message.
@@ -696,6 +731,8 @@ export class AgentRunner extends DurableObject {
 				}
 			}
 		} finally {
+			logger?.info('session', 'cleanup_started', { finalStatus, errorMessage });
+
 			// Remove the durable running marker — this session completed
 			this.ctx.storage.kv.delete(`running:${sessionId}`);
 
@@ -706,6 +743,7 @@ export class AgentRunner extends DurableObject {
 
 			// Broadcast the final status (with sanitized error message if applicable)
 			await this.broadcastStatusChanged(parameters.projectId, sessionId, finalStatus, undefined, errorMessage).catch(() => {});
+			logger?.info('session', 'status_broadcasted', { finalStatus });
 
 			// Persist the terminal status so reloaded sessions can restore the
 			// AIError UI without relying on the WebSocket broadcast.
@@ -716,12 +754,21 @@ export class AgentRunner extends DurableObject {
 					status: finalStatus,
 					errorMessage: finalStatus === 'error' ? errorMessage : undefined,
 				});
+				logger?.info('session', 'terminal_status_persisted', { finalStatus });
 			}
 
 			// Prune old sessions beyond the rolling limit (best-effort, non-blocking)
 			await this.pruneOldSessions(projectId).catch((error) => {
 				console.error('[AgentRunner] Session pruning failed:', error);
 			});
+
+			// Re-flush the shared logger so session-level entries added above
+			// (after createAgentStream's initial flush) are persisted to disk.
+			// Must use flushLogger() which opens a fresh mount scope — the
+			// original withMounts scope from runAgentStream has already closed.
+			if (agentService && logger && !logger.isFlushed) {
+				await agentService.flushLogger().catch(() => {});
+			}
 		}
 	}
 
@@ -755,33 +802,72 @@ export class AgentRunner extends DurableObject {
 	// Title Generation
 	// =========================================================================
 
-	private async generateTitle(sessionId: string, projectId: string): Promise<void> {
-		if (this.titleGenerationInFlight.has(sessionId)) return;
+	private async generateTitle(
+		sessionId: string,
+		projectId: string,
+		logger?: import('../services/ai-agent/agent-logger').AgentLogger,
+	): Promise<void> {
+		if (this.titleGenerationInFlight.has(sessionId)) {
+			logger?.debug('session', 'title_generation_skipped', { reason: 'already_in_flight' });
+			return;
+		}
 		this.titleGenerationInFlight.add(sessionId);
 
 		try {
 			const sessionData = this.ctx.storage.kv.get<AiSession>(`sessionData:${sessionId}`);
-			if (!sessionData) return;
+			if (!sessionData) {
+				logger?.warn('session', 'title_generation_skipped', { reason: 'no_session_data' });
+				return;
+			}
 
 			const firstUserMessage = sessionData.history.find((message) => message.role === 'user');
 			const firstUserText = firstUserMessage?.parts.find((part) => part.type === 'text');
 			const userText = firstUserText?.type === 'text' ? firstUserText.content : '';
-			if (userText.length === 0) return;
+			if (userText.length === 0) {
+				logger?.warn('session', 'title_generation_skipped', { reason: 'empty_user_text' });
+				return;
+			}
 
 			const firstAssistantMessage = sessionData.history.find((message) => message.role === 'assistant');
 			const firstAssistantText = firstAssistantMessage?.parts.find((part) => part.type === 'text');
 			const assistantText = firstAssistantText?.type === 'text' ? firstAssistantText.content : '';
 
-			const generatedTitle = await generateSessionTitle(userText, assistantText);
+			logger?.info('session', 'title_generation_started', {
+				userTextLength: userText.length,
+				assistantTextLength: assistantText.length,
+			});
+
+			const result = await generateSessionTitle(userText, assistantText);
+
+			logger?.info('session', 'title_generation_completed', {
+				generatedTitle: result.title,
+				isAiGenerated: result.isAiGenerated,
+			});
+
 			// Re-read to avoid overwriting concurrent persist-callback writes.
 			const latest = this.ctx.storage.kv.get<AiSession>(`sessionData:${sessionId}`);
 			if (latest) {
-				this.ctx.storage.kv.put(`sessionData:${sessionId}`, { ...latest, title: generatedTitle, titleGenerated: true });
+				// Only mark titleGenerated when the AI actually produced a title.
+				// Fallback titles (truncated user message) leave titleGenerated unset
+				// so that subsequent turns can retry AI generation.
+				const titleGenerated = result.isAiGenerated ? true : latest.titleGenerated;
+				this.ctx.storage.kv.put(`sessionData:${sessionId}`, {
+					...latest,
+					title: result.title,
+					titleGenerated,
+				});
+				logger?.info('session', 'title_updated_in_kv', {
+					title: result.title,
+					titleGenerated,
+					previousTitle: latest.title,
+				});
 			}
 			// Must use 'running' — a terminal status would remove the session from runningSessionIds mid-stream.
-			await this.broadcastStatusChanged(projectId, sessionId, 'running', generatedTitle);
-		} catch {
-			// Non-fatal — placeholder title remains
+			await this.broadcastStatusChanged(projectId, sessionId, 'running', result.title);
+		} catch (error) {
+			logger?.error('session', 'title_generation_failed', {
+				error: error instanceof Error ? error.message : String(error),
+			});
 		} finally {
 			this.titleGenerationInFlight.delete(sessionId);
 		}

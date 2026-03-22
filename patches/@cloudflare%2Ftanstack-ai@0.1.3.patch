@@ -1,5 +1,28 @@
+diff --git a/dist/chunk-53RO5I22.cjs b/dist/chunk-53RO5I22.cjs
+--- a/dist/chunk-53RO5I22.cjs
++++ b/dist/chunk-53RO5I22.cjs
+@@ -132,7 +132,7 @@ function createWorkersAiBindingFetch(binding, options) {
+       });
+     }
+     const responseObj = typeof result === "object" && result !== null ? result : { response: String(result) };
+-    const responseText = typeof responseObj.response === "string" ? responseObj.response : "";
++    const responseText = typeof responseObj.response === "string" ? responseObj.response : typeof responseObj.response === "object" && responseObj.response !== null ? JSON.stringify(responseObj.response) : "";
+     const message = {
+       role: "assistant",
+       content: responseText
+diff --git a/dist/chunk-727MRLUF.js b/dist/chunk-727MRLUF.js
+--- a/dist/chunk-727MRLUF.js
++++ b/dist/chunk-727MRLUF.js
+@@ -132,7 +132,7 @@ function createWorkersAiBindingFetch(binding, options) {
+       });
+     }
+     const responseObj = typeof result === "object" && result !== null ? result : { response: String(result) };
+-    const responseText = typeof responseObj.response === "string" ? responseObj.response : "";
++    const responseText = typeof responseObj.response === "string" ? responseObj.response : typeof responseObj.response === "object" && responseObj.response !== null ? JSON.stringify(responseObj.response) : "";
+     const message = {
+       role: "assistant",
+       content: responseText
 diff --git a/dist/chunk-DTGQYEJ2.cjs b/dist/chunk-DTGQYEJ2.cjs
-index 4c431902d4455c33d237f5fb16ef71fbbe7730f7..8e9e2cce49c24c76aed0b1714874855e75b0a015 100644
 --- a/dist/chunk-DTGQYEJ2.cjs
 +++ b/dist/chunk-DTGQYEJ2.cjs
 @@ -157,7 +157,7 @@ var WorkersAiTextAdapter = class extends _adapters.BaseTextAdapter {
@@ -30,7 +53,6 @@ index 4c431902d4455c33d237f5fb16ef71fbbe7730f7..8e9e2cce49c24c76aed0b1714874855e
          yield {
            type: "RUN_STARTED",
 diff --git a/dist/chunk-HDDZEGLC.js b/dist/chunk-HDDZEGLC.js
-index 12c10bf26d3ac7e30ba9d44d9a167cdd3c3b2c2d..0ae3aee344b4434f12b22ddb25a383b81e93b5d2 100644
 --- a/dist/chunk-HDDZEGLC.js
 +++ b/dist/chunk-HDDZEGLC.js
 @@ -157,7 +157,7 @@ var WorkersAiTextAdapter = class extends BaseTextAdapter {
