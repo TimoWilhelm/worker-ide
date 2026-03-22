@@ -96,6 +96,13 @@ export class AgentRunner extends DurableObject {
 	 */
 	private eventIndices = new Map<string, number>();
 
+	/**
+	 * Promises for active agent loops, keyed by sessionId.
+	 * Used by abortAgent to await full cleanup (including the finally block)
+	 * before returning, so a subsequent startAgent doesn't race.
+	 */
+	private agentLoopPromises = new Map<string, Promise<void>>();
+
 	/** Guards against concurrent generateTitle calls for the same session. */
 	private titleGenerationInFlight = new Set<string>();
 
@@ -183,6 +190,13 @@ export class AgentRunner extends DurableObject {
 			const parameters = this.ctx.storage.kv.get<StartAgentParameters>(`running:${sessionId}`);
 			this.ctx.storage.kv.delete(`running:${sessionId}`);
 
+			// Wait for the loop's finally block to fully complete so a
+			// subsequent startAgent for the same session doesn't race.
+			const loopPromise = this.agentLoopPromises.get(sessionId);
+			if (loopPromise) {
+				await loopPromise.catch(() => {});
+			}
+
 			// If no active loop, broadcast abort directly (the finally block won't run)
 			if (!controller && parameters) {
 				await this.broadcastStatusChanged(parameters.projectId, sessionId, 'aborted');
@@ -194,6 +208,10 @@ export class AgentRunner extends DurableObject {
 				controller.abort();
 			}
 			this.agentAbortControllers.clear();
+
+			// Wait for all active loops to fully complete
+			const loopPromises = [...this.agentLoopPromises.values()];
+			await Promise.allSettled(loopPromises);
 
 			// Remove all durable running markers and broadcast for orphaned ones
 			for (const [key, parameters] of this.ctx.storage.kv.list<StartAgentParameters>({ prefix: 'running:' })) {
@@ -488,11 +506,15 @@ export class AgentRunner extends DurableObject {
 		// Skip title generation if a previous run already produced one.
 		const needsTitleGeneration = !this.ctx.storage.kv.get<AiSession>(`sessionData:${sessionId}`)?.titleGenerated;
 
-		this.ctx.waitUntil(
-			this.executeAgentLoop(parameters, sessionId, needsTitleGeneration).catch((error) => {
+		const loopPromise = this.executeAgentLoop(parameters, sessionId, needsTitleGeneration)
+			.catch((error) => {
 				console.error(`[AgentRunner ${sessionId}] Unhandled error from executeAgentLoop:`, error);
-			}),
-		);
+			})
+			.finally(() => {
+				this.agentLoopPromises.delete(sessionId);
+			});
+		this.agentLoopPromises.set(sessionId, loopPromise);
+		this.ctx.waitUntil(loopPromise);
 	}
 
 	private async executeAgentLoop(parameters: StartAgentParameters, sessionId: string, needsTitleGeneration = false): Promise<void> {
@@ -740,6 +762,7 @@ export class AgentRunner extends DurableObject {
 			this.agentAbortControllers.delete(sessionId);
 			this.eventBuffers.delete(sessionId);
 			this.eventIndices.delete(sessionId);
+			// Note: agentLoopPromises is cleaned up in launchAgentLoop's .finally()
 
 			// Broadcast the final status (with sanitized error message if applicable)
 			await this.broadcastStatusChanged(parameters.projectId, sessionId, finalStatus, undefined, errorMessage).catch(() => {});

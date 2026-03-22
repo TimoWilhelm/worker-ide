@@ -11,20 +11,7 @@
 
 import { useChat } from '@tanstack/ai-react';
 import { useQueryClient } from '@tanstack/react-query';
-import {
-	ArrowDown,
-	Bot,
-	Download,
-	History,
-	Loader2,
-	Map as MapIcon,
-	MessageCircleQuestion,
-	Plus,
-	Send,
-	SendHorizonal,
-	Square,
-	X,
-} from 'lucide-react';
+import { ArrowDown, Bot, Download, History, Loader2, Map as MapIcon, MessageCircleQuestion, Plus, Send, Square, X } from 'lucide-react';
 import { ScrollArea } from 'radix-ui';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
@@ -82,7 +69,6 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	const [planPath, setPlanPath] = useState<string | undefined>();
 	const [isModelSelectorOpen, setIsModelSelectorOpen] = useState(false);
 	const [showInterruptConfirm, setShowInterruptConfirm] = useState(false);
-	const pendingInterruptMessageReference = useRef<string | undefined>(undefined);
 	const inputReference = useRef<RichTextInputHandle>(null);
 	const userMessageIndexReference = useRef<number>(-1);
 	const activeSnapshotIdReference = useRef<string | undefined>(undefined);
@@ -612,8 +598,9 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	// Sync chatError to aiError (for RUN_ERROR events).
 	// Only surface a chatError once — if the user dismisses it, don't re-trigger
 	// until a genuinely new error arrives from useChat.
+	// Ignore AbortError — the user intentionally cancelled.
 	useEffect(() => {
-		if (chatError && chatError !== lastSurfacedChatErrorReference.current) {
+		if (chatError && chatError !== lastSurfacedChatErrorReference.current && chatError.name !== 'AbortError') {
 			lastSurfacedChatErrorReference.current = chatError;
 			setAiError({ message: chatError.message });
 		}
@@ -809,12 +796,19 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	// Tells the AgentRunner DO to abort the specific session, and stops
 	// the local useChat stream consumer. Session is persisted server-side
 	// when the agent is aborted, so no client-side save is needed here.
+	//
+	// After aborting, we reload the server-side session to restore
+	// messageSnapshots (revert buttons). This is necessary because
+	// useChat's onError returns early for AbortError, so onFinish —
+	// which normally reloads the session — never runs after a cancel.
 	const handleCancel = useCallback(() => {
 		const currentSessionId = useStore.getState().sessionId;
 		stopChat();
 		setHasCancelled(true);
-		// Clear status immediately so "Thinking..." doesn't linger
+		// Clear status and error immediately so "Thinking..." doesn't linger
+		// and any prior error is dismissed (user intentionally stopped).
 		setStatusMessage(undefined);
+		setAiError(undefined);
 		// Prevent the reconnection effect from re-triggering
 		hasTriggeredReconnectReference.current = true;
 		// Abort the agent in the DO with retry — critical for multi-window
@@ -823,27 +817,33 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		void retry(() => abortAgent(projectId, currentSessionId)).catch((error) => {
 			console.error('[AIPanel] Failed to abort agent after retries:', error);
 		});
-	}, [stopChat, projectId, setStatusMessage]);
+		// Reload the server-side session to restore messageSnapshots and
+		// other persisted state. onFinish won't run after abort, so this
+		// is the only path that restores revert buttons.
+		if (currentSessionId) {
+			void loadAiSession(projectId, currentSessionId).then((serverSession) => {
+				// Guard: don't overwrite if the user already navigated away
+				if (useStore.getState().sessionId !== currentSessionId) return;
+				if (serverSession && serverSession.history.length > 0) {
+					skipNextReverseSyncReference.current = true;
+					skipNextForwardSyncReference.current = true;
+					useStore.setState({
+						history: serverSession.history,
+						messageSnapshots: snapshotsRecordToMap(serverSession.messageSnapshots),
+						messageModes: messageModesRecordToMap(serverSession.messageModes),
+					});
+					setChatMessages(serverSession.history);
+				}
+			});
+		}
+	}, [stopChat, projectId, setStatusMessage, setAiError, setChatMessages]);
 
-	// Interrupt current generation and queue the message for sending.
-	// The queued message is sent by an effect when isProcessing becomes false.
-	const handleInterruptAndSend = useCallback(() => {
-		const messageText = inputPlainText.trim();
+	// Interrupt current generation. The user's typed text stays in the
+	// input so they can send it normally once the cancel settles.
+	const handleInterrupt = useCallback(() => {
 		setShowInterruptConfirm(false);
-		if (messageText) {
-			pendingInterruptMessageReference.current = messageText;
-		}
 		handleCancel();
-	}, [handleCancel, inputPlainText]);
-
-	// Effect: send the queued interrupt message once processing stops.
-	useEffect(() => {
-		if (!isProcessing && pendingInterruptMessageReference.current) {
-			const messageText = pendingInterruptMessageReference.current;
-			pendingInterruptMessageReference.current = undefined;
-			void handleSend(messageText);
-		}
-	}, [isProcessing, handleSend]);
+	}, [handleCancel]);
 
 	// Handle keyboard shortcuts
 	const handleKeyDown = useCallback(
@@ -851,11 +851,11 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 			// Let file mention dropdown handle keys first
 			if (handleFileMentionKeyDown(event)) return;
 
-			// Interrupt confirm bar is showing — Enter confirms, Escape dismisses
+			// Interrupt confirm bar is showing — Enter confirms interrupt, Escape dismisses
 			if (showInterruptConfirm) {
 				if (event.key === 'Enter' && !event.shiftKey) {
 					event.preventDefault();
-					handleInterruptAndSend();
+					handleInterrupt();
 					return;
 				}
 				if (event.key === 'Escape') {
@@ -875,7 +875,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 				void handleSend();
 			}
 		},
-		[handleSend, handleFileMentionKeyDown, isProcessing, hasContent, showInterruptConfirm, handleInterruptAndSend],
+		[handleSend, handleFileMentionKeyDown, isProcessing, hasContent, showInterruptConfirm, handleInterrupt],
 	);
 
 	// Retry: use useChat's reload() which atomically trims messages after
@@ -1372,7 +1372,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 								py-1.5
 							"
 						>
-							<span className="flex-1 text-xs text-text-secondary">Interrupt and send now?</span>
+							<span className="flex-1 text-xs text-text-secondary">Interrupt generation?</span>
 							<button
 								type="button"
 								onClick={() => setShowInterruptConfirm(false)}
@@ -1387,15 +1387,15 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 							</button>
 							<button
 								type="button"
-								onClick={handleInterruptAndSend}
+								onClick={handleInterrupt}
 								className="
 									inline-flex cursor-pointer items-center gap-1 rounded-md bg-warning/15
 									px-2 py-0.5 text-xs font-medium text-warning transition-colors
 									hover:bg-warning/25
 								"
 							>
-								<SendHorizonal className="size-3" />
-								Send
+								<Square className="size-3" />
+								Interrupt
 							</button>
 						</div>
 					</Collapsible>

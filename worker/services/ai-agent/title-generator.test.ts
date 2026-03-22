@@ -6,7 +6,7 @@
  * isAiGenerated flag without real API calls.
  */
 
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ---------------------------------------------------------------------------
 // Mocks — must be declared before importing the module under test

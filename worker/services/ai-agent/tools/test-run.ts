@@ -377,6 +377,7 @@ export async function runTests(
 	pattern: string = DEFAULT_GLOB,
 	onStatus?: (message: string) => void,
 	testName?: string,
+	abortSignal?: AbortSignal,
 ): Promise<StructuredTestRunResult> {
 	const report = (message: string) => onStatus?.(message);
 
@@ -425,11 +426,14 @@ export async function runTests(
 	const bundleErrors: Array<{ file: string; error: string }> = [];
 
 	for (const testFile of testFiles) {
+		// Bail early between test files if the agent was cancelled
+		if (abortSignal?.aborted) break;
+
 		const relativePath = testFile.startsWith('/') ? testFile.slice(1) : testFile;
 		report(`Running ${relativePath}...`);
 
 		try {
-			const results = await runSingleTestFile(relativePath, allFiles, tsconfigRaw, knownDependencies, testName);
+			const results = await runSingleTestFile(relativePath, allFiles, tsconfigRaw, knownDependencies, testName, abortSignal);
 			fileResults.push({ file: relativePath, results });
 			totalPassed += results.passed;
 			totalFailed += results.failed;
@@ -478,6 +482,7 @@ export async function execute(
 			sendEvent('status', { message });
 		},
 		input.testName,
+		context.abortSignal,
 	);
 
 	return {
@@ -585,6 +590,7 @@ async function runSingleTestFile(
 	tsconfigRaw: string | undefined,
 	knownDependencies: Map<string, string>,
 	testName?: string,
+	abortSignal?: AbortSignal,
 ): Promise<TestRunResults> {
 	// We use bundleWithCdn to bundle the test file and resolve imports (including CDN deps).
 	// Imported lazily to avoid circular dependency at module load time.
@@ -627,9 +633,12 @@ async function runSingleTestFile(
 
 	const entrypoint = worker.getEntrypoint();
 
-	// Execute with timeout
+	// Execute with timeout, linked to the parent abort signal so
+	// cancelling the agent also cancels the in-flight test.
 	const controller = new AbortController();
 	const timeout = setTimeout(() => controller.abort(), TEST_TIMEOUT_MS);
+	const onParentAbort = () => controller.abort();
+	abortSignal?.addEventListener('abort', onParentAbort);
 
 	try {
 		const fetchUrl = testName ? `http://test-runner/?testName=${encodeURIComponent(testName)}` : 'http://test-runner/';
@@ -643,6 +652,7 @@ async function runSingleTestFile(
 		throw error;
 	} finally {
 		clearTimeout(timeout);
+		abortSignal?.removeEventListener('abort', onParentAbort);
 	}
 }
 
