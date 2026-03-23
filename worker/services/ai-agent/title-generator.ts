@@ -1,5 +1,9 @@
 /**
  * AI-powered session title generation.
+ *
+ * Only requires the user's first message — no dependency on the assistant
+ * response. This allows title generation to fire immediately when a session
+ * starts, completely independent of the agent stream lifecycle.
  */
 
 import { chat, maxIterations } from '@tanstack/ai';
@@ -13,10 +17,10 @@ const TITLE_MODEL = '@cf/meta/llama-3.1-8b-instruct';
 const MAX_TITLE_LENGTH = 100;
 const FALLBACK_TRUNCATION_LENGTH = 50;
 
-const SYSTEM_PROMPT = 'Generate a short title (under 10 words) that summarizes this conversation.';
+const SYSTEM_PROMPT = 'Generate a short title (under 10 words) that summarizes the intent of this user message. Reply with just the title.';
 
 const titleSchema = z.object({
-	title: z.string().describe('A concise title under 10 words summarizing the conversation'),
+	title: z.string().describe('A concise title under 10 words summarizing the user intent'),
 });
 
 export interface SessionTitleResult {
@@ -26,23 +30,17 @@ export interface SessionTitleResult {
 
 /**
  * Generate a short title for an AI agent session.
- * Falls back to truncating the first user message on failure.
+ * Falls back to truncating the user message on failure.
  */
-export async function generateSessionTitle(firstUserMessage: string, firstAssistantResponse: string): Promise<SessionTitleResult> {
-	const fallback = deriveFallbackTitle(firstUserMessage);
-
-	const userMessage = [
-		`User message: ${firstUserMessage.slice(0, 500)}`,
-		'',
-		`Assistant response (excerpt): ${firstAssistantResponse.slice(0, 500)}`,
-	].join('\n');
+export async function generateSessionTitle(userMessage: string): Promise<SessionTitleResult> {
+	const fallback = deriveFallbackTitle(userMessage);
 
 	try {
 		const adapter = createAdapter(TITLE_MODEL);
 
 		const result = await chat({
 			adapter,
-			messages: [{ role: 'user', content: userMessage }],
+			messages: [{ role: 'user', content: userMessage.slice(0, 500) }],
 			systemPrompts: [SYSTEM_PROMPT],
 			maxTokens: 500,
 			agentLoopStrategy: maxIterations(1),

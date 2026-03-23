@@ -784,6 +784,7 @@ export class AIAgentService {
 							tools,
 							maxTokens: modelLimits.maxOutput,
 							agentLoopStrategy: maxIterations(1),
+							abortController,
 						});
 
 						// Consume the AG-UI event stream from chat()

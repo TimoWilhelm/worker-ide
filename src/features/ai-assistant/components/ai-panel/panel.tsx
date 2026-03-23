@@ -47,7 +47,7 @@ import { FileMentionDropdown } from '../file-mention-dropdown';
 import { RevertConfirmDialog } from '../revert-confirm-dialog';
 import { RichTextInput, type RichTextInputHandle } from '../rich-text-input';
 
-import type { ToolErrorInfo, ToolMetadataInfo, UIMessage } from '@shared/types';
+import type { AiSession, ToolErrorInfo, ToolMetadataInfo, UIMessage } from '@shared/types';
 
 // =============================================================================
 // Component
@@ -370,21 +370,16 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 				return;
 			}
 
-			// Reload the full server-side session to capture the final
-			// persisted state (covers both fresh runs and reconnections).
+			// Merge server-side metadata (snapshots, modes, tool records) so
+			// revert buttons and mode badges reflect the canonical persisted
+			// state. We do not replace chatMessages — the client's in-memory
+			// messages are the most complete source at this point.
 			const currentSessionId = useStore.getState().sessionId;
 			if (currentSessionId) {
 				void loadAiSession(projectId, currentSessionId).then((serverSession) => {
 					if (revertInProgressReference.current) return;
-					if (serverSession && serverSession.history.length > 0) {
-						setChatMessages(serverSession.history);
-						// Restore canonical messageSnapshots and messageModes from the
-						// server so revert buttons survive turns where snapshot_deleted
-						// cleared the client-side state (e.g. no file changes this turn).
-						useStore.setState({
-							messageSnapshots: snapshotsRecordToMap(serverSession.messageSnapshots),
-							messageModes: messageModesRecordToMap(serverSession.messageModes),
-						});
+					if (serverSession) {
+						mergeServerSessionMetadata(serverSession);
 					}
 				});
 			}
@@ -460,6 +455,31 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 			}
 		},
 		[],
+	);
+
+	/**
+	 * Merge server-side session metadata into client state without replacing
+	 * the in-memory message history.
+	 *
+	 * After stream completion or cancellation the client's chatMessages are the
+	 * most complete source of truth — they include thinking content, partial
+	 * text, and tool results that may not yet be persisted server-side. We only
+	 * pull the metadata that only the server knows: snapshot IDs for revert
+	 * buttons, per-message agent mode badges, and supplemental tool
+	 * metadata/error records.
+	 */
+	const mergeServerSessionMetadata = useCallback(
+		(serverSession: AiSession) => {
+			useStore.setState({
+				messageSnapshots: snapshotsRecordToMap(serverSession.messageSnapshots),
+				messageModes: messageModesRecordToMap(serverSession.messageModes),
+			});
+			handleSessionLoaded({
+				toolMetadata: serverSession.toolMetadata,
+				toolErrors: serverSession.toolErrors,
+			});
+		},
+		[handleSessionLoaded],
 	);
 
 	// Smart auto-scroll: stops when user scrolls up, shows pill for new content.
@@ -797,10 +817,12 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	// the local useChat stream consumer. Session is persisted server-side
 	// when the agent is aborted, so no client-side save is needed here.
 	//
-	// After aborting, we reload the server-side session to restore
-	// messageSnapshots (revert buttons). This is necessary because
-	// useChat's onError returns early for AbortError, so onFinish —
-	// which normally reloads the session — never runs after a cancel.
+	// After aborting, we merge server-side metadata (snapshot IDs for revert
+	// buttons, mode badges) into the existing client state. onFinish won't run
+	// after an abort, so this is the only path that restores that metadata.
+	// We intentionally do NOT replace chatMessages with the server history —
+	// the client's in-memory messages are the most complete source at this point
+	// and include thinking content / partial text that may not yet be persisted.
 	const handleCancel = useCallback(() => {
 		const currentSessionId = useStore.getState().sessionId;
 		stopChat();
@@ -817,26 +839,17 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		void retry(() => abortAgent(projectId, currentSessionId)).catch((error) => {
 			console.error('[AIPanel] Failed to abort agent after retries:', error);
 		});
-		// Reload the server-side session to restore messageSnapshots and
-		// other persisted state. onFinish won't run after abort, so this
-		// is the only path that restores revert buttons.
+		// Fetch the server session to pick up any metadata persisted so far.
+		// Guard against the user having navigated to a different session.
 		if (currentSessionId) {
 			void loadAiSession(projectId, currentSessionId).then((serverSession) => {
-				// Guard: don't overwrite if the user already navigated away
 				if (useStore.getState().sessionId !== currentSessionId) return;
-				if (serverSession && serverSession.history.length > 0) {
-					skipNextReverseSyncReference.current = true;
-					skipNextForwardSyncReference.current = true;
-					useStore.setState({
-						history: serverSession.history,
-						messageSnapshots: snapshotsRecordToMap(serverSession.messageSnapshots),
-						messageModes: messageModesRecordToMap(serverSession.messageModes),
-					});
-					setChatMessages(serverSession.history);
+				if (serverSession) {
+					mergeServerSessionMetadata(serverSession);
 				}
 			});
 		}
-	}, [stopChat, projectId, setStatusMessage, setAiError, setChatMessages]);
+	}, [stopChat, projectId, setStatusMessage, setAiError, mergeServerSessionMetadata]);
 
 	// Interrupt current generation. The user's typed text stays in the
 	// input so they can send it normally once the cancel settles.
