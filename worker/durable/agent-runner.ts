@@ -486,10 +486,12 @@ export class AgentRunner extends DurableObject {
 		const emptySession: Partial<AiSession> = {};
 		const base = existingSession ?? emptySession;
 
-		// Derive a placeholder title from the last user message until the AI generates a proper one
+		// Extract the latest user message text — used for the placeholder title
+		// and (if needed) as input to AI title generation.
 		const lastUserMessage = parameters.messages.toReversed().find((message) => message.role === 'user');
-		const firstTextPart = lastUserMessage?.parts.find((part) => part.type === 'text');
-		const promptPreview = (firstTextPart?.type === 'text' ? firstTextPart.content.slice(0, 80) : undefined) || 'New session';
+		const lastUserTextPart = lastUserMessage?.parts.find((part) => part.type === 'text');
+		const lastUserText = lastUserTextPart?.type === 'text' ? lastUserTextPart.content : '';
+		const promptPreview = lastUserText.slice(0, 80) || 'New session';
 
 		this.ctx.storage.kv.put(`sessionData:${sessionId}`, {
 			...base,
@@ -503,10 +505,14 @@ export class AgentRunner extends DurableObject {
 		// Create a new abort controller for this run
 		this.agentAbortControllers.set(sessionId, new AbortController());
 
-		// Skip title generation if a previous run already produced one.
-		const needsTitleGeneration = !this.ctx.storage.kv.get<AiSession>(`sessionData:${sessionId}`)?.titleGenerated;
+		// Fire title generation immediately if this session hasn't had an
+		// AI-generated title yet. This runs completely independently of the
+		// agent stream — aborting the agent does not interrupt it.
+		if (lastUserText.length > 0 && !this.ctx.storage.kv.get<AiSession>(`sessionData:${sessionId}`)?.titleGenerated) {
+			this.ctx.waitUntil(this.generateTitle(sessionId, parameters.projectId, lastUserText));
+		}
 
-		const loopPromise = this.executeAgentLoop(parameters, sessionId, needsTitleGeneration)
+		const loopPromise = this.executeAgentLoop(parameters, sessionId)
 			.catch((error) => {
 				console.error(`[AgentRunner ${sessionId}] Unhandled error from executeAgentLoop:`, error);
 			})
@@ -517,7 +523,7 @@ export class AgentRunner extends DurableObject {
 		this.ctx.waitUntil(loopPromise);
 	}
 
-	private async executeAgentLoop(parameters: StartAgentParameters, sessionId: string, needsTitleGeneration = false): Promise<void> {
+	private async executeAgentLoop(parameters: StartAgentParameters, sessionId: string): Promise<void> {
 		const projectId = parameters.projectId;
 		let finalStatus: AgentSessionStatus = 'completed';
 		let errorMessage: string | undefined;
@@ -622,20 +628,11 @@ export class AgentRunner extends DurableObject {
 			// Access the shared logger so agent-runner events appear in the same debug log
 			logger = agentService.getLogger();
 
-			// Log the title generation decision with full context for debugging
-			const existingSessionData = this.ctx.storage.kv.get<AiSession>(`sessionData:${sessionId}`);
-			logger?.info('session', 'title_generation_decision', {
-				needsTitleGeneration,
-				existingTitleGenerated: existingSessionData?.titleGenerated ?? false,
-				existingTitle: existingSessionData?.title,
-			});
-
 			// Get the coordinator stub for broadcasting events
 			const coordinatorId = coordinatorNamespace.idFromName(`project:${projectId}`);
 			const coordinatorStub = coordinatorNamespace.get(coordinatorId);
 
 			let lastHeartbeat = Date.now();
-			let titleGenerationPromise: Promise<void> | undefined;
 			for await (const chunk of stream) {
 				const index = this.eventIndices.get(sessionId) ?? 0;
 				this.eventIndices.set(sessionId, index + 1);
@@ -663,19 +660,6 @@ export class AgentRunner extends DurableObject {
 					logger?.info('session', 'run_error_received', { errorMessage });
 				}
 
-				// Fire title generation once on the first turn_complete of new sessions.
-				if ('type' in chunk && chunk.type === 'CUSTOM' && 'name' in chunk && chunk.name === 'turn_complete') {
-					if (needsTitleGeneration && !titleGenerationPromise) {
-						logger?.info('session', 'title_generation_triggered', { sessionId });
-						titleGenerationPromise = this.generateTitle(sessionId, projectId, logger);
-					} else {
-						logger?.debug('session', 'turn_complete_received', {
-							titleGenerationSkipped: true,
-							reason: titleGenerationPromise ? 'already_in_flight' : 'not_needed',
-						});
-					}
-				}
-
 				// Reschedule heartbeat alarm periodically (throttled)
 				const now = Date.now();
 				if (now - lastHeartbeat >= HEARTBEAT_INTERVAL_MS) {
@@ -696,14 +680,8 @@ export class AgentRunner extends DurableObject {
 					// is still buffered for reconnection
 				}
 			}
-			// Await title generation so its logs are captured before the logger flushes.
-			if (titleGenerationPromise) {
-				await titleGenerationPromise.catch(() => {});
-			}
-
 			logger?.info('session', 'stream_completed', {
 				finalStatus,
-				titleGenerationTriggered: titleGenerationPromise !== undefined,
 				errorMessage,
 			});
 		} catch (error) {
@@ -825,47 +803,18 @@ export class AgentRunner extends DurableObject {
 	// Title Generation
 	// =========================================================================
 
-	private async generateTitle(
-		sessionId: string,
-		projectId: string,
-		logger?: import('../services/ai-agent/agent-logger').AgentLogger,
-	): Promise<void> {
+	private async generateTitle(sessionId: string, projectId: string, userText: string): Promise<void> {
 		if (this.titleGenerationInFlight.has(sessionId)) {
-			logger?.debug('session', 'title_generation_skipped', { reason: 'already_in_flight' });
 			return;
 		}
 		this.titleGenerationInFlight.add(sessionId);
 
 		try {
-			const sessionData = this.ctx.storage.kv.get<AiSession>(`sessionData:${sessionId}`);
-			if (!sessionData) {
-				logger?.warn('session', 'title_generation_skipped', { reason: 'no_session_data' });
-				return;
-			}
-
-			const firstUserMessage = sessionData.history.find((message) => message.role === 'user');
-			const firstUserText = firstUserMessage?.parts.find((part) => part.type === 'text');
-			const userText = firstUserText?.type === 'text' ? firstUserText.content : '';
 			if (userText.length === 0) {
-				logger?.warn('session', 'title_generation_skipped', { reason: 'empty_user_text' });
 				return;
 			}
 
-			const firstAssistantMessage = sessionData.history.find((message) => message.role === 'assistant');
-			const firstAssistantText = firstAssistantMessage?.parts.find((part) => part.type === 'text');
-			const assistantText = firstAssistantText?.type === 'text' ? firstAssistantText.content : '';
-
-			logger?.info('session', 'title_generation_started', {
-				userTextLength: userText.length,
-				assistantTextLength: assistantText.length,
-			});
-
-			const result = await generateSessionTitle(userText, assistantText);
-
-			logger?.info('session', 'title_generation_completed', {
-				generatedTitle: result.title,
-				isAiGenerated: result.isAiGenerated,
-			});
+			const result = await generateSessionTitle(userText);
 
 			// Re-read to avoid overwriting concurrent persist-callback writes.
 			const latest = this.ctx.storage.kv.get<AiSession>(`sessionData:${sessionId}`);
@@ -879,18 +828,12 @@ export class AgentRunner extends DurableObject {
 					title: result.title,
 					titleGenerated,
 				});
-				logger?.info('session', 'title_updated_in_kv', {
-					title: result.title,
-					titleGenerated,
-					previousTitle: latest.title,
-				});
 			}
-			// Must use 'running' — a terminal status would remove the session from runningSessionIds mid-stream.
+			// Broadcast with 'running' — a terminal status would remove the
+			// session from runningSessionIds while the stream is still active.
 			await this.broadcastStatusChanged(projectId, sessionId, 'running', result.title);
-		} catch (error) {
-			logger?.error('session', 'title_generation_failed', {
-				error: error instanceof Error ? error.message : String(error),
-			});
+		} catch {
+			// Non-fatal — the placeholder title from launchAgentLoop remains.
 		} finally {
 			this.titleGenerationInFlight.delete(sessionId);
 		}

@@ -31,7 +31,6 @@ const { generateSessionTitle, deriveFallbackTitle } = await import('./title-gene
 // ---------------------------------------------------------------------------
 
 const USER_MESSAGE = 'Help me build a todo app with React and TypeScript';
-const ASSISTANT_RESPONSE = 'I will create a React TypeScript todo application with add, delete, and toggle functionality.';
 
 function mockStructuredResponse(title: string) {
 	mockChat.mockResolvedValueOnce({ title });
@@ -52,45 +51,55 @@ describe('generateSessionTitle', () => {
 
 	it('returns an AI-generated title on success', async () => {
 		mockStructuredResponse('React TypeScript Todo App');
-		const result = await generateSessionTitle(USER_MESSAGE, ASSISTANT_RESPONSE);
+		const result = await generateSessionTitle(USER_MESSAGE);
 		expect(result.title).toBe('React TypeScript Todo App');
 		expect(result.isAiGenerated).toBe(true);
 	});
 
 	it('enforces max title length', async () => {
 		mockStructuredResponse('A'.repeat(200));
-		const result = await generateSessionTitle(USER_MESSAGE, ASSISTANT_RESPONSE);
+		const result = await generateSessionTitle(USER_MESSAGE);
 		expect(result.title.length).toBeLessThanOrEqual(100);
 		expect(result.isAiGenerated).toBe(true);
 	});
 
 	it('falls back when AI returns empty title', async () => {
 		mockStructuredResponse('');
-		const result = await generateSessionTitle(USER_MESSAGE, ASSISTANT_RESPONSE);
+		const result = await generateSessionTitle(USER_MESSAGE);
 		expect(result.title).toBe(deriveFallbackTitle(USER_MESSAGE));
 		expect(result.isAiGenerated).toBe(false);
 	});
 
 	it('falls back when AI returns whitespace-only title', async () => {
 		mockStructuredResponse('   ');
-		const result = await generateSessionTitle(USER_MESSAGE, ASSISTANT_RESPONSE);
+		const result = await generateSessionTitle(USER_MESSAGE);
 		expect(result.title).toBe(deriveFallbackTitle(USER_MESSAGE));
 		expect(result.isAiGenerated).toBe(false);
 	});
 
 	it('falls back when chat() throws an error', async () => {
 		mockChatError('Service temporarily unavailable');
-		const result = await generateSessionTitle(USER_MESSAGE, ASSISTANT_RESPONSE);
+		const result = await generateSessionTitle(USER_MESSAGE);
 		expect(result.title).toBe(deriveFallbackTitle(USER_MESSAGE));
 		expect(result.isAiGenerated).toBe(false);
 	});
 
-	it('passes outputSchema to chat()', async () => {
+	it('passes only the user message to chat()', async () => {
 		mockStructuredResponse('Test Title');
-		await generateSessionTitle(USER_MESSAGE, ASSISTANT_RESPONSE);
+		await generateSessionTitle(USER_MESSAGE);
 		expect(mockChat).toHaveBeenCalledOnce();
 		const callArguments = mockChat.mock.calls[0][0];
 		expect(callArguments.outputSchema).toBeDefined();
+		expect(callArguments.messages).toHaveLength(1);
+		expect(callArguments.messages[0].content).toBe(USER_MESSAGE);
+	});
+
+	it('truncates long user messages to 500 characters', async () => {
+		const longMessage = 'A'.repeat(1000);
+		mockStructuredResponse('Title for Long Message');
+		await generateSessionTitle(longMessage);
+		const callArguments = mockChat.mock.calls[0][0];
+		expect(callArguments.messages[0].content).toBe('A'.repeat(500));
 	});
 });
 
