@@ -16,3 +16,5 @@ playwright-report
 !.dev.vars.example
 .env.*
 !.env.example
+
+vendor/*.version

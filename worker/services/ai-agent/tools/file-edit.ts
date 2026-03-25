@@ -12,7 +12,7 @@ import { createHmrUpdateForFile } from '@shared/types';
 
 import { replace } from './replacers';
 import { coordinatorNamespace } from '../../../lib/durable-object-namespaces';
-import { isHiddenPath, isPathSafe } from '../../../lib/path-utilities';
+import { isHiddenPath, isPathSafe, suggestSimilarFiles } from '../../../lib/path-utilities';
 import { formatLintDiagnostics, lintFile } from '../../../services/lint-service';
 import { assertFileWasRead, recordFileRead } from '../file-time';
 import { computeDiffStats, generateCompactDiff } from '../utilities';
@@ -70,7 +70,7 @@ export async function execute(
 
 	// Validate path
 	if (!isPathSafe(projectRoot, editPath)) {
-		return toolError(ToolErrorCode.INVALID_PATH, 'Invalid file path');
+		return toolError(ToolErrorCode.INVALID_PATH, `Invalid file path: ${editPath}`);
 	}
 
 	if (isHiddenPath(editPath)) {
@@ -95,7 +95,8 @@ export async function execute(
 	try {
 		content = await fs.readFile(`${projectRoot}${editPath}`, 'utf8');
 	} catch {
-		return toolError(ToolErrorCode.FILE_NOT_FOUND, `File not found: ${editPath}`);
+		const suggestion = await suggestSimilarFiles(projectRoot, editPath);
+		return toolError(ToolErrorCode.FILE_NOT_FOUND, `File not found: ${editPath}${suggestion ? `. ${suggestion}` : ''}`);
 	}
 
 	const beforeContent = content;

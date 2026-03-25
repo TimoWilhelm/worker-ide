@@ -7,7 +7,6 @@ import { describe, expect, it } from 'vitest';
 import {
 	filePathSchema,
 	writeFileSchema,
-	aiChatMessageSchema,
 	sessionIdSchema,
 	snapshotIdSchema,
 	revertCascadeSchema,
@@ -76,42 +75,6 @@ describe('writeFileSchema', () => {
 		const result = writeFileSchema.safeParse({
 			path: '/src/main.ts',
 		});
-		expect(result.success).toBe(false);
-	});
-});
-
-// =============================================================================
-// aiChatMessageSchema
-// =============================================================================
-
-describe('aiChatMessageSchema', () => {
-	it('accepts valid chat input with messages array', () => {
-		const result = aiChatMessageSchema.safeParse({
-			messages: [{ id: 'msg-1', role: 'user', parts: [{ type: 'text', content: 'Help me fix this bug' }] }],
-		});
-		expect(result.success).toBe(true);
-	});
-
-	it('accepts input with multiple messages', () => {
-		const result = aiChatMessageSchema.safeParse({
-			messages: [
-				{ id: 'msg-1', role: 'user', parts: [{ type: 'text', content: 'previous message' }] },
-				{ id: 'msg-2', role: 'assistant', parts: [{ type: 'text', content: 'response' }] },
-				{ id: 'msg-3', role: 'user', parts: [{ type: 'text', content: 'Continue' }] },
-			],
-		});
-		expect(result.success).toBe(true);
-	});
-
-	it('rejects empty messages array', () => {
-		const result = aiChatMessageSchema.safeParse({
-			messages: [],
-		});
-		expect(result.success).toBe(false);
-	});
-
-	it('rejects missing messages field', () => {
-		const result = aiChatMessageSchema.safeParse({});
 		expect(result.success).toBe(false);
 	});
 });
@@ -348,57 +311,6 @@ describe('todoItemSchema', () => {
 			content: '',
 			status: 'pending',
 			priority: 'high',
-		});
-		expect(result.success).toBe(false);
-	});
-});
-
-// =============================================================================
-// aiChatMessageSchema — plan mode and session ID
-// =============================================================================
-
-describe('aiChatMessageSchema mode and session fields', () => {
-	const validMessages = [{ id: 'msg-1', role: 'user', parts: [{ type: 'text', content: 'Hello' }] }];
-
-	it('accepts mode enum values', () => {
-		for (const mode of ['code', 'plan', 'ask']) {
-			const result = aiChatMessageSchema.safeParse({
-				messages: validMessages,
-				mode,
-			});
-			expect(result.success).toBe(true);
-		}
-	});
-
-	it('rejects invalid mode value', () => {
-		const result = aiChatMessageSchema.safeParse({
-			messages: validMessages,
-			mode: 'invalid',
-		});
-		expect(result.success).toBe(false);
-	});
-
-	it('accepts sessionId string', () => {
-		const result = aiChatMessageSchema.safeParse({
-			messages: validMessages,
-			sessionId: 'abc123',
-		});
-		expect(result.success).toBe(true);
-	});
-
-	it('accepts both mode and sessionId', () => {
-		const result = aiChatMessageSchema.safeParse({
-			messages: validMessages,
-			mode: 'plan',
-			sessionId: 'session1',
-		});
-		expect(result.success).toBe(true);
-	});
-
-	it('rejects sessionId exceeding max length', () => {
-		const result = aiChatMessageSchema.safeParse({
-			messages: validMessages,
-			sessionId: 'a'.repeat(LIMITS.SESSION_ID_MAX_LENGTH + 1),
 		});
 		expect(result.success).toBe(false);
 	});

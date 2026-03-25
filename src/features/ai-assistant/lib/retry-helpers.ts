@@ -2,16 +2,16 @@
  * Helper functions for AI retry logic.
  * Extracted for testability.
  *
- * Works with UIMessage (TanStack AI) which has `parts: MessagePart[]`.
+ * Works with ChatMessage which has `parts: MessagePart[]`.
  * Text content is in TextPart: { type: 'text', content: string }.
  */
 
-import type { UIMessage } from '@shared/types';
+import type { ChatMessage } from '@shared/types';
 
 /**
- * Extract the text content from a UIMessage.
+ * Extract the text content from a ChatMessage.
  */
-export function extractMessageText(message: UIMessage): string {
+export function extractMessageText(message: ChatMessage): string {
 	return message.parts
 		.filter((part): part is { type: 'text'; content: string } => part.type === 'text')
 		.map((part) => part.content)
@@ -21,7 +21,7 @@ export function extractMessageText(message: UIMessage): string {
 /**
  * Find the last user message in history.
  */
-export function findLastUserMessage(history: UIMessage[]): UIMessage | undefined {
+export function findLastUserMessage(history: ChatMessage[]): ChatMessage | undefined {
 	return [...history].toReversed().find((message) => message.role === 'user');
 }
 
@@ -36,7 +36,7 @@ export function findLastUserMessage(history: UIMessage[]): UIMessage | undefined
  *
  * Returns the index after which to remove (exclusive).
  */
-export function getRemoveAfterIndex(history: UIMessage[]): number {
+export function getRemoveAfterIndex(history: ChatMessage[]): number {
 	if (history.length === 0) {
 		return 0;
 	}
@@ -60,7 +60,7 @@ export function getRemoveAfterIndex(history: UIMessage[]): number {
  * Prepare for retry by extracting the prompt text and calculating the remove index.
  * Returns undefined if there's no user message to retry.
  */
-export function prepareRetry(history: UIMessage[]): { promptText: string; removeAfterIndex: number } | undefined {
+export function prepareRetry(history: ChatMessage[]): { promptText: string; removeAfterIndex: number } | undefined {
 	const lastUserMessage = findLastUserMessage(history);
 	if (!lastUserMessage) {
 		return undefined;

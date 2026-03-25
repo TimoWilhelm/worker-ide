@@ -118,13 +118,6 @@ export function normalizePath(path: string): string {
 }
 
 /**
- * Sleep for a given number of milliseconds.
- */
-export function sleep(milliseconds: number): Promise<void> {
-	return new Promise((resolve) => setTimeout(resolve, milliseconds));
-}
-
-/**
  * Check whether an error indicates a network/connection failure.
  *
  * `fetch` throws a `TypeError` when the request cannot be sent at all

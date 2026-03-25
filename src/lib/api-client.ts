@@ -12,8 +12,7 @@ import { serializeMessage, parseServerMessage, type ClientMessage, type ServerMe
 import { throwApiError } from './api-error';
 
 import type { ApiRoutes } from '@server/routes';
-import type { AIModelId } from '@shared/constants';
-import type { AgentMode, AiSession, AssetSettings, PendingFileChange, ProjectTemplateMeta, UIMessage } from '@shared/types';
+import type { AssetSettings, ProjectTemplateMeta } from '@shared/types';
 
 /**
  * Create a typed API client for a specific project.
@@ -198,117 +197,14 @@ export async function deployProject(
 }
 
 // =============================================================================
-// AI Session Management
-// =============================================================================
-
-/**
- * List all saved AI sessions for a project.
- */
-export async function listAiSessions(projectId: string) {
-	const api = createApiClient(projectId);
-	const response = await api['ai-sessions'].$get({});
-	if (!response.ok) {
-		await throwApiError(response, 'Failed to list AI sessions');
-	}
-	const data = await response.json();
-	return data.sessions;
-}
-
-/**
- * Load a single AI session by ID.
- *
- * Uses raw fetch because the backend returns untyped `JSON.parse(raw)`,
- * which Hono RPC cannot infer as `AiSession`.
- *
- * Returns `undefined` only when the session genuinely does not exist (404).
- * Throws on transient errors (500, network failures) so callers can retry.
- */
-export async function loadAiSession(projectId: string, sessionId: string): Promise<AiSession | undefined> {
-	const response = await fetch(`/p/${projectId}/api/ai-session?id=${encodeURIComponent(sessionId)}`);
-	if (response.status === 404) return undefined;
-	if (!response.ok) {
-		await throwApiError(response, 'Failed to load session');
-	}
-	const data: AiSession = await response.json();
-	return data;
-}
-
-/**
- * Revert an AI session to a given message index (server-side truncation).
- * If messageIndex is 0, the session is deleted entirely.
- * Returns the estimated context token usage for the truncated history.
- */
-export async function revertAiSession(projectId: string, sessionId: string, messageIndex: number): Promise<{ contextTokensUsed: number }> {
-	const response = await fetch(`/p/${projectId}/api/ai-session/revert`, {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify({ id: sessionId, messageIndex }),
-	});
-	if (!response.ok) {
-		await throwApiError(response, 'Failed to revert AI session');
-	}
-	const data: { contextTokensUsed?: number } = await response.json();
-	return { contextTokensUsed: data.contextTokensUsed ?? 0 };
-}
-
-// =============================================================================
-// Project-Level Pending Changes
-// =============================================================================
-
-/**
- * Load project-level pending changes from the backend.
- * Returns a Record keyed by file path, or empty object if none exist.
- */
-export async function loadProjectPendingChanges(projectId: string): Promise<Record<string, PendingFileChange>> {
-	const response = await fetch(`/p/${projectId}/api/pending-changes`);
-	if (!response.ok) return {};
-	const data: Record<string, PendingFileChange> = await response.json();
-	return data;
-}
-
-/**
- * Save project-level pending changes to the backend.
- * Uses raw fetch because the Zod schema uses string keys.
- */
-export async function saveProjectPendingChanges(projectId: string, changes: Record<string, PendingFileChange>): Promise<void> {
-	const response = await fetch(`/p/${projectId}/api/pending-changes`, {
-		method: 'PUT',
-		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify(changes),
-	});
-	if (!response.ok) {
-		await throwApiError(response, 'Failed to save pending changes');
-	}
-}
-
-// =============================================================================
 // Debug Logs
 // =============================================================================
-
-/**
- * Fetch the latest debug log ID for a session.
- *
- * Returns the ID of the most recent debug log file, or undefined if none exists.
- *
- * @param projectId - The project ID
- * @param sessionId - The session ID to look up debug logs for
- */
-export async function fetchLatestDebugLogId(projectId: string, sessionId: string): Promise<string | undefined> {
-	const parameters = new URLSearchParams({ sessionId });
-	const response = await fetch(`/p/${projectId}/api/ai/latest-debug-log-id?${parameters.toString()}`);
-	if (!response.ok) return undefined;
-	const data: { id: string } = await response.json();
-	return data.id || undefined;
-}
 
 /**
  * Download an agent debug log as a JSON file.
  *
  * Fetches the debug log from the backend and triggers a browser file download.
- *
- * @param projectId - The project ID
- * @param logId - The debug log ID
- * @param sessionId - Optional session ID for session-scoped debug logs
+ * This stays as an HTTP endpoint because it serves a binary/JSON file download.
  */
 export async function downloadDebugLog(projectId: string, logId: string, sessionId?: string): Promise<void> {
 	const parameters = new URLSearchParams({ id: logId });
@@ -329,56 +225,6 @@ export async function downloadDebugLog(projectId: string, logId: string, session
 	anchor.click();
 	anchor.remove();
 	URL.revokeObjectURL(url);
-}
-
-// =============================================================================
-// AI Agent Control
-// =============================================================================
-
-/**
- * Parameters for starting an AI agent chat run.
- */
-export interface StartAgentChatParameters {
-	messages: UIMessage[];
-	mode?: AgentMode;
-	sessionId?: string;
-	model?: AIModelId;
-	outputLogs?: string;
-}
-
-/**
- * Start an AI agent chat run.
- *
- * The agent loop runs in the AgentRunner Durable Object independently
- * of this HTTP request. Stream events are delivered via WebSocket
- * through the ProjectCoordinator.
- *
- * @returns The session ID
- */
-export async function startAgentChat(projectId: string, parameters: StartAgentChatParameters): Promise<{ sessionId: string }> {
-	const response = await fetch(`/p/${projectId}/api/ai/chat`, {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify(parameters),
-	});
-	if (!response.ok) {
-		await throwApiError(response, 'Failed to start agent');
-	}
-	return response.json();
-}
-
-/**
- * Abort a running AI agent session.
- *
- * @param projectId - The project ID
- * @param sessionId - The session to abort. If omitted, aborts ALL running sessions.
- */
-export async function abortAgent(projectId: string, sessionId?: string): Promise<void> {
-	const api = createApiClient(projectId);
-	const response = await api.ai.abort.$post({ json: { sessionId } });
-	if (!response.ok) {
-		await throwApiError(response, 'Failed to abort agent');
-	}
 }
 
 // =============================================================================

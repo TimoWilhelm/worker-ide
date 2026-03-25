@@ -1,9 +1,9 @@
 /**
  * Tests for AI-powered session title generation.
  *
- * Mocks TanStack AI `chat()` with structured outputs and the Workers AI
- * adapter to test title extraction, fallback behavior, and the
- * isAiGenerated flag without real API calls.
+ * Mocks Vercel AI SDK `generateObject()` and the Workers AI adapter to test
+ * title extraction, fallback behavior, and the isAiGenerated flag without
+ * real API calls.
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -12,11 +12,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 // Mocks — must be declared before importing the module under test
 // ---------------------------------------------------------------------------
 
-const mockChat = vi.fn();
+const mockGenerateObject = vi.fn();
 
-vi.mock('@tanstack/ai', () => ({
-	chat: (...arguments_: unknown[]) => mockChat(...arguments_),
-	maxIterations: () => ({}),
+vi.mock('ai', () => ({
+	generateObject: (...arguments_: unknown[]) => mockGenerateObject(...arguments_),
+	jsonSchema: (schema: unknown) => schema,
 }));
 
 vi.mock('./workers-ai', () => ({
@@ -33,11 +33,11 @@ const { generateSessionTitle, deriveFallbackTitle } = await import('./title-gene
 const USER_MESSAGE = 'Help me build a todo app with React and TypeScript';
 
 function mockStructuredResponse(title: string) {
-	mockChat.mockResolvedValueOnce({ title });
+	mockGenerateObject.mockResolvedValueOnce({ object: { title } });
 }
 
-function mockChatError(message: string) {
-	mockChat.mockRejectedValueOnce(new Error(message));
+function mockGenerateObjectError(message: string) {
+	mockGenerateObject.mockRejectedValueOnce(new Error(message));
 }
 
 // ---------------------------------------------------------------------------
@@ -77,19 +77,19 @@ describe('generateSessionTitle', () => {
 		expect(result.isAiGenerated).toBe(false);
 	});
 
-	it('falls back when chat() throws an error', async () => {
-		mockChatError('Service temporarily unavailable');
+	it('falls back when generateObject() throws an error', async () => {
+		mockGenerateObjectError('Service temporarily unavailable');
 		const result = await generateSessionTitle(USER_MESSAGE);
 		expect(result.title).toBe(deriveFallbackTitle(USER_MESSAGE));
 		expect(result.isAiGenerated).toBe(false);
 	});
 
-	it('passes only the user message to chat()', async () => {
+	it('passes only the user message to generateObject()', async () => {
 		mockStructuredResponse('Test Title');
 		await generateSessionTitle(USER_MESSAGE);
-		expect(mockChat).toHaveBeenCalledOnce();
-		const callArguments = mockChat.mock.calls[0][0];
-		expect(callArguments.outputSchema).toBeDefined();
+		expect(mockGenerateObject).toHaveBeenCalledOnce();
+		const callArguments = mockGenerateObject.mock.calls[0][0];
+		expect(callArguments.schema).toBeDefined();
 		expect(callArguments.messages).toHaveLength(1);
 		expect(callArguments.messages[0].content).toBe(USER_MESSAGE);
 	});
@@ -98,7 +98,7 @@ describe('generateSessionTitle', () => {
 		const longMessage = 'A'.repeat(1000);
 		mockStructuredResponse('Title for Long Message');
 		await generateSessionTitle(longMessage);
-		const callArguments = mockChat.mock.calls[0][0];
+		const callArguments = mockGenerateObject.mock.calls[0][0];
 		expect(callArguments.messages[0].content).toBe('A'.repeat(500));
 	});
 });

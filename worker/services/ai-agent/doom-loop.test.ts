@@ -10,7 +10,7 @@ import { describe, expect, it } from 'vitest';
 
 import { detectDoomLoop, MUTATION_FAILURE_TAG } from './doom-loop';
 
-import type { ModelMessage } from '@tanstack/ai';
+import type { ModelMessage } from 'ai';
 
 // =============================================================================
 // Test helpers — build ModelMessage[] histories
@@ -18,12 +18,13 @@ import type { ModelMessage } from '@tanstack/ai';
 
 let toolCallCounter = 0;
 
-/** Create tool call objects with auto-incrementing IDs. */
-function makeToolCalls(calls: Array<{ name: string; arguments: Record<string, unknown> }>) {
+/** Create tool-call content parts for assistant messages. */
+function makeToolCallParts(calls: Array<{ name: string; arguments: Record<string, unknown> }>) {
 	return calls.map((c) => ({
-		id: `tc_${++toolCallCounter}`,
-		type: 'function' as const,
-		function: { name: c.name, arguments: JSON.stringify(c.arguments) },
+		type: 'tool-call' as const,
+		toolCallId: `tc_${++toolCallCounter}`,
+		toolName: c.name,
+		input: c.arguments,
 	}));
 }
 
@@ -31,15 +32,16 @@ function makeToolCalls(calls: Array<{ name: string; arguments: Record<string, un
 function assistantWithTools(...calls: Array<{ name: string; arguments: Record<string, unknown> }>): ModelMessage {
 	return {
 		role: 'assistant',
-		// eslint-disable-next-line unicorn/no-null -- ModelMessage.content requires null
-		content: null,
-		toolCalls: makeToolCalls(calls),
+		content: makeToolCallParts(calls),
 	};
 }
 
 /** Create a tool result message. */
-function toolResult(toolCallId: string, content: string): ModelMessage {
-	return { role: 'tool', content, toolCallId };
+function toolResult(toolCallId: string, toolName: string, content: string): ModelMessage {
+	return {
+		role: 'tool',
+		content: [{ type: 'tool-result', toolCallId, toolName, result: content }],
+	};
 }
 
 /** Create a user corrective message with the mutation failure tag. */
@@ -63,16 +65,14 @@ function buildIteration(
 	calls: Array<{ name: string; arguments: Record<string, unknown> }>,
 	options?: { mutationFailure?: boolean },
 ): ModelMessage[] {
-	const toolCalls = makeToolCalls(calls);
+	const parts = makeToolCallParts(calls);
 	const assistant: ModelMessage = {
 		role: 'assistant',
-		// eslint-disable-next-line unicorn/no-null -- ModelMessage.content requires null
-		content: null,
-		toolCalls,
+		content: parts,
 	};
 	const messages: ModelMessage[] = [assistant];
-	for (const tc of toolCalls) {
-		messages.push(toolResult(tc.id, 'ok'));
+	for (const part of parts) {
+		messages.push(toolResult(part.toolCallId, part.toolName, 'ok'));
 	}
 	if (options?.mutationFailure) {
 		messages.push(mutationFailureMessage());
@@ -220,10 +220,10 @@ describe('mutation_failure_loop detection', () => {
 	it('does not trigger on user messages without the mutation failure tag', () => {
 		const messages: ModelMessage[] = [
 			assistantWithTools({ name: 'file_edit', arguments: { path: '/a.txt' } }),
-			toolResult('tc_prev', 'ok'),
+			toolResult('tc_prev', 'file_edit', 'ok'),
 			userMessage('Please fix the bug'),
 			assistantWithTools({ name: 'file_edit', arguments: { path: '/b.txt' } }),
-			toolResult('tc_prev2', 'ok'),
+			toolResult('tc_prev2', 'file_edit', 'ok'),
 			userMessage('Try again'),
 		];
 		expect(detectDoomLoop(messages).isDoomLoop).toBe(false);
@@ -283,11 +283,11 @@ describe('combined detection', () => {
 		expect(detectDoomLoop(messages).isDoomLoop).toBe(false);
 	});
 
-	it('handles assistant messages with empty toolCalls array', () => {
+	it('handles assistant messages without tool calls', () => {
 		const messages: ModelMessage[] = [
-			{ role: 'assistant', content: 'thinking...', toolCalls: [] },
-			{ role: 'assistant', content: 'still thinking...', toolCalls: [] },
-			{ role: 'assistant', content: 'done thinking', toolCalls: [] },
+			{ role: 'assistant', content: 'thinking...' },
+			{ role: 'assistant', content: 'still thinking...' },
+			{ role: 'assistant', content: 'done thinking' },
 		];
 		expect(detectDoomLoop(messages).isDoomLoop).toBe(false);
 	});

@@ -6,8 +6,7 @@
  * starts, completely independent of the agent stream lifecycle.
  */
 
-import { chat, maxIterations } from '@tanstack/ai';
-import { z } from 'zod';
+import { generateObject, jsonSchema } from 'ai';
 
 import { createAdapter } from './workers-ai';
 
@@ -19,8 +18,12 @@ const FALLBACK_TRUNCATION_LENGTH = 50;
 
 const SYSTEM_PROMPT = 'Generate a short title (under 10 words) that summarizes the intent of this user message. Reply with just the title.';
 
-const titleSchema = z.object({
-	title: z.string().describe('A concise title under 10 words summarizing the user intent'),
+const titleSchema = jsonSchema<{ title: string }>({
+	type: 'object',
+	properties: {
+		title: { type: 'string', description: 'A concise title under 10 words summarizing the user intent' },
+	},
+	required: ['title'],
 });
 
 export interface SessionTitleResult {
@@ -36,19 +39,17 @@ export async function generateSessionTitle(userMessage: string): Promise<Session
 	const fallback = deriveFallbackTitle(userMessage);
 
 	try {
-		const adapter = createAdapter(TITLE_MODEL);
+		const model = createAdapter(TITLE_MODEL);
 
-		const result = await chat({
-			adapter,
-			messages: [{ role: 'user', content: userMessage.slice(0, 500) }],
-			systemPrompts: [SYSTEM_PROMPT],
-			maxTokens: 500,
-			agentLoopStrategy: maxIterations(1),
-			outputSchema: titleSchema,
-			stream: false,
+		const { object } = await generateObject({
+			model,
+			messages: [{ role: 'user' as const, content: userMessage.slice(0, 500) }],
+			system: SYSTEM_PROMPT,
+			maxOutputTokens: 500,
+			schema: titleSchema,
 		});
 
-		const title = result.title.trim();
+		const title = object.title.trim();
 		if (title.length === 0) {
 			return { title: fallback, isAiGenerated: false };
 		}

@@ -7,9 +7,8 @@
  * injection attacks embedded in web pages.
  */
 
-import { chat, maxIterations } from '@tanstack/ai';
+import { generateObject, jsonSchema } from 'ai';
 import { env } from 'cloudflare:workers';
-import { z } from 'zod';
 
 import { SUMMARIZATION_AI_MODEL } from '@shared/constants';
 import { ToolExecutionError } from '@shared/tool-errors';
@@ -86,16 +85,20 @@ async function convertHtmlToMarkdown(html: string): Promise<string | undefined> 
 // =============================================================================
 
 /**
- * Send markdown content + user prompt through TanStack AI chat() for summarization.
+ * Send markdown content + user prompt through Vercel AI SDK generateObject() for summarization.
  * The summarization model treats the fetched content as data, preventing
  * prompt injection from reaching the calling agent.
  */
-const summarySchema = z.object({
-	summary: z.string().describe('A concise, factual answer to the user prompt based on the web page content'),
+const summarySchema = jsonSchema<{ summary: string }>({
+	type: 'object',
+	properties: {
+		summary: { type: 'string', description: 'A concise, factual answer to the user prompt based on the web page content' },
+	},
+	required: ['summary'],
 });
 
 async function summarizeContent(markdownContent: string, userPrompt: string, url: string): Promise<string> {
-	const adapter = createAdapter(SUMMARIZATION_AI_MODEL);
+	const model = createAdapter(SUMMARIZATION_AI_MODEL);
 
 	const systemPrompt = [
 		'You are a web content summarization assistant.',
@@ -115,17 +118,15 @@ async function summarizeContent(markdownContent: string, userPrompt: string, url
 		`User prompt: ${userPrompt}`,
 	].join('\n');
 
-	const result = await chat({
-		adapter,
-		messages: [{ role: 'user', content: userMessage }],
-		systemPrompts: [systemPrompt],
-		maxTokens: 4096,
-		agentLoopStrategy: maxIterations(1),
-		outputSchema: summarySchema,
-		stream: false,
+	const { object } = await generateObject({
+		model,
+		messages: [{ role: 'user' as const, content: userMessage }],
+		system: systemPrompt,
+		maxOutputTokens: 4096,
+		schema: summarySchema,
 	});
 
-	return result.summary.trim();
+	return object.summary.trim();
 }
 
 // =============================================================================

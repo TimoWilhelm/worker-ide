@@ -14,10 +14,8 @@ import { useCallback, useMemo, useRef } from 'react';
 
 import { computeDiffHunks, groupHunksIntoChanges, reconstructContent } from '@/features/editor/lib/diff-decorations';
 import { useSnapshots } from '@/features/snapshots';
-import { createApiClient, saveProjectPendingChanges } from '@/lib/api-client';
+import { createApiClient } from '@/lib/api-client';
 import { useStore } from '@/lib/store';
-
-import { pendingChangesMapToRecord } from '../lib/session-serializers';
 
 // =============================================================================
 // Hook
@@ -32,15 +30,11 @@ export function useChangeReview({ projectId }: { projectId: string }) {
 	// Persist the current pending changes state to the project-level file.
 	// Reads directly from the store to always get the latest state.
 	const persistPendingChanges = useCallback(async () => {
-		const { pendingChanges: currentPendingChanges } = useStore.getState();
-
-		try {
-			const record = pendingChangesMapToRecord(currentPendingChanges);
-			await saveProjectPendingChanges(projectId, record ?? {});
-		} catch (error) {
-			console.error('Failed to persist pending changes:', error);
-		}
-	}, [projectId]);
+		// Pending changes are persisted via the agent state — they are
+		// already stored on the AgentRunner DO as part of the session.
+		// No explicit save needed — the agent-runner persists them during
+		// the generation loop via the onPersistSession callback.
+	}, []);
 
 	// Derive list of pending (unresolved) changes
 	const unresolvedChanges = useMemo(() => {

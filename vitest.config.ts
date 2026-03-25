@@ -41,7 +41,7 @@ export default defineConfig({
 						optimizer: {
 							ssr: {
 								enabled: true,
-								include: ['@tanstack/ai'],
+								include: ['ai'],
 							},
 						},
 					},

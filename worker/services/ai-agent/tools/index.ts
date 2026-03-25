@@ -1,12 +1,11 @@
 /**
- * Tool registry — wraps individual tool modules into TanStack AI toolDefinition().server() format.
+ * Tool registry — wraps individual tool modules into Vercel AI SDK tool() format.
  *
  * Individual tool files export { definition, execute }.
- * This barrel wraps them into TanStack AI tools using factories that capture runtime context.
+ * This barrel wraps them into Vercel AI SDK tools using factories that capture runtime context.
  */
 
-import { toolDefinition } from '@tanstack/ai';
-import { z } from 'zod';
+import { jsonSchema } from 'ai';
 
 import { ToolExecutionError } from '@shared/tool-errors';
 
@@ -37,11 +36,9 @@ import * as todosUpdateTool from './todos-update';
 import * as userQuestionTool from './user-question';
 import * as webFetchTool from './web-fetch';
 import { sanitizeToolInput, summarizeToolResult } from '../agent-logger';
-import { isRecordObject } from '../utilities';
 
 import type { AgentLogger } from '../agent-logger';
 import type {
-	CustomEventQueue,
 	FileChange,
 	PendingToolCallIds,
 	SendEventFunction,
@@ -65,7 +62,6 @@ export const TOOL_EXECUTORS: ReadonlyMap<string, ToolExecuteFunction> = new Map(
 	['file_glob', fileGlobTool.execute],
 	['file_list', fileListTool.execute],
 	['files_list', filesListTool.execute],
-
 	['file_delete', fileDeleteTool.execute],
 	['file_move', fileMoveTool.execute],
 	['user_question', userQuestionTool.execute],
@@ -99,7 +95,6 @@ export const AGENT_TOOLS: readonly ToolDefinition[] = [
 	fileGlobTool.definition,
 	fileListTool.definition,
 	filesListTool.definition,
-
 	fileDeleteTool.definition,
 	fileMoveTool.definition,
 	userQuestionTool.definition,
@@ -144,10 +139,10 @@ const PLAN_MODE_TOOL_NAMES = new Set([
 	'test_run',
 ]);
 
-export const PLAN_MODE_TOOLS: readonly ToolDefinition[] = AGENT_TOOLS.filter((tool) => PLAN_MODE_TOOL_NAMES.has(tool.name));
+export const PLAN_MODE_TOOLS: readonly ToolDefinition[] = AGENT_TOOLS.filter((t) => PLAN_MODE_TOOL_NAMES.has(t.name));
 
 // =============================================================================
-// Ask mode tools (read-only subset — no plan, or mutation tools)
+// Ask mode tools (read-only subset — no plan or mutation tools)
 // =============================================================================
 
 const ASK_MODE_TOOL_NAMES = new Set([
@@ -167,7 +162,7 @@ const ASK_MODE_TOOL_NAMES = new Set([
 	'test_run',
 ]);
 
-export const ASK_MODE_TOOLS: readonly ToolDefinition[] = AGENT_TOOLS.filter((tool) => ASK_MODE_TOOL_NAMES.has(tool.name));
+export const ASK_MODE_TOOLS: readonly ToolDefinition[] = AGENT_TOOLS.filter((t) => ASK_MODE_TOOL_NAMES.has(t.name));
 
 // =============================================================================
 // Editing tools blocked in plan mode
@@ -212,131 +207,24 @@ export const MUTATION_TOOL_NAMES = new Set([
 ]);
 
 // =============================================================================
-// TanStack AI Tool Factory
+// SendEvent factory (re-export from event-helpers for backwards compat)
+// =============================================================================
+
+// =============================================================================
+// Vercel AI SDK Tool Factory
 // =============================================================================
 
 /**
- * Convert a JSON Schema `properties` object into a Zod z.object() schema.
- * This is a shallow conversion — handles string, number, boolean, array, and enum types.
- * Used to bridge tool definitions into TanStack AI toolDefinition() format.
- */
-function jsonSchemaToZod(properties: Record<string, unknown>, required: string[] = []): z.ZodObject<Record<string, z.ZodTypeAny>> {
-	const requiredSet = new Set(required);
-	const shape: Record<string, z.ZodTypeAny> = {};
-
-	for (const [key, value] of Object.entries(properties)) {
-		if (!isRecordObject(value)) continue;
-
-		const property = value;
-		let schema: z.ZodTypeAny;
-
-		// Handle enum type
-		if (Array.isArray(property.enum) && property.enum.length > 0) {
-			const enumValues = property.enum.filter((v): v is string => typeof v === 'string');
-			const [first, ...rest] = enumValues;
-			schema = first === undefined ? z.string() : z.enum([first, ...rest]);
-		} else {
-			switch (property.type) {
-				case 'number':
-				case 'integer': {
-					schema = z.number();
-					break;
-				}
-				case 'boolean': {
-					schema = z.boolean();
-					break;
-				}
-				case 'array': {
-					schema = z.array(z.unknown());
-					break;
-				}
-				default: {
-					schema = z.string();
-					break;
-				}
-			}
-		}
-
-		// Add description if present
-		if (typeof property.description === 'string') {
-			schema = schema.describe(property.description);
-		}
-
-		// Make optional if not required
-		if (!requiredSet.has(key)) {
-			schema = schema.optional();
-		}
-
-		shape[key] = schema;
-	}
-
-	return z.object(shape);
-}
-
-/**
- * Create a SendEventFunction that pushes CUSTOM AG-UI events into the shared queue.
- * Tools call `sendEvent('file_changed', { path, action, ... })` and it becomes
- * a `{ type: 'CUSTOM', name: 'file_changed', data: { path, action, ... }, timestamp }` event.
- *
- * The `toolCallIdRef` is a mutable ref set by each tool wrapper before execution.
- * For `tool_result` and `file_changed` events, the current toolCallId is auto-injected
- * so that the frontend can correlate events with specific tool call UI elements.
- *
- * When an `abortSignal` is provided, events are silently dropped after the signal
- * fires. This prevents tools that are finishing after cancellation from pushing
- * stale events into the queue.
- */
-export function createSendEvent(
-	eventQueue: CustomEventQueue,
-	toolCallIdReference: ToolCallIdReference,
-	abortSignal?: AbortSignal,
-): SendEventFunction {
-	return (type: string, data: Record<string, unknown>) => {
-		// Drop events after cancellation — the stream is tearing down and
-		// no consumer will process these.
-		if (abortSignal?.aborted) return;
-
-		// Auto-inject toolCallId for events that need frontend correlation.
-		// Individual tools don't know their call ID; the wrapper sets the ref.
-		if (toolCallIdReference.current && (type === 'tool_result' || type === 'file_changed')) {
-			data.toolCallId = toolCallIdReference.current;
-			// Legacy field name used by panel.tsx for fileDiffContent keying
-			if (type === 'file_changed') {
-				data.tool_use_id = toolCallIdReference.current;
-			}
-		}
-		eventQueue.push({
-			type: 'CUSTOM',
-			name: type,
-			data,
-			timestamp: Date.now(),
-		});
-	};
-}
-
-/**
- * Create TanStack AI server tools from our tool modules.
+ * Create Vercel AI SDK tools from our tool modules.
  *
  * Each tool's execute function is wrapped in a closure that captures:
- * - sendEvent: callback to push CUSTOM AG-UI events to the event queue
+ * - sendEvent: callback to push stream events to the event queue
  * - context: project root, mode, session ID, MCP client
  * - queryChanges: mutable array for tracking file changes (for snapshots)
  * - toolCallIdRef: mutable ref for the current tool call's ID
- * - pendingToolCallIds: ordered queue of tool call IDs from Phase 1 events
+ * - pendingToolCallIds: ordered queue of tool call IDs
  *
- * Before each tool executes, the wrapper `shift()`s the next toolCallId from
- * `pendingToolCallIds` and sets `toolCallIdRef.current`. This allows `sendEvent`
- * to auto-inject the correct toolCallId into CUSTOM events (tool_result,
- * file_changed) without tools needing to know their call ID.
- *
- * @param sendEvent - Function to push CUSTOM events to the event queue
- * @param context - Tool executor context (project root, mode, etc.)
- * @param queryChanges - Mutable array for tracking file changes
- * @param mode - Agent mode (code, plan, ask) — determines which tools are available
- * @param logger - Optional debug logger for structured tool call logging
- * @param toolFailures - Mutable array for doom-loop detection
- * @param toolCallIdRef - Mutable ref for the currently-executing tool call ID
- * @param pendingToolCallIds - Ordered queue of tool call IDs populated by Phase 1 events
+ * Returns a Record<string, Tool> suitable for passing to streamText().
  */
 export function createServerTools(
 	sendEvent: SendEventFunction,
@@ -346,121 +234,156 @@ export function createServerTools(
 	logger?: AgentLogger,
 	toolFailures?: ToolFailureQueue,
 	toolCallIdReference?: ToolCallIdReference,
-	pendingToolCallIds?: PendingToolCallIds,
-) {
+	_pendingToolCallIds?: PendingToolCallIds,
+): Record<string, unknown> {
 	// Select which tool definitions to use based on mode
 	const activeToolDefinitions = mode === 'ask' ? ASK_MODE_TOOLS : mode === 'plan' ? PLAN_MODE_TOOLS : AGENT_TOOLS;
 
-	return activeToolDefinitions.map((definition) => {
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Tool generic variance; streamText accepts ToolSet (Record<string, Tool<any, any>>)
+	const tools: Record<string, any> = {};
+
+	for (const definition of activeToolDefinitions) {
 		const executor = TOOL_EXECUTORS.get(definition.name);
 		if (!executor) {
 			throw new Error(`No executor found for tool: ${definition.name}`);
 		}
 
-		const inputSchema = jsonSchemaToZod(definition.input_schema.properties, definition.input_schema.required);
+		// Convert our JSON Schema-based tool definition into a Vercel AI SDK
+		// jsonSchema-wrapped parameter schema. We use jsonSchema<Record<string, string>>()
+		// because our tool executors expect Record<string, string> input.
+		//
+		// IMPORTANT: A `validate` function is required. Without it, the AI SDK
+		// skips input validation entirely (always returns success), which means
+		// `experimental_repairToolCall` never fires for invalid inputs like
+		// hallucinated property names (e.g. `filePath` instead of `path`).
+		const requiredProperties = new Set<string>(Array.isArray(definition.input_schema.required) ? definition.input_schema.required : []);
+		const knownProperties = new Set<string>(definition.input_schema.properties ? Object.keys(definition.input_schema.properties) : []);
 
-		return toolDefinition({
-			name: definition.name,
+		// eslint-disable-next-line @typescript-eslint/consistent-type-assertions, @typescript-eslint/no-explicit-any -- Bridge between our JSON Schema definitions and the AI SDK's JSONSchema7 type
+		const schema = jsonSchema<Record<string, string>>(definition.input_schema as any, {
+			validate: (value): { success: true; value: Record<string, string> } | { success: false; error: Error } => {
+				if (value === undefined || value === null || typeof value !== 'object' || Array.isArray(value)) {
+					return { success: false, error: new Error('Expected an object') };
+				}
+				const entries = Object.entries(value);
+				const keys = entries.map(([key]) => key);
+				// Check required properties
+				for (const required of requiredProperties) {
+					if (!keys.includes(required)) {
+						return {
+							success: false,
+							error: new Error(`Missing required property: "${required}". Received keys: ${keys.join(', ')}`),
+						};
+					}
+				}
+				// Strip unknown properties (matches additionalProperties: false behavior)
+				// and coerce values to strings
+				const validated: Record<string, string> = {};
+				for (const [key, entryValue] of entries) {
+					if (knownProperties.has(key)) {
+						validated[key] = String(entryValue);
+					}
+				}
+				return { success: true, value: validated };
+			},
+		});
+
+		const toolName = definition.name;
+
+		tools[toolName] = {
 			description: definition.description,
-			inputSchema,
-		}).server(async (input) => {
-			// Set the current tool call ID from the ordered Phase 1 queue.
-			// TanStack AI executes tools sequentially in the same order as
-			// TOOL_CALL_START events, so shift() gives us the correct ID.
-			if (toolCallIdReference && pendingToolCallIds) {
-				toolCallIdReference.current = pendingToolCallIds.shift();
-			}
-
-			try {
-				// Bail out immediately if the agent was cancelled. The agent
-				// loop checks signal.aborted between chunks, but during tool
-				// execution the for-await loop is blocked. This check prevents
-				// new tools from starting after the user clicks Stop.
-				if (context.abortSignal?.aborted) {
-					throw new DOMException('Aborted', 'AbortError');
-				}
-
-				// Defense-in-depth: reject editing tools in non-code modes
-				if (mode !== 'code' && EDITING_TOOL_NAMES.has(definition.name)) {
-					logger?.warn('tool_call', 'blocked', {
-						toolName: definition.name,
-						reason: 'editing_tool_in_non_code_mode',
-						mode,
-					});
-					// Return a JSON object — @tanstack/ai's executeToolCalls() calls
-					// JSON.parse() on string results, so plain strings would throw.
-					return { content: 'File editing tools are not available in this mode. Switch to Code mode to make changes.' };
-				}
-
-				// Coerce input values to strings (tool executors expect Record<string, string>)
-				const stringInput: Record<string, string> = {};
-				for (const [key, value] of Object.entries(input)) {
-					stringInput[key] = String(value);
-				}
-
-				logger?.info('tool_call', 'started', {
-					toolName: definition.name,
-					input: sanitizeToolInput(stringInput),
-				});
-				const timer = logger?.startTimer();
+			// Use inputSchema (not parameters) — the AI SDK reads inputSchema
+			// for tool call validation and repair. Using parameters causes the
+			// validate function to be ignored entirely.
+			inputSchema: schema,
+			execute: async (input: Record<string, string>) => {
+				// Set the current tool call ID
+				// With Vercel AI SDK, the toolCallId is managed by streamText() and
+				// passed to the result. We'll set it from the stream processing side.
+				// For now, the toolCallIdRef is set by the service.ts stream consumer.
 
 				try {
-					const result = await executor(stringInput, sendEvent, context, queryChanges);
+					// Bail out immediately if the agent was cancelled
+					if (context.abortSignal?.aborted) {
+						throw new DOMException('Aborted', 'AbortError');
+					}
 
-					logger?.info(
-						'tool_call',
-						'completed',
-						{
-							toolName: definition.name,
-							resultSummary: summarizeToolResult(result.output),
-							resultLength: result.output.length,
-						},
-						{ durationMs: timer?.() },
-					);
+					// Defense-in-depth: reject editing tools in non-code modes
+					if (mode !== 'code' && EDITING_TOOL_NAMES.has(toolName)) {
+						logger?.warn('tool_call', 'blocked', {
+							toolName,
+							reason: 'editing_tool_in_non_code_mode',
+							mode,
+						});
+						return 'File editing tools are not available in this mode. Switch to Code mode to make changes.';
+					}
 
-					// Emit structured metadata as a CUSTOM event for the UI.
-					// toolCallId is auto-injected by sendEvent via toolCallIdRef.
-					sendEvent('tool_result', {
-						tool_name: definition.name,
-						title: result.title,
-						metadata: result.metadata,
+					// input is already validated + string-coerced by the schema validate function
+					logger?.info('tool_call', 'started', {
+						toolName,
+						input: sanitizeToolInput(input),
 					});
+					const timer = logger?.startTimer();
 
-					// Send only the text output to the LLM
-					return { content: result.output };
-				} catch (error) {
-					// ToolExecutionError = expected tool-level failure (file not found, no match, etc.)
-					// Other errors = unexpected crashes in tool code
-					const isToolError = error instanceof ToolExecutionError;
-					const logMethod = isToolError ? 'warn' : 'error';
-					const event = isToolError ? 'tool_error' : 'error';
-					logger?.[logMethod](
-						'tool_call',
-						event,
-						{
-							toolName: definition.name,
+					try {
+						const result = await executor(input, sendEvent, context, queryChanges);
+
+						logger?.info(
+							'tool_call',
+							'completed',
+							{
+								toolName,
+								resultSummary: summarizeToolResult(result.output),
+								resultLength: result.output.length,
+							},
+							{ durationMs: timer?.() },
+						);
+
+						// Emit structured metadata as an event for the UI
+						sendEvent('tool_result', {
+							tool_name: toolName,
+							title: result.title,
+							metadata: result.metadata,
+						});
+
+						// Return the text output to the LLM
+						return result.output;
+					} catch (error) {
+						const isToolError = error instanceof ToolExecutionError;
+						const logMethod = isToolError ? 'warn' : 'error';
+						const event = isToolError ? 'tool_error' : 'error';
+						logger?.[logMethod](
+							'tool_call',
+							event,
+							{
+								toolName,
+								errorCode: isToolError ? error.code : undefined,
+								error: error instanceof Error ? error.message : String(error),
+								stack: isToolError ? undefined : error instanceof Error ? error.stack : undefined,
+							},
+							{ durationMs: timer?.() },
+						);
+
+						// Push typed failure record for doom-loop detection
+						toolFailures?.push({
+							toolName,
 							errorCode: isToolError ? error.code : undefined,
-							error: error instanceof Error ? error.message : String(error),
-							stack: isToolError ? undefined : error instanceof Error ? error.stack : undefined,
-						},
-						{ durationMs: timer?.() },
-					);
+							errorMessage: error instanceof Error ? error.message : String(error),
+						});
 
-					// Push typed failure record for doom-loop detection and frontend error display
-					toolFailures?.push({
-						toolName: definition.name,
-						errorCode: isToolError ? error.code : undefined,
-						errorMessage: error instanceof Error ? error.message : String(error),
-					});
+						throw error;
+					}
+				} finally {
+					// Clear the ref so events from non-tool code don't get a stale ID
+					if (toolCallIdReference) {
+						toolCallIdReference.current = undefined;
+					}
+				}
+			},
+		};
+	}
 
-					throw error;
-				}
-			} finally {
-				// Clear the ref so events from non-tool code don't get a stale ID
-				if (toolCallIdReference) {
-					toolCallIdReference.current = undefined;
-				}
-			}
-		});
-	});
+	return tools;
 }
+
+export { createSendEventFunction as createSendEvent } from '../event-helpers';

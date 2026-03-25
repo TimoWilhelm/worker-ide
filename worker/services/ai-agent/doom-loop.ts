@@ -1,4 +1,4 @@
-import type { ModelMessage } from '@tanstack/ai';
+import type { ModelMessage } from 'ai';
 
 const DOOM_LOOP_THRESHOLD = 3;
 const MUTATION_FAILURE_ITERATION_THRESHOLD = 2;
@@ -20,6 +20,49 @@ export interface DoomLoopResult {
 interface ToolCallRecord {
 	name: string;
 	arguments: string;
+}
+
+/**
+ * Extract tool calls from a ModelMessage.
+ *
+ * Vercel AI SDK uses content arrays with `type: 'tool-call'` parts
+ * for assistant messages (instead of a separate `toolCalls` field).
+ */
+function extractToolCalls(message: ModelMessage): ToolCallRecord[] {
+	if (message.role !== 'assistant') return [];
+
+	const content = message.content;
+	if (typeof content === 'string') return [];
+	if (!Array.isArray(content)) return [];
+
+	const calls: ToolCallRecord[] = [];
+	for (const part of content) {
+		if (part.type === 'tool-call') {
+			const arguments_ = typeof part.input === 'string' ? part.input : JSON.stringify(part.input);
+			calls.push({ name: part.toolName, arguments: arguments_ });
+		}
+	}
+	return calls;
+}
+
+/**
+ * Check if a ModelMessage is an assistant message with tool calls.
+ */
+function hasToolCalls(message: ModelMessage): boolean {
+	return extractToolCalls(message).length > 0;
+}
+
+/**
+ * Extract text content from a ModelMessage.
+ */
+function getTextContent(message: ModelMessage): string {
+	if (typeof message.content === 'string') return message.content;
+	if (!Array.isArray(message.content)) return '';
+
+	return message.content
+		.filter((part): part is { type: 'text'; text: string } => part.type === 'text')
+		.map((part) => part.text)
+		.join('');
 }
 
 /**
@@ -53,19 +96,7 @@ export function detectDoomLoop(messages: ModelMessage[], currentRunStartIndex = 
 	const startIndex = Math.max(0, Math.min(currentRunStartIndex, messages.length));
 	for (let index = startIndex; index < messages.length; index++) {
 		const message = messages[index];
-		if (message.role === 'assistant' && Array.isArray(message.toolCalls)) {
-			for (const tc of message.toolCalls) {
-				if (tc.type === 'function') {
-					// Ensure string comparison for arguments
-					const arguments_ = typeof tc.function.arguments === 'string' ? tc.function.arguments : JSON.stringify(tc.function.arguments);
-
-					toolCalls.push({
-						name: tc.function.name,
-						arguments: arguments_,
-					});
-				}
-			}
-		}
+		toolCalls.push(...extractToolCalls(message));
 	}
 
 	// 1. Check identical consecutive calls (same name AND same arguments)
@@ -95,9 +126,12 @@ export function detectDoomLoop(messages: ModelMessage[], currentRunStartIndex = 
 	for (let index = messages.length - 1; index >= 0; index--) {
 		const message = messages[index];
 
-		if (message.role === 'user' && typeof message.content === 'string' && message.content.includes(MUTATION_FAILURE_TAG)) {
-			seenFailureThisIteration = true;
-		} else if (message.role === 'assistant' && Array.isArray(message.toolCalls) && message.toolCalls.length > 0) {
+		if (message.role === 'user') {
+			const textContent = getTextContent(message);
+			if (textContent.includes(MUTATION_FAILURE_TAG)) {
+				seenFailureThisIteration = true;
+			}
+		} else if (message.role === 'assistant' && hasToolCalls(message)) {
 			// Reached an iteration boundary (assistant message with tool calls)
 			if (seenFailureThisIteration) {
 				consecutiveMutationFailures++;

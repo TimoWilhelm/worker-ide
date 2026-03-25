@@ -3,8 +3,6 @@
  * These types are used by both the frontend and worker backend.
  */
 
-import type { UIMessage } from '@tanstack/ai-client';
-
 // =============================================================================
 // File System Types
 // =============================================================================
@@ -70,8 +68,7 @@ export interface SelectionRange {
 // =============================================================================
 
 /**
- * Re-export UIMessage from TanStack AI for use throughout the app.
- * This is the primary message type for the AI chat interface.
+ * AI Agent message types.
  */
 
 /**
@@ -83,7 +80,7 @@ export interface SelectionRange {
 export type AgentMode = 'code' | 'plan' | 'ask';
 
 /**
- * Structured tool error info received via CUSTOM AG-UI `tool_error` events.
+ * Structured tool error info received via stream `tool_error` events.
  * Replaces regex-based `[CODE] message` prefix parsing on the frontend.
  */
 export interface ToolErrorInfo {
@@ -96,7 +93,7 @@ export interface ToolErrorInfo {
 }
 
 /**
- * Structured tool result info received via CUSTOM AG-UI `tool_result` events.
+ * Structured tool result info received via stream `tool_result` events.
  *
  * Each successful tool call emits this alongside its text output. The frontend
  * uses `title` for the collapsed label and `metadata` for rich rendering
@@ -115,7 +112,6 @@ export interface ToolMetadataInfo {
 
 /**
  * A saved AI chat session.
- * Uses UIMessage[] from TanStack AI for the history.
  */
 export interface AiSession {
 	id: string;
@@ -124,7 +120,7 @@ export interface AiSession {
 	/** True once an AI-generated title has been set. */
 	titleGenerated?: boolean;
 	createdAt: number;
-	history: UIMessage[];
+	history: ChatMessage[];
 	/** Maps message index (as string key) to snapshot ID for revert buttons */
 	messageSnapshots?: Record<string, string>;
 	/** Maps message index (as string key) to the AgentMode that was active when the user message was sent */
@@ -754,4 +750,60 @@ export interface GitMergeResult {
 	conflicts?: string[];
 }
 
-export { type UIMessage } from '@tanstack/ai-client';
+// =============================================================================
+// Chat Message Types (own types — no external dependency)
+// =============================================================================
+
+/**
+ * A single part of a chat message.
+ *
+ * Messages are composed of parts to support mixed content: text interspersed
+ * with tool calls, tool results, and model reasoning/thinking blocks.
+ */
+export type MessagePart = TextPart | ToolCallPart | ToolResultPart | ReasoningPart;
+
+/** A block of text content from the user or assistant. */
+export interface TextPart {
+	type: 'text';
+	content: string;
+}
+
+/** An assistant's request to invoke a tool. */
+export interface ToolCallPart {
+	type: 'tool-call';
+	toolCallId: string;
+	toolName: string;
+	arguments: Record<string, unknown>;
+}
+
+/** The result of a tool invocation. */
+export interface ToolResultPart {
+	type: 'tool-result';
+	toolCallId: string;
+	toolName: string;
+	result: string;
+	isError?: boolean;
+}
+
+/** A reasoning/thinking block from the model (e.g. extended thinking). */
+export interface ReasoningPart {
+	type: 'reasoning';
+	content: string;
+}
+
+/**
+ * A single message in the AI chat conversation.
+ *
+ * App-owned message type that gives full control over the message format
+ * without external dependency coupling.
+ */
+export interface ChatMessage {
+	/** Unique identifier for this message */
+	id: string;
+	/** The role of the message sender */
+	role: 'user' | 'assistant';
+	/** Ordered parts composing the message content */
+	parts: MessagePart[];
+	/** When the message was created (epoch ms) */
+	createdAt?: number;
+}

@@ -11,7 +11,8 @@
 
 import fs from 'node:fs/promises';
 
-import type { FileChange, ModelMessage, SnapshotMetadata } from './types';
+import type { FileChange, SnapshotMetadata } from './types';
+import type { ModelMessage } from 'ai';
 
 /** Context object tracking a snapshot's state during an agent run. */
 export interface SnapshotContext {
