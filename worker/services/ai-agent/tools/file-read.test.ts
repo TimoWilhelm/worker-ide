@@ -190,8 +190,10 @@ describe('file_read', () => {
 
 		const result = await execute({ file_path: '/lint.ts' }, createMockSendEvent(), context());
 
-		expect(result.metadata.diagnostics).toHaveLength(1);
-		expect(result.metadata.diagnostics[0]).toHaveProperty('rule', 'lint/style/noVar');
+		const { diagnostics } = result.metadata;
+		if (!Array.isArray(diagnostics)) throw new Error('expected diagnostics to be an array');
+		expect(diagnostics).toHaveLength(1);
+		expect(diagnostics[0]).toHaveProperty('rule', 'lint/style/noVar');
 		expect(result.output).toContain('<lint_diagnostics>');
 		expect(result.output).toContain('Use const or let');
 		expect(result.output).toContain('</lint_diagnostics>');

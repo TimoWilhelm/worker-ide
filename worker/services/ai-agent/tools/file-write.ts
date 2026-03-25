@@ -13,7 +13,7 @@ import { createHmrUpdateForFile } from '@shared/types';
 import { coordinatorNamespace } from '../../../lib/durable-object-namespaces';
 import { isHiddenPath, isPathSafe } from '../../../lib/path-utilities';
 import { formatLintDiagnostics, lintFile } from '../../../services/lint-service';
-import { assertFileWasRead, recordFileRead } from '../file-time';
+import { assertFileWasRead, recordFileRead, withLock } from '../file-time';
 import { computeDiffStats, generateCompactDiff, isBinaryFilePath, toUint8Array } from '../utilities';
 
 import type { FileChange, SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
@@ -78,72 +78,86 @@ export async function execute(
 		);
 	}
 
-	// Check if file exists
-	let fileExists = false;
-	let beforeContent: string | Uint8Array | undefined;
 	const writeIsBinary = isBinaryFilePath(writePath);
 
-	try {
-		if (writeIsBinary) {
-			const buffer = await fs.readFile(`${projectRoot}${writePath}`);
-			beforeContent = toUint8Array(buffer);
-		} else {
-			beforeContent = await fs.readFile(`${projectRoot}${writePath}`, 'utf8');
-		}
-		fileExists = true;
-	} catch {
-		fileExists = false;
-	}
+	// Acquire a per-file lock before the assert→read→write→record sequence so
+	// that two concurrent tool calls targeting the same file are serialized.
+	type LockResult = ToolResult | { fileExists: boolean; beforeContent: string | Uint8Array | undefined };
 
-	// If file exists, verify it was read first (if session tracking is available)
-	if (fileExists && sessionId) {
+	const lockResult: LockResult = await withLock(writePath, async () => {
+		// Check if file exists
+		let fileExists = false;
+		let beforeContent: string | Uint8Array | undefined;
+
 		try {
-			await assertFileWasRead(projectRoot, sessionId, writePath);
-		} catch (error) {
-			const message = error instanceof Error ? error.message : 'You must read the file before overwriting it.';
-			const code = message.includes('has been modified since') ? ToolErrorCode.FILE_CHANGED_EXTERNALLY : ToolErrorCode.FILE_NOT_READ;
-			return toolError(code, message);
+			if (writeIsBinary) {
+				const buffer = await fs.readFile(`${projectRoot}${writePath}`);
+				beforeContent = toUint8Array(buffer);
+			} else {
+				beforeContent = await fs.readFile(`${projectRoot}${writePath}`, 'utf8');
+			}
+			fileExists = true;
+		} catch {
+			fileExists = false;
 		}
+
+		// If file exists, verify it was read first (if session tracking is available)
+		if (fileExists && sessionId) {
+			try {
+				await assertFileWasRead(projectRoot, sessionId, writePath);
+			} catch (error) {
+				const message = error instanceof Error ? error.message : 'You must read the file before overwriting it.';
+				const code = message.includes('has been modified since') ? ToolErrorCode.FILE_CHANGED_EXTERNALLY : ToolErrorCode.FILE_NOT_READ;
+				return toolError(code, message);
+			}
+		}
+
+		sendEvent('status', { message: `Writing ${writePath}...` });
+
+		// Guard: if file exists and content is identical, skip the write.
+		// This prevents empty diffs from appearing in the UI.
+		if (fileExists && typeof beforeContent === 'string' && beforeContent === writeContent) {
+			return {
+				title: writePath,
+				metadata: { linesAdded: 0, linesRemoved: 0, diagnostics: [], isNew: false },
+				output: 'No changes needed — the file already contains the expected content.',
+			};
+		}
+
+		// Create parent directories if needed
+		const writeDirectory = writePath.slice(0, writePath.lastIndexOf('/'));
+		if (writeDirectory) {
+			await fs.mkdir(`${projectRoot}${writeDirectory}`, { recursive: true });
+		}
+
+		// Write the file
+		await fs.writeFile(`${projectRoot}${writePath}`, writeContent);
+
+		// Record as read for subsequent operations (both create and edit)
+		if (sessionId) {
+			await recordFileRead(projectRoot, sessionId, writePath);
+		}
+
+		// Track file change for snapshots
+		if (queryChanges) {
+			queryChanges.push({
+				path: writePath,
+				action: fileExists ? 'edit' : 'create',
+				beforeContent,
+				afterContent: writeContent,
+				isBinary: writeIsBinary,
+			});
+		}
+
+		return { fileExists, beforeContent };
+	});
+
+	if ('output' in lockResult) {
+		return lockResult;
 	}
 
-	sendEvent('status', { message: `Writing ${writePath}...` });
-
-	// Guard: if file exists and content is identical, skip the write.
-	// This prevents empty diffs from appearing in the UI.
-	if (fileExists && typeof beforeContent === 'string' && beforeContent === writeContent) {
-		return {
-			title: writePath,
-			metadata: { linesAdded: 0, linesRemoved: 0, diagnostics: [], isNew: false },
-			output: 'No changes needed — the file already contains the expected content.',
-		};
-	}
-
-	// Create parent directories if needed
-	const writeDirectory = writePath.slice(0, writePath.lastIndexOf('/'));
-	if (writeDirectory) {
-		await fs.mkdir(`${projectRoot}${writeDirectory}`, { recursive: true });
-	}
-
-	// Write the file
-	await fs.writeFile(`${projectRoot}${writePath}`, writeContent);
-
-	// Record as read for subsequent operations (both create and edit)
-	if (sessionId) {
-		await recordFileRead(projectRoot, sessionId, writePath);
-	}
-
+	const { fileExists, beforeContent } = lockResult;
 	const action: 'create' | 'edit' = fileExists ? 'edit' : 'create';
-
-	// Track file change for snapshots
-	if (queryChanges) {
-		queryChanges.push({
-			path: writePath,
-			action,
-			beforeContent,
-			afterContent: writeContent,
-			isBinary: writeIsBinary,
-		});
-	}
 
 	// Trigger HMR update (CSS/JS get hot updates, other files trigger full reload)
 	const coordinatorId = coordinatorNamespace.idFromName(`project:${projectId}`);

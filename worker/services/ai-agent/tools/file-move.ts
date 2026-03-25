@@ -11,6 +11,7 @@ import { ToolErrorCode, toolError } from '@shared/tool-errors';
 import { coordinatorNamespace } from '../../../lib/durable-object-namespaces';
 import { isHiddenPath, isPathSafe, isProtectedFile } from '../../../lib/path-utilities';
 import { formatLintDiagnostics, lintFile } from '../../../services/lint-service';
+import { withLock } from '../file-time';
 
 import type { FileChange, SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
 
@@ -58,25 +59,42 @@ export async function execute(
 
 	sendEvent('status', { message: `Moving ${fromPath} → ${toPath}...` });
 
-	let beforeContent: string;
-	try {
-		beforeContent = await fs.readFile(`${projectRoot}${fromPath}`, 'utf8');
-	} catch {
-		return toolError(ToolErrorCode.FILE_NOT_FOUND, `File not found: ${fromPath}`);
+	// Acquire locks on both the source and destination paths to serialize
+	// against concurrent edits, writes, or deletes targeting either path.
+	// Lock in sorted order to prevent deadlocks from opposite-direction moves.
+	type LockResult = ToolResult | { beforeContent: string };
+	const [first, second] = fromPath < toPath ? [fromPath, toPath] : [toPath, fromPath];
+	const lockResult: LockResult = await withLock<LockResult>(first, () =>
+		withLock<LockResult>(second, async () => {
+			let beforeContent: string;
+			try {
+				beforeContent = await fs.readFile(`${projectRoot}${fromPath}`, 'utf8');
+			} catch {
+				return toolError(ToolErrorCode.FILE_NOT_FOUND, `File not found: ${fromPath}`);
+			}
+
+			const toDirectory = toPath.slice(0, toPath.lastIndexOf('/'));
+			if (toDirectory) {
+				await fs.mkdir(`${projectRoot}${toDirectory}`, { recursive: true });
+			}
+			await fs.rename(`${projectRoot}${fromPath}`, `${projectRoot}${toPath}`);
+
+			if (queryChanges) {
+				queryChanges.push(
+					{ path: fromPath, action: 'delete', beforeContent, afterContent: undefined, isBinary: false },
+					{ path: toPath, action: 'create', beforeContent: undefined, afterContent: beforeContent, isBinary: false },
+				);
+			}
+
+			return { beforeContent };
+		}),
+	);
+
+	if ('output' in lockResult) {
+		return lockResult;
 	}
 
-	const toDirectory = toPath.slice(0, toPath.lastIndexOf('/'));
-	if (toDirectory) {
-		await fs.mkdir(`${projectRoot}${toDirectory}`, { recursive: true });
-	}
-	await fs.rename(`${projectRoot}${fromPath}`, `${projectRoot}${toPath}`);
-
-	if (queryChanges) {
-		queryChanges.push(
-			{ path: fromPath, action: 'delete', beforeContent, afterContent: undefined, isBinary: false },
-			{ path: toPath, action: 'create', beforeContent: undefined, afterContent: beforeContent, isBinary: false },
-		);
-	}
+	const { beforeContent } = lockResult;
 
 	const coordinatorId = coordinatorNamespace.idFromName(`project:${projectId}`);
 	const coordinatorStub = coordinatorNamespace.get(coordinatorId);

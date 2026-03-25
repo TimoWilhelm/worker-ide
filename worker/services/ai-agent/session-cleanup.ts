@@ -15,6 +15,8 @@
 
 import fs from 'node:fs/promises';
 
+import { clearSession } from './file-time';
+
 // =============================================================================
 // Constants
 // =============================================================================
@@ -42,6 +44,11 @@ export async function cleanupSessionArtifacts(
 	prunedSessionIds: Set<string>,
 	survivingSnapshotIds: Set<string>,
 ): Promise<void> {
+	// Evict file-time entries from the in-memory promise cache (synchronous).
+	for (const sessionId of prunedSessionIds) {
+		clearSession(projectRoot, sessionId);
+	}
+
 	const results = await Promise.allSettled([
 		// Clean up per-session directories (.agent/sessions/{id}/)
 		cleanupSessionDirectories(projectRoot, prunedSessionIds),

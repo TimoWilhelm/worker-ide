@@ -214,10 +214,12 @@ describe('FileTime', () => {
 			await expect(assertFileWasRead(PROJECT_ROOT, SESSION_ID, '/src/lib.ts')).rejects.toThrow('You must read file');
 		});
 
-		it('calls fs.rm to clean up the session directory', async () => {
+		it('only evicts the in-memory cache — does not touch the filesystem', async () => {
+			// Disk cleanup is handled by cleanupSessionArtifacts in session-cleanup.ts.
+			// clearSession is intentionally a pure in-memory operation.
 			await clearSession(PROJECT_ROOT, SESSION_ID);
 
-			expect(fsMock.rm).toHaveBeenCalledWith(`${PROJECT_ROOT}/.agent/sessions/${SESSION_ID}`, { recursive: true, force: true });
+			expect(fsMock.rm).not.toHaveBeenCalled();
 		});
 	});
 
