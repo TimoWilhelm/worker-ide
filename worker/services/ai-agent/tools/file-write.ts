@@ -40,10 +40,10 @@ export const definition: ToolDefinition = {
 	input_schema: {
 		type: 'object',
 		properties: {
-			path: { type: 'string', description: 'The absolute path to the file to write (must be absolute, not relative)' },
+			file_path: { type: 'string', description: 'The absolute path to the file to write (must be absolute, not relative)' },
 			content: { type: 'string', description: 'The content to write to the file' },
 		},
-		required: ['path', 'content'],
+		required: ['file_path', 'content'],
 	},
 };
 
@@ -58,7 +58,7 @@ export async function execute(
 	queryChanges?: FileChange[],
 ): Promise<ToolResult> {
 	const { projectRoot, projectId, sessionId } = context;
-	const writePath = input.path;
+	const writePath = input.file_path;
 	const writeContent = input.content;
 
 	// Validate path

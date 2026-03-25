@@ -79,7 +79,7 @@ describe('lint_check', () => {
 	it('reports no lint issues when file is clean', async () => {
 		memoryFs.seedFile(`${PROJECT_ROOT}/src/clean.ts`, 'const x = 1;');
 
-		const result = await execute({ path: '/src/clean.ts' }, createMockSendEvent(), context());
+		const result = await execute({ file_path: '/src/clean.ts' }, createMockSendEvent(), context());
 
 		expect(result.output).toBe('No lint issues found in /src/clean.ts.');
 	});
@@ -93,7 +93,7 @@ describe('lint_check', () => {
 			{ line: 2, column: 1, rule: 'lint/security/noEval', message: 'eval is harmful', severity: 'error', fixable: false },
 		];
 
-		const result = await execute({ path: '/src/app.ts' }, createMockSendEvent(), context());
+		const result = await execute({ file_path: '/src/app.ts' }, createMockSendEvent(), context());
 
 		expect(result.output).toContain('Found 2 lint issue(s) in /src/app.ts');
 		expect(result.output).toContain('Use const or let instead of var');
@@ -108,7 +108,7 @@ describe('lint_check', () => {
 			{ line: 1, column: 1, rule: 'lint/style/noVar', message: 'Use const or let instead of var', severity: 'error', fixable: true },
 		];
 
-		const result = await execute({ path: '/src/fixable.ts' }, createMockSendEvent(), context());
+		const result = await execute({ file_path: '/src/fixable.ts' }, createMockSendEvent(), context());
 
 		expect(result.output).toContain('1 issue(s) can be auto-fixed with lint_fix');
 	});
@@ -119,7 +119,7 @@ describe('lint_check', () => {
 			{ line: 1, column: 1, rule: 'lint/security/noEval', message: 'eval is harmful', severity: 'error', fixable: false },
 		];
 
-		const result = await execute({ path: '/src/unfixable.ts' }, createMockSendEvent(), context());
+		const result = await execute({ file_path: '/src/unfixable.ts' }, createMockSendEvent(), context());
 
 		expect(result.output).toContain('Found 1 lint issue(s)');
 		expect(result.output).not.toContain('auto-fixed with lint_fix');
@@ -134,7 +134,7 @@ describe('lint_check', () => {
 			{ line: 1, column: 1, rule: 'lint/style/noVar', message: 'Use const or let instead of var', severity: 'error', fixable: true },
 		];
 
-		await execute({ path: '/src/readonly.ts' }, createMockSendEvent(), context());
+		await execute({ file_path: '/src/readonly.ts' }, createMockSendEvent(), context());
 
 		const entry = memoryFs.store.get(`${PROJECT_ROOT}/src/readonly.ts`);
 		expect(entry?.content).toBe(original);
@@ -147,7 +147,7 @@ describe('lint_check', () => {
 		];
 		const sendEvent = createMockSendEvent();
 
-		await execute({ path: '/src/quiet.ts' }, sendEvent, context());
+		await execute({ file_path: '/src/quiet.ts' }, sendEvent, context());
 
 		expect(sendEvent.calls).toHaveLength(0);
 	});
@@ -161,7 +161,7 @@ describe('lint_check', () => {
 			{ line: 2, column: 1, rule: 'lint/nursery/noTodo', message: 'Avoid TODO comments', severity: 'warning', fixable: false },
 		];
 
-		const result = await execute({ path: '/src/mixed.ts' }, createMockSendEvent(), context());
+		const result = await execute({ file_path: '/src/mixed.ts' }, createMockSendEvent(), context());
 
 		expect(result.output).toContain('Found 2 lint issue(s)');
 		expect(result.output).toContain('error(s)');
@@ -171,18 +171,18 @@ describe('lint_check', () => {
 	// ── Error cases ───────────────────────────────────────────────────────
 
 	it('returns MISSING_INPUT for empty path', async () => {
-		await expect(execute({ path: '' }, createMockSendEvent(), context())).rejects.toThrow('[MISSING_INPUT]');
+		await expect(execute({ file_path: '' }, createMockSendEvent(), context())).rejects.toThrow('[MISSING_INPUT]');
 	});
 
 	it('returns INVALID_PATH for hidden paths', async () => {
-		await expect(execute({ path: '/.agent/file.ts' }, createMockSendEvent(), context())).rejects.toThrow('[INVALID_PATH]');
+		await expect(execute({ file_path: '/.agent/file.ts' }, createMockSendEvent(), context())).rejects.toThrow('[INVALID_PATH]');
 	});
 
 	it('returns INVALID_PATH for paths outside project root', async () => {
-		await expect(execute({ path: '/../outside.ts' }, createMockSendEvent(), context())).rejects.toThrow('[INVALID_PATH]');
+		await expect(execute({ file_path: '/../outside.ts' }, createMockSendEvent(), context())).rejects.toThrow('[INVALID_PATH]');
 	});
 
 	it('returns FILE_NOT_FOUND for missing file', async () => {
-		await expect(execute({ path: '/missing.ts' }, createMockSendEvent(), context())).rejects.toThrow('[FILE_NOT_FOUND]');
+		await expect(execute({ file_path: '/missing.ts' }, createMockSendEvent(), context())).rejects.toThrow('[FILE_NOT_FOUND]');
 	});
 });

@@ -61,7 +61,7 @@ describe('file_read', () => {
 	it('reads a text file with numbered lines', async () => {
 		memoryFs.seedFile(`${PROJECT_ROOT}/src/main.ts`, 'const x = 1;\nconst y = 2;\nconst z = 3;\n');
 
-		const result = await execute({ path: '/src/main.ts' }, createMockSendEvent(), context());
+		const result = await execute({ file_path: '/src/main.ts' }, createMockSendEvent(), context());
 
 		expect(result.output).toContain('<path>/src/main.ts</path>');
 		expect(result.output).toContain('<type>file</type>');
@@ -75,7 +75,7 @@ describe('file_read', () => {
 		const lines = Array.from({ length: 20 }, (_, index) => `line ${index + 1}`).join('\n');
 		memoryFs.seedFile(`${PROJECT_ROOT}/big.txt`, lines);
 
-		const result = await execute({ path: '/big.txt', offset: '5', limit: '3' }, createMockSendEvent(), context());
+		const result = await execute({ file_path: '/big.txt', offset: '5', limit: '3' }, createMockSendEvent(), context());
 
 		expect(result.output).toContain('5: line 5');
 		expect(result.output).toContain('6: line 6');
@@ -89,7 +89,7 @@ describe('file_read', () => {
 		const longLine = 'x'.repeat(3000);
 		memoryFs.seedFile(`${PROJECT_ROOT}/long.txt`, longLine);
 
-		const result = await execute({ path: '/long.txt' }, createMockSendEvent(), context());
+		const result = await execute({ file_path: '/long.txt' }, createMockSendEvent(), context());
 
 		expect(result.output).toContain('line truncated to 2000 chars');
 		expect(result.output).not.toContain('x'.repeat(3000));
@@ -100,7 +100,7 @@ describe('file_read', () => {
 		const lines = Array.from({ length: 600 }, (_, index) => `${'a'.repeat(90)} line-${index + 1}`).join('\n');
 		memoryFs.seedFile(`${PROJECT_ROOT}/huge.txt`, lines);
 
-		const result = await execute({ path: '/huge.txt' }, createMockSendEvent(), context());
+		const result = await execute({ file_path: '/huge.txt' }, createMockSendEvent(), context());
 
 		expect(result.output).toContain('Output truncated due to size limit');
 	});
@@ -112,7 +112,7 @@ describe('file_read', () => {
 		memoryFs.seedFile(`${PROJECT_ROOT}/src/utils/helper.ts`, 'helper');
 		memoryFs.seedFile(`${PROJECT_ROOT}/src/index.ts`, 'index');
 
-		const result = await execute({ path: '/src' }, createMockSendEvent(), context());
+		const result = await execute({ file_path: '/src' }, createMockSendEvent(), context());
 
 		expect(result.output).toContain('<type>directory</type>');
 		expect(result.output).toContain('utils/');
@@ -129,7 +129,7 @@ describe('file_read', () => {
 		memoryFs.seedFile(`${PROJECT_ROOT}/src/main.ts`, 'main');
 		memoryFs.seedFile(`${PROJECT_ROOT}/.initialized`, '1');
 
-		const result = await execute({ path: '/' }, createMockSendEvent(), context());
+		const result = await execute({ file_path: '/' }, createMockSendEvent(), context());
 
 		expect(result.output).toContain('src/');
 		expect(result.output).not.toContain('.agent');
@@ -141,7 +141,7 @@ describe('file_read', () => {
 	it('detects binary file by extension', async () => {
 		memoryFs.seedFile(`${PROJECT_ROOT}/image.png`, 'binary-data');
 
-		const result = await execute({ path: '/image.png' }, createMockSendEvent(), context());
+		const result = await execute({ file_path: '/image.png' }, createMockSendEvent(), context());
 
 		expect(result.output).toContain('<type>binary</type>');
 		expect(result.output).toContain('Binary file detected');
@@ -151,7 +151,7 @@ describe('file_read', () => {
 		const binaryContent = Buffer.from([0x00, 0x01, 0x02, 0x48, 0x65, 0x6c, 0x6c, 0x6f]);
 		memoryFs.seedFile(`${PROJECT_ROOT}/data.custom`, binaryContent);
 
-		const result = await execute({ path: '/data.custom' }, createMockSendEvent(), context());
+		const result = await execute({ file_path: '/data.custom' }, createMockSendEvent(), context());
 
 		expect(result.output).toContain('<type>binary</type>');
 	});
@@ -159,25 +159,25 @@ describe('file_read', () => {
 	// ── Error cases ───────────────────────────────────────────────────────
 
 	it('returns FILE_NOT_FOUND for missing file', async () => {
-		await expect(execute({ path: '/nonexistent.ts' }, createMockSendEvent(), context())).rejects.toThrow('[FILE_NOT_FOUND]');
+		await expect(execute({ file_path: '/nonexistent.ts' }, createMockSendEvent(), context())).rejects.toThrow('[FILE_NOT_FOUND]');
 	});
 
 	it('suggests similar files when file is not found', async () => {
 		memoryFs.seedFile(`${PROJECT_ROOT}/src/main.ts`, 'content');
 
-		await expect(execute({ path: '/src/main.tsx' }, createMockSendEvent(), context())).rejects.toThrow('[FILE_NOT_FOUND]');
+		await expect(execute({ file_path: '/src/main.tsx' }, createMockSendEvent(), context())).rejects.toThrow('[FILE_NOT_FOUND]');
 	});
 
 	it('rejects path traversal with ..', async () => {
-		await expect(execute({ path: '/../etc/passwd' }, createMockSendEvent(), context())).rejects.toThrow('[INVALID_PATH]');
+		await expect(execute({ file_path: '/../etc/passwd' }, createMockSendEvent(), context())).rejects.toThrow('[INVALID_PATH]');
 	});
 
 	it('rejects relative path without leading slash', async () => {
-		await expect(execute({ path: 'src/main.ts' }, createMockSendEvent(), context())).rejects.toThrow('[INVALID_PATH]');
+		await expect(execute({ file_path: 'src/main.ts' }, createMockSendEvent(), context())).rejects.toThrow('[INVALID_PATH]');
 	});
 
 	it('rejects hidden paths', async () => {
-		await expect(execute({ path: '/.agent/config.json' }, createMockSendEvent(), context())).rejects.toThrow('[INVALID_PATH]');
+		await expect(execute({ file_path: '/.agent/config.json' }, createMockSendEvent(), context())).rejects.toThrow('[INVALID_PATH]');
 	});
 
 	// ── Diagnostics ──────────────────────────────────────────────────────
@@ -188,7 +188,7 @@ describe('file_read', () => {
 			{ line: 1, column: 1, rule: 'lint/style/noVar', message: 'Use const or let', severity: 'error', fixable: true },
 		];
 
-		const result = await execute({ path: '/lint.ts' }, createMockSendEvent(), context());
+		const result = await execute({ file_path: '/lint.ts' }, createMockSendEvent(), context());
 
 		expect(result.metadata.diagnostics).toHaveLength(1);
 		expect(result.metadata.diagnostics[0]).toHaveProperty('rule', 'lint/style/noVar');
@@ -208,7 +208,7 @@ describe('file_read', () => {
 			fixable: false,
 		}));
 
-		const result = await execute({ path: '/many-issues.ts' }, createMockSendEvent(), context());
+		const result = await execute({ file_path: '/many-issues.ts' }, createMockSendEvent(), context());
 
 		expect(result.metadata.diagnostics).toHaveLength(20);
 		expect(result.output).toContain('Showing 20 of 25 diagnostics');
@@ -217,7 +217,7 @@ describe('file_read', () => {
 	it('returns empty diagnostics array for clean files', async () => {
 		memoryFs.seedFile(`${PROJECT_ROOT}/clean.ts`, 'const x = 1;\n');
 
-		const result = await execute({ path: '/clean.ts' }, createMockSendEvent(), context());
+		const result = await execute({ file_path: '/clean.ts' }, createMockSendEvent(), context());
 
 		expect(result.metadata.diagnostics).toEqual([]);
 		expect(result.output).not.toContain('<lint_diagnostics>');
@@ -229,7 +229,7 @@ describe('file_read', () => {
 		memoryFs.seedFile(`${PROJECT_ROOT}/test.txt`, 'hello');
 		const sendEvent = createMockSendEvent();
 
-		await execute({ path: '/test.txt' }, sendEvent, context());
+		await execute({ file_path: '/test.txt' }, sendEvent, context());
 
 		expect(sendEvent.calls.length).toBeGreaterThanOrEqual(1);
 		expect(sendEvent.calls[0][0]).toBe('status');

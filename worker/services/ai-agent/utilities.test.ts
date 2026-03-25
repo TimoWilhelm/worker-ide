@@ -40,7 +40,7 @@ describe('isRecordObject', () => {
 
 describe('validateToolInput', () => {
 	it('validates valid file_read input', () => {
-		const result = validateToolInput('file_read', { path: '/index.html' });
+		const result = validateToolInput('file_read', { file_path: '/index.html' });
 		expect(result.success).toBe(true);
 	});
 

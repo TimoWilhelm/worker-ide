@@ -40,12 +40,12 @@ export const definition: ToolDefinition = {
 	input_schema: {
 		type: 'object',
 		properties: {
-			path: {
+			file_path: {
 				type: 'string',
 				description: 'The file path to fix, relative to the project root (e.g. /src/app.tsx)',
 			},
 		},
-		required: ['path'],
+		required: ['file_path'],
 	},
 };
 
@@ -60,10 +60,10 @@ export async function execute(
 	queryChanges?: FileChange[],
 ): Promise<ToolResult> {
 	const { projectRoot, projectId, sessionId } = context;
-	const fixPath = input.path;
+	const fixPath = input.file_path;
 
 	if (!fixPath) {
-		return toolError(ToolErrorCode.MISSING_INPUT, 'Missing required parameter: path');
+		return toolError(ToolErrorCode.MISSING_INPUT, 'Missing required parameter: file_path');
 	}
 
 	if (!isPathSafe(projectRoot, fixPath)) {

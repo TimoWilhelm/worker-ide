@@ -68,7 +68,11 @@ describe('file_edit', () => {
 	it('performs a simple string replacement', async () => {
 		await seedAndRead('/src/app.ts', 'const greeting = "hello";\nconsole.log(greeting);\n');
 
-		const result = await execute({ path: '/src/app.ts', old_string: '"hello"', new_string: '"world"' }, createMockSendEvent(), context());
+		const result = await execute(
+			{ file_path: '/src/app.ts', old_string: '"hello"', new_string: '"world"' },
+			createMockSendEvent(),
+			context(),
+		);
 
 		expect(result).toHaveProperty('output');
 		const entry = memoryFs.store.get(`${PROJECT_ROOT}/src/app.ts`);
@@ -80,7 +84,7 @@ describe('file_edit', () => {
 		await seedAndRead('/stats.ts', 'line1\nline2\nline3\n');
 
 		const result = await execute(
-			{ path: '/stats.ts', old_string: 'line2', new_string: 'replaced\nextra' },
+			{ file_path: '/stats.ts', old_string: 'line2', new_string: 'replaced\nextra' },
 			createMockSendEvent(),
 			context(),
 		);
@@ -93,7 +97,7 @@ describe('file_edit', () => {
 		await seedAndRead('/multi.ts', 'foo bar foo baz foo\n');
 
 		const result = await execute(
-			{ path: '/multi.ts', old_string: 'foo', new_string: 'qux', replace_all: 'true' },
+			{ file_path: '/multi.ts', old_string: 'foo', new_string: 'qux', replace_all: 'true' },
 			createMockSendEvent(),
 			context(),
 		);
@@ -109,7 +113,7 @@ describe('file_edit', () => {
 
 		const result = await execute(
 			{
-				path: '/func.ts',
+				file_path: '/func.ts',
 				old_string: 'function hello() {\n  return "hi";\n}',
 				new_string: 'function hello() {\n  return "hello world";\n}',
 			},
@@ -128,7 +132,7 @@ describe('file_edit', () => {
 		await seedAndRead('/tracked.ts', 'before');
 		const queryChanges: FileChange[] = [];
 
-		await execute({ path: '/tracked.ts', old_string: 'before', new_string: 'after' }, createMockSendEvent(), context(), queryChanges);
+		await execute({ file_path: '/tracked.ts', old_string: 'before', new_string: 'after' }, createMockSendEvent(), context(), queryChanges);
 
 		expect(queryChanges).toHaveLength(1);
 		expect(queryChanges[0].action).toBe('edit');
@@ -142,7 +146,7 @@ describe('file_edit', () => {
 		await seedAndRead('/same.ts', 'const x = 1;');
 
 		await expect(
-			execute({ path: '/same.ts', old_string: 'const x = 1;', new_string: 'const x = 1;' }, createMockSendEvent(), context()),
+			execute({ file_path: '/same.ts', old_string: 'const x = 1;', new_string: 'const x = 1;' }, createMockSendEvent(), context()),
 		).rejects.toThrow('[NO_MATCH]');
 	});
 
@@ -152,7 +156,7 @@ describe('file_edit', () => {
 		memoryFs.seedFile(`${PROJECT_ROOT}/unread.ts`, 'content');
 
 		await expect(
-			execute({ path: '/unread.ts', old_string: 'content', new_string: 'new' }, createMockSendEvent(), context()),
+			execute({ file_path: '/unread.ts', old_string: 'content', new_string: 'new' }, createMockSendEvent(), context()),
 		).rejects.toThrow('[FILE_NOT_READ]');
 	});
 
@@ -161,7 +165,7 @@ describe('file_edit', () => {
 		const { recordFileRead } = await import('../file-time');
 		await recordFileRead(PROJECT_ROOT, 'test-session', '/ghost.ts');
 
-		await expect(execute({ path: '/ghost.ts', old_string: 'x', new_string: 'y' }, createMockSendEvent(), context())).rejects.toThrow(
+		await expect(execute({ file_path: '/ghost.ts', old_string: 'x', new_string: 'y' }, createMockSendEvent(), context())).rejects.toThrow(
 			'[FILE_NOT_FOUND]',
 		);
 	});
@@ -170,20 +174,20 @@ describe('file_edit', () => {
 		await seedAndRead('/nomatch.ts', 'actual content here');
 
 		await expect(
-			execute({ path: '/nomatch.ts', old_string: 'nonexistent string', new_string: 'replacement' }, createMockSendEvent(), context()),
+			execute({ file_path: '/nomatch.ts', old_string: 'nonexistent string', new_string: 'replacement' }, createMockSendEvent(), context()),
 		).rejects.toThrow('[NO_MATCH]');
 	});
 
 	it('rejects hidden paths', async () => {
 		await expect(
-			execute({ path: '/.agent/data.json', old_string: 'a', new_string: 'b' }, createMockSendEvent(), context()),
+			execute({ file_path: '/.agent/data.json', old_string: 'a', new_string: 'b' }, createMockSendEvent(), context()),
 		).rejects.toThrow('[INVALID_PATH]');
 	});
 
 	it('rejects path traversal', async () => {
-		await expect(execute({ path: '/../etc/passwd', old_string: 'a', new_string: 'b' }, createMockSendEvent(), context())).rejects.toThrow(
-			'[INVALID_PATH]',
-		);
+		await expect(
+			execute({ file_path: '/../etc/passwd', old_string: 'a', new_string: 'b' }, createMockSendEvent(), context()),
+		).rejects.toThrow('[INVALID_PATH]');
 	});
 
 	// ── Sends file_changed event ──────────────────────────────────────────
@@ -192,7 +196,7 @@ describe('file_edit', () => {
 		await seedAndRead('/event.ts', 'old');
 		const sendEvent = createMockSendEvent();
 
-		await execute({ path: '/event.ts', old_string: 'old', new_string: 'new' }, sendEvent, context());
+		await execute({ file_path: '/event.ts', old_string: 'old', new_string: 'new' }, sendEvent, context());
 
 		const fileChangedEvent = sendEvent.calls.find(([type]) => type === 'file_changed');
 		expect(fileChangedEvent).toBeDefined();

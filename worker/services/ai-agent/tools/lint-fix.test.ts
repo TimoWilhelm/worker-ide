@@ -88,7 +88,7 @@ describe('lint_fix', () => {
 			remainingDiagnostics: [],
 		};
 
-		const result = await execute({ path: '/src/app.ts' }, createMockSendEvent(), context());
+		const result = await execute({ file_path: '/src/app.ts' }, createMockSendEvent(), context());
 
 		expect(result).toHaveProperty('output');
 		expect(result.metadata).toHaveProperty('linesAdded');
@@ -108,7 +108,7 @@ describe('lint_fix', () => {
 		};
 		const sendEvent = createMockSendEvent();
 
-		await execute({ path: '/fix.ts' }, sendEvent, context());
+		await execute({ file_path: '/fix.ts' }, sendEvent, context());
 
 		const fileChangedEvent = sendEvent.calls.find(([type]) => type === 'file_changed');
 		expect(fileChangedEvent).toBeDefined();
@@ -125,7 +125,7 @@ describe('lint_fix', () => {
 			remainingDiagnostics: [],
 		};
 
-		const result = await execute({ path: '/clean.ts' }, createMockSendEvent(), context());
+		const result = await execute({ file_path: '/clean.ts' }, createMockSendEvent(), context());
 
 		expect(result.output).toContain('No lint issues found');
 	});
@@ -142,7 +142,7 @@ describe('lint_fix', () => {
 			],
 		};
 
-		const result = await execute({ path: '/partial.ts' }, createMockSendEvent(), context());
+		const result = await execute({ file_path: '/partial.ts' }, createMockSendEvent(), context());
 
 		expect(result.output).toContain('Fixed 1 lint issue(s)');
 		expect(result.output).toContain('eval is harmful');
@@ -159,7 +159,7 @@ describe('lint_fix', () => {
 			],
 		};
 
-		const result = await execute({ path: '/manual.ts' }, createMockSendEvent(), context());
+		const result = await execute({ file_path: '/manual.ts' }, createMockSendEvent(), context());
 
 		expect(result.output).toContain('require manual fixes');
 		expect(result.output).toContain('eval is harmful');
@@ -177,7 +177,7 @@ describe('lint_fix', () => {
 		};
 		const queryChanges: FileChange[] = [];
 
-		await execute({ path: '/tracked.ts' }, createMockSendEvent(), context(), queryChanges);
+		await execute({ file_path: '/tracked.ts' }, createMockSendEvent(), context(), queryChanges);
 
 		expect(queryChanges).toHaveLength(1);
 		expect(queryChanges[0].action).toBe('edit');
@@ -188,11 +188,11 @@ describe('lint_fix', () => {
 	// ── Error cases ───────────────────────────────────────────────────────
 
 	it('returns MISSING_INPUT for empty path', async () => {
-		await expect(execute({ path: '' }, createMockSendEvent(), context())).rejects.toThrow('[MISSING_INPUT]');
+		await expect(execute({ file_path: '' }, createMockSendEvent(), context())).rejects.toThrow('[MISSING_INPUT]');
 	});
 
 	it('returns INVALID_PATH for hidden paths', async () => {
-		await expect(execute({ path: '/.agent/file.ts' }, createMockSendEvent(), context())).rejects.toThrow('[INVALID_PATH]');
+		await expect(execute({ file_path: '/.agent/file.ts' }, createMockSendEvent(), context())).rejects.toThrow('[INVALID_PATH]');
 	});
 
 	it('returns FILE_NOT_FOUND for missing file', async () => {
@@ -202,7 +202,7 @@ describe('lint_fix', () => {
 			remainingDiagnostics: [],
 		};
 
-		await expect(execute({ path: '/missing.ts' }, createMockSendEvent(), context())).rejects.toThrow('[FILE_NOT_FOUND]');
+		await expect(execute({ file_path: '/missing.ts' }, createMockSendEvent(), context())).rejects.toThrow('[FILE_NOT_FOUND]');
 	});
 
 	it('handles biome fix failure', async () => {
@@ -210,6 +210,6 @@ describe('lint_fix', () => {
 		// Override the hoisted mock to return a failure object
 		biomeMock.fixResult = { failed: true, reason: 'Biome WASM init failed' } as unknown as typeof biomeMock.fixResult;
 
-		await expect(execute({ path: '/bad.ts' }, createMockSendEvent(), context())).rejects.toThrow('[LINT_FIX_FAILED]');
+		await expect(execute({ file_path: '/bad.ts' }, createMockSendEvent(), context())).rejects.toThrow('[LINT_FIX_FAILED]');
 	});
 });

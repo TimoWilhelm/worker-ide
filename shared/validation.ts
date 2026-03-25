@@ -117,7 +117,7 @@ export const listFilesInputSchema = z.object({});
  * Schema for AI tool: read_file
  */
 export const readFileInputSchema = z.object({
-	path: filePathSchema,
+	file_path: filePathSchema,
 	offset: z.coerce.number().int().min(1).optional(),
 	limit: z.coerce.number().int().min(1).optional(),
 });
@@ -126,7 +126,7 @@ export const readFileInputSchema = z.object({
  * Schema for AI tool: write_file
  */
 export const writeFileInputSchema = z.object({
-	path: filePathSchema,
+	file_path: filePathSchema,
 	content: z.string(),
 });
 
@@ -134,7 +134,7 @@ export const writeFileInputSchema = z.object({
  * Schema for AI tool: delete_file
  */
 export const deleteFileInputSchema = z.object({
-	path: filePathSchema,
+	file_path: filePathSchema,
 });
 
 /**
@@ -185,7 +185,7 @@ export const updateTodosInputSchema = z.object({
  * Schema for AI tool: edit (exact string replacement)
  */
 export const editInputSchema = z.object({
-	path: filePathSchema,
+	file_path: filePathSchema,
 	old_string: z.string().min(1, 'old_string is required'),
 	new_string: z.string(),
 	replace_all: z.string().optional(),
@@ -195,8 +195,17 @@ export const editInputSchema = z.object({
  * Schema for AI tool: multiedit (multiple exact string replacements in one file)
  */
 export const multiEditInputSchema = z.object({
-	path: filePathSchema,
-	edits: z.string().min(1, 'edits JSON array is required'),
+	file_path: filePathSchema,
+	edits: z.union([
+		z.array(
+			z.object({
+				old_string: z.string().min(1, 'old_string is required'),
+				new_string: z.string(),
+				replace_all: z.boolean().optional(),
+			}),
+		),
+		z.string().min(1, 'edits JSON array is required'),
+	]),
 });
 
 /**

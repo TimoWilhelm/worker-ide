@@ -25,9 +25,9 @@ export const definition: ToolDefinition = {
 	input_schema: {
 		type: 'object',
 		properties: {
-			path: { type: 'string', description: 'File path to delete, starting with /' },
+			file_path: { type: 'string', description: 'File path to delete, starting with /' },
 		},
-		required: ['path'],
+		required: ['file_path'],
 	},
 };
 
@@ -38,7 +38,7 @@ export async function execute(
 	queryChanges?: FileChange[],
 ): Promise<ToolResult> {
 	const { projectRoot, projectId } = context;
-	const deletePath = input.path;
+	const deletePath = input.file_path;
 
 	if (!isPathSafe(projectRoot, deletePath)) {
 		return toolError(ToolErrorCode.INVALID_PATH, 'Invalid file path');

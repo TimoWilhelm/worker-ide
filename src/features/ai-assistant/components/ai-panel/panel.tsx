@@ -113,16 +113,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	>();
 
 	// Store state (only UI preferences — AI session state comes from the Agent)
-	const {
-		files,
-		agentMode,
-		selectedModel,
-		openFile,
-		setAgentMode,
-		setSelectedModel,
-		clearPendingChangesBySnapshots,
-		clearPendingChangesByPaths,
-	} = useStore();
+	const { files, agentMode, selectedModel, openFile, setAgentMode, setSelectedModel, clearPendingChangesByPaths } = useStore();
 
 	// =========================================================================
 	// Agents SDK: connect to the AgentRunner DO via WebSocket
@@ -189,7 +180,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 			? (rawState as import('@shared/agent-state').AgentState) // eslint-disable-line @typescript-eslint/consistent-type-assertions -- narrowed above
 			: undefined;
 	const currentSession = agentState?.currentSession;
-	const chatMessages = currentSession?.messages ?? [];
+	const chatMessages = useMemo(() => currentSession?.messages ?? [], [currentSession?.messages]);
 	const sessionId = currentSession?.sessionId;
 	const statusMessage = currentSession?.statusText;
 	const contextTokensUsed = currentSession?.contextTokensUsed ?? 0;
@@ -283,7 +274,6 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 
 	// Change review hook for accept/reject UI
 	const changeReview = useChangeReview({ projectId });
-	const { persistPendingChanges } = changeReview;
 
 	// Start a new session. Pending changes are NOT cleared — they persist
 	// across sessions at the project level.
@@ -521,13 +511,9 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 					}
 				}
 
-				// Surgically clear only the pending changes for reverted files
+				// Optimistically clear the pending changes for reverted files.
+				// The server's revertSession will confirm/reconcile via agent state sync.
 				clearPendingChangesByPaths(revertedPaths);
-
-				// Also clear any remaining pending changes whose snapshotId is in the cascade set
-				// (covers entries that may not have a file path match, e.g., deleted files)
-				const snapshotIdSet = new Set(snapshotIds);
-				clearPendingChangesBySnapshots(snapshotIdSet);
 
 				// Revert messages on the server — awaited so errors surface in the dialog
 				// and the dialog stays open until the server confirms the revert.
@@ -542,11 +528,16 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 					});
 				}
 
-				// Persist pending changes (the agent state will auto-sync the updated context token usage)
+				// The server's revertSession authoritatively updates pending changes
+				// via agent state sync — no need to persist from the client.
 				queueMicrotask(() => {
-					void persistPendingChanges();
 					revertInProgressReference.current = false;
 				});
+
+				// Force the preview iframe to remount so it reflects the reverted files.
+				// The server-side HMR triggers (full-reload per file) may not be reliable
+				// if the preview was in a broken state or multiple reloads debounced.
+				globalThis.dispatchEvent(new CustomEvent('preview-force-refresh'));
 
 				// Close the dialog on success
 				setPendingRevert(undefined);
@@ -562,18 +553,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 				setPendingRevert((previous) => (previous ? { ...previous, isLoading: false, error: message } : previous));
 			}
 		},
-		[
-			isProcessing,
-			chatMessages,
-			projectId,
-			sessionId,
-			files,
-			agent,
-			revertCascadeAsync,
-			clearPendingChangesByPaths,
-			clearPendingChangesBySnapshots,
-			persistPendingChanges,
-		],
+		[isProcessing, chatMessages, projectId, sessionId, files, agent, revertCascadeAsync, clearPendingChangesByPaths],
 	);
 
 	// Download debug log

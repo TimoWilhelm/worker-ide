@@ -74,7 +74,7 @@ describe('file_multiedit', () => {
 
 		const result = await execute(
 			{
-				path: '/src/app.ts',
+				file_path: '/src/app.ts',
 				edits: makeEdits(
 					{ old_string: 'const a = 1;', new_string: 'const a = 10;' },
 					{ old_string: 'const b = 2;', new_string: 'const b = 20;' },
@@ -96,7 +96,7 @@ describe('file_multiedit', () => {
 
 		const result = await execute(
 			{
-				path: '/sequential.ts',
+				file_path: '/sequential.ts',
 				edits: makeEdits({ old_string: 'hello', new_string: 'hi' }, { old_string: 'hi world', new_string: 'hi there' }),
 			},
 			createMockSendEvent(),
@@ -113,7 +113,7 @@ describe('file_multiedit', () => {
 
 		const result = await execute(
 			{
-				path: '/stats.ts',
+				file_path: '/stats.ts',
 				edits: makeEdits({ old_string: 'line2', new_string: 'replaced\nextra' }),
 			},
 			createMockSendEvent(),
@@ -129,7 +129,7 @@ describe('file_multiedit', () => {
 
 		const result = await execute(
 			{
-				path: '/multi.ts',
+				file_path: '/multi.ts',
 				edits: makeEdits({ old_string: 'foo', new_string: 'qux', replace_all: 'true' }),
 			},
 			createMockSendEvent(),
@@ -149,7 +149,7 @@ describe('file_multiedit', () => {
 		await expect(
 			execute(
 				{
-					path: '/same.ts',
+					file_path: '/same.ts',
 					edits: makeEdits({ old_string: 'const x = 1;', new_string: 'const x = 1;' }),
 				},
 				createMockSendEvent(),
@@ -166,7 +166,7 @@ describe('file_multiedit', () => {
 
 		await execute(
 			{
-				path: '/tracked.ts',
+				file_path: '/tracked.ts',
 				edits: makeEdits({ old_string: 'before1', new_string: 'after1' }, { old_string: 'before2', new_string: 'after2' }),
 			},
 			createMockSendEvent(),
@@ -188,7 +188,7 @@ describe('file_multiedit', () => {
 		await expect(
 			execute(
 				{
-					path: '/atomic.ts',
+					file_path: '/atomic.ts',
 					edits: makeEdits(
 						{ old_string: 'alpha', new_string: 'ALPHA' }, // succeeds
 						{ old_string: 'nonexistent', new_string: 'FAIL' }, // fails
@@ -210,7 +210,7 @@ describe('file_multiedit', () => {
 		await expect(
 			execute(
 				{
-					path: '/which.ts',
+					file_path: '/which.ts',
 					edits: makeEdits({ old_string: 'one', new_string: 'ONE' }, { old_string: 'missing', new_string: 'FAIL' }),
 				},
 				createMockSendEvent(),
@@ -222,16 +222,16 @@ describe('file_multiedit', () => {
 	// ── Error cases ───────────────────────────────────────────────────────
 
 	it('rejects invalid edits JSON', async () => {
-		await expect(execute({ path: '/any.ts', edits: 'not json' }, createMockSendEvent(), context())).rejects.toThrow('[MISSING_INPUT]');
+		await expect(execute({ file_path: '/any.ts', edits: 'not json' }, createMockSendEvent(), context())).rejects.toThrow('[MISSING_INPUT]');
 	});
 
 	it('rejects empty edits array', async () => {
-		await expect(execute({ path: '/any.ts', edits: '[]' }, createMockSendEvent(), context())).rejects.toThrow('[MISSING_INPUT]');
+		await expect(execute({ file_path: '/any.ts', edits: '[]' }, createMockSendEvent(), context())).rejects.toThrow('[MISSING_INPUT]');
 	});
 
 	it('rejects edits with missing old_string', async () => {
 		await expect(
-			execute({ path: '/any.ts', edits: JSON.stringify([{ new_string: 'bar' }]) }, createMockSendEvent(), context()),
+			execute({ file_path: '/any.ts', edits: JSON.stringify([{ new_string: 'bar' }]) }, createMockSendEvent(), context()),
 		).rejects.toThrow('[MISSING_INPUT]');
 	});
 
@@ -241,7 +241,7 @@ describe('file_multiedit', () => {
 		await expect(
 			execute(
 				{
-					path: '/unread.ts',
+					file_path: '/unread.ts',
 					edits: makeEdits({ old_string: 'content', new_string: 'new' }),
 				},
 				createMockSendEvent(),
@@ -257,7 +257,7 @@ describe('file_multiedit', () => {
 		await expect(
 			execute(
 				{
-					path: '/ghost.ts',
+					file_path: '/ghost.ts',
 					edits: makeEdits({ old_string: 'x', new_string: 'y' }),
 				},
 				createMockSendEvent(),
@@ -270,7 +270,7 @@ describe('file_multiedit', () => {
 		await expect(
 			execute(
 				{
-					path: '/.agent/data.json',
+					file_path: '/.agent/data.json',
 					edits: makeEdits({ old_string: 'a', new_string: 'b' }),
 				},
 				createMockSendEvent(),
@@ -283,7 +283,7 @@ describe('file_multiedit', () => {
 		await expect(
 			execute(
 				{
-					path: '/../etc/passwd',
+					file_path: '/../etc/passwd',
 					edits: makeEdits({ old_string: 'a', new_string: 'b' }),
 				},
 				createMockSendEvent(),
@@ -300,7 +300,7 @@ describe('file_multiedit', () => {
 
 		await execute(
 			{
-				path: '/event.ts',
+				file_path: '/event.ts',
 				edits: makeEdits({ old_string: 'old1', new_string: 'new1' }, { old_string: 'old2', new_string: 'new2' }),
 			},
 			sendEvent,
@@ -320,7 +320,7 @@ describe('file_multiedit', () => {
 
 		await execute(
 			{
-				path: '/single-event.ts',
+				file_path: '/single-event.ts',
 				edits: makeEdits({ old_string: 'a', new_string: 'A' }, { old_string: 'b', new_string: 'B' }, { old_string: 'c', new_string: 'C' }),
 			},
 			sendEvent,

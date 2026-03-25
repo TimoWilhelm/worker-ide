@@ -36,12 +36,12 @@ export const definition: ToolDefinition = {
 	input_schema: {
 		type: 'object',
 		properties: {
-			path: {
+			file_path: {
 				type: 'string',
 				description: 'The file path to check, relative to the project root (e.g. /src/app.tsx)',
 			},
 		},
-		required: ['path'],
+		required: ['file_path'],
 	},
 };
 
@@ -55,10 +55,10 @@ export async function execute(
 	context: ToolExecutorContext,
 ): Promise<ToolResult> {
 	const { projectRoot } = context;
-	const checkPath = input.path;
+	const checkPath = input.file_path;
 
 	if (!checkPath) {
-		return toolError(ToolErrorCode.MISSING_INPUT, 'Missing required parameter: path');
+		return toolError(ToolErrorCode.MISSING_INPUT, 'Missing required parameter: file_path');
 	}
 
 	if (!isPathSafe(projectRoot, checkPath)) {

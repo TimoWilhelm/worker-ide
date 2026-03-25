@@ -174,18 +174,18 @@ describe('isPathSafe', () => {
 
 describe('validateToolInput', () => {
 	it('validates file_read input', () => {
-		const result = validateToolInput('file_read', { path: '/src/main.ts' });
+		const result = validateToolInput('file_read', { file_path: '/src/main.ts' });
 		expect(result.success).toBe(true);
 	});
 
 	it('rejects invalid file_read input', () => {
-		const result = validateToolInput('file_read', { path: 'invalid' });
+		const result = validateToolInput('file_read', { file_path: 'invalid' });
 		expect(result.success).toBe(false);
 	});
 
 	it('validates file_write input', () => {
 		const result = validateToolInput('file_write', {
-			path: '/src/main.ts',
+			file_path: '/src/main.ts',
 			content: 'hello',
 		});
 		expect(result.success).toBe(true);
@@ -197,7 +197,7 @@ describe('validateToolInput', () => {
 	});
 
 	it('validates file_delete input', () => {
-		const result = validateToolInput('file_delete', { path: '/src/old.ts' });
+		const result = validateToolInput('file_delete', { file_path: '/src/old.ts' });
 		expect(result.success).toBe(true);
 	});
 
