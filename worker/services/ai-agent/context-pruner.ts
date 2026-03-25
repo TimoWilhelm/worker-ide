@@ -399,16 +399,33 @@ export function pruneToolOutputs(messages: ModelMessage[]): { messages: ModelMes
 	// Create new message array with pruned tool outputs
 	const prunedMessages = messages.map((message, index): ModelMessage => {
 		if (indicesToPrune.has(index) && message.role === 'tool') {
+			// Preserve original toolCallId/toolName so the LLM's tool-call/result
+			// pairing stays intact. Providers reject mismatched IDs.
+			const originalContent = Array.isArray(message.content) ? message.content : [];
+			const prunedContent = originalContent.map((part) => {
+				if (part.type === 'tool-result') {
+					return {
+						type: 'tool-result' as const,
+						toolCallId: part.toolCallId,
+						toolName: part.toolName,
+						output: { type: 'text' as const, value: PRUNED_PLACEHOLDER },
+					};
+				}
+				return part;
+			});
 			return {
 				role: 'tool' as const,
-				content: [
-					{
-						type: 'tool-result' as const,
-						toolCallId: 'pruned',
-						toolName: 'pruned',
-						output: { type: 'text' as const, value: PRUNED_PLACEHOLDER },
-					},
-				],
+				content:
+					prunedContent.length > 0
+						? prunedContent
+						: [
+								{
+									type: 'tool-result' as const,
+									toolCallId: 'pruned',
+									toolName: 'pruned',
+									output: { type: 'text' as const, value: PRUNED_PLACEHOLDER },
+								},
+							],
 			};
 		}
 		return message;

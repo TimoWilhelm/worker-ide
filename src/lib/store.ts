@@ -211,13 +211,10 @@ interface PendingChangesActions {
 	/** Reject all pending changes. If sessionId is provided, only changes from that session. */
 	rejectAllChanges: (sessionId?: string) => void;
 	clearPendingChanges: () => void;
-	/** Remove only pending changes whose snapshotId is in the given set */
-	clearPendingChangesBySnapshots: (snapshotIds: Set<string>) => void;
 	/** Remove pending changes for specific file paths that were successfully reverted */
 	clearPendingChangesByPaths: (paths: Set<string>) => void;
-	/** Replace the entire pending changes map (used on project mount) */
+	/** Replace the entire pending changes map (used for syncing from agent state) */
 	loadPendingChanges: (changes: Map<string, PendingFileChange>) => void;
-	associateSnapshotWithPending: (snapshotId: string) => void;
 }
 
 // =============================================================================
@@ -832,18 +829,6 @@ export const useStore = create<StoreState>()(
 
 				clearPendingChanges: () => set({ pendingChanges: new Map() }),
 
-				clearPendingChangesBySnapshots: (snapshotIds) =>
-					set((state) => {
-						const newMap = new Map<string, PendingFileChange>();
-						for (const [key, value] of state.pendingChanges) {
-							// Keep changes that have no snapshotId or whose snapshotId is not in the reverted set
-							if (!value.snapshotId || !snapshotIds.has(value.snapshotId)) {
-								newMap.set(key, value);
-							}
-						}
-						return { pendingChanges: newMap };
-					}),
-
 				clearPendingChangesByPaths: (paths) =>
 					set((state) => {
 						const newMap = new Map<string, PendingFileChange>();
@@ -856,19 +841,6 @@ export const useStore = create<StoreState>()(
 					}),
 
 				loadPendingChanges: (changes) => set({ pendingChanges: changes }),
-
-				associateSnapshotWithPending: (snapshotId) =>
-					set((state) => {
-						const newMap = new Map<string, PendingFileChange>();
-						for (const [key, value] of state.pendingChanges) {
-							if (value.snapshotId) {
-								newMap.set(key, value);
-							} else {
-								newMap.set(key, { ...value, snapshotId });
-							}
-						}
-						return { pendingChanges: newMap };
-					}),
 
 				// =============================================================================
 				// UI State & Actions

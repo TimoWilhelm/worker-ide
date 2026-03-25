@@ -10,6 +10,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useStore } from '@/lib/store';
 
 import type { AgentState } from '@shared/agent-state';
+import type { PendingFileChange } from '@shared/types';
 
 // =============================================================================
 // Helpers
@@ -88,6 +89,78 @@ export function useAiSessions({ projectId, agent }: { projectId: string; agent: 
 
 	const hasRestoredReference = useRef(false);
 
+	// Track the last-known session ID so we can distinguish "session genuinely
+	// cleared" from "transient undefined during loadSession switch".
+	const lastSessionIdReference = useRef(agentState?.currentSession?.sessionId);
+
+	// Sync pendingChanges from agent state into the Zustand store in real-time.
+	//
+	// The server updates state.currentSession.pendingChanges as file-changed
+	// events stream in and when sessions are reverted. The UI reads from the
+	// Zustand store. This effect bridges the two:
+	//   - New entries from agent state are added to the store
+	//   - Entries removed from agent state (e.g. after revert) are removed
+	//   - Client-side review state (status, hunkStatuses) is preserved
+	const agentSessionId = agentState?.currentSession?.sessionId;
+	const agentPendingChanges = agentState?.currentSession?.pendingChanges;
+	useEffect(() => {
+		const current = useStore.getState().pendingChanges;
+
+		if (!agentPendingChanges) {
+			// Only clear the store if the session was explicitly removed (sessionId
+			// went from defined → undefined). Skip if sessionId was already undefined
+			// (avoids clearing during transient loadSession switches).
+			if (agentSessionId === undefined && lastSessionIdReference.current !== undefined) {
+				lastSessionIdReference.current = undefined;
+				if (current.size > 0) {
+					useStore.getState().loadPendingChanges(new Map());
+				}
+			}
+			return;
+		}
+
+		lastSessionIdReference.current = agentSessionId;
+
+		const incomingKeys = Object.keys(agentPendingChanges);
+
+		// Shallow-equality bail-out: skip if the set of paths and their
+		// server-side content (snapshotId, action, afterContent) are unchanged.
+		// This avoids creating a new Map on every agent state broadcast.
+		if (incomingKeys.length === current.size) {
+			let unchanged = true;
+			for (const key of incomingKeys) {
+				const existing = current.get(key);
+				const incoming = agentPendingChanges[key];
+				if (
+					!existing ||
+					existing.snapshotId !== incoming.snapshotId ||
+					existing.action !== incoming.action ||
+					existing.afterContent !== incoming.afterContent ||
+					existing.beforeContent !== incoming.beforeContent
+				) {
+					unchanged = false;
+					break;
+				}
+			}
+			if (unchanged) return;
+		}
+
+		const merged = new Map<string, PendingFileChange>();
+
+		for (const [path, change] of Object.entries(agentPendingChanges)) {
+			const existing = current.get(path);
+			if (existing) {
+				// Preserve client-side review state (status, hunkStatuses)
+				merged.set(path, { ...change, status: existing.status, hunkStatuses: existing.hunkStatuses });
+			} else {
+				merged.set(path, change);
+			}
+		}
+		// Entries in current but NOT in incoming are dropped (removed by revert)
+
+		useStore.getState().loadPendingChanges(merged);
+	}, [agentSessionId, agentPendingChanges]);
+
 	// Eagerly check if there's a session to restore so the loading indicator
 	// renders on the very first frame, avoiding a flash of the welcome screen.
 	const [isRestoringSession, setIsRestoringSession] = useState(() => {
@@ -98,23 +171,6 @@ export function useAiSessions({ projectId, agent }: { projectId: string; agent: 
 	useEffect(() => {
 		if (hasRestoredReference.current) return;
 		hasRestoredReference.current = true;
-
-		// Load pending changes from the agent
-		void agent
-			.call('loadPendingChanges')
-			.then((pendingRecord) => {
-				if (pendingRecord && typeof pendingRecord === 'object') {
-					// eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- runtime-checked object from @callable RPC
-					const record = pendingRecord as Record<string, import('@shared/types').PendingFileChange>;
-					if (Object.keys(record).length > 0) {
-						const pendingMap = new Map(Object.entries(record));
-						useStore.getState().loadPendingChanges(pendingMap);
-					}
-				}
-			})
-			.catch((error: unknown) => {
-				console.error('Failed to load pending changes:', error);
-			});
 
 		const currentSession = agentState?.currentSession;
 		if (currentSession) {

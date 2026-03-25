@@ -43,12 +43,12 @@ export const definition: ToolDefinition = {
 	input_schema: {
 		type: 'object',
 		properties: {
-			path: { type: 'string', description: 'The absolute path to the file to modify' },
+			file_path: { type: 'string', description: 'The absolute path to the file to modify' },
 			old_string: { type: 'string', description: 'The text to replace' },
 			new_string: { type: 'string', description: 'The text to replace it with (must be different from old_string)' },
 			replace_all: { type: 'string', description: 'Replace all occurrences of old_string (default false). Set to "true" to enable.' },
 		},
-		required: ['path', 'old_string', 'new_string'],
+		required: ['file_path', 'old_string', 'new_string'],
 	},
 };
 
@@ -63,7 +63,7 @@ export async function execute(
 	queryChanges?: FileChange[],
 ): Promise<ToolResult> {
 	const { projectRoot, projectId, sessionId } = context;
-	const editPath = input.path;
+	const editPath = input.file_path;
 	const oldString = input.old_string;
 	const newString = input.new_string;
 	const shouldReplaceAll = input.replace_all === 'true';

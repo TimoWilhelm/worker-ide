@@ -52,9 +52,9 @@ export const definition: ToolDefinition = {
 		type: 'object',
 		properties: {
 			prompt: { type: 'string', description: 'Text description of the image to generate' },
-			path: { type: 'string', description: 'Absolute path where the image will be saved (must end in .png, .jpg, .jpeg, or .webp)' },
+			file_path: { type: 'string', description: 'Absolute path where the image will be saved (must end in .png, .jpg, .jpeg, or .webp)' },
 		},
-		required: ['prompt', 'path'],
+		required: ['prompt', 'file_path'],
 	},
 };
 
@@ -69,7 +69,7 @@ export async function execute(
 	queryChanges?: FileChange[],
 ): Promise<ToolResult> {
 	const { projectRoot, projectId, sessionId } = context;
-	const { prompt, path: imagePath } = input;
+	const { prompt, file_path: imagePath } = input;
 
 	// Validate path
 	if (!isPathSafe(projectRoot, imagePath)) {

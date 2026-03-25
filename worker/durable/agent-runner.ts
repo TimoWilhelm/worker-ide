@@ -30,6 +30,7 @@ import { filesystemNamespace } from '../lib/durable-object-namespaces';
 import { toDurableObjectId } from '../lib/project-id';
 import { AIAgentService } from '../services/ai-agent';
 import { chatMessagesToModelMessages, estimateMessagesTokens } from '../services/ai-agent/context-pruner';
+import { accumulatePendingChange } from '../services/ai-agent/pending-changes';
 import { cleanupSessionArtifacts, cleanupTimestampPlans } from '../services/ai-agent/session-cleanup';
 import { generateSessionTitle } from '../services/ai-agent/title-generator';
 
@@ -156,6 +157,17 @@ export class AgentRunner extends Agent<Env, AgentState> {
 
 	/** Buffers for accumulating partial tool call argument JSON during streaming. */
 	private toolCallArgumentBuffers = new Map<string, string>();
+
+	/** Snapshot ID for the current agent run, keyed by sessionId. */
+	private currentRunSnapshotIds = new Map<string, string>();
+
+	/**
+	 * Pending content delta that hasn't been flushed to state yet, keyed by sessionId.
+	 * Accumulates reasoning-delta and text-delta content between flushes.
+	 * Flushed on a 50ms timer or immediately when a structural event arrives.
+	 */
+	private pendingContentDeltas = new Map<string, { type: 'reasoning' | 'text'; content: string }>();
+	private contentFlushTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 	/** Whether SQL tables have been initialized. */
 	private schemaInitialized = false;
@@ -395,9 +407,15 @@ export class AgentRunner extends Agent<Env, AgentState> {
 
 		if (messageIndex <= 0) {
 			this.sql`DELETE FROM sessions WHERE id = ${sessionId}`;
+			// Remove this session's pending changes from the global store
+			// (other sessions' changes are preserved)
+			this.removePendingChangesForSessions(new Set([sessionId]));
 			// Clear the current session state so the frontend shows an empty chat
 			if (this.state.currentSession?.sessionId === sessionId) {
-				this.setState({ ...this.state, currentSession: undefined });
+				this.setState({
+					...this.state,
+					currentSession: undefined,
+				});
 			}
 			await this.refreshSessionsList();
 			return { contextTokensUsed: 0 };
@@ -425,8 +443,30 @@ export class AgentRunner extends Agent<Env, AgentState> {
 			WHERE id = ${sessionId}
 		`;
 
-		// Update state for connected clients — reset status to idle and clear
-		// tool metadata/errors that belong to reverted messages.
+		// Filter pending changes: keep entries from other sessions, or from this
+		// session only if their snapshotId survives the truncation.
+		const survivingSnapshotIds = new Set(Object.values(prunedSnapshots ?? {}));
+		const globalChanges = this.readPendingChanges();
+		const filteredChanges: Record<string, PendingFileChange> = {};
+		for (const [path, change] of Object.entries(globalChanges)) {
+			if (change.sessionId !== sessionId) {
+				// Different session — always keep
+				filteredChanges[path] = change;
+			} else if (change.snapshotId && survivingSnapshotIds.has(change.snapshotId)) {
+				// Same session but snapshot survives the truncation — keep
+				filteredChanges[path] = change;
+			}
+			// Same session, no surviving snapshot — drop (reverted)
+		}
+
+		// Persist filtered changes to SQLite
+		if (Object.keys(filteredChanges).length > 0) {
+			this.writePendingChanges(filteredChanges);
+		} else {
+			this.sql`DELETE FROM pending_changes WHERE id = 1`;
+		}
+
+		// Update state for connected clients
 		if (this.state.currentSession?.sessionId === sessionId) {
 			this.updateSessionState(sessionId, {
 				status: 'idle',
@@ -437,6 +477,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 				messageModes: prunedModes ?? {},
 				toolMetadata: {},
 				toolErrors: {},
+				pendingChanges: filteredChanges,
 				contextTokensUsed,
 			});
 		}
@@ -609,8 +650,9 @@ export class AgentRunner extends Agent<Env, AgentState> {
 				mode,
 				model,
 				// Persist callback — called by the service to save session state
-				async (sid, sessionData, pendingChanges) => {
+				(sid, sessionData, pendingChanges) => {
 					this.persistSessionFromService(sid, sessionData, pendingChanges);
+					return Promise.resolve();
 				},
 			);
 
@@ -647,6 +689,11 @@ export class AgentRunner extends Agent<Env, AgentState> {
 				});
 			}
 		} finally {
+			// Clear run-scoped volatile state
+			this.currentRunSnapshotIds.delete(sessionId);
+			this.flushContentDelta(sessionId);
+			this.pendingContentDeltas.delete(sessionId);
+
 			// Remove durable running marker
 			this.sql`DELETE FROM running_sessions WHERE session_id = ${sessionId}`;
 
@@ -685,10 +732,6 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	}
 
 	/**
-	 * Handle stream events that should update agent state.
-	 * Only processes significant events (not every text delta).
-	 */
-	/**
 	 * Route a stream event into the agent state for real-time UI updates.
 	 *
 	 * Content events (reasoning-delta, text-delta, tool-call-start, tool-call-args-delta,
@@ -709,6 +752,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 				break;
 			}
 			case 'snapshot-created': {
+				this.currentRunSnapshotIds.set(sessionId, event.id);
 				const current = this.state.currentSession;
 				if (current) {
 					const snapshots = { ...current.messageSnapshots };
@@ -724,21 +768,18 @@ export class AgentRunner extends Agent<Env, AgentState> {
 				if (event.action === 'create' || event.action === 'edit' || event.action === 'delete' || event.action === 'move') {
 					const current = this.state.currentSession;
 					if (current) {
-						const change: PendingFileChange = {
+						// Use accumulatePendingChange to preserve the original
+						// beforeContent when the same file is edited multiple times.
+						const changesMap = new Map(Object.entries(current.pendingChanges));
+						accumulatePendingChange(changesMap, {
 							path: event.path,
 							action: event.action,
 							beforeContent: event.beforeContent,
 							afterContent: event.afterContent,
-							snapshotId: undefined,
-							status: 'pending',
-							hunkStatuses: [],
+							snapshotId: this.currentRunSnapshotIds.get(sessionId),
 							sessionId,
-						};
-						const pendingChanges = {
-							...current.pendingChanges,
-							[event.path]: change,
-						};
-						this.updateSessionState(sessionId, { pendingChanges });
+						});
+						this.updateSessionState(sessionId, { pendingChanges: Object.fromEntries(changesMap) });
 					}
 				}
 				break;
@@ -762,6 +803,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 
 			// ── Turn lifecycle ──────────────────────────────────────────
 			case 'turn-complete': {
+				this.flushContentDelta(sessionId);
 				this.toolCallArgumentBuffers.clear();
 				const session = this.readSession(sessionId);
 				if (session && this.state.currentSession?.sessionId === sessionId) {
@@ -778,30 +820,16 @@ export class AgentRunner extends Agent<Env, AgentState> {
 
 			// ── Content streaming events ────────────────────────────────
 			case 'reasoning-delta': {
-				const messages = this.appendToStreamingAssistantMessage(sessionId, (parts) => {
-					const lastPart = parts.at(-1);
-					if (lastPart?.type === 'reasoning') {
-						parts[parts.length - 1] = { ...lastPart, content: lastPart.content + event.delta };
-					} else {
-						parts.push({ type: 'reasoning', content: event.delta });
-					}
-				});
-				if (messages) this.updateSessionState(sessionId, { messages });
+				this.accumulateContentDelta(sessionId, 'reasoning', event.delta);
 				break;
 			}
 			case 'text-delta': {
-				const messages = this.appendToStreamingAssistantMessage(sessionId, (parts) => {
-					const lastPart = parts.at(-1);
-					if (lastPart?.type === 'text') {
-						parts[parts.length - 1] = { ...lastPart, content: lastPart.content + event.delta };
-					} else {
-						parts.push({ type: 'text', content: event.delta });
-					}
-				});
-				if (messages) this.updateSessionState(sessionId, { messages });
+				this.accumulateContentDelta(sessionId, 'text', event.delta);
 				break;
 			}
 			case 'tool-call-start': {
+				// Flush any pending content before adding a tool call part
+				this.flushContentDelta(sessionId);
 				const messages = this.appendToStreamingAssistantMessage(sessionId, (parts) => {
 					parts.push({
 						type: 'tool-call',
@@ -844,6 +872,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 				break;
 			}
 			case 'tool-call-end': {
+				this.flushContentDelta(sessionId);
 				this.toolCallArgumentBuffers.delete(event.toolCallId);
 
 				const messages = this.appendToStreamingAssistantMessage(sessionId, (parts) => {
@@ -896,6 +925,68 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		}
 
 		return messages;
+	}
+
+	/**
+	 * Flush any accumulated content delta to state immediately.
+	 * Called by structural events (tool-call-start, tool-call-end, turn-complete)
+	 * and on a 50ms timer for token-by-token streaming.
+	 */
+	private flushContentDelta(sessionId: string): void {
+		const timer = this.contentFlushTimers.get(sessionId);
+		if (timer) {
+			clearTimeout(timer);
+			this.contentFlushTimers.delete(sessionId);
+		}
+
+		const pending = this.pendingContentDeltas.get(sessionId);
+		if (!pending) return;
+		this.pendingContentDeltas.delete(sessionId);
+
+		const messages = this.appendToStreamingAssistantMessage(sessionId, (parts) => {
+			const lastPart = parts.at(-1);
+			if (lastPart?.type === pending.type) {
+				parts[parts.length - 1] = { ...lastPart, content: lastPart.content + pending.content };
+			} else {
+				if (pending.type === 'reasoning') {
+					parts.push({ type: 'reasoning', content: pending.content });
+				} else {
+					parts.push({ type: 'text', content: pending.content });
+				}
+			}
+		});
+		if (messages) this.updateSessionState(sessionId, { messages });
+	}
+
+	/**
+	 * Accumulate a content delta and schedule a flush.
+	 * If the delta type changes (reasoning → text or vice versa), flush first.
+	 */
+	private accumulateContentDelta(sessionId: string, type: 'reasoning' | 'text', content: string): void {
+		const pending = this.pendingContentDeltas.get(sessionId);
+
+		if (pending && pending.type !== type) {
+			// Type changed — flush the previous batch first
+			this.flushContentDelta(sessionId);
+		}
+
+		const current = this.pendingContentDeltas.get(sessionId);
+		if (current) {
+			current.content += content;
+		} else {
+			this.pendingContentDeltas.set(sessionId, { type, content });
+		}
+
+		// Schedule flush if not already scheduled
+		if (!this.contentFlushTimers.has(sessionId)) {
+			this.contentFlushTimers.set(
+				sessionId,
+				setTimeout(() => {
+					this.contentFlushTimers.delete(sessionId);
+					this.flushContentDelta(sessionId);
+				}, 50),
+			);
+		}
 	}
 
 	// =========================================================================
@@ -974,10 +1065,15 @@ export class AgentRunner extends Agent<Env, AgentState> {
 			)
 		`;
 
-		// Merge pending changes
+		// Merge pending changes using dedup logic that preserves the original
+		// beforeContent when multiple sessions edit the same file.
 		if (pendingChanges) {
 			const existingChanges = this.readPendingChanges();
-			this.writePendingChanges({ ...existingChanges, ...pendingChanges });
+			const mergedMap = new Map(Object.entries(existingChanges));
+			for (const change of Object.values(pendingChanges)) {
+				accumulatePendingChange(mergedMap, change);
+			}
+			this.writePendingChanges(Object.fromEntries(mergedMap));
 		}
 	}
 

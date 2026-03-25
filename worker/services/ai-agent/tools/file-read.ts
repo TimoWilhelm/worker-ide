@@ -104,11 +104,11 @@ export const definition: ToolDefinition = {
 	input_schema: {
 		type: 'object',
 		properties: {
-			path: { type: 'string', description: 'File path starting with /, e.g., /src/main.ts' },
+			file_path: { type: 'string', description: 'File path starting with /, e.g., /src/main.ts' },
 			offset: { type: 'string', description: 'The line number to start reading from (1-indexed). Defaults to 1.' },
 			limit: { type: 'string', description: 'The maximum number of lines to read. Defaults to 2000.' },
 		},
-		required: ['path'],
+		required: ['file_path'],
 	},
 };
 
@@ -165,7 +165,7 @@ export async function execute(
 	context: ToolExecutorContext,
 ): Promise<ToolResult> {
 	const { projectRoot, sessionId } = context;
-	const readPath = input.path;
+	const readPath = input.file_path;
 
 	if (!isPathSafe(projectRoot, readPath)) {
 		return toolError(ToolErrorCode.INVALID_PATH, `Invalid file path: ${readPath}`);

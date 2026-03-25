@@ -233,7 +233,7 @@ export function createServerTools(
 	mode: 'code' | 'plan' | 'ask',
 	logger?: AgentLogger,
 	toolFailures?: ToolFailureQueue,
-	toolCallIdReference?: ToolCallIdReference,
+	_toolCallIdReference?: ToolCallIdReference,
 	_pendingToolCallIds?: PendingToolCallIds,
 ): Record<string, unknown> {
 	// Select which tool definitions to use based on mode
@@ -277,11 +277,12 @@ export function createServerTools(
 					}
 				}
 				// Strip unknown properties (matches additionalProperties: false behavior)
-				// and coerce values to strings
+				// and coerce values to strings (arrays/objects are JSON-serialized
+				// so structured data like `edits` in file_multiedit survives).
 				const validated: Record<string, string> = {};
 				for (const [key, entryValue] of entries) {
 					if (knownProperties.has(key)) {
-						validated[key] = String(entryValue);
+						validated[key] = typeof entryValue === 'object' && entryValue !== null ? JSON.stringify(entryValue) : String(entryValue);
 					}
 				}
 				return { success: true, value: validated };
@@ -297,87 +298,75 @@ export function createServerTools(
 			// validate function to be ignored entirely.
 			inputSchema: schema,
 			execute: async (input: Record<string, string>) => {
-				// Set the current tool call ID
-				// With Vercel AI SDK, the toolCallId is managed by streamText() and
-				// passed to the result. We'll set it from the stream processing side.
-				// For now, the toolCallIdRef is set by the service.ts stream consumer.
+				// Bail out immediately if the agent was cancelled
+				if (context.abortSignal?.aborted) {
+					throw new DOMException('Aborted', 'AbortError');
+				}
+
+				// Defense-in-depth: reject editing tools in non-code modes
+				if (mode !== 'code' && EDITING_TOOL_NAMES.has(toolName)) {
+					logger?.warn('tool_call', 'blocked', {
+						toolName,
+						reason: 'editing_tool_in_non_code_mode',
+						mode,
+					});
+					return 'File editing tools are not available in this mode. Switch to Code mode to make changes.';
+				}
+
+				// input is already validated + string-coerced by the schema validate function
+				logger?.info('tool_call', 'started', {
+					toolName,
+					input: sanitizeToolInput(input),
+				});
+				const timer = logger?.startTimer();
 
 				try {
-					// Bail out immediately if the agent was cancelled
-					if (context.abortSignal?.aborted) {
-						throw new DOMException('Aborted', 'AbortError');
-					}
+					const result = await executor(input, sendEvent, context, queryChanges);
 
-					// Defense-in-depth: reject editing tools in non-code modes
-					if (mode !== 'code' && EDITING_TOOL_NAMES.has(toolName)) {
-						logger?.warn('tool_call', 'blocked', {
+					logger?.info(
+						'tool_call',
+						'completed',
+						{
 							toolName,
-							reason: 'editing_tool_in_non_code_mode',
-							mode,
-						});
-						return 'File editing tools are not available in this mode. Switch to Code mode to make changes.';
-					}
+							resultSummary: summarizeToolResult(result.output),
+							resultLength: result.output.length,
+						},
+						{ durationMs: timer?.() },
+					);
 
-					// input is already validated + string-coerced by the schema validate function
-					logger?.info('tool_call', 'started', {
-						toolName,
-						input: sanitizeToolInput(input),
+					// Emit structured metadata as an event for the UI
+					sendEvent('tool_result', {
+						tool_name: toolName,
+						title: result.title,
+						metadata: result.metadata,
 					});
-					const timer = logger?.startTimer();
 
-					try {
-						const result = await executor(input, sendEvent, context, queryChanges);
-
-						logger?.info(
-							'tool_call',
-							'completed',
-							{
-								toolName,
-								resultSummary: summarizeToolResult(result.output),
-								resultLength: result.output.length,
-							},
-							{ durationMs: timer?.() },
-						);
-
-						// Emit structured metadata as an event for the UI
-						sendEvent('tool_result', {
-							tool_name: toolName,
-							title: result.title,
-							metadata: result.metadata,
-						});
-
-						// Return the text output to the LLM
-						return result.output;
-					} catch (error) {
-						const isToolError = error instanceof ToolExecutionError;
-						const logMethod = isToolError ? 'warn' : 'error';
-						const event = isToolError ? 'tool_error' : 'error';
-						logger?.[logMethod](
-							'tool_call',
-							event,
-							{
-								toolName,
-								errorCode: isToolError ? error.code : undefined,
-								error: error instanceof Error ? error.message : String(error),
-								stack: isToolError ? undefined : error instanceof Error ? error.stack : undefined,
-							},
-							{ durationMs: timer?.() },
-						);
-
-						// Push typed failure record for doom-loop detection
-						toolFailures?.push({
+					// Return the text output to the LLM
+					return result.output;
+				} catch (error) {
+					const isToolError = error instanceof ToolExecutionError;
+					const logMethod = isToolError ? 'warn' : 'error';
+					const event = isToolError ? 'tool_error' : 'error';
+					logger?.[logMethod](
+						'tool_call',
+						event,
+						{
 							toolName,
 							errorCode: isToolError ? error.code : undefined,
-							errorMessage: error instanceof Error ? error.message : String(error),
-						});
+							error: error instanceof Error ? error.message : String(error),
+							stack: isToolError ? undefined : error instanceof Error ? error.stack : undefined,
+						},
+						{ durationMs: timer?.() },
+					);
 
-						throw error;
-					}
-				} finally {
-					// Clear the ref so events from non-tool code don't get a stale ID
-					if (toolCallIdReference) {
-						toolCallIdReference.current = undefined;
-					}
+					// Push typed failure record for doom-loop detection
+					toolFailures?.push({
+						toolName,
+						errorCode: isToolError ? error.code : undefined,
+						errorMessage: error instanceof Error ? error.message : String(error),
+					});
+
+					throw error;
 				}
 			},
 		};

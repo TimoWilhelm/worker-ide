@@ -33,11 +33,13 @@ Usage:
 CRITICAL INSTRUCTION: You MUST use your \`Read\` tool at least once in the conversation before editing. This tool will error if you attempt an edit without reading the file.
 - When editing text from Read tool output, ensure you preserve the exact indentation (tabs/spaces) as it appears AFTER the line number prefix. The line number prefix format is: line number + colon + space (e.g., \`1: \`). Everything after that space is the actual file content to match. Never include any part of the line number prefix in the old_string or new_string.
 CRITICAL INSTRUCTION: ALWAYS prefer editing existing files in the codebase. NEVER write new files unless explicitly required.
-- Each edit in the \`edits\` array contains \`old_string\`, \`new_string\`, and optional \`replace_all\`.
+- Provide \`edits\` as an array of edit objects. Each object has \`old_string\` (text to find), \`new_string\` (replacement text), and optional \`replace_all\` (boolean, default false).
 - Edits are applied in order; each edit operates on the result of the previous one.
 - Plan your edits carefully so that earlier replacements do not affect text that later edits need to find.
+- All edits must be valid for the operation to succeed — if any edit fails, none will be applied.
 - An edit will FAIL if \`old_string\` is not found in the (possibly already-modified) content.
-- An edit will FAIL if \`old_string\` matches multiple locations (unless \`replace_all\` is \`"true"\`).`;
+- An edit will FAIL if \`old_string\` matches multiple locations (unless \`replace_all\` is true).
+- Use \`replace_all\` for replacing and renaming strings across the file. This parameter is useful if you want to rename a variable for instance.`;
 
 // =============================================================================
 // Tool Definition
@@ -49,14 +51,28 @@ export const definition: ToolDefinition = {
 	input_schema: {
 		type: 'object',
 		properties: {
-			path: { type: 'string', description: 'The absolute path to the file to modify' },
+			file_path: { type: 'string', description: 'The absolute path to the file to modify' },
 			edits: {
-				type: 'string',
-				description:
-					'A JSON array of edit objects. Each object has: "old_string" (text to find), "new_string" (replacement text), and optional "replace_all" ("true" to replace all occurrences). Example: [{"old_string":"foo","new_string":"bar"},{"old_string":"baz","new_string":"qux","replace_all":"true"}]',
+				type: 'array',
+				description: 'Array of edit operations to perform sequentially on the file',
+				items: {
+					type: 'object',
+					properties: {
+						old_string: { type: 'string', description: 'The text to replace' },
+						new_string: {
+							type: 'string',
+							description: 'The text to replace it with (must be different from old_string)',
+						},
+						replace_all: {
+							type: 'boolean',
+							description: 'Replace all occurrences of old_string (default false)',
+						},
+					},
+					required: ['old_string', 'new_string'],
+				},
 			},
 		},
-		required: ['path', 'edits'],
+		required: ['file_path', 'edits'],
 	},
 };
 
@@ -67,19 +83,22 @@ export const definition: ToolDefinition = {
 interface SingleEdit {
 	old_string: string;
 	new_string: string;
-	replace_all?: string;
+	replace_all?: boolean;
 }
 
-function parseEditsInput(raw: string): SingleEdit[] {
-	let parsed: unknown;
-	try {
-		parsed = JSON.parse(raw);
-	} catch {
-		return toolError(ToolErrorCode.MISSING_INPUT, 'edits must be a valid JSON array of edit objects');
+function parseEditsInput(raw: unknown): SingleEdit[] {
+	// Handle both pre-parsed array and JSON string (the validate layer may coerce to string)
+	let parsed: unknown = raw;
+	if (typeof parsed === 'string') {
+		try {
+			parsed = JSON.parse(parsed);
+		} catch {
+			return toolError(ToolErrorCode.MISSING_INPUT, 'edits must be a valid JSON array of edit objects');
+		}
 	}
 
 	if (!Array.isArray(parsed) || parsed.length === 0) {
-		return toolError(ToolErrorCode.MISSING_INPUT, 'edits must be a non-empty JSON array');
+		return toolError(ToolErrorCode.MISSING_INPUT, 'edits must be a non-empty array');
 	}
 
 	const edits: SingleEdit[] = [];
@@ -97,7 +116,7 @@ function parseEditsInput(raw: string): SingleEdit[] {
 		edits.push({
 			old_string: item.old_string,
 			new_string: item.new_string,
-			replace_all: typeof item.replace_all === 'string' ? item.replace_all : undefined,
+			replace_all: item.replace_all === true || item.replace_all === 'true',
 		});
 	}
 	return edits;
@@ -114,8 +133,7 @@ export async function execute(
 	queryChanges?: FileChange[],
 ): Promise<ToolResult> {
 	const { projectRoot, projectId, sessionId } = context;
-	const editPath = input.path;
-	const editsRaw = input.edits;
+	const editPath = input.file_path;
 
 	// Validate path
 	if (!isPathSafe(projectRoot, editPath)) {
@@ -126,8 +144,8 @@ export async function execute(
 		return toolError(ToolErrorCode.INVALID_PATH, `Access denied: ${editPath}`);
 	}
 
-	// Parse edits array
-	const edits = parseEditsInput(editsRaw);
+	// Parse edits array (may arrive as pre-parsed array or JSON string)
+	const edits = parseEditsInput(input.edits);
 
 	// Check that file was read first (if session tracking is available)
 	if (sessionId) {
@@ -156,7 +174,7 @@ export async function execute(
 	// Apply all edits sequentially. On failure, no write happens (atomic).
 	for (const [index, edit] of edits.entries()) {
 		try {
-			content = replace(content, edit.old_string, edit.new_string, edit.replace_all === 'true');
+			content = replace(content, edit.old_string, edit.new_string, edit.replace_all === true);
 		} catch (error) {
 			const message = error instanceof Error ? error.message : 'Unknown error';
 			return toolError(ToolErrorCode.NO_MATCH, `Edit ${index + 1}/${edits.length} failed: ${message}`);

@@ -56,7 +56,7 @@ describe('file_delete', () => {
 	it('deletes an existing file and returns line count and byte size', async () => {
 		memoryFs.seedFile(`${PROJECT_ROOT}/temp.ts`, 'line1\nline2\nline3\n');
 
-		const result = await execute({ path: '/temp.ts' }, createMockSendEvent(), context());
+		const result = await execute({ file_path: '/temp.ts' }, createMockSendEvent(), context());
 
 		expect(result).toHaveProperty('output');
 		expect(result.output).toContain('Deleted /temp.ts');
@@ -69,7 +69,7 @@ describe('file_delete', () => {
 		memoryFs.seedFile(`${PROJECT_ROOT}/gone.ts`, 'bye');
 		const sendEvent = createMockSendEvent();
 
-		await execute({ path: '/gone.ts' }, sendEvent, context());
+		await execute({ file_path: '/gone.ts' }, sendEvent, context());
 
 		const fileChangedEvent = sendEvent.calls.find(([type]) => type === 'file_changed');
 		expect(fileChangedEvent).toBeDefined();
@@ -83,7 +83,7 @@ describe('file_delete', () => {
 		memoryFs.seedFile(`${PROJECT_ROOT}/tracked.ts`, 'content before delete');
 		const queryChanges: FileChange[] = [];
 
-		await execute({ path: '/tracked.ts' }, createMockSendEvent(), context(), queryChanges);
+		await execute({ file_path: '/tracked.ts' }, createMockSendEvent(), context(), queryChanges);
 
 		expect(queryChanges).toHaveLength(1);
 		expect(queryChanges[0].action).toBe('delete');
@@ -93,32 +93,32 @@ describe('file_delete', () => {
 	// ── Error cases ───────────────────────────────────────────────────────
 
 	it('returns FILE_NOT_FOUND for missing file', async () => {
-		await expect(execute({ path: '/nonexistent.ts' }, createMockSendEvent(), context())).rejects.toThrow('[FILE_NOT_FOUND]');
+		await expect(execute({ file_path: '/nonexistent.ts' }, createMockSendEvent(), context())).rejects.toThrow('[FILE_NOT_FOUND]');
 	});
 
 	it('rejects path traversal', async () => {
-		await expect(execute({ path: '/../escape.ts' }, createMockSendEvent(), context())).rejects.toThrow('[INVALID_PATH]');
+		await expect(execute({ file_path: '/../escape.ts' }, createMockSendEvent(), context())).rejects.toThrow('[INVALID_PATH]');
 	});
 
 	it('rejects hidden paths', async () => {
-		await expect(execute({ path: '/.agent/secret.json' }, createMockSendEvent(), context())).rejects.toThrow('[INVALID_PATH]');
+		await expect(execute({ file_path: '/.agent/secret.json' }, createMockSendEvent(), context())).rejects.toThrow('[INVALID_PATH]');
 	});
 
 	it('rejects protected files', async () => {
 		memoryFs.seedFile(`${PROJECT_ROOT}/index.html`, '<html></html>');
 
-		await expect(execute({ path: '/index.html' }, createMockSendEvent(), context())).rejects.toThrow('[NOT_ALLOWED]');
+		await expect(execute({ file_path: '/index.html' }, createMockSendEvent(), context())).rejects.toThrow('[NOT_ALLOWED]');
 	});
 
 	it('rejects deleting protected file /package.json', async () => {
 		memoryFs.seedFile(`${PROJECT_ROOT}/package.json`, '{}');
 
-		await expect(execute({ path: '/package.json' }, createMockSendEvent(), context())).rejects.toThrow('[NOT_ALLOWED]');
+		await expect(execute({ file_path: '/package.json' }, createMockSendEvent(), context())).rejects.toThrow('[NOT_ALLOWED]');
 	});
 
 	it('rejects deleting parent directory of protected file', async () => {
 		memoryFs.seedFile(`${PROJECT_ROOT}/worker/index.ts`, 'export default {}');
 
-		await expect(execute({ path: '/worker' }, createMockSendEvent(), context())).rejects.toThrow('[NOT_ALLOWED]');
+		await expect(execute({ file_path: '/worker' }, createMockSendEvent(), context())).rejects.toThrow('[NOT_ALLOWED]');
 	});
 });

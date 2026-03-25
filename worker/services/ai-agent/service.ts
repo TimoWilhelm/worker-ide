@@ -509,7 +509,7 @@ export class AIAgentService {
 								}
 								case 'tool-result': {
 									const resultText = extractToolResultText(part.result);
-									yield toolCallEndEvent(part.toolCallId, part.toolName, resultText);
+									yield toolCallEndEvent(part.toolCallId, part.toolName, resultText, part.isError);
 
 									// Drain tool event queue
 									while (eventQueue.length > 0) {
@@ -688,10 +688,8 @@ export class AIAgentService {
 						}
 					}
 				} else {
-					// No tool calls — text only, stop the loop
-					if (lastAssistantText) {
-						workingMessages.push({ role: 'assistant', content: lastAssistantText });
-					}
+					// No tool calls — text only, stop the loop.
+					// The assistant message is already in workingMessages via response.messages.
 					continueLoop = false;
 				}
 

@@ -59,7 +59,7 @@ describe('file_write', () => {
 	// ── Creating new files ────────────────────────────────────────────────
 
 	it('creates a new file and returns diff stats', async () => {
-		const result = await execute({ path: '/src/new-file.ts', content: 'export const a = 1;\n' }, createMockSendEvent(), context());
+		const result = await execute({ file_path: '/src/new-file.ts', content: 'export const a = 1;\n' }, createMockSendEvent(), context());
 
 		expect(result).toHaveProperty('output');
 		expect(result.metadata).toHaveProperty('linesAdded');
@@ -70,7 +70,7 @@ describe('file_write', () => {
 	it('sends file_changed event for new files with action=create', async () => {
 		const sendEvent = createMockSendEvent();
 
-		await execute({ path: '/new.ts', content: 'hello' }, sendEvent, context());
+		await execute({ file_path: '/new.ts', content: 'hello' }, sendEvent, context());
 
 		const fileChangedEvent = sendEvent.calls.find(([type]) => type === 'file_changed');
 		expect(fileChangedEvent).toBeDefined();
@@ -86,7 +86,7 @@ describe('file_write', () => {
 		const { recordFileRead } = await import('../file-time');
 		await recordFileRead(PROJECT_ROOT, 'test-session', '/existing.ts');
 
-		const result = await execute({ path: '/existing.ts', content: 'new content' }, createMockSendEvent(), context());
+		const result = await execute({ file_path: '/existing.ts', content: 'new content' }, createMockSendEvent(), context());
 
 		expect(result).toHaveProperty('output');
 		const entry = memoryFs.store.get(`${PROJECT_ROOT}/existing.ts`);
@@ -96,7 +96,7 @@ describe('file_write', () => {
 	it('returns FILE_NOT_READ error when overwriting without reading first', async () => {
 		memoryFs.seedFile(`${PROJECT_ROOT}/unread.ts`, 'original');
 
-		await expect(execute({ path: '/unread.ts', content: 'overwritten' }, createMockSendEvent(), context())).rejects.toThrow(
+		await expect(execute({ file_path: '/unread.ts', content: 'overwritten' }, createMockSendEvent(), context())).rejects.toThrow(
 			'[FILE_NOT_READ]',
 		);
 	});
@@ -107,7 +107,7 @@ describe('file_write', () => {
 		const { recordFileRead } = await import('../file-time');
 		await recordFileRead(PROJECT_ROOT, 'test-session', '/same.ts');
 
-		const result = await execute({ path: '/same.ts', content }, createMockSendEvent(), context());
+		const result = await execute({ file_path: '/same.ts', content }, createMockSendEvent(), context());
 
 		expect(result.output).toBe('No changes needed — the file already contains the expected content.');
 	});
@@ -117,7 +117,7 @@ describe('file_write', () => {
 	it('tracks file change in queryChanges array', async () => {
 		const queryChanges: FileChange[] = [];
 
-		const result = await execute({ path: '/tracked.ts', content: 'tracked content' }, createMockSendEvent(), context(), queryChanges);
+		const result = await execute({ file_path: '/tracked.ts', content: 'tracked content' }, createMockSendEvent(), context(), queryChanges);
 
 		expect(result).toHaveProperty('output');
 		expect(queryChanges).toHaveLength(1);
@@ -129,17 +129,19 @@ describe('file_write', () => {
 	// ── Error cases ───────────────────────────────────────────────────────
 
 	it('rejects path traversal', async () => {
-		await expect(execute({ path: '/../escape.ts', content: 'bad' }, createMockSendEvent(), context())).rejects.toThrow('[INVALID_PATH]');
+		await expect(execute({ file_path: '/../escape.ts', content: 'bad' }, createMockSendEvent(), context())).rejects.toThrow(
+			'[INVALID_PATH]',
+		);
 	});
 
 	it('rejects hidden paths', async () => {
-		await expect(execute({ path: '/.agent/secret.json', content: '{}' }, createMockSendEvent(), context())).rejects.toThrow(
+		await expect(execute({ file_path: '/.agent/secret.json', content: '{}' }, createMockSendEvent(), context())).rejects.toThrow(
 			'[INVALID_PATH]',
 		);
 	});
 
 	it('rejects direct /package.json creation', async () => {
-		await expect(execute({ path: '/package.json', content: '{}' }, createMockSendEvent(), context())).rejects.toThrow('[NOT_ALLOWED]');
+		await expect(execute({ file_path: '/package.json', content: '{}' }, createMockSendEvent(), context())).rejects.toThrow('[NOT_ALLOWED]');
 	});
 
 	// ── CSS file triggers update instead of full-reload ───────────────────
@@ -150,7 +152,7 @@ describe('file_write', () => {
 		await recordFileRead(PROJECT_ROOT, 'test-session', '/style.css');
 
 		const sendEvent = createMockSendEvent();
-		await execute({ path: '/style.css', content: 'body { color: red; }' }, sendEvent, context());
+		await execute({ file_path: '/style.css', content: 'body { color: red; }' }, sendEvent, context());
 
 		const fileChangedEvent = sendEvent.calls.find(([type]) => type === 'file_changed');
 		expect(fileChangedEvent).toBeDefined();

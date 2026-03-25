@@ -410,8 +410,6 @@ export function AssistantMessage({
 	const userScrolledAwayReference = useRef(false);
 
 	const hasToolCalls = segments.some((segment) => segment.kind === 'tool');
-	const lastTextIndex = segments.findLastIndex((segment) => segment.kind === 'text');
-	const lastThinkingIndex = segments.findLastIndex((segment) => segment.kind === 'thinking');
 
 	// Auto-scroll the active streaming thinking box (respects user scroll-up)
 	useEffect(() => {
@@ -511,12 +509,14 @@ export function AssistantMessage({
 		);
 	}
 
-	// Interleaved thinking + tool calls + summary layout
+	// Interleaved thinking + tool calls + text layout
+	const lastSegmentIndex = segments.length - 1;
+
 	return (
 		<div className="flex min-w-0 animate-chat-item flex-col gap-2">
 			{showHeader && <div className="text-2xs font-semibold tracking-wider text-success uppercase">AI</div>}
 			{segments.map((segment, index) => {
-				// Tool calls — always rendered inline
+				// ── Tool calls ───────────────────────────────────────
 				if (segment.kind === 'tool') {
 					return (
 						<InlineToolCall
@@ -533,11 +533,13 @@ export function AssistantMessage({
 					);
 				}
 
-				// Thinking segments
+				// ── Thinking segments — always height-bounded ────────
 				if (segment.kind === 'thinking') {
-					// Active streaming thinking: show in contained box when this is the
-					// last thinking segment, we're streaming, and no text has appeared yet
-					const isActiveStreamingThinking = streaming && index === lastThinkingIndex && lastTextIndex === -1;
+					// A thinking segment is the "active streaming" box only when it
+					// is the very last segment and we're still streaming. As soon as
+					// any subsequent segment appears (text, tool, or another thinking
+					// block), this one collapses into the "Show thinking" toggle.
+					const isActiveStreamingThinking = streaming && index === lastSegmentIndex;
 
 					if (isActiveStreamingThinking) {
 						return (
@@ -546,12 +548,12 @@ export function AssistantMessage({
 								ref={scrollReference}
 								onScroll={handleThinkingBoxScroll}
 								className="
-									max-h-48 overflow-y-auto rounded-lg border border-accent/20
+									max-h-48 overflow-y-auto rounded-lg border border-text-secondary/15
 									bg-bg-tertiary
 								"
 							>
 								<div className="p-2.5">
-									<div className="overflow-hidden text-sm/relaxed text-text-primary">
+									<div className="overflow-hidden text-xs/relaxed text-text-secondary italic">
 										<MarkdownContent content={segment.text} />
 									</div>
 								</div>
@@ -559,7 +561,7 @@ export function AssistantMessage({
 						);
 					}
 
-					// Completed thinking — collapsible
+					// Completed or superseded thinking — always collapsible
 					const isExpanded = expandedSections.has(segment.key);
 					return (
 						<div key={segment.key} className="flex flex-col gap-1.5">
@@ -567,14 +569,12 @@ export function AssistantMessage({
 								type="button"
 								onClick={() => toggleSection(segment.key)}
 								className={cn(
-									`
-										flex items-center gap-2 overflow-hidden rounded-md px-3 py-1.5 text-xs
-									`,
+									'flex items-center gap-2 rounded-md px-3 py-1.5 text-xs',
 									`
 										cursor-pointer bg-bg-tertiary font-medium text-text-secondary
 										transition-colors
-										hover:bg-border
 									`,
+									'hover:bg-border',
 								)}
 							>
 								<ChevronRight className={cn('size-3 shrink-0 transition-transform', isExpanded && 'rotate-90')} />
@@ -583,8 +583,8 @@ export function AssistantMessage({
 							{isExpanded && (
 								<div
 									className="
-										overflow-hidden rounded-lg bg-bg-tertiary px-3 py-2.5 text-sm/relaxed
-										text-text-primary
+										max-h-64 overflow-y-auto rounded-lg border border-text-secondary/10
+										bg-bg-tertiary px-3 py-2.5 text-xs/relaxed text-text-secondary italic
 									"
 								>
 									<MarkdownContent content={segment.text} />
@@ -594,25 +594,9 @@ export function AssistantMessage({
 					);
 				}
 
-				const isLastText = index === lastTextIndex;
-
-				// Summary: last text segment of a completed (non-streaming) message
-				if (isLastText && !streaming) {
-					return (
-						<div
-							key={segment.key}
-							className="
-								overflow-hidden rounded-lg bg-bg-tertiary px-3 py-2.5 text-sm/relaxed
-								text-text-primary
-							"
-						>
-							<MarkdownContent content={segment.text} />
-						</div>
-					);
-				}
-
-				// Active streaming thinking box: constrained height + typing cursor
-				if (isLastText && streaming) {
+				// ── Text segments ────────────────────────────────────
+				// Active streaming text: bounded height with auto-scroll
+				if (streaming && index === lastSegmentIndex) {
 					return (
 						<div
 							key={segment.key}
@@ -632,41 +616,18 @@ export function AssistantMessage({
 					);
 				}
 
-				// Earlier text segments: collapsible thinking (intermediate reasoning between tool calls)
-				{
-					const isExpanded = expandedSections.has(segment.key);
-					return (
-						<div key={segment.key} className="flex flex-col gap-1.5">
-							<button
-								type="button"
-								onClick={() => toggleSection(segment.key)}
-								className={cn(
-									`
-										flex items-center gap-2 overflow-hidden rounded-md px-3 py-1.5 text-xs
-									`,
-									`
-										cursor-pointer bg-bg-tertiary font-medium text-text-secondary
-										transition-colors
-										hover:bg-border
-									`,
-								)}
-							>
-								<ChevronRight className={cn('size-3 shrink-0 transition-transform', isExpanded && 'rotate-90')} />
-								Show thinking
-							</button>
-							{isExpanded && (
-								<div
-									className="
-										overflow-hidden rounded-lg bg-bg-tertiary px-3 py-2.5 text-sm/relaxed
-										text-text-primary
-									"
-								>
-									<MarkdownContent content={segment.text} />
-								</div>
-							)}
-						</div>
-					);
-				}
+				// Completed text — fully visible in flow
+				return (
+					<div
+						key={segment.key}
+						className="
+							overflow-hidden rounded-lg bg-bg-tertiary px-3 py-2.5 text-sm/relaxed
+							text-text-primary
+						"
+					>
+						<MarkdownContent content={segment.text} />
+					</div>
+				);
 			})}
 		</div>
 	);
@@ -1461,18 +1422,20 @@ function InlineToolCall({
 	const isError = isUnknownTool || structuredError !== undefined || isToolError(toolResult);
 
 	// Extract file paths from tool arguments.
-	// Accept both `path` (schema-defined) and `filePath` (model sometimes hallucinates this key).
+	// Accept `file_path` (schema-defined), `path` (legacy/search tools), and `filePath` (model sometimes hallucinates this key).
 	const input = toolCall.arguments;
-	let singlePath: string | undefined;
+	const singlePath =
+		typeof input.file_path === 'string'
+			? input.file_path
+			: typeof input.path === 'string'
+				? input.path
+				: typeof input.filePath === 'string'
+					? input.filePath
+					: undefined;
 	let fromPath: string | undefined;
 	let toPath: string | undefined;
 	let pattern: string | undefined;
 	let extraLabel: string | undefined;
-	if (typeof input.path === 'string') {
-		singlePath = input.path;
-	} else if (typeof input.filePath === 'string') {
-		singlePath = input.filePath;
-	}
 	if (!singlePath && typeof input.from_path === 'string' && typeof input.to_path === 'string') {
 		fromPath = input.from_path;
 		toPath = input.to_path;
