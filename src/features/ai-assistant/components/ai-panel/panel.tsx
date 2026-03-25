@@ -511,9 +511,10 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 					}
 				}
 
-				// Optimistically clear the pending changes for reverted files.
+				// Optimistically clear only this session's pending changes for reverted files.
+				// Other sessions' changes at the same paths are preserved.
 				// The server's revertSession will confirm/reconcile via agent state sync.
-				clearPendingChangesByPaths(revertedPaths);
+				clearPendingChangesByPaths(revertedPaths, sessionId);
 
 				// Revert messages on the server — awaited so errors surface in the dialog
 				// and the dialog stays open until the server confirms the revert.

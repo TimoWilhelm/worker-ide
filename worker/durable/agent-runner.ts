@@ -25,6 +25,7 @@ import { env } from 'cloudflare:workers';
 import { mount, withMounts } from 'worker-fs-mount';
 
 import { DEFAULT_AI_MODEL, getModelConfig } from '@shared/constants';
+import { pendingChangesFileSchema } from '@shared/validation';
 
 import { filesystemNamespace } from '../lib/durable-object-namespaces';
 import { toDurableObjectId } from '../lib/project-id';
@@ -171,6 +172,42 @@ export class AgentRunner extends Agent<Env, AgentState> {
 
 	/** Whether SQL tables have been initialized. */
 	private schemaInitialized = false;
+
+	// =========================================================================
+	// HTTP Request Handler
+	// =========================================================================
+
+	async onRequest(request: Request): Promise<Response> {
+		this.ensureSchema();
+		const url = new URL(request.url);
+
+		if (url.pathname === '/pending-changes') {
+			if (request.method === 'GET') {
+				return Response.json(this.readPendingChanges());
+			}
+			if (request.method === 'PUT') {
+				const body: unknown = await request.json();
+				const parsed = pendingChangesFileSchema.safeParse(body);
+				if (!parsed.success) {
+					return Response.json(
+						{ error: 'Invalid pending changes' },
+						{
+							status: 400,
+							headers: { 'Content-Type': 'application/json' },
+						},
+					);
+				}
+				if (Object.keys(parsed.data).length === 0) {
+					this.sql`DELETE FROM pending_changes WHERE id = 1`;
+				} else {
+					this.writePendingChanges(parsed.data);
+				}
+				return new Response(undefined, { status: 204 });
+			}
+		}
+
+		return new Response('Not Found', { status: 404 });
+	}
 
 	// =========================================================================
 	// Lifecycle

@@ -11,9 +11,9 @@ import { z } from 'zod';
 
 import { BINARY_EXTENSIONS } from '@shared/constants';
 import { HttpErrorCode } from '@shared/http-errors';
-import { snapshotIdSchema, revertFileSchema, revertCascadeSchema, filePathSchema } from '@shared/validation';
+import { snapshotIdSchema, revertFileSchema, revertCascadeSchema, filePathSchema, pendingChangesFileSchema } from '@shared/validation';
 
-import { coordinatorNamespace } from '../lib/durable-object-namespaces';
+import { agentRunnerNamespace, coordinatorNamespace } from '../lib/durable-object-namespaces';
 import { httpError } from '../lib/http-error';
 
 import type { AppEnvironment } from '../types';
@@ -100,6 +100,42 @@ export const snapshotRoutes = new Hono<AppEnvironment>()
 
 		const result = await revertCascade(projectRoot, snapshotIds, projectId);
 		return c.json(result);
+	})
+
+	// GET /api/pending-changes - Load project-level pending changes from the AgentRunner DO
+	.get('/pending-changes', async (c) => {
+		const projectId = c.get('projectId');
+		const agentId = agentRunnerNamespace.idFromName(`agent:${projectId}`);
+		const agentStub = agentRunnerNamespace.get(agentId);
+		const response = await agentStub.fetch(
+			new Request('http://agent/pending-changes', {
+				headers: { 'x-partykit-room': `agent:${projectId}` },
+			}),
+		);
+		if (!response.ok) {
+			throw httpError(HttpErrorCode.INTERNAL_ERROR, 'Failed to load pending changes');
+		}
+		const data: Record<string, unknown> = await response.json();
+		return c.json(data);
+	})
+
+	// PUT /api/pending-changes - Save project-level pending changes to the AgentRunner DO
+	.put('/pending-changes', zValidator('json', pendingChangesFileSchema), async (c) => {
+		const projectId = c.get('projectId');
+		const changes = c.req.valid('json');
+		const agentId = agentRunnerNamespace.idFromName(`agent:${projectId}`);
+		const agentStub = agentRunnerNamespace.get(agentId);
+		const response = await agentStub.fetch(
+			new Request('http://agent/pending-changes', {
+				method: 'PUT',
+				headers: { 'Content-Type': 'application/json', 'x-partykit-room': `agent:${projectId}` },
+				body: JSON.stringify(changes),
+			}),
+		);
+		if (!response.ok) {
+			throw httpError(HttpErrorCode.INTERNAL_ERROR, 'Failed to save pending changes');
+		}
+		return c.json({ success: true });
 	})
 
 	// GET /api/snapshot/:id/file?path=/src/main.ts - Get file content from snapshot
