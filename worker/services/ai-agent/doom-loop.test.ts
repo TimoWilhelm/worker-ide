@@ -40,7 +40,7 @@ function assistantWithTools(...calls: Array<{ name: string; arguments: Record<st
 function toolResult(toolCallId: string, toolName: string, content: string): ModelMessage {
 	return {
 		role: 'tool',
-		content: [{ type: 'tool-result', toolCallId, toolName, result: content }],
+		content: [{ type: 'tool-result', toolCallId, toolName, output: { type: 'text', value: content } }],
 	};
 }
 

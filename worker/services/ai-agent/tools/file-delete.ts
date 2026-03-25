@@ -9,6 +9,7 @@ import { ToolErrorCode, toolError } from '@shared/tool-errors';
 
 import { coordinatorNamespace } from '../../../lib/durable-object-namespaces';
 import { isHiddenPath, isPathSafe, isProtectedFile } from '../../../lib/path-utilities';
+import { withLock } from '../file-time';
 
 import type { FileChange, SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
 
@@ -52,18 +53,31 @@ export async function execute(
 
 	sendEvent('status', { message: `Deleting ${deletePath}...` });
 
-	let beforeContent: string;
-	try {
-		beforeContent = await fs.readFile(`${projectRoot}${deletePath}`, 'utf8');
-	} catch {
-		return toolError(ToolErrorCode.FILE_NOT_FOUND, `File not found: ${deletePath}`);
+	// Acquire a per-file lock to serialize against concurrent edits or writes
+	// targeting the same file.
+	type LockResult = ToolResult | { beforeContent: string };
+	const lockResult: LockResult = await withLock<LockResult>(deletePath, async () => {
+		let beforeContent: string;
+		try {
+			beforeContent = await fs.readFile(`${projectRoot}${deletePath}`, 'utf8');
+		} catch {
+			return toolError(ToolErrorCode.FILE_NOT_FOUND, `File not found: ${deletePath}`);
+		}
+
+		await fs.unlink(`${projectRoot}${deletePath}`);
+
+		if (queryChanges) {
+			queryChanges.push({ path: deletePath, action: 'delete', beforeContent, afterContent: undefined, isBinary: false });
+		}
+
+		return { beforeContent };
+	});
+
+	if ('output' in lockResult) {
+		return lockResult;
 	}
 
-	await fs.unlink(`${projectRoot}${deletePath}`);
-
-	if (queryChanges) {
-		queryChanges.push({ path: deletePath, action: 'delete', beforeContent, afterContent: undefined, isBinary: false });
-	}
+	const { beforeContent } = lockResult;
 
 	const coordinatorId = coordinatorNamespace.idFromName(`project:${projectId}`);
 	const coordinatorStub = coordinatorNamespace.get(coordinatorId);

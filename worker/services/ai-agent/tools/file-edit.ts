@@ -14,7 +14,7 @@ import { replace } from './replacers';
 import { coordinatorNamespace } from '../../../lib/durable-object-namespaces';
 import { isHiddenPath, isPathSafe, suggestSimilarFiles } from '../../../lib/path-utilities';
 import { formatLintDiagnostics, lintFile } from '../../../services/lint-service';
-import { assertFileWasRead, recordFileRead } from '../file-time';
+import { assertFileWasRead, recordFileRead, withLock } from '../file-time';
 import { computeDiffStats, generateCompactDiff } from '../utilities';
 
 import type { FileChange, SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
@@ -77,61 +77,79 @@ export async function execute(
 		return toolError(ToolErrorCode.INVALID_PATH, `Access denied: ${editPath}`);
 	}
 
-	// Check that file was read first (if session tracking is available)
-	if (sessionId) {
-		try {
-			await assertFileWasRead(projectRoot, sessionId, editPath);
-		} catch (error) {
-			const message = error instanceof Error ? error.message : 'You must read the file before editing it.';
-			const code = message.includes('has been modified since') ? ToolErrorCode.FILE_CHANGED_EXTERNALLY : ToolErrorCode.FILE_NOT_READ;
-			return toolError(code, message);
+	// Acquire a per-file lock before the assert→read→write→record sequence so
+	// that two concurrent tool calls targeting the same file are serialized.
+	// Without the lock, both calls can pass assertFileWasRead, read the same
+	// original content, and one write silently clobbers the other.
+	type LockResult = ToolResult | { beforeContent: string; content: string };
+
+	const lockResult: LockResult = await withLock(editPath, async () => {
+		// Check that file was read first (if session tracking is available)
+		if (sessionId) {
+			try {
+				await assertFileWasRead(projectRoot, sessionId, editPath);
+			} catch (error) {
+				const message = error instanceof Error ? error.message : 'You must read the file before editing it.';
+				const code = message.includes('has been modified since') ? ToolErrorCode.FILE_CHANGED_EXTERNALLY : ToolErrorCode.FILE_NOT_READ;
+				return toolError(code, message);
+			}
 		}
+
+		sendEvent('status', { message: `Editing ${editPath}...` });
+
+		// Read file content
+		let fileContent: string;
+		try {
+			fileContent = await fs.readFile(`${projectRoot}${editPath}`, 'utf8');
+		} catch {
+			const suggestion = await suggestSimilarFiles(projectRoot, editPath);
+			return toolError(ToolErrorCode.FILE_NOT_FOUND, `File not found: ${editPath}${suggestion ? `. ${suggestion}` : ''}`);
+		}
+
+		const beforeContent = fileContent;
+
+		// Use the replace function with multiple strategies
+		let replacedContent: string;
+		try {
+			replacedContent = replace(fileContent, oldString, newString, shouldReplaceAll);
+		} catch (error) {
+			const message = error instanceof Error ? error.message : 'Unknown error';
+			return toolError(ToolErrorCode.NO_MATCH, message);
+		}
+
+		// Guard: if the replacement produced no actual change (e.g., fuzzy match found
+		// content that after substitution is identical), skip the write and return early.
+		// This prevents empty diffs from appearing in the UI.
+		if (replacedContent === beforeContent) {
+			return {
+				title: editPath,
+				metadata: { linesAdded: 0, linesRemoved: 0, diagnostics: [] },
+				output: 'No changes needed — the file already contains the expected content.',
+			};
+		}
+
+		// Write the updated content
+		await fs.writeFile(`${projectRoot}${editPath}`, replacedContent);
+
+		// Record the edit as a read for subsequent edits
+		if (sessionId) {
+			await recordFileRead(projectRoot, sessionId, editPath);
+		}
+
+		// Track file change for snapshots
+		if (queryChanges) {
+			queryChanges.push({ path: editPath, action: 'edit', beforeContent, afterContent: replacedContent, isBinary: false });
+		}
+
+		return { beforeContent, content: replacedContent };
+	});
+
+	// If the lock returned a ToolResult (error or no-op), return it immediately.
+	if ('output' in lockResult) {
+		return lockResult;
 	}
 
-	sendEvent('status', { message: `Editing ${editPath}...` });
-
-	// Read file content
-	let content: string;
-	try {
-		content = await fs.readFile(`${projectRoot}${editPath}`, 'utf8');
-	} catch {
-		const suggestion = await suggestSimilarFiles(projectRoot, editPath);
-		return toolError(ToolErrorCode.FILE_NOT_FOUND, `File not found: ${editPath}${suggestion ? `. ${suggestion}` : ''}`);
-	}
-
-	const beforeContent = content;
-
-	// Use the replace function with multiple strategies
-	try {
-		content = replace(content, oldString, newString, shouldReplaceAll);
-	} catch (error) {
-		const message = error instanceof Error ? error.message : 'Unknown error';
-		return toolError(ToolErrorCode.NO_MATCH, message);
-	}
-
-	// Guard: if the replacement produced no actual change (e.g., fuzzy match found
-	// content that after substitution is identical), skip the write and return early.
-	// This prevents empty diffs from appearing in the UI.
-	if (content === beforeContent) {
-		return {
-			title: editPath,
-			metadata: { linesAdded: 0, linesRemoved: 0, diagnostics: [] },
-			output: 'No changes needed — the file already contains the expected content.',
-		};
-	}
-
-	// Write the updated content
-	await fs.writeFile(`${projectRoot}${editPath}`, content);
-
-	// Record the edit as a read for subsequent edits
-	if (sessionId) {
-		await recordFileRead(projectRoot, sessionId, editPath);
-	}
-
-	// Track file change for snapshots
-	if (queryChanges) {
-		queryChanges.push({ path: editPath, action: 'edit', beforeContent, afterContent: content, isBinary: false });
-	}
+	const { beforeContent, content } = lockResult;
 
 	// Trigger HMR update (CSS/JS get hot updates, other files trigger full reload)
 	const coordinatorId = coordinatorNamespace.idFromName(`project:${projectId}`);

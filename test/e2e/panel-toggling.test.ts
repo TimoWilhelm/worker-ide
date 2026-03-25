@@ -67,6 +67,6 @@ test.describe('Panel Toggling', () => {
 
 		await aiButton.click();
 
-		await expect(page.getByText('Agent')).toBeVisible();
+		await expect(page.getByText('Agent', { exact: true })).toBeVisible();
 	});
 });

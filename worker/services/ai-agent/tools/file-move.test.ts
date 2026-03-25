@@ -173,8 +173,10 @@ describe('file_move', () => {
 		const result = await execute({ from_path: '/src/component.ts', to_path: '/src/renamed.ts' }, createMockSendEvent(), context());
 
 		expect(result.metadata).toHaveProperty('diagnostics');
-		expect(result.metadata.diagnostics).toHaveLength(1);
-		expect(result.metadata.diagnostics[0]).toHaveProperty('rule', 'lint/style/noVar');
+		const { diagnostics } = result.metadata;
+		if (!Array.isArray(diagnostics)) throw new Error('expected diagnostics to be an array');
+		expect(diagnostics).toHaveLength(1);
+		expect(diagnostics[0]).toHaveProperty('rule', 'lint/style/noVar');
 		expect(result.output).toContain('Use const or let');
 	});
 

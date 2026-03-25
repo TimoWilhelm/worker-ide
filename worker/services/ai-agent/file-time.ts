@@ -3,8 +3,8 @@
  *
  * This service ensures that files are read before being written, preventing
  * accidental overwrites. Uses filesystem persistence so state survives
- * Durable Object evictions, with an in-memory cache for fast access within
- * the same isolate.
+ * Durable Object evictions, with an in-memory promise cache for fast,
+ * race-free access within the same isolate.
  *
  * Storage location: {projectRoot}/.agent/sessions/{sessionId}/filetime.json
  *
@@ -20,9 +20,21 @@ import fs from 'node:fs/promises';
 
 const SESSIONS_DIR = '.agent/sessions';
 
-// In-memory cache: key -> Map of filepath -> timestamp (ms).
-// Re-loaded from disk on every access to avoid staleness after DO eviction.
-const cache = new Map<string, Map<string, number>>();
+// In-memory cache: key -> Promise<Map of filepath -> timestamp (ms)>.
+//
+// Storing promises (rather than resolved Maps) is the key design choice here.
+// It means that if two callers race to load the same session before the first
+// load finishes, they both await the *same* Promise and therefore both receive
+// the *same* Map instance.  Were we to store the resolved Map directly there
+// would be a window between "cache miss detected" and "cache entry written"
+// during which a second concurrent caller also sees a cache miss, kicks off its
+// own fs.readFile, and builds an independent Map — causing the two callers to
+// operate on different objects.  That classic cache-stampede / lost-update race
+// is what this design prevents.
+//
+// On Durable Object eviction the module-level state is reset, so the promise
+// cache starts empty and the next access re-reads from disk, which is correct.
+const sessionCache = new Map<string, Promise<Map<string, number>>>();
 
 // Per-file write locks for serializing concurrent writes
 const locks = new Map<string, Promise<void>>();
@@ -47,22 +59,34 @@ function normalizePath(filepath: string): string {
 	return filepath.startsWith('/') ? filepath : `/${filepath}`;
 }
 
-async function loadFileTimes(projectRoot: string, sessionId: string): Promise<Map<string, number>> {
-	const key = cacheKey(projectRoot, sessionId);
-	const cached = cache.get(key);
-	if (cached) return cached;
-
-	let times: Map<string, number>;
+async function readFileTimesFromDisk(projectRoot: string, sessionId: string): Promise<Map<string, number>> {
 	try {
 		const content = await fs.readFile(getFiletimePath(projectRoot, sessionId), 'utf8');
 		const data: Record<string, number> = JSON.parse(content);
-		times = new Map(Object.entries(data));
+		return new Map(Object.entries(data));
 	} catch {
-		times = new Map<string, number>();
+		return new Map<string, number>();
 	}
+}
 
-	cache.set(key, times);
-	return times;
+/**
+ * Returns the shared, mutable Map for the given session.
+ *
+ * The cache stores Promises rather than resolved Maps.  This eliminates the
+ * cache-stampede race: if two callers see an empty cache entry at the same
+ * moment, they both await the *same* Promise and therefore receive the *same*
+ * Map instance.  Any mutation one caller makes (e.g. recording a file read) is
+ * immediately visible to the other, because they share the same object.
+ */
+async function loadFileTimes(projectRoot: string, sessionId: string): Promise<Map<string, number>> {
+	const key = cacheKey(projectRoot, sessionId);
+
+	const cached = sessionCache.get(key);
+	if (cached) return cached;
+
+	const loading = readFileTimesFromDisk(projectRoot, sessionId);
+	sessionCache.set(key, loading);
+	return loading;
 }
 
 async function flushFileTimes(projectRoot: string, sessionId: string, times: Map<string, number>): Promise<void> {
@@ -173,16 +197,13 @@ export async function withLock<T>(filepath: string, function_: () => Promise<T>)
 }
 
 /**
- * Clear all file read times for a session. Call this when a session ends.
+ * Evict the in-memory cache entry for a session.
+ *
+ * Call this when a session ends so that the promise cache does not grow
+ * indefinitely over the lifetime of a long-lived Durable Object instance.
+ * Disk cleanup (the `.agent/sessions/{id}/` directory) is handled separately
+ * by `cleanupSessionArtifacts` in `session-cleanup.ts`.
  */
-export async function clearSession(projectRoot: string, sessionId: string): Promise<void> {
-	const key = cacheKey(projectRoot, sessionId);
-	cache.delete(key);
-
-	try {
-		const directory = getSessionDirectory(projectRoot, sessionId);
-		await fs.rm(directory, { recursive: true, force: true });
-	} catch {
-		// Ignore errors - directory may not exist
-	}
+export function clearSession(projectRoot: string, sessionId: string): void {
+	sessionCache.delete(cacheKey(projectRoot, sessionId));
 }
