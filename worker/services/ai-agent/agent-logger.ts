@@ -5,10 +5,12 @@
  * agent loop — LLM calls, tool execution, response parsing, context pruning,
  * doom loop detection, retries, and errors.
  *
- * Logs are accumulated in-memory during the run (synchronous pushes only) and
- * flushed to `.agent/sessions/{sessionId}/debug-logs/{id}.json` at the end of
- * the run. The log ID is sent to the frontend via the project coordinator
- * WebSocket so the user can download it.
+ * **Dual output:**
+ * 1. **diagnostics_channel** — Each log entry is published to the `agent-loop:log`
+ *    channel for real-time observability. In production, these events auto-forward
+ *    to Tail Workers with zero overhead when nobody is listening.
+ * 2. **JSON file** — Entries are also accumulated in-memory and flushed to
+ *    `.agent/sessions/{sessionId}/debug-logs/{id}.json` for in-IDE download.
  *
  * Design principles:
  * - Zero async overhead during the hot path (all logging is synchronous array pushes)
@@ -17,7 +19,19 @@
  * - Old logs are cleaned up to avoid unbounded disk usage
  */
 
+import diagnosticsChannel from 'node:diagnostics_channel';
 import fs from 'node:fs/promises';
+
+// =============================================================================
+// Diagnostics Channel
+// =============================================================================
+
+/**
+ * Custom diagnostics channel for agent loop log events.
+ * Published alongside the Agents SDK's built-in `agents:*` channels.
+ * Auto-forwards to Tail Workers in production — zero overhead when nobody listens.
+ */
+const agentLogChannel = diagnosticsChannel.channel('agent-loop:log');
 
 // =============================================================================
 // Constants
@@ -28,9 +42,6 @@ const MAX_DEBUG_LOGS = 20;
 
 /** Maximum characters to include for large string fields in log data. */
 const MAX_FIELD_LENGTH = 500;
-
-/** Maximum characters for full-content fields (system prompts, messages, LLM responses). */
-const MAX_CONTENT_FIELD_LENGTH = 10_000;
 
 /** Keys in tool inputs that commonly contain large content (file bodies, etc.). */
 const LARGE_CONTENT_KEYS = new Set(['content', 'file_content', 'patch', 'diff', 'body', 'old_string', 'new_string', 'edits']);
@@ -139,35 +150,6 @@ export function summarizeToolResult(result: string): string {
  * Truncate a string for full-content logging (system prompts, messages, LLM responses).
  * Uses a much higher limit than tool input sanitization.
  */
-export function truncateContent(value: string): string {
-	return truncateString(value, MAX_CONTENT_FIELD_LENGTH);
-}
-
-/**
- * Serialize a message array for debug logging.
- * Each message is represented with its role and truncated content.
- */
-export function serializeMessagesForLog(
-	messages: Array<{ role: string; content?: string | null | unknown; toolCalls?: unknown }>,
-): Array<Record<string, unknown>> {
-	return messages.map((message) => {
-		const entry: Record<string, unknown> = { role: message.role };
-		if (typeof message.content === 'string') {
-			entry.content = truncateString(message.content, MAX_CONTENT_FIELD_LENGTH);
-			entry.contentLength = message.content.length;
-		} else if (message.content !== undefined && message.content !== null) {
-			// Array content (multi-part messages)
-			const serialized = JSON.stringify(message.content);
-			entry.content = truncateString(serialized, MAX_CONTENT_FIELD_LENGTH);
-			entry.contentLength = serialized.length;
-		}
-		if (message.toolCalls) {
-			entry.hasToolCalls = true;
-		}
-		return entry;
-	});
-}
-
 // =============================================================================
 // AgentLogger Class
 // =============================================================================
@@ -225,6 +207,18 @@ export class AgentLogger {
 			...(options?.durationMs !== undefined && { durationMs: options.durationMs }),
 		};
 		this.entries.push(entry);
+
+		// Publish to diagnostics_channel for real-time observability.
+		// Silent when nobody is listening (Tail Workers, subscribe(), etc.).
+		if (agentLogChannel.hasSubscribers) {
+			agentLogChannel.publish({
+				sessionId: this.sessionId,
+				projectId: this.projectId,
+				model: this.model,
+				mode: this.mode,
+				...entry,
+			});
+		}
 
 		// Allow re-flushing if new entries arrive after a previous flush.
 		// Safe because flushes are always sequential (first in createAgentStream,

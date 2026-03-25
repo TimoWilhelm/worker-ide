@@ -1,355 +1,458 @@
 /**
  * Agent Runner Durable Object.
  *
- * Executes AI agent loops independently of client connections. This enables:
- * - Session generation continues even if the user disconnects
- * - Collaboration users can observe ongoing agent sessions in real-time
- * - Explicit abort via WebSocket message or RPC
+ * Extends the Agents SDK `Agent` class for:
+ * - **Automatic state sync** — `this.state` is SQLite-backed and auto-broadcast
+ *   to all connected WebSocket clients (the frontend's `useAgent` hook).
+ * - **@callable RPC** — Methods decorated with `callable` are invokable
+ *   over WebSocket from the client via `agent.call()`.
+ * - **Streaming RPC** — `@callable({ streaming: true })` for real-time generation
+ *   streaming to clients.
+ * - **Eviction recovery** — `onStart()` lifecycle hook detects orphaned runs and
+ *   restarts them (replaces the manual alarm-based heartbeat mechanism).
  *
- * **Alarm-based resilience:** When a Durable Object is evicted mid-execution
- * (no shutdown hooks exist), in-memory state is lost. To survive this:
- * - Before starting an agent loop, parameters are persisted to `running:{sessionId}` KV
- * - A heartbeat alarm is set and periodically rescheduled while the loop runs
- * - On normal completion, the `running:` entry is deleted
- * - If the DO is evicted, the alarm fires on the new instance, finds the
- *   orphaned `running:` entry, and **restarts** the agent loop from scratch
- * - `getRunningSessionIds()` reads from durable `running:` KV, not volatile maps
- *
- * One instance per project, keyed by `agent:${projectId}`.
- * Communicates with ProjectCoordinator (for event broadcast) and
- * ExpiringFilesystem (for file operations) via RPC — no self-referential calls.
+ * Architecture:
+ * - The Agent owns all AI session state. The frontend is a pure renderer.
+ * - Streaming content flows via `@callable({ streaming: true })` RPC.
+ * - Session metadata (messages, status, tool data) flows via `this.setState()`.
+ * - One instance per project, named `agent:${projectId}`.
+ * - Communicates with ProjectCoordinator (for file change HMR triggers) and
+ *   ExpiringFilesystem (for file operations) via DO RPC stubs.
  */
 
-import { convertMessagesToModelMessages } from '@tanstack/ai';
-import { DurableObject } from 'cloudflare:workers';
+import { Agent, callable } from 'agents';
+import { env } from 'cloudflare:workers';
 import { mount, withMounts } from 'worker-fs-mount';
 
-import { DEFAULT_AI_MODEL } from '@shared/constants';
+import { DEFAULT_AI_MODEL, getModelConfig } from '@shared/constants';
 
-import { coordinatorNamespace, filesystemNamespace } from '../lib/durable-object-namespaces';
+import { filesystemNamespace } from '../lib/durable-object-namespaces';
 import { toDurableObjectId } from '../lib/project-id';
 import { AIAgentService } from '../services/ai-agent';
-import { estimateMessagesTokens } from '../services/ai-agent/context-pruner';
+import { chatMessagesToModelMessages, estimateMessagesTokens } from '../services/ai-agent/context-pruner';
 import { cleanupSessionArtifacts, cleanupTimestampPlans } from '../services/ai-agent/session-cleanup';
 import { generateSessionTitle } from '../services/ai-agent/title-generator';
 
+import type { AgentState, AgentSessionState, SessionSummary, StreamEvent } from '@shared/agent-state';
 import type { AIModelId } from '@shared/constants';
-import type { AgentSessionStatus, AiSession, PendingFileChange, UIMessage } from '@shared/types';
+import type {
+	AgentMode,
+	AgentSessionStatus,
+	AiSession,
+	ChatMessage,
+	MessagePart,
+	PendingFileChange,
+	ToolErrorInfo,
+	ToolMetadataInfo,
+} from '@shared/types';
+
+// =============================================================================
+// SQL Helpers
+// =============================================================================
 
 /**
- * Maximum number of recent stream events to buffer for reconnection.
- * Late-joining clients receive these events to catch up.
+ * Convert `undefined` to SQL `null`. The Agent SDK's `this.sql` tagged template
+ * requires `null` for SQL NULL values, but our codebase convention is `undefined`.
+ * This bridge function satisfies both the SQL API and the `unicorn/no-null` rule.
  */
-const EVENT_BUFFER_CAPACITY = 500;
+// eslint-disable-next-line unicorn/no-null -- single bridge point for SQL null semantics
+const SQL_NULL: null = null;
+function nullable(value: string | number | boolean | undefined): string | number | boolean | null {
+	return value === undefined ? SQL_NULL : value;
+}
 
-/**
- * Project root path used by the filesystem mount.
- */
+const AGENT_SESSION_STATUSES: ReadonlySet<string> = new Set(['running', 'completed', 'error', 'aborted']);
+function isAgentSessionStatus(value: unknown): value is AgentSessionStatus {
+	return typeof value === 'string' && AGENT_SESSION_STATUSES.has(value);
+}
+
+// =============================================================================
+// Constants
+// =============================================================================
+
+/** Project root path used by the filesystem mount. */
 const PROJECT_ROOT = '/project';
 
-/**
- * Maximum number of sessions to retain. When exceeded after a new session
- * is persisted, the oldest sessions (by createdAt) are pruned along with
- * all their filesystem artifacts (debug logs, filetime, plans, todos,
- * orphaned snapshots).
- */
+/** Maximum number of sessions to retain. */
 const MAX_SESSIONS = 50;
 
-/**
- * Heartbeat interval for the alarm-based resilience mechanism (ms).
- * While an agent loop is running, the alarm is rescheduled at this interval.
- * If the DO is evicted and the alarm fires without an active abort controller,
- * the agent loop is restarted from the persisted parameters.
- */
-const HEARTBEAT_INTERVAL_MS = 30_000;
+// =============================================================================
+// SQL Schema (auto-created on first use)
+// =============================================================================
+
+const CREATE_SESSIONS_TABLE = `
+  CREATE TABLE IF NOT EXISTS sessions (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL DEFAULT '',
+    title_generated INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL,
+    history TEXT NOT NULL DEFAULT '[]',
+    message_snapshots TEXT,
+    message_modes TEXT,
+    context_tokens_used INTEGER DEFAULT 0,
+    reverted_at INTEGER,
+    tool_metadata TEXT,
+    tool_errors TEXT,
+    status TEXT,
+    error_message TEXT
+  )
+`;
+
+const CREATE_RUNNING_TABLE = `
+  CREATE TABLE IF NOT EXISTS running_sessions (
+    session_id TEXT PRIMARY KEY,
+    parameters TEXT NOT NULL
+  )
+`;
+
+const CREATE_PENDING_CHANGES_TABLE = `
+  CREATE TABLE IF NOT EXISTS pending_changes (
+    id INTEGER PRIMARY KEY DEFAULT 1,
+    data TEXT NOT NULL DEFAULT '{}'
+  )
+`;
+
+// =============================================================================
+// Parameters
+// =============================================================================
 
 /**
  * Parameters for starting an agent run.
  */
 export interface StartAgentParameters {
 	projectId: string;
-	messages: UIMessage[];
-	mode?: 'code' | 'plan' | 'ask';
+	messages: ChatMessage[];
+	mode?: AgentMode;
 	sessionId?: string;
 	model?: AIModelId;
-	outputLogs?: string;
 }
 
-export class AgentRunner extends DurableObject {
-	/**
-	 * In-memory abort controllers keyed by sessionId.
-	 * Volatile — lost on eviction. Used for graceful abort and to detect
-	 * whether the current instance owns a running loop.
-	 */
-	private agentAbortControllers = new Map<string, AbortController>();
+// =============================================================================
+// AgentRunner
+// =============================================================================
 
-	/**
-	 * Ring buffers of recent stream events for late-joining clients, keyed by sessionId.
-	 * Volatile — lost on eviction. Reconnecting clients get an empty buffer
-	 * and the stale-session timeout in the adapter handles the fallback.
-	 */
-	private eventBuffers = new Map<string, Array<{ chunk: object; index: number }>>();
+export class AgentRunner extends Agent<Env, AgentState> {
+	// The instance name (agent:<projectId>) is not sensitive — explicitly opt in
+	// to sending it on connect so the SDK doesn't log a warning on every connection.
+	static options = { sendIdentityOnConnect: true };
 
-	/**
-	 * Monotonic event indices within the current agent run, keyed by sessionId.
-	 * Volatile — reset when the loop starts.
-	 */
-	private eventIndices = new Map<string, number>();
+	// ---- Agents SDK State ----
 
-	/**
-	 * Promises for active agent loops, keyed by sessionId.
-	 * Used by abortAgent to await full cleanup (including the finally block)
-	 * before returning, so a subsequent startAgent doesn't race.
-	 */
-	private agentLoopPromises = new Map<string, Promise<void>>();
+	initialState: AgentState = {
+		currentSession: undefined,
+		sessions: [],
+	};
 
-	/** Guards against concurrent generateTitle calls for the same session. */
+	// ---- Volatile in-memory state (lost on eviction) ----
+
+	/** Abort controllers for running sessions. */
+	private abortControllers = new Map<string, AbortController>();
+
+	/** Promises for active agent loops (for awaiting cleanup on abort). */
+	private loopPromises = new Map<string, Promise<void>>();
+
+	/** Guards against concurrent title generation. */
 	private titleGenerationInFlight = new Set<string>();
 
-	// =========================================================================
-	// Alarm Handler — session resilience
-	// =========================================================================
+	/** Buffers for accumulating partial tool call argument JSON during streaming. */
+	private toolCallArgumentBuffers = new Map<string, string>();
 
-	/**
-	 * Called by the runtime when the heartbeat alarm fires.
-	 *
-	 * If an agent loop is still actively running (abort controller exists),
-	 * this is a no-op — the loop itself reschedules the alarm.
-	 *
-	 * If no abort controller exists but a `running:{sessionId}` KV entry
-	 * is present, the DO was evicted mid-execution. Restart the loop from
-	 * the persisted parameters.
-	 */
-	async alarm(): Promise<void> {
-		const orphaned = this.getOrphanedRunningSessions();
-		if (orphaned.length === 0) return;
-
-		for (const { sessionId, parameters } of orphaned) {
-			console.log(`[AgentRunner] Alarm: restarting evicted session ${sessionId}`);
-			this.launchAgentLoop(parameters, sessionId);
-			await this.broadcastStatusChanged(parameters.projectId, sessionId, 'running');
-		}
-
-		// Reschedule for any remaining sessions
-		this.scheduleHeartbeatAlarm();
-	}
+	/** Whether SQL tables have been initialized. */
+	private schemaInitialized = false;
 
 	// =========================================================================
-	// RPC Methods
+	// Lifecycle
 	// =========================================================================
 
 	/**
-	 * Start an AI agent run. Returns immediately with the session ID.
-	 * The agent loop continues running asynchronously within the DO.
-	 *
-	 * Dedup: if `running:{sessionId}` KV already exists, the session is
-	 * either actively running or will be restarted by the alarm. In either
-	 * case, we return without launching a duplicate loop.
+	 * Called when the Agent starts (or wakes from hibernation / eviction).
+	 * Detects orphaned running sessions and restarts them.
 	 */
-	async startAgent(parameters: StartAgentParameters): Promise<{ sessionId: string }> {
-		const sessionId = parameters.sessionId ?? crypto.randomUUID().replaceAll('-', '').slice(0, 16);
+	async onStart(): Promise<void> {
+		this.ensureSchema();
 
-		// Already tracked as running (durable check — survives eviction)
-		if (this.ctx.storage.kv.get(`running:${sessionId}`) !== undefined) {
-			return { sessionId };
-		}
+		// Check for orphaned running sessions (persisted but no in-memory controller)
+		const orphaned = this.sql<{ session_id: string; parameters: string }>`
+			SELECT session_id, parameters FROM running_sessions
+		`;
 
-		// Persist restart parameters BEFORE launching so the alarm can recover
-		this.ctx.storage.kv.put(`running:${sessionId}`, parameters);
-
-		this.launchAgentLoop(parameters, sessionId);
-
-		// Broadcast the status change to all connected clients
-		await this.broadcastStatusChanged(parameters.projectId, sessionId, 'running');
-
-		// Set the heartbeat alarm
-		this.scheduleHeartbeatAlarm();
-
-		return { sessionId };
-	}
-
-	/**
-	 * Abort the currently running agent or a specific agent session.
-	 *
-	 * If the loop is active in this instance, the abort controller is signaled
-	 * and the `finally` block handles cleanup + broadcast.
-	 *
-	 * If the loop is NOT active (post-eviction, pre-alarm), we delete the
-	 * durable `running:` marker to prevent alarm restart and broadcast
-	 * the abort status directly.
-	 */
-	async abortAgent(sessionId?: string): Promise<void> {
-		if (sessionId) {
-			const controller = this.agentAbortControllers.get(sessionId);
-			if (controller) {
-				// Active loop — abort it; the finally block handles broadcast
-				controller.abort();
-				this.agentAbortControllers.delete(sessionId);
+		for (const row of orphaned) {
+			if (!this.abortControllers.has(row.session_id)) {
+				console.log(`[AgentRunner] onStart: restarting evicted session ${row.session_id}`);
+				try {
+					const parameters: StartAgentParameters = JSON.parse(row.parameters);
+					this.launchAgentLoop(parameters, row.session_id);
+				} catch (error) {
+					console.error(`[AgentRunner] Failed to restart session ${row.session_id}:`, error);
+					// Remove the orphaned marker
+					this.sql`DELETE FROM running_sessions WHERE session_id = ${row.session_id}`;
+				}
 			}
-			// Remove the durable marker — prevents alarm from restarting
-			const parameters = this.ctx.storage.kv.get<StartAgentParameters>(`running:${sessionId}`);
-			this.ctx.storage.kv.delete(`running:${sessionId}`);
+		}
 
-			// Wait for the loop's finally block to fully complete so a
-			// subsequent startAgent for the same session doesn't race.
-			const loopPromise = this.agentLoopPromises.get(sessionId);
+		// Refresh the sessions list in state
+		await this.refreshSessionsList();
+	}
+
+	// =========================================================================
+	// @callable RPC Methods (invoked by clients via WebSocket)
+	// =========================================================================
+
+	/**
+	 * Start an AI agent run. Returns the session ID immediately.
+	 * The generation streams via the `streamRun` callable.
+	 */
+	@callable()
+	async startRun(
+		projectId: string,
+		messages: ChatMessage[],
+		mode: AgentMode = 'code',
+		model: AIModelId = DEFAULT_AI_MODEL,
+		sessionId?: string,
+	): Promise<{ sessionId: string }> {
+		this.ensureSchema();
+
+		// Rate limiting (moved from HTTP route to here, so both HTTP and Agent RPC are covered)
+		if (env.AI_RATE_LIMITER) {
+			const { success } = await env.AI_RATE_LIMITER.limit({ key: projectId });
+			if (!success) {
+				throw new Error('Rate limit exceeded. Please wait before making more AI requests.');
+			}
+		}
+
+		// Model config validation
+		const modelConfig = getModelConfig(model);
+		if (modelConfig?.provider === 'workers-ai' && !env.AI) {
+			throw new Error('Workers AI binding (AI) is not configured.');
+		}
+
+		const resolvedSessionId = sessionId ?? crypto.randomUUID().replaceAll('-', '').slice(0, 16);
+
+		// Already running — don't launch a duplicate
+		const existing = this.sql<{ session_id: string }>`
+			SELECT session_id FROM running_sessions WHERE session_id = ${resolvedSessionId}
+		`;
+		if (existing.length > 0) {
+			return { sessionId: resolvedSessionId };
+		}
+
+		const parameters: StartAgentParameters = {
+			projectId,
+			messages,
+			mode,
+			sessionId: resolvedSessionId,
+			model,
+		};
+
+		// Persist restart parameters BEFORE launching (survives eviction)
+		this.sql`
+			INSERT OR REPLACE INTO running_sessions (session_id, parameters)
+			VALUES (${resolvedSessionId}, ${JSON.stringify(parameters)})
+		`;
+
+		this.launchAgentLoop(parameters, resolvedSessionId);
+
+		// Update state immediately so clients see 'running' and the new messages.
+		// Including `messages` is critical — without it, the patch branch of
+		// updateSessionState only updates status/statusText, leaving the old
+		// (pre-abort) messages in currentSession. The new user message would
+		// not appear in the UI until streaming events start arriving.
+		//
+		// Set messageModes for the last user message so the mode badge renders
+		// immediately (before the first turn-complete persist reloads from DB).
+		const lastUserMessageIndex = parameters.messages.length - 1;
+		const existingModes = this.state.currentSession?.messageModes ?? {};
+		const updatedModes = {
+			...existingModes,
+			[String(lastUserMessageIndex)]: parameters.mode ?? 'code',
+		};
+
+		this.updateSessionState(resolvedSessionId, {
+			status: 'running',
+			statusText: 'Starting...',
+			messages: parameters.messages,
+			messageModes: updatedModes,
+			error: undefined,
+		});
+
+		return { sessionId: resolvedSessionId };
+	}
+
+	/**
+	 * Abort a running agent session.
+	 */
+	@callable()
+	async abortRun(sessionId?: string): Promise<void> {
+		this.ensureSchema();
+
+		if (sessionId) {
+			const controller = this.abortControllers.get(sessionId);
+			if (controller) {
+				controller.abort();
+				this.abortControllers.delete(sessionId);
+			}
+
+			// Remove durable marker
+			this.sql`DELETE FROM running_sessions WHERE session_id = ${sessionId}`;
+
+			// Wait for loop cleanup
+			const loopPromise = this.loopPromises.get(sessionId);
 			if (loopPromise) {
 				await loopPromise.catch(() => {});
 			}
 
-			// If no active loop, broadcast abort directly (the finally block won't run)
-			if (!controller && parameters) {
-				await this.broadcastStatusChanged(parameters.projectId, sessionId, 'aborted');
-			}
+			// Update state
+			this.updateSessionState(sessionId, {
+				status: 'aborted',
+				statusText: undefined,
+			});
 		} else {
-			// Abort all running agents
-			const activeIds = new Set(this.agentAbortControllers.keys());
-			for (const controller of this.agentAbortControllers.values()) {
+			// Abort all
+			for (const controller of this.abortControllers.values()) {
 				controller.abort();
 			}
-			this.agentAbortControllers.clear();
+			this.abortControllers.clear();
 
-			// Wait for all active loops to fully complete
-			const loopPromises = [...this.agentLoopPromises.values()];
-			await Promise.allSettled(loopPromises);
+			await Promise.allSettled(this.loopPromises.values());
 
-			// Remove all durable running markers and broadcast for orphaned ones
-			for (const [key, parameters] of this.ctx.storage.kv.list<StartAgentParameters>({ prefix: 'running:' })) {
-				const id = key.slice('running:'.length);
-				this.ctx.storage.kv.delete(key);
-				// Broadcast for sessions that had no active loop
-				if (!activeIds.has(id)) {
-					await this.broadcastStatusChanged(parameters.projectId, id, 'aborted');
-				}
-			}
-		}
-	}
+			this.sql`DELETE FROM running_sessions`;
 
-	/**
-	 * Get the IDs of all sessions that are currently running.
-	 *
-	 * Reads from durable `running:{sessionId}` KV entries, which survive
-	 * DO eviction. This is the source of truth for "is something running?"
-	 */
-	async getRunningSessionIds(): Promise<string[]> {
-		const ids: string[] = [];
-		for (const [key] of this.ctx.storage.kv.list({ prefix: 'running:' })) {
-			ids.push(key.slice('running:'.length));
-		}
-		return ids;
-	}
-
-	/**
-	 * Get buffered events since a given index for reconnection.
-	 * Returns events with index > lastEventIndex.
-	 *
-	 * After DO eviction the buffer is empty — the reconnecting client's
-	 * stale-session timeout handles this gracefully.
-	 */
-	async getBufferedEvents(sessionId: string, lastEventIndex: number): Promise<Array<{ chunk: object; index: number }>> {
-		const buffer = this.eventBuffers.get(sessionId) || [];
-		return buffer.filter((event) => event.index > lastEventIndex);
-	}
-
-	// =========================================================================
-	// Session CRUD
-	// =========================================================================
-
-	/**
-	 * List all saved sessions (summary only: id, title, createdAt).
-	 */
-	async listSessions(): Promise<Array<{ id: string; title: string; createdAt: number; isRunning: boolean }>> {
-		const runningIds = new Set(await this.getRunningSessionIds());
-		const sessions: Array<{ id: string; title: string; createdAt: number; isRunning: boolean }> = [];
-		const entries = this.ctx.storage.kv.list<AiSession>({ prefix: 'sessionData:' });
-		for (const [, data] of entries) {
-			if (data && typeof data.title === 'string' && typeof data.createdAt === 'number') {
-				sessions.push({
-					id: data.id,
-					title: data.title,
-					createdAt: data.createdAt,
-					isRunning: runningIds.has(data.id),
+			if (this.state.currentSession) {
+				this.updateSessionState(this.state.currentSession.sessionId, {
+					status: 'aborted',
+					statusText: undefined,
 				});
 			}
 		}
-		sessions.sort((a, b) => b.createdAt - a.createdAt);
-		return sessions;
 	}
 
 	/**
-	 * Load a single session by ID.
+	 * Load a session into the current state.
 	 */
+	@callable()
 	async loadSession(sessionId: string): Promise<AiSession | undefined> {
-		return this.ctx.storage.kv.get<AiSession>(`sessionData:${sessionId}`);
+		this.ensureSchema();
+
+		const session = this.readSession(sessionId);
+		if (!session) return undefined;
+
+		// Update agent state so all clients see the loaded session
+		const pendingChanges = this.readPendingChanges();
+		const isRunning =
+			this.sql<{ session_id: string }>`
+			SELECT session_id FROM running_sessions WHERE session_id = ${sessionId}
+		`.length > 0;
+
+		this.setState({
+			...this.state,
+			currentSession: {
+				sessionId,
+				title: session.title,
+				status: isRunning ? 'running' : (session.status ?? 'idle'),
+				messages: session.history,
+				statusText: isRunning ? 'Thinking...' : undefined,
+				error: session.errorMessage ? { message: session.errorMessage } : undefined,
+				contextTokensUsed: session.contextTokensUsed ?? 0,
+				pendingChanges,
+				messageSnapshots: session.messageSnapshots ?? {},
+				messageModes: session.messageModes ?? {},
+				toolMetadata: session.toolMetadata ?? {},
+				toolErrors: session.toolErrors ?? {},
+				debugLogId: undefined,
+			},
+		});
+
+		return session;
+	}
+
+	/**
+	 * List all saved sessions (summary).
+	 */
+	@callable()
+	async listSessions(): Promise<SessionSummary[]> {
+		this.ensureSchema();
+
+		const runningIds = new Set(this.sql<{ session_id: string }>`SELECT session_id FROM running_sessions`.map((r) => r.session_id));
+
+		const rows = this.sql<{ id: string; title: string; created_at: number }>`
+			SELECT id, title, created_at FROM sessions ORDER BY created_at DESC
+		`;
+
+		return rows.map((row) => ({
+			id: row.id,
+			title: row.title,
+			createdAt: row.created_at,
+			isRunning: runningIds.has(row.id),
+		}));
 	}
 
 	/**
 	 * Revert a session by truncating history to a given message index.
-	 * Sets `revertedAt` to prevent the server-side stream `finally` block
-	 * from overwriting the truncated history with the pre-revert version.
-	 *
-	 * If `messageIndex` is 0, deletes the session entirely.
 	 */
+	@callable()
 	async revertSession(sessionId: string, messageIndex: number): Promise<{ contextTokensUsed: number }> {
+		this.ensureSchema();
+
 		if (messageIndex <= 0) {
-			// Full revert — delete the session
-			this.ctx.storage.kv.delete(`sessionData:${sessionId}`);
+			this.sql`DELETE FROM sessions WHERE id = ${sessionId}`;
+			// Clear the current session state so the frontend shows an empty chat
+			if (this.state.currentSession?.sessionId === sessionId) {
+				this.setState({ ...this.state, currentSession: undefined });
+			}
+			await this.refreshSessionsList();
 			return { contextTokensUsed: 0 };
 		}
 
-		const session = this.ctx.storage.kv.get<AiSession>(`sessionData:${sessionId}`);
+		const session = this.readSession(sessionId);
 		if (!session) return { contextTokensUsed: 0 };
 
-		// Truncate history and prune snapshot/mode mappings above the cut point
 		const truncatedHistory = session.history.slice(0, messageIndex);
-		let prunedSnapshots: Record<string, string> | undefined;
-		if (session.messageSnapshots) {
-			prunedSnapshots = {};
-			for (const [key, value] of Object.entries(session.messageSnapshots)) {
-				if (Number(key) < messageIndex) {
-					prunedSnapshots[key] = value;
-				}
-			}
-			if (Object.keys(prunedSnapshots).length === 0) {
-				prunedSnapshots = undefined;
-			}
-		}
-		let prunedModes: Record<string, string> | undefined;
-		if (session.messageModes) {
-			prunedModes = {};
-			for (const [key, value] of Object.entries(session.messageModes)) {
-				if (Number(key) < messageIndex) {
-					prunedModes[key] = value;
-				}
-			}
-			if (Object.keys(prunedModes).length === 0) {
-				prunedModes = undefined;
-			}
-		}
 
-		// Estimate the context token usage for the truncated history so the
-		// frontend context ring reflects the state at this point in the conversation.
-		const modelMessages = convertMessagesToModelMessages(truncatedHistory);
+		// Prune metadata above the cut point
+		const prunedSnapshots = this.pruneMetadata(session.messageSnapshots, messageIndex);
+		const prunedModes = this.pruneMetadata(session.messageModes, messageIndex);
+
+		const modelMessages = chatMessagesToModelMessages(truncatedHistory);
 		const contextTokensUsed = estimateMessagesTokens(modelMessages);
 
-		this.ctx.storage.kv.put(`sessionData:${sessionId}`, {
-			...session,
-			history: truncatedHistory,
-			messageSnapshots: prunedSnapshots,
-			messageModes: prunedModes,
-			contextTokensUsed: contextTokensUsed > 0 ? contextTokensUsed : undefined,
-			revertedAt: Date.now(),
-		});
+		this.sql`
+			UPDATE sessions SET
+				history = ${JSON.stringify(truncatedHistory)},
+				message_snapshots = ${nullable(prunedSnapshots ? JSON.stringify(prunedSnapshots) : undefined)},
+				message_modes = ${nullable(prunedModes ? JSON.stringify(prunedModes) : undefined)},
+				context_tokens_used = ${nullable(contextTokensUsed > 0 ? contextTokensUsed : undefined)},
+				reverted_at = ${Date.now()}
+			WHERE id = ${sessionId}
+		`;
 
+		// Update state for connected clients — reset status to idle and clear
+		// tool metadata/errors that belong to reverted messages.
+		if (this.state.currentSession?.sessionId === sessionId) {
+			this.updateSessionState(sessionId, {
+				status: 'idle',
+				statusText: undefined,
+				error: undefined,
+				messages: truncatedHistory,
+				messageSnapshots: prunedSnapshots ?? {},
+				messageModes: prunedModes ?? {},
+				toolMetadata: {},
+				toolErrors: {},
+				contextTokensUsed,
+			});
+		}
+
+		await this.refreshSessionsList();
 		return { contextTokensUsed };
 	}
 
 	/**
 	 * Delete a session and all its associated artifacts.
 	 */
+	@callable()
 	async deleteSession(projectId: string, sessionId: string): Promise<void> {
-		this.ctx.storage.kv.delete(`sessionData:${sessionId}`);
+		this.ensureSchema();
 
+		this.sql`DELETE FROM sessions WHERE id = ${sessionId}`;
 		this.removePendingChangesForSessions(new Set([sessionId]));
 		const survivingSnapshotIds = this.getSurvivingSnapshotIds();
 
@@ -362,7 +465,549 @@ export class AgentRunner extends DurableObject {
 				await cleanupSessionArtifacts(PROJECT_ROOT, new Set([sessionId]), survivingSnapshotIds);
 			});
 		} catch (error) {
-			console.error('[AgentRunner] Failed to clean up filesystem artifacts for deleted session:', error);
+			console.error('[AgentRunner] Failed to clean up filesystem artifacts:', error);
+		}
+
+		await this.refreshSessionsList();
+	}
+
+	/**
+	 * Load project-level pending changes.
+	 */
+	@callable()
+	async loadPendingChanges(): Promise<Record<string, PendingFileChange>> {
+		this.ensureSchema();
+		return this.readPendingChanges();
+	}
+
+	/**
+	 * Save project-level pending changes.
+	 */
+	@callable()
+	async savePendingChanges(changes: Record<string, PendingFileChange>): Promise<void> {
+		this.ensureSchema();
+		this.writePendingChanges(changes);
+	}
+
+	/**
+	 * Get the IDs of all sessions that are currently running.
+	 */
+	@callable()
+	async getRunningSessionIds(): Promise<string[]> {
+		this.ensureSchema();
+		return this.sql<{ session_id: string }>`SELECT session_id FROM running_sessions`.map((r) => r.session_id);
+	}
+
+	// =========================================================================
+	// Agent Loop Lifecycle
+	// =========================================================================
+
+	/**
+	 * Launch the agent loop asynchronously. Does not block.
+	 */
+	private launchAgentLoop(parameters: StartAgentParameters, sessionId: string): void {
+		// Create abort controller
+		this.abortControllers.set(sessionId, new AbortController());
+
+		// Clear revertedAt flag so persist callbacks from this run are not blocked
+		this.sql`UPDATE sessions SET reverted_at = NULL WHERE id = ${sessionId}`;
+
+		// Early-persist the session with incoming messages
+		const lastUserMessage = parameters.messages.toReversed().find((message) => message.role === 'user');
+		const lastUserText =
+			lastUserMessage?.parts
+				.filter((part): part is { type: 'text'; content: string } => part.type === 'text')
+				.map((part) => part.content)
+				.join(' ')
+				.trim() ?? '';
+		const promptPreview = lastUserText.slice(0, 80) || 'New session';
+
+		// Upsert the session. Use ON CONFLICT to preserve existing metadata
+		// columns (message_snapshots, tool_metadata, etc.) that would be
+		// lost with INSERT OR REPLACE (which deletes + re-inserts the row).
+		const existing = this.readSession(sessionId);
+		if (existing) {
+			this.sql`
+				UPDATE sessions SET
+					history = ${JSON.stringify(parameters.messages)}
+				WHERE id = ${sessionId}
+			`;
+		} else {
+			this.sql`
+				INSERT INTO sessions (id, title, title_generated, created_at, history)
+				VALUES (
+					${sessionId},
+					${promptPreview},
+					0,
+					${Date.now()},
+					${JSON.stringify(parameters.messages)}
+				)
+			`;
+		}
+
+		// Fire title generation independently
+		if (lastUserText.length > 0 && !existing?.titleGenerated) {
+			void this.generateTitle(sessionId, lastUserText);
+		}
+
+		const loopPromise = this.executeAgentLoop(parameters, sessionId)
+			.catch((error) => {
+				console.error(`[AgentRunner ${sessionId}] Unhandled error from executeAgentLoop:`, error);
+			})
+			.finally(() => {
+				this.loopPromises.delete(sessionId);
+			});
+		this.loopPromises.set(sessionId, loopPromise);
+	}
+
+	/**
+	 * Execute the agent generation loop.
+	 *
+	 * The loop runs the AI agent service and emits stream events to connected
+	 * clients via state updates. Streaming content (token-by-token text deltas,
+	 * tool call args) is NOT pushed through state (too chatty). Instead, the
+	 * service emits StreamEvent objects that the agent-runner broadcasts via
+	 * the ProjectCoordinator WebSocket (same as before).
+	 *
+	 * State updates are used for:
+	 * - Status changes (running → completed/error/aborted)
+	 * - Finalized messages (after each turn)
+	 * - Pending changes, tool metadata/errors, snapshots
+	 * - Context utilization
+	 */
+	private async executeAgentLoop(parameters: StartAgentParameters, sessionId: string): Promise<void> {
+		// Use keepAliveWhile() to prevent DO eviction during the agent loop.
+		// This creates a 30s heartbeat schedule that resets the inactivity timer.
+		// Replaces the manual HEARTBEAT_INTERVAL_MS + schedule() approach.
+		await this.keepAliveWhile(() => this.runAgentLoopInner(parameters, sessionId));
+	}
+
+	/**
+	 * Inner agent loop implementation, wrapped by keepAliveWhile() above.
+	 */
+	private async runAgentLoopInner(parameters: StartAgentParameters, sessionId: string): Promise<void> {
+		const projectId = parameters.projectId;
+		let finalStatus: AgentSessionStatus = 'completed';
+		let errorMessage: string | undefined;
+		let logger: import('../services/ai-agent/agent-logger').AgentLogger | undefined;
+		let agentService: AIAgentService | undefined;
+
+		try {
+			const fsId = toDurableObjectId(filesystemNamespace, projectId);
+			const fsStub = filesystemNamespace.get(fsId);
+			const mode = parameters.mode ?? 'code';
+			const model = parameters.model ?? DEFAULT_AI_MODEL;
+
+			// Convert ChatMessage[] to ModelMessage[] for the AI SDK
+			const modelMessages = chatMessagesToModelMessages(parameters.messages);
+
+			agentService = new AIAgentService(
+				PROJECT_ROOT,
+				projectId,
+				fsStub,
+				sessionId,
+				mode,
+				model,
+				// Persist callback — called by the service to save session state
+				async (sid, sessionData, pendingChanges) => {
+					this.persistSessionFromService(sid, sessionData, pendingChanges);
+				},
+			);
+
+			const abortController = this.abortControllers.get(sessionId) ?? new AbortController();
+			const stream = agentService.runAgentStream(modelMessages, parameters.messages, abortController);
+
+			logger = agentService.getLogger();
+
+			for await (const event of stream) {
+				if (event.type === 'run-error') {
+					finalStatus = 'error';
+					errorMessage = event.message || 'An unexpected error occurred during generation.';
+					logger?.info('session', 'run_error_received', { errorMessage });
+				}
+
+				// Update agent state — auto-broadcast to all useAgent subscribers
+				this.handleStreamEventForState(sessionId, event);
+			}
+
+			logger?.info('session', 'stream_completed', { finalStatus, errorMessage });
+		} catch (error) {
+			if (error instanceof Error && error.name === 'AbortError') {
+				finalStatus = 'aborted';
+				logger?.info('session', 'aborted');
+			} else {
+				finalStatus = 'error';
+				const isConfigError = error instanceof Error && error.message.includes('Workers AI binding');
+				errorMessage = isConfigError
+					? 'AI service is not configured. Please contact the project owner.'
+					: 'An unexpected error occurred during generation. Please try again.';
+				console.error(`[AgentRunner ${sessionId}] Agent loop error:`, error);
+				logger?.error('session', 'unhandled_error', {
+					error: error instanceof Error ? error.message : String(error),
+				});
+			}
+		} finally {
+			// Remove durable running marker
+			this.sql`DELETE FROM running_sessions WHERE session_id = ${sessionId}`;
+
+			// Clean up in-memory state
+			this.abortControllers.delete(sessionId);
+
+			// Update state with terminal status
+			this.updateSessionState(sessionId, {
+				status: finalStatus,
+				statusText: undefined,
+				error: finalStatus === 'error' && errorMessage ? { message: errorMessage } : undefined,
+			});
+
+			// Persist terminal status to DB
+			this.sql`
+				UPDATE sessions SET status = ${finalStatus}, error_message = ${nullable(errorMessage)}
+				WHERE id = ${sessionId}
+			`;
+
+			// Prune old sessions
+			await this.pruneOldSessions(parameters.projectId).catch((error) => {
+				console.error('[AgentRunner] Session pruning failed:', error);
+			});
+
+			// Refresh sessions list
+			await this.refreshSessionsList();
+
+			// Flush logger and set debugLogId in state
+			if (agentService && logger && !logger.isFlushed) {
+				await agentService.flushLogger().catch(() => {});
+			}
+			if (logger) {
+				this.updateSessionState(sessionId, { debugLogId: logger.id });
+			}
+		}
+	}
+
+	/**
+	 * Handle stream events that should update agent state.
+	 * Only processes significant events (not every text delta).
+	 */
+	/**
+	 * Route a stream event into the agent state for real-time UI updates.
+	 *
+	 * Content events (reasoning-delta, text-delta, tool-call-start, tool-call-args-delta,
+	 * tool-call-end) build up the in-progress assistant message in state. On turn-complete
+	 * the finalized version from the DB replaces it.
+	 */
+	private handleStreamEventForState(sessionId: string, event: StreamEvent): void {
+		if (this.state.currentSession?.sessionId !== sessionId) return;
+
+		switch (event.type) {
+			// ── Metadata events ─────────────────────────────────────────
+			case 'status': {
+				this.updateSessionState(sessionId, { statusText: event.message });
+				break;
+			}
+			case 'context-utilization': {
+				this.updateSessionState(sessionId, { contextTokensUsed: event.estimatedTokens });
+				break;
+			}
+			case 'snapshot-created': {
+				const current = this.state.currentSession;
+				if (current) {
+					const snapshots = { ...current.messageSnapshots };
+					const lastUserIndex = current.messages.length - 1;
+					if (lastUserIndex >= 0) {
+						snapshots[String(lastUserIndex)] = event.id;
+					}
+					this.updateSessionState(sessionId, { messageSnapshots: snapshots });
+				}
+				break;
+			}
+			case 'file-changed': {
+				if (event.action === 'create' || event.action === 'edit' || event.action === 'delete' || event.action === 'move') {
+					const current = this.state.currentSession;
+					if (current) {
+						const change: PendingFileChange = {
+							path: event.path,
+							action: event.action,
+							beforeContent: event.beforeContent,
+							afterContent: event.afterContent,
+							snapshotId: undefined,
+							status: 'pending',
+							hunkStatuses: [],
+							sessionId,
+						};
+						const pendingChanges = {
+							...current.pendingChanges,
+							[event.path]: change,
+						};
+						this.updateSessionState(sessionId, { pendingChanges });
+					}
+				}
+				break;
+			}
+			case 'tool-result': {
+				// Structured metadata for rich rendering (line counts, file paths, etc.)
+				const current = this.state.currentSession;
+				if (!current) break;
+				const toolMetadata = {
+					...current.toolMetadata,
+					[event.toolCallId]: {
+						toolCallId: event.toolCallId,
+						toolName: event.toolName,
+						title: event.title,
+						metadata: event.metadata,
+					},
+				};
+				this.updateSessionState(sessionId, { toolMetadata });
+				break;
+			}
+
+			// ── Turn lifecycle ──────────────────────────────────────────
+			case 'turn-complete': {
+				this.toolCallArgumentBuffers.clear();
+				const session = this.readSession(sessionId);
+				if (session && this.state.currentSession?.sessionId === sessionId) {
+					this.updateSessionState(sessionId, {
+						messages: session.history,
+						toolMetadata: session.toolMetadata ?? {},
+						toolErrors: session.toolErrors ?? {},
+						messageSnapshots: session.messageSnapshots ?? {},
+						messageModes: session.messageModes ?? {},
+					});
+				}
+				break;
+			}
+
+			// ── Content streaming events ────────────────────────────────
+			case 'reasoning-delta': {
+				const messages = this.appendToStreamingAssistantMessage(sessionId, (parts) => {
+					const lastPart = parts.at(-1);
+					if (lastPart?.type === 'reasoning') {
+						parts[parts.length - 1] = { ...lastPart, content: lastPart.content + event.delta };
+					} else {
+						parts.push({ type: 'reasoning', content: event.delta });
+					}
+				});
+				if (messages) this.updateSessionState(sessionId, { messages });
+				break;
+			}
+			case 'text-delta': {
+				const messages = this.appendToStreamingAssistantMessage(sessionId, (parts) => {
+					const lastPart = parts.at(-1);
+					if (lastPart?.type === 'text') {
+						parts[parts.length - 1] = { ...lastPart, content: lastPart.content + event.delta };
+					} else {
+						parts.push({ type: 'text', content: event.delta });
+					}
+				});
+				if (messages) this.updateSessionState(sessionId, { messages });
+				break;
+			}
+			case 'tool-call-start': {
+				const messages = this.appendToStreamingAssistantMessage(sessionId, (parts) => {
+					parts.push({
+						type: 'tool-call',
+						toolCallId: event.toolCallId,
+						toolName: event.toolName,
+						arguments: {},
+					});
+				});
+				if (messages) this.updateSessionState(sessionId, { messages });
+				break;
+			}
+			case 'tool-call-args-delta': {
+				// Accumulate partial JSON; update arguments when it parses successfully
+				const buffer = (this.toolCallArgumentBuffers.get(event.toolCallId) ?? '') + event.delta;
+				this.toolCallArgumentBuffers.set(event.toolCallId, buffer);
+
+				try {
+					const parsed: unknown = JSON.parse(buffer);
+					if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+						const current = this.state.currentSession;
+						if (!current) break;
+						const messages = [...current.messages];
+						const last = messages.at(-1);
+						if (last?.role === 'assistant') {
+							const parts = [...last.parts];
+							const partIndex = parts.findLastIndex((p) => p.type === 'tool-call' && p.toolCallId === event.toolCallId);
+							if (partIndex !== -1 && parts[partIndex].type === 'tool-call') {
+								parts[partIndex] = {
+									...parts[partIndex],
+									arguments: Object.fromEntries(Object.entries(parsed)),
+								};
+								messages[messages.length - 1] = { ...last, parts };
+								this.updateSessionState(sessionId, { messages });
+							}
+						}
+					}
+				} catch {
+					// Partial JSON — wait for more deltas
+				}
+				break;
+			}
+			case 'tool-call-end': {
+				this.toolCallArgumentBuffers.delete(event.toolCallId);
+
+				const messages = this.appendToStreamingAssistantMessage(sessionId, (parts) => {
+					parts.push({
+						type: 'tool-result',
+						toolCallId: event.toolCallId,
+						toolName: event.toolName,
+						result: event.result ?? '',
+						isError: event.isError,
+					});
+				});
+				if (messages) this.updateSessionState(sessionId, { messages });
+				break;
+			}
+
+			// ── Events that don't update state ──────────────────────────
+			default: {
+				// run-error, run-finished, usage, max-iterations-reached,
+				// doom-loop-detected, plan-created, user-question, snapshot-deleted
+				break;
+			}
+		}
+	}
+
+	/**
+	 * Get or create the in-progress assistant message, run a mutation on its
+	 * parts array, and return the updated messages array. Returns undefined
+	 * if no session is active.
+	 */
+	private appendToStreamingAssistantMessage(sessionId: string, mutate: (parts: MessagePart[]) => void): ChatMessage[] | undefined {
+		const current = this.state.currentSession;
+		if (!current || current.sessionId !== sessionId) return undefined;
+
+		const messages = [...current.messages];
+		const last = messages.at(-1);
+
+		if (last?.role === 'assistant') {
+			const parts = [...last.parts];
+			mutate(parts);
+			messages[messages.length - 1] = { ...last, parts };
+		} else {
+			const parts: MessagePart[] = [];
+			mutate(parts);
+			messages.push({
+				id: crypto.randomUUID(),
+				role: 'assistant',
+				parts,
+				createdAt: Date.now(),
+			});
+		}
+
+		return messages;
+	}
+
+	// =========================================================================
+	// Scheduled Task: Heartbeat (secondary safety net)
+	// =========================================================================
+
+	/**
+	 * Heartbeat handler called by the Agent SDK scheduler.
+	 * Checks for orphaned running sessions and restarts them.
+	 */
+	async heartbeat(): Promise<void> {
+		this.ensureSchema();
+
+		const orphaned = this.sql<{ session_id: string; parameters: string }>`
+			SELECT session_id, parameters FROM running_sessions
+		`;
+
+		for (const row of orphaned) {
+			if (!this.abortControllers.has(row.session_id)) {
+				console.log(`[AgentRunner] Heartbeat: restarting evicted session ${row.session_id}`);
+				try {
+					const parameters: StartAgentParameters = JSON.parse(row.parameters);
+					this.launchAgentLoop(parameters, row.session_id);
+				} catch {
+					this.sql`DELETE FROM running_sessions WHERE session_id = ${row.session_id}`;
+				}
+			}
+		}
+	}
+
+	// =========================================================================
+	// Session Persistence (called by AIAgentService)
+	// =========================================================================
+
+	private persistSessionFromService(
+		sessionId: string,
+		sessionData: {
+			createdAt: number;
+			title?: string;
+			history: ChatMessage[];
+			messageSnapshots?: Record<string, string>;
+			messageModes?: Record<string, AgentMode>;
+			contextTokensUsed?: number;
+			toolMetadata?: Record<string, ToolMetadataInfo>;
+			toolErrors?: Record<string, ToolErrorInfo>;
+			error?: { message: string; code?: string };
+		},
+		pendingChanges?: Record<string, PendingFileChange>,
+	): void {
+		// Check if session was reverted while running
+		const existing = this.readSession(sessionId);
+		if (existing?.revertedAt) return;
+
+		// Merge with existing session data
+		const createdAt = existing?.createdAt ?? sessionData.createdAt;
+		const title = existing?.title ?? sessionData.title ?? 'New session';
+		const titleGenerated = existing?.titleGenerated;
+		const messageSnapshots = { ...existing?.messageSnapshots, ...sessionData.messageSnapshots };
+		const messageModes = { ...existing?.messageModes, ...sessionData.messageModes };
+		const toolMetadata = { ...existing?.toolMetadata, ...sessionData.toolMetadata };
+		const toolErrors = { ...existing?.toolErrors, ...sessionData.toolErrors };
+
+		this.sql`
+			INSERT OR REPLACE INTO sessions (id, title, title_generated, created_at, history, message_snapshots, message_modes, context_tokens_used, tool_metadata, tool_errors)
+			VALUES (
+				${sessionId},
+				${title},
+				${titleGenerated ? 1 : 0},
+				${createdAt},
+				${JSON.stringify(sessionData.history)},
+				${nullable(Object.keys(messageSnapshots).length > 0 ? JSON.stringify(messageSnapshots) : undefined)},
+				${nullable(Object.keys(messageModes).length > 0 ? JSON.stringify(messageModes) : undefined)},
+				${nullable(sessionData.contextTokensUsed)},
+				${nullable(Object.keys(toolMetadata).length > 0 ? JSON.stringify(toolMetadata) : undefined)},
+				${nullable(Object.keys(toolErrors).length > 0 ? JSON.stringify(toolErrors) : undefined)}
+			)
+		`;
+
+		// Merge pending changes
+		if (pendingChanges) {
+			const existingChanges = this.readPendingChanges();
+			this.writePendingChanges({ ...existingChanges, ...pendingChanges });
+		}
+	}
+
+	// =========================================================================
+	// Title Generation
+	// =========================================================================
+
+	private async generateTitle(sessionId: string, userText: string): Promise<void> {
+		if (this.titleGenerationInFlight.has(sessionId)) return;
+		this.titleGenerationInFlight.add(sessionId);
+
+		try {
+			const result = await generateSessionTitle(userText);
+
+			this.sql`
+				UPDATE sessions SET title = ${result.title}, title_generated = ${result.isAiGenerated ? 1 : 0}
+				WHERE id = ${sessionId}
+			`;
+
+			// Update state if this is the current session
+			if (this.state.currentSession?.sessionId === sessionId) {
+				this.updateSessionState(sessionId, { title: result.title });
+			}
+
+			// Refresh sessions list
+			await this.refreshSessionsList();
+		} catch {
+			// Non-fatal
+		} finally {
+			this.titleGenerationInFlight.delete(sessionId);
 		}
 	}
 
@@ -370,32 +1015,15 @@ export class AgentRunner extends DurableObject {
 	// Session Pruning
 	// =========================================================================
 
-	/**
-	 * Prune sessions beyond the rolling limit.
-	 *
-	 * Deletes the oldest sessions (by createdAt) that exceed MAX_SESSIONS,
-	 * skipping any that are currently running. Also cleans up:
-	 * - KV: sessionData, pending changes entries
-	 * - Filesystem: .agent/sessions/{id}/, .agent/todo/{id}.json,
-	 *   .agent/plans/{id}.md, orphaned snapshots
-	 *
-	 * Called after each agent run completes in executeAgentLoop.
-	 */
 	private async pruneOldSessions(projectId: string): Promise<void> {
-		// Collect all sessions sorted by createdAt descending
-		const allSessions: Array<{ id: string; createdAt: number }> = [];
-		const entries = this.ctx.storage.kv.list<AiSession>({ prefix: 'sessionData:' });
-		for (const [, data] of entries) {
-			if (data?.id && typeof data.createdAt === 'number') {
-				allSessions.push({ id: data.id, createdAt: data.createdAt });
-			}
-		}
-		allSessions.sort((a, b) => b.createdAt - a.createdAt);
+		const allSessions = this.sql<{ id: string; created_at: number }>`
+			SELECT id, created_at FROM sessions ORDER BY created_at DESC
+		`;
 
 		if (allSessions.length <= MAX_SESSIONS) return;
 
-		// Identify sessions to prune (oldest beyond the limit, skipping running ones)
-		const runningIds = new Set(await this.getRunningSessionIds());
+		const runningIds = new Set(this.sql<{ session_id: string }>`SELECT session_id FROM running_sessions`.map((r) => r.session_id));
+
 		const sessionsToPrune: string[] = [];
 		for (const session of allSessions.slice(MAX_SESSIONS)) {
 			if (!runningIds.has(session.id)) {
@@ -405,519 +1033,185 @@ export class AgentRunner extends DurableObject {
 
 		if (sessionsToPrune.length === 0) return;
 
-		const prunedSessionIds = new Set(sessionsToPrune);
+		const prunedIds = new Set(sessionsToPrune);
 
-		// --- KV Cleanup ---
-		for (const sessionId of sessionsToPrune) {
-			this.ctx.storage.kv.delete(`sessionData:${sessionId}`);
+		// Delete from DB
+		for (const id of sessionsToPrune) {
+			this.sql`DELETE FROM sessions WHERE id = ${id}`;
 		}
 
-		// Remove pending changes belonging to pruned sessions.
-		// Pending changes are NOT auto-accepted — they are simply discarded.
-		this.removePendingChangesForSessions(prunedSessionIds);
+		this.removePendingChangesForSessions(prunedIds);
 		const survivingSnapshotIds = this.getSurvivingSnapshotIds();
 
-		// --- Filesystem Cleanup ---
+		// Clean up filesystem artifacts
 		try {
 			const fsId = toDurableObjectId(filesystemNamespace, projectId);
 			const fsStub = filesystemNamespace.get(fsId);
 
 			await withMounts(async () => {
 				mount(PROJECT_ROOT, fsStub);
-				await cleanupSessionArtifacts(PROJECT_ROOT, prunedSessionIds, survivingSnapshotIds);
+				await cleanupSessionArtifacts(PROJECT_ROOT, prunedIds, survivingSnapshotIds);
 				await cleanupTimestampPlans(PROJECT_ROOT);
 			});
 		} catch (error) {
-			// Non-fatal — KV cleanup already succeeded, filesystem is best-effort
-			console.error('[AgentRunner] Failed to clean up filesystem artifacts:', error);
+			console.error('[AgentRunner] Filesystem cleanup failed:', error);
 		}
 	}
 
 	// =========================================================================
-	// Pending Changes
+	// State Helpers
 	// =========================================================================
 
 	/**
-	 * Load project-level pending changes.
+	 * Partially update the current session state and broadcast to clients.
 	 */
-	async loadPendingChanges(): Promise<Record<string, unknown>> {
-		const raw = this.ctx.storage.kv.get<string>('pendingChanges');
-		if (!raw) return {};
+	private updateSessionState(sessionId: string, patch: Partial<AgentSessionState>): void {
+		const current = this.state.currentSession;
+		if (!current || current.sessionId !== sessionId) {
+			// Create a new session state if none exists for this ID
+			const session = this.readSession(sessionId);
+			const newState: AgentSessionState = {
+				sessionId,
+				title: session?.title ?? 'New session',
+				status: 'idle',
+				messages: session?.history ?? [],
+				statusText: undefined,
+				error: undefined,
+				contextTokensUsed: session?.contextTokensUsed ?? 0,
+				pendingChanges: this.readPendingChanges(),
+				messageSnapshots: session?.messageSnapshots ?? {},
+				messageModes: session?.messageModes ?? {},
+				toolMetadata: session?.toolMetadata ?? {},
+				toolErrors: session?.toolErrors ?? {},
+				debugLogId: undefined,
+				...patch,
+			};
+			this.setState({ ...this.state, currentSession: newState });
+			return;
+		}
+
+		this.setState({
+			...this.state,
+			currentSession: { ...current, ...patch },
+		});
+	}
+
+	/**
+	 * Refresh the sessions summary list in state.
+	 */
+	private async refreshSessionsList(): Promise<void> {
+		const sessions = await this.listSessions();
+		this.setState({ ...this.state, sessions });
+	}
+
+	// =========================================================================
+	// SQL Helpers
+	// =========================================================================
+
+	private ensureSchema(): void {
+		if (this.schemaInitialized) return;
+		// Use ctx.storage.sql.exec() directly for DDL statements.
+		// this.sql`` is a tagged template that treats interpolated values as
+		// bound parameters (?) — passing a full SQL string as an interpolation
+		// produces the query "?" which is invalid.
+		this.ctx.storage.sql.exec(CREATE_SESSIONS_TABLE);
+		this.ctx.storage.sql.exec(CREATE_RUNNING_TABLE);
+		this.ctx.storage.sql.exec(CREATE_PENDING_CHANGES_TABLE);
+		this.schemaInitialized = true;
+	}
+
+	private readSession(sessionId: string): AiSession | undefined {
+		this.ensureSchema();
+
+		const rows = this.sql<{
+			id: string;
+			title: string;
+			title_generated: number;
+			created_at: number;
+			history: string;
+			message_snapshots: string | null;
+			message_modes: string | null;
+			context_tokens_used: number | null;
+			reverted_at: number | null;
+			tool_metadata: string | null;
+			tool_errors: string | null;
+			status: string | null;
+			error_message: string | null;
+		}>`SELECT * FROM sessions WHERE id = ${sessionId}`;
+
+		if (rows.length === 0) return undefined;
+		const row = rows[0];
+
+		return {
+			id: row.id,
+			title: row.title,
+			titleGenerated: row.title_generated === 1,
+			createdAt: row.created_at,
+			history: JSON.parse(row.history),
+			messageSnapshots: row.message_snapshots ? JSON.parse(row.message_snapshots) : undefined,
+			messageModes: row.message_modes ? JSON.parse(row.message_modes) : undefined,
+			contextTokensUsed: row.context_tokens_used ?? undefined,
+			revertedAt: row.reverted_at ?? undefined,
+			toolMetadata: row.tool_metadata ? JSON.parse(row.tool_metadata) : undefined,
+			toolErrors: row.tool_errors ? JSON.parse(row.tool_errors) : undefined,
+			status: isAgentSessionStatus(row.status) ? row.status : undefined,
+			errorMessage: row.error_message ?? undefined,
+		};
+	}
+
+	private readPendingChanges(): Record<string, PendingFileChange> {
+		const rows = this.sql<{ data: string }>`SELECT data FROM pending_changes WHERE id = 1`;
+		if (rows.length === 0) return {};
 		try {
-			// eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- JSON parse returns unknown
-			return JSON.parse(raw) as Record<string, unknown>;
+			return JSON.parse(rows[0].data);
 		} catch {
 			return {};
 		}
 	}
 
-	/**
-	 * Save project-level pending changes.
-	 */
-	async savePendingChanges(changes: Record<string, unknown>): Promise<void> {
-		this.ctx.storage.kv.put('pendingChanges', JSON.stringify(changes));
+	private writePendingChanges(changes: Record<string, PendingFileChange>): void {
+		this.sql`
+			INSERT OR REPLACE INTO pending_changes (id, data) VALUES (1, ${JSON.stringify(changes)})
+		`;
 	}
 
-	// =========================================================================
-	// Agent Loop Lifecycle
-	// =========================================================================
-
-	/**
-	 * Prepare in-memory state and launch the agent loop asynchronously.
-	 * Does not block — the caller should broadcast status after calling this.
-	 */
-	private launchAgentLoop(parameters: StartAgentParameters, sessionId: string): void {
-		// Reset event buffer for the new run
-		this.eventBuffers.set(sessionId, []);
-		this.eventIndices.set(sessionId, 0);
-
-		// Clear the revertedAt flag so that persist callbacks from this new run
-		// are not blocked. revertedAt is set by revertSession() to prevent a
-		// stale in-flight run's finally block from overwriting a reverted session.
-		const existingSession = this.ctx.storage.kv.get<AiSession>(`sessionData:${sessionId}`);
-		if (existingSession?.revertedAt) {
-			this.ctx.storage.kv.put(`sessionData:${sessionId}`, { ...existingSession, revertedAt: undefined });
-		}
-
-		// Early-persist the session with the incoming messages so that a
-		// reconnecting client (e.g. browser back/forward) sees the full
-		// conversation history even if the agent loop hasn't persisted yet.
-		const incomingHistory = parameters.messages;
-		const emptySession: Partial<AiSession> = {};
-		const base = existingSession ?? emptySession;
-
-		// Extract the latest user message text — used for the placeholder title
-		// and (if needed) as input to AI title generation.
-		const lastUserMessage = parameters.messages.toReversed().find((message) => message.role === 'user');
-		const lastUserTextPart = lastUserMessage?.parts.find((part) => part.type === 'text');
-		const lastUserText = lastUserTextPart?.type === 'text' ? lastUserTextPart.content : '';
-		const promptPreview = lastUserText.slice(0, 80) || 'New session';
-
-		this.ctx.storage.kv.put(`sessionData:${sessionId}`, {
-			...base,
-			id: sessionId,
-			title: base.title ?? promptPreview,
-			createdAt: base.createdAt ?? Date.now(),
-			history: incomingHistory,
-			revertedAt: undefined,
-		});
-
-		// Create a new abort controller for this run
-		this.agentAbortControllers.set(sessionId, new AbortController());
-
-		// Fire title generation immediately if this session hasn't had an
-		// AI-generated title yet. This runs completely independently of the
-		// agent stream — aborting the agent does not interrupt it.
-		if (lastUserText.length > 0 && !this.ctx.storage.kv.get<AiSession>(`sessionData:${sessionId}`)?.titleGenerated) {
-			this.ctx.waitUntil(this.generateTitle(sessionId, parameters.projectId, lastUserText));
-		}
-
-		const loopPromise = this.executeAgentLoop(parameters, sessionId)
-			.catch((error) => {
-				console.error(`[AgentRunner ${sessionId}] Unhandled error from executeAgentLoop:`, error);
-			})
-			.finally(() => {
-				this.agentLoopPromises.delete(sessionId);
-			});
-		this.agentLoopPromises.set(sessionId, loopPromise);
-		this.ctx.waitUntil(loopPromise);
-	}
-
-	private async executeAgentLoop(parameters: StartAgentParameters, sessionId: string): Promise<void> {
-		const projectId = parameters.projectId;
-		let finalStatus: AgentSessionStatus = 'completed';
-		let errorMessage: string | undefined;
-		// Declared here so catch/finally can log session-level events
-		let logger: import('../services/ai-agent/agent-logger').AgentLogger | undefined;
-		let agentService: import('../services/ai-agent/service').AIAgentService | undefined;
-
-		try {
-			// Get the filesystem stub for this project
-			const fsId = toDurableObjectId(filesystemNamespace, projectId);
-			const fsStub = filesystemNamespace.get(fsId);
-
-			const mode = parameters.mode ?? 'code';
-			const model = parameters.model ?? DEFAULT_AI_MODEL;
-
-			// Convert UIMessage[] to ModelMessage[]
-			const modelMessages = convertMessagesToModelMessages(parameters.messages);
-
-			agentService = new AIAgentService(
-				PROJECT_ROOT,
-				projectId,
-				fsStub,
-				sessionId,
-				mode,
-				model,
-				async (sid, sessionData, pendingChanges) => {
-					// Merge with existing session data to preserve fields from prior turns
-					// (createdAt, messageSnapshots, title, toolMetadata, toolErrors).
-					// The service sends only the current turn's data for these fields.
-					const existing = this.ctx.storage.kv.get<AiSession>(`sessionData:${sid}`);
-
-					// Preserve the original creation timestamp
-					const createdAt = existing?.createdAt ?? sessionData.createdAt;
-
-					// Preserve the AI-generated title once set (don't regress to fallback)
-					const title = existing?.title ?? sessionData.title;
-					const titleGenerated = existing?.titleGenerated;
-
-					// Merge messageSnapshots: existing + current turn's new entry
-					const messageSnapshots =
-						existing?.messageSnapshots || sessionData.messageSnapshots
-							? { ...existing?.messageSnapshots, ...sessionData.messageSnapshots }
-							: undefined;
-
-					// Merge messageModes: existing + current turn's new entry
-					const messageModes =
-						existing?.messageModes || sessionData.messageModes ? { ...existing?.messageModes, ...sessionData.messageModes } : undefined;
-
-					// Merge tool metadata and errors: existing + current turn's new entries
-					const toolMetadata =
-						existing?.toolMetadata || sessionData.toolMetadata ? { ...existing?.toolMetadata, ...sessionData.toolMetadata } : undefined;
-					const toolErrors =
-						existing?.toolErrors || sessionData.toolErrors ? { ...existing?.toolErrors, ...sessionData.toolErrors } : undefined;
-
-					// If the session was reverted while the agent was running,
-					// skip this persist to avoid overwriting the truncated history.
-					// The revertedAt flag is cleared on the next user-initiated run.
-					if (existing?.revertedAt) {
-						return;
-					}
-
-					this.ctx.storage.kv.put(`sessionData:${sid}`, {
-						...sessionData,
-						id: sid,
-						createdAt,
-						title,
-						titleGenerated,
-						messageSnapshots,
-						messageModes,
-						toolMetadata,
-						toolErrors,
-					});
-
-					// Merge project-wide pending changes
-					if (pendingChanges) {
-						const existingString = this.ctx.storage.kv.get<string | undefined>('pendingChanges');
-						let existing = {};
-						if (existingString) {
-							try {
-								existing = JSON.parse(existingString);
-							} catch {
-								// Ignore invalid JSON
-							}
-						}
-
-						this.ctx.storage.kv.put(
-							'pendingChanges',
-							JSON.stringify({
-								...existing,
-								...pendingChanges,
-							}),
-						);
-					}
-				},
-			);
-
-			// runAgentStream handles filesystem mounting internally via
-			// a withMounts-scoped async producer piped through a TransformStream.
-			const abortController = this.agentAbortControllers.get(sessionId) ?? new AbortController();
-			const stream = agentService.runAgentStream(modelMessages, parameters.messages, abortController, parameters.outputLogs);
-
-			// Access the shared logger so agent-runner events appear in the same debug log
-			logger = agentService.getLogger();
-
-			// Get the coordinator stub for broadcasting events
-			const coordinatorId = coordinatorNamespace.idFromName(`project:${projectId}`);
-			const coordinatorStub = coordinatorNamespace.get(coordinatorId);
-
-			let lastHeartbeat = Date.now();
-			for await (const chunk of stream) {
-				const index = this.eventIndices.get(sessionId) ?? 0;
-				this.eventIndices.set(sessionId, index + 1);
-
-				// Buffer the event for late-joining clients
-				const buffer = this.eventBuffers.get(sessionId) ?? [];
-				this.eventBuffers.set(sessionId, buffer);
-				buffer.push({ chunk, index });
-				if (buffer.length > EVENT_BUFFER_CAPACITY) {
-					buffer.shift();
-				}
-
-				// Detect RUN_ERROR chunks yielded by the agent stream. These
-				// signal an error that the stream handled gracefully (e.g. LLM
-				// API failure, tool execution error) rather than throwing. Without
-				// this check, the session would be persisted as 'completed' even
-				// though the agent produced an error.
-				if (chunk.type === 'RUN_ERROR') {
-					finalStatus = 'error';
-					const chunkError = 'error' in chunk && typeof chunk.error === 'object' && chunk.error !== null ? chunk.error : undefined;
-					errorMessage =
-						chunkError && 'message' in chunkError && typeof chunkError.message === 'string'
-							? chunkError.message
-							: 'An unexpected error occurred during generation.';
-					logger?.info('session', 'run_error_received', { errorMessage });
-				}
-
-				// Reschedule heartbeat alarm periodically (throttled)
-				const now = Date.now();
-				if (now - lastHeartbeat >= HEARTBEAT_INTERVAL_MS) {
-					lastHeartbeat = now;
-					this.scheduleHeartbeatAlarm();
-				}
-
-				// Broadcast to all connected WebSocket clients via the coordinator
-				try {
-					await coordinatorStub.sendMessage({
-						type: 'agent-stream-event',
-						sessionId,
-						chunk,
-						index,
-					});
-				} catch {
-					// Non-fatal: if the coordinator is unavailable, the event
-					// is still buffered for reconnection
-				}
-			}
-			logger?.info('session', 'stream_completed', {
-				finalStatus,
-				errorMessage,
-			});
-		} catch (error) {
-			if (error instanceof Error && error.name === 'AbortError') {
-				finalStatus = 'aborted';
-				logger?.info('session', 'aborted');
-			} else {
-				finalStatus = 'error';
-				logger?.error('session', 'unhandled_error', {
-					error: error instanceof Error ? error.message : String(error),
-				});
-				console.error(`Agent loop error in AgentRunner DO [${sessionId}]:`, error);
-
-				// Emit a RUN_ERROR chunk so the UI shows an error message.
-				// Sanitize: never expose internal error details to clients.
-				const isConfigError =
-					error instanceof Error && (error.message.includes('REPLICATE_API_TOKEN') || error.message.includes('Workers AI binding'));
-				const sanitizedMessage = isConfigError
-					? 'AI service is not configured. Please contact the project owner.'
-					: 'An unexpected error occurred during generation. Please try again.';
-				errorMessage = sanitizedMessage;
-
-				const errorChunk = {
-					type: 'RUN_ERROR',
-					timestamp: Date.now(),
-					error: { message: sanitizedMessage },
-				};
-
-				// Buffer and broadcast the error chunk so all clients see it
-				const index = this.eventIndices.get(sessionId) ?? 0;
-				this.eventIndices.set(sessionId, index + 1);
-				const buffer = this.eventBuffers.get(sessionId) ?? [];
-				this.eventBuffers.set(sessionId, buffer);
-				buffer.push({ chunk: errorChunk, index });
-
-				try {
-					const coordinatorId = coordinatorNamespace.idFromName(`project:${projectId}`);
-					const coordinatorStub = coordinatorNamespace.get(coordinatorId);
-					await coordinatorStub.sendMessage({
-						type: 'agent-stream-event',
-						sessionId,
-						chunk: errorChunk,
-						index,
-					});
-				} catch {
-					// Non-fatal
-				}
-			}
-		} finally {
-			logger?.info('session', 'cleanup_started', { finalStatus, errorMessage });
-
-			// Remove the durable running marker — this session completed
-			this.ctx.storage.kv.delete(`running:${sessionId}`);
-
-			// Clean up in-memory state
-			this.agentAbortControllers.delete(sessionId);
-			this.eventBuffers.delete(sessionId);
-			this.eventIndices.delete(sessionId);
-			// Note: agentLoopPromises is cleaned up in launchAgentLoop's .finally()
-
-			// Broadcast the final status (with sanitized error message if applicable)
-			await this.broadcastStatusChanged(parameters.projectId, sessionId, finalStatus, undefined, errorMessage).catch(() => {});
-			logger?.info('session', 'status_broadcasted', { finalStatus });
-
-			// Persist the terminal status so reloaded sessions can restore the
-			// AIError UI without relying on the WebSocket broadcast.
-			const sessionData = this.ctx.storage.kv.get<AiSession>(`sessionData:${sessionId}`);
-			if (sessionData) {
-				this.ctx.storage.kv.put(`sessionData:${sessionId}`, {
-					...sessionData,
-					status: finalStatus,
-					errorMessage: finalStatus === 'error' ? errorMessage : undefined,
-				});
-				logger?.info('session', 'terminal_status_persisted', { finalStatus });
-			}
-
-			// Prune old sessions beyond the rolling limit (best-effort, non-blocking)
-			await this.pruneOldSessions(projectId).catch((error) => {
-				console.error('[AgentRunner] Session pruning failed:', error);
-			});
-
-			// Re-flush the shared logger so session-level entries added above
-			// (after createAgentStream's initial flush) are persisted to disk.
-			// Must use flushLogger() which opens a fresh mount scope — the
-			// original withMounts scope from runAgentStream has already closed.
-			if (agentService && logger && !logger.isFlushed) {
-				await agentService.flushLogger().catch(() => {});
-			}
-		}
-	}
-
-	// =========================================================================
-	// Status Broadcasting
-	// =========================================================================
-
-	private async broadcastStatusChanged(
-		projectId: string,
-		sessionId: string,
-		status: AgentSessionStatus,
-		title?: string,
-		errorMessage?: string,
-	): Promise<void> {
-		try {
-			const coordinatorId = coordinatorNamespace.idFromName(`project:${projectId}`);
-			const coordinatorStub = coordinatorNamespace.get(coordinatorId);
-			await coordinatorStub.sendMessage({
-				type: 'agent-status-changed',
-				sessionId,
-				status,
-				title,
-				...(errorMessage ? { errorMessage } : {}),
-			});
-		} catch {
-			// Non-fatal
-		}
-	}
-
-	// =========================================================================
-	// Title Generation
-	// =========================================================================
-
-	private async generateTitle(sessionId: string, projectId: string, userText: string): Promise<void> {
-		if (this.titleGenerationInFlight.has(sessionId)) {
-			return;
-		}
-		this.titleGenerationInFlight.add(sessionId);
-
-		try {
-			if (userText.length === 0) {
-				return;
-			}
-
-			const result = await generateSessionTitle(userText);
-
-			// Re-read to avoid overwriting concurrent persist-callback writes.
-			const latest = this.ctx.storage.kv.get<AiSession>(`sessionData:${sessionId}`);
-			if (latest) {
-				// Only mark titleGenerated when the AI actually produced a title.
-				// Fallback titles (truncated user message) leave titleGenerated unset
-				// so that subsequent turns can retry AI generation.
-				const titleGenerated = result.isAiGenerated ? true : latest.titleGenerated;
-				this.ctx.storage.kv.put(`sessionData:${sessionId}`, {
-					...latest,
-					title: result.title,
-					titleGenerated,
-				});
-			}
-			// Broadcast with 'running' — a terminal status would remove the
-			// session from runningSessionIds while the stream is still active.
-			await this.broadcastStatusChanged(projectId, sessionId, 'running', result.title);
-		} catch {
-			// Non-fatal — the placeholder title from launchAgentLoop remains.
-		} finally {
-			this.titleGenerationInFlight.delete(sessionId);
-		}
-	}
-
-	// =========================================================================
-	// Alarm Helpers
-	// =========================================================================
-
-	/**
-	 * Schedule (or reschedule) the heartbeat alarm.
-	 * Only one alarm can exist per DO — each call replaces the previous one.
-	 */
-	private scheduleHeartbeatAlarm(): void {
-		void this.ctx.storage.setAlarm(Date.now() + HEARTBEAT_INTERVAL_MS);
-	}
-
-	/**
-	 * Find `running:{sessionId}` entries that have no in-memory abort controller.
-	 * These represent sessions that were interrupted by DO eviction.
-	 */
-	private getOrphanedRunningSessions(): Array<{ sessionId: string; parameters: StartAgentParameters }> {
-		const orphaned: Array<{ sessionId: string; parameters: StartAgentParameters }> = [];
-		for (const [key, parameters] of this.ctx.storage.kv.list<StartAgentParameters>({ prefix: 'running:' })) {
-			const sessionId = key.slice('running:'.length);
-			if (!this.agentAbortControllers.has(sessionId)) {
-				orphaned.push({ sessionId, parameters });
-			}
-		}
-		return orphaned;
-	}
-
-	// =========================================================================
-	// Storage Helpers
-	// =========================================================================
-
-	/**
-	 * Remove pending change entries belonging to the given session IDs.
-	 * Pending changes are NOT auto-accepted — they are simply discarded.
-	 */
 	private removePendingChangesForSessions(sessionIds: Set<string>): void {
-		const raw = this.ctx.storage.kv.get<string>('pendingChanges');
-		if (!raw) return;
-
-		try {
-			const parsed: Record<string, PendingFileChange> = JSON.parse(raw);
-			let changed = false;
-			for (const [path, change] of Object.entries(parsed)) {
-				if (sessionIds.has(change.sessionId)) {
-					delete parsed[path];
-					changed = true;
-				}
+		const changes = this.readPendingChanges();
+		let changed = false;
+		for (const [path, change] of Object.entries(changes)) {
+			if (sessionIds.has(change.sessionId)) {
+				delete changes[path];
+				changed = true;
 			}
-			if (changed) {
-				if (Object.keys(parsed).length === 0) {
-					this.ctx.storage.kv.delete('pendingChanges');
-				} else {
-					this.ctx.storage.kv.put('pendingChanges', JSON.stringify(parsed));
-				}
+		}
+		if (changed) {
+			if (Object.keys(changes).length === 0) {
+				this.sql`DELETE FROM pending_changes WHERE id = 1`;
+			} else {
+				this.writePendingChanges(changes);
 			}
-		} catch {
-			// Malformed JSON — leave it alone
 		}
 	}
 
-	/**
-	 * Collect snapshot IDs still referenced by surviving pending changes.
-	 * These must not be deleted during filesystem cleanup.
-	 */
 	private getSurvivingSnapshotIds(): Set<string> {
 		const surviving = new Set<string>();
-		const raw = this.ctx.storage.kv.get<string>('pendingChanges');
-		if (!raw) return surviving;
-
-		try {
-			const parsed: Record<string, { snapshotId?: string }> = JSON.parse(raw);
-			for (const change of Object.values(parsed)) {
-				if (change.snapshotId) {
-					surviving.add(change.snapshotId);
-				}
+		const changes = this.readPendingChanges();
+		for (const change of Object.values(changes)) {
+			if (change.snapshotId) {
+				surviving.add(change.snapshotId);
 			}
-		} catch {
-			// Ignore
 		}
 		return surviving;
+	}
+
+	private pruneMetadata<T>(metadata: Record<string, T> | undefined, messageIndex: number): Record<string, T> | undefined {
+		if (!metadata) return undefined;
+		const pruned: Record<string, T> = {};
+		for (const [key, value] of Object.entries(metadata)) {
+			if (Number(key) < messageIndex) {
+				pruned[key] = value;
+			}
+		}
+		return Object.keys(pruned).length > 0 ? pruned : undefined;
 	}
 }

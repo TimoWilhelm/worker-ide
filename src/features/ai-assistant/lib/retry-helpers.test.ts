@@ -1,13 +1,13 @@
 /**
  * Unit tests for AI retry helper functions.
- * Uses UIMessage (TanStack AI) with `parts: MessagePart[]`.
+ * Uses ChatMessage with `parts: MessagePart[]`.
  */
 
 import { describe, expect, it } from 'vitest';
 
 import { extractMessageText, findLastUserMessage, getRemoveAfterIndex, prepareRetry } from './retry-helpers';
 
-import type { UIMessage } from '@shared/types';
+import type { ChatMessage } from '@shared/types';
 
 // =============================================================================
 // Test Helpers
@@ -19,7 +19,7 @@ function nextId(): string {
 	return `msg-${idCounter}`;
 }
 
-function createTextMessage(role: 'user' | 'assistant', text: string): UIMessage {
+function createTextMessage(role: 'user' | 'assistant', text: string): ChatMessage {
 	return {
 		id: nextId(),
 		role,
@@ -27,19 +27,19 @@ function createTextMessage(role: 'user' | 'assistant', text: string): UIMessage 
 	};
 }
 
-function createToolCallMessage(role: 'assistant'): UIMessage {
+function createToolCallMessage(role: 'assistant'): ChatMessage {
 	return {
 		id: nextId(),
 		role,
-		parts: [{ type: 'tool-call', id: 'tc-123', name: 'file_read', arguments: '{}', state: 'input-complete' }],
+		parts: [{ type: 'tool-call', toolCallId: 'tc-123', toolName: 'file_read', arguments: {} }],
 	};
 }
 
-function createMixedMessage(role: 'user' | 'assistant', text: string, hasToolCall: boolean): UIMessage {
-	const parts: UIMessage['parts'] = [{ type: 'text', content: text }];
+function createMixedMessage(role: 'user' | 'assistant', text: string, hasToolCall: boolean): ChatMessage {
+	const parts: ChatMessage['parts'] = [{ type: 'text', content: text }];
 	if (hasToolCall) {
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any -- test helper
-		(parts as any[]).push({ type: 'tool-call', id: 'tc-456', name: 'file_read', arguments: '{}', state: 'input-complete' });
+		(parts as any[]).push({ type: 'tool-call', toolCallId: 'tc-456', toolName: 'file_read', arguments: {} });
 	}
 	return { id: nextId(), role, parts };
 }
@@ -55,7 +55,7 @@ describe('extractMessageText', () => {
 	});
 
 	it('should extract text from a message with multiple text parts', () => {
-		const message: UIMessage = {
+		const message: ChatMessage = {
 			id: nextId(),
 			role: 'user',
 			parts: [
@@ -83,7 +83,7 @@ describe('extractMessageText', () => {
 
 describe('findLastUserMessage', () => {
 	it('should find the last user message', () => {
-		const history: UIMessage[] = [
+		const history: ChatMessage[] = [
 			createTextMessage('user', 'First'),
 			createTextMessage('assistant', 'Response 1'),
 			createTextMessage('user', 'Second'),
@@ -100,13 +100,13 @@ describe('findLastUserMessage', () => {
 	});
 
 	it('should return undefined when no user messages exist', () => {
-		const history: UIMessage[] = [createTextMessage('assistant', 'Only assistant')];
+		const history: ChatMessage[] = [createTextMessage('assistant', 'Only assistant')];
 		const result = findLastUserMessage(history);
 		expect(result).toBeUndefined();
 	});
 
 	it('should find user message when it is the last message', () => {
-		const history: UIMessage[] = [createTextMessage('user', 'Question')];
+		const history: ChatMessage[] = [createTextMessage('user', 'Question')];
 		const result = findLastUserMessage(history);
 		expect(result).toBeDefined();
 		expect(extractMessageText(result!)).toBe('Question');
@@ -123,7 +123,7 @@ describe('getRemoveAfterIndex', () => {
 	});
 
 	it('should remove 2 messages when last is assistant (error during generation)', () => {
-		const history: UIMessage[] = [
+		const history: ChatMessage[] = [
 			createTextMessage('user', 'First'),
 			createTextMessage('assistant', 'Response'),
 			createTextMessage('user', 'Second'),
@@ -135,7 +135,7 @@ describe('getRemoveAfterIndex', () => {
 	});
 
 	it('should remove 1 message when last is user (error before assistant replied)', () => {
-		const history: UIMessage[] = [
+		const history: ChatMessage[] = [
 			createTextMessage('user', 'First'),
 			createTextMessage('assistant', 'Response'),
 			createTextMessage('user', 'Second'), // Error occurred before reply
@@ -146,13 +146,13 @@ describe('getRemoveAfterIndex', () => {
 	});
 
 	it('should handle single user message', () => {
-		const history: UIMessage[] = [createTextMessage('user', 'Only message')];
+		const history: ChatMessage[] = [createTextMessage('user', 'Only message')];
 		// Remove the user message (to avoid duplication when re-sent)
 		expect(getRemoveAfterIndex(history)).toBe(0);
 	});
 
 	it('should handle single assistant message', () => {
-		const history: UIMessage[] = [createTextMessage('assistant', 'Only assistant')];
+		const history: ChatMessage[] = [createTextMessage('assistant', 'Only assistant')];
 		// This is an edge case - remove 2 would be -1
 		expect(getRemoveAfterIndex(history)).toBe(-1);
 	});
@@ -168,12 +168,12 @@ describe('prepareRetry', () => {
 	});
 
 	it('should return undefined when no user messages exist', () => {
-		const history: UIMessage[] = [createTextMessage('assistant', 'Only assistant')];
+		const history: ChatMessage[] = [createTextMessage('assistant', 'Only assistant')];
 		expect(prepareRetry(history)).toBeUndefined();
 	});
 
 	it('should return correct values when last message is assistant', () => {
-		const history: UIMessage[] = [createTextMessage('user', 'Hello'), createTextMessage('assistant', 'Error response')];
+		const history: ChatMessage[] = [createTextMessage('user', 'Hello'), createTextMessage('assistant', 'Error response')];
 		const result = prepareRetry(history);
 		expect(result).toBeDefined();
 		expect(result!.promptText).toBe('Hello');
@@ -181,7 +181,7 @@ describe('prepareRetry', () => {
 	});
 
 	it('should return correct values when last message is user', () => {
-		const history: UIMessage[] = [
+		const history: ChatMessage[] = [
 			createTextMessage('user', 'First'),
 			createTextMessage('assistant', 'Response'),
 			createTextMessage('user', 'Second'),
@@ -193,7 +193,7 @@ describe('prepareRetry', () => {
 	});
 
 	it('should handle complex conversation', () => {
-		const history: UIMessage[] = [
+		const history: ChatMessage[] = [
 			createTextMessage('user', 'Create a file'),
 			createMixedMessage('assistant', 'I will create the file', true),
 			createTextMessage('user', 'Now edit it'),

@@ -6,7 +6,6 @@ import { toolInputSchemas } from '@shared/validation';
 
 import type { AgentMode } from '@shared/types';
 import type { ToolName } from '@shared/validation';
-import type { StreamChunk } from '@tanstack/ai';
 
 // =============================================================================
 // Tool name validation
@@ -24,46 +23,6 @@ export function isToolName(value: unknown): value is ToolName {
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
 	return !!value && typeof value === 'object' && !Array.isArray(value);
-}
-
-// =============================================================================
-// CUSTOM AG-UI event helpers
-// =============================================================================
-
-/**
- * Data shape for CUSTOM events from the backend.
- * The backend emits: { type: 'CUSTOM', name: string, data?: unknown, timestamp: number }
- */
-interface CustomEventData {
-	name: string;
-	data: Record<string, unknown>;
-}
-
-/**
- * Extract CUSTOM event data from a StreamChunk.
- * Returns undefined if the chunk is not a CUSTOM event.
- */
-export function extractCustomEvent(chunk: StreamChunk): CustomEventData | undefined {
-	if (!isRecord(chunk) || chunk.type !== 'CUSTOM') return undefined;
-	const name = typeof chunk.name === 'string' ? chunk.name : '';
-	const data = isRecord(chunk.data) ? chunk.data : {};
-	return { name, data };
-}
-
-/**
- * Safely extract a string field from a record.
- */
-export function getStringField(record: Record<string, unknown>, field: string): string {
-	const value = record[field];
-	return typeof value === 'string' ? value : '';
-}
-
-/**
- * Safely extract a number field from a record.
- */
-export function getNumberField(record: Record<string, unknown>, field: string): number {
-	const value = record[field];
-	return typeof value === 'number' ? value : 0;
 }
 
 // =============================================================================

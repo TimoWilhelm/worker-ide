@@ -3,7 +3,7 @@
  *
  * Unique identifiers for tool errors, shared between worker (tools) and
  * frontend (UI). Tool executors call `toolError(code, message)` which throws
- * a `ToolExecutionError`. TanStack AI catches it and wraps it as
+ * a `ToolExecutionError`. The AI SDK catches it and wraps it as
  * `{ error: "[CODE] message" }` with `state: 'output-error'`.
  *
  * The frontend detects errors via the `[CODE] message` prefix format and

@@ -3,8 +3,6 @@ import { DurableObject } from 'cloudflare:workers';
 import { COLLAB_COLORS } from '@shared/constants';
 import { serializeMessage, parseClientMessage } from '@shared/ws-messages';
 
-import { agentRunnerNamespace } from '../lib/durable-object-namespaces';
-
 import type { HmrUpdate, Participant } from '@shared/types';
 import type { ServerMessage } from '@shared/ws-messages';
 
@@ -286,59 +284,9 @@ export class ProjectCoordinator extends DurableObject {
 	}
 
 	/**
-	 * Get the IDs of all running agent sessions by querying the AgentRunner DO.
-	 * Used to include running session info in collab-state for late-joining clients.
-	 */
-	private async getRunningSessionIds(): Promise<string[]> {
-		try {
-			const projectId = this.deriveProjectId();
-			if (!projectId) return [];
-			const agentRunnerId = agentRunnerNamespace.idFromName(`agent:${projectId}`);
-			const agentRunnerStub = agentRunnerNamespace.get(agentRunnerId);
-			const rpcIds = await agentRunnerStub.getRunningSessionIds();
-			return [...rpcIds];
-		} catch {
-			return [];
-		}
-	}
-
-	/**
-	 * Derive the project ID from the DO name.
-	 * The coordinator is keyed as `project:${projectId}`.
-	 */
-	private deriveProjectId(): string | undefined {
-		const name = this.ctx.id.name;
-		if (!name) return undefined;
-		return name.startsWith('project:') ? name.slice(8) : name;
-	}
-
-	/**
-	 * Forward an agent-abort request to the AgentRunner DO.
-	 */
-	private async forwardAgentAbort(sessionId?: string): Promise<void> {
-		try {
-			const projectId = this.deriveProjectId();
-			if (!projectId) return;
-			const agentRunnerId = agentRunnerNamespace.idFromName(`agent:${projectId}`);
-			const agentRunnerStub = agentRunnerNamespace.get(agentRunnerId);
-			await agentRunnerStub.abortAgent(sessionId);
-		} catch (error) {
-			console.error('Failed to forward agent abort:', error);
-		}
-	}
-
-	/**
 	 * Send the initial collab-state message to a newly joined client.
-	 * Includes the IDs of running agent sessions.
 	 */
-	private async sendCollabState(ws: WebSocket, attachment: ParticipantAttachment): Promise<void> {
-		let runningSessionIds: string[] = [];
-		try {
-			runningSessionIds = await this.getRunningSessionIds();
-		} catch {
-			// Non-fatal — proceed without agent session info
-		}
-
+	private sendCollabState(ws: WebSocket, attachment: ParticipantAttachment): void {
 		try {
 			ws.send(
 				serializeMessage({
@@ -346,7 +294,6 @@ export class ProjectCoordinator extends DurableObject {
 					selfId: attachment.id,
 					selfColor: attachment.color,
 					participants: this.getAllParticipants(attachment.id),
-					...(runningSessionIds.length > 0 ? { runningSessionIds } : {}),
 				}),
 			);
 		} catch {
@@ -508,12 +455,6 @@ export class ProjectCoordinator extends DurableObject {
 
 			if (data.type === 'output-logs-sync') {
 				this.outputLogs = data.logs;
-				return;
-			}
-
-			if (data.type === 'agent-abort') {
-				// Forward the abort to the AgentRunner DO
-				void this.forwardAgentAbort(data.sessionId);
 				return;
 			}
 		} catch {

@@ -18,7 +18,7 @@ import type {
 	Participant,
 	PendingFileChange,
 	SnapshotSummary,
-	UIMessage,
+	ChatMessage,
 } from '@shared/types';
 
 // =============================================================================
@@ -91,8 +91,8 @@ interface AIError {
 }
 
 interface AIState {
-	/** Current conversation history (UIMessage from TanStack AI) */
-	history: UIMessage[];
+	/** Current conversation history */
+	history: ChatMessage[];
 	/** Whether AI is currently processing */
 	isProcessing: boolean;
 	/** Current status message */
@@ -120,7 +120,7 @@ interface AIState {
 }
 
 interface AIActions {
-	addMessage: (message: UIMessage) => void;
+	addMessage: (message: ChatMessage) => void;
 	clearHistory: () => void;
 	setProcessing: (processing: boolean) => void;
 	setStatusMessage: (message: string | undefined) => void;
@@ -128,7 +128,7 @@ interface AIActions {
 	setSessionId: (id: string | undefined) => void;
 	setSavedSessions: (sessions: Array<{ id: string; title: string; createdAt: number; isRunning: boolean }>) => void;
 	loadSession: (
-		history: UIMessage[],
+		history: ChatMessage[],
 		sessionId: string,
 		messageSnapshots?: Map<number, string>,
 		contextTokensUsed?: number,

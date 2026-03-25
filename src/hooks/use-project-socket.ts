@@ -212,10 +212,6 @@ export function useProjectSocket({ projectId, enabled = true }: UseProjectSocket
 							if ('selfColor' in message && typeof message.selfColor === 'string') {
 								setLocalParticipantColor(message.selfColor);
 							}
-							// Sync running agent sessions from collab state (for late-joining clients)
-							if ('runningSessionIds' in message && Array.isArray(message.runningSessionIds)) {
-								useStore.getState().setRunningSessionIds(new Set(message.runningSessionIds));
-							}
 							break;
 						}
 						case 'participant-joined': {
@@ -276,60 +272,7 @@ export function useProjectSocket({ projectId, enabled = true }: UseProjectSocket
 							handleCdpRequest(message.id, message.method, message.params);
 							break;
 						}
-						case 'debug-log-ready': {
-							// Only apply the debug log ID if it belongs to the
-							// currently active session (or no session filter is
-							// set). Without this check, a broadcast from another
-							// tab's session could clobber the local debug log ID.
-							const currentSessionId = useStore.getState().sessionId;
-							if (!currentSessionId || message.sessionId === currentSessionId) {
-								useStore.getState().setDebugLogId(message.id);
-							}
-							break;
-						}
-						case 'agent-stream-event': {
-							// Forward AG-UI stream chunks to the AI panel's ConnectionAdapter
-							// via a CustomEvent. The adapter's async generator listens for these.
-							globalThis.dispatchEvent(
-								new CustomEvent('agent-stream-event', {
-									detail: {
-										sessionId: message.sessionId,
-										chunk: message.chunk,
-										index: message.index,
-									},
-								}),
-							);
-							break;
-						}
-						case 'agent-status-changed': {
-							const store = useStore.getState();
-							if (message.status === 'running') {
-								store.addRunningSession(message.sessionId);
-							} else {
-								store.removeRunningSession(message.sessionId);
-							}
-							// Surface error messages to the UI for the active session
-							if (message.status === 'error' && message.errorMessage && message.sessionId === store.sessionId) {
-								store.setAiError({ message: message.errorMessage });
-							}
-							// Dispatch a CustomEvent so the ConnectionAdapter can detect completion
-							globalThis.dispatchEvent(
-								new CustomEvent('agent-status-changed', {
-									detail: {
-										sessionId: message.sessionId,
-										status: message.status,
-										title: message.title,
-										errorMessage: message.errorMessage,
-									},
-								}),
-							);
-							// Refresh the sessions list so collaborators see new/completed
-							// sessions in the dropdown immediately.
-							void queryClientReference.current.invalidateQueries({
-								queryKey: ['ai-sessions', projectIdReference.current],
-							});
-							break;
-						}
+
 						case 'pong': {
 							// Handled elsewhere or ignored
 							break;

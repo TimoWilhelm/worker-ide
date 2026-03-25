@@ -3,8 +3,7 @@
  * WelcomeScreen, MessageBubble, UserMessage, AssistantMessage,
  * InlineToolCall, InlineTodoList, ContinuationPrompt, AIError.
  *
- * Renders UIMessage.parts (TextPart, ToolCallPart, ToolResultPart, ThinkingPart)
- * from TanStack AI.
+ * Renders ChatMessage.parts (TextPart, ToolCallPart, ToolResultPart, ReasoningPart).
  */
 
 import {
@@ -48,58 +47,40 @@ import { parseTextToSegments } from '../../lib/input-segments';
 import { FileReference } from '../file-reference';
 import { MarkdownContent } from '../markdown-content';
 
-import type { AgentMode, ToolErrorInfo, ToolMetadataInfo, UIMessage } from '@shared/types';
+import type {
+	AgentMode,
+	ChatMessage,
+	MessagePart,
+	ReasoningPart,
+	TextPart,
+	ToolCallPart,
+	ToolErrorInfo,
+	ToolMetadataInfo,
+	ToolResultPart,
+} from '@shared/types';
 import type { ToolName } from '@shared/validation';
 
 /** Threshold in pixels — if within this distance of bottom, consider "at bottom" for the thinking box. */
 const THINKING_BOX_BOTTOM_THRESHOLD = 16;
 
 // =============================================================================
-// Part type helpers (for narrowing UIMessage parts)
+// Part type guards (narrowing the MessagePart discriminated union)
 // =============================================================================
 
-interface TextPart {
-	type: 'text';
-	content: string;
+function isTextPart(part: MessagePart): part is TextPart {
+	return part.type === 'text';
 }
 
-interface ToolCallPart {
-	type: 'tool-call';
-	id: string;
-	name: string;
-	arguments: string;
-	input?: unknown;
-	state: string;
-	output?: unknown;
+function isToolCallPart(part: MessagePart): part is ToolCallPart {
+	return part.type === 'tool-call';
 }
 
-interface ToolResultPart {
-	type: 'tool-result';
-	toolCallId: string;
-	content: string;
-	state: string;
-	error?: string;
+function isToolResultPart(part: MessagePart): part is ToolResultPart {
+	return part.type === 'tool-result';
 }
 
-interface ThinkingPart {
-	type: 'thinking';
-	content: string;
-}
-
-function isTextPart(part: unknown): part is TextPart {
-	return isRecord(part) && part.type === 'text' && typeof part.content === 'string';
-}
-
-function isToolCallPart(part: unknown): part is ToolCallPart {
-	return isRecord(part) && part.type === 'tool-call' && typeof part.id === 'string';
-}
-
-function isToolResultPart(part: unknown): part is ToolResultPart {
-	return isRecord(part) && part.type === 'tool-result' && typeof part.toolCallId === 'string';
-}
-
-function isThinkingPart(part: unknown): part is ThinkingPart {
-	return isRecord(part) && part.type === 'thinking' && typeof part.content === 'string';
+function isReasoningPart(part: MessagePart): part is ReasoningPart {
+	return part.type === 'reasoning';
 }
 
 // =============================================================================
@@ -216,8 +197,9 @@ export function MessageBubble({
 	toolErrors,
 	toolMetadata,
 	fileDiffContent,
+	showHeader = true,
 }: {
-	message: UIMessage;
+	message: ChatMessage;
 	messageIndex: number;
 	snapshotId?: string;
 	/** The agent mode that was active when this user message was sent */
@@ -230,6 +212,11 @@ export function MessageBubble({
 	toolErrors?: Map<string, ToolErrorInfo>;
 	toolMetadata?: Map<string, ToolMetadataInfo>;
 	fileDiffContent?: Map<string, { beforeContent: string; afterContent: string }>;
+	/**
+	 * Whether to show the "AI" header above this message.
+	 * Set to false for consecutive assistant messages to group them under one header.
+	 */
+	showHeader?: boolean;
 }) {
 	if (message.role === 'user') {
 		return (
@@ -245,7 +232,15 @@ export function MessageBubble({
 		);
 	}
 
-	return <AssistantMessage message={message} toolErrors={toolErrors} toolMetadata={toolMetadata} fileDiffContent={fileDiffContent} />;
+	return (
+		<AssistantMessage
+			message={message}
+			toolErrors={toolErrors}
+			toolMetadata={toolMetadata}
+			fileDiffContent={fileDiffContent}
+			showHeader={showHeader}
+		/>
+	);
 }
 
 // =============================================================================
@@ -277,7 +272,7 @@ function UserMessage({
 	isRevertingThis,
 	onRevert,
 }: {
-	message: UIMessage;
+	message: ChatMessage;
 	messageIndex: number;
 	snapshotId?: string;
 	/** The agent mode that was active when this message was sent */
@@ -346,7 +341,7 @@ function UserMessage({
 // =============================================================================
 
 /**
- * Build a list of renderable segments from UIMessage parts, preserving order.
+ * Build a list of renderable segments from ChatMessage parts, preserving order.
  * Groups adjacent text parts, pairs tool-call with their tool-result.
  */
 type RenderSegment =
@@ -354,7 +349,7 @@ type RenderSegment =
 	| { kind: 'thinking'; key: string; text: string }
 	| { kind: 'tool'; key: string; toolCall: ToolCallPart; toolResult?: ToolResultPart };
 
-function buildRenderSegments(parts: unknown[]): RenderSegment[] {
+function buildRenderSegments(parts: MessagePart[]): RenderSegment[] {
 	const segments: RenderSegment[] = [];
 
 	// Collect tool results into a lookup so we can pair them with tool calls
@@ -371,7 +366,7 @@ function buildRenderSegments(parts: unknown[]): RenderSegment[] {
 
 	for (const part of parts) {
 		if (isTextPart(part)) {
-			const raw = part.content.trim();
+			const raw = (part.content ?? '').trim();
 			if (!raw) continue;
 			// Merge consecutive text segments
 			const last = segments.at(-1);
@@ -380,13 +375,13 @@ function buildRenderSegments(parts: unknown[]): RenderSegment[] {
 			} else {
 				segments.push({ kind: 'text', key: `text-${textCount++}`, text: raw });
 			}
-		} else if (isThinkingPart(part)) {
-			const cleaned = part.content.trim();
+		} else if (isReasoningPart(part)) {
+			const cleaned = (part.content ?? '').trim();
 			if (!cleaned) continue;
 			segments.push({ kind: 'thinking', key: `thinking-${thinkingCount++}`, text: cleaned });
 		} else if (isToolCallPart(part)) {
-			const result = resultsByCallId.get(part.id);
-			segments.push({ kind: 'tool', key: part.id, toolCall: part, toolResult: result });
+			const result = resultsByCallId.get(part.toolCallId);
+			segments.push({ kind: 'tool', key: part.toolCallId, toolCall: part, toolResult: result });
 		}
 		// tool-result parts are consumed via the lookup above
 	}
@@ -399,12 +394,15 @@ export function AssistantMessage({
 	toolErrors,
 	toolMetadata,
 	fileDiffContent,
+	showHeader = true,
 }: {
-	message: UIMessage;
+	message: ChatMessage;
 	streaming?: boolean;
 	toolErrors?: Map<string, ToolErrorInfo>;
 	toolMetadata?: Map<string, ToolMetadataInfo>;
 	fileDiffContent?: Map<string, { beforeContent: string; afterContent: string }>;
+	/** Whether to render the "AI" label above this message block. Default true. */
+	showHeader?: boolean;
 }) {
 	const segments = buildRenderSegments(message.parts);
 	const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set());
@@ -435,6 +433,12 @@ export function AssistantMessage({
 		userScrolledAwayReference.current = distanceFromBottom > THINKING_BOX_BOTTOM_THRESHOLD;
 	}, []);
 
+	// Don't render anything for assistant messages with no visible segments
+	// (e.g. messages containing only tool-result parts with no matching tool-call).
+	if (segments.length === 0 && !streaming) {
+		return;
+	}
+
 	const toggleSection = (key: string) => {
 		setExpandedSections((previous) => {
 			const next = new Set(previous);
@@ -451,7 +455,7 @@ export function AssistantMessage({
 	if (!hasToolCalls && !streaming) {
 		return (
 			<div className="flex min-w-0 animate-chat-item flex-col gap-2">
-				<div className="text-2xs font-semibold tracking-wider text-success uppercase">AI</div>
+				{showHeader && <div className="text-2xs font-semibold tracking-wider text-success uppercase">AI</div>}
 				{segments.map((segment) => {
 					if (segment.kind === 'text') {
 						return (
@@ -510,7 +514,7 @@ export function AssistantMessage({
 	// Interleaved thinking + tool calls + summary layout
 	return (
 		<div className="flex min-w-0 animate-chat-item flex-col gap-2">
-			<div className="text-2xs font-semibold tracking-wider text-success uppercase">AI</div>
+			{showHeader && <div className="text-2xs font-semibold tracking-wider text-success uppercase">AI</div>}
 			{segments.map((segment, index) => {
 				// Tool calls — always rendered inline
 				if (segment.kind === 'tool') {
@@ -692,11 +696,42 @@ function extractTag(text: string, tag: string): string | undefined {
 /**
  * Check whether the tool result text represents an error.
  *
- * Error formats from TanStack AI:
+ * Error formats from the AI SDK:
  * - `[CODE] message` — ToolExecutionError thrown by our tool executors
- * - `Error executing tool: ...` — unexpected throw caught by TanStack AI
+ * - `Error executing tool: ...` — unexpected throw caught by the AI SDK
  * - `Input validation failed...` — Zod schema validation failure
  */
+/**
+ * Derive a short summary label for a completed tool call when structured
+ * metadata is not available (e.g. loaded sessions where tool_result events
+ * were not persisted).
+ */
+function deriveCompletedLabel(toolName: ToolName | undefined, rawContent: string | undefined): string {
+	if (!rawContent) return 'Completed';
+
+	// file_read — count lines
+	if (toolName === 'file_read') {
+		const lineCount = rawContent.split('\n').length;
+		return `${lineCount} ${lineCount === 1 ? 'line' : 'lines'}`;
+	}
+
+	// file_glob, file_grep — count result entries
+	if (toolName === 'file_glob' || toolName === 'file_grep') {
+		try {
+			const parsed: unknown = JSON.parse(rawContent);
+			if (isRecord(parsed) && Array.isArray(parsed.files)) {
+				return `${parsed.files.length} ${parsed.files.length === 1 ? 'match' : 'matches'}`;
+			}
+		} catch {
+			// Not JSON — count lines as a fallback
+			const lines = rawContent.trim().split('\n').filter(Boolean);
+			return `${lines.length} ${lines.length === 1 ? 'result' : 'results'}`;
+		}
+	}
+
+	return 'Completed';
+}
+
 function isErrorResult(text: string): boolean {
 	return /^\[[A-Z_]+\] /.test(text) || text.startsWith('Error executing tool:') || text.startsWith('Input validation failed');
 }
@@ -1187,11 +1222,9 @@ function getExpandableDetailText(
 /**
  * Unwrap a tool result from its `{ content: string }` envelope.
  *
- * Server tools return `{ content: text }` objects so that `@tanstack/ai`'s
- * `executeToolCalls()` doesn't `JSON.parse` a plain string.  The result
- * arrives on the client as:
- *   - `ToolResultPart.content`: JSON string `'{"content":"..."}'`
- *   - `ToolCallPart.output`: parsed object `{ content: "..." }`
+ * Tool results use a `{ content: text }` envelope format for consistent
+ * parsing by the AI SDK. The result arrives on the client as a JSON string
+ * `'{"content":"..."}'` that this helper unwraps.
  */
 function unwrapToolContent(value: unknown): string | undefined {
 	if (typeof value === 'string') {
@@ -1200,7 +1233,7 @@ function unwrapToolContent(value: unknown): string | undefined {
 			if (isRecord(parsed) && typeof parsed.content === 'string') {
 				return parsed.content;
 			}
-			// TanStack AI wraps tool execution errors as {"error":"..."}
+			// The AI SDK wraps tool execution errors as {"error":"..."}
 			if (isRecord(parsed) && typeof parsed.error === 'string') {
 				return parsed.error;
 			}
@@ -1220,14 +1253,11 @@ function unwrapToolContent(value: unknown): string | undefined {
 
 /**
  * Get the raw result string from a ToolCallPart and/or ToolResultPart.
- * TanStack AI puts the result in ToolResultPart.content (string) or ToolCallPart.output.
+ * The result is in ToolResultPart.result (string).
  */
-function getToolResultContent(toolCall: ToolCallPart, toolResult?: ToolResultPart): string | undefined {
-	if (toolResult && typeof toolResult.content === 'string' && toolResult.content) {
-		return unwrapToolContent(toolResult.content);
-	}
-	if (toolCall.output !== undefined) {
-		return unwrapToolContent(toolCall.output);
+function getToolResultContent(toolResult?: ToolResultPart): string | undefined {
+	if (toolResult && typeof toolResult.result === 'string' && toolResult.result) {
+		return unwrapToolContent(toolResult.result);
 	}
 	return undefined;
 }
@@ -1235,10 +1265,9 @@ function getToolResultContent(toolCall: ToolCallPart, toolResult?: ToolResultPar
 /**
  * Check if a tool call has an error result.
  */
-function isToolError(toolCall: ToolCallPart, toolResult?: ToolResultPart): boolean {
-	if (toolResult?.state === 'error') return true;
-	if (toolResult?.error) return true;
-	const content = getToolResultContent(toolCall, toolResult);
+function isToolError(toolResult?: ToolResultPart): boolean {
+	if (toolResult?.isError) return true;
+	const content = getToolResultContent(toolResult);
 	return content !== undefined && isErrorResult(content);
 }
 
@@ -1386,33 +1415,6 @@ function InlineDiagnosticsList({ diagnostics }: { diagnostics: unknown[] }) {
 	);
 }
 
-/**
- * Try to parse a (possibly incomplete) JSON arguments string.
- * Falls back to regex extraction of string values for key fields when
- * the JSON is partial (still streaming).
- */
-function parsePartialArguments(argumentsString: string): Record<string, unknown> {
-	if (!argumentsString) return {};
-	try {
-		const parsed: unknown = JSON.parse(argumentsString);
-		return isRecord(parsed) ? parsed : {};
-	} catch {
-		// Partial JSON — extract string fields with regex
-		const result: Record<string, unknown> = {};
-		for (const key of ['path', 'from_path', 'to_path', 'pattern', 'url', 'query', 'content', 'new_string']) {
-			const match = new RegExp(String.raw`"${key}"\s*:\s*"((?:[^"\\]|\\.)*)"`).exec(argumentsString);
-			if (match) {
-				try {
-					result[key] = JSON.parse(`"${match[1]}"`);
-				} catch {
-					result[key] = match[1];
-				}
-			}
-		}
-		return result;
-	}
-}
-
 /** Names of tools that write content (show streaming preview). */
 const CONTENT_STREAMING_TOOLS = new Set<string>(['file_write', 'file_edit', 'file_multiedit']);
 
@@ -1435,41 +1437,32 @@ function InlineToolCall({
 	isExpanded: boolean;
 	onToggleExpand: () => void;
 }) {
-	const knownToolName: ToolName | undefined = isToolName(toolCall.name) ? toolCall.name : undefined;
-	const displayToolName = toolCall.name || 'unknown';
-	const isCompleted = toolCall.state === 'input-complete' && (toolResult !== undefined || toolCall.output !== undefined);
-	const isInputStreaming = toolCall.state === 'input-streaming' || toolCall.state === 'awaiting-input';
-	const isExecuting = toolCall.state === 'input-complete' && !isCompleted;
-	// Tool call was in-flight when the stream was cancelled — no result will arrive.
-	const isCancelled = isExecuting && !isStreaming;
-	const rawResultContent = getToolResultContent(toolCall, toolResult);
+	const openFile = useStore((state) => state.openFile);
+
+	const knownToolName: ToolName | undefined = isToolName(toolCall.toolName) ? toolCall.toolName : undefined;
+	const displayToolName = toolCall.toolName || 'unknown';
+
+	// Derive execution state from whether a result exists
+	const isCompleted = toolResult !== undefined;
+	const isExecuting = !toolResult && !!isStreaming;
+	const isCancelled = !toolResult && !isStreaming;
+	const rawResultContent = getToolResultContent(toolResult);
 	const isUnknownTool = knownToolName === undefined;
 
-	// Structured metadata from CUSTOM tool_result events (populated during streaming).
-	const structuredMetadata = toolMetadata?.get(toolCall.id);
+	// Whether tool arguments are still being streamed (empty arguments = still receiving deltas)
+	const isArgumentsStreaming = isStreaming && !isCompleted && Object.keys(toolCall.arguments).length === 0;
+
+	// Structured metadata from tool_result events (populated during streaming)
+	const structuredMetadata = toolMetadata?.get(toolCall.toolCallId);
 	const metadata = structuredMetadata?.metadata;
 
-	// Structured error data from CUSTOM tool_error events (populated during streaming).
-	// Also check tool result content via regex as a fallback for loaded sessions where
-	// the toolErrors ref is empty.
-	const structuredError = toolErrors?.get(toolCall.id);
-	const isError = isUnknownTool || structuredError !== undefined || isToolError(toolCall, toolResult);
+	// Structured error data from tool_error events
+	const structuredError = toolErrors?.get(toolCall.toolCallId);
+	const isError = isUnknownTool || structuredError !== undefined || isToolError(toolResult);
 
-	// Extract file paths from tool input.
-	// Prefer toolCall.input (parsed object), fall back to parsing toolCall.arguments (JSON string).
-	// During streaming, arguments may be partial JSON — use lenient parsing.
-	const input = isRecord(toolCall.input)
-		? toolCall.input
-		: isStreaming
-			? parsePartialArguments(toolCall.arguments)
-			: (() => {
-					try {
-						const parsed: unknown = JSON.parse(toolCall.arguments);
-						return isRecord(parsed) ? parsed : {};
-					} catch {
-						return {};
-					}
-				})();
+	// Extract file paths from tool arguments.
+	// Accept both `path` (schema-defined) and `filePath` (model sometimes hallucinates this key).
+	const input = toolCall.arguments;
 	let singlePath: string | undefined;
 	let fromPath: string | undefined;
 	let toPath: string | undefined;
@@ -1477,7 +1470,10 @@ function InlineToolCall({
 	let extraLabel: string | undefined;
 	if (typeof input.path === 'string') {
 		singlePath = input.path;
-	} else if (typeof input.from_path === 'string' && typeof input.to_path === 'string') {
+	} else if (typeof input.filePath === 'string') {
+		singlePath = input.filePath;
+	}
+	if (!singlePath && typeof input.from_path === 'string' && typeof input.to_path === 'string') {
 		fromPath = input.from_path;
 		toPath = input.to_path;
 	}
@@ -1491,10 +1487,9 @@ function InlineToolCall({
 		extraLabel = input.query;
 	}
 
-	// Streaming content preview for file-writing tools.
-	// Extract the content or new_string being streamed from partial arguments.
+	// Streaming content preview for file-writing tools
 	const streamingContent =
-		isInputStreaming && CONTENT_STREAMING_TOOLS.has(toolCall.name)
+		isArgumentsStreaming && CONTENT_STREAMING_TOOLS.has(toolCall.toolName)
 			? typeof input.content === 'string'
 				? input.content
 				: typeof input.new_string === 'string'
@@ -1536,14 +1531,16 @@ function InlineToolCall({
 	// live-streamed and loaded sessions — no raw-text fallbacks).
 	const resultSummary = isUnknownTool
 		? `Unknown tool: ${displayToolName}`
-		: structuredError
-			? shortenErrorFromStructured(structuredError)
+		: isError
+			? structuredError
+				? shortenErrorFromStructured(structuredError)
+				: 'Failed'
 			: hasEditStats
 				? undefined
 				: structuredMetadata
 					? summarizeFromMetadata(knownToolName, structuredMetadata)
 					: isCompleted
-						? 'Completed'
+						? deriveCompletedLabel(knownToolName, rawResultContent)
 						: isCancelled
 							? 'Cancelled'
 							: isExecuting
@@ -1554,7 +1551,7 @@ function InlineToolCall({
 	const diagnostics = metadata && Array.isArray(metadata.diagnostics) ? metadata.diagnostics : undefined;
 
 	// Diff content from the file_changed CUSTOM event (carries beforeContent/afterContent)
-	const diffContent = fileDiffContent?.get(toolCall.id);
+	const diffContent = fileDiffContent?.get(toolCall.toolCallId);
 	const hasDiffContent = diffContent !== undefined;
 
 	// Every completed tool call with content or a structured error is expandable.
@@ -1591,12 +1588,38 @@ function InlineToolCall({
 					{knownToolName ? <ToolIcon name={knownToolName} /> : <AlertCircle className="size-3" />}
 				</span>
 				<span className="shrink-0 font-medium capitalize">{displayToolName.replaceAll('_', ' ')}</span>
-				{singlePath && <FileReference path={singlePath} className="max-w-48 truncate" interactive={false} />}
+				{singlePath && (
+					<FileReference
+						path={singlePath}
+						className="max-w-48 truncate"
+						interactive={false}
+						onClick={(event) => {
+							event.stopPropagation();
+							openFile(singlePath);
+						}}
+					/>
+				)}
 				{fromPath && toPath && (
 					<span className="flex max-w-48 items-center gap-1">
-						<FileReference path={fromPath} className="truncate" interactive={false} />
+						<FileReference
+							path={fromPath}
+							className="truncate"
+							interactive={false}
+							onClick={(event) => {
+								event.stopPropagation();
+								openFile(fromPath);
+							}}
+						/>
 						<span className="shrink-0 text-text-secondary">→</span>
-						<FileReference path={toPath} className="truncate" interactive={false} />
+						<FileReference
+							path={toPath}
+							className="truncate"
+							interactive={false}
+							onClick={(event) => {
+								event.stopPropagation();
+								openFile(toPath);
+							}}
+						/>
 					</span>
 				)}
 				{pattern && (

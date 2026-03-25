@@ -2,15 +2,14 @@
  * AI Assistant Panel Component
  *
  * Chat interface for interacting with the AI coding assistant.
- * Uses TanStack AI's useChat + fetchServerSentEvents for native AG-UI streaming.
+ * Uses useAgentChat hook for server-driven streaming via the AgentRunner DO.
  *
  * Features: welcome screen with suggestions, collapsible tool calls,
  * collapsible reasoning, error handling with retry, session management,
  * snapshot revert buttons on user messages, CUSTOM event handling.
  */
 
-import { useChat } from '@tanstack/ai-react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useAgent } from 'agents/react';
 import { ArrowDown, Bot, Download, History, Loader2, Map as MapIcon, MessageCircleQuestion, Plus, Send, Square, X } from 'lucide-react';
 import { ScrollArea } from 'radix-ui';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -21,17 +20,13 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Pill } from '@/components/ui/pill';
 import { Tooltip } from '@/components/ui/tooltip';
 import { setActiveSessionId, useAiSessions } from '@/features/ai-assistant/hooks/use-ai-sessions';
-import { messageModesRecordToMap, snapshotsRecordToMap } from '@/features/ai-assistant/lib/session-serializers';
-import { getLogSnapshot } from '@/features/output';
 import { useSnapshots } from '@/features/snapshots';
 import { useMobileKeyboardLayout } from '@/hooks/use-mobile-keyboard-height';
-import { abortAgent, createApiClient, downloadDebugLog, loadAiSession } from '@/lib/api-client';
+import { createApiClient, downloadDebugLog } from '@/lib/api-client';
 import { useStore } from '@/lib/store';
 import { cn, formatRelativeTime } from '@/lib/utils';
-import { retry } from '@shared/retry';
 
 import { ContextRing } from './context-ring';
-import { extractCustomEvent, getNumberField, getStringField } from './helpers';
 import { AIError, AssistantMessage, ContinuationPrompt, DoomLoopAlert, MessageBubble, UserQuestionPrompt, WelcomeScreen } from './messages';
 import { getModelLabel, getModelLimits } from './model-config';
 import { ModelSelectorDialog } from './model-selector-dialog';
@@ -40,14 +35,44 @@ import { useChangeReview } from '../../hooks/use-change-review';
 import { useFileMention } from '../../hooks/use-file-mention';
 import { parseTextToSegments, segmentsHaveContent, segmentsToPlainText, type InputSegment } from '../../lib/input-segments';
 import { extractMessageText } from '../../lib/retry-helpers';
-import { createWebSocketConnectionAdapter, type ConnectionAdapter } from '../../lib/websocket-connection-adapter';
 import { AgentModeSelector } from '../agent-mode-selector';
 import { ChangedFilesSummary } from '../changed-files-summary';
 import { FileMentionDropdown } from '../file-mention-dropdown';
 import { RevertConfirmDialog } from '../revert-confirm-dialog';
 import { RichTextInput, type RichTextInputHandle } from '../rich-text-input';
 
-import type { AiSession, ToolErrorInfo, ToolMetadataInfo, UIMessage } from '@shared/types';
+import type { ChatMessage } from '@shared/types';
+
+// =============================================================================
+// Types
+// =============================================================================
+
+type AgentConnectionState = 'connecting' | 'connected' | 'disconnected';
+
+// =============================================================================
+// Input info bar — a uniform banner displayed above the text input
+// =============================================================================
+
+/**
+ * Collapsible info/warning bar rendered above the input area.
+ * Used for connection status, interrupt confirmation, and similar
+ * transient messages that need the user's attention.
+ */
+function InputInfoBar({ open, icon, children }: { open: boolean; icon: React.ReactNode; children: React.ReactNode }) {
+	return (
+		<Collapsible open={open}>
+			<div
+				className="
+					flex items-center gap-2 border-b border-warning/30 bg-warning/5 px-2.5
+					py-1.5
+				"
+			>
+				{icon}
+				{children}
+			</div>
+		</Collapsible>
+	);
+}
 
 // =============================================================================
 // Component
@@ -57,7 +82,6 @@ import type { AiSession, ToolErrorInfo, ToolMetadataInfo, UIMessage } from '@sha
  * AI assistant panel with chat interface.
  */
 export function AIPanel({ projectId, className }: { projectId: string; className?: string }) {
-	const queryClient = useQueryClient();
 	// On mobile, when the virtual keyboard opens, switch to position:fixed so the
 	// panel stays pinned above the keyboard — header and input remain visible.
 	const { style: keyboardStyle, ref: keyboardReference } = useMobileKeyboardLayout();
@@ -70,21 +94,11 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	const [isModelSelectorOpen, setIsModelSelectorOpen] = useState(false);
 	const [showInterruptConfirm, setShowInterruptConfirm] = useState(false);
 	const inputReference = useRef<RichTextInputHandle>(null);
-	const userMessageIndexReference = useRef<number>(-1);
-	const activeSnapshotIdReference = useRef<string | undefined>(undefined);
+
 	// Track the last chatError we already surfaced so dismissing it doesn't re-trigger
 	const lastSurfacedChatErrorReference = useRef<Error | undefined>(undefined);
 	const revertInProgressReference = useRef(false);
-	// Structured tool error data keyed by toolCallId, populated by CUSTOM tool_error events.
-	// Refs accumulate data during streaming (no re-renders); state mirrors are flushed
-	// when chatMessages changes so the JSX reads from state, not refs.
-	const toolErrorsReference = useRef<Map<string, ToolErrorInfo>>(new Map());
-	const [toolErrors, setToolErrors] = useState<Map<string, ToolErrorInfo>>(new Map());
-	// Structured tool result metadata keyed by toolCallId, populated by CUSTOM tool_result events.
-	const toolMetadataReference = useRef<Map<string, ToolMetadataInfo>>(new Map());
-	const [toolMetadata, setToolMetadata] = useState<Map<string, ToolMetadataInfo>>(new Map());
-	// Diff content (before/after) keyed by tool_use_id, populated by CUSTOM file_changed events for inline diff rendering
-	const fileDiffContentReference = useRef<Map<string, { beforeContent: string; afterContent: string }>>(new Map());
+	// Diff content (before/after) keyed by tool_use_id — populated from agent state pending changes
 	const [fileDiffContent, setFileDiffContent] = useState<Map<string, { beforeContent: string; afterContent: string }>>(new Map());
 
 	// Derived plain text for the file mention hook
@@ -98,533 +112,143 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		{ snapshotIds: string[]; messageIndex: number; isLoading: boolean; error?: string } | undefined
 	>();
 
-	// Store state
+	// Store state (only UI preferences — AI session state comes from the Agent)
 	const {
-		history,
-		statusMessage,
-		aiError,
-		messageSnapshots,
-		messageModes,
 		files,
 		agentMode,
-		sessionId,
 		selectedModel,
-		contextTokensUsed,
-		runningSessionIds,
-		setProcessing,
-		setStatusMessage,
-		setAiError,
-		setMessageSnapshot,
-		clearMessageSnapshot,
-		setMessageMode,
-		removeMessagesFrom,
+		openFile,
 		setAgentMode,
 		setSelectedModel,
-		setContextTokensUsed,
-		openFile,
-		addPendingChange,
-		associateSnapshotWithPending,
 		clearPendingChangesBySnapshots,
 		clearPendingChangesByPaths,
-		debugLogId,
 	} = useStore();
 
-	// Whether the currently viewed session has a running agent
-	const isCurrentSessionRunning = sessionId ? runningSessionIds.has(sessionId) : false;
-
-	// Keep stable references for useChat callbacks (avoid re-creating connection).
-	// Synced in a single effect to reduce overhead.
-	const agentModeReference = useRef(agentMode);
-	const sessionIdReference = useRef(sessionId);
-	const selectedModelReference = useRef(selectedModel);
-	useEffect(() => {
-		agentModeReference.current = agentMode;
-		sessionIdReference.current = sessionId;
-		selectedModelReference.current = selectedModel;
-	}, [agentMode, sessionId, selectedModel]);
-
 	// =========================================================================
-	// TanStack AI useChat setup
+	// Agents SDK: connect to the AgentRunner DO via WebSocket
 	// =========================================================================
 
-	// WebSocket-based connection adapter. Created in an effect so that ref
-	// access (for mode/sessionId/model) only happens at call-time inside the
-	// async generator, never during render. Stored in a ref to stay stable
-	// across re-renders; recreated only when projectId changes.
-	const connectionReference = useRef<ConnectionAdapter>(undefined);
-	useEffect(() => {
-		connectionReference.current = createWebSocketConnectionAdapter({
-			projectId,
-			getMode: () => agentModeReference.current,
-			getSessionId: () => sessionIdReference.current,
-			getModel: () => selectedModelReference.current,
-			getOutputLogs: () => getLogSnapshot(),
-		});
-	}, [projectId]);
-
-	// Stable proxy that delegates to the ref so useChat always has a
-	// consistent object identity.
-	const [connection] = useState<ConnectionAdapter>(() => ({
-		connect(options) {
-			return connectionReference.current!.connect(options);
-		},
-	}));
-
-	const {
-		messages: chatMessages,
-		sendMessage,
-		reload,
-		isLoading: isChatLoading,
-		stop: stopChat,
-		error: chatError,
-		setMessages: setChatMessages,
-		clear: clearChat,
-	} = useChat({
-		connection,
-		initialMessages: history,
-		onChunk: (chunk) => {
-			const custom = extractCustomEvent(chunk);
-			if (!custom) return;
-
-			switch (custom.name) {
-				case 'status': {
-					const statusText = getStringField(custom.data, 'message');
-					if (statusText) {
-						setStatusMessage(statusText);
-					}
-					break;
-				}
-				case 'snapshot_created': {
-					const snapshotId = getStringField(custom.data, 'id');
-					if (snapshotId) {
-						activeSnapshotIdReference.current = snapshotId;
-						if (userMessageIndexReference.current >= 0) {
-							setMessageSnapshot(userMessageIndexReference.current, snapshotId);
-						}
-						associateSnapshotWithPending(snapshotId);
-					}
-					break;
-				}
-				case 'snapshot_deleted': {
-					// Empty snapshot was cleaned up — remove the mapping so the
-					// Revert button won't appear for messages with no file changes.
-					const deletedId = getStringField(custom.data, 'id');
-					if (deletedId) {
-						if (activeSnapshotIdReference.current === deletedId) {
-							activeSnapshotIdReference.current = undefined;
-						}
-						clearMessageSnapshot(deletedId);
-					}
-					break;
-				}
-				case 'file_changed': {
-					const path = getStringField(custom.data, 'path');
-					const action = getStringField(custom.data, 'action');
-					const beforeContent = getStringField(custom.data, 'beforeContent');
-					const afterContent = getStringField(custom.data, 'afterContent');
-					if (path && (action === 'create' || action === 'edit' || action === 'delete' || action === 'move')) {
-						addPendingChange({
-							path,
-							action,
-							beforeContent: beforeContent || undefined,
-							afterContent: afterContent || undefined,
-							snapshotId: activeSnapshotIdReference.current,
-							sessionId: sessionIdReference.current ?? '',
-						});
-						// Eagerly update the file query cache so the editor shows the
-						// correct content immediately.  The WebSocket `update` handler
-						// intentionally skips invalidating the *active* file (to avoid
-						// racing with unsaved user edits), but AI-driven writes are not
-						// user edits — the editor must reflect the new content so that
-						// diff decorations (whose hunk positions reference afterContent)
-						// align with the actual editor document.
-						if (afterContent && action !== 'delete') {
-							queryClient.setQueryData(['file', projectId, path], { path, content: afterContent });
-						}
-						// Store diff content for inline diff rendering in tool call dropdowns
-						const toolUseId = getStringField(custom.data, 'tool_use_id');
-						if (toolUseId && beforeContent && afterContent) {
-							// Cap map size (same pattern as toolErrors)
-							if (fileDiffContentReference.current.size >= 500) {
-								const firstKey = fileDiffContentReference.current.keys().next().value;
-								if (firstKey !== undefined) {
-									fileDiffContentReference.current.delete(firstKey);
-								}
-							}
-							fileDiffContentReference.current.set(toolUseId, { beforeContent, afterContent });
-						}
-						if (action !== 'delete' && action !== 'move') {
-							openFile(path);
-						}
-					}
-					break;
-				}
-				case 'plan_created': {
-					const path = getStringField(custom.data, 'path');
-					if (path) {
-						setPlanPath(path);
-					}
-					break;
-				}
-				case 'user_question': {
-					const question = getStringField(custom.data, 'question');
-					const options = getStringField(custom.data, 'options');
-					if (question) {
-						setPendingQuestion({ question, options });
-					}
-					break;
-				}
-				case 'max_iterations_reached': {
-					setNeedsContinuation(true);
-					break;
-				}
-				case 'doom_loop_detected': {
-					const message = getStringField(custom.data, 'message');
-					if (message) {
-						setDoomLoopMessage(message);
-					}
-					break;
-				}
-				case 'turn_complete': {
-					break;
-				}
-				case 'context_utilization': {
-					// Real-time context window usage emitted per-turn during the agent loop.
-					const tokens = getNumberField(custom.data, 'estimatedTokens');
-					if (tokens > 0) {
-						setContextTokensUsed(tokens);
-					}
-					break;
-				}
-				case 'usage': {
-					break;
-				}
-				case 'tool_result': {
-					const toolCallId = getStringField(custom.data, 'toolCallId');
-					if (toolCallId) {
-						if (toolMetadataReference.current.size >= 500) {
-							const firstKey = toolMetadataReference.current.keys().next().value;
-							if (firstKey !== undefined) {
-								toolMetadataReference.current.delete(firstKey);
-							}
-						}
-						const rawMetadata = custom.data.metadata;
-						const isPlainObject = (value: unknown): value is Record<string, unknown> =>
-							!!value && typeof value === 'object' && !Array.isArray(value);
-						const metadataRecord: Record<string, unknown> = isPlainObject(rawMetadata) ? rawMetadata : {};
-						toolMetadataReference.current.set(toolCallId, {
-							toolCallId,
-							toolName: getStringField(custom.data, 'tool_name'),
-							title: getStringField(custom.data, 'title'),
-							metadata: metadataRecord,
-						});
-					}
-					break;
-				}
-				case 'tool_error': {
-					const toolCallId = getStringField(custom.data, 'toolCallId');
-					if (toolCallId) {
-						// Cap map size to prevent unbounded growth in long sessions.
-						// Only the most recent errors matter for display; old entries
-						// for already-rendered messages are harmless to evict.
-						if (toolErrorsReference.current.size >= 500) {
-							const firstKey = toolErrorsReference.current.keys().next().value;
-							if (firstKey !== undefined) {
-								toolErrorsReference.current.delete(firstKey);
-							}
-						}
-						toolErrorsReference.current.set(toolCallId, {
-							toolCallId,
-							toolName: getStringField(custom.data, 'toolName'),
-							errorCode: getStringField(custom.data, 'errorCode'),
-							errorMessage: getStringField(custom.data, 'errorMessage'),
-						});
-					}
-					break;
-				}
-			}
-		},
-		onFinish: (_message) => {
-			activeSnapshotIdReference.current = undefined;
-			userMessageIndexReference.current = -1;
-
-			// Flush accumulated ref data to state so the final render sees it
-			setToolErrors(new Map(toolErrorsReference.current));
-			setToolMetadata(new Map(toolMetadataReference.current));
-			setFileDiffContent(new Map(fileDiffContentReference.current));
-
-			// If the agent wrote any files, signal the preview to do a hard
-			// refresh. The per-file HMR reloads may have hit intermediate
-			// states or been lost during iframe reload cycles.
-			if (useStore.getState().pendingChanges.size > 0) {
-				globalThis.dispatchEvent(new CustomEvent('preview-force-refresh'));
-			}
-
-			// Session is persisted server-side — refresh the sessions list so the
-			// dropdown reflects the latest state.
-			void queryClient.invalidateQueries({ queryKey: ['ai-sessions', projectId] });
-
-			// Skip session reload during revert — it would race with revertSession
-			// and restore stale history without matching messageSnapshots.
-			if (revertInProgressReference.current) {
-				return;
-			}
-
-			// Merge server-side metadata (snapshots, modes, tool records) so
-			// revert buttons and mode badges reflect the canonical persisted
-			// state. We do not replace chatMessages — the client's in-memory
-			// messages are the most complete source at this point.
-			const currentSessionId = useStore.getState().sessionId;
-			if (currentSessionId) {
-				void loadAiSession(projectId, currentSessionId).then((serverSession) => {
-					if (revertInProgressReference.current) return;
-					if (serverSession) {
-						mergeServerSessionMetadata(serverSession);
-					}
-				});
-			}
-		},
-		onError: (error) => {
-			// Ignore abort errors — the user intentionally cancelled
-			if (error.name === 'AbortError') return;
-			setAiError({ message: error.message });
-			// Flush accumulated ref data to state so the error render sees it
-			setToolErrors(new Map(toolErrorsReference.current));
-			setToolMetadata(new Map(toolMetadataReference.current));
-			setFileDiffContent(new Map(fileDiffContentReference.current));
-			// Session is persisted server-side on all termination paths including errors.
-		},
+	const agent = useAgent({
+		agent: 'AgentRunner',
+		// basePath connects to /p/{projectId}/__agent which the worker
+		// entry point forwards to the AgentRunner DO.
+		// Note: partysocket prepends a "/" when building the URL, so basePath
+		// must NOT start with a slash — otherwise the URL becomes "//p/...".
+		basePath: `p/${projectId}/__agent`,
 	});
 
-	// Bi-directional sync between useChat (chatMessages) and Zustand (history).
+	// =========================================================================
+	// Connection state
+	// =========================================================================
+
+	// Three states:
+	//   'connecting'   — socket opened but identity handshake not yet complete,
+	//                    or reconnecting after a drop (PartySocket auto-retries)
+	//   'connected'    — identity received from server; fully operational
+	//   'disconnected' — socket closed/errored; PartySocket will retry
 	//
-	// We use a "skip next" flag to break the circular dependency:
-	//   chatMessages changes → forward sync writes to store → store fires
-	//   → reverse sync sees change → would call setChatMessages → loop!
-	//
-	// The flag ensures that when one side writes, the other side's effect
-	// recognises it as an echo and skips.
-	const skipNextReverseSyncReference = useRef(false);
-	const skipNextForwardSyncReference = useRef(false);
+	// agent.identified is proper React state (useState inside useAgent) so it
+	// drives re-renders automatically. We layer a raw open/close listener on top
+	// to distinguish 'connecting' from 'disconnected' without polling readyState.
+	const [socketEverOpened, setSocketEverOpened] = useState(false);
+	const agentConnectionState = useMemo((): AgentConnectionState => {
+		if (agent.identified) return 'connected';
+		return socketEverOpened ? 'disconnected' : 'connecting';
+	}, [agent.identified, socketEverOpened]);
 
-	// Forward sync: chatMessages → store
 	useEffect(() => {
-		if (skipNextForwardSyncReference.current) {
-			skipNextForwardSyncReference.current = false;
-			return;
+		const handleOpen = () => setSocketEverOpened(true);
+		const handleClose = () => setSocketEverOpened((previous) => previous); // keep true once set
+		agent.addEventListener('open', handleOpen);
+		agent.addEventListener('close', handleClose);
+		return () => {
+			agent.removeEventListener('open', handleOpen);
+			agent.removeEventListener('close', handleClose);
+		};
+	}, [agent]);
+
+	// While disconnected, reset socketEverOpened when the socket reconnects so
+	// we go back to 'connecting' rather than immediately showing 'disconnected'
+	// during the reconnect handshake window.
+	useEffect(() => {
+		if (!agent.identified) {
+			const handleOpen = () => setSocketEverOpened(false);
+			agent.addEventListener('open', handleOpen);
+			return () => agent.removeEventListener('open', handleOpen);
 		}
-		skipNextReverseSyncReference.current = true;
-		useStore.setState({ history: chatMessages });
-	}, [chatMessages]);
+	}, [agent, agent.identified]);
 
-	// Flush accumulated ref data to state on each chatMessages change so that
-	// intermediate streaming renders show tool errors, metadata, and diffs without
-	// reading refs directly in the JSX (which violates react-hooks/refs).
+	const isConnected = agentConnectionState === 'connected';
+
+	// Derive UI state from the Agent's auto-synced state.
+	// The agent.state is typed as `unknown` from useAgent — we narrow it
+	// by checking for the expected shape.
+	const rawState = agent.state;
+	const agentState =
+		rawState && typeof rawState === 'object' && 'sessions' in rawState
+			? (rawState as import('@shared/agent-state').AgentState) // eslint-disable-line @typescript-eslint/consistent-type-assertions -- narrowed above
+			: undefined;
+	const currentSession = agentState?.currentSession;
+	const chatMessages = currentSession?.messages ?? [];
+	const sessionId = currentSession?.sessionId;
+	const statusMessage = currentSession?.statusText;
+	const contextTokensUsed = currentSession?.contextTokensUsed ?? 0;
+	const debugLogId = currentSession?.debugLogId;
+	const isProcessing = currentSession?.status === 'running';
+	const aiError = currentSession?.error;
+	const messageSnapshots = useMemo(() => {
+		const record = currentSession?.messageSnapshots ?? {};
+		return new Map(Object.entries(record).map(([key, value]) => [Number(key), value]));
+	}, [currentSession?.messageSnapshots]);
+	const messageModes = useMemo(() => {
+		const record = currentSession?.messageModes ?? {};
+		return new Map(Object.entries(record).map(([key, value]) => [Number(key), value]));
+	}, [currentSession?.messageModes]);
+
+	// Derive tool metadata/errors directly from agent state via useMemo
+	const toolMetadata = useMemo(() => new Map(Object.entries(currentSession?.toolMetadata ?? {})), [currentSession?.toolMetadata]);
+	const toolErrors = useMemo(() => new Map(Object.entries(currentSession?.toolErrors ?? {})), [currentSession?.toolErrors]);
+
+	// Stable ref for sessionId access in callbacks
+	const sessionIdReference = useRef(sessionId);
 	useEffect(() => {
-		setToolErrors(new Map(toolErrorsReference.current));
-		setToolMetadata(new Map(toolMetadataReference.current));
-		setFileDiffContent(new Map(fileDiffContentReference.current));
-	}, [chatMessages]);
-
-	// Reverse sync: store → chatMessages (for external updates like session load)
-	useEffect(() => {
-		if (skipNextReverseSyncReference.current) {
-			skipNextReverseSyncReference.current = false;
-			return;
-		}
-		skipNextForwardSyncReference.current = true;
-		setChatMessages(history);
-	}, [history, setChatMessages]);
-
-	// Session persistence — wire metadata round-trip callbacks so loaded
-	// sessions render the same rich UI as live-streamed ones.
-	const handleSessionLoaded = useCallback(
-		(data: { toolMetadata?: Record<string, ToolMetadataInfo>; toolErrors?: Record<string, ToolErrorInfo> }) => {
-			// Populate refs and state from persisted metadata
-			if (data.toolMetadata) {
-				for (const [key, value] of Object.entries(data.toolMetadata)) {
-					toolMetadataReference.current.set(key, value);
-				}
-				setToolMetadata(new Map(toolMetadataReference.current));
-			}
-			if (data.toolErrors) {
-				for (const [key, value] of Object.entries(data.toolErrors)) {
-					toolErrorsReference.current.set(key, value);
-				}
-				setToolErrors(new Map(toolErrorsReference.current));
-			}
-		},
-		[],
-	);
-
-	/**
-	 * Merge server-side session metadata into client state without replacing
-	 * the in-memory message history.
-	 *
-	 * After stream completion or cancellation the client's chatMessages are the
-	 * most complete source of truth — they include thinking content, partial
-	 * text, and tool results that may not yet be persisted server-side. We only
-	 * pull the metadata that only the server knows: snapshot IDs for revert
-	 * buttons, per-message agent mode badges, and supplemental tool
-	 * metadata/error records.
-	 */
-	const mergeServerSessionMetadata = useCallback(
-		(serverSession: AiSession) => {
-			useStore.setState({
-				messageSnapshots: snapshotsRecordToMap(serverSession.messageSnapshots),
-				messageModes: messageModesRecordToMap(serverSession.messageModes),
-			});
-			handleSessionLoaded({
-				toolMetadata: serverSession.toolMetadata,
-				toolErrors: serverSession.toolErrors,
-			});
-		},
-		[handleSessionLoaded],
-	);
+		sessionIdReference.current = sessionId;
+	}, [sessionId]);
 
 	// Smart auto-scroll: stops when user scrolls up, shows pill for new content.
 	const { scrollReference, anchorReference, wrapperReference, hasNewContent, scrollToBottom, resetScrollState } = useAutoScroll();
 
-	// Reconnection effect: when the current session is running in the DO
-	// but useChat isn't streaming (e.g. after page refresh, switching to
-	// a running session from history), load the persisted session into
-	// chatMessages and call reload() to listen for new live events.
-	const hasTriggeredReconnectReference = useRef(false);
-	// Holds the snapshot messages so we can restore them after reload()
-	// strips assistant messages. Cleared by onFinish when it reloads the
-	// full canonical server state.
-	const reconnectSnapshotReference = useRef<unknown[] | undefined>(undefined);
-	// True after the user presses stop, until the server broadcast
-	// clears isCurrentSessionRunning. Must be state (not a ref) because
-	// isProcessing is derived from it and used in JSX.
-	const [hasCancelled, setHasCancelled] = useState(false);
-
-	// Derive processing state from the agent — no manual setProcessing needed.
-	const isProcessing = (isChatLoading || isCurrentSessionRunning) && !hasCancelled;
-
-	// Sync derived isProcessing to the Zustand store so external components
-	// (mobile-tab-bar, ide-shell) can read it. Also clear statusMessage
-	// when processing stops.
+	// Sync isProcessing to the Zustand store so external components
+	// (mobile-tab-bar, ide-shell) can read it.
 	useEffect(() => {
-		setProcessing(isProcessing);
-		if (!isProcessing) {
-			setStatusMessage(undefined);
-		}
-	}, [isProcessing, setProcessing, setStatusMessage]);
+		queueMicrotask(() => useStore.getState().setProcessing(isProcessing));
+	}, [isProcessing]);
 
-	// Subscribe to the Zustand store (external system) to reset flags when
-	// the session changes. Using a subscription callback (not the effect
-	// body) avoids both set-state-in-effect and ref-access-during-render.
+	// Reset per-session UI state when the session changes
+	const previousSessionIdReference = useRef(sessionId);
 	useEffect(() => {
-		return useStore.subscribe((state, previousState) => {
-			// Session changed → reset per-session UI state to prevent
-			// stale alerts/prompts from a previous session leaking through.
-			if (state.sessionId !== previousState.sessionId) {
-				hasTriggeredReconnectReference.current = false;
-				setHasCancelled(false);
+		if (sessionId !== previousSessionIdReference.current) {
+			previousSessionIdReference.current = sessionId;
+			queueMicrotask(() => {
 				setDoomLoopMessage(undefined);
 				setNeedsContinuation(false);
 				setPendingQuestion(undefined);
 				setPlanPath(undefined);
 				setShowInterruptConfirm(false);
-			}
-
-			// Reset hasCancelled when the server confirms session stopped running.
-			if (
-				state.sessionId &&
-				state.runningSessionIds !== previousState.runningSessionIds &&
-				previousState.runningSessionIds.has(state.sessionId) &&
-				!state.runningSessionIds.has(state.sessionId)
-			) {
-				setHasCancelled(false);
-				setShowInterruptConfirm(false);
-			}
-		});
-	}, []);
-
-	useEffect(() => {
-		if (!isCurrentSessionRunning || isChatLoading || !sessionId || hasCancelled) return;
-		if (hasTriggeredReconnectReference.current) return;
-
-		hasTriggeredReconnectReference.current = true;
-
-		// Show "Thinking..." immediately so the user knows the session is active.
-		setStatusMessage('Thinking...');
-
-		void (async () => {
-			try {
-				// Fetch the persisted session for instant rendering
-				const serverSession = await loadAiSession(projectId, sessionId);
-
-				// Guard: session may have completed while we were fetching.
-				if (!useStore.getState().runningSessionIds.has(sessionId)) {
-					hasTriggeredReconnectReference.current = false;
-					setStatusMessage(undefined);
-					return;
-				}
-
-				if (serverSession && serverSession.history.length > 0) {
-					// Update both useChat AND the Zustand store atomically to
-					// prevent the bi-directional sync from echoing.
-					skipNextReverseSyncReference.current = true;
-					skipNextForwardSyncReference.current = true;
-					useStore.setState({ history: serverSession.history });
-					setChatMessages(serverSession.history);
-					resetScrollState();
-
-					// Restore tool metadata and errors from the snapshot
-					handleSessionLoaded({
-						toolMetadata: serverSession.toolMetadata,
-						toolErrors: serverSession.toolErrors,
-					});
-				}
-			} catch (error) {
-				console.warn('Failed to load session snapshot for reconnection:', error);
-			}
-
-			// reload() strips messages after the last user message, then
-			// calls connection.connect(). The adapter only yields NEW live
-			// events (no buffer replay). Immediately after, we restore the
-			// snapshot so old content is visible without the typing effect.
-			// New live events will stream in with normal typing.
-			reconnectSnapshotReference.current = useStore.getState().history;
-			void reload();
-
-			// Restore the full snapshot synchronously after reload() starts.
-			// reload() is async — the adapter's first yield hasn't happened
-			// yet, so this runs before any chunks are processed.
-			const snapshot = reconnectSnapshotReference.current;
-			if (snapshot && snapshot.length > 0) {
-				skipNextReverseSyncReference.current = true;
-				skipNextForwardSyncReference.current = true;
-				// eslint-disable-next-line @typescript-eslint/consistent-type-assertions, @typescript-eslint/no-explicit-any -- wire format cast
-				setChatMessages(snapshot as any[]);
-			}
-		})();
-	}, [
-		isCurrentSessionRunning,
-		isChatLoading,
-		sessionId,
-		reload,
-		projectId,
-		setChatMessages,
-		handleSessionLoaded,
-		chatMessages.length,
-		resetScrollState,
-		setStatusMessage,
-		hasCancelled,
-	]);
-
-	// Sync chatError to aiError (for RUN_ERROR events).
-	// Only surface a chatError once — if the user dismisses it, don't re-trigger
-	// until a genuinely new error arrives from useChat.
-	// Ignore AbortError — the user intentionally cancelled.
-	useEffect(() => {
-		if (chatError && chatError !== lastSurfacedChatErrorReference.current && chatError.name !== 'AbortError') {
-			lastSurfacedChatErrorReference.current = chatError;
-			setAiError({ message: chatError.message });
+			});
 		}
-	}, [chatError, setAiError]);
+	}, [sessionId]);
+
+	// Sync chatError from agent state to local error display.
+	// Only surface it once — if the user dismisses it, don't re-trigger
+	// until a genuinely new error arrives from the agent.
+	// Track displayed error to avoid re-surfacing after dismiss
+	const displayedError = aiError?.message;
+	useEffect(() => {
+		if (displayedError) {
+			lastSurfacedChatErrorReference.current = new Error(displayedError);
+		}
+	}, [displayedError]);
 
 	// File mention autocomplete
 	const handleFileMentionSelect = useCallback((path: string, triggerIndex: number, queryLength: number) => {
@@ -649,10 +273,9 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		savedSessions,
 		handleLoadSession: loadSession,
 		isRestoringSession,
-		revertSession,
 	} = useAiSessions({
 		projectId,
-		onSessionLoaded: handleSessionLoaded,
+		agent,
 	});
 
 	// Snapshot hook for revert
@@ -662,81 +285,42 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	const changeReview = useChangeReview({ projectId });
 	const { persistPendingChanges } = changeReview;
 
-	// Wrap clearHistory to start a new session.
-	// Pending changes are NOT cleared — they persist across sessions at the project level.
-	// clearChat() resets chatMessages to [], which triggers the forward-sync
-	// effect to write history=[] to the store. We separately clear the
-	// AI-related metadata (sessionId, snapshots, error) to avoid creating a
-	// second competing [] reference that would cause a sync loop.
+	// Start a new session. Pending changes are NOT cleared — they persist
+	// across sessions at the project level.
 	const clearHistory = useCallback(() => {
-		// Stop any active stream for the current session (the DO agent
-		// keeps running — we're just detaching the local listener).
-		if (isChatLoading) {
-			stopChat();
+		if (!isConnected) return;
+		if (isProcessing) {
+			void agent.call('abortRun', [sessionId]);
 		}
 		setPlanPath(undefined);
 		setNeedsContinuation(false);
 		setPendingQuestion(undefined);
 		setDoomLoopMessage(undefined);
-		toolErrorsReference.current.clear();
-		toolMetadataReference.current.clear();
-		fileDiffContentReference.current.clear();
-		setToolErrors(new Map());
-		setToolMetadata(new Map());
 		setFileDiffContent(new Map());
-		// Clear AI metadata without touching history (the forward sync handles it)
-		useStore.setState({
-			sessionId: undefined,
-			messageSnapshots: new Map(),
-			messageModes: new Map(),
-			aiError: undefined,
-			debugLogId: undefined,
-			contextTokensUsed: 0,
-		});
-		// Clear the project-scoped active session pointer in localStorage
 		setActiveSessionId(projectId, undefined);
-		// Reset reconnect flag so the reconnection effect can fire for future sessions
-		hasTriggeredReconnectReference.current = false;
-		reconnectSnapshotReference.current = undefined;
-		// clearChat() must be last — it sets chatMessages=[] which the forward-sync
-		// effect will propagate to the store's history.
-		clearChat();
-	}, [clearChat, projectId, isChatLoading, stopChat]);
+		// Tell the agent to clear the current session state
+		if (agentState) {
+			agent.setState({ ...agentState, currentSession: undefined });
+		}
+	}, [projectId, isConnected, isProcessing, sessionId, agent, agentState]);
 
-	// Wrap handleLoadSession to also clear pending changes and sync to useChat.
-	// loadSession updates the store's history, and the reverse-sync effect
-	// will propagate that into useChat automatically.
+	// Load a session via Agent RPC and clear transient UI state
 	const handleLoadSession = useCallback(
 		(targetSessionId: string) => {
-			// Stop any active stream for the current session (the DO agent
-			// keeps running — we're just detaching the local listener).
-			if (isChatLoading) {
-				stopChat();
+			if (!isConnected) return;
+			if (isProcessing) {
+				void agent.call('abortRun', [sessionId]);
 			}
-			// Clear per-turn UI state that must not leak across sessions.
-			// These are local useState values that persist because the AIPanel
-			// component stays mounted across session switches.
 			setPlanPath(undefined);
 			setNeedsContinuation(false);
 			setPendingQuestion(undefined);
 			setDoomLoopMessage(undefined);
-			// Note: pendingChanges are NOT cleared here — loadSession() replaces
-			// them with the loaded session's persisted pending changes (or empty).
-			toolErrorsReference.current.clear();
-			toolMetadataReference.current.clear();
-			fileDiffContentReference.current.clear();
-			setToolErrors(new Map());
-			setToolMetadata(new Map());
 			setFileDiffContent(new Map());
-			// Reset reconnect flag so the reconnection effect can fire for the new session
-			hasTriggeredReconnectReference.current = false;
-			reconnectSnapshotReference.current = undefined;
 			resetScrollState();
 			loadSession(targetSessionId);
-			// Persist the newly loaded session as the active one in localStorage
 			setActiveSessionId(projectId, targetSessionId);
 		},
-		[loadSession, projectId, isChatLoading, stopChat, resetScrollState],
+		[loadSession, projectId, isConnected, isProcessing, sessionId, agent, resetScrollState],
 	);
 
 	// Focus input on mount
@@ -747,74 +331,48 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		});
 	}, []);
 
-	// Send message
+	// Send message via Agent RPC
 	const handleSend = useCallback(
 		async (messageOverride?: string) => {
 			const messageText = messageOverride ?? inputPlainText.trim();
-			if (!messageText || isProcessing) return;
+			if (!messageText || isProcessing || !isConnected) return;
 
-			// Clear any previous error, continuation prompt, pending question, or doom loop
-			setAiError(undefined);
 			setNeedsContinuation(false);
 			setPendingQuestion(undefined);
 			setDoomLoopMessage(undefined);
 
-			// Reset hasCancelled so the new run's isProcessing correctly
-			// reflects the loading state. Without this, if the user cancels
-			// and sends before the server confirms the abort, isProcessing
-			// stays false and the stop button never appears for the new run.
-			setHasCancelled(false);
+			// Build the user message
+			const userMessage: ChatMessage = {
+				id: crypto.randomUUID(),
+				role: 'user',
+				parts: [{ type: 'text', content: messageText }],
+				createdAt: Date.now(),
+			};
 
-			// Eagerly generate a session ID so the server-side persistence always
-			// has a valid ID. Update the ref directly so the SSE connection body
-			// picks it up immediately (the useEffect sync is deferred).
-			if (!sessionIdReference.current) {
-				const newId = crypto.randomUUID().replaceAll('-', '').slice(0, 16);
-				useStore.getState().setSessionId(newId);
-				sessionIdReference.current = newId;
-				setActiveSessionId(projectId, newId);
+			const updatedMessages = [...chatMessages, userMessage];
+			const resolvedSessionId = sessionId ?? crypto.randomUUID().replaceAll('-', '').slice(0, 16);
+
+			if (!sessionId) {
+				setActiveSessionId(projectId, resolvedSessionId);
 			}
 
-			// Track the index of this user message for snapshot association
-			userMessageIndexReference.current = chatMessages.length; // index of the user message about to be added
-			// Record the active agent mode for this user message (used for badge + color coding).
-			// Read from the store directly (not the ref) because setAgentMode updates the store
-			// synchronously, while the useEffect that syncs the ref is deferred to after render.
-			// This matters when the welcome screen changes the mode and sends in the same tick.
-			const currentMode = useStore.getState().agentMode;
-			agentModeReference.current = currentMode;
-			setMessageMode(chatMessages.length, currentMode);
 			setSegments([]);
 			inputReference.current?.clear();
-			setStatusMessage('Thinking...');
 			scrollToBottom();
 
 			try {
-				await sendMessage(messageText);
+				await agent.call('startRun', [projectId, updatedMessages, agentMode, selectedModel, resolvedSessionId]);
 			} catch (error: unknown) {
-				if (error instanceof Error && error.name === 'AbortError') {
-					// Cancelled — useChat handles partial messages
-					return;
-				}
-				// Other errors are handled by onError callback
+				if (error instanceof Error && error.name === 'AbortError') return;
+				console.error('[AIPanel] Failed to start agent:', error);
 			}
 		},
-		[
-			inputPlainText,
-			isProcessing,
-			chatMessages.length,
-			setAiError,
-			setStatusMessage,
-			setMessageMode,
-			sendMessage,
-			projectId,
-			scrollToBottom,
-		],
+		[inputPlainText, isConnected, isProcessing, chatMessages, sessionId, projectId, agentMode, selectedModel, agent, scrollToBottom],
 	);
 
 	// Cancel current request.
 	// Tells the AgentRunner DO to abort the specific session, and stops
-	// the local useChat stream consumer. Session is persisted server-side
+	// the local useAgentChat stream consumer. Session is persisted server-side
 	// when the agent is aborted, so no client-side save is needed here.
 	//
 	// After aborting, we merge server-side metadata (snapshot IDs for revert
@@ -824,32 +382,11 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	// the client's in-memory messages are the most complete source at this point
 	// and include thinking content / partial text that may not yet be persisted.
 	const handleCancel = useCallback(() => {
-		const currentSessionId = useStore.getState().sessionId;
-		stopChat();
-		setHasCancelled(true);
-		// Clear status and error immediately so "Thinking..." doesn't linger
-		// and any prior error is dismissed (user intentionally stopped).
-		setStatusMessage(undefined);
-		setAiError(undefined);
-		// Prevent the reconnection effect from re-triggering
-		hasTriggeredReconnectReference.current = true;
-		// Abort the agent in the DO with retry — critical for multi-window
-		// reliability since the broadcast to other windows only fires after
-		// the DO processes the abort.
-		void retry(() => abortAgent(projectId, currentSessionId)).catch((error) => {
-			console.error('[AIPanel] Failed to abort agent after retries:', error);
+		// Abort via Agent RPC — the state will update automatically
+		void agent.call('abortRun', [sessionId]).catch((error: unknown) => {
+			console.error('[AIPanel] Failed to abort agent:', error);
 		});
-		// Fetch the server session to pick up any metadata persisted so far.
-		// Guard against the user having navigated to a different session.
-		if (currentSessionId) {
-			void loadAiSession(projectId, currentSessionId).then((serverSession) => {
-				if (useStore.getState().sessionId !== currentSessionId) return;
-				if (serverSession) {
-					mergeServerSessionMetadata(serverSession);
-				}
-			});
-		}
-	}, [stopChat, projectId, setStatusMessage, setAiError, mergeServerSessionMetadata]);
+	}, [agent, sessionId]);
 
 	// Interrupt current generation. The user's typed text stays in the
 	// input so they can send it normally once the cancel settles.
@@ -880,7 +417,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 
 			if (event.key === 'Enter' && !event.shiftKey) {
 				event.preventDefault();
-				if (isProcessing && hasContent) {
+				if (isProcessing && hasContent && isConnected) {
 					// Show interrupt confirmation instead of sending
 					setShowInterruptConfirm(true);
 					return;
@@ -888,21 +425,31 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 				void handleSend();
 			}
 		},
-		[handleSend, handleFileMentionKeyDown, isProcessing, hasContent, showInterruptConfirm, handleInterrupt],
+		[handleSend, handleFileMentionKeyDown, isConnected, isProcessing, hasContent, showInterruptConfirm, handleInterrupt],
 	);
 
-	// Retry: use useChat's reload() which atomically trims messages after
-	// the last user message and re-streams, avoiding race conditions with
-	// the bi-directional chatMessages ↔ Zustand sync.
+	// Retry: trim the failed assistant response and re-start the agent
 	const handleRetry = useCallback(() => {
-		setAiError(undefined);
-		void reload();
-	}, [setAiError, reload]);
+		const lastUser = chatMessages.toReversed().find((m) => m.role === 'user');
+		if (!lastUser) return;
 
-	// Dismiss error
+		const lastUserIndex = chatMessages.lastIndexOf(lastUser);
+		if (lastUserIndex === -1) return;
+
+		const trimmedHistory = chatMessages.slice(0, lastUserIndex + 1);
+		const resolvedSessionId = sessionId ?? crypto.randomUUID().replaceAll('-', '').slice(0, 16);
+
+		void agent.call('startRun', [projectId, trimmedHistory, agentMode, selectedModel, resolvedSessionId]).catch((error: unknown) => {
+			console.error('[AIPanel] Failed to retry:', error);
+		});
+	}, [chatMessages, sessionId, projectId, agentMode, selectedModel, agent]);
+
+	// Dismiss error — track locally since error comes from agent state
+	const [dismissedError, setDismissedError] = useState<string | undefined>();
+	const displayError = aiError && aiError.message !== dismissedError ? aiError : undefined;
 	const handleDismissError = useCallback(() => {
-		setAiError(undefined);
-	}, [setAiError]);
+		if (aiError) setDismissedError(aiError.message);
+	}, [aiError]);
 
 	// Open revert confirmation dialog.
 	// Computes the full cascade set: all snapshot IDs from the clicked message forward
@@ -936,12 +483,9 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 			// Mark loading state on the dialog
 			setPendingRevert((previous) => (previous ? { ...previous, isLoading: true, error: undefined } : previous));
 
-			// Must be set before stopChat() — onFinish reads this synchronously.
 			revertInProgressReference.current = true;
 			if (isProcessing) {
-				stopChat();
-				setHasCancelled(true);
-				setStatusMessage(undefined);
+				void agent.call('abortRun', [sessionId]);
 			}
 
 			// Extract the user prompt text before removing messages
@@ -985,11 +529,9 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 				const snapshotIdSet = new Set(snapshotIds);
 				clearPendingChangesBySnapshots(snapshotIdSet);
 
-				// Skip bi-directional sync to avoid echo cycles (same pattern as reconnection effect).
-				skipNextReverseSyncReference.current = true;
-				skipNextForwardSyncReference.current = true;
-				removeMessagesFrom(messageIndex);
-				setChatMessages(chatMessages.slice(0, messageIndex));
+				// Revert messages on the server — awaited so errors surface in the dialog
+				// and the dialog stays open until the server confirms the revert.
+				await agent.call('revertSession', [sessionId, messageIndex]);
 
 				// Restore the prompt text into the input, parsing file mentions back into pills
 				if (promptText) {
@@ -1000,22 +542,10 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 					});
 				}
 
-				// Persist the updated pending changes and revert the session server-side.
-				// The DO truncates history, prunes snapshots, and sets revertedAt to
-				// prevent the stream's `finally` block from overwriting the reverted state.
-				// The revert response includes the estimated context token usage for the
-				// truncated history, which we use to update the context ring accurately.
+				// Persist pending changes (the agent state will auto-sync the updated context token usage)
 				queueMicrotask(() => {
 					void persistPendingChanges();
-					void revertSession(messageIndex)
-						.then((result) => {
-							if (result) {
-								setContextTokensUsed(result.contextTokensUsed);
-							}
-						})
-						.finally(() => {
-							revertInProgressReference.current = false;
-						});
+					revertInProgressReference.current = false;
 				});
 
 				// Close the dialog on success
@@ -1036,17 +566,13 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 			isProcessing,
 			chatMessages,
 			projectId,
+			sessionId,
 			files,
-			stopChat,
+			agent,
 			revertCascadeAsync,
 			clearPendingChangesByPaths,
 			clearPendingChangesBySnapshots,
-			removeMessagesFrom,
-			setChatMessages,
 			persistPendingChanges,
-			revertSession,
-			setContextTokensUsed,
-			setStatusMessage,
 		],
 	);
 
@@ -1067,14 +593,14 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	);
 
 	// Determine the streaming assistant message (last message if it's still being generated)
-	const streamingAssistantMessage = useMemo((): UIMessage | undefined => {
-		if (!isChatLoading) return undefined;
+	const streamingAssistantMessage = useMemo((): ChatMessage | undefined => {
+		if (!isProcessing) return undefined;
 		const last = chatMessages.at(-1);
 		if (last && last.role === 'assistant' && last.parts.length > 0) {
 			return last;
 		}
 		return undefined;
-	}, [isChatLoading, chatMessages]);
+	}, [isProcessing, chatMessages]);
 
 	// Non-streaming messages (all except the streaming one)
 	const displayMessages = useMemo(() => {
@@ -1131,7 +657,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 					{/* New session — always available when there's history, even while streaming */}
 					{chatMessages.length > 0 && (
 						<Tooltip content="New session" side="bottom">
-							<Button variant="ghost" size="icon-sm" onClick={clearHistory}>
+							<Button variant="ghost" size="icon-sm" onClick={clearHistory} disabled={!isConnected}>
 								<Plus className="size-3.5" />
 							</Button>
 						</Tooltip>
@@ -1152,15 +678,33 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 							"
 							title={sessionTitle}
 						>
-							{isProcessing ? (
-								<Tooltip content="Session is running">
-									<Loader2 className="size-3 shrink-0 animate-spin text-warning" />
-								</Tooltip>
-							) : needsAttention ? (
+							{/* Connection state dot */}
+							<Tooltip
+								content={
+									agentConnectionState === 'connected'
+										? 'Connected'
+										: agentConnectionState === 'connecting'
+											? 'Connecting…'
+											: 'Reconnecting…'
+								}
+								side="bottom"
+							>
+								<span
+									className={cn(
+										'size-1.5 shrink-0 rounded-full transition-colors',
+										agentConnectionState === 'connected'
+											? 'bg-success'
+											: agentConnectionState === 'connecting'
+												? 'animate-pulse bg-text-secondary/50'
+												: 'animate-pulse bg-error',
+									)}
+								/>
+							</Tooltip>
+							{needsAttention && (
 								<Tooltip content="Action required">
 									<MessageCircleQuestion className="size-3 shrink-0 text-accent" />
 								</Tooltip>
-							) : undefined}
+							)}
 							<span className="truncate text-2xs text-text-secondary">{sessionTitle}</span>
 						</div>
 					);
@@ -1209,6 +753,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 											toolErrors={toolErrors}
 											toolMetadata={toolMetadata}
 											fileDiffContent={fileDiffContent}
+											showHeader={message.role !== 'assistant' || index === 0 || displayMessages[index - 1]?.role !== 'assistant'}
 										/>
 									))}
 								</>
@@ -1221,6 +766,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 									toolErrors={toolErrors}
 									toolMetadata={toolMetadata}
 									fileDiffContent={fileDiffContent}
+									showHeader={displayMessages.length === 0 || displayMessages.at(-1)?.role !== 'assistant'}
 								/>
 							)}
 							{/* User question prompt — shown when the AI asks a clarifying question */}
@@ -1240,7 +786,9 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 								<DoomLoopAlert message={doomLoopMessage} onRetry={handleRetry} onDismiss={() => setDoomLoopMessage(undefined)} />
 							)}
 							{/* AI Error display */}
-							{aiError && <AIError message={aiError.message} code={aiError.code} onRetry={handleRetry} onDismiss={handleDismissError} />}
+							{displayError && (
+								<AIError message={displayError.message} code={displayError.code} onRetry={handleRetry} onDismiss={handleDismissError} />
+							)}
 							{statusMessage ? (
 								<div
 									className="
@@ -1346,6 +894,42 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 						isProcessing ? 'border-warning/40' : 'border-border',
 					)}
 				>
+					{/* Connection status bar */}
+					<InputInfoBar open={!isConnected} icon={<Loader2 className="size-3 shrink-0 animate-spin text-warning" />}>
+						<span className="flex-1 text-xs text-text-secondary">
+							{agentConnectionState === 'connecting' ? 'Connecting to agent…' : 'Connection lost. Reconnecting…'}
+						</span>
+					</InputInfoBar>
+
+					{/* Interrupt confirmation bar */}
+					<InputInfoBar open={showInterruptConfirm && isConnected} icon={<Square className="size-3 shrink-0 text-warning" />}>
+						<span className="flex-1 text-xs text-text-secondary">Interrupt generation?</span>
+						<button
+							type="button"
+							onClick={() => setShowInterruptConfirm(false)}
+							className="
+								inline-flex cursor-pointer items-center rounded-sm p-0.5
+								text-text-secondary transition-colors
+								hover:bg-bg-tertiary hover:text-text-primary
+							"
+							aria-label="Dismiss"
+						>
+							<X className="size-3" />
+						</button>
+						<button
+							type="button"
+							onClick={handleInterrupt}
+							className="
+								inline-flex cursor-pointer items-center gap-1 rounded-md bg-warning/15
+								px-2 py-0.5 text-xs font-medium text-warning transition-colors
+								hover:bg-warning/25
+							"
+						>
+							<Square className="size-3" />
+							Interrupt
+						</button>
+					</InputInfoBar>
+
 					<RichTextInput
 						ref={inputReference}
 						segments={segments}
@@ -1377,55 +961,20 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 							</button>
 						)}
 					</Collapsible>
-					{/* Interrupt confirmation bar */}
-					<Collapsible open={showInterruptConfirm}>
-						<div
-							className="
-								flex items-center gap-2 border-t border-warning/30 bg-warning/5 px-2.5
-								py-1.5
-							"
-						>
-							<span className="flex-1 text-xs text-text-secondary">Interrupt generation?</span>
-							<button
-								type="button"
-								onClick={() => setShowInterruptConfirm(false)}
-								className="
-									inline-flex cursor-pointer items-center rounded-sm p-0.5
-									text-text-secondary transition-colors
-									hover:bg-bg-tertiary hover:text-text-primary
-								"
-								aria-label="Dismiss"
-							>
-								<X className="size-3" />
-							</button>
-							<button
-								type="button"
-								onClick={handleInterrupt}
-								className="
-									inline-flex cursor-pointer items-center gap-1 rounded-md bg-warning/15
-									px-2 py-0.5 text-xs font-medium text-warning transition-colors
-									hover:bg-warning/25
-								"
-							>
-								<Square className="size-3" />
-								Interrupt
-							</button>
-						</div>
-					</Collapsible>
 					<div
 						className="
 							flex flex-wrap-reverse items-center gap-x-1.5 gap-y-0.5 px-1.5 py-1
 						"
 					>
-						<AgentModeSelector mode={agentMode} onModeChange={setAgentMode} disabled={isProcessing} />
+						<AgentModeSelector mode={agentMode} onModeChange={setAgentMode} disabled={isProcessing || !isConnected} />
 						<Pill
 							size="md"
 							color="muted"
 							className={cn(
 								'max-w-full min-w-0 cursor-pointer overflow-hidden transition-colors',
-								isProcessing && 'cursor-not-allowed opacity-40',
+								(isProcessing || !isConnected) && 'cursor-not-allowed opacity-40',
 							)}
-							onClick={() => !isProcessing && setIsModelSelectorOpen(true)}
+							onClick={() => !isProcessing && isConnected && setIsModelSelectorOpen(true)}
 						>
 							<span className="truncate">{getModelLabel(selectedModel)}</span>
 						</Pill>
@@ -1446,11 +995,11 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 							) : (
 								<button
 									onClick={() => void handleSend()}
-									disabled={!hasContent}
+									disabled={!hasContent || !isConnected}
 									className={cn(
 										'inline-flex items-center gap-1.5 rounded-md p-1.5',
 										'text-xs font-medium transition-colors',
-										hasContent
+										hasContent && isConnected
 											? `
 												cursor-pointer bg-accent text-white
 												hover:bg-accent-hover

@@ -17,7 +17,7 @@ export const LIMITS = {
 	/** Maximum file content size in bytes */
 	FILE_MAX_SIZE: 5 * 1024 * 1024, // 5MB
 	/** Maximum AI message length */
-	AI_MESSAGE_MAX_LENGTH: 50_000,
+
 	/** Maximum session ID length */
 	SESSION_ID_MAX_LENGTH: 32,
 	/** Maximum snapshot ID length */
@@ -351,32 +351,6 @@ export const toolInputSchemas = {
 } as const;
 
 export type ToolName = keyof typeof toolInputSchemas;
-
-/**
- * Schema for AI chat message.
- *
- * Accepts the TanStack AI fetchServerSentEvents format:
- * { messages: UIMessage[], data?: {...}, mode?, sessionId?, model? }
- *
- * The `messages` array contains UIMessage objects with `parts` arrays.
- * Additional fields (mode, sessionId, model) come from the `body` config
- * on the frontend's fetchServerSentEvents connection adapter.
- */
-export const aiChatMessageSchema = z
-	.object({
-		messages: z.array(z.unknown()).min(1, 'At least one message is required'),
-		data: z.unknown().optional(),
-		mode: z.enum(['code', 'plan', 'ask']).optional(),
-		sessionId: z.string().max(LIMITS.SESSION_ID_MAX_LENGTH).optional(),
-		model: aiModelSchema.optional(),
-		outputLogs: z.string().max(10_000).optional(),
-	})
-	.refine((data) => JSON.stringify(data.messages).length <= LIMITS.AI_MESSAGE_MAX_LENGTH * 10, {
-		message: 'Messages payload is too large',
-		path: ['messages'],
-	});
-
-export type AiChatInput = z.infer<typeof aiChatMessageSchema>;
 
 // =============================================================================
 // Session Schemas

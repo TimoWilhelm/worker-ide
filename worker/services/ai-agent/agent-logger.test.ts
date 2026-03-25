@@ -29,7 +29,7 @@ describe('AgentLogger', () => {
 	let logger: AgentLogger;
 
 	beforeEach(() => {
-		logger = new AgentLogger('test-session', 'test-project', 'anthropic/claude-4.5-haiku', 'code');
+		logger = new AgentLogger('test-session', 'test-project', '@cf/moonshotai/kimi-k2.5', 'code');
 	});
 
 	afterEach(() => {
@@ -215,7 +215,7 @@ describe('AgentLogger', () => {
 			expect(result.id).toBeTruthy();
 			expect(result.sessionId).toBe('test-session');
 			expect(result.projectId).toBe('test-project');
-			expect(result.model).toBe('anthropic/claude-4.5-haiku');
+			expect(result.model).toBe('@cf/moonshotai/kimi-k2.5');
 			expect(result.mode).toBe('code');
 			expect(result.startedAt).toBeTruthy();
 			expect(result.completedAt).toBeTruthy();

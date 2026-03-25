@@ -17,7 +17,7 @@ import { buildAppOrigin, parseHost } from '@shared/domain';
 import { generateHumanId } from '@shared/human-id';
 import { isValidProjectId } from '@shared/project-id';
 
-import { coordinatorNamespace, filesystemNamespace } from './lib/durable-object-namespaces';
+import { agentRunnerNamespace, coordinatorNamespace, filesystemNamespace } from './lib/durable-object-namespaces';
 import { errorPage } from './lib/error-page';
 import { generateProjectId, toDurableObjectId } from './lib/project-id';
 import { apiRoutes } from './routes';
@@ -339,7 +339,12 @@ app.all('/p/:projectId/*', async (c) => {
 		return env.ASSETS.fetch(new Request(new URL('/', c.req.url), c.req.raw));
 	}
 
-	const isBackendRoute = subPath.startsWith('/api/') || subPath === '/__ws' || subPath.startsWith('/__ws');
+	const isBackendRoute =
+		subPath.startsWith('/api/') ||
+		subPath === '/__ws' ||
+		subPath.startsWith('/__ws') ||
+		subPath === '/__agent' ||
+		subPath.startsWith('/__agent');
 	if (!isBackendRoute) {
 		return env.ASSETS.fetch(new Request(new URL('/', c.req.url), c.req.raw));
 	}
@@ -347,6 +352,25 @@ app.all('/p/:projectId/*', async (c) => {
 	const fsStub = filesystemNamespace.get(fsId);
 	if (!(await fsStub.projectExists())) {
 		return c.notFound();
+	}
+
+	// Agent SDK WebSocket — forward to the AgentRunner DO.
+	// The Agent class (from agents SDK) handles the WebSocket upgrade,
+	// state sync, and @callable RPC natively.
+	//
+	// We must include the `x-partykit-room` header so partyserver can
+	// identify the Agent's name on first connection (before it has been
+	// persisted to storage). Without it, partyserver throws
+	// "Missing namespace or room headers", which in the miniflare dev
+	// environment causes an ERR_ASSERTION crash in #handleLoopback.
+	if (subPath === '/__agent' || subPath.startsWith('/__agent')) {
+		const agentId = agentRunnerNamespace.idFromName(`agent:${projectId}`);
+		const agentStub = agentRunnerNamespace.get(agentId);
+		const agentUrl = new URL(c.req.url);
+		agentUrl.pathname = '/';
+		const agentHeaders = new Headers(c.req.raw.headers);
+		agentHeaders.set('x-partykit-room', `agent:${projectId}`);
+		return agentStub.fetch(new Request(agentUrl, { ...c.req.raw, headers: agentHeaders }));
 	}
 
 	return withMounts(async () => {
@@ -395,6 +419,31 @@ app.all('*', (c) => {
 export default {
 	async fetch(request: Request, environment: Env, executionContext: ExecutionContext): Promise<Response> {
 		const url = new URL(request.url);
+
+		// Guard: reject WebSocket upgrade requests that don't match a known
+		// WebSocket handler path before any routing can forward them to
+		// env.ASSETS.fetch(). In the miniflare dev environment, forwarding a
+		// WebSocket upgrade to the ASSETS node-service binding causes an
+		// unrecoverable ERR_ASSERTION crash inside #handleLoopback because the
+		// upgrade path calls #handleLoopback(req) without a `res` argument, but
+		// the node-service branch unconditionally asserts that `res` is truthy.
+		//
+		// Valid WebSocket paths:
+		//   - App domain:     /p/<projectId>/__ws   (ProjectCoordinator)
+		//   - App domain:     /p/<projectId>/__agent (AgentRunner)
+		//   - Preview domain: /__ws                  (ProjectCoordinator)
+		if (request.headers.get('Upgrade') === 'websocket') {
+			const isValidWebSocketPath =
+				url.pathname === '/__ws' ||
+				url.pathname.startsWith('/__ws/') ||
+				/^\/p\/[^/]+\/__ws(\/|$)/.test(url.pathname) ||
+				/^\/p\/[^/]+\/__agent(\/|$)/.test(url.pathname);
+
+			if (!isValidWebSocketPath) {
+				return new Response('WebSocket not supported on this path', { status: 404 });
+			}
+		}
+
 		const parsed = parseHost(url.host);
 
 		switch (parsed.type) {

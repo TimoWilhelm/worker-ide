@@ -10,7 +10,6 @@ import { deployRoutes } from './deploy-routes';
 import { fileRoutes } from './file-routes';
 import { gitRoutes } from './git-routes';
 import { projectRoutes } from './project-routes';
-import { sessionRoutes } from './session-routes';
 import { snapshotRoutes } from './snapshot-routes';
 import { testRoutes } from './test-routes';
 import { transformRoutes } from './transform-routes';
@@ -24,7 +23,6 @@ import type { AppEnvironment } from '../types';
 export const apiRoutes = new Hono<AppEnvironment>()
 	.route('', fileRoutes)
 	.route('', projectRoutes)
-	.route('', sessionRoutes)
 	.route('', snapshotRoutes)
 	.route('', aiRoutes)
 	.route('', transformRoutes)

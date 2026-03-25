@@ -1,20 +1,20 @@
 # Worker-IDE
 
-A browser-based full-stack development environment built on Cloudflare Workers. User projects are stored in Durable Object-backed filesystems with full Git support, transformed on-the-fly with esbuild-wasm, and previewed with HMR. Includes an AI coding assistant powered by TanStack AI and Replicate.
+A browser-based full-stack development environment built on Cloudflare Workers. User projects are stored in Durable Object-backed filesystems with full Git support, transformed on-the-fly with esbuild-wasm, and previewed with HMR. Includes an AI coding assistant powered by the Cloudflare Agents SDK and Workers AI.
 
 ## Architecture
 
 ### Frontend (`src/`)
 
 - React 19, Tailwind CSS v4, Zustand for state, CodeMirror 6 for the editor.
-- TanStack AI for AI chat with AG-UI streaming. Hono RPC for type-safe API calls.
+- Vercel AI SDK for LLM calls. Cloudflare Agents SDK for agent state management. Hono RPC for type-safe API calls.
 - Features organized by domain under `src/features/`.
 
 ### Backend (`worker/`)
 
 - Cloudflare Workers with Hono. Two Durable Objects: one for per-project file storage (SQLite-backed, with Git via `isomorphic-git`) and one for WebSocket coordination (HMR, collaboration).
 - User backend code runs in isolated V8 isolates via Cloudflare's [Dynamic Worker Loader](https://developers.cloudflare.com/workers/runtime-apis/bindings/worker-loader/) API.
-- AI agent with TanStack AI, streaming via AG-UI custom events.
+- AI coding assistant powered by the Cloudflare Agents SDK and Vercel AI SDK, with real-time state sync via WebSocket.
 
 ### Shared (`shared/`)
 

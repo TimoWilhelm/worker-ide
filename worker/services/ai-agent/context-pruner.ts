@@ -3,11 +3,13 @@
  *
  * 1. **Pruning** — erase old tool outputs when context is getting full
  * 2. **Context budget** — check if there's enough context remaining for another iteration
+ * 3. **Message conversion** — convert ChatMessage[] to ModelMessage[] for the AI SDK
  *
  * The agent loop prunes proactively at ~70% utilization, then stops when budget is exhausted.
  */
 
-import type { ModelMessage } from '@tanstack/ai';
+import type { ChatMessage, MessagePart } from '@shared/types';
+import type { AssistantModelMessage, ModelMessage, ToolModelMessage } from 'ai';
 
 // =============================================================================
 // Constants
@@ -32,6 +34,232 @@ const PRUNED_PLACEHOLDER = '[Old tool result content cleared]';
 const CONTEXT_BUDGET_BUFFER = 20_000;
 
 // =============================================================================
+// ChatMessage → ModelMessage Conversion
+// =============================================================================
+
+/**
+ * Convert our app-owned ChatMessage[] to Vercel AI SDK ModelMessage[].
+ *
+ * This is the boundary between our message format and the AI SDK's format.
+ * ChatMessage uses our MessagePart union; ModelMessage uses the AI SDK's part format.
+ */
+export function chatMessagesToModelMessages(messages: ChatMessage[]): ModelMessage[] {
+	const result: ModelMessage[] = [];
+
+	for (const message of messages) {
+		if (message.role === 'user') {
+			// Extract text content from user message parts
+			const textParts = message.parts.filter((part) => part.type === 'text');
+			const text = textParts.map((part) => part.content).join('\n');
+			if (text) {
+				result.push({ role: 'user' as const, content: text });
+			}
+		} else if (message.role === 'assistant') {
+			// Separate text parts, tool call parts, and tool result parts
+			const textContent: string[] = [];
+			const toolCalls: Array<{
+				toolCallId: string;
+				toolName: string;
+				input: unknown;
+			}> = [];
+			const toolResults: Array<{
+				toolCallId: string;
+				toolName: string;
+				output: unknown;
+				isError?: boolean;
+			}> = [];
+
+			for (const part of message.parts) {
+				switch (part.type) {
+					case 'text': {
+						textContent.push(part.content);
+						break;
+					}
+					case 'tool-call': {
+						toolCalls.push({
+							toolCallId: part.toolCallId,
+							toolName: part.toolName,
+							input: part.arguments,
+						});
+						break;
+					}
+					case 'tool-result': {
+						toolResults.push({
+							toolCallId: part.toolCallId,
+							toolName: part.toolName,
+							output: part.result,
+							isError: part.isError,
+						});
+						break;
+					}
+					case 'reasoning': {
+						// Reasoning parts are not sent to the model
+						break;
+					}
+				}
+			}
+
+			if (toolCalls.length > 0) {
+				// Assistant message with tool calls
+				const assistantContent: Array<
+					{ type: 'text'; text: string } | { type: 'tool-call'; toolCallId: string; toolName: string; input: unknown }
+				> = [];
+				if (textContent.length > 0) {
+					assistantContent.push({ type: 'text' as const, text: textContent.join('\n') });
+				}
+				for (const tc of toolCalls) {
+					assistantContent.push({
+						type: 'tool-call' as const,
+						toolCallId: tc.toolCallId,
+						toolName: tc.toolName,
+						input: tc.input,
+					});
+				}
+				result.push({ role: 'assistant' as const, content: assistantContent });
+
+				// Add tool result messages
+				for (const tr of toolResults) {
+					result.push({
+						role: 'tool' as const,
+						content: [
+							{
+								type: 'tool-result' as const,
+								toolCallId: tr.toolCallId,
+								toolName: tr.toolName,
+								output: { type: 'text' as const, value: typeof tr.output === 'string' ? tr.output : JSON.stringify(tr.output) },
+							},
+						],
+					});
+				}
+			} else if (textContent.length > 0) {
+				// Text-only assistant message
+				result.push({ role: 'assistant' as const, content: textContent.join('\n') });
+			}
+		}
+	}
+
+	return result;
+}
+
+// =============================================================================
+// ResponseMessage → ChatMessage Conversion
+// =============================================================================
+
+/**
+ * Convert Vercel AI SDK response messages (AssistantModelMessage | ToolModelMessage)
+ * back to ChatMessage[] so the agent loop can append each turn's output to the
+ * persistent chat history.
+ *
+ * Each LLM turn produces one ChatMessage. When an AssistantModelMessage with
+ * tool-call parts is immediately followed by a ToolModelMessage, the tool-result
+ * parts are merged into the same ChatMessage. This ensures the frontend renderer
+ * can pair tool-call and tool-result parts within a single message.
+ */
+export function responseMessagesToChatMessages(messages: Array<AssistantModelMessage | ToolModelMessage>): ChatMessage[] {
+	const result: ChatMessage[] = [];
+
+	for (let index = 0; index < messages.length; index++) {
+		const message = messages[index];
+
+		if (message.role === 'assistant') {
+			const parts: MessagePart[] = [];
+			const content = message.content;
+
+			if (typeof content === 'string') {
+				if (content) parts.push({ type: 'text', content });
+			} else {
+				for (const part of content) {
+					switch (part.type) {
+						case 'text': {
+							if (part.text) parts.push({ type: 'text', content: part.text });
+							break;
+						}
+						case 'tool-call': {
+							const rawInput = part.input;
+							const arguments_: Record<string, unknown> =
+								rawInput !== undefined && rawInput !== null && typeof rawInput === 'object' && !Array.isArray(rawInput)
+									? Object.fromEntries(Object.entries(rawInput))
+									: { __raw: rawInput };
+							parts.push({
+								type: 'tool-call',
+								toolCallId: part.toolCallId,
+								toolName: part.toolName,
+								arguments: arguments_,
+							});
+							break;
+						}
+						case 'reasoning': {
+							if (part.text) {
+								parts.push({ type: 'reasoning', content: part.text });
+							}
+							break;
+						}
+						// file, image, redacted-reasoning, tool-result — not used in our ChatMessage format
+					}
+				}
+			}
+
+			// Merge tool results from the following ToolModelMessage into this message.
+			// The AI SDK always places the tool response immediately after the assistant message.
+			const next = messages[index + 1];
+			if (next?.role === 'tool') {
+				for (const part of next.content) {
+					if (part.type === 'tool-result') {
+						const output = part.output;
+						const isErrorOutput = output.type === 'error-text';
+						const resultText =
+							output.type === 'text' || output.type === 'error-text'
+								? output.value
+								: 'value' in output
+									? JSON.stringify(output.value)
+									: output.type;
+						parts.push({
+							type: 'tool-result',
+							toolCallId: part.toolCallId,
+							toolName: part.toolName,
+							result: resultText,
+							isError: isErrorOutput,
+						});
+					}
+				}
+				index++; // Skip the tool message — its parts are now merged above
+			}
+
+			if (parts.length > 0) {
+				result.push({ id: crypto.randomUUID(), role: 'assistant', parts, createdAt: Date.now() });
+			}
+		} else if (message.role === 'tool') {
+			// Standalone tool message (no preceding assistant) — convert to assistant message
+			const parts: MessagePart[] = [];
+			for (const part of message.content) {
+				if (part.type === 'tool-result') {
+					const output = part.output;
+					const isErrorOutput = output.type === 'error-text';
+					const resultText =
+						output.type === 'text' || output.type === 'error-text'
+							? output.value
+							: 'value' in output
+								? JSON.stringify(output.value)
+								: output.type;
+					parts.push({
+						type: 'tool-result',
+						toolCallId: part.toolCallId,
+						toolName: part.toolName,
+						result: resultText,
+						isError: isErrorOutput,
+					});
+				}
+			}
+			if (parts.length > 0) {
+				result.push({ id: crypto.randomUUID(), role: 'assistant', parts, createdAt: Date.now() });
+			}
+		}
+	}
+
+	return result;
+}
+
+// =============================================================================
 // Token Estimation
 // =============================================================================
 
@@ -44,26 +272,24 @@ function estimateTokens(text: string): number {
 }
 
 /**
- * Estimate the total token count of a message array.
+ * Estimate the total token count of a ModelMessage array.
  */
 export function estimateMessagesTokens(messages: ModelMessage[]): number {
 	let total = 0;
 	for (const message of messages) {
 		if (typeof message.content === 'string') {
 			total += estimateTokens(message.content);
-		} else if (message.content === undefined || message.content === null) {
-			// No tokens for null/undefined content
 		} else if (Array.isArray(message.content)) {
 			for (const part of message.content) {
 				if ('text' in part && typeof part.text === 'string') {
 					total += estimateTokens(part.text);
 				}
-			}
-		}
-		// Also count tool call arguments
-		if (message.toolCalls) {
-			for (const toolCall of message.toolCalls) {
-				total += estimateTokens(toolCall.function.arguments);
+				if ('input' in part && part.input) {
+					total += estimateTokens(typeof part.input === 'string' ? part.input : JSON.stringify(part.input));
+				}
+				if ('output' in part && part.output) {
+					total += estimateTokens(typeof part.output === 'string' ? part.output : JSON.stringify(part.output));
+				}
 			}
 		}
 	}
@@ -171,11 +397,18 @@ export function pruneToolOutputs(messages: ModelMessage[]): { messages: ModelMes
 	}
 
 	// Create new message array with pruned tool outputs
-	const prunedMessages = messages.map((message, index) => {
-		if (indicesToPrune.has(index)) {
+	const prunedMessages = messages.map((message, index): ModelMessage => {
+		if (indicesToPrune.has(index) && message.role === 'tool') {
 			return {
-				...message,
-				content: PRUNED_PLACEHOLDER,
+				role: 'tool' as const,
+				content: [
+					{
+						type: 'tool-result' as const,
+						toolCallId: 'pruned',
+						toolName: 'pruned',
+						output: { type: 'text' as const, value: PRUNED_PLACEHOLDER },
+					},
+				],
 			};
 		}
 		return message;

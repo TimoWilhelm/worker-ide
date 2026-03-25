@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 
 import { toolInputSchemas } from '@shared/validation';
 
-import { isToolName, isRecord, extractCustomEvent, getStringField, getNumberField } from './helpers';
+import { isToolName, isRecord } from './helpers';
 
 // =============================================================================
 // isToolName
@@ -53,68 +53,5 @@ describe('isRecord', () => {
 	it('returns false for nullish values', () => {
 		// eslint-disable-next-line unicorn/no-null -- testing null guard
 		expect(isRecord(null)).toBe(false);
-	});
-});
-
-// =============================================================================
-// extractCustomEvent
-// =============================================================================
-
-describe('extractCustomEvent', () => {
-	it('extracts data from a CUSTOM AG-UI event', () => {
-		const chunk = { type: 'CUSTOM' as const, name: 'status', data: { message: 'Thinking...' }, timestamp: 12_345 };
-		const result = extractCustomEvent(chunk);
-		expect(result).toEqual({ name: 'status', data: { message: 'Thinking...' } });
-	});
-
-	it('returns undefined for non-CUSTOM events', () => {
-		const chunk = { type: 'TEXT_MESSAGE_CONTENT' as const, messageId: 'msg-1', delta: 'hello', timestamp: 12_345 };
-		expect(extractCustomEvent(chunk)).toBeUndefined();
-	});
-
-	it('returns empty data for CUSTOM event without data', () => {
-		const chunk = { type: 'CUSTOM' as const, name: 'turn_complete', timestamp: 12_345 };
-		const result = extractCustomEvent(chunk);
-		expect(result).toEqual({ name: 'turn_complete', data: {} });
-	});
-
-	it('returns undefined for non-object chunks', () => {
-		expect(extractCustomEvent('not an object' as never)).toBeUndefined();
-	});
-});
-
-// =============================================================================
-// getStringField
-// =============================================================================
-
-describe('getStringField', () => {
-	it('returns string value for existing field', () => {
-		expect(getStringField({ message: 'hello' }, 'message')).toBe('hello');
-	});
-
-	it('returns empty string for missing field', () => {
-		expect(getStringField({}, 'message')).toBe('');
-	});
-
-	it('returns empty string for non-string field', () => {
-		expect(getStringField({ count: 42 }, 'count')).toBe('');
-	});
-});
-
-// =============================================================================
-// getNumberField
-// =============================================================================
-
-describe('getNumberField', () => {
-	it('returns number value for existing field', () => {
-		expect(getNumberField({ count: 42 }, 'count')).toBe(42);
-	});
-
-	it('returns 0 for missing field', () => {
-		expect(getNumberField({}, 'count')).toBe(0);
-	});
-
-	it('returns 0 for non-number field', () => {
-		expect(getNumberField({ count: 'not a number' }, 'count')).toBe(0);
 	});
 });

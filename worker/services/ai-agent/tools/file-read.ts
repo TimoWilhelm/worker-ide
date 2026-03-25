@@ -8,7 +8,7 @@ import fs from 'node:fs/promises';
 import { HIDDEN_ENTRIES, MAX_DIAGNOSTICS_PER_FILE } from '@shared/constants';
 import { ToolErrorCode, toolError } from '@shared/tool-errors';
 
-import { isHiddenPath, isPathSafe } from '../../../lib/path-utilities';
+import { isHiddenPath, isPathSafe, suggestSimilarFiles } from '../../../lib/path-utilities';
 import { formatLintDiagnostics, lintFile } from '../../../services/lint-service';
 import { recordFileRead } from '../file-time';
 
@@ -155,28 +155,6 @@ function isBinaryFile(filepath: string, content?: Buffer): boolean {
 /**
  * Find similar files in the same directory when a file is not found.
  */
-async function findSimilarFiles(projectRoot: string, filepath: string): Promise<string[]> {
-	try {
-		const directory = filepath.slice(0, filepath.lastIndexOf('/')) || '/';
-		const filename = filepath.slice(filepath.lastIndexOf('/') + 1).toLowerCase();
-
-		const entries = await fs.readdir(`${projectRoot}${directory}`);
-		const similar: string[] = [];
-
-		for (const entry of entries.filter((name) => !HIDDEN_ENTRIES.has(name))) {
-			const entryLower = entry.toLowerCase();
-			// Simple similarity: starts with same characters or contains the name
-			if (entryLower.startsWith(filename.slice(0, 3)) || filename.includes(entryLower) || entryLower.includes(filename)) {
-				similar.push(`${directory}/${entry}`);
-			}
-		}
-
-		return similar.slice(0, 5); // Limit suggestions
-	} catch {
-		return [];
-	}
-}
-
 // =============================================================================
 // Execute Function
 // =============================================================================
@@ -339,13 +317,7 @@ ${content}${message}
 			output,
 		};
 	} catch {
-		// File not found - try to suggest similar files
-		const similar = await findSimilarFiles(projectRoot, readPath);
-		let suggestion = '';
-		if (similar.length > 0) {
-			suggestion = `\n\nDid you mean one of these?\n${similar.map((f) => `  ${f}`).join('\n')}`;
-		}
-
-		return toolError(ToolErrorCode.FILE_NOT_FOUND, `File not found: ${readPath}${suggestion}`);
+		const suggestion = await suggestSimilarFiles(projectRoot, readPath);
+		return toolError(ToolErrorCode.FILE_NOT_FOUND, `File not found: ${readPath}${suggestion ? `. ${suggestion}` : ''}`);
 	}
 }

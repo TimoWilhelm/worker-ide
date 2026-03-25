@@ -3,7 +3,7 @@
  * To add a new model, add an entry to AI_MODELS below.
  */
 
-export type AIModelProvider = 'replicate' | 'workers-ai';
+export type AIModelProvider = 'workers-ai';
 
 export interface AIModelConfig<TId extends string = string> {
 	id: TId;
@@ -21,14 +21,6 @@ export const AI_MODELS = [
 		provider: 'workers-ai',
 		contextWindow: 256_000,
 		maxOutput: 16_384,
-	},
-	{
-		id: 'anthropic/claude-4.5-haiku',
-		label: 'Claude Haiku 4.5',
-		description: 'Fast and efficient for everyday tasks',
-		provider: 'replicate',
-		contextWindow: 200_000,
-		maxOutput: 8192,
 	},
 ] as const satisfies readonly AIModelConfig[];
 

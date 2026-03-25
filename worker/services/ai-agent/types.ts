@@ -2,15 +2,16 @@
  * Types for the AI Agent Service.
  */
 
-import type { StreamChunk } from '@tanstack/ai';
+import type { StreamEvent } from '@shared/agent-state';
 
 // =============================================================================
 // Types
 // =============================================================================
 
 /**
- * Re-export TanStack AI's ModelMessage as our message type.
+ * Re-export Vercel AI SDK's ModelMessage as our internal message type.
  */
+export type { ModelMessage } from 'ai';
 
 export interface FileChange {
 	path: string;
@@ -37,10 +38,10 @@ export type TodoItem = {
 };
 
 /**
- * A queue of CUSTOM AG-UI events that tools push into during execution.
- * The stream wrapper drains this queue between AG-UI events from chat().
+ * A queue of stream events that tools push into during execution.
+ * The stream wrapper drains this queue between LLM events.
  */
-export type CustomEventQueue = StreamChunk[];
+export type StreamEventQueue = StreamEvent[];
 
 /**
  * A record of a tool execution failure, pushed by createServerTools
@@ -54,29 +55,28 @@ export interface ToolFailureRecord {
 
 /**
  * A queue of tool failure records. createServerTools pushes into this
- * during execution; the agent loop drains it after each TOOL_CALL_END.
+ * during execution; the agent loop drains it after each tool call ends.
  */
 export type ToolFailureQueue = ToolFailureRecord[];
 
 /**
  * Mutable ref holding the toolCallId of the currently-executing tool.
  * Set by the tool wrapper before execution, read by `createSendEvent`
- * to auto-inject toolCallId into CUSTOM events (tool_result, file_changed).
+ * to auto-inject toolCallId into events (tool_result, file_changed).
  */
 export interface ToolCallIdReference {
 	current: string | undefined;
 }
 
 /**
- * Ordered queue of toolCallIds from Phase 1 TOOL_CALL_END events.
+ * Ordered queue of toolCallIds from completed tool calls.
  * Each tool wrapper `shift()`s the next ID before executing.
- * This matches the execution order guaranteed by TanStack AI's sequential tool execution.
  */
 export type PendingToolCallIds = string[];
 
 /**
- * Function to emit a CUSTOM AG-UI event from a tool executor.
- * Pushes events into the shared CustomEventQueue which is drained
+ * Function to emit a stream event from a tool executor.
+ * Pushes events into the shared StreamEventQueue which is drained
  * by the stream wrapper and sent to the client.
  */
 export type SendEventFunction = (type: string, data: Record<string, unknown>) => void;
@@ -102,7 +102,7 @@ export interface ToolExecutorContext {
  * - `title`:    Short label for the collapsed tool row in the UI
  *               (e.g. relative file path, glob pattern, package name).
  * - `metadata`: Tool-specific structured data for rich UI rendering.
- *               Sent to the frontend via a CUSTOM `tool_result` AG-UI event.
+ *               Sent to the frontend via a `tool-result` stream event.
  * - `output`:   Plain-text result that goes back to the LLM context.
  */
 export interface ToolResult<M extends Record<string, unknown> = Record<string, unknown>> {
@@ -113,7 +113,7 @@ export interface ToolResult<M extends Record<string, unknown> = Record<string, u
 
 /**
  * Tool execute function signature.
- * Used by individual tool modules, wrapped into TanStack AI tools by tools/index.ts.
+ * Used by individual tool modules, wrapped into Vercel AI SDK tools by tools/index.ts.
  */
 export type ToolExecuteFunction = (
 	input: Record<string, string>,
@@ -124,7 +124,7 @@ export type ToolExecuteFunction = (
 
 /**
  * Tool definition shape used by individual tool modules.
- * The tools/index.ts barrel wraps these into TanStack AI toolDefinition().server() format.
+ * The tools/index.ts barrel wraps these into Vercel AI SDK tool() format.
  */
 export interface ToolDefinition {
 	name: string;
@@ -142,4 +142,3 @@ export interface ToolModule {
 }
 
 export type { AgentDebugLog, AgentDebugLogSummary, AgentLogEntry, LogCategory, LogLevel } from './agent-logger';
-export { type ModelMessage } from '@tanstack/ai';

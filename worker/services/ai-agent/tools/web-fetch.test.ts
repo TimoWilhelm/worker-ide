@@ -29,13 +29,12 @@ vi.mock('cloudflare:workers', () => ({
 	},
 }));
 
-// Mock @tanstack/ai chat to avoid real LLM calls
-vi.mock('@tanstack/ai', () => ({
-	chat: () => {
-		// Return a resolved structured output object matching summarySchema
-		return Promise.resolve({ summary: 'Summarized: page content about testing.' });
+// Mock Vercel AI SDK generateObject to avoid real LLM calls
+vi.mock('ai', () => ({
+	generateObject: () => {
+		return Promise.resolve({ object: { summary: 'Summarized: page content about testing.' } });
 	},
-	maxIterations: () => ({}),
+	jsonSchema: (schema: unknown) => schema,
 }));
 
 // Mock the workers-ai adapter

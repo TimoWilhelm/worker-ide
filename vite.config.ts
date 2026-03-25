@@ -167,6 +167,11 @@ export default defineConfig({
 			},
 		},
 	},
+	esbuild: {
+		supported: {
+			decorators: false,
+		},
+	},
 	server: {
 		port: 3000,
 		// Allow all localhost subdomains (*.preview.localhost, etc.)

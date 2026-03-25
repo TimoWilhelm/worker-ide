@@ -118,7 +118,7 @@ const route = new Hono<AppEnvironment>().post('/example', async (c) => {
 - Zustand for client state management.
 - CodeMirror 6 for the code editor.
 - Hono RPC client for type-safe API calls.
-- TanStack AI for the AI chat UI.
+- Vercel AI SDK for LLM calls. Cloudflare Agents SDK for agent state management.
 
 ### Backend
 
@@ -126,7 +126,7 @@ const route = new Hono<AppEnvironment>().post('/example', async (c) => {
 - Cloudflare Durable Objects for filesystem and project coordination.
 - WebSockets (hibernation API) for real-time communication.
 - Durable Objects SQLite for storage.
-- TanStack AI for the AI agent loop and AG-UI streaming protocol.
+- Vercel AI SDK (`streamText`, `generateObject`) for the AI agent loop. Agents SDK for state sync and observability.
 
 ### Build and Tooling
 
