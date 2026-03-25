@@ -380,9 +380,18 @@ export const sessionIdSchema = z
 export const pendingFileChangeSchema = z.object({
 	path: z.string(),
 	action: z.enum(['create', 'edit', 'delete', 'move']),
-	beforeContent: z.string().optional(),
-	afterContent: z.string().optional(),
-	snapshotId: z.string().optional(),
+	beforeContent: z
+		.string()
+		.optional()
+		.transform((value) => value),
+	afterContent: z
+		.string()
+		.optional()
+		.transform((value) => value),
+	snapshotId: z
+		.string()
+		.optional()
+		.transform((value) => value),
 	status: z.enum(['pending', 'approved', 'rejected']),
 	hunkStatuses: z.array(z.enum(['pending', 'approved', 'rejected'])),
 	sessionId: z.string(),

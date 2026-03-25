@@ -119,6 +119,7 @@ export function RevertConfirmDialog({
 	const pendingChanges = useStore((state) => state.pendingChanges);
 	const warnings = useMemo(() => {
 		const result: Array<{ path: string; reason: string }> = [];
+		const snapshotIdSet = new Set(snapshotIds);
 		for (const change of aggregatedChanges) {
 			const pending = pendingChanges.get(change.path);
 			if (!pending) continue;
@@ -127,12 +128,8 @@ export function RevertConfirmDialog({
 				result.push({ path: change.path, reason: 'already accepted — your edits will be overwritten' });
 			} else if (pending.status === 'rejected') {
 				result.push({ path: change.path, reason: 'already rejected — will be re-reverted' });
-			} else if (pending.sessionId && !snapshotIds.includes(pending.snapshotId ?? '')) {
-				// The pending change is from a different session/snapshot than the ones being reverted
-				const snapshotIdSet = new Set(snapshotIds);
-				if (pending.snapshotId && !snapshotIdSet.has(pending.snapshotId)) {
-					result.push({ path: change.path, reason: 'also modified by another session' });
-				}
+			} else if (pending.snapshotId && !snapshotIdSet.has(pending.snapshotId)) {
+				result.push({ path: change.path, reason: 'pending change from another session — not affected' });
 			}
 		}
 		return result;

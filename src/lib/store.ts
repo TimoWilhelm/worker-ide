@@ -211,8 +211,8 @@ interface PendingChangesActions {
 	/** Reject all pending changes. If sessionId is provided, only changes from that session. */
 	rejectAllChanges: (sessionId?: string) => void;
 	clearPendingChanges: () => void;
-	/** Remove pending changes for specific file paths that were successfully reverted */
-	clearPendingChangesByPaths: (paths: Set<string>) => void;
+	/** Remove pending changes for specific file paths. If sessionId is provided, only removes changes from that session. */
+	clearPendingChangesByPaths: (paths: Set<string>, sessionId?: string) => void;
 	/** Replace the entire pending changes map (used for syncing from agent state) */
 	loadPendingChanges: (changes: Map<string, PendingFileChange>) => void;
 }
@@ -829,11 +829,13 @@ export const useStore = create<StoreState>()(
 
 				clearPendingChanges: () => set({ pendingChanges: new Map() }),
 
-				clearPendingChangesByPaths: (paths) =>
+				clearPendingChangesByPaths: (paths, sessionId) =>
 					set((state) => {
 						const newMap = new Map<string, PendingFileChange>();
 						for (const [key, value] of state.pendingChanges) {
-							if (!paths.has(key)) {
+							const matchesPath = paths.has(key);
+							const matchesSession = sessionId === undefined || value.sessionId === sessionId;
+							if (!(matchesPath && matchesSession)) {
 								newMap.set(key, value);
 							}
 						}
