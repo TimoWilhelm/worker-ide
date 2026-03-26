@@ -2,15 +2,17 @@
  * Preview Panel Component
  *
  * Displays the live preview in a cross-origin iframe on a preview subdomain.
+ * The preview URL includes an HMAC-signed time-bucket token that expires
+ * after 1–2 hours. When the token expires, the parent component detects
+ * the 403 and refreshes the URL.
  */
 
 import { ExternalLink, RefreshCw, Wrench } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Tooltip } from '@/components/ui/tooltip';
 import { previewIframeReference } from '@/features/preview/preview-iframe-reference';
-import { getPreviewUrl } from '@/lib/preview-origin';
 import { useStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 
@@ -19,8 +21,12 @@ import { cn } from '@/lib/utils';
 // =============================================================================
 
 export interface PreviewPanelProperties {
-	/** Project ID for constructing preview URL */
-	projectId: string;
+	/** Signed preview URL with trailing slash. */
+	previewUrl: string | undefined;
+	/** Whether the signed URL is still being fetched. */
+	isLoadingUrl: boolean;
+	/** Refresh the signed preview URL (e.g., after token expiry). */
+	refreshPreviewUrl: () => Promise<void>;
 	/** Shared iframe ref for CDP message relay with DevTools */
 	iframeReference: React.RefObject<HTMLIFrameElement | null>;
 	/** CSS class name */
@@ -31,13 +37,11 @@ export interface PreviewPanelProperties {
 // Component
 // =============================================================================
 
-export function PreviewPanel({ projectId, iframeReference, className }: PreviewPanelProperties) {
+export function PreviewPanel({ previewUrl, isLoadingUrl, refreshPreviewUrl, iframeReference, className }: PreviewPanelProperties) {
 	const [isLoading, setIsLoading] = useState(true);
 	const [previewKey, setPreviewKey] = useState(0);
 	const devtoolsVisible = useStore((state) => state.devtoolsVisible);
 	const toggleDevtools = useStore((state) => state.toggleDevtools);
-
-	const previewUrl = useMemo(() => getPreviewUrl(projectId), [projectId]);
 
 	const handleLoad = useCallback(() => {
 		setIsLoading(false);
@@ -50,7 +54,9 @@ export function PreviewPanel({ projectId, iframeReference, className }: PreviewP
 	}, []);
 
 	const handleOpenExternal = useCallback(() => {
-		window.open(previewUrl, '_blank');
+		if (previewUrl) {
+			window.open(previewUrl, '_blank');
+		}
 	}, [previewUrl]);
 
 	useEffect(() => {
@@ -72,12 +78,35 @@ export function PreviewPanel({ projectId, iframeReference, className }: PreviewP
 		};
 	}, [handleRefresh]);
 
+	// Detect token expiry via postMessage from the preview iframe.
+	//
+	// When the HMAC token is invalid the Worker returns a 403 HTML page that
+	// posts `{ type: '__preview-expired' }` to window.parent. We listen here
+	// and silently fetch a fresh signed URL so the iframe reloads automatically.
+	//
+	// This replaces a document.title check, which fails because the 403 page
+	// is served on the (expired) preview subdomain — a different origin from
+	// the IDE app — so cross-origin DOM access is blocked by the browser.
+	useEffect(() => {
+		const handleMessage = (event: MessageEvent) => {
+			if (event.source !== iframeReference.current?.contentWindow) return;
+			if (typeof event.data === 'object' && event.data !== null && event.data.type === '__preview-expired') {
+				void refreshPreviewUrl();
+			}
+		};
+
+		globalThis.addEventListener('message', handleMessage);
+		return () => globalThis.removeEventListener('message', handleMessage);
+	}, [iframeReference, refreshPreviewUrl]);
+
 	useEffect(() => {
 		previewIframeReference.current = iframeReference.current ?? undefined;
 		return () => {
 			previewIframeReference.current = undefined;
 		};
 	});
+
+	const showLoadingOverlay = isLoading || isLoadingUrl;
 
 	return (
 		<div className={cn('flex h-full flex-col bg-bg-secondary', className)}>
@@ -99,11 +128,11 @@ export function PreviewPanel({ projectId, iframeReference, className }: PreviewP
 					</Tooltip>
 					<Tooltip content="Refresh">
 						<Button variant="ghost" size="icon" className="size-7" onClick={handleRefresh}>
-							<RefreshCw className={cn('size-3.5', isLoading && 'animate-spin')} />
+							<RefreshCw className={cn('size-3.5', showLoadingOverlay && 'animate-spin')} />
 						</Button>
 					</Tooltip>
 					<Tooltip content="Open in new tab">
-						<Button variant="ghost" size="icon" className="size-7" onClick={handleOpenExternal}>
+						<Button variant="ghost" size="icon" className="size-7" onClick={handleOpenExternal} disabled={!previewUrl}>
 							<ExternalLink className="size-3.5" />
 						</Button>
 					</Tooltip>
@@ -112,7 +141,7 @@ export function PreviewPanel({ projectId, iframeReference, className }: PreviewP
 
 			{/* Preview area */}
 			<div className="relative flex-1 overflow-hidden">
-				{isLoading && (
+				{showLoadingOverlay && (
 					<div
 						className="
 							absolute inset-0 z-10 flex items-center justify-center bg-bg-tertiary/80
@@ -125,17 +154,19 @@ export function PreviewPanel({ projectId, iframeReference, className }: PreviewP
 					</div>
 				)}
 
-				{/* Cross-origin iframe — preview runs on its own subdomain */}
-				<iframe
-					key={previewKey}
-					ref={iframeReference}
-					src={previewUrl}
-					onLoad={handleLoad}
-					data-preview
-					className={cn('size-full border-0', isLoading ? 'invisible' : 'visible')}
-					sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"
-					title="Project Preview"
-				/>
+				{/* Cross-origin iframe — preview runs on its own subdomain with signed URL */}
+				{previewUrl && (
+					<iframe
+						key={previewKey}
+						ref={iframeReference}
+						src={previewUrl}
+						onLoad={handleLoad}
+						data-preview
+						className={cn('size-full border-0', showLoadingOverlay ? 'invisible' : 'visible')}
+						sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"
+						title="Project Preview"
+					/>
+				)}
 			</div>
 		</div>
 	);

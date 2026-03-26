@@ -9,6 +9,7 @@ import { aiRoutes } from './ai-routes';
 import { deployRoutes } from './deploy-routes';
 import { fileRoutes } from './file-routes';
 import { gitRoutes } from './git-routes';
+import { previewUrlRoutes } from './preview-url-routes';
 import { projectRoutes } from './project-routes';
 import { snapshotRoutes } from './snapshot-routes';
 import { testRoutes } from './test-routes';
@@ -23,6 +24,7 @@ import type { AppEnvironment } from '../types';
 export const apiRoutes = new Hono<AppEnvironment>()
 	.route('', fileRoutes)
 	.route('', projectRoutes)
+	.route('', previewUrlRoutes)
 	.route('', snapshotRoutes)
 	.route('', aiRoutes)
 	.route('', transformRoutes)

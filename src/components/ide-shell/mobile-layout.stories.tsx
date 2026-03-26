@@ -104,6 +104,10 @@ const meta = {
 		fileTree: defaultMockFileTree,
 		logCounts: defaultMockLogCounts,
 		previewIframeReference: { current: document.createElement('iframe') },
+		previewUrl: 'http://494rtk7ddoepe5ru2lx4oc855i6lc23p3apolh04feq8q517sa-a1b2c3d4e5f6.preview.localhost:3000/',
+		previewOrigin: 'http://494rtk7ddoepe5ru2lx4oc855i6lc23p3apolh04feq8q517sa-a1b2c3d4e5f6.preview.localhost:3000',
+		isLoadingPreviewUrl: false,
+		refreshPreviewUrl: fn(() => Promise.resolve()),
 	},
 	decorators: [
 		(Story) => (

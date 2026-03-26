@@ -26,8 +26,8 @@ import { cn } from '@/lib/utils';
 export interface DevelopmentToolsPanelProperties {
 	/** Ref to the preview iframe for message relay */
 	previewIframeReference: React.RefObject<HTMLIFrameElement | null>;
-	/** The preview iframe's origin for secure postMessage targeting */
-	previewOrigin: string;
+	/** The preview iframe's origin for secure postMessage targeting. Undefined while the signed URL is loading. */
+	previewOrigin: string | undefined;
 	/** CSS class name */
 	className?: string;
 }
@@ -143,7 +143,7 @@ export function DevelopmentToolsPanel({ previewIframeReference, previewOrigin, c
 			// Send LOADED to trigger the CDP init sequence, and notify the
 			// DevTools frontend that the page has navigated so it refreshes.
 			if (isFromPreview && typeof event.data === 'object' && event.data?.type === '__chobitsu-ready') {
-				if (devtoolsReadyReference.current && devtoolsWindow) {
+				if (devtoolsReadyReference.current && devtoolsWindow && previewOrigin) {
 					previewWindow?.postMessage({ event: 'LOADED' }, previewOrigin);
 					notifyDevtoolsOfNavigation(devtoolsWindow, previewWindow, previewOrigin);
 				}
@@ -157,7 +157,7 @@ export function DevelopmentToolsPanel({ previewIframeReference, previewOrigin, c
 			}
 
 			// From devtools → preview: wrap as { event: 'DEV', data }
-			if (isFromDevtools) {
+			if (isFromDevtools && previewOrigin) {
 				previewWindow?.postMessage({ event: 'DEV', data: event.data }, previewOrigin);
 				return;
 			}
@@ -172,7 +172,9 @@ export function DevelopmentToolsPanel({ previewIframeReference, previewOrigin, c
 	const handleDevtoolsLoad = () => {
 		devtoolsReadyReference.current = true;
 		applyThemeToDevtools(devtoolsIframeReference.current, resolvedTheme);
-		previewIframeReference.current?.contentWindow?.postMessage({ event: 'LOADED' }, previewOrigin);
+		if (previewOrigin) {
+			previewIframeReference.current?.contentWindow?.postMessage({ event: 'LOADED' }, previewOrigin);
+		}
 	};
 
 	// Re-apply theme whenever the editor theme changes after initial load.

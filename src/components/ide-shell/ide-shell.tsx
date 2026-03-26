@@ -13,6 +13,7 @@ import { useFileTree } from '@/features/file-tree';
 import { ProjectSettingsModal } from '@/features/project-settings';
 import { useIsMobile, useProjectSocket, useTheme } from '@/hooks';
 import { downloadProject } from '@/lib/api-client';
+import { usePreviewUrl } from '@/lib/preview-origin';
 import { selectIsProcessing, useStore } from '@/lib/store';
 
 import { DesktopLayout } from './desktop-layout';
@@ -63,9 +64,13 @@ export function IDEShell({ projectId }: { projectId: string }) {
 	// File tree hook
 	const fileTree = useFileTree({ projectId });
 
+	// Signed preview URL (HMAC time-bucket token)
+	const { previewUrl, previewOrigin, isLoading: isLoadingPreviewUrl, refresh: refreshPreviewUrl } = usePreviewUrl(projectId);
+
 	// Side-effect-only hooks
 	useIDEEffects({
 		projectId,
+		previewOrigin,
 		goToFilePosition: editorState.goToFilePosition,
 		handleSaveReference: editorState.handleSaveReference,
 		previewIframeReference,
@@ -133,6 +138,10 @@ export function IDEShell({ projectId }: { projectId: string }) {
 						fileTree={fileTree}
 						logCounts={logCounts}
 						previewIframeReference={previewIframeReference}
+						previewUrl={previewUrl}
+						previewOrigin={previewOrigin}
+						isLoadingPreviewUrl={isLoadingPreviewUrl}
+						refreshPreviewUrl={refreshPreviewUrl}
 					/>
 				) : (
 					<DesktopLayout
@@ -143,6 +152,10 @@ export function IDEShell({ projectId }: { projectId: string }) {
 						layouts={layouts}
 						logCounts={logCounts}
 						previewIframeReference={previewIframeReference}
+						previewUrl={previewUrl}
+						previewOrigin={previewOrigin}
+						isLoadingPreviewUrl={isLoadingPreviewUrl}
+						refreshPreviewUrl={refreshPreviewUrl}
 					/>
 				)}
 				<DeployModal
