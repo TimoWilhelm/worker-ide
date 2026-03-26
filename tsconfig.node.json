@@ -23,6 +23,7 @@
 		"raw-minified.d.ts",
 		"vite.config.ts",
 		"vitest.config.ts",
+		"drizzle.config.ts",
 		"playwright.config.ts",
 		"eslint.config.js",
 		"lint-staged.config.js",

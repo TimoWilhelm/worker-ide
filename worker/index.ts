@@ -121,11 +121,12 @@ app.use('/p/*/api/*', cors());
  * Detect cross-site hotlink requests using Sec-Fetch metadata headers.
  *
  * Blocks requests where `Sec-Fetch-Site` is `cross-site` and
- * `Sec-Fetch-Dest` is NOT `document` (i.e. a subresource fetch from a
- * third-party page). This prevents external pages from hotlinking
- * preview JS, CSS, images, etc. while still allowing:
+ * `Sec-Fetch-Dest` is NOT a navigation destination. This prevents
+ * external pages from hotlinking preview JS, CSS, images, etc. while
+ * still allowing:
  *
- * - IDE `<iframe>` navigation (cross-site + dest=document → allowed)
+ * - IDE `<iframe>` navigation (cross-site + dest=iframe → allowed)
+ * - Top-level navigation / bookmark (cross-site + dest=document → allowed)
  * - Typed URL / bookmark (Sec-Fetch-Site=none → allowed)
  * - Same-origin requests within the preview (same-origin → allowed)
  * - Non-browser clients that don't send Sec-Fetch headers (allowed,
@@ -139,9 +140,11 @@ function isHotlinkRequest(request: Request): boolean {
 	// Absence of the header (non-browser clients, older browsers) is allowed.
 	if (fetchSite !== 'cross-site') return false;
 
-	// Cross-site navigations (iframe loads, top-level navigation) are legitimate.
-	// Everything else (script, style, image, empty, etc.) is hotlinking.
-	return fetchDestination !== 'document';
+	// Cross-site navigations are legitimate. `document` is used for top-level
+	// navigations, `iframe` for <iframe> navigations (the IDE embeds the
+	// preview in an iframe). Everything else (script, style, image, empty,
+	// etc.) is a subresource fetch and treated as hotlinking.
+	return fetchDestination !== 'document' && fetchDestination !== 'iframe';
 }
 
 /**

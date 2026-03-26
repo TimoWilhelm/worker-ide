@@ -5,5 +5,5 @@
 		"types": ["vitest/globals"]
 	},
 	"include": ["worker", "shared", "auxiliary"],
-	"exclude": []
+	"exclude": ["worker/drizzle/*.js", "worker/drizzle/*.sql"]
 }

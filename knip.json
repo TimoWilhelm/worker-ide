@@ -8,5 +8,11 @@
 	"entry": ["worker/index.ts", "auxiliary/biome/index.ts", "auxiliary/esbuild/index.ts", "shared/**/*.ts", "!shared/**/*.test.ts"],
 	"project": ["src/**", "worker/**", "shared/**", "auxiliary/**", "test/**"],
 	"ignoreDependencies": ["cloudflare", "codemirror", "@standard-schema/spec", "workers-ai-provider"],
-	"ignoreFiles": ["src/vite-env.d.ts", "playwright.config.ts", "src/components/ui/index.ts", "worker/lib/preview-scripts/*.js"]
+	"ignoreFiles": [
+		"src/vite-env.d.ts",
+		"playwright.config.ts",
+		"src/components/ui/index.ts",
+		"worker/lib/preview-scripts/*.js",
+		"worker/drizzle/migrations.d.ts"
+	]
 }

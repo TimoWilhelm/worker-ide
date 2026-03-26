@@ -18,15 +18,44 @@
  * - One instance per project, named `agent:${projectId}`.
  * - Communicates with ProjectCoordinator (for file change HMR triggers) and
  *   ExpiringFilesystem (for file operations) via DO RPC stubs.
+ *
+ * Database access uses Drizzle ORM (`drizzle-orm/durable-sqlite`) for all
+ * custom tables. The Agent SDK's internal tables remain managed by the SDK.
+ * See `worker/durable/db/` for schema, client factory, and data access layer.
  */
 
 import { Agent, callable } from 'agents';
 import { env } from 'cloudflare:workers';
+import { migrate } from 'drizzle-orm/durable-sqlite/migrator';
 import { mount, withMounts } from 'worker-fs-mount';
 
 import { DEFAULT_AI_MODEL, getModelConfig } from '@shared/constants';
 import { pendingChangesFileSchema } from '@shared/validation';
 
+import {
+	clearSessionRevertedAt,
+	deleteSession,
+	deletePendingChanges,
+	getAllRunningSessions,
+	getDatabase,
+	getRunningSessionIds as getRunningSessionIdsFromDatabase,
+	insertSession,
+	isSessionRunning,
+	listSessionIdsForPruning,
+	listSessionSummaries,
+	markSessionRunning,
+	readPendingChangesData,
+	readSession,
+	removeAllRunningSessions,
+	removeRunningSession,
+	updateSessionForRevert,
+	updateSessionHistory,
+	updateSessionStatus,
+	updateSessionTitle,
+	upsertSessionFromService,
+	writePendingChangesData,
+} from './db';
+import migrations from '../drizzle/migrations.js';
 import { filesystemNamespace } from '../lib/durable-object-namespaces';
 import { toDurableObjectId } from '../lib/project-id';
 import { AIAgentService } from '../services/ai-agent';
@@ -35,6 +64,7 @@ import { accumulatePendingChange } from '../services/ai-agent/pending-changes';
 import { cleanupSessionArtifacts, cleanupTimestampPlans } from '../services/ai-agent/session-cleanup';
 import { generateSessionTitle } from '../services/ai-agent/title-generator';
 
+import type { AgentDatabase, SessionRow } from './db';
 import type { AgentState, AgentSessionState, SessionSummary, StreamEvent } from '@shared/agent-state';
 import type { AIModelId } from '@shared/constants';
 import type {
@@ -49,23 +79,36 @@ import type {
 } from '@shared/types';
 
 // =============================================================================
-// SQL Helpers
+// Helpers
 // =============================================================================
-
-/**
- * Convert `undefined` to SQL `null`. The Agent SDK's `this.sql` tagged template
- * requires `null` for SQL NULL values, but our codebase convention is `undefined`.
- * This bridge function satisfies both the SQL API and the `unicorn/no-null` rule.
- */
-// eslint-disable-next-line unicorn/no-null -- single bridge point for SQL null semantics
-const SQL_NULL: null = null;
-function nullable(value: string | number | boolean | undefined): string | number | boolean | null {
-	return value === undefined ? SQL_NULL : value;
-}
 
 const AGENT_SESSION_STATUSES: ReadonlySet<string> = new Set(['running', 'completed', 'error', 'aborted']);
 function isAgentSessionStatus(value: unknown): value is AgentSessionStatus {
 	return typeof value === 'string' && AGENT_SESSION_STATUSES.has(value);
+}
+
+/**
+ * Convert a Drizzle `SessionRow` into the application-level `AiSession` shape.
+ *
+ * Handles JSON deserialization of blob columns, null→undefined mapping,
+ * and snake_case→camelCase field name conversion.
+ */
+function sessionRowToAiSession(row: SessionRow): AiSession {
+	return {
+		id: row.id,
+		title: row.title,
+		titleGenerated: row.titleGenerated === 1,
+		createdAt: row.createdAt,
+		history: JSON.parse(row.history),
+		messageSnapshots: row.messageSnapshots ? JSON.parse(row.messageSnapshots) : undefined,
+		messageModes: row.messageModes ? JSON.parse(row.messageModes) : undefined,
+		contextTokensUsed: row.contextTokensUsed ?? undefined,
+		revertedAt: row.revertedAt ?? undefined,
+		toolMetadata: row.toolMetadata ? JSON.parse(row.toolMetadata) : undefined,
+		toolErrors: row.toolErrors ? JSON.parse(row.toolErrors) : undefined,
+		status: isAgentSessionStatus(row.status) ? row.status : undefined,
+		errorMessage: row.errorMessage ?? undefined,
+	};
 }
 
 // =============================================================================
@@ -77,42 +120,6 @@ const PROJECT_ROOT = '/project';
 
 /** Maximum number of sessions to retain. */
 const MAX_SESSIONS = 50;
-
-// =============================================================================
-// SQL Schema (auto-created on first use)
-// =============================================================================
-
-const CREATE_SESSIONS_TABLE = `
-  CREATE TABLE IF NOT EXISTS sessions (
-    id TEXT PRIMARY KEY,
-    title TEXT NOT NULL DEFAULT '',
-    title_generated INTEGER NOT NULL DEFAULT 0,
-    created_at INTEGER NOT NULL,
-    history TEXT NOT NULL DEFAULT '[]',
-    message_snapshots TEXT,
-    message_modes TEXT,
-    context_tokens_used INTEGER DEFAULT 0,
-    reverted_at INTEGER,
-    tool_metadata TEXT,
-    tool_errors TEXT,
-    status TEXT,
-    error_message TEXT
-  )
-`;
-
-const CREATE_RUNNING_TABLE = `
-  CREATE TABLE IF NOT EXISTS running_sessions (
-    session_id TEXT PRIMARY KEY,
-    parameters TEXT NOT NULL
-  )
-`;
-
-const CREATE_PENDING_CHANGES_TABLE = `
-  CREATE TABLE IF NOT EXISTS pending_changes (
-    id INTEGER PRIMARY KEY DEFAULT 1,
-    data TEXT NOT NULL DEFAULT '{}'
-  )
-`;
 
 // =============================================================================
 // Parameters
@@ -145,6 +152,10 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		sessions: [],
 	};
 
+	// ---- Drizzle database instance (initialized in onStart) ----
+
+	private db!: AgentDatabase;
+
 	// ---- Volatile in-memory state (lost on eviction) ----
 
 	/** Abort controllers for running sessions. */
@@ -173,20 +184,16 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	/** Queued steering messages for running sessions, keyed by sessionId. */
 	private steeringMessages = new Map<string, Array<{ id: string; content: string }>>();
 
-	/** Whether SQL tables have been initialized. */
-	private schemaInitialized = false;
-
 	// =========================================================================
 	// HTTP Request Handler
 	// =========================================================================
 
 	async onRequest(request: Request): Promise<Response> {
-		this.ensureSchema();
 		const url = new URL(request.url);
 
 		if (url.pathname === '/pending-changes') {
 			if (request.method === 'GET') {
-				return Response.json(this.readPendingChanges());
+				return Response.json(this.loadPendingChangesFromDatabase());
 			}
 			if (request.method === 'PUT') {
 				const body: unknown = await request.json();
@@ -201,9 +208,9 @@ export class AgentRunner extends Agent<Env, AgentState> {
 					);
 				}
 				if (Object.keys(parsed.data).length === 0) {
-					this.sql`DELETE FROM pending_changes WHERE id = 1`;
+					deletePendingChanges(this.db);
 				} else {
-					this.writePendingChanges(parsed.data);
+					this.savePendingChangesToDatabase(parsed.data);
 				}
 				return new Response(undefined, { status: 204 });
 			}
@@ -218,26 +225,26 @@ export class AgentRunner extends Agent<Env, AgentState> {
 
 	/**
 	 * Called when the Agent starts (or wakes from hibernation / eviction).
-	 * Detects orphaned running sessions and restarts them.
+	 * Initializes Drizzle, runs schema migrations, and restarts orphaned sessions.
 	 */
 	async onStart(): Promise<void> {
-		this.ensureSchema();
+		// Initialize Drizzle and run migrations
+		this.db = getDatabase(this.ctx.storage);
+		await migrate(this.db, migrations);
 
 		// Check for orphaned running sessions (persisted but no in-memory controller)
-		const orphaned = this.sql<{ session_id: string; parameters: string }>`
-			SELECT session_id, parameters FROM running_sessions
-		`;
+		const orphaned = getAllRunningSessions(this.db);
 
 		for (const row of orphaned) {
-			if (!this.abortControllers.has(row.session_id)) {
-				console.log(`[AgentRunner] onStart: restarting evicted session ${row.session_id}`);
+			if (!this.abortControllers.has(row.sessionId)) {
+				console.log(`[AgentRunner] onStart: restarting evicted session ${row.sessionId}`);
 				try {
 					const parameters: StartAgentParameters = JSON.parse(row.parameters);
-					this.launchAgentLoop(parameters, row.session_id);
+					this.launchAgentLoop(parameters, row.sessionId);
 				} catch (error) {
-					console.error(`[AgentRunner] Failed to restart session ${row.session_id}:`, error);
+					console.error(`[AgentRunner] Failed to restart session ${row.sessionId}:`, error);
 					// Remove the orphaned marker
-					this.sql`DELETE FROM running_sessions WHERE session_id = ${row.session_id}`;
+					removeRunningSession(this.db, row.sessionId);
 				}
 			}
 		}
@@ -262,8 +269,6 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		model: AIModelId = DEFAULT_AI_MODEL,
 		sessionId?: string,
 	): Promise<{ sessionId: string }> {
-		this.ensureSchema();
-
 		// Rate limiting (moved from HTTP route to here, so both HTTP and Agent RPC are covered)
 		if (env.AI_RATE_LIMITER) {
 			const { success } = await env.AI_RATE_LIMITER.limit({ key: projectId });
@@ -281,10 +286,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		const resolvedSessionId = sessionId ?? crypto.randomUUID().replaceAll('-', '').slice(0, 16);
 
 		// Already running — don't launch a duplicate
-		const existing = this.sql<{ session_id: string }>`
-			SELECT session_id FROM running_sessions WHERE session_id = ${resolvedSessionId}
-		`;
-		if (existing.length > 0) {
+		if (isSessionRunning(this.db, resolvedSessionId)) {
 			return { sessionId: resolvedSessionId };
 		}
 
@@ -297,10 +299,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		};
 
 		// Persist restart parameters BEFORE launching (survives eviction)
-		this.sql`
-			INSERT OR REPLACE INTO running_sessions (session_id, parameters)
-			VALUES (${resolvedSessionId}, ${JSON.stringify(parameters)})
-		`;
+		markSessionRunning(this.db, resolvedSessionId, JSON.stringify(parameters));
 
 		this.launchAgentLoop(parameters, resolvedSessionId);
 
@@ -339,8 +338,6 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	 */
 	@callable()
 	async abortRun(sessionId?: string): Promise<void> {
-		this.ensureSchema();
-
 		if (sessionId) {
 			const controller = this.abortControllers.get(sessionId);
 			if (controller) {
@@ -349,7 +346,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 			}
 
 			// Remove durable marker
-			this.sql`DELETE FROM running_sessions WHERE session_id = ${sessionId}`;
+			removeRunningSession(this.db, sessionId);
 
 			// Wait for loop cleanup
 			const loopPromise = this.loopPromises.get(sessionId);
@@ -371,7 +368,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 
 			await Promise.allSettled(this.loopPromises.values());
 
-			this.sql`DELETE FROM running_sessions`;
+			removeAllRunningSessions(this.db);
 
 			if (this.state.currentSession) {
 				this.updateSessionState(this.state.currentSession.sessionId, {
@@ -388,8 +385,6 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	 */
 	@callable()
 	async steerRun(sessionId: string, message: string): Promise<{ queued: boolean }> {
-		this.ensureSchema();
-
 		// Only queue if the session is actually running
 		const controller = this.abortControllers.get(sessionId);
 		if (!controller) {
@@ -431,17 +426,12 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	 */
 	@callable()
 	async loadSession(sessionId: string): Promise<AiSession | undefined> {
-		this.ensureSchema();
-
-		const session = this.readSession(sessionId);
+		const session = this.readSessionAsAiSession(sessionId);
 		if (!session) return undefined;
 
 		// Update agent state so all clients see the loaded session
-		const pendingChanges = this.readPendingChanges();
-		const isRunning =
-			this.sql<{ session_id: string }>`
-			SELECT session_id FROM running_sessions WHERE session_id = ${sessionId}
-		`.length > 0;
+		const pendingChangesMap = this.loadPendingChangesFromDatabase();
+		const isRunning = isSessionRunning(this.db, sessionId);
 
 		this.setState({
 			...this.state,
@@ -453,7 +443,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 				statusText: isRunning ? 'Thinking...' : undefined,
 				error: session.errorMessage ? { message: session.errorMessage } : undefined,
 				contextTokensUsed: session.contextTokensUsed ?? 0,
-				pendingChanges,
+				pendingChanges: pendingChangesMap,
 				messageSnapshots: session.messageSnapshots ?? {},
 				messageModes: session.messageModes ?? {},
 				toolMetadata: session.toolMetadata ?? {},
@@ -474,18 +464,13 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	 */
 	@callable()
 	async listSessions(): Promise<SessionSummary[]> {
-		this.ensureSchema();
-
-		const runningIds = new Set(this.sql<{ session_id: string }>`SELECT session_id FROM running_sessions`.map((r) => r.session_id));
-
-		const rows = this.sql<{ id: string; title: string; created_at: number }>`
-			SELECT id, title, created_at FROM sessions ORDER BY created_at DESC
-		`;
+		const runningIds = new Set(getRunningSessionIdsFromDatabase(this.db));
+		const rows = listSessionSummaries(this.db);
 
 		return rows.map((row) => ({
 			id: row.id,
 			title: row.title,
-			createdAt: row.created_at,
+			createdAt: row.createdAt,
 			isRunning: runningIds.has(row.id),
 		}));
 	}
@@ -495,10 +480,8 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	 */
 	@callable()
 	async revertSession(sessionId: string, messageIndex: number): Promise<{ contextTokensUsed: number }> {
-		this.ensureSchema();
-
 		if (messageIndex <= 0) {
-			this.sql`DELETE FROM sessions WHERE id = ${sessionId}`;
+			deleteSession(this.db, sessionId);
 			// Remove this session's pending changes from the global store
 			// (other sessions' changes are preserved)
 			this.removePendingChangesForSessions(new Set([sessionId]));
@@ -513,7 +496,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 			return { contextTokensUsed: 0 };
 		}
 
-		const session = this.readSession(sessionId);
+		const session = this.readSessionAsAiSession(sessionId);
 		if (!session) return { contextTokensUsed: 0 };
 
 		const truncatedHistory = session.history.slice(0, messageIndex);
@@ -525,20 +508,18 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		const modelMessages = chatMessagesToModelMessages(truncatedHistory);
 		const contextTokensUsed = estimateMessagesTokens(modelMessages);
 
-		this.sql`
-			UPDATE sessions SET
-				history = ${JSON.stringify(truncatedHistory)},
-				message_snapshots = ${nullable(prunedSnapshots ? JSON.stringify(prunedSnapshots) : undefined)},
-				message_modes = ${nullable(prunedModes ? JSON.stringify(prunedModes) : undefined)},
-				context_tokens_used = ${nullable(contextTokensUsed > 0 ? contextTokensUsed : undefined)},
-				reverted_at = ${Date.now()}
-			WHERE id = ${sessionId}
-		`;
+		updateSessionForRevert(this.db, sessionId, {
+			history: JSON.stringify(truncatedHistory),
+			messageSnapshots: prunedSnapshots ? JSON.stringify(prunedSnapshots) : undefined,
+			messageModes: prunedModes ? JSON.stringify(prunedModes) : undefined,
+			contextTokensUsed: contextTokensUsed > 0 ? contextTokensUsed : undefined,
+			revertedAt: Date.now(),
+		});
 
 		// Filter pending changes: keep entries from other sessions, or from this
 		// session only if their snapshotId survives the truncation.
 		const survivingSnapshotIds = new Set(Object.values(prunedSnapshots ?? {}));
-		const globalChanges = this.readPendingChanges();
+		const globalChanges = this.loadPendingChangesFromDatabase();
 		const filteredChanges: Record<string, PendingFileChange> = {};
 		for (const [path, change] of Object.entries(globalChanges)) {
 			if (change.sessionId !== sessionId) {
@@ -553,9 +534,9 @@ export class AgentRunner extends Agent<Env, AgentState> {
 
 		// Persist filtered changes to SQLite
 		if (Object.keys(filteredChanges).length > 0) {
-			this.writePendingChanges(filteredChanges);
+			this.savePendingChangesToDatabase(filteredChanges);
 		} else {
-			this.sql`DELETE FROM pending_changes WHERE id = 1`;
+			deletePendingChanges(this.db);
 		}
 
 		// Update state for connected clients
@@ -583,9 +564,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	 */
 	@callable()
 	async deleteSession(projectId: string, sessionId: string): Promise<void> {
-		this.ensureSchema();
-
-		this.sql`DELETE FROM sessions WHERE id = ${sessionId}`;
+		deleteSession(this.db, sessionId);
 		this.removePendingChangesForSessions(new Set([sessionId]));
 		const survivingSnapshotIds = this.getSurvivingSnapshotIds();
 
@@ -609,8 +588,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	 */
 	@callable()
 	async loadPendingChanges(): Promise<Record<string, PendingFileChange>> {
-		this.ensureSchema();
-		return this.readPendingChanges();
+		return this.loadPendingChangesFromDatabase();
 	}
 
 	/**
@@ -618,8 +596,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	 */
 	@callable()
 	async savePendingChanges(changes: Record<string, PendingFileChange>): Promise<void> {
-		this.ensureSchema();
-		this.writePendingChanges(changes);
+		this.savePendingChangesToDatabase(changes);
 	}
 
 	/**
@@ -627,8 +604,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	 */
 	@callable()
 	async getRunningSessionIds(): Promise<string[]> {
-		this.ensureSchema();
-		return this.sql<{ session_id: string }>`SELECT session_id FROM running_sessions`.map((r) => r.session_id);
+		return getRunningSessionIdsFromDatabase(this.db);
 	}
 
 	// =========================================================================
@@ -643,7 +619,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		this.abortControllers.set(sessionId, new AbortController());
 
 		// Clear revertedAt flag so persist callbacks from this run are not blocked
-		this.sql`UPDATE sessions SET reverted_at = NULL WHERE id = ${sessionId}`;
+		clearSessionRevertedAt(this.db, sessionId);
 
 		// Early-persist the session with incoming messages
 		const lastUserMessage = parameters.messages.toReversed().find((message) => message.role === 'user');
@@ -655,27 +631,19 @@ export class AgentRunner extends Agent<Env, AgentState> {
 				.trim() ?? '';
 		const promptPreview = lastUserText.slice(0, 80) || 'New session';
 
-		// Upsert the session. Use ON CONFLICT to preserve existing metadata
+		// Upsert the session. Use separate update/insert to preserve existing metadata
 		// columns (message_snapshots, tool_metadata, etc.) that would be
 		// lost with INSERT OR REPLACE (which deletes + re-inserts the row).
-		const existing = this.readSession(sessionId);
+		const existing = readSession(this.db, sessionId);
 		if (existing) {
-			this.sql`
-				UPDATE sessions SET
-					history = ${JSON.stringify(parameters.messages)}
-				WHERE id = ${sessionId}
-			`;
+			updateSessionHistory(this.db, sessionId, JSON.stringify(parameters.messages));
 		} else {
-			this.sql`
-				INSERT INTO sessions (id, title, title_generated, created_at, history)
-				VALUES (
-					${sessionId},
-					${promptPreview},
-					0,
-					${Date.now()},
-					${JSON.stringify(parameters.messages)}
-				)
-			`;
+			insertSession(this.db, {
+				id: sessionId,
+				title: promptPreview,
+				createdAt: Date.now(),
+				history: JSON.stringify(parameters.messages),
+			});
 		}
 
 		// Fire title generation independently
@@ -742,8 +710,8 @@ export class AgentRunner extends Agent<Env, AgentState> {
 				mode,
 				model,
 				// Persist callback — called by the service to save session state
-				(sid, sessionData, pendingChanges) => {
-					this.persistSessionFromService(sid, sessionData, pendingChanges);
+				(sid, sessionData, pendingChangesData) => {
+					this.persistSessionFromService(sid, sessionData, pendingChangesData);
 					return Promise.resolve();
 				},
 				// Steering messages callback — drains queued user messages between iterations
@@ -789,7 +757,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 			this.pendingContentDeltas.delete(sessionId);
 
 			// Remove durable running marker
-			this.sql`DELETE FROM running_sessions WHERE session_id = ${sessionId}`;
+			removeRunningSession(this.db, sessionId);
 
 			// Clean up in-memory state
 			this.abortControllers.delete(sessionId);
@@ -804,10 +772,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 			});
 
 			// Persist terminal status to DB
-			this.sql`
-				UPDATE sessions SET status = ${finalStatus}, error_message = ${nullable(errorMessage)}
-				WHERE id = ${sessionId}
-			`;
+			updateSessionStatus(this.db, sessionId, finalStatus, errorMessage);
 
 			// Prune old sessions
 			await this.pruneOldSessions(parameters.projectId).catch((error) => {
@@ -901,7 +866,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 			case 'turn-complete': {
 				this.flushContentDelta(sessionId);
 				this.toolCallArgumentBuffers.clear();
-				const session = this.readSession(sessionId);
+				const session = this.readSessionAsAiSession(sessionId);
 				if (session && this.state.currentSession?.sessionId === sessionId) {
 					this.updateSessionState(sessionId, {
 						messages: session.history,
@@ -1109,20 +1074,16 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	 * Checks for orphaned running sessions and restarts them.
 	 */
 	async heartbeat(): Promise<void> {
-		this.ensureSchema();
-
-		const orphaned = this.sql<{ session_id: string; parameters: string }>`
-			SELECT session_id, parameters FROM running_sessions
-		`;
+		const orphaned = getAllRunningSessions(this.db);
 
 		for (const row of orphaned) {
-			if (!this.abortControllers.has(row.session_id)) {
-				console.log(`[AgentRunner] Heartbeat: restarting evicted session ${row.session_id}`);
+			if (!this.abortControllers.has(row.sessionId)) {
+				console.log(`[AgentRunner] Heartbeat: restarting evicted session ${row.sessionId}`);
 				try {
 					const parameters: StartAgentParameters = JSON.parse(row.parameters);
-					this.launchAgentLoop(parameters, row.session_id);
+					this.launchAgentLoop(parameters, row.sessionId);
 				} catch {
-					this.sql`DELETE FROM running_sessions WHERE session_id = ${row.session_id}`;
+					removeRunningSession(this.db, row.sessionId);
 				}
 			}
 		}
@@ -1145,46 +1106,55 @@ export class AgentRunner extends Agent<Env, AgentState> {
 			toolErrors?: Record<string, ToolErrorInfo>;
 			error?: { message: string; code?: string };
 		},
-		pendingChanges?: Record<string, PendingFileChange>,
+		pendingChangesData?: Record<string, PendingFileChange>,
 	): void {
 		// Check if session was reverted while running
-		const existing = this.readSession(sessionId);
+		const existing = readSession(this.db, sessionId);
 		if (existing?.revertedAt) return;
 
 		// Merge with existing session data
 		const createdAt = existing?.createdAt ?? sessionData.createdAt;
 		const title = existing?.title ?? sessionData.title ?? 'New session';
-		const titleGenerated = existing?.titleGenerated;
-		const messageSnapshots = { ...existing?.messageSnapshots, ...sessionData.messageSnapshots };
-		const messageModes = { ...existing?.messageModes, ...sessionData.messageModes };
-		const toolMetadata = { ...existing?.toolMetadata, ...sessionData.toolMetadata };
-		const toolErrors = { ...existing?.toolErrors, ...sessionData.toolErrors };
+		const titleGenerated = existing?.titleGenerated === 1;
+		const messageSnapshots = {
+			...(existing?.messageSnapshots ? JSON.parse(existing.messageSnapshots) : undefined),
+			...sessionData.messageSnapshots,
+		};
+		const messageModes = {
+			...(existing?.messageModes ? JSON.parse(existing.messageModes) : undefined),
+			...sessionData.messageModes,
+		};
+		const toolMetadata = {
+			...(existing?.toolMetadata ? JSON.parse(existing.toolMetadata) : undefined),
+			...sessionData.toolMetadata,
+		};
+		const toolErrors = {
+			...(existing?.toolErrors ? JSON.parse(existing.toolErrors) : undefined),
+			...sessionData.toolErrors,
+		};
 
-		this.sql`
-			INSERT OR REPLACE INTO sessions (id, title, title_generated, created_at, history, message_snapshots, message_modes, context_tokens_used, tool_metadata, tool_errors)
-			VALUES (
-				${sessionId},
-				${title},
-				${titleGenerated ? 1 : 0},
-				${createdAt},
-				${JSON.stringify(sessionData.history)},
-				${nullable(Object.keys(messageSnapshots).length > 0 ? JSON.stringify(messageSnapshots) : undefined)},
-				${nullable(Object.keys(messageModes).length > 0 ? JSON.stringify(messageModes) : undefined)},
-				${nullable(sessionData.contextTokensUsed)},
-				${nullable(Object.keys(toolMetadata).length > 0 ? JSON.stringify(toolMetadata) : undefined)},
-				${nullable(Object.keys(toolErrors).length > 0 ? JSON.stringify(toolErrors) : undefined)}
-			)
-		`;
+		upsertSessionFromService(this.db, {
+			id: sessionId,
+			title,
+			titleGenerated,
+			createdAt,
+			history: JSON.stringify(sessionData.history),
+			messageSnapshots: Object.keys(messageSnapshots).length > 0 ? JSON.stringify(messageSnapshots) : undefined,
+			messageModes: Object.keys(messageModes).length > 0 ? JSON.stringify(messageModes) : undefined,
+			contextTokensUsed: sessionData.contextTokensUsed,
+			toolMetadata: Object.keys(toolMetadata).length > 0 ? JSON.stringify(toolMetadata) : undefined,
+			toolErrors: Object.keys(toolErrors).length > 0 ? JSON.stringify(toolErrors) : undefined,
+		});
 
 		// Merge pending changes using dedup logic that preserves the original
 		// beforeContent when multiple sessions edit the same file.
-		if (pendingChanges) {
-			const existingChanges = this.readPendingChanges();
+		if (pendingChangesData) {
+			const existingChanges = this.loadPendingChangesFromDatabase();
 			const mergedMap = new Map(Object.entries(existingChanges));
-			for (const change of Object.values(pendingChanges)) {
+			for (const change of Object.values(pendingChangesData)) {
 				accumulatePendingChange(mergedMap, change);
 			}
-			this.writePendingChanges(Object.fromEntries(mergedMap));
+			this.savePendingChangesToDatabase(Object.fromEntries(mergedMap));
 		}
 	}
 
@@ -1199,10 +1169,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		try {
 			const result = await generateSessionTitle(userText);
 
-			this.sql`
-				UPDATE sessions SET title = ${result.title}, title_generated = ${result.isAiGenerated ? 1 : 0}
-				WHERE id = ${sessionId}
-			`;
+			updateSessionTitle(this.db, sessionId, result.title, result.isAiGenerated);
 
 			// Update state if this is the current session
 			if (this.state.currentSession?.sessionId === sessionId) {
@@ -1223,13 +1190,11 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	// =========================================================================
 
 	private async pruneOldSessions(projectId: string): Promise<void> {
-		const allSessions = this.sql<{ id: string; created_at: number }>`
-			SELECT id, created_at FROM sessions ORDER BY created_at DESC
-		`;
+		const allSessions = listSessionIdsForPruning(this.db);
 
 		if (allSessions.length <= MAX_SESSIONS) return;
 
-		const runningIds = new Set(this.sql<{ session_id: string }>`SELECT session_id FROM running_sessions`.map((r) => r.session_id));
+		const runningIds = new Set(getRunningSessionIdsFromDatabase(this.db));
 
 		const sessionsToPrune: string[] = [];
 		for (const session of allSessions.slice(MAX_SESSIONS)) {
@@ -1244,7 +1209,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 
 		// Delete from DB
 		for (const id of sessionsToPrune) {
-			this.sql`DELETE FROM sessions WHERE id = ${id}`;
+			deleteSession(this.db, id);
 		}
 
 		this.removePendingChangesForSessions(prunedIds);
@@ -1276,7 +1241,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		const current = this.state.currentSession;
 		if (!current || current.sessionId !== sessionId) {
 			// Create a new session state if none exists for this ID
-			const session = this.readSession(sessionId);
+			const session = this.readSessionAsAiSession(sessionId);
 			const newState: AgentSessionState = {
 				sessionId,
 				title: session?.title ?? 'New session',
@@ -1285,7 +1250,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 				statusText: undefined,
 				error: undefined,
 				contextTokensUsed: session?.contextTokensUsed ?? 0,
-				pendingChanges: this.readPendingChanges(),
+				pendingChanges: this.loadPendingChangesFromDatabase(),
 				messageSnapshots: session?.messageSnapshots ?? {},
 				messageModes: session?.messageModes ?? {},
 				toolMetadata: session?.toolMetadata ?? {},
@@ -1311,83 +1276,47 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	 * Refresh the sessions summary list in state.
 	 */
 	private async refreshSessionsList(): Promise<void> {
-		const sessions = await this.listSessions();
-		this.setState({ ...this.state, sessions });
+		const sessionsList = await this.listSessions();
+		this.setState({ ...this.state, sessions: sessionsList });
 	}
 
 	// =========================================================================
-	// SQL Helpers
+	// Database Helpers
 	// =========================================================================
 
-	private ensureSchema(): void {
-		if (this.schemaInitialized) return;
-		// Use ctx.storage.sql.exec() directly for DDL statements.
-		// this.sql`` is a tagged template that treats interpolated values as
-		// bound parameters (?) — passing a full SQL string as an interpolation
-		// produces the query "?" which is invalid.
-		this.ctx.storage.sql.exec(CREATE_SESSIONS_TABLE);
-		this.ctx.storage.sql.exec(CREATE_RUNNING_TABLE);
-		this.ctx.storage.sql.exec(CREATE_PENDING_CHANGES_TABLE);
-		this.schemaInitialized = true;
+	/**
+	 * Read a session from the database and convert to the AiSession shape.
+	 */
+	private readSessionAsAiSession(sessionId: string): AiSession | undefined {
+		const row = readSession(this.db, sessionId);
+		if (!row) return undefined;
+		return sessionRowToAiSession(row);
 	}
 
-	private readSession(sessionId: string): AiSession | undefined {
-		this.ensureSchema();
-
-		const rows = this.sql<{
-			id: string;
-			title: string;
-			title_generated: number;
-			created_at: number;
-			history: string;
-			message_snapshots: string | null;
-			message_modes: string | null;
-			context_tokens_used: number | null;
-			reverted_at: number | null;
-			tool_metadata: string | null;
-			tool_errors: string | null;
-			status: string | null;
-			error_message: string | null;
-		}>`SELECT * FROM sessions WHERE id = ${sessionId}`;
-
-		if (rows.length === 0) return undefined;
-		const row = rows[0];
-
-		return {
-			id: row.id,
-			title: row.title,
-			titleGenerated: row.title_generated === 1,
-			createdAt: row.created_at,
-			history: JSON.parse(row.history),
-			messageSnapshots: row.message_snapshots ? JSON.parse(row.message_snapshots) : undefined,
-			messageModes: row.message_modes ? JSON.parse(row.message_modes) : undefined,
-			contextTokensUsed: row.context_tokens_used ?? undefined,
-			revertedAt: row.reverted_at ?? undefined,
-			toolMetadata: row.tool_metadata ? JSON.parse(row.tool_metadata) : undefined,
-			toolErrors: row.tool_errors ? JSON.parse(row.tool_errors) : undefined,
-			status: isAgentSessionStatus(row.status) ? row.status : undefined,
-			errorMessage: row.error_message ?? undefined,
-		};
-	}
-
-	private readPendingChanges(): Record<string, PendingFileChange> {
-		const rows = this.sql<{ data: string }>`SELECT data FROM pending_changes WHERE id = 1`;
-		if (rows.length === 0) return {};
+	/**
+	 * Load pending changes from the database as a parsed object.
+	 */
+	private loadPendingChangesFromDatabase(): Record<string, PendingFileChange> {
+		const data = readPendingChangesData(this.db);
 		try {
-			return JSON.parse(rows[0].data);
+			return JSON.parse(data);
 		} catch {
 			return {};
 		}
 	}
 
-	private writePendingChanges(changes: Record<string, PendingFileChange>): void {
-		this.sql`
-			INSERT OR REPLACE INTO pending_changes (id, data) VALUES (1, ${JSON.stringify(changes)})
-		`;
+	/**
+	 * Save pending changes to the database as a JSON string.
+	 */
+	private savePendingChangesToDatabase(changes: Record<string, PendingFileChange>): void {
+		writePendingChangesData(this.db, JSON.stringify(changes));
 	}
 
+	/**
+	 * Remove pending changes that belong to the specified sessions.
+	 */
 	private removePendingChangesForSessions(sessionIds: Set<string>): void {
-		const changes = this.readPendingChanges();
+		const changes = this.loadPendingChangesFromDatabase();
 		let changed = false;
 		for (const [path, change] of Object.entries(changes)) {
 			if (sessionIds.has(change.sessionId)) {
@@ -1397,16 +1326,19 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		}
 		if (changed) {
 			if (Object.keys(changes).length === 0) {
-				this.sql`DELETE FROM pending_changes WHERE id = 1`;
+				deletePendingChanges(this.db);
 			} else {
-				this.writePendingChanges(changes);
+				this.savePendingChangesToDatabase(changes);
 			}
 		}
 	}
 
+	/**
+	 * Get snapshot IDs that are still referenced by surviving pending changes.
+	 */
 	private getSurvivingSnapshotIds(): Set<string> {
 		const surviving = new Set<string>();
-		const changes = this.readPendingChanges();
+		const changes = this.loadPendingChangesFromDatabase();
 		for (const change of Object.values(changes)) {
 			if (change.snapshotId) {
 				surviving.add(change.snapshotId);
