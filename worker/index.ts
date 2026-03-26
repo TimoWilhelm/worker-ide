@@ -118,6 +118,33 @@ app.use('/p/*/api/*', cors());
 // =============================================================================
 
 /**
+ * Detect cross-site hotlink requests using Sec-Fetch metadata headers.
+ *
+ * Blocks requests where `Sec-Fetch-Site` is `cross-site` and
+ * `Sec-Fetch-Dest` is NOT `document` (i.e. a subresource fetch from a
+ * third-party page). This prevents external pages from hotlinking
+ * preview JS, CSS, images, etc. while still allowing:
+ *
+ * - IDE `<iframe>` navigation (cross-site + dest=document → allowed)
+ * - Typed URL / bookmark (Sec-Fetch-Site=none → allowed)
+ * - Same-origin requests within the preview (same-origin → allowed)
+ * - Non-browser clients that don't send Sec-Fetch headers (allowed,
+ *   since these headers are browser-only and cannot be spoofed by JS)
+ */
+function isHotlinkRequest(request: Request): boolean {
+	const fetchSite = request.headers.get('Sec-Fetch-Site');
+	const fetchDestination = request.headers.get('Sec-Fetch-Dest');
+
+	// Only act when the browser explicitly tells us the request is cross-site.
+	// Absence of the header (non-browser clients, older browsers) is allowed.
+	if (fetchSite !== 'cross-site') return false;
+
+	// Cross-site navigations (iframe loads, top-level navigation) are legitimate.
+	// Everything else (script, style, image, empty, etc.) is hotlinking.
+	return fetchDestination !== 'document';
+}
+
+/**
  * Paths that belong to the IDE's dev infrastructure (Vite, PWA, etc.)
  * rather than user project files. When these are requested on a preview
  * subdomain (due to the browser's service worker, favicon probe, etc.)
@@ -458,6 +485,22 @@ export default {
 				if (!isValidToken) {
 					return previewExpiredPage({ baseDomain: parsed.baseDomain, protocol: url.protocol });
 				}
+
+				// Block cross-site subresource requests (hotlinking).
+				// Must run after token validation so we don't leak timing info
+				// about whether a token is valid to cross-site probes.
+				if (isHotlinkRequest(request)) {
+					return new Response('Forbidden', { status: 403 });
+				}
+
+				// Rate-limit preview requests per project to prevent abuse.
+				if (env.PREVIEW_RATE_LIMITER) {
+					const { success } = await env.PREVIEW_RATE_LIMITER.limit({ key: parsed.projectId });
+					if (!success) {
+						return new Response('Too Many Requests', { status: 429 });
+					}
+				}
+
 				return handlePreviewRequest(request, parsed.projectId);
 			}
 
