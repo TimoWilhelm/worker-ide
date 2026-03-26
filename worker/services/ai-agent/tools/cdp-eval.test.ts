@@ -29,7 +29,8 @@ describe('cdp_eval', () => {
 		);
 
 		expect(result.metadata).toHaveProperty('method', 'Runtime.evaluate');
-		expect(result.metadata).toHaveProperty('result');
+		expect(result.metadata).not.toHaveProperty('result');
+		expect(result.output).toContain('Runtime.evaluate');
 		expect(mockSendCdpCommand).toHaveBeenCalledOnce();
 		// Verify params were parsed and passed
 		const callArguments = mockSendCdpCommand.mock.calls[0];
@@ -44,7 +45,7 @@ describe('cdp_eval', () => {
 		const result = await execute({ method: 'DOM.getDocument' }, createMockSendEvent(), context);
 
 		expect(result.metadata).toHaveProperty('method', 'DOM.getDocument');
-		expect(result.metadata).toHaveProperty('result');
+		expect(result.output).toContain('DOM.getDocument');
 	});
 
 	// ── CDP errors ────────────────────────────────────────────────────────

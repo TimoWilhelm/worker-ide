@@ -27,6 +27,9 @@ const PRUNE_PROTECT = 40_000;
 /** Placeholder text for pruned tool outputs */
 const PRUNED_PLACEHOLDER = '[Old tool result content cleared]';
 
+/** Tool names whose call inputs can be pruned after the result is pruned. */
+const PRUNEABLE_INPUT_TOOLS = new Set(['file_write', 'file_edit', 'file_multiedit']);
+
 /**
  * Buffer reserved for model output and system prompt overhead.
  * When usable context minus this buffer is exceeded, the agent should stop.
@@ -431,5 +434,142 @@ export function pruneToolOutputs(messages: ModelMessage[]): { messages: ModelMes
 		return message;
 	});
 
+	// Second pass: prune tool call inputs for write operations whose results were pruned.
+	// After a write succeeds, the full file content in the input is redundant.
+	for (const prunedIndex of indicesToPrune) {
+		const toolMessage = prunedMessages[prunedIndex];
+		if (toolMessage.role !== 'tool' || !Array.isArray(toolMessage.content)) continue;
+
+		for (const part of toolMessage.content) {
+			if (part.type !== 'tool-result' || !PRUNEABLE_INPUT_TOOLS.has(part.toolName)) continue;
+
+			// Find the preceding assistant message with the matching tool call
+			for (let index = prunedIndex - 1; index >= 0; index--) {
+				const candidate = prunedMessages[index];
+				if (candidate.role !== 'assistant' || !Array.isArray(candidate.content)) continue;
+
+				const callPartIndex = candidate.content.findIndex((p) => p.type === 'tool-call' && p.toolCallId === part.toolCallId);
+				if (callPartIndex === -1) continue;
+
+				// Clone the assistant message and replace the input
+				const clonedContent = [...candidate.content];
+				const callPart = clonedContent[callPartIndex];
+				if (callPart.type === 'tool-call') {
+					const originalInput =
+						callPart.input && typeof callPart.input === 'object' && !Array.isArray(callPart.input)
+							? Object.fromEntries(Object.entries(callPart.input))
+							: {};
+					clonedContent[callPartIndex] = {
+						...callPart,
+						input: { __pruned: true, path: originalInput.path ?? '' },
+					};
+					prunedMessages[prunedIndex - (prunedIndex - index)] = { ...candidate, content: clonedContent };
+				}
+				break;
+			}
+		}
+	}
+
 	return { messages: prunedMessages, prunedTokens: prunableTokens };
+}
+
+// =============================================================================
+// Corrective System Message Pruning
+// =============================================================================
+
+/**
+ * Prune old corrective system messages injected by the agent loop.
+ * These are user-role messages starting with MUTATION_FAILURE_TAG or "SYSTEM:"
+ * that are no longer relevant after several iterations.
+ *
+ * Only prunes messages older than the protected window (last 2 user turns).
+ */
+export function pruneSystemMessages(messages: ModelMessage[]): { messages: ModelMessage[]; prunedTokens: number } {
+	// Find the boundary: protect the last 2 user turns
+	let userTurns = 0;
+	let protectBoundary = messages.length;
+	for (let index = messages.length - 1; index >= 0; index--) {
+		if (messages[index].role === 'user') {
+			userTurns++;
+			if (userTurns >= 2) {
+				protectBoundary = index;
+				break;
+			}
+		}
+	}
+
+	let prunedTokens = 0;
+	const result = messages.map((message, index): ModelMessage => {
+		if (index >= protectBoundary) return message;
+		if (message.role !== 'user' || typeof message.content !== 'string') return message;
+
+		const isSystemMessage = message.content.startsWith('[MUTATION_FAILURE]') || message.content.startsWith('SYSTEM:');
+		if (!isSystemMessage) return message;
+
+		prunedTokens += estimateTokens(message.content);
+		return { role: 'user' as const, content: PRUNED_PLACEHOLDER };
+	});
+
+	return { messages: result, prunedTokens };
+}
+
+// =============================================================================
+// Old Assistant Text Pruning
+// =============================================================================
+
+/** Maximum characters to keep when truncating old assistant text. */
+const ASSISTANT_TEXT_TRUNCATE_LENGTH = 200;
+
+/**
+ * Truncate old assistant text parts to save context space.
+ * Preserves:
+ * - All messages within the most recent N user turns
+ * - All tool-call and tool-result structure (never truncated)
+ * - Only truncates text parts of old assistant messages
+ *
+ * This is a last-resort pruning step for extremely full context windows.
+ */
+export function pruneOldAssistantText(
+	messages: ModelMessage[],
+	protectRecentTurns = 3,
+): { messages: ModelMessage[]; prunedTokens: number } {
+	// Find the protection boundary
+	let userTurns = 0;
+	let protectBoundary = messages.length;
+	for (let index = messages.length - 1; index >= 0; index--) {
+		if (messages[index].role === 'user') {
+			userTurns++;
+			if (userTurns >= protectRecentTurns) {
+				protectBoundary = index;
+				break;
+			}
+		}
+	}
+
+	let prunedTokens = 0;
+	const result = messages.map((message, index): ModelMessage => {
+		if (index >= protectBoundary) return message;
+		if (message.role !== 'assistant') return message;
+
+		if (typeof message.content === 'string') {
+			if (message.content.length <= ASSISTANT_TEXT_TRUNCATE_LENGTH) return message;
+			prunedTokens += estimateTokens(message.content) - estimateTokens(message.content.slice(0, ASSISTANT_TEXT_TRUNCATE_LENGTH));
+			return { ...message, content: message.content.slice(0, ASSISTANT_TEXT_TRUNCATE_LENGTH) + '... [truncated]' };
+		}
+
+		if (!Array.isArray(message.content)) return message;
+
+		// Only truncate text parts, preserve tool-call parts
+		let changed = false;
+		const newContent = message.content.map((part) => {
+			if (part.type !== 'text' || part.text.length <= ASSISTANT_TEXT_TRUNCATE_LENGTH) return part;
+			changed = true;
+			prunedTokens += estimateTokens(part.text) - estimateTokens(part.text.slice(0, ASSISTANT_TEXT_TRUNCATE_LENGTH));
+			return { ...part, text: part.text.slice(0, ASSISTANT_TEXT_TRUNCATE_LENGTH) + '... [truncated]' };
+		});
+
+		return changed ? { ...message, content: newContent } : message;
+	});
+
+	return { messages: result, prunedTokens };
 }

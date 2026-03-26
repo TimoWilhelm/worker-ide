@@ -16,6 +16,16 @@
  * characters: 50 (projectId) + 1 ("-") + 12 (token) = 63.
  */
 
+// Cloudflare Workers extends SubtleCrypto with timingSafeEqual, which is
+// not present in the standard DOM lib. This augmentation lets the app
+// tsconfig (DOM-only) see the method without pulling in the full worker
+// runtime types.
+declare global {
+	interface SubtleCrypto {
+		timingSafeEqual(a: ArrayBuffer | ArrayBufferView, b: ArrayBuffer | ArrayBufferView): boolean;
+	}
+}
+
 /** Bucket duration in seconds (1 hour). */
 const BUCKET_SIZE_SECONDS = 3600;
 
@@ -48,18 +58,35 @@ async function hmacHex(secret: string, message: string): Promise<string> {
 /**
  * Constant-time string comparison.
  *
- * XOR-based comparison that always examines every character, preventing
- * timing side-channels. Returns `false` for different-length strings
- * (the length itself leaks, but our tokens are always fixed-length).
+ * Uses `crypto.subtle.timingSafeEqual` (Cloudflare Workers) when available,
+ * falling back to a portable DataView-based constant-time comparison.
+ * Adapted from https://jsr.io/@std/crypto/1.0.5/timing_safe_equal.ts (MIT).
+ *
+ * Returns `false` for different-length strings (the length itself leaks,
+ * but our tokens are always fixed-length).
  */
-export function constantTimeEqual(a: string, b: string): boolean {
-	if (a.length !== b.length) return false;
-	let mismatch = 0;
-	for (let index = 0; index < a.length; index++) {
-		// eslint-disable-next-line unicorn/prefer-code-point
-		mismatch |= a.charCodeAt(index) ^ b.charCodeAt(index);
+export async function constantTimeEqual(a: string, b: string): Promise<boolean> {
+	const encoder = new TextEncoder();
+	const encodedA = encoder.encode(a);
+	const encodedB = encoder.encode(b);
+	if (encodedA.byteLength !== encodedB.byteLength) return false;
+
+	// Cloudflare Workers — preferred path
+	if (typeof crypto.subtle.timingSafeEqual === 'function') {
+		return crypto.subtle.timingSafeEqual(encodedA, encodedB);
 	}
-	return mismatch === 0;
+
+	// Fallback: portable constant-time comparison via DataView
+	// (from @std/crypto timing_safe_equal.ts, MIT license)
+	const viewA = new DataView(encodedA.buffer, encodedA.byteOffset, encodedA.byteLength);
+	const viewB = new DataView(encodedB.buffer, encodedB.byteOffset, encodedB.byteLength);
+	const length = encodedA.byteLength;
+	let out = 0;
+	let index = -1;
+	while (++index < length) {
+		out |= viewA.getUint8(index) ^ viewB.getUint8(index);
+	}
+	return out === 0;
 }
 
 // -- Public API ---------------------------------------------------------------
@@ -89,10 +116,10 @@ export async function validatePreviewToken(projectId: string, token: string, sec
 	const bucket = currentBucket();
 
 	const currentMac = await hmacHex(secret, `${projectId}:${bucket}`);
-	if (constantTimeEqual(currentMac.slice(0, TOKEN_HEX_LENGTH), token)) return true;
+	if (await constantTimeEqual(currentMac.slice(0, TOKEN_HEX_LENGTH), token)) return true;
 
 	const previousMac = await hmacHex(secret, `${projectId}:${bucket - 1}`);
-	if (constantTimeEqual(previousMac.slice(0, TOKEN_HEX_LENGTH), token)) return true;
+	if (await constantTimeEqual(previousMac.slice(0, TOKEN_HEX_LENGTH), token)) return true;
 
 	return false;
 }

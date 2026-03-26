@@ -21,6 +21,23 @@ import {
 
 import { readTodos } from './tool-executor';
 
+// =============================================================================
+// Dynamic Content Size Caps
+// =============================================================================
+
+/** Maximum characters for the latest plan injection (~2K tokens). */
+const MAX_PLAN_CHARACTERS = 8000;
+
+/** Maximum characters for the todo list injection (~1K tokens). */
+const MAX_TODOS_CHARACTERS = 4000;
+
+/** Maximum characters for IDE output logs injection (~2K tokens). */
+const MAX_OUTPUT_LOG_CHARACTERS = 8000;
+
+// =============================================================================
+// Public API
+// =============================================================================
+
 /**
  * Build the complete system prompts array for the agent.
  *
@@ -35,8 +52,6 @@ export async function buildSystemPrompts(
 	outputLogs?: string,
 	sessionId?: string,
 ): Promise<string[]> {
-	const prompts: string[] = [];
-
 	let mainPrompt = AGENT_SYSTEM_PROMPT;
 
 	// Add AGENTS.md context
@@ -49,27 +64,25 @@ export async function buildSystemPrompts(
 	switch (mode) {
 		case 'code': {
 			mainPrompt += CODE_MODE_SYSTEM_PROMPT;
-
 			break;
 		}
 		case 'plan': {
 			mainPrompt += PLAN_MODE_SYSTEM_PROMPT;
-
 			break;
 		}
 		case 'ask': {
 			mainPrompt += ASK_MODE_SYSTEM_PROMPT;
-
 			break;
 		}
 		// No default
 	}
 
-	// Add latest plan context (in code mode only)
+	// Add latest plan context (in code and ask modes)
 	if (mode !== 'plan') {
 		const latestPlan = await readLatestPlan(projectRoot);
 		if (latestPlan) {
-			mainPrompt += `\n\n## Active Implementation Plan\nFollow this plan for all implementation steps. Reference it to decide what to do next and mark steps as complete when done.\n\n${latestPlan}`;
+			const truncatedPlan = truncateFromEnd(latestPlan, MAX_PLAN_CHARACTERS);
+			mainPrompt += `\n\n## Active Implementation Plan\nFollow this plan for all implementation steps. Reference it to decide what to do next and mark steps as complete when done.\n\n${truncatedPlan}`;
 		}
 	}
 
@@ -77,18 +90,40 @@ export async function buildSystemPrompts(
 	if (mode !== 'ask') {
 		const todosContext = await readCurrentTodos(projectRoot, sessionId);
 		if (todosContext) {
-			mainPrompt += `\n\n## Active Todo List\nThis is your current task list. Use it to track progress and decide what to work on next.\n\n${todosContext}`;
+			const truncatedTodos = truncateFromEnd(todosContext, MAX_TODOS_CHARACTERS);
+			mainPrompt += `\n\n## Active Todo List\nThis is your current task list. Use it to track progress and decide what to work on next.\n\n${truncatedTodos}`;
 		}
 	}
 
 	// Append IDE output logs (bundle errors, server logs, client console, lint)
 	if (outputLogs && outputLogs.trim().length > 0) {
-		mainPrompt += `\n\n## IDE Output Logs\nThe following are recent output messages from the IDE (bundle errors, server logs, client console logs, lint diagnostics). Use these to diagnose issues the user may be experiencing.\n\n<output_logs>\n${outputLogs}\n</output_logs>`;
+		// Truncate from the start to preserve the most recent log entries
+		const truncatedLogs = truncateFromStart(outputLogs, MAX_OUTPUT_LOG_CHARACTERS);
+		mainPrompt += `\n\n## IDE Output Logs\nThe following are recent output messages from the IDE (bundle errors, server logs, client console logs, lint diagnostics). Use these to diagnose issues the user may be experiencing.\n\n<output_logs>\n${truncatedLogs}\n</output_logs>`;
 	}
 
-	prompts.push(mainPrompt);
-	return prompts;
+	return [mainPrompt];
 }
+
+// =============================================================================
+// Truncation Helpers
+// =============================================================================
+
+/** Truncate from the end, keeping the start. Useful for plans and todos. */
+function truncateFromEnd(content: string, maxLength: number): string {
+	if (content.length <= maxLength) return content;
+	return content.slice(0, maxLength) + '\n... (truncated)';
+}
+
+/** Truncate from the start, keeping the end. Useful for logs where recent entries matter most. */
+function truncateFromStart(content: string, maxLength: number): string {
+	if (content.length <= maxLength) return content;
+	return '... (older entries truncated)\n' + content.slice(-maxLength);
+}
+
+// =============================================================================
+// Context Readers
+// =============================================================================
 
 /**
  * Read the AGENTS.md file from the project root (case-insensitive).
@@ -102,7 +137,7 @@ async function readAgentsContext(projectRoot: string): Promise<string | undefine
 
 		let content = await fs.readFile(`${projectRoot}/${agentsFile}`, 'utf8');
 		if (content.length > AGENTS_MD_MAX_CHARACTERS) {
-			content = content.slice(0, AGENTS_MD_MAX_CHARACTERS) + '\n...(truncated)';
+			content = content.slice(0, AGENTS_MD_MAX_CHARACTERS) + '\n... (truncated)';
 		}
 		return content;
 	} catch {

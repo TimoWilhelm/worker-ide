@@ -11,6 +11,9 @@ import { ToolExecutionError } from '@shared/tool-errors';
 
 import type { SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
 
+/** Maximum characters of CDP result output returned to the LLM. */
+const MAX_OUTPUT_LENGTH = 10_000;
+
 const DESCRIPTION = `Execute a Chrome DevTools Protocol (CDP) command in the project's live preview iframe. Use this to run JavaScript, inspect the DOM, check network activity, read console output, and debug runtime issues.
 
 Common CDP methods:
@@ -111,9 +114,14 @@ export async function execute(
 		throw new ToolExecutionError('MISSING_INPUT', result.error);
 	}
 
+	let resultString = typeof result.result === 'string' ? result.result : JSON.stringify(result.result, undefined, 2);
+	if (resultString.length > MAX_OUTPUT_LENGTH) {
+		resultString = resultString.slice(0, MAX_OUTPUT_LENGTH) + '\n... (truncated)';
+	}
+
 	return {
 		title: method,
-		metadata: { method, result: result.result },
-		output: `Method: ${method}\n\nResult: ${typeof result.result === 'string' ? result.result : JSON.stringify(result.result, undefined, 2)}`,
+		metadata: { method },
+		output: `Method: ${method}\n\nResult: ${resultString}`,
 	};
 }

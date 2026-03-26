@@ -63,6 +63,24 @@ export interface AgentSessionState {
 	toolErrors: Record<string, ToolErrorInfo>;
 	/** ID of the latest debug log file */
 	debugLogId: string | undefined;
+	/** Steering messages queued but not yet consumed by the agent loop. */
+	pendingSteeringMessages: PendingSteeringMessage[];
+	/** Pending question from the agent (user_question tool). */
+	pendingQuestion: { question: string; options: string } | undefined;
+	/** Whether the agent hit the iteration limit and can be continued. */
+	needsContinuation: boolean;
+	/** Doom loop detection message, if triggered. */
+	doomLoopMessage: string | undefined;
+}
+
+/**
+ * A steering message queued by the user while the agent is running.
+ * Displayed with a distinct "pending" style until consumed by the agent loop.
+ */
+export interface PendingSteeringMessage {
+	id: string;
+	content: string;
+	createdAt: number;
 }
 
 /**
