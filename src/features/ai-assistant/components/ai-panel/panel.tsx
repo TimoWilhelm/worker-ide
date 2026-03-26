@@ -10,7 +10,7 @@
  */
 
 import { useAgent } from 'agents/react';
-import { ArrowDown, Bot, Download, History, Loader2, Map as MapIcon, MessageCircleQuestion, Plus, Send, Square, X } from 'lucide-react';
+import { ArrowDown, Bot, Download, History, Loader2, Map as MapIcon, MessageCircleQuestion, Plus, Send, Square } from 'lucide-react';
 import { ScrollArea } from 'radix-ui';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
@@ -27,7 +27,16 @@ import { useStore } from '@/lib/store';
 import { cn, formatRelativeTime } from '@/lib/utils';
 
 import { ContextRing } from './context-ring';
-import { AIError, AssistantMessage, ContinuationPrompt, DoomLoopAlert, MessageBubble, UserQuestionPrompt, WelcomeScreen } from './messages';
+import {
+	AIError,
+	AssistantMessage,
+	ContinuationPrompt,
+	DoomLoopAlert,
+	MessageBubble,
+	PendingSteeringBubble,
+	UserQuestionPrompt,
+	WelcomeScreen,
+} from './messages';
 import { getModelLabel, getModelLimits } from './model-config';
 import { ModelSelectorDialog } from './model-selector-dialog';
 import { useAutoScroll } from '../../hooks/use-auto-scroll';
@@ -87,12 +96,8 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	const { style: keyboardStyle, ref: keyboardReference } = useMobileKeyboardLayout();
 	const [segments, setSegments] = useState<InputSegment[]>([]);
 	const [cursorPosition, setCursorPosition] = useState(0);
-	const [needsContinuation, setNeedsContinuation] = useState(false);
-	const [pendingQuestion, setPendingQuestion] = useState<{ question: string; options: string } | undefined>();
-	const [doomLoopMessage, setDoomLoopMessage] = useState<string | undefined>();
 	const [planPath, setPlanPath] = useState<string | undefined>();
 	const [isModelSelectorOpen, setIsModelSelectorOpen] = useState(false);
-	const [showInterruptConfirm, setShowInterruptConfirm] = useState(false);
 	const inputReference = useRef<RichTextInputHandle>(null);
 
 	// Track the last chatError we already surfaced so dismissing it doesn't re-trigger
@@ -187,6 +192,10 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	const debugLogId = currentSession?.debugLogId;
 	const isProcessing = currentSession?.status === 'running';
 	const aiError = currentSession?.error;
+	const pendingSteeringMessages = currentSession?.pendingSteeringMessages ?? [];
+	const pendingQuestion = currentSession?.pendingQuestion;
+	const needsContinuation = currentSession?.needsContinuation ?? false;
+	const doomLoopMessage = currentSession?.doomLoopMessage;
 	const messageSnapshots = useMemo(() => {
 		const record = currentSession?.messageSnapshots ?? {};
 		return new Map(Object.entries(record).map(([key, value]) => [Number(key), value]));
@@ -221,11 +230,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		if (sessionId !== previousSessionIdReference.current) {
 			previousSessionIdReference.current = sessionId;
 			queueMicrotask(() => {
-				setDoomLoopMessage(undefined);
-				setNeedsContinuation(false);
-				setPendingQuestion(undefined);
 				setPlanPath(undefined);
-				setShowInterruptConfirm(false);
 			});
 		}
 	}, [sessionId]);
@@ -283,9 +288,6 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 			void agent.call('abortRun', [sessionId]);
 		}
 		setPlanPath(undefined);
-		setNeedsContinuation(false);
-		setPendingQuestion(undefined);
-		setDoomLoopMessage(undefined);
 		setFileDiffContent(new Map());
 		setActiveSessionId(projectId, undefined);
 		// Tell the agent to clear the current session state
@@ -302,9 +304,6 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 				void agent.call('abortRun', [sessionId]);
 			}
 			setPlanPath(undefined);
-			setNeedsContinuation(false);
-			setPendingQuestion(undefined);
-			setDoomLoopMessage(undefined);
 			setFileDiffContent(new Map());
 			resetScrollState();
 			loadSession(targetSessionId);
@@ -326,10 +325,6 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		async (messageOverride?: string) => {
 			const messageText = messageOverride ?? inputPlainText.trim();
 			if (!messageText || isProcessing || !isConnected) return;
-
-			setNeedsContinuation(false);
-			setPendingQuestion(undefined);
-			setDoomLoopMessage(undefined);
 
 			// Build the user message
 			const userMessage: ChatMessage = {
@@ -360,30 +355,36 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		[inputPlainText, isConnected, isProcessing, chatMessages, sessionId, projectId, agentMode, selectedModel, agent, scrollToBottom],
 	);
 
-	// Cancel current request.
-	// Tells the AgentRunner DO to abort the specific session, and stops
-	// the local useAgentChat stream consumer. Session is persisted server-side
-	// when the agent is aborted, so no client-side save is needed here.
-	//
-	// After aborting, we merge server-side metadata (snapshot IDs for revert
-	// buttons, mode badges) into the existing client state. onFinish won't run
-	// after an abort, so this is the only path that restores that metadata.
-	// We intentionally do NOT replace chatMessages with the server history —
-	// the client's in-memory messages are the most complete source at this point
-	// and include thinking content / partial text that may not yet be persisted.
+	// Send a steering message to the running agent without aborting it.
+	// The message is queued and injected between agent loop iterations.
+	const handleSteer = useCallback(
+		async (messageOverride?: string) => {
+			const messageText = messageOverride ?? inputPlainText.trim();
+			if (!messageText || !sessionId) return;
+
+			setSegments([]);
+			inputReference.current?.clear();
+			scrollToBottom();
+
+			try {
+				const result: { queued: boolean } = await agent.call('steerRun', [sessionId, messageText]);
+				if (!result.queued) {
+					// Session wasn't running — fall back to normal send
+					void handleSend(messageText);
+				}
+			} catch (error: unknown) {
+				console.error('[AIPanel] Failed to steer agent:', error);
+			}
+		},
+		[inputPlainText, sessionId, agent, scrollToBottom, handleSend],
+	);
+
+	// Cancel (hard abort) the current request.
 	const handleCancel = useCallback(() => {
-		// Abort via Agent RPC — the state will update automatically
 		void agent.call('abortRun', [sessionId]).catch((error: unknown) => {
 			console.error('[AIPanel] Failed to abort agent:', error);
 		});
 	}, [agent, sessionId]);
-
-	// Interrupt current generation. The user's typed text stays in the
-	// input so they can send it normally once the cancel settles.
-	const handleInterrupt = useCallback(() => {
-		setShowInterruptConfirm(false);
-		handleCancel();
-	}, [handleCancel]);
 
 	// Handle keyboard shortcuts
 	const handleKeyDown = useCallback(
@@ -391,31 +392,24 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 			// Let file mention dropdown handle keys first
 			if (handleFileMentionKeyDown(event)) return;
 
-			// Interrupt confirm bar is showing — Enter confirms interrupt, Escape dismisses
-			if (showInterruptConfirm) {
-				if (event.key === 'Enter' && !event.shiftKey) {
-					event.preventDefault();
-					handleInterrupt();
-					return;
-				}
-				if (event.key === 'Escape') {
-					event.preventDefault();
-					setShowInterruptConfirm(false);
-					return;
-				}
-			}
-
 			if (event.key === 'Enter' && !event.shiftKey) {
 				event.preventDefault();
 				if (isProcessing && hasContent && isConnected) {
-					// Show interrupt confirmation instead of sending
-					setShowInterruptConfirm(true);
+					// Send as steering message — injected between agent iterations
+					void handleSteer();
 					return;
 				}
 				void handleSend();
+				return;
+			}
+
+			// Escape during processing = hard abort
+			if (event.key === 'Escape' && isProcessing) {
+				event.preventDefault();
+				handleCancel();
 			}
 		},
-		[handleSend, handleFileMentionKeyDown, isConnected, isProcessing, hasContent, showInterruptConfirm, handleInterrupt],
+		[handleSend, handleSteer, handleFileMentionKeyDown, isConnected, isProcessing, hasContent, handleCancel],
 	);
 
 	// Retry: trim the failed assistant response and re-start the agent
@@ -739,6 +733,10 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 									))}
 								</>
 							)}
+							{/* Pending steering messages (queued but not yet consumed by agent) */}
+							{pendingSteeringMessages.map((pending) => (
+								<PendingSteeringBubble key={pending.id} content={pending.content} />
+							))}
 							{/* Streaming assistant message */}
 							{streamingAssistantMessage && (
 								<AssistantMessage
@@ -760,12 +758,10 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 							)}
 							{/* Continuation prompt — shown when the agent hit the iteration limit */}
 							{needsContinuation && !isProcessing && (
-								<ContinuationPrompt onContinue={() => void handleSend('continue')} onDismiss={() => setNeedsContinuation(false)} />
+								<ContinuationPrompt onContinue={() => void handleSend('continue')} onDismiss={() => {}} />
 							)}
 							{/* Doom loop alert — shown when the agent was stopped due to repetitive behavior */}
-							{doomLoopMessage && !isProcessing && (
-								<DoomLoopAlert message={doomLoopMessage} onRetry={handleRetry} onDismiss={() => setDoomLoopMessage(undefined)} />
-							)}
+							{doomLoopMessage && !isProcessing && <DoomLoopAlert message={doomLoopMessage} onRetry={handleRetry} onDismiss={() => {}} />}
 							{/* AI Error display */}
 							{displayError && (
 								<AIError message={displayError.message} code={displayError.code} onRetry={handleRetry} onDismiss={handleDismissError} />
@@ -880,35 +876,6 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 						<span className="flex-1 text-xs text-text-secondary">
 							{agentConnectionState === 'connecting' ? 'Connecting to agent…' : 'Connection lost. Reconnecting…'}
 						</span>
-					</InputInfoBar>
-
-					{/* Interrupt confirmation bar */}
-					<InputInfoBar open={showInterruptConfirm && isConnected} icon={<Square className="size-3 shrink-0 text-warning" />}>
-						<span className="flex-1 text-xs text-text-secondary">Interrupt generation?</span>
-						<button
-							type="button"
-							onClick={() => setShowInterruptConfirm(false)}
-							className="
-								inline-flex cursor-pointer items-center rounded-sm p-0.5
-								text-text-secondary transition-colors
-								hover:bg-bg-tertiary hover:text-text-primary
-							"
-							aria-label="Dismiss"
-						>
-							<X className="size-3" />
-						</button>
-						<button
-							type="button"
-							onClick={handleInterrupt}
-							className="
-								inline-flex cursor-pointer items-center gap-1 rounded-md bg-warning/15
-								px-2 py-0.5 text-xs font-medium text-warning transition-colors
-								hover:bg-warning/25
-							"
-						>
-							<Square className="size-3" />
-							Interrupt
-						</button>
 					</InputInfoBar>
 
 					<RichTextInput

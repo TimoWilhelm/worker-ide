@@ -39,20 +39,20 @@ describe('PREVIEW_TOKEN_PATTERN', () => {
 // -- constantTimeEqual --------------------------------------------------------
 
 describe('constantTimeEqual', () => {
-	it('returns true for equal strings', () => {
-		expect(constantTimeEqual('abc123', 'abc123')).toBe(true);
+	it('returns true for equal strings', async () => {
+		await expect(constantTimeEqual('abc123', 'abc123')).resolves.toBe(true);
 	});
 
-	it('returns false for different strings of same length', () => {
-		expect(constantTimeEqual('abc123', 'abc124')).toBe(false);
+	it('returns false for different strings of same length', async () => {
+		await expect(constantTimeEqual('abc123', 'abc124')).resolves.toBe(false);
 	});
 
-	it('returns false for different-length strings', () => {
-		expect(constantTimeEqual('abc', 'abcd')).toBe(false);
+	it('returns false for different-length strings', async () => {
+		await expect(constantTimeEqual('abc', 'abcd')).resolves.toBe(false);
 	});
 
-	it('returns true for empty strings', () => {
-		expect(constantTimeEqual('', '')).toBe(true);
+	it('returns true for empty strings', async () => {
+		await expect(constantTimeEqual('', '')).resolves.toBe(true);
 	});
 });
 

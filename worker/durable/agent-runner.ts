@@ -170,6 +170,9 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	private pendingContentDeltas = new Map<string, { type: 'reasoning' | 'text'; content: string }>();
 	private contentFlushTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
+	/** Queued steering messages for running sessions, keyed by sessionId. */
+	private steeringMessages = new Map<string, Array<{ id: string; content: string }>>();
+
 	/** Whether SQL tables have been initialized. */
 	private schemaInitialized = false;
 
@@ -322,6 +325,10 @@ export class AgentRunner extends Agent<Env, AgentState> {
 			messages: parameters.messages,
 			messageModes: updatedModes,
 			error: undefined,
+			pendingSteeringMessages: [],
+			pendingQuestion: undefined,
+			needsContinuation: false,
+			doomLoopMessage: undefined,
 		});
 
 		return { sessionId: resolvedSessionId };
@@ -376,6 +383,50 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	}
 
 	/**
+	 * Queue a steering message for a running session.
+	 * The message is injected into the agent loop between iterations.
+	 */
+	@callable()
+	async steerRun(sessionId: string, message: string): Promise<{ queued: boolean }> {
+		this.ensureSchema();
+
+		// Only queue if the session is actually running
+		const controller = this.abortControllers.get(sessionId);
+		if (!controller) {
+			return { queued: false };
+		}
+
+		const id = crypto.randomUUID();
+		const queue = this.steeringMessages.get(sessionId) ?? [];
+		queue.push({ id, content: message });
+		this.steeringMessages.set(sessionId, queue);
+
+		// Update agent state so the frontend renders the pending message immediately
+		const current = this.state.currentSession;
+		if (current?.sessionId === sessionId) {
+			const pending = [...(current.pendingSteeringMessages ?? []), { id, content: message, createdAt: Date.now() }];
+			this.updateSessionState(sessionId, { pendingSteeringMessages: pending });
+		}
+
+		return { queued: true };
+	}
+
+	/**
+	 * Drain all queued steering messages for a session.
+	 * Called by the agent loop between iterations.
+	 */
+	private drainSteeringMessages(sessionId: string): Array<{ id: string; content: string }> {
+		const messages = this.steeringMessages.get(sessionId) ?? [];
+		if (messages.length > 0) {
+			this.steeringMessages.set(sessionId, []);
+			// Clear pending display — the messages will appear as committed
+			// user messages after the next persistSession + turn-complete cycle
+			this.updateSessionState(sessionId, { pendingSteeringMessages: [] });
+		}
+		return messages;
+	}
+
+	/**
 	 * Load a session into the current state.
 	 */
 	@callable()
@@ -408,6 +459,10 @@ export class AgentRunner extends Agent<Env, AgentState> {
 				toolMetadata: session.toolMetadata ?? {},
 				toolErrors: session.toolErrors ?? {},
 				debugLogId: undefined,
+				pendingSteeringMessages: [],
+				pendingQuestion: undefined,
+				needsContinuation: false,
+				doomLoopMessage: undefined,
 			},
 		});
 
@@ -691,6 +746,8 @@ export class AgentRunner extends Agent<Env, AgentState> {
 					this.persistSessionFromService(sid, sessionData, pendingChanges);
 					return Promise.resolve();
 				},
+				// Steering messages callback — drains queued user messages between iterations
+				() => this.drainSteeringMessages(sessionId),
 			);
 
 			const abortController = this.abortControllers.get(sessionId) ?? new AbortController();
@@ -736,12 +793,14 @@ export class AgentRunner extends Agent<Env, AgentState> {
 
 			// Clean up in-memory state
 			this.abortControllers.delete(sessionId);
+			this.steeringMessages.delete(sessionId);
 
 			// Update state with terminal status
 			this.updateSessionState(sessionId, {
 				status: finalStatus,
 				statusText: undefined,
 				error: finalStatus === 'error' && errorMessage ? { message: errorMessage } : undefined,
+				pendingSteeringMessages: [],
 			});
 
 			// Persist terminal status to DB
@@ -925,10 +984,25 @@ export class AgentRunner extends Agent<Env, AgentState> {
 				break;
 			}
 
+			// ── Follow-up prompt events ─────────────────────────────────
+			case 'user-question': {
+				this.updateSessionState(sessionId, {
+					pendingQuestion: { question: event.question, options: event.options },
+				});
+				break;
+			}
+			case 'max-iterations-reached': {
+				this.updateSessionState(sessionId, { needsContinuation: true });
+				break;
+			}
+			case 'doom-loop-detected': {
+				this.updateSessionState(sessionId, { doomLoopMessage: event.message });
+				break;
+			}
+
 			// ── Events that don't update state ──────────────────────────
 			default: {
-				// run-error, run-finished, usage, max-iterations-reached,
-				// doom-loop-detected, plan-created, user-question, snapshot-deleted
+				// run-error, run-finished, usage, plan-created, snapshot-deleted
 				break;
 			}
 		}
@@ -1217,6 +1291,10 @@ export class AgentRunner extends Agent<Env, AgentState> {
 				toolMetadata: session?.toolMetadata ?? {},
 				toolErrors: session?.toolErrors ?? {},
 				debugLogId: undefined,
+				pendingSteeringMessages: [],
+				pendingQuestion: undefined,
+				needsContinuation: false,
+				doomLoopMessage: undefined,
 				...patch,
 			};
 			this.setState({ ...this.state, currentSession: newState });

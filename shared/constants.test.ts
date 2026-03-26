@@ -13,7 +13,7 @@ import { PLAN_MODE_SYSTEM_PROMPT, AGENTS_MD_MAX_CHARACTERS, MCP_SERVERS, HIDDEN_
 describe('PLAN_MODE_SYSTEM_PROMPT', () => {
 	it('instructs the agent about read-only mode', () => {
 		expect(PLAN_MODE_SYSTEM_PROMPT).toContain('PLAN MODE');
-		expect(PLAN_MODE_SYSTEM_PROMPT).toContain('CANNOT');
+		expect(PLAN_MODE_SYSTEM_PROMPT).toContain('MUST NOT modify files');
 	});
 
 	it('mentions producing a plan', () => {

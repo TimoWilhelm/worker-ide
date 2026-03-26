@@ -24,10 +24,13 @@ import { mount, withMounts } from 'worker-fs-mount';
 import { DEFAULT_AI_MODEL, getModelConfig, getModelLimits } from '@shared/constants';
 
 import { AgentLogger } from './agent-logger';
+import { compactMessages } from './context-compactor';
 import {
 	estimateMessagesTokens,
 	getContextUtilization,
 	hasContextBudget,
+	pruneOldAssistantText,
+	pruneSystemMessages,
 	pruneToolOutputs,
 	responseMessagesToChatMessages,
 } from './context-pruner';
@@ -117,6 +120,9 @@ const SOFT_ITERATION_LIMIT = 50;
 /** Context utilization threshold for proactive pruning. */
 const PROACTIVE_PRUNE_THRESHOLD = 0.7;
 
+/** Context utilization threshold for LLM-based compaction. */
+const COMPACTION_THRESHOLD = 0.85;
+
 // =============================================================================
 // AI Agent Service Class
 // =============================================================================
@@ -151,6 +157,7 @@ export class AIAgentService {
 			},
 			pendingChanges?: Record<string, PendingFileChange>,
 		) => Promise<void>,
+		private getSteeringMessages?: () => Array<{ id: string; content: string }>,
 	) {}
 
 	/**
@@ -342,6 +349,7 @@ export class AIAgentService {
 			let lastAssistantText = '';
 			let softLimitNudged = false;
 			let planModeTodoNudged = false;
+			let compactionAttempted = false;
 
 			while (continueLoop && iteration < MAX_ITERATIONS) {
 				if (signal.aborted) {
@@ -369,16 +377,59 @@ export class AIAgentService {
 					});
 				}
 
-				// Proactive pruning
+				// Proactive pruning — multi-stage, from cheapest to most aggressive
 				if (contextUtilization >= PROACTIVE_PRUNE_THRESHOLD) {
-					const { messages: prunedMessages, prunedTokens } = pruneToolOutputs(workingMessages);
-					if (prunedTokens > 0) {
+					let totalPruned = 0;
+
+					// Stage 1: Prune old tool outputs (and corresponding write-tool inputs)
+					const { messages: stage1, prunedTokens: stage1Tokens } = pruneToolOutputs(workingMessages);
+					if (stage1Tokens > 0) {
 						workingMessages.length = 0;
-						workingMessages.push(...prunedMessages);
+						workingMessages.push(...stage1);
+						totalPruned += stage1Tokens;
+					}
+
+					// Stage 2: Prune old corrective system messages
+					const { messages: stage2, prunedTokens: stage2Tokens } = pruneSystemMessages(workingMessages);
+					if (stage2Tokens > 0) {
+						workingMessages.length = 0;
+						workingMessages.push(...stage2);
+						totalPruned += stage2Tokens;
+					}
+
+					// Stage 3: If still high (>85%), try LLM-based compaction (once per run)
+					const postStage2Utilization = getContextUtilization(workingMessages, modelLimits);
+					if (postStage2Utilization >= COMPACTION_THRESHOLD && !compactionAttempted) {
+						compactionAttempted = true;
+						yield statusEvent('Compacting conversation history...');
+						try {
+							const compactionResult = await compactMessages(workingMessages, 3, signal);
+							if (compactionResult) {
+								workingMessages.length = 0;
+								workingMessages.push(...compactionResult.messages);
+								totalPruned += compactionResult.compactedTokens;
+							}
+						} catch {
+							// Non-fatal — fall through to more aggressive pruning
+						}
+					}
+
+					// Stage 4: If still very full (>90%), truncate old assistant text
+					const postStage3Utilization = getContextUtilization(workingMessages, modelLimits);
+					if (postStage3Utilization >= 0.9) {
+						const { messages: stage4, prunedTokens: stage4Tokens } = pruneOldAssistantText(workingMessages);
+						if (stage4Tokens > 0) {
+							workingMessages.length = 0;
+							workingMessages.push(...stage4);
+							totalPruned += stage4Tokens;
+						}
+					}
+
+					if (totalPruned > 0) {
 						const postPruneTokens = estimateMessagesTokens(workingMessages);
 						const postPruneUtilization = getContextUtilization(workingMessages, modelLimits);
 						yield contextUtilizationEvent(postPruneTokens, modelLimits.contextWindow, Math.round(postPruneUtilization * 100));
-						yield statusEvent(`Pruned ${prunedTokens} tokens of old tool output`);
+						yield statusEvent(`Pruned ${totalPruned} tokens of old context`);
 					}
 				}
 
@@ -733,6 +784,27 @@ export class AIAgentService {
 				await persistSession();
 
 				yield turnCompleteEvent();
+
+				// Drain any steering messages queued by the user during this iteration
+				if (this.getSteeringMessages && continueLoop) {
+					const steeringMessages = this.getSteeringMessages();
+					for (const { content } of steeringMessages) {
+						workingMessages.push({ role: 'user', content });
+						currentChatMessages.push({
+							id: crypto.randomUUID(),
+							role: 'user',
+							parts: [{ type: 'text', content }],
+							createdAt: Date.now(),
+						});
+						// Re-enable the loop if the agent was about to stop —
+						// the user has provided new input to act on
+						continueLoop = true;
+					}
+					if (steeringMessages.length > 0) {
+						await persistSession();
+						yield statusEvent('Processing your message...');
+					}
+				}
 			}
 
 			// Iteration limit

@@ -1878,3 +1878,32 @@ export function AIError({
 		</div>
 	);
 }
+
+// =============================================================================
+// PendingSteeringBubble
+// =============================================================================
+
+/**
+ * Renders a steering message that is queued but not yet consumed by the agent loop.
+ * Visually distinct from committed user messages: dashed border, violet color, "Queued" pill.
+ */
+export function PendingSteeringBubble({ content }: { content: string }) {
+	return (
+		<div className="flex min-w-0 animate-chat-item flex-col gap-1">
+			<div className="flex items-center gap-1.5">
+				<span className="text-2xs font-semibold tracking-wider text-accent uppercase">You</span>
+				<Pill size="xs" color="purple">
+					Queued
+				</Pill>
+			</div>
+			<div
+				className={cn(
+					'rounded-lg border border-dashed px-3 py-2.5 text-sm/relaxed',
+					'border-purple-500/25 bg-purple-500/8 text-text-secondary',
+				)}
+			>
+				<span className="whitespace-pre-wrap">{content}</span>
+			</div>
+		</div>
+	);
+}

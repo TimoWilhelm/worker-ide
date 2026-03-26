@@ -64,7 +64,7 @@ export const definition: ToolDefinition = {
 // =============================================================================
 
 /** Maximum response body size returned to the LLM. */
-const MAX_RESPONSE_LENGTH = 50_000;
+const MAX_RESPONSE_LENGTH = 20_000;
 
 /** HTTP methods that can carry a request body. */
 const BODY_METHODS = new Set(['POST', 'PUT', 'PATCH']);
