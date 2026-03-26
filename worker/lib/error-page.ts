@@ -1,7 +1,7 @@
 /**
- * Standalone HTML error page for server-side error responses.
+ * Standalone HTML error pages for server-side error responses.
  *
- * Returns a self-contained HTML page (no external CSS/JS) styled to match the
+ * Returns self-contained HTML pages (no external CSS/JS) styled to match the
  * app's dark theme. Used for 404s on the landing domain, invalid preview
  * projects, and other server-side errors that can't be handled by the SPA.
  */
@@ -91,6 +91,124 @@ export function errorPage({ title, heading, message, homeUrl, status }: ErrorPag
 
 	return new Response(html, {
 		status,
+		headers: { 'Content-Type': 'text/html;charset=UTF-8' },
+	});
+}
+
+// =============================================================================
+// Preview expired page
+// =============================================================================
+
+/**
+ * Build a Response for an expired HMAC preview token.
+ *
+ * The page behaves differently depending on context:
+ *
+ * **Embedded in the IDE iframe** (`window.self !== window.top`):
+ *   Shows a minimal "Refreshing preview…" spinner and immediately posts
+ *   `{ type: '__preview-expired' }` to `window.parent`. The IDE preview
+ *   panel listens for this message and silently fetches a fresh signed URL,
+ *   then reloads the iframe. The user barely sees this page.
+ *
+ * **Opened directly in a browser tab**:
+ *   Shows a full styled card matching the app's error page pattern
+ *   (`NotFoundPage` / `ProjectNotFound`) with a "Back to Home" button.
+ */
+export function previewExpiredPage({ baseDomain, protocol }: { baseDomain: string; protocol: string }): Response {
+	const homeUrl = escapeHtml(`${protocol}//${baseDomain}/`);
+
+	// Lucide TimerOff icon
+	const timerOffSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 6v6l4 2"/><path d="M22 13a10 10 0 1 1-5.16-8.75"/><path d="m2 2 20 20"/></svg>`;
+
+	const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>Preview link expired</title>
+	<link rel="preconnect" href="https://fonts.googleapis.com">
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+	<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600&display=swap" rel="stylesheet">
+	<style>
+		*{margin:0;padding:0;box-sizing:border-box}
+		body{
+			font-family:'Space Grotesk',sans-serif;
+			background:#121212;color:#f0e3de;
+			display:flex;align-items:center;justify-content:center;
+			min-height:100vh;padding:16px;
+		}
+
+		/* ---- Iframe view: minimal refreshing state ---- */
+		.refreshing{
+			display:flex;flex-direction:column;align-items:center;gap:12px;
+			color:rgba(255,253,251,0.56);font-size:14px;
+		}
+		.spinner{
+			width:24px;height:24px;border-radius:50%;
+			border:2px solid rgba(255,253,251,0.2);
+			border-top-color:#f14602;
+			animation:spin 0.7s linear infinite;
+		}
+		@keyframes spin{to{transform:rotate(360deg)}}
+
+		/* ---- Direct view: full card ---- */
+		.card{
+			display:none;
+			max-width:480px;width:100%;
+			border:1px solid rgba(240,227,222,0.125);
+			background:#191817;border-radius:12px;
+			padding:40px;box-shadow:0 4px 24px rgba(0,0,0,0.3);
+		}
+		.icon{color:#f14602;margin-bottom:16px}
+		h1{font-size:20px;font-weight:600;margin-bottom:8px;color:#f0e3de}
+		p{font-size:14px;color:rgba(255,253,251,0.56);line-height:1.6;margin-bottom:32px}
+		.btn{
+			display:inline-flex;align-items:center;gap:8px;
+			padding:10px 20px;border-radius:6px;
+			background:#f14602;color:#fff;
+			font-size:14px;font-weight:500;font-family:inherit;
+			text-decoration:none;border:none;cursor:pointer;
+			transition:background 0.15s;
+		}
+		.btn:hover{background:#ff6d33}
+	</style>
+</head>
+<body>
+	<!-- Shown when embedded in iframe (token expired, auto-refresh in progress) -->
+	<div class="refreshing" id="iframe-view">
+		<div class="spinner"></div>
+		<span>Refreshing preview&hellip;</span>
+	</div>
+
+	<!-- Shown when visited directly in a browser tab -->
+	<div class="card" id="direct-view">
+		<div class="icon">${timerOffSvg}</div>
+		<h1>Preview link expired</h1>
+		<p>
+			This preview link is no longer valid. Preview links expire after a short time
+			to keep your project secure. Open the editor to get a fresh preview link.
+		</p>
+		<a href="${homeUrl}" class="btn">
+			<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+			Back to Home
+		</a>
+	</div>
+
+	<script>
+		if (window.self !== window.top) {
+			// Embedded in iframe: notify the IDE and show spinner
+			window.parent.postMessage({ type: '__preview-expired' }, '*');
+		} else {
+			// Direct visit: hide spinner, show full card
+			document.getElementById('iframe-view').style.display = 'none';
+			document.getElementById('direct-view').style.display = 'block';
+		}
+	</script>
+</body>
+</html>`;
+
+	return new Response(html, {
+		status: 403,
 		headers: { 'Content-Type': 'text/html;charset=UTF-8' },
 	});
 }

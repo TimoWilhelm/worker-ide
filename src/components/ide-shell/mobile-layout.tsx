@@ -3,7 +3,7 @@
  */
 
 import { ChevronUp, FolderOpen } from 'lucide-react';
-import { lazy, Suspense, useCallback, useMemo } from 'react';
+import { lazy, Suspense, useCallback } from 'react';
 
 import { MobileFileDrawer } from '@/components/mobile-file-drawer';
 import { MobileTabBar } from '@/components/mobile-tab-bar';
@@ -13,7 +13,6 @@ import { Spinner } from '@/components/ui/spinner';
 import { DependencyPanel, FileTree, type useFileTree } from '@/features/file-tree';
 import { GitPanel } from '@/features/git';
 import { TestsPanel } from '@/features/tests';
-import { getPreviewOrigin } from '@/lib/preview-origin';
 import { useStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 
@@ -34,6 +33,14 @@ interface MobileLayoutProperties {
 	fileTree: ReturnType<typeof useFileTree>;
 	logCounts: LogCounts;
 	previewIframeReference: React.RefObject<HTMLIFrameElement | null>;
+	/** Signed preview URL with trailing slash. */
+	previewUrl: string | undefined;
+	/** Signed preview origin (for postMessage targeting). */
+	previewOrigin: string | undefined;
+	/** Whether the signed URL is still being fetched. */
+	isLoadingPreviewUrl: boolean;
+	/** Refresh the signed preview URL (e.g., after token expiry). */
+	refreshPreviewUrl: () => Promise<void>;
 }
 
 export function MobileLayout({
@@ -43,8 +50,11 @@ export function MobileLayout({
 	fileTree,
 	logCounts,
 	previewIframeReference,
+	previewUrl,
+	previewOrigin,
+	isLoadingPreviewUrl,
+	refreshPreviewUrl,
 }: MobileLayoutProperties) {
-	const previewOrigin = useMemo(() => getPreviewOrigin(projectId), [projectId]);
 	const activeMobilePanel = useStore((state) => state.activeMobilePanel);
 	const mobileFileTreeOpen = useStore((state) => state.mobileFileTreeOpen);
 	const toggleMobileFileTree = useStore((state) => state.toggleMobileFileTree);
@@ -169,7 +179,13 @@ export function MobileLayout({
 				<div className={cn('flex h-full flex-col overflow-hidden', activeMobilePanel !== 'preview' && 'hidden')}>
 					<div className={cn('overflow-hidden', devtoolsVisible ? 'h-1/2' : 'flex-1')}>
 						<Suspense fallback={<PanelSkeleton label="Loading preview..." />}>
-							<PreviewPanel projectId={projectId} iframeReference={previewIframeReference} className="h-full" />
+							<PreviewPanel
+								previewUrl={previewUrl}
+								isLoadingUrl={isLoadingPreviewUrl}
+								refreshPreviewUrl={refreshPreviewUrl}
+								iframeReference={previewIframeReference}
+								className="h-full"
+							/>
 						</Suspense>
 					</div>
 					{devtoolsVisible && (

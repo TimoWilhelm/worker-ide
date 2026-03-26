@@ -3,7 +3,7 @@
  */
 
 import { ChevronUp } from 'lucide-react';
-import { lazy, Suspense, useCallback, useMemo } from 'react';
+import { lazy, Suspense, useCallback } from 'react';
 import { Group as PanelGroup, Panel, Separator as ResizeHandle } from 'react-resizable-panels';
 
 import { ActivityBar } from '@/components/activity-bar';
@@ -13,7 +13,6 @@ import { Spinner } from '@/components/ui/spinner';
 import { DependencyPanel, FileTree, type useFileTree } from '@/features/file-tree';
 import { GitPanel } from '@/features/git';
 import { TestsPanel } from '@/features/tests';
-import { getPreviewOrigin } from '@/lib/preview-origin';
 import { useStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 
@@ -37,6 +36,14 @@ interface DesktopLayoutProperties {
 	layouts: ReturnType<typeof usePanelLayouts>;
 	logCounts: LogCounts;
 	previewIframeReference: React.RefObject<HTMLIFrameElement | null>;
+	/** Signed preview URL with trailing slash. */
+	previewUrl: string | undefined;
+	/** Signed preview origin (for postMessage targeting). */
+	previewOrigin: string | undefined;
+	/** Whether the signed URL is still being fetched. */
+	isLoadingPreviewUrl: boolean;
+	/** Refresh the signed preview URL (e.g., after token expiry). */
+	refreshPreviewUrl: () => Promise<void>;
 }
 
 export function DesktopLayout({
@@ -47,8 +54,11 @@ export function DesktopLayout({
 	layouts,
 	logCounts,
 	previewIframeReference,
+	previewUrl,
+	previewOrigin,
+	isLoadingPreviewUrl,
+	refreshPreviewUrl,
 }: DesktopLayoutProperties) {
-	const previewOrigin = useMemo(() => getPreviewOrigin(projectId), [projectId]);
 	const activeSidebarView = useStore((state) => state.activeSidebarView);
 	const toggleUtilityPanel = useStore((state) => state.toggleUtilityPanel);
 	const toggleDependenciesPanel = useStore((state) => state.toggleDependenciesPanel);
@@ -318,7 +328,13 @@ export function DesktopLayout({
 						{/* Preview panel */}
 						<Panel id="preview" defaultSize={devtoolsVisible ? '70%' : '100%'} minSize="20%">
 							<Suspense fallback={<PanelSkeleton label="Loading preview..." />}>
-								<PreviewPanel projectId={projectId} iframeReference={previewIframeReference} className="h-full" />
+								<PreviewPanel
+									previewUrl={previewUrl}
+									isLoadingUrl={isLoadingPreviewUrl}
+									refreshPreviewUrl={refreshPreviewUrl}
+									iframeReference={previewIframeReference}
+									className="h-full"
+								/>
 							</Suspense>
 						</Panel>
 

@@ -6,13 +6,15 @@
 import { useEffect, useRef } from 'react';
 
 import { getDependencyErrorCount, subscribeDependencyErrors } from '@/features/file-tree/dependency-error-store';
-import { getPreviewOrigin, isMessageFromPreview } from '@/lib/preview-origin';
+import { isMessageFromPreview } from '@/lib/preview-origin';
 import { useStore } from '@/lib/store';
 
 import type { RefObject } from 'react';
 
 interface UseIDEEffectsOptions {
 	projectId: string;
+	/** The signed preview origin for secure postMessage targeting. Undefined while loading. */
+	previewOrigin: string | undefined;
 	goToFilePosition: (file: string, position: { line: number; column: number }) => void;
 	handleSaveReference: RefObject<() => Promise<void>>;
 	previewIframeReference: RefObject<HTMLIFrameElement | null>;
@@ -21,6 +23,7 @@ interface UseIDEEffectsOptions {
 
 export function useIDEEffects({
 	projectId,
+	previewOrigin,
 	goToFilePosition,
 	handleSaveReference,
 	previewIframeReference,
@@ -103,10 +106,10 @@ export function useIDEEffects({
 
 	// Forward bundle errors to the preview iframe so the error overlay shows.
 	// The preview is cross-origin, so target its specific origin.
-	const previewOrigin = getPreviewOrigin(projectId);
 	useEffect(() => {
 		const handleServerError = (event: Event) => {
 			if (!(event instanceof CustomEvent)) return;
+			if (!previewOrigin) return;
 			const error = event.detail;
 			if (error?.type !== 'bundle') return;
 			previewIframeReference.current?.contentWindow?.postMessage({ type: '__show-error-overlay', error }, previewOrigin);

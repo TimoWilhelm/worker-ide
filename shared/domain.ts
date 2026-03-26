@@ -2,8 +2,13 @@
  * Domain parsing and preview URL utilities.
  *
  * Subdomain layout:
- * - App:     <baseDomain>                       (localhost:3000, example.com)
- * - Preview: <projectId>.preview.<baseDomain>   (x7f3k2.preview.localhost:3000)
+ * - App:     <baseDomain>                                  (localhost:3000, example.com)
+ * - Preview: <projectId>-<token>.preview.<baseDomain>      (x7f3k2-a1b2c3d4e5f6.preview.localhost:3000)
+ *
+ * The preview subdomain encodes both the project ID and an HMAC-signed
+ * time-bucket token separated by a single hyphen. Since project IDs are
+ * strictly `[a-z0-9]` (no hyphens), the last `-` in the first subdomain
+ * label unambiguously separates the project ID from the token.
  *
  * Supports single-segment (localhost) and two-segment (example.com) base domains.
  *
@@ -13,14 +18,15 @@
  * getBaseDomainSegmentCount() with a public suffix list.
  */
 
+import { PREVIEW_TOKEN_PATTERN } from './preview-token';
 import { isValidProjectId } from './project-id';
 
 const SINGLE_SEGMENT_HOSTS = new Set(['localhost']);
 
 // -- Types --------------------------------------------------------------------
 
-type ParsedHost =
-	| { type: 'preview'; projectId: string; baseDomain: string }
+export type ParsedHost =
+	| { type: 'preview'; projectId: string; token: string; baseDomain: string }
 	| { type: 'app'; baseDomain: string }
 	| { type: 'unknown'; baseDomain: string };
 
@@ -32,12 +38,32 @@ function getBaseDomainSegmentCount(parts: string[]): number {
 }
 
 /**
+ * Parse the preview subdomain label into projectId and token.
+ *
+ * The label format is `<projectId>-<token>` where projectId is `[a-z0-9]+`
+ * (no hyphens) and token is exactly 12 lowercase hex characters. We split
+ * on the last hyphen to separate them.
+ */
+function parsePreviewLabel(label: string): { projectId: string; token: string } | undefined {
+	const dashIndex = label.lastIndexOf('-');
+	if (dashIndex <= 0) return undefined;
+
+	const projectId = label.slice(0, dashIndex);
+	const token = label.slice(dashIndex + 1);
+
+	if (!isValidProjectId(projectId)) return undefined;
+	if (!PREVIEW_TOKEN_PATTERN.test(token)) return undefined;
+
+	return { projectId, token };
+}
+
+/**
  * Parse a hostname to determine its routing role.
  *
  * Detection logic after extracting the base domain:
- * - No subdomain               → app (dashboard + IDE)
- * - "<projectId>.preview"      → preview
- * - Anything else              → unknown
+ * - No subdomain                              → app (dashboard + IDE)
+ * - "<projectId>-<token>.preview"             → preview
+ * - Anything else                             → unknown
  */
 export function parseHost(host: string): ParsedHost {
 	const parts = host.split('.');
@@ -54,8 +80,11 @@ export function parseHost(host: string): ParsedHost {
 		return { type: 'app', baseDomain };
 	}
 
-	if (subdomainParts.length === 2 && subdomainParts[1] === 'preview' && isValidProjectId(subdomainParts[0])) {
-		return { type: 'preview', projectId: subdomainParts[0], baseDomain };
+	if (subdomainParts.length === 2 && subdomainParts[1] === 'preview') {
+		const parsed = parsePreviewLabel(subdomainParts[0]);
+		if (parsed) {
+			return { type: 'preview', projectId: parsed.projectId, token: parsed.token, baseDomain };
+		}
 	}
 
 	return { type: 'unknown', baseDomain };
@@ -71,8 +100,8 @@ export function buildAppOrigin(baseDomain: string, protocol = 'https:'): string 
 	return `${protocol}//${baseDomain}`;
 }
 
-export function buildPreviewOrigin(projectId: string, baseDomain: string, protocol = 'https:'): string {
-	return `${protocol}//${projectId}.preview.${baseDomain}`;
+export function buildPreviewOrigin(projectId: string, token: string, baseDomain: string, protocol = 'https:'): string {
+	return `${protocol}//${projectId}-${token}.preview.${baseDomain}`;
 }
 
 export function isPreviewOrigin(origin: string, baseDomain: string): boolean {

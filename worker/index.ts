@@ -2,8 +2,11 @@
  * Worker IDE - Main Entry Point
  *
  * Routing is split by subdomain:
- * - `<baseDomain>`                          → App (SPA, API, WebSocket)
- * - `<projectId>.preview.<baseDomain>`       → Live preview of user projects
+ * - `<baseDomain>`                                        → App (SPA, API, WebSocket)
+ * - `<projectId>-<token>.preview.<baseDomain>`            → Live preview of user projects
+ *
+ * Preview URLs contain an HMAC-signed time-bucket token that expires
+ * after 1–2 hours, preventing permanent direct-link sharing.
  *
  * The base domain is derived at runtime from the Host header.
  */
@@ -15,10 +18,12 @@ import { mount, withMounts } from 'worker-fs-mount';
 
 import { buildAppOrigin, parseHost } from '@shared/domain';
 import { generateHumanId } from '@shared/human-id';
+import { validatePreviewToken } from '@shared/preview-token';
 import { isValidProjectId } from '@shared/project-id';
 
 import { agentRunnerNamespace, coordinatorNamespace, filesystemNamespace } from './lib/durable-object-namespaces';
-import { errorPage } from './lib/error-page';
+import { errorPage, previewExpiredPage } from './lib/error-page';
+import { DEV_PREVIEW_SECRET } from './lib/preview-secret';
 import { generateProjectId, toDurableObjectId } from './lib/project-id';
 import { apiRoutes } from './routes';
 import { PreviewService } from './services/preview-service';
@@ -448,6 +453,11 @@ export default {
 
 		switch (parsed.type) {
 			case 'preview': {
+				const secret = env.PREVIEW_SECRET || DEV_PREVIEW_SECRET;
+				const isValidToken = await validatePreviewToken(parsed.projectId, parsed.token, secret);
+				if (!isValidToken) {
+					return previewExpiredPage({ baseDomain: parsed.baseDomain, protocol: url.protocol });
+				}
 				return handlePreviewRequest(request, parsed.projectId);
 			}
 
