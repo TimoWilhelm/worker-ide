@@ -57,6 +57,34 @@ function buildPreviewCsp(ideOrigin: string): string {
 }
 
 // =============================================================================
+// Anti-Hotlinking Headers
+// =============================================================================
+
+/**
+ * Security headers for non-HTML preview responses (JS, CSS, images, etc.).
+ *
+ * - `Cross-Origin-Resource-Policy: same-site` tells browsers to reject
+ *   cross-origin `no-cors` subresource fetches of this resource.
+ *   This prevents third-party pages from hotlinking preview assets.
+ *   "same-site" (rather than "same-origin") allows loading across
+ *   subdomains (e.g. the IDE embedding preview scripts from the
+ *   preview subdomain, which shares the same registrable domain).
+ *
+ * - `Content-Security-Policy: frame-ancestors <ideOrigin>` restricts
+ *   which origins can embed the response in a frame. Only the IDE
+ *   app origin is allowed.
+ *
+ * These headers are NOT applied to HTML responses, which need to remain
+ * navigable cross-origin by the IDE iframe.
+ */
+function buildAssetSecurityHeaders(ideOrigin: string): Record<string, string> {
+	return {
+		'Cross-Origin-Resource-Policy': 'same-site',
+		'Content-Security-Policy': `frame-ancestors ${ideOrigin}`,
+	};
+}
+
+// =============================================================================
 // Script Integrity Hashes
 // =============================================================================
 
@@ -141,11 +169,12 @@ export class PreviewService {
 				headers: {
 					'Content-Type': 'application/javascript',
 					'Cache-Control': 'public, max-age=31536000, immutable',
+					...buildAssetSecurityHeaders(ideOrigin),
 				},
 			});
 		}
 		if (filePath === '/chobitsu.js.map') {
-			return new Response(undefined, { status: 204 });
+			return new Response(undefined, { status: 204, headers: buildAssetSecurityHeaders(ideOrigin) });
 		}
 
 		const isRawRequest = url.searchParams.has('raw');
@@ -215,7 +244,7 @@ export class PreviewService {
 
 			if (extension === '.css' && (isRawRequest || isCssAccept)) {
 				return new Response(textContent, {
-					headers: { 'Content-Type': 'text/css', 'Cache-Control': 'no-cache' },
+					headers: { 'Content-Type': 'text/css', 'Cache-Control': 'no-cache', ...buildAssetSecurityHeaders(ideOrigin) },
 				});
 			}
 
@@ -240,7 +269,7 @@ export class PreviewService {
 				});
 
 				return new Response(bundled.code, {
-					headers: { 'Content-Type': 'application/javascript', 'Cache-Control': 'no-cache' },
+					headers: { 'Content-Type': 'application/javascript', 'Cache-Control': 'no-cache', ...buildAssetSecurityHeaders(ideOrigin) },
 				});
 			}
 
@@ -250,7 +279,7 @@ export class PreviewService {
 			});
 
 			return new Response(transformed.code, {
-				headers: { 'Content-Type': transformed.contentType, 'Cache-Control': 'no-cache' },
+				headers: { 'Content-Type': transformed.contentType, 'Cache-Control': 'no-cache', ...buildAssetSecurityHeaders(ideOrigin) },
 			});
 		} catch (error) {
 			const errorMessage = error instanceof Error ? error.message : String(error);
@@ -262,7 +291,10 @@ export class PreviewService {
 
 				// File genuinely not found and no SPA/404 fallback handled it.
 				// Return a plain 404 instead of the JS error overlay.
-				return new Response('Not Found', { status: 404, headers: { 'Cache-Control': 'no-cache' } });
+				return new Response('Not Found', {
+					status: 404,
+					headers: { 'Cache-Control': 'no-cache', ...buildAssetSecurityHeaders(ideOrigin) },
+				});
 			}
 
 			console.error('serveFile error:', error);
@@ -284,7 +316,7 @@ export class PreviewService {
 				.replaceAll('>', String.raw`\u003e`);
 			const errorModule = `if(typeof showErrorOverlay==='function'){showErrorOverlay(${errorJson})}else{console.error(${errorJson}.message)}`;
 			return new Response(errorModule, {
-				headers: { 'Content-Type': 'application/javascript', 'Cache-Control': 'no-cache' },
+				headers: { 'Content-Type': 'application/javascript', 'Cache-Control': 'no-cache', ...buildAssetSecurityHeaders(ideOrigin) },
 			});
 		}
 	}

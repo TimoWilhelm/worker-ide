@@ -7,8 +7,10 @@ import { env } from 'cloudflare:workers';
 import { Hono } from 'hono';
 
 import { buildPreviewOrigin, getBaseDomain } from '@shared/domain';
+import { HttpErrorCode } from '@shared/http-errors';
 import { generatePreviewToken } from '@shared/preview-token';
 
+import { httpError } from '../lib/http-error';
 import { DEV_PREVIEW_SECRET } from '../lib/preview-secret';
 
 import type { AppEnvironment } from '../types';
@@ -29,6 +31,15 @@ export const previewUrlRoutes = new Hono<AppEnvironment>()
 	 */
 	.get('/preview-url', async (c) => {
 		const projectId = c.get('projectId');
+
+		// Rate-limit token generation per project to prevent token farming.
+		if (env.PREVIEW_RATE_LIMITER) {
+			const { success } = await env.PREVIEW_RATE_LIMITER.limit({ key: projectId });
+			if (!success) {
+				throw httpError(HttpErrorCode.RATE_LIMITED, 'Too many preview URL requests. Please wait before retrying.');
+			}
+		}
+
 		const secret = env.PREVIEW_SECRET || DEV_PREVIEW_SECRET;
 
 		const token = await generatePreviewToken(projectId, secret);
