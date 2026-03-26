@@ -15,5 +15,12 @@
 		"types": ["./worker-configuration.d.ts", "./raw-minified.d.ts", "vite/client", "node"]
 	},
 	"include": ["worker", "shared", "auxiliary"],
-	"exclude": ["worker/fixtures", "worker/**/*.test.ts", "shared/**/*.test.ts", "auxiliary/**/*.test.ts"]
+	"exclude": [
+		"worker/fixtures",
+		"worker/drizzle/*.js",
+		"worker/drizzle/*.sql",
+		"worker/**/*.test.ts",
+		"shared/**/*.test.ts",
+		"auxiliary/**/*.test.ts"
+	]
 }
