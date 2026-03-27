@@ -11,12 +11,9 @@ import { Tooltip } from '@/components/ui/tooltip';
 import { VersionBadge } from '@/components/version-badge';
 import { cn } from '@/lib/utils';
 
-import { RecentProjectsDropdown } from './recent-projects-dropdown';
-
 import type { useProjectName } from './use-project-name';
 
 interface IDEHeaderProperties {
-	projectId: string;
 	projectNameState: ReturnType<typeof useProjectName>;
 	resolvedTheme: 'light' | 'dark';
 	setColorScheme: (scheme: 'light' | 'dark') => void;
@@ -29,12 +26,10 @@ interface IDEHeaderProperties {
 	setMobileMenuOpen: (open: boolean) => void;
 	onDownload: () => void;
 	onDeploy: () => void;
-	onNewProject: () => void;
 	onSettings: () => void;
 }
 
 export function IDEHeader({
-	projectId,
 	projectNameState,
 	resolvedTheme,
 	setColorScheme,
@@ -47,7 +42,6 @@ export function IDEHeader({
 	setMobileMenuOpen,
 	onDownload,
 	onDeploy,
-	onNewProject,
 	onSettings,
 }: IDEHeaderProperties) {
 	const {
@@ -123,9 +117,6 @@ export function IDEHeader({
 				<div className="flex shrink-0 items-center gap-2 wco-interactive">
 					{/* Save indicator */}
 					{isSaving && <span className="text-xs text-text-secondary">Saving...</span>}
-
-					{/* Recent projects */}
-					<RecentProjectsDropdown currentProjectId={projectId} onNewProject={onNewProject} />
 
 					{/* AI toggle (desktop only — mobile uses bottom tab bar) */}
 					{!isMobile && (

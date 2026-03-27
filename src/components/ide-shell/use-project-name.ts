@@ -3,11 +3,10 @@
  */
 
 import { useQuery } from '@tanstack/react-query';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 
 import { toast } from '@/components/ui/toast-store';
 import { fetchProjectMeta, updateProjectMeta } from '@/lib/api-client';
-import { trackProject } from '@/lib/recent-projects';
 
 export function useProjectName({ projectId }: { projectId: string }) {
 	// Fetch project meta via React Query
@@ -16,13 +15,6 @@ export function useProjectName({ projectId }: { projectId: string }) {
 		queryFn: () => fetchProjectMeta(projectId),
 		staleTime: 1000 * 60,
 	});
-
-	// Track project in recent projects when meta loads
-	useEffect(() => {
-		if (metaQuery.data) {
-			trackProject(projectId, metaQuery.data.name);
-		}
-	}, [metaQuery.data, projectId]);
 
 	const [localName, setLocalName] = useState<string | undefined>();
 	const projectName = localName ?? metaQuery.data?.name;
@@ -44,7 +36,6 @@ export function useProjectName({ projectId }: { projectId: string }) {
 		if (trimmed && trimmed !== projectName) {
 			const previousName = localName;
 			setLocalName(trimmed);
-			trackProject(projectId, trimmed);
 			try {
 				await updateProjectMeta(projectId, trimmed);
 			} catch {

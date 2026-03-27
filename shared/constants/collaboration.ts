@@ -3,6 +3,12 @@
  */
 
 /**
+ * Maximum number of concurrent collaborators per project.
+ * Limited by the number of available cursor colors.
+ */
+export const MAX_CONCURRENT_COLLABORATORS = 10;
+
+/**
  * Colors for collaboration cursors
  */
 export const COLLAB_COLORS = [

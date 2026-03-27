@@ -27,6 +27,14 @@
 		"binding": "AI",
 		"remote": true,
 	},
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "worker-ide-auth",
+			"database_id": "d31c3f46-924a-43c9-ba11-2322e0acd35b",
+			"migrations_dir": "./worker/migrations/d1-auth",
+		},
+	],
 	"migrations": [
 		{
 			"new_sqlite_classes": ["DurableObjectFilesystem", "HMRCoordinator"],
@@ -97,7 +105,10 @@
 			},
 		],
 	},
+	"triggers": {
+		"crons": ["0 3 * * *"],
+	},
 	"secrets": {
-		"required": ["PREVIEW_SECRET"],
+		"required": ["PREVIEW_SECRET", "BETTER_AUTH_SECRET", "GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET"],
 	},
 }

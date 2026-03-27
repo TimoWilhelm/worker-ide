@@ -1,0 +1,27 @@
+{
+	"version": "7",
+	"dialect": "sqlite",
+	"entries": [
+		{
+			"idx": 0,
+			"version": "6",
+			"when": 1774643155297,
+			"tag": "0000_superb_paladin",
+			"breakpoints": true
+		},
+		{
+			"idx": 1,
+			"version": "6",
+			"when": 1774647070590,
+			"tag": "0001_cynical_wolfpack",
+			"breakpoints": true
+		},
+		{
+			"idx": 2,
+			"version": "6",
+			"when": 1774651463669,
+			"tag": "0002_adorable_ezekiel_stane",
+			"breakpoints": true
+		}
+	]
+}

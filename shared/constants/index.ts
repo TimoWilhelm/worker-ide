@@ -8,5 +8,6 @@ export * from './mime-types';
 export * from './collaboration';
 export * from './ai-agent';
 export * from './ai-models';
+export * from './organization';
 export * from './project';
 export * from './api';

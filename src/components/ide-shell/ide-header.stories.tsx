@@ -12,7 +12,6 @@ const meta = {
 	},
 	tags: ['autodocs'],
 	args: {
-		projectId: 'test-project-123',
 		projectNameState: {
 			projectName: 'Test Project',
 			isEditingName: false,
@@ -34,7 +33,6 @@ const meta = {
 		setMobileMenuOpen: fn(),
 		onDownload: fn(),
 		onDeploy: fn(),
-		onNewProject: fn(),
 		onSettings: fn(),
 	},
 } satisfies Meta<typeof IDEHeader>;

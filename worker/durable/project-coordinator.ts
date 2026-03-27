@@ -1,6 +1,6 @@
 import { DurableObject } from 'cloudflare:workers';
 
-import { COLLAB_COLORS } from '@shared/constants';
+import { COLLAB_COLORS, MAX_CONCURRENT_COLLABORATORS } from '@shared/constants';
 import { serializeMessage, parseClientMessage } from '@shared/ws-messages';
 
 import type { HmrUpdate, Participant } from '@shared/types';
@@ -170,6 +170,12 @@ export class ProjectCoordinator extends DurableObject {
 
 		// WebSocket upgrade
 		if (url.pathname === '/ws' && request.headers.get('Upgrade') === 'websocket') {
+			// Enforce concurrent collaborator limit
+			const openSockets = this.ctx.getWebSockets().filter((ws) => ws.readyState === WebSocket.OPEN);
+			if (openSockets.length >= MAX_CONCURRENT_COLLABORATORS) {
+				return new Response('Too many collaborators', { status: 429 });
+			}
+
 			const pair = new WebSocketPair();
 			const [client, server] = Object.values(pair);
 

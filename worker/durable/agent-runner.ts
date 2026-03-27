@@ -29,7 +29,7 @@ import { env } from 'cloudflare:workers';
 import { migrate } from 'drizzle-orm/durable-sqlite/migrator';
 import { mount, withMounts } from 'worker-fs-mount';
 
-import { DEFAULT_AI_MODEL, getModelConfig } from '@shared/constants';
+import { DEFAULT_AI_MODEL, MAX_AI_SESSIONS_PER_PROJECT, getModelConfig } from '@shared/constants';
 import { pendingChangesFileSchema } from '@shared/validation';
 
 import {
@@ -55,9 +55,9 @@ import {
 	upsertSessionFromService,
 	writePendingChangesData,
 } from './db';
-import migrations from '../drizzle/migrations.js';
 import { filesystemNamespace } from '../lib/durable-object-namespaces';
 import { toDurableObjectId } from '../lib/project-id';
+import migrations from '../migrations/do-agent/migrations.js';
 import { AIAgentService } from '../services/ai-agent';
 import { chatMessagesToModelMessages, estimateMessagesTokens } from '../services/ai-agent/context-pruner';
 import { accumulatePendingChange } from '../services/ai-agent/pending-changes';
@@ -118,8 +118,8 @@ function sessionRowToAiSession(row: SessionRow): AiSession {
 /** Project root path used by the filesystem mount. */
 const PROJECT_ROOT = '/project';
 
-/** Maximum number of sessions to retain. */
-const MAX_SESSIONS = 50;
+/** Maximum number of sessions to retain (from shared constants). */
+const MAX_SESSIONS = MAX_AI_SESSIONS_PER_PROJECT;
 
 // =============================================================================
 // Parameters

@@ -104,16 +104,10 @@ export function IDEShell({ projectId }: { projectId: string }) {
 		setSettingsModalOpen(true);
 	}, []);
 
-	// Navigate to dashboard to create a new project
-	const handleNewProject = useCallback(() => {
-		globalThis.location.href = '/';
-	}, []);
-
 	return (
 		<TooltipProvider>
 			<div className="flex h-full flex-col overflow-hidden bg-bg-primary">
 				<IDEHeader
-					projectId={projectId}
 					projectNameState={projectNameState}
 					resolvedTheme={resolvedTheme}
 					setColorScheme={setColorScheme}
@@ -126,7 +120,6 @@ export function IDEShell({ projectId }: { projectId: string }) {
 					setMobileMenuOpen={setMobileMenuOpen}
 					onDownload={handleDownload}
 					onDeploy={handleDeploy}
-					onNewProject={handleNewProject}
 					onSettings={handleSettings}
 				/>
 

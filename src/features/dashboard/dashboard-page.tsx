@@ -10,25 +10,28 @@
  * out of the main IDE bundle.
  */
 
-import { useQuery } from '@tanstack/react-query';
-import { BookOpen, Copy, Github, Hexagon, Moon, Search, Sun, X } from 'lucide-react';
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { BookOpen, Copy, Github, Hexagon, LogOut, Moon, Search, Sun, Trash2 } from 'lucide-react';
+import { Suspense, useCallback, useMemo, useRef, useState } from 'react';
 
+import { HalftoneBackground } from '@/components/halftone-background';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Modal, ModalBody, ModalFooter } from '@/components/ui/modal';
 import { Spinner } from '@/components/ui/spinner';
+import { toast } from '@/components/ui/toast-store';
 import { VersionBadge } from '@/components/version-badge';
+import { OrgSwitcher } from '@/features/org/org-switcher';
+import { PendingInvitationsBanner } from '@/features/org/pending-invitations-banner';
 import { useTheme } from '@/hooks/use-theme';
-import { cloneProject, createProject, fetchTemplates } from '@/lib/api-client';
+import { cloneProject, createProject, deleteProject, fetchOrgProjects, fetchTemplates } from '@/lib/api-client';
+import { authClient } from '@/lib/auth-client';
 import { getProjectUrl } from '@/lib/preview-origin';
-import { getRecentProjects, removeProject, trackProject } from '@/lib/recent-projects';
 import { useStore } from '@/lib/store';
 import { cn, formatRelativeTime } from '@/lib/utils';
+import { MAX_PROJECTS_PER_ORGANIZATION } from '@shared/constants';
 import { isValidProjectId } from '@shared/project-id';
 
-import { HalftoneBackground } from './halftone-background';
-
-import type { RecentProject } from '@/lib/recent-projects';
+import type { OrgProject } from '@/lib/api-client';
 import type { ProjectTemplateMeta } from '@shared/types';
 
 // =============================================================================
@@ -298,10 +301,10 @@ function CloneModal({
 }
 
 // =============================================================================
-// Recent project row
+// Project row (D1-backed org projects)
 // =============================================================================
 
-function RecentProjectRow({ project, onDelete }: { project: RecentProject; onDelete: (projectId: string) => void }) {
+function ProjectRow({ project, onDelete }: { project: OrgProject; onDelete: (project: OrgProject) => void }) {
 	return (
 		<a
 			href={getProjectUrl(project.id)}
@@ -316,7 +319,7 @@ function RecentProjectRow({ project, onDelete }: { project: RecentProject; onDel
 				`,
 			)}
 		>
-			<span className="truncate text-xs">{project.name ?? project.id.slice(0, 12)}</span>
+			<span className="truncate text-xs">{project.name || project.id.slice(0, 12)}</span>
 			<div className="ml-3 flex shrink-0 items-center gap-1">
 				<span
 					className="
@@ -324,26 +327,65 @@ function RecentProjectRow({ project, onDelete }: { project: RecentProject; onDel
 						group-hover/row:hidden
 					"
 				>
-					{formatRelativeTime(project.timestamp)}
+					{formatRelativeTime(new Date(project.createdAt).getTime())}
 				</span>
 				<button
+					onPointerDown={(event) => event.stopPropagation()}
 					onClick={(event) => {
 						event.preventDefault();
 						event.stopPropagation();
-						onDelete(project.id);
+						onDelete(project);
 					}}
 					className="
-						hidden cursor-pointer rounded-sm p-0.5 text-text-secondary/60
-						transition-colors
+						hidden rounded-sm p-0.5 text-text-secondary/60 transition-colors
 						group-hover/row:inline-flex
 						hover:text-error
 					"
-					aria-label={`Remove ${project.name ?? project.id.slice(0, 12)} from recent projects`}
+					aria-label={`Delete ${project.name || project.id.slice(0, 12)}`}
 				>
-					<X className="size-3" />
+					<Trash2 className="size-3" />
 				</button>
 			</div>
 		</a>
+	);
+}
+
+// =============================================================================
+// Delete confirmation modal
+// =============================================================================
+
+function DeleteProjectModal({
+	project,
+	open,
+	onOpenChange,
+	onConfirm,
+	isDeleting,
+}: {
+	project: OrgProject | undefined;
+	open: boolean;
+	onOpenChange: (open: boolean) => void;
+	onConfirm: () => void;
+	isDeleting: boolean;
+}) {
+	if (!project) return;
+
+	return (
+		<Modal open={open} onOpenChange={onOpenChange} title="Delete project">
+			<ModalBody>
+				<p className="text-sm text-text-secondary">
+					Are you sure you want to delete <strong className="text-text-primary">{project.name || project.id.slice(0, 12)}</strong>?
+				</p>
+				<p className="mt-2 text-xs text-text-secondary/80">The project will be recoverable for 30 days, then permanently deleted.</p>
+			</ModalBody>
+			<ModalFooter>
+				<Button variant="secondary" size="sm" onClick={() => onOpenChange(false)} disabled={isDeleting}>
+					Cancel
+				</Button>
+				<Button size="sm" variant="danger" onClick={onConfirm} disabled={isDeleting} isLoading={isDeleting} loadingText="Deleting...">
+					Delete
+				</Button>
+			</ModalFooter>
+		</Modal>
 	);
 }
 
@@ -369,7 +411,6 @@ function navigateToProject(url: string): void {
  */
 export default function DashboardPage() {
 	const [selectedTemplateId, setSelectedTemplateId] = useState<string | undefined>();
-	const [recentProjects, setRecentProjects] = useState(getRecentProjects);
 	const [cloneInput, setCloneInput] = useState('');
 	const [cloneModalOpen, setCloneModalOpen] = useState(false);
 	const [loadingMessage, setLoadingMessage] = useState<string | undefined>();
@@ -386,6 +427,15 @@ export default function DashboardPage() {
 	});
 	const templates = useMemo(() => templatesQuery.data ?? [], [templatesQuery.data]);
 	const templatesLoaded = !templatesQuery.isLoading;
+
+	// Fetch org projects from D1
+	const projectsQuery = useQuery({
+		queryKey: ['org-projects'],
+		queryFn: fetchOrgProjects,
+		staleTime: 1000 * 30,
+	});
+	const orgProjects = useMemo(() => projectsQuery.data ?? [], [projectsQuery.data]);
+	const projectLimitReached = orgProjects.length >= MAX_PROJECTS_PER_ORGANIZATION;
 
 	const selectedTemplate = useMemo(() => templates.find((template) => template.id === selectedTemplateId), [templates, selectedTemplateId]);
 
@@ -407,16 +457,21 @@ export default function DashboardPage() {
 		}
 	}, []);
 
-	const handleCreateFromTemplate = useCallback(async (templateId: string) => {
-		setLoadingMessage('Creating project...');
-		try {
-			const data = await createProject(templateId);
-			trackProject(data.projectId, data.name);
-			navigateToProject(getProjectUrl(data.projectId));
-		} catch {
-			setLoadingMessage(undefined);
-		}
-	}, []);
+	const queryClient = useQueryClient();
+
+	const handleCreateFromTemplate = useCallback(
+		async (templateId: string) => {
+			setLoadingMessage('Creating project...');
+			try {
+				const data = await createProject(templateId);
+				void queryClient.invalidateQueries({ queryKey: ['org-projects'] });
+				navigateToProject(getProjectUrl(data.projectId));
+			} catch {
+				setLoadingMessage(undefined);
+			}
+		},
+		[queryClient],
+	);
 
 	const handleOpenCloneModal = useCallback(() => {
 		setCloneModalOpen(true);
@@ -443,45 +498,54 @@ export default function DashboardPage() {
 		setLoadingMessage('Cloning project...');
 		try {
 			const data = await cloneProject(parsedProjectId);
-			trackProject(data.projectId, data.name);
+			void queryClient.invalidateQueries({ queryKey: ['org-projects'] });
 			navigateToProject(getProjectUrl(data.projectId));
 		} catch (error) {
 			setLoadingMessage(undefined);
 			setCloneError(error instanceof Error ? error.message : 'Failed to clone project');
 		}
-	}, [parsedProjectId]);
+	}, [parsedProjectId, queryClient]);
 
-	const handleDeleteProject = useCallback((projectId: string) => {
-		removeProject(projectId);
-		setRecentProjects((previous) => previous.filter((project) => project.id !== projectId));
+	const [deleteTarget, setDeleteTarget] = useState<OrgProject | undefined>();
+	const [isDeleting, setIsDeleting] = useState(false);
+
+	const handleDeleteProject = useCallback((project: OrgProject) => {
+		setDeleteTarget(project);
 	}, []);
 
-	// Refresh recent projects & clear loading state when the page is restored
-	// from bfcache (browser back) or when the tab becomes visible again.
-	useEffect(() => {
-		function refreshRecentProjects() {
-			setRecentProjects(getRecentProjects());
+	const handleConfirmDelete = useCallback(async () => {
+		if (!deleteTarget) return;
+		setIsDeleting(true);
+		try {
+			await deleteProject(deleteTarget.id);
+			void queryClient.invalidateQueries({ queryKey: ['org-projects'] });
+			setDeleteTarget(undefined);
+			toast.success(`"${deleteTarget.name || deleteTarget.id.slice(0, 12)}" deleted`);
+		} catch {
+			toast.error('Failed to delete project. Please try again.');
+		} finally {
+			setIsDeleting(false);
 		}
+	}, [deleteTarget, queryClient]);
 
-		function handlePageShow(event: PageTransitionEvent) {
-			if (event.persisted) {
-				setLoadingMessage(undefined);
-				refreshRecentProjects();
+	const handleCloseDeleteModal = useCallback(
+		(open: boolean) => {
+			if (!open && !isDeleting) {
+				setDeleteTarget(undefined);
 			}
-		}
+		},
+		[isDeleting],
+	);
 
-		function handleVisibilityChange() {
-			if (document.visibilityState === 'visible') {
-				refreshRecentProjects();
-			}
-		}
-
-		globalThis.addEventListener('pageshow', handlePageShow);
-		document.addEventListener('visibilitychange', handleVisibilityChange);
-		return () => {
-			globalThis.removeEventListener('pageshow', handlePageShow);
-			document.removeEventListener('visibilitychange', handleVisibilityChange);
-		};
+	const handleSignOut = useCallback(() => {
+		void authClient
+			.signOut()
+			.then(() => {
+				globalThis.location.href = '/';
+			})
+			.catch(() => {
+				toast.error('Failed to sign out. Please try again.');
+			});
 	}, []);
 
 	const isLoading = loadingMessage !== undefined;
@@ -505,6 +569,15 @@ export default function DashboardPage() {
 				isLoading={isLoading}
 			/>
 
+			{/* Delete confirmation modal */}
+			<DeleteProjectModal
+				project={deleteTarget}
+				open={deleteTarget !== undefined}
+				onOpenChange={handleCloseDeleteModal}
+				onConfirm={() => void handleConfirmDelete()}
+				isDeleting={isDeleting}
+			/>
+
 			{/* Clone modal */}
 			<CloneModal
 				open={cloneModalOpen && !isLoading}
@@ -519,6 +592,7 @@ export default function DashboardPage() {
 
 			{/* Header actions — top right */}
 			<div className="fixed top-4 right-4 z-10 flex items-center gap-1">
+				<OrgSwitcher />
 				<a
 					href="/docs"
 					target="_blank"
@@ -545,6 +619,9 @@ export default function DashboardPage() {
 					className="bg-bg-secondary/40 backdrop-blur-sm"
 				>
 					{resolvedTheme === 'dark' ? <Sun className="size-4" /> : <Moon className="size-4" />}
+				</Button>
+				<Button variant="ghost" size="icon" aria-label="Sign out" onClick={handleSignOut} className="bg-bg-secondary/40 backdrop-blur-sm">
+					<LogOut className="size-4" />
 				</Button>
 			</div>
 
@@ -579,9 +656,14 @@ export default function DashboardPage() {
 						{templatesLoaded ? (
 							<>
 								{templates.map((template) => (
-									<TemplateCard key={template.id} template={template} onSelect={handleSelectTemplate} disabled={isLoading} />
+									<TemplateCard
+										key={template.id}
+										template={template}
+										onSelect={handleSelectTemplate}
+										disabled={isLoading || projectLimitReached}
+									/>
 								))}
-								<CloneCard onSelect={handleOpenCloneModal} disabled={isLoading} />
+								<CloneCard onSelect={handleOpenCloneModal} disabled={isLoading || projectLimitReached} />
 							</>
 						) : (
 							Array.from({ length: 4 }, (_, index) => <TemplateCardSkeleton key={index} />)
@@ -589,15 +671,18 @@ export default function DashboardPage() {
 					</div>
 				</section>
 
-				{/* Recent projects */}
-				{recentProjects.length > 0 && (
+				{/* Pending invitations for the current user */}
+				<PendingInvitationsBanner />
+
+				{/* Organization projects */}
+				{orgProjects.length > 0 && (
 					<section>
 						<h2
 							className="
 								mb-3 text-xs font-medium tracking-wider text-text-secondary uppercase
 							"
 						>
-							Recent projects
+							Your projects
 						</h2>
 						<div
 							className={cn(
@@ -608,8 +693,8 @@ export default function DashboardPage() {
 								'divide-y divide-border',
 							)}
 						>
-							{recentProjects.map((project) => (
-								<RecentProjectRow key={project.id} project={project} onDelete={handleDeleteProject} />
+							{orgProjects.map((project) => (
+								<ProjectRow key={project.id} project={project} onDelete={handleDeleteProject} />
 							))}
 						</div>
 					</section>

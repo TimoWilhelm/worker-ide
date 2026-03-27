@@ -12,26 +12,33 @@
  */
 
 import { env } from 'cloudflare:workers';
+import { and, eq, isNotNull, isNull, lte } from 'drizzle-orm';
+import { drizzle } from 'drizzle-orm/d1';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { mount, withMounts } from 'worker-fs-mount';
 
+import { MAX_PROJECTS_PER_ORGANIZATION, PROJECT_INACTIVITY_DAYS, SOFT_DELETE_RETENTION_DAYS } from '@shared/constants';
 import { buildAppOrigin, parseHost } from '@shared/domain';
 import { generateHumanId } from '@shared/human-id';
 import { validatePreviewToken } from '@shared/preview-token';
 import { isValidProjectId } from '@shared/project-id';
 
+import * as authSchema from './db/auth-schema';
+import { createAuth } from './lib/auth';
+import { requireAuth } from './lib/auth-middleware';
 import { agentRunnerNamespace, coordinatorNamespace, filesystemNamespace } from './lib/durable-object-namespaces';
 import { errorPage, previewExpiredPage } from './lib/error-page';
 import { DEV_PREVIEW_SECRET } from './lib/preview-secret';
 import { generateProjectId, toDurableObjectId } from './lib/project-id';
 import { apiRoutes } from './routes';
+import { orgRoutes } from './routes/org-routes';
 import { GitClient } from './services/git-client';
 import { PreviewService } from './services/preview-service';
 import { collectChanges } from './services/working-tree';
 import { getTemplate, getTemplateMetadata } from './templates';
 
-import type { AppEnvironment } from './types';
+import type { AppEnvironment, AuthedEnvironment } from './types';
 import type { CommitFileEntry } from '@shared/git-types';
 
 // =============================================================================
@@ -111,10 +118,44 @@ function parseProjectRoute(path: string): { projectId: string; subPath: string }
 // Hono App
 // =============================================================================
 
-const app = new Hono<{ Bindings: Env }>();
+const app = new Hono<AuthedEnvironment>();
 
 app.use('/api/*', cors());
 app.use('/p/*/api/*', cors());
+
+// =============================================================================
+// better-auth handler — handles /api/auth/* (login, callback, session, etc.)
+// =============================================================================
+
+app.on(['GET', 'POST'], '/api/auth/*', async (c) => {
+	const url = new URL(c.req.url);
+	const baseUrl = buildAppOrigin(parseHost(url.host).baseDomain, url.protocol);
+	const auth = createAuth(
+		{
+			DB: c.env.DB,
+			BETTER_AUTH_SECRET: c.env.BETTER_AUTH_SECRET,
+			GITHUB_CLIENT_ID: c.env.GITHUB_CLIENT_ID,
+			GITHUB_CLIENT_SECRET: c.env.GITHUB_CLIENT_SECRET,
+		},
+		baseUrl,
+	);
+	return auth.handler(c.req.raw);
+});
+
+// =============================================================================
+// Auth middleware — protect all API routes except auth, templates, version
+// =============================================================================
+
+app.use('/api/new-project', requireAuth);
+app.use('/api/clone-project', requireAuth);
+app.use('/api/org/*', requireAuth);
+app.use('/p/*/api/*', requireAuth);
+
+// =============================================================================
+// Org routes (authed, root-level)
+// =============================================================================
+
+app.route('/api', orgRoutes);
 
 // =============================================================================
 // Preview subdomain handler
@@ -200,9 +241,24 @@ async function handlePreviewRequest(request: Request, projectId: string): Promis
 		});
 	}
 
+	// Block soft-deleted projects from being previewed
+	const previewDatabase = drizzle(env.DB);
+	const softDeletedRow = await previewDatabase
+		.select({ id: authSchema.project.id })
+		.from(authSchema.project)
+		.where(and(eq(authSchema.project.id, projectId), isNotNull(authSchema.project.deletedAt)))
+		.limit(1);
+	if (softDeletedRow.length > 0) {
+		return errorPage({
+			heading: 'Project deleted',
+			message: 'This project has been deleted.',
+			homeUrl,
+			status: 404,
+		});
+	}
+
 	return withMounts(async () => {
 		mount(PROJECT_ROOT, fsStub);
-		await fsStub.refreshExpiration();
 
 		if (url.pathname === '/__ws' || url.pathname.startsWith('/__ws')) {
 			const coordinatorId = coordinatorNamespace.idFromName(`project:${projectId}`);
@@ -232,6 +288,12 @@ async function handlePreviewRequest(request: Request, projectId: string): Promis
 // =============================================================================
 
 app.post('/api/new-project', async (c) => {
+	const userId = c.get('userId');
+	const organizationId = c.get('activeOrganizationId');
+	if (!organizationId) {
+		return c.json({ error: 'No active organization. Set an active organization first.' }, 400);
+	}
+
 	let templateId: string;
 	try {
 		const body: { template: string } = await c.req.json();
@@ -249,6 +311,16 @@ app.post('/api/new-project', async (c) => {
 		return c.json({ error: `Unknown template: ${templateId}` }, 400);
 	}
 
+	// Enforce per-org project limit
+	const database = drizzle(c.env.DB);
+	const existingProjects = await database
+		.select({ id: authSchema.project.id })
+		.from(authSchema.project)
+		.where(and(eq(authSchema.project.organizationId, organizationId), isNull(authSchema.project.deletedAt)));
+	if (existingProjects.length >= MAX_PROJECTS_PER_ORGANIZATION) {
+		return c.json({ error: `Organization project limit reached (${MAX_PROJECTS_PER_ORGANIZATION}).` }, 400);
+	}
+
 	const doId = filesystemNamespace.newUniqueId();
 	const projectId = generateProjectId(doId);
 	const humanId = generateHumanId();
@@ -259,6 +331,20 @@ app.post('/api/new-project', async (c) => {
 
 		const fs = await import('node:fs/promises');
 		await writeTemplateFiles(fs, PROJECT_ROOT, template.files, template.dependencies, humanId);
+	});
+
+	// Register project in D1
+	const now = new Date();
+	await database.insert(authSchema.project).values({
+		id: projectId,
+		organizationId,
+		durableObjectHexId: doId.toString(),
+		name: humanId,
+		humanId,
+		previewVisibility: 'public',
+		createdByUserId: userId,
+		createdAt: now,
+		updatedAt: now,
 	});
 
 	// Create initial git commit via the git auxiliary worker
@@ -293,6 +379,12 @@ app.post('/api/new-project', async (c) => {
 });
 
 app.post('/api/clone-project', async (c) => {
+	const userId = c.get('userId');
+	const organizationId = c.get('activeOrganizationId');
+	if (!organizationId) {
+		return c.json({ error: 'No active organization. Set an active organization first.' }, 400);
+	}
+
 	let sourceProjectId: string;
 	try {
 		const body: { sourceProjectId: string } = await c.req.json();
@@ -315,6 +407,16 @@ app.post('/api/clone-project', async (c) => {
 	const sourceStub = filesystemNamespace.get(sourceId);
 	if (!(await sourceStub.projectExists())) {
 		return c.json({ error: 'Source project not found or not initialized' }, 404);
+	}
+
+	// Enforce per-org project limit
+	const cloneDatabase = drizzle(c.env.DB);
+	const existingCloneProjects = await cloneDatabase
+		.select({ id: authSchema.project.id })
+		.from(authSchema.project)
+		.where(and(eq(authSchema.project.organizationId, organizationId), isNull(authSchema.project.deletedAt)));
+	if (existingCloneProjects.length >= MAX_PROJECTS_PER_ORGANIZATION) {
+		return c.json({ error: `Organization project limit reached (${MAX_PROJECTS_PER_ORGANIZATION}).` }, 400);
 	}
 
 	const newDoId = filesystemNamespace.newUniqueId();
@@ -348,7 +450,21 @@ app.post('/api/clone-project', async (c) => {
 
 		await fs.writeFile('/destination/.project-meta.json', JSON.stringify(meta));
 		await fs.writeFile('/destination/.initialized', '1');
-		await destinationStub.refreshExpiration();
+	});
+
+	// Register cloned project in D1
+	const database = drizzle(c.env.DB);
+	const now = new Date();
+	await database.insert(authSchema.project).values({
+		id: newProjectId,
+		organizationId,
+		durableObjectHexId: newDoId.toString(),
+		name: humanId,
+		humanId,
+		previewVisibility: 'public',
+		createdByUserId: userId,
+		createdAt: now,
+		updatedAt: now,
 	});
 
 	// Create initial git commit for cloned project via the git auxiliary worker
@@ -434,6 +550,47 @@ app.all('/p/:projectId/*', async (c) => {
 		return c.notFound();
 	}
 
+	// Block soft-deleted projects from IDE access
+	{
+		const ideDatabase = drizzle(c.env.DB);
+		const softDeletedIdeRow = await ideDatabase
+			.select({ id: authSchema.project.id })
+			.from(authSchema.project)
+			.where(and(eq(authSchema.project.id, projectId), isNotNull(authSchema.project.deletedAt)))
+			.limit(1);
+		if (softDeletedIdeRow.length > 0) {
+			return c.notFound();
+		}
+	}
+
+	// Project-level authorization: verify the authenticated user is a member
+	// of the organization that owns this project.
+	const userId = c.get('userId');
+	if (!userId) {
+		return c.json({ error: 'Unauthorized' }, 401);
+	}
+
+	{
+		const database = drizzle(c.env.DB);
+		const projectRow = await database
+			.select({ organizationId: authSchema.project.organizationId })
+			.from(authSchema.project)
+			.where(eq(authSchema.project.id, projectId))
+			.limit(1);
+
+		if (projectRow.length > 0) {
+			const memberRow = await database
+				.select({ id: authSchema.member.id })
+				.from(authSchema.member)
+				.where(and(eq(authSchema.member.organizationId, projectRow[0].organizationId), eq(authSchema.member.userId, userId)))
+				.limit(1);
+
+			if (memberRow.length === 0) {
+				return c.json({ error: 'Forbidden' }, 403);
+			}
+		}
+	}
+
 	// Agent SDK WebSocket — forward to the AgentRunner DO.
 	// The Agent class (from agents SDK) handles the WebSocket upgrade,
 	// state sync, and @callable RPC natively.
@@ -455,7 +612,6 @@ app.all('/p/:projectId/*', async (c) => {
 
 	return withMounts(async () => {
 		mount(PROJECT_ROOT, fsStub);
-		await fsStub.refreshExpiration();
 
 		if (subPath === '/__ws' || subPath.startsWith('/__ws')) {
 			const coordinatorId = coordinatorNamespace.idFromName(`project:${projectId}`);
@@ -468,6 +624,9 @@ app.all('/p/:projectId/*', async (c) => {
 		const projectApp = new Hono<AppEnvironment>();
 
 		projectApp.use('*', async (context, innerNext) => {
+			context.set('userId', c.get('userId'));
+			context.set('userSession', c.get('userSession'));
+			context.set('activeOrganizationId', c.get('activeOrganizationId'));
 			context.set('projectId', projectId);
 			context.set('projectRoot', PROJECT_ROOT);
 			context.set('fsStub', fsStub);
@@ -600,6 +759,61 @@ export default {
 				console.error('Queue message processing failed:', error);
 				message.retry();
 			}
+		}
+	},
+
+	/**
+	 * Scheduled handler — runs daily via cron trigger (03:00 UTC).
+	 *
+	 * Two-phase project lifecycle cleanup:
+	 * 1. Auto soft-delete: Projects older than PROJECT_INACTIVITY_DAYS (1 year)
+	 *    that haven't been soft-deleted yet get soft-deleted automatically.
+	 * 2. Permanent purge: Projects soft-deleted more than SOFT_DELETE_RETENTION_DAYS
+	 *    (30 days) ago have their DO storage destroyed and D1 rows hard-deleted.
+	 */
+	async scheduled(_event: ScheduledEvent, environment: Env, _executionContext: ExecutionContext): Promise<void> {
+		const database = drizzle(environment.DB);
+		const now = new Date();
+
+		// Phase 1: Auto soft-delete projects older than 1 year
+		const inactivityCutoff = new Date(now.getTime() - PROJECT_INACTIVITY_DAYS * 24 * 60 * 60 * 1000);
+		const staleProjects = await database
+			.select({ id: authSchema.project.id })
+			.from(authSchema.project)
+			.where(and(isNull(authSchema.project.deletedAt), lte(authSchema.project.updatedAt, inactivityCutoff)));
+
+		if (staleProjects.length > 0) {
+			console.log(`Auto soft-deleting ${staleProjects.length} project(s) older than ${PROJECT_INACTIVITY_DAYS} days`);
+			for (const project of staleProjects) {
+				await database.update(authSchema.project).set({ deletedAt: now, updatedAt: now }).where(eq(authSchema.project.id, project.id));
+			}
+		}
+
+		// Phase 2: Permanently purge projects soft-deleted more than 30 days ago
+		const purgeCutoff = new Date(now.getTime() - SOFT_DELETE_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+		const expiredProjects = await database
+			.select({ id: authSchema.project.id, durableObjectHexId: authSchema.project.durableObjectHexId })
+			.from(authSchema.project)
+			.where(and(isNotNull(authSchema.project.deletedAt), lte(authSchema.project.deletedAt, purgeCutoff)));
+
+		if (expiredProjects.length === 0) return;
+
+		console.log(`Purging ${expiredProjects.length} soft-deleted project(s)`);
+
+		for (const project of expiredProjects) {
+			try {
+				// Destroy the Durable Object filesystem via RPC.
+				// destroyStorage() clears all alarms and wipes all stored data.
+				const fsId = filesystemNamespace.idFromString(project.durableObjectHexId);
+				const fsStub = filesystemNamespace.get(fsId);
+				await fsStub.destroyStorage();
+			} catch (error) {
+				console.warn(`Failed to delete DO for project ${project.id}:`, error);
+			}
+
+			// Hard-delete the D1 row regardless of DO cleanup result
+			await database.delete(authSchema.project).where(eq(authSchema.project.id, project.id));
+			console.log(`Purged project ${project.id}`);
 		}
 	},
 };

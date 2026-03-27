@@ -5,7 +5,7 @@
 
 import { z } from 'zod';
 
-import { AI_MODEL_IDS_TUPLE } from './constants';
+import { AI_MODEL_IDS_TUPLE, MAX_PROJECT_NAME_LENGTH } from './constants';
 
 // =============================================================================
 // Validation Constants
@@ -518,7 +518,11 @@ export type AssetSettingsInput = z.infer<typeof assetSettingsSchema>;
  * Schema for updating project metadata (name)
  */
 export const projectMetaSchema = z.object({
-	name: z.string().min(1, 'Name is required').max(60, 'Name must be at most 60 characters').optional(),
+	name: z
+		.string()
+		.min(1, 'Name is required')
+		.max(MAX_PROJECT_NAME_LENGTH, `Name must be at most ${MAX_PROJECT_NAME_LENGTH} characters`)
+		.optional(),
 	dependencies: z.record(z.string(), z.string()).optional(),
 	assetSettings: assetSettingsSchema.optional(),
 });
@@ -733,22 +737,6 @@ export const gitTagNameQuerySchema = z.object({
 // =============================================================================
 // localStorage Schemas
 // =============================================================================
-
-/**
- * Schema for a single recent project entry (localStorage).
- */
-export const recentProjectSchema = z.object({
-	id: z.string(),
-	timestamp: z.number(),
-	name: z.string().optional(),
-});
-
-export type RecentProjectParsed = z.infer<typeof recentProjectSchema>;
-
-/**
- * Schema for the recent projects array (localStorage).
- */
-export const recentProjectsSchema = z.array(recentProjectSchema);
 
 /**
  * Schema for saved deploy credentials (localStorage).

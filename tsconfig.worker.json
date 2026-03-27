@@ -19,8 +19,9 @@
 	"include": ["worker", "shared", "auxiliary", "auxiliary/git/drizzle/**/*.js", "auxiliary/git/drizzle/**/*.json"],
 	"exclude": [
 		"worker/fixtures",
-		"worker/drizzle/*.js",
-		"worker/drizzle/*.sql",
+		"worker/migrations/do-agent/*.js",
+		"worker/migrations/do-agent/*.sql",
+		"worker/migrations/d1-auth/*.sql",
 		"worker/**/*.test.ts",
 		"shared/**/*.test.ts",
 		"auxiliary/**/*.test.ts"
