@@ -10,6 +10,8 @@ const sharedAlias = {
 	'@': path.resolve(__dirname, './src'),
 	'@shared': path.resolve(__dirname, './shared'),
 	'@server': path.resolve(__dirname, './worker'),
+	'@worker': path.resolve(__dirname, './worker'),
+	'@git': path.resolve(__dirname, './auxiliary/git'),
 };
 
 export default defineConfig({
@@ -48,13 +50,17 @@ export default defineConfig({
 					poolOptions: {
 						workers: {
 							miniflare: {
-								// The BIOME service binding points to the auxiliary biome-worker which
-								// is not available in the test pool. Override it with an empty stub so
-								// miniflare can start. The biome-linter RPC client handles errors
-								// gracefully (returns [] / failure objects).
+								// Auxiliary workers (biome, esbuild, git) are not available in the
+								// test pool. Override their bindings with stubs so miniflare can start.
 								serviceBindings: {
 									BIOME: () => new Response('service unavailable', { status: 503 }),
 									ESBUILD: () => new Response('service unavailable', { status: 503 }),
+								},
+								// The REPO_DO cross-worker DO binding references git-worker which
+								// isn't available in tests. Remove the script_name so miniflare
+								// doesn't try to resolve it. Git integration tests use a separate config.
+								durableObjects: {
+									REPO_DO: 'RepoDurableObject',
 								},
 							},
 							wrangler: {

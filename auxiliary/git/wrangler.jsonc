@@ -1,0 +1,35 @@
+{
+	"$schema": "../../node_modules/wrangler/config-schema.json",
+	"name": "git-worker",
+	"main": "index.ts",
+	"compatibility_date": "2026-01-31",
+	"compatibility_flags": ["nodejs_compat"],
+	"workers_dev": false,
+	"preview_urls": false,
+	"observability": {
+		"logs": { "enabled": true },
+		"traces": { "enabled": true },
+	},
+	"durable_objects": {
+		"bindings": [{ "name": "REPO_DO", "class_name": "RepoDurableObject" }],
+	},
+	"r2_buckets": [{ "binding": "REPO_BUCKET", "bucket_name": "ide-git-repos" }],
+	"queues": {
+		"producers": [{ "binding": "GIT_EVENTS", "queue": "git-push-events" }],
+	},
+	"migrations": [{ "tag": "v1", "new_sqlite_classes": ["RepoDurableObject"] }],
+	"vars": {
+		"REPO_DO_IDLE_MINUTES": "30",
+		"REPO_DO_MAINT_MINUTES": "1440",
+		"REPO_KEEP_PACKS": "10",
+		"REPO_PACKLIST_MAX": "50",
+		"REPO_UNPACK_CHUNK_SIZE": "100",
+		"REPO_UNPACK_MAX_MS": "2000",
+		"REPO_UNPACK_DELAY_MS": "500",
+		"REPO_UNPACK_BACKOFF_MS": "1000",
+		"LOG_LEVEL": "info",
+	},
+	"secrets": {
+		"required": ["JWT_PUBLIC_KEY"],
+	},
+}

@@ -79,6 +79,24 @@
 			"service": "esbuild-worker",
 		},
 	],
+	"durable_objects": {
+		"bindings": [
+			{
+				"name": "REPO_DO",
+				"class_name": "RepoDurableObject",
+				"script_name": "git-worker",
+			},
+		],
+	},
+	"queues": {
+		"consumers": [
+			{
+				"queue": "git-push-events",
+				"max_batch_size": 10,
+				"max_batch_timeout": 5,
+			},
+		],
+	},
 	"secrets": {
 		"required": ["PREVIEW_SECRET"],
 	},

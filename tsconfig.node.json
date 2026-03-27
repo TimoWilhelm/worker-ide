@@ -15,9 +15,11 @@
 		"noUncheckedSideEffectImports": true,
 		"allowJs": true,
 		"paths": {
-			"@shared/*": ["./shared/*"]
+			"@shared/*": ["./shared/*"],
+			"@git/*": ["./auxiliary/git/*"],
+			"@worker/*": ["./worker/*"]
 		},
-		"types": ["./worker-configuration.d.ts", "./raw-minified.d.ts", "vite/client", "node"]
+		"types": ["./worker-configuration.d.ts", "./auxiliary/git/worker-configuration.d.ts", "./raw-minified.d.ts", "vite/client", "node"]
 	},
 	"include": [
 		"raw-minified.d.ts",

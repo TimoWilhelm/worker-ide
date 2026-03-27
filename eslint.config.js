@@ -24,6 +24,10 @@ export default defineConfig(
 			'storybook-static',
 			'worker/lib/preview-scripts',
 			'landing',
+			// Git auxiliary worker — adapted from git-on-cloudflare, vendored third-party code
+			'auxiliary/git/**',
+			// Auto-generated type declarations for auxiliary workers
+			'auxiliary/*/worker-configuration.d.ts',
 		],
 	},
 

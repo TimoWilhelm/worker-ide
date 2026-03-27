@@ -17,7 +17,9 @@
 		"paths": {
 			"@/*": ["./src/*"],
 			"@shared/*": ["./shared/*"],
-			"@server/*": ["./dist/worker/worker/*"]
+			"@server/*": ["./dist/worker/worker/*"],
+			"@worker/*": ["./worker/*"],
+			"@git/*": ["./auxiliary/git/*"]
 		}
 	},
 	"include": ["src"],

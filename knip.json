@@ -5,14 +5,8 @@
 		"type": true
 	},
 	"exclude": ["types"],
-	"entry": ["worker/index.ts", "auxiliary/biome/index.ts", "auxiliary/esbuild/index.ts", "shared/**/*.ts", "!shared/**/*.test.ts"],
+	"entry": ["auxiliary/biome/index.ts", "auxiliary/esbuild/index.ts", "auxiliary/git/index.ts", "shared/**/*.ts", "!shared/**/*.test.ts"],
 	"project": ["src/**", "worker/**", "shared/**", "auxiliary/**", "test/**"],
-	"ignoreDependencies": ["cloudflare", "codemirror", "@standard-schema/spec", "workers-ai-provider"],
-	"ignoreFiles": [
-		"src/vite-env.d.ts",
-		"playwright.config.ts",
-		"src/components/ui/index.ts",
-		"worker/lib/preview-scripts/*.js",
-		"worker/drizzle/migrations.d.ts"
-	]
+	"ignoreDependencies": ["cloudflare", "codemirror", "@standard-schema/spec"],
+	"ignoreFiles": ["worker/drizzle/migrations.d.ts", "auxiliary/*/worker-configuration.d.ts"]
 }
