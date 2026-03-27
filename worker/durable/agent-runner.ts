@@ -1114,8 +1114,12 @@ export class AgentRunner extends Agent<Env, AgentState> {
 
 		// Merge with existing session data
 		const createdAt = existing?.createdAt ?? sessionData.createdAt;
-		const title = existing?.title ?? sessionData.title ?? 'New session';
-		const titleGenerated = existing?.titleGenerated === 1;
+		// Preserve AI-generated title — generateTitle runs concurrently and may
+		// have already written a better title. Never overwrite it with a stale
+		// prompt-preview fallback from the service callback.
+		const existingTitleIsAiGenerated = existing?.titleGenerated === 1;
+		const title = existingTitleIsAiGenerated ? existing.title : (existing?.title ?? sessionData.title ?? 'New session');
+		const titleGenerated = existingTitleIsAiGenerated;
 		const messageSnapshots = {
 			...(existing?.messageSnapshots ? JSON.parse(existing.messageSnapshots) : undefined),
 			...sessionData.messageSnapshots,
