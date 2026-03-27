@@ -17,6 +17,14 @@ const memoryFs = createMemoryFs();
 
 vi.mock('node:fs/promises', () => memoryFs.asMock());
 
+const mockTriggerUpdate = vi.fn(async () => {});
+vi.mock('../../../lib/durable-object-namespaces', () => ({
+	coordinatorNamespace: {
+		idFromName: () => ({ toString: () => 'mock-id' }),
+		get: () => ({ triggerUpdate: mockTriggerUpdate }),
+	},
+}));
+
 // ---------------------------------------------------------------------------
 // Import under test
 // ---------------------------------------------------------------------------
@@ -45,6 +53,7 @@ function seedMeta(dependencies: Record<string, string> = {}) {
 describe('dependencies_update', () => {
 	beforeEach(() => {
 		memoryFs.reset();
+		mockTriggerUpdate.mockClear();
 	});
 
 	// ── Add ───────────────────────────────────────────────────────────────
@@ -141,5 +150,42 @@ describe('dependencies_update', () => {
 		const meta = JSON.parse(entry!.content as string);
 		expect(meta.dependencies).toHaveProperty('existing', '1.0.0');
 		expect(meta.dependencies).toHaveProperty('new-pkg', '2.0.0');
+	});
+
+	// ── Coordinator notification ───────────────────────────────────────────
+
+	it('triggers a full-reload coordinator update after adding a dependency', async () => {
+		seedMeta({});
+
+		await execute({ action: 'add', name: 'hono', version: '^4.0.0' }, createMockSendEvent(), context());
+
+		expect(mockTriggerUpdate).toHaveBeenCalledOnce();
+		expect(mockTriggerUpdate).toHaveBeenCalledWith(expect.objectContaining({ type: 'full-reload', path: '/.project-meta.json' }));
+	});
+
+	it('triggers a full-reload coordinator update after removing a dependency', async () => {
+		seedMeta({ react: '^18.0.0' });
+
+		await execute({ action: 'remove', name: 'react' }, createMockSendEvent(), context());
+
+		expect(mockTriggerUpdate).toHaveBeenCalledOnce();
+		expect(mockTriggerUpdate).toHaveBeenCalledWith(expect.objectContaining({ type: 'full-reload', path: '/.project-meta.json' }));
+	});
+
+	it('triggers a full-reload coordinator update after updating a dependency', async () => {
+		seedMeta({ react: '^17.0.0' });
+
+		await execute({ action: 'update', name: 'react', version: '^18.0.0' }, createMockSendEvent(), context());
+
+		expect(mockTriggerUpdate).toHaveBeenCalledOnce();
+		expect(mockTriggerUpdate).toHaveBeenCalledWith(expect.objectContaining({ type: 'full-reload', path: '/.project-meta.json' }));
+	});
+
+	it('does not trigger coordinator update when action fails', async () => {
+		seedMeta({});
+
+		await expect(execute({ action: 'remove', name: 'nonexistent' }, createMockSendEvent(), context())).rejects.toThrow();
+
+		expect(mockTriggerUpdate).not.toHaveBeenCalled();
 	});
 });

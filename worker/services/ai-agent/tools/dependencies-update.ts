@@ -6,6 +6,7 @@
 import fs from 'node:fs/promises';
 
 import { ToolExecutionError } from '@shared/tool-errors';
+import { coordinatorNamespace } from '@worker/lib/durable-object-namespaces';
 
 import type { SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
 import type { ProjectMeta } from '@shared/types';
@@ -60,6 +61,7 @@ export async function execute(
 	}
 
 	const dependencies = meta.dependencies ?? {};
+	let removedVersion: string | undefined;
 
 	switch (action) {
 		case 'add': {
@@ -76,6 +78,7 @@ export async function execute(
 			if (!dependencies[name]) {
 				throw new ToolExecutionError('NOT_ALLOWED', `Dependency "${name}" is not registered.`);
 			}
+			removedVersion = dependencies[name];
 			delete dependencies[name];
 			break;
 		}
@@ -94,12 +97,18 @@ export async function execute(
 	meta.dependencies = dependencies;
 	await fs.writeFile(metaPath, JSON.stringify(meta));
 
+	// Notify connected clients so the dependencies panel and project metadata
+	// refresh immediately without waiting for the React Query stale time.
+	const coordinatorId = coordinatorNamespace.idFromName(`project:${context.projectId}`);
+	const coordinatorStub = coordinatorNamespace.get(coordinatorId);
+	await coordinatorStub.triggerUpdate({ type: 'full-reload', path: '/.project-meta.json', timestamp: Date.now(), isCSS: false });
+
 	const verbMap: Record<string, string> = { add: 'Added', remove: 'Removed', update: 'Updated' };
 	const verb = verbMap[action] ?? action;
 
 	return {
 		title: name,
-		metadata: { action, name, version: dependencies[name], dependencies },
-		output: `${verb} ${name}@${version || dependencies[name] || '*'}`,
+		metadata: { action, name, version: removedVersion ?? dependencies[name], dependencies },
+		output: action === 'remove' ? `${verb} ${name}` : `${verb} ${name}@${dependencies[name] || '*'}`,
 	};
 }

@@ -172,7 +172,12 @@ export function useProjectSocket({ projectId, enabled = true }: UseProjectSocket
 							// locally by the editor and refetching would race with
 							// unsaved edits.
 							const activeFilePath = storeActionsReference.current.activeFile;
+							let projectMetaChanged = false;
 							for (const update of message.updates) {
+								if (update.path === '/.project-meta.json') {
+									projectMetaChanged = true;
+									continue;
+								}
 								if (update.path === activeFilePath) continue;
 								void queryClientCurrent.invalidateQueries({
 									queryKey: ['file', projectIdCurrent, update.path],
@@ -183,6 +188,21 @@ export function useProjectSocket({ projectId, enabled = true }: UseProjectSocket
 							void queryClientCurrent.invalidateQueries({
 								queryKey: ['files', projectIdCurrent],
 							});
+							// When .project-meta.json changed (e.g. agent updated dependencies
+							// or asset settings), refresh all derived project-meta query caches
+							// so the dependencies panel, project name, and settings modal update
+							// immediately without waiting for their stale times to expire.
+							if (projectMetaChanged) {
+								void queryClientCurrent.invalidateQueries({
+									queryKey: ['project-meta-deps', projectIdCurrent],
+								});
+								void queryClientCurrent.invalidateQueries({
+									queryKey: ['project-meta', projectIdCurrent],
+								});
+								void queryClientCurrent.invalidateQueries({
+									queryKey: ['project-settings', projectIdCurrent],
+								});
+							}
 							// The preview iframe has its own HMR WebSocket client
 							// that handles full-reload and CSS hot-swap internally,
 							// so no postMessage is needed here.
