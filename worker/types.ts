@@ -10,16 +10,35 @@
  * on `exports` (e.g. `exports.DurableObjectFilesystem`).
  */
 
-import type { ExpiringFilesystem } from './durable/expiring-filesystem';
+import type { ProjectFilesystem } from './durable/project-filesystem';
 
 /**
- * Hono app environment type with custom variables.
+ * Base auth variables set by the auth middleware on all protected routes.
+ */
+interface AuthVariables {
+	userId: string;
+	userSession: { id: string; activeOrganizationId?: string | null | undefined };
+	activeOrganizationId: string | undefined;
+}
+
+/**
+ * Hono environment for routes that only require authentication (no project context).
+ * Used by root-level API routes like /api/new-project, /api/org/*.
+ */
+export interface AuthedEnvironment {
+	Bindings: Env;
+	Variables: AuthVariables;
+}
+
+/**
+ * Hono app environment type with auth + project-scoped variables.
+ * Used by all /p/:projectId/api/* route handlers.
  */
 export interface AppEnvironment {
 	Bindings: Env;
-	Variables: {
+	Variables: AuthVariables & {
 		projectId: string;
 		projectRoot: string;
-		fsStub: DurableObjectStub<ExpiringFilesystem>;
+		fsStub: DurableObjectStub<ProjectFilesystem>;
 	};
 }

@@ -1,0 +1,34 @@
+---
+import Footer from '../components/footer.astro';
+import Header from '../components/header.astro';
+import BaseLayout from './base-layout.astro';
+
+interface Props {
+	frontmatter: {
+		title: string;
+		description: string;
+		lastUpdated?: string;
+	};
+}
+
+const { frontmatter } = Astro.props;
+const lastUpdatedFormatted = frontmatter.lastUpdated
+	? new Date(frontmatter.lastUpdated).toLocaleDateString('en-US', {
+			year: 'numeric',
+			month: 'long',
+			day: 'numeric',
+		})
+	: undefined;
+---
+
+<BaseLayout title={`${frontmatter.title} — Codemaxxing`} description={frontmatter.description}>
+	<Header />
+	<main class="mx-auto max-w-3xl px-6 pt-28 pb-16">
+		<article class="prose">
+			<h1>{frontmatter.title}</h1>
+			{lastUpdatedFormatted && <p class="text-sm text-gray-500">Last Updated: {lastUpdatedFormatted}</p>}
+			<slot />
+		</article>
+	</main>
+	<Footer />
+</BaseLayout>

@@ -73,7 +73,7 @@ import type {
 	ToolExecutorContext,
 	ToolFailureRecord,
 } from './types';
-import type { ExpiringFilesystem } from '../../durable/expiring-filesystem';
+import type { ProjectFilesystem } from '../../durable/project-filesystem';
 import type { StreamEvent } from '@shared/agent-state';
 import type { AIModelId } from '@shared/constants';
 import type { AgentMode, ChatMessage, PendingFileChange, ToolErrorInfo, ToolMetadataInfo } from '@shared/types';
@@ -138,7 +138,7 @@ export class AIAgentService {
 	constructor(
 		private projectRoot: string,
 		private projectId: string,
-		private fsStub: DurableObjectStub<ExpiringFilesystem>,
+		private fsStub: DurableObjectStub<ProjectFilesystem>,
 		private sessionId?: string,
 		private mode: 'code' | 'plan' | 'ask' = 'code',
 		private model: AIModelId = DEFAULT_AI_MODEL,
@@ -205,7 +205,7 @@ export class AIAgentService {
 		});
 	}
 
-	getFsStub(): DurableObjectStub<ExpiringFilesystem> {
+	getFsStub(): DurableObjectStub<ProjectFilesystem> {
 		return this.fsStub;
 	}
 

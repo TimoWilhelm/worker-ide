@@ -13,9 +13,8 @@ import { generateHumanId } from '@shared/human-id';
 import { resolveAssetSettings } from '@shared/types';
 import { projectMetaSchema } from '@shared/validation';
 
-import { coordinatorNamespace, filesystemNamespace } from '../lib/durable-object-namespaces';
+import { coordinatorNamespace } from '../lib/durable-object-namespaces';
 import { httpError } from '../lib/http-error';
-import { generateProjectId } from '../lib/project-id';
 import { createZip } from '../lib/zip';
 
 import type { AppEnvironment } from '../types';
@@ -25,14 +24,6 @@ import type { AssetSettings, ProjectMeta } from '@shared/types';
  * Project routes - all routes are prefixed with /api
  */
 export const projectRoutes = new Hono<AppEnvironment>()
-	// POST /api/new-project - Create a new project
-	.post('/new-project', async (c) => {
-		const doId = filesystemNamespace.newUniqueId();
-		const projectId = generateProjectId(doId);
-		const projectName = generateHumanId();
-		return c.json({ projectId, url: `/p/${projectId}`, name: projectName });
-	})
-
 	// GET /api/project/meta - Get project metadata
 	.get('/project/meta', async (c) => {
 		const projectRoot = c.get('projectRoot');
@@ -88,16 +79,6 @@ export const projectRoutes = new Hono<AppEnvironment>()
 		}
 
 		return c.json(meta);
-	})
-
-	// GET /api/expiration - Get project expiration info
-	.get('/expiration', async (c) => {
-		const fsStub = c.get('fsStub');
-		const expirationTime = await fsStub.getExpirationTime();
-		return c.json({
-			expiresAt: expirationTime ?? undefined,
-			expiresIn: expirationTime ? expirationTime - Date.now() : undefined,
-		});
 	})
 
 	// GET /api/download - Download project as deployable zip

@@ -6,7 +6,7 @@
  * (state, scheduling, etc.) are managed separately by the SDK itself.
  */
 
-import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 
 // =============================================================================
 // Tables
@@ -19,21 +19,25 @@ import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
  * JSON-serialized fields: history, messageSnapshots, messageModes,
  * toolMetadata, toolErrors.
  */
-export const sessions = sqliteTable('sessions', {
-	id: text('id').primaryKey(),
-	title: text('title').notNull().default(''),
-	titleGenerated: integer('title_generated').notNull().default(0),
-	createdAt: integer('created_at').notNull(),
-	history: text('history').notNull().default('[]'),
-	messageSnapshots: text('message_snapshots'),
-	messageModes: text('message_modes'),
-	contextTokensUsed: integer('context_tokens_used'),
-	revertedAt: integer('reverted_at'),
-	toolMetadata: text('tool_metadata'),
-	toolErrors: text('tool_errors'),
-	status: text('status'),
-	errorMessage: text('error_message'),
-});
+export const sessions = sqliteTable(
+	'sessions',
+	{
+		id: text('id').primaryKey(),
+		title: text('title').notNull().default(''),
+		titleGenerated: integer('title_generated').notNull().default(0),
+		createdAt: integer('created_at').notNull(),
+		history: text('history').notNull().default('[]'),
+		messageSnapshots: text('message_snapshots'),
+		messageModes: text('message_modes'),
+		contextTokensUsed: integer('context_tokens_used'),
+		revertedAt: integer('reverted_at'),
+		toolMetadata: text('tool_metadata'),
+		toolErrors: text('tool_errors'),
+		status: text('status'),
+		errorMessage: text('error_message'),
+	},
+	(table) => [index('sessions_created_at_idx').on(table.createdAt)],
+);
 
 /**
  * Durable marker for sessions that are actively running. Persists the full

@@ -5,5 +5,5 @@
 		"types": ["vitest/globals"]
 	},
 	"include": ["worker", "shared", "auxiliary"],
-	"exclude": ["worker/drizzle/*.js", "worker/drizzle/*.sql"]
+	"exclude": ["worker/migrations/do-agent/*.js", "worker/migrations/do-agent/*.sql", "worker/migrations/d1-auth/*.sql"]
 }

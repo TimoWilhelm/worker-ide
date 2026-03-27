@@ -93,6 +93,48 @@ export async function fetchTemplates(): Promise<ProjectTemplateMeta[]> {
 }
 
 /**
+ * Org project entry returned from the D1 project table.
+ */
+export interface OrgProject {
+	id: string;
+	organizationId: string;
+	name: string;
+	humanId: string;
+	previewVisibility: string;
+	createdByUserId: string;
+	createdAt: string;
+	updatedAt: string;
+}
+
+/**
+ * Fetch projects for the active organization.
+ *
+ * Uses raw fetch because this is a root-level endpoint (`/api/org/projects`)
+ * outside the project-scoped RPC client.
+ */
+export async function fetchOrgProjects(): Promise<OrgProject[]> {
+	const response = await fetch('/api/org/projects');
+	if (!response.ok) {
+		await throwApiError(response, 'Failed to fetch organization projects');
+	}
+	const data: { projects: OrgProject[] } = await response.json();
+	return data.projects;
+}
+
+/**
+ * Soft-delete a project (30-day retention).
+ *
+ * Uses raw fetch because this is a root-level endpoint (`/api/org/project/:id`)
+ * outside the project-scoped RPC client.
+ */
+export async function deleteProject(projectId: string): Promise<void> {
+	const response = await fetch(`/api/org/project/${projectId}`, { method: 'DELETE' });
+	if (!response.ok) {
+		await throwApiError(response, 'Failed to delete project');
+	}
+}
+
+/**
  * Fetch project metadata (name, humanId, dependencies, assetSettings).
  */
 export async function fetchProjectMeta(

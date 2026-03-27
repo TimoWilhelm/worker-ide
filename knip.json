@@ -5,8 +5,15 @@
 		"type": true
 	},
 	"exclude": ["types"],
-	"entry": ["auxiliary/biome/index.ts", "auxiliary/esbuild/index.ts", "auxiliary/git/index.ts", "shared/**/*.ts", "!shared/**/*.test.ts"],
+	"entry": [
+		"auxiliary/biome/index.ts",
+		"auxiliary/esbuild/index.ts",
+		"auxiliary/git/index.ts",
+		"shared/**/*.ts",
+		"!shared/**/*.test.ts",
+		"worker/db/auth-schema.ts"
+	],
 	"project": ["src/**", "worker/**", "shared/**", "auxiliary/**", "test/**"],
 	"ignoreDependencies": ["cloudflare", "codemirror", "@standard-schema/spec"],
-	"ignoreFiles": ["worker/drizzle/migrations.d.ts", "auxiliary/*/worker-configuration.d.ts"]
+	"ignoreFiles": ["worker/migrations/do-agent/migrations.d.ts", "auxiliary/*/worker-configuration.d.ts"]
 }

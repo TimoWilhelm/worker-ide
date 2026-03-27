@@ -22,6 +22,7 @@ import DashboardPage from './dashboard-page';
 vi.mock('@/lib/api-client', () => ({
 	createProject: vi.fn(),
 	cloneProject: vi.fn(),
+	deleteProject: vi.fn(() => Promise.resolve()),
 	fetchTemplates: vi.fn(() =>
 		Promise.resolve([
 			{
@@ -32,13 +33,19 @@ vi.mock('@/lib/api-client', () => ({
 			},
 		]),
 	),
+	fetchOrgProjects: vi.fn(() => Promise.resolve([])),
 }));
 
-// Mock recent-projects to return controlled data
-vi.mock('@/lib/recent-projects', () => ({
-	getRecentProjects: vi.fn(() => []),
-	trackProject: vi.fn(),
-	removeProject: vi.fn(),
+// Mock auth client
+vi.mock('@/lib/auth-client', () => ({
+	authClient: {
+		signOut: vi.fn(() => Promise.resolve()),
+	},
+}));
+
+// Mock org switcher
+vi.mock('@/features/org/org-switcher', () => ({
+	OrgSwitcher: () => <div data-testid="org-switcher" />,
 }));
 
 // Mock the store (for theme toggle)
@@ -56,7 +63,7 @@ vi.mock('@/hooks/use-theme', () => ({
 }));
 
 // Mock the HalftoneBackground — WebGL is not available in jsdom
-vi.mock('./halftone-background', () => ({
+vi.mock('@/components/halftone-background', () => ({
 	HalftoneBackground: () => <canvas data-testid="halftone-background" />,
 }));
 
@@ -95,8 +102,7 @@ afterEach(() => {
 // Import mocked modules (after vi.mock declarations)
 // =============================================================================
 
-const { createProject, cloneProject } = await import('@/lib/api-client');
-const { getRecentProjects } = await import('@/lib/recent-projects');
+const { createProject, cloneProject, deleteProject, fetchOrgProjects } = await import('@/lib/api-client');
 
 // =============================================================================
 // Tests
@@ -400,41 +406,131 @@ describe('DashboardPage', () => {
 	// Recent projects
 	// ---------------------------------------------------------------------------
 
-	it('does not render recent projects section when empty', () => {
+	it('does not render projects section when empty', () => {
 		renderWithQuery(<DashboardPage />);
 
-		expect(screen.queryByText('Recent projects')).not.toBeInTheDocument();
+		expect(screen.queryByText('Your projects')).not.toBeInTheDocument();
 	});
 
-	it('renders recent projects section with a single project', () => {
-		vi.mocked(getRecentProjects).mockReturnValue([
-			{ id: '5ydvqzhiqckl5fa63nhky2pstb212hcdj0lk19eklkmc7snawe', timestamp: Date.now() - 3_600_000, name: 'My Project' },
+	it('renders projects section with a single project', async () => {
+		vi.mocked(fetchOrgProjects).mockResolvedValue([
+			{
+				id: '5ydvqzhiqckl5fa63nhky2pstb212hcdj0lk19eklkmc7snawe',
+				organizationId: 'org1',
+				name: 'My Project',
+				humanId: 'my-project',
+				previewVisibility: 'public',
+				createdByUserId: 'user1',
+				createdAt: new Date(Date.now() - 3_600_000).toISOString(),
+				updatedAt: new Date(Date.now() - 3_600_000).toISOString(),
+			},
 		]);
 
 		renderWithQuery(<DashboardPage />);
 
-		expect(screen.getByText('Recent projects')).toBeInTheDocument();
+		await waitFor(() => {
+			expect(screen.getByText('Your projects')).toBeInTheDocument();
+		});
 		expect(screen.getByText('My Project')).toBeInTheDocument();
 	});
 
-	it('renders all recent projects when multiple available', () => {
-		vi.mocked(getRecentProjects).mockReturnValue([
-			{ id: '5ydvqzhiqckl5fa63nhky2pstb212hcdj0lk19eklkmc7snawe', timestamp: Date.now() - 3_600_000, name: 'My Project' },
-			{ id: '6dp5qcb22im238nr3wvp0ic7q99w035jmy2iw7i6n43d37jtof', timestamp: Date.now() - 86_400_000, name: 'Old Project' },
+	it('renders all projects when multiple available', async () => {
+		vi.mocked(fetchOrgProjects).mockResolvedValue([
+			{
+				id: '5ydvqzhiqckl5fa63nhky2pstb212hcdj0lk19eklkmc7snawe',
+				organizationId: 'org1',
+				name: 'My Project',
+				humanId: 'my-project',
+				previewVisibility: 'public',
+				createdByUserId: 'user1',
+				createdAt: new Date(Date.now() - 3_600_000).toISOString(),
+				updatedAt: new Date(Date.now() - 3_600_000).toISOString(),
+			},
+			{
+				id: '6dp5qcb22im238nr3wvp0ic7q99w035jmy2iw7i6n43d37jtof',
+				organizationId: 'org1',
+				name: 'Old Project',
+				humanId: 'old-project',
+				previewVisibility: 'public',
+				createdByUserId: 'user1',
+				createdAt: new Date(Date.now() - 86_400_000).toISOString(),
+				updatedAt: new Date(Date.now() - 86_400_000).toISOString(),
+			},
 		]);
 
 		renderWithQuery(<DashboardPage />);
 
-		expect(screen.getByText('Recent projects')).toBeInTheDocument();
+		await waitFor(() => {
+			expect(screen.getByText('Your projects')).toBeInTheDocument();
+		});
 		expect(screen.getByText('My Project')).toBeInTheDocument();
 		expect(screen.getByText('Old Project')).toBeInTheDocument();
 	});
 
-	it('recent project rows are links to the project page', () => {
-		const projectId = '494rtk7ddoepe5ru2lx4oc855i6lc23p3apolh04feq8q517sa';
-		vi.mocked(getRecentProjects).mockReturnValue([{ id: projectId, timestamp: Date.now(), name: 'Test Project' }]);
+	it('opens delete confirmation modal and soft-deletes a project', async () => {
+		const user = userEvent.setup();
+		vi.mocked(fetchOrgProjects).mockResolvedValue([
+			{
+				id: '5ydvqzhiqckl5fa63nhky2pstb212hcdj0lk19eklkmc7snawe',
+				organizationId: 'org1',
+				name: 'Doomed Project',
+				humanId: 'doomed-project',
+				previewVisibility: 'public',
+				createdByUserId: 'user1',
+				createdAt: new Date().toISOString(),
+				updatedAt: new Date().toISOString(),
+			},
+		]);
 
 		renderWithQuery(<DashboardPage />);
+
+		await waitFor(() => {
+			expect(screen.getByText('Doomed Project')).toBeInTheDocument();
+		});
+
+		// Click the delete button (visible on hover, but rendered in DOM)
+		const deleteButton = screen.getByLabelText('Delete Doomed Project');
+		await user.click(deleteButton);
+
+		// Confirmation modal should appear
+		await waitFor(() => {
+			expect(screen.getByRole('dialog')).toBeInTheDocument();
+		});
+
+		const dialog = screen.getByRole('dialog');
+		expect(within(dialog).getByText(/Are you sure you want to delete/)).toBeInTheDocument();
+		expect(within(dialog).getByText('Doomed Project')).toBeInTheDocument();
+		expect(within(dialog).getByText(/recoverable for 30 days/)).toBeInTheDocument();
+
+		// Click Delete to confirm
+		const confirmButton = within(dialog).getByRole('button', { name: 'Delete' });
+		await user.click(confirmButton);
+
+		await waitFor(() => {
+			expect(vi.mocked(deleteProject)).toHaveBeenCalledWith('5ydvqzhiqckl5fa63nhky2pstb212hcdj0lk19eklkmc7snawe');
+		});
+	});
+
+	it('project rows are links to the project page', async () => {
+		const projectId = '494rtk7ddoepe5ru2lx4oc855i6lc23p3apolh04feq8q517sa';
+		vi.mocked(fetchOrgProjects).mockResolvedValue([
+			{
+				id: projectId,
+				organizationId: 'org1',
+				name: 'Test Project',
+				humanId: 'test-project',
+				previewVisibility: 'public',
+				createdByUserId: 'user1',
+				createdAt: new Date().toISOString(),
+				updatedAt: new Date().toISOString(),
+			},
+		]);
+
+		renderWithQuery(<DashboardPage />);
+
+		await waitFor(() => {
+			expect(screen.getByText('Test Project')).toBeInTheDocument();
+		});
 
 		const link = screen.getByText('Test Project').closest('a');
 		expect(link).toBeTruthy();
