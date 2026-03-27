@@ -36,6 +36,8 @@ import {
 } from '@codemirror/view';
 import { tags as t } from '@lezer/highlight';
 
+import { createSearchExtension } from './search-panel';
+
 import type { Extension } from '@codemirror/state';
 
 // =============================================================================
@@ -241,6 +243,7 @@ function getBaseExtensions(): Extension[] {
 		crosshairCursor(),
 		highlightActiveLine(),
 		highlightSelectionMatches(),
+		createSearchExtension(),
 		keymap.of([
 			...closeBracketsKeymap,
 			...defaultKeymap,

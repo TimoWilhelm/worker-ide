@@ -27,7 +27,6 @@ export function useEditorState({ projectId }: { projectId: string }) {
 		clearPendingGoTo,
 		pendingGoTo,
 		pendingChanges,
-		approveChange,
 		participants,
 		cursorPosition,
 	} = useStore(
@@ -43,7 +42,6 @@ export function useEditorState({ projectId }: { projectId: string }) {
 			clearPendingGoTo: state.clearPendingGoTo,
 			pendingGoTo: state.pendingGoTo,
 			pendingChanges: state.pendingChanges,
-			approveChange: state.approveChange,
 			participants: state.participants,
 			cursorPosition: state.cursorPosition,
 		})),
@@ -96,24 +94,23 @@ export function useEditorState({ projectId }: { projectId: string }) {
 		return computeDiffData(pendingChange.beforeContent, pendingChange.afterContent ?? editorContent);
 	}, [activeFile, pendingChanges, editorContent]);
 
-	// Lazily initialize per-hunk statuses when a diff is first displayed.
-	useEffect(() => {
-		if (!activeFile || !activeDiffData || !activePendingChange) return;
-		if (activePendingChange.hunkStatuses.length > 0) return; // already initialized
-
+	// Synchronously initialize per-hunk statuses when a diff is first displayed.
+	// Uses the render-time setState pattern (like previousContent above) to avoid
+	// a one-frame gap where hunkStatuses is [] while changeGroups is non-empty.
+	if (activeFile && activeDiffData && activePendingChange && activePendingChange.hunkStatuses.length === 0) {
 		const changeGroups = groupHunksIntoChanges(activeDiffData.hunks);
-		if (changeGroups.length === 0) return;
-
-		const statuses = changeGroups.map(() => 'pending' as const);
-		useStore.setState((state) => {
-			const newMap = new Map(state.pendingChanges);
-			const change = newMap.get(activeFile);
-			if (change && change.hunkStatuses.length === 0) {
-				newMap.set(activeFile, { ...change, hunkStatuses: statuses });
-			}
-			return { pendingChanges: newMap };
-		});
-	}, [activeFile, activeDiffData, activePendingChange]);
+		if (changeGroups.length > 0) {
+			const statuses = changeGroups.map(() => 'pending' as const);
+			useStore.setState((state) => {
+				const newMap = new Map(state.pendingChanges);
+				const change = newMap.get(activeFile);
+				if (change && change.hunkStatuses.length === 0) {
+					newMap.set(activeFile, { ...change, hunkStatuses: statuses });
+				}
+				return { pendingChanges: newMap };
+			});
+		}
+	}
 
 	// Compute git diff data when a read-only git diff view is active
 	const isGitDiffActive = !!gitDiffView && gitDiffView.path === activeFile;
@@ -137,16 +134,33 @@ export function useEditorState({ projectId }: { projectId: string }) {
 	const handleEditorChange = useCallback(
 		(newContent: string) => {
 			setLocalEditorContent(newContent);
-			if (activeFile && newContent !== content) {
+			if (!activeFile) return;
+
+			// During active AI diff: update the pending change's afterContent
+			// so the diff recomputes to include the user's edits.
+			// Reset hunkStatuses since the diff structure may have changed.
+			const pending = pendingChanges.get(activeFile);
+			if (pending?.status === 'pending') {
+				const newDiff = computeDiffData(pending.beforeContent, newContent);
+				const newGroups = newDiff ? groupHunksIntoChanges(newDiff.hunks) : [];
+				const newStatuses = newGroups.map(() => 'pending' as const);
+				useStore.setState((state) => {
+					const newMap = new Map(state.pendingChanges);
+					const change = newMap.get(activeFile);
+					if (change && change.status === 'pending') {
+						newMap.set(activeFile, { ...change, afterContent: newContent, hunkStatuses: newStatuses });
+					}
+					return { pendingChanges: newMap };
+				});
 				markFileChanged(activeFile, true);
-				// Auto-approve pending AI change when user manually edits the file
-				const pending = pendingChanges.get(activeFile);
-				if (pending?.status === 'pending') {
-					approveChange(activeFile);
-				}
+				return;
+			}
+
+			if (newContent !== content) {
+				markFileChanged(activeFile, true);
 			}
 		},
-		[activeFile, content, markFileChanged, pendingChanges, approveChange],
+		[activeFile, content, markFileChanged, pendingChanges],
 	);
 
 	// Handle save

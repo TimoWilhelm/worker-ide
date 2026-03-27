@@ -37,7 +37,10 @@ export function FileReference({
 	const isClickable = interactive || !!onClick;
 
 	const sharedClassName = cn(
-		'inline-flex items-center gap-1 rounded-sm px-1.5 py-px',
+		`
+			inline-flex max-w-full min-w-0 items-center gap-1 overflow-hidden rounded-sm
+			px-1.5 py-px
+		`,
 		'bg-accent/15 font-mono text-xs text-accent',
 		isClickable &&
 			`
@@ -67,7 +70,7 @@ export function FileReference({
 					}
 				>
 					<FileText className="size-3 shrink-0" />
-					<span>{fileName}</span>
+					<span className="truncate">{fileName}</span>
 				</span>
 			</Tooltip>
 		);
@@ -77,7 +80,7 @@ export function FileReference({
 		<Tooltip content={path} side="bottom">
 			<button type="button" onClick={() => openFile(path)} className={sharedClassName}>
 				<FileText className="size-3 shrink-0" />
-				<span>{fileName}</span>
+				<span className="truncate">{fileName}</span>
 			</button>
 		</Tooltip>
 	);

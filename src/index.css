@@ -213,7 +213,65 @@ body {
 	background: color-mix(in srgb, var(--color-accent) 6%, transparent) !important;
 }
 
-/* CodeMirror lint diagnostic panel & actions */
+.cm-search-panel {
+	font-family: var(--font-sans);
+	font-size: var(--text-xs);
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	padding: 6px 8px;
+}
+
+.cm-search-row {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+}
+
+.cm-search-input-wrap {
+	flex: 1;
+	min-width: 140px;
+	display: flex;
+	align-items: center;
+	background: var(--color-bg-secondary);
+	border: 1px solid var(--color-border-solid);
+	border-radius: 4px;
+	transition: border-color 0.15s;
+}
+
+.cm-search-input-wrap:focus-within {
+	border-color: var(--color-accent);
+}
+
+.cm-search-field {
+	font-family: var(--font-mono);
+	font-size: var(--text-2xs);
+	flex: 1;
+	min-width: 0;
+	background: transparent !important;
+	color: var(--color-text-primary);
+	border: none !important;
+	padding: 3px 6px;
+	outline: none !important;
+	box-shadow: none !important;
+}
+
+.cm-search-toggles {
+	display: flex;
+	gap: 1px;
+	padding: 1px 2px 1px 0;
+	flex-shrink: 0;
+}
+
+.cm-search-buttons {
+	display: flex;
+	gap: 2px;
+}
+
+.relative:has(.cm-panels:not(:empty)) > [data-diff-floating-bar] {
+	bottom: 5rem;
+}
+
 .cm-diagnostic {
 	font-family: var(--font-sans);
 	font-size: var(--text-xs);
@@ -367,7 +425,8 @@ body {
 [data-separator]:focus-visible,
 [role='menuitem']:focus-visible,
 textarea:focus-visible,
-[contenteditable]:focus-visible {
+[contenteditable]:focus-visible,
+.cm-search-field:focus-visible {
 	outline: none;
 }
 
