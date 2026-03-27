@@ -81,7 +81,11 @@ export default defineConfig({
 		react(),
 		cloudflare({
 			configPath: './wrangler.jsonc',
-			auxiliaryWorkers: [{ configPath: './auxiliary/biome/wrangler.jsonc' }, { configPath: './auxiliary/esbuild/wrangler.jsonc' }],
+			auxiliaryWorkers: [
+				{ configPath: './auxiliary/biome/wrangler.jsonc' },
+				{ configPath: './auxiliary/esbuild/wrangler.jsonc' },
+				{ configPath: './auxiliary/git/wrangler.jsonc' },
+			],
 		}),
 		VitePWA({
 			registerType: 'prompt',
@@ -125,6 +129,8 @@ export default defineConfig({
 			'@': path.resolve(__dirname, './src'),
 			'@shared': path.resolve(__dirname, './shared'),
 			'@server': path.resolve(__dirname, './worker'),
+			'@worker': path.resolve(__dirname, './worker'),
+			'@git': path.resolve(__dirname, './auxiliary/git'),
 			'node:fs/promises': 'worker-fs-mount/fs',
 			'esbuild-wasm': 'esbuild-wasm/lib/browser.js',
 		},

@@ -10,9 +10,9 @@ import { env } from 'cloudflare:workers';
 
 import { ToolErrorCode, toolError } from '@shared/tool-errors';
 import { createHmrUpdateForFile } from '@shared/types';
+import { coordinatorNamespace } from '@worker/lib/durable-object-namespaces';
+import { isHiddenPath, isPathSafe } from '@worker/lib/path-utilities';
 
-import { coordinatorNamespace } from '../../../lib/durable-object-namespaces';
-import { isHiddenPath, isPathSafe } from '../../../lib/path-utilities';
 import { recordFileRead } from '../file-time';
 
 import type { FileChange, SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';

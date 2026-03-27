@@ -6,8 +6,7 @@
 import fs from 'node:fs/promises';
 
 import { ToolExecutionError } from '@shared/tool-errors';
-
-import { coordinatorNamespace } from '../../../lib/durable-object-namespaces';
+import { coordinatorNamespace } from '@worker/lib/durable-object-namespaces';
 
 import type { SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
 import type { AssetSettings, HtmlHandling, NotFoundHandling, ProjectMeta } from '@shared/types';

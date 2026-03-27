@@ -11,11 +11,11 @@ import fs from 'node:fs/promises';
 import { MAX_DIAGNOSTICS_PER_FILE } from '@shared/constants';
 import { ToolErrorCode, toolError } from '@shared/tool-errors';
 import { createHmrUpdateForFile } from '@shared/types';
+import { coordinatorNamespace } from '@worker/lib/durable-object-namespaces';
+import { isHiddenPath, isPathSafe, suggestSimilarFiles } from '@worker/lib/path-utilities';
+import { formatLintDiagnostics, lintFile } from '@worker/services/lint-service';
 
 import { replace } from './replacers';
-import { coordinatorNamespace } from '../../../lib/durable-object-namespaces';
-import { isHiddenPath, isPathSafe, suggestSimilarFiles } from '../../../lib/path-utilities';
-import { formatLintDiagnostics, lintFile } from '../../../services/lint-service';
 import { assertFileWasRead, recordFileRead, withLock } from '../file-time';
 import { computeDiffStats, generateCompactDiff, isRecordObject } from '../utilities';
 

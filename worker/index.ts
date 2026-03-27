@@ -26,10 +26,13 @@ import { errorPage, previewExpiredPage } from './lib/error-page';
 import { DEV_PREVIEW_SECRET } from './lib/preview-secret';
 import { generateProjectId, toDurableObjectId } from './lib/project-id';
 import { apiRoutes } from './routes';
+import { GitClient } from './services/git-client';
 import { PreviewService } from './services/preview-service';
+import { collectChanges } from './services/working-tree';
 import { getTemplate, getTemplateMetadata } from './templates';
 
 import type { AppEnvironment } from './types';
+import type { CommitFileEntry } from '@shared/git-types';
 
 // =============================================================================
 // Preview Service Cache
@@ -258,11 +261,32 @@ app.post('/api/new-project', async (c) => {
 		await writeTemplateFiles(fs, PROJECT_ROOT, template.files, template.dependencies, humanId);
 	});
 
+	// Create initial git commit via the git auxiliary worker
 	const fsStub = filesystemNamespace.get(doId);
 	c.executionCtx.waitUntil(
-		fsStub.gitInit().catch((error) => {
-			console.error('Git initialization failed:', error);
-		}),
+		(async () => {
+			try {
+				const gitClient = new GitClient(env.REPO_DO, projectId);
+				let files: CommitFileEntry[] = [];
+
+				await withMounts(async () => {
+					mount(PROJECT_ROOT, fsStub);
+					const fileSystem = await import('node:fs/promises');
+					const { files: changedFiles } = await collectChanges(fileSystem, PROJECT_ROOT, []);
+					files = changedFiles;
+				});
+
+				if (files.length > 0) {
+					await gitClient.commitTree({
+						files,
+						message: 'Initial commit',
+						author: { name: 'IDE User', email: 'user@example.com' },
+					});
+				}
+			} catch (error) {
+				console.error('Git initialization failed:', error);
+			}
+		})(),
 	);
 
 	return c.json({ projectId, url: `/p/${projectId}`, name: humanId });
@@ -327,11 +351,32 @@ app.post('/api/clone-project', async (c) => {
 		await destinationStub.refreshExpiration();
 	});
 
+	// Create initial git commit for cloned project via the git auxiliary worker
 	const newFsStub = filesystemNamespace.get(newDoId);
 	c.executionCtx.waitUntil(
-		newFsStub.gitInit().catch((error) => {
-			console.error('Git initialization failed for clone:', error);
-		}),
+		(async () => {
+			try {
+				const gitClient = new GitClient(env.REPO_DO, newProjectId);
+				let files: CommitFileEntry[] = [];
+
+				await withMounts(async () => {
+					mount(PROJECT_ROOT, newFsStub);
+					const fileSystem = await import('node:fs/promises');
+					const { files: changedFiles } = await collectChanges(fileSystem, PROJECT_ROOT, []);
+					files = changedFiles;
+				});
+
+				if (files.length > 0) {
+					await gitClient.commitTree({
+						files,
+						message: 'Initial commit',
+						author: { name: 'IDE User', email: 'user@example.com' },
+					});
+				}
+			} catch (error) {
+				console.error('Git initialization failed for clone:', error);
+			}
+		})(),
 	);
 
 	return c.json({ projectId: newProjectId, url: `/p/${newProjectId}`, name: humanId });
@@ -519,6 +564,41 @@ export default {
 					homeUrl,
 					status: 404,
 				});
+			}
+		}
+	},
+
+	/**
+	 * Queue consumer for git push event notifications.
+	 * When an external client pushes to the git worker, it publishes an event
+	 * to the git-push-events queue. This handler broadcasts a git-status-changed
+	 * message to all connected WebSocket clients for the affected project.
+	 */
+	async queue(batch: MessageBatch, _environment: Env, _executionContext: ExecutionContext): Promise<void> {
+		for (const message of batch.messages) {
+			try {
+				const event = message.body;
+				if (
+					typeof event === 'object' &&
+					event !== undefined &&
+					event !== null &&
+					'type' in event &&
+					'repoId' in event &&
+					event.type === 'push' &&
+					typeof event.repoId === 'string'
+				) {
+					// Extract projectId from repoId (format: "ide/{projectId}")
+					const projectId = event.repoId.startsWith('ide/') ? event.repoId.slice(4) : undefined;
+					if (projectId) {
+						const coordinatorId = coordinatorNamespace.idFromName(`project:${projectId}`);
+						const coordinatorStub = coordinatorNamespace.get(coordinatorId);
+						await coordinatorStub.sendMessage({ type: 'git-status-changed' });
+					}
+				}
+				message.ack();
+			} catch (error) {
+				console.error('Queue message processing failed:', error);
+				message.retry();
 			}
 		}
 	},

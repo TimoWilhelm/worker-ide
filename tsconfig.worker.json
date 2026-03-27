@@ -10,11 +10,13 @@
 		"tsBuildInfoFile": "./node_modules/.tmp/tsconfig.worker.tsbuildinfo",
 		"lib": ["ES2024"],
 		"paths": {
-			"@shared/*": ["./shared/*"]
+			"@shared/*": ["./shared/*"],
+			"@git/*": ["./auxiliary/git/*"],
+			"@worker/*": ["./worker/*"]
 		},
 		"types": ["./worker-configuration.d.ts", "./raw-minified.d.ts", "vite/client", "node"]
 	},
-	"include": ["worker", "shared", "auxiliary"],
+	"include": ["worker", "shared", "auxiliary", "auxiliary/git/drizzle/**/*.js", "auxiliary/git/drizzle/**/*.json"],
 	"exclude": [
 		"worker/fixtures",
 		"worker/drizzle/*.js",
