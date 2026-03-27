@@ -6,7 +6,7 @@
 
 // Components
 export { CodeEditor } from './components/code-editor';
-export { DiffToolbar } from './components/diff-toolbar';
+export { DiffFloatingBar } from './components/diff-floating-bar';
 export { FileTabs } from './components/file-tabs';
 export { GitDiffToolbar } from './components/git-diff-toolbar';
 
