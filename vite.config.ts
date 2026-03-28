@@ -85,6 +85,8 @@ export default defineConfig({
 				{ configPath: './auxiliary/biome/wrangler.jsonc' },
 				{ configPath: './auxiliary/esbuild/wrangler.jsonc' },
 				{ configPath: './auxiliary/git/wrangler.jsonc' },
+				{ configPath: './auxiliary/push/wrangler.jsonc' },
+				{ configPath: './auxiliary/email/wrangler.jsonc' },
 			],
 		}),
 		VitePWA({
@@ -115,6 +117,7 @@ export default defineConfig({
 				navigateFallback: '/index.html',
 				navigateFallbackDenylist: [/^\/api\//, /^\/p\//, /^\/docs/],
 				globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+				importScripts: ['/push-sw.js'],
 			},
 			devOptions: {
 				enabled: true,

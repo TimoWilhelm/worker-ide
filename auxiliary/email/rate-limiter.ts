@@ -1,0 +1,161 @@
+/**
+ * RateLimiter for APIs conforming to IETF standard for RateLimit header fields.
+ * Based on: https://datatracker.ietf.org/doc/html/draft-ietf-httpapi-ratelimit-headers
+ *
+ * Handles:
+ * - ratelimit-limit: Maximum number of requests allowed within a window
+ * - ratelimit-remaining: How many requests you have left within the current window
+ * - ratelimit-reset: How many seconds until the limits are reset
+ * - retry-after: How many seconds you should wait before making a follow-up request
+ */
+
+interface RateLimitHeaders {
+	'ratelimit-limit'?: string;
+	'ratelimit-remaining'?: string;
+	'ratelimit-reset'?: string;
+	'retry-after'?: string;
+}
+
+/**
+ * Accepted header input — either a plain object or a standard `Headers` instance
+ * (e.g. from the Resend SDK).
+ */
+type HeadersInput = RateLimitHeaders | Headers;
+
+interface RateLimitResponse {
+	headers?: HeadersInput;
+	is429?: boolean;
+}
+
+function getHeader(headers: HeadersInput, name: string): string | undefined {
+	if (headers instanceof Headers) {
+		return headers.get(name) ?? undefined;
+	}
+	// eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- accessing dynamic key on typed plain object
+	return (headers as Record<string, string | undefined>)[name];
+}
+
+interface RateLimitState {
+	/** Maximum concurrent requests allowed */
+	maxConcurrent: number;
+	/** Requests remaining in current window */
+	remainingInWindow: number;
+	/** Seconds until rate limit resets */
+	resetSeconds: number;
+}
+
+export class RateLimiter {
+	private maxConcurrent: number;
+	private remainingInWindow: number;
+	private resetSeconds: number;
+	private readonly maxRetryDelay: number;
+
+	/**
+	 * @param initialLimit - Initial rate limit (default: 2)
+	 * @param maxRetryDelay - Maximum retry delay in seconds (default: 60)
+	 */
+	constructor(initialLimit = 2, maxRetryDelay = 60) {
+		this.maxConcurrent = initialLimit;
+		this.remainingInWindow = Number.POSITIVE_INFINITY;
+		this.resetSeconds = 1;
+		this.maxRetryDelay = maxRetryDelay;
+	}
+
+	/**
+	 * Get current rate limit state
+	 */
+	public getState(): RateLimitState {
+		return {
+			maxConcurrent: this.maxConcurrent,
+			remainingInWindow: this.remainingInWindow,
+			resetSeconds: this.resetSeconds,
+		};
+	}
+
+	/**
+	 * Calculate the optimal batch size based on:
+	 * - Maximum concurrent requests
+	 * - Remaining capacity in current window
+	 * - Total items to process
+	 */
+	public calculateBatchSize(totalRemaining: number): number {
+		return Math.min(this.maxConcurrent, Math.max(this.remainingInWindow, 0), totalRemaining);
+	}
+
+	/**
+	 * Check if there's capacity to make requests
+	 */
+	public hasCapacity(): boolean {
+		return this.remainingInWindow > 0 || this.remainingInWindow === Number.POSITIVE_INFINITY;
+	}
+
+	/**
+	 * Get retry delay when capacity is exhausted
+	 */
+	public getCapacityExhaustedDelay(): number {
+		return Math.min(this.resetSeconds, this.maxRetryDelay);
+	}
+
+	/**
+	 * Process response headers and update rate limit state
+	 * @param response - Response with rate limit headers
+	 * @returns true if this was a 429 rate limit response
+	 */
+	public processResponse(response: RateLimitResponse): boolean {
+		const { headers, is429 = false } = response;
+
+		if (!headers) {
+			return is429;
+		}
+
+		// Update rate limit tracking from IETF standard headers
+		const remaining = getHeader(headers, 'ratelimit-remaining');
+		if (remaining) {
+			this.remainingInWindow = Number.parseInt(remaining, 10);
+		}
+
+		const limit = getHeader(headers, 'ratelimit-limit');
+		if (limit) {
+			this.maxConcurrent = Number.parseInt(limit, 10);
+		}
+
+		const reset = getHeader(headers, 'ratelimit-reset');
+		if (reset) {
+			this.resetSeconds = Number.parseInt(reset, 10);
+		}
+
+		return is429;
+	}
+
+	/**
+	 * Get retry delay for a 429 response
+	 * Uses retry-after header if available, otherwise falls back to ratelimit-reset
+	 */
+	public get429RetryDelay(headers?: HeadersInput): number {
+		if (headers) {
+			const retryAfterValue = getHeader(headers, 'retry-after');
+			if (retryAfterValue) {
+				const retryAfter = Number.parseInt(retryAfterValue, 10);
+				return Math.min(retryAfter, this.maxRetryDelay);
+			}
+		}
+		return Math.min(this.resetSeconds, this.maxRetryDelay);
+	}
+
+	/**
+	 * Decrement local capacity tracking after successful requests
+	 * @param successCount - Number of successful requests made
+	 */
+	public decrementCapacity(successCount: number): void {
+		if (this.remainingInWindow !== Number.POSITIVE_INFINITY) {
+			this.remainingInWindow = Math.max(0, this.remainingInWindow - successCount);
+		}
+	}
+
+	/**
+	 * Get retry delay for general errors (uses reset window)
+	 */
+	public getErrorRetryDelay(): number {
+		return Math.min(this.resetSeconds, this.maxRetryDelay);
+	}
+}

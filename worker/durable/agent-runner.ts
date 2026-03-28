@@ -268,10 +268,13 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		mode: AgentMode = 'code',
 		model: AIModelId = DEFAULT_AI_MODEL,
 		sessionId?: string,
+		userId?: string,
 	): Promise<{ sessionId: string }> {
-		// Rate limiting (moved from HTTP route to here, so both HTTP and Agent RPC are covered)
+		// Rate limiting keyed on the authenticated user (falls back to projectId
+		// for backwards compatibility / eviction-recovery restarts where userId
+		// is not available).
 		if (env.AI_RATE_LIMITER) {
-			const { success } = await env.AI_RATE_LIMITER.limit({ key: projectId });
+			const { success } = await env.AI_RATE_LIMITER.limit({ key: userId ?? projectId });
 			if (!success) {
 				throw new Error('Rate limit exceeded. Please wait before making more AI requests.');
 			}
@@ -774,6 +777,13 @@ export class AgentRunner extends Agent<Env, AgentState> {
 			// Persist terminal status to DB
 			updateSessionStatus(this.db, sessionId, finalStatus, errorMessage);
 
+			// Send push notification on completion/error (not on abort — user triggered it)
+			if (finalStatus === 'completed') {
+				this.sendPushNotification(sessionId, 'Generation complete', 'Your AI agent has finished.');
+			} else if (finalStatus === 'error') {
+				this.sendPushNotification(sessionId, 'Generation failed', errorMessage ?? 'An error occurred.');
+			}
+
 			// Prune old sessions
 			await this.pruneOldSessions(parameters.projectId).catch((error) => {
 				console.error('[AgentRunner] Session pruning failed:', error);
@@ -954,6 +964,8 @@ export class AgentRunner extends Agent<Env, AgentState> {
 				this.updateSessionState(sessionId, {
 					pendingQuestion: { question: event.question, options: event.options },
 				});
+				// Send push notification so the user knows the agent needs input
+				this.sendPushNotification(sessionId, 'Agent needs your input', event.question);
 				break;
 			}
 			case 'max-iterations-reached': {
@@ -1349,6 +1361,29 @@ export class AgentRunner extends Agent<Env, AgentState> {
 			}
 		}
 		return surviving;
+	}
+
+	/**
+	 * Send a push notification to all members of the project's organization.
+	 * Uses waitUntil to avoid blocking the agent loop.
+	 */
+	private sendPushNotification(sessionId: string, title: string, body: string): void {
+		// Extract projectId from the DO name (format: "agent:{projectId}")
+		const projectId = this.name.startsWith('agent:') ? this.name.slice(6) : undefined;
+		if (!projectId) return;
+
+		try {
+			env.PUSH.notifyUser(projectId, {
+				tag: sessionId,
+				title,
+				body,
+				path: `/p/${projectId}`,
+			}).catch((error: unknown) => {
+				console.error('[AgentRunner] Failed to send push notification:', error);
+			});
+		} catch {
+			// Push service binding may not be available in dev
+		}
 	}
 
 	private pruneMetadata<T>(metadata: Record<string, T> | undefined, messageIndex: number): Record<string, T> | undefined {

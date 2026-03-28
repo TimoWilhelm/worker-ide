@@ -38,6 +38,18 @@ const auxiliaryWorkers: AuxiliaryWorkerConfig[] = [
 		outputPath: 'auxiliary/git/worker-configuration.d.ts',
 		envInterface: 'GitWorkerEnvironment',
 	},
+	{
+		name: 'push',
+		configPath: 'auxiliary/push/wrangler.jsonc',
+		outputPath: 'auxiliary/push/worker-configuration.d.ts',
+		envInterface: 'PushWorkerEnvironment',
+	},
+	{
+		name: 'email',
+		configPath: 'auxiliary/email/wrangler.jsonc',
+		outputPath: 'auxiliary/email/worker-configuration.d.ts',
+		envInterface: 'EmailWorkerEnvironment',
+	},
 ];
 
 // Step 1: Generate types for the main worker (includes all auxiliary worker bindings)

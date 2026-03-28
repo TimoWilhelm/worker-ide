@@ -1,12 +1,12 @@
 /**
  * Organization-scoped routes.
  *
- * Handles project listing for the active organization and
- * project visibility toggling. All routes require authentication
- * and an active organization.
+ * Handles project listing, visibility toggling, and project deletion
+ * for a specific organization identified by :orgId in the URL path.
+ * All routes require authentication and org membership.
  */
 
-import { eq, and, isNull } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
 import { Hono } from 'hono';
 
@@ -14,47 +14,37 @@ import { HttpErrorCode } from '@shared/http-errors';
 
 import * as schema from '../db/auth-schema';
 import { httpError } from '../lib/http-error';
+import { assertOrgMember, assertOrgSuperAdmin } from '../lib/project-auth';
 
 import type { AuthedEnvironment } from '../types';
 
 export const orgRoutes = new Hono<AuthedEnvironment>()
-	// Verify the user is a member of the active organization on all org routes
-	.use('/org/*', async (c, next) => {
-		const organizationId = c.get('activeOrganizationId');
-		if (!organizationId) {
-			throw httpError(HttpErrorCode.VALIDATION_ERROR, 'No active organization. Set an active organization first.');
-		}
+	// Verify the user is a member of the :orgId organization on all org routes
+	.use('/org/:orgId/*', async (c, next) => {
+		const { orgId } = c.req.param();
 		const userId = c.get('userId');
 		const database = drizzle(c.env.DB);
-		const memberRow = await database
-			.select({ id: schema.member.id })
-			.from(schema.member)
-			.where(and(eq(schema.member.organizationId, organizationId), eq(schema.member.userId, userId)))
-			.limit(1);
-		if (memberRow.length === 0) {
-			throw httpError(HttpErrorCode.PROTECTED_FILE, 'You are not a member of this organization.');
-		}
+		await assertOrgMember(database, orgId, userId);
 		await next();
 	})
 
-	// GET /api/org/projects — List projects for the active organization
-	.get('/org/projects', async (c) => {
-		const organizationId = c.get('activeOrganizationId')!;
+	// GET /api/org/:orgId/projects — List projects for the organization
+	.get('/org/:orgId/projects', async (c) => {
+		const { orgId } = c.req.param();
 
 		const database = drizzle(c.env.DB);
 		const projects = await database
 			.select()
 			.from(schema.project)
-			.where(and(eq(schema.project.organizationId, organizationId), isNull(schema.project.deletedAt)))
+			.where(and(eq(schema.project.organizationId, orgId), isNull(schema.project.deletedAt)))
 			.orderBy(schema.project.createdAt);
 
 		return c.json({ projects });
 	})
 
-	// PUT /api/org/project/:projectId/visibility — Toggle preview visibility
-	.put('/org/project/:projectId/visibility', async (c) => {
-		const { projectId } = c.req.param();
-		const organizationId = c.get('activeOrganizationId')!;
+	// PUT /api/org/:orgId/project/:projectId/visibility — Toggle preview visibility
+	.put('/org/:orgId/project/:projectId/visibility', async (c) => {
+		const { orgId, projectId } = c.req.param();
 
 		const body = await c.req.json<{ visibility: string }>();
 		if (body.visibility !== 'public' && body.visibility !== 'private') {
@@ -65,7 +55,7 @@ export const orgRoutes = new Hono<AuthedEnvironment>()
 		const existing = await database
 			.select()
 			.from(schema.project)
-			.where(and(eq(schema.project.id, projectId), eq(schema.project.organizationId, organizationId)))
+			.where(and(eq(schema.project.id, projectId), eq(schema.project.organizationId, orgId)))
 			.limit(1);
 
 		if (existing.length === 0) {
@@ -80,16 +70,15 @@ export const orgRoutes = new Hono<AuthedEnvironment>()
 		return c.json({ projectId, visibility: body.visibility });
 	})
 
-	// DELETE /api/org/project/:projectId — Soft-delete a project (30-day retention)
-	.delete('/org/project/:projectId', async (c) => {
-		const { projectId } = c.req.param();
-		const organizationId = c.get('activeOrganizationId')!;
+	// DELETE /api/org/:orgId/project/:projectId — Soft-delete a project (30-day retention)
+	.delete('/org/:orgId/project/:projectId', async (c) => {
+		const { orgId, projectId } = c.req.param();
 
 		const database = drizzle(c.env.DB);
 		const existing = await database
 			.select()
 			.from(schema.project)
-			.where(and(eq(schema.project.id, projectId), eq(schema.project.organizationId, organizationId), isNull(schema.project.deletedAt)))
+			.where(and(eq(schema.project.id, projectId), eq(schema.project.organizationId, orgId), isNull(schema.project.deletedAt)))
 			.limit(1);
 
 		if (existing.length === 0) {
@@ -100,6 +89,39 @@ export const orgRoutes = new Hono<AuthedEnvironment>()
 		await database.update(schema.project).set({ deletedAt: now, updatedAt: now }).where(eq(schema.project.id, projectId));
 
 		return c.json({ projectId, deletedAt: now.toISOString() });
+	})
+
+	// DELETE /api/org/:orgId — Delete an organization (super admin only)
+	.delete('/org/:orgId', async (c) => {
+		const { orgId } = c.req.param();
+		const userId = c.get('userId');
+		const database = drizzle(c.env.DB);
+
+		// Only super admins (owners) can delete an org
+		await assertOrgSuperAdmin(database, orgId, userId);
+
+		const now = new Date();
+
+		// Cancel all pending project transfers (incoming + outgoing)
+		await database
+			.update(schema.projectTransfer)
+			.set({ status: 'cancelled', resolvedAt: now, resolvedByUserId: userId })
+			.where(and(eq(schema.projectTransfer.status, 'pending'), eq(schema.projectTransfer.sourceOrganizationId, orgId)));
+		await database
+			.update(schema.projectTransfer)
+			.set({ status: 'cancelled', resolvedAt: now, resolvedByUserId: userId })
+			.where(and(eq(schema.projectTransfer.status, 'pending'), eq(schema.projectTransfer.targetOrganizationId, orgId)));
+
+		// Soft-delete all projects in the org
+		await database
+			.update(schema.project)
+			.set({ deletedAt: now, updatedAt: now })
+			.where(and(eq(schema.project.organizationId, orgId), isNull(schema.project.deletedAt)));
+
+		// Delete the organization (members and invitations cascade)
+		await database.delete(schema.organization).where(eq(schema.organization.id, orgId));
+
+		return c.json({ organizationId: orgId, deletedAt: now.toISOString() });
 	});
 
 export type OrgRoutes = typeof orgRoutes;

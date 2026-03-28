@@ -16,12 +16,20 @@ import * as authSchema from '../db/auth-schema';
 
 /**
  * Extract the `better-auth.session_token` value from the Cookie header.
+ *
+ * better-auth stores session cookies as signed values in the format
+ * `<token>.<hmac_signature>`. The cookie value may also be URL-encoded.
+ * We decode and strip the signature to recover the raw token for D1 lookup.
  */
 function getSessionToken(headers: Headers): string | undefined {
 	const cookie = headers.get('Cookie');
 	if (!cookie) return undefined;
 	const match = cookie.match(/better-auth\.session_token=([^;]+)/);
-	return match?.[1];
+	if (!match) return undefined;
+	const raw = decodeURIComponent(match[1]);
+	// Signed cookies use "<token>.<signature>" format — take only the token part.
+	const dotIndex = raw.indexOf('.');
+	return dotIndex > 0 ? raw.slice(0, dotIndex) : raw;
 }
 
 /**

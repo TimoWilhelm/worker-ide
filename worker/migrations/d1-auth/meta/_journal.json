@@ -22,6 +22,34 @@
 			"when": 1774651463669,
 			"tag": "0002_adorable_ezekiel_stane",
 			"breakpoints": true
+		},
+		{
+			"idx": 3,
+			"version": "6",
+			"when": 1774705355240,
+			"tag": "0003_org-lifecycle",
+			"breakpoints": true
+		},
+		{
+			"idx": 4,
+			"version": "6",
+			"when": 1774712097296,
+			"tag": "0004_org-plan",
+			"breakpoints": true
+		},
+		{
+			"idx": 5,
+			"version": "6",
+			"when": 1774719879862,
+			"tag": "0005_restore-active-org-id",
+			"breakpoints": true
+		},
+		{
+			"idx": 6,
+			"version": "6",
+			"when": 1774722456019,
+			"tag": "0006_boring_omega_flight",
+			"breakpoints": true
 		}
 	]
 }

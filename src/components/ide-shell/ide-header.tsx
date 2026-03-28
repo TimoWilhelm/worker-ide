@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Modal, ModalBody } from '@/components/ui/modal';
 import { Tooltip } from '@/components/ui/tooltip';
 import { VersionBadge } from '@/components/version-badge';
+import { NotificationToggle } from '@/features/notifications';
 import { cn } from '@/lib/utils';
 
 import type { useProjectName } from './use-project-name';
@@ -135,6 +136,9 @@ export function IDEHeader({
 							{isAiProcessing && !aiPanelVisible && <BorderBeam duration={1.5} />}
 						</div>
 					)}
+
+					{/* Push notifications toggle */}
+					<NotificationToggle />
 
 					{/* Theme toggle */}
 					<Tooltip content={resolvedTheme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}>

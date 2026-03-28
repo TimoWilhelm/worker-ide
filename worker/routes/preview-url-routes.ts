@@ -31,10 +31,11 @@ export const previewUrlRoutes = new Hono<AppEnvironment>()
 	 */
 	.get('/preview-url', async (c) => {
 		const projectId = c.get('projectId');
+		const userId = c.get('userId');
 
-		// Rate-limit token generation per project to prevent token farming.
+		// Rate-limit token generation per authenticated user to prevent token farming.
 		if (env.PREVIEW_RATE_LIMITER) {
-			const { success } = await env.PREVIEW_RATE_LIMITER.limit({ key: projectId });
+			const { success } = await env.PREVIEW_RATE_LIMITER.limit({ key: userId });
 			if (!success) {
 				throw httpError(HttpErrorCode.RATE_LIMITED, 'Too many preview URL requests. Please wait before retrying.');
 			}

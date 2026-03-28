@@ -30,6 +30,8 @@ export const HttpErrorCode = {
 	VALIDATION_ERROR: 'VALIDATION_ERROR',
 
 	// Auth / rate limiting
+	UNAUTHORIZED: 'UNAUTHORIZED',
+	FORBIDDEN: 'FORBIDDEN',
 	RATE_LIMITED: 'RATE_LIMITED',
 	NOT_CONFIGURED: 'NOT_CONFIGURED',
 
@@ -71,6 +73,8 @@ export const DEFAULT_STATUS_CODES: Record<HttpErrorCode, number> = {
 
 	[HttpErrorCode.VALIDATION_ERROR]: 400,
 
+	[HttpErrorCode.UNAUTHORIZED]: 401,
+	[HttpErrorCode.FORBIDDEN]: 403,
 	[HttpErrorCode.RATE_LIMITED]: 429,
 	[HttpErrorCode.NOT_CONFIGURED]: 500,
 

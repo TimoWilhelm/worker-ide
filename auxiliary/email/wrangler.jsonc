@@ -1,0 +1,30 @@
+{
+	"$schema": "../../node_modules/wrangler/config-schema.json",
+	"name": "email-worker",
+	"main": "index.ts",
+	"compatibility_date": "2026-01-31",
+	"compatibility_flags": ["nodejs_compat"],
+	"workers_dev": false,
+	"preview_urls": false,
+	"observability": {
+		"logs": { "enabled": true },
+		"traces": { "enabled": true },
+	},
+	"queues": {
+		"producers": [{ "binding": "EMAIL_QUEUE", "queue": "email-notifications" }],
+		"consumers": [
+			{
+				"max_batch_size": 2,
+				"max_batch_timeout": 10,
+				"max_retries": 3,
+				"queue": "email-notifications",
+			},
+		],
+	},
+	"vars": {
+		"EMAIL_FROM": "Codemaxxing.ai <noreply@codemaxxing.ai>",
+	},
+	"secrets": {
+		"required": ["RESEND_API_KEY"],
+	},
+}

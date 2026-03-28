@@ -10,7 +10,7 @@
  * The table/column names follow better-auth's default conventions.
  */
 
-import { index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
 // =============================================================================
 // better-auth Core Tables
@@ -24,6 +24,7 @@ export const user = sqliteTable('user', {
 	image: text('image'),
 	createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
 	updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+	deletedAt: integer('deleted_at', { mode: 'timestamp' }),
 });
 
 export const session = sqliteTable(
@@ -90,6 +91,7 @@ export const organization = sqliteTable('organization', {
 	logo: text('logo'),
 	createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
 	metadata: text('metadata'),
+	plan: text('plan').notNull().default('free'),
 });
 
 export const member = sqliteTable(
@@ -134,9 +136,7 @@ export const project = sqliteTable(
 	'project',
 	{
 		id: text('id').primaryKey(),
-		organizationId: text('organization_id')
-			.notNull()
-			.references(() => organization.id, { onDelete: 'cascade' }),
+		organizationId: text('organization_id').notNull(),
 		durableObjectHexId: text('durable_object_hex_id').notNull(),
 		name: text('name').notNull(),
 		humanId: text('human_id').notNull(),
@@ -155,6 +155,122 @@ export const project = sqliteTable(
 );
 
 // =============================================================================
+// Custom: User Project Access Table (per-user recently accessed + favorites)
+// =============================================================================
+
+export const userProjectAccess = sqliteTable(
+	'user_project_access',
+	{
+		id: text('id').primaryKey(),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		lastAccessedAt: integer('last_accessed_at', { mode: 'timestamp' }).notNull(),
+		isFavorite: integer('is_favorite', { mode: 'boolean' }).notNull().default(false),
+	},
+	(table) => [
+		uniqueIndex('user_project_access_user_project_idx').on(table.userId, table.projectId),
+		index('user_project_access_user_fav_accessed_idx').on(table.userId, table.isFavorite, table.lastAccessedAt),
+	],
+);
+
+// =============================================================================
+// Custom: Project Transfer Table (org-to-org project transfers)
+// =============================================================================
+
+export const projectTransfer = sqliteTable(
+	'project_transfer',
+	{
+		id: text('id').primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		sourceOrganizationId: text('source_organization_id').notNull(),
+		targetOrganizationId: text('target_organization_id').notNull(),
+		initiatedByUserId: text('initiated_by_user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		status: text('status').notNull().default('pending'),
+		createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+		resolvedAt: integer('resolved_at', { mode: 'timestamp' }),
+		resolvedByUserId: text('resolved_by_user_id').references(() => user.id, { onDelete: 'set null' }),
+	},
+	(table) => [
+		index('project_transfer_status_target_idx').on(table.status, table.targetOrganizationId),
+		index('project_transfer_status_source_idx').on(table.status, table.sourceOrganizationId),
+		index('project_transfer_project_status_idx').on(table.projectId, table.status),
+	],
+);
+
+// =============================================================================
+// Custom: Subscription Table (billing infrastructure — no Stripe yet)
+// =============================================================================
+
+export const subscription = sqliteTable(
+	'subscription',
+	{
+		id: text('id').primaryKey(),
+		organizationId: text('organization_id')
+			.notNull()
+			.references(() => organization.id, { onDelete: 'cascade' }),
+		plan: text('plan').notNull().default('free'),
+		status: text('status').notNull().default('active'),
+		currentPeriodStart: integer('current_period_start', { mode: 'timestamp' }),
+		currentPeriodEnd: integer('current_period_end', { mode: 'timestamp' }),
+		cancelAtPeriodEnd: integer('cancel_at_period_end', { mode: 'boolean' }).notNull().default(false),
+		externalId: text('external_id'),
+		externalCustomerId: text('external_customer_id'),
+		createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+		updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+	},
+	(table) => [index('subscription_org_id_idx').on(table.organizationId), index('subscription_external_id_idx').on(table.externalId)],
+);
+
+// =============================================================================
+// Custom: Billing Event Table (immutable audit log)
+// =============================================================================
+
+export const billingEvent = sqliteTable(
+	'billing_event',
+	{
+		id: text('id').primaryKey(),
+		organizationId: text('organization_id').notNull(),
+		type: text('type').notNull(),
+		metadata: text('metadata'),
+		createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+	},
+	(table) => [index('billing_event_org_id_idx').on(table.organizationId), index('billing_event_type_idx').on(table.type)],
+);
+
+// =============================================================================
+// Custom: Credit Ledger Table (append-only credit transactions)
+// =============================================================================
+
+export const creditLedger = sqliteTable(
+	'credit_ledger',
+	{
+		id: text('id').primaryKey(),
+		organizationId: text('organization_id')
+			.notNull()
+			.references(() => organization.id, { onDelete: 'cascade' }),
+		amount: integer('amount').notNull(),
+		balance: integer('balance').notNull(),
+		type: text('type').notNull(),
+		description: text('description').notNull(),
+		referenceId: text('reference_id'),
+		createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+	},
+	(table) => [
+		index('credit_ledger_org_id_idx').on(table.organizationId),
+		index('credit_ledger_type_idx').on(table.type),
+		index('credit_ledger_reference_idx').on(table.referenceId),
+	],
+);
+
+// =============================================================================
 // Inferred Types
 // =============================================================================
 
@@ -166,3 +282,13 @@ export type MemberRow = typeof member.$inferSelect;
 export type InvitationRow = typeof invitation.$inferSelect;
 export type ProjectRow = typeof project.$inferSelect;
 export type ProjectInsert = typeof project.$inferInsert;
+export type UserProjectAccessRow = typeof userProjectAccess.$inferSelect;
+export type UserProjectAccessInsert = typeof userProjectAccess.$inferInsert;
+export type ProjectTransferRow = typeof projectTransfer.$inferSelect;
+export type ProjectTransferInsert = typeof projectTransfer.$inferInsert;
+export type SubscriptionRow = typeof subscription.$inferSelect;
+export type SubscriptionInsert = typeof subscription.$inferInsert;
+export type BillingEventRow = typeof billingEvent.$inferSelect;
+export type BillingEventInsert = typeof billingEvent.$inferInsert;
+export type CreditLedgerRow = typeof creditLedger.$inferSelect;
+export type CreditLedgerInsert = typeof creditLedger.$inferInsert;

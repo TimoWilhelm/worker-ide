@@ -10,7 +10,7 @@
 
 import { MutationCache, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Check, ClipboardCopy } from 'lucide-react';
-import { Suspense, use, useEffect, useRef, useState } from 'react';
+import { Suspense, use, useEffect, useState } from 'react';
 
 import { ErrorBoundary } from '@/components/error-boundary';
 import { IDEShell } from '@/components/ide-shell';
@@ -23,6 +23,7 @@ import { toast } from '@/components/ui/toast-store';
 import { LoginPage } from '@/features/auth';
 import { DashboardPage } from '@/features/dashboard';
 import { OrgManagementPage } from '@/features/org';
+import { AccountPage, AppearancePage, ProfilePage, SettingsLayout } from '@/features/settings';
 import { usePwaUpdate } from '@/hooks/use-pwa-update';
 import { fetchProjectMeta } from '@/lib/api-client';
 import { authClient } from '@/lib/auth-client';
@@ -190,56 +191,51 @@ function ValidProject({ projectId }: { projectId: string }) {
 }
 
 /**
- * Auth gate — three-step check before rendering the app:
+ * localStorage key for remembering the last-visited org slug.
+ * Used by the `/` redirect to take the user back to their last org.
+ */
+const LAST_ORG_SLUG_KEY = 'lastOrgSlug';
+
+/**
+ * Redirect component — navigates via useEffect so react-compiler is happy.
+ * Defined outside AppContent to avoid react-compiler "forbidden write" errors.
+ */
+function Redirect({ to }: { to: string }) {
+	useEffect(() => {
+		globalThis.location.href = to;
+	}, [to]);
+	return <LoadingFallback />;
+}
+
+/**
+ * Parse the current URL for org-scoped routes.
+ * Returns the org slug and optional sub-path (e.g. "settings").
+ */
+function parseOrgRoute(): { orgSlug: string; subPath: string } | undefined {
+	const match = globalThis.location.pathname.match(/^\/org\/([^/]+)(\/.*)?$/);
+	if (match) {
+		return { orgSlug: match[1], subPath: match[2] ?? '' };
+	}
+	return undefined;
+}
+
+/**
+ * Auth gate — simplified flow without session-stored active org:
  *
- * 1. No session → Login page
- * 2. Session but no active org → Auto-select first org (personal org always exists)
- * 3. Session + active org → Render app
- *
- * Step 2 handles: first login (session created before org was set),
- * session re-creation after expiry, or any other path that leaves
- * activeOrganizationId null. The personal org is always created on
- * signup, so listOrganizations always returns at least one.
+ * 1. No session -> Login page
+ * 2. Session exists -> fetch org list
+ * 3. 0 orgs -> redirect to /create-org
+ * 4. Has orgs -> URL-based routing
  */
 function AuthGate() {
 	const { data: session, isPending: sessionPending } = authClient.useSession();
-	const { data: activeOrganization, isPending: organizationPending } = authClient.useActiveOrganization();
 	const { data: organizations, isPending: listPending } = authClient.useListOrganizations();
-	const settingOrganizationReference = useRef(false);
-	const [organizationError, setOrganizationError] = useState<string | undefined>();
+	const { data: activeOrganization } = authClient.useActiveOrganization();
 
-	// 4. Session exists but no active org — auto-select the first one.
-	//    Uses a ref (not state) to track the in-flight request, avoiding
-	//    synchronous setState inside the effect. When setActive completes,
-	//    the better-auth hooks update activeOrganization, re-rendering this
-	//    component and exiting the loading state naturally.
-	const firstOrganizationId = organizations?.[0]?.id;
-
-	useEffect(() => {
-		if (!session || organizationPending || listPending || activeOrganization) return;
-		if (settingOrganizationReference.current || !firstOrganizationId) return;
-		settingOrganizationReference.current = true;
-		void authClient.organization
-			.setActive({ organizationId: firstOrganizationId })
-			.then(({ error }) => {
-				if (error) {
-					setOrganizationError(error.message ?? 'Failed to set active organization.');
-				}
-			})
-			.catch(() => {
-				setOrganizationError('Failed to set active organization. Please reload the page.');
-			})
-			.finally(() => {
-				settingOrganizationReference.current = false;
-			});
-	}, [session, organizationPending, listPending, activeOrganization, firstOrganizationId]);
-
-	// 1. Still loading session
 	if (sessionPending) {
 		return <LoadingFallback />;
 	}
 
-	// 2. Not authenticated
 	if (!session) {
 		return (
 			<Suspense fallback={<LoadingFallback />}>
@@ -248,71 +244,151 @@ function AuthGate() {
 		);
 	}
 
-	// 3. Session exists but still loading org data
-	if (organizationPending || listPending) {
+	if (listPending) {
 		return <LoadingFallback />;
 	}
 
-	// 4. Error during org auto-selection
-	if (organizationError) {
+	const user = {
+		name: session.user.name,
+		email: session.user.email,
+		image: session.user.image ?? undefined,
+		emailVerified: session.user.emailVerified,
+	};
+	return <AppContent organizations={organizations ?? []} user={user} activeOrganizationId={activeOrganization?.id} />;
+}
+
+interface OrganizationEntry {
+	id: string;
+	name: string;
+	slug: string | null;
+	plan?: string;
+}
+
+interface UserInfo {
+	name: string;
+	email: string;
+	image?: string;
+	emailVerified?: boolean;
+}
+
+function AppContent({
+	organizations,
+	user,
+	activeOrganizationId,
+}: {
+	organizations: OrganizationEntry[];
+	user: UserInfo;
+	activeOrganizationId?: string;
+}) {
+	const [projectId] = useState(getProjectIdFromUrl);
+
+	if (hostType !== 'app') {
+		return <NotFoundPage />;
+	}
+
+	// Project IDE route — org not needed in URL
+	if (projectId) {
 		return (
-			<div className="flex h-dvh items-center justify-center bg-bg-primary">
-				<div className="flex flex-col items-center gap-4 text-center">
-					<p className="text-sm text-error">{organizationError}</p>
-					<button
-						onClick={() => globalThis.location.reload()}
-						className={`
-							cursor-pointer rounded-md bg-accent px-4 py-2 text-sm font-medium
-							text-white
-							hover:bg-accent-hover
-						`}
-					>
-						Reload
-					</button>
-				</div>
-			</div>
+			<Suspense fallback={<LoadingFallback />}>
+				<ProjectGate projectId={projectId} />
+			</Suspense>
 		);
 	}
 
-	// 5. Waiting for org auto-selection to complete
-	if (!activeOrganization) {
-		return <LoadingFallback />;
+	const path = globalThis.location.pathname;
+
+	// 0 orgs — force user to create an org before doing anything else.
+	// Only the /create-org page is accessible; all other paths redirect here.
+	if (organizations.length === 0) {
+		if (path !== '/create-org') {
+			return <Redirect to="/create-org" />;
+		}
+		return (
+			<Suspense fallback={<LoadingFallback />}>
+				<DashboardPage orgSlug="" organizationId="" organizations={organizations} isCreateOrgMode user={user} />
+			</Suspense>
+		);
 	}
 
-	// 6. Fully authenticated with an active org
-	return <AppContent />;
-}
+	// Create org page (user has orgs but wants to create another)
+	if (path === '/create-org') {
+		return (
+			<Suspense fallback={<LoadingFallback />}>
+				<DashboardPage orgSlug="" organizationId="" organizations={organizations} isCreateOrgMode user={user} />
+			</Suspense>
+		);
+	}
 
-function AppContent() {
-	const [projectId] = useState(getProjectIdFromUrl);
+	// User settings routes: /settings, /settings/profile, /settings/account
+	if (path === '/settings') {
+		return <Redirect to="/settings/profile" />;
+	}
+	if (path === '/settings/profile') {
+		return (
+			<Suspense fallback={<LoadingFallback />}>
+				<SettingsLayout activePath="/settings/profile">
+					<ProfilePage user={user} />
+				</SettingsLayout>
+			</Suspense>
+		);
+	}
+	if (path === '/settings/account') {
+		return (
+			<Suspense fallback={<LoadingFallback />}>
+				<SettingsLayout activePath="/settings/account">
+					<AccountPage />
+				</SettingsLayout>
+			</Suspense>
+		);
+	}
+	if (path === '/settings/appearance') {
+		return (
+			<Suspense fallback={<LoadingFallback />}>
+				<SettingsLayout activePath="/settings/appearance">
+					<AppearancePage />
+				</SettingsLayout>
+			</Suspense>
+		);
+	}
 
-	if (hostType === 'app') {
-		if (projectId) {
+	// Root redirect: / -> /org/:slug
+	// Priority: 1) session activeOrganizationId  2) localStorage  3) first org
+	if (path === '/' || path === '') {
+		const activeOrg = activeOrganizationId ? organizations.find((o) => o.id === activeOrganizationId) : undefined;
+		const lastSlug = globalThis.localStorage.getItem(LAST_ORG_SLUG_KEY);
+		const lastOrg = lastSlug ? organizations.find((o) => o.slug === lastSlug) : undefined;
+		const targetOrg = activeOrg ?? lastOrg ?? organizations[0];
+		const slug = targetOrg.slug ?? targetOrg.id;
+		return <Redirect to={`/org/${slug}`} />;
+	}
+
+	// Org-scoped routes: /org/:orgSlug and /org/:orgSlug/settings
+	const orgRoute = parseOrgRoute();
+	if (orgRoute) {
+		const organization = organizations.find((o) => o.slug === orgRoute.orgSlug || o.id === orgRoute.orgSlug);
+		if (!organization) {
+			return <NotFoundPage />;
+		}
+
+		// Remember last visited org
+		if (organization.slug) {
+			globalThis.localStorage.setItem(LAST_ORG_SLUG_KEY, organization.slug);
+		}
+
+		if (orgRoute.subPath === '/settings') {
 			return (
 				<Suspense fallback={<LoadingFallback />}>
-					<ProjectGate projectId={projectId} />
+					<OrgManagementPage orgSlug={orgRoute.orgSlug} organizationId={organization.id} organizations={organizations} />
 				</Suspense>
 			);
 		}
 
-		const path = globalThis.location.pathname;
-		if (path === '/' || path === '') {
-			return (
-				<Suspense fallback={<LoadingFallback />}>
-					<DashboardPage />
-				</Suspense>
-			);
-		}
-
-		if (path === '/org') {
-			return (
-				<Suspense fallback={<LoadingFallback />}>
-					<OrgManagementPage />
-				</Suspense>
-			);
-		}
-
-		return <NotFoundPage />;
+		// Dashboard
+		return (
+			<Suspense fallback={<LoadingFallback />}>
+				<DashboardPage orgSlug={orgRoute.orgSlug} organizationId={organization.id} organizations={organizations} user={user} />
+			</Suspense>
+		);
 	}
 
 	return <NotFoundPage />;

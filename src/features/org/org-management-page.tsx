@@ -8,17 +8,39 @@
  */
 
 import { useQuery } from '@tanstack/react-query';
-import { ArrowLeft, ChevronDown, ChevronUp, Crown, Mail, Pencil, Shield, Trash2, User, UserPlus, X } from 'lucide-react';
+import {
+	ArrowLeft,
+	ChevronDown,
+	ChevronUp,
+	Crown,
+	ImagePlus,
+	Mail,
+	Moon,
+	Pencil,
+	Shield,
+	Sun,
+	Trash2,
+	User,
+	UserPlus,
+	X,
+} from 'lucide-react';
 import { useCallback, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Spinner } from '@/components/ui/spinner';
 import { toast } from '@/components/ui/toast-store';
-import { fetchOrgProjects } from '@/lib/api-client';
+import { useTheme } from '@/hooks/use-theme';
+import { deleteOrganization } from '@/lib/api-client';
 import { authClient } from '@/lib/auth-client';
+import { useStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
-import { MAX_MEMBERS_PER_ORGANIZATION, MAX_ORGANIZATION_NAME_LENGTH, MAX_PENDING_INVITATIONS_PER_ORGANIZATION } from '@shared/constants';
+import {
+	MAX_MEMBERS_PER_ORGANIZATION,
+	MAX_ORGANIZATION_NAME_LENGTH,
+	MAX_PENDING_INVITATIONS_PER_ORGANIZATION,
+	getPlanDisplay,
+} from '@shared/constants';
 
 // =============================================================================
 // Types
@@ -335,9 +357,34 @@ function InviteForm({
 // Main Page Component
 // =============================================================================
 
-export default function OrgManagementPage() {
+interface OrgManagementPageProperties {
+	orgSlug: string;
+	organizationId: string;
+	organizations: Array<{ id: string; name: string; slug: string | null }>;
+}
+
+export default function OrgManagementPage({ orgSlug, organizationId, organizations: _organizations }: OrgManagementPageProperties) {
 	const { data: session } = authClient.useSession();
-	const { data: activeOrganization, isPending } = authClient.useActiveOrganization();
+	const resolvedTheme = useTheme();
+	const setColorScheme = useStore((state) => state.setColorScheme);
+
+	// Fetch full organization details (members + invitations) via better-auth client
+	const organizationQuery = useQuery({
+		queryKey: ['org-details', organizationId],
+		queryFn: async () => {
+			const { data, error } = await authClient.organization.getFullOrganization({
+				query: { organizationId },
+			});
+			if (error) return;
+			return data;
+		},
+		staleTime: 1000 * 30,
+	});
+	// eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- better-auth returns loosely typed org data
+	const activeOrganization = organizationQuery.data as
+		| { id: string; name: string; slug?: string; logo?: string; plan?: string; members?: unknown[]; invitations?: unknown[] }
+		| undefined;
+	const isPending = organizationQuery.isPending;
 
 	const [confirmAction, setConfirmAction] = useState<ConfirmAction | undefined>();
 	const [isActing, setIsActing] = useState(false);
@@ -358,19 +405,9 @@ export default function OrgManagementPage() {
 	const isOwner = currentMember?.role === 'owner';
 	const isAdminOrOwner = isOwner || currentMember?.role === 'admin';
 
-	// Fetch org projects to gate delete-org
-	const projectsQuery = useQuery({
-		queryKey: ['org-projects'],
-		queryFn: fetchOrgProjects,
-		staleTime: 1000 * 30,
-	});
-	const hasActiveProjects = (projectsQuery.data ?? []).length > 0;
-
 	const refreshOrganization = useCallback(() => {
-		void authClient.organization.setActive({
-			organizationId: activeOrganization?.id ?? '',
-		});
-	}, [activeOrganization?.id]);
+		void organizationQuery.refetch();
+	}, [organizationQuery]);
 
 	// --- Rename ---
 	const handleStartRename = useCallback(() => {
@@ -505,13 +542,7 @@ export default function OrgManagementPage() {
 	const handleDeleteOrg = useCallback(async () => {
 		setIsActing(true);
 		try {
-			const { error } = await authClient.organization.delete({
-				organizationId: activeOrganization?.id ?? '',
-			});
-			if (error) {
-				toast.error(error.message ?? 'Failed to delete organization');
-				return;
-			}
+			await deleteOrganization(organizationId);
 			toast.success('Organization deleted');
 			globalThis.location.href = '/';
 		} catch {
@@ -520,7 +551,7 @@ export default function OrgManagementPage() {
 			setIsActing(false);
 			setConfirmAction(undefined);
 		}
-	}, [activeOrganization?.id]);
+	}, [organizationId]);
 
 	// --- Cancel invitation ---
 	const handleCancelInvitation = useCallback(
@@ -590,7 +621,7 @@ export default function OrgManagementPage() {
 				{/* Header */}
 				<div className="mb-8 flex items-center gap-3">
 					<a
-						href="/"
+						href={`/org/${orgSlug}`}
 						className="
 							rounded-md p-1.5 text-text-secondary transition-colors
 							hover:bg-bg-tertiary hover:text-text-primary
@@ -647,12 +678,101 @@ export default function OrgManagementPage() {
 						<p className="text-xs text-text-secondary">Organization settings</p>
 						<p className="mt-0.5 font-mono text-xs text-text-secondary/50">{activeOrganization.id}</p>
 					</div>
-					{!isOwner && (
-						<Button variant="outline" size="sm" onClick={() => setConfirmAction({ type: 'leave' })}>
-							Leave
+					<div className="flex shrink-0 items-center gap-2">
+						<Button
+							variant="ghost"
+							size="icon"
+							aria-label={resolvedTheme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+							onClick={() => setColorScheme(resolvedTheme === 'dark' ? 'light' : 'dark')}
+						>
+							{resolvedTheme === 'dark' ? <Sun className="size-4" /> : <Moon className="size-4" />}
 						</Button>
-					)}
+						{!isOwner && (
+							<Button variant="outline" size="sm" onClick={() => setConfirmAction({ type: 'leave' })}>
+								Leave
+							</Button>
+						)}
+					</div>
 				</div>
+
+				{/* Plan */}
+				<section className="mb-6">
+					<h2
+						className="
+							mb-3 text-xs font-medium tracking-wider text-text-secondary uppercase
+						"
+					>
+						Plan
+					</h2>
+					<div className="rounded-lg border border-border bg-bg-secondary/40 px-4 py-3">
+						<div className="flex items-center justify-between gap-3">
+							<div className="min-w-0">
+								<p className="text-sm font-medium text-text-primary">{getPlanDisplay(activeOrganization.plan ?? 'free').name}</p>
+								<p className="text-xs text-text-secondary">{getPlanDisplay(activeOrganization.plan ?? 'free').description}</p>
+							</div>
+							<span
+								className="
+									shrink-0 rounded-md bg-accent/10 px-2 py-0.5 text-xs font-medium
+									text-accent
+								"
+							>
+								{getPlanDisplay(activeOrganization.plan ?? 'free').name}
+							</span>
+						</div>
+						<div className="mt-2 flex flex-wrap gap-2">
+							{getPlanDisplay(activeOrganization.plan ?? 'free').features.map((feature) => (
+								<span
+									key={feature}
+									className="
+										rounded-md bg-bg-tertiary px-2 py-0.5 text-xs text-text-secondary
+									"
+								>
+									{feature}
+								</span>
+							))}
+						</div>
+					</div>
+				</section>
+
+				{/* Org Logo */}
+				{isOwner && (
+					<section className="mb-6">
+						<h2
+							className="
+								mb-3 text-xs font-medium tracking-wider text-text-secondary uppercase
+							"
+						>
+							Logo
+						</h2>
+						<div className="rounded-lg border border-border bg-bg-secondary/40 px-4 py-3">
+							<div className="flex items-center justify-between gap-3">
+								<div className="flex items-center gap-3">
+									{activeOrganization.logo ? (
+										<img
+											src={activeOrganization.logo}
+											alt={activeOrganization.name}
+											className="size-10 rounded-lg border border-border object-cover"
+										/>
+									) : (
+										<div
+											className="
+												flex size-10 items-center justify-center rounded-lg bg-bg-tertiary
+												text-sm font-medium text-text-secondary
+											"
+										>
+											{activeOrganization.name.charAt(0).toUpperCase()}
+										</div>
+									)}
+									<p className="text-xs text-text-secondary">{activeOrganization.logo ? 'Organization logo' : 'No logo set'}</p>
+								</div>
+								<Button variant="outline" size="sm" disabled title="Coming soon — requires R2 storage" className="gap-1.5">
+									<ImagePlus className="size-3.5" />
+									Upload
+								</Button>
+							</div>
+						</div>
+					</section>
+				)}
 
 				{/* Members */}
 				<section className="mb-6">
@@ -748,12 +868,10 @@ export default function OrgManagementPage() {
 								<div className="min-w-0">
 									<p className="text-sm font-medium text-text-primary">Delete organization</p>
 									<p className="text-xs text-text-secondary">
-										{hasActiveProjects
-											? 'Delete all projects first before deleting the organization.'
-											: 'Permanently delete this organization and all its data.'}
+										Permanently delete this organization. All projects will be soft-deleted (recoverable for 30 days).
 									</p>
 								</div>
-								<Button variant="danger" size="sm" disabled={hasActiveProjects} onClick={() => setConfirmAction({ type: 'delete-org' })}>
+								<Button variant="danger" size="sm" onClick={() => setConfirmAction({ type: 'delete-org' })}>
 									Delete
 								</Button>
 							</div>

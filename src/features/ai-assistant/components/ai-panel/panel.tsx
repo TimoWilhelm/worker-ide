@@ -23,6 +23,7 @@ import { setActiveSessionId, useAiSessions } from '@/features/ai-assistant/hooks
 import { useSnapshots } from '@/features/snapshots';
 import { useMobileKeyboardLayout } from '@/hooks/use-mobile-keyboard-height';
 import { createApiClient, downloadDebugLog } from '@/lib/api-client';
+import { authClient } from '@/lib/auth-client';
 import { useStore } from '@/lib/store';
 import { cn, formatRelativeTime } from '@/lib/utils';
 
@@ -91,6 +92,8 @@ function InputInfoBar({ open, icon, children }: { open: boolean; icon: React.Rea
  * AI assistant panel with chat interface.
  */
 export function AIPanel({ projectId, className }: { projectId: string; className?: string }) {
+	const { data: authSession } = authClient.useSession();
+	const currentUserId = authSession?.user.id;
 	// On mobile, when the virtual keyboard opens, switch to position:fixed so the
 	// panel stays pinned above the keyboard — header and input remain visible.
 	const { style: keyboardStyle, ref: keyboardReference } = useMobileKeyboardLayout();
@@ -346,13 +349,25 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 			scrollToBottom();
 
 			try {
-				await agent.call('startRun', [projectId, updatedMessages, agentMode, selectedModel, resolvedSessionId]);
+				await agent.call('startRun', [projectId, updatedMessages, agentMode, selectedModel, resolvedSessionId, currentUserId]);
 			} catch (error: unknown) {
 				if (error instanceof Error && error.name === 'AbortError') return;
 				console.error('[AIPanel] Failed to start agent:', error);
 			}
 		},
-		[inputPlainText, isConnected, isProcessing, chatMessages, sessionId, projectId, agentMode, selectedModel, agent, scrollToBottom],
+		[
+			inputPlainText,
+			isConnected,
+			isProcessing,
+			chatMessages,
+			sessionId,
+			projectId,
+			agentMode,
+			selectedModel,
+			agent,
+			scrollToBottom,
+			currentUserId,
+		],
 	);
 
 	// Send a steering message to the running agent without aborting it.
@@ -423,10 +438,12 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		const trimmedHistory = chatMessages.slice(0, lastUserIndex + 1);
 		const resolvedSessionId = sessionId ?? crypto.randomUUID().replaceAll('-', '').slice(0, 16);
 
-		void agent.call('startRun', [projectId, trimmedHistory, agentMode, selectedModel, resolvedSessionId]).catch((error: unknown) => {
-			console.error('[AIPanel] Failed to retry:', error);
-		});
-	}, [chatMessages, sessionId, projectId, agentMode, selectedModel, agent]);
+		void agent
+			.call('startRun', [projectId, trimmedHistory, agentMode, selectedModel, resolvedSessionId, currentUserId])
+			.catch((error: unknown) => {
+				console.error('[AIPanel] Failed to retry:', error);
+			});
+	}, [chatMessages, sessionId, projectId, agentMode, selectedModel, agent, currentUserId]);
 
 	// Dismiss error — track locally since error comes from agent state
 	const [dismissedError, setDismissedError] = useState<string | undefined>();

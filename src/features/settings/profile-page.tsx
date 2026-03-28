@@ -1,0 +1,330 @@
+/**
+ * Profile Settings Page
+ *
+ * Edit display name, view email and avatar (from GitHub OAuth),
+ * and see linked accounts.
+ */
+
+import { Check, Github, Link, Pencil, Unlink } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+
+import { Button } from '@/components/ui/button';
+import { Spinner } from '@/components/ui/spinner';
+import { toast } from '@/components/ui/toast-store';
+import { authClient } from '@/lib/auth-client';
+
+interface ProfilePageProperties {
+	user: { name: string; email: string; image?: string; emailVerified?: boolean };
+}
+
+export default function ProfilePage({ user }: ProfilePageProperties) {
+	const [isEditingName, setIsEditingName] = useState(false);
+	const [editName, setEditName] = useState(user.name);
+	const [isSaving, setIsSaving] = useState(false);
+
+	const initials = user.name
+		.split(' ')
+		.map((part) => part.charAt(0))
+		.join('')
+		.toUpperCase()
+		.slice(0, 2);
+
+	const handleSaveName = useCallback(async () => {
+		const trimmed = editName.trim();
+		if (!trimmed || trimmed === user.name) {
+			setIsEditingName(false);
+			return;
+		}
+		setIsSaving(true);
+		try {
+			await authClient.updateUser({ name: trimmed });
+			toast.success('Name updated');
+			setIsEditingName(false);
+		} catch {
+			toast.error('Failed to update name');
+		} finally {
+			setIsSaving(false);
+		}
+	}, [editName, user.name]);
+
+	return (
+		<div className="flex flex-col gap-8">
+			<div>
+				<h2 className="mb-1 text-lg font-semibold text-text-primary">Profile</h2>
+				<p className="text-sm text-text-secondary">Manage your personal information.</p>
+			</div>
+
+			{/* Avatar */}
+			<section className="rounded-lg border border-border bg-bg-secondary/40 p-4">
+				<label
+					className="
+						mb-3 block text-xs font-medium tracking-wider text-text-secondary
+						uppercase
+					"
+				>
+					Avatar
+				</label>
+				<div className="flex items-center gap-4">
+					{user.image ? (
+						<img src={user.image} alt={user.name} className="size-16 rounded-full border border-border object-cover" />
+					) : (
+						<div
+							className="
+								flex size-16 items-center justify-center rounded-full bg-bg-tertiary
+								text-lg font-medium text-text-secondary
+							"
+						>
+							{initials}
+						</div>
+					)}
+					<p className="text-xs text-text-secondary">Your avatar is synced from your GitHub account.</p>
+				</div>
+			</section>
+
+			{/* Name */}
+			<section className="rounded-lg border border-border bg-bg-secondary/40 p-4">
+				<label
+					className="
+						mb-3 block text-xs font-medium tracking-wider text-text-secondary
+						uppercase
+					"
+				>
+					Display name
+				</label>
+				{isEditingName ? (
+					<div className="flex items-center gap-2">
+						<input
+							type="text"
+							value={editName}
+							onChange={(event) => setEditName(event.target.value)}
+							onKeyDown={(event) => {
+								if (event.key === 'Enter') void handleSaveName();
+								if (event.key === 'Escape') setIsEditingName(false);
+							}}
+							maxLength={50}
+							disabled={isSaving}
+							autoFocus
+							className="
+								h-9 min-w-0 flex-1 rounded-md border border-border bg-bg-secondary/60
+								px-3 text-sm text-text-primary transition-colors
+								focus-within:border-accent
+								focus:outline-none
+							"
+						/>
+						<Button size="sm" onClick={() => void handleSaveName()} disabled={isSaving} isLoading={isSaving}>
+							Save
+						</Button>
+						<Button variant="ghost" size="sm" onClick={() => setIsEditingName(false)} disabled={isSaving}>
+							Cancel
+						</Button>
+					</div>
+				) : (
+					<div className="flex items-center gap-2">
+						<span className="text-sm text-text-primary">{user.name}</span>
+						<button
+							onClick={() => {
+								setEditName(user.name);
+								setIsEditingName(true);
+							}}
+							className="
+								cursor-pointer rounded-md p-1 text-text-secondary transition-colors
+								hover:bg-bg-tertiary hover:text-text-primary
+							"
+						>
+							<Pencil className="size-3.5" />
+						</button>
+					</div>
+				)}
+			</section>
+
+			{/* Email */}
+			<section className="rounded-lg border border-border bg-bg-secondary/40 p-4">
+				<label
+					className="
+						mb-3 block text-xs font-medium tracking-wider text-text-secondary
+						uppercase
+					"
+				>
+					Email
+				</label>
+				<div className="flex items-center gap-2">
+					<span className="text-sm text-text-primary">{user.email}</span>
+					{user.emailVerified !== false && (
+						<span
+							className="
+								inline-flex items-center gap-1 rounded-md bg-green-500/10 px-1.5 py-0.5
+								text-xs text-green-600
+							"
+						>
+							<Check className="size-3" />
+							Verified
+						</span>
+					)}
+				</div>
+				<p className="mt-1 text-xs text-text-secondary">Your email is managed by your GitHub account.</p>
+			</section>
+
+			{/* Linked Accounts */}
+			<LinkedAccountsSection />
+		</div>
+	);
+}
+
+// =============================================================================
+// Linked Accounts Section
+// =============================================================================
+
+interface LinkedAccount {
+	providerId: string;
+	accountId: string;
+}
+
+const SUPPORTED_PROVIDERS: Array<{
+	id: string;
+	name: string;
+	icon: React.ComponentType<{ className?: string }>;
+}> = [
+	{ id: 'github', name: 'GitHub', icon: Github },
+	{ id: 'google', name: 'Google', icon: GoogleIcon },
+];
+
+function GoogleIcon({ className }: { className?: string }) {
+	return (
+		<svg className={className} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+			<path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" />
+			<path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+			<path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
+			<path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
+		</svg>
+	);
+}
+
+function LinkedAccountsSection() {
+	const [accounts, setAccounts] = useState<LinkedAccount[]>([]);
+	const [isLoading, setIsLoading] = useState(true);
+	const [actingProvider, setActingProvider] = useState<string | undefined>();
+
+	const fetchAccounts = useCallback(async () => {
+		try {
+			const { data } = await authClient.listAccounts();
+			if (data) {
+				// eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- better-auth returns loosely typed account data
+				setAccounts(data as unknown as LinkedAccount[]);
+			}
+		} catch {
+			// Silently ignore — section is non-critical
+		} finally {
+			setIsLoading(false);
+		}
+	}, []);
+
+	useEffect(() => {
+		void fetchAccounts();
+	}, [fetchAccounts]);
+
+	const handleLink = useCallback(async (providerId: string) => {
+		setActingProvider(providerId);
+		try {
+			await authClient.linkSocial({
+				provider: providerId,
+				callbackURL: '/settings/profile',
+			});
+		} catch {
+			toast.error(`Failed to link ${providerId}`);
+			setActingProvider(undefined);
+		}
+	}, []);
+
+	const handleUnlink = useCallback(
+		async (providerId: string) => {
+			setActingProvider(providerId);
+			try {
+				await authClient.unlinkAccount({ providerId });
+				toast.success('Account unlinked');
+				void fetchAccounts();
+			} catch {
+				toast.error(`Failed to unlink ${providerId}`);
+			} finally {
+				setActingProvider(undefined);
+			}
+		},
+		[fetchAccounts],
+	);
+
+	const linkedProviderIds = new Set(accounts.map((account) => account.providerId));
+	const canUnlink = accounts.length > 1;
+
+	return (
+		<section className="rounded-lg border border-border bg-bg-secondary/40 p-4">
+			<label
+				className="
+					mb-3 block text-xs font-medium tracking-wider text-text-secondary uppercase
+				"
+			>
+				Linked accounts
+			</label>
+			{isLoading ? (
+				<div className="flex items-center justify-center py-4">
+					<Spinner size="sm" />
+				</div>
+			) : (
+				<div className="flex flex-col gap-3">
+					{SUPPORTED_PROVIDERS.map((provider) => {
+						const isLinked = linkedProviderIds.has(provider.id);
+						const isActing = actingProvider === provider.id;
+						const Icon = provider.icon;
+
+						return (
+							<div key={provider.id} className="flex items-center justify-between gap-3">
+								<div className="flex items-center gap-3">
+									<div
+										className="
+											flex size-8 items-center justify-center rounded-full bg-bg-tertiary
+											text-text-secondary
+										"
+									>
+										<Icon className="size-4" />
+									</div>
+									<div>
+										<p className="text-sm font-medium text-text-primary">{provider.name}</p>
+										<p className="text-xs text-text-secondary">{isLinked ? 'Connected' : 'Not connected'}</p>
+									</div>
+								</div>
+								{isLinked ? (
+									canUnlink && (
+										<Button
+											variant="ghost"
+											size="sm"
+											onClick={() => void handleUnlink(provider.id)}
+											disabled={isActing}
+											isLoading={isActing}
+											className="
+												gap-1.5 text-xs text-text-secondary
+												hover:text-error
+											"
+										>
+											<Unlink className="size-3" />
+											Unlink
+										</Button>
+									)
+								) : (
+									<Button
+										variant="outline"
+										size="sm"
+										onClick={() => void handleLink(provider.id)}
+										disabled={isActing}
+										isLoading={isActing}
+										className="gap-1.5 text-xs"
+									>
+										<Link className="size-3" />
+										Link
+									</Button>
+								)}
+							</div>
+						);
+					})}
+				</div>
+			)}
+		</section>
+	);
+}

@@ -36,16 +36,14 @@ vi.mock('@/lib/api-client', () => ({
 	fetchOrgProjects: vi.fn(() => Promise.resolve([])),
 }));
 
-// Mock auth client
-vi.mock('@/lib/auth-client', () => ({
-	authClient: {
-		signOut: vi.fn(() => Promise.resolve()),
-	},
-}));
-
 // Mock org switcher
 vi.mock('@/features/org/org-switcher', () => ({
 	OrgSwitcher: () => <div data-testid="org-switcher" />,
+}));
+
+// Mock user menu
+vi.mock('@/features/user-menu', () => ({
+	UserMenu: () => <div data-testid="user-menu" />,
 }));
 
 // Mock the store (for theme toggle)
@@ -104,25 +102,32 @@ afterEach(() => {
 
 const { createProject, cloneProject, deleteProject, fetchOrgProjects } = await import('@/lib/api-client');
 
+const defaultProperties = {
+	orgSlug: 'test-org',
+	organizationId: 'org1',
+	organizations: [{ id: 'org1', name: 'Test Org', slug: 'test-org' }],
+	user: { name: 'Test User', email: 'test@example.com' },
+};
+
 // =============================================================================
 // Tests
 // =============================================================================
 
 describe('DashboardPage', () => {
 	it('renders the page title', () => {
-		renderWithQuery(<DashboardPage />);
+		renderWithQuery(<DashboardPage {...defaultProperties} />);
 
 		expect(screen.getByText('Codemaxxing')).toBeInTheDocument();
 	});
 
 	it('renders the halftone background', () => {
-		renderWithQuery(<DashboardPage />);
+		renderWithQuery(<DashboardPage {...defaultProperties} />);
 
 		expect(screen.getByTestId('halftone-background')).toBeInTheDocument();
 	});
 
 	it('renders template cards', async () => {
-		renderWithQuery(<DashboardPage />);
+		renderWithQuery(<DashboardPage {...defaultProperties} />);
 
 		expect(screen.getByText('Start a new project')).toBeInTheDocument();
 		await waitFor(() => {
@@ -131,7 +136,7 @@ describe('DashboardPage', () => {
 	});
 
 	it('renders a clone card in the template grid', async () => {
-		renderWithQuery(<DashboardPage />);
+		renderWithQuery(<DashboardPage {...defaultProperties} />);
 
 		await waitFor(() => {
 			const cloneCard = screen.getByText('Clone a project').closest('button');
@@ -140,7 +145,7 @@ describe('DashboardPage', () => {
 	});
 
 	it('opens clone modal when clone card is clicked', async () => {
-		renderWithQuery(<DashboardPage />);
+		renderWithQuery(<DashboardPage {...defaultProperties} />);
 
 		await waitFor(() => {
 			expect(screen.getByText('Clone a project').closest('button')).toBeTruthy();
@@ -158,7 +163,7 @@ describe('DashboardPage', () => {
 	});
 
 	it('renders theme toggle button', () => {
-		renderWithQuery(<DashboardPage />);
+		renderWithQuery(<DashboardPage {...defaultProperties} />);
 
 		expect(screen.getByLabelText(/Switch to light mode/i)).toBeInTheDocument();
 	});
@@ -168,7 +173,7 @@ describe('DashboardPage', () => {
 	// ---------------------------------------------------------------------------
 
 	it('opens template detail modal when a card is clicked', async () => {
-		renderWithQuery(<DashboardPage />);
+		renderWithQuery(<DashboardPage {...defaultProperties} />);
 
 		// Wait for templates to load
 		const templateButton = await waitFor(() => {
@@ -197,7 +202,7 @@ describe('DashboardPage', () => {
 			name: 'my-project',
 		});
 
-		renderWithQuery(<DashboardPage />);
+		renderWithQuery(<DashboardPage {...defaultProperties} />);
 
 		// Open the detail modal
 		const templateButton = await waitFor(() => {
@@ -218,12 +223,12 @@ describe('DashboardPage', () => {
 		expect(screen.getByText('Creating project...')).toBeInTheDocument();
 
 		await waitFor(() => {
-			expect(mockedCreateProject).toHaveBeenCalledWith('request-inspector');
+			expect(mockedCreateProject).toHaveBeenCalledWith('org1', 'request-inspector');
 		});
 	});
 
 	it('closes the modal when Cancel is clicked', async () => {
-		renderWithQuery(<DashboardPage />);
+		renderWithQuery(<DashboardPage {...defaultProperties} />);
 
 		// Open the detail modal
 		const templateButton = await waitFor(() => {
@@ -251,7 +256,7 @@ describe('DashboardPage', () => {
 	// ---------------------------------------------------------------------------
 
 	it('disables clone button in modal when input is empty', async () => {
-		renderWithQuery(<DashboardPage />);
+		renderWithQuery(<DashboardPage {...defaultProperties} />);
 
 		// Open clone modal
 		await waitFor(() => {
@@ -270,7 +275,7 @@ describe('DashboardPage', () => {
 
 	it('enables clone button in modal when a valid project ID is entered', async () => {
 		const user = userEvent.setup();
-		renderWithQuery(<DashboardPage />);
+		renderWithQuery(<DashboardPage {...defaultProperties} />);
 
 		// Open clone modal
 		await waitFor(() => {
@@ -293,7 +298,7 @@ describe('DashboardPage', () => {
 
 	it('enables clone button in modal when a full project URL is entered', async () => {
 		const user = userEvent.setup();
-		renderWithQuery(<DashboardPage />);
+		renderWithQuery(<DashboardPage {...defaultProperties} />);
 
 		// Open clone modal
 		await waitFor(() => {
@@ -316,7 +321,7 @@ describe('DashboardPage', () => {
 
 	it('keeps clone button disabled for invalid input in modal', async () => {
 		const user = userEvent.setup();
-		renderWithQuery(<DashboardPage />);
+		renderWithQuery(<DashboardPage {...defaultProperties} />);
 
 		// Open clone modal
 		await waitFor(() => {
@@ -345,7 +350,7 @@ describe('DashboardPage', () => {
 			name: 'cloned-project',
 		});
 
-		renderWithQuery(<DashboardPage />);
+		renderWithQuery(<DashboardPage {...defaultProperties} />);
 
 		// Open clone modal
 		await waitFor(() => {
@@ -368,7 +373,7 @@ describe('DashboardPage', () => {
 		expect(screen.getByText('Cloning project...')).toBeInTheDocument();
 
 		await waitFor(() => {
-			expect(mockedCloneProject).toHaveBeenCalledWith(validId);
+			expect(mockedCloneProject).toHaveBeenCalledWith('org1', validId);
 		});
 	});
 
@@ -377,7 +382,7 @@ describe('DashboardPage', () => {
 		const mockedCloneProject = vi.mocked(cloneProject);
 		mockedCloneProject.mockRejectedValueOnce(new Error('Source project not found or not initialized'));
 
-		renderWithQuery(<DashboardPage />);
+		renderWithQuery(<DashboardPage {...defaultProperties} />);
 
 		// Open clone modal
 		await waitFor(() => {
@@ -407,7 +412,7 @@ describe('DashboardPage', () => {
 	// ---------------------------------------------------------------------------
 
 	it('does not render projects section when empty', () => {
-		renderWithQuery(<DashboardPage />);
+		renderWithQuery(<DashboardPage {...defaultProperties} />);
 
 		expect(screen.queryByText('Your projects')).not.toBeInTheDocument();
 	});
@@ -426,7 +431,7 @@ describe('DashboardPage', () => {
 			},
 		]);
 
-		renderWithQuery(<DashboardPage />);
+		renderWithQuery(<DashboardPage {...defaultProperties} />);
 
 		await waitFor(() => {
 			expect(screen.getByText('Your projects')).toBeInTheDocument();
@@ -458,7 +463,7 @@ describe('DashboardPage', () => {
 			},
 		]);
 
-		renderWithQuery(<DashboardPage />);
+		renderWithQuery(<DashboardPage {...defaultProperties} />);
 
 		await waitFor(() => {
 			expect(screen.getByText('Your projects')).toBeInTheDocument();
@@ -482,7 +487,7 @@ describe('DashboardPage', () => {
 			},
 		]);
 
-		renderWithQuery(<DashboardPage />);
+		renderWithQuery(<DashboardPage {...defaultProperties} />);
 
 		await waitFor(() => {
 			expect(screen.getByText('Doomed Project')).toBeInTheDocument();
@@ -507,7 +512,7 @@ describe('DashboardPage', () => {
 		await user.click(confirmButton);
 
 		await waitFor(() => {
-			expect(vi.mocked(deleteProject)).toHaveBeenCalledWith('5ydvqzhiqckl5fa63nhky2pstb212hcdj0lk19eklkmc7snawe');
+			expect(vi.mocked(deleteProject)).toHaveBeenCalledWith('org1', '5ydvqzhiqckl5fa63nhky2pstb212hcdj0lk19eklkmc7snawe');
 		});
 	});
 
@@ -516,7 +521,7 @@ describe('DashboardPage', () => {
 		// Never resolves — simulates the navigation happening before promise settles
 		mockedCreateProject.mockReturnValueOnce(new Promise(() => {}));
 
-		renderWithQuery(<DashboardPage />);
+		renderWithQuery(<DashboardPage {...defaultProperties} />);
 
 		// Open the detail modal
 		const templateButton = await waitFor(() => {
@@ -559,7 +564,7 @@ describe('DashboardPage', () => {
 			},
 		]);
 
-		renderWithQuery(<DashboardPage />);
+		renderWithQuery(<DashboardPage {...defaultProperties} />);
 
 		await waitFor(() => {
 			expect(screen.getByText('Test Project')).toBeInTheDocument();

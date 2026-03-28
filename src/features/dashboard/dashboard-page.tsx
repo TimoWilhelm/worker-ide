@@ -11,7 +11,7 @@
  */
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { BookOpen, Copy, Github, Hexagon, LogOut, Moon, Search, Sun, Trash2 } from 'lucide-react';
+import { BookOpen, Copy, Github, Hexagon, Moon, Search, Sun, Trash2 } from 'lucide-react';
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { HalftoneBackground } from '@/components/halftone-background';
@@ -22,13 +22,13 @@ import { toast } from '@/components/ui/toast-store';
 import { VersionBadge } from '@/components/version-badge';
 import { OrgSwitcher } from '@/features/org/org-switcher';
 import { PendingInvitationsBanner } from '@/features/org/pending-invitations-banner';
+import { UserMenu } from '@/features/user-menu';
 import { useTheme } from '@/hooks/use-theme';
 import { cloneProject, createProject, deleteProject, fetchOrgProjects, fetchTemplates } from '@/lib/api-client';
-import { authClient } from '@/lib/auth-client';
 import { getProjectUrl } from '@/lib/preview-origin';
 import { useStore } from '@/lib/store';
 import { cn, formatRelativeTime } from '@/lib/utils';
-import { MAX_PROJECTS_PER_ORGANIZATION } from '@shared/constants';
+import { getOrgLimits } from '@shared/constants';
 import { isValidProjectId } from '@shared/project-id';
 
 import type { OrgProject } from '@/lib/api-client';
@@ -409,7 +409,15 @@ function navigateToProject(url: string): void {
  * Dashboard page component.
  * Default export for React.lazy() compatibility.
  */
-export default function DashboardPage() {
+interface DashboardPageProperties {
+	orgSlug: string;
+	organizationId: string;
+	organizations: Array<{ id: string; name: string; slug: string | null; plan?: string }>;
+	isCreateOrgMode?: boolean;
+	user?: { name: string; email: string; image?: string };
+}
+
+export default function DashboardPage({ orgSlug, organizationId, organizations, isCreateOrgMode, user }: DashboardPageProperties) {
 	const [selectedTemplateId, setSelectedTemplateId] = useState<string | undefined>();
 	const [cloneInput, setCloneInput] = useState('');
 	const [cloneModalOpen, setCloneModalOpen] = useState(false);
@@ -430,12 +438,14 @@ export default function DashboardPage() {
 
 	// Fetch org projects from D1
 	const projectsQuery = useQuery({
-		queryKey: ['org-projects'],
-		queryFn: fetchOrgProjects,
+		queryKey: ['org-projects', organizationId],
+		queryFn: () => fetchOrgProjects(organizationId),
 		staleTime: 1000 * 30,
+		enabled: !isCreateOrgMode && !!organizationId,
 	});
 	const orgProjects = useMemo(() => projectsQuery.data ?? [], [projectsQuery.data]);
-	const projectLimitReached = orgProjects.length >= MAX_PROJECTS_PER_ORGANIZATION;
+	const currentOrg = organizations.find((o) => o.id === organizationId);
+	const projectLimitReached = orgProjects.length >= getOrgLimits(currentOrg?.plan ?? 'free').maxProjects;
 
 	const selectedTemplate = useMemo(() => templates.find((template) => template.id === selectedTemplateId), [templates, selectedTemplateId]);
 
@@ -463,14 +473,14 @@ export default function DashboardPage() {
 		async (templateId: string) => {
 			setLoadingMessage('Creating project...');
 			try {
-				const data = await createProject(templateId);
+				const data = await createProject(organizationId, templateId);
 				void queryClient.invalidateQueries({ queryKey: ['org-projects'] });
 				navigateToProject(getProjectUrl(data.projectId));
 			} catch {
 				setLoadingMessage(undefined);
 			}
 		},
-		[queryClient],
+		[organizationId, queryClient],
 	);
 
 	const handleOpenCloneModal = useCallback(() => {
@@ -497,14 +507,14 @@ export default function DashboardPage() {
 		setCloneError(undefined);
 		setLoadingMessage('Cloning project...');
 		try {
-			const data = await cloneProject(parsedProjectId);
+			const data = await cloneProject(organizationId, parsedProjectId);
 			void queryClient.invalidateQueries({ queryKey: ['org-projects'] });
 			navigateToProject(getProjectUrl(data.projectId));
 		} catch (error) {
 			setLoadingMessage(undefined);
 			setCloneError(error instanceof Error ? error.message : 'Failed to clone project');
 		}
-	}, [parsedProjectId, queryClient]);
+	}, [organizationId, parsedProjectId, queryClient]);
 
 	const [deleteTarget, setDeleteTarget] = useState<OrgProject | undefined>();
 	const [isDeleting, setIsDeleting] = useState(false);
@@ -517,7 +527,7 @@ export default function DashboardPage() {
 		if (!deleteTarget) return;
 		setIsDeleting(true);
 		try {
-			await deleteProject(deleteTarget.id);
+			await deleteProject(organizationId, deleteTarget.id);
 			void queryClient.invalidateQueries({ queryKey: ['org-projects'] });
 			setDeleteTarget(undefined);
 			toast.success(`"${deleteTarget.name || deleteTarget.id.slice(0, 12)}" deleted`);
@@ -526,7 +536,7 @@ export default function DashboardPage() {
 		} finally {
 			setIsDeleting(false);
 		}
-	}, [deleteTarget, queryClient]);
+	}, [organizationId, deleteTarget, queryClient]);
 
 	const handleCloseDeleteModal = useCallback(
 		(open: boolean) => {
@@ -536,17 +546,6 @@ export default function DashboardPage() {
 		},
 		[isDeleting],
 	);
-
-	const handleSignOut = useCallback(() => {
-		void authClient
-			.signOut()
-			.then(() => {
-				globalThis.location.href = '/';
-			})
-			.catch(() => {
-				toast.error('Failed to sign out. Please try again.');
-			});
-	}, []);
 
 	const isLoading = loadingMessage !== undefined;
 
@@ -605,7 +604,12 @@ export default function DashboardPage() {
 
 			{/* Header actions — top right */}
 			<div className="fixed top-4 right-4 z-10 flex items-center gap-1">
-				<OrgSwitcher />
+				<OrgSwitcher
+					organizations={organizations}
+					currentOrganizationId={organizationId}
+					currentOrganizationName={organizations.find((o) => o.id === organizationId)?.name ?? ''}
+					currentOrgSlug={orgSlug}
+				/>
 				<a
 					href="/docs"
 					target="_blank"
@@ -633,9 +637,7 @@ export default function DashboardPage() {
 				>
 					{resolvedTheme === 'dark' ? <Sun className="size-4" /> : <Moon className="size-4" />}
 				</Button>
-				<Button variant="ghost" size="icon" aria-label="Sign out" onClick={handleSignOut} className="bg-bg-secondary/40 backdrop-blur-sm">
-					<LogOut className="size-4" />
-				</Button>
+				{user && <UserMenu userName={user.name} userEmail={user.email} userImage={user.image} />}
 			</div>
 
 			{/* Main content */}

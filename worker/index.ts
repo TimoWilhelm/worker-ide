@@ -18,7 +18,7 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { mount, withMounts } from 'worker-fs-mount';
 
-import { MAX_PROJECTS_PER_ORGANIZATION, PROJECT_INACTIVITY_DAYS, SOFT_DELETE_RETENTION_DAYS } from '@shared/constants';
+import { getOrgLimits, PROJECT_INACTIVITY_DAYS, SOFT_DELETE_RETENTION_DAYS } from '@shared/constants';
 import { buildAppOrigin, parseHost } from '@shared/domain';
 import { generateHumanId } from '@shared/human-id';
 import { validatePreviewToken } from '@shared/preview-token';
@@ -33,6 +33,8 @@ import { DEV_PREVIEW_SECRET } from './lib/preview-secret';
 import { generateProjectId, toDurableObjectId } from './lib/project-id';
 import { apiRoutes } from './routes';
 import { orgRoutes } from './routes/org-routes';
+import { transferRoutes } from './routes/transfer-routes';
+import { userRoutes } from './routes/user-routes';
 import { GitClient } from './services/git-client';
 import { PreviewService } from './services/preview-service';
 import { collectChanges } from './services/working-tree';
@@ -162,18 +164,18 @@ if (import.meta.env.DEV) {
 		const result = await resolveDevelopmentSession(c.env.DB, c.req.raw.headers);
 		if (!result) return c.json({ error: 'Unauthorized' }, 401);
 
-		const activeOrganizationId = result.session.activeOrganizationId;
-		if (!activeOrganizationId) return c.json({});
+		const organizationId = c.req.query('organizationId');
+		if (!organizationId) return c.json({});
 
 		const database = drizzle(c.env.DB);
 		const organizations = await database
 			.select()
 			.from(authSchema.organization)
-			.where(eq(authSchema.organization.id, activeOrganizationId))
+			.where(eq(authSchema.organization.id, organizationId))
 			.limit(1);
 		if (organizations.length === 0) return c.json({});
 
-		const members = await database.select().from(authSchema.member).where(eq(authSchema.member.organizationId, activeOrganizationId));
+		const members = await database.select().from(authSchema.member).where(eq(authSchema.member.organizationId, organizationId));
 
 		const memberUserIds = members.map((m) => m.userId);
 		const users =
@@ -184,10 +186,7 @@ if (import.meta.env.DEV) {
 			user: userMap.get(m.userId) ?? { name: 'Unknown', email: '' },
 		}));
 
-		const invitations = await database
-			.select()
-			.from(authSchema.invitation)
-			.where(eq(authSchema.invitation.organizationId, activeOrganizationId));
+		const invitations = await database.select().from(authSchema.invitation).where(eq(authSchema.invitation.organizationId, organizationId));
 
 		return c.json({ ...organizations[0], members: memberUsers, invitations });
 	});
@@ -203,7 +202,6 @@ if (import.meta.env.DEV) {
 		}
 		const database = drizzle(c.env.DB);
 
-		// Verify the user is a member of the target organization
 		const membership = await database
 			.select({ id: authSchema.member.id })
 			.from(authSchema.member)
@@ -230,6 +228,8 @@ app.on(['GET', 'POST'], '/api/auth/*', async (c) => {
 			BETTER_AUTH_SECRET: c.env.BETTER_AUTH_SECRET,
 			GITHUB_CLIENT_ID: c.env.GITHUB_CLIENT_ID,
 			GITHUB_CLIENT_SECRET: c.env.GITHUB_CLIENT_SECRET,
+			GOOGLE_CLIENT_ID: c.env.GOOGLE_CLIENT_ID,
+			GOOGLE_CLIENT_SECRET: c.env.GOOGLE_CLIENT_SECRET,
 		},
 		baseUrl,
 	);
@@ -261,8 +261,11 @@ if (import.meta.env.DEV) {
 
 			await database
 				.insert(authSchema.organization)
-				.values({ id: organizationId, name: 'E2E Test Org', slug: 'e2e-test-org', createdAt: now })
-				.onConflictDoNothing();
+				.values({ id: organizationId, name: 'E2E Test Org', slug: 'e2e-test-org', plan: 'enterprise', createdAt: now })
+				.onConflictDoUpdate({
+					target: authSchema.organization.id,
+					set: { plan: 'enterprise' },
+				});
 
 			await database
 				.insert(authSchema.member)
@@ -288,11 +291,10 @@ if (import.meta.env.DEV) {
 					expiresAt,
 					createdAt: now,
 					updatedAt: now,
-					activeOrganizationId: organizationId,
 				})
 				.onConflictDoUpdate({
 					target: authSchema.session.id,
-					set: { expiresAt, updatedAt: now, activeOrganizationId: organizationId },
+					set: { expiresAt, updatedAt: now },
 				});
 
 			c.header('Set-Cookie', `better-auth.session_token=${sessionToken}; Path=/; HttpOnly; SameSite=Lax`);
@@ -325,6 +327,8 @@ if (import.meta.env.DEV) {
 app.use('/api/new-project', requireAuth);
 app.use('/api/clone-project', requireAuth);
 app.use('/api/org/*', requireAuth);
+app.use('/api/user/*', requireAuth);
+app.use('/api/transfer/*', requireAuth);
 app.use('/p/*/api/*', requireAuth);
 app.use('/p/*/__agent', requireAuth);
 app.use('/p/*/__agent/*', requireAuth);
@@ -332,10 +336,12 @@ app.use('/p/*/__ws', requireAuth);
 app.use('/p/*/__ws/*', requireAuth);
 
 // =============================================================================
-// Org routes (authed, root-level)
+// Org, user, and transfer routes (authed, root-level)
 // =============================================================================
 
 app.route('/api', orgRoutes);
+app.route('/api', userRoutes);
+app.route('/api', transferRoutes);
 
 // =============================================================================
 // Preview subdomain handler
@@ -469,21 +475,33 @@ async function handlePreviewRequest(request: Request, projectId: string): Promis
 
 app.post('/api/new-project', async (c) => {
 	const userId = c.get('userId');
-	const organizationId = c.get('activeOrganizationId');
-	if (!organizationId) {
-		return c.json({ error: 'No active organization. Set an active organization first.' }, 400);
-	}
 
 	let templateId: string;
+	let organizationId: string;
 	try {
-		const body: { template: string } = await c.req.json();
+		const body: { template: string; organizationId: string } = await c.req.json();
 		templateId = body.template;
+		organizationId = body.organizationId;
 	} catch {
-		return c.json({ error: 'Request body must contain a template ID' }, 400);
+		return c.json({ error: 'Request body must contain a template ID and organizationId' }, 400);
 	}
 
 	if (!templateId) {
 		return c.json({ error: 'Request body must contain a template ID' }, 400);
+	}
+	if (!organizationId) {
+		return c.json({ error: 'Request body must contain an organizationId' }, 400);
+	}
+
+	// Verify the user is a member of the target organization
+	const memberCheckDatabase = drizzle(c.env.DB);
+	const memberCheck = await memberCheckDatabase
+		.select({ id: authSchema.member.id })
+		.from(authSchema.member)
+		.where(and(eq(authSchema.member.organizationId, organizationId), eq(authSchema.member.userId, userId)))
+		.limit(1);
+	if (memberCheck.length === 0) {
+		return c.json({ error: 'You are not a member of this organization.' }, 403);
 	}
 
 	const template = getTemplate(templateId);
@@ -491,14 +509,24 @@ app.post('/api/new-project', async (c) => {
 		return c.json({ error: `Unknown template: ${templateId}` }, 400);
 	}
 
-	// Enforce per-org project limit
+	// Enforce per-org project limit (plan-based)
 	const database = drizzle(c.env.DB);
+	const orgRow = await database
+		.select({ plan: authSchema.organization.plan })
+		.from(authSchema.organization)
+		.where(eq(authSchema.organization.id, organizationId))
+		.limit(1);
+	const orgLimits = getOrgLimits(orgRow[0]?.plan ?? 'free');
+
 	const existingProjects = await database
 		.select({ id: authSchema.project.id })
 		.from(authSchema.project)
 		.where(and(eq(authSchema.project.organizationId, organizationId), isNull(authSchema.project.deletedAt)));
-	if (existingProjects.length >= MAX_PROJECTS_PER_ORGANIZATION) {
-		return c.json({ error: `Organization project limit reached (${MAX_PROJECTS_PER_ORGANIZATION}).` }, 400);
+	if (existingProjects.length >= orgLimits.maxProjects) {
+		return c.json(
+			{ error: `Organization project limit reached (${orgLimits.maxProjects}). Upgrade your plan to create more projects.` },
+			400,
+		);
 	}
 
 	const doId = filesystemNamespace.newUniqueId();
@@ -560,17 +588,30 @@ app.post('/api/new-project', async (c) => {
 
 app.post('/api/clone-project', async (c) => {
 	const userId = c.get('userId');
-	const organizationId = c.get('activeOrganizationId');
-	if (!organizationId) {
-		return c.json({ error: 'No active organization. Set an active organization first.' }, 400);
-	}
 
 	let sourceProjectId: string;
+	let organizationId: string;
 	try {
-		const body: { sourceProjectId: string } = await c.req.json();
+		const body: { sourceProjectId: string; organizationId: string } = await c.req.json();
 		sourceProjectId = body.sourceProjectId;
+		organizationId = body.organizationId;
 	} catch {
-		return c.json({ error: 'Request body must contain sourceProjectId' }, 400);
+		return c.json({ error: 'Request body must contain sourceProjectId and organizationId' }, 400);
+	}
+
+	if (!organizationId) {
+		return c.json({ error: 'Request body must contain an organizationId' }, 400);
+	}
+
+	// Verify the user is a member of the target organization
+	const cloneMemberDatabase = drizzle(c.env.DB);
+	const cloneMemberCheck = await cloneMemberDatabase
+		.select({ id: authSchema.member.id })
+		.from(authSchema.member)
+		.where(and(eq(authSchema.member.organizationId, organizationId), eq(authSchema.member.userId, userId)))
+		.limit(1);
+	if (cloneMemberCheck.length === 0) {
+		return c.json({ error: 'You are not a member of this organization.' }, 403);
 	}
 
 	if (!sourceProjectId || !isValidProjectId(sourceProjectId)) {
@@ -589,14 +630,24 @@ app.post('/api/clone-project', async (c) => {
 		return c.json({ error: 'Source project not found or not initialized' }, 404);
 	}
 
-	// Enforce per-org project limit
+	// Enforce per-org project limit (plan-based)
 	const cloneDatabase = drizzle(c.env.DB);
+	const cloneOrgRow = await cloneDatabase
+		.select({ plan: authSchema.organization.plan })
+		.from(authSchema.organization)
+		.where(eq(authSchema.organization.id, organizationId))
+		.limit(1);
+	const cloneOrgLimits = getOrgLimits(cloneOrgRow[0]?.plan ?? 'free');
+
 	const existingCloneProjects = await cloneDatabase
 		.select({ id: authSchema.project.id })
 		.from(authSchema.project)
 		.where(and(eq(authSchema.project.organizationId, organizationId), isNull(authSchema.project.deletedAt)));
-	if (existingCloneProjects.length >= MAX_PROJECTS_PER_ORGANIZATION) {
-		return c.json({ error: `Organization project limit reached (${MAX_PROJECTS_PER_ORGANIZATION}).` }, 400);
+	if (existingCloneProjects.length >= cloneOrgLimits.maxProjects) {
+		return c.json(
+			{ error: `Organization project limit reached (${cloneOrgLimits.maxProjects}). Upgrade your plan to create more projects.` },
+			400,
+		);
 	}
 
 	const newDoId = filesystemNamespace.newUniqueId();
@@ -806,7 +857,6 @@ app.all('/p/:projectId/*', async (c) => {
 		projectApp.use('*', async (context, innerNext) => {
 			context.set('userId', c.get('userId'));
 			context.set('userSession', c.get('userSession'));
-			context.set('activeOrganizationId', c.get('activeOrganizationId'));
 			context.set('projectId', projectId);
 			context.set('projectRoot', PROJECT_ROOT);
 			context.set('fsStub', fsStub);

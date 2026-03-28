@@ -2,12 +2,13 @@
  * Organization Switcher
  *
  * Dropdown to switch between organizations the user belongs to.
- * Shown in the dashboard header. Uses the accessible DropdownMenu
- * primitive for keyboard navigation, ARIA attributes, and focus management.
+ * Shown in the dashboard header. Navigates via URL — no API call needed.
+ * Uses the accessible DropdownMenu primitive for keyboard navigation,
+ * ARIA attributes, and focus management.
  */
 
 import { Building2, ChevronDown, Plus, Settings } from 'lucide-react';
-import { useCallback, useState } from 'react';
+import { useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -22,22 +23,22 @@ import { cn } from '@/lib/utils';
 
 import { CreateOrgModal } from './create-org-modal';
 
-export function OrgSwitcher() {
-	const { data: organizations, isPending } = authClient.useListOrganizations();
-	const { data: activeOrganization } = authClient.useActiveOrganization();
+interface OrgSwitcherOrganization {
+	id: string;
+	name: string;
+	slug: string | null;
+	logo?: string | null;
+}
+
+interface OrgSwitcherProperties {
+	organizations: OrgSwitcherOrganization[];
+	currentOrganizationId: string;
+	currentOrganizationName: string;
+	currentOrgSlug: string;
+}
+
+export function OrgSwitcher({ organizations, currentOrganizationId, currentOrganizationName, currentOrgSlug }: OrgSwitcherProperties) {
 	const [createModalOpen, setCreateModalOpen] = useState(false);
-
-	const handleSwitchOrg = useCallback(
-		(organizationId: string) => {
-			if (organizationId === activeOrganization?.id) return;
-			void authClient.organization.setActive({ organizationId }).then(() => {
-				globalThis.location.reload();
-			});
-		},
-		[activeOrganization?.id],
-	);
-
-	if (isPending) return <></>;
 
 	return (
 		<>
@@ -45,25 +46,33 @@ export function OrgSwitcher() {
 				<DropdownMenuTrigger asChild>
 					<Button variant="ghost" size="sm" className="gap-2 bg-bg-secondary/40 backdrop-blur-sm">
 						<Building2 className="size-4" />
-						<span className="max-w-32 truncate text-xs">{activeOrganization?.name}</span>
+						<span className="max-w-32 truncate text-xs">{currentOrganizationName}</span>
 						<ChevronDown className="size-3" />
 					</Button>
 				</DropdownMenuTrigger>
 				<DropdownMenuContent align="end" className="min-w-48">
-					{organizations?.map((organization) => (
+					{organizations.map((organization) => (
 						<DropdownMenuItem
 							key={organization.id}
-							onSelect={() => handleSwitchOrg(organization.id)}
-							className={cn('gap-2 text-xs', activeOrganization?.id === organization.id && 'bg-bg-tertiary font-medium')}
+							onSelect={() => {
+								const slug = organization.slug ?? organization.id;
+								void authClient.organization.setActive({ organizationId: organization.id });
+								globalThis.location.href = `/org/${slug}`;
+							}}
+							className={cn('gap-2 text-xs', currentOrganizationId === organization.id && 'bg-bg-tertiary font-medium')}
 						>
-							<Building2 className="size-3.5 shrink-0 text-text-secondary" />
+							{organization.logo ? (
+								<img src={organization.logo} alt="" className="size-4 shrink-0 rounded-sm object-cover" />
+							) : (
+								<Building2 className="size-3.5 shrink-0 text-text-secondary" />
+							)}
 							<span className="truncate">{organization.name}</span>
 						</DropdownMenuItem>
 					))}
 					<DropdownMenuSeparator />
 					<DropdownMenuItem
 						onSelect={() => {
-							globalThis.location.href = '/org';
+							globalThis.location.href = `/org/${currentOrgSlug}/settings`;
 						}}
 						className="gap-2 text-xs text-text-secondary"
 					>
@@ -76,7 +85,7 @@ export function OrgSwitcher() {
 					</DropdownMenuItem>
 				</DropdownMenuContent>
 			</DropdownMenu>
-			<CreateOrgModal open={createModalOpen} onOpenChange={setCreateModalOpen} organizationCount={organizations?.length ?? 0} />
+			<CreateOrgModal open={createModalOpen} onOpenChange={setCreateModalOpen} organizationCount={organizations.length} />
 		</>
 	);
 }

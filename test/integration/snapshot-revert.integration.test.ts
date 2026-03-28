@@ -79,7 +79,7 @@ async function cleanupProjects(): Promise<void> {
 
 	for (const projectId of createdProjectIds) {
 		try {
-			await fetch(`${BASE_URL}/api/org/project/${projectId}`, {
+			await fetch(`${BASE_URL}/api/org/e2e-test-org/project/${projectId}`, {
 				method: 'DELETE',
 				headers: { Cookie: cookie },
 			});
@@ -101,8 +101,12 @@ async function createProject(): Promise<string> {
 	const response = await authedFetch(`${BASE_URL}/api/new-project`, {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify({ template: 'request-inspector' }),
+		body: JSON.stringify({ template: 'request-inspector', organizationId: 'e2e-test-org' }),
 	});
+	if (!response.ok) {
+		const body = await response.text().catch(() => '');
+		throw new Error(`Failed to create project: ${response.status} ${response.statusText} — ${body}`);
+	}
 	const result: { projectId: string } = await response.json();
 	if (result.projectId) createdProjectIds.push(result.projectId);
 	// Trigger initialization by listing files

@@ -17,8 +17,7 @@ import type { ProjectFilesystem } from './durable/project-filesystem';
  */
 interface AuthVariables {
 	userId: string;
-	userSession: { id: string; activeOrganizationId?: string | null | undefined };
-	activeOrganizationId: string | undefined;
+	userSession: { id: string };
 }
 
 /**

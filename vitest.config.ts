@@ -55,6 +55,8 @@ export default defineConfig({
 								serviceBindings: {
 									BIOME: () => new Response('service unavailable', { status: 503 }),
 									ESBUILD: () => new Response('service unavailable', { status: 503 }),
+									PUSH: () => new Response('service unavailable', { status: 503 }),
+									EMAIL: () => new Response('service unavailable', { status: 503 }),
 								},
 								// The REPO_DO cross-worker DO binding references git-worker which
 								// isn't available in tests. Remove the script_name so miniflare

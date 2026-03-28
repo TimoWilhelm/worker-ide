@@ -15,6 +15,7 @@
 import { betterAuth } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { organization } from 'better-auth/plugins';
+import { env } from 'cloudflare:workers';
 import { drizzle } from 'drizzle-orm/d1';
 
 import {
@@ -31,6 +32,8 @@ interface AuthEnvironment {
 	BETTER_AUTH_SECRET: string;
 	GITHUB_CLIENT_ID: string;
 	GITHUB_CLIENT_SECRET: string;
+	GOOGLE_CLIENT_ID: string;
+	GOOGLE_CLIENT_SECRET: string;
 }
 
 export function createAuth(environment: AuthEnvironment, baseUrl: string) {
@@ -49,6 +52,44 @@ export function createAuth(environment: AuthEnvironment, baseUrl: string) {
 				clientId: environment.GITHUB_CLIENT_ID,
 				clientSecret: environment.GITHUB_CLIENT_SECRET,
 			},
+			google: {
+				clientId: environment.GOOGLE_CLIENT_ID,
+				clientSecret: environment.GOOGLE_CLIENT_SECRET,
+			},
+		},
+		account: {
+			accountLinking: {
+				enabled: true,
+				trustedProviders: ['google', 'github'],
+			},
+		},
+		emailVerification: {
+			sendVerificationEmail: async (data) => {
+				try {
+					await env.EMAIL.sendEmailVerification({
+						to: data.user.email,
+						userName: data.user.name,
+						verificationUrl: data.url,
+					});
+				} catch (error) {
+					console.error('Failed to send verification email:', error);
+				}
+			},
+		},
+		emailAndPassword: {
+			enabled: true,
+			requireEmailVerification: true,
+			sendResetPassword: async (data) => {
+				try {
+					await env.EMAIL.sendPasswordReset({
+						to: data.user.email,
+						userName: data.user.name,
+						resetUrl: data.url,
+					});
+				} catch (error) {
+					console.error('Failed to send password reset email:', error);
+				}
+			},
 		},
 		plugins: [
 			organization({
@@ -56,6 +97,20 @@ export function createAuth(environment: AuthEnvironment, baseUrl: string) {
 				membershipLimit: MAX_MEMBERS_PER_ORGANIZATION,
 				invitationLimit: MAX_PENDING_INVITATIONS_PER_ORGANIZATION,
 				invitationExpiresIn: INVITATION_EXPIRES_IN_SECONDS,
+				sendInvitationEmail: async (data) => {
+					const acceptUrl = `${baseUrl}/api/auth/organization/accept-invitation?id=${data.id}`;
+					try {
+						await env.EMAIL.sendOrgInvitation({
+							to: data.email,
+							inviterName: data.inviter.user.name,
+							organizationName: data.organization.name,
+							role: data.role,
+							acceptUrl,
+						});
+					} catch (error) {
+						console.error('Failed to send invitation email:', error);
+					}
+				},
 			}),
 		],
 		user: {

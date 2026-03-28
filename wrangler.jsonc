@@ -86,6 +86,14 @@
 			"binding": "ESBUILD",
 			"service": "esbuild-worker",
 		},
+		{
+			"binding": "PUSH",
+			"service": "push-worker",
+		},
+		{
+			"binding": "EMAIL",
+			"service": "email-worker",
+		},
 	],
 	"durable_objects": {
 		"bindings": [
@@ -109,6 +117,13 @@
 		"crons": ["0 3 * * *"],
 	},
 	"secrets": {
-		"required": ["PREVIEW_SECRET", "BETTER_AUTH_SECRET", "GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET"],
+		"required": [
+			"PREVIEW_SECRET",
+			"BETTER_AUTH_SECRET",
+			"GITHUB_CLIENT_ID",
+			"GITHUB_CLIENT_SECRET",
+			"GOOGLE_CLIENT_ID",
+			"GOOGLE_CLIENT_SECRET",
+		],
 	},
 }

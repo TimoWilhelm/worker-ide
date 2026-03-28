@@ -42,11 +42,11 @@ export type ApiClient = ReturnType<typeof createApiClient>;
  *
  * @param templateId - Template ID to initialize the project with.
  */
-export async function createProject(templateId: string): Promise<{ projectId: string; url: string; name: string }> {
+export async function createProject(organizationId: string, templateId: string): Promise<{ projectId: string; url: string; name: string }> {
 	const response = await fetch('/api/new-project', {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify({ template: templateId }),
+		body: JSON.stringify({ template: templateId, organizationId }),
 	});
 	if (!response.ok) {
 		await throwApiError(response, 'Failed to create project');
@@ -64,11 +64,14 @@ export async function createProject(templateId: string): Promise<{ projectId: st
  *
  * @param sourceProjectId - The ID of the project to clone
  */
-export async function cloneProject(sourceProjectId: string): Promise<{ projectId: string; url: string; name: string }> {
+export async function cloneProject(
+	organizationId: string,
+	sourceProjectId: string,
+): Promise<{ projectId: string; url: string; name: string }> {
 	const response = await fetch('/api/clone-project', {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify({ sourceProjectId }),
+		body: JSON.stringify({ sourceProjectId, organizationId }),
 	});
 	if (!response.ok) {
 		await throwApiError(response, 'Failed to clone project');
@@ -112,8 +115,8 @@ export interface OrgProject {
  * Uses raw fetch because this is a root-level endpoint (`/api/org/projects`)
  * outside the project-scoped RPC client.
  */
-export async function fetchOrgProjects(): Promise<OrgProject[]> {
-	const response = await fetch('/api/org/projects');
+export async function fetchOrgProjects(organizationId: string): Promise<OrgProject[]> {
+	const response = await fetch(`/api/org/${organizationId}/projects`);
 	if (!response.ok) {
 		await throwApiError(response, 'Failed to fetch organization projects');
 	}
@@ -127,8 +130,8 @@ export async function fetchOrgProjects(): Promise<OrgProject[]> {
  * Uses raw fetch because this is a root-level endpoint (`/api/org/project/:id`)
  * outside the project-scoped RPC client.
  */
-export async function deleteProject(projectId: string): Promise<void> {
-	const response = await fetch(`/api/org/project/${projectId}`, { method: 'DELETE' });
+export async function deleteProject(organizationId: string, projectId: string): Promise<void> {
+	const response = await fetch(`/api/org/${organizationId}/project/${projectId}`, { method: 'DELETE' });
 	if (!response.ok) {
 		await throwApiError(response, 'Failed to delete project');
 	}
@@ -267,6 +270,185 @@ export async function downloadDebugLog(projectId: string, logId: string, session
 	anchor.click();
 	anchor.remove();
 	URL.revokeObjectURL(url);
+}
+
+// =============================================================================
+// User: Recent Projects, Favorites, Access Tracking
+// =============================================================================
+
+/**
+ * Recent project entry with cross-org access info.
+ */
+export interface RecentProject {
+	id: string;
+	organizationId: string;
+	name: string;
+	humanId: string;
+	previewVisibility: string;
+	createdByUserId: string;
+	createdAt: string;
+	updatedAt: string;
+	lastAccessedAt: string;
+	isFavorite: boolean;
+	organizationName: string;
+	organizationSlug: string;
+}
+
+/**
+ * Fetch recently accessed projects across all orgs for the current user.
+ */
+export async function fetchRecentProjects(): Promise<RecentProject[]> {
+	const response = await fetch('/api/user/recent-projects');
+	if (!response.ok) {
+		await throwApiError(response, 'Failed to fetch recent projects');
+	}
+	const data: { projects: RecentProject[] } = await response.json();
+	return data.projects;
+}
+
+/**
+ * Record that the current user accessed a project.
+ */
+export async function recordProjectAccess(projectId: string): Promise<void> {
+	await fetch(`/api/user/project/${projectId}/access`, { method: 'POST' });
+}
+
+/**
+ * Toggle favorite status for a project.
+ */
+export async function toggleProjectFavorite(projectId: string, favorite: boolean): Promise<void> {
+	const response = await fetch(`/api/user/project/${projectId}/favorite`, {
+		method: 'PUT',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ favorite }),
+	});
+	if (!response.ok) {
+		await throwApiError(response, 'Failed to update favorite');
+	}
+}
+
+// =============================================================================
+// Transfers
+// =============================================================================
+
+/**
+ * Pending transfer entry.
+ */
+export interface PendingTransfer {
+	id: string;
+	projectId: string;
+	projectName: string;
+	sourceOrganizationId: string;
+	sourceOrganizationName: string;
+	targetOrganizationId: string;
+	targetOrganizationName: string;
+	createdAt: string;
+}
+
+/**
+ * Fetch pending project transfers for the current user's admin orgs.
+ */
+export async function fetchPendingTransfers(): Promise<{ incoming: PendingTransfer[]; outgoing: PendingTransfer[] }> {
+	const response = await fetch('/api/user/pending-transfers');
+	if (!response.ok) {
+		await throwApiError(response, 'Failed to fetch pending transfers');
+	}
+	return response.json();
+}
+
+/**
+ * Initiate a project transfer from one org to another.
+ */
+export async function initiateProjectTransfer(
+	organizationId: string,
+	projectId: string,
+	targetOrganizationId: string,
+): Promise<{ transferId: string }> {
+	const response = await fetch(`/api/org/${organizationId}/project/${projectId}/transfer`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ targetOrganizationId }),
+	});
+	if (!response.ok) {
+		await throwApiError(response, 'Failed to initiate transfer');
+	}
+	return response.json();
+}
+
+/**
+ * Accept a pending project transfer.
+ */
+export async function acceptTransfer(transferId: string): Promise<void> {
+	const response = await fetch(`/api/transfer/${transferId}/accept`, { method: 'POST' });
+	if (!response.ok) {
+		await throwApiError(response, 'Failed to accept transfer');
+	}
+}
+
+/**
+ * Reject a pending project transfer.
+ */
+export async function rejectTransfer(transferId: string): Promise<void> {
+	const response = await fetch(`/api/transfer/${transferId}/reject`, { method: 'POST' });
+	if (!response.ok) {
+		await throwApiError(response, 'Failed to reject transfer');
+	}
+}
+
+/**
+ * Cancel a pending project transfer.
+ */
+export async function cancelTransfer(transferId: string): Promise<void> {
+	const response = await fetch(`/api/transfer/${transferId}/cancel`, { method: 'POST' });
+	if (!response.ok) {
+		await throwApiError(response, 'Failed to cancel transfer');
+	}
+}
+
+// =============================================================================
+// Account Deletion
+// =============================================================================
+
+/**
+ * Account deletion preview response.
+ */
+export interface AccountDeletePreview {
+	canDelete: boolean;
+	blockers: Array<{ id: string; name: string; memberCount: number }>;
+	singleMemberOrganizations: Array<{ id: string; name: string; projectCount: number }>;
+	membershipOrganizations: Array<{ id: string; name: string }>;
+}
+
+/**
+ * Preview the consequences of deleting the current user's account.
+ */
+export async function fetchAccountDeletePreview(): Promise<AccountDeletePreview> {
+	const response = await fetch('/api/user/account/delete-preview');
+	if (!response.ok) {
+		await throwApiError(response, 'Failed to fetch account deletion preview');
+	}
+	return response.json();
+}
+
+/**
+ * Soft-delete the current user's account.
+ */
+export async function deleteAccount(): Promise<void> {
+	const response = await fetch('/api/user/account', { method: 'DELETE' });
+	if (!response.ok) {
+		await throwApiError(response, 'Failed to delete account');
+	}
+}
+
+/**
+ * Delete an organization (super admin only).
+ * Soft-deletes all projects and cancels pending transfers.
+ */
+export async function deleteOrganization(organizationId: string): Promise<void> {
+	const response = await fetch(`/api/org/${organizationId}`, { method: 'DELETE' });
+	if (!response.ok) {
+		await throwApiError(response, 'Failed to delete organization');
+	}
 }
 
 // =============================================================================

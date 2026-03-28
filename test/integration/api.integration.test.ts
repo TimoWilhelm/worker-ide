@@ -55,7 +55,7 @@ async function createTrackedProject(template = 'request-inspector'): Promise<{ p
 	const response = await authedFetch(`${BASE_URL}/api/new-project`, {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify({ template }),
+		body: JSON.stringify({ template, organizationId: 'e2e-test-org' }),
 	});
 	const result: { projectId: string; url: string; name: string } = await response.json();
 	if (result.projectId) createdProjectIds.push(result.projectId);
@@ -69,7 +69,7 @@ async function cleanupProjects(): Promise<void> {
 
 	for (const projectId of createdProjectIds) {
 		try {
-			await fetch(`${BASE_URL}/api/org/project/${projectId}`, {
+			await fetch(`${BASE_URL}/api/org/e2e-test-org/project/${projectId}`, {
 				method: 'DELETE',
 				headers: { Cookie: cookie },
 			});
@@ -152,7 +152,7 @@ describe('REST API Integration Tests', () => {
 			const response = await authedFetch(`${BASE_URL}/api/new-project`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ template: 'nonexistent-template-id' }),
+				body: JSON.stringify({ template: 'nonexistent-template-id', organizationId: 'e2e-test-org' }),
 			});
 
 			expect(response.status).toBe(400);
@@ -173,7 +173,7 @@ describe('REST API Integration Tests', () => {
 			const cloneResponse = await authedFetch(`${BASE_URL}/api/clone-project`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ sourceProjectId }),
+				body: JSON.stringify({ sourceProjectId, organizationId: 'e2e-test-org' }),
 			});
 
 			expect(cloneResponse.ok).toBe(true);

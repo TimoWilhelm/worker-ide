@@ -9,9 +9,12 @@
 		"auxiliary/biome/index.ts",
 		"auxiliary/esbuild/index.ts",
 		"auxiliary/git/index.ts",
+		"auxiliary/push/index.ts",
+		"auxiliary/email/index.ts",
 		"shared/**/*.ts",
 		"!shared/**/*.test.ts",
-		"worker/db/auth-schema.ts"
+		"worker/db/auth-schema.ts",
+		"src/lib/api-client.ts"
 	],
 	"project": ["src/**", "worker/**", "shared/**", "auxiliary/**", "test/**"],
 	"ignoreDependencies": ["cloudflare", "codemirror", "@standard-schema/spec"],

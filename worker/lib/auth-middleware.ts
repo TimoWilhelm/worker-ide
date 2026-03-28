@@ -41,8 +41,7 @@ export const requireAuth = createMiddleware<AuthedEnvironment>(async (context, n
 		}
 
 		context.set('userId', result.session.userId);
-		context.set('userSession', { id: result.session.id, activeOrganizationId: result.session.activeOrganizationId });
-		context.set('activeOrganizationId', result.session.activeOrganizationId ?? undefined);
+		context.set('userSession', { id: result.session.id });
 		await next();
 		return;
 	}
@@ -58,6 +57,8 @@ export const requireAuth = createMiddleware<AuthedEnvironment>(async (context, n
 			BETTER_AUTH_SECRET: context.env.BETTER_AUTH_SECRET,
 			GITHUB_CLIENT_ID: context.env.GITHUB_CLIENT_ID,
 			GITHUB_CLIENT_SECRET: context.env.GITHUB_CLIENT_SECRET,
+			GOOGLE_CLIENT_ID: context.env.GOOGLE_CLIENT_ID,
+			GOOGLE_CLIENT_SECRET: context.env.GOOGLE_CLIENT_SECRET,
 		},
 		baseUrl,
 	);
@@ -69,8 +70,7 @@ export const requireAuth = createMiddleware<AuthedEnvironment>(async (context, n
 	}
 
 	context.set('userId', session.user.id);
-	context.set('userSession', session.session);
-	context.set('activeOrganizationId', session.session.activeOrganizationId ?? undefined);
+	context.set('userSession', { id: session.session.id });
 
 	await next();
 });

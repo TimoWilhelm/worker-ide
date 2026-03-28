@@ -210,10 +210,13 @@ export function DesktopLayout({
 
 				<ResizeHandle
 					className="
-						w-0.5 bg-border transition-colors
+						w-0.5 overflow-visible bg-border transition-[colors,box-shadow]
 						hover:bg-accent
+						hover:shadow-[2px_0_0_var(--color-accent),-2px_0_0_var(--color-accent)]
 						data-[separator=active]:bg-accent
+						data-[separator=active]:shadow-[2px_0_0_var(--color-accent),-2px_0_0_var(--color-accent)]
 						data-[separator=hover]:bg-accent
+						data-[separator=hover]:shadow-[2px_0_0_var(--color-accent),-2px_0_0_var(--color-accent)]
 					"
 				/>
 
@@ -239,10 +242,13 @@ export function DesktopLayout({
 								<>
 									<ResizeHandle
 										className="
-											h-0.5 bg-border transition-colors
+											h-0.5 overflow-visible bg-border transition-[colors,box-shadow]
 											hover:bg-accent
+											hover:shadow-[0_2px_0_var(--color-accent),0_-2px_0_var(--color-accent)]
 											data-[separator=active]:bg-accent
+											data-[separator=active]:shadow-[0_2px_0_var(--color-accent),0_-2px_0_var(--color-accent)]
 											data-[separator=hover]:bg-accent
+											data-[separator=hover]:shadow-[0_2px_0_var(--color-accent),0_-2px_0_var(--color-accent)]
 										"
 									/>
 									<Panel id="utility-panel" defaultSize="30%" minSize="10%" maxSize="60%">
@@ -310,10 +316,13 @@ export function DesktopLayout({
 
 				<ResizeHandle
 					className="
-						w-0.5 bg-border transition-colors
+						w-0.5 overflow-visible bg-border transition-[colors,box-shadow]
 						hover:bg-accent
+						hover:shadow-[2px_0_0_var(--color-accent),-2px_0_0_var(--color-accent)]
 						data-[separator=active]:bg-accent
+						data-[separator=active]:shadow-[2px_0_0_var(--color-accent),-2px_0_0_var(--color-accent)]
 						data-[separator=hover]:bg-accent
+						data-[separator=hover]:shadow-[2px_0_0_var(--color-accent),-2px_0_0_var(--color-accent)]
 					"
 				/>
 
@@ -343,10 +352,13 @@ export function DesktopLayout({
 							<>
 								<ResizeHandle
 									className="
-										h-0.5 bg-border transition-colors
+										h-0.5 overflow-visible bg-border transition-[colors,box-shadow]
 										hover:bg-accent
+										hover:shadow-[0_2px_0_var(--color-accent),0_-2px_0_var(--color-accent)]
 										data-[separator=active]:bg-accent
+										data-[separator=active]:shadow-[0_2px_0_var(--color-accent),0_-2px_0_var(--color-accent)]
 										data-[separator=hover]:bg-accent
+										data-[separator=hover]:shadow-[0_2px_0_var(--color-accent),0_-2px_0_var(--color-accent)]
 									"
 								/>
 								<Panel id="devtools" defaultSize="30%" minSize="15%" maxSize="80%">
@@ -368,10 +380,13 @@ export function DesktopLayout({
 					<>
 						<ResizeHandle
 							className="
-								w-0.5 bg-border transition-colors
+								w-0.5 overflow-visible bg-border transition-[colors,box-shadow]
 								hover:bg-accent
+								hover:shadow-[2px_0_0_var(--color-accent),-2px_0_0_var(--color-accent)]
 								data-[separator=active]:bg-accent
+								data-[separator=active]:shadow-[2px_0_0_var(--color-accent),-2px_0_0_var(--color-accent)]
 								data-[separator=hover]:bg-accent
+								data-[separator=hover]:shadow-[2px_0_0_var(--color-accent),-2px_0_0_var(--color-accent)]
 							"
 						/>
 						<Panel id="ai-panel" defaultSize="20%" minSize="15%" maxSize="35%">

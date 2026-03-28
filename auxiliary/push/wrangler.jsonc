@@ -1,0 +1,31 @@
+{
+	"$schema": "../../node_modules/wrangler/config-schema.json",
+	"name": "push-worker",
+	"main": "index.ts",
+	"compatibility_date": "2026-01-31",
+	"compatibility_flags": ["nodejs_compat"],
+	"workers_dev": false,
+	"preview_urls": false,
+	"observability": {
+		"logs": { "enabled": true },
+		"traces": { "enabled": true },
+	},
+	"kv_namespaces": [{ "binding": "KV_PUSH_SUBSCRIPTION", "id": "TBD" }],
+	"queues": {
+		"producers": [{ "binding": "PUSH_QUEUE", "queue": "push-notifications" }],
+		"consumers": [
+			{
+				"max_batch_size": 30,
+				"max_batch_timeout": 5,
+				"max_retries": 3,
+				"queue": "push-notifications",
+			},
+		],
+	},
+	"vars": {
+		"VAPID_SUBJECT": "mailto:support@codemaxxing.dev",
+	},
+	"secrets": {
+		"required": ["VAPID_PUBLIC_KEY", "VAPID_PRIVATE_KEY"],
+	},
+}

@@ -49,8 +49,8 @@ export function CreateOrgModal({
 				return;
 			}
 			if (data) {
-				await authClient.organization.setActive({ organizationId: data.id });
-				globalThis.location.reload();
+				void authClient.organization.setActive({ organizationId: data.id });
+				globalThis.location.href = `/org/${slug || data.id}`;
 			}
 		} catch {
 			toast.error('Failed to create organization');

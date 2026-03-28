@@ -1,0 +1,282 @@
+/**
+ * Project Transfer Routes
+ *
+ * Handles transferring project ownership between organizations.
+ * The transfer is a two-party handshake:
+ * 1. Source org admin initiates a transfer
+ * 2. Target org admin accepts or rejects
+ * Either side can cancel/reject while the transfer is pending.
+ */
+
+import { and, eq, inArray, isNull } from 'drizzle-orm';
+import { drizzle } from 'drizzle-orm/d1';
+import { Hono } from 'hono';
+
+import { getOrgLimits } from '@shared/constants';
+import { HttpErrorCode } from '@shared/http-errors';
+
+import * as schema from '../db/auth-schema';
+import { httpError } from '../lib/http-error';
+import { assertOrgAdmin } from '../lib/project-auth';
+
+import type { AuthedEnvironment } from '../types';
+
+export const transferRoutes = new Hono<AuthedEnvironment>()
+	// POST /api/org/:orgId/project/:projectId/transfer — Initiate a project transfer
+	.post('/org/:orgId/project/:projectId/transfer', async (c) => {
+		const { orgId, projectId } = c.req.param();
+		const userId = c.get('userId');
+		const database = drizzle(c.env.DB);
+
+		// Verify user is admin/owner of source org
+		await assertOrgAdmin(database, orgId, userId);
+
+		const body = await c.req.json<{ targetOrganizationId: string }>();
+		if (!body.targetOrganizationId) {
+			throw httpError(HttpErrorCode.VALIDATION_ERROR, 'Request body must contain targetOrganizationId.');
+		}
+		if (body.targetOrganizationId === orgId) {
+			throw httpError(HttpErrorCode.VALIDATION_ERROR, 'Cannot transfer a project to the same organization.');
+		}
+
+		// Verify project exists in source org and is not soft-deleted
+		const projectRow = await database
+			.select({ id: schema.project.id })
+			.from(schema.project)
+			.where(and(eq(schema.project.id, projectId), eq(schema.project.organizationId, orgId), isNull(schema.project.deletedAt)))
+			.limit(1);
+
+		if (projectRow.length === 0) {
+			throw httpError(HttpErrorCode.NOT_FOUND, 'Project not found in this organization.');
+		}
+
+		// Verify target org exists
+		const targetOrgRow = await database
+			.select({ id: schema.organization.id })
+			.from(schema.organization)
+			.where(eq(schema.organization.id, body.targetOrganizationId))
+			.limit(1);
+
+		if (targetOrgRow.length === 0) {
+			throw httpError(HttpErrorCode.NOT_FOUND, 'Target organization not found.');
+		}
+
+		// Check no pending transfer already exists for this project
+		const existingTransfer = await database
+			.select({ id: schema.projectTransfer.id })
+			.from(schema.projectTransfer)
+			.where(and(eq(schema.projectTransfer.projectId, projectId), eq(schema.projectTransfer.status, 'pending')))
+			.limit(1);
+
+		if (existingTransfer.length > 0) {
+			throw httpError(HttpErrorCode.VALIDATION_ERROR, 'A transfer is already pending for this project.');
+		}
+
+		const now = new Date();
+		const transferId = crypto.randomUUID();
+
+		await database.insert(schema.projectTransfer).values({
+			id: transferId,
+			projectId,
+			sourceOrganizationId: orgId,
+			targetOrganizationId: body.targetOrganizationId,
+			initiatedByUserId: userId,
+			status: 'pending',
+			createdAt: now,
+		});
+
+		return c.json({ transferId, status: 'pending' });
+	})
+
+	// GET /api/user/pending-transfers — List all pending transfers for the user's orgs
+	.get('/user/pending-transfers', async (c) => {
+		const userId = c.get('userId');
+		const database = drizzle(c.env.DB);
+
+		// Get orgs where user is admin/owner
+		const memberships = await database
+			.select({ organizationId: schema.member.organizationId, role: schema.member.role })
+			.from(schema.member)
+			.where(eq(schema.member.userId, userId));
+
+		const adminOrgIds = memberships.filter((m) => m.role === 'owner' || m.role === 'admin').map((m) => m.organizationId);
+
+		if (adminOrgIds.length === 0) {
+			return c.json({ incoming: [], outgoing: [] });
+		}
+
+		// Get all pending transfers involving user's admin orgs
+		const pendingTransfers = await database.select().from(schema.projectTransfer).where(eq(schema.projectTransfer.status, 'pending'));
+
+		const relevantTransfers = pendingTransfers.filter(
+			(transfer) => adminOrgIds.includes(transfer.sourceOrganizationId) || adminOrgIds.includes(transfer.targetOrganizationId),
+		);
+
+		if (relevantTransfers.length === 0) {
+			return c.json({ incoming: [], outgoing: [] });
+		}
+
+		// Get project names
+		const transferProjectIds = [...new Set(relevantTransfers.map((t) => t.projectId))];
+		const projects = await database
+			.select({ id: schema.project.id, name: schema.project.name })
+			.from(schema.project)
+			.where(inArray(schema.project.id, transferProjectIds));
+		const projectMap = new Map(projects.map((p) => [p.id, p.name]));
+
+		// Get org names
+		const allOrgIds = [...new Set(relevantTransfers.flatMap((t) => [t.sourceOrganizationId, t.targetOrganizationId]))];
+		const organizations = await database
+			.select({ id: schema.organization.id, name: schema.organization.name })
+			.from(schema.organization)
+			.where(inArray(schema.organization.id, allOrgIds));
+		const organizationMap = new Map(organizations.map((o) => [o.id, o.name]));
+
+		const enrichTransfer = (transfer: (typeof relevantTransfers)[number]) => ({
+			id: transfer.id,
+			projectId: transfer.projectId,
+			projectName: projectMap.get(transfer.projectId) ?? 'Unknown',
+			sourceOrganizationId: transfer.sourceOrganizationId,
+			sourceOrganizationName: organizationMap.get(transfer.sourceOrganizationId) ?? 'Unknown',
+			targetOrganizationId: transfer.targetOrganizationId,
+			targetOrganizationName: organizationMap.get(transfer.targetOrganizationId) ?? 'Unknown',
+			createdAt: transfer.createdAt.toISOString(),
+		});
+
+		const incoming = relevantTransfers.filter((t) => adminOrgIds.includes(t.targetOrganizationId)).map((t) => enrichTransfer(t));
+
+		const outgoing = relevantTransfers.filter((t) => adminOrgIds.includes(t.sourceOrganizationId)).map((t) => enrichTransfer(t));
+
+		return c.json({ incoming, outgoing });
+	})
+
+	// POST /api/transfer/:transferId/accept — Accept a pending transfer
+	.post('/transfer/:transferId/accept', async (c) => {
+		const { transferId } = c.req.param();
+		const userId = c.get('userId');
+		const database = drizzle(c.env.DB);
+
+		const transferRow = await database
+			.select()
+			.from(schema.projectTransfer)
+			.where(and(eq(schema.projectTransfer.id, transferId), eq(schema.projectTransfer.status, 'pending')))
+			.limit(1);
+
+		if (transferRow.length === 0) {
+			throw httpError(HttpErrorCode.NOT_FOUND, 'Pending transfer not found.');
+		}
+
+		const transfer = transferRow[0];
+
+		// Verify user is admin/owner of target org
+		await assertOrgAdmin(database, transfer.targetOrganizationId, userId);
+
+		// Verify project still exists, isn't soft-deleted, and still belongs to source org
+		const projectRow = await database
+			.select({ organizationId: schema.project.organizationId })
+			.from(schema.project)
+			.where(and(eq(schema.project.id, transfer.projectId), isNull(schema.project.deletedAt)))
+			.limit(1);
+
+		if (projectRow.length === 0 || projectRow[0].organizationId !== transfer.sourceOrganizationId) {
+			// Auto-cancel stale transfer
+			const now = new Date();
+			await database
+				.update(schema.projectTransfer)
+				.set({ status: 'cancelled', resolvedAt: now, resolvedByUserId: userId })
+				.where(eq(schema.projectTransfer.id, transferId));
+			throw httpError(HttpErrorCode.VALIDATION_ERROR, 'Project no longer exists or has been moved. Transfer cancelled.');
+		}
+
+		// Check target org has room (plan-based)
+		const targetOrgRow = await database
+			.select({ plan: schema.organization.plan })
+			.from(schema.organization)
+			.where(eq(schema.organization.id, transfer.targetOrganizationId))
+			.limit(1);
+		const targetOrgLimits = getOrgLimits(targetOrgRow[0]?.plan ?? 'free');
+
+		const existingProjects = await database
+			.select({ id: schema.project.id })
+			.from(schema.project)
+			.where(and(eq(schema.project.organizationId, transfer.targetOrganizationId), isNull(schema.project.deletedAt)));
+
+		if (existingProjects.length >= targetOrgLimits.maxProjects) {
+			throw httpError(
+				HttpErrorCode.VALIDATION_ERROR,
+				`Target organization project limit reached (${targetOrgLimits.maxProjects}). Upgrade the plan or remove a project.`,
+			);
+		}
+
+		// Move the project and mark transfer as accepted
+		const now = new Date();
+		await database
+			.update(schema.project)
+			.set({ organizationId: transfer.targetOrganizationId, updatedAt: now })
+			.where(eq(schema.project.id, transfer.projectId));
+
+		await database
+			.update(schema.projectTransfer)
+			.set({ status: 'accepted', resolvedAt: now, resolvedByUserId: userId })
+			.where(eq(schema.projectTransfer.id, transferId));
+
+		return c.json({ transferId, status: 'accepted' });
+	})
+
+	// POST /api/transfer/:transferId/reject — Reject a pending transfer
+	.post('/transfer/:transferId/reject', async (c) => {
+		const { transferId } = c.req.param();
+		const userId = c.get('userId');
+		const database = drizzle(c.env.DB);
+
+		const transferRow = await database
+			.select()
+			.from(schema.projectTransfer)
+			.where(and(eq(schema.projectTransfer.id, transferId), eq(schema.projectTransfer.status, 'pending')))
+			.limit(1);
+
+		if (transferRow.length === 0) {
+			throw httpError(HttpErrorCode.NOT_FOUND, 'Pending transfer not found.');
+		}
+
+		// Verify user is admin/owner of target org
+		await assertOrgAdmin(database, transferRow[0].targetOrganizationId, userId);
+
+		const now = new Date();
+		await database
+			.update(schema.projectTransfer)
+			.set({ status: 'rejected', resolvedAt: now, resolvedByUserId: userId })
+			.where(eq(schema.projectTransfer.id, transferId));
+
+		return c.json({ transferId, status: 'rejected' });
+	})
+
+	// POST /api/transfer/:transferId/cancel — Cancel a pending transfer (by source org admin)
+	.post('/transfer/:transferId/cancel', async (c) => {
+		const { transferId } = c.req.param();
+		const userId = c.get('userId');
+		const database = drizzle(c.env.DB);
+
+		const transferRow = await database
+			.select()
+			.from(schema.projectTransfer)
+			.where(and(eq(schema.projectTransfer.id, transferId), eq(schema.projectTransfer.status, 'pending')))
+			.limit(1);
+
+		if (transferRow.length === 0) {
+			throw httpError(HttpErrorCode.NOT_FOUND, 'Pending transfer not found.');
+		}
+
+		// Verify user is admin/owner of source org
+		await assertOrgAdmin(database, transferRow[0].sourceOrganizationId, userId);
+
+		const now = new Date();
+		await database
+			.update(schema.projectTransfer)
+			.set({ status: 'cancelled', resolvedAt: now, resolvedByUserId: userId })
+			.where(eq(schema.projectTransfer.id, transferId));
+
+		return c.json({ transferId, status: 'cancelled' });
+	});
+
+export type TransferRoutes = typeof transferRoutes;
