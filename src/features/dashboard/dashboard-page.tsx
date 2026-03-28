@@ -12,7 +12,7 @@
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { BookOpen, Copy, Github, Hexagon, LogOut, Moon, Search, Sun, Trash2 } from 'lucide-react';
-import { Suspense, useCallback, useMemo, useRef, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { HalftoneBackground } from '@/components/halftone-background';
 import { Button, buttonVariants } from '@/components/ui/button';
@@ -549,6 +549,19 @@ export default function DashboardPage() {
 	}, []);
 
 	const isLoading = loadingMessage !== undefined;
+
+	// Clear loading state when the page is restored from bfcache (browser back/forward)
+	useEffect(() => {
+		function handlePageShow(event: PageTransitionEvent) {
+			if (event.persisted) {
+				setLoadingMessage(undefined);
+				setSelectedTemplateId(undefined);
+				setCloneModalOpen(false);
+			}
+		}
+		globalThis.addEventListener('pageshow', handlePageShow);
+		return () => globalThis.removeEventListener('pageshow', handlePageShow);
+	}, []);
 
 	return (
 		<div className="relative flex h-dvh flex-col items-center overflow-y-auto">

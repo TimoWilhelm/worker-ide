@@ -511,6 +511,39 @@ describe('DashboardPage', () => {
 		});
 	});
 
+	it('clears loading overlay when page is restored from bfcache (browser back)', async () => {
+		const mockedCreateProject = vi.mocked(createProject);
+		// Never resolves — simulates the navigation happening before promise settles
+		mockedCreateProject.mockReturnValueOnce(new Promise(() => {}));
+
+		renderWithQuery(<DashboardPage />);
+
+		// Open the detail modal
+		const templateButton = await waitFor(() => {
+			const button = screen.getByText('Request Inspector').closest('button');
+			expect(button).toBeTruthy();
+			return button!;
+		});
+		fireEvent.click(templateButton);
+
+		await waitFor(() => {
+			expect(screen.getByRole('dialog')).toBeInTheDocument();
+		});
+		const createButton = within(screen.getByRole('dialog')).getByRole('button', { name: 'Create Project' });
+		fireEvent.click(createButton);
+
+		// Loading overlay should be visible
+		expect(screen.getByText('Creating project...')).toBeInTheDocument();
+
+		// Simulate bfcache restore (browser back button)
+		globalThis.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }));
+
+		// Loading overlay should be cleared
+		await waitFor(() => {
+			expect(screen.queryByText('Creating project...')).not.toBeInTheDocument();
+		});
+	});
+
 	it('project rows are links to the project page', async () => {
 		const projectId = '494rtk7ddoepe5ru2lx4oc855i6lc23p3apolh04feq8q517sa';
 		vi.mocked(fetchOrgProjects).mockResolvedValue([
