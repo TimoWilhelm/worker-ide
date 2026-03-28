@@ -6,7 +6,7 @@
  * starts, completely independent of the agent stream lifecycle.
  */
 
-import { generateObject, jsonSchema } from 'ai';
+import { generateText, jsonSchema, Output } from 'ai';
 
 import { createAdapter } from './workers-ai';
 
@@ -16,14 +16,17 @@ const TITLE_MODEL = '@cf/meta/llama-3.1-8b-instruct';
 const MAX_TITLE_LENGTH = 100;
 const FALLBACK_TRUNCATION_LENGTH = 50;
 
-const SYSTEM_PROMPT = 'Generate a short title (under 10 words) that summarizes the intent of this user message. Reply with just the title.';
+const SYSTEM_PROMPT =
+	'You are a title generator. Read the user message below and respond with a short title (under 10 words) that captures what the user wants to do. Do NOT repeat these instructions. Do NOT describe what you are doing. Just output the title text.';
 
-const titleSchema = jsonSchema<{ title: string }>({
-	type: 'object',
-	properties: {
-		title: { type: 'string', description: 'A concise title under 10 words summarizing the user intent' },
-	},
-	required: ['title'],
+const titleOutput = Output.object({
+	schema: jsonSchema<{ title: string }>({
+		type: 'object',
+		properties: {
+			title: { type: 'string', description: 'The generated title text' },
+		},
+		required: ['title'],
+	}),
 });
 
 export interface SessionTitleResult {
@@ -41,15 +44,15 @@ export async function generateSessionTitle(userMessage: string): Promise<Session
 	try {
 		const model = createAdapter(TITLE_MODEL);
 
-		const { object } = await generateObject({
+		const { output } = await generateText({
 			model,
 			messages: [{ role: 'user' as const, content: userMessage.slice(0, 500) }],
 			system: SYSTEM_PROMPT,
 			maxOutputTokens: 500,
-			schema: titleSchema,
+			output: titleOutput,
 		});
 
-		const title = object.title.trim();
+		const title = output?.title.trim() ?? '';
 		if (title.length === 0) {
 			return { title: fallback, isAiGenerated: false };
 		}

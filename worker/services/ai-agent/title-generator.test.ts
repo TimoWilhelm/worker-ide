@@ -1,7 +1,7 @@
 /**
  * Tests for AI-powered session title generation.
  *
- * Mocks Vercel AI SDK `generateObject()` and the Workers AI adapter to test
+ * Mocks Vercel AI SDK `generateText()` and the Workers AI adapter to test
  * title extraction, fallback behavior, and the isAiGenerated flag without
  * real API calls.
  */
@@ -12,11 +12,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 // Mocks — must be declared before importing the module under test
 // ---------------------------------------------------------------------------
 
-const mockGenerateObject = vi.fn();
+const mockGenerateText = vi.fn();
 
 vi.mock('ai', () => ({
-	generateObject: (...arguments_: unknown[]) => mockGenerateObject(...arguments_),
+	generateText: (...arguments_: unknown[]) => mockGenerateText(...arguments_),
 	jsonSchema: (schema: unknown) => schema,
+	Output: { object: (config: unknown) => config },
 }));
 
 vi.mock('./workers-ai', () => ({
@@ -33,11 +34,11 @@ const { generateSessionTitle, deriveFallbackTitle } = await import('./title-gene
 const USER_MESSAGE = 'Help me build a todo app with React and TypeScript';
 
 function mockStructuredResponse(title: string) {
-	mockGenerateObject.mockResolvedValueOnce({ object: { title } });
+	mockGenerateText.mockResolvedValueOnce({ output: { title } });
 }
 
-function mockGenerateObjectError(message: string) {
-	mockGenerateObject.mockRejectedValueOnce(new Error(message));
+function mockGenerateTextError(message: string) {
+	mockGenerateText.mockRejectedValueOnce(new Error(message));
 }
 
 // ---------------------------------------------------------------------------
@@ -77,19 +78,19 @@ describe('generateSessionTitle', () => {
 		expect(result.isAiGenerated).toBe(false);
 	});
 
-	it('falls back when generateObject() throws an error', async () => {
-		mockGenerateObjectError('Service temporarily unavailable');
+	it('falls back when generateText() throws an error', async () => {
+		mockGenerateTextError('Service temporarily unavailable');
 		const result = await generateSessionTitle(USER_MESSAGE);
 		expect(result.title).toBe(deriveFallbackTitle(USER_MESSAGE));
 		expect(result.isAiGenerated).toBe(false);
 	});
 
-	it('passes only the user message to generateObject()', async () => {
+	it('passes only the user message to generateText()', async () => {
 		mockStructuredResponse('Test Title');
 		await generateSessionTitle(USER_MESSAGE);
-		expect(mockGenerateObject).toHaveBeenCalledOnce();
-		const callArguments = mockGenerateObject.mock.calls[0][0];
-		expect(callArguments.schema).toBeDefined();
+		expect(mockGenerateText).toHaveBeenCalledOnce();
+		const callArguments = mockGenerateText.mock.calls[0][0];
+		expect(callArguments.output).toBeDefined();
 		expect(callArguments.messages).toHaveLength(1);
 		expect(callArguments.messages[0].content).toBe(USER_MESSAGE);
 	});
@@ -98,7 +99,7 @@ describe('generateSessionTitle', () => {
 		const longMessage = 'A'.repeat(1000);
 		mockStructuredResponse('Title for Long Message');
 		await generateSessionTitle(longMessage);
-		const callArguments = mockGenerateObject.mock.calls[0][0];
+		const callArguments = mockGenerateText.mock.calls[0][0];
 		expect(callArguments.messages[0].content).toBe('A'.repeat(500));
 	});
 });
