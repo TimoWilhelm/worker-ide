@@ -29,7 +29,7 @@ export default mergeConfig(
 			__APP_VERSION__: '"storybook"',
 		},
 		optimizeDeps: {
-			include: ['react-dom/client'],
+			include: ['react-dom/client', 'better-auth/react', 'better-auth/client/plugins'],
 		},
 	}),
 	defineVitestConfig({

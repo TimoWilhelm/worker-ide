@@ -1,6 +1,7 @@
 {
 	"$schema": "https://unpkg.com/knip@5/schema.json",
-	"entry": ["src/pages/**/*.astro"],
+	"entry": ["src/pages/**/*.{astro,md}"],
 	"project": ["src/**/*.{astro,ts,tsx}"],
-	"ignoreDependencies": ["tailwindcss"]
+	"ignoreDependencies": ["tailwindcss"],
+	"ignoreFiles": ["src/layouts/markdown-layout.astro"]
 }
