@@ -326,6 +326,10 @@ app.use('/api/new-project', requireAuth);
 app.use('/api/clone-project', requireAuth);
 app.use('/api/org/*', requireAuth);
 app.use('/p/*/api/*', requireAuth);
+app.use('/p/*/__agent', requireAuth);
+app.use('/p/*/__agent/*', requireAuth);
+app.use('/p/*/__ws', requireAuth);
+app.use('/p/*/__ws/*', requireAuth);
 
 // =============================================================================
 // Org routes (authed, root-level)
