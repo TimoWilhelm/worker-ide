@@ -29,12 +29,13 @@ vi.mock('cloudflare:workers', () => ({
 	},
 }));
 
-// Mock Vercel AI SDK generateObject to avoid real LLM calls
+// Mock Vercel AI SDK generateText to avoid real LLM calls
 vi.mock('ai', () => ({
-	generateObject: () => {
-		return Promise.resolve({ object: { summary: 'Summarized: page content about testing.' } });
+	generateText: () => {
+		return Promise.resolve({ output: { summary: 'Summarized: page content about testing.' } });
 	},
 	jsonSchema: (schema: unknown) => schema,
+	Output: { object: (config: unknown) => config },
 }));
 
 // Mock the workers-ai adapter

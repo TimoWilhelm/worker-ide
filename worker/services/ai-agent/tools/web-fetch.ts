@@ -7,7 +7,7 @@
  * injection attacks embedded in web pages.
  */
 
-import { generateObject, jsonSchema } from 'ai';
+import { generateText, jsonSchema, Output } from 'ai';
 import { env } from 'cloudflare:workers';
 
 import { SUMMARIZATION_AI_MODEL } from '@shared/constants';
@@ -85,16 +85,18 @@ async function convertHtmlToMarkdown(html: string): Promise<string | undefined> 
 // =============================================================================
 
 /**
- * Send markdown content + user prompt through Vercel AI SDK generateObject() for summarization.
+ * Send markdown content + user prompt through Vercel AI SDK generateText() for summarization.
  * The summarization model treats the fetched content as data, preventing
  * prompt injection from reaching the calling agent.
  */
-const summarySchema = jsonSchema<{ summary: string }>({
-	type: 'object',
-	properties: {
-		summary: { type: 'string', description: 'A concise, factual answer to the user prompt based on the web page content' },
-	},
-	required: ['summary'],
+const summaryOutput = Output.object({
+	schema: jsonSchema<{ summary: string }>({
+		type: 'object',
+		properties: {
+			summary: { type: 'string', description: 'A concise, factual answer to the user prompt based on the web page content' },
+		},
+		required: ['summary'],
+	}),
 });
 
 async function summarizeContent(markdownContent: string, userPrompt: string, url: string): Promise<string> {
@@ -118,15 +120,15 @@ async function summarizeContent(markdownContent: string, userPrompt: string, url
 		`User prompt: ${userPrompt}`,
 	].join('\n');
 
-	const { object } = await generateObject({
+	const { output } = await generateText({
 		model,
 		messages: [{ role: 'user' as const, content: userMessage }],
 		system: systemPrompt,
 		maxOutputTokens: 4096,
-		schema: summarySchema,
+		output: summaryOutput,
 	});
 
-	return object.summary.trim();
+	return output?.summary.trim() ?? '';
 }
 
 // =============================================================================
