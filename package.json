@@ -74,6 +74,7 @@
 		"lint-staged": "^16.4.0",
 		"lucide-react": "^0.563.0",
 		"minimatch": "^10.2.4",
+		"motion": "^12.38.0",
 		"playwright": "^1.58.2",
 		"prettier": "^3.8.1",
 		"radix-ui": "^1.4.3",

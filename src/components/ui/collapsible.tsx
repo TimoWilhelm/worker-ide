@@ -1,11 +1,14 @@
 /**
  * Collapsible
  *
- * Animates children in/out using a CSS grid-row height transition.
- * When `open` is false the element collapses to 0 height without
- * unmounting, preventing layout jumps that conditional rendering causes.
+ * Animates children in/out using a spring-based height transition
+ * powered by the `motion` library. Uses AnimatePresence for clean
+ * mount/unmount animations.
  */
 
+import { AnimatePresence, motion } from 'motion/react';
+
+import { springDefault } from '@/lib/motion-config';
 import { cn } from '@/lib/utils';
 
 import type { ReactNode } from 'react';
@@ -15,16 +18,24 @@ export interface CollapsibleProperties {
 	open: boolean;
 	/** Content to show/hide */
 	children: ReactNode;
-	/** Extra classes on the outer grid wrapper */
+	/** Extra classes on the wrapper */
 	className?: string;
-	/** Transition duration class (default: `duration-200`) */
-	duration?: string;
 }
 
-export function Collapsible({ open, children, className, duration = 'duration-200' }: CollapsibleProperties) {
+export function Collapsible({ open, children, className }: CollapsibleProperties) {
 	return (
-		<div className={cn('grid transition-[grid-template-rows] ease-out', duration, open ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]', className)}>
-			<div className="overflow-hidden">{children}</div>
-		</div>
+		<AnimatePresence initial={false}>
+			{open && (
+				<motion.div
+					initial={{ height: 0, opacity: 0 }}
+					animate={{ height: 'auto', opacity: 1 }}
+					exit={{ height: 0, opacity: 0 }}
+					transition={springDefault}
+					className={cn('overflow-hidden', className)}
+				>
+					{children}
+				</motion.div>
+			)}
+		</AnimatePresence>
 	);
 }

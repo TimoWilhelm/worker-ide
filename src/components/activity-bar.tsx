@@ -5,8 +5,10 @@
  */
 
 import { Files, FlaskConical, GitBranch } from 'lucide-react';
+import { AnimatePresence, motion } from 'motion/react';
 
 import { Tooltip } from '@/components/ui';
+import { springSnappy } from '@/lib/motion-config';
 import { useStore, selectActiveSidebarView, selectGitChangedFileCount, type SidebarView } from '@/lib/store';
 import { cn } from '@/lib/utils';
 
@@ -41,26 +43,34 @@ function ActivityBarItem({ icon, label, view, activeView, badge, onSelect }: Act
 				onClick={() => onSelect(view)}
 				className={cn(
 					'relative flex size-10 cursor-pointer items-center justify-center',
-					'transition-colors',
-					isActive
-						? 'border-l-2 border-accent text-text-primary'
-						: `
-							border-l-2 border-transparent text-text-secondary
-							hover:text-text-primary
-						`,
+					'border-l-2 border-transparent transition-colors',
+					isActive ? 'text-text-primary' : 'text-text-secondary hover:text-text-primary',
 				)}
 			>
-				{icon}
-				{badge !== undefined && badge > 0 && (
-					<span
-						className={cn(
-							'absolute top-1 right-1 flex size-4 items-center justify-center',
-							'rounded-full bg-accent text-[10px] leading-none font-bold text-white',
-						)}
-					>
-						{badge > 99 ? '99+' : badge}
-					</span>
+				{isActive && (
+					<motion.span
+						layoutId="activity-bar-indicator"
+						className="absolute inset-y-0 left-[-2px] w-0.5 bg-accent"
+						transition={springSnappy}
+					/>
 				)}
+				{icon}
+				<AnimatePresence>
+					{badge !== undefined && badge > 0 && (
+						<motion.span
+							initial={{ scale: 0 }}
+							animate={{ scale: 1 }}
+							exit={{ scale: 0 }}
+							transition={springSnappy}
+							className={cn(
+								'absolute top-1 right-1 flex size-4 items-center justify-center',
+								'rounded-full bg-accent text-[10px] leading-none font-bold text-white',
+							)}
+						>
+							{badge > 99 ? '99+' : badge}
+						</motion.span>
+					)}
+				</AnimatePresence>
 			</button>
 		</Tooltip>
 	);

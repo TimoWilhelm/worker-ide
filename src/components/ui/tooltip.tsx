@@ -10,9 +10,11 @@
  * discoverable via long-press.
  */
 
+import { AnimatePresence, motion } from 'motion/react';
 import { Tooltip as RadixTooltip } from 'radix-ui';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { springSnappy, tooltipVariants } from '@/lib/motion-config';
 import { cn } from '@/lib/utils';
 
 import type { ReactNode } from 'react';
@@ -141,22 +143,31 @@ function Tooltip({ children, content, side = 'top', delayDuration, className }: 
 			<RadixTooltip.Trigger asChild onTouchStart={onTriggerTouchStart} onTouchEnd={cancelLongPress} onTouchMove={cancelLongPress}>
 				{children}
 			</RadixTooltip.Trigger>
-			<RadixTooltip.Portal>
-				<RadixTooltip.Content
-					side={side}
-					sideOffset={4}
-					className={cn(
-						`
-							z-50 rounded-sm border border-border bg-bg-primary px-2 py-1 text-xs
-							text-text-primary shadow-md
-						`,
-						className,
-					)}
-				>
-					{content}
-					<RadixTooltip.Arrow className="fill-border" />
-				</RadixTooltip.Content>
-			</RadixTooltip.Portal>
+			<AnimatePresence>
+				{open && (
+					<RadixTooltip.Portal forceMount>
+						<RadixTooltip.Content side={side} sideOffset={4} asChild>
+							<motion.div
+								variants={tooltipVariants}
+								initial="hidden"
+								animate="visible"
+								exit="exit"
+								transition={springSnappy}
+								className={cn(
+									`
+										z-50 rounded-sm border border-border bg-bg-primary px-2 py-1 text-xs
+										text-text-primary shadow-md
+									`,
+									className,
+								)}
+							>
+								{content}
+								<RadixTooltip.Arrow className="fill-border" />
+							</motion.div>
+						</RadixTooltip.Content>
+					</RadixTooltip.Portal>
+				)}
+			</AnimatePresence>
 		</RadixTooltip.Root>
 	);
 }

@@ -4,8 +4,10 @@
  * Accessible dropdown menu using radix-ui primitives.
  */
 
+import { motion } from 'motion/react';
 import { DropdownMenu as RadixDropdownMenu } from 'radix-ui';
 
+import { popoverVariants, springSnappy } from '@/lib/motion-config';
 import { cn } from '@/lib/utils';
 
 import type { ReactNode, Ref } from 'react';
@@ -33,19 +35,23 @@ interface DropdownMenuContentProperties {
 function DropdownMenuContent({ children, className, align = 'end', sideOffset = 4, ref }: DropdownMenuContentProperties) {
 	return (
 		<RadixDropdownMenu.Portal>
-			<RadixDropdownMenu.Content
-				ref={ref}
-				align={align}
-				sideOffset={sideOffset}
-				className={cn(
-					`
-						z-50 min-w-32 overflow-hidden rounded-md border border-border
-						bg-bg-secondary shadow-md
-					`,
-					className,
-				)}
-			>
-				{children}
+			<RadixDropdownMenu.Content ref={ref} align={align} sideOffset={sideOffset} asChild>
+				<motion.div
+					variants={popoverVariants}
+					initial="hidden"
+					animate="visible"
+					exit="exit"
+					transition={springSnappy}
+					className={cn(
+						`
+							z-50 min-w-32 overflow-hidden rounded-md border border-border
+							bg-bg-secondary shadow-md
+						`,
+						className,
+					)}
+				>
+					{children}
+				</motion.div>
 			</RadixDropdownMenu.Content>
 		</RadixDropdownMenu.Portal>
 	);

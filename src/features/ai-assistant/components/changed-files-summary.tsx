@@ -6,10 +6,12 @@
  */
 
 import { ArrowRightLeft, Check, ChevronDown, ChevronRight, FileMinus, FilePen, FilePlus, X } from 'lucide-react';
+import { AnimatePresence, motion } from 'motion/react';
 import { useMemo, useState } from 'react';
 
 import { Pill } from '@/components/ui/pill';
 import { Tooltip } from '@/components/ui/tooltip';
+import { springDefault } from '@/lib/motion-config';
 import { useStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 
@@ -118,17 +120,27 @@ export function ChangedFilesSummary({
 			{/* File list */}
 			{isExpanded && (
 				<div className="max-h-40 overflow-y-auto border-t border-accent/15">
-					{pendingEntries.map(([path, change]) => (
-						<ChangedFileRow
-							key={path}
-							path={path}
-							action={change.action}
-							hasSnapshot={!!change.snapshotId}
-							onApprove={onApproveChange}
-							onReject={onRejectChange}
-							isReverting={isReverting}
-						/>
-					))}
+					<AnimatePresence initial={false}>
+						{pendingEntries.map(([path, change]) => (
+							<motion.div
+								key={path}
+								initial={{ height: 0, opacity: 0 }}
+								animate={{ height: 'auto', opacity: 1 }}
+								exit={{ height: 0, opacity: 0 }}
+								transition={springDefault}
+								className="overflow-hidden"
+							>
+								<ChangedFileRow
+									path={path}
+									action={change.action}
+									hasSnapshot={!!change.snapshotId}
+									onApprove={onApproveChange}
+									onReject={onRejectChange}
+									isReverting={isReverting}
+								/>
+							</motion.div>
+						))}
+					</AnimatePresence>
 				</div>
 			)}
 		</div>

@@ -12,6 +12,7 @@
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { BookOpen, Copy, Github, Hexagon, Moon, Search, Sun, Trash2 } from 'lucide-react';
+import { motion } from 'motion/react';
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { HalftoneBackground } from '@/components/halftone-background';
@@ -25,6 +26,7 @@ import { PendingInvitationsBanner } from '@/features/org/pending-invitations-ban
 import { UserMenu } from '@/features/user-menu';
 import { useTheme } from '@/hooks/use-theme';
 import { cloneProject, createProject, deleteProject, fetchOrgProjects, fetchTemplates } from '@/lib/api-client';
+import { fadeUpVariants, springGentle, staggerContainer } from '@/lib/motion-config';
 import { getProjectUrl } from '@/lib/preview-origin';
 import { useStore } from '@/lib/store';
 import { cn, formatRelativeTime } from '@/lib/utils';
@@ -648,10 +650,15 @@ export default function DashboardPage({ orgSlug, organizationId, organizations, 
 				"
 			>
 				{/* Header / Branding */}
-				<div className="mb-10 flex flex-col items-center gap-3">
+				<motion.div
+					className="mb-10 flex flex-col items-center gap-3"
+					initial={{ opacity: 0, y: 10 }}
+					animate={{ opacity: 1, y: 0 }}
+					transition={springGentle}
+				>
 					<Hexagon className="size-8 text-accent" strokeWidth={1.5} />
 					<h1 className="text-xl font-semibold tracking-tight text-text-primary">Codemaxxing</h1>
-				</div>
+				</motion.div>
 
 				{/* Template cards */}
 				<section className="mb-8">
@@ -662,28 +669,30 @@ export default function DashboardPage({ orgSlug, organizationId, organizations, 
 					>
 						Start a new project
 					</h2>
-					<div
+					<motion.div
 						className="
 							grid grid-cols-3 gap-2
 							sm:grid-cols-4
 						"
+						variants={staggerContainer(0.05)}
+						initial="hidden"
+						animate="visible"
 					>
 						{templatesLoaded ? (
 							<>
 								{templates.map((template) => (
-									<TemplateCard
-										key={template.id}
-										template={template}
-										onSelect={handleSelectTemplate}
-										disabled={isLoading || projectLimitReached}
-									/>
+									<motion.div key={template.id} variants={fadeUpVariants} transition={springGentle}>
+										<TemplateCard template={template} onSelect={handleSelectTemplate} disabled={isLoading || projectLimitReached} />
+									</motion.div>
 								))}
-								<CloneCard onSelect={handleOpenCloneModal} disabled={isLoading || projectLimitReached} />
+								<motion.div variants={fadeUpVariants} transition={springGentle}>
+									<CloneCard onSelect={handleOpenCloneModal} disabled={isLoading || projectLimitReached} />
+								</motion.div>
 							</>
 						) : (
 							Array.from({ length: 4 }, (_, index) => <TemplateCardSkeleton key={index} />)
 						)}
-					</div>
+					</motion.div>
 				</section>
 
 				{/* Pending invitations for the current user */}

@@ -6,6 +6,9 @@
  */
 
 import { cva, type VariantProps } from 'class-variance-authority';
+import { motion } from 'motion/react';
+
+import { springSnappy } from '@/lib/motion-config';
 
 import { Spinner } from './spinner';
 
@@ -76,11 +79,15 @@ interface ButtonProperties extends ButtonHTMLAttributes<HTMLButtonElement>, Vari
  * Uses React 19 ref-as-prop pattern (no forwardRef).
  */
 function Button({ className, variant, size, isLoading, loadingText, children, disabled, ref, ...properties }: ButtonProperties) {
+	const isDisabledOrLoading = disabled || isLoading;
+
 	return (
-		<button className={buttonVariants({ variant, size, className })} ref={ref} disabled={disabled || isLoading} {...properties}>
-			{isLoading && <Spinner size="sm" />}
-			{isLoading && loadingText ? loadingText : children}
-		</button>
+		<motion.div className="inline-flex" whileTap={isDisabledOrLoading ? undefined : { scale: 0.97 }} transition={springSnappy}>
+			<button className={buttonVariants({ variant, size, className })} ref={ref} disabled={isDisabledOrLoading} {...properties}>
+				{isLoading && <Spinner size="sm" />}
+				{isLoading && loadingText ? loadingText : children}
+			</button>
+		</motion.div>
 	);
 }
 

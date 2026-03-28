@@ -8,11 +8,13 @@
  */
 
 import { Github, Hexagon } from 'lucide-react';
+import { motion } from 'motion/react';
 import { Suspense } from 'react';
 
 import { HalftoneBackground } from '@/components/halftone-background';
 import { Button } from '@/components/ui/button';
 import { authClient } from '@/lib/auth-client';
+import { fadeUpVariants, springGentle, staggerContainer } from '@/lib/motion-config';
 
 function handleGitHubLogin() {
 	void authClient.signIn.social({ provider: 'github', callbackURL: '/' });
@@ -41,23 +43,28 @@ export default function LoginPage() {
 				<HalftoneBackground />
 			</Suspense>
 
-			<div
+			<motion.div
 				className="
 					relative z-0 flex w-full max-w-md flex-col items-center gap-8 px-6
 				"
+				variants={staggerContainer(0.1)}
+				initial="hidden"
+				animate="visible"
 			>
 				{/* Branding */}
-				<div className="flex flex-col items-center gap-3">
+				<motion.div className="flex flex-col items-center gap-3" variants={fadeUpVariants} transition={springGentle}>
 					<Hexagon className="size-10 text-accent" strokeWidth={1.5} />
 					<h1 className="text-2xl font-semibold tracking-tight text-text-primary">Codemaxxing</h1>
-				</div>
+				</motion.div>
 
 				{/* Card-like form area */}
-				<div
+				<motion.div
 					className="
 						flex w-full flex-col items-center gap-6 rounded-xl border border-border
 						bg-bg-primary/80 p-8 shadow-sm backdrop-blur-md
 					"
+					variants={fadeUpVariants}
+					transition={springGentle}
 				>
 					<div className="flex flex-col items-center gap-1 text-center">
 						<h2 className="text-lg font-semibold tracking-tight text-text-primary">Welcome</h2>
@@ -74,9 +81,9 @@ export default function LoginPage() {
 							Continue with Google
 						</Button>
 					</div>
-				</div>
+				</motion.div>
 
-				<p className="text-center text-xs text-text-secondary/60">
+				<motion.p className="text-center text-xs text-text-secondary/60" variants={fadeUpVariants} transition={springGentle}>
 					By signing in, you agree to our{' '}
 					<a
 						href="https://codemaxxing.ai/terms"
@@ -102,8 +109,8 @@ export default function LoginPage() {
 						privacy&nbsp;policy
 					</a>
 					.
-				</p>
-			</div>
+				</motion.p>
+			</motion.div>
 		</div>
 	);
 }

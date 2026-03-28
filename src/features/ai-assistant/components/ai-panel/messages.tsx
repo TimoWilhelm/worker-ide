@@ -33,11 +33,13 @@ import {
 	Search,
 	Trash2,
 } from 'lucide-react';
+import { motion } from 'motion/react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { Pill, type PillProperties } from '@/components/ui/pill';
 import { Tooltip } from '@/components/ui/tooltip';
 import { computeDiffHunks } from '@/features/editor/lib/diff-decorations';
+import { fadeUpVariants, springDefault } from '@/lib/motion-config';
 import { useStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 import { TOOL_ERROR_LABELS } from '@shared/tool-errors';
@@ -297,7 +299,13 @@ function UserMessage({
 	const badge = agentMode ? MODE_BADGE_STYLES[agentMode] : undefined;
 
 	return (
-		<div className="flex min-w-0 animate-chat-item flex-col gap-1">
+		<motion.div
+			className="flex min-w-0 flex-col gap-1"
+			variants={fadeUpVariants}
+			initial="hidden"
+			animate="visible"
+			transition={springDefault}
+		>
 			<div className="flex items-center justify-between">
 				<div className="flex items-center gap-1.5">
 					<span className="text-2xs font-semibold tracking-wider text-accent uppercase">You</span>
@@ -332,7 +340,7 @@ function UserMessage({
 					)}
 				</span>
 			</div>
-		</div>
+		</motion.div>
 	);
 }
 

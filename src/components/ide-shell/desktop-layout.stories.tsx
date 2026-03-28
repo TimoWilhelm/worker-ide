@@ -87,7 +87,7 @@ const defaultMockFileTree: ReturnType<typeof useFileTree> = {
 };
 
 const mockLayouts: ReturnType<typeof usePanelLayouts> = {
-	aiPanelVisible: true,
+	aiPanelVisible: false,
 	utilityPanelVisible: true,
 	devtoolsVisible: false,
 	dependenciesPanelVisible: true,

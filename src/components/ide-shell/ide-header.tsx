@@ -3,6 +3,7 @@
  */
 
 import { BookOpen, Bot, Download, EllipsisVertical, Github, Hexagon, Moon, Pencil, Rocket, Settings, Sun } from 'lucide-react';
+import { AnimatePresence, motion } from 'motion/react';
 
 import { BorderBeam } from '@/components/ui/border-beam';
 import { Button } from '@/components/ui/button';
@@ -10,6 +11,7 @@ import { Modal, ModalBody } from '@/components/ui/modal';
 import { Tooltip } from '@/components/ui/tooltip';
 import { VersionBadge } from '@/components/version-badge';
 import { NotificationToggle } from '@/features/notifications';
+import { fadeVariants, tweenFast } from '@/lib/motion-config';
 import { cn } from '@/lib/utils';
 
 import type { useProjectName } from './use-project-name';
@@ -117,7 +119,20 @@ export function IDEHeader({
 				</div>
 				<div className="flex shrink-0 items-center gap-2 wco-interactive">
 					{/* Save indicator */}
-					{isSaving && <span className="text-xs text-text-secondary">Saving...</span>}
+					<AnimatePresence>
+						{isSaving && (
+							<motion.span
+								variants={fadeVariants}
+								initial="hidden"
+								animate="visible"
+								exit="exit"
+								transition={tweenFast}
+								className="text-xs text-text-secondary"
+							>
+								Saving...
+							</motion.span>
+						)}
+					</AnimatePresence>
 
 					{/* AI toggle (desktop only — mobile uses bottom tab bar) */}
 					{!isMobile && (

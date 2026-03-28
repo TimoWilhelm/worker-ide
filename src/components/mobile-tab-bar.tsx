@@ -5,8 +5,10 @@
  */
 
 import { Bot, Code, Eye, FlaskConical, GitBranch } from 'lucide-react';
+import { motion } from 'motion/react';
 
 import { BorderBeam } from '@/components/ui/border-beam';
+import { springSnappy } from '@/lib/motion-config';
 import { selectIsProcessing, useStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 
@@ -69,13 +71,16 @@ export function MobileTabBar() {
 								relative flex flex-1 cursor-pointer flex-col items-center justify-center
 								gap-0.5 transition-colors
 							`,
-							isActive ? 'bg-accent/10 text-accent' : 'text-text-secondary hover:bg-bg-tertiary hover:text-text-primary',
+							isActive ? 'text-accent' : 'text-text-secondary hover:bg-bg-tertiary hover:text-text-primary',
 						)}
 						aria-label={label}
 						aria-current={isActive ? 'page' : undefined}
 					>
-						<Icon className="size-5" />
-						<span className="text-3xs font-medium">{label}</span>
+						{isActive && (
+							<motion.span layoutId="mobile-tab-indicator" className="absolute inset-0 bg-accent/10" transition={springSnappy} />
+						)}
+						<Icon className="relative size-5" />
+						<span className="relative text-3xs font-medium">{label}</span>
 						{showProcessingIndicator && <BorderBeam duration={1.5} />}
 					</button>
 				);

@@ -7,7 +7,9 @@
  */
 
 import { Check, ChevronDown, ChevronUp, X } from 'lucide-react';
+import { motion } from 'motion/react';
 
+import { springDefault } from '@/lib/motion-config';
 import { cn } from '@/lib/utils';
 
 import type { ChangeGroup } from '../lib/diff-decorations';
@@ -72,8 +74,11 @@ export function DiffFloatingBar({
 	};
 
 	return (
-		<div
+		<motion.div
 			data-diff-floating-bar
+			initial={{ opacity: 0, y: 8 }}
+			animate={{ opacity: 1, y: 0 }}
+			transition={springDefault}
 			className={cn(
 				`
 					absolute bottom-3 left-1/2 z-10 -translate-x-1/2 transition-[bottom]
@@ -81,7 +86,6 @@ export function DiffFloatingBar({
 				`,
 				'flex items-center gap-1 rounded-lg border px-1.5 py-1',
 				'border-border-solid bg-bg-secondary shadow-lg',
-				'animate-fade-in',
 			)}
 		>
 			{/* Navigation controls */}
@@ -158,6 +162,6 @@ export function DiffFloatingBar({
 				<X className="size-3" />
 				Reject
 			</button>
-		</div>
+		</motion.div>
 	);
 }

@@ -3,9 +3,11 @@
  */
 
 import { BookOpen, Github } from 'lucide-react';
+import { AnimatePresence, motion } from 'motion/react';
 
 import { Tooltip } from '@/components/ui/tooltip';
 import { VersionBadge } from '@/components/version-badge';
+import { fadeVariants, tweenFast } from '@/lib/motion-config';
 
 interface IDEStatusBarProperties {
 	isConnected: boolean;
@@ -52,7 +54,13 @@ export function IDEStatusBar({ isConnected, localParticipantColor, participants,
 				)}
 			</div>
 			<div className="flex shrink-0 items-center gap-4">
-				{isSaving && <span>Saving...</span>}
+				<AnimatePresence>
+					{isSaving && (
+						<motion.span variants={fadeVariants} initial="hidden" animate="visible" exit="exit" transition={tweenFast}>
+							Saving...
+						</motion.span>
+					)}
+				</AnimatePresence>
 				<Tooltip content="GitHub">
 					<a
 						href="https://github.com/TimoWilhelm/worker-ide"

@@ -7,11 +7,13 @@
  */
 
 import { File, X } from 'lucide-react';
+import { motion } from 'motion/react';
 import { Tabs } from 'radix-ui';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 
 import { Spinner } from '@/components/ui/spinner';
 import { Tooltip } from '@/components/ui/tooltip';
+import { springSnappy } from '@/lib/motion-config';
 import { cn } from '@/lib/utils';
 
 import type { Participant } from '@shared/types';
@@ -271,17 +273,16 @@ function FileTabItem({ tab, isActive, showDirectory, participants, onClose }: Fi
 					focus-visible:ring-inset
 				`,
 				isActive
-					? `
-						bg-bg-primary text-text-primary
-						before:absolute before:inset-x-0 before:bottom-0 before:h-[2px]
-						before:bg-accent
-					`
+					? 'bg-bg-primary text-text-primary'
 					: `
 						bg-bg-secondary text-text-secondary
 						hover:text-text-primary
 					`,
 			)}
 		>
+			{isActive && (
+				<motion.span layoutId="file-tab-indicator" className="absolute inset-x-0 bottom-0 h-[2px] bg-accent" transition={springSnappy} />
+			)}
 			<File className={cn('size-3.5 shrink-0', iconColor)} />
 			<Tooltip content={tab.path}>
 				<span className="max-w-utility-panel truncate">

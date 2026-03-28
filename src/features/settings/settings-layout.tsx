@@ -6,9 +6,11 @@
  */
 
 import { ArrowLeft, Moon, Palette, Shield, Sun, User } from 'lucide-react';
+import { motion } from 'motion/react';
 
 import { Button } from '@/components/ui/button';
 import { useTheme } from '@/hooks/use-theme';
+import { springSnappy } from '@/lib/motion-config';
 import { useStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 
@@ -70,16 +72,23 @@ export default function SettingsLayout({ children, activePath }: SettingsLayoutP
 							const Icon = item.icon;
 							const isActive = activePath === item.href;
 							return (
-								<li key={item.href}>
+								<li key={item.href} className="relative">
+									{isActive && (
+										<motion.span
+											layoutId="settings-nav-indicator"
+											className="absolute inset-0 rounded-md bg-bg-tertiary"
+											transition={springSnappy}
+										/>
+									)}
 									<a
 										href={item.href}
 										className={cn(
 											`
-												flex items-center gap-2.5 rounded-md px-3 py-2 text-sm
+												relative flex items-center gap-2.5 rounded-md px-3 py-2 text-sm
 												transition-colors
 											`,
 											isActive
-												? 'bg-bg-tertiary font-medium text-text-primary'
+												? 'font-medium text-text-primary'
 												: `
 													text-text-secondary
 													hover:bg-bg-tertiary hover:text-text-primary
@@ -109,10 +118,20 @@ export default function SettingsLayout({ children, activePath }: SettingsLayoutP
 								key={item.href}
 								href={item.href}
 								className={cn(
-									'border-b-2 px-3 py-2 text-xs font-medium transition-colors',
-									isActive ? 'border-accent text-text-primary' : 'border-transparent text-text-secondary hover:text-text-primary',
+									`
+										relative border-b-2 border-transparent px-3 py-2 text-xs font-medium
+										transition-colors
+									`,
+									isActive ? 'text-text-primary' : 'text-text-secondary hover:text-text-primary',
 								)}
 							>
+								{isActive && (
+									<motion.span
+										layoutId="settings-mobile-tab-indicator"
+										className="absolute inset-x-0 bottom-0 h-0.5 bg-accent"
+										transition={springSnappy}
+									/>
+								)}
 								{item.label}
 							</a>
 						);
