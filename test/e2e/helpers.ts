@@ -16,6 +16,8 @@ const BASE_URL = process.env.TEST_BASE_URL || 'http://localhost:3000';
 
 /** Cached session cookie string, e.g. "better-auth.session_token=...". Cached per worker process. */
 let sessionCookie: string | undefined;
+/** Cached organization ID returned by /__test/create-session. */
+let testOrganizationId: string | undefined;
 
 /**
  * Ensure a test session exists and return the session cookie.
@@ -38,6 +40,8 @@ async function ensureTestSession(): Promise<string> {
 			}
 			// Extract just the name=value portion (before any ;)
 			sessionCookie = setCookieHeader.split(';')[0];
+			const data: { organizationId: string } = await response.json();
+			testOrganizationId = data.organizationId;
 			return sessionCookie;
 		}
 
@@ -64,7 +68,7 @@ async function createProject(): Promise<{ projectId: string; url: string }> {
 			'Content-Type': 'application/json',
 			Cookie: cookie,
 		},
-		body: JSON.stringify({ template: 'request-inspector' }),
+		body: JSON.stringify({ template: 'request-inspector', organizationId: testOrganizationId }),
 	});
 
 	if (!response.ok) {
