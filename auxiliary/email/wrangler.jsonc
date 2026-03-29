@@ -11,13 +11,13 @@
 		"traces": { "enabled": true },
 	},
 	"queues": {
-		"producers": [{ "binding": "EMAIL_QUEUE", "queue": "email-notifications" }],
+		"producers": [{ "binding": "EMAIL_QUEUE", "queue": "worker-ide-email" }],
 		"consumers": [
 			{
 				"max_batch_size": 2,
 				"max_batch_timeout": 10,
 				"max_retries": 3,
-				"queue": "email-notifications",
+				"queue": "worker-ide-email",
 			},
 		],
 	},

@@ -10,20 +10,20 @@
 		"logs": { "enabled": true },
 		"traces": { "enabled": true },
 	},
-	"kv_namespaces": [{ "binding": "KV_PUSH_SUBSCRIPTION", "id": "TBD" }],
+	"kv_namespaces": [{ "binding": "KV_PUSH_SUBSCRIPTION", "id": "190f895e11114532a070bdc243874ef5" }],
 	"queues": {
-		"producers": [{ "binding": "PUSH_QUEUE", "queue": "push-notifications" }],
+		"producers": [{ "binding": "PUSH_QUEUE", "queue": "worker-ide-push" }],
 		"consumers": [
 			{
 				"max_batch_size": 30,
 				"max_batch_timeout": 5,
 				"max_retries": 3,
-				"queue": "push-notifications",
+				"queue": "worker-ide-push",
 			},
 		],
 	},
 	"vars": {
-		"VAPID_SUBJECT": "mailto:support@codemaxxing.dev",
+		"VAPID_SUBJECT": "mailto:support@codemaxxing.ai",
 	},
 	"secrets": {
 		"required": ["VAPID_PUBLIC_KEY", "VAPID_PRIVATE_KEY"],
