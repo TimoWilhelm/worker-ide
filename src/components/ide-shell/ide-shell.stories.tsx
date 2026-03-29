@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Suspense } from 'react';
+import { MemoryRouter } from 'react-router';
 import { expect, within } from 'storybook/test';
 
 const queryClient = new QueryClient({
@@ -26,11 +27,13 @@ const meta = {
 	},
 	decorators: [
 		(Story) => (
-			<QueryClientProvider client={queryClient}>
-				<Suspense fallback={<div>Loading IDE Shell...</div>}>
-					<Story />
-				</Suspense>
-			</QueryClientProvider>
+			<MemoryRouter>
+				<QueryClientProvider client={queryClient}>
+					<Suspense fallback={<div>Loading IDE Shell...</div>}>
+						<Story />
+					</Suspense>
+				</QueryClientProvider>
+			</MemoryRouter>
 		),
 	],
 } satisfies Meta<typeof IDEShell>;

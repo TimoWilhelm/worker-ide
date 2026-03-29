@@ -1,3 +1,4 @@
+import { MemoryRouter } from 'react-router';
 import { expect, fn, userEvent, within } from 'storybook/test';
 
 import { IDEHeader } from './ide-header';
@@ -7,6 +8,13 @@ import type { Meta, StoryObj } from '@storybook/react-vite';
 const meta = {
 	title: 'IDE/IDEHeader',
 	component: IDEHeader,
+	decorators: [
+		(Story) => (
+			<MemoryRouter>
+				<Story />
+			</MemoryRouter>
+		),
+	],
 	parameters: {
 		layout: 'fullscreen',
 	},
