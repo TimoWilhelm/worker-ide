@@ -4,6 +4,7 @@
 
 import { BookOpen, Bot, Download, EllipsisVertical, Github, Hexagon, Moon, Pencil, Rocket, Settings, Sun } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
+import { Link } from 'react-router';
 
 import { BorderBeam } from '@/components/ui/border-beam';
 import { Button } from '@/components/ui/button';
@@ -68,8 +69,8 @@ export function IDEHeader({
 			>
 				<div className="flex min-w-0 items-center gap-2 wco-interactive">
 					<Tooltip content="Back to home">
-						<a
-							href="/"
+						<Link
+							to="/"
 							className="
 								shrink-0 text-accent transition-colors
 								hover:text-accent-hover
@@ -77,7 +78,7 @@ export function IDEHeader({
 							aria-label="Back to home"
 						>
 							<Hexagon className="size-4" />
-						</a>
+						</Link>
 					</Tooltip>
 					{isEditingName ? (
 						<div className="flex items-center gap-1">

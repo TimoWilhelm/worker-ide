@@ -16,6 +16,7 @@ import { betterAuth } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { organization } from 'better-auth/plugins';
 import { env } from 'cloudflare:workers';
+import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
 
 import {
@@ -152,6 +153,43 @@ export function createAuth(environment: AuthEnvironment, baseUrl: string) {
 							]);
 						} catch (error) {
 							console.error('Failed to create personal organization for user:', user.id, error);
+						}
+					},
+				},
+			},
+			session: {
+				create: {
+					before: async (session) => {
+						// Check ban/soft-delete status before allowing a new session (sign-in).
+						// - Banned users are rejected (return false).
+						// - Soft-deleted users are restored (clear deleted_at) and allowed in.
+						try {
+							const authDatabase = drizzle(environment.DB);
+							const userRows = await authDatabase
+								.select({ bannedAt: schema.user.bannedAt, deletedAt: schema.user.deletedAt })
+								.from(schema.user)
+								.where(eq(schema.user.id, session.userId))
+								.limit(1);
+
+							if (userRows.length === 0) return;
+
+							const userRow = userRows[0];
+
+							// Banned users cannot sign in
+							if (userRow.bannedAt) {
+								return false;
+							}
+
+							// Soft-deleted users are restored on sign-in
+							if (userRow.deletedAt) {
+								await authDatabase
+									.update(schema.user)
+									// eslint-disable-next-line unicorn/no-null -- Drizzle ORM requires null to clear nullable columns
+									.set({ deletedAt: null, updatedAt: new Date() })
+									.where(eq(schema.user.id, session.userId));
+							}
+						} catch (error) {
+							console.error('Failed to check user ban/delete status during session creation:', error);
 						}
 					},
 				},

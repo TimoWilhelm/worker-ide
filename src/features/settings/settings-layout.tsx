@@ -7,6 +7,7 @@
 
 import { ArrowLeft, Moon, Palette, Shield, Sun, User } from 'lucide-react';
 import { motion } from 'motion/react';
+import { Link } from 'react-router';
 
 import { Button } from '@/components/ui/button';
 import { useTheme } from '@/hooks/use-theme';
@@ -38,8 +39,8 @@ export default function SettingsLayout({ children, activePath }: SettingsLayoutP
 					bg-bg-secondary px-4
 				"
 			>
-				<a
-					href="/"
+				<Link
+					to="/"
 					className="
 						rounded-md p-1.5 text-text-secondary transition-colors
 						hover:bg-bg-tertiary hover:text-text-primary
@@ -47,7 +48,7 @@ export default function SettingsLayout({ children, activePath }: SettingsLayoutP
 					aria-label="Back to dashboard"
 				>
 					<ArrowLeft className="size-4" />
-				</a>
+				</Link>
 				<h1 className="flex-1 text-sm font-semibold text-text-primary">Settings</h1>
 				<Button
 					variant="ghost"
@@ -80,8 +81,8 @@ export default function SettingsLayout({ children, activePath }: SettingsLayoutP
 											transition={springSnappy}
 										/>
 									)}
-									<a
-										href={item.href}
+									<Link
+										to={item.href}
 										className={cn(
 											`
 												relative flex items-center gap-2.5 rounded-md px-3 py-2 text-sm
@@ -97,7 +98,7 @@ export default function SettingsLayout({ children, activePath }: SettingsLayoutP
 									>
 										<Icon className="size-4 shrink-0" />
 										{item.label}
-									</a>
+									</Link>
 								</li>
 							);
 						})}
@@ -114,9 +115,9 @@ export default function SettingsLayout({ children, activePath }: SettingsLayoutP
 					{SETTINGS_NAV_ITEMS.map((item) => {
 						const isActive = activePath === item.href;
 						return (
-							<a
+							<Link
 								key={item.href}
-								href={item.href}
+								to={item.href}
 								className={cn(
 									`
 										relative border-b-2 border-transparent px-3 py-2 text-xs font-medium
@@ -133,7 +134,7 @@ export default function SettingsLayout({ children, activePath }: SettingsLayoutP
 									/>
 								)}
 								{item.label}
-							</a>
+							</Link>
 						);
 					})}
 				</div>

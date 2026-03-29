@@ -25,6 +25,8 @@ export const user = sqliteTable('user', {
 	createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
 	updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
 	deletedAt: integer('deleted_at', { mode: 'timestamp' }),
+	bannedAt: integer('banned_at', { mode: 'timestamp' }),
+	banReason: text('ban_reason'),
 });
 
 export const session = sqliteTable(
@@ -92,6 +94,7 @@ export const organization = sqliteTable('organization', {
 	createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
 	metadata: text('metadata'),
 	plan: text('plan').notNull().default('free'),
+	deletedAt: integer('deleted_at', { mode: 'timestamp' }),
 });
 
 export const member = sqliteTable(

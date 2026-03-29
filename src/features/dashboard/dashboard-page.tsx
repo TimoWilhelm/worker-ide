@@ -14,6 +14,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { BookOpen, Copy, Github, Hexagon, Moon, Search, Sun, Trash2 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router';
 
 import { HalftoneBackground } from '@/components/halftone-background';
 import { Button, buttonVariants } from '@/components/ui/button';
@@ -392,18 +393,6 @@ function DeleteProjectModal({
 }
 
 // =============================================================================
-// Navigation helper
-// =============================================================================
-
-/**
- * Navigate to a project URL. Defined outside the component
- * so that react-compiler doesn't flag it as a forbidden write.
- */
-function navigateToProject(url: string): void {
-	globalThis.location.href = url;
-}
-
-// =============================================================================
 // Main dashboard page component
 // =============================================================================
 
@@ -420,6 +409,7 @@ interface DashboardPageProperties {
 }
 
 export default function DashboardPage({ orgSlug, organizationId, organizations, isCreateOrgMode, user }: DashboardPageProperties) {
+	const navigate = useNavigate();
 	const [selectedTemplateId, setSelectedTemplateId] = useState<string | undefined>();
 	const [cloneInput, setCloneInput] = useState('');
 	const [cloneModalOpen, setCloneModalOpen] = useState(false);
@@ -477,12 +467,12 @@ export default function DashboardPage({ orgSlug, organizationId, organizations, 
 			try {
 				const data = await createProject(organizationId, templateId);
 				void queryClient.invalidateQueries({ queryKey: ['org-projects'] });
-				navigateToProject(getProjectUrl(data.projectId));
+				void navigate(getProjectUrl(data.projectId));
 			} catch {
 				setLoadingMessage(undefined);
 			}
 		},
-		[organizationId, queryClient],
+		[organizationId, queryClient, navigate],
 	);
 
 	const handleOpenCloneModal = useCallback(() => {
@@ -511,12 +501,12 @@ export default function DashboardPage({ orgSlug, organizationId, organizations, 
 		try {
 			const data = await cloneProject(organizationId, parsedProjectId);
 			void queryClient.invalidateQueries({ queryKey: ['org-projects'] });
-			navigateToProject(getProjectUrl(data.projectId));
+			void navigate(getProjectUrl(data.projectId));
 		} catch (error) {
 			setLoadingMessage(undefined);
 			setCloneError(error instanceof Error ? error.message : 'Failed to clone project');
 		}
-	}, [organizationId, parsedProjectId, queryClient]);
+	}, [organizationId, parsedProjectId, queryClient, navigate]);
 
 	const [deleteTarget, setDeleteTarget] = useState<OrgProject | undefined>();
 	const [isDeleting, setIsDeleting] = useState(false);

@@ -10,7 +10,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { MemoryRouter } from 'react-router';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import DashboardPage from './dashboard-page';
 
@@ -73,27 +74,19 @@ function createTestQueryClient() {
 
 function QueryWrapper({ children }: { children: React.ReactNode }) {
 	const [queryClient] = useState(createTestQueryClient);
-	return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+	return (
+		<MemoryRouter>
+			<QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+		</MemoryRouter>
+	);
 }
 
 function renderWithQuery(ui: React.ReactElement) {
 	return render(ui, { wrapper: QueryWrapper });
 }
 
-// Prevent navigation during tests
-const originalLocation = globalThis.location;
-
-beforeEach(() => {
-	// Stub location.href setter to capture navigation
-	Object.defineProperty(globalThis, 'location', {
-		writable: true,
-		value: { ...originalLocation, href: '' },
-	});
-});
-
 afterEach(() => {
 	vi.restoreAllMocks();
-	globalThis.location = originalLocation;
 });
 
 // =============================================================================

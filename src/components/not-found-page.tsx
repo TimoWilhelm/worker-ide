@@ -6,10 +6,12 @@
  */
 
 import { FileQuestion, Home } from 'lucide-react';
+import { useNavigate } from 'react-router';
 
 import { Button } from '@/components/ui/button';
 
 export function NotFoundPage() {
+	const navigate = useNavigate();
 	return (
 		<div className="flex h-dvh items-center justify-center bg-bg-primary p-4">
 			<div
@@ -22,7 +24,7 @@ export function NotFoundPage() {
 					<h1 className="text-xl font-semibold text-text-primary">Page not found</h1>
 				</div>
 				<p className="mb-8 text-sm text-text-secondary">The page you're looking for doesn't exist.</p>
-				<Button onClick={() => (globalThis.location.href = '/')}>
+				<Button onClick={() => navigate('/')}>
 					<Home className="size-4" />
 					Back to Home
 				</Button>

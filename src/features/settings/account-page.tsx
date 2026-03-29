@@ -9,6 +9,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Monitor, Smartphone, Trash2 } from 'lucide-react';
 import { useCallback, useState } from 'react';
+import { useNavigate } from 'react-router';
 
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
@@ -21,6 +22,8 @@ import { formatRelativeTime } from '@/lib/utils';
 import type { AccountDeletePreview } from '@/lib/api-client';
 
 export default function AccountPage() {
+	const navigate = useNavigate();
+
 	// Fetch active sessions
 	const sessionsQuery = useQuery({
 		queryKey: ['sessions'],
@@ -80,14 +83,14 @@ export default function AccountPage() {
 		try {
 			await deleteAccount();
 			toast.success('Account deleted');
-			globalThis.location.href = '/';
+			void navigate('/');
 		} catch {
 			toast.error('Failed to delete account. You may need to resolve blocking organizations first.');
 		} finally {
 			setIsDeleting(false);
 			setShowDeleteConfirm(false);
 		}
-	}, []);
+	}, [navigate]);
 
 	// eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- better-auth session type is loosely typed
 	const sessions = (sessionsQuery.data ?? []) as Array<{
@@ -205,7 +208,7 @@ export default function AccountPage() {
 					description={
 						deletePreview.canDelete ? (
 							<div className="flex flex-col gap-2 text-sm text-text-secondary">
-								<p>This action is permanent after 30 days. Your account will be soft-deleted immediately.</p>
+								<p>This action is irreversible. Your account and all single-member organizations will be permanently deleted.</p>
 								{deletePreview.singleMemberOrganizations.length > 0 && (
 									<p>
 										<strong className="text-text-primary">{deletePreview.singleMemberOrganizations.length} organization(s)</strong> you own

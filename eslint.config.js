@@ -95,7 +95,7 @@ export default defineConfig(
 			'import-x/no-unresolved': [
 				'error',
 				{
-					ignore: ['cloudflare:*', 'virtual:*'],
+					ignore: ['cloudflare:*', 'virtual:*', 'drizzle-orm/*'],
 				},
 			],
 		},

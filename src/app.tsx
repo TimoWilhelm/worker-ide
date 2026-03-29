@@ -10,7 +10,8 @@
 
 import { MutationCache, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Check, ClipboardCopy } from 'lucide-react';
-import { Suspense, use, useEffect, useState } from 'react';
+import { Suspense, use, useState } from 'react';
+import { Navigate, Route, Routes, useParams } from 'react-router';
 
 import { ErrorBoundary } from '@/components/error-boundary';
 import { IDEShell } from '@/components/ide-shell';
@@ -134,15 +135,6 @@ function ErrorFallback({ error, resetErrorBoundary }: { error: Error; resetError
 
 const hostType = parseHost(globalThis.location.host).type;
 
-function getProjectIdFromUrl(): string | undefined {
-	const path = globalThis.location.pathname;
-	const match = path.match(/^\/p\/([a-z\d]{1,50})/);
-	if (match && PROJECT_ID_PATTERN.test(match[1])) {
-		return match[1];
-	}
-	return undefined;
-}
-
 /**
  * Cache of project existence check promises, keyed by projectId.
  * Prevents duplicate fetches when React re-renders during Suspense.
@@ -197,29 +189,6 @@ function ValidProject({ projectId }: { projectId: string }) {
 const LAST_ORG_SLUG_KEY = 'lastOrgSlug';
 
 /**
- * Redirect component — navigates via useEffect so react-compiler is happy.
- * Defined outside AppContent to avoid react-compiler "forbidden write" errors.
- */
-function Redirect({ to }: { to: string }) {
-	useEffect(() => {
-		globalThis.location.href = to;
-	}, [to]);
-	return <LoadingFallback />;
-}
-
-/**
- * Parse the current URL for org-scoped routes.
- * Returns the org slug and optional sub-path (e.g. "settings").
- */
-function parseOrgRoute(): { orgSlug: string; subPath: string } | undefined {
-	const match = globalThis.location.pathname.match(/^\/org\/([^/]+)(\/.*)?$/);
-	if (match) {
-		return { orgSlug: match[1], subPath: match[2] ?? '' };
-	}
-	return undefined;
-}
-
-/**
  * Auth gate — simplified flow without session-stored active org:
  *
  * 1. No session -> Login page
@@ -271,6 +240,95 @@ interface UserInfo {
 	emailVerified?: boolean;
 }
 
+/**
+ * Route wrapper that extracts projectId from URL params and renders the ProjectGate.
+ */
+function ProjectRoute() {
+	const { projectId } = useParams<{ projectId: string }>();
+
+	if (!projectId || !PROJECT_ID_PATTERN.test(projectId)) {
+		return <NotFoundPage />;
+	}
+
+	return (
+		<Suspense fallback={<LoadingFallback />}>
+			<ProjectGate projectId={projectId} />
+		</Suspense>
+	);
+}
+
+/**
+ * Route wrapper for org dashboard. Extracts orgSlug from URL params,
+ * resolves the organization, and remembers the last visited org.
+ */
+function OrgDashboardRoute({ organizations, user }: { organizations: OrganizationEntry[]; user: UserInfo }) {
+	const { orgSlug } = useParams<{ orgSlug: string }>();
+
+	if (!orgSlug) {
+		return <NotFoundPage />;
+	}
+
+	const organization = organizations.find((o) => o.slug === orgSlug || o.id === orgSlug);
+	if (!organization) {
+		return <NotFoundPage />;
+	}
+
+	// Remember last visited org
+	if (organization.slug) {
+		globalThis.localStorage.setItem(LAST_ORG_SLUG_KEY, organization.slug);
+	}
+
+	return (
+		<Suspense fallback={<LoadingFallback />}>
+			<DashboardPage orgSlug={orgSlug} organizationId={organization.id} organizations={organizations} user={user} />
+		</Suspense>
+	);
+}
+
+/**
+ * Route wrapper for org settings. Extracts orgSlug from URL params.
+ */
+function OrgSettingsRoute({ organizations }: { organizations: OrganizationEntry[] }) {
+	const { orgSlug } = useParams<{ orgSlug: string }>();
+
+	if (!orgSlug) {
+		return <NotFoundPage />;
+	}
+
+	const organization = organizations.find((o) => o.slug === orgSlug || o.id === orgSlug);
+	if (!organization) {
+		return <NotFoundPage />;
+	}
+
+	// Remember last visited org
+	if (organization.slug) {
+		globalThis.localStorage.setItem(LAST_ORG_SLUG_KEY, organization.slug);
+	}
+
+	return (
+		<Suspense fallback={<LoadingFallback />}>
+			<OrgManagementPage orgSlug={orgSlug} organizationId={organization.id} organizations={organizations} />
+		</Suspense>
+	);
+}
+
+/**
+ * Root redirect: / → /org/:slug
+ * Priority: 1) session activeOrganizationId  2) localStorage  3) first org
+ */
+function RootRedirect({ organizations, activeOrganizationId }: { organizations: OrganizationEntry[]; activeOrganizationId?: string }) {
+	if (organizations.length === 0) {
+		return <Navigate to="/create-org" replace />;
+	}
+
+	const activeOrg = activeOrganizationId ? organizations.find((o) => o.id === activeOrganizationId) : undefined;
+	const lastSlug = globalThis.localStorage.getItem(LAST_ORG_SLUG_KEY);
+	const lastOrg = lastSlug ? organizations.find((o) => o.slug === lastSlug) : undefined;
+	const targetOrg = activeOrg ?? lastOrg ?? organizations[0];
+	const slug = targetOrg.slug ?? targetOrg.id;
+	return <Navigate to={`/org/${slug}`} replace />;
+}
+
 function AppContent({
 	organizations,
 	user,
@@ -280,118 +338,77 @@ function AppContent({
 	user: UserInfo;
 	activeOrganizationId?: string;
 }) {
-	const [projectId] = useState(getProjectIdFromUrl);
-
 	if (hostType !== 'app') {
 		return <NotFoundPage />;
 	}
 
-	// Project IDE route — org not needed in URL
-	if (projectId) {
-		return (
-			<Suspense fallback={<LoadingFallback />}>
-				<ProjectGate projectId={projectId} />
-			</Suspense>
-		);
-	}
-
-	const path = globalThis.location.pathname;
-
 	// 0 orgs — force user to create an org before doing anything else.
-	// Only the /create-org page is accessible; all other paths redirect here.
+	// Only the /create-org and /p/:projectId routes are accessible.
 	if (organizations.length === 0) {
-		if (path !== '/create-org') {
-			return <Redirect to="/create-org" />;
-		}
 		return (
-			<Suspense fallback={<LoadingFallback />}>
-				<DashboardPage orgSlug="" organizationId="" organizations={organizations} isCreateOrgMode user={user} />
-			</Suspense>
+			<Routes>
+				<Route path="/p/:projectId" element={<ProjectRoute />} />
+				<Route
+					path="/create-org"
+					element={
+						<Suspense fallback={<LoadingFallback />}>
+							<DashboardPage orgSlug="" organizationId="" organizations={organizations} isCreateOrgMode user={user} />
+						</Suspense>
+					}
+				/>
+				<Route path="*" element={<Navigate to="/create-org" replace />} />
+			</Routes>
 		);
 	}
 
-	// Create org page (user has orgs but wants to create another)
-	if (path === '/create-org') {
-		return (
-			<Suspense fallback={<LoadingFallback />}>
-				<DashboardPage orgSlug="" organizationId="" organizations={organizations} isCreateOrgMode user={user} />
-			</Suspense>
-		);
-	}
-
-	// User settings routes: /settings, /settings/profile, /settings/account
-	if (path === '/settings') {
-		return <Redirect to="/settings/profile" />;
-	}
-	if (path === '/settings/profile') {
-		return (
-			<Suspense fallback={<LoadingFallback />}>
-				<SettingsLayout activePath="/settings/profile">
-					<ProfilePage user={user} />
-				</SettingsLayout>
-			</Suspense>
-		);
-	}
-	if (path === '/settings/account') {
-		return (
-			<Suspense fallback={<LoadingFallback />}>
-				<SettingsLayout activePath="/settings/account">
-					<AccountPage />
-				</SettingsLayout>
-			</Suspense>
-		);
-	}
-	if (path === '/settings/appearance') {
-		return (
-			<Suspense fallback={<LoadingFallback />}>
-				<SettingsLayout activePath="/settings/appearance">
-					<AppearancePage />
-				</SettingsLayout>
-			</Suspense>
-		);
-	}
-
-	// Root redirect: / -> /org/:slug
-	// Priority: 1) session activeOrganizationId  2) localStorage  3) first org
-	if (path === '/' || path === '') {
-		const activeOrg = activeOrganizationId ? organizations.find((o) => o.id === activeOrganizationId) : undefined;
-		const lastSlug = globalThis.localStorage.getItem(LAST_ORG_SLUG_KEY);
-		const lastOrg = lastSlug ? organizations.find((o) => o.slug === lastSlug) : undefined;
-		const targetOrg = activeOrg ?? lastOrg ?? organizations[0];
-		const slug = targetOrg.slug ?? targetOrg.id;
-		return <Redirect to={`/org/${slug}`} />;
-	}
-
-	// Org-scoped routes: /org/:orgSlug and /org/:orgSlug/settings
-	const orgRoute = parseOrgRoute();
-	if (orgRoute) {
-		const organization = organizations.find((o) => o.slug === orgRoute.orgSlug || o.id === orgRoute.orgSlug);
-		if (!organization) {
-			return <NotFoundPage />;
-		}
-
-		// Remember last visited org
-		if (organization.slug) {
-			globalThis.localStorage.setItem(LAST_ORG_SLUG_KEY, organization.slug);
-		}
-
-		if (orgRoute.subPath === '/settings') {
-			return (
-				<Suspense fallback={<LoadingFallback />}>
-					<OrgManagementPage orgSlug={orgRoute.orgSlug} organizationId={organization.id} organizations={organizations} />
-				</Suspense>
-			);
-		}
-
-		// Dashboard
-		return (
-			<Suspense fallback={<LoadingFallback />}>
-				<DashboardPage orgSlug={orgRoute.orgSlug} organizationId={organization.id} organizations={organizations} user={user} />
-			</Suspense>
-		);
-	}
-
-	return <NotFoundPage />;
+	return (
+		<Routes>
+			<Route path="/p/:projectId" element={<ProjectRoute />} />
+			<Route
+				path="/create-org"
+				element={
+					<Suspense fallback={<LoadingFallback />}>
+						<DashboardPage orgSlug="" organizationId="" organizations={organizations} isCreateOrgMode user={user} />
+					</Suspense>
+				}
+			/>
+			<Route path="/settings" element={<Navigate to="/settings/profile" replace />} />
+			<Route
+				path="/settings/profile"
+				element={
+					<Suspense fallback={<LoadingFallback />}>
+						<SettingsLayout activePath="/settings/profile">
+							<ProfilePage user={user} />
+						</SettingsLayout>
+					</Suspense>
+				}
+			/>
+			<Route
+				path="/settings/account"
+				element={
+					<Suspense fallback={<LoadingFallback />}>
+						<SettingsLayout activePath="/settings/account">
+							<AccountPage />
+						</SettingsLayout>
+					</Suspense>
+				}
+			/>
+			<Route
+				path="/settings/appearance"
+				element={
+					<Suspense fallback={<LoadingFallback />}>
+						<SettingsLayout activePath="/settings/appearance">
+							<AppearancePage />
+						</SettingsLayout>
+					</Suspense>
+				}
+			/>
+			<Route path="/org/:orgSlug/settings" element={<OrgSettingsRoute organizations={organizations} />} />
+			<Route path="/org/:orgSlug" element={<OrgDashboardRoute organizations={organizations} user={user} />} />
+			<Route path="/" element={<RootRedirect organizations={organizations} activeOrganizationId={activeOrganizationId} />} />
+			<Route path="*" element={<NotFoundPage />} />
+		</Routes>
+	);
 }
 
 // =============================================================================

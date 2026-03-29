@@ -6,10 +6,12 @@
  */
 
 import { FolderX, Home } from 'lucide-react';
+import { useNavigate } from 'react-router';
 
 import { Button } from '@/components/ui/button';
 
 export function ProjectNotFound() {
+	const navigate = useNavigate();
 	return (
 		<div className="flex h-dvh items-center justify-center bg-bg-primary p-4">
 			<div
@@ -22,7 +24,7 @@ export function ProjectNotFound() {
 					<h1 className="text-xl font-semibold text-text-primary">Project not found</h1>
 				</div>
 				<p className="mb-8 text-sm text-text-secondary">The project you're looking for doesn't exist or has expired.</p>
-				<Button onClick={() => (globalThis.location.href = '/')}>
+				<Button onClick={() => navigate('/')}>
 					<Home className="size-4" />
 					Back to Home
 				</Button>

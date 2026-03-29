@@ -13,11 +13,14 @@
  * cannot dispatch internal HTTP requests back to itself.
  */
 
+import { eq } from 'drizzle-orm';
+import { drizzle } from 'drizzle-orm/d1';
 import { createMiddleware } from 'hono/factory';
 
 import { buildAppOrigin, parseHost } from '@shared/domain';
 
 import { createAuth } from './auth';
+import * as schema from '../db/auth-schema';
 
 import type { AuthedEnvironment } from '../types';
 
@@ -38,6 +41,18 @@ export const requireAuth = createMiddleware<AuthedEnvironment>(async (context, n
 		const result = await resolveDevelopmentSession(context.env.DB, context.req.raw.headers);
 		if (!result) {
 			return context.json({ error: 'Unauthorized' }, 401);
+		}
+
+		// Check if the user is banned
+		const developmentDatabase = drizzle(context.env.DB);
+		const developmentUserRows = await developmentDatabase
+			.select({ bannedAt: schema.user.bannedAt })
+			.from(schema.user)
+			.where(eq(schema.user.id, result.session.userId))
+			.limit(1);
+		if (developmentUserRows[0]?.bannedAt) {
+			await developmentDatabase.delete(schema.session).where(eq(schema.session.userId, result.session.userId));
+			return context.json({ error: 'Your account has been suspended.' }, 403);
 		}
 
 		context.set('userId', result.session.userId);
@@ -67,6 +82,18 @@ export const requireAuth = createMiddleware<AuthedEnvironment>(async (context, n
 
 	if (!session) {
 		return context.json({ error: 'Unauthorized' }, 401);
+	}
+
+	// Check if the user is banned (catches bans applied while session was active)
+	const database = drizzle(context.env.DB);
+	const userRows = await database
+		.select({ bannedAt: schema.user.bannedAt })
+		.from(schema.user)
+		.where(eq(schema.user.id, session.user.id))
+		.limit(1);
+	if (userRows[0]?.bannedAt) {
+		await database.delete(schema.session).where(eq(schema.session.userId, session.user.id));
+		return context.json({ error: 'Your account has been suspended.' }, 403);
 	}
 
 	context.set('userId', session.user.id);

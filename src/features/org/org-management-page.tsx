@@ -25,6 +25,7 @@ import {
 	X,
 } from 'lucide-react';
 import { useCallback, useState } from 'react';
+import { useNavigate } from 'react-router';
 
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
@@ -364,6 +365,7 @@ interface OrgManagementPageProperties {
 }
 
 export default function OrgManagementPage({ orgSlug, organizationId, organizations: _organizations }: OrgManagementPageProperties) {
+	const navigate = useNavigate();
 	const { data: session } = authClient.useSession();
 	const resolvedTheme = useTheme();
 	const setColorScheme = useStore((state) => state.setColorScheme);
@@ -529,14 +531,14 @@ export default function OrgManagementPage({ orgSlug, organizationId, organizatio
 				return;
 			}
 			toast.success('You left the organization');
-			globalThis.location.href = '/';
+			void navigate('/');
 		} catch {
 			toast.error('Failed to leave organization');
 		} finally {
 			setIsActing(false);
 			setConfirmAction(undefined);
 		}
-	}, [activeOrganization?.id]);
+	}, [activeOrganization?.id, navigate]);
 
 	// --- Delete org ---
 	const handleDeleteOrg = useCallback(async () => {
@@ -544,14 +546,14 @@ export default function OrgManagementPage({ orgSlug, organizationId, organizatio
 		try {
 			await deleteOrganization(organizationId);
 			toast.success('Organization deleted');
-			globalThis.location.href = '/';
+			void navigate('/');
 		} catch {
 			toast.error('Failed to delete organization');
 		} finally {
 			setIsActing(false);
 			setConfirmAction(undefined);
 		}
-	}, [organizationId]);
+	}, [organizationId, navigate]);
 
 	// --- Cancel invitation ---
 	const handleCancelInvitation = useCallback(

@@ -9,6 +9,7 @@
 
 import { Building2, ChevronDown, Plus, Settings } from 'lucide-react';
 import { useState } from 'react';
+import { useNavigate } from 'react-router';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -38,6 +39,7 @@ interface OrgSwitcherProperties {
 }
 
 export function OrgSwitcher({ organizations, currentOrganizationId, currentOrganizationName, currentOrgSlug }: OrgSwitcherProperties) {
+	const navigate = useNavigate();
 	const [createModalOpen, setCreateModalOpen] = useState(false);
 
 	return (
@@ -57,7 +59,7 @@ export function OrgSwitcher({ organizations, currentOrganizationId, currentOrgan
 							onSelect={() => {
 								const slug = organization.slug ?? organization.id;
 								void authClient.organization.setActive({ organizationId: organization.id });
-								globalThis.location.href = `/org/${slug}`;
+								void navigate(`/org/${slug}`);
 							}}
 							className={cn('gap-2 text-xs', currentOrganizationId === organization.id && 'bg-bg-tertiary font-medium')}
 						>
@@ -72,7 +74,7 @@ export function OrgSwitcher({ organizations, currentOrganizationId, currentOrgan
 					<DropdownMenuSeparator />
 					<DropdownMenuItem
 						onSelect={() => {
-							globalThis.location.href = `/org/${currentOrgSlug}/settings`;
+							void navigate(`/org/${currentOrgSlug}/settings`);
 						}}
 						className="gap-2 text-xs text-text-secondary"
 					>

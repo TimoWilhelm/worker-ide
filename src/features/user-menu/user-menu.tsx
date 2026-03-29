@@ -6,6 +6,7 @@
  */
 
 import { LogOut, Settings, User } from 'lucide-react';
+import { useNavigate } from 'react-router';
 
 import {
 	DropdownMenu,
@@ -23,6 +24,7 @@ interface UserMenuProperties {
 }
 
 export function UserMenu({ userName, userEmail, userImage }: UserMenuProperties) {
+	const navigate = useNavigate();
 	const initials = userName
 		.split(' ')
 		.map((part) => part.charAt(0))
@@ -60,7 +62,7 @@ export function UserMenu({ userName, userEmail, userImage }: UserMenuProperties)
 				<DropdownMenuSeparator />
 				<DropdownMenuItem
 					onSelect={() => {
-						globalThis.location.href = '/settings/profile';
+						void navigate('/settings/profile');
 					}}
 					className="gap-2 text-xs"
 				>
@@ -69,7 +71,7 @@ export function UserMenu({ userName, userEmail, userImage }: UserMenuProperties)
 				</DropdownMenuItem>
 				<DropdownMenuItem
 					onSelect={() => {
-						globalThis.location.href = '/settings/account';
+						void navigate('/settings/account');
 					}}
 					className="gap-2 text-xs"
 				>

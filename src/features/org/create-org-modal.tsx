@@ -6,6 +6,7 @@
  */
 
 import { useCallback, useState } from 'react';
+import { useNavigate } from 'react-router';
 
 import { Button } from '@/components/ui/button';
 import { Modal, ModalBody, ModalFooter } from '@/components/ui/modal';
@@ -22,6 +23,7 @@ export function CreateOrgModal({
 	onOpenChange: (open: boolean) => void;
 	organizationCount: number;
 }) {
+	const navigate = useNavigate();
 	const [name, setName] = useState('');
 	const [isCreating, setIsCreating] = useState(false);
 
@@ -50,14 +52,14 @@ export function CreateOrgModal({
 			}
 			if (data) {
 				void authClient.organization.setActive({ organizationId: data.id });
-				globalThis.location.href = `/org/${slug || data.id}`;
+				void navigate(`/org/${slug || data.id}`);
 			}
 		} catch {
 			toast.error('Failed to create organization');
 		} finally {
 			setIsCreating(false);
 		}
-	}, [name, slug]);
+	}, [name, slug, navigate]);
 
 	const handleOpenChange = useCallback(
 		(value: boolean) => {
