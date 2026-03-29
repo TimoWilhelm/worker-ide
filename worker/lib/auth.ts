@@ -215,6 +215,11 @@ export function createAuth(environment: AuthEnvironment, baseUrl: string) {
 				},
 			},
 		},
+		advanced: {
+			ipAddress: {
+				ipAddressHeaders: ['cf-connecting-ip'],
+			},
+		},
 	});
 }
 
