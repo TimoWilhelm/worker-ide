@@ -12,7 +12,7 @@
  * - Auto-creation of a personal organization on first signup
  */
 
-import { betterAuth } from 'better-auth';
+import { betterAuth, APIError } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { organization } from 'better-auth/plugins';
 import { env } from 'cloudflare:workers';
@@ -197,7 +197,7 @@ export function createAuth(environment: AuthEnvironment, baseUrl: string) {
 
 							// Banned users cannot sign in
 							if (userRow.bannedAt) {
-								return false;
+								throw new APIError('FORBIDDEN', { message: 'CONTACT_SUPPORT' });
 							}
 
 							// Soft-deleted users are restored on sign-in

@@ -7,12 +7,14 @@
  * Single-column centered layout over the halftone shader background.
  */
 
-import { Github, Hexagon } from 'lucide-react';
+import { AlertTriangle, Github, Hexagon } from 'lucide-react';
 import { motion } from 'motion/react';
-import { Suspense } from 'react';
+import { Suspense, useState } from 'react';
+import { useSearchParams } from 'react-router';
 
 import { HalftoneBackground } from '@/components/halftone-background';
 import { Button } from '@/components/ui/button';
+import { Modal, ModalBody, ModalFooter } from '@/components/ui/modal';
 import { authClient } from '@/lib/auth-client';
 import { fadeUpVariants, springGentle, staggerContainer } from '@/lib/motion-config';
 
@@ -36,8 +38,41 @@ function GoogleIcon({ className }: { className?: string }) {
 }
 
 export default function LoginPage() {
+	const [searchParameters, setSearchParameters] = useSearchParams();
+	const errorParameter = searchParameters.get('error');
+
+	const hasError = errorParameter !== null;
+	const [dismissedError, setDismissedError] = useState(false);
+
+	const showErrorModal = hasError && !dismissedError;
+
+	const handleCloseModal = () => {
+		setDismissedError(true);
+		setSearchParameters({});
+	};
+
 	return (
 		<div className="relative flex h-dvh flex-col items-center justify-center">
+			<Modal open={showErrorModal} onOpenChange={handleCloseModal} title="Unable to Sign In">
+				<ModalBody className="flex items-start gap-4">
+					<div
+						className="
+							flex size-10 flex-none items-center justify-center rounded-full
+							bg-error/10 text-error
+						"
+					>
+						<AlertTriangle className="size-5" />
+					</div>
+					<div className="flex flex-col gap-1">
+						<p className="text-sm font-medium text-text-primary">An unexpected error occurred</p>
+						<p className="text-sm text-text-secondary">Please contact us for assistance.</p>
+					</div>
+				</ModalBody>
+				<ModalFooter>
+					<Button onClick={handleCloseModal}>Close</Button>
+				</ModalFooter>
+			</Modal>
+
 			{/* Halftone shader background */}
 			<Suspense fallback={undefined}>
 				<HalftoneBackground />
