@@ -35,10 +35,11 @@ interface OrgSwitcherProperties {
 	organizations: OrgSwitcherOrganization[];
 	currentOrganizationId: string;
 	currentOrganizationName: string;
-	currentOrgSlug: string;
 }
 
-export function OrgSwitcher({ organizations, currentOrganizationId, currentOrganizationName, currentOrgSlug }: OrgSwitcherProperties) {
+export function OrgSwitcher({ organizations, currentOrganizationId, currentOrganizationName }: OrgSwitcherProperties) {
+	const currentOrg = organizations.find((o) => o.id === currentOrganizationId);
+	const currentOrgIdentifier = currentOrg?.slug ?? currentOrganizationId;
 	const navigate = useNavigate();
 	const [createModalOpen, setCreateModalOpen] = useState(false);
 
@@ -74,7 +75,7 @@ export function OrgSwitcher({ organizations, currentOrganizationId, currentOrgan
 					<DropdownMenuSeparator />
 					<DropdownMenuItem
 						onSelect={() => {
-							void navigate(`/org/${currentOrgSlug}/settings`);
+							void navigate(`/org/${currentOrgIdentifier}/settings`);
 						}}
 						className="gap-2 text-xs text-text-secondary"
 					>

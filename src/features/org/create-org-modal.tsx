@@ -27,16 +27,20 @@ export function CreateOrgModal({
 	const [name, setName] = useState('');
 	const [isCreating, setIsCreating] = useState(false);
 
-	const slug = name
-		.toLowerCase()
-		.replaceAll(/[^\da-z]+/g, '-')
-		.replaceAll(/^-|-$/g, '');
-
 	const handleCreate = useCallback(async () => {
 		const trimmed = name.trim();
 		if (!trimmed) return;
 		if (trimmed.length > MAX_ORGANIZATION_NAME_LENGTH) {
 			toast.error(`Name must be ${MAX_ORGANIZATION_NAME_LENGTH} characters or fewer.`);
+			return;
+		}
+
+		const slug = trimmed
+			.toLowerCase()
+			.replaceAll(/[^\da-z]+/g, '-')
+			.replaceAll(/^-|-$/g, '');
+		if (!slug) {
+			toast.error('Organization name must contain at least one letter or number.');
 			return;
 		}
 
@@ -51,15 +55,15 @@ export function CreateOrgModal({
 				return;
 			}
 			if (data) {
-				void authClient.organization.setActive({ organizationId: data.id });
-				void navigate(`/org/${slug || data.id}`);
+				await authClient.organization.setActive({ organizationId: data.id });
+				void navigate(`/org/${data.slug ?? data.id}`);
 			}
 		} catch {
 			toast.error('Failed to create organization');
 		} finally {
 			setIsCreating(false);
 		}
-	}, [name, slug, navigate]);
+	}, [name, navigate]);
 
 	const handleOpenChange = useCallback(
 		(value: boolean) => {
@@ -96,7 +100,6 @@ export function CreateOrgModal({
 						focus:outline-none
 					"
 				/>
-				{slug && <p className="mt-2 text-xs text-text-secondary/60">Slug: {slug}</p>}
 				{organizationCount >= MAX_ORGANIZATIONS_PER_USER && (
 					<p className="mt-2 text-xs text-error/80">You have reached the maximum of {MAX_ORGANIZATIONS_PER_USER} organizations.</p>
 				)}

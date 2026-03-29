@@ -131,28 +131,48 @@ export function createAuth(environment: AuthEnvironment, baseUrl: string) {
 					after: async (user) => {
 						// Auto-create a personal organization for every new user.
 						// Uses D1 batch() for atomicity — both inserts succeed or neither does.
-						try {
-							const authDatabase = drizzle(environment.DB);
-							const organizationId = crypto.randomUUID();
-							const now = new Date();
+						// Retries up to 3 times to handle rare slug uniqueness collisions.
+						const authDatabase = drizzle(environment.DB);
+						const baseSlug =
+							user.name
+								.toLowerCase()
+								.replaceAll(/[^\da-z]+/g, '-')
+								.replaceAll(/^-|-$/g, '') || 'workspace';
 
-							await authDatabase.batch([
-								authDatabase.insert(schema.organization).values({
-									id: organizationId,
-									name: `${user.name}'s Workspace`,
-									slug: `${user.id}-personal`,
-									createdAt: now,
-								}),
-								authDatabase.insert(schema.member).values({
-									id: crypto.randomUUID(),
-									organizationId,
-									userId: user.id,
-									role: 'owner',
-									createdAt: now,
-								}),
-							]);
-						} catch (error) {
-							console.error('Failed to create personal organization for user:', user.id, error);
+						let lastError: unknown;
+						for (let attempt = 0; attempt < 3; attempt++) {
+							try {
+								const organizationId = crypto.randomUUID();
+								const now = new Date();
+								const orgSlug = `${baseSlug}-${crypto.randomUUID().slice(0, 6)}`;
+
+								await authDatabase.batch([
+									authDatabase.insert(schema.organization).values({
+										id: organizationId,
+										name: `${user.name}'s Workspace`,
+										slug: orgSlug,
+										createdAt: now,
+									}),
+									authDatabase.insert(schema.member).values({
+										id: crypto.randomUUID(),
+										organizationId,
+										userId: user.id,
+										role: 'owner',
+										createdAt: now,
+									}),
+								]);
+								break;
+							} catch (error) {
+								const message = error instanceof Error ? error.message : String(error);
+								if (!message.includes('UNIQUE constraint failed')) {
+									console.error('Failed to create personal organization for user:', user.id, error);
+									break;
+								}
+								lastError = error;
+							}
+						}
+						if (lastError) {
+							console.error('Failed to create personal organization for user after retries:', user.id, lastError);
 						}
 					},
 				},

@@ -10,7 +10,7 @@
 
 import { MutationCache, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Check, ClipboardCopy } from 'lucide-react';
-import { Suspense, use, useState } from 'react';
+import { Suspense, use, useEffect, useState } from 'react';
 import { Navigate, Route, Routes, useParams } from 'react-router';
 
 import { ErrorBoundary } from '@/components/error-boundary';
@@ -263,24 +263,23 @@ function ProjectRoute() {
  */
 function OrgDashboardRoute({ organizations, user }: { organizations: OrganizationEntry[]; user: UserInfo }) {
 	const { orgSlug } = useParams<{ orgSlug: string }>();
+	const organization = orgSlug ? organizations.find((o) => o.slug === orgSlug || o.id === orgSlug) : undefined;
+	const orgIdentifier = organization ? (organization.slug ?? organization.id) : undefined;
 
-	if (!orgSlug) {
+	// Remember last visited org (store slug if set, otherwise id)
+	useEffect(() => {
+		if (orgIdentifier) {
+			globalThis.localStorage.setItem(LAST_ORG_SLUG_KEY, orgIdentifier);
+		}
+	}, [orgIdentifier]);
+
+	if (!orgSlug || !organization) {
 		return <NotFoundPage />;
-	}
-
-	const organization = organizations.find((o) => o.slug === orgSlug || o.id === orgSlug);
-	if (!organization) {
-		return <NotFoundPage />;
-	}
-
-	// Remember last visited org
-	if (organization.slug) {
-		globalThis.localStorage.setItem(LAST_ORG_SLUG_KEY, organization.slug);
 	}
 
 	return (
 		<Suspense fallback={<LoadingFallback />}>
-			<DashboardPage orgSlug={orgSlug} organizationId={organization.id} organizations={organizations} user={user} />
+			<DashboardPage organizationId={organization.id} organizations={organizations} user={user} />
 		</Suspense>
 	);
 }
@@ -290,19 +289,18 @@ function OrgDashboardRoute({ organizations, user }: { organizations: Organizatio
  */
 function OrgSettingsRoute({ organizations }: { organizations: OrganizationEntry[] }) {
 	const { orgSlug } = useParams<{ orgSlug: string }>();
+	const organization = orgSlug ? organizations.find((o) => o.slug === orgSlug || o.id === orgSlug) : undefined;
+	const orgIdentifier = organization ? (organization.slug ?? organization.id) : undefined;
 
-	if (!orgSlug) {
+	// Remember last visited org (store slug if set, otherwise id)
+	useEffect(() => {
+		if (orgIdentifier) {
+			globalThis.localStorage.setItem(LAST_ORG_SLUG_KEY, orgIdentifier);
+		}
+	}, [orgIdentifier]);
+
+	if (!orgSlug || !organization) {
 		return <NotFoundPage />;
-	}
-
-	const organization = organizations.find((o) => o.slug === orgSlug || o.id === orgSlug);
-	if (!organization) {
-		return <NotFoundPage />;
-	}
-
-	// Remember last visited org
-	if (organization.slug) {
-		globalThis.localStorage.setItem(LAST_ORG_SLUG_KEY, organization.slug);
 	}
 
 	return (
@@ -323,7 +321,7 @@ function RootRedirect({ organizations, activeOrganizationId }: { organizations: 
 
 	const activeOrg = activeOrganizationId ? organizations.find((o) => o.id === activeOrganizationId) : undefined;
 	const lastSlug = globalThis.localStorage.getItem(LAST_ORG_SLUG_KEY);
-	const lastOrg = lastSlug ? organizations.find((o) => o.slug === lastSlug) : undefined;
+	const lastOrg = lastSlug ? organizations.find((o) => o.slug === lastSlug || o.id === lastSlug) : undefined;
 	const targetOrg = activeOrg ?? lastOrg ?? organizations[0];
 	const slug = targetOrg.slug ?? targetOrg.id;
 	return <Navigate to={`/org/${slug}`} replace />;
@@ -352,7 +350,7 @@ function AppContent({
 					path="/create-org"
 					element={
 						<Suspense fallback={<LoadingFallback />}>
-							<DashboardPage orgSlug="" organizationId="" organizations={organizations} isCreateOrgMode user={user} />
+							<DashboardPage organizationId="" organizations={organizations} isCreateOrgMode user={user} />
 						</Suspense>
 					}
 				/>
@@ -368,7 +366,7 @@ function AppContent({
 				path="/create-org"
 				element={
 					<Suspense fallback={<LoadingFallback />}>
-						<DashboardPage orgSlug="" organizationId="" organizations={organizations} isCreateOrgMode user={user} />
+						<DashboardPage organizationId="" organizations={organizations} isCreateOrgMode user={user} />
 					</Suspense>
 				}
 			/>

@@ -401,14 +401,13 @@ function DeleteProjectModal({
  * Default export for React.lazy() compatibility.
  */
 interface DashboardPageProperties {
-	orgSlug: string;
 	organizationId: string;
 	organizations: Array<{ id: string; name: string; slug: string | null; plan?: string }>;
 	isCreateOrgMode?: boolean;
 	user?: { name: string; email: string; image?: string };
 }
 
-export default function DashboardPage({ orgSlug, organizationId, organizations, isCreateOrgMode, user }: DashboardPageProperties) {
+export default function DashboardPage({ organizationId, organizations, isCreateOrgMode, user }: DashboardPageProperties) {
 	const navigate = useNavigate();
 	const [selectedTemplateId, setSelectedTemplateId] = useState<string | undefined>();
 	const [cloneInput, setCloneInput] = useState('');
@@ -600,7 +599,6 @@ export default function DashboardPage({ orgSlug, organizationId, organizations, 
 					organizations={organizations}
 					currentOrganizationId={organizationId}
 					currentOrganizationName={organizations.find((o) => o.id === organizationId)?.name ?? ''}
-					currentOrgSlug={orgSlug}
 				/>
 				<a
 					href="/docs"
