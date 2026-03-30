@@ -427,19 +427,43 @@ async function handlePreviewRequest(request: Request, projectId: string): Promis
 		});
 	}
 
-	// Block soft-deleted projects from being previewed
+	// Block soft-deleted and banned projects from being previewed (single query)
 	const previewDatabase = drizzle(env.DB);
-	const softDeletedRow = await previewDatabase
-		.select({ id: authSchema.project.id })
+	const previewProjectRow = await previewDatabase
+		.select({
+			deletedAt: authSchema.project.deletedAt,
+			projectBannedAt: authSchema.project.bannedAt,
+			orgBannedAt: authSchema.organization.bannedAt,
+		})
 		.from(authSchema.project)
-		.where(and(eq(authSchema.project.id, projectId), isNotNull(authSchema.project.deletedAt)))
+		.leftJoin(authSchema.organization, eq(authSchema.project.organizationId, authSchema.organization.id))
+		.where(eq(authSchema.project.id, projectId))
 		.limit(1);
-	if (softDeletedRow.length > 0) {
+
+	if (previewProjectRow.length === 0) {
+		return errorPage({
+			heading: 'Project not found',
+			message: "The project you're looking for doesn't exist.",
+			homeUrl,
+			status: 404,
+		});
+	}
+
+	if (previewProjectRow[0].deletedAt) {
 		return errorPage({
 			heading: 'Project deleted',
 			message: 'This project has been deleted.',
 			homeUrl,
 			status: 404,
+		});
+	}
+
+	if (previewProjectRow[0].projectBannedAt || previewProjectRow[0].orgBannedAt) {
+		return errorPage({
+			heading: 'Access restricted',
+			message: 'Please contact us for assistance.',
+			homeUrl,
+			status: 403,
 		});
 	}
 
@@ -493,30 +517,41 @@ app.post('/api/new-project', async (c) => {
 		return c.json({ error: 'Request body must contain an organizationId' }, 400);
 	}
 
-	// Verify the user is a member of the target organization
-	const memberCheckDatabase = drizzle(c.env.DB);
-	const memberCheck = await memberCheckDatabase
-		.select({ id: authSchema.member.id })
-		.from(authSchema.member)
-		.where(and(eq(authSchema.member.organizationId, organizationId), eq(authSchema.member.userId, userId)))
-		.limit(1);
-	if (memberCheck.length === 0) {
-		return c.json({ error: 'You are not a member of this organization.' }, 403);
-	}
-
 	const template = getTemplate(templateId);
 	if (!template) {
 		return c.json({ error: `Unknown template: ${templateId}` }, 400);
 	}
 
-	// Enforce per-org project limit (plan-based)
+	// Single query: verify membership, get org plan, and check org ban
 	const database = drizzle(c.env.DB);
-	const orgRow = await database
-		.select({ plan: authSchema.organization.plan })
+	const orgMemberRow = await database
+		.select({
+			plan: authSchema.organization.plan,
+			orgBannedAt: authSchema.organization.bannedAt,
+			memberId: authSchema.member.id,
+		})
 		.from(authSchema.organization)
+		.leftJoin(
+			authSchema.member,
+			and(eq(authSchema.member.organizationId, authSchema.organization.id), eq(authSchema.member.userId, userId)),
+		)
 		.where(eq(authSchema.organization.id, organizationId))
 		.limit(1);
-	const orgLimits = getOrgLimits(orgRow[0]?.plan ?? 'free');
+
+	if (orgMemberRow.length === 0) {
+		return c.json({ error: 'Forbidden' }, 403);
+	}
+
+	if (orgMemberRow[0].orgBannedAt) {
+		return c.json({ error: 'Forbidden' }, 403);
+	}
+
+	if (!orgMemberRow[0].memberId) {
+		return c.json({ error: 'You are not a member of this organization.' }, 403);
+	}
+
+	// Enforce per-org project limit (plan-based)
+	const orgLimits = getOrgLimits(orgMemberRow[0].plan ?? 'free');
 
 	const existingProjects = await database
 		.select({ id: authSchema.project.id })
@@ -603,19 +638,36 @@ app.post('/api/clone-project', async (c) => {
 		return c.json({ error: 'Request body must contain an organizationId' }, 400);
 	}
 
-	// Verify the user is a member of the target organization
-	const cloneMemberDatabase = drizzle(c.env.DB);
-	const cloneMemberCheck = await cloneMemberDatabase
-		.select({ id: authSchema.member.id })
-		.from(authSchema.member)
-		.where(and(eq(authSchema.member.organizationId, organizationId), eq(authSchema.member.userId, userId)))
-		.limit(1);
-	if (cloneMemberCheck.length === 0) {
-		return c.json({ error: 'You are not a member of this organization.' }, 403);
-	}
-
 	if (!sourceProjectId || !isValidProjectId(sourceProjectId)) {
 		return c.json({ error: 'Invalid source project ID.' }, 400);
+	}
+
+	// Single query: verify membership, get org plan, and check org ban
+	const cloneDatabase = drizzle(c.env.DB);
+	const cloneOrgMemberRow = await cloneDatabase
+		.select({
+			plan: authSchema.organization.plan,
+			orgBannedAt: authSchema.organization.bannedAt,
+			memberId: authSchema.member.id,
+		})
+		.from(authSchema.organization)
+		.leftJoin(
+			authSchema.member,
+			and(eq(authSchema.member.organizationId, authSchema.organization.id), eq(authSchema.member.userId, userId)),
+		)
+		.where(eq(authSchema.organization.id, organizationId))
+		.limit(1);
+
+	if (cloneOrgMemberRow.length === 0) {
+		return c.json({ error: 'Forbidden' }, 403);
+	}
+
+	if (cloneOrgMemberRow[0].orgBannedAt) {
+		return c.json({ error: 'Forbidden' }, 403);
+	}
+
+	if (!cloneOrgMemberRow[0].memberId) {
+		return c.json({ error: 'You are not a member of this organization.' }, 403);
 	}
 
 	let sourceId: DurableObjectId;
@@ -625,19 +677,32 @@ app.post('/api/clone-project', async (c) => {
 		return c.json({ error: 'Invalid source project ID.' }, 400);
 	}
 
+	// Verify the source project is not banned or soft-deleted
+	const sourceProjectRow = await cloneDatabase
+		.select({
+			deletedAt: authSchema.project.deletedAt,
+			projectBannedAt: authSchema.project.bannedAt,
+			orgBannedAt: authSchema.organization.bannedAt,
+		})
+		.from(authSchema.project)
+		.leftJoin(authSchema.organization, eq(authSchema.project.organizationId, authSchema.organization.id))
+		.where(eq(authSchema.project.id, sourceProjectId))
+		.limit(1);
+
+	if (
+		sourceProjectRow.length > 0 &&
+		(sourceProjectRow[0].deletedAt || sourceProjectRow[0].projectBannedAt || sourceProjectRow[0].orgBannedAt)
+	) {
+		return c.json({ error: 'Forbidden' }, 403);
+	}
+
 	const sourceStub = filesystemNamespace.get(sourceId);
 	if (!(await sourceStub.projectExists())) {
 		return c.json({ error: 'Source project not found or not initialized' }, 404);
 	}
 
 	// Enforce per-org project limit (plan-based)
-	const cloneDatabase = drizzle(c.env.DB);
-	const cloneOrgRow = await cloneDatabase
-		.select({ plan: authSchema.organization.plan })
-		.from(authSchema.organization)
-		.where(eq(authSchema.organization.id, organizationId))
-		.limit(1);
-	const cloneOrgLimits = getOrgLimits(cloneOrgRow[0]?.plan ?? 'free');
+	const cloneOrgLimits = getOrgLimits(cloneOrgMemberRow[0].plan ?? 'free');
 
 	const existingCloneProjects = await cloneDatabase
 		.select({ id: authSchema.project.id })
@@ -781,21 +846,7 @@ app.all('/p/:projectId/*', async (c) => {
 		return c.notFound();
 	}
 
-	// Block soft-deleted projects from IDE access
-	{
-		const ideDatabase = drizzle(c.env.DB);
-		const softDeletedIdeRow = await ideDatabase
-			.select({ id: authSchema.project.id })
-			.from(authSchema.project)
-			.where(and(eq(authSchema.project.id, projectId), isNotNull(authSchema.project.deletedAt)))
-			.limit(1);
-		if (softDeletedIdeRow.length > 0) {
-			return c.notFound();
-		}
-	}
-
-	// Project-level authorization: verify the authenticated user is a member
-	// of the organization that owns this project.
+	// Single query: soft-delete check, ban check (project + org), and membership
 	const userId = c.get('userId');
 	if (!userId) {
 		return c.json({ error: 'Unauthorized' }, 401);
@@ -803,22 +854,32 @@ app.all('/p/:projectId/*', async (c) => {
 
 	{
 		const database = drizzle(c.env.DB);
-		const projectRow = await database
-			.select({ organizationId: authSchema.project.organizationId })
+		const projectAccessRow = await database
+			.select({
+				deletedAt: authSchema.project.deletedAt,
+				projectBannedAt: authSchema.project.bannedAt,
+				orgBannedAt: authSchema.organization.bannedAt,
+				memberId: authSchema.member.id,
+			})
 			.from(authSchema.project)
+			.leftJoin(authSchema.organization, eq(authSchema.project.organizationId, authSchema.organization.id))
+			.leftJoin(
+				authSchema.member,
+				and(eq(authSchema.member.organizationId, authSchema.project.organizationId), eq(authSchema.member.userId, userId)),
+			)
 			.where(eq(authSchema.project.id, projectId))
 			.limit(1);
 
-		if (projectRow.length > 0) {
-			const memberRow = await database
-				.select({ id: authSchema.member.id })
-				.from(authSchema.member)
-				.where(and(eq(authSchema.member.organizationId, projectRow[0].organizationId), eq(authSchema.member.userId, userId)))
-				.limit(1);
+		if (projectAccessRow.length === 0 || projectAccessRow[0].deletedAt) {
+			return c.notFound();
+		}
 
-			if (memberRow.length === 0) {
-				return c.json({ error: 'Forbidden' }, 403);
-			}
+		if (projectAccessRow[0].projectBannedAt || projectAccessRow[0].orgBannedAt) {
+			return c.json({ error: 'Forbidden' }, 403);
+		}
+
+		if (!projectAccessRow[0].memberId) {
+			return c.json({ error: 'Forbidden' }, 403);
 		}
 	}
 

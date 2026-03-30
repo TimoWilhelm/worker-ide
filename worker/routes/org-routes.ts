@@ -14,17 +14,40 @@ import { HttpErrorCode } from '@shared/http-errors';
 
 import * as schema from '../db/auth-schema';
 import { httpError } from '../lib/http-error';
-import { assertOrgMember, assertOrgSuperAdmin } from '../lib/project-auth';
+import { assertOrgSuperAdmin } from '../lib/project-auth';
 
 import type { AuthedEnvironment } from '../types';
 
 export const orgRoutes = new Hono<AuthedEnvironment>()
-	// Verify the user is a member of the :orgId organization on all org routes
+	// Verify the user is a member of the :orgId organization and the org is not banned
 	.use('/org/:orgId/*', async (c, next) => {
 		const { orgId } = c.req.param();
 		const userId = c.get('userId');
 		const database = drizzle(c.env.DB);
-		await assertOrgMember(database, orgId, userId);
+
+		// Single query: check membership + org ban
+		const orgMemberRow = await database
+			.select({
+				memberId: schema.member.id,
+				orgBannedAt: schema.organization.bannedAt,
+			})
+			.from(schema.organization)
+			.leftJoin(schema.member, and(eq(schema.member.organizationId, schema.organization.id), eq(schema.member.userId, userId)))
+			.where(eq(schema.organization.id, orgId))
+			.limit(1);
+
+		if (orgMemberRow.length === 0) {
+			throw httpError(HttpErrorCode.FORBIDDEN, 'Forbidden');
+		}
+
+		if (orgMemberRow[0].orgBannedAt) {
+			throw httpError(HttpErrorCode.FORBIDDEN, 'Please contact us for assistance.');
+		}
+
+		if (!orgMemberRow[0].memberId) {
+			throw httpError(HttpErrorCode.FORBIDDEN, 'You are not a member of this organization.');
+		}
+
 		await next();
 	})
 
@@ -36,7 +59,7 @@ export const orgRoutes = new Hono<AuthedEnvironment>()
 		const projects = await database
 			.select()
 			.from(schema.project)
-			.where(and(eq(schema.project.organizationId, orgId), isNull(schema.project.deletedAt)))
+			.where(and(eq(schema.project.organizationId, orgId), isNull(schema.project.deletedAt), isNull(schema.project.bannedAt)))
 			.orderBy(schema.project.createdAt);
 
 		return c.json({ projects });
@@ -55,7 +78,7 @@ export const orgRoutes = new Hono<AuthedEnvironment>()
 		const existing = await database
 			.select()
 			.from(schema.project)
-			.where(and(eq(schema.project.id, projectId), eq(schema.project.organizationId, orgId)))
+			.where(and(eq(schema.project.id, projectId), eq(schema.project.organizationId, orgId), isNull(schema.project.bannedAt)))
 			.limit(1);
 
 		if (existing.length === 0) {
@@ -78,7 +101,14 @@ export const orgRoutes = new Hono<AuthedEnvironment>()
 		const existing = await database
 			.select()
 			.from(schema.project)
-			.where(and(eq(schema.project.id, projectId), eq(schema.project.organizationId, orgId), isNull(schema.project.deletedAt)))
+			.where(
+				and(
+					eq(schema.project.id, projectId),
+					eq(schema.project.organizationId, orgId),
+					isNull(schema.project.deletedAt),
+					isNull(schema.project.bannedAt),
+				),
+			)
 			.limit(1);
 
 		if (existing.length === 0) {

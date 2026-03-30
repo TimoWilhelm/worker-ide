@@ -17,6 +17,7 @@ import { ErrorBoundary } from '@/components/error-boundary';
 import { IDEShell } from '@/components/ide-shell';
 import { NotFoundPage } from '@/components/not-found-page';
 import { OfflineBanner } from '@/components/offline-banner';
+import { ProjectAccessRestricted } from '@/components/project-access-restricted';
 import { ProjectNotFound } from '@/components/project-not-found';
 import { Spinner } from '@/components/ui/spinner';
 import { Toaster } from '@/components/ui/toast';
@@ -26,8 +27,8 @@ import { DashboardPage } from '@/features/dashboard';
 import { OrgManagementPage } from '@/features/org';
 import { AccountPage, AppearancePage, ProfilePage, SettingsLayout } from '@/features/settings';
 import { usePwaUpdate } from '@/hooks/use-pwa-update';
-import { fetchProjectMeta } from '@/lib/api-client';
 import { authClient } from '@/lib/auth-client';
+import { checkProjectAccess } from '@/lib/project-access';
 import { isNetworkError } from '@/lib/utils';
 import { parseHost } from '@shared/domain';
 import { PROJECT_ID_PATTERN } from '@shared/project-id';
@@ -136,39 +137,17 @@ function ErrorFallback({ error, resetErrorBoundary }: { error: Error; resetError
 const hostType = parseHost(globalThis.location.host).type;
 
 /**
- * Cache of project existence check promises, keyed by projectId.
- * Prevents duplicate fetches when React re-renders during Suspense.
- * False results are evicted after a short TTL so a page refresh can
- * detect a project that was created after the initial check.
- */
-const projectExistsCache = new Map<string, Promise<boolean>>();
-const FALSE_RESULT_TTL_MS = 30_000;
-
-function checkProjectExists(projectId: string): Promise<boolean> {
-	let promise = projectExistsCache.get(projectId);
-	if (!promise) {
-		promise = fetchProjectMeta(projectId)
-			.then(() => true)
-			.catch(() => false)
-			.then((exists) => {
-				if (!exists) {
-					setTimeout(() => projectExistsCache.delete(projectId), FALSE_RESULT_TTL_MS);
-				}
-				return exists;
-			});
-		projectExistsCache.set(projectId, promise);
-	}
-	return promise;
-}
-
-/**
- * Gate component that verifies a project exists before mounting the full IDE.
- * Uses React 19 `use()` to suspend until the existence check resolves.
+ * Gate component that verifies a project is accessible before mounting the IDE.
+ * Uses React 19 `use()` to suspend until the access check resolves.
  */
 function ProjectGate({ projectId }: { projectId: string }) {
-	const exists = use(checkProjectExists(projectId));
+	const accessStatus = use(checkProjectAccess(projectId));
 
-	if (!exists) {
+	if (accessStatus === 'forbidden') {
+		return <ProjectAccessRestricted />;
+	}
+
+	if (accessStatus === 'not-found') {
 		return <ProjectNotFound />;
 	}
 

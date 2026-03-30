@@ -51,7 +51,7 @@ export const userRoutes = new Hono<AuthedEnvironment>()
 
 		const projectIds = accessRecords.map((record) => record.projectId);
 
-		// Get project details for accessed projects (only non-deleted ones in user's orgs)
+		// Get project details for accessed projects (only non-deleted, non-banned ones in user's non-banned orgs)
 		const projects = await database
 			.select({
 				id: schema.project.id,
@@ -64,11 +64,14 @@ export const userRoutes = new Hono<AuthedEnvironment>()
 				updatedAt: schema.project.updatedAt,
 			})
 			.from(schema.project)
+			.leftJoin(schema.organization, eq(schema.project.organizationId, schema.organization.id))
 			.where(
 				and(
 					inArray(schema.project.id, projectIds),
 					inArray(schema.project.organizationId, organizationIds),
 					isNull(schema.project.deletedAt),
+					isNull(schema.project.bannedAt),
+					isNull(schema.organization.bannedAt),
 				),
 			);
 

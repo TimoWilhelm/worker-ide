@@ -95,6 +95,7 @@ export const organization = sqliteTable('organization', {
 	metadata: text('metadata'),
 	plan: text('plan').notNull().default('free'),
 	deletedAt: integer('deleted_at', { mode: 'timestamp' }),
+	bannedAt: integer('banned_at', { mode: 'timestamp' }),
 });
 
 export const member = sqliteTable(
@@ -150,10 +151,12 @@ export const project = sqliteTable(
 		createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
 		updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
 		deletedAt: integer('deleted_at', { mode: 'timestamp' }),
+		bannedAt: integer('banned_at', { mode: 'timestamp' }),
 	},
 	(table) => [
 		index('project_org_deleted_idx').on(table.organizationId, table.deletedAt),
 		index('project_deleted_created_idx').on(table.deletedAt, table.createdAt),
+		index('project_banned_idx').on(table.bannedAt),
 	],
 );
 

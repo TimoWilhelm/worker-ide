@@ -126,6 +126,35 @@ export function createAuth(environment: AuthEnvironment, baseUrl: string) {
 			},
 		},
 		databaseHooks: {
+			organization: {
+				update: {
+					before: async (organizationData: { id?: string } & Record<string, unknown>) => {
+						// Block updates to banned organizations.
+						// better-auth's organization.update() passes the full org with id.
+						if (!organizationData.id) return; // Can't check without an ID
+						const organizationId = organizationData.id;
+						try {
+							const authDatabase = drizzle(environment.DB);
+							const orgRows = await authDatabase
+								.select({ bannedAt: schema.organization.bannedAt })
+								.from(schema.organization)
+								.where(eq(schema.organization.id, organizationId))
+								.limit(1);
+
+							if (orgRows.length > 0 && orgRows[0].bannedAt) {
+								throw new APIError('FORBIDDEN', { message: 'CONTACT_SUPPORT' });
+							}
+						} catch (error) {
+							// Re-throw APIError; swallow unexpected DB errors to avoid
+							// breaking the auth flow. This is a deliberate fail-open trade-off:
+							// a transient D1 error allows the update rather than blocking
+							// all org updates. The ban is still enforced at the route level.
+							if (error instanceof APIError) throw error;
+							console.error('Failed to check org ban status during organization update:', error);
+						}
+					},
+				},
+			},
 			user: {
 				create: {
 					after: async (user) => {
@@ -209,6 +238,9 @@ export function createAuth(environment: AuthEnvironment, baseUrl: string) {
 									.where(eq(schema.user.id, session.userId));
 							}
 						} catch (error) {
+							// Re-throw APIError (ban rejection); swallow unexpected DB
+							// errors to avoid blocking sign-in on transient D1 failures.
+							if (error instanceof APIError) throw error;
 							console.error('Failed to check user ban/delete status during session creation:', error);
 						}
 					},

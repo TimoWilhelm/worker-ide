@@ -1,7 +1,3 @@
--- Add ban support to user table
-ALTER TABLE user ADD COLUMN banned_at INTEGER;
---> statement-breakpoint
-ALTER TABLE user ADD COLUMN ban_reason TEXT;
---> statement-breakpoint
--- Add soft-delete support to organization table
-ALTER TABLE organization ADD COLUMN deleted_at INTEGER;
+ALTER TABLE `organization` ADD `deleted_at` integer;--> statement-breakpoint
+ALTER TABLE `user` ADD `banned_at` integer;--> statement-breakpoint
+ALTER TABLE `user` ADD `ban_reason` text;

@@ -39,26 +39,48 @@ export const transferRoutes = new Hono<AuthedEnvironment>()
 			throw httpError(HttpErrorCode.VALIDATION_ERROR, 'Cannot transfer a project to the same organization.');
 		}
 
-		// Verify project exists in source org and is not soft-deleted
+		// Verify source org is not banned
+		const sourceOrgRow = await database
+			.select({ bannedAt: schema.organization.bannedAt })
+			.from(schema.organization)
+			.where(eq(schema.organization.id, orgId))
+			.limit(1);
+
+		if (sourceOrgRow.length > 0 && sourceOrgRow[0].bannedAt) {
+			throw httpError(HttpErrorCode.FORBIDDEN, 'Please contact us for assistance.');
+		}
+
+		// Verify project exists in source org, is not soft-deleted, and is not banned
 		const projectRow = await database
 			.select({ id: schema.project.id })
 			.from(schema.project)
-			.where(and(eq(schema.project.id, projectId), eq(schema.project.organizationId, orgId), isNull(schema.project.deletedAt)))
+			.where(
+				and(
+					eq(schema.project.id, projectId),
+					eq(schema.project.organizationId, orgId),
+					isNull(schema.project.deletedAt),
+					isNull(schema.project.bannedAt),
+				),
+			)
 			.limit(1);
 
 		if (projectRow.length === 0) {
 			throw httpError(HttpErrorCode.NOT_FOUND, 'Project not found in this organization.');
 		}
 
-		// Verify target org exists
+		// Verify target org exists and is not banned
 		const targetOrgRow = await database
-			.select({ id: schema.organization.id })
+			.select({ id: schema.organization.id, bannedAt: schema.organization.bannedAt })
 			.from(schema.organization)
 			.where(eq(schema.organization.id, body.targetOrganizationId))
 			.limit(1);
 
 		if (targetOrgRow.length === 0) {
 			throw httpError(HttpErrorCode.NOT_FOUND, 'Target organization not found.');
+		}
+
+		if (targetOrgRow[0].bannedAt) {
+			throw httpError(HttpErrorCode.FORBIDDEN, 'Target organization is restricted.');
 		}
 
 		// Check no pending transfer already exists for this project
@@ -171,12 +193,16 @@ export const transferRoutes = new Hono<AuthedEnvironment>()
 		// Verify user is admin/owner of target org
 		await assertOrgAdmin(database, transfer.targetOrganizationId, userId);
 
-		// Verify project still exists, isn't soft-deleted, and still belongs to source org
+		// Verify project still exists, isn't soft-deleted/banned, and still belongs to source org
 		const projectRow = await database
-			.select({ organizationId: schema.project.organizationId })
+			.select({ organizationId: schema.project.organizationId, bannedAt: schema.project.bannedAt })
 			.from(schema.project)
 			.where(and(eq(schema.project.id, transfer.projectId), isNull(schema.project.deletedAt)))
 			.limit(1);
+
+		if (projectRow.length > 0 && projectRow[0].bannedAt) {
+			throw httpError(HttpErrorCode.FORBIDDEN, 'This project has been restricted.');
+		}
 
 		if (projectRow.length === 0 || projectRow[0].organizationId !== transfer.sourceOrganizationId) {
 			// Auto-cancel stale transfer
@@ -188,12 +214,17 @@ export const transferRoutes = new Hono<AuthedEnvironment>()
 			throw httpError(HttpErrorCode.VALIDATION_ERROR, 'Project no longer exists or has been moved. Transfer cancelled.');
 		}
 
-		// Check target org has room (plan-based)
+		// Check target org exists, is not banned, and has room (plan-based)
 		const targetOrgRow = await database
-			.select({ plan: schema.organization.plan })
+			.select({ plan: schema.organization.plan, bannedAt: schema.organization.bannedAt })
 			.from(schema.organization)
 			.where(eq(schema.organization.id, transfer.targetOrganizationId))
 			.limit(1);
+
+		if (targetOrgRow.length > 0 && targetOrgRow[0].bannedAt) {
+			throw httpError(HttpErrorCode.FORBIDDEN, 'Target organization is restricted.');
+		}
+
 		const targetOrgLimits = getOrgLimits(targetOrgRow[0]?.plan ?? 'free');
 
 		const existingProjects = await database

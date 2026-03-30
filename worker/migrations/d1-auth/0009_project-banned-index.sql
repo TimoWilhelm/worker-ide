@@ -1,0 +1,1 @@
+CREATE INDEX `project_banned_idx` ON `project` (`banned_at`);
