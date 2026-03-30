@@ -184,6 +184,46 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	/** Queued steering messages for running sessions, keyed by sessionId. */
 	private steeringMessages = new Map<string, Array<{ id: string; content: string }>>();
 
+	/** Authenticated user ID per WebSocket connection, set from the server-forwarded header. */
+	private connectionUserIds = new Map<string, string>();
+
+	// =========================================================================
+	// WebSocket Lifecycle
+	// =========================================================================
+
+	/**
+	 * Called by the Agents SDK when a new WebSocket connection is established.
+	 * Extracts the authenticated userId forwarded by the main Worker and stores
+	 * it keyed by connection ID for later use in @callable methods.
+	 */
+	async onConnect(connection: import('agents').Connection<unknown>, context: import('agents').ConnectionContext): Promise<void> {
+		await super.onConnect(connection, context);
+		const userId = context.request?.headers.get('x-worker-ide-user-id');
+		if (userId) {
+			this.connectionUserIds.set(connection.id, userId);
+		}
+	}
+
+	onClose(connection: import('agents').Connection<unknown>): void {
+		this.connectionUserIds.delete(connection.id);
+	}
+
+	/**
+	 * Get the authenticated user ID for the current caller.
+	 * Falls back to scanning all connections when exact match is not found.
+	 */
+	private getAuthenticatedUserId(): string | undefined {
+		// If there's only one connection, return its userId (most common case)
+		if (this.connectionUserIds.size === 1) {
+			return [...this.connectionUserIds.values()][0];
+		}
+		// Return the first userId found (all connections are pre-authed by the main Worker)
+		for (const userId of this.connectionUserIds.values()) {
+			return userId;
+		}
+		return undefined;
+	}
+
 	// =========================================================================
 	// HTTP Request Handler
 	// =========================================================================
@@ -268,13 +308,13 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		mode: AgentMode = 'code',
 		model: AIModelId = DEFAULT_AI_MODEL,
 		sessionId?: string,
-		userId?: string,
 	): Promise<{ sessionId: string }> {
-		// Rate limiting keyed on the authenticated user (falls back to projectId
-		// for backwards compatibility / eviction-recovery restarts where userId
-		// is not available).
+		// Rate limiting keyed on the server-authenticated user (falls back to
+		// projectId for backwards compatibility / eviction-recovery restarts
+		// where no connection is available).
+		const authenticatedUserId = this.getAuthenticatedUserId();
 		if (env.AI_RATE_LIMITER) {
-			const { success } = await env.AI_RATE_LIMITER.limit({ key: userId ?? projectId });
+			const { success } = await env.AI_RATE_LIMITER.limit({ key: authenticatedUserId ?? projectId });
 			if (!success) {
 				throw new Error('Rate limit exceeded. Please wait before making more AI requests.');
 			}

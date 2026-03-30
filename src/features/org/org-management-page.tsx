@@ -7,7 +7,7 @@
  * client methods — no custom backend routes needed.
  */
 
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
 	ArrowLeft,
 	ChevronDown,
@@ -361,10 +361,9 @@ function InviteForm({
 interface OrgManagementPageProperties {
 	orgSlug: string;
 	organizationId: string;
-	organizations: Array<{ id: string; name: string; slug: string | null }>;
 }
 
-export default function OrgManagementPage({ orgSlug, organizationId, organizations: _organizations }: OrgManagementPageProperties) {
+export default function OrgManagementPage({ orgSlug, organizationId }: OrgManagementPageProperties) {
 	const navigate = useNavigate();
 	const { data: session } = authClient.useSession();
 	const resolvedTheme = useTheme();
@@ -377,7 +376,7 @@ export default function OrgManagementPage({ orgSlug, organizationId, organizatio
 			const { data, error } = await authClient.organization.getFullOrganization({
 				query: { organizationId },
 			});
-			if (error) return;
+			if (error) throw new Error(error.message ?? 'Failed to load organization');
 			return data;
 		},
 		staleTime: 1000 * 30,
@@ -407,9 +406,10 @@ export default function OrgManagementPage({ orgSlug, organizationId, organizatio
 	const isOwner = currentMember?.role === 'owner';
 	const isAdminOrOwner = isOwner || currentMember?.role === 'admin';
 
+	const queryClient = useQueryClient();
 	const refreshOrganization = useCallback(() => {
-		void organizationQuery.refetch();
-	}, [organizationQuery]);
+		void queryClient.invalidateQueries({ queryKey: ['org-details', organizationId] });
+	}, [queryClient, organizationId]);
 
 	// --- Rename ---
 	const handleStartRename = useCallback(() => {

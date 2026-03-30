@@ -115,24 +115,34 @@ export const userRoutes = new Hono<AuthedEnvironment>()
 		const { projectId } = c.req.param();
 		const database = drizzle(c.env.DB);
 
-		const now = new Date();
-
-		// Upsert: insert or update last_accessed_at
-		const existing = await database
-			.select({ id: schema.userProjectAccess.id })
-			.from(schema.userProjectAccess)
-			.where(and(eq(schema.userProjectAccess.userId, userId), eq(schema.userProjectAccess.projectId, projectId)))
+		// Verify user is a member of the project's organization
+		const projectMember = await database
+			.select({ memberId: schema.member.id })
+			.from(schema.project)
+			.leftJoin(schema.member, and(eq(schema.member.organizationId, schema.project.organizationId), eq(schema.member.userId, userId)))
+			.where(and(eq(schema.project.id, projectId), isNull(schema.project.deletedAt)))
 			.limit(1);
 
-		await (existing.length > 0
-			? database.update(schema.userProjectAccess).set({ lastAccessedAt: now }).where(eq(schema.userProjectAccess.id, existing[0].id))
-			: database.insert(schema.userProjectAccess).values({
-					id: crypto.randomUUID(),
-					userId,
-					projectId,
-					lastAccessedAt: now,
-					isFavorite: false,
-				}));
+		if (projectMember.length === 0 || !projectMember[0].memberId) {
+			throw httpError(HttpErrorCode.FORBIDDEN, 'Forbidden');
+		}
+
+		const now = new Date();
+
+		// Atomic upsert using the unique index on (userId, projectId)
+		await database
+			.insert(schema.userProjectAccess)
+			.values({
+				id: crypto.randomUUID(),
+				userId,
+				projectId,
+				lastAccessedAt: now,
+				isFavorite: false,
+			})
+			.onConflictDoUpdate({
+				target: [schema.userProjectAccess.userId, schema.userProjectAccess.projectId],
+				set: { lastAccessedAt: now },
+			});
 
 		return c.json({ ok: true });
 	})
@@ -148,22 +158,32 @@ export const userRoutes = new Hono<AuthedEnvironment>()
 			throw httpError(HttpErrorCode.VALIDATION_ERROR, 'Body must contain a boolean "favorite" field.');
 		}
 
-		// Upsert: create access record if it doesn't exist, then set favorite
-		const existing = await database
-			.select({ id: schema.userProjectAccess.id })
-			.from(schema.userProjectAccess)
-			.where(and(eq(schema.userProjectAccess.userId, userId), eq(schema.userProjectAccess.projectId, projectId)))
+		// Verify user is a member of the project's organization
+		const projectMember = await database
+			.select({ memberId: schema.member.id })
+			.from(schema.project)
+			.leftJoin(schema.member, and(eq(schema.member.organizationId, schema.project.organizationId), eq(schema.member.userId, userId)))
+			.where(and(eq(schema.project.id, projectId), isNull(schema.project.deletedAt)))
 			.limit(1);
 
-		await (existing.length > 0
-			? database.update(schema.userProjectAccess).set({ isFavorite: body.favorite }).where(eq(schema.userProjectAccess.id, existing[0].id))
-			: database.insert(schema.userProjectAccess).values({
-					id: crypto.randomUUID(),
-					userId,
-					projectId,
-					lastAccessedAt: new Date(),
-					isFavorite: body.favorite,
-				}));
+		if (projectMember.length === 0 || !projectMember[0].memberId) {
+			throw httpError(HttpErrorCode.FORBIDDEN, 'Forbidden');
+		}
+
+		// Atomic upsert using the unique index on (userId, projectId)
+		await database
+			.insert(schema.userProjectAccess)
+			.values({
+				id: crypto.randomUUID(),
+				userId,
+				projectId,
+				lastAccessedAt: new Date(),
+				isFavorite: body.favorite,
+			})
+			.onConflictDoUpdate({
+				target: [schema.userProjectAccess.userId, schema.userProjectAccess.projectId],
+				set: { isFavorite: body.favorite },
+			});
 
 		return c.json({ projectId, favorite: body.favorite });
 	})

@@ -122,8 +122,34 @@ function parseProjectRoute(path: string): { projectId: string; subPath: string }
 
 const app = new Hono<AuthedEnvironment>();
 
-app.use('/api/*', cors());
-app.use('/p/*/api/*', cors());
+app.use(
+	'/api/*',
+	cors({
+		origin: (origin, c) => {
+			const { baseDomain } = parseHost(new URL(c.req.url).host);
+			const appOrigin = buildAppOrigin(baseDomain, new URL(c.req.url).protocol);
+			return origin === appOrigin ? origin : undefined;
+		},
+		credentials: true,
+	}),
+);
+app.use(
+	'/p/*/api/*',
+	cors({
+		origin: (origin, c) => {
+			const { baseDomain } = parseHost(new URL(c.req.url).host);
+			const appOrigin = buildAppOrigin(baseDomain, new URL(c.req.url).protocol);
+			return origin === appOrigin ? origin : undefined;
+		},
+		credentials: true,
+	}),
+);
+
+// =============================================================================
+// Health check (public, no auth required)
+// =============================================================================
+
+app.get('/api/health', (c) => c.json({ ok: true }));
 
 // =============================================================================
 // better-auth handler — handles /api/auth/* (login, callback, session, etc.)
@@ -434,6 +460,8 @@ async function handlePreviewRequest(request: Request, projectId: string): Promis
 			deletedAt: authSchema.project.deletedAt,
 			projectBannedAt: authSchema.project.bannedAt,
 			orgBannedAt: authSchema.organization.bannedAt,
+			previewVisibility: authSchema.project.previewVisibility,
+			organizationId: authSchema.project.organizationId,
 		})
 		.from(authSchema.project)
 		.leftJoin(authSchema.organization, eq(authSchema.project.organizationId, authSchema.organization.id))
@@ -465,6 +493,45 @@ async function handlePreviewRequest(request: Request, projectId: string): Promis
 			homeUrl,
 			status: 403,
 		});
+	}
+
+	// Enforce preview visibility: private previews require authenticated org membership
+	if (previewProjectRow[0].previewVisibility === 'private') {
+		const baseUrl = buildAppOrigin(parseHost(url.host).baseDomain, url.protocol);
+		const auth = createAuth(
+			{
+				DB: env.DB,
+				BETTER_AUTH_SECRET: env.BETTER_AUTH_SECRET,
+				GITHUB_CLIENT_ID: env.GITHUB_CLIENT_ID,
+				GITHUB_CLIENT_SECRET: env.GITHUB_CLIENT_SECRET,
+				GOOGLE_CLIENT_ID: env.GOOGLE_CLIENT_ID,
+				GOOGLE_CLIENT_SECRET: env.GOOGLE_CLIENT_SECRET,
+			},
+			baseUrl,
+		);
+		const session = await auth.api.getSession({ headers: request.headers });
+		if (!session) {
+			return errorPage({
+				heading: 'Private project',
+				message: 'Sign in to access this preview.',
+				homeUrl,
+				status: 403,
+			});
+		}
+		// Check that the authenticated user is a member of the project's org
+		const memberRow = await previewDatabase
+			.select({ id: authSchema.member.id })
+			.from(authSchema.member)
+			.where(and(eq(authSchema.member.organizationId, previewProjectRow[0].organizationId), eq(authSchema.member.userId, session.user.id)))
+			.limit(1);
+		if (memberRow.length === 0) {
+			return errorPage({
+				heading: 'Private project',
+				message: 'You do not have access to this preview.',
+				homeUrl,
+				status: 403,
+			});
+		}
 	}
 
 	return withMounts(async () => {
@@ -590,6 +657,17 @@ app.post('/api/new-project', async (c) => {
 		updatedAt: now,
 	});
 
+	// Look up the authenticated user's name and email for the git commit author
+	const userRow = await database
+		.select({ name: authSchema.user.name, email: authSchema.user.email })
+		.from(authSchema.user)
+		.where(eq(authSchema.user.id, userId))
+		.limit(1);
+	const commitAuthor = {
+		name: userRow[0]?.name ?? 'IDE User',
+		email: userRow[0]?.email ?? 'user@example.com',
+	};
+
 	// Create initial git commit via the git auxiliary worker
 	const fsStub = filesystemNamespace.get(doId);
 	c.executionCtx.waitUntil(
@@ -609,7 +687,7 @@ app.post('/api/new-project', async (c) => {
 					await gitClient.commitTree({
 						files,
 						message: 'Initial commit',
-						author: { name: 'IDE User', email: 'user@example.com' },
+						author: commitAuthor,
 					});
 				}
 			} catch (error) {
@@ -763,6 +841,17 @@ app.post('/api/clone-project', async (c) => {
 		updatedAt: now,
 	});
 
+	// Look up the authenticated user's name and email for the git commit author
+	const cloneUserRow = await database
+		.select({ name: authSchema.user.name, email: authSchema.user.email })
+		.from(authSchema.user)
+		.where(eq(authSchema.user.id, userId))
+		.limit(1);
+	const cloneCommitAuthor = {
+		name: cloneUserRow[0]?.name ?? 'IDE User',
+		email: cloneUserRow[0]?.email ?? 'user@example.com',
+	};
+
 	// Create initial git commit for cloned project via the git auxiliary worker
 	const newFsStub = filesystemNamespace.get(newDoId);
 	c.executionCtx.waitUntil(
@@ -782,7 +871,7 @@ app.post('/api/clone-project', async (c) => {
 					await gitClient.commitTree({
 						files,
 						message: 'Initial commit',
-						author: { name: 'IDE User', email: 'user@example.com' },
+						author: cloneCommitAuthor,
 					});
 				}
 			} catch (error) {
@@ -899,6 +988,7 @@ app.all('/p/:projectId/*', async (c) => {
 		agentUrl.pathname = '/';
 		const agentHeaders = new Headers(c.req.raw.headers);
 		agentHeaders.set('x-partykit-room', `agent:${projectId}`);
+		agentHeaders.set('x-worker-ide-user-id', userId);
 		return agentStub.fetch(new Request(agentUrl, { ...c.req.raw, headers: agentHeaders }));
 	}
 
@@ -978,7 +1068,7 @@ export default {
 
 		switch (parsed.type) {
 			case 'preview': {
-				const secret = env.PREVIEW_SECRET || DEV_PREVIEW_SECRET;
+				const secret = import.meta.env.DEV ? env.PREVIEW_SECRET || DEV_PREVIEW_SECRET : env.PREVIEW_SECRET;
 				const isValidToken = await validatePreviewToken(parsed.projectId, parsed.token, secret);
 				if (!isValidToken) {
 					return previewExpiredPage({ baseDomain: parsed.baseDomain, protocol: url.protocol });

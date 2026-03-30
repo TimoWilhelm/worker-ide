@@ -8,7 +8,7 @@
  * Either side can cancel/reject while the transfer is pending.
  */
 
-import { and, eq, inArray, isNull } from 'drizzle-orm';
+import { and, eq, inArray, isNull, or } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
 import { Hono } from 'hono';
 
@@ -128,11 +128,18 @@ export const transferRoutes = new Hono<AuthedEnvironment>()
 		}
 
 		// Get all pending transfers involving user's admin orgs
-		const pendingTransfers = await database.select().from(schema.projectTransfer).where(eq(schema.projectTransfer.status, 'pending'));
-
-		const relevantTransfers = pendingTransfers.filter(
-			(transfer) => adminOrgIds.includes(transfer.sourceOrganizationId) || adminOrgIds.includes(transfer.targetOrganizationId),
-		);
+		const relevantTransfers = await database
+			.select()
+			.from(schema.projectTransfer)
+			.where(
+				and(
+					eq(schema.projectTransfer.status, 'pending'),
+					or(
+						inArray(schema.projectTransfer.sourceOrganizationId, adminOrgIds),
+						inArray(schema.projectTransfer.targetOrganizationId, adminOrgIds),
+					),
+				),
+			);
 
 		if (relevantTransfers.length === 0) {
 			return c.json({ incoming: [], outgoing: [] });

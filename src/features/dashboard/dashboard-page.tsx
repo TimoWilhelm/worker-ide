@@ -436,7 +436,7 @@ export default function DashboardPage({ organizationId, organizations, isCreateO
 	});
 	const orgProjects = useMemo(() => projectsQuery.data ?? [], [projectsQuery.data]);
 	const currentOrg = organizations.find((o) => o.id === organizationId);
-	const projectLimitReached = orgProjects.length >= getOrgLimits(currentOrg?.plan ?? 'free').maxProjects;
+	const projectLimitReached = !!currentOrg && orgProjects.length >= getOrgLimits(currentOrg.plan ?? 'free').maxProjects;
 
 	const selectedTemplate = useMemo(() => templates.find((template) => template.id === selectedTemplateId), [templates, selectedTemplateId]);
 

@@ -68,8 +68,11 @@ export const snapshotRoutes = new Hono<AppEnvironment>()
 		const projectId = c.get('projectId');
 		const { id } = c.req.valid('param');
 
-		const success = await revertSnapshot(projectRoot, id, projectId);
-		if (!success) {
+		const result = await revertSnapshot(projectRoot, id, projectId);
+		if (!result.success) {
+			if (result.reason === 'not_found') {
+				throw httpError(HttpErrorCode.SNAPSHOT_NOT_FOUND, 'Snapshot not found');
+			}
 			throw httpError(HttpErrorCode.INTERNAL_ERROR, 'Failed to revert snapshot');
 		}
 
@@ -82,8 +85,11 @@ export const snapshotRoutes = new Hono<AppEnvironment>()
 		const projectId = c.get('projectId');
 		const { path, snapshotId } = c.req.valid('json');
 
-		const success = await revertFileFromSnapshot(projectRoot, path, snapshotId, projectId);
-		if (!success) {
+		const result = await revertFileFromSnapshot(projectRoot, path, snapshotId, projectId);
+		if (!result.success) {
+			if (result.reason === 'not_found') {
+				throw httpError(HttpErrorCode.NOT_FOUND, 'Snapshot or file not found');
+			}
 			throw httpError(HttpErrorCode.INTERNAL_ERROR, 'Failed to revert file');
 		}
 
@@ -280,42 +286,51 @@ async function revertSingleFile(
 /**
  * Revert all files in a snapshot to their previous state.
  */
-async function revertSnapshot(projectRoot: string, snapshotId: string, projectId: string): Promise<boolean> {
+async function revertSnapshot(
+	projectRoot: string,
+	snapshotId: string,
+	projectId: string,
+): Promise<{ success: true } | { success: false; reason: 'not_found' | 'error' }> {
 	const snapshotDirectory = `${projectRoot}/.agent/snapshots/${snapshotId}`;
 
 	try {
 		const metadata = await getSnapshotMetadata(projectRoot, snapshotId);
-		if (!metadata) return false;
+		if (!metadata) return { success: false, reason: 'not_found' };
 
 		for (const change of metadata.changes) {
 			await revertSingleFile(projectRoot, change.path, change.action, snapshotDirectory, projectId);
 		}
 
-		return true;
+		return { success: true };
 	} catch (error) {
 		console.error('Failed to revert snapshot:', error);
-		return false;
+		return { success: false, reason: 'error' };
 	}
 }
 
 /**
  * Revert a single file from a specific snapshot.
  */
-async function revertFileFromSnapshot(projectRoot: string, path: string, snapshotId: string, projectId: string): Promise<boolean> {
+async function revertFileFromSnapshot(
+	projectRoot: string,
+	path: string,
+	snapshotId: string,
+	projectId: string,
+): Promise<{ success: true } | { success: false; reason: 'not_found' | 'error' }> {
 	const snapshotDirectory = `${projectRoot}/.agent/snapshots/${snapshotId}`;
 
 	try {
 		const metadata = await getSnapshotMetadata(projectRoot, snapshotId);
-		if (!metadata) return false;
+		if (!metadata) return { success: false, reason: 'not_found' };
 
 		const change = metadata.changes.find((ch) => ch.path === path);
-		if (!change) return false;
+		if (!change) return { success: false, reason: 'not_found' };
 
 		await revertSingleFile(projectRoot, path, change.action, snapshotDirectory, projectId);
-		return true;
+		return { success: true };
 	} catch (error) {
 		console.error('Failed to revert file from snapshot:', error);
-		return false;
+		return { success: false, reason: 'error' };
 	}
 }
 

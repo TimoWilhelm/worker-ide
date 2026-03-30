@@ -11,6 +11,8 @@
  */
 
 import { zValidator } from '@hono/zod-validator';
+import { eq } from 'drizzle-orm';
+import { drizzle } from 'drizzle-orm/d1';
 import { Hono } from 'hono';
 
 import { HttpErrorCode } from '@shared/http-errors';
@@ -33,6 +35,7 @@ import {
 	gitTagNameQuerySchema,
 } from '@shared/validation';
 
+import * as authSchema from '../db/auth-schema';
 import { coordinatorNamespace } from '../lib/durable-object-namespaces';
 import { httpError } from '../lib/http-error';
 import { GitClient } from '../services/git-client';
@@ -47,6 +50,23 @@ import type { GitStatusEntry, GitBranchInfo, GitCommitEntry, GitFileDiff } from 
 
 function getGitClient(c: { env: Env; var: { projectId: string } }): GitClient {
 	return new GitClient(c.env.REPO_DO, c.var.projectId);
+}
+
+/**
+ * Look up the authenticated user's name and email from D1.
+ * Falls back to defaults if the user is not found.
+ */
+async function getCommitAuthor(environment: Env, userId: string): Promise<{ name: string; email: string }> {
+	const database = drizzle(environment.DB);
+	const userRow = await database
+		.select({ name: authSchema.user.name, email: authSchema.user.email })
+		.from(authSchema.user)
+		.where(eq(authSchema.user.id, userId))
+		.limit(1);
+	return {
+		name: userRow[0]?.name ?? 'IDE User',
+		email: userRow[0]?.email ?? 'user@example.com',
+	};
 }
 
 const PROJECT_ROOT = '/project';
@@ -103,6 +123,7 @@ export const gitRoutes = new Hono<AppEnvironment>()
 		const fsStub = c.get('fsStub');
 
 		try {
+			const author = await getCommitAuthor(c.env, c.get('userId'));
 			const { mount, withMounts } = await import('worker-fs-mount');
 			await withMounts(async () => {
 				mount(PROJECT_ROOT, fsStub);
@@ -116,7 +137,7 @@ export const gitRoutes = new Hono<AppEnvironment>()
 					await gitClient.commitTree({
 						files,
 						message: 'Initial commit',
-						author: { name: 'IDE User', email: 'user@example.com' },
+						author,
 					});
 				}
 			});
@@ -396,6 +417,7 @@ export const gitRoutes = new Hono<AppEnvironment>()
 		const { message } = c.req.valid('json');
 
 		try {
+			const author = await getCommitAuthor(c.env, c.get('userId'));
 			const { mount, withMounts } = await import('worker-fs-mount');
 			let commitOid = '';
 			let gitStatus: GitStatusResponse = { entries: [], initialized: false };
@@ -425,7 +447,7 @@ export const gitRoutes = new Hono<AppEnvironment>()
 					files,
 					deletedPaths,
 					message,
-					author: { name: 'IDE User', email: 'user@example.com' },
+					author,
 				});
 
 				commitOid = result.commitOid;
@@ -859,6 +881,7 @@ export const gitRoutes = new Hono<AppEnvironment>()
 		const { action, index, message: stashMessage } = c.req.valid('json');
 
 		try {
+			const author = await getCommitAuthor(c.env, c.get('userId'));
 			const { mount, withMounts } = await import('worker-fs-mount');
 			let gitStatus: GitStatusResponse = { entries: [], initialized: false };
 
@@ -887,7 +910,7 @@ export const gitRoutes = new Hono<AppEnvironment>()
 								files,
 								deletedPaths,
 								message: stashMessage ?? `WIP on stash: ${stashName}`,
-								author: { name: 'IDE User', email: 'user@example.com' },
+								author,
 							});
 						} catch (commitError) {
 							// Clean up orphaned ephemeral ref on failure

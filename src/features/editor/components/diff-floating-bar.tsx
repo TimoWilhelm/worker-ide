@@ -109,7 +109,7 @@ export function DiffFloatingBar({
 					px-1 text-2xs font-medium whitespace-nowrap text-text-secondary select-none
 				"
 			>
-				{displayIndex} of {totalGroups} edits
+				{displayIndex} of {totalGroups} {totalGroups === 1 ? 'edit' : 'edits'}
 				{pendingCount < totalGroups && <span className="text-text-secondary/60"> ({pendingCount} pending)</span>}
 			</span>
 

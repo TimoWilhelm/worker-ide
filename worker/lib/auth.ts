@@ -60,8 +60,8 @@ export function createAuth(environment: AuthEnvironment, baseUrl: string) {
 		},
 		account: {
 			accountLinking: {
-				enabled: true,
-				trustedProviders: ['google', 'github'],
+				enabled: false,
+				trustedProviders: [],
 			},
 		},
 		emailVerification: {

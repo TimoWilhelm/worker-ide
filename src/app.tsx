@@ -10,7 +10,7 @@
 
 import { MutationCache, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Check, ClipboardCopy } from 'lucide-react';
-import { Suspense, use, useEffect, useState } from 'react';
+import { Suspense, use, useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate, Route, Routes, useParams } from 'react-router';
 
 import { ErrorBoundary } from '@/components/error-boundary';
@@ -71,13 +71,15 @@ function LoadingFallback() {
 
 function ErrorFallback({ error, resetErrorBoundary }: { error: Error; resetErrorBoundary: () => void }) {
 	const [copied, setCopied] = useState(false);
+	const copyTimerReference = useRef<ReturnType<typeof setTimeout>>(undefined);
 
 	function handleCopy() {
 		void navigator.clipboard
 			?.writeText(error.message)
 			.then(() => {
+				clearTimeout(copyTimerReference.current);
 				setCopied(true);
-				setTimeout(() => setCopied(false), 2000);
+				copyTimerReference.current = setTimeout(() => setCopied(false), 2000);
 			})
 			.catch(() => {
 				// Clipboard API unavailable (HTTP context, iframe restrictions, etc.)
@@ -134,8 +136,6 @@ function ErrorFallback({ error, resetErrorBoundary }: { error: Error; resetError
 // Routing
 // =============================================================================
 
-const hostType = parseHost(globalThis.location.host).type;
-
 /**
  * Gate component that verifies a project is accessible before mounting the IDE.
  * Uses React 19 `use()` to suspend until the access check resolves.
@@ -166,6 +166,18 @@ function ValidProject({ projectId }: { projectId: string }) {
  * Used by the `/` redirect to take the user back to their last org.
  */
 const LAST_ORG_SLUG_KEY = 'lastOrgSlug';
+
+/**
+ * Persist the last-visited org slug/id in localStorage so the root redirect
+ * can take the user back to their last org on next visit.
+ */
+function useRememberOrgSlug(orgIdentifier: string | undefined) {
+	useEffect(() => {
+		if (orgIdentifier) {
+			globalThis.localStorage.setItem(LAST_ORG_SLUG_KEY, orgIdentifier);
+		}
+	}, [orgIdentifier]);
+}
 
 /**
  * Auth gate — simplified flow without session-stored active org:
@@ -245,12 +257,7 @@ function OrgDashboardRoute({ organizations, user }: { organizations: Organizatio
 	const organization = orgSlug ? organizations.find((o) => o.slug === orgSlug || o.id === orgSlug) : undefined;
 	const orgIdentifier = organization ? (organization.slug ?? organization.id) : undefined;
 
-	// Remember last visited org (store slug if set, otherwise id)
-	useEffect(() => {
-		if (orgIdentifier) {
-			globalThis.localStorage.setItem(LAST_ORG_SLUG_KEY, orgIdentifier);
-		}
-	}, [orgIdentifier]);
+	useRememberOrgSlug(orgIdentifier);
 
 	if (!orgSlug || !organization) {
 		return <NotFoundPage />;
@@ -271,12 +278,7 @@ function OrgSettingsRoute({ organizations }: { organizations: OrganizationEntry[
 	const organization = orgSlug ? organizations.find((o) => o.slug === orgSlug || o.id === orgSlug) : undefined;
 	const orgIdentifier = organization ? (organization.slug ?? organization.id) : undefined;
 
-	// Remember last visited org (store slug if set, otherwise id)
-	useEffect(() => {
-		if (orgIdentifier) {
-			globalThis.localStorage.setItem(LAST_ORG_SLUG_KEY, orgIdentifier);
-		}
-	}, [orgIdentifier]);
+	useRememberOrgSlug(orgIdentifier);
 
 	if (!orgSlug || !organization) {
 		return <NotFoundPage />;
@@ -284,7 +286,7 @@ function OrgSettingsRoute({ organizations }: { organizations: OrganizationEntry[
 
 	return (
 		<Suspense fallback={<LoadingFallback />}>
-			<OrgManagementPage orgSlug={orgSlug} organizationId={organization.id} organizations={organizations} />
+			<OrgManagementPage orgSlug={orgSlug} organizationId={organization.id} />
 		</Suspense>
 	);
 }
@@ -302,6 +304,9 @@ function RootRedirect({ organizations, activeOrganizationId }: { organizations: 
 	const lastSlug = globalThis.localStorage.getItem(LAST_ORG_SLUG_KEY);
 	const lastOrg = lastSlug ? organizations.find((o) => o.slug === lastSlug || o.id === lastSlug) : undefined;
 	const targetOrg = activeOrg ?? lastOrg ?? organizations[0];
+	if (!targetOrg) {
+		return <Navigate to="/create-org" replace />;
+	}
 	const slug = targetOrg.slug ?? targetOrg.id;
 	return <Navigate to={`/org/${slug}`} replace />;
 }
@@ -315,6 +320,8 @@ function AppContent({
 	user: UserInfo;
 	activeOrganizationId?: string;
 }) {
+	const hostType = useMemo(() => parseHost(globalThis.location.host).type, []);
+
 	if (hostType !== 'app') {
 		return <NotFoundPage />;
 	}

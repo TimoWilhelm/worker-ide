@@ -6,8 +6,9 @@
  * Uses better-auth's listUserInvitations / acceptInvitation / rejectInvitation.
  */
 
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, Mail, X } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 
 import { toast } from '@/components/ui/toast-store';
 import { authClient } from '@/lib/auth-client';
@@ -22,25 +23,22 @@ interface UserInvitation {
 }
 
 export function PendingInvitationsBanner() {
-	const [invitations, setInvitations] = useState<UserInvitation[]>([]);
 	const [actingOn, setActingOn] = useState<string | undefined>();
+	const queryClient = useQueryClient();
 
-	const fetchInvitations = useCallback(async () => {
-		try {
+	const invitationsQuery = useQuery({
+		queryKey: ['user-invitations'],
+		queryFn: async () => {
 			const { data } = await authClient.organization.listInvitations();
 			if (data) {
 				// eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- better-auth returns loosely typed invitation data
-				const pending = (data as unknown as UserInvitation[]).filter((invitation) => invitation.status === 'pending');
-				setInvitations(pending);
+				return (data as unknown as UserInvitation[]).filter((invitation) => invitation.status === 'pending');
 			}
-		} catch {
-			// Silently ignore — banner is non-critical
-		}
-	}, []);
-
-	useEffect(() => {
-		void fetchInvitations();
-	}, [fetchInvitations]);
+			return [];
+		},
+		staleTime: 1000 * 30,
+	});
+	const invitations = invitationsQuery.data ?? [];
 
 	const handleAccept = useCallback(
 		async (invitationId: string) => {
@@ -54,14 +52,14 @@ export function PendingInvitationsBanner() {
 					return;
 				}
 				toast.success('Invitation accepted');
-				void fetchInvitations();
+				void queryClient.invalidateQueries({ queryKey: ['user-invitations'] });
 			} catch {
 				toast.error('Failed to accept invitation');
 			} finally {
 				setActingOn(undefined);
 			}
 		},
-		[fetchInvitations],
+		[queryClient],
 	);
 
 	const handleReject = useCallback(
@@ -76,14 +74,14 @@ export function PendingInvitationsBanner() {
 					return;
 				}
 				toast.success('Invitation declined');
-				void fetchInvitations();
+				void queryClient.invalidateQueries({ queryKey: ['user-invitations'] });
 			} catch {
 				toast.error('Failed to reject invitation');
 			} finally {
 				setActingOn(undefined);
 			}
 		},
-		[fetchInvitations],
+		[queryClient],
 	);
 
 	if (invitations.length === 0) return;

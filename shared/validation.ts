@@ -579,11 +579,18 @@ export const sessionIdQuerySchema = z.object({
 // Git Operation Schemas
 // =============================================================================
 
+/** Validates that a git working-tree path does not contain traversal sequences. */
+const safeGitPath = z
+	.string()
+	.min(1, 'Path is required')
+	.refine((path) => !path.includes('..'), 'Path must not contain ".."')
+	.refine((path) => !path.includes('\0'), 'Path must not contain null bytes');
+
 /**
  * Schema for staging/unstaging files
  */
 export const gitStageSchema = z.object({
-	paths: z.array(z.string().min(1)).min(1, 'At least one path is required'),
+	paths: z.array(safeGitPath).min(1, 'At least one path is required'),
 });
 
 export type GitStageInput = z.infer<typeof gitStageSchema>;
@@ -592,7 +599,7 @@ export type GitStageInput = z.infer<typeof gitStageSchema>;
  * Schema for discarding changes to a file
  */
 export const gitDiscardSchema = z.object({
-	path: z.string().min(1, 'Path is required'),
+	path: safeGitPath,
 });
 
 export type GitDiscardInput = z.infer<typeof gitDiscardSchema>;
@@ -628,7 +635,7 @@ export type GitBranchInput = z.infer<typeof gitBranchSchema>;
  * Schema for renaming a branch
  */
 export const gitBranchRenameSchema = z.object({
-	oldName: z.string().min(1, 'Old branch name is required'),
+	oldName: z.string().min(1, 'Old branch name is required').max(255, 'Branch name is too long'),
 	newName: z.string().min(1, 'New branch name is required').max(255, 'Branch name is too long'),
 });
 
@@ -638,7 +645,7 @@ export type GitBranchRenameInput = z.infer<typeof gitBranchRenameSchema>;
  * Schema for checking out a reference
  */
 export const gitCheckoutSchema = z.object({
-	reference: z.string().min(1, 'Reference is required'),
+	reference: z.string().min(1, 'Reference is required').max(255, 'Reference is too long'),
 });
 
 export type GitCheckoutInput = z.infer<typeof gitCheckoutSchema>;
@@ -647,7 +654,7 @@ export type GitCheckoutInput = z.infer<typeof gitCheckoutSchema>;
  * Schema for merging a branch
  */
 export const gitMergeSchema = z.object({
-	branch: z.string().min(1, 'Branch name is required'),
+	branch: z.string().min(1, 'Branch name is required').max(255, 'Branch name is too long'),
 });
 
 export type GitMergeInput = z.infer<typeof gitMergeSchema>;
@@ -696,7 +703,7 @@ export type GitGraphQuery = z.infer<typeof gitGraphQuerySchema>;
  * Schema for git diff query parameters
  */
 export const gitDiffQuerySchema = z.object({
-	path: z.string().min(1, 'Path is required'),
+	path: safeGitPath,
 });
 
 export type GitDiffQuery = z.infer<typeof gitDiffQuerySchema>;
@@ -715,7 +722,7 @@ export type GitCommitDiffQuery = z.infer<typeof gitCommitDiffQuerySchema>;
  */
 export const gitFileDiffAtCommitQuerySchema = z.object({
 	objectId: z.string().min(1, 'Object ID is required'),
-	path: z.string().min(1, 'File path is required'),
+	path: safeGitPath,
 });
 
 export type GitFileDiffAtCommitQuery = z.infer<typeof gitFileDiffAtCommitQuerySchema>;

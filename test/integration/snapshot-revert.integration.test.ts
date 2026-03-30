@@ -14,87 +14,11 @@
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-const BASE_URL = process.env.TEST_BASE_URL || 'http://localhost:3000';
-
-// =============================================================================
-// Auth Helpers
-// =============================================================================
-
-/** Cached session cookie for authenticated requests. */
-let sessionCookie: string;
-
-/** Track all project IDs created during tests for cleanup. */
-const createdProjectIds: string[] = [];
-
-/**
- * Create a test session via the dev-only endpoint and cache the cookie.
- * Retries on failure to handle transient CI startup issues.
- */
-async function ensureTestSession(): Promise<string> {
-	if (sessionCookie) return sessionCookie;
-
-	const maxRetries = 5;
-	for (let attempt = 1; attempt <= maxRetries; attempt++) {
-		const response = await fetch(`${BASE_URL}/__test/create-session`, {
-			method: 'POST',
-		});
-
-		if (response.ok) {
-			const setCookieHeader = response.headers.get('set-cookie');
-			if (!setCookieHeader) {
-				throw new Error('No session cookie returned from /__test/create-session');
-			}
-			sessionCookie = setCookieHeader.split(';')[0];
-			return sessionCookie;
-		}
-
-		if (attempt < maxRetries) {
-			await new Promise((resolve) => setTimeout(resolve, 500 * attempt));
-			continue;
-		}
-
-		const body = await response.text().catch(() => '');
-		throw new Error(`Failed to create test session after ${maxRetries} attempts: ${response.status} ${response.statusText} — ${body}`);
-	}
-
-	throw new Error('Unreachable');
-}
-
-/** Helper to make an authenticated fetch request. */
-async function authedFetch(url: string, options: RequestInit = {}): Promise<Response> {
-	const cookie = await ensureTestSession();
-	const headers = new Headers(options.headers);
-	headers.set('Cookie', cookie);
-	return fetch(url, { ...options, headers });
-}
+import { authedFetch, BASE_URL, cleanupProjects, createdProjectIds, ensureTestSession } from './helpers';
 
 // =============================================================================
 // Helpers
 // =============================================================================
-
-/** Clean up all tracked test projects. */
-async function cleanupProjects(): Promise<void> {
-	const cookie = sessionCookie;
-	if (!cookie) return;
-
-	for (const projectId of createdProjectIds) {
-		try {
-			await fetch(`${BASE_URL}/api/org/e2e-test-org/project/${projectId}`, {
-				method: 'DELETE',
-				headers: { Cookie: cookie },
-			});
-		} catch {
-			// Ignore — project may already be deleted
-		}
-	}
-	createdProjectIds.length = 0;
-
-	try {
-		await fetch(`${BASE_URL}/__test/cleanup`, { method: 'POST' });
-	} catch {
-		// Ignore — server may be down
-	}
-}
 
 /** Create a fresh project, track it for cleanup, and return its ID. */
 async function createProject(): Promise<string> {
@@ -365,7 +289,7 @@ describe('Snapshot & Revert Integration Tests', () => {
 			const response = await authedFetch(`${BASE_URL}/p/${revertProjectId}/api/snapshot/deadbeef/revert`, {
 				method: 'POST',
 			});
-			expect(response.status).toBe(500);
+			expect(response.status).toBe(404);
 		});
 	});
 
@@ -408,22 +332,22 @@ describe('Snapshot & Revert Integration Tests', () => {
 			expect(await readFile(fileRevertProjectId, '/src/keep.ts')).toBe('AI changed');
 		});
 
-		it('returns 500 for a file not in the snapshot', async () => {
+		it('returns 404 for a file not in the snapshot', async () => {
 			const response = await authedFetch(`${BASE_URL}/p/${fileRevertProjectId}/api/snapshot/revert-file`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ path: '/src/not-in-snapshot.ts', snapshotId: 'aabb0020' }),
 			});
-			expect(response.status).toBe(500);
+			expect(response.status).toBe(404);
 		});
 
-		it('returns 500 for a non-existent snapshot', async () => {
+		it('returns 404 for a non-existent snapshot', async () => {
 			const response = await authedFetch(`${BASE_URL}/p/${fileRevertProjectId}/api/snapshot/revert-file`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ path: '/src/revert-me.ts', snapshotId: 'deadbeef' }),
 			});
-			expect(response.status).toBe(500);
+			expect(response.status).toBe(404);
 		});
 	});
 

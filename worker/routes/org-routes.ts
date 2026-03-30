@@ -132,24 +132,26 @@ export const orgRoutes = new Hono<AuthedEnvironment>()
 
 		const now = new Date();
 
-		// Cancel all pending project transfers (incoming + outgoing)
-		await database
-			.update(schema.projectTransfer)
-			.set({ status: 'cancelled', resolvedAt: now, resolvedByUserId: userId })
-			.where(and(eq(schema.projectTransfer.status, 'pending'), eq(schema.projectTransfer.sourceOrganizationId, orgId)));
-		await database
-			.update(schema.projectTransfer)
-			.set({ status: 'cancelled', resolvedAt: now, resolvedByUserId: userId })
-			.where(and(eq(schema.projectTransfer.status, 'pending'), eq(schema.projectTransfer.targetOrganizationId, orgId)));
-
-		// Soft-delete all projects in the org
-		await database
-			.update(schema.project)
-			.set({ deletedAt: now, updatedAt: now })
-			.where(and(eq(schema.project.organizationId, orgId), isNull(schema.project.deletedAt)));
-
-		// Delete the organization (members and invitations cascade)
-		await database.delete(schema.organization).where(eq(schema.organization.id, orgId));
+		// Atomically: cancel transfers, soft-delete projects, and remove the org
+		await database.batch([
+			// Cancel all OUTGOING pending transfers
+			database
+				.update(schema.projectTransfer)
+				.set({ status: 'cancelled', resolvedAt: now, resolvedByUserId: userId })
+				.where(and(eq(schema.projectTransfer.status, 'pending'), eq(schema.projectTransfer.sourceOrganizationId, orgId))),
+			// Cancel all INCOMING pending transfers
+			database
+				.update(schema.projectTransfer)
+				.set({ status: 'cancelled', resolvedAt: now, resolvedByUserId: userId })
+				.where(and(eq(schema.projectTransfer.status, 'pending'), eq(schema.projectTransfer.targetOrganizationId, orgId))),
+			// Soft-delete all projects in the org
+			database
+				.update(schema.project)
+				.set({ deletedAt: now, updatedAt: now })
+				.where(and(eq(schema.project.organizationId, orgId), isNull(schema.project.deletedAt))),
+			// Delete the organization (members and invitations cascade via FK)
+			database.delete(schema.organization).where(eq(schema.organization.id, orgId)),
+		]);
 
 		return c.json({ organizationId: orgId, deletedAt: now.toISOString() });
 	});

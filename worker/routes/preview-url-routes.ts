@@ -41,7 +41,7 @@ export const previewUrlRoutes = new Hono<AppEnvironment>()
 			}
 		}
 
-		const secret = env.PREVIEW_SECRET || DEV_PREVIEW_SECRET;
+		const secret = import.meta.env.DEV ? env.PREVIEW_SECRET || DEV_PREVIEW_SECRET : env.PREVIEW_SECRET;
 
 		const token = await generatePreviewToken(projectId, secret);
 
