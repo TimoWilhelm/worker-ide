@@ -77,7 +77,6 @@ export default function ProfilePage({ user }: ProfilePageProperties) {
 							{initials}
 						</div>
 					)}
-					<p className="text-xs text-text-secondary">Your avatar is synced from your GitHub account.</p>
 				</div>
 			</section>
 
@@ -161,7 +160,6 @@ export default function ProfilePage({ user }: ProfilePageProperties) {
 						</span>
 					)}
 				</div>
-				<p className="mt-1 text-xs text-text-secondary">Your email is managed by your GitHub account.</p>
 			</section>
 
 			{/* Linked Accounts */}

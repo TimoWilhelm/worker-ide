@@ -169,37 +169,9 @@ jobs:
 
       - name: Run unit tests
         run: bun run test:unit
-
-  test-worker:
-    name: Worker Tests
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    needs: [lint, typecheck]
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-
-      - name: Cache bun downloads
-        uses: actions/cache@v4
-        with:
-          path: ~/.bun/install/cache
-          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
-          restore-keys: ${{ runner.os }}-bun-
-
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Create dist directory
-        run: mkdir -p dist
-
-      - name: Run worker tests
-        run: bun run test:worker --run
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
   test-react:
     name: React Tests
