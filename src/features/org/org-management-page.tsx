@@ -25,7 +25,7 @@ import {
 	X,
 } from 'lucide-react';
 import { useCallback, useState } from 'react';
-import { useNavigate } from 'react-router';
+import { Link, useNavigate } from 'react-router';
 
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
@@ -314,24 +314,32 @@ function InviteForm({
 						"
 					/>
 				</div>
-				<select
-					value={role}
-					onChange={(event) => {
-						const value = event.target.value;
-						if (value === 'member' || value === 'admin') {
-							setRole(value);
-						}
-					}}
-					disabled={isSending || isLimitReached}
-					className="
-						h-9 shrink-0 rounded-md border border-border bg-bg-secondary/60 pr-8 pl-3
-						text-xs text-text-primary backdrop-blur-sm transition-colors
-						focus:outline-none
-					"
-				>
-					<option value="member">Member</option>
-					<option value="admin">Admin</option>
-				</select>
+				<div className="relative shrink-0">
+					<select
+						value={role}
+						onChange={(event) => {
+							const value = event.target.value;
+							if (value === 'member' || value === 'admin') {
+								setRole(value);
+							}
+						}}
+						disabled={isSending || isLimitReached}
+						className="
+							h-9 appearance-none rounded-md border border-border bg-bg-secondary/60
+							pr-7 pl-3 text-xs text-text-primary backdrop-blur-sm transition-colors
+							focus:outline-none
+						"
+					>
+						<option value="member">Member</option>
+						<option value="admin">Admin</option>
+					</select>
+					<ChevronDown
+						className="
+							pointer-events-none absolute top-1/2 right-2 size-3.5 -translate-y-1/2
+							text-text-secondary
+						"
+					/>
+				</div>
 				<Button
 					size="sm"
 					className="h-9 shrink-0"
@@ -628,8 +636,8 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 			<main className="w-full max-w-lg px-6 py-12">
 				{/* Header */}
 				<div className="mb-8 flex items-center gap-3">
-					<a
-						href={`/org/${orgSlug}`}
+					<Link
+						to={`/org/${orgSlug}`}
 						className="
 							rounded-md p-1.5 text-text-secondary transition-colors
 							hover:bg-bg-tertiary hover:text-text-primary
@@ -637,7 +645,7 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 						aria-label="Back to dashboard"
 					>
 						<ArrowLeft className="size-4" />
-					</a>
+					</Link>
 					<div className="min-w-0 flex-1">
 						{isEditingName ? (
 							<div className="flex items-center gap-2">

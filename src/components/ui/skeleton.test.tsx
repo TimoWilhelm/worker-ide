@@ -5,7 +5,7 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
-import { Skeleton, FileTreeSkeleton, EditorSkeleton, PanelSkeleton } from './skeleton';
+import { Skeleton, FileTreeSkeleton, EditorSkeleton, PanelSkeleton, PageContentSkeleton, SettingsContentSkeleton } from './skeleton';
 
 describe('Skeleton', () => {
 	it('renders a div with pulse animation', () => {
@@ -54,5 +54,21 @@ describe('PanelSkeleton', () => {
 	it('renders with label', () => {
 		render(<PanelSkeleton label="Loading preview..." />);
 		expect(screen.getByText('Loading preview...')).toBeInTheDocument();
+	});
+});
+
+describe('PageContentSkeleton', () => {
+	it('renders multiple skeleton elements', () => {
+		const { container } = render(<PageContentSkeleton />);
+		const skeletons = container.querySelectorAll('.animate-pulse');
+		expect(skeletons.length).toBeGreaterThanOrEqual(4);
+	});
+});
+
+describe('SettingsContentSkeleton', () => {
+	it('renders multiple skeleton elements', () => {
+		const { container } = render(<SettingsContentSkeleton />);
+		const skeletons = container.querySelectorAll('.animate-pulse');
+		expect(skeletons.length).toBeGreaterThanOrEqual(3);
 	});
 });

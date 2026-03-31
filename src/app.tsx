@@ -11,7 +11,7 @@
 import { MutationCache, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Check, ClipboardCopy } from 'lucide-react';
 import { Suspense, use, useEffect, useMemo, useRef, useState } from 'react';
-import { Navigate, Route, Routes, useParams, useSearchParams } from 'react-router';
+import { Navigate, Outlet, Route, Routes, useLocation, useParams, useSearchParams } from 'react-router';
 
 import { ErrorBoundary } from '@/components/error-boundary';
 import { IDEShell } from '@/components/ide-shell';
@@ -19,6 +19,7 @@ import { NotFoundPage } from '@/components/not-found-page';
 import { OfflineBanner } from '@/components/offline-banner';
 import { ProjectAccessRestricted } from '@/components/project-access-restricted';
 import { ProjectNotFound } from '@/components/project-not-found';
+import { PageContentSkeleton, SettingsContentSkeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
 import { Toaster } from '@/components/ui/toast';
 import { toast } from '@/components/ui/toast-store';
@@ -265,7 +266,7 @@ function OrgDashboardRoute({ organizations, user }: { organizations: Organizatio
 	}
 
 	return (
-		<Suspense fallback={<LoadingFallback />}>
+		<Suspense fallback={<PageContentSkeleton />}>
 			<DashboardPage organizationId={organization.id} organizations={organizations} user={user} />
 		</Suspense>
 	);
@@ -286,7 +287,7 @@ function OrgSettingsRoute({ organizations }: { organizations: OrganizationEntry[
 	}
 
 	return (
-		<Suspense fallback={<LoadingFallback />}>
+		<Suspense fallback={<PageContentSkeleton />}>
 			<OrgManagementPage orgSlug={orgSlug} organizationId={organization.id} />
 		</Suspense>
 	);
@@ -310,6 +311,26 @@ function RootRedirect({ organizations, activeOrganizationId }: { organizations: 
 	}
 	const slug = targetOrg.slug ?? targetOrg.id;
 	return <Navigate to={`/org/${slug}`} replace />;
+}
+
+/**
+ * Layout route wrapper for `/settings/*`.
+ *
+ * Renders the eagerly-loaded SettingsLayout as a persistent shell
+ * and uses `<Outlet />` for nested child routes. This means the
+ * sidebar and header never unmount when switching between settings
+ * sub-pages — only the content area swaps.
+ */
+function SettingsRoute() {
+	const { pathname } = useLocation();
+
+	return (
+		<SettingsLayout activePath={pathname}>
+			<Suspense fallback={<SettingsContentSkeleton />}>
+				<Outlet />
+			</Suspense>
+		</SettingsLayout>
+	);
 }
 
 function AppContent({
@@ -336,7 +357,7 @@ function AppContent({
 				<Route
 					path="/create-org"
 					element={
-						<Suspense fallback={<LoadingFallback />}>
+						<Suspense fallback={<PageContentSkeleton />}>
 							<DashboardPage organizationId="" organizations={organizations} isCreateOrgMode user={user} />
 						</Suspense>
 					}
@@ -352,42 +373,17 @@ function AppContent({
 			<Route
 				path="/create-org"
 				element={
-					<Suspense fallback={<LoadingFallback />}>
+					<Suspense fallback={<PageContentSkeleton />}>
 						<DashboardPage organizationId="" organizations={organizations} isCreateOrgMode user={user} />
 					</Suspense>
 				}
 			/>
-			<Route path="/settings" element={<Navigate to="/settings/profile" replace />} />
-			<Route
-				path="/settings/profile"
-				element={
-					<Suspense fallback={<LoadingFallback />}>
-						<SettingsLayout activePath="/settings/profile">
-							<ProfilePage user={user} />
-						</SettingsLayout>
-					</Suspense>
-				}
-			/>
-			<Route
-				path="/settings/account"
-				element={
-					<Suspense fallback={<LoadingFallback />}>
-						<SettingsLayout activePath="/settings/account">
-							<AccountPage />
-						</SettingsLayout>
-					</Suspense>
-				}
-			/>
-			<Route
-				path="/settings/appearance"
-				element={
-					<Suspense fallback={<LoadingFallback />}>
-						<SettingsLayout activePath="/settings/appearance">
-							<AppearancePage />
-						</SettingsLayout>
-					</Suspense>
-				}
-			/>
+			<Route path="/settings" element={<SettingsRoute />}>
+				<Route index element={<Navigate to="profile" replace />} />
+				<Route path="profile" element={<ProfilePage user={user} />} />
+				<Route path="account" element={<AccountPage />} />
+				<Route path="appearance" element={<AppearancePage />} />
+			</Route>
 			<Route path="/org/:orgSlug/settings" element={<OrgSettingsRoute organizations={organizations} />} />
 			<Route path="/org/:orgSlug" element={<OrgDashboardRoute organizations={organizations} user={user} />} />
 			<Route path="/" element={<RootRedirect organizations={organizations} activeOrganizationId={activeOrganizationId} />} />

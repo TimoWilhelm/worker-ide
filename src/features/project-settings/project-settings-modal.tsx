@@ -6,6 +6,7 @@
  */
 
 import { useSuspenseQuery } from '@tanstack/react-query';
+import { ChevronDown } from 'lucide-react';
 import { Suspense, useCallback, useState } from 'react';
 
 import { ErrorBoundary } from '@/components/error-boundary';
@@ -257,18 +258,26 @@ function ProjectSettingsContent({ onOpenChange, projectId }: { onOpenChange: (op
 				<fieldset className="flex flex-col gap-2">
 					<legend className="text-xs font-medium text-text-secondary">HTML Handling</legend>
 					<p className="text-xs text-text-secondary/70">Controls trailing slash behavior for HTML page requests.</p>
-					<select
-						value={htmlHandling}
-						onChange={(event) => setHtmlHandling(parseHtmlHandling(event.target.value))}
-						className={INPUT_CLASSES}
-						aria-label="HTML handling mode"
-					>
-						{HTML_HANDLING_OPTIONS.map((option) => (
-							<option key={option.value} value={option.value}>
-								{option.label}
-							</option>
-						))}
-					</select>
+					<div className="relative">
+						<select
+							value={htmlHandling}
+							onChange={(event) => setHtmlHandling(parseHtmlHandling(event.target.value))}
+							className={cn(INPUT_CLASSES, 'w-full appearance-none pr-7')}
+							aria-label="HTML handling mode"
+						>
+							{HTML_HANDLING_OPTIONS.map((option) => (
+								<option key={option.value} value={option.value}>
+									{option.label}
+								</option>
+							))}
+						</select>
+						<ChevronDown
+							className="
+								pointer-events-none absolute top-1/2 right-2 size-3.5 -translate-y-1/2
+								text-text-secondary
+							"
+						/>
+					</div>
 					<p className="text-xs text-text-secondary/70">{HTML_HANDLING_OPTIONS.find((o) => o.value === htmlHandling)?.description}</p>
 				</fieldset>
 

@@ -19,6 +19,10 @@ import DashboardPage from './dashboard-page';
 // Mocks
 // =============================================================================
 
+vi.mock('@/components/beta-indicator', () => ({
+	BetaIndicator: () => <span data-testid="beta-indicator">&beta;</span>,
+}));
+
 // Mock the API client
 vi.mock('@/lib/api-client', () => ({
 	createProject: vi.fn(),

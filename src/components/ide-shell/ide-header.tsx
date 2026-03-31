@@ -2,10 +2,11 @@
  * IDE header bar with project name, AI toggle, theme toggle, download, and mobile menu.
  */
 
-import { BookOpen, Bot, Download, EllipsisVertical, Github, Hexagon, Moon, Pencil, Rocket, Settings, Sun } from 'lucide-react';
+import { BookOpen, Bot, Bug, Download, EllipsisVertical, Github, Hexagon, Moon, Pencil, Rocket, Settings, Sun } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { Link } from 'react-router';
 
+import { BetaIndicator } from '@/components/beta-indicator';
 import { BorderBeam } from '@/components/ui/border-beam';
 import { Button } from '@/components/ui/button';
 import { Modal, ModalBody } from '@/components/ui/modal';
@@ -72,12 +73,13 @@ export function IDEHeader({
 						<Link
 							to="/"
 							className="
-								shrink-0 text-accent transition-colors
+								flex shrink-0 items-center gap-1 text-accent transition-colors
 								hover:text-accent-hover
 							"
 							aria-label="Back to home"
 						>
 							<Hexagon className="size-4" />
+							<BetaIndicator />
 						</Link>
 					</Tooltip>
 					{isEditingName ? (
@@ -228,6 +230,19 @@ export function IDEHeader({
 					>
 						<Github className="size-4 text-text-secondary" />
 						GitHub
+					</a>
+					<a
+						href="https://github.com/TimoWilhelm/worker-ide/issues/new?template=bug-report.yml"
+						target="_blank"
+						rel="noopener noreferrer"
+						className="
+							flex items-center gap-3 rounded-md px-3 py-2 text-sm text-text-primary
+							transition-colors
+							hover:bg-bg-tertiary
+						"
+					>
+						<Bug className="size-4 text-text-secondary" />
+						Report a bug
 					</a>
 					<div
 						className="

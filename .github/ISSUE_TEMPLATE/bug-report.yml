@@ -1,0 +1,84 @@
+name: Bug Report
+description: Something isn't working as expected?
+title: '[Bug]: '
+labels: ['bug']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Sorry you hit a bug. Fill out the fields below so we can reproduce it.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Include the exact error message if you have one.
+      placeholder: "I clicked Deploy and the page went blank. Console showed: 'TypeError: ...'."
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected-behavior
+    attributes:
+      label: What did you expect to happen?
+      description: What should have happened instead?
+      placeholder: 'I expected the deploy dialog to open and show deployment progress.'
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps-to-reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Shortest path to trigger the bug.
+      placeholder: |
+        1. Open a project
+        2. Click the Deploy button in the header
+        3. See white screen
+    validations:
+      required: true
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots or recordings
+      description: Optional but helpful. You can paste images directly here.
+      placeholder: Drag and drop or paste from clipboard.
+    validations:
+      required: false
+
+  - type: input
+    id: project
+    attributes:
+      label: Project ID or URL
+      description: Helps if the bug is project-specific.
+      placeholder: 'e.g. abc123def or https://worker-ide.dev/p/abc123def'
+    validations:
+      required: false
+
+  - type: input
+    id: browser
+    attributes:
+      label: Browser
+      description: Which browser and version?
+      placeholder: 'e.g. Chrome 125, Firefox 126, Safari 17.5'
+    validations:
+      required: false
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      description: Which OS and version?
+      placeholder: 'e.g. macOS 15.1, Windows 11, Ubuntu 24.04'
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional context
+      description: Logs, frequency, workarounds, or anything else relevant.
+      placeholder: 'Happens every time after opening 10+ files. Refresh temporarily fixes it.'
+    validations:
+      required: false

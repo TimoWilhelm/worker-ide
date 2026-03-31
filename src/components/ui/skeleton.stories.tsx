@@ -1,6 +1,14 @@
 import { expect, within } from 'storybook/test';
 
-import { Skeleton, EditorSkeleton, FileTreeSkeleton, GitPanelSkeleton, PanelSkeleton } from './skeleton';
+import {
+	Skeleton,
+	EditorSkeleton,
+	FileTreeSkeleton,
+	GitPanelSkeleton,
+	PageContentSkeleton,
+	PanelSkeleton,
+	SettingsContentSkeleton,
+} from './skeleton';
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
 
@@ -78,5 +86,29 @@ export const GitPanel: Story = {
 	play: async ({ canvasElement }) => {
 		const canvas = within(canvasElement);
 		await expect(canvas.getByTestId('git-panel-skeleton')).toBeInTheDocument();
+	},
+};
+
+export const PageContent: Story = {
+	render: () => (
+		<div data-testid="page-content-skeleton" className="border border-border">
+			<PageContentSkeleton />
+		</div>
+	),
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		await expect(canvas.getByTestId('page-content-skeleton')).toBeInTheDocument();
+	},
+};
+
+export const SettingsContent: Story = {
+	render: () => (
+		<div data-testid="settings-content-skeleton" className="w-96 border border-border bg-bg-primary p-6">
+			<SettingsContentSkeleton />
+		</div>
+	),
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		await expect(canvas.getByTestId('settings-content-skeleton')).toBeInTheDocument();
 	},
 };

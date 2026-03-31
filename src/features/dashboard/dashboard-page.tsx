@@ -16,6 +16,7 @@ import { motion } from 'motion/react';
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 
+import { BetaIndicator } from '@/components/beta-indicator';
 import { HalftoneBackground } from '@/components/halftone-background';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Modal, ModalBody, ModalFooter } from '@/components/ui/modal';
@@ -656,7 +657,10 @@ export default function DashboardPage({ organizationId, organizations, isCreateO
 					transition={springGentle}
 				>
 					<Hexagon className="size-8 text-accent" strokeWidth={1.5} />
-					<h1 className="text-xl font-semibold tracking-tight text-text-primary">Codemaxxing</h1>
+					<div className="flex items-center gap-1.5">
+						<h1 className="text-xl font-semibold tracking-tight text-text-primary">Codemaxxing</h1>
+						<BetaIndicator className="text-sm" />
+					</div>
 				</motion.div>
 
 				{/* Template cards */}

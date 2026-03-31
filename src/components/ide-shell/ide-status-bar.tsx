@@ -2,7 +2,7 @@
  * IDE status bar (footer) showing connection state, participants, and links.
  */
 
-import { BookOpen, Github } from 'lucide-react';
+import { BookOpen, Bug, Github } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 
 import { Tooltip } from '@/components/ui/tooltip';
@@ -72,6 +72,19 @@ export function IDEStatusBar({ isConnected, localParticipantColor, participants,
 						"
 					>
 						<Github className="size-3.5" />
+					</a>
+				</Tooltip>
+				<Tooltip content="Report a bug">
+					<a
+						href="https://github.com/TimoWilhelm/worker-ide/issues/new?template=bug-report.yml"
+						target="_blank"
+						rel="noopener noreferrer"
+						className="
+							transition-colors
+							hover:text-accent
+						"
+					>
+						<Bug className="size-3.5" />
 					</a>
 				</Tooltip>
 				<Tooltip content="Docs">
