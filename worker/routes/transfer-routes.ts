@@ -12,10 +12,11 @@ import { and, eq, inArray, isNull, or } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
 import { Hono } from 'hono';
 
-import { getOrgLimits } from '@shared/constants';
+import { resolveOrgLimitsFromRows } from '@shared/entitlements';
 import { HttpErrorCode } from '@shared/http-errors';
 
 import * as schema from '../db/auth-schema';
+import { queryEntitlements } from '../lib/entitlements';
 import { httpError } from '../lib/http-error';
 import { assertOrgAdmin } from '../lib/project-auth';
 
@@ -232,7 +233,9 @@ export const transferRoutes = new Hono<AuthedEnvironment>()
 			throw httpError(HttpErrorCode.FORBIDDEN, 'Target organization is restricted.');
 		}
 
-		const targetOrgLimits = getOrgLimits(targetOrgRow[0]?.plan ?? 'free');
+		const targetPlan = targetOrgRow[0]?.plan ?? 'free';
+		const targetEntitlementRows = await queryEntitlements(database, transfer.targetOrganizationId);
+		const targetOrgLimits = resolveOrgLimitsFromRows(targetPlan, targetEntitlementRows);
 
 		const existingProjects = await database
 			.select({ id: schema.project.id })

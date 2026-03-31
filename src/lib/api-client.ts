@@ -207,6 +207,52 @@ export async function downloadProject(projectId: string): Promise<Blob> {
 }
 
 // =============================================================================
+// Limits
+// =============================================================================
+
+/**
+ * Resolved org limits with current usage.
+ */
+export interface OrgLimits {
+	maxProjects: number;
+	currentProjects: number;
+	maxMembers: number;
+	currentMembers: number;
+}
+
+/**
+ * Resolved user limits with current usage.
+ */
+export interface UserLimits {
+	maxOrganizations: number;
+	currentOrganizations: number;
+}
+
+/**
+ * Fetch resolved limits + current usage for an organization.
+ * Limits reflect the org's plan defaults with any entitlement overrides applied.
+ */
+export async function fetchOrgLimits(organizationId: string): Promise<OrgLimits> {
+	const response = await fetch(`/api/org/${organizationId}/limits`);
+	if (!response.ok) {
+		await throwApiError(response, 'Failed to fetch organization limits');
+	}
+	return response.json();
+}
+
+/**
+ * Fetch resolved limits + current usage for the authenticated user.
+ * Limits reflect defaults with any entitlement overrides applied.
+ */
+export async function fetchUserLimits(): Promise<UserLimits> {
+	const response = await fetch('/api/user/limits');
+	if (!response.ok) {
+		await throwApiError(response, 'Failed to fetch user limits');
+	}
+	return response.json();
+}
+
+// =============================================================================
 // Deployment
 // =============================================================================
 

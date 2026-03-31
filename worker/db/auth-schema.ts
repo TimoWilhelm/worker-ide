@@ -277,6 +277,30 @@ export const creditLedger = sqliteTable(
 );
 
 // =============================================================================
+// Custom: Entitlement Table (per-entity limit/feature overrides)
+// =============================================================================
+
+export const entitlement = sqliteTable(
+	'entitlement',
+	{
+		id: text('id').primaryKey(),
+		/** The entity this entitlement is assigned to (org ID or user ID). */
+		scopeId: text('scope_id').notNull(),
+		/** Entitlement key following `<scope>:<resource>` pattern (e.g. `org:max_projects`). */
+		key: text('key').notNull(),
+		/** Discriminator for the value column: 'number', 'boolean', or 'string'. */
+		valueType: text('value_type').notNull(),
+		/** The entitlement value, stored as text. Interpreted according to `value_type`. */
+		value: text('value').notNull(),
+		/** Optional admin note (e.g. "extended for beta program"). */
+		note: text('note'),
+		createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+		updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+	},
+	(table) => [uniqueIndex('entitlement_scope_key_idx').on(table.scopeId, table.key), index('entitlement_scope_id_idx').on(table.scopeId)],
+);
+
+// =============================================================================
 // Inferred Types
 // =============================================================================
 
@@ -298,3 +322,5 @@ export type BillingEventRow = typeof billingEvent.$inferSelect;
 export type BillingEventInsert = typeof billingEvent.$inferInsert;
 export type CreditLedgerRow = typeof creditLedger.$inferSelect;
 export type CreditLedgerInsert = typeof creditLedger.$inferInsert;
+export type EntitlementRow = typeof entitlement.$inferSelect;
+export type EntitlementInsert = typeof entitlement.$inferInsert;

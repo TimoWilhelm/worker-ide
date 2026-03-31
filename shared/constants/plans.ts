@@ -24,30 +24,26 @@ export interface PlanLimits {
 	maxProjects: number;
 	maxMembers: number;
 	maxPendingInvitations: number;
-	maxAiSessionsPerProject: number;
 	monthlyCredits: number;
 }
 
 export const PLAN_LIMITS: Record<PlanId, PlanLimits> = {
 	[PLAN_FREE]: {
-		maxProjects: 5,
-		maxMembers: 5,
-		maxPendingInvitations: 5,
-		maxAiSessionsPerProject: 10,
+		maxProjects: 10,
+		maxMembers: 10,
+		maxPendingInvitations: 10,
 		monthlyCredits: 100,
 	},
 	[PLAN_PRO]: {
 		maxProjects: 50,
 		maxMembers: 25,
 		maxPendingInvitations: 25,
-		maxAiSessionsPerProject: 50,
 		monthlyCredits: 1000,
 	},
 	[PLAN_ENTERPRISE]: {
 		maxProjects: 500,
 		maxMembers: 100,
 		maxPendingInvitations: 100,
-		maxAiSessionsPerProject: 200,
 		monthlyCredits: 5000,
 	},
 };

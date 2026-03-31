@@ -19,13 +19,10 @@ import { env } from 'cloudflare:workers';
 import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
 
-import {
-	INVITATION_EXPIRES_IN_SECONDS,
-	MAX_MEMBERS_PER_ORGANIZATION,
-	MAX_ORGANIZATIONS_PER_USER,
-	MAX_PENDING_INVITATIONS_PER_ORGANIZATION,
-} from '@shared/constants';
+import { INVITATION_EXPIRES_IN_SECONDS } from '@shared/constants';
+import { resolveOrgLimitsFromRows, resolveUserLimitsFromRows } from '@shared/entitlements';
 
+import { queryEntitlements } from './entitlements';
 import * as schema from '../db/auth-schema';
 
 interface AuthEnvironment {
@@ -98,9 +95,52 @@ export function createAuth(environment: AuthEnvironment, baseUrl: string) {
 		},
 		plugins: [
 			organization({
-				organizationLimit: MAX_ORGANIZATIONS_PER_USER,
-				membershipLimit: MAX_MEMBERS_PER_ORGANIZATION,
-				invitationLimit: MAX_PENDING_INVITATIONS_PER_ORGANIZATION,
+				// Dynamic org-creation limit: checks user entitlements
+				organizationLimit: async (user) => {
+					const entitlementDatabase = drizzle(environment.DB);
+					const rows = await queryEntitlements(entitlementDatabase, user.id);
+					const { maxOrganizations } = resolveUserLimitsFromRows(rows);
+
+					const userOrganizations = await entitlementDatabase
+						.select({ id: schema.member.organizationId })
+						.from(schema.member)
+						.where(eq(schema.member.userId, user.id));
+
+					return userOrganizations.length >= maxOrganizations;
+				},
+
+				// Dynamic membership limit: plan-based + org entitlements
+				membershipLimit: async (_user, organizationRecord) => {
+					const entitlementDatabase = drizzle(environment.DB);
+					const [entitlementRows, organizationRows] = await Promise.all([
+						queryEntitlements(entitlementDatabase, organizationRecord.id),
+						entitlementDatabase
+							.select({ plan: schema.organization.plan })
+							.from(schema.organization)
+							.where(eq(schema.organization.id, organizationRecord.id))
+							.limit(1),
+					]);
+					const plan = organizationRows[0]?.plan ?? 'free';
+					const { maxMembers } = resolveOrgLimitsFromRows(plan, entitlementRows);
+					return maxMembers;
+				},
+
+				// Dynamic invitation limit: shares the member limit (invitations are pre-members)
+				invitationLimit: async ({ organization: organizationRecord }) => {
+					const entitlementDatabase = drizzle(environment.DB);
+					const [entitlementRows, organizationRows] = await Promise.all([
+						queryEntitlements(entitlementDatabase, organizationRecord.id),
+						entitlementDatabase
+							.select({ plan: schema.organization.plan })
+							.from(schema.organization)
+							.where(eq(schema.organization.id, organizationRecord.id))
+							.limit(1),
+					]);
+					const plan = organizationRows[0]?.plan ?? 'free';
+					const { maxMembers } = resolveOrgLimitsFromRows(plan, entitlementRows);
+					return maxMembers;
+				},
+
 				invitationExpiresIn: INVITATION_EXPIRES_IN_SECONDS,
 				sendInvitationEmail: async (data) => {
 					const acceptUrl = `${baseUrl}/api/auth/organization/accept-invitation?id=${data.id}`;

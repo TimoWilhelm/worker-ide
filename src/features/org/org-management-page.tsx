@@ -32,16 +32,13 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Spinner } from '@/components/ui/spinner';
 import { toast } from '@/components/ui/toast-store';
 import { useTheme } from '@/hooks/use-theme';
-import { deleteOrganization } from '@/lib/api-client';
+import { deleteOrganization, fetchOrgLimits } from '@/lib/api-client';
 import { authClient } from '@/lib/auth-client';
 import { useStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
-import {
-	MAX_MEMBERS_PER_ORGANIZATION,
-	MAX_ORGANIZATION_NAME_LENGTH,
-	MAX_PENDING_INVITATIONS_PER_ORGANIZATION,
-	getPlanDisplay,
-} from '@shared/constants';
+import { MAX_ORGANIZATION_NAME_LENGTH, getPlanDisplay } from '@shared/constants';
+
+import type { OrgLimits } from '@/lib/api-client';
 
 // =============================================================================
 // Types
@@ -243,19 +240,22 @@ function InviteForm({
 	organizationId,
 	memberCount,
 	pendingInvitationCount,
+	maxMembers,
 	onInvited,
 }: {
 	organizationId: string;
 	memberCount: number;
 	pendingInvitationCount: number;
+	maxMembers: number;
 	onInvited: () => void;
 }) {
 	const [email, setEmail] = useState('');
 	const [role, setRole] = useState<'member' | 'admin'>('member');
 	const [isSending, setIsSending] = useState(false);
 
-	const memberLimitReached = memberCount >= MAX_MEMBERS_PER_ORGANIZATION;
-	const invitationLimitReached = pendingInvitationCount >= MAX_PENDING_INVITATIONS_PER_ORGANIZATION;
+	// Invitation limit shares the member limit (invitations are pre-members)
+	const memberLimitReached = memberCount >= maxMembers;
+	const invitationLimitReached = pendingInvitationCount >= maxMembers;
 	const isLimitReached = memberLimitReached || invitationLimitReached;
 
 	const handleInvite = useCallback(async () => {
@@ -345,9 +345,7 @@ function InviteForm({
 			</div>
 			{isLimitReached && (
 				<p className="mt-2 text-xs text-text-secondary/80">
-					{memberLimitReached
-						? `Member limit reached (${MAX_MEMBERS_PER_ORGANIZATION}).`
-						: `Pending invitation limit reached (${MAX_PENDING_INVITATIONS_PER_ORGANIZATION}).`}
+					{memberLimitReached ? `Member limit reached (${maxMembers}).` : `Pending invitation limit reached (${maxMembers}).`}
 				</p>
 			)}
 		</div>
@@ -386,6 +384,14 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 		| { id: string; name: string; slug?: string; logo?: string; plan?: string; members?: unknown[]; invitations?: unknown[] }
 		| undefined;
 	const isPending = organizationQuery.isPending;
+
+	// Fetch resolved org limits (plan-based + entitlement overrides)
+	const limitsQuery = useQuery({
+		queryKey: ['org-limits', organizationId],
+		queryFn: () => fetchOrgLimits(organizationId),
+		staleTime: 1000 * 60,
+	});
+	const orgLimits: OrgLimits | undefined = limitsQuery.data;
 
 	const [confirmAction, setConfirmAction] = useState<ConfirmAction | undefined>();
 	const [isActing, setIsActing] = useState(false);
@@ -783,7 +789,7 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 							mb-3 text-xs font-medium tracking-wider text-text-secondary uppercase
 						"
 					>
-						Members ({members.length}/{MAX_MEMBERS_PER_ORGANIZATION})
+						Members ({members.length}/{orgLimits?.maxMembers ?? '...'})
 					</h2>
 					<div className={cn('overflow-hidden rounded-lg border border-border bg-bg-secondary/40', 'divide-y divide-border')}>
 						{members.map((member) => (
@@ -815,6 +821,7 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 								organizationId={activeOrganization.id}
 								memberCount={members.length}
 								pendingInvitationCount={pendingInvitations.length}
+								maxMembers={orgLimits?.maxMembers ?? members.length + 1}
 								onInvited={refreshOrganization}
 							/>
 						</div>

@@ -4,9 +4,6 @@
  * Credits are org-scoped and tracked via an append-only ledger.
  * Positive amounts are credits (grants, purchases, refunds),
  * negative amounts are debits (AI usage).
- *
- * Note: Credits are not enforced yet. These types prepare the
- * infrastructure for usage-based billing.
  */
 
 // =============================================================================

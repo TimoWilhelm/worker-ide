@@ -12,20 +12,24 @@ import { Button } from '@/components/ui/button';
 import { Modal, ModalBody, ModalFooter } from '@/components/ui/modal';
 import { toast } from '@/components/ui/toast-store';
 import { authClient } from '@/lib/auth-client';
-import { MAX_ORGANIZATION_NAME_LENGTH, MAX_ORGANIZATIONS_PER_USER } from '@shared/constants';
+import { MAX_ORGANIZATION_NAME_LENGTH } from '@shared/constants';
+import { DEFAULT_MAX_ORGANIZATIONS } from '@shared/entitlements';
 
 export function CreateOrgModal({
 	open,
 	onOpenChange,
 	organizationCount,
+	maxOrganizations,
 }: {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 	organizationCount: number;
+	maxOrganizations?: number;
 }) {
 	const navigate = useNavigate();
 	const [name, setName] = useState('');
 	const [isCreating, setIsCreating] = useState(false);
+	const resolvedMax = maxOrganizations ?? DEFAULT_MAX_ORGANIZATIONS;
 
 	const handleCreate = useCallback(async () => {
 		const trimmed = name.trim();
@@ -106,8 +110,8 @@ export function CreateOrgModal({
 						focus:outline-none
 					"
 				/>
-				{organizationCount >= MAX_ORGANIZATIONS_PER_USER && (
-					<p className="mt-2 text-xs text-error/80">You have reached the maximum of {MAX_ORGANIZATIONS_PER_USER} organizations.</p>
+				{organizationCount >= resolvedMax && (
+					<p className="mt-2 text-xs text-error/80">You have reached the maximum of {resolvedMax} organizations.</p>
 				)}
 			</ModalBody>
 			<ModalFooter>
@@ -117,7 +121,7 @@ export function CreateOrgModal({
 				<Button
 					size="sm"
 					onClick={() => void handleCreate()}
-					disabled={isCreating || !name.trim() || organizationCount >= MAX_ORGANIZATIONS_PER_USER}
+					disabled={isCreating || !name.trim() || organizationCount >= resolvedMax}
 					isLoading={isCreating}
 					loadingText="Creating..."
 				>

@@ -71,6 +71,13 @@
 			"when": 1774856622467,
 			"tag": "0009_project-banned-index",
 			"breakpoints": true
+		},
+		{
+			"idx": 10,
+			"version": "6",
+			"when": 1774981389396,
+			"tag": "0010_entitlements",
+			"breakpoints": true
 		}
 	]
 }

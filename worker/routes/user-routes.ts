@@ -7,13 +7,15 @@
  * - Account deletion preview and execution
  */
 
-import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
+import { and, count, desc, eq, inArray, isNull } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
 import { Hono } from 'hono';
 
+import { resolveUserLimitsFromRows } from '@shared/entitlements';
 import { HttpErrorCode } from '@shared/http-errors';
 
 import * as schema from '../db/auth-schema';
+import { queryEntitlements } from '../lib/entitlements';
 import { httpError } from '../lib/http-error';
 
 import type { AuthedEnvironment } from '../types';
@@ -21,6 +23,24 @@ import type { AuthedEnvironment } from '../types';
 const MAX_RECENT_PROJECTS = 20;
 
 export const userRoutes = new Hono<AuthedEnvironment>()
+	// GET /api/user/limits — Resolved limits + current usage for the authenticated user
+	.get('/user/limits', async (c) => {
+		const userId = c.get('userId');
+		const database = drizzle(c.env.DB);
+
+		const [entitlementRows, orgCountRows] = await Promise.all([
+			queryEntitlements(database, userId),
+			database.select({ count: count() }).from(schema.member).where(eq(schema.member.userId, userId)),
+		]);
+
+		const limits = resolveUserLimitsFromRows(entitlementRows);
+
+		return c.json({
+			maxOrganizations: limits.maxOrganizations,
+			currentOrganizations: orgCountRows[0]?.count ?? 0,
+		});
+	})
+
 	// GET /api/user/recent-projects — Recently accessed projects across all orgs
 	.get('/user/recent-projects', async (c) => {
 		const userId = c.get('userId');

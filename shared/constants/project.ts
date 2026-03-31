@@ -14,11 +14,6 @@ export const PROJECT_INACTIVITY_DAYS = 365;
 export const SOFT_DELETE_RETENTION_DAYS = 30;
 
 /**
- * Maximum number of active (non-deleted) projects per organization.
- */
-export const MAX_PROJECTS_PER_ORGANIZATION = 50;
-
-/**
  * Maximum length for a project name.
  */
 export const MAX_PROJECT_NAME_LENGTH = 60;

@@ -7,6 +7,7 @@
  * ARIA attributes, and focus management.
  */
 
+import { useQuery } from '@tanstack/react-query';
 import { Building2, ChevronDown, Plus, Settings } from 'lucide-react';
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
@@ -20,6 +21,7 @@ import {
 	DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { toast } from '@/components/ui/toast-store';
+import { fetchUserLimits } from '@/lib/api-client';
 import { authClient } from '@/lib/auth-client';
 import { cn } from '@/lib/utils';
 
@@ -43,6 +45,14 @@ export function OrgSwitcher({ organizations, currentOrganizationId, currentOrgan
 	const currentOrgIdentifier = currentOrg?.slug ?? currentOrganizationId;
 	const navigate = useNavigate();
 	const [createModalOpen, setCreateModalOpen] = useState(false);
+
+	// Fetch resolved user limits (defaults + entitlement overrides)
+	const userLimitsQuery = useQuery({
+		queryKey: ['user-limits'],
+		queryFn: fetchUserLimits,
+		staleTime: 1000 * 60,
+	});
+	const maxOrganizations = userLimitsQuery.data?.maxOrganizations;
 
 	return (
 		<>
@@ -95,7 +105,12 @@ export function OrgSwitcher({ organizations, currentOrganizationId, currentOrgan
 					</DropdownMenuItem>
 				</DropdownMenuContent>
 			</DropdownMenu>
-			<CreateOrgModal open={createModalOpen} onOpenChange={setCreateModalOpen} organizationCount={organizations.length} />
+			<CreateOrgModal
+				open={createModalOpen}
+				onOpenChange={setCreateModalOpen}
+				organizationCount={organizations.length}
+				maxOrganizations={maxOrganizations}
+			/>
 		</>
 	);
 }

@@ -26,12 +26,11 @@ import { OrgSwitcher } from '@/features/org/org-switcher';
 import { PendingInvitationsBanner } from '@/features/org/pending-invitations-banner';
 import { UserMenu } from '@/features/user-menu';
 import { useTheme } from '@/hooks/use-theme';
-import { cloneProject, createProject, deleteProject, fetchOrgProjects, fetchTemplates } from '@/lib/api-client';
+import { cloneProject, createProject, deleteProject, fetchOrgLimits, fetchOrgProjects, fetchTemplates } from '@/lib/api-client';
 import { fadeUpVariants, springGentle, staggerContainer } from '@/lib/motion-config';
 import { getProjectUrl } from '@/lib/preview-origin';
 import { useStore } from '@/lib/store';
 import { cn, formatRelativeTime } from '@/lib/utils';
-import { getOrgLimits } from '@shared/constants';
 import { isValidProjectId } from '@shared/project-id';
 
 import type { OrgProject } from '@/lib/api-client';
@@ -435,8 +434,16 @@ export default function DashboardPage({ organizationId, organizations, isCreateO
 		enabled: !isCreateOrgMode && !!organizationId,
 	});
 	const orgProjects = useMemo(() => projectsQuery.data ?? [], [projectsQuery.data]);
-	const currentOrg = organizations.find((o) => o.id === organizationId);
-	const projectLimitReached = !!currentOrg && orgProjects.length >= getOrgLimits(currentOrg.plan ?? 'free').maxProjects;
+
+	// Fetch resolved org limits (plan-based + entitlement overrides)
+	const limitsQuery = useQuery({
+		queryKey: ['org-limits', organizationId],
+		queryFn: () => fetchOrgLimits(organizationId),
+		staleTime: 1000 * 60,
+		enabled: !isCreateOrgMode && !!organizationId,
+	});
+	const orgLimits = limitsQuery.data;
+	const projectLimitReached = !!orgLimits && orgLimits.currentProjects >= orgLimits.maxProjects;
 
 	const selectedTemplate = useMemo(() => templates.find((template) => template.id === selectedTemplateId), [templates, selectedTemplateId]);
 
@@ -466,6 +473,7 @@ export default function DashboardPage({ organizationId, organizations, isCreateO
 			try {
 				const data = await createProject(organizationId, templateId);
 				void queryClient.invalidateQueries({ queryKey: ['org-projects'] });
+				void queryClient.invalidateQueries({ queryKey: ['org-limits'] });
 				void navigate(getProjectUrl(data.projectId));
 			} catch {
 				setLoadingMessage(undefined);
@@ -501,6 +509,7 @@ export default function DashboardPage({ organizationId, organizations, isCreateO
 		try {
 			const data = await cloneProject(organizationId, parsedProjectId);
 			void queryClient.invalidateQueries({ queryKey: ['org-projects'] });
+			void queryClient.invalidateQueries({ queryKey: ['org-limits'] });
 			void navigate(getProjectUrl(data.projectId));
 		} catch (error) {
 			setLoadingMessage(undefined);
@@ -521,6 +530,7 @@ export default function DashboardPage({ organizationId, organizations, isCreateO
 		try {
 			await deleteProject(organizationId, deleteTarget.id);
 			void queryClient.invalidateQueries({ queryKey: ['org-projects'] });
+			void queryClient.invalidateQueries({ queryKey: ['org-limits'] });
 			setDeleteTarget(undefined);
 			toast.success(`"${deleteTarget.name || deleteTarget.id.slice(0, 12)}" deleted`);
 		} catch {
@@ -657,7 +667,17 @@ export default function DashboardPage({ organizationId, organizations, isCreateO
 						"
 					>
 						Start a new project
+						{orgLimits && (
+							<span className="ml-1 tracking-normal normal-case">
+								({orgLimits.currentProjects}/{orgLimits.maxProjects})
+							</span>
+						)}
 					</h2>
+					{projectLimitReached && (
+						<p className="mb-3 text-xs text-text-secondary/80">
+							Project limit reached ({orgLimits?.maxProjects}). Upgrade your plan to create more projects.
+						</p>
+					)}
 					<motion.div
 						className="
 							grid grid-cols-3 gap-2

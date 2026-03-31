@@ -6,13 +6,15 @@
  * All routes require authentication and org membership.
  */
 
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, count, eq, isNull } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
 import { Hono } from 'hono';
 
+import { resolveOrgLimitsFromRows } from '@shared/entitlements';
 import { HttpErrorCode } from '@shared/http-errors';
 
 import * as schema from '../db/auth-schema';
+import { queryEntitlements } from '../lib/entitlements';
 import { httpError } from '../lib/http-error';
 import { assertOrgSuperAdmin } from '../lib/project-auth';
 
@@ -49,6 +51,33 @@ export const orgRoutes = new Hono<AuthedEnvironment>()
 		}
 
 		await next();
+	})
+
+	// GET /api/org/:orgId/limits — Resolved limits + current usage for this organization
+	.get('/org/:orgId/limits', async (c) => {
+		const { orgId } = c.req.param();
+		const database = drizzle(c.env.DB);
+
+		// Fetch org plan, entitlements, and current counts in parallel
+		const [organizationRows, entitlementRows, projectCountRows, memberCountRows] = await Promise.all([
+			database.select({ plan: schema.organization.plan }).from(schema.organization).where(eq(schema.organization.id, orgId)).limit(1),
+			queryEntitlements(database, orgId),
+			database
+				.select({ count: count() })
+				.from(schema.project)
+				.where(and(eq(schema.project.organizationId, orgId), isNull(schema.project.deletedAt))),
+			database.select({ count: count() }).from(schema.member).where(eq(schema.member.organizationId, orgId)),
+		]);
+
+		const plan = organizationRows[0]?.plan ?? 'free';
+		const limits = resolveOrgLimitsFromRows(plan, entitlementRows);
+
+		return c.json({
+			maxProjects: limits.maxProjects,
+			currentProjects: projectCountRows[0]?.count ?? 0,
+			maxMembers: limits.maxMembers,
+			currentMembers: memberCountRows[0]?.count ?? 0,
+		});
 	})
 
 	// GET /api/org/:orgId/projects — List projects for the organization

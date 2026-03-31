@@ -18,8 +18,9 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { mount, withMounts } from 'worker-fs-mount';
 
-import { getOrgLimits, PROJECT_INACTIVITY_DAYS, SOFT_DELETE_RETENTION_DAYS } from '@shared/constants';
+import { PROJECT_INACTIVITY_DAYS, SOFT_DELETE_RETENTION_DAYS } from '@shared/constants';
 import { buildAppOrigin, parseHost } from '@shared/domain';
+import { resolveOrgLimitsFromRows } from '@shared/entitlements';
 import { generateHumanId } from '@shared/human-id';
 import { validatePreviewToken } from '@shared/preview-token';
 import { isValidProjectId } from '@shared/project-id';
@@ -28,6 +29,7 @@ import * as authSchema from './db/auth-schema';
 import { createAuth } from './lib/auth';
 import { requireAuth } from './lib/auth-middleware';
 import { agentRunnerNamespace, coordinatorNamespace, filesystemNamespace } from './lib/durable-object-namespaces';
+import { queryEntitlements } from './lib/entitlements';
 import { errorPage, previewExpiredPage } from './lib/error-page';
 import { DEV_PREVIEW_SECRET } from './lib/preview-secret';
 import { generateProjectId, toDurableObjectId } from './lib/project-id';
@@ -627,8 +629,10 @@ app.post('/api/new-project', async (c) => {
 		return c.json({ error: 'You are not a member of this organization.' }, 403);
 	}
 
-	// Enforce per-org project limit (plan-based)
-	const orgLimits = getOrgLimits(orgMemberRow[0].plan ?? 'free');
+	// Enforce per-org project limit (plan-based + entitlement overrides)
+	const plan = orgMemberRow[0].plan ?? 'free';
+	const entitlementRows = await queryEntitlements(database, organizationId);
+	const orgLimits = resolveOrgLimitsFromRows(plan, entitlementRows);
 
 	const existingProjects = await database
 		.select({ id: authSchema.project.id })
@@ -789,8 +793,10 @@ app.post('/api/clone-project', async (c) => {
 		return c.json({ error: 'Source project not found or not initialized' }, 404);
 	}
 
-	// Enforce per-org project limit (plan-based)
-	const cloneOrgLimits = getOrgLimits(cloneOrgMemberRow[0].plan ?? 'free');
+	// Enforce per-org project limit (plan-based + entitlement overrides)
+	const clonePlan = cloneOrgMemberRow[0].plan ?? 'free';
+	const cloneEntitlementRows = await queryEntitlements(cloneDatabase, organizationId);
+	const cloneOrgLimits = resolveOrgLimitsFromRows(clonePlan, cloneEntitlementRows);
 
 	const existingCloneProjects = await cloneDatabase
 		.select({ id: authSchema.project.id })
