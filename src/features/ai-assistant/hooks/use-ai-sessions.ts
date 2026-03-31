@@ -7,6 +7,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { toast } from '@/components/ui/toast-store';
 import { useStore } from '@/lib/store';
 
 import type { AgentState } from '@shared/agent-state';
@@ -76,9 +77,15 @@ export function useAiSessions({ projectId, agent }: { projectId: string; agent: 
 	const handleLoadSession = useCallback(
 		(targetSessionId: string) => {
 			setIsLoadingSession(true);
-			void agent.call('loadSession', [targetSessionId]).finally(() => {
-				setIsLoadingSession(false);
-			});
+			void agent.call('loadSession', [targetSessionId]).then(
+				() => {
+					setIsLoadingSession(false);
+				},
+				() => {
+					setIsLoadingSession(false);
+					toast.error('Could not load the session. Please try again.');
+				},
+			);
 		},
 		[agent],
 	);

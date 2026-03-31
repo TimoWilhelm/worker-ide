@@ -5,6 +5,7 @@
 import { ChevronUp, FolderOpen } from 'lucide-react';
 import { lazy, Suspense, useCallback } from 'react';
 
+import { ErrorBoundary } from '@/components/error-boundary';
 import { MobileFileDrawer } from '@/components/mobile-file-drawer';
 import { MobileTabBar } from '@/components/mobile-tab-bar';
 import { Pill } from '@/components/ui/pill';
@@ -25,6 +26,27 @@ const AIPanel = lazy(() => import('@/features/ai-assistant'));
 const DevelopmentToolsPanel = lazy(() => import('@/features/devtools'));
 const PreviewPanel = lazy(() => import('@/features/preview'));
 const UtilityPanel = lazy(() => import('@/features/utility-panel'));
+
+function PanelErrorFallback({ resetErrorBoundary }: { error: Error; resetErrorBoundary: () => void }) {
+	return (
+		<div
+			className="
+				flex h-full flex-col items-center justify-center gap-2 p-4 text-center
+			"
+		>
+			<p className="text-sm text-text-secondary">Something went wrong loading this panel.</p>
+			<button
+				onClick={resetErrorBoundary}
+				className="
+					cursor-pointer text-xs text-accent underline
+					hover:text-accent-hover
+				"
+			>
+				Retry
+			</button>
+		</div>
+	);
+}
 
 interface MobileLayoutProperties {
 	projectId: string;
@@ -198,7 +220,11 @@ export function MobileLayout({
 				</div>
 
 				{/* Git view */}
-				{activeMobilePanel === 'git' && <GitPanel projectId={projectId} className="h-full" />}
+				{activeMobilePanel === 'git' && (
+					<ErrorBoundary fallback={PanelErrorFallback}>
+						<GitPanel projectId={projectId} className="h-full" />
+					</ErrorBoundary>
+				)}
 
 				{/* Tests view */}
 				{activeMobilePanel === 'tests' && <TestsPanel projectId={projectId} className="h-full" />}

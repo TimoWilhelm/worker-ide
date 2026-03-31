@@ -7,6 +7,7 @@ import { lazy, Suspense, useCallback } from 'react';
 import { Group as PanelGroup, Panel, Separator as ResizeHandle } from 'react-resizable-panels';
 
 import { ActivityBar } from '@/components/activity-bar';
+import { ErrorBoundary } from '@/components/error-boundary';
 import { Pill } from '@/components/ui/pill';
 import { PanelSkeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
@@ -27,6 +28,27 @@ const AIPanel = lazy(() => import('@/features/ai-assistant'));
 const DevelopmentToolsPanel = lazy(() => import('@/features/devtools'));
 const PreviewPanel = lazy(() => import('@/features/preview'));
 const UtilityPanel = lazy(() => import('@/features/utility-panel'));
+
+function PanelErrorFallback({ resetErrorBoundary }: { error: Error; resetErrorBoundary: () => void }) {
+	return (
+		<div
+			className="
+				flex flex-1 flex-col items-center justify-center gap-2 p-4 text-center
+			"
+		>
+			<p className="text-sm text-text-secondary">Something went wrong loading this panel.</p>
+			<button
+				onClick={resetErrorBoundary}
+				className="
+					cursor-pointer text-xs text-accent underline
+					hover:text-accent-hover
+				"
+			>
+				Retry
+			</button>
+		</div>
+	);
+}
 
 interface DesktopLayoutProperties {
 	projectId: string;
@@ -202,7 +224,9 @@ export function DesktopLayout({
 							) : activeSidebarView === 'tests' ? (
 								<TestsPanel projectId={projectId} className="flex-1" />
 							) : (
-								<GitPanel projectId={projectId} className="flex-1" />
+								<ErrorBoundary fallback={PanelErrorFallback}>
+									<GitPanel projectId={projectId} className="flex-1" />
+								</ErrorBoundary>
 							)}
 						</aside>
 					</div>

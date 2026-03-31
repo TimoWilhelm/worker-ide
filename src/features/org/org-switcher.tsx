@@ -19,6 +19,7 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { toast } from '@/components/ui/toast-store';
 import { authClient } from '@/lib/auth-client';
 import { cn } from '@/lib/utils';
 
@@ -59,8 +60,14 @@ export function OrgSwitcher({ organizations, currentOrganizationId, currentOrgan
 							key={organization.id}
 							onSelect={() => {
 								const slug = organization.slug ?? organization.id;
-								void authClient.organization.setActive({ organizationId: organization.id });
-								void navigate(`/org/${slug}`);
+								void authClient.organization.setActive({ organizationId: organization.id }).then(
+									() => {
+										void navigate(`/org/${slug}`);
+									},
+									() => {
+										toast.error('Could not switch organization. Please try again.');
+									},
+								);
 							}}
 							className={cn('gap-2 text-xs', currentOrganizationId === organization.id && 'bg-bg-tertiary font-medium')}
 						>

@@ -51,15 +51,21 @@ export function CreateOrgModal({
 				slug,
 			});
 			if (error) {
-				toast.error(error.message ?? 'Failed to create organization');
+				toast.error(error.message ?? 'Failed to create organization. Please try again.');
 				return;
 			}
 			if (data) {
-				await authClient.organization.setActive({ organizationId: data.id });
-				void navigate(`/org/${data.slug ?? data.id}`);
+				const orgSlug = data.slug ?? data.id;
+				try {
+					await authClient.organization.setActive({ organizationId: data.id });
+				} catch {
+					// Activation failed but the org was created — navigate anyway.
+					// The next page load will resolve the active org from the URL.
+				}
+				void navigate(`/org/${orgSlug}`);
 			}
 		} catch {
-			toast.error('Failed to create organization');
+			toast.error('Could not create the organization. Please check your connection and try again.');
 		} finally {
 			setIsCreating(false);
 		}

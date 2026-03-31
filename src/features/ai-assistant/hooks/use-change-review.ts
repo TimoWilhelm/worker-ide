@@ -12,6 +12,7 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useMemo, useRef } from 'react';
 
+import { toast } from '@/components/ui/toast-store';
 import { computeDiffHunks, groupHunksIntoChanges, reconstructContent } from '@/features/editor/lib/diff-decorations';
 import { useSnapshots } from '@/features/snapshots';
 import { createApiClient } from '@/lib/api-client';
@@ -189,6 +190,8 @@ export function useChangeReview({ projectId }: { projectId: string }) {
 					},
 					(error) => {
 						console.error('Failed to revert file edit:', error);
+						const fileName = path.split('/').pop() ?? path;
+						toast.error(`Could not revert ${fileName}. The file may still contain AI changes — please check it manually.`);
 						void persistPendingChanges();
 					},
 				);
@@ -201,6 +204,8 @@ export function useChangeReview({ projectId }: { projectId: string }) {
 					},
 					(error) => {
 						console.error('Failed to delete created file:', error);
+						const fileName = path.split('/').pop() ?? path;
+						toast.error(`Could not remove ${fileName}. You may need to delete it manually.`);
 						void persistPendingChanges();
 					},
 				);
@@ -352,7 +357,13 @@ export function useChangeReview({ projectId }: { projectId: string }) {
 			}
 
 			// Await all reverts/reconstructs before persisting
-			await Promise.allSettled(revertPromises);
+			const results = await Promise.allSettled(revertPromises);
+			const failedCount = results.filter((result) => result.status === 'rejected').length;
+			if (failedCount > 0) {
+				toast.error(
+					`${String(failedCount)} file${failedCount === 1 ? '' : 's'} could not be reverted. Those files may still contain AI changes — please check them manually.`,
+				);
+			}
 
 			// Persist the updated pending changes state
 			await persistPendingChanges();

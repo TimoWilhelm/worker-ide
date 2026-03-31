@@ -9,6 +9,8 @@
 
 import { useCallback, useEffect, useState } from 'react';
 
+import { toast } from '@/components/ui/toast-store';
+
 type PermissionState = 'default' | 'granted' | 'denied' | 'unsupported';
 
 interface UsePushNotificationsResult {
@@ -96,8 +98,8 @@ export function usePushNotifications(): UsePushNotificationsResult {
 			}
 
 			setIsSubscribed(true);
-		} catch (error) {
-			console.error('Failed to subscribe to push notifications:', error);
+		} catch {
+			toast.error('Could not enable notifications. Please check your browser permissions and try again.');
 		} finally {
 			setIsLoading(false);
 		}
@@ -124,8 +126,8 @@ export function usePushNotifications(): UsePushNotificationsResult {
 			}
 
 			setIsSubscribed(false);
-		} catch (error) {
-			console.error('Failed to unsubscribe from push notifications:', error);
+		} catch {
+			toast.error('Could not disable notifications. Please try again.');
 		} finally {
 			setIsLoading(false);
 		}

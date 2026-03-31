@@ -28,7 +28,8 @@ export default function AccountPage() {
 	const sessionsQuery = useQuery({
 		queryKey: ['sessions'],
 		queryFn: async () => {
-			const { data } = await authClient.listSessions();
+			const { data, error } = await authClient.listSessions();
+			if (error) throw new Error(error.message ?? 'Failed to load sessions');
 			return data ?? [];
 		},
 		staleTime: 1000 * 30,
@@ -140,6 +141,13 @@ export default function AccountPage() {
 					{sessionsQuery.isPending ? (
 						<div className="flex items-center justify-center py-8">
 							<Spinner size="sm" />
+						</div>
+					) : sessionsQuery.isError ? (
+						<div className="px-4 py-6 text-center text-sm text-text-secondary">
+							Could not load sessions.{' '}
+							<button onClick={() => void sessionsQuery.refetch()} className="cursor-pointer text-accent underline hover:text-accent-hover">
+								Retry
+							</button>
 						</div>
 					) : sessions.length === 0 ? (
 						<div className="px-4 py-6 text-center text-sm text-text-secondary">No active sessions found.</div>

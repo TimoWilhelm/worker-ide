@@ -469,6 +469,7 @@ export default function DashboardPage({ organizationId, organizations, isCreateO
 				void navigate(getProjectUrl(data.projectId));
 			} catch {
 				setLoadingMessage(undefined);
+				toast.error('Could not create the project. Please try again.');
 			}
 		},
 		[organizationId, queryClient, navigate],
@@ -666,7 +667,20 @@ export default function DashboardPage({ organizationId, organizations, isCreateO
 						initial="hidden"
 						animate="visible"
 					>
-						{templatesLoaded ? (
+						{templatesQuery.isError ? (
+							<div className="col-span-full py-4 text-center text-sm text-text-secondary">
+								Could not load templates.{' '}
+								<button
+									onClick={() => void templatesQuery.refetch()}
+									className="
+										cursor-pointer text-accent underline
+										hover:text-accent-hover
+									"
+								>
+									Retry
+								</button>
+							</div>
+						) : templatesLoaded ? (
 							<>
 								{templates.map((template) => (
 									<motion.div key={template.id} variants={fadeUpVariants} transition={springGentle}>
@@ -687,6 +701,21 @@ export default function DashboardPage({ organizationId, organizations, isCreateO
 				<PendingInvitationsBanner />
 
 				{/* Organization projects */}
+				{projectsQuery.isError && (
+					<section className="mb-8">
+						<div
+							className="
+								rounded-lg border border-border bg-bg-secondary/40 p-4 text-center
+								text-sm text-text-secondary backdrop-blur-sm
+							"
+						>
+							Could not load your projects.{' '}
+							<button onClick={() => void projectsQuery.refetch()} className="cursor-pointer text-accent underline hover:text-accent-hover">
+								Retry
+							</button>
+						</div>
+					</section>
+				)}
 				{orgProjects.length > 0 && (
 					<section>
 						<h2

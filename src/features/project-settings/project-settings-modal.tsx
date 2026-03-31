@@ -8,6 +8,7 @@
 import { useSuspenseQuery } from '@tanstack/react-query';
 import { Suspense, useCallback, useState } from 'react';
 
+import { ErrorBoundary } from '@/components/error-boundary';
 import { Button } from '@/components/ui/button';
 import { Modal, ModalBody, ModalFooter } from '@/components/ui/modal';
 import { fetchProjectMeta, updateAssetSettings } from '@/lib/api-client';
@@ -97,6 +98,21 @@ function parseHtmlHandling(value: string): HtmlHandling {
 }
 
 // =============================================================================
+// Error Fallback
+// =============================================================================
+
+function SettingsErrorFallback({ resetErrorBoundary }: { error: Error; resetErrorBoundary: () => void }) {
+	return (
+		<ModalBody className="flex h-[460px] flex-col items-center justify-center gap-3">
+			<p className="text-sm text-text-secondary">Could not load project settings.</p>
+			<Button variant="outline" size="sm" onClick={resetErrorBoundary}>
+				Retry
+			</Button>
+		</ModalBody>
+	);
+}
+
+// =============================================================================
 // Component
 // =============================================================================
 
@@ -108,15 +124,17 @@ export function ProjectSettingsModal({ open, onOpenChange, projectId }: ProjectS
 	return (
 		<Modal open={open} onOpenChange={onOpenChange} title="Project Settings" className="w-[480px]">
 			{open && (
-				<Suspense
-					fallback={
-						<ModalBody className="flex h-[460px] items-center justify-center">
-							<p className="text-sm text-text-secondary">Loading settings...</p>
-						</ModalBody>
-					}
-				>
-					<ProjectSettingsContent onOpenChange={onOpenChange} projectId={projectId} />
-				</Suspense>
+				<ErrorBoundary fallback={SettingsErrorFallback}>
+					<Suspense
+						fallback={
+							<ModalBody className="flex h-[460px] items-center justify-center">
+								<p className="text-sm text-text-secondary">Loading settings...</p>
+							</ModalBody>
+						}
+					>
+						<ProjectSettingsContent onOpenChange={onOpenChange} projectId={projectId} />
+					</Suspense>
+				</ErrorBoundary>
 			)}
 		</Modal>
 	);
@@ -183,8 +201,9 @@ function ProjectSettingsContent({ onOpenChange, projectId }: { onOpenChange: (op
 
 			await updateAssetSettings(projectId, assetSettings);
 			onOpenChange(false);
-		} catch {
-			setError('Failed to save settings');
+		} catch (error) {
+			const message = error instanceof Error ? error.message : 'Failed to save settings';
+			setError(message);
 		} finally {
 			setIsSaving(false);
 		}

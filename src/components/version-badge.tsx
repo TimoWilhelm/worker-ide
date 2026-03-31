@@ -78,9 +78,14 @@ export function VersionBadge({ className, withProvider = true }: VersionBadgePro
 	const tooltipContent = cloudflareVersion ? `${GIT_SHA}\nDeploy: ${cloudflareVersion.id.slice(0, TRUNCATED_LENGTH)}` : GIT_SHA;
 
 	const handleClick = useCallback(() => {
-		void navigator.clipboard.writeText(GIT_SHA).then(() => {
-			toast.success('Version copied to clipboard');
-		});
+		void navigator.clipboard.writeText(GIT_SHA).then(
+			() => {
+				toast.success('Version copied to clipboard');
+			},
+			() => {
+				// Clipboard API unavailable (HTTP context, iframe restrictions, etc.)
+			},
+		);
 	}, []);
 
 	const badge = (

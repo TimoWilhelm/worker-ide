@@ -13,15 +13,19 @@ import { Suspense } from 'react';
 
 import { HalftoneBackground } from '@/components/halftone-background';
 import { Button } from '@/components/ui/button';
+import { toast } from '@/components/ui/toast-store';
 import { authClient } from '@/lib/auth-client';
 import { fadeUpVariants, springGentle, staggerContainer } from '@/lib/motion-config';
 
-function handleGitHubLogin() {
-	void authClient.signIn.social({ provider: 'github', callbackURL: '/' });
-}
-
-function handleGoogleLogin() {
-	void authClient.signIn.social({ provider: 'google', callbackURL: '/' });
+async function handleSocialLogin(provider: 'github' | 'google') {
+	try {
+		const { error } = await authClient.signIn.social({ provider, callbackURL: '/' });
+		if (error) {
+			toast.error(error.message ?? 'Could not start sign-in. Please try again.');
+		}
+	} catch {
+		toast.error('Could not connect to the sign-in provider. Please check your connection and try again.');
+	}
 }
 
 function GoogleIcon({ className }: { className?: string }) {
@@ -72,11 +76,11 @@ export default function LoginPage() {
 					</div>
 
 					<div className="flex w-full flex-col gap-3">
-						<Button onClick={handleGitHubLogin} className="w-full gap-2" size="lg">
+						<Button onClick={() => void handleSocialLogin('github')} className="w-full gap-2" size="lg">
 							<Github className="size-5" />
 							Continue with GitHub
 						</Button>
-						<Button onClick={handleGoogleLogin} variant="outline" className="w-full gap-2" size="lg">
+						<Button onClick={() => void handleSocialLogin('google')} variant="outline" className="w-full gap-2" size="lg">
 							<GoogleIcon className="size-5" />
 							Continue with Google
 						</Button>

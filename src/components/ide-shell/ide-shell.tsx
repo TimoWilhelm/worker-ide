@@ -7,6 +7,7 @@
 
 import { useCallback, useRef, useState } from 'react';
 
+import { toast } from '@/components/ui/toast-store';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { DeployModal } from '@/features/deploy';
 import { useFileTree } from '@/features/file-tree';
@@ -89,8 +90,8 @@ export function IDEShell({ projectId }: { projectId: string }) {
 			a.click();
 			a.remove();
 			URL.revokeObjectURL(url);
-		} catch (error) {
-			console.error('Failed to download project:', error);
+		} catch {
+			toast.error('Could not download the project. Please check your connection and try again.');
 		}
 	}, [projectId, projectNameState.projectName]);
 

@@ -204,17 +204,23 @@ function GoogleIcon({ className }: { className?: string }) {
 function LinkedAccountsSection() {
 	const [accounts, setAccounts] = useState<LinkedAccount[]>([]);
 	const [isLoading, setIsLoading] = useState(true);
+	const [loadError, setLoadError] = useState(false);
 	const [actingProvider, setActingProvider] = useState<string | undefined>();
 
 	const fetchAccounts = useCallback(async () => {
+		setLoadError(false);
 		try {
-			const { data } = await authClient.listAccounts();
+			const { data, error } = await authClient.listAccounts();
+			if (error) {
+				setLoadError(true);
+				return;
+			}
 			if (data) {
 				// eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- better-auth returns loosely typed account data
 				setAccounts(data as unknown as LinkedAccount[]);
 			}
 		} catch {
-			// Silently ignore — section is non-critical
+			setLoadError(true);
 		} finally {
 			setIsLoading(false);
 		}
@@ -283,6 +289,13 @@ function LinkedAccountsSection() {
 			{isLoading ? (
 				<div className="flex items-center justify-center py-4">
 					<Spinner size="sm" />
+				</div>
+			) : loadError ? (
+				<div className="py-4 text-center text-sm text-text-secondary">
+					Could not load linked accounts.{' '}
+					<button onClick={() => void fetchAccounts()} className="cursor-pointer text-accent underline hover:text-accent-hover">
+						Retry
+					</button>
 				</div>
 			) : (
 				<div className="flex flex-col gap-3">

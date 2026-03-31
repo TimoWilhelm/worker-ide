@@ -10,6 +10,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 
+import { toast } from '@/components/ui/toast-store';
 import { previewIframeReference } from '@/features/preview/preview-iframe-reference';
 import { connectProjectSocket } from '@/lib/api-client';
 import { useStore } from '@/lib/store';
@@ -313,6 +314,10 @@ export function useProjectSocket({ projectId, enabled = true }: UseProjectSocket
 							reconnectAttemptsReference.current++;
 							doConnect();
 						}, delay);
+					} else {
+						toast.error('Lost connection to the server. Real-time features are unavailable. Please reload the page to reconnect.', {
+							duration: 15_000,
+						});
 					}
 				},
 				// onOpen

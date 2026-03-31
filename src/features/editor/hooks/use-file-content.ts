@@ -7,6 +7,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useCallback } from 'react';
 
+import { toast } from '@/components/ui/toast-store';
 import { createApiClient } from '@/lib/api-client';
 import { throwApiError } from '@/lib/api-error';
 
@@ -74,6 +75,10 @@ export function useFileContent({ projectId, path, enabled = true }: UseFileConte
 				path: variables.path,
 				content: variables.content,
 			});
+		},
+		onError: (_error, variables) => {
+			const fileName = variables.path.split('/').pop() ?? variables.path;
+			toast.error(`Could not save ${fileName}. Your changes are preserved locally — try saving again.`);
 		},
 	});
 

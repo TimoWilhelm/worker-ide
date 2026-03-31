@@ -15,6 +15,7 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { toast } from '@/components/ui/toast-store';
 import { authClient } from '@/lib/auth-client';
 
 interface UserMenuProperties {
@@ -81,9 +82,14 @@ export function UserMenu({ userName, userEmail, userImage }: UserMenuProperties)
 				<DropdownMenuSeparator />
 				<DropdownMenuItem
 					onSelect={() => {
-						void authClient.signOut().then(() => {
-							globalThis.location.href = '/';
-						});
+						void authClient.signOut().then(
+							() => {
+								globalThis.location.href = '/';
+							},
+							() => {
+								toast.error('Could not sign out. Please check your connection and try again.');
+							},
+						);
 					}}
 					className="gap-2 text-xs text-text-secondary"
 				>

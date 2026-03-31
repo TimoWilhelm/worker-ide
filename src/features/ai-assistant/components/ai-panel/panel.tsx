@@ -18,6 +18,7 @@ import { Button } from '@/components/ui/button';
 import { Collapsible } from '@/components/ui/collapsible';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Pill } from '@/components/ui/pill';
+import { toast } from '@/components/ui/toast-store';
 import { Tooltip } from '@/components/ui/tooltip';
 import { setActiveSessionId, useAiSessions } from '@/features/ai-assistant/hooks/use-ai-sessions';
 import { useSnapshots } from '@/features/snapshots';
@@ -486,6 +487,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 				// use beforeContent from pending changes to restore the original file.
 				const { pendingChanges: currentPendingChanges } = useStore.getState();
 				const apiClient = createApiClient(projectId);
+				const unrevertedFiles: string[] = [];
 				for (const failed of result.failed) {
 					const change = currentPendingChanges.get(failed.path);
 					if (change?.beforeContent !== undefined && change.action === 'edit') {
@@ -494,6 +496,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 							revertedPaths.add(failed.path);
 						} catch {
 							console.error(`Fallback revert failed for ${failed.path}`);
+							unrevertedFiles.push(failed.path.split('/').pop() ?? failed.path);
 						}
 					} else if (change?.action === 'create') {
 						try {
@@ -501,8 +504,14 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 							revertedPaths.add(failed.path);
 						} catch {
 							console.error(`Fallback delete failed for ${failed.path}`);
+							unrevertedFiles.push(failed.path.split('/').pop() ?? failed.path);
 						}
 					}
+				}
+				if (unrevertedFiles.length > 0) {
+					toast.error(
+						`Could not revert ${unrevertedFiles.join(', ')}. ${unrevertedFiles.length === 1 ? 'This file' : 'These files'} may still contain AI changes — please check manually.`,
+					);
 				}
 
 				// Optimistically clear only this session's pending changes for reverted files.
@@ -554,8 +563,8 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	// Download debug log
 	const handleDownloadDebugLog = useCallback(() => {
 		if (!debugLogId) return;
-		void downloadDebugLog(projectId, debugLogId, sessionId).catch((error) => {
-			console.error('Failed to download debug log:', error);
+		void downloadDebugLog(projectId, debugLogId, sessionId).catch(() => {
+			toast.error('Could not download the debug log. Please try again.');
 		});
 	}, [debugLogId, projectId, sessionId]);
 
