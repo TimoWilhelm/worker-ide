@@ -285,17 +285,13 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	// across sessions at the project level.
 	const clearHistory = useCallback(() => {
 		if (!isConnected) return;
-		if (isProcessing) {
-			void agent.call('abortRun', [sessionId]);
-		}
 		setPlanPath(undefined);
 		setFileDiffContent(new Map());
 		setActiveSessionId(projectId, undefined);
-		// Tell the agent to clear the current session state
-		if (agentState) {
-			agent.setState({ ...agentState, currentSession: undefined });
-		}
-	}, [projectId, isConnected, isProcessing, sessionId, agent, agentState]);
+		// Tell the agent to clear the current session state via RPC
+		// (also aborts any running session server-side)
+		void agent.call('clearCurrentSession', [isProcessing ? sessionId : undefined]);
+	}, [projectId, isConnected, isProcessing, sessionId, agent]);
 
 	// Load a session via Agent RPC and clear transient UI state
 	const handleLoadSession = useCallback(

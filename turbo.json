@@ -1,7 +1,12 @@
 {
 	"$schema": "https://turbo.build/schema.json",
 	"tasks": {
+		"cf-typegen": {
+			"outputs": ["worker-configuration.d.ts", "auxiliary/*/worker-configuration.d.ts"],
+			"inputs": ["wrangler.jsonc", "auxiliary/*/wrangler.jsonc", "scripts/generate-types.ts"]
+		},
 		"build:worker-types": {
+			"dependsOn": ["cf-typegen"],
 			"outputs": ["dist/worker/**"],
 			"inputs": ["worker/**/*.ts", "auxiliary/**/*.ts", "shared/**/*.ts", "tsconfig.worker.json", "tsconfig.json"]
 		},

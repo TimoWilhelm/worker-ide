@@ -1,6 +1,6 @@
 {
 	"name": "codemaxxing-landing",
-	"compatibility_date": "2026-01-31",
+	"compatibility_date": "2026-03-31",
 	"compatibility_flags": ["nodejs_compat"],
 	"assets": {
 		"directory": "./dist",
@@ -8,6 +8,7 @@
 		"not_found_handling": "404-page",
 	},
 	"observability": {
-		"enabled": true,
+		"logs": { "enabled": true, "head_sampling_rate": 1 },
+		"traces": { "enabled": true, "head_sampling_rate": 0.05 },
 	},
 }

@@ -1,0 +1,174 @@
+/**
+ * Tests for the ProjectCoordinator Durable Object.
+ *
+ * Runs in the workerd test pool via @cloudflare/vitest-pool-workers.
+ * Uses real miniflare-backed DO instances accessed through `cloudflare:test`
+ * env bindings to test RPC methods.
+ *
+ * Note: WebSocket upgrade tests (via stub.fetch()) are not included here
+ * because the hibernation API's storage access conflicts with vitest's
+ * isolated storage stack. WebSocket behavior is covered by integration tests.
+ */
+
+import { env } from 'cloudflare:test';
+import { describe, expect, it } from 'vitest';
+
+import type { ProjectCoordinator } from './project-coordinator';
+
+/**
+ * Get a fresh ProjectCoordinator stub for testing.
+ * Each call with a different name gets an isolated DO instance.
+ */
+function getCoordinatorStub(name: string): DurableObjectStub<ProjectCoordinator> {
+	const namespace = env.ProjectCoordinator as DurableObjectNamespace<ProjectCoordinator>;
+	const id = namespace.idFromName(name);
+	return namespace.get(id);
+}
+
+// =============================================================================
+// getOutputLogs
+// =============================================================================
+
+describe('getOutputLogs', () => {
+	it('returns empty string initially', async () => {
+		const stub = getCoordinatorStub('test-output-logs-empty');
+		const logs = await stub.getOutputLogs();
+		expect(logs).toBe('');
+	});
+});
+
+// =============================================================================
+// sendMessage
+// =============================================================================
+
+describe('sendMessage', () => {
+	it('does not throw when no clients are connected', async () => {
+		const stub = getCoordinatorStub('test-send-no-clients');
+		await expect(
+			stub.sendMessage({
+				type: 'server-error',
+				error: { id: 'e1', type: 'runtime', message: 'test error', timestamp: Date.now() },
+			}),
+		).resolves.toBeUndefined();
+	});
+
+	it('does not throw for non-error messages', async () => {
+		const stub = getCoordinatorStub('test-send-non-error');
+		await expect(
+			stub.sendMessage({
+				type: 'git-status-changed',
+			}),
+		).resolves.toBeUndefined();
+	});
+});
+
+// =============================================================================
+// triggerUpdate
+// =============================================================================
+
+describe('triggerUpdate', () => {
+	it('does not throw when no clients are connected', async () => {
+		const stub = getCoordinatorStub('test-trigger-no-clients');
+		await expect(
+			stub.triggerUpdate({
+				type: 'update',
+				path: '/test.js',
+				timestamp: Date.now(),
+			}),
+		).resolves.toBeUndefined();
+	});
+
+	it('does not throw for full-reload updates', async () => {
+		const stub = getCoordinatorStub('test-trigger-full-reload');
+		await expect(
+			stub.triggerUpdate({
+				type: 'full-reload',
+				path: '*',
+				timestamp: Date.now(),
+			}),
+		).resolves.toBeUndefined();
+	});
+
+	it('does not throw for CSS updates', async () => {
+		const stub = getCoordinatorStub('test-trigger-css');
+		await expect(
+			stub.triggerUpdate({
+				type: 'update',
+				path: '/style.css',
+				timestamp: Date.now(),
+				isCSS: true,
+			}),
+		).resolves.toBeUndefined();
+	});
+});
+
+// =============================================================================
+// sendCdpCommand
+// =============================================================================
+
+describe('sendCdpCommand', () => {
+	it('returns error when no clients are connected', async () => {
+		const stub = getCoordinatorStub('test-cdp-no-clients');
+		const result = await stub.sendCdpCommand('test-id', 'Runtime.evaluate', { expression: '1+1' });
+
+		expect(result.error).toBeDefined();
+		expect(result.error).toContain('No browser is connected');
+		expect(result.result).toBeUndefined();
+	});
+
+	it('returns error with descriptive message', async () => {
+		const stub = getCoordinatorStub('test-cdp-descriptive-error');
+		const result = await stub.sendCdpCommand('cmd-1', 'DOM.getDocument');
+
+		expect(result.error).toContain('No browser is connected');
+	});
+});
+
+// =============================================================================
+// Output logs round-trip (sendMessage -> getOutputLogs)
+// =============================================================================
+
+describe('output logs persistence', () => {
+	it('getOutputLogs returns empty string when only non-log messages sent', async () => {
+		const stub = getCoordinatorStub('test-output-no-logs');
+
+		// Send a server-error (this goes to lastServerError, not outputLogs)
+		await stub.sendMessage({
+			type: 'server-error',
+			error: { id: 'e2', type: 'bundle', message: 'Build failed', timestamp: 1234 },
+		});
+
+		const logs = await stub.getOutputLogs();
+		expect(logs).toBe('');
+	});
+});
+
+// =============================================================================
+// Multiple RPC calls on same instance
+// =============================================================================
+
+describe('instance consistency', () => {
+	it('multiple RPC calls on the same stub work correctly', async () => {
+		const stub = getCoordinatorStub('test-instance-consistency');
+
+		// Multiple sendMessage calls should not interfere with each other
+		await stub.sendMessage({ type: 'git-status-changed' });
+		await stub.sendMessage({ type: 'git-status-changed' });
+
+		// getOutputLogs should still return empty (unrelated to sendMessage)
+		const logs = await stub.getOutputLogs();
+		expect(logs).toBe('');
+	});
+
+	it('triggerUpdate and sendMessage work on the same instance', async () => {
+		const stub = getCoordinatorStub('test-mixed-rpc');
+
+		await stub.triggerUpdate({ type: 'update', path: '/a.js', timestamp: 1 });
+		await stub.sendMessage({ type: 'git-status-changed' });
+		await stub.triggerUpdate({ type: 'update', path: '/b.js', timestamp: 2 });
+
+		// Should not throw or corrupt state
+		const logs = await stub.getOutputLogs();
+		expect(logs).toBe('');
+	});
+});

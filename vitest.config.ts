@@ -62,8 +62,12 @@ export default defineConfig({
 								// The REPO_DO cross-worker DO binding references git-worker which
 								// isn't available in tests. Remove the script_name so miniflare
 								// doesn't try to resolve it. Git integration tests use a separate config.
+								// ProjectCoordinator is an internal DO (accessed via `exports` at
+								// runtime) but needs an explicit binding here so tests can access
+								// it through `env` from `cloudflare:test`.
 								durableObjects: {
 									REPO_DO: 'RepoDurableObject',
+									ProjectCoordinator: 'ProjectCoordinator',
 								},
 							},
 							wrangler: {

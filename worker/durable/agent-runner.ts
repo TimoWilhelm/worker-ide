@@ -6,18 +6,18 @@
  *   to all connected WebSocket clients (the frontend's `useAgent` hook).
  * - **@callable RPC** — Methods decorated with `callable` are invokable
  *   over WebSocket from the client via `agent.call()`.
- * - **Streaming RPC** — `@callable({ streaming: true })` for real-time generation
- *   streaming to clients.
+ * - **State validation** — `validateStateChange()` enforces structural invariants
+ *   before state is persisted and broadcast.
  * - **Eviction recovery** — `onStart()` lifecycle hook detects orphaned runs and
- *   restarts them (replaces the manual alarm-based heartbeat mechanism).
+ *   restarts them. `keepAliveWhile()` prevents eviction during active loops.
  *
  * Architecture:
  * - The Agent owns all AI session state. The frontend is a pure renderer.
- * - Streaming content flows via `@callable({ streaming: true })` RPC.
+ * - Streaming content flows via batched `this.setState()` updates (50ms flush).
  * - Session metadata (messages, status, tool data) flows via `this.setState()`.
  * - One instance per project, named `agent:${projectId}`.
  * - Communicates with ProjectCoordinator (for file change HMR triggers) and
- *   ExpiringFilesystem (for file operations) via DO RPC stubs.
+ *   DurableObjectFilesystem (for file operations) via DO RPC stubs.
  *
  * Database access uses Drizzle ORM (`drizzle-orm/durable-sqlite`) for all
  * custom tables. The Agent SDK's internal tables remain managed by the SDK.
@@ -186,6 +186,32 @@ export class AgentRunner extends Agent<Env, AgentState> {
 
 	/** Authenticated user ID per WebSocket connection, set from the server-forwarded header. */
 	private connectionUserIds = new Map<string, string>();
+
+	// =========================================================================
+	// State Validation
+	// =========================================================================
+
+	/**
+	 * Validate structural invariants before state is persisted and broadcast.
+	 * Runs synchronously — throwing rejects the update.
+	 */
+	validateStateChange(nextState: AgentState): void {
+		if (nextState.currentSession !== undefined) {
+			const session = nextState.currentSession;
+			if (!session.sessionId) {
+				throw new Error('AgentSessionState requires a non-empty sessionId');
+			}
+			if (!Array.isArray(session.messages)) {
+				throw new TypeError('AgentSessionState.messages must be an array');
+			}
+			if (typeof session.contextTokensUsed !== 'number' || session.contextTokensUsed < 0) {
+				throw new Error('AgentSessionState.contextTokensUsed must be a non-negative number');
+			}
+		}
+		if (!Array.isArray(nextState.sessions)) {
+			throw new TypeError('AgentState.sessions must be an array');
+		}
+	}
 
 	// =========================================================================
 	// WebSocket Lifecycle
@@ -640,6 +666,27 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	@callable()
 	async savePendingChanges(changes: Record<string, PendingFileChange>): Promise<void> {
 		this.savePendingChangesToDatabase(changes);
+	}
+
+	/**
+	 * Clear the current session state (start fresh).
+	 * Aborts any running session first.
+	 */
+	@callable()
+	async clearCurrentSession(sessionId?: string): Promise<void> {
+		if (sessionId) {
+			const controller = this.abortControllers.get(sessionId);
+			if (controller) {
+				controller.abort();
+				this.abortControllers.delete(sessionId);
+			}
+			removeRunningSession(this.db, sessionId);
+			const loopPromise = this.loopPromises.get(sessionId);
+			if (loopPromise) {
+				await loopPromise.catch(() => {});
+			}
+		}
+		this.setState({ ...this.state, currentSession: undefined });
 	}
 
 	/**
@@ -1114,30 +1161,6 @@ export class AgentRunner extends Agent<Env, AgentState> {
 					this.flushContentDelta(sessionId);
 				}, 50),
 			);
-		}
-	}
-
-	// =========================================================================
-	// Scheduled Task: Heartbeat (secondary safety net)
-	// =========================================================================
-
-	/**
-	 * Heartbeat handler called by the Agent SDK scheduler.
-	 * Checks for orphaned running sessions and restarts them.
-	 */
-	async heartbeat(): Promise<void> {
-		const orphaned = getAllRunningSessions(this.db);
-
-		for (const row of orphaned) {
-			if (!this.abortControllers.has(row.sessionId)) {
-				console.log(`[AgentRunner] Heartbeat: restarting evicted session ${row.sessionId}`);
-				try {
-					const parameters: StartAgentParameters = JSON.parse(row.parameters);
-					this.launchAgentLoop(parameters, row.sessionId);
-				} catch {
-					removeRunningSession(this.db, row.sessionId);
-				}
-			}
 		}
 	}
 

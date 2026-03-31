@@ -359,7 +359,7 @@ export class PreviewService {
 				});
 
 				return {
-					compatibilityDate: '2026-01-31',
+					compatibilityDate: '2026-03-31',
 					mainModule: 'worker.js',
 					modules: { 'worker.js': bundled.code },
 					tails: [logTailer],

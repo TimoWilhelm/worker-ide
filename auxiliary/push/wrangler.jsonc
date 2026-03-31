@@ -2,13 +2,13 @@
 	"$schema": "../../node_modules/wrangler/config-schema.json",
 	"name": "push-worker",
 	"main": "index.ts",
-	"compatibility_date": "2026-01-31",
+	"compatibility_date": "2026-03-31",
 	"compatibility_flags": ["nodejs_compat"],
 	"workers_dev": false,
 	"preview_urls": false,
 	"observability": {
-		"logs": { "enabled": true },
-		"traces": { "enabled": true },
+		"logs": { "enabled": true, "head_sampling_rate": 1 },
+		"traces": { "enabled": true, "head_sampling_rate": 0.05 },
 	},
 	"kv_namespaces": [{ "binding": "KV_PUSH_SUBSCRIPTION", "id": "190f895e11114532a070bdc243874ef5" }],
 	"queues": {

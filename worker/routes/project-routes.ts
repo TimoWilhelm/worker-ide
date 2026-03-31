@@ -157,7 +157,7 @@ export const projectRoutes = new Hono<AppEnvironment>()
 				$schema: 'node_modules/wrangler/config-schema.json',
 				name: projectName,
 				main: 'worker/index.ts',
-				compatibility_date: '2026-01-31',
+				compatibility_date: '2026-03-31',
 				assets: assetsConfig,
 				observability: {
 					enabled: true,

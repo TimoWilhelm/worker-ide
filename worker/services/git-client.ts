@@ -10,6 +10,8 @@
  *   const tree = await gitClient.materializeTree('HEAD');
  */
 
+import { withRetry } from '../lib/do-retry-proxy';
+
 import type { RepoDurableObject } from '../../auxiliary/git/do/repo/repo-do';
 import type { CommitTreeOptions, CommitTreeResult, TreeEntry, CommitLogEntry, TreeDiffEntry, EphemeralReference } from '@shared/git-types';
 
@@ -25,9 +27,10 @@ export class GitClient {
 	private repoStub: DurableObjectStub<RepoDurableObject>;
 
 	constructor(repoDoNamespace: DurableObjectNamespace<RepoDurableObject>, projectId: string) {
+		const retryNamespace = withRetry(repoDoNamespace);
 		const repoId = toRepoId(projectId);
-		const id = repoDoNamespace.idFromName(repoId);
-		this.repoStub = repoDoNamespace.get(id);
+		const id = retryNamespace.idFromName(repoId);
+		this.repoStub = retryNamespace.get(id);
 	}
 
 	// =========================================================================

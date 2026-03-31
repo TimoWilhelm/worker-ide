@@ -96,7 +96,9 @@ export class RepoDurableObject extends DurableObject<GitWorkerEnvironment> {
 		// Touch access and (re)schedule an idle cleanup alarm
 		try {
 			await this.touchAndMaybeSchedule();
-		} catch {}
+		} catch (error) {
+			this.logger.debug('fetch:touch:failed', { error: String(error) });
+		}
 		const url = new URL(request.url);
 		this.logger.debug('fetch', { path: url.pathname, method: request.method });
 
@@ -146,7 +148,9 @@ export class RepoDurableObject extends DurableObject<GitWorkerEnvironment> {
 				await store.put('lastAccessMs', now);
 				this.lastAccessMemMs = now;
 			}
-		} catch {}
+		} catch (error) {
+			this.logger.debug('touch:access:failed', { error: String(error) });
+		}
 
 		await ensureScheduled(this.ctx, this.env, now);
 	}

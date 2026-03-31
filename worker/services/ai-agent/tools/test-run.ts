@@ -624,7 +624,7 @@ async function runSingleTestFile(
 	const cacheKey = `test:${contentHash}`;
 
 	const worker = env.LOADER.get(cacheKey, async () => ({
-		compatibilityDate: '2026-01-31',
+		compatibilityDate: '2026-03-31',
 		mainModule: 'test-worker.js',
 		modules: { 'test-worker.js': bundled.code },
 		// Block outbound network access for test isolation

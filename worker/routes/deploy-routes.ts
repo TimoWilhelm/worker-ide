@@ -534,7 +534,7 @@ async function uploadWorkerScript(
 
 	const metadata: DeployMetadata = {
 		main_module: 'worker.mjs',
-		compatibility_date: '2026-01-31',
+		compatibility_date: '2026-03-31',
 		compatibility_flags: ['nodejs_compat'],
 		observability: { enabled: true },
 	};

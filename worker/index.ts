@@ -36,21 +36,27 @@ import { orgRoutes } from './routes/org-routes';
 import { transferRoutes } from './routes/transfer-routes';
 import { userRoutes } from './routes/user-routes';
 import { GitClient } from './services/git-client';
-import { PreviewService } from './services/preview-service';
 import { collectChanges } from './services/working-tree';
 import { getTemplate, getTemplateMetadata } from './templates';
 
+import type { PreviewService } from './services/preview-service';
 import type { AppEnvironment, AuthedEnvironment } from './types';
 import type { CommitFileEntry } from '@shared/git-types';
 
 // =============================================================================
 // Preview Service Cache
+//
+// Module-level LRU cache for PreviewService instances. This is safe because
+// PreviewService is stateless — it only holds projectRoot and projectId strings.
+// All data (files, settings, dependencies) is read fresh from the filesystem
+// on every request. The cache avoids repeated dynamic imports of the
+// PreviewService module on hot paths.
 // =============================================================================
 
 const MAX_PREVIEW_SERVICE_CACHE_SIZE = 100;
 const previewServiceCache = new Map<string, PreviewService>();
 
-function getPreviewService(projectRoot: string, projectId: string): PreviewService {
+async function getPreviewService(projectRoot: string, projectId: string): Promise<PreviewService> {
 	let service = previewServiceCache.get(projectId);
 	if (service) {
 		previewServiceCache.delete(projectId);
@@ -63,7 +69,11 @@ function getPreviewService(projectRoot: string, projectId: string): PreviewServi
 			previewServiceCache.delete(oldestKey);
 		}
 	}
-	service = new PreviewService(projectRoot, projectId);
+	// Lazy-import PreviewService to avoid pulling in chobitsu (which uses eval())
+	// at module load time. This keeps the worker entrypoint importable in test
+	// environments where eval() is blocked (workerd vitest pool).
+	const { PreviewService: PreviewServiceClass } = await import('./services/preview-service');
+	service = new PreviewServiceClass(projectRoot, projectId);
 	previewServiceCache.set(projectId, service);
 	return service;
 }
@@ -545,7 +555,7 @@ async function handlePreviewRequest(request: Request, projectId: string): Promis
 			return coordinatorStub.fetch(new Request(wsUrl, request));
 		}
 
-		const previewService = getPreviewService(PROJECT_ROOT, projectId);
+		const previewService = await getPreviewService(PROJECT_ROOT, projectId);
 		const assetSettings = await previewService.loadAssetSettings();
 
 		if (url.pathname.startsWith('/api/')) {
