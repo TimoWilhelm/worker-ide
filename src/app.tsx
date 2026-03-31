@@ -11,7 +11,7 @@
 import { MutationCache, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Check, ClipboardCopy } from 'lucide-react';
 import { Suspense, use, useEffect, useMemo, useRef, useState } from 'react';
-import { Navigate, Route, Routes, useParams } from 'react-router';
+import { Navigate, Route, Routes, useParams, useSearchParams } from 'react-router';
 
 import { ErrorBoundary } from '@/components/error-boundary';
 import { IDEShell } from '@/components/ide-shell';
@@ -30,6 +30,7 @@ import { usePwaUpdate } from '@/hooks/use-pwa-update';
 import { authClient } from '@/lib/auth-client';
 import { checkProjectAccess } from '@/lib/project-access';
 import { isNetworkError } from '@/lib/utils';
+import { getAuthErrorInfo } from '@shared/auth-errors';
 import { parseHost } from '@shared/domain';
 import { PROJECT_ID_PATTERN } from '@shared/project-id';
 
@@ -396,6 +397,47 @@ function AppContent({
 }
 
 // =============================================================================
+// Auth Error Handler
+// =============================================================================
+
+/**
+ * Reads `?error=<code>` from the URL (set by Better Auth on OAuth failures)
+ * and surfaces a user-friendly toast. Clears the param afterward so the
+ * error is not re-shown on page refresh.
+ *
+ * Only consumes `?error=` values that map to a known auth error code
+ * (see `shared/auth-errors.ts`), so unrelated query params are left alone.
+ *
+ * Note: Better Auth's `errorURL` is a static config (`/`), so all OAuth
+ * errors — including account-linking failures — redirect here.
+ */
+function AuthErrorHandler() {
+	const [searchParameters, setSearchParameters] = useSearchParams();
+	const errorCode = searchParameters.get('error') ?? undefined;
+
+	useEffect(() => {
+		if (!errorCode) return;
+
+		const errorInfo = getAuthErrorInfo(errorCode);
+		if (!errorInfo) return;
+
+		toast.error(errorInfo.message, { title: errorInfo.title });
+
+		// Remove the error param from the URL without a navigation
+		setSearchParameters(
+			(previous) => {
+				const next = new URLSearchParams(previous);
+				next.delete('error');
+				return next;
+			},
+			{ replace: true },
+		);
+	}, [errorCode, setSearchParameters]);
+
+	return <></>;
+}
+
+// =============================================================================
 // PWA Update Handler
 // =============================================================================
 
@@ -413,6 +455,7 @@ export function App() {
 		<ErrorBoundary fallback={ErrorFallback}>
 			<QueryClientProvider client={queryClient}>
 				<OfflineBanner />
+				<AuthErrorHandler />
 				<AuthGate />
 				<PwaUpdateHandler />
 				<Toaster />

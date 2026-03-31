@@ -39,11 +39,15 @@ export default function AccountPage() {
 	const handleRevokeSession = useCallback(
 		async (sessionToken: string) => {
 			try {
-				await authClient.revokeSession({ token: sessionToken });
+				const { error } = await authClient.revokeSession({ token: sessionToken });
+				if (error) {
+					toast.error(error.message ?? 'Could not revoke this session. Please try again.');
+					return;
+				}
 				toast.success('Session revoked');
 				void queryClient.invalidateQueries({ queryKey: ['sessions'] });
 			} catch {
-				toast.error('Failed to revoke session');
+				toast.error('Could not revoke the session. Please check your connection and try again.');
 			}
 		},
 		[queryClient],
@@ -51,11 +55,15 @@ export default function AccountPage() {
 
 	const handleRevokeAllOtherSessions = useCallback(async () => {
 		try {
-			await authClient.revokeSessions();
+			const { error } = await authClient.revokeSessions();
+			if (error) {
+				toast.error(error.message ?? 'Could not revoke other sessions. Please try again.');
+				return;
+			}
 			toast.success('All other sessions revoked');
 			void queryClient.invalidateQueries({ queryKey: ['sessions'] });
 		} catch {
-			toast.error('Failed to revoke sessions');
+			toast.error('Could not revoke sessions. Please check your connection and try again.');
 		}
 	}, [queryClient]);
 
@@ -72,7 +80,7 @@ export default function AccountPage() {
 			setDeletePreview(preview);
 			setShowDeleteConfirm(true);
 		} catch {
-			toast.error('Failed to load account deletion details');
+			toast.error('Could not load account deletion details. Please check your connection and try again.');
 		} finally {
 			setIsLoadingPreview(false);
 		}
@@ -85,7 +93,7 @@ export default function AccountPage() {
 			toast.success('Account deleted');
 			void navigate('/');
 		} catch {
-			toast.error('Failed to delete account. You may need to resolve blocking organizations first.');
+			toast.error('Could not delete your account. You may need to transfer ownership of organizations where you are the sole Super admin.');
 		} finally {
 			setIsDeleting(false);
 			setShowDeleteConfirm(false);

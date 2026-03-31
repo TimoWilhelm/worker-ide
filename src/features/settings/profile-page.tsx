@@ -37,11 +37,15 @@ export default function ProfilePage({ user }: ProfilePageProperties) {
 		}
 		setIsSaving(true);
 		try {
-			await authClient.updateUser({ name: trimmed });
+			const { error } = await authClient.updateUser({ name: trimmed });
+			if (error) {
+				toast.error(error.message ?? 'Failed to update your display name. Please try again.');
+				return;
+			}
 			toast.success('Name updated');
 			setIsEditingName(false);
 		} catch {
-			toast.error('Failed to update name');
+			toast.error('Failed to update name. Please check your connection and try again.');
 		} finally {
 			setIsSaving(false);
 		}
@@ -221,27 +225,42 @@ function LinkedAccountsSection() {
 	}, [fetchAccounts]);
 
 	const handleLink = useCallback(async (providerId: string) => {
+		const providerName = SUPPORTED_PROVIDERS.find((p) => p.id === providerId)?.name ?? providerId;
 		setActingProvider(providerId);
 		try {
-			await authClient.linkSocial({
+			const { error } = await authClient.linkSocial({
 				provider: providerId,
 				callbackURL: '/settings/profile',
 			});
+			if (error) {
+				toast.error(error.message ?? `Could not start linking ${providerName}. Please try again.`);
+			}
+			// If no error, the browser will redirect to the provider's OAuth page
 		} catch {
-			toast.error(`Failed to link ${providerId}`);
+			toast.error(`Could not connect to ${providerName}. Please check your connection and try again.`);
+		} finally {
 			setActingProvider(undefined);
 		}
 	}, []);
 
 	const handleUnlink = useCallback(
 		async (providerId: string) => {
+			const providerName = SUPPORTED_PROVIDERS.find((p) => p.id === providerId)?.name ?? providerId;
 			setActingProvider(providerId);
 			try {
-				await authClient.unlinkAccount({ providerId });
-				toast.success('Account unlinked');
-				void fetchAccounts();
+				const { error } = await authClient.unlinkAccount({ providerId });
+				if (error) {
+					const message =
+						error.code === 'CANT_UNLINK_LAST_ACCOUNT'
+							? `Cannot unlink ${providerName} because it is your only sign-in method. Link another account first.`
+							: (error.message ?? `Failed to unlink ${providerName}. Please try again.`);
+					toast.error(message);
+				} else {
+					toast.success(`${providerName} account unlinked`);
+					void fetchAccounts();
+				}
 			} catch {
-				toast.error(`Failed to unlink ${providerId}`);
+				toast.error(`Could not unlink ${providerName}. Please check your connection and try again.`);
 			} finally {
 				setActingProvider(undefined);
 			}

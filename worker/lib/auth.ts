@@ -60,9 +60,13 @@ export function createAuth(environment: AuthEnvironment, baseUrl: string) {
 		},
 		account: {
 			accountLinking: {
-				enabled: false,
+				enabled: true,
 				trustedProviders: [],
+				allowDifferentEmails: true,
 			},
+		},
+		onAPIError: {
+			errorURL: '/',
 		},
 		emailVerification: {
 			sendVerificationEmail: async (data) => {

@@ -92,4 +92,30 @@ describe('toast store', () => {
 		toast.error('Test');
 		expect(callCount).toBe(0);
 	});
+
+	it('stores title when provided', () => {
+		toast.error('Detail message', { title: 'Error Title' });
+		const items = getItems();
+		expect(items).toHaveLength(1);
+		expect(items[0].title).toBe('Error Title');
+		expect(items[0].message).toBe('Detail message');
+	});
+
+	it('sets extended duration for toasts with a title', () => {
+		toast.error('Detail message', { title: 'Error Title' });
+		const items = getItems();
+		expect(items[0].duration).toBe(8000);
+	});
+
+	it('uses default duration when no title is provided', () => {
+		toast.error('Simple message');
+		const items = getItems();
+		expect(items[0].duration).toBeUndefined();
+	});
+
+	it('allows custom duration override', () => {
+		toast.error('Custom timing', { duration: 15_000 });
+		const items = getItems();
+		expect(items[0].duration).toBe(15_000);
+	});
 });

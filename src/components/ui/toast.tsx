@@ -30,6 +30,7 @@ export function Toaster() {
 				{items.map((item) => (
 					<Toast.Root
 						key={item.id}
+						duration={item.duration}
 						onOpenChange={(open) => {
 							if (!open) removeToast(item.id);
 						}}
@@ -62,6 +63,7 @@ export function Toaster() {
 								<CircleCheck className="mt-0.5 size-4 shrink-0 text-accent" />
 							)}
 							<div className="flex flex-1 flex-col gap-1.5">
+								{item.title && <Toast.Title className="text-sm font-semibold text-text-primary">{item.title}</Toast.Title>}
 								<Toast.Description className="text-sm text-text-primary">{item.message}</Toast.Description>
 								{item.action && (
 									<button

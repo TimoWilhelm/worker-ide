@@ -18,8 +18,11 @@ export interface ToastAction {
 
 export interface ToastItem {
 	id: string;
+	title?: string;
 	message: string;
 	variant: 'error' | 'info' | 'success';
+	/** Custom auto-dismiss duration in ms (overrides the provider default). */
+	duration?: number;
 	action?: ToastAction;
 }
 
@@ -38,13 +41,33 @@ const toastStore = createStore<ToastState>(() => ({
 }));
 
 interface AddToastOptions {
+	/** Optional bold heading displayed above the message */
+	title?: string;
+	/** Custom auto-dismiss duration in ms */
+	duration?: number;
 	action?: ToastAction;
 }
 
+/** Default auto-dismiss duration for toasts with a title (ms). */
+const TITLED_TOAST_DURATION = 8000;
+
 function addToast(message: string, variant: 'error' | 'info' | 'success', options?: AddToastOptions) {
+	// Toasts with a title contain more text, so auto-extend the duration.
+	const duration = options?.duration ?? (options?.title ? TITLED_TOAST_DURATION : undefined);
+
 	toastStore.setState((state) => ({
 		nextId: state.nextId + 1,
-		items: [...state.items, { id: String(state.nextId + 1), message, variant, action: options?.action }],
+		items: [
+			...state.items,
+			{
+				id: String(state.nextId + 1),
+				title: options?.title,
+				message,
+				variant,
+				duration,
+				action: options?.action,
+			},
+		],
 	}));
 }
 
