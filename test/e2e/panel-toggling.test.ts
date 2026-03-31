@@ -37,24 +37,51 @@ test.describe('Panel Toggling', () => {
 		// Utility panel is visible by default
 		await expect(page.getByRole('tab', { name: 'Output' })).toBeVisible();
 
-		// Hide utility panel
-		await page.getByLabel('Hide utility panel').click();
+		// Hide utility panel.
+		// The auto-open-on-errors effect may re-expand if error logs arrive
+		// right after we collapse. Retry once if that happens.
+		const hideButton = page.getByLabel('Hide utility panel');
+		const showButton = page.getByLabel('Show output');
+
+		await hideButton.click();
+
+		try {
+			await expect(showButton).toBeVisible({ timeout: 3000 });
+		} catch {
+			// Auto-open effect re-expanded — hide again
+			await hideButton.click();
+			await expect(showButton).toBeVisible({ timeout: 5000 });
+		}
 
 		// Output tab should be gone
 		await expect(page.getByRole('tab', { name: 'Output' })).not.toBeVisible();
-		// Toggle should now say "Show output"
-		await expect(page.getByLabel('Show output')).toBeVisible();
 	});
 
 	test('clicking utility panel toggle again shows it', async ({ page }) => {
 		await gotoIDE(page);
 
-		// Hide utility panel
-		await page.getByLabel('Hide utility panel').click();
-		await expect(page.getByRole('tab', { name: 'Output' })).not.toBeVisible();
+		// Hide utility panel.
+		// The auto-open-on-errors effect (useLogCounts) can race with manual
+		// toggling — if error logs arrive while the panel is hidden, the effect
+		// re-opens it automatically. We retry the hide step until the collapsed
+		// state actually sticks (no new errors arriving).
+		const showButton = page.getByLabel('Show output');
+		const hideButton = page.getByLabel('Hide utility panel');
+
+		await hideButton.click();
+		// Wait for the collapsed state to settle. If auto-open re-expands
+		// the panel, hide it again.
+		try {
+			await expect(showButton).toBeVisible({ timeout: 3000 });
+		} catch {
+			// Auto-open effect re-expanded the panel — hide it once more.
+			// By now initial errors have been counted, so the effect won't fire again.
+			await hideButton.click();
+			await expect(showButton).toBeVisible({ timeout: 5000 });
+		}
 
 		// Show utility panel
-		await page.getByLabel('Show output').click();
+		await showButton.click();
 		await expect(page.getByRole('tab', { name: 'Output' })).toBeVisible();
 	});
 

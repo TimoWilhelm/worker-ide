@@ -28,9 +28,9 @@ import type { DiscoveredTest, TestFileResult } from '@shared/types';
 // =============================================================================
 
 /** Pixels of indentation per depth level */
-const INDENT_PX = 12;
+const INDENT_PX = 8;
 /** Base left padding (depth 0) */
-const BASE_PAD_PX = 8;
+const BASE_PAD_PX = 6;
 
 // =============================================================================
 // Types

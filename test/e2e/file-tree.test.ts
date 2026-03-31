@@ -23,9 +23,12 @@ test.describe('File Tree', () => {
 		await gotoIDE(page);
 		await waitForFileTree(page);
 
+		// Scope to the file tree so log badges like "worker" in the output panel don't collide
+		const fileTree = page.getByRole('tree');
+
 		// Directories derived from example project file paths
-		await expect(page.getByText('src', { exact: true })).toBeVisible();
-		await expect(page.getByText('worker', { exact: true })).toBeVisible();
+		await expect(fileTree.getByText('src', { exact: true })).toBeVisible();
+		await expect(fileTree.getByText('worker', { exact: true })).toBeVisible();
 	});
 
 	test('can collapse and re-expand a directory', async ({ page }) => {
