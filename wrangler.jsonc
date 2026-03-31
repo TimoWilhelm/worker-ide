@@ -53,6 +53,14 @@
 			"new_sqlite_classes": ["AgentRunner"],
 			"tag": "v4",
 		},
+		{
+			"deleted_classes": ["ProjectCoordinator"],
+			"tag": "v5",
+		},
+		{
+			"new_sqlite_classes": ["ProjectCoordinator"],
+			"tag": "v6",
+		},
 	],
 	"worker_loaders": [
 		{
