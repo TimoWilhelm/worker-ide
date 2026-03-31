@@ -294,17 +294,43 @@ jobs:
 
       - name: Start dev server
         run: |
-          bun run dev &
-          echo "DEV_SERVER_PID=$!" >> $GITHUB_ENV
+          for attempt in 1 2 3; do
+            echo "Starting dev server (attempt $attempt/3)..."
+            bun run dev &
+            DEV_SERVER_PID=$!
+            echo "DEV_SERVER_PID=$DEV_SERVER_PID" >> "$GITHUB_ENV"
+
+            ready=false
+            for i in $(seq 1 60); do
+              if ! kill -0 "$DEV_SERVER_PID" 2>/dev/null; then
+                echo "Dev server process exited unexpectedly"
+                break
+              fi
+              if curl -sf --max-time 5 http://localhost:3000/api/templates > /dev/null 2>&1; then
+                ready=true
+                break
+              fi
+              sleep 2
+            done
+
+            if [ "$ready" = true ]; then
+              echo "Server is ready!"
+              break
+            fi
+
+            echo "Server did not become ready in time, killing..."
+            kill "$DEV_SERVER_PID" 2>/dev/null || true
+            wait "$DEV_SERVER_PID" 2>/dev/null || true
+            sleep 2
+
+            if [ "$attempt" -eq 3 ]; then
+              echo "Server failed to start after 3 attempts"
+              exit 1
+            fi
+          done
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-
-      - name: Wait for server to be ready
-        run: |
-          echo "Waiting for server..."
-          timeout 300 bash -c 'until curl -sf http://localhost:3000/api/templates > /dev/null 2>&1; do sleep 2; done'
-          echo "Server is ready!"
 
       - name: Run integration tests
         run: bun run test:integration
@@ -373,17 +399,43 @@ jobs:
 
       - name: Start dev server
         run: |
-          bun run dev &
-          echo "DEV_SERVER_PID=$!" >> $GITHUB_ENV
+          for attempt in 1 2 3; do
+            echo "Starting dev server (attempt $attempt/3)..."
+            bun run dev &
+            DEV_SERVER_PID=$!
+            echo "DEV_SERVER_PID=$DEV_SERVER_PID" >> "$GITHUB_ENV"
+
+            ready=false
+            for i in $(seq 1 60); do
+              if ! kill -0 "$DEV_SERVER_PID" 2>/dev/null; then
+                echo "Dev server process exited unexpectedly"
+                break
+              fi
+              if curl -sf --max-time 5 http://localhost:3000/api/templates > /dev/null 2>&1; then
+                ready=true
+                break
+              fi
+              sleep 2
+            done
+
+            if [ "$ready" = true ]; then
+              echo "Server is ready!"
+              break
+            fi
+
+            echo "Server did not become ready in time, killing..."
+            kill "$DEV_SERVER_PID" 2>/dev/null || true
+            wait "$DEV_SERVER_PID" 2>/dev/null || true
+            sleep 2
+
+            if [ "$attempt" -eq 3 ]; then
+              echo "Server failed to start after 3 attempts"
+              exit 1
+            fi
+          done
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-
-      - name: Wait for server to be ready
-        run: |
-          echo "Waiting for server..."
-          timeout 300 bash -c 'until curl -sf http://localhost:3000/api/templates > /dev/null 2>&1; do sleep 2; done'
-          echo "Server is ready!"
 
       - name: Run E2E tests
         id: e2e

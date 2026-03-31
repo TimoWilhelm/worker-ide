@@ -60,13 +60,9 @@ export function TestsPanel({ projectId, className }: TestsPanelProperties) {
 	const hasTestFiles = discoveredFiles.length > 0;
 
 	return (
-		<div className={cn('flex h-full flex-col overflow-hidden', className)}>
+		<div className={cn('flex h-full min-w-0 flex-col overflow-hidden', className)}>
 			{/* Header */}
-			<div
-				className="
-					flex shrink-0 items-center gap-2 border-b border-border px-3 py-2
-				"
-			>
+			<div className="flex shrink-0 items-center gap-1.5 border-b border-border p-2">
 				<FlaskConical className="size-4 text-text-secondary" />
 				<span
 					className="
@@ -115,7 +111,7 @@ export function TestsPanel({ projectId, className }: TestsPanelProperties) {
 				<div
 					className={cn(
 						`
-							flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border px-3
+							flex flex-wrap items-center gap-x-2 gap-y-0.5 border-b border-border px-2
 							py-1.5
 						`,
 						'text-xs',
@@ -156,7 +152,7 @@ export function TestsPanel({ projectId, className }: TestsPanelProperties) {
 			{error && (
 				<div
 					className="
-						shrink-0 border-b border-border bg-red-50 px-3 py-2 text-xs text-red-700
+						shrink-0 border-b border-border bg-red-50 px-2 py-1.5 text-xs text-red-700
 						dark:bg-red-950/30 dark:text-red-400
 					"
 				>
@@ -194,7 +190,7 @@ export function TestsPanel({ projectId, className }: TestsPanelProperties) {
 
 							{/* Bundle errors section */}
 							{results && results.bundleErrors.length > 0 && (
-								<div className="mt-2 border-t border-border px-3 py-2">
+								<div className="mt-2 border-t border-border p-2">
 									<div
 										className="
 											text-xs font-medium text-red-600
@@ -204,7 +200,7 @@ export function TestsPanel({ projectId, className }: TestsPanelProperties) {
 										Bundle Errors
 									</div>
 									{results.bundleErrors.map(({ file, error: bundleError }) => (
-										<div key={file} className="mt-1 text-xs text-text-secondary">
+										<div key={file} className="mt-1 min-w-0 truncate text-xs text-text-secondary" title={`${file}: ${bundleError}`}>
 											<span className="font-medium">{file}</span>: {bundleError}
 										</div>
 									))}
