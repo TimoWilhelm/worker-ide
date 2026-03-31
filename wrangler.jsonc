@@ -58,7 +58,7 @@
 			"tag": "v5",
 		},
 		{
-			"new_sqlite_classes": ["ProjectCoordinator"],
+			"new_sqlite_classes": ["ProjectCoordinatorV2"],
 			"tag": "v6",
 		},
 	],

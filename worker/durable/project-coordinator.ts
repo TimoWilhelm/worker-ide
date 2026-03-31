@@ -45,7 +45,7 @@ const STORAGE_KEY = {
  * `ctx.storage.kv` so it survives hibernation and eviction. Only truly
  * transient data (pending CDP promise callbacks) is kept in-memory.
  */
-export class ProjectCoordinator extends DurableObject {
+export class ProjectCoordinatorV2 extends DurableObject {
 	constructor(state: DurableObjectState, environment: Env) {
 		super(state, environment);
 		this.ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'));

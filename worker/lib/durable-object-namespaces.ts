@@ -46,7 +46,7 @@ export const filesystemNamespace = lazyNamespace(() => exports.DurableObjectFile
  * Project Coordinator Durable Object namespace with automatic retry.
  * Used for HMR broadcasts, WebSocket messages, and real-time collaboration.
  */
-export const coordinatorNamespace = lazyNamespace(() => exports.ProjectCoordinator);
+export const coordinatorNamespace = lazyNamespace(() => exports.ProjectCoordinatorV2);
 
 /**
  * Agent Runner Durable Object namespace with automatic retry.

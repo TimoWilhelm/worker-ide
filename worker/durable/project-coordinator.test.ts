@@ -13,14 +13,14 @@
 import { env } from 'cloudflare:test';
 import { describe, expect, it } from 'vitest';
 
-import type { ProjectCoordinator } from './project-coordinator';
+import type { ProjectCoordinatorV2 } from './project-coordinator';
 
 /**
- * Get a fresh ProjectCoordinator stub for testing.
+ * Get a fresh ProjectCoordinatorV2 stub for testing.
  * Each call with a different name gets an isolated DO instance.
  */
-function getCoordinatorStub(name: string): DurableObjectStub<ProjectCoordinator> {
-	const namespace = env.ProjectCoordinator as DurableObjectNamespace<ProjectCoordinator>;
+function getCoordinatorStub(name: string): DurableObjectStub<ProjectCoordinatorV2> {
+	const namespace = env.ProjectCoordinatorV2 as DurableObjectNamespace<ProjectCoordinatorV2>;
 	const id = namespace.idFromName(name);
 	return namespace.get(id);
 }
