@@ -571,12 +571,12 @@ export class AIAgentService {
 
 							switch (part.type) {
 								case 'text-delta': {
-									lastAssistantText += part.textDelta;
-									yield textDeltaEvent(part.textDelta);
+									lastAssistantText += part.text;
+									yield textDeltaEvent(part.text);
 									break;
 								}
 								case 'reasoning-delta': {
-									yield reasoningDeltaEvent(part.delta);
+									yield reasoningDeltaEvent(part.text);
 									break;
 								}
 								case 'tool-input-delta': {
@@ -594,8 +594,8 @@ export class AIAgentService {
 									break;
 								}
 								case 'tool-result': {
-									const resultText = extractToolResultText(part.result);
-									yield toolCallEndEvent(part.toolCallId, part.toolName, resultText, part.isError);
+									const resultText = extractToolResultText(part.output);
+									yield toolCallEndEvent(part.toolCallId, part.toolName, resultText);
 
 									// Drain tool event queue
 									while (eventQueue.length > 0) {
@@ -656,19 +656,25 @@ export class AIAgentService {
 									toolFailures.length = 0;
 									break;
 								}
-								case 'finish': {
-									latestFinishReason = part.finishReason;
+								case 'tool-error': {
+									const errorText = part.error instanceof Error ? part.error.message : String(part.error ?? 'Tool error');
+									yield toolCallEndEvent(part.toolCallId, part.toolName, errorText, true);
+									break;
+								}
+								case 'finish-step': {
 									if (part.usage) {
 										tokenTracker.recordTurn(this.model, {
-											inputTokens: part.usage.promptTokens,
-											outputTokens: part.usage.completionTokens,
+											inputTokens: part.usage.inputTokens ?? 0,
+											outputTokens: part.usage.outputTokens ?? 0,
+											cacheReadInputTokens: part.usage.inputTokenDetails?.cacheReadTokens ?? 0,
+											cacheCreationInputTokens: part.usage.inputTokenDetails?.cacheWriteTokens ?? 0,
 										});
-										logger.recordTokenUsage(part.usage.promptTokens, part.usage.completionTokens);
-										if (part.usage.promptTokens > 0) {
+										logger.recordTokenUsage(part.usage.inputTokens ?? 0, part.usage.outputTokens ?? 0);
+										if ((part.usage.inputTokens ?? 0) > 0) {
 											yield contextUtilizationEvent(
-												part.usage.promptTokens,
+												part.usage.inputTokens ?? 0,
 												modelLimits.contextWindow,
-												Math.round((part.usage.promptTokens / (modelLimits.contextWindow - modelLimits.maxOutput)) * 100),
+												Math.round(((part.usage.inputTokens ?? 0) / (modelLimits.contextWindow - modelLimits.maxOutput)) * 100),
 											);
 										}
 									}
@@ -677,11 +683,15 @@ export class AIAgentService {
 										'request_end',
 										{
 											finishReason: part.finishReason,
-											inputTokens: part.usage?.promptTokens,
-											outputTokens: part.usage?.completionTokens,
+											inputTokens: part.usage?.inputTokens,
+											outputTokens: part.usage?.outputTokens,
 										},
 										{ durationMs: llmTimer() },
 									);
+									break;
+								}
+								case 'finish': {
+									latestFinishReason = part.finishReason;
 									break;
 								}
 								case 'error': {

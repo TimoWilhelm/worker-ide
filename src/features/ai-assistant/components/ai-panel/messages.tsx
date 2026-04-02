@@ -1637,7 +1637,11 @@ function InlineToolCall({
 				{!singlePath && !fromPath && !pattern && extraLabel && (
 					<Tooltip content={extraLabel} side="bottom">
 						<span className="max-w-48 truncate text-text-secondary">
-							{extraLabel.length > 60 ? extraLabel.slice(0, 60) + '...' : extraLabel}
+							{knownToolName === 'sub_agent' && typeof metadata?.shortTitle === 'string'
+								? metadata.shortTitle
+								: extraLabel.length > 60
+									? extraLabel.slice(0, 60) + '...'
+									: extraLabel}
 						</span>
 					</Tooltip>
 				)}
@@ -1678,6 +1682,7 @@ function InlineToolCall({
 			)}
 			{isExpanded &&
 				hasDetailContent &&
+				knownToolName !== 'sub_agent' &&
 				(hasDiffContent ? (
 					<InlineDiffView beforeContent={diffContent.beforeContent} afterContent={diffContent.afterContent} />
 				) : (
@@ -1691,13 +1696,14 @@ function InlineToolCall({
 					</pre>
 				))}
 			{isExpanded && diagnostics && diagnostics.length > 0 && <InlineDiagnosticsList diagnostics={diagnostics} />}
-			{isExpanded && knownToolName === 'sub_agent' && (
+			{knownToolName === 'sub_agent' && (
 				<InlineSubAgentActivity
 					toolCallId={toolCall.toolCallId}
 					subAgentActivities={subAgentActivities}
 					metadata={metadata}
 					rawResultContent={rawResultContent}
 					projectId={projectId}
+					isExpanded={isExpanded}
 				/>
 			)}
 			{todos && todos.length > 0 && <InlineTodoList todos={todos} />}
@@ -1715,26 +1721,35 @@ function InlineSubAgentActivity({
 	metadata,
 	rawResultContent,
 	projectId,
+	isExpanded,
 }: {
 	toolCallId: string;
 	subAgentActivities?: Record<string, SubAgentActivityRecord>;
 	metadata: Record<string, unknown> | undefined;
 	rawResultContent: string | undefined;
 	projectId: string | undefined;
+	isExpanded: boolean;
 }) {
 	const sessionId = useStore((state) => state.sessionId);
 	const activityRecord = subAgentActivities?.[toolCallId];
 	const tools = activityRecord?.tools ?? [];
+	const streamingText = activityRecord?.streamingText;
 	const subAgentDebugLogId = activityRecord?.debugLogId ?? (typeof metadata?.debugLogId === 'string' ? metadata.debugLogId : undefined);
+
+	// Use rawResultContent (final output) when available, otherwise show live streaming text
+	const responseText = rawResultContent ?? streamingText;
 
 	const handleDownloadLog = useCallback(() => {
 		if (!subAgentDebugLogId || !projectId) return;
 		void downloadDebugLog(projectId, subAgentDebugLogId, sessionId).catch(() => {});
 	}, [subAgentDebugLogId, projectId, sessionId]);
 
+	// When collapsed, only render if there's *active* streaming (no final result yet)
+	if (!isExpanded && (!streamingText || rawResultContent) && tools.length === 0) return;
+
 	return (
 		<div className="flex flex-col gap-2 rounded-md bg-bg-primary p-2">
-			{tools.length > 0 && (
+			{isExpanded && tools.length > 0 && (
 				<div className="flex flex-col gap-0.5">
 					<div
 						className="
@@ -1771,7 +1786,7 @@ function InlineSubAgentActivity({
 					})}
 				</div>
 			)}
-			{rawResultContent && (
+			{responseText && (
 				<details className="group">
 					<summary
 						className="
@@ -1780,7 +1795,7 @@ function InlineSubAgentActivity({
 						"
 					>
 						<ChevronRight className="mr-1 inline size-3 transition-transform group-open:rotate-90" />
-						Sub-agent response
+						{rawResultContent ? 'Sub-agent response' : 'Sub-agent output (streaming…)'}
 					</summary>
 					<pre
 						className="
@@ -1788,11 +1803,11 @@ function InlineSubAgentActivity({
 							text-2xs/relaxed break-all whitespace-pre-wrap text-text-secondary
 						"
 					>
-						{rawResultContent}
+						{responseText}
 					</pre>
 				</details>
 			)}
-			{subAgentDebugLogId && projectId && (
+			{isExpanded && subAgentDebugLogId && projectId && (
 				<button
 					onClick={handleDownloadLog}
 					className={cn(

@@ -102,13 +102,10 @@ vi.mock('node:fs/promises', () => ({
 const mockStreamTextResult = {
 	fullStream: {
 		async *[Symbol.asyncIterator]() {
-			yield { type: 'text-delta', textDelta: 'Hello' };
-			yield { type: 'text-delta', textDelta: ' world' };
-			yield {
-				type: 'finish',
-				finishReason: 'stop',
-				usage: { promptTokens: 100, completionTokens: 20 },
-			};
+			yield { type: 'text-delta', text: 'Hello' };
+			yield { type: 'text-delta', text: ' world' };
+			yield { type: 'finish-step', finishReason: 'stop', usage: { inputTokens: 100, outputTokens: 20 } };
+			yield { type: 'finish', finishReason: 'stop' };
 		},
 	},
 	response: Promise.resolve({
@@ -273,8 +270,9 @@ describe('AIAgentService', () => {
 						fullStream: {
 							async *[Symbol.asyncIterator]() {
 								yield { type: 'tool-call', toolCallId: 'tc-1', toolName: 'file_read', input: { path: '/project/index.ts' } };
-								yield { type: 'tool-result', toolCallId: 'tc-1', toolName: 'file_read', result: 'file content', isError: false };
-								yield { type: 'finish', finishReason: 'tool-calls', usage: { promptTokens: 100, completionTokens: 20 } };
+								yield { type: 'tool-result', toolCallId: 'tc-1', toolName: 'file_read', output: 'file content' };
+								yield { type: 'finish-step', finishReason: 'tool-calls', usage: { inputTokens: 100, outputTokens: 20 } };
+								yield { type: 'finish', finishReason: 'tool-calls' };
 							},
 						},
 						response: Promise.resolve({
@@ -298,8 +296,9 @@ describe('AIAgentService', () => {
 				return {
 					fullStream: {
 						async *[Symbol.asyncIterator]() {
-							yield { type: 'text-delta', textDelta: 'Done!' };
-							yield { type: 'finish', finishReason: 'stop', usage: { promptTokens: 200, completionTokens: 10 } };
+							yield { type: 'text-delta', text: 'Done!' };
+							yield { type: 'finish-step', finishReason: 'stop', usage: { inputTokens: 200, outputTokens: 10 } };
+							yield { type: 'finish', finishReason: 'stop' };
 						},
 					},
 					response: Promise.resolve({
@@ -352,7 +351,7 @@ describe('AIAgentService', () => {
 				return {
 					fullStream: {
 						async *[Symbol.asyncIterator]() {
-							yield { type: 'text-delta', textDelta: 'Starting...' };
+							yield { type: 'text-delta', text: 'Starting...' };
 							throw new DOMException('Aborted', 'AbortError');
 						},
 					},
@@ -417,8 +416,9 @@ describe('AIAgentService', () => {
 				return {
 					fullStream: {
 						async *[Symbol.asyncIterator]() {
-							yield { type: 'text-delta', textDelta: 'Recovered!' };
-							yield { type: 'finish', finishReason: 'stop', usage: { promptTokens: 100, completionTokens: 10 } };
+							yield { type: 'text-delta', text: 'Recovered!' };
+							yield { type: 'finish-step', finishReason: 'stop', usage: { inputTokens: 100, outputTokens: 10 } };
+							yield { type: 'finish', finishReason: 'stop' };
 						},
 					},
 					response: Promise.resolve({
@@ -470,8 +470,9 @@ describe('AIAgentService', () => {
 						fullStream: {
 							async *[Symbol.asyncIterator]() {
 								yield { type: 'tool-call', toolCallId: 'tc-1', toolName: 'file_read', input: { path: '/project/index.ts' } };
-								yield { type: 'tool-result', toolCallId: 'tc-1', toolName: 'file_read', result: 'content', isError: false };
-								yield { type: 'finish', finishReason: 'tool-calls', usage: { promptTokens: 100, completionTokens: 10 } };
+								yield { type: 'tool-result', toolCallId: 'tc-1', toolName: 'file_read', output: 'content' };
+								yield { type: 'finish-step', finishReason: 'tool-calls', usage: { inputTokens: 100, outputTokens: 10 } };
+								yield { type: 'finish', finishReason: 'tool-calls' };
 							},
 						},
 						response: Promise.resolve({
@@ -500,8 +501,9 @@ describe('AIAgentService', () => {
 				return {
 					fullStream: {
 						async *[Symbol.asyncIterator]() {
-							yield { type: 'text-delta', textDelta: 'Done with CSS check' };
-							yield { type: 'finish', finishReason: 'stop', usage: { promptTokens: 200, completionTokens: 10 } };
+							yield { type: 'text-delta', text: 'Done with CSS check' };
+							yield { type: 'finish-step', finishReason: 'stop', usage: { inputTokens: 200, outputTokens: 10 } };
+							yield { type: 'finish', finishReason: 'stop' };
 						},
 					},
 					response: Promise.resolve({
@@ -542,8 +544,9 @@ describe('AIAgentService', () => {
 						fullStream: {
 							async *[Symbol.asyncIterator]() {
 								yield { type: 'tool-call', toolCallId: 'tc-1', toolName: 'files_list', input: {} };
-								yield { type: 'tool-result', toolCallId: 'tc-1', toolName: 'files_list', result: 'files', isError: false };
-								yield { type: 'finish', finishReason: 'tool-calls', usage: { promptTokens: 100, completionTokens: 10 } };
+								yield { type: 'tool-result', toolCallId: 'tc-1', toolName: 'files_list', output: 'files' };
+								yield { type: 'finish-step', finishReason: 'tool-calls', usage: { inputTokens: 100, outputTokens: 10 } };
+								yield { type: 'finish', finishReason: 'tool-calls' };
 							},
 						},
 						response: Promise.resolve({
@@ -551,7 +554,14 @@ describe('AIAgentService', () => {
 								{ role: 'assistant', content: [{ type: 'tool-call', toolCallId: 'tc-1', toolName: 'files_list', input: {} }] },
 								{
 									role: 'tool',
-									content: [{ type: 'tool-result', toolCallId: 'tc-1', toolName: 'files_list', output: { type: 'text', value: 'files' } }],
+									content: [
+										{
+											type: 'tool-result',
+											toolCallId: 'tc-1',
+											toolName: 'files_list',
+											output: { type: 'text', value: 'files' },
+										},
+									],
 								},
 							],
 						}),
@@ -561,8 +571,9 @@ describe('AIAgentService', () => {
 				return {
 					fullStream: {
 						async *[Symbol.asyncIterator]() {
-							yield { type: 'text-delta', textDelta: 'Done' };
-							yield { type: 'finish', finishReason: 'stop', usage: { promptTokens: 200, completionTokens: 10 } };
+							yield { type: 'text-delta', text: 'Done' };
+							yield { type: 'finish-step', finishReason: 'stop', usage: { inputTokens: 200, outputTokens: 10 } };
+							yield { type: 'finish', finishReason: 'stop' };
 						},
 					},
 					response: Promise.resolve({
@@ -664,10 +675,10 @@ describe('AIAgentService', () => {
 								type: 'tool-result',
 								toolCallId: 'tc-q',
 								toolName: 'user_question',
-								result: 'Question asked',
-								isError: false,
+								output: 'Question asked',
 							};
-							yield { type: 'finish', finishReason: 'tool-calls', usage: { promptTokens: 100, completionTokens: 10 } };
+							yield { type: 'finish-step', finishReason: 'tool-calls', usage: { inputTokens: 100, outputTokens: 10 } };
+							yield { type: 'finish', finishReason: 'tool-calls' };
 						},
 					},
 					response: Promise.resolve({

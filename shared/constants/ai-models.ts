@@ -24,7 +24,7 @@ export const AI_MODELS = [
 	},
 	{
 		id: '@cf/google/gemma-4-26b-a4b-it',
-		label: 'Gemma 4',
+		label: 'Gemma 4 26b',
 		description: 'Intelligent reasoning model from Google',
 		provider: 'workers-ai',
 		contextWindow: 256_000,

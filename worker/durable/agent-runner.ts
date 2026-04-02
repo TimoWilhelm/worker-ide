@@ -181,6 +181,13 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	private pendingContentDeltas = new Map<string, { type: 'reasoning' | 'text'; content: string }>();
 	private contentFlushTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
+	/**
+	 * Pending sub-agent streaming text deltas, keyed by parentToolCallId.
+	 * Batched on a 50ms timer to avoid per-token setState broadcasts.
+	 */
+	private pendingSubAgentDeltas = new Map<string, string>();
+	private subAgentDeltaFlushTimer: ReturnType<typeof setTimeout> | undefined;
+
 	/** Queued steering messages for running sessions, keyed by sessionId. */
 	private steeringMessages = new Map<string, Array<{ id: string; content: string }>>();
 
@@ -847,6 +854,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 			this.currentRunSnapshotIds.delete(sessionId);
 			this.flushContentDelta(sessionId);
 			this.pendingContentDeltas.delete(sessionId);
+			this.flushSubAgentDeltas(sessionId);
 
 			// Remove durable running marker
 			removeRunningSession(this.db, sessionId);
@@ -1068,45 +1076,73 @@ export class AgentRunner extends Agent<Env, AgentState> {
 
 			// ── Sub-agent activity events ────────────────────────────────
 			case 'sub-agent-activity': {
+				if (!this.state.currentSession) break;
+				const parentId = event.parentToolCallId;
+
+				// Text deltas are batched on a 50ms timer (same pattern as main content deltas)
+				if (event.activity.kind === 'text-delta') {
+					this.accumulateSubAgentDelta(sessionId, parentId, event.activity.delta);
+					break;
+				}
+
+				// tool-start and non-error tool-end don't change state — skip the broadcast
+				if (event.activity.kind === 'tool-start' || (event.activity.kind === 'tool-end' && !event.activity.isError)) {
+					break;
+				}
+
+				// Structural event — flush any pending text deltas first
+				this.flushSubAgentDeltas(sessionId);
+
+				// Re-read state after flush (flush may have called updateSessionState)
 				const current = this.state.currentSession;
 				if (!current) break;
-				const activities = { ...current.subAgentActivities };
-				const parentId = event.parentToolCallId;
-				const existing = activities[parentId] ?? { tools: [], debugLogId: undefined };
 
-				if (event.activity.kind === 'debug-log') {
-					// Persist the sub-agent's debug log ID for UI download
-					activities[parentId] = {
-						...existing,
-						debugLogId: event.activity.debugLogId,
-					};
-				} else if (event.activity.kind === 'tool-metadata') {
-					// Append a completed tool entry with metadata
-					activities[parentId] = {
-						...existing,
-						tools: [
-							...existing.tools,
-							{
-								toolName: event.activity.toolName,
-								title: event.activity.title,
-								metadata: event.activity.metadata,
-							},
-						],
-					};
-				} else if (event.activity.kind === 'tool-end' && event.activity.isError) {
-					// Append an error tool entry (no metadata available)
-					activities[parentId] = {
-						...existing,
-						tools: [
-							...existing.tools,
-							{
-								toolName: event.activity.toolName,
-								title: 'Error',
-								metadata: {},
-								isError: true,
-							},
-						],
-					};
+				const activities = { ...current.subAgentActivities };
+				const existing = activities[parentId] ?? { tools: [], debugLogId: undefined, streamingText: undefined };
+
+				switch (event.activity.kind) {
+					case 'debug-log': {
+						// Persist the sub-agent's debug log ID for UI download
+						activities[parentId] = {
+							...existing,
+							debugLogId: event.activity.debugLogId,
+						};
+						break;
+					}
+					case 'tool-metadata': {
+						// Append a completed tool entry with metadata
+						activities[parentId] = {
+							...existing,
+							tools: [
+								...existing.tools,
+								{
+									toolName: event.activity.toolName,
+									title: event.activity.title,
+									metadata: event.activity.metadata,
+								},
+							],
+						};
+						break;
+					}
+					case 'tool-end': {
+						// Only error tool-end reaches here (non-error filtered above)
+						activities[parentId] = {
+							...existing,
+							tools: [
+								...existing.tools,
+								{
+									toolName: event.activity.toolName,
+									title: 'Error',
+									metadata: {},
+									isError: true,
+								},
+							],
+						};
+						break;
+					}
+					default: {
+						break;
+					}
 				}
 
 				this.updateSessionState(sessionId, { subAgentActivities: activities });
@@ -1210,6 +1246,52 @@ export class AgentRunner extends Agent<Env, AgentState> {
 					this.flushContentDelta(sessionId);
 				}, 50),
 			);
+		}
+	}
+
+	/**
+	 * Flush any accumulated sub-agent text deltas to state immediately.
+	 * Called by structural sub-agent events (tool-metadata, tool-end, debug-log)
+	 * and on a 50ms timer for token-by-token streaming.
+	 */
+	private flushSubAgentDeltas(sessionId: string): void {
+		if (this.subAgentDeltaFlushTimer) {
+			clearTimeout(this.subAgentDeltaFlushTimer);
+			this.subAgentDeltaFlushTimer = undefined;
+		}
+
+		if (this.pendingSubAgentDeltas.size === 0) return;
+
+		const current = this.state.currentSession;
+		if (!current || current.sessionId !== sessionId) {
+			this.pendingSubAgentDeltas.clear();
+			return;
+		}
+
+		const activities = { ...current.subAgentActivities };
+		for (const [parentId, delta] of this.pendingSubAgentDeltas) {
+			const existing = activities[parentId] ?? { tools: [], debugLogId: undefined, streamingText: undefined };
+			activities[parentId] = {
+				...existing,
+				streamingText: (existing.streamingText ?? '') + delta,
+			};
+		}
+		this.pendingSubAgentDeltas.clear();
+		this.updateSessionState(sessionId, { subAgentActivities: activities });
+	}
+
+	/**
+	 * Accumulate a sub-agent text delta and schedule a flush.
+	 */
+	private accumulateSubAgentDelta(sessionId: string, parentToolCallId: string, delta: string): void {
+		const current = this.pendingSubAgentDeltas.get(parentToolCallId);
+		this.pendingSubAgentDeltas.set(parentToolCallId, (current ?? '') + delta);
+
+		if (!this.subAgentDeltaFlushTimer) {
+			this.subAgentDeltaFlushTimer = setTimeout(() => {
+				this.subAgentDeltaFlushTimer = undefined;
+				this.flushSubAgentDeltas(sessionId);
+			}, 50);
 		}
 	}
 

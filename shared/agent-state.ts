@@ -280,6 +280,7 @@ export type SubAgentActivity =
 	| { kind: 'tool-start'; toolName: string }
 	| { kind: 'tool-end'; toolName: string; isError?: boolean }
 	| { kind: 'tool-metadata'; toolName: string; title: string; metadata: Record<string, unknown> }
+	| { kind: 'text-delta'; delta: string }
 	| { kind: 'debug-log'; debugLogId: string };
 
 /** Persisted record of a sub-agent's activity for a single parent tool call. */
@@ -288,6 +289,8 @@ export interface SubAgentActivityRecord {
 	tools: SubAgentToolEntry[];
 	/** Sub-agent debug log ID (for download). */
 	debugLogId: string | undefined;
+	/** Accumulated streaming text from the sub-agent (live updates during generation). */
+	streamingText: string | undefined;
 }
 
 /** A single completed tool call from a sub-agent. */

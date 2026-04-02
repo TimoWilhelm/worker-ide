@@ -141,7 +141,10 @@ export async function execute(
 
 			switch (event.type) {
 				case 'text-delta': {
-					lastAssistantText += event.delta;
+					if (event.delta) {
+						lastAssistantText += event.delta;
+						forwardActivity(sendEvent, { kind: 'text-delta', delta: event.delta });
+					}
 					break;
 				}
 
@@ -223,15 +226,32 @@ export async function execute(
 	const resultText = lastAssistantText.trim() || '(Sub-agent completed without producing text output)';
 	const truncatedResult = resultText.length > 50_000 ? resultText.slice(0, 50_000) + '\n... (output truncated)' : resultText;
 
+	// Derive a short title from the prompt for the tool UI
+	const shortTitle = deriveShortTitle(prompt);
+
 	return {
-		title: `Sub-agent (${iterationCount} turns)`,
+		title: `${shortTitle} (${iterationCount} turn${iterationCount === 1 ? '' : 's'})`,
 		metadata: {
 			iterations: iterationCount,
 			outputLength: resultText.length,
 			debugLogId,
+			shortTitle,
 		},
 		output: truncatedResult,
 	};
+}
+
+/**
+ * Derive a short title from the sub-agent prompt for the tool UI.
+ * Truncates at ~60 chars on a word boundary.
+ */
+function deriveShortTitle(prompt: string): string {
+	const maxLength = 60;
+	const cleaned = prompt.trim().replaceAll(/\s+/g, ' ');
+	if (cleaned.length <= maxLength) return cleaned;
+	const truncated = cleaned.slice(0, maxLength);
+	const lastSpace = truncated.lastIndexOf(' ');
+	return (lastSpace > 20 ? truncated.slice(0, lastSpace) : truncated) + '…';
 }
 
 /**
