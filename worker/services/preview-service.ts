@@ -11,7 +11,7 @@ import { source as chobitsuSource, hash as chobitsuHash } from 'chobitsu?raw-min
 import { env, exports } from 'cloudflare:workers';
 import stripJsonComments from 'strip-json-comments';
 
-import { HIDDEN_ENTRIES } from '@shared/constants';
+import { HIDDEN_ENTRIES, WORKERS_COMPATIBILITY_DATE } from '@shared/constants';
 import { resolveAssetSettings } from '@shared/types';
 
 import { bundleFiles } from './bundle-service';
@@ -359,7 +359,7 @@ export class PreviewService {
 				});
 
 				return {
-					compatibilityDate: '2026-03-31',
+					compatibilityDate: WORKERS_COMPATIBILITY_DATE,
 					mainModule: 'worker.js',
 					modules: { 'worker.js': bundled.code },
 					tails: [logTailer],

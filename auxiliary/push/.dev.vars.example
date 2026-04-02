@@ -1,0 +1,10 @@
+# Push worker secrets (auxiliary/push/wrangler.jsonc)
+# Copy this file to .dev.vars and fill in the values.
+
+# VAPID key pair for Web Push notifications.
+# Generate with: npx web-push generate-vapid-keys
+#
+# The public key is a URL-safe base64-encoded 65-byte uncompressed P-256 point.
+# The private key is a URL-safe base64-encoded 32-byte scalar.
+VAPID_PUBLIC_KEY=
+VAPID_PRIVATE_KEY=

@@ -1,0 +1,23 @@
+# Main worker secrets (wrangler.jsonc)
+# Copy this file to .dev.vars and fill in the values.
+
+# Random string used to sign/verify preview iframe tokens.
+# Generate with: openssl rand -hex 32
+PREVIEW_SECRET=
+
+# Secret key used by better-auth for session signing and encryption.
+# Generate with: openssl rand -hex 32
+BETTER_AUTH_SECRET=
+
+# GitHub OAuth App credentials (for social login).
+# Create at: https://github.com/settings/developers → "New OAuth App"
+#   - Homepage URL: http://localhost:3000
+#   - Authorization callback URL: http://localhost:3000/api/auth/callback/github
+GITHUB_CLIENT_ID=
+GITHUB_CLIENT_SECRET=
+
+# Google OAuth credentials (for social login).
+# Create at: https://console.cloud.google.com/apis/credentials → "Create OAuth client ID"
+#   - Authorized redirect URI: http://localhost:3000/api/auth/callback/google
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=

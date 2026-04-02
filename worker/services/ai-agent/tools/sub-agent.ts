@@ -116,7 +116,7 @@ export async function execute(
 		projectRoot,
 		projectId,
 		fsStub,
-		sessionId ? `${sessionId}-sub` : undefined,
+		sessionId ? `${sessionId}-sub-${crypto.randomUUID().slice(0, 8)}` : undefined,
 		'code',
 		model,
 		undefined, // no onPersistSession

@@ -23,3 +23,11 @@ export const MAX_PROJECT_NAME_LENGTH = 60;
  * Older sessions beyond this limit are pruned automatically.
  */
 export const MAX_AI_SESSIONS_PER_PROJECT = 50;
+
+/**
+ * Cloudflare Workers compatibility date used for user-deployed workers,
+ * preview isolates, and test runners.
+ *
+ * Keep in sync with the `compatibility_date` values in the wrangler.jsonc files.
+ */
+export const WORKERS_COMPATIBILITY_DATE = '2026-03-24';

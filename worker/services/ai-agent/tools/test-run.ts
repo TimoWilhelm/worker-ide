@@ -14,7 +14,7 @@ import { env } from 'cloudflare:workers';
 import { minimatch } from 'minimatch';
 import stripJsonComments from 'strip-json-comments';
 
-import { HIDDEN_ENTRIES } from '@shared/constants';
+import { HIDDEN_ENTRIES, WORKERS_COMPATIBILITY_DATE } from '@shared/constants';
 import { ToolExecutionError } from '@shared/tool-errors';
 
 import { listFilesRecursive } from '../tool-executor';
@@ -624,7 +624,7 @@ async function runSingleTestFile(
 	const cacheKey = `test:${contentHash}`;
 
 	const worker = env.LOADER.get(cacheKey, async () => ({
-		compatibilityDate: '2026-03-31',
+		compatibilityDate: WORKERS_COMPATIBILITY_DATE,
 		mainModule: 'test-worker.js',
 		modules: { 'test-worker.js': bundled.code },
 		// Block outbound network access for test isolation

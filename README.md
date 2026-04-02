@@ -29,8 +29,24 @@ Types, constants, validation, and WebSocket message definitions shared between f
 
 ```bash
 bun install
+```
+
+Before starting the dev server, configure the required secrets (see below), then:
+
+```bash
 bun run dev        # Vite dev server + worker at localhost:3000
 ```
+
+## Secrets & Environment Variables
+
+Each worker reads secrets from a `.dev.vars` file in its directory. These files are gitignored. Copy the corresponding `.dev.vars.example` to `.dev.vars` and follow the instructions inside to generate and fill in the values.
+
+| Worker | Example file                        |
+| ------ | ----------------------------------- |
+| Main   | `.dev.vars.example`                 |
+| Git    | `auxiliary/git/.dev.vars.example`   |
+| Push   | `auxiliary/push/.dev.vars.example`  |
+| Email  | `auxiliary/email/.dev.vars.example` |
 
 ## Scripts
 

@@ -7,7 +7,7 @@ import fs from 'node:fs/promises';
 
 import { Hono } from 'hono';
 
-import { HIDDEN_ENTRIES } from '@shared/constants';
+import { HIDDEN_ENTRIES, WORKERS_COMPATIBILITY_DATE } from '@shared/constants';
 import { HttpErrorCode } from '@shared/http-errors';
 import { generateHumanId } from '@shared/human-id';
 import { resolveAssetSettings } from '@shared/types';
@@ -156,7 +156,7 @@ export const projectRoutes = new Hono<AppEnvironment>()
 				$schema: 'node_modules/wrangler/config-schema.json',
 				name: projectName,
 				main: 'worker/index.ts',
-				compatibility_date: '2026-03-31',
+				compatibility_date: WORKERS_COMPATIBILITY_DATE,
 				assets: assetsConfig,
 				observability: {
 					enabled: true,

@@ -17,7 +17,7 @@ import { Hono } from 'hono';
 import stripJsonComments from 'strip-json-comments';
 import { z } from 'zod';
 
-import { HIDDEN_ENTRIES } from '@shared/constants';
+import { HIDDEN_ENTRIES, WORKERS_COMPATIBILITY_DATE } from '@shared/constants';
 import { HttpErrorCode } from '@shared/http-errors';
 import { resolveAssetSettings } from '@shared/types';
 
@@ -534,7 +534,7 @@ async function uploadWorkerScript(
 
 	const metadata: DeployMetadata = {
 		main_module: 'worker.mjs',
-		compatibility_date: '2026-03-31',
+		compatibility_date: WORKERS_COMPATIBILITY_DATE,
 		compatibility_flags: ['nodejs_compat'],
 		observability: { enabled: true },
 	};
