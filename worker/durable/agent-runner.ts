@@ -1477,7 +1477,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	}
 
 	/**
-	 * Send a push notification to all members of the project's organization.
+	 * Send a push notification to the authenticated user.
 	 * Uses waitUntil to avoid blocking the agent loop.
 	 */
 	private sendPushNotification(sessionId: string, title: string, body: string): void {
@@ -1485,8 +1485,11 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		const projectId = this.name.startsWith('agent:') ? this.name.slice(6) : undefined;
 		if (!projectId) return;
 
+		const userId = this.getAuthenticatedUserId();
+		if (!userId) return;
+
 		try {
-			env.PUSH.notifyUser(projectId, {
+			env.PUSH.notifyUser(userId, {
 				tag: sessionId,
 				title,
 				body,
