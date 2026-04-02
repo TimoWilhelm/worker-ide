@@ -167,8 +167,7 @@ export async function execute(
 	}
 
 	// Trigger HMR update so the preview refreshes
-	const coordinatorId = coordinatorNamespace.idFromName(`project:${projectId}`);
-	const coordinatorStub = coordinatorNamespace.get(coordinatorId);
+	const coordinatorStub = coordinatorNamespace.getByName(`project:${projectId}`);
 	await coordinatorStub.triggerUpdate(createHmrUpdateForFile(imagePath));
 
 	// Send file changed event for UI

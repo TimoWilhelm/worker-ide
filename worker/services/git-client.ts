@@ -29,8 +29,7 @@ export class GitClient {
 	constructor(repoDoNamespace: DurableObjectNamespace<RepoDurableObject>, projectId: string) {
 		const retryNamespace = withRetry(repoDoNamespace);
 		const repoId = toRepoId(projectId);
-		const id = retryNamespace.idFromName(repoId);
-		this.repoStub = retryNamespace.get(id);
+		this.repoStub = retryNamespace.getByName(repoId);
 	}
 
 	// =========================================================================

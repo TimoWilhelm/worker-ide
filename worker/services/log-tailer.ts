@@ -54,8 +54,7 @@ export class LogTailer extends WorkerEntrypoint<Env, LogTailerProperties> {
 		if (logs.length === 0) return;
 
 		try {
-			const coordinatorId = coordinatorNamespace.idFromName(`project:${projectId}`);
-			const coordinatorStub = coordinatorNamespace.get(coordinatorId);
+			const coordinatorStub = coordinatorNamespace.getByName(`project:${projectId}`);
 			await coordinatorStub.sendMessage({ type: 'server-logs', logs });
 		} catch {
 			// Best-effort — don't fail the tail if broadcast fails

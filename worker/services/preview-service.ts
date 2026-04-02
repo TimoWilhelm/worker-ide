@@ -624,8 +624,7 @@ export class PreviewService {
 	}
 
 	private async broadcastMessage(message: ServerMessage): Promise<void> {
-		const coordinatorId = coordinatorNamespace.idFromName(`project:${this.projectId}`);
-		const coordinatorStub = coordinatorNamespace.get(coordinatorId);
+		const coordinatorStub = coordinatorNamespace.getByName(`project:${this.projectId}`);
 		await coordinatorStub.sendMessage(message);
 	}
 

@@ -82,8 +82,7 @@ export const fileRoutes = new Hono<AppEnvironment>()
 		}
 
 		// Trigger HMR update (CSS/JS get hot updates, other files trigger full reload)
-		const coordinatorId = coordinatorNamespace.idFromName(`project:${projectId}`);
-		const coordinatorStub = coordinatorNamespace.get(coordinatorId);
+		const coordinatorStub = coordinatorNamespace.getByName(`project:${projectId}`);
 		await coordinatorStub.triggerUpdate(createHmrUpdateForFile(path));
 
 		// Notify clients that git status may have changed
@@ -114,8 +113,7 @@ export const fileRoutes = new Hono<AppEnvironment>()
 
 			// Trigger HMR so the frontend refreshes the file list
 			const projectId = c.get('projectId');
-			const coordinatorId = coordinatorNamespace.idFromName(`project:${projectId}`);
-			const coordinatorStub = coordinatorNamespace.get(coordinatorId);
+			const coordinatorStub = coordinatorNamespace.getByName(`project:${projectId}`);
 			await coordinatorStub.triggerUpdate({
 				type: 'full-reload',
 				path,
@@ -156,8 +154,7 @@ export const fileRoutes = new Hono<AppEnvironment>()
 			await fs.rename(`${projectRoot}${fromPath}`, `${projectRoot}${toPath}`);
 
 			// Trigger HMR so the frontend refreshes
-			const coordinatorId = coordinatorNamespace.idFromName(`project:${projectId}`);
-			const coordinatorStub = coordinatorNamespace.get(coordinatorId);
+			const coordinatorStub = coordinatorNamespace.getByName(`project:${projectId}`);
 			await coordinatorStub.triggerUpdate({
 				type: 'full-reload',
 				path: toPath,

@@ -550,8 +550,7 @@ async function handlePreviewRequest(request: Request, projectId: string): Promis
 		mount(PROJECT_ROOT, fsStub);
 
 		if (url.pathname === '/__ws' || url.pathname.startsWith('/__ws')) {
-			const coordinatorId = coordinatorNamespace.idFromName(`project:${projectId}`);
-			const coordinatorStub = coordinatorNamespace.get(coordinatorId);
+			const coordinatorStub = coordinatorNamespace.getByName(`project:${projectId}`);
 			const wsUrl = new URL(request.url);
 			wsUrl.pathname = '/ws';
 			return coordinatorStub.fetch(new Request(wsUrl, request));
@@ -998,8 +997,7 @@ app.all('/p/:projectId/*', async (c) => {
 	// "Missing namespace or room headers", which in the miniflare dev
 	// environment causes an ERR_ASSERTION crash in #handleLoopback.
 	if (subPath === '/__agent' || subPath.startsWith('/__agent')) {
-		const agentId = agentRunnerNamespace.idFromName(`agent:${projectId}`);
-		const agentStub = agentRunnerNamespace.get(agentId);
+		const agentStub = agentRunnerNamespace.getByName(`agent:${projectId}`);
 		const agentUrl = new URL(c.req.url);
 		agentUrl.pathname = '/';
 		const agentHeaders = new Headers(c.req.raw.headers);
@@ -1012,8 +1010,7 @@ app.all('/p/:projectId/*', async (c) => {
 		mount(PROJECT_ROOT, fsStub);
 
 		if (subPath === '/__ws' || subPath.startsWith('/__ws')) {
-			const coordinatorId = coordinatorNamespace.idFromName(`project:${projectId}`);
-			const coordinatorStub = coordinatorNamespace.get(coordinatorId);
+			const coordinatorStub = coordinatorNamespace.getByName(`project:${projectId}`);
 			const wsUrl = new URL(c.req.url);
 			wsUrl.pathname = '/ws';
 			return coordinatorStub.fetch(new Request(wsUrl, c.req.raw));
@@ -1146,8 +1143,7 @@ export default {
 					// Extract projectId from repoId (format: "ide/{projectId}")
 					const projectId = event.repoId.startsWith('ide/') ? event.repoId.slice(4) : undefined;
 					if (projectId) {
-						const coordinatorId = coordinatorNamespace.idFromName(`project:${projectId}`);
-						const coordinatorStub = coordinatorNamespace.get(coordinatorId);
+						const coordinatorStub = coordinatorNamespace.getByName(`project:${projectId}`);
 						await coordinatorStub.sendMessage({ type: 'git-status-changed' });
 					}
 				}

@@ -99,8 +99,7 @@ export async function execute(
 
 	// Notify connected clients so the dependencies panel and project metadata
 	// refresh immediately without waiting for the React Query stale time.
-	const coordinatorId = coordinatorNamespace.idFromName(`project:${context.projectId}`);
-	const coordinatorStub = coordinatorNamespace.get(coordinatorId);
+	const coordinatorStub = coordinatorNamespace.getByName(`project:${context.projectId}`);
 	await coordinatorStub.triggerUpdate({ type: 'full-reload', path: '/.project-meta.json', timestamp: Date.now(), isCSS: false });
 
 	const verbMap: Record<string, string> = { add: 'Added', remove: 'Removed', update: 'Updated' };

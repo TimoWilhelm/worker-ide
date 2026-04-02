@@ -21,8 +21,7 @@ import type { ProjectCoordinatorV2 } from './project-coordinator';
  */
 function getCoordinatorStub(name: string): DurableObjectStub<ProjectCoordinatorV2> {
 	const namespace = env.ProjectCoordinatorV2 as DurableObjectNamespace<ProjectCoordinatorV2>;
-	const id = namespace.idFromName(name);
-	return namespace.get(id);
+	return namespace.getByName(name);
 }
 
 // =============================================================================

@@ -21,8 +21,7 @@ vi.mock('node:fs/promises', () => memoryFs.asMock());
 
 vi.mock('../../../lib/durable-object-namespaces', () => ({
 	coordinatorNamespace: {
-		idFromName: () => ({ toString: () => 'mock-id' }),
-		get: () => ({ triggerUpdate: async () => {} }),
+		getByName: () => ({ triggerUpdate: async () => {} }),
 	},
 }));
 

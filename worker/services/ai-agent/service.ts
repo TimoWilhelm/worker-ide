@@ -268,8 +268,7 @@ export class AIAgentService {
 			}
 		}
 
-		const coordinatorId = coordinatorNamespace.idFromName(`project:${this.projectId}`);
-		const coordinatorStub = coordinatorNamespace.get(coordinatorId);
+		const coordinatorStub = coordinatorNamespace.getByName(`project:${this.projectId}`);
 
 		// Accumulate metadata for session persistence
 		let sessionSnapshotId: string | undefined = snapshotContext?.id;

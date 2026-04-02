@@ -157,8 +157,7 @@ export async function execute(
 	await fs.writeFile(metaPath, JSON.stringify(meta));
 
 	// Trigger full reload so the preview picks up new asset settings
-	const coordinatorId = coordinatorNamespace.idFromName(`project:${projectId}`);
-	const coordinatorStub = coordinatorNamespace.get(coordinatorId);
+	const coordinatorStub = coordinatorNamespace.getByName(`project:${projectId}`);
 	await coordinatorStub.triggerUpdate({ type: 'full-reload', path: '/.project-meta.json', timestamp: Date.now(), isCSS: false });
 
 	return {

@@ -68,8 +68,7 @@ export const projectRoutes = new Hono<AppEnvironment>()
 		// Trigger full reload when dependencies or asset settings change so the preview rebundles
 		if (dependenciesChanged || assetSettingsChanged) {
 			const projectId = c.get('projectId');
-			const coordinatorId = coordinatorNamespace.idFromName(`project:${projectId}`);
-			const coordinatorStub = coordinatorNamespace.get(coordinatorId);
+			const coordinatorStub = coordinatorNamespace.getByName(`project:${projectId}`);
 			await coordinatorStub.triggerUpdate({
 				type: 'full-reload',
 				path: '/.project-meta.json',

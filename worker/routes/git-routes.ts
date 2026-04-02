@@ -96,8 +96,7 @@ async function readGitStatus(fileSystem: typeof import('node:fs/promises'), gitC
  */
 function broadcastGitStatusChanged(projectId: string, executionContext: { waitUntil: (promise: Promise<unknown>) => void }): void {
 	try {
-		const coordinatorId = coordinatorNamespace.idFromName(`project:${projectId}`);
-		const coordinatorStub = coordinatorNamespace.get(coordinatorId);
+		const coordinatorStub = coordinatorNamespace.getByName(`project:${projectId}`);
 		executionContext.waitUntil(coordinatorStub.sendMessage({ type: 'git-status-changed' }).catch(() => {}));
 	} catch {
 		// Best-effort broadcast

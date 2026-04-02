@@ -79,8 +79,7 @@ export async function execute(
 
 	const { beforeContent } = lockResult;
 
-	const coordinatorId = coordinatorNamespace.idFromName(`project:${projectId}`);
-	const coordinatorStub = coordinatorNamespace.get(coordinatorId);
+	const coordinatorStub = coordinatorNamespace.getByName(`project:${projectId}`);
 	await coordinatorStub.triggerUpdate({ type: 'full-reload', path: deletePath, timestamp: Date.now(), isCSS: false });
 
 	sendEvent('file_changed', {

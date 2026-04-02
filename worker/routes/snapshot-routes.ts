@@ -111,8 +111,7 @@ export const snapshotRoutes = new Hono<AppEnvironment>()
 	// GET /api/pending-changes - Load project-level pending changes from the AgentRunner DO
 	.get('/pending-changes', async (c) => {
 		const projectId = c.get('projectId');
-		const agentId = agentRunnerNamespace.idFromName(`agent:${projectId}`);
-		const agentStub = agentRunnerNamespace.get(agentId);
+		const agentStub = agentRunnerNamespace.getByName(`agent:${projectId}`);
 		const response = await agentStub.fetch(
 			new Request('http://agent/pending-changes', {
 				headers: { 'x-partykit-room': `agent:${projectId}` },
@@ -129,8 +128,7 @@ export const snapshotRoutes = new Hono<AppEnvironment>()
 	.put('/pending-changes', zValidator('json', pendingChangesFileSchema), async (c) => {
 		const projectId = c.get('projectId');
 		const changes = c.req.valid('json');
-		const agentId = agentRunnerNamespace.idFromName(`agent:${projectId}`);
-		const agentStub = agentRunnerNamespace.get(agentId);
+		const agentStub = agentRunnerNamespace.getByName(`agent:${projectId}`);
 		const response = await agentStub.fetch(
 			new Request('http://agent/pending-changes', {
 				method: 'PUT',
@@ -270,8 +268,7 @@ async function revertSingleFile(
 
 	// Trigger HMR for the reverted file
 	try {
-		const coordinatorId = coordinatorNamespace.idFromName(`project:${projectId}`);
-		const coordinatorStub = coordinatorNamespace.get(coordinatorId);
+		const coordinatorStub = coordinatorNamespace.getByName(`project:${projectId}`);
 		await coordinatorStub.triggerUpdate({
 			type: 'full-reload',
 			path,

@@ -160,8 +160,7 @@ export async function execute(
 	const action: 'create' | 'edit' = fileExists ? 'edit' : 'create';
 
 	// Trigger HMR update (CSS/JS get hot updates, other files trigger full reload)
-	const coordinatorId = coordinatorNamespace.idFromName(`project:${projectId}`);
-	const coordinatorStub = coordinatorNamespace.get(coordinatorId);
+	const coordinatorStub = coordinatorNamespace.getByName(`project:${projectId}`);
 	await coordinatorStub.triggerUpdate(createHmrUpdateForFile(writePath));
 
 	// Compute diff stats and lint errors for the UI

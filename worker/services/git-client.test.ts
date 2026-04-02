@@ -18,7 +18,7 @@ function createRetryableError(message: string): Error & { retryable: boolean } {
 }
 
 /**
- * Creates a mock DurableObjectNamespace that tracks calls to idFromName and
+ * Creates a mock DurableObjectNamespace that tracks calls to getByName and
  * returns a stub with configurable method implementations.
  */
 function createMockNamespace(stubMethods: Record<string, ReturnType<typeof vi.fn>> = {}) {
@@ -29,8 +29,7 @@ function createMockNamespace(stubMethods: Record<string, ReturnType<typeof vi.fn
 	};
 
 	const namespace = {
-		get: vi.fn(() => mockStub),
-		idFromName: vi.fn((name: string) => ({ toString: () => name })),
+		getByName: vi.fn(() => mockStub),
 		idFromString: vi.fn((id: string) => ({ toString: () => id })),
 		newUniqueId: vi.fn(() => ({ toString: () => 'unique-id' })),
 		jurisdiction: vi.fn(),
@@ -52,14 +51,14 @@ describe('repo ID convention', () => {
 		const { namespace } = createMockNamespace();
 		new GitClient(namespace, 'my-project');
 
-		expect(namespace.idFromName).toHaveBeenCalledWith('ide/my-project');
+		expect(namespace.getByName).toHaveBeenCalledWith('ide/my-project');
 	});
 
 	it('handles project IDs with special characters', () => {
 		const { namespace } = createMockNamespace();
 		new GitClient(namespace, 'project-with-dashes_and_underscores');
 
-		expect(namespace.idFromName).toHaveBeenCalledWith('ide/project-with-dashes_and_underscores');
+		expect(namespace.getByName).toHaveBeenCalledWith('ide/project-with-dashes_and_underscores');
 	});
 });
 
@@ -277,7 +276,7 @@ describe('retry wrapping', () => {
 		// Track stub creation count to verify fresh stubs are created on retry
 		let stubCreationCount = 0;
 		const namespace = {
-			get: vi.fn(() => {
+			getByName: vi.fn(() => {
 				stubCreationCount++;
 				return {
 					id: { toString: () => 'test-id' },
@@ -285,7 +284,6 @@ describe('retry wrapping', () => {
 					listRefs: listReferences,
 				};
 			}),
-			idFromName: vi.fn((name: string) => ({ toString: () => name })),
 			idFromString: vi.fn(),
 			newUniqueId: vi.fn(),
 			jurisdiction: vi.fn(),
@@ -304,12 +302,11 @@ describe('retry wrapping', () => {
 		const listReferences = vi.fn().mockRejectedValue(new Error('fatal'));
 
 		const namespace = {
-			get: vi.fn(() => ({
+			getByName: vi.fn(() => ({
 				id: { toString: () => 'test-id' },
 				name: 'test-stub',
 				listRefs: listReferences,
 			})),
-			idFromName: vi.fn((name: string) => ({ toString: () => name })),
 			idFromString: vi.fn(),
 			newUniqueId: vi.fn(),
 			jurisdiction: vi.fn(),

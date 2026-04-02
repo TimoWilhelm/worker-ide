@@ -103,8 +103,7 @@ export const testRoutes = new Hono<AppEnvironment>()
 			// can update their local state. Each client handles merge logic
 			// for single-test runs locally.
 			try {
-				const coordinatorId = coordinatorNamespace.idFromName(`project:${projectId}`);
-				const coordinatorStub = coordinatorNamespace.get(coordinatorId);
+				const coordinatorStub = coordinatorNamespace.getByName(`project:${projectId}`);
 				await coordinatorStub.sendMessage({
 					type: 'test-results-changed',
 					results: testResponse,

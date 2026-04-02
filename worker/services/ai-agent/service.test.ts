@@ -40,8 +40,7 @@ const mockGetOutputLogs = vi.fn<() => Promise<string | undefined>>().mockResolve
 const mockSendCdpCommand = vi.fn().mockResolvedValue({ result: '{}' });
 vi.mock('../../lib/durable-object-namespaces', () => ({
 	coordinatorNamespace: {
-		idFromName: vi.fn(() => 'mock-coordinator-id'),
-		get: vi.fn(() => ({
+		getByName: vi.fn(() => ({
 			getOutputLogs: mockGetOutputLogs,
 			sendCdpCommand: mockSendCdpCommand,
 		})),
