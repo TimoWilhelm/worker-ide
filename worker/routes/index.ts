@@ -8,6 +8,7 @@ import { Hono } from 'hono';
 import { aiRoutes } from './ai-routes';
 import { deployRoutes } from './deploy-routes';
 import { fileRoutes } from './file-routes';
+import { gitCredentialRoutes } from './git-credential-routes';
 import { gitRoutes } from './git-routes';
 import { previewUrlRoutes } from './preview-url-routes';
 import { projectRoutes } from './project-routes';
@@ -29,6 +30,7 @@ export const apiRoutes = new Hono<AppEnvironment>()
 	.route('', aiRoutes)
 	.route('', transformRoutes)
 	.route('', gitRoutes)
+	.route('', gitCredentialRoutes)
 	.route('', testRoutes)
 	.route('', deployRoutes);
 

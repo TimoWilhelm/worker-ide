@@ -1105,6 +1105,12 @@ export default {
 				return handlePreviewRequest(request, parsed.projectId);
 			}
 
+			case 'git': {
+				// Proxy Git Smart HTTP v2 requests to the git auxiliary worker.
+				// JWT verification is handled by the git worker itself.
+				return environment.GIT_WORKER.fetch(request);
+			}
+
 			case 'app': {
 				return app.fetch(request, environment, executionContext);
 			}

@@ -4,6 +4,7 @@
  * Subdomain layout:
  * - App:     <baseDomain>                                  (localhost:3000, example.com)
  * - Preview: <projectId>-<token>.preview.<baseDomain>      (x7f3k2-a1b2c3d4e5f6.preview.localhost:3000)
+ * - Git:     git.<baseDomain>                              (git.example.com)
  *
  * The preview subdomain encodes both the project ID and an HMAC-signed
  * time-bucket token separated by a single hyphen. Since project IDs are
@@ -27,6 +28,7 @@ const SINGLE_SEGMENT_HOSTS = new Set(['localhost']);
 
 export type ParsedHost =
 	| { type: 'preview'; projectId: string; token: string; baseDomain: string }
+	| { type: 'git'; baseDomain: string }
 	| { type: 'app'; baseDomain: string }
 	| { type: 'unknown'; baseDomain: string };
 
@@ -63,6 +65,7 @@ function parsePreviewLabel(label: string): { projectId: string; token: string } 
  * Detection logic after extracting the base domain:
  * - No subdomain                              → app (dashboard + IDE)
  * - "<projectId>-<token>.preview"             → preview
+ * - "git"                                     → git (Smart HTTP v2)
  * - Anything else                             → unknown
  */
 export function parseHost(host: string): ParsedHost {
@@ -78,6 +81,10 @@ export function parseHost(host: string): ParsedHost {
 
 	if (subdomainParts.length === 0) {
 		return { type: 'app', baseDomain };
+	}
+
+	if (subdomainParts.length === 1 && subdomainParts[0] === 'git') {
+		return { type: 'git', baseDomain };
 	}
 
 	if (subdomainParts.length === 2 && subdomainParts[1] === 'preview') {
@@ -102,6 +109,10 @@ export function buildAppOrigin(baseDomain: string, protocol = 'https:'): string 
 
 export function buildPreviewOrigin(projectId: string, token: string, baseDomain: string, protocol = 'https:'): string {
 	return `${protocol}//${projectId}-${token}.preview.${baseDomain}`;
+}
+
+export function buildGitOrigin(baseDomain: string, protocol = 'https:'): string {
+	return `${protocol}//git.${baseDomain}`;
 }
 
 export function isPreviewOrigin(origin: string, baseDomain: string): boolean {

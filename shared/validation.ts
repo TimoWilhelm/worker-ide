@@ -750,6 +750,13 @@ export const gitTagNameQuerySchema = z.object({
 	name: z.string().min(1, 'Tag name is required'),
 });
 
+/**
+ * Schema for requesting git credentials.
+ */
+export const gitCredentialRequestSchema = z.object({});
+
+export type GitCredentialRequestInput = z.infer<typeof gitCredentialRequestSchema>;
+
 // =============================================================================
 // localStorage Schemas
 // =============================================================================

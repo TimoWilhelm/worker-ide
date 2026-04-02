@@ -30,6 +30,6 @@
 		"LOG_LEVEL": "info",
 	},
 	"secrets": {
-		"required": ["JWT_PUBLIC_KEY"],
+		"required": ["JWT_PUBLIC_KEY", "JWT_PRIVATE_KEY"],
 	},
 }

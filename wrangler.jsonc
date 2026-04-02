@@ -102,6 +102,10 @@
 			"binding": "EMAIL",
 			"service": "email-worker",
 		},
+		{
+			"binding": "GIT_WORKER",
+			"service": "git-worker",
+		},
 	],
 	"durable_objects": {
 		"bindings": [

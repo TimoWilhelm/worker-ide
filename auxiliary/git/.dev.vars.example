@@ -1,14 +1,13 @@
 # Git worker secrets (auxiliary/git/wrangler.jsonc)
 # Copy this file to .dev.vars and fill in the values.
 
-# PEM-encoded ECDSA P-256 public key for JWT verification.
-# The main worker signs JWTs with the corresponding private key;
-# this worker only needs the public key to verify them.
+# ECDSA P-256 key pair for external git access JWTs.
+# The public key verifies tokens on incoming Smart HTTP requests.
+# The private key signs tokens via the signJwt RPC method.
 #
-# Generate an ES256 key pair with:
-#   openssl ecparam -name prime256v1 -genkey -noout -out ec-private.pem
-#   openssl ec -in ec-private.pem -pubout -out ec-public.pem
-#
-# Then paste the contents of ec-public.pem here (keep the newlines or
-# join into a single line — the code strips PEM headers and whitespace).
+# Generate with:
+#   openssl ecparam -genkey -name prime256v1 -noout -out ec-private.pem
+#   openssl pkcs8 -topk8 -nocrypt -in ec-private.pem -out private.pem
+#   openssl ec -in ec-private.pem -pubout -out public.pem
 JWT_PUBLIC_KEY=
+JWT_PRIVATE_KEY=

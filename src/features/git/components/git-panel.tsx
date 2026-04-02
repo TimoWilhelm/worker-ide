@@ -8,7 +8,7 @@
  * - Collapsible history section
  */
 
-import { GitBranch, History, RotateCcw } from 'lucide-react';
+import { GitBranch, Globe, History, RotateCcw } from 'lucide-react';
 import { ScrollArea } from 'radix-ui';
 import { Suspense, useCallback, useMemo, useState } from 'react';
 
@@ -21,6 +21,7 @@ import { cn } from '@/lib/utils';
 
 import { GitBranchDialog } from './git-branch-dialog';
 import { GitBranchSelector } from './git-branch-selector';
+import { GitCloneDialog } from './git-clone-dialog';
 import { GitCommitForm } from './git-commit-form';
 import { GitHistoryPanel } from './git-history-panel';
 import { GitStatusList } from './git-status-list';
@@ -63,6 +64,7 @@ function GitPanelContent({ projectId, className }: GitPanelProperties) {
 	const [branchDialogOpen, setBranchDialogOpen] = useState(false);
 	const [discardAllConfirmOpen, setDiscardAllConfirmOpen] = useState(false);
 	const [discardFilePath, setDiscardFilePath] = useState<string | undefined>();
+	const [cloneDialogOpen, setCloneDialogOpen] = useState(false);
 
 	const openFile = useStore((state) => state.openFile);
 	const showGitDiff = useStore((state) => state.showGitDiff);
@@ -175,6 +177,24 @@ function GitPanelContent({ projectId, className }: GitPanelProperties) {
 					Git
 				</span>
 				<div className="flex items-center gap-0.5">
+					<Tooltip content="Git remote">
+						<button
+							type="button"
+							onClick={() => setCloneDialogOpen(true)}
+							className={cn(
+								`
+									flex size-6 cursor-pointer items-center justify-center rounded-sm
+									text-text-secondary
+								`,
+								`
+									transition-colors
+									hover:bg-bg-tertiary hover:text-text-primary
+								`,
+							)}
+						>
+							<Globe className="size-3.5" />
+						</button>
+					</Tooltip>
 					<Tooltip content={showHistory ? 'Show changes' : 'Show history'}>
 						<button
 							type="button"
@@ -270,6 +290,9 @@ function GitPanelContent({ projectId, className }: GitPanelProperties) {
 					<ScrollArea.Thumb className="relative flex-1 rounded-full bg-border" />
 				</ScrollArea.Scrollbar>
 			</ScrollArea.Root>
+
+			{/* Clone dialog */}
+			<GitCloneDialog open={cloneDialogOpen} onOpenChange={setCloneDialogOpen} projectId={projectId} />
 
 			{/* Branch dialog */}
 			<GitBranchDialog

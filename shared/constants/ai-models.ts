@@ -17,7 +17,23 @@ export const AI_MODELS = [
 	{
 		id: '@cf/moonshotai/kimi-k2.5',
 		label: 'Kimi K2.5',
-		description: 'Powerful reasoning model',
+		description: 'Frontier-scale model from Moonshot AI',
+		provider: 'workers-ai',
+		contextWindow: 256_000,
+		maxOutput: 16_384,
+	},
+	{
+		id: '@cf/google/gemma-4-26b-a4b-it',
+		label: 'Gemma 4',
+		description: 'Intelligent reasoning model from Google',
+		provider: 'workers-ai',
+		contextWindow: 256_000,
+		maxOutput: 16_384,
+	},
+	{
+		id: '@cf/nvidia/nemotron-3-120b-a12b',
+		label: 'Nemotron 3 Super',
+		description: 'Hybrid MoE model from NVIDIA',
 		provider: 'workers-ai',
 		contextWindow: 256_000,
 		maxOutput: 16_384,
@@ -32,10 +48,10 @@ export const AI_MODEL_IDS: readonly AIModelId[] = AI_MODELS.map((model) => model
 // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- Required for Zod enum tuple type
 export const AI_MODEL_IDS_TUPLE = AI_MODEL_IDS as readonly [AIModelId, ...AIModelId[]];
 
-export const DEFAULT_AI_MODEL: AIModelId = AI_MODELS[0].id;
+export const DEFAULT_AI_MODEL: AIModelId = '@cf/moonshotai/kimi-k2.5' satisfies AIModelId;
 
 /** Used for internal summarization (e.g., web_fetch), not user-selectable. */
-export const SUMMARIZATION_AI_MODEL: AIModelId = '@cf/moonshotai/kimi-k2.5';
+export const SUMMARIZATION_AI_MODEL: AIModelId = '@cf/moonshotai/kimi-k2.5' satisfies AIModelId;
 
 export function getModelLabel(modelId: string): string {
 	const model = AI_MODELS.find((m) => m.id === modelId);
