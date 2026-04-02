@@ -17,6 +17,8 @@ import type {
 	SnapshotDeletedEvent,
 	StatusEvent,
 	StreamEvent,
+	SubAgentActivity,
+	SubAgentActivityEvent,
 	TextDeltaEvent,
 	ToolCallArgumentsDeltaEvent,
 	ToolCallEndEvent,
@@ -116,6 +118,10 @@ export function runErrorEvent(message: string, code?: string): RunErrorEvent {
 	return { type: 'run-error', message, code };
 }
 
+function subAgentActivityEvent(parentToolCallId: string, activity: SubAgentActivity): SubAgentActivityEvent {
+	return { type: 'sub-agent-activity', parentToolCallId, activity };
+}
+
 // =============================================================================
 // Internal helpers
 // =============================================================================
@@ -182,6 +188,15 @@ export function createSendEventFunction(
 			}
 			case 'plan_created': {
 				queue.push(planCreatedEvent(String(data.path ?? '')));
+				break;
+			}
+			case 'sub_agent_activity': {
+				const parentId = typeof data.parentToolCallId === 'string' ? data.parentToolCallId : (toolCallId ?? '');
+				const activity = data.activity;
+				if (isRecordObject(activity) && typeof activity.kind === 'string') {
+					// eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- validated above
+					queue.push(subAgentActivityEvent(parentId, activity as SubAgentActivity));
+				}
 				break;
 			}
 			default: {

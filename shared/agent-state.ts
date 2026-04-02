@@ -71,6 +71,8 @@ export interface AgentSessionState {
 	needsContinuation: boolean;
 	/** Doom loop detection message, if triggered. */
 	doomLoopMessage: string | undefined;
+	/** Sub-agent activity records, keyed by parent toolCallId. */
+	subAgentActivities: Record<string, SubAgentActivityRecord>;
 }
 
 /**
@@ -124,7 +126,8 @@ export type StreamEvent =
 	| DoomLoopDetectedEvent
 	| PlanCreatedEvent
 	| RunFinishedEvent
-	| RunErrorEvent;
+	| RunErrorEvent
+	| SubAgentActivityEvent;
 
 /** A delta of text content from the assistant. */
 export interface TextDeltaEvent {
@@ -259,6 +262,40 @@ export interface RunErrorEvent {
 	type: 'run-error';
 	message: string;
 	code?: string;
+}
+
+// =============================================================================
+// Sub-Agent Activity Types
+// =============================================================================
+
+/** An activity event from a running sub-agent, linked to the parent tool call. */
+export interface SubAgentActivityEvent {
+	type: 'sub-agent-activity';
+	parentToolCallId: string;
+	activity: SubAgentActivity;
+}
+
+/** A single activity from a sub-agent. */
+export type SubAgentActivity =
+	| { kind: 'tool-start'; toolName: string }
+	| { kind: 'tool-end'; toolName: string; isError?: boolean }
+	| { kind: 'tool-metadata'; toolName: string; title: string; metadata: Record<string, unknown> }
+	| { kind: 'debug-log'; debugLogId: string };
+
+/** Persisted record of a sub-agent's activity for a single parent tool call. */
+export interface SubAgentActivityRecord {
+	/** Completed tool calls made by the sub-agent, in order. */
+	tools: SubAgentToolEntry[];
+	/** Sub-agent debug log ID (for download). */
+	debugLogId: string | undefined;
+}
+
+/** A single completed tool call from a sub-agent. */
+export interface SubAgentToolEntry {
+	toolName: string;
+	title: string;
+	metadata: Record<string, unknown>;
+	isError?: boolean;
 }
 
 /** Structured tool error info from a failed tool call. */

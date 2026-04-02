@@ -2,7 +2,9 @@
  * Types for the AI Agent Service.
  */
 
+import type { ProjectFilesystem } from '../../durable/project-filesystem';
 import type { StreamEvent } from '@shared/agent-state';
+import type { AIModelId } from '@shared/constants';
 
 // =============================================================================
 // Types
@@ -94,6 +96,12 @@ export interface ToolExecutorContext {
 	abortSignal?: AbortSignal;
 	callMcpTool: (serverId: string, toolName: string, arguments_: Record<string, unknown>) => Promise<string>;
 	sendCdpCommand?: (id: string, method: string, parameters?: Record<string, unknown>) => Promise<{ result?: string; error?: string }>;
+	/** True when running inside a sub-agent — prevents recursive sub-agent spawning. */
+	isSubAgent?: boolean;
+	/** Filesystem Durable Object stub — needed to construct sub-agent services. */
+	fsStub: DurableObjectStub<ProjectFilesystem>;
+	/** Current AI model ID — sub-agents inherit the parent's model. */
+	model: AIModelId;
 }
 
 /**

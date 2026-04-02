@@ -26,6 +26,12 @@ import type { ModelMessage } from 'ai';
 /** Maximum characters of serialized old messages sent to the summarization model. */
 const MAX_SERIALIZATION_LENGTH = 100_000;
 
+/** Tool-call argument strings longer than this are truncated during micro-compaction. */
+const MICROCOMPACT_ARG_LIMIT = 200;
+
+/** Tool-result output strings longer than this are truncated during micro-compaction. */
+const MICROCOMPACT_RESULT_LIMIT = 300;
+
 /** Maximum output tokens for the compaction summary. */
 const MAX_SUMMARY_TOKENS = 4096;
 
@@ -66,8 +72,11 @@ export async function compactMessages(
 	const oldTokens = estimateMessagesTokens(oldMessages);
 	if (oldTokens < 5000) return undefined; // Not worth compacting small histories
 
-	// Serialize old messages into a human-readable format for the summarizer
-	const serialized = serializeMessages(oldMessages);
+	// Micro-compact old messages before serialization: strip large tool-call
+	// arguments and tool-result output so the serialized input is shorter and
+	// the LLM summary focuses on what matters.
+	const microcompacted = microcompactMessages(oldMessages);
+	const serialized = serializeMessages(microcompacted);
 	const truncatedSerialized =
 		serialized.length > MAX_SERIALIZATION_LENGTH
 			? serialized.slice(0, MAX_SERIALIZATION_LENGTH) + '\n... (older content truncated)'
@@ -105,6 +114,53 @@ export async function compactMessages(
 // =============================================================================
 // Helpers
 // =============================================================================
+
+/**
+ * Strip large tool-call arguments and tool-result output from messages.
+ *
+ * This is a cheap pre-processing step before LLM summarization that reduces
+ * the serialized size without losing structural information (tool names,
+ * file paths, error codes are preserved).
+ */
+function microcompactMessages(messages: ModelMessage[]): ModelMessage[] {
+	return messages.map((message) => {
+		if (message.role === 'assistant' && Array.isArray(message.content)) {
+			const content = message.content.map((part) => {
+				if (part.type === 'tool-call') {
+					const inputString = part.input && typeof part.input === 'object' ? JSON.stringify(part.input) : String(part.input ?? '');
+					if (inputString.length > MICROCOMPACT_ARG_LIMIT) {
+						// Wrap truncated string in an object to preserve the expected input shape
+						return {
+							...part,
+							input: { _truncated: inputString.slice(0, MICROCOMPACT_ARG_LIMIT) + '...(truncated)' },
+						};
+					}
+				}
+				return part;
+			});
+			return { ...message, content };
+		}
+
+		if (message.role === 'tool' && Array.isArray(message.content)) {
+			const content = message.content.map((part) => {
+				if (part.type === 'tool-result') {
+					const rawOutput: unknown = part.output;
+					const outputString = typeof rawOutput === 'string' ? rawOutput : JSON.stringify(rawOutput ?? '');
+					if (outputString.length > MICROCOMPACT_RESULT_LIMIT) {
+						return {
+							...part,
+							output: { type: 'text' as const, value: outputString.slice(0, MICROCOMPACT_RESULT_LIMIT) + '...(truncated)' },
+						};
+					}
+				}
+				return part;
+			});
+			return { ...message, content };
+		}
+
+		return message;
+	});
+}
 
 /**
  * Find the index that separates "old" messages from "recent" messages.

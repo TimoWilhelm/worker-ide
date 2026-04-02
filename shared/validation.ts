@@ -327,6 +327,14 @@ export const imageGenerateInputSchema = z.object({
 });
 
 /**
+ * Schema for AI tool: sub_agent (delegate a focused task to a sub-agent)
+ */
+export const subAgentInputSchema = z.object({
+	prompt: z.string().min(1, 'Prompt is required'),
+	context: z.string().optional(),
+});
+
+/**
  * Union of all tool input schemas
  */
 export const toolInputSchemas = {
@@ -357,6 +365,7 @@ export const toolInputSchemas = {
 	preview_fetch: previewFetchInputSchema,
 	test_run: testRunInputSchema,
 	image_generate: imageGenerateInputSchema,
+	sub_agent: subAgentInputSchema,
 } as const;
 
 export type ToolName = keyof typeof toolInputSchemas;

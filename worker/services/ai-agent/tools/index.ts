@@ -30,6 +30,7 @@ import * as lintCheckTool from './lint-check';
 import * as lintFixTool from './lint-fix';
 import * as planUpdateTool from './plan-update';
 import * as previewFetchTool from './preview-fetch';
+import * as subAgentTool from './sub-agent';
 import * as testRunTool from './test-run';
 import * as todosGetTool from './todos-get';
 import * as todosUpdateTool from './todos-update';
@@ -80,6 +81,7 @@ export const TOOL_EXECUTORS: ReadonlyMap<string, ToolExecuteFunction> = new Map(
 	['preview_fetch', previewFetchTool.execute],
 	['test_run', testRunTool.execute],
 	['image_generate', imageGenerateTool.execute],
+	['sub_agent', subAgentTool.execute],
 ]);
 
 // =============================================================================
@@ -113,6 +115,7 @@ export const AGENT_TOOLS: readonly ToolDefinition[] = [
 	previewFetchTool.definition,
 	testRunTool.definition,
 	imageGenerateTool.definition,
+	subAgentTool.definition,
 ];
 
 // =============================================================================
@@ -191,6 +194,13 @@ export const READ_ONLY_TOOL_NAMES = new Set([
 ]);
 
 /**
+ * Tools excluded from sub-agent runs.
+ * - sub_agent: prevents recursive spawning
+ * - user_question: sub-agents cannot interact with the user
+ */
+export const SUB_AGENT_EXCLUDED_TOOLS = new Set(['sub_agent', 'user_question']);
+
+/**
  * Mutation tool names — tools that modify files or project state.
  * Used by the doom loop detector and logging to track mutation activity.
  */
@@ -235,9 +245,11 @@ export function createServerTools(
 	toolFailures?: ToolFailureQueue,
 	_toolCallIdReference?: ToolCallIdReference,
 	_pendingToolCallIds?: PendingToolCallIds,
+	excludedToolNames?: ReadonlySet<string>,
 ): Record<string, unknown> {
-	// Select which tool definitions to use based on mode
-	const activeToolDefinitions = mode === 'ask' ? ASK_MODE_TOOLS : mode === 'plan' ? PLAN_MODE_TOOLS : AGENT_TOOLS;
+	// Select which tool definitions to use based on mode, then apply exclusions
+	const baseDefinitions = mode === 'ask' ? ASK_MODE_TOOLS : mode === 'plan' ? PLAN_MODE_TOOLS : AGENT_TOOLS;
+	const activeToolDefinitions = excludedToolNames ? baseDefinitions.filter((t) => !excludedToolNames.has(t.name)) : baseDefinitions;
 
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Tool generic variance; streamText accepts ToolSet (Record<string, Tool<any, any>>)
 	const tools: Record<string, any> = {};

@@ -59,7 +59,7 @@ import { buildSystemPrompts } from './system-prompt-builder';
 import { deriveFallbackTitle } from './title-generator';
 import { TokenTracker } from './token-tracker';
 import { readTodos } from './tool-executor';
-import { createServerTools, MUTATION_TOOL_NAMES, createSendEvent } from './tools';
+import { createServerTools, MUTATION_TOOL_NAMES, SUB_AGENT_EXCLUDED_TOOLS, createSendEvent } from './tools';
 import { parseApiError } from './utilities';
 import { createAdapter as createWorkersAiAdapter } from './workers-ai';
 import { coordinatorNamespace } from '../../lib/durable-object-namespaces';
@@ -114,6 +114,9 @@ const MAX_ITERATIONS = 200;
 /** Maximum retry attempts for a single LLM call. */
 const MAX_RETRY_ATTEMPTS = 5;
 
+/** Maximum recovery attempts when the model hits output token limits mid-response. */
+const MAX_OUTPUT_RECOVERY_ATTEMPTS = 3;
+
 /** Soft iteration limit — nudge the agent to wrap up. */
 const SOFT_ITERATION_LIMIT = 50;
 
@@ -122,6 +125,12 @@ const PROACTIVE_PRUNE_THRESHOLD = 0.7;
 
 /** Context utilization threshold for LLM-based compaction. */
 const COMPACTION_THRESHOLD = 0.85;
+
+/** Minimum iterations between compaction attempts. */
+const COMPACTION_COOLDOWN_ITERATIONS = 10;
+
+/** Stop attempting compaction after this many consecutive failures. */
+const COMPACTION_MAX_FAILURES = 3;
 
 // =============================================================================
 // AI Agent Service Class
@@ -158,6 +167,7 @@ export class AIAgentService {
 			pendingChanges?: Record<string, PendingFileChange>,
 		) => Promise<void>,
 		private getSteeringMessages?: () => Array<{ id: string; content: string }>,
+		private isSubAgent = false,
 	) {}
 
 	/**
@@ -337,6 +347,9 @@ export class AIAgentService {
 				abortSignal: signal,
 				callMcpTool: (serverId, toolName, arguments_) => this.mcpClientManager.callTool(serverId, toolName, arguments_),
 				sendCdpCommand: (id, method, parameters) => coordinatorStub.sendCdpCommand(id, method, parameters),
+				fsStub: this.fsStub,
+				model: this.model,
+				isSubAgent: this.isSubAgent,
 			};
 
 			// Mutable copy of messages for the agent loop
@@ -349,7 +362,9 @@ export class AIAgentService {
 			let lastAssistantText = '';
 			let softLimitNudged = false;
 			let planModeTodoNudged = false;
-			let compactionAttempted = false;
+			let lastCompactionIteration = 0;
+			let compactionFailures = 0;
+			let previousIterationHadMutationFailure = false;
 
 			while (continueLoop && iteration < MAX_ITERATIONS) {
 				if (signal.aborted) {
@@ -397,10 +412,14 @@ export class AIAgentService {
 						totalPruned += stage2Tokens;
 					}
 
-					// Stage 3: If still high (>85%), try LLM-based compaction (once per run)
+					// Stage 3: If still high (>85%), try LLM-based compaction
+					// Respects a cooldown (don't re-compact within N iterations) and a
+					// circuit breaker (stop after M consecutive failures).
 					const postStage2Utilization = getContextUtilization(workingMessages, modelLimits);
-					if (postStage2Utilization >= COMPACTION_THRESHOLD && !compactionAttempted) {
-						compactionAttempted = true;
+					const compactionCooledDown = iteration - lastCompactionIteration >= COMPACTION_COOLDOWN_ITERATIONS;
+					const compactionNotBroken = compactionFailures < COMPACTION_MAX_FAILURES;
+					if (postStage2Utilization >= COMPACTION_THRESHOLD && compactionCooledDown && compactionNotBroken) {
+						lastCompactionIteration = iteration;
 						yield statusEvent('Compacting conversation history...');
 						try {
 							const compactionResult = await compactMessages(workingMessages, 3, signal);
@@ -408,9 +427,12 @@ export class AIAgentService {
 								workingMessages.length = 0;
 								workingMessages.push(...compactionResult.messages);
 								totalPruned += compactionResult.compactedTokens;
+								compactionFailures = 0;
+							} else {
+								compactionFailures++;
 							}
 						} catch {
-							// Non-fatal — fall through to more aggressive pruning
+							compactionFailures++;
 						}
 					}
 
@@ -440,10 +462,19 @@ export class AIAgentService {
 					break;
 				}
 
-				// Create tools for this iteration
+				// Create tools for this iteration.
+				// After a mutation failure, temporarily exclude mutation tools to force
+				// the agent to re-read files before retrying edits.
 				const changeCountBefore = queryChanges.length;
 				const toolFailures: ToolFailureRecord[] = [];
 				pendingToolCallIds.length = 0;
+				const baseExcludedTools = this.isSubAgent ? SUB_AGENT_EXCLUDED_TOOLS : undefined;
+				const iterationExcludedTools = previousIterationHadMutationFailure
+					? baseExcludedTools
+						? new Set([...baseExcludedTools, ...MUTATION_TOOL_NAMES])
+						: MUTATION_TOOL_NAMES
+					: baseExcludedTools;
+				previousIterationHadMutationFailure = false;
 				const tools = createServerTools(
 					sendEvent,
 					toolContext,
@@ -453,6 +484,7 @@ export class AIAgentService {
 					toolFailures,
 					toolCallIdReference,
 					pendingToolCallIds,
+					iterationExcludedTools,
 				);
 
 				// ─── Call streamText() ───────────────────────────────────────
@@ -461,11 +493,15 @@ export class AIAgentService {
 				let hadMutationFailure = false;
 				lastAssistantText = '';
 				let retryAttempt = 0;
+				let outputRecoveryAttempts = 0;
 				const llmTimer = logger.startTimer();
+
+				let latestFinishReason: string | undefined;
 
 				while (true) {
 					let streamError: string | undefined;
 					let caughtStreamError: unknown;
+					latestFinishReason = undefined;
 
 					try {
 						// eslint-disable-next-line @typescript-eslint/consistent-type-assertions, @typescript-eslint/no-explicit-any -- ToolSet generic variance; dynamically-built tools can't satisfy the strict generic
@@ -622,6 +658,7 @@ export class AIAgentService {
 									break;
 								}
 								case 'finish': {
+									latestFinishReason = part.finishReason;
 									if (part.usage) {
 										tokenTracker.recordTurn(this.model, {
 											inputTokens: part.usage.promptTokens,
@@ -705,6 +742,22 @@ export class AIAgentService {
 						break;
 					}
 
+					// Output token recovery — if the model was truncated mid-response,
+					// ask it to continue (up to MAX_OUTPUT_RECOVERY_ATTEMPTS times).
+					if (latestFinishReason === 'length' && outputRecoveryAttempts < MAX_OUTPUT_RECOVERY_ATTEMPTS) {
+						outputRecoveryAttempts++;
+						logger.info('agent_loop', 'output_recovery', {
+							attempt: outputRecoveryAttempts,
+							maxAttempts: MAX_OUTPUT_RECOVERY_ATTEMPTS,
+						});
+						workingMessages.push({
+							role: 'user',
+							content: 'SYSTEM: Your previous response was truncated due to output token limits. Continue exactly where you left off.',
+						});
+						yield statusEvent('Continuing truncated response...');
+						continue;
+					}
+
 					// Success — exit retry loop
 					break;
 				}
@@ -721,6 +774,7 @@ export class AIAgentService {
 				// system messages for the next iteration if needed.
 				if (hadToolCalls) {
 					if (hadMutationFailure) {
+						previousIterationHadMutationFailure = true;
 						workingMessages.push({
 							role: 'user',
 							content: `${MUTATION_FAILURE_TAG} SYSTEM: One or more mutation tools FAILED this turn. Before retrying, you MUST file_read the target file(s) to see their ACTUAL current content.`,

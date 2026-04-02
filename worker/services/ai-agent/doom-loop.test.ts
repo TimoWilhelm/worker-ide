@@ -407,3 +407,87 @@ describe('currentRunStartIndex', () => {
 		expect(detectDoomLoop(allMessages, priorTurnMessages.length).isDoomLoop).toBe(false);
 	});
 });
+
+// =============================================================================
+// repeated_error_pattern (same tool, same error code, different arguments)
+// =============================================================================
+
+/** Create a tool result with an error-code-prefixed output. */
+function errorToolResult(toolCallId: string, toolName: string, errorCode: string, detail: string): ModelMessage {
+	return {
+		role: 'tool',
+		content: [{ type: 'tool-result', toolCallId, toolName, output: { type: 'text', value: `[${errorCode}] ${detail}` } }],
+	};
+}
+
+/** Build an iteration where the tool result has an error code. */
+function buildErrorIteration(
+	call: { name: string; arguments: Record<string, unknown> },
+	errorCode: string,
+	detail: string,
+): ModelMessage[] {
+	const parts = makeToolCallParts([call]);
+	const assistant: ModelMessage = { role: 'assistant', content: parts };
+	return [assistant, errorToolResult(parts[0].toolCallId, call.name, errorCode, detail)];
+}
+
+describe('repeated_error_pattern detection', () => {
+	it('detects 3 consecutive same-tool same-error-code results with different arguments', () => {
+		const messages: ModelMessage[] = [
+			...buildErrorIteration({ name: 'file_edit', arguments: { path: '/a.txt' } }, 'INVALID_PATH', 'bad path /a.txt'),
+			...buildErrorIteration({ name: 'file_edit', arguments: { path: '/b.txt' } }, 'INVALID_PATH', 'bad path /b.txt'),
+			...buildErrorIteration({ name: 'file_edit', arguments: { path: '/c.txt' } }, 'INVALID_PATH', 'bad path /c.txt'),
+		];
+		const result = detectDoomLoop(messages);
+		expect(result.isDoomLoop).toBe(true);
+		expect(result.reason).toBe('repeated_error_pattern');
+		expect(result.toolName).toBe('file_edit');
+	});
+
+	it('does not trigger when error codes differ', () => {
+		const messages: ModelMessage[] = [
+			...buildErrorIteration({ name: 'file_edit', arguments: { path: '/a.txt' } }, 'INVALID_PATH', 'bad path'),
+			...buildErrorIteration({ name: 'file_edit', arguments: { path: '/b.txt' } }, 'NO_MATCH', 'not found'),
+			...buildErrorIteration({ name: 'file_edit', arguments: { path: '/c.txt' } }, 'INVALID_PATH', 'bad path'),
+		];
+		expect(detectDoomLoop(messages).isDoomLoop).toBe(false);
+	});
+
+	it('does not trigger when tool names differ', () => {
+		const messages: ModelMessage[] = [
+			...buildErrorIteration({ name: 'file_edit', arguments: { path: '/a.txt' } }, 'INVALID_PATH', 'bad'),
+			...buildErrorIteration({ name: 'file_write', arguments: { path: '/b.txt' } }, 'INVALID_PATH', 'bad'),
+			...buildErrorIteration({ name: 'file_edit', arguments: { path: '/c.txt' } }, 'INVALID_PATH', 'bad'),
+		];
+		expect(detectDoomLoop(messages).isDoomLoop).toBe(false);
+	});
+
+	it('does not trigger with fewer than 3 errors', () => {
+		const messages: ModelMessage[] = [
+			...buildErrorIteration({ name: 'file_edit', arguments: { path: '/a.txt' } }, 'INVALID_PATH', 'bad'),
+			...buildErrorIteration({ name: 'file_edit', arguments: { path: '/b.txt' } }, 'INVALID_PATH', 'bad'),
+		];
+		expect(detectDoomLoop(messages).isDoomLoop).toBe(false);
+	});
+
+	it('does not trigger when tool results have no error code prefix', () => {
+		const messages: ModelMessage[] = [
+			...buildIteration([{ name: 'file_edit', arguments: { path: '/a.txt' } }]),
+			...buildIteration([{ name: 'file_edit', arguments: { path: '/b.txt' } }]),
+			...buildIteration([{ name: 'file_edit', arguments: { path: '/c.txt' } }]),
+		];
+		expect(detectDoomLoop(messages).isDoomLoop).toBe(false);
+	});
+
+	it('identical_calls takes priority over repeated_error_pattern', () => {
+		// Same tool, same args, same error — should hit identical_calls first
+		const messages: ModelMessage[] = [
+			...buildErrorIteration({ name: 'file_edit', arguments: { path: '/a.txt' } }, 'INVALID_PATH', 'bad'),
+			...buildErrorIteration({ name: 'file_edit', arguments: { path: '/a.txt' } }, 'INVALID_PATH', 'bad'),
+			...buildErrorIteration({ name: 'file_edit', arguments: { path: '/a.txt' } }, 'INVALID_PATH', 'bad'),
+		];
+		const result = detectDoomLoop(messages);
+		expect(result.isDoomLoop).toBe(true);
+		expect(result.reason).toBe('identical_calls');
+	});
+});

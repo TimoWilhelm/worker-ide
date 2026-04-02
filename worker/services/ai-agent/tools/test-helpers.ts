@@ -247,6 +247,8 @@ export function createMockContext(overrides?: Partial<ToolExecutorContext>): Too
 		mode: 'code',
 		sessionId: 'test-session',
 		callMcpTool: async () => 'mock-mcp-result',
+		fsStub: {} as ToolExecutorContext['fsStub'],
+		model: '@cf/moonshotai/kimi-k2.5',
 		...overrides,
 	};
 }

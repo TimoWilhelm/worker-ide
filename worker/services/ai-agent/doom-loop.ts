@@ -2,6 +2,7 @@ import type { ModelMessage } from 'ai';
 
 const DOOM_LOOP_THRESHOLD = 3;
 const MUTATION_FAILURE_ITERATION_THRESHOLD = 2;
+const REPEATED_ERROR_THRESHOLD = 3;
 
 /**
  * Machine-readable tag injected into corrective user messages by the agent loop
@@ -12,7 +13,7 @@ export const MUTATION_FAILURE_TAG = '[MUTATION_FAILURE]';
 
 export interface DoomLoopResult {
 	isDoomLoop: boolean;
-	reason?: 'identical_calls' | 'mutation_failure_loop';
+	reason?: 'identical_calls' | 'mutation_failure_loop' | 'repeated_error_pattern';
 	toolName?: string;
 	message?: string;
 }
@@ -150,6 +151,85 @@ export function detectDoomLoop(messages: ModelMessage[], currentRunStartIndex = 
 			}
 		}
 		// Skip 'tool' messages — they sit between assistant and user messages
+	}
+
+	// 3. Check repeated error pattern — same tool producing the same error code
+	// across consecutive calls, even with different arguments.
+	const errorResult = detectRepeatedErrorPattern(messages, startIndex);
+	if (errorResult.isDoomLoop) {
+		return errorResult;
+	}
+
+	return { isDoomLoop: false };
+}
+
+/**
+ * Known error code prefixes emitted by tool executors.
+ * These are bracketed tags at the start of error messages, e.g. `[INVALID_PATH] ...`.
+ */
+const ERROR_CODE_PATTERN = /^\[([A-Z_]+)\]/;
+
+/**
+ * Extract a structured error code from a tool result string.
+ * Returns the bracketed code (e.g. "INVALID_PATH") or undefined.
+ */
+function extractErrorCode(resultText: string): string | undefined {
+	const match = ERROR_CODE_PATTERN.exec(resultText);
+	return match ? match[1] : undefined;
+}
+
+interface ToolResultRecord {
+	toolName: string;
+	errorCode: string;
+}
+
+/**
+ * Detect repeated error patterns: if the last N tool results for the same
+ * tool name all have the same error code prefix, the agent is stuck trying
+ * different arguments but hitting the same error class.
+ */
+function detectRepeatedErrorPattern(messages: ModelMessage[], currentRunStartIndex = 0): DoomLoopResult {
+	// Collect recent tool results with error codes (scan backwards, only within current run)
+	const recentErrors: ToolResultRecord[] = [];
+	const scanStart = Math.max(0, Math.min(currentRunStartIndex, messages.length));
+
+	for (let index = messages.length - 1; index >= scanStart && recentErrors.length < REPEATED_ERROR_THRESHOLD * 2; index--) {
+		const message = messages[index];
+		if (message.role !== 'tool') continue;
+		if (!Array.isArray(message.content)) continue;
+
+		for (const part of message.content) {
+			if (part.type !== 'tool-result') continue;
+			const rawOutput: unknown = part.output;
+			const text =
+				typeof rawOutput === 'string'
+					? rawOutput
+					: typeof rawOutput === 'object' && rawOutput !== undefined && rawOutput !== null && 'value' in rawOutput
+						? String((rawOutput as Record<string, unknown>).value) // eslint-disable-line @typescript-eslint/consistent-type-assertions -- narrowed above
+						: '';
+			const errorCode = extractErrorCode(text);
+			if (errorCode) {
+				recentErrors.push({ toolName: part.toolName, errorCode });
+			}
+		}
+	}
+
+	if (recentErrors.length < REPEATED_ERROR_THRESHOLD) {
+		return { isDoomLoop: false };
+	}
+
+	// Check if the most recent N errors are for the same tool + same error code
+	const first = recentErrors[0];
+	const consecutive = recentErrors.slice(0, REPEATED_ERROR_THRESHOLD);
+	const allSame = consecutive.every((record) => record.toolName === first.toolName && record.errorCode === first.errorCode);
+
+	if (allSame) {
+		return {
+			isDoomLoop: true,
+			reason: 'repeated_error_pattern',
+			toolName: first.toolName,
+			message: `Tool ${first.toolName} has failed ${REPEATED_ERROR_THRESHOLD} consecutive times with error [${first.errorCode}]. The agent was stopped to prevent wasting resources.`,
+		};
 	}
 
 	return { isDoomLoop: false };

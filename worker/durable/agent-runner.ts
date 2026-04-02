@@ -397,6 +397,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 			pendingQuestion: undefined,
 			needsContinuation: false,
 			doomLoopMessage: undefined,
+			subAgentActivities: {},
 		});
 
 		return { sessionId: resolvedSessionId };
@@ -522,6 +523,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 				pendingQuestion: undefined,
 				needsContinuation: false,
 				doomLoopMessage: undefined,
+				subAgentActivities: {},
 			},
 		});
 
@@ -1064,6 +1066,53 @@ export class AgentRunner extends Agent<Env, AgentState> {
 				break;
 			}
 
+			// ── Sub-agent activity events ────────────────────────────────
+			case 'sub-agent-activity': {
+				const current = this.state.currentSession;
+				if (!current) break;
+				const activities = { ...current.subAgentActivities };
+				const parentId = event.parentToolCallId;
+				const existing = activities[parentId] ?? { tools: [], debugLogId: undefined };
+
+				if (event.activity.kind === 'debug-log') {
+					// Persist the sub-agent's debug log ID for UI download
+					activities[parentId] = {
+						...existing,
+						debugLogId: event.activity.debugLogId,
+					};
+				} else if (event.activity.kind === 'tool-metadata') {
+					// Append a completed tool entry with metadata
+					activities[parentId] = {
+						...existing,
+						tools: [
+							...existing.tools,
+							{
+								toolName: event.activity.toolName,
+								title: event.activity.title,
+								metadata: event.activity.metadata,
+							},
+						],
+					};
+				} else if (event.activity.kind === 'tool-end' && event.activity.isError) {
+					// Append an error tool entry (no metadata available)
+					activities[parentId] = {
+						...existing,
+						tools: [
+							...existing.tools,
+							{
+								toolName: event.activity.toolName,
+								title: 'Error',
+								metadata: {},
+								isError: true,
+							},
+						],
+					};
+				}
+
+				this.updateSessionState(sessionId, { subAgentActivities: activities });
+				break;
+			}
+
 			// ── Events that don't update state ──────────────────────────
 			default: {
 				// run-error, run-finished, usage, plan-created, snapshot-deleted
@@ -1339,6 +1388,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 				pendingQuestion: undefined,
 				needsContinuation: false,
 				doomLoopMessage: undefined,
+				subAgentActivities: {},
 				...patch,
 			};
 			this.setState({ ...this.state, currentSession: newState });

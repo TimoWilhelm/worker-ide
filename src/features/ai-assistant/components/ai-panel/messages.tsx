@@ -14,6 +14,7 @@ import {
 	ChevronRight,
 	Circle,
 	Clock,
+	Download,
 	Eye,
 	FastForward,
 	FileText,
@@ -39,6 +40,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Pill, type PillProperties } from '@/components/ui/pill';
 import { Tooltip } from '@/components/ui/tooltip';
 import { computeDiffHunks } from '@/features/editor/lib/diff-decorations';
+import { downloadDebugLog } from '@/lib/api-client';
 import { fadeUpVariants, springDefault } from '@/lib/motion-config';
 import { useStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
@@ -49,6 +51,7 @@ import { parseTextToSegments } from '../../lib/input-segments';
 import { FileReference } from '../file-reference';
 import { MarkdownContent } from '../markdown-content';
 
+import type { SubAgentActivityRecord } from '@shared/agent-state';
 import type {
 	AgentMode,
 	ChatMessage,
@@ -134,6 +137,9 @@ function ToolIcon({ name, className }: { name: ToolName; className?: string }) {
 		case 'image_generate': {
 			return <Image className={cn('size-3', className)} />;
 		}
+		case 'sub_agent': {
+			return <Bot className={cn('size-3', className)} />;
+		}
 		default: {
 			return <FileText className={cn('size-3', className)} />;
 		}
@@ -199,6 +205,8 @@ export function MessageBubble({
 	toolErrors,
 	toolMetadata,
 	fileDiffContent,
+	subAgentActivities,
+	projectId,
 	showHeader = true,
 }: {
 	message: ChatMessage;
@@ -214,6 +222,8 @@ export function MessageBubble({
 	toolErrors?: Map<string, ToolErrorInfo>;
 	toolMetadata?: Map<string, ToolMetadataInfo>;
 	fileDiffContent?: Map<string, { beforeContent: string; afterContent: string }>;
+	subAgentActivities?: Record<string, SubAgentActivityRecord>;
+	projectId?: string;
 	/**
 	 * Whether to show the "AI" header above this message.
 	 * Set to false for consecutive assistant messages to group them under one header.
@@ -240,6 +250,8 @@ export function MessageBubble({
 			toolErrors={toolErrors}
 			toolMetadata={toolMetadata}
 			fileDiffContent={fileDiffContent}
+			subAgentActivities={subAgentActivities}
+			projectId={projectId}
 			showHeader={showHeader}
 		/>
 	);
@@ -402,6 +414,8 @@ export function AssistantMessage({
 	toolErrors,
 	toolMetadata,
 	fileDiffContent,
+	subAgentActivities,
+	projectId,
 	showHeader = true,
 }: {
 	message: ChatMessage;
@@ -409,6 +423,8 @@ export function AssistantMessage({
 	toolErrors?: Map<string, ToolErrorInfo>;
 	toolMetadata?: Map<string, ToolMetadataInfo>;
 	fileDiffContent?: Map<string, { beforeContent: string; afterContent: string }>;
+	subAgentActivities?: Record<string, SubAgentActivityRecord>;
+	projectId?: string;
 	/** Whether to render the "AI" label above this message block. Default true. */
 	showHeader?: boolean;
 }) {
@@ -534,6 +550,8 @@ export function AssistantMessage({
 							toolErrors={toolErrors}
 							toolMetadata={toolMetadata}
 							fileDiffContent={fileDiffContent}
+							subAgentActivities={subAgentActivities}
+							projectId={projectId}
 							isStreaming={streaming}
 							isExpanded={expandedSections.has(segment.key)}
 							onToggleExpand={() => toggleSection(segment.key)}
@@ -877,6 +895,13 @@ function summarizeFromMetadata(toolName: ToolName | undefined, info: ToolMetadat
 			return 'Generated';
 		}
 
+		case 'sub_agent': {
+			if (typeof metadata.iterations === 'number') {
+				return `${metadata.iterations} turn${metadata.iterations === 1 ? '' : 's'}`;
+			}
+			return 'Completed';
+		}
+
 		case 'user_question': {
 			return undefined;
 		}
@@ -1152,6 +1177,10 @@ function formatToolResultDetail(toolName: ToolName, rawResult: string): string {
 			return rawResult;
 		}
 
+		case 'sub_agent': {
+			return rawResult;
+		}
+
 		default: {
 			// Try JSON pretty-print, fall back to raw
 			try {
@@ -1393,6 +1422,8 @@ function InlineToolCall({
 	toolErrors,
 	toolMetadata,
 	fileDiffContent,
+	subAgentActivities,
+	projectId,
 	isStreaming,
 	isExpanded,
 	onToggleExpand,
@@ -1402,6 +1433,8 @@ function InlineToolCall({
 	toolErrors?: Map<string, ToolErrorInfo>;
 	toolMetadata?: Map<string, ToolMetadataInfo>;
 	fileDiffContent?: Map<string, { beforeContent: string; afterContent: string }>;
+	subAgentActivities?: Record<string, SubAgentActivityRecord>;
+	projectId?: string;
 	isStreaming?: boolean;
 	isExpanded: boolean;
 	onToggleExpand: () => void;
@@ -1456,6 +1489,9 @@ function InlineToolCall({
 	}
 	if (typeof input.query === 'string') {
 		extraLabel = input.query;
+	}
+	if (typeof input.prompt === 'string') {
+		extraLabel = input.prompt;
 	}
 
 	// Streaming content preview for file-writing tools
@@ -1655,7 +1691,123 @@ function InlineToolCall({
 					</pre>
 				))}
 			{isExpanded && diagnostics && diagnostics.length > 0 && <InlineDiagnosticsList diagnostics={diagnostics} />}
+			{isExpanded && knownToolName === 'sub_agent' && (
+				<InlineSubAgentActivity
+					toolCallId={toolCall.toolCallId}
+					subAgentActivities={subAgentActivities}
+					metadata={metadata}
+					rawResultContent={rawResultContent}
+					projectId={projectId}
+				/>
+			)}
 			{todos && todos.length > 0 && <InlineTodoList todos={todos} />}
+		</div>
+	);
+}
+
+// =============================================================================
+// Inline Sub-Agent Activity
+// =============================================================================
+
+function InlineSubAgentActivity({
+	toolCallId,
+	subAgentActivities,
+	metadata,
+	rawResultContent,
+	projectId,
+}: {
+	toolCallId: string;
+	subAgentActivities?: Record<string, SubAgentActivityRecord>;
+	metadata: Record<string, unknown> | undefined;
+	rawResultContent: string | undefined;
+	projectId: string | undefined;
+}) {
+	const sessionId = useStore((state) => state.sessionId);
+	const activityRecord = subAgentActivities?.[toolCallId];
+	const tools = activityRecord?.tools ?? [];
+	const subAgentDebugLogId = activityRecord?.debugLogId ?? (typeof metadata?.debugLogId === 'string' ? metadata.debugLogId : undefined);
+
+	const handleDownloadLog = useCallback(() => {
+		if (!subAgentDebugLogId || !projectId) return;
+		void downloadDebugLog(projectId, subAgentDebugLogId, sessionId).catch(() => {});
+	}, [subAgentDebugLogId, projectId, sessionId]);
+
+	return (
+		<div className="flex flex-col gap-2 rounded-md bg-bg-primary p-2">
+			{tools.length > 0 && (
+				<div className="flex flex-col gap-0.5">
+					<div
+						className="
+							mb-1 flex items-center gap-1.5 text-2xs font-semibold tracking-wider
+							text-text-secondary uppercase
+						"
+					>
+						<Bot className="size-3" />
+						Sub-agent activity ({tools.length} tool call{tools.length === 1 ? '' : 's'})
+					</div>
+					{tools.map((entry, index) => {
+						const entryToolName: ToolName | undefined = isToolName(entry.toolName) ? entry.toolName : undefined;
+						const entryPath =
+							typeof entry.metadata?.path === 'string'
+								? entry.metadata.path
+								: typeof entry.metadata?.file_path === 'string'
+									? entry.metadata.file_path
+									: undefined;
+						return (
+							<div
+								key={index}
+								className={cn(
+									'flex items-center gap-2 rounded-sm px-2 py-0.5 text-2xs',
+									entry.isError ? 'text-error' : 'text-text-secondary',
+								)}
+							>
+								<span className="shrink-0">{entryToolName ? <ToolIcon name={entryToolName} /> : <FileText className="size-3" />}</span>
+								<span className="font-medium capitalize">{entry.toolName.replaceAll('_', ' ')}</span>
+								{entryPath && <span className="max-w-32 truncate font-mono opacity-70">{entryPath}</span>}
+								{entry.title && entry.title !== 'Error' && <span className="ml-auto shrink-0 text-text-secondary/70">{entry.title}</span>}
+								{entry.isError && <span className="ml-auto shrink-0 text-error">Failed</span>}
+							</div>
+						);
+					})}
+				</div>
+			)}
+			{rawResultContent && (
+				<details className="group">
+					<summary
+						className="
+							cursor-pointer text-2xs font-medium text-text-secondary transition-colors
+							hover:text-text-primary
+						"
+					>
+						<ChevronRight className="mr-1 inline size-3 transition-transform group-open:rotate-90" />
+						Sub-agent response
+					</summary>
+					<pre
+						className="
+							mt-1.5 max-h-60 overflow-auto rounded-md bg-bg-secondary p-2 font-mono
+							text-2xs/relaxed break-all whitespace-pre-wrap text-text-secondary
+						"
+					>
+						{rawResultContent}
+					</pre>
+				</details>
+			)}
+			{subAgentDebugLogId && projectId && (
+				<button
+					onClick={handleDownloadLog}
+					className={cn(
+						`
+							inline-flex w-fit cursor-pointer items-center gap-1.5 rounded-md px-2
+							py-1
+						`,
+						'text-2xs font-medium text-text-secondary transition-colors',
+						'hover:bg-bg-tertiary hover:text-text-primary',
+					)}
+				>
+					<Download className="size-3" />
+					Download sub-agent log
+				</button>
+			)}
 		</div>
 	);
 }

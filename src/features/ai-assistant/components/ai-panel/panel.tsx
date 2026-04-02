@@ -206,9 +206,10 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		return new Map(Object.entries(record).map(([key, value]) => [Number(key), value]));
 	}, [currentSession?.messageModes]);
 
-	// Derive tool metadata/errors directly from agent state via useMemo
+	// Derive tool metadata/errors/sub-agent activities directly from agent state via useMemo
 	const toolMetadata = useMemo(() => new Map(Object.entries(currentSession?.toolMetadata ?? {})), [currentSession?.toolMetadata]);
 	const toolErrors = useMemo(() => new Map(Object.entries(currentSession?.toolErrors ?? {})), [currentSession?.toolErrors]);
+	const subAgentActivities = useMemo(() => currentSession?.subAgentActivities ?? {}, [currentSession?.subAgentActivities]);
 
 	// Stable ref for sessionId access in callbacks
 	const sessionIdReference = useRef(sessionId);
@@ -733,6 +734,8 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 											toolErrors={toolErrors}
 											toolMetadata={toolMetadata}
 											fileDiffContent={fileDiffContent}
+											subAgentActivities={subAgentActivities}
+											projectId={projectId}
 											showHeader={message.role !== 'assistant' || index === 0 || displayMessages[index - 1]?.role !== 'assistant'}
 										/>
 									))}
@@ -750,6 +753,8 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 									toolErrors={toolErrors}
 									toolMetadata={toolMetadata}
 									fileDiffContent={fileDiffContent}
+									subAgentActivities={subAgentActivities}
+									projectId={projectId}
 									showHeader={displayMessages.length === 0 || displayMessages.at(-1)?.role !== 'assistant'}
 								/>
 							)}
