@@ -1,0 +1,3 @@
+# Docs moved to landing site
+/docs https://codemaxxing.ai/docs 301
+/docs/* https://codemaxxing.ai/docs/:splat 301

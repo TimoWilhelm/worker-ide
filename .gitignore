@@ -18,3 +18,4 @@ playwright-report
 !.env.example
 
 vendor/*.version
+landing/.astro/

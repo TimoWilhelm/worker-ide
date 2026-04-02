@@ -1,0 +1,14 @@
+---
+import type { FlowSection } from '../../data/docs-content';
+import ArchitectureFlow from './architecture-flow';
+
+interface Props {
+	section: FlowSection;
+}
+
+const { section } = Astro.props;
+---
+
+<div class="flow-diagram-container">
+	<ArchitectureFlow client:only="react" section={section} />
+</div>

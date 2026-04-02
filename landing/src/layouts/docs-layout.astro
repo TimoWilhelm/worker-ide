@@ -1,0 +1,48 @@
+---
+import Footer from '../components/footer.astro';
+import Header from '../components/header.astro';
+import { docsTopics } from '../data/docs-content';
+import BaseLayout from './base-layout.astro';
+
+interface Props {
+	title: string;
+	description: string;
+	currentSlug?: string;
+}
+
+const { title, description, currentSlug } = Astro.props;
+---
+
+<BaseLayout title={`${title} - Codemaxxing Docs`} description={description}>
+	<Header />
+	<main class="docs-shell">
+		<div class="docs-atmosphere" aria-hidden="true">
+			<div class="docs-atmosphere-grid"></div>
+			<div class="docs-atmosphere-glow"></div>
+			<div class="grain"></div>
+		</div>
+		<div class="docs-content-wrap">
+			<aside class="docs-sidebar">
+				<p class="docs-sidebar-label">Architecture</p>
+				<ul>
+					<li>
+						<a href="/docs" class:list={{ 'docs-topic-link-active': currentSlug === undefined }}>Overview</a>
+					</li>
+					{
+						docsTopics.map((topic) => (
+							<li>
+								<a href={`/docs/${topic.slug}`} class:list={{ 'docs-topic-link-active': currentSlug === topic.slug }}>
+									{topic.title}
+								</a>
+							</li>
+						))
+					}
+				</ul>
+			</aside>
+			<div class="docs-main-panel">
+				<slot />
+			</div>
+		</div>
+	</main>
+	<Footer />
+</BaseLayout>

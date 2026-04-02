@@ -190,6 +190,16 @@ body {
 	}
 }
 
+/* ── Edge dash animation for flow diagrams ─────────────── */
+@keyframes edge-dash-flow {
+	from {
+		stroke-dashoffset: 10;
+	}
+	to {
+		stroke-dashoffset: 0;
+	}
+}
+
 /* ── CSS Houdini property for border beam ──────────────── */
 @property --border-beam-angle {
 	syntax: '<angle>';
@@ -384,4 +394,320 @@ body {
 	border: none;
 	border-top: 1px solid var(--color-border-solid);
 	margin: 2rem 0;
+}
+
+/* ── Docs section ─────────────────────────────────────── */
+:root {
+	--docs-asset: #5cc8ff;
+	--docs-worker: #c490ff;
+	--docs-ws: #7dff6a;
+	--docs-cyan: #56d6ff;
+	--docs-emerald: #50e8a0;
+	--docs-ai: #ffb347;
+	--docs-test: #ff6b9d;
+	--docs-deploy: #4ecdc4;
+	--docs-snapshot: #b8a9e8;
+	--docs-collab: #6ec6ff;
+}
+
+.docs-shell {
+	position: relative;
+	padding: 7.25rem 1.5rem 3.5rem;
+	min-height: calc(100vh - 100px);
+}
+
+.docs-atmosphere {
+	position: absolute;
+	inset: 0;
+	pointer-events: none;
+	overflow: hidden;
+}
+
+.docs-atmosphere-grid {
+	position: absolute;
+	inset: 0;
+	background-image:
+		linear-gradient(color-mix(in srgb, var(--color-accent) 6%, transparent) 1px, transparent 1px),
+		linear-gradient(90deg, color-mix(in srgb, var(--color-accent) 6%, transparent) 1px, transparent 1px);
+	background-size: 56px 56px;
+	opacity: 0.35;
+}
+
+.docs-atmosphere-glow {
+	position: absolute;
+	inset: auto 10% -30% 10%;
+	height: 65%;
+	background: radial-gradient(ellipse at center, color-mix(in srgb, var(--color-accent) 15%, transparent) 0%, transparent 70%);
+	filter: blur(20px);
+}
+
+.docs-content-wrap {
+	position: relative;
+	z-index: 1;
+	max-width: 1120px;
+	margin: 0 auto;
+	display: grid;
+	gap: 1.2rem;
+}
+
+.docs-sidebar {
+	border: 1px solid var(--color-border);
+	background: color-mix(in srgb, var(--color-bg-secondary) 70%, transparent);
+	border-radius: 14px;
+	padding: 1rem;
+	backdrop-filter: blur(10px);
+}
+
+.docs-sidebar-label {
+	font-family: var(--font-mono);
+	font-size: 0.66rem;
+	letter-spacing: 0.16em;
+	text-transform: uppercase;
+	color: var(--color-text-secondary);
+	margin-bottom: 0.6rem;
+}
+
+.docs-sidebar ul {
+	list-style: none;
+	display: grid;
+	gap: 0.2rem;
+}
+
+.docs-sidebar a {
+	padding: 0.5rem 0.6rem;
+	display: block;
+	border-radius: 8px;
+	font-size: 0.86rem;
+	color: var(--color-text-secondary);
+	text-decoration: none;
+	transition: background-color 0.18s ease;
+}
+
+.docs-sidebar a:hover,
+.docs-topic-link-active {
+	background: color-mix(in srgb, var(--color-accent) 14%, transparent);
+	color: var(--color-text-primary);
+}
+
+.docs-main-panel {
+	border: 1px solid var(--color-border);
+	background: color-mix(in srgb, var(--color-bg-secondary) 72%, transparent);
+	border-radius: 18px;
+	padding: 1.2rem;
+	backdrop-filter: blur(14px);
+}
+
+.docs-hero h1,
+.docs-topic-header h1 {
+	font-size: clamp(1.7rem, 3.5vw, 2.8rem);
+	line-height: 1.15;
+	letter-spacing: -0.03em;
+	margin: 0.35rem 0 0.8rem;
+}
+
+.docs-hero p,
+.docs-topic-header p {
+	color: var(--color-text-secondary);
+	line-height: 1.7;
+}
+
+.docs-kicker,
+.docs-topic-kicker {
+	font-family: var(--font-mono);
+	font-size: 0.7rem;
+	text-transform: uppercase;
+	letter-spacing: 0.14em;
+	color: var(--color-accent);
+}
+
+.docs-topic-grid {
+	margin-top: 1.4rem;
+	display: grid;
+	gap: 0.9rem;
+	grid-template-columns: repeat(auto-fill, minmax(245px, 1fr));
+}
+
+.docs-topic-card {
+	text-decoration: none;
+	border: 1px solid color-mix(in srgb, var(--docs-accent) 35%, var(--color-border));
+	background: color-mix(in srgb, var(--color-bg-tertiary) 75%, transparent);
+	border-radius: 12px;
+	padding: 1rem;
+	display: grid;
+	gap: 0.55rem;
+	transition:
+		transform 0.18s ease,
+		border-color 0.18s ease;
+}
+
+.docs-topic-card:hover {
+	transform: translateY(-3px);
+	border-color: color-mix(in srgb, var(--docs-accent) 55%, var(--color-border-solid));
+}
+
+.docs-topic-card h3 {
+	font-size: 0.98rem;
+	color: var(--color-text-primary);
+	line-height: 1.4;
+}
+
+.docs-topic-card p {
+	font-size: 0.9rem;
+	line-height: 1.55;
+	color: var(--color-text-secondary);
+}
+
+.docs-topic-link {
+	font-family: var(--font-mono);
+	font-size: 0.72rem;
+	text-transform: uppercase;
+	letter-spacing: 0.12em;
+	color: var(--docs-accent);
+}
+
+.docs-topic-page {
+	--docs-accent: var(--docs-asset);
+}
+
+.docs-back-link {
+	font-family: var(--font-mono);
+	font-size: 0.76rem;
+	text-transform: uppercase;
+	letter-spacing: 0.12em;
+	text-decoration: none;
+	color: var(--color-text-secondary);
+	display: inline-block;
+	margin-bottom: 1rem;
+}
+
+.docs-back-link:hover {
+	color: var(--docs-accent);
+}
+
+.docs-topic-header {
+	padding-bottom: 1rem;
+	border-bottom: 1px dashed color-mix(in srgb, var(--docs-accent) 34%, var(--color-border));
+	margin-bottom: 1rem;
+}
+
+/* ── Flow diagram container ───────────────────────────── */
+
+.flow-diagram-container {
+	margin-top: 0.9rem;
+	border: 1px solid color-mix(in srgb, var(--docs-accent) 30%, var(--color-border));
+	border-radius: 12px;
+	overflow: hidden;
+	background: color-mix(in srgb, var(--color-bg-tertiary) 72%, transparent);
+}
+
+.docs-flow-canvas .react-flow__controls {
+	border: 1px solid color-mix(in srgb, var(--docs-accent) 24%, var(--color-border));
+	background: color-mix(in srgb, var(--color-bg-secondary) 90%, transparent);
+	box-shadow: none;
+	backdrop-filter: blur(6px);
+	border-radius: 10px;
+	overflow: hidden;
+}
+
+.docs-flow-canvas .react-flow__controls-button {
+	width: 28px;
+	height: 28px;
+	border: 0;
+	border-bottom: 1px solid color-mix(in srgb, var(--docs-accent) 18%, var(--color-border));
+	background: transparent;
+	color: var(--color-text-secondary);
+	transition: color 0.16s ease;
+}
+
+.docs-flow-canvas .react-flow__controls-button:last-child {
+	border-bottom: 0;
+}
+
+.docs-flow-canvas .react-flow__controls-button:hover {
+	color: var(--docs-accent);
+	background: color-mix(in srgb, var(--docs-accent) 10%, transparent);
+}
+
+/* Lane description shown in topic header */
+.docs-lane-description {
+	margin-top: 0.5rem;
+	font-family: var(--font-mono);
+	font-size: 0.76rem;
+	letter-spacing: 0.02em;
+	color: var(--docs-accent);
+	opacity: 0.85;
+}
+
+.docs-section-block {
+	margin-top: 1rem;
+	border: 1px solid color-mix(in srgb, var(--docs-accent) 24%, var(--color-border));
+	border-radius: 12px;
+	padding: 0.9rem;
+	background: color-mix(in srgb, var(--color-bg-secondary) 78%, transparent);
+}
+
+.docs-section-block h2 {
+	font-size: 0.9rem;
+	font-family: var(--font-mono);
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+	color: var(--docs-accent);
+	margin-bottom: 0.55rem;
+}
+
+.docs-note-content {
+	display: grid;
+	gap: 0.6rem;
+	color: var(--color-text-secondary);
+	font-size: 0.9rem;
+	line-height: 1.6;
+}
+
+.docs-note-content code {
+	font-family: var(--font-mono);
+	font-size: 0.82em;
+	padding: 0.08rem 0.34rem;
+	border-radius: 4px;
+	background: color-mix(in srgb, var(--docs-accent) 16%, transparent);
+	color: var(--color-text-primary);
+}
+
+.docs-pager {
+	margin-top: 1rem;
+	display: flex;
+	justify-content: space-between;
+	gap: 0.8rem;
+	border-top: 1px solid var(--color-border);
+	padding-top: 0.85rem;
+}
+
+.docs-pager a {
+	font-family: var(--font-mono);
+	font-size: 0.75rem;
+	text-transform: uppercase;
+	letter-spacing: 0.12em;
+	text-decoration: none;
+	color: var(--color-text-secondary);
+}
+
+.docs-pager a:hover {
+	color: var(--docs-accent);
+}
+
+@media (min-width: 980px) {
+	.docs-content-wrap {
+		grid-template-columns: 280px minmax(0, 1fr);
+		align-items: start;
+	}
+
+	.docs-sidebar {
+		position: sticky;
+		top: 6.5rem;
+		max-height: calc(100vh - 8rem);
+		overflow: auto;
+	}
+
+	.docs-main-panel {
+		padding: 1.5rem;
+	}
 }

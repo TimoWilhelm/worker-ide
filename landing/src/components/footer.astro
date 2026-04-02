@@ -1,6 +1,7 @@
 ---
 const currentYear = new Date().getFullYear();
 const appUrl = 'https://codemaxxing.app';
+const isHomePage = Astro.url.pathname === '/';
 ---
 
 <!-- Gradient fade separator -->
@@ -38,7 +39,8 @@ const appUrl = 'https://codemaxxing.app';
 			<!-- Links -->
 			<div class="flex items-center gap-6 font-mono text-xs uppercase tracking-widest text-text-secondary">
 				<a href={appUrl} class="transition-colors hover:text-accent"> Open IDE </a>
-				<a href="#features" class="transition-colors hover:text-accent"> Features </a>
+				<a href={isHomePage ? '#features' : '/#features'} class="transition-colors hover:text-accent"> Features </a>
+				<a href="/docs" class="transition-colors hover:text-accent"> Docs </a>
 				<a
 					href="https://github.com/TimoWilhelm/worker-ide"
 					class="transition-colors hover:text-accent"

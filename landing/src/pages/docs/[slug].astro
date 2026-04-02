@@ -1,0 +1,67 @@
+---
+import FlowDiagram from '../../components/docs/flow-diagram.astro';
+import { docsTopics, getTopicBySlug } from '../../data/docs-content';
+import DocsLayout from '../../layouts/docs-layout.astro';
+
+export function getStaticPaths() {
+	return docsTopics.map((topic) => ({
+		params: { slug: topic.slug },
+		props: { slug: topic.slug },
+	}));
+}
+
+interface Props {
+	slug: string;
+}
+
+const { slug } = Astro.props;
+const topic = getTopicBySlug(slug);
+
+if (topic === undefined) {
+	throw new Error(`Unknown docs topic: ${slug}`);
+}
+
+const topicIndex = docsTopics.findIndex((item) => item.slug === topic.slug);
+const previousTopic = topicIndex > 0 ? docsTopics[topicIndex - 1] : undefined;
+const nextTopic = topicIndex < docsTopics.length - 1 ? docsTopics[topicIndex + 1] : undefined;
+const accentVariable = `--docs-${topic.accent}`;
+---
+
+<DocsLayout title={topic.title} description={topic.description} currentSlug={topic.slug}>
+	<article class="docs-topic-page" style={`--docs-accent: var(${accentVariable});`}>
+		<a href="/docs" class="docs-back-link">{'<-'} Back to docs overview</a>
+		<header class="docs-topic-header">
+			<p class="docs-kicker">{topic.title}</p>
+			<h1>{topic.tagline}</h1>
+			<p>{topic.description}</p>
+			<p class="docs-lane-description">{topic.laneDescription}</p>
+		</header>
+
+		{
+			topic.sections.map((section, index) => (
+				<section class="docs-section-block">
+					<h2>{section.label ?? `Flow ${index + 1}`}</h2>
+					<FlowDiagram section={section} />
+				</section>
+			))
+		}
+
+		{
+			topic.notes.length > 0 && (
+				<section class="docs-section-block">
+					<h2>Notes</h2>
+					<div class="docs-note-content">
+						{topic.notes.map((note) => (
+							<p set:html={note} />
+						))}
+					</div>
+				</section>
+			)
+		}
+
+		<nav class="docs-pager" aria-label="Topic navigation">
+			{previousTopic ? <a href={`/docs/${previousTopic.slug}`}>Previous: {previousTopic.title}</a> : <span />}
+			{nextTopic ? <a href={`/docs/${nextTopic.slug}`}>Next: {nextTopic.title}</a> : <span />}
+		</nav>
+	</article>
+</DocsLayout>

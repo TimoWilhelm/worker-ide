@@ -1,0 +1,23 @@
+---
+import TopicCard from '../../components/docs/topic-card.astro';
+import { docsTopics } from '../../data/docs-content';
+import DocsLayout from '../../layouts/docs-layout.astro';
+---
+
+<DocsLayout
+	title="Architecture Docs"
+	description="Technical documentation for Codemaxxing architecture, runtime pipelines, collaboration channels, and deploy systems."
+>
+	<section class="docs-hero">
+		<p class="docs-kicker">Codemaxxing Docs</p>
+		<h1>Architecture mapped into focused modules</h1>
+		<p>
+			The old single giant diagram has been split into focused pages. Each topic explains the request path, runtime path, and why the system
+			is structured this way.
+		</p>
+	</section>
+
+	<section class="docs-topic-grid" aria-label="Documentation topics">
+		{docsTopics.map((topic) => <TopicCard topic={topic} />)}
+	</section>
+</DocsLayout>

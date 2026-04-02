@@ -1,9 +1,11 @@
 ---
 const appUrl = 'https://codemaxxing.app';
+const isHomePage = Astro.url.pathname === '/';
 
 const navigationLinks = [
-	{ label: 'Features', href: '#features' },
-	{ label: 'Get Started', href: '#cta' },
+	{ label: 'Features', href: isHomePage ? '#features' : '/#features' },
+	{ label: 'Docs', href: '/docs' },
+	{ label: 'Get Started', href: isHomePage ? '#cta' : '/#cta' },
 ];
 ---
 
@@ -33,6 +35,7 @@ const navigationLinks = [
 				navigationLinks.map((link) => (
 					<a
 						href={link.href}
+						aria-current={Astro.url.pathname === link.href ? 'page' : undefined}
 						class="hidden font-mono text-xs uppercase tracking-widest text-text-secondary transition-colors hover:text-accent sm:inline"
 					>
 						{link.label}
