@@ -173,11 +173,10 @@ export function useProjectSocket({ projectId, enabled = true }: UseProjectSocket
 							// locally by the editor and refetching would race with
 							// unsaved edits.
 							const activeFilePath = storeActionsReference.current.activeFile;
-							let projectMetaChanged = false;
+							let configFileChanged = false;
 							for (const update of message.updates) {
-								if (update.path === '/.project-meta.json') {
-									projectMetaChanged = true;
-									continue;
+								if (update.path === '/package.json' || update.path === '/wrangler.jsonc') {
+									configFileChanged = true;
 								}
 								if (update.path === activeFilePath) continue;
 								void queryClientCurrent.invalidateQueries({
@@ -189,16 +188,12 @@ export function useProjectSocket({ projectId, enabled = true }: UseProjectSocket
 							void queryClientCurrent.invalidateQueries({
 								queryKey: ['files', projectIdCurrent],
 							});
-							// When .project-meta.json changed (e.g. agent updated dependencies
-							// or asset settings), refresh all derived project-meta query caches
-							// so the dependencies panel, project name, and settings modal update
+							// When package.json or wrangler.jsonc changed, refresh derived
+							// query caches so the dependencies panel and settings update
 							// immediately without waiting for their stale times to expire.
-							if (projectMetaChanged) {
+							if (configFileChanged) {
 								void queryClientCurrent.invalidateQueries({
-									queryKey: ['project-meta-deps', projectIdCurrent],
-								});
-								void queryClientCurrent.invalidateQueries({
-									queryKey: ['project-meta', projectIdCurrent],
+									queryKey: ['project-deps', projectIdCurrent],
 								});
 								void queryClientCurrent.invalidateQueries({
 									queryKey: ['project-settings', projectIdCurrent],

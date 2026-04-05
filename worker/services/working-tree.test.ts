@@ -174,10 +174,9 @@ describe('computeStatus', () => {
 		expect(deleted!.status).toBe('deleted');
 	});
 
-	it('excludes hidden entries (.initialized, .project-meta.json, .agent, .git)', async () => {
+	it('excludes hidden entries (.initialized, .agent, .git)', async () => {
 		const { fileSystem } = createMockFilesystem({
 			'/project/.initialized': '',
-			'/project/.project-meta.json': '{}',
 			'/project/src/app.ts': 'hello',
 		});
 

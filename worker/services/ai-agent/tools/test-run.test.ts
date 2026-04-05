@@ -295,11 +295,11 @@ describe('test_run', () => {
 			expect(callArguments.tsconfigRaw).toBe('{"compilerOptions":{"strict":true}}');
 		});
 
-		it('passes known dependencies from .project-meta.json', async () => {
+		it('passes known dependencies from package.json', async () => {
 			seedTestProject();
 			memoryFs.seedFile(
-				`${PROJECT_ROOT}/.project-meta.json`,
-				JSON.stringify({ name: 'test', humanId: 'test', dependencies: { lodash: '^4.0.0' } }),
+				`${PROJECT_ROOT}/package.json`,
+				JSON.stringify({ name: 'test', type: 'module', dependencies: { lodash: '^4.0.0' } }),
 			);
 
 			await execute({}, createMockSendEvent(), context());

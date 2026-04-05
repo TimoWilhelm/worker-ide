@@ -74,6 +74,7 @@ const meta = {
 	},
 	tags: ['autodocs'],
 	args: {
+		projectId: 'test-project',
 		resolvedTheme: 'dark',
 		editorState: defaultMockEditorState,
 		onSelectFile: fn(),
@@ -104,6 +105,7 @@ export const DefaultView: Story = {
 
 export const LoadingContent: Story = {
 	args: {
+		projectId: 'test-project',
 		editorState: {
 			...defaultMockEditorState,
 			isLoadingContent: true,
@@ -120,6 +122,7 @@ export const LoadingContent: Story = {
 
 export const NoFileSelected: Story = {
 	args: {
+		projectId: 'test-project',
 		editorState: {
 			...defaultMockEditorState,
 			activeFile: undefined,

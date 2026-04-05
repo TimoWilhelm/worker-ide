@@ -9,9 +9,7 @@ import { useEffect, useRef, useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/lib/api-client', () => ({
-	fetchProjectMeta: vi.fn().mockResolvedValue({
-		dependencies: { react: '19.0.0', zustand: '5.0.0' },
-	}),
+	fetchDependencies: vi.fn().mockResolvedValue({ react: '19.0.0', zustand: '5.0.0' }),
 	updateDependencies: vi.fn().mockResolvedValue({}),
 }));
 

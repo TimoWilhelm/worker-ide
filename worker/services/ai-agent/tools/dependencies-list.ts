@@ -1,17 +1,16 @@
 /**
  * Tool: dependencies_list
- * List all registered project dependencies.
+ * List all registered project dependencies from package.json.
  */
 
-import fs from 'node:fs/promises';
+import { readDependencies } from '@worker/lib/protected-files';
 
 import type { SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
-import type { ProjectMeta } from '@shared/types';
 
 export const definition: ToolDefinition = {
 	name: 'dependencies_list',
 	description:
-		'List all registered project dependencies. Returns the current dependency map (name → version). Use this to check which packages are available before importing them.',
+		'List all project dependencies from package.json. Returns the current dependency map (name → version). Use this to check which packages are available before importing them.',
 	input_schema: {
 		type: 'object',
 		properties: {},
@@ -27,15 +26,9 @@ export async function execute(
 
 	sendEvent('status', { message: 'Listing dependencies...' });
 
-	try {
-		const metaRaw = await fs.readFile(`${projectRoot}/.project-meta.json`, 'utf8');
-		const meta: ProjectMeta = JSON.parse(metaRaw);
-		const dependencies = meta.dependencies ?? {};
-		const output = Object.entries(dependencies)
-			.map(([name, version]) => `${name}: ${version}`)
-			.join('\n');
-		return { title: 'dependencies', metadata: { dependencies }, output: output || 'No dependencies registered.' };
-	} catch {
-		return { title: 'dependencies', metadata: { dependencies: {} }, output: 'No project metadata found.' };
-	}
+	const dependencies = await readDependencies(projectRoot);
+	const output = Object.entries(dependencies)
+		.map(([name, version]) => `${name}: ${version}`)
+		.join('\n');
+	return { title: 'dependencies', metadata: { dependencies }, output: output || 'No dependencies registered.' };
 }

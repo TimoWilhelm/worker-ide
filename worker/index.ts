@@ -101,8 +101,7 @@ async function writeTemplateFiles(
 	fs: typeof import('node:fs/promises'),
 	projectRoot: string,
 	files: Record<string, string>,
-	dependencies: Record<string, string>,
-	humanId: string,
+	_humanId: string,
 ): Promise<void> {
 	for (const [filePath, content] of Object.entries(files)) {
 		const fullPath = `${projectRoot}/${filePath}`;
@@ -111,8 +110,6 @@ async function writeTemplateFiles(
 		await fs.writeFile(fullPath, content);
 	}
 
-	const meta = { name: humanId, humanId, dependencies };
-	await fs.writeFile(`${projectRoot}/.project-meta.json`, JSON.stringify(meta));
 	await fs.writeFile(`${projectRoot}/.initialized`, '1');
 }
 
@@ -653,7 +650,7 @@ app.post('/api/new-project', async (c) => {
 		mount(PROJECT_ROOT, fsStub);
 
 		const fs = await import('node:fs/promises');
-		await writeTemplateFiles(fs, PROJECT_ROOT, template.files, template.dependencies, humanId);
+		await writeTemplateFiles(fs, PROJECT_ROOT, template.files, humanId);
 	});
 
 	// Register project in D1
@@ -820,24 +817,6 @@ app.post('/api/clone-project', async (c) => {
 		const fs = await import('node:fs/promises');
 
 		await copyDirectoryRecursive(fs, '/source', '/destination');
-
-		const meta: { name: string; humanId: string; dependencies: Record<string, string>; assetSettings?: Record<string, unknown> } = {
-			name: humanId,
-			humanId,
-			dependencies: {},
-		};
-		try {
-			const sourceMetaRaw = await fs.readFile('/source/.project-meta.json', 'utf8');
-			const sourceMeta: { dependencies?: Record<string, string>; assetSettings?: Record<string, unknown> } = JSON.parse(sourceMetaRaw);
-			meta.dependencies = sourceMeta.dependencies ?? {};
-			if (sourceMeta.assetSettings) {
-				meta.assetSettings = sourceMeta.assetSettings;
-			}
-		} catch {
-			// Use empty dependencies if source has no metadata
-		}
-
-		await fs.writeFile('/destination/.project-meta.json', JSON.stringify(meta));
 		await fs.writeFile('/destination/.initialized', '1');
 	});
 
@@ -1221,7 +1200,7 @@ export default {
 // Clone helpers
 // =============================================================================
 
-const CLONE_SKIP_ENTRIES = new Set(['.initialized', '.project-meta.json', '.agent', '.git']);
+const CLONE_SKIP_ENTRIES = new Set(['.initialized', '.agent', '.git']);
 
 async function copyDirectoryRecursive(fs: typeof import('node:fs/promises'), source: string, destination: string): Promise<void> {
 	const entries = await fs.readdir(source, { withFileTypes: true });

@@ -414,16 +414,6 @@ export function resolveAssetSettings(settings?: AssetSettings): ResolvedAssetSet
 	};
 }
 
-/**
- * Project metadata stored in .project-meta.json
- */
-export interface ProjectMeta {
-	name: string;
-	humanId: string;
-	dependencies?: Record<string, string>;
-	assetSettings?: AssetSettings;
-}
-
 // =============================================================================
 // Test Types
 // =============================================================================

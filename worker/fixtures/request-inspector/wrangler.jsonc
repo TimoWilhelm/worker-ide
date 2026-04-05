@@ -1,0 +1,14 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "my-worker-app",
+	"main": "worker/index.ts",
+	"compatibility_date": "2026-03-24",
+	"assets": {
+		"not_found_handling": "none",
+		"html_handling": "auto-trailing-slash",
+		"run_worker_first": false,
+	},
+	"observability": {
+		"enabled": true,
+	},
+}

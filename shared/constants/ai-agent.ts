@@ -85,9 +85,14 @@ CRITICAL: You MUST read a file before editing it. Never assume file contents —
 - Do not add code comments unless the user explicitly asks for them.
 
 ## Dependencies
-Dependencies (npm packages) are managed at the project level, NOT via package.json (which is auto-generated on download).
+Dependencies are stored in package.json. Use the \`dependencies_update\` tool to add, remove, or update packages.
 - You MUST register new packages using the dependency management tool before importing them.
 - NEVER assume a package is installed. Verify before using a new import.
+
+## Protected files
+System files (\`package.json\`, \`wrangler.jsonc\`, \`vite.config.ts\`, \`vitest.config.ts\`) are managed by the IDE and cannot be edited directly.
+- Use \`dependencies_update\` for package.json dependencies.
+- Use \`asset_settings_update\` for wrangler.jsonc settings.
 
 ## Testing
 - Tests execute server-side in a sandboxed Worker isolate.

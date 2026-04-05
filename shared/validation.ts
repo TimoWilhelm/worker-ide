@@ -524,7 +524,8 @@ export const assetSettingsSchema = z.object({
 export type AssetSettingsInput = z.infer<typeof assetSettingsSchema>;
 
 /**
- * Schema for updating project metadata (name)
+ * Schema for updating project settings via PUT /api/project/meta.
+ * Accepts an optional name and/or asset settings update.
  */
 export const projectMetaSchema = z.object({
 	name: z
@@ -532,11 +533,16 @@ export const projectMetaSchema = z.object({
 		.min(1, 'Name is required')
 		.max(MAX_PROJECT_NAME_LENGTH, `Name must be at most ${MAX_PROJECT_NAME_LENGTH} characters`)
 		.optional(),
-	dependencies: z.record(z.string(), z.string()).optional(),
 	assetSettings: assetSettingsSchema.optional(),
 });
 
-export type ProjectMetaInput = z.infer<typeof projectMetaSchema>;
+/**
+ * Schema for updating project dependencies via PUT /api/dependencies.
+ * Validates that all dependency values are strings.
+ */
+export const dependenciesUpdateSchema = z.object({
+	dependencies: z.record(z.string(), z.string()),
+});
 
 // =============================================================================
 // Test Run Schemas

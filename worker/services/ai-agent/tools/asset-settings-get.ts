@@ -3,12 +3,10 @@
  * Read the current Cloudflare Workers asset routing settings for the project.
  */
 
-import fs from 'node:fs/promises';
-
 import { resolveAssetSettings } from '@shared/types';
+import { readAssetSettings } from '@worker/lib/protected-files';
 
 import type { SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
-import type { ProjectMeta } from '@shared/types';
 
 export const definition: ToolDefinition = {
 	name: 'asset_settings_get',
@@ -30,15 +28,7 @@ export async function execute(
 
 	sendEvent('status', { message: 'Reading asset settings...' });
 
-	let rawSettings;
-	try {
-		const metaRaw = await fs.readFile(`${projectRoot}/.project-meta.json`, 'utf8');
-		const meta: ProjectMeta = JSON.parse(metaRaw);
-		rawSettings = meta.assetSettings;
-	} catch {
-		// Use defaults if metadata is missing
-	}
-
+	const rawSettings = await readAssetSettings(projectRoot);
 	const settings = resolveAssetSettings(rawSettings);
 
 	const runWorkerFirstDisplay = Array.isArray(settings.run_worker_first)

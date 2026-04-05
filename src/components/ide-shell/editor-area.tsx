@@ -4,21 +4,28 @@
  */
 
 import { EditorView } from '@codemirror/view';
-import { Loader2, Sparkles } from 'lucide-react';
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { Loader2, Package, Sparkles } from 'lucide-react';
+import { lazy, Suspense, useCallback, useMemo, useRef, useState } from 'react';
 
 import { Spinner } from '@/components/ui/spinner';
 import { Tooltip } from '@/components/ui/tooltip';
 import { CodeEditor, DiffFloatingBar, FileTabs, GitDiffToolbar, groupHunksIntoChanges } from '@/features/editor';
 import { useCollabCursors } from '@/features/editor/hooks/use-collab-cursors';
 import { isLintableFile } from '@/lib/biome-linter';
+import { useStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
+import { isProtectedSystemFile } from '@shared/constants';
+
+const WranglerSettingsPanel = lazy(() =>
+	import('@/features/project-settings/wrangler-settings-panel').then((m) => ({ default: m.WranglerSettingsPanel })),
+);
 
 import type { useEditorState } from './use-editor-state';
 
 type EditorState = ReturnType<typeof useEditorState>;
 
 interface EditorAreaProperties {
+	projectId: string;
 	resolvedTheme: 'light' | 'dark';
 	editorState: EditorState;
 	onSelectFile: (path: string) => void;
@@ -26,7 +33,7 @@ interface EditorAreaProperties {
 	tabsPrefix?: React.ReactNode;
 }
 
-export function EditorArea({ resolvedTheme, editorState, onSelectFile, tabsPrefix }: EditorAreaProperties) {
+export function EditorArea({ projectId, resolvedTheme, editorState, onSelectFile, tabsPrefix }: EditorAreaProperties) {
 	const {
 		activeFile,
 		tabs,
@@ -122,7 +129,7 @@ export function EditorArea({ resolvedTheme, editorState, onSelectFile, tabsPrefi
 					participants={participants}
 					className="min-w-0 flex-1"
 				/>
-				{activeFile && !isGitDiffActive && isLintableFile(activeFile) && (
+				{activeFile && !isGitDiffActive && !isProtectedSystemFile(activeFile) && isLintableFile(activeFile) && (
 					<Tooltip content="Prettify (Shift+Alt+F)">
 						<button
 							type="button"
@@ -149,12 +156,23 @@ export function EditorArea({ resolvedTheme, editorState, onSelectFile, tabsPrefi
 			)}
 			<div className="relative flex-1 overflow-hidden">
 				{activeFile ? (
-					isLoadingContent ? (
+					activeFile === '/wrangler.jsonc' ? (
+						<Suspense
+							fallback={
+								<div className="flex h-full items-center justify-center">
+									<Spinner size="md" />
+								</div>
+							}
+						>
+							<WranglerSettingsPanel projectId={projectId} />
+						</Suspense>
+					) : isLoadingContent ? (
 						<div className="flex h-full items-center justify-center">
 							<Spinner size="md" />
 						</div>
 					) : (
 						<>
+							{isProtectedSystemFile(activeFile) && <ProtectedFileBanner path={activeFile} />}
 							<CodeEditor
 								value={
 									isGitDiffActive && gitDiffView
@@ -164,12 +182,12 @@ export function EditorArea({ resolvedTheme, editorState, onSelectFile, tabsPrefi
 											: editorContent
 								}
 								filename={activeFile}
-								onChange={isGitDiffActive ? undefined : handleEditorChange}
+								onChange={isGitDiffActive || isProtectedSystemFile(activeFile) ? undefined : handleEditorChange}
 								onCursorChange={handleCursorChange}
-								onBlur={isGitDiffActive || hasActiveDiff ? undefined : handleEditorBlur}
+								onBlur={isGitDiffActive || hasActiveDiff || isProtectedSystemFile(activeFile) ? undefined : handleEditorBlur}
 								goToPosition={pendingGoTo}
 								onGoToPositionConsumed={clearPendingGoTo}
-								readonly={isGitDiffActive}
+								readonly={isGitDiffActive || isProtectedSystemFile(activeFile)}
 								diffData={effectiveDiffData}
 								hunkStatuses={hasActiveDiff ? activePendingChange?.hunkStatuses : undefined}
 								onDiffApprove={
@@ -208,5 +226,38 @@ export function EditorArea({ resolvedTheme, editorState, onSelectFile, tabsPrefi
 				)}
 			</div>
 		</>
+	);
+}
+
+// =============================================================================
+// Protected File Banner
+// =============================================================================
+
+function ProtectedFileBanner({ path }: { path: string }) {
+	const showDependenciesPanel = useStore((state) => state.showDependenciesPanel);
+	const isPackageJson = path === '/package.json';
+
+	return (
+		<div
+			className="
+				flex shrink-0 items-center gap-2 border-b border-border bg-bg-secondary px-3
+				py-1.5 text-xs text-text-secondary
+			"
+		>
+			<Package className="size-3.5" />
+			<span>This file is managed by the IDE and is read-only.</span>
+			{isPackageJson && (
+				<button
+					type="button"
+					onClick={showDependenciesPanel}
+					className="
+						cursor-pointer text-accent underline
+						hover:text-accent-hover
+					"
+				>
+					Open Dependencies panel
+				</button>
+			)}
+		</div>
 	);
 }

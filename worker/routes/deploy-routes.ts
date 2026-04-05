@@ -23,11 +23,12 @@ import { resolveAssetSettings } from '@shared/types';
 
 import { getContentType } from '../lib/content-type';
 import { httpError } from '../lib/http-error';
+import { readAssetSettings, readDependencies, readProjectName } from '../lib/protected-files';
 import { bundleWithCdn } from '../services/bundler-client';
 import { toEsbuildTsconfigRaw } from '../services/transform-service';
 
 import type { AppEnvironment } from '../types';
-import type { AssetSettings, ProjectMeta } from '@shared/types';
+import type { AssetSettings } from '@shared/types';
 
 // =============================================================================
 // Constants
@@ -59,21 +60,11 @@ export const deployRoutes = new Hono<AppEnvironment>().post('/deploy', async (c)
 
 	const projectRoot = c.get('projectRoot');
 
-	// Read project metadata for name, dependencies, and asset settings
-	let projectName = 'my-worker';
-	let registeredDependencies = new Map<string, string>();
-	let assetSettings: AssetSettings | undefined;
-	try {
-		const metaRaw = await fs.readFile(`${projectRoot}/.project-meta.json`, 'utf8');
-		const meta: ProjectMeta = JSON.parse(metaRaw);
-		projectName = meta.name || meta.humanId || projectName;
-		if (meta.dependencies && typeof meta.dependencies === 'object') {
-			registeredDependencies = new Map(Object.entries(meta.dependencies));
-		}
-		assetSettings = meta.assetSettings;
-	} catch {
-		// Fall back to defaults
-	}
+	// Read project config from canonical files via shared helpers
+	const projectName = await readProjectName(projectRoot);
+	const assetSettings = await readAssetSettings(projectRoot);
+	const dependenciesRecord = await readDependencies(projectRoot);
+	const registeredDependencies = new Map(Object.entries(dependenciesRecord));
 
 	const sanitizedWorkerName = sanitizeWorkerName(workerName || projectName);
 
@@ -312,11 +303,13 @@ function isSourceFile(filePath: string): boolean {
 
 const CONFIG_FILES = new Set([
 	'.initialized',
-	'.project-meta.json',
 	'tsconfig.json',
 	'tsconfig.app.json',
 	'tsconfig.worker.json',
 	'package.json',
+	'wrangler.jsonc',
+	'vite.config.ts',
+	'vitest.config.ts',
 	'package-lock.json',
 	'bun.lockb',
 	'.gitignore',

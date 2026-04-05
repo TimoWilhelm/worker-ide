@@ -43,13 +43,12 @@ describe('dependencies_list', () => {
 
 	// ── With dependencies ─────────────────────────────────────────────────
 
-	it('returns dependencies from .project-meta.json', async () => {
-		const meta = {
+	it('returns dependencies from package.json', async () => {
+		const packageJson = {
 			name: 'test-project',
-			humanId: 'test-123',
 			dependencies: { react: '^18.0.0', hono: '^4.0.0', zod: '*' },
 		};
-		memoryFs.seedFile(`${PROJECT_ROOT}/.project-meta.json`, JSON.stringify(meta));
+		memoryFs.seedFile(`${PROJECT_ROOT}/package.json`, JSON.stringify(packageJson));
 
 		const result = await execute({}, createMockSendEvent(), context());
 
@@ -63,8 +62,8 @@ describe('dependencies_list', () => {
 	// ── No dependencies field ─────────────────────────────────────────────
 
 	it('returns empty dependencies when field is missing', async () => {
-		const meta = { name: 'test-project', humanId: 'test-123' };
-		memoryFs.seedFile(`${PROJECT_ROOT}/.project-meta.json`, JSON.stringify(meta));
+		const packageJson = { name: 'test-project', type: 'module' };
+		memoryFs.seedFile(`${PROJECT_ROOT}/package.json`, JSON.stringify(packageJson));
 
 		const result = await execute({}, createMockSendEvent(), context());
 
@@ -74,10 +73,10 @@ describe('dependencies_list', () => {
 
 	// ── No meta file ──────────────────────────────────────────────────────
 
-	it('returns empty dependencies with note when meta file is missing', async () => {
+	it('returns empty dependencies with note when no files exist', async () => {
 		const result = await execute({}, createMockSendEvent(), context());
 
 		expect(result.metadata).toHaveProperty('dependencies');
-		expect(result.output).toContain('No project metadata');
+		expect(result.output).toContain('No dependencies registered');
 	});
 });

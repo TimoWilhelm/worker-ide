@@ -289,10 +289,6 @@ describe('isConfigFile', () => {
 		expect(isConfigFile('tsconfig.worker.json')).toBe(true);
 	});
 
-	it('returns true for .project-meta.json', () => {
-		expect(isConfigFile('.project-meta.json')).toBe(true);
-	});
-
 	it('returns true for .gitignore', () => {
 		expect(isConfigFile('.gitignore')).toBe(true);
 	});

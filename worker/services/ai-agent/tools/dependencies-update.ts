@@ -1,19 +1,20 @@
 /**
  * Tool: dependencies_update
  * Add, remove, or update a project dependency.
+ * Dependencies are stored in the `dependencies` field of `package.json`.
  */
 
 import fs from 'node:fs/promises';
 
 import { ToolExecutionError } from '@shared/tool-errors';
 import { coordinatorNamespace } from '@worker/lib/durable-object-namespaces';
+import { readDependencies, regenerateProtectedFiles, writeDependencies } from '@worker/lib/protected-files';
 
 import type { SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
-import type { ProjectMeta } from '@shared/types';
 
 export const definition: ToolDefinition = {
 	name: 'dependencies_update',
-	description: `Add, remove, or update a project dependency. Dependencies are managed at the project level (not via package.json).
+	description: `Add, remove, or update a project dependency. Dependencies are stored in package.json.
 CRITICAL INSTRUCTION: You MUST register a dependency before importing it in code. Use dependencies_list to see current dependencies.`,
 	input_schema: {
 		type: 'object',
@@ -48,19 +49,16 @@ export async function execute(
 		throw new ToolExecutionError('MISSING_INPUT', 'Package name is required.');
 	}
 
-	const metaPath = `${projectRoot}/.project-meta.json`;
-
 	sendEvent('status', { message: `Updating dependency: ${name}...` });
 
-	let meta: ProjectMeta;
+	// Verify package.json exists
 	try {
-		const metaRaw = await fs.readFile(metaPath, 'utf8');
-		meta = JSON.parse(metaRaw);
+		await fs.access(`${projectRoot}/package.json`);
 	} catch {
-		throw new ToolExecutionError('FILE_NOT_FOUND', 'No project metadata found. Cannot manage dependencies.');
+		throw new ToolExecutionError('FILE_NOT_FOUND', 'No package.json found. Cannot manage dependencies.');
 	}
 
-	const dependencies = meta.dependencies ?? {};
+	const dependencies = await readDependencies(projectRoot);
 	let removedVersion: string | undefined;
 
 	switch (action) {
@@ -94,13 +92,14 @@ export async function execute(
 		}
 	}
 
-	meta.dependencies = dependencies;
-	await fs.writeFile(metaPath, JSON.stringify(meta));
+	await writeDependencies(projectRoot, dependencies);
 
-	// Notify connected clients so the dependencies panel and project metadata
-	// refresh immediately without waiting for the React Query stale time.
+	// Regenerate all protected files so vite.config.ts, devDependencies, etc. stay in sync
+	await regenerateProtectedFiles(projectRoot);
+
+	// Notify connected clients so the dependencies panel refreshes immediately.
 	const coordinatorStub = coordinatorNamespace.getByName(`project:${context.projectId}`);
-	await coordinatorStub.triggerUpdate({ type: 'full-reload', path: '/.project-meta.json', timestamp: Date.now(), isCSS: false });
+	await coordinatorStub.triggerUpdate({ type: 'full-reload', path: '/package.json', timestamp: Date.now(), isCSS: false });
 
 	const verbMap: Record<string, string> = { add: 'Added', remove: 'Removed', update: 'Updated' };
 	const verb = verbMap[action] ?? action;

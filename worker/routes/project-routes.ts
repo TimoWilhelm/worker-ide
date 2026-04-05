@@ -5,79 +5,142 @@
 
 import fs from 'node:fs/promises';
 
+import { zValidator } from '@hono/zod-validator';
 import { Hono } from 'hono';
 
-import { HIDDEN_ENTRIES, WORKERS_COMPATIBILITY_DATE } from '@shared/constants';
+import { HIDDEN_ENTRIES } from '@shared/constants';
 import { HttpErrorCode } from '@shared/http-errors';
-import { generateHumanId } from '@shared/human-id';
-import { resolveAssetSettings } from '@shared/types';
-import { projectMetaSchema } from '@shared/validation';
+import { dependenciesUpdateSchema, projectMetaSchema } from '@shared/validation';
 
 import { coordinatorNamespace } from '../lib/durable-object-namespaces';
 import { httpError } from '../lib/http-error';
+import {
+	readAssetSettings,
+	readDependencies,
+	readProjectName,
+	regenerateProtectedFiles,
+	writeAssetSettings,
+	writeDependencies,
+	writeProjectName,
+} from '../lib/protected-files';
 import { createZip } from '../lib/zip';
 
 import type { AppEnvironment } from '../types';
-import type { AssetSettings, ProjectMeta } from '@shared/types';
 
 /**
  * Project routes - all routes are prefixed with /api
  */
 export const projectRoutes = new Hono<AppEnvironment>()
-	// GET /api/project/meta - Get project metadata
+	// GET /api/project/meta - Get project metadata (name + asset settings from actual files)
 	.get('/project/meta', async (c) => {
 		const projectRoot = c.get('projectRoot');
-		const metaPath = `${projectRoot}/.project-meta.json`;
-		try {
-			const raw = await fs.readFile(metaPath, 'utf8');
-			const meta: ProjectMeta = JSON.parse(raw);
-			return c.json(meta);
-		} catch {
-			// No meta file yet — generate one
-			const projectName = generateHumanId();
-			const meta: ProjectMeta = { name: projectName, humanId: projectName };
-			await fs.writeFile(metaPath, JSON.stringify(meta));
-			return c.json(meta);
-		}
+		const name = await readProjectName(projectRoot);
+		const assetSettings = await readAssetSettings(projectRoot);
+		return c.json({ name, humanId: name, assetSettings });
 	})
 
-	// PUT /api/project/meta - Update project metadata (rename, dependencies, asset settings)
+	// PUT /api/project/meta - Update project name and/or asset settings
 	.put('/project/meta', async (c) => {
 		const projectRoot = c.get('projectRoot');
-		const metaPath = `${projectRoot}/.project-meta.json`;
 		const body = await c.req.json();
 		const parsed = projectMetaSchema.safeParse(body);
 		if (!parsed.success) {
 			throw httpError(HttpErrorCode.VALIDATION_ERROR, parsed.error.message);
 		}
 
-		let meta: ProjectMeta;
-		try {
-			const raw = await fs.readFile(metaPath, 'utf8');
-			meta = JSON.parse(raw);
-		} catch {
-			meta = { name: 'Untitled', humanId: generateHumanId() };
+		// Update name in package.json if provided (creates the file if missing)
+		if (parsed.data.name) {
+			await writeProjectName(projectRoot, parsed.data.name);
 		}
-		if (parsed.data.name) meta.name = parsed.data.name;
-		const dependenciesChanged = parsed.data.dependencies !== undefined;
-		if (dependenciesChanged) meta.dependencies = parsed.data.dependencies;
-		const assetSettingsChanged = parsed.data.assetSettings !== undefined;
-		if (assetSettingsChanged) meta.assetSettings = parsed.data.assetSettings;
-		await fs.writeFile(metaPath, JSON.stringify(meta));
 
-		// Trigger full reload when dependencies or asset settings change so the preview rebundles
-		if (dependenciesChanged || assetSettingsChanged) {
+		// Update asset settings in wrangler.jsonc if provided
+		if (parsed.data.assetSettings !== undefined) {
+			await writeAssetSettings(projectRoot, parsed.data.assetSettings);
+		}
+
+		// Regenerate all protected files to keep them in sync
+		if (parsed.data.name || parsed.data.assetSettings !== undefined) {
+			await regenerateProtectedFiles(projectRoot);
+		}
+
+		// Trigger full reload when asset settings change so the preview rebundles
+		if (parsed.data.assetSettings !== undefined) {
 			const projectId = c.get('projectId');
 			const coordinatorStub = coordinatorNamespace.getByName(`project:${projectId}`);
 			await coordinatorStub.triggerUpdate({
 				type: 'full-reload',
-				path: '/.project-meta.json',
+				path: '/wrangler.jsonc',
 				timestamp: Date.now(),
 				isCSS: false,
 			});
 		}
 
-		return c.json(meta);
+		const name = await readProjectName(projectRoot);
+		const assetSettings = await readAssetSettings(projectRoot);
+		return c.json({ name, humanId: name, assetSettings });
+	})
+
+	// GET /api/dependencies - Read dependencies from package.json
+	.get('/dependencies', async (c) => {
+		const projectRoot = c.get('projectRoot');
+		const dependencies = await readDependencies(projectRoot);
+		return c.json({ dependencies });
+	})
+
+	// PUT /api/dependencies - Update dependencies in package.json
+	.put('/dependencies', zValidator('json', dependenciesUpdateSchema), async (c) => {
+		const projectRoot = c.get('projectRoot');
+		const projectId = c.get('projectId');
+		const { dependencies } = c.req.valid('json');
+		await writeDependencies(projectRoot, dependencies);
+
+		// Regenerate all protected files so vite.config.ts, devDependencies, etc. stay in sync
+		await regenerateProtectedFiles(projectRoot);
+
+		// Trigger full reload so the preview rebundles with new dependencies
+		const coordinatorStub = coordinatorNamespace.getByName(`project:${projectId}`);
+		await coordinatorStub.triggerUpdate({
+			type: 'full-reload',
+			path: '/package.json',
+			timestamp: Date.now(),
+			isCSS: false,
+		});
+
+		return c.json({ dependencies });
+	})
+
+	// GET /api/project/visibility - Get preview visibility
+	.get('/project/visibility', async (c) => {
+		const projectId = c.get('projectId');
+		const { drizzle } = await import('drizzle-orm/d1');
+		const { eq } = await import('drizzle-orm');
+		const schema = await import('../db/auth-schema');
+		const database = drizzle(c.env.DB);
+		const rows = await database
+			.select({ previewVisibility: schema.project.previewVisibility })
+			.from(schema.project)
+			.where(eq(schema.project.id, projectId))
+			.limit(1);
+		const visibility = rows[0]?.previewVisibility ?? 'public';
+		return c.json({ visibility });
+	})
+
+	// PUT /api/project/visibility - Update preview visibility
+	.put('/project/visibility', async (c) => {
+		const projectId = c.get('projectId');
+		const body = await c.req.json<{ visibility: string }>();
+		if (body.visibility !== 'public' && body.visibility !== 'private') {
+			throw httpError(HttpErrorCode.VALIDATION_ERROR, 'Visibility must be "public" or "private".');
+		}
+		const { drizzle } = await import('drizzle-orm/d1');
+		const { eq } = await import('drizzle-orm');
+		const schema = await import('../db/auth-schema');
+		const database = drizzle(c.env.DB);
+		await database
+			.update(schema.project)
+			.set({ previewVisibility: body.visibility, updatedAt: new Date() })
+			.where(eq(schema.project.id, projectId));
+		return c.json({ visibility: body.visibility });
 	})
 
 	// GET /api/download - Download project as deployable zip
@@ -85,119 +148,10 @@ export const projectRoutes = new Hono<AppEnvironment>()
 		const projectRoot = c.get('projectRoot');
 		const projectFiles = await collectFilesForBundle(projectRoot);
 		delete projectFiles['.initialized'];
-		delete projectFiles['.project-meta.json'];
 
-		let projectName = 'my-worker-app';
-		let registeredDependencies: Record<string, string> = {};
-		let assetSettings: AssetSettings | undefined;
+		const projectName = await readProjectName(projectRoot);
 
-		// Read project metadata for name, dependencies, and asset settings
-		try {
-			const metaRaw = await fs.readFile(`${projectRoot}/.project-meta.json`, 'utf8');
-			const meta: ProjectMeta = JSON.parse(metaRaw);
-			projectName = meta.name || meta.humanId || projectName;
-			registeredDependencies = meta.dependencies ?? {};
-			assetSettings = meta.assetSettings;
-		} catch {
-			// Fall back to defaults
-		}
-
-		const hasReact = 'react' in registeredDependencies;
-		const hasTypeScript = Object.keys(projectFiles).some((f) => f.endsWith('.ts') || f.endsWith('.tsx'));
-		const hasTests = Object.keys(projectFiles).some((f) => f.includes('.test.') || f.includes('.spec.') || f.startsWith('test/'));
-
-		const devDependencies: Record<string, string> = {
-			'@cloudflare/vite-plugin': '^1.0.0',
-			vite: '^6.0.0',
-			wrangler: '^4.0.0',
-		};
-		if (hasReact) {
-			devDependencies['@types/react'] = '^19.0.0';
-			devDependencies['@types/react-dom'] = '^19.0.0';
-			devDependencies['@vitejs/plugin-react'] = '^4.0.0';
-		}
-		if (hasTypeScript) {
-			devDependencies.typescript = '^5.0.0';
-		}
-		if (hasTests) {
-			devDependencies.vitest = '^3.0.0';
-		}
-
-		const scripts: Record<string, string> = {
-			dev: 'vite dev',
-			build: 'vite build',
-			deploy: 'vite build && wrangler deploy',
-		};
-		if (hasTests) {
-			scripts.test = 'vitest run';
-		}
-
-		const packageJson: Record<string, unknown> = {
-			name: projectName,
-			type: 'module',
-			scripts,
-			dependencies: registeredDependencies,
-			devDependencies,
-		};
-
-		const zipFiles: Record<string, string> = {};
-
-		for (const [filePath, content] of Object.entries(projectFiles)) {
-			if (filePath === 'package.json') continue;
-			zipFiles[filePath] = content;
-		}
-
-		zipFiles['package.json'] = JSON.stringify(packageJson, undefined, 2);
-
-		const assetsConfig = resolveAssetSettings(assetSettings);
-
-		zipFiles['wrangler.jsonc'] = JSON.stringify(
-			{
-				$schema: 'node_modules/wrangler/config-schema.json',
-				name: projectName,
-				main: 'worker/index.ts',
-				compatibility_date: WORKERS_COMPATIBILITY_DATE,
-				assets: assetsConfig,
-				observability: {
-					enabled: true,
-				},
-			},
-			undefined,
-			'\t',
-		);
-
-		const viteImports = ["import { cloudflare } from '@cloudflare/vite-plugin';"];
-		const vitePlugins = ['cloudflare()'];
-		if (hasReact) {
-			viteImports.unshift("import react from '@vitejs/plugin-react';");
-			vitePlugins.unshift('react()');
-		}
-
-		zipFiles['vite.config.ts'] = [
-			...viteImports,
-			"import { defineConfig } from 'vite';",
-			'',
-			'export default defineConfig({',
-			`\tplugins: [${vitePlugins.join(', ')}],`,
-			'});',
-			'',
-		].join('\n');
-
-		if (hasTests) {
-			zipFiles['vitest.config.ts'] = [
-				"import { defineConfig } from 'vitest/config';",
-				'',
-				'export default defineConfig({',
-				'\ttest: {',
-				'\t\tglobals: true,',
-				"\t\tinclude: ['test/**/*.test.{js,ts,jsx,tsx}', 'src/**/*.test.{js,ts,jsx,tsx}'],",
-				'\t},',
-				'});',
-				'',
-			].join('\n');
-		}
-
-		const zip = createZip(zipFiles);
+		const zip = createZip(projectFiles);
 		return new Response(zip, {
 			headers: {
 				'Content-Type': 'application/zip',

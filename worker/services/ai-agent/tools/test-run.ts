@@ -572,14 +572,20 @@ async function loadTsconfigRaw(projectRoot: string): Promise<string | undefined>
 
 async function loadKnownDependencies(projectRoot: string): Promise<Map<string, string>> {
 	try {
-		const raw = await fs.readFile(`${projectRoot}/.project-meta.json`, 'utf8');
-		const meta: unknown = JSON.parse(raw);
-		if (meta && typeof meta === 'object' && 'dependencies' in meta && meta.dependencies && typeof meta.dependencies === 'object') {
-			const entries = Object.entries(meta.dependencies).filter((entry): entry is [string, string] => typeof entry[1] === 'string');
+		const raw = await fs.readFile(`${projectRoot}/package.json`, 'utf8');
+		const packageJson: unknown = JSON.parse(raw);
+		if (
+			packageJson &&
+			typeof packageJson === 'object' &&
+			'dependencies' in packageJson &&
+			packageJson.dependencies &&
+			typeof packageJson.dependencies === 'object'
+		) {
+			const entries = Object.entries(packageJson.dependencies).filter((entry): entry is [string, string] => typeof entry[1] === 'string');
 			return new Map(entries);
 		}
 	} catch {
-		// No meta file or parse error
+		// No package.json or parse error
 	}
 	return new Map();
 }

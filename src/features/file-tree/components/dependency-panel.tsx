@@ -10,7 +10,7 @@ import { useCallback, useMemo, useRef, useState } from 'react';
 
 import { toast } from '@/components/ui/toast-store';
 import { removeInvalid, removeMissing, useDependencyErrors } from '@/features/file-tree/dependency-error-store';
-import { fetchProjectMeta, updateDependencies } from '@/lib/api-client';
+import { fetchDependencies, updateDependencies } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
 import { validateDependencyName, validateDependencyVersion } from '@shared/validation';
 
@@ -52,31 +52,29 @@ function DependencyPanel({ projectId, collapsed = false, onToggle, className }: 
 	// Read dependency errors from the global store (active even when this component is unmounted)
 	const { missing: missingDependencies, invalid: invalidDependencies } = useDependencyErrors();
 
-	// Load dependencies from project meta via React Query
-	const metaQuery = useQuery({
-		queryKey: ['project-meta-deps', projectId],
-		queryFn: () => fetchProjectMeta(projectId),
+	// Load dependencies from package.json via React Query
+	const depsQuery = useQuery({
+		queryKey: ['project-deps', projectId],
+		queryFn: () => fetchDependencies(projectId),
 		staleTime: 1000 * 30,
 	});
 	const dependencies = useMemo(() => {
-		const dependencyRecord = metaQuery.data?.dependencies ?? {};
+		const dependencyRecord = depsQuery.data ?? {};
 		return Object.entries(dependencyRecord)
-			.map(([name, version]) => ({ name, version }))
+			.map(([name, version]) => ({ name, version: String(version) }))
 			.toSorted((a, b) => a.name.localeCompare(b.name));
-	}, [metaQuery.data?.dependencies]);
+	}, [depsQuery.data]);
 
 	const saveDependencies = useCallback(
 		async (entries: DependencyEntry[]) => {
-			const queryKey = ['project-meta-deps', projectId];
+			const queryKey = ['project-deps', projectId];
 			const previousData = queryClient.getQueryData(queryKey);
 			// Optimistic update: write new dependencies into the query cache
 			const newRecord: Record<string, string> = {};
 			for (const entry of entries) {
 				newRecord[entry.name] = entry.version;
 			}
-			queryClient.setQueryData(queryKey, (old: Awaited<ReturnType<typeof fetchProjectMeta>> | undefined) =>
-				old ? { ...old, dependencies: newRecord } : old,
-			);
+			queryClient.setQueryData(queryKey, () => newRecord);
 			setIsLoading(true);
 			try {
 				await updateDependencies(projectId, newRecord);

@@ -138,17 +138,28 @@ export async function deleteProject(organizationId: string, projectId: string): 
 }
 
 /**
- * Fetch project metadata (name, humanId, dependencies, assetSettings).
+ * Fetch project metadata (name, humanId, assetSettings).
  */
-export async function fetchProjectMeta(
-	projectId: string,
-): Promise<{ name: string; humanId: string; dependencies?: Record<string, string>; assetSettings?: AssetSettings }> {
+export async function fetchProjectMeta(projectId: string): Promise<{ name: string; humanId: string; assetSettings?: AssetSettings }> {
 	const api = createApiClient(projectId);
 	const response = await api.project.meta.$get({});
 	if (!response.ok) {
 		await throwApiError(response, 'Failed to fetch project meta');
 	}
 	return response.json();
+}
+
+/**
+ * Fetch project dependencies from package.json.
+ */
+export async function fetchDependencies(projectId: string): Promise<Record<string, string>> {
+	const api = createApiClient(projectId);
+	const response = await api.dependencies.$get({});
+	if (!response.ok) {
+		throw new Error('Failed to fetch dependencies');
+	}
+	const data = await response.json();
+	return data.dependencies;
 }
 
 /**
@@ -164,18 +175,16 @@ export async function updateProjectMeta(projectId: string, name: string): Promis
 }
 
 /**
- * Update project dependencies.
+ * Update project dependencies in package.json.
  */
-export async function updateDependencies(
-	projectId: string,
-	dependencies: Record<string, string>,
-): Promise<{ name: string; humanId: string; dependencies?: Record<string, string> }> {
+export async function updateDependencies(projectId: string, dependencies: Record<string, string>): Promise<Record<string, string>> {
 	const api = createApiClient(projectId);
-	const response = await api.project.meta.$put({ json: { dependencies } });
+	const response = await api.dependencies.$put({ json: { dependencies } });
 	if (!response.ok) {
-		await throwApiError(response, 'Failed to update dependencies');
+		throw new Error('Failed to update dependencies');
 	}
-	return response.json();
+	const data = await response.json();
+	return data.dependencies;
 }
 
 /**

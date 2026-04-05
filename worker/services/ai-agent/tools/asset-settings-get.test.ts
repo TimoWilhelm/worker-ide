@@ -1,6 +1,6 @@
 /**
  * Tests for the asset_settings_get tool.
- * Verifies reading asset routing settings from .project-meta.json.
+ * Verifies reading asset routing settings from wrangler.jsonc.
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -16,8 +16,10 @@ function context() {
 	return createMockContext({ projectRoot: PROJECT_ROOT });
 }
 
-function seedMeta(meta: Record<string, unknown>) {
-	memoryFs.seedFile(`${PROJECT_ROOT}/.project-meta.json`, JSON.stringify(meta));
+function seedWrangler(assetSettings?: Record<string, unknown>) {
+	if (assetSettings) {
+		memoryFs.seedFile(`${PROJECT_ROOT}/wrangler.jsonc`, JSON.stringify({ assets: assetSettings }));
+	}
 }
 
 describe('asset_settings_get', () => {
@@ -30,7 +32,7 @@ describe('asset_settings_get', () => {
 	});
 
 	it('returns default settings when no asset settings are configured', async () => {
-		seedMeta({ name: 'test', humanId: 'test' });
+		seedWrangler();
 
 		const sendEvent = createMockSendEvent();
 		const result = await execute({}, sendEvent, context());
@@ -48,14 +50,10 @@ describe('asset_settings_get', () => {
 	});
 
 	it('returns configured asset settings', async () => {
-		seedMeta({
-			name: 'test',
-			humanId: 'test',
-			assetSettings: {
-				not_found_handling: 'single-page-application',
-				html_handling: 'force-trailing-slash',
-				run_worker_first: ['/api/*', '!/api/docs/*'],
-			},
+		seedWrangler({
+			not_found_handling: 'single-page-application',
+			html_handling: 'force-trailing-slash',
+			run_worker_first: ['/api/*', '!/api/docs/*'],
 		});
 
 		const sendEvent = createMockSendEvent();
@@ -74,11 +72,7 @@ describe('asset_settings_get', () => {
 	});
 
 	it('returns run_worker_first as boolean when set to true', async () => {
-		seedMeta({
-			name: 'test',
-			humanId: 'test',
-			assetSettings: { run_worker_first: true },
-		});
+		seedWrangler({ run_worker_first: true });
 
 		const sendEvent = createMockSendEvent();
 		const result = await execute({}, sendEvent, context());
@@ -86,7 +80,7 @@ describe('asset_settings_get', () => {
 		expect(result.output).toContain('run_worker_first: true');
 	});
 
-	it('returns defaults when no meta file exists', async () => {
+	it('returns defaults when no wrangler.jsonc exists', async () => {
 		const sendEvent = createMockSendEvent();
 		const result = await execute({}, sendEvent, context());
 

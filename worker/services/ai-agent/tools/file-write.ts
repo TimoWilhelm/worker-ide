@@ -6,7 +6,7 @@
 
 import fs from 'node:fs/promises';
 
-import { MAX_DIAGNOSTICS_PER_FILE } from '@shared/constants';
+import { MAX_DIAGNOSTICS_PER_FILE, isProtectedSystemFile } from '@shared/constants';
 import { ToolErrorCode, toolError } from '@shared/tool-errors';
 import { createHmrUpdateForFile } from '@shared/types';
 import { coordinatorNamespace } from '@worker/lib/durable-object-namespaces';
@@ -70,11 +70,11 @@ export async function execute(
 		return toolError(ToolErrorCode.INVALID_PATH, `Access denied: ${writePath}`);
 	}
 
-	// Prevent direct package.json creation
-	if (writePath === '/package.json') {
+	// Prevent editing protected system files (package.json, wrangler.jsonc, vite.config.ts, vitest.config.ts)
+	if (isProtectedSystemFile(writePath)) {
 		return toolError(
 			ToolErrorCode.NOT_ALLOWED,
-			'Cannot create package.json directly. Dependencies are managed at the project level. Use the dependencies_update tool to add, remove, or update dependencies.',
+			`Cannot edit ${writePath} directly. This file is managed by the IDE. Use the dependencies_update tool for package.json dependencies, or the asset_settings_update tool for wrangler.jsonc settings.`,
 		);
 	}
 

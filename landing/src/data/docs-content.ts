@@ -156,7 +156,7 @@ export const docsTopics: DocsTopic[] = [
 				nodes: [
 					{ id: 'dr-source', name: 'Source Code', detail: 'import "react"', color: 'text' },
 					{ id: 'dr-vfs-plugin', name: 'VirtualFsPlugin', detail: 'bare import check', color: 'yellow' },
-					{ id: 'dr-project-meta', name: '.project-meta.json', detail: 'dependencies map', color: 'magenta' },
+					{ id: 'dr-project-meta', name: 'package.json', detail: 'dependencies map', color: 'magenta' },
 					{ id: 'dr-esm-cdn-plugin', name: 'EsmCdnPlugin', detail: 'onLoad handler', color: 'cyan' },
 					{ id: 'dr-esm-cdn', name: 'esm.sh CDN', detail: 'react@19.0.0', color: 'cyan' },
 					{ id: 'dr-esbuild', name: 'esbuild-wasm', detail: 'bundleWithCdn()', color: 'yellow' },
@@ -171,7 +171,7 @@ export const docsTopics: DocsTopic[] = [
 			},
 		],
 		notes: [
-			'Dependencies are managed via <code>.project-meta.json</code> instead of <code>package.json</code>. Unregistered imports trigger an error prompting users to add the dependency via the Dependencies panel.',
+			'Dependencies are managed via <code>package.json</code>. Unregistered imports trigger an error prompting users to add the dependency via the Dependencies panel.',
 		],
 	},
 

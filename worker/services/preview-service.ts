@@ -119,13 +119,13 @@ export class PreviewService {
 	) {}
 
 	/**
-	 * Load asset settings from .project-meta.json.
+	 * Load asset settings from wrangler.jsonc.
 	 */
 	async loadAssetSettings(): Promise<ResolvedAssetSettings> {
 		try {
-			const raw = await fs.readFile(`${this.projectRoot}/.project-meta.json`, 'utf8');
-			const meta = JSON.parse(raw);
-			return resolveAssetSettings(meta.assetSettings);
+			const raw = await fs.readFile(`${this.projectRoot}/wrangler.jsonc`, 'utf8');
+			const wrangler: { assets?: Record<string, unknown> } = JSON.parse(stripJsonComments(raw));
+			return resolveAssetSettings(wrangler.assets);
 		} catch {
 			return resolveAssetSettings();
 		}
@@ -608,13 +608,13 @@ export class PreviewService {
 
 	private async loadKnownDependencies(): Promise<Map<string, string>> {
 		try {
-			const raw = await fs.readFile(`${this.projectRoot}/.project-meta.json`, 'utf8');
-			const meta = JSON.parse(raw);
-			if (meta.dependencies && typeof meta.dependencies === 'object') {
-				return new Map(Object.entries(meta.dependencies));
+			const raw = await fs.readFile(`${this.projectRoot}/package.json`, 'utf8');
+			const packageJson: { dependencies?: Record<string, string> } = JSON.parse(raw);
+			if (packageJson.dependencies && typeof packageJson.dependencies === 'object') {
+				return new Map(Object.entries(packageJson.dependencies));
 			}
 		} catch {
-			// No meta file or parse error
+			// No package.json or parse error
 		}
 		return new Map();
 	}

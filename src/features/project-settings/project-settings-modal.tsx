@@ -1,21 +1,20 @@
 /**
  * Project Settings Modal
  *
- * Modal dialog for configuring Cloudflare Workers asset routing settings.
- * Controls not_found_handling, html_handling, and run_worker_first.
+ * Modal dialog for project-level meta settings.
+ * Currently controls preview visibility (public/private).
+ * Asset routing settings have moved to the inline wrangler.jsonc editor panel.
  */
 
-import { useSuspenseQuery } from '@tanstack/react-query';
-import { ChevronDown } from 'lucide-react';
-import { Suspense, useCallback, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { Eye, EyeOff } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
 
-import { ErrorBoundary } from '@/components/error-boundary';
 import { Button } from '@/components/ui/button';
 import { Modal, ModalBody, ModalFooter } from '@/components/ui/modal';
-import { fetchProjectMeta, updateAssetSettings } from '@/lib/api-client';
+import { Spinner } from '@/components/ui/spinner';
+import { throwApiError } from '@/lib/api-error';
 import { cn } from '@/lib/utils';
-
-import type { AssetSettings, HtmlHandling, NotFoundHandling } from '@shared/types';
 
 // =============================================================================
 // Types
@@ -27,180 +26,67 @@ interface ProjectSettingsModalProperties {
 	projectId: string;
 }
 
-type RunWorkerFirstMode = 'off' | 'all' | 'patterns';
+type Visibility = 'public' | 'private';
 
 // =============================================================================
-// Constants
+// API helpers (raw fetch — project-scoped endpoints)
 // =============================================================================
 
-const NOT_FOUND_HANDLING_OPTIONS: Array<{ value: NotFoundHandling; label: string; description: string }> = [
-	{ value: 'none', label: 'None', description: 'Return 404 for unmatched requests (default)' },
-	{
-		value: 'single-page-application',
-		label: 'Single Page Application',
-		description: 'Serve index.html for unmatched requests',
-	},
-	{ value: '404-page', label: '404 Page', description: 'Serve nearest 404.html with 404 status' },
-];
-
-const HTML_HANDLING_OPTIONS: Array<{ value: HtmlHandling; label: string; description: string }> = [
-	{
-		value: 'auto-trailing-slash',
-		label: 'Auto Trailing Slash',
-		description: 'Automatically add or remove trailing slashes (default)',
-	},
-	{
-		value: 'force-trailing-slash',
-		label: 'Force Trailing Slash',
-		description: 'Always redirect to URLs with trailing slash',
-	},
-	{
-		value: 'drop-trailing-slash',
-		label: 'Drop Trailing Slash',
-		description: 'Always redirect to URLs without trailing slash',
-	},
-	{ value: 'none', label: 'None', description: 'No trailing slash redirects' },
-];
-
-const INPUT_CLASSES = cn(
-	`
-		h-8 rounded-sm border border-border bg-bg-primary px-2.5 text-sm
-		text-text-primary
-	`,
-	'placeholder:text-text-secondary/50',
-	'focus:border-accent focus:outline-none',
-	'disabled:opacity-50',
-);
-
-// =============================================================================
-// Helpers
-// =============================================================================
-
-function getRunWorkerFirstMode(runWorkerFirst: boolean | string[] | undefined): RunWorkerFirstMode {
-	if (runWorkerFirst === true) return 'all';
-	if (Array.isArray(runWorkerFirst) && runWorkerFirst.length > 0) return 'patterns';
-	return 'off';
+async function fetchVisibility(projectId: string): Promise<Visibility> {
+	const response = await fetch(`/p/${projectId}/api/project/visibility`);
+	if (!response.ok) {
+		await throwApiError(response, 'Failed to fetch visibility');
+	}
+	const data: { visibility: string } = await response.json();
+	return data.visibility === 'private' ? 'private' : 'public';
 }
 
-function getRunWorkerFirstPatterns(runWorkerFirst: boolean | string[] | undefined): string {
-	if (Array.isArray(runWorkerFirst)) return runWorkerFirst.join('\n');
-	return '';
-}
-
-const HTML_HANDLING_MAP: Record<string, HtmlHandling> = {
-	'auto-trailing-slash': 'auto-trailing-slash',
-	'force-trailing-slash': 'force-trailing-slash',
-	'drop-trailing-slash': 'drop-trailing-slash',
-	none: 'none',
-};
-
-function parseHtmlHandling(value: string): HtmlHandling {
-	return HTML_HANDLING_MAP[value] ?? 'auto-trailing-slash';
-}
-
-// =============================================================================
-// Error Fallback
-// =============================================================================
-
-function SettingsErrorFallback({ resetErrorBoundary }: { error: Error; resetErrorBoundary: () => void }) {
-	return (
-		<ModalBody className="flex h-[460px] flex-col items-center justify-center gap-3">
-			<p className="text-sm text-text-secondary">Could not load project settings.</p>
-			<Button variant="outline" size="sm" onClick={resetErrorBoundary}>
-				Retry
-			</Button>
-		</ModalBody>
-	);
+async function updateVisibility(projectId: string, visibility: Visibility): Promise<void> {
+	const response = await fetch(`/p/${projectId}/api/project/visibility`, {
+		method: 'PUT',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ visibility }),
+	});
+	if (!response.ok) {
+		await throwApiError(response, 'Failed to update visibility');
+	}
 }
 
 // =============================================================================
 // Component
 // =============================================================================
 
-/**
- * Outer wrapper that handles modal open/close state.
- * Renders content only when open for fresh state on each mount.
- */
 export function ProjectSettingsModal({ open, onOpenChange, projectId }: ProjectSettingsModalProperties) {
 	return (
-		<Modal open={open} onOpenChange={onOpenChange} title="Project Settings" className="w-[480px]">
-			{open && (
-				<ErrorBoundary fallback={SettingsErrorFallback}>
-					<Suspense
-						fallback={
-							<ModalBody className="flex h-[460px] items-center justify-center">
-								<p className="text-sm text-text-secondary">Loading settings...</p>
-							</ModalBody>
-						}
-					>
-						<ProjectSettingsContent onOpenChange={onOpenChange} projectId={projectId} />
-					</Suspense>
-				</ErrorBoundary>
-			)}
+		<Modal open={open} onOpenChange={onOpenChange} title="Project Settings" className="w-[420px]">
+			{open && <ProjectSettingsContent onOpenChange={onOpenChange} projectId={projectId} />}
 		</Modal>
 	);
 }
 
-/**
- * Inner content that holds form state.
- * Remounts each time the modal opens, so state is always fresh.
- */
 function ProjectSettingsContent({ onOpenChange, projectId }: { onOpenChange: (open: boolean) => void; projectId: string }) {
 	const [isSaving, setIsSaving] = useState(false);
 	const [error, setError] = useState<string | undefined>();
 
-	// Load current settings via React Query (suspends until data is available)
-	const settingsQuery = useSuspenseQuery({
-		queryKey: ['project-settings', projectId],
-		queryFn: () => fetchProjectMeta(projectId),
+	const visibilityQuery = useQuery({
+		queryKey: ['project-visibility', projectId],
+		queryFn: () => fetchVisibility(projectId),
 		staleTime: 0,
 	});
-	const loadedSettings = settingsQuery.data.assetSettings;
 
-	// Asset settings form state — initialized from loaded data
-	const [notFoundHandling, setNotFoundHandling] = useState<NotFoundHandling>(() => loadedSettings?.not_found_handling ?? 'none');
-	const [htmlHandling, setHtmlHandling] = useState<HtmlHandling>(() => loadedSettings?.html_handling ?? 'auto-trailing-slash');
-	const [runWorkerFirstMode, setRunWorkerFirstMode] = useState<RunWorkerFirstMode>(() =>
-		getRunWorkerFirstMode(loadedSettings?.run_worker_first),
-	);
-	const [runWorkerFirstPatterns, setRunWorkerFirstPatterns] = useState(() => getRunWorkerFirstPatterns(loadedSettings?.run_worker_first));
+	const [visibility, setVisibility] = useState<Visibility>('public');
 
-	const displayError = error;
+	useEffect(() => {
+		if (visibilityQuery.data) {
+			setVisibility(visibilityQuery.data);
+		}
+	}, [visibilityQuery.data]);
 
 	const handleSave = useCallback(async () => {
 		setIsSaving(true);
 		setError(undefined);
-
 		try {
-			const assetSettings: AssetSettings = {};
-
-			// Only include non-default values
-			if (notFoundHandling !== 'none') {
-				assetSettings.not_found_handling = notFoundHandling;
-			}
-			if (htmlHandling !== 'auto-trailing-slash') {
-				assetSettings.html_handling = htmlHandling;
-			}
-
-			if (runWorkerFirstMode === 'all') {
-				assetSettings.run_worker_first = true;
-			} else if (runWorkerFirstMode === 'patterns') {
-				const patterns = runWorkerFirstPatterns
-					.split('\n')
-					.map((p) => p.trim())
-					.filter(Boolean);
-				const invalidPattern = patterns.find((p) => !p.startsWith('/') && !p.startsWith('!/'));
-				if (invalidPattern) {
-					setError(`Invalid route pattern: "${invalidPattern}". Patterns must begin with / or !/`);
-					setIsSaving(false);
-					return;
-				}
-				if (patterns.length > 0) {
-					assetSettings.run_worker_first = patterns;
-				}
-			}
-
-			await updateAssetSettings(projectId, assetSettings);
+			await updateVisibility(projectId, visibility);
 			onOpenChange(false);
 		} catch (error) {
 			const message = error instanceof Error ? error.message : 'Failed to save settings';
@@ -208,83 +94,28 @@ function ProjectSettingsContent({ onOpenChange, projectId }: { onOpenChange: (op
 		} finally {
 			setIsSaving(false);
 		}
-	}, [projectId, notFoundHandling, htmlHandling, runWorkerFirstMode, runWorkerFirstPatterns, onOpenChange]);
+	}, [projectId, visibility, onOpenChange]);
+
+	if (visibilityQuery.isLoading) {
+		return (
+			<ModalBody className="flex h-40 items-center justify-center">
+				<Spinner size="md" />
+			</ModalBody>
+		);
+	}
 
 	return (
 		<>
-			<ModalBody className="flex h-[460px] flex-col gap-5 overflow-y-auto">
-				{displayError && (
-					<div className="rounded-md border border-red-500/30 bg-red-500/10 p-2.5">
-						<p className="text-xs text-red-500">{displayError}</p>
+			<ModalBody className="flex flex-col gap-4">
+				{error && (
+					<div className="rounded-sm border border-red-500/30 bg-red-500/10 p-2.5">
+						<p className="text-xs text-red-500">{error}</p>
 					</div>
 				)}
 
-				{/* Not Found Handling */}
 				<fieldset className="flex flex-col gap-2">
-					<legend className="text-xs font-medium text-text-secondary">Not Found Handling</legend>
-					<p className="text-xs text-text-secondary/70">Controls what happens when a request doesn't match any static asset.</p>
-					<div className="flex flex-col gap-1.5">
-						{NOT_FOUND_HANDLING_OPTIONS.map((option) => (
-							<label
-								key={option.value}
-								className={cn(
-									`
-										flex cursor-pointer items-start gap-2.5 rounded-sm border p-2.5
-										transition-colors
-									`,
-									notFoundHandling === option.value ? 'border-accent bg-accent/5' : 'border-border hover:border-accent/50',
-								)}
-								htmlFor={`nfh-${option.value}`}
-							>
-								<input
-									id={`nfh-${option.value}`}
-									type="radio"
-									name="not-found-handling"
-									value={option.value}
-									checked={notFoundHandling === option.value}
-									onChange={() => setNotFoundHandling(option.value)}
-									className="mt-0.5 accent-accent"
-								/>
-								<div className="flex flex-col gap-0.5">
-									<span className="text-xs font-medium text-text-primary">{option.label}</span>
-									<span className="text-xs text-text-secondary/70">{option.description}</span>
-								</div>
-							</label>
-						))}
-					</div>
-				</fieldset>
-
-				{/* HTML Handling */}
-				<fieldset className="flex flex-col gap-2">
-					<legend className="text-xs font-medium text-text-secondary">HTML Handling</legend>
-					<p className="text-xs text-text-secondary/70">Controls trailing slash behavior for HTML page requests.</p>
-					<div className="relative">
-						<select
-							value={htmlHandling}
-							onChange={(event) => setHtmlHandling(parseHtmlHandling(event.target.value))}
-							className={cn(INPUT_CLASSES, 'w-full appearance-none pr-7')}
-							aria-label="HTML handling mode"
-						>
-							{HTML_HANDLING_OPTIONS.map((option) => (
-								<option key={option.value} value={option.value}>
-									{option.label}
-								</option>
-							))}
-						</select>
-						<ChevronDown
-							className="
-								pointer-events-none absolute top-1/2 right-2 size-3.5 -translate-y-1/2
-								text-text-secondary
-							"
-						/>
-					</div>
-					<p className="text-xs text-text-secondary/70">{HTML_HANDLING_OPTIONS.find((o) => o.value === htmlHandling)?.description}</p>
-				</fieldset>
-
-				{/* Run Worker First */}
-				<fieldset className="flex flex-col gap-2">
-					<legend className="text-xs font-medium text-text-secondary">Run Worker First</legend>
-					<p className="text-xs text-text-secondary/70">Controls whether the Worker script runs before serving static assets.</p>
+					<legend className="text-xs font-medium text-text-secondary">Preview Visibility</legend>
+					<p className="text-xs text-text-secondary/70">Controls who can access the live preview of this project.</p>
 					<div className="flex flex-col gap-1.5">
 						<label
 							className={cn(
@@ -292,22 +123,29 @@ function ProjectSettingsContent({ onOpenChange, projectId }: { onOpenChange: (op
 									flex cursor-pointer items-start gap-2.5 rounded-sm border p-2.5
 									transition-colors
 								`,
-								runWorkerFirstMode === 'off' ? 'border-accent bg-accent/5' : 'border-border hover:border-accent/50',
+								visibility === 'public' ? 'border-accent bg-accent/5' : 'border-border hover:border-accent/50',
 							)}
-							htmlFor="rwf-off"
+							htmlFor="vis-public"
 						>
 							<input
-								id="rwf-off"
+								id="vis-public"
 								type="radio"
-								name="run-worker-first"
-								value="off"
-								checked={runWorkerFirstMode === 'off'}
-								onChange={() => setRunWorkerFirstMode('off')}
+								name="visibility"
+								value="public"
+								checked={visibility === 'public'}
+								onChange={() => setVisibility('public')}
 								className="mt-0.5 accent-accent"
 							/>
 							<div className="flex flex-col gap-0.5">
-								<span className="text-xs font-medium text-text-primary">Off</span>
-								<span className="text-xs text-text-secondary/70">Serve static assets first (default)</span>
+								<span
+									className="
+										flex items-center gap-1.5 text-xs font-medium text-text-primary
+									"
+								>
+									<Eye className="size-3.5" />
+									Public
+								</span>
+								<span className="text-xs text-text-secondary/70">Anyone with the link can view the preview.</span>
 							</div>
 						</label>
 						<label
@@ -316,69 +154,32 @@ function ProjectSettingsContent({ onOpenChange, projectId }: { onOpenChange: (op
 									flex cursor-pointer items-start gap-2.5 rounded-sm border p-2.5
 									transition-colors
 								`,
-								runWorkerFirstMode === 'all' ? 'border-accent bg-accent/5' : 'border-border hover:border-accent/50',
+								visibility === 'private' ? 'border-accent bg-accent/5' : 'border-border hover:border-accent/50',
 							)}
-							htmlFor="rwf-all"
+							htmlFor="vis-private"
 						>
 							<input
-								id="rwf-all"
+								id="vis-private"
 								type="radio"
-								name="run-worker-first"
-								value="all"
-								checked={runWorkerFirstMode === 'all'}
-								onChange={() => setRunWorkerFirstMode('all')}
+								name="visibility"
+								value="private"
+								checked={visibility === 'private'}
+								onChange={() => setVisibility('private')}
 								className="mt-0.5 accent-accent"
 							/>
 							<div className="flex flex-col gap-0.5">
-								<span className="text-xs font-medium text-text-primary">All Requests</span>
-								<span className="text-xs text-text-secondary/70">Always run the Worker before serving assets</span>
-							</div>
-						</label>
-						<label
-							className={cn(
-								`
-									flex cursor-pointer items-start gap-2.5 rounded-sm border p-2.5
-									transition-colors
-								`,
-								runWorkerFirstMode === 'patterns' ? 'border-accent bg-accent/5' : 'border-border hover:border-accent/50',
-							)}
-							htmlFor="rwf-patterns"
-						>
-							<input
-								id="rwf-patterns"
-								type="radio"
-								name="run-worker-first"
-								value="patterns"
-								checked={runWorkerFirstMode === 'patterns'}
-								onChange={() => setRunWorkerFirstMode('patterns')}
-								className="mt-0.5 accent-accent"
-							/>
-							<div className="flex flex-col gap-0.5">
-								<span className="text-xs font-medium text-text-primary">Specific Routes</span>
-								<span className="text-xs text-text-secondary/70">Run the Worker first only for matching route patterns</span>
+								<span
+									className="
+										flex items-center gap-1.5 text-xs font-medium text-text-primary
+									"
+								>
+									<EyeOff className="size-3.5" />
+									Private
+								</span>
+								<span className="text-xs text-text-secondary/70">Only organization members can view the preview.</span>
 							</div>
 						</label>
 					</div>
-					{runWorkerFirstMode === 'patterns' && (
-						<div className="flex flex-col gap-1.5">
-							<textarea
-								value={runWorkerFirstPatterns}
-								onChange={(event) => setRunWorkerFirstPatterns(event.target.value)}
-								placeholder={'/api/*\n!/api/docs/*'}
-								rows={3}
-								className={cn(
-									`
-										resize-y rounded-sm border border-border bg-bg-primary px-2.5 py-2
-										font-mono text-xs text-text-primary
-									`,
-									'placeholder:text-text-secondary/50',
-									'focus:border-accent focus:outline-none',
-								)}
-								aria-label="Route patterns (one per line)"
-							/>
-							<p className="text-xs text-text-secondary/70">One pattern per line. Use * for wildcards. Prefix with ! to exclude.</p>
-						</div>
-					)}
 				</fieldset>
 			</ModalBody>
 			<ModalFooter>
@@ -386,7 +187,7 @@ function ProjectSettingsContent({ onOpenChange, projectId }: { onOpenChange: (op
 					Cancel
 				</Button>
 				<Button onClick={handleSave} disabled={isSaving} isLoading={isSaving} loadingText="Saving...">
-					Save Settings
+					Save
 				</Button>
 			</ModalFooter>
 		</>

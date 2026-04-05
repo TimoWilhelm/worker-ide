@@ -14,6 +14,7 @@
 
 import minimalGitignore from './fixtures/minimal/gitignore.txt?raw';
 import minimalIndexHtml from './fixtures/minimal/index.html?raw';
+import minimalPackageJson from './fixtures/minimal/package.json?raw';
 import minimalAppTsx from './fixtures/minimal/src/app.tsx?raw';
 import minimalMainTsx from './fixtures/minimal/src/main.tsx?raw';
 import minimalStyleCss from './fixtures/minimal/src/style.css?raw';
@@ -23,9 +24,13 @@ import minimalTestUtilitiesTs from './fixtures/minimal/test/utilities.test.ts?ra
 import minimalTsconfigApp from './fixtures/minimal/tsconfig.app.json?raw';
 import minimalTsconfig from './fixtures/minimal/tsconfig.json?raw';
 import minimalTsconfigWorker from './fixtures/minimal/tsconfig.worker.json?raw';
+import minimalViteConfig from './fixtures/minimal/vite.config.ts?raw';
+import minimalVitestConfig from './fixtures/minimal/vitest.config.ts?raw';
 import minimalWorkerIndexTs from './fixtures/minimal/worker/index.ts?raw';
+import minimalWranglerJsonc from './fixtures/minimal/wrangler.jsonc?raw';
 import requestInspectorGitignore from './fixtures/request-inspector/gitignore.txt?raw';
 import requestInspectorIndexHtml from './fixtures/request-inspector/index.html?raw';
+import requestInspectorPackageJson from './fixtures/request-inspector/package.json?raw';
 import requestInspectorAppTsx from './fixtures/request-inspector/src/app.tsx?raw';
 import requestInspectorMainTsx from './fixtures/request-inspector/src/main.tsx?raw';
 import requestInspectorStyleCss from './fixtures/request-inspector/src/style.css?raw';
@@ -35,7 +40,10 @@ import requestInspectorTestUtilitiesTs from './fixtures/request-inspector/test/u
 import requestInspectorTsconfigApp from './fixtures/request-inspector/tsconfig.app.json?raw';
 import requestInspectorTsconfig from './fixtures/request-inspector/tsconfig.json?raw';
 import requestInspectorTsconfigWorker from './fixtures/request-inspector/tsconfig.worker.json?raw';
+import requestInspectorViteConfig from './fixtures/request-inspector/vite.config.ts?raw';
+import requestInspectorVitestConfig from './fixtures/request-inspector/vitest.config.ts?raw';
 import requestInspectorWorkerIndexTs from './fixtures/request-inspector/worker/index.ts?raw';
+import requestInspectorWranglerJsonc from './fixtures/request-inspector/wrangler.jsonc?raw';
 
 import type { ProjectTemplateMeta } from '@shared/types';
 
@@ -48,17 +56,13 @@ import type { ProjectTemplateMeta } from '@shared/types';
 export interface ProjectTemplate extends ProjectTemplateMeta {
 	/** Map of relative file paths to file contents */
 	files: Record<string, string>;
-	/** npm dependencies for the template */
-	dependencies: Record<string, string>;
 }
 
 /**
  * Shape of each template's template.json file.
- * Contains display metadata and dependency information.
+ * Contains display metadata.
  */
-interface TemplateManifest extends ProjectTemplateMeta {
-	dependencies: Record<string, string>;
-}
+type TemplateManifest = ProjectTemplateMeta;
 
 // =============================================================================
 // Helper
@@ -76,7 +80,6 @@ function defineTemplate(metaRaw: string, files: Record<string, string>): Project
 		description: meta.description,
 		icon: meta.icon,
 		files,
-		dependencies: meta.dependencies,
 	};
 }
 
@@ -85,6 +88,10 @@ function defineTemplate(metaRaw: string, files: Record<string, string>): Project
 // =============================================================================
 
 const minimalTemplate = defineTemplate(minimalMetaRaw, {
+	'package.json': minimalPackageJson,
+	'wrangler.jsonc': minimalWranglerJsonc,
+	'vite.config.ts': minimalViteConfig,
+	'vitest.config.ts': minimalVitestConfig,
 	'tsconfig.json': minimalTsconfig,
 	'tsconfig.app.json': minimalTsconfigApp,
 	'tsconfig.worker.json': minimalTsconfigWorker,
@@ -99,6 +106,10 @@ const minimalTemplate = defineTemplate(minimalMetaRaw, {
 });
 
 const requestInspectorTemplate = defineTemplate(requestInspectorMetaRaw, {
+	'package.json': requestInspectorPackageJson,
+	'wrangler.jsonc': requestInspectorWranglerJsonc,
+	'vite.config.ts': requestInspectorViteConfig,
+	'vitest.config.ts': requestInspectorVitestConfig,
 	'tsconfig.json': requestInspectorTsconfig,
 	'tsconfig.app.json': requestInspectorTsconfigApp,
 	'tsconfig.worker.json': requestInspectorTsconfigWorker,

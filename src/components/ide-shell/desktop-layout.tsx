@@ -257,7 +257,12 @@ export function DesktopLayout({
 							{/* Editor area */}
 							<Panel id="editor" defaultSize={utilityPanelVisible ? '70%' : '100%'} minSize="30%">
 								<div className="flex h-full flex-col overflow-hidden">
-									<EditorArea resolvedTheme={resolvedTheme} editorState={editorState} onSelectFile={handleSelectFile} />
+									<EditorArea
+										projectId={projectId}
+										resolvedTheme={resolvedTheme}
+										editorState={editorState}
+										onSelectFile={handleSelectFile}
+									/>
 								</div>
 							</Panel>
 

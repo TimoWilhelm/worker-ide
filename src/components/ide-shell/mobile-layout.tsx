@@ -147,6 +147,7 @@ export function MobileLayout({
 				{activeMobilePanel === 'editor' && (
 					<div className="flex h-full flex-col overflow-hidden">
 						<EditorArea
+							projectId={projectId}
 							resolvedTheme={resolvedTheme}
 							editorState={editorState}
 							onSelectFile={handleMobileSelectFile}

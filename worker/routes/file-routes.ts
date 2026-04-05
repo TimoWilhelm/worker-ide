@@ -9,7 +9,7 @@ import { zValidator } from '@hono/zod-validator';
 import { Hono } from 'hono';
 import { z } from 'zod';
 
-import { HIDDEN_ENTRIES } from '@shared/constants';
+import { HIDDEN_ENTRIES, isProtectedSystemFile } from '@shared/constants';
 import { HttpErrorCode } from '@shared/http-errors';
 import { createHmrUpdateForFile } from '@shared/types';
 import { filePathSchema, writeFileSchema, mkdirSchema, moveFileSchema } from '@shared/validation';
@@ -61,11 +61,8 @@ export const fileRoutes = new Hono<AppEnvironment>()
 			throw httpError(HttpErrorCode.INVALID_PATH, 'Invalid path');
 		}
 
-		if (path === '/package.json') {
-			throw httpError(
-				HttpErrorCode.VALIDATION_ERROR,
-				'Dependencies are managed at the project level. Use the Dependencies panel in the sidebar.',
-			);
+		if (isProtectedSystemFile(path)) {
+			throw httpError(HttpErrorCode.VALIDATION_ERROR, 'This file is managed by the IDE and cannot be edited directly.');
 		}
 
 		// Ensure directory exists

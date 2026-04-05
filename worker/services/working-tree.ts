@@ -12,11 +12,10 @@
  * - computeBlobOid(): SHA-1 of "blob <size>\0<content>" for status comparison
  */
 
+import { HIDDEN_ENTRIES } from '@shared/constants';
+
 import type { TreeEntry, CommitFileEntry } from '@shared/git-types';
 import type { GitStatusEntry } from '@shared/types';
-
-/** Files to exclude from git status and commit operations. */
-const HIDDEN_ENTRIES = new Set(['.initialized', '.project-meta.json', '.agent', '.git']);
 
 /**
  * Compute the git blob OID for a file's content.

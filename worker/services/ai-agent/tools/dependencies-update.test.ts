@@ -40,9 +40,9 @@ function context() {
 	return createMockContext({ projectRoot: PROJECT_ROOT });
 }
 
-function seedMeta(dependencies: Record<string, string> = {}) {
-	const meta = { name: 'test', humanId: 'id-1', dependencies };
-	memoryFs.seedFile(`${PROJECT_ROOT}/.project-meta.json`, JSON.stringify(meta));
+function seedPackageJson(dependencies: Record<string, string> = {}) {
+	const packageJson = { name: 'test', type: 'module', dependencies };
+	memoryFs.seedFile(`${PROJECT_ROOT}/package.json`, JSON.stringify(packageJson));
 }
 
 // ---------------------------------------------------------------------------
@@ -58,7 +58,7 @@ describe('dependencies_update', () => {
 	// ── Add ───────────────────────────────────────────────────────────────
 
 	it('adds a new dependency with specified version', async () => {
-		seedMeta({});
+		seedPackageJson({});
 
 		const result = await execute({ action: 'add', name: 'hono', version: '^4.0.0' }, createMockSendEvent(), context());
 
@@ -68,7 +68,7 @@ describe('dependencies_update', () => {
 	});
 
 	it('adds a dependency with default * version when no version specified', async () => {
-		seedMeta({});
+		seedPackageJson({});
 
 		const result = await execute({ action: 'add', name: 'lodash' }, createMockSendEvent(), context());
 
@@ -77,7 +77,7 @@ describe('dependencies_update', () => {
 	});
 
 	it('rejects adding a duplicate dependency', async () => {
-		seedMeta({ react: '^18.0.0' });
+		seedPackageJson({ react: '^18.0.0' });
 
 		await expect(execute({ action: 'add', name: 'react' }, createMockSendEvent(), context())).rejects.toThrow('already exists');
 	});
@@ -85,7 +85,7 @@ describe('dependencies_update', () => {
 	// ── Remove ────────────────────────────────────────────────────────────
 
 	it('removes an existing dependency', async () => {
-		seedMeta({ react: '^18.0.0', hono: '^4.0.0' });
+		seedPackageJson({ react: '^18.0.0', hono: '^4.0.0' });
 
 		const result = await execute({ action: 'remove', name: 'react' }, createMockSendEvent(), context());
 
@@ -95,7 +95,7 @@ describe('dependencies_update', () => {
 	});
 
 	it('rejects removing a non-existent dependency', async () => {
-		seedMeta({ react: '^18.0.0' });
+		seedPackageJson({ react: '^18.0.0' });
 
 		await expect(execute({ action: 'remove', name: 'nonexistent' }, createMockSendEvent(), context())).rejects.toThrow('not registered');
 	});
@@ -103,7 +103,7 @@ describe('dependencies_update', () => {
 	// ── Update ────────────────────────────────────────────────────────────
 
 	it('updates version of an existing dependency', async () => {
-		seedMeta({ react: '^17.0.0' });
+		seedPackageJson({ react: '^17.0.0' });
 
 		const result = await execute({ action: 'update', name: 'react', version: '^18.0.0' }, createMockSendEvent(), context());
 
@@ -112,7 +112,7 @@ describe('dependencies_update', () => {
 	});
 
 	it('rejects updating a non-existent dependency', async () => {
-		seedMeta({});
+		seedPackageJson({});
 
 		await expect(execute({ action: 'update', name: 'missing', version: '^1.0.0' }, createMockSendEvent(), context())).rejects.toThrow(
 			'not registered',
@@ -121,67 +121,67 @@ describe('dependencies_update', () => {
 
 	// ── Edge cases ────────────────────────────────────────────────────────
 
-	it('returns error when no project metadata exists', async () => {
-		await expect(execute({ action: 'add', name: 'hono' }, createMockSendEvent(), context())).rejects.toThrow('No project metadata');
+	it('returns error when no package.json exists', async () => {
+		await expect(execute({ action: 'add', name: 'hono' }, createMockSendEvent(), context())).rejects.toThrow('No package.json');
 	});
 
 	it('returns error for missing package name', async () => {
-		seedMeta({});
+		seedPackageJson({});
 
 		await expect(execute({ action: 'add', name: '' }, createMockSendEvent(), context())).rejects.toThrow('name is required');
 	});
 
 	it('returns error for unknown action', async () => {
-		seedMeta({});
+		seedPackageJson({});
 
 		await expect(execute({ action: 'invalid_action', name: 'pkg' }, createMockSendEvent(), context())).rejects.toThrow('Unknown action');
 	});
 
 	// ── Persistence ───────────────────────────────────────────────────────
 
-	it('persists updated dependencies to .project-meta.json', async () => {
-		seedMeta({ existing: '1.0.0' });
+	it('persists updated dependencies to package.json', async () => {
+		seedPackageJson({ existing: '1.0.0' });
 
 		await execute({ action: 'add', name: 'new-pkg', version: '2.0.0' }, createMockSendEvent(), context());
 
-		const entry = memoryFs.store.get(`${PROJECT_ROOT}/.project-meta.json`);
+		const entry = memoryFs.store.get(`${PROJECT_ROOT}/package.json`);
 		expect(entry).toBeDefined();
-		const meta = JSON.parse(entry!.content as string);
-		expect(meta.dependencies).toHaveProperty('existing', '1.0.0');
-		expect(meta.dependencies).toHaveProperty('new-pkg', '2.0.0');
+		const packageJson = JSON.parse(entry!.content as string);
+		expect(packageJson.dependencies).toHaveProperty('existing', '1.0.0');
+		expect(packageJson.dependencies).toHaveProperty('new-pkg', '2.0.0');
 	});
 
 	// ── Coordinator notification ───────────────────────────────────────────
 
 	it('triggers a full-reload coordinator update after adding a dependency', async () => {
-		seedMeta({});
+		seedPackageJson({});
 
 		await execute({ action: 'add', name: 'hono', version: '^4.0.0' }, createMockSendEvent(), context());
 
 		expect(mockTriggerUpdate).toHaveBeenCalledOnce();
-		expect(mockTriggerUpdate).toHaveBeenCalledWith(expect.objectContaining({ type: 'full-reload', path: '/.project-meta.json' }));
+		expect(mockTriggerUpdate).toHaveBeenCalledWith(expect.objectContaining({ type: 'full-reload', path: '/package.json' }));
 	});
 
 	it('triggers a full-reload coordinator update after removing a dependency', async () => {
-		seedMeta({ react: '^18.0.0' });
+		seedPackageJson({ react: '^18.0.0' });
 
 		await execute({ action: 'remove', name: 'react' }, createMockSendEvent(), context());
 
 		expect(mockTriggerUpdate).toHaveBeenCalledOnce();
-		expect(mockTriggerUpdate).toHaveBeenCalledWith(expect.objectContaining({ type: 'full-reload', path: '/.project-meta.json' }));
+		expect(mockTriggerUpdate).toHaveBeenCalledWith(expect.objectContaining({ type: 'full-reload', path: '/package.json' }));
 	});
 
 	it('triggers a full-reload coordinator update after updating a dependency', async () => {
-		seedMeta({ react: '^17.0.0' });
+		seedPackageJson({ react: '^17.0.0' });
 
 		await execute({ action: 'update', name: 'react', version: '^18.0.0' }, createMockSendEvent(), context());
 
 		expect(mockTriggerUpdate).toHaveBeenCalledOnce();
-		expect(mockTriggerUpdate).toHaveBeenCalledWith(expect.objectContaining({ type: 'full-reload', path: '/.project-meta.json' }));
+		expect(mockTriggerUpdate).toHaveBeenCalledWith(expect.objectContaining({ type: 'full-reload', path: '/package.json' }));
 	});
 
 	it('does not trigger coordinator update when action fails', async () => {
-		seedMeta({});
+		seedPackageJson({});
 
 		await expect(execute({ action: 'remove', name: 'nonexistent' }, createMockSendEvent(), context())).rejects.toThrow();
 

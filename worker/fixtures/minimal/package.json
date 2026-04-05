@@ -1,0 +1,25 @@
+{
+	"name": "my-worker-app",
+	"type": "module",
+	"scripts": {
+		"dev": "vite dev",
+		"build": "vite build",
+		"deploy": "vite build && wrangler deploy",
+		"test": "vitest run"
+	},
+	"dependencies": {
+		"hono": "^4.0.0",
+		"react": "^19.0.0",
+		"react-dom": "^19.0.0"
+	},
+	"devDependencies": {
+		"@cloudflare/vite-plugin": "^1.0.0",
+		"@types/react": "^19.0.0",
+		"@types/react-dom": "^19.0.0",
+		"@vitejs/plugin-react": "^4.0.0",
+		"typescript": "^5.0.0",
+		"vite": "^6.0.0",
+		"vitest": "^3.0.0",
+		"wrangler": "^4.0.0"
+	}
+}

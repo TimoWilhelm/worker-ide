@@ -3,13 +3,12 @@
  * Update Cloudflare Workers asset routing settings for the project.
  */
 
-import fs from 'node:fs/promises';
-
 import { ToolExecutionError } from '@shared/tool-errors';
 import { coordinatorNamespace } from '@worker/lib/durable-object-namespaces';
+import { readAssetSettings, regenerateProtectedFiles, writeAssetSettings } from '@worker/lib/protected-files';
 
 import type { SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
-import type { AssetSettings, HtmlHandling, NotFoundHandling, ProjectMeta } from '@shared/types';
+import type { AssetSettings, HtmlHandling, NotFoundHandling } from '@shared/types';
 
 const VALID_NOT_FOUND_HANDLING: Record<string, NotFoundHandling> = {
 	none: 'none',
@@ -68,19 +67,10 @@ export async function execute(
 	context: ToolExecutorContext,
 ): Promise<ToolResult> {
 	const { projectRoot, projectId } = context;
-	const metaPath = `${projectRoot}/.project-meta.json`;
 
 	sendEvent('status', { message: 'Updating asset settings...' });
 
-	let meta: ProjectMeta;
-	try {
-		const metaRaw = await fs.readFile(metaPath, 'utf8');
-		meta = JSON.parse(metaRaw);
-	} catch {
-		throw new ToolExecutionError('FILE_NOT_FOUND', 'No project metadata found. Cannot update asset settings.');
-	}
-
-	const assetSettings: AssetSettings = meta.assetSettings ?? {};
+	const assetSettings: AssetSettings = await readAssetSettings(projectRoot);
 	const changes: string[] = [];
 
 	// Update not_found_handling
@@ -152,17 +142,20 @@ export async function execute(
 		};
 	}
 
-	// Write back with cleaned settings (remove empty object)
-	meta.assetSettings = Object.keys(assetSettings).length > 0 ? assetSettings : undefined;
-	await fs.writeFile(metaPath, JSON.stringify(meta));
+	// Write asset settings to wrangler.jsonc
+	const cleanedSettings = Object.keys(assetSettings).length > 0 ? assetSettings : {};
+	await writeAssetSettings(projectRoot, cleanedSettings);
+
+	// Regenerate all protected files to keep them in sync
+	await regenerateProtectedFiles(projectRoot);
 
 	// Trigger full reload so the preview picks up new asset settings
 	const coordinatorStub = coordinatorNamespace.getByName(`project:${projectId}`);
-	await coordinatorStub.triggerUpdate({ type: 'full-reload', path: '/.project-meta.json', timestamp: Date.now(), isCSS: false });
+	await coordinatorStub.triggerUpdate({ type: 'full-reload', path: '/wrangler.jsonc', timestamp: Date.now(), isCSS: false });
 
 	return {
 		title: 'asset settings updated',
-		metadata: { assetSettings: meta.assetSettings ?? {}, changes },
+		metadata: { assetSettings: cleanedSettings, changes },
 		output: `Updated asset settings:\n${changes.join('\n')}`,
 	};
 }

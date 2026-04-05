@@ -2,10 +2,5 @@
 	"id": "minimal",
 	"name": "Minimal Starter",
 	"description": "A clean starting point with a styled React frontend and a Hono API backend.",
-	"icon": "Hexagon",
-	"dependencies": {
-		"hono": "^4.0.0",
-		"react": "^19.0.0",
-		"react-dom": "^19.0.0"
-	}
+	"icon": "Hexagon"
 }

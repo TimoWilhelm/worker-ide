@@ -29,7 +29,6 @@ describe('TEMPLATES', () => {
 			expect(template.description).toBeTruthy();
 			expect(template.icon).toBeTruthy();
 			expect(Object.keys(template.files).length).toBeGreaterThan(0);
-			expect(Object.keys(template.dependencies).length).toBeGreaterThan(0);
 		}
 	});
 
@@ -99,7 +98,6 @@ describe('getTemplate', () => {
 		expect(typeof typed.description).toBe('string');
 		expect(typeof typed.icon).toBe('string');
 		expect(typeof typed.files).toBe('object');
-		expect(typeof typed.dependencies).toBe('object');
 	});
 
 	it('returns undefined for an unknown template ID', () => {
