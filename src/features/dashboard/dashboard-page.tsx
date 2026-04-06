@@ -23,6 +23,7 @@ import { Modal, ModalBody, ModalFooter } from '@/components/ui/modal';
 import { Spinner } from '@/components/ui/spinner';
 import { toast } from '@/components/ui/toast-store';
 import { VersionBadge } from '@/components/version-badge';
+import { CreateOrgModal } from '@/features/org/create-org-modal';
 import { OrgSwitcher } from '@/features/org/org-switcher';
 import { PendingInvitationsBanner } from '@/features/org/pending-invitations-banner';
 import { UserMenu } from '@/features/user-menu';
@@ -409,6 +410,7 @@ interface DashboardPageProperties {
 
 export default function DashboardPage({ organizationId, organizations, isCreateOrgMode, user }: DashboardPageProperties) {
 	const navigate = useNavigate();
+	const [createOrgOpen, setCreateOrgOpen] = useState(!!isCreateOrgMode);
 	const [selectedTemplateId, setSelectedTemplateId] = useState<string | undefined>();
 	const [cloneInput, setCloneInput] = useState('');
 	const [cloneModalOpen, setCloneModalOpen] = useState(false);
@@ -565,6 +567,8 @@ export default function DashboardPage({ organizationId, organizations, isCreateO
 		return () => globalThis.removeEventListener('pageshow', handlePageShow);
 	}, []);
 
+	const hasNoOrgs = organizations.length === 0;
+
 	return (
 		<div className="relative flex h-dvh flex-col items-center overflow-y-auto">
 			{/* Halftone shader background */}
@@ -593,6 +597,9 @@ export default function DashboardPage({ organizationId, organizations, isCreateO
 				isDeleting={isDeleting}
 			/>
 
+			{/* Create org modal — auto-opened in create-org mode */}
+			<CreateOrgModal open={createOrgOpen} onOpenChange={setCreateOrgOpen} organizationCount={organizations.length} required={hasNoOrgs} />
+
 			{/* Clone modal */}
 			<CloneModal
 				open={cloneModalOpen && !isLoading}
@@ -607,11 +614,13 @@ export default function DashboardPage({ organizationId, organizations, isCreateO
 
 			{/* Header actions — top right */}
 			<div className="fixed top-4 right-4 z-10 flex items-center gap-1">
-				<OrgSwitcher
-					organizations={organizations}
-					currentOrganizationId={organizationId}
-					currentOrganizationName={organizations.find((o) => o.id === organizationId)?.name ?? ''}
-				/>
+				{!isCreateOrgMode && (
+					<OrgSwitcher
+						organizations={organizations}
+						currentOrganizationId={organizationId}
+						currentOrganizationName={organizations.find((o) => o.id === organizationId)?.name ?? ''}
+					/>
+				)}
 				<a
 					href="/docs"
 					target="_blank"

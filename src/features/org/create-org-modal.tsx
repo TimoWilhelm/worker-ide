@@ -20,11 +20,14 @@ export function CreateOrgModal({
 	onOpenChange,
 	organizationCount,
 	maxOrganizations,
+	required,
 }: {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 	organizationCount: number;
 	maxOrganizations?: number;
+	/** When true, the modal cannot be dismissed (no Cancel, no Escape/backdrop close). */
+	required?: boolean;
 }) {
 	const navigate = useNavigate();
 	const [name, setName] = useState('');
@@ -77,16 +80,17 @@ export function CreateOrgModal({
 
 	const handleOpenChange = useCallback(
 		(value: boolean) => {
+			if (!value && required) return;
 			if (!value) {
 				setName('');
 			}
 			onOpenChange(value);
 		},
-		[onOpenChange],
+		[onOpenChange, required],
 	);
 
 	return (
-		<Modal open={open} onOpenChange={handleOpenChange} title="New organization">
+		<Modal open={open} onOpenChange={handleOpenChange} title={required ? 'Create an organization' : 'New organization'}>
 			<ModalBody>
 				<label className="mb-1 block text-xs font-medium text-text-secondary">Name</label>
 				<input
@@ -115,9 +119,11 @@ export function CreateOrgModal({
 				)}
 			</ModalBody>
 			<ModalFooter>
-				<Button variant="secondary" size="sm" onClick={() => handleOpenChange(false)} disabled={isCreating}>
-					Cancel
-				</Button>
+				{!required && (
+					<Button variant="secondary" size="sm" onClick={() => handleOpenChange(false)} disabled={isCreating}>
+						Cancel
+					</Button>
+				)}
 				<Button
 					size="sm"
 					onClick={() => void handleCreate()}
