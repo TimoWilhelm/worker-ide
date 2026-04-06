@@ -254,6 +254,9 @@ if (import.meta.env.DEV) {
 	});
 }
 
+// Admin plugin HTTP endpoints are not exposed
+app.all('/api/auth/admin/*', (c) => c.notFound());
+
 app.on(['GET', 'POST'], '/api/auth/*', async (c) => {
 	const url = new URL(c.req.url);
 	const baseUrl = buildAppOrigin(parseHost(url.host).baseDomain, url.protocol);

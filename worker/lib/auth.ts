@@ -14,7 +14,7 @@
 
 import { betterAuth, APIError } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
-import { organization } from 'better-auth/plugins';
+import { admin, organization } from 'better-auth/plugins';
 import { env } from 'cloudflare:workers';
 import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
@@ -94,6 +94,10 @@ export function createAuth(environment: AuthEnvironment, baseUrl: string) {
 			},
 		},
 		plugins: [
+			admin({
+				defaultRole: 'user',
+				bannedUserMessage: 'CONTACT_SUPPORT',
+			}),
 			organization({
 				// Dynamic org-creation limit: checks user entitlements
 				organizationLimit: async (user) => {
@@ -253,28 +257,18 @@ export function createAuth(environment: AuthEnvironment, baseUrl: string) {
 			session: {
 				create: {
 					before: async (session) => {
-						// Check ban/soft-delete status before allowing a new session (sign-in).
-						// - Banned users are rejected (return false).
-						// - Soft-deleted users are restored (clear deleted_at) and allowed in.
+						// Soft-deleted users are restored on sign-in.
 						try {
 							const authDatabase = drizzle(environment.DB);
 							const userRows = await authDatabase
-								.select({ bannedAt: schema.user.bannedAt, deletedAt: schema.user.deletedAt })
+								.select({ deletedAt: schema.user.deletedAt })
 								.from(schema.user)
 								.where(eq(schema.user.id, session.userId))
 								.limit(1);
 
 							if (userRows.length === 0) return;
 
-							const userRow = userRows[0];
-
-							// Banned users cannot sign in
-							if (userRow.bannedAt) {
-								throw new APIError('FORBIDDEN', { message: 'CONTACT_SUPPORT' });
-							}
-
-							// Soft-deleted users are restored on sign-in
-							if (userRow.deletedAt) {
+							if (userRows[0].deletedAt) {
 								await authDatabase
 									.update(schema.user)
 									// eslint-disable-next-line unicorn/no-null -- Drizzle ORM requires null to clear nullable columns
@@ -282,10 +276,7 @@ export function createAuth(environment: AuthEnvironment, baseUrl: string) {
 									.where(eq(schema.user.id, session.userId));
 							}
 						} catch (error) {
-							// Re-throw APIError (ban rejection); swallow unexpected DB
-							// errors to avoid blocking sign-in on transient D1 failures.
-							if (error instanceof APIError) throw error;
-							console.error('Failed to check user ban/delete status during session creation:', error);
+							console.error('Failed to check user status during session creation:', error);
 						}
 					},
 				},
