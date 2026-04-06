@@ -7,12 +7,19 @@
  * - Account deletion preview and execution
  */
 
+import { zValidator } from '@hono/zod-validator';
 import { and, count, desc, eq, inArray, isNull } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
 import { Hono } from 'hono';
 
 import { resolveUserLimitsFromRows } from '@shared/entitlements';
 import { HttpErrorCode } from '@shared/http-errors';
+import {
+	favoriteBodySchema,
+	pushNotificationPreferenceBodySchema,
+	pushSubscriptionBodySchema,
+	pushUnsubscribeBodySchema,
+} from '@shared/validation';
 
 import * as schema from '../db/auth-schema';
 import { queryEntitlements } from '../lib/entitlements';
@@ -41,8 +48,8 @@ export const userRoutes = new Hono<AuthedEnvironment>()
 		});
 	})
 
-	// GET /api/user/recent-projects — Recently accessed projects across all orgs
-	.get('/user/recent-projects', async (c) => {
+	// GET /api/user/recentProjects — Recently accessed projects across all orgs
+	.get('/user/recentProjects', async (c) => {
 		const userId = c.get('userId');
 		const database = drizzle(c.env.DB);
 
@@ -168,15 +175,12 @@ export const userRoutes = new Hono<AuthedEnvironment>()
 	})
 
 	// PUT /api/user/project/:projectId/favorite — Toggle favorite status
-	.put('/user/project/:projectId/favorite', async (c) => {
+	.put('/user/project/:projectId/favorite', zValidator('json', favoriteBodySchema), async (c) => {
 		const userId = c.get('userId');
 		const { projectId } = c.req.param();
 		const database = drizzle(c.env.DB);
 
-		const body = await c.req.json<{ favorite: boolean }>();
-		if (typeof body.favorite !== 'boolean') {
-			throw httpError(HttpErrorCode.VALIDATION_ERROR, 'Body must contain a boolean "favorite" field.');
-		}
+		const body = c.req.valid('json');
 
 		// Verify user is a member of the project's organization
 		const projectMember = await database
@@ -208,8 +212,8 @@ export const userRoutes = new Hono<AuthedEnvironment>()
 		return c.json({ projectId, favorite: body.favorite });
 	})
 
-	// GET /api/user/account/delete-preview — Preview account deletion consequences
-	.get('/user/account/delete-preview', async (c) => {
+	// GET /api/user/account/deletePreview — Preview account deletion consequences
+	.get('/user/account/deletePreview', async (c) => {
 		const userId = c.get('userId');
 		const database = drizzle(c.env.DB);
 
@@ -375,20 +379,16 @@ export const userRoutes = new Hono<AuthedEnvironment>()
 	// Push Notification Subscription Management
 	// =========================================================================
 
-	// GET /api/user/push-vapid-key — Get the VAPID public key for pushManager.subscribe()
-	.get('/user/push-vapid-key', async (c) => {
+	// GET /api/user/pushVapidKey — Get the VAPID public key for pushManager.subscribe()
+	.get('/user/pushVapidKey', async (c) => {
 		const key = await c.env.PUSH.getVapidPublicKey();
 		return c.json({ key });
 	})
 
-	// POST /api/user/push-subscription — Register a push subscription
-	.post('/user/push-subscription', async (c) => {
+	// POST /api/user/pushSubscription — Register a push subscription
+	.post('/user/pushSubscription', zValidator('json', pushSubscriptionBodySchema), async (c) => {
 		const userId = c.get('userId');
-		const body = await c.req.json<{ endpoint: string; key: string; auth: string }>();
-
-		if (!body.endpoint || !body.key || !body.auth) {
-			throw httpError(HttpErrorCode.VALIDATION_ERROR, 'Body must contain endpoint, key, and auth fields.');
-		}
+		const body = c.req.valid('json');
 
 		await c.env.PUSH.registerSubscription(userId, {
 			endpoint: body.endpoint,
@@ -399,16 +399,39 @@ export const userRoutes = new Hono<AuthedEnvironment>()
 		return c.json({ ok: true });
 	})
 
-	// DELETE /api/user/push-subscription — Unregister a push subscription
-	.delete('/user/push-subscription', async (c) => {
+	// DELETE /api/user/pushSubscription — Unregister a push subscription
+	.delete('/user/pushSubscription', zValidator('json', pushUnsubscribeBodySchema), async (c) => {
 		const userId = c.get('userId');
-		const body = await c.req.json<{ endpoint: string }>();
-
-		if (!body.endpoint) {
-			throw httpError(HttpErrorCode.VALIDATION_ERROR, 'Body must contain an endpoint field.');
-		}
+		const body = c.req.valid('json');
 
 		await c.env.PUSH.unregisterSubscription(userId, body.endpoint);
+
+		return c.json({ ok: true });
+	})
+
+	// =========================================================================
+	// Push Notification Preference (per-device enabled/disabled)
+	// =========================================================================
+
+	// GET /api/user/pushNotificationPreference — Get preference for a device
+	.get('/user/pushNotificationPreference', async (c) => {
+		const userId = c.get('userId');
+		const endpoint = c.req.query('endpoint');
+
+		if (!endpoint) {
+			throw httpError(HttpErrorCode.VALIDATION_ERROR, 'Query parameter "endpoint" is required.');
+		}
+
+		const preference = await c.env.PUSH.getNotificationPreference(userId, endpoint);
+		return c.json({ enabled: preference?.enabled ?? false });
+	})
+
+	// PUT /api/user/pushNotificationPreference — Set preference for a device
+	.put('/user/pushNotificationPreference', zValidator('json', pushNotificationPreferenceBodySchema), async (c) => {
+		const userId = c.get('userId');
+		const body = c.req.valid('json');
+
+		await c.env.PUSH.setNotificationPreference(userId, body.endpoint, body.enabled);
 
 		return c.json({ ok: true });
 	});

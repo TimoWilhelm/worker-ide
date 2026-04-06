@@ -6,12 +6,14 @@
  * All routes require authentication and org membership.
  */
 
+import { zValidator } from '@hono/zod-validator';
 import { and, count, eq, isNull } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
 import { Hono } from 'hono';
 
 import { resolveOrgLimitsFromRows } from '@shared/entitlements';
 import { HttpErrorCode } from '@shared/http-errors';
+import { visibilityBodySchema } from '@shared/validation';
 
 import * as schema from '../db/auth-schema';
 import { queryEntitlements } from '../lib/entitlements';
@@ -95,13 +97,10 @@ export const orgRoutes = new Hono<AuthedEnvironment>()
 	})
 
 	// PUT /api/org/:orgId/project/:projectId/visibility — Toggle preview visibility
-	.put('/org/:orgId/project/:projectId/visibility', async (c) => {
+	.put('/org/:orgId/project/:projectId/visibility', zValidator('json', visibilityBodySchema), async (c) => {
 		const { orgId, projectId } = c.req.param();
 
-		const body = await c.req.json<{ visibility: string }>();
-		if (body.visibility !== 'public' && body.visibility !== 'private') {
-			throw httpError(HttpErrorCode.VALIDATION_ERROR, 'Visibility must be "public" or "private".');
-		}
+		const body = c.req.valid('json');
 
 		const database = drizzle(c.env.DB);
 		const existing = await database

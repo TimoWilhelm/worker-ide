@@ -3,6 +3,11 @@
  *
  * Bell icon button for enabling/disabling push notifications.
  * Placed in the IDE header next to the theme toggle.
+ *
+ * Three states:
+ * - Not subscribed → click subscribes + enables
+ * - Subscribed + enabled → click disables (preference only, keeps push subscription)
+ * - Subscribed + disabled → click enables (preference only)
  */
 
 import { Bell, BellOff, BellRing } from 'lucide-react';
@@ -14,7 +19,7 @@ import { usePushNotifications } from '@/hooks/use-push-notifications';
 import { cn } from '@/lib/utils';
 
 export function NotificationToggle() {
-	const { permissionState, isSubscribed, isLoading, subscribe, unsubscribe } = usePushNotifications();
+	const { permissionState, isSubscribed, isEnabled, isLoading, subscribe, toggleEnabled } = usePushNotifications();
 
 	// Don't render if push is not supported
 	// eslint-disable-next-line unicorn/no-null -- React expects null for "render nothing"
@@ -22,7 +27,7 @@ export function NotificationToggle() {
 
 	function handleClick() {
 		if (isSubscribed) {
-			void unsubscribe();
+			void toggleEnabled();
 		} else {
 			void subscribe();
 		}
@@ -44,12 +49,12 @@ export function NotificationToggle() {
 		);
 	}
 
-	const tooltipContent = isSubscribed ? 'Notifications enabled' : 'Notifications disabled';
+	const tooltipContent = isSubscribed ? (isEnabled ? 'Notifications enabled' : 'Notifications disabled') : 'Enable notifications';
 
 	return (
 		<Tooltip content={tooltipContent}>
 			<Button variant="ghost" size="icon" aria-label={tooltipContent} onClick={handleClick} disabled={isLoading}>
-				{isSubscribed ? <BellRing className={cn('size-4', 'text-accent')} /> : <Bell className="size-4" />}
+				{isSubscribed && isEnabled ? <BellRing className={cn('size-4', 'text-accent')} /> : <Bell className="size-4" />}
 			</Button>
 		</Tooltip>
 	);

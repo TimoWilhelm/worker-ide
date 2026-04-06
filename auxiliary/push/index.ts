@@ -65,7 +65,8 @@ export default class PushWorker extends WorkerEntrypoint<PushWorkerEnvironment> 
 	async registerSubscription(userId: string, subscription: PushSubscriptionInfo): Promise<void> {
 		const endpointHash = await this.hashEndpoint(subscription.endpoint);
 		const key = `${userId}/${endpointHash}`;
-		await this.env.KV_PUSH_SUBSCRIPTION.put(key, JSON.stringify(subscription));
+		const stored: PushSubscriptionInfo = { ...subscription, notificationsEnabled: true };
+		await this.env.KV_PUSH_SUBSCRIPTION.put(key, JSON.stringify(stored));
 	}
 
 	/** Remove a push subscription from KV by userId and endpoint. */
@@ -73,6 +74,45 @@ export default class PushWorker extends WorkerEntrypoint<PushWorkerEnvironment> 
 		const endpointHash = await this.hashEndpoint(endpoint);
 		const key = `${userId}/${endpointHash}`;
 		await this.env.KV_PUSH_SUBSCRIPTION.delete(key);
+	}
+
+	/** Get the notification preference for a specific device (identified by endpoint). */
+	async getNotificationPreference(userId: string, endpoint: string): Promise<{ enabled: boolean } | undefined> {
+		const endpointHash = await this.hashEndpoint(endpoint);
+		const key = `${userId}/${endpointHash}`;
+		const raw = await this.env.KV_PUSH_SUBSCRIPTION.get(key);
+		if (!raw) return undefined;
+		try {
+			const parsed: unknown = JSON.parse(raw);
+			if (typeof parsed === 'object' && parsed !== null && 'notificationsEnabled' in parsed) {
+				// eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- validated above
+				const subscription = parsed as PushSubscriptionInfo;
+				return { enabled: subscription.notificationsEnabled !== false };
+			}
+			// Legacy entries without the flag default to enabled
+			return { enabled: true };
+		} catch {
+			return undefined;
+		}
+	}
+
+	/** Set the notification preference for a specific device (identified by endpoint). */
+	async setNotificationPreference(userId: string, endpoint: string, enabled: boolean): Promise<void> {
+		const endpointHash = await this.hashEndpoint(endpoint);
+		const key = `${userId}/${endpointHash}`;
+		const raw = await this.env.KV_PUSH_SUBSCRIPTION.get(key);
+		if (!raw) return;
+		try {
+			const parsed: unknown = JSON.parse(raw);
+			if (typeof parsed === 'object' && parsed !== null && 'endpoint' in parsed && 'key' in parsed && 'auth' in parsed) {
+				// eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- validated above
+				const existing = parsed as PushSubscriptionInfo;
+				const updated = { ...existing, notificationsEnabled: enabled };
+				await this.env.KV_PUSH_SUBSCRIPTION.put(key, JSON.stringify(updated));
+			}
+		} catch {
+			// Invalid JSON — ignore
+		}
 	}
 
 	/** Enqueue a push notification for a user. */
@@ -149,34 +189,36 @@ export default class PushWorker extends WorkerEntrypoint<PushWorkerEnvironment> 
 				let anyRetryableError = false;
 
 				await Promise.all(
-					subscriptions.map(async ({ key, subscription }) => {
-						try {
-							const { result, response } = await sendNotification(subscription, this.env.VAPID_SUBJECT, applicationServerKeys, payload, {
-								TTL: message.body.ttl,
-							});
+					subscriptions
+						.filter(({ subscription }) => subscription.notificationsEnabled !== false)
+						.map(async ({ key, subscription }) => {
+							try {
+								const { result, response } = await sendNotification(subscription, this.env.VAPID_SUBJECT, applicationServerKeys, payload, {
+									TTL: message.body.ttl,
+								});
 
-							switch (result) {
-								case WebPushResult.SUCCESS: {
-									anySucceeded = true;
-									break;
+								switch (result) {
+									case WebPushResult.SUCCESS: {
+										anySucceeded = true;
+										break;
+									}
+									case WebPushResult.NOT_SUBSCRIBED: {
+										console.log(`Invalid subscription, deleting: ${key}`);
+										this.ctx.waitUntil(this.env.KV_PUSH_SUBSCRIPTION.delete(key));
+										break;
+									}
+									case WebPushResult.ERROR: {
+										console.error(`Web Push error: ${response.status} body: ${await response.text()}`);
+										anyRetryableError = true;
+										break;
+									}
+									// no default
 								}
-								case WebPushResult.NOT_SUBSCRIBED: {
-									console.log(`Invalid subscription, deleting: ${key}`);
-									this.ctx.waitUntil(this.env.KV_PUSH_SUBSCRIPTION.delete(key));
-									break;
-								}
-								case WebPushResult.ERROR: {
-									console.error(`Web Push error: ${response.status} body: ${await response.text()}`);
-									anyRetryableError = true;
-									break;
-								}
-								// no default
+							} catch (error) {
+								console.error('Error sending push notification', error);
+								anyRetryableError = true;
 							}
-						} catch (error) {
-							console.error('Error sending push notification', error);
-							anyRetryableError = true;
-						}
-					}),
+						}),
 				);
 
 				// Ack if at least one subscription received the notification

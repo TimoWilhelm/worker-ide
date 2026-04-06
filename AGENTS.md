@@ -32,11 +32,12 @@ This document is a collection of guidelines for agents working on the project.
 
 ## API Communication (Hono RPC)
 
-All frontend-to-backend API calls **must** use the Hono RPC client (`createApiClient(projectId)` from `@/lib/api-client`). This gives fully type-safe requests and responses inferred from route definitions.
+All frontend-to-backend API calls **must** use the Hono RPC client (`createApiClient(projectId)` from `@/lib/api-client`). This gives fully type-safe requests and responses inferred from route definitions. For non-project-scoped routes, use `createUserApiClient()`, `createOrgApiClient()`, or `createTransferApiClient()` from the same module.
 
 **Rules:**
 
-- **NEVER use raw `fetch()`** to call backend API routes. Always use the typed RPC client (e.g., `api.git.status.$get({})`).
+- **NEVER use raw `fetch()`** to call backend API routes. Always use the typed RPC client (e.g., `api.git.status.$get({})`). The only exceptions are root-level routes defined inline in `worker/index.ts` (e.g., `/api/new-project`, `/api/templates`) that have no typed route module.
+- **API route paths must use camelCase** (e.g., `/user/pushVapidKey`, `/user/recentProjects`), not kebab-case. Hono RPC cannot resolve hyphenated path segments as property accessors. File names remain kebab-case per the file naming convention.
 - **NEVER use `response.text()` + `JSON.parse()`** to parse responses. The RPC client's `response.json()` returns the correctly typed result.
 - **In the `!response.ok` branch**, throw a plain `Error` with a fallback message — do NOT try to parse the error body. The error body is not part of the typed schema.
 - **In the success branch**, call `response.json()` directly — the return type is clean (no union with error types).

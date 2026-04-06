@@ -7,6 +7,7 @@ export interface PushSubscriptionInfo {
 	endpoint: string;
 	key: string;
 	auth: string;
+	notificationsEnabled?: boolean;
 }
 
 export interface PushNotification {

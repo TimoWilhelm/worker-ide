@@ -39,3 +39,7 @@ export const apiRoutes = new Hono<AppEnvironment>()
  * This type is used by the Hono RPC client to provide type-safe API calls.
  */
 export type ApiRoutes = typeof apiRoutes;
+
+export type { UserRoutes } from './user-routes';
+export type { OrgRoutes } from './org-routes';
+export type { TransferRoutes } from './transfer-routes';

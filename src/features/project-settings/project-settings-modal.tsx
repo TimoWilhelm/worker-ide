@@ -13,6 +13,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Modal, ModalBody, ModalFooter } from '@/components/ui/modal';
 import { Spinner } from '@/components/ui/spinner';
+import { createApiClient } from '@/lib/api-client';
 import { throwApiError } from '@/lib/api-error';
 import { cn } from '@/lib/utils';
 
@@ -29,24 +30,22 @@ interface ProjectSettingsModalProperties {
 type Visibility = 'public' | 'private';
 
 // =============================================================================
-// API helpers (raw fetch — project-scoped endpoints)
+// API helpers (project-scoped RPC client)
 // =============================================================================
 
 async function fetchVisibility(projectId: string): Promise<Visibility> {
-	const response = await fetch(`/p/${projectId}/api/project/visibility`);
+	const api = createApiClient(projectId);
+	const response = await api.project.visibility.$get({});
 	if (!response.ok) {
 		await throwApiError(response, 'Failed to fetch visibility');
 	}
-	const data: { visibility: string } = await response.json();
+	const data = await response.json();
 	return data.visibility === 'private' ? 'private' : 'public';
 }
 
 async function updateVisibility(projectId: string, visibility: Visibility): Promise<void> {
-	const response = await fetch(`/p/${projectId}/api/project/visibility`, {
-		method: 'PUT',
-		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify({ visibility }),
-	});
+	const api = createApiClient(projectId);
+	const response = await api.project.visibility.$put({ json: { visibility } });
 	if (!response.ok) {
 		await throwApiError(response, 'Failed to update visibility');
 	}

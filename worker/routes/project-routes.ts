@@ -10,7 +10,7 @@ import { Hono } from 'hono';
 
 import { HIDDEN_ENTRIES } from '@shared/constants';
 import { HttpErrorCode } from '@shared/http-errors';
-import { dependenciesUpdateSchema, projectMetaSchema } from '@shared/validation';
+import { dependenciesUpdateSchema, projectMetaSchema, visibilityBodySchema } from '@shared/validation';
 
 import { coordinatorNamespace } from '../lib/durable-object-namespaces';
 import { httpError } from '../lib/http-error';
@@ -126,12 +126,9 @@ export const projectRoutes = new Hono<AppEnvironment>()
 	})
 
 	// PUT /api/project/visibility - Update preview visibility
-	.put('/project/visibility', async (c) => {
+	.put('/project/visibility', zValidator('json', visibilityBodySchema), async (c) => {
 		const projectId = c.get('projectId');
-		const body = await c.req.json<{ visibility: string }>();
-		if (body.visibility !== 'public' && body.visibility !== 'private') {
-			throw httpError(HttpErrorCode.VALIDATION_ERROR, 'Visibility must be "public" or "private".');
-		}
+		const body = c.req.valid('json');
 		const { drizzle } = await import('drizzle-orm/d1');
 		const { eq } = await import('drizzle-orm');
 		const schema = await import('../db/auth-schema');

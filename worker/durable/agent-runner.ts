@@ -134,6 +134,7 @@ export interface StartAgentParameters {
 	mode?: AgentMode;
 	sessionId?: string;
 	model?: AIModelId;
+	initiatorUserId?: string;
 }
 
 // =============================================================================
@@ -190,6 +191,9 @@ export class AgentRunner extends Agent<Env, AgentState> {
 
 	/** Queued steering messages for running sessions, keyed by sessionId. */
 	private steeringMessages = new Map<string, Array<{ id: string; content: string }>>();
+
+	/** User ID of the person who initiated each session, keyed by sessionId. Survives eviction via StartAgentParameters. */
+	private sessionInitiatorUserIds = new Map<string, string>();
 
 	/** Authenticated user ID per WebSocket connection, set from the server-forwarded header. */
 	private connectionUserIds = new Map<string, string>();
@@ -372,6 +376,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 			mode,
 			sessionId: resolvedSessionId,
 			model,
+			initiatorUserId: authenticatedUserId,
 		};
 
 		// Persist restart parameters BEFORE launching (survives eviction)
@@ -717,6 +722,11 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		// Create abort controller
 		this.abortControllers.set(sessionId, new AbortController());
 
+		// Track initiator userId for targeted push notifications (survives eviction via parameters)
+		if (parameters.initiatorUserId) {
+			this.sessionInitiatorUserIds.set(sessionId, parameters.initiatorUserId);
+		}
+
 		// Clear revertedAt flag so persist callbacks from this run are not blocked
 		clearSessionRevertedAt(this.db, sessionId);
 
@@ -875,11 +885,17 @@ export class AgentRunner extends Agent<Env, AgentState> {
 			updateSessionStatus(this.db, sessionId, finalStatus, errorMessage);
 
 			// Send push notification on completion/error (not on abort — user triggered it)
-			if (finalStatus === 'completed') {
-				this.sendPushNotification(sessionId, 'Generation complete', 'Your AI agent has finished.');
-			} else if (finalStatus === 'error') {
-				this.sendPushNotification(sessionId, 'Generation failed', errorMessage ?? 'An error occurred.');
+			const initiatorUserId = this.sessionInitiatorUserIds.get(sessionId);
+			if (initiatorUserId) {
+				if (finalStatus === 'completed') {
+					this.sendPushNotification(initiatorUserId, sessionId, 'Generation complete', 'Your AI agent has finished.');
+				} else if (finalStatus === 'error') {
+					this.sendPushNotification(initiatorUserId, sessionId, 'Generation failed', errorMessage ?? 'An error occurred.');
+				}
 			}
+
+			// Clean up initiator tracking
+			this.sessionInitiatorUserIds.delete(sessionId);
 
 			// Prune old sessions
 			await this.pruneOldSessions(parameters.projectId).catch((error) => {
@@ -1062,7 +1078,10 @@ export class AgentRunner extends Agent<Env, AgentState> {
 					pendingQuestion: { question: event.question, options: event.options },
 				});
 				// Send push notification so the user knows the agent needs input
-				this.sendPushNotification(sessionId, 'Agent needs your input', event.question);
+				const questionInitiatorUserId = this.sessionInitiatorUserIds.get(sessionId);
+				if (questionInitiatorUserId) {
+					this.sendPushNotification(questionInitiatorUserId, sessionId, 'Agent needs your input', event.question);
+				}
 				break;
 			}
 			case 'max-iterations-reached': {
@@ -1559,16 +1578,15 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	}
 
 	/**
-	 * Send a push notification to the authenticated user.
-	 * Uses waitUntil to avoid blocking the agent loop.
+	 * Send a push notification to the session initiator.
+	 * Uses the explicitly provided userId (persisted in StartAgentParameters)
+	 * rather than scanning live WebSocket connections, so notifications
+	 * work correctly after DO eviction and in multi-user projects.
 	 */
-	private sendPushNotification(sessionId: string, title: string, body: string): void {
+	private sendPushNotification(userId: string, sessionId: string, title: string, body: string): void {
 		// Extract projectId from the DO name (format: "agent:{projectId}")
 		const projectId = this.name.startsWith('agent:') ? this.name.slice(6) : undefined;
 		if (!projectId) return;
-
-		const userId = this.getAuthenticatedUserId();
-		if (!userId) return;
 
 		try {
 			env.PUSH.notifyUser(userId, {

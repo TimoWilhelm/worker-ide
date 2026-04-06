@@ -13,13 +13,14 @@
 
 import fs from 'node:fs/promises';
 
+import { zValidator } from '@hono/zod-validator';
 import { Hono } from 'hono';
 import stripJsonComments from 'strip-json-comments';
-import { z } from 'zod';
 
 import { HIDDEN_ENTRIES, WORKERS_COMPATIBILITY_DATE } from '@shared/constants';
 import { HttpErrorCode } from '@shared/http-errors';
 import { resolveAssetSettings } from '@shared/types';
+import { deployRequestSchema } from '@shared/validation';
 
 import { getContentType } from '../lib/content-type';
 import { httpError } from '../lib/http-error';
@@ -37,26 +38,11 @@ import type { AssetSettings } from '@shared/types';
 const CLOUDFLARE_API_BASE = 'https://api.cloudflare.com/client/v4';
 
 // =============================================================================
-// Validation
-// =============================================================================
-
-const deployRequestSchema = z.object({
-	accountId: z.string().min(1, 'Account ID is required'),
-	apiToken: z.string().min(1, 'API Token is required'),
-	workerName: z.string().optional(),
-});
-
-// =============================================================================
 // Route
 // =============================================================================
 
-export const deployRoutes = new Hono<AppEnvironment>().post('/deploy', async (c) => {
-	const body = await c.req.json();
-	const parsed = deployRequestSchema.safeParse(body);
-	if (!parsed.success) {
-		throw httpError(HttpErrorCode.VALIDATION_ERROR, parsed.error.message);
-	}
-	const { accountId, apiToken, workerName } = parsed.data;
+export const deployRoutes = new Hono<AppEnvironment>().post('/deploy', zValidator('json', deployRequestSchema), async (c) => {
+	const { accountId, apiToken, workerName } = c.req.valid('json');
 
 	const projectRoot = c.get('projectRoot');
 

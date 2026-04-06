@@ -8,12 +8,14 @@
  * Either side can cancel/reject while the transfer is pending.
  */
 
+import { zValidator } from '@hono/zod-validator';
 import { and, eq, inArray, isNull, or } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
 import { Hono } from 'hono';
 
 import { resolveOrgLimitsFromRows } from '@shared/entitlements';
 import { HttpErrorCode } from '@shared/http-errors';
+import { transferInitiateBodySchema } from '@shared/validation';
 
 import * as schema from '../db/auth-schema';
 import { queryEntitlements } from '../lib/entitlements';
@@ -24,7 +26,7 @@ import type { AuthedEnvironment } from '../types';
 
 export const transferRoutes = new Hono<AuthedEnvironment>()
 	// POST /api/org/:orgId/project/:projectId/transfer — Initiate a project transfer
-	.post('/org/:orgId/project/:projectId/transfer', async (c) => {
+	.post('/org/:orgId/project/:projectId/transfer', zValidator('json', transferInitiateBodySchema), async (c) => {
 		const { orgId, projectId } = c.req.param();
 		const userId = c.get('userId');
 		const database = drizzle(c.env.DB);
@@ -32,10 +34,7 @@ export const transferRoutes = new Hono<AuthedEnvironment>()
 		// Verify user is admin/owner of source org
 		await assertOrgAdmin(database, orgId, userId);
 
-		const body = await c.req.json<{ targetOrganizationId: string }>();
-		if (!body.targetOrganizationId) {
-			throw httpError(HttpErrorCode.VALIDATION_ERROR, 'Request body must contain targetOrganizationId.');
-		}
+		const body = c.req.valid('json');
 		if (body.targetOrganizationId === orgId) {
 			throw httpError(HttpErrorCode.VALIDATION_ERROR, 'Cannot transfer a project to the same organization.');
 		}
@@ -111,8 +110,8 @@ export const transferRoutes = new Hono<AuthedEnvironment>()
 		return c.json({ transferId, status: 'pending' });
 	})
 
-	// GET /api/user/pending-transfers — List all pending transfers for the user's orgs
-	.get('/user/pending-transfers', async (c) => {
+	// GET /api/user/pendingTransfers — List all pending transfers for the user's orgs
+	.get('/user/pendingTransfers', async (c) => {
 		const userId = c.get('userId');
 		const database = drizzle(c.env.DB);
 

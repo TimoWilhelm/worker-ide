@@ -841,4 +841,41 @@ export function isPathSafe(path: string): boolean {
 	return result.success;
 }
 
+// =============================================================================
+// Route Body Schemas (used with zValidator for Hono RPC type inference)
+// =============================================================================
+
+export const pushSubscriptionBodySchema = z.object({
+	endpoint: z.string().min(1),
+	key: z.string().min(1),
+	auth: z.string().min(1),
+});
+
+export const pushUnsubscribeBodySchema = z.object({
+	endpoint: z.string().min(1),
+});
+
+export const pushNotificationPreferenceBodySchema = z.object({
+	endpoint: z.string().min(1),
+	enabled: z.boolean(),
+});
+
+export const favoriteBodySchema = z.object({
+	favorite: z.boolean(),
+});
+
+export const visibilityBodySchema = z.object({
+	visibility: z.enum(['public', 'private']),
+});
+
+export const transferInitiateBodySchema = z.object({
+	targetOrganizationId: z.string().min(1),
+});
+
+export const deployRequestSchema = z.object({
+	accountId: z.string().min(1, 'Account ID is required'),
+	apiToken: z.string().min(1, 'API Token is required'),
+	workerName: z.string().optional(),
+});
+
 export { DEFAULT_AI_MODEL } from './constants';
