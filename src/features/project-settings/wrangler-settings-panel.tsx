@@ -240,10 +240,7 @@ function WranglerSettingsContent({ projectId }: { projectId: string }) {
 						</div>
 					)}
 
-					<p className="text-xs text-text-secondary">
-						These settings control how Cloudflare Workers serves your static assets. Changes are written to{' '}
-						<code className="rounded-sm bg-bg-tertiary px-1 py-0.5 text-2xs">wrangler.jsonc</code> automatically.
-					</p>
+					<h3 className="text-sm font-semibold text-text-primary">Asset Settings</h3>
 
 					{/* Not Found Handling */}
 					<fieldset className="flex flex-col gap-2">
