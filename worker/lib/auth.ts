@@ -209,6 +209,7 @@ export function createAuth(environment: AuthEnvironment, baseUrl: string) {
 			cookieCache: {
 				enabled: true,
 				maxAge: 5 * 60,
+				version: '2',
 			},
 		},
 		databaseHooks: {

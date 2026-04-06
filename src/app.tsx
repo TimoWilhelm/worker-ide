@@ -194,6 +194,18 @@ function AuthGate() {
 	const { data: organizations, isPending: listPending } = authClient.useListOrganizations();
 	const { data: activeOrganization } = authClient.useActiveOrganization();
 
+	// Auto-set the active organization when the session has none
+	const autoActivatedReference = useRef(false);
+	useEffect(() => {
+		if (autoActivatedReference.current) return;
+		if (!session || listPending) return;
+		if (activeOrganization) return;
+		const firstOrganization = organizations?.[0];
+		if (!firstOrganization) return;
+		autoActivatedReference.current = true;
+		void authClient.organization.setActive({ organizationId: firstOrganization.id });
+	}, [session, listPending, activeOrganization, organizations]);
+
 	if (sessionPending) {
 		return <LoadingFallback />;
 	}

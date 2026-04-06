@@ -48,8 +48,8 @@ export const userRoutes = new Hono<AuthedEnvironment>()
 		});
 	})
 
-	// GET /api/user/recentProjects — Recently accessed projects across all orgs
-	.get('/user/recentProjects', async (c) => {
+	// GET /api/user/recent-projects — Recently accessed projects across all orgs
+	.get('/user/recent-projects', async (c) => {
 		const userId = c.get('userId');
 		const database = drizzle(c.env.DB);
 
@@ -212,8 +212,8 @@ export const userRoutes = new Hono<AuthedEnvironment>()
 		return c.json({ projectId, favorite: body.favorite });
 	})
 
-	// GET /api/user/account/deletePreview — Preview account deletion consequences
-	.get('/user/account/deletePreview', async (c) => {
+	// GET /api/user/account/delete-preview — Preview account deletion consequences
+	.get('/user/account/delete-preview', async (c) => {
 		const userId = c.get('userId');
 		const database = drizzle(c.env.DB);
 
@@ -379,14 +379,14 @@ export const userRoutes = new Hono<AuthedEnvironment>()
 	// Push Notification Subscription Management
 	// =========================================================================
 
-	// GET /api/user/pushVapidKey — Get the VAPID public key for pushManager.subscribe()
-	.get('/user/pushVapidKey', async (c) => {
+	// GET /api/user/push-vapid-key — Get the VAPID public key for pushManager.subscribe()
+	.get('/user/push-vapid-key', async (c) => {
 		const key = await c.env.PUSH.getVapidPublicKey();
 		return c.json({ key });
 	})
 
-	// POST /api/user/pushSubscription — Register a push subscription
-	.post('/user/pushSubscription', zValidator('json', pushSubscriptionBodySchema), async (c) => {
+	// POST /api/user/push-subscription — Register a push subscription
+	.post('/user/push-subscription', zValidator('json', pushSubscriptionBodySchema), async (c) => {
 		const userId = c.get('userId');
 		const body = c.req.valid('json');
 
@@ -399,8 +399,8 @@ export const userRoutes = new Hono<AuthedEnvironment>()
 		return c.json({ ok: true });
 	})
 
-	// DELETE /api/user/pushSubscription — Unregister a push subscription
-	.delete('/user/pushSubscription', zValidator('json', pushUnsubscribeBodySchema), async (c) => {
+	// DELETE /api/user/push-subscription — Unregister a push subscription
+	.delete('/user/push-subscription', zValidator('json', pushUnsubscribeBodySchema), async (c) => {
 		const userId = c.get('userId');
 		const body = c.req.valid('json');
 
@@ -413,8 +413,8 @@ export const userRoutes = new Hono<AuthedEnvironment>()
 	// Push Notification Preference (per-device enabled/disabled)
 	// =========================================================================
 
-	// GET /api/user/pushNotificationPreference — Get preference for a device
-	.get('/user/pushNotificationPreference', async (c) => {
+	// GET /api/user/push-notification-preference — Get preference for a device
+	.get('/user/push-notification-preference', async (c) => {
 		const userId = c.get('userId');
 		const endpoint = c.req.query('endpoint');
 
@@ -426,8 +426,8 @@ export const userRoutes = new Hono<AuthedEnvironment>()
 		return c.json({ enabled: preference?.enabled ?? false });
 	})
 
-	// PUT /api/user/pushNotificationPreference — Set preference for a device
-	.put('/user/pushNotificationPreference', zValidator('json', pushNotificationPreferenceBodySchema), async (c) => {
+	// PUT /api/user/push-notification-preference — Set preference for a device
+	.put('/user/push-notification-preference', zValidator('json', pushNotificationPreferenceBodySchema), async (c) => {
 		const userId = c.get('userId');
 		const body = c.req.valid('json');
 

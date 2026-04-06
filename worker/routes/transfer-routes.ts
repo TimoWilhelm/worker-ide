@@ -110,8 +110,8 @@ export const transferRoutes = new Hono<AuthedEnvironment>()
 		return c.json({ transferId, status: 'pending' });
 	})
 
-	// GET /api/user/pendingTransfers — List all pending transfers for the user's orgs
-	.get('/user/pendingTransfers', async (c) => {
+	// GET /api/user/pending-transfers — List all pending transfers for the user's orgs
+	.get('/user/pending-transfers', async (c) => {
 		const userId = c.get('userId');
 		const database = drizzle(c.env.DB);
 

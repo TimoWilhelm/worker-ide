@@ -70,7 +70,7 @@ export function usePushNotifications(): UsePushNotificationsResult {
 				const subscription = await getPushSubscription();
 				if (!subscription?.endpoint) return;
 
-				const preferenceResponse = await userApi.user.pushNotificationPreference.$get({
+				const preferenceResponse = await userApi.user['push-notification-preference'].$get({
 					query: { endpoint: subscription.endpoint },
 				});
 
@@ -100,7 +100,7 @@ export function usePushNotifications(): UsePushNotificationsResult {
 
 		try {
 			// 1. Fetch VAPID public key from the backend
-			const vapidResponse = await userApi.user.pushVapidKey.$get({});
+			const vapidResponse = await userApi.user['push-vapid-key'].$get({});
 			if (!vapidResponse.ok) {
 				throw new Error('Failed to fetch VAPID key');
 			}
@@ -127,7 +127,7 @@ export function usePushNotifications(): UsePushNotificationsResult {
 				throw new Error('Invalid push subscription: missing required fields');
 			}
 
-			const registerResponse = await userApi.user.pushSubscription.$post({
+			const registerResponse = await userApi.user['push-subscription'].$post({
 				json: {
 					endpoint: subscription.endpoint,
 					key: p256dhKey,
@@ -160,7 +160,7 @@ export function usePushNotifications(): UsePushNotificationsResult {
 				await subscription.unsubscribe();
 
 				// 2. Remove from backend (also removes preference)
-				await userApi.user.pushSubscription.$delete({
+				await userApi.user['push-subscription'].$delete({
 					json: { endpoint: subscription.endpoint },
 				});
 			}
@@ -183,7 +183,7 @@ export function usePushNotifications(): UsePushNotificationsResult {
 			if (!subscription?.endpoint) return;
 
 			const newEnabled = !isEnabled;
-			const response = await userApi.user.pushNotificationPreference.$put({
+			const response = await userApi.user['push-notification-preference'].$put({
 				json: { endpoint: subscription.endpoint, enabled: newEnabled },
 			});
 

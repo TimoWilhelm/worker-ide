@@ -29,7 +29,7 @@ export function PendingInvitationsBanner() {
 	const invitationsQuery = useQuery({
 		queryKey: ['user-invitations'],
 		queryFn: async () => {
-			const { data, error } = await authClient.organization.listInvitations();
+			const { data, error } = await authClient.organization.listUserInvitations();
 			if (error) throw new Error(error.message ?? 'Failed to load invitations');
 			if (data) {
 				// eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- better-auth returns loosely typed invitation data

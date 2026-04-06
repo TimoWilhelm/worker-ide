@@ -380,7 +380,7 @@ export interface RecentProject {
  */
 export async function fetchRecentProjects(): Promise<RecentProject[]> {
 	const userApi = createUserApiClient();
-	const response = await userApi.user.recentProjects.$get({});
+	const response = await userApi.user['recent-projects'].$get({});
 	if (!response.ok) {
 		await throwApiError(response, 'Failed to fetch recent projects');
 	}
@@ -430,7 +430,7 @@ export interface PendingTransfer {
  */
 export async function fetchPendingTransfers(): Promise<{ incoming: PendingTransfer[]; outgoing: PendingTransfer[] }> {
 	const transferApi = createTransferApiClient();
-	const response = await transferApi.user.pendingTransfers.$get({});
+	const response = await transferApi.user['pending-transfers'].$get({});
 	if (!response.ok) {
 		await throwApiError(response, 'Failed to fetch pending transfers');
 	}
@@ -508,7 +508,7 @@ export interface AccountDeletePreview {
  */
 export async function fetchAccountDeletePreview(): Promise<AccountDeletePreview> {
 	const userApi = createUserApiClient();
-	const response = await userApi.user.account.deletePreview.$get({});
+	const response = await userApi.user.account['delete-preview'].$get({});
 	if (!response.ok) {
 		await throwApiError(response, 'Failed to fetch account deletion preview');
 	}
