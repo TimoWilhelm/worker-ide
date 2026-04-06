@@ -9,27 +9,24 @@
  * call-site and is dead-code-eliminated from production builds.
  */
 
+import { getSessionCookie } from 'better-auth/cookies';
 import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
 
 import * as authSchema from '../db/auth-schema';
 
 /**
- * Extract the `better-auth.session_token` value from the Cookie header.
+ * Extract the raw session token from the Cookie header.
  *
- * better-auth stores session cookies as signed values in the format
- * `<token>.<hmac_signature>`. The cookie value may also be URL-encoded.
- * We decode and strip the signature to recover the raw token for D1 lookup.
+ * Uses `getSessionCookie` from better-auth which handles cookie name resolution
+ * and signed cookie format (`<token>.<signature>`). We strip the signature
+ * since this dev helper looks up the raw token directly in D1.
  */
 function getSessionToken(headers: Headers): string | undefined {
-	const cookie = headers.get('Cookie');
-	if (!cookie) return undefined;
-	const match = cookie.match(/better-auth\.session_token=([^;]+)/);
-	if (!match) return undefined;
-	const raw = decodeURIComponent(match[1]);
-	// Signed cookies use "<token>.<signature>" format — take only the token part.
-	const dotIndex = raw.indexOf('.');
-	return dotIndex > 0 ? raw.slice(0, dotIndex) : raw;
+	const signed = getSessionCookie(headers);
+	if (signed === undefined || signed === null) return undefined;
+	const dotIndex = signed.indexOf('.');
+	return dotIndex > 0 ? signed.slice(0, dotIndex) : signed;
 }
 
 /**

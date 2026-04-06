@@ -11,12 +11,15 @@
  * The base domain is derived at runtime from the Host header.
  */
 
+import { getCookies } from 'better-auth/cookies';
 import { env } from 'cloudflare:workers';
-import { and, eq, inArray, isNotNull, isNull, lte } from 'drizzle-orm';
+import { and, eq, gt, inArray, isNotNull, isNull, lte } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
+import { serialize, serializeSigned } from 'hono/utils/cookie';
 import { mount, withMounts } from 'worker-fs-mount';
+import { z } from 'zod';
 
 import { PROJECT_INACTIVITY_DAYS, SOFT_DELETE_RETENTION_DAYS } from '@shared/constants';
 import { buildAppOrigin, parseHost } from '@shared/domain';
@@ -230,6 +233,42 @@ if (import.meta.env.DEV) {
 	});
 }
 
+// Redeem a one-time session exchange code
+const exchangeCodeSchema = z
+	.string()
+	.min(1)
+	.max(256)
+	.regex(/^[\w-]+$/);
+
+app.get('/api/auth/session/exchange', async (c) => {
+	const codeResult = exchangeCodeSchema.safeParse(c.req.query('code'));
+	if (!codeResult.success) return c.redirect('/');
+
+	const code = codeResult.data;
+	const database = drizzle(c.env.DB);
+	const now = new Date();
+	const identifier = `session-exchange:${code}`;
+
+	// Atomic delete-and-return to prevent the same code from being redeemed twice
+	const [row] = await database
+		.delete(authSchema.verification)
+		.where(and(eq(authSchema.verification.identifier, identifier), gt(authSchema.verification.expiresAt, now)))
+		.returning({ value: authSchema.verification.value });
+
+	if (!row) return c.redirect('/');
+
+	const url = new URL(c.req.url);
+	const baseUrl = buildAppOrigin(parseHost(url.host).baseDomain, url.protocol);
+	const { sessionToken } = getCookies({ baseURL: baseUrl, secret: c.env.BETTER_AUTH_SECRET });
+	const { prefix: _, ...cookieOptions } = sessionToken.attributes;
+	const setCookie = await serializeSigned(sessionToken.name, row.value, c.env.BETTER_AUTH_SECRET, cookieOptions);
+
+	return new Response(undefined, {
+		status: 302,
+		headers: { Location: '/', 'Set-Cookie': setCookie },
+	});
+});
+
 // Admin plugin HTTP endpoints are not exposed
 app.all('/api/auth/admin/*', (c) => c.notFound());
 
@@ -311,7 +350,8 @@ if (import.meta.env.DEV) {
 					set: { expiresAt, updatedAt: now },
 				});
 
-			c.header('Set-Cookie', `better-auth.session_token=${sessionToken}; Path=/; HttpOnly; SameSite=Lax`);
+			const { sessionToken: sessionCookie } = getCookies({ baseURL: 'http://localhost' });
+			c.header('Set-Cookie', serialize(sessionCookie.name, sessionToken, sessionCookie.attributes));
 			return c.json({ userId, organizationId, sessionToken });
 		} catch (error) {
 			console.error('/__test/create-session failed:', error);
