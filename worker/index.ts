@@ -259,14 +259,21 @@ app.get('/api/auth/session/exchange', async (c) => {
 
 	const url = new URL(c.req.url);
 	const baseUrl = buildAppOrigin(parseHost(url.host).baseDomain, url.protocol);
-	const { sessionToken } = getCookies({ baseURL: baseUrl, secret: c.env.BETTER_AUTH_SECRET });
+	const { sessionToken, sessionData } = getCookies({ baseURL: baseUrl, secret: c.env.BETTER_AUTH_SECRET });
 	const { prefix: _, ...cookieOptions } = sessionToken.attributes;
-	const setCookie = await serializeSigned(sessionToken.name, row.value, c.env.BETTER_AUTH_SECRET, cookieOptions);
+	const setSessionCookie = await serializeSigned(sessionToken.name, row.value, c.env.BETTER_AUTH_SECRET, cookieOptions);
 
-	return new Response(undefined, {
-		status: 302,
-		headers: { Location: '/', 'Set-Cookie': setCookie },
-	});
+	// Expire the session_data cache cookie so getSession falls through to the
+	// DB lookup with the new token instead of returning the stale cached session.
+	const { prefix: __, ...dataCookieOptions } = sessionData.attributes;
+	const expireDataCookie = serialize(sessionData.name, '', { ...dataCookieOptions, maxAge: 0 });
+
+	const headers = new Headers();
+	headers.set('Location', '/');
+	headers.append('Set-Cookie', setSessionCookie);
+	headers.append('Set-Cookie', expireDataCookie);
+
+	return new Response(undefined, { status: 302, headers });
 });
 
 // Admin plugin HTTP endpoints are not exposed
