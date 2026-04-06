@@ -93,7 +93,7 @@ export const verification = sqliteTable(
 export const organization = sqliteTable('organization', {
 	id: text('id').primaryKey(),
 	name: text('name').notNull(),
-	slug: text('slug').unique(),
+	slug: text('slug').notNull().unique(),
 	logo: text('logo'),
 	createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
 	metadata: text('metadata'),
@@ -132,6 +132,7 @@ export const invitation = sqliteTable(
 		inviterId: text('inviter_id')
 			.notNull()
 			.references(() => user.id, { onDelete: 'cascade' }),
+		createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
 	},
 	(table) => [index('invitation_org_id_idx').on(table.organizationId), index('invitation_email_idx').on(table.email)],
 );

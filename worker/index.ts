@@ -101,13 +101,21 @@ async function writeTemplateFiles(
 	fs: typeof import('node:fs/promises'),
 	projectRoot: string,
 	files: Record<string, string>,
-	_humanId: string,
+	humanId: string,
 ): Promise<void> {
 	for (const [filePath, content] of Object.entries(files)) {
 		const fullPath = `${projectRoot}/${filePath}`;
 		const directory = fullPath.slice(0, fullPath.lastIndexOf('/'));
 		await fs.mkdir(directory, { recursive: true });
-		await fs.writeFile(fullPath, content);
+		// Stamp the generated human ID into package.json so the project
+		// name shown in the IDE header matches the DB record.
+		if (filePath === 'package.json') {
+			const packageJson: Record<string, unknown> = JSON.parse(content);
+			packageJson.name = humanId;
+			await fs.writeFile(fullPath, JSON.stringify(packageJson, undefined, '\t') + '\n');
+		} else {
+			await fs.writeFile(fullPath, content);
+		}
 	}
 
 	await fs.writeFile(`${projectRoot}/.initialized`, '1');

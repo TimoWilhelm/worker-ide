@@ -92,6 +92,21 @@ export function createAuth(environment: AuthEnvironment, baseUrl: string) {
 					console.error('Failed to send password reset email:', error);
 				}
 			},
+			// Include admin plugin fields in the synthetic user response so
+			// fake sign-up responses are indistinguishable from real ones
+			// (email enumeration protection).
+			customSyntheticUser: ({ coreFields, additionalFields, id }) => ({
+				...coreFields,
+				role: 'user',
+
+				banned: false,
+				// eslint-disable-next-line unicorn/no-null -- better-auth expects null for these fields
+				banReason: null,
+				// eslint-disable-next-line unicorn/no-null -- better-auth expects null for these fields
+				banExpires: null,
+				...additionalFields,
+				id,
+			}),
 		},
 		plugins: [
 			admin({
@@ -143,6 +158,29 @@ export function createAuth(environment: AuthEnvironment, baseUrl: string) {
 					const plan = organizationRows[0]?.plan ?? 'free';
 					const { maxMembers } = resolveOrgLimitsFromRows(plan, entitlementRows);
 					return maxMembers;
+				},
+
+				schema: {
+					organization: {
+						additionalFields: {
+							plan: {
+								type: 'string',
+								defaultValue: 'free',
+								required: false,
+								input: false,
+							},
+							deletedAt: {
+								type: 'date',
+								required: false,
+								input: false,
+							},
+							bannedAt: {
+								type: 'date',
+								required: false,
+								input: false,
+							},
+						},
+					},
 				},
 
 				invitationExpiresIn: INVITATION_EXPIRES_IN_SECONDS,
