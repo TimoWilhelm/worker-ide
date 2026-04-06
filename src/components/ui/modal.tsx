@@ -28,13 +28,15 @@ export interface ModalProperties {
 	children: ReactNode;
 	/** CSS class name for the content */
 	className?: string;
+	/** When true, the close (×) button in the header is hidden */
+	hideClose?: boolean;
 }
 
 // =============================================================================
 // Component
 // =============================================================================
 
-export function Modal({ open, onOpenChange, title, children, className }: ModalProperties) {
+export function Modal({ open, onOpenChange, title, children, className, hideClose }: ModalProperties) {
 	return (
 		<Dialog.Root open={open} onOpenChange={onOpenChange}>
 			<AnimatePresence>
@@ -70,20 +72,22 @@ export function Modal({ open, onOpenChange, title, children, className }: ModalP
 									"
 								>
 									<Dialog.Title className="text-sm font-semibold text-text-primary">{title}</Dialog.Title>
-									<Dialog.Close
-										className={cn(
-											`
-												flex size-6 items-center justify-center rounded-sm
-												text-text-secondary
-											`,
-											`
-												transition-colors
-												hover:bg-bg-tertiary hover:text-text-primary
-											`,
-										)}
-									>
-										<span className="text-lg leading-none">&times;</span>
-									</Dialog.Close>
+									{!hideClose && (
+										<Dialog.Close
+											className={cn(
+												`
+													flex size-6 items-center justify-center rounded-sm
+													text-text-secondary
+												`,
+												`
+													transition-colors
+													hover:bg-bg-tertiary hover:text-text-primary
+												`,
+											)}
+										>
+											<span className="text-lg leading-none">&times;</span>
+										</Dialog.Close>
+									)}
 								</div>
 								{children}
 							</motion.div>

@@ -598,7 +598,13 @@ export default function DashboardPage({ organizationId, organizations, isCreateO
 			/>
 
 			{/* Create org modal — auto-opened in create-org mode */}
-			<CreateOrgModal open={createOrgOpen} onOpenChange={setCreateOrgOpen} organizationCount={organizations.length} required={hasNoOrgs} />
+			<CreateOrgModal
+				open={createOrgOpen}
+				onOpenChange={setCreateOrgOpen}
+				organizationCount={organizations.length}
+				required={hasNoOrgs}
+				userName={user?.name}
+			/>
 
 			{/* Clone modal */}
 			<CloneModal

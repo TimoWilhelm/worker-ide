@@ -21,6 +21,7 @@ export function CreateOrgModal({
 	organizationCount,
 	maxOrganizations,
 	required,
+	userName,
 }: {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
@@ -28,9 +29,12 @@ export function CreateOrgModal({
 	maxOrganizations?: number;
 	/** When true, the modal cannot be dismissed (no Cancel, no Escape/backdrop close). */
 	required?: boolean;
+	/** User display name, used to prefill the org name when required. */
+	userName?: string;
 }) {
 	const navigate = useNavigate();
-	const [name, setName] = useState('');
+	const defaultName = required && userName ? `${userName}'s Workspace` : '';
+	const [name, setName] = useState(defaultName);
 	const [isCreating, setIsCreating] = useState(false);
 	const resolvedMax = maxOrganizations ?? DEFAULT_MAX_ORGANIZATIONS;
 
@@ -90,7 +94,12 @@ export function CreateOrgModal({
 	);
 
 	return (
-		<Modal open={open} onOpenChange={handleOpenChange} title={required ? 'Create an organization' : 'New organization'}>
+		<Modal
+			open={open}
+			onOpenChange={handleOpenChange}
+			title={required ? 'Create an organization' : 'New organization'}
+			hideClose={required}
+		>
 			<ModalBody>
 				<label className="mb-1 block text-xs font-medium text-text-secondary">Name</label>
 				<input
