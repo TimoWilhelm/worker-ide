@@ -23,8 +23,10 @@ export default defineConfig(
 			'.storybook',
 			'storybook-static',
 			'worker/lib/preview-scripts',
+			// AudioWorklet processor — runs in worklet scope, not main thread
+			'src/features/ai-assistant/lib/pcm-processor.js',
 			'landing',
-			// Git auxiliary worker — adapted from git-on-cloudflare, vendored third-party code
+			// TODO: Git auxiliary worker — adapted from git-on-cloudflare
 			'auxiliary/git/**',
 			// Auto-generated type declarations for auxiliary workers
 			'auxiliary/*/worker-configuration.d.ts',

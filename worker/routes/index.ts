@@ -13,6 +13,7 @@ import { gitRoutes } from './git-routes';
 import { previewUrlRoutes } from './preview-url-routes';
 import { projectRoutes } from './project-routes';
 import { snapshotRoutes } from './snapshot-routes';
+import { sttRoutes } from './stt-routes';
 import { testRoutes } from './test-routes';
 import { transformRoutes } from './transform-routes';
 
@@ -32,7 +33,8 @@ export const apiRoutes = new Hono<AppEnvironment>()
 	.route('', gitRoutes)
 	.route('', gitCredentialRoutes)
 	.route('', testRoutes)
-	.route('', deployRoutes);
+	.route('', deployRoutes)
+	.route('', sttRoutes);
 
 /**
  * Export the full API routes type for client-side type inference.

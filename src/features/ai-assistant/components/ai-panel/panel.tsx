@@ -10,7 +10,20 @@
  */
 
 import { useAgent } from 'agents/react';
-import { ArrowDown, Bot, Download, History, Loader2, Map as MapIcon, MessageCircleQuestion, Plus, Send, Square } from 'lucide-react';
+import {
+	ArrowDown,
+	Bot,
+	Download,
+	History,
+	Loader2,
+	Map as MapIcon,
+	MessageCircleQuestion,
+	Mic,
+	MicOff,
+	Plus,
+	Send,
+	Square,
+} from 'lucide-react';
 import { ScrollArea } from 'radix-ui';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
@@ -43,6 +56,7 @@ import { ModelSelectorDialog } from './model-selector-dialog';
 import { useAutoScroll } from '../../hooks/use-auto-scroll';
 import { useChangeReview } from '../../hooks/use-change-review';
 import { useFileMention } from '../../hooks/use-file-mention';
+import { useSpeechToText } from '../../hooks/use-speech-to-text';
 import { parseTextToSegments, segmentsHaveContent, segmentsToPlainText, type InputSegment } from '../../lib/input-segments';
 import { extractMessageText } from '../../lib/retry-helpers';
 import { AgentModeSelector } from '../agent-mode-selector';
@@ -282,6 +296,44 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	// Change review hook for accept/reject UI
 	const changeReview = useChangeReview({ projectId });
 
+	// Insert a transcript string into the text input
+	const fillInputWithTranscript = useCallback(
+		(transcript: string) => {
+			if (!transcript) return;
+			const knownPaths = new Set(files.map((file) => file.path));
+			setSegments(parseTextToSegments(transcript, knownPaths));
+			requestAnimationFrame(() => {
+				inputReference.current?.focus();
+			});
+		},
+		[files],
+	);
+
+	// Speech-to-text hook for voice input
+	const speechToText = useSpeechToText({ projectId, onAutoStop: fillInputWithTranscript });
+
+	// Move cursor to end of input as transcript grows during recording
+	useEffect(() => {
+		if (speechToText.isRecording && (speechToText.finalTranscript || speechToText.interimTranscript)) {
+			requestAnimationFrame(() => {
+				inputReference.current?.moveCursorToEnd();
+			});
+		}
+	}, [speechToText.isRecording, speechToText.finalTranscript, speechToText.interimTranscript]);
+
+	// Surface STT errors as toasts
+	useEffect(() => {
+		if (speechToText.error) {
+			toast.error(speechToText.error);
+		}
+	}, [speechToText.error]);
+
+	// Handle manually stopping STT and inserting the transcript into the input
+	const handleStopRecording = useCallback(() => {
+		const transcript = speechToText.stop();
+		fillInputWithTranscript(transcript);
+	}, [speechToText, fillInputWithTranscript]);
+
 	// Start a new session. Pending changes are NOT cleared — they persist
 	// across sessions at the project level.
 	const clearHistory = useCallback(() => {
@@ -387,6 +439,10 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	// Handle keyboard shortcuts
 	const handleKeyDown = useCallback(
 		(event: React.KeyboardEvent) => {
+			// Block keyboard shortcuts while recording — the input shows the
+			// live transcript and is disabled, so there's nothing to send.
+			if (speechToText.isRecording) return;
+
 			// Let file mention dropdown handle keys first
 			if (handleFileMentionKeyDown(event)) return;
 
@@ -407,7 +463,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 				handleCancel();
 			}
 		},
-		[handleSend, handleSteer, handleFileMentionKeyDown, isConnected, isProcessing, hasContent, handleCancel],
+		[handleSend, handleSteer, handleFileMentionKeyDown, isConnected, isProcessing, hasContent, handleCancel, speechToText.isRecording],
 	);
 
 	// Retry: trim the failed assistant response and re-start the agent
@@ -890,10 +946,18 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 
 					<RichTextInput
 						ref={inputReference}
-						segments={segments}
+						segments={
+							speechToText.isRecording
+								? (() => {
+										const combined = [speechToText.finalTranscript, speechToText.interimTranscript].filter(Boolean).join(' ');
+										return combined ? [{ type: 'text' as const, value: combined }] : [];
+									})()
+								: segments
+						}
 						onSegmentsChange={setSegments}
 						onKeyDown={handleKeyDown}
 						onCursorChange={setCursorPosition}
+						disabled={speechToText.isRecording}
 						placeholder={
 							isProcessing
 								? 'Type your next message...'
@@ -919,58 +983,107 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 							</button>
 						)}
 					</Collapsible>
-					<div
-						className="
-							flex flex-wrap-reverse items-center gap-x-1.5 gap-y-0.5 px-1.5 py-1
-						"
-					>
-						<AgentModeSelector mode={agentMode} onModeChange={setAgentMode} disabled={isProcessing || !isConnected} />
-						<Pill
-							size="md"
-							color="muted"
-							className={cn(
-								'max-w-full min-w-0 cursor-pointer overflow-hidden transition-colors',
-								(isProcessing || !isConnected) && 'cursor-not-allowed opacity-40',
-							)}
-							onClick={() => !isProcessing && isConnected && setIsModelSelectorOpen(true)}
-						>
-							<span className="truncate">{getModelLabel(selectedModel)}</span>
-						</Pill>
-						<div className="flex flex-1 shrink-0 items-center justify-end gap-1">
-							<ContextRing tokensUsed={contextTokensUsed} contextWindow={getModelLimits(selectedModel).contextWindow} />
-							{isProcessing ? (
-								<button
-									onClick={handleCancel}
-									className={cn(
-										`inline-flex cursor-pointer items-center gap-1.5 rounded-md p-1.5`,
-										'text-xs font-medium text-error transition-colors',
-										'hover:bg-error/10',
-									)}
-									aria-label="Stop"
-								>
-									<Square className="size-3" />
-								</button>
-							) : (
-								<button
-									onClick={() => void handleSend()}
-									disabled={!hasContent || !isConnected}
-									className={cn(
-										'inline-flex items-center gap-1.5 rounded-md p-1.5',
-										'text-xs font-medium transition-colors',
-										hasContent && isConnected
-											? `
-												cursor-pointer bg-accent text-white
-												hover:bg-accent-hover
-											`
-											: 'cursor-not-allowed text-text-secondary opacity-40',
-									)}
-									aria-label="Send"
-								>
-									<Send className="size-3" />
-								</button>
-							)}
+					{speechToText.isRecording ? (
+						<div className="flex items-center gap-x-2 px-1.5 py-1">
+							{/* Pulsing red dot */}
+							<span className="size-2 shrink-0 animate-pulse rounded-full bg-error" />
+							<span className="min-w-0 flex-1 truncate text-xs text-text-secondary">Recording…</span>
+							<button
+								onClick={handleStopRecording}
+								className={cn(
+									'inline-flex cursor-pointer items-center gap-1.5 rounded-md p-1.5',
+									'text-xs font-medium text-error transition-colors',
+									'hover:bg-error/10',
+								)}
+								aria-label="Stop recording"
+							>
+								<Square className="size-3" />
+							</button>
 						</div>
-					</div>
+					) : (
+						<div
+							className="
+								flex flex-wrap-reverse items-center gap-x-1.5 gap-y-0.5 px-1.5 py-1
+							"
+						>
+							<AgentModeSelector mode={agentMode} onModeChange={setAgentMode} disabled={isProcessing || !isConnected} />
+							<Pill
+								size="md"
+								color="muted"
+								className={cn(
+									'max-w-full min-w-0 cursor-pointer overflow-hidden transition-colors',
+									(isProcessing || !isConnected) && 'cursor-not-allowed opacity-40',
+								)}
+								onClick={() => !isProcessing && isConnected && setIsModelSelectorOpen(true)}
+							>
+								<span className="truncate">{getModelLabel(selectedModel)}</span>
+							</Pill>
+							<div className="flex flex-1 shrink-0 items-center justify-end gap-1">
+								<ContextRing tokensUsed={contextTokensUsed} contextWindow={getModelLimits(selectedModel).contextWindow} />
+								{/* Microphone button — hidden when unsupported or agent is processing */}
+								{!isProcessing && speechToText.microphonePermission !== 'unsupported' && (
+									<Tooltip content={speechToText.microphonePermission === 'denied' ? 'Microphone blocked' : 'Voice input'} side="top">
+										<button
+											onClick={() => {
+												if (speechToText.microphonePermission === 'denied') {
+													toast.info('Allow microphone access for this site in your browser settings, then try again.');
+													return;
+												}
+												void speechToText.start();
+											}}
+											disabled={!isConnected}
+											className={cn(
+												'inline-flex items-center gap-1.5 rounded-md p-1.5',
+												'text-xs font-medium transition-colors',
+												speechToText.microphonePermission === 'denied'
+													? 'cursor-pointer text-text-secondary opacity-50'
+													: isConnected
+														? `
+															cursor-pointer text-text-secondary
+															hover:bg-bg-tertiary hover:text-text-primary
+														`
+														: 'cursor-not-allowed text-text-secondary opacity-40',
+											)}
+											aria-label={speechToText.microphonePermission === 'denied' ? 'Microphone blocked' : 'Start voice input'}
+										>
+											{speechToText.microphonePermission === 'denied' ? <MicOff className="size-3" /> : <Mic className="size-3" />}
+										</button>
+									</Tooltip>
+								)}
+								{isProcessing ? (
+									<button
+										onClick={handleCancel}
+										className={cn(
+											`inline-flex cursor-pointer items-center gap-1.5 rounded-md p-1.5`,
+											'text-xs font-medium text-error transition-colors',
+											'hover:bg-error/10',
+										)}
+										aria-label="Stop"
+									>
+										<Square className="size-3" />
+									</button>
+								) : (
+									<button
+										onClick={() => void handleSend()}
+										disabled={!hasContent || !isConnected}
+										className={cn(
+											'inline-flex items-center gap-1.5 rounded-md p-1.5',
+											'text-xs font-medium transition-colors',
+											hasContent && isConnected
+												? `
+													cursor-pointer bg-accent text-white
+													hover:bg-accent-hover
+												`
+												: 'cursor-not-allowed text-text-secondary opacity-40',
+										)}
+										aria-label="Send"
+									>
+										<Send className="size-3" />
+									</button>
+								)}
+							</div>
+						</div>
+					)}
 				</div>
 			</div>
 

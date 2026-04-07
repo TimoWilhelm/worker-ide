@@ -1075,7 +1075,8 @@ export default {
 				url.pathname === '/__ws' ||
 				url.pathname.startsWith('/__ws/') ||
 				/^\/p\/[^/]+\/__ws(\/|$)/.test(url.pathname) ||
-				/^\/p\/[^/]+\/__agent(\/|$)/.test(url.pathname);
+				/^\/p\/[^/]+\/__agent(\/|$)/.test(url.pathname) ||
+				/^\/p\/[^/]+\/api\/stt\/ws$/.test(url.pathname);
 
 			if (!isValidWebSocketPath) {
 				return new Response('WebSocket not supported on this path', { status: 404 });

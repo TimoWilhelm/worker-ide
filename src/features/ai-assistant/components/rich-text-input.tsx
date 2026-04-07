@@ -22,6 +22,7 @@ import { segmentsToPlainText, type InputSegment } from '../lib/input-segments';
 
 export interface RichTextInputHandle {
 	focus: () => void;
+	moveCursorToEnd: () => void;
 	insertMention: (path: string, triggerOffset: number, queryLength: number) => void;
 	getPlainText: () => string;
 	clear: () => void;
@@ -276,6 +277,17 @@ export function RichTextInput({
 	useImperativeHandle(ref, () => ({
 		focus() {
 			containerReference.current?.focus();
+		},
+		moveCursorToEnd() {
+			const container = containerReference.current;
+			if (!container) return;
+			const selection = globalThis.getSelection();
+			if (!selection) return;
+			const range = document.createRange();
+			range.selectNodeContents(container);
+			range.collapse(false);
+			selection.removeAllRanges();
+			selection.addRange(range);
 		},
 		insertMention(path: string, triggerOffset: number, queryLength: number) {
 			const container = containerReference.current;
