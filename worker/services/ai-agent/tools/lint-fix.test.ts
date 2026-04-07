@@ -186,6 +186,14 @@ describe('lint_fix', () => {
 
 	// ── Error cases ───────────────────────────────────────────────────────
 
+	it('rejects protected file /package.json', async () => {
+		await expect(execute({ file_path: '/package.json' }, createMockSendEvent(), context())).rejects.toThrow('[NOT_ALLOWED]');
+	});
+
+	it('rejects protected file /wrangler.jsonc', async () => {
+		await expect(execute({ file_path: '/wrangler.jsonc' }, createMockSendEvent(), context())).rejects.toThrow('[NOT_ALLOWED]');
+	});
+
 	it('returns MISSING_INPUT for empty path', async () => {
 		await expect(execute({ file_path: '' }, createMockSendEvent(), context())).rejects.toThrow('[MISSING_INPUT]');
 	});

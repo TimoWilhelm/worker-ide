@@ -14,6 +14,7 @@ import { isHiddenPath, isPathSafe } from '@worker/lib/path-utilities';
 import { fixFile, formatLintDiagnostics, lintFile } from '@worker/services/lint-service';
 
 import { recordFileRead, withLock } from '../file-time';
+import { guardProtectedFile } from '../protected-file-guard';
 import { computeDiffStats, generateCompactDiff } from '../utilities';
 
 import type { FileChange, SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
@@ -73,6 +74,8 @@ export async function execute(
 	if (isHiddenPath(fixPath)) {
 		return toolError(ToolErrorCode.INVALID_PATH, `Access denied: ${fixPath}`);
 	}
+
+	guardProtectedFile(fixPath);
 
 	// Acquire a per-file lock so that a concurrent write tool cannot clobber
 	// this fix, and so the recordFileRead timestamp stays accurate.

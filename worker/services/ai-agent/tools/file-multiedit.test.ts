@@ -265,6 +265,32 @@ describe('file_multiedit', () => {
 		).rejects.toThrow('[FILE_NOT_FOUND]');
 	});
 
+	it('rejects editing protected file /package.json', async () => {
+		await expect(
+			execute(
+				{
+					file_path: '/package.json',
+					edits: makeEdits({ old_string: '"old"', new_string: '"new"' }),
+				},
+				createMockSendEvent(),
+				context(),
+			),
+		).rejects.toThrow('[NOT_ALLOWED]');
+	});
+
+	it('rejects editing protected file /wrangler.jsonc', async () => {
+		await expect(
+			execute(
+				{
+					file_path: '/wrangler.jsonc',
+					edits: makeEdits({ old_string: '"old"', new_string: '"new"' }),
+				},
+				createMockSendEvent(),
+				context(),
+			),
+		).rejects.toThrow('[NOT_ALLOWED]');
+	});
+
 	it('rejects hidden paths', async () => {
 		await expect(
 			execute(

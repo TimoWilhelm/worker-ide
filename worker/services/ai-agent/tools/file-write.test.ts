@@ -143,6 +143,12 @@ describe('file_write', () => {
 		await expect(execute({ file_path: '/package.json', content: '{}' }, createMockSendEvent(), context())).rejects.toThrow('[NOT_ALLOWED]');
 	});
 
+	it('rejects direct /wrangler.jsonc creation', async () => {
+		await expect(execute({ file_path: '/wrangler.jsonc', content: '{}' }, createMockSendEvent(), context())).rejects.toThrow(
+			'[NOT_ALLOWED]',
+		);
+	});
+
 	// ── CSS file triggers update instead of full-reload ───────────────────
 
 	it('sends file_changed event for overwrite with action=edit', async () => {

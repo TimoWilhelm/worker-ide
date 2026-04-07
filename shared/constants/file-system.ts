@@ -23,7 +23,11 @@ export const PROTECTED_FILES = new Set([
  * Regenerated when project settings change (name, dependencies, asset config).
  * Users cannot edit them directly — the IDE provides dedicated UI instead.
  */
-export const PROTECTED_SYSTEM_FILES = new Set(['/package.json', '/wrangler.jsonc', '/vite.config.ts', '/vitest.config.ts']);
+const PROTECTED_SYSTEM_FILE_PATHS = ['/package.json', '/wrangler.jsonc', '/vite.config.ts', '/vitest.config.ts'] as const;
+
+export type ProtectedSystemFile = (typeof PROTECTED_SYSTEM_FILE_PATHS)[number];
+
+export const PROTECTED_SYSTEM_FILES: ReadonlySet<string> = new Set<string>(PROTECTED_SYSTEM_FILE_PATHS);
 
 /**
  * Check if a file path is a protected system file managed by the IDE.

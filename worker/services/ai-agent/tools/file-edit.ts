@@ -15,6 +15,7 @@ import { formatLintDiagnostics, lintFile } from '@worker/services/lint-service';
 
 import { replace } from './replacers';
 import { assertFileWasRead, recordFileRead, withLock } from '../file-time';
+import { guardProtectedFile } from '../protected-file-guard';
 import { computeDiffStats, generateCompactDiff } from '../utilities';
 
 import type { FileChange, SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
@@ -76,6 +77,8 @@ export async function execute(
 	if (isHiddenPath(editPath)) {
 		return toolError(ToolErrorCode.INVALID_PATH, `Access denied: ${editPath}`);
 	}
+
+	guardProtectedFile(editPath);
 
 	// Acquire a per-file lock before the assert→read→write→record sequence so
 	// that two concurrent tool calls targeting the same file are serialized.

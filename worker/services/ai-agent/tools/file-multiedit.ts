@@ -17,6 +17,7 @@ import { formatLintDiagnostics, lintFile } from '@worker/services/lint-service';
 
 import { replace } from './replacers';
 import { assertFileWasRead, recordFileRead, withLock } from '../file-time';
+import { guardProtectedFile } from '../protected-file-guard';
 import { computeDiffStats, generateCompactDiff, isRecordObject } from '../utilities';
 
 import type { FileChange, SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
@@ -143,6 +144,8 @@ export async function execute(
 	if (isHiddenPath(editPath)) {
 		return toolError(ToolErrorCode.INVALID_PATH, `Access denied: ${editPath}`);
 	}
+
+	guardProtectedFile(editPath);
 
 	// Parse edits array (may arrive as pre-parsed array or JSON string)
 	const edits = parseEditsInput(input.edits);

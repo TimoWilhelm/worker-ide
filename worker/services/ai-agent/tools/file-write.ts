@@ -6,7 +6,7 @@
 
 import fs from 'node:fs/promises';
 
-import { MAX_DIAGNOSTICS_PER_FILE, isProtectedSystemFile } from '@shared/constants';
+import { MAX_DIAGNOSTICS_PER_FILE } from '@shared/constants';
 import { ToolErrorCode, toolError } from '@shared/tool-errors';
 import { createHmrUpdateForFile } from '@shared/types';
 import { coordinatorNamespace } from '@worker/lib/durable-object-namespaces';
@@ -14,6 +14,7 @@ import { isHiddenPath, isPathSafe } from '@worker/lib/path-utilities';
 import { formatLintDiagnostics, lintFile } from '@worker/services/lint-service';
 
 import { assertFileWasRead, recordFileRead, withLock } from '../file-time';
+import { guardProtectedFile } from '../protected-file-guard';
 import { computeDiffStats, generateCompactDiff, isBinaryFilePath, toUint8Array } from '../utilities';
 
 import type { FileChange, SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
@@ -70,13 +71,7 @@ export async function execute(
 		return toolError(ToolErrorCode.INVALID_PATH, `Access denied: ${writePath}`);
 	}
 
-	// Prevent editing protected system files (package.json, wrangler.jsonc, vite.config.ts, vitest.config.ts)
-	if (isProtectedSystemFile(writePath)) {
-		return toolError(
-			ToolErrorCode.NOT_ALLOWED,
-			`Cannot edit ${writePath} directly. This file is managed by the IDE. Use the dependencies_update tool for package.json dependencies, or the asset_settings_update tool for wrangler.jsonc settings.`,
-		);
-	}
+	guardProtectedFile(writePath);
 
 	const writeIsBinary = isBinaryFilePath(writePath);
 

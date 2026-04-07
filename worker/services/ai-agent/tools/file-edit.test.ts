@@ -177,6 +177,18 @@ describe('file_edit', () => {
 		).rejects.toThrow('[NO_MATCH]');
 	});
 
+	it('rejects editing protected file /package.json', async () => {
+		await expect(
+			execute({ file_path: '/package.json', old_string: '"old"', new_string: '"new"' }, createMockSendEvent(), context()),
+		).rejects.toThrow('[NOT_ALLOWED]');
+	});
+
+	it('rejects editing protected file /wrangler.jsonc', async () => {
+		await expect(
+			execute({ file_path: '/wrangler.jsonc', old_string: '"old"', new_string: '"new"' }, createMockSendEvent(), context()),
+		).rejects.toThrow('[NOT_ALLOWED]');
+	});
+
 	it('rejects hidden paths', async () => {
 		await expect(
 			execute({ file_path: '/.agent/data.json', old_string: 'a', new_string: 'b' }, createMockSendEvent(), context()),
