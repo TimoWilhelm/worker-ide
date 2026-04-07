@@ -125,6 +125,15 @@
 			},
 		],
 	},
+	"analytics_engine_datasets": [
+		{ "binding": "ANALYTICS_API", "dataset": "worker_ide_api" },
+		{ "binding": "ANALYTICS_PROJECTS", "dataset": "worker_ide_projects" },
+		{ "binding": "ANALYTICS_AI", "dataset": "worker_ide_ai" },
+		{ "binding": "ANALYTICS_PREVIEW", "dataset": "worker_ide_preview" },
+		{ "binding": "ANALYTICS_AUTH", "dataset": "worker_ide_auth" },
+		{ "binding": "ANALYTICS_WS", "dataset": "worker_ide_ws" },
+		{ "binding": "ANALYTICS_STT", "dataset": "worker_ide_stt" },
+	],
 	"triggers": {
 		"crons": ["0 3 * * *"],
 	},

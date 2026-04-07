@@ -55,6 +55,7 @@ import {
 	upsertSessionFromService,
 	writePendingChangesData,
 } from './db';
+import { trackAiUsage, trackWebSocketEvent } from '../lib/analytics';
 import { filesystemNamespace } from '../lib/durable-object-namespaces';
 import { toDurableObjectId } from '../lib/project-id';
 import migrations from '../migrations/do-agent/migrations.js';
@@ -198,6 +199,12 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	/** Authenticated user ID per WebSocket connection, set from the server-forwarded header. */
 	private connectionUserIds = new Map<string, string>();
 
+	/** Accumulated analytics data per session, populated from stream events. */
+	private sessionAnalytics = new Map<
+		string,
+		{ inputTokens: number; outputTokens: number; durationMs: number; toolCallCount: number; turnNumber: number }
+	>();
+
 	// =========================================================================
 	// State Validation
 	// =========================================================================
@@ -239,10 +246,25 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		if (userId) {
 			this.connectionUserIds.set(connection.id, userId);
 		}
+
+		trackWebSocketEvent({
+			projectId: this.ctx.id.toString(),
+			eventType: 'connect',
+			connectionType: 'agent',
+			userId: userId ?? undefined,
+			concurrentConnections: this.connectionUserIds.size,
+		});
 	}
 
 	onClose(connection: import('agents').Connection<unknown>): void {
 		this.connectionUserIds.delete(connection.id);
+
+		trackWebSocketEvent({
+			projectId: this.ctx.id.toString(),
+			eventType: 'disconnect',
+			connectionType: 'agent',
+			concurrentConnections: this.connectionUserIds.size,
+		});
 	}
 
 	/**
@@ -383,6 +405,28 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		markSessionRunning(this.db, resolvedSessionId, JSON.stringify(parameters));
 
 		this.launchAgentLoop(parameters, resolvedSessionId);
+
+		this.sessionAnalytics.set(resolvedSessionId, {
+			inputTokens: 0,
+			outputTokens: 0,
+			durationMs: Date.now(),
+			toolCallCount: 0,
+			turnNumber: 0,
+		});
+
+		trackAiUsage({
+			userId: authenticatedUserId ?? '',
+			eventType: 'session_start',
+			projectId,
+			modelId: model,
+			sessionId: resolvedSessionId,
+			agentMode: mode,
+			inputTokens: 0,
+			outputTokens: 0,
+			durationMs: 0,
+			toolCallCount: 0,
+			turnNumber: 0,
+		});
 
 		// Update state immediately so clients see 'running' and the new messages.
 		// Including `messages` is critical — without it, the patch branch of
@@ -884,6 +928,26 @@ export class AgentRunner extends Agent<Env, AgentState> {
 			// Persist terminal status to DB
 			updateSessionStatus(this.db, sessionId, finalStatus, errorMessage);
 
+			const analytics = this.sessionAnalytics.get(sessionId);
+			const sessionDurationMs = analytics ? Date.now() - analytics.durationMs : 0;
+
+			trackAiUsage({
+				userId: this.sessionInitiatorUserIds.get(sessionId) ?? '',
+				eventType: 'session_end',
+				projectId,
+				modelId: parameters.model ?? DEFAULT_AI_MODEL,
+				sessionId,
+				agentMode: parameters.mode ?? 'code',
+				error: errorMessage,
+				inputTokens: analytics?.inputTokens ?? 0,
+				outputTokens: analytics?.outputTokens ?? 0,
+				durationMs: sessionDurationMs,
+				toolCallCount: analytics?.toolCallCount ?? 0,
+				turnNumber: analytics?.turnNumber ?? 0,
+			});
+
+			this.sessionAnalytics.delete(sessionId);
+
 			// Send push notification on completion/error (not on abort — user triggered it)
 			const initiatorUserId = this.sessionInitiatorUserIds.get(sessionId);
 			if (initiatorUserId) {
@@ -999,6 +1063,11 @@ export class AgentRunner extends Agent<Env, AgentState> {
 						messageModes: session.messageModes ?? {},
 					});
 				}
+				// Increment turn counter for analytics
+				const turnAnalytics = this.sessionAnalytics.get(sessionId);
+				if (turnAnalytics) {
+					turnAnalytics.turnNumber += 1;
+				}
 				break;
 			}
 
@@ -1023,6 +1092,11 @@ export class AgentRunner extends Agent<Env, AgentState> {
 					});
 				});
 				if (messages) this.updateSessionState(sessionId, { messages });
+				// Increment tool call counter for analytics
+				const toolAnalytics = this.sessionAnalytics.get(sessionId);
+				if (toolAnalytics) {
+					toolAnalytics.toolCallCount += 1;
+				}
 				break;
 			}
 			case 'tool-call-args-delta': {
@@ -1168,9 +1242,20 @@ export class AgentRunner extends Agent<Env, AgentState> {
 				break;
 			}
 
+			// ── Token usage event ────────────────────────────────────────
+			case 'usage': {
+				// Capture cumulative token totals for session_end analytics
+				const usageAnalytics = this.sessionAnalytics.get(sessionId);
+				if (usageAnalytics) {
+					usageAnalytics.inputTokens = event.input;
+					usageAnalytics.outputTokens = event.output;
+				}
+				break;
+			}
+
 			// ── Events that don't update state ──────────────────────────
 			default: {
-				// run-error, run-finished, usage, plan-created, snapshot-deleted
+				// run-error, run-finished, plan-created, snapshot-deleted
 				break;
 			}
 		}

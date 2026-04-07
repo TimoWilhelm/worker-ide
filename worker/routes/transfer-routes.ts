@@ -18,6 +18,7 @@ import { HttpErrorCode } from '@shared/http-errors';
 import { transferInitiateBodySchema } from '@shared/validation';
 
 import * as schema from '../db/auth-schema';
+import { trackAuthEvent } from '../lib/analytics';
 import { queryEntitlements } from '../lib/entitlements';
 import { httpError } from '../lib/http-error';
 import { assertOrgAdmin } from '../lib/project-auth';
@@ -259,6 +260,8 @@ export const transferRoutes = new Hono<AuthedEnvironment>()
 			.update(schema.projectTransfer)
 			.set({ status: 'accepted', resolvedAt: now, resolvedByUserId: userId })
 			.where(eq(schema.projectTransfer.id, transferId));
+
+		trackAuthEvent({ userId, eventType: 'project_transfer', organizationId: transfer.targetOrganizationId, request: c.req.raw });
 
 		return c.json({ transferId, status: 'accepted' });
 	})

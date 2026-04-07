@@ -14,6 +14,7 @@ import { Hono } from 'hono';
 
 import { HttpErrorCode } from '@shared/http-errors';
 
+import { trackSttEvent } from '../lib/analytics';
 import { httpError } from '../lib/http-error';
 
 import type { AppEnvironment } from '../types';
@@ -37,11 +38,105 @@ export const sttRoutes = new Hono<AppEnvironment>().get('/stt/ws', async (c) => 
 		throw httpError(HttpErrorCode.VALIDATION_ERROR, 'Expected WebSocket upgrade', 426);
 	}
 
-	return runSttWebSocket(env.AI, {
+	const userId = c.get('userId');
+	const projectId = c.get('projectId');
+	const request = c.req.raw;
+	const sessionStart = Date.now();
+
+	trackSttEvent({
+		userId,
+		projectId,
+		eventType: 'session_start',
+		request,
+	});
+
+	const aiResponse = await runSttWebSocket(env.AI, {
 		encoding: 'linear16',
 		sample_rate: '16000',
 		interim_results: 'true',
 		punctuate: 'true',
 		smart_format: 'true',
 	});
+
+	// The AI binding returns a 101 with a webSocket on the response.
+	// Intercept with our own pair so we can detect close and track session_end.
+	const aiSocket = aiResponse.webSocket;
+	if (!aiSocket) {
+		// Fallback: AI binding didn't return a WebSocket — return as-is
+		return aiResponse;
+	}
+	aiSocket.accept();
+
+	const pair = new WebSocketPair();
+	const [clientSocket, serverSocket] = [pair[0], pair[1]];
+	serverSocket.accept();
+
+	// Relay: client → AI
+	serverSocket.addEventListener('message', (event) => {
+		try {
+			aiSocket.send(event.data);
+		} catch {
+			// AI socket already closed
+		}
+	});
+
+	// Relay: AI → client
+	aiSocket.addEventListener('message', (event) => {
+		try {
+			serverSocket.send(event.data);
+		} catch {
+			// Client socket already closed
+		}
+	});
+
+	// Track session_end on close from either side
+	let sessionEnded = false;
+	const endSession = (error?: string) => {
+		if (sessionEnded) return;
+		sessionEnded = true;
+		trackSttEvent({
+			userId,
+			projectId,
+			eventType: 'session_end',
+			durationMs: Date.now() - sessionStart,
+			error,
+			request,
+		});
+	};
+
+	serverSocket.addEventListener('close', () => {
+		endSession();
+		try {
+			aiSocket.close();
+		} catch {
+			// Already closed
+		}
+	});
+	serverSocket.addEventListener('error', () => {
+		endSession('client_error');
+		try {
+			aiSocket.close();
+		} catch {
+			// Already closed
+		}
+	});
+
+	aiSocket.addEventListener('close', () => {
+		endSession();
+		try {
+			serverSocket.close();
+		} catch {
+			// Already closed
+		}
+	});
+	aiSocket.addEventListener('error', () => {
+		endSession('ai_error');
+		try {
+			serverSocket.close();
+		} catch {
+			// Already closed
+		}
+	});
+
+	return new Response(undefined, { status: 101, webSocket: clientSocket });
 });

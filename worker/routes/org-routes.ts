@@ -16,6 +16,7 @@ import { HttpErrorCode } from '@shared/http-errors';
 import { visibilityBodySchema } from '@shared/validation';
 
 import * as schema from '../db/auth-schema';
+import { trackProjectEvent } from '../lib/analytics';
 import { queryEntitlements } from '../lib/entitlements';
 import { httpError } from '../lib/http-error';
 import { assertOrgSuperAdmin } from '../lib/project-auth';
@@ -145,6 +146,16 @@ export const orgRoutes = new Hono<AuthedEnvironment>()
 
 		const now = new Date();
 		await database.update(schema.project).set({ deletedAt: now, updatedAt: now }).where(eq(schema.project.id, projectId));
+
+		trackProjectEvent({
+			organizationId: orgId,
+			eventType: 'delete',
+			projectId,
+			userId: c.get('userId'),
+			durationMs: 0,
+			success: true,
+			request: c.req.raw,
+		});
 
 		return c.json({ projectId, deletedAt: now.toISOString() });
 	})

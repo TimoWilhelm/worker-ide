@@ -3,6 +3,8 @@ import { DurableObject } from 'cloudflare:workers';
 import { COLLAB_COLORS, MAX_CONCURRENT_COLLABORATORS } from '@shared/constants';
 import { serializeMessage, parseClientMessage } from '@shared/ws-messages';
 
+import { trackWebSocketEvent } from '../lib/analytics';
+
 import type { HmrUpdate, Participant } from '@shared/types';
 import type { ServerMessage } from '@shared/ws-messages';
 
@@ -60,6 +62,9 @@ export class ProjectCoordinatorV2 extends DurableObject {
 	 * which is safe because any in-flight CDP promises will have already expired.
 	 */
 	private pendingCdpRequests = new Map<string, { resolve: (value: { result?: string; error?: string }) => void }>();
+
+	/** Project ID for analytics. Set from the `x-project-id` header on first fetch. */
+	private projectId: string | undefined;
 
 	// =========================================================================
 	// Persisted state — native get/set backed by ctx.storage.kv
@@ -168,6 +173,12 @@ export class ProjectCoordinatorV2 extends DurableObject {
 	async fetch(request: Request): Promise<Response> {
 		const url = new URL(request.url);
 
+		// Capture the project ID forwarded by the main Worker for analytics
+		const headerProjectId = request.headers.get('x-project-id');
+		if (headerProjectId) {
+			this.projectId = headerProjectId;
+		}
+
 		// WebSocket upgrade
 		if (url.pathname === '/ws' && request.headers.get('Upgrade') === 'websocket') {
 			// Enforce concurrent collaborator limit
@@ -189,6 +200,13 @@ export class ProjectCoordinatorV2 extends DurableObject {
 
 			this.ctx.acceptWebSocket(server);
 			this.setAttachment(server, attachment);
+
+			trackWebSocketEvent({
+				projectId: this.projectId ?? this.ctx.id.toString(),
+				eventType: 'connect',
+				connectionType: 'coordinator',
+				concurrentConnections: openSockets.length + 1,
+			});
 
 			return new Response(undefined, { status: 101, webSocket: client });
 		}
@@ -479,6 +497,16 @@ export class ProjectCoordinatorV2 extends DurableObject {
 				}),
 			);
 		}
+
+		const remainingConnections = this.ctx.getWebSockets().filter((s) => s !== ws && s.readyState === WebSocket.OPEN).length;
+
+		trackWebSocketEvent({
+			projectId: this.projectId ?? this.ctx.id.toString(),
+			eventType: 'disconnect',
+			connectionType: 'coordinator',
+			concurrentConnections: remainingConnections,
+		});
+
 		try {
 			ws.close(code, reason);
 		} catch {

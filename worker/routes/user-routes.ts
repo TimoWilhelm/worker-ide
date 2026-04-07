@@ -22,6 +22,7 @@ import {
 } from '@shared/validation';
 
 import * as schema from '../db/auth-schema';
+import { trackAuthEvent } from '../lib/analytics';
 import { queryEntitlements } from '../lib/entitlements';
 import { httpError } from '../lib/http-error';
 
@@ -371,6 +372,8 @@ export const userRoutes = new Hono<AuthedEnvironment>()
 
 		// Delete all sessions
 		await database.delete(schema.session).where(eq(schema.session.userId, userId));
+
+		trackAuthEvent({ userId, eventType: 'account_delete', request: c.req.raw });
 
 		return c.json({ ok: true, deletedAt: now.toISOString() });
 	})

@@ -14,6 +14,8 @@
 import fs from 'node:fs/promises';
 
 import { zValidator } from '@hono/zod-validator';
+import { eq } from 'drizzle-orm';
+import { drizzle } from 'drizzle-orm/d1';
 import { Hono } from 'hono';
 import stripJsonComments from 'strip-json-comments';
 
@@ -22,6 +24,8 @@ import { HttpErrorCode } from '@shared/http-errors';
 import { resolveAssetSettings } from '@shared/types';
 import { deployRequestSchema } from '@shared/validation';
 
+import * as schema from '../db/auth-schema';
+import { trackProjectEvent } from '../lib/analytics';
 import { getContentType } from '../lib/content-type';
 import { httpError } from '../lib/http-error';
 import { readAssetSettings, readDependencies, readProjectName } from '../lib/protected-files';
@@ -42,159 +46,194 @@ const CLOUDFLARE_API_BASE = 'https://api.cloudflare.com/client/v4';
 // =============================================================================
 
 export const deployRoutes = new Hono<AppEnvironment>().post('/deploy', zValidator('json', deployRequestSchema), async (c) => {
+	const deployStart = Date.now();
 	const { accountId, apiToken, workerName } = c.req.valid('json');
+
+	// Look up the project's organizationId for analytics
+	const deployDatabase = drizzle(c.env.DB);
+	const deployProjectRow = await deployDatabase
+		.select({ organizationId: schema.project.organizationId })
+		.from(schema.project)
+		.where(eq(schema.project.id, c.get('projectId')))
+		.limit(1);
+	const deployOrganizationId = deployProjectRow[0]?.organizationId ?? '';
 
 	const projectRoot = c.get('projectRoot');
 
-	// Read project config from canonical files via shared helpers
-	const projectName = await readProjectName(projectRoot);
-	const assetSettings = await readAssetSettings(projectRoot);
-	const dependenciesRecord = await readDependencies(projectRoot);
-	const registeredDependencies = new Map(Object.entries(dependenciesRecord));
-
-	const sanitizedWorkerName = sanitizeWorkerName(workerName || projectName);
-
-	// Load tsconfig for esbuild
-	const tsconfigRaw = await loadTsconfigRaw(projectRoot);
-
-	// Collect all project files
-	const allFiles = await collectProjectFiles(projectRoot);
-
-	// =========================================================================
-	// Step 1: Bundle the worker code
-	// =========================================================================
-	const workerFiles = await collectProjectFiles(`${projectRoot}/worker`, 'worker');
-	// Also include root-level files that worker code might import
-	const workerBundleFiles: Record<string, string> = { ...workerFiles };
-	// Add any shared files the worker might reference
-	for (const [filePath, content] of Object.entries(allFiles)) {
-		if (!filePath.startsWith('src/') && !(filePath in workerBundleFiles)) {
-			workerBundleFiles[filePath] = content;
-		}
-	}
-
-	const workerEntry = findWorkerEntryPoint(workerBundleFiles);
-	if (!workerEntry) {
-		throw httpError(
-			HttpErrorCode.VALIDATION_ERROR,
-			'No worker entry point found. Expected worker/index.ts, worker/index.js, src/index.ts, or index.ts',
-		);
-	}
-
-	let bundledWorkerCode: string;
 	try {
-		const workerBundle = await bundleWithCdn({
-			files: workerBundleFiles,
-			entryPoint: workerEntry,
-			platform: 'neutral',
-			minify: true,
-			knownDependencies: registeredDependencies,
-			tsconfigRaw,
-		});
-		bundledWorkerCode = workerBundle.code;
-	} catch (error) {
-		const message = error instanceof Error ? error.message : String(error);
-		throw httpError(HttpErrorCode.BUILD_FAILED, `Failed to bundle worker code: ${message}`);
-	}
+		// Read project config from canonical files via shared helpers
+		const projectName = await readProjectName(projectRoot);
+		const assetSettings = await readAssetSettings(projectRoot);
+		const dependenciesRecord = await readDependencies(projectRoot);
+		const registeredDependencies = new Map(Object.entries(dependenciesRecord));
 
-	// =========================================================================
-	// Step 2: Detect and bundle frontend assets
-	// =========================================================================
-	const staticAssets = new Map<string, Uint8Array>();
-	const hasIndexHtml = 'index.html' in allFiles;
+		const sanitizedWorkerName = sanitizeWorkerName(workerName || projectName);
 
-	if (hasIndexHtml) {
-		const indexHtml = allFiles['index.html'];
+		// Load tsconfig for esbuild
+		const tsconfigRaw = await loadTsconfigRaw(projectRoot);
 
-		// Extract the frontend entry point from the HTML <script> tag
-		const frontendEntry = extractFrontendEntryPoint(indexHtml);
+		// Collect all project files
+		const allFiles = await collectProjectFiles(projectRoot);
 
-		if (frontendEntry && frontendEntry in allFiles) {
-			// Bundle the frontend code
-			const sourceFiles = await collectProjectFiles(`${projectRoot}/src`, 'src');
-			const frontendBundleFiles: Record<string, string> = { ...sourceFiles };
-			// Include any root-level files that might be imported
-			for (const [filePath, content] of Object.entries(allFiles)) {
-				if (!(filePath in frontendBundleFiles) && !filePath.startsWith('worker/')) {
-					frontendBundleFiles[filePath] = content;
+		// =========================================================================
+		// Step 1: Bundle the worker code
+		// =========================================================================
+		const workerFiles = await collectProjectFiles(`${projectRoot}/worker`, 'worker');
+		// Also include root-level files that worker code might import
+		const workerBundleFiles: Record<string, string> = { ...workerFiles };
+		// Add any shared files the worker might reference
+		for (const [filePath, content] of Object.entries(allFiles)) {
+			if (!filePath.startsWith('src/') && !(filePath in workerBundleFiles)) {
+				workerBundleFiles[filePath] = content;
+			}
+		}
+
+		const workerEntry = findWorkerEntryPoint(workerBundleFiles);
+		if (!workerEntry) {
+			throw httpError(
+				HttpErrorCode.VALIDATION_ERROR,
+				'No worker entry point found. Expected worker/index.ts, worker/index.js, src/index.ts, or index.ts',
+			);
+		}
+
+		let bundledWorkerCode: string;
+		try {
+			const workerBundle = await bundleWithCdn({
+				files: workerBundleFiles,
+				entryPoint: workerEntry,
+				platform: 'neutral',
+				minify: true,
+				knownDependencies: registeredDependencies,
+				tsconfigRaw,
+			});
+			bundledWorkerCode = workerBundle.code;
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			throw httpError(HttpErrorCode.BUILD_FAILED, `Failed to bundle worker code: ${message}`);
+		}
+
+		// =========================================================================
+		// Step 2: Detect and bundle frontend assets
+		// =========================================================================
+		const staticAssets = new Map<string, Uint8Array>();
+		const hasIndexHtml = 'index.html' in allFiles;
+
+		if (hasIndexHtml) {
+			const indexHtml = allFiles['index.html'];
+
+			// Extract the frontend entry point from the HTML <script> tag
+			const frontendEntry = extractFrontendEntryPoint(indexHtml);
+
+			if (frontendEntry && frontendEntry in allFiles) {
+				// Bundle the frontend code
+				const sourceFiles = await collectProjectFiles(`${projectRoot}/src`, 'src');
+				const frontendBundleFiles: Record<string, string> = { ...sourceFiles };
+				// Include any root-level files that might be imported
+				for (const [filePath, content] of Object.entries(allFiles)) {
+					if (!(filePath in frontendBundleFiles) && !filePath.startsWith('worker/')) {
+						frontendBundleFiles[filePath] = content;
+					}
 				}
+
+				let bundledFrontendCode: string;
+				try {
+					const frontendBundle = await bundleWithCdn({
+						files: frontendBundleFiles,
+						entryPoint: frontendEntry,
+						platform: 'browser',
+						minify: true,
+						knownDependencies: registeredDependencies,
+						tsconfigRaw,
+					});
+					bundledFrontendCode = frontendBundle.code;
+				} catch (error) {
+					const message = error instanceof Error ? error.message : String(error);
+					throw httpError(HttpErrorCode.BUILD_FAILED, `Failed to bundle frontend code: ${message}`);
+				}
+
+				// Generate content hash for cache busting
+				const frontendHash = await hashContent(bundledFrontendCode);
+				const bundleFilename = `assets/bundle-${frontendHash.slice(0, 8)}.js`;
+
+				// Add the bundled JS as a static asset
+				staticAssets.set(`/${bundleFilename}`, new TextEncoder().encode(bundledFrontendCode));
+
+				// Generate production HTML with the bundled script reference
+				const productionHtml = generateProductionHtml(indexHtml, frontendEntry, `/${bundleFilename}`);
+				staticAssets.set('/index.html', new TextEncoder().encode(productionHtml));
+			} else {
+				// No frontend entry point detected — just serve the raw HTML as-is
+				staticAssets.set('/index.html', new TextEncoder().encode(indexHtml));
 			}
 
-			let bundledFrontendCode: string;
-			try {
-				const frontendBundle = await bundleWithCdn({
-					files: frontendBundleFiles,
-					entryPoint: frontendEntry,
-					platform: 'browser',
-					minify: true,
-					knownDependencies: registeredDependencies,
-					tsconfigRaw,
-				});
-				bundledFrontendCode = frontendBundle.code;
-			} catch (error) {
-				const message = error instanceof Error ? error.message : String(error);
-				throw httpError(HttpErrorCode.BUILD_FAILED, `Failed to bundle frontend code: ${message}`);
+			// Add any other static files (CSS, images, etc.) that aren't TS/TSX/worker code
+			for (const filePath of Object.keys(allFiles)) {
+				const assetPath = `/${filePath}`;
+				if (staticAssets.has(assetPath)) continue;
+				if (filePath.startsWith('worker/')) continue;
+				if (filePath === 'index.html') continue;
+				// Skip source files that were bundled
+				if (isSourceFile(filePath)) continue;
+				// Skip config/meta files that shouldn't be publicly served
+				if (isConfigFile(filePath)) continue;
+
+				// Read as binary to avoid corrupting non-text files (images, fonts, etc.)
+				staticAssets.set(assetPath, await readFileBinary(`${projectRoot}/${filePath}`));
 			}
-
-			// Generate content hash for cache busting
-			const frontendHash = await hashContent(bundledFrontendCode);
-			const bundleFilename = `assets/bundle-${frontendHash.slice(0, 8)}.js`;
-
-			// Add the bundled JS as a static asset
-			staticAssets.set(`/${bundleFilename}`, new TextEncoder().encode(bundledFrontendCode));
-
-			// Generate production HTML with the bundled script reference
-			const productionHtml = generateProductionHtml(indexHtml, frontendEntry, `/${bundleFilename}`);
-			staticAssets.set('/index.html', new TextEncoder().encode(productionHtml));
-		} else {
-			// No frontend entry point detected — just serve the raw HTML as-is
-			staticAssets.set('/index.html', new TextEncoder().encode(indexHtml));
 		}
 
-		// Add any other static files (CSS, images, etc.) that aren't TS/TSX/worker code
-		for (const filePath of Object.keys(allFiles)) {
-			const assetPath = `/${filePath}`;
-			if (staticAssets.has(assetPath)) continue;
-			if (filePath.startsWith('worker/')) continue;
-			if (filePath === 'index.html') continue;
-			// Skip source files that were bundled
-			if (isSourceFile(filePath)) continue;
-			// Skip config/meta files that shouldn't be publicly served
-			if (isConfigFile(filePath)) continue;
+		// =========================================================================
+		// Step 3: Upload static assets (if any)
+		// =========================================================================
+		let assetsCompletionJwt: string | undefined;
+		const hasAssets = staticAssets.size > 0;
 
-			// Read as binary to avoid corrupting non-text files (images, fonts, etc.)
-			staticAssets.set(assetPath, await readFileBinary(`${projectRoot}/${filePath}`));
+		if (hasAssets) {
+			assetsCompletionJwt = await uploadStaticAssets(accountId.trim(), apiToken.trim(), sanitizedWorkerName, staticAssets);
 		}
+
+		// =========================================================================
+		// Step 4: Deploy the worker script
+		// =========================================================================
+		await uploadWorkerScript(accountId.trim(), apiToken.trim(), sanitizedWorkerName, bundledWorkerCode, assetsCompletionJwt, assetSettings);
+
+		// =========================================================================
+		// Step 5: Enable the workers.dev subdomain route
+		// =========================================================================
+		await enableWorkersDevelopmentSubdomain(accountId.trim(), apiToken.trim(), sanitizedWorkerName);
+
+		// Get the workers.dev URL
+		const workerUrl = await getWorkersDevelopmentUrl(accountId.trim(), apiToken.trim(), sanitizedWorkerName);
+
+		trackProjectEvent({
+			organizationId: deployOrganizationId,
+			eventType: 'deploy',
+			projectId: c.get('projectId'),
+			userId: c.get('userId'),
+			detail: sanitizedWorkerName,
+			durationMs: Date.now() - deployStart,
+			success: true,
+			request: c.req.raw,
+		});
+
+		return c.json({
+			success: true,
+			workerName: sanitizedWorkerName,
+			workerUrl,
+		});
+	} catch (error) {
+		trackProjectEvent({
+			organizationId: deployOrganizationId,
+			eventType: 'deploy',
+			projectId: c.get('projectId'),
+			userId: c.get('userId'),
+			error: error instanceof Error ? error.message : String(error),
+			durationMs: Date.now() - deployStart,
+			success: false,
+			request: c.req.raw,
+		});
+		throw error;
 	}
-
-	// =========================================================================
-	// Step 3: Upload static assets (if any)
-	// =========================================================================
-	let assetsCompletionJwt: string | undefined;
-	const hasAssets = staticAssets.size > 0;
-
-	if (hasAssets) {
-		assetsCompletionJwt = await uploadStaticAssets(accountId.trim(), apiToken.trim(), sanitizedWorkerName, staticAssets);
-	}
-
-	// =========================================================================
-	// Step 4: Deploy the worker script
-	// =========================================================================
-	await uploadWorkerScript(accountId.trim(), apiToken.trim(), sanitizedWorkerName, bundledWorkerCode, assetsCompletionJwt, assetSettings);
-
-	// =========================================================================
-	// Step 5: Enable the workers.dev subdomain route
-	// =========================================================================
-	await enableWorkersDevelopmentSubdomain(accountId.trim(), apiToken.trim(), sanitizedWorkerName);
-
-	// Get the workers.dev URL
-	const workerUrl = await getWorkersDevelopmentUrl(accountId.trim(), apiToken.trim(), sanitizedWorkerName);
-
-	return c.json({
-		success: true,
-		workerName: sanitizedWorkerName,
-		workerUrl,
-	});
 });
 
 // =============================================================================

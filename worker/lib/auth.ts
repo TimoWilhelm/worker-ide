@@ -22,6 +22,7 @@ import { drizzle } from 'drizzle-orm/d1';
 import { INVITATION_EXPIRES_IN_SECONDS } from '@shared/constants';
 import { resolveOrgLimitsFromRows, resolveUserLimitsFromRows } from '@shared/entitlements';
 
+import { trackAuthEvent } from './analytics';
 import { queryEntitlements } from './entitlements';
 import * as schema from '../db/auth-schema';
 
@@ -34,7 +35,7 @@ interface AuthEnvironment {
 	GOOGLE_CLIENT_SECRET: string;
 }
 
-export function createAuth(environment: AuthEnvironment, baseUrl: string) {
+export function createAuth(environment: AuthEnvironment, baseUrl: string, request?: Request) {
 	const database = drizzle(environment.DB);
 
 	return betterAuth({
@@ -197,6 +198,7 @@ export function createAuth(environment: AuthEnvironment, baseUrl: string) {
 					} catch (error) {
 						console.error('Failed to send invitation email:', error);
 					}
+					trackAuthEvent({ userId: data.inviter.user.id, eventType: 'org_invite', organizationId: data.organization.id, request });
 				},
 			}),
 		],
@@ -242,6 +244,17 @@ export function createAuth(environment: AuthEnvironment, baseUrl: string) {
 					},
 				},
 			},
+			member: {
+				create: {
+					after: async (member: { userId: string; organizationId: string }) => {
+						// Track org_join when a user accepts an invitation.
+						// The personal-org member created during signup is inserted
+						// via raw Drizzle (not the adapter), so this hook only fires
+						// for invitation accepts.
+						trackAuthEvent({ userId: member.userId, eventType: 'org_join', organizationId: member.organizationId, request });
+					},
+				},
+			},
 			user: {
 				create: {
 					after: async (user) => {
@@ -277,6 +290,9 @@ export function createAuth(environment: AuthEnvironment, baseUrl: string) {
 										createdAt: now,
 									}),
 								]);
+
+								trackAuthEvent({ userId: user.id, eventType: 'signup', request });
+								trackAuthEvent({ userId: user.id, eventType: 'org_create', organizationId, request });
 								break;
 							} catch (error) {
 								const message = error instanceof Error ? error.message : String(error);
@@ -314,6 +330,14 @@ export function createAuth(environment: AuthEnvironment, baseUrl: string) {
 									.set({ deletedAt: null, updatedAt: new Date() })
 									.where(eq(schema.user.id, session.userId));
 							}
+
+							// Look up the provider used for this session's account
+							const accountRows = await authDatabase
+								.select({ providerId: schema.account.providerId })
+								.from(schema.account)
+								.where(eq(schema.account.userId, session.userId))
+								.limit(1);
+							trackAuthEvent({ userId: session.userId, eventType: 'login', provider: accountRows[0]?.providerId, request });
 						} catch (error) {
 							console.error('Failed to check user status during session creation:', error);
 						}

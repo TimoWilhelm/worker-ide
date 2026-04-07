@@ -29,6 +29,8 @@ import { validatePreviewToken } from '@shared/preview-token';
 import { isValidProjectId } from '@shared/project-id';
 
 import * as authSchema from './db/auth-schema';
+import { trackPreviewRequest, trackProjectEvent } from './lib/analytics';
+import { analyticsMiddleware } from './lib/analytics-middleware';
 import { createAuth } from './lib/auth';
 import { requireAuth } from './lib/auth-middleware';
 import { agentRunnerNamespace, coordinatorNamespace, filesystemNamespace } from './lib/durable-object-namespaces';
@@ -166,6 +168,13 @@ app.use(
 );
 
 // =============================================================================
+// Analytics middleware — tracks timing and status for all API requests
+// =============================================================================
+
+app.use('/api/*', analyticsMiddleware);
+app.use('/p/*/api/*', analyticsMiddleware);
+
+// =============================================================================
 // Health check (public, no auth required)
 // =============================================================================
 
@@ -292,6 +301,7 @@ app.on(['GET', 'POST'], '/api/auth/*', async (c) => {
 			GOOGLE_CLIENT_SECRET: c.env.GOOGLE_CLIENT_SECRET,
 		},
 		baseUrl,
+		c.req.raw,
 	);
 	return auth.handler(c.req.raw);
 });
@@ -457,11 +467,28 @@ function isDevelopmentInfrastructurePath(pathname: string): boolean {
  * The request path maps directly to the user's project filesystem.
  */
 async function handlePreviewRequest(request: Request, projectId: string): Promise<Response> {
+	const previewStart = Date.now();
 	const url = new URL(request.url);
 
 	if (isDevelopmentInfrastructurePath(url.pathname)) {
 		return env.ASSETS.fetch(request);
 	}
+
+	/** Track a preview response and return it. */
+	function trackAndReturn(response: Response, visibility = ''): Response {
+		trackPreviewRequest({
+			projectId,
+			pathname: url.pathname,
+			contentType: response.headers.get('Content-Type') ?? '',
+			visibility,
+			statusCode: response.status,
+			durationMs: Date.now() - previewStart,
+			responseSize: Number(response.headers.get('Content-Length') ?? 0),
+			request,
+		});
+		return response;
+	}
+
 	const appOrigin = buildAppOrigin(parseHost(url.host).baseDomain, url.protocol);
 
 	const homeUrl = `${appOrigin}/`;
@@ -470,22 +497,26 @@ async function handlePreviewRequest(request: Request, projectId: string): Promis
 	try {
 		fsId = toDurableObjectId(filesystemNamespace, projectId);
 	} catch {
-		return errorPage({
-			heading: 'Invalid project',
-			message: 'The project ID in this URL is not valid.',
-			homeUrl,
-			status: 400,
-		});
+		return trackAndReturn(
+			errorPage({
+				heading: 'Invalid project',
+				message: 'The project ID in this URL is not valid.',
+				homeUrl,
+				status: 400,
+			}),
+		);
 	}
 
 	const fsStub = filesystemNamespace.get(fsId);
 	if (!(await fsStub.projectExists())) {
-		return errorPage({
-			heading: 'Project not found',
-			message: "The project you're looking for doesn't exist or has expired.",
-			homeUrl,
-			status: 404,
-		});
+		return trackAndReturn(
+			errorPage({
+				heading: 'Project not found',
+				message: "The project you're looking for doesn't exist or has expired.",
+				homeUrl,
+				status: 404,
+			}),
+		);
 	}
 
 	// Block soft-deleted and banned projects from being previewed (single query)
@@ -504,31 +535,39 @@ async function handlePreviewRequest(request: Request, projectId: string): Promis
 		.limit(1);
 
 	if (previewProjectRow.length === 0) {
-		return errorPage({
-			heading: 'Project not found',
-			message: "The project you're looking for doesn't exist.",
-			homeUrl,
-			status: 404,
-		});
+		return trackAndReturn(
+			errorPage({
+				heading: 'Project not found',
+				message: "The project you're looking for doesn't exist.",
+				homeUrl,
+				status: 404,
+			}),
+		);
 	}
 
 	if (previewProjectRow[0].deletedAt) {
-		return errorPage({
-			heading: 'Project deleted',
-			message: 'This project has been deleted.',
-			homeUrl,
-			status: 404,
-		});
+		return trackAndReturn(
+			errorPage({
+				heading: 'Project deleted',
+				message: 'This project has been deleted.',
+				homeUrl,
+				status: 404,
+			}),
+		);
 	}
 
 	if (previewProjectRow[0].projectBannedAt || previewProjectRow[0].orgBannedAt) {
-		return errorPage({
-			heading: 'Access restricted',
-			message: 'Please contact us for assistance.',
-			homeUrl,
-			status: 403,
-		});
+		return trackAndReturn(
+			errorPage({
+				heading: 'Access restricted',
+				message: 'Please contact us for assistance.',
+				homeUrl,
+				status: 403,
+			}),
+		);
 	}
+
+	const previewVisibility = previewProjectRow[0].previewVisibility ?? 'public';
 
 	// Enforce preview visibility: private previews require authenticated org membership
 	if (previewProjectRow[0].previewVisibility === 'private') {
@@ -546,12 +585,15 @@ async function handlePreviewRequest(request: Request, projectId: string): Promis
 		);
 		const session = await auth.api.getSession({ headers: request.headers });
 		if (!session) {
-			return errorPage({
-				heading: 'Private project',
-				message: 'Sign in to access this preview.',
-				homeUrl,
-				status: 403,
-			});
+			return trackAndReturn(
+				errorPage({
+					heading: 'Private project',
+					message: 'Sign in to access this preview.',
+					homeUrl,
+					status: 403,
+				}),
+				previewVisibility,
+			);
 		}
 		// Check that the authenticated user is a member of the project's org
 		const memberRow = await previewDatabase
@@ -560,23 +602,28 @@ async function handlePreviewRequest(request: Request, projectId: string): Promis
 			.where(and(eq(authSchema.member.organizationId, previewProjectRow[0].organizationId), eq(authSchema.member.userId, session.user.id)))
 			.limit(1);
 		if (memberRow.length === 0) {
-			return errorPage({
-				heading: 'Private project',
-				message: 'You do not have access to this preview.',
-				homeUrl,
-				status: 403,
-			});
+			return trackAndReturn(
+				errorPage({
+					heading: 'Private project',
+					message: 'You do not have access to this preview.',
+					homeUrl,
+					status: 403,
+				}),
+				previewVisibility,
+			);
 		}
 	}
 
-	return withMounts(async () => {
+	const response = await withMounts(async () => {
 		mount(PROJECT_ROOT, fsStub);
 
 		if (url.pathname === '/__ws' || url.pathname.startsWith('/__ws')) {
 			const coordinatorStub = coordinatorNamespace.getByName(`project:${projectId}`);
 			const wsUrl = new URL(request.url);
 			wsUrl.pathname = '/ws';
-			return coordinatorStub.fetch(new Request(wsUrl, request));
+			const wsRequest = new Request(wsUrl, request);
+			wsRequest.headers.set('x-project-id', projectId);
+			return coordinatorStub.fetch(wsRequest);
 		}
 
 		const previewService = await getPreviewService(PROJECT_ROOT, projectId);
@@ -592,6 +639,8 @@ async function handlePreviewRequest(request: Request, projectId: string): Promis
 
 		return previewService.serveFile(request, appOrigin, assetSettings);
 	});
+
+	return trackAndReturn(response, previewVisibility);
 }
 
 // =============================================================================
@@ -599,6 +648,7 @@ async function handlePreviewRequest(request: Request, projectId: string): Promis
 // =============================================================================
 
 app.post('/api/new-project', async (c) => {
+	const projectCreateStart = Date.now();
 	const userId = c.get('userId');
 
 	let templateId: string;
@@ -671,71 +721,100 @@ app.post('/api/new-project', async (c) => {
 	const projectId = generateProjectId(doId);
 	const humanId = generateHumanId();
 
-	await withMounts(async () => {
+	try {
+		await withMounts(async () => {
+			const fsStub = filesystemNamespace.get(doId);
+			mount(PROJECT_ROOT, fsStub);
+
+			const fs = await import('node:fs/promises');
+			await writeTemplateFiles(fs, PROJECT_ROOT, template.files, humanId);
+		});
+
+		// Register project in D1
+		const now = new Date();
+		await database.insert(authSchema.project).values({
+			id: projectId,
+			organizationId,
+			durableObjectHexId: doId.toString(),
+			name: humanId,
+			humanId,
+			previewVisibility: 'public',
+			createdByUserId: userId,
+			createdAt: now,
+			updatedAt: now,
+		});
+
+		// Look up the authenticated user's name and email for the git commit author
+		const userRow = await database
+			.select({ name: authSchema.user.name, email: authSchema.user.email })
+			.from(authSchema.user)
+			.where(eq(authSchema.user.id, userId))
+			.limit(1);
+		const commitAuthor = {
+			name: userRow[0]?.name ?? 'IDE User',
+			email: userRow[0]?.email ?? 'user@example.com',
+		};
+
+		// Create initial git commit via the git auxiliary worker
 		const fsStub = filesystemNamespace.get(doId);
-		mount(PROJECT_ROOT, fsStub);
+		c.executionCtx.waitUntil(
+			(async () => {
+				try {
+					const gitClient = new GitClient(env.REPO_DO, projectId);
+					let files: CommitFileEntry[] = [];
 
-		const fs = await import('node:fs/promises');
-		await writeTemplateFiles(fs, PROJECT_ROOT, template.files, humanId);
-	});
-
-	// Register project in D1
-	const now = new Date();
-	await database.insert(authSchema.project).values({
-		id: projectId,
-		organizationId,
-		durableObjectHexId: doId.toString(),
-		name: humanId,
-		humanId,
-		previewVisibility: 'public',
-		createdByUserId: userId,
-		createdAt: now,
-		updatedAt: now,
-	});
-
-	// Look up the authenticated user's name and email for the git commit author
-	const userRow = await database
-		.select({ name: authSchema.user.name, email: authSchema.user.email })
-		.from(authSchema.user)
-		.where(eq(authSchema.user.id, userId))
-		.limit(1);
-	const commitAuthor = {
-		name: userRow[0]?.name ?? 'IDE User',
-		email: userRow[0]?.email ?? 'user@example.com',
-	};
-
-	// Create initial git commit via the git auxiliary worker
-	const fsStub = filesystemNamespace.get(doId);
-	c.executionCtx.waitUntil(
-		(async () => {
-			try {
-				const gitClient = new GitClient(env.REPO_DO, projectId);
-				let files: CommitFileEntry[] = [];
-
-				await withMounts(async () => {
-					mount(PROJECT_ROOT, fsStub);
-					const fileSystem = await import('node:fs/promises');
-					const { files: changedFiles } = await collectChanges(fileSystem, PROJECT_ROOT, []);
-					files = changedFiles;
-				});
-
-				if (files.length > 0) {
-					await gitClient.commitTree({
-						files,
-						message: 'Initial commit',
-						author: commitAuthor,
+					await withMounts(async () => {
+						mount(PROJECT_ROOT, fsStub);
+						const fileSystem = await import('node:fs/promises');
+						const { files: changedFiles } = await collectChanges(fileSystem, PROJECT_ROOT, []);
+						files = changedFiles;
 					});
-				}
-			} catch (error) {
-				console.error('Git initialization failed:', error);
-			}
-		})(),
-	);
 
-	return c.json({ projectId, url: `/p/${projectId}`, name: humanId });
+					if (files.length > 0) {
+						await gitClient.commitTree({
+							files,
+							message: 'Initial commit',
+							author: commitAuthor,
+						});
+					}
+				} catch (error) {
+					console.error('Git initialization failed:', error);
+				}
+			})(),
+		);
+
+		trackProjectEvent({
+			organizationId,
+			eventType: 'create',
+			projectId,
+			userId,
+			detail: templateId,
+			plan,
+			durationMs: Date.now() - projectCreateStart,
+			success: true,
+			request: c.req.raw,
+		});
+
+		return c.json({ projectId, url: `/p/${projectId}`, name: humanId });
+	} catch (error) {
+		trackProjectEvent({
+			organizationId,
+			eventType: 'create',
+			projectId,
+			userId,
+			detail: templateId,
+			plan,
+			error: error instanceof Error ? error.message : String(error),
+			durationMs: Date.now() - projectCreateStart,
+			success: false,
+			request: c.req.raw,
+		});
+		throw error;
+	}
 });
 
 app.post('/api/clone-project', async (c) => {
+	const cloneStart = Date.now();
 	const userId = c.get('userId');
 
 	let sourceProjectId: string;
@@ -835,72 +914,100 @@ app.post('/api/clone-project', async (c) => {
 	const newProjectId = generateProjectId(newDoId);
 	const humanId = generateHumanId();
 
-	await withMounts(async () => {
-		const destinationStub = filesystemNamespace.get(newDoId);
-		mount('/source', sourceStub);
-		mount('/destination', destinationStub);
+	try {
+		await withMounts(async () => {
+			const destinationStub = filesystemNamespace.get(newDoId);
+			mount('/source', sourceStub);
+			mount('/destination', destinationStub);
 
-		const fs = await import('node:fs/promises');
+			const fs = await import('node:fs/promises');
 
-		await copyDirectoryRecursive(fs, '/source', '/destination');
-		await fs.writeFile('/destination/.initialized', '1');
-	});
+			await copyDirectoryRecursive(fs, '/source', '/destination');
+			await fs.writeFile('/destination/.initialized', '1');
+		});
 
-	// Register cloned project in D1
-	const database = drizzle(c.env.DB);
-	const now = new Date();
-	await database.insert(authSchema.project).values({
-		id: newProjectId,
-		organizationId,
-		durableObjectHexId: newDoId.toString(),
-		name: humanId,
-		humanId,
-		previewVisibility: 'public',
-		createdByUserId: userId,
-		createdAt: now,
-		updatedAt: now,
-	});
+		// Register cloned project in D1
+		const database = drizzle(c.env.DB);
+		const now = new Date();
+		await database.insert(authSchema.project).values({
+			id: newProjectId,
+			organizationId,
+			durableObjectHexId: newDoId.toString(),
+			name: humanId,
+			humanId,
+			previewVisibility: 'public',
+			createdByUserId: userId,
+			createdAt: now,
+			updatedAt: now,
+		});
 
-	// Look up the authenticated user's name and email for the git commit author
-	const cloneUserRow = await database
-		.select({ name: authSchema.user.name, email: authSchema.user.email })
-		.from(authSchema.user)
-		.where(eq(authSchema.user.id, userId))
-		.limit(1);
-	const cloneCommitAuthor = {
-		name: cloneUserRow[0]?.name ?? 'IDE User',
-		email: cloneUserRow[0]?.email ?? 'user@example.com',
-	};
+		// Look up the authenticated user's name and email for the git commit author
+		const cloneUserRow = await database
+			.select({ name: authSchema.user.name, email: authSchema.user.email })
+			.from(authSchema.user)
+			.where(eq(authSchema.user.id, userId))
+			.limit(1);
+		const cloneCommitAuthor = {
+			name: cloneUserRow[0]?.name ?? 'IDE User',
+			email: cloneUserRow[0]?.email ?? 'user@example.com',
+		};
 
-	// Create initial git commit for cloned project via the git auxiliary worker
-	const newFsStub = filesystemNamespace.get(newDoId);
-	c.executionCtx.waitUntil(
-		(async () => {
-			try {
-				const gitClient = new GitClient(env.REPO_DO, newProjectId);
-				let files: CommitFileEntry[] = [];
+		// Create initial git commit for cloned project via the git auxiliary worker
+		const newFsStub = filesystemNamespace.get(newDoId);
+		c.executionCtx.waitUntil(
+			(async () => {
+				try {
+					const gitClient = new GitClient(env.REPO_DO, newProjectId);
+					let files: CommitFileEntry[] = [];
 
-				await withMounts(async () => {
-					mount(PROJECT_ROOT, newFsStub);
-					const fileSystem = await import('node:fs/promises');
-					const { files: changedFiles } = await collectChanges(fileSystem, PROJECT_ROOT, []);
-					files = changedFiles;
-				});
-
-				if (files.length > 0) {
-					await gitClient.commitTree({
-						files,
-						message: 'Initial commit',
-						author: cloneCommitAuthor,
+					await withMounts(async () => {
+						mount(PROJECT_ROOT, newFsStub);
+						const fileSystem = await import('node:fs/promises');
+						const { files: changedFiles } = await collectChanges(fileSystem, PROJECT_ROOT, []);
+						files = changedFiles;
 					});
-				}
-			} catch (error) {
-				console.error('Git initialization failed for clone:', error);
-			}
-		})(),
-	);
 
-	return c.json({ projectId: newProjectId, url: `/p/${newProjectId}`, name: humanId });
+					if (files.length > 0) {
+						await gitClient.commitTree({
+							files,
+							message: 'Initial commit',
+							author: cloneCommitAuthor,
+						});
+					}
+				} catch (error) {
+					console.error('Git initialization failed for clone:', error);
+				}
+			})(),
+		);
+
+		trackProjectEvent({
+			organizationId,
+			eventType: 'clone',
+			projectId: newProjectId,
+			userId,
+			detail: sourceProjectId,
+			plan: cloneOrgMemberRow[0].plan ?? 'free',
+			durationMs: Date.now() - cloneStart,
+			success: true,
+			request: c.req.raw,
+		});
+
+		return c.json({ projectId: newProjectId, url: `/p/${newProjectId}`, name: humanId });
+	} catch (error) {
+		trackProjectEvent({
+			organizationId,
+			eventType: 'clone',
+			projectId: newProjectId,
+			userId,
+			detail: sourceProjectId,
+			plan: cloneOrgMemberRow[0].plan ?? 'free',
+			error: error instanceof Error ? error.message : String(error),
+			durationMs: Date.now() - cloneStart,
+			success: false,
+			request: c.req.raw,
+		});
+		throw error;
+	}
 });
 
 app.get('/api/templates', (c) => {
@@ -1018,7 +1125,9 @@ app.all('/p/:projectId/*', async (c) => {
 			const coordinatorStub = coordinatorNamespace.getByName(`project:${projectId}`);
 			const wsUrl = new URL(c.req.url);
 			wsUrl.pathname = '/ws';
-			return coordinatorStub.fetch(new Request(wsUrl, c.req.raw));
+			const wsRequest = new Request(wsUrl, c.req.raw);
+			wsRequest.headers.set('x-project-id', projectId);
+			return coordinatorStub.fetch(wsRequest);
 		}
 
 		const projectApp = new Hono<AppEnvironment>();
