@@ -8,22 +8,7 @@
  */
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import {
-	ArrowLeft,
-	ChevronDown,
-	ChevronUp,
-	Crown,
-	ImagePlus,
-	Mail,
-	Moon,
-	Pencil,
-	Shield,
-	Sun,
-	Trash2,
-	User,
-	UserPlus,
-	X,
-} from 'lucide-react';
+import { ArrowLeft, ChevronDown, ChevronUp, Crown, Mail, Moon, Pencil, Shield, Sun, Trash2, User, UserPlus, X } from 'lucide-react';
 import { useCallback, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 
@@ -646,6 +631,22 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 					>
 						<ArrowLeft className="size-4" />
 					</Link>
+					{activeOrganization.logo ? (
+						<img
+							src={activeOrganization.logo}
+							alt={activeOrganization.name}
+							className="size-10 shrink-0 rounded-lg border border-border object-cover"
+						/>
+					) : (
+						<div
+							className="
+								flex size-10 shrink-0 items-center justify-center rounded-lg
+								bg-bg-tertiary text-sm font-medium text-text-secondary
+							"
+						>
+							{activeOrganization.name.charAt(0).toUpperCase()}
+						</div>
+					)}
 					<div className="min-w-0 flex-1">
 						{isEditingName ? (
 							<div className="flex items-center gap-2">
@@ -710,46 +711,6 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 						)}
 					</div>
 				</div>
-
-				{/* Org Logo */}
-				{isOwner && (
-					<section className="mb-6">
-						<h2
-							className="
-								mb-3 text-xs font-medium tracking-wider text-text-secondary uppercase
-							"
-						>
-							Logo
-						</h2>
-						<div className="rounded-lg border border-border bg-bg-secondary/40 px-4 py-3">
-							<div className="flex items-center justify-between gap-3">
-								<div className="flex items-center gap-3">
-									{activeOrganization.logo ? (
-										<img
-											src={activeOrganization.logo}
-											alt={activeOrganization.name}
-											className="size-10 rounded-lg border border-border object-cover"
-										/>
-									) : (
-										<div
-											className="
-												flex size-10 items-center justify-center rounded-lg bg-bg-tertiary
-												text-sm font-medium text-text-secondary
-											"
-										>
-											{activeOrganization.name.charAt(0).toUpperCase()}
-										</div>
-									)}
-									<p className="text-xs text-text-secondary">{activeOrganization.logo ? 'Organization logo' : 'No logo set'}</p>
-								</div>
-								<Button variant="outline" size="sm" disabled title="Coming soon — requires R2 storage" className="gap-1.5">
-									<ImagePlus className="size-3.5" />
-									Upload
-								</Button>
-							</div>
-						</div>
-					</section>
-				)}
 
 				{/* Members */}
 				<section className="mb-6">
