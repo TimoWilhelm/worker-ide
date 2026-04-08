@@ -1,11 +1,11 @@
 /**
  * Toast Store
  *
- * Zustand store for toast notifications.
+ * Base UI toast manager for toast notifications.
  * Provides an imperative `toast.error()` API callable from anywhere.
  */
 
-import { createStore, useStore } from 'zustand';
+import { Toast } from '@base-ui-components/react/toast';
 
 // =============================================================================
 // Types
@@ -16,29 +16,16 @@ export interface ToastAction {
 	onClick: () => void;
 }
 
-export interface ToastItem {
-	id: string;
-	title?: string;
-	message: string;
+export interface ToastData {
 	variant: 'error' | 'info' | 'success';
-	/** Custom auto-dismiss duration in ms (overrides the provider default). */
-	duration?: number;
 	action?: ToastAction;
 }
 
 // =============================================================================
-// Store
+// Manager
 // =============================================================================
 
-interface ToastState {
-	items: ToastItem[];
-	nextId: number;
-}
-
-const toastStore = createStore<ToastState>(() => ({
-	items: [],
-	nextId: 0,
-}));
+export const toastManager = Toast.createToastManager();
 
 interface AddToastOptions {
 	/** Optional bold heading displayed above the message */
@@ -53,36 +40,18 @@ const TITLED_TOAST_DURATION = 8000;
 
 function addToast(message: string, variant: 'error' | 'info' | 'success', options?: AddToastOptions) {
 	// Toasts with a title contain more text, so auto-extend the duration.
-	const duration = options?.duration ?? (options?.title ? TITLED_TOAST_DURATION : undefined);
+	const timeout = options?.duration ?? (options?.title ? TITLED_TOAST_DURATION : undefined);
 
-	toastStore.setState((state) => ({
-		nextId: state.nextId + 1,
-		items: [
-			...state.items,
-			{
-				id: String(state.nextId + 1),
-				title: options?.title,
-				message,
-				variant,
-				duration,
-				action: options?.action,
-			},
-		],
-	}));
-}
-
-export function removeToast(id: string) {
-	toastStore.setState((state) => ({
-		items: state.items.filter((t) => t.id !== id),
-	}));
-}
-
-// =============================================================================
-// React hook
-// =============================================================================
-
-export function useToasts(): ToastItem[] {
-	return useStore(toastStore, (state) => state.items);
+	toastManager.add({
+		title: options?.title,
+		description: message,
+		type: variant,
+		timeout,
+		data: {
+			variant,
+			action: options?.action,
+		},
+	});
 }
 
 // =============================================================================
@@ -104,10 +73,3 @@ export const toast = {
 	info: (message: string, options?: AddToastOptions) => addToast(message, 'info', options),
 	success: (message: string, options?: AddToastOptions) => addToast(message, 'success', options),
 };
-
-// =============================================================================
-// Test helpers
-// =============================================================================
-
-/** Underlying store instance — exposed for direct access in tests. */
-export { toastStore };

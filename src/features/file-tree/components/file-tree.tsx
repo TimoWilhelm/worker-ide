@@ -4,8 +4,8 @@
  * Hierarchical file explorer with expand/collapse support.
  */
 
+import { ScrollArea } from '@base-ui-components/react/scroll-area';
 import { ChevronDown, ChevronRight, File, FilePlus, Folder, FolderOpen, FolderPlus, Lock, Pencil, Trash2 } from 'lucide-react';
-import { ScrollArea } from 'radix-ui';
 import { useCallback, useId, useMemo, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
@@ -448,12 +448,7 @@ export function FileTree({
 
 				{/* File tree */}
 				<ScrollArea.Root className="h-full flex-1 overflow-hidden">
-					<ScrollArea.Viewport
-						className="
-							size-full
-							[&>div]:block! [&>div]:h-full! [&>div]:min-w-0!
-						"
-					>
+					<ScrollArea.Viewport className="size-full">
 						<div
 							role="tree"
 							aria-labelledby={treeLabelId}

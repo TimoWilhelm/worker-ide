@@ -419,12 +419,15 @@ describe('DashboardPage', () => {
 			{
 				id: '5ydvqzhiqckl5fa63nhky2pstb212hcdj0lk19eklkmc7snawe',
 				organizationId: 'org1',
+				durableObjectHexId: 'abc123',
 				name: 'My Project',
 				humanId: 'my-project',
 				previewVisibility: 'public',
 				createdByUserId: 'user1',
 				createdAt: new Date(Date.now() - 3_600_000).toISOString(),
 				updatedAt: new Date(Date.now() - 3_600_000).toISOString(),
+				deletedAt: null, // eslint-disable-line unicorn/no-null -- Hono RPC infers `string | null` from Drizzle nullable column
+				bannedAt: null, // eslint-disable-line unicorn/no-null -- Hono RPC infers `string | null` from Drizzle nullable column
 				lastActivityAt: new Date(Date.now() - 3_600_000).toISOString(),
 			},
 		]);
@@ -442,23 +445,29 @@ describe('DashboardPage', () => {
 			{
 				id: '5ydvqzhiqckl5fa63nhky2pstb212hcdj0lk19eklkmc7snawe',
 				organizationId: 'org1',
+				durableObjectHexId: 'abc123',
 				name: 'My Project',
 				humanId: 'my-project',
 				previewVisibility: 'public',
 				createdByUserId: 'user1',
 				createdAt: new Date(Date.now() - 3_600_000).toISOString(),
 				updatedAt: new Date(Date.now() - 3_600_000).toISOString(),
+				deletedAt: null, // eslint-disable-line unicorn/no-null -- Hono RPC infers `string | null` from Drizzle nullable column
+				bannedAt: null, // eslint-disable-line unicorn/no-null -- Hono RPC infers `string | null` from Drizzle nullable column
 				lastActivityAt: new Date(Date.now() - 3_600_000).toISOString(),
 			},
 			{
 				id: '6dp5qcb22im238nr3wvp0ic7q99w035jmy2iw7i6n43d37jtof',
 				organizationId: 'org1',
+				durableObjectHexId: 'def456',
 				name: 'Old Project',
 				humanId: 'old-project',
 				previewVisibility: 'public',
 				createdByUserId: 'user1',
 				createdAt: new Date(Date.now() - 86_400_000).toISOString(),
 				updatedAt: new Date(Date.now() - 86_400_000).toISOString(),
+				deletedAt: null, // eslint-disable-line unicorn/no-null -- Hono RPC infers `string | null` from Drizzle nullable column
+				bannedAt: null, // eslint-disable-line unicorn/no-null -- Hono RPC infers `string | null` from Drizzle nullable column
 				lastActivityAt: new Date(Date.now() - 86_400_000).toISOString(),
 			},
 		]);
@@ -478,12 +487,15 @@ describe('DashboardPage', () => {
 			{
 				id: '5ydvqzhiqckl5fa63nhky2pstb212hcdj0lk19eklkmc7snawe',
 				organizationId: 'org1',
+				durableObjectHexId: 'abc123',
 				name: 'Doomed Project',
 				humanId: 'doomed-project',
 				previewVisibility: 'public',
 				createdByUserId: 'user1',
 				createdAt: new Date().toISOString(),
 				updatedAt: new Date().toISOString(),
+				deletedAt: null, // eslint-disable-line unicorn/no-null -- Hono RPC infers `string | null` from Drizzle nullable column
+				bannedAt: null, // eslint-disable-line unicorn/no-null -- Hono RPC infers `string | null` from Drizzle nullable column
 				lastActivityAt: new Date().toISOString(),
 			},
 		]);
@@ -556,12 +568,15 @@ describe('DashboardPage', () => {
 			{
 				id: projectId,
 				organizationId: 'org1',
+				durableObjectHexId: 'abc123',
 				name: 'Test Project',
 				humanId: 'test-project',
 				previewVisibility: 'public',
 				createdByUserId: 'user1',
 				createdAt: new Date().toISOString(),
 				updatedAt: new Date().toISOString(),
+				deletedAt: null, // eslint-disable-line unicorn/no-null -- Hono RPC infers `string | null` from Drizzle nullable column
+				bannedAt: null, // eslint-disable-line unicorn/no-null -- Hono RPC infers `string | null` from Drizzle nullable column
 				lastActivityAt: new Date().toISOString(),
 			},
 		]);

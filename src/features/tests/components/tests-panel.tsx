@@ -7,8 +7,8 @@
  * via WebSocket so everyone sees the same test state.
  */
 
+import { ScrollArea } from '@base-ui-components/react/scroll-area';
 import { CheckCircle2, FlaskConical, Play, RefreshCw, XCircle } from 'lucide-react';
-import { ScrollArea } from 'radix-ui';
 import { useMemo } from 'react';
 
 import { Button, Spinner, Tooltip } from '@/components/ui';
@@ -167,7 +167,7 @@ export function TestsPanel({ projectId, className }: TestsPanelProperties) {
 				</div>
 			) : hasTestFiles ? (
 				<ScrollArea.Root className="h-full flex-1 overflow-hidden">
-					<ScrollArea.Viewport className="size-full [&>div]:block! [&>div]:h-full! [&>div]:min-w-0!">
+					<ScrollArea.Viewport className="size-full">
 						<div className="py-1">
 							{discoveredFiles.map((discovered) => (
 								<TestFileItem

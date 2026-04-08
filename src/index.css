@@ -70,7 +70,6 @@
 
 	/* Animations */
 	--animate-chat-item: chatReveal 0.12s ease-out;
-	--animate-toast-swipe-out: toastSwipeOut 0.15s ease-out forwards;
 }
 
 /* Dark mode overrides */
@@ -417,18 +416,6 @@ textarea:focus-visible,
 ::selection {
 	background: var(--color-selection-bg);
 	color: var(--color-selection-text);
-}
-
-/* Toast swipe-out animation (used with Radix swipe gesture) */
-@keyframes toastSwipeOut {
-	from {
-		opacity: 1;
-		transform: translateY(var(--radix-toast-swipe-end-y));
-	}
-	to {
-		opacity: 0;
-		transform: translateY(100%);
-	}
 }
 
 /* Border beam animation — used by the BorderBeam component (inline styles) */

@@ -121,27 +121,12 @@ export async function fetchTemplates(): Promise<ProjectTemplateMeta[]> {
 }
 
 /**
- * Org project entry returned from the D1 project table.
- */
-export interface OrgProject {
-	id: string;
-	organizationId: string;
-	name: string;
-	humanId: string;
-	previewVisibility: string;
-	createdByUserId: string;
-	createdAt: string;
-	updatedAt: string;
-	lastActivityAt: string | null;
-}
-
-/**
  * Fetch projects for the active organization.
  *
- * Uses raw fetch because this is a root-level endpoint (`/api/org/projects`)
- * outside the project-scoped RPC client.
+ * Uses the organization-scoped RPC client for type-safe access to
+ * `GET /api/org/:orgId/projects`.
  */
-export async function fetchOrgProjects(organizationId: string): Promise<OrgProject[]> {
+export async function fetchOrgProjects(organizationId: string) {
 	const orgApi = createOrgApiClient();
 	const response = await orgApi.org[':orgId'].projects.$get({ param: { orgId: organizationId } });
 	if (!response.ok) {
@@ -150,6 +135,11 @@ export async function fetchOrgProjects(organizationId: string): Promise<OrgProje
 	const data = await response.json();
 	return data.projects;
 }
+
+/**
+ * Org project entry inferred from the RPC response.
+ */
+export type OrgProject = Awaited<ReturnType<typeof fetchOrgProjects>>[number];
 
 /**
  * Soft-delete a project (30-day retention).

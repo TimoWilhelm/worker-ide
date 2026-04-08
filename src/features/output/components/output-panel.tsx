@@ -5,8 +5,8 @@
  * The buffer persists across mount/unmount cycles so logs are never lost.
  */
 
+import { ScrollArea } from '@base-ui-components/react/scroll-area';
 import { Ban, Circle } from 'lucide-react';
-import { ScrollArea } from 'radix-ui';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { Pill } from '@/components/ui/pill';

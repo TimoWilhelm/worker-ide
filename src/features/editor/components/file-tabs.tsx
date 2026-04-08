@@ -6,9 +6,9 @@
  * collaborator presence dots per file.
  */
 
+import { Tabs } from '@base-ui-components/react/tabs';
 import { File, X } from 'lucide-react';
 import { motion } from 'motion/react';
-import { Tabs } from 'radix-ui';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 
 import { Spinner } from '@/components/ui/spinner';
@@ -140,7 +140,7 @@ export function FileTabs({ tabs, activeTab, onSelect, onClose, participants = []
 	// Scroll the active tab into view when it changes
 	useEffect(() => {
 		if (!activeTab || !listReference.current) return;
-		const activeElement = listReference.current.querySelector<HTMLElement>(`[data-state="active"]`);
+		const activeElement = listReference.current.querySelector<HTMLElement>(`[data-active]`);
 		if (activeElement) {
 			activeElement.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
 		}
@@ -189,8 +189,9 @@ export function FileTabs({ tabs, activeTab, onSelect, onClose, participants = []
 	}
 
 	return (
-		<Tabs.Root value={activeTab} onValueChange={onSelect} className={cn('shrink-0', className)}>
+		<Tabs.Root value={activeTab} onValueChange={(value) => onSelect(value)} className={cn('shrink-0', className)}>
 			<Tabs.List
+				activateOnFocus
 				ref={listReference}
 				onWheel={handleWheel}
 				onPointerDown={handlePointerDown}
@@ -259,7 +260,7 @@ function FileTabItem({ tab, isActive, showDirectory, participants, onClose }: Fi
 	const closeLabel = showDirectory ? `Close ${tab.path}` : `Close ${displayLabel}`;
 
 	return (
-		<Tabs.Trigger
+		<Tabs.Tab
 			value={tab.path}
 			onMouseDown={handleMiddleClick}
 			className={cn(
@@ -336,6 +337,6 @@ function FileTabItem({ tab, isActive, showDirectory, participants, onClose }: Fi
 					<X className="size-3" />
 				</span>
 			</Tooltip>
-		</Tabs.Trigger>
+		</Tabs.Tab>
 	);
 }

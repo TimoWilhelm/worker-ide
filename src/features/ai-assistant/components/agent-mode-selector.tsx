@@ -67,7 +67,7 @@ export function AgentModeSelector({ mode, onModeChange, disabled }: AgentModeSel
 
 	return (
 		<DropdownMenu>
-			<DropdownMenuTrigger asChild disabled={disabled}>
+			<DropdownMenuTrigger disabled={disabled}>
 				<Pill
 					size="md"
 					color={config.pillColor}

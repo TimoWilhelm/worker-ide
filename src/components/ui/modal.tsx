@@ -1,12 +1,12 @@
 /**
  * Modal Dialog Component
  *
- * Reusable modal dialog using radix-ui Dialog primitives.
+ * Reusable modal dialog using Base UI Dialog primitives.
  * Used for new file creation and other form dialogs.
  */
 
+import { Dialog } from '@base-ui-components/react/dialog';
 import { AnimatePresence, motion } from 'motion/react';
-import { Dialog } from 'radix-ui';
 
 import { modalContentVariants, overlayVariants, springDefault, tweenFast } from '@/lib/motion-config';
 import { cn } from '@/lib/utils';
@@ -41,57 +41,47 @@ export function Modal({ open, onOpenChange, title, children, className, hideClos
 		<Dialog.Root open={open} onOpenChange={onOpenChange}>
 			<AnimatePresence>
 				{open && (
-					<Dialog.Portal forceMount>
-						<Dialog.Overlay asChild>
-							<motion.div
-								className="fixed inset-0 z-50 bg-black/60"
-								variants={overlayVariants}
-								initial="hidden"
-								animate="visible"
-								exit="exit"
-								transition={tweenFast}
-							/>
-						</Dialog.Overlay>
-						<Dialog.Content asChild>
-							<motion.div
-								className={cn(
-									`fixed top-1/2 left-1/2 z-50 w-[400px] max-w-[90vw]`,
-									`-translate-1/2 rounded-lg border border-border`,
-									`bg-bg-secondary shadow-lg`,
-									className,
-								)}
-								variants={modalContentVariants}
-								initial="hidden"
-								animate="visible"
-								exit="exit"
-								transition={springDefault}
+					<Dialog.Portal keepMounted>
+						<Dialog.Backdrop
+							render={<motion.div variants={overlayVariants} initial="hidden" animate="visible" exit="exit" transition={tweenFast} />}
+							className="fixed inset-0 z-50 bg-black/60"
+						/>
+						<Dialog.Popup
+							render={
+								<motion.div variants={modalContentVariants} initial="hidden" animate="visible" exit="exit" transition={springDefault} />
+							}
+							className={cn(
+								`fixed top-1/2 left-1/2 z-50 w-[400px] max-w-[90vw]`,
+								`-translate-1/2 rounded-lg border border-border`,
+								`bg-bg-secondary shadow-lg`,
+								className,
+							)}
+						>
+							<div
+								className="
+									flex items-center justify-between border-b border-border px-4 py-3
+								"
 							>
-								<div
-									className="
-										flex items-center justify-between border-b border-border px-4 py-3
-									"
-								>
-									<Dialog.Title className="text-sm font-semibold text-text-primary">{title}</Dialog.Title>
-									{!hideClose && (
-										<Dialog.Close
-											className={cn(
-												`
-													flex size-6 items-center justify-center rounded-sm
-													text-text-secondary
-												`,
-												`
-													transition-colors
-													hover:bg-bg-tertiary hover:text-text-primary
-												`,
-											)}
-										>
-											<span className="text-lg leading-none">&times;</span>
-										</Dialog.Close>
-									)}
-								</div>
-								{children}
-							</motion.div>
-						</Dialog.Content>
+								<Dialog.Title className="text-sm font-semibold text-text-primary">{title}</Dialog.Title>
+								{!hideClose && (
+									<Dialog.Close
+										className={cn(
+											`
+												flex size-6 items-center justify-center rounded-sm
+												text-text-secondary
+											`,
+											`
+												transition-colors
+												hover:bg-bg-tertiary hover:text-text-primary
+											`,
+										)}
+									>
+										<span className="text-lg leading-none">&times;</span>
+									</Dialog.Close>
+								)}
+							</div>
+							{children}
+						</Dialog.Popup>
 					</Dialog.Portal>
 				)}
 			</AnimatePresence>

@@ -1,121 +1,117 @@
 /**
  * Toast Store Tests
  *
- * Unit tests for the imperative toast notification store.
+ * Unit tests for the imperative toast notification API backed by Base UI's toast manager.
  */
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
-import { removeToast, toast, toastStore } from './toast-store';
+import { toast, toastManager } from './toast-store';
 
-function getItems() {
-	return toastStore.getState().items;
-}
+import type { ToastData } from './toast-store';
 
 describe('toast store', () => {
-	afterEach(() => {
-		// Clean up all toasts after each test
-		for (const item of getItems()) {
-			removeToast(item.id);
-		}
-	});
-
-	it('starts with an empty list', () => {
-		expect(getItems()).toEqual([]);
-	});
-
-	it('adds an error toast', () => {
+	it('adds an error toast via the imperative API', () => {
+		let lastAction: string | undefined;
+		const unsubscribe = toastManager[' subscribe']((event) => {
+			lastAction = event.action;
+		});
 		toast.error('Something went wrong');
-		const items = getItems();
-		expect(items).toHaveLength(1);
-		expect(items[0].message).toBe('Something went wrong');
-		expect(items[0].variant).toBe('error');
+		expect(lastAction).toBe('add');
+		unsubscribe();
 	});
 
-	it('adds multiple toasts', () => {
-		toast.error('Error 1');
-		toast.error('Error 2');
-		expect(getItems()).toHaveLength(2);
+	it('passes variant through data', () => {
+		let addedData: ToastData | undefined;
+		const unsubscribe = toastManager[' subscribe']((event) => {
+			if (event.action === 'add') {
+				addedData = event.options.data;
+			}
+		});
+		toast.error('Oops');
+		expect(addedData?.variant).toBe('error');
+		unsubscribe();
 	});
 
-	it('assigns unique ids', () => {
-		toast.error('A');
-		toast.error('B');
-		const items = getItems();
-		expect(items[0].id).not.toBe(items[1].id);
+	it('passes title and description', () => {
+		let addedOptions: Record<string, unknown> | undefined;
+		const unsubscribe = toastManager[' subscribe']((event) => {
+			if (event.action === 'add') {
+				addedOptions = event.options;
+			}
+		});
+		toast.error('Detail message', { title: 'Error Title' });
+		expect(addedOptions?.title).toBe('Error Title');
+		expect(addedOptions?.description).toBe('Detail message');
+		unsubscribe();
 	});
 
-	it('removes a toast by id', () => {
-		toast.error('To remove');
-		const [item] = getItems();
-		removeToast(item.id);
-		expect(getItems()).toHaveLength(0);
+	it('sets extended timeout for toasts with a title', () => {
+		let addedOptions: Record<string, unknown> | undefined;
+		const unsubscribe = toastManager[' subscribe']((event) => {
+			if (event.action === 'add') {
+				addedOptions = event.options;
+			}
+		});
+		toast.error('Detail message', { title: 'Error Title' });
+		expect(addedOptions?.timeout).toBe(8000);
+		unsubscribe();
 	});
 
-	it('only removes the targeted toast', () => {
-		toast.error('Keep');
-		toast.error('Remove');
-		const items = getItems();
-		removeToast(items[1].id);
-		const remaining = getItems();
-		expect(remaining).toHaveLength(1);
-		expect(remaining[0].message).toBe('Keep');
+	it('uses undefined timeout when no title is provided', () => {
+		let addedOptions: Record<string, unknown> | undefined;
+		const unsubscribe = toastManager[' subscribe']((event) => {
+			if (event.action === 'add') {
+				addedOptions = event.options;
+			}
+		});
+		toast.error('Simple message');
+		expect(addedOptions?.timeout).toBeUndefined();
+		unsubscribe();
+	});
+
+	it('allows custom duration override', () => {
+		let addedOptions: Record<string, unknown> | undefined;
+		const unsubscribe = toastManager[' subscribe']((event) => {
+			if (event.action === 'add') {
+				addedOptions = event.options;
+			}
+		});
+		toast.error('Custom timing', { duration: 15_000 });
+		expect(addedOptions?.timeout).toBe(15_000);
+		unsubscribe();
+	});
+
+	it('supports info and success variants', () => {
+		const variants: string[] = [];
+		const unsubscribe = toastManager[' subscribe']((event) => {
+			if (event.action === 'add') {
+				variants.push(event.options.data?.variant);
+			}
+		});
+		toast.info('Info');
+		toast.success('Success');
+		expect(variants).toEqual(['info', 'success']);
+		unsubscribe();
 	});
 
 	it('notifies subscribers on add', () => {
 		let callCount = 0;
-		const unsubscribe = toastStore.subscribe(() => {
+		const unsubscribe = toastManager[' subscribe'](() => {
 			callCount++;
 		});
 		toast.error('Test');
-		expect(callCount).toBe(1);
-		unsubscribe();
-	});
-
-	it('notifies subscribers on remove', () => {
-		toast.error('Test');
-		let callCount = 0;
-		const unsubscribe = toastStore.subscribe(() => {
-			callCount++;
-		});
-		removeToast(getItems()[0].id);
 		expect(callCount).toBe(1);
 		unsubscribe();
 	});
 
 	it('does not notify after unsubscribe', () => {
 		let callCount = 0;
-		const unsubscribe = toastStore.subscribe(() => {
+		const unsubscribe = toastManager[' subscribe'](() => {
 			callCount++;
 		});
 		unsubscribe();
 		toast.error('Test');
 		expect(callCount).toBe(0);
-	});
-
-	it('stores title when provided', () => {
-		toast.error('Detail message', { title: 'Error Title' });
-		const items = getItems();
-		expect(items).toHaveLength(1);
-		expect(items[0].title).toBe('Error Title');
-		expect(items[0].message).toBe('Detail message');
-	});
-
-	it('sets extended duration for toasts with a title', () => {
-		toast.error('Detail message', { title: 'Error Title' });
-		const items = getItems();
-		expect(items[0].duration).toBe(8000);
-	});
-
-	it('uses default duration when no title is provided', () => {
-		toast.error('Simple message');
-		const items = getItems();
-		expect(items[0].duration).toBeUndefined();
-	});
-
-	it('allows custom duration override', () => {
-		toast.error('Custom timing', { duration: 15_000 });
-		const items = getItems();
-		expect(items[0].duration).toBe(15_000);
 	});
 });

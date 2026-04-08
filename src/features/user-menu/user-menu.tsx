@@ -35,7 +35,7 @@ export function UserMenu({ userName, userEmail, userImage }: UserMenuProperties)
 
 	return (
 		<DropdownMenu>
-			<DropdownMenuTrigger asChild>
+			<DropdownMenuTrigger>
 				<button
 					className="
 						flex size-8 shrink-0 cursor-pointer items-center justify-center

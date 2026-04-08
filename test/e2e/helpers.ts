@@ -113,9 +113,11 @@ export async function gotoIDE(page: Page): Promise<string> {
 
 	await page.goto(url);
 
-	// Wait for the IDE to fully load — the header shows the project name
-	// (a human-readable ID like "jade-crow-63") once IDEShell mounts
-	await page.locator('h1').waitFor({ timeout: 15_000 });
+	// Wait for the IDE to fully load — the status bar shows "Connected" once
+	// the WebSocket to the Durable Object is established and the project is
+	// operational. This is more reliable than waiting for the h1 heading,
+	// which shows a fallback "Codemaxxing" before the project name resolves.
+	await page.getByText('Connected', { exact: true }).waitFor({ timeout: 25_000 });
 
 	return projectId;
 }

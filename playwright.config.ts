@@ -5,8 +5,8 @@ export default defineConfig({
 	globalSetup: './test/e2e/global-setup.ts',
 	fullyParallel: true,
 	forbidOnly: !!process.env.CI,
-	retries: process.env.CI ? 2 : 0,
-	workers: process.env.CI ? 1 : undefined,
+	retries: process.env.CI ? 2 : 1,
+	workers: process.env.CI ? 1 : 4,
 	reporter: [['html', { open: 'never' }]],
 	use: {
 		baseURL: process.env.TEST_BASE_URL || 'http://localhost:3000',

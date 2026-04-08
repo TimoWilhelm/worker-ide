@@ -57,7 +57,7 @@ export function OrgSwitcher({ organizations, currentOrganizationId, currentOrgan
 	return (
 		<>
 			<DropdownMenu>
-				<DropdownMenuTrigger asChild>
+				<DropdownMenuTrigger>
 					<Button variant="ghost" size="sm" className="gap-2 bg-bg-secondary/40 backdrop-blur-sm">
 						<Building2 className="size-4" />
 						<span className="max-w-32 truncate text-xs">{currentOrganizationName}</span>

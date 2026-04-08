@@ -1,7 +1,7 @@
 /**
  * Tooltip Component
  *
- * Accessible tooltip using radix-ui primitives.
+ * Accessible tooltip using Base UI primitives.
  * Wraps any trigger element with a styled tooltip on hover/focus.
  *
  * On touch devices the tooltip is suppressed on normal taps and only shown
@@ -10,21 +10,21 @@
  * discoverable via long-press.
  */
 
+import { Tooltip as BaseTooltip } from '@base-ui-components/react/tooltip';
 import { AnimatePresence, motion } from 'motion/react';
-import { Tooltip as RadixTooltip } from 'radix-ui';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { springSnappy, tooltipVariants } from '@/lib/motion-config';
 import { cn } from '@/lib/utils';
 
-import type { ReactNode } from 'react';
+import type { ReactElement, ReactNode } from 'react';
 
 // =============================================================================
 // Module-level touch tracker — registered once so every Tooltip instance can
 // synchronously read whether the most recent interaction was touch.  Because
 // this runs at module-evaluation time the flag is already correct when a
 // freshly-mounted Tooltip receives a focus-triggered `onOpenChange(true)`
-// (e.g. Radix Dialog auto-focus).
+// (e.g. Dialog auto-focus).
 // =============================================================================
 
 let lastInteractionWasTouch = false;
@@ -60,7 +60,7 @@ function useTouchGatedTooltip() {
 	const longPressTimerReference = useRef<ReturnType<typeof setTimeout>>(undefined);
 	const longPressFiredReference = useRef(false);
 
-	// Suppress opens that fire during mount (e.g. Radix Dialog auto-focus
+	// Suppress opens that fire during mount (e.g. Dialog auto-focus
 	// landing on a tooltip trigger).  The flag flips to `true` one frame after
 	// mount so that subsequent keyboard-tab focus still works normally.
 	const mountedReference = useRef(false);
@@ -90,7 +90,7 @@ function useTouchGatedTooltip() {
 	}, []);
 
 	const onOpenChange = useCallback(
-		(nextOpen: boolean) => {
+		(nextOpen: boolean, _eventDetails?: unknown) => {
 			if (nextOpen) {
 				// Block opens that fire before the component has been interactive
 				// for at least one frame (auto-focus from dialogs / drawers).
@@ -120,7 +120,7 @@ function useTouchGatedTooltip() {
 
 interface TooltipProperties {
 	/** The element that triggers the tooltip */
-	children: ReactNode;
+	children: ReactElement<Record<string, unknown>>;
 	/** Tooltip content text */
 	content: string;
 	/** Preferred side of the trigger to render on */
@@ -132,27 +132,28 @@ interface TooltipProperties {
 }
 
 function TooltipProvider({ children }: { children: ReactNode }) {
-	return <RadixTooltip.Provider delayDuration={300}>{children}</RadixTooltip.Provider>;
+	return <BaseTooltip.Provider delay={300}>{children}</BaseTooltip.Provider>;
 }
 
 function Tooltip({ children, content, side = 'top', delayDuration, className }: TooltipProperties) {
 	const { open, onOpenChange, onTriggerTouchStart, cancelLongPress } = useTouchGatedTooltip();
 
 	return (
-		<RadixTooltip.Root open={open} onOpenChange={onOpenChange} delayDuration={delayDuration}>
-			<RadixTooltip.Trigger asChild onTouchStart={onTriggerTouchStart} onTouchEnd={cancelLongPress} onTouchMove={cancelLongPress}>
-				{children}
-			</RadixTooltip.Trigger>
+		<BaseTooltip.Root open={open} onOpenChange={onOpenChange}>
+			<BaseTooltip.Trigger
+				delay={delayDuration}
+				onTouchStart={onTriggerTouchStart}
+				onTouchEnd={cancelLongPress}
+				onTouchMove={cancelLongPress}
+				render={children}
+			/>
 			<AnimatePresence>
 				{open && (
-					<RadixTooltip.Portal forceMount>
-						<RadixTooltip.Content side={side} sideOffset={4} asChild>
-							<motion.div
-								variants={tooltipVariants}
-								initial="hidden"
-								animate="visible"
-								exit="exit"
-								transition={springSnappy}
+					<BaseTooltip.Portal keepMounted>
+						<BaseTooltip.Positioner side={side} sideOffset={4}>
+							<BaseTooltip.Popup
+								role="tooltip"
+								render={<motion.div variants={tooltipVariants} initial="hidden" animate="visible" exit="exit" transition={springSnappy} />}
 								className={cn(
 									`
 										z-50 rounded-sm border border-border bg-bg-primary px-2 py-1 text-xs
@@ -162,13 +163,13 @@ function Tooltip({ children, content, side = 'top', delayDuration, className }: 
 								)}
 							>
 								{content}
-								<RadixTooltip.Arrow className="fill-border" />
-							</motion.div>
-						</RadixTooltip.Content>
-					</RadixTooltip.Portal>
+								<BaseTooltip.Arrow className="fill-border" />
+							</BaseTooltip.Popup>
+						</BaseTooltip.Positioner>
+					</BaseTooltip.Portal>
 				)}
 			</AnimatePresence>
-		</RadixTooltip.Root>
+		</BaseTooltip.Root>
 	);
 }
 

@@ -66,7 +66,7 @@ describe('FileTabs', () => {
 		renderWithProviders(<FileTabs tabs={SAMPLE_TABS} activeTab="/src/main.ts" onSelect={onSelect} onClose={vi.fn()} />);
 
 		// Use userEvent.click for full interaction sequence (pointerdown, mousedown, etc.)
-		// which Radix Tabs requires for proper tab activation.
+		// which Base UI Tabs requires for proper tab activation.
 		const appTab = screen.getByRole('tab', { name: /app\.tsx/ });
 		await userEvent.click(appTab);
 		expect(onSelect).toHaveBeenCalledWith('/src/app.tsx');

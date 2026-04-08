@@ -7,7 +7,7 @@ import type { Meta, StoryObj } from '@storybook/react-vite';
 
 /**
  * Helper: hover the trigger and wait for the tooltip to appear in the DOM.
- * Radix Tooltip uses a global provider with a skip-delay mechanism.
+ * Base UI Tooltip uses a global provider with a skip-delay mechanism.
  * When stories run sequentially the previous tooltip may still be
  * closing, so we unhover first, wait a tick, then hover to ensure a
  * clean open.
@@ -18,7 +18,7 @@ async function hoverAndFindTooltip(canvasElement: HTMLElement, buttonName: RegEx
 
 	// Ensure any lingering tooltip from a prior story is dismissed
 	await userEvent.unhover(button);
-	// Small settle time for Radix to tear down the previous tooltip
+	// Small settle time for Base UI to tear down the previous tooltip
 	await new Promise((resolve) => setTimeout(resolve, 50));
 
 	await userEvent.hover(button);

@@ -8,8 +8,8 @@
  * - Collapsible history section
  */
 
+import { ScrollArea } from '@base-ui-components/react/scroll-area';
 import { GitBranch, Globe, History, RotateCcw } from 'lucide-react';
-import { ScrollArea } from 'radix-ui';
 import { Suspense, useCallback, useMemo, useState } from 'react';
 
 import { Button, ConfirmDialog, Tooltip } from '@/components/ui';
@@ -253,7 +253,7 @@ function GitPanelContent({ projectId, className }: GitPanelProperties) {
 
 			{/* Scrollable content */}
 			<ScrollArea.Root className="h-full flex-1 overflow-hidden">
-				<ScrollArea.Viewport className="size-full [&>div]:block! [&>div]:h-full! [&>div]:min-w-0!">
+				<ScrollArea.Viewport className="size-full">
 					{showHistory ? (
 						<GitHistoryPanel
 							projectId={projectId}

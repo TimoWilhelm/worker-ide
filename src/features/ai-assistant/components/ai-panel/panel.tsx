@@ -9,6 +9,7 @@
  * snapshot revert buttons on user messages, CUSTOM event handling.
  */
 
+import { ScrollArea } from '@base-ui-components/react/scroll-area';
 import { useAgent } from 'agents/react';
 import {
 	ArrowDown,
@@ -24,7 +25,6 @@ import {
 	Send,
 	Square,
 } from 'lucide-react';
-import { ScrollArea } from 'radix-ui';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
@@ -666,7 +666,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 					{/* Session dropdown */}
 					<DropdownMenu>
 						<Tooltip content="Sessions" side="bottom">
-							<DropdownMenuTrigger asChild>
+							<DropdownMenuTrigger>
 								<Button variant="ghost" size="icon-sm">
 									<History className="size-3" />
 								</Button>
@@ -759,7 +759,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 				/>
 
 				<ScrollArea.Root className="size-full">
-					<ScrollArea.Viewport ref={scrollReference} className="size-full [&>div]:block!">
+					<ScrollArea.Viewport ref={scrollReference} className="size-full">
 						<div className="flex min-w-0 flex-col gap-3 p-2">
 							{displayMessages.length === 0 && !streamingAssistantMessage ? (
 								isRestoringSession ? (

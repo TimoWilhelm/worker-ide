@@ -49,16 +49,16 @@ test.describe('Editor Tabs', () => {
 		await page.getByText('index.html').click();
 		await page.getByText('tsconfig.json').click();
 
-		// tsconfig.json should be active (last opened)
-		const tsconfigTab = page.getByRole('tab', { name: /tsconfig\.json/i });
-		await expect(tsconfigTab).toHaveAttribute('data-state', 'active');
+		// tsconfig.json should be selected (last opened)
+		const tsconfigTab = page.getByRole('tab', { name: /tsconfig\.json/i, selected: true });
+		await expect(tsconfigTab).toBeVisible();
 
 		// Click on index.html tab to switch
 		const indexTab = page.getByRole('tab', { name: /index\.html/i });
 		await indexTab.click();
 
-		// index.html tab should now be active
-		await expect(indexTab).toHaveAttribute('data-state', 'active');
+		// index.html tab should now be selected
+		await expect(indexTab).toHaveAttribute('aria-selected', 'true');
 
 		// The terminal header shows the active file path
 		await expect(page.getByText('/index.html')).toBeVisible();

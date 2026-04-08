@@ -1,12 +1,12 @@
 /**
  * Confirm Dialog Component
  *
- * Reusable confirmation dialog using radix-ui AlertDialog primitives.
+ * Reusable confirmation dialog using Base UI AlertDialog primitives.
  * Replaces browser-native confirm() calls with a styled modal.
  */
 
+import { AlertDialog } from '@base-ui-components/react/alert-dialog';
 import { AnimatePresence, motion } from 'motion/react';
-import { AlertDialog } from 'radix-ui';
 
 import { modalContentVariants, overlayVariants, springDefault, tweenFast } from '@/lib/motion-config';
 import { cn } from '@/lib/utils';
@@ -54,81 +54,71 @@ export function ConfirmDialog({
 		<AlertDialog.Root open={open} onOpenChange={onOpenChange}>
 			<AnimatePresence>
 				{open && (
-					<AlertDialog.Portal forceMount>
-						<AlertDialog.Overlay asChild>
-							<motion.div
-								className="fixed inset-0 z-50 bg-black/60"
-								variants={overlayVariants}
-								initial="hidden"
-								animate="visible"
-								exit="exit"
-								transition={tweenFast}
-							/>
-						</AlertDialog.Overlay>
-						<AlertDialog.Content asChild>
-							<motion.div
-								className={cn(
-									`fixed top-1/2 left-1/2 z-50 w-[400px] max-w-[90vw]`,
-									`-translate-1/2 rounded-lg border border-border`,
-									`bg-bg-secondary shadow-lg`,
-								)}
-								variants={modalContentVariants}
-								initial="hidden"
-								animate="visible"
-								exit="exit"
-								transition={springDefault}
-							>
-								<div className="border-b border-border px-4 py-3">
-									<AlertDialog.Title className="text-sm font-semibold text-text-primary">{title}</AlertDialog.Title>
-								</div>
-								<div className="p-4">
-									<AlertDialog.Description className="text-sm/relaxed text-text-secondary">{description}</AlertDialog.Description>
-								</div>
-								<div className="flex justify-end gap-2 border-t border-border px-4 py-3">
-									<AlertDialog.Cancel
-										className={cn(
+					<AlertDialog.Portal keepMounted>
+						<AlertDialog.Backdrop
+							render={<motion.div variants={overlayVariants} initial="hidden" animate="visible" exit="exit" transition={tweenFast} />}
+							className="fixed inset-0 z-50 bg-black/60"
+						/>
+						<AlertDialog.Popup
+							render={
+								<motion.div variants={modalContentVariants} initial="hidden" animate="visible" exit="exit" transition={springDefault} />
+							}
+							className={cn(
+								`fixed top-1/2 left-1/2 z-50 w-[400px] max-w-[90vw]`,
+								`-translate-1/2 rounded-lg border border-border`,
+								`bg-bg-secondary shadow-lg`,
+							)}
+						>
+							<div className="border-b border-border px-4 py-3">
+								<AlertDialog.Title className="text-sm font-semibold text-text-primary">{title}</AlertDialog.Title>
+							</div>
+							<div className="p-4">
+								<AlertDialog.Description className="text-sm/relaxed text-text-secondary">{description}</AlertDialog.Description>
+							</div>
+							<div className="flex justify-end gap-2 border-t border-border px-4 py-3">
+								<AlertDialog.Close
+									className={cn(
+										`
+											inline-flex items-center justify-center rounded-md border
+											border-border
+										`,
+										`bg-bg-tertiary px-3 py-1.5 text-sm font-medium text-text-primary`,
+										`
+											transition-colors
+											hover:bg-border
+										`,
+									)}
+								>
+									{cancelLabel}
+								</AlertDialog.Close>
+								<AlertDialog.Close
+									onClick={onConfirm}
+									className={cn(
+										`
+											inline-flex items-center justify-center rounded-md px-3 py-1.5
+											text-sm
+										`,
+										`font-medium text-white transition-colors`,
+										variant === 'danger'
+											? `
+												bg-red-600
+												hover:bg-red-700
 											`
-												inline-flex items-center justify-center rounded-md border
-												border-border
-											`,
-											`bg-bg-tertiary px-3 py-1.5 text-sm font-medium text-text-primary`,
-											`
-												transition-colors
-												hover:bg-border
-											`,
-										)}
-									>
-										{cancelLabel}
-									</AlertDialog.Cancel>
-									<AlertDialog.Action
-										onClick={onConfirm}
-										className={cn(
-											`
-												inline-flex items-center justify-center rounded-md px-3 py-1.5
-												text-sm
-											`,
-											`font-medium text-white transition-colors`,
-											variant === 'danger'
+											: variant === 'warning'
 												? `
-													bg-red-600
-													hover:bg-red-700
+													bg-warning text-black
+													hover:bg-yellow-600
 												`
-												: variant === 'warning'
-													? `
-														bg-warning text-black
-														hover:bg-yellow-600
-													`
-													: `
-														bg-accent
-														hover:bg-accent-hover
-													`,
-										)}
-									>
-										{confirmLabel}
-									</AlertDialog.Action>
-								</div>
-							</motion.div>
-						</AlertDialog.Content>
+												: `
+													bg-accent
+													hover:bg-accent-hover
+												`,
+									)}
+								>
+									{confirmLabel}
+								</AlertDialog.Close>
+							</div>
+						</AlertDialog.Popup>
 					</AlertDialog.Portal>
 				)}
 			</AnimatePresence>

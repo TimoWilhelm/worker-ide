@@ -63,7 +63,7 @@ export function GitBranchSelector({
 	return (
 		<>
 			<DropdownMenu>
-				<DropdownMenuTrigger asChild>
+				<DropdownMenuTrigger>
 					<button
 						type="button"
 						disabled={disabled}

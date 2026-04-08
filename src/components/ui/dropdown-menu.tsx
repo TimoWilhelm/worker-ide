@@ -1,24 +1,32 @@
 /**
  * Dropdown Menu Component
  *
- * Accessible dropdown menu using radix-ui primitives.
+ * Accessible dropdown menu using Base UI Menu primitives.
  */
 
+import { Menu } from '@base-ui-components/react/menu';
 import { motion } from 'motion/react';
-import { DropdownMenu as RadixDropdownMenu } from 'radix-ui';
 
 import { popoverVariants, springSnappy } from '@/lib/motion-config';
 import { cn } from '@/lib/utils';
 
-import type { ReactNode, Ref } from 'react';
+import type { ReactElement, ReactNode, Ref } from 'react';
 
 // =============================================================================
 // Root + Trigger
 // =============================================================================
 
-const DropdownMenu = RadixDropdownMenu.Root;
-const DropdownMenuTrigger = RadixDropdownMenu.Trigger;
-const DropdownMenuGroup = RadixDropdownMenu.Group;
+const DropdownMenu = Menu.Root;
+const DropdownMenuGroup = Menu.Group;
+
+interface DropdownMenuTriggerProperties {
+	children: ReactElement<Record<string, unknown>>;
+	disabled?: boolean;
+}
+
+function DropdownMenuTrigger({ children, disabled }: DropdownMenuTriggerProperties) {
+	return <Menu.Trigger disabled={disabled} render={children} />;
+}
 
 // =============================================================================
 // Content
@@ -32,16 +40,12 @@ interface DropdownMenuContentProperties {
 	ref?: Ref<HTMLDivElement>;
 }
 
-function DropdownMenuContent({ children, className, align = 'end', sideOffset = 4, ref }: DropdownMenuContentProperties) {
+function DropdownMenuContent({ children, className, align = 'end', sideOffset = 4 }: DropdownMenuContentProperties) {
 	return (
-		<RadixDropdownMenu.Portal>
-			<RadixDropdownMenu.Content ref={ref} align={align} sideOffset={sideOffset} asChild>
-				<motion.div
-					variants={popoverVariants}
-					initial="hidden"
-					animate="visible"
-					exit="exit"
-					transition={springSnappy}
+		<Menu.Portal>
+			<Menu.Positioner align={align} sideOffset={sideOffset}>
+				<Menu.Popup
+					render={<motion.div variants={popoverVariants} initial="hidden" animate="visible" exit="exit" transition={springSnappy} />}
 					className={cn(
 						`
 							z-50 min-w-32 overflow-hidden rounded-md border border-border
@@ -51,9 +55,9 @@ function DropdownMenuContent({ children, className, align = 'end', sideOffset = 
 					)}
 				>
 					{children}
-				</motion.div>
-			</RadixDropdownMenu.Content>
-		</RadixDropdownMenu.Portal>
+				</Menu.Popup>
+			</Menu.Positioner>
+		</Menu.Portal>
 	);
 }
 
@@ -71,10 +75,10 @@ interface DropdownMenuItemProperties {
 
 function DropdownMenuItem({ children, className, disabled, onSelect, ref }: DropdownMenuItemProperties) {
 	return (
-		<RadixDropdownMenu.Item
+		<Menu.Item
 			ref={ref}
 			disabled={disabled}
-			onSelect={onSelect}
+			onClick={onSelect}
 			className={cn(
 				`
 					relative flex cursor-default items-center gap-2 px-2 py-1.5 text-sm
@@ -86,7 +90,7 @@ function DropdownMenuItem({ children, className, disabled, onSelect, ref }: Drop
 			)}
 		>
 			{children}
-		</RadixDropdownMenu.Item>
+		</Menu.Item>
 	);
 }
 
@@ -95,15 +99,11 @@ function DropdownMenuItem({ children, className, disabled, onSelect, ref }: Drop
 // =============================================================================
 
 function DropdownMenuSeparator({ className }: { className?: string }) {
-	return <RadixDropdownMenu.Separator className={cn('my-1 h-px bg-border', className)} />;
+	return <Menu.Separator className={cn('my-1 h-px bg-border', className)} />;
 }
 
 function DropdownMenuLabel({ children, className }: { children: ReactNode; className?: string }) {
-	return (
-		<RadixDropdownMenu.Label className={cn('px-2 py-1.5 text-xs font-medium text-text-secondary', className)}>
-			{children}
-		</RadixDropdownMenu.Label>
-	);
+	return <div className={cn('px-2 py-1.5 text-xs font-medium text-text-secondary', className)}>{children}</div>;
 }
 
 export {

@@ -76,13 +76,6 @@ export const tooltipVariants = {
 	exit: { opacity: 0, scale: 0.92 },
 };
 
-/** Toast slide from bottom. */
-export const toastVariants = {
-	hidden: { opacity: 0, y: 20 },
-	visible: { opacity: 1, y: 0 },
-	exit: { opacity: 0, y: 20 },
-};
-
 /** Slide from left (mobile drawer). */
 export const slideLeftVariants = {
 	hidden: { x: '-100%' },
