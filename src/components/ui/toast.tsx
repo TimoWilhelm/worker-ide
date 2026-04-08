@@ -25,7 +25,7 @@ export function Toaster() {
 	const items = useToasts();
 
 	return (
-		<Toast.Provider duration={4000} swipeDirection="right">
+		<Toast.Provider duration={4000} swipeDirection="down">
 			<AnimatePresence mode="popLayout">
 				{items.map((item) => (
 					<Toast.Root
@@ -47,9 +47,9 @@ export function Toaster() {
 								'flex items-start gap-2.5 rounded-lg border px-3 py-2.5 shadow-lg',
 								'bg-bg-secondary text-text-primary',
 								item.variant === 'error' ? 'border-error/40' : 'border-accent/40',
-								'data-[swipe=move]:translate-x-(--radix-toast-swipe-move-x)',
+								'data-[swipe=move]:translate-y-(--radix-toast-swipe-move-y)',
 								`
-									data-[swipe=cancel]:translate-x-0
+									data-[swipe=cancel]:translate-y-0
 									data-[swipe=cancel]:transition-transform
 								`,
 								'data-[swipe=end]:animate-toast-swipe-out',

@@ -423,11 +423,11 @@ textarea:focus-visible,
 @keyframes toastSwipeOut {
 	from {
 		opacity: 1;
-		transform: translateX(var(--radix-toast-swipe-end-x));
+		transform: translateY(var(--radix-toast-swipe-end-y));
 	}
 	to {
 		opacity: 0;
-		transform: translateX(100%);
+		transform: translateY(100%);
 	}
 }
 

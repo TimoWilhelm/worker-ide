@@ -6,9 +6,6 @@
  */
 
 import { cva, type VariantProps } from 'class-variance-authority';
-import { motion } from 'motion/react';
-
-import { springSnappy } from '@/lib/motion-config';
 
 import { Spinner } from './spinner';
 
@@ -82,12 +79,10 @@ function Button({ className, variant, size, isLoading, loadingText, children, di
 	const isDisabledOrLoading = disabled || isLoading;
 
 	return (
-		<motion.div className="inline-flex" whileTap={isDisabledOrLoading ? undefined : { scale: 0.97 }} transition={springSnappy}>
-			<button className={buttonVariants({ variant, size, className })} ref={ref} disabled={isDisabledOrLoading} {...properties}>
-				{isLoading && <Spinner size="sm" />}
-				{isLoading && loadingText ? loadingText : children}
-			</button>
-		</motion.div>
+		<button className={buttonVariants({ variant, size, className })} ref={ref} disabled={isDisabledOrLoading} {...properties}>
+			{isLoading && <Spinner size="sm" />}
+			{isLoading && loadingText ? loadingText : children}
+		</button>
 	);
 }
 
