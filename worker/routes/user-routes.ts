@@ -172,6 +172,10 @@ export const userRoutes = new Hono<AuthedEnvironment>()
 				set: { lastAccessedAt: now },
 			});
 
+		// Bump project last-activity timestamp so dashboards and the auto-delete cron
+		// reflect real usage, without touching the lifecycle-scoped updatedAt.
+		await database.update(schema.project).set({ lastActivityAt: now }).where(eq(schema.project.id, projectId));
+
 		return c.json({ ok: true });
 	})
 

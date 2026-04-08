@@ -132,6 +132,7 @@ export interface OrgProject {
 	createdByUserId: string;
 	createdAt: string;
 	updatedAt: string;
+	lastActivityAt: string | null;
 }
 
 /**

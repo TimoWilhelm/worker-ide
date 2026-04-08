@@ -331,7 +331,7 @@ function ProjectRow({ project, onDelete }: { project: OrgProject; onDelete: (pro
 						group-hover/row:hidden
 					"
 				>
-					{formatRelativeTime(new Date(project.createdAt).getTime())}
+					{formatRelativeTime(new Date(project.lastActivityAt ?? project.updatedAt).getTime())}
 				</span>
 				<button
 					onPointerDown={(event) => event.stopPropagation()}

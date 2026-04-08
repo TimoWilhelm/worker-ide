@@ -742,6 +742,7 @@ app.post('/api/new-project', async (c) => {
 			createdByUserId: userId,
 			createdAt: now,
 			updatedAt: now,
+			lastActivityAt: now,
 		});
 
 		// Look up the authenticated user's name and email for the git commit author
@@ -939,6 +940,7 @@ app.post('/api/clone-project', async (c) => {
 			createdByUserId: userId,
 			createdAt: now,
 			updatedAt: now,
+			lastActivityAt: now,
 		});
 
 		// Look up the authenticated user's name and email for the git commit author
@@ -1294,7 +1296,7 @@ export default {
 		const staleProjects = await database
 			.select({ id: authSchema.project.id })
 			.from(authSchema.project)
-			.where(and(isNull(authSchema.project.deletedAt), lte(authSchema.project.updatedAt, inactivityCutoff)));
+			.where(and(isNull(authSchema.project.deletedAt), lte(authSchema.project.lastActivityAt, inactivityCutoff)));
 
 		if (staleProjects.length > 0) {
 			console.log(`Auto soft-deleting ${staleProjects.length} project(s) older than ${PROJECT_INACTIVITY_DAYS} days`);

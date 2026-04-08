@@ -425,6 +425,7 @@ describe('DashboardPage', () => {
 				createdByUserId: 'user1',
 				createdAt: new Date(Date.now() - 3_600_000).toISOString(),
 				updatedAt: new Date(Date.now() - 3_600_000).toISOString(),
+				lastActivityAt: new Date(Date.now() - 3_600_000).toISOString(),
 			},
 		]);
 
@@ -447,6 +448,7 @@ describe('DashboardPage', () => {
 				createdByUserId: 'user1',
 				createdAt: new Date(Date.now() - 3_600_000).toISOString(),
 				updatedAt: new Date(Date.now() - 3_600_000).toISOString(),
+				lastActivityAt: new Date(Date.now() - 3_600_000).toISOString(),
 			},
 			{
 				id: '6dp5qcb22im238nr3wvp0ic7q99w035jmy2iw7i6n43d37jtof',
@@ -457,6 +459,7 @@ describe('DashboardPage', () => {
 				createdByUserId: 'user1',
 				createdAt: new Date(Date.now() - 86_400_000).toISOString(),
 				updatedAt: new Date(Date.now() - 86_400_000).toISOString(),
+				lastActivityAt: new Date(Date.now() - 86_400_000).toISOString(),
 			},
 		]);
 
@@ -481,6 +484,7 @@ describe('DashboardPage', () => {
 				createdByUserId: 'user1',
 				createdAt: new Date().toISOString(),
 				updatedAt: new Date().toISOString(),
+				lastActivityAt: new Date().toISOString(),
 			},
 		]);
 
@@ -558,6 +562,7 @@ describe('DashboardPage', () => {
 				createdByUserId: 'user1',
 				createdAt: new Date().toISOString(),
 				updatedAt: new Date().toISOString(),
+				lastActivityAt: new Date().toISOString(),
 			},
 		]);
 

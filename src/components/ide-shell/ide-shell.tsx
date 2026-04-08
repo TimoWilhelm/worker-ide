@@ -5,7 +5,7 @@
  * This is the composition root that wires hooks and sub-components together.
  */
 
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { toast } from '@/components/ui/toast-store';
 import { TooltipProvider } from '@/components/ui/tooltip';
@@ -13,7 +13,7 @@ import { DeployModal } from '@/features/deploy';
 import { useFileTree } from '@/features/file-tree';
 import { ProjectSettingsModal } from '@/features/project-settings';
 import { useIsMobile, useProjectSocket, useTheme } from '@/hooks';
-import { downloadProject } from '@/lib/api-client';
+import { downloadProject, recordProjectAccess } from '@/lib/api-client';
 import { usePreviewUrl } from '@/lib/preview-origin';
 import { selectIsProcessing, useStore } from '@/lib/store';
 
@@ -67,6 +67,11 @@ export function IDEShell({ projectId }: { projectId: string }) {
 
 	// Signed preview URL (HMAC time-bucket token)
 	const { previewUrl, previewOrigin, isLoading: isLoadingPreviewUrl, refresh: refreshPreviewUrl } = usePreviewUrl(projectId);
+
+	// Record project access for dashboard recency and auto-delete protection
+	useEffect(() => {
+		void recordProjectAccess(projectId);
+	}, [projectId]);
 
 	// Side-effect-only hooks
 	useIDEEffects({

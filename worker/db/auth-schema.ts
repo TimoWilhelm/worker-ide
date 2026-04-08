@@ -157,11 +157,13 @@ export const project = sqliteTable(
 		updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
 		deletedAt: integer('deleted_at', { mode: 'timestamp' }),
 		bannedAt: integer('banned_at', { mode: 'timestamp' }),
+		lastActivityAt: integer('last_activity_at', { mode: 'timestamp' }),
 	},
 	(table) => [
 		index('project_org_deleted_idx').on(table.organizationId, table.deletedAt),
 		index('project_deleted_created_idx').on(table.deletedAt, table.createdAt),
 		index('project_banned_idx').on(table.bannedAt),
+		index('project_last_activity_idx').on(table.lastActivityAt),
 	],
 );
 
