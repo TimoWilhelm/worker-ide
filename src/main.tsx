@@ -22,6 +22,16 @@ globalThis.addEventListener('vite:preloadError', () => {
 	globalThis.location.reload();
 });
 
+// WORKAROUND(react-resizable-panels): pointermove on iframes re-triggers
+// separator hover via expanded hit regions. preventDefault skips the handler.
+document.addEventListener(
+	'pointermove',
+	(event) => {
+		if (event.target instanceof HTMLIFrameElement) event.preventDefault();
+	},
+	true,
+);
+
 const rootElement = document.querySelector('#root');
 
 if (!rootElement) {
