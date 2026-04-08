@@ -72,18 +72,45 @@ export const sttRoutes = new Hono<AppEnvironment>().get('/stt/ws', async (c) => 
 	serverSocket.accept();
 
 	// Relay: client → AI
+	// event.data may arrive as ArrayBuffer, string, or Blob depending on the
+	// runtime. Workers WebSocket.send() only accepts string | ArrayBuffer |
+	// ArrayBufferView — passing a Blob would coerce to "[object Blob]" text,
+	// which the AI model can't parse (SchemaError). Convert Blobs to
+	// ArrayBuffer before forwarding.
 	serverSocket.addEventListener('message', (event) => {
 		try {
-			aiSocket.send(event.data);
+			const { data } = event;
+			if (data instanceof Blob) {
+				void data.arrayBuffer().then((buffer) => {
+					try {
+						aiSocket.send(buffer);
+					} catch {
+						// AI socket already closed
+					}
+				});
+			} else {
+				aiSocket.send(data);
+			}
 		} catch {
 			// AI socket already closed
 		}
 	});
 
-	// Relay: AI → client
+	// Relay: AI → client (same Blob guard as above)
 	aiSocket.addEventListener('message', (event) => {
 		try {
-			serverSocket.send(event.data);
+			const { data } = event;
+			if (data instanceof Blob) {
+				void data.arrayBuffer().then((buffer) => {
+					try {
+						serverSocket.send(buffer);
+					} catch {
+						// Client socket already closed
+					}
+				});
+			} else {
+				serverSocket.send(data);
+			}
 		} catch {
 			// Client socket already closed
 		}

@@ -36,7 +36,7 @@ import { deleteOrganization, fetchOrgLimits } from '@/lib/api-client';
 import { authClient } from '@/lib/auth-client';
 import { useStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
-import { MAX_ORGANIZATION_NAME_LENGTH, getPlanDisplay } from '@shared/constants';
+import { MAX_ORGANIZATION_NAME_LENGTH } from '@shared/constants';
 
 import type { OrgLimits } from '@/lib/api-client';
 
@@ -710,45 +710,6 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 						)}
 					</div>
 				</div>
-
-				{/* Plan */}
-				<section className="mb-6">
-					<h2
-						className="
-							mb-3 text-xs font-medium tracking-wider text-text-secondary uppercase
-						"
-					>
-						Plan
-					</h2>
-					<div className="rounded-lg border border-border bg-bg-secondary/40 px-4 py-3">
-						<div className="flex items-center justify-between gap-3">
-							<div className="min-w-0">
-								<p className="text-sm font-medium text-text-primary">{getPlanDisplay(activeOrganization.plan ?? 'free').name}</p>
-								<p className="text-xs text-text-secondary">{getPlanDisplay(activeOrganization.plan ?? 'free').description}</p>
-							</div>
-							<span
-								className="
-									shrink-0 rounded-md bg-accent/10 px-2 py-0.5 text-xs font-medium
-									text-accent
-								"
-							>
-								{getPlanDisplay(activeOrganization.plan ?? 'free').name}
-							</span>
-						</div>
-						<div className="mt-2 flex flex-wrap gap-2">
-							{getPlanDisplay(activeOrganization.plan ?? 'free').features.map((feature) => (
-								<span
-									key={feature}
-									className="
-										rounded-md bg-bg-tertiary px-2 py-0.5 text-xs text-text-secondary
-									"
-								>
-									{feature}
-								</span>
-							))}
-						</div>
-					</div>
-				</section>
 
 				{/* Org Logo */}
 				{isOwner && (

@@ -19,7 +19,13 @@ import { env } from 'cloudflare:workers';
 import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
 
-import { INVITATION_EXPIRES_IN_SECONDS } from '@shared/constants';
+import {
+	ADMIN_PLUGIN_OPTIONS,
+	AUTH_BASE_PATH,
+	IP_ADDRESS_HEADERS,
+	INVITATION_EXPIRES_IN_SECONDS,
+	SESSION_COOKIE_CACHE,
+} from '@shared/constants';
 import { resolveOrgLimitsFromRows, resolveUserLimitsFromRows } from '@shared/entitlements';
 
 import { trackAuthEvent } from './analytics';
@@ -44,7 +50,7 @@ export function createAuth(environment: AuthEnvironment, baseUrl: string, reques
 			schema,
 		}),
 		baseURL: baseUrl,
-		basePath: '/api/auth',
+		basePath: AUTH_BASE_PATH,
 		secret: environment.BETTER_AUTH_SECRET,
 		socialProviders: {
 			github: {
@@ -110,10 +116,7 @@ export function createAuth(environment: AuthEnvironment, baseUrl: string, reques
 			}),
 		},
 		plugins: [
-			admin({
-				defaultRole: 'user',
-				bannedUserMessage: 'CONTACT_SUPPORT',
-			}),
+			admin(ADMIN_PLUGIN_OPTIONS),
 			organization({
 				// Dynamic org-creation limit: checks user entitlements
 				organizationLimit: async (user) => {
@@ -209,8 +212,7 @@ export function createAuth(environment: AuthEnvironment, baseUrl: string, reques
 		},
 		session: {
 			cookieCache: {
-				enabled: true,
-				maxAge: 5 * 60,
+				...SESSION_COOKIE_CACHE,
 				version: '2',
 			},
 		},
@@ -347,7 +349,7 @@ export function createAuth(environment: AuthEnvironment, baseUrl: string, reques
 		},
 		advanced: {
 			ipAddress: {
-				ipAddressHeaders: ['cf-connecting-ip'],
+				ipAddressHeaders: [...IP_ADDRESS_HEADERS],
 			},
 		},
 	});

@@ -1046,7 +1046,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 											)}
 											aria-label={speechToText.microphonePermission === 'denied' ? 'Microphone blocked' : 'Start voice input'}
 										>
-											{speechToText.microphonePermission === 'denied' ? <MicOff className="size-3" /> : <Mic className="size-3" />}
+											{speechToText.microphonePermission === 'denied' ? <MicOff className="size-3.5" /> : <Mic className="size-3.5" />}
 										</button>
 									</Tooltip>
 								)}
@@ -1060,7 +1060,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 										)}
 										aria-label="Stop"
 									>
-										<Square className="size-3" />
+										<Square className="size-3.5" />
 									</button>
 								) : (
 									<button
@@ -1078,7 +1078,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 										)}
 										aria-label="Send"
 									>
-										<Send className="size-3" />
+										<Send className="size-3.5" />
 									</button>
 								)}
 							</div>

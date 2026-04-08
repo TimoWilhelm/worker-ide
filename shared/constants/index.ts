@@ -12,3 +12,4 @@ export * from './organization';
 export * from './project';
 export * from './api';
 export * from './plans';
+export * from './auth';

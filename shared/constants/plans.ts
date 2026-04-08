@@ -2,8 +2,7 @@
  * Organization plan definitions and limits.
  *
  * Each organization has a `plan` field that determines its resource limits.
- * Billing is always org-scoped (like GitHub/Cloudflare) — users are never
- * billed directly, they access resources through org membership.
+ * Users access resources through org membership.
  */
 
 // =============================================================================
@@ -49,42 +48,6 @@ export const PLAN_LIMITS: Record<PlanId, PlanLimits> = {
 };
 
 // =============================================================================
-// Plan Display Info
-// =============================================================================
-
-export interface PlanDisplayInfo {
-	name: string;
-	description: string;
-	priceMonthly: number;
-	priceYearly: number;
-	features: string[];
-}
-
-export const PLAN_DISPLAY: Record<PlanId, PlanDisplayInfo> = {
-	[PLAN_FREE]: {
-		name: 'Free',
-		description: 'For personal projects and small teams.',
-		priceMonthly: 0,
-		priceYearly: 0,
-		features: ['5 projects', '5 members', '100 AI credits/month'],
-	},
-	[PLAN_PRO]: {
-		name: 'Pro',
-		description: 'For growing teams with more projects and members.',
-		priceMonthly: 20,
-		priceYearly: 192,
-		features: ['50 projects', '25 members', '1,000 AI credits/month', 'Priority support'],
-	},
-	[PLAN_ENTERPRISE]: {
-		name: 'Enterprise',
-		description: 'For large organizations with custom needs.',
-		priceMonthly: 50,
-		priceYearly: 480,
-		features: ['500 projects', '100 members', '5,000 AI credits/month', 'Dedicated support', 'Custom integrations'],
-	},
-};
-
-// =============================================================================
 // Helpers
 // =============================================================================
 
@@ -95,15 +58,6 @@ export const PLAN_DISPLAY: Record<PlanId, PlanDisplayInfo> = {
 export function getOrgLimits(plan: string): PlanLimits {
 	// eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- plan string comes from DB, safe to cast after fallback
 	return PLAN_LIMITS[plan as PlanId] ?? PLAN_LIMITS[PLAN_FREE];
-}
-
-/**
- * Get the display info for a given plan.
- * Falls back to free plan display for unknown plan values.
- */
-export function getPlanDisplay(plan: string): PlanDisplayInfo {
-	// eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- plan string comes from DB, safe to cast after fallback
-	return PLAN_DISPLAY[plan as PlanId] ?? PLAN_DISPLAY[PLAN_FREE];
 }
 
 /**
