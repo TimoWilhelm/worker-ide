@@ -1,70 +1,85 @@
 /**
- * Model Selector Dialog
+ * Model Selector Dropdown
  *
- * Dialog for selecting the AI model to use in the AI assistant.
- * Displays available models with their labels and allows the user to select one.
+ * Dropdown menu for selecting the AI model to use in the AI assistant.
+ * Opens upward from the trigger pill, displaying available models with descriptions.
  */
 
-import { Check } from 'lucide-react';
+import { Menu } from '@base-ui-components/react/menu';
+import { motion } from 'motion/react';
 
-import { Button } from '@/components/ui/button';
-import { Modal, ModalBody, ModalFooter } from '@/components/ui/modal';
+import { Pill } from '@/components/ui/pill';
+import { popoverVariants, springSnappy } from '@/lib/motion-config';
 import { cn } from '@/lib/utils';
 
-import { AI_MODELS, type AIModelId } from './model-config';
+import { AI_MODELS, getModelLabel, type AIModelId } from './model-config';
 
 // =============================================================================
 // Component
 // =============================================================================
 
-interface ModelSelectorDialogProperties {
-	/** Whether the dialog is open */
-	open: boolean;
-	/** Callback when open state changes */
-	onOpenChange: (open: boolean) => void;
+interface ModelSelectorDropdownProperties {
 	/** Currently selected model ID */
 	selectedModel: AIModelId;
 	/** Callback when a model is selected */
 	onSelectModel: (modelId: AIModelId) => void;
+	/** Whether the selector is disabled */
+	disabled?: boolean;
 }
 
-export function ModelSelectorDialog({ open, onOpenChange, selectedModel, onSelectModel }: ModelSelectorDialogProperties) {
-	const handleSelectModel = (modelId: AIModelId) => {
-		onSelectModel(modelId);
-		onOpenChange(false);
-	};
-
+export function ModelSelectorDropdown({ selectedModel, onSelectModel, disabled }: ModelSelectorDropdownProperties) {
 	return (
-		<Modal open={open} onOpenChange={onOpenChange} title="Select Model">
-			<ModalBody className="space-y-1 p-2">
-				{AI_MODELS.map((model) => {
-					const isSelected = model.id === selectedModel;
-					return (
-						<button
-							key={model.id}
-							onClick={() => handleSelectModel(model.id)}
-							className={cn(
-								`
-									flex w-full cursor-pointer items-center gap-3 rounded-md border-2
-									border-transparent px-3 py-2 text-left transition-colors
-								`,
-								isSelected ? 'border-accent bg-accent/10 text-accent' : 'hover:border-border hover:bg-bg-tertiary',
-							)}
-						>
-							<div className="flex-1">
-								<div className={cn('text-sm font-medium', isSelected ? 'text-accent' : 'text-text-primary')}>{model.label}</div>
-								{model.description && <div className="text-xs text-text-secondary">{model.description}</div>}
-							</div>
-							{isSelected && <Check className="size-4 shrink-0 text-accent" />}
-						</button>
-					);
-				})}
-			</ModalBody>
-			<ModalFooter>
-				<Button variant="secondary" size="sm" onClick={() => onOpenChange(false)}>
-					Cancel
-				</Button>
-			</ModalFooter>
-		</Modal>
+		<Menu.Root>
+			<Menu.Trigger
+				disabled={disabled}
+				render={
+					<span
+						className={cn(
+							'max-w-full min-w-0 cursor-pointer overflow-hidden transition-colors',
+							disabled && 'cursor-not-allowed opacity-40',
+						)}
+					/>
+				}
+			>
+				<Pill size="md" color="muted">
+					<span className="truncate">{getModelLabel(selectedModel)}</span>
+				</Pill>
+			</Menu.Trigger>
+			<Menu.Portal>
+				<Menu.Positioner side="top" align="start" sideOffset={4} collisionPadding={8}>
+					<Menu.Popup
+						render={<motion.div variants={popoverVariants} initial="hidden" animate="visible" exit="exit" transition={springSnappy} />}
+						className="
+							z-50 min-w-56 overflow-hidden rounded-md border border-border
+							bg-bg-secondary shadow-md
+						"
+					>
+						{AI_MODELS.map((model) => {
+							const isSelected = model.id === selectedModel;
+							return (
+								<Menu.Item
+									key={model.id}
+									onClick={() => onSelectModel(model.id)}
+									aria-current={isSelected ? 'true' : undefined}
+									className={cn(
+										`
+											relative flex cursor-pointer items-center gap-3 px-3 py-2 text-left
+											transition-colors outline-none select-none
+											focus:bg-bg-tertiary
+										`,
+										isSelected && 'bg-accent/10',
+									)}
+								>
+									<div className="flex-1">
+										<div className={cn('text-sm font-medium', isSelected ? 'text-accent' : 'text-text-primary')}>{model.label}</div>
+										{model.description && <div className="text-xs text-text-secondary">{model.description}</div>}
+									</div>
+								</Menu.Item>
+							);
+						})}
+					</Menu.Popup>
+				</Menu.Positioner>
+			</Menu.Portal>
+		</Menu.Root>
 	);
 }

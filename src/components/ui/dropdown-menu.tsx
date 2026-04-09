@@ -71,17 +71,19 @@ interface DropdownMenuItemProperties {
 	disabled?: boolean;
 	onSelect?: () => void;
 	ref?: Ref<HTMLDivElement>;
+	'aria-current'?: 'true' | undefined;
 }
 
-function DropdownMenuItem({ children, className, disabled, onSelect, ref }: DropdownMenuItemProperties) {
+function DropdownMenuItem({ children, className, disabled, onSelect, ref, 'aria-current': ariaCurrent }: DropdownMenuItemProperties) {
 	return (
 		<Menu.Item
 			ref={ref}
 			disabled={disabled}
 			onClick={onSelect}
+			aria-current={ariaCurrent}
 			className={cn(
 				`
-					relative flex cursor-default items-center gap-2 px-2 py-1.5 text-sm
+					relative flex cursor-pointer items-center gap-2 px-2 py-1.5 text-sm
 					text-text-primary transition-colors outline-none select-none
 					focus:bg-bg-tertiary focus:text-text-primary
 					data-disabled:pointer-events-none data-disabled:opacity-50

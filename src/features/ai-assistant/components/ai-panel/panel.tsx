@@ -51,8 +51,8 @@ import {
 	UserQuestionPrompt,
 	WelcomeScreen,
 } from './messages';
-import { getModelLabel, getModelLimits } from './model-config';
-import { ModelSelectorDialog } from './model-selector-dialog';
+import { getModelLimits } from './model-config';
+import { ModelSelectorDropdown } from './model-selector-dialog';
 import { useAutoScroll } from '../../hooks/use-auto-scroll';
 import { useChangeReview } from '../../hooks/use-change-review';
 import { useFileMention } from '../../hooks/use-file-mention';
@@ -114,7 +114,6 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	const [segments, setSegments] = useState<InputSegment[]>([]);
 	const [cursorPosition, setCursorPosition] = useState(0);
 	const [planPath, setPlanPath] = useState<string | undefined>();
-	const [isModelSelectorOpen, setIsModelSelectorOpen] = useState(false);
 	const inputReference = useRef<RichTextInputHandle>(null);
 
 	// Track the last chatError we already surfaced so dismissing it doesn't re-trigger
@@ -1031,17 +1030,11 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 							"
 						>
 							<AgentModeSelector mode={agentMode} onModeChange={setAgentMode} disabled={isProcessing || !isConnected} />
-							<Pill
-								size="md"
-								color="muted"
-								className={cn(
-									'max-w-full min-w-0 cursor-pointer overflow-hidden transition-colors',
-									(isProcessing || !isConnected) && 'cursor-not-allowed opacity-40',
-								)}
-								onClick={() => !isProcessing && isConnected && setIsModelSelectorOpen(true)}
-							>
-								<span className="truncate">{getModelLabel(selectedModel)}</span>
-							</Pill>
+							<ModelSelectorDropdown
+								selectedModel={selectedModel}
+								onSelectModel={setSelectedModel}
+								disabled={isProcessing || !isConnected}
+							/>
 							<div className="flex flex-1 shrink-0 items-center justify-end gap-1">
 								<ContextRing tokensUsed={contextTokensUsed} contextWindow={getModelLimits(selectedModel).contextWindow} />
 								{/* Microphone button — hidden when unsupported or agent is processing */}
@@ -1127,14 +1120,6 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 					revertError={pendingRevert.error}
 				/>
 			)}
-
-			{/* Model selector dialog */}
-			<ModelSelectorDialog
-				open={isModelSelectorOpen}
-				onOpenChange={setIsModelSelectorOpen}
-				selectedModel={selectedModel}
-				onSelectModel={setSelectedModel}
-			/>
 		</div>
 	);
 }
