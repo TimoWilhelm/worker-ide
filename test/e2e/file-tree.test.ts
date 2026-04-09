@@ -68,14 +68,14 @@ test.describe('File Tree', () => {
 		await expect(page.getByRole('tab', { name: /index\.html/i })).toBeVisible();
 	});
 
-	test('selecting a file shows its path in the status bar', async ({ page }) => {
+	test('selecting a file opens it as the active tab', async ({ page }) => {
 		await gotoIDE(page);
 		await waitForFileTree(page);
 
 		// Click on index.html
 		await page.getByText('index.html').click();
 
-		// The terminal header shows the active file path
-		await expect(page.getByText('/index.html')).toBeVisible();
+		// The index.html tab should be selected
+		await expect(page.getByRole('tab', { name: /index\.html/i })).toHaveAttribute('aria-selected', 'true');
 	});
 });

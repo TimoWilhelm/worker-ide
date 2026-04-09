@@ -59,9 +59,6 @@ test.describe('Editor Tabs', () => {
 
 		// index.html tab should now be selected
 		await expect(indexTab).toHaveAttribute('aria-selected', 'true');
-
-		// The terminal header shows the active file path
-		await expect(page.getByText('/index.html')).toBeVisible();
 	});
 
 	test('closing a tab removes it', async ({ page }) => {

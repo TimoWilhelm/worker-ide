@@ -41,7 +41,7 @@ test.describe('Panel Toggling', () => {
 		// The auto-open-on-errors effect may re-expand if error logs arrive
 		// right after we collapse. Retry once if that happens.
 		const hideButton = page.getByLabel('Hide utility panel');
-		const showButton = page.getByLabel('Show output');
+		const showButton = page.getByLabel('Show utility panel');
 
 		await hideButton.click();
 
@@ -53,8 +53,8 @@ test.describe('Panel Toggling', () => {
 			await expect(showButton).toBeVisible({ timeout: 5000 });
 		}
 
-		// Output tab should be gone
-		await expect(page.getByRole('tab', { name: 'Output' })).not.toBeVisible();
+		// Output tab panel content should be gone (the header with the tab button stays visible)
+		await expect(page.getByRole('tabpanel', { name: 'Output' })).not.toBeVisible();
 	});
 
 	test('clicking utility panel toggle again shows it', async ({ page }) => {
@@ -65,7 +65,7 @@ test.describe('Panel Toggling', () => {
 		// toggling — if error logs arrive while the panel is hidden, the effect
 		// re-opens it automatically. We retry the hide step until the collapsed
 		// state actually sticks (no new errors arriving).
-		const showButton = page.getByLabel('Show output');
+		const showButton = page.getByLabel('Show utility panel');
 		const hideButton = page.getByLabel('Hide utility panel');
 
 		await hideButton.click();
