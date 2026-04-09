@@ -14,7 +14,7 @@ import { cn } from '@/lib/utils';
 
 import type { HTMLAttributes, Ref } from 'react';
 
-const pillVariants = cva('inline-flex items-center leading-none font-medium', {
+const pillVariants = cva('inline-flex items-center leading-none font-medium select-none', {
 	variants: {
 		size: {
 			xs: 'gap-0.5 px-1 py-px text-3xs',
