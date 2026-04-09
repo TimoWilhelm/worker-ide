@@ -24,7 +24,14 @@ import type { ToastData } from '@/components/ui/toast-store';
 export function Toaster() {
 	return (
 		<Toast.Provider toastManager={toastManager} timeout={4000}>
-			<Toast.Viewport className={cn('fixed right-0 bottom-0 z-9999 m-0 flex w-96 max-w-[100vw]', 'flex-col gap-2 p-4 outline-none')}>
+			<Toast.Viewport
+				className={cn(
+					`
+						pointer-events-none fixed right-0 bottom-0 z-9999 m-0 flex w-96
+						max-w-[100vw] flex-col gap-2 p-4 outline-none
+					`,
+				)}
+			>
 				<ToastList />
 			</Toast.Viewport>
 		</Toast.Provider>
@@ -46,7 +53,10 @@ function ToastList() {
 						key={item.id}
 						toast={item}
 						className={cn(
-							'flex items-start gap-2.5 rounded-lg border px-3 py-2.5 shadow-lg',
+							`
+								pointer-events-auto flex items-start gap-2.5 rounded-lg border px-3
+								py-2.5 shadow-lg
+							`,
 							'bg-bg-secondary text-text-primary',
 							variant === 'error' ? 'border-error/40' : 'border-accent/40',
 						)}
