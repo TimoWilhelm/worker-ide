@@ -9,7 +9,7 @@
  * badges) + optional right-side status content.
  */
 
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, ChevronUp } from 'lucide-react';
 import { lazy, Suspense, useState } from 'react';
 
 import { Pill } from '@/components/ui/pill';
@@ -40,6 +40,8 @@ export interface UtilityPanelProperties {
 	projectId: string;
 	/** Called when the user clicks the header to collapse the panel */
 	onToggle: () => void;
+	/** Whether the panel body is collapsed (header still visible) */
+	collapsed?: boolean;
 	/** Log counts to display as badges on the Output tab */
 	logCounts?: LogCounts;
 	/** Optional content rendered on the right side of the header (status bar, etc.) */
@@ -52,11 +54,11 @@ export interface UtilityPanelProperties {
 // Component
 // =============================================================================
 
-export function UtilityPanel({ projectId, onToggle, logCounts, headerRight, className }: UtilityPanelProperties) {
+export function UtilityPanel({ projectId, onToggle, collapsed = false, logCounts, headerRight, className }: UtilityPanelProperties) {
 	const [activeTab, setActiveTab] = useState<UtilityTab>('output');
 
 	return (
-		<div className={cn('flex h-full flex-col overflow-hidden', className)}>
+		<div className={cn('flex flex-col overflow-hidden', !collapsed && 'h-full', className)}>
 			{/* Combined header: clicking the bar collapses the panel */}
 			<div
 				onClick={onToggle}
@@ -77,9 +79,9 @@ export function UtilityPanel({ projectId, onToggle, logCounts, headerRight, clas
 							text-text-secondary transition-colors
 							hover:text-text-primary
 						"
-						aria-label="Hide utility panel"
+						aria-label={collapsed ? 'Show utility panel' : 'Hide utility panel'}
 					>
-						<ChevronDown className="size-3" />
+						{collapsed ? <ChevronUp className="size-3" /> : <ChevronDown className="size-3" />}
 					</button>
 
 					<div role="tablist" aria-label="Utility panels" className="flex items-center gap-0.5">
@@ -120,18 +122,20 @@ export function UtilityPanel({ projectId, onToggle, logCounts, headerRight, clas
 			</div>
 
 			{/* Tab content */}
-			<div
-				id={`utility-tabpanel-${activeTab}`}
-				role="tabpanel"
-				aria-label={TABS.find((t) => t.id === activeTab)?.label}
-				className="flex-1 overflow-hidden"
-			>
-				{activeTab === 'output' && (
-					<Suspense fallback={<PanelSkeleton label="Loading output..." />}>
-						<OutputPanel projectId={projectId} className="h-full" />
-					</Suspense>
-				)}
-			</div>
+			{!collapsed && (
+				<div
+					id={`utility-tabpanel-${activeTab}`}
+					role="tabpanel"
+					aria-label={TABS.find((t) => t.id === activeTab)?.label}
+					className="flex-1 overflow-hidden"
+				>
+					{activeTab === 'output' && (
+						<Suspense fallback={<PanelSkeleton label="Loading output..." />}>
+							<OutputPanel projectId={projectId} className="h-full" />
+						</Suspense>
+					)}
+				</div>
+			)}
 		</div>
 	);
 }

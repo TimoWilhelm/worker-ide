@@ -7,7 +7,7 @@
  */
 
 import { Tabs } from '@base-ui-components/react/tabs';
-import { File, X } from 'lucide-react';
+import { File, ListX, X } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 
@@ -42,6 +42,8 @@ export interface FileTabsProperties {
 	onClose: (path: string) => void;
 	/** Connected collaborators for showing presence dots */
 	participants?: Participant[];
+	/** Called when the close-all button is clicked */
+	onCloseAll?: () => void;
 	/** CSS class name */
 	className?: string;
 }
@@ -133,7 +135,7 @@ function handleClosePointerDown(event: React.PointerEvent) {
 /**
  * File tabs component for the editor.
  */
-export function FileTabs({ tabs, activeTab, onSelect, onClose, participants = [], className }: FileTabsProperties) {
+export function FileTabs({ tabs, activeTab, onSelect, onClose, onCloseAll, participants = [], className }: FileTabsProperties) {
 	const duplicates = useMemo(() => getDuplicateBasenames(tabs), [tabs]);
 	const listReference = useRef<HTMLDivElement>(null);
 
@@ -189,33 +191,54 @@ export function FileTabs({ tabs, activeTab, onSelect, onClose, participants = []
 	}
 
 	return (
-		<Tabs.Root value={activeTab} onValueChange={(value) => onSelect(value)} className={cn('shrink-0', className)}>
-			<Tabs.List
-				activateOnFocus
-				ref={listReference}
-				onWheel={handleWheel}
-				onPointerDown={handlePointerDown}
-				onPointerMove={handlePointerMove}
-				onPointerUp={handlePointerUp}
-				onPointerCancel={handlePointerUp}
-				className="
-					flex h-tabs items-end gap-0 overflow-x-auto border-b border-border
-					bg-bg-secondary select-none
-				"
-				style={{ scrollbarWidth: 'none' }}
-			>
-				{tabs.map((tab) => (
-					<FileTabItem
-						key={tab.path}
-						tab={tab}
-						isActive={tab.path === activeTab}
-						showDirectory={duplicates.has(tab.path)}
-						participants={participants.filter((participant) => participant.file === tab.path)}
-						onClose={() => onClose(tab.path)}
-					/>
-				))}
-			</Tabs.List>
-		</Tabs.Root>
+		<div className={cn('flex shrink-0', className)}>
+			<Tabs.Root value={activeTab} onValueChange={(value) => onSelect(value)} className="min-w-0 flex-1">
+				<Tabs.List
+					activateOnFocus
+					ref={listReference}
+					onWheel={handleWheel}
+					onPointerDown={handlePointerDown}
+					onPointerMove={handlePointerMove}
+					onPointerUp={handlePointerUp}
+					onPointerCancel={handlePointerUp}
+					className="
+						flex h-tabs items-end gap-0 overflow-x-auto border-b border-border
+						bg-bg-secondary select-none
+					"
+					style={{ scrollbarWidth: 'none' }}
+				>
+					{tabs.map((tab) => (
+						<FileTabItem
+							key={tab.path}
+							tab={tab}
+							isActive={tab.path === activeTab}
+							showDirectory={duplicates.has(tab.path)}
+							participants={participants.filter((participant) => participant.file === tab.path)}
+							onClose={() => onClose(tab.path)}
+						/>
+					))}
+				</Tabs.List>
+			</Tabs.Root>
+			{onCloseAll && tabs.length > 0 && (
+				<Tooltip content="Close all tabs">
+					<button
+						type="button"
+						onClick={onCloseAll}
+						className={cn(
+							'flex h-tabs shrink-0 cursor-pointer items-center justify-center px-2',
+							`
+								border-b border-border bg-bg-secondary text-text-secondary
+								transition-colors
+							`,
+							'hover:bg-bg-tertiary hover:text-text-primary',
+						)}
+						aria-label="Close all tabs"
+					>
+						<ListX className="size-3.5" />
+					</button>
+				</Tooltip>
+			)}
+		</div>
 	);
 }
 
@@ -265,7 +288,7 @@ function FileTabItem({ tab, isActive, showDirectory, participants, onClose }: Fi
 			onMouseDown={handleMiddleClick}
 			className={cn(
 				`
-					group relative flex h-9 items-center gap-2 border-r border-border px-4
+					group relative flex h-9 items-center gap-2 border-r border-border px-3
 					text-sm transition-colors
 				`,
 				`
@@ -321,7 +344,7 @@ function FileTabItem({ tab, isActive, showDirectory, participants, onClose }: Fi
 					onKeyDown={handleCloseKeyDown}
 					className={cn(
 						`
-							ml-1 flex size-4 shrink-0 items-center justify-center rounded-sm
+							flex size-4 shrink-0 items-center justify-center rounded-sm
 							transition-colors
 						`,
 						`

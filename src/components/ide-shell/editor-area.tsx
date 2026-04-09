@@ -5,13 +5,15 @@
 
 import { EditorView } from '@codemirror/view';
 import { Loader2, Package, Sparkles } from 'lucide-react';
-import { lazy, Suspense, useCallback, useMemo, useRef, useState } from 'react';
+import { AnimatePresence, motion } from 'motion/react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { Spinner } from '@/components/ui/spinner';
 import { Tooltip } from '@/components/ui/tooltip';
 import { CodeEditor, DiffFloatingBar, FileTabs, GitDiffToolbar, groupHunksIntoChanges } from '@/features/editor';
 import { useCollabCursors } from '@/features/editor/hooks/use-collab-cursors';
 import { isLintableFile } from '@/lib/biome-linter';
+import { springSnappy } from '@/lib/motion-config';
 import { useStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 import { isProtectedSystemFile } from '@shared/constants';
@@ -57,6 +59,28 @@ export function EditorArea({ projectId, resolvedTheme, editorState, onSelectFile
 		pendingGoTo,
 		clearPendingGoTo,
 	} = editorState;
+
+	const closeAllFiles = useStore((state) => state.closeAllFiles);
+
+	// Track whether the active file has fixable lint issues (to show/hide prettify FAB).
+	// We store [filePath, hasFixable] so that when activeFile changes the stale value
+	// is detected during render and reset without needing setState-in-effect.
+	const [fixableState, setFixableState] = useState<[string | undefined, boolean]>([activeFile, false]);
+	const hasFixableIssues = fixableState[0] === activeFile && fixableState[1];
+	if (fixableState[0] !== activeFile) {
+		setFixableState([activeFile, false]);
+	}
+	useEffect(() => {
+		const handler = (event: Event) => {
+			if (!(event instanceof CustomEvent)) return;
+			const detail: { filePath: string; diagnostics: Array<{ fixable: boolean }> } = event.detail;
+			if (detail.filePath === activeFile) {
+				setFixableState([activeFile, detail.diagnostics.some((d) => d.fixable)]);
+			}
+		};
+		globalThis.addEventListener('lint-diagnostics', handler);
+		return () => globalThis.removeEventListener('lint-diagnostics', handler);
+	}, [activeFile]);
 
 	// Remote collaboration cursors extension
 	const { extension: collabCursorsExtension, handleViewReady: handleCollabViewReady } = useCollabCursors(activeFile);
@@ -126,30 +150,10 @@ export function EditorArea({ projectId, resolvedTheme, editorState, onSelectFile
 					activeTab={activeFile}
 					onSelect={onSelectFile}
 					onClose={handleCloseFile}
+					onCloseAll={closeAllFiles}
 					participants={participants}
 					className="min-w-0 flex-1"
 				/>
-				{activeFile && !isGitDiffActive && !isProtectedSystemFile(activeFile) && isLintableFile(activeFile) && (
-					<Tooltip content="Prettify (Shift+Alt+F)">
-						<button
-							type="button"
-							onClick={() => void handlePrettify()}
-							disabled={isPrettifying}
-							className={cn(
-								'flex shrink-0 cursor-pointer items-center justify-center px-2',
-								`
-									border-b border-border bg-bg-secondary text-text-secondary
-									transition-colors
-								`,
-								'hover:bg-bg-tertiary hover:text-accent',
-								'disabled:pointer-events-none disabled:opacity-50',
-							)}
-							aria-label="Prettify file"
-						>
-							{isPrettifying ? <Loader2 className="size-3.5 animate-spin" /> : <Sparkles className="size-3.5" />}
-						</button>
-					</Tooltip>
-				)}
 			</div>
 			{isGitDiffActive && activeFile && gitDiffView && (
 				<GitDiffToolbar path={activeFile} description={gitDiffView.description ?? 'Working Changes'} onClose={clearGitDiff} />
@@ -204,6 +208,41 @@ export function EditorArea({ projectId, resolvedTheme, editorState, onSelectFile
 								extensions={[collabCursorsExtension]}
 								onViewReady={combinedHandleViewReady}
 							/>
+							<AnimatePresence>
+								{activeFile && !isGitDiffActive && !isProtectedSystemFile(activeFile) && isLintableFile(activeFile) && hasFixableIssues && (
+									<motion.div
+										initial={{ opacity: 0, scale: 0.8 }}
+										animate={{ opacity: 1, scale: 1 }}
+										exit={{ opacity: 0, scale: 0.8 }}
+										transition={springSnappy}
+										className="absolute right-4 bottom-4 z-10"
+									>
+										<Tooltip content="Prettify (Shift+Alt+F)">
+											<motion.button
+												type="button"
+												whileTap={{ scale: 0.85 }}
+												transition={springSnappy}
+												onClick={() => void handlePrettify()}
+												disabled={isPrettifying}
+												className={cn(
+													`
+														flex size-8 cursor-pointer items-center justify-center
+														rounded-full shadow-lg transition-colors
+													`,
+													`
+														border border-border bg-bg-secondary text-text-secondary
+														hover:bg-bg-tertiary hover:text-accent
+													`,
+													'disabled:pointer-events-none disabled:opacity-50',
+												)}
+												aria-label="Prettify file"
+											>
+												{isPrettifying ? <Loader2 className="size-3.5 animate-spin" /> : <Sparkles className="size-3.5" />}
+											</motion.button>
+										</Tooltip>
+									</motion.div>
+								)}
+							</AnimatePresence>
 							{!isGitDiffActive && hasActiveDiff && activeFile && activePendingChange && (
 								<DiffFloatingBar
 									changeGroups={changeGroups}

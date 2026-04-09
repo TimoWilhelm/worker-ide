@@ -828,6 +828,23 @@ export class AIAgentService {
 					}
 				}
 
+				// Probe for concurrent user file edits
+				if (continueLoop) {
+					try {
+						const recentEdits = await coordinatorStub.getRecentFileEdits();
+						if (recentEdits.length > 0) {
+							const editedPaths = recentEdits.map((edit) => edit.path).join(', ');
+							workingMessages.push({
+								role: 'user',
+								content: `SYSTEM: While you were working, a user manually edited the following files: ${editedPaths}. If any of these files are relevant to your current task, re-read them with file_read before making further changes to avoid conflicts.`,
+							});
+							yield statusEvent('Detected user edits, reviewing...');
+						}
+					} catch {
+						// Non-fatal — coordinator may be unavailable
+					}
+				}
+
 				// Doom loop detection
 				const loopResult = continueLoop ? detectDoomLoop(workingMessages, currentRunStartIndex) : { isDoomLoop: false };
 				if (loopResult.isDoomLoop) {

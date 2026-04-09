@@ -59,7 +59,7 @@ function createEditorTheme(isDark: boolean) {
 				caretColor: 'var(--color-accent)',
 				fontFamily: 'var(--font-mono)',
 				fontSize: 'var(--text-base)',
-				padding: '4px 0',
+				padding: '4px 0 40px',
 			},
 			'.cm-cursor, .cm-dropCursor': {
 				borderLeftColor: 'var(--color-accent)',

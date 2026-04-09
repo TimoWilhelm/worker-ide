@@ -10,6 +10,7 @@ const meta = {
 	args: {
 		onSelect: fn(),
 		onClose: fn(),
+		onCloseAll: fn(),
 	},
 } satisfies Meta<typeof FileTabs>;
 

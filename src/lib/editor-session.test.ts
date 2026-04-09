@@ -72,7 +72,7 @@ describe('loadEditorSession', () => {
 		};
 		localStorageMock.setItem('worker-ide-editor-session:test-project', JSON.stringify(session));
 
-		expect(loadEditorSession('test-project')).toEqual(session);
+		expect(loadEditorSession('test-project')).toEqual({ ...session, cursorPositions: {} });
 	});
 
 	it('defaults scrollPositions when omitted', () => {
@@ -85,12 +85,13 @@ describe('loadEditorSession', () => {
 			openFiles: ['/src/main.ts'],
 			activeFile: '/src/main.ts',
 			scrollPositions: {},
+			cursorPositions: {},
 		});
 	});
 
 	it('scopes sessions per project', () => {
-		const sessionA = { openFiles: ['/a.ts'], activeFile: '/a.ts', scrollPositions: {} };
-		const sessionB = { openFiles: ['/b.ts'], activeFile: '/b.ts', scrollPositions: {} };
+		const sessionA = { openFiles: ['/a.ts'], activeFile: '/a.ts', scrollPositions: {}, cursorPositions: {} };
+		const sessionB = { openFiles: ['/b.ts'], activeFile: '/b.ts', scrollPositions: {}, cursorPositions: {} };
 		saveEditorSession('project-a', sessionA);
 		saveEditorSession('project-b', sessionB);
 
@@ -120,6 +121,7 @@ describe('saveEditorSession', () => {
 			openFiles: ['/src/main.ts'],
 			activeFile: '/src/main.ts',
 			scrollPositions: { '/src/main.ts': 0 },
+			cursorPositions: {},
 		};
 		saveEditorSession('test-project', session);
 
@@ -132,7 +134,7 @@ describe('saveEditorSession', () => {
 		});
 
 		expect(() => {
-			saveEditorSession('test-project', { openFiles: [], scrollPositions: {} });
+			saveEditorSession('test-project', { openFiles: [], scrollPositions: {}, cursorPositions: {} });
 		}).not.toThrow();
 	});
 });
@@ -149,7 +151,7 @@ describe('resolveEditorSession', () => {
 	});
 
 	it('returns undefined when openFiles is empty', () => {
-		expect(resolveEditorSession({ openFiles: [], scrollPositions: {} }, existingPaths)).toBeUndefined();
+		expect(resolveEditorSession({ openFiles: [], scrollPositions: {}, cursorPositions: {} }, existingPaths)).toBeUndefined();
 	});
 
 	it('returns undefined when all persisted files have been deleted', () => {
@@ -157,6 +159,7 @@ describe('resolveEditorSession', () => {
 			openFiles: ['/deleted-a.ts', '/deleted-b.ts'],
 			activeFile: '/deleted-a.ts',
 			scrollPositions: { '/deleted-a.ts': 100 },
+			cursorPositions: {},
 		};
 		expect(resolveEditorSession(session, existingPaths)).toBeUndefined();
 	});
@@ -166,6 +169,7 @@ describe('resolveEditorSession', () => {
 			openFiles: ['/src/main.ts', '/deleted.ts', '/src/app.tsx'],
 			activeFile: '/src/main.ts',
 			scrollPositions: {},
+			cursorPositions: {},
 		};
 
 		const result = resolveEditorSession(session, existingPaths);
@@ -177,6 +181,7 @@ describe('resolveEditorSession', () => {
 			openFiles: ['/deleted.ts', '/src/app.tsx', '/src/main.ts'],
 			activeFile: '/deleted.ts',
 			scrollPositions: {},
+			cursorPositions: {},
 		};
 
 		const result = resolveEditorSession(session, existingPaths);
@@ -189,6 +194,7 @@ describe('resolveEditorSession', () => {
 			openFiles: ['/src/main.ts', '/src/app.tsx'],
 			activeFile: '/src/utils.ts', // exists on disk but not in openFiles
 			scrollPositions: {},
+			cursorPositions: {},
 		};
 
 		const result = resolveEditorSession(session, existingPaths);
@@ -200,6 +206,7 @@ describe('resolveEditorSession', () => {
 			openFiles: ['/src/main.ts', '/src/app.tsx'],
 			activeFile: '/src/app.tsx',
 			scrollPositions: {},
+			cursorPositions: {},
 		};
 
 		const result = resolveEditorSession(session, existingPaths);
@@ -214,6 +221,7 @@ describe('resolveEditorSession', () => {
 				'/src/main.ts': 150,
 				'/deleted.ts': 300,
 			},
+			cursorPositions: {},
 		};
 
 		const result = resolveEditorSession(session, existingPaths);
@@ -229,6 +237,7 @@ describe('resolveEditorSession', () => {
 				'/src/main.ts': 100,
 				'/src/app.tsx': 200, // exists on disk but not an open tab
 			},
+			cursorPositions: {},
 		};
 
 		const result = resolveEditorSession(session, existingPaths);
@@ -241,6 +250,7 @@ describe('resolveEditorSession', () => {
 			openFiles: ['/src/utils.ts', '/deleted.ts', '/src/main.ts', '/also-deleted.ts', '/src/app.tsx'],
 			activeFile: '/src/main.ts',
 			scrollPositions: {},
+			cursorPositions: {},
 		};
 
 		const result = resolveEditorSession(session, existingPaths);
@@ -252,6 +262,7 @@ describe('resolveEditorSession', () => {
 			openFiles: ['/src/main.ts', '/src/app.tsx'],
 			activeFile: undefined,
 			scrollPositions: {},
+			cursorPositions: {},
 		};
 
 		const result = resolveEditorSession(session, existingPaths);
@@ -263,6 +274,7 @@ describe('resolveEditorSession', () => {
 			openFiles: ['/src/main.ts'],
 			activeFile: '/src/main.ts',
 			scrollPositions: { '/src/main.ts': 50 },
+			cursorPositions: {},
 		};
 
 		expect(resolveEditorSession(session, new Set())).toBeUndefined();
@@ -276,6 +288,10 @@ describe('resolveEditorSession', () => {
 				'/src/main.ts': 100,
 				'/src/app.tsx': 200,
 			},
+			cursorPositions: {
+				'/src/main.ts': { line: 10, column: 5 },
+				'/src/app.tsx': { line: 3, column: 1 },
+			},
 		};
 
 		const result = resolveEditorSession(session, existingPaths);
@@ -286,6 +302,42 @@ describe('resolveEditorSession', () => {
 				['/src/main.ts', 100],
 				['/src/app.tsx', 200],
 			]),
+			cursorPositions: new Map([
+				['/src/main.ts', { line: 10, column: 5 }],
+				['/src/app.tsx', { line: 3, column: 1 }],
+			]),
 		});
+	});
+
+	it('discards cursor positions for deleted files', () => {
+		const session: EditorSessionParsed = {
+			openFiles: ['/src/main.ts', '/deleted.ts'],
+			activeFile: '/src/main.ts',
+			scrollPositions: {},
+			cursorPositions: {
+				'/src/main.ts': { line: 5, column: 2 },
+				'/deleted.ts': { line: 10, column: 1 },
+			},
+		};
+
+		const result = resolveEditorSession(session, existingPaths);
+		expect(result?.cursorPositions.get('/src/main.ts')).toEqual({ line: 5, column: 2 });
+		expect(result?.cursorPositions.has('/deleted.ts')).toBe(false);
+	});
+
+	it('discards cursor positions for files not in openFiles', () => {
+		const session: EditorSessionParsed = {
+			openFiles: ['/src/main.ts'],
+			activeFile: '/src/main.ts',
+			scrollPositions: {},
+			cursorPositions: {
+				'/src/main.ts': { line: 1, column: 1 },
+				'/src/app.tsx': { line: 8, column: 3 },
+			},
+		};
+
+		const result = resolveEditorSession(session, existingPaths);
+		expect(result?.cursorPositions.has('/src/app.tsx')).toBe(false);
+		expect(result?.cursorPositions.get('/src/main.ts')).toEqual({ line: 1, column: 1 });
 	});
 });

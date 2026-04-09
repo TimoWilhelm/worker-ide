@@ -1,13 +1,15 @@
 /**
  * Hook for persisting and restoring editor session state.
  *
- * Saves open tabs, active file, and per-file scroll positions to localStorage
- * scoped by project ID. Restores the session on mount so the editor picks up
- * where it left off after a page reload.
+ * Saves open tabs, active file, per-file scroll positions, and per-file
+ * cursor positions to localStorage scoped by project ID. Restores the
+ * session on mount so the editor picks up where it left off after a page
+ * reload.
  *
  * Deleted files are silently filtered out during restore so stale tabs don't
  * appear. Scroll positions for changed (shorter/longer) files are naturally
- * clamped at render time by the editor's `handleViewReady`.
+ * clamped at render time by the editor's `handleViewReady`. Cursor positions
+ * are clamped to the document length by the editor when applied.
  */
 
 import { useEffect, useRef } from 'react';
@@ -17,17 +19,23 @@ import { useStore } from '@/lib/store';
 
 const SAVE_DEBOUNCE_MS = 500;
 
+/** Build the session payload from current store state. */
+function buildSessionPayload() {
+	const { openFiles, activeFile, fileScrollPositions, fileCursorPositions } = useStore.getState();
+	return {
+		openFiles,
+		activeFile,
+		scrollPositions: Object.fromEntries(fileScrollPositions),
+		cursorPositions: Object.fromEntries(fileCursorPositions),
+	};
+}
+
 /**
- * Persist editor session state (open tabs, active file, scroll positions) to
- * localStorage for the given project, and restore it on mount.
+ * Persist editor session state (open tabs, active file, scroll/cursor
+ * positions) to localStorage for the given project, and restore it on mount.
  */
 export function useEditorSessionPersistence({ projectId }: { projectId: string }) {
 	const hasRestoredReference = useRef(false);
-
-	// Reset restore flag when projectId changes so a new project's session is restored
-	useEffect(() => {
-		hasRestoredReference.current = false;
-	}, [projectId]);
 
 	// ── Restore on mount ──────────────────────────────────────────────
 	// Wait until the file list has been loaded so we can filter out
@@ -50,7 +58,13 @@ export function useEditorSessionPersistence({ projectId }: { projectId: string }
 			openFiles: resolved.openFiles,
 			activeFile: resolved.activeFile,
 			fileScrollPositions: resolved.scrollPositions,
+			fileCursorPositions: resolved.cursorPositions,
 		});
+
+		// Reset to allow re-restore on StrictMode remount or projectId change
+		return () => {
+			hasRestoredReference.current = false;
+		};
 	}, [projectId, files, isLoading]);
 
 	// ── Persist on change (debounced) ─────────────────────────────────
@@ -62,32 +76,27 @@ export function useEditorSessionPersistence({ projectId }: { projectId: string }
 			const changed =
 				state.openFiles !== previousState.openFiles ||
 				state.activeFile !== previousState.activeFile ||
-				state.fileScrollPositions !== previousState.fileScrollPositions;
+				state.fileScrollPositions !== previousState.fileScrollPositions ||
+				state.fileCursorPositions !== previousState.fileCursorPositions;
 
 			if (!changed) return;
 
 			clearTimeout(saveTimeoutReference.current);
 			saveTimeoutReference.current = setTimeout(() => {
-				const { openFiles, activeFile, fileScrollPositions } = useStore.getState();
-
-				saveEditorSession(projectId, {
-					openFiles,
-					activeFile,
-					scrollPositions: Object.fromEntries(fileScrollPositions),
-				});
+				saveEditorSession(projectId, buildSessionPayload());
 			}, SAVE_DEBOUNCE_MS);
 		});
 
 		return () => {
 			unsubscribe();
-			// Flush any pending save on unmount
 			clearTimeout(saveTimeoutReference.current);
-			const { openFiles, activeFile, fileScrollPositions } = useStore.getState();
-			saveEditorSession(projectId, {
-				openFiles,
-				activeFile,
-				scrollPositions: Object.fromEntries(fileScrollPositions),
-			});
+			// Flush on unmount — but only if we have open files.
+			// During React StrictMode teardown the store may already be empty;
+			// flushing an empty session would overwrite the valid one.
+			const payload = buildSessionPayload();
+			if (payload.openFiles.length > 0) {
+				saveEditorSession(projectId, payload);
+			}
 		};
 	}, [projectId]);
 }

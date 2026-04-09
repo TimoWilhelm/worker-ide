@@ -2,7 +2,7 @@
  * Editor Session Persistence (localStorage)
  *
  * Saves and restores per-project editor state: open tabs, active file,
- * and per-file scroll positions.
+ * per-file scroll positions, and per-file cursor positions.
  * Scoped to each project via `worker-ide-editor-session:<projectId>`.
  */
 
@@ -56,6 +56,7 @@ export interface ResolvedEditorSession {
 	openFiles: string[];
 	activeFile: string;
 	scrollPositions: Map<string, number>;
+	cursorPositions: Map<string, { line: number; column: number }>;
 }
 
 /**
@@ -72,7 +73,7 @@ export function resolveEditorSession(
 ): ResolvedEditorSession | undefined {
 	if (!session) return undefined;
 
-	const { openFiles, activeFile, scrollPositions } = session;
+	const { openFiles, activeFile, scrollPositions, cursorPositions } = session;
 	if (openFiles.length === 0) return undefined;
 
 	// Keep only files that still exist
@@ -87,11 +88,20 @@ export function resolveEditorSession(
 		}
 	}
 
+	// Keep only cursor positions for surviving files
+	const cursorMap = new Map<string, { line: number; column: number }>();
+	for (const [filePath, position] of Object.entries(cursorPositions)) {
+		if (existingPaths.has(filePath) && validOpenFiles.includes(filePath)) {
+			cursorMap.set(filePath, position);
+		}
+	}
+
 	const resolvedActiveFile = activeFile && validOpenFiles.includes(activeFile) ? activeFile : validOpenFiles[0];
 
 	return {
 		openFiles: validOpenFiles,
 		activeFile: resolvedActiveFile,
 		scrollPositions: scrollMap,
+		cursorPositions: cursorMap,
 	};
 }

@@ -804,6 +804,8 @@ export const editorSessionSchema = z.object({
 	activeFile: z.string().optional(),
 	/** Scroll top (px) per file path */
 	scrollPositions: z.record(z.string(), z.number()).default({}),
+	/** Cursor position {line, column} per file path */
+	cursorPositions: z.record(z.string(), z.object({ line: z.number(), column: z.number() })).default({}),
 });
 
 export type EditorSessionParsed = z.infer<typeof editorSessionSchema>;

@@ -14,6 +14,7 @@ beforeEach(() => {
 		cursorPosition: undefined,
 		unsavedChanges: new Map(),
 		fileScrollPositions: new Map(),
+		fileCursorPositions: new Map(),
 		files: [],
 		selectedFile: undefined,
 		expandedDirs: new Set(),
@@ -134,6 +135,28 @@ describe('Editor slice', () => {
 		useStore.getState().restoreFileScrollPositions(positions);
 
 		expect(useStore.getState().fileScrollPositions).toEqual(positions);
+	});
+
+	it('sets per-file cursor position', () => {
+		useStore.getState().setFileCursorPosition('/src/main.ts', { line: 10, column: 5 });
+
+		expect(useStore.getState().fileCursorPositions.get('/src/main.ts')).toEqual({ line: 10, column: 5 });
+	});
+
+	it('cleans up per-file cursor position when closing a file', () => {
+		useStore.getState().openFile('/src/main.ts');
+		useStore.getState().setFileCursorPosition('/src/main.ts', { line: 3, column: 1 });
+		useStore.getState().closeFile('/src/main.ts');
+
+		expect(useStore.getState().fileCursorPositions.has('/src/main.ts')).toBe(false);
+	});
+
+	it('closes all files and clears per-file cursor positions', () => {
+		useStore.getState().openFile('/src/a.ts');
+		useStore.getState().setFileCursorPosition('/src/a.ts', { line: 5, column: 2 });
+		useStore.getState().closeAllFiles();
+
+		expect(useStore.getState().fileCursorPositions.size).toBe(0);
 	});
 });
 

@@ -31,6 +31,8 @@ const STORAGE_KEY = {
 	UPDATE_VERSION: 'updateVersion',
 	/** Latest IDE output-logs snapshot (string). Read by the AI agent service. */
 	OUTPUT_LOGS: 'outputLogs',
+	/** Recent user file edits (JSON string). Drained by the AI agent service between iterations. */
+	RECENT_FILE_EDITS: 'recentFileEdits',
 } as const;
 
 /**
@@ -66,6 +68,9 @@ export class ProjectCoordinatorV2 extends DurableObject {
 	/** Project ID for analytics. Set from the `x-project-id` header on first fetch. */
 	private projectId: string | undefined;
 
+	/** Maximum number of recent file edits to retain before oldest are dropped. */
+	private static readonly MAX_RECENT_FILE_EDITS = 100;
+
 	// =========================================================================
 	// Persisted state — native get/set backed by ctx.storage.kv
 	// =========================================================================
@@ -99,6 +104,19 @@ export class ProjectCoordinatorV2 extends DurableObject {
 
 	private set outputLogs(value: string) {
 		this.ctx.storage.kv.put(STORAGE_KEY.OUTPUT_LOGS, value);
+	}
+
+	/** Recent file edits made by connected users. Persisted so they survive hibernation. */
+	private get recentFileEdits(): Array<{ path: string; timestamp: number }> {
+		return this.ctx.storage.kv.get<Array<{ path: string; timestamp: number }>>(STORAGE_KEY.RECENT_FILE_EDITS) ?? [];
+	}
+
+	private set recentFileEdits(value: Array<{ path: string; timestamp: number }>) {
+		if (value.length === 0) {
+			this.ctx.storage.kv.delete(STORAGE_KEY.RECENT_FILE_EDITS);
+		} else {
+			this.ctx.storage.kv.put(STORAGE_KEY.RECENT_FILE_EDITS, value);
+		}
 	}
 
 	private getAttachment(ws: WebSocket): ParticipantAttachment | undefined {
@@ -308,6 +326,26 @@ export class ProjectCoordinatorV2 extends DurableObject {
 	}
 
 	/**
+	 * Drain recent file edits made by connected users.
+	 * Called by the AI agent service between iterations to detect concurrent
+	 * user changes. Returns deduplicated paths and clears the buffer.
+	 */
+	async getRecentFileEdits(): Promise<Array<{ path: string; timestamp: number }>> {
+		const edits = this.recentFileEdits;
+		if (edits.length === 0) return [];
+		this.recentFileEdits = [];
+		// Deduplicate by path, keeping the latest timestamp per path
+		const byPath = new Map<string, number>();
+		for (const edit of edits) {
+			const existing = byPath.get(edit.path);
+			if (existing === undefined || edit.timestamp > existing) {
+				byPath.set(edit.path, edit.timestamp);
+			}
+		}
+		return [...byPath.entries()].map(([path, timestamp]) => ({ path, timestamp }));
+	}
+
+	/**
 	 * Send the initial collab-state message to a newly joined client.
 	 */
 	private sendCollabState(ws: WebSocket, attachment: ParticipantAttachment): void {
@@ -466,6 +504,14 @@ export class ProjectCoordinatorV2 extends DurableObject {
 						content: data.content,
 					}),
 				);
+				// Track the edit so the AI agent can be notified between iterations
+				const edits = this.recentFileEdits;
+				edits.push({ path: data.path, timestamp: Date.now() });
+				// Cap to prevent unbounded growth
+				if (edits.length > ProjectCoordinatorV2.MAX_RECENT_FILE_EDITS) {
+					edits.splice(0, edits.length - ProjectCoordinatorV2.MAX_RECENT_FILE_EDITS);
+				}
+				this.recentFileEdits = edits;
 				return;
 			}
 

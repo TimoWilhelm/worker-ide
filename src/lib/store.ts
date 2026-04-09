@@ -38,6 +38,8 @@ interface EditorState {
 	unsavedChanges: Map<string, boolean>;
 	/** Per-file scroll top in pixels (for restoring on tab switch / reload) */
 	fileScrollPositions: Map<string, number>;
+	/** Per-file cursor position (for restoring on tab switch / reload) */
+	fileCursorPositions: Map<string, { line: number; column: number }>;
 }
 
 interface EditorActions {
@@ -55,6 +57,8 @@ interface EditorActions {
 	setFileScrollPosition: (path: string, scrollTop: number) => void;
 	/** Bulk-restore file scroll positions (used on session reload) */
 	restoreFileScrollPositions: (positions: Map<string, number>) => void;
+	/** Save cursor position for a specific file */
+	setFileCursorPosition: (path: string, position: { line: number; column: number }) => void;
 }
 
 // =============================================================================
@@ -366,13 +370,15 @@ export const useStore = create<StoreState>()(
 				pendingGoTo: undefined,
 				unsavedChanges: new Map(),
 				fileScrollPositions: new Map(),
+				fileCursorPositions: new Map(),
 
-				setActiveFile: (path) => set({ activeFile: path }),
+				setActiveFile: (path) => set({ activeFile: path, cursorPosition: undefined }),
 
 				openFile: (path) =>
 					set((state) => ({
 						openFiles: state.openFiles.includes(path) ? state.openFiles : [...state.openFiles, path],
 						activeFile: path,
+						cursorPosition: undefined,
 					})),
 
 				closeFile: (path) =>
@@ -382,11 +388,14 @@ export const useStore = create<StoreState>()(
 						newUnsavedChanges.delete(path);
 						const newFileScrollPositions = new Map(state.fileScrollPositions);
 						newFileScrollPositions.delete(path);
+						const newFileCursorPositions = new Map(state.fileCursorPositions);
+						newFileCursorPositions.delete(path);
 						return {
 							openFiles: newOpenFiles,
 							activeFile: state.activeFile === path ? newOpenFiles.at(-1) : state.activeFile,
 							unsavedChanges: newUnsavedChanges,
 							fileScrollPositions: newFileScrollPositions,
+							fileCursorPositions: newFileCursorPositions,
 						};
 					}),
 
@@ -418,6 +427,7 @@ export const useStore = create<StoreState>()(
 						activeFile: undefined,
 						unsavedChanges: new Map(),
 						fileScrollPositions: new Map(),
+						fileCursorPositions: new Map(),
 					}),
 
 				setFileScrollPosition: (path, scrollTop) =>
@@ -428,6 +438,13 @@ export const useStore = create<StoreState>()(
 					}),
 
 				restoreFileScrollPositions: (positions) => set({ fileScrollPositions: positions }),
+
+				setFileCursorPosition: (path, position) =>
+					set((state) => {
+						const newMap = new Map(state.fileCursorPositions);
+						newMap.set(path, position);
+						return { fileCursorPositions: newMap };
+					}),
 
 				// =============================================================================
 				// File Tree State & Actions

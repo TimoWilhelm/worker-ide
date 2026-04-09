@@ -2,20 +2,17 @@
  * Desktop IDE layout — fully resizable panel layout with sidebar, editor, preview, and AI.
  */
 
-import { ChevronUp } from 'lucide-react';
-import { lazy, Suspense, useCallback } from 'react';
+import { lazy, Suspense, useCallback, useMemo } from 'react';
 import { Group as PanelGroup, Panel, Separator as ResizeHandle } from 'react-resizable-panels';
 
 import { ActivityBar } from '@/components/activity-bar';
 import { ErrorBoundary } from '@/components/error-boundary';
-import { Pill } from '@/components/ui/pill';
 import { PanelSkeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
 import { DependencyPanel, FileTree, type useFileTree } from '@/features/file-tree';
 import { GitPanel } from '@/features/git';
 import { TestsPanel } from '@/features/tests';
 import { useStore } from '@/lib/store';
-import { cn } from '@/lib/utils';
 
 import { EditorArea } from './editor-area';
 import { IDEStatusBar } from './ide-status-bar';
@@ -100,7 +97,7 @@ export function DesktopLayout({
 		createFolder,
 	} = fileTree;
 
-	const { activeFile, participants, cursorPosition, isSaving, gitStatusMap } = editorState;
+	const { participants, cursorPosition, isSaving, gitStatusMap } = editorState;
 
 	const {
 		aiPanelVisible,
@@ -133,6 +130,16 @@ export function DesktopLayout({
 			renameFile({ fromPath, toPath });
 		},
 		[renameFile],
+	);
+
+	const utilityHeaderRight = useMemo(
+		() =>
+			cursorPosition ? (
+				<span className="shrink-0 text-xs text-text-secondary">
+					Ln {cursorPosition.line}, Col {cursorPosition.column}
+				</span>
+			) : undefined,
+		[cursorPosition],
 	);
 
 	const handleCreateFolder = useCallback(
@@ -281,20 +288,7 @@ export function DesktopLayout({
 												projectId={projectId}
 												onToggle={toggleUtilityPanel}
 												logCounts={logCounts}
-												headerRight={
-													<div
-														className="
-															flex min-w-0 items-center gap-3 text-xs text-text-secondary
-														"
-													>
-														{activeFile && <span className="truncate">{activeFile}</span>}
-														{cursorPosition && (
-															<span className="shrink-0">
-																Ln {cursorPosition.line}, Col {cursorPosition.column}
-															</span>
-														)}
-													</div>
-												}
+												headerRight={utilityHeaderRight}
 												className="h-full"
 											/>
 										</Suspense>
@@ -303,37 +297,18 @@ export function DesktopLayout({
 							)}
 						</PanelGroup>
 
-						{/* Utility panel toggle bar when panel is hidden */}
+						{/* Collapsed utility panel header */}
 						{!utilityPanelVisible && (
-							<button
-								type="button"
-								onClick={toggleUtilityPanel}
-								className={cn(
-									'flex h-7 w-full shrink-0 cursor-pointer items-center',
-									'border-t border-border bg-bg-secondary px-2 transition-colors',
-									'hover:bg-bg-tertiary',
-								)}
-								aria-label="Show output"
-							>
-								<div className="flex shrink-0 items-center gap-2">
-									<ChevronUp className="size-3 text-text-secondary" />
-									<span className="text-xs font-medium text-text-secondary">Output</span>
-									{logCounts.errors > 0 && <Pill color="red">{logCounts.errors}</Pill>}
-									{logCounts.warnings > 0 && <Pill color="yellow">{logCounts.warnings}</Pill>}
-								</div>
-								<div
-									className="
-										ml-auto flex min-w-0 items-center gap-3 text-xs text-text-secondary
-									"
-								>
-									{activeFile && <span className="truncate">{activeFile}</span>}
-									{cursorPosition && (
-										<span className="shrink-0">
-											Ln {cursorPosition.line}, Col {cursorPosition.column}
-										</span>
-									)}
-								</div>
-							</button>
+							<Suspense fallback={undefined}>
+								<UtilityPanel
+									projectId={projectId}
+									onToggle={toggleUtilityPanel}
+									collapsed
+									logCounts={logCounts}
+									headerRight={utilityHeaderRight}
+									className="shrink-0 border-t border-border"
+								/>
+							</Suspense>
 						)}
 					</div>
 				</Panel>

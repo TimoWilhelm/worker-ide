@@ -23,6 +23,7 @@ export function useEditorState({ projectId }: { projectId: string }) {
 		markFileChanged,
 		setCursorPosition,
 		setFileScrollPosition,
+		setFileCursorPosition,
 		goToFilePosition,
 		clearPendingGoTo,
 		pendingGoTo,
@@ -38,6 +39,7 @@ export function useEditorState({ projectId }: { projectId: string }) {
 			markFileChanged: state.markFileChanged,
 			setCursorPosition: state.setCursorPosition,
 			setFileScrollPosition: state.setFileScrollPosition,
+			setFileCursorPosition: state.setFileCursorPosition,
 			goToFilePosition: state.goToFilePosition,
 			clearPendingGoTo: state.clearPendingGoTo,
 			pendingGoTo: state.pendingGoTo,
@@ -199,6 +201,23 @@ export function useEditorState({ projectId }: { projectId: string }) {
 			editorViewReference.current = view;
 
 			if (view && activeFile) {
+				// Restore saved cursor position for this file (if no pending goTo).
+				// Clamp to the document length so stale positions from edited files
+				// don't throw.
+				const pending = useStore.getState().pendingGoTo;
+				if (!pending) {
+					const savedCursor = useStore.getState().fileCursorPositions.get(activeFile);
+					if (savedCursor) {
+						const maxLine = view.state.doc.lines;
+						const clampedLine = Math.min(savedCursor.line, maxLine);
+						const lineObject = view.state.doc.line(clampedLine);
+						const maxColumn = lineObject.length + 1;
+						const clampedColumn = Math.min(savedCursor.column, maxColumn);
+						const offset = lineObject.from + clampedColumn - 1;
+						view.dispatch({ selection: { anchor: offset } });
+					}
+				}
+
 				// Restore saved scroll position for this file.
 				// Read from the store directly to avoid a stale closure.
 				// Clamp to the actual scrollable range so shortened files don't
@@ -274,16 +293,19 @@ export function useEditorState({ projectId }: { projectId: string }) {
 	// Also save current scroll position before switching to the new file
 	const selectFileFromTree = useCallback(
 		(path: string) => {
-			// Save scroll position for the file we are leaving
+			// Save scroll and cursor position for the file we are leaving
 			if (activeFile && editorViewReference.current) {
 				setFileScrollPosition(activeFile, editorViewReference.current.scrollDOM.scrollTop);
+			}
+			if (activeFile && cursorPosition) {
+				setFileCursorPosition(activeFile, cursorPosition);
 			}
 			void handleSaveReference.current();
 			if (gitDiffView && gitDiffView.path !== path) {
 				clearGitDiff();
 			}
 		},
-		[activeFile, gitDiffView, clearGitDiff, setFileScrollPosition],
+		[activeFile, cursorPosition, gitDiffView, clearGitDiff, setFileScrollPosition, setFileCursorPosition],
 	);
 
 	// Wrap closeFile: autosave current file before closing + clear git diff if closing diffed file
@@ -302,7 +324,11 @@ export function useEditorState({ projectId }: { projectId: string }) {
 	const cursorUpdateTimeoutReference = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 	const handleCursorChange = useCallback(
 		(position: { line: number; column: number; anchorLine: number; anchorColumn: number }) => {
-			setCursorPosition({ line: position.line, column: position.column });
+			const cursorValue = { line: position.line, column: position.column };
+			setCursorPosition(cursorValue);
+			if (activeFile) {
+				setFileCursorPosition(activeFile, cursorValue);
+			}
 
 			// Debounce WebSocket cursor update
 			clearTimeout(cursorUpdateTimeoutReference.current);
@@ -323,7 +349,7 @@ export function useEditorState({ projectId }: { projectId: string }) {
 				});
 			}, 100);
 		},
-		[setCursorPosition, activeFile],
+		[setCursorPosition, setFileCursorPosition, activeFile],
 	);
 
 	return {
