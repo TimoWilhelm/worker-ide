@@ -35,7 +35,7 @@ const MODE_CONFIG: Record<AgentMode, ModeConfig> = {
 	},
 	plan: {
 		label: 'Plan',
-		description: 'Research and create a plan',
+		description: 'Research and design',
 		icon: MapIcon,
 		colorClass: 'text-amber-600 dark:text-amber-400',
 		pillColor: 'amber',

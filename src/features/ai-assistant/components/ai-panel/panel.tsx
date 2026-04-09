@@ -1262,7 +1262,20 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 					if (!open) setPendingDeleteSession(undefined);
 				}}
 				title="Delete session"
-				description={`Are you sure you want to delete "${pendingDeleteSession?.title ?? 'this session'}"? This action cannot be undone.`}
+				description={
+					<div className="space-y-4">
+						<p className="text-sm font-medium">Are you sure you want to delete this session?</p>
+						<p
+							className="
+								truncate rounded-sm border border-border bg-bg-tertiary px-2 py-1
+								text-sm font-medium text-text-primary
+							"
+						>
+							{pendingDeleteSession?.title}
+						</p>
+						<p className="text-xs text-text-secondary">This action cannot be undone. Your code changes will be preserved.</p>
+					</div>
+				}
 				confirmLabel="Delete"
 				variant="danger"
 				onConfirm={() => {
