@@ -11,12 +11,20 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { toast } from '@/components/ui/toast-store';
+
 const pcmProcessorUrl = new URL('../lib/pcm-processor.js', import.meta.url).href;
 
 type MicrophonePermission = 'default' | 'granted' | 'denied' | 'unsupported';
 
 /** Delay (ms) after the last final transcript before auto-stopping. */
 const AUTO_STOP_SILENCE_MS = 1500;
+
+/** Number of amplitude samples to keep (matches BAR_COUNT in AudioWaveform). */
+const AMPLITUDE_BUFFER_SIZE = 32;
+
+/** How often (ms) to push a new amplitude bar. Controls waveform scroll speed. */
+const AMPLITUDE_INTERVAL_MS = 100;
 
 interface SpeechToTextResult {
 	/** Microphone permission state */
@@ -27,8 +35,8 @@ interface SpeechToTextResult {
 	interimTranscript: string;
 	/** Accumulated final transcript from completed utterances */
 	finalTranscript: string;
-	/** Error message if something went wrong */
-	error: string | undefined;
+	/** Rolling buffer of peak amplitude values (0–1) for waveform display */
+	amplitudes: number[];
 	/** Start recording */
 	start: () => Promise<void>;
 	/** Stop recording and return accumulated final transcript */
@@ -55,7 +63,7 @@ export function useSpeechToText({
 	const [isRecording, setIsRecording] = useState(false);
 	const [interimTranscript, setInterimTranscript] = useState('');
 	const [finalTranscript, setFinalTranscript] = useState('');
-	const [error, setError] = useState<string | undefined>();
+	const [amplitudes, setAmplitudes] = useState<number[]>([]);
 
 	const webSocketReference = useRef<WebSocket | undefined>(undefined);
 	const audioContextReference = useRef<AudioContext | undefined>(undefined);
@@ -64,6 +72,9 @@ export function useSpeechToText({
 	const sourceNodeReference = useRef<MediaStreamAudioSourceNode | undefined>(undefined);
 	const finalTranscriptReference = useRef('');
 	const silenceTimerReference = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+	const audioBufferReference = useRef<ArrayBuffer[]>([]);
+	const amplitudePeakReference = useRef(0);
+	const amplitudeTimerReference = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
 	const onAutoStopReference = useRef(onAutoStop);
 
 	useEffect(() => {
@@ -109,6 +120,11 @@ export function useSpeechToText({
 			silenceTimerReference.current = undefined;
 		}
 
+		if (amplitudeTimerReference.current !== undefined) {
+			clearInterval(amplitudeTimerReference.current);
+			amplitudeTimerReference.current = undefined;
+		}
+
 		const webSocket = webSocketReference.current;
 		if (webSocket && (webSocket.readyState === WebSocket.OPEN || webSocket.readyState === WebSocket.CONNECTING)) {
 			webSocket.close(1000, 'Recording stopped');
@@ -143,10 +159,15 @@ export function useSpeechToText({
 	}, []);
 
 	const start = useCallback(async () => {
-		setError(undefined);
 		setInterimTranscript('');
 		setFinalTranscript('');
+		setAmplitudes([]);
 		finalTranscriptReference.current = '';
+		audioBufferReference.current = [];
+		amplitudePeakReference.current = 0;
+
+		// Optimistically show recording UI immediately
+		setIsRecording(true);
 
 		try {
 			// Request microphone access
@@ -172,6 +193,38 @@ export function useSpeechToText({
 			const workletNode = new AudioWorkletNode(audioContext, 'pcm-processor');
 			workletNodeReference.current = workletNode;
 
+			// Start capturing audio immediately — buffer while WS connects
+			source.connect(workletNode);
+			workletNode.connect(audioContext.destination);
+
+			workletNode.port.addEventListener('message', (event: MessageEvent<{ pcm: ArrayBuffer; peak: number }>) => {
+				const { pcm, peak } = event.data;
+
+				// Track running peak — flushed to state on a slower timer
+				if (peak > amplitudePeakReference.current) {
+					amplitudePeakReference.current = peak;
+				}
+
+				const webSocket = webSocketReference.current;
+				if (webSocket?.readyState === WebSocket.OPEN) {
+					webSocket.send(pcm);
+				} else {
+					// Buffer audio while WebSocket is still connecting
+					audioBufferReference.current.push(pcm);
+				}
+			});
+			workletNode.port.start();
+
+			// Push one amplitude bar every AMPLITUDE_INTERVAL_MS
+			amplitudeTimerReference.current = setInterval(() => {
+				const peak = amplitudePeakReference.current;
+				amplitudePeakReference.current = 0;
+				setAmplitudes((previous) => {
+					const next = [...previous, peak];
+					return next.length > AMPLITUDE_BUFFER_SIZE ? next.slice(-AMPLITUDE_BUFFER_SIZE) : next;
+				});
+			}, AMPLITUDE_INTERVAL_MS);
+
 			// Open WebSocket to backend STT route
 			const protocol = globalThis.location.protocol === 'https:' ? 'wss:' : 'ws:';
 			const wsUrl = `${protocol}//${globalThis.location.host}/p/${projectId}/api/stt/ws`;
@@ -180,18 +233,30 @@ export function useSpeechToText({
 			webSocketReference.current = webSocket;
 
 			webSocket.addEventListener('open', () => {
-				source.connect(workletNode);
-				workletNode.connect(audioContext.destination);
-
-				workletNode.port.addEventListener('message', (event: MessageEvent<ArrayBuffer>) => {
-					if (webSocket.readyState === WebSocket.OPEN) {
-						webSocket.send(event.data);
-					}
-				});
-				workletNode.port.start();
-
-				setIsRecording(true);
+				// Flush buffered audio chunks
+				for (const chunk of audioBufferReference.current) {
+					webSocket.send(chunk);
+				}
+				audioBufferReference.current = [];
 			});
+
+			// Helper: trigger auto-stop if we have accumulated transcript
+			const triggerAutoStop = () => {
+				const accumulated = finalTranscriptReference.current;
+				if (accumulated) {
+					cleanup();
+					onAutoStopReference.current?.(accumulated);
+					setIsRecording(false);
+				}
+			};
+
+			// Helper: (re)start the conservative client-side silence fallback
+			const resetSilenceTimer = () => {
+				if (silenceTimerReference.current !== undefined) {
+					clearTimeout(silenceTimerReference.current);
+				}
+				silenceTimerReference.current = setTimeout(triggerAutoStop, AUTO_STOP_SILENCE_MS);
+			};
 
 			webSocket.addEventListener('message', (event: MessageEvent) => {
 				try {
@@ -199,10 +264,19 @@ export function useSpeechToText({
 					if (!data || typeof data !== 'object') return;
 					// eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- parsing external Deepgram JSON
 					const message = data as {
+						type?: string;
 						is_final?: boolean;
 						speech_final?: boolean;
 						channel?: { alternatives?: Array<{ transcript?: string }> };
 					};
+
+					// Deepgram UtteranceEnd — the model is confident the
+					// speaker has finished. Auto-stop immediately.
+					if (message.type === 'UtteranceEnd') {
+						triggerAutoStop();
+						return;
+					}
+
 					const transcript = message.channel?.alternatives?.[0]?.transcript ?? '';
 
 					if (message.is_final && transcript) {
@@ -213,35 +287,27 @@ export function useSpeechToText({
 						});
 						setInterimTranscript('');
 
-						// Reset silence timer — speaker is still active.
-						// When no new final transcript arrives within the
-						// threshold, auto-stop recording and invoke onAutoStop.
-						if (silenceTimerReference.current !== undefined) {
-							clearTimeout(silenceTimerReference.current);
-						}
-						silenceTimerReference.current = setTimeout(() => {
-							const accumulated = finalTranscriptReference.current;
-							if (accumulated) {
-								cleanup();
-								onAutoStopReference.current?.(accumulated);
-								setIsRecording(false);
+						// speech_final means the model detected end-of-utterance.
+						// Auto-stop immediately instead of waiting for the
+						// client-side silence timeout.
+						if (message.speech_final) {
+							// Clear any pending timer and stop right away
+							if (silenceTimerReference.current !== undefined) {
+								clearTimeout(silenceTimerReference.current);
+								silenceTimerReference.current = undefined;
 							}
-						}, AUTO_STOP_SILENCE_MS);
+							triggerAutoStop();
+						} else {
+							// More speech expected — reset the fallback timer
+							resetSilenceTimer();
+						}
 					} else if (transcript) {
 						setInterimTranscript(transcript);
 
-						// Interim speech resets the silence timer — restart it so
-						// auto-stop still fires if no further final transcripts arrive.
+						// Interim speech resets the silence timer so the
+						// fallback still fires if no further finals arrive.
 						if (silenceTimerReference.current !== undefined) {
-							clearTimeout(silenceTimerReference.current);
-							silenceTimerReference.current = setTimeout(() => {
-								const accumulated = finalTranscriptReference.current;
-								if (accumulated) {
-									cleanup();
-									onAutoStopReference.current?.(accumulated);
-									setIsRecording(false);
-								}
-							}, AUTO_STOP_SILENCE_MS);
+							resetSilenceTimer();
 						}
 					}
 				} catch {
@@ -250,7 +316,7 @@ export function useSpeechToText({
 			});
 
 			webSocket.addEventListener('error', () => {
-				setError('Connection to transcription service failed');
+				toast.error('Connection to transcription service failed');
 				setIsRecording(false);
 				cleanup();
 			});
@@ -262,10 +328,11 @@ export function useSpeechToText({
 			const message = caughtError instanceof Error ? caughtError.message : 'Failed to start recording';
 			if (message.includes('Permission') || message.includes('NotAllowed')) {
 				setMicrophonePermission('denied');
-				setError('Microphone permission denied');
+				toast.error('Microphone permission denied');
 			} else {
-				setError(message);
+				toast.error(message);
 			}
+			setIsRecording(false);
 			cleanup();
 		}
 	}, [projectId, cleanup]);
@@ -273,6 +340,8 @@ export function useSpeechToText({
 	const stop = useCallback((): string => {
 		setIsRecording(false);
 		setInterimTranscript('');
+		setAmplitudes([]);
+		audioBufferReference.current = [];
 		cleanup();
 		return finalTranscriptReference.current;
 	}, [cleanup]);
@@ -289,7 +358,7 @@ export function useSpeechToText({
 		isRecording,
 		interimTranscript,
 		finalTranscript,
-		error,
+		amplitudes,
 		start,
 		stop,
 	};

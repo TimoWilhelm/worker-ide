@@ -56,6 +56,13 @@ export const sttRoutes = new Hono<AppEnvironment>().get('/stt/ws', async (c) => 
 		interim_results: 'true',
 		punctuate: 'true',
 		smart_format: 'true',
+		// Enable endpoint detection — the model will send `speech_final: true`
+		// when it detects the speaker has finished an utterance. The value is
+		// the silence duration (ms) that triggers the endpoint.
+		endpointing: '300',
+		// Send an explicit UtteranceEnd message after this silence duration
+		// following the last word, as a secondary signal.
+		utterance_end_ms: '1000',
 	});
 
 	// The AI binding returns a 101 with a webSocket on the response.

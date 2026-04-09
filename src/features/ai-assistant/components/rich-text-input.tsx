@@ -10,7 +10,8 @@
  * the browser treats them as atomic inline units.
  */
 
-import { useCallback, useEffect, useImperativeHandle, useRef } from 'react';
+import { useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 
 import { cn } from '@/lib/utils';
 
@@ -205,6 +206,7 @@ export function RichTextInput({
 	onCursorChange,
 	placeholder,
 	disabled,
+	inlineSuffix,
 	className,
 }: {
 	ref?: React.Ref<RichTextInputHandle>;
@@ -214,12 +216,25 @@ export function RichTextInput({
 	onCursorChange?: (offset: number) => void;
 	placeholder?: string;
 	disabled?: boolean;
+	/** React node rendered inline at the end of the text content (e.g. loading dots). */
+	inlineSuffix?: React.ReactNode;
 	className?: string;
 }) {
 	const containerReference = useRef<HTMLDivElement>(null);
 	const isComposingReference = useRef(false);
 	const suppressInputReference = useRef(false);
 	const lastRenderedSegmentsReference = useRef<InputSegment[]>([]);
+
+	// Persistent DOM node used as a portal target for inlineSuffix.
+	// Created once via lazy useState initializer and re-appended after
+	// each renderSegments call (since textContent='' removes it from the tree).
+	const [suffixAnchor] = useState(() => {
+		const span = document.createElement('span');
+		span.contentEditable = 'false';
+		span.style.userSelect = 'none';
+		span.className = 'inline-flex items-end align-baseline';
+		return span;
+	});
 
 	// Stable refs for callbacks used in insertMention
 	const onSegmentsChangeReference = useRef(onSegmentsChange);
@@ -270,8 +285,15 @@ export function RichTextInput({
 			}
 		}
 
+		// Append inline suffix anchor at the end of content
+		if (inlineSuffix) {
+			container.append(suffixAnchor);
+			// Auto-scroll to keep the latest content visible
+			container.scrollTop = container.scrollHeight;
+		}
+
 		suppressInputReference.current = false;
-	}, [segments]);
+	}, [segments, inlineSuffix, suffixAnchor]);
 
 	// Expose imperative handle
 	useImperativeHandle(ref, () => ({
@@ -457,6 +479,7 @@ export function RichTextInput({
 					className,
 				)}
 			/>
+			{inlineSuffix && createPortal(inlineSuffix, suffixAnchor)}
 		</div>
 	);
 }

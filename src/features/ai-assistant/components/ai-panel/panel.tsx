@@ -60,6 +60,8 @@ import { useSpeechToText } from '../../hooks/use-speech-to-text';
 import { parseTextToSegments, segmentsHaveContent, segmentsToPlainText, type InputSegment } from '../../lib/input-segments';
 import { extractMessageText } from '../../lib/retry-helpers';
 import { AgentModeSelector } from '../agent-mode-selector';
+import { AudioWaveform } from '../audio-waveform';
+import { BouncingDots } from '../bouncing-dots';
 import { ChangedFilesSummary } from '../changed-files-summary';
 import { FileMentionDropdown } from '../file-mention-dropdown';
 import { RevertConfirmDialog } from '../revert-confirm-dialog';
@@ -296,21 +298,40 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	// Change review hook for accept/reject UI
 	const changeReview = useChangeReview({ projectId });
 
-	// Insert a transcript string into the text input
-	const fillInputWithTranscript = useCallback(
+	// Segments captured at the moment recording starts, so we can
+	// prepend them to the voice transcript on stop.
+	const [preRecordingSegments, setPreRecordingSegments] = useState<InputSegment[]>([]);
+
+	// Append a transcript string to whatever the user already typed
+	const appendTranscriptToInput = useCallback(
 		(transcript: string) => {
-			if (!transcript) return;
+			if (!transcript) {
+				// No transcript — restore pre-recording segments unchanged
+				setSegments(preRecordingSegments);
+				return;
+			}
 			const knownPaths = new Set(files.map((file) => file.path));
-			setSegments(parseTextToSegments(transcript, knownPaths));
+			const transcriptSegments = parseTextToSegments(transcript, knownPaths);
+			const existingText = segmentsToPlainText(preRecordingSegments);
+
+			// Add a space separator if the existing text doesn't end with whitespace
+			const needsSpace = existingText.length > 0 && !/\s$/.test(existingText);
+			const merged: InputSegment[] = [
+				...preRecordingSegments,
+				...(needsSpace ? [{ type: 'text' as const, value: ' ' }] : []),
+				...transcriptSegments,
+			];
+			setSegments(merged);
 			requestAnimationFrame(() => {
 				inputReference.current?.focus();
+				inputReference.current?.moveCursorToEnd();
 			});
 		},
-		[files],
+		[files, preRecordingSegments],
 	);
 
 	// Speech-to-text hook for voice input
-	const speechToText = useSpeechToText({ projectId, onAutoStop: fillInputWithTranscript });
+	const speechToText = useSpeechToText({ projectId, onAutoStop: appendTranscriptToInput });
 
 	// Move cursor to end of input as transcript grows during recording
 	useEffect(() => {
@@ -321,18 +342,11 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		}
 	}, [speechToText.isRecording, speechToText.finalTranscript, speechToText.interimTranscript]);
 
-	// Surface STT errors as toasts
-	useEffect(() => {
-		if (speechToText.error) {
-			toast.error(speechToText.error);
-		}
-	}, [speechToText.error]);
-
 	// Handle manually stopping STT and inserting the transcript into the input
 	const handleStopRecording = useCallback(() => {
 		const transcript = speechToText.stop();
-		fillInputWithTranscript(transcript);
-	}, [speechToText, fillInputWithTranscript]);
+		appendTranscriptToInput(transcript);
+	}, [speechToText, appendTranscriptToInput]);
 
 	// Start a new session. Pending changes are NOT cleared — they persist
 	// across sessions at the project level.
@@ -949,8 +963,14 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 						segments={
 							speechToText.isRecording
 								? (() => {
-										const combined = [speechToText.finalTranscript, speechToText.interimTranscript].filter(Boolean).join(' ');
-										return combined ? [{ type: 'text' as const, value: combined }] : [];
+										const voiceText = [speechToText.finalTranscript, speechToText.interimTranscript].filter(Boolean).join(' ');
+										const existingText = segmentsToPlainText(preRecordingSegments);
+										const needsSpace = existingText.length > 0 && voiceText.length > 0 && !/\s$/.test(existingText);
+										return [
+											...preRecordingSegments,
+											...(needsSpace ? [{ type: 'text' as const, value: ' ' }] : []),
+											...(voiceText ? [{ type: 'text' as const, value: voiceText }] : []),
+										];
 									})()
 								: segments
 						}
@@ -958,6 +978,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 						onKeyDown={handleKeyDown}
 						onCursorChange={setCursorPosition}
 						disabled={speechToText.isRecording}
+						inlineSuffix={speechToText.isRecording ? <BouncingDots className="ml-1 text-text-secondary" /> : undefined}
 						placeholder={
 							isProcessing
 								? 'Type your next message...'
@@ -984,10 +1005,12 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 						)}
 					</Collapsible>
 					{speechToText.isRecording ? (
-						<div className="flex items-center gap-x-2 px-1.5 py-1">
+						<div className="flex items-center gap-x-1.5 px-1.5 py-1">
 							{/* Pulsing red dot */}
 							<span className="size-2 shrink-0 animate-pulse rounded-full bg-error" />
-							<span className="min-w-0 flex-1 truncate text-xs text-text-secondary">Recording…</span>
+							{/* Rolling waveform visualization */}
+							<AudioWaveform amplitudes={speechToText.amplitudes} />
+							<div className="flex-1" />
 							<button
 								onClick={handleStopRecording}
 								className={cn(
@@ -997,13 +1020,14 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 								)}
 								aria-label="Stop recording"
 							>
-								<Square className="size-3" />
+								<Square className="size-3.5" />
 							</button>
 						</div>
 					) : (
 						<div
 							className="
-								flex flex-wrap-reverse items-center gap-x-1.5 gap-y-0.5 px-1.5 py-1
+								@container flex flex-wrap-reverse items-center gap-x-1.5 gap-y-0.5
+								px-1.5 py-1
 							"
 						>
 							<AgentModeSelector mode={agentMode} onModeChange={setAgentMode} disabled={isProcessing || !isConnected} />
@@ -1029,6 +1053,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 													toast.info('Allow microphone access for this site in your browser settings, then try again.');
 													return;
 												}
+												setPreRecordingSegments(segments);
 												void speechToText.start();
 											}}
 											disabled={!isConnected}

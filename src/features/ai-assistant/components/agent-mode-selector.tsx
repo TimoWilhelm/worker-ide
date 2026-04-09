@@ -74,7 +74,10 @@ export function AgentModeSelector({ mode, onModeChange, disabled }: AgentModeSel
 					className={cn('max-w-full min-w-0 cursor-pointer overflow-hidden transition-colors', disabled && 'cursor-not-allowed opacity-40')}
 				>
 					<Icon className="size-3 shrink-0" />
-					<span className="truncate">{config.label}</span>
+					<span className="
+						hidden truncate
+						@xs:inline
+					">{config.label}</span>
 				</Pill>
 			</DropdownMenuTrigger>
 			<DropdownMenuContent align="start" className="w-56">
