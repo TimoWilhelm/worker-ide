@@ -11,7 +11,7 @@ import { source as chobitsuSource, hash as chobitsuHash } from 'chobitsu?raw-min
 import { env, exports } from 'cloudflare:workers';
 import stripJsonComments from 'strip-json-comments';
 
-import { HIDDEN_ENTRIES, WORKERS_COMPATIBILITY_DATE } from '@shared/constants';
+import { HIDDEN_ENTRIES, STORAGE_BINDING_NAME, WORKERS_COMPATIBILITY_DATE } from '@shared/constants';
 import { resolveAssetSettings } from '@shared/types';
 
 import { bundleFiles } from './bundle-service';
@@ -26,6 +26,8 @@ import {
 	source as reactRefreshPreambleSource,
 	hash as reactRefreshPreambleHash,
 } from '../lib/preview-scripts/react-refresh-preamble.js?raw-minified';
+import { readBindingsConfig } from '../lib/protected-files';
+import { resolveStorageQuotaForProject } from '../lib/storage-quota';
 
 import type { ResolvedAssetSettings, ServerError } from '@shared/types';
 import type { ServerMessage } from '@shared/ws-messages';
@@ -343,9 +345,21 @@ export class PreviewService {
 
 			const workerFiles = Object.entries(files).toSorted(([a], [b]) => a.localeCompare(b));
 			const knownDependencies = await this.loadKnownDependencies();
-			const contentHash = await this.hashContent(JSON.stringify(workerFiles) + JSON.stringify([...knownDependencies.entries()]));
 
 			const logTailer = exports.LogTailer({ props: { projectId: this.projectId } });
+
+			// Build custom env bindings for the dynamic worker
+			const bindingsConfig = await readBindingsConfig(this.projectRoot);
+			const workerEnvironment: Record<string, unknown> = {};
+			if (bindingsConfig.storage) {
+				const quotaBytes = await resolveStorageQuotaForProject(this.projectId, env.DB);
+				workerEnvironment[STORAGE_BINDING_NAME] = exports.ObjectStorageBinding({ props: { projectId: this.projectId, quotaBytes } });
+			}
+			const hasCustomBindings = Object.keys(workerEnvironment).length > 0;
+
+			const contentHash = await this.hashContent(
+				JSON.stringify(workerFiles) + JSON.stringify([...knownDependencies.entries()]) + JSON.stringify(bindingsConfig),
+			);
 
 			const worker = env.LOADER.get(`worker:${contentHash}`, async () => {
 				const tsconfigRaw = await this.loadTsconfigRaw();
@@ -363,6 +377,7 @@ export class PreviewService {
 					mainModule: 'worker.js',
 					modules: { 'worker.js': bundled.code },
 					tails: [logTailer],
+					...(hasCustomBindings ? { env: workerEnvironment } : {}),
 				};
 			});
 

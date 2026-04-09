@@ -16,13 +16,16 @@ import { coordinatorNamespace } from '../lib/durable-object-namespaces';
 import { httpError } from '../lib/http-error';
 import {
 	readAssetSettings,
+	readBindingsConfig,
 	readDependencies,
 	readProjectName,
 	regenerateProtectedFiles,
 	writeAssetSettings,
+	writeBindingsConfig,
 	writeDependencies,
 	writeProjectName,
 } from '../lib/protected-files';
+import { resolveStorageQuotaForProject } from '../lib/storage-quota';
 import { createZip } from '../lib/zip';
 
 import type { AppEnvironment } from '../types';
@@ -31,12 +34,13 @@ import type { AppEnvironment } from '../types';
  * Project routes - all routes are prefixed with /api
  */
 export const projectRoutes = new Hono<AppEnvironment>()
-	// GET /api/project/meta - Get project metadata (name + asset settings from actual files)
+	// GET /api/project/meta - Get project metadata (name + asset settings + bindings config from actual files)
 	.get('/project/meta', async (c) => {
 		const projectRoot = c.get('projectRoot');
 		const name = await readProjectName(projectRoot);
 		const assetSettings = await readAssetSettings(projectRoot);
-		return c.json({ name, humanId: name, assetSettings });
+		const bindingsConfig = await readBindingsConfig(projectRoot);
+		return c.json({ name, humanId: name, assetSettings, bindingsConfig });
 	})
 
 	// PUT /api/project/meta - Update project name and/or asset settings
@@ -58,13 +62,18 @@ export const projectRoutes = new Hono<AppEnvironment>()
 			await writeAssetSettings(projectRoot, parsed.data.assetSettings);
 		}
 
+		// Update bindings config in wrangler.jsonc if provided
+		if (parsed.data.bindingsConfig !== undefined) {
+			await writeBindingsConfig(projectRoot, parsed.data.bindingsConfig);
+		}
+
 		// Regenerate all protected files to keep them in sync
-		if (parsed.data.name || parsed.data.assetSettings !== undefined) {
+		if (parsed.data.name || parsed.data.assetSettings !== undefined || parsed.data.bindingsConfig !== undefined) {
 			await regenerateProtectedFiles(projectRoot);
 		}
 
-		// Trigger full reload when asset settings change so the preview rebundles
-		if (parsed.data.assetSettings !== undefined) {
+		// Trigger full reload when asset settings or bindings change so the preview rebundles
+		if (parsed.data.assetSettings !== undefined || parsed.data.bindingsConfig !== undefined) {
 			const projectId = c.get('projectId');
 			const coordinatorStub = coordinatorNamespace.getByName(`project:${projectId}`);
 			await coordinatorStub.triggerUpdate({
@@ -77,7 +86,8 @@ export const projectRoutes = new Hono<AppEnvironment>()
 
 		const name = await readProjectName(projectRoot);
 		const assetSettings = await readAssetSettings(projectRoot);
-		return c.json({ name, humanId: name, assetSettings });
+		const bindingsConfig = await readBindingsConfig(projectRoot);
+		return c.json({ name, humanId: name, assetSettings, bindingsConfig });
 	})
 
 	// GET /api/dependencies - Read dependencies from package.json
@@ -140,6 +150,23 @@ export const projectRoutes = new Hono<AppEnvironment>()
 		return c.json({ visibility: body.visibility });
 	})
 
+	// GET /api/project/storage - Get storage usage and quota
+	.get('/project/storage', async (c) => {
+		const projectId = c.get('projectId');
+		const bindingsConfig = await readBindingsConfig(c.get('projectRoot'));
+
+		if (!bindingsConfig.storage) {
+			return c.json({ usageBytes: 0, quotaBytes: 0, enabled: false });
+		}
+
+		const quotaBytes = await resolveStorageQuotaForProject(projectId, c.env.DB);
+		const { projectMetadataNamespace } = await import('../lib/durable-object-namespaces');
+		const metadataStub = projectMetadataNamespace.getByName(`project:${projectId}`);
+		const usageBytes = await metadataStub.getStorageUsageBytes();
+
+		return c.json({ usageBytes, quotaBytes, enabled: true });
+	})
+
 	// GET /api/download - Download project as deployable zip
 	.get('/download', async (c) => {
 		const projectRoot = c.get('projectRoot');
@@ -147,6 +174,25 @@ export const projectRoutes = new Hono<AppEnvironment>()
 		delete projectFiles['.initialized'];
 
 		const projectName = await readProjectName(projectRoot);
+
+		// Transform wrangler.jsonc for export: strip IDE-specific `bindings` field,
+		// add real `r2_buckets` config if storage binding is enabled
+		if (projectFiles['wrangler.jsonc']) {
+			try {
+				const { default: stripJsonComments } = await import('strip-json-comments');
+				const wranglerConfig = JSON.parse(stripJsonComments(projectFiles['wrangler.jsonc']));
+				const bindingsConfig = wranglerConfig.bindings;
+				delete wranglerConfig.bindings;
+
+				if (bindingsConfig?.storage) {
+					wranglerConfig.r2_buckets = [{ binding: 'STORAGE', bucket_name: 'my-bucket' }];
+				}
+
+				projectFiles['wrangler.jsonc'] = JSON.stringify(wranglerConfig, undefined, '\t');
+			} catch {
+				// If parsing fails, export the file as-is
+			}
+		}
 
 		const zip = createZip(projectFiles);
 		return new Response(zip, {

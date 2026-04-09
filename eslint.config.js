@@ -30,6 +30,12 @@ export default defineConfig(
 			'auxiliary/git/**',
 			// Auto-generated type declarations for auxiliary workers
 			'auxiliary/*/worker-configuration.d.ts',
+			// Fixture files are user project templates — they use Cloudflare conventions (Env, not Environment)
+			'worker/fixtures/**/worker-env.d.ts',
+			// Static public assets (vendored service worker, etc.)
+			'public',
+			// Generated Playwright reports
+			'playwright-report',
 		],
 	},
 

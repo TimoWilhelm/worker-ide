@@ -89,8 +89,9 @@ async function getPreviewService(projectRoot: string, projectId: string): Promis
 // Re-exports for wrangler
 // =============================================================================
 
-export { AgentRunner, DurableObjectFilesystem, ProjectCoordinatorV2 } from './durable';
+export { AgentRunner, DurableObjectFilesystem, ProjectCoordinatorV2, ProjectMetadata } from './durable';
 export { LogTailer } from './services/log-tailer';
+export { ObjectStorageBinding } from './services/object-storage-binding';
 
 // =============================================================================
 // Constants

@@ -24,6 +24,8 @@ export interface PlanLimits {
 	maxMembers: number;
 	maxPendingInvitations: number;
 	monthlyCredits: number;
+	/** Maximum object storage bytes per project (R2-backed). */
+	storageQuotaBytes: number;
 }
 
 export const PLAN_LIMITS: Record<PlanId, PlanLimits> = {
@@ -32,18 +34,21 @@ export const PLAN_LIMITS: Record<PlanId, PlanLimits> = {
 		maxMembers: 10,
 		maxPendingInvitations: 10,
 		monthlyCredits: 100,
+		storageQuotaBytes: 50 * 1024 * 1024, // 50 MB
 	},
 	[PLAN_PRO]: {
 		maxProjects: 50,
 		maxMembers: 25,
 		maxPendingInvitations: 25,
 		monthlyCredits: 1000,
+		storageQuotaBytes: 500 * 1024 * 1024, // 500 MB
 	},
 	[PLAN_ENTERPRISE]: {
 		maxProjects: 500,
 		maxMembers: 100,
 		maxPendingInvitations: 100,
 		monthlyCredits: 5000,
+		storageQuotaBytes: 5 * 1024 * 1024 * 1024, // 5 GB
 	},
 };
 

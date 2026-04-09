@@ -56,8 +56,16 @@ vi.mock('node:fs/promises', () => ({
 // Import under test (after mock)
 // =============================================================================
 
-const { readDependencies, writeDependencies, readProjectName, readAssetSettings, writeAssetSettings, regenerateProtectedFiles } =
-	await import('./protected-files');
+const {
+	readDependencies,
+	writeDependencies,
+	readProjectName,
+	readAssetSettings,
+	writeAssetSettings,
+	readBindingsConfig,
+	writeBindingsConfig,
+	regenerateProtectedFiles,
+} = await import('./protected-files');
 
 // =============================================================================
 // Tests
@@ -162,7 +170,7 @@ describe('readAssetSettings / writeAssetSettings', () => {
 describe('regenerateProtectedFiles', () => {
 	beforeEach(() => files.clear());
 
-	it('generates all four system files', async () => {
+	it('generates all five system files', async () => {
 		files.set(`${ROOT}/package.json`, JSON.stringify({ name: 'my-app', dependencies: { hono: '^4.0.0', react: '^19.0.0' } }));
 		files.set(`${ROOT}/src/app.tsx`, '');
 		files.set(`${ROOT}/worker/index.ts`, '');
@@ -174,6 +182,7 @@ describe('regenerateProtectedFiles', () => {
 		expect(files.has(`${ROOT}/wrangler.jsonc`)).toBe(true);
 		expect(files.has(`${ROOT}/vite.config.ts`)).toBe(true);
 		expect(files.has(`${ROOT}/vitest.config.ts`)).toBe(true);
+		expect(files.has(`${ROOT}/worker-env.d.ts`)).toBe(true);
 	});
 
 	it('includes project name in package.json and wrangler.jsonc', async () => {
@@ -251,5 +260,73 @@ describe('regenerateProtectedFiles', () => {
 
 		const wrangler = JSON.parse(files.get(`${ROOT}/wrangler.jsonc`)!);
 		expect(wrangler.assets.not_found_handling).toBe('single-page-application');
+	});
+
+	it('generates worker-env.d.ts with STORAGE binding when storage is enabled', async () => {
+		files.set(`${ROOT}/package.json`, JSON.stringify({ name: 'test', dependencies: {} }));
+		files.set(`${ROOT}/wrangler.jsonc`, JSON.stringify({ bindings: { storage: true } }));
+
+		await regenerateProtectedFiles(ROOT);
+
+		const workerEnvironment = files.get(`${ROOT}/worker-env.d.ts`)!;
+		expect(workerEnvironment).toContain('STORAGE: StorageBinding');
+		expect(workerEnvironment).toContain('interface StorageBinding');
+	});
+
+	it('generates worker-env.d.ts without STORAGE binding when storage is disabled', async () => {
+		files.set(`${ROOT}/package.json`, JSON.stringify({ name: 'test', dependencies: {} }));
+
+		await regenerateProtectedFiles(ROOT);
+
+		const workerEnvironment = files.get(`${ROOT}/worker-env.d.ts`)!;
+		expect(workerEnvironment).not.toContain('STORAGE');
+		expect(workerEnvironment).toContain('interface Env');
+	});
+
+	it('preserves bindings config through regeneration', async () => {
+		files.set(`${ROOT}/package.json`, JSON.stringify({ name: 'test', dependencies: {} }));
+		files.set(`${ROOT}/wrangler.jsonc`, JSON.stringify({ bindings: { storage: true } }));
+
+		await regenerateProtectedFiles(ROOT);
+
+		const wrangler = JSON.parse(files.get(`${ROOT}/wrangler.jsonc`)!);
+		expect(wrangler.bindings).toEqual({ storage: true });
+	});
+});
+
+describe('readBindingsConfig / writeBindingsConfig', () => {
+	beforeEach(() => files.clear());
+
+	it('reads bindings config from wrangler.jsonc', async () => {
+		files.set(`${ROOT}/wrangler.jsonc`, JSON.stringify({ bindings: { storage: true } }));
+
+		const result = await readBindingsConfig(ROOT);
+
+		expect(result).toEqual({ storage: true });
+	});
+
+	it('returns empty object when wrangler.jsonc is missing', async () => {
+		const result = await readBindingsConfig(ROOT);
+
+		expect(result).toEqual({});
+	});
+
+	it('writes bindings config to wrangler.jsonc', async () => {
+		files.set(`${ROOT}/package.json`, JSON.stringify({ name: 'test-app', dependencies: {} }));
+
+		await writeBindingsConfig(ROOT, { storage: true });
+
+		const wrangler = JSON.parse(files.get(`${ROOT}/wrangler.jsonc`)!);
+		expect(wrangler.bindings).toEqual({ storage: true });
+		expect(wrangler.name).toBe('test-app');
+	});
+
+	it('omits bindings field when no bindings are enabled', async () => {
+		files.set(`${ROOT}/package.json`, JSON.stringify({ name: 'test-app', dependencies: {} }));
+
+		await writeBindingsConfig(ROOT, {});
+
+		const wrangler = JSON.parse(files.get(`${ROOT}/wrangler.jsonc`)!);
+		expect(wrangler.bindings).toBeUndefined();
 	});
 });

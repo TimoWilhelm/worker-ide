@@ -1,25 +1,26 @@
 /**
  * Protected file generation utilities.
  *
- * System files (package.json, wrangler.jsonc, vite.config.ts, vitest.config.ts)
+ * System files (package.json, wrangler.jsonc, vite.config.ts, vitest.config.ts, worker-env.d.ts)
  * live in the project filesystem so git can track them. They are regenerated
- * whenever project settings change (name, dependencies, asset settings).
+ * whenever project settings change (name, dependencies, asset settings, bindings).
  *
  * All project configuration is stored in these files directly:
  * - `package.json` — name, dependencies, devDependencies, scripts
- * - `wrangler.jsonc` — name, main, compatibility_date, asset routing settings
+ * - `wrangler.jsonc` — name, main, compatibility_date, asset routing settings, bindings config
  * - `vite.config.ts` — Vite plugins (React, Cloudflare)
  * - `vitest.config.ts` — test runner configuration
+ * - `worker-env.d.ts` — TypeScript declarations for env bindings (auto-generated from bindings config)
  */
 
 import fs from 'node:fs/promises';
 
 import stripJsonComments from 'strip-json-comments';
 
-import { PROTECTED_SYSTEM_FILES, WORKERS_COMPATIBILITY_DATE } from '@shared/constants';
+import { PROTECTED_SYSTEM_FILES, STORAGE_BINDING_NAME, WORKERS_COMPATIBILITY_DATE } from '@shared/constants';
 import { resolveAssetSettings } from '@shared/types';
 
-import type { AssetSettings } from '@shared/types';
+import type { AssetSettings, BindingsConfig } from '@shared/types';
 
 // =============================================================================
 // Helpers
@@ -110,7 +111,7 @@ export async function writeProjectName(projectRoot: string, name: string): Promi
 }
 
 // =============================================================================
-// wrangler.jsonc I/O (asset settings)
+// wrangler.jsonc I/O (asset settings + bindings config)
 // =============================================================================
 
 /**
@@ -127,28 +128,72 @@ export async function readAssetSettings(projectRoot: string): Promise<AssetSetti
 }
 
 /**
+ * Read IDE-managed bindings configuration from `wrangler.jsonc` on disk.
+ */
+export async function readBindingsConfig(projectRoot: string): Promise<BindingsConfig> {
+	try {
+		const raw = await fs.readFile(`${projectRoot}/wrangler.jsonc`, 'utf8');
+		const parsed: { bindings?: BindingsConfig } = JSON.parse(stripJsonComments(raw));
+		return parsed.bindings ?? {};
+	} catch {
+		return {};
+	}
+}
+
+/**
  * Write asset settings into `wrangler.jsonc` on disk.
- * Preserves all other fields and regenerates the file.
+ * Preserves bindings config and regenerates the file.
  */
 export async function writeAssetSettings(projectRoot: string, assetSettings: AssetSettings): Promise<void> {
 	const projectName = await readProjectName(projectRoot);
+	const bindingsConfig = await readBindingsConfig(projectRoot);
 	const assetsConfig = resolveAssetSettings(assetSettings);
 
 	await fs.writeFile(
 		`${projectRoot}/wrangler.jsonc`,
-		JSON.stringify(
-			{
-				$schema: 'node_modules/wrangler/config-schema.json',
-				name: projectName,
-				main: 'worker/index.ts',
-				compatibility_date: WORKERS_COMPATIBILITY_DATE,
-				assets: assetsConfig,
-				observability: { enabled: true },
-			},
-			undefined,
-			'\t',
-		),
+		JSON.stringify(buildWranglerConfig(projectName, assetsConfig, bindingsConfig), undefined, '\t'),
 	);
+}
+
+/**
+ * Write IDE-managed bindings configuration into `wrangler.jsonc` on disk.
+ * Preserves asset settings and regenerates the file.
+ */
+export async function writeBindingsConfig(projectRoot: string, bindingsConfig: BindingsConfig): Promise<void> {
+	const projectName = await readProjectName(projectRoot);
+	const assetSettings = await readAssetSettings(projectRoot);
+	const assetsConfig = resolveAssetSettings(assetSettings);
+
+	await fs.writeFile(
+		`${projectRoot}/wrangler.jsonc`,
+		JSON.stringify(buildWranglerConfig(projectName, assetsConfig, bindingsConfig), undefined, '\t'),
+	);
+}
+
+/**
+ * Build the full wrangler.jsonc config object.
+ */
+function buildWranglerConfig(
+	projectName: string,
+	assetsConfig: ReturnType<typeof resolveAssetSettings>,
+	bindingsConfig: BindingsConfig,
+): Record<string, unknown> {
+	const config: Record<string, unknown> = {
+		$schema: 'node_modules/wrangler/config-schema.json',
+		name: projectName,
+		main: 'worker/index.ts',
+		compatibility_date: WORKERS_COMPATIBILITY_DATE,
+		assets: assetsConfig,
+		observability: { enabled: true },
+	};
+
+	// Only include bindings field if any binding is enabled
+	const hasBindings = Object.values(bindingsConfig).some(Boolean);
+	if (hasBindings) {
+		config.bindings = bindingsConfig;
+	}
+
+	return config;
 }
 
 // =============================================================================
@@ -201,23 +246,73 @@ function generatePackageJson(projectName: string, filePaths: string[], dependenc
 /**
  * Generate the contents of `wrangler.jsonc`.
  */
-function generateWranglerJsonc(projectName: string, assetSettings: AssetSettings): string {
+function generateWranglerJsonc(projectName: string, assetSettings: AssetSettings, bindingsConfig: BindingsConfig): string {
 	const assetsConfig = resolveAssetSettings(assetSettings);
 
-	return JSON.stringify(
-		{
-			$schema: 'node_modules/wrangler/config-schema.json',
-			name: projectName,
-			main: 'worker/index.ts',
-			compatibility_date: WORKERS_COMPATIBILITY_DATE,
-			assets: assetsConfig,
-			observability: {
-				enabled: true,
-			},
-		},
-		undefined,
-		'\t',
-	);
+	return JSON.stringify(buildWranglerConfig(projectName, assetsConfig, bindingsConfig), undefined, '\t');
+}
+
+/**
+ * Generate the contents of `worker-env.d.ts` based on enabled bindings.
+ * When no bindings are enabled, generates a minimal Env interface with no extra properties.
+ */
+function generateWorkerEnvironmentDeclaration(bindingsConfig: BindingsConfig): string {
+	const lines: string[] = [];
+
+	if (bindingsConfig.storage) {
+		lines.push(
+			'interface StorageObject {',
+			'\treadonly size: number;',
+			'\treadonly contentType: string;',
+			'\treadonly uploaded: string;',
+			'\treadonly body: ReadableStream;',
+			'\ttext(): Promise<string>;',
+			'\tarrayBuffer(): Promise<ArrayBuffer>;',
+			'\tjson<T = unknown>(): Promise<T>;',
+			'}',
+			'',
+			'interface StorageHeadResult {',
+			'\treadonly size: number;',
+			'\treadonly contentType: string;',
+			'\treadonly uploaded: string;',
+			'}',
+			'',
+			'interface StorageListObject {',
+			'\treadonly key: string;',
+			'\treadonly size: number;',
+			'\treadonly uploaded: string;',
+			'}',
+			'',
+			'interface StorageListResult {',
+			'\treadonly objects: StorageListObject[];',
+			'\treadonly truncated: boolean;',
+			'\treadonly cursor?: string;',
+			'}',
+			'',
+			'interface StorageBinding {',
+			'\tput(key: string, value: string | ArrayBuffer | ReadableStream, options?: { contentType?: string }): Promise<void>;',
+			'\tget(key: string): Promise<StorageObject | null>;',
+			'\tgetText(key: string): Promise<string | null>;',
+			'\thead(key: string): Promise<StorageHeadResult | null>;',
+			'\tlist(options?: { prefix?: string; limit?: number; cursor?: string }): Promise<StorageListResult>;',
+			'\tdelete(key: string | string[]): Promise<void>;',
+			'}',
+			'',
+		);
+	}
+
+	const environmentProperties: string[] = [];
+	if (bindingsConfig.storage) {
+		environmentProperties.push(`\t${STORAGE_BINDING_NAME}: StorageBinding;`);
+	}
+
+	lines.push('interface Env {');
+	for (const property of environmentProperties) {
+		lines.push(property);
+	}
+	lines.push('}', '');
+
+	return lines.join('\n');
 }
 
 /**
@@ -277,8 +372,8 @@ const regenerationLocks = new Map<string, Promise<void>>();
 /**
  * Regenerate all protected system files on disk.
  *
- * Reads current project name, dependencies, and asset settings from disk,
- * then rewrites all four system files to keep them in sync.
+ * Reads current project name, dependencies, asset settings, and bindings config
+ * from disk, then rewrites all five system files to keep them in sync.
  *
  * Serialized per project root to prevent concurrent calls from racing.
  */
@@ -301,11 +396,13 @@ async function doRegenerate(projectRoot: string): Promise<void> {
 	const projectName = await readProjectName(projectRoot);
 	const dependencies = await readDependencies(projectRoot);
 	const assetSettings = await readAssetSettings(projectRoot);
+	const bindingsConfig = await readBindingsConfig(projectRoot);
 
 	await fs.writeFile(`${projectRoot}/package.json`, generatePackageJson(projectName, filePaths, dependencies));
-	await fs.writeFile(`${projectRoot}/wrangler.jsonc`, generateWranglerJsonc(projectName, assetSettings));
+	await fs.writeFile(`${projectRoot}/wrangler.jsonc`, generateWranglerJsonc(projectName, assetSettings, bindingsConfig));
 	await fs.writeFile(`${projectRoot}/vite.config.ts`, generateViteConfig(dependencies));
 	await fs.writeFile(`${projectRoot}/vitest.config.ts`, generateVitestConfig());
+	await fs.writeFile(`${projectRoot}/worker-env.d.ts`, generateWorkerEnvironmentDeclaration(bindingsConfig));
 }
 
 /**

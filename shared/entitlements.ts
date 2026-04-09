@@ -80,6 +80,7 @@ export function deserializeEntitlementValue(raw: string, valueType: EntitlementV
  */
 export const ENTITLEMENT_ORG_MAX_PROJECTS = 'org:max_projects' as const;
 export const ENTITLEMENT_ORG_MAX_MEMBERS = 'org:max_members' as const;
+export const ENTITLEMENT_ORG_STORAGE_QUOTA_BYTES = 'org:storage_quota_bytes' as const;
 
 /**
  * User-scoped entitlement keys.
@@ -87,11 +88,22 @@ export const ENTITLEMENT_ORG_MAX_MEMBERS = 'org:max_members' as const;
  */
 export const ENTITLEMENT_USER_MAX_ORGANIZATIONS = 'user:max_organizations' as const;
 
-export type OrgEntitlementKey = typeof ENTITLEMENT_ORG_MAX_PROJECTS | typeof ENTITLEMENT_ORG_MAX_MEMBERS;
+/**
+ * Project-scoped entitlement keys.
+ * Assigned to a project (scopeId = projectId) to override org/plan defaults.
+ */
+export const ENTITLEMENT_PROJECT_STORAGE_QUOTA_BYTES = 'project:storage_quota_bytes' as const;
+
+export type OrgEntitlementKey =
+	| typeof ENTITLEMENT_ORG_MAX_PROJECTS
+	| typeof ENTITLEMENT_ORG_MAX_MEMBERS
+	| typeof ENTITLEMENT_ORG_STORAGE_QUOTA_BYTES;
 
 export type UserEntitlementKey = typeof ENTITLEMENT_USER_MAX_ORGANIZATIONS;
 
-export type EntitlementKey = OrgEntitlementKey | UserEntitlementKey;
+export type ProjectEntitlementKey = typeof ENTITLEMENT_PROJECT_STORAGE_QUOTA_BYTES;
+
+export type EntitlementKey = OrgEntitlementKey | UserEntitlementKey | ProjectEntitlementKey;
 
 /**
  * All valid entitlement keys with their expected value types.
@@ -100,7 +112,12 @@ export type EntitlementKey = OrgEntitlementKey | UserEntitlementKey;
 export const ENTITLEMENT_REGISTRY: Record<EntitlementKey, { valueType: EntitlementValueType; description: string }> = {
 	[ENTITLEMENT_ORG_MAX_PROJECTS]: { valueType: 'number', description: 'Maximum active projects per organization' },
 	[ENTITLEMENT_ORG_MAX_MEMBERS]: { valueType: 'number', description: 'Maximum members per organization' },
+	[ENTITLEMENT_ORG_STORAGE_QUOTA_BYTES]: { valueType: 'number', description: 'Maximum object storage bytes per project (org default)' },
 	[ENTITLEMENT_USER_MAX_ORGANIZATIONS]: { valueType: 'number', description: 'Maximum organizations a user can create' },
+	[ENTITLEMENT_PROJECT_STORAGE_QUOTA_BYTES]: {
+		valueType: 'number',
+		description: 'Maximum object storage bytes for this project (overrides org)',
+	},
 };
 
 export function isValidEntitlementKey(key: string): key is EntitlementKey {
@@ -110,8 +127,10 @@ export function isValidEntitlementKey(key: string): key is EntitlementKey {
 /**
  * Extract the scope prefix from an entitlement key.
  */
-export function getEntitlementScope(key: EntitlementKey): 'org' | 'user' {
-	return key.startsWith('org:') ? 'org' : 'user';
+export function getEntitlementScope(key: EntitlementKey): 'org' | 'user' | 'project' {
+	if (key.startsWith('org:')) return 'org';
+	if (key.startsWith('project:')) return 'project';
+	return 'user';
 }
 
 // =============================================================================
@@ -142,6 +161,7 @@ export interface EntitlementRecord {
 export interface ResolvedOrgLimits {
 	maxProjects: number;
 	maxMembers: number;
+	storageQuotaBytes: number;
 }
 
 /**
@@ -197,6 +217,7 @@ export function resolveOrgLimits(plan: string, entitlements: Map<string, Entitle
 	return {
 		maxProjects: getNumber(entitlements, ENTITLEMENT_ORG_MAX_PROJECTS) ?? planLimits.maxProjects,
 		maxMembers: getNumber(entitlements, ENTITLEMENT_ORG_MAX_MEMBERS) ?? planLimits.maxMembers,
+		storageQuotaBytes: getNumber(entitlements, ENTITLEMENT_ORG_STORAGE_QUOTA_BYTES) ?? planLimits.storageQuotaBytes,
 	};
 }
 
@@ -221,4 +242,35 @@ export function resolveOrgLimitsFromRows(plan: string, rows: Array<{ key: string
  */
 export function resolveUserLimitsFromRows(rows: Array<{ key: string; valueType: string; value: string }>): ResolvedUserLimits {
 	return resolveUserLimits(toEntitlementMap(rows));
+}
+
+/**
+ * Resolve the effective storage quota for a project.
+ *
+ * Resolution order: project entitlement override → org entitlement override → plan default.
+ */
+export function resolveProjectStorageQuota(
+	plan: string,
+	orgEntitlements: Map<string, EntitlementValue>,
+	projectEntitlements: Map<string, EntitlementValue>,
+): number {
+	const projectOverride = getNumber(projectEntitlements, ENTITLEMENT_PROJECT_STORAGE_QUOTA_BYTES);
+	if (projectOverride !== undefined) return projectOverride;
+
+	const orgOverride = getNumber(orgEntitlements, ENTITLEMENT_ORG_STORAGE_QUOTA_BYTES);
+	if (orgOverride !== undefined) return orgOverride;
+
+	const planLimits: PlanLimits = getOrgLimits(plan);
+	return planLimits.storageQuotaBytes;
+}
+
+/**
+ * Convenience: resolve project storage quota from plan + raw DB rows.
+ */
+export function resolveProjectStorageQuotaFromRows(
+	plan: string,
+	orgRows: Array<{ key: string; valueType: string; value: string }>,
+	projectRows: Array<{ key: string; valueType: string; value: string }>,
+): number {
+	return resolveProjectStorageQuota(plan, toEntitlementMap(orgRows), toEntitlementMap(projectRows));
 }

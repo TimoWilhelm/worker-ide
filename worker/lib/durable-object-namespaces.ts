@@ -53,3 +53,9 @@ export const coordinatorNamespace = lazyNamespace(() => exports.ProjectCoordinat
  * Used for running AI agent loops independently of client connections.
  */
 export const agentRunnerNamespace = lazyNamespace(() => exports.AgentRunner);
+
+/**
+ * Project Metadata Durable Object namespace with automatic retry.
+ * Used for per-project metadata (storage usage tracking, etc.).
+ */
+export const projectMetadataNamespace = lazyNamespace(() => exports.ProjectMetadata);

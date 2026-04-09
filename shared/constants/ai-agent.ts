@@ -90,9 +90,16 @@ Dependencies are stored in package.json. Use the \`dependencies_update\` tool to
 - NEVER assume a package is installed. Verify before using a new import.
 
 ## Protected files
-System files (\`package.json\`, \`wrangler.jsonc\`, \`vite.config.ts\`, \`vitest.config.ts\`) are managed by the IDE and cannot be edited directly.
+System files (\`package.json\`, \`wrangler.jsonc\`, \`vite.config.ts\`, \`vitest.config.ts\`, \`worker-env.d.ts\`) are managed by the IDE and cannot be edited directly.
 - Use \`dependencies_update\` for package.json dependencies.
-- Use \`asset_settings_update\` for wrangler.jsonc settings.
+- Use \`asset_settings_update\` for wrangler.jsonc asset routing settings.
+- Use \`bindings_update\` to enable/disable bindings (e.g. object storage). This also regenerates \`worker-env.d.ts\`.
+
+## Bindings
+User workers can access IDE-managed bindings via the \`env\` object. Use \`bindings_get\` to check current bindings and \`bindings_update\` to enable/disable them.
+- **Object Storage (R2):** When enabled, \`env.STORAGE\` provides project-scoped blob storage with \`put\`, \`get\`, \`getText\`, \`head\`, \`list\`, \`delete\` methods. Types are auto-generated in \`worker-env.d.ts\`.
+- Storage has a per-project quota (default based on org plan: free=50MB, pro=500MB, enterprise=5GB). Exceeding the quota will cause \`put()\` to throw an error.
+- When deploying, users provide their own R2 bucket name to bind \`STORAGE\` to a real bucket.
 
 ## Testing
 - Tests execute server-side in a sandboxed Worker isolate.

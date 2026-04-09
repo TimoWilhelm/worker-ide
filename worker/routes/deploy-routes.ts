@@ -28,7 +28,7 @@ import * as schema from '../db/auth-schema';
 import { trackProjectEvent } from '../lib/analytics';
 import { getContentType } from '../lib/content-type';
 import { httpError } from '../lib/http-error';
-import { readAssetSettings, readDependencies, readProjectName } from '../lib/protected-files';
+import { readAssetSettings, readBindingsConfig, readDependencies, readProjectName } from '../lib/protected-files';
 import { bundleWithCdn } from '../services/bundler-client';
 import { toEsbuildTsconfigRaw } from '../services/transform-service';
 
@@ -47,7 +47,7 @@ const CLOUDFLARE_API_BASE = 'https://api.cloudflare.com/client/v4';
 
 export const deployRoutes = new Hono<AppEnvironment>().post('/deploy', zValidator('json', deployRequestSchema), async (c) => {
 	const deployStart = Date.now();
-	const { accountId, apiToken, workerName } = c.req.valid('json');
+	const { accountId, apiToken, workerName, r2BucketName } = c.req.valid('json');
 
 	// Look up the project's organizationId for analytics
 	const deployDatabase = drizzle(c.env.DB);
@@ -64,6 +64,7 @@ export const deployRoutes = new Hono<AppEnvironment>().post('/deploy', zValidato
 		// Read project config from canonical files via shared helpers
 		const projectName = await readProjectName(projectRoot);
 		const assetSettings = await readAssetSettings(projectRoot);
+		const bindingsConfig = await readBindingsConfig(projectRoot);
 		const dependenciesRecord = await readDependencies(projectRoot);
 		const registeredDependencies = new Map(Object.entries(dependenciesRecord));
 
@@ -195,7 +196,15 @@ export const deployRoutes = new Hono<AppEnvironment>().post('/deploy', zValidato
 		// =========================================================================
 		// Step 4: Deploy the worker script
 		// =========================================================================
-		await uploadWorkerScript(accountId.trim(), apiToken.trim(), sanitizedWorkerName, bundledWorkerCode, assetsCompletionJwt, assetSettings);
+		await uploadWorkerScript(
+			accountId.trim(),
+			apiToken.trim(),
+			sanitizedWorkerName,
+			bundledWorkerCode,
+			assetsCompletionJwt,
+			assetSettings,
+			bindingsConfig.storage && r2BucketName ? r2BucketName : undefined,
+		);
 
 		// =========================================================================
 		// Step 5: Enable the workers.dev subdomain route
@@ -335,6 +344,7 @@ const CONFIG_FILES = new Set([
 	'wrangler.jsonc',
 	'vite.config.ts',
 	'vitest.config.ts',
+	'worker-env.d.ts',
 	'package-lock.json',
 	'bun.lockb',
 	'.gitignore',
@@ -530,6 +540,7 @@ async function uploadWorkerScript(
 	workerCode: string,
 	assetsCompletionJwt: string | undefined,
 	assetSettings?: AssetSettings,
+	r2BucketName?: string,
 ): Promise<void> {
 	const formData = new FormData();
 
@@ -547,7 +558,7 @@ async function uploadWorkerScript(
 				run_worker_first?: boolean | string[];
 			};
 		};
-		bindings?: Array<{ type: string; name: string }>;
+		bindings?: Array<{ type: string; name: string; bucket_name?: string }>;
 	}
 
 	const metadata: DeployMetadata = {
@@ -563,6 +574,14 @@ async function uploadWorkerScript(
 			config: resolveAssetSettings(assetSettings),
 		};
 		metadata.bindings = [{ type: 'assets', name: 'ASSETS' }];
+	}
+
+	// Add R2 binding if the user provided a bucket name
+	if (r2BucketName) {
+		if (!metadata.bindings) {
+			metadata.bindings = [];
+		}
+		metadata.bindings.push({ type: 'r2_bucket', name: 'STORAGE', bucket_name: r2BucketName });
 	}
 
 	formData.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));

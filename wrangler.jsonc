@@ -61,6 +61,16 @@
 			"new_sqlite_classes": ["ProjectCoordinatorV2"],
 			"tag": "v6",
 		},
+		{
+			"new_sqlite_classes": ["ProjectMetadata"],
+			"tag": "v7",
+		},
+	],
+	"r2_buckets": [
+		{
+			"binding": "STORAGE_BUCKET",
+			"bucket_name": "worker-ide-storage",
+		},
 	],
 	"worker_loaders": [
 		{

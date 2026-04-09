@@ -2,17 +2,17 @@
  * Wrangler Settings Panel
  *
  * Inline settings form rendered in the editor area when wrangler.jsonc is the active file.
- * Controls Cloudflare Workers asset routing settings: not_found_handling, html_handling, run_worker_first.
+ * Controls Cloudflare Workers asset routing settings and IDE-managed bindings.
  */
 
-import { useSuspenseQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useSuspenseQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronDown, FileJson2, Save } from 'lucide-react';
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
-import { fetchProjectMeta, updateAssetSettings } from '@/lib/api-client';
+import { fetchProjectMeta, fetchStorageUsage, updateProjectMeta } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
 
 import type { AssetSettings, HtmlHandling, NotFoundHandling } from '@shared/types';
@@ -59,6 +59,14 @@ const HTML_HANDLING_OPTIONS: Array<{ value: HtmlHandling; label: string; descrip
 	},
 	{ value: 'none', label: 'None', description: 'No trailing slash redirects' },
 ];
+
+function formatBytes(bytes: number): string {
+	if (bytes === 0) return '0 B';
+	const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+	const exponent = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+	const value = bytes / 1024 ** exponent;
+	return `${value % 1 === 0 ? value : value.toFixed(1)} ${units[exponent]}`;
+}
 
 const INPUT_CLASSES = cn(
 	`
@@ -147,6 +155,7 @@ function WranglerSettingsContent({ projectId }: { projectId: string }) {
 		staleTime: 0,
 	});
 	const loadedSettings = settingsQuery.data.assetSettings;
+	const loadedBindings = settingsQuery.data.bindingsConfig;
 
 	const [notFoundHandling, setNotFoundHandling] = useState<NotFoundHandling>(() => loadedSettings?.not_found_handling ?? 'none');
 	const [htmlHandling, setHtmlHandling] = useState<HtmlHandling>(() => loadedSettings?.html_handling ?? 'auto-trailing-slash');
@@ -154,6 +163,7 @@ function WranglerSettingsContent({ projectId }: { projectId: string }) {
 		getRunWorkerFirstMode(loadedSettings?.run_worker_first),
 	);
 	const [runWorkerFirstPatterns, setRunWorkerFirstPatterns] = useState(() => getRunWorkerFirstPatterns(loadedSettings?.run_worker_first));
+	const [storageEnabled, setStorageEnabled] = useState(() => loadedBindings?.storage ?? false);
 
 	// Sync form state when the query refetches (e.g. after save + invalidation)
 	useEffect(() => {
@@ -162,6 +172,10 @@ function WranglerSettingsContent({ projectId }: { projectId: string }) {
 		setRunWorkerFirstMode(getRunWorkerFirstMode(loadedSettings?.run_worker_first));
 		setRunWorkerFirstPatterns(getRunWorkerFirstPatterns(loadedSettings?.run_worker_first));
 	}, [loadedSettings]);
+
+	useEffect(() => {
+		setStorageEnabled(loadedBindings?.storage ?? false);
+	}, [loadedBindings]);
 
 	const handleSave = useCallback(async () => {
 		setIsSaving(true);
@@ -196,18 +210,18 @@ function WranglerSettingsContent({ projectId }: { projectId: string }) {
 				}
 			}
 
-			await updateAssetSettings(projectId, assetSettings);
+			await updateProjectMeta(projectId, { assetSettings, bindingsConfig: { storage: storageEnabled || undefined } });
 			await queryClient.invalidateQueries({ queryKey: ['project-settings', projectId] });
 			setSavedMessage(true);
 			clearTimeout(savedTimerReference.current);
 			savedTimerReference.current = setTimeout(() => setSavedMessage(false), 2000);
-		} catch (error) {
-			const message = error instanceof Error ? error.message : 'Failed to save settings';
+		} catch (error_) {
+			const message = error_ instanceof Error ? error_.message : 'Failed to save settings';
 			setError(message);
 		} finally {
 			setIsSaving(false);
 		}
-	}, [projectId, notFoundHandling, htmlHandling, runWorkerFirstMode, runWorkerFirstPatterns, queryClient]);
+	}, [projectId, notFoundHandling, htmlHandling, runWorkerFirstMode, runWorkerFirstPatterns, storageEnabled, queryClient]);
 
 	return (
 		<div className="flex h-full flex-col overflow-hidden">
@@ -403,7 +417,80 @@ function WranglerSettingsContent({ projectId }: { projectId: string }) {
 							</div>
 						)}
 					</fieldset>
+
+					{/* Bindings */}
+					<h3 className="mt-2 text-sm font-semibold text-text-primary">Bindings</h3>
+
+					<fieldset className="flex flex-col gap-2">
+						<legend className="text-xs font-medium text-text-secondary">Object Storage (R2)</legend>
+						<p className="text-xs text-text-secondary/70">
+							Project-scoped object storage binding. Available as{' '}
+							<code className="rounded-sm bg-bg-tertiary px-1 font-mono">env.STORAGE</code> in your worker code.
+						</p>
+						<label
+							className={cn(
+								`
+									flex cursor-pointer items-center gap-2.5 rounded-sm border p-2.5
+									transition-colors
+								`,
+								storageEnabled ? 'border-accent bg-accent/5' : 'border-border hover:border-accent/50',
+							)}
+							htmlFor="binding-storage"
+						>
+							<input
+								id="binding-storage"
+								type="checkbox"
+								checked={storageEnabled}
+								onChange={(event) => setStorageEnabled(event.target.checked)}
+								className="size-3.5 accent-accent"
+							/>
+							<div className="flex flex-col gap-0.5">
+								<span className="text-xs font-medium text-text-primary">Enable Object Storage</span>
+								<span className="text-xs text-text-secondary/70">
+									CRUD operations on blob files via <code className="rounded-sm bg-bg-tertiary px-1 font-mono">env.STORAGE</code>
+								</span>
+							</div>
+						</label>
+						{storageEnabled && <StorageUsageBar projectId={projectId} />}
+					</fieldset>
 				</div>
+			</div>
+		</div>
+	);
+}
+
+function StorageUsageBar({ projectId }: { projectId: string }) {
+	const storageQuery = useQuery({
+		queryKey: ['storage-usage', projectId],
+		queryFn: () => fetchStorageUsage(projectId),
+		staleTime: 30_000,
+	});
+
+	if (storageQuery.isLoading) {
+		return <p className="text-xs text-text-secondary/70">Loading storage usage...</p>;
+	}
+
+	if (!storageQuery.data || !storageQuery.data.enabled) {
+		return;
+	}
+
+	const { usageBytes, quotaBytes } = storageQuery.data;
+	const percentage = quotaBytes > 0 ? Math.min((usageBytes / quotaBytes) * 100, 100) : 0;
+	const isNearLimit = percentage > 80;
+
+	return (
+		<div className="flex flex-col gap-1.5 rounded-sm border border-border p-2.5">
+			<div className="flex items-center justify-between text-xs">
+				<span className="text-text-secondary">Storage Usage</span>
+				<span className={cn('font-mono', isNearLimit ? 'text-red-400' : 'text-text-secondary')}>
+					{formatBytes(usageBytes)} / {formatBytes(quotaBytes)}
+				</span>
+			</div>
+			<div className="h-1.5 w-full overflow-hidden rounded-full bg-bg-tertiary">
+				<div
+					className={cn('h-full rounded-full transition-all', isNearLimit ? 'bg-red-400' : 'bg-accent')}
+					style={{ width: `${percentage}%` }}
+				/>
 			</div>
 		</div>
 	);

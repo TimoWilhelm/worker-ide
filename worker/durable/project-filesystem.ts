@@ -62,41 +62,40 @@ export class ProjectFilesystem extends DurableObjectFilesystem {
 	/**
 	 * Get the list of currently staged file paths.
 	 */
-	async getStagedPaths(): Promise<string[]> {
-		const value = await this.ctx.storage.get<string[]>('stagedPaths');
-		return value ?? [];
+	getStagedPaths(): string[] {
+		return this.ctx.storage.kv.get<string[]>('stagedPaths') ?? [];
 	}
 
 	/**
 	 * Set the full list of staged file paths (replaces any existing).
 	 */
-	async setStagedPaths(paths: string[]): Promise<void> {
-		await this.ctx.storage.put('stagedPaths', paths);
+	setStagedPaths(paths: string[]): void {
+		this.ctx.storage.kv.put('stagedPaths', paths);
 	}
 
 	/**
 	 * Add paths to the staged set (merge with existing).
 	 */
-	async addStagedPaths(paths: string[]): Promise<void> {
-		const existing = await this.getStagedPaths();
+	addStagedPaths(paths: string[]): void {
+		const existing = this.getStagedPaths();
 		const merged = [...new Set([...existing, ...paths])];
-		await this.ctx.storage.put('stagedPaths', merged);
+		this.ctx.storage.kv.put('stagedPaths', merged);
 	}
 
 	/**
 	 * Remove paths from the staged set.
 	 */
-	async removeStagedPaths(paths: string[]): Promise<void> {
-		const existing = await this.getStagedPaths();
+	removeStagedPaths(paths: string[]): void {
+		const existing = this.getStagedPaths();
 		const removeSet = new Set(paths);
 		const filtered = existing.filter((path) => !removeSet.has(path));
-		await this.ctx.storage.put('stagedPaths', filtered);
+		this.ctx.storage.kv.put('stagedPaths', filtered);
 	}
 
 	/**
 	 * Clear all staged paths.
 	 */
-	async clearStagedPaths(): Promise<void> {
-		await this.ctx.storage.delete('stagedPaths');
+	clearStagedPaths(): void {
+		this.ctx.storage.kv.delete('stagedPaths');
 	}
 }

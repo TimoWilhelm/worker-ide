@@ -16,6 +16,7 @@ import { useStore } from '@/lib/store';
 
 import { EditorArea } from './editor-area';
 import { IDEStatusBar } from './ide-status-bar';
+import { PanelDivider } from './panel-divider';
 
 import type { useEditorState } from './use-editor-state';
 import type { usePanelLayouts } from './use-panel-layouts';
@@ -238,15 +239,7 @@ export function DesktopLayout({
 					</div>
 				</Panel>
 
-				<ResizeHandle
-					className="
-						w-0.5 overflow-visible bg-border transition-[colors,box-shadow]
-						data-[separator=active]:bg-accent
-						data-[separator=active]:shadow-[2px_0_0_var(--color-accent),-2px_0_0_var(--color-accent)]
-						data-[separator=hover]:bg-accent
-						data-[separator=hover]:shadow-[2px_0_0_var(--color-accent),-2px_0_0_var(--color-accent)]
-					"
-				/>
+				<PanelDivider orientation="horizontal" />
 
 				{/* Editor + Terminal column */}
 				<Panel id="editor-col" defaultSize="45%" minSize="20%">
@@ -273,15 +266,7 @@ export function DesktopLayout({
 							{/* Utility panel (resizable) */}
 							{utilityPanelVisible && (
 								<>
-									<ResizeHandle
-										className="
-											h-0.5 overflow-visible bg-border transition-[colors,box-shadow]
-											data-[separator=active]:bg-accent
-											data-[separator=active]:shadow-[0_2px_0_var(--color-accent),0_-2px_0_var(--color-accent)]
-											data-[separator=hover]:bg-accent
-											data-[separator=hover]:shadow-[0_2px_0_var(--color-accent),0_-2px_0_var(--color-accent)]
-										"
-									/>
+									<PanelDivider orientation="vertical" />
 									<Panel id="utility-panel" defaultSize="30%" minSize="10%" maxSize="60%">
 										<Suspense fallback={<PanelSkeleton label="Loading output..." />}>
 											<UtilityPanel
@@ -313,15 +298,7 @@ export function DesktopLayout({
 					</div>
 				</Panel>
 
-				<ResizeHandle
-					className="
-						w-0.5 overflow-visible bg-border transition-[colors,box-shadow]
-						data-[separator=active]:bg-accent
-						data-[separator=active]:shadow-[2px_0_0_var(--color-accent),-2px_0_0_var(--color-accent)]
-						data-[separator=hover]:bg-accent
-						data-[separator=hover]:shadow-[2px_0_0_var(--color-accent),-2px_0_0_var(--color-accent)]
-					"
-				/>
+				<PanelDivider orientation="horizontal" />
 
 				{/* Preview + DevTools column */}
 				<Panel id="preview-col" defaultSize={aiPanelVisible ? '20%' : '40%'} minSize="15%">
@@ -347,15 +324,7 @@ export function DesktopLayout({
 						{/* DevTools panel (resizable) */}
 						{devtoolsVisible && (
 							<>
-								<ResizeHandle
-									className="
-										h-0.5 overflow-visible bg-border transition-[colors,box-shadow]
-										data-[separator=active]:bg-accent
-										data-[separator=active]:shadow-[0_2px_0_var(--color-accent),0_-2px_0_var(--color-accent)]
-										data-[separator=hover]:bg-accent
-										data-[separator=hover]:shadow-[0_2px_0_var(--color-accent),0_-2px_0_var(--color-accent)]
-									"
-								/>
+								<PanelDivider orientation="vertical" />
 								<Panel id="devtools" defaultSize="30%" minSize="15%" maxSize="80%">
 									<Suspense fallback={<PanelSkeleton label="Loading DevTools..." />}>
 										<DevelopmentToolsPanel
@@ -373,15 +342,7 @@ export function DesktopLayout({
 				{/* AI Assistant panel */}
 				{aiPanelVisible && (
 					<>
-						<ResizeHandle
-							className="
-								w-0.5 overflow-visible bg-border transition-[colors,box-shadow]
-								data-[separator=active]:bg-accent
-								data-[separator=active]:shadow-[2px_0_0_var(--color-accent),-2px_0_0_var(--color-accent)]
-								data-[separator=hover]:bg-accent
-								data-[separator=hover]:shadow-[2px_0_0_var(--color-accent),-2px_0_0_var(--color-accent)]
-							"
-						/>
+						<PanelDivider orientation="horizontal" />
 						<Panel id="ai-panel" defaultSize="20%" minSize="15%" maxSize="35%">
 							<aside className="flex h-full flex-col border-l border-border">
 								<Suspense fallback={<PanelSkeleton label="Loading AI assistant..." />}>

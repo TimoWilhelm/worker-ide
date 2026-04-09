@@ -2,3 +2,5 @@ worker-configuration.d.ts
 storybook-static
 AGENTS.md
 landing
+public
+playwright-report

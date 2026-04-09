@@ -269,6 +269,18 @@ export const dependenciesUpdateInputSchema = z.object({
 export const assetSettingsGetInputSchema = z.object({});
 
 /**
+ * Schema for AI tool: bindings_get (read bindings config)
+ */
+export const bindingsGetInputSchema = z.object({});
+
+/**
+ * Schema for AI tool: bindings_update (enable/disable bindings)
+ */
+export const bindingsUpdateInputSchema = z.object({
+	storage: z.string().optional(),
+});
+
+/**
  * Schema for AI tool: asset_settings_update (update asset routing settings)
  */
 export const assetSettingsUpdateInputSchema = z.object({
@@ -359,6 +371,8 @@ export const toolInputSchemas = {
 	dependencies_update: dependenciesUpdateInputSchema,
 	asset_settings_get: assetSettingsGetInputSchema,
 	asset_settings_update: assetSettingsUpdateInputSchema,
+	bindings_get: bindingsGetInputSchema,
+	bindings_update: bindingsUpdateInputSchema,
 	lint_check: lintCheckInputSchema,
 	lint_fix: lintFixInputSchema,
 	cdp_eval: cdpEvalInputSchema,
@@ -533,6 +547,15 @@ export const assetSettingsSchema = z.object({
 export type AssetSettingsInput = z.infer<typeof assetSettingsSchema>;
 
 /**
+ * Schema for IDE-managed bindings configuration stored in wrangler.jsonc.
+ */
+export const bindingsConfigSchema = z.object({
+	storage: z.boolean().optional(),
+});
+
+export type BindingsConfigInput = z.infer<typeof bindingsConfigSchema>;
+
+/**
  * Schema for updating project settings via PUT /api/project/meta.
  * Accepts an optional name and/or asset settings update.
  */
@@ -543,6 +566,7 @@ export const projectMetaSchema = z.object({
 		.max(MAX_PROJECT_NAME_LENGTH, `Name must be at most ${MAX_PROJECT_NAME_LENGTH} characters`)
 		.optional(),
 	assetSettings: assetSettingsSchema.optional(),
+	bindingsConfig: bindingsConfigSchema.optional(),
 });
 
 /**
@@ -887,6 +911,7 @@ export const deployRequestSchema = z.object({
 	accountId: z.string().min(1, 'Account ID is required'),
 	apiToken: z.string().min(1, 'API Token is required'),
 	workerName: z.string().optional(),
+	r2BucketName: z.string().optional(),
 });
 
 export { DEFAULT_AI_MODEL } from './constants';

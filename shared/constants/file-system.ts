@@ -15,15 +15,22 @@ export const PROTECTED_FILES = new Set([
 	'/wrangler.jsonc',
 	'/vite.config.ts',
 	'/vitest.config.ts',
+	'/worker-env.d.ts',
 	'/index.html',
 ]);
 
 /**
  * Protected system files managed by the IDE.
- * Regenerated when project settings change (name, dependencies, asset config).
+ * Regenerated when project settings change (name, dependencies, asset config, bindings).
  * Users cannot edit them directly — the IDE provides dedicated UI instead.
  */
-const PROTECTED_SYSTEM_FILE_PATHS = ['/package.json', '/wrangler.jsonc', '/vite.config.ts', '/vitest.config.ts'] as const;
+const PROTECTED_SYSTEM_FILE_PATHS = [
+	'/package.json',
+	'/wrangler.jsonc',
+	'/vite.config.ts',
+	'/vitest.config.ts',
+	'/worker-env.d.ts',
+] as const;
 
 export type ProtectedSystemFile = (typeof PROTECTED_SYSTEM_FILE_PATHS)[number];
 

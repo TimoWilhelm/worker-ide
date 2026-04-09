@@ -27,6 +27,7 @@ import minimalTsconfigWorker from './fixtures/minimal/tsconfig.worker.json?raw';
 import minimalViteConfig from './fixtures/minimal/vite.config.ts?raw';
 import minimalVitestConfig from './fixtures/minimal/vitest.config.ts?raw';
 import minimalWorkerIndexTs from './fixtures/minimal/worker/index.ts?raw';
+import minimalWorkerEnvironmentDts from './fixtures/minimal/worker-env.d.ts?raw';
 import minimalWranglerJsonc from './fixtures/minimal/wrangler.jsonc?raw';
 import requestInspectorGitignore from './fixtures/request-inspector/gitignore.txt?raw';
 import requestInspectorIndexHtml from './fixtures/request-inspector/index.html?raw';
@@ -43,6 +44,7 @@ import requestInspectorTsconfigWorker from './fixtures/request-inspector/tsconfi
 import requestInspectorViteConfig from './fixtures/request-inspector/vite.config.ts?raw';
 import requestInspectorVitestConfig from './fixtures/request-inspector/vitest.config.ts?raw';
 import requestInspectorWorkerIndexTs from './fixtures/request-inspector/worker/index.ts?raw';
+import requestInspectorWorkerEnvironmentDts from './fixtures/request-inspector/worker-env.d.ts?raw';
 import requestInspectorWranglerJsonc from './fixtures/request-inspector/wrangler.jsonc?raw';
 
 import type { ProjectTemplateMeta } from '@shared/types';
@@ -102,6 +104,7 @@ const minimalTemplate = defineTemplate(minimalMetaRaw, {
 	'src/utilities.ts': minimalUtilitiesTs,
 	'test/utilities.test.ts': minimalTestUtilitiesTs,
 	'worker/index.ts': minimalWorkerIndexTs,
+	'worker-env.d.ts': minimalWorkerEnvironmentDts,
 	'.gitignore': minimalGitignore,
 });
 
@@ -120,6 +123,7 @@ const requestInspectorTemplate = defineTemplate(requestInspectorMetaRaw, {
 	'src/utilities.ts': requestInspectorUtilitiesTs,
 	'test/utilities.test.ts': requestInspectorTestUtilitiesTs,
 	'worker/index.ts': requestInspectorWorkerIndexTs,
+	'worker-env.d.ts': requestInspectorWorkerEnvironmentDts,
 	'.gitignore': requestInspectorGitignore,
 });
 

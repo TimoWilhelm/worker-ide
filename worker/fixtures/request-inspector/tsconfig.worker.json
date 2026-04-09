@@ -22,5 +22,5 @@
 
 		"types": ["vite/client"]
 	},
-	"include": ["worker"]
+	"include": ["worker", "worker-env.d.ts"]
 }

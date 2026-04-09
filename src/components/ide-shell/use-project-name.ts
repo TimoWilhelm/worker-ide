@@ -37,7 +37,7 @@ export function useProjectName({ projectId }: { projectId: string }) {
 			const previousName = localName;
 			setLocalName(trimmed);
 			try {
-				await updateProjectMeta(projectId, trimmed);
+				await updateProjectMeta(projectId, { name: trimmed });
 			} catch {
 				setLocalName(previousName);
 				toast.error('Failed to rename project');

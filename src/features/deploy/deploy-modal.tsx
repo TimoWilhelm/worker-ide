@@ -108,6 +108,7 @@ function DeployModalContent({ onOpenChange, projectId, projectName }: Omit<Deplo
 	const [accountId, setAccountId] = useState(saved?.accountId ?? '');
 	const [apiToken, setApiToken] = useState(saved?.apiToken ?? '');
 	const [workerName, setWorkerName] = useState(() => sanitizeWorkerName(projectName));
+	const [r2BucketName, setR2BucketName] = useState('');
 	const [rememberCredentials, setRememberCredentials] = useState(saved !== undefined);
 	const [deployState, setDeployState] = useState<DeployState>({ status: 'idle' });
 
@@ -128,6 +129,7 @@ function DeployModalContent({ onOpenChange, projectId, projectName }: Omit<Deplo
 				accountId: accountId.trim(),
 				apiToken: apiToken.trim(),
 				workerName: workerName.trim() || undefined,
+				r2BucketName: r2BucketName.trim() || undefined,
 			});
 
 			setDeployState({
@@ -141,7 +143,7 @@ function DeployModalContent({ onOpenChange, projectId, projectName }: Omit<Deplo
 				message: error instanceof Error ? error.message : 'Deployment failed',
 			});
 		}
-	}, [accountId, apiToken, workerName, rememberCredentials, projectId]);
+	}, [accountId, apiToken, workerName, r2BucketName, rememberCredentials, projectId]);
 
 	const isFormValid = accountId.trim().length > 0 && apiToken.trim().length > 0;
 	const isDeploying = deployState.status === 'deploying';
@@ -262,6 +264,34 @@ function DeployModalContent({ onOpenChange, projectId, projectName }: Omit<Deplo
 								)}
 							/>
 							<p className="text-xs text-text-secondary">The name for your deployed Worker (lowercase, hyphens allowed).</p>
+						</div>
+
+						{/* R2 Bucket Name (optional) */}
+						<div className="flex flex-col gap-1.5">
+							<label htmlFor="deploy-r2-bucket" className="text-xs font-medium text-text-secondary">
+								R2 Bucket Name <span className="text-text-secondary/50">(optional)</span>
+							</label>
+							<input
+								id="deploy-r2-bucket"
+								type="text"
+								value={r2BucketName}
+								onChange={(event) => setR2BucketName(event.target.value)}
+								placeholder="my-storage-bucket"
+								disabled={isDeploying}
+								className={cn(
+									`
+										h-8 rounded-sm border border-border bg-bg-primary px-2.5 text-sm
+										text-text-primary
+									`,
+									'placeholder:text-text-secondary/50',
+									'focus:border-accent focus:outline-none',
+									'disabled:opacity-50',
+								)}
+							/>
+							<p className="text-xs text-text-secondary">
+								If your project uses <code className="rounded-sm bg-bg-tertiary px-1 font-mono text-[11px]">env.STORAGE</code>, provide your
+								R2 bucket name to bind it.
+							</p>
 						</div>
 
 						{/* Remember credentials */}

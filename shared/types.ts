@@ -415,6 +415,19 @@ export function resolveAssetSettings(settings?: AssetSettings): ResolvedAssetSet
 }
 
 // =============================================================================
+// Bindings Configuration
+// =============================================================================
+
+/**
+ * IDE-managed bindings configuration stored in wrangler.jsonc.
+ * Controls which bindings are injected into the user's worker env.
+ */
+export interface BindingsConfig {
+	/** Enable object storage (R2-backed) binding as `env.STORAGE` */
+	storage?: boolean;
+}
+
+// =============================================================================
 // Test Types
 // =============================================================================
 

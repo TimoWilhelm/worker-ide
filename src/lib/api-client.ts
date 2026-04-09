@@ -12,7 +12,7 @@ import { serializeMessage, parseServerMessage, type ClientMessage, type ServerMe
 import { throwApiError } from './api-error';
 
 import type { ApiRoutes, OrgRoutes, TransferRoutes, UserRoutes } from '@server/routes';
-import type { AssetSettings, ProjectTemplateMeta } from '@shared/types';
+import type { AssetSettings, BindingsConfig, ProjectTemplateMeta } from '@shared/types';
 
 /**
  * Create a typed API client for a specific project.
@@ -156,9 +156,11 @@ export async function deleteProject(organizationId: string, projectId: string): 
 }
 
 /**
- * Fetch project metadata (name, humanId, assetSettings).
+ * Fetch project metadata (name, humanId, assetSettings, bindingsConfig).
  */
-export async function fetchProjectMeta(projectId: string): Promise<{ name: string; humanId: string; assetSettings?: AssetSettings }> {
+export async function fetchProjectMeta(
+	projectId: string,
+): Promise<{ name: string; humanId: string; assetSettings?: AssetSettings; bindingsConfig?: BindingsConfig }> {
 	const api = createApiClient(projectId);
 	const response = await api.project.meta.$get({});
 	if (!response.ok) {
@@ -181,13 +183,29 @@ export async function fetchDependencies(projectId: string): Promise<Record<strin
 }
 
 /**
- * Update project name.
+ * Update project metadata (name, asset settings, bindings config).
+ * Sends a single PUT request with all provided fields.
  */
-export async function updateProjectMeta(projectId: string, name: string): Promise<{ name: string; humanId: string }> {
+export async function updateProjectMeta(
+	projectId: string,
+	meta: { name?: string; assetSettings?: AssetSettings; bindingsConfig?: BindingsConfig },
+): Promise<{ name: string; humanId: string; assetSettings?: AssetSettings; bindingsConfig?: BindingsConfig }> {
 	const api = createApiClient(projectId);
-	const response = await api.project.meta.$put({ json: { name } });
+	const response = await api.project.meta.$put({ json: meta });
 	if (!response.ok) {
 		await throwApiError(response, 'Failed to update project meta');
+	}
+	return response.json();
+}
+
+/**
+ * Fetch storage usage and quota for a project.
+ */
+export async function fetchStorageUsage(projectId: string): Promise<{ usageBytes: number; quotaBytes: number; enabled: boolean }> {
+	const api = createApiClient(projectId);
+	const response = await api.project.storage.$get({});
+	if (!response.ok) {
+		throw new Error('Failed to fetch storage usage');
 	}
 	return response.json();
 }
@@ -203,21 +221,6 @@ export async function updateDependencies(projectId: string, dependencies: Record
 	}
 	const data = await response.json();
 	return data.dependencies;
-}
-
-/**
- * Update project asset settings.
- */
-export async function updateAssetSettings(
-	projectId: string,
-	assetSettings: AssetSettings,
-): Promise<{ name: string; humanId: string; assetSettings?: AssetSettings }> {
-	const api = createApiClient(projectId);
-	const response = await api.project.meta.$put({ json: { assetSettings } });
-	if (!response.ok) {
-		await throwApiError(response, 'Failed to update asset settings');
-	}
-	return response.json();
 }
 
 /**
@@ -292,6 +295,7 @@ export interface DeployCredentials {
 	accountId: string;
 	apiToken: string;
 	workerName?: string;
+	r2BucketName?: string;
 }
 
 /**
