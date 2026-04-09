@@ -384,6 +384,15 @@ export const sessionIdSchema = z
 	.regex(/^[a-z0-9]+$/, 'Session ID must contain only lowercase alphanumeric characters');
 
 /**
+ * Schema for session title (rename input)
+ */
+export const sessionTitleSchema = z
+	.string()
+	.trim()
+	.min(1, 'Title is required')
+	.max(LIMITS.TITLE_MAX_LENGTH, `Title must be at most ${LIMITS.TITLE_MAX_LENGTH} characters`);
+
+/**
  * Schema for saving an AI session
  */
 export const pendingFileChangeSchema = z.object({

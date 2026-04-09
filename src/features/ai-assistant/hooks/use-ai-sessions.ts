@@ -91,6 +91,41 @@ export function useAiSessions({ projectId, agent }: { projectId: string; agent: 
 	);
 
 	// =========================================================================
+	// Rename a session via Agent RPC
+	// =========================================================================
+
+	const handleRenameSession = useCallback(
+		async (targetSessionId: string, newTitle: string): Promise<boolean> => {
+			try {
+				await agent.call('renameSession', [targetSessionId, newTitle]);
+				return true;
+			} catch {
+				toast.error('Could not rename the session. Please try again.');
+				return false;
+			}
+		},
+		[agent],
+	);
+
+	// =========================================================================
+	// Delete a session via Agent RPC
+	// =========================================================================
+
+	const handleDeleteSession = useCallback(
+		async (targetSessionId: string): Promise<boolean> => {
+			try {
+				await agent.call('deleteSession', [projectId, targetSessionId]);
+				setActiveSessionId(projectId, undefined);
+				return true;
+			} catch {
+				toast.error('Could not delete the session. Please try again.');
+				return false;
+			}
+		},
+		[agent, projectId],
+	);
+
+	// =========================================================================
 	// Auto-restore the active session on mount
 	// =========================================================================
 
@@ -198,6 +233,8 @@ export function useAiSessions({ projectId, agent }: { projectId: string; agent: 
 	return {
 		savedSessions,
 		handleLoadSession,
+		handleRenameSession,
+		handleDeleteSession,
 		isRestoringSession: isRestoringSession || isLoadingSession,
 	};
 }

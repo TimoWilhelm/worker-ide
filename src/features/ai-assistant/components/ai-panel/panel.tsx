@@ -14,6 +14,7 @@ import { useAgent } from 'agents/react';
 import {
 	ArrowDown,
 	Bot,
+	Check,
 	Download,
 	History,
 	Loader2,
@@ -21,14 +22,18 @@ import {
 	MessageCircleQuestion,
 	Mic,
 	MicOff,
+	Pencil,
 	Plus,
 	Send,
 	Square,
+	Trash2,
+	X,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Collapsible } from '@/components/ui/collapsible';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Pill } from '@/components/ui/pill';
 import { toast } from '@/components/ui/toast-store';
@@ -39,6 +44,7 @@ import { useMobileKeyboardLayout } from '@/hooks/use-mobile-keyboard-height';
 import { createApiClient, downloadDebugLog } from '@/lib/api-client';
 import { useStore } from '@/lib/store';
 import { cn, formatRelativeTime } from '@/lib/utils';
+import { sessionTitleSchema } from '@shared/validation';
 
 import { ContextRing } from './context-ring';
 import {
@@ -285,11 +291,19 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	const {
 		savedSessions,
 		handleLoadSession: loadSession,
+		handleRenameSession,
+		handleDeleteSession,
 		isRestoringSession,
 	} = useAiSessions({
 		projectId,
 		agent,
 	});
+
+	// Session rename/delete UI state
+	const [renamingSessionId, setRenamingSessionId] = useState<string | undefined>();
+	const [renameValue, setRenameValue] = useState('');
+	const [renameError, setRenameError] = useState<string | undefined>();
+	const [pendingDeleteSession, setPendingDeleteSession] = useState<{ id: string; title: string } | undefined>();
 
 	// Snapshot hook for revert
 	const { revertCascadeAsync, isReverting } = useSnapshots({ projectId });
@@ -685,21 +699,141 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 								</Button>
 							</DropdownMenuTrigger>
 						</Tooltip>
-						<DropdownMenuContent align="end" className="max-h-80 w-56 overflow-y-auto">
+						<DropdownMenuContent align="end" className="max-h-80 w-64 overflow-y-auto">
 							{savedSessions.length === 0 ? (
 								<div className="px-3 py-2 text-xs text-text-secondary">No recent sessions</div>
 							) : (
-								savedSessions.map((session) => (
-									<DropdownMenuItem key={session.id} onSelect={() => handleLoadSession(session.id)}>
-										<div className="flex w-full items-center justify-between gap-2" title={session.title}>
-											<span className="truncate text-sm">{session.title}</span>
-											<div className="flex shrink-0 items-center gap-1">
-												{session.isRunning && <Loader2 className="size-3 animate-spin text-warning" />}
-												<span className="text-2xs text-text-secondary">{formatRelativeTime(session.createdAt)}</span>
-											</div>
+								savedSessions.map((session) =>
+									renamingSessionId === session.id ? (
+										<div key={session.id} className="flex items-center gap-1 px-2 py-1.5">
+											<input
+												autoFocus
+												type="text"
+												value={renameValue}
+												onChange={(event) => {
+													setRenameValue(event.target.value);
+													setRenameError(undefined);
+												}}
+												onKeyDown={(event) => {
+													if (event.key === 'Enter') {
+														event.preventDefault();
+														const parsed = sessionTitleSchema.safeParse(renameValue);
+														if (!parsed.success) {
+															setRenameError(parsed.error.issues[0]?.message ?? 'Invalid title');
+															return;
+														}
+														void handleRenameSession(session.id, parsed.data).then((success) => {
+															if (success) setRenamingSessionId(undefined);
+														});
+													}
+													if (event.key === 'Escape') {
+														event.preventDefault();
+														setRenamingSessionId(undefined);
+														setRenameError(undefined);
+													}
+													event.stopPropagation();
+												}}
+												className={cn(
+													`
+														min-w-0 flex-1 rounded-sm border bg-bg-primary px-1.5 py-0.5
+														text-sm text-text-primary outline-none
+													`,
+													renameError
+														? 'border-error'
+														: `
+															border-border
+															focus:border-accent
+														`,
+												)}
+												title={renameError}
+											/>
+											<button
+												type="button"
+												onClick={() => {
+													const parsed = sessionTitleSchema.safeParse(renameValue);
+													if (!parsed.success) {
+														setRenameError(parsed.error.issues[0]?.message ?? 'Invalid title');
+														return;
+													}
+													void handleRenameSession(session.id, parsed.data).then((success) => {
+														if (success) setRenamingSessionId(undefined);
+													});
+												}}
+												className="
+													rounded-sm p-0.5 text-text-secondary transition-colors
+													hover:bg-bg-tertiary hover:text-success
+												"
+											>
+												<Check className="size-3.5" />
+											</button>
+											<button
+												type="button"
+												onClick={() => {
+													setRenamingSessionId(undefined);
+													setRenameError(undefined);
+												}}
+												className="
+													rounded-sm p-0.5 text-text-secondary transition-colors
+													hover:bg-bg-tertiary hover:text-error
+												"
+											>
+												<X className="size-3.5" />
+											</button>
 										</div>
-									</DropdownMenuItem>
-								))
+									) : (
+										<DropdownMenuItem key={session.id} onSelect={() => handleLoadSession(session.id)}>
+											<div
+												className="
+													group/session flex w-full items-center justify-between gap-1
+												"
+												title={session.title}
+											>
+												<span className="truncate text-sm">{session.title}</span>
+												<div className="flex shrink-0 items-center gap-0.5">
+													{session.isRunning && <Loader2 className="size-3 animate-spin text-warning" />}
+													<span
+														className="
+															text-2xs text-text-secondary
+															group-hover/session:hidden
+														"
+													>
+														{formatRelativeTime(session.createdAt)}
+													</span>
+													<button
+														type="button"
+														onClick={(event) => {
+															event.stopPropagation();
+															setRenamingSessionId(session.id);
+															setRenameValue(session.title);
+															setRenameError(undefined);
+														}}
+														className="
+															hidden rounded-sm p-0.5 text-text-secondary transition-colors
+															group-hover/session:block
+															hover:bg-bg-tertiary hover:text-text-primary
+														"
+													>
+														<Pencil className="size-3" />
+													</button>
+													<button
+														type="button"
+														onClick={(event) => {
+															event.stopPropagation();
+															setPendingDeleteSession({ id: session.id, title: session.title });
+														}}
+														className="
+															hidden rounded-sm p-0.5 text-text-secondary transition-colors
+															group-hover/session:block
+															hover:bg-bg-tertiary hover:text-error
+														"
+													>
+														<Trash2 className="size-3" />
+													</button>
+												</div>
+											</div>
+										</DropdownMenuItem>
+									),
+								)
 							)}
 						</DropdownMenuContent>
 					</DropdownMenu>
@@ -1120,6 +1254,24 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 					revertError={pendingRevert.error}
 				/>
 			)}
+
+			{/* Delete session confirmation dialog */}
+			<ConfirmDialog
+				open={!!pendingDeleteSession}
+				onOpenChange={(open) => {
+					if (!open) setPendingDeleteSession(undefined);
+				}}
+				title="Delete session"
+				description={`Are you sure you want to delete "${pendingDeleteSession?.title ?? 'this session'}"? This action cannot be undone.`}
+				confirmLabel="Delete"
+				variant="danger"
+				onConfirm={() => {
+					if (pendingDeleteSession) {
+						void handleDeleteSession(pendingDeleteSession.id);
+						setPendingDeleteSession(undefined);
+					}
+				}}
+			/>
 		</div>
 	);
 }

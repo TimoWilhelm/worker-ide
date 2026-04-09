@@ -30,7 +30,7 @@ import { migrate } from 'drizzle-orm/durable-sqlite/migrator';
 import { mount, withMounts } from 'worker-fs-mount';
 
 import { DEFAULT_AI_MODEL, MAX_AI_SESSIONS_PER_PROJECT, getModelConfig } from '@shared/constants';
-import { pendingChangesFileSchema } from '@shared/validation';
+import { pendingChangesFileSchema, sessionTitleSchema } from '@shared/validation';
 
 import {
 	clearSessionRevertedAt,
@@ -687,10 +687,44 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	}
 
 	/**
+	 * Rename a session's title.
+	 */
+	@callable()
+	async renameSession(sessionId: string, title: string): Promise<void> {
+		const parsed = sessionTitleSchema.safeParse(title);
+		if (!parsed.success) {
+			throw new Error(parsed.error.issues[0]?.message ?? 'Invalid title');
+		}
+		updateSessionTitle(this.db, sessionId, parsed.data, false);
+
+		// Update current session state so all clients see the new title immediately
+		if (this.state.currentSession?.sessionId === sessionId) {
+			this.updateSessionState(sessionId, { title: parsed.data });
+		}
+
+		await this.refreshSessionsList();
+	}
+
+	/**
 	 * Delete a session and all its associated artifacts.
+	 * If the session is running, it is aborted first.
 	 */
 	@callable()
 	async deleteSession(projectId: string, sessionId: string): Promise<void> {
+		// Abort if the session is currently running
+		const controller = this.abortControllers.get(sessionId);
+		if (controller) {
+			controller.abort();
+			this.abortControllers.delete(sessionId);
+		}
+		removeRunningSession(this.db, sessionId);
+
+		// Wait for loop cleanup
+		const loopPromise = this.loopPromises.get(sessionId);
+		if (loopPromise) {
+			await loopPromise.catch(() => {});
+		}
+
 		deleteSession(this.db, sessionId);
 		this.removePendingChangesForSessions(new Set([sessionId]));
 		const survivingSnapshotIds = this.getSurvivingSnapshotIds();
@@ -705,6 +739,11 @@ export class AgentRunner extends Agent<Env, AgentState> {
 			});
 		} catch (error) {
 			console.error('[AgentRunner] Failed to clean up filesystem artifacts:', error);
+		}
+
+		// Clear current session for all clients if this was the active session
+		if (this.state.currentSession?.sessionId === sessionId) {
+			this.setState({ ...this.state, currentSession: undefined });
 		}
 
 		await this.refreshSessionsList();
