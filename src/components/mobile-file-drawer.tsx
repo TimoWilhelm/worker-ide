@@ -8,7 +8,7 @@
 import { Dialog } from '@base-ui-components/react/dialog';
 import { AnimatePresence, motion } from 'motion/react';
 
-import { overlayVariants, slideLeftVariants, springDefault, tweenFast } from '@/lib/motion-config';
+import { overlayVariants, slideLeftVariants, springCritical, tweenFast } from '@/lib/motion-config';
 import { useStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 
@@ -36,7 +36,9 @@ export function MobileFileDrawer({ children }: MobileFileDrawerProperties) {
 							className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm"
 						/>
 						<Dialog.Popup
-							render={<motion.div variants={slideLeftVariants} initial="hidden" animate="visible" exit="exit" transition={springDefault} />}
+							render={
+								<motion.div variants={slideLeftVariants} initial="hidden" animate="visible" exit="exit" transition={springCritical} />
+							}
 							className={cn(`
 								fixed inset-y-0 left-0 z-50 flex w-72 flex-col bg-bg-secondary shadow-xl
 							`)}

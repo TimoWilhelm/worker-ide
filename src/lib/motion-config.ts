@@ -26,6 +26,13 @@ export const springDefault: Transition = {
 	damping: 28,
 };
 
+/** Critically-damped spring for drawers — snappy, zero overshoot. ≈160ms settle. */
+export const springCritical: Transition = {
+	type: 'spring',
+	stiffness: 500,
+	damping: 35,
+};
+
 /** Gentle spring for page-level stagger entrances. ≈220ms settle. */
 export const springGentle: Transition = {
 	type: 'spring',
