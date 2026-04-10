@@ -36,7 +36,7 @@ vi.mock('./workers-ai', () => ({
 }));
 
 // Mock the coordinator namespace
-const mockGetOutputLogs = vi.fn<() => Promise<string | undefined>>().mockResolvedValue();
+const mockGetOutputLogs = vi.fn<() => Promise<string | undefined>>(async (): Promise<string | undefined> => undefined);
 const mockSendCdpCommand = vi.fn().mockResolvedValue({ result: '{}' });
 vi.mock('../../lib/durable-object-namespaces', () => ({
 	coordinatorNamespace: {
@@ -87,14 +87,14 @@ vi.mock('@modelcontextprotocol/sdk/client/streamableHttp.js', () => ({
 // doesn't try real filesystem I/O or diagnostics channel publishing.
 vi.mock('node:fs/promises', () => ({
 	default: {
-		mkdir: vi.fn().mockResolvedValue(),
-		writeFile: vi.fn().mockResolvedValue(),
+		mkdir: vi.fn(async () => {}),
+		writeFile: vi.fn(async () => {}),
 		readdir: vi.fn().mockResolvedValue([]),
-		unlink: vi.fn().mockResolvedValue(),
+		unlink: vi.fn(async () => {}),
 		readFile: vi.fn().mockRejectedValue(new Error('ENOENT')),
 		stat: vi.fn().mockRejectedValue(new Error('ENOENT')),
 		access: vi.fn().mockRejectedValue(new Error('ENOENT')),
-		rm: vi.fn().mockResolvedValue(),
+		rm: vi.fn(async () => {}),
 	},
 }));
 
@@ -368,6 +368,59 @@ describe('AIAgentService', () => {
 			const errors = events.filter((event) => event.type === 'run-error');
 			expect(errors).toHaveLength(0);
 		});
+
+		it('resets per-attempt tool flags between retries', async () => {
+			let callCount = 0;
+
+			vi.mocked(streamText).mockImplementation(() => {
+				callCount++;
+				if (callCount === 1) {
+					// First attempt emits a user_question tool call, then fails with a retryable error.
+					return {
+						fullStream: {
+							async *[Symbol.asyncIterator]() {
+								yield { type: 'tool-call', toolCallId: 'tc-q', toolName: 'user_question', input: { question: 'Which one?' } };
+								yield { type: 'error', error: new Error('overloaded') };
+							},
+						},
+						response: Promise.resolve({ messages: [] }),
+						// eslint-disable-next-line @typescript-eslint/no-explicit-any -- test mock
+					} as any;
+				}
+
+				// Retry attempt succeeds with text-only output.
+				return {
+					fullStream: {
+						async *[Symbol.asyncIterator]() {
+							yield { type: 'text-delta', text: 'Recovered answer' };
+							yield { type: 'finish-step', finishReason: 'stop', usage: { inputTokens: 100, outputTokens: 10 } };
+							yield { type: 'finish', finishReason: 'stop' };
+						},
+					},
+					response: Promise.resolve({
+						messages: [{ role: 'assistant', content: [{ type: 'text', text: 'Recovered answer' }] }],
+					}),
+					// eslint-disable-next-line @typescript-eslint/no-explicit-any -- test mock
+				} as any;
+			});
+
+			const service = createTestService();
+			const abortController = new AbortController();
+			const stream = service.runAgentStream(makeModelMessages('Hello'), [makeUserMessage('Hello')], abortController);
+			const events = await collectEvents(stream);
+
+			// Should have a retry status
+			const retryStatuses = events.filter((event) => event.type === 'status' && event.message.includes('Retrying'));
+			expect(retryStatuses.length).toBeGreaterThanOrEqual(1);
+
+			// Should have text deltas from the successful retry
+			const textDeltas = events.filter((event) => event.type === 'text-delta');
+			expect(textDeltas.length).toBeGreaterThanOrEqual(1);
+
+			// Should have completed without run-error
+			const errors = events.filter((event) => event.type === 'run-error');
+			expect(errors).toHaveLength(0);
+		});
 	});
 
 	// ─── Error and retry ───────────────────────────────────────────────────
@@ -589,8 +642,34 @@ describe('AIAgentService', () => {
 			const stream = service.runAgentStream(makeModelMessages('Read files'), [makeUserMessage('Read files')], abortController);
 			await collectEvents(stream);
 
-			// Should be called once per turn + no extra final persist since last turn already did it
-			expect(onPersistSession).toHaveBeenCalledTimes(2);
+			// Two turn persists + one final repersist after empty snapshot cleanup.
+			expect(onPersistSession).toHaveBeenCalledTimes(3);
+		});
+
+		it('persists cleared messageSnapshots after deleting an empty snapshot', async () => {
+			const onPersistSession = vi.fn<
+				(
+					sessionId: string,
+					sessionData: { messageSnapshots?: Record<string, string> },
+					pendingChanges?: Record<string, PendingFileChange>,
+				) => Promise<void>
+			>(async () => {});
+			const service = createTestService({ onPersistSession, sessionId: 'snapshot-cleanup' });
+			const abortController = new AbortController();
+			const stream = service.runAgentStream(makeModelMessages('Hello'), [makeUserMessage('Hello')], abortController);
+			await collectEvents(stream);
+
+			expect(onPersistSession).toHaveBeenCalled();
+			const lastCall = onPersistSession.mock.calls.at(-1);
+			expect(lastCall).toBeDefined();
+			if (!lastCall) return;
+
+			const sessionData = lastCall[1];
+			expect(sessionData).toEqual(
+				expect.objectContaining({
+					messageSnapshots: undefined,
+				}),
+			);
 		});
 	});
 

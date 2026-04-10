@@ -368,16 +368,17 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		model: AIModelId = DEFAULT_AI_MODEL,
 		sessionId?: string,
 	): Promise<{ sessionId: string }> {
-		// Rate limiting keyed on the server-authenticated user (falls back to
-		// projectId for backwards compatibility / eviction-recovery restarts
-		// where no connection is available).
-		const authenticatedUserId = this.getAuthenticatedUserId();
+		// Rate limiting keyed on projectId — the DO is 1:1 with a project.
+		// Never use client-supplied context for rate-limit keys.
 		if (env.AI_RATE_LIMITER) {
-			const { success } = await env.AI_RATE_LIMITER.limit({ key: authenticatedUserId ?? projectId });
+			const { success } = await env.AI_RATE_LIMITER.limit({ key: projectId });
 			if (!success) {
 				throw new Error('Rate limit exceeded. Please wait before making more AI requests.');
 			}
 		}
+
+		// Best-effort user attribution from trusted server-forwarded header
+		const authenticatedUserId = this.getAuthenticatedUserId();
 
 		// Model config validation
 		const modelConfig = getModelConfig(model);
@@ -1072,6 +1073,25 @@ export class AgentRunner extends Agent<Env, AgentState> {
 					if (lastUserIndex >= 0) {
 						snapshots[String(lastUserIndex)] = event.id;
 					}
+					this.updateSessionState(sessionId, { messageSnapshots: snapshots });
+				}
+				break;
+			}
+			case 'snapshot-deleted': {
+				this.currentRunSnapshotIds.delete(sessionId);
+				const current = this.state.currentSession;
+				if (!current) break;
+
+				const snapshots = { ...current.messageSnapshots };
+				let changed = false;
+				for (const [key, snapshotId] of Object.entries(snapshots)) {
+					if (snapshotId === event.id) {
+						delete snapshots[key];
+						changed = true;
+					}
+				}
+
+				if (changed) {
 					this.updateSessionState(sessionId, { messageSnapshots: snapshots });
 				}
 				break;

@@ -467,6 +467,20 @@ export class AIAgentService {
 				const changeCountBefore = queryChanges.length;
 				const toolFailures: ToolFailureRecord[] = [];
 				pendingToolCallIds.length = 0;
+				const drainToolFailures = (toolCallId: string) => {
+					for (const failure of toolFailures) {
+						if (MUTATION_TOOL_NAMES.has(failure.toolName)) {
+							hadMutationFailure = true;
+						}
+						streamToolErrors.set(toolCallId, {
+							toolCallId,
+							toolName: failure.toolName,
+							errorCode: failure.errorCode ?? '',
+							errorMessage: failure.errorMessage,
+						});
+					}
+					toolFailures.length = 0;
+				};
 				const baseExcludedTools = this.isSubAgent ? SUB_AGENT_EXCLUDED_TOOLS : undefined;
 				const iterationExcludedTools = previousIterationHadMutationFailure
 					? baseExcludedTools
@@ -490,7 +504,6 @@ export class AIAgentService {
 				let hadToolCalls = false;
 				let hadUserQuestion = false;
 				let hadMutationFailure = false;
-				lastAssistantText = '';
 				let retryAttempt = 0;
 				let outputRecoveryAttempts = 0;
 				const llmTimer = logger.startTimer();
@@ -498,6 +511,13 @@ export class AIAgentService {
 				let latestFinishReason: string | undefined;
 
 				while (true) {
+					// Reset per-attempt state so failed attempts don't contaminate retries.
+					hadToolCalls = false;
+					hadUserQuestion = false;
+					hadMutationFailure = false;
+					lastAssistantText = '';
+					toolFailures.length = 0;
+
 					let streamError: string | undefined;
 					let caughtStreamError: unknown;
 					latestFinishReason = undefined;
@@ -641,24 +661,13 @@ export class AIAgentService {
 										}
 									}
 
-									// Drain tool failures
-									for (const failure of toolFailures) {
-										if (MUTATION_TOOL_NAMES.has(failure.toolName)) {
-											hadMutationFailure = true;
-										}
-										streamToolErrors.set(part.toolCallId, {
-											toolCallId: part.toolCallId,
-											toolName: failure.toolName,
-											errorCode: failure.errorCode ?? '',
-											errorMessage: failure.errorMessage,
-										});
-									}
-									toolFailures.length = 0;
+									drainToolFailures(part.toolCallId);
 									break;
 								}
 								case 'tool-error': {
 									const errorText = part.error instanceof Error ? part.error.message : String(part.error ?? 'Tool error');
 									yield toolCallEndEvent(part.toolCallId, part.toolName, errorText, true);
+									drainToolFailures(part.toolCallId);
 									break;
 								}
 								case 'finish-step': {
@@ -833,7 +842,7 @@ export class AIAgentService {
 					try {
 						const recentEdits = await coordinatorStub.getRecentFileEdits();
 						if (recentEdits.length > 0) {
-							const editedPaths = recentEdits.map((edit) => edit.path).join(', ');
+							const editedPaths = recentEdits.map((edit: { path: string }) => edit.path).join(', ');
 							workingMessages.push({
 								role: 'user',
 								content: `SYSTEM: While you were working, a user manually edited the following files: ${editedPaths}. If any of these files are relevant to your current task, re-read them with file_read before making further changes to avoid conflicts.`,
@@ -898,7 +907,12 @@ export class AIAgentService {
 			// Cleanup empty snapshots
 			if (snapshotContext && queryChanges.length === 0) {
 				await deleteDirectoryRecursive(snapshotContext.directory);
+				sessionSnapshotId = undefined;
 				yield snapshotDeletedEvent(snapshotContext.id);
+				if (sessionPersisted) {
+					sessionPersisted = false;
+					await persistSession();
+				}
 			}
 
 			// Save plan in plan mode
