@@ -446,12 +446,9 @@ function WranglerSettingsContent({ projectId }: { projectId: string }) {
 							/>
 							<div className="flex flex-col gap-0.5">
 								<span className="text-xs font-medium text-text-primary">Enable Object Storage</span>
-								<span className="text-xs text-text-secondary/70">
-									CRUD operations on blob files via <code className="rounded-sm bg-bg-tertiary px-1 font-mono">env.STORAGE</code>
-								</span>
+								{storageEnabled && <StorageUsageBar projectId={projectId} />}
 							</div>
 						</label>
-						{storageEnabled && <StorageUsageBar projectId={projectId} />}
 					</fieldset>
 				</div>
 			</div>
@@ -470,28 +467,21 @@ function StorageUsageBar({ projectId }: { projectId: string }) {
 		return <p className="text-xs text-text-secondary/70">Loading storage usage...</p>;
 	}
 
-	if (!storageQuery.data || !storageQuery.data.enabled) {
-		return;
-	}
-
-	const { usageBytes, quotaBytes } = storageQuery.data;
+	const { usageBytes, quotaBytes } = storageQuery.data ?? { usageBytes: 0, quotaBytes: 0 };
 	const percentage = quotaBytes > 0 ? Math.min((usageBytes / quotaBytes) * 100, 100) : 0;
 	const isNearLimit = percentage > 80;
 
 	return (
-		<div className="flex flex-col gap-1.5 rounded-sm border border-border p-2.5">
-			<div className="flex items-center justify-between text-xs">
-				<span className="text-text-secondary">Storage Usage</span>
-				<span className={cn('font-mono', isNearLimit ? 'text-red-400' : 'text-text-secondary')}>
-					{formatBytes(usageBytes)} / {formatBytes(quotaBytes)}
-				</span>
-			</div>
+		<div className="flex flex-col gap-1">
 			<div className="h-1.5 w-full overflow-hidden rounded-full bg-bg-tertiary">
 				<div
 					className={cn('h-full rounded-full transition-all', isNearLimit ? 'bg-red-400' : 'bg-accent')}
 					style={{ width: `${percentage}%` }}
 				/>
 			</div>
+			<span className={cn('font-mono text-xs', isNearLimit ? 'text-red-400' : 'text-text-secondary/70')}>
+				{formatBytes(usageBytes)} / {formatBytes(quotaBytes)}
+			</span>
 		</div>
 	);
 }
