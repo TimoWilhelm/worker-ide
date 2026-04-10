@@ -212,9 +212,17 @@ export function useAiSessions({ projectId, agent }: { projectId: string; agent: 
 
 	useEffect(() => {
 		if (hasRestoredReference.current) return;
+
+		// Wait for the Agents SDK to sync state before deciding whether to
+		// call loadSession. On page refresh, agentState starts as undefined
+		// (SDK hasn't connected yet). If we call loadSession before state
+		// arrives, it overwrites the live in-memory streaming state on the
+		// DO with stale DB data, losing mid-turn messages.
+		if (!agentState) return;
+
 		hasRestoredReference.current = true;
 
-		const currentSession = agentState?.currentSession;
+		const currentSession = agentState.currentSession;
 		if (currentSession) {
 			queueMicrotask(() => setIsRestoringSession(false));
 		} else {
@@ -224,11 +232,19 @@ export function useAiSessions({ projectId, agent }: { projectId: string; agent: 
 				return;
 			}
 
-			void agent.call('loadSession', [activeId]).finally(() => {
-				setIsRestoringSession(false);
-			});
+			void agent.call('loadSession', [activeId]).then(
+				() => {
+					setIsRestoringSession(false);
+				},
+				() => {
+					// Allow the effect to retry on the next agentState change so a
+					// transient network hiccup doesn't permanently prevent restore.
+					hasRestoredReference.current = false;
+					setIsRestoringSession(false);
+				},
+			);
 		}
-	}, [projectId, agent, agentState?.currentSession]);
+	}, [projectId, agent, agentState]);
 
 	return {
 		savedSessions,

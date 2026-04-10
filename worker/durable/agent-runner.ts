@@ -549,11 +549,26 @@ export class AgentRunner extends Agent<Env, AgentState> {
 
 	/**
 	 * Load a session into the current state.
+	 *
+	 * Note: The returned `AiSession` is always read from the database, so during
+	 * an active streaming turn it will be **stale** (missing in-flight messages).
+	 * Callers must not rely on the return value for up-to-date message history;
+	 * instead, they should consume `agent.state.currentSession` which is kept
+	 * current via real-time state sync.
 	 */
 	@callable()
 	async loadSession(sessionId: string): Promise<AiSession | undefined> {
 		const session = this.readSessionAsAiSession(sessionId);
 		if (!session) return undefined;
+
+		// If this session is already loaded and actively running, don't overwrite
+		// the live in-memory state with stale DB data. Mid-turn streaming content
+		// (thinking, partial tool calls, in-progress text) only exists in
+		// this.state.currentSession.messages and hasn't been persisted to the DB
+		// yet (only persisted on turn-complete). Overwriting would lose messages.
+		if (this.state.currentSession?.sessionId === sessionId && isSessionRunning(this.db, sessionId)) {
+			return session;
+		}
 
 		// Update agent state so all clients see the loaded session
 		const pendingChangesMap = this.loadPendingChangesFromDatabase();
