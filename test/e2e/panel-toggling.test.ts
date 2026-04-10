@@ -27,15 +27,15 @@ test.describe('Panel Toggling', () => {
 		// The collapse button should say "Hide utility panel"
 		await expect(page.getByLabel('Hide utility panel')).toBeVisible();
 
-		// The Output tab should be visible
-		await expect(page.getByRole('tab', { name: 'Output' })).toBeVisible();
+		// The Output tabpanel should be visible
+		await expect(page.getByRole('tabpanel', { name: 'Output' })).toBeVisible();
 	});
 
 	test('clicking utility panel toggle hides it', async ({ page }) => {
 		await gotoIDE(page);
 
 		// Utility panel is visible by default
-		await expect(page.getByRole('tab', { name: 'Output' })).toBeVisible();
+		await expect(page.getByRole('tabpanel', { name: 'Output' })).toBeVisible();
 
 		// Hide utility panel.
 		// The auto-open-on-errors effect may re-expand if error logs arrive
@@ -82,7 +82,7 @@ test.describe('Panel Toggling', () => {
 
 		// Show utility panel
 		await showButton.click();
-		await expect(page.getByRole('tab', { name: 'Output' })).toBeVisible();
+		await expect(page.getByRole('tabpanel', { name: 'Output' })).toBeVisible();
 	});
 
 	test('clicking AI toggle shows the AI panel', async ({ page }) => {
