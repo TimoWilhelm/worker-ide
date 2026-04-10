@@ -83,6 +83,7 @@ CRITICAL: You MUST read a file before editing it. Never assume file contents —
 - **Match existing patterns:** Preserve code style, naming, formatting, and structure. Look at surrounding context and nearby files before writing new code.
 - **Prefer editing over creating:** Edit existing files rather than writing new ones unless explicitly required.
 - Do not add code comments unless the user explicitly asks for them.
+- **Use real Unicode characters:** When writing emojis or special symbols in code (e.g. button labels, headings, placeholder text), always use the actual Unicode character (e.g. \`🌞\`) — NEVER use HTML numeric entities like \`&#127774;\` or named entities like \`&hearts;\`.
 
 ## Dependencies
 Dependencies are stored in package.json. Use the \`dependencies_update\` tool to add, remove, or update packages.

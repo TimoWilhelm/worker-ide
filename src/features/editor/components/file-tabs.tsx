@@ -288,8 +288,8 @@ function FileTabItem({ tab, isActive, showDirectory, participants, onClose }: Fi
 			onMouseDown={handleMiddleClick}
 			className={cn(
 				`
-					group relative flex h-9 items-center gap-2 border-r border-border px-3
-					text-sm transition-colors
+					group relative flex h-9 cursor-pointer items-center gap-2 border-r
+					border-border ps-3 pe-1 text-sm transition-colors
 				`,
 				`
 					hover:bg-bg-tertiary
@@ -351,7 +351,7 @@ function FileTabItem({ tab, isActive, showDirectory, participants, onClose }: Fi
 							opacity-0
 							focus-visible:opacity-100 focus-visible:ring-1 focus-visible:ring-accent
 							focus-visible:outline-none focus-visible:ring-inset
-							hover-always:bg-bg-tertiary
+							hover-always:bg-bg-secondary
 							group-hover-always:opacity-100
 						`,
 						isActive && 'opacity-100',
