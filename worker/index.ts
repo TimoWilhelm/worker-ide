@@ -884,10 +884,11 @@ app.post('/api/clone-project', async (c) => {
 		.where(eq(authSchema.project.id, sourceProjectId))
 		.limit(1);
 
-	if (
-		sourceProjectRow.length > 0 &&
-		(sourceProjectRow[0].deletedAt || sourceProjectRow[0].projectBannedAt || sourceProjectRow[0].orgBannedAt)
-	) {
+	if (sourceProjectRow.length === 0) {
+		return c.json({ error: 'Source project not found.' }, 404);
+	}
+
+	if (sourceProjectRow[0].deletedAt || sourceProjectRow[0].projectBannedAt || sourceProjectRow[0].orgBannedAt) {
 		return c.json({ error: 'Forbidden' }, 403);
 	}
 

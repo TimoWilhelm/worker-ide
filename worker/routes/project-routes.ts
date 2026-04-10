@@ -8,7 +8,7 @@ import fs from 'node:fs/promises';
 import { zValidator } from '@hono/zod-validator';
 import { Hono } from 'hono';
 
-import { HIDDEN_ENTRIES } from '@shared/constants';
+import { BINARY_EXTENSIONS, HIDDEN_ENTRIES } from '@shared/constants';
 import { HttpErrorCode } from '@shared/http-errors';
 import { dependenciesUpdateSchema, projectMetaSchema, visibilityBodySchema } from '@shared/validation';
 
@@ -180,7 +180,8 @@ export const projectRoutes = new Hono<AppEnvironment>()
 		if (projectFiles['wrangler.jsonc']) {
 			try {
 				const { default: stripJsonComments } = await import('strip-json-comments');
-				const wranglerConfig = JSON.parse(stripJsonComments(projectFiles['wrangler.jsonc']));
+				const wranglerRaw = projectFiles['wrangler.jsonc'];
+				const wranglerConfig = JSON.parse(stripJsonComments(typeof wranglerRaw === 'string' ? wranglerRaw : new TextDecoder().decode(wranglerRaw)));
 				const bindingsConfig = wranglerConfig.bindings;
 				delete wranglerConfig.bindings;
 
@@ -195,10 +196,11 @@ export const projectRoutes = new Hono<AppEnvironment>()
 		}
 
 		const zip = createZip(projectFiles);
+		const safeName = projectName.replaceAll(/["\\\n\r]/g, '_');
 		return new Response(zip, {
 			headers: {
 				'Content-Type': 'application/zip',
-				'Content-Disposition': `attachment; filename="${projectName}.zip"`,
+				'Content-Disposition': `attachment; filename="${safeName}.zip"`,
 				'Access-Control-Allow-Origin': '*',
 			},
 		});
@@ -207,8 +209,8 @@ export const projectRoutes = new Hono<AppEnvironment>()
 /**
  * Collect all files in a directory for bundling.
  */
-async function collectFilesForBundle(directory: string, base = ''): Promise<Record<string, string>> {
-	const files: Record<string, string> = {};
+async function collectFilesForBundle(directory: string, base = ''): Promise<Record<string, string | Uint8Array>> {
+	const files: Record<string, string | Uint8Array> = {};
 	try {
 		const entries = await fs.readdir(directory, { withFileTypes: true });
 		const results = await Promise.all(
@@ -220,6 +222,11 @@ async function collectFilesForBundle(directory: string, base = ''): Promise<Reco
 					if (entry.isDirectory()) {
 						return collectFilesForBundle(fullPath, relativePath);
 					} else {
+						const extension = entry.name.match(/\.[^.]+$/)?.[0]?.toLowerCase() ?? '';
+						if (BINARY_EXTENSIONS.has(extension)) {
+							const buffer = await fs.readFile(fullPath);
+							return { [relativePath]: new Uint8Array(buffer) };
+						}
 						const content = await fs.readFile(fullPath, 'utf8');
 						return { [relativePath]: content };
 					}

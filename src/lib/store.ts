@@ -563,9 +563,25 @@ export const useStore = create<StoreState>()(
 					}),
 
 				removeMessagesAfter: (index) =>
-					set((state) => ({
-						history: state.history.slice(0, index + 1),
-					})),
+					set((state) => {
+						const newSnapshots = new Map<number, string>();
+						for (const [key, value] of state.messageSnapshots) {
+							if (key <= index) {
+								newSnapshots.set(key, value);
+							}
+						}
+						const newModes = new Map<number, AgentMode>();
+						for (const [key, value] of state.messageModes) {
+							if (key <= index) {
+								newModes.set(key, value);
+							}
+						}
+						return {
+							history: state.history.slice(0, index + 1),
+							messageSnapshots: newSnapshots,
+							messageModes: newModes,
+						};
+					}),
 				setAgentMode: (mode) => set({ agentMode: mode }),
 
 				setSelectedModel: (model) => set({ selectedModel: model }),
@@ -775,14 +791,15 @@ export const useStore = create<StoreState>()(
 						const newStatuses = [...change.hunkStatuses];
 						newStatuses[groupIndex] = 'approved';
 
-						// If all hunks are resolved (no pending left), mark the whole file
+						// If all hunks are resolved (no pending left), mark the whole file.
+						// Mixed decisions (some approved, some rejected) are treated as 'approved'
+						// since the user explicitly approved this hunk — partial accept beats stuck pending.
 						const allResolved = newStatuses.every((status) => status !== 'pending');
-						const allApproved = newStatuses.every((status) => status === 'approved');
 
 						newMap.set(path, {
 							...change,
 							hunkStatuses: newStatuses,
-							status: allResolved ? (allApproved ? 'approved' : 'pending') : 'pending',
+							status: allResolved ? 'approved' : 'pending',
 						});
 						return { pendingChanges: newMap };
 					}),
@@ -797,13 +814,15 @@ export const useStore = create<StoreState>()(
 						newStatuses[groupIndex] = 'rejected';
 
 						// If all hunks are resolved (no pending left), mark the whole file
+						// If all hunks are resolved (no pending left), mark the whole file.
+						// Mixed decisions (some approved, some rejected) are treated as 'rejected'
+						// since the user explicitly rejected this hunk — partial reject beats stuck pending.
 						const allResolved = newStatuses.every((status) => status !== 'pending');
-						const allRejected = newStatuses.every((status) => status === 'rejected');
 
 						newMap.set(path, {
 							...change,
 							hunkStatuses: newStatuses,
-							status: allResolved ? (allRejected ? 'rejected' : 'pending') : 'pending',
+							status: allResolved ? 'rejected' : 'pending',
 						});
 						return { pendingChanges: newMap };
 					}),

@@ -609,7 +609,7 @@ describe('Pending Changes slice', () => {
 		expect(change?.status).toBe('rejected');
 	});
 
-	it('keeps file pending when hunks have mixed decisions and all are resolved', () => {
+	it('resolves file when hunks have mixed decisions and all are resolved', () => {
 		useStore.getState().addPendingChange(sampleChange);
 		useStore.setState((state) => {
 			const newMap = new Map(state.pendingChanges);
@@ -623,8 +623,9 @@ describe('Pending Changes slice', () => {
 
 		const change = useStore.getState().pendingChanges.get('/src/main.ts');
 		expect(change?.hunkStatuses).toEqual(['approved', 'rejected']);
-		// Mixed decisions: file stays pending until finalizePartialReview handles it
-		expect(change?.status).toBe('pending');
+		// Mixed decisions: file is resolved (not stuck pending) — the last action
+		// was rejectHunk, so the file-level status reflects the reject decision.
+		expect(change?.status).toBe('rejected');
 	});
 
 	it('only changes pending hunkStatuses when approving a file-level change', () => {

@@ -295,7 +295,8 @@ export const userRoutes = new Hono<AuthedEnvironment>()
 		const userId = c.get('userId');
 		const database = drizzle(c.env.DB);
 
-		// Pre-check: find all orgs where user is sole super admin of multi-member org
+		// Pre-check: find all orgs where user is sole super admin of multi-member org.
+		// Cache member lists per org to avoid re-querying in the classification loop below.
 		const memberships = await database
 			.select({
 				organizationId: schema.member.organizationId,
@@ -304,15 +305,17 @@ export const userRoutes = new Hono<AuthedEnvironment>()
 			.from(schema.member)
 			.where(eq(schema.member.userId, userId));
 
-		for (const membership of memberships) {
-			if (membership.role !== 'owner') continue;
+		const orgMemberCache = new Map<string, Array<{ userId: string; role: string }>>();
 
+		for (const membership of memberships) {
 			const allMembers = await database
 				.select({ userId: schema.member.userId, role: schema.member.role })
 				.from(schema.member)
 				.where(eq(schema.member.organizationId, membership.organizationId));
 
-			if (allMembers.length > 1) {
+			orgMemberCache.set(membership.organizationId, allMembers);
+
+			if (membership.role === 'owner' && allMembers.length > 1) {
 				const otherSuperAdmins = allMembers.filter((m) => m.role === 'owner' && m.userId !== userId);
 				if (otherSuperAdmins.length === 0) {
 					throw httpError(
@@ -327,17 +330,13 @@ export const userRoutes = new Hono<AuthedEnvironment>()
 
 		const now = new Date();
 
-		// Classify memberships by org size so we can batch writes per category
+		// Classify memberships by org size using cached member data
 		const singleMemberOrgIds: string[] = [];
 		const multiMemberOrgIds: string[] = [];
 
 		for (const membership of memberships) {
-			const allMembers = await database
-				.select({ userId: schema.member.userId })
-				.from(schema.member)
-				.where(eq(schema.member.organizationId, membership.organizationId));
-
-			if (allMembers.length === 1) {
+			const allMembers = orgMemberCache.get(membership.organizationId);
+			if (allMembers && allMembers.length === 1) {
 				singleMemberOrgIds.push(membership.organizationId);
 			} else {
 				multiMemberOrgIds.push(membership.organizationId);

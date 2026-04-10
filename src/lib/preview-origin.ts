@@ -49,10 +49,17 @@ export function usePreviewUrl(projectId: string): PreviewUrlState {
 	const [previewOrigin, setPreviewOrigin] = useState<string | undefined>();
 	const [isLoading, setIsLoading] = useState(true);
 	const fetchingReference = useRef(false);
+	const refreshRequestedReference = useRef(false);
 
 	const fetchPreviewUrl = useCallback(async () => {
-		if (fetchingReference.current) return;
+		if (fetchingReference.current) {
+			// A fetch is already in progress — flag that a refresh was requested
+			// so we re-fetch once the current request completes.
+			refreshRequestedReference.current = true;
+			return;
+		}
 		fetchingReference.current = true;
+		refreshRequestedReference.current = false;
 		try {
 			const api = createApiClient(projectId);
 			const response = await api['preview-url'].$get({});
@@ -68,6 +75,12 @@ export function usePreviewUrl(projectId: string): PreviewUrlState {
 		} finally {
 			setIsLoading(false);
 			fetchingReference.current = false;
+
+			// If a refresh was requested while we were fetching, re-fetch now.
+			if (refreshRequestedReference.current) {
+				refreshRequestedReference.current = false;
+				void fetchPreviewUrl();
+			}
 		}
 	}, [projectId]);
 
