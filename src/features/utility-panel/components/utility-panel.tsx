@@ -12,6 +12,7 @@
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import { lazy, Suspense, useState } from 'react';
 
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Pill } from '@/components/ui/pill';
 import { PanelSkeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
@@ -63,8 +64,8 @@ export function UtilityPanel({ projectId, onToggle, collapsed = false, logCounts
 			<div
 				onClick={onToggle}
 				className="
-					flex h-8 shrink-0 cursor-pointer items-center justify-between border-b
-					border-border bg-bg-secondary px-2 transition-colors
+					flex h-7 shrink-0 cursor-pointer items-center justify-between
+					bg-bg-secondary px-2 transition-colors
 					hover:bg-bg-tertiary
 				"
 			>
@@ -84,37 +85,32 @@ export function UtilityPanel({ projectId, onToggle, collapsed = false, logCounts
 						{collapsed ? <ChevronUp className="size-3" /> : <ChevronDown className="size-3" />}
 					</button>
 
-					<div role="tablist" aria-label="Utility panels" className="flex items-center gap-0.5">
-						{TABS.map((tab) => (
-							<button
-								key={tab.id}
-								type="button"
-								role="tab"
-								aria-selected={activeTab === tab.id}
-								aria-controls={`utility-tabpanel-${tab.id}`}
-								onClick={(event) => {
-									event.stopPropagation();
-									setActiveTab(tab.id);
-								}}
-								className={cn(
-									`
-										flex cursor-pointer items-center gap-1.5 rounded-sm px-1.5 py-px
-										text-xs transition-colors
-									`,
-									activeTab === tab.id ? 'bg-bg-tertiary text-text-primary' : 'text-text-secondary hover:text-text-primary',
-								)}
-							>
-								{tab.label}
-								{/* Inline badges next to tab label */}
-								{tab.id === 'output' && logCounts && (
+					<DropdownMenu>
+						<DropdownMenuTrigger>
+							<button type="button" onClick={(event) => event.stopPropagation()} className="flex cursor-pointer items-center gap-1.5">
+								<Pill size="md" color="muted">
+									{TABS.find((t) => t.id === activeTab)?.label}
+								</Pill>
+								{activeTab === 'output' && logCounts && (
 									<>
 										{logCounts.errors > 0 && <Pill color="red">{logCounts.errors}</Pill>}
 										{logCounts.warnings > 0 && <Pill color="yellow">{logCounts.warnings}</Pill>}
 									</>
 								)}
 							</button>
-						))}
-					</div>
+						</DropdownMenuTrigger>
+						<DropdownMenuContent align="start" sideOffset={4}>
+							{TABS.map((tab) => (
+								<DropdownMenuItem
+									key={tab.id}
+									aria-current={activeTab === tab.id ? 'true' : undefined}
+									onSelect={() => setActiveTab(tab.id)}
+								>
+									{tab.label}
+								</DropdownMenuItem>
+							))}
+						</DropdownMenuContent>
+					</DropdownMenu>
 				</div>
 
 				{/* Right: optional header content (cursor position, etc.) */}

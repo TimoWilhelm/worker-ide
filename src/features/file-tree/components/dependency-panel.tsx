@@ -225,7 +225,7 @@ function DependencyPanel({ projectId, collapsed = false, onToggle, className }: 
 				className={cn(
 					'flex h-7 w-full shrink-0 cursor-pointer items-center gap-1 px-2 text-2xs',
 					'border-t border-border bg-bg-secondary font-medium tracking-wider',
-					'text-text-secondary uppercase',
+					'text-text-secondary',
 					'hover:bg-bg-tertiary hover:text-text-primary',
 					className,
 				)}
@@ -247,7 +247,7 @@ function DependencyPanel({ projectId, collapsed = false, onToggle, className }: 
 				onClick={onToggle}
 				className={`
 					flex h-7 shrink-0 cursor-pointer items-center gap-1 px-2 text-2xs
-					font-medium tracking-wider text-text-secondary uppercase
+					font-medium tracking-wider text-text-secondary
 					hover:text-text-primary
 				`}
 			>

@@ -725,6 +725,16 @@ export class AgentRunner extends Agent<Env, AgentState> {
 			await loopPromise.catch(() => {});
 		}
 
+		// Clean up all volatile in-memory state for this session
+		this.flushContentDelta(sessionId);
+		this.pendingContentDeltas.delete(sessionId);
+		this.flushSubAgentDeltas(sessionId);
+		this.currentRunSnapshotIds.delete(sessionId);
+		this.steeringMessages.delete(sessionId);
+		this.sessionInitiatorUserIds.delete(sessionId);
+		this.sessionAnalytics.delete(sessionId);
+		this.titleGenerationInFlight.delete(sessionId);
+
 		deleteSession(this.db, sessionId);
 		this.removePendingChangesForSessions(new Set([sessionId]));
 		const survivingSnapshotIds = this.getSurvivingSnapshotIds();

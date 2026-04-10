@@ -394,12 +394,7 @@ export function FileTree({
 			<div className={cn('flex h-full flex-col', className)}>
 				{/* Files header */}
 				<div className="flex items-center justify-between px-3 pt-1.5 pb-0.5">
-					<span
-						id={treeLabelId}
-						className="
-							text-xs font-semibold tracking-wider text-text-secondary uppercase
-						"
-					>
+					<span id={treeLabelId} className="text-xs font-semibold tracking-wider text-text-secondary">
 						Files
 					</span>
 					<div className="flex items-center gap-0.5">

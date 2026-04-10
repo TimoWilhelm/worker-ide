@@ -11,6 +11,7 @@ import { ExternalLink, RefreshCw, Wrench } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
+import { LoadingBars } from '@/components/ui/loading-bars';
 import { Tooltip } from '@/components/ui/tooltip';
 import { previewIframeReference } from '@/features/preview/preview-iframe-reference';
 import { useStore } from '@/lib/store';
@@ -128,7 +129,7 @@ export function PreviewPanel({ previewUrl, isLoadingUrl, refreshPreviewUrl, ifra
 					</Tooltip>
 					<Tooltip content="Refresh">
 						<Button variant="ghost" size="icon" className="size-7" onClick={handleRefresh}>
-							<RefreshCw className={cn('size-3.5', showLoadingOverlay && 'animate-spin')} />
+							<RefreshCw className="size-3.5" />
 						</Button>
 					</Tooltip>
 					<Tooltip content="Open in new tab">
@@ -147,8 +148,8 @@ export function PreviewPanel({ previewUrl, isLoadingUrl, refreshPreviewUrl, ifra
 							absolute inset-0 z-10 flex items-center justify-center bg-bg-tertiary/80
 						"
 					>
-						<div className="flex flex-col items-center gap-2">
-							<RefreshCw className="size-6 animate-spin text-accent" />
+						<div className="flex flex-col items-center gap-3">
+							<LoadingBars />
 							<span className="text-sm text-text-secondary">Loading preview...</span>
 						</div>
 					</div>
