@@ -49,7 +49,7 @@ import type { ProjectTemplateMeta } from '@shared/types';
  * - Bare ID: <id>
  */
 function extractProjectId(input: string): string | undefined {
-	const pathMatch = input.match(/\/p\/([a-z\d]{1,50})(?:\/|$)/);
+	const pathMatch = input.match(/\/p\/([a-z\d]{1,50})(?:[/?#]|$)/);
 	if (pathMatch) return pathMatch[1];
 	const bareMatch = input.match(/^([a-z\d]{1,50})$/);
 	if (bareMatch) return bareMatch[1];

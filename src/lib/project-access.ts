@@ -42,6 +42,8 @@ export function checkProjectAccess(projectId: string): Promise<ProjectAccessStat
 					if (error.status === 403) return 'forbidden';
 					if (error.status === 404) return 'not-found';
 				}
+				// Evict rejected promise so the user can retry via the ErrorBoundary
+				projectAccessCache.delete(projectId);
 				// Network errors, 401s, 5xxs — re-throw so ErrorBoundary handles them
 				throw error;
 			})

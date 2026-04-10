@@ -333,7 +333,7 @@ export function RevertConfirmDialog({
 									) : (
 										<>
 											<RotateCcw className="size-3.5" />
-											Revert All
+											Revert
 										</>
 									)}
 								</button>

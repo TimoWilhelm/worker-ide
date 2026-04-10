@@ -22,6 +22,8 @@ export default function ProfilePage({ user }: ProfilePageProperties) {
 	const [editName, setEditName] = useState(user.name);
 	const [isSaving, setIsSaving] = useState(false);
 
+	const { refetch: refetchSession } = authClient.useSession();
+
 	const initials = user.name
 		.split(' ')
 		.map((part) => part.charAt(0))
@@ -42,6 +44,8 @@ export default function ProfilePage({ user }: ProfilePageProperties) {
 				toast.error(error.message ?? 'Failed to update your display name. Please try again.');
 				return;
 			}
+			// Refetch the session so the parent re-renders with the updated name
+			await refetchSession();
 			toast.success('Name updated');
 			setIsEditingName(false);
 		} catch {
@@ -49,7 +53,7 @@ export default function ProfilePage({ user }: ProfilePageProperties) {
 		} finally {
 			setIsSaving(false);
 		}
-	}, [editName, user.name]);
+	}, [editName, user.name, refetchSession]);
 
 	return (
 		<div className="flex flex-col gap-8">
@@ -207,27 +211,36 @@ function LinkedAccountsSection() {
 	const [loadError, setLoadError] = useState(false);
 	const [actingProvider, setActingProvider] = useState<string | undefined>();
 
-	const fetchAccounts = useCallback(async () => {
+	const fetchAccounts = useCallback(async (signal?: AbortSignal) => {
 		setLoadError(false);
 		try {
 			const { data, error } = await authClient.listAccounts();
+			if (signal?.aborted) return;
 			if (error) {
 				setLoadError(true);
 				return;
 			}
 			if (data) {
-				// eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- better-auth returns loosely typed account data
-				setAccounts(data as unknown as LinkedAccount[]);
+				const mapped: LinkedAccount[] = (Array.isArray(data) ? data : []).map((entry) => ({
+					providerId: String(('providerId' in entry && entry.providerId) || ''),
+					accountId: String(('accountId' in entry && entry.accountId) || ''),
+				}));
+				setAccounts(mapped);
 			}
 		} catch {
+			if (signal?.aborted) return;
 			setLoadError(true);
 		} finally {
-			setIsLoading(false);
+			if (!signal?.aborted) {
+				setIsLoading(false);
+			}
 		}
 	}, []);
 
 	useEffect(() => {
-		void fetchAccounts();
+		const controller = new AbortController();
+		void fetchAccounts(controller.signal);
+		return () => controller.abort();
 	}, [fetchAccounts]);
 
 	const handleLink = useCallback(async (providerId: string) => {
@@ -302,6 +315,7 @@ function LinkedAccountsSection() {
 					{SUPPORTED_PROVIDERS.map((provider) => {
 						const isLinked = linkedProviderIds.has(provider.id);
 						const isActing = actingProvider === provider.id;
+						const isAnyActing = actingProvider !== undefined;
 						const Icon = provider.icon;
 
 						return (
@@ -326,7 +340,7 @@ function LinkedAccountsSection() {
 											variant="ghost"
 											size="sm"
 											onClick={() => void handleUnlink(provider.id)}
-											disabled={isActing}
+											disabled={isAnyActing}
 											isLoading={isActing}
 											className="
 												gap-1.5 text-xs text-text-secondary
@@ -342,7 +356,7 @@ function LinkedAccountsSection() {
 										variant="outline"
 										size="sm"
 										onClick={() => void handleLink(provider.id)}
-										disabled={isActing}
+										disabled={isAnyActing}
 										isLoading={isActing}
 										className="gap-1.5 text-xs"
 									>
