@@ -7,7 +7,7 @@ import { useDefaultLayout } from 'react-resizable-panels';
 
 import { useStore } from '@/lib/store';
 
-export function usePanelLayouts() {
+export function usePanelLayouts(projectId: string) {
 	const aiPanelVisible = useStore((state) => state.aiPanelVisible);
 	const utilityPanelVisible = useStore((state) => state.utilityPanelVisible);
 	const devtoolsVisible = useStore((state) => state.devtoolsVisible);
@@ -20,7 +20,7 @@ export function usePanelLayouts() {
 		return ids;
 	}, [aiPanelVisible]);
 
-	const mainLayout = useDefaultLayout({ id: 'ide-main', panelIds: mainPanelIds });
+	const mainLayout = useDefaultLayout({ id: `ide-main-${projectId}`, panelIds: mainPanelIds });
 
 	// Sidebar panels: file-tree | dependencies
 	const sidebarPanelIds = useMemo(() => {
@@ -29,7 +29,7 @@ export function usePanelLayouts() {
 		return ids;
 	}, [dependenciesPanelVisible]);
 
-	const sidebarLayout = useDefaultLayout({ id: 'sidebar-panels', panelIds: sidebarPanelIds });
+	const sidebarLayout = useDefaultLayout({ id: `sidebar-panels-${projectId}`, panelIds: sidebarPanelIds });
 
 	// Editor + terminal: editor | utility-panel
 	const editorTerminalPanelIds = useMemo(() => {
@@ -38,7 +38,7 @@ export function usePanelLayouts() {
 		return ids;
 	}, [utilityPanelVisible]);
 
-	const editorTerminalLayout = useDefaultLayout({ id: 'ide-editor-terminal', panelIds: editorTerminalPanelIds });
+	const editorTerminalLayout = useDefaultLayout({ id: `ide-editor-terminal-${projectId}`, panelIds: editorTerminalPanelIds });
 
 	// Preview + devtools: preview | devtools
 	const previewDevtoolsPanelIds = useMemo(() => {
@@ -47,7 +47,7 @@ export function usePanelLayouts() {
 		return ids;
 	}, [devtoolsVisible]);
 
-	const previewDevtoolsLayout = useDefaultLayout({ id: 'ide-preview-devtools', panelIds: previewDevtoolsPanelIds });
+	const previewDevtoolsLayout = useDefaultLayout({ id: `ide-preview-devtools-${projectId}`, panelIds: previewDevtoolsPanelIds });
 
 	return {
 		aiPanelVisible,

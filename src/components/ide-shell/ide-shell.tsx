@@ -57,7 +57,7 @@ export function IDEShell({ projectId }: { projectId: string }) {
 	const projectNameState = useProjectName({ projectId });
 	const logCounts = useLogCounts();
 	const editorState = useEditorState({ projectId });
-	const layouts = usePanelLayouts();
+	const layouts = usePanelLayouts(projectId);
 
 	// Shared preview iframe ref for CDP message relay with DevTools
 	const previewIframeReference = useRef<HTMLIFrameElement>(null);

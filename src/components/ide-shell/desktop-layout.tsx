@@ -3,7 +3,7 @@
  */
 
 import { lazy, Suspense, useCallback, useMemo } from 'react';
-import { Group as PanelGroup, Panel, Separator as ResizeHandle } from 'react-resizable-panels';
+import { Group as PanelGroup, Panel } from 'react-resizable-panels';
 
 import { ActivityBar } from '@/components/activity-bar';
 import { ErrorBoundary } from '@/components/error-boundary';
@@ -21,6 +21,10 @@ import { PanelDivider } from './panel-divider';
 import type { useEditorState } from './use-editor-state';
 import type { usePanelLayouts } from './use-panel-layouts';
 import type { LogCounts } from '@/features/output';
+
+/** Shared default size for bottom sub-panels (dependencies & utility) so they start at the same height. */
+const BOTTOM_PANEL_DEFAULT_SIZE = '30%';
+const TOP_PANEL_DEFAULT_SIZE = '70%';
 
 const AIPanel = lazy(() => import('@/features/ai-assistant'));
 const DevelopmentToolsPanel = lazy(() => import('@/features/devtools'));
@@ -185,7 +189,7 @@ export function DesktopLayout({
 										defaultLayout={sidebarLayout.defaultLayout}
 										onLayoutChanged={sidebarLayout.onLayoutChanged}
 									>
-										<Panel id="file-tree" defaultSize={dependenciesPanelVisible ? '70%' : '100%'} minSize="20%">
+										<Panel id="file-tree" defaultSize={dependenciesPanelVisible ? TOP_PANEL_DEFAULT_SIZE : '100%'} minSize="20%">
 											<div className="flex h-full flex-col overflow-hidden">
 												{isLoadingFiles ? (
 													<div className="flex flex-1 items-center justify-center p-4">
@@ -211,14 +215,8 @@ export function DesktopLayout({
 										</Panel>
 										{dependenciesPanelVisible && (
 											<>
-												<ResizeHandle
-													className="
-														h-0.5 bg-border transition-colors
-														data-[separator=active]:bg-accent
-														data-[separator=hover]:bg-accent
-													"
-												/>
-												<Panel id="dependencies" defaultSize="30%" minSize="10%" maxSize="60%">
+												<PanelDivider orientation="vertical" />
+												<Panel id="dependencies" defaultSize={BOTTOM_PANEL_DEFAULT_SIZE} minSize="10%" maxSize="60%">
 													<div className="h-full overflow-auto">
 														<DependencyPanel projectId={projectId} onToggle={toggleDependenciesPanel} />
 													</div>
@@ -252,7 +250,7 @@ export function DesktopLayout({
 							onLayoutChanged={editorTerminalLayout.onLayoutChanged}
 						>
 							{/* Editor area */}
-							<Panel id="editor" defaultSize={utilityPanelVisible ? '70%' : '100%'} minSize="30%">
+							<Panel id="editor" defaultSize={utilityPanelVisible ? TOP_PANEL_DEFAULT_SIZE : '100%'} minSize="30%">
 								<div className="flex h-full flex-col overflow-hidden">
 									<EditorArea
 										projectId={projectId}
@@ -267,7 +265,7 @@ export function DesktopLayout({
 							{utilityPanelVisible && (
 								<>
 									<PanelDivider orientation="vertical" />
-									<Panel id="utility-panel" defaultSize="30%" minSize="10%" maxSize="60%">
+									<Panel id="utility-panel" defaultSize={BOTTOM_PANEL_DEFAULT_SIZE} minSize="10%" maxSize="60%">
 										<Suspense fallback={<PanelSkeleton label="Loading output..." />}>
 											<UtilityPanel
 												projectId={projectId}

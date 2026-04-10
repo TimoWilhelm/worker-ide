@@ -10,14 +10,16 @@
  */
 
 import { ChevronDown, ChevronUp } from 'lucide-react';
-import { lazy, Suspense, useState } from 'react';
+import { lazy, Suspense } from 'react';
 
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Pill } from '@/components/ui/pill';
 import { PanelSkeleton } from '@/components/ui/skeleton';
+import { useStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 
 import type { LogCounts } from '@/features/output';
+import type { UtilityTab } from '@/lib/store';
 
 // Lazy-loaded sub-panels for code splitting
 const OutputPanel = lazy(() => import('@/features/output'));
@@ -25,9 +27,6 @@ const OutputPanel = lazy(() => import('@/features/output'));
 // =============================================================================
 // Types
 // =============================================================================
-
-/** Available utility panel tabs */
-type UtilityTab = 'output';
 
 interface TabDefinition {
 	id: UtilityTab;
@@ -56,7 +55,8 @@ export interface UtilityPanelProperties {
 // =============================================================================
 
 export function UtilityPanel({ projectId, onToggle, collapsed = false, logCounts, headerRight, className }: UtilityPanelProperties) {
-	const [activeTab, setActiveTab] = useState<UtilityTab>('output');
+	const activeTab = useStore((state) => state.activeUtilityTab);
+	const showUtilityPanel = useStore((state) => state.showUtilityPanel);
 
 	return (
 		<div className={cn('flex flex-col overflow-hidden', !collapsed && 'h-full', className)}>
@@ -70,11 +70,10 @@ export function UtilityPanel({ projectId, onToggle, collapsed = false, logCounts
 				"
 			>
 				{/* Left: chevron + tabs */}
-				<div className="flex shrink-0 items-center gap-0.5">
+				<div className="flex shrink-0 items-center gap-0.5" onClick={(event) => event.stopPropagation()}>
 					<button
 						type="button"
-						// Don't stop propagation here so clicking the chevron also triggers the parent onClick (which does the toggle anyway)
-						// But if we want it to be explicit, we can leave it. The parent handles it.
+						onClick={onToggle}
 						className="
 							mr-1 flex cursor-pointer items-center justify-center rounded-sm p-0.5
 							text-text-secondary transition-colors
@@ -87,7 +86,7 @@ export function UtilityPanel({ projectId, onToggle, collapsed = false, logCounts
 
 					<DropdownMenu>
 						<DropdownMenuTrigger>
-							<button type="button" onClick={(event) => event.stopPropagation()} className="flex cursor-pointer items-center gap-1.5">
+							<button type="button" className="flex cursor-pointer items-center gap-1.5">
 								<Pill size="md" color="muted">
 									{TABS.find((t) => t.id === activeTab)?.label}
 								</Pill>
@@ -104,7 +103,7 @@ export function UtilityPanel({ projectId, onToggle, collapsed = false, logCounts
 								<DropdownMenuItem
 									key={tab.id}
 									aria-current={activeTab === tab.id ? 'true' : undefined}
-									onSelect={() => setActiveTab(tab.id)}
+									onSelect={() => showUtilityPanel(tab.id)}
 								>
 									{tab.label}
 								</DropdownMenuItem>

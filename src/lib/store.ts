@@ -231,6 +231,8 @@ export type MobilePanel = 'editor' | 'preview' | 'git' | 'agent' | 'tests';
 
 export type SidebarView = 'explorer' | 'git' | 'tests';
 
+export type UtilityTab = 'output';
+
 interface UIState {
 	/** Whether sidebar is visible */
 	sidebarVisible: boolean;
@@ -250,6 +252,8 @@ interface UIState {
 	mobileFileTreeOpen: boolean;
 	/** Which sidebar view is active (activity bar selection) */
 	activeSidebarView: SidebarView;
+	/** Which utility panel tab is active */
+	activeUtilityTab: UtilityTab;
 }
 
 interface UIActions {
@@ -263,6 +267,7 @@ interface UIActions {
 	toggleMobileFileTree: () => void;
 	setActiveSidebarView: (view: SidebarView) => void;
 	showDependenciesPanel: () => void;
+	showUtilityPanel: (tab: UtilityTab) => void;
 }
 
 // =============================================================================
@@ -892,6 +897,7 @@ export const useStore = create<StoreState>()(
 				activeMobilePanel: 'editor',
 				mobileFileTreeOpen: false,
 				activeSidebarView: 'explorer',
+				activeUtilityTab: 'output',
 				toggleSidebar: () => set((state) => ({ sidebarVisible: !state.sidebarVisible })),
 
 				toggleUtilityPanel: () => set((state) => ({ utilityPanelVisible: !state.utilityPanelVisible })),
@@ -903,6 +909,8 @@ export const useStore = create<StoreState>()(
 				toggleDependenciesPanel: () => set((state) => ({ dependenciesPanelVisible: !state.dependenciesPanelVisible })),
 
 				showDependenciesPanel: () => set({ dependenciesPanelVisible: true }),
+
+				showUtilityPanel: (tab) => set({ utilityPanelVisible: true, activeUtilityTab: tab }),
 
 				setColorScheme: (scheme) => set({ colorScheme: scheme }),
 
@@ -952,6 +960,7 @@ export const useStore = create<StoreState>()(
 					colorScheme: state.colorScheme,
 					activeMobilePanel: state.activeMobilePanel,
 					activeSidebarView: state.activeSidebarView,
+					activeUtilityTab: state.activeUtilityTab,
 					expandedDirs: [...state.expandedDirs],
 					selectedModel: state.selectedModel,
 				}),

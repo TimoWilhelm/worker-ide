@@ -13,7 +13,6 @@ import { ScrollArea } from '@base-ui-components/react/scroll-area';
 import { useAgent } from 'agents/react';
 import {
 	ArrowDown,
-	Bot,
 	Check,
 	Download,
 	History,
@@ -35,7 +34,6 @@ import { Button } from '@/components/ui/button';
 import { Collapsible } from '@/components/ui/collapsible';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { Pill } from '@/components/ui/pill';
 import { toast } from '@/components/ui/toast-store';
 import { Tooltip } from '@/components/ui/tooltip';
 import { setActiveSessionId, useAiSessions } from '@/features/ai-assistant/hooks/use-ai-sessions';
@@ -683,11 +681,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 				"
 			>
 				<div className="flex min-w-0 items-center gap-2 overflow-hidden">
-					<Bot className="size-4 shrink-0 text-accent" />
 					<span className="truncate text-xs font-medium text-text-secondary">Agent</span>
-					<Pill color="muted" size="xs" className="shrink-0">
-						Beta
-					</Pill>
 				</div>
 				<div className="flex shrink-0 items-center gap-1">
 					{/* Session dropdown */}
