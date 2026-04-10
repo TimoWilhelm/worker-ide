@@ -129,12 +129,15 @@ export async function readAssetSettings(projectRoot: string): Promise<AssetSetti
 
 /**
  * Read IDE-managed bindings configuration from `wrangler.jsonc` on disk.
+ * Detects bindings from standard wrangler fields (e.g. `r2_buckets`).
  */
 export async function readBindingsConfig(projectRoot: string): Promise<BindingsConfig> {
 	try {
 		const raw = await fs.readFile(`${projectRoot}/wrangler.jsonc`, 'utf8');
-		const parsed: { bindings?: BindingsConfig } = JSON.parse(stripJsonComments(raw));
-		return parsed.bindings ?? {};
+		const parsed: { r2_buckets?: Array<{ binding?: string }> } = JSON.parse(stripJsonComments(raw));
+
+		const hasStorageBinding = Array.isArray(parsed.r2_buckets) && parsed.r2_buckets.some((b) => b.binding === STORAGE_BINDING_NAME);
+		return hasStorageBinding ? { storage: true } : {};
 	} catch {
 		return {};
 	}
@@ -157,6 +160,7 @@ export async function writeAssetSettings(projectRoot: string, assetSettings: Ass
 
 /**
  * Write IDE-managed bindings configuration into `wrangler.jsonc` on disk.
+ * Writes standard wrangler fields (e.g. `r2_buckets`) — no IDE-specific keys.
  * Preserves asset settings and regenerates the file.
  */
 export async function writeBindingsConfig(projectRoot: string, bindingsConfig: BindingsConfig): Promise<void> {
@@ -172,6 +176,7 @@ export async function writeBindingsConfig(projectRoot: string, bindingsConfig: B
 
 /**
  * Build the full wrangler.jsonc config object.
+ * Uses standard wrangler fields only — no IDE-specific keys.
  */
 function buildWranglerConfig(
 	projectName: string,
@@ -187,10 +192,8 @@ function buildWranglerConfig(
 		observability: { enabled: true },
 	};
 
-	// Only include bindings field if any binding is enabled
-	const hasBindings = Object.values(bindingsConfig).some(Boolean);
-	if (hasBindings) {
-		config.bindings = bindingsConfig;
+	if (bindingsConfig.storage) {
+		config.r2_buckets = [{ binding: STORAGE_BINDING_NAME, bucket_name: 'my-bucket' }];
 	}
 
 	return config;

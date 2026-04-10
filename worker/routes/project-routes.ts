@@ -175,26 +175,6 @@ export const projectRoutes = new Hono<AppEnvironment>()
 
 		const projectName = await readProjectName(projectRoot);
 
-		// Transform wrangler.jsonc for export: strip IDE-specific `bindings` field,
-		// add real `r2_buckets` config if storage binding is enabled
-		if (projectFiles['wrangler.jsonc']) {
-			try {
-				const { default: stripJsonComments } = await import('strip-json-comments');
-				const wranglerRaw = projectFiles['wrangler.jsonc'];
-				const wranglerConfig = JSON.parse(stripJsonComments(typeof wranglerRaw === 'string' ? wranglerRaw : new TextDecoder().decode(wranglerRaw)));
-				const bindingsConfig = wranglerConfig.bindings;
-				delete wranglerConfig.bindings;
-
-				if (bindingsConfig?.storage) {
-					wranglerConfig.r2_buckets = [{ binding: 'STORAGE', bucket_name: 'my-bucket' }];
-				}
-
-				projectFiles['wrangler.jsonc'] = JSON.stringify(wranglerConfig, undefined, '\t');
-			} catch {
-				// If parsing fails, export the file as-is
-			}
-		}
-
 		const zip = createZip(projectFiles);
 		const safeName = projectName.replaceAll(/["\\\n\r]/g, '_');
 		return new Response(zip, {

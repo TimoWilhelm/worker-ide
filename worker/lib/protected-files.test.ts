@@ -264,7 +264,7 @@ describe('regenerateProtectedFiles', () => {
 
 	it('generates worker-env.d.ts with STORAGE binding when storage is enabled', async () => {
 		files.set(`${ROOT}/package.json`, JSON.stringify({ name: 'test', dependencies: {} }));
-		files.set(`${ROOT}/wrangler.jsonc`, JSON.stringify({ bindings: { storage: true } }));
+		files.set(`${ROOT}/wrangler.jsonc`, JSON.stringify({ r2_buckets: [{ binding: 'STORAGE', bucket_name: 'my-bucket' }] }));
 
 		await regenerateProtectedFiles(ROOT);
 
@@ -285,20 +285,20 @@ describe('regenerateProtectedFiles', () => {
 
 	it('preserves bindings config through regeneration', async () => {
 		files.set(`${ROOT}/package.json`, JSON.stringify({ name: 'test', dependencies: {} }));
-		files.set(`${ROOT}/wrangler.jsonc`, JSON.stringify({ bindings: { storage: true } }));
+		files.set(`${ROOT}/wrangler.jsonc`, JSON.stringify({ r2_buckets: [{ binding: 'STORAGE', bucket_name: 'my-bucket' }] }));
 
 		await regenerateProtectedFiles(ROOT);
 
 		const wrangler = JSON.parse(files.get(`${ROOT}/wrangler.jsonc`)!);
-		expect(wrangler.bindings).toEqual({ storage: true });
+		expect(wrangler.r2_buckets).toEqual([{ binding: 'STORAGE', bucket_name: 'my-bucket' }]);
 	});
 });
 
 describe('readBindingsConfig / writeBindingsConfig', () => {
 	beforeEach(() => files.clear());
 
-	it('reads bindings config from wrangler.jsonc', async () => {
-		files.set(`${ROOT}/wrangler.jsonc`, JSON.stringify({ bindings: { storage: true } }));
+	it('reads bindings config from r2_buckets in wrangler.jsonc', async () => {
+		files.set(`${ROOT}/wrangler.jsonc`, JSON.stringify({ r2_buckets: [{ binding: 'STORAGE', bucket_name: 'my-bucket' }] }));
 
 		const result = await readBindingsConfig(ROOT);
 
@@ -311,22 +311,23 @@ describe('readBindingsConfig / writeBindingsConfig', () => {
 		expect(result).toEqual({});
 	});
 
-	it('writes bindings config to wrangler.jsonc', async () => {
+	it('writes bindings config as r2_buckets to wrangler.jsonc', async () => {
 		files.set(`${ROOT}/package.json`, JSON.stringify({ name: 'test-app', dependencies: {} }));
 
 		await writeBindingsConfig(ROOT, { storage: true });
 
 		const wrangler = JSON.parse(files.get(`${ROOT}/wrangler.jsonc`)!);
-		expect(wrangler.bindings).toEqual({ storage: true });
+		expect(wrangler.r2_buckets).toEqual([{ binding: 'STORAGE', bucket_name: 'my-bucket' }]);
+		expect(wrangler.bindings).toBeUndefined();
 		expect(wrangler.name).toBe('test-app');
 	});
 
-	it('omits bindings field when no bindings are enabled', async () => {
+	it('omits r2_buckets when no bindings are enabled', async () => {
 		files.set(`${ROOT}/package.json`, JSON.stringify({ name: 'test-app', dependencies: {} }));
 
 		await writeBindingsConfig(ROOT, {});
 
 		const wrangler = JSON.parse(files.get(`${ROOT}/wrangler.jsonc`)!);
-		expect(wrangler.bindings).toBeUndefined();
+		expect(wrangler.r2_buckets).toBeUndefined();
 	});
 });
