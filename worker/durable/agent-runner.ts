@@ -169,8 +169,8 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	/** Guards against concurrent title generation. */
 	private titleGenerationInFlight = new Set<string>();
 
-	/** Buffers for accumulating partial tool call argument JSON during streaming. */
-	private toolCallArgumentBuffers = new Map<string, string>();
+	/** Buffers for accumulating partial tool call argument JSON during streaming, keyed by sessionId. */
+	private toolCallArgumentBuffers = new Map<string, Map<string, string>>();
 
 	/** Snapshot ID for the current agent run, keyed by sessionId. */
 	private currentRunSnapshotIds = new Map<string, string>();
@@ -184,11 +184,11 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	private contentFlushTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 	/**
-	 * Pending sub-agent streaming text deltas, keyed by parentToolCallId.
+	 * Pending sub-agent streaming text deltas, keyed by sessionId → parentToolCallId.
 	 * Batched on a 50ms timer to avoid per-token setState broadcasts.
 	 */
-	private pendingSubAgentDeltas = new Map<string, string>();
-	private subAgentDeltaFlushTimer: ReturnType<typeof setTimeout> | undefined;
+	private pendingSubAgentDeltas = new Map<string, Map<string, string>>();
+	private subAgentDeltaFlushTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 	/** Queued steering messages for running sessions, keyed by sessionId. */
 	private steeringMessages = new Map<string, Array<{ id: string; content: string }>>();
@@ -1136,7 +1136,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 			// ── Turn lifecycle ──────────────────────────────────────────
 			case 'turn-complete': {
 				this.flushContentDelta(sessionId);
-				this.toolCallArgumentBuffers.clear();
+				this.toolCallArgumentBuffers.delete(sessionId);
 				const session = this.readSessionAsAiSession(sessionId);
 				if (session && this.state.currentSession?.sessionId === sessionId) {
 					this.updateSessionState(sessionId, {
@@ -1185,8 +1185,13 @@ export class AgentRunner extends Agent<Env, AgentState> {
 			}
 			case 'tool-call-args-delta': {
 				// Accumulate partial JSON; update arguments when it parses successfully
-				const buffer = (this.toolCallArgumentBuffers.get(event.toolCallId) ?? '') + event.delta;
-				this.toolCallArgumentBuffers.set(event.toolCallId, buffer);
+				let sessionBuffers = this.toolCallArgumentBuffers.get(sessionId);
+				if (!sessionBuffers) {
+					sessionBuffers = new Map();
+					this.toolCallArgumentBuffers.set(sessionId, sessionBuffers);
+				}
+				const buffer = (sessionBuffers.get(event.toolCallId) ?? '') + event.delta;
+				sessionBuffers.set(event.toolCallId, buffer);
 
 				try {
 					const parsed: unknown = JSON.parse(buffer);
@@ -1215,7 +1220,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 			}
 			case 'tool-call-end': {
 				this.flushContentDelta(sessionId);
-				this.toolCallArgumentBuffers.delete(event.toolCallId);
+				this.toolCallArgumentBuffers.get(sessionId)?.delete(event.toolCallId);
 
 				const messages = this.appendToStreamingAssistantMessage(sessionId, (parts) => {
 					parts.push({
@@ -1443,28 +1448,30 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	 * and on a 50ms timer for token-by-token streaming.
 	 */
 	private flushSubAgentDeltas(sessionId: string): void {
-		if (this.subAgentDeltaFlushTimer) {
-			clearTimeout(this.subAgentDeltaFlushTimer);
-			this.subAgentDeltaFlushTimer = undefined;
+		const timer = this.subAgentDeltaFlushTimers.get(sessionId);
+		if (timer) {
+			clearTimeout(timer);
+			this.subAgentDeltaFlushTimers.delete(sessionId);
 		}
 
-		if (this.pendingSubAgentDeltas.size === 0) return;
+		const sessionDeltas = this.pendingSubAgentDeltas.get(sessionId);
+		if (!sessionDeltas || sessionDeltas.size === 0) return;
 
 		const current = this.state.currentSession;
 		if (!current || current.sessionId !== sessionId) {
-			this.pendingSubAgentDeltas.clear();
+			this.pendingSubAgentDeltas.delete(sessionId);
 			return;
 		}
 
 		const activities = { ...current.subAgentActivities };
-		for (const [parentId, delta] of this.pendingSubAgentDeltas) {
+		for (const [parentId, delta] of sessionDeltas) {
 			const existing = activities[parentId] ?? { tools: [], debugLogId: undefined, streamingText: undefined };
 			activities[parentId] = {
 				...existing,
 				streamingText: (existing.streamingText ?? '') + delta,
 			};
 		}
-		this.pendingSubAgentDeltas.clear();
+		this.pendingSubAgentDeltas.delete(sessionId);
 		this.updateSessionState(sessionId, { subAgentActivities: activities });
 	}
 
@@ -1472,14 +1479,22 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	 * Accumulate a sub-agent text delta and schedule a flush.
 	 */
 	private accumulateSubAgentDelta(sessionId: string, parentToolCallId: string, delta: string): void {
-		const current = this.pendingSubAgentDeltas.get(parentToolCallId);
-		this.pendingSubAgentDeltas.set(parentToolCallId, (current ?? '') + delta);
+		let sessionDeltas = this.pendingSubAgentDeltas.get(sessionId);
+		if (!sessionDeltas) {
+			sessionDeltas = new Map();
+			this.pendingSubAgentDeltas.set(sessionId, sessionDeltas);
+		}
+		const current = sessionDeltas.get(parentToolCallId);
+		sessionDeltas.set(parentToolCallId, (current ?? '') + delta);
 
-		if (!this.subAgentDeltaFlushTimer) {
-			this.subAgentDeltaFlushTimer = setTimeout(() => {
-				this.subAgentDeltaFlushTimer = undefined;
-				this.flushSubAgentDeltas(sessionId);
-			}, 50);
+		if (!this.subAgentDeltaFlushTimers.has(sessionId)) {
+			this.subAgentDeltaFlushTimers.set(
+				sessionId,
+				setTimeout(() => {
+					this.subAgentDeltaFlushTimers.delete(sessionId);
+					this.flushSubAgentDeltas(sessionId);
+				}, 50),
+			);
 		}
 	}
 

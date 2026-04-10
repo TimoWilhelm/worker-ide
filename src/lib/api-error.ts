@@ -67,7 +67,7 @@ interface ErrorResponseBody {
  * Returns `undefined` if the body cannot be read or parsed.
  */
 function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === 'object' && value !== undefined;
+	return typeof value === 'object' && !!value;
 }
 
 async function parseErrorBody(response: Response): Promise<ErrorResponseBody | undefined> {

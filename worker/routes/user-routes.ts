@@ -327,7 +327,10 @@ export const userRoutes = new Hono<AuthedEnvironment>()
 
 		const now = new Date();
 
-		// Process each org membership
+		// Classify memberships by org size so we can batch writes per category
+		const singleMemberOrgIds: string[] = [];
+		const multiMemberOrgIds: string[] = [];
+
 		for (const membership of memberships) {
 			const allMembers = await database
 				.select({ userId: schema.member.userId })
@@ -335,47 +338,48 @@ export const userRoutes = new Hono<AuthedEnvironment>()
 				.where(eq(schema.member.organizationId, membership.organizationId));
 
 			if (allMembers.length === 1) {
-				// Single-member org: cancel transfers, soft-delete projects, delete org
-				await database
-					.update(schema.projectTransfer)
-					.set({ status: 'cancelled', resolvedAt: now, resolvedByUserId: userId })
-					.where(
-						and(eq(schema.projectTransfer.status, 'pending'), eq(schema.projectTransfer.sourceOrganizationId, membership.organizationId)),
-					);
-				await database
-					.update(schema.projectTransfer)
-					.set({ status: 'cancelled', resolvedAt: now, resolvedByUserId: userId })
-					.where(
-						and(eq(schema.projectTransfer.status, 'pending'), eq(schema.projectTransfer.targetOrganizationId, membership.organizationId)),
-					);
-
-				// Soft-delete all projects
-				await database
-					.update(schema.project)
-					.set({ deletedAt: now, updatedAt: now })
-					.where(and(eq(schema.project.organizationId, membership.organizationId), isNull(schema.project.deletedAt)));
-
-				// Delete org (members, invitations cascade)
-				await database.delete(schema.organization).where(eq(schema.organization.id, membership.organizationId));
+				singleMemberOrgIds.push(membership.organizationId);
 			} else {
-				// Multi-member org: just remove membership
-				await database
-					.delete(schema.member)
-					.where(and(eq(schema.member.organizationId, membership.organizationId), eq(schema.member.userId, userId)));
+				multiMemberOrgIds.push(membership.organizationId);
 			}
 		}
 
-		// Cancel any pending transfers initiated by the user
-		await database
-			.update(schema.projectTransfer)
-			.set({ status: 'cancelled', resolvedAt: now, resolvedByUserId: userId })
-			.where(and(eq(schema.projectTransfer.status, 'pending'), eq(schema.projectTransfer.initiatedByUserId, userId)));
+		// Batch single-member org cleanup (cancel transfers, soft-delete projects, delete org)
+		for (const orgId of singleMemberOrgIds) {
+			await database.batch([
+				database
+					.update(schema.projectTransfer)
+					.set({ status: 'cancelled', resolvedAt: now, resolvedByUserId: userId })
+					.where(and(eq(schema.projectTransfer.status, 'pending'), eq(schema.projectTransfer.sourceOrganizationId, orgId))),
+				database
+					.update(schema.projectTransfer)
+					.set({ status: 'cancelled', resolvedAt: now, resolvedByUserId: userId })
+					.where(and(eq(schema.projectTransfer.status, 'pending'), eq(schema.projectTransfer.targetOrganizationId, orgId))),
+				database
+					.update(schema.project)
+					.set({ deletedAt: now, updatedAt: now })
+					.where(and(eq(schema.project.organizationId, orgId), isNull(schema.project.deletedAt))),
+				database.delete(schema.organization).where(eq(schema.organization.id, orgId)),
+			]);
+		}
 
-		// Soft-delete the user
-		await database.update(schema.user).set({ deletedAt: now, updatedAt: now }).where(eq(schema.user.id, userId));
+		// Batch multi-member org membership removals
+		for (const orgId of multiMemberOrgIds) {
+			await database.delete(schema.member).where(and(eq(schema.member.organizationId, orgId), eq(schema.member.userId, userId)));
+		}
 
-		// Delete all sessions
-		await database.delete(schema.session).where(eq(schema.session.userId, userId));
+		// Batch the final user-level cleanup
+		await database.batch([
+			// Cancel any pending transfers initiated by the user
+			database
+				.update(schema.projectTransfer)
+				.set({ status: 'cancelled', resolvedAt: now, resolvedByUserId: userId })
+				.where(and(eq(schema.projectTransfer.status, 'pending'), eq(schema.projectTransfer.initiatedByUserId, userId))),
+			// Soft-delete the user
+			database.update(schema.user).set({ deletedAt: now, updatedAt: now }).where(eq(schema.user.id, userId)),
+			// Delete all sessions
+			database.delete(schema.session).where(eq(schema.session.userId, userId)),
+		]);
 
 		trackAuthEvent({ userId, eventType: 'account_delete', request: c.req.raw });
 

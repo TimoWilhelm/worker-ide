@@ -222,6 +222,17 @@ export const transferRoutes = new Hono<AuthedEnvironment>()
 			throw httpError(HttpErrorCode.VALIDATION_ERROR, 'Project no longer exists or has been moved. Transfer cancelled.');
 		}
 
+		// Re-verify source org is not banned (may have been banned after transfer was initiated)
+		const sourceOrgRow = await database
+			.select({ bannedAt: schema.organization.bannedAt })
+			.from(schema.organization)
+			.where(eq(schema.organization.id, transfer.sourceOrganizationId))
+			.limit(1);
+
+		if (sourceOrgRow.length > 0 && sourceOrgRow[0].bannedAt) {
+			throw httpError(HttpErrorCode.FORBIDDEN, 'Source organization has been restricted.');
+		}
+
 		// Check target org exists, is not banned, and has room (plan-based)
 		const targetOrgRow = await database
 			.select({ plan: schema.organization.plan, bannedAt: schema.organization.bannedAt })
