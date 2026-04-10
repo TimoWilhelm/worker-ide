@@ -2,13 +2,14 @@
  * Hook for managing the project name state: fetching, editing, and renaming.
  */
 
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useRef, useState } from 'react';
 
 import { toast } from '@/components/ui/toast-store';
 import { fetchProjectMeta, updateProjectMeta } from '@/lib/api-client';
 
 export function useProjectName({ projectId }: { projectId: string }) {
+	const queryClient = useQueryClient();
 	// Fetch project meta via React Query
 	const metaQuery = useQuery({
 		queryKey: ['project-meta', projectId],
@@ -16,8 +17,7 @@ export function useProjectName({ projectId }: { projectId: string }) {
 		staleTime: 1000 * 60,
 	});
 
-	const [localName, setLocalName] = useState<string | undefined>();
-	const projectName = localName ?? metaQuery.data?.name;
+	const projectName = metaQuery.data?.name;
 	const [isEditingName, setIsEditingName] = useState(false);
 	const [editNameValue, setEditNameValue] = useState('');
 	const nameInputReference = useRef<HTMLInputElement>(null);
@@ -34,17 +34,23 @@ export function useProjectName({ projectId }: { projectId: string }) {
 	const handleSaveRename = useCallback(async () => {
 		const trimmed = editNameValue.trim();
 		if (trimmed && trimmed !== projectName) {
-			const previousName = localName;
-			setLocalName(trimmed);
+			const previousMeta = queryClient.getQueryData<any>(['project-meta', projectId]);
+
+			// Optimistically set the cache
+			if (previousMeta) {
+				queryClient.setQueryData(['project-meta', projectId], { ...previousMeta, name: trimmed });
+			}
+
 			try {
-				await updateProjectMeta(projectId, { name: trimmed });
+				const newMeta = await updateProjectMeta(projectId, { name: trimmed });
+				queryClient.setQueryData(['project-meta', projectId], newMeta);
 			} catch {
-				setLocalName(previousName);
+				queryClient.setQueryData(['project-meta', projectId], previousMeta);
 				toast.error('Failed to rename project');
 			}
 		}
 		setIsEditingName(false);
-	}, [editNameValue, projectName, localName, projectId]);
+	}, [editNameValue, projectName, projectId, queryClient]);
 
 	const handleCancelRename = useCallback(() => {
 		setIsEditingName(false);

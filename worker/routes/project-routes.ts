@@ -72,13 +72,13 @@ export const projectRoutes = new Hono<AppEnvironment>()
 			await regenerateProtectedFiles(projectRoot);
 		}
 
-		// Trigger full reload when asset settings or bindings change so the preview rebundles
-		if (parsed.data.assetSettings !== undefined || parsed.data.bindingsConfig !== undefined) {
+		// Trigger full reload when metadata changes so the preview rebundles and WS clients sync
+		if (parsed.data.name || parsed.data.assetSettings !== undefined || parsed.data.bindingsConfig !== undefined) {
 			const projectId = c.get('projectId');
 			const coordinatorStub = coordinatorNamespace.getByName(`project:${projectId}`);
 			await coordinatorStub.triggerUpdate({
 				type: 'full-reload',
-				path: '/wrangler.jsonc',
+				path: parsed.data.name ? '/package.json' : '/wrangler.jsonc',
 				timestamp: Date.now(),
 				isCSS: false,
 			});

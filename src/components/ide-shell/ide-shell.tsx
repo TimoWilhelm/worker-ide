@@ -112,6 +112,7 @@ export function IDEShell({ projectId }: { projectId: string }) {
 
 	return (
 		<TooltipProvider>
+			<title>{projectNameState.projectName ? `${projectNameState.projectName} | Codemaxxing` : 'Codemaxxing'}</title>
 			<div className="flex h-full flex-col overflow-hidden bg-bg-primary">
 				<IDEHeader
 					projectNameState={projectNameState}

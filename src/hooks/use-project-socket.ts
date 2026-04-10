@@ -198,6 +198,9 @@ export function useProjectSocket({ projectId, enabled = true }: UseProjectSocket
 								void queryClientCurrent.invalidateQueries({
 									queryKey: ['project-settings', projectIdCurrent],
 								});
+								void queryClientCurrent.invalidateQueries({
+									queryKey: ['project-meta', projectIdCurrent],
+								});
 							}
 							// The preview iframe has its own HMR WebSocket client
 							// that handles full-reload and CSS hot-swap internally,
