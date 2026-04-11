@@ -34,7 +34,7 @@ export function useProjectName({ projectId }: { projectId: string }) {
 	const handleSaveRename = useCallback(async () => {
 		const trimmed = editNameValue.trim();
 		if (trimmed && trimmed !== projectName) {
-			const previousMeta = queryClient.getQueryData<any>(['project-meta', projectId]);
+			const previousMeta = queryClient.getQueryData<Awaited<ReturnType<typeof fetchProjectMeta>>>(['project-meta', projectId]);
 
 			// Optimistically set the cache
 			if (previousMeta) {
