@@ -169,7 +169,7 @@ export default defineConfig({
 					// React ecosystem (~200KB)
 					react: ['react', 'react-dom', 'react/jsx-runtime', 'scheduler'],
 					// UI libraries (~100KB)
-					ui: ['@base-ui-components/react', 'class-variance-authority', 'clsx', 'tailwind-merge', 'lucide-react'],
+					ui: ['@base-ui/react', 'class-variance-authority', 'clsx', 'tailwind-merge', 'lucide-react'],
 					// Data layer (~50KB)
 					data: ['@tanstack/react-query', 'zustand', 'hono/client'],
 				},
