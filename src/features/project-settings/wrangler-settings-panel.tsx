@@ -430,7 +430,7 @@ function WranglerSettingsContent({ projectId }: { projectId: string }) {
 						<label
 							className={cn(
 								`
-									flex cursor-pointer items-center gap-2.5 rounded-sm border p-2.5
+									flex cursor-pointer items-start gap-2.5 rounded-sm border p-2.5
 									transition-colors
 								`,
 								storageEnabled ? 'border-accent bg-accent/5' : 'border-border hover:border-accent/50',
@@ -442,9 +442,9 @@ function WranglerSettingsContent({ projectId }: { projectId: string }) {
 								type="checkbox"
 								checked={storageEnabled}
 								onChange={(event) => setStorageEnabled(event.target.checked)}
-								className="size-3.5 accent-accent"
+								className="mt-0.5 size-3.5 accent-accent"
 							/>
-							<div className="flex flex-col gap-0.5">
+							<div className="flex flex-col gap-1">
 								<span className="text-xs font-medium text-text-primary">Enable Object Storage</span>
 								{storageEnabled && <StorageUsageBar projectId={projectId} />}
 							</div>
@@ -472,14 +472,14 @@ function StorageUsageBar({ projectId }: { projectId: string }) {
 	const isNearLimit = percentage > 80;
 
 	return (
-		<div className="flex flex-col gap-1">
-			<div className="h-1.5 w-full overflow-hidden rounded-full bg-bg-tertiary">
+		<div className="flex flex-wrap items-center gap-2">
+			<div className="h-2 w-20 min-w-12 overflow-hidden rounded-full bg-bg-tertiary">
 				<div
 					className={cn('h-full rounded-full transition-all', isNearLimit ? 'bg-red-400' : 'bg-accent')}
 					style={{ width: `${percentage}%` }}
 				/>
 			</div>
-			<span className={cn('font-mono text-xs', isNearLimit ? 'text-red-400' : 'text-text-secondary/70')}>
+			<span className={cn('font-mono text-xs whitespace-nowrap', isNearLimit ? 'text-red-400' : 'text-text-secondary/70')}>
 				{formatBytes(usageBytes)} / {formatBytes(quotaBytes)}
 			</span>
 		</div>
