@@ -16,9 +16,10 @@
  *   depth 2  —  Nested test    (status · test name · play)
  */
 
-import { CheckCircle2, ChevronDown, ChevronRight, Circle, CircleDashed, File, Loader2, Play, XCircle } from 'lucide-react';
+import { CheckCircle2, ChevronDown, ChevronRight, Circle, CircleDashed, File, Play, XCircle } from 'lucide-react';
 import { useState } from 'react';
 
+import { Spinner } from '@/components/ui/spinner';
 import { cn } from '@/lib/utils';
 
 import type { DiscoveredTest, TestFileResult } from '@shared/types';
@@ -195,7 +196,7 @@ function StatusIcon({ status }: { status: TestFileStatus }) {
 			return <Circle className="size-3.5 shrink-0 text-text-secondary" />;
 		}
 		case 'running': {
-			return <Loader2 className="size-3.5 shrink-0 animate-spin text-text-secondary" />;
+			return <Spinner className="size-3.5 shrink-0 text-text-secondary" />;
 		}
 		case 'passed': {
 			return <CheckCircle2 className="size-3.5 shrink-0 text-green-600 dark:text-green-400" />;

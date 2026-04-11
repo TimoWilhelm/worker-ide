@@ -15,10 +15,11 @@
 
 import { AlertDialog } from '@base-ui/react/alert-dialog';
 import { useQueries } from '@tanstack/react-query';
-import { AlertCircle, AlertTriangle, FileMinus, FilePen, FilePlus, Loader2, RotateCcw } from 'lucide-react';
+import { AlertCircle, AlertTriangle, FileMinus, FilePen, FilePlus, RotateCcw } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useMemo } from 'react';
 
+import { Spinner } from '@/components/ui/spinner';
 import { createApiClient } from '@/lib/api-client';
 import { throwApiError } from '@/lib/api-error';
 import { modalContentVariants, overlayVariants, springDefault, tweenFast } from '@/lib/motion-config';
@@ -176,7 +177,7 @@ export function RevertConfirmDialog({
 											text-text-secondary
 										"
 									>
-										<Loader2 className="size-4 animate-spin" />
+										<Spinner className="size-4" />
 										Loading snapshot details...
 									</div>
 								)}
@@ -327,7 +328,7 @@ export function RevertConfirmDialog({
 								>
 									{isReverting ? (
 										<>
-											<Loader2 className="size-3.5 animate-spin" />
+											<Spinner className="size-3.5" />
 											Reverting...
 										</>
 									) : (

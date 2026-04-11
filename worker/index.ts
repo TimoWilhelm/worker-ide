@@ -38,6 +38,7 @@ import { queryEntitlements } from './lib/entitlements';
 import { errorPage, previewExpiredPage } from './lib/error-page';
 import { DEV_PREVIEW_SECRET } from './lib/preview-secret';
 import { generateProjectId, toDurableObjectId } from './lib/project-id';
+import { requireRateLimit } from './lib/rate-limit-middleware';
 import { apiRoutes } from './routes';
 import { orgRoutes } from './routes/org-routes';
 import { transferRoutes } from './routes/transfer-routes';
@@ -406,6 +407,17 @@ app.use('/p/*/__agent', requireAuth);
 app.use('/p/*/__agent/*', requireAuth);
 app.use('/p/*/__ws', requireAuth);
 app.use('/p/*/__ws/*', requireAuth);
+
+// =============================================================================
+// API rate limiting — per-user abuse protection for all authenticated endpoints
+// =============================================================================
+
+app.use('/api/new-project', requireRateLimit);
+app.use('/api/clone-project', requireRateLimit);
+app.use('/api/org/*', requireRateLimit);
+app.use('/api/user/*', requireRateLimit);
+app.use('/api/transfer/*', requireRateLimit);
+app.use('/p/*/api/*', requireRateLimit);
 
 // =============================================================================
 // Org, user, and transfer routes (authed, root-level)

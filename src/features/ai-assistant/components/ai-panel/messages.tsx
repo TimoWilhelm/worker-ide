@@ -24,7 +24,6 @@ import {
 	HelpCircle,
 	Image,
 	ListTodo,
-	Loader2,
 	Map as MapIcon,
 	MoveRight,
 	Pencil,
@@ -38,6 +37,7 @@ import { motion } from 'motion/react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { Pill, type PillProperties } from '@/components/ui/pill';
+import { Spinner } from '@/components/ui/spinner';
 import { Tooltip } from '@/components/ui/tooltip';
 import { computeDiffHunks } from '@/features/editor/lib/diff-decorations';
 import { downloadDebugLog } from '@/lib/api-client';
@@ -339,7 +339,7 @@ function UserMessage({
 								isReverting && 'cursor-not-allowed opacity-50',
 							)}
 						>
-							{isRevertingThis ? <Loader2 className="size-3 animate-spin" /> : <RotateCcw className="size-3" />}
+							{isRevertingThis ? <Spinner className="size-3" /> : <RotateCcw className="size-3" />}
 							{isRevertingThis ? 'Reverting...' : 'Revert'}
 						</button>
 					</Tooltip>
@@ -1589,7 +1589,7 @@ function InlineToolCall({
 				{expandable ? (
 					<ChevronRight className={cn('size-3 shrink-0 transition-transform', isExpanded && 'rotate-90')} />
 				) : !isCompleted && !isError && !isCancelled ? (
-					<Loader2 className="size-3 shrink-0 animate-spin text-accent" />
+					<Spinner className="size-3 shrink-0 text-accent" />
 				) : undefined}
 				<span className={cn('shrink-0', isCompleted && !isError && 'text-success', isError && 'text-error')}>
 					{knownToolName ? <ToolIcon name={knownToolName} /> : <AlertCircle className="size-3" />}

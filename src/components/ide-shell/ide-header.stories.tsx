@@ -33,7 +33,6 @@ const meta = {
 		resolvedTheme: 'dark',
 		setColorScheme: fn(),
 		isMobile: false,
-		isSaving: false,
 		aiPanelVisible: false,
 		toggleAIPanel: fn(),
 		isAiProcessing: false,
@@ -85,20 +84,16 @@ export const MobileView: Story = {
 			await expect(aiToggle).not.toBeInTheDocument();
 		});
 
+		await step('Verify settings, deploy, download are hidden on mobile', async () => {
+			await expect(canvas.queryByLabelText('Project settings')).not.toBeInTheDocument();
+			await expect(canvas.queryByLabelText('Deploy to Cloudflare')).not.toBeInTheDocument();
+			await expect(canvas.queryByLabelText('Download project')).not.toBeInTheDocument();
+		});
+
 		await step('Verify More menu exists on mobile', async () => {
 			const moreMenu = await canvas.findByLabelText('More options');
 			await expect(moreMenu).toBeInTheDocument();
 		});
-	},
-};
-
-export const SavingState: Story = {
-	args: {
-		isSaving: true,
-	},
-	play: async ({ canvasElement }) => {
-		const canvas = within(canvasElement);
-		await expect(await canvas.findByText('Saving...')).toBeInTheDocument();
 	},
 };
 

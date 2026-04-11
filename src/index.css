@@ -22,6 +22,7 @@
 		@slot;
 	}
 }
+@custom-variant pointer-coarse (@media (pointer: coarse));
 
 /* Design tokens using CSS variables for theming */
 @theme {

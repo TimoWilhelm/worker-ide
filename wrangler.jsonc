@@ -94,6 +94,14 @@
 				"period": 60,
 			},
 		},
+		{
+			"name": "API_RATE_LIMITER",
+			"namespace_id": "1003",
+			"simple": {
+				"limit": 500,
+				"period": 60,
+			},
+		},
 	],
 	"services": [
 		{

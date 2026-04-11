@@ -26,12 +26,12 @@ describe('Spinner', () => {
 	it('applies size variant classes', () => {
 		const { container } = render(<Spinner size="lg" />);
 		const spinner = container.querySelector('[role="status"]');
-		expect(spinner?.className).toContain('size-8');
+		expect(spinner?.getAttribute('class')).toContain('size-8');
 	});
 
 	it('applies custom className', () => {
 		const { container } = render(<Spinner className="custom" />);
 		const spinner = container.querySelector('[role="status"]');
-		expect(spinner?.className).toContain('custom');
+		expect(spinner?.getAttribute('class')).toContain('custom');
 	});
 });

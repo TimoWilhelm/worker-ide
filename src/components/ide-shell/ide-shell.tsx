@@ -119,7 +119,6 @@ export function IDEShell({ projectId }: { projectId: string }) {
 					resolvedTheme={resolvedTheme}
 					setColorScheme={setColorScheme}
 					isMobile={isMobile}
-					isSaving={editorState.isSaving}
 					aiPanelVisible={layouts.aiPanelVisible}
 					toggleAIPanel={toggleAIPanel}
 					isAiProcessing={isAiProcessing}

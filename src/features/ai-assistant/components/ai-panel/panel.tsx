@@ -16,7 +16,6 @@ import {
 	Check,
 	Download,
 	History,
-	Loader2,
 	Map as MapIcon,
 	MessageCircleQuestion,
 	Mic,
@@ -34,6 +33,7 @@ import { Button } from '@/components/ui/button';
 import { Collapsible } from '@/components/ui/collapsible';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { Spinner } from '@/components/ui/spinner';
 import { toast } from '@/components/ui/toast-store';
 import { Tooltip } from '@/components/ui/tooltip';
 import { setActiveSessionId, useAiSessions } from '@/features/ai-assistant/hooks/use-ai-sessions';
@@ -784,7 +784,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 											>
 												<span className="truncate text-sm">{session.title}</span>
 												<div className="flex shrink-0 items-center gap-0.5">
-													{session.isRunning && <Loader2 className="size-3 animate-spin text-warning" />}
+													{session.isRunning && <Spinner className="size-3 text-warning" />}
 													<span
 														className="
 															text-2xs text-text-secondary
@@ -910,7 +910,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 											text-text-secondary
 										"
 									>
-										<Loader2 className="size-5 animate-spin" />
+										<Spinner className="size-5" />
 										<span className="text-sm">Restoring session...</span>
 									</div>
 								) : (
@@ -980,7 +980,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 										text-text-secondary
 									"
 								>
-									<Loader2 className="size-3 animate-spin" />
+									<Spinner className="size-3" />
 									{statusMessage}
 								</div>
 							) : undefined}
@@ -1079,7 +1079,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 					)}
 				>
 					{/* Connection status bar */}
-					<InputInfoBar open={!isConnected} icon={<Loader2 className="size-3 shrink-0 animate-spin text-warning" />}>
+					<InputInfoBar open={!isConnected} icon={<Spinner className="size-3 shrink-0 text-warning" />}>
 						<span className="flex-1 text-xs text-text-secondary">
 							{agentConnectionState === 'connecting' ? 'Connecting to agent…' : 'Connection lost. Reconnecting…'}
 						</span>

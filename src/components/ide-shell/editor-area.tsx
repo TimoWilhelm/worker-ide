@@ -4,7 +4,7 @@
  */
 
 import { EditorView } from '@codemirror/view';
-import { Loader2, Package, Sparkles } from 'lucide-react';
+import { Package, Sparkles } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
@@ -237,7 +237,7 @@ export function EditorArea({ projectId, resolvedTheme, editorState, onSelectFile
 												)}
 												aria-label="Prettify file"
 											>
-												{isPrettifying ? <Loader2 className="size-3.5 animate-spin" /> : <Sparkles className="size-3.5" />}
+												{isPrettifying ? <Spinner className="size-3.5" /> : <Sparkles className="size-3.5" />}
 											</motion.button>
 										</Tooltip>
 									</motion.div>

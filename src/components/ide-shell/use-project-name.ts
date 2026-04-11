@@ -33,6 +33,8 @@ export function useProjectName({ projectId }: { projectId: string }) {
 
 	const handleSaveRename = useCallback(async () => {
 		const trimmed = editNameValue.trim();
+		setIsEditingName(false);
+
 		if (trimmed && trimmed !== projectName) {
 			const previousMeta = queryClient.getQueryData<Awaited<ReturnType<typeof fetchProjectMeta>>>(['project-meta', projectId]);
 
@@ -49,7 +51,6 @@ export function useProjectName({ projectId }: { projectId: string }) {
 				toast.error('Failed to rename project');
 			}
 		}
-		setIsEditingName(false);
 	}, [editNameValue, projectName, projectId, queryClient]);
 
 	const handleCancelRename = useCallback(() => {

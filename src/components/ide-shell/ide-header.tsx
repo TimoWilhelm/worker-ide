@@ -3,7 +3,6 @@
  */
 
 import { BookOpen, Bot, Bug, Download, EllipsisVertical, Github, Hexagon, Moon, Pencil, Rocket, Settings, Sun } from 'lucide-react';
-import { AnimatePresence, motion } from 'motion/react';
 import { Link } from 'react-router';
 
 import { BetaIndicator } from '@/components/beta-indicator';
@@ -13,7 +12,6 @@ import { Modal, ModalBody } from '@/components/ui/modal';
 import { Tooltip } from '@/components/ui/tooltip';
 import { VersionBadge } from '@/components/version-badge';
 import { NotificationToggle } from '@/features/notifications';
-import { fadeVariants, tweenFast } from '@/lib/motion-config';
 import { cn } from '@/lib/utils';
 
 import type { useProjectName } from './use-project-name';
@@ -23,7 +21,6 @@ interface IDEHeaderProperties {
 	resolvedTheme: 'light' | 'dark';
 	setColorScheme: (scheme: 'light' | 'dark') => void;
 	isMobile: boolean;
-	isSaving: boolean;
 	aiPanelVisible: boolean;
 	toggleAIPanel: () => void;
 	isAiProcessing: boolean;
@@ -39,7 +36,6 @@ export function IDEHeader({
 	resolvedTheme,
 	setColorScheme,
 	isMobile,
-	isSaving,
 	aiPanelVisible,
 	toggleAIPanel,
 	isAiProcessing,
@@ -83,7 +79,7 @@ export function IDEHeader({
 						</Link>
 					</Tooltip>
 					{isEditingName ? (
-						<div className="flex items-center gap-1">
+						<div className="z-10 flex items-center gap-1">
 							<input
 								ref={nameInputReference}
 								value={editNameValue}
@@ -102,13 +98,27 @@ export function IDEHeader({
 							/>
 						</div>
 					) : (
-						<div className="group flex min-w-0 items-center gap-1.5">
-							<h1 className="truncate font-semibold text-text-primary">{projectName ?? 'Codemaxxing'}</h1>
+						<div className="group flex min-w-20 items-center gap-1.5">
+							<h1
+								className="cursor-pointer truncate font-semibold text-text-primary"
+								onClick={handleStartRename}
+								role="button"
+								tabIndex={0}
+								onKeyDown={(event) => {
+									if (event.key === 'Enter' || event.key === ' ') {
+										event.preventDefault();
+										handleStartRename();
+									}
+								}}
+							>
+								{projectName ?? 'Codemaxxing'}
+							</h1>
 							<Tooltip content="Rename project">
 								<button
 									onClick={handleStartRename}
 									className="
 										cursor-pointer text-text-secondary opacity-0 transition-opacity
+										pointer-coarse:hidden
 										hover-always:text-accent
 										group-hover-always:opacity-100
 									"
@@ -121,22 +131,6 @@ export function IDEHeader({
 					)}
 				</div>
 				<div className="flex shrink-0 items-center gap-2 wco-interactive">
-					{/* Save indicator */}
-					<AnimatePresence>
-						{isSaving && (
-							<motion.span
-								variants={fadeVariants}
-								initial="hidden"
-								animate="visible"
-								exit="exit"
-								transition={tweenFast}
-								className="text-xs text-text-secondary"
-							>
-								Saving...
-							</motion.span>
-						)}
-					</AnimatePresence>
-
 					{/* AI toggle (desktop only — mobile uses bottom tab bar) */}
 					{!isMobile && (
 						<div className="relative">
@@ -170,28 +164,30 @@ export function IDEHeader({
 						</Button>
 					</Tooltip>
 
-					{/* Project Settings */}
-					<Tooltip content="Project settings">
-						<Button variant="ghost" size="icon" aria-label="Project settings" onClick={onSettings}>
-							<Settings className="size-4" />
-						</Button>
-					</Tooltip>
+					{/* Project Settings, Deploy, Download — desktop only */}
+					{!isMobile && (
+						<>
+							<Tooltip content="Project settings">
+								<Button variant="ghost" size="icon" aria-label="Project settings" onClick={onSettings}>
+									<Settings className="size-4" />
+								</Button>
+							</Tooltip>
 
-					{/* Deploy */}
-					<Tooltip content="Deploy to Cloudflare">
-						<Button variant="ghost" size="icon" aria-label="Deploy to Cloudflare" onClick={onDeploy}>
-							<Rocket className="size-4" />
-						</Button>
-					</Tooltip>
+							<Tooltip content="Deploy to Cloudflare">
+								<Button variant="ghost" size="icon" aria-label="Deploy to Cloudflare" onClick={onDeploy}>
+									<Rocket className="size-4" />
+								</Button>
+							</Tooltip>
 
-					{/* Download */}
-					<Tooltip content="Download project">
-						<Button variant="ghost" size="icon" aria-label="Download project" onClick={onDownload}>
-							<Download className="size-4" />
-						</Button>
-					</Tooltip>
+							<Tooltip content="Download project">
+								<Button variant="ghost" size="icon" aria-label="Download project" onClick={onDownload}>
+									<Download className="size-4" />
+								</Button>
+							</Tooltip>
+						</>
+					)}
 
-					{/* More menu (mobile only — exposes footer links) */}
+					{/* More menu (mobile only — project actions + footer links) */}
 					{isMobile && (
 						<Tooltip content="More">
 							<Button variant="ghost" size="icon" aria-label="More options" onClick={() => setMobileMenuOpen(true)}>
@@ -202,9 +198,59 @@ export function IDEHeader({
 				</div>
 			</header>
 
-			{/* Mobile menu dialog — links that are in the desktop footer */}
-			<Modal open={mobileMenuOpen} onOpenChange={setMobileMenuOpen} title="Links">
+			{/* Mobile "More" menu — project actions + footer links */}
+			<Modal open={mobileMenuOpen} onOpenChange={setMobileMenuOpen} title="More">
 				<ModalBody className="flex flex-col gap-1">
+					{/* ── Project section ── */}
+					<button
+						type="button"
+						className="
+							flex items-center gap-3 rounded-md px-3 py-2 text-sm text-text-primary
+							transition-colors
+							hover:bg-bg-tertiary
+						"
+						onClick={() => {
+							onSettings();
+							setMobileMenuOpen(false);
+						}}
+					>
+						<Settings className="size-4 text-text-secondary" />
+						Project settings
+					</button>
+					<button
+						type="button"
+						className="
+							flex items-center gap-3 rounded-md px-3 py-2 text-sm text-text-primary
+							transition-colors
+							hover:bg-bg-tertiary
+						"
+						onClick={() => {
+							onDeploy();
+							setMobileMenuOpen(false);
+						}}
+					>
+						<Rocket className="size-4 text-text-secondary" />
+						Deploy to Cloudflare
+					</button>
+					<button
+						type="button"
+						className="
+							flex items-center gap-3 rounded-md px-3 py-2 text-sm text-text-primary
+							transition-colors
+							hover:bg-bg-tertiary
+						"
+						onClick={() => {
+							onDownload();
+							setMobileMenuOpen(false);
+						}}
+					>
+						<Download className="size-4 text-text-secondary" />
+						Download project
+					</button>
+
+					<div className="my-1 border-t border-border" role="separator" />
+
+					{/* ── Links section ── */}
 					<a
 						href="/docs"
 						target="_blank"
@@ -244,6 +290,7 @@ export function IDEHeader({
 						<Bug className="size-4 text-text-secondary" />
 						Report a bug
 					</a>
+
 					<div
 						className="
 							flex items-center gap-3 rounded-md px-3 py-2 text-sm text-text-secondary
