@@ -102,6 +102,14 @@
 				"period": 60,
 			},
 		},
+		{
+			"name": "STORAGE_RATE_LIMITER",
+			"namespace_id": "1004",
+			"simple": {
+				"limit": 100,
+				"period": 60,
+			},
+		},
 	],
 	"services": [
 		{

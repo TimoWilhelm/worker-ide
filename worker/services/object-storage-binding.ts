@@ -189,11 +189,19 @@ export class ObjectStorageBinding extends WorkerEntrypoint<Env, ObjectStoragePro
 		return namespace.getByName(`project:${this.ctx.props.projectId}`);
 	}
 
+	async #checkRateLimit(): Promise<void> {
+		const { success } = await this.env.STORAGE_RATE_LIMITER.limit({ key: this.ctx.props.projectId });
+		if (!success) {
+			throw new Error('Storage rate limit exceeded. Please slow down and try again.');
+		}
+	}
+
 	/**
 	 * Store a value in object storage.
 	 * Enforces the per-project storage quota before writing.
 	 */
 	async put(key: string, value: string | ArrayBuffer | ReadableStream, options?: PutOptions): Promise<void> {
+		await this.#checkRateLimit();
 		const scopedKey = this.#scopedKey(key);
 		const incomingSize = getValueSize(value);
 
@@ -242,6 +250,7 @@ export class ObjectStorageBinding extends WorkerEntrypoint<Env, ObjectStoragePro
 	 * Retrieve an object from storage. Returns null if not found.
 	 */
 	async get(key: string): Promise<StorageObject | null> {
+		await this.#checkRateLimit();
 		const object = await this.#bucket.get(this.#scopedKey(key));
 		if (!object) {
 			return null; // eslint-disable-line unicorn/no-null
@@ -253,6 +262,7 @@ export class ObjectStorageBinding extends WorkerEntrypoint<Env, ObjectStoragePro
 	 * Retrieve an object's text content. Returns null if not found.
 	 */
 	async getText(key: string): Promise<string | null> {
+		await this.#checkRateLimit();
 		const object = await this.#bucket.get(this.#scopedKey(key));
 		if (!object) {
 			return null; // eslint-disable-line unicorn/no-null
@@ -264,6 +274,7 @@ export class ObjectStorageBinding extends WorkerEntrypoint<Env, ObjectStoragePro
 	 * Retrieve object metadata without the body. Returns null if not found.
 	 */
 	async head(key: string): Promise<StorageHeadResult | null> {
+		await this.#checkRateLimit();
 		const object = await this.#bucket.head(this.#scopedKey(key));
 		if (!object) {
 			return null; // eslint-disable-line unicorn/no-null
@@ -279,6 +290,7 @@ export class ObjectStorageBinding extends WorkerEntrypoint<Env, ObjectStoragePro
 	 * List objects in storage, optionally filtered by prefix.
 	 */
 	async list(options?: ListOptions): Promise<StorageListResult> {
+		await this.#checkRateLimit();
 		const scopedPrefix = `${STORAGE_KEY_PREFIX}${this.ctx.props.projectId}/`;
 		const userPrefix = options?.prefix ?? '';
 		if (userPrefix.includes('..')) {
@@ -306,6 +318,7 @@ export class ObjectStorageBinding extends WorkerEntrypoint<Env, ObjectStoragePro
 	 * Delete one or more objects from storage.
 	 */
 	async delete(key: string | string[]): Promise<void> {
+		await this.#checkRateLimit();
 		const keys = Array.isArray(key) ? key : [key];
 		const scopedKeys = keys.map((k) => this.#scopedKey(k));
 

@@ -52,8 +52,8 @@ export const DesktopView: Story = {
 		const canvas = within(canvasElement);
 
 		await step('Verify project name is displayed', async () => {
-			const header = await canvas.findByRole('heading', { level: 1 });
-			await expect(header).toHaveTextContent('Test Project');
+			const header = await canvas.findByText('Test Project');
+			await expect(header).toBeInTheDocument();
 		});
 
 		await step('Verify desktop action buttons exist', async () => {

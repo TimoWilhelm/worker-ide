@@ -18,3 +18,14 @@ describe('API_RATE_LIMITER binding', () => {
 		expect(result.success).toBe(true);
 	});
 });
+
+describe('STORAGE_RATE_LIMITER binding', () => {
+	it('is available in the test environment', () => {
+		expect(env.STORAGE_RATE_LIMITER).toBeDefined();
+	});
+
+	it('allows requests under the limit', async () => {
+		const result = await env.STORAGE_RATE_LIMITER.limit({ key: 'test-project-allow' });
+		expect(result.success).toBe(true);
+	});
+});

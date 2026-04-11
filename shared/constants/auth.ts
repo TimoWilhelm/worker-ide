@@ -1,12 +1,5 @@
 /**
  * Shared better-auth configuration constants.
- *
- * These values MUST stay in sync between the main app (worker-ide) and the
- * admin panel (worker-ide-admin). Both apps import from here so that a
- * change in one place is automatically reflected everywhere.
- *
- * App-specific concerns (social providers, org plugin, email hooks, database
- * hooks, analytics) remain in each app's own `createAuth` / `createAdminAuth`.
  */
 
 // =============================================================================
@@ -16,7 +9,7 @@
 export const AUTH_BASE_PATH = '/api/auth';
 
 // =============================================================================
-// Admin plugin options (shared between main app & admin panel)
+// Admin plugin options
 // =============================================================================
 
 export const ADMIN_PLUGIN_OPTIONS = {
