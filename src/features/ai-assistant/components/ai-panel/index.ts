@@ -1,5 +1,5 @@
 /**
- * AI Panel subfolder barrel export.
+ * Agent panel subfolder barrel export.
  */
 
 export { AIPanel } from './panel';

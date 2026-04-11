@@ -337,13 +337,13 @@ export function DesktopLayout({
 					</PanelGroup>
 				</Panel>
 
-				{/* AI Assistant panel */}
+				{/* Agent panel */}
 				{aiPanelVisible && (
 					<>
 						<PanelDivider orientation="horizontal" />
 						<Panel id="ai-panel" defaultSize="20%" minSize="15%" maxSize="35%">
 							<aside className="flex h-full flex-col border-l border-border">
-								<Suspense fallback={<PanelSkeleton label="Loading AI assistant..." />}>
+								<Suspense fallback={<PanelSkeleton label="Loading Agent..." />}>
 									<AIPanel projectId={projectId} className="h-full" />
 								</Suspense>
 							</aside>

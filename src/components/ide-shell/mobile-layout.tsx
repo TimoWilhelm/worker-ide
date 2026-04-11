@@ -232,7 +232,7 @@ export function MobileLayout({
 
 				{/* Agent view */}
 				{activeMobilePanel === 'agent' && (
-					<Suspense fallback={<PanelSkeleton label="Loading AI assistant..." />}>
+					<Suspense fallback={<PanelSkeleton label="Loading Agent..." />}>
 						<AIPanel projectId={projectId} className="h-full" />
 					</Suspense>
 				)}

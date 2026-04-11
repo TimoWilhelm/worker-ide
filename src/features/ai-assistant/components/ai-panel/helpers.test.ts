@@ -1,5 +1,5 @@
 /**
- * Unit tests for AI panel helper functions.
+ * Unit tests for agent panel helper functions.
  */
 
 import { describe, expect, it } from 'vitest';

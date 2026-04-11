@@ -1,7 +1,7 @@
 /**
  * IDE Shell Component
  *
- * Main IDE layout with resizable panels: file tree, editor, terminal, preview, and AI assistant.
+ * Main IDE layout with resizable panels: file tree, editor, terminal, preview, and AI agent.
  * This is the composition root that wires hooks and sub-components together.
  */
 
@@ -49,9 +49,9 @@ export function IDEShell({ projectId }: { projectId: string }) {
 	// Project settings modal
 	const [settingsModalOpen, setSettingsModalOpen] = useState(false);
 
-	// AI panel toggle
-	const toggleAIPanel = useStore((state) => state.toggleAIPanel);
-	const isAiProcessing = useStore(selectIsProcessing);
+	// Agent panel toggle
+	const toggleAgentPanel = useStore((state) => state.toggleAgentPanel);
+	const isAgentProcessing = useStore(selectIsProcessing);
 
 	// Custom hooks
 	const projectNameState = useProjectName({ projectId });
@@ -115,8 +115,8 @@ export function IDEShell({ projectId }: { projectId: string }) {
 					setColorScheme={setColorScheme}
 					isMobile={isMobile}
 					aiPanelVisible={layouts.aiPanelVisible}
-					toggleAIPanel={toggleAIPanel}
-					isAiProcessing={isAiProcessing}
+					toggleAgentPanel={toggleAgentPanel}
+					isAgentProcessing={isAgentProcessing}
 					mobileMenuOpen={mobileMenuOpen}
 					setMobileMenuOpen={setMobileMenuOpen}
 					onDownload={handleDownload}

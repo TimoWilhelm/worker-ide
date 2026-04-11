@@ -33,7 +33,7 @@ beforeEach(() => {
 		pendingChanges: new Map(),
 		sidebarVisible: true,
 		utilityPanelVisible: true,
-		aiPanelVisible: false,
+		agentPanelVisible: false,
 		dependenciesPanelVisible: true,
 	});
 });
@@ -771,10 +771,10 @@ describe('UI slice', () => {
 		expect(useStore.getState().utilityPanelVisible).toBe(false);
 	});
 
-	it('toggles AI panel', () => {
-		expect(useStore.getState().aiPanelVisible).toBe(false);
-		useStore.getState().toggleAIPanel();
-		expect(useStore.getState().aiPanelVisible).toBe(true);
+	it('toggles agent panel', () => {
+		expect(useStore.getState().agentPanelVisible).toBe(false);
+		useStore.getState().toggleAgentPanel();
+		expect(useStore.getState().agentPanelVisible).toBe(true);
 	});
 
 	it('toggles dependencies panel', () => {

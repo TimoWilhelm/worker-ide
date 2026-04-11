@@ -34,8 +34,8 @@ const meta = {
 		setColorScheme: fn(),
 		isMobile: false,
 		aiPanelVisible: false,
-		toggleAIPanel: fn(),
-		isAiProcessing: false,
+		toggleAgentPanel: fn(),
+		isAgentProcessing: false,
 		mobileMenuOpen: false,
 		setMobileMenuOpen: fn(),
 		onDownload: fn(),
@@ -67,7 +67,7 @@ export const DesktopView: Story = {
 		await step('Interact with AI Toggle', async () => {
 			const aiToggle = await canvas.findByLabelText('Toggle Agent panel');
 			await userEvent.click(aiToggle);
-			await expect(args.toggleAIPanel).toHaveBeenCalled();
+			await expect(args.toggleAgentPanel).toHaveBeenCalled();
 		});
 	},
 };

@@ -1,5 +1,5 @@
 /**
- * AI Assistant Panel Component
+ * AI Agent Panel Component
  *
  * Chat interface for interacting with the AI coding assistant.
  * Uses useAgentChat hook for server-driven streaming via the AgentRunner DO.
@@ -109,7 +109,7 @@ function InputInfoBar({ open, icon, children }: { open: boolean; icon: React.Rea
 // =============================================================================
 
 /**
- * AI assistant panel with chat interface.
+ * AI agent panel with chat interface.
  */
 export function AIPanel({ projectId, className }: { projectId: string; className?: string }) {
 	// On mobile, when the virtual keyboard opens, switch to position:fixed so the

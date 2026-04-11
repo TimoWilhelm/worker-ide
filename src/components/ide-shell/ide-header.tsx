@@ -22,8 +22,8 @@ interface IDEHeaderProperties {
 	setColorScheme: (scheme: 'light' | 'dark') => void;
 	isMobile: boolean;
 	aiPanelVisible: boolean;
-	toggleAIPanel: () => void;
-	isAiProcessing: boolean;
+	toggleAgentPanel: () => void;
+	isAgentProcessing: boolean;
 	mobileMenuOpen: boolean;
 	setMobileMenuOpen: (open: boolean) => void;
 	onDownload: () => void;
@@ -37,8 +37,8 @@ export function IDEHeader({
 	setColorScheme,
 	isMobile,
 	aiPanelVisible,
-	toggleAIPanel,
-	isAiProcessing,
+	toggleAgentPanel,
+	isAgentProcessing,
 	mobileMenuOpen,
 	setMobileMenuOpen,
 	onDownload,
@@ -139,13 +139,13 @@ export function IDEHeader({
 									variant="ghost"
 									size="icon"
 									aria-label="Toggle Agent panel"
-									onClick={toggleAIPanel}
+									onClick={toggleAgentPanel}
 									className={cn(aiPanelVisible && 'text-accent')}
 								>
 									<Bot className="size-4" />
 								</Button>
 							</Tooltip>
-							{isAiProcessing && !aiPanelVisible && <BorderBeam duration={1.5} />}
+							{isAgentProcessing && !aiPanelVisible && <BorderBeam duration={1.5} />}
 						</div>
 					)}
 

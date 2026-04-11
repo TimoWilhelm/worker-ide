@@ -1,5 +1,5 @@
 /**
- * Helper functions and constants for the AI Panel.
+ * Helper functions and constants for the agent panel.
  */
 
 import { toolInputSchemas } from '@shared/validation';

@@ -1,7 +1,7 @@
 /**
  * Model Selector Dropdown
  *
- * Dropdown menu for selecting the AI model to use in the AI assistant.
+ * Dropdown menu for selecting the AI model to use in the AI agent.
  * Opens upward from the trigger pill, displaying available models with descriptions.
  */
 

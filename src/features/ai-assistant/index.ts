@@ -1,5 +1,5 @@
 /**
- * AI Assistant Feature Barrel Export
+ * AI Agent Feature Barrel Export
  */
 
 export { AIPanel } from './components/ai-panel';

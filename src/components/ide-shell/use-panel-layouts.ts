@@ -8,7 +8,7 @@ import { useDefaultLayout } from 'react-resizable-panels';
 import { useStore } from '@/lib/store';
 
 export function usePanelLayouts(projectId: string) {
-	const aiPanelVisible = useStore((state) => state.aiPanelVisible);
+	const aiPanelVisible = useStore((state) => state.agentPanelVisible);
 	const utilityPanelVisible = useStore((state) => state.utilityPanelVisible);
 	const devtoolsVisible = useStore((state) => state.devtoolsVisible);
 	const dependenciesPanelVisible = useStore((state) => state.dependenciesPanelVisible);

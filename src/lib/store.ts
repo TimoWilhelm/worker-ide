@@ -86,7 +86,7 @@ interface FileTreeActions {
 }
 
 // =============================================================================
-// AI Assistant State
+// AI Agent State
 // =============================================================================
 
 interface AIError {
@@ -238,8 +238,8 @@ interface UIState {
 	sidebarVisible: boolean;
 	/** Whether utility panel is visible */
 	utilityPanelVisible: boolean;
-	/** Whether AI panel is visible */
-	aiPanelVisible: boolean;
+	/** Whether agent panel is visible */
+	agentPanelVisible: boolean;
 	/** Whether DevTools panel is visible below the preview */
 	devtoolsVisible: boolean;
 	/** Whether dependencies panel is visible in the sidebar */
@@ -259,7 +259,7 @@ interface UIState {
 interface UIActions {
 	toggleSidebar: () => void;
 	toggleUtilityPanel: () => void;
-	toggleAIPanel: () => void;
+	toggleAgentPanel: () => void;
 	toggleDevtools: () => void;
 	toggleDependenciesPanel: () => void;
 	setColorScheme: (scheme: ColorScheme) => void;
@@ -352,7 +352,7 @@ function rehydratePersistedState(state: StoreState | undefined): void {
 		state.expandedDirs = new Set(['/src', '/worker']);
 		state.sidebarVisible = true;
 		state.utilityPanelVisible = true;
-		state.aiPanelVisible = false;
+		state.agentPanelVisible = false;
 		state.devtoolsVisible = false;
 		state.dependenciesPanelVisible = true;
 		state.colorScheme = 'dark';
@@ -890,7 +890,7 @@ export const useStore = create<StoreState>()(
 				// =============================================================================
 				sidebarVisible: true,
 				utilityPanelVisible: true,
-				aiPanelVisible: false,
+				agentPanelVisible: false,
 				devtoolsVisible: false,
 				dependenciesPanelVisible: true,
 				colorScheme: 'dark',
@@ -902,7 +902,7 @@ export const useStore = create<StoreState>()(
 
 				toggleUtilityPanel: () => set((state) => ({ utilityPanelVisible: !state.utilityPanelVisible })),
 
-				toggleAIPanel: () => set((state) => ({ aiPanelVisible: !state.aiPanelVisible })),
+				toggleAgentPanel: () => set((state) => ({ agentPanelVisible: !state.agentPanelVisible })),
 
 				toggleDevtools: () => set((state) => ({ devtoolsVisible: !state.devtoolsVisible })),
 
@@ -954,7 +954,7 @@ export const useStore = create<StoreState>()(
 				partialize: (state) => ({
 					sidebarVisible: state.sidebarVisible,
 					utilityPanelVisible: state.utilityPanelVisible,
-					aiPanelVisible: state.aiPanelVisible,
+					agentPanelVisible: state.agentPanelVisible,
 					devtoolsVisible: state.devtoolsVisible,
 					dependenciesPanelVisible: state.dependenciesPanelVisible,
 					colorScheme: state.colorScheme,

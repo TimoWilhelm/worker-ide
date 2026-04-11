@@ -283,7 +283,7 @@ export function useChangeReview({ projectId }: { projectId: string }) {
 	);
 
 	// Approve all pending changes.
-	// When called from the AI panel (with sessionId), only affects that session's changes.
+	// When called from the agent panel (with sessionId), only affects that session's changes.
 	const handleApproveAll = useCallback(
 		(sessionId?: string) => {
 			// Optimistically update the cache for every pending file so the editor
@@ -303,7 +303,7 @@ export function useChangeReview({ projectId }: { projectId: string }) {
 	);
 
 	// Reject all pending changes (revert each file individually).
-	// When called from the AI panel (with sessionId), only affects that session's changes.
+	// When called from the agent panel (with sessionId), only affects that session's changes.
 	// Files with some accepted hunks get a partial reconstruction instead of full revert.
 	const handleRejectAll = useCallback(
 		async (sessionId?: string) => {
@@ -375,7 +375,7 @@ export function useChangeReview({ projectId }: { projectId: string }) {
 		[pendingChanges, revertFileAsync, rejectAllChanges, reconstructAndWrite, queryClient, projectId, persistPendingChanges],
 	);
 
-	// Session-scoped pending count for the AI panel display
+	// Session-scoped pending count for the agent panel display
 	const sessionPendingCount = useCallback(
 		(sessionId?: string) => {
 			if (!sessionId) return pendingCount;

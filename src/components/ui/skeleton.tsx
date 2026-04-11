@@ -6,6 +6,8 @@
 
 import { cn } from '@/lib/utils';
 
+import { Spinner } from './spinner';
+
 interface SkeletonProperties extends React.ComponentProps<'div'> {
 	className?: string;
 }
@@ -57,7 +59,7 @@ export function PanelSkeleton({ label }: { label?: string }) {
 				<Skeleton className="h-4 w-24" />
 			</div>
 			<div className="flex flex-1 flex-col items-center justify-center gap-3">
-				<Skeleton className="size-6 rounded-full" />
+				<Spinner />
 				{label && <span className="text-xs text-text-secondary">{label}</span>}
 			</div>
 		</div>
@@ -70,7 +72,7 @@ export function PanelSkeleton({ label }: { label?: string }) {
 export function GitPanelSkeleton() {
 	return (
 		<div className="flex h-full flex-col items-center justify-center gap-3 px-4">
-			<Skeleton className="size-8 rounded-full" />
+			<Spinner size="sm" />
 			<Skeleton className="h-4 w-32" />
 		</div>
 	);

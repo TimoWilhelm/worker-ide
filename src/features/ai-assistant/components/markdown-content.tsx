@@ -1,7 +1,7 @@
 /**
  * Markdown Content Renderer
  *
- * Renders AI assistant markdown responses with proper formatting:
+ * Renders AI agent markdown responses with proper formatting:
  * code blocks, inline code, lists, headings, bold, italic, links, tables.
  * Uses react-markdown with remark-gfm for GitHub-flavored markdown.
  *

@@ -1,5 +1,5 @@
 /**
- * AI Panel Message Sub-Components.
+ * Agent Panel Message Sub-Components.
  * WelcomeScreen, MessageBubble, UserMessage, AssistantMessage,
  * InlineToolCall, InlineTodoList, ContinuationPrompt, AIError.
  *

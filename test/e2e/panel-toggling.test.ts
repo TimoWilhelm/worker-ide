@@ -3,7 +3,7 @@
  *
  * Tests the visibility toggling of IDE panels:
  * - Terminal
- * - AI assistant
+ * - AI agent
  *
  * Note: The sidebar is always visible (no toggle button).
  * Snapshots are now accessed via revert buttons on AI chat messages.
@@ -85,14 +85,14 @@ test.describe('Panel Toggling', () => {
 		await expect(page.getByRole('tabpanel', { name: 'Output' })).toBeVisible();
 	});
 
-	test('clicking AI toggle shows the AI panel', async ({ page }) => {
+	test('clicking AI toggle shows the agent panel', async ({ page }) => {
 		await gotoIDE(page);
 
-		// AI panel is hidden by default, AI button should be visible
-		const aiButton = page.getByLabel('Toggle Agent panel');
-		await expect(aiButton).toBeVisible();
+		// Agent panel is hidden by default, AI button should be visible
+		const agentButton = page.getByLabel('Toggle Agent panel');
+		await expect(agentButton).toBeVisible();
 
-		await aiButton.click();
+		await agentButton.click();
 
 		await expect(page.getByText('Agent', { exact: true })).toBeVisible();
 	});
