@@ -203,5 +203,50 @@ describe('REST API Integration Tests', () => {
 			const readResponse = await authedFetch(`${BASE_URL}/p/${projectId}/api/file?path=/to-delete.txt`);
 			expect(readResponse.ok).toBe(false);
 		});
+
+		it('favorite and unfavorite a project', async () => {
+			const result = await createTrackedProject();
+			const projectIdForFavoriteTest = result.projectId;
+
+			// Access any project-scoped API route so the gateway records user access
+			const accessResponse = await authedFetch(`${BASE_URL}/p/${projectIdForFavoriteTest}/api/project/meta`);
+			expect(accessResponse.ok).toBe(true);
+
+			// Favorite
+			const favoriteResponse = await authedFetch(`${BASE_URL}/api/user/project/${projectIdForFavoriteTest}/favorite`, {
+				method: 'PUT',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ favorite: true }),
+			});
+			expect(favoriteResponse.ok).toBe(true);
+			const favoriteResult: { projectId: string; favorite: boolean } = await favoriteResponse.json();
+			expect(favoriteResult.favorite).toBe(true);
+
+			// Verify the favorite shows up on recent-projects
+			const recentResponse = await authedFetch(`${BASE_URL}/api/user/recent-projects`);
+			expect(recentResponse.ok).toBe(true);
+			const recentProjects: { projects: Array<{ id: string; isFavorite: boolean }> } = await recentResponse.json();
+			const recentProject = recentProjects.projects.find((project) => project.id === projectIdForFavoriteTest);
+			expect(recentProject).toBeDefined();
+			expect(recentProject?.isFavorite).toBe(true);
+
+			// Unfavorite
+			const unfavoriteResponse = await authedFetch(`${BASE_URL}/api/user/project/${projectIdForFavoriteTest}/favorite`, {
+				method: 'PUT',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ favorite: false }),
+			});
+			expect(unfavoriteResponse.ok).toBe(true);
+			const unfavoriteResult: { projectId: string; favorite: boolean } = await unfavoriteResponse.json();
+			expect(unfavoriteResult.favorite).toBe(false);
+
+			// Verify unfavorited in recent-projects
+			const recentAfterResponse = await authedFetch(`${BASE_URL}/api/user/recent-projects`);
+			expect(recentAfterResponse.ok).toBe(true);
+			const recentAfter: { projects: Array<{ id: string; isFavorite: boolean }> } = await recentAfterResponse.json();
+			const recentAfterProject = recentAfter.projects.find((project) => project.id === projectIdForFavoriteTest);
+			expect(recentAfterProject).toBeDefined();
+			expect(recentAfterProject?.isFavorite).toBe(false);
+		});
 	});
 });

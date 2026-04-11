@@ -16,8 +16,7 @@ import type { ProjectFilesystem } from './durable/project-filesystem';
  * Base auth variables set by the auth middleware on all protected routes.
  */
 interface AuthVariables {
-	userId: string;
-	userSession: { id: string };
+	session: { id: string; userId: string; updateActivity: boolean };
 }
 
 /**

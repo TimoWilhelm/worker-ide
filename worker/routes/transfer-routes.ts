@@ -29,7 +29,7 @@ export const transferRoutes = new Hono<AuthedEnvironment>()
 	// POST /api/org/:orgId/project/:projectId/transfer — Initiate a project transfer
 	.post('/org/:orgId/project/:projectId/transfer', zValidator('json', transferInitiateBodySchema), async (c) => {
 		const { orgId, projectId } = c.req.param();
-		const userId = c.get('userId');
+		const { userId } = c.get('session');
 		const database = drizzle(c.env.DB);
 
 		// Verify user is admin/owner of source org
@@ -113,7 +113,7 @@ export const transferRoutes = new Hono<AuthedEnvironment>()
 
 	// GET /api/user/pending-transfers — List all pending transfers for the user's orgs
 	.get('/user/pending-transfers', async (c) => {
-		const userId = c.get('userId');
+		const { userId } = c.get('session');
 		const database = drizzle(c.env.DB);
 
 		// Get orgs where user is admin/owner
@@ -183,7 +183,7 @@ export const transferRoutes = new Hono<AuthedEnvironment>()
 	// POST /api/transfer/:transferId/accept — Accept a pending transfer
 	.post('/transfer/:transferId/accept', async (c) => {
 		const { transferId } = c.req.param();
-		const userId = c.get('userId');
+		const { userId } = c.get('session');
 		const database = drizzle(c.env.DB);
 
 		const transferRow = await database
@@ -280,7 +280,7 @@ export const transferRoutes = new Hono<AuthedEnvironment>()
 	// POST /api/transfer/:transferId/reject — Reject a pending transfer
 	.post('/transfer/:transferId/reject', async (c) => {
 		const { transferId } = c.req.param();
-		const userId = c.get('userId');
+		const { userId } = c.get('session');
 		const database = drizzle(c.env.DB);
 
 		const transferRow = await database
@@ -308,7 +308,7 @@ export const transferRoutes = new Hono<AuthedEnvironment>()
 	// POST /api/transfer/:transferId/cancel — Cancel a pending transfer (by source org admin)
 	.post('/transfer/:transferId/cancel', async (c) => {
 		const { transferId } = c.req.param();
-		const userId = c.get('userId');
+		const { userId } = c.get('session');
 		const database = drizzle(c.env.DB);
 
 		const transferRow = await database

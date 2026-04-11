@@ -384,17 +384,9 @@ export async function fetchRecentProjects(): Promise<RecentProject[]> {
 }
 
 /**
- * Record that the current user accessed a project.
+ * Set favorite status for a project.
  */
-export async function recordProjectAccess(projectId: string): Promise<void> {
-	const userApi = createUserApiClient();
-	await userApi.user.project[':projectId'].access.$post({ param: { projectId } });
-}
-
-/**
- * Toggle favorite status for a project.
- */
-export async function toggleProjectFavorite(projectId: string, favorite: boolean): Promise<void> {
+export async function setProjectFavorite(projectId: string, favorite: boolean): Promise<void> {
 	const userApi = createUserApiClient();
 	const response = await userApi.user.project[':projectId'].favorite.$put({ param: { projectId }, json: { favorite } });
 	if (!response.ok) {

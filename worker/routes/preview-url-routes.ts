@@ -31,7 +31,7 @@ export const previewUrlRoutes = new Hono<AppEnvironment>()
 	 */
 	.get('/preview-url', async (c) => {
 		const projectId = c.get('projectId');
-		const userId = c.get('userId');
+		const { userId } = c.get('session');
 
 		// Rate-limit token generation per authenticated user to prevent token farming.
 		if (env.PREVIEW_RATE_LIMITER) {

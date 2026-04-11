@@ -168,7 +168,7 @@ export const project = sqliteTable(
 );
 
 // =============================================================================
-// Custom: User Project Access Table (per-user recently accessed + favorites)
+// Custom: User Project Access Table (per-user recent project tracking)
 // =============================================================================
 
 export const userProjectAccess = sqliteTable(
@@ -182,11 +182,32 @@ export const userProjectAccess = sqliteTable(
 			.notNull()
 			.references(() => project.id, { onDelete: 'cascade' }),
 		lastAccessedAt: integer('last_accessed_at', { mode: 'timestamp' }).notNull(),
-		isFavorite: integer('is_favorite', { mode: 'boolean' }).notNull().default(false),
 	},
 	(table) => [
 		uniqueIndex('user_project_access_user_project_idx').on(table.userId, table.projectId),
-		index('user_project_access_user_fav_accessed_idx').on(table.userId, table.isFavorite, table.lastAccessedAt),
+		index('user_project_access_user_accessed_idx').on(table.userId, table.lastAccessedAt),
+	],
+);
+
+// =============================================================================
+// Custom: User Project Favorite Table (per-user project favorites)
+// =============================================================================
+
+export const userProjectFavorite = sqliteTable(
+	'user_project_favorite',
+	{
+		id: text('id').primaryKey(),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+	},
+	(table) => [
+		uniqueIndex('user_project_favorite_user_project_idx').on(table.userId, table.projectId),
+		index('user_project_favorite_user_created_idx').on(table.userId, table.createdAt),
 	],
 );
 
@@ -321,6 +342,8 @@ export type ProjectRow = typeof project.$inferSelect;
 export type ProjectInsert = typeof project.$inferInsert;
 export type UserProjectAccessRow = typeof userProjectAccess.$inferSelect;
 export type UserProjectAccessInsert = typeof userProjectAccess.$inferInsert;
+export type UserProjectFavoriteRow = typeof userProjectFavorite.$inferSelect;
+export type UserProjectFavoriteInsert = typeof userProjectFavorite.$inferInsert;
 export type ProjectTransferRow = typeof projectTransfer.$inferSelect;
 export type ProjectTransferInsert = typeof projectTransfer.$inferInsert;
 export type SubscriptionRow = typeof subscription.$inferSelect;

@@ -38,7 +38,7 @@ export const sttRoutes = new Hono<AppEnvironment>().get('/stt/ws', async (c) => 
 		throw httpError(HttpErrorCode.VALIDATION_ERROR, 'Expected WebSocket upgrade', 426);
 	}
 
-	const userId = c.get('userId');
+	const { userId } = c.get('session');
 	const projectId = c.get('projectId');
 	const request = c.req.raw;
 	const sessionStart = Date.now();

@@ -27,7 +27,7 @@ export const orgRoutes = new Hono<AuthedEnvironment>()
 	// Verify the user is a member of the :orgId organization and the org is not banned
 	.use('/org/:orgId/*', async (c, next) => {
 		const { orgId } = c.req.param();
-		const userId = c.get('userId');
+		const { userId } = c.get('session');
 		const database = drizzle(c.env.DB);
 
 		// Single query: check membership + org ban
@@ -151,7 +151,7 @@ export const orgRoutes = new Hono<AuthedEnvironment>()
 			organizationId: orgId,
 			eventType: 'delete',
 			projectId,
-			userId: c.get('userId'),
+			userId: c.get('session').userId,
 			durationMs: 0,
 			success: true,
 			request: c.req.raw,
@@ -163,7 +163,7 @@ export const orgRoutes = new Hono<AuthedEnvironment>()
 	// DELETE /api/org/:orgId — Delete an organization (super admin only)
 	.delete('/org/:orgId', async (c) => {
 		const { orgId } = c.req.param();
-		const userId = c.get('userId');
+		const { userId } = c.get('session');
 		const database = drizzle(c.env.DB);
 
 		// Only super admins (owners) can delete an org

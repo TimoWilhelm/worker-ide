@@ -40,8 +40,11 @@ export const requireAuth = createMiddleware<AuthedEnvironment>(async (context, n
 			return context.json({ error: 'Unauthorized' }, 401);
 		}
 
-		context.set('userId', result.session.userId);
-		context.set('userSession', { id: result.session.id });
+		context.set('session', {
+			id: result.session.id,
+			userId: result.session.userId,
+			updateActivity: !(result.session.impersonatedBy && result.session.impersonatedBy.length > 0),
+		});
 		await next();
 		return;
 	}
@@ -69,8 +72,11 @@ export const requireAuth = createMiddleware<AuthedEnvironment>(async (context, n
 		return context.json({ error: 'Unauthorized' }, 401);
 	}
 
-	context.set('userId', session.user.id);
-	context.set('userSession', { id: session.session.id });
+	context.set('session', {
+		id: session.session.id,
+		userId: session.user.id,
+		updateActivity: !(session.session.impersonatedBy && session.session.impersonatedBy.length > 0),
+	});
 
 	await next();
 });

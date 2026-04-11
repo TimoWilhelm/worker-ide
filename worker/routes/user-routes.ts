@@ -33,7 +33,7 @@ const MAX_RECENT_PROJECTS = 20;
 export const userRoutes = new Hono<AuthedEnvironment>()
 	// GET /api/user/limits — Resolved limits + current usage for the authenticated user
 	.get('/user/limits', async (c) => {
-		const userId = c.get('userId');
+		const { userId } = c.get('session');
 		const database = drizzle(c.env.DB);
 
 		const [entitlementRows, orgCountRows] = await Promise.all([
@@ -51,7 +51,7 @@ export const userRoutes = new Hono<AuthedEnvironment>()
 
 	// GET /api/user/recent-projects — Recently accessed projects across all orgs
 	.get('/user/recent-projects', async (c) => {
-		const userId = c.get('userId');
+		const { userId } = c.get('session');
 		const database = drizzle(c.env.DB);
 
 		// Get all orgs the user belongs to
@@ -78,6 +78,10 @@ export const userRoutes = new Hono<AuthedEnvironment>()
 		}
 
 		const projectIds = accessRecords.map((record) => record.projectId);
+		const favoriteRecords = await database
+			.select({ projectId: schema.userProjectFavorite.projectId })
+			.from(schema.userProjectFavorite)
+			.where(and(eq(schema.userProjectFavorite.userId, userId), inArray(schema.userProjectFavorite.projectId, projectIds)));
 
 		// Get project details for accessed projects (only non-deleted, non-banned ones in user's non-banned orgs)
 		const projects = await database
@@ -116,6 +120,7 @@ export const userRoutes = new Hono<AuthedEnvironment>()
 
 		// Merge access info with project details
 		const accessMap = new Map(accessRecords.map((record) => [record.projectId, record]));
+		const favoriteProjectIds = new Set(favoriteRecords.map((record) => record.projectId));
 		const projectsWithAccess = projects
 			.map((project) => {
 				const access = accessMap.get(project.id);
@@ -123,7 +128,7 @@ export const userRoutes = new Hono<AuthedEnvironment>()
 				return {
 					...project,
 					lastAccessedAt: access?.lastAccessedAt.toISOString() ?? project.updatedAt.toISOString(),
-					isFavorite: access?.isFavorite ?? false,
+					isFavorite: favoriteProjectIds.has(project.id),
 					organizationName: organization?.name ?? 'Unknown',
 					organizationSlug: organization?.slug ?? '',
 				};
@@ -137,51 +142,9 @@ export const userRoutes = new Hono<AuthedEnvironment>()
 		return c.json({ projects: projectsWithAccess });
 	})
 
-	// POST /api/user/project/:projectId/access — Record a project access
-	.post('/user/project/:projectId/access', async (c) => {
-		const userId = c.get('userId');
-		const { projectId } = c.req.param();
-		const database = drizzle(c.env.DB);
-
-		// Verify user is a member of the project's organization
-		const projectMember = await database
-			.select({ memberId: schema.member.id })
-			.from(schema.project)
-			.leftJoin(schema.member, and(eq(schema.member.organizationId, schema.project.organizationId), eq(schema.member.userId, userId)))
-			.where(and(eq(schema.project.id, projectId), isNull(schema.project.deletedAt)))
-			.limit(1);
-
-		if (projectMember.length === 0 || !projectMember[0].memberId) {
-			throw httpError(HttpErrorCode.FORBIDDEN, 'Forbidden');
-		}
-
-		const now = new Date();
-
-		// Atomic upsert using the unique index on (userId, projectId)
-		await database
-			.insert(schema.userProjectAccess)
-			.values({
-				id: crypto.randomUUID(),
-				userId,
-				projectId,
-				lastAccessedAt: now,
-				isFavorite: false,
-			})
-			.onConflictDoUpdate({
-				target: [schema.userProjectAccess.userId, schema.userProjectAccess.projectId],
-				set: { lastAccessedAt: now },
-			});
-
-		// Bump project last-activity timestamp so dashboards and the auto-delete cron
-		// reflect real usage, without touching the lifecycle-scoped updatedAt.
-		await database.update(schema.project).set({ lastActivityAt: now }).where(eq(schema.project.id, projectId));
-
-		return c.json({ ok: true });
-	})
-
-	// PUT /api/user/project/:projectId/favorite — Toggle favorite status
+	// PUT /api/user/project/:projectId/favorite — Set favorite status
 	.put('/user/project/:projectId/favorite', zValidator('json', favoriteBodySchema), async (c) => {
-		const userId = c.get('userId');
+		const { userId } = c.get('session');
 		const { projectId } = c.req.param();
 		const database = drizzle(c.env.DB);
 
@@ -199,27 +162,30 @@ export const userRoutes = new Hono<AuthedEnvironment>()
 			throw httpError(HttpErrorCode.FORBIDDEN, 'Forbidden');
 		}
 
-		// Atomic upsert using the unique index on (userId, projectId)
+		if (!body.favorite) {
+			await database
+				.delete(schema.userProjectFavorite)
+				.where(and(eq(schema.userProjectFavorite.userId, userId), eq(schema.userProjectFavorite.projectId, projectId)));
+
+			return c.json({ projectId, favorite: body.favorite });
+		}
+
 		await database
-			.insert(schema.userProjectAccess)
+			.insert(schema.userProjectFavorite)
 			.values({
 				id: crypto.randomUUID(),
 				userId,
 				projectId,
-				lastAccessedAt: new Date(),
-				isFavorite: body.favorite,
+				createdAt: new Date(),
 			})
-			.onConflictDoUpdate({
-				target: [schema.userProjectAccess.userId, schema.userProjectAccess.projectId],
-				set: { isFavorite: body.favorite },
-			});
+			.onConflictDoNothing({ target: [schema.userProjectFavorite.userId, schema.userProjectFavorite.projectId] });
 
 		return c.json({ projectId, favorite: body.favorite });
 	})
 
 	// GET /api/user/account/delete-preview — Preview account deletion consequences
 	.get('/user/account/delete-preview', async (c) => {
-		const userId = c.get('userId');
+		const { userId } = c.get('session');
 		const database = drizzle(c.env.DB);
 
 		// Find all orgs the user belongs to
@@ -292,7 +258,7 @@ export const userRoutes = new Hono<AuthedEnvironment>()
 
 	// DELETE /api/user/account — Soft-delete user account
 	.delete('/user/account', async (c) => {
-		const userId = c.get('userId');
+		const { userId } = c.get('session');
 		const database = drizzle(c.env.DB);
 
 		// Pre-check: find all orgs where user is sole super admin of multi-member org.
@@ -397,7 +363,7 @@ export const userRoutes = new Hono<AuthedEnvironment>()
 
 	// POST /api/user/push-subscription — Register a push subscription
 	.post('/user/push-subscription', zValidator('json', pushSubscriptionBodySchema), async (c) => {
-		const userId = c.get('userId');
+		const { userId } = c.get('session');
 		const body = c.req.valid('json');
 
 		await c.env.PUSH.registerSubscription(userId, {
@@ -411,7 +377,7 @@ export const userRoutes = new Hono<AuthedEnvironment>()
 
 	// DELETE /api/user/push-subscription — Unregister a push subscription
 	.delete('/user/push-subscription', zValidator('json', pushUnsubscribeBodySchema), async (c) => {
-		const userId = c.get('userId');
+		const { userId } = c.get('session');
 		const body = c.req.valid('json');
 
 		await c.env.PUSH.unregisterSubscription(userId, body.endpoint);
@@ -425,7 +391,7 @@ export const userRoutes = new Hono<AuthedEnvironment>()
 
 	// GET /api/user/push-notification-preference — Get preference for a device
 	.get('/user/push-notification-preference', async (c) => {
-		const userId = c.get('userId');
+		const { userId } = c.get('session');
 		const endpoint = c.req.query('endpoint');
 
 		if (!endpoint) {
@@ -438,7 +404,7 @@ export const userRoutes = new Hono<AuthedEnvironment>()
 
 	// PUT /api/user/push-notification-preference — Set preference for a device
 	.put('/user/push-notification-preference', zValidator('json', pushNotificationPreferenceBodySchema), async (c) => {
-		const userId = c.get('userId');
+		const { userId } = c.get('session');
 		const body = c.req.valid('json');
 
 		await c.env.PUSH.setNotificationPreference(userId, body.endpoint, body.enabled);

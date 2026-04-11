@@ -35,7 +35,7 @@ export const analyticsMiddleware = createMiddleware<AuthedEnvironment>(async (co
 
 	let userId = '';
 	try {
-		userId = context.get('userId') ?? '';
+		userId = context.get('session').userId ?? '';
 	} catch {
 		// userId not set — should not happen for authenticated routes
 	}

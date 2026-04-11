@@ -662,7 +662,7 @@ async function handlePreviewRequest(request: Request, projectId: string): Promis
 
 app.post('/api/new-project', async (c) => {
 	const projectCreateStart = Date.now();
-	const userId = c.get('userId');
+	const { userId } = c.get('session');
 
 	let templateId: string;
 	let organizationId: string;
@@ -829,7 +829,7 @@ app.post('/api/new-project', async (c) => {
 
 app.post('/api/clone-project', async (c) => {
 	const cloneStart = Date.now();
-	const userId = c.get('userId');
+	const { userId } = c.get('session');
 
 	let sourceProjectId: string;
 	let organizationId: string;
@@ -1079,7 +1079,7 @@ app.all('/p/:projectId/*', async (c) => {
 	}
 
 	// Single query: soft-delete check, ban check (project + org), and membership
-	const userId = c.get('userId');
+	const { userId } = c.get('session');
 	if (!userId) {
 		return c.json({ error: 'Unauthorized' }, 401);
 	}
@@ -1113,6 +1113,36 @@ app.all('/p/:projectId/*', async (c) => {
 		if (!projectAccessRow[0].memberId) {
 			return c.json({ error: 'Forbidden' }, 403);
 		}
+	}
+
+	// Fire-and-forget: bump project last-activity + per-user access tracking.
+	const session = c.get('session');
+	if (session.updateActivity) {
+		c.executionCtx.waitUntil(
+			(async () => {
+				try {
+					const database = drizzle(c.env.DB);
+					const now = new Date();
+					await database.batch([
+						database
+							.insert(authSchema.userProjectAccess)
+							.values({
+								id: crypto.randomUUID(),
+								userId,
+								projectId,
+								lastAccessedAt: now,
+							})
+							.onConflictDoUpdate({
+								target: [authSchema.userProjectAccess.userId, authSchema.userProjectAccess.projectId],
+								set: { lastAccessedAt: now },
+							}),
+						database.update(authSchema.project).set({ lastActivityAt: now }).where(eq(authSchema.project.id, projectId)),
+					]);
+				} catch (error) {
+					console.error('Failed to record project access:', error);
+				}
+			})(),
+		);
 	}
 
 	// Agent SDK WebSocket — forward to the AgentRunner DO.
@@ -1149,8 +1179,7 @@ app.all('/p/:projectId/*', async (c) => {
 		const projectApp = new Hono<AppEnvironment>();
 
 		projectApp.use('*', async (context, innerNext) => {
-			context.set('userId', c.get('userId'));
-			context.set('userSession', c.get('userSession'));
+			context.set('session', c.get('session'));
 			context.set('projectId', projectId);
 			context.set('projectRoot', PROJECT_ROOT);
 			context.set('fsStub', fsStub);

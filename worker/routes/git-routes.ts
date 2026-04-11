@@ -122,7 +122,7 @@ export const gitRoutes = new Hono<AppEnvironment>()
 		const fsStub = c.get('fsStub');
 
 		try {
-			const author = await getCommitAuthor(c.env, c.get('userId'));
+			const author = await getCommitAuthor(c.env, c.get('session').userId);
 			const { mount, withMounts } = await import('worker-fs-mount');
 			await withMounts(async () => {
 				mount(PROJECT_ROOT, fsStub);
@@ -416,7 +416,7 @@ export const gitRoutes = new Hono<AppEnvironment>()
 		const { message } = c.req.valid('json');
 
 		try {
-			const author = await getCommitAuthor(c.env, c.get('userId'));
+			const author = await getCommitAuthor(c.env, c.get('session').userId);
 			const { mount, withMounts } = await import('worker-fs-mount');
 			let commitOid = '';
 			let gitStatus: GitStatusResponse = { entries: [], initialized: false };
@@ -880,7 +880,7 @@ export const gitRoutes = new Hono<AppEnvironment>()
 		const { action, index, message: stashMessage } = c.req.valid('json');
 
 		try {
-			const author = await getCommitAuthor(c.env, c.get('userId'));
+			const author = await getCommitAuthor(c.env, c.get('session').userId);
 			const { mount, withMounts } = await import('worker-fs-mount');
 			let gitStatus: GitStatusResponse = { entries: [], initialized: false };
 
