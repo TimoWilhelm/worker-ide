@@ -481,7 +481,7 @@ describe('DashboardPage', () => {
 		expect(screen.getByText('Old Project')).toBeInTheDocument();
 	});
 
-	it('opens delete confirmation modal and soft-deletes a project', async () => {
+	it('opens delete confirmation modal and deletes a project', async () => {
 		const user = userEvent.setup();
 		vi.mocked(fetchOrgProjects).mockResolvedValue([
 			{
@@ -518,10 +518,17 @@ describe('DashboardPage', () => {
 		const dialog = screen.getByRole('dialog');
 		expect(within(dialog).getByText(/Are you sure you want to delete/)).toBeInTheDocument();
 		expect(within(dialog).getByText('Doomed Project')).toBeInTheDocument();
-		expect(within(dialog).getByText(/recoverable for 30 days/)).toBeInTheDocument();
+		expect(within(dialog).getByText(/cannot be undone/)).toBeInTheDocument();
 
-		// Click Delete to confirm
+		// Delete button should be disabled until confirmation text is typed
 		const confirmButton = within(dialog).getByRole('button', { name: 'Delete' });
+		expect(confirmButton).toBeDisabled();
+
+		// Type 'DELETE' to unlock the button
+		const confirmInput = within(dialog).getByRole('textbox');
+		await user.type(confirmInput, 'DELETE');
+		expect(confirmButton).toBeEnabled();
+
 		await user.click(confirmButton);
 
 		await waitFor(() => {

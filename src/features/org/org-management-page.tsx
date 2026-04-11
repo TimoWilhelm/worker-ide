@@ -14,6 +14,7 @@ import { Link, useNavigate } from 'react-router';
 
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { Modal, ModalBody, ModalFooter } from '@/components/ui/modal';
 import { Spinner } from '@/components/ui/spinner';
 import { toast } from '@/components/ui/toast-store';
 import { useTheme } from '@/hooks/use-theme';
@@ -48,8 +49,7 @@ type ConfirmAction =
 	| { type: 'transfer'; member: OrgMember }
 	| { type: 'promote'; member: OrgMember; targetRole: string }
 	| { type: 'demote'; member: OrgMember; targetRole: string }
-	| { type: 'leave' }
-	| { type: 'delete-org' };
+	| { type: 'leave' };
 
 // =============================================================================
 // Role helpers
@@ -389,6 +389,12 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 	const [confirmAction, setConfirmAction] = useState<ConfirmAction | undefined>();
 	const [isActing, setIsActing] = useState(false);
 
+	// Delete org modal state (separate from ConfirmDialog)
+	const [deleteOrgOpen, setDeleteOrgOpen] = useState(false);
+	const [deleteOrgConfirmText, setDeleteOrgConfirmText] = useState('');
+	const [isDeletingOrg, setIsDeletingOrg] = useState(false);
+	const isDeleteOrgConfirmed = deleteOrgConfirmText.toLowerCase() === 'delete';
+
 	// Rename state
 	const [isEditingName, setIsEditingName] = useState(false);
 	const [editName, setEditName] = useState('');
@@ -541,7 +547,7 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 
 	// --- Delete org ---
 	const handleDeleteOrg = useCallback(async () => {
-		setIsActing(true);
+		setIsDeletingOrg(true);
 		try {
 			await deleteOrganization(organizationId);
 			toast.success('Organization deleted');
@@ -549,8 +555,9 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 		} catch {
 			toast.error('Failed to delete organization');
 		} finally {
-			setIsActing(false);
-			setConfirmAction(undefined);
+			setIsDeletingOrg(false);
+			setDeleteOrgOpen(false);
+			setDeleteOrgConfirmText('');
 		}
 	}, [organizationId, navigate]);
 
@@ -580,8 +587,7 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 		if (confirmAction?.type === 'transfer') void handleTransferOwnership();
 		if (confirmAction?.type === 'promote' || confirmAction?.type === 'demote') void handleChangeRole();
 		if (confirmAction?.type === 'leave') void handleLeave();
-		if (confirmAction?.type === 'delete-org') void handleDeleteOrg();
-	}, [confirmAction, handleRemoveMember, handleTransferOwnership, handleChangeRole, handleLeave, handleDeleteOrg]);
+	}, [confirmAction, handleRemoveMember, handleTransferOwnership, handleChangeRole, handleLeave]);
 
 	if (isPending) {
 		return (
@@ -806,17 +812,96 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 							<div className="flex items-center justify-between gap-3">
 								<div className="min-w-0">
 									<p className="text-sm font-medium text-text-primary">Delete organization</p>
-									<p className="text-xs text-text-secondary">
-										Permanently delete this organization. All projects will be soft-deleted (recoverable for 30 days).
-									</p>
+									<p className="text-xs text-text-secondary">Permanently delete this organization. This action cannot be undone.</p>
 								</div>
-								<Button variant="danger" size="sm" onClick={() => setConfirmAction({ type: 'delete-org' })}>
+								<Button
+									variant="danger"
+									size="sm"
+									onClick={() => {
+										setDeleteOrgConfirmText('');
+										setDeleteOrgOpen(true);
+									}}
+								>
 									Delete
 								</Button>
 							</div>
 						</div>
 					</section>
 				)}
+
+				{/* Delete org confirmation modal */}
+				<Modal
+					open={deleteOrgOpen}
+					onOpenChange={(open) => {
+						if (!open && !isDeletingOrg) {
+							setDeleteOrgOpen(false);
+							setDeleteOrgConfirmText('');
+						}
+					}}
+					title="Delete organization"
+				>
+					<ModalBody>
+						<div className="space-y-4">
+							<p className="text-sm font-medium">Are you sure you want to delete this organization?</p>
+							<p
+								className="
+									truncate rounded-sm border border-border bg-bg-tertiary px-2 py-1
+									text-sm font-medium text-text-primary
+								"
+							>
+								{activeOrganization.name}
+							</p>
+							<p className="text-xs text-text-secondary">This action cannot be undone.</p>
+							<div>
+								<label className="mb-1.5 block text-xs text-text-secondary">
+									Type <strong className="text-text-primary uppercase">delete</strong> to confirm
+								</label>
+								<input
+									type="text"
+									value={deleteOrgConfirmText}
+									onChange={(event) => setDeleteOrgConfirmText(event.target.value)}
+									onKeyDown={(event) => {
+										if (event.key === 'Enter' && isDeleteOrgConfirmed && !isDeletingOrg) {
+											void handleDeleteOrg();
+										}
+									}}
+									disabled={isDeletingOrg}
+									autoComplete="off"
+									className="
+										h-8 w-full rounded-md border border-border bg-bg-secondary/60 px-2
+										text-sm text-text-primary transition-colors
+										placeholder:text-text-secondary/50
+										focus-within:border-accent
+										focus:outline-none
+									"
+								/>
+							</div>
+						</div>
+					</ModalBody>
+					<ModalFooter>
+						<Button
+							variant="secondary"
+							size="sm"
+							onClick={() => {
+								setDeleteOrgOpen(false);
+								setDeleteOrgConfirmText('');
+							}}
+							disabled={isDeletingOrg}
+						>
+							Cancel
+						</Button>
+						<Button
+							size="sm"
+							variant="danger"
+							onClick={() => void handleDeleteOrg()}
+							disabled={isDeletingOrg || !isDeleteOrgConfirmed}
+							isLoading={isDeletingOrg}
+							loadingText="Deleting..."
+						>
+							Delete
+						</Button>
+					</ModalFooter>
+				</Modal>
 			</main>
 		</div>
 	);
@@ -895,18 +980,6 @@ function getConfirmDialogProperties(
 					</>
 				),
 				confirmLabel: 'Leave',
-				variant: 'danger',
-			};
-		}
-		case 'delete-org': {
-			return {
-				title: 'Delete organization',
-				description: (
-					<>
-						Permanently delete <strong className="text-text-primary">{organizationName}</strong>? This action cannot be undone.
-					</>
-				),
-				confirmLabel: 'Delete forever',
 				variant: 'danger',
 			};
 		}

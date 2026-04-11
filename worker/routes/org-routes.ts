@@ -7,7 +7,7 @@
  */
 
 import { zValidator } from '@hono/zod-validator';
-import { and, count, eq, isNull } from 'drizzle-orm';
+import { and, count, desc, eq, isNull } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
 import { Hono } from 'hono';
 
@@ -92,7 +92,7 @@ export const orgRoutes = new Hono<AuthedEnvironment>()
 			.select()
 			.from(schema.project)
 			.where(and(eq(schema.project.organizationId, orgId), isNull(schema.project.deletedAt), isNull(schema.project.bannedAt)))
-			.orderBy(schema.project.createdAt);
+			.orderBy(desc(schema.project.lastActivityAt));
 
 		return c.json({ projects });
 	})

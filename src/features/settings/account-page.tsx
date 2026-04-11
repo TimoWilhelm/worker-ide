@@ -12,7 +12,7 @@ import { useCallback, useState } from 'react';
 import { useNavigate } from 'react-router';
 
 import { Button } from '@/components/ui/button';
-import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { Modal, ModalBody, ModalFooter } from '@/components/ui/modal';
 import { Spinner } from '@/components/ui/spinner';
 import { toast } from '@/components/ui/toast-store';
 import { deleteAccount, fetchAccountDeletePreview } from '@/lib/api-client';
@@ -23,6 +23,7 @@ import type { AccountDeletePreview } from '@/lib/api-client';
 
 export default function AccountPage() {
 	const navigate = useNavigate();
+	const { data: session } = authClient.useSession();
 
 	// Fetch active sessions
 	const sessionsQuery = useQuery({
@@ -73,12 +74,15 @@ export default function AccountPage() {
 	const [isLoadingPreview, setIsLoadingPreview] = useState(false);
 	const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 	const [isDeleting, setIsDeleting] = useState(false);
+	const [deleteConfirmText, setDeleteConfirmText] = useState('');
+	const isDeleteConfirmed = deleteConfirmText.toLowerCase() === 'delete';
 
 	const handleOpenDeleteModal = useCallback(async () => {
 		setIsLoadingPreview(true);
 		try {
 			const preview = await fetchAccountDeletePreview();
 			setDeletePreview(preview);
+			setDeleteConfirmText('');
 			setShowDeleteConfirm(true);
 		} catch {
 			toast.error('Could not load account deletion details. Please check your connection and try again.');
@@ -197,7 +201,7 @@ export default function AccountPage() {
 					<div className="flex items-center justify-between gap-3">
 						<div className="min-w-0">
 							<p className="text-sm font-medium text-text-primary">Delete account</p>
-							<p className="text-xs text-text-secondary">Permanently delete your account and all single-member organizations.</p>
+							<p className="text-xs text-text-secondary">Permanently delete your account.</p>
 						</div>
 						<Button
 							variant="danger"
@@ -215,47 +219,104 @@ export default function AccountPage() {
 
 			{/* Delete account confirmation */}
 			{deletePreview && (
-				<ConfirmDialog
+				<Modal
 					open={showDeleteConfirm}
 					onOpenChange={(open) => {
 						if (!open && !isDeleting) setShowDeleteConfirm(false);
 					}}
 					title="Delete account"
-					description={
-						deletePreview.canDelete ? (
-							<div className="flex flex-col gap-2 text-sm text-text-secondary">
-								<p>This action is irreversible. Your account and all single-member organizations will be permanently deleted.</p>
-								{deletePreview.singleMemberOrganizations.length > 0 && (
-									<p>
-										<strong className="text-text-primary">{deletePreview.singleMemberOrganizations.length} organization(s)</strong> you own
-										alone will be deleted, including their projects.
+				>
+					{deletePreview.canDelete ? (
+						<>
+							<ModalBody>
+								<div className="space-y-4">
+									<p className="text-sm font-medium">Are you sure you want to delete your account?</p>
+									<p
+										className="
+											truncate rounded-sm border border-border bg-bg-tertiary px-2 py-1
+											text-sm font-medium text-text-primary
+										"
+									>
+										{session?.user.email}
 									</p>
-								)}
-								{deletePreview.membershipOrganizations.length > 0 && (
-									<p>
-										You will be removed from{' '}
-										<strong className="text-text-primary">{deletePreview.membershipOrganizations.length} organization(s)</strong>.
-									</p>
-								)}
-							</div>
-						) : (
-							<div className="flex flex-col gap-2 text-sm text-text-secondary">
-								<p>You cannot delete your account yet. You are the sole Super admin of:</p>
-								<ul className="list-disc pl-4">
-									{deletePreview.blockers.map((blocker) => (
-										<li key={blocker.id}>
-											<strong className="text-text-primary">{blocker.name}</strong> ({blocker.memberCount} members)
-										</li>
-									))}
-								</ul>
-								<p>Promote another member to Super admin or delete those organizations first.</p>
-							</div>
-						)
-					}
-					confirmLabel={deletePreview.canDelete ? 'Delete forever' : 'OK'}
-					variant={deletePreview.canDelete ? 'danger' : 'default'}
-					onConfirm={deletePreview.canDelete ? () => void handleConfirmDelete() : () => setShowDeleteConfirm(false)}
-				/>
+									{deletePreview.singleMemberOrganizations.length > 0 && (
+										<p className="text-xs text-text-secondary">
+											<strong className="text-text-primary">{deletePreview.singleMemberOrganizations.length} organization(s)</strong> you
+											own alone will be deleted, including their projects.
+										</p>
+									)}
+									{deletePreview.membershipOrganizations.length > 0 && (
+										<p className="text-xs text-text-secondary">
+											You will be removed from{' '}
+											<strong className="text-text-primary">{deletePreview.membershipOrganizations.length} organization(s)</strong>.
+										</p>
+									)}
+									<p className="text-xs text-text-secondary">This action cannot be undone.</p>
+									<div>
+										<label className="mb-1.5 block text-xs text-text-secondary">
+											Type <strong className="text-text-primary uppercase">delete</strong> to confirm
+										</label>
+										<input
+											type="text"
+											value={deleteConfirmText}
+											onChange={(event) => setDeleteConfirmText(event.target.value)}
+											onKeyDown={(event) => {
+												if (event.key === 'Enter' && isDeleteConfirmed && !isDeleting) {
+													void handleConfirmDelete();
+												}
+											}}
+											disabled={isDeleting}
+											autoComplete="off"
+											className="
+												h-8 w-full rounded-md border border-border bg-bg-secondary/60 px-2
+												text-sm text-text-primary transition-colors
+												placeholder:text-text-secondary/50
+												focus-within:border-accent
+												focus:outline-none
+											"
+										/>
+									</div>
+								</div>
+							</ModalBody>
+							<ModalFooter>
+								<Button variant="secondary" size="sm" onClick={() => setShowDeleteConfirm(false)} disabled={isDeleting}>
+									Cancel
+								</Button>
+								<Button
+									size="sm"
+									variant="danger"
+									onClick={() => void handleConfirmDelete()}
+									disabled={isDeleting || !isDeleteConfirmed}
+									isLoading={isDeleting}
+									loadingText="Deleting..."
+								>
+									Delete
+								</Button>
+							</ModalFooter>
+						</>
+					) : (
+						<>
+							<ModalBody>
+								<div className="flex flex-col gap-2 text-sm text-text-secondary">
+									<p>You cannot delete your account yet. You are the sole Super admin of:</p>
+									<ul className="list-disc pl-4">
+										{deletePreview.blockers.map((blocker) => (
+											<li key={blocker.id}>
+												<strong className="text-text-primary">{blocker.name}</strong> ({blocker.memberCount} members)
+											</li>
+										))}
+									</ul>
+									<p>Promote another member to Super admin or delete those organizations first.</p>
+								</div>
+							</ModalBody>
+							<ModalFooter>
+								<Button variant="secondary" size="sm" onClick={() => setShowDeleteConfirm(false)}>
+									OK
+								</Button>
+							</ModalFooter>
+						</>
+					)}
+				</Modal>
 			)}
 		</div>
 	);

@@ -6,13 +6,16 @@
 import fs from 'node:fs/promises';
 
 import { zValidator } from '@hono/zod-validator';
+import { eq } from 'drizzle-orm';
+import { drizzle } from 'drizzle-orm/d1';
 import { Hono } from 'hono';
 
 import { BINARY_EXTENSIONS, HIDDEN_ENTRIES } from '@shared/constants';
 import { HttpErrorCode } from '@shared/http-errors';
 import { dependenciesUpdateSchema, projectMetaSchema, visibilityBodySchema } from '@shared/validation';
 
-import { coordinatorNamespace } from '../lib/durable-object-namespaces';
+import * as schema from '../db/auth-schema';
+import { coordinatorNamespace, projectMetadataNamespace } from '../lib/durable-object-namespaces';
 import { httpError } from '../lib/http-error';
 import {
 	readAssetSettings,
@@ -72,6 +75,13 @@ export const projectRoutes = new Hono<AppEnvironment>()
 			await regenerateProtectedFiles(projectRoot);
 		}
 
+		// Sync project name to D1 so dashboards and admin UI reflect the update
+		if (parsed.data.name) {
+			const projectId = c.get('projectId');
+			const database = drizzle(c.env.DB);
+			await database.update(schema.project).set({ name: parsed.data.name, updatedAt: new Date() }).where(eq(schema.project.id, projectId));
+		}
+
 		// Trigger full reload when metadata changes so the preview rebundles and WS clients sync
 		if (parsed.data.name || parsed.data.assetSettings !== undefined || parsed.data.bindingsConfig !== undefined) {
 			const projectId = c.get('projectId');
@@ -122,9 +132,6 @@ export const projectRoutes = new Hono<AppEnvironment>()
 	// GET /api/project/visibility - Get preview visibility
 	.get('/project/visibility', async (c) => {
 		const projectId = c.get('projectId');
-		const { drizzle } = await import('drizzle-orm/d1');
-		const { eq } = await import('drizzle-orm');
-		const schema = await import('../db/auth-schema');
 		const database = drizzle(c.env.DB);
 		const rows = await database
 			.select({ previewVisibility: schema.project.previewVisibility })
@@ -139,9 +146,6 @@ export const projectRoutes = new Hono<AppEnvironment>()
 	.put('/project/visibility', zValidator('json', visibilityBodySchema), async (c) => {
 		const projectId = c.get('projectId');
 		const body = c.req.valid('json');
-		const { drizzle } = await import('drizzle-orm/d1');
-		const { eq } = await import('drizzle-orm');
-		const schema = await import('../db/auth-schema');
 		const database = drizzle(c.env.DB);
 		await database
 			.update(schema.project)
@@ -160,7 +164,6 @@ export const projectRoutes = new Hono<AppEnvironment>()
 		}
 
 		const quotaBytes = await resolveStorageQuotaForProject(projectId, c.env.DB);
-		const { projectMetadataNamespace } = await import('../lib/durable-object-namespaces');
 		const metadataStub = projectMetadataNamespace.getByName(`project:${projectId}`);
 		const usageBytes = await metadataStub.getStorageUsageBytes();
 

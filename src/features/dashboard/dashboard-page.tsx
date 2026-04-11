@@ -341,7 +341,8 @@ function ProjectRow({ project, onDelete }: { project: OrgProject; onDelete: (pro
 						onDelete(project);
 					}}
 					className="
-						hidden rounded-sm p-0.5 text-text-secondary/60 transition-colors
+						hidden cursor-pointer rounded-sm p-0.5 text-text-secondary/60
+						transition-colors
 						group-hover/row:inline-flex
 						hover:text-error
 					"
@@ -371,21 +372,68 @@ function DeleteProjectModal({
 	onConfirm: () => void;
 	isDeleting: boolean;
 }) {
+	const [confirmText, setConfirmText] = useState('');
+	const [lastProjectId, setLastProjectId] = useState<string | undefined>();
+	const isConfirmed = confirmText.toLowerCase() === 'delete';
+
+	// Reset confirmation text when a different project is targeted
+	if (project?.id !== lastProjectId) {
+		setLastProjectId(project?.id);
+		setConfirmText('');
+	}
+
 	if (!project) return;
 
 	return (
 		<Modal open={open} onOpenChange={onOpenChange} title="Delete project">
 			<ModalBody>
-				<p className="text-sm text-text-secondary">
-					Are you sure you want to delete <strong className="text-text-primary">{project.name || project.id.slice(0, 12)}</strong>?
-				</p>
-				<p className="mt-2 text-xs text-text-secondary/80">The project will be recoverable for 30 days, then permanently deleted.</p>
+				<div className="space-y-4">
+					<p className="text-sm font-medium">Are you sure you want to delete this project?</p>
+					<p
+						className="
+							truncate rounded-sm border border-border bg-bg-tertiary px-2 py-1 text-sm
+							font-medium text-text-primary
+						"
+					>
+						{project.name || project.id.slice(0, 12)}
+					</p>
+					<p className="text-xs text-text-secondary">This action cannot be undone.</p>
+					<div>
+						<label className="mb-1.5 block text-xs text-text-secondary">
+							Type <strong className="text-text-primary uppercase">delete</strong> to confirm
+						</label>
+						<input
+							type="text"
+							value={confirmText}
+							onChange={(event) => setConfirmText(event.target.value)}
+							onKeyDown={(event) => {
+								if (event.key === 'Enter' && isConfirmed && !isDeleting) onConfirm();
+							}}
+							disabled={isDeleting}
+							autoComplete="off"
+							className="
+								h-8 w-full rounded-md border border-border bg-bg-secondary/60 px-2
+								text-sm text-text-primary transition-colors
+								placeholder:text-text-secondary/50
+								focus-within:border-accent
+								focus:outline-none
+							"
+						/>
+					</div>
+				</div>
 			</ModalBody>
 			<ModalFooter>
 				<Button variant="secondary" size="sm" onClick={() => onOpenChange(false)} disabled={isDeleting}>
 					Cancel
 				</Button>
-				<Button size="sm" variant="danger" onClick={onConfirm} disabled={isDeleting} isLoading={isDeleting} loadingText="Deleting...">
+				<Button
+					size="sm"
+					variant="danger"
+					onClick={onConfirm}
+					disabled={isDeleting || !isConfirmed}
+					isLoading={isDeleting}
+					loadingText="Deleting..."
+				>
 					Delete
 				</Button>
 			</ModalFooter>
