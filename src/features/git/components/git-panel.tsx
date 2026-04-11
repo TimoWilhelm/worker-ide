@@ -8,7 +8,7 @@
  * - Collapsible history section
  */
 
-import { ScrollArea } from '@base-ui-components/react/scroll-area';
+import { ScrollArea } from '@base-ui/react/scroll-area';
 import { GitBranch, Globe, History, RotateCcw } from 'lucide-react';
 import { Suspense, useCallback, useMemo, useState } from 'react';
 

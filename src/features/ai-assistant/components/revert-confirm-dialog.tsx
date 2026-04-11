@@ -13,7 +13,7 @@
  * File paths are rendered as clickable references that open in the editor.
  */
 
-import { AlertDialog } from '@base-ui-components/react/alert-dialog';
+import { AlertDialog } from '@base-ui/react/alert-dialog';
 import { useQueries } from '@tanstack/react-query';
 import { AlertCircle, AlertTriangle, FileMinus, FilePen, FilePlus, Loader2, RotateCcw } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';

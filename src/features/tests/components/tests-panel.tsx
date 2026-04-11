@@ -7,7 +7,7 @@
  * via WebSocket so everyone sees the same test state.
  */
 
-import { ScrollArea } from '@base-ui-components/react/scroll-area';
+import { ScrollArea } from '@base-ui/react/scroll-area';
 import { CheckCircle2, FlaskConical, Play, RefreshCw, XCircle } from 'lucide-react';
 import { useMemo } from 'react';
 

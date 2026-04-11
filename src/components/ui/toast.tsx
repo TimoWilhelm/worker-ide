@@ -5,7 +5,7 @@
  * Mount `<Toaster />` once near the root of the app.
  */
 
-import { Toast } from '@base-ui-components/react/toast';
+import { Toast } from '@base-ui/react/toast';
 import { CircleAlert, CircleCheck, Info, X } from 'lucide-react';
 
 import { toastManager } from '@/components/ui/toast-store';

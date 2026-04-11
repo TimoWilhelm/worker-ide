@@ -4,7 +4,7 @@
  * Accessible dropdown menu using Base UI Menu primitives.
  */
 
-import { Menu } from '@base-ui-components/react/menu';
+import { Menu } from '@base-ui/react/menu';
 import { motion } from 'motion/react';
 
 import { popoverVariants, springSnappy } from '@/lib/motion-config';

@@ -5,7 +5,7 @@
  * Used for new file creation and other form dialogs.
  */
 
-import { Dialog } from '@base-ui-components/react/dialog';
+import { Dialog } from '@base-ui/react/dialog';
 import { AnimatePresence, motion } from 'motion/react';
 
 import { modalContentVariants, overlayVariants, springDefault, tweenFast } from '@/lib/motion-config';

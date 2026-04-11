@@ -6,7 +6,7 @@
  * collaborator presence dots per file.
  */
 
-import { Tabs } from '@base-ui-components/react/tabs';
+import { Tabs } from '@base-ui/react/tabs';
 import { File, ListX, X } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useCallback, useEffect, useMemo, useRef } from 'react';

@@ -13,5 +13,6 @@ export {
 	DropdownMenuTrigger,
 } from './dropdown-menu';
 export { Modal, ModalBody, ModalFooter, type ModalProperties } from './modal';
+export { Progress, type ProgressProperties } from './progress';
 export { Spinner } from './spinner';
 export { Tooltip } from './tooltip';

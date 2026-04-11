@@ -5,7 +5,7 @@
  * Provides an imperative `toast.error()` API callable from anywhere.
  */
 
-import { Toast } from '@base-ui-components/react/toast';
+import { Toast } from '@base-ui/react/toast';
 
 // =============================================================================
 // Types

@@ -9,7 +9,7 @@
  * snapshot revert buttons on user messages, CUSTOM event handling.
  */
 
-import { ScrollArea } from '@base-ui-components/react/scroll-area';
+import { ScrollArea } from '@base-ui/react/scroll-area';
 import { useAgent } from 'agents/react';
 import {
 	ArrowDown,

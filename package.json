@@ -3,7 +3,7 @@
 	"version": "0.0.0",
 	"type": "module",
 	"devDependencies": {
-		"@base-ui-components/react": "^1.0.0-rc.0",
+		"@base-ui/react": "^1.0.0-rc.0",
 		"@biomejs/js-api": "^4.0.0",
 		"@biomejs/wasm-web": "^2.4.8",
 		"@chromatic-com/storybook": "^4.1.3",

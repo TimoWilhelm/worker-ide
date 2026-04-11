@@ -5,7 +5,7 @@
  * Opens upward from the trigger pill, displaying available models with descriptions.
  */
 
-import { Menu } from '@base-ui-components/react/menu';
+import { Menu } from '@base-ui/react/menu';
 import { motion } from 'motion/react';
 
 import { Pill } from '@/components/ui/pill';

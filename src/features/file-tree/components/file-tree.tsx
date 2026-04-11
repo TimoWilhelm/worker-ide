@@ -4,7 +4,7 @@
  * Hierarchical file explorer with expand/collapse support.
  */
 
-import { ScrollArea } from '@base-ui-components/react/scroll-area';
+import { ScrollArea } from '@base-ui/react/scroll-area';
 import { ChevronDown, ChevronRight, File, FilePlus, Folder, FolderOpen, FolderPlus, Lock, Pencil, Trash2 } from 'lucide-react';
 import { useCallback, useId, useMemo, useRef, useState } from 'react';
 

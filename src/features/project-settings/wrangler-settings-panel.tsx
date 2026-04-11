@@ -11,6 +11,7 @@ import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Button } from '@/components/ui/button';
+import { Progress } from '@/components/ui/progress';
 import { Spinner } from '@/components/ui/spinner';
 import { fetchProjectMeta, fetchStorageUsage, updateProjectMeta } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
@@ -473,12 +474,7 @@ function StorageUsageBar({ projectId }: { projectId: string }) {
 
 	return (
 		<div className="flex flex-wrap items-center gap-2">
-			<div className="h-2 w-20 min-w-12 overflow-hidden rounded-full bg-bg-tertiary">
-				<div
-					className={cn('h-full rounded-full transition-all', isNearLimit ? 'bg-red-400' : 'bg-accent')}
-					style={{ width: `${percentage}%` }}
-				/>
-			</div>
+			<Progress value={percentage} className="w-20" indicatorClassName={isNearLimit ? 'bg-red-400' : undefined} />
 			<span className={cn('font-mono text-xs whitespace-nowrap', isNearLimit ? 'text-red-400' : 'text-text-secondary/70')}>
 				{formatBytes(usageBytes)} / {formatBytes(quotaBytes)}
 			</span>

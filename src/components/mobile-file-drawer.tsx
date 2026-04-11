@@ -5,7 +5,7 @@
  * Uses Base UI Dialog primitives for accessible overlay behavior.
  */
 
-import { Dialog } from '@base-ui-components/react/dialog';
+import { Dialog } from '@base-ui/react/dialog';
 import { AnimatePresence, motion } from 'motion/react';
 
 import { overlayVariants, slideLeftVariants, springCritical, tweenFast } from '@/lib/motion-config';

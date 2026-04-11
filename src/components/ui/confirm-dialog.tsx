@@ -5,7 +5,7 @@
  * Replaces browser-native confirm() calls with a styled modal.
  */
 
-import { AlertDialog } from '@base-ui-components/react/alert-dialog';
+import { AlertDialog } from '@base-ui/react/alert-dialog';
 import { AnimatePresence, motion } from 'motion/react';
 
 import { modalContentVariants, overlayVariants, springDefault, tweenFast } from '@/lib/motion-config';
