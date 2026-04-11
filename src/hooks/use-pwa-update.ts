@@ -1,18 +1,15 @@
-/**
- * PWA Update Hook
- *
- * Registers the service worker with prompt-based updates.
- * Periodically checks for new versions and shows a toast notification
- * with a "Reload" action when an update is available.
- */
-
 import { useEffect, useRef } from 'react';
 import { useRegisterSW } from 'virtual:pwa-register/react';
 
 import { toast } from '@/components/ui/toast-store';
 
+// Grace period to distinguish "new SW was already waiting on page load"
+// from "update arrived mid-session".
+const INITIAL_LOAD_GRACE_PERIOD_MS = 2000;
+
 export function usePwaUpdate() {
 	const updateIntervalReference = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
+	const isInitialLoadReference = useRef(true);
 
 	const {
 		needRefresh: [needRefresh],
@@ -39,7 +36,13 @@ export function usePwaUpdate() {
 		},
 	});
 
-	// Clean up the periodic update check interval on unmount
+	useEffect(() => {
+		const timeout = setTimeout(() => {
+			isInitialLoadReference.current = false;
+		}, INITIAL_LOAD_GRACE_PERIOD_MS);
+		return () => clearTimeout(timeout);
+	}, []);
+
 	useEffect(() => {
 		return () => {
 			clearInterval(updateIntervalReference.current);
@@ -48,6 +51,12 @@ export function usePwaUpdate() {
 
 	useEffect(() => {
 		if (!needRefresh) return;
+
+		// Non-disruptive: silently activate during initial load
+		if (isInitialLoadReference.current) {
+			void updateServiceWorker(true);
+			return;
+		}
 
 		toast.info('New version available', {
 			action: {
