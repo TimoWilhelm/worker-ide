@@ -114,6 +114,18 @@ const INTERNAL_SCRIPTS: Record<string, string> = {
 // Preview Service
 // =============================================================================
 
+/**
+ * Strip internal esbuild noise from error messages shown to users.
+ * Removes prefixes like "ERROR: [plugin: virtual-fs]" while keeping
+ * the human-readable message intact.
+ */
+function cleanBuildErrorMessage(message: string): string {
+	return message
+		.replaceAll(/\[plugin: [^\]]+\]\s*/g, '')
+		.replaceAll(/\bERROR:\s*/g, '')
+		.trim();
+}
+
 export class PreviewService {
 	constructor(
 		private projectRoot: string,
@@ -311,7 +323,7 @@ export class PreviewService {
 				id: crypto.randomUUID(),
 				timestamp: Date.now(),
 				type: 'bundle',
-				message: errorMessage,
+				message: cleanBuildErrorMessage(errorMessage),
 				file: locMatch ? locMatch[1] : undefined,
 				line: locMatch ? Number(locMatch[2]) : undefined,
 				column: locMatch ? Number(locMatch[3]) : undefined,
@@ -418,7 +430,7 @@ export class PreviewService {
 				id: crypto.randomUUID(),
 				timestamp: Date.now(),
 				type: isBundleError ? 'bundle' : 'runtime',
-				message: errorMessage,
+				message: cleanBuildErrorMessage(errorMessage),
 				file,
 				line,
 				column,

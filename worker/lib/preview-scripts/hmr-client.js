@@ -134,9 +134,6 @@
 		newScript.src = cacheBustedSrc;
 
 		newScript.addEventListener('load', function () {
-			if (typeof window.hideErrorOverlay === 'function') {
-				window.hideErrorOverlay();
-			}
 			console.log('[hmr] js hot updated');
 			jsUpdateInFlight = false;
 		});
