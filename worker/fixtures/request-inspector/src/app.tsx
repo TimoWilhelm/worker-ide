@@ -132,7 +132,7 @@ export function App() {
 
 	return (
 		<div className="app">
-			<h1>&#128269; Request Inspector</h1>
+			<h1>🔍 Request Inspector</h1>
 			<p className="subtitle">See what your Cloudflare Worker knows about each request</p>
 
 			{error && <p className="error">{error}</p>}

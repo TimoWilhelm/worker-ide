@@ -312,6 +312,14 @@ export function createAuth(environment: AuthEnvironment, baseUrl: string, reques
 				},
 			},
 			session: {
+				update: {
+					before: async (_data, context) => {
+						const session = context?.context?.session?.session;
+						if (session && 'impersonatedBy' in session && session.impersonatedBy) {
+							return false;
+						}
+					},
+				},
 				create: {
 					before: async (session) => {
 						// Soft-deleted users are restored on sign-in.

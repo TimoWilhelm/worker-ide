@@ -75,7 +75,7 @@ export const requireAuth = createMiddleware<AuthedEnvironment>(async (context, n
 	context.set('session', {
 		id: session.session.id,
 		userId: session.user.id,
-		updateActivity: !(session.session.impersonatedBy && session.session.impersonatedBy.length > 0),
+		updateActivity: !('impersonatedBy' in session.session && session.session.impersonatedBy),
 	});
 
 	await next();
