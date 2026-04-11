@@ -356,6 +356,28 @@ describe('bundleWithCdn', () => {
 		expect(result.code).toContain('helper');
 	});
 
+	it('throws on missing relative imports instead of marking them external', async () => {
+		await expect(
+			bundleWithCdn({
+				files: {
+					'src/main.ts': 'import "./style.css";\nconsole.log("hello");',
+				},
+				entryPoint: 'src/main.ts',
+			}),
+		).rejects.toThrow(/Could not resolve "\.\/style\.css"/);
+	});
+
+	it('throws on missing relative JS imports from virtual namespace', async () => {
+		await expect(
+			bundleWithCdn({
+				files: {
+					'src/main.ts': 'import { foo } from "./missing";\nconsole.log(foo);',
+				},
+				entryPoint: 'src/main.ts',
+			}),
+		).rejects.toThrow(/Could not resolve "\.\/missing"/);
+	});
+
 	it('returns warnings when present', async () => {
 		const result = await bundleWithCdn({
 			files: { 'src/main.ts': 'console.log("ok");' },

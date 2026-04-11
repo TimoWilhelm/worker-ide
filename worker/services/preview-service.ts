@@ -197,6 +197,11 @@ export class PreviewService {
 			access: (path: string) => fs.access(path),
 		};
 
+		// Track whether the entry file was successfully resolved.
+		// ENOENT errors during file resolution → true 404.
+		// ENOENT errors after resolution (e.g. bundler can't find an import) → error overlay.
+		let entryFileResolved = false;
+
 		try {
 			let fullPath = `${this.projectRoot}${filePath}`;
 			const initialExtension = this.getExtension(filePath);
@@ -237,6 +242,7 @@ export class PreviewService {
 			}
 
 			const content = await fs.readFile(fullPath);
+			entryFileResolved = true;
 			const textContent = typeof content === 'string' ? content : new TextDecoder().decode(content);
 			const extension = this.getExtension(filePath);
 
@@ -285,7 +291,7 @@ export class PreviewService {
 			});
 		} catch (error) {
 			const errorMessage = error instanceof Error ? error.message : String(error);
-			if (errorMessage.includes('ENOENT')) {
+			if (errorMessage.includes('ENOENT') && !entryFileResolved) {
 				const fallbackResponse = await this.handleNotFoundFallback(url, ideOrigin, assetSettings.not_found_handling);
 				if (fallbackResponse) {
 					return fallbackResponse;

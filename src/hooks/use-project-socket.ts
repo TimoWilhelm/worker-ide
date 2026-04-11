@@ -201,10 +201,14 @@ export function useProjectSocket({ projectId, enabled = true }: UseProjectSocket
 								void queryClientCurrent.invalidateQueries({
 									queryKey: ['project-meta', projectIdCurrent],
 								});
+								// Config changes (package.json, wrangler.jsonc) require
+								// a hard iframe refresh — the Vite HMR client inside the
+								// preview cannot re-resolve new dependencies on its own.
+								globalThis.dispatchEvent(new CustomEvent('preview-force-refresh'));
 							}
-							// The preview iframe has its own HMR WebSocket client
-							// that handles full-reload and CSS hot-swap internally,
-							// so no postMessage is needed here.
+							// For non-config changes the preview iframe has its own HMR
+							// WebSocket client that handles full-reload and CSS hot-swap
+							// internally, so no postMessage is needed.
 							// Notify the log buffer that a rebuild occurred
 							globalThis.dispatchEvent(new CustomEvent('rebuild'));
 							break;

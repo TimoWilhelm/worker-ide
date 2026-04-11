@@ -246,6 +246,28 @@ function createVirtualFsPlugin(
 					if (resolved) {
 						return { path: resolved, namespace: 'virtual' };
 					}
+					// esbuild may absolutize the resolveDir returned by onLoad,
+					// breaking the lookup against virtual filesystem keys. Fall
+					// back to deriving the directory from the importer path
+					// (which is always a relative virtual-fs key like "src/main.ts").
+					if (arguments_.importer) {
+						const lastSlash = arguments_.importer.lastIndexOf('/');
+						const importerDirectory = lastSlash === -1 ? '' : arguments_.importer.slice(0, lastSlash);
+						const resolvedFromImporter = resolveRelativePath(importerDirectory, arguments_.path, files);
+						if (resolvedFromImporter) {
+							return { path: resolvedFromImporter, namespace: 'virtual' };
+						}
+					}
+					// When the import originates from the virtual namespace (our
+					// controlled resolveDir), a failed resolve means the file is
+					// genuinely missing. Return a build error so it surfaces in the
+					// error overlay instead of being silently marked external
+					// (which causes a blank 404 in the browser).
+					if (arguments_.namespace === 'virtual') {
+						return {
+							errors: [{ text: `Could not resolve "${arguments_.path}" — the file does not exist in the project` }],
+						};
+					}
 				}
 
 				if (!arguments_.path.startsWith('/') && !arguments_.path.startsWith('.')) {
