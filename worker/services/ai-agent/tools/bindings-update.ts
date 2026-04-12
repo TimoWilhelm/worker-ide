@@ -1,7 +1,9 @@
 /**
  * Tool: bindings_update
- * Enable or disable IDE-managed bindings for the project.
+ * Enable or disable bindings for the project.
  */
+
+import { stripIndent } from 'common-tags';
 
 import { ToolExecutionError } from '@shared/tool-errors';
 import { coordinatorNamespace } from '@worker/lib/durable-object-namespaces';
@@ -12,12 +14,10 @@ import type { BindingsConfig } from '@shared/types';
 
 export const definition: ToolDefinition = {
 	name: 'bindings_update',
-	description: `Enable or disable IDE-managed bindings for the project.
-Currently supported bindings:
-- storage: Object storage (R2-backed) available as env.STORAGE — exposes a subset of the R2Bucket API (head, get, put, delete, list).
-
-When enabled, the IDE auto-generates type declarations in worker-env.d.ts and injects the binding into the preview worker env.
-When deploying, an R2 bucket is automatically created in the user's account.`,
+	description: stripIndent`
+		Enable or disable bindings for the project.
+		When enabled, the IDE auto-generates type declarations in worker-env.d.ts and injects the binding into the preview worker env.
+	`,
 	input_schema: {
 		type: 'object',
 		properties: {

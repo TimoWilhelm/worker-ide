@@ -6,6 +6,8 @@
 
 import fs from 'node:fs/promises';
 
+import { stripIndent } from 'common-tags';
+
 import { ToolExecutionError } from '@shared/tool-errors';
 import { coordinatorNamespace } from '@worker/lib/durable-object-namespaces';
 import { readDependencies, regenerateProtectedFiles, writeDependencies } from '@worker/lib/protected-files';
@@ -14,8 +16,10 @@ import type { SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult
 
 export const definition: ToolDefinition = {
 	name: 'dependencies_update',
-	description: `Add, remove, or update a project dependency. Dependencies are stored in package.json.
-CRITICAL INSTRUCTION: You MUST register a dependency before importing it in code. Use dependencies_list to see current dependencies.`,
+	description: stripIndent`
+		Add, remove, or update a project dependency. Dependencies are stored in package.json.
+		CRITICAL INSTRUCTION: You MUST register a dependency before importing it in code. Use dependencies_list to see current dependencies.
+	`,
 	input_schema: {
 		type: 'object',
 		properties: {

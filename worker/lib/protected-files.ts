@@ -15,6 +15,7 @@
 
 import fs from 'node:fs/promises';
 
+import { stripIndent } from 'common-tags';
 import stripJsonComments from 'strip-json-comments';
 
 import { PROTECTED_SYSTEM_FILES, STORAGE_BINDING_NAME, WORKERS_COMPATIBILITY_DATE } from '@shared/constants';
@@ -128,7 +129,7 @@ export async function readAssetSettings(projectRoot: string): Promise<AssetSetti
 }
 
 /**
- * Read IDE-managed bindings configuration from `wrangler.jsonc` on disk.
+ * Read bindings configuration from `wrangler.jsonc` on disk.
  * Detects bindings from standard wrangler fields (e.g. `r2_buckets`).
  */
 export async function readBindingsConfig(projectRoot: string): Promise<BindingsConfig> {
@@ -159,7 +160,7 @@ export async function writeAssetSettings(projectRoot: string, assetSettings: Ass
 }
 
 /**
- * Write IDE-managed bindings configuration into `wrangler.jsonc` on disk.
+ * Write bindings configuration into `wrangler.jsonc` on disk.
  * Writes standard wrangler fields (e.g. `r2_buckets`) — no IDE-specific keys.
  * Preserves asset settings and regenerates the file.
  */
@@ -255,25 +256,127 @@ function generateWranglerJsonc(projectName: string, assetSettings: AssetSettings
 	return JSON.stringify(buildWranglerConfig(projectName, assetsConfig, bindingsConfig), undefined, '\t');
 }
 
+function joinGeneratedBlocks(...blocks: Array<string | undefined>): string {
+	return `${blocks.filter(Boolean).join('\n\n')}\n`;
+}
+
 /**
  * Generate the contents of `worker-env.d.ts` based on enabled bindings.
  * When no bindings are enabled, generates a minimal Env interface with no extra properties.
  */
 function generateWorkerEnvironmentDeclaration(bindingsConfig: BindingsConfig): string {
-	const lines: string[] = [];
+	const storageDeclarations = bindingsConfig.storage
+		? stripIndent`
+			interface StorageChecksums {
+				readonly md5?: ArrayBuffer;
+				readonly sha1?: ArrayBuffer;
+				readonly sha256?: ArrayBuffer;
+				readonly sha384?: ArrayBuffer;
+				readonly sha512?: ArrayBuffer;
+				toJSON(): { md5?: string; sha1?: string; sha256?: string; sha384?: string; sha512?: string };
+			}
 
-	const environmentProperties: string[] = [];
-	if (bindingsConfig.storage) {
-		environmentProperties.push(`\t${STORAGE_BINDING_NAME}: R2Bucket;`);
-	}
+			interface StorageHttpMetadata {
+				contentType?: string;
+				contentLanguage?: string;
+				contentDisposition?: string;
+				contentEncoding?: string;
+				cacheControl?: string;
+				cacheExpiry?: Date;
+			}
 
-	lines.push('interface Env {');
-	for (const property of environmentProperties) {
-		lines.push(property);
-	}
-	lines.push('}', '');
+			type StorageRange = { offset: number; length?: number } | { offset?: number; length: number } | { suffix: number };
 
-	return lines.join('\n');
+			interface StorageConditional {
+				etagMatches?: string;
+				etagDoesNotMatch?: string;
+				uploadedBefore?: Date;
+				uploadedAfter?: Date;
+				secondsGranularity?: boolean;
+			}
+
+			interface StorageGetOptions {
+				onlyIf?: StorageConditional | Headers;
+				range?: StorageRange | Headers;
+			}
+
+			interface StoragePutOptions {
+				onlyIf?: StorageConditional | Headers;
+				httpMetadata?: StorageHttpMetadata | Headers;
+				customMetadata?: Record<string, string>;
+				md5?: ArrayBuffer | ArrayBufferView | string;
+				sha1?: ArrayBuffer | ArrayBufferView | string;
+				sha256?: ArrayBuffer | ArrayBufferView | string;
+				sha384?: ArrayBuffer | ArrayBufferView | string;
+				sha512?: ArrayBuffer | ArrayBufferView | string;
+				storageClass?: string;
+			}
+
+			interface StorageListOptions {
+				limit?: number;
+				prefix?: string;
+				cursor?: string;
+				delimiter?: string;
+				startAfter?: string;
+				include?: ("httpMetadata" | "customMetadata")[];
+			}
+
+			interface StorageObject {
+				readonly key: string;
+				readonly version: string;
+				readonly size: number;
+				readonly etag: string;
+				readonly httpEtag: string;
+				readonly checksums: StorageChecksums;
+				readonly uploaded: Date;
+				readonly httpMetadata?: StorageHttpMetadata;
+				readonly customMetadata?: Record<string, string>;
+				readonly range?: StorageRange;
+				readonly storageClass: string;
+				writeHttpMetadata(headers: Headers): void;
+			}
+
+			interface StorageObjectBody extends StorageObject {
+				readonly body: ReadableStream;
+				readonly bodyUsed: boolean;
+				arrayBuffer(): Promise<ArrayBuffer>;
+				bytes(): Promise<Uint8Array>;
+				text(): Promise<string>;
+				json<T = unknown>(): Promise<T>;
+				blob(): Promise<Blob>;
+			}
+
+			interface StorageListResult {
+				readonly objects: StorageObject[];
+				readonly truncated: boolean;
+				readonly cursor?: string;
+				readonly delimitedPrefixes: string[];
+			}
+
+			interface StorageBinding {
+				head(key: string): Promise<StorageObject | null>;
+				get(key: string, options?: StorageGetOptions): Promise<StorageObjectBody | StorageObject | null>;
+				put(key: string, value: ReadableStream | ArrayBuffer | ArrayBufferView | string | null | Blob, options?: StoragePutOptions): Promise<StorageObject | null>;
+				delete(keys: string | string[]): Promise<void>;
+				list(options?: StorageListOptions): Promise<StorageListResult>;
+			}
+		`
+		: undefined;
+
+	const environmentProperties = [bindingsConfig.storage ? `${STORAGE_BINDING_NAME}: StorageBinding;` : undefined].filter(Boolean);
+
+	const environmentDeclaration =
+		environmentProperties.length === 0
+			? stripIndent`
+				interface Env {}
+			`
+			: stripIndent`
+				interface Env {
+					${environmentProperties.join('\n\t')}
+				}
+			`;
+
+	return joinGeneratedBlocks(storageDeclarations, environmentDeclaration);
 }
 
 /**

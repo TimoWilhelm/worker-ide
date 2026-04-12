@@ -547,7 +547,7 @@ export const assetSettingsSchema = z.object({
 export type AssetSettingsInput = z.infer<typeof assetSettingsSchema>;
 
 /**
- * Schema for IDE-managed bindings configuration stored in wrangler.jsonc.
+ * Schema for bindings configuration stored in wrangler.jsonc.
  */
 export const bindingsConfigSchema = z.object({
 	storage: z.boolean().optional(),

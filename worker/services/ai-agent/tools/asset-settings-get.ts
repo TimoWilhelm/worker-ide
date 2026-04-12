@@ -3,6 +3,8 @@
  * Read the current Cloudflare Workers asset routing settings for the project.
  */
 
+import { stripIndent } from 'common-tags';
+
 import { resolveAssetSettings } from '@shared/types';
 import { readAssetSettings } from '@worker/lib/protected-files';
 
@@ -10,9 +12,11 @@ import type { SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult
 
 export const definition: ToolDefinition = {
 	name: 'asset_settings_get',
-	description: `Read the current Cloudflare Workers asset routing settings for the project.
-Returns the configured not_found_handling, html_handling, and run_worker_first values.
-These control how deployed Workers handle static assets, 404 pages, HTML routing, and worker-first routing.`,
+	description: stripIndent`
+		Read the current Cloudflare Workers asset routing settings for the project.
+		Returns the configured not_found_handling, html_handling, and run_worker_first values.
+		These control how deployed Workers handle static assets, 404 pages, HTML routing, and worker-first routing.
+	`,
 	input_schema: {
 		type: 'object',
 		properties: {},

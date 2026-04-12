@@ -419,7 +419,7 @@ export function resolveAssetSettings(settings?: AssetSettings): ResolvedAssetSet
 // =============================================================================
 
 /**
- * IDE-managed bindings configuration stored in wrangler.jsonc.
+ * Bindings configuration stored in wrangler.jsonc.
  * Controls which bindings are injected into the user's worker env.
  */
 export interface BindingsConfig {

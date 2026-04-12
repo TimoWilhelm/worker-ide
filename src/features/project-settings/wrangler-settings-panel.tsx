@@ -2,7 +2,7 @@
  * Wrangler Settings Panel
  *
  * Inline settings form rendered in the editor area when wrangler.jsonc is the active file.
- * Controls Cloudflare Workers asset routing settings and IDE-managed bindings.
+ * Controls Cloudflare Workers asset routing settings and bindings.
  */
 
 import { useQuery, useSuspenseQuery, useQueryClient } from '@tanstack/react-query';

@@ -1,7 +1,9 @@
 /**
  * Tool: bindings_get
- * Read the current IDE-managed bindings configuration for the project.
+ * Read the current bindings configuration for the project.
  */
+
+import { stripIndent } from 'common-tags';
 
 import { readBindingsConfig } from '@worker/lib/protected-files';
 
@@ -9,10 +11,10 @@ import type { SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult
 
 export const definition: ToolDefinition = {
 	name: 'bindings_get',
-	description: `Read the current IDE-managed bindings configuration for the project.
-Returns which bindings are enabled (e.g. storage). Bindings are configured in wrangler.jsonc and control what is available in the user's worker env object.
-Currently supported bindings:
-- storage: Object storage (R2-backed) available as env.STORAGE — exposes a subset of the R2Bucket API (head, get, put, delete, list).`,
+	description: stripIndent`
+    Read the current bindings configuration for the project.
+    Returns which bindings are enabled (e.g. storage). Bindings are configured in wrangler.jsonc and control what is available in the user's worker env object.
+  `,
 	input_schema: {
 		type: 'object',
 		properties: {},

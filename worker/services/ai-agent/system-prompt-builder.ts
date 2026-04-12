@@ -11,6 +11,8 @@
 
 import fs from 'node:fs/promises';
 
+import { stripIndent } from 'common-tags';
+
 import {
 	AGENT_SYSTEM_PROMPT,
 	AGENTS_MD_MAX_CHARACTERS,
@@ -57,7 +59,10 @@ export async function buildSystemPrompts(
 	// Add AGENTS.md context
 	const agentsContext = await readAgentsContext(projectRoot);
 	if (agentsContext) {
-		mainPrompt += `\n\n## Project Guidelines (from AGENTS.md)\n${agentsContext}`;
+		mainPrompt += `\n\n${stripIndent`
+			## Project Guidelines (from AGENTS.md)
+			${agentsContext}
+		`}`;
 	}
 
 	// Add mode-specific addendum
@@ -82,7 +87,12 @@ export async function buildSystemPrompts(
 		const latestPlan = await readLatestPlan(projectRoot);
 		if (latestPlan) {
 			const truncatedPlan = truncateFromEnd(latestPlan, MAX_PLAN_CHARACTERS);
-			mainPrompt += `\n\n## Active Implementation Plan\nFollow this plan for all implementation steps. Reference it to decide what to do next and mark steps as complete when done.\n\n${truncatedPlan}`;
+			mainPrompt += `\n\n${stripIndent`
+				## Active Implementation Plan
+				Follow this plan for all implementation steps. Reference it to decide what to do next and mark steps as complete when done.
+
+				${truncatedPlan}
+			`}`;
 		}
 	}
 
@@ -91,7 +101,12 @@ export async function buildSystemPrompts(
 		const todosContext = await readCurrentTodos(projectRoot, sessionId);
 		if (todosContext) {
 			const truncatedTodos = truncateFromEnd(todosContext, MAX_TODOS_CHARACTERS);
-			mainPrompt += `\n\n## Active Todo List\nThis is your current task list. Use it to track progress and decide what to work on next.\n\n${truncatedTodos}`;
+			mainPrompt += `\n\n${stripIndent`
+				## Active Todo List
+				This is your current task list. Use it to track progress and decide what to work on next.
+
+				${truncatedTodos}
+			`}`;
 		}
 	}
 
@@ -99,7 +114,14 @@ export async function buildSystemPrompts(
 	if (outputLogs && outputLogs.trim().length > 0) {
 		// Truncate from the start to preserve the most recent log entries
 		const truncatedLogs = truncateFromStart(outputLogs, MAX_OUTPUT_LOG_CHARACTERS);
-		mainPrompt += `\n\n## IDE Output Logs\nThe following are recent output messages from the IDE (bundle errors, server logs, client console logs, lint diagnostics). Use these to diagnose issues the user may be experiencing.\n\n<output_logs>\n${truncatedLogs}\n</output_logs>`;
+		mainPrompt += `\n\n${stripIndent`
+			## IDE Output Logs
+			The following are recent output messages from the IDE (bundle errors, server logs, client console logs, lint diagnostics). Use these to diagnose issues the user may be experiencing.
+
+			<output_logs>
+			${truncatedLogs}
+			</output_logs>
+		`}`;
 	}
 
 	return [mainPrompt];

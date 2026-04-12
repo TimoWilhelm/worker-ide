@@ -3,6 +3,8 @@
  * Update Cloudflare Workers asset routing settings for the project.
  */
 
+import { stripIndent } from 'common-tags';
+
 import { ToolExecutionError } from '@shared/tool-errors';
 import { coordinatorNamespace } from '@worker/lib/durable-object-namespaces';
 import { readAssetSettings, regenerateProtectedFiles, writeAssetSettings } from '@worker/lib/protected-files';
@@ -25,23 +27,25 @@ const VALID_HTML_HANDLING: Record<string, HtmlHandling> = {
 
 export const definition: ToolDefinition = {
 	name: 'asset_settings_update',
-	description: `Update Cloudflare Workers asset routing settings for the project.
-These settings control how the deployed Worker handles static assets, 404 pages, HTML routing, and worker-first routing.
-They also affect the preview behavior in the IDE.
+	description: stripIndent`
+    Update Cloudflare Workers asset routing settings for the project.
+    These settings control how the deployed Worker handles static assets, 404 pages, HTML routing, and worker-first routing.
+    They also affect the preview behavior in the IDE.
 
-Available settings:
-- not_found_handling: "none" | "single-page-application" | "404-page" (default: "none")
-  Controls what happens when a request doesn't match a static asset.
-  Use "single-page-application" for SPAs (serves index.html for unmatched routes).
-  Use "404-page" for static sites (serves nearest 404.html).
+    Available settings:
+    - not_found_handling: "none" | "single-page-application" | "404-page" (default: "none")
+      Controls what happens when a request doesn't match a static asset.
+      Use "single-page-application" for SPAs (serves index.html for unmatched routes).
+      Use "404-page" for static sites (serves nearest 404.html).
 
-- html_handling: "auto-trailing-slash" | "force-trailing-slash" | "drop-trailing-slash" | "none" (default: "auto-trailing-slash")
-  Controls trailing slash redirect behavior for HTML pages.
+    - html_handling: "auto-trailing-slash" | "force-trailing-slash" | "drop-trailing-slash" | "none" (default: "auto-trailing-slash")
+      Controls trailing slash redirect behavior for HTML pages.
 
-- run_worker_first: "true" | "false" | comma-separated route patterns (default: "false")
-  Controls whether the Worker runs before serving static assets.
-  Use "true" to always run the Worker first.
-  Use route patterns like "/api/*,!/api/docs/*" for selective routing.`,
+    - run_worker_first: "true" | "false" | comma-separated route patterns (default: "false")
+      Controls whether the Worker runs before serving static assets.
+      Use "true" to always run the Worker first.
+      Use route patterns like "/api/*,!/api/docs/*" for selective routing.
+  `,
 	input_schema: {
 		type: 'object',
 		properties: {

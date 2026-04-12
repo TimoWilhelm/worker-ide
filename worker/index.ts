@@ -329,7 +329,7 @@ app.get('/api/version', (c) => {
 	const metadata = env.CF_VERSION_METADATA;
 	return c.json({
 		id: metadata.id,
-		createdAt: metadata.createdAt,
+		timestamp: metadata.timestamp,
 		tag: metadata.tag,
 	});
 });
