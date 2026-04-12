@@ -5,8 +5,6 @@
  * which returns a WebSocket response directly. The client connects,
  * streams linear16 PCM audio, and receives JSON transcript messages
  * with `interim_results` support.
- *
- * Based on: https://github.com/TimoWilhelm/cf-deepgram-flux-demo
  */
 
 import { env } from 'cloudflare:workers';
@@ -18,6 +16,8 @@ import { trackSttEvent } from '../lib/analytics';
 import { httpError } from '../lib/http-error';
 
 import type { AppEnvironment } from '../types';
+
+const STT_READY_DELAY_MS = 250;
 
 /**
  * Call env.AI.run in WebSocket mode. The typed overload expects the audio
@@ -76,7 +76,11 @@ export const sttRoutes = new Hono<AppEnvironment>().get('/stt/ws', async (c) => 
 
 	const pair = new WebSocketPair();
 	const [clientSocket, serverSocket] = [pair[0], pair[1]];
-	serverSocket.accept();
+
+	// Workers auto-reply to Close frames by default, so proxy sockets need
+	// half-open mode to coordinate the client and upstream closes explicitly.
+	// https://developers.cloudflare.com/workers/runtime-apis/websockets/#close-behavior
+	serverSocket.accept({ allowHalfOpen: true });
 
 	// Relay: client → AI
 	// event.data may arrive as ArrayBuffer, string, or Blob depending on the
@@ -138,10 +142,10 @@ export const sttRoutes = new Hono<AppEnvironment>().get('/stt/ws', async (c) => 
 		});
 	};
 
-	serverSocket.addEventListener('close', () => {
+	serverSocket.addEventListener('close', (event) => {
 		endSession();
 		try {
-			aiSocket.close();
+			aiSocket.close(event.code, event.reason);
 		} catch {
 			// Already closed
 		}
@@ -155,10 +159,10 @@ export const sttRoutes = new Hono<AppEnvironment>().get('/stt/ws', async (c) => 
 		}
 	});
 
-	aiSocket.addEventListener('close', () => {
+	aiSocket.addEventListener('close', (event) => {
 		endSession();
 		try {
-			serverSocket.close();
+			serverSocket.close(event.code, event.reason);
 		} catch {
 			// Already closed
 		}
@@ -171,6 +175,14 @@ export const sttRoutes = new Hono<AppEnvironment>().get('/stt/ws', async (c) => 
 			// Already closed
 		}
 	});
+
+	setTimeout(() => {
+		try {
+			serverSocket.send(JSON.stringify({ type: 'stt:ready' }));
+		} catch {
+			// Client socket already closed
+		}
+	}, STT_READY_DELAY_MS);
 
 	return new Response(undefined, { status: 101, webSocket: clientSocket });
 });
