@@ -99,10 +99,30 @@ export { ObjectStorageBinding } from './services/object-storage-binding';
 // =============================================================================
 
 const PROJECT_ROOT = '/project';
+const AUTHENTICATED_API_ROUTE_PATTERNS = ['/api/*', '/p/*/api/*'];
+/** Protected non-API endpoints used by the live IDE session. */
+const AUTHENTICATED_NON_API_ROUTE_PATTERNS = ['/p/*/__agent', '/p/*/__agent/*', '/p/*/__ws', '/p/*/__ws/*'];
 
 // =============================================================================
 // Helpers
 // =============================================================================
+
+function registerMiddleware(
+	appInstance: Hono<AuthedEnvironment>,
+	routePatterns: string[],
+	middleware: typeof requireAuth | typeof analyticsMiddleware | typeof requireRateLimit,
+) {
+	for (const routePattern of routePatterns) {
+		appInstance.use(routePattern, middleware);
+	}
+}
+
+function registerProtectedApiMiddleware(
+	appInstance: Hono<AuthedEnvironment>,
+	middleware: typeof requireAuth | typeof analyticsMiddleware | typeof requireRateLimit,
+) {
+	registerMiddleware(appInstance, AUTHENTICATED_API_ROUTE_PATTERNS, middleware);
+}
 
 async function writeTemplateFiles(
 	fs: typeof import('node:fs/promises'),
@@ -168,13 +188,6 @@ app.use(
 		credentials: true,
 	}),
 );
-
-// =============================================================================
-// Analytics middleware — tracks timing and status for all API requests
-// =============================================================================
-
-app.use('/api/*', analyticsMiddleware);
-app.use('/p/*/api/*', analyticsMiddleware);
 
 // =============================================================================
 // Health check (public, no auth required)
@@ -308,6 +321,19 @@ app.on(['GET', 'POST'], '/api/auth/*', async (c) => {
 	return auth.handler(c.req.raw);
 });
 
+app.get('/api/templates', (c) => {
+	return c.json({ templates: getTemplateMetadata() });
+});
+
+app.get('/api/version', (c) => {
+	const metadata = env.CF_VERSION_METADATA;
+	return c.json({
+		id: metadata.id,
+		createdAt: metadata.createdAt,
+		tag: metadata.tag,
+	});
+});
+
 // =============================================================================
 // Dev-only: E2E test session endpoint
 // Creates a test user/org/session in the local D1 for Playwright tests.
@@ -394,30 +420,24 @@ if (import.meta.env.DEV) {
 }
 
 // =============================================================================
-// Auth middleware — protect all API routes except auth, templates, version
+// Auth middleware — protect all API routes defined below this boundary
 // =============================================================================
 
-app.use('/api/new-project', requireAuth);
-app.use('/api/clone-project', requireAuth);
-app.use('/api/org/*', requireAuth);
-app.use('/api/user/*', requireAuth);
-app.use('/api/transfer/*', requireAuth);
-app.use('/p/*/api/*', requireAuth);
-app.use('/p/*/__agent', requireAuth);
-app.use('/p/*/__agent/*', requireAuth);
-app.use('/p/*/__ws', requireAuth);
-app.use('/p/*/__ws/*', requireAuth);
+registerProtectedApiMiddleware(app, requireAuth);
+registerMiddleware(app, AUTHENTICATED_NON_API_ROUTE_PATTERNS, requireAuth);
+
+// =============================================================================
+// Analytics middleware — tracks timing and status for authenticated API requests
+// Must run after auth so unauthenticated requests are never recorded.
+// =============================================================================
+
+registerProtectedApiMiddleware(app, analyticsMiddleware);
 
 // =============================================================================
 // API rate limiting — per-user abuse protection for all authenticated endpoints
 // =============================================================================
 
-app.use('/api/new-project', requireRateLimit);
-app.use('/api/clone-project', requireRateLimit);
-app.use('/api/org/*', requireRateLimit);
-app.use('/api/user/*', requireRateLimit);
-app.use('/api/transfer/*', requireRateLimit);
-app.use('/p/*/api/*', requireRateLimit);
+registerProtectedApiMiddleware(app, requireRateLimit);
 
 // =============================================================================
 // Org, user, and transfer routes (authed, root-level)
@@ -1026,23 +1046,7 @@ app.post('/api/clone-project', async (c) => {
 	}
 });
 
-app.get('/api/templates', (c) => {
-	return c.json({ templates: getTemplateMetadata() });
-});
-
-app.get('/api/version', (c) => {
-	const metadata = env.CF_VERSION_METADATA;
-	return c.json({
-		id: metadata.id,
-		tag: metadata.tag,
-		timestamp: metadata.timestamp,
-	});
-});
-
-// =============================================================================
-// Project-scoped IDE routes
-// =============================================================================
-
+// Project-scoped API / WebSocket / preview routes
 app.all('/p/:projectId/*', async (c) => {
 	const path = new URL(c.req.url).pathname;
 	const projectRoute = parseProjectRoute(path);

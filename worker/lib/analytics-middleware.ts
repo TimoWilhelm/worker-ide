@@ -11,27 +11,27 @@ import { trackApiRequest } from './analytics';
 
 import type { AuthedEnvironment } from '../types';
 
-/** Unauthenticated route prefixes/paths that should not be tracked. */
-const SKIP_PREFIXES = ['/api/auth/', '/api/health', '/api/templates', '/api/version'];
+function getProjectIdFromPathname(pathname: string): string | undefined {
+	const match = pathname.match(/^\/p\/([^/]+)\/api\//);
+	if (!match) {
+		return undefined;
+	}
+	return match[1];
+}
 
 /**
  * Analytics timing middleware.
- * Must be mounted AFTER auth middleware so `userId` is available on context.
- * Skips unauthenticated routes (health, auth, templates, version) to keep
- * the dataset focused on meaningful, authenticated API traffic.
+ * Must be mounted after auth middleware on protected routes so `session`
+ * is available on context and unauthenticated requests are never tracked.
  */
 export const analyticsMiddleware = createMiddleware<AuthedEnvironment>(async (context, next) => {
 	const pathname = new URL(context.req.url).pathname;
-	if (SKIP_PREFIXES.some((prefix) => pathname.startsWith(prefix))) {
-		await next();
-		return;
-	}
-
 	const start = Date.now();
 
 	await next();
 
 	const durationMs = Date.now() - start;
+	const projectId = getProjectIdFromPathname(pathname);
 
 	let userId = '';
 	try {
@@ -44,6 +44,7 @@ export const analyticsMiddleware = createMiddleware<AuthedEnvironment>(async (co
 		userId,
 		route: pathname,
 		method: context.req.method,
+		projectId,
 		statusCode: context.res.status,
 		durationMs,
 		request: context.req.raw,
