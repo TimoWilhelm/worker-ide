@@ -6,6 +6,11 @@
  * with `projects/{projectId}/` to enforce isolation between projects.
  *
  * Exposed as `env.STORAGE` in the user's worker code.
+ *
+ * The public API is a strict subset of R2Bucket so that code written in the
+ * IDE preview works identically after deploying to a real R2 binding.
+ * RpcTarget wrappers mirror R2Object / R2ObjectBody / R2Objects shapes for
+ * safe cross-boundary serialisation.
  */
 
 import { RpcTarget, WorkerEntrypoint, exports } from 'cloudflare:workers';
@@ -30,79 +35,104 @@ interface ObjectStorageProperties {
 	quotaBytes: number;
 }
 
-interface PutOptions {
-	contentType?: string;
-}
-
-interface ListOptions {
-	prefix?: string;
-	limit?: number;
-	cursor?: string;
-}
-
-interface StorageHeadResult {
-	readonly size: number;
-	readonly contentType: string;
-	readonly uploaded: string;
-}
-
-interface StorageListObject {
-	readonly key: string;
-	readonly size: number;
-	readonly uploaded: string;
-}
-
-interface StorageListResult {
-	readonly objects: StorageListObject[];
-	readonly truncated: boolean;
-	readonly cursor?: string;
-}
-
 // =============================================================================
-// RPC-friendly StorageObject
+// RPC-safe wrappers (mirror R2Object / R2ObjectBody / R2Objects)
 // =============================================================================
 
 /**
- * An RPC-compatible wrapper around an R2 object body.
- * Extends RpcTarget so methods can be called across the RPC boundary.
+ * RPC-safe wrapper that mirrors every property of R2Object.
+ * The `key` is returned un-scoped (without the internal project prefix).
  */
-class StorageObject extends RpcTarget {
+class R2ObjectProxy extends RpcTarget {
+	readonly key: string;
+	readonly version: string;
 	readonly size: number;
-	readonly contentType: string;
-	readonly uploaded: string;
-	readonly body: ReadableStream;
+	readonly etag: string;
+	readonly httpEtag: string;
+	readonly checksums: R2Checksums;
+	readonly uploaded: Date;
+	readonly httpMetadata?: R2HTTPMetadata;
+	readonly customMetadata?: Record<string, string>;
+	readonly range?: R2Range;
+	readonly storageClass: string;
+	readonly ssecKeyMd5?: string;
 
-	#arrayBufferPromise: Promise<ArrayBuffer> | undefined;
-	#textPromise: Promise<string> | undefined;
-	#r2Body: R2ObjectBody;
+	#r2Object: R2Object;
 
-	constructor(r2Object: R2ObjectBody) {
+	constructor(r2Object: R2Object, unscopedKey: string) {
 		super();
-		this.#r2Body = r2Object;
+		this.#r2Object = r2Object;
+		this.key = unscopedKey;
+		this.version = r2Object.version;
 		this.size = r2Object.size;
-		this.contentType = r2Object.httpMetadata?.contentType ?? 'application/octet-stream';
-		this.uploaded = r2Object.uploaded.toISOString();
-		this.body = r2Object.body;
+		this.etag = r2Object.etag;
+		this.httpEtag = r2Object.httpEtag;
+		this.checksums = r2Object.checksums;
+		this.uploaded = r2Object.uploaded;
+		this.httpMetadata = r2Object.httpMetadata;
+		this.customMetadata = r2Object.customMetadata;
+		this.range = r2Object.range;
+		this.storageClass = r2Object.storageClass;
+		this.ssecKeyMd5 = r2Object.ssecKeyMd5;
 	}
 
-	async text(): Promise<string> {
-		if (!this.#textPromise) {
-			this.#textPromise = this.#r2Body.text();
-		}
-		return this.#textPromise;
+	writeHttpMetadata(headers: Headers): void {
+		this.#r2Object.writeHttpMetadata(headers);
+	}
+}
+
+/**
+ * RPC-safe wrapper that mirrors R2ObjectBody (extends R2ObjectProxy with body access).
+ */
+class R2ObjectBodyProxy extends R2ObjectProxy {
+	readonly body: ReadableStream;
+	readonly bodyUsed: boolean;
+
+	#r2Body: R2ObjectBody;
+
+	constructor(r2Body: R2ObjectBody, unscopedKey: string) {
+		super(r2Body, unscopedKey);
+		this.#r2Body = r2Body;
+		this.body = r2Body.body;
+		this.bodyUsed = r2Body.bodyUsed;
 	}
 
 	async arrayBuffer(): Promise<ArrayBuffer> {
-		// Cache the arrayBuffer so it can only be consumed once
-		if (!this.#arrayBufferPromise) {
-			this.#arrayBufferPromise = this.#r2Body.arrayBuffer();
-		}
-		return this.#arrayBufferPromise;
+		return this.#r2Body.arrayBuffer();
 	}
 
-	async json(): Promise<unknown> {
-		const text = await this.text();
-		return JSON.parse(text);
+	async bytes(): Promise<Uint8Array> {
+		return this.#r2Body.bytes();
+	}
+
+	async text(): Promise<string> {
+		return this.#r2Body.text();
+	}
+
+	async json<T>(): Promise<T> {
+		return this.#r2Body.json<T>();
+	}
+
+	async blob(): Promise<Blob> {
+		return this.#r2Body.blob();
+	}
+}
+
+/**
+ * RPC-safe wrapper that mirrors R2Objects (the return type of R2Bucket.list).
+ */
+class R2ObjectsProxy extends RpcTarget {
+	readonly objects: R2ObjectProxy[];
+	readonly truncated: boolean;
+	readonly cursor?: string;
+	readonly delimitedPrefixes: string[];
+
+	constructor(r2Objects: R2Objects, stripPrefix: (key: string) => string) {
+		super();
+		this.objects = r2Objects.objects.map((object) => new R2ObjectProxy(object, stripPrefix(object.key)));
+		this.truncated = r2Objects.truncated;
+		this.cursor = r2Objects.truncated ? r2Objects.cursor : undefined;
+		this.delimitedPrefixes = r2Objects.delimitedPrefixes.map((prefix) => stripPrefix(prefix));
 	}
 }
 
@@ -134,14 +164,20 @@ function validateKey(key: string): void {
  * ReadableStream values cannot be sized without consuming them,
  * so quota is only enforced for string and ArrayBuffer values.
  */
-function getValueSize(value: string | ArrayBuffer | ReadableStream): number {
+function getValueSize(value: ReadableStream | ArrayBuffer | ArrayBufferView | string | null | Blob): number {
 	if (typeof value === 'string') {
 		return new TextEncoder().encode(value).byteLength;
 	}
 	if (value instanceof ArrayBuffer) {
 		return value.byteLength;
 	}
-	// ReadableStream: we can't know the size without consuming the stream.
+	if (ArrayBuffer.isView(value)) {
+		return value.byteLength;
+	}
+	if (value instanceof Blob) {
+		return value.size;
+	}
+	// ReadableStream or null: we can't know the size without consuming the stream.
 	// Return 0 so the put() proceeds — the actual R2 object size will be
 	// checked on the next quota-enforced operation.
 	return 0;
@@ -165,6 +201,9 @@ function formatBytes(bytes: number): string {
 /**
  * Project-scoped object storage binding backed by a shared R2 bucket.
  * All keys are automatically prefixed with `projects/{projectId}/`.
+ *
+ * Exposes a strict subset of the R2Bucket API (head, get, put, delete, list)
+ * so user code is portable between the IDE preview and a real R2 binding.
  */
 export class ObjectStorageBinding extends WorkerEntrypoint<Env, ObjectStorageProperties> {
 	#scopedKey(key: string): string {
@@ -196,11 +235,50 @@ export class ObjectStorageBinding extends WorkerEntrypoint<Env, ObjectStoragePro
 		}
 	}
 
+	async #getUsageBytes(): Promise<number> {
+		return this.#getMetadataStub().getStorageUsageBytes();
+	}
+
+	/**
+	 * Retrieve object metadata without the body. Returns null if not found.
+	 * Signature matches R2Bucket.head().
+	 */
+	async head(key: string): Promise<R2ObjectProxy | null> {
+		await this.#checkRateLimit();
+		const object = await this.#bucket.head(this.#scopedKey(key));
+		if (!object) {
+			return null; // eslint-disable-line unicorn/no-null
+		}
+		return new R2ObjectProxy(object, key);
+	}
+
+	/**
+	 * Retrieve an object from storage. Returns null if not found.
+	 * Signature matches R2Bucket.get().
+	 */
+	async get(key: string, options?: R2GetOptions): Promise<R2ObjectBodyProxy | R2ObjectProxy | null> {
+		await this.#checkRateLimit();
+		const result = await this.#bucket.get(this.#scopedKey(key), options);
+		if (!result) {
+			return null; // eslint-disable-line unicorn/no-null
+		}
+		// When onlyIf is used, result may be R2Object (no body) — mirror real R2 semantics.
+		if (!('body' in result)) {
+			return new R2ObjectProxy(result, key);
+		}
+		return new R2ObjectBodyProxy(result, key);
+	}
+
 	/**
 	 * Store a value in object storage.
 	 * Enforces the per-project storage quota before writing.
+	 * Signature matches R2Bucket.put().
 	 */
-	async put(key: string, value: string | ArrayBuffer | ReadableStream, options?: PutOptions): Promise<void> {
+	async put(
+		key: string,
+		value: ReadableStream | ArrayBuffer | ArrayBufferView | string | null | Blob,
+		options?: R2PutOptions,
+	): Promise<R2ObjectProxy | null> {
 		await this.#checkRateLimit();
 		const scopedKey = this.#scopedKey(key);
 		const incomingSize = getValueSize(value);
@@ -208,7 +286,7 @@ export class ObjectStorageBinding extends WorkerEntrypoint<Env, ObjectStoragePro
 		// Check quota before writing
 		const quotaBytes = this.ctx.props.quotaBytes;
 		if (quotaBytes > 0 && incomingSize > 0) {
-			const currentUsage = await this.usage();
+			const currentUsage = await this.#getUsageBytes();
 			if (currentUsage + incomingSize > quotaBytes) {
 				throw new Error(
 					`Storage quota exceeded. Usage: ${formatBytes(currentUsage)}, limit: ${formatBytes(quotaBytes)}. Free up space or upgrade your plan.`,
@@ -220,11 +298,10 @@ export class ObjectStorageBinding extends WorkerEntrypoint<Env, ObjectStoragePro
 		const oldObject = await this.#bucket.head(scopedKey);
 		const oldSize = oldObject?.size ?? 0;
 
-		const httpMetadata: R2HTTPMetadata = {};
-		if (options?.contentType) {
-			httpMetadata.contentType = options.contentType;
+		const r2Object = await this.#bucket.put(scopedKey, value, options);
+		if (!r2Object) {
+			return null; // eslint-disable-line unicorn/no-null
 		}
-		await this.#bucket.put(scopedKey, value, { httpMetadata });
 
 		// Update usage counter: for streams we read the actual written size from R2
 		let newSize = incomingSize;
@@ -236,91 +313,18 @@ export class ObjectStorageBinding extends WorkerEntrypoint<Env, ObjectStoragePro
 		if (delta !== 0) {
 			await this.#getMetadataStub().adjustStorageUsageBytes(delta);
 		}
-	}
 
-	/**
-	 * Get the total bytes used by this project's storage.
-	 * Reads from the DO-tracked counter (O(1)) instead of listing R2.
-	 */
-	async usage(): Promise<number> {
-		return this.#getMetadataStub().getStorageUsageBytes();
-	}
-
-	/**
-	 * Retrieve an object from storage. Returns null if not found.
-	 */
-	async get(key: string): Promise<StorageObject | null> {
-		await this.#checkRateLimit();
-		const object = await this.#bucket.get(this.#scopedKey(key));
-		if (!object) {
-			return null; // eslint-disable-line unicorn/no-null
-		}
-		return new StorageObject(object);
-	}
-
-	/**
-	 * Retrieve an object's text content. Returns null if not found.
-	 */
-	async getText(key: string): Promise<string | null> {
-		await this.#checkRateLimit();
-		const object = await this.#bucket.get(this.#scopedKey(key));
-		if (!object) {
-			return null; // eslint-disable-line unicorn/no-null
-		}
-		return object.text();
-	}
-
-	/**
-	 * Retrieve object metadata without the body. Returns null if not found.
-	 */
-	async head(key: string): Promise<StorageHeadResult | null> {
-		await this.#checkRateLimit();
-		const object = await this.#bucket.head(this.#scopedKey(key));
-		if (!object) {
-			return null; // eslint-disable-line unicorn/no-null
-		}
-		return {
-			size: object.size,
-			contentType: object.httpMetadata?.contentType ?? 'application/octet-stream',
-			uploaded: object.uploaded.toISOString(),
-		};
-	}
-
-	/**
-	 * List objects in storage, optionally filtered by prefix.
-	 */
-	async list(options?: ListOptions): Promise<StorageListResult> {
-		await this.#checkRateLimit();
-		const scopedPrefix = `${STORAGE_KEY_PREFIX}${this.ctx.props.projectId}/`;
-		const userPrefix = options?.prefix ?? '';
-		if (userPrefix.includes('..')) {
-			throw new Error('List prefix cannot contain ".."');
-		}
-
-		const result = await this.#bucket.list({
-			prefix: `${scopedPrefix}${userPrefix}`,
-			limit: options?.limit,
-			cursor: options?.cursor,
-		});
-
-		return {
-			objects: result.objects.map((object) => ({
-				key: this.#stripPrefix(object.key),
-				size: object.size,
-				uploaded: object.uploaded.toISOString(),
-			})),
-			truncated: result.truncated,
-			cursor: result.truncated ? result.cursor : undefined,
-		};
+		return new R2ObjectProxy(r2Object, key);
 	}
 
 	/**
 	 * Delete one or more objects from storage.
+	 * Signature matches R2Bucket.delete().
 	 */
-	async delete(key: string | string[]): Promise<void> {
+	async delete(keys: string | string[]): Promise<void> {
 		await this.#checkRateLimit();
-		const keys = Array.isArray(key) ? key : [key];
-		const scopedKeys = keys.map((k) => this.#scopedKey(k));
+		const keyArray = Array.isArray(keys) ? keys : [keys];
+		const scopedKeys = keyArray.map((k) => this.#scopedKey(k));
 
 		// Sum the sizes of objects being deleted
 		let totalDeletedBytes = 0;
@@ -337,5 +341,25 @@ export class ObjectStorageBinding extends WorkerEntrypoint<Env, ObjectStoragePro
 		if (totalDeletedBytes > 0) {
 			await this.#getMetadataStub().adjustStorageUsageBytes(-totalDeletedBytes);
 		}
+	}
+
+	/**
+	 * List objects in storage, optionally filtered by prefix.
+	 * Signature matches R2Bucket.list().
+	 */
+	async list(options?: R2ListOptions): Promise<R2ObjectsProxy> {
+		await this.#checkRateLimit();
+		const scopedPrefix = `${STORAGE_KEY_PREFIX}${this.ctx.props.projectId}/`;
+		const userPrefix = options?.prefix ?? '';
+		if (userPrefix.includes('..')) {
+			throw new Error('List prefix cannot contain ".."');
+		}
+
+		const result = await this.#bucket.list({
+			...options,
+			prefix: `${scopedPrefix}${userPrefix}`,
+		});
+
+		return new R2ObjectsProxy(result, (key) => this.#stripPrefix(key));
 	}
 }

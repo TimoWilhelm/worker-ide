@@ -98,9 +98,9 @@ System files (\`package.json\`, \`wrangler.jsonc\`, \`vite.config.ts\`, \`vitest
 
 ## Bindings
 User workers can access IDE-managed bindings via the \`env\` object. Use \`bindings_get\` to check current bindings and \`bindings_update\` to enable/disable them.
-- **Object Storage (R2):** When enabled, \`env.STORAGE\` provides project-scoped blob storage with \`put\`, \`get\`, \`getText\`, \`head\`, \`list\`, \`delete\` methods. Types are auto-generated in \`worker-env.d.ts\`.
+- **Object Storage (R2):** When enabled, \`env.STORAGE\` exposes a subset of the R2Bucket API (\`head\`, \`get\`, \`put\`, \`delete\`, \`list\`). Types are auto-generated in \`worker-env.d.ts\`.
 - Storage has a per-project quota (default based on org plan: free=50MB, pro=500MB, enterprise=5GB). Exceeding the quota will cause \`put()\` to throw an error.
-- When deploying, users provide their own R2 bucket name to bind \`STORAGE\` to a real bucket.
+- When deploying, an R2 bucket is automatically created in the user's Cloudflare account.
 
 ## Testing
 - Tests execute server-side in a sandboxed Worker isolate.

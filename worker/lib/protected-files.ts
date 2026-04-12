@@ -262,51 +262,9 @@ function generateWranglerJsonc(projectName: string, assetSettings: AssetSettings
 function generateWorkerEnvironmentDeclaration(bindingsConfig: BindingsConfig): string {
 	const lines: string[] = [];
 
-	if (bindingsConfig.storage) {
-		lines.push(
-			'interface StorageObject {',
-			'\treadonly size: number;',
-			'\treadonly contentType: string;',
-			'\treadonly uploaded: string;',
-			'\treadonly body: ReadableStream;',
-			'\ttext(): Promise<string>;',
-			'\tarrayBuffer(): Promise<ArrayBuffer>;',
-			'\tjson<T = unknown>(): Promise<T>;',
-			'}',
-			'',
-			'interface StorageHeadResult {',
-			'\treadonly size: number;',
-			'\treadonly contentType: string;',
-			'\treadonly uploaded: string;',
-			'}',
-			'',
-			'interface StorageListObject {',
-			'\treadonly key: string;',
-			'\treadonly size: number;',
-			'\treadonly uploaded: string;',
-			'}',
-			'',
-			'interface StorageListResult {',
-			'\treadonly objects: StorageListObject[];',
-			'\treadonly truncated: boolean;',
-			'\treadonly cursor?: string;',
-			'}',
-			'',
-			'interface StorageBinding {',
-			'\tput(key: string, value: string | ArrayBuffer | ReadableStream, options?: { contentType?: string }): Promise<void>;',
-			'\tget(key: string): Promise<StorageObject | null>;',
-			'\tgetText(key: string): Promise<string | null>;',
-			'\thead(key: string): Promise<StorageHeadResult | null>;',
-			'\tlist(options?: { prefix?: string; limit?: number; cursor?: string }): Promise<StorageListResult>;',
-			'\tdelete(key: string | string[]): Promise<void>;',
-			'}',
-			'',
-		);
-	}
-
 	const environmentProperties: string[] = [];
 	if (bindingsConfig.storage) {
-		environmentProperties.push(`\t${STORAGE_BINDING_NAME}: StorageBinding;`);
+		environmentProperties.push(`\t${STORAGE_BINDING_NAME}: R2Bucket;`);
 	}
 
 	lines.push('interface Env {');

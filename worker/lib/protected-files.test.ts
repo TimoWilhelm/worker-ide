@@ -269,8 +269,7 @@ describe('regenerateProtectedFiles', () => {
 		await regenerateProtectedFiles(ROOT);
 
 		const workerEnvironment = files.get(`${ROOT}/worker-env.d.ts`)!;
-		expect(workerEnvironment).toContain('STORAGE: StorageBinding');
-		expect(workerEnvironment).toContain('interface StorageBinding');
+		expect(workerEnvironment).toContain('STORAGE: R2Bucket');
 	});
 
 	it('generates worker-env.d.ts without STORAGE binding when storage is disabled', async () => {

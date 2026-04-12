@@ -295,7 +295,6 @@ export interface DeployCredentials {
 	accountId: string;
 	apiToken: string;
 	workerName?: string;
-	r2BucketName?: string;
 }
 
 /**

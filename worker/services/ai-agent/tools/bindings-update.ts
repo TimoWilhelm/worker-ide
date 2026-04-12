@@ -14,10 +14,10 @@ export const definition: ToolDefinition = {
 	name: 'bindings_update',
 	description: `Enable or disable IDE-managed bindings for the project.
 Currently supported bindings:
-- storage: Object storage (R2-backed) available as env.STORAGE — supports put, get, getText, head, list, delete operations on blob files.
+- storage: Object storage (R2-backed) available as env.STORAGE — exposes a subset of the R2Bucket API (head, get, put, delete, list).
 
 When enabled, the IDE auto-generates type declarations in worker-env.d.ts and injects the binding into the preview worker env.
-When deploying, users can provide their own R2 bucket name.`,
+When deploying, an R2 bucket is automatically created in the user's account.`,
 	input_schema: {
 		type: 'object',
 		properties: {

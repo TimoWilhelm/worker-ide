@@ -911,7 +911,6 @@ export const deployRequestSchema = z.object({
 	accountId: z.string().min(1, 'Account ID is required'),
 	apiToken: z.string().min(1, 'API Token is required'),
 	workerName: z.string().optional(),
-	r2BucketName: z.string().optional(),
 });
 
 export { DEFAULT_AI_MODEL } from './constants';

@@ -12,7 +12,7 @@ export const definition: ToolDefinition = {
 	description: `Read the current IDE-managed bindings configuration for the project.
 Returns which bindings are enabled (e.g. storage). Bindings are configured in wrangler.jsonc and control what is available in the user's worker env object.
 Currently supported bindings:
-- storage: Object storage (R2-backed) available as env.STORAGE — supports put, get, getText, head, list, delete operations.`,
+- storage: Object storage (R2-backed) available as env.STORAGE — exposes a subset of the R2Bucket API (head, get, put, delete, list).`,
 	input_schema: {
 		type: 'object',
 		properties: {},

@@ -47,7 +47,7 @@ const CLOUDFLARE_API_BASE = 'https://api.cloudflare.com/client/v4';
 
 export const deployRoutes = new Hono<AppEnvironment>().post('/deploy', zValidator('json', deployRequestSchema), async (c) => {
 	const deployStart = Date.now();
-	const { accountId, apiToken, workerName, r2BucketName } = c.req.valid('json');
+	const { accountId, apiToken, workerName } = c.req.valid('json');
 
 	// Look up the project's organizationId for analytics
 	const deployDatabase = drizzle(c.env.DB);
@@ -196,6 +196,13 @@ export const deployRoutes = new Hono<AppEnvironment>().post('/deploy', zValidato
 		// =========================================================================
 		// Step 4: Deploy the worker script
 		// =========================================================================
+		// If the project uses object storage, auto-create an R2 bucket
+		let r2BucketName: string | undefined;
+		if (bindingsConfig.storage) {
+			r2BucketName = sanitizeR2BucketName(sanitizedWorkerName);
+			await ensureR2Bucket(accountId.trim(), apiToken.trim(), r2BucketName);
+		}
+
 		await uploadWorkerScript(
 			accountId.trim(),
 			apiToken.trim(),
@@ -203,7 +210,7 @@ export const deployRoutes = new Hono<AppEnvironment>().post('/deploy', zValidato
 			bundledWorkerCode,
 			assetsCompletionJwt,
 			assetSettings,
-			bindingsConfig.storage && r2BucketName ? r2BucketName : undefined,
+			r2BucketName,
 		);
 
 		// =========================================================================
@@ -258,6 +265,35 @@ function sanitizeWorkerName(name: string): string {
 			.replaceAll(/^-|-$/g, '')
 			.slice(0, 63) || 'my-worker'
 	);
+}
+
+function hashBucketNameSeed(value: string): string {
+	let hash = 2_166_136_261;
+	for (const character of value) {
+		hash ^= character.codePointAt(0) ?? 0;
+		hash = Math.imul(hash, 16_777_619);
+	}
+	return (hash >>> 0).toString(16).padStart(8, '0');
+}
+
+/**
+ * Derive a valid R2 bucket name from a worker name.
+ * R2 rules: lowercase a-z, 0-9, hyphens only; 3-63 chars; no leading/trailing hyphens.
+ * A deterministic hash suffix avoids collisions when long names are truncated.
+ */
+function sanitizeR2BucketName(workerName: string): string {
+	const normalized = workerName
+		.toLowerCase()
+		.replaceAll(/[^a-z\d-]/g, '-')
+		.replaceAll(/-+/g, '-')
+		.replace(/^-/, '')
+		.replace(/-$/, '');
+
+	const base = normalized.length > 0 ? normalized : 'app';
+	const suffix = `-storage-${hashBucketNameSeed(workerName)}`;
+	const maxBaseLength = 63 - suffix.length;
+	const trimmed = (maxBaseLength > 0 ? base.slice(0, maxBaseLength) : '').replace(/-$/, '') || 'app';
+	return `${trimmed}${suffix}`;
 }
 
 async function collectProjectFiles(directory: string, base = ''): Promise<Record<string, string>> {
@@ -428,6 +464,39 @@ function uint8ArrayToBase64(bytes: Uint8Array): string {
 // =============================================================================
 // Cloudflare API Functions
 // =============================================================================
+
+/**
+ * Ensure an R2 bucket exists in the user's Cloudflare account.
+ * Checks if the bucket already exists; creates it if not.
+ */
+async function ensureR2Bucket(accountId: string, apiToken: string, bucketName: string): Promise<void> {
+	// Check if bucket already exists
+	const checkResponse = await fetch(`${CLOUDFLARE_API_BASE}/accounts/${accountId}/r2/buckets/${bucketName}`, {
+		headers: { Authorization: `Bearer ${apiToken}` },
+	});
+
+	if (checkResponse.ok) {
+		return; // Bucket already exists
+	}
+
+	// Create the bucket (ignore 409 Conflict — means it already exists)
+	const createResponse = await fetch(`${CLOUDFLARE_API_BASE}/accounts/${accountId}/r2/buckets`, {
+		method: 'POST',
+		headers: {
+			Authorization: `Bearer ${apiToken}`,
+			'Content-Type': 'application/json',
+		},
+		body: JSON.stringify({ name: bucketName }),
+	});
+
+	if (!createResponse.ok && createResponse.status !== 409) {
+		const errorText = await createResponse.text();
+		throw httpError(
+			HttpErrorCode.UPSTREAM_ERROR,
+			`Failed to create R2 bucket "${bucketName}": ${extractApiError(errorText, createResponse.status)}`,
+		);
+	}
+}
 
 /**
  * Upload static assets to the user's Cloudflare account via the Direct Upload API.
@@ -658,6 +727,14 @@ function extractApiError(responseBody: string, statusCode: number): string {
 	return `API returned status ${statusCode}`;
 }
 
-export { extractFrontendEntryPoint, generateProductionHtml, hashFileForManifest, isConfigFile, isSourceFile, sanitizeWorkerName };
+export {
+	extractFrontendEntryPoint,
+	generateProductionHtml,
+	hashFileForManifest,
+	isConfigFile,
+	isSourceFile,
+	sanitizeR2BucketName,
+	sanitizeWorkerName,
+};
 
 export type DeployRoutes = typeof deployRoutes;
