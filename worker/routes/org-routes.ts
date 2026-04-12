@@ -89,7 +89,19 @@ export const orgRoutes = new Hono<AuthedEnvironment>()
 
 		const database = drizzle(c.env.DB);
 		const projects = await database
-			.select()
+			.select({
+				id: schema.project.id,
+				organizationId: schema.project.organizationId,
+				durableObjectHexId: schema.project.durableObjectHexId,
+				name: schema.project.name,
+				previewVisibility: schema.project.previewVisibility,
+				createdByUserId: schema.project.createdByUserId,
+				createdAt: schema.project.createdAt,
+				updatedAt: schema.project.updatedAt,
+				deletedAt: schema.project.deletedAt,
+				bannedAt: schema.project.bannedAt,
+				lastActivityAt: schema.project.lastActivityAt,
+			})
 			.from(schema.project)
 			.where(and(eq(schema.project.organizationId, orgId), isNull(schema.project.deletedAt), isNull(schema.project.bannedAt)))
 			.orderBy(desc(schema.project.lastActivityAt));

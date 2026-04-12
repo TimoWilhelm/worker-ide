@@ -128,17 +128,17 @@ async function writeTemplateFiles(
 	fs: typeof import('node:fs/promises'),
 	projectRoot: string,
 	files: Record<string, string>,
-	humanId: string,
+	projectName: string,
 ): Promise<void> {
 	for (const [filePath, content] of Object.entries(files)) {
 		const fullPath = `${projectRoot}/${filePath}`;
 		const directory = fullPath.slice(0, fullPath.lastIndexOf('/'));
 		await fs.mkdir(directory, { recursive: true });
-		// Stamp the generated human ID into package.json so the project
+		// Stamp the generated project name into package.json so the project
 		// name shown in the IDE header matches the DB record.
 		if (filePath === 'package.json') {
 			const packageJson: Record<string, unknown> = JSON.parse(content);
-			packageJson.name = humanId;
+			packageJson.name = projectName;
 			await fs.writeFile(fullPath, JSON.stringify(packageJson, undefined, '\t') + '\n');
 		} else {
 			await fs.writeFile(fullPath, content);
@@ -752,7 +752,7 @@ app.post('/api/new-project', async (c) => {
 
 	const doId = filesystemNamespace.newUniqueId();
 	const projectId = generateProjectId(doId);
-	const humanId = generateHumanId();
+	const projectName = generateHumanId();
 
 	try {
 		await withMounts(async () => {
@@ -760,7 +760,7 @@ app.post('/api/new-project', async (c) => {
 			mount(PROJECT_ROOT, fsStub);
 
 			const fs = await import('node:fs/promises');
-			await writeTemplateFiles(fs, PROJECT_ROOT, template.files, humanId);
+			await writeTemplateFiles(fs, PROJECT_ROOT, template.files, projectName);
 		});
 
 		// Register project in D1
@@ -769,8 +769,7 @@ app.post('/api/new-project', async (c) => {
 			id: projectId,
 			organizationId,
 			durableObjectHexId: doId.toString(),
-			name: humanId,
-			humanId,
+			name: projectName,
 			previewVisibility: 'public',
 			createdByUserId: userId,
 			createdAt: now,
@@ -829,7 +828,7 @@ app.post('/api/new-project', async (c) => {
 			request: c.req.raw,
 		});
 
-		return c.json({ projectId, url: `/p/${projectId}`, name: humanId });
+		return c.json({ projectId, url: `/p/${projectId}`, name: projectName });
 	} catch (error) {
 		trackProjectEvent({
 			organizationId,
@@ -947,7 +946,7 @@ app.post('/api/clone-project', async (c) => {
 
 	const newDoId = filesystemNamespace.newUniqueId();
 	const newProjectId = generateProjectId(newDoId);
-	const humanId = generateHumanId();
+	const projectName = generateHumanId();
 
 	try {
 		await withMounts(async () => {
@@ -968,8 +967,7 @@ app.post('/api/clone-project', async (c) => {
 			id: newProjectId,
 			organizationId,
 			durableObjectHexId: newDoId.toString(),
-			name: humanId,
-			humanId,
+			name: projectName,
 			previewVisibility: 'public',
 			createdByUserId: userId,
 			createdAt: now,
@@ -1028,7 +1026,7 @@ app.post('/api/clone-project', async (c) => {
 			request: c.req.raw,
 		});
 
-		return c.json({ projectId: newProjectId, url: `/p/${newProjectId}`, name: humanId });
+		return c.json({ projectId: newProjectId, url: `/p/${newProjectId}`, name: projectName });
 	} catch (error) {
 		trackProjectEvent({
 			organizationId,

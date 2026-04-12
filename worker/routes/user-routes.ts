@@ -89,7 +89,6 @@ export const userRoutes = new Hono<AuthedEnvironment>()
 				id: schema.project.id,
 				organizationId: schema.project.organizationId,
 				name: schema.project.name,
-				humanId: schema.project.humanId,
 				previewVisibility: schema.project.previewVisibility,
 				createdByUserId: schema.project.createdByUserId,
 				createdAt: schema.project.createdAt,

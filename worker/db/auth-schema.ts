@@ -148,7 +148,6 @@ export const project = sqliteTable(
 		organizationId: text('organization_id').notNull(),
 		durableObjectHexId: text('durable_object_hex_id').notNull(),
 		name: text('name').notNull(),
-		humanId: text('human_id').notNull(),
 		previewVisibility: text('preview_visibility').notNull().default('public'),
 		createdByUserId: text('created_by_user_id')
 			.notNull()

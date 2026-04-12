@@ -43,7 +43,7 @@ export const projectRoutes = new Hono<AppEnvironment>()
 		const name = await readProjectName(projectRoot);
 		const assetSettings = await readAssetSettings(projectRoot);
 		const bindingsConfig = await readBindingsConfig(projectRoot);
-		return c.json({ name, humanId: name, assetSettings, bindingsConfig });
+		return c.json({ name, assetSettings, bindingsConfig });
 	})
 
 	// PUT /api/project/meta - Update project name and/or asset settings
@@ -97,7 +97,7 @@ export const projectRoutes = new Hono<AppEnvironment>()
 		const name = await readProjectName(projectRoot);
 		const assetSettings = await readAssetSettings(projectRoot);
 		const bindingsConfig = await readBindingsConfig(projectRoot);
-		return c.json({ name, humanId: name, assetSettings, bindingsConfig });
+		return c.json({ name, assetSettings, bindingsConfig });
 	})
 
 	// GET /api/dependencies - Read dependencies from package.json

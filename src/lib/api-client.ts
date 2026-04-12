@@ -156,11 +156,11 @@ export async function deleteProject(organizationId: string, projectId: string): 
 }
 
 /**
- * Fetch project metadata (name, humanId, assetSettings, bindingsConfig).
+ * Fetch project metadata.
  */
 export async function fetchProjectMeta(
 	projectId: string,
-): Promise<{ name: string; humanId: string; assetSettings?: AssetSettings; bindingsConfig?: BindingsConfig }> {
+): Promise<{ name: string; assetSettings?: AssetSettings; bindingsConfig?: BindingsConfig }> {
 	const api = createApiClient(projectId);
 	const response = await api.project.meta.$get({});
 	if (!response.ok) {
@@ -183,13 +183,13 @@ export async function fetchDependencies(projectId: string): Promise<Record<strin
 }
 
 /**
- * Update project metadata (name, asset settings, bindings config).
+ * Update project metadata.
  * Sends a single PUT request with all provided fields.
  */
 export async function updateProjectMeta(
 	projectId: string,
 	meta: { name?: string; assetSettings?: AssetSettings; bindingsConfig?: BindingsConfig },
-): Promise<{ name: string; humanId: string; assetSettings?: AssetSettings; bindingsConfig?: BindingsConfig }> {
+): Promise<{ name: string; assetSettings?: AssetSettings; bindingsConfig?: BindingsConfig }> {
 	const api = createApiClient(projectId);
 	const response = await api.project.meta.$put({ json: meta });
 	if (!response.ok) {
@@ -358,7 +358,6 @@ export interface RecentProject {
 	id: string;
 	organizationId: string;
 	name: string;
-	humanId: string;
 	previewVisibility: string;
 	createdByUserId: string;
 	createdAt: string;
