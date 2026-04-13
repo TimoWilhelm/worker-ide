@@ -20,6 +20,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { useMemo } from 'react';
 
 import { Spinner } from '@/components/ui/spinner';
+import { useDeferredOpen } from '@/hooks/use-deferred-open';
 import { createApiClient } from '@/lib/api-client';
 import { throwApiError } from '@/lib/api-error';
 import { modalContentVariants, overlayVariants, springDefault, tweenFast } from '@/lib/motion-config';
@@ -140,11 +141,12 @@ export function RevertConfirmDialog({
 
 	const hasData = allMetadata.length > 0 || allFailed;
 	const isCascade = snapshotIds.length > 1;
+	const { dialogOpen, show, onExitComplete } = useDeferredOpen(open);
 
 	return (
-		<AlertDialog.Root open={open} onOpenChange={onOpenChange}>
-			<AnimatePresence>
-				{open && (
+		<AlertDialog.Root open={dialogOpen} onOpenChange={onOpenChange}>
+			<AnimatePresence onExitComplete={onExitComplete}>
+				{show && (
 					<AlertDialog.Portal keepMounted>
 						<AlertDialog.Backdrop
 							render={<motion.div variants={overlayVariants} initial="hidden" animate="visible" exit="exit" transition={tweenFast} />}

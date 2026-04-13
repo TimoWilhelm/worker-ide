@@ -8,6 +8,7 @@
 import { AlertDialog } from '@base-ui/react/alert-dialog';
 import { AnimatePresence, motion } from 'motion/react';
 
+import { useDeferredOpen } from '@/hooks/use-deferred-open';
 import { modalContentVariants, overlayVariants, springDefault, tweenFast } from '@/lib/motion-config';
 import { cn } from '@/lib/utils';
 
@@ -50,10 +51,12 @@ export function ConfirmDialog({
 	onConfirm,
 	variant = 'default',
 }: ConfirmDialogProperties) {
+	const { dialogOpen, show, onExitComplete } = useDeferredOpen(open);
+
 	return (
-		<AlertDialog.Root open={open} onOpenChange={onOpenChange}>
-			<AnimatePresence>
-				{open && (
+		<AlertDialog.Root open={dialogOpen} onOpenChange={onOpenChange}>
+			<AnimatePresence onExitComplete={onExitComplete}>
+				{show && (
 					<AlertDialog.Portal keepMounted>
 						<AlertDialog.Backdrop
 							render={<motion.div variants={overlayVariants} initial="hidden" animate="visible" exit="exit" transition={tweenFast} />}

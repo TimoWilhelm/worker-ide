@@ -8,6 +8,7 @@
 import { Dialog } from '@base-ui/react/dialog';
 import { AnimatePresence, motion } from 'motion/react';
 
+import { useDeferredOpen } from '@/hooks/use-deferred-open';
 import { modalContentVariants, overlayVariants, springDefault, tweenFast } from '@/lib/motion-config';
 import { cn } from '@/lib/utils';
 
@@ -37,10 +38,12 @@ export interface ModalProperties {
 // =============================================================================
 
 export function Modal({ open, onOpenChange, title, children, className, hideClose }: ModalProperties) {
+	const { dialogOpen, show, onExitComplete } = useDeferredOpen(open);
+
 	return (
-		<Dialog.Root open={open} onOpenChange={onOpenChange}>
-			<AnimatePresence>
-				{open && (
+		<Dialog.Root open={dialogOpen} onOpenChange={onOpenChange}>
+			<AnimatePresence onExitComplete={onExitComplete}>
+				{show && (
 					<Dialog.Portal keepMounted>
 						<Dialog.Backdrop
 							render={<motion.div variants={overlayVariants} initial="hidden" animate="visible" exit="exit" transition={tweenFast} />}

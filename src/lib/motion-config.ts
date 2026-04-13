@@ -12,28 +12,28 @@ import type { Transition } from 'motion/react';
 // Spring Presets
 // =============================================================================
 
-/** Snappy spring for UI controls (buttons, pills, toggles). ≈120ms settle. */
+/** Snappy spring for UI controls (buttons, pills, toggles). */
 export const springSnappy: Transition = {
 	type: 'spring',
 	stiffness: 500,
 	damping: 30,
 };
 
-/** Default spring for panels, modals, dropdowns. ≈180ms settle. */
+/** Default spring for panels, modals, dropdowns. */
 export const springDefault: Transition = {
 	type: 'spring',
 	stiffness: 400,
 	damping: 28,
 };
 
-/** Critically-damped spring for drawers — snappy, zero overshoot. ≈160ms settle. */
+/** Critically-damped spring for drawers, zero overshoot. */
 export const springCritical: Transition = {
 	type: 'spring',
-	stiffness: 500,
-	damping: 35,
+	stiffness: 600,
+	damping: 45,
 };
 
-/** Gentle spring for page-level stagger entrances. ≈220ms settle. */
+/** Gentle spring for page-level stagger entrances. */
 export const springGentle: Transition = {
 	type: 'spring',
 	stiffness: 300,

@@ -1,23 +1,23 @@
 /**
  * Settings Layout
  *
- * Shared layout for user-level settings pages (profile, account).
- * Left sidebar with navigation, main content area, back button to home.
+ * Header shows the app icon (desktop) or hamburger menu (mobile) left of "Settings".
+ * Desktop: left sidebar with navigation. Mobile: slidable drawer from the left.
  */
 
-import { ArrowLeft, Palette, Shield, User } from 'lucide-react';
+import { Hexagon, Menu } from 'lucide-react';
 import { motion } from 'motion/react';
+import { useState } from 'react';
 import { Link } from 'react-router';
 
+import { BetaIndicator } from '@/components/beta-indicator';
+import { Tooltip } from '@/components/ui/tooltip';
 import { UserMenu } from '@/features/user-menu';
 import { springSnappy } from '@/lib/motion-config';
 import { cn } from '@/lib/utils';
 
-const SETTINGS_NAV_ITEMS = [
-	{ label: 'Profile', href: '/settings/profile', icon: User },
-	{ label: 'Account', href: '/settings/account', icon: Shield },
-	{ label: 'Appearance', href: '/settings/appearance', icon: Palette },
-];
+import { SettingsMobileDrawer } from './settings-mobile-drawer';
+import { SETTINGS_NAV_ITEMS } from './settings-nav-items';
 
 interface SettingsLayoutProperties {
 	children: React.ReactNode;
@@ -25,38 +25,55 @@ interface SettingsLayoutProperties {
 }
 
 export default function SettingsLayout({ children, activePath }: SettingsLayoutProperties) {
+	const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
+
 	return (
 		<div className="flex h-dvh flex-col bg-bg-primary">
-			{/* Header */}
 			<header
 				className="
 					flex h-12 shrink-0 items-center gap-3 border-b border-border
 					bg-bg-secondary px-4
 				"
 			>
-				<Link
-					to="/"
+				<button
+					onClick={() => setMobileDrawerOpen(true)}
 					className="
 						rounded-md p-1.5 text-text-secondary transition-colors
 						hover:bg-bg-tertiary hover:text-text-primary
+						sm:hidden
 					"
-					aria-label="Back to dashboard"
+					aria-label="Open settings menu"
 				>
-					<ArrowLeft className="size-4" />
-				</Link>
+					<Menu className="size-4" />
+				</button>
+
+				<Tooltip content="Back to home">
+					<Link
+						to="/"
+						className="
+							hidden shrink-0 items-center gap-1 text-accent transition-colors
+							hover:text-accent-hover
+							sm:flex
+						"
+						aria-label="Back to home"
+					>
+						<Hexagon className="size-4" />
+						<BetaIndicator />
+					</Link>
+				</Tooltip>
+
 				<h1 className="flex-1 text-sm font-semibold text-text-primary">Settings</h1>
 				<UserMenu />
 			</header>
 
 			<div className="flex min-h-0 flex-1">
-				{/* Sidebar */}
 				<nav
 					className="
-						hidden w-56 shrink-0 border-r border-border bg-bg-secondary p-3
-						sm:block
+						hidden w-56 shrink-0 flex-col border-r border-border bg-bg-secondary
+						sm:flex
 					"
 				>
-					<ul className="flex flex-col gap-0.5">
+					<ul className="flex flex-col gap-0.5 p-3">
 						{SETTINGS_NAV_ITEMS.map((item) => {
 							const Icon = item.icon;
 							const isActive = activePath === item.href;
@@ -93,42 +110,14 @@ export default function SettingsLayout({ children, activePath }: SettingsLayoutP
 					</ul>
 				</nav>
 
-				{/* Mobile top tabs */}
-				<div
+				<SettingsMobileDrawer open={mobileDrawerOpen} onOpenChange={setMobileDrawerOpen} activePath={activePath} />
+
+				<main
 					className="
-						flex shrink-0 gap-1 border-b border-border bg-bg-secondary px-3
-						sm:hidden
+						flex-1 overflow-y-auto p-4
+						sm:p-6
 					"
 				>
-					{SETTINGS_NAV_ITEMS.map((item) => {
-						const isActive = activePath === item.href;
-						return (
-							<Link
-								key={item.href}
-								to={item.href}
-								className={cn(
-									`
-										relative border-b-2 border-transparent px-3 py-2 text-xs font-medium
-										transition-colors
-									`,
-									isActive ? 'text-text-primary' : 'text-text-secondary hover:text-text-primary',
-								)}
-							>
-								{isActive && (
-									<motion.span
-										layoutId="settings-mobile-tab-indicator"
-										className="absolute inset-x-0 bottom-0 h-0.5 bg-accent"
-										transition={springSnappy}
-									/>
-								)}
-								{item.label}
-							</Link>
-						);
-					})}
-				</div>
-
-				{/* Main content */}
-				<main className="flex-1 overflow-y-auto p-6">
 					<div className="mx-auto max-w-lg">{children}</div>
 				</main>
 			</div>

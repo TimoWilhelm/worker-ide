@@ -1,10 +1,8 @@
 /**
  * User Preferences Hook
  *
- * Fetches user preferences from the server on mount, applies them to the
- * Zustand store, and writes a global localStorage cache for the FOUC
- * prevention script. Subscribes to store changes and persists them back
- * to the server in the background.
+ * Syncs user preferences between server, Zustand store, localStorage
+ * (for FOUC prevention), and other open tabs (via BroadcastChannel).
  */
 
 import { useEffect, useRef } from 'react';
@@ -17,8 +15,10 @@ import type { EditorFont, UserPreferences } from '@shared/constants';
 
 type ColorScheme = 'light' | 'dark' | 'system';
 
-/** Global localStorage key used by the FOUC-prevention script. */
+/** Must match the key read by the FOUC-prevention inline script. */
 const PREFERENCES_CACHE_KEY = 'worker-ide-preferences';
+
+const PREFERENCES_CHANNEL_NAME = 'worker-ide-preferences';
 
 const COLOR_SCHEMES = new Set<string>(['light', 'dark', 'system']);
 
@@ -32,7 +32,6 @@ function isEditorFont(value: string): value is EditorFont {
 	return EDITOR_FONT_SET.has(value);
 }
 
-/** Write the current preferences to the global localStorage cache. */
 function writeLocalCache(preferences: UserPreferences): void {
 	try {
 		globalThis.localStorage.setItem(PREFERENCES_CACHE_KEY, JSON.stringify(preferences));
@@ -41,7 +40,6 @@ function writeLocalCache(preferences: UserPreferences): void {
 	}
 }
 
-/** Apply fetched preferences to the Zustand store, validating each value. */
 function applyPreferencesToStore(preferences: UserPreferences): void {
 	const { setColorScheme, setEditorFont } = useStore.getState();
 
@@ -54,7 +52,6 @@ function applyPreferencesToStore(preferences: UserPreferences): void {
 	}
 }
 
-/** Read the current preference values from the store. */
 function readPreferencesFromStore(): UserPreferences {
 	const state = useStore.getState();
 	return {
@@ -63,20 +60,12 @@ function readPreferencesFromStore(): UserPreferences {
 	};
 }
 
-/**
- * Sync user preferences between the server, Zustand store, and localStorage.
- *
- * - On mount: fetches from server → applies to store + localStorage cache.
- * - On store change: persists diff to server + updates localStorage cache.
- */
 export function useUserPreferences(): void {
-	/** Tracks the last-known server state to compute diffs. */
 	const serverStateReference = useRef<Record<string, string> | undefined>(undefined);
 
-	/** Prevents the subscription from writing back values we just applied from the server. */
+	/** Suppresses the store subscription from echoing back values we just applied from the server or another tab. */
 	const suppressWriteBackReference = useRef(false);
 
-	// Fetch on mount
 	useEffect(() => {
 		let cancelled = false;
 
@@ -86,7 +75,6 @@ export function useUserPreferences(): void {
 			suppressWriteBackReference.current = true;
 			applyPreferencesToStore(preferences);
 			writeLocalCache(preferences);
-			// Allow write-back after the store settles
 			queueMicrotask(() => {
 				suppressWriteBackReference.current = false;
 			});
@@ -97,14 +85,43 @@ export function useUserPreferences(): void {
 		};
 	}, []);
 
-	// Subscribe to store changes and persist diffs
 	useEffect(() => {
+		let channel: BroadcastChannel | undefined;
+		try {
+			channel = new BroadcastChannel(PREFERENCES_CHANNEL_NAME);
+		} catch {
+			// BroadcastChannel may be unavailable in some environments
+		}
+
+		const handleChannelMessage = (event: MessageEvent<unknown>) => {
+			const raw = event.data;
+			if (typeof raw !== 'object' || !raw) return;
+			const validated: Partial<UserPreferences> = {};
+			if ('colorScheme' in raw && typeof raw.colorScheme === 'string' && isColorScheme(raw.colorScheme)) {
+				validated.colorScheme = raw.colorScheme;
+			}
+			if ('editorFont' in raw && typeof raw.editorFont === 'string' && isEditorFont(raw.editorFont)) {
+				validated.editorFont = raw.editorFont;
+			}
+			if (Object.keys(validated).length === 0) return;
+
+			suppressWriteBackReference.current = true;
+			const merged: UserPreferences = { ...readPreferencesFromStore(), ...validated };
+			serverStateReference.current = { ...serverStateReference.current, ...validated };
+			applyPreferencesToStore(merged);
+			writeLocalCache(merged);
+			queueMicrotask(() => {
+				suppressWriteBackReference.current = false;
+			});
+		};
+
+		channel?.addEventListener('message', handleChannelMessage);
+
 		const unsubscribe = useStore.subscribe(() => {
 			if (suppressWriteBackReference.current) return;
 			const current = readPreferencesFromStore();
 			const previous = serverStateReference.current;
 
-			// Compute changed keys
 			const diff: Record<string, string> = {};
 			for (const key of USER_PREFERENCE_KEYS) {
 				if (current[key] !== previous?.[key]) {
@@ -114,14 +131,26 @@ export function useUserPreferences(): void {
 
 			if (Object.keys(diff).length === 0) return;
 
-			// Update references immediately so we don't re-send
 			serverStateReference.current = { ...serverStateReference.current, ...diff };
 			writeLocalCache(current);
 
-			// Fire-and-forget server write
+			try {
+				channel?.postMessage(current);
+			} catch {
+				// Channel may have been closed
+			}
+
 			void updateUserPreferences(diff);
 		});
 
-		return unsubscribe;
+		return () => {
+			unsubscribe();
+			channel?.removeEventListener('message', handleChannelMessage);
+			try {
+				channel?.close();
+			} catch {
+				// Ignore close errors
+			}
+		};
 	}, []);
 }

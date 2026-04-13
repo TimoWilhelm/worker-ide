@@ -8,6 +8,7 @@
 import { Dialog } from '@base-ui/react/dialog';
 import { AnimatePresence, motion } from 'motion/react';
 
+import { useDeferredOpen } from '@/hooks/use-deferred-open';
 import { overlayVariants, slideLeftVariants, springCritical, tweenFast } from '@/lib/motion-config';
 import { useStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
@@ -25,11 +26,12 @@ interface MobileFileDrawerProperties {
 export function MobileFileDrawer({ children }: MobileFileDrawerProperties) {
 	const mobileFileTreeOpen = useStore((state) => state.mobileFileTreeOpen);
 	const toggleMobileFileTree = useStore((state) => state.toggleMobileFileTree);
+	const { dialogOpen, show, onExitComplete } = useDeferredOpen(mobileFileTreeOpen);
 
 	return (
-		<Dialog.Root open={mobileFileTreeOpen} onOpenChange={(open) => !open && toggleMobileFileTree()}>
-			<AnimatePresence>
-				{mobileFileTreeOpen && (
+		<Dialog.Root open={dialogOpen} onOpenChange={(nextOpen) => !nextOpen && toggleMobileFileTree()}>
+			<AnimatePresence onExitComplete={onExitComplete}>
+				{show && (
 					<Dialog.Portal keepMounted>
 						<Dialog.Backdrop
 							render={<motion.div variants={overlayVariants} initial="hidden" animate="visible" exit="exit" transition={tweenFast} />}
