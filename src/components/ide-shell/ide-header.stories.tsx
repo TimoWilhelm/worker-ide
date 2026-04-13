@@ -30,8 +30,6 @@ const meta = {
 			handleSaveRename: fn(),
 			handleCancelRename: fn(),
 		},
-		resolvedTheme: 'dark',
-		setColorScheme: fn(),
 		isMobile: false,
 		aiPanelVisible: false,
 		toggleAgentPanel: fn(),
@@ -57,10 +55,7 @@ export const DesktopView: Story = {
 		});
 
 		await step('Verify desktop action buttons exist', async () => {
-			// Should have toggles for AI, Theme, and Download + Home, Rename, Recent Projects
-			// We can check by aria-labels
 			await expect(await canvas.findByLabelText('Toggle Agent panel')).toBeInTheDocument();
-			await expect(await canvas.findByLabelText('Toggle color theme')).toBeInTheDocument();
 			await expect(await canvas.findByLabelText('Download project')).toBeInTheDocument();
 		});
 
@@ -114,16 +109,5 @@ export const EditingName: Story = {
 		const canvas = within(canvasElement);
 		const input = await canvas.findByDisplayValue('New Name Edited');
 		await expect(input).toBeInTheDocument();
-	},
-};
-
-export const LightTheme: Story = {
-	args: {
-		resolvedTheme: 'light',
-	},
-	play: async ({ canvasElement }) => {
-		const canvas = within(canvasElement);
-		const themeToggle = await canvas.findByLabelText('Toggle color theme');
-		await expect(themeToggle).toBeInTheDocument();
 	},
 };

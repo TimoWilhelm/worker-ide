@@ -12,6 +12,7 @@ import { and, count, desc, eq, inArray, isNull } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
 import { Hono } from 'hono';
 
+import { resolveUserPreferences } from '@shared/constants';
 import { resolveUserLimitsFromRows } from '@shared/entitlements';
 import { HttpErrorCode } from '@shared/http-errors';
 import {
@@ -19,6 +20,7 @@ import {
 	pushNotificationPreferenceBodySchema,
 	pushSubscriptionBodySchema,
 	pushUnsubscribeBodySchema,
+	userPreferencesBodySchema,
 } from '@shared/validation';
 
 import * as schema from '../db/auth-schema';
@@ -407,6 +409,41 @@ export const userRoutes = new Hono<AuthedEnvironment>()
 		const body = c.req.valid('json');
 
 		await c.env.PUSH.setNotificationPreference(userId, body.endpoint, body.enabled);
+
+		return c.json({ ok: true });
+	})
+
+	// GET /api/user/preferences — All user preferences merged with defaults
+	.get('/user/preferences', async (c) => {
+		const { userId } = c.get('session');
+		const database = drizzle(c.env.DB);
+
+		const rows = await database
+			.select({ key: schema.userPreference.key, value: schema.userPreference.value })
+			.from(schema.userPreference)
+			.where(eq(schema.userPreference.userId, userId));
+
+		const stored = Object.fromEntries(rows.map((r) => [r.key, r.value]));
+		return c.json(resolveUserPreferences(stored));
+	})
+
+	// PUT /api/user/preferences — Upsert one or more preference key-value pairs
+	.put('/user/preferences', zValidator('json', userPreferencesBodySchema), async (c) => {
+		const { userId } = c.get('session');
+		const preferences = c.req.valid('json');
+		const database = drizzle(c.env.DB);
+		const now = new Date();
+
+		// Upsert each preference. Typically 1-2 keys per call.
+		for (const [key, value] of Object.entries(preferences)) {
+			await database
+				.insert(schema.userPreference)
+				.values({ userId, key, value, updatedAt: now })
+				.onConflictDoUpdate({
+					target: [schema.userPreference.userId, schema.userPreference.key],
+					set: { value, updatedAt: now },
+				});
+		}
 
 		return c.json({ ok: true });
 	});

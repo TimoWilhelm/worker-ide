@@ -113,6 +113,13 @@
 			"when": 1776017552415,
 			"tag": "0015_classy_doctor_strange",
 			"breakpoints": true
+		},
+		{
+			"idx": 16,
+			"version": "6",
+			"when": 1776087805907,
+			"tag": "0016_stiff_mimic",
+			"breakpoints": true
 		}
 	]
 }

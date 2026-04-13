@@ -1,8 +1,8 @@
 /**
- * IDE header bar with project name, AI toggle, theme toggle, download, and mobile menu.
+ * IDE header bar with project name, AI toggle, download, and mobile menu.
  */
 
-import { BookOpen, Bot, Bug, Download, EllipsisVertical, Github, Hexagon, Moon, Pencil, Rocket, Settings, Sun } from 'lucide-react';
+import { BookOpen, Bot, Bug, Download, EllipsisVertical, Github, Hexagon, Pencil, Rocket, Settings } from 'lucide-react';
 import { Link } from 'react-router';
 
 import { BetaIndicator } from '@/components/beta-indicator';
@@ -12,14 +12,13 @@ import { Modal, ModalBody } from '@/components/ui/modal';
 import { Tooltip } from '@/components/ui/tooltip';
 import { VersionBadge } from '@/components/version-badge';
 import { NotificationToggle } from '@/features/notifications';
+import { UserMenu } from '@/features/user-menu';
 import { cn } from '@/lib/utils';
 
 import type { useProjectName } from './use-project-name';
 
 interface IDEHeaderProperties {
 	projectNameState: ReturnType<typeof useProjectName>;
-	resolvedTheme: 'light' | 'dark';
-	setColorScheme: (scheme: 'light' | 'dark') => void;
 	isMobile: boolean;
 	aiPanelVisible: boolean;
 	toggleAgentPanel: () => void;
@@ -33,8 +32,6 @@ interface IDEHeaderProperties {
 
 export function IDEHeader({
 	projectNameState,
-	resolvedTheme,
-	setColorScheme,
 	isMobile,
 	aiPanelVisible,
 	toggleAgentPanel,
@@ -152,18 +149,6 @@ export function IDEHeader({
 					{/* Push notifications toggle */}
 					<NotificationToggle />
 
-					{/* Theme toggle */}
-					<Tooltip content={resolvedTheme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}>
-						<Button
-							variant="ghost"
-							size="icon"
-							aria-label="Toggle color theme"
-							onClick={() => setColorScheme(resolvedTheme === 'dark' ? 'light' : 'dark')}
-						>
-							{resolvedTheme === 'dark' ? <Sun className="size-4" /> : <Moon className="size-4" />}
-						</Button>
-					</Tooltip>
-
 					{/* Project Settings, Deploy, Download — desktop only */}
 					{!isMobile && (
 						<>
@@ -195,6 +180,9 @@ export function IDEHeader({
 							</Button>
 						</Tooltip>
 					)}
+
+					{/* User avatar dropdown — always visible */}
+					<UserMenu size="sm" />
 				</div>
 			</header>
 

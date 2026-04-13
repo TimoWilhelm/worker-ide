@@ -10,13 +10,50 @@ import react from '@vitejs/plugin-react';
 import { defineConfig, transformWithEsbuild } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
-import type { Plugin } from 'vite';
+import { DEFAULT_EDITOR_FONT, EDITOR_FONT_FAMILIES } from './shared/constants/editor-fonts';
+
+import type { Plugin, ResolvedConfig } from 'vite';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const commitHash = execSync('git rev-parse HEAD').toString().trim();
 
-function rawMinifiedPlugin(): Plugin {
+// =============================================================================
+// Shared helpers
+// =============================================================================
+
+/** Apply build-time token replacements to source code. */
+function applyDefines(code: string, defines: Record<string, string>): string {
+	let result = code;
+	for (const [token, value] of Object.entries(defines)) {
+		result = result.replaceAll(token, value);
+	}
+	return result;
+}
+
+/** Minify JS with esbuild and compute a SHA-256 content hash. */
+async function minifyAndHash(code: string, filePath: string): Promise<{ source: string; hash: string }> {
+	const result = await transformWithEsbuild(code, filePath, {
+		minify: true,
+		legalComments: 'none',
+	});
+	const digest = createHash('sha256').update(result.code).digest('base64');
+	return { source: result.code, hash: `sha256-${digest}` };
+}
+
+// =============================================================================
+// Plugins
+// =============================================================================
+
+/**
+ * Import any `.js` file as a minified source string + SRI hash via `?raw-minified`.
+ *
+ * Supports an optional `define` map for build-time token replacement (applied
+ * before minification so that the replaced values are also minified).
+ */
+function rawMinifiedPlugin(options?: { define?: Record<string, string> }): Plugin {
+	const defines = options?.define ?? {};
+
 	return {
 		name: 'raw-minified',
 		enforce: 'pre',
@@ -37,17 +74,80 @@ function rawMinifiedPlugin(): Plugin {
 			if (!id.endsWith('?raw-minified')) return;
 			const filePath = id.slice(0, -'?raw-minified'.length);
 
-			const raw = readFileSync(filePath, 'utf8');
-			const result = await transformWithEsbuild(raw, filePath, {
-				minify: true,
-				legalComments: 'none',
+			const raw = applyDefines(readFileSync(filePath, 'utf8'), defines);
+			const { source, hash } = await minifyAndHash(raw, filePath);
+
+			return `export const source = ${JSON.stringify(source)};\nexport const hash = ${JSON.stringify(hash)};\nexport default source;`;
+		},
+	};
+}
+
+/**
+ * Emit the FOUC-prevention script as an external, render-blocking `<script>` in `<head>`.
+ *
+ * - **Dev**: serves the token-replaced script at a virtual URL via middleware.
+ * - **Build**: minifies, emits as a content-hashed asset with a deterministic
+ *   filename, and injects `<script src="/assets/fouc-prevention-<hash>.js">`
+ *   into the HTML.
+ *
+ * Tokens (`__DEFAULT_EDITOR_FONT__`, `__EDITOR_FONT_FAMILIES__`) are replaced
+ * with values from `shared/constants/editor-fonts.ts` so that `index.html`
+ * never contains hardcoded font definitions.
+ */
+function foucPreventionPlugin(): Plugin {
+	const scriptPath = path.resolve(__dirname, 'src/lib/fouc-prevention.js');
+	const virtualUrl = '/@fouc-prevention.js';
+
+	const defines: Record<string, string> = {
+		__DEFAULT_EDITOR_FONT__: JSON.stringify(DEFAULT_EDITOR_FONT),
+		__EDITOR_FONT_FAMILIES__: JSON.stringify(EDITOR_FONT_FAMILIES),
+	};
+
+	let resolvedConfig: ResolvedConfig;
+	/** Deterministic filename known before transformIndexHtml runs. */
+	let assetFileName: string;
+
+	function processScript(): string {
+		return applyDefines(readFileSync(scriptPath, 'utf8'), defines);
+	}
+
+	return {
+		name: 'fouc-prevention',
+
+		configResolved(config) {
+			resolvedConfig = config;
+		},
+
+		// Dev: serve the processed script at a virtual URL
+		configureServer(server) {
+			server.middlewares.use(virtualUrl, (_request, response) => {
+				response.setHeader('Content-Type', 'application/javascript');
+				response.setHeader('Cache-Control', 'no-cache');
+				response.end(processScript());
 			});
+		},
 
-			const minified = result.code;
-			const digest = createHash('sha256').update(minified).digest('base64');
-			const hash = `sha256-${digest}`;
+		// Build: emit the minified script as a content-hashed asset.
+		// We compute the hash ourselves and use an explicit `fileName` so
+		// the value is deterministic and known before transformIndexHtml runs
+		// (no reliance on __VITE_ASSET__ placeholder resolution in HTML).
+		async buildStart() {
+			if (resolvedConfig.command !== 'build') return;
+			const { source } = await minifyAndHash(processScript(), scriptPath);
+			// Use the first 8 hex chars of a content hash for a deterministic filename.
+			const contentHash = createHash('sha256').update(source).digest('hex').slice(0, 8);
+			assetFileName = `assets/fouc-prevention-${contentHash}.js`;
+			this.emitFile({
+				type: 'asset',
+				fileName: assetFileName,
+				source,
+			});
+		},
 
-			return `export const source = ${JSON.stringify(minified)};\nexport const hash = ${JSON.stringify(hash)};\nexport default source;`;
+		// Inject a render-blocking <script src="..."> at the top of <head>
+		transformIndexHtml() {
+			const source = resolvedConfig.command === 'serve' ? virtualUrl : `/${assetFileName}`;
+			return [{ tag: 'script', attrs: { src: source }, injectTo: 'head-prepend' }];
 		},
 	};
 }
@@ -76,6 +176,7 @@ function biomeWasmNoopPlugin(): Plugin {
 export default defineConfig({
 	plugins: [
 		rawMinifiedPlugin(),
+		foucPreventionPlugin(),
 		biomeWasmNoopPlugin(),
 		tailwindcss(),
 		react(),

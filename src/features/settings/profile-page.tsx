@@ -6,7 +6,7 @@
  */
 
 import { Check, Github, Link, Pencil, Unlink } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
@@ -20,7 +20,7 @@ interface ProfilePageProperties {
 export default function ProfilePage({ user }: ProfilePageProperties) {
 	const [isEditingName, setIsEditingName] = useState(false);
 	const [editName, setEditName] = useState(user.name);
-	const [isSaving, setIsSaving] = useState(false);
+	const nameInputReference = useRef<HTMLInputElement>(null);
 
 	const { refetch: refetchSession } = authClient.useSession();
 
@@ -31,27 +31,32 @@ export default function ProfilePage({ user }: ProfilePageProperties) {
 		.toUpperCase()
 		.slice(0, 2);
 
+	const handleStartEditName = useCallback(() => {
+		setEditName(user.name);
+		setIsEditingName(true);
+		requestAnimationFrame(() => {
+			nameInputReference.current?.focus();
+			nameInputReference.current?.select();
+		});
+	}, [user.name]);
+
 	const handleSaveName = useCallback(async () => {
 		const trimmed = editName.trim();
+		setIsEditingName(false);
+
 		if (!trimmed || trimmed === user.name) {
-			setIsEditingName(false);
 			return;
 		}
-		setIsSaving(true);
 		try {
 			const { error } = await authClient.updateUser({ name: trimmed });
 			if (error) {
 				toast.error(error.message ?? 'Failed to update your display name. Please try again.');
 				return;
 			}
-			// Refetch the session so the parent re-renders with the updated name
 			await refetchSession();
 			toast.success('Name updated');
-			setIsEditingName(false);
 		} catch {
 			toast.error('Failed to update name. Please check your connection and try again.');
-		} finally {
-			setIsSaving(false);
 		}
 	}, [editName, user.name, refetchSession]);
 
@@ -62,16 +67,13 @@ export default function ProfilePage({ user }: ProfilePageProperties) {
 				<p className="text-sm text-text-secondary">Manage your personal information.</p>
 			</div>
 
-			{/* Avatar */}
-			<section className="rounded-lg border border-border bg-bg-secondary/40 p-4">
-				<label
-					className="
-						mb-3 block text-xs font-medium tracking-wider text-text-secondary
-						uppercase
-					"
-				>
-					Avatar
-				</label>
+			{/* Profile info */}
+			<section
+				className="
+					flex flex-col gap-5 rounded-lg border border-border bg-bg-secondary/40 p-4
+				"
+			>
+				{/* Avatar + identity */}
 				<div className="flex items-center gap-4">
 					{user.image ? (
 						<img src={user.image} alt={user.name} className="size-16 rounded-full border border-border object-cover" />
@@ -85,88 +87,83 @@ export default function ProfilePage({ user }: ProfilePageProperties) {
 							{initials}
 						</div>
 					)}
+					<div className="flex min-w-0 flex-col">
+						<span className="text-sm font-medium text-text-primary">{user.name}</span>
+						<span className="text-sm text-text-secondary">{user.email}</span>
+					</div>
 				</div>
-			</section>
 
-			{/* Name */}
-			<section className="rounded-lg border border-border bg-bg-secondary/40 p-4">
-				<label
-					className="
-						mb-3 block text-xs font-medium tracking-wider text-text-secondary
-						uppercase
-					"
-				>
-					Display name
-				</label>
-				{isEditingName ? (
-					<div className="flex items-center gap-2">
+				{/* Display name */}
+				<div>
+					<label
+						className="
+							mb-2 block text-xs font-medium tracking-wider text-text-secondary
+							uppercase
+						"
+					>
+						Display name
+					</label>
+					{isEditingName ? (
 						<input
+							ref={nameInputReference}
 							type="text"
 							value={editName}
 							onChange={(event) => setEditName(event.target.value)}
 							onKeyDown={(event) => {
 								if (event.key === 'Enter') void handleSaveName();
-								if (event.key === 'Escape') setIsEditingName(false);
+								if (event.key === 'Escape') {
+									setIsEditingName(false);
+								}
 							}}
+							onBlur={() => void handleSaveName()}
 							maxLength={50}
-							disabled={isSaving}
-							autoFocus
 							className="
-								h-9 min-w-0 flex-1 rounded-md border border-border bg-bg-secondary/60
-								px-3 text-sm text-text-primary transition-colors
-								focus-within:border-accent
+								h-9 min-w-0 rounded-md border border-accent bg-bg-secondary/60 px-3
+								text-sm text-text-primary
 								focus:outline-none
 							"
 						/>
-						<Button size="sm" onClick={() => void handleSaveName()} disabled={isSaving} isLoading={isSaving}>
-							Save
-						</Button>
-						<Button variant="ghost" size="sm" onClick={() => setIsEditingName(false)} disabled={isSaving}>
-							Cancel
-						</Button>
-					</div>
-				) : (
-					<div className="flex items-center gap-2">
-						<span className="text-sm text-text-primary">{user.name}</span>
-						<button
-							onClick={() => {
-								setEditName(user.name);
-								setIsEditingName(true);
-							}}
-							className="
-								cursor-pointer rounded-md p-1 text-text-secondary transition-colors
-								hover:bg-bg-tertiary hover:text-text-primary
-							"
-						>
-							<Pencil className="size-3.5" />
-						</button>
-					</div>
-				)}
-			</section>
-
-			{/* Email */}
-			<section className="rounded-lg border border-border bg-bg-secondary/40 p-4">
-				<label
-					className="
-						mb-3 block text-xs font-medium tracking-wider text-text-secondary
-						uppercase
-					"
-				>
-					Email
-				</label>
-				<div className="flex items-center gap-2">
-					<span className="text-sm text-text-primary">{user.email}</span>
-					{user.emailVerified !== false && (
-						<span
-							className="
-								inline-flex items-center gap-1 rounded-md bg-green-500/10 px-1.5 py-0.5
-								text-xs text-green-600
-							"
-						>
-							<Check className="size-3" />
-							Verified
-						</span>
+					) : (
+						<div className="flex items-center gap-2">
+							<span className="text-sm text-text-primary">{user.name}</span>
+							<button
+								onClick={handleStartEditName}
+								className="
+									cursor-pointer rounded-md p-1 text-text-secondary transition-colors
+									hover:text-text-primary
+								"
+								aria-label="Edit display name"
+							>
+								<Pencil className="size-3.5" />
+							</button>
+						</div>
 					)}
+				</div>
+
+				{/* Email */}
+				<div>
+					<label
+						className="
+							mb-2 block text-xs font-medium tracking-wider text-text-secondary
+							uppercase
+						"
+					>
+						Email
+					</label>
+					<div className="flex items-center gap-2">
+						<span className="text-sm text-text-primary">{user.email}</span>
+						{user.emailVerified !== false && (
+							<span
+								className="
+									inline-flex items-center gap-1 rounded-md bg-green-500/10 px-1.5 py-0.5
+									text-xs text-green-600
+								"
+							>
+								<Check className="size-3" />
+								Verified
+							</span>
+						)}
+					</div>
 				</div>
 			</section>
 

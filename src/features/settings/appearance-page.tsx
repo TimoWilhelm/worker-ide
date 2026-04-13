@@ -1,8 +1,8 @@
 /**
  * Appearance Settings Page
  *
- * Theme selector with Light / Dark / System options.
- * Uses the existing colorScheme state from the Zustand store.
+ * Theme selector with Light / Dark / System options
+ * and editor font selector derived from EDITOR_FONTS.
  */
 
 import { Monitor, Moon, Sun } from 'lucide-react';
@@ -10,24 +10,26 @@ import { Monitor, Moon, Sun } from 'lucide-react';
 import { useTheme } from '@/hooks/use-theme';
 import { useStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
+import { EDITOR_FONTS } from '@shared/constants';
 
 type ColorScheme = 'light' | 'dark' | 'system';
 
 const THEME_OPTIONS: Array<{
 	value: ColorScheme;
 	label: string;
-	description: string;
 	icon: React.ComponentType<{ className?: string }>;
 }> = [
-	{ value: 'light', label: 'Light', description: 'Always use light mode.', icon: Sun },
-	{ value: 'dark', label: 'Dark', description: 'Always use dark mode.', icon: Moon },
-	{ value: 'system', label: 'System', description: 'Follow your operating system preference.', icon: Monitor },
+	{ value: 'light', label: 'Light', icon: Sun },
+	{ value: 'dark', label: 'Dark', icon: Moon },
+	{ value: 'system', label: 'System', icon: Monitor },
 ];
 
 export default function AppearancePage() {
 	const resolvedTheme = useTheme();
 	const colorScheme = useStore((state) => state.colorScheme);
 	const setColorScheme = useStore((state) => state.setColorScheme);
+	const editorFont = useStore((state) => state.editorFont);
+	const setEditorFont = useStore((state) => state.setEditorFont);
 
 	return (
 		<div className="flex flex-col gap-8">
@@ -74,11 +76,45 @@ export default function AppearancePage() {
 						);
 					})}
 				</div>
-				<p className="mt-3 text-xs text-text-secondary">
-					{colorScheme === 'system'
-						? 'The theme will automatically switch based on your OS settings.'
-						: `${colorScheme === 'dark' ? 'Dark' : 'Light'} mode is always active regardless of OS settings.`}
-				</p>
+			</section>
+
+			{/* Editor font selector */}
+			<section>
+				<h3
+					className="
+						mb-3 text-xs font-medium tracking-wider text-text-secondary uppercase
+					"
+				>
+					Editor Font
+				</h3>
+				<div className="grid grid-cols-2 gap-3">
+					{EDITOR_FONTS.map((font) => {
+						const isSelected = editorFont === font.slug;
+						return (
+							<button
+								key={font.slug}
+								onClick={() => setEditorFont(font.slug)}
+								className={cn(
+									`
+										flex cursor-pointer flex-col items-center gap-3 rounded-lg border p-4
+										transition-colors
+									`,
+									isSelected
+										? 'border-accent bg-accent/5 text-text-primary'
+										: `
+											border-border bg-bg-secondary/40 text-text-secondary
+											hover:border-accent/50 hover:bg-bg-secondary/80
+										`,
+								)}
+							>
+								<span className="text-lg leading-none" style={{ fontFamily: font.family }}>
+									Aa
+								</span>
+								<span className="text-xs font-medium">{font.label}</span>
+							</button>
+						);
+					})}
+				</div>
 			</section>
 		</div>
 	);

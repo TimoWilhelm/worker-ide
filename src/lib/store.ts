@@ -7,7 +7,7 @@
 import { create } from 'zustand';
 import { devtools, persist } from 'zustand/middleware';
 
-import { DEFAULT_AI_MODEL, type AIModelId } from '@shared/constants';
+import { DEFAULT_AI_MODEL, DEFAULT_EDITOR_FONT, type AIModelId, type EditorFont } from '@shared/constants';
 import { persistedStoreSchema } from '@shared/validation';
 
 import type {
@@ -246,6 +246,8 @@ interface UIState {
 	dependenciesPanelVisible: boolean;
 	/** Color scheme preference */
 	colorScheme: ColorScheme;
+	/** Editor (monospace) font preference */
+	editorFont: EditorFont;
 	/** Active panel on mobile layout */
 	activeMobilePanel: MobilePanel;
 	/** Whether the mobile file tree drawer is open */
@@ -263,6 +265,7 @@ interface UIActions {
 	toggleDevtools: () => void;
 	toggleDependenciesPanel: () => void;
 	setColorScheme: (scheme: ColorScheme) => void;
+	setEditorFont: (font: EditorFont) => void;
 	setActiveMobilePanel: (panel: MobilePanel) => void;
 	toggleMobileFileTree: () => void;
 	setActiveSidebarView: (view: SidebarView) => void;
@@ -347,6 +350,8 @@ function rehydratePersistedState(state: StoreState | undefined): void {
 	const result = persistedStoreSchema.safeParse(state);
 	if (result.success) {
 		state.expandedDirs = new Set(result.data.expandedDirs);
+		// Apply defaults for fields that may be missing in older persisted data
+		state.editorFont = result.data.editorFont;
 	} else {
 		// Persisted data is corrupt — reset to defaults
 		state.expandedDirs = new Set(['/src', '/worker']);
@@ -356,6 +361,7 @@ function rehydratePersistedState(state: StoreState | undefined): void {
 		state.devtoolsVisible = false;
 		state.dependenciesPanelVisible = true;
 		state.colorScheme = 'dark';
+		state.editorFont = DEFAULT_EDITOR_FONT;
 		state.activeMobilePanel = 'editor';
 		state.activeSidebarView = 'explorer';
 		state.selectedModel = DEFAULT_AI_MODEL;
@@ -894,6 +900,7 @@ export const useStore = create<StoreState>()(
 				devtoolsVisible: false,
 				dependenciesPanelVisible: true,
 				colorScheme: 'dark',
+				editorFont: DEFAULT_EDITOR_FONT,
 				activeMobilePanel: 'editor',
 				mobileFileTreeOpen: false,
 				activeSidebarView: 'explorer',
@@ -913,6 +920,8 @@ export const useStore = create<StoreState>()(
 				showUtilityPanel: (tab) => set({ utilityPanelVisible: true, activeUtilityTab: tab }),
 
 				setColorScheme: (scheme) => set({ colorScheme: scheme }),
+
+				setEditorFont: (font) => set({ editorFont: font }),
 
 				setActiveMobilePanel: (panel) => set({ activeMobilePanel: panel }),
 
@@ -958,6 +967,7 @@ export const useStore = create<StoreState>()(
 					devtoolsVisible: state.devtoolsVisible,
 					dependenciesPanelVisible: state.dependenciesPanelVisible,
 					colorScheme: state.colorScheme,
+					editorFont: state.editorFont,
 					activeMobilePanel: state.activeMobilePanel,
 					activeSidebarView: state.activeSidebarView,
 					activeUtilityTab: state.activeUtilityTab,
@@ -978,6 +988,7 @@ export const useStore = create<StoreState>()(
 
 export const selectIsProcessing = (state: StoreState) => state.isProcessing;
 export const selectColorScheme = (state: StoreState) => state.colorScheme;
+export const selectEditorFont = (state: StoreState) => state.editorFont;
 export const selectGitStatus = (state: StoreState) => state.gitStatus;
 export const selectActiveSidebarView = (state: StoreState) => state.activeSidebarView;
 export const selectGitChangedFileCount = (state: StoreState) => state.gitStatus.filter((entry) => entry.status !== 'unmodified').length;

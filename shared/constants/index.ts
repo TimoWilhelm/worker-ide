@@ -14,3 +14,5 @@ export * from './api';
 export * from './plans';
 export * from './auth';
 export * from './bindings';
+export * from './editor-fonts';
+export * from './user-preferences';

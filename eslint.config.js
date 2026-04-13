@@ -171,4 +171,19 @@ export default defineConfig(
 			'better-tailwindcss/no-unknown-classes': 'off',
 		},
 	},
+
+	// FOUC-prevention script runs in the browser and uses build-time replacements
+	{
+		files: ['src/lib/fouc-prevention.js'],
+		languageOptions: {
+			globals: {
+				...globals.browser,
+				__DEFAULT_EDITOR_FONT__: 'readonly',
+				__EDITOR_FONT_FAMILIES__: 'readonly',
+			},
+		},
+		rules: {
+			'no-empty': ['error', { allowEmptyCatch: true }],
+		},
+	},
 );

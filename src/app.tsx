@@ -27,7 +27,9 @@ import { LoginPage } from '@/features/auth';
 import { DashboardPage } from '@/features/dashboard';
 import { OrgManagementPage } from '@/features/org';
 import { AccountPage, AppearancePage, ProfilePage, SettingsLayout } from '@/features/settings';
+import { useEditorFont } from '@/hooks/use-editor-font';
 import { usePwaUpdate } from '@/hooks/use-pwa-update';
+import { useUserPreferences } from '@/hooks/use-user-preferences';
 import { authClient } from '@/lib/auth-client';
 import { checkProjectAccess } from '@/lib/project-access';
 import { isNetworkError } from '@/lib/utils';
@@ -355,6 +357,12 @@ function AppContent({
 	activeOrganizationId?: string;
 }) {
 	const hostType = useMemo(() => parseHost(globalThis.location.host).type, []);
+
+	// Sync user preferences from server → store → localStorage
+	useUserPreferences();
+
+	// Sync editor font CSS variable with user preference
+	useEditorFont();
 
 	if (hostType !== 'app') {
 		return <NotFoundPage />;

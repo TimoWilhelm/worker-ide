@@ -35,9 +35,8 @@ export function IDEShell({ projectId }: { projectId: string }) {
 	// Project WebSocket connection (HMR notifications, collaboration, server events)
 	useProjectSocket({ projectId });
 
-	// Theme
+	// Theme (still needed for editor/terminal theming in Desktop/Mobile layouts)
 	const resolvedTheme = useTheme();
-	const setColorScheme = useStore((state) => state.setColorScheme);
 
 	// Mobile layout
 	const isMobile = useIsMobile();
@@ -111,8 +110,6 @@ export function IDEShell({ projectId }: { projectId: string }) {
 			<div className="flex h-full flex-col overflow-hidden bg-bg-primary">
 				<IDEHeader
 					projectNameState={projectNameState}
-					resolvedTheme={resolvedTheme}
-					setColorScheme={setColorScheme}
 					isMobile={isMobile}
 					aiPanelVisible={layouts.aiPanelVisible}
 					toggleAgentPanel={toggleAgentPanel}

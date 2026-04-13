@@ -11,7 +11,7 @@
  */
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { BookOpen, Copy, Github, Hexagon, Moon, Search, Sun, Trash2 } from 'lucide-react';
+import { BookOpen, Copy, Github, Hexagon, Search, Trash2 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
@@ -27,11 +27,9 @@ import { CreateOrgModal } from '@/features/org/create-org-modal';
 import { OrgSwitcher } from '@/features/org/org-switcher';
 import { PendingInvitationsBanner } from '@/features/org/pending-invitations-banner';
 import { UserMenu } from '@/features/user-menu';
-import { useTheme } from '@/hooks/use-theme';
 import { cloneProject, createProject, deleteProject, fetchOrgLimits, fetchOrgProjects, fetchTemplates } from '@/lib/api-client';
 import { fadeUpVariants, springGentle, staggerContainer } from '@/lib/motion-config';
 import { getProjectUrl } from '@/lib/preview-origin';
-import { useStore } from '@/lib/store';
 import { cn, formatRelativeTime } from '@/lib/utils';
 import { isValidProjectId } from '@shared/project-id';
 
@@ -465,9 +463,6 @@ export default function DashboardPage({ organizationId, organizations, isCreateO
 	const [loadingMessage, setLoadingMessage] = useState<string | undefined>();
 	const [cloneError, setCloneError] = useState<string | undefined>();
 
-	const resolvedTheme = useTheme();
-	const setColorScheme = useStore((state) => state.setColorScheme);
-
 	// Fetch template metadata from the API
 	const templatesQuery = useQuery({
 		queryKey: ['templates'],
@@ -693,16 +688,7 @@ export default function DashboardPage({ organizationId, organizations, isCreateO
 				>
 					<Github className="size-4" />
 				</a>
-				<Button
-					variant="ghost"
-					size="icon"
-					aria-label={resolvedTheme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-					onClick={() => setColorScheme(resolvedTheme === 'dark' ? 'light' : 'dark')}
-					className="bg-bg-secondary/40 backdrop-blur-sm"
-				>
-					{resolvedTheme === 'dark' ? <Sun className="size-4" /> : <Moon className="size-4" />}
-				</Button>
-				{user && <UserMenu userName={user.name} userEmail={user.email} userImage={user.image} />}
+				<UserMenu />
 			</div>
 
 			{/* Main content */}

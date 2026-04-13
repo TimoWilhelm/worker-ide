@@ -18,5 +18,5 @@
 	],
 	"project": ["src/**", "worker/**", "shared/**", "auxiliary/**", "test/**"],
 	"ignoreDependencies": ["cloudflare", "codemirror", "@standard-schema/spec"],
-	"ignoreFiles": ["worker/migrations/do-agent/migrations.d.ts", "auxiliary/*/worker-configuration.d.ts"]
+	"ignoreFiles": ["worker/migrations/do-agent/migrations.d.ts", "auxiliary/*/worker-configuration.d.ts", "src/lib/fouc-prevention.js"]
 }

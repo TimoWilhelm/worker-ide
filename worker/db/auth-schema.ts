@@ -10,7 +10,7 @@
  * The table/column names follow better-auth's default conventions.
  */
 
-import { index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import { index, integer, primaryKey, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
 // =============================================================================
 // better-auth Core Tables
@@ -328,6 +328,25 @@ export const entitlement = sqliteTable(
 );
 
 // =============================================================================
+// Custom: User Preference Table (key-value store for global user settings)
+// =============================================================================
+
+export const userPreference = sqliteTable(
+	'user_preference',
+	{
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		/** Preference key (e.g. 'colorScheme', 'editorFont'). */
+		key: text('key').notNull(),
+		/** Preference value, stored as text. */
+		value: text('value').notNull(),
+		updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+	},
+	(table) => [primaryKey({ columns: [table.userId, table.key] }), index('user_preference_user_id_idx').on(table.userId)],
+);
+
+// =============================================================================
 // Inferred Types
 // =============================================================================
 
@@ -353,3 +372,5 @@ export type CreditLedgerRow = typeof creditLedger.$inferSelect;
 export type CreditLedgerInsert = typeof creditLedger.$inferInsert;
 export type EntitlementRow = typeof entitlement.$inferSelect;
 export type EntitlementInsert = typeof entitlement.$inferInsert;
+export type UserPreferenceRow = typeof userPreference.$inferSelect;
+export type UserPreferenceInsert = typeof userPreference.$inferInsert;

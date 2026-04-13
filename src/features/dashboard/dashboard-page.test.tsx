@@ -159,10 +159,10 @@ describe('DashboardPage', () => {
 		expect(within(dialog).getByPlaceholderText('Project URL or ID')).toBeInTheDocument();
 	});
 
-	it('renders theme toggle button', () => {
+	it('renders user menu', () => {
 		renderWithQuery(<DashboardPage {...defaultProperties} />);
 
-		expect(screen.getByLabelText(/Switch to light mode/i)).toBeInTheDocument();
+		expect(screen.getByTestId('user-menu')).toBeInTheDocument();
 	});
 
 	// ---------------------------------------------------------------------------

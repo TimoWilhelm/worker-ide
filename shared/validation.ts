@@ -5,7 +5,7 @@
 
 import { z } from 'zod';
 
-import { AI_MODEL_IDS_TUPLE, MAX_PROJECT_NAME_LENGTH } from './constants';
+import { AI_MODEL_IDS_TUPLE, DEFAULT_EDITOR_FONT, EDITOR_FONT_SLUGS, MAX_PROJECT_NAME_LENGTH, USER_PREFERENCE_KEYS } from './constants';
 
 // =============================================================================
 // Validation Constants
@@ -821,6 +821,7 @@ export const persistedStoreSchema = z.object({
 	devtoolsVisible: z.boolean(),
 	dependenciesPanelVisible: z.boolean(),
 	colorScheme: z.enum(['light', 'dark', 'system']),
+	editorFont: z.enum(EDITOR_FONT_SLUGS).optional().default(DEFAULT_EDITOR_FONT),
 	activeMobilePanel: z.enum(['editor', 'preview', 'git', 'agent', 'tests']),
 	activeSidebarView: z.enum(['explorer', 'git', 'tests']),
 	expandedDirs: z.array(z.string()),
@@ -912,5 +913,26 @@ export const deployRequestSchema = z.object({
 	apiToken: z.string().min(1, 'API Token is required'),
 	workerName: z.string().optional(),
 });
+
+/**
+ * Schema for PUT /user/preferences body.
+ * Accepts a record of preference key → value pairs.
+ * Only currently valid keys (from USER_PREFERENCE_KEYS) are accepted;
+ * unknown/deprecated keys are stripped.
+ */
+export const userPreferencesBodySchema = z
+	.record(z.string(), z.string())
+	.transform((record) => {
+		const filtered: Record<string, string> = {};
+		for (const key of USER_PREFERENCE_KEYS) {
+			if (key in record) {
+				filtered[key] = record[key];
+			}
+		}
+		return filtered;
+	})
+	.refine((record) => Object.keys(record).length > 0, {
+		message: 'At least one valid preference key is required',
+	});
 
 export { DEFAULT_AI_MODEL } from './constants';

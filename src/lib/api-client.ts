@@ -12,6 +12,7 @@ import { serializeMessage, parseServerMessage, type ClientMessage, type ServerMe
 import { throwApiError } from './api-error';
 
 import type { ApiRoutes, OrgRoutes, TransferRoutes, UserRoutes } from '@server/routes';
+import type { UserPreferences } from '@shared/constants';
 import type { AssetSettings, BindingsConfig, ProjectTemplateMeta } from '@shared/types';
 
 /**
@@ -282,6 +283,33 @@ export async function fetchUserLimits(): Promise<UserLimits> {
 		await throwApiError(response, 'Failed to fetch user limits');
 	}
 	return response.json();
+}
+
+// =============================================================================
+// User Preferences
+// =============================================================================
+
+/**
+ * Fetch user preferences from the server (merged with defaults).
+ */
+export async function fetchUserPreferences(): Promise<UserPreferences> {
+	const userApi = createUserApiClient();
+	const response = await userApi.user.preferences.$get({});
+	if (!response.ok) {
+		await throwApiError(response, 'Failed to fetch user preferences');
+	}
+	return response.json();
+}
+
+/**
+ * Save one or more user preferences to the server.
+ */
+export async function updateUserPreferences(preferences: Record<string, string>): Promise<void> {
+	const userApi = createUserApiClient();
+	const response = await userApi.user.preferences.$put({ json: preferences });
+	if (!response.ok) {
+		await throwApiError(response, 'Failed to save user preferences');
+	}
 }
 
 // =============================================================================

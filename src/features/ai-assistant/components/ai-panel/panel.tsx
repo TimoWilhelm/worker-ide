@@ -22,7 +22,7 @@ import {
 	MicOff,
 	Pencil,
 	Plus,
-	Send,
+	ArrowUp,
 	Square,
 	Trash2,
 	X,
@@ -1174,13 +1174,13 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 							<button
 								onClick={handleStopRecording}
 								className={cn(
-									'inline-flex cursor-pointer items-center gap-1.5 rounded-md p-1.5',
+									'inline-flex cursor-pointer items-center gap-1.5 rounded-md p-1',
 									'text-xs font-medium text-error transition-colors',
 									'hover:bg-error/10',
 								)}
 								aria-label="Stop recording"
 							>
-								<Square className="size-3.5" />
+								<Square className="size-4" />
 							</button>
 						</div>
 					) : (
@@ -1196,7 +1196,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 								onSelectModel={setSelectedModel}
 								disabled={isProcessing || !isConnected}
 							/>
-							<div className="flex flex-1 shrink-0 items-center justify-end gap-1">
+							<div className="flex flex-1 shrink-0 items-center justify-end gap-0.5">
 								<ContextRing tokensUsed={contextTokensUsed} contextWindow={getModelLimits(selectedModel).contextWindow} />
 								{/* Microphone button */}
 								{!isProcessing && speechToText.microphonePermission !== 'unsupported' && (
@@ -1212,7 +1212,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 											}}
 											disabled={!isConnected}
 											className={cn(
-												'inline-flex items-center gap-1.5 rounded-md p-1.5',
+												'inline-flex items-center gap-1.5 rounded-md p-1',
 												'text-xs font-medium transition-colors',
 												speechToText.microphonePermission === 'denied'
 													? 'cursor-pointer text-text-secondary opacity-50'
@@ -1225,7 +1225,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 											)}
 											aria-label={speechToText.microphonePermission === 'denied' ? 'Microphone blocked' : 'Start voice input'}
 										>
-											{speechToText.microphonePermission === 'denied' ? <MicOff className="size-3.5" /> : <Mic className="size-3.5" />}
+											{speechToText.microphonePermission === 'denied' ? <MicOff className="size-4" /> : <Mic className="size-4" />}
 										</button>
 									</Tooltip>
 								)}
@@ -1233,20 +1233,23 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 									<button
 										onClick={handleCancel}
 										className={cn(
-											`inline-flex cursor-pointer items-center gap-1.5 rounded-md p-1.5`,
+											`
+												inline-flex cursor-pointer items-center justify-center rounded-md
+												p-1
+											`,
 											'text-xs font-medium text-error transition-colors',
 											'hover:bg-error/10',
 										)}
 										aria-label="Stop"
 									>
-										<Square className="size-3.5" />
+										<Square className="size-4" />
 									</button>
 								) : (
 									<button
 										onClick={() => void handleSend()}
 										disabled={!hasContent || !isConnected}
 										className={cn(
-											'inline-flex items-center gap-1.5 rounded-md p-1.5',
+											'inline-flex items-center justify-center rounded-md p-1',
 											'text-xs font-medium transition-colors',
 											hasContent && isConnected
 												? `
@@ -1257,7 +1260,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 										)}
 										aria-label="Send"
 									>
-										<Send className="size-3.5" />
+										<ArrowUp className="size-4" />
 									</button>
 								)}
 							</div>

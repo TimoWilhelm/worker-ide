@@ -5,14 +5,12 @@
  * Left sidebar with navigation, main content area, back button to home.
  */
 
-import { ArrowLeft, Moon, Palette, Shield, Sun, User } from 'lucide-react';
+import { ArrowLeft, Palette, Shield, User } from 'lucide-react';
 import { motion } from 'motion/react';
 import { Link } from 'react-router';
 
-import { Button } from '@/components/ui/button';
-import { useTheme } from '@/hooks/use-theme';
+import { UserMenu } from '@/features/user-menu';
 import { springSnappy } from '@/lib/motion-config';
-import { useStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 
 const SETTINGS_NAV_ITEMS = [
@@ -27,9 +25,6 @@ interface SettingsLayoutProperties {
 }
 
 export default function SettingsLayout({ children, activePath }: SettingsLayoutProperties) {
-	const resolvedTheme = useTheme();
-	const setColorScheme = useStore((state) => state.setColorScheme);
-
 	return (
 		<div className="flex h-dvh flex-col bg-bg-primary">
 			{/* Header */}
@@ -50,14 +45,7 @@ export default function SettingsLayout({ children, activePath }: SettingsLayoutP
 					<ArrowLeft className="size-4" />
 				</Link>
 				<h1 className="flex-1 text-sm font-semibold text-text-primary">Settings</h1>
-				<Button
-					variant="ghost"
-					size="icon"
-					aria-label={resolvedTheme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-					onClick={() => setColorScheme(resolvedTheme === 'dark' ? 'light' : 'dark')}
-				>
-					{resolvedTheme === 'dark' ? <Sun className="size-4" /> : <Moon className="size-4" />}
-				</Button>
+				<UserMenu />
 			</header>
 
 			<div className="flex min-h-0 flex-1">

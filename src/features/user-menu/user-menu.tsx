@@ -1,11 +1,14 @@
 /**
  * User Menu
  *
- * Avatar dropdown menu shown in the dashboard header.
+ * Avatar dropdown menu shown in page headers across the app.
  * Displays user info and links to profile, account settings, and sign out.
+ *
+ * Reads user data directly from the auth session so it can be placed
+ * in any layout without prop-drilling.
  */
 
-import { LogOut, Settings, User } from 'lucide-react';
+import { LogOut, Palette, Settings, User } from 'lucide-react';
 import { useNavigate } from 'react-router';
 
 import {
@@ -17,15 +20,23 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { toast } from '@/components/ui/toast-store';
 import { authClient } from '@/lib/auth-client';
+import { cn } from '@/lib/utils';
 
 interface UserMenuProperties {
-	userName: string;
-	userEmail: string;
-	userImage?: string;
+	/** Use 'sm' in compact headers like the IDE. Defaults to 'md'. */
+	size?: 'sm' | 'md';
 }
 
-export function UserMenu({ userName, userEmail, userImage }: UserMenuProperties) {
+export function UserMenu({ size = 'md' }: UserMenuProperties = {}) {
+	const { data: session } = authClient.useSession();
 	const navigate = useNavigate();
+
+	if (!session?.user) return;
+
+	const userName = session.user.name;
+	const userEmail = session.user.email;
+	const userImage = session.user.image ?? undefined;
+
 	const initials = userName
 		.split(' ')
 		.map((part) => part.charAt(0))
@@ -37,20 +48,30 @@ export function UserMenu({ userName, userEmail, userImage }: UserMenuProperties)
 		<DropdownMenu>
 			<DropdownMenuTrigger>
 				<button
-					className="
-						flex size-8 shrink-0 cursor-pointer items-center justify-center
-						rounded-full border border-border bg-bg-secondary/40 backdrop-blur-sm
-						transition-colors
-						hover:border-accent/50 hover:bg-bg-secondary/80
-						focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2
-						focus-visible:ring-offset-bg-primary focus-visible:outline-none
-					"
+					className={cn(
+						`
+							flex shrink-0 cursor-pointer items-center justify-center rounded-full
+							border transition-colors
+							focus-visible:ring-2 focus-visible:ring-accent
+							focus-visible:ring-offset-2 focus-visible:ring-offset-bg-primary
+							focus-visible:outline-none
+						`,
+						size === 'sm'
+							? `
+								size-6 border-transparent
+								hover:border-accent/50
+							`
+							: `
+								size-8 border-border bg-bg-secondary/40 backdrop-blur-sm
+								hover:border-accent/50 hover:bg-bg-secondary/80
+							`,
+					)}
 					aria-label="User menu"
 				>
 					{userImage ? (
-						<img src={userImage} alt={userName} className="size-8 rounded-full object-cover" />
+						<img src={userImage} alt={userName} className={cn('rounded-full object-cover', size === 'sm' ? 'size-6' : 'size-8')} />
 					) : (
-						<span className="text-xs font-medium text-text-secondary">{initials}</span>
+						<span className={cn('font-medium text-text-secondary', size === 'sm' ? 'text-2xs' : 'text-xs')}>{initials}</span>
 					)}
 				</button>
 			</DropdownMenuTrigger>
@@ -78,6 +99,15 @@ export function UserMenu({ userName, userEmail, userImage }: UserMenuProperties)
 				>
 					<Settings className="size-3.5 shrink-0 text-text-secondary" />
 					<span>Account</span>
+				</DropdownMenuItem>
+				<DropdownMenuItem
+					onSelect={() => {
+						void navigate('/settings/appearance');
+					}}
+					className="gap-2 text-xs"
+				>
+					<Palette className="size-3.5 shrink-0 text-text-secondary" />
+					<span>Appearance</span>
 				</DropdownMenuItem>
 				<DropdownMenuSeparator />
 				<DropdownMenuItem
