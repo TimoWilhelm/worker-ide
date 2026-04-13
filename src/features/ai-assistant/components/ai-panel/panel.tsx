@@ -64,7 +64,7 @@ import { useSpeechToText } from '../../hooks/use-speech-to-text';
 import { parseTextToSegments, segmentsHaveContent, segmentsToPlainText, type InputSegment } from '../../lib/input-segments';
 import { extractMessageText } from '../../lib/retry-helpers';
 import { AgentModeSelector } from '../agent-mode-selector';
-import { AudioWaveform } from '../audio-waveform';
+import { AudioWaveform, AudioWaveformSkeleton } from '../audio-waveform';
 import { BouncingDots } from '../bouncing-dots';
 import { ChangedFilesSummary } from '../changed-files-summary';
 import { FileMentionDropdown } from '../file-mention-dropdown';
@@ -1133,10 +1133,43 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 					</Collapsible>
 					{speechToText.isRecording ? (
 						<div className="flex items-center gap-x-1.5 px-1.5 py-1">
-							{/* Pulsing red dot */}
-							<span className="size-2 shrink-0 animate-pulse rounded-full bg-error" />
+							{/* Pulsing recording dot */}
+							<div className="relative flex size-3 shrink-0 items-center justify-center">
+								<Spinner
+									size="xs"
+									className={cn(
+										`
+											absolute inset-0 text-text-secondary transition-opacity duration-150
+											ease-out
+										`,
+										speechToText.isMicrophoneReady && 'pointer-events-none opacity-0',
+									)}
+								/>
+								<span
+									className={cn(
+										`
+											size-2 rounded-full bg-error transition-opacity duration-150 ease-out
+										`,
+										speechToText.isMicrophoneReady ? 'animate-pulse opacity-100' : 'opacity-0',
+									)}
+								/>
+							</div>
 							{/* Rolling waveform visualization */}
-							<AudioWaveform amplitudes={speechToText.amplitudes} />
+							<div className="relative h-4 w-28 shrink-0">
+								<AudioWaveformSkeleton
+									className={cn(
+										'absolute inset-0 transition-opacity duration-150 ease-out',
+										speechToText.isMicrophoneReady && 'pointer-events-none opacity-0',
+									)}
+								/>
+								<AudioWaveform
+									amplitudes={speechToText.amplitudes}
+									className={cn(
+										'absolute inset-0 transition-opacity duration-150 ease-out',
+										speechToText.isMicrophoneReady ? 'opacity-100' : 'opacity-0',
+									)}
+								/>
+							</div>
 							<div className="flex-1" />
 							<button
 								onClick={handleStopRecording}
@@ -1165,7 +1198,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 							/>
 							<div className="flex flex-1 shrink-0 items-center justify-end gap-1">
 								<ContextRing tokensUsed={contextTokensUsed} contextWindow={getModelLimits(selectedModel).contextWindow} />
-								{/* Microphone button — hidden when unsupported or agent is processing */}
+								{/* Microphone button */}
 								{!isProcessing && speechToText.microphonePermission !== 'unsupported' && (
 									<Tooltip content={speechToText.microphonePermission === 'denied' ? 'Microphone blocked' : 'Voice input'} side="top">
 										<button

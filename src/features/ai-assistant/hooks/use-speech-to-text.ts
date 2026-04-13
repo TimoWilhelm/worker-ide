@@ -71,6 +71,7 @@ interface SpeechToTextResult {
 	microphonePermission: MicrophonePermission;
 	/** Whether the microphone is actively recording */
 	isRecording: boolean;
+	isMicrophoneReady: boolean;
 	/** Partial transcript while the user is still speaking */
 	interimTranscript: string;
 	/** Accumulated final transcript from completed utterances */
@@ -92,6 +93,16 @@ function getInitialMicrophonePermission(): MicrophonePermission {
 	return 'default';
 }
 
+let workletReadyPromise: Promise<void> | undefined;
+
+function ensureWorkletPreloaded(): Promise<void> {
+	if (workletReadyPromise) return workletReadyPromise;
+	workletReadyPromise = new AudioContext({ sampleRate: 16_000 }).audioWorklet.addModule(pcmProcessorUrl).catch(() => {
+		workletReadyPromise = undefined;
+	});
+	return workletReadyPromise ?? Promise.resolve();
+}
+
 export function useSpeechToText({
 	projectId,
 	onAutoStop,
@@ -101,6 +112,7 @@ export function useSpeechToText({
 }): SpeechToTextResult {
 	const [microphonePermission, setMicrophonePermission] = useState<MicrophonePermission>(getInitialMicrophonePermission);
 	const [isRecording, setIsRecording] = useState(false);
+	const [isMicrophoneReady, setIsMicrophoneReady] = useState(false);
 	const [interimTranscript, setInterimTranscript] = useState('');
 	const [finalTranscript, setFinalTranscript] = useState('');
 	const [amplitudes, setAmplitudes] = useState<number[]>([]);
@@ -125,7 +137,11 @@ export function useSpeechToText({
 		onAutoStopReference.current = onAutoStop;
 	}, [onAutoStop]);
 
-	// Query microphone permission on mount and listen for changes
+	useEffect(() => {
+		if (!isMicrophoneSupported()) return;
+		void ensureWorkletPreloaded();
+	}, []);
+
 	useEffect(() => {
 		if (!isMicrophoneSupported()) return;
 
@@ -212,6 +228,7 @@ export function useSpeechToText({
 		amplitudePeakReference.current = 0;
 
 		setIsRecording(true);
+		setIsMicrophoneReady(false);
 
 		try {
 			const triggerAutoStop = () => {
@@ -220,6 +237,7 @@ export function useSpeechToText({
 					cleanup();
 					onAutoStopReference.current?.(accumulated);
 					setIsRecording(false);
+					setIsMicrophoneReady(false);
 				}
 			};
 
@@ -293,6 +311,7 @@ export function useSpeechToText({
 
 			webSocket.addEventListener('close', () => {
 				setIsRecording(false);
+				setIsMicrophoneReady(false);
 			});
 
 			const audioContext = new AudioContext({ sampleRate: 16_000 });
@@ -319,6 +338,7 @@ export function useSpeechToText({
 				return;
 			}
 			mediaStreamReference.current = stream;
+			setIsMicrophoneReady(true);
 
 			const source = audioContext.createMediaStreamSource(stream);
 			sourceNodeReference.current = source;
@@ -356,12 +376,14 @@ export function useSpeechToText({
 				toast.error(message);
 			}
 			setIsRecording(false);
+			setIsMicrophoneReady(false);
 			cleanup();
 		}
 	}, [projectId, cleanup]);
 
 	const stop = useCallback((): string => {
 		setIsRecording(false);
+		setIsMicrophoneReady(false);
 		setInterimTranscript('');
 		setAmplitudes([]);
 		cleanup();
@@ -378,6 +400,7 @@ export function useSpeechToText({
 	return {
 		microphonePermission,
 		isRecording,
+		isMicrophoneReady,
 		interimTranscript,
 		finalTranscript,
 		amplitudes,

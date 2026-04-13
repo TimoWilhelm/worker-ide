@@ -45,7 +45,6 @@ export function AudioWaveform({ amplitudes, className }: { amplitudes: number[];
 
 			context.clearRect(0, 0, width, height);
 
-			// Take the last BAR_COUNT values, pad with zeroes on the left if fewer
 			const values = amplitudes.slice(-BAR_COUNT);
 			const padCount = BAR_COUNT - values.length;
 
@@ -53,7 +52,6 @@ export function AudioWaveform({ amplitudes, className }: { amplitudes: number[];
 			const barWidth = (width - gap * (BAR_COUNT - 1)) / BAR_COUNT;
 			const maxBarHeight = height * 0.85;
 
-			// Use a CSS variable for the accent color, fall back to a nice default
 			const style = getComputedStyle(canvas);
 			const color = style.getPropertyValue('--color-error').trim() || '#ef4444';
 
@@ -61,13 +59,11 @@ export function AudioWaveform({ amplitudes, className }: { amplitudes: number[];
 
 			for (let index = 0; index < BAR_COUNT; index++) {
 				const raw = index < padCount ? 0 : values[index - padCount];
-				// Apply power curve to boost low amplitudes into visible range
 				const amplitude = raw > 0 ? Math.pow(raw, AMPLITUDE_CURVE) : 0;
 				const barHeight = Math.max(maxBarHeight * amplitude, maxBarHeight * MIN_BAR_FRACTION);
 				const x = index * (barWidth + gap);
 				const y = (height - barHeight) / 2;
 
-				// Rounded rectangle
 				const radius = Math.min(barWidth / 2, 2 * dpr);
 				context.beginPath();
 				context.roundRect(x, y, barWidth, barHeight, radius);
@@ -86,5 +82,13 @@ export function AudioWaveform({ amplitudes, className }: { amplitudes: number[];
 
 	return (
 		<canvas ref={canvasReference} className={cn('h-4 w-28 shrink-0', className)} style={{ imageRendering: 'pixelated' }} aria-hidden />
+	);
+}
+
+export function AudioWaveformSkeleton({ className }: { className?: string }) {
+	return (
+		<div className={cn('flex h-4 w-28 shrink-0 items-center', className)} aria-hidden>
+			<div className="h-0.5 w-full animate-pulse rounded-full bg-border-solid" />
+		</div>
 	);
 }
