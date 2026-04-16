@@ -24,35 +24,32 @@
  * See `worker/durable/db/` for schema, client factory, and data access layer.
  */
 
+import { ExtensionManager } from '@cloudflare/think/extensions';
 import { Agent, callable } from 'agents';
+import { SessionManager } from 'agents/experimental/memory/session';
 import { env } from 'cloudflare:workers';
 import { migrate } from 'drizzle-orm/durable-sqlite/migrator';
 import { mount, withMounts } from 'worker-fs-mount';
 
-import { DEFAULT_AI_MODEL, MAX_AI_SESSIONS_PER_PROJECT, getModelConfig } from '@shared/constants';
+import { AGENT_SYSTEM_PROMPT, DEFAULT_AI_MODEL, MAX_AI_SESSIONS_PER_PROJECT, getModelConfig } from '@shared/constants';
 import { pendingChangesFileSchema, sessionTitleSchema } from '@shared/validation';
 
 import {
-	clearSessionRevertedAt,
-	deleteSession,
+	buildLoadedExtensionsSummary,
+	buildRecoveredRunParameters,
+	parseFiberSnapshot,
+	restoreExtensionManager,
+	runSessionSearch,
+} from './agent-runner-helpers';
+import {
+	deleteSessionMetadata,
 	deletePendingChanges,
-	getAllRunningSessions,
 	getDatabase,
-	getRunningSessionIds as getRunningSessionIdsFromDatabase,
-	insertSession,
-	isSessionRunning,
-	listSessionIdsForPruning,
-	listSessionSummaries,
-	markSessionRunning,
 	readPendingChangesData,
-	readSession,
-	removeAllRunningSessions,
-	removeRunningSession,
-	updateSessionForRevert,
-	updateSessionHistory,
-	updateSessionStatus,
-	updateSessionTitle,
-	upsertSessionFromService,
+	readSessionMetadata,
+	updateSessionMetadataStatus,
+	updateSessionMetadataTitleGenerated,
+	upsertSessionMetadata,
 	writePendingChangesData,
 } from './db';
 import { trackAiUsage, trackWebSocketEvent } from '../lib/analytics';
@@ -63,10 +60,12 @@ import { AIAgentService } from '../services/ai-agent';
 import { chatMessagesToModelMessages, estimateMessagesTokens } from '../services/ai-agent/context-pruner';
 import { accumulatePendingChange } from '../services/ai-agent/pending-changes';
 import { cleanupSessionArtifacts, cleanupTimestampPlans } from '../services/ai-agent/session-cleanup';
+import { chatMessageToSessionMessage, sessionMessagesToChatMessages } from '../services/ai-agent/session-messages';
+import { readAgentsContext } from '../services/ai-agent/system-prompt-builder';
 import { generateSessionTitle } from '../services/ai-agent/title-generator';
 
-import type { AgentDatabase, SessionRow } from './db';
-import type { AgentState, AgentSessionState, SessionSummary, StreamEvent } from '@shared/agent-state';
+import type { AgentDatabase } from './db';
+import type { AgentState, AgentSessionState, FiberSnapshot, SessionSummary, StreamEvent } from '@shared/agent-state';
 import type { AIModelId } from '@shared/constants';
 import type {
 	AgentMode,
@@ -78,6 +77,7 @@ import type {
 	ToolErrorInfo,
 	ToolMetadataInfo,
 } from '@shared/types';
+import type { SessionInfo } from 'agents/experimental/memory/session';
 
 // =============================================================================
 // Helpers
@@ -88,23 +88,42 @@ function isAgentSessionStatus(value: unknown): value is AgentSessionStatus {
 	return typeof value === 'string' && AGENT_SESSION_STATUSES.has(value);
 }
 
-/**
- * Convert a Drizzle `SessionRow` into the application-level `AiSession` shape.
- *
- * Handles JSON deserialization of blob columns, null→undefined mapping,
- * and snake_case→camelCase field name conversion.
- */
-function sessionRowToAiSession(row: SessionRow): AiSession {
+function buildAiSession(sessionInfo: SessionInfo, history: ChatMessage[], metadata: ReturnType<typeof parseSessionMetadata>): AiSession {
 	return {
-		id: row.id,
-		title: row.title,
+		id: sessionInfo.id,
+		title: sessionInfo.name,
+		titleGenerated: metadata.titleGenerated,
+		createdAt: Date.parse(sessionInfo.created_at),
+		history,
+		messageSnapshots: metadata.messageSnapshots,
+		messageModes: metadata.messageModes,
+		contextTokensUsed: metadata.contextTokensUsed,
+		toolMetadata: metadata.toolMetadata,
+		toolErrors: metadata.toolErrors,
+		status: metadata.status,
+		errorMessage: metadata.errorMessage,
+	};
+}
+
+function parseSessionMetadata(row: ReturnType<typeof readSessionMetadata>): {
+	titleGenerated?: boolean;
+	messageSnapshots?: Record<string, string>;
+	messageModes?: Record<string, AgentMode>;
+	contextTokensUsed?: number;
+	toolMetadata?: Record<string, ToolMetadataInfo>;
+	toolErrors?: Record<string, ToolErrorInfo>;
+	status?: AgentSessionStatus;
+	errorMessage?: string;
+} {
+	if (!row) {
+		return {};
+	}
+
+	return {
 		titleGenerated: row.titleGenerated === 1,
-		createdAt: row.createdAt,
-		history: JSON.parse(row.history),
 		messageSnapshots: row.messageSnapshots ? JSON.parse(row.messageSnapshots) : undefined,
 		messageModes: row.messageModes ? JSON.parse(row.messageModes) : undefined,
 		contextTokensUsed: row.contextTokensUsed ?? undefined,
-		revertedAt: row.revertedAt ?? undefined,
 		toolMetadata: row.toolMetadata ? JSON.parse(row.toolMetadata) : undefined,
 		toolErrors: row.toolErrors ? JSON.parse(row.toolErrors) : undefined,
 		status: isAgentSessionStatus(row.status) ? row.status : undefined,
@@ -136,6 +155,7 @@ export interface StartAgentParameters {
 	sessionId?: string;
 	model?: AIModelId;
 	initiatorUserId?: string;
+	_fiberSnapshot?: FiberSnapshot;
 }
 
 // =============================================================================
@@ -157,6 +177,19 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	// ---- Drizzle database instance (initialized in onStart) ----
 
 	private db!: AgentDatabase;
+	private extensionManager?: ExtensionManager;
+	private sessionManager = SessionManager.create(this)
+		.withContext('soul', {
+			provider: {
+				get: async () => this.getSoulPrompt(),
+			},
+		})
+		.withContext('memory', {
+			description: 'Important facts about this project learned across sessions.',
+			maxTokens: 2000,
+		})
+		.withCachedPrompt()
+		.withSearchableHistory('history');
 
 	// ---- Volatile in-memory state (lost on eviction) ----
 
@@ -324,32 +357,22 @@ export class AgentRunner extends Agent<Env, AgentState> {
 
 	/**
 	 * Called when the Agent starts (or wakes from hibernation / eviction).
-	 * Initializes Drizzle, runs schema migrations, and restarts orphaned sessions.
+	 * Initializes Drizzle, runs schema migrations, and restores extensions.
 	 */
 	async onStart(): Promise<void> {
-		// Initialize Drizzle and run migrations
 		this.db = getDatabase(this.ctx.storage);
 		await migrate(this.db, migrations);
+		this.extensionManager = await restoreExtensionManager(env.LOADER, this.ctx.storage);
+		await this.refreshSessionsList();
+	}
 
-		// Check for orphaned running sessions (persisted but no in-memory controller)
-		const orphaned = getAllRunningSessions(this.db);
-
-		for (const row of orphaned) {
-			if (!this.abortControllers.has(row.sessionId)) {
-				console.log(`[AgentRunner] onStart: restarting evicted session ${row.sessionId}`);
-				try {
-					const parameters: StartAgentParameters = JSON.parse(row.parameters);
-					this.launchAgentLoop(parameters, row.sessionId);
-				} catch (error) {
-					console.error(`[AgentRunner] Failed to restart session ${row.sessionId}:`, error);
-					// Remove the orphaned marker
-					removeRunningSession(this.db, row.sessionId);
-				}
-			}
+	private async getSoulPrompt(): Promise<string> {
+		const agentsContext = await readAgentsContext(PROJECT_ROOT);
+		if (!agentsContext) {
+			return AGENT_SYSTEM_PROMPT;
 		}
 
-		// Refresh the sessions list in state
-		await this.refreshSessionsList();
+		return `${AGENT_SYSTEM_PROMPT}\n\n## Project Guidelines (from AGENTS.md)\n${agentsContext}`;
 	}
 
 	// =========================================================================
@@ -388,8 +411,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 
 		const resolvedSessionId = sessionId ?? crypto.randomUUID().replaceAll('-', '').slice(0, 16);
 
-		// Already running — don't launch a duplicate
-		if (isSessionRunning(this.db, resolvedSessionId)) {
+		if (this.abortControllers.has(resolvedSessionId)) {
 			return { sessionId: resolvedSessionId };
 		}
 
@@ -402,10 +424,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 			initiatorUserId: authenticatedUserId,
 		};
 
-		// Persist restart parameters BEFORE launching (survives eviction)
-		markSessionRunning(this.db, resolvedSessionId, JSON.stringify(parameters));
-
-		this.launchAgentLoop(parameters, resolvedSessionId);
+		await this.launchAgentLoop(parameters, resolvedSessionId);
 
 		this.sessionAnalytics.set(resolvedSessionId, {
 			inputTokens: 0,
@@ -472,9 +491,6 @@ export class AgentRunner extends Agent<Env, AgentState> {
 				this.abortControllers.delete(sessionId);
 			}
 
-			// Remove durable marker
-			removeRunningSession(this.db, sessionId);
-
 			// Wait for loop cleanup
 			const loopPromise = this.loopPromises.get(sessionId);
 			if (loopPromise) {
@@ -494,8 +510,6 @@ export class AgentRunner extends Agent<Env, AgentState> {
 			this.abortControllers.clear();
 
 			await Promise.allSettled(this.loopPromises.values());
-
-			removeAllRunningSessions(this.db);
 
 			if (this.state.currentSession) {
 				this.updateSessionState(this.state.currentSession.sessionId, {
@@ -567,13 +581,13 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		// (thinking, partial tool calls, in-progress text) only exists in
 		// this.state.currentSession.messages and hasn't been persisted to the DB
 		// yet (only persisted on turn-complete). Overwriting would lose messages.
-		if (this.state.currentSession?.sessionId === sessionId && isSessionRunning(this.db, sessionId)) {
+		if (this.state.currentSession?.sessionId === sessionId && this.abortControllers.has(sessionId)) {
 			return session;
 		}
 
 		// Update agent state so all clients see the loaded session
 		const pendingChangesMap = this.loadPendingChangesFromDatabase();
-		const isRunning = isSessionRunning(this.db, sessionId);
+		const isRunning = this.abortControllers.has(sessionId);
 
 		this.setState({
 			...this.state,
@@ -596,6 +610,8 @@ export class AgentRunner extends Agent<Env, AgentState> {
 				needsContinuation: false,
 				doomLoopMessage: undefined,
 				subAgentActivities: {},
+				contextBlocksSummary: this.getContextBlocksSummary(sessionId),
+				extensions: this.getLoadedExtensionsSummary(),
 			},
 		});
 
@@ -607,15 +623,30 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	 */
 	@callable()
 	async listSessions(): Promise<SessionSummary[]> {
-		const runningIds = new Set(getRunningSessionIdsFromDatabase(this.db));
-		const rows = listSessionSummaries(this.db);
+		return this.sessionManager
+			.list()
+			.toSorted((left, right) => Date.parse(right.created_at) - Date.parse(left.created_at))
+			.map((sessionInfo) => ({
+				id: sessionInfo.id,
+				title: sessionInfo.name,
+				createdAt: Date.parse(sessionInfo.created_at),
+				isRunning: this.abortControllers.has(sessionInfo.id),
+			}));
+	}
 
-		return rows.map((row) => ({
-			id: row.id,
-			title: row.title,
-			createdAt: row.createdAt,
-			isRunning: runningIds.has(row.id),
-		}));
+	@callable()
+	async searchSessions(query: string, limit = 20): Promise<Array<{ sessionId: string; role: string; content: string }>> {
+		return runSessionSearch(
+			query,
+			limit,
+			(trimmedQuery, resolvedLimit) =>
+				this.sql<{ sessionId: string; role: string; content: string }>`
+				SELECT session_id as sessionId, role, content
+				FROM assistant_fts
+				WHERE assistant_fts MATCH ${trimmedQuery}
+				LIMIT ${resolvedLimit}
+			`,
+		);
 	}
 
 	/**
@@ -624,7 +655,8 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	@callable()
 	async revertSession(sessionId: string, messageIndex: number): Promise<{ contextTokensUsed: number }> {
 		if (messageIndex <= 0) {
-			deleteSession(this.db, sessionId);
+			this.sessionManager.delete(sessionId);
+			deleteSessionMetadata(this.db, sessionId);
 			// Remove this session's pending changes from the global store
 			// (other sessions' changes are preserved)
 			this.removePendingChangesForSessions(new Set([sessionId]));
@@ -639,24 +671,29 @@ export class AgentRunner extends Agent<Env, AgentState> {
 			return { contextTokensUsed: 0 };
 		}
 
-		const session = this.readSessionAsAiSession(sessionId);
-		if (!session) return { contextTokensUsed: 0 };
+		const sourceSession = this.sessionManager.get(sessionId);
+		if (!sourceSession) return { contextTokensUsed: 0 };
+		const sourceHistory = this.sessionManager.getHistory(sessionId);
+		const targetMessage = sourceHistory[messageIndex];
+		if (!targetMessage) return { contextTokensUsed: 0 };
 
-		const truncatedHistory = session.history.slice(0, messageIndex);
-
-		// Prune metadata above the cut point
-		const prunedSnapshots = this.pruneMetadata(session.messageSnapshots, messageIndex);
-		const prunedModes = this.pruneMetadata(session.messageModes, messageIndex);
-
+		const forkedSession = await this.sessionManager.fork(sessionId, targetMessage.id, `${sourceSession.name} (fork)`);
+		const truncatedHistory = sessionMessagesToChatMessages(this.sessionManager.getHistory(forkedSession.id));
+		const sourceMetadata = parseSessionMetadata(readSessionMetadata(this.db, sessionId));
+		const prunedSnapshots = this.pruneMetadata(sourceMetadata.messageSnapshots, messageIndex);
+		const prunedModes = this.pruneMetadata(sourceMetadata.messageModes, messageIndex);
 		const modelMessages = chatMessagesToModelMessages(truncatedHistory);
 		const contextTokensUsed = estimateMessagesTokens(modelMessages);
-
-		updateSessionForRevert(this.db, sessionId, {
-			history: JSON.stringify(truncatedHistory),
+		upsertSessionMetadata(this.db, {
+			id: forkedSession.id,
+			titleGenerated: sourceMetadata.titleGenerated ? 1 : 0,
 			messageSnapshots: prunedSnapshots ? JSON.stringify(prunedSnapshots) : undefined,
 			messageModes: prunedModes ? JSON.stringify(prunedModes) : undefined,
 			contextTokensUsed: contextTokensUsed > 0 ? contextTokensUsed : undefined,
-			revertedAt: Date.now(),
+			toolMetadata: undefined,
+			toolErrors: undefined,
+			status: 'idle',
+			errorMessage: undefined,
 		});
 
 		// Filter pending changes: keep entries from other sessions, or from this
@@ -670,7 +707,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 				filteredChanges[path] = change;
 			} else if (change.snapshotId && survivingSnapshotIds.has(change.snapshotId)) {
 				// Same session but snapshot survives the truncation — keep
-				filteredChanges[path] = change;
+				filteredChanges[path] = { ...change, sessionId: forkedSession.id };
 			}
 			// Same session, no surviving snapshot — drop (reverted)
 		}
@@ -684,7 +721,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 
 		// Update state for connected clients
 		if (this.state.currentSession?.sessionId === sessionId) {
-			this.updateSessionState(sessionId, {
+			this.updateSessionState(forkedSession.id, {
 				status: 'idle',
 				statusText: undefined,
 				error: undefined,
@@ -711,7 +748,8 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		if (!parsed.success) {
 			throw new Error(parsed.error.issues[0]?.message ?? 'Invalid title');
 		}
-		updateSessionTitle(this.db, sessionId, parsed.data, false);
+		this.sessionManager.rename(sessionId, parsed.data);
+		updateSessionMetadataTitleGenerated(this.db, sessionId, false);
 
 		// Update current session state so all clients see the new title immediately
 		if (this.state.currentSession?.sessionId === sessionId) {
@@ -733,8 +771,6 @@ export class AgentRunner extends Agent<Env, AgentState> {
 			controller.abort();
 			this.abortControllers.delete(sessionId);
 		}
-		removeRunningSession(this.db, sessionId);
-
 		// Wait for loop cleanup
 		const loopPromise = this.loopPromises.get(sessionId);
 		if (loopPromise) {
@@ -751,7 +787,8 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		this.sessionAnalytics.delete(sessionId);
 		this.titleGenerationInFlight.delete(sessionId);
 
-		deleteSession(this.db, sessionId);
+		this.sessionManager.delete(sessionId);
+		deleteSessionMetadata(this.db, sessionId);
 		this.removePendingChangesForSessions(new Set([sessionId]));
 		const survivingSnapshotIds = this.getSurvivingSnapshotIds();
 
@@ -803,7 +840,6 @@ export class AgentRunner extends Agent<Env, AgentState> {
 				controller.abort();
 				this.abortControllers.delete(sessionId);
 			}
-			removeRunningSession(this.db, sessionId);
 			const loopPromise = this.loopPromises.get(sessionId);
 			if (loopPromise) {
 				await loopPromise.catch(() => {});
@@ -817,7 +853,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	 */
 	@callable()
 	async getRunningSessionIds(): Promise<string[]> {
-		return getRunningSessionIdsFromDatabase(this.db);
+		return [...this.abortControllers.keys()];
 	}
 
 	// =========================================================================
@@ -827,7 +863,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	/**
 	 * Launch the agent loop asynchronously. Does not block.
 	 */
-	private launchAgentLoop(parameters: StartAgentParameters, sessionId: string): void {
+	private async launchAgentLoop(parameters: StartAgentParameters, sessionId: string): Promise<void> {
 		// Create abort controller
 		this.abortControllers.set(sessionId, new AbortController());
 
@@ -836,10 +872,6 @@ export class AgentRunner extends Agent<Env, AgentState> {
 			this.sessionInitiatorUserIds.set(sessionId, parameters.initiatorUserId);
 		}
 
-		// Clear revertedAt flag so persist callbacks from this run are not blocked
-		clearSessionRevertedAt(this.db, sessionId);
-
-		// Early-persist the session with incoming messages
 		const lastUserMessage = parameters.messages.toReversed().find((message) => message.role === 'user');
 		const lastUserText =
 			lastUserMessage?.parts
@@ -849,23 +881,18 @@ export class AgentRunner extends Agent<Env, AgentState> {
 				.trim() ?? '';
 		const promptPreview = lastUserText.slice(0, 80) || 'New session';
 
-		// Upsert the session. Use separate update/insert to preserve existing metadata
-		// columns (message_snapshots, tool_metadata, etc.) that would be
-		// lost with INSERT OR REPLACE (which deletes + re-inserts the row).
-		const existing = readSession(this.db, sessionId);
-		if (existing) {
-			updateSessionHistory(this.db, sessionId, JSON.stringify(parameters.messages));
-		} else {
-			insertSession(this.db, {
-				id: sessionId,
-				title: promptPreview,
-				createdAt: Date.now(),
-				history: JSON.stringify(parameters.messages),
-			});
+		const existing = this.sessionManager.get(sessionId);
+		if (!existing) {
+			this.ensureSessionRecord(sessionId, promptPreview, parameters.model, parameters.mode);
 		}
+		this.sessionManager.clearMessages(sessionId);
+		await this.sessionManager.appendAll(
+			sessionId,
+			parameters.messages.map((message) => chatMessageToSessionMessage(message)),
+		);
 
 		// Fire title generation independently
-		if (lastUserText.length > 0 && !existing?.titleGenerated) {
+		if (lastUserText.length > 0 && !parseSessionMetadata(readSessionMetadata(this.db, sessionId)).titleGenerated) {
 			void this.generateTitle(sessionId, lastUserText);
 		}
 
@@ -895,10 +922,22 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	 * - Context utilization
 	 */
 	private async executeAgentLoop(parameters: StartAgentParameters, sessionId: string): Promise<void> {
-		// Use keepAliveWhile() to prevent DO eviction during the agent loop.
-		// This creates a 30s heartbeat schedule that resets the inactivity timer.
-		// Replaces the manual HEARTBEAT_INTERVAL_MS + schedule() approach.
-		await this.keepAliveWhile(() => this.runAgentLoopInner(parameters, sessionId));
+		await this.runFiber(`agent-loop:${sessionId}`, async () => this.runAgentLoopInner(parameters, sessionId));
+	}
+
+	async onFiberRecovered(context: import('agents').FiberRecoveryContext): Promise<void> {
+		if (!context.name.startsWith('agent-loop:')) {
+			return;
+		}
+		const sessionId = context.name.slice('agent-loop:'.length);
+		const snapshot = parseFiberSnapshot(context.snapshot);
+		const session = this.readSessionAsAiSession(sessionId);
+		const parameters = session ? buildRecoveredRunParameters(this.getProjectId(), sessionId, session.history, snapshot) : undefined;
+		if (!parameters) {
+			return;
+		}
+
+		await this.launchAgentLoop(parameters, sessionId);
 	}
 
 	/**
@@ -916,6 +955,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 			const fsStub = filesystemNamespace.get(fsId);
 			const mode = parameters.mode ?? 'code';
 			const model = parameters.model ?? DEFAULT_AI_MODEL;
+			const session = this.sessionManager.getSession(sessionId);
 
 			// Convert ChatMessage[] to ModelMessage[] for the AI SDK
 			const modelMessages = chatMessagesToModelMessages(parameters.messages);
@@ -927,13 +967,16 @@ export class AgentRunner extends Agent<Env, AgentState> {
 				sessionId,
 				mode,
 				model,
-				// Persist callback — called by the service to save session state
-				(sid, sessionData, pendingChangesData) => {
-					this.persistSessionFromService(sid, sessionData, pendingChangesData);
-					return Promise.resolve();
-				},
+				(sid, sessionData) => this.persistSessionFromService(sid, sessionData),
 				// Steering messages callback — drains queued user messages between iterations
 				() => this.drainSteeringMessages(sessionId),
+				false,
+				session,
+				this.extensionManager,
+				env.LOADER,
+				env.BROWSER,
+				this,
+				parameters._fiberSnapshot,
 			);
 
 			const abortController = this.abortControllers.get(sessionId) ?? new AbortController();
@@ -975,9 +1018,6 @@ export class AgentRunner extends Agent<Env, AgentState> {
 			this.pendingContentDeltas.delete(sessionId);
 			this.flushSubAgentDeltas(sessionId);
 
-			// Remove durable running marker
-			removeRunningSession(this.db, sessionId);
-
 			// Clean up in-memory state
 			this.abortControllers.delete(sessionId);
 			this.steeringMessages.delete(sessionId);
@@ -990,8 +1030,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 				pendingSteeringMessages: [],
 			});
 
-			// Persist terminal status to DB
-			updateSessionStatus(this.db, sessionId, finalStatus, errorMessage);
+			updateSessionMetadataStatus(this.db, sessionId, finalStatus, errorMessage);
 
 			const analytics = this.sessionAnalytics.get(sessionId);
 			const sessionDurationMs = analytics ? Date.now() - analytics.durationMs : 0;
@@ -1502,72 +1541,47 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	// Session Persistence (called by AIAgentService)
 	// =========================================================================
 
-	private persistSessionFromService(
+	private async persistSessionFromService(
 		sessionId: string,
-		sessionData: {
-			createdAt: number;
-			title?: string;
-			history: ChatMessage[];
-			messageSnapshots?: Record<string, string>;
-			messageModes?: Record<string, AgentMode>;
-			contextTokensUsed?: number;
-			toolMetadata?: Record<string, ToolMetadataInfo>;
-			toolErrors?: Record<string, ToolErrorInfo>;
-			error?: { message: string; code?: string };
-		},
-		pendingChangesData?: Record<string, PendingFileChange>,
-	): void {
-		// Check if session was reverted while running
-		const existing = readSession(this.db, sessionId);
-		if (existing?.revertedAt) return;
+		sessionData: import('../services/ai-agent/types').SessionPersistData,
+	): Promise<void> {
+		const existing = parseSessionMetadata(readSessionMetadata(this.db, sessionId));
+		const messageSnapshots = { ...existing.messageSnapshots, ...sessionData.messageSnapshots };
+		const messageModes = { ...existing.messageModes, ...sessionData.messageModes };
+		const toolMetadata = { ...existing.toolMetadata, ...sessionData.toolMetadata };
+		const toolErrors = { ...existing.toolErrors, ...sessionData.toolErrors };
 
-		// Merge with existing session data
-		const createdAt = existing?.createdAt ?? sessionData.createdAt;
-		// Preserve AI-generated title — generateTitle runs concurrently and may
-		// have already written a better title. Never overwrite it with a stale
-		// prompt-preview fallback from the service callback.
-		const existingTitleIsAiGenerated = existing?.titleGenerated === 1;
-		const title = existingTitleIsAiGenerated ? existing.title : (existing?.title ?? sessionData.title ?? 'New session');
-		const titleGenerated = existingTitleIsAiGenerated;
-		const messageSnapshots = {
-			...(existing?.messageSnapshots ? JSON.parse(existing.messageSnapshots) : undefined),
-			...sessionData.messageSnapshots,
-		};
-		const messageModes = {
-			...(existing?.messageModes ? JSON.parse(existing.messageModes) : undefined),
-			...sessionData.messageModes,
-		};
-		const toolMetadata = {
-			...(existing?.toolMetadata ? JSON.parse(existing.toolMetadata) : undefined),
-			...sessionData.toolMetadata,
-		};
-		const toolErrors = {
-			...(existing?.toolErrors ? JSON.parse(existing.toolErrors) : undefined),
-			...sessionData.toolErrors,
-		};
+		this.sessionManager.clearMessages(sessionId);
+		await this.sessionManager.appendAll(
+			sessionId,
+			sessionData.history.map((message) => chatMessageToSessionMessage(message)),
+		);
 
-		upsertSessionFromService(this.db, {
+		upsertSessionMetadata(this.db, {
 			id: sessionId,
-			title,
-			titleGenerated,
-			createdAt,
-			history: JSON.stringify(sessionData.history),
+			titleGenerated: existing.titleGenerated ? 1 : 0,
 			messageSnapshots: Object.keys(messageSnapshots).length > 0 ? JSON.stringify(messageSnapshots) : undefined,
 			messageModes: Object.keys(messageModes).length > 0 ? JSON.stringify(messageModes) : undefined,
 			contextTokensUsed: sessionData.contextTokensUsed,
 			toolMetadata: Object.keys(toolMetadata).length > 0 ? JSON.stringify(toolMetadata) : undefined,
 			toolErrors: Object.keys(toolErrors).length > 0 ? JSON.stringify(toolErrors) : undefined,
+			status: sessionData.error ? 'error' : existing.status,
+			errorMessage: sessionData.error?.message ?? existing.errorMessage,
 		});
 
 		// Merge pending changes using dedup logic that preserves the original
 		// beforeContent when multiple sessions edit the same file.
-		if (pendingChangesData) {
+		if (sessionData.pendingChanges) {
 			const existingChanges = this.loadPendingChangesFromDatabase();
 			const mergedMap = new Map(Object.entries(existingChanges));
-			for (const change of Object.values(pendingChangesData)) {
+			for (const change of Object.values(sessionData.pendingChanges)) {
 				accumulatePendingChange(mergedMap, change);
 			}
 			this.savePendingChangesToDatabase(Object.fromEntries(mergedMap));
+		}
+
+		if (sessionData.fiberSnapshot) {
+			this.stash(sessionData.fiberSnapshot);
 		}
 	}
 
@@ -1582,7 +1596,8 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		try {
 			const result = await generateSessionTitle(userText);
 
-			updateSessionTitle(this.db, sessionId, result.title, result.isAiGenerated);
+			this.sessionManager.rename(sessionId, result.title);
+			updateSessionMetadataTitleGenerated(this.db, sessionId, result.isAiGenerated);
 
 			// Update state if this is the current session
 			if (this.state.currentSession?.sessionId === sessionId) {
@@ -1603,11 +1618,14 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	// =========================================================================
 
 	private async pruneOldSessions(projectId: string): Promise<void> {
-		const allSessions = listSessionIdsForPruning(this.db);
+		const allSessions = this.sessionManager
+			.list()
+			.toSorted((left, right) => Date.parse(right.created_at) - Date.parse(left.created_at))
+			.map((sessionInfo) => ({ id: sessionInfo.id, createdAt: Date.parse(sessionInfo.created_at) }));
 
 		if (allSessions.length <= MAX_SESSIONS) return;
 
-		const runningIds = new Set(getRunningSessionIdsFromDatabase(this.db));
+		const runningIds = new Set(this.abortControllers.keys());
 
 		const sessionsToPrune: string[] = [];
 		for (const session of allSessions.slice(MAX_SESSIONS)) {
@@ -1622,7 +1640,8 @@ export class AgentRunner extends Agent<Env, AgentState> {
 
 		// Delete from DB
 		for (const id of sessionsToPrune) {
-			deleteSession(this.db, id);
+			this.sessionManager.delete(id);
+			deleteSessionMetadata(this.db, id);
 		}
 
 		this.removePendingChangesForSessions(prunedIds);
@@ -1674,6 +1693,8 @@ export class AgentRunner extends Agent<Env, AgentState> {
 				needsContinuation: false,
 				doomLoopMessage: undefined,
 				subAgentActivities: {},
+				contextBlocksSummary: this.getContextBlocksSummary(sessionId),
+				extensions: this.getLoadedExtensionsSummary(),
 				...patch,
 			};
 			this.setState({ ...this.state, currentSession: newState });
@@ -1702,9 +1723,11 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	 * Read a session from the database and convert to the AiSession shape.
 	 */
 	private readSessionAsAiSession(sessionId: string): AiSession | undefined {
-		const row = readSession(this.db, sessionId);
-		if (!row) return undefined;
-		return sessionRowToAiSession(row);
+		const sessionInfo = this.sessionManager.get(sessionId);
+		if (!sessionInfo) return undefined;
+		const history = sessionMessagesToChatMessages(this.sessionManager.getHistory(sessionId));
+		const metadata = parseSessionMetadata(readSessionMetadata(this.db, sessionId));
+		return buildAiSession(sessionInfo, history, metadata);
 	}
 
 	/**
@@ -1768,8 +1791,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	 * work correctly after DO eviction and in multi-user projects.
 	 */
 	private sendPushNotification(userId: string, sessionId: string, title: string, body: string): void {
-		// Extract projectId from the DO name (format: "agent:{projectId}")
-		const projectId = this.name.startsWith('agent:') ? this.name.slice(6) : undefined;
+		const projectId = this.getProjectId();
 		if (!projectId) return;
 
 		try {
@@ -1795,5 +1817,31 @@ export class AgentRunner extends Agent<Env, AgentState> {
 			}
 		}
 		return Object.keys(pruned).length > 0 ? pruned : undefined;
+	}
+
+	private ensureSessionRecord(sessionId: string, title: string, model?: AIModelId, source?: AgentMode): void {
+		/* eslint-disable unicorn/no-null -- SQL NULL values are required for optional session fields */
+		this.sql`
+			INSERT OR IGNORE INTO assistant_sessions (id, name, parent_session_id, model, source)
+			VALUES (${sessionId}, ${title}, NULL, ${model ?? null}, ${source ?? null})
+		`;
+		/* eslint-enable unicorn/no-null */
+	}
+
+	private getContextBlocksSummary(sessionId: string): Record<string, { description?: string; available?: boolean }> {
+		return Object.fromEntries(
+			this.sessionManager
+				.getSession(sessionId)
+				.getContextBlocks()
+				.map((block) => [block.label, { description: block.description, available: true }]),
+		);
+	}
+
+	private getLoadedExtensionsSummary(): Array<{ name: string; description?: string; toolCount: number }> {
+		return buildLoadedExtensionsSummary(this.extensionManager);
+	}
+
+	private getProjectId(): string {
+		return this.name.startsWith('agent:') ? this.name.slice(6) : this.name;
 	}
 }

@@ -24,7 +24,6 @@ import { mount, withMounts } from 'worker-fs-mount';
 import { DEFAULT_AI_MODEL, getModelConfig, getModelLimits } from '@shared/constants';
 
 import { AgentLogger } from './agent-logger';
-import { compactMessages } from './context-compactor';
 import {
 	estimateMessagesTokens,
 	getContextUtilization,
@@ -55,7 +54,7 @@ import { accumulatePendingChange, pendingChangesMapToRecord } from './pending-ch
 import { savePlan } from './plan-saver';
 import { classifyRetryableError, calculateRetryDelay, sleep } from './retry';
 import { addFileToSnapshot, deleteDirectoryRecursive, initSnapshot } from './snapshot-manager';
-import { buildSystemPrompts } from './system-prompt-builder';
+import { buildRuntimePromptAdditions } from './system-prompt-builder';
 import { deriveFallbackTitle } from './title-generator';
 import { TokenTracker } from './token-tracker';
 import { readTodos } from './tool-executor';
@@ -68,15 +67,18 @@ import type { SnapshotContext } from './snapshot-manager';
 import type {
 	FileChange,
 	PendingToolCallIds,
+	SessionPersistData,
 	StreamEventQueue,
 	ToolCallIdReference,
 	ToolExecutorContext,
 	ToolFailureRecord,
 } from './types';
 import type { ProjectFilesystem } from '../../durable/project-filesystem';
-import type { StreamEvent } from '@shared/agent-state';
+import type { ExtensionManager } from '@cloudflare/think/extensions';
+import type { FiberSnapshot, StreamEvent } from '@shared/agent-state';
 import type { AIModelId } from '@shared/constants';
 import type { AgentMode, ChatMessage, PendingFileChange, ToolErrorInfo, ToolMetadataInfo } from '@shared/types';
+import type { Session } from 'agents/experimental/memory/session';
 import type { ModelMessage } from 'ai';
 
 // =============================================================================
@@ -123,15 +125,6 @@ const SOFT_ITERATION_LIMIT = 50;
 /** Context utilization threshold for proactive pruning. */
 const PROACTIVE_PRUNE_THRESHOLD = 0.7;
 
-/** Context utilization threshold for LLM-based compaction. */
-const COMPACTION_THRESHOLD = 0.85;
-
-/** Minimum iterations between compaction attempts. */
-const COMPACTION_COOLDOWN_ITERATIONS = 10;
-
-/** Stop attempting compaction after this many consecutive failures. */
-const COMPACTION_MAX_FAILURES = 3;
-
 // =============================================================================
 // AI Agent Service Class
 // =============================================================================
@@ -151,23 +144,15 @@ export class AIAgentService {
 		private sessionId?: string,
 		private mode: 'code' | 'plan' | 'ask' = 'code',
 		private model: AIModelId = DEFAULT_AI_MODEL,
-		private onPersistSession?: (
-			sessionId: string,
-			sessionData: {
-				createdAt: number;
-				title?: string;
-				history: ChatMessage[];
-				messageSnapshots?: Record<string, string>;
-				messageModes?: Record<string, AgentMode>;
-				contextTokensUsed?: number;
-				toolMetadata?: Record<string, ToolMetadataInfo>;
-				toolErrors?: Record<string, ToolErrorInfo>;
-				error?: { message: string; code?: string };
-			},
-			pendingChanges?: Record<string, PendingFileChange>,
-		) => Promise<void>,
+		private onPersistSession?: (sessionId: string, sessionData: SessionPersistData) => Promise<void>,
 		private getSteeringMessages?: () => Array<{ id: string; content: string }>,
 		private isSubAgent = false,
+		private session?: Session,
+		private extensionManager?: ExtensionManager,
+		private loader?: WorkerLoader,
+		private browser?: Fetcher,
+		private agentReference?: import('agents').Agent<Env, unknown>,
+		private fiberSnapshot?: FiberSnapshot,
 	) {}
 
 	/**
@@ -239,7 +224,7 @@ export class AIAgentService {
 		logger?: AgentLogger,
 	): AsyncIterable<StreamEvent> {
 		const signal = abortController.signal;
-		const queryChanges: FileChange[] = [];
+		const queryChanges: FileChange[] = this.fiberSnapshot?.queryChanges ? [...this.fiberSnapshot.queryChanges] : [];
 		const tokenTracker = new TokenTracker();
 		const eventQueue: StreamEventQueue = [];
 		logger ??= new AgentLogger(this.sessionId, this.projectId, this.model, this.mode);
@@ -271,19 +256,21 @@ export class AIAgentService {
 		const coordinatorStub = coordinatorNamespace.getByName(`project:${this.projectId}`);
 
 		// Accumulate metadata for session persistence
-		let sessionSnapshotId: string | undefined = snapshotContext?.id;
+		let sessionSnapshotId: string | undefined = this.fiberSnapshot?.snapshotId ?? snapshotContext?.id;
 		const userMessageIndex = chatMessages.length - 1;
-		let contextTokensUsed = 0;
+		let contextTokensUsed = this.fiberSnapshot?.contextTokensUsed ?? 0;
 		let sessionPersisted = false;
-		const streamPendingChanges = new Map<string, PendingFileChange>();
-		const streamToolMetadata = new Map<string, ToolMetadataInfo>();
-		const streamToolErrors = new Map<string, ToolErrorInfo>();
+		const streamPendingChanges = new Map<string, PendingFileChange>(Object.entries(this.fiberSnapshot?.pendingChanges ?? {}));
+		const streamToolMetadata = new Map<string, ToolMetadataInfo>(Object.entries(this.fiberSnapshot?.toolMetadata ?? {}));
+		const streamToolErrors = new Map<string, ToolErrorInfo>(Object.entries(this.fiberSnapshot?.toolErrors ?? {}));
 
 		// Mutable chat history that grows as the agent loop progresses.
 		// Starts with the caller-supplied messages (user prompt + any prior history)
 		// and gets each turn's assistant+tool response messages appended after
 		// response.messages is received. This is what gets persisted to SQLite.
-		const currentChatMessages = [...chatMessages];
+		const currentChatMessages = this.fiberSnapshot?.chatMessages ? [...this.fiberSnapshot.chatMessages] : [...chatMessages];
+		const workingMessages = this.fiberSnapshot?.workingMessages ? [...this.fiberSnapshot.workingMessages] : [...messages];
+		let iteration = this.fiberSnapshot?.iteration ?? 0;
 
 		// Session persistence helper
 		const persistSession = async () => {
@@ -306,20 +293,36 @@ export class AIAgentService {
 						.join(' ')
 						.trim() ?? '';
 
-				await this.onPersistSession(
-					this.sessionId,
-					{
-						createdAt: Date.now(),
-						title: deriveFallbackTitle(firstUserText),
-						history: currentChatMessages,
-						messageSnapshots: Object.keys(messageSnapshots).length > 0 ? messageSnapshots : undefined,
-						messageModes: Object.keys(messageModes).length > 0 ? messageModes : undefined,
-						contextTokensUsed: contextTokensUsed > 0 ? contextTokensUsed : undefined,
-						toolMetadata: streamToolMetadata.size > 0 ? Object.fromEntries(streamToolMetadata) : undefined,
-						toolErrors: streamToolErrors.size > 0 ? Object.fromEntries(streamToolErrors) : undefined,
+				await this.onPersistSession(this.sessionId, {
+					createdAt: Date.now(),
+					title: deriveFallbackTitle(firstUserText),
+					history: currentChatMessages,
+					messageSnapshots: Object.keys(messageSnapshots).length > 0 ? messageSnapshots : undefined,
+					messageModes: Object.keys(messageModes).length > 0 ? messageModes : undefined,
+					contextTokensUsed: contextTokensUsed > 0 ? contextTokensUsed : undefined,
+					toolMetadata: streamToolMetadata.size > 0 ? Object.fromEntries(streamToolMetadata) : undefined,
+					toolErrors: streamToolErrors.size > 0 ? Object.fromEntries(streamToolErrors) : undefined,
+					pendingChanges: streamPendingChanges.size > 0 ? (pendingChangesMapToRecord(streamPendingChanges) ?? undefined) : undefined,
+					fiberSnapshot: {
+						workingMessages,
+						chatMessages: currentChatMessages,
+						iteration,
+						queryChanges: queryChanges.map((change) => ({
+							path: change.path,
+							action: change.action,
+							beforeContent: typeof change.beforeContent === 'string' ? change.beforeContent : undefined,
+							afterContent: typeof change.afterContent === 'string' ? change.afterContent : undefined,
+							isBinary: change.isBinary,
+						})),
+						pendingChanges: streamPendingChanges.size > 0 ? (pendingChangesMapToRecord(streamPendingChanges) ?? {}) : {},
+						toolMetadata: streamToolMetadata.size > 0 ? Object.fromEntries(streamToolMetadata) : {},
+						toolErrors: streamToolErrors.size > 0 ? Object.fromEntries(streamToolErrors) : {},
+						contextTokensUsed,
+						snapshotId: sessionSnapshotId,
+						model: this.model,
+						mode: this.mode,
 					},
-					streamPendingChanges.size > 0 ? pendingChangesMapToRecord(streamPendingChanges) : undefined,
-				);
+				});
 			} catch (error) {
 				logger?.error('session', 'persist_failed', { error: error instanceof Error ? error.message : String(error) });
 			}
@@ -327,10 +330,9 @@ export class AIAgentService {
 
 		try {
 			yield statusEvent('Starting...');
+			const outputLogs = await coordinatorStub.getOutputLogs().catch((): string | undefined => undefined);
 
-			// Build system prompts
-			const systemPrompts = await buildSystemPrompts(this.projectRoot, this.mode, undefined, this.sessionId);
-			const systemPrompt = systemPrompts.join('\n\n');
+			const runtimePromptAdditions = await buildRuntimePromptAdditions(this.projectRoot, this.mode, outputLogs, this.sessionId);
 
 			const modelConfig = getModelConfig(this.model);
 			if (!modelConfig) throw new Error(`Unknown model: ${this.model}`);
@@ -343,26 +345,27 @@ export class AIAgentService {
 				projectId: this.projectId,
 				mode: this.mode,
 				sessionId: this.sessionId,
+				session: this.session,
 				abortSignal: signal,
 				callMcpTool: (serverId, toolName, arguments_) => this.mcpClientManager.callTool(serverId, toolName, arguments_),
 				sendCdpCommand: (id, method, parameters) => coordinatorStub.sendCdpCommand(id, method, parameters),
+				loader: this.loader,
+				browser: this.browser,
+				agentReference: this.agentReference,
+				extensionManager: this.extensionManager,
 				fsStub: this.fsStub,
 				model: this.model,
 				isSubAgent: this.isSubAgent,
 			};
 
 			// Mutable copy of messages for the agent loop
-			const workingMessages = [...messages];
 			const currentRunStartIndex = workingMessages.length;
 
 			let continueLoop = true;
-			let iteration = 0;
 			let hitIterationLimit = false;
 			let lastAssistantText = '';
 			let softLimitNudged = false;
 			let planModeTodoNudged = false;
-			let lastCompactionIteration = 0;
-			let compactionFailures = 0;
 			let previousIterationHadMutationFailure = false;
 
 			while (continueLoop && iteration < MAX_ITERATIONS) {
@@ -411,33 +414,9 @@ export class AIAgentService {
 						totalPruned += stage2Tokens;
 					}
 
-					// Stage 3: If still high (>85%), try LLM-based compaction
-					// Respects a cooldown (don't re-compact within N iterations) and a
-					// circuit breaker (stop after M consecutive failures).
+					// Stage 3: If still very full (>90%), truncate old assistant text
 					const postStage2Utilization = getContextUtilization(workingMessages, modelLimits);
-					const compactionCooledDown = iteration - lastCompactionIteration >= COMPACTION_COOLDOWN_ITERATIONS;
-					const compactionNotBroken = compactionFailures < COMPACTION_MAX_FAILURES;
-					if (postStage2Utilization >= COMPACTION_THRESHOLD && compactionCooledDown && compactionNotBroken) {
-						lastCompactionIteration = iteration;
-						yield statusEvent('Compacting conversation history...');
-						try {
-							const compactionResult = await compactMessages(workingMessages, 3, signal);
-							if (compactionResult) {
-								workingMessages.length = 0;
-								workingMessages.push(...compactionResult.messages);
-								totalPruned += compactionResult.compactedTokens;
-								compactionFailures = 0;
-							} else {
-								compactionFailures++;
-							}
-						} catch {
-							compactionFailures++;
-						}
-					}
-
-					// Stage 4: If still very full (>90%), truncate old assistant text
-					const postStage3Utilization = getContextUtilization(workingMessages, modelLimits);
-					if (postStage3Utilization >= 0.9) {
+					if (postStage2Utilization >= 0.9) {
 						const { messages: stage4, prunedTokens: stage4Tokens } = pruneOldAssistantText(workingMessages);
 						if (stage4Tokens > 0) {
 							workingMessages.length = 0;
@@ -488,7 +467,7 @@ export class AIAgentService {
 						: MUTATION_TOOL_NAMES
 					: baseExcludedTools;
 				previousIterationHadMutationFailure = false;
-				const tools = createServerTools(
+				const tools = await createServerTools(
 					sendEvent,
 					toolContext,
 					queryChanges,
@@ -499,6 +478,8 @@ export class AIAgentService {
 					pendingToolCallIds,
 					iterationExcludedTools,
 				);
+				const frozenSystemPrompt = this.session ? await this.session.freezeSystemPrompt().catch(() => '') : '';
+				const systemPrompt = `${frozenSystemPrompt}${runtimePromptAdditions ? `\n\n${runtimePromptAdditions}` : ''}`.trim();
 
 				// ─── Call streamText() ───────────────────────────────────────
 				let hadToolCalls = false;

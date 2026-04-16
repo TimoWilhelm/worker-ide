@@ -13,7 +13,8 @@
  *   NOT via high-frequency state updates (to avoid SQLite write storms).
  */
 
-import type { AgentMode, AgentSessionStatus, ChatMessage, PendingFileChange, ToolErrorInfo, ToolMetadataInfo } from './types';
+import type { AgentMode, AgentSessionStatus, ChatMessage, FileChange, PendingFileChange, ToolErrorInfo, ToolMetadataInfo } from './types';
+import type { ModelMessage } from 'ai';
 
 // =============================================================================
 // Agent State
@@ -73,6 +74,10 @@ export interface AgentSessionState {
 	doomLoopMessage: string | undefined;
 	/** Sub-agent activity records, keyed by parent toolCallId. */
 	subAgentActivities: Record<string, SubAgentActivityRecord>;
+	/** Summary of persistent session context blocks. */
+	contextBlocksSummary?: Record<string, { description?: string; available?: boolean }>;
+	/** Loaded self-authored extensions available to the agent. */
+	extensions?: Array<{ name: string; description?: string; toolCount: number }>;
 }
 
 /**
@@ -127,7 +132,22 @@ export type StreamEvent =
 	| PlanCreatedEvent
 	| RunFinishedEvent
 	| RunErrorEvent
-	| SubAgentActivityEvent;
+	| SubAgentActivityEvent
+	| FiberCheckpointEvent;
+
+export interface FiberSnapshot {
+	workingMessages: ModelMessage[];
+	chatMessages: ChatMessage[];
+	iteration: number;
+	queryChanges: FileChange[];
+	pendingChanges: Record<string, PendingFileChange>;
+	toolMetadata: Record<string, ToolMetadataInfo>;
+	toolErrors: Record<string, ToolErrorInfo>;
+	contextTokensUsed: number;
+	snapshotId: string | undefined;
+	model: string;
+	mode: string;
+}
 
 /** A delta of text content from the assistant. */
 export interface TextDeltaEvent {
@@ -262,6 +282,11 @@ export interface RunErrorEvent {
 	type: 'run-error';
 	message: string;
 	code?: string;
+}
+
+export interface FiberCheckpointEvent {
+	type: 'fiber-checkpoint';
+	snapshot: FiberSnapshot;
 }
 
 // =============================================================================

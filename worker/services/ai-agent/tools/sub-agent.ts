@@ -1,56 +1,18 @@
 /**
  * Tool: sub_agent
- * Delegate a focused task to a sub-agent that runs its own agent loop
- * with a fresh context window. The sub-agent shares the same filesystem
- * and project context but operates independently.
- *
- * This enables the main agent to offload deep exploration, focused edits,
- * or research tasks without consuming its own context window.
+ * Delegate a focused task to an isolated facet sub-agent.
  */
 
 import { ToolErrorCode, toolError } from '@shared/tool-errors';
 
-import { AIAgentService } from '../service';
-
 import type { FileChange, SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
-import type { SubAgentActivity } from '@shared/agent-state';
+import type { SubAgentActivity, StreamEvent } from '@shared/agent-state';
 import type { ChatMessage } from '@shared/types';
-import type { ModelMessage } from 'ai';
-
-// =============================================================================
-// Constants
-// =============================================================================
-
-/** Hard iteration cap for sub-agents (much lower than the main loop). */
-const SUB_AGENT_MAX_ITERATIONS = 30;
-
-// =============================================================================
-// Description
-// =============================================================================
-
-const DESCRIPTION = `Delegate a focused task to a sub-agent that runs its own independent agent loop with a fresh context window.
-
-Use this tool when:
-- You need to explore a large part of the codebase without filling your own context.
-- You want to delegate a self-contained sub-task (e.g., "refactor this module", "find all usages of X").
-- The task requires deep exploration that would consume too many tokens in your main context.
-
-The sub-agent:
-- Starts with a fresh context (does NOT inherit your conversation history).
-- Has access to the same filesystem and project tools.
-- Returns its final text response as the tool result.
-- Cannot spawn its own sub-agents (no recursion).
-- Cannot ask the user questions.
-
-Provide a clear, specific prompt describing exactly what the sub-agent should do.`;
-
-// =============================================================================
-// Tool Definition
-// =============================================================================
 
 export const definition: ToolDefinition = {
 	name: 'sub_agent',
-	description: DESCRIPTION,
+	description:
+		'Delegate a focused task to a sub-agent with its own isolated storage and fresh context window. Use this for deep exploration or self-contained subtasks.',
 	input_schema: {
 		type: 'object',
 		properties: {
@@ -60,16 +22,12 @@ export const definition: ToolDefinition = {
 			},
 			context: {
 				type: 'string',
-				description: 'Optional additional context (e.g., relevant file paths, constraints) to help the sub-agent.',
+				description: 'Optional additional context (relevant file paths, constraints, or goals).',
 			},
 		},
 		required: ['prompt'],
 	},
 };
-
-// =============================================================================
-// Execute Function
-// =============================================================================
 
 export async function execute(
 	input: Record<string, string>,
@@ -77,28 +35,21 @@ export async function execute(
 	context: ToolExecutorContext,
 	queryChanges?: FileChange[],
 ): Promise<ToolResult> {
-	const { projectRoot, projectId, sessionId, abortSignal } = context;
-	const prompt = input.prompt;
-	const additionalContext = input.context;
-
-	if (context.isSubAgent) {
-		return toolError(ToolErrorCode.NOT_ALLOWED, 'Sub-agents cannot spawn other sub-agents.');
+	if (!context.agentReference) {
+		return toolError(ToolErrorCode.NOT_ALLOWED, 'Sub-agents require an Agent context.');
 	}
 
-	if (!prompt || prompt.trim().length === 0) {
+	const prompt = input.prompt?.trim();
+	if (!prompt) {
 		return toolError(ToolErrorCode.MISSING_INPUT, 'A non-empty prompt is required.');
 	}
 
-	sendEvent('status', { message: 'Delegating task to sub-agent...' });
-
-	// Build the sub-agent's initial message
-	let fullPrompt = prompt.trim();
-	if (additionalContext && additionalContext.trim().length > 0) {
-		fullPrompt += `\n\nAdditional context:\n${additionalContext.trim()}`;
+	let fullPrompt = prompt;
+	if (input.context?.trim()) {
+		fullPrompt += `\n\nAdditional context:\n${input.context.trim()}`;
 	}
 
-	const subAgentMessages: ModelMessage[] = [{ role: 'user', content: fullPrompt }];
-	const subAgentChatMessages: ChatMessage[] = [
+	const messages: ChatMessage[] = [
 		{
 			id: crypto.randomUUID(),
 			role: 'user',
@@ -107,157 +58,92 @@ export async function execute(
 		},
 	];
 
-	// Create a sub-agent service with minimal configuration:
-	// - No session persistence (results are ephemeral)
-	// - No steering messages (sub-agents run to completion)
-	// - Code mode with the same model as the parent
-	const { fsStub, model } = context;
-	const subAgentService = new AIAgentService(
-		projectRoot,
-		projectId,
-		fsStub,
-		sessionId ? `${sessionId}-sub-${crypto.randomUUID().slice(0, 8)}` : undefined,
-		'code',
-		model,
-		undefined, // no onPersistSession
-		undefined, // no getSteeringMessages
-		true, // isSubAgent — prevents recursive sub-agent spawning
-	);
+	const [{ SubAgentStreamCallback }, { SubAgentWorker }] = await Promise.all([
+		import('../../../durable/sub-agent-stream-callback'),
+		import('../../../durable/sub-agent-worker'),
+	]);
 
-	const subAgentAbortController = new AbortController();
+	const callback = new SubAgentStreamCallback((event) => {
+		handleSubAgentEvent(event, sendEvent, queryChanges);
+	});
 
-	// Forward parent abort to sub-agent
-	const onParentAbort = () => subAgentAbortController.abort();
-	abortSignal?.addEventListener('abort', onParentAbort, { once: true });
+	sendEvent('status', { message: 'Delegating task to sub-agent...' });
+	const subAgent = await context.agentReference.subAgent(SubAgentWorker, `sub-agent-${crypto.randomUUID().slice(0, 8)}`);
+	const result = await subAgent.executeTask(context.projectId, messages, context.model, callback);
 
-	let lastAssistantText = '';
-	let iterationCount = 0;
-
-	try {
-		const stream = subAgentService.runAgentStream(subAgentMessages, subAgentChatMessages, subAgentAbortController);
-
-		for await (const event of stream) {
-			if (abortSignal?.aborted) break;
-
-			switch (event.type) {
-				case 'text-delta': {
-					if (event.delta) {
-						lastAssistantText += event.delta;
-						forwardActivity(sendEvent, { kind: 'text-delta', delta: event.delta });
-					}
-					break;
-				}
-
-				case 'file-changed': {
-					sendEvent('file_changed', {
-						path: event.path,
-						action: event.action,
-						beforeContent: event.beforeContent,
-						afterContent: event.afterContent,
-					});
-					if (queryChanges) {
-						queryChanges.push({
-							path: event.path,
-							action: event.action === 'move' ? 'edit' : event.action,
-							beforeContent: event.beforeContent,
-							afterContent: event.afterContent,
-							isBinary: false,
-						});
-					}
-					break;
-				}
-
-				case 'turn-complete': {
-					iterationCount++;
-					sendEvent('status', { message: `Sub-agent working... (turn ${iterationCount})` });
-					if (iterationCount >= SUB_AGENT_MAX_ITERATIONS) {
-						subAgentAbortController.abort();
-					}
-					break;
-				}
-
-				case 'status': {
-					sendEvent('status', { message: `Sub-agent: ${event.message}` });
-					break;
-				}
-
-				// Forward sub-agent tool activity to the parent for UI visibility
-				case 'tool-call-start': {
-					forwardActivity(sendEvent, { kind: 'tool-start', toolName: event.toolName });
-					break;
-				}
-				case 'tool-call-end': {
-					forwardActivity(sendEvent, { kind: 'tool-end', toolName: event.toolName, isError: event.isError });
-					break;
-				}
-				case 'tool-result': {
-					forwardActivity(sendEvent, {
-						kind: 'tool-metadata',
-						toolName: event.toolName,
-						title: event.title,
-						metadata: event.metadata,
-					});
-					break;
-				}
-
-				default: {
-					break;
-				}
-			}
-
-			if (iterationCount >= SUB_AGENT_MAX_ITERATIONS) break;
-		}
-	} finally {
-		abortSignal?.removeEventListener('abort', onParentAbort);
+	if (result.debugLogId) {
+		forwardActivity(sendEvent, { kind: 'debug-log', debugLogId: result.debugLogId });
 	}
 
-	// Flush the sub-agent's debug log so it can be downloaded from the UI
-	let debugLogId: string | undefined;
-	try {
-		await subAgentService.flushLogger();
-		debugLogId = subAgentService.getLogger()?.id;
-		if (debugLogId) {
-			forwardActivity(sendEvent, { kind: 'debug-log', debugLogId });
-		}
-	} catch {
-		// Non-fatal — don't let logging failures break the tool result
-	}
-
-	const resultText = lastAssistantText.trim() || '(Sub-agent completed without producing text output)';
-	const truncatedResult = resultText.length > 50_000 ? resultText.slice(0, 50_000) + '\n... (output truncated)' : resultText;
-
-	// Derive a short title from the prompt for the tool UI
 	const shortTitle = deriveShortTitle(prompt);
-
 	return {
-		title: `${shortTitle} (${iterationCount} turn${iterationCount === 1 ? '' : 's'})`,
+		title: `${shortTitle} (${result.iterations} turn${result.iterations === 1 ? '' : 's'})`,
 		metadata: {
-			iterations: iterationCount,
-			outputLength: resultText.length,
-			debugLogId,
+			iterations: result.iterations,
+			outputLength: result.text.length,
+			debugLogId: result.debugLogId,
 			shortTitle,
 		},
-		output: truncatedResult,
+		output: result.text,
 	};
 }
 
-/**
- * Derive a short title from the sub-agent prompt for the tool UI.
- * Truncates at ~60 chars on a word boundary.
- */
+function handleSubAgentEvent(event: StreamEvent, sendEvent: SendEventFunction, queryChanges?: FileChange[]): void {
+	switch (event.type) {
+		case 'text-delta': {
+			forwardActivity(sendEvent, { kind: 'text-delta', delta: event.delta });
+			break;
+		}
+		case 'tool-call-start': {
+			forwardActivity(sendEvent, { kind: 'tool-start', toolName: event.toolName });
+			break;
+		}
+		case 'tool-call-end': {
+			forwardActivity(sendEvent, { kind: 'tool-end', toolName: event.toolName, isError: event.isError });
+			break;
+		}
+		case 'tool-result': {
+			forwardActivity(sendEvent, {
+				kind: 'tool-metadata',
+				toolName: event.toolName,
+				title: event.title,
+				metadata: event.metadata,
+			});
+			break;
+		}
+		case 'file-changed': {
+			sendEvent('file_changed', {
+				path: event.path,
+				action: event.action,
+				beforeContent: event.beforeContent,
+				afterContent: event.afterContent,
+			});
+			if (queryChanges) {
+				queryChanges.push({
+					path: event.path,
+					action: event.action === 'move' ? 'edit' : event.action,
+					beforeContent: event.beforeContent,
+					afterContent: event.afterContent,
+					isBinary: false,
+				});
+			}
+			break;
+		}
+		default: {
+			break;
+		}
+	}
+}
+
 function deriveShortTitle(prompt: string): string {
 	const maxLength = 60;
 	const cleaned = prompt.trim().replaceAll(/\s+/g, ' ');
 	if (cleaned.length <= maxLength) return cleaned;
 	const truncated = cleaned.slice(0, maxLength);
 	const lastSpace = truncated.lastIndexOf(' ');
-	return (lastSpace > 20 ? truncated.slice(0, lastSpace) : truncated) + '…';
+	return `${lastSpace > 20 ? truncated.slice(0, lastSpace) : truncated}...`;
 }
 
-/**
- * Forward a sub-agent activity event to the parent's event queue.
- * Uses the parent's toolCallId (auto-injected by createSendEvent).
- */
 function forwardActivity(sendEvent: SendEventFunction, activity: SubAgentActivity): void {
 	sendEvent('sub_agent_activity', { activity });
 }

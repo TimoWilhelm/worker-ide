@@ -128,9 +128,12 @@ describe('MUTATION_TOOL_NAMES', () => {
 // =============================================================================
 
 describe('tool registration sync', () => {
+	const externalToolNames = ['browser_execute', 'browser_search', 'execute', 'list_extensions', 'load_extension'];
 	const executorNames = [...TOOL_EXECUTORS.keys()].toSorted();
 	const definitionNames = AGENT_TOOLS.map((tool) => tool.name).toSorted();
-	const schemaNames = Object.keys(toolInputSchemas).toSorted();
+	const schemaNames = Object.keys(toolInputSchemas)
+		.filter((name) => !externalToolNames.includes(name))
+		.toSorted();
 
 	it('TOOL_EXECUTORS matches AGENT_TOOLS definitions', () => {
 		expect(executorNames).toEqual(definitionNames);
@@ -142,5 +145,11 @@ describe('tool registration sync', () => {
 
 	it('TOOL_EXECUTORS matches shared validation schemas', () => {
 		expect(executorNames).toEqual(schemaNames);
+	});
+
+	it('shared validation includes external runtime tools', () => {
+		for (const name of externalToolNames) {
+			expect(toolInputSchemas).toHaveProperty(name);
+		}
 	});
 });

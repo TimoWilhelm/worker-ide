@@ -346,6 +346,29 @@ export const subAgentInputSchema = z.object({
 	context: z.string().optional(),
 });
 
+export const executeInputSchema = z.object({
+	code: z.string().min(1, 'Code is required'),
+});
+
+export const browserSearchInputSchema = z.object({
+	code: z.string().min(1, 'Code is required'),
+});
+
+export const browserExecuteInputSchema = z.object({
+	code: z.string().min(1, 'Code is required'),
+});
+
+export const loadExtensionInputSchema = z.object({
+	name: z.string().min(1, 'Name is required'),
+	version: z.string().min(1, 'Version is required'),
+	source: z.string().min(1, 'Source is required'),
+	description: z.string().optional(),
+	workspace_access: z.enum(['none', 'read', 'read-write']).optional(),
+	network: z.array(z.string()).optional(),
+});
+
+export const listExtensionsInputSchema = z.object({});
+
 /**
  * Union of all tool input schemas
  */
@@ -380,6 +403,11 @@ export const toolInputSchemas = {
 	test_run: testRunInputSchema,
 	image_generate: imageGenerateInputSchema,
 	sub_agent: subAgentInputSchema,
+	execute: executeInputSchema,
+	browser_search: browserSearchInputSchema,
+	browser_execute: browserExecuteInputSchema,
+	load_extension: loadExtensionInputSchema,
+	list_extensions: listExtensionsInputSchema,
 } as const;
 
 export type ToolName = keyof typeof toolInputSchemas;

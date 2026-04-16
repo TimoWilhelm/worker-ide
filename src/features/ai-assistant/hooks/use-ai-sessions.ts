@@ -67,6 +67,33 @@ export function useAiSessions({ projectId, agent }: { projectId: string; agent: 
 			? (rawState as AgentState) // eslint-disable-line @typescript-eslint/consistent-type-assertions -- narrowed above
 			: undefined;
 	const savedSessions = agentState?.sessions ?? [];
+	const [sessionSearchQuery, setSessionSearchQuery] = useState('');
+	const [searchedSessionIds, setSearchedSessionIds] = useState<string[] | undefined>();
+	const displaySessions = sessionSearchQuery.trim()
+		? savedSessions.filter((session) => searchedSessionIds?.includes(session.id))
+		: savedSessions;
+
+	useEffect(() => {
+		if (!sessionSearchQuery.trim()) {
+			return;
+		}
+
+		let cancelled = false;
+		void agent
+			.call<Array<{ sessionId: string; role: string; content: string }>>('searchSessions', [sessionSearchQuery.trim(), 20])
+			.then((results) => {
+				if (cancelled) return;
+				setSearchedSessionIds([...new Set(results.map((result) => result.sessionId))]);
+			})
+			.catch(() => {
+				if (cancelled) return;
+				setSearchedSessionIds([]);
+			});
+
+		return () => {
+			cancelled = true;
+		};
+	}, [agent, sessionSearchQuery]);
 
 	// =========================================================================
 	// Load a session via Agent RPC
@@ -247,10 +274,12 @@ export function useAiSessions({ projectId, agent }: { projectId: string; agent: 
 	}, [projectId, agent, agentState]);
 
 	return {
-		savedSessions,
+		savedSessions: displaySessions,
 		handleLoadSession,
 		handleRenameSession,
 		handleDeleteSession,
+		sessionSearchQuery,
+		setSessionSearchQuery,
 		isRestoringSession: isRestoringSession || isLoadingSession,
 	};
 }

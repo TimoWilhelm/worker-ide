@@ -291,6 +291,8 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		handleLoadSession: loadSession,
 		handleRenameSession,
 		handleDeleteSession,
+		sessionSearchQuery,
+		setSessionSearchQuery,
 		isRestoringSession,
 	} = useAiSessions({
 		projectId,
@@ -694,8 +696,24 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 							</DropdownMenuTrigger>
 						</Tooltip>
 						<DropdownMenuContent align="end" className="max-h-80 w-64 overflow-y-auto">
+							<div className="border-b border-border p-2">
+								<input
+									type="text"
+									value={sessionSearchQuery}
+									onChange={(event) => setSessionSearchQuery(event.target.value)}
+									onKeyDown={(event) => event.stopPropagation()}
+									placeholder="Search session history..."
+									className="
+										w-full rounded-sm border border-border bg-bg-primary px-2 py-1 text-xs
+										text-text-primary outline-none
+										focus:border-accent
+									"
+								/>
+							</div>
 							{savedSessions.length === 0 ? (
-								<div className="px-3 py-2 text-xs text-text-secondary">No recent sessions</div>
+								<div className="px-3 py-2 text-xs text-text-secondary">
+									{sessionSearchQuery.trim() ? 'No matching sessions' : 'No recent sessions'}
+								</div>
 							) : (
 								savedSessions.map((session) =>
 									renamingSessionId === session.id ? (

@@ -3,8 +3,12 @@
  */
 
 import type { ProjectFilesystem } from '../../durable/project-filesystem';
-import type { StreamEvent } from '@shared/agent-state';
+import type { ExtensionManager } from '@cloudflare/think/extensions';
+import type { FiberSnapshot, StreamEvent } from '@shared/agent-state';
 import type { AIModelId } from '@shared/constants';
+import type { AgentMode, ChatMessage, PendingFileChange, ToolErrorInfo, ToolMetadataInfo } from '@shared/types';
+import type { Agent } from 'agents';
+import type { Session } from 'agents/experimental/memory/session';
 
 // =============================================================================
 // Types
@@ -92,16 +96,34 @@ export interface ToolExecutorContext {
 	projectId: string;
 	mode: 'code' | 'plan' | 'ask';
 	sessionId?: string;
+	session?: Session;
 	/** Abort signal from the agent loop — tools should check this to bail out early on cancellation. */
 	abortSignal?: AbortSignal;
 	callMcpTool: (serverId: string, toolName: string, arguments_: Record<string, unknown>) => Promise<string>;
 	sendCdpCommand?: (id: string, method: string, parameters?: Record<string, unknown>) => Promise<{ result?: string; error?: string }>;
-	/** True when running inside a sub-agent — prevents recursive sub-agent spawning. */
 	isSubAgent?: boolean;
+	loader?: WorkerLoader;
+	browser?: Fetcher;
+	agentReference?: Agent<Env, unknown>;
+	extensionManager?: ExtensionManager;
 	/** Filesystem Durable Object stub — needed to construct sub-agent services. */
 	fsStub: DurableObjectStub<ProjectFilesystem>;
 	/** Current AI model ID — sub-agents inherit the parent's model. */
 	model: AIModelId;
+}
+
+export interface SessionPersistData {
+	createdAt: number;
+	title?: string;
+	history: ChatMessage[];
+	messageSnapshots?: Record<string, string>;
+	messageModes?: Record<string, AgentMode>;
+	contextTokensUsed?: number;
+	toolMetadata?: Record<string, ToolMetadataInfo>;
+	toolErrors?: Record<string, ToolErrorInfo>;
+	error?: { message: string; code?: string };
+	pendingChanges?: Record<string, PendingFileChange>;
+	fiberSnapshot?: FiberSnapshot;
 }
 
 /**

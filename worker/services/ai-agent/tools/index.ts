@@ -246,7 +246,7 @@ export const MUTATION_TOOL_NAMES = new Set([
  *
  * Returns a Record<string, Tool> suitable for passing to streamText().
  */
-export function createServerTools(
+export async function createServerTools(
 	sendEvent: SendEventFunction,
 	context: ToolExecutorContext,
 	queryChanges: FileChange[],
@@ -256,7 +256,7 @@ export function createServerTools(
 	_toolCallIdReference?: ToolCallIdReference,
 	_pendingToolCallIds?: PendingToolCallIds,
 	excludedToolNames?: ReadonlySet<string>,
-): Record<string, unknown> {
+): Promise<Record<string, unknown>> {
 	// Select which tool definitions to use based on mode, then apply exclusions
 	const baseDefinitions = mode === 'ask' ? ASK_MODE_TOOLS : mode === 'plan' ? PLAN_MODE_TOOLS : AGENT_TOOLS;
 	const activeToolDefinitions = excludedToolNames ? baseDefinitions.filter((t) => !excludedToolNames.has(t.name)) : baseDefinitions;
@@ -392,6 +392,38 @@ export function createServerTools(
 				}
 			},
 		};
+	}
+
+	if (context.session) {
+		Object.assign(tools, await context.session.tools());
+	}
+
+	if (context.extensionManager) {
+		const { createExtensionTools } = await import('@cloudflare/think/tools/extensions');
+		Object.assign(tools, createExtensionTools({ manager: context.extensionManager }));
+		Object.assign(tools, context.extensionManager.getTools());
+	}
+
+	if (context.loader && mode === 'code') {
+		const { createExecuteTool } = await import('@cloudflare/think/tools/execute');
+		const codeTools = { ...tools };
+		tools.execute = createExecuteTool({
+			tools: codeTools,
+			loader: context.loader,
+			timeout: 30_000,
+		});
+	}
+
+	if (context.loader && context.browser) {
+		const { createBrowserTools } = await import('@cloudflare/think/tools/browser');
+		Object.assign(
+			tools,
+			createBrowserTools({
+				browser: context.browser,
+				loader: context.loader,
+				timeout: 30_000,
+			}),
+		);
 	}
 
 	return tools;

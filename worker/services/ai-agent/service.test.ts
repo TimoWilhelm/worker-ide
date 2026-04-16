@@ -59,7 +59,7 @@ vi.mock('./snapshot-manager', () => ({
 
 // Mock system-prompt-builder
 vi.mock('./system-prompt-builder', () => ({
-	buildSystemPrompts: vi.fn(async () => ['You are a helpful assistant.']),
+	buildRuntimePromptAdditions: vi.fn(async () => ''),
 }));
 
 // Mock plan-saver (yields no events by default)
@@ -249,9 +249,11 @@ describe('AIAgentService', () => {
 				'persist-test',
 				expect.objectContaining({
 					history: expect.arrayContaining([expect.objectContaining({ role: 'user' })]),
+					fiberSnapshot: expect.objectContaining({
+						iteration: 1,
+						mode: 'code',
+					}),
 				}),
-				// pendingChanges
-				undefined,
 			);
 		});
 	});

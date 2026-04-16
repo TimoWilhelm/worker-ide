@@ -2,26 +2,14 @@ export { getDatabase } from './client';
 export type { AgentDatabase } from './client';
 
 export {
-	clearSessionRevertedAt,
-	deleteSession,
 	deletePendingChanges,
-	getAllRunningSessions,
-	getRunningSessionIds,
-	insertSession,
-	isSessionRunning,
-	listSessionIdsForPruning,
-	listSessionSummaries,
-	markSessionRunning,
+	deleteSessionMetadata,
 	readPendingChangesData,
-	readSession,
-	removeAllRunningSessions,
-	removeRunningSession,
-	updateSessionForRevert,
-	updateSessionHistory,
-	updateSessionStatus,
-	updateSessionTitle,
-	upsertSessionFromService,
+	readSessionMetadata,
+	updateSessionMetadataStatus,
+	updateSessionMetadataTitleGenerated,
+	upsertSessionMetadata,
 	writePendingChangesData,
 } from './dal';
 
-export type { PendingChangesRow, RunningSessionRow, SessionInsert, SessionRow } from './schema';
+export type { PendingChangesRow, SessionMetadataInsert, SessionMetadataRow } from './schema';
