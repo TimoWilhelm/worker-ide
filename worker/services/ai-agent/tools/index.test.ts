@@ -61,7 +61,6 @@ describe('ASK_MODE_TOOLS', () => {
 		expect(toolNames).toContain('user_question');
 		expect(toolNames).toContain('dependencies_list');
 		expect(toolNames).toContain('lint_check');
-		expect(toolNames).toContain('cdp_eval');
 		expect(toolNames).toContain('test_run');
 	});
 
@@ -128,7 +127,7 @@ describe('MUTATION_TOOL_NAMES', () => {
 // =============================================================================
 
 describe('tool registration sync', () => {
-	const externalToolNames = ['browser_execute', 'browser_search', 'execute', 'list_extensions', 'load_extension'];
+	const externalToolNames = ['browser_execute', 'browser_search', 'cdp_eval', 'execute', 'list_extensions', 'load_extension'];
 	const executorNames = [...TOOL_EXECUTORS.keys()].toSorted();
 	const definitionNames = AGENT_TOOLS.map((tool) => tool.name).toSorted();
 	const schemaNames = Object.keys(toolInputSchemas)
@@ -147,7 +146,7 @@ describe('tool registration sync', () => {
 		expect(executorNames).toEqual(schemaNames);
 	});
 
-	it('shared validation includes external runtime tools', () => {
+	it('shared validation includes external and legacy-only tools', () => {
 		for (const name of externalToolNames) {
 			expect(toolInputSchemas).toHaveProperty(name);
 		}

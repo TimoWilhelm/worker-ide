@@ -13,7 +13,6 @@ import * as assetSettingsGetTool from './asset-settings-get';
 import * as assetSettingsUpdateTool from './asset-settings-update';
 import * as bindingsGetTool from './bindings-get';
 import * as bindingsUpdateTool from './bindings-update';
-import * as cdpEvalTool from './cdp-eval';
 import * as dependenciesListTool from './dependencies-list';
 import * as dependenciesUpdateTool from './dependencies-update';
 import * as documentationSearchTool from './documentation-search';
@@ -81,7 +80,6 @@ export const TOOL_EXECUTORS: ReadonlyMap<string, ToolExecuteFunction> = new Map(
 	['bindings_update', bindingsUpdateTool.execute],
 	['lint_check', lintCheckTool.execute],
 	['lint_fix', lintFixTool.execute],
-	['cdp_eval', cdpEvalTool.execute],
 	['preview_fetch', previewFetchTool.execute],
 	['test_run', testRunTool.execute],
 	['image_generate', imageGenerateTool.execute],
@@ -117,7 +115,6 @@ export const AGENT_TOOLS: readonly ToolDefinition[] = [
 	bindingsUpdateTool.definition,
 	lintCheckTool.definition,
 	lintFixTool.definition,
-	cdpEvalTool.definition,
 	previewFetchTool.definition,
 	testRunTool.definition,
 	imageGenerateTool.definition,
@@ -144,7 +141,6 @@ const PLAN_MODE_TOOL_NAMES = new Set([
 	'asset_settings_get',
 	'bindings_get',
 	'lint_check',
-	'cdp_eval',
 	'preview_fetch',
 	'test_run',
 ]);
@@ -168,7 +164,6 @@ const ASK_MODE_TOOL_NAMES = new Set([
 	'asset_settings_get',
 	'bindings_get',
 	'lint_check',
-	'cdp_eval',
 	'preview_fetch',
 	'test_run',
 ]);
@@ -197,7 +192,6 @@ export const READ_ONLY_TOOL_NAMES = new Set([
 	'asset_settings_get',
 	'bindings_get',
 	'lint_check',
-	'cdp_eval',
 	'preview_fetch',
 	'test_run',
 ]);

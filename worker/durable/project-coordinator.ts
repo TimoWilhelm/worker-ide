@@ -46,24 +46,13 @@ const STORAGE_KEY = {
  * Each project has its own ProjectCoordinator instance (keyed by `project:${projectId}`).
  *
  * All durable state is persisted to the DO's SQLite-backed storage via
- * `ctx.storage.kv` so it survives hibernation and eviction. Only truly
- * transient data (pending CDP promise callbacks) is kept in-memory.
+ * `ctx.storage.kv` so it survives hibernation and eviction.
  */
 export class ProjectCoordinatorV2 extends DurableObject {
 	constructor(state: DurableObjectState, environment: Env) {
 		super(state, environment);
 		this.ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'));
 	}
-
-	/**
-	 * Pending CDP command requests awaiting a response from a frontend client.
-	 *
-	 * These contain `resolve` callbacks which are not serializable.
-	 * If the DO is evicted while requests are pending, callers will time out
-	 * on their side. When the DO wakes from hibernation, this Map starts empty,
-	 * which is safe because any in-flight CDP promises will have already expired.
-	 */
-	private pendingCdpRequests = new Map<string, { resolve: (value: { result?: string; error?: string }) => void }>();
 
 	/** Project ID for analytics. Set from the `x-project-id` header on first fetch. */
 	private projectId: string | undefined;
@@ -247,74 +236,6 @@ export class ProjectCoordinatorV2 extends DurableObject {
 			this.lastServerError = serialized;
 		}
 		this.sendToAll(serialized);
-	}
-
-	/**
-	 * Send a CDP command to the preview iframe via a connected frontend client.
-	 * Returns the CDP response result or an error message.
-	 *
-	 * Only sends to a single client to avoid duplicate executions when
-	 * multiple sessions are connected. Prefers "joined" clients (those that
-	 * sent a `collab-join` and thus have an active editor session with a
-	 * preview iframe) over raw WebSocket connections.
-	 *
-	 * When no client is connected, returns a descriptive error instead of
-	 * throwing — the agent loop runs independently of client connections
-	 * and must handle this case transparently.
-	 */
-	async sendCdpCommand(id: string, method: string, parameters?: Record<string, unknown>): Promise<{ result?: string; error?: string }> {
-		// Find the best candidate: prefer a joined client (has an active
-		// editor with a preview iframe) over an un-joined raw connection.
-		let targetSocket: WebSocket | undefined;
-		for (const ws of this.ctx.getWebSockets()) {
-			if (ws.readyState !== WebSocket.OPEN) continue;
-			const attachment = this.getAttachment(ws);
-			if (attachment?.joined) {
-				targetSocket = ws;
-				break;
-			}
-			// Fall back to any open socket if no joined client is found
-			if (!targetSocket) {
-				targetSocket = ws;
-			}
-		}
-
-		if (!targetSocket) {
-			return { error: 'No browser is connected to the project. The CDP command cannot be relayed to a preview iframe.' };
-		}
-
-		const CDP_TIMEOUT_MS = 10_000;
-
-		return new Promise<{ result?: string; error?: string }>((resolve) => {
-			const timeout = setTimeout(() => {
-				this.pendingCdpRequests.delete(id);
-				resolve({ error: 'CDP command timed out. The preview iframe may not be loaded or chobitsu is not responding.' });
-			}, CDP_TIMEOUT_MS);
-
-			this.pendingCdpRequests.set(id, {
-				resolve: (value) => {
-					clearTimeout(timeout);
-					this.pendingCdpRequests.delete(id);
-					resolve(value);
-				},
-			});
-
-			const message = serializeMessage({
-				type: 'cdp-request',
-				id,
-				method,
-				params: parameters,
-			});
-
-			// Send to only one client to avoid duplicate CDP executions
-			try {
-				targetSocket.send(message);
-			} catch {
-				clearTimeout(timeout);
-				this.pendingCdpRequests.delete(id);
-				resolve({ error: 'Failed to send CDP command to the client. The connection may have closed.' });
-			}
-		});
 	}
 
 	/**
@@ -512,14 +433,6 @@ export class ProjectCoordinatorV2 extends DurableObject {
 					edits.splice(0, edits.length - ProjectCoordinatorV2.MAX_RECENT_FILE_EDITS);
 				}
 				this.recentFileEdits = edits;
-				return;
-			}
-
-			if (data.type === 'cdp-response') {
-				const pending = this.pendingCdpRequests.get(data.id);
-				if (pending) {
-					pending.resolve({ result: data.result, error: data.error });
-				}
 				return;
 			}
 

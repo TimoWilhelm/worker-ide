@@ -348,7 +348,6 @@ export class AIAgentService {
 				session: this.session,
 				abortSignal: signal,
 				callMcpTool: (serverId, toolName, arguments_) => this.mcpClientManager.callTool(serverId, toolName, arguments_),
-				sendCdpCommand: (id, method, parameters) => coordinatorStub.sendCdpCommand(id, method, parameters),
 				loader: this.loader,
 				browser: this.browser,
 				agentReference: this.agentReference,

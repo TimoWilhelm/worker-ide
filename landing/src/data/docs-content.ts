@@ -265,7 +265,7 @@ export const docsTopics: DocsTopic[] = [
 			},
 		],
 		notes: [
-			'The agent runs <strong>independently of client connections</strong> inside the AgentRunner DO. A heartbeat alarm reschedules every 30s — if the DO is evicted, the alarm restarts the loop from persisted parameters. Three modes: <code>code</code> (full tool access), <code>plan</code> (read-only + planning), <code>ask</code> (read-only Q&amp;A). Tools include file CRUD, grep/glob, lint check/fix (via Biome service binding), test execution, CDP evaluation in the preview iframe, web fetch, and Cloudflare docs search via MCP.',
+			'The agent runs <strong>independently of client connections</strong> inside the AgentRunner DO. A heartbeat alarm reschedules every 30s — if the DO is evicted, the alarm restarts the loop from persisted parameters. Three modes: <code>code</code> (full tool access), <code>plan</code> (read-only + planning), <code>ask</code> (read-only Q&amp;A). Tools include file CRUD, grep/glob, lint check/fix (via Biome service binding), test execution, browser automation via the Agents SDK browser tools, web fetch, and Cloudflare docs search via MCP.',
 		],
 	},
 
@@ -419,7 +419,7 @@ export const docsTopics: DocsTopic[] = [
 			},
 		],
 		notes: [
-			'All real-time features share a single WebSocket connection per client through the ProjectCoordinator DO (keyed <code>project:&lt;id&gt;</code>). Uses the WebSocket Hibernation API — connections survive DO eviction. On <code>collab-join</code>, the server sends back <code>collab-state</code> with participant list, self-id, assigned color, and any running AI sessions. The full protocol has 8 client message types and 16 server message types covering HMR, collaboration, errors/logs, CDP relay, AI streaming, git status, and test results.',
+			'All real-time features share a single WebSocket connection per client through the ProjectCoordinator DO (keyed <code>project:&lt;id&gt;</code>). Uses the WebSocket Hibernation API — connections survive DO eviction. On <code>collab-join</code>, the server sends back <code>collab-state</code> with participant list, self-id, assigned color, and any running AI sessions. The full protocol has 7 client message types and 15 server message types covering HMR, collaboration, errors/logs, AI streaming, git status, and test results.',
 		],
 	},
 ];

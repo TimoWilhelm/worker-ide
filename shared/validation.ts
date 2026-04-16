@@ -304,7 +304,8 @@ export const lintFixInputSchema = z.object({
 });
 
 /**
- * Schema for AI tool: cdp_eval (execute CDP commands in preview)
+ * Legacy schema for historic AI tool calls.
+ * Retained so persisted sessions that used cdp_eval still validate/render.
  */
 export const cdpEvalInputSchema = z.object({
 	method: z.string().min(1, 'CDP method is required'),

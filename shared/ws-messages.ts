@@ -65,17 +65,6 @@ export interface HmrConnectMessage {
 }
 
 /**
- * Client message responding to a CDP command request from the server.
- * Sent by the frontend after relaying the command through chobitsu.
- */
-export interface CdpResponseMessage {
-	type: 'cdp-response';
-	id: string;
-	result?: string;
-	error?: string;
-}
-
-/**
  * Client message to sync the IDE output logs (errors, warnings) to the coordinator.
  * Sent periodically by the frontend so the AI agent loop can read fresh logs
  * between iterations without needing a round-trip to the browser.
@@ -91,7 +80,6 @@ export type ClientMessage =
 	| CursorUpdateMessage
 	| FileEditMessage
 	| HmrConnectMessage
-	| CdpResponseMessage
 	| OutputLogsSyncMessage;
 
 // =============================================================================
@@ -246,17 +234,6 @@ export interface TestResultsChangedMessage {
 	pattern?: string;
 }
 
-/**
- * Server message requesting the frontend to execute a CDP command
- * in the preview iframe via chobitsu.
- */
-export interface CdpRequestMessage {
-	type: 'cdp-request';
-	id: string;
-	method: string;
-	params?: Record<string, unknown>;
-}
-
 export type ServerMessage =
 	| PongMessage
 	| CollabStateMessage
@@ -268,8 +245,7 @@ export type ServerMessage =
 	| ServerErrorMessage
 	| ServerLogsMessage
 	| GitStatusChangedMessage
-	| TestResultsChangedMessage
-	| CdpRequestMessage;
+	| TestResultsChangedMessage;
 
 // =============================================================================
 // Zod Schemas for Validation
@@ -303,12 +279,6 @@ export const clientMessageSchema = z.discriminatedUnion('type', [
 	z.object({
 		type: z.literal('hmr-connect'),
 		lastVersion: z.number(),
-	}),
-	z.object({
-		type: z.literal('cdp-response'),
-		id: z.string(),
-		result: z.string().optional(),
-		error: z.string().optional(),
 	}),
 	z.object({
 		type: z.literal('output-logs-sync'),
@@ -450,12 +420,6 @@ export const serverMessageSchema = z.discriminatedUnion('type', [
 		}),
 		testName: z.string().optional(),
 		pattern: z.string().optional(),
-	}),
-	z.object({
-		type: z.literal('cdp-request'),
-		id: z.string(),
-		method: z.string(),
-		params: z.record(z.string(), z.unknown()).optional(),
 	}),
 ]);
 

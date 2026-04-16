@@ -122,6 +122,13 @@ function ToolIcon({ name, className }: { name: ToolName; className?: string }) {
 		case 'docs_search': {
 			return <Globe className={cn('size-3', className)} />;
 		}
+		case 'browser_execute':
+		case 'cdp_eval': {
+			return <Globe className={cn('size-3', className)} />;
+		}
+		case 'browser_search': {
+			return <Search className={cn('size-3', className)} />;
+		}
 		case 'todos_get': {
 			return <ListTodo className={cn('size-3', className)} />;
 		}
@@ -877,7 +884,15 @@ function summarizeFromMetadata(toolName: ToolName | undefined, info: ToolMetadat
 			if (typeof metadata.method === 'string') {
 				return metadata.method;
 			}
-			return undefined;
+			return 'Legacy browser debug';
+		}
+
+		case 'browser_execute': {
+			return 'Browser run';
+		}
+
+		case 'browser_search': {
+			return 'CDP spec query';
 		}
 
 		case 'test_run': {
@@ -1135,7 +1150,6 @@ function formatToolResultDetail(toolName: ToolName, rawResult: string): string {
 		}
 
 		case 'cdp_eval': {
-			// JSON with { method, result: ... }
 			try {
 				const parsed: unknown = JSON.parse(rawResult);
 				if (isRecord(parsed)) {
@@ -1146,6 +1160,11 @@ function formatToolResultDetail(toolName: ToolName, rawResult: string): string {
 			} catch {
 				// Not JSON
 			}
+			return rawResult;
+		}
+
+		case 'browser_execute':
+		case 'browser_search': {
 			return rawResult;
 		}
 

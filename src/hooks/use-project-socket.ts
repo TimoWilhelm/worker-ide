@@ -11,7 +11,6 @@ import { useEffect, useRef } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 
 import { toast } from '@/components/ui/toast-store';
-import { previewIframeReference } from '@/features/preview/preview-iframe-reference';
 import { connectProjectSocket } from '@/lib/api-client';
 import { useStore } from '@/lib/store';
 import { mergeTestRunResults } from '@shared/types';
@@ -26,69 +25,6 @@ import type { ClientMessage } from '@shared/ws-messages';
 interface UseProjectSocketOptions {
 	projectId: string;
 	enabled?: boolean;
-}
-
-// =============================================================================
-// CDP Request Handler
-// =============================================================================
-
-const CDP_CLIENT_TIMEOUT_MS = 8000;
-
-/**
- * Handle a CDP command request from the server.
- * Relays the command to chobitsu in the preview iframe via postMessage,
- * listens for the response, and sends it back over the WebSocket.
- */
-function handleCdpRequest(id: string, method: string, parameters?: Record<string, unknown>): void {
-	const sendResponse = (result?: string, error?: string) => {
-		projectSocketSendReference.current?.({ type: 'cdp-response', id, result, error });
-	};
-
-	const iframe = previewIframeReference.current;
-	if (!iframe?.contentWindow) {
-		sendResponse(undefined, 'Preview iframe is not available. The preview may not be loaded yet.');
-		return;
-	}
-
-	// Build the CDP message with a unique ID so we can match the response
-	const cdpId = `cdp-agent-${id}`;
-	const cdpMessage = JSON.stringify({ id: cdpId, method, params: parameters });
-
-	// Set up a one-time listener for the CDP response from chobitsu
-	let settled = false;
-	const timeout = setTimeout(() => {
-		if (settled) return;
-		settled = true;
-		globalThis.removeEventListener('message', handleResponse);
-		sendResponse(undefined, 'CDP command timed out. Chobitsu in the preview iframe did not respond.');
-	}, CDP_CLIENT_TIMEOUT_MS);
-
-	const handleResponse = (event: MessageEvent) => {
-		if (settled) return;
-
-		// Chobitsu sends CDP responses as raw JSON strings via postMessage
-		if (typeof event.data !== 'string') return;
-
-		try {
-			const parsed: unknown = JSON.parse(event.data);
-			if (typeof parsed !== 'object' || !parsed) return;
-			if (!('id' in parsed) || parsed.id !== cdpId) return;
-
-			settled = true;
-			clearTimeout(timeout);
-			globalThis.removeEventListener('message', handleResponse);
-
-			// Return the full CDP response as a JSON string
-			sendResponse(event.data);
-		} catch {
-			// Not a valid JSON CDP response — ignore
-		}
-	};
-
-	globalThis.addEventListener('message', handleResponse);
-
-	// Send the CDP command to chobitsu in the preview iframe
-	iframe.contentWindow.postMessage({ event: 'DEV', data: cdpMessage }, '*');
 }
 
 // =============================================================================
@@ -292,11 +228,6 @@ export function useProjectSocket({ projectId, enabled = true }: UseProjectSocket
 							queryClientCurrent.setQueryData(['test-results', projectIdCurrent], message.results);
 							break;
 						}
-						case 'cdp-request': {
-							handleCdpRequest(message.id, message.method, message.params);
-							break;
-						}
-
 						case 'pong': {
 							// Handled elsewhere or ignored
 							break;

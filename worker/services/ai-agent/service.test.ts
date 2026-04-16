@@ -37,12 +37,10 @@ vi.mock('./workers-ai', () => ({
 
 // Mock the coordinator namespace
 const mockGetOutputLogs = vi.fn<() => Promise<string | undefined>>(async (): Promise<string | undefined> => undefined);
-const mockSendCdpCommand = vi.fn().mockResolvedValue({ result: '{}' });
 vi.mock('../../lib/durable-object-namespaces', () => ({
 	coordinatorNamespace: {
 		getByName: vi.fn(() => ({
 			getOutputLogs: mockGetOutputLogs,
-			sendCdpCommand: mockSendCdpCommand,
 		})),
 	},
 }));

@@ -102,28 +102,6 @@ describe('triggerUpdate', () => {
 });
 
 // =============================================================================
-// sendCdpCommand
-// =============================================================================
-
-describe('sendCdpCommand', () => {
-	it('returns error when no clients are connected', async () => {
-		const stub = getCoordinatorStub('test-cdp-no-clients');
-		const result = await stub.sendCdpCommand('test-id', 'Runtime.evaluate', { expression: '1+1' });
-
-		expect(result.error).toBeDefined();
-		expect(result.error).toContain('No browser is connected');
-		expect(result.result).toBeUndefined();
-	});
-
-	it('returns error with descriptive message', async () => {
-		const stub = getCoordinatorStub('test-cdp-descriptive-error');
-		const result = await stub.sendCdpCommand('cmd-1', 'DOM.getDocument');
-
-		expect(result.error).toContain('No browser is connected');
-	});
-});
-
-// =============================================================================
 // Output logs round-trip (sendMessage -> getOutputLogs)
 // =============================================================================
 

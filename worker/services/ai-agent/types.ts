@@ -100,7 +100,6 @@ export interface ToolExecutorContext {
 	/** Abort signal from the agent loop — tools should check this to bail out early on cancellation. */
 	abortSignal?: AbortSignal;
 	callMcpTool: (serverId: string, toolName: string, arguments_: Record<string, unknown>) => Promise<string>;
-	sendCdpCommand?: (id: string, method: string, parameters?: Record<string, unknown>) => Promise<{ result?: string; error?: string }>;
 	isSubAgent?: boolean;
 	loader?: WorkerLoader;
 	browser?: Fetcher;
