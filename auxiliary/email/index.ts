@@ -1,6 +1,5 @@
 import { render } from '@react-email/components';
 import { WorkerEntrypoint } from 'cloudflare:workers';
-import { Resend } from 'resend';
 
 import { RateLimiter } from './rate-limiter';
 import { EmailVerificationEmail } from './templates/email-verification';
@@ -10,8 +9,7 @@ import { PasswordResetEmail } from './templates/password-reset';
 import type { EmailQueueMessage } from '@shared/notification-types';
 
 export default class EmailWorker extends WorkerEntrypoint<EmailWorkerEnvironment> {
-	private resend = new Resend(this.env.RESEND_API_KEY);
-	// Rate limiter configured for Resend's default of 2 req/sec
+	// Keep queue sends in small bursts while the worker drains messages.
 	private rateLimiter = new RateLimiter(2, 60);
 
 	// =========================================================================
@@ -107,74 +105,22 @@ export default class EmailWorker extends WorkerEntrypoint<EmailWorkerEnvironment
 			}
 
 			const currentBatch = batch.messages.slice(processedCount, processedCount + batchSize);
-			const results = await Promise.allSettled(
-				currentBatch.map(async (message) => {
-					try {
-						const sendEmail = await this.resend.emails.send(message.body, {
-							idempotencyKey: message.id,
-						});
-						return { message, sendEmail } as const;
-					} catch (error) {
-						return { message, error } as const;
-					}
-				}),
-			);
-
-			let hitRateLimit = false;
 			let successfulSends = 0;
 
-			for (const result of results) {
-				if (result.status === 'rejected') {
-					console.error('Unexpected promise rejection', result.reason);
-					continue;
-				}
-
-				if (result.value.sendEmail === undefined) {
-					const { message, error } = result.value;
+			for (const message of currentBatch) {
+				try {
+					await this.env.EMAIL.send(message.body);
+					successfulSends += 1;
+					message.ack();
+				} catch (error) {
 					const retryDelay = this.rateLimiter.getErrorRetryDelay();
 					console.error(`Unexpected error sending email - retrying with delay: ${retryDelay}s`, error);
 					message.retry({ delaySeconds: retryDelay });
-					continue;
 				}
-
-				const { message, sendEmail } = result.value;
-
-				this.rateLimiter.processResponse({
-					headers: sendEmail.headers ?? undefined,
-					is429: sendEmail.error?.statusCode === 429,
-				});
-
-				if (sendEmail.error === null) {
-					successfulSends += 1;
-					message.ack();
-					continue;
-				}
-
-				if (sendEmail.error.statusCode === 429) {
-					hitRateLimit = true;
-					const retry429Delay = this.rateLimiter.get429RetryDelay(sendEmail.headers ?? undefined);
-					console.warn(`Resend rate limit exceeded. Retrying with delay: ${retry429Delay}s`);
-					message.retry({ delaySeconds: retry429Delay });
-					continue;
-				}
-
-				const retryDelay = this.rateLimiter.getErrorRetryDelay();
-				console.error(`Email send failed (status: ${sendEmail.error.statusCode}) - retrying with delay: ${retryDelay}s`, sendEmail.error);
-				message.retry({ delaySeconds: retryDelay });
 			}
 
 			processedCount += currentBatch.length;
 			this.rateLimiter.decrementCapacity(successfulSends);
-
-			if (hitRateLimit && processedCount < batch.messages.length) {
-				const remainingMessages = batch.messages.slice(processedCount);
-				const retryDelay = this.rateLimiter.get429RetryDelay();
-				console.warn(`Retrying ${remainingMessages.length} remaining messages with delay: ${retryDelay}s`);
-				for (const remainingMessage of remainingMessages) {
-					remainingMessage.retry({ delaySeconds: retryDelay });
-				}
-				break;
-			}
 		}
 	}
 }

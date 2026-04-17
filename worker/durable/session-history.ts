@@ -3,7 +3,7 @@ import { DEFAULT_AI_MODEL } from '@shared/constants';
 import type { AIModelId } from '@shared/constants';
 import type { AgentMode, ChatMessage } from '@shared/types';
 
-export function isQueuedMessage(message: ChatMessage): boolean {
+function isQueuedMessage(message: ChatMessage): boolean {
 	return message.role === 'user' && message.metadata?.request?.state === 'queued';
 }
 

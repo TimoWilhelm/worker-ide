@@ -7,7 +7,7 @@ interface RateLimitHeaders {
 
 /**
  * Accepted header input — either a plain object or a standard `Headers` instance
- * (e.g. from the Resend SDK).
+ * (e.g. from an HTTP response).
  */
 type HeadersInput = RateLimitHeaders | Headers;
 

@@ -8,7 +8,6 @@ import type {
 	RunErrorEvent,
 	SnapshotCreatedEvent,
 	SnapshotDeletedEvent,
-	SteeringMessageCommittedEvent,
 	StatusEvent,
 	StreamEvent,
 	SubAgentActivity,
@@ -90,10 +89,6 @@ export function usageEvent(
 
 export function turnCompleteEvent(): TurnCompleteEvent {
 	return { type: 'turn-complete' };
-}
-
-export function steeringMessageCommittedEvent(id: string): SteeringMessageCommittedEvent {
-	return { type: 'steering-message-committed', id };
 }
 
 export function maxIterationsReachedEvent(iterations: number): MaxIterationsReachedEvent {

@@ -1,11 +1,72 @@
 import { execSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 
+import stripJsonComments from 'strip-json-comments';
+
 interface AuxiliaryWorkerConfig {
 	name: string;
 	configPath: string;
 	outputPath: string;
 	envInterface: string;
+}
+
+function getDeclaredStringEnvironmentKeys(configPath: string): Set<string> {
+	const rawConfig = readFileSync(configPath, 'utf8');
+	const normalizedConfig = stripJsonComments(rawConfig).replaceAll(/,\s*([}\]])/g, '$1');
+	const parsedConfig: unknown = JSON.parse(normalizedConfig);
+
+	if (typeof parsedConfig !== 'object' || parsedConfig === null) {
+		return new Set();
+	}
+
+	const declaredKeys = new Set<string>();
+
+	if ('vars' in parsedConfig) {
+		const { vars } = parsedConfig;
+		if (typeof vars === 'object' && vars !== null) {
+			for (const key of Object.keys(vars)) {
+				declaredKeys.add(key);
+			}
+		}
+	}
+
+	if ('secrets' in parsedConfig) {
+		const { secrets } = parsedConfig;
+		if (typeof secrets === 'object' && secrets !== null && 'required' in secrets) {
+			const { required } = secrets;
+			if (Array.isArray(required)) {
+				for (const key of required) {
+					if (typeof key === 'string') {
+						declaredKeys.add(key);
+					}
+				}
+			}
+		}
+	}
+
+	return declaredKeys;
+}
+
+function filterGeneratedStringEnvironment(content: string, declaredKeys: Set<string>): string {
+	const filteredLines = content
+		.split('\n')
+		.filter((line) => {
+			const match = line.match(/^\s+([A-Z0-9_]+): (string|".*");$/);
+			if (!match) {
+				return true;
+			}
+
+			const [, key] = match;
+			return declaredKeys.has(key);
+		})
+		.join('\n');
+
+	const processEnvironmentKeys = [...declaredKeys].map((key) => `"${key}"`).join(' | ') || 'never';
+
+	return filteredLines.replace(
+		/interface ProcessEnv extends StringifyValues<Pick<([^,>]+), [^>]+>> \{\}/,
+		`interface ProcessEnv extends StringifyValues<Pick<$1, ${processEnvironmentKeys}>> {}`,
+	);
 }
 
 const auxiliaryWorkers: AuxiliaryWorkerConfig[] = [
@@ -56,11 +117,13 @@ for (const worker of auxiliaryWorkers) {
 	// Post-process: rename the Cloudflare namespace to avoid merging with the
 	// main worker's global Cloudflare.Env declaration.
 	const namespaceName = `Cloudflare${worker.name.charAt(0).toUpperCase()}${worker.name.slice(1)}Worker`;
+	const declaredKeys = getDeclaredStringEnvironmentKeys(worker.configPath);
 	let content = readFileSync(worker.outputPath, 'utf8');
 	content = content
 		.replaceAll('declare namespace Cloudflare {', `declare namespace ${namespaceName} {`)
 		.replaceAll('Cloudflare.Env', `${namespaceName}.Env`)
 		.replaceAll('Cloudflare.GlobalProps', `${namespaceName}.GlobalProps`);
+	content = filterGeneratedStringEnvironment(content, declaredKeys);
 	writeFileSync(worker.outputPath, content);
 	console.log(`[${worker.name}] Post-processed namespace -> ${namespaceName}`);
 }

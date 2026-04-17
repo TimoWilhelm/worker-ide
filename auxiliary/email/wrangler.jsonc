@@ -21,10 +21,8 @@
 			},
 		],
 	},
+	"send_email": [{ "name": "EMAIL", "remote": true }],
 	"vars": {
 		"EMAIL_FROM": "Codemaxxing.ai <noreply@codemaxxing.ai>",
-	},
-	"secrets": {
-		"required": ["RESEND_API_KEY"],
 	},
 }

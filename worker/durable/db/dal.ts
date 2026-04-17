@@ -49,30 +49,6 @@ export function updateSessionMetadataTitleGenerated(database: AgentDatabase, ses
 		.run();
 }
 
-export function updateSessionMetadataStatus(
-	database: AgentDatabase,
-	sessionId: string,
-	status: string,
-	errorMessage: string | undefined,
-): void {
-	database
-		.insert(sessionMetadata)
-		.values({
-			id: sessionId,
-			titleGenerated: 0,
-			status,
-			errorMessage: toSqlNullable(errorMessage),
-		})
-		.onConflictDoUpdate({
-			target: sessionMetadata.id,
-			set: {
-				status,
-				errorMessage: toSqlNullable(errorMessage),
-			},
-		})
-		.run();
-}
-
 export function deleteSessionMetadata(database: AgentDatabase, sessionId: string): void {
 	database.delete(sessionMetadata).where(eq(sessionMetadata.id, sessionId)).run();
 }

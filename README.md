@@ -39,14 +39,15 @@ bun run dev        # Vite dev server + worker at localhost:3000
 
 ## Secrets & Environment Variables
 
-Each worker reads secrets from a `.dev.vars` file in its directory. These files are gitignored. Copy the corresponding `.dev.vars.example` to `.dev.vars` and follow the instructions inside to generate and fill in the values.
+Workers with local secrets read them from a `.dev.vars` file in their directory. These files are gitignored. Copy the corresponding `.dev.vars.example` to `.dev.vars` and follow the instructions inside to generate and fill in the values.
 
-| Worker | Example file                        |
-| ------ | ----------------------------------- |
-| Main   | `.dev.vars.example`                 |
-| Git    | `auxiliary/git/.dev.vars.example`   |
-| Push   | `auxiliary/push/.dev.vars.example`  |
-| Email  | `auxiliary/email/.dev.vars.example` |
+The auxiliary email worker does not need a local `.dev.vars` example. It uses Cloudflare Email Service via the `send_email` binding declared in `auxiliary/email/wrangler.jsonc`.
+
+| Worker | Example file                       |
+| ------ | ---------------------------------- |
+| Main   | `.dev.vars.example`                |
+| Git    | `auxiliary/git/.dev.vars.example`  |
+| Push   | `auxiliary/push/.dev.vars.example` |
 
 ## Scripts
 

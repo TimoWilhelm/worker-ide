@@ -6,7 +6,6 @@ export {
 	deleteSessionMetadata,
 	readPendingChangesData,
 	readSessionMetadata,
-	updateSessionMetadataStatus,
 	updateSessionMetadataTitleGenerated,
 	upsertSessionMetadata,
 	writePendingChangesData,
