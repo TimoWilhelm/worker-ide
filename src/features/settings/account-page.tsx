@@ -21,6 +21,26 @@ import { formatRelativeTime } from '@/lib/utils';
 
 import type { AccountDeletePreview } from '@/lib/api-client';
 
+interface SessionListEntry {
+	token: string;
+	userAgent?: string;
+	ipAddress?: string;
+	createdAt: string | Date;
+	current?: boolean;
+}
+
+function isSessionListEntry(value: unknown): value is SessionListEntry {
+	return (
+		value !== null &&
+		typeof value === 'object' &&
+		typeof Reflect.get(value, 'token') === 'string' &&
+		(typeof Reflect.get(value, 'userAgent') === 'string' || Reflect.get(value, 'userAgent') === undefined) &&
+		(typeof Reflect.get(value, 'ipAddress') === 'string' || Reflect.get(value, 'ipAddress') === undefined) &&
+		(Reflect.get(value, 'createdAt') instanceof Date || typeof Reflect.get(value, 'createdAt') === 'string') &&
+		(typeof Reflect.get(value, 'current') === 'boolean' || Reflect.get(value, 'current') === undefined)
+	);
+}
+
 export default function AccountPage() {
 	const navigate = useNavigate();
 	const { data: session } = authClient.useSession();
@@ -105,14 +125,7 @@ export default function AccountPage() {
 		}
 	}, [navigate]);
 
-	// eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- better-auth session type is loosely typed
-	const sessions = (sessionsQuery.data ?? []) as Array<{
-		token: string;
-		userAgent?: string;
-		ipAddress?: string;
-		createdAt: string | Date;
-		current?: boolean;
-	}>;
+	const sessions = Array.isArray(sessionsQuery.data) ? sessionsQuery.data.filter((session_) => isSessionListEntry(session_)) : [];
 
 	return (
 		<div className="flex flex-col gap-8">

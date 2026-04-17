@@ -20,14 +20,20 @@ function safeWrite(binding: AnalyticsEngineDataset | undefined, dataPoint: Analy
 	binding.writeDataPoint(dataPoint);
 }
 
+function getRequestCfString(request: Request, key: 'colo' | 'country'): string {
+	const cf = Reflect.get(request, 'cf');
+	if (!cf || typeof cf !== 'object') return '';
+
+	const value = Reflect.get(cf, key);
+	return typeof value === 'string' ? value : '';
+}
+
 function getColo(request: Request): string {
-	// eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- cf object is untyped at this level
-	return ((request as { cf?: { colo?: string } }).cf?.colo as string) ?? '';
+	return getRequestCfString(request, 'colo');
 }
 
 function getCountry(request: Request): string {
-	// eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- cf object is untyped at this level
-	return ((request as { cf?: { country?: string } }).cf?.country as string) ?? '';
+	return getRequestCfString(request, 'country');
 }
 
 function getVersionTag(): string {

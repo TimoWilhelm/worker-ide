@@ -52,6 +52,10 @@ export const PLAN_LIMITS: Record<PlanId, PlanLimits> = {
 	},
 };
 
+function isPlanId(plan: string): plan is PlanId {
+	return plan in PLAN_LIMITS;
+}
+
 // =============================================================================
 // Helpers
 // =============================================================================
@@ -61,8 +65,7 @@ export const PLAN_LIMITS: Record<PlanId, PlanLimits> = {
  * Falls back to free plan limits for unknown plan values.
  */
 export function getOrgLimits(plan: string): PlanLimits {
-	// eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- plan string comes from DB, safe to cast after fallback
-	return PLAN_LIMITS[plan as PlanId] ?? PLAN_LIMITS[PLAN_FREE];
+	return isPlanId(plan) ? PLAN_LIMITS[plan] : PLAN_LIMITS[PLAN_FREE];
 }
 
 /**

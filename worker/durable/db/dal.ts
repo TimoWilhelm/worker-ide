@@ -9,6 +9,12 @@ import { pendingChanges, sessionMetadata } from './schema';
 import type { AgentDatabase } from './client';
 import type { SessionMetadataInsert, SessionMetadataRow } from './schema';
 
+/* eslint-disable unicorn/no-null -- SQL nullable columns are persisted as NULL */
+function toSqlNullable<T>(value: T | undefined): T | null {
+	return value ?? null;
+}
+/* eslint-enable unicorn/no-null */
+
 export function readSessionMetadata(database: AgentDatabase, sessionId: string): SessionMetadataRow | undefined {
 	const rows = database.select().from(sessionMetadata).where(eq(sessionMetadata.id, sessionId)).all();
 	return rows[0];
@@ -22,20 +28,13 @@ export function upsertSessionMetadata(database: AgentDatabase, data: SessionMeta
 			target: sessionMetadata.id,
 			set: {
 				titleGenerated: data.titleGenerated,
-				// eslint-disable-next-line unicorn/no-null -- SQL nullable column
-				messageSnapshots: data.messageSnapshots ?? null,
-				// eslint-disable-next-line unicorn/no-null -- SQL nullable column
-				messageModes: data.messageModes ?? null,
-				// eslint-disable-next-line unicorn/no-null -- SQL nullable column
-				contextTokensUsed: data.contextTokensUsed ?? null,
-				// eslint-disable-next-line unicorn/no-null -- SQL nullable column
-				toolMetadata: data.toolMetadata ?? null,
-				// eslint-disable-next-line unicorn/no-null -- SQL nullable column
-				toolErrors: data.toolErrors ?? null,
-				// eslint-disable-next-line unicorn/no-null -- SQL nullable column
-				status: data.status ?? null,
-				// eslint-disable-next-line unicorn/no-null -- SQL nullable column
-				errorMessage: data.errorMessage ?? null,
+				messageSnapshots: toSqlNullable(data.messageSnapshots),
+				messageModes: toSqlNullable(data.messageModes),
+				contextTokensUsed: toSqlNullable(data.contextTokensUsed),
+				toolMetadata: toSqlNullable(data.toolMetadata),
+				toolErrors: toSqlNullable(data.toolErrors),
+				status: toSqlNullable(data.status),
+				errorMessage: toSqlNullable(data.errorMessage),
 			},
 		})
 		.run();
@@ -64,15 +63,13 @@ export function updateSessionMetadataStatus(
 			id: sessionId,
 			titleGenerated: 0,
 			status,
-			// eslint-disable-next-line unicorn/no-null -- SQL nullable column
-			errorMessage: errorMessage ?? null,
+			errorMessage: toSqlNullable(errorMessage),
 		})
 		.onConflictDoUpdate({
 			target: sessionMetadata.id,
 			set: {
 				status,
-				// eslint-disable-next-line unicorn/no-null -- SQL nullable column
-				errorMessage: errorMessage ?? null,
+				errorMessage: toSqlNullable(errorMessage),
 			},
 		})
 		.run();

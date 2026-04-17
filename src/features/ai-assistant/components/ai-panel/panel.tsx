@@ -37,6 +37,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { toast } from '@/components/ui/toast-store';
 import { Tooltip } from '@/components/ui/tooltip';
 import { setActiveSessionId, useAiSessions } from '@/features/ai-assistant/hooks/use-ai-sessions';
+import { isAgentState } from '@/features/ai-assistant/lib/agent-state';
 import { useSnapshots } from '@/features/snapshots';
 import { useMobileKeyboardLayout } from '@/hooks/use-mobile-keyboard-height';
 import { createApiClient, downloadDebugLog } from '@/lib/api-client';
@@ -197,13 +198,8 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	const isConnected = agentConnectionState === 'connected';
 
 	// Derive UI state from the Agent's auto-synced state.
-	// The agent.state is typed as `unknown` from useAgent — we narrow it
-	// by checking for the expected shape.
 	const rawState = agent.state;
-	const agentState =
-		rawState && typeof rawState === 'object' && 'sessions' in rawState
-			? (rawState as import('@shared/agent-state').AgentState) // eslint-disable-line @typescript-eslint/consistent-type-assertions -- narrowed above
-			: undefined;
+	const agentState = isAgentState(rawState) ? rawState : undefined;
 	const currentSession = agentState?.currentSession;
 	const chatMessages = useMemo(() => currentSession?.messages ?? [], [currentSession?.messages]);
 	const sessionId = currentSession?.sessionId;

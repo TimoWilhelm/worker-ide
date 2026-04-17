@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { toast } from '@/components/ui/toast-store';
+import { isAgentState } from '@/features/ai-assistant/lib/agent-state';
 import { useStore } from '@/lib/store';
 
 import type { AgentState } from '@shared/agent-state';
@@ -62,10 +63,7 @@ interface AgentHandle {
 export function useAiSessions({ projectId, agent }: { projectId: string; agent: AgentHandle }) {
 	// Session list comes from agent.state.sessions (auto-synced)
 	const rawState = agent.state;
-	const agentState =
-		rawState && typeof rawState === 'object' && 'sessions' in rawState
-			? (rawState as AgentState) // eslint-disable-line @typescript-eslint/consistent-type-assertions -- narrowed above
-			: undefined;
+	const agentState: AgentState | undefined = isAgentState(rawState) ? rawState : undefined;
 	const savedSessions = agentState?.sessions ?? [];
 	const [sessionSearchQuery, setSessionSearchQuery] = useState('');
 	const [searchedSessionIds, setSearchedSessionIds] = useState<string[] | undefined>();

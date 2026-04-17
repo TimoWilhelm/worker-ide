@@ -44,6 +44,59 @@ interface OrgInvitation {
 	status: string;
 }
 
+interface ActiveOrganization {
+	id: string;
+	name: string;
+	slug?: string;
+	logo?: string;
+	plan?: string;
+	members?: unknown[];
+	invitations?: unknown[];
+}
+
+function isActiveOrganization(value: unknown): value is ActiveOrganization {
+	return (
+		value !== null &&
+		typeof value === 'object' &&
+		typeof Reflect.get(value, 'id') === 'string' &&
+		typeof Reflect.get(value, 'name') === 'string' &&
+		(typeof Reflect.get(value, 'slug') === 'string' || Reflect.get(value, 'slug') === undefined) &&
+		(typeof Reflect.get(value, 'logo') === 'string' || Reflect.get(value, 'logo') === undefined) &&
+		(typeof Reflect.get(value, 'plan') === 'string' || Reflect.get(value, 'plan') === undefined) &&
+		(Array.isArray(Reflect.get(value, 'members')) || Reflect.get(value, 'members') === undefined) &&
+		(Array.isArray(Reflect.get(value, 'invitations')) || Reflect.get(value, 'invitations') === undefined)
+	);
+}
+
+function isOrgMember(value: unknown): value is OrgMember {
+	if (value === null || typeof value !== 'object') {
+		return false;
+	}
+
+	const user = Reflect.get(value, 'user');
+	return (
+		typeof Reflect.get(value, 'id') === 'string' &&
+		typeof Reflect.get(value, 'userId') === 'string' &&
+		typeof Reflect.get(value, 'role') === 'string' &&
+		user !== null &&
+		typeof user === 'object' &&
+		typeof Reflect.get(user, 'name') === 'string' &&
+		typeof Reflect.get(user, 'email') === 'string' &&
+		(typeof Reflect.get(user, 'image') === 'string' || Reflect.get(user, 'image') === undefined)
+	);
+}
+
+function isOrgInvitation(value: unknown): value is OrgInvitation {
+	return (
+		value !== null &&
+		typeof value === 'object' &&
+		typeof Reflect.get(value, 'id') === 'string' &&
+		typeof Reflect.get(value, 'email') === 'string' &&
+		(typeof Reflect.get(value, 'role') === 'string' || Reflect.get(value, 'role') === undefined) &&
+		typeof Reflect.get(value, 'status') === 'string'
+	);
+}
+
 type ConfirmAction =
 	| { type: 'remove'; member: OrgMember }
 	| { type: 'transfer'; member: OrgMember }
@@ -372,10 +425,7 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 		},
 		staleTime: 1000 * 30,
 	});
-	// eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- better-auth returns loosely typed org data
-	const activeOrganization = organizationQuery.data as
-		| { id: string; name: string; slug?: string; logo?: string; plan?: string; members?: unknown[]; invitations?: unknown[] }
-		| undefined;
+	const activeOrganization = isActiveOrganization(organizationQuery.data) ? organizationQuery.data : undefined;
 	const isPending = organizationQuery.isPending;
 
 	// Fetch resolved org limits (plan-based + entitlement overrides)
@@ -401,10 +451,8 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 	const [isRenaming, setIsRenaming] = useState(false);
 
 	const currentUserId = session?.user.id;
-	// eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- better-auth returns loosely typed members/invitations
-	const members = (activeOrganization?.members ?? []) as unknown as OrgMember[];
-	// eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- better-auth returns loosely typed members/invitations
-	const invitations = (activeOrganization?.invitations ?? []) as unknown as OrgInvitation[];
+	const members = (activeOrganization?.members ?? []).filter((member) => isOrgMember(member));
+	const invitations = (activeOrganization?.invitations ?? []).filter((invitation) => isOrgInvitation(invitation));
 	const pendingInvitations = invitations.filter((invitation) => invitation.status === 'pending');
 
 	const currentMember = members.find((member) => member.userId === currentUserId);

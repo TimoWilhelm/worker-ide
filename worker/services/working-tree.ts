@@ -30,6 +30,15 @@ export async function computeBlobOid(content: Uint8Array): Promise<string> {
 	return [...new Uint8Array(hash)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
+function isDirectoryEntry(entry: unknown): entry is { name: string; isDirectory(): boolean } {
+	return (
+		entry !== null &&
+		typeof entry === 'object' &&
+		typeof Reflect.get(entry, 'name') === 'string' &&
+		typeof Reflect.get(entry, 'isDirectory') === 'function'
+	);
+}
+
 /**
  * Recursively list all files in the working tree.
  * Returns relative paths (e.g. "src/app.tsx").
@@ -41,8 +50,7 @@ async function listWorkingTreeFiles(fileSystem: typeof import('node:fs/promises'
 	let entries: Array<{ name: string; isDirectory(): boolean }>;
 	try {
 		const rawEntries = await fileSystem.readdir(fullPath, { withFileTypes: true });
-		// eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- worker-fs-mount Dirent type
-		entries = rawEntries as Array<{ name: string; isDirectory(): boolean }>;
+		entries = rawEntries.flatMap((entry) => (isDirectoryEntry(entry) ? [entry] : []));
 	} catch {
 		return files;
 	}
