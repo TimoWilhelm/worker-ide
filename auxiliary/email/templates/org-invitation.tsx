@@ -1,10 +1,3 @@
-/**
- * Organization Invitation Email Template
- *
- * Sent when a user is invited to join an organization.
- * Uses React Email components for rendering.
- */
-
 import { Body, Button, Container, Head, Heading, Hr, Html, Preview, Section, Text } from '@react-email/components';
 
 interface OrgInvitationEmailProperties {
@@ -39,10 +32,6 @@ export function OrgInvitationEmail({ inviterName, organizationName, role, accept
 		</Html>
 	);
 }
-
-// =============================================================================
-// Styles
-// =============================================================================
 
 const bodyStyle = {
 	backgroundColor: '#f6f9fc',

@@ -1,7 +1,3 @@
-/**
- * Unit tests for content type utilities.
- */
-
 import { describe, expect, it } from 'vitest';
 
 import { getContentType } from './content-type';

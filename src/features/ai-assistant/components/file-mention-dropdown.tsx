@@ -1,27 +1,12 @@
-/**
- * File Mention Dropdown Component
- *
- * Autocomplete dropdown for @-mentioning files in the AI chat input.
- * Renders a list of matching files with fuzzy-matched results.
- */
-
 import { FileText, Folder } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 
 import { cn } from '@/lib/utils';
 
 import type { FileInfo } from '@shared/types';
-
-/**
- * Get the file name from a path.
- */
 function getFileName(path: string): string {
 	return path.split('/').pop() ?? path;
 }
-
-/**
- * Get the directory portion of a path.
- */
 function getDirectory(path: string): string {
 	const lastSlash = path.lastIndexOf('/');
 	return lastSlash > 0 ? path.slice(0, lastSlash) : '/';

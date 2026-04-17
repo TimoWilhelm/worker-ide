@@ -1,10 +1,3 @@
-/**
- * Git refs and HEAD management
- *
- * This module handles Git references (branches, tags) and HEAD state,
- * including resolution and updates with consistency guarantees.
- */
-
 import { asTypedStorage } from './repo-state';
 
 import type { RepoStateSchema, Head } from './repo-state';

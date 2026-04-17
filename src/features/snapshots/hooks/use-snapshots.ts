@@ -1,9 +1,3 @@
-/**
- * useSnapshots Hook
- *
- * Hook for loading and managing project snapshots.
- */
-
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 
@@ -13,36 +7,20 @@ import { useStore } from '@/lib/store';
 
 import type { SnapshotMetadata, SnapshotSummary } from '@shared/types';
 
-// =============================================================================
-// Types
-// =============================================================================
-
 interface UseSnapshotsOptions {
 	projectId: string;
 	enabled?: boolean;
 }
-
-/** Per-file result from a cascade revert */
 interface CascadeRevertFileResult {
 	path: string;
 	snapshotId: string;
 	action: 'create' | 'edit' | 'delete';
 }
-
-/** Full result returned by the cascade revert endpoint */
 export interface CascadeRevertResult {
 	reverted: CascadeRevertFileResult[];
 	failed: Array<CascadeRevertFileResult & { error: string }>;
 	missingSnapshots: string[];
 }
-
-// =============================================================================
-// Hook
-// =============================================================================
-
-/**
- * Hook for loading and managing snapshots.
- */
 export function useSnapshots({ projectId, enabled = true }: UseSnapshotsOptions) {
 	const queryClient = useQueryClient();
 	const api = createApiClient(projectId);

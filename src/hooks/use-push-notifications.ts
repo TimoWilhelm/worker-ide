@@ -1,19 +1,3 @@
-/**
- * Push Notifications Hook
- *
- * Manages the browser Push API subscription lifecycle and per-device
- * notification preference (enabled/disabled), decoupled from the
- * underlying push subscription:
- * - Checks permission state and existing subscription
- * - Subscribes/unsubscribes via the service worker's pushManager
- * - Registers/unregisters with the backend via API routes
- * - Toggles per-device notification preference independently
- *
- * On mount, detects and silently recovers from inconsistencies where the
- * browser has a push subscription but the backend KV entry is missing
- * (e.g. the push service deleted it after a NOT_SUBSCRIBED response).
- */
-
 import { useCallback, useEffect, useState } from 'react';
 
 import { toast } from '@/components/ui/toast-store';

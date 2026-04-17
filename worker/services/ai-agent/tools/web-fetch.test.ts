@@ -1,11 +1,3 @@
-/**
- * Integration tests for the web_fetch tool.
- *
- * External dependencies (fetch, AI chat, cloudflare:workers env) are mocked
- * since they make network calls. Tests URL validation, content-type detection,
- * error handling, and summarization flow.
- */
-
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ---------------------------------------------------------------------------

@@ -1,25 +1,9 @@
-/**
- * Hook for persisting and restoring editor session state.
- *
- * Saves open tabs, active file, per-file scroll positions, and per-file
- * cursor positions to localStorage scoped by project ID. Restores the
- * session on mount so the editor picks up where it left off after a page
- * reload.
- *
- * Deleted files are silently filtered out during restore so stale tabs don't
- * appear. Scroll positions for changed (shorter/longer) files are naturally
- * clamped at render time by the editor's `handleViewReady`. Cursor positions
- * are clamped to the document length by the editor when applied.
- */
-
 import { useEffect, useRef } from 'react';
 
 import { loadEditorSession, resolveEditorSession, saveEditorSession } from '@/lib/editor-session';
 import { useStore } from '@/lib/store';
 
 const SAVE_DEBOUNCE_MS = 500;
-
-/** Build the session payload from current store state. */
 function buildSessionPayload() {
 	const { openFiles, activeFile, fileScrollPositions, fileCursorPositions } = useStore.getState();
 	return {

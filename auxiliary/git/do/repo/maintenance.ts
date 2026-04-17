@@ -1,10 +1,3 @@
-/**
- * Repository maintenance and cleanup operations
- *
- * This module handles idle cleanup, R2 mirror management,
- * and periodic pack pruning to maintain repository health.
- */
-
 import { r2PackDirPrefix, isPackKey, packIndexKey, doPrefix } from '@git/keys';
 
 import { getDb as getDatabase } from './db/client';

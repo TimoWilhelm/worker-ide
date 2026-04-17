@@ -1,10 +1,3 @@
-/**
- * Tool registry — wraps individual tool modules into Vercel AI SDK tool() format.
- *
- * Individual tool files export { definition, execute }.
- * This barrel wraps them into Vercel AI SDK tools using factories that capture runtime context.
- */
-
 import { jsonSchema } from 'ai';
 
 import { ToolExecutionError } from '@shared/tool-errors';
@@ -13,7 +6,6 @@ import * as assetSettingsGetTool from './asset-settings-get';
 import * as assetSettingsUpdateTool from './asset-settings-update';
 import * as bindingsGetTool from './bindings-get';
 import * as bindingsUpdateTool from './bindings-update';
-import * as cdpEvalTool from './cdp-eval';
 import * as dependenciesListTool from './dependencies-list';
 import * as dependenciesUpdateTool from './dependencies-update';
 import * as documentationSearchTool from './documentation-search';
@@ -52,10 +44,6 @@ import type {
 	ToolFailureQueue,
 } from '../types';
 
-// =============================================================================
-// Tool executor dispatch map
-// =============================================================================
-
 export const TOOL_EXECUTORS: ReadonlyMap<string, ToolExecuteFunction> = new Map([
 	['file_edit', fileEditTool.execute],
 	['file_multiedit', fileMultieditTool.execute],
@@ -81,16 +69,11 @@ export const TOOL_EXECUTORS: ReadonlyMap<string, ToolExecuteFunction> = new Map(
 	['bindings_update', bindingsUpdateTool.execute],
 	['lint_check', lintCheckTool.execute],
 	['lint_fix', lintFixTool.execute],
-	['cdp_eval', cdpEvalTool.execute],
 	['preview_fetch', previewFetchTool.execute],
 	['test_run', testRunTool.execute],
 	['image_generate', imageGenerateTool.execute],
 	['sub_agent', subAgentTool.execute],
 ]);
-
-// =============================================================================
-// Tool definitions
-// =============================================================================
 
 export const AGENT_TOOLS: readonly ToolDefinition[] = [
 	fileEditTool.definition,
@@ -117,16 +100,11 @@ export const AGENT_TOOLS: readonly ToolDefinition[] = [
 	bindingsUpdateTool.definition,
 	lintCheckTool.definition,
 	lintFixTool.definition,
-	cdpEvalTool.definition,
 	previewFetchTool.definition,
 	testRunTool.definition,
 	imageGenerateTool.definition,
 	subAgentTool.definition,
 ];
-
-// =============================================================================
-// Plan mode tools (read-only subset)
-// =============================================================================
 
 const PLAN_MODE_TOOL_NAMES = new Set([
 	'file_read',
@@ -144,16 +122,11 @@ const PLAN_MODE_TOOL_NAMES = new Set([
 	'asset_settings_get',
 	'bindings_get',
 	'lint_check',
-	'cdp_eval',
 	'preview_fetch',
 	'test_run',
 ]);
 
 export const PLAN_MODE_TOOLS: readonly ToolDefinition[] = AGENT_TOOLS.filter((t) => PLAN_MODE_TOOL_NAMES.has(t.name));
-
-// =============================================================================
-// Ask mode tools (read-only subset — no plan or mutation tools)
-// =============================================================================
 
 const ASK_MODE_TOOL_NAMES = new Set([
 	'file_read',
@@ -168,16 +141,11 @@ const ASK_MODE_TOOL_NAMES = new Set([
 	'asset_settings_get',
 	'bindings_get',
 	'lint_check',
-	'cdp_eval',
 	'preview_fetch',
 	'test_run',
 ]);
 
 export const ASK_MODE_TOOLS: readonly ToolDefinition[] = AGENT_TOOLS.filter((t) => ASK_MODE_TOOL_NAMES.has(t.name));
-
-// =============================================================================
-// Editing tools blocked in plan mode
-// =============================================================================
 
 const EDITING_TOOL_NAMES = new Set(['file_edit', 'file_multiedit', 'file_write', 'file_delete', 'file_move', 'lint_fix', 'image_generate']);
 
@@ -197,7 +165,6 @@ export const READ_ONLY_TOOL_NAMES = new Set([
 	'asset_settings_get',
 	'bindings_get',
 	'lint_check',
-	'cdp_eval',
 	'preview_fetch',
 	'test_run',
 ]);
@@ -226,14 +193,6 @@ export const MUTATION_TOOL_NAMES = new Set([
 	'image_generate',
 ]);
 
-// =============================================================================
-// SendEvent factory (re-export from event-helpers for backwards compat)
-// =============================================================================
-
-// =============================================================================
-// Vercel AI SDK Tool Factory
-// =============================================================================
-
 /**
  * Create Vercel AI SDK tools from our tool modules.
  *
@@ -246,7 +205,7 @@ export const MUTATION_TOOL_NAMES = new Set([
  *
  * Returns a Record<string, Tool> suitable for passing to streamText().
  */
-export function createServerTools(
+export async function createServerTools(
 	sendEvent: SendEventFunction,
 	context: ToolExecutorContext,
 	queryChanges: FileChange[],
@@ -256,7 +215,7 @@ export function createServerTools(
 	_toolCallIdReference?: ToolCallIdReference,
 	_pendingToolCallIds?: PendingToolCallIds,
 	excludedToolNames?: ReadonlySet<string>,
-): Record<string, unknown> {
+): Promise<Record<string, unknown>> {
 	// Select which tool definitions to use based on mode, then apply exclusions
 	const baseDefinitions = mode === 'ask' ? ASK_MODE_TOOLS : mode === 'plan' ? PLAN_MODE_TOOLS : AGENT_TOOLS;
 	const activeToolDefinitions = excludedToolNames ? baseDefinitions.filter((t) => !excludedToolNames.has(t.name)) : baseDefinitions;
@@ -392,6 +351,38 @@ export function createServerTools(
 				}
 			},
 		};
+	}
+
+	if (context.session) {
+		Object.assign(tools, await context.session.tools());
+	}
+
+	if (context.extensionManager) {
+		const { createExtensionTools } = await import('@cloudflare/think/tools/extensions');
+		Object.assign(tools, createExtensionTools({ manager: context.extensionManager }));
+		Object.assign(tools, context.extensionManager.getTools());
+	}
+
+	if (context.loader && mode === 'code') {
+		const { createExecuteTool } = await import('@cloudflare/think/tools/execute');
+		const codeTools = { ...tools };
+		tools.execute = createExecuteTool({
+			tools: codeTools,
+			loader: context.loader,
+			timeout: 30_000,
+		});
+	}
+
+	if (context.loader && context.browser) {
+		const { createBrowserTools } = await import('@cloudflare/think/tools/browser');
+		Object.assign(
+			tools,
+			createBrowserTools({
+				browser: context.browser,
+				loader: context.loader,
+				timeout: 30_000,
+			}),
+		);
 	}
 
 	return tools;

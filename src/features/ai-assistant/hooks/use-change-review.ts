@@ -1,14 +1,3 @@
-/**
- * useChangeReview Hook
- *
- * Manages approval/rejection of AI file changes.
- * Approve = keep the change (file already written by AI).
- * Reject = revert the file using the snapshot API.
- *
- * After each approve/reject action, persists the updated pending changes
- * state to the session on the server so inline diffs survive page refresh.
- */
-
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useMemo, useRef } from 'react';
 
@@ -17,10 +6,6 @@ import { computeDiffHunks, groupHunksIntoChanges, reconstructContent } from '@/f
 import { useSnapshots } from '@/features/snapshots';
 import { createApiClient } from '@/lib/api-client';
 import { useStore } from '@/lib/store';
-
-// =============================================================================
-// Hook
-// =============================================================================
 
 export function useChangeReview({ projectId }: { projectId: string }) {
 	const queryClient = useQueryClient();

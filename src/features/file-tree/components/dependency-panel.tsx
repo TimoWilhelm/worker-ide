@@ -1,9 +1,3 @@
-/**
- * Dependency Panel
- *
- * Collapsible panel below the file tree for managing project dependencies.
- */
-
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, ChevronDown, ChevronUp, Package, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useCallback, useMemo, useRef, useState } from 'react';
@@ -14,15 +8,9 @@ import { fetchDependencies, updateDependencies } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
 import { validateDependencyName, validateDependencyVersion } from '@shared/validation';
 
-// =============================================================================
-// Types
-// =============================================================================
-
 interface DependencyPanelProperties {
 	projectId: string;
-	/** When true, render only the collapsed header bar */
 	collapsed?: boolean;
-	/** Called when the user clicks the header to expand/collapse */
 	onToggle?: () => void;
 	className?: string;
 }
@@ -31,10 +19,6 @@ interface DependencyEntry {
 	name: string;
 	version: string;
 }
-
-// =============================================================================
-// Component
-// =============================================================================
 
 function DependencyPanel({ projectId, collapsed = false, onToggle, className }: DependencyPanelProperties) {
 	const queryClient = useQueryClient();
@@ -241,7 +225,6 @@ function DependencyPanel({ projectId, collapsed = false, onToggle, className }: 
 
 	return (
 		<div className={cn('flex flex-col', className)}>
-			{/* Header */}
 			<button
 				type="button"
 				onClick={onToggle}
@@ -258,7 +241,6 @@ function DependencyPanel({ projectId, collapsed = false, onToggle, className }: 
 			</button>
 
 			<div className="flex flex-col gap-0.5 px-1 pb-1.5">
-				{/* Add dependency — inline input or button */}
 				{isAdding ? (
 					<div className="flex flex-col gap-0.5">
 						<input
@@ -313,7 +295,6 @@ function DependencyPanel({ projectId, collapsed = false, onToggle, className }: 
 					</button>
 				)}
 
-				{/* Missing dependencies */}
 				{missingDependencies.size > 0 && (
 					<div
 						className={`
@@ -346,7 +327,6 @@ function DependencyPanel({ projectId, collapsed = false, onToggle, className }: 
 					</div>
 				)}
 
-				{/* Dependency list */}
 				{dependencies.map((entry, index) => {
 					const dependencyError = invalidDependencies.get(entry.name);
 					const isInvalid = dependencyError !== undefined;

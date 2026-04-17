@@ -1,8 +1,3 @@
-/**
- * Preview URL routes.
- * Generates HMAC-signed preview URLs with time-bucket tokens.
- */
-
 import { env } from 'cloudflare:workers';
 import { Hono } from 'hono';
 
@@ -14,10 +9,6 @@ import { httpError } from '../lib/http-error';
 import { DEV_PREVIEW_SECRET } from '../lib/preview-secret';
 
 import type { AppEnvironment } from '../types';
-
-/**
- * Preview URL routes - all routes are prefixed with /api
- */
 export const previewUrlRoutes = new Hono<AppEnvironment>()
 	/**
 	 * GET /api/preview-url

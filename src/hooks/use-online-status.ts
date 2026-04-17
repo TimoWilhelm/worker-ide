@@ -1,10 +1,3 @@
-/**
- * Online Status Hook
- *
- * Tracks the browser's online/offline state via `navigator.onLine`
- * and the `online`/`offline` window events.
- */
-
 import { useSyncExternalStore } from 'react';
 
 function subscribe(callback: () => void): () => void {

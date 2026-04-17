@@ -1,9 +1,3 @@
-/**
- * Tool: lint_fix
- * Apply safe Biome lint fixes to a file.
- * Reads the file, applies safe autofixes via Biome WASM, and writes the result back.
- */
-
 import fs from 'node:fs/promises';
 
 import { MAX_DIAGNOSTICS_PER_FILE } from '@shared/constants';
@@ -19,10 +13,6 @@ import { computeDiffStats, generateCompactDiff } from '../utilities';
 
 import type { FileChange, SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
 
-// =============================================================================
-// Description
-// =============================================================================
-
 const DESCRIPTION = `Apply safe Biome lint fixes to a file automatically.
 
 Usage:
@@ -30,10 +20,6 @@ Usage:
 - Only applies "safe" fixes that do not change program behavior.
 - Returns a summary of fixes applied and any remaining diagnostics that require manual attention.
 - Use this after writing or editing files to clean up lint issues automatically.`;
-
-// =============================================================================
-// Definition
-// =============================================================================
 
 export const definition: ToolDefinition = {
 	name: 'lint_fix',
@@ -49,10 +35,6 @@ export const definition: ToolDefinition = {
 		required: ['file_path'],
 	},
 };
-
-// =============================================================================
-// Execute
-// =============================================================================
 
 export async function execute(
 	input: Record<string, string>,

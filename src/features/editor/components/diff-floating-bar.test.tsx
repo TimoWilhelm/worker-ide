@@ -1,7 +1,3 @@
-/**
- * Component tests for DiffFloatingBar.
- */
-
 import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 

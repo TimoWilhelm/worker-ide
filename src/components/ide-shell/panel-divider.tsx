@@ -1,17 +1,8 @@
-/**
- * Panel Divider — animated resize handle for react-resizable-panels.
- *
- * Renders a thin bar inside the library's Separator that expands and
- * recolors on hover / drag.  Relies on the library's `data-separator`
- * attribute ("hover" | "active") for highlight state.
- */
-
 import { Separator } from 'react-resizable-panels';
 
 import { cn } from '@/lib/utils';
 
 interface PanelDividerProperties {
-	/** Orientation of the divider line (not the drag direction). */
 	orientation: 'horizontal' | 'vertical';
 }
 
@@ -22,7 +13,7 @@ export function PanelDivider({ orientation }: PanelDividerProperties) {
 		<Separator className={cn('group relative', isHorizontal ? 'w-0 cursor-col-resize' : 'h-0 cursor-row-resize')}>
 			<div
 				className={cn(
-					'absolute z-50 bg-border-solid',
+					'absolute z-10 bg-border-solid',
 					'transition-[width,height,background-color] duration-100 ease-out',
 					isHorizontal
 						? `

@@ -25,22 +25,13 @@ import { cn } from '@/lib/utils';
 
 import type { EditorView } from '@codemirror/view';
 
-// =============================================================================
-// Types
-// =============================================================================
-
 type QuerySnapshot = { search: string; replace: string; caseSensitive: boolean; regexp: boolean; wholeWord: boolean };
 
 interface SearchPanelProperties {
 	view: EditorView;
 	initialQuery: QuerySnapshot;
-	/** Updated by the CM6 panel bridge when the query changes programmatically */
 	externalQuery?: QuerySnapshot;
 }
-
-// =============================================================================
-// Component
-// =============================================================================
 
 export function SearchPanelContent({ view, initialQuery, externalQuery }: SearchPanelProperties) {
 	const [searchValue, setSearchValue] = useState(initialQuery.search);
@@ -153,7 +144,6 @@ export function SearchPanelContent({ view, initialQuery, externalQuery }: Search
 	return (
 		<TooltipProvider>
 			<div className="cm-search-panel">
-				{/* Row 1: Search */}
 				<div className="cm-search-row">
 					<div className="cm-search-input-wrap">
 						<input
@@ -190,7 +180,6 @@ export function SearchPanelContent({ view, initialQuery, externalQuery }: Search
 					</IconButton>
 				</div>
 
-				{/* Row 2: Replace */}
 				<div className="cm-search-row">
 					<div className="cm-search-input-wrap">
 						<input
@@ -215,10 +204,6 @@ export function SearchPanelContent({ view, initialQuery, externalQuery }: Search
 		</TooltipProvider>
 	);
 }
-
-// =============================================================================
-// Sub-components
-// =============================================================================
 
 function IconButton({
 	children,

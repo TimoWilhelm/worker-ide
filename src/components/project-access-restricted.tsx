@@ -1,11 +1,3 @@
-/**
- * Project Access Restricted Page
- *
- * Displayed when navigating to a project that has been restricted.
- * Shows a generic "contact support" message without revealing the
- * specific reason for the restriction.
- */
-
 import { Home, ShieldAlert } from 'lucide-react';
 import { useEffect } from 'react';
 import { useNavigate } from 'react-router';

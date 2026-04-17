@@ -1,22 +1,3 @@
-/**
- * Lint Service.
- *
- * Public API for linting project files. Provides transparent content-
- * addressable caching on top of the underlying linter (currently Biome
- * via the auxiliary worker). Callers get simple functions that handle
- * cache lookup, linting on miss, and background cache storage.
- *
- * The cache key is a SHA-256 hash of the file path and content — since
- * lint output is purely a function of these two inputs, any edit produces
- * a different hash and therefore a cache miss, while unchanged files
- * return instantly from cache.
- *
- * Usage:
- * ```ts
- * const diagnostics = await lintFile(filePath, content);
- * ```
- */
-
 import { waitUntil } from 'cloudflare:workers';
 
 import { lintFileForAgent } from './ai-agent/lib/biome-linter';
@@ -28,15 +9,7 @@ export type { FixFileFailure, ServerLintDiagnostic, ServerLintFixResult } from '
 export { formatLintDiagnostics } from './ai-agent/lib/biome-linter';
 
 const CACHE_NAME = 'lint-cache-v1';
-
-/**
- * Synthetic origin for Cache API keys. These URLs never leave the worker.
- */
 const CACHE_ORIGIN = 'https://lint-cache.internal';
-
-// =============================================================================
-// Content-Addressable Cache
-// =============================================================================
 
 /**
  * Compute a SHA-256 hash of the lint inputs (file path + content).
@@ -94,10 +67,6 @@ function putCachedLint(filePath: string, content: string, diagnostics: ServerLin
 
 	waitUntil(writePromise);
 }
-
-// =============================================================================
-// Public API
-// =============================================================================
 
 /**
  * Lint a file and return diagnostics with transparent caching.

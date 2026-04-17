@@ -1,11 +1,3 @@
-/**
- * Integration tests for the preview_fetch tool.
- *
- * The PreviewService is mocked since tests run outside a real Cloudflare Worker
- * environment. Tests cover URL routing, HTTP method support, header parsing,
- * format conversion, error handling, and response truncation.
- */
-
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ---------------------------------------------------------------------------

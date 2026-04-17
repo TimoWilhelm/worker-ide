@@ -1,10 +1,3 @@
-/**
- * Agent Mode Selector
- *
- * Dropdown button for switching between AI agent modes (code, plan, ask).
- * Each mode has a distinct color and icon for quick visual identification.
- */
-
 import { Code, Map as MapIcon, MessageCircleQuestion } from 'lucide-react';
 
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
@@ -12,10 +5,6 @@ import { Pill, type PillProperties } from '@/components/ui/pill';
 import { cn } from '@/lib/utils';
 
 import type { AgentMode } from '@shared/types';
-
-// =============================================================================
-// Mode Configuration
-// =============================================================================
 
 interface ModeConfig {
 	label: string;
@@ -50,10 +39,6 @@ const MODE_CONFIG: Record<AgentMode, ModeConfig> = {
 };
 
 const MODES: AgentMode[] = ['code', 'plan', 'ask'];
-
-// =============================================================================
-// Component
-// =============================================================================
 
 interface AgentModeSelectorProperties {
 	mode: AgentMode;

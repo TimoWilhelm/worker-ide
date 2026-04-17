@@ -45,17 +45,9 @@ function extractToolCalls(message: ModelMessage): ToolCallRecord[] {
 	}
 	return calls;
 }
-
-/**
- * Check if a ModelMessage is an assistant message with tool calls.
- */
 function hasToolCalls(message: ModelMessage): boolean {
 	return extractToolCalls(message).length > 0;
 }
-
-/**
- * Extract text content from a ModelMessage.
- */
 function getTextContent(message: ModelMessage): string {
 	if (typeof message.content === 'string') return message.content;
 	if (!Array.isArray(message.content)) return '';

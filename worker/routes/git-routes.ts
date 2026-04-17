@@ -1,15 +1,3 @@
-/**
- * Git operation routes.
- * Handles git operations: status, staging, commits, branches, tags, stash, and diffs.
- *
- * Operations are delegated to two services:
- * - GitClient: cross-worker RPC to the git auxiliary worker's RepoDO (for git objects, refs, history)
- * - WorkingTreeService: local comparison of ProjectDO's working tree vs committed tree
- *
- * The working tree (files the editor/agent sees) lives in the ProjectDO's SQLite.
- * Git storage (objects, refs, packs) lives in the git worker's RepoDO + R2.
- */
-
 import { zValidator } from '@hono/zod-validator';
 import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
@@ -43,10 +31,6 @@ import { computeStatus, collectChanges, applyTree } from '../services/working-tr
 
 import type { AppEnvironment } from '../types';
 import type { GitStatusEntry, GitBranchInfo, GitCommitEntry, GitFileDiff } from '@shared/types';
-
-// =============================================================================
-// Helpers
-// =============================================================================
 
 function getGitClient(c: { env: Env; var: { projectId: string } }): GitClient {
 	return new GitClient(c.env.REPO_DO, c.var.projectId);
@@ -103,10 +87,6 @@ function broadcastGitStatusChanged(projectId: string, executionContext: { waitUn
 	}
 }
 
-// =============================================================================
-// Routes
-// =============================================================================
-
 export const gitRoutes = new Hono<AppEnvironment>()
 
 	// =========================================================================
@@ -152,10 +132,6 @@ export const gitRoutes = new Hono<AppEnvironment>()
 	// =========================================================================
 	// Status
 	// =========================================================================
-
-	/**
-	 * GET /api/git/status — Get the status of all changed files.
-	 */
 	.get('/git/status', async (c) => {
 		const gitClient = getGitClient(c);
 		const fsStub = c.get('fsStub');
@@ -215,10 +191,6 @@ export const gitRoutes = new Hono<AppEnvironment>()
 			throw httpError(HttpErrorCode.GIT_OPERATION_FAILED, 'Failed to stage files');
 		}
 	})
-
-	/**
-	 * POST /api/git/unstage — Unstage files.
-	 */
 	.post('/git/unstage', zValidator('json', gitStageSchema), async (c) => {
 		const gitClient = getGitClient(c);
 		const fsStub = c.get('fsStub');
@@ -248,10 +220,6 @@ export const gitRoutes = new Hono<AppEnvironment>()
 			throw httpError(HttpErrorCode.GIT_OPERATION_FAILED, 'Failed to unstage files');
 		}
 	})
-
-	/**
-	 * POST /api/git/stage-all — Stage all changed files.
-	 */
 	.post('/git/stage-all', async (c) => {
 		const gitClient = getGitClient(c);
 		const fsStub = c.get('fsStub');
@@ -280,10 +248,6 @@ export const gitRoutes = new Hono<AppEnvironment>()
 			throw httpError(HttpErrorCode.GIT_OPERATION_FAILED, 'Failed to stage all files');
 		}
 	})
-
-	/**
-	 * POST /api/git/unstage-all — Unstage all files.
-	 */
 	.post('/git/unstage-all', async (c) => {
 		const gitClient = getGitClient(c);
 		const fsStub = c.get('fsStub');
@@ -306,10 +270,6 @@ export const gitRoutes = new Hono<AppEnvironment>()
 			throw httpError(HttpErrorCode.GIT_OPERATION_FAILED, 'Failed to unstage all files');
 		}
 	})
-
-	/**
-	 * POST /api/git/discard — Discard changes for a file (restore from committed version).
-	 */
 	.post('/git/discard', zValidator('json', gitDiscardSchema), async (c) => {
 		const gitClient = getGitClient(c);
 		const fsStub = c.get('fsStub');
@@ -369,10 +329,6 @@ export const gitRoutes = new Hono<AppEnvironment>()
 			throw httpError(HttpErrorCode.GIT_OPERATION_FAILED, 'Failed to discard changes');
 		}
 	})
-
-	/**
-	 * POST /api/git/discard-all — Discard all working directory changes.
-	 */
 	.post('/git/discard-all', async (c) => {
 		const gitClient = getGitClient(c);
 		const fsStub = c.get('fsStub');
@@ -406,10 +362,6 @@ export const gitRoutes = new Hono<AppEnvironment>()
 	// =========================================================================
 	// Commits
 	// =========================================================================
-
-	/**
-	 * POST /api/git/commit — Create a commit with staged (or all) changes.
-	 */
 	.post('/git/commit', zValidator('json', gitCommitSchema), async (c) => {
 		const gitClient = getGitClient(c);
 		const fsStub = c.get('fsStub');
@@ -466,10 +418,6 @@ export const gitRoutes = new Hono<AppEnvironment>()
 			throw httpError(HttpErrorCode.GIT_OPERATION_FAILED, errorMessage);
 		}
 	})
-
-	/**
-	 * GET /api/git/log — Get commit history.
-	 */
 	.get('/git/log', zValidator('query', gitLogQuerySchema), async (c) => {
 		const gitClient = getGitClient(c);
 		const { reference, depth } = c.req.valid('query');
@@ -495,10 +443,6 @@ export const gitRoutes = new Hono<AppEnvironment>()
 			throw httpError(HttpErrorCode.GIT_OPERATION_FAILED, 'Failed to get git log');
 		}
 	})
-
-	/**
-	 * GET /api/git/log/graph — Get commit history with graph layout data.
-	 */
 	.get('/git/log/graph', zValidator('query', gitGraphQuerySchema), async (c) => {
 		const gitClient = getGitClient(c);
 		const { maxCount } = c.req.valid('query');
@@ -527,10 +471,6 @@ export const gitRoutes = new Hono<AppEnvironment>()
 	// =========================================================================
 	// Branches
 	// =========================================================================
-
-	/**
-	 * GET /api/git/branches — List all branches.
-	 */
 	.get('/git/branches', async (c) => {
 		const gitClient = getGitClient(c);
 
@@ -551,10 +491,6 @@ export const gitRoutes = new Hono<AppEnvironment>()
 			throw httpError(HttpErrorCode.GIT_OPERATION_FAILED, 'Failed to list branches');
 		}
 	})
-
-	/**
-	 * POST /api/git/branch — Create a new branch.
-	 */
 	.post('/git/branch', zValidator('json', gitBranchSchema), async (c) => {
 		const gitClient = getGitClient(c);
 		const { name, checkout } = c.req.valid('json');
@@ -589,10 +525,6 @@ export const gitRoutes = new Hono<AppEnvironment>()
 			throw httpError(HttpErrorCode.GIT_OPERATION_FAILED, errorMessage);
 		}
 	})
-
-	/**
-	 * DELETE /api/git/branch — Delete a branch.
-	 */
 	.delete('/git/branch', zValidator('query', gitBranchNameQuerySchema), async (c) => {
 		const gitClient = getGitClient(c);
 		const { name } = c.req.valid('query');
@@ -619,10 +551,6 @@ export const gitRoutes = new Hono<AppEnvironment>()
 			throw httpError(HttpErrorCode.GIT_OPERATION_FAILED, errorMessage);
 		}
 	})
-
-	/**
-	 * POST /api/git/branch/rename — Rename a branch.
-	 */
 	.post('/git/branch/rename', zValidator('json', gitBranchRenameSchema), async (c) => {
 		const gitClient = getGitClient(c);
 		const { oldName, newName } = c.req.valid('json');
@@ -658,10 +586,6 @@ export const gitRoutes = new Hono<AppEnvironment>()
 			throw httpError(HttpErrorCode.GIT_OPERATION_FAILED, errorMessage);
 		}
 	})
-
-	/**
-	 * POST /api/git/checkout — Checkout a branch or ref.
-	 */
 	.post('/git/checkout', zValidator('json', gitCheckoutSchema), async (c) => {
 		const gitClient = getGitClient(c);
 		const fsStub = c.get('fsStub');
@@ -777,10 +701,6 @@ export const gitRoutes = new Hono<AppEnvironment>()
 	// =========================================================================
 	// Tags
 	// =========================================================================
-
-	/**
-	 * GET /api/git/tags — List all tags.
-	 */
 	.get('/git/tags', async (c) => {
 		const gitClient = getGitClient(c);
 
@@ -796,10 +716,6 @@ export const gitRoutes = new Hono<AppEnvironment>()
 			throw httpError(HttpErrorCode.GIT_OPERATION_FAILED, 'Failed to list tags');
 		}
 	})
-
-	/**
-	 * POST /api/git/tag — Create a tag.
-	 */
 	.post('/git/tag', zValidator('json', gitTagSchema), async (c) => {
 		const gitClient = getGitClient(c);
 		const { name, reference } = c.req.valid('json');
@@ -835,10 +751,6 @@ export const gitRoutes = new Hono<AppEnvironment>()
 			throw httpError(HttpErrorCode.GIT_OPERATION_FAILED, errorMessage);
 		}
 	})
-
-	/**
-	 * DELETE /api/git/tag — Delete a tag.
-	 */
 	.delete('/git/tag', zValidator('query', gitTagNameQuerySchema), async (c) => {
 		const gitClient = getGitClient(c);
 		const { name } = c.req.valid('query');
@@ -996,10 +908,6 @@ export const gitRoutes = new Hono<AppEnvironment>()
 			throw httpError(HttpErrorCode.GIT_OPERATION_FAILED, errorMessage);
 		}
 	})
-
-	/**
-	 * GET /api/git/stash — List stash entries.
-	 */
 	.get('/git/stash', async (c) => {
 		const gitClient = getGitClient(c);
 
@@ -1031,10 +939,6 @@ export const gitRoutes = new Hono<AppEnvironment>()
 	// =========================================================================
 	// Diff
 	// =========================================================================
-
-	/**
-	 * GET /api/git/diff — Get before/after content for a working tree file.
-	 */
 	.get('/git/diff', zValidator('query', gitDiffQuerySchema), async (c) => {
 		const gitClient = getGitClient(c);
 		const fsStub = c.get('fsStub');
@@ -1086,10 +990,6 @@ export const gitRoutes = new Hono<AppEnvironment>()
 			throw httpError(HttpErrorCode.GIT_OPERATION_FAILED, 'Failed to get file diff');
 		}
 	})
-
-	/**
-	 * GET /api/git/diff/commit — Get files changed in a specific commit.
-	 */
 	.get('/git/diff/commit', zValidator('query', gitCommitDiffQuerySchema), async (c) => {
 		const gitClient = getGitClient(c);
 		const { objectId } = c.req.valid('query');
@@ -1127,10 +1027,6 @@ export const gitRoutes = new Hono<AppEnvironment>()
 			throw httpError(HttpErrorCode.GIT_OPERATION_FAILED, 'Failed to get commit diff');
 		}
 	})
-
-	/**
-	 * GET /api/git/diff/file — Get before/after content for a file at a specific commit.
-	 */
 	.get('/git/diff/file', zValidator('query', gitFileDiffAtCommitQuerySchema), async (c) => {
 		const gitClient = getGitClient(c);
 		const { objectId, path: filePath } = c.req.valid('query');

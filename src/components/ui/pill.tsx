@@ -1,13 +1,3 @@
-/**
- * Pill Component
- *
- * A small colored label used for status indicators, source badges, priority
- * tags, and mode selectors. Renders colored text on a tinted background with
- * automatic light/dark contrast.
- *
- * Uses class-variance-authority for variant management.
- */
-
 import { cva, type VariantProps } from 'class-variance-authority';
 
 import { cn } from '@/lib/utils';
@@ -94,7 +84,6 @@ const pillVariants = cva(
 );
 
 interface PillProperties extends Omit<HTMLAttributes<HTMLSpanElement>, 'color'>, VariantProps<typeof pillVariants> {
-	/** React 19 ref-as-prop */
 	ref?: Ref<HTMLSpanElement>;
 }
 

@@ -1,7 +1,3 @@
-/**
- * Utility Panel Feature Barrel Export
- */
-
 export { UtilityPanel } from './components/utility-panel';
 export type { UtilityPanelProperties } from './components/utility-panel';
 

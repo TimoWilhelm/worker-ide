@@ -1,9 +1,3 @@
-/**
- * Mobile Tab Bar Component
- *
- * Fixed bottom navigation bar for switching between Editor, Preview, and Agent views on mobile.
- */
-
 import { Bot, Code, Eye, FlaskConical, GitBranch } from 'lucide-react';
 import { motion } from 'motion/react';
 
@@ -13,10 +7,6 @@ import { selectIsProcessing, useStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 
 import type { MobilePanel } from '@/lib/store';
-
-// =============================================================================
-// Helpers
-// =============================================================================
 
 function useMobileTabAction() {
 	const activeMobilePanel = useStore((state) => state.activeMobilePanel);
@@ -31,10 +21,6 @@ function useMobileTabAction() {
 		}
 	};
 }
-
-// =============================================================================
-// Component
-// =============================================================================
 
 const TABS: Array<{ panel: MobilePanel; label: string; icon: typeof Code }> = [
 	{ panel: 'editor', label: 'Editor', icon: Code },
@@ -56,7 +42,6 @@ export function MobileTabBar() {
 				safe-area-b
 			"
 		>
-			{/* Panel tabs */}
 			{TABS.map(({ panel, label, icon: Icon }) => {
 				const isActive = activeMobilePanel === panel;
 				const showProcessingIndicator = panel === 'agent' && isProcessing && !isActive;

@@ -1,7 +1,3 @@
-/**
- * DevTools Feature Barrel Export
- */
-
 export { DevelopmentToolsPanel } from './components/devtools-panel';
 export type { DevelopmentToolsPanelProperties } from './components/devtools-panel';
 

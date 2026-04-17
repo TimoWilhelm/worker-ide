@@ -1,11 +1,3 @@
-/**
- * Workers AI adapter for the Vercel AI SDK v6.
- *
- * Uses the `workers-ai-provider` package which wraps the `env.AI` binding
- * directly — no REST API proxy needed. The provider handles streaming,
- * tool calling, and structured output protocols natively.
- */
-
 import { env } from 'cloudflare:workers';
 import { createWorkersAI } from 'workers-ai-provider';
 

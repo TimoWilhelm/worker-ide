@@ -1,15 +1,3 @@
-/**
- * Email Auxiliary Worker
- *
- * Owns all transactional email logic:
- * - Template rendering (React Email)
- * - Email sending via Cloudflare Queue → Resend
- * - Rate limiting for Resend's API
- *
- * The main worker calls this via service binding RPC (env.EMAIL.*).
- * Only the actual sending goes through the queue for retries and spike handling.
- */
-
 import { render } from '@react-email/components';
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import { Resend } from 'resend';
@@ -21,10 +9,6 @@ import { PasswordResetEmail } from './templates/password-reset';
 
 import type { EmailQueueMessage } from '@shared/notification-types';
 
-// =============================================================================
-// WorkerEntrypoint — RPC methods + queue consumer
-// =============================================================================
-
 export default class EmailWorker extends WorkerEntrypoint<EmailWorkerEnvironment> {
 	private resend = new Resend(this.env.RESEND_API_KEY);
 	// Rate limiter configured for Resend's default of 2 req/sec
@@ -33,8 +17,6 @@ export default class EmailWorker extends WorkerEntrypoint<EmailWorkerEnvironment
 	// =========================================================================
 	// RPC Methods
 	// =========================================================================
-
-	/** Send an organization invitation email. */
 	async sendOrgInvitation(data: {
 		to: string;
 		inviterName: string;
@@ -57,8 +39,6 @@ export default class EmailWorker extends WorkerEntrypoint<EmailWorkerEnvironment
 			html,
 		});
 	}
-
-	/** Send an email verification email (signup or email change). */
 	async sendEmailVerification(data: { to: string; userName: string; verificationUrl: string }): Promise<void> {
 		const html = await render(
 			EmailVerificationEmail({
@@ -73,8 +53,6 @@ export default class EmailWorker extends WorkerEntrypoint<EmailWorkerEnvironment
 			html,
 		});
 	}
-
-	/** Send a password reset email. */
 	async sendPasswordReset(data: { to: string; userName: string; resetUrl: string }): Promise<void> {
 		const html = await render(
 			PasswordResetEmail({
@@ -93,8 +71,6 @@ export default class EmailWorker extends WorkerEntrypoint<EmailWorkerEnvironment
 	// =========================================================================
 	// Helpers
 	// =========================================================================
-
-	/** Enqueue an email message with the configured from address. */
 	private async enqueue(data: { to: string; subject: string; html: string; replyTo?: string }): Promise<void> {
 		const message: EmailQueueMessage = {
 			from: this.env.EMAIL_FROM,

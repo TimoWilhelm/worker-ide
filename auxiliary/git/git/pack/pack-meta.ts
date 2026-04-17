@@ -124,10 +124,6 @@ export async function readPackHeaderEx(
 	}
 	return { type, sizeVarBytes: sizeVariableBytes, headerLen: sizeVariableBytes.length };
 }
-
-/**
- * Read a byte range from an R2 `.pack` object.
- */
 export async function readPackRange(
 	environment: GitWorkerEnvironment,
 	key: string,

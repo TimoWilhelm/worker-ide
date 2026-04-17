@@ -1,11 +1,3 @@
-/**
- * Account Settings Page
- *
- * Active sessions management and account deletion.
- * Sessions use better-auth's listSessions/revokeSession.
- * Account deletion uses the custom API endpoints.
- */
-
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Monitor, Smartphone, Trash2 } from 'lucide-react';
 import { useCallback, useState } from 'react';
@@ -21,11 +13,30 @@ import { formatRelativeTime } from '@/lib/utils';
 
 import type { AccountDeletePreview } from '@/lib/api-client';
 
+interface SessionListEntry {
+	token: string;
+	userAgent?: string;
+	ipAddress?: string;
+	createdAt: string | Date;
+	current?: boolean;
+}
+
+function isSessionListEntry(value: unknown): value is SessionListEntry {
+	return (
+		value !== null &&
+		typeof value === 'object' &&
+		typeof Reflect.get(value, 'token') === 'string' &&
+		(typeof Reflect.get(value, 'userAgent') === 'string' || Reflect.get(value, 'userAgent') === undefined) &&
+		(typeof Reflect.get(value, 'ipAddress') === 'string' || Reflect.get(value, 'ipAddress') === undefined) &&
+		(Reflect.get(value, 'createdAt') instanceof Date || typeof Reflect.get(value, 'createdAt') === 'string') &&
+		(typeof Reflect.get(value, 'current') === 'boolean' || Reflect.get(value, 'current') === undefined)
+	);
+}
+
 export default function AccountPage() {
 	const navigate = useNavigate();
 	const { data: session } = authClient.useSession();
 
-	// Fetch active sessions
 	const sessionsQuery = useQuery({
 		queryKey: ['sessions'],
 		queryFn: async () => {
@@ -69,7 +80,6 @@ export default function AccountPage() {
 		}
 	}, [queryClient]);
 
-	// Account deletion
 	const [deletePreview, setDeletePreview] = useState<AccountDeletePreview | undefined>();
 	const [isLoadingPreview, setIsLoadingPreview] = useState(false);
 	const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -105,14 +115,7 @@ export default function AccountPage() {
 		}
 	}, [navigate]);
 
-	// eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- better-auth session type is loosely typed
-	const sessions = (sessionsQuery.data ?? []) as Array<{
-		token: string;
-		userAgent?: string;
-		ipAddress?: string;
-		createdAt: string | Date;
-		current?: boolean;
-	}>;
+	const sessions = Array.isArray(sessionsQuery.data) ? sessionsQuery.data.filter((session_) => isSessionListEntry(session_)) : [];
 
 	return (
 		<div className="flex flex-col gap-8">
@@ -121,7 +124,6 @@ export default function AccountPage() {
 				<p className="text-sm text-text-secondary">Manage sessions and account settings.</p>
 			</div>
 
-			{/* Active Sessions */}
 			<section>
 				<div className="mb-3 flex items-center justify-between">
 					<h3
@@ -194,7 +196,6 @@ export default function AccountPage() {
 				</div>
 			</section>
 
-			{/* Danger Zone */}
 			<section>
 				<h3 className="mb-3 text-xs font-medium tracking-wider text-error/80 uppercase">Danger zone</h3>
 				<div className="rounded-lg border border-error/30 bg-bg-secondary/40 px-4 py-3">
@@ -217,7 +218,6 @@ export default function AccountPage() {
 				</div>
 			</section>
 
-			{/* Delete account confirmation */}
 			{deletePreview && (
 				<Modal
 					open={showDeleteConfirm}

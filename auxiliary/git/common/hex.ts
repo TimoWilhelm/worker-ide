@@ -1,8 +1,4 @@
 /**
- * Hex encoding/decoding utilities for Git object IDs
- */
-
-/**
  * Convert bytes to lowercase hex string
  * @param bytes - Uint8Array to convert
  * @returns Lowercase hex string

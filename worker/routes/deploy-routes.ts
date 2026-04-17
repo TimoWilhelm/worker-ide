@@ -1,16 +1,3 @@
-/**
- * Deploy routes.
- * Handles deploying user projects to their own Cloudflare account.
- *
- * The deploy pipeline:
- * 1. Collect all project files from the Durable Object filesystem
- * 2. Bundle the worker entry point (worker/index.ts) with the bundler service
- * 3. Bundle the frontend entry point (from index.html) with the bundler service
- * 4. Generate production HTML referencing the bundled frontend JS
- * 5. Upload static assets (HTML, bundled JS) via the Cloudflare Direct Upload API
- * 6. Deploy the bundled worker script with the assets completion JWT
- */
-
 import fs from 'node:fs/promises';
 
 import { zValidator } from '@hono/zod-validator';
@@ -35,15 +22,7 @@ import { toEsbuildTsconfigRaw } from '../services/transform-service';
 import type { AppEnvironment } from '../types';
 import type { AssetSettings } from '@shared/types';
 
-// =============================================================================
-// Constants
-// =============================================================================
-
 const CLOUDFLARE_API_BASE = 'https://api.cloudflare.com/client/v4';
-
-// =============================================================================
-// Route
-// =============================================================================
 
 export const deployRoutes = new Hono<AppEnvironment>().post('/deploy', zValidator('json', deployRequestSchema), async (c) => {
 	const deployStart = Date.now();
@@ -252,10 +231,6 @@ export const deployRoutes = new Hono<AppEnvironment>().post('/deploy', zValidato
 	}
 });
 
-// =============================================================================
-// Helper Functions
-// =============================================================================
-
 function sanitizeWorkerName(name: string): string {
 	return (
 		name
@@ -363,10 +338,6 @@ function extractFrontendEntryPoint(html: string): string | undefined {
 	}
 	return undefined;
 }
-
-/**
- * Check if a file is a source file that would have been bundled.
- */
 function isSourceFile(filePath: string): boolean {
 	return /\.(ts|tsx|jsx|mts|mjs)$/.test(filePath) || (filePath.startsWith('src/') && filePath.endsWith('.js'));
 }
@@ -394,10 +365,6 @@ const CONFIG_FILES = new Set([
 function isConfigFile(filePath: string): boolean {
 	return CONFIG_FILES.has(filePath);
 }
-
-/**
- * Generate production HTML by replacing the dev script tag with the bundled JS reference.
- */
 function generateProductionHtml(html: string, originalEntry: string, bundledPath: string): string {
 	// Replace the original entry script source with the bundled path
 	// Handle both quoted forms: src="..." and src='...'
@@ -460,10 +427,6 @@ function uint8ArrayToBase64(bytes: Uint8Array): string {
 	}
 	return btoa(binary);
 }
-
-// =============================================================================
-// Cloudflare API Functions
-// =============================================================================
 
 /**
  * Ensure an R2 bucket exists in the user's Cloudflare account.
@@ -691,10 +654,6 @@ async function enableWorkersDevelopmentSubdomain(accountId: string, apiToken: st
 		throw httpError(HttpErrorCode.UPSTREAM_ERROR, `Failed to enable workers.dev subdomain: ${extractApiError(errorText, response.status)}`);
 	}
 }
-
-/**
- * Try to get the workers.dev URL for a deployed worker.
- */
 async function getWorkersDevelopmentUrl(accountId: string, apiToken: string, workerName: string): Promise<string | undefined> {
 	try {
 		const subdomainResponse = await fetch(`${CLOUDFLARE_API_BASE}/accounts/${accountId}/workers/subdomain`, {
@@ -711,10 +670,6 @@ async function getWorkersDevelopmentUrl(accountId: string, apiToken: string, wor
 	}
 	return undefined;
 }
-
-/**
- * Extract a human-readable error message from a Cloudflare API error response.
- */
 function extractApiError(responseBody: string, statusCode: number): string {
 	try {
 		const parsed: { errors?: Array<{ message: string }> } = JSON.parse(responseBody);

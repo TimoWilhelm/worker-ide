@@ -1,16 +1,8 @@
-/**
- * Unit tests for mergeTestRunResults.
- */
-
 import { describe, expect, it } from 'vitest';
 
 import { mergeTestRunResults } from './types';
 
 import type { TestRunResponse } from './types';
-
-// =============================================================================
-// Helpers
-// =============================================================================
 
 function makeTestRunResponse(overrides: Partial<TestRunResponse> = {}): TestRunResponse {
 	return {
@@ -90,10 +82,6 @@ function makeMultiFileResponse(): TestRunResponse {
 		timestamp: 1000,
 	};
 }
-
-// =============================================================================
-// mergeTestRunResults
-// =============================================================================
 
 describe('mergeTestRunResults', () => {
 	it('updates a single test result when it changes from passed to failed', () => {

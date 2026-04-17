@@ -1,9 +1,5 @@
 import { asBodyInit } from '@git/common/index';
 import { pktLine, flushPkt, concatChunks } from '@git/git/core/index';
-
-/**
- * Builds an ACK/NAK-only response when no packfile is needed.
- */
 export function buildAckOnlyResponse(ackOids: string[]): Response {
 	const chunks: Uint8Array[] = [pktLine('acknowledgments\n')];
 

@@ -1,50 +1,18 @@
-/**
- * WebSocket message types and serialization for real-time features.
- *
- * Used by two independent WebSocket connections:
- * 1. **Preview HMR client** (`hmr-client.js`) — handles hot module replacement
- *    in the preview iframe (full-reload, CSS/JS hot-swap).
- * 2. **Project socket** (`use-project-socket.ts`) — handles editor-side
- *    coordination (file cache invalidation, collaboration, server events).
- *
- * Both connect to the same ProjectCoordinator Durable Object.
- */
-
 import { z } from 'zod';
 
 import type { CursorPosition, Participant, SelectionRange, ServerError, ServerLogEntry } from './types';
-
-// =============================================================================
-// Client -> Server Messages
-// =============================================================================
-
-/**
- * Client message for pinging the server
- */
 export interface PingMessage {
 	type: 'ping';
 }
-
-/**
- * Client message to join collaboration session
- */
 export interface CollabJoinMessage {
 	type: 'collab-join';
 }
-
-/**
- * Client message to update cursor position
- */
 export interface CursorUpdateMessage {
 	type: 'cursor-update';
 	file?: string;
 	cursor?: CursorPosition;
 	selection?: SelectionRange;
 }
-
-/**
- * Client message for file edit broadcast
- */
 export interface FileEditMessage {
 	type: 'file-edit';
 	path: string;
@@ -65,17 +33,6 @@ export interface HmrConnectMessage {
 }
 
 /**
- * Client message responding to a CDP command request from the server.
- * Sent by the frontend after relaying the command through chobitsu.
- */
-export interface CdpResponseMessage {
-	type: 'cdp-response';
-	id: string;
-	result?: string;
-	error?: string;
-}
-
-/**
  * Client message to sync the IDE output logs (errors, warnings) to the coordinator.
  * Sent periodically by the frontend so the AI agent loop can read fresh logs
  * between iterations without needing a round-trip to the browser.
@@ -91,49 +48,24 @@ export type ClientMessage =
 	| CursorUpdateMessage
 	| FileEditMessage
 	| HmrConnectMessage
-	| CdpResponseMessage
 	| OutputLogsSyncMessage;
-
-// =============================================================================
-// Server -> Client Messages
-// =============================================================================
-
-/**
- * Server pong response
- */
 export interface PongMessage {
 	type: 'pong';
 }
-
-/**
- * Server message with initial collaboration state
- */
 export interface CollabStateMessage {
 	type: 'collab-state';
 	selfId: string;
 	selfColor: string;
 	participants: Participant[];
 }
-
-/**
- * Server message when a participant joins
- */
 export interface ParticipantJoinedMessage {
 	type: 'participant-joined';
 	participant: Participant;
 }
-
-/**
- * Server message when a participant leaves
- */
 export interface ParticipantLeftMessage {
 	type: 'participant-left';
 	id: string;
 }
-
-/**
- * Server message when a cursor is updated
- */
 export interface CursorUpdatedMessage {
 	type: 'cursor-updated';
 	id: string;
@@ -142,20 +74,12 @@ export interface CursorUpdatedMessage {
 	cursor?: CursorPosition;
 	selection?: SelectionRange;
 }
-
-/**
- * Server message when a file is edited by another participant
- */
 export interface FileEditedMessage {
 	type: 'file-edited';
 	id: string;
 	path: string;
 	content: string;
 }
-
-/**
- * HMR update types
- */
 export type HmrUpdateType = 'css-update' | 'js-update' | 'full-reload';
 
 /**
@@ -174,18 +98,10 @@ export interface HmrUpdateMessage {
 		timestamp: number;
 	}>;
 }
-
-/**
- * Server error message
- */
 export interface ServerErrorMessage {
 	type: 'server-error';
 	error: ServerError;
 }
-
-/**
- * Server logs message
- */
 export interface ServerLogsMessage {
 	type: 'server-logs';
 	logs: ServerLogEntry[];
@@ -240,21 +156,8 @@ export interface TestResultsChangedMessage {
 		bundleErrors: Array<{ file: string; error: string }>;
 		timestamp: number;
 	};
-	/** When set, this was a single-test run and clients should merge into existing results */
 	testName?: string;
-	/** When set, this was a partial run (single file or single test) and clients should merge */
 	pattern?: string;
-}
-
-/**
- * Server message requesting the frontend to execute a CDP command
- * in the preview iframe via chobitsu.
- */
-export interface CdpRequestMessage {
-	type: 'cdp-request';
-	id: string;
-	method: string;
-	params?: Record<string, unknown>;
 }
 
 export type ServerMessage =
@@ -268,12 +171,7 @@ export type ServerMessage =
 	| ServerErrorMessage
 	| ServerLogsMessage
 	| GitStatusChangedMessage
-	| TestResultsChangedMessage
-	| CdpRequestMessage;
-
-// =============================================================================
-// Zod Schemas for Validation
-// =============================================================================
+	| TestResultsChangedMessage;
 
 const cursorPositionSchema = z.object({
 	line: z.number(),
@@ -303,12 +201,6 @@ export const clientMessageSchema = z.discriminatedUnion('type', [
 	z.object({
 		type: z.literal('hmr-connect'),
 		lastVersion: z.number(),
-	}),
-	z.object({
-		type: z.literal('cdp-response'),
-		id: z.string(),
-		result: z.string().optional(),
-		error: z.string().optional(),
 	}),
 	z.object({
 		type: z.literal('output-logs-sync'),
@@ -451,28 +343,10 @@ export const serverMessageSchema = z.discriminatedUnion('type', [
 		testName: z.string().optional(),
 		pattern: z.string().optional(),
 	}),
-	z.object({
-		type: z.literal('cdp-request'),
-		id: z.string(),
-		method: z.string(),
-		params: z.record(z.string(), z.unknown()).optional(),
-	}),
 ]);
-
-// =============================================================================
-// Serialization Helpers
-// =============================================================================
-
-/**
- * Serialize a message for sending over WebSocket
- */
 export function serializeMessage(message: ClientMessage | ServerMessage): string {
 	return JSON.stringify(message);
 }
-
-/**
- * Parse and validate a client message
- */
 export function parseClientMessage(data: string): { success: true; data: ClientMessage } | { success: false; error: string } {
 	try {
 		const parsed: unknown = JSON.parse(data);
@@ -493,10 +367,6 @@ export function parseClientMessage(data: string): { success: true; data: ClientM
 		};
 	}
 }
-
-/**
- * Parse and validate a server message
- */
 export function parseServerMessage(data: string): { success: true; data: ServerMessage } | { success: false; error: string } {
 	try {
 		const parsed: unknown = JSON.parse(data);

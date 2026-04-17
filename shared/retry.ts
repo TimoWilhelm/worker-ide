@@ -1,19 +1,7 @@
-/**
- * Generic async retry utility with exponential backoff and jitter.
- *
- * Works in both browser and worker environments (uses setTimeout,
- * not scheduler.wait). For Durable Object RPC retries, use the
- * specialised `do-retry-proxy` in `worker/lib/` instead.
- */
-
 export interface RetryOptions {
-	/** Maximum number of attempts including the first call (default: 3) */
 	maxAttempts?: number;
-	/** Base delay in milliseconds for exponential backoff (default: 200) */
 	baseDelayMs?: number;
-	/** Maximum delay cap in milliseconds (default: 2000) */
 	maxDelayMs?: number;
-	/** Optional predicate — return false to bail out early without retrying */
 	shouldRetry?: (error: unknown, attempt: number) => boolean;
 }
 

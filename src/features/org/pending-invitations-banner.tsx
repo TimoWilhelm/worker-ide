@@ -1,11 +1,3 @@
-/**
- * Pending Invitations Banner
- *
- * Shows a banner on the dashboard when the current user has pending
- * organization invitations they can accept or reject.
- * Uses better-auth's listUserInvitations / acceptInvitation / rejectInvitation.
- */
-
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, Mail, X } from 'lucide-react';
 import { useCallback, useState } from 'react';
@@ -22,6 +14,18 @@ interface UserInvitation {
 	status: string;
 }
 
+function isUserInvitation(value: unknown): value is UserInvitation {
+	return (
+		value !== null &&
+		typeof value === 'object' &&
+		typeof Reflect.get(value, 'id') === 'string' &&
+		typeof Reflect.get(value, 'organizationName') === 'string' &&
+		typeof Reflect.get(value, 'organizationId') === 'string' &&
+		(typeof Reflect.get(value, 'role') === 'string' || Reflect.get(value, 'role') === undefined) &&
+		typeof Reflect.get(value, 'status') === 'string'
+	);
+}
+
 export function PendingInvitationsBanner() {
 	const [actingOn, setActingOn] = useState<string | undefined>();
 	const queryClient = useQueryClient();
@@ -31,11 +35,8 @@ export function PendingInvitationsBanner() {
 		queryFn: async () => {
 			const { data, error } = await authClient.organization.listUserInvitations();
 			if (error) throw new Error(error.message ?? 'Failed to load invitations');
-			if (data) {
-				// eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- better-auth returns loosely typed invitation data
-				return (data as unknown as UserInvitation[]).filter((invitation) => invitation.status === 'pending');
-			}
-			return [];
+			if (!Array.isArray(data)) return [];
+			return data.filter((invitation) => isUserInvitation(invitation)).filter((invitation) => invitation.status === 'pending');
 		},
 		staleTime: 1000 * 30,
 	});

@@ -1,18 +1,3 @@
-/**
- * Protected file generation utilities.
- *
- * System files (package.json, wrangler.jsonc, vite.config.ts, vitest.config.ts, worker-env.d.ts)
- * live in the project filesystem so git can track them. They are regenerated
- * whenever project settings change (name, dependencies, asset settings, bindings).
- *
- * All project configuration is stored in these files directly:
- * - `package.json` — name, dependencies, devDependencies, scripts
- * - `wrangler.jsonc` — name, main, compatibility_date, asset routing settings, bindings config
- * - `vite.config.ts` — Vite plugins (React, Cloudflare)
- * - `vitest.config.ts` — test runner configuration
- * - `worker-env.d.ts` — TypeScript declarations for env bindings (auto-generated from bindings config)
- */
-
 import fs from 'node:fs/promises';
 
 import { stripIndent } from 'common-tags';
@@ -23,19 +8,11 @@ import { resolveAssetSettings } from '@shared/types';
 
 import type { AssetSettings, BindingsConfig } from '@shared/types';
 
-// =============================================================================
-// Helpers
-// =============================================================================
-
 interface ProjectFileFlags {
 	hasReact: boolean;
 	hasTypeScript: boolean;
 	hasTests: boolean;
 }
-
-/**
- * Detect project characteristics from registered dependencies and file paths.
- */
 function detectProjectFlags(dependencies: Record<string, string>, filePaths: string[]): ProjectFileFlags {
 	return {
 		hasReact: 'react' in dependencies,
@@ -43,14 +20,6 @@ function detectProjectFlags(dependencies: Record<string, string>, filePaths: str
 		hasTests: filePaths.some((f) => f.includes('.test.') || f.includes('.spec.') || f.startsWith('test/')),
 	};
 }
-
-// =============================================================================
-// package.json I/O
-// =============================================================================
-
-/**
- * Read the `dependencies` field from `package.json` on disk.
- */
 export async function readDependencies(projectRoot: string): Promise<Record<string, string>> {
 	try {
 		const raw = await fs.readFile(`${projectRoot}/package.json`, 'utf8');
@@ -80,10 +49,6 @@ export async function writeDependencies(projectRoot: string, dependencies: Recor
 	existing.dependencies = dependencies;
 	await fs.writeFile(packageJsonPath, JSON.stringify(existing, undefined, 2));
 }
-
-/**
- * Read the project name from `package.json`.
- */
 export async function readProjectName(projectRoot: string): Promise<string> {
 	try {
 		const raw = await fs.readFile(`${projectRoot}/package.json`, 'utf8');
@@ -110,14 +75,6 @@ export async function writeProjectName(projectRoot: string, name: string): Promi
 	existing.name = name;
 	await fs.writeFile(packageJsonPath, JSON.stringify(existing, undefined, 2));
 }
-
-// =============================================================================
-// wrangler.jsonc I/O (asset settings + bindings config)
-// =============================================================================
-
-/**
- * Read asset settings from `wrangler.jsonc` on disk.
- */
 export async function readAssetSettings(projectRoot: string): Promise<AssetSettings> {
 	try {
 		const raw = await fs.readFile(`${projectRoot}/wrangler.jsonc`, 'utf8');
@@ -199,14 +156,6 @@ function buildWranglerConfig(
 
 	return config;
 }
-
-// =============================================================================
-// Generators
-// =============================================================================
-
-/**
- * Generate the contents of `package.json` from project name and dependencies.
- */
 function generatePackageJson(projectName: string, filePaths: string[], dependencies: Record<string, string>): string {
 	const { hasReact, hasTypeScript, hasTests } = detectProjectFlags(dependencies, filePaths);
 
@@ -246,10 +195,6 @@ function generatePackageJson(projectName: string, filePaths: string[], dependenc
 
 	return JSON.stringify(packageJson, undefined, 2);
 }
-
-/**
- * Generate the contents of `wrangler.jsonc`.
- */
 function generateWranglerJsonc(projectName: string, assetSettings: AssetSettings, bindingsConfig: BindingsConfig): string {
 	const assetsConfig = resolveAssetSettings(assetSettings);
 
@@ -378,10 +323,6 @@ function generateWorkerEnvironmentDeclaration(bindingsConfig: BindingsConfig): s
 
 	return joinGeneratedBlocks(storageDeclarations, environmentDeclaration);
 }
-
-/**
- * Generate the contents of `vite.config.ts` based on project dependencies.
- */
 function generateViteConfig(dependencies: Record<string, string>): string {
 	const hasReact = 'react' in dependencies;
 
@@ -406,10 +347,6 @@ export default defineConfig({
 });
 `;
 }
-
-/**
- * Generate the contents of `vitest.config.ts`.
- */
 function generateVitestConfig(): string {
 	return `\
 import { defineConfig } from 'vitest/config';
@@ -422,10 +359,6 @@ export default defineConfig({
 });
 `;
 }
-
-// =============================================================================
-// Regeneration
-// =============================================================================
 
 /**
  * Simple per-root mutex to prevent concurrent regeneration from producing

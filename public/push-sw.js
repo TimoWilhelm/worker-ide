@@ -1,10 +1,3 @@
-/**
- * Push Notification Service Worker Extension
- *
- * Handles incoming Web Push notifications and notification click events.
- * This file is imported by the main service worker via workbox's importScripts.
- */
-
 // Handle incoming push notifications
 
 globalThis.addEventListener('push', (event) => {

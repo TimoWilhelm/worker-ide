@@ -1,22 +1,7 @@
-/**
- * E2E Test Helpers
- *
- * Shared utilities for testing the Worker IDE against the real
- * Cloudflare Worker dev server. Projects are created via the API,
- * giving us valid Durable Object IDs.
- *
- * Authentication uses the dev-only `/__test/create-session` endpoint
- * which seeds a test user/org/session in the local D1 and returns a
- * session cookie. This cookie is cached for the lifetime of the test run.
- */
-
 import type { Page } from 'playwright/test';
 
 const BASE_URL = process.env.TEST_BASE_URL || 'http://localhost:3000';
-
-/** Cached session cookie string, e.g. "better-auth.session_token=...". Cached per worker process. */
 let sessionCookie: string | undefined;
-/** Cached organization ID returned by /__test/create-session. */
 let testOrganizationId: string | undefined;
 
 /**
@@ -55,10 +40,6 @@ async function ensureTestSession(): Promise<string> {
 
 	throw new Error('Unreachable');
 }
-
-/**
- * Create a new project via the API and return the project ID and URL.
- */
 async function createProject(): Promise<{ projectId: string; url: string }> {
 	const cookie = await ensureTestSession();
 

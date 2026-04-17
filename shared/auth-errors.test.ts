@@ -1,10 +1,3 @@
-/**
- * Auth Error Messages Tests
- *
- * Ensures the error code lookup returns correct messages for known
- * Better Auth error codes and a fallback for unknown codes.
- */
-
 import { describe, expect, it } from 'vitest';
 
 import { getAuthErrorInfo } from './auth-errors';

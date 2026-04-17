@@ -1,37 +1,14 @@
-/**
- * Biome Linter Service
- *
- * Lazy-initializes Biome WASM and provides a `lintFile()` function
- * that returns normalized lint diagnostics for a given file.
- * Runs entirely client-side using @biomejs/wasm-web.
- */
-
 import type { Diagnostic as BiomeDiagnostic } from '@biomejs/wasm-web';
 
-// =============================================================================
-// Types
-// =============================================================================
-
 export interface LintDiagnostic {
-	/** File path the diagnostic applies to */
 	filePath: string;
-	/** Human-readable message */
 	message: string;
-	/** Severity level */
 	severity: 'error' | 'warning' | 'info' | 'hint';
-	/** 0-based byte offset of the start of the diagnostic span */
 	from: number;
-	/** 0-based byte offset of the end of the diagnostic span */
 	to: number;
-	/** Biome rule category (e.g. "lint/style/noVar") */
 	rule?: string;
-	/** Whether Biome can auto-fix this diagnostic */
 	fixable: boolean;
 }
-
-// =============================================================================
-// Supported Extensions
-// =============================================================================
 
 const LINTABLE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.css', '.json']);
 
@@ -39,10 +16,6 @@ export function isLintableFile(filePath: string): boolean {
 	const extension = filePath.slice(filePath.lastIndexOf('.'));
 	return LINTABLE_EXTENSIONS.has(extension);
 }
-
-// =============================================================================
-// Singleton Biome Instance
-// =============================================================================
 
 type TextRange = [number, number];
 
@@ -135,10 +108,6 @@ async function initBiome(): Promise<void> {
 	}
 }
 
-// =============================================================================
-// Severity Mapping
-// =============================================================================
-
 function mapSeverity(severity: string): LintDiagnostic['severity'] {
 	switch (severity) {
 		case 'error':
@@ -157,10 +126,6 @@ function mapSeverity(severity: string): LintDiagnostic['severity'] {
 	}
 }
 
-// =============================================================================
-// Extract Message Text
-// =============================================================================
-
 function extractMessage(diagnostic: BiomeDiagnostic): string {
 	if (diagnostic.description) {
 		return diagnostic.description;
@@ -170,10 +135,6 @@ function extractMessage(diagnostic: BiomeDiagnostic): string {
 	}
 	return 'Unknown lint issue';
 }
-
-// =============================================================================
-// TextEdit Application
-// =============================================================================
 
 /**
  * Apply a Biome TextEdit to produce the new content.
@@ -283,20 +244,9 @@ export async function applySingleFix(
 		return undefined;
 	}
 }
-
-// =============================================================================
-// Public API
-// =============================================================================
-
-/**
- * Result of an autofix operation.
- */
 export interface LintFixResult {
-	/** The fixed file content */
 	content: string;
-	/** Number of fixes applied */
 	fixCount: number;
-	/** Remaining diagnostics after fix */
 	remainingDiagnostics: LintDiagnostic[];
 }
 

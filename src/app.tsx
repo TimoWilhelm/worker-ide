@@ -1,13 +1,3 @@
-/**
- * Root Application Component
- *
- * Sets up global providers (React Query, error boundaries) and routes.
- *
- * Routing is driven by the subdomain (host type):
- * - Bare domain  → dashboard at `/`, project IDE at `/p/<projectId>`
- * - preview.*    → handled entirely by the worker (never loads the SPA)
- */
-
 import { MutationCache, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Check, ClipboardCopy } from 'lucide-react';
 import { Suspense, use, useEffect, useMemo, useRef, useState } from 'react';
@@ -37,10 +27,6 @@ import { getAuthErrorInfo } from '@shared/auth-errors';
 import { parseHost } from '@shared/domain';
 import { PROJECT_ID_PATTERN } from '@shared/project-id';
 
-// =============================================================================
-// Query Client
-// =============================================================================
-
 const queryClient = new QueryClient({
 	defaultOptions: {
 		queries: {
@@ -57,10 +43,6 @@ const queryClient = new QueryClient({
 		},
 	}),
 });
-
-// =============================================================================
-// Loading / Error Fallbacks
-// =============================================================================
 
 function LoadingFallback() {
 	return (
@@ -136,10 +118,6 @@ function ErrorFallback({ error, resetErrorBoundary }: { error: Error; resetError
 	);
 }
 
-// =============================================================================
-// Routing
-// =============================================================================
-
 /**
  * Gate component that verifies a project is accessible before mounting the IDE.
  * Uses React 19 `use()` to suspend until the access check resolves.
@@ -157,10 +135,6 @@ function ProjectGate({ projectId }: { projectId: string }) {
 
 	return <ValidProject projectId={projectId} />;
 }
-
-/**
- * Wrapper that renders the IDE after confirming the project exists.
- */
 function ValidProject({ projectId }: { projectId: string }) {
 	return <IDEShell projectId={projectId} />;
 }
@@ -246,10 +220,6 @@ interface UserInfo {
 	image?: string;
 	emailVerified?: boolean;
 }
-
-/**
- * Route wrapper that extracts projectId from URL params and renders the ProjectGate.
- */
 function ProjectRoute() {
 	const { projectId } = useParams<{ projectId: string }>();
 
@@ -285,10 +255,6 @@ function OrgDashboardRoute({ organizations, user }: { organizations: Organizatio
 		</Suspense>
 	);
 }
-
-/**
- * Route wrapper for org settings. Extracts orgSlug from URL params.
- */
 function OrgSettingsRoute({ organizations }: { organizations: OrganizationEntry[] }) {
 	const { orgSlug } = useParams<{ orgSlug: string }>();
 	const organization = orgSlug ? organizations.find((o) => o.slug === orgSlug || o.id === orgSlug) : undefined;
@@ -412,10 +378,6 @@ function AppContent({
 	);
 }
 
-// =============================================================================
-// Auth Error Handler
-// =============================================================================
-
 /**
  * Reads `?error=<code>` from the URL (set by Better Auth on OAuth failures)
  * and surfaces a user-friendly toast. Clears the param afterward so the
@@ -453,18 +415,10 @@ function AuthErrorHandler() {
 	return <></>;
 }
 
-// =============================================================================
-// PWA Update Handler
-// =============================================================================
-
 function PwaUpdateHandler(): React.JSX.Element {
 	usePwaUpdate();
 	return <></>;
 }
-
-// =============================================================================
-// Root App Component
-// =============================================================================
 
 export function App() {
 	return (

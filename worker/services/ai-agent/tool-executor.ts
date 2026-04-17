@@ -1,18 +1,9 @@
-/**
- * AI Agent Tool Executor.
- * Shared helpers used by tool modules: listFilesRecursive, readTodos.
- */
-
 import fs from 'node:fs/promises';
 
 import { HIDDEN_ENTRIES } from '@shared/constants';
 import { todoItemSchema } from '@shared/validation';
 
 import type { TodoItem } from './types';
-
-// =============================================================================
-// File System Helpers
-// =============================================================================
 
 export async function listFilesRecursive(directory: string, base: string = ''): Promise<string[]> {
 	const files: string[] = [];
@@ -34,10 +25,6 @@ export async function listFilesRecursive(directory: string, base: string = ''): 
 	}
 	return files;
 }
-
-// =============================================================================
-// TODO Management
-// =============================================================================
 
 function getTodoFilePath(projectRoot: string, sessionId: string = 'default'): string {
 	return `${projectRoot}/.agent/todo/${sessionId}.json`;

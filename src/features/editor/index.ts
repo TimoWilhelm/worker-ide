@@ -1,9 +1,3 @@
-/**
- * Editor Feature Barrel Export
- *
- * Re-exports all editor-related components, hooks, and utilities.
- */
-
 // Components
 export { CodeEditor } from './components/code-editor';
 export { DiffFloatingBar } from './components/diff-floating-bar';

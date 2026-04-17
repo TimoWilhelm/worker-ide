@@ -1,10 +1,3 @@
-/**
- * File Tree E2E Tests
- *
- * Tests interaction with the sidebar file tree using the real
- * example project files created by the backend.
- */
-
 import { expect, test } from 'playwright/test';
 
 import { gotoIDE, waitForFileTree } from './helpers';

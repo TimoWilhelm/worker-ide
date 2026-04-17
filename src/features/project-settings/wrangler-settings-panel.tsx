@@ -1,10 +1,3 @@
-/**
- * Wrangler Settings Panel
- *
- * Inline settings form rendered in the editor area when wrangler.jsonc is the active file.
- * Controls Cloudflare Workers asset routing settings and bindings.
- */
-
 import { useQuery, useSuspenseQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronDown, FileJson2, Save } from 'lucide-react';
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
@@ -18,19 +11,11 @@ import { cn } from '@/lib/utils';
 
 import type { AssetSettings, HtmlHandling, NotFoundHandling } from '@shared/types';
 
-// =============================================================================
-// Types
-// =============================================================================
-
 interface WranglerSettingsPanelProperties {
 	projectId: string;
 }
 
 type RunWorkerFirstMode = 'off' | 'all' | 'patterns';
-
-// =============================================================================
-// Constants
-// =============================================================================
 
 const NOT_FOUND_HANDLING_OPTIONS: Array<{ value: NotFoundHandling; label: string; description: string }> = [
 	{ value: 'none', label: 'None', description: 'Return 404 for unmatched requests (default)' },
@@ -79,10 +64,6 @@ const INPUT_CLASSES = cn(
 	'disabled:opacity-50',
 );
 
-// =============================================================================
-// Helpers
-// =============================================================================
-
 function getRunWorkerFirstMode(runWorkerFirst: boolean | string[] | undefined): RunWorkerFirstMode {
 	if (runWorkerFirst === true) return 'all';
 	if (Array.isArray(runWorkerFirst) && runWorkerFirst.length > 0) return 'patterns';
@@ -105,10 +86,6 @@ function parseHtmlHandling(value: string): HtmlHandling {
 	return HTML_HANDLING_MAP[value] ?? 'auto-trailing-slash';
 }
 
-// =============================================================================
-// Error Fallback
-// =============================================================================
-
 function SettingsErrorFallback({ resetErrorBoundary }: { error: Error; resetErrorBoundary: () => void }) {
 	return (
 		<div className="flex h-full flex-col items-center justify-center gap-3">
@@ -119,10 +96,6 @@ function SettingsErrorFallback({ resetErrorBoundary }: { error: Error; resetErro
 		</div>
 	);
 }
-
-// =============================================================================
-// Component
-// =============================================================================
 
 export function WranglerSettingsPanel({ projectId }: WranglerSettingsPanelProperties) {
 	return (
@@ -226,7 +199,6 @@ function WranglerSettingsContent({ projectId }: { projectId: string }) {
 
 	return (
 		<div className="flex h-full flex-col overflow-hidden">
-			{/* Header */}
 			<div
 				className="
 					flex shrink-0 items-center justify-between border-b border-border
@@ -246,7 +218,6 @@ function WranglerSettingsContent({ projectId }: { projectId: string }) {
 				</div>
 			</div>
 
-			{/* Settings form */}
 			<div className="flex-1 overflow-y-auto p-4">
 				<div className="mx-auto flex max-w-lg flex-col gap-6">
 					{error && (
@@ -257,7 +228,6 @@ function WranglerSettingsContent({ projectId }: { projectId: string }) {
 
 					<h3 className="text-sm font-semibold text-text-primary">Asset Settings</h3>
 
-					{/* Not Found Handling */}
 					<fieldset className="flex flex-col gap-2">
 						<legend className="text-xs font-medium text-text-secondary">Not Found Handling</legend>
 						<p className="text-xs text-text-secondary/70">Controls what happens when a request doesn't match any static asset.</p>
@@ -292,7 +262,6 @@ function WranglerSettingsContent({ projectId }: { projectId: string }) {
 						</div>
 					</fieldset>
 
-					{/* HTML Handling */}
 					<fieldset className="flex flex-col gap-2">
 						<legend className="text-xs font-medium text-text-secondary">HTML Handling</legend>
 						<p className="text-xs text-text-secondary/70">Controls trailing slash behavior for HTML page requests.</p>
@@ -319,7 +288,6 @@ function WranglerSettingsContent({ projectId }: { projectId: string }) {
 						<p className="text-xs text-text-secondary/70">{HTML_HANDLING_OPTIONS.find((o) => o.value === htmlHandling)?.description}</p>
 					</fieldset>
 
-					{/* Run Worker First */}
 					<fieldset className="flex flex-col gap-2">
 						<legend className="text-xs font-medium text-text-secondary">Run Worker First</legend>
 						<p className="text-xs text-text-secondary/70">Controls whether the Worker script runs before serving static assets.</p>
@@ -419,7 +387,6 @@ function WranglerSettingsContent({ projectId }: { projectId: string }) {
 						)}
 					</fieldset>
 
-					{/* Bindings */}
 					<h3 className="mt-2 text-sm font-semibold text-text-primary">Bindings</h3>
 
 					<fieldset className="flex flex-col gap-2">

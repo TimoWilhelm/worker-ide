@@ -1,7 +1,3 @@
-/**
- * Unit tests for the entitlement resolution system.
- */
-
 import { describe, expect, it } from 'vitest';
 
 import {

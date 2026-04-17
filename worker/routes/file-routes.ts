@@ -1,8 +1,3 @@
-/**
- * File operation routes.
- * Handles CRUD operations for project files.
- */
-
 import fs from 'node:fs/promises';
 
 import { zValidator } from '@hono/zod-validator';
@@ -180,10 +175,6 @@ export const fileRoutes = new Hono<AppEnvironment>()
 		await fs.mkdir(`${projectRoot}${path}`, { recursive: true });
 		return c.json({ success: true });
 	});
-
-/**
- * Recursively list all files and directories in a directory.
- */
 async function listFilesRecursive(directory: string, base = ''): Promise<FileInfo[]> {
 	const files: FileInfo[] = [];
 	try {

@@ -1,11 +1,3 @@
-/**
- * Editor Font Hook
- *
- * Syncs the editor font preference from the store to the `--font-mono`
- * CSS custom property on `<html>`. This affects the CodeMirror editor,
- * terminal, and all other monospace text in the app.
- */
-
 import { useEffect } from 'react';
 
 import { selectEditorFont, useStore } from '@/lib/store';

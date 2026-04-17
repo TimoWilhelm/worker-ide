@@ -1,17 +1,3 @@
-/**
- * Project Template Registry
- *
- * Centralized registry of all available project templates/starters.
- * Each template lives in its own directory under worker/fixtures/<template-id>/
- * with a template.json file containing metadata (name, description, icon, dependencies).
- *
- * To add a new template:
- * 1. Create a fixture directory under worker/fixtures/<template-id>/
- * 2. Add a template.json with { id, name, description, icon, dependencies }
- * 3. Import the fixture files as raw strings below
- * 4. Add a new entry to the TEMPLATES array using defineTemplate()
- */
-
 import minimalGitignore from './fixtures/minimal/gitignore.txt?raw';
 import minimalIndexHtml from './fixtures/minimal/index.html?raw';
 import minimalPackageJson from './fixtures/minimal/package.json?raw';
@@ -51,12 +37,7 @@ import type { ProjectTemplateMeta } from '@shared/types';
 
 // Re-export for convenience
 
-// =============================================================================
-// Template types
-// =============================================================================
-
 export interface ProjectTemplate extends ProjectTemplateMeta {
-	/** Map of relative file paths to file contents */
 	files: Record<string, string>;
 }
 
@@ -65,10 +46,6 @@ export interface ProjectTemplate extends ProjectTemplateMeta {
  * Contains display metadata.
  */
 type TemplateManifest = ProjectTemplateMeta;
-
-// =============================================================================
-// Helper
-// =============================================================================
 
 /**
  * Parse a raw JSON string from a template.json import and combine it
@@ -84,10 +61,6 @@ function defineTemplate(metaRaw: string, files: Record<string, string>): Project
 		files,
 	};
 }
-
-// =============================================================================
-// Template definitions
-// =============================================================================
 
 const minimalTemplate = defineTemplate(minimalMetaRaw, {
 	'package.json': minimalPackageJson,
@@ -127,17 +100,11 @@ const requestInspectorTemplate = defineTemplate(requestInspectorMetaRaw, {
 	'.gitignore': requestInspectorGitignore,
 });
 
-// =============================================================================
-// Registry
-// =============================================================================
-
 /**
  * All available project templates.
  * The first template in the array is the default.
  */
 export const TEMPLATES: ProjectTemplate[] = [requestInspectorTemplate, minimalTemplate];
-
-/** The default template used when no template is specified */
 export const DEFAULT_TEMPLATE_ID = 'request-inspector';
 
 /**

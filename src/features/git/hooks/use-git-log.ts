@@ -1,9 +1,3 @@
-/**
- * useGitLog Hook
- *
- * Fetches commit history for the current branch.
- */
-
 import { useQuery } from '@tanstack/react-query';
 
 import { createApiClient } from '@/lib/api-client';
@@ -11,26 +5,12 @@ import { throwApiError } from '@/lib/api-error';
 
 import type { GitCommitEntry } from '@shared/types';
 
-// =============================================================================
-// Types
-// =============================================================================
-
 interface UseGitLogOptions {
 	projectId: string;
 	enabled?: boolean;
-	/** Max number of commits to fetch (default 50) */
 	depth?: number;
-	/** Ref to start from (default HEAD) */
 	reference?: string;
 }
-
-// =============================================================================
-// Hook
-// =============================================================================
-
-/**
- * Hook for fetching git commit history.
- */
 export function useGitLog({ projectId, enabled = true, depth = 50, reference }: UseGitLogOptions) {
 	const api = createApiClient(projectId);
 

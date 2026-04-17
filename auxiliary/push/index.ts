@@ -1,15 +1,3 @@
-/**
- * Push Auxiliary Worker
- *
- * Owns all Web Push notification logic:
- * - Subscription management (register/unregister via KV)
- * - VAPID key provisioning
- * - Push notification sending via Cloudflare Queue
- *
- * The main worker calls this via service binding RPC (env.PUSH.*).
- * Only the actual sending goes through the queue for retries and spike handling.
- */
-
 import { WorkerEntrypoint } from 'cloudflare:workers';
 
 import { importVapidKeyPair, sendNotification } from './push-core';
@@ -17,10 +5,6 @@ import { WebPushResult } from './web-push';
 
 import type { ApplicationServerKeys } from './web-push';
 import type { PushNotification, PushQueueMessage, PushSubscriptionInfo } from '@shared/notification-types';
-
-// =============================================================================
-// Helper: list all KV keys with a prefix (handles pagination)
-// =============================================================================
 
 async function listAllKeys(kv: KVNamespace, prefix: string): Promise<string[]> {
 	const keys: string[] = [];
@@ -37,10 +21,6 @@ async function listAllKeys(kv: KVNamespace, prefix: string): Promise<string[]> {
 	return keys;
 }
 
-// =============================================================================
-// WorkerEntrypoint — RPC methods + queue consumer
-// =============================================================================
-
 export default class PushWorker extends WorkerEntrypoint<PushWorkerEnvironment> {
 	// ---- Cached VAPID keys (initialized on first use) ----
 	private applicationServerKeys: ApplicationServerKeys | undefined;
@@ -55,28 +35,20 @@ export default class PushWorker extends WorkerEntrypoint<PushWorkerEnvironment> 
 	// =========================================================================
 	// RPC Methods
 	// =========================================================================
-
-	/** Return the VAPID public key for client-side pushManager.subscribe(). */
 	async getVapidPublicKey(): Promise<string> {
 		return this.env.VAPID_PUBLIC_KEY;
 	}
-
-	/** Store a push subscription in KV keyed by userId/endpointHash. */
 	async registerSubscription(userId: string, subscription: PushSubscriptionInfo): Promise<void> {
 		const endpointHash = await this.hashEndpoint(subscription.endpoint);
 		const key = `${userId}/${endpointHash}`;
 		const stored: PushSubscriptionInfo = { ...subscription, notificationsEnabled: true };
 		await this.env.KV_PUSH_SUBSCRIPTION.put(key, JSON.stringify(stored));
 	}
-
-	/** Remove a push subscription from KV by userId and endpoint. */
 	async unregisterSubscription(userId: string, endpoint: string): Promise<void> {
 		const endpointHash = await this.hashEndpoint(endpoint);
 		const key = `${userId}/${endpointHash}`;
 		await this.env.KV_PUSH_SUBSCRIPTION.delete(key);
 	}
-
-	/** Get the notification preference for a specific device (identified by endpoint). */
 	async getNotificationPreference(userId: string, endpoint: string): Promise<{ enabled: boolean } | undefined> {
 		const endpointHash = await this.hashEndpoint(endpoint);
 		const key = `${userId}/${endpointHash}`;
@@ -95,8 +67,6 @@ export default class PushWorker extends WorkerEntrypoint<PushWorkerEnvironment> 
 			return undefined;
 		}
 	}
-
-	/** Set the notification preference for a specific device (identified by endpoint). */
 	async setNotificationPreference(userId: string, endpoint: string, enabled: boolean): Promise<void> {
 		const endpointHash = await this.hashEndpoint(endpoint);
 		const key = `${userId}/${endpointHash}`;
@@ -114,8 +84,6 @@ export default class PushWorker extends WorkerEntrypoint<PushWorkerEnvironment> 
 			// Invalid JSON — ignore
 		}
 	}
-
-	/** Enqueue a push notification for a user. */
 	async notifyUser(userId: string, notification: PushNotification): Promise<void> {
 		const message: PushQueueMessage = {
 			userId,

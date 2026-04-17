@@ -1,12 +1,3 @@
-/**
- * Log Tailer
- *
- * A WorkerEntrypoint that receives tail events from dynamically-loaded
- * user workers (via the WorkerLoader `tails` option). It extracts console
- * log entries from TraceItems and broadcasts them to the IDE frontend
- * over the project WebSocket.
- */
-
 import { WorkerEntrypoint } from 'cloudflare:workers';
 
 import { coordinatorNamespace } from '../lib/durable-object-namespaces';

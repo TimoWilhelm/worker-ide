@@ -1,8 +1,3 @@
-/**
- * Tool: todos_update
- * Create or update the TODO list for the session.
- */
-
 import fs from 'node:fs/promises';
 
 import { ToolExecutionError } from '@shared/tool-errors';

@@ -1,14 +1,6 @@
-/**
- * Unit tests for sessionIdSchema validation.
- */
-
 import { describe, expect, it } from 'vitest';
 
 import { sessionIdSchema } from './validation';
-
-// =============================================================================
-// sessionIdSchema
-// =============================================================================
 
 describe('sessionIdSchema', () => {
 	it('accepts valid lowercase alphanumeric IDs', () => {

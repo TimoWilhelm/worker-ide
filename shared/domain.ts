@@ -1,24 +1,3 @@
-/**
- * Domain parsing and preview URL utilities.
- *
- * Subdomain layout:
- * - App:     <baseDomain>                                  (localhost:3000, example.com)
- * - Preview: <projectId>-<token>.preview.<baseDomain>      (x7f3k2-a1b2c3d4e5f6.preview.localhost:3000)
- * - Git:     git.<baseDomain>                              (git.example.com)
- *
- * The preview subdomain encodes both the project ID and an HMAC-signed
- * time-bucket token separated by a single hyphen. Since project IDs are
- * strictly `[a-z0-9]` (no hyphens), the last `-` in the first subdomain
- * label unambiguously separates the project ID from the token.
- *
- * Supports single-segment (localhost) and two-segment (example.com) base domains.
- *
- * LIMITATION: Multi-segment TLDs (e.g., .co.uk, .com.au) are NOT supported.
- * The parser assumes all non-localhost domains have exactly 2 segments.
- * If deploying to a ccTLD, add the TLD to SINGLE_SEGMENT_HOSTS or extend
- * getBaseDomainSegmentCount() with a public suffix list.
- */
-
 import { PREVIEW_TOKEN_PATTERN } from './preview-token';
 import { isValidProjectId } from './project-id';
 

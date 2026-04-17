@@ -1,17 +1,3 @@
-/**
- * Bundler Client — RPC Client
- *
- * Thin wrapper that delegates transform and bundle operations to the esbuild
- * auxiliary worker via a service binding (RPC). The heavy WASM binary lives
- * in the auxiliary worker; this module only handles request forwarding.
- *
- * Exposes the same function signatures as the former bundler-service.ts so
- * that callers only need to update their import paths.
- *
- * The interface is generic — if the underlying bundler worker is swapped
- * (e.g. to SWC or Rolldown), callers of this module remain unchanged.
- */
-
 import { env } from 'cloudflare:workers';
 
 import { BundleDependencyError } from '@shared/bundler-types';
@@ -22,10 +8,6 @@ import type { DependencyError } from '@shared/types';
 // Re-export shared types so consumers can import from this module
 export { BundleDependencyError } from '@shared/bundler-types';
 export type { BundleResult, BundleWithCdnOptions, TransformOptions, TransformResult } from '@shared/bundler-types';
-
-// =============================================================================
-// Public API — delegates to esbuild auxiliary worker via service binding
-// =============================================================================
 
 /**
  * Transform TypeScript/JSX code to JavaScript.
@@ -53,10 +35,6 @@ export async function bundleWithCdn(options: BundleWithCdnOptions): Promise<Bund
 		throw reconstructBundleDependencyError(error) ?? error;
 	}
 }
-
-// =============================================================================
-// Error Reconstruction
-// =============================================================================
 
 /**
  * Attempt to reconstruct a `BundleDependencyError` from a serialized RPC error.

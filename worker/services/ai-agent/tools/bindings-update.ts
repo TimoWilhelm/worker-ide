@@ -1,8 +1,3 @@
-/**
- * Tool: bindings_update
- * Enable or disable bindings for the project.
- */
-
 import { stripIndent } from 'common-tags';
 
 import { ToolExecutionError } from '@shared/tool-errors';

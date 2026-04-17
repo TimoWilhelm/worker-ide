@@ -1,8 +1,3 @@
-/**
- * Tool: plan_update
- * Update the current implementation plan.
- */
-
 import fs from 'node:fs/promises';
 
 import { ToolExecutionError } from '@shared/tool-errors';

@@ -1,18 +1,3 @@
-/**
- * Git Auxiliary Worker
- *
- * R2-backed Git storage backend for worker-ide. Provides:
- * - Git Smart HTTP v2 protocol (clone, fetch, push) for external clients
- * - RepoDurableObject with RPC methods for the main IDE worker
- * - JWT signing RPC for git credential generation
- *
- * The main worker accesses RepoDO via a cross-worker Durable Object binding
- * (env.REPO_DO with script_name: "git-worker"). External git clients connect
- * via Smart HTTP v2 at git.<domain>/<owner>/<repo>.
- *
- * Adapted from git-on-cloudflare (https://github.com/zllovesuki/git-on-cloudflare).
- */
-
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import { Hono } from 'hono';
 

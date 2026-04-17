@@ -1,7 +1,3 @@
-/**
- * Component tests for ErrorBoundary.
- */
-
 import { render, screen, fireEvent } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 

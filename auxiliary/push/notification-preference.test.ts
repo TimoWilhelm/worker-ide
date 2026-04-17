@@ -1,18 +1,6 @@
-/**
- * Tests for notification preference logic used in the push worker.
- *
- * Since PushWorker extends WorkerEntrypoint and cannot be instantiated
- * directly in Node tests, these tests validate the data patterns and
- * filtering logic that the push worker relies on.
- */
-
 import { describe, expect, it } from 'vitest';
 
 import type { PushSubscriptionInfo } from '@shared/notification-types';
-
-// =============================================================================
-// PushSubscriptionInfo notificationsEnabled field
-// =============================================================================
 
 describe('PushSubscriptionInfo notificationsEnabled', () => {
 	it('defaults to enabled when registerSubscription stores with notificationsEnabled: true', () => {
@@ -46,10 +34,6 @@ describe('PushSubscriptionInfo notificationsEnabled', () => {
 		expect(legacy.notificationsEnabled !== false).toBe(true);
 	});
 });
-
-// =============================================================================
-// Queue consumer filtering logic
-// =============================================================================
 
 describe('queue consumer subscription filtering', () => {
 	const enabledSubscription: PushSubscriptionInfo = {
@@ -100,10 +84,6 @@ describe('queue consumer subscription filtering', () => {
 	});
 });
 
-// =============================================================================
-// Notification preference parsing (mirrors getNotificationPreference logic)
-// =============================================================================
-
 function parsePreference(raw?: string): { enabled: boolean } | undefined {
 	if (!raw) return undefined;
 	try {
@@ -142,10 +122,6 @@ describe('notification preference parsing', () => {
 		expect(parsePreference('not-json')).toBeUndefined();
 	});
 });
-
-// =============================================================================
-// setNotificationPreference merge logic
-// =============================================================================
 
 function mergePreference(raw: string | undefined, enabled: boolean): string | undefined {
 	if (!raw) return undefined;

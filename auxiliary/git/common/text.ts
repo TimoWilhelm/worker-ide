@@ -1,9 +1,4 @@
 /**
- * Text/binary detection utilities.
- * Extracted from git-on-cloudflare's web/format.ts.
- */
-
-/**
  * Detects if content is binary by checking for non-text bytes.
  * Checks first 8 KB for null bytes or control characters.
  */
@@ -17,10 +12,6 @@ export function detectBinary(bytes: Uint8Array): boolean {
 	}
 	return false;
 }
-
-/**
- * Converts byte array to text, handling UTF-8/UTF-16 BOM detection.
- */
 export function bytesToText(bytes: Uint8Array): string {
 	if (!bytes || bytes.byteLength === 0) return '';
 	// UTF-8 BOM

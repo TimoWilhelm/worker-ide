@@ -1,10 +1,3 @@
-/**
- * Unit tests for JWT signing.
- *
- * Round-trip tests: sign with private key, verify with verifyJwt()
- * to ensure compatibility. Key pairs are generated on demand.
- */
-
 import { beforeAll, describe, expect, it } from 'vitest';
 
 import { signGitJwt } from './jwt-sign';

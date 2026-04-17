@@ -1,8 +1,3 @@
-/**
- * Tool: todos_get
- * Get the current TODO list for the session.
- */
-
 import { readTodos } from '../tool-executor';
 
 import type { SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';

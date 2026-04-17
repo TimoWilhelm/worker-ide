@@ -1,17 +1,3 @@
-/**
- * Working Tree Service — reconciliation between ProjectDO's working tree
- * and the git worker's committed tree.
- *
- * The working tree lives in the ProjectDO's SQLite database (via DurableObjectFilesystem).
- * The committed tree lives in the git worker's RepoDO + R2.
- * This service handles:
- *
- * - computeStatus(): diff working tree vs committed tree -> GitStatusEntry[]
- * - applyTree(): materialize a git tree into the working tree (checkout)
- * - collectChanges(): gather changed files from working tree for commitTree()
- * - computeBlobOid(): SHA-1 of "blob <size>\0<content>" for status comparison
- */
-
 import { HIDDEN_ENTRIES } from '@shared/constants';
 
 import type { TreeEntry, CommitFileEntry } from '@shared/git-types';
@@ -30,6 +16,15 @@ export async function computeBlobOid(content: Uint8Array): Promise<string> {
 	return [...new Uint8Array(hash)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
+function isDirectoryEntry(entry: unknown): entry is { name: string; isDirectory(): boolean } {
+	return (
+		entry !== null &&
+		typeof entry === 'object' &&
+		typeof Reflect.get(entry, 'name') === 'string' &&
+		typeof Reflect.get(entry, 'isDirectory') === 'function'
+	);
+}
+
 /**
  * Recursively list all files in the working tree.
  * Returns relative paths (e.g. "src/app.tsx").
@@ -41,14 +36,12 @@ async function listWorkingTreeFiles(fileSystem: typeof import('node:fs/promises'
 	let entries: Array<{ name: string; isDirectory(): boolean }>;
 	try {
 		const rawEntries = await fileSystem.readdir(fullPath, { withFileTypes: true });
-		// eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- worker-fs-mount Dirent type
-		entries = rawEntries as Array<{ name: string; isDirectory(): boolean }>;
+		entries = rawEntries.flatMap((entry) => (isDirectoryEntry(entry) ? [entry] : []));
 	} catch {
 		return files;
 	}
 
 	for (const entry of entries) {
-		// Skip hidden/internal entries
 		if (HIDDEN_ENTRIES.has(entry.name)) continue;
 		if (entry.name.startsWith('.git')) continue;
 
@@ -76,10 +69,7 @@ export async function computeStatus(
 	projectRoot: string,
 	committedTree: TreeEntry[],
 ): Promise<GitStatusEntry[]> {
-	// Build a map of committed files: path -> oid
 	const committed = new Map(committedTree.map((entry) => [entry.path, entry.oid]));
-
-	// Walk the working tree
 	const workingFiles = await listWorkingTreeFiles(fileSystem, projectRoot);
 	const entries: GitStatusEntry[] = [];
 
@@ -90,14 +80,13 @@ export async function computeStatus(
 			const buffer = await fileSystem.readFile(fullPath);
 			content = typeof buffer === 'string' ? new TextEncoder().encode(buffer) : new Uint8Array(buffer);
 		} catch {
-			continue; // File disappeared between listing and reading
+			continue;
 		}
 
 		const workingOid = await computeBlobOid(content);
 		const committedOid = committed.get(filePath);
 
 		if (!committedOid) {
-			// File exists in working tree but not in committed tree -> added
 			entries.push({
 				path: filePath,
 				status: 'untracked',
@@ -107,7 +96,6 @@ export async function computeStatus(
 				stageStatus: 0,
 			});
 		} else if (committedOid !== workingOid) {
-			// File differs -> modified
 			entries.push({
 				path: filePath,
 				status: 'modified',
@@ -117,12 +105,9 @@ export async function computeStatus(
 				stageStatus: 0,
 			});
 		}
-		// If OIDs match, file is unmodified — don't include in status
-
 		committed.delete(filePath);
 	}
 
-	// Remaining committed entries = deleted from working tree
 	for (const [path] of committed) {
 		entries.push({
 			path,
@@ -157,7 +142,6 @@ export async function collectChanges(
 	const deletedPaths: string[] = [];
 
 	for (const filePath of workingFiles) {
-		// If staging is active, only include staged files
 		if (stagedSet && !stagedSet.has(filePath)) continue;
 
 		const fullPath = `${projectRoot}/${filePath}`;
@@ -173,14 +157,12 @@ export async function collectChanges(
 		const committedOid = committed.get(filePath);
 
 		if (!committedOid || committedOid !== workingOid) {
-			// New or modified file
 			files.push({ path: filePath, content, mode: 0o10_0644 });
 		}
 
 		committed.delete(filePath);
 	}
 
-	// Remaining committed entries = deleted (if staged or no staging filter)
 	for (const [path] of committed) {
 		if (!stagedSet || stagedSet.has(path)) {
 			deletedPaths.push(path);
@@ -202,24 +184,20 @@ export async function applyTree(
 	tree: TreeEntry[],
 	blobFetcher: (oid: string) => Promise<Uint8Array | undefined>,
 ): Promise<void> {
-	// Filter out hidden entries from the target tree so we don't write files
-	// that would be invisible to listWorkingTreeFiles (and thus to status checks).
+	// Skip hidden entries so checkout and status operate on the same visible tree.
 	const filteredTree = tree.filter((entry) => {
 		const topLevel = entry.path.split('/')[0];
 		return !HIDDEN_ENTRIES.has(topLevel) && !topLevel.startsWith('.git');
 	});
 
-	// Get current working tree files
 	const currentFiles = new Set(await listWorkingTreeFiles(fileSystem, projectRoot));
 	const targetPaths = new Set(filteredTree.map((entry) => entry.path));
 
-	// Delete files that don't exist in the target tree
 	const deletedDirectories = new Set<string>();
 	for (const filePath of currentFiles) {
 		if (!targetPaths.has(filePath)) {
 			try {
 				await fileSystem.unlink(`${projectRoot}/${filePath}`);
-				// Track all ancestor directories for cleanup
 				let remaining = filePath;
 				let slashIndex = remaining.lastIndexOf('/');
 				while (slashIndex > 0) {
@@ -228,42 +206,37 @@ export async function applyTree(
 					slashIndex = remaining.lastIndexOf('/');
 				}
 			} catch {
-				// File may already be gone
+				// Ignore races with concurrent file removal.
 			}
 		}
 	}
 
-	// Clean up empty parent directories (deepest first)
 	const sortedDirectories = [...deletedDirectories].toSorted((a, b) => b.length - a.length);
 	for (const directory of sortedDirectories) {
 		try {
 			await fileSystem.rmdir(`${projectRoot}/${directory}`);
 		} catch {
-			// Directory not empty or already gone
+			// Ignore directories that still contain files.
 		}
 	}
 
-	// Create/update files from the target tree
 	for (const entry of filteredTree) {
 		const fullPath = `${projectRoot}/${entry.path}`;
 
-		// Check if file needs updating (compare OIDs if file exists)
 		if (currentFiles.has(entry.path)) {
 			try {
 				const buffer = await fileSystem.readFile(fullPath);
 				const content = typeof buffer === 'string' ? new TextEncoder().encode(buffer) : new Uint8Array(buffer);
 				const currentOid = await computeBlobOid(content);
-				if (currentOid === entry.oid) continue; // File unchanged
+				if (currentOid === entry.oid) continue;
 			} catch {
-				// File doesn't exist or can't be read, proceed to write
+				// Fall through and rewrite the file.
 			}
 		}
 
-		// Fetch blob content and write
 		const content = await blobFetcher(entry.oid);
 		if (!content) continue;
 
-		// Ensure parent directory exists
 		const lastSlash = fullPath.lastIndexOf('/');
 		if (lastSlash > 0) {
 			const directory = fullPath.slice(0, lastSlash);
@@ -272,12 +245,11 @@ export async function applyTree(
 
 		await fileSystem.writeFile(fullPath, content);
 
-		// Preserve executable bit from git mode (0o100755 -> 0o755, else 0o644)
 		if (entry.mode === 0o10_0755) {
 			try {
 				await fileSystem.chmod(fullPath, 0o755);
 			} catch {
-				// chmod may not be supported on all virtual FS implementations
+				// Some virtual filesystems do not support chmod.
 			}
 		}
 	}

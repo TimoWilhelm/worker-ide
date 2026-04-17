@@ -1,18 +1,3 @@
-/**
- * Revert Confirmation Dialog
- *
- * Shows a detailed summary of what reverting a snapshot cascade will do:
- * - Created files → will be deleted
- * - Edited files → will be restored to their original content
- * - Deleted files → will be recreated
- *
- * Also detects and warns about conflicts:
- * - Files that were already approved or manually edited
- * - Files from other sessions that touch the same paths
- *
- * File paths are rendered as clickable references that open in the editor.
- */
-
 import { AlertDialog } from '@base-ui/react/alert-dialog';
 import { useQueries } from '@tanstack/react-query';
 import { AlertCircle, AlertTriangle, FileMinus, FilePen, FilePlus, RotateCcw } from 'lucide-react';
@@ -31,32 +16,16 @@ import { FileReference } from './file-reference';
 
 import type { SnapshotMetadata } from '@shared/types';
 
-// =============================================================================
-// Types
-// =============================================================================
-
 interface RevertConfirmDialogProperties {
-	/** Whether the dialog is open */
 	open: boolean;
-	/** Callback when open state changes */
 	onOpenChange: (open: boolean) => void;
-	/** The snapshot IDs to revert (newest-first cascade) */
 	snapshotIds: string[];
-	/** The index of the user message associated with the revert point */
 	messageIndex: number;
-	/** The project ID for API calls */
 	projectId: string;
-	/** Callback when the user confirms the revert */
 	onConfirm: (snapshotIds: string[], messageIndex: number) => void;
-	/** Whether a revert is currently in progress */
 	isReverting: boolean;
-	/** Error message from a failed revert attempt */
 	revertError?: string;
 }
-
-// =============================================================================
-// Component
-// =============================================================================
 
 export function RevertConfirmDialog({
 	open,
@@ -162,7 +131,6 @@ export function RevertConfirmDialog({
 								'bg-bg-secondary shadow-lg',
 							)}
 						>
-							{/* Header */}
 							<div className="flex items-center gap-2 border-b border-border px-4 py-3">
 								<RotateCcw className="size-4 text-warning" />
 								<AlertDialog.Title className="text-sm font-semibold text-text-primary">
@@ -170,7 +138,6 @@ export function RevertConfirmDialog({
 								</AlertDialog.Title>
 							</div>
 
-							{/* Body */}
 							<div className="max-h-[60vh] overflow-y-auto p-4">
 								{isLoading && (
 									<div
@@ -196,7 +163,6 @@ export function RevertConfirmDialog({
 									</div>
 								)}
 
-								{/* Revert API error (from a previous failed attempt) */}
 								{revertError && (
 									<div
 										className="
@@ -219,7 +185,6 @@ export function RevertConfirmDialog({
 													: 'This will undo all changes made by the AI in response to this prompt. The following operations will be performed:'}
 										</AlertDialog.Description>
 
-										{/* Conflict warnings */}
 										{warnings.length > 0 && (
 											<div className="rounded-md border border-warning/30 bg-warning/5">
 												<div className="flex items-center gap-2 px-3 py-2">
@@ -250,7 +215,6 @@ export function RevertConfirmDialog({
 											</div>
 										)}
 
-										{/* Created files → will be deleted */}
 										{createdFiles.length > 0 && (
 											<ChangeGroup
 												label="Will delete"
@@ -263,7 +227,6 @@ export function RevertConfirmDialog({
 											/>
 										)}
 
-										{/* Edited files → will be restored */}
 										{editedFiles.length > 0 && (
 											<ChangeGroup
 												label="Will undo edits"
@@ -276,7 +239,6 @@ export function RevertConfirmDialog({
 											/>
 										)}
 
-										{/* Deleted files → will be recreated */}
 										{deletedFiles.length > 0 && (
 											<ChangeGroup
 												label="Will restore"
@@ -292,7 +254,6 @@ export function RevertConfirmDialog({
 								)}
 							</div>
 
-							{/* Footer */}
 							<div className="flex justify-end gap-2 border-t border-border px-4 py-3">
 								<AlertDialog.Close
 									disabled={isReverting}
@@ -349,10 +310,6 @@ export function RevertConfirmDialog({
 	);
 }
 
-// =============================================================================
-// Change Group sub-component
-// =============================================================================
-
 function ChangeGroup({
 	label,
 	description,
@@ -372,7 +329,6 @@ function ChangeGroup({
 }) {
 	return (
 		<div className={cn('rounded-md border border-border', backgroundClass)}>
-			{/* Group header */}
 			<div className="flex items-center gap-2 px-3 py-2">
 				<span
 					className={cn(
@@ -388,7 +344,6 @@ function ChangeGroup({
 				</span>
 				<span className="text-2xs text-text-secondary">{description}</span>
 			</div>
-			{/* File list */}
 			<div className="flex flex-col gap-1 border-t border-border/50 px-3 py-2">
 				{changes.map((change) => (
 					<div key={change.path} className="flex items-center gap-2">

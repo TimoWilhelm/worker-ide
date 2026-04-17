@@ -1,14 +1,3 @@
-/**
- * Panel Toggling E2E Tests
- *
- * Tests the visibility toggling of IDE panels:
- * - Terminal
- * - AI agent
- *
- * Note: The sidebar is always visible (no toggle button).
- * Snapshots are now accessed via revert buttons on AI chat messages.
- */
-
 import { expect, test } from 'playwright/test';
 
 import { gotoIDE } from './helpers';

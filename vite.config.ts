@@ -17,12 +17,6 @@ import type { Plugin, ResolvedConfig } from 'vite';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const commitHash = execSync('git rev-parse HEAD').toString().trim();
-
-// =============================================================================
-// Shared helpers
-// =============================================================================
-
-/** Apply build-time token replacements to source code. */
 function applyDefines(code: string, defines: Record<string, string>): string {
 	let result = code;
 	for (const [token, value] of Object.entries(defines)) {
@@ -30,8 +24,6 @@ function applyDefines(code: string, defines: Record<string, string>): string {
 	}
 	return result;
 }
-
-/** Minify JS with esbuild and compute a SHA-256 content hash. */
 async function minifyAndHash(code: string, filePath: string): Promise<{ source: string; hash: string }> {
 	const result = await transformWithEsbuild(code, filePath, {
 		minify: true,
@@ -40,10 +32,6 @@ async function minifyAndHash(code: string, filePath: string): Promise<{ source: 
 	const digest = createHash('sha256').update(result.code).digest('base64');
 	return { source: result.code, hash: `sha256-${digest}` };
 }
-
-// =============================================================================
-// Plugins
-// =============================================================================
 
 /**
  * Import any `.js` file as a minified source string + SRI hash via `?raw-minified`.
@@ -104,7 +92,6 @@ function foucPreventionPlugin(): Plugin {
 	};
 
 	let resolvedConfig: ResolvedConfig;
-	/** Deterministic filename known before transformIndexHtml runs. */
 	let assetFileName: string;
 
 	function processScript(): string {

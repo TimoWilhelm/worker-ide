@@ -1,10 +1,3 @@
-/**
- * Output Panel Component
- *
- * Displays server logs and console output from the module-level log buffer.
- * The buffer persists across mount/unmount cycles so logs are never lost.
- */
-
 import { ScrollArea } from '@base-ui/react/scroll-area';
 import { Ban, Circle } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -17,10 +10,6 @@ import { cn } from '@/lib/utils';
 import { clearLogs, getPreserveLogs, setPreserveLogs, useLogs } from '../lib/log-buffer';
 
 import type { LogEntry, OutputPanelProperties } from '../types';
-
-// =============================================================================
-// File Link Parsing
-// =============================================================================
 
 /**
  * Regex to match file references like `worker/database.ts:10:26` or
@@ -69,10 +58,6 @@ interface MessageSegment {
 	line?: number;
 	column?: number;
 }
-
-/**
- * Parse a log message into segments of plain text and clickable file links.
- */
 function parseMessage(message: string): MessageSegment[] {
 	const segments: MessageSegment[] = [];
 	let lastIndex = 0;
@@ -105,14 +90,6 @@ function parseMessage(message: string): MessageSegment[] {
 
 	return segments.length > 0 ? segments : [{ type: 'text', value: message }];
 }
-
-// =============================================================================
-// Component
-// =============================================================================
-
-/**
- * Output panel showing logs and console output.
- */
 export function OutputPanel({ className }: OutputPanelProperties) {
 	const logs = useLogs();
 	const [filter, setFilter] = useState<'all' | 'server' | 'client' | 'lint'>('all');
@@ -147,7 +124,6 @@ export function OutputPanel({ className }: OutputPanelProperties) {
 
 	return (
 		<div className={cn('flex h-full flex-col bg-bg-secondary', className)}>
-			{/* Toolbar */}
 			<div
 				className="
 					flex shrink-0 flex-wrap items-center justify-between gap-x-2 gap-y-0.5
@@ -201,7 +177,6 @@ export function OutputPanel({ className }: OutputPanelProperties) {
 				</div>
 			</div>
 
-			{/* Log output */}
 			<ScrollArea.Root className="flex-1 overflow-hidden">
 				<ScrollArea.Viewport ref={scrollReference} className="size-full">
 					{filteredLogs.length === 0 ? (
@@ -227,10 +202,6 @@ export function OutputPanel({ className }: OutputPanelProperties) {
 		</div>
 	);
 }
-
-// =============================================================================
-// Sub-components
-// =============================================================================
 
 function FilterButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
 	return (

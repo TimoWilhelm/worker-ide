@@ -1,10 +1,3 @@
-/**
- * Preview Service.
- *
- * Serves user project files on the preview subdomain.
- * Each preview lives on its own origin — request paths map directly to the filesystem.
- */
-
 import fs from 'node:fs/promises';
 
 import { source as chobitsuSource, hash as chobitsuHash } from 'chobitsu?raw-minified';
@@ -32,10 +25,6 @@ import { resolveStorageQuotaForProject } from '../lib/storage-quota';
 import type { ResolvedAssetSettings, ServerError } from '@shared/types';
 import type { ServerMessage } from '@shared/ws-messages';
 
-// =============================================================================
-// Content-Security-Policy
-// =============================================================================
-
 /**
  * Build the CSP header for preview HTML responses.
  *
@@ -57,10 +46,6 @@ function buildPreviewCsp(ideOrigin: string): string {
 		"base-uri 'self'",
 	].join('; ');
 }
-
-// =============================================================================
-// Anti-Hotlinking Headers
-// =============================================================================
 
 /**
  * Security headers for non-HTML preview responses (JS, CSS, images, etc.).
@@ -86,10 +71,6 @@ function buildAssetSecurityHeaders(ideOrigin: string): Record<string, string> {
 	};
 }
 
-// =============================================================================
-// Script Integrity Hashes
-// =============================================================================
-
 const scriptIntegrityHashes: Record<string, string> = {
 	'__chobitsu.js': chobitsuHash,
 	'__chobitsu-init.js': chobitsuInitHash,
@@ -98,10 +79,6 @@ const scriptIntegrityHashes: Record<string, string> = {
 	'__react-refresh-preamble.js': reactRefreshPreambleHash,
 };
 
-// =============================================================================
-// Internal Preview Scripts
-// =============================================================================
-
 const INTERNAL_SCRIPTS: Record<string, string> = {
 	'/__chobitsu.js': chobitsuSource,
 	'/__chobitsu-init.js': chobitsuInitSource,
@@ -109,10 +86,6 @@ const INTERNAL_SCRIPTS: Record<string, string> = {
 	'/__hmr-client.js': hmrClientSource,
 	'/__react-refresh-preamble.js': reactRefreshPreambleSource,
 };
-
-// =============================================================================
-// Preview Service
-// =============================================================================
 
 /**
  * Strip internal esbuild noise from error messages shown to users.
@@ -131,10 +104,6 @@ export class PreviewService {
 		private projectRoot: string,
 		private projectId: string,
 	) {}
-
-	/**
-	 * Load asset settings from wrangler.jsonc.
-	 */
 	async loadAssetSettings(): Promise<ResolvedAssetSettings> {
 		try {
 			const raw = await fs.readFile(`${this.projectRoot}/wrangler.jsonc`, 'utf8');
@@ -144,10 +113,6 @@ export class PreviewService {
 			return resolveAssetSettings();
 		}
 	}
-
-	/**
-	 * Check if a request path matches the run_worker_first configuration.
-	 */
 	matchesRunWorkerFirst(pathname: string, runWorkerFirst: boolean | string[]): boolean {
 		if (runWorkerFirst === false) return false;
 		if (runWorkerFirst === true) return true;
@@ -340,10 +305,6 @@ export class PreviewService {
 			});
 		}
 	}
-
-	/**
-	 * Handle preview API routes (user's backend code).
-	 */
 	async handlePreviewAPI(request: Request, apiPath: string): Promise<Response> {
 		try {
 			const files = await this.collectFilesForBundle(`${this.projectRoot}/worker`, 'worker');
@@ -458,10 +419,6 @@ export class PreviewService {
 		const match = path.match(/\.[^./]+$/);
 		return match ? match[0].toLowerCase() : '';
 	}
-
-	/**
-	 * Serve an HTML file with preview scripts injected.
-	 */
 	private async serveHtmlFile(textContent: string, filePath: string, url: URL, ideOrigin: string, viteFs: FileSystem): Promise<Response> {
 		const protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
 		const wsUrl = `${protocol}//${url.host}/__ws`;
@@ -481,10 +438,6 @@ export class PreviewService {
 			},
 		});
 	}
-
-	/**
-	 * Handle not_found_handling fallback when a file is not found.
-	 */
 	private async handleNotFoundFallback(url: URL, ideOrigin: string, notFoundHandling: string | undefined): Promise<Response | undefined> {
 		const viteFs: FileSystem = {
 			readFile: (path: string) => fs.readFile(path),
@@ -539,10 +492,6 @@ export class PreviewService {
 
 		return undefined;
 	}
-
-	/**
-	 * Handle html_handling redirects for HTML content requests.
-	 */
 	private async handleHtmlRedirects(url: URL, filePath: string, htmlHandling = 'auto-trailing-slash'): Promise<Response | undefined> {
 		if (htmlHandling === 'none') {
 			return undefined;

@@ -1,15 +1,3 @@
-/**
- * Tests for the ProjectCoordinator Durable Object.
- *
- * Runs in the workerd test pool via @cloudflare/vitest-pool-workers.
- * Uses real miniflare-backed DO instances accessed through `cloudflare:test`
- * env bindings to test RPC methods.
- *
- * Note: WebSocket upgrade tests (via stub.fetch()) are not included here
- * because the hibernation API's storage access conflicts with vitest's
- * isolated storage stack. WebSocket behavior is covered by integration tests.
- */
-
 import { env } from 'cloudflare:test';
 import { describe, expect, it } from 'vitest';
 
@@ -24,10 +12,6 @@ function getCoordinatorStub(name: string): DurableObjectStub<ProjectCoordinatorV
 	return namespace.getByName(name);
 }
 
-// =============================================================================
-// getOutputLogs
-// =============================================================================
-
 describe('getOutputLogs', () => {
 	it('returns empty string initially', async () => {
 		const stub = getCoordinatorStub('test-output-logs-empty');
@@ -35,10 +19,6 @@ describe('getOutputLogs', () => {
 		expect(logs).toBe('');
 	});
 });
-
-// =============================================================================
-// sendMessage
-// =============================================================================
 
 describe('sendMessage', () => {
 	it('does not throw when no clients are connected', async () => {
@@ -60,10 +40,6 @@ describe('sendMessage', () => {
 		).resolves.toBeUndefined();
 	});
 });
-
-// =============================================================================
-// triggerUpdate
-// =============================================================================
 
 describe('triggerUpdate', () => {
 	it('does not throw when no clients are connected', async () => {
@@ -101,32 +77,6 @@ describe('triggerUpdate', () => {
 	});
 });
 
-// =============================================================================
-// sendCdpCommand
-// =============================================================================
-
-describe('sendCdpCommand', () => {
-	it('returns error when no clients are connected', async () => {
-		const stub = getCoordinatorStub('test-cdp-no-clients');
-		const result = await stub.sendCdpCommand('test-id', 'Runtime.evaluate', { expression: '1+1' });
-
-		expect(result.error).toBeDefined();
-		expect(result.error).toContain('No browser is connected');
-		expect(result.result).toBeUndefined();
-	});
-
-	it('returns error with descriptive message', async () => {
-		const stub = getCoordinatorStub('test-cdp-descriptive-error');
-		const result = await stub.sendCdpCommand('cmd-1', 'DOM.getDocument');
-
-		expect(result.error).toContain('No browser is connected');
-	});
-});
-
-// =============================================================================
-// Output logs round-trip (sendMessage -> getOutputLogs)
-// =============================================================================
-
 describe('output logs persistence', () => {
 	it('getOutputLogs returns empty string when only non-log messages sent', async () => {
 		const stub = getCoordinatorStub('test-output-no-logs');
@@ -141,10 +91,6 @@ describe('output logs persistence', () => {
 		expect(logs).toBe('');
 	});
 });
-
-// =============================================================================
-// Multiple RPC calls on same instance
-// =============================================================================
 
 describe('instance consistency', () => {
 	it('multiple RPC calls on the same stub work correctly', async () => {

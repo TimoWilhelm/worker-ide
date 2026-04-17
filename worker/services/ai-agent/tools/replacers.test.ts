@@ -1,7 +1,3 @@
-/**
- * Unit tests for the string replacement strategies.
- */
-
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -17,10 +13,6 @@ import {
 	TrimmedBoundaryReplacer,
 	WhitespaceNormalizedReplacer,
 } from './replacers';
-
-// =============================================================================
-// Levenshtein Distance Tests
-// =============================================================================
 
 describe('levenshtein', () => {
 	it('should return 0 for identical strings', () => {
@@ -39,20 +31,12 @@ describe('levenshtein', () => {
 	});
 });
 
-// =============================================================================
-// SimpleReplacer Tests
-// =============================================================================
-
 describe('SimpleReplacer', () => {
 	it('should yield the exact find string', () => {
 		const results = [...SimpleReplacer('const foo = 1;', 'foo')];
 		expect(results).toEqual(['foo']);
 	});
 });
-
-// =============================================================================
-// LineTrimmedReplacer Tests
-// =============================================================================
 
 describe('LineTrimmedReplacer', () => {
 	it('should match lines with trimmed whitespace', () => {
@@ -75,10 +59,6 @@ describe('LineTrimmedReplacer', () => {
 	});
 });
 
-// =============================================================================
-// BlockAnchorReplacer Tests
-// =============================================================================
-
 describe('BlockAnchorReplacer', () => {
 	it('should match blocks by first and last line anchors', () => {
 		const content = 'function test() {\n  const x = 1;\n  const y = 2;\n  return x + y;\n}';
@@ -95,10 +75,6 @@ describe('BlockAnchorReplacer', () => {
 	});
 });
 
-// =============================================================================
-// WhitespaceNormalizedReplacer Tests
-// =============================================================================
-
 describe('WhitespaceNormalizedReplacer', () => {
 	it('should match with collapsed whitespace', () => {
 		const content = 'const   foo   =   1;';
@@ -113,10 +89,6 @@ describe('WhitespaceNormalizedReplacer', () => {
 	});
 });
 
-// =============================================================================
-// IndentationFlexibleReplacer Tests
-// =============================================================================
-
 describe('IndentationFlexibleReplacer', () => {
 	it('should match ignoring leading indentation', () => {
 		const content = '    function test() {\n        return 1;\n    }';
@@ -126,10 +98,6 @@ describe('IndentationFlexibleReplacer', () => {
 	});
 });
 
-// =============================================================================
-// EscapeNormalizedReplacer Tests
-// =============================================================================
-
 describe('EscapeNormalizedReplacer', () => {
 	it('should handle escape sequences', () => {
 		const content = String.raw`const str = "hello\nworld";`;
@@ -138,10 +106,6 @@ describe('EscapeNormalizedReplacer', () => {
 		expect(results.length).toBeGreaterThanOrEqual(0);
 	});
 });
-
-// =============================================================================
-// TrimmedBoundaryReplacer Tests
-// =============================================================================
 
 describe('TrimmedBoundaryReplacer', () => {
 	it('should match trimmed content', () => {
@@ -156,10 +120,6 @@ describe('TrimmedBoundaryReplacer', () => {
 		expect(results).toEqual([]);
 	});
 });
-
-// =============================================================================
-// ContextAwareReplacer Tests
-// =============================================================================
 
 describe('ContextAwareReplacer', () => {
 	it('should match based on first/last line context', () => {
@@ -178,10 +138,6 @@ describe('ContextAwareReplacer', () => {
 	});
 });
 
-// =============================================================================
-// MultiOccurrenceReplacer Tests
-// =============================================================================
-
 describe('MultiOccurrenceReplacer', () => {
 	it('should yield all exact matches', () => {
 		const content = 'foo bar foo baz foo';
@@ -195,10 +151,6 @@ describe('MultiOccurrenceReplacer', () => {
 		expect(results).toEqual([]);
 	});
 });
-
-// =============================================================================
-// Main replace() Function Tests
-// =============================================================================
 
 describe('replace', () => {
 	it('should perform exact replacement', () => {

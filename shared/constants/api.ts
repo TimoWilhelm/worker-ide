@@ -1,10 +1,3 @@
-/**
- * API constants for the Worker IDE application.
- */
-
-/**
- * Default headers for JSON API responses
- */
 export const JSON_HEADERS = {
 	'Content-Type': 'application/json',
 	'Access-Control-Allow-Origin': '*',

@@ -7,10 +7,6 @@ import { trackWebSocketEvent } from '../lib/analytics';
 
 import type { HmrUpdate, Participant } from '@shared/types';
 import type { ServerMessage } from '@shared/ws-messages';
-
-/**
- * Participant attachment stored on WebSocket connections.
- */
 interface ParticipantAttachment {
 	id: string;
 	color: string;
@@ -25,13 +21,9 @@ interface ParticipantAttachment {
  * All persisted values must be serializable via the structured clone algorithm.
  */
 const STORAGE_KEY = {
-	/** Last serialized server-error message (string). Replayed to late-joining clients. */
 	LAST_SERVER_ERROR: 'lastServerError',
-	/** Monotonic HMR version counter (number). Survives hibernation / eviction. */
 	UPDATE_VERSION: 'updateVersion',
-	/** Latest IDE output-logs snapshot (string). Read by the AI agent service. */
 	OUTPUT_LOGS: 'outputLogs',
-	/** Recent user file edits (JSON string). Drained by the AI agent service between iterations. */
 	RECENT_FILE_EDITS: 'recentFileEdits',
 } as const;
 
@@ -46,36 +38,19 @@ const STORAGE_KEY = {
  * Each project has its own ProjectCoordinator instance (keyed by `project:${projectId}`).
  *
  * All durable state is persisted to the DO's SQLite-backed storage via
- * `ctx.storage.kv` so it survives hibernation and eviction. Only truly
- * transient data (pending CDP promise callbacks) is kept in-memory.
+ * `ctx.storage.kv` so it survives hibernation and eviction.
  */
 export class ProjectCoordinatorV2 extends DurableObject {
 	constructor(state: DurableObjectState, environment: Env) {
 		super(state, environment);
 		this.ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'));
 	}
-
-	/**
-	 * Pending CDP command requests awaiting a response from a frontend client.
-	 *
-	 * These contain `resolve` callbacks which are not serializable.
-	 * If the DO is evicted while requests are pending, callers will time out
-	 * on their side. When the DO wakes from hibernation, this Map starts empty,
-	 * which is safe because any in-flight CDP promises will have already expired.
-	 */
-	private pendingCdpRequests = new Map<string, { resolve: (value: { result?: string; error?: string }) => void }>();
-
-	/** Project ID for analytics. Set from the `x-project-id` header on first fetch. */
 	private projectId: string | undefined;
-
-	/** Maximum number of recent file edits to retain before oldest are dropped. */
 	private static readonly MAX_RECENT_FILE_EDITS = 100;
 
 	// =========================================================================
 	// Persisted state — native get/set backed by ctx.storage.kv
 	// =========================================================================
-
-	/** Last server-error message, replayed to newly connected clients. */
 	private get lastServerError(): string | undefined {
 		return this.ctx.storage.kv.get<string>(STORAGE_KEY.LAST_SERVER_ERROR);
 	}
@@ -87,8 +62,6 @@ export class ProjectCoordinatorV2 extends DurableObject {
 			this.ctx.storage.kv.put(STORAGE_KEY.LAST_SERVER_ERROR, value);
 		}
 	}
-
-	/** Monotonically increasing version counter for HMR updates. */
 	private get updateVersion(): number {
 		return this.ctx.storage.kv.get<number>(STORAGE_KEY.UPDATE_VERSION) ?? 0;
 	}
@@ -96,8 +69,6 @@ export class ProjectCoordinatorV2 extends DurableObject {
 	private set updateVersion(value: number) {
 		this.ctx.storage.kv.put(STORAGE_KEY.UPDATE_VERSION, value);
 	}
-
-	/** Latest IDE output logs snapshot pushed by the frontend. */
 	private get outputLogs(): string {
 		return this.ctx.storage.kv.get<string>(STORAGE_KEY.OUTPUT_LOGS) ?? '';
 	}
@@ -105,8 +76,6 @@ export class ProjectCoordinatorV2 extends DurableObject {
 	private set outputLogs(value: string) {
 		this.ctx.storage.kv.put(STORAGE_KEY.OUTPUT_LOGS, value);
 	}
-
-	/** Recent file edits made by connected users. Persisted so they survive hibernation. */
 	private get recentFileEdits(): Array<{ path: string; timestamp: number }> {
 		return this.ctx.storage.kv.get<Array<{ path: string; timestamp: number }>>(STORAGE_KEY.RECENT_FILE_EDITS) ?? [];
 	}
@@ -250,74 +219,6 @@ export class ProjectCoordinatorV2 extends DurableObject {
 	}
 
 	/**
-	 * Send a CDP command to the preview iframe via a connected frontend client.
-	 * Returns the CDP response result or an error message.
-	 *
-	 * Only sends to a single client to avoid duplicate executions when
-	 * multiple sessions are connected. Prefers "joined" clients (those that
-	 * sent a `collab-join` and thus have an active editor session with a
-	 * preview iframe) over raw WebSocket connections.
-	 *
-	 * When no client is connected, returns a descriptive error instead of
-	 * throwing — the agent loop runs independently of client connections
-	 * and must handle this case transparently.
-	 */
-	async sendCdpCommand(id: string, method: string, parameters?: Record<string, unknown>): Promise<{ result?: string; error?: string }> {
-		// Find the best candidate: prefer a joined client (has an active
-		// editor with a preview iframe) over an un-joined raw connection.
-		let targetSocket: WebSocket | undefined;
-		for (const ws of this.ctx.getWebSockets()) {
-			if (ws.readyState !== WebSocket.OPEN) continue;
-			const attachment = this.getAttachment(ws);
-			if (attachment?.joined) {
-				targetSocket = ws;
-				break;
-			}
-			// Fall back to any open socket if no joined client is found
-			if (!targetSocket) {
-				targetSocket = ws;
-			}
-		}
-
-		if (!targetSocket) {
-			return { error: 'No browser is connected to the project. The CDP command cannot be relayed to a preview iframe.' };
-		}
-
-		const CDP_TIMEOUT_MS = 10_000;
-
-		return new Promise<{ result?: string; error?: string }>((resolve) => {
-			const timeout = setTimeout(() => {
-				this.pendingCdpRequests.delete(id);
-				resolve({ error: 'CDP command timed out. The preview iframe may not be loaded or chobitsu is not responding.' });
-			}, CDP_TIMEOUT_MS);
-
-			this.pendingCdpRequests.set(id, {
-				resolve: (value) => {
-					clearTimeout(timeout);
-					this.pendingCdpRequests.delete(id);
-					resolve(value);
-				},
-			});
-
-			const message = serializeMessage({
-				type: 'cdp-request',
-				id,
-				method,
-				params: parameters,
-			});
-
-			// Send to only one client to avoid duplicate CDP executions
-			try {
-				targetSocket.send(message);
-			} catch {
-				clearTimeout(timeout);
-				this.pendingCdpRequests.delete(id);
-				resolve({ error: 'Failed to send CDP command to the client. The connection may have closed.' });
-			}
-		});
-	}
-
-	/**
 	 * Get the latest IDE output logs snapshot.
 	 * Called by the AI agent service between iterations to check for new errors/warnings.
 	 */
@@ -344,10 +245,6 @@ export class ProjectCoordinatorV2 extends DurableObject {
 		}
 		return [...byPath.entries()].map(([path, timestamp]) => ({ path, timestamp }));
 	}
-
-	/**
-	 * Send the initial collab-state message to a newly joined client.
-	 */
 	private sendCollabState(ws: WebSocket, attachment: ParticipantAttachment): void {
 		try {
 			ws.send(
@@ -512,14 +409,6 @@ export class ProjectCoordinatorV2 extends DurableObject {
 					edits.splice(0, edits.length - ProjectCoordinatorV2.MAX_RECENT_FILE_EDITS);
 				}
 				this.recentFileEdits = edits;
-				return;
-			}
-
-			if (data.type === 'cdp-response') {
-				const pending = this.pendingCdpRequests.get(data.id);
-				if (pending) {
-					pending.resolve({ result: data.result, error: data.error });
-				}
 				return;
 			}
 

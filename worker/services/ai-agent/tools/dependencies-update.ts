@@ -1,9 +1,3 @@
-/**
- * Tool: dependencies_update
- * Add, remove, or update a project dependency.
- * Dependencies are stored in the `dependencies` field of `package.json`.
- */
-
 import fs from 'node:fs/promises';
 
 import { stripIndent } from 'common-tags';

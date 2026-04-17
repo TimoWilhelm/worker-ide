@@ -1,41 +1,18 @@
-/**
- * Diff Computation Utility
- *
- * Uses the `diff` package to compute line-level diffs between
- * before/after file content for inline diff display.
- */
-
 import { diffLines } from 'diff';
 
-// =============================================================================
-// Types
-// =============================================================================
-
 export interface DiffHunk {
-	/** Type of change */
 	type: 'added' | 'removed';
-	/** 1-indexed start line in the current (after) document */
 	startLine: number;
-	/** 1-indexed start line in the original (before) document */
 	beforeStartLine: number;
-	/** Number of lines in this hunk */
 	lineCount: number;
-	/** The actual text lines */
 	lines: string[];
 }
 
 export interface DiffData {
-	/** All diff hunks for this file */
 	hunks: DiffHunk[];
-	/** The original (before) content */
 	beforeContent: string;
-	/** The current (after) content */
 	afterContent: string;
 }
-
-// =============================================================================
-// Diff Computation
-// =============================================================================
 
 /**
  * Compute line-level diff hunks between before and after content.
@@ -113,21 +90,14 @@ export function computeDiffData(beforeContent = '', afterContent = ''): DiffData
 	return { hunks, beforeContent, afterContent };
 }
 
-// =============================================================================
-// Change Groups — logical grouping of adjacent hunks for per-change accept/reject
-// =============================================================================
-
 /**
  * A logical change in the diff: either a pure addition, a pure removal,
  * or a replacement (adjacent removed + added hunks at the same position).
  * Each change group gets one accept/reject action bar.
  */
 export interface ChangeGroup {
-	/** Index of this group (0-based), used for hunkStatuses[] */
 	index: number;
-	/** The hunks that make up this change group (1 or 2 hunks) */
 	hunks: DiffHunk[];
-	/** 1-indexed start line in the after document (from the first hunk) */
 	startLine: number;
 }
 
@@ -255,10 +225,6 @@ export function reconstructContent(beforeContent: string, afterContent: string, 
 
 	return reconstructed;
 }
-
-// =============================================================================
-// Helpers
-// =============================================================================
 
 /**
  * Ensure a non-empty string ends with exactly one newline.

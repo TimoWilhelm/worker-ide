@@ -1,10 +1,3 @@
-/**
- * Button Component
- *
- * Versatile button with multiple variants and sizes.
- * Uses class-variance-authority for variant management.
- */
-
 import { cva, type VariantProps } from 'class-variance-authority';
 
 import { Spinner } from './spinner';
@@ -63,11 +56,8 @@ const buttonVariants = cva(
 );
 
 interface ButtonProperties extends ButtonHTMLAttributes<HTMLButtonElement>, VariantProps<typeof buttonVariants> {
-	/** Show loading spinner and disable button */
 	isLoading?: boolean;
-	/** Loading text to show instead of children */
 	loadingText?: string;
-	/** React 19 ref-as-prop */
 	ref?: Ref<HTMLButtonElement>;
 }
 

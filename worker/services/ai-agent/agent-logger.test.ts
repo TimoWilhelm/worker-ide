@@ -1,16 +1,8 @@
-/**
- * Unit tests for AgentLogger.
- */
-
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AgentLogger, sanitizeToolInput, summarizeToolResult } from './agent-logger';
 
 import type { AgentDebugLog } from './agent-logger';
-
-// =============================================================================
-// Mock node:fs/promises — agent-logger imports it for flush/cleanup
-// =============================================================================
 
 vi.mock('node:fs/promises', () => ({
 	default: {
@@ -20,10 +12,6 @@ vi.mock('node:fs/promises', () => ({
 		unlink: vi.fn().mockResolvedValue(true),
 	},
 }));
-
-// =============================================================================
-// Tests
-// =============================================================================
 
 describe('AgentLogger', () => {
 	let logger: AgentLogger;
@@ -312,10 +300,6 @@ describe('AgentLogger', () => {
 	});
 });
 
-// =============================================================================
-// sanitizeToolInput
-// =============================================================================
-
 describe('sanitizeToolInput', () => {
 	it('passes through short values unchanged', () => {
 		const input = { path: '/src/app.ts', pattern: '*.ts' };
@@ -345,10 +329,6 @@ describe('sanitizeToolInput', () => {
 		expect(result.description).toBe(moderateValue);
 	});
 });
-
-// =============================================================================
-// summarizeToolResult
-// =============================================================================
 
 describe('summarizeToolResult', () => {
 	it('returns short results unchanged', () => {

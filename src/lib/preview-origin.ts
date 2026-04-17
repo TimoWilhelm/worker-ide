@@ -1,39 +1,19 @@
-/**
- * Frontend origin utilities for subdomain URLs and cross-origin message validation.
- *
- * Preview URLs are HMAC-signed with time-bucket tokens. The frontend
- * fetches a signed URL from the API on IDE load and caches it for the
- * session. The `usePreviewUrl` hook manages the lifecycle.
- */
-
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { getBaseDomain, isPreviewOrigin } from '@shared/domain';
 
 import { createApiClient } from './api-client';
-
-/** Get the URL path for a project (same-origin navigation). */
 export function getProjectUrl(projectId: string): string {
 	return `/p/${projectId}`;
 }
-
-/** Check if a message event came from a preview subdomain. */
 export function isMessageFromPreview(event: MessageEvent): boolean {
 	return isPreviewOrigin(event.origin, getBaseDomain(globalThis.location.host));
 }
 
-// =============================================================================
-// Preview URL Hook
-// =============================================================================
-
 interface PreviewUrlState {
-	/** Full signed preview URL with trailing slash (e.g., `https://abc-d1e2f3a4b5c6.preview.example.com/`). */
 	previewUrl: string | undefined;
-	/** Preview origin without trailing path (e.g., `https://abc-d1e2f3a4b5c6.preview.example.com`). */
 	previewOrigin: string | undefined;
-	/** Whether the initial fetch is in progress. */
 	isLoading: boolean;
-	/** Fetch a fresh signed URL (e.g., after a 403 from the preview iframe). */
 	refresh: () => Promise<void>;
 }
 

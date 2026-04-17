@@ -1,17 +1,3 @@
-/**
- * CodeMirror Biome Lint Extension
- *
- * Creates a CodeMirror linter extension that runs Biome WASM on the
- * editor content and returns diagnostics as inline squiggly underlines.
- * Each fixable diagnostic gets a "Fix" action in its tooltip.
- *
- * Keyboard shortcuts:
- * - Ctrl+. / Cmd+. — Quick Fix: apply safe fix for the diagnostic at cursor
- * - Ctrl+Shift+. / Cmd+Shift+. — Fix All: apply all safe fixes in the file
- *
- * Also dispatches a CustomEvent so the Output panel can display them.
- */
-
 import { forEachDiagnostic, linter, lintGutter } from '@codemirror/lint';
 import { keymap } from '@codemirror/view';
 
@@ -21,10 +7,6 @@ import type { LintDiagnostic } from '@/lib/biome-linter';
 import type { Action, Diagnostic } from '@codemirror/lint';
 import type { Extension } from '@codemirror/state';
 import type { EditorView } from '@codemirror/view';
-
-// =============================================================================
-// Severity Mapping
-// =============================================================================
 
 function mapSeverity(severity: LintDiagnostic['severity']): Diagnostic['severity'] {
 	switch (severity) {
@@ -40,10 +22,6 @@ function mapSeverity(severity: LintDiagnostic['severity']): Diagnostic['severity
 	}
 }
 
-// =============================================================================
-// Lint Diagnostics Event
-// =============================================================================
-
 export function dispatchLintDiagnostics(filePath: string, diagnostics: LintDiagnostic[]): void {
 	globalThis.dispatchEvent(
 		new CustomEvent('lint-diagnostics', {
@@ -51,23 +29,11 @@ export function dispatchLintDiagnostics(filePath: string, diagnostics: LintDiagn
 		}),
 	);
 }
-
-// =============================================================================
-// Autofix Helpers
-// =============================================================================
-
-/**
- * Replace the entire editor document with new content.
- */
 function replaceDocument(view: EditorView, newContent: string): void {
 	view.dispatch({
 		changes: { from: 0, to: view.state.doc.length, insert: newContent },
 	});
 }
-
-/**
- * Apply all safe Biome fixes to the current document.
- */
 async function applyAllFixes(view: EditorView, filename: string): Promise<boolean> {
 	const content = view.state.doc.toString();
 	const result = await fixFile(filename, content);
@@ -94,10 +60,6 @@ function createFixAction(filename: string, from: number, to: number): Action {
 		},
 	};
 }
-
-// =============================================================================
-// Extension Factory
-// =============================================================================
 
 /**
  * Create a CodeMirror lint extension for the given filename.

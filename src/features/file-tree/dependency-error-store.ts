@@ -1,30 +1,14 @@
-/**
- * Dependency Error Store
- *
- * Zustand store that listens for server-error events globally and tracks
- * missing/invalid dependency errors. This ensures errors are captured even when
- * the DependencyPanel is unmounted (e.g. inside a closed mobile drawer).
- */
-
 import { createStore, useStore } from 'zustand';
 
 import { isMessageFromPreview } from '@/lib/preview-origin';
 
 import type { DependencyError } from '@shared/types';
 
-// =============================================================================
-// Error messages
-// =============================================================================
-
 const ERROR_MESSAGES: Record<DependencyError['code'], string> = {
 	unregistered: 'Not registered. Add it via the Dependencies panel.',
 	'not-found': 'Package not found. Check the name and version.',
 	'resolve-failed': 'Failed to resolve from CDN. The version may be invalid.',
 };
-
-// =============================================================================
-// Store
-// =============================================================================
 
 interface DependencyErrorState {
 	missing: Set<string>;
@@ -79,17 +63,9 @@ const dependencyErrorStore = createStore<DependencyErrorState>((set, get) => ({
 	reset: () => set({ missing: new Set(), invalid: new Map() }),
 }));
 
-// =============================================================================
-// React hook
-// =============================================================================
-
 function useDependencyErrors() {
 	return useStore(dependencyErrorStore);
 }
-
-// =============================================================================
-// Imperative accessors (for use outside React)
-// =============================================================================
 
 function removeMissing(packageName: string) {
 	dependencyErrorStore.getState().removeMissing(packageName);
@@ -102,10 +78,6 @@ function removeInvalid(packageName: string) {
 function resetDependencyErrors() {
 	dependencyErrorStore.getState().reset();
 }
-
-// =============================================================================
-// Global event listeners (active for the lifetime of the module)
-// =============================================================================
 
 function extractDependencyErrors(errorObject: unknown): DependencyError[] | undefined {
 	if (typeof errorObject !== 'object' || errorObject === undefined || errorObject === null) {
@@ -147,10 +119,6 @@ function handleMessage(event: MessageEvent) {
 
 globalThis.addEventListener('server-error', handleServerError);
 globalThis.addEventListener('message', handleMessage);
-
-// =============================================================================
-// Exports
-// =============================================================================
 
 function subscribeDependencyErrors(listener: () => void) {
 	return dependencyErrorStore.subscribe(listener);

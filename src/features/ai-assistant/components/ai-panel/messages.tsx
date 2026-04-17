@@ -1,11 +1,3 @@
-/**
- * Agent Panel Message Sub-Components.
- * WelcomeScreen, MessageBubble, UserMessage, AssistantMessage,
- * InlineToolCall, InlineTodoList, ContinuationPrompt, AIError.
- *
- * Renders ChatMessage.parts (TextPart, ToolCallPart, ToolResultPart, ReasoningPart).
- */
-
 import {
 	AlertCircle,
 	Bot,
@@ -32,9 +24,10 @@ import {
 	RotateCcw,
 	Search,
 	Trash2,
+	X,
 } from 'lucide-react';
-import { motion } from 'motion/react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AnimatePresence, motion } from 'motion/react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 
 import { Pill, type PillProperties } from '@/components/ui/pill';
 import { Spinner } from '@/components/ui/spinner';
@@ -47,6 +40,7 @@ import { cn } from '@/lib/utils';
 import { TOOL_ERROR_LABELS } from '@shared/tool-errors';
 
 import { AI_SUGGESTIONS, isRecord, isToolName } from './helpers';
+import { getModelLabel } from './model-config';
 import { parseTextToSegments } from '../../lib/input-segments';
 import { FileReference } from '../file-reference';
 import { MarkdownContent } from '../markdown-content';
@@ -64,13 +58,7 @@ import type {
 	ToolResultPart,
 } from '@shared/types';
 import type { ToolName } from '@shared/validation';
-
-/** Threshold in pixels — if within this distance of bottom, consider "at bottom" for the thinking box. */
 const THINKING_BOX_BOTTOM_THRESHOLD = 16;
-
-// =============================================================================
-// Part type guards (narrowing the MessagePart discriminated union)
-// =============================================================================
 
 function isTextPart(part: MessagePart): part is TextPart {
 	return part.type === 'text';
@@ -87,10 +75,6 @@ function isToolResultPart(part: MessagePart): part is ToolResultPart {
 function isReasoningPart(part: MessagePart): part is ReasoningPart {
 	return part.type === 'reasoning';
 }
-
-// =============================================================================
-// Tool icon helper
-// =============================================================================
 
 function ToolIcon({ name, className }: { name: ToolName; className?: string }) {
 	switch (name) {
@@ -122,6 +106,13 @@ function ToolIcon({ name, className }: { name: ToolName; className?: string }) {
 		case 'docs_search': {
 			return <Globe className={cn('size-3', className)} />;
 		}
+		case 'browser_execute':
+		case 'cdp_eval': {
+			return <Globe className={cn('size-3', className)} />;
+		}
+		case 'browser_search': {
+			return <Search className={cn('size-3', className)} />;
+		}
 		case 'todos_get': {
 			return <ListTodo className={cn('size-3', className)} />;
 		}
@@ -145,10 +136,6 @@ function ToolIcon({ name, className }: { name: ToolName; className?: string }) {
 		}
 	}
 }
-
-// =============================================================================
-// Welcome Screen
-// =============================================================================
 
 export function WelcomeScreen({
 	onSuggestionClick,
@@ -190,15 +177,13 @@ export function WelcomeScreen({
 	);
 }
 
-// =============================================================================
-// Message Bubble
-// =============================================================================
-
 export function MessageBubble({
 	message,
 	messageIndex,
 	snapshotId,
 	agentMode,
+	modelId,
+	isClientOnly = false,
 	isReverting,
 	revertingMessageIndex,
 	onRevert,
@@ -212,11 +197,10 @@ export function MessageBubble({
 	message: ChatMessage;
 	messageIndex: number;
 	snapshotId?: string;
-	/** The agent mode that was active when this user message was sent */
 	agentMode?: AgentMode;
-	/** Whether any revert operation is in progress (disables all revert buttons) */
+	modelId?: string;
+	isClientOnly?: boolean;
 	isReverting: boolean;
-	/** The message index currently being reverted (shows spinner on that specific button) */
 	revertingMessageIndex?: number;
 	onRevert: (snapshotId: string, messageIndex: number) => void;
 	toolErrors?: Map<string, ToolErrorInfo>;
@@ -237,6 +221,8 @@ export function MessageBubble({
 				messageIndex={messageIndex}
 				snapshotId={snapshotId}
 				agentMode={agentMode}
+				modelId={modelId}
+				isClientOnly={isClientOnly}
 				isReverting={isReverting}
 				isRevertingThis={revertingMessageIndex === messageIndex}
 				onRevert={onRevert}
@@ -256,10 +242,6 @@ export function MessageBubble({
 		/>
 	);
 }
-
-// =============================================================================
-// User Message
-// =============================================================================
 
 /**
  * Mode-specific border and background colors for user message bubbles.
@@ -282,6 +264,8 @@ function UserMessage({
 	messageIndex,
 	snapshotId,
 	agentMode,
+	modelId,
+	isClientOnly,
 	isReverting,
 	isRevertingThis,
 	onRevert,
@@ -289,11 +273,10 @@ function UserMessage({
 	message: ChatMessage;
 	messageIndex: number;
 	snapshotId?: string;
-	/** The agent mode that was active when this message was sent */
 	agentMode?: AgentMode;
-	/** Whether any revert operation is in progress (disables this button) */
+	modelId?: string;
+	isClientOnly: boolean;
 	isReverting: boolean;
-	/** Whether this specific message is being reverted (shows spinner) */
 	isRevertingThis: boolean;
 	onRevert: (snapshotId: string, messageIndex: number) => void;
 }) {
@@ -309,6 +292,7 @@ function UserMessage({
 
 	const bubbleStyle = agentMode ? MODE_BUBBLE_STYLES[agentMode] : 'border-accent/20 bg-accent/10';
 	const badge = agentMode ? MODE_BADGE_STYLES[agentMode] : undefined;
+	const modelLabel = modelId ? getModelLabel(modelId) : undefined;
 
 	return (
 		<motion.div
@@ -326,6 +310,7 @@ function UserMessage({
 							{badge.label}
 						</Pill>
 					)}
+					{modelLabel && <Pill size="xs">{modelLabel}</Pill>}
 				</div>
 				{snapshotId && (
 					<Tooltip content="Revert files to before this message">
@@ -345,7 +330,9 @@ function UserMessage({
 					</Tooltip>
 				)}
 			</div>
-			<div className={cn('rounded-lg border px-3 py-2.5', bubbleStyle, 'text-sm/relaxed text-text-primary')}>
+			<div
+				className={cn('rounded-lg border px-3 py-2.5', bubbleStyle, isClientOnly && 'border-dashed', 'text-sm/relaxed text-text-primary')}
+			>
 				<span className="whitespace-pre-wrap">
 					{segments.map((segment, index) =>
 						segment.type === 'mention' ? <FileReference key={index} path={segment.path} /> : <span key={index}>{segment.value}</span>,
@@ -355,10 +342,6 @@ function UserMessage({
 		</motion.div>
 	);
 }
-
-// =============================================================================
-// Assistant Message
-// =============================================================================
 
 /**
  * Build a list of renderable segments from ChatMessage parts, preserving order.
@@ -425,7 +408,6 @@ export function AssistantMessage({
 	fileDiffContent?: Map<string, { beforeContent: string; afterContent: string }>;
 	subAgentActivities?: Record<string, SubAgentActivityRecord>;
 	projectId?: string;
-	/** Whether to render the "AI" label above this message block. Default true. */
 	showHeader?: boolean;
 }) {
 	const segments = buildRenderSegments(message.parts);
@@ -659,14 +641,6 @@ export function AssistantMessage({
 	);
 }
 
-// =============================================================================
-// Inline Tool Call
-// =============================================================================
-
-// =============================================================================
-// Tool result parsing helpers
-// =============================================================================
-
 /**
  * Extract text content from an XML-like tag, e.g. `<error>msg</error>` -> `msg`.
  * Returns undefined if the tag is not found.
@@ -722,8 +696,6 @@ function deriveCompletedLabel(toolName: ToolName | undefined, rawContent: string
 function isErrorResult(text: string): boolean {
 	return /^\[[A-Z_]+\] /.test(text) || text.startsWith('Error executing tool:') || text.startsWith('Input validation failed');
 }
-
-/** Lookup table typed as a plain record so we can index with an arbitrary string. */
 const errorLabels: Record<string, string> = TOOL_ERROR_LABELS;
 
 /**
@@ -877,7 +849,15 @@ function summarizeFromMetadata(toolName: ToolName | undefined, info: ToolMetadat
 			if (typeof metadata.method === 'string') {
 				return metadata.method;
 			}
-			return undefined;
+			return 'Legacy browser debug';
+		}
+
+		case 'browser_execute': {
+			return 'Browser run';
+		}
+
+		case 'browser_search': {
+			return 'CDP spec query';
 		}
 
 		case 'test_run': {
@@ -1135,7 +1115,6 @@ function formatToolResultDetail(toolName: ToolName, rawResult: string): string {
 		}
 
 		case 'cdp_eval': {
-			// JSON with { method, result: ... }
 			try {
 				const parsed: unknown = JSON.parse(rawResult);
 				if (isRecord(parsed)) {
@@ -1146,6 +1125,11 @@ function formatToolResultDetail(toolName: ToolName, rawResult: string): string {
 			} catch {
 				// Not JSON
 			}
+			return rawResult;
+		}
+
+		case 'browser_execute':
+		case 'browser_search': {
 			return rawResult;
 		}
 
@@ -1259,10 +1243,6 @@ function getToolResultContent(toolResult?: ToolResultPart): string | undefined {
 	}
 	return undefined;
 }
-
-/**
- * Check if a tool call has an error result.
- */
 function isToolError(toolResult?: ToolResultPart): boolean {
 	if (toolResult?.isError) return true;
 	const content = getToolResultContent(toolResult);
@@ -1372,10 +1352,6 @@ function InlineDiffView({ beforeContent, afterContent }: { beforeContent: string
 		</div>
 	);
 }
-
-/**
- * Display a list of lint diagnostics in the tool call expanded view.
- */
 function InlineDiagnosticsList({ diagnostics }: { diagnostics: unknown[] }) {
 	return (
 		<div
@@ -1412,8 +1388,6 @@ function InlineDiagnosticsList({ diagnostics }: { diagnostics: unknown[] }) {
 		</div>
 	);
 }
-
-/** Names of tools that write content (show streaming preview). */
 const CONTENT_STREAMING_TOOLS = new Set<string>(['file_write', 'file_edit', 'file_multiedit']);
 
 function InlineToolCall({
@@ -1646,7 +1620,6 @@ function InlineToolCall({
 					</Tooltip>
 				)}
 				{resultSummary && <span className="ml-auto min-w-0 truncate text-text-secondary">{resultSummary}</span>}
-				{/* File edit stats: lines added, removed, lint errors */}
 				{hasEditStats && (
 					<span className={cn('flex shrink-0 items-center gap-1.5', !resultSummary && 'ml-auto')}>
 						{linesAdded !== undefined && linesAdded > 0 && (
@@ -1667,7 +1640,6 @@ function InlineToolCall({
 					</span>
 				)}
 			</button>
-			{/* Streaming content preview for file-writing tools */}
 			{streamingContent && (
 				<pre
 					ref={streamingPreviewReference}
@@ -1710,10 +1682,6 @@ function InlineToolCall({
 		</div>
 	);
 }
-
-// =============================================================================
-// Inline Sub-Agent Activity
-// =============================================================================
 
 function InlineSubAgentActivity({
 	toolCallId,
@@ -1827,10 +1795,6 @@ function InlineSubAgentActivity({
 	);
 }
 
-// =============================================================================
-// User Question Prompt
-// =============================================================================
-
 export function UserQuestionPrompt({
 	question,
 	options,
@@ -1883,10 +1847,6 @@ export function UserQuestionPrompt({
 	);
 }
 
-// =============================================================================
-// Continuation Prompt
-// =============================================================================
-
 export function ContinuationPrompt({ onContinue, onDismiss }: { onContinue: () => void; onDismiss: () => void }) {
 	return (
 		<div
@@ -1935,10 +1895,6 @@ export function ContinuationPrompt({ onContinue, onDismiss }: { onContinue: () =
 	);
 }
 
-// =============================================================================
-// Doom Loop Alert
-// =============================================================================
-
 export function DoomLoopAlert({ message, onRetry, onDismiss }: { message: string; onRetry: () => void; onDismiss: () => void }) {
 	return (
 		<div
@@ -1984,10 +1940,6 @@ export function DoomLoopAlert({ message, onRetry, onDismiss }: { message: string
 		</div>
 	);
 }
-
-// =============================================================================
-// AI Error Component
-// =============================================================================
 
 export function AIError({
 	message,
@@ -2054,31 +2006,154 @@ export function AIError({
 	);
 }
 
-// =============================================================================
-// PendingSteeringBubble
-// =============================================================================
+function abbreviateQueuedMessage(content: string, maxLength = 72): string {
+	const normalized = content.replaceAll(/\s+/g, ' ').trim();
+	if (normalized.length <= maxLength) {
+		return normalized;
+	}
+	return `${normalized.slice(0, maxLength - 1).trimEnd()}...`;
+}
 
-/**
- * Renders a steering message that is queued but not yet consumed by the agent loop.
- * Visually distinct from committed user messages: dashed border, violet color, "Queued" pill.
- */
-export function PendingSteeringBubble({ content }: { content: string }) {
+const QUEUED_PREVIEW_LIMIT = 3;
+
+function getQueuedMessageText(message: ChatMessage): string {
+	return message.parts
+		.filter((part) => part.type === 'text')
+		.map((part) => part.content)
+		.join('\n');
+}
+
+export function QueuedSteeringStrip({
+	messages,
+	localOnlyMessageIds,
+	onRemoveMessage,
+}: {
+	messages: ChatMessage[];
+	localOnlyMessageIds?: Set<string>;
+	onRemoveMessage: (messageId: string) => void;
+}) {
+	const [isExpanded, setIsExpanded] = useState(false);
+	const rootReference = useRef<HTMLDivElement>(null);
+	const orderedMessages = useMemo(() => [...messages], [messages]);
+	const stackDepth = Math.min(messages.length, QUEUED_PREVIEW_LIMIT);
+	const handleRemoveMessage = useCallback(
+		(messageId: string) => {
+			setIsExpanded(true);
+			onRemoveMessage(messageId);
+		},
+		[onRemoveMessage],
+	);
+
+	useEffect(() => {
+		if (!isExpanded) return;
+
+		const handlePointerDown = (event: PointerEvent) => {
+			if (!(event.target instanceof Node) || !rootReference.current?.contains(event.target)) {
+				setIsExpanded(false);
+			}
+		};
+
+		globalThis.addEventListener('pointerdown', handlePointerDown);
+		return () => globalThis.removeEventListener('pointerdown', handlePointerDown);
+	}, [isExpanded]);
+
 	return (
-		<div className="flex min-w-0 animate-chat-item flex-col gap-1">
-			<div className="flex items-center gap-1.5">
-				<span className="text-2xs font-semibold tracking-wider text-accent uppercase">You</span>
-				<Pill size="xs" color="purple">
-					Queued
-				</Pill>
-			</div>
-			<div
-				className={cn(
-					'rounded-lg border border-dashed px-3 py-2.5 text-sm/relaxed',
-					'border-purple-500/25 bg-purple-500/8 text-text-secondary',
-				)}
-			>
-				<span className="whitespace-pre-wrap">{content}</span>
-			</div>
+		<div
+			ref={rootReference}
+			className="relative z-20 h-10 touch-pan-y overflow-visible"
+			style={{ height: 44 } satisfies CSSProperties}
+			onMouseEnter={() => setIsExpanded(true)}
+			onMouseLeave={() => setIsExpanded(false)}
+		>
+			<AnimatePresence initial={false}>
+				{orderedMessages.map((message, index) => {
+					const collapsedIndex = Math.min(index, stackDepth - 1);
+					const offset = isExpanded ? index * 42 : collapsedIndex * 4;
+					const hiddenWhenCollapsed = !isExpanded && index >= stackDepth;
+					const isFrontCard = index === 0;
+					const previewText = abbreviateQueuedMessage(getQueuedMessageText(message), 64);
+					const isInteractiveCard = isExpanded || isFrontCard;
+					const isClientOnly = localOnlyMessageIds?.has(message.id) ?? false;
+
+					return (
+						<motion.div
+							key={message.id}
+							layout={isExpanded ? 'position' : false}
+							initial={{ y: -(offset + 8), opacity: 0 }}
+							animate={{ y: -offset, opacity: hiddenWhenCollapsed ? 0 : 1 }}
+							exit={{ y: -(offset + 8), opacity: 0 }}
+							transition={{ duration: 0.14, ease: 'easeOut' }}
+							className={cn('absolute inset-x-0 bottom-0', hiddenWhenCollapsed && 'pointer-events-none')}
+							style={{ zIndex: orderedMessages.length - index }}
+						>
+							<div
+								className={cn(
+									`
+										flex h-10 items-center gap-0.5 rounded-lg border px-3
+										transition-colors duration-120
+									`,
+									`
+										border-purple-500/25
+										bg-[color-mix(in_oklab,var(--color-bg-secondary)_90%,var(--color-purple-500)_10%)]
+										shadow-[inset_0_0_0_1px_rgba(168,85,247,0.05)]
+									`,
+									isClientOnly && 'border-dashed',
+									'pr-2',
+									isFrontCard && !isExpanded
+										? `
+											hover:border-purple-500/40
+											hover:bg-[color-mix(in_oklab,var(--color-bg-secondary)_88%,var(--color-purple-500)_12%)]
+										`
+										: undefined,
+								)}
+							>
+								{isFrontCard ? (
+									<button
+										type="button"
+										onClick={() => setIsExpanded((current) => !current)}
+										className="flex min-w-0 flex-1 items-center gap-2 text-left"
+										aria-label={isExpanded ? 'Hide queued messages' : `Show ${messages.length} queued messages`}
+									>
+										<div className="flex min-w-0 flex-1 items-center gap-2">
+											<Pill size="xs" color="purple">
+												{messages.length} queued
+											</Pill>
+											<span className="min-w-0 truncate text-sm font-medium text-text-primary">{previewText}</span>
+										</div>
+									</button>
+								) : isExpanded ? (
+									<div className="flex min-w-0 flex-1 items-center gap-2 text-left">
+										<span className="min-w-0 truncate text-sm font-medium text-text-primary">{previewText}</span>
+									</div>
+								) : (
+									<div aria-hidden className="flex min-w-0 flex-1 items-center" />
+								)}
+								<button
+									type="button"
+									onClick={() => handleRemoveMessage(message.id)}
+									disabled={!isInteractiveCard}
+									className={cn(
+										`
+											inline-flex size-6 shrink-0 items-center justify-center rounded-md
+											border transition-colors
+										`,
+										`
+											border-purple-500/20 text-text-secondary
+											hover:border-purple-500/35 hover:bg-purple-500/10
+											hover:text-text-primary
+										`,
+										!isInteractiveCard && 'pointer-events-none opacity-0',
+									)}
+									aria-label={isInteractiveCard ? 'Remove queued message' : undefined}
+									tabIndex={isInteractiveCard ? 0 : -1}
+								>
+									<X className="size-3.5" />
+								</button>
+							</div>
+						</motion.div>
+					);
+				})}
+			</AnimatePresence>
 		</div>
 	);
 }

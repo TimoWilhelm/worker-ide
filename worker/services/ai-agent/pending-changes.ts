@@ -1,22 +1,4 @@
-/**
- * Server-Side Pending Changes Accumulation.
- *
- * Mirrors the deduplication logic from the client-side addPendingChange
- * (store.ts) so the server builds the same net result without relying
- * on client-side saves.
- *
- * Key dedup rules:
- * - create -> delete = net no-op (remove from map)
- * - create -> edit   = still a create (with updated content)
- * - delete -> create = effectively an edit
- * - All cases: if net content is identical to original, remove entry
- */
-
 import type { PendingFileChange } from '@shared/types';
-
-/**
- * Accumulate a file_changed event into a pending changes map.
- */
 export function accumulatePendingChange(
 	pendingChanges: Map<string, PendingFileChange>,
 	change: Omit<PendingFileChange, 'status' | 'hunkStatuses'>,

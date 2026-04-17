@@ -1,8 +1,3 @@
-/**
- * Tool: file_delete
- * Delete a file from the project.
- */
-
 import fs from 'node:fs/promises';
 
 import { ToolErrorCode, toolError } from '@shared/tool-errors';

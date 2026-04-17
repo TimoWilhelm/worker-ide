@@ -1,10 +1,6 @@
 import { asByteTransformStream, createBlobFromBytes } from './web-types';
 
 /**
- * Compression and decompression utilities using Web Streams API
- */
-
-/**
  * Compress data using deflate algorithm
  * @param data - Uint8Array to compress
  * @returns Compressed Uint8Array

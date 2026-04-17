@@ -1,33 +1,9 @@
-/**
- * Git graph layout engine.
- *
- * Computes column positions and connection lines for rendering
- * a branch graph (SVG) alongside the commit history list.
- *
- * The algorithm tracks "active lanes" — each lane is an expected
- * commit OID. When a commit is rendered, it is placed in the lane
- * that was expecting it (or a new lane is allocated). Parent OIDs
- * are then assigned to lanes for future rows.
- */
-
 import { COLLAB_COLORS } from '@shared/constants';
 
 import type { GitBranchInfo, GitCommitEntry, GitGraphConnection, GitGraphEntry } from '@shared/types';
-
-// =============================================================================
-// Layout Constants
-// =============================================================================
-
-/** Horizontal spacing between graph columns (px) */
 export const COLUMN_WIDTH = 20;
-/** Vertical spacing between rows (px) */
 export const ROW_HEIGHT = 32;
-/** Radius of the commit circle (px) */
 export const COMMIT_RADIUS = 4;
-
-// =============================================================================
-// Color Assignment
-// =============================================================================
 
 const GRAPH_COLORS: readonly string[] = COLLAB_COLORS;
 
@@ -35,14 +11,8 @@ function getColumnColor(column: number): string {
 	return GRAPH_COLORS[column % GRAPH_COLORS.length];
 }
 
-// =============================================================================
-// Layout Algorithm
-// =============================================================================
-
 interface Lane {
-	/** The OID this lane is expecting */
 	expectedObjectId: string;
-	/** Color index (column where the lane was born) */
 	colorColumn: number;
 }
 
@@ -58,10 +28,6 @@ function findEmptyLane(lanes: ReadonlyArray<Lane | undefined>): number {
 	}
 	return -1;
 }
-
-/**
- * Build ref lookup maps: OID -> branch names and OID -> tag names.
- */
 function buildReferenceMaps(
 	branches: ReadonlyArray<GitBranchInfo>,
 	tags: ReadonlyArray<string>,
@@ -105,7 +71,6 @@ function buildReferenceMaps(
 export interface GraphLayoutOptions {
 	commits: ReadonlyArray<GitCommitEntry>;
 	branches?: ReadonlyArray<GitBranchInfo>;
-	/** Tags as "name:oid" strings */
 	tags?: ReadonlyArray<string>;
 }
 

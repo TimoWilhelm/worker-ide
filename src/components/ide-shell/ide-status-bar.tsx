@@ -1,7 +1,3 @@
-/**
- * IDE status bar (footer) showing connection state, participants, and links.
- */
-
 import { BookOpen, Bug, Github } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 

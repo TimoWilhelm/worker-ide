@@ -1,16 +1,8 @@
-/**
- * Unit tests for input segment utilities.
- */
-
 import { describe, expect, it } from 'vitest';
 
 import { segmentsToPlainText, segmentsHaveContent, parseTextToSegments } from './input-segments';
 
 import type { InputSegment } from './input-segments';
-
-// =============================================================================
-// segmentsToPlainText
-// =============================================================================
 
 describe('segmentsToPlainText', () => {
 	it('serializes text segments', () => {
@@ -36,10 +28,6 @@ describe('segmentsToPlainText', () => {
 		expect(segmentsToPlainText([])).toBe('');
 	});
 });
-
-// =============================================================================
-// segmentsHaveContent
-// =============================================================================
 
 describe('segmentsHaveContent', () => {
 	it('returns true for non-empty text', () => {
@@ -69,10 +57,6 @@ describe('segmentsHaveContent', () => {
 		expect(segmentsHaveContent(segments)).toBe(true);
 	});
 });
-
-// =============================================================================
-// parseTextToSegments
-// =============================================================================
 
 describe('parseTextToSegments', () => {
 	it('parses plain text without mentions', () => {

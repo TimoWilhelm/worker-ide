@@ -1,21 +1,3 @@
-/**
- * Bundle Service.
- *
- * Public API for bundling project files. Provides transparent content-
- * addressable caching on top of the underlying bundler (currently esbuild
- * via the auxiliary worker). Callers get a single function that handles
- * cache lookup, bundling on miss, and background cache storage.
- *
- * The cache key is a SHA-256 hash of all bundle inputs (source files,
- * entry point, dependencies, tsconfig, platform, flags) — any change
- * to inputs naturally produces a different key.
- *
- * Usage:
- * ```ts
- * const result = await bundleFiles(options);
- * ```
- */
-
 import { waitUntil } from 'cloudflare:workers';
 
 import { bundleWithCdn } from './bundler-client';
@@ -32,10 +14,6 @@ const CACHE_NAME = 'bundle-cache-v1';
  * The Workers Cache API requires valid URLs, but these never leave the worker.
  */
 const CACHE_ORIGIN = 'https://bundle-cache.internal';
-
-// =============================================================================
-// Content-Addressable Cache
-// =============================================================================
 
 /**
  * Compute a SHA-256 content hash from all bundle inputs.
@@ -128,10 +106,6 @@ function putCachedBundle(options: BundleWithCdnOptions, code: string): void {
 
 	waitUntil(writePromise);
 }
-
-// =============================================================================
-// Public API
-// =============================================================================
 
 /**
  * Bundle files into a single JavaScript module with transparent caching.

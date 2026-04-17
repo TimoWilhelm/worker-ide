@@ -1,11 +1,3 @@
-/**
- * File Mention Hook
- *
- * Manages the state for @-mentioning files in the AI chat input.
- * Detects when the user types "@" followed by a search query,
- * filters files with fuzzy matching, and handles keyboard navigation.
- */
-
 import { useCallback, useMemo, useState } from 'react';
 
 import type { InputSegment } from '../lib/input-segments';
@@ -19,10 +11,6 @@ const MAX_RESULTS = 8;
  * Rejects: whitespace, ?, !, #, *, etc.
  */
 const VALID_QUERY_CHARACTERS = /^[\w./-]+$/;
-
-// =============================================================================
-// Fuzzy matching
-// =============================================================================
 
 /**
  * Simple fuzzy match: checks if all characters in the query appear
@@ -61,10 +49,6 @@ function fuzzyMatch(query: string, candidate: string): number {
 	return -1;
 }
 
-// =============================================================================
-// Helper: compute pill offsets
-// =============================================================================
-
 /**
  * Compute the set of plain-text offsets that correspond to the "@" of a
  * mention pill. These offsets should NOT trigger the dropdown.
@@ -82,10 +66,6 @@ function getMentionAtOffsets(segments: InputSegment[]): Set<number> {
 	}
 	return offsets;
 }
-
-// =============================================================================
-// Helper: detect @ trigger
-// =============================================================================
 
 interface TriggerInfo {
 	isTriggered: boolean;
@@ -138,10 +118,6 @@ function detectTrigger(inputValue: string, cursorPosition: number, pillOffsets: 
 
 	return { isTriggered: true, query, triggerIndex: lastAtIndex };
 }
-
-// =============================================================================
-// Hook
-// =============================================================================
 
 /**
  * Hook that manages the file mention autocomplete state.

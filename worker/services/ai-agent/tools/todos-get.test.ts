@@ -1,9 +1,3 @@
-/**
- * Integration tests for the todos_get tool.
- *
- * Tests reading todo lists from the filesystem with real Zod validation.
- */
-
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createMemoryFs, createMockContext, createMockSendEvent } from './test-helpers';

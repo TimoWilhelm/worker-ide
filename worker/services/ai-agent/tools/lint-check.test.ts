@@ -1,11 +1,3 @@
-/**
- * Integration tests for the lint_check tool.
- *
- * Tests lint diagnostics reporting, clean file handling, fixable issue hints,
- * path validation, and error handling. Biome WASM is mocked since it
- * cannot load in the workerd test pool.
- */
-
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createMemoryFs, createMockContext, createMockSendEvent } from './test-helpers';

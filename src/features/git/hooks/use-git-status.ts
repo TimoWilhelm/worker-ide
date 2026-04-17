@@ -1,10 +1,3 @@
-/**
- * useGitStatus Hook
- *
- * Fetches git status and syncs it to the Zustand store.
- * Auto-refreshes when a git-status-changed WebSocket message arrives.
- */
-
 import { useSuspenseQuery } from '@tanstack/react-query';
 import { useEffect } from 'react';
 
@@ -13,10 +6,6 @@ import { throwApiError } from '@/lib/api-error';
 import { useStore } from '@/lib/store';
 
 import type { GitStatusEntry } from '@shared/types';
-
-// =============================================================================
-// Suspense Hook
-// =============================================================================
 
 interface UseGitStatusSuspenseOptions {
 	projectId: string;

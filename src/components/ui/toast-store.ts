@@ -1,15 +1,4 @@
-/**
- * Toast Store
- *
- * Base UI toast manager for toast notifications.
- * Provides an imperative `toast.error()` API callable from anywhere.
- */
-
 import { Toast } from '@base-ui/react/toast';
-
-// =============================================================================
-// Types
-// =============================================================================
 
 export interface ToastAction {
 	label: string;
@@ -21,21 +10,13 @@ export interface ToastData {
 	action?: ToastAction;
 }
 
-// =============================================================================
-// Manager
-// =============================================================================
-
 export const toastManager = Toast.createToastManager();
 
 interface AddToastOptions {
-	/** Optional bold heading displayed above the message */
 	title?: string;
-	/** Custom auto-dismiss duration in ms */
 	duration?: number;
 	action?: ToastAction;
 }
-
-/** Default auto-dismiss duration for toasts with a title (ms). */
 const TITLED_TOAST_DURATION = 8000;
 
 function addToast(message: string, variant: 'error' | 'info' | 'success', options?: AddToastOptions) {
@@ -53,10 +34,6 @@ function addToast(message: string, variant: 'error' | 'info' | 'success', option
 		},
 	});
 }
-
-// =============================================================================
-// Imperative API — callable from anywhere (hooks, callbacks, etc.)
-// =============================================================================
 
 /**
  * Imperative toast API — call from anywhere (hooks, callbacks, etc.).

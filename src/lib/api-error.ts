@@ -1,27 +1,3 @@
-/**
- * API Error Handling
- *
- * Provides `ApiError` — a typed error class that carries the server's
- * `HttpErrorCode` and descriptive message — and `throwApiError()`, a helper
- * that parses the `{ error, code }` JSON body from failed HTTP responses.
- *
- * Usage in frontend API callers:
- * ```ts
- * if (!response.ok) {
- *   await throwApiError(response, 'Failed to delete file');
- * }
- * ```
- *
- * The helper reads the server's real error message from the response body
- * and throws an `ApiError` with the typed code. The fallback string is only
- * used when the body cannot be parsed (e.g. network interruption mid-stream).
- *
- * Because `ApiError` extends `Error`, existing `catch` blocks and
- * `toast.error(error.message)` patterns continue to work — but now
- * `error.message` contains the server's descriptive text instead of a
- * hardcoded generic string.
- */
-
 import { HttpErrorCode } from '@shared/http-errors';
 
 type HttpErrorCodeValue = (typeof HttpErrorCode)[keyof typeof HttpErrorCode];
@@ -53,10 +29,6 @@ export class ApiError extends Error {
 		this.status = status;
 	}
 }
-
-/**
- * Wire format for error responses from `httpError()`.
- */
 interface ErrorResponseBody {
 	error: string;
 	code?: string;

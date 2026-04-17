@@ -1,17 +1,3 @@
-/**
- * Retry-wrapped Durable Object namespaces.
- *
- * All Durable Object access in the worker should go through these namespaces
- * instead of using `exports` directly. This ensures every RPC call automatically
- * retries on transient failures with exponential backoff and jitter.
- *
- * The namespaces are lazily initialized on first access to avoid module
- * initialization ordering issues — `cloudflare:workers` `exports` may not
- * have DO bindings populated when this module is first evaluated.
- *
- * @see https://developers.cloudflare.com/durable-objects/best-practices/error-handling/
- */
-
 import { exports } from 'cloudflare:workers';
 
 import { withRetry } from './do-retry-proxy';

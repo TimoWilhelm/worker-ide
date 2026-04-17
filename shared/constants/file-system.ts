@@ -1,10 +1,3 @@
-/**
- * File system constants for the Worker IDE application.
- */
-
-/**
- * Protected files that cannot be deleted
- */
 export const PROTECTED_FILES = new Set([
 	'/worker/index.ts',
 	'/worker/index.js',
@@ -35,17 +28,9 @@ const PROTECTED_SYSTEM_FILE_PATHS = [
 export type ProtectedSystemFile = (typeof PROTECTED_SYSTEM_FILE_PATHS)[number];
 
 export const PROTECTED_SYSTEM_FILES: ReadonlySet<string> = new Set<string>(PROTECTED_SYSTEM_FILE_PATHS);
-
-/**
- * Check if a file path is a protected system file managed by the IDE.
- */
 export function isProtectedSystemFile(path: string): boolean {
 	return PROTECTED_SYSTEM_FILES.has(path);
 }
-
-/**
- * Binary file extensions for snapshot handling
- */
 export const BINARY_EXTENSIONS = new Set([
 	'.png',
 	'.jpg',
@@ -72,15 +57,7 @@ export const BINARY_EXTENSIONS = new Set([
 	'.exe',
 	'.dll',
 ]);
-
-/**
- * Extensions that should be compiled to JavaScript
- */
 export const COMPILE_TO_JS_EXTENSIONS = new Set(['.ts', '.tsx', '.jsx', '.mts']);
-
-/**
- * Extensions that should be transformed to JS modules (CSS, JSON, assets)
- */
 export const TRANSFORM_TO_JS_MODULE_EXTENSIONS = new Set([
 	'.css',
 	'.json',
@@ -97,8 +74,4 @@ export const TRANSFORM_TO_JS_MODULE_EXTENSIONS = new Set([
 	'.txt',
 	'.md',
 ]);
-
-/**
- * Hidden entries (directories and files) that should be excluded from file listings
- */
 export const HIDDEN_ENTRIES = new Set(['.initialized', '.agent', '.git']);

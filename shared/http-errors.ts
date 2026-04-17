@@ -1,22 +1,3 @@
-/**
- * HTTP Error Codes
- *
- * Strongly typed error codes shared between backend routes and frontend API
- * consumers. Every `httpError()` call in the worker routes uses one of these
- * codes, and the frontend `throwApiError()` helper extracts it from the
- * response body to enable conditional error handling and to surface the
- * server's descriptive message to users.
- *
- * Wire format: `{ error: string; code: HttpErrorCode }`
- *
- * This module is intentionally separate from `shared/tool-errors.ts`, which
- * covers AI agent tool execution failures (a different error domain).
- */
-
-// =============================================================================
-// Error Codes
-// =============================================================================
-
 export const HttpErrorCode = {
 	// File system
 	FILE_NOT_FOUND: 'FILE_NOT_FOUND',
@@ -52,10 +33,6 @@ export const HttpErrorCode = {
 } as const;
 
 export type HttpErrorCode = (typeof HttpErrorCode)[keyof typeof HttpErrorCode];
-
-// =============================================================================
-// Default Status Codes
-// =============================================================================
 
 /**
  * Default HTTP status code for each error code.

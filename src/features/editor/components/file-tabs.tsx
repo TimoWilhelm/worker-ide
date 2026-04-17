@@ -1,11 +1,3 @@
-/**
- * File Tabs Component
- *
- * Horizontal tab bar for open files with close buttons.
- * Supports: long file name tooltips, directory disambiguation for duplicates,
- * collaborator presence dots per file.
- */
-
 import { Tabs } from '@base-ui/react/tabs';
 import { File, ListX, X } from 'lucide-react';
 import { motion } from 'motion/react';
@@ -18,59 +10,30 @@ import { cn } from '@/lib/utils';
 
 import type { Participant } from '@shared/types';
 
-// =============================================================================
-// Types
-// =============================================================================
-
 export interface FileTab {
 	path: string;
 	hasUnsavedChanges?: boolean;
-	/** Whether the file is currently being saved */
 	isSaving?: boolean;
-	/** Optional display label override (e.g., "main.ts (Working Changes)") */
 	label?: string;
 }
 
 export interface FileTabsProperties {
-	/** List of open files */
 	tabs: FileTab[];
-	/** Currently active file path */
 	activeTab: string | undefined;
-	/** Called when a tab is selected */
 	onSelect: (path: string) => void;
-	/** Called when a tab close button is clicked */
 	onClose: (path: string) => void;
-	/** Connected collaborators for showing presence dots */
 	participants?: Participant[];
-	/** Called when the close-all button is clicked */
 	onCloseAll?: () => void;
-	/** CSS class name */
 	className?: string;
 }
-
-// =============================================================================
-// Utilities
-// =============================================================================
-
-/**
- * Get filename from path.
- */
 function getFilename(path: string): string {
 	const parts = path.split('/');
 	return parts.at(-1) || path;
 }
-
-/**
- * Get parent directory name from path.
- */
 function getParentDirectory(path: string): string {
 	const parts = path.split('/').filter(Boolean);
 	return parts.length > 1 ? (parts.at(-2) ?? '') : '';
 }
-
-/**
- * Get file icon color based on extension.
- */
 function getFileIconColor(path: string): string {
 	const extension = path.split('.').pop()?.toLowerCase();
 	switch (extension) {
@@ -122,19 +85,9 @@ function getDuplicateBasenames(tabs: FileTab[]): Set<string> {
 	}
 	return duplicates;
 }
-
-/** Prevent pointerdown from bubbling to Tabs.Trigger (which activates on pointerdown). */
 function handleClosePointerDown(event: React.PointerEvent) {
 	event.stopPropagation();
 }
-
-// =============================================================================
-// Component
-// =============================================================================
-
-/**
- * File tabs component for the editor.
- */
 export function FileTabs({ tabs, activeTab, onSelect, onClose, onCloseAll, participants = [], className }: FileTabsProperties) {
 	const duplicates = useMemo(() => getDuplicateBasenames(tabs), [tabs]);
 	const listReference = useRef<HTMLDivElement>(null);
@@ -242,10 +195,6 @@ export function FileTabs({ tabs, activeTab, onSelect, onClose, onCloseAll, parti
 	);
 }
 
-// =============================================================================
-// Tab Item Component
-// =============================================================================
-
 interface FileTabItemProperties {
 	tab: FileTab;
 	isActive: boolean;
@@ -314,7 +263,6 @@ function FileTabItem({ tab, isActive, showDirectory, participants, onClose }: Fi
 					{!tab.label && parentDirectory && <span className="ml-1 text-text-secondary opacity-60">&#8249;{parentDirectory}&#8250;</span>}
 				</span>
 			</Tooltip>
-			{/* Collaborator presence dots */}
 			{participants.length > 0 && (
 				<div className="flex shrink-0 items-center gap-0.5">
 					{participants.slice(0, 3).map((participant) => (

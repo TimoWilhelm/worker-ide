@@ -1,18 +1,3 @@
-/**
- * Biome Linter — RPC Client
- *
- * Thin wrapper that delegates lint and fix operations to the Biome auxiliary
- * worker via a service binding (RPC). The heavy WASM binary lives in the
- * auxiliary worker; this module only handles request forwarding and result
- * formatting.
- *
- * This is the low-level implementation layer. Callers should generally use
- * `lint-service.ts` which adds transparent content-addressable caching.
- *
- * If the service binding call fails for any reason, lint calls silently
- * return empty results so they never block file operations.
- */
-
 import { env } from 'cloudflare:workers';
 
 import type { FixFileFailure, ServerLintDiagnostic, ServerLintFixResult } from '@shared/biome-types';
@@ -20,20 +5,12 @@ import type { FixFileFailure, ServerLintDiagnostic, ServerLintFixResult } from '
 // Re-export shared types so consumers can import from this module
 export type { FixFileFailure, ServerLintDiagnostic, ServerLintFixResult } from '@shared/biome-types';
 
-// =============================================================================
-// Supported Extensions
-// =============================================================================
-
 const LINTABLE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.css', '.json']);
 
 function isLintableFile(filePath: string): boolean {
 	const extension = filePath.slice(filePath.lastIndexOf('.'));
 	return LINTABLE_EXTENSIONS.has(extension);
 }
-
-// =============================================================================
-// RPC Client — delegates to Biome auxiliary worker via service binding
-// =============================================================================
 
 /**
  * Lint a file and return diagnostics.
@@ -65,10 +42,6 @@ export async function fixFileForAgent(filePath: string, content: string): Promis
 		return { failed: true, reason: `Biome service error: ${error instanceof Error ? error.message : String(error)}` };
 	}
 }
-
-// =============================================================================
-// Formatting Helpers — pure functions, no WASM or RPC needed
-// =============================================================================
 
 /**
  * Format pre-computed lint diagnostics as a string suitable for appending to tool results.

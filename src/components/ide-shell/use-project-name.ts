@@ -1,7 +1,3 @@
-/**
- * Hook for managing the project name state: fetching, editing, and renaming.
- */
-
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useRef, useState } from 'react';
 

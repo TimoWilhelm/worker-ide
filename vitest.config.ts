@@ -68,7 +68,9 @@ export default defineConfig({
 								// it through `env` from `cloudflare:test`.
 								durableObjects: {
 									REPO_DO: 'RepoDurableObject',
+									AgentRunner: 'AgentRunner',
 									ProjectCoordinatorV2: 'ProjectCoordinatorV2',
+									SubAgentWorker: 'SubAgentWorker',
 								},
 							},
 							wrangler: {

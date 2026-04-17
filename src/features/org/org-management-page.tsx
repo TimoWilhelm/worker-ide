@@ -1,12 +1,3 @@
-/**
- * Organization Management Page
- *
- * Minimal page for managing org members: invite, remove,
- * transfer ownership, leave, rename org, delete org, and
- * promote/demote member roles. Uses better-auth's organization
- * client methods — no custom backend routes needed.
- */
-
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, ChevronDown, ChevronUp, Crown, Mail, Moon, Pencil, Shield, Sun, Trash2, User, UserPlus, X } from 'lucide-react';
 import { useCallback, useState } from 'react';
@@ -26,10 +17,6 @@ import { MAX_ORGANIZATION_NAME_LENGTH } from '@shared/constants';
 
 import type { OrgLimits } from '@/lib/api-client';
 
-// =============================================================================
-// Types
-// =============================================================================
-
 interface OrgMember {
 	id: string;
 	userId: string;
@@ -44,16 +31,65 @@ interface OrgInvitation {
 	status: string;
 }
 
+interface ActiveOrganization {
+	id: string;
+	name: string;
+	slug?: string;
+	logo?: string;
+	plan?: string;
+	members?: unknown[];
+	invitations?: unknown[];
+}
+
+function isActiveOrganization(value: unknown): value is ActiveOrganization {
+	return (
+		value !== null &&
+		typeof value === 'object' &&
+		typeof Reflect.get(value, 'id') === 'string' &&
+		typeof Reflect.get(value, 'name') === 'string' &&
+		(typeof Reflect.get(value, 'slug') === 'string' || Reflect.get(value, 'slug') === undefined) &&
+		(typeof Reflect.get(value, 'logo') === 'string' || Reflect.get(value, 'logo') === undefined) &&
+		(typeof Reflect.get(value, 'plan') === 'string' || Reflect.get(value, 'plan') === undefined) &&
+		(Array.isArray(Reflect.get(value, 'members')) || Reflect.get(value, 'members') === undefined) &&
+		(Array.isArray(Reflect.get(value, 'invitations')) || Reflect.get(value, 'invitations') === undefined)
+	);
+}
+
+function isOrgMember(value: unknown): value is OrgMember {
+	if (value === null || typeof value !== 'object') {
+		return false;
+	}
+
+	const user = Reflect.get(value, 'user');
+	return (
+		typeof Reflect.get(value, 'id') === 'string' &&
+		typeof Reflect.get(value, 'userId') === 'string' &&
+		typeof Reflect.get(value, 'role') === 'string' &&
+		user !== null &&
+		typeof user === 'object' &&
+		typeof Reflect.get(user, 'name') === 'string' &&
+		typeof Reflect.get(user, 'email') === 'string' &&
+		(typeof Reflect.get(user, 'image') === 'string' || Reflect.get(user, 'image') === undefined)
+	);
+}
+
+function isOrgInvitation(value: unknown): value is OrgInvitation {
+	return (
+		value !== null &&
+		typeof value === 'object' &&
+		typeof Reflect.get(value, 'id') === 'string' &&
+		typeof Reflect.get(value, 'email') === 'string' &&
+		(typeof Reflect.get(value, 'role') === 'string' || Reflect.get(value, 'role') === undefined) &&
+		typeof Reflect.get(value, 'status') === 'string'
+	);
+}
+
 type ConfirmAction =
 	| { type: 'remove'; member: OrgMember }
 	| { type: 'transfer'; member: OrgMember }
 	| { type: 'promote'; member: OrgMember; targetRole: string }
 	| { type: 'demote'; member: OrgMember; targetRole: string }
 	| { type: 'leave' };
-
-// =============================================================================
-// Role helpers
-// =============================================================================
 
 const ROLE_CONFIG: Record<string, { label: string; icon: typeof Crown; className: string }> = {
 	owner: { label: 'Owner', icon: Crown, className: 'bg-warning/15 text-warning' },
@@ -71,10 +107,6 @@ function RoleBadge({ role }: { role: string }) {
 		</span>
 	);
 }
-
-// =============================================================================
-// Member Row
-// =============================================================================
 
 function MemberRow({
 	member,
@@ -171,10 +203,6 @@ function MemberRow({
 	);
 }
 
-// =============================================================================
-// Invitation Row
-// =============================================================================
-
 function InvitationRow({
 	invitation,
 	canCancel,
@@ -216,10 +244,6 @@ function InvitationRow({
 		</div>
 	);
 }
-
-// =============================================================================
-// Invite Form
-// =============================================================================
 
 function InviteForm({
 	organizationId,
@@ -345,10 +369,6 @@ function InviteForm({
 	);
 }
 
-// =============================================================================
-// Main Page Component
-// =============================================================================
-
 interface OrgManagementPageProperties {
 	orgSlug: string;
 	organizationId: string;
@@ -360,7 +380,6 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 	const resolvedTheme = useTheme();
 	const setColorScheme = useStore((state) => state.setColorScheme);
 
-	// Fetch full organization details (members + invitations) via better-auth client
 	const organizationQuery = useQuery({
 		queryKey: ['org-details', organizationId],
 		queryFn: async () => {
@@ -372,13 +391,9 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 		},
 		staleTime: 1000 * 30,
 	});
-	// eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- better-auth returns loosely typed org data
-	const activeOrganization = organizationQuery.data as
-		| { id: string; name: string; slug?: string; logo?: string; plan?: string; members?: unknown[]; invitations?: unknown[] }
-		| undefined;
+	const activeOrganization = isActiveOrganization(organizationQuery.data) ? organizationQuery.data : undefined;
 	const isPending = organizationQuery.isPending;
 
-	// Fetch resolved org limits (plan-based + entitlement overrides)
 	const limitsQuery = useQuery({
 		queryKey: ['org-limits', organizationId],
 		queryFn: () => fetchOrgLimits(organizationId),
@@ -389,22 +404,18 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 	const [confirmAction, setConfirmAction] = useState<ConfirmAction | undefined>();
 	const [isActing, setIsActing] = useState(false);
 
-	// Delete org modal state (separate from ConfirmDialog)
 	const [deleteOrgOpen, setDeleteOrgOpen] = useState(false);
 	const [deleteOrgConfirmText, setDeleteOrgConfirmText] = useState('');
 	const [isDeletingOrg, setIsDeletingOrg] = useState(false);
 	const isDeleteOrgConfirmed = deleteOrgConfirmText.toLowerCase() === 'delete';
 
-	// Rename state
 	const [isEditingName, setIsEditingName] = useState(false);
 	const [editName, setEditName] = useState('');
 	const [isRenaming, setIsRenaming] = useState(false);
 
 	const currentUserId = session?.user.id;
-	// eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- better-auth returns loosely typed members/invitations
-	const members = (activeOrganization?.members ?? []) as unknown as OrgMember[];
-	// eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- better-auth returns loosely typed members/invitations
-	const invitations = (activeOrganization?.invitations ?? []) as unknown as OrgInvitation[];
+	const members = (activeOrganization?.members ?? []).filter((member) => isOrgMember(member));
+	const invitations = (activeOrganization?.invitations ?? []).filter((invitation) => isOrgInvitation(invitation));
 	const pendingInvitations = invitations.filter((invitation) => invitation.status === 'pending');
 
 	const currentMember = members.find((member) => member.userId === currentUserId);
@@ -416,7 +427,6 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 		void queryClient.invalidateQueries({ queryKey: ['org-details', organizationId] });
 	}, [queryClient, organizationId]);
 
-	// --- Rename ---
 	const handleStartRename = useCallback(() => {
 		setEditName(activeOrganization?.name ?? '');
 		setIsEditingName(true);
@@ -452,7 +462,6 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 		}
 	}, [editName, activeOrganization?.name, activeOrganization?.id, refreshOrganization]);
 
-	// --- Remove member ---
 	const handleRemoveMember = useCallback(async () => {
 		if (confirmAction?.type !== 'remove') return;
 		setIsActing(true);
@@ -475,7 +484,6 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 		}
 	}, [confirmAction, activeOrganization?.id, refreshOrganization]);
 
-	// --- Transfer ownership ---
 	const handleTransferOwnership = useCallback(async () => {
 		if (confirmAction?.type !== 'transfer') return;
 		setIsActing(true);
@@ -499,7 +507,6 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 		}
 	}, [confirmAction, activeOrganization?.id, refreshOrganization]);
 
-	// --- Promote / Demote ---
 	const handleChangeRole = useCallback(async () => {
 		if (confirmAction?.type !== 'promote' && confirmAction?.type !== 'demote') return;
 		setIsActing(true);
@@ -524,7 +531,6 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 		}
 	}, [confirmAction, activeOrganization?.id, refreshOrganization]);
 
-	// --- Leave ---
 	const handleLeave = useCallback(async () => {
 		setIsActing(true);
 		try {
@@ -545,7 +551,6 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 		}
 	}, [activeOrganization?.id, navigate]);
 
-	// --- Delete org ---
 	const handleDeleteOrg = useCallback(async () => {
 		setIsDeletingOrg(true);
 		try {
@@ -561,7 +566,6 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 		}
 	}, [organizationId, navigate]);
 
-	// --- Cancel invitation ---
 	const handleCancelInvitation = useCallback(
 		async (invitationId: string) => {
 			try {
@@ -581,7 +585,6 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 		[refreshOrganization],
 	);
 
-	// --- Confirm dispatch ---
 	const handleConfirm = useCallback(() => {
 		if (confirmAction?.type === 'remove') void handleRemoveMember();
 		if (confirmAction?.type === 'transfer') void handleTransferOwnership();
@@ -609,7 +612,6 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 
 	return (
 		<div className="flex h-dvh flex-col items-center overflow-y-auto bg-bg-primary">
-			{/* Confirm dialog */}
 			{confirmDialogProperties && (
 				<ConfirmDialog
 					open={confirmAction !== undefined}
@@ -625,7 +627,6 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 			)}
 
 			<main className="w-full max-w-lg px-6 py-12">
-				{/* Header */}
 				<div className="mb-8 flex items-center gap-3">
 					<Link
 						to={`/org/${orgSlug}`}
@@ -718,7 +719,6 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 					</div>
 				</div>
 
-				{/* Members */}
 				<section className="mb-6">
 					<h2
 						className="
@@ -742,7 +742,6 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 					</div>
 				</section>
 
-				{/* Invite */}
 				{isAdminOrOwner && (
 					<section className="mb-6">
 						<h2
@@ -764,7 +763,6 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 					</section>
 				)}
 
-				{/* Pending Invitations */}
 				{pendingInvitations.length > 0 && (
 					<section className="mb-6">
 						<h2
@@ -794,7 +792,6 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 					</section>
 				)}
 
-				{/* Danger Zone — Delete Organization */}
 				{isOwner && (
 					<section>
 						<h2
@@ -829,7 +826,6 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 					</section>
 				)}
 
-				{/* Delete org confirmation modal */}
 				<Modal
 					open={deleteOrgOpen}
 					onOpenChange={(open) => {
@@ -906,10 +902,6 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 		</div>
 	);
 }
-
-// =============================================================================
-// Confirm Dialog Properties Helper
-// =============================================================================
 
 function getConfirmDialogProperties(
 	confirmAction: ConfirmAction | undefined,

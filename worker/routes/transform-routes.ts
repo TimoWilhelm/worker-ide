@@ -1,8 +1,3 @@
-/**
- * Code transformation routes.
- * Handles TypeScript/JSX compilation and bundling via the bundler service.
- */
-
 import { zValidator } from '@hono/zod-validator';
 import { Hono } from 'hono';
 
@@ -13,10 +8,6 @@ import { httpError } from '../lib/http-error';
 import { transformCode } from '../services/bundler-client';
 
 import type { AppEnvironment } from '../types';
-
-/**
- * Transform routes - all routes are prefixed with /api
- */
 export const transformRoutes = new Hono<AppEnvironment>()
 	// POST /api/transform - Transform TypeScript/JSX code to JavaScript
 	.post('/transform', zValidator('json', transformCodeSchema), async (c) => {

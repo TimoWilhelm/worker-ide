@@ -1,12 +1,3 @@
-/**
- * Preview Panel Component
- *
- * Displays the live preview in a cross-origin iframe on a preview subdomain.
- * The preview URL includes an HMAC-signed time-bucket token that expires
- * after 1–2 hours. When the token expires, the parent component detects
- * the 403 and refreshes the URL.
- */
-
 import { ExternalLink, RefreshCw, Wrench } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 
@@ -17,26 +8,13 @@ import { previewIframeReference } from '@/features/preview/preview-iframe-refere
 import { useStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 
-// =============================================================================
-// Types
-// =============================================================================
-
 export interface PreviewPanelProperties {
-	/** Signed preview URL with trailing slash. */
 	previewUrl: string | undefined;
-	/** Whether the signed URL is still being fetched. */
 	isLoadingUrl: boolean;
-	/** Refresh the signed preview URL (e.g., after token expiry). */
 	refreshPreviewUrl: () => Promise<void>;
-	/** Shared iframe ref for CDP message relay with DevTools */
 	iframeReference: React.RefObject<HTMLIFrameElement | null>;
-	/** CSS class name */
 	className?: string;
 }
-
-// =============================================================================
-// Component
-// =============================================================================
 
 export function PreviewPanel({ previewUrl, isLoadingUrl, refreshPreviewUrl, iframeReference, className }: PreviewPanelProperties) {
 	const [isLoading, setIsLoading] = useState(true);
@@ -111,7 +89,6 @@ export function PreviewPanel({ previewUrl, isLoadingUrl, refreshPreviewUrl, ifra
 
 	return (
 		<div className={cn('flex h-full flex-col bg-bg-secondary', className)}>
-			{/* Toolbar */}
 			<div
 				className="
 					flex h-9 shrink-0 items-center justify-between border-b border-border px-3
@@ -140,7 +117,6 @@ export function PreviewPanel({ previewUrl, isLoadingUrl, refreshPreviewUrl, ifra
 				</div>
 			</div>
 
-			{/* Preview area */}
 			<div className="relative flex-1 overflow-hidden">
 				{showLoadingOverlay && (
 					<div
@@ -155,7 +131,6 @@ export function PreviewPanel({ previewUrl, isLoadingUrl, refreshPreviewUrl, ifra
 					</div>
 				)}
 
-				{/* Cross-origin iframe — preview runs on its own subdomain with signed URL */}
 				{previewUrl && (
 					<iframe
 						key={previewKey}

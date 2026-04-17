@@ -1,34 +1,13 @@
-/**
- * Utility functions for the AI Agent Service.
- * Includes error parsing, validation helpers, and type guards.
- */
-
 import { BINARY_EXTENSIONS } from '@shared/constants';
 import { toolInputSchemas, type ToolName } from '@shared/validation';
-
-// =============================================================================
-// Type Guards
-// =============================================================================
 
 export function isBinaryFilePath(path: string): boolean {
 	const extension = path.match(/\.[^.]+$/)?.[0]?.toLowerCase() || '';
 	return BINARY_EXTENSIONS.has(extension);
 }
-
-/**
- * Type guard for checking if a value is a non-null object (not array).
- */
 export function isRecordObject(value: unknown): value is Record<string, unknown> {
 	return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
-
-// =============================================================================
-// Error Helpers
-// =============================================================================
-
-/**
- * Safely extract the `response` property from an error object if it exists.
- */
 function getErrorResponse(error: unknown): Response | undefined {
 	if (isRecordObject(error) && 'response' in error) {
 		const candidate = error.response;
@@ -38,10 +17,6 @@ function getErrorResponse(error: unknown): Response | undefined {
 	}
 	return undefined;
 }
-
-/**
- * Parse API errors into structured format.
- */
 export function parseApiError(error: unknown): { message: string; code: string | undefined } {
 	const raw = error instanceof Error ? error.message : String(error);
 	const response = getErrorResponse(error);
@@ -108,24 +83,12 @@ export function parseApiError(error: unknown): { message: string; code: string |
 
 	return { message: upstreamMessage || raw, code: undefined };
 }
-
-// =============================================================================
-// Conversion Helpers
-// =============================================================================
-
-/**
- * Convert a buffer to Uint8Array safely without type assertions.
- */
 export function toUint8Array(buffer: Buffer | Uint8Array): Uint8Array {
 	if (buffer instanceof Uint8Array) {
 		return buffer;
 	}
 	return new Uint8Array(buffer);
 }
-
-// =============================================================================
-// Diff Stats
-// =============================================================================
 
 /**
  * Compute the number of lines added and removed between two strings.
@@ -160,10 +123,6 @@ export function computeDiffStats(
 
 	return { linesAdded, linesRemoved };
 }
-
-// =============================================================================
-// Compact Diff Generation
-// =============================================================================
 
 const CONTEXT_LINES = 2;
 const MAX_DIFF_LINES = 80;
@@ -218,15 +177,9 @@ export function generateCompactDiff(filePath: string, before: string | undefined
 	return output.join('\n');
 }
 
-// =============================================================================
-// Internal Diff Helpers
-// =============================================================================
-
 interface LineChange {
 	type: 'equal' | 'removed' | 'added';
-	/** Index in the old (before) array; undefined for 'added' */
 	oldIndex?: number;
-	/** Index in the new (after) array; undefined for 'removed' */
 	newIndex?: number;
 }
 
@@ -294,10 +247,6 @@ function computeLineChanges(oldLines: string[], newLines: string[]): LineChange[
 	// Backtrack to build the edit script
 	return backtrack(trace, oldLines, newLines);
 }
-
-/**
- * Backtrack through the Myers trace to produce a list of LineChange operations.
- */
 function backtrack(trace: Array<Map<number, number>>, oldLines: string[], newLines: string[]): LineChange[] {
 	const changes: LineChange[] = [];
 	let x = oldLines.length;
@@ -334,10 +283,6 @@ function backtrack(trace: Array<Map<number, number>>, oldLines: string[], newLin
 	changes.reverse();
 	return changes;
 }
-
-/**
- * Group a flat list of line changes into hunks, each with a context window.
- */
 function groupChangesIntoHunks(changes: LineChange[], oldLines: string[], newLines: string[], contextSize: number): DiffHunk[] {
 	// Find indices of non-equal changes
 	const changeIndices: number[] = [];
@@ -410,14 +355,6 @@ function groupChangesIntoHunks(changes: LineChange[], oldLines: string[], newLin
 
 	return hunks;
 }
-
-// =============================================================================
-// Validation
-// =============================================================================
-
-/**
- * Validate tool input based on tool name.
- */
 export function validateToolInput(
 	toolName: ToolName,
 	input: unknown,

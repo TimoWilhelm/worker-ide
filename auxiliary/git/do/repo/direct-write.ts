@@ -1,11 +1,3 @@
-/**
- * Direct-write commit implementation.
- *
- * Creates blob, tree, and commit objects server-side without a git client.
- * This is the primary commit path for IDE operations — the agent writes files
- * to the working tree, then the main worker calls commitTree() to persist them.
- */
-
 import { parseCommitText } from '@git/git/core/commit-parse';
 import { inflateAndParseHeader } from '@git/git/core/object-parse';
 import { encodeGitObject } from '@git/git/core/objects';
@@ -31,18 +23,10 @@ function buildTreeEntry(mode: string, name: string, oidHex: string): Uint8Array 
 	entry.set(oidBytes, prefix.byteLength);
 	return entry;
 }
-
-/**
- * Represents a directory node while building the tree hierarchy.
- */
 interface TreeNode {
 	children: Map<string, TreeNode>;
 	blobs: Map<string, { oid: string; mode: number }>;
 }
-
-/**
- * Build a tree hierarchy from a flat list of file entries.
- */
 function buildTreeHierarchy(files: Array<{ path: string; oid: string; mode: number }>): TreeNode {
 	const root: TreeNode = { children: new Map(), blobs: new Map() };
 
@@ -256,10 +240,6 @@ async function materializeTreeFromCommit(
 	// Recursively walk the tree
 	return walkTree(context, environment, prefix, commit.tree, '');
 }
-
-/**
- * Recursively walk a git tree object and collect all file entries.
- */
 async function walkTree(
 	context: DurableObjectState,
 	environment: GitWorkerEnvironment,

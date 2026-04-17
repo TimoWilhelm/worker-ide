@@ -1,9 +1,3 @@
-/**
- * Git Branch Selector
- *
- * Dropdown showing current branch with ability to switch, merge, and delete branches.
- */
-
 import { ChevronDown, GitBranch, GitMerge, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -19,12 +13,6 @@ import {
 import { cn } from '@/lib/utils';
 
 import type { GitBranchInfo } from '@shared/types';
-
-// =============================================================================
-// Types
-// =============================================================================
-
-/** Branch names that are protected from deletion. */
 const PROTECTED_BRANCHES = new Set(['main', 'master']);
 
 interface GitBranchSelectorProperties {
@@ -35,13 +23,8 @@ interface GitBranchSelectorProperties {
 	onMerge: (branch: string) => void;
 	onDeleteBranch: (name: string) => void;
 	disabled?: boolean;
-	/** Whether the working directory has uncommitted changes */
 	hasChanges?: boolean;
 }
-
-// =============================================================================
-// Component
-// =============================================================================
 
 export function GitBranchSelector({
 	branches,
@@ -102,7 +85,6 @@ export function GitBranchSelector({
 						</DropdownMenuItem>
 					))}
 
-					{/* Merge section */}
 					{otherBranches.length > 0 && (
 						<>
 							<DropdownMenuSeparator />
@@ -116,7 +98,6 @@ export function GitBranchSelector({
 						</>
 					)}
 
-					{/* Delete section — protected branches (main/master) are excluded */}
 					{deletableBranches.length > 0 && (
 						<>
 							<DropdownMenuSeparator />
@@ -142,7 +123,6 @@ export function GitBranchSelector({
 				</DropdownMenuContent>
 			</DropdownMenu>
 
-			{/* Switch branch confirmation (shown when there are uncommitted changes) */}
 			<ConfirmDialog
 				open={checkoutConfirm !== undefined}
 				onOpenChange={(open) => {
@@ -165,7 +145,6 @@ export function GitBranchSelector({
 				}}
 			/>
 
-			{/* Merge confirmation */}
 			<ConfirmDialog
 				open={mergeConfirm !== undefined}
 				onOpenChange={(open) => {
@@ -187,7 +166,6 @@ export function GitBranchSelector({
 				}}
 			/>
 
-			{/* Delete branch confirmation */}
 			<ConfirmDialog
 				open={deleteConfirm !== undefined}
 				onOpenChange={(open) => {

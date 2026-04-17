@@ -1,11 +1,3 @@
-/**
- * Integration tests for the test_run tool.
- *
- * Tests file discovery, bundling, WorkerLoader execution, output formatting,
- * and error handling against an in-memory filesystem with mocked bundler
- * and WorkerLoader services.
- */
-
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createMemoryFs, createMockContext, createMockSendEvent } from './test-helpers';
@@ -16,8 +8,6 @@ import { createMemoryFs, createMockContext, createMockSendEvent } from './test-h
 
 const mocks = vi.hoisted(() => {
 	const bundleWithCdn = vi.fn();
-
-	/** Build a mock WorkerLoader chain that returns a JSON response from `fetch()` */
 	function createLoaderMock(responseBody: unknown, status = 200) {
 		return {
 			get: vi.fn().mockReturnValue({

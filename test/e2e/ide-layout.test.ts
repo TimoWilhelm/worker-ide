@@ -1,9 +1,3 @@
-/**
- * IDE Layout E2E Tests
- *
- * Verifies that the main IDE shell loads correctly with all major sections visible.
- */
-
 import { expect, test } from 'playwright/test';
 
 import { gotoIDE } from './helpers';

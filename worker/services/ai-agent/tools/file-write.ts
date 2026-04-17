@@ -1,9 +1,3 @@
-/**
- * Tool: file_write
- * Create new files or overwrite existing ones.
- * Integrates with FileTime to ensure files are read before being overwritten.
- */
-
 import fs from 'node:fs/promises';
 
 import { MAX_DIAGNOSTICS_PER_FILE } from '@shared/constants';
@@ -19,10 +13,6 @@ import { computeDiffStats, generateCompactDiff, isBinaryFilePath, toUint8Array }
 
 import type { FileChange, SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
 
-// =============================================================================
-// Description
-// =============================================================================
-
 const DESCRIPTION = `Writes a file to the local filesystem.
 
 Usage:
@@ -30,10 +20,6 @@ Usage:
 CRITICAL INSTRUCTION: If this is an existing file, you MUST use the Read tool first to read the file's contents. This tool will fail if you did not read the file first.
 CRITICAL INSTRUCTION: ALWAYS prefer editing existing files in the codebase. NEVER write new files unless explicitly required.
 CRITICAL INSTRUCTION: NEVER proactively create documentation files (*.md) or README files. Only create documentation files if explicitly requested by the User.`;
-
-// =============================================================================
-// Tool Definition
-// =============================================================================
 
 export const definition: ToolDefinition = {
 	name: 'file_write',
@@ -47,10 +33,6 @@ export const definition: ToolDefinition = {
 		required: ['file_path', 'content'],
 	},
 };
-
-// =============================================================================
-// Execute Function
-// =============================================================================
 
 export async function execute(
 	input: Record<string, string>,

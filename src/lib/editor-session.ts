@@ -1,18 +1,6 @@
-/**
- * Editor Session Persistence (localStorage)
- *
- * Saves and restores per-project editor state: open tabs, active file,
- * per-file scroll positions, and per-file cursor positions.
- * Scoped to each project via `worker-ide-editor-session:<projectId>`.
- */
-
 import { editorSessionSchema } from '@shared/validation';
 
 import type { EditorSessionParsed } from '@shared/validation';
-
-/**
- * localStorage key for the editor session, scoped per project.
- */
 function editorSessionKey(projectId: string): string {
 	return `worker-ide-editor-session:${projectId}`;
 }
@@ -36,10 +24,6 @@ export function loadEditorSession(projectId: string): EditorSessionParsed | unde
 	}
 	return undefined;
 }
-
-/**
- * Save the editor session for a project to localStorage.
- */
 export function saveEditorSession(projectId: string, session: EditorSessionParsed): void {
 	try {
 		localStorage.setItem(editorSessionKey(projectId), JSON.stringify(session));
@@ -47,10 +31,6 @@ export function saveEditorSession(projectId: string, session: EditorSessionParse
 		// Storage full or unavailable — silently ignore
 	}
 }
-
-// =============================================================================
-// Resolved session (pure, testable)
-// =============================================================================
 
 export interface ResolvedEditorSession {
 	openFiles: string[];

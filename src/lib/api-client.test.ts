@@ -1,17 +1,6 @@
-/**
- * Unit tests for project management functions in the API client.
- *
- * Tests createProject() and cloneProject() which use raw fetch
- * against root-level endpoints (outside the Hono RPC client).
- */
-
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { cloneProject, createProject, fetchTemplates } from './api-client';
-
-// =============================================================================
-// Mocks
-// =============================================================================
 
 const fetchMock = vi.fn<typeof globalThis.fetch>();
 
@@ -22,20 +11,12 @@ beforeEach(() => {
 afterEach(() => {
 	vi.restoreAllMocks();
 });
-
-/**
- * Helper to create a mock Response with JSON body.
- */
 function jsonResponse(body: unknown, status = 200): Response {
 	return Response.json(body, {
 		status,
 		headers: { 'Content-Type': 'application/json' },
 	});
 }
-
-// =============================================================================
-// createProject
-// =============================================================================
 
 describe('createProject', () => {
 	it('creates a project with a template', async () => {
@@ -65,10 +46,6 @@ describe('createProject', () => {
 		await expect(createProject('org1', 'request-inspector')).rejects.toThrow('Network error');
 	});
 });
-
-// =============================================================================
-// cloneProject
-// =============================================================================
 
 describe('cloneProject', () => {
 	const sourceId = '494rtk7ddoepe5ru2lx4oc855i6lc23p3apolh04feq8q517sa';
@@ -115,10 +92,6 @@ describe('cloneProject', () => {
 		await expect(cloneProject('org1', sourceId)).rejects.toThrow('Connection refused');
 	});
 });
-
-// =============================================================================
-// fetchTemplates
-// =============================================================================
 
 describe('fetchTemplates', () => {
 	it('fetches templates successfully', async () => {

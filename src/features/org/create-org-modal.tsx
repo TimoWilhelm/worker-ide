@@ -1,10 +1,3 @@
-/**
- * Create Organization Modal
- *
- * Modal dialog for creating a new organization.
- * Uses better-auth's organization.create() endpoint.
- */
-
 import { useCallback, useState } from 'react';
 import { useNavigate } from 'react-router';
 
@@ -27,9 +20,7 @@ export function CreateOrgModal({
 	onOpenChange: (open: boolean) => void;
 	organizationCount: number;
 	maxOrganizations?: number;
-	/** When true, the modal cannot be dismissed (no Cancel, no Escape/backdrop close). */
 	required?: boolean;
-	/** User display name, used to prefill the org name when required. */
 	userName?: string;
 }) {
 	const navigate = useNavigate();

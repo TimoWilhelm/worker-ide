@@ -1,38 +1,15 @@
-/**
- * CodeMirror Extension for Remote Collaboration Cursors
- *
- * Renders remote participant cursors as absolutely-positioned elements
- * in a layer div (the same technique CM6 uses for its own cursor).
- * Selections are rendered as mark decorations with a translucent background.
- */
-
 import { type Extension, RangeSetBuilder, StateEffect, StateField } from '@codemirror/state';
 import { Decoration, EditorView, type DecorationSet, layer, RectangleMarker } from '@codemirror/view';
 
 import type { Participant } from '@shared/types';
-
-// =============================================================================
-// Types
-// =============================================================================
-
-/**
- * A remote cursor to render, pre-filtered to participants in the current file.
- */
 export interface RemoteCursor {
-	/** Participant display color (hex) */
 	color: string;
-	/** Cursor position: 1-based line, 1-based ch */
 	cursor: { line: number; ch: number };
-	/** Optional selection range (1-based line/ch) */
 	selection?: {
 		anchor: { line: number; ch: number };
 		head: { line: number; ch: number };
 	};
 }
-
-// =============================================================================
-// Helpers
-// =============================================================================
 
 /**
  * Convert a 1-based {line, ch} position to a 0-based document offset,
@@ -59,10 +36,6 @@ function getBase(view: EditorView): { left: number; top: number } {
 		top: rect.top - view.scrollDOM.scrollTop,
 	};
 }
-
-/**
- * Filter participants to remote cursors in the current file.
- */
 function filterRemoteCursors(participants: Participant[], activeFile: string | undefined, localId: string | undefined): RemoteCursor[] {
 	const remoteCursors: RemoteCursor[] = [];
 	for (const participant of participants) {
@@ -76,10 +49,6 @@ function filterRemoteCursors(participants: Participant[], activeFile: string | u
 	}
 	return remoteCursors;
 }
-
-// =============================================================================
-// Cursor Layer Marker
-// =============================================================================
 
 /**
  * A marker for a single remote cursor, rendered as a colored bar.
@@ -107,25 +76,11 @@ class RemoteCursorMarker extends RectangleMarker {
 		return other instanceof RemoteCursorMarker && this.color === other.color && super.eq(other);
 	}
 }
-
-// =============================================================================
-// Selection Decoration Builder
-// =============================================================================
-
-/** Hex color pattern for sanitising remote participant colors. */
 const HEX_COLOR_RE = /^#[\da-f]{6}$/i;
-
-/** Fallback color when an invalid color string is received. */
 const FALLBACK_COLOR = '#888888';
-
-/** Sanitise a color string — only allow valid 6-digit hex. */
 function sanitizeColor(color: string): string {
 	return HEX_COLOR_RE.test(color) ? color : FALLBACK_COLOR;
 }
-
-/**
- * Build a DecorationSet containing only selection mark decorations.
- */
 function buildSelectionDecorations(cursors: RemoteCursor[], view: EditorView): DecorationSet {
 	const document_ = view.state.doc;
 	const marks: Array<{ from: number; to: number; decoration: Decoration }> = [];
@@ -159,10 +114,6 @@ function buildSelectionDecorations(cursors: RemoteCursor[], view: EditorView): D
 	return builder.finish();
 }
 
-// =============================================================================
-// Public API
-// =============================================================================
-
 /**
  * Create the collaboration cursors extension.
  *
@@ -176,11 +127,7 @@ export function createCollabCursorsExtension(): {
 	update: (view: EditorView, participants: Participant[], activeFile: string | undefined, localId: string | undefined) => void;
 } {
 	// ── Per-instance CM6 state ────────────────────────────────────────
-
-	/** Effect to update the set of remote cursors. */
 	const setRemoteCursorsEffect = StateEffect.define<RemoteCursor[]>();
-
-	/** StateField that stores the current remote cursor data. */
 	const remoteCursorsState = StateField.define<RemoteCursor[]>({
 		create() {
 			return [];
@@ -224,11 +171,7 @@ export function createCollabCursorsExtension(): {
 			);
 		},
 	});
-
-	/** Effect to set pre-built selection decorations. */
 	const setSelectionDecorations = StateEffect.define<DecorationSet>();
-
-	/** StateField for remote selection mark decorations. */
 	const remoteSelectionsField = StateField.define<DecorationSet>({
 		create() {
 			return Decoration.none;

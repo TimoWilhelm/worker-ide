@@ -1,14 +1,3 @@
-/**
- * RateLimiter for APIs conforming to IETF standard for RateLimit header fields.
- * Based on: https://datatracker.ietf.org/doc/html/draft-ietf-httpapi-ratelimit-headers
- *
- * Handles:
- * - ratelimit-limit: Maximum number of requests allowed within a window
- * - ratelimit-remaining: How many requests you have left within the current window
- * - ratelimit-reset: How many seconds until the limits are reset
- * - retry-after: How many seconds you should wait before making a follow-up request
- */
-
 interface RateLimitHeaders {
 	'ratelimit-limit'?: string;
 	'ratelimit-remaining'?: string;
@@ -36,11 +25,8 @@ function getHeader(headers: HeadersInput, name: string): string | undefined {
 }
 
 interface RateLimitState {
-	/** Maximum concurrent requests allowed */
 	maxConcurrent: number;
-	/** Requests remaining in current window */
 	remainingInWindow: number;
-	/** Seconds until rate limit resets */
 	resetSeconds: number;
 }
 
@@ -60,10 +46,6 @@ export class RateLimiter {
 		this.resetSeconds = 1;
 		this.maxRetryDelay = maxRetryDelay;
 	}
-
-	/**
-	 * Get current rate limit state
-	 */
 	public getState(): RateLimitState {
 		return {
 			maxConcurrent: this.maxConcurrent,
@@ -81,17 +63,9 @@ export class RateLimiter {
 	public calculateBatchSize(totalRemaining: number): number {
 		return Math.min(this.maxConcurrent, Math.max(this.remainingInWindow, 0), totalRemaining);
 	}
-
-	/**
-	 * Check if there's capacity to make requests
-	 */
 	public hasCapacity(): boolean {
 		return this.remainingInWindow > 0 || this.remainingInWindow === Number.POSITIVE_INFINITY;
 	}
-
-	/**
-	 * Get retry delay when capacity is exhausted
-	 */
 	public getCapacityExhaustedDelay(): number {
 		return Math.min(this.resetSeconds, this.maxRetryDelay);
 	}
@@ -151,10 +125,6 @@ export class RateLimiter {
 			this.remainingInWindow = Math.max(0, this.remainingInWindow - successCount);
 		}
 	}
-
-	/**
-	 * Get retry delay for general errors (uses reset window)
-	 */
 	public getErrorRetryDelay(): number {
 		return Math.min(this.resetSeconds, this.maxRetryDelay);
 	}

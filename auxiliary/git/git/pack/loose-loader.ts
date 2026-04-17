@@ -1,8 +1,3 @@
-/**
- * Factory functions for creating loose object loaders
- * Used with createMemPackFs to enable thin pack resolution
- */
-
 import { objKey } from '@git/do/index';
 import { r2LooseKey } from '@git/keys';
 

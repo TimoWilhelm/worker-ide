@@ -1,22 +1,4 @@
-/**
- * FileTime Service - Tracks when files are read for session-isolated validation.
- *
- * This service ensures that files are read before being written, preventing
- * accidental overwrites. Uses filesystem persistence so state survives
- * Durable Object evictions, with an in-memory promise cache for fast,
- * race-free access within the same isolate.
- *
- * Storage location: {projectRoot}/.agent/sessions/{sessionId}/filetime.json
- *
- * Also provides per-file write locks so concurrent writes to the same file
- * are serialized, and mtime checking to detect external modifications.
- */
-
 import fs from 'node:fs/promises';
-
-// =============================================================================
-// Constants & State
-// =============================================================================
 
 const SESSIONS_DIR = '.agent/sessions';
 
@@ -38,10 +20,6 @@ const sessionCache = new Map<string, Promise<Map<string, number>>>();
 
 // Per-file write locks for serializing concurrent writes
 const locks = new Map<string, Promise<void>>();
-
-// =============================================================================
-// Helpers
-// =============================================================================
 
 function cacheKey(projectRoot: string, sessionId: string): string {
 	return `${projectRoot}\0${sessionId}`;
@@ -101,10 +79,6 @@ async function flushFileTimes(projectRoot: string, sessionId: string, times: Map
 	await fs.writeFile(temporaryPath, JSON.stringify(data));
 	await fs.rename(temporaryPath, filePath);
 }
-
-// =============================================================================
-// Public API
-// =============================================================================
 
 /**
  * Record that a file was read. Call this after successfully reading a file.

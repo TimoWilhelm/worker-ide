@@ -1,9 +1,3 @@
-/**
- * Push Core — VAPID key handling and notification sending.
- *
- * No Cloudflare-specific imports so this module can be tested directly.
- */
-
 import * as base64 from '@stablelib/base64';
 
 import { generateWebPushMessage } from './web-push';

@@ -1,16 +1,3 @@
-/**
- * Worker IDE - Main Entry Point
- *
- * Routing is split by subdomain:
- * - `<baseDomain>`                                        → App (SPA, API, WebSocket)
- * - `<projectId>-<token>.preview.<baseDomain>`            → Live preview of user projects
- *
- * Preview URLs contain an HMAC-signed time-bucket token that expires
- * after 1–2 hours, preventing permanent direct-link sharing.
- *
- * The base domain is derived at runtime from the Host header.
- */
-
 import { getCookies } from 'better-auth/cookies';
 import { env } from 'cloudflare:workers';
 import { and, eq, gt, inArray, isNotNull, isNull, lte } from 'drizzle-orm';
@@ -51,15 +38,8 @@ import type { PreviewService } from './services/preview-service';
 import type { AppEnvironment, AuthedEnvironment } from './types';
 import type { CommitFileEntry } from '@shared/git-types';
 
-// =============================================================================
-// Preview Service Cache
-//
-// Module-level LRU cache for PreviewService instances. This is safe because
-// PreviewService is stateless — it only holds projectRoot and projectId strings.
-// All data (files, settings, dependencies) is read fresh from the filesystem
-// on every request. The cache avoids repeated dynamic imports of the
-// PreviewService module on hot paths.
-// =============================================================================
+// Cache PreviewService instances at module scope. The service is stateless, so
+// reusing it only avoids repeated dynamic imports on hot paths.
 
 const MAX_PREVIEW_SERVICE_CACHE_SIZE = 100;
 const previewServiceCache = new Map<string, PreviewService>();
@@ -85,27 +65,13 @@ async function getPreviewService(projectRoot: string, projectId: string): Promis
 	previewServiceCache.set(projectId, service);
 	return service;
 }
-
-// =============================================================================
-// Re-exports for wrangler
-// =============================================================================
-
-export { AgentRunner, DurableObjectFilesystem, ProjectCoordinatorV2, ProjectMetadata } from './durable';
+export { AgentRunner, DurableObjectFilesystem, ProjectCoordinatorV2, ProjectMetadata, SubAgentWorker } from './durable';
 export { LogTailer } from './services/log-tailer';
 export { ObjectStorageBinding } from './services/object-storage-binding';
 
-// =============================================================================
-// Constants
-// =============================================================================
-
 const PROJECT_ROOT = '/project';
 const AUTHENTICATED_API_ROUTE_PATTERNS = ['/api/*', '/p/*/api/*'];
-/** Protected non-API endpoints used by the live IDE session. */
 const AUTHENTICATED_NON_API_ROUTE_PATTERNS = ['/p/*/__agent', '/p/*/__agent/*', '/p/*/__ws', '/p/*/__ws/*'];
-
-// =============================================================================
-// Helpers
-// =============================================================================
 
 function registerMiddleware(
 	appInstance: Hono<AuthedEnvironment>,
@@ -160,10 +126,6 @@ function parseProjectRoute(path: string): { projectId: string; subPath: string }
 	return undefined;
 }
 
-// =============================================================================
-// Hono App
-// =============================================================================
-
 const app = new Hono<AuthedEnvironment>();
 
 app.use(
@@ -189,19 +151,10 @@ app.use(
 	}),
 );
 
-// =============================================================================
-// Health check (public, no auth required)
-// =============================================================================
-
 app.get('/api/health', (c) => c.json({ ok: true }));
 
-// =============================================================================
-// better-auth handler — handles /api/auth/* (login, callback, session, etc.)
-//
 // In dev mode, better-auth's internal loopback HTTP calls crash inside
-// miniflare, so we intercept the session endpoint and resolve it directly
-// from D1. This block is dead-code-eliminated from production builds.
-// =============================================================================
+// miniflare, so resolve the session endpoint directly from D1 instead.
 
 if (import.meta.env.DEV) {
 	app.get('/api/auth/get-session', async (c) => {
@@ -334,11 +287,7 @@ app.get('/api/version', (c) => {
 	});
 });
 
-// =============================================================================
-// Dev-only: E2E test session endpoint
-// Creates a test user/org/session in the local D1 for Playwright tests.
-// Dead-code-eliminated from production builds by Vite.
-// =============================================================================
+// Dev-only E2E helper for seeding a local test user, org, and session.
 
 if (import.meta.env.DEV) {
 	app.post('/__test/create-session', async (c) => {
@@ -419,37 +368,18 @@ if (import.meta.env.DEV) {
 	});
 }
 
-// =============================================================================
-// Auth middleware — protect all API routes defined below this boundary
-// =============================================================================
-
 registerProtectedApiMiddleware(app, requireAuth);
 registerMiddleware(app, AUTHENTICATED_NON_API_ROUTE_PATTERNS, requireAuth);
 
-// =============================================================================
-// Analytics middleware — tracks timing and status for authenticated API requests
-// Must run after auth so unauthenticated requests are never recorded.
-// =============================================================================
+// Register analytics after auth so rejected requests are never recorded.
 
 registerProtectedApiMiddleware(app, analyticsMiddleware);
 
-// =============================================================================
-// API rate limiting — per-user abuse protection for all authenticated endpoints
-// =============================================================================
-
 registerProtectedApiMiddleware(app, requireRateLimit);
-
-// =============================================================================
-// Org, user, and transfer routes (authed, root-level)
-// =============================================================================
 
 app.route('/api', orgRoutes);
 app.route('/api', userRoutes);
 app.route('/api', transferRoutes);
-
-// =============================================================================
-// Preview subdomain handler
-// =============================================================================
 
 /**
  * Detect cross-site hotlink requests using Sec-Fetch metadata headers.
@@ -506,8 +436,6 @@ async function handlePreviewRequest(request: Request, projectId: string): Promis
 	if (isDevelopmentInfrastructurePath(url.pathname)) {
 		return env.ASSETS.fetch(request);
 	}
-
-	/** Track a preview response and return it. */
 	function trackAndReturn(response: Response, visibility = ''): Response {
 		trackPreviewRequest({
 			projectId,
@@ -675,10 +603,6 @@ async function handlePreviewRequest(request: Request, projectId: string): Promis
 
 	return trackAndReturn(response, previewVisibility);
 }
-
-// =============================================================================
-// Root-level API routes
-// =============================================================================
 
 app.post('/api/new-project', async (c) => {
 	const projectCreateStart = Date.now();
@@ -1206,10 +1130,6 @@ app.all('*', (c) => {
 	return env.ASSETS.fetch(c.req.raw);
 });
 
-// =============================================================================
-// Top-level fetch handler — routes by subdomain
-// =============================================================================
-
 export default {
 	async fetch(request: Request, environment: Env, executionContext: ExecutionContext): Promise<Response> {
 		const url = new URL(request.url);
@@ -1378,10 +1298,6 @@ export default {
 		}
 	},
 };
-
-// =============================================================================
-// Clone helpers
-// =============================================================================
 
 const CLONE_SKIP_ENTRIES = new Set(['.initialized', '.agent', '.git']);
 

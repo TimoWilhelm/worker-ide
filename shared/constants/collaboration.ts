@@ -1,16 +1,8 @@
 /**
- * Collaboration constants for the Worker IDE application.
- */
-
-/**
  * Maximum number of concurrent collaborators per project.
  * Limited by the number of available cursor colors.
  */
 export const MAX_CONCURRENT_COLLABORATORS = 10;
-
-/**
- * Colors for collaboration cursors
- */
 export const COLLAB_COLORS = [
 	'#f97316', // orange
 	'#22d3ee', // cyan

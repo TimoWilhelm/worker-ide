@@ -1,10 +1,3 @@
-/**
- * Deploy Modal Component
- *
- * Modal dialog for deploying the project to the user's Cloudflare account.
- * Collects Account ID and API Token, with optional saved credentials in localStorage.
- */
-
 import { CheckCircle, ExternalLink, Rocket, XCircle } from 'lucide-react';
 import { useCallback, useState } from 'react';
 
@@ -16,10 +9,6 @@ import { savedCredentialsSchema } from '@shared/validation';
 
 import type { SavedCredentialsParsed } from '@shared/validation';
 
-// =============================================================================
-// Constants
-// =============================================================================
-
 const LOCAL_STORAGE_KEY = 'worker-ide-deploy-credentials';
 
 /**
@@ -28,10 +17,6 @@ const LOCAL_STORAGE_KEY = 'worker-ide-deploy-credentials';
  */
 const CREATE_TOKEN_URL =
 	'https://dash.cloudflare.com/profile/api-tokens?permissionGroupKeys=%5B%7B%22key%22%3A%22workers_scripts%22%2C%22type%22%3A%22edit%22%7D%2C%7B%22key%22%3A%22workers_r2_storage%22%2C%22type%22%3A%22edit%22%7D%5D&accountId=%2A&zoneId=all&name=Worker%20IDE%20Deploy%20Token';
-
-// =============================================================================
-// Types
-// =============================================================================
 
 type SavedCredentials = SavedCredentialsParsed;
 
@@ -47,10 +32,6 @@ type DeployState =
 	| { status: 'deploying' }
 	| { status: 'success'; workerName: string; workerUrl?: string }
 	| { status: 'error'; message: string };
-
-// =============================================================================
-// Helpers
-// =============================================================================
 
 function loadSavedCredentials(): SavedCredentials | undefined {
 	try {
@@ -82,10 +63,6 @@ function sanitizeWorkerName(name: string): string {
 			.slice(0, 63) || 'my-worker'
 	);
 }
-
-// =============================================================================
-// Component
-// =============================================================================
 
 /**
  * Outer wrapper that handles modal open/close state.
@@ -184,7 +161,6 @@ function DeployModalContent({ onOpenChange, projectId, projectName }: Omit<Deplo
 					</div>
 				) : (
 					<>
-						{/* Account ID */}
 						<div className="flex flex-col gap-1.5">
 							<label htmlFor="deploy-account-id" className="text-xs font-medium text-text-secondary">
 								Account ID
@@ -209,7 +185,6 @@ function DeployModalContent({ onOpenChange, projectId, projectName }: Omit<Deplo
 							<p className="text-xs text-text-secondary">Found in the Cloudflare dashboard under Workers & Pages &gt; Overview.</p>
 						</div>
 
-						{/* API Token */}
 						<div className="flex flex-col gap-1.5">
 							<label htmlFor="deploy-api-token" className="text-xs font-medium text-text-secondary">
 								API Token
@@ -239,7 +214,6 @@ function DeployModalContent({ onOpenChange, projectId, projectName }: Omit<Deplo
 							</p>
 						</div>
 
-						{/* Worker Name */}
 						<div className="flex flex-col gap-1.5">
 							<label htmlFor="deploy-worker-name" className="text-xs font-medium text-text-secondary">
 								Worker Name
@@ -264,7 +238,6 @@ function DeployModalContent({ onOpenChange, projectId, projectName }: Omit<Deplo
 							<p className="text-xs text-text-secondary">The name for your deployed Worker (lowercase, hyphens allowed).</p>
 						</div>
 
-						{/* Remember credentials */}
 						<label className="flex cursor-pointer items-center gap-2" htmlFor="deploy-remember">
 							<input
 								id="deploy-remember"

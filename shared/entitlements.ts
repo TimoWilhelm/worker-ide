@@ -1,39 +1,6 @@
-/**
- * Entitlements: plan-based limits with per-entity overrides.
- *
- * ## Naming Convention
- *
- * Each entitlement key follows the pattern `<scope>:<resource>` where:
- * - `scope` is `org` or `user`
- * - `resource` is a descriptive snake_case name (e.g. `max_projects`)
- *
- * This makes it easy to assign entitlements to the correct entity type
- * and to query all entitlements for a given scope.
- *
- * ## Value Types
- *
- * Entitlements support multiple value types stored in a single `value` TEXT
- * column using a `value_type` discriminator:
- * - `number`  — numeric limits (max projects, max members, etc.)
- * - `boolean` — feature flags (e.g. `org:custom_domains`)
- * - `string`  — arbitrary string values (e.g. `org:support_tier`)
- *
- * ## Resolution Order
- *
- * entitlement override → plan default.
- * If an entitlement row exists for a given key, it wins.
- * Otherwise, fall back to the plan's default for that limit.
- *
- * AI credits are intentionally NOT enforced — they remain display-only.
- */
-
 import { getOrgLimits, PLAN_FREE } from './constants/plans';
 
 import type { PlanLimits } from './constants/plans';
-
-// =============================================================================
-// Value Types
-// =============================================================================
 
 export type EntitlementValueType = 'number' | 'boolean' | 'string';
 
@@ -45,17 +12,9 @@ export type EntitlementValue =
 	| { valueType: 'number'; value: number }
 	| { valueType: 'boolean'; value: boolean }
 	| { valueType: 'string'; value: string };
-
-/**
- * Serialize an entitlement value to a string for DB storage.
- */
 export function serializeEntitlementValue(typed: EntitlementValue): string {
 	return String(typed.value);
 }
-
-/**
- * Deserialize a DB string back to a typed entitlement value.
- */
 export function deserializeEntitlementValue(raw: string, valueType: EntitlementValueType): EntitlementValue {
 	switch (valueType) {
 		case 'number': {
@@ -69,10 +28,6 @@ export function deserializeEntitlementValue(raw: string, valueType: EntitlementV
 		}
 	}
 }
-
-// =============================================================================
-// Entitlement Keys
-// =============================================================================
 
 /**
  * Org-scoped entitlement keys.
@@ -123,23 +78,11 @@ export const ENTITLEMENT_REGISTRY: Record<EntitlementKey, { valueType: Entitleme
 export function isValidEntitlementKey(key: string): key is EntitlementKey {
 	return key in ENTITLEMENT_REGISTRY;
 }
-
-/**
- * Extract the scope prefix from an entitlement key.
- */
 export function getEntitlementScope(key: EntitlementKey): 'org' | 'user' | 'project' {
 	if (key.startsWith('org:')) return 'org';
 	if (key.startsWith('project:')) return 'project';
 	return 'user';
 }
-
-// =============================================================================
-// Entitlement Record (DB row shape)
-// =============================================================================
-
-/**
- * A single entitlement override stored in the database.
- */
 export interface EntitlementRecord {
 	id: string;
 	scopeId: string;
@@ -150,35 +93,15 @@ export interface EntitlementRecord {
 	createdAt: Date;
 	updatedAt: Date;
 }
-
-// =============================================================================
-// Resolved Limits
-// =============================================================================
-
-/**
- * Resolved org limits — the effective maximums after entitlement overrides.
- */
 export interface ResolvedOrgLimits {
 	maxProjects: number;
 	maxMembers: number;
 	storageQuotaBytes: number;
 }
-
-/**
- * Resolved user limits — the effective maximums after entitlement overrides.
- */
 export interface ResolvedUserLimits {
 	maxOrganizations: number;
 }
-
-/**
- * Default max organizations per user (not plan-scoped since billing is org-level).
- */
 export const DEFAULT_MAX_ORGANIZATIONS = 5;
-
-// =============================================================================
-// Resolvers
-// =============================================================================
 
 /**
  * Build a lookup map from raw entitlement DB rows.
@@ -196,10 +119,6 @@ export function toEntitlementMap(rows: Array<{ key: string; valueType: string; v
 	}
 	return map;
 }
-
-/**
- * Extract a numeric entitlement value from the map, or return undefined.
- */
 function getNumber(map: Map<string, EntitlementValue>, key: string): number | undefined {
 	const entry = map.get(key);
 	if (entry?.valueType === 'number') {
@@ -207,10 +126,6 @@ function getNumber(map: Map<string, EntitlementValue>, key: string): number | un
 	}
 	return undefined;
 }
-
-/**
- * Resolve org limits from plan defaults + entitlement overrides.
- */
 export function resolveOrgLimits(plan: string, entitlements: Map<string, EntitlementValue>): ResolvedOrgLimits {
 	const planLimits: PlanLimits = getOrgLimits(plan);
 
@@ -220,26 +135,14 @@ export function resolveOrgLimits(plan: string, entitlements: Map<string, Entitle
 		storageQuotaBytes: getNumber(entitlements, ENTITLEMENT_ORG_STORAGE_QUOTA_BYTES) ?? planLimits.storageQuotaBytes,
 	};
 }
-
-/**
- * Resolve user limits from defaults + entitlement overrides.
- */
 export function resolveUserLimits(entitlements: Map<string, EntitlementValue>): ResolvedUserLimits {
 	return {
 		maxOrganizations: getNumber(entitlements, ENTITLEMENT_USER_MAX_ORGANIZATIONS) ?? DEFAULT_MAX_ORGANIZATIONS,
 	};
 }
-
-/**
- * Convenience: resolve org limits directly from plan + raw DB rows.
- */
 export function resolveOrgLimitsFromRows(plan: string, rows: Array<{ key: string; valueType: string; value: string }>): ResolvedOrgLimits {
 	return resolveOrgLimits(plan ?? PLAN_FREE, toEntitlementMap(rows));
 }
-
-/**
- * Convenience: resolve user limits directly from raw DB rows.
- */
 export function resolveUserLimitsFromRows(rows: Array<{ key: string; valueType: string; value: string }>): ResolvedUserLimits {
 	return resolveUserLimits(toEntitlementMap(rows));
 }
@@ -263,10 +166,6 @@ export function resolveProjectStorageQuota(
 	const planLimits: PlanLimits = getOrgLimits(plan);
 	return planLimits.storageQuotaBytes;
 }
-
-/**
- * Convenience: resolve project storage quota from plan + raw DB rows.
- */
 export function resolveProjectStorageQuotaFromRows(
 	plan: string,
 	orgRows: Array<{ key: string; valueType: string; value: string }>,

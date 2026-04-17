@@ -1,11 +1,3 @@
-/**
- * React component tests for the Dashboard Page.
- *
- * Mocks API calls and WebGL (jsdom has no WebGL support) to test
- * user interactions: template selection, detail modal, clone input,
- * recent projects, and back button handling.
- */
-
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -14,10 +6,6 @@ import { MemoryRouter } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import DashboardPage from './dashboard-page';
-
-// =============================================================================
-// Mocks
-// =============================================================================
 
 vi.mock('@/components/beta-indicator', () => ({
 	BetaIndicator: () => <span data-testid="beta-indicator">&beta;</span>,
@@ -93,11 +81,30 @@ afterEach(() => {
 	vi.restoreAllMocks();
 });
 
-// =============================================================================
-// Import mocked modules (after vi.mock declarations)
-// =============================================================================
-
 const { createProject, cloneProject, deleteProject, fetchOrgProjects } = await import('@/lib/api-client');
+
+type DashboardProject = Awaited<ReturnType<typeof fetchOrgProjects>>[number];
+
+function makeProject(overrides: Partial<DashboardProject> = {}): DashboardProject {
+	const timestamp = new Date().toISOString();
+
+	/* eslint-disable unicorn/no-null -- Hono RPC infers nullable timestamps from Drizzle columns */
+	return {
+		id: '5ydvqzhiqckl5fa63nhky2pstb212hcdj0lk19eklkmc7snawe',
+		organizationId: 'org1',
+		durableObjectHexId: 'abc123',
+		name: 'My Project',
+		previewVisibility: 'public',
+		createdByUserId: 'user1',
+		createdAt: timestamp,
+		updatedAt: timestamp,
+		deletedAt: null,
+		bannedAt: null,
+		lastActivityAt: timestamp,
+		...overrides,
+	};
+	/* eslint-enable unicorn/no-null */
+}
 
 const defaultProperties = {
 	orgSlug: 'test-org',
@@ -105,10 +112,6 @@ const defaultProperties = {
 	organizations: [{ id: 'org1', name: 'Test Org', slug: 'test-org' }],
 	user: { name: 'Test User', email: 'test@example.com' },
 };
-
-// =============================================================================
-// Tests
-// =============================================================================
 
 describe('DashboardPage', () => {
 	it('renders the page title', () => {
@@ -416,19 +419,11 @@ describe('DashboardPage', () => {
 
 	it('renders projects section with a single project', async () => {
 		vi.mocked(fetchOrgProjects).mockResolvedValue([
-			{
-				id: '5ydvqzhiqckl5fa63nhky2pstb212hcdj0lk19eklkmc7snawe',
-				organizationId: 'org1',
-				durableObjectHexId: 'abc123',
-				name: 'My Project',
-				previewVisibility: 'public',
-				createdByUserId: 'user1',
+			makeProject({
 				createdAt: new Date(Date.now() - 3_600_000).toISOString(),
 				updatedAt: new Date(Date.now() - 3_600_000).toISOString(),
-				deletedAt: null, // eslint-disable-line unicorn/no-null -- Hono RPC infers `string | null` from Drizzle nullable column
-				bannedAt: null, // eslint-disable-line unicorn/no-null -- Hono RPC infers `string | null` from Drizzle nullable column
 				lastActivityAt: new Date(Date.now() - 3_600_000).toISOString(),
-			},
+			}),
 		]);
 
 		renderWithQuery(<DashboardPage {...defaultProperties} />);
@@ -441,32 +436,19 @@ describe('DashboardPage', () => {
 
 	it('renders all projects when multiple available', async () => {
 		vi.mocked(fetchOrgProjects).mockResolvedValue([
-			{
-				id: '5ydvqzhiqckl5fa63nhky2pstb212hcdj0lk19eklkmc7snawe',
-				organizationId: 'org1',
-				durableObjectHexId: 'abc123',
-				name: 'My Project',
-				previewVisibility: 'public',
-				createdByUserId: 'user1',
+			makeProject({
 				createdAt: new Date(Date.now() - 3_600_000).toISOString(),
 				updatedAt: new Date(Date.now() - 3_600_000).toISOString(),
-				deletedAt: null, // eslint-disable-line unicorn/no-null -- Hono RPC infers `string | null` from Drizzle nullable column
-				bannedAt: null, // eslint-disable-line unicorn/no-null -- Hono RPC infers `string | null` from Drizzle nullable column
 				lastActivityAt: new Date(Date.now() - 3_600_000).toISOString(),
-			},
-			{
+			}),
+			makeProject({
 				id: '6dp5qcb22im238nr3wvp0ic7q99w035jmy2iw7i6n43d37jtof',
-				organizationId: 'org1',
 				durableObjectHexId: 'def456',
 				name: 'Old Project',
-				previewVisibility: 'public',
-				createdByUserId: 'user1',
 				createdAt: new Date(Date.now() - 86_400_000).toISOString(),
 				updatedAt: new Date(Date.now() - 86_400_000).toISOString(),
-				deletedAt: null, // eslint-disable-line unicorn/no-null -- Hono RPC infers `string | null` from Drizzle nullable column
-				bannedAt: null, // eslint-disable-line unicorn/no-null -- Hono RPC infers `string | null` from Drizzle nullable column
 				lastActivityAt: new Date(Date.now() - 86_400_000).toISOString(),
-			},
+			}),
 		]);
 
 		renderWithQuery(<DashboardPage {...defaultProperties} />);
@@ -480,21 +462,7 @@ describe('DashboardPage', () => {
 
 	it('opens delete confirmation modal and deletes a project', async () => {
 		const user = userEvent.setup();
-		vi.mocked(fetchOrgProjects).mockResolvedValue([
-			{
-				id: '5ydvqzhiqckl5fa63nhky2pstb212hcdj0lk19eklkmc7snawe',
-				organizationId: 'org1',
-				durableObjectHexId: 'abc123',
-				name: 'Doomed Project',
-				previewVisibility: 'public',
-				createdByUserId: 'user1',
-				createdAt: new Date().toISOString(),
-				updatedAt: new Date().toISOString(),
-				deletedAt: null, // eslint-disable-line unicorn/no-null -- Hono RPC infers `string | null` from Drizzle nullable column
-				bannedAt: null, // eslint-disable-line unicorn/no-null -- Hono RPC infers `string | null` from Drizzle nullable column
-				lastActivityAt: new Date().toISOString(),
-			},
-		]);
+		vi.mocked(fetchOrgProjects).mockResolvedValue([makeProject({ name: 'Doomed Project' })]);
 
 		renderWithQuery(<DashboardPage {...defaultProperties} />);
 
@@ -567,21 +535,7 @@ describe('DashboardPage', () => {
 
 	it('project rows are links to the project page', async () => {
 		const projectId = '494rtk7ddoepe5ru2lx4oc855i6lc23p3apolh04feq8q517sa';
-		vi.mocked(fetchOrgProjects).mockResolvedValue([
-			{
-				id: projectId,
-				organizationId: 'org1',
-				durableObjectHexId: 'abc123',
-				name: 'Test Project',
-				previewVisibility: 'public',
-				createdByUserId: 'user1',
-				createdAt: new Date().toISOString(),
-				updatedAt: new Date().toISOString(),
-				deletedAt: null, // eslint-disable-line unicorn/no-null -- Hono RPC infers `string | null` from Drizzle nullable column
-				bannedAt: null, // eslint-disable-line unicorn/no-null -- Hono RPC infers `string | null` from Drizzle nullable column
-				lastActivityAt: new Date().toISOString(),
-			},
-		]);
+		vi.mocked(fetchOrgProjects).mockResolvedValue([makeProject({ id: projectId, name: 'Test Project' })]);
 
 		renderWithQuery(<DashboardPage {...defaultProperties} />);
 

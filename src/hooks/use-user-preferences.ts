@@ -1,10 +1,3 @@
-/**
- * User Preferences Hook
- *
- * Syncs user preferences between server, Zustand store, localStorage
- * (for FOUC prevention), and other open tabs (via BroadcastChannel).
- */
-
 import { useEffect, useRef } from 'react';
 
 import { fetchUserPreferences, updateUserPreferences } from '@/lib/api-client';
@@ -14,8 +7,6 @@ import { EDITOR_FONT_SLUGS, USER_PREFERENCE_KEYS } from '@shared/constants';
 import type { EditorFont, UserPreferences } from '@shared/constants';
 
 type ColorScheme = 'light' | 'dark' | 'system';
-
-/** Must match the key read by the FOUC-prevention inline script. */
 const PREFERENCES_CACHE_KEY = 'worker-ide-preferences';
 
 const PREFERENCES_CHANNEL_NAME = 'worker-ide-preferences';
@@ -62,8 +53,6 @@ function readPreferencesFromStore(): UserPreferences {
 
 export function useUserPreferences(): void {
 	const serverStateReference = useRef<Record<string, string> | undefined>(undefined);
-
-	/** Suppresses the store subscription from echoing back values we just applied from the server or another tab. */
 	const suppressWriteBackReference = useRef(false);
 
 	useEffect(() => {

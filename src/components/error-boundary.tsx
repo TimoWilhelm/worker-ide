@@ -1,10 +1,3 @@
-/**
- * Error Boundary Component
- *
- * React 19 error boundary using the new class component pattern.
- * Catches JavaScript errors in child component tree.
- */
-
 import { Component, type ComponentType, type ReactNode } from 'react';
 
 interface FallbackProperties {
@@ -21,10 +14,6 @@ interface ErrorBoundaryState {
 	hasError: boolean;
 	error: Error | undefined;
 }
-
-/**
- * Error boundary component that catches errors in its child tree.
- */
 export class ErrorBoundary extends Component<ErrorBoundaryProperties, ErrorBoundaryState> {
 	constructor(properties: ErrorBoundaryProperties) {
 		super(properties);

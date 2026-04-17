@@ -1,8 +1,3 @@
-/**
- * Snapshot management routes.
- * Handles listing, viewing, and reverting project snapshots.
- */
-
 import fs from 'node:fs/promises';
 
 import { zValidator } from '@hono/zod-validator';
@@ -17,30 +12,17 @@ import { agentRunnerNamespace, coordinatorNamespace } from '../lib/durable-objec
 import { httpError } from '../lib/http-error';
 
 import type { AppEnvironment } from '../types';
-
-/**
- * Snapshot metadata stored in each snapshot directory.
- */
 interface SnapshotMetadata {
 	id: string;
 	timestamp: number;
 	label: string;
-	/** The AI session that created this snapshot (absent in legacy snapshots) */
 	sessionId?: string;
 	changes: Array<{ path: string; action: 'create' | 'edit' | 'delete' }>;
 }
-
-/**
- * Check if a file path is for a binary file.
- */
 function isBinaryFilePath(path: string): boolean {
 	const extension = path.match(/\.[^.]+$/)?.[0]?.toLowerCase() || '';
 	return BINARY_EXTENSIONS.has(extension);
 }
-
-/**
- * Snapshot routes - all routes are prefixed with /api
- */
 export const snapshotRoutes = new Hono<AppEnvironment>()
 	// GET /api/snapshots - List all snapshots
 	.get('/snapshots', async (c) => {
@@ -183,10 +165,6 @@ export const snapshotRoutes = new Hono<AppEnvironment>()
 			}
 		},
 	);
-
-/**
- * List all available snapshots with their metadata.
- */
 async function listSnapshots(projectRoot: string): Promise<Array<{ id: string; timestamp: number; label: string; changeCount: number }>> {
 	const snapshotsDirectory = `${projectRoot}/.agent/snapshots`;
 	const snapshots: Array<{ id: string; timestamp: number; label: string; changeCount: number }> = [];
@@ -214,10 +192,6 @@ async function listSnapshots(projectRoot: string): Promise<Array<{ id: string; t
 
 	return snapshots.toSorted((a, b) => b.timestamp - a.timestamp);
 }
-
-/**
- * Get full metadata for a specific snapshot.
- */
 async function getSnapshotMetadata(projectRoot: string, snapshotId: string): Promise<SnapshotMetadata | undefined> {
 	try {
 		const metadataPath = `${projectRoot}/.agent/snapshots/${snapshotId}/metadata.json`;
@@ -228,10 +202,6 @@ async function getSnapshotMetadata(projectRoot: string, snapshotId: string): Pro
 		return undefined;
 	}
 }
-
-/**
- * Revert a single file to its state in a snapshot.
- */
 async function revertSingleFile(
 	projectRoot: string,
 	path: string,
@@ -279,10 +249,6 @@ async function revertSingleFile(
 		// HMR trigger failure is non-fatal
 	}
 }
-
-/**
- * Revert all files in a snapshot to their previous state.
- */
 async function revertSnapshot(
 	projectRoot: string,
 	snapshotId: string,
@@ -304,10 +270,6 @@ async function revertSnapshot(
 		return { success: false, reason: 'error' };
 	}
 }
-
-/**
- * Revert a single file from a specific snapshot.
- */
 async function revertFileFromSnapshot(
 	projectRoot: string,
 	path: string,
@@ -330,19 +292,11 @@ async function revertFileFromSnapshot(
 		return { success: false, reason: 'error' };
 	}
 }
-
-/**
- * Result for a single file in a cascade revert.
- */
 interface CascadeRevertFileResult {
 	path: string;
 	snapshotId: string;
 	action: 'create' | 'edit' | 'delete';
 }
-
-/**
- * Result of a cascade revert operation.
- */
 interface CascadeRevertResult {
 	reverted: CascadeRevertFileResult[];
 	failed: Array<CascadeRevertFileResult & { error: string }>;

@@ -1,11 +1,3 @@
-/**
- * MCP Client Manager.
- *
- * Manages connections to MCP (Model Context Protocol) servers.
- * Handles client lifecycle (connect, call, close) with a connection
- * cache to avoid reconnecting on every tool call.
- */
-
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 
@@ -15,10 +7,6 @@ import { isRecordObject } from './utilities';
 
 export class McpClientManager {
 	private clients = new Map<string, Client>();
-
-	/**
-	 * Get or create a connected MCP client for the given server.
-	 */
 	private async getClient(serverId: string): Promise<Client> {
 		const existing = this.clients.get(serverId);
 		if (existing) return existing;
@@ -35,10 +23,6 @@ export class McpClientManager {
 		this.clients.set(serverId, client);
 		return client;
 	}
-
-	/**
-	 * Call a tool on an MCP server, returning the text result.
-	 */
 	async callTool(serverId: string, toolName: string, arguments_: Record<string, unknown>): Promise<string> {
 		const client = await this.getClient(serverId);
 		const result = await client.callTool({ name: toolName, arguments: arguments_ });
@@ -57,10 +41,6 @@ export class McpClientManager {
 
 		return JSON.stringify(result.content);
 	}
-
-	/**
-	 * Close all connected MCP clients.
-	 */
 	async closeAll(): Promise<void> {
 		for (const [serverId, client] of this.clients) {
 			try {

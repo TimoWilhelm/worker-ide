@@ -1,11 +1,3 @@
-/**
- * Playwright Global Setup & Teardown
- *
- * Calls the dev-only `/__test/cleanup` endpoint before and after the
- * entire E2E test suite to ensure no leftover test projects remain,
- * even if a prior run was interrupted.
- */
-
 const BASE_URL = process.env.TEST_BASE_URL || 'http://localhost:3000';
 
 async function cleanupServer(): Promise<void> {

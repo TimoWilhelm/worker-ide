@@ -1,16 +1,8 @@
-/**
- * Unit tests for tool definitions and plan mode filtering.
- */
-
 import { describe, expect, it } from 'vitest';
 
 import { toolInputSchemas } from '@shared/validation';
 
 import { AGENT_TOOLS, ASK_MODE_TOOLS, MUTATION_TOOL_NAMES, PLAN_MODE_TOOLS, READ_ONLY_TOOL_NAMES, TOOL_EXECUTORS } from './index';
-
-// =============================================================================
-// PLAN_MODE_TOOLS
-// =============================================================================
 
 describe('PLAN_MODE_TOOLS', () => {
 	it('only includes read-only and research tools', () => {
@@ -44,10 +36,6 @@ describe('PLAN_MODE_TOOLS', () => {
 	});
 });
 
-// =============================================================================
-// ASK_MODE_TOOLS
-// =============================================================================
-
 describe('ASK_MODE_TOOLS', () => {
 	it('includes read-only tools', () => {
 		const toolNames = ASK_MODE_TOOLS.map((tool) => tool.name);
@@ -61,7 +49,6 @@ describe('ASK_MODE_TOOLS', () => {
 		expect(toolNames).toContain('user_question');
 		expect(toolNames).toContain('dependencies_list');
 		expect(toolNames).toContain('lint_check');
-		expect(toolNames).toContain('cdp_eval');
 		expect(toolNames).toContain('test_run');
 	});
 
@@ -91,10 +78,6 @@ describe('ASK_MODE_TOOLS', () => {
 	});
 });
 
-// =============================================================================
-// AGENT_TOOLS
-// =============================================================================
-
 describe('AGENT_TOOLS', () => {
 	it('every tool has name, description, and input_schema', () => {
 		for (const tool of AGENT_TOOLS) {
@@ -111,10 +94,6 @@ describe('AGENT_TOOLS', () => {
 	});
 });
 
-// =============================================================================
-// MUTATION_TOOL_NAMES / READ_ONLY_TOOL_NAMES
-// =============================================================================
-
 describe('MUTATION_TOOL_NAMES', () => {
 	it('has no overlap with READ_ONLY_TOOL_NAMES', () => {
 		for (const name of MUTATION_TOOL_NAMES) {
@@ -123,14 +102,13 @@ describe('MUTATION_TOOL_NAMES', () => {
 	});
 });
 
-// =============================================================================
-// Tool registration sync
-// =============================================================================
-
 describe('tool registration sync', () => {
+	const externalToolNames = ['browser_execute', 'browser_search', 'cdp_eval', 'execute', 'list_extensions', 'load_extension'];
 	const executorNames = [...TOOL_EXECUTORS.keys()].toSorted();
 	const definitionNames = AGENT_TOOLS.map((tool) => tool.name).toSorted();
-	const schemaNames = Object.keys(toolInputSchemas).toSorted();
+	const schemaNames = Object.keys(toolInputSchemas)
+		.filter((name) => !externalToolNames.includes(name))
+		.toSorted();
 
 	it('TOOL_EXECUTORS matches AGENT_TOOLS definitions', () => {
 		expect(executorNames).toEqual(definitionNames);
@@ -142,5 +120,11 @@ describe('tool registration sync', () => {
 
 	it('TOOL_EXECUTORS matches shared validation schemas', () => {
 		expect(executorNames).toEqual(schemaNames);
+	});
+
+	it('shared validation includes external and legacy-only tools', () => {
+		for (const name of externalToolNames) {
+			expect(toolInputSchemas).toHaveProperty(name);
+		}
 	});
 });

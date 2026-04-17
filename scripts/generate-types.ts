@@ -1,14 +1,3 @@
-/**
- * Generate TypeScript types for all workers.
- *
- * Runs `wrangler types` for:
- * 1. The main worker (includes cross-worker bindings for all auxiliary workers)
- * 2. Each auxiliary worker with its own env interface name
- *
- * Auxiliary workers get a scoped namespace (e.g. CloudflareGitWorker instead of
- * Cloudflare) to prevent merging with the main worker's global Env declaration.
- */
-
 import { execSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 

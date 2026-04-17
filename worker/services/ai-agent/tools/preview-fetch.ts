@@ -1,14 +1,3 @@
-/**
- * Tool: preview_fetch
- * Send HTTP requests to the project's live preview using relative URLs.
- *
- * Unlike web_fetch (which fetches external URLs and summarizes through an AI model),
- * this tool returns raw response data for debugging. It supports all HTTP methods,
- * custom headers, and request bodies for testing both static pages and API endpoints.
- *
- * Optionally converts HTML responses to markdown using Workers AI toMarkdown().
- */
-
 import { env } from 'cloudflare:workers';
 
 import { ToolExecutionError } from '@shared/tool-errors';
@@ -58,18 +47,8 @@ export const definition: ToolDefinition = {
 		required: ['path'],
 	},
 };
-
-// =============================================================================
-// Constants
-// =============================================================================
-
-/** Maximum response body size returned to the LLM. */
 const MAX_RESPONSE_LENGTH = 20_000;
-
-/** HTTP methods that can carry a request body. */
 const BODY_METHODS = new Set(['POST', 'PUT', 'PATCH']);
-
-/** Response headers worth surfacing to the LLM. */
 const INTERESTING_HEADERS = new Set([
 	'content-type',
 	'content-length',
@@ -80,14 +59,6 @@ const INTERESTING_HEADERS = new Set([
 	'www-authenticate',
 	'access-control-allow-origin',
 ]);
-
-// =============================================================================
-// Helpers
-// =============================================================================
-
-/**
- * Parse JSON-encoded headers string into a Headers object.
- */
 function parseHeaders(headersRaw: string): Headers {
 	const parsed: unknown = JSON.parse(headersRaw);
 	if (typeof parsed !== 'object' || !parsed || Array.isArray(parsed)) {
@@ -101,10 +72,6 @@ function parseHeaders(headersRaw: string): Headers {
 	}
 	return headers;
 }
-
-/**
- * Extract interesting response headers for display.
- */
 function formatResponseHeaders(headers: Headers): string {
 	const lines: string[] = [];
 	for (const [key, value] of headers.entries()) {
@@ -114,10 +81,6 @@ function formatResponseHeaders(headers: Headers): string {
 	}
 	return lines.length > 0 ? lines.join('\n') : '  (none of interest)';
 }
-
-/**
- * Convert HTML to markdown using Cloudflare Workers AI toMarkdown().
- */
 async function convertHtmlToMarkdown(html: string): Promise<string | undefined> {
 	const blob = new Blob([html], { type: 'text/html' });
 	const results = await env.AI.toMarkdown([{ name: 'page.html', blob }]);
@@ -127,10 +90,6 @@ async function convertHtmlToMarkdown(html: string): Promise<string | undefined> 
 	}
 	return result.data;
 }
-
-// =============================================================================
-// Execute
-// =============================================================================
 
 export async function execute(
 	input: Record<string, string>,

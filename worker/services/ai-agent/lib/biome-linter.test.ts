@@ -1,22 +1,8 @@
-/**
- * Tests for the Biome linter RPC client and formatting helpers.
- *
- * Runs in the workerd pool. The BIOME service binding is not wired up in the
- * test environment, so RPC calls hit the try/catch and return empty results —
- * which is exactly what we want to verify for the graceful-fallback path.
- *
- * The core Biome WASM logic is tested in auxiliary/biome/biome-worker.test.ts.
- */
-
 import { describe, expect, it } from 'vitest';
 
 import { formatLintDiagnostics } from './biome-linter';
 
 import type { ServerLintDiagnostic } from '@shared/biome-types';
-
-// =============================================================================
-// formatLintDiagnostics
-// =============================================================================
 
 describe('formatLintDiagnostics', () => {
 	it('returns undefined for empty diagnostics array', () => {

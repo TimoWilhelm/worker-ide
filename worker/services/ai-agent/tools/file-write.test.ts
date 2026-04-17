@@ -1,10 +1,3 @@
-/**
- * Integration tests for the file_write tool.
- *
- * Tests file creation, overwrite-with-read-guard, path validation,
- * diff stats, and snapshot tracking against an in-memory filesystem.
- */
-
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createMemoryFs, createMockContext, createMockSendEvent } from './test-helpers';

@@ -1,7 +1,3 @@
-/**
- * Component tests for DependencyPanel accessibility and validation.
- */
-
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, render, screen, waitFor, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';

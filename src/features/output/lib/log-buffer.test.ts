@@ -1,7 +1,3 @@
-/**
- * Tests for the log buffer's getLogSnapshot() function.
- */
-
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { clearLogs, getLogSnapshot } from './log-buffer';

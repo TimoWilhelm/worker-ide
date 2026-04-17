@@ -1,10 +1,3 @@
-/**
- * Integration tests for the file_list tool.
- *
- * Tests directory listing with type/size info, pattern filtering,
- * hidden entry exclusion, and error handling.
- */
-
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createMemoryFs, createMockContext, createMockSendEvent } from './test-helpers';

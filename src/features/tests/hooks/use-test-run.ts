@@ -1,11 +1,3 @@
-/**
- * useTestRun Hooks
- *
- * Provides test discovery (file paths + test names), test execution,
- * and local result management. Test results are stateless on the server —
- * they live entirely in the React Query cache on each client.
- */
-
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo } from 'react';
 
@@ -15,10 +7,6 @@ import { useStore } from '@/lib/store';
 import { mergeTestRunResults } from '@shared/types';
 
 import type { DiscoveredTestFile, TestRunResponse } from '@shared/types';
-
-// =============================================================================
-// useTestDiscovery — discovers test files and their test names via parsing
-// =============================================================================
 
 interface UseTestDiscoveryOptions {
 	projectId: string;
@@ -64,10 +52,6 @@ export function useTestDiscovery({ projectId, enabled = true }: UseTestDiscovery
 	};
 }
 
-// =============================================================================
-// useTestResults — subscribes to test results from the local query cache
-// =============================================================================
-
 interface UseTestResultsOptions {
 	projectId: string;
 }
@@ -91,10 +75,6 @@ export function useTestResults({ projectId }: UseTestResultsOptions) {
 
 	return { results: query.data };
 }
-
-// =============================================================================
-// useRunTests — mutation to trigger a test run
-// =============================================================================
 
 interface UseRunTestsOptions {
 	projectId: string;

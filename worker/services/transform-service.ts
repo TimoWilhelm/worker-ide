@@ -1,17 +1,8 @@
-/**
- * Dev server module transform pipeline using the bundler service.
- * Handles import rewriting, module resolution, and TypeScript/JSX transformation.
- */
-
 import stripJsonComments from 'strip-json-comments';
 
 import { transformCode } from './bundler-client';
 
 const ESM_CDN = 'https://esm.sh';
-
-// =============================================================================
-// Types
-// =============================================================================
 
 export interface FileSystem {
 	readFile(path: string): Promise<string | Uint8Array>;
@@ -46,14 +37,6 @@ interface TsConfigCompilerOptions {
 interface TsConfig {
 	compilerOptions?: TsConfigCompilerOptions;
 }
-
-// =============================================================================
-// TSConfig Utilities
-// =============================================================================
-
-/**
- * Convert tsconfig compilerOptions to esbuild's tsconfigRaw format.
- */
 export function toEsbuildTsconfigRaw(tsConfig: TsConfig | undefined): string | undefined {
 	if (!tsConfig?.compilerOptions) return undefined;
 
@@ -91,10 +74,6 @@ export function toEsbuildTsconfigRaw(tsConfig: TsConfig | undefined): string | u
 
 	return JSON.stringify({ compilerOptions: esbuildCompilerOptions });
 }
-
-// =============================================================================
-// Module Resolution
-// =============================================================================
 
 const EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx', '.mts', '.mjs'];
 
@@ -164,10 +143,6 @@ function getExtension(path: string): string {
 	const match = path.match(/\.[^./]+$/);
 	return match ? match[0].toLowerCase() : '';
 }
-
-/**
- * Resolve an import specifier to a file path or CDN URL.
- */
 async function resolveImport(
 	specifier: string,
 	importer: string,
@@ -231,10 +206,6 @@ async function resolveImport(
 	return { original: specifier, resolved: targetPath, isBare: false };
 }
 
-// =============================================================================
-// Import Rewriting
-// =============================================================================
-
 async function rewriteImports(
 	code: string,
 	filePath: string,
@@ -272,17 +243,9 @@ async function rewriteImports(
 	return result;
 }
 
-// =============================================================================
-// TSConfig Cache
-// =============================================================================
-
 const tsConfigCache = new Map<string, { config: TsConfig | undefined; expiry: number }>();
 const TSCONFIG_TTL_MS = 5000;
 const MAX_TSCONFIG_CACHE = 100;
-
-/**
- * Invalidate cached tsconfig for a project so the next transform picks up changes.
- */
 export function invalidateTsConfigCache(projectRoot: string): void {
 	tsConfigCache.delete(projectRoot);
 }
@@ -305,10 +268,6 @@ async function getTsConfig(fs: FileSystem, projectRoot: string): Promise<TsConfi
 	return config;
 }
 
-// =============================================================================
-// Module Transform
-// =============================================================================
-
 function getContentType(extension: string): string {
 	const types: Record<string, string> = {
 		'.html': 'text/html',
@@ -325,10 +284,6 @@ function getContentType(extension: string): string {
 	};
 	return types[extension] || 'text/plain';
 }
-
-/**
- * Transform and serve a module file.
- */
 export async function transformModule(
 	filePath: string,
 	content: string,
@@ -370,10 +325,6 @@ export default css;
 	return { code: content, contentType: getContentType(extension) };
 }
 
-// =============================================================================
-// HTML Processing
-// =============================================================================
-
 function escapeForScriptTag(s: string): string {
 	return s
 		.replaceAll('\\', '\\\\')
@@ -382,8 +333,6 @@ function escapeForScriptTag(s: string): string {
 		.replaceAll('\r', String.raw`\r`)
 		.replaceAll(/<\/(script)/gi, String.raw`<\/$1`);
 }
-
-/** Generate the inline config script that preview scripts read. */
 function generatePreviewConfig(wsUrl: string, ideOrigin: string, projectId: string): string {
 	const safeWsUrl = escapeForScriptTag(wsUrl);
 	const safeIdeOrigin = escapeForScriptTag(ideOrigin);
@@ -418,8 +367,6 @@ export interface ProcessHtmlOptions extends TransformOptions {
 	projectId: string;
 	scriptIntegrityHashes?: Record<string, string>;
 }
-
-/** Process HTML file — inject preview config and scripts. */
 export async function processHTML(html: string, _filePath: string, options: ProcessHtmlOptions): Promise<string> {
 	const { wsUrl, ideOrigin, projectId, scriptIntegrityHashes } = options;
 

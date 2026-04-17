@@ -1,10 +1,3 @@
-/**
- * Tests for the API rate limit middleware.
- *
- * Runs in the workerd test pool via @cloudflare/vitest-pool-workers
- * so that `env` from `cloudflare:workers` is available.
- */
-
 import { env } from 'cloudflare:test';
 import { describe, expect, it } from 'vitest';
 

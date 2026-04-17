@@ -1,25 +1,9 @@
-/**
- * Rich Text Input
- *
- * A contentEditable-based input that supports inline file mention pills.
- * Text is editable normally; file mentions render as styled atomic spans.
- *
- * The component maintains a list of InputSegment objects as its model.
- * On every DOM mutation it re-parses the contentEditable back to segments.
- * File mention pills use data attributes and contentEditable=false, so
- * the browser treats them as atomic inline units.
- */
-
 import { useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import { cn } from '@/lib/utils';
 
 import { segmentsToPlainText, type InputSegment } from '../lib/input-segments';
-
-// =============================================================================
-// Public handle
-// =============================================================================
 
 export interface RichTextInputHandle {
 	focus: () => void;
@@ -29,19 +13,11 @@ export interface RichTextInputHandle {
 	clear: () => void;
 }
 
-// =============================================================================
-// DOM helpers
-// =============================================================================
-
 const PILL_ATTR = 'data-mention-path';
 
 function getFileName(path: string): string {
 	return path.split('/').pop() ?? path;
 }
-
-/**
- * Parse the contentEditable DOM back into segments.
- */
 function parseSegmentsFromDom(container: HTMLElement): InputSegment[] {
 	const segments: InputSegment[] = [];
 
@@ -71,10 +47,6 @@ function parseSegmentsFromDom(container: HTMLElement): InputSegment[] {
 
 	return segments;
 }
-
-/**
- * Compute the plain-text cursor offset from the DOM selection.
- */
 function getCursorOffsetInContainer(container: HTMLElement): number {
 	const selection = globalThis.getSelection();
 	if (!selection || selection.rangeCount === 0) return -1;
@@ -113,10 +85,6 @@ function getCursorOffsetInContainer(container: HTMLElement): number {
 
 	return offset;
 }
-
-/**
- * Find the DOM node + offset for a given plain-text offset.
- */
 function findDomPosition(container: HTMLElement, targetOffset: number): { node: Node; offset: number } | undefined {
 	let accumulated = 0;
 
@@ -153,10 +121,6 @@ function findDomPosition(container: HTMLElement, targetOffset: number): { node: 
 
 	return { node: container, offset: container.childNodes.length };
 }
-
-/**
- * Build a pill DOM element for a file mention.
- */
 function createPillElement(path: string): HTMLSpanElement {
 	const pill = document.createElement('span');
 	pill.setAttribute(PILL_ATTR, path);
@@ -194,10 +158,6 @@ function createPillElement(path: string): HTMLSpanElement {
 	return pill;
 }
 
-// =============================================================================
-// Component
-// =============================================================================
-
 export function RichTextInput({
 	ref,
 	segments,
@@ -216,7 +176,6 @@ export function RichTextInput({
 	onCursorChange?: (offset: number) => void;
 	placeholder?: string;
 	disabled?: boolean;
-	/** React node rendered inline at the end of the text content (e.g. loading dots). */
 	inlineSuffix?: React.ReactNode;
 	className?: string;
 }) {

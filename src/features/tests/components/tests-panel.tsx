@@ -1,12 +1,3 @@
-/**
- * Tests Panel
- *
- * Sidebar panel for discovering and running project tests.
- * Shows a list of test files, a "Run All" button, and structured
- * pass/fail results. Results are broadcast to all collaborators
- * via WebSocket so everyone sees the same test state.
- */
-
 import { ScrollArea } from '@base-ui/react/scroll-area';
 import { CheckCircle2, FlaskConical, Play, RefreshCw, XCircle } from 'lucide-react';
 import { useMemo } from 'react';
@@ -20,20 +11,11 @@ import { useRunTests, useTestDiscovery, useTestResults } from '../hooks/use-test
 
 import type { TestFileResult, TestRunResponse } from '@shared/types';
 
-// =============================================================================
-// Types
-// =============================================================================
-
 interface TestsPanelProperties {
 	projectId: string;
 	className?: string;
 }
 
-// =============================================================================
-// Helpers
-// =============================================================================
-
-/** Build a lookup map from file path to test results */
 function buildResultsMap(results: TestRunResponse | undefined): Map<string, TestFileResult> {
 	const map = new Map<string, TestFileResult>();
 	if (!results) return map;
@@ -42,10 +24,6 @@ function buildResultsMap(results: TestRunResponse | undefined): Map<string, Test
 	}
 	return map;
 }
-
-// =============================================================================
-// Component
-// =============================================================================
 
 export function TestsPanel({ projectId, className }: TestsPanelProperties) {
 	const goToFilePosition = useStore((state) => state.goToFilePosition);
@@ -61,7 +39,6 @@ export function TestsPanel({ projectId, className }: TestsPanelProperties) {
 
 	return (
 		<div className={cn('flex h-full min-w-0 flex-col overflow-hidden', className)}>
-			{/* Header */}
 			<div className="flex shrink-0 items-center gap-1.5 border-b border-border p-2">
 				<FlaskConical className="size-4 text-text-secondary" />
 				<span
@@ -74,7 +51,6 @@ export function TestsPanel({ projectId, className }: TestsPanelProperties) {
 
 				<span className="flex-1" />
 
-				{/* Refresh button — re-discovers test files */}
 				<Tooltip content="Refresh test files">
 					<button
 						className={cn(
@@ -91,7 +67,6 @@ export function TestsPanel({ projectId, className }: TestsPanelProperties) {
 					</button>
 				</Tooltip>
 
-				{/* Run All button */}
 				<Tooltip content="Run all tests">
 					<Button
 						variant="ghost"
@@ -106,7 +81,6 @@ export function TestsPanel({ projectId, className }: TestsPanelProperties) {
 				</Tooltip>
 			</div>
 
-			{/* Summary bar (when results exist) */}
 			{hasResults && results && (
 				<div
 					className={cn(
@@ -148,7 +122,6 @@ export function TestsPanel({ projectId, className }: TestsPanelProperties) {
 				</div>
 			)}
 
-			{/* Error banner */}
 			{error && (
 				<div
 					className="
@@ -160,7 +133,6 @@ export function TestsPanel({ projectId, className }: TestsPanelProperties) {
 				</div>
 			)}
 
-			{/* Content area */}
 			{isLoadingFiles ? (
 				<div className="flex flex-1 items-center justify-center">
 					<Spinner className="size-5 text-text-secondary" />
@@ -188,7 +160,6 @@ export function TestsPanel({ projectId, className }: TestsPanelProperties) {
 								/>
 							))}
 
-							{/* Bundle errors section */}
 							{results && results.bundleErrors.length > 0 && (
 								<div className="mt-2 border-t border-border p-2">
 									<div
@@ -218,10 +189,6 @@ export function TestsPanel({ projectId, className }: TestsPanelProperties) {
 		</div>
 	);
 }
-
-// =============================================================================
-// Empty State
-// =============================================================================
 
 function EmptyState() {
 	return (

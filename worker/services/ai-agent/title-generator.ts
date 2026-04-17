@@ -1,16 +1,6 @@
-/**
- * AI-powered session title generation.
- *
- * Only requires the user's first message — no dependency on the assistant
- * response. This allows title generation to fire immediately when a session
- * starts, completely independent of the agent stream lifecycle.
- */
-
 import { generateText, jsonSchema, Output } from 'ai';
 
 import { createAdapter } from './workers-ai';
-
-/** Lightweight non-thinking model for structured title generation. */
 const TITLE_MODEL = '@cf/meta/llama-3.1-8b-instruct';
 
 const MAX_TITLE_LENGTH = 100;
@@ -63,10 +53,6 @@ export async function generateSessionTitle(userMessage: string): Promise<Session
 		return { title: fallback, isAiGenerated: false };
 	}
 }
-
-/**
- * Derive a fallback title from the first user message (truncated to 50 chars).
- */
 export function deriveFallbackTitle(userMessageText: string): string {
 	const trimmed = userMessageText.trim();
 	if (trimmed.length === 0) return 'New chat';

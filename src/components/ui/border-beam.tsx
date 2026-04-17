@@ -1,19 +1,9 @@
-/**
- * Border Beam Component
- *
- * Renders an animated beam that travels along the border of a container.
- * Used to indicate background activity (e.g. AI code generation in progress).
- * Requires the `borderBeam` keyframes and `--border-beam-angle` @property
- * defined in index.css.
- */
-
 import { cn } from '@/lib/utils';
 
 import type { CSSProperties } from 'react';
 
 interface BorderBeamProperties {
 	className?: string;
-	/** Duration of one full loop in seconds */
 	duration?: number;
 }
 

@@ -1,7 +1,3 @@
-/**
- * Unit tests for the Durable Object retry proxy.
- */
-
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { withRetry } from './do-retry-proxy';

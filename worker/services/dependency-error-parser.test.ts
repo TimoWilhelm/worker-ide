@@ -1,7 +1,3 @@
-/**
- * Dependency Error Parser Tests
- */
-
 import { describe, expect, it } from 'vitest';
 
 import { parseDependencyErrorsFromMessage } from './dependency-error-parser';

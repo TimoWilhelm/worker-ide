@@ -1,9 +1,3 @@
-/**
- * Dropdown Menu Component
- *
- * Accessible dropdown menu using Base UI Menu primitives.
- */
-
 import { Menu } from '@base-ui/react/menu';
 import { motion } from 'motion/react';
 
@@ -11,10 +5,6 @@ import { popoverVariants, springSnappy } from '@/lib/motion-config';
 import { cn } from '@/lib/utils';
 
 import type { ReactElement, ReactNode, Ref } from 'react';
-
-// =============================================================================
-// Root + Trigger
-// =============================================================================
 
 const DropdownMenu = Menu.Root;
 const DropdownMenuGroup = Menu.Group;
@@ -28,10 +18,6 @@ function DropdownMenuTrigger({ children, disabled }: DropdownMenuTriggerProperti
 	return <Menu.Trigger disabled={disabled} render={children} />;
 }
 
-// =============================================================================
-// Content
-// =============================================================================
-
 interface DropdownMenuContentProperties {
 	children: ReactNode;
 	className?: string;
@@ -43,13 +29,13 @@ interface DropdownMenuContentProperties {
 function DropdownMenuContent({ children, className, align = 'end', sideOffset = 4 }: DropdownMenuContentProperties) {
 	return (
 		<Menu.Portal>
-			<Menu.Positioner align={align} sideOffset={sideOffset}>
+			<Menu.Positioner align={align} sideOffset={sideOffset} className="z-100">
 				<Menu.Popup
 					render={<motion.div variants={popoverVariants} initial="hidden" animate="visible" exit="exit" transition={springSnappy} />}
 					className={cn(
 						`
-							z-50 min-w-32 overflow-hidden rounded-md border border-border
-							bg-bg-secondary shadow-md
+							min-w-32 overflow-hidden rounded-md border border-border bg-bg-secondary
+							shadow-md
 						`,
 						className,
 					)}
@@ -60,10 +46,6 @@ function DropdownMenuContent({ children, className, align = 'end', sideOffset = 
 		</Menu.Portal>
 	);
 }
-
-// =============================================================================
-// Item
-// =============================================================================
 
 interface DropdownMenuItemProperties {
 	children: ReactNode;
@@ -95,10 +77,6 @@ function DropdownMenuItem({ children, className, disabled, onSelect, ref, 'aria-
 		</Menu.Item>
 	);
 }
-
-// =============================================================================
-// Separator + Label
-// =============================================================================
 
 function DropdownMenuSeparator({ className }: { className?: string }) {
 	return <Menu.Separator className={cn('my-1 h-px bg-border', className)} />;

@@ -1,10 +1,3 @@
-/**
- * Changed Files Summary
- *
- * Displays a collapsible summary of AI file changes above the chat input.
- * Each file has approve/reject buttons. Bulk actions at the top.
- */
-
 import { ArrowRightLeft, Check, ChevronDown, ChevronRight, FileMinus, FilePen, FilePlus, X } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useMemo, useState } from 'react';
@@ -19,25 +12,15 @@ import { FileReference } from './file-reference';
 
 import type { PendingFileChange } from '@shared/types';
 
-// =============================================================================
-// Types
-// =============================================================================
-
 interface ChangedFilesSummaryProperties {
 	onApproveChange: (path: string) => void;
 	onRejectChange: (path: string) => void;
 	onApproveAll: () => void;
 	onRejectAll: () => void;
 	isReverting: boolean;
-	/** Whether any pending change has a snapshot to revert to */
 	canReject: boolean;
-	/** Only show changes from this session (omit to show all) */
 	sessionId?: string;
 }
-
-// =============================================================================
-// Component
-// =============================================================================
 
 export function ChangedFilesSummary({
 	onApproveChange,
@@ -67,7 +50,6 @@ export function ChangedFilesSummary({
 
 	return (
 		<div className="overflow-hidden rounded-lg border border-accent/25 bg-accent/5">
-			{/* Header */}
 			<div
 				className={cn('flex w-full flex-wrap items-center gap-x-2 gap-y-1 px-3 py-2', 'text-xs font-medium text-accent transition-colors')}
 			>
@@ -117,7 +99,6 @@ export function ChangedFilesSummary({
 				</div>
 			</div>
 
-			{/* File list */}
 			{isExpanded && (
 				<div className="max-h-40 overflow-y-auto border-t border-accent/15">
 					<AnimatePresence initial={false}>
@@ -146,10 +127,6 @@ export function ChangedFilesSummary({
 		</div>
 	);
 }
-
-// =============================================================================
-// File Row
-// =============================================================================
 
 function ChangedFileRow({
 	path,
@@ -217,10 +194,6 @@ function ChangedFileRow({
 		</div>
 	);
 }
-
-// =============================================================================
-// Action Badge
-// =============================================================================
 
 const ACTION_BADGE_CONFIG: Record<
 	'create' | 'edit' | 'delete' | 'move',

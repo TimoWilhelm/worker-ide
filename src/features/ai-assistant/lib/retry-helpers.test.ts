@@ -1,17 +1,8 @@
-/**
- * Unit tests for AI retry helper functions.
- * Uses ChatMessage with `parts: MessagePart[]`.
- */
-
 import { describe, expect, it } from 'vitest';
 
 import { extractMessageText, findLastUserMessage, getRemoveAfterIndex, prepareRetry } from './retry-helpers';
 
 import type { ChatMessage } from '@shared/types';
-
-// =============================================================================
-// Test Helpers
-// =============================================================================
 
 let idCounter = 0;
 function nextId(): string {
@@ -44,10 +35,6 @@ function createMixedMessage(role: 'user' | 'assistant', text: string, hasToolCal
 	return { id: nextId(), role, parts };
 }
 
-// =============================================================================
-// extractMessageText Tests
-// =============================================================================
-
 describe('extractMessageText', () => {
 	it('should extract text from a simple text message', () => {
 		const message = createTextMessage('user', 'Hello world');
@@ -76,10 +63,6 @@ describe('extractMessageText', () => {
 		expect(extractMessageText(message)).toBe('');
 	});
 });
-
-// =============================================================================
-// findLastUserMessage Tests
-// =============================================================================
 
 describe('findLastUserMessage', () => {
 	it('should find the last user message', () => {
@@ -112,10 +95,6 @@ describe('findLastUserMessage', () => {
 		expect(extractMessageText(result!)).toBe('Question');
 	});
 });
-
-// =============================================================================
-// getRemoveAfterIndex Tests
-// =============================================================================
 
 describe('getRemoveAfterIndex', () => {
 	it('should return 0 for empty history', () => {
@@ -157,10 +136,6 @@ describe('getRemoveAfterIndex', () => {
 		expect(getRemoveAfterIndex(history)).toBe(-1);
 	});
 });
-
-// =============================================================================
-// prepareRetry Tests
-// =============================================================================
 
 describe('prepareRetry', () => {
 	it('should return undefined for empty history', () => {

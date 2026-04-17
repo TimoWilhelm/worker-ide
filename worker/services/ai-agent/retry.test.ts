@@ -1,18 +1,6 @@
-/**
- * Unit tests for the retry module.
- *
- * Tests error classification (retryable vs non-retryable), connection error
- * detection with cause chain traversal, retry delay calculation, and
- * abort-aware sleep.
- */
-
 import { describe, expect, it, vi } from 'vitest';
 
 import { classifyConnectionError, classifyRetryableError, calculateRetryDelay, sleep } from './retry';
-
-// =============================================================================
-// classifyConnectionError
-// =============================================================================
 
 describe('classifyConnectionError', () => {
 	it('returns "Connection error" for ECONNRESET', () => {
@@ -125,10 +113,6 @@ describe('classifyConnectionError', () => {
 	});
 });
 
-// =============================================================================
-// classifyRetryableError
-// =============================================================================
-
 describe('classifyRetryableError', () => {
 	// ── Existing retryable errors (unchanged behavior) ──
 
@@ -209,10 +193,6 @@ describe('classifyRetryableError', () => {
 	});
 });
 
-// =============================================================================
-// calculateRetryDelay
-// =============================================================================
-
 describe('calculateRetryDelay', () => {
 	it('returns exponential backoff for attempt 1', () => {
 		expect(calculateRetryDelay(1)).toBe(2000);
@@ -246,10 +226,6 @@ describe('calculateRetryDelay', () => {
 		expect(calculateRetryDelay(1, error)).toBe(10_000);
 	});
 });
-
-// =============================================================================
-// sleep
-// =============================================================================
 
 describe('sleep', () => {
 	it('resolves after the given delay', async () => {

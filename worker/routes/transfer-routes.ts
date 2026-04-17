@@ -1,13 +1,3 @@
-/**
- * Project Transfer Routes
- *
- * Handles transferring project ownership between organizations.
- * The transfer is a two-party handshake:
- * 1. Source org admin initiates a transfer
- * 2. Target org admin accepts or rejects
- * Either side can cancel/reject while the transfer is pending.
- */
-
 import { zValidator } from '@hono/zod-validator';
 import { and, eq, inArray, isNull, or } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';

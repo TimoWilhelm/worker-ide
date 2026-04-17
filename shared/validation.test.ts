@@ -1,7 +1,3 @@
-/**
- * Unit tests for validation schemas.
- */
-
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -17,10 +13,6 @@ import {
 	validateDependencyVersion,
 	LIMITS,
 } from './validation';
-
-// =============================================================================
-// filePathSchema
-// =============================================================================
 
 describe('filePathSchema', () => {
 	it('accepts valid paths', () => {
@@ -51,10 +43,6 @@ describe('filePathSchema', () => {
 	});
 });
 
-// =============================================================================
-// writeFileSchema
-// =============================================================================
-
 describe('writeFileSchema', () => {
 	it('accepts valid write input', () => {
 		const result = writeFileSchema.safeParse({
@@ -79,10 +67,6 @@ describe('writeFileSchema', () => {
 	});
 });
 
-// =============================================================================
-// sessionIdSchema
-// =============================================================================
-
 describe('sessionIdSchema', () => {
 	it('accepts valid session IDs', () => {
 		expect(sessionIdSchema.safeParse('abc123').success).toBe(true);
@@ -101,10 +85,6 @@ describe('sessionIdSchema', () => {
 	});
 });
 
-// =============================================================================
-// snapshotIdSchema
-// =============================================================================
-
 describe('snapshotIdSchema', () => {
 	it('accepts valid hex IDs', () => {
 		expect(snapshotIdSchema.safeParse('abcdef0123456789').success).toBe(true);
@@ -118,10 +98,6 @@ describe('snapshotIdSchema', () => {
 		expect(snapshotIdSchema.safeParse('').success).toBe(false);
 	});
 });
-
-// =============================================================================
-// revertCascadeSchema
-// =============================================================================
 
 describe('revertCascadeSchema', () => {
 	it('accepts a single snapshot ID', () => {
@@ -150,10 +126,6 @@ describe('revertCascadeSchema', () => {
 	});
 });
 
-// =============================================================================
-// isPathSafe
-// =============================================================================
-
 describe('isPathSafe', () => {
 	it('returns true for valid paths', () => {
 		expect(isPathSafe('/src/main.ts')).toBe(true);
@@ -167,10 +139,6 @@ describe('isPathSafe', () => {
 		expect(isPathSafe('src/main.ts')).toBe(false);
 	});
 });
-
-// =============================================================================
-// validateToolInput
-// =============================================================================
 
 describe('validateToolInput', () => {
 	it('validates file_read input', () => {
@@ -256,10 +224,6 @@ describe('validateToolInput', () => {
 	});
 });
 
-// =============================================================================
-// todoItemSchema
-// =============================================================================
-
 describe('todoItemSchema', () => {
 	it('accepts a valid TODO item', () => {
 		const result = todoItemSchema.safeParse({
@@ -316,10 +280,6 @@ describe('todoItemSchema', () => {
 	});
 });
 
-// =============================================================================
-// validateDependencyName
-// =============================================================================
-
 describe('validateDependencyName', () => {
 	it('accepts valid unscoped package names', () => {
 		expect(validateDependencyName('react')).toBeUndefined();
@@ -358,10 +318,6 @@ describe('validateDependencyName', () => {
 		expect(validateDependencyName('a'.repeat(215))).toBeDefined();
 	});
 });
-
-// =============================================================================
-// validateDependencyVersion
-// =============================================================================
 
 describe('validateDependencyVersion', () => {
 	it('accepts wildcard version', () => {

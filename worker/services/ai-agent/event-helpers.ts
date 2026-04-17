@@ -1,10 +1,3 @@
-/**
- * Stream Event Helpers.
- *
- * Pure utility functions for constructing typed StreamEvent objects.
- * Constructs strongly-typed StreamEvent objects for the agent stream.
- */
-
 import type {
 	ContextUtilizationEvent,
 	DoomLoopDetectedEvent,
@@ -15,6 +8,7 @@ import type {
 	RunErrorEvent,
 	SnapshotCreatedEvent,
 	SnapshotDeletedEvent,
+	SteeringMessageCommittedEvent,
 	StatusEvent,
 	StreamEvent,
 	SubAgentActivity,
@@ -28,10 +22,6 @@ import type {
 	UsageEvent,
 	UserQuestionEvent,
 } from '@shared/agent-state';
-
-// =============================================================================
-// Event Constructors
-// =============================================================================
 
 export function statusEvent(message: string): StatusEvent {
 	return { type: 'status', message };
@@ -102,6 +92,10 @@ export function turnCompleteEvent(): TurnCompleteEvent {
 	return { type: 'turn-complete' };
 }
 
+export function steeringMessageCommittedEvent(id: string): SteeringMessageCommittedEvent {
+	return { type: 'steering-message-committed', id };
+}
+
 export function maxIterationsReachedEvent(iterations: number): MaxIterationsReachedEvent {
 	return { type: 'max-iterations-reached', iterations };
 }
@@ -122,10 +116,6 @@ function subAgentActivityEvent(parentToolCallId: string, activity: SubAgentActiv
 	return { type: 'sub-agent-activity', parentToolCallId, activity };
 }
 
-// =============================================================================
-// Internal helpers
-// =============================================================================
-
 function isRecordObject(value: unknown): value is Record<string, unknown> {
 	return !!value && typeof value === 'object' && !Array.isArray(value);
 }
@@ -134,10 +124,6 @@ const FILE_ACTIONS = new Set(['create', 'edit', 'delete', 'move']);
 function isFileAction(value: unknown): value is 'create' | 'edit' | 'delete' | 'move' {
 	return typeof value === 'string' && FILE_ACTIONS.has(value);
 }
-
-// =============================================================================
-// SendEvent factory (used by tool executors)
-// =============================================================================
 
 /**
  * Create a SendEvent function that pushes StreamEvent objects into a queue.

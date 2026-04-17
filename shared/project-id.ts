@@ -1,15 +1,4 @@
-/**
- * Project ID validation and pattern matching.
- *
- * Project IDs are short, URL-safe alphanumeric strings. The rest of
- * the codebase treats them as opaque identifiers. Conversion to/from
- * Durable Object IDs is handled in `worker/lib/project-id.ts`.
- */
-
-/** Matches a valid project ID (lowercase alphanumeric, 1–50 chars). */
 export const PROJECT_ID_PATTERN = /^[a-z\d]{1,50}$/;
-
-/** Check whether a string is a valid project ID. */
 export function isValidProjectId(value: string): boolean {
 	if (!PROJECT_ID_PATTERN.test(value)) {
 		return false;

@@ -1,13 +1,6 @@
-/**
- * Tool: files_list
- * List all files in the project recursively.
- */
-
 import { listFilesRecursive } from '../tool-executor';
 
 import type { SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
-
-/** Maximum number of file paths returned to the LLM. */
 const MAX_FILES = 200;
 
 const DESCRIPTION = `List all files in the project recursively. Returns a flat array of all file paths in the project tree.

@@ -1,13 +1,3 @@
-/**
- * PCM Audio Worklet Processor
- *
- * Captures raw audio from the microphone, converts Float32 samples to
- * Int16 linear PCM, and posts the binary buffer to the main thread.
- * The main thread then forwards it over WebSocket to the STT proxy.
- *
- * Registered as 'pcm-processor' in the AudioWorklet scope.
- */
-
 class PCMProcessor extends AudioWorkletProcessor {
 	process(inputs) {
 		const input = inputs[0];

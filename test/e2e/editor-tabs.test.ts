@@ -1,12 +1,3 @@
-/**
- * Editor Tabs E2E Tests
- *
- * Tests the file tab bar behavior:
- * - Opening files creates tabs
- * - Switching between tabs
- * - Closing tabs
- */
-
 import { expect, test } from 'playwright/test';
 
 import { gotoIDE, waitForFileTree } from './helpers';

@@ -1,33 +1,3 @@
-/**
- * Mobile Keyboard-Aware Layout Hook
- *
- * Returns inline styles that keep a container fully visible above the virtual
- * keyboard on mobile. When the keyboard is open the container switches to
- * `position: fixed` so it is immune to the browser's automatic
- * scroll-into-view behaviour that would otherwise push elements off-screen.
- *
- * **How it works — two layers:**
- *
- * 1. A `useSyncExternalStore` subscription on the VisualViewport API detects
- *    the keyboard and computes the available height.
- * 2. When the keyboard is detected, the hook returns `position: fixed` styles
- *    that pin the container to the top-left of its original position with the
- *    computed height. Because `position: fixed` elements live in viewport
- *    space, page-level scrolling (which we cannot reliably prevent on iOS
- *    Safari) simply has no effect.
- *
- * When the keyboard closes the hook returns `undefined` and the container
- * falls back to its normal flow layout (e.g. `h-full`).
- *
- * Edge cases handled:
- * - VisualViewport API not available → no-op
- * - Desktop → no-op (guarded by `useIsMobile`)
- * - Address bar show/hide → 100 px threshold filters false positives
- * - Orientation change → recalculates via `orientationchange` listener
- * - SSR → `getServerSnapshot` returns undefined
- * - Referential stability → cached style object avoids unnecessary re-renders
- */
-
 import { useCallback, useState, useSyncExternalStore } from 'react';
 
 import { useIsMobile } from './use-is-mobile';
@@ -61,8 +31,6 @@ function subscribe(callback: () => void): () => void {
 		globalThis.removeEventListener('orientationchange', callback);
 	};
 }
-
-/** Returns the visual-viewport height when the keyboard is open, else `undefined`. */
 function getSnapshot(): number | undefined {
 	const viewport = globalThis.visualViewport;
 	if (!viewport) {
@@ -129,16 +97,12 @@ interface ElementRect {
 const INITIAL_RECT: ElementRect = { top: 0, left: 0, width: 0 };
 
 export interface MobileKeyboardLayout {
-	/** Inline styles to spread onto the container element. */
 	style: CSSProperties | undefined;
 	/**
 	 * Ref callback — attach to the container element so the hook can measure
 	 * its position before it goes fixed.
 	 */
 	ref: RefCallback<HTMLElement>;
-	/**
-	 * `true` while the keyboard is open on mobile.
-	 */
 	isKeyboardOpen: boolean;
 }
 

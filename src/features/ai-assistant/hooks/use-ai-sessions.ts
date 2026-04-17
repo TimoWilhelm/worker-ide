@@ -1,32 +1,14 @@
-/**
- * useAiSessions Hook
- *
- * Manages AI session listing, loading, and auto-restore via Agent SDK RPC.
- * Sessions are stored on the AgentRunner DO and auto-synced via agent.state.
- */
-
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { toast } from '@/components/ui/toast-store';
+import { isAgentState } from '@/features/ai-assistant/lib/agent-state';
 import { useStore } from '@/lib/store';
 
 import type { AgentState } from '@shared/agent-state';
 import type { PendingFileChange } from '@shared/types';
-
-// =============================================================================
-// Helpers
-// =============================================================================
-
-/**
- * localStorage key for the active session ID, scoped per project.
- */
 function activeSessionKey(projectId: string): string {
 	return `worker-ide-active-session:${projectId}`;
 }
-
-/**
- * Read the active session ID for a project from localStorage.
- */
 function getActiveSessionId(projectId: string): string | undefined {
 	try {
 		return localStorage.getItem(activeSessionKey(projectId)) ?? undefined;
@@ -34,10 +16,6 @@ function getActiveSessionId(projectId: string): string | undefined {
 		return undefined;
 	}
 }
-
-/**
- * Write (or clear) the active session ID for a project in localStorage.
- */
 export function setActiveSessionId(projectId: string, sessionId: string | undefined): void {
 	try {
 		if (sessionId) {
@@ -50,10 +28,6 @@ export function setActiveSessionId(projectId: string, sessionId: string | undefi
 	}
 }
 
-// =============================================================================
-// Hook
-// =============================================================================
-
 interface AgentHandle {
 	state: unknown;
 	call: <T = unknown>(method: string, arguments_?: unknown[]) => Promise<T>;
@@ -62,11 +36,35 @@ interface AgentHandle {
 export function useAiSessions({ projectId, agent }: { projectId: string; agent: AgentHandle }) {
 	// Session list comes from agent.state.sessions (auto-synced)
 	const rawState = agent.state;
-	const agentState =
-		rawState && typeof rawState === 'object' && 'sessions' in rawState
-			? (rawState as AgentState) // eslint-disable-line @typescript-eslint/consistent-type-assertions -- narrowed above
-			: undefined;
+	const agentState: AgentState | undefined = isAgentState(rawState) ? rawState : undefined;
 	const savedSessions = agentState?.sessions ?? [];
+	const [sessionSearchQuery, setSessionSearchQuery] = useState('');
+	const [searchedSessionIds, setSearchedSessionIds] = useState<string[] | undefined>();
+	const displaySessions = sessionSearchQuery.trim()
+		? savedSessions.filter((session) => searchedSessionIds?.includes(session.id))
+		: savedSessions;
+
+	useEffect(() => {
+		if (!sessionSearchQuery.trim()) {
+			return;
+		}
+
+		let cancelled = false;
+		void agent
+			.call<Array<{ sessionId: string; role: string; content: string }>>('searchSessions', [sessionSearchQuery.trim(), 20])
+			.then((results) => {
+				if (cancelled) return;
+				setSearchedSessionIds([...new Set(results.map((result) => result.sessionId))]);
+			})
+			.catch(() => {
+				if (cancelled) return;
+				setSearchedSessionIds([]);
+			});
+
+		return () => {
+			cancelled = true;
+		};
+	}, [agent, sessionSearchQuery]);
 
 	// =========================================================================
 	// Load a session via Agent RPC
@@ -247,10 +245,12 @@ export function useAiSessions({ projectId, agent }: { projectId: string; agent: 
 	}, [projectId, agent, agentState]);
 
 	return {
-		savedSessions,
+		savedSessions: displaySessions,
 		handleLoadSession,
 		handleRenameSession,
 		handleDeleteSession,
+		sessionSearchQuery,
+		setSessionSearchQuery,
 		isRestoringSession: isRestoringSession || isLoadingSession,
 	};
 }

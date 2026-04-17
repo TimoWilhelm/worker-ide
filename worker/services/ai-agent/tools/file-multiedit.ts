@@ -1,11 +1,3 @@
-/**
- * Tool: file_multiedit
- * Apply multiple exact string replacements to a single file in one atomic operation.
- * All edits are applied sequentially; if any edit fails, none are written to disk.
- *
- * Prefer this tool over file_edit when making several changes to the same file.
- */
-
 import fs from 'node:fs/promises';
 
 import { MAX_DIAGNOSTICS_PER_FILE } from '@shared/constants';
@@ -22,10 +14,6 @@ import { computeDiffStats, generateCompactDiff, isRecordObject } from '../utilit
 
 import type { FileChange, SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
 
-// =============================================================================
-// Description
-// =============================================================================
-
 const DESCRIPTION = `Apply multiple exact string replacements to a single file in one atomic operation. All edits are applied sequentially; if any edit fails, none are written to disk.
 
 Prefer this tool over \`file_edit\` when you need to make several changes to the same file — it is more efficient and avoids intermediate writes.
@@ -41,10 +29,6 @@ CRITICAL INSTRUCTION: ALWAYS prefer editing existing files in the codebase. NEVE
 - An edit will FAIL if \`old_string\` is not found in the (possibly already-modified) content.
 - An edit will FAIL if \`old_string\` matches multiple locations (unless \`replace_all\` is true).
 - Use \`replace_all\` for replacing and renaming strings across the file. This parameter is useful if you want to rename a variable for instance.`;
-
-// =============================================================================
-// Tool Definition
-// =============================================================================
 
 export const definition: ToolDefinition = {
 	name: 'file_multiedit',
@@ -76,10 +60,6 @@ export const definition: ToolDefinition = {
 		required: ['file_path', 'edits'],
 	},
 };
-
-// =============================================================================
-// Edit parsing
-// =============================================================================
 
 interface SingleEdit {
 	old_string: string;
@@ -122,10 +102,6 @@ function parseEditsInput(raw: unknown): SingleEdit[] {
 	}
 	return edits;
 }
-
-// =============================================================================
-// Execute Function
-// =============================================================================
 
 export async function execute(
 	input: Record<string, string>,

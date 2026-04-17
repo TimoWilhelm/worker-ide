@@ -1,33 +1,9 @@
-/**
- * Context window management for the AI agent.
- *
- * 1. **Pruning** — erase old tool outputs when context is getting full
- * 2. **Context budget** — check if there's enough context remaining for another iteration
- * 3. **Message conversion** — convert ChatMessage[] to ModelMessage[] for the AI SDK
- *
- * The agent loop prunes proactively at ~70% utilization, then stops when budget is exhausted.
- */
-
 import type { ChatMessage, MessagePart } from '@shared/types';
 import type { AssistantModelMessage, ModelMessage, ToolModelMessage } from 'ai';
-
-// =============================================================================
-// Constants
-// =============================================================================
-
-/** Characters per token (rough estimate, no tokenizer dependency) */
 const CHARACTERS_PER_TOKEN = 4;
-
-/** Minimum tokens to prune before actually executing the prune */
 const PRUNE_MINIMUM = 20_000;
-
-/** Recent tool output tokens to protect from pruning */
 const PRUNE_PROTECT = 40_000;
-
-/** Placeholder text for pruned tool outputs */
 const PRUNED_PLACEHOLDER = '[Old tool result content cleared]';
-
-/** Tool names whose call inputs can be pruned after the result is pruned. */
 const PRUNEABLE_INPUT_TOOLS = new Set(['file_write', 'file_edit', 'file_multiedit']);
 
 /**
@@ -35,10 +11,6 @@ const PRUNEABLE_INPUT_TOOLS = new Set(['file_write', 'file_edit', 'file_multiedi
  * When usable context minus this buffer is exceeded, the agent should stop.
  */
 const CONTEXT_BUDGET_BUFFER = 20_000;
-
-// =============================================================================
-// ChatMessage → ModelMessage Conversion
-// =============================================================================
 
 /**
  * Convert our app-owned ChatMessage[] to Vercel AI SDK ModelMessage[].
@@ -143,10 +115,6 @@ export function chatMessagesToModelMessages(messages: ChatMessage[]): ModelMessa
 
 	return result;
 }
-
-// =============================================================================
-// ResponseMessage → ChatMessage Conversion
-// =============================================================================
 
 /**
  * Convert Vercel AI SDK response messages (AssistantModelMessage | ToolModelMessage)
@@ -262,10 +230,6 @@ export function responseMessagesToChatMessages(messages: Array<AssistantModelMes
 	return result;
 }
 
-// =============================================================================
-// Token Estimation
-// =============================================================================
-
 /**
  * Estimate token count from a string using the character heuristic.
  * This avoids a tokenizer dependency — accuracy is good enough for pruning decisions.
@@ -273,10 +237,6 @@ export function responseMessagesToChatMessages(messages: Array<AssistantModelMes
 function estimateTokens(text: string): number {
 	return Math.round(text.length / CHARACTERS_PER_TOKEN);
 }
-
-/**
- * Estimate the total token count of a ModelMessage array.
- */
 export function estimateMessagesTokens(messages: ModelMessage[]): number {
 	let total = 0;
 	for (const message of messages) {
@@ -299,14 +259,8 @@ export function estimateMessagesTokens(messages: ModelMessage[]): number {
 	return total;
 }
 
-// =============================================================================
-// Context Overflow Detection
-// =============================================================================
-
 interface ModelLimits {
-	/** Maximum context window size in tokens */
 	contextWindow: number;
-	/** Maximum output tokens */
 	maxOutput: number;
 }
 
@@ -337,10 +291,6 @@ export function getContextUtilization(messages: ModelMessage[], limits: ModelLim
 
 	return currentTokens / usable;
 }
-
-// =============================================================================
-// Context Pruning
-// =============================================================================
 
 /**
  * Prune old tool result messages to free up context space.
@@ -473,10 +423,6 @@ export function pruneToolOutputs(messages: ModelMessage[]): { messages: ModelMes
 	return { messages: prunedMessages, prunedTokens: prunableTokens };
 }
 
-// =============================================================================
-// Corrective System Message Pruning
-// =============================================================================
-
 /**
  * Prune old corrective system messages injected by the agent loop.
  * These are user-role messages starting with MUTATION_FAILURE_TAG or "SYSTEM:"
@@ -512,12 +458,6 @@ export function pruneSystemMessages(messages: ModelMessage[]): { messages: Model
 
 	return { messages: result, prunedTokens };
 }
-
-// =============================================================================
-// Old Assistant Text Pruning
-// =============================================================================
-
-/** Maximum characters to keep when truncating old assistant text. */
 const ASSISTANT_TEXT_TRUNCATE_LENGTH = 200;
 
 /**

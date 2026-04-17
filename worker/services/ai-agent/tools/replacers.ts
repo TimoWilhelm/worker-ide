@@ -1,21 +1,4 @@
-/**
- * String replacement strategies for file_edit tool.
- *
- * These replacers are adapted from:
- * - https://github.com/cline/cline/blob/main/evals/diff-edits/diff-apply/diff-06-23-25.ts
- * - https://github.com/google-gemini/gemini-cli/blob/main/packages/core/src/utils/editCorrector.ts
- * - https://github.com/cline/cline/blob/main/evals/diff-edits/diff-apply/diff-06-26-25.ts
- */
-
-// =============================================================================
-// Types
-// =============================================================================
-
 export type Replacer = (content: string, find: string) => Generator<string, void, unknown>;
-
-// =============================================================================
-// Constants
-// =============================================================================
 
 // Similarity thresholds for block anchor fallback matching.
 // A threshold of 0 for single candidates means any block whose first and last
@@ -23,14 +6,6 @@ export type Replacer = (content: string, find: string) => Generator<string, void
 // aggressive to maximize patch success rate.
 const SINGLE_CANDIDATE_SIMILARITY_THRESHOLD = 0;
 const MULTIPLE_CANDIDATES_SIMILARITY_THRESHOLD = 0.3;
-
-// =============================================================================
-// Levenshtein Distance
-// =============================================================================
-
-/**
- * Levenshtein distance algorithm implementation
- */
 export function levenshtein(a: string, b: string): number {
 	// Handle empty strings
 	if (a === '' || b === '') {
@@ -50,21 +25,9 @@ export function levenshtein(a: string, b: string): number {
 
 	return matrix[a.length][b.length];
 }
-
-// =============================================================================
-// Replacer Strategies
-// =============================================================================
-
-/**
- * 1. SimpleReplacer - Exact string match
- */
 export const SimpleReplacer: Replacer = function* (_content, find) {
 	yield find;
 };
-
-/**
- * 2. LineTrimmedReplacer - Match with trimmed whitespace per line
- */
 export const LineTrimmedReplacer: Replacer = function* (content, find) {
 	const originalLines = content.split('\n');
 	const searchLines = find.split('\n');
@@ -104,10 +67,6 @@ export const LineTrimmedReplacer: Replacer = function* (content, find) {
 		}
 	}
 };
-
-/**
- * 3. BlockAnchorReplacer - Match based on first/last line anchors with similarity scoring
- */
 export const BlockAnchorReplacer: Replacer = function* (content, find) {
 	const originalLines = content.split('\n');
 	const searchLines = find.split('\n');
@@ -242,17 +201,9 @@ export const BlockAnchorReplacer: Replacer = function* (content, find) {
 		yield content.slice(matchStartIndex, matchEndIndex);
 	}
 };
-
-/**
- * Helper: normalize whitespace by collapsing runs of whitespace to single space
- */
 function normalizeWhitespace(text: string): string {
 	return text.replaceAll(/\s+/g, ' ').trim();
 }
-
-/**
- * 4. WhitespaceNormalizedReplacer - Collapse whitespace for matching
- */
 export const WhitespaceNormalizedReplacer: Replacer = function* (content, find) {
 	const normalizedFind = normalizeWhitespace(find);
 
@@ -294,10 +245,6 @@ export const WhitespaceNormalizedReplacer: Replacer = function* (content, find) 
 		}
 	}
 };
-
-/**
- * Helper: remove common leading indentation from a text block
- */
 function removeIndentation(text: string): string {
 	const lines = text.split('\n');
 	const nonEmptyLines = lines.filter((line) => line.trim().length > 0);
@@ -312,10 +259,6 @@ function removeIndentation(text: string): string {
 
 	return lines.map((line) => (line.trim().length === 0 ? line : line.slice(minIndent))).join('\n');
 }
-
-/**
- * 5. IndentationFlexibleReplacer - Ignore leading indentation
- */
 export const IndentationFlexibleReplacer: Replacer = function* (content, find) {
 	const normalizedFind = removeIndentation(find);
 	const contentLines = content.split('\n');
@@ -328,10 +271,6 @@ export const IndentationFlexibleReplacer: Replacer = function* (content, find) {
 		}
 	}
 };
-
-/**
- * Helper: unescape common escape sequences
- */
 function unescapeString(string_: string): string {
 	return string_.replaceAll(/\\([ntr'"`\\$]|\n)/g, (match, capturedChar: string) => {
 		switch (capturedChar) {
@@ -368,10 +307,6 @@ function unescapeString(string_: string): string {
 		}
 	});
 }
-
-/**
- * 6. EscapeNormalizedReplacer - Handle escape sequences
- */
 export const EscapeNormalizedReplacer: Replacer = function* (content, find) {
 	const unescapedFind = unescapeString(find);
 
@@ -393,10 +328,6 @@ export const EscapeNormalizedReplacer: Replacer = function* (content, find) {
 		}
 	}
 };
-
-/**
- * 7. TrimmedBoundaryReplacer - Try trimmed version of find string
- */
 export const TrimmedBoundaryReplacer: Replacer = function* (content, find) {
 	const trimmedFind = find.trim();
 
@@ -422,10 +353,6 @@ export const TrimmedBoundaryReplacer: Replacer = function* (content, find) {
 		}
 	}
 };
-
-/**
- * 8. ContextAwareReplacer - Context-based matching using first/last lines as anchors
- */
 export const ContextAwareReplacer: Replacer = function* (content, find) {
 	const findLines = find.split('\n');
 	if (findLines.length < 3) {
@@ -483,10 +410,6 @@ export const ContextAwareReplacer: Replacer = function* (content, find) {
 		}
 	}
 };
-
-/**
- * 9. MultiOccurrenceReplacer - Yields all exact matches for replaceAll
- */
 export const MultiOccurrenceReplacer: Replacer = function* (content, find) {
 	// This replacer yields all exact matches, allowing the replace function
 	// to handle multiple occurrences based on replaceAll parameter
@@ -500,10 +423,6 @@ export const MultiOccurrenceReplacer: Replacer = function* (content, find) {
 		startIndex = index + find.length;
 	}
 };
-
-// =============================================================================
-// Main Replace Function
-// =============================================================================
 
 /**
  * Replace oldString with newString in content using multiple replacement strategies.

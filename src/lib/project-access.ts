@@ -1,14 +1,3 @@
-/**
- * Project Access Check
- *
- * Determines whether a project is accessible, not found, or forbidden
- * before mounting the IDE. Results are cached per-project to prevent
- * duplicate fetches during React Suspense re-renders.
- *
- * Extracted from app.tsx for independent testability and to keep the
- * root application component focused on routing and layout.
- */
-
 import { fetchProjectMeta } from '@/lib/api-client';
 import { ApiError } from '@/lib/api-error';
 
@@ -27,9 +16,7 @@ export type ProjectAccessStatus = 'exists' | 'not-found' | 'forbidden';
  * can detect a project that was created or un-restricted after the initial check.
  */
 const projectAccessCache = new Map<string, Promise<ProjectAccessStatus>>();
-/** TTL for caching 'not-found' results — short so newly created projects are discovered. */
 const NOT_FOUND_TTL_MS = 30_000;
-/** TTL for caching 'forbidden' results — longer since bans are not transient. */
 const FORBIDDEN_TTL_MS = 60_000;
 
 export function checkProjectAccess(projectId: string): Promise<ProjectAccessStatus> {

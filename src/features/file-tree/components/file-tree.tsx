@@ -1,9 +1,3 @@
-/**
- * File Tree Component
- *
- * Hierarchical file explorer with expand/collapse support.
- */
-
 import { ScrollArea } from '@base-ui/react/scroll-area';
 import { ChevronDown, ChevronRight, File, FilePlus, Folder, FolderOpen, FolderPlus, Lock, Pencil, Trash2 } from 'lucide-react';
 import { useCallback, useId, useMemo, useRef, useState } from 'react';
@@ -16,10 +10,6 @@ import { cn } from '@/lib/utils';
 import { PROTECTED_FILES } from '@shared/constants';
 
 import type { FileInfo, GitFileStatus, Participant } from '@shared/types';
-
-// =============================================================================
-// Git Status Color
-// =============================================================================
 
 function getGitStatusColor(status: GitFileStatus | undefined): string | undefined {
 	if (!status || status === 'unmodified') return undefined;
@@ -44,10 +34,6 @@ function getGitStatusColor(status: GitFileStatus | undefined): string | undefine
 		}
 	}
 }
-
-// =============================================================================
-// Types
-// =============================================================================
 
 export interface FileTreeItem {
 	name: string;
@@ -76,37 +62,20 @@ function buildVisibleNodes(items: FileTreeItem[], expandedDirectories: Set<strin
 }
 
 export interface FileTreeProperties {
-	/** List of file paths */
 	files: FileInfo[];
-	/** Currently selected file */
 	selectedFile: string | undefined;
-	/** Set of expanded directory paths */
 	expandedDirectories: Set<string>;
-	/** Called when a file is selected */
 	onFileSelect: (path: string) => void;
-	/** Called when a directory is toggled */
 	onDirectoryToggle: (path: string) => void;
-	/** Called when a file should be created */
 	onCreateFile?: (path: string) => void;
-	/** Called when a file should be deleted */
 	onDeleteFile?: (path: string) => void;
-	/** Called when a file should be renamed */
 	onRenameFile?: (fromPath: string, toPath: string) => void;
-	/** Called when a folder should be created */
 	onCreateFolder?: (path: string) => void;
-	/** Called when a file/folder should be moved via drag-and-drop */
 	onMoveFile?: (fromPath: string, toPath: string) => void;
-	/** Connected collaborators for showing presence dots */
 	participants?: Participant[];
-	/** Git status map: file path (without leading /) -> git status */
 	gitStatusMap?: Map<string, GitFileStatus>;
-	/** CSS class name */
 	className?: string;
 }
-
-// =============================================================================
-// Tree Building
-// =============================================================================
 
 interface TreeNode {
 	name: string;
@@ -123,10 +92,6 @@ interface VisibleTreeNode {
 	parentPath?: string;
 	isExpanded: boolean;
 }
-
-/**
- * Build a hierarchical tree from flat file info.
- */
 function buildFileTree(files: FileInfo[]): FileTreeItem[] {
 	const root: Record<string, TreeNode> = {};
 
@@ -190,14 +155,6 @@ function buildFileTree(files: FileInfo[]): FileTreeItem[] {
 
 	return toArray(root);
 }
-
-// =============================================================================
-// Component
-// =============================================================================
-
-/**
- * File tree component for the sidebar.
- */
 export function FileTree({
 	files,
 	selectedFile,
@@ -392,7 +349,6 @@ export function FileTree({
 	return (
 		<>
 			<div className={cn('flex h-full flex-col', className)}>
-				{/* Files header */}
 				<div className="flex items-center justify-between px-3 pt-1.5 pb-0.5">
 					<span id={treeLabelId} className="text-xs font-semibold tracking-wider text-text-secondary">
 						Files
@@ -441,7 +397,6 @@ export function FileTree({
 					</div>
 				</div>
 
-				{/* File tree */}
 				<ScrollArea.Root className="h-full flex-1 overflow-hidden">
 					<ScrollArea.Viewport className="size-full">
 						<div
@@ -524,7 +479,6 @@ export function FileTree({
 				</ScrollArea.Root>
 			</div>
 
-			{/* New File Modal */}
 			<Modal open={isCreateModalOpen} onOpenChange={setIsCreateModalOpen} title="New File">
 				<ModalBody>
 					<input
@@ -556,7 +510,6 @@ export function FileTree({
 				</ModalFooter>
 			</Modal>
 
-			{/* New Folder Modal */}
 			<Modal open={isCreateFolderModalOpen} onOpenChange={setIsCreateFolderModalOpen} title="New Folder">
 				<ModalBody>
 					<input
@@ -588,7 +541,6 @@ export function FileTree({
 				</ModalFooter>
 			</Modal>
 
-			{/* Delete Confirmation Dialog */}
 			<ConfirmDialog
 				open={deleteTarget !== undefined}
 				onOpenChange={(open) => {
@@ -610,10 +562,6 @@ export function FileTree({
 		</>
 	);
 }
-
-// =============================================================================
-// Tree Node Component
-// =============================================================================
 
 interface FileTreeNodeProperties {
 	item: FileTreeItem;
@@ -862,7 +810,6 @@ function FileTreeNode({
 						</span>
 					</Tooltip>
 				)}
-				{/* Collaborator presence dots — always visible */}
 				{fileParticipants.length > 0 && (
 					<div className="flex shrink-0 items-center gap-0.5">
 						{fileParticipants.slice(0, 3).map((participant) => (
@@ -871,7 +818,6 @@ function FileTreeNode({
 						{fileParticipants.length > 3 && <span className="text-3xs text-text-secondary">+{fileParticipants.length - 3}</span>}
 					</div>
 				)}
-				{/* Action buttons — hidden normally, shown on hover (zero layout space when hidden) */}
 				{item.isDirectory && onCreateFileInDirectory && (
 					<button
 						type="button"
@@ -974,10 +920,6 @@ function FileTreeNode({
 		</div>
 	);
 }
-
-// =============================================================================
-// File Icon Component
-// =============================================================================
 
 function getFileColor(extension: string | undefined): string {
 	switch (extension) {

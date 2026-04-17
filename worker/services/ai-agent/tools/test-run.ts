@@ -1,13 +1,3 @@
-/**
- * Tool: test_run
- * Run JavaScript/TypeScript tests server-side using the WorkerLoader sandbox.
- *
- * The tool discovers test files (by glob or explicit path), bundles each one
- * with a lightweight test harness (describe/it/expect) using esbuild-wasm,
- * then executes the bundle in an isolated V8 isolate via `env.LOADER.get()`.
- * Results are returned as structured JSON — no browser or CDP needed.
- */
-
 import fs from 'node:fs/promises';
 
 import { env } from 'cloudflare:workers';
@@ -21,17 +11,9 @@ import { listFilesRecursive } from '../tool-executor';
 
 import type { SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
 
-// =============================================================================
-// Constants
-// =============================================================================
-
 const MAX_TEST_FILES = 20;
 const TEST_TIMEOUT_MS = 30_000;
 const DEFAULT_GLOB = 'test/**/*.test.{js,ts,jsx,tsx}';
-
-// =============================================================================
-// Description
-// =============================================================================
 
 const DESCRIPTION = `Run JavaScript/TypeScript tests in a sandboxed Worker isolate. Tests use a built-in test harness with describe/it/expect — no extra dependencies are needed.
 
@@ -69,10 +51,6 @@ describe('multiply', () => {
 });
 \`\`\``;
 
-// =============================================================================
-// Tool Definition
-// =============================================================================
-
 export const definition: ToolDefinition = {
 	name: 'test_run',
 	description: DESCRIPTION,
@@ -92,10 +70,6 @@ export const definition: ToolDefinition = {
 		},
 	},
 };
-
-// =============================================================================
-// Test Harness
-// =============================================================================
 
 /**
  * Minimal test runtime injected into every test bundle.
@@ -323,10 +297,6 @@ function buildTestWorkerEntry(harnessModuleName: string, testFilePath: string): 
 	].join('\n');
 }
 
-// =============================================================================
-// Types
-// =============================================================================
-
 interface TestResult {
 	name: string;
 	status: 'passed' | 'failed';
@@ -349,10 +319,6 @@ interface TestRunResults {
 	duration: number;
 	error?: string;
 }
-
-// =============================================================================
-// Structured Test Runner (shared between tool and API route)
-// =============================================================================
 
 export interface StructuredTestRunResult {
 	title: string;
@@ -466,10 +432,6 @@ export async function runTests(
 	};
 }
 
-// =============================================================================
-// Execute (AI tool wrapper)
-// =============================================================================
-
 export async function execute(
 	input: Record<string, string>,
 	sendEvent: SendEventFunction,
@@ -491,10 +453,6 @@ export async function execute(
 		output: result.output,
 	};
 }
-
-// =============================================================================
-// Helpers
-// =============================================================================
 
 async function discoverTestFiles(projectRoot: string, pattern: string): Promise<string[]> {
 	// If the pattern looks like a specific file path (no wildcards), check if it exists

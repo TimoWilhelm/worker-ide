@@ -1,7 +1,3 @@
-/**
- * Hook for deriving terminal log counts and auto-opening the utility panel on errors.
- */
-
 import { useEffect, useMemo, useRef } from 'react';
 
 import { useLogs } from '@/features/output/lib/log-buffer';

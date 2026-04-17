@@ -1,43 +1,17 @@
-/**
- * Resizable Panel Component
- *
- * A container with a draggable resize handle.
- */
-
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { cn } from '@/lib/utils';
 
-// =============================================================================
-// Types
-// =============================================================================
-
 export interface ResizablePanelProperties {
-	/** Panel content */
 	children: React.ReactNode;
-	/** Direction of the resize handle */
 	direction: 'horizontal' | 'vertical';
-	/** Initial size in pixels */
 	defaultSize: number;
-	/** Minimum size in pixels */
 	minSize?: number;
-	/** Maximum size in pixels */
 	maxSize?: number;
-	/** Called when size changes */
 	onSizeChange?: (size: number) => void;
-	/** CSS class name */
 	className?: string;
-	/** Whether resize handle is on the start or end */
 	handlePosition?: 'start' | 'end';
 }
-
-// =============================================================================
-// Component
-// =============================================================================
-
-/**
- * Resizable panel with draggable handle.
- */
 export function ResizablePanel({
 	children,
 	direction,

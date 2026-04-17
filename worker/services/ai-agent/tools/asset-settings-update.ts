@@ -1,8 +1,3 @@
-/**
- * Tool: asset_settings_update
- * Update Cloudflare Workers asset routing settings for the project.
- */
-
 import { stripIndent } from 'common-tags';
 
 import { ToolExecutionError } from '@shared/tool-errors';

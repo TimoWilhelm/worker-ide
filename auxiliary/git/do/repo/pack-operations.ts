@@ -1,10 +1,3 @@
-/**
- * Pack operations for repository maintenance
- *
- * This module provides operations for managing packs including
- * removal of specific packs and complete repository purging.
- */
-
 import { createLogger } from '@git/common';
 import { doPrefix, packIndexKey } from '@git/keys';
 

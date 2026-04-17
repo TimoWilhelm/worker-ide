@@ -1,7 +1,3 @@
-/**
- * ZIP file creation utilities.
- */
-
 const CRC32_TABLE = (() => {
 	const table = new Uint32Array(256);
 	for (let index = 0; index < 256; index++) {
@@ -17,10 +13,6 @@ function crc32(data: Uint8Array): number {
 	for (let index = 0; index < data.length; index++) crc = CRC32_TABLE[(crc ^ data[index]) & 0xff] ^ (crc >>> 8);
 	return (crc ^ 0xff_ff_ff_ff) >>> 0;
 }
-
-/**
- * Create a ZIP file from a record of file paths to contents.
- */
 export function createZip(files: Record<string, string | Uint8Array>): Uint8Array {
 	const encoder = new TextEncoder();
 	const entries: { name: Uint8Array; data: Uint8Array; crc: number; offset: number }[] = [];

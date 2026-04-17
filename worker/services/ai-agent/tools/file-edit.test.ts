@@ -1,10 +1,3 @@
-/**
- * Integration tests for the file_edit tool.
- *
- * Tests real string replacement strategies (via replacers.ts), read-before-write
- * enforcement (via file-time.ts), diff stats, and error handling.
- */
-
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createMemoryFs, createMockContext, createMockSendEvent } from './test-helpers';
@@ -45,8 +38,6 @@ const PROJECT_ROOT = '/project';
 function context() {
 	return createMockContext({ projectRoot: PROJECT_ROOT });
 }
-
-/** Seed a file and record it as read so edits pass the file-time guard. */
 async function seedAndRead(path: string, content: string) {
 	memoryFs.seedFile(`${PROJECT_ROOT}${path}`, content);
 	const { recordFileRead } = await import('../file-time');

@@ -1,14 +1,3 @@
-/**
- * Markdown Content Renderer
- *
- * Renders AI agent markdown responses with proper formatting:
- * code blocks, inline code, lists, headings, bold, italic, links, tables.
- * Uses react-markdown with remark-gfm for GitHub-flavored markdown.
- *
- * Inline code that matches a known project file path is rendered as a
- * clickable pill (FileReference) that opens the file in the editor.
- */
-
 import { useMemo } from 'react';
 import Markdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';

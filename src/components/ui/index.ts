@@ -1,7 +1,3 @@
-/**
- * UI Components barrel export.
- */
-
 export { Button } from './button';
 export { ConfirmDialog, type ConfirmDialogProperties } from './confirm-dialog';
 export {

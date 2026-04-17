@@ -1,12 +1,3 @@
-/**
- * Test runner routes.
- * Handles running tests and discovering test files.
- *
- * Test results are stateless on the server — they are returned directly to the
- * caller and broadcast to collaborators via WebSocket. Each client stores
- * results in its own React Query cache.
- */
-
 import fs from 'node:fs/promises';
 
 import { zValidator } from '@hono/zod-validator';

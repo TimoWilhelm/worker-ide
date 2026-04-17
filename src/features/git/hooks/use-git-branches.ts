@@ -1,9 +1,3 @@
-/**
- * useGitBranches Hook
- *
- * Fetches branch list and syncs to the Zustand store.
- */
-
 import { useQuery } from '@tanstack/react-query';
 import { useEffect } from 'react';
 
@@ -12,10 +6,6 @@ import { throwApiError } from '@/lib/api-error';
 import { useStore } from '@/lib/store';
 
 import type { GitBranchInfo } from '@shared/types';
-
-// =============================================================================
-// Types
-// =============================================================================
 
 interface UseGitBranchesOptions {
 	projectId: string;
@@ -26,10 +16,6 @@ interface BranchesResponse {
 	branches: GitBranchInfo[];
 	current: string | undefined;
 }
-
-// =============================================================================
-// Hook
-// =============================================================================
 
 /**
  * Hook for fetching and managing git branches.

@@ -1,9 +1,4 @@
 /**
- * Binding constants for the Worker IDE application.
- * Used for project-scoped bindings exposed to user worker code.
- */
-
-/**
  * The binding name exposed in the user worker's `env` object.
  * This name is the same in both the IDE sandbox and after deployment.
  */

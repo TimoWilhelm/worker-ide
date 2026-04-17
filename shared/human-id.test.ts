@@ -1,7 +1,3 @@
-/**
- * Unit tests for human-readable ID generator.
- */
-
 import { describe, expect, it } from 'vitest';
 
 import { generateHumanId } from './human-id';

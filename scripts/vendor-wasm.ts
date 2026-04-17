@@ -1,21 +1,9 @@
-/**
- * Postinstall script that optimizes WASM modules with `wasm-opt`
- * and writes the result to the `vendor/` directory.
- *
- * Run with: `bun scripts/vendor-wasm.ts`
- *
- * Requires `wasm-opt` (from Binaryen) to be installed:
- *   brew install binaryen (macOS) / apt install binaryen (Linux)
- */
-
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const VENDOR_DIRECTORY = path.join(ROOT, 'vendor');
-
-/** WASM modules to vendor. Source paths are relative to `node_modules/`. */
 const WASM_MODULES = [
 	{ package: 'esbuild-wasm', source: 'esbuild-wasm/esbuild.wasm', output: 'esbuild.wasm' },
 	{ package: '@biomejs/wasm-web', source: '@biomejs/wasm-web/biome_wasm_bg.wasm', output: 'biome_wasm_bg.wasm' },

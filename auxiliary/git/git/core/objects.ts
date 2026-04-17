@@ -1,18 +1,6 @@
-/**
- * Git object encoding/decoding utilities
- */
-
 import { deflate } from '@git/common/compression';
 import { bytesToHex } from '@git/common/hex';
-
-/**
- * Git object types
- */
 export type GitObjectType = 'blob' | 'tree' | 'commit' | 'tag';
-
-/**
- * Map Git object type to pack type code
- */
 export function objTypeCode(type: GitObjectType): number {
 	switch (type) {
 		case 'commit': {

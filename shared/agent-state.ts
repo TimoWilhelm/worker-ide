@@ -1,32 +1,12 @@
-/**
- * Agent state types for the Agents SDK-based AgentRunner.
- *
- * The AgentState is auto-persisted to SQLite and auto-broadcast to all
- * connected clients via the Agents SDK. The frontend subscribes to state
- * updates via `useAgent({ onStateUpdate })` and renders accordingly.
- *
- * Design principles:
- * - Server is the sole source of truth for all AI session state.
- * - Frontend is a pure renderer — it reads state, never writes it.
- * - Actions dispatch via @callable RPC methods, not state mutations.
- * - Streaming content is delivered via @callable({ streaming: true }) RPC,
- *   NOT via high-frequency state updates (to avoid SQLite write storms).
- */
-
-import type { AgentMode, AgentSessionStatus, ChatMessage, PendingFileChange, ToolErrorInfo, ToolMetadataInfo } from './types';
-
-// =============================================================================
-// Agent State
-// =============================================================================
+import type { AgentSessionStatus, ChatMessage, FileChange, PendingFileChange, ToolErrorInfo, ToolMetadataInfo } from './types';
+import type { ModelMessage } from 'ai';
 
 /**
  * The top-level state shape for the AgentRunner Durable Object.
  * Auto-synced to all connected clients via the Agents SDK.
  */
 export interface AgentState {
-	/** The currently active session, or undefined if no session is loaded. */
 	currentSession: AgentSessionState | undefined;
-	/** Summary list of all saved sessions (for the dropdown). */
 	sessions: SessionSummary[];
 }
 
@@ -37,67 +17,32 @@ export interface AgentState {
  * directly — no bi-directional sync or skip-flags needed.
  */
 export interface AgentSessionState {
-	/** Unique session identifier */
 	sessionId: string;
-	/** Session title (AI-generated or fallback) */
 	title: string;
-	/** Current execution status */
 	status: AgentSessionStatus | 'idle';
-	/** Complete message history (finalized messages only, not streaming) */
 	messages: ChatMessage[];
-	/** Human-readable status text ("Thinking...", "Retrying...", etc.) */
 	statusText: string | undefined;
-	/** Error from the last run, if any */
 	error: { message: string; code?: string } | undefined;
-	/** Estimated context window token usage */
 	contextTokensUsed: number;
-	/** Project-level pending file changes (keyed by file path) */
 	pendingChanges: Record<string, PendingFileChange>;
-	/** Maps message index → snapshot ID for revert buttons */
-	messageSnapshots: Record<string, string>;
-	/** Maps message index → agent mode badge */
-	messageModes: Record<string, AgentMode>;
-	/** Structured tool result metadata (keyed by toolCallId) */
 	toolMetadata: Record<string, ToolMetadataInfo>;
-	/** Structured tool error data (keyed by toolCallId) */
 	toolErrors: Record<string, ToolErrorInfo>;
-	/** ID of the latest debug log file */
 	debugLogId: string | undefined;
-	/** Steering messages queued but not yet consumed by the agent loop. */
-	pendingSteeringMessages: PendingSteeringMessage[];
-	/** Pending question from the agent (user_question tool). */
+	stopRequested: boolean;
 	pendingQuestion: { question: string; options: string } | undefined;
-	/** Whether the agent hit the iteration limit and can be continued. */
 	needsContinuation: boolean;
-	/** Doom loop detection message, if triggered. */
 	doomLoopMessage: string | undefined;
-	/** Sub-agent activity records, keyed by parent toolCallId. */
 	subAgentActivities: Record<string, SubAgentActivityRecord>;
+	contextBlocksSummary?: Record<string, { description?: string; available?: boolean }>;
+	extensions?: Array<{ name: string; description?: string; toolCount: number }>;
 }
 
-/**
- * A steering message queued by the user while the agent is running.
- * Displayed with a distinct "pending" style until consumed by the agent loop.
- */
-export interface PendingSteeringMessage {
-	id: string;
-	content: string;
-	createdAt: number;
-}
-
-/**
- * Summary of a saved session (for the sessions dropdown).
- */
 export interface SessionSummary {
 	id: string;
 	title: string;
 	createdAt: number;
 	isRunning: boolean;
 }
-
-// =============================================================================
-// Streaming Event Types
-// =============================================================================
 
 /**
  * Events streamed to the client via @callable({ streaming: true }) during
@@ -122,40 +67,46 @@ export type StreamEvent =
 	| ContextUtilizationEvent
 	| UsageEvent
 	| TurnCompleteEvent
+	| SteeringMessageCommittedEvent
 	| MaxIterationsReachedEvent
 	| DoomLoopDetectedEvent
 	| PlanCreatedEvent
 	| RunFinishedEvent
 	| RunErrorEvent
-	| SubAgentActivityEvent;
+	| SubAgentActivityEvent
+	| FiberCheckpointEvent;
 
-/** A delta of text content from the assistant. */
+export interface FiberSnapshot {
+	workingMessages: ModelMessage[];
+	chatMessages: ChatMessage[];
+	iteration: number;
+	queryChanges: FileChange[];
+	pendingChanges: Record<string, PendingFileChange>;
+	toolMetadata: Record<string, ToolMetadataInfo>;
+	toolErrors: Record<string, ToolErrorInfo>;
+	contextTokensUsed: number;
+	snapshotId: string | undefined;
+	model: string;
+	mode: string;
+}
 export interface TextDeltaEvent {
 	type: 'text-delta';
 	delta: string;
 }
-
-/** A delta of reasoning/thinking content from the assistant. */
 export interface ReasoningDeltaEvent {
 	type: 'reasoning-delta';
 	delta: string;
 }
-
-/** The start of a tool call. */
 export interface ToolCallStartEvent {
 	type: 'tool-call-start';
 	toolCallId: string;
 	toolName: string;
 }
-
-/** A delta of tool call arguments (JSON string fragment). */
 export interface ToolCallArgumentsDeltaEvent {
 	type: 'tool-call-args-delta';
 	toolCallId: string;
 	delta: string;
 }
-
-/** The end of a tool call (arguments finalized, execution starting). */
 export interface ToolCallEndEvent {
 	type: 'tool-call-end';
 	toolCallId: string;
@@ -163,8 +114,6 @@ export interface ToolCallEndEvent {
 	result: string;
 	isError?: boolean;
 }
-
-/** A structured tool result with metadata. */
 export interface ToolResultEvent {
 	type: 'tool-result';
 	toolCallId: string;
@@ -172,14 +121,10 @@ export interface ToolResultEvent {
 	title: string;
 	metadata: Record<string, unknown>;
 }
-
-/** A status text update ("Thinking...", "Retrying...", etc.). */
 export interface StatusEvent {
 	type: 'status';
 	message: string;
 }
-
-/** A file was changed by a tool. */
 export interface FileChangedEvent {
 	type: 'file-changed';
 	path: string;
@@ -188,35 +133,25 @@ export interface FileChangedEvent {
 	afterContent: string | undefined;
 	toolCallId: string | undefined;
 }
-
-/** A snapshot was created for this turn. */
 export interface SnapshotCreatedEvent {
 	type: 'snapshot-created';
 	id: string;
 }
-
-/** An empty snapshot was cleaned up. */
 export interface SnapshotDeletedEvent {
 	type: 'snapshot-deleted';
 	id: string;
 }
-
-/** The agent is asking the user a question. */
 export interface UserQuestionEvent {
 	type: 'user-question';
 	question: string;
 	options: string;
 }
-
-/** Context window utilization update. */
 export interface ContextUtilizationEvent {
 	type: 'context-utilization';
 	estimatedTokens: number;
 	contextWindow: number;
 	utilization: number;
 }
-
-/** Token usage summary for the run. */
 export interface UsageEvent {
 	type: 'usage';
 	input: number;
@@ -226,82 +161,62 @@ export interface UsageEvent {
 	turns: number;
 	lastTurnInputTokens: number;
 }
-
-/** A single agent iteration completed. */
 export interface TurnCompleteEvent {
 	type: 'turn-complete';
 }
-
-/** The agent hit the iteration limit. */
+export interface SteeringMessageCommittedEvent {
+	type: 'steering-message-committed';
+	id: string;
+}
 export interface MaxIterationsReachedEvent {
 	type: 'max-iterations-reached';
 	iterations: number;
 }
-
-/** The agent was stopped due to repetitive behavior. */
 export interface DoomLoopDetectedEvent {
 	type: 'doom-loop-detected';
 	reason: string;
 	toolName: string | undefined;
 	message: string;
 }
-
-/** A plan file was created (plan mode). */
 export interface PlanCreatedEvent {
 	type: 'plan-created';
 	path: string;
 }
-
-/** The generation run completed successfully. */
 export interface RunFinishedEvent {
 	type: 'run-finished';
 }
-
-/** The generation run encountered an error. */
 export interface RunErrorEvent {
 	type: 'run-error';
 	message: string;
 	code?: string;
 }
 
-// =============================================================================
-// Sub-Agent Activity Types
-// =============================================================================
-
-/** An activity event from a running sub-agent, linked to the parent tool call. */
+export interface FiberCheckpointEvent {
+	type: 'fiber-checkpoint';
+	snapshot: FiberSnapshot;
+}
 export interface SubAgentActivityEvent {
 	type: 'sub-agent-activity';
 	parentToolCallId: string;
 	activity: SubAgentActivity;
 }
-
-/** A single activity from a sub-agent. */
 export type SubAgentActivity =
 	| { kind: 'tool-start'; toolName: string }
 	| { kind: 'tool-end'; toolName: string; isError?: boolean }
 	| { kind: 'tool-metadata'; toolName: string; title: string; metadata: Record<string, unknown> }
 	| { kind: 'text-delta'; delta: string }
 	| { kind: 'debug-log'; debugLogId: string };
-
-/** Persisted record of a sub-agent's activity for a single parent tool call. */
 export interface SubAgentActivityRecord {
-	/** Completed tool calls made by the sub-agent, in order. */
 	tools: SubAgentToolEntry[];
-	/** Sub-agent debug log ID (for download). */
 	debugLogId: string | undefined;
-	/** Accumulated streaming text from the sub-agent (live updates during generation). */
 	streamingText: string | undefined;
 }
-
-/** A single completed tool call from a sub-agent. */
 export interface SubAgentToolEntry {
 	toolName: string;
 	title: string;
 	metadata: Record<string, unknown>;
 	isError?: boolean;
 }
-
-/** Structured tool error info from a failed tool call. */
 export interface ToolErrorEvent {
 	type: 'tool-error';
 	toolCallId: string;

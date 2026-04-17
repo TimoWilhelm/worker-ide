@@ -1,7 +1,3 @@
-/**
- * Tests for diff computation utility.
- */
-
 import { describe, expect, it } from 'vitest';
 
 import { computeDiffData, computeDiffHunks, groupHunksIntoChanges, reconstructContent } from './diff-decorations';
@@ -219,10 +215,6 @@ describe('computeDiffData', () => {
 	});
 });
 
-// =============================================================================
-// groupHunksIntoChanges
-// =============================================================================
-
 describe('groupHunksIntoChanges', () => {
 	it('returns empty array for empty hunks', () => {
 		expect(groupHunksIntoChanges([])).toEqual([]);
@@ -283,10 +275,6 @@ describe('groupHunksIntoChanges', () => {
 		expect(groups[1].hunks[0].type).toBe('added');
 	});
 });
-
-// =============================================================================
-// reconstructContent
-// =============================================================================
 
 describe('reconstructContent', () => {
 	it('returns afterContent when all changes are accepted', () => {

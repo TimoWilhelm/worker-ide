@@ -1,24 +1,9 @@
-/**
- * Log Buffer
- *
- * Zustand store that listens for server-error, rebuild, and server-logs
- * CustomEvents. Persists across output panel component mount/unmount
- * cycles so no log entries are lost.
- *
- * Logs are cleared on each rebuild by default unless "Preserve Logs"
- * is enabled.
- */
-
 import { createStore, useStore } from 'zustand';
 
 import { isMessageFromPreview } from '@/lib/preview-origin';
 
 import type { LogEntry } from '../types';
 import type { ServerError, ServerLogEntry } from '@shared/types';
-
-// =============================================================================
-// Store
-// =============================================================================
 
 interface LogBufferState {
 	entries: LogEntry[];
@@ -51,10 +36,6 @@ function clearIfNotPreserving() {
 		logBufferStore.setState({ entries: [] });
 	}
 }
-
-// =============================================================================
-// Event Listeners (always active once this module is imported)
-// =============================================================================
 
 globalThis.addEventListener('server-error', (event: Event) => {
 	if (event instanceof CustomEvent) {
@@ -93,10 +74,6 @@ globalThis.addEventListener('server-logs', (event: Event) => {
 		);
 	}
 });
-
-/**
- * Clear logs on manual preview refresh unless preserving.
- */
 globalThis.addEventListener('preview-refresh', () => {
 	clearIfNotPreserving();
 });
@@ -194,12 +171,6 @@ globalThis.addEventListener('message', (event: MessageEvent) => {
 		});
 	}
 });
-
-// =============================================================================
-// Public API
-// =============================================================================
-
-/** React hook — subscribe to the log entries array. */
 export function useLogs(): LogEntry[] {
 	return useStore(logBufferStore, (state) => state.entries);
 }
@@ -216,10 +187,6 @@ export function getPreserveLogs(): boolean {
 export function setPreserveLogs(value: boolean): void {
 	logBufferStore.setState({ preserveLogs: value });
 }
-
-// =============================================================================
-// WebSocket Sync — push output logs to the coordinator for the AI agent
-// =============================================================================
 
 /**
  * Debounced sync of output logs to the coordinator via the project WebSocket.

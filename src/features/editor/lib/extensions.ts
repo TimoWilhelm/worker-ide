@@ -1,9 +1,3 @@
-/**
- * CodeMirror Extensions Configuration
- *
- * Sets up language support, themes, and editor features.
- */
-
 import { autocompletion, closeBrackets, closeBracketsKeymap, completionKeymap } from '@codemirror/autocomplete';
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
 import { css } from '@codemirror/lang-css';
@@ -39,14 +33,6 @@ import { tags as t } from '@lezer/highlight';
 import { createSearchExtension } from './search-panel';
 
 import type { Extension } from '@codemirror/state';
-
-// =============================================================================
-// Theme
-// =============================================================================
-
-/**
- * Shared editor theme styles (adapts via CSS variables).
- */
 function createEditorTheme(isDark: boolean) {
 	return EditorView.theme(
 		{
@@ -133,14 +119,6 @@ function createEditorTheme(isDark: boolean) {
 
 export const darkTheme = createEditorTheme(true);
 export const lightTheme = createEditorTheme(false);
-
-// =============================================================================
-// Syntax Highlighting
-// =============================================================================
-
-/**
- * Syntax highlighting colors for dark theme.
- */
 export const darkHighlightStyle = HighlightStyle.define([
 	{ tag: t.keyword, color: '#ff7038' },
 	{ tag: [t.name, t.deleted, t.character, t.propertyName, t.macroName], color: '#4db8ff' },
@@ -159,10 +137,6 @@ export const darkHighlightStyle = HighlightStyle.define([
 	{ tag: [t.processingInstruction, t.string, t.inserted], color: '#5eff3a' },
 	{ tag: t.invalid, color: '#ff5e5e' },
 ]);
-
-/**
- * Syntax highlighting colors for light theme.
- */
 export const lightHighlightStyle = HighlightStyle.define([
 	{ tag: t.keyword, color: '#d63a00' },
 	{ tag: [t.name, t.deleted, t.character, t.propertyName, t.macroName], color: '#0070c9' },
@@ -181,14 +155,6 @@ export const lightHighlightStyle = HighlightStyle.define([
 	{ tag: [t.processingInstruction, t.string, t.inserted], color: '#067d00' },
 	{ tag: t.invalid, color: '#d10000' },
 ]);
-
-// =============================================================================
-// Language Support
-// =============================================================================
-
-/**
- * Get the appropriate language extension for a file.
- */
 export function getLanguageExtension(filename: string): Extension | undefined {
 	const extension = filename.split('.').pop()?.toLowerCase();
 
@@ -216,14 +182,6 @@ export function getLanguageExtension(filename: string): Extension | undefined {
 		}
 	}
 }
-
-// =============================================================================
-// Base Extensions
-// =============================================================================
-
-/**
- * Basic editor extensions for all files.
- */
 function getBaseExtensions(): Extension[] {
 	return [
 		lineNumbers(),
@@ -256,10 +214,6 @@ function getBaseExtensions(): Extension[] {
 		]),
 	];
 }
-
-/**
- * Create a complete set of extensions for a file.
- */
 export function createEditorExtensions(additionalExtensions: Extension[] = []): Extension[] {
 	const extensions = getBaseExtensions();
 
@@ -267,23 +221,7 @@ export function createEditorExtensions(additionalExtensions: Extension[] = []): 
 
 	return extensions;
 }
-
-// =============================================================================
-// Readonly Extension
-// =============================================================================
-
-/**
- * Extension to make the editor readonly.
- */
 export const readonlyExtension = EditorState.readOnly.of(true);
-
-// =============================================================================
-// Tab Size Extension
-// =============================================================================
-
-/**
- * Create tab size extension.
- */
 export function createTabSizeExtension(tabSize: number = 2): Extension {
 	return EditorState.tabSize.of(tabSize);
 }

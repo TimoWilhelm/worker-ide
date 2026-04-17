@@ -1,7 +1,3 @@
-/**
- * Desktop IDE layout — fully resizable panel layout with sidebar, editor, preview, and AI.
- */
-
 import { lazy, Suspense, useCallback, useMemo } from 'react';
 import { Group as PanelGroup, Panel } from 'react-resizable-panels';
 
@@ -21,8 +17,6 @@ import { PanelDivider } from './panel-divider';
 import type { useEditorState } from './use-editor-state';
 import type { usePanelLayouts } from './use-panel-layouts';
 import type { LogCounts } from '@/features/output';
-
-/** Shared default size for bottom sub-panels (dependencies & utility) so they start at the same height. */
 const BOTTOM_PANEL_DEFAULT_SIZE = '30%';
 const TOP_PANEL_DEFAULT_SIZE = '70%';
 
@@ -60,13 +54,9 @@ interface DesktopLayoutProperties {
 	layouts: ReturnType<typeof usePanelLayouts>;
 	logCounts: LogCounts;
 	previewIframeReference: React.RefObject<HTMLIFrameElement | null>;
-	/** Signed preview URL with trailing slash. */
 	previewUrl: string | undefined;
-	/** Signed preview origin (for postMessage targeting). */
 	previewOrigin: string | undefined;
-	/** Whether the signed URL is still being fetched. */
 	isLoadingPreviewUrl: boolean;
-	/** Refresh the signed preview URL (e.g., after token expiry). */
 	refreshPreviewUrl: () => Promise<void>;
 }
 
@@ -163,7 +153,6 @@ export function DesktopLayout({
 
 	return (
 		<>
-			{/* Desktop layout — fully resizable panel layout */}
 			<PanelGroup
 				orientation="horizontal"
 				id="ide-main"
@@ -171,7 +160,6 @@ export function DesktopLayout({
 				defaultLayout={mainLayout.defaultLayout}
 				onLayoutChanged={mainLayout.onLayoutChanged}
 			>
-				{/* Activity Bar + Sidebar */}
 				<Panel id="sidebar" defaultSize="15%" minSize="180px" maxSize="25%">
 					<div className="flex h-full">
 						<ActivityBar />
@@ -239,7 +227,6 @@ export function DesktopLayout({
 
 				<PanelDivider orientation="horizontal" />
 
-				{/* Editor + Terminal column */}
 				<Panel id="editor-col" defaultSize="45%" minSize="20%">
 					<div className="flex h-full flex-col overflow-hidden">
 						<PanelGroup
@@ -249,7 +236,6 @@ export function DesktopLayout({
 							defaultLayout={editorTerminalLayout.defaultLayout}
 							onLayoutChanged={editorTerminalLayout.onLayoutChanged}
 						>
-							{/* Editor area */}
 							<Panel id="editor" defaultSize={utilityPanelVisible ? TOP_PANEL_DEFAULT_SIZE : '100%'} minSize="30%">
 								<div className="flex h-full flex-col overflow-hidden">
 									<EditorArea
@@ -261,7 +247,6 @@ export function DesktopLayout({
 								</div>
 							</Panel>
 
-							{/* Utility panel (resizable) */}
 							{utilityPanelVisible && (
 								<>
 									<PanelDivider orientation="vertical" />
@@ -280,7 +265,6 @@ export function DesktopLayout({
 							)}
 						</PanelGroup>
 
-						{/* Collapsed utility panel header */}
 						{!utilityPanelVisible && (
 							<Suspense fallback={undefined}>
 								<UtilityPanel
@@ -298,7 +282,6 @@ export function DesktopLayout({
 
 				<PanelDivider orientation="horizontal" />
 
-				{/* Preview + DevTools column */}
 				<Panel id="preview-col" defaultSize={aiPanelVisible ? '20%' : '40%'} minSize="15%">
 					<PanelGroup
 						orientation="vertical"
@@ -306,7 +289,6 @@ export function DesktopLayout({
 						defaultLayout={previewDevtoolsLayout.defaultLayout}
 						onLayoutChanged={previewDevtoolsLayout.onLayoutChanged}
 					>
-						{/* Preview panel */}
 						<Panel id="preview" defaultSize={devtoolsVisible ? '70%' : '100%'} minSize="20%">
 							<Suspense fallback={<PanelSkeleton label="Loading preview..." />}>
 								<PreviewPanel
@@ -319,7 +301,6 @@ export function DesktopLayout({
 							</Suspense>
 						</Panel>
 
-						{/* DevTools panel (resizable) */}
 						{devtoolsVisible && (
 							<>
 								<PanelDivider orientation="vertical" />
@@ -337,7 +318,6 @@ export function DesktopLayout({
 					</PanelGroup>
 				</Panel>
 
-				{/* Agent panel */}
 				{aiPanelVisible && (
 					<>
 						<PanelDivider orientation="horizontal" />
@@ -352,7 +332,6 @@ export function DesktopLayout({
 				)}
 			</PanelGroup>
 
-			{/* Status bar */}
 			<IDEStatusBar
 				isConnected={isConnected}
 				localParticipantColor={localParticipantColor}

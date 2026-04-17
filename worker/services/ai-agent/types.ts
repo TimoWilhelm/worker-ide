@@ -1,18 +1,10 @@
-/**
- * Types for the AI Agent Service.
- */
-
 import type { ProjectFilesystem } from '../../durable/project-filesystem';
-import type { StreamEvent } from '@shared/agent-state';
+import type { ExtensionManager } from '@cloudflare/think/extensions';
+import type { FiberSnapshot, StreamEvent } from '@shared/agent-state';
 import type { AIModelId } from '@shared/constants';
-
-// =============================================================================
-// Types
-// =============================================================================
-
-/**
- * Re-export Vercel AI SDK's ModelMessage as our internal message type.
- */
+import type { ChatMessage, PendingFileChange, ToolErrorInfo, ToolMetadataInfo } from '@shared/types';
+import type { Agent } from 'agents';
+import type { Session } from 'agents/experimental/memory/session';
 export type { ModelMessage } from 'ai';
 
 export interface FileChange {
@@ -27,7 +19,6 @@ export interface SnapshotMetadata {
 	id: string;
 	timestamp: number;
 	label: string;
-	/** The AI session that created this snapshot (absent in legacy snapshots) */
 	sessionId?: string;
 	changes: Array<{ path: string; action: 'create' | 'edit' | 'delete' }>;
 }
@@ -92,16 +83,28 @@ export interface ToolExecutorContext {
 	projectId: string;
 	mode: 'code' | 'plan' | 'ask';
 	sessionId?: string;
-	/** Abort signal from the agent loop — tools should check this to bail out early on cancellation. */
+	session?: Session;
 	abortSignal?: AbortSignal;
 	callMcpTool: (serverId: string, toolName: string, arguments_: Record<string, unknown>) => Promise<string>;
-	sendCdpCommand?: (id: string, method: string, parameters?: Record<string, unknown>) => Promise<{ result?: string; error?: string }>;
-	/** True when running inside a sub-agent — prevents recursive sub-agent spawning. */
 	isSubAgent?: boolean;
-	/** Filesystem Durable Object stub — needed to construct sub-agent services. */
+	loader?: WorkerLoader;
+	browser?: Fetcher;
+	agentReference?: Agent<Env, unknown>;
+	extensionManager?: ExtensionManager;
 	fsStub: DurableObjectStub<ProjectFilesystem>;
-	/** Current AI model ID — sub-agents inherit the parent's model. */
 	model: AIModelId;
+}
+
+export interface SessionPersistData {
+	createdAt: number;
+	title?: string;
+	history: ChatMessage[];
+	contextTokensUsed?: number;
+	toolMetadata?: Record<string, ToolMetadataInfo>;
+	toolErrors?: Record<string, ToolErrorInfo>;
+	error?: { message: string; code?: string };
+	pendingChanges?: Record<string, PendingFileChange>;
+	fiberSnapshot?: FiberSnapshot;
 }
 
 /**

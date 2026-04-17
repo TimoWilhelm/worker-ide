@@ -1,20 +1,6 @@
-/**
- * Tests for JWT authentication module.
- *
- * Tests cover:
- * - JWT verification with ES256 (ECDSA P-256 + SHA-256)
- * - HTTP Basic Auth token extraction
- * - Full authentication flow (repo + scope matching)
- * - Edge cases (expired, malformed, wrong scope, wrong repo)
- */
-
 import { describe, expect, it } from 'vitest';
 
 import { authenticateGitRequest, extractBasicAuthToken, unauthorizedResponse, verifyJwt } from './jwt';
-
-// =============================================================================
-// Test helpers — generate real ES256 key pair and sign JWTs
-// =============================================================================
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- CryptoKey is from Web Crypto API
 async function generateKeyPair(): Promise<{ publicKey: string; privateKey: any }> {
@@ -47,10 +33,6 @@ async function signJwt(claims: Record<string, unknown>, privateKey: any): Promis
 
 	return `${headerB64}.${payloadB64}.${base64UrlEncode(new Uint8Array(signature))}`;
 }
-
-// =============================================================================
-// extractBasicAuthToken
-// =============================================================================
 
 describe('extractBasicAuthToken', () => {
 	it('extracts token from valid Basic auth with username "t"', () => {
@@ -110,10 +92,6 @@ describe('extractBasicAuthToken', () => {
 		expect(extractBasicAuthToken(request)).toBeUndefined();
 	});
 });
-
-// =============================================================================
-// verifyJwt
-// =============================================================================
 
 describe('verifyJwt', () => {
 	it('verifies a valid JWT', async () => {
@@ -220,10 +198,6 @@ describe('verifyJwt', () => {
 	});
 });
 
-// =============================================================================
-// authenticateGitRequest
-// =============================================================================
-
 describe('authenticateGitRequest', () => {
 	it('authenticates a valid read request', async () => {
 		const { publicKey, privateKey } = await generateKeyPair();
@@ -328,10 +302,6 @@ describe('authenticateGitRequest', () => {
 		expect(result.authenticated).toBe(false);
 	});
 });
-
-// =============================================================================
-// unauthorizedResponse
-// =============================================================================
 
 describe('unauthorizedResponse', () => {
 	it('returns 401 status', () => {

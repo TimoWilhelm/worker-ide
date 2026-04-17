@@ -1,14 +1,3 @@
-/**
- * Integration tests for the Esbuild auxiliary worker.
- *
- * These tests load the real esbuild WASM binary from node_modules using
- * esbuild's `initialize()` so they run in the Node-based `unit` vitest
- * project, not the workerd pool.
- *
- * The standalone transformCode/bundleWithCdn functions are exercised against
- * realistic TypeScript, JSX, CSS, and multi-file bundles.
- */
-
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 
 // Mock the static WASM import — in Node tests, esbuild is initialized via
@@ -27,10 +16,6 @@ vi.mock('cloudflare:workers', () => ({
 // initialization before any imports of esbuild-core.
 const esbuild = await import('esbuild-wasm');
 
-// =============================================================================
-// Bootstrap esbuild WASM from disk (once for all tests)
-// =============================================================================
-
 beforeAll(async () => {
 	try {
 		// In Node, esbuild-wasm can initialize without explicit WASM path
@@ -47,10 +32,6 @@ beforeAll(async () => {
 
 // Import AFTER mocks and esbuild initialization
 const { transformCode, bundleWithCdn } = await import('./index');
-
-// =============================================================================
-// Test Fixtures
-// =============================================================================
 
 const typescriptCode = `const greeting: string = "hello";
 const count: number = 42;
@@ -80,10 +61,6 @@ const cssContent = `body { margin: 0; padding: 0; }
 `;
 
 const jsonContent = `{ "name": "test", "version": "1.0.0" }`;
-
-// =============================================================================
-// transformCode
-// =============================================================================
 
 describe('transformCode', () => {
 	it('transforms TypeScript to JavaScript', async () => {
@@ -173,10 +150,6 @@ describe('transformCode', () => {
 		await expect(transformCode('const x = {{{;', 'broken.ts')).rejects.toThrow();
 	});
 });
-
-// =============================================================================
-// bundleWithCdn — local virtual FS bundling (no CDN fetch)
-// =============================================================================
 
 describe('bundleWithCdn', () => {
 	it('bundles a single-file project', async () => {

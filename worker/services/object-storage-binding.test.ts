@@ -1,7 +1,3 @@
-/**
- * Tests for the ObjectStorageBinding worker entrypoint.
- */
-
 import { env } from 'cloudflare:test';
 import { describe, expect, it } from 'vitest';
 

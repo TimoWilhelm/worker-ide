@@ -1,12 +1,3 @@
-/**
- * PendingInvitationsBanner stories
- *
- * The real component fetches invitations via authClient and react-query internally.
- * Since module mocking is not available in the current Storybook setup, we
- * re-create the presentational layer here with controlled data to showcase
- * the visual states (multiple invitations, single, none).
- */
-
 import { Check, Mail, X } from 'lucide-react';
 import { fn } from 'storybook/test';
 

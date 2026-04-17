@@ -1,43 +1,15 @@
-/**
- * Object Storage Binding
- *
- * A WorkerEntrypoint that provides project-scoped object storage (R2-backed)
- * to dynamically-loaded user workers. All keys are automatically prefixed
- * with `projects/{projectId}/` to enforce isolation between projects.
- *
- * Exposed as `env.STORAGE` in the user's worker code.
- *
- * The public API is a strict subset of R2Bucket so that code written in the
- * IDE preview works identically after deploying to a real R2 binding.
- * RpcTarget wrappers mirror R2Object / R2ObjectBody / R2Objects shapes for
- * safe cross-boundary serialisation.
- */
-
 import { RpcTarget, WorkerEntrypoint, exports } from 'cloudflare:workers';
 
 import { STORAGE_KEY_PREFIX } from '@shared/constants';
 
 import type { ProjectMetadata } from '../durable/project-metadata';
 
-// =============================================================================
-// Constants
-// =============================================================================
-
 const MAX_KEY_LENGTH = 1024;
-
-// =============================================================================
-// Types
-// =============================================================================
 
 interface ObjectStorageProperties {
 	projectId: string;
-	/** Maximum bytes allowed for this project's storage. 0 = unlimited. */
 	quotaBytes: number;
 }
-
-// =============================================================================
-// RPC-safe wrappers (mirror R2Object / R2ObjectBody / R2Objects)
-// =============================================================================
 
 /**
  * RPC-safe wrapper that mirrors every property of R2Object.
@@ -80,10 +52,6 @@ class R2ObjectProxy extends RpcTarget {
 		this.#r2Object.writeHttpMetadata(headers);
 	}
 }
-
-/**
- * RPC-safe wrapper that mirrors R2ObjectBody (extends R2ObjectProxy with body access).
- */
 class R2ObjectBodyProxy extends R2ObjectProxy {
 	readonly body: ReadableStream;
 	readonly bodyUsed: boolean;
@@ -117,10 +85,6 @@ class R2ObjectBodyProxy extends R2ObjectProxy {
 		return this.#r2Body.blob();
 	}
 }
-
-/**
- * RPC-safe wrapper that mirrors R2Objects (the return type of R2Bucket.list).
- */
 class R2ObjectsProxy extends RpcTarget {
 	readonly objects: R2ObjectProxy[];
 	readonly truncated: boolean;
@@ -136,10 +100,6 @@ class R2ObjectsProxy extends RpcTarget {
 	}
 }
 
-// =============================================================================
-// Key validation
-// =============================================================================
-
 function validateKey(key: string): void {
 	if (key.length === 0) {
 		throw new Error('Storage key cannot be empty');
@@ -154,10 +114,6 @@ function validateKey(key: string): void {
 		throw new Error('Storage key cannot contain ".."');
 	}
 }
-
-// =============================================================================
-// Helpers
-// =============================================================================
 
 /**
  * Get the byte size of a value being written to storage.
@@ -182,10 +138,6 @@ function getValueSize(value: ReadableStream | ArrayBuffer | ArrayBufferView | st
 	// checked on the next quota-enforced operation.
 	return 0;
 }
-
-/**
- * Format a byte count as a human-readable string (e.g. "12.3 MB").
- */
 function formatBytes(bytes: number): string {
 	if (bytes === 0) return '0 B';
 	const units = ['B', 'KB', 'MB', 'GB', 'TB'];
@@ -193,10 +145,6 @@ function formatBytes(bytes: number): string {
 	const value = bytes / 1024 ** exponent;
 	return `${value % 1 === 0 ? value : value.toFixed(1)} ${units[exponent]}`;
 }
-
-// =============================================================================
-// ObjectStorageBinding
-// =============================================================================
 
 /**
  * Project-scoped object storage binding backed by a shared R2 bucket.

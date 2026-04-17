@@ -1,10 +1,3 @@
-/**
- * Integration tests for the todos_update tool.
- *
- * Tests todo creation, real Zod validation, JSON parsing,
- * and error handling against an in-memory filesystem.
- */
-
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createMemoryFs, createMockContext, createMockSendEvent } from './test-helpers';

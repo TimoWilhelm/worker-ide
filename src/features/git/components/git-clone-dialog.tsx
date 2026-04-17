@@ -1,10 +1,3 @@
-/**
- * Git Clone Dialog
- *
- * Modal dialog for displaying the git clone URL and generating
- * short-lived JWT tokens for external git client access.
- */
-
 import { Check, Copy, KeyRound } from 'lucide-react';
 import { useCallback, useState } from 'react';
 
@@ -14,19 +7,11 @@ import { cn } from '@/lib/utils';
 
 import { useGenerateGitCredentials, useGitRemote } from '../hooks/use-git-credentials';
 
-// =============================================================================
-// Types
-// =============================================================================
-
 interface GitCloneDialogProperties {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 	projectId: string;
 }
-
-// =============================================================================
-// Component
-// =============================================================================
 
 export function GitCloneDialog({ open, onOpenChange, projectId }: GitCloneDialogProperties) {
 	const { cloneUrl, isLoading: isRemoteLoading } = useGitRemote({ projectId, enabled: open });
@@ -62,7 +47,6 @@ export function GitCloneDialog({ open, onOpenChange, projectId }: GitCloneDialog
 	return (
 		<Modal open={open} onOpenChange={onOpenChange} title="Git Remote" className="w-[480px]">
 			<ModalBody className="space-y-4">
-				{/* Clone URL */}
 				<div className="space-y-1.5">
 					<label className="text-xs font-medium text-text-secondary">Clone URL</label>
 					<div className="flex items-center gap-1.5">
@@ -86,7 +70,6 @@ export function GitCloneDialog({ open, onOpenChange, projectId }: GitCloneDialog
 					</div>
 				</div>
 
-				{/* Generate token */}
 				{!credentials && (
 					<div className="space-y-1.5">
 						<label className="text-xs font-medium text-text-secondary">Credentials</label>
@@ -100,7 +83,6 @@ export function GitCloneDialog({ open, onOpenChange, projectId }: GitCloneDialog
 					</div>
 				)}
 
-				{/* Token display */}
 				{credentials && (
 					<>
 						<div className="space-y-1.5">
@@ -123,7 +105,6 @@ export function GitCloneDialog({ open, onOpenChange, projectId }: GitCloneDialog
 							<p className="text-xs text-text-secondary">Expires {new Date(credentials.expiresAt).toLocaleTimeString()}</p>
 						</div>
 
-						{/* Clone command */}
 						{cloneCommand && (
 							<div className="space-y-1.5">
 								<label className="text-xs font-medium text-text-secondary">Clone command</label>
@@ -154,10 +135,6 @@ export function GitCloneDialog({ open, onOpenChange, projectId }: GitCloneDialog
 		</Modal>
 	);
 }
-
-// =============================================================================
-// Copy Button
-// =============================================================================
 
 function CopyButton({ onClick, copied, disabled }: { onClick: () => void; copied: boolean; disabled?: boolean }) {
 	return (

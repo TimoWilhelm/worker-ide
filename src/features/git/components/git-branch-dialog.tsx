@@ -1,17 +1,7 @@
-/**
- * Git Branch Dialog
- *
- * Modal for creating a new branch.
- */
-
 import { useState } from 'react';
 
 import { Button, Modal, ModalBody, ModalFooter } from '@/components/ui';
 import { cn } from '@/lib/utils';
-
-// =============================================================================
-// Types
-// =============================================================================
 
 interface GitBranchDialogProperties {
 	open: boolean;
@@ -19,10 +9,6 @@ interface GitBranchDialogProperties {
 	onCreateBranch: (name: string, checkout: boolean) => void;
 	isPending: boolean;
 }
-
-// =============================================================================
-// Component
-// =============================================================================
 
 export function GitBranchDialog({ open, onOpenChange, onCreateBranch, isPending }: GitBranchDialogProperties) {
 	const [name, setName] = useState('');

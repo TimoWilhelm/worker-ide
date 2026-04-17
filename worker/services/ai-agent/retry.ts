@@ -1,34 +1,9 @@
-/**
- * Retry logic for AI agent API calls.
- * Exponential backoff with retryable error classification.
- */
-
 import { parseApiError } from './utilities';
-
-// =============================================================================
-// Constants
-// =============================================================================
-
-/** Base delay for first retry (ms) */
 const RETRY_INITIAL_DELAY = 2000;
-
-/** Exponential multiplier */
 const RETRY_BACKOFF_FACTOR = 2;
-
-/** Cap when no retry-after headers present (ms) */
 const RETRY_MAX_DELAY_NO_HEADERS = 30_000;
-
-/** Maximum safe timeout value to prevent overflow */
 const RETRY_MAX_DELAY = 2_147_483_647;
-
-// =============================================================================
-// Error Classification
-// =============================================================================
-
-/** Non-retryable error codes from parseApiError */
 const NON_RETRYABLE_CODES = new Set(['AUTH_ERROR', 'INVALID_REQUEST', 'ABORTED']);
-
-/** Retryable error codes from parseApiError */
 const RETRYABLE_CODES = new Set(['OVERLOADED', 'RATE_LIMIT', 'SERVER_ERROR']);
 
 /**
@@ -36,13 +11,7 @@ const RETRYABLE_CODES = new Set(['OVERLOADED', 'RATE_LIMIT', 'SERVER_ERROR']);
  * These are always retryable regardless of HTTP status.
  */
 const RETRYABLE_NETWORK_CODES = new Set(['ECONNRESET', 'ETIMEDOUT', 'EPIPE', 'ENOTFOUND', 'EAI_AGAIN', 'ECONNREFUSED', 'EPROTO']);
-
-/** Maximum depth to walk the error `.cause` chain when looking for network codes */
 const MAX_CAUSE_DEPTH = 5;
-
-/**
- * Extract the `code` property from an error-like value, if present.
- */
 function getErrorCode(error: unknown): string | undefined {
 	if (typeof error === 'object' && error !== undefined && error !== null && 'code' in error) {
 		const { code } = error;
@@ -131,10 +100,6 @@ export function classifyRetryableError(error: unknown): string | undefined {
 	return undefined;
 }
 
-// =============================================================================
-// Delay Calculation
-// =============================================================================
-
 /**
  * Extract retry-after delay from an error's response headers.
  * Returns undefined if no usable headers found.
@@ -192,14 +157,6 @@ export function calculateRetryDelay(attempt: number, error?: unknown): number {
 	const exponentialDelay = RETRY_INITIAL_DELAY * RETRY_BACKOFF_FACTOR ** (attempt - 1);
 	return Math.min(exponentialDelay, RETRY_MAX_DELAY_NO_HEADERS);
 }
-
-// =============================================================================
-// Sleep with Abort Support
-// =============================================================================
-
-/**
- * Sleep for the given duration, respecting an AbortSignal.
- */
 export function sleep(milliseconds: number, signal?: AbortSignal): Promise<void> {
 	const clamped = Math.min(milliseconds, RETRY_MAX_DELAY);
 

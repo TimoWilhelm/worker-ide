@@ -1,10 +1,3 @@
-/**
- * Modal Dialog Component
- *
- * Reusable modal dialog using Base UI Dialog primitives.
- * Used for new file creation and other form dialogs.
- */
-
 import { Dialog } from '@base-ui/react/dialog';
 import { AnimatePresence, motion } from 'motion/react';
 
@@ -14,28 +7,14 @@ import { cn } from '@/lib/utils';
 
 import type { ReactNode, Ref } from 'react';
 
-// =============================================================================
-// Types
-// =============================================================================
-
 export interface ModalProperties {
-	/** Whether the dialog is open */
 	open: boolean;
-	/** Callback when open state changes */
 	onOpenChange: (open: boolean) => void;
-	/** Dialog title */
 	title: string;
-	/** Dialog content */
 	children: ReactNode;
-	/** CSS class name for the content */
 	className?: string;
-	/** When true, the close (×) button in the header is hidden */
 	hideClose?: boolean;
 }
-
-// =============================================================================
-// Component
-// =============================================================================
 
 export function Modal({ open, onOpenChange, title, children, className, hideClose }: ModalProperties) {
 	const { dialogOpen, show, onExitComplete } = useDeferredOpen(open);
@@ -91,10 +70,6 @@ export function Modal({ open, onOpenChange, title, children, className, hideClos
 		</Dialog.Root>
 	);
 }
-
-// =============================================================================
-// Sub-components
-// =============================================================================
 
 export function ModalBody({ children, className, ref }: { children: ReactNode; className?: string; ref?: Ref<HTMLDivElement> }) {
 	return (

@@ -1,8 +1,3 @@
-/**
- * Tests for the asset_settings_get tool.
- * Verifies reading asset routing settings from wrangler.jsonc.
- */
-
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createMemoryFs, createMockContext, createMockSendEvent } from './test-helpers';

@@ -1,11 +1,3 @@
-/**
- * Organization-scoped routes.
- *
- * Handles project listing, visibility toggling, and project deletion
- * for a specific organization identified by :orgId in the URL path.
- * All routes require authentication and org membership.
- */
-
 import { zValidator } from '@hono/zod-validator';
 import { and, count, desc, eq, isNull } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
