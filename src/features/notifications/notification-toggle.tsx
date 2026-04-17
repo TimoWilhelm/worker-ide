@@ -1,13 +1,14 @@
 import { Bell, BellOff, BellRing } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
+import { PendingApprovalIndicator } from '@/components/ui/pending-approval-indicator';
 import { toast } from '@/components/ui/toast-store';
 import { Tooltip } from '@/components/ui/tooltip';
 import { usePushNotifications } from '@/hooks/use-push-notifications';
 import { cn } from '@/lib/utils';
 
 export function NotificationToggle() {
-	const { permissionState, isSubscribed, isEnabled, isLoading, subscribe, toggleEnabled } = usePushNotifications();
+	const { permissionState, isSubscribed, isEnabled, isLoading, needsPermissionApproval, subscribe, toggleEnabled } = usePushNotifications();
 
 	// Don't render if push is not supported
 	// eslint-disable-next-line unicorn/no-null -- React expects null for "render nothing"
@@ -37,12 +38,40 @@ export function NotificationToggle() {
 		);
 	}
 
-	const tooltipContent = isSubscribed ? (isEnabled ? 'Notifications enabled' : 'Notifications disabled') : 'Enable notifications';
+	const tooltipContent = isSubscribed
+		? isEnabled
+			? 'Notifications enabled'
+			: 'Notifications disabled'
+		: needsPermissionApproval
+			? 'Approve notifications in your browser'
+			: 'Enable notifications';
 
 	return (
 		<Tooltip content={tooltipContent}>
-			<Button variant="ghost" size="icon" aria-label={tooltipContent} onClick={handleClick} disabled={isLoading}>
-				{isSubscribed && isEnabled ? <BellRing className={cn('size-4', 'text-accent')} /> : <Bell className="size-4" />}
+			<Button
+				variant="ghost"
+				size="icon"
+				aria-label={tooltipContent}
+				onClick={handleClick}
+				disabled={isLoading}
+				className={cn(
+					'relative',
+					needsPermissionApproval &&
+						`
+							bg-accent/6 text-accent ring-1 ring-accent/15 ring-inset
+							hover:bg-accent/10 hover:text-accent
+							disabled:opacity-100
+						`,
+				)}
+			>
+				{needsPermissionApproval && (
+					<PendingApprovalIndicator className="absolute top-1.5 right-1.5" data-testid="pending-approval-indicator" />
+				)}
+				{isSubscribed && isEnabled ? (
+					<BellRing className={cn('size-4', 'text-accent')} />
+				) : (
+					<Bell className={cn('size-4', needsPermissionApproval && 'text-accent')} />
+				)}
 			</Button>
 		</Tooltip>
 	);

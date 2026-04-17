@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { DEFAULT_AI_MODEL } from '@shared/constants';
 
 import {
+	buildTerminalNotification,
 	buildLoadedExtensionsSummary,
 	buildRecoveredRunParameters,
 	parseFiberSnapshot,
@@ -125,5 +126,22 @@ describe('agent-runner helpers', () => {
 			{ name: 'github', description: 'GitHub helpers', toolCount: 2 },
 			{ name: 'deploy', description: undefined, toolCount: 1 },
 		]);
+	});
+
+	it('suppresses terminal notifications while a queued follow-up starts', () => {
+		expect(buildTerminalNotification('completed', undefined, true)).toBeUndefined();
+		expect(buildTerminalNotification('error', 'Boom', true)).toBeUndefined();
+	});
+
+	it('builds terminal notifications once the agent is idle', () => {
+		expect(buildTerminalNotification('completed', undefined, false)).toEqual({
+			title: 'Generation complete',
+			body: 'Your AI agent has finished.',
+		});
+		expect(buildTerminalNotification('error', 'Boom', false)).toEqual({
+			title: 'Generation failed',
+			body: 'Boom',
+		});
+		expect(buildTerminalNotification('aborted', undefined, false)).toBeUndefined();
 	});
 });

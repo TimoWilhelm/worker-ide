@@ -10,6 +10,7 @@ import { pendingChangesFileSchema, sessionTitleSchema } from '@shared/validation
 
 import {
 	buildLoadedExtensionsSummary,
+	buildTerminalNotification,
 	buildRecoveredRunParameters,
 	parseFiberSnapshot,
 	restoreExtensionManager,
@@ -1075,19 +1076,17 @@ export class AgentRunner extends Agent<Env, AgentState> {
 
 			const initiatorUserId = this.sessionInitiatorUserIds.get(sessionId);
 
-			// Send push notification on completion/error (not on abort — user triggered it)
-			if (initiatorUserId) {
-				if (finalStatus === 'completed') {
-					this.sendPushNotification(initiatorUserId, sessionId, 'Generation complete', 'Your AI agent has finished.');
-				} else if (finalStatus === 'error') {
-					this.sendPushNotification(initiatorUserId, sessionId, 'Generation failed', errorMessage ?? 'An error occurred.');
-				}
-			}
-
 			const startedNextRun = await this.maybeStartNextQueuedRun(projectId, sessionId, initiatorUserId).catch((nextRunError) => {
 				console.error('[AgentRunner] Failed to start queued follow-up run:', nextRunError);
 				return false;
 			});
+			const terminalNotification = buildTerminalNotification(finalStatus, errorMessage, startedNextRun);
+
+			// Only notify once the queue drains; the final auto-started run will notify when the agent becomes idle.
+			if (initiatorUserId && terminalNotification) {
+				this.sendPushNotification(initiatorUserId, sessionId, terminalNotification.title, terminalNotification.body);
+			}
+
 			if (!startedNextRun) {
 				this.sessionInitiatorUserIds.delete(sessionId);
 			}

@@ -10,6 +10,7 @@ interface UsePushNotificationsResult {
 	isSubscribed: boolean;
 	isEnabled: boolean;
 	isLoading: boolean;
+	needsPermissionApproval: boolean;
 	subscribe: () => Promise<void>;
 	unsubscribe: () => Promise<void>;
 	toggleEnabled: () => Promise<void>;
@@ -183,5 +184,14 @@ export function usePushNotifications(): UsePushNotificationsResult {
 		}
 	}, [isEnabled]);
 
-	return { permissionState, isSubscribed, isEnabled, isLoading, subscribe, unsubscribe, toggleEnabled };
+	return {
+		permissionState,
+		isSubscribed,
+		isEnabled,
+		isLoading,
+		needsPermissionApproval: permissionState === 'default' && !isSubscribed,
+		subscribe,
+		unsubscribe,
+		toggleEnabled,
+	};
 }

@@ -4,7 +4,15 @@ import { DEFAULT_AI_MODEL, getModelConfig } from '@shared/constants';
 
 import type { FiberSnapshot } from '@shared/agent-state';
 import type { AIModelId } from '@shared/constants';
-import type { AgentMode, ChatMessage, FileChange, PendingFileChange, ToolErrorInfo, ToolMetadataInfo } from '@shared/types';
+import type {
+	AgentMode,
+	AgentSessionStatus,
+	ChatMessage,
+	FileChange,
+	PendingFileChange,
+	ToolErrorInfo,
+	ToolMetadataInfo,
+} from '@shared/types';
 
 interface RestorableExtensionManager {
 	restore(): Promise<void>;
@@ -22,6 +30,11 @@ export interface RecoveredRunParameters {
 	sessionId: string;
 	model: AIModelId;
 	_fiberSnapshot: FiberSnapshot;
+}
+
+export interface TerminalNotification {
+	title: string;
+	body: string;
 }
 
 export function parseFiberSnapshot(snapshot: unknown): FiberSnapshot | undefined {
@@ -110,6 +123,32 @@ export function buildLoadedExtensionsSummary(
 		description: extension.description,
 		toolCount: extension.tools.length,
 	}));
+}
+
+export function buildTerminalNotification(
+	status: AgentSessionStatus,
+	errorMessage: string | undefined,
+	hasQueuedFollowUp: boolean,
+): TerminalNotification | undefined {
+	if (hasQueuedFollowUp) {
+		return undefined;
+	}
+
+	if (status === 'completed') {
+		return {
+			title: 'Generation complete',
+			body: 'Your AI agent has finished.',
+		};
+	}
+
+	if (status === 'error') {
+		return {
+			title: 'Generation failed',
+			body: errorMessage ?? 'An error occurred.',
+		};
+	}
+
+	return undefined;
 }
 
 export async function runSessionSearch<Result>(

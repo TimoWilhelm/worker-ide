@@ -22,6 +22,7 @@ import { Button } from '@/components/ui/button';
 import { Collapsible } from '@/components/ui/collapsible';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { PendingApprovalIndicator } from '@/components/ui/pending-approval-indicator';
 import { Spinner } from '@/components/ui/spinner';
 import { toast } from '@/components/ui/toast-store';
 import { Tooltip } from '@/components/ui/tooltip';
@@ -54,7 +55,7 @@ import { useSpeechToText } from '../../hooks/use-speech-to-text';
 import { parseTextToSegments, segmentsHaveContent, segmentsToPlainText, type InputSegment } from '../../lib/input-segments';
 import { extractMessageText } from '../../lib/retry-helpers';
 import { AgentModeSelector } from '../agent-mode-selector';
-import { AudioWaveform, AudioWaveformSkeleton } from '../audio-waveform';
+import { AudioWaveform } from '../audio-waveform';
 import { BouncingDots } from '../bouncing-dots';
 import { ChangedFilesSummary } from '../changed-files-summary';
 import { FileMentionDropdown } from '../file-mention-dropdown';
@@ -1224,228 +1225,239 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 				)}
 			</div>
 
-			<Collapsible open={changeReview.sessionPendingCount(sessionId) > 0} className="shrink-0 overflow-hidden">
-				<div className="border-t border-border px-2 pt-2">
-					<ChangedFilesSummary
-						onApproveChange={changeReview.handleApproveChange}
-						onRejectChange={changeReview.handleRejectChange}
-						onApproveAll={() => changeReview.handleApproveAll(sessionId)}
-						onRejectAll={() => changeReview.handleRejectAll(sessionId)}
-						isReverting={changeReview.isReverting}
-						canReject={changeReview.canReject}
-						sessionId={sessionId}
-					/>
-				</div>
-			</Collapsible>
-
-			<div className="relative shrink-0 border-t border-border p-2">
-				{/* Render outside the clipped input shell so the suggestions can overflow normally. */}
-				{isFileMentionOpen && (
-					<FileMentionDropdown results={fileMentionResults} selectedIndex={fileMentionSelectedIndex} onSelect={selectMentionFile} />
-				)}
-				<div className="flex flex-col gap-2">
-					<Collapsible open={queuedMessages.length > 0} className="relative z-20 overflow-visible">
-						{queuedMessages.length > 0 && (
-							<QueuedSteeringStrip
-								messages={queuedMessages}
-								localOnlyMessageIds={localOnlyMessageIds}
-								onRemoveMessage={handleRemoveQueuedMessage}
-							/>
-						)}
-					</Collapsible>
-					<div
-						className={cn(
-							`
-								relative overflow-hidden rounded-lg border bg-bg-primary
-								transition-colors
-							`,
-							'focus-within:border-accent',
-							isProcessing ? 'border-warning/40' : 'border-border',
-						)}
-					>
-						<InputInfoBar open={!isConnected} icon={<Spinner className="size-3 shrink-0 text-warning" />}>
-							<span className="flex-1 text-xs text-text-secondary">
-								{agentConnectionState === 'connecting' ? 'Connecting to agent…' : 'Connection lost. Reconnecting…'}
-							</span>
-						</InputInfoBar>
-
-						<RichTextInput
-							ref={inputReference}
-							segments={
-								speechToText.isRecording
-									? (() => {
-											const voiceText = [speechToText.finalTranscript, speechToText.interimTranscript].filter(Boolean).join(' ');
-											const existingText = segmentsToPlainText(preRecordingSegments);
-											const needsSpace = existingText.length > 0 && voiceText.length > 0 && !/\s$/.test(existingText);
-											return [
-												...preRecordingSegments,
-												...(needsSpace ? [{ type: 'text' as const, value: ' ' }] : []),
-												...(voiceText ? [{ type: 'text' as const, value: voiceText }] : []),
-											];
-										})()
-									: segments
-							}
-							onSegmentsChange={setSegments}
-							onKeyDown={handleKeyDown}
-							onCursorChange={setCursorPosition}
-							disabled={speechToText.isRecording}
-							inlineSuffix={speechToText.isRecording ? <BouncingDots className="ml-1 text-text-secondary" /> : undefined}
-							placeholder={
-								isProcessing
-									? 'Type your next message...'
-									: agentMode === 'plan'
-										? 'Describe what to plan...'
-										: agentMode === 'ask'
-											? 'Ask a question...'
-											: 'Ask the AI to help...'
-							}
+			<div className="shrink-0 border-t border-border">
+				<Collapsible open={changeReview.sessionPendingCount(sessionId) > 0} className="overflow-hidden">
+					<div className="px-2 pt-2">
+						<ChangedFilesSummary
+							onApproveChange={changeReview.handleApproveChange}
+							onRejectChange={changeReview.handleRejectChange}
+							onApproveAll={() => changeReview.handleApproveAll(sessionId)}
+							onRejectAll={() => changeReview.handleRejectAll(sessionId)}
+							isReverting={changeReview.isReverting}
+							canReject={changeReview.canReject}
+							sessionId={sessionId}
 						/>
-						<Collapsible open={!!planPath}>
-							{planPath && (
-								<button
-									onClick={() => openFile(planPath)}
-									className="
-										flex w-full items-center gap-1.5 border-t border-border/50 px-2.5 py-1
-										text-xs text-accent transition-colors
-										hover:bg-accent/5
-									"
-								>
-									<MapIcon className="size-3 shrink-0" />
-									<span className="truncate">View plan: {planPath.split('/').pop()}</span>
-								</button>
+					</div>
+				</Collapsible>
+
+				<div className="relative p-2">
+					{/* Render outside the clipped input shell so the suggestions can overflow normally. */}
+					{isFileMentionOpen && (
+						<FileMentionDropdown results={fileMentionResults} selectedIndex={fileMentionSelectedIndex} onSelect={selectMentionFile} />
+					)}
+					<div className="flex flex-col gap-2">
+						<Collapsible open={queuedMessages.length > 0} className="relative z-20 overflow-visible">
+							{queuedMessages.length > 0 && (
+								<QueuedSteeringStrip
+									messages={queuedMessages}
+									localOnlyMessageIds={localOnlyMessageIds}
+									onRemoveMessage={handleRemoveQueuedMessage}
+								/>
 							)}
 						</Collapsible>
-						{speechToText.isRecording ? (
-							<div className="flex items-center gap-x-1.5 px-1.5 py-1">
-								<div className="relative flex size-3 shrink-0 items-center justify-center">
-									<Spinner
-										size="xs"
-										className={cn(
-											`
-												absolute inset-0 text-text-secondary transition-opacity duration-150
-												ease-out
-											`,
-											speechToText.isMicrophoneReady && 'pointer-events-none opacity-0',
-										)}
-									/>
-									<span
-										className={cn(
-											`
-												size-2 rounded-full bg-error transition-opacity duration-150
-												ease-out
-											`,
-											speechToText.isMicrophoneReady ? 'animate-pulse opacity-100' : 'opacity-0',
-										)}
-									/>
-								</div>
-								<div className="relative h-4 w-28 shrink-0">
-									<AudioWaveformSkeleton
-										className={cn(
-											'absolute inset-0 transition-opacity duration-150 ease-out',
-											speechToText.isMicrophoneReady && 'pointer-events-none opacity-0',
-										)}
-									/>
-									<AudioWaveform
-										amplitudes={speechToText.amplitudes}
-										className={cn(
-											'absolute inset-0 transition-opacity duration-150 ease-out',
-											speechToText.isMicrophoneReady ? 'opacity-100' : 'opacity-0',
-										)}
-									/>
-								</div>
-								<div className="flex-1" />
-								<button
-									onClick={handleStopRecording}
-									className={cn(
-										'inline-flex cursor-pointer items-center gap-1.5 rounded-md p-1',
-										'text-xs font-medium text-error transition-colors',
-										'hover:bg-error/10',
-									)}
-									aria-label="Stop recording"
-								>
-									<Square className="size-4" />
-								</button>
-							</div>
-						) : (
-							<div
-								className="
-									@container flex flex-wrap-reverse items-center gap-x-1.5 gap-y-0.5
-									px-1.5 py-1
-								"
-							>
-								<AgentModeSelector mode={agentMode} onModeChange={setAgentMode} disabled={false} />
-								<ModelSelectorDropdown selectedModel={selectedModel} onSelectModel={setSelectedModel} disabled={false} />
-								<div className="flex flex-1 shrink-0 items-center justify-end gap-0.5">
-									<ContextRing tokensUsed={contextTokensUsed} contextWindow={getModelLimits(selectedModel).contextWindow} />
-									{!isProcessing && speechToText.microphonePermission !== 'unsupported' && (
-										<Tooltip content={speechToText.microphonePermission === 'denied' ? 'Microphone blocked' : 'Voice input'} side="top">
-											<button
-												onClick={() => {
-													if (speechToText.microphonePermission === 'denied') {
-														toast.info('Allow microphone access for this site in your browser settings, then try again.');
-														return;
-													}
-													setPreRecordingSegments(segments);
-													void speechToText.start();
-												}}
-												disabled={!isConnected}
-												className={cn(
-													'inline-flex items-center gap-1.5 rounded-md p-1',
-													'text-xs font-medium transition-colors',
-													speechToText.microphonePermission === 'denied'
-														? 'cursor-pointer text-text-secondary opacity-50'
-														: isConnected
-															? `
-																cursor-pointer text-text-secondary
-																hover:bg-bg-tertiary hover:text-text-primary
-															`
-															: 'cursor-not-allowed text-text-secondary opacity-40',
-												)}
-												aria-label={speechToText.microphonePermission === 'denied' ? 'Microphone blocked' : 'Start voice input'}
-											>
-												{speechToText.microphonePermission === 'denied' ? <MicOff className="size-4" /> : <Mic className="size-4" />}
-											</button>
-										</Tooltip>
-									)}
-									{isProcessing && (
-										<button
-											type="button"
-											onClick={handleCancel}
-											disabled={isStopPending || !isConnected}
-											className={cn(
-												`
-													inline-flex cursor-pointer items-center justify-center rounded-md
-													p-1
-												`,
-												'text-xs font-medium text-error transition-colors',
-												isStopPending ? 'cursor-wait opacity-70' : isConnected ? 'hover:bg-error/10' : 'cursor-not-allowed opacity-40',
-											)}
-											aria-label={isStopPending ? 'Stopping' : 'Stop'}
-										>
-											{isStopPending ? <Spinner className="size-4" /> : <Square className="size-4" />}
-										</button>
-									)}
+						<div
+							className={cn(
+								`
+									relative overflow-hidden rounded-lg border bg-bg-primary
+									transition-colors
+								`,
+								'focus-within:border-accent',
+								isProcessing ? 'border-warning/40' : 'border-border',
+							)}
+						>
+							<InputInfoBar open={!isConnected} icon={<Spinner className="size-3 shrink-0 text-warning" />}>
+								<span className="flex-1 text-xs text-text-secondary">
+									{agentConnectionState === 'connecting' ? 'Connecting to agent…' : 'Connection lost. Reconnecting…'}
+								</span>
+							</InputInfoBar>
+
+							<RichTextInput
+								ref={inputReference}
+								segments={
+									speechToText.isRecording
+										? (() => {
+												const voiceText = [speechToText.finalTranscript, speechToText.interimTranscript].filter(Boolean).join(' ');
+												const existingText = segmentsToPlainText(preRecordingSegments);
+												const needsSpace = existingText.length > 0 && voiceText.length > 0 && !/\s$/.test(existingText);
+												return [
+													...preRecordingSegments,
+													...(needsSpace ? [{ type: 'text' as const, value: ' ' }] : []),
+													...(voiceText ? [{ type: 'text' as const, value: voiceText }] : []),
+												];
+											})()
+										: segments
+								}
+								onSegmentsChange={setSegments}
+								onKeyDown={handleKeyDown}
+								onCursorChange={setCursorPosition}
+								disabled={speechToText.isRecording}
+								inlineSuffix={speechToText.isRecording ? <BouncingDots className="ml-1 text-text-secondary" /> : undefined}
+								placeholder={
+									isProcessing
+										? 'Type your next message...'
+										: agentMode === 'plan'
+											? 'Describe what to plan...'
+											: agentMode === 'ask'
+												? 'Ask a question...'
+												: 'Ask the AI to help...'
+								}
+							/>
+							<Collapsible open={!!planPath}>
+								{planPath && (
 									<button
-										type="button"
-										onClick={() => void handleSubmit()}
-										disabled={!hasContent}
-										className={cn(
-											'inline-flex items-center justify-center rounded-md p-1',
-											'text-xs font-medium transition-colors',
-											hasContent
-												? `
-													cursor-pointer bg-accent text-white
-													hover:bg-accent-hover
-												`
-												: 'cursor-not-allowed text-text-secondary opacity-40',
-										)}
-										aria-label={isProcessing ? 'Queue message' : 'Send message'}
+										onClick={() => openFile(planPath)}
+										className="
+											flex w-full items-center gap-1.5 border-t border-border/50 px-2.5
+											py-1 text-xs text-accent transition-colors
+											hover:bg-accent/5
+										"
 									>
-										<ArrowUp className="size-4" />
+										<MapIcon className="size-3 shrink-0" />
+										<span className="truncate">View plan: {planPath.split('/').pop()}</span>
+									</button>
+								)}
+							</Collapsible>
+							{speechToText.isRecording ? (
+								<div className="flex items-center gap-x-1.5 px-1.5 py-1">
+									<div className="relative flex size-3 shrink-0 items-center justify-center">
+										{speechToText.isAwaitingPermission ? (
+											<PendingApprovalIndicator className="size-2" />
+										) : (
+											<span className="size-2 animate-pulse rounded-full bg-error" />
+										)}
+									</div>
+									<div className={cn('relative h-4', speechToText.isAwaitingPermission ? 'min-w-0 flex-1' : 'w-28 shrink-0')}>
+										{speechToText.isAwaitingPermission ? (
+											<Tooltip content="Approve microphone access in your browser to start recording" side="top">
+												<div className={cn('flex h-full items-center gap-1.5 text-xs text-text-secondary')}>
+													<span className="truncate font-medium text-text-primary">Approve microphone access</span>
+													<span className="truncate text-[11px] text-text-secondary/80">Browser prompt waiting</span>
+												</div>
+											</Tooltip>
+										) : (
+											<AudioWaveform amplitudes={speechToText.amplitudes} className="absolute inset-0" />
+										)}
+									</div>
+									{!speechToText.isAwaitingPermission && <div className="flex-1" />}
+									<button
+										onClick={handleStopRecording}
+										className={cn(
+											'inline-flex cursor-pointer items-center gap-1.5 rounded-md p-1',
+											'text-xs font-medium text-error transition-colors',
+											'hover:bg-error/10',
+										)}
+										aria-label="Stop recording"
+									>
+										<Square className="size-4" />
 									</button>
 								</div>
-							</div>
-						)}
+							) : (
+								<div
+									className="
+										@container flex flex-wrap-reverse items-center gap-x-1.5 gap-y-0.5
+										px-1.5 py-1
+									"
+								>
+									<AgentModeSelector mode={agentMode} onModeChange={setAgentMode} disabled={false} />
+									<ModelSelectorDropdown selectedModel={selectedModel} onSelectModel={setSelectedModel} disabled={false} />
+									<div className="flex flex-1 shrink-0 items-center justify-end gap-0.5">
+										<ContextRing tokensUsed={contextTokensUsed} contextWindow={getModelLimits(selectedModel).contextWindow} />
+										{!isProcessing && speechToText.microphonePermission !== 'unsupported' && (
+											<Tooltip
+												content={
+													speechToText.microphonePermission === 'denied'
+														? 'Microphone blocked'
+														: speechToText.needsPermissionApproval
+															? 'Approve microphone access in your browser'
+															: 'Voice input'
+												}
+												side="top"
+											>
+												<button
+													onClick={() => {
+														if (speechToText.microphonePermission === 'denied') {
+															toast.info('Allow microphone access for this site in your browser settings, then try again.');
+															return;
+														}
+														setPreRecordingSegments(segments);
+														void speechToText.start();
+													}}
+													disabled={!isConnected}
+													className={cn(
+														'relative inline-flex items-center gap-1.5 rounded-md p-1',
+														'text-xs font-medium transition-colors',
+														speechToText.microphonePermission === 'denied'
+															? 'cursor-pointer text-text-secondary opacity-50'
+															: speechToText.needsPermissionApproval
+																? `
+																	bg-accent/6 text-accent ring-1 ring-accent/15 ring-inset
+																	hover:bg-accent/10 hover:text-accent
+																`
+																: isConnected
+																	? `
+																		cursor-pointer text-text-secondary
+																		hover:bg-bg-tertiary hover:text-text-primary
+																	`
+																	: 'cursor-not-allowed text-text-secondary opacity-40',
+													)}
+													aria-label={
+														speechToText.microphonePermission === 'denied'
+															? 'Microphone blocked'
+															: speechToText.needsPermissionApproval
+																? 'Approve microphone access in your browser'
+																: 'Start voice input'
+													}
+												>
+													{speechToText.needsPermissionApproval && (
+														<PendingApprovalIndicator
+															className="absolute top-1 right-1 size-1.5"
+															data-testid="pending-approval-indicator"
+														/>
+													)}
+													{speechToText.microphonePermission === 'denied' ? <MicOff className="size-4" /> : <Mic className="size-4" />}
+												</button>
+											</Tooltip>
+										)}
+										{isProcessing && (
+											<button
+												type="button"
+												onClick={handleCancel}
+												disabled={isStopPending || !isConnected}
+												className={cn(
+													`
+														inline-flex cursor-pointer items-center justify-center rounded-md
+														p-1
+													`,
+													'text-xs font-medium text-error transition-colors',
+													isStopPending ? 'cursor-wait opacity-70' : isConnected ? 'hover:bg-error/10' : 'cursor-not-allowed opacity-40',
+												)}
+												aria-label={isStopPending ? 'Stopping' : 'Stop'}
+											>
+												{isStopPending ? <Spinner className="size-4" /> : <Square className="size-4" />}
+											</button>
+										)}
+										<button
+											type="button"
+											onClick={() => void handleSubmit()}
+											disabled={!hasContent}
+											className={cn(
+												'inline-flex items-center justify-center rounded-md p-1',
+												'text-xs font-medium transition-colors',
+												hasContent
+													? `
+														cursor-pointer bg-accent text-white
+														hover:bg-accent-hover
+													`
+													: 'cursor-not-allowed text-text-secondary opacity-40',
+											)}
+											aria-label={isProcessing ? 'Queue message' : 'Send message'}
+										>
+											<ArrowUp className="size-4" />
+										</button>
+									</div>
+								</div>
+							)}
+						</div>
 					</div>
 				</div>
 			</div>

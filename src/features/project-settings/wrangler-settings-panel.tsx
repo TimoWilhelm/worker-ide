@@ -185,7 +185,10 @@ function WranglerSettingsContent({ projectId }: { projectId: string }) {
 			}
 
 			await updateProjectMeta(projectId, { assetSettings, bindingsConfig: { storage: storageEnabled || undefined } });
-			await queryClient.invalidateQueries({ queryKey: ['project-settings', projectId] });
+			await Promise.all([
+				queryClient.invalidateQueries({ queryKey: ['project-settings', projectId] }),
+				queryClient.invalidateQueries({ queryKey: ['storage-usage', projectId] }),
+			]);
 			setSavedMessage(true);
 			clearTimeout(savedTimerReference.current);
 			savedTimerReference.current = setTimeout(() => setSavedMessage(false), 2000);

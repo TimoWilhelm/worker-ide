@@ -11,6 +11,37 @@ const AUTO_STOP_SILENCE_MS = 1500;
 const AMPLITUDE_BUFFER_SIZE = 32;
 const AMPLITUDE_INTERVAL_MS = 100;
 
+function mapMicrophonePermissionState(state: PermissionState): MicrophonePermission {
+	return state === 'prompt' ? 'default' : state;
+}
+
+async function readMicrophonePermission(): Promise<MicrophonePermission | undefined> {
+	if (!isMicrophoneSupported() || !('permissions' in navigator)) {
+		return undefined;
+	}
+
+	try {
+		// 'microphone' is a valid PermissionName but not in all TS lib typings
+		const descriptor: PermissionDescriptor = { name: 'microphone' as PermissionName }; // eslint-disable-line @typescript-eslint/consistent-type-assertions -- 'microphone' is valid but not in TS lib
+		const status = await navigator.permissions.query(descriptor);
+		return mapMicrophonePermissionState(status.state);
+	} catch {
+		return undefined;
+	}
+}
+
+function isMicrophonePermissionError(error: unknown): boolean {
+	if (error instanceof DOMException) {
+		return error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError';
+	}
+
+	if (error instanceof Error) {
+		return error.message.includes('Permission') || error.message.includes('NotAllowed');
+	}
+
+	return false;
+}
+
 interface ParsedSttMessage {
 	type: string | undefined;
 	isFinal: boolean;
@@ -51,6 +82,8 @@ function parseSttMessage(value: unknown): ParsedSttMessage | undefined {
 
 interface SpeechToTextResult {
 	microphonePermission: MicrophonePermission;
+	needsPermissionApproval: boolean;
+	isAwaitingPermission: boolean;
 	isRecording: boolean;
 	isMicrophoneReady: boolean;
 	interimTranscript: string;
@@ -87,6 +120,7 @@ export function useSpeechToText({
 	onAutoStop?: (transcript: string) => void;
 }): SpeechToTextResult {
 	const [microphonePermission, setMicrophonePermission] = useState<MicrophonePermission>(getInitialMicrophonePermission);
+	const [isAwaitingPermission, setIsAwaitingPermission] = useState(false);
 	const [isRecording, setIsRecording] = useState(false);
 	const [isMicrophoneReady, setIsMicrophoneReady] = useState(false);
 	const [interimTranscript, setInterimTranscript] = useState('');
@@ -123,6 +157,21 @@ export function useSpeechToText({
 
 		const abortController = new AbortController();
 
+		void readMicrophonePermission()
+			.then((status) => {
+				if (abortController.signal.aborted || !status) return;
+				setMicrophonePermission(status);
+			})
+			.catch(() => {
+				// Permissions API not supported for microphone — stay at 'default'
+			});
+
+		if (!('permissions' in navigator)) {
+			return () => {
+				abortController.abort();
+			};
+		}
+
 		// 'microphone' is a valid PermissionName but not in all TS lib typings
 		const descriptor: PermissionDescriptor = { name: 'microphone' as PermissionName }; // eslint-disable-line @typescript-eslint/consistent-type-assertions -- 'microphone' is valid but not in TS lib
 		void navigator.permissions
@@ -130,10 +179,7 @@ export function useSpeechToText({
 			.then((status) => {
 				if (abortController.signal.aborted) return;
 
-				const mapState = () => (status.state === 'prompt' ? 'default' : status.state);
-				setMicrophonePermission(mapState());
-
-				status.addEventListener('change', () => setMicrophonePermission(mapState()), {
+				status.addEventListener('change', () => setMicrophonePermission(mapMicrophonePermissionState(status.state)), {
 					signal: abortController.signal,
 				});
 			})
@@ -203,6 +249,7 @@ export function useSpeechToText({
 		audioStreamSenderReference.current?.reset();
 		amplitudePeakReference.current = 0;
 
+		setIsAwaitingPermission(microphonePermission === 'default');
 		setIsRecording(true);
 		setIsMicrophoneReady(false);
 
@@ -281,11 +328,13 @@ export function useSpeechToText({
 
 			webSocket.addEventListener('error', () => {
 				toast.error('Connection to transcription service failed');
+				setIsAwaitingPermission(false);
 				setIsRecording(false);
 				cleanup();
 			});
 
 			webSocket.addEventListener('close', () => {
+				setIsAwaitingPermission(false);
 				setIsRecording(false);
 				setIsMicrophoneReady(false);
 			});
@@ -314,6 +363,7 @@ export function useSpeechToText({
 				return;
 			}
 			mediaStreamReference.current = stream;
+			setIsAwaitingPermission(false);
 			setIsMicrophoneReady(true);
 
 			const source = audioContext.createMediaStreamSource(stream);
@@ -345,19 +395,24 @@ export function useSpeechToText({
 			}, AMPLITUDE_INTERVAL_MS);
 		} catch (caughtError) {
 			const message = caughtError instanceof Error ? caughtError.message : 'Failed to start recording';
-			if (message.includes('Permission') || message.includes('NotAllowed')) {
-				setMicrophonePermission('denied');
-				toast.error('Microphone permission denied');
+			if (isMicrophonePermissionError(caughtError)) {
+				const permission = await readMicrophonePermission();
+				setMicrophonePermission(permission ?? 'default');
+				if (permission === 'denied') {
+					toast.error('Microphone permission denied');
+				}
 			} else {
 				toast.error(message);
 			}
+			setIsAwaitingPermission(false);
 			setIsRecording(false);
 			setIsMicrophoneReady(false);
 			cleanup();
 		}
-	}, [projectId, cleanup]);
+	}, [projectId, cleanup, microphonePermission]);
 
 	const stop = useCallback((): string => {
+		setIsAwaitingPermission(false);
 		setIsRecording(false);
 		setIsMicrophoneReady(false);
 		setInterimTranscript('');
@@ -375,6 +430,8 @@ export function useSpeechToText({
 
 	return {
 		microphonePermission,
+		needsPermissionApproval: microphonePermission === 'default',
+		isAwaitingPermission,
 		isRecording,
 		isMicrophoneReady,
 		interimTranscript,
