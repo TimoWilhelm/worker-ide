@@ -285,6 +285,7 @@ export const useStore = create<StoreState>()(
 					set((state) => ({
 						openFiles: state.openFiles.includes(path) ? state.openFiles : [...state.openFiles, path],
 						activeFile: path,
+						activeMobilePanel: 'editor',
 						cursorPosition: undefined,
 					})),
 
@@ -312,6 +313,7 @@ export const useStore = create<StoreState>()(
 					set((state) => ({
 						openFiles: state.openFiles.includes(path) ? state.openFiles : [...state.openFiles, path],
 						activeFile: path,
+						activeMobilePanel: 'editor',
 						pendingGoTo: position,
 					})),
 
@@ -848,6 +850,7 @@ export const useStore = create<StoreState>()(
 						// Also open the file and make it active so the editor shows it
 						openFiles: state.openFiles.includes(diffView.path) ? state.openFiles : [...state.openFiles, diffView.path],
 						activeFile: diffView.path,
+						activeMobilePanel: 'editor',
 					})),
 
 				clearGitDiff: () => set({ gitDiffView: undefined }),

@@ -1,5 +1,5 @@
 import { LogOut, Palette, Settings, User } from 'lucide-react';
-import { useNavigate } from 'react-router';
+import { useLocation, useNavigate } from 'react-router';
 
 import {
 	DropdownMenu,
@@ -19,6 +19,7 @@ interface UserMenuProperties {
 export function UserMenu({ size = 'md' }: UserMenuProperties = {}) {
 	const { data: session } = authClient.useSession();
 	const navigate = useNavigate();
+	const location = useLocation();
 
 	if (!session?.user) return;
 
@@ -32,6 +33,9 @@ export function UserMenu({ size = 'md' }: UserMenuProperties = {}) {
 		.join('')
 		.toUpperCase()
 		.slice(0, 2);
+	const settingsNavigationState = {
+		from: `${location.pathname}${location.search}${location.hash}`,
+	};
 
 	return (
 		<DropdownMenu>
@@ -72,7 +76,7 @@ export function UserMenu({ size = 'md' }: UserMenuProperties = {}) {
 				<DropdownMenuSeparator />
 				<DropdownMenuItem
 					onSelect={() => {
-						void navigate('/settings/profile');
+						void navigate('/settings/profile', { state: settingsNavigationState });
 					}}
 					className="gap-2 text-xs"
 				>
@@ -81,7 +85,7 @@ export function UserMenu({ size = 'md' }: UserMenuProperties = {}) {
 				</DropdownMenuItem>
 				<DropdownMenuItem
 					onSelect={() => {
-						void navigate('/settings/account');
+						void navigate('/settings/account', { state: settingsNavigationState });
 					}}
 					className="gap-2 text-xs"
 				>
@@ -90,7 +94,7 @@ export function UserMenu({ size = 'md' }: UserMenuProperties = {}) {
 				</DropdownMenuItem>
 				<DropdownMenuItem
 					onSelect={() => {
-						void navigate('/settings/appearance');
+						void navigate('/settings/appearance', { state: settingsNavigationState });
 					}}
 					className="gap-2 text-xs"
 				>

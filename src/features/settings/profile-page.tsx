@@ -78,10 +78,6 @@ export default function ProfilePage({ user }: ProfilePageProperties) {
 							{initials}
 						</div>
 					)}
-					<div className="flex min-w-0 flex-col">
-						<span className="text-sm font-medium text-text-primary">{user.name}</span>
-						<span className="text-sm text-text-secondary">{user.email}</span>
-					</div>
 				</div>
 
 				<div>

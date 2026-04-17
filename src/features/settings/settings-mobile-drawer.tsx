@@ -14,9 +14,10 @@ interface SettingsMobileDrawerProperties {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 	activePath: string;
+	navigationState?: { from: string };
 }
 
-export function SettingsMobileDrawer({ open, onOpenChange, activePath }: SettingsMobileDrawerProperties) {
+export function SettingsMobileDrawer({ open, onOpenChange, activePath, navigationState }: SettingsMobileDrawerProperties) {
 	const { dialogOpen, show, onExitComplete } = useDeferredOpen(open);
 
 	return (
@@ -70,6 +71,7 @@ export function SettingsMobileDrawer({ open, onOpenChange, activePath }: Setting
 												)}
 												<Link
 													to={item.href}
+													state={navigationState}
 													onClick={() => onOpenChange(false)}
 													className={cn(
 														`

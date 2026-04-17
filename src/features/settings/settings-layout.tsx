@@ -1,7 +1,7 @@
-import { Hexagon, Menu } from 'lucide-react';
+import { ArrowLeft, Hexagon, Menu } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useState } from 'react';
-import { Link } from 'react-router';
+import { Link, useLocation, useNavigate } from 'react-router';
 
 import { BetaIndicator } from '@/components/beta-indicator';
 import { Tooltip } from '@/components/ui/tooltip';
@@ -17,8 +17,20 @@ interface SettingsLayoutProperties {
 	activePath: string;
 }
 
+function getSettingsBackTarget(state: unknown): string | undefined {
+	if (!state || typeof state !== 'object' || !('from' in state)) {
+		return undefined;
+	}
+
+	return typeof state.from === 'string' ? state.from : undefined;
+}
+
 export default function SettingsLayout({ children, activePath }: SettingsLayoutProperties) {
 	const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
+	const location = useLocation();
+	const navigate = useNavigate();
+	const backTarget = getSettingsBackTarget(location.state);
+	const navigationState = backTarget ? { from: backTarget } : undefined;
 
 	return (
 		<div className="flex h-dvh flex-col bg-bg-primary">
@@ -38,6 +50,19 @@ export default function SettingsLayout({ children, activePath }: SettingsLayoutP
 					aria-label="Open settings menu"
 				>
 					<Menu className="size-4" />
+				</button>
+
+				<button
+					type="button"
+					onClick={() => void navigate(backTarget ?? '/')}
+					className="
+						flex shrink-0 items-center justify-center rounded-md p-1.5
+						text-text-secondary transition-colors
+						hover:bg-bg-tertiary hover:text-text-primary
+					"
+					aria-label="Go back"
+				>
+					<ArrowLeft className="size-4" />
 				</button>
 
 				<Tooltip content="Back to home">
@@ -81,6 +106,7 @@ export default function SettingsLayout({ children, activePath }: SettingsLayoutP
 									)}
 									<Link
 										to={item.href}
+										state={navigationState}
 										className={cn(
 											`
 												relative flex items-center gap-2.5 rounded-md px-3 py-2 text-sm
@@ -103,7 +129,12 @@ export default function SettingsLayout({ children, activePath }: SettingsLayoutP
 					</ul>
 				</nav>
 
-				<SettingsMobileDrawer open={mobileDrawerOpen} onOpenChange={setMobileDrawerOpen} activePath={activePath} />
+				<SettingsMobileDrawer
+					open={mobileDrawerOpen}
+					onOpenChange={setMobileDrawerOpen}
+					activePath={activePath}
+					navigationState={navigationState}
+				/>
 
 				<main
 					className="

@@ -865,7 +865,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 					<DropdownMenu>
 						<Tooltip content="Sessions" side="bottom">
 							<DropdownMenuTrigger>
-								<Button variant="ghost" size="icon-sm">
+								<Button variant="ghost" size="icon" aria-label="Sessions">
 									<History className="size-3" />
 								</Button>
 							</DropdownMenuTrigger>
@@ -1027,7 +1027,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 
 					{allMessages.length > 0 && (
 						<Tooltip content="New session" side="bottom">
-							<Button variant="ghost" size="icon-sm" onClick={clearHistory} disabled={!isConnected}>
+							<Button variant="ghost" size="icon" aria-label="New session" onClick={clearHistory} disabled={!isConnected}>
 								<Plus className="size-3.5" />
 							</Button>
 						</Tooltip>
@@ -1409,6 +1409,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 									)}
 									{isProcessing && (
 										<button
+											type="button"
 											onClick={handleCancel}
 											disabled={isStopPending || !isConnected}
 											className={cn(
@@ -1425,6 +1426,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 										</button>
 									)}
 									<button
+										type="button"
 										onClick={() => void handleSubmit()}
 										disabled={!hasContent}
 										className={cn(
@@ -1437,7 +1439,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 												`
 												: 'cursor-not-allowed text-text-secondary opacity-40',
 										)}
-										aria-label={isProcessing ? 'Queue message' : 'Send'}
+										aria-label={isProcessing ? 'Queue message' : 'Send message'}
 									>
 										<ArrowUp className="size-4" />
 									</button>

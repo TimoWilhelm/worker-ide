@@ -30,7 +30,13 @@ beforeEach(() => {
 		sidebarVisible: true,
 		utilityPanelVisible: true,
 		agentPanelVisible: false,
+		devtoolsVisible: false,
 		dependenciesPanelVisible: true,
+		activeMobilePanel: 'editor',
+		mobileFileTreeOpen: false,
+		activeSidebarView: 'explorer',
+		activeUtilityTab: 'output',
+		gitDiffView: undefined,
 	});
 });
 
@@ -41,6 +47,14 @@ describe('Editor slice', () => {
 		const state = useStore.getState();
 		expect(state.activeFile).toBe('/src/main.ts');
 		expect(state.openFiles).toContain('/src/main.ts');
+	});
+
+	it('switches mobile to the editor when opening a file', () => {
+		useStore.getState().setActiveMobilePanel('preview');
+
+		useStore.getState().openFile('/src/main.ts');
+
+		expect(useStore.getState().activeMobilePanel).toBe('editor');
 	});
 
 	it('does not duplicate open files', () => {
@@ -79,6 +93,17 @@ describe('Editor slice', () => {
 		useStore.getState().setCursorPosition({ line: 10, column: 5 });
 
 		expect(useStore.getState().cursorPosition).toEqual({ line: 10, column: 5 });
+	});
+
+	it('switches mobile to the editor when navigating to a file position', () => {
+		useStore.getState().setActiveMobilePanel('git');
+
+		useStore.getState().goToFilePosition('/src/main.ts', { line: 10, column: 5 });
+
+		const state = useStore.getState();
+		expect(state.activeMobilePanel).toBe('editor');
+		expect(state.activeFile).toBe('/src/main.ts');
+		expect(state.pendingGoTo).toEqual({ line: 10, column: 5 });
 	});
 
 	it('marks file as changed', () => {
@@ -758,5 +783,25 @@ describe('UI slice', () => {
 		expect(useStore.getState().dependenciesPanelVisible).toBe(false);
 		useStore.getState().showDependenciesPanel();
 		expect(useStore.getState().dependenciesPanelVisible).toBe(true);
+	});
+
+	it('switches mobile to the editor when showing a git diff', () => {
+		useStore.getState().setActiveMobilePanel('git');
+
+		useStore.getState().showGitDiff({
+			path: '/src/main.ts',
+			beforeContent: 'before',
+			afterContent: 'after',
+		});
+
+		const state = useStore.getState();
+		expect(state.activeMobilePanel).toBe('editor');
+		expect(state.activeFile).toBe('/src/main.ts');
+		expect(state.openFiles).toContain('/src/main.ts');
+		expect(state.gitDiffView).toEqual({
+			path: '/src/main.ts',
+			beforeContent: 'before',
+			afterContent: 'after',
+		});
 	});
 });
