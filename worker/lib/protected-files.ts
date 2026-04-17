@@ -162,7 +162,7 @@ function generatePackageJson(projectName: string, filePaths: string[], dependenc
 	const devDependencies: Record<string, string> = {
 		'@cloudflare/vite-plugin': '^1.0.0',
 		vite: '^6.0.0',
-		wrangler: '^4.0.0',
+		wrangler: '^4.83.0',
 	};
 	if (hasReact) {
 		devDependencies['@types/react'] = '^19.0.0';

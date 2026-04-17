@@ -41,6 +41,6 @@
 		"tailwindcss": "^4.1.7",
 		"typescript": "^5.5.2",
 		"typescript-eslint": "^8.57.1",
-		"wrangler": "^4.73.0"
+		"wrangler": "^4.83.0"
 	}
 }
