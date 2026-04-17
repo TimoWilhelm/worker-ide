@@ -21,11 +21,18 @@ import {
 	getDatabase,
 	readPendingChangesData,
 	readSessionMetadata,
-	updateSessionMetadataStatus,
 	updateSessionMetadataTitleGenerated,
 	upsertSessionMetadata,
 	writePendingChangesData,
 } from './db';
+import {
+	applyLegacySessionMessageMetadata,
+	clearSnapshotFromMessages,
+	getCommittedMessages,
+	mergeQueuedMessages,
+	promoteNextQueuedMessage,
+	setSnapshotOnLastCommittedUserMessage,
+} from './session-history';
 import { trackAiUsage, trackWebSocketEvent } from '../lib/analytics';
 import { filesystemNamespace } from '../lib/durable-object-namespaces';
 import { toDurableObjectId } from '../lib/project-id';
@@ -58,6 +65,42 @@ function isAgentSessionStatus(value: unknown): value is AgentSessionStatus {
 	return typeof value === 'string' && AGENT_SESSION_STATUSES.has(value);
 }
 
+function parsePersistedHistory(value: string): ChatMessage[] | undefined {
+	try {
+		const parsed: unknown = JSON.parse(value);
+		if (!Array.isArray(parsed)) {
+			return undefined;
+		}
+
+		const history: ChatMessage[] = [];
+		for (const entry of parsed) {
+			if (!entry || typeof entry !== 'object' || !('id' in entry) || !('role' in entry) || !('parts' in entry)) {
+				continue;
+			}
+
+			const record = Object.fromEntries(Object.entries(entry));
+			if (typeof record.id !== 'string' || (record.role !== 'user' && record.role !== 'assistant') || !Array.isArray(record.parts)) {
+				continue;
+			}
+
+			history.push({
+				id: record.id,
+				role: record.role,
+				parts: record.parts,
+				createdAt: typeof record.createdAt === 'number' ? record.createdAt : undefined,
+				metadata:
+					record.metadata && typeof record.metadata === 'object' && !Array.isArray(record.metadata)
+						? Object.fromEntries(Object.entries(record.metadata))
+						: undefined,
+			});
+		}
+
+		return history;
+	} catch {
+		return undefined;
+	}
+}
+
 function buildAiSession(sessionInfo: SessionInfo, history: ChatMessage[], metadata: ReturnType<typeof parseSessionMetadata>): AiSession {
 	return {
 		id: sessionInfo.id,
@@ -65,18 +108,18 @@ function buildAiSession(sessionInfo: SessionInfo, history: ChatMessage[], metada
 		titleGenerated: metadata.titleGenerated,
 		createdAt: Date.parse(sessionInfo.created_at),
 		history,
-		messageSnapshots: metadata.messageSnapshots,
-		messageModes: metadata.messageModes,
 		contextTokensUsed: metadata.contextTokensUsed,
 		toolMetadata: metadata.toolMetadata,
 		toolErrors: metadata.toolErrors,
 		status: metadata.status,
 		errorMessage: metadata.errorMessage,
+		stopRequested: metadata.stopRequested,
 	};
 }
 
 function parseSessionMetadata(row: ReturnType<typeof readSessionMetadata>): {
 	titleGenerated?: boolean;
+	historyJson?: ChatMessage[];
 	messageSnapshots?: Record<string, string>;
 	messageModes?: Record<string, AgentMode>;
 	contextTokensUsed?: number;
@@ -84,13 +127,17 @@ function parseSessionMetadata(row: ReturnType<typeof readSessionMetadata>): {
 	toolErrors?: Record<string, ToolErrorInfo>;
 	status?: AgentSessionStatus;
 	errorMessage?: string;
+	stopRequested?: boolean;
 } {
 	if (!row) {
 		return {};
 	}
 
+	const historyJson = row.historyJson ? parsePersistedHistory(row.historyJson) : undefined;
+
 	return {
 		titleGenerated: row.titleGenerated === 1,
+		historyJson,
 		messageSnapshots: row.messageSnapshots ? JSON.parse(row.messageSnapshots) : undefined,
 		messageModes: row.messageModes ? JSON.parse(row.messageModes) : undefined,
 		contextTokensUsed: row.contextTokensUsed ?? undefined,
@@ -98,6 +145,7 @@ function parseSessionMetadata(row: ReturnType<typeof readSessionMetadata>): {
 		toolErrors: row.toolErrors ? JSON.parse(row.toolErrors) : undefined,
 		status: isAgentSessionStatus(row.status) ? row.status : undefined,
 		errorMessage: row.errorMessage ?? undefined,
+		stopRequested: row.stopRequested === 1,
 	};
 }
 const PROJECT_ROOT = '/project';
@@ -162,7 +210,6 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	 */
 	private pendingSubAgentDeltas = new Map<string, Map<string, string>>();
 	private subAgentDeltaFlushTimers = new Map<string, ReturnType<typeof setTimeout>>();
-	private steeringMessages = new Map<string, Array<{ id: string; content: string }>>();
 	private sessionInitiatorUserIds = new Map<string, string>();
 	private connectionUserIds = new Map<string, string>();
 	private sessionAnalytics = new Map<
@@ -296,6 +343,20 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		await migrate(this.db, migrations);
 		this.extensionManager = await restoreExtensionManager(env.LOADER, this.ctx.storage);
 		await this.refreshSessionsList();
+		for (const sessionInfo of this.sessionManager.list()) {
+			const session = this.readSessionAsAiSession(sessionInfo.id);
+			if (!session?.stopRequested) {
+				continue;
+			}
+			if (this.abortControllers.has(sessionInfo.id)) {
+				continue;
+			}
+			await this.maybeStartNextQueuedRun(this.getProjectId(), sessionInfo.id, this.sessionInitiatorUserIds.get(sessionInfo.id)).catch(
+				(error) => {
+					console.error('[AgentRunner] Failed to recover queued follow-up run:', error);
+				},
+			);
+		}
 	}
 
 	private async getSoulPrompt(): Promise<string> {
@@ -312,16 +373,15 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	// =========================================================================
 
 	/**
-	 * Start an AI agent run. Returns the session ID immediately.
-	 * The generation streams via the `streamRun` callable.
+	 * Start a new agent run for the committed session history.
 	 */
-	@callable()
-	async startRun(
+	private async startAgentRun(
 		projectId: string,
 		messages: ChatMessage[],
 		mode: AgentMode = 'code',
 		model: AIModelId = DEFAULT_AI_MODEL,
-		sessionId?: string,
+		sessionId: string,
+		initiatorUserId: string | undefined,
 	): Promise<{ sessionId: string }> {
 		// Rate limiting keyed on projectId — the DO is 1:1 with a project.
 		// Never use client-supplied context for rate-limit keys.
@@ -332,33 +392,28 @@ export class AgentRunner extends Agent<Env, AgentState> {
 			}
 		}
 
-		// Best-effort user attribution from trusted server-forwarded header
-		const authenticatedUserId = this.getAuthenticatedUserId();
-
 		// Model config validation
 		const modelConfig = getModelConfig(model);
 		if (modelConfig?.provider === 'workers-ai' && !env.AI) {
 			throw new Error('Workers AI binding (AI) is not configured.');
 		}
 
-		const resolvedSessionId = sessionId ?? crypto.randomUUID().replaceAll('-', '').slice(0, 16);
-
-		if (this.abortControllers.has(resolvedSessionId)) {
-			return { sessionId: resolvedSessionId };
+		if (this.abortControllers.has(sessionId)) {
+			return { sessionId };
 		}
 
 		const parameters: StartAgentParameters = {
 			projectId,
 			messages,
 			mode,
-			sessionId: resolvedSessionId,
+			sessionId,
 			model,
-			initiatorUserId: authenticatedUserId,
+			initiatorUserId,
 		};
 
-		await this.launchAgentLoop(parameters, resolvedSessionId);
+		await this.launchAgentLoop(parameters, sessionId);
 
-		this.sessionAnalytics.set(resolvedSessionId, {
+		this.sessionAnalytics.set(sessionId, {
 			inputTokens: 0,
 			outputTokens: 0,
 			durationMs: Date.now(),
@@ -367,11 +422,11 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		});
 
 		trackAiUsage({
-			userId: authenticatedUserId ?? '',
+			userId: initiatorUserId ?? '',
 			eventType: 'session_start',
 			projectId,
 			modelId: model,
-			sessionId: resolvedSessionId,
+			sessionId,
 			agentMode: mode,
 			inputTokens: 0,
 			outputTokens: 0,
@@ -380,114 +435,178 @@ export class AgentRunner extends Agent<Env, AgentState> {
 			turnNumber: 0,
 		});
 
-		// Update state immediately so clients see 'running' and the new messages.
-		// Including `messages` is critical — without it, the patch branch of
-		// updateSessionState only updates status/statusText, leaving the old
-		// (pre-abort) messages in currentSession. The new user message would
-		// not appear in the UI until streaming events start arriving.
-		//
-		// Set messageModes for the last user message so the mode badge renders
-		// immediately (before the first turn-complete persist reloads from DB).
-		const lastUserMessageIndex = parameters.messages.length - 1;
-		const existingModes = this.state.currentSession?.messageModes ?? {};
-		const updatedModes = {
-			...existingModes,
-			[String(lastUserMessageIndex)]: parameters.mode ?? 'code',
-		};
-
-		this.updateSessionState(resolvedSessionId, {
+		this.updateSessionState(sessionId, {
 			status: 'running',
 			statusText: 'Starting...',
-			messages: parameters.messages,
-			messageModes: updatedModes,
+			messages: this.getSessionHistory(sessionId),
 			error: undefined,
-			pendingSteeringMessages: [],
+			stopRequested: false,
 			pendingQuestion: undefined,
 			needsContinuation: false,
 			doomLoopMessage: undefined,
 			subAgentActivities: {},
 		});
 
-		return { sessionId: resolvedSessionId };
+		return { sessionId };
 	}
+
+	@callable()
+	async submitMessage(
+		projectId: string,
+		messageText: string,
+		sessionId?: string,
+		mode: AgentMode = 'code',
+		model: AIModelId = DEFAULT_AI_MODEL,
+		messageId?: string,
+		createdAt?: number,
+	): Promise<{ sessionId: string; queued: boolean; started: boolean }> {
+		const trimmedMessage = messageText.trim();
+		if (!trimmedMessage) {
+			throw new Error('Message is required.');
+		}
+
+		const resolvedSessionId = sessionId ?? crypto.randomUUID().replaceAll('-', '').slice(0, 16);
+		const authenticatedUserId = this.getAuthenticatedUserId();
+		const persistedSession = this.readSessionAsAiSession(resolvedSessionId);
+		const persistedHistory = persistedSession?.history ?? [];
+		const liveHistory = this.state.currentSession?.sessionId === resolvedSessionId ? this.state.currentSession.messages : persistedHistory;
+		const stopRequested = persistedSession?.stopRequested ?? false;
+		const isRunActive = this.abortControllers.has(resolvedSessionId);
+		const shouldQueue = isRunActive || stopRequested;
+		const userMessage = this.buildUserMessage(trimmedMessage, mode, model, shouldQueue ? 'queued' : 'committed', messageId, createdAt);
+
+		const promptPreview = trimmedMessage.slice(0, 80) || 'New session';
+		this.ensureSessionRecord(resolvedSessionId, promptPreview, model, mode);
+
+		const durableHistory = [...persistedHistory, userMessage];
+		this.persistSessionHistory(resolvedSessionId, durableHistory, stopRequested);
+
+		if (shouldQueue) {
+			this.updateSessionState(resolvedSessionId, {
+				messages: [...liveHistory, userMessage],
+				stopRequested,
+				status:
+					this.state.currentSession?.sessionId === resolvedSessionId ? this.state.currentSession.status : isRunActive ? 'running' : 'idle',
+				statusText:
+					this.state.currentSession?.sessionId === resolvedSessionId
+						? this.state.currentSession.statusText
+						: persistedSession?.status === 'running'
+							? 'Thinking...'
+							: undefined,
+			});
+			return { sessionId: resolvedSessionId, queued: true, started: false };
+		}
+
+		await this.startAgentRun(projectId, getCommittedMessages(durableHistory), mode, model, resolvedSessionId, authenticatedUserId);
+		return { sessionId: resolvedSessionId, queued: false, started: true };
+	}
+
+	@callable()
+	async removeQueuedMessage(sessionId: string, messageId: string): Promise<{ removed: boolean }> {
+		const session = this.readSessionAsAiSession(sessionId);
+		if (!session) {
+			return { removed: false };
+		}
+
+		const nextHistory = session.history.filter(
+			(message) => !(message.id === messageId && message.role === 'user' && message.metadata?.request?.state === 'queued'),
+		);
+		if (nextHistory.length === session.history.length) {
+			return { removed: false };
+		}
+
+		this.persistSessionHistory(sessionId, nextHistory, session.stopRequested);
+		if (this.state.currentSession?.sessionId === sessionId) {
+			this.updateSessionState(sessionId, { messages: nextHistory, stopRequested: session.stopRequested ?? false });
+		}
+
+		return { removed: true };
+	}
+
+	@callable()
+	async startRun(
+		projectId: string,
+		messages: ChatMessage[],
+		mode: AgentMode = 'code',
+		model: AIModelId = DEFAULT_AI_MODEL,
+		sessionId?: string,
+	): Promise<{ sessionId: string }> {
+		const resolvedSessionId = sessionId ?? crypto.randomUUID().replaceAll('-', '').slice(0, 16);
+		const authenticatedUserId = this.getAuthenticatedUserId();
+		const promptPreview =
+			messages
+				.toReversed()
+				.find((message) => message.role === 'user')
+				?.parts.filter((part): part is { type: 'text'; content: string } => part.type === 'text')
+				.map((part) => part.content)
+				.join(' ')
+				.trim()
+				.slice(0, 80) || 'New session';
+
+		this.ensureSessionRecord(resolvedSessionId, promptPreview, model, mode);
+		const normalizedMessages = messages.map((message) => {
+			if (message.role !== 'user') {
+				return message;
+			}
+
+			const normalizedMessage: ChatMessage = {
+				...message,
+				metadata: {
+					...message.metadata,
+					request: {
+						mode: message.metadata?.request?.mode ?? mode,
+						model: message.metadata?.request?.model ?? model,
+						state: 'committed',
+					},
+				},
+			};
+
+			return normalizedMessage;
+		});
+
+		this.persistSessionHistory(resolvedSessionId, normalizedMessages, false);
+		return this.startAgentRun(projectId, getCommittedMessages(normalizedMessages), mode, model, resolvedSessionId, authenticatedUserId);
+	}
+
 	@callable()
 	async abortRun(sessionId?: string): Promise<void> {
 		if (sessionId) {
+			const session = this.readSessionAsAiSession(sessionId);
+			if (!session) {
+				return;
+			}
+
+			this.persistSessionHistory(sessionId, session.history, true);
+			this.updateSessionState(sessionId, {
+				stopRequested: true,
+				statusText: 'Stopping...',
+			});
+
 			const controller = this.abortControllers.get(sessionId);
 			if (controller) {
 				controller.abort();
-				this.abortControllers.delete(sessionId);
 			}
 
-			// Wait for loop cleanup
 			const loopPromise = this.loopPromises.get(sessionId);
 			if (loopPromise) {
 				await loopPromise.catch(() => {});
 			}
+			return;
+		}
 
-			// Update state
-			this.updateSessionState(sessionId, {
-				status: 'aborted',
-				statusText: undefined,
-			});
-		} else {
-			// Abort all
-			for (const controller of this.abortControllers.values()) {
-				controller.abort();
-			}
-			this.abortControllers.clear();
-
-			await Promise.allSettled(this.loopPromises.values());
-
-			if (this.state.currentSession) {
-				this.updateSessionState(this.state.currentSession.sessionId, {
-					status: 'aborted',
-					statusText: undefined,
+		for (const [runningSessionId, controller] of this.abortControllers.entries()) {
+			const session = this.readSessionAsAiSession(runningSessionId);
+			if (session) {
+				this.persistSessionHistory(runningSessionId, session.history, true);
+				this.updateSessionState(runningSessionId, {
+					stopRequested: true,
+					statusText: 'Stopping...',
 				});
 			}
-		}
-	}
-
-	/**
-	 * Queue a steering message for a running session.
-	 * The message is injected into the agent loop between iterations.
-	 */
-	@callable()
-	async steerRun(sessionId: string, message: string): Promise<{ queued: boolean }> {
-		// Only queue if the session is actually running
-		const controller = this.abortControllers.get(sessionId);
-		if (!controller) {
-			return { queued: false };
+			controller.abort();
 		}
 
-		const id = crypto.randomUUID();
-		const queue = this.steeringMessages.get(sessionId) ?? [];
-		queue.push({ id, content: message });
-		this.steeringMessages.set(sessionId, queue);
-
-		// Update agent state so the frontend renders the pending message immediately
-		const current = this.state.currentSession;
-		if (current?.sessionId === sessionId) {
-			const pending = [...(current.pendingSteeringMessages ?? []), { id, content: message, createdAt: Date.now() }];
-			this.updateSessionState(sessionId, { pendingSteeringMessages: pending });
-		}
-
-		return { queued: true };
-	}
-
-	/**
-	 * Drain all queued steering messages for a session.
-	 * Called by the agent loop between iterations.
-	 */
-	private drainSteeringMessages(sessionId: string): Array<{ id: string; content: string }> {
-		const messages = this.steeringMessages.get(sessionId) ?? [];
-		if (messages.length > 0) {
-			this.steeringMessages.set(sessionId, []);
-			// Clear pending display — the messages will appear as committed
-			// user messages after the next persistSession + turn-complete cycle
-			this.updateSessionState(sessionId, { pendingSteeringMessages: [] });
-		}
-		return messages;
+		await Promise.allSettled(this.loopPromises.values());
 	}
 
 	/**
@@ -524,16 +643,14 @@ export class AgentRunner extends Agent<Env, AgentState> {
 				title: session.title,
 				status: isRunning ? 'running' : (session.status ?? 'idle'),
 				messages: session.history,
-				statusText: isRunning ? 'Thinking...' : undefined,
+				statusText: isRunning ? (session.stopRequested ? 'Stopping...' : 'Thinking...') : undefined,
 				error: session.errorMessage ? { message: session.errorMessage } : undefined,
 				contextTokensUsed: session.contextTokensUsed ?? 0,
 				pendingChanges: pendingChangesMap,
-				messageSnapshots: session.messageSnapshots ?? {},
-				messageModes: session.messageModes ?? {},
 				toolMetadata: session.toolMetadata ?? {},
 				toolErrors: session.toolErrors ?? {},
 				debugLogId: undefined,
-				pendingSteeringMessages: [],
+				stopRequested: session.stopRequested ?? false,
 				pendingQuestion: undefined,
 				needsContinuation: false,
 				doomLoopMessage: undefined,
@@ -598,7 +715,12 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		if (!targetMessage) return { contextTokensUsed: 0 };
 
 		const forkedSession = await this.sessionManager.fork(sessionId, targetMessage.id, `${sourceSession.name} (fork)`);
-		const truncatedHistory = sessionMessagesToChatMessages(this.sessionManager.getHistory(forkedSession.id));
+		const sourceAiSession = this.readSessionAsAiSession(sessionId);
+		const forkedHistory = sessionMessagesToChatMessages(this.sessionManager.getHistory(forkedSession.id));
+		const truncatedHistory = forkedHistory.map((message, index) => ({
+			...message,
+			metadata: sourceAiSession?.history[index]?.metadata,
+		}));
 		const sourceMetadata = parseSessionMetadata(readSessionMetadata(this.db, sessionId));
 		const prunedSnapshots = this.pruneMetadata(sourceMetadata.messageSnapshots, messageIndex);
 		const prunedModes = this.pruneMetadata(sourceMetadata.messageModes, messageIndex);
@@ -607,6 +729,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		upsertSessionMetadata(this.db, {
 			id: forkedSession.id,
 			titleGenerated: sourceMetadata.titleGenerated ? 1 : 0,
+			historyJson: JSON.stringify(truncatedHistory),
 			messageSnapshots: prunedSnapshots ? JSON.stringify(prunedSnapshots) : undefined,
 			messageModes: prunedModes ? JSON.stringify(prunedModes) : undefined,
 			contextTokensUsed: contextTokensUsed > 0 ? contextTokensUsed : undefined,
@@ -614,6 +737,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 			toolErrors: undefined,
 			status: 'idle',
 			errorMessage: undefined,
+			stopRequested: 0,
 		});
 
 		// Filter pending changes: keep entries from other sessions, or from this
@@ -646,10 +770,9 @@ export class AgentRunner extends Agent<Env, AgentState> {
 				statusText: undefined,
 				error: undefined,
 				messages: truncatedHistory,
-				messageSnapshots: prunedSnapshots ?? {},
-				messageModes: prunedModes ?? {},
 				toolMetadata: {},
 				toolErrors: {},
+				stopRequested: false,
 				pendingChanges: filteredChanges,
 				contextTokensUsed,
 			});
@@ -698,7 +821,6 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		this.pendingContentDeltas.delete(sessionId);
 		this.flushSubAgentDeltas(sessionId);
 		this.currentRunSnapshotIds.delete(sessionId);
-		this.steeringMessages.delete(sessionId);
 		this.sessionInitiatorUserIds.delete(sessionId);
 		this.sessionAnalytics.delete(sessionId);
 		this.titleGenerationInFlight.delete(sessionId);
@@ -801,7 +923,9 @@ export class AgentRunner extends Agent<Env, AgentState> {
 				console.error(`[AgentRunner ${sessionId}] Unhandled error from executeAgentLoop:`, error);
 			})
 			.finally(() => {
-				this.loopPromises.delete(sessionId);
+				if (this.loopPromises.get(sessionId) === loopPromise) {
+					this.loopPromises.delete(sessionId);
+				}
 			});
 		this.loopPromises.set(sessionId, loopPromise);
 	}
@@ -864,8 +988,6 @@ export class AgentRunner extends Agent<Env, AgentState> {
 				mode,
 				model,
 				(sid, sessionData) => this.persistSessionFromService(sid, sessionData),
-				// Steering messages callback — drains queued user messages between iterations
-				() => this.drainSteeringMessages(sessionId),
 				false,
 				session,
 				this.extensionManager,
@@ -916,17 +1038,20 @@ export class AgentRunner extends Agent<Env, AgentState> {
 
 			// Clean up in-memory state
 			this.abortControllers.delete(sessionId);
-			this.steeringMessages.delete(sessionId);
 
 			// Update state with terminal status
 			this.updateSessionState(sessionId, {
 				status: finalStatus,
 				statusText: undefined,
 				error: finalStatus === 'error' && errorMessage ? { message: errorMessage } : undefined,
-				pendingSteeringMessages: [],
+				stopRequested: false,
 			});
 
-			updateSessionMetadataStatus(this.db, sessionId, finalStatus, errorMessage);
+			this.writeSessionMetadata(sessionId, {
+				status: finalStatus,
+				errorMessage,
+				stopRequested: false,
+			});
 
 			const analytics = this.sessionAnalytics.get(sessionId);
 			const sessionDurationMs = analytics ? Date.now() - analytics.durationMs : 0;
@@ -948,8 +1073,9 @@ export class AgentRunner extends Agent<Env, AgentState> {
 
 			this.sessionAnalytics.delete(sessionId);
 
-			// Send push notification on completion/error (not on abort — user triggered it)
 			const initiatorUserId = this.sessionInitiatorUserIds.get(sessionId);
+
+			// Send push notification on completion/error (not on abort — user triggered it)
 			if (initiatorUserId) {
 				if (finalStatus === 'completed') {
 					this.sendPushNotification(initiatorUserId, sessionId, 'Generation complete', 'Your AI agent has finished.');
@@ -958,8 +1084,13 @@ export class AgentRunner extends Agent<Env, AgentState> {
 				}
 			}
 
-			// Clean up initiator tracking
-			this.sessionInitiatorUserIds.delete(sessionId);
+			const startedNextRun = await this.maybeStartNextQueuedRun(projectId, sessionId, initiatorUserId).catch((nextRunError) => {
+				console.error('[AgentRunner] Failed to start queued follow-up run:', nextRunError);
+				return false;
+			});
+			if (!startedNextRun) {
+				this.sessionInitiatorUserIds.delete(sessionId);
+			}
 
 			// Prune old sessions
 			await this.pruneOldSessions(parameters.projectId).catch((error) => {
@@ -1003,12 +1134,10 @@ export class AgentRunner extends Agent<Env, AgentState> {
 				this.currentRunSnapshotIds.set(sessionId, event.id);
 				const current = this.state.currentSession;
 				if (current) {
-					const snapshots = { ...current.messageSnapshots };
-					const lastUserIndex = current.messages.length - 1;
-					if (lastUserIndex >= 0) {
-						snapshots[String(lastUserIndex)] = event.id;
+					const messages = setSnapshotOnLastCommittedUserMessage(current.messages, event.id);
+					if (messages !== current.messages) {
+						this.updateSessionState(sessionId, { messages });
 					}
-					this.updateSessionState(sessionId, { messageSnapshots: snapshots });
 				}
 				break;
 			}
@@ -1016,18 +1145,9 @@ export class AgentRunner extends Agent<Env, AgentState> {
 				this.currentRunSnapshotIds.delete(sessionId);
 				const current = this.state.currentSession;
 				if (!current) break;
-
-				const snapshots = { ...current.messageSnapshots };
-				let changed = false;
-				for (const [key, snapshotId] of Object.entries(snapshots)) {
-					if (snapshotId === event.id) {
-						delete snapshots[key];
-						changed = true;
-					}
-				}
-
-				if (changed) {
-					this.updateSessionState(sessionId, { messageSnapshots: snapshots });
+				const messages = clearSnapshotFromMessages(current.messages, event.id);
+				if (messages !== current.messages) {
+					this.updateSessionState(sessionId, { messages });
 				}
 				break;
 			}
@@ -1078,8 +1198,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 						messages: session.history,
 						toolMetadata: session.toolMetadata ?? {},
 						toolErrors: session.toolErrors ?? {},
-						messageSnapshots: session.messageSnapshots ?? {},
-						messageModes: session.messageModes ?? {},
+						stopRequested: session.stopRequested ?? false,
 					});
 				}
 				// Increment turn counter for analytics
@@ -1087,6 +1206,9 @@ export class AgentRunner extends Agent<Env, AgentState> {
 				if (turnAnalytics) {
 					turnAnalytics.turnNumber += 1;
 				}
+				break;
+			}
+			case 'steering-message-committed': {
 				break;
 			}
 
@@ -1438,10 +1560,9 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		sessionData: import('../services/ai-agent/types').SessionPersistData,
 	): Promise<void> {
 		const existing = parseSessionMetadata(readSessionMetadata(this.db, sessionId));
-		const messageSnapshots = { ...existing.messageSnapshots, ...sessionData.messageSnapshots };
-		const messageModes = { ...existing.messageModes, ...sessionData.messageModes };
 		const toolMetadata = { ...existing.toolMetadata, ...sessionData.toolMetadata };
 		const toolErrors = { ...existing.toolErrors, ...sessionData.toolErrors };
+		const mergedHistory = mergeQueuedMessages(sessionData.history, existing.historyJson ?? []);
 
 		this.sessionManager.clearMessages(sessionId);
 		await this.sessionManager.appendAll(
@@ -1452,13 +1573,15 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		upsertSessionMetadata(this.db, {
 			id: sessionId,
 			titleGenerated: existing.titleGenerated ? 1 : 0,
-			messageSnapshots: Object.keys(messageSnapshots).length > 0 ? JSON.stringify(messageSnapshots) : undefined,
-			messageModes: Object.keys(messageModes).length > 0 ? JSON.stringify(messageModes) : undefined,
+			historyJson: JSON.stringify(mergedHistory),
+			messageSnapshots: existing.messageSnapshots ? JSON.stringify(existing.messageSnapshots) : undefined,
+			messageModes: existing.messageModes ? JSON.stringify(existing.messageModes) : undefined,
 			contextTokensUsed: sessionData.contextTokensUsed,
 			toolMetadata: Object.keys(toolMetadata).length > 0 ? JSON.stringify(toolMetadata) : undefined,
 			toolErrors: Object.keys(toolErrors).length > 0 ? JSON.stringify(toolErrors) : undefined,
 			status: sessionData.error ? 'error' : existing.status,
 			errorMessage: sessionData.error?.message ?? existing.errorMessage,
+			stopRequested: existing.stopRequested ? 1 : 0,
 		});
 
 		// Merge pending changes using dedup logic that preserves the original
@@ -1571,12 +1694,10 @@ export class AgentRunner extends Agent<Env, AgentState> {
 				error: undefined,
 				contextTokensUsed: session?.contextTokensUsed ?? 0,
 				pendingChanges: this.loadPendingChangesFromDatabase(),
-				messageSnapshots: session?.messageSnapshots ?? {},
-				messageModes: session?.messageModes ?? {},
 				toolMetadata: session?.toolMetadata ?? {},
 				toolErrors: session?.toolErrors ?? {},
 				debugLogId: undefined,
-				pendingSteeringMessages: [],
+				stopRequested: session?.stopRequested ?? false,
 				pendingQuestion: undefined,
 				needsContinuation: false,
 				doomLoopMessage: undefined,
@@ -1605,10 +1726,89 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	private readSessionAsAiSession(sessionId: string): AiSession | undefined {
 		const sessionInfo = this.sessionManager.get(sessionId);
 		if (!sessionInfo) return undefined;
-		const history = sessionMessagesToChatMessages(this.sessionManager.getHistory(sessionId));
 		const metadata = parseSessionMetadata(readSessionMetadata(this.db, sessionId));
+		const sessionHistory = sessionMessagesToChatMessages(this.sessionManager.getHistory(sessionId));
+		const history =
+			metadata.historyJson || applyLegacySessionMessageMetadata(sessionHistory, metadata.messageSnapshots, metadata.messageModes);
 		return buildAiSession(sessionInfo, history, metadata);
 	}
+
+	private writeSessionMetadata(
+		sessionId: string,
+		patch: Partial<ReturnType<typeof parseSessionMetadata>> & { history?: ChatMessage[] },
+	): void {
+		const existing = parseSessionMetadata(readSessionMetadata(this.db, sessionId));
+		const history = patch.history ?? existing.historyJson;
+		const toolMetadata = patch.toolMetadata ?? existing.toolMetadata;
+		const toolErrors = patch.toolErrors ?? existing.toolErrors;
+		upsertSessionMetadata(this.db, {
+			id: sessionId,
+			titleGenerated: existing.titleGenerated ? 1 : 0,
+			historyJson: history ? JSON.stringify(history) : undefined,
+			messageSnapshots: existing.messageSnapshots ? JSON.stringify(existing.messageSnapshots) : undefined,
+			messageModes: existing.messageModes ? JSON.stringify(existing.messageModes) : undefined,
+			contextTokensUsed: patch.contextTokensUsed ?? existing.contextTokensUsed,
+			toolMetadata: toolMetadata ? JSON.stringify(toolMetadata) : undefined,
+			toolErrors: toolErrors ? JSON.stringify(toolErrors) : undefined,
+			status: patch.status ?? existing.status,
+			errorMessage: patch.errorMessage ?? existing.errorMessage,
+			stopRequested: (patch.stopRequested ?? existing.stopRequested) ? 1 : 0,
+		});
+	}
+
+	private buildUserMessage(
+		content: string,
+		mode: AgentMode,
+		model: AIModelId,
+		state: 'queued' | 'committed',
+		messageId = crypto.randomUUID(),
+		createdAt = Date.now(),
+	): ChatMessage {
+		return {
+			id: messageId,
+			role: 'user',
+			parts: [{ type: 'text', content }],
+			createdAt,
+			metadata: {
+				request: {
+					mode,
+					model,
+					state,
+				},
+			},
+		};
+	}
+
+	private getSessionHistory(sessionId: string): ChatMessage[] {
+		return this.readSessionAsAiSession(sessionId)?.history ?? [];
+	}
+
+	private persistSessionHistory(sessionId: string, history: ChatMessage[], stopRequested?: boolean): void {
+		this.writeSessionMetadata(sessionId, { history, stopRequested });
+	}
+
+	private async maybeStartNextQueuedRun(projectId: string, sessionId: string, initiatorUserId: string | undefined): Promise<boolean> {
+		const session = this.readSessionAsAiSession(sessionId);
+		if (!session) {
+			return false;
+		}
+
+		const { history, promotedMessage } = promoteNextQueuedMessage(session.history);
+		if (!promotedMessage) {
+			this.persistSessionHistory(sessionId, session.history, false);
+			return false;
+		}
+
+		const request = promotedMessage.metadata?.request;
+		const mode = request?.mode ?? 'code';
+		const model = request?.model ?? DEFAULT_AI_MODEL;
+		const committedMessages = getCommittedMessages(history);
+
+		this.persistSessionHistory(sessionId, history, false);
+		await this.startAgentRun(projectId, committedMessages, mode, model, sessionId, initiatorUserId);
+		return true;
+	}
+
 	private loadPendingChangesFromDatabase(): Record<string, PendingFileChange> {
 		const data = readPendingChangesData(this.db);
 		try {

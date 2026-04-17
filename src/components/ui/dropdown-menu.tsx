@@ -29,13 +29,13 @@ interface DropdownMenuContentProperties {
 function DropdownMenuContent({ children, className, align = 'end', sideOffset = 4 }: DropdownMenuContentProperties) {
 	return (
 		<Menu.Portal>
-			<Menu.Positioner align={align} sideOffset={sideOffset}>
+			<Menu.Positioner align={align} sideOffset={sideOffset} className="z-100">
 				<Menu.Popup
 					render={<motion.div variants={popoverVariants} initial="hidden" animate="visible" exit="exit" transition={springSnappy} />}
 					className={cn(
 						`
-							z-50 min-w-32 overflow-hidden rounded-md border border-border
-							bg-bg-secondary shadow-md
+							min-w-32 overflow-hidden rounded-md border border-border bg-bg-secondary
+							shadow-md
 						`,
 						className,
 					)}

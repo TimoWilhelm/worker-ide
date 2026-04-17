@@ -24,6 +24,7 @@ export function upsertSessionMetadata(database: AgentDatabase, data: SessionMeta
 			target: sessionMetadata.id,
 			set: {
 				titleGenerated: data.titleGenerated,
+				historyJson: toSqlNullable(data.historyJson),
 				messageSnapshots: toSqlNullable(data.messageSnapshots),
 				messageModes: toSqlNullable(data.messageModes),
 				contextTokensUsed: toSqlNullable(data.contextTokensUsed),
@@ -31,6 +32,7 @@ export function upsertSessionMetadata(database: AgentDatabase, data: SessionMeta
 				toolErrors: toSqlNullable(data.toolErrors),
 				status: toSqlNullable(data.status),
 				errorMessage: toSqlNullable(data.errorMessage),
+				stopRequested: data.stopRequested,
 			},
 		})
 		.run();

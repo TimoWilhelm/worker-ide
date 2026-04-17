@@ -41,7 +41,7 @@ import {
 	ContinuationPrompt,
 	DoomLoopAlert,
 	MessageBubble,
-	PendingSteeringBubble,
+	QueuedSteeringStrip,
 	UserQuestionPrompt,
 	WelcomeScreen,
 } from './messages';
@@ -61,9 +61,17 @@ import { FileMentionDropdown } from '../file-mention-dropdown';
 import { RevertConfirmDialog } from '../revert-confirm-dialog';
 import { RichTextInput, type RichTextInputHandle } from '../rich-text-input';
 
-import type { ChatMessage } from '@shared/types';
+import type { AIModelId } from '@shared/constants';
+import type { AgentMode, ChatMessage } from '@shared/types';
 
 type AgentConnectionState = 'connecting' | 'connected' | 'disconnected';
+
+type OptimisticMessageEntry = {
+	sessionId: string;
+	message: ChatMessage;
+	clientOnly: boolean;
+	submitting: boolean;
+};
 
 function InputInfoBar({ open, icon, children }: { open: boolean; icon: React.ReactNode; children: React.ReactNode }) {
 	return (
@@ -81,6 +89,33 @@ function InputInfoBar({ open, icon, children }: { open: boolean; icon: React.Rea
 	);
 }
 
+function isQueuedRequestMessage(message: ChatMessage): boolean {
+	return message.role === 'user' && message.metadata?.request?.state === 'queued';
+}
+
+function createOptimisticUserMessage(
+	messageText: string,
+	mode: AgentMode,
+	model: AIModelId,
+	state: 'queued' | 'committed',
+	id: string,
+	createdAt: number,
+): ChatMessage {
+	return {
+		id,
+		role: 'user',
+		parts: [{ type: 'text', content: messageText }],
+		createdAt,
+		metadata: {
+			request: {
+				mode,
+				model,
+				state,
+			},
+		},
+	};
+}
+
 export function AIPanel({ projectId, className }: { projectId: string; className?: string }) {
 	// On mobile, when the virtual keyboard opens, switch to position:fixed so the
 	// panel stays pinned above the keyboard — header and input remain visible.
@@ -93,6 +128,11 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	const lastSurfacedChatErrorReference = useRef<Error | undefined>(undefined);
 	const revertInProgressReference = useRef(false);
 	const [fileDiffContent, setFileDiffContent] = useState<Map<string, { beforeContent: string; afterContent: string }>>(new Map());
+	const [optimisticStoppingSessionId, setOptimisticStoppingSessionId] = useState<string | undefined>();
+	const [optimisticMessages, setOptimisticMessages] = useState<OptimisticMessageEntry[]>([]);
+	const [optimisticRemovedQueuedMessages, setOptimisticRemovedQueuedMessages] = useState<Array<{ sessionId: string; messageId: string }>>(
+		[],
+	);
 
 	const inputPlainText = useMemo(() => segmentsToPlainText(segments), [segments]);
 	const hasContent = useMemo(() => segmentsHaveContent(segments), [segments]);
@@ -144,25 +184,49 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	const rawState = agent.state;
 	const agentState = isAgentState(rawState) ? rawState : undefined;
 	const currentSession = agentState?.currentSession;
-	const chatMessages = useMemo(() => currentSession?.messages ?? [], [currentSession?.messages]);
 	const sessionId = currentSession?.sessionId;
 	const statusMessage = currentSession?.statusText;
 	const contextTokensUsed = currentSession?.contextTokensUsed ?? 0;
 	const debugLogId = currentSession?.debugLogId;
 	const isProcessing = currentSession?.status === 'running';
 	const aiError = currentSession?.error;
-	const pendingSteeringMessages = currentSession?.pendingSteeringMessages ?? [];
+	const stopRequested = currentSession?.stopRequested ?? false;
+	const isStopPending = isProcessing && ((sessionId !== undefined && optimisticStoppingSessionId === sessionId) || stopRequested);
 	const pendingQuestion = currentSession?.pendingQuestion;
 	const needsContinuation = currentSession?.needsContinuation ?? false;
 	const doomLoopMessage = currentSession?.doomLoopMessage;
-	const messageSnapshots = useMemo(() => {
-		const record = currentSession?.messageSnapshots ?? {};
-		return new Map(Object.entries(record).map(([key, value]) => [Number(key), value]));
-	}, [currentSession?.messageSnapshots]);
-	const messageModes = useMemo(() => {
-		const record = currentSession?.messageModes ?? {};
-		return new Map(Object.entries(record).map(([key, value]) => [Number(key), value]));
-	}, [currentSession?.messageModes]);
+	const renderedSessionId = sessionId ?? optimisticMessages.at(-1)?.sessionId;
+	const renderedOptimisticEntries = useMemo(
+		() => (renderedSessionId ? optimisticMessages.filter((entry) => entry.sessionId === renderedSessionId) : []),
+		[optimisticMessages, renderedSessionId],
+	);
+	const renderedOptimisticMessages = useMemo(() => renderedOptimisticEntries.map((entry) => entry.message), [renderedOptimisticEntries]);
+	const localOnlyMessageIds = useMemo(
+		() => new Set(renderedOptimisticEntries.filter((entry) => entry.clientOnly).map((entry) => entry.message.id)),
+		[renderedOptimisticEntries],
+	);
+	const removedQueuedMessageIds = useMemo(
+		() => new Set(optimisticRemovedQueuedMessages.filter((entry) => entry.sessionId === renderedSessionId).map((entry) => entry.messageId)),
+		[optimisticRemovedQueuedMessages, renderedSessionId],
+	);
+	const allMessages = useMemo(() => {
+		const baseMessages = currentSession?.messages ?? [];
+		const mergedMessages =
+			renderedOptimisticMessages.length === 0
+				? baseMessages
+				: [
+						...baseMessages,
+						...renderedOptimisticMessages.filter((message) => !new Set(baseMessages.map((entry) => entry.id)).has(message.id)),
+					];
+
+		if (removedQueuedMessageIds.size === 0) {
+			return mergedMessages;
+		}
+
+		return mergedMessages.filter((message) => !removedQueuedMessageIds.has(message.id));
+	}, [currentSession?.messages, renderedOptimisticMessages, removedQueuedMessageIds]);
+	const queuedMessages = useMemo(() => allMessages.filter((message) => isQueuedRequestMessage(message)), [allMessages]);
+	const committedMessages = useMemo(() => allMessages.filter((message) => !isQueuedRequestMessage(message)), [allMessages]);
 
 	// Derive tool metadata/errors/sub-agent activities directly from agent state via useMemo
 	const toolMetadata = useMemo(() => new Map(Object.entries(currentSession?.toolMetadata ?? {})), [currentSession?.toolMetadata]);
@@ -174,6 +238,11 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	useEffect(() => {
 		sessionIdReference.current = sessionId;
 	}, [sessionId]);
+	const optimisticMessagesReference = useRef(optimisticMessages);
+	useEffect(() => {
+		optimisticMessagesReference.current = optimisticMessages;
+	}, [optimisticMessages]);
+	const flushingClientQueueReference = useRef(false);
 
 	// Smart auto-scroll: stops when user scrolls up, shows pill for new content.
 	const { scrollReference, anchorReference, wrapperReference, hasNewContent, scrollToBottom, resetScrollState } = useAutoScroll();
@@ -183,6 +252,41 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	useEffect(() => {
 		queueMicrotask(() => useStore.getState().setProcessing(isProcessing));
 	}, [isProcessing]);
+
+	useEffect(() => {
+		if (!optimisticStoppingSessionId) return;
+		if (sessionId !== optimisticStoppingSessionId || stopRequested || !isProcessing) {
+			queueMicrotask(() => setOptimisticStoppingSessionId(undefined));
+		}
+	}, [optimisticStoppingSessionId, sessionId, stopRequested, isProcessing]);
+
+	useEffect(() => {
+		if (!renderedSessionId) return;
+		const persistedIds = new Set((currentSession?.messages ?? []).map((message) => message.id));
+		queueMicrotask(() =>
+			setOptimisticMessages((previous) =>
+				previous.filter((entry) => {
+					if (entry.sessionId !== renderedSessionId) {
+						return true;
+					}
+					return !persistedIds.has(entry.message.id);
+				}),
+			),
+		);
+	}, [currentSession?.messages, renderedSessionId]);
+
+	useEffect(() => {
+		if (!renderedSessionId) return;
+		const liveIds = new Set([
+			...(currentSession?.messages ?? []).map((message) => message.id),
+			...renderedOptimisticMessages.map((message) => message.id),
+		]);
+		queueMicrotask(() =>
+			setOptimisticRemovedQueuedMessages((previous) =>
+				previous.filter((entry) => entry.sessionId !== renderedSessionId || liveIds.has(entry.messageId)),
+			),
+		);
+	}, [currentSession?.messages, renderedOptimisticMessages, renderedSessionId]);
 
 	// Reset per-session UI state when the session changes
 	const previousSessionIdReference = useRef(sessionId);
@@ -306,6 +410,8 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		if (!isConnected) return;
 		setPlanPath(undefined);
 		setFileDiffContent(new Map());
+		setOptimisticMessages([]);
+		setOptimisticRemovedQueuedMessages([]);
 		setActiveSessionId(projectId, undefined);
 		// Tell the agent to clear the current session state via RPC
 		// (also aborts any running session server-side)
@@ -321,6 +427,8 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 			}
 			setPlanPath(undefined);
 			setFileDiffContent(new Map());
+			setOptimisticMessages([]);
+			setOptimisticRemovedQueuedMessages([]);
 			resetScrollState();
 			loadSession(targetSessionId);
 			setActiveSessionId(projectId, targetSessionId);
@@ -336,71 +444,214 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		});
 	}, []);
 
-	// Send message via Agent RPC
-	const handleSend = useCallback(
+	const submitOptimisticMessage = useCallback(
+		async (entry: OptimisticMessageEntry): Promise<boolean> => {
+			const request = entry.message.metadata?.request;
+			const messageText = extractMessageText(entry.message);
+			if (!request?.mode || !request.model || !messageText) {
+				setOptimisticMessages((previous) => previous.filter((candidate) => candidate.message.id !== entry.message.id));
+				return false;
+			}
+
+			setOptimisticMessages((previous) =>
+				previous.map((candidate) => (candidate.message.id === entry.message.id ? { ...candidate, submitting: true } : candidate)),
+			);
+
+			try {
+				const result = await agent.call<{ sessionId: string; queued: boolean; started: boolean }>('submitMessage', [
+					projectId,
+					messageText,
+					entry.sessionId,
+					request.mode,
+					request.model,
+					entry.message.id,
+					entry.message.createdAt ?? Date.now(),
+				]);
+
+				setActiveSessionId(projectId, result.sessionId);
+				setOptimisticMessages((previous) =>
+					previous.map((candidate) =>
+						candidate.message.id === entry.message.id
+							? {
+									...candidate,
+									sessionId: result.sessionId,
+									clientOnly: false,
+									submitting: false,
+									message: {
+										...candidate.message,
+										metadata: {
+											...candidate.message.metadata,
+											request: {
+												...candidate.message.metadata?.request,
+												state: result.queued ? 'queued' : 'committed',
+											},
+										},
+									},
+								}
+							: candidate,
+					),
+				);
+
+				return true;
+			} catch (error: unknown) {
+				if (!agent.identified) {
+					setOptimisticMessages((previous) =>
+						previous.map((candidate) =>
+							candidate.message.id === entry.message.id ? { ...candidate, clientOnly: true, submitting: false } : candidate,
+						),
+					);
+					return false;
+				}
+
+				setOptimisticMessages((previous) => previous.filter((candidate) => candidate.message.id !== entry.message.id));
+				if (error instanceof Error && error.name === 'AbortError') {
+					return false;
+				}
+				console.error('[AIPanel] Failed to submit message:', error);
+				toast.error('Could not send the message. Please try again.');
+				return false;
+			}
+		},
+		[agent, projectId],
+	);
+
+	useEffect(() => {
+		if (!isConnected || flushingClientQueueReference.current) return;
+		if (!optimisticMessages.some((entry) => entry.clientOnly && !entry.submitting)) return;
+
+		flushingClientQueueReference.current = true;
+		void (async () => {
+			try {
+				while (agent.identified) {
+					const nextEntry = optimisticMessagesReference.current.find((entry) => entry.clientOnly && !entry.submitting);
+					if (!nextEntry) break;
+					const submitted = await submitOptimisticMessage(nextEntry);
+					if (!submitted && !agent.identified) break;
+				}
+			} finally {
+				flushingClientQueueReference.current = false;
+			}
+		})();
+	}, [agent.identified, isConnected, optimisticMessages, submitOptimisticMessage]);
+
+	// Submit a new request. The server decides whether it starts immediately or queues.
+	const handleSubmit = useCallback(
 		async (messageOverride?: string) => {
 			const messageText = messageOverride ?? inputPlainText.trim();
-			if (!messageText || isProcessing || !isConnected) return;
+			if (!messageText) return;
 
-			// Build the user message
-			const userMessage: ChatMessage = {
-				id: crypto.randomUUID(),
-				role: 'user',
-				parts: [{ type: 'text', content: messageText }],
-				createdAt: Date.now(),
-			};
-
-			const updatedMessages = [...chatMessages, userMessage];
 			const resolvedSessionId = sessionId ?? crypto.randomUUID().replaceAll('-', '').slice(0, 16);
+			const optimisticMessageId = crypto.randomUUID();
+			const optimisticCreatedAt = Date.now();
+			const optimisticMessage = createOptimisticUserMessage(
+				messageText,
+				agentMode,
+				selectedModel,
+				isProcessing || isStopPending || stopRequested ? 'queued' : 'committed',
+				optimisticMessageId,
+				optimisticCreatedAt,
+			);
 
 			if (!sessionId) {
 				setActiveSessionId(projectId, resolvedSessionId);
 			}
 
+			const optimisticEntry: OptimisticMessageEntry = {
+				sessionId: resolvedSessionId,
+				message: optimisticMessage,
+				clientOnly: !isConnected,
+				submitting: false,
+			};
+
+			setOptimisticMessages((previous) => [...previous, optimisticEntry]);
 			setSegments([]);
+			setOptimisticStoppingSessionId(undefined);
 			inputReference.current?.clear();
 			scrollToBottom();
 
-			try {
-				await agent.call('startRun', [projectId, updatedMessages, agentMode, selectedModel, resolvedSessionId]);
-			} catch (error: unknown) {
-				if (error instanceof Error && error.name === 'AbortError') return;
-				console.error('[AIPanel] Failed to start agent:', error);
+			if (isConnected) {
+				await submitOptimisticMessage(optimisticEntry);
 			}
 		},
-		[inputPlainText, isConnected, isProcessing, chatMessages, sessionId, projectId, agentMode, selectedModel, agent, scrollToBottom],
+		[
+			inputPlainText,
+			isConnected,
+			isProcessing,
+			isStopPending,
+			stopRequested,
+			sessionId,
+			projectId,
+			agentMode,
+			selectedModel,
+			scrollToBottom,
+			submitOptimisticMessage,
+		],
 	);
 
-	// Send a steering message to the running agent without aborting it.
-	// The message is queued and injected between agent loop iterations.
-	const handleSteer = useCallback(
-		async (messageOverride?: string) => {
-			const messageText = messageOverride ?? inputPlainText.trim();
-			if (!messageText || !sessionId) return;
+	const handleRemoveQueuedMessage = useCallback(
+		(messageId: string) => {
+			if (!renderedSessionId) return;
 
-			setSegments([]);
-			inputReference.current?.clear();
-			scrollToBottom();
-
-			try {
-				const result: { queued: boolean } = await agent.call('steerRun', [sessionId, messageText]);
-				if (!result.queued) {
-					// Session wasn't running — fall back to normal send
-					void handleSend(messageText);
-				}
-			} catch (error: unknown) {
-				console.error('[AIPanel] Failed to steer agent:', error);
+			const optimisticQueuedEntry = renderedOptimisticEntries.find((entry) => entry.message.id === messageId);
+			if (optimisticQueuedEntry?.clientOnly && !optimisticQueuedEntry.submitting) {
+				setOptimisticMessages((previous) =>
+					previous.filter((entry) => !(entry.sessionId === renderedSessionId && entry.message.id === messageId)),
+				);
+				return;
 			}
+
+			const optimisticQueuedMessage = optimisticQueuedEntry?.message;
+			setOptimisticMessages((previous) =>
+				previous.filter((entry) => !(entry.sessionId === renderedSessionId && entry.message.id === messageId)),
+			);
+			setOptimisticRemovedQueuedMessages((previous) => {
+				if (previous.some((entry) => entry.sessionId === renderedSessionId && entry.messageId === messageId)) {
+					return previous;
+				}
+				return [...previous, { sessionId: renderedSessionId, messageId }];
+			});
+
+			void agent
+				.call<{ removed: boolean }>('removeQueuedMessage', [renderedSessionId, messageId])
+				.then((result) => {
+					if (result.removed) return;
+					setOptimisticRemovedQueuedMessages((previous) =>
+						previous.filter((entry) => !(entry.sessionId === renderedSessionId && entry.messageId === messageId)),
+					);
+					if (optimisticQueuedMessage) {
+						setOptimisticMessages((previous) => [
+							...previous,
+							{ sessionId: renderedSessionId, message: optimisticQueuedMessage, clientOnly: false, submitting: false },
+						]);
+					}
+				})
+				.catch((error: unknown) => {
+					setOptimisticRemovedQueuedMessages((previous) =>
+						previous.filter((entry) => !(entry.sessionId === renderedSessionId && entry.messageId === messageId)),
+					);
+					if (optimisticQueuedMessage) {
+						setOptimisticMessages((previous) => [
+							...previous,
+							{ sessionId: renderedSessionId, message: optimisticQueuedMessage, clientOnly: false, submitting: false },
+						]);
+					}
+					console.error('[AIPanel] Failed to remove queued message:', error);
+					toast.error('Could not remove the queued message. Please try again.');
+				});
 		},
-		[inputPlainText, sessionId, agent, scrollToBottom, handleSend],
+		[agent, renderedOptimisticEntries, renderedSessionId],
 	);
 
 	// Cancel (hard abort) the current request.
 	const handleCancel = useCallback(() => {
+		if (!sessionId || !isProcessing || stopRequested || optimisticStoppingSessionId === sessionId) return;
+		setOptimisticStoppingSessionId(sessionId);
 		void agent.call('abortRun', [sessionId]).catch((error: unknown) => {
+			setOptimisticStoppingSessionId((currentSessionId) => (currentSessionId === sessionId ? undefined : currentSessionId));
 			console.error('[AIPanel] Failed to abort agent:', error);
+			toast.error('Could not stop the agent. Please try again.');
 		});
-	}, [agent, sessionId]);
+	}, [agent, sessionId, isProcessing, optimisticStoppingSessionId, stopRequested]);
 
 	// Handle keyboard shortcuts
 	const handleKeyDown = useCallback(
@@ -414,12 +665,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 
 			if (event.key === 'Enter' && !event.shiftKey) {
 				event.preventDefault();
-				if (isProcessing && hasContent && isConnected) {
-					// Send as steering message — injected between agent iterations
-					void handleSteer();
-					return;
-				}
-				void handleSend();
+				void handleSubmit();
 				return;
 			}
 
@@ -429,24 +675,25 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 				handleCancel();
 			}
 		},
-		[handleSend, handleSteer, handleFileMentionKeyDown, isConnected, isProcessing, hasContent, handleCancel, speechToText.isRecording],
+		[handleSubmit, handleFileMentionKeyDown, isProcessing, handleCancel, speechToText.isRecording],
 	);
 
 	// Retry: trim the failed assistant response and re-start the agent
 	const handleRetry = useCallback(() => {
-		const lastUser = chatMessages.toReversed().find((m) => m.role === 'user');
+		const lastUser = committedMessages.toReversed().find((message) => message.role === 'user');
 		if (!lastUser) return;
 
-		const lastUserIndex = chatMessages.lastIndexOf(lastUser);
+		const lastUserIndex = committedMessages.lastIndexOf(lastUser);
 		if (lastUserIndex === -1) return;
 
-		const trimmedHistory = chatMessages.slice(0, lastUserIndex + 1);
+		const trimmedHistory = committedMessages.slice(0, lastUserIndex + 1);
 		const resolvedSessionId = sessionId ?? crypto.randomUUID().replaceAll('-', '').slice(0, 16);
 
+		setOptimisticStoppingSessionId(undefined);
 		void agent.call('startRun', [projectId, trimmedHistory, agentMode, selectedModel, resolvedSessionId]).catch((error: unknown) => {
 			console.error('[AIPanel] Failed to retry:', error);
 		});
-	}, [chatMessages, sessionId, projectId, agentMode, selectedModel, agent]);
+	}, [committedMessages, sessionId, projectId, agentMode, selectedModel, agent]);
 
 	// Dismiss error — track locally since error comes from agent state
 	const [dismissedError, setDismissedError] = useState<string | undefined>();
@@ -460,23 +707,17 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	// within the current session, so the dialog can show what will be reverted.
 	const handleRevert = useCallback(
 		(_snapshotId: string, messageIndex: number) => {
-			// Collect snapshot IDs from this message index forward (cascade)
-			const cascadeSnapshotIds: string[] = [];
-			for (const [index, snapshotId] of messageSnapshots) {
-				if (index >= messageIndex) {
-					cascadeSnapshotIds.push(snapshotId);
-				}
-			}
-
-			// Sort by message index descending (newest first) for reverse chronological revert
-			const sortedIndices = [...messageSnapshots.entries()].filter(([index]) => index >= messageIndex).toSorted(([a], [b]) => b - a);
-			const sortedSnapshotIds = sortedIndices.map(([, id]) => id);
+			const sortedSnapshotIds = committedMessages
+				.slice(messageIndex)
+				.map((message) => message.metadata?.snapshotId)
+				.filter((snapshotId): snapshotId is string => !!snapshotId)
+				.toReversed();
 
 			if (sortedSnapshotIds.length === 0) return;
 
 			setPendingRevert({ snapshotIds: sortedSnapshotIds, messageIndex, isLoading: false });
 		},
-		[messageSnapshots],
+		[committedMessages],
 	);
 
 	// Confirm revert (called from the dialog).
@@ -493,7 +734,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 			}
 
 			// Extract the user prompt text before removing messages
-			const userMessage = chatMessages[messageIndex];
+			const userMessage = committedMessages[messageIndex];
 			const promptText = userMessage ? extractMessageText(userMessage) : '';
 
 			try {
@@ -576,7 +817,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 				setPendingRevert((previous) => (previous ? { ...previous, isLoading: false, error: message } : previous));
 			}
 		},
-		[isProcessing, chatMessages, projectId, sessionId, files, agent, revertCascadeAsync, clearPendingChangesByPaths],
+		[isProcessing, committedMessages, projectId, sessionId, files, agent, revertCascadeAsync, clearPendingChangesByPaths],
 	);
 
 	// Download debug log
@@ -589,26 +830,26 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 
 	const handleSuggestion = useCallback(
 		(prompt: string) => {
-			void handleSend(prompt);
+			void handleSubmit(prompt);
 		},
-		[handleSend],
+		[handleSubmit],
 	);
 
 	const streamingAssistantMessage = useMemo((): ChatMessage | undefined => {
 		if (!isProcessing) return undefined;
-		const last = chatMessages.at(-1);
+		const last = committedMessages.at(-1);
 		if (last && last.role === 'assistant' && last.parts.length > 0) {
 			return last;
 		}
 		return undefined;
-	}, [isProcessing, chatMessages]);
+	}, [isProcessing, committedMessages]);
 
 	const displayMessages = useMemo(() => {
 		if (streamingAssistantMessage) {
-			return chatMessages.slice(0, -1);
+			return committedMessages.slice(0, -1);
 		}
-		return chatMessages;
-	}, [chatMessages, streamingAssistantMessage]);
+		return committedMessages;
+	}, [committedMessages, streamingAssistantMessage]);
 
 	return (
 		<div ref={keyboardReference} className={cn('flex h-full flex-col bg-bg-secondary', className)} style={keyboardStyle}>
@@ -784,7 +1025,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 						</DropdownMenuContent>
 					</DropdownMenu>
 
-					{chatMessages.length > 0 && (
+					{allMessages.length > 0 && (
 						<Tooltip content="New session" side="bottom">
 							<Button variant="ghost" size="icon-sm" onClick={clearHistory} disabled={!isConnected}>
 								<Plus className="size-3.5" />
@@ -794,7 +1035,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 				</div>
 			</div>
 
-			{chatMessages.length > 0 &&
+			{allMessages.length > 0 &&
 				(() => {
 					const currentSession = savedSessions.find((session) => session.id === sessionId);
 					const sessionTitle = currentSession?.title ?? 'New session';
@@ -870,8 +1111,10 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 											key={message.id}
 											message={message}
 											messageIndex={index}
-											snapshotId={messageSnapshots.get(index)}
-											agentMode={messageModes.get(index)}
+											snapshotId={message.metadata?.snapshotId}
+											agentMode={message.metadata?.request?.mode}
+											modelId={message.metadata?.request?.model}
+											isClientOnly={localOnlyMessageIds.has(message.id)}
 											isReverting={isReverting}
 											revertingMessageIndex={pendingRevert?.isLoading ? pendingRevert.messageIndex : undefined}
 											onRevert={handleRevert}
@@ -885,9 +1128,6 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 									))}
 								</>
 							)}
-							{pendingSteeringMessages.map((pending) => (
-								<PendingSteeringBubble key={pending.id} content={pending.content} />
-							))}
 							{streamingAssistantMessage && (
 								<AssistantMessage
 									message={streamingAssistantMessage}
@@ -904,11 +1144,11 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 								<UserQuestionPrompt
 									question={pendingQuestion.question}
 									options={pendingQuestion.options}
-									onOptionClick={(option) => void handleSend(option)}
+									onOptionClick={(option) => void handleSubmit(option)}
 								/>
 							)}
 							{needsContinuation && !isProcessing && (
-								<ContinuationPrompt onContinue={() => void handleSend('continue')} onDismiss={() => {}} />
+								<ContinuationPrompt onContinue={() => void handleSubmit('continue')} onDismiss={() => {}} />
 							)}
 							{doomLoopMessage && !isProcessing && <DoomLoopAlert message={doomLoopMessage} onRetry={handleRetry} onDismiss={() => {}} />}
 							{displayError && (
@@ -926,7 +1166,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 								</div>
 							) : undefined}
 
-							{!isProcessing && chatMessages.length > 0 && chatMessages.at(-1)?.role === 'assistant' && (
+							{!isProcessing && committedMessages.length > 0 && committedMessages.at(-1)?.role === 'assistant' && (
 								<div className="flex animate-chat-item items-center justify-end gap-2 px-2">
 									{debugLogId && (
 										<Tooltip content="Download debug log" side="bottom">
@@ -1003,200 +1243,208 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 				{isFileMentionOpen && (
 					<FileMentionDropdown results={fileMentionResults} selectedIndex={fileMentionSelectedIndex} onSelect={selectMentionFile} />
 				)}
-				<div
-					className={cn(
-						`
-							relative overflow-hidden rounded-lg border bg-bg-primary
-							transition-colors
-						`,
-						'focus-within:border-accent',
-						isProcessing ? 'border-warning/40' : 'border-border',
-					)}
-				>
-					<InputInfoBar open={!isConnected} icon={<Spinner className="size-3 shrink-0 text-warning" />}>
-						<span className="flex-1 text-xs text-text-secondary">
-							{agentConnectionState === 'connecting' ? 'Connecting to agent…' : 'Connection lost. Reconnecting…'}
-						</span>
-					</InputInfoBar>
-
-					<RichTextInput
-						ref={inputReference}
-						segments={
-							speechToText.isRecording
-								? (() => {
-										const voiceText = [speechToText.finalTranscript, speechToText.interimTranscript].filter(Boolean).join(' ');
-										const existingText = segmentsToPlainText(preRecordingSegments);
-										const needsSpace = existingText.length > 0 && voiceText.length > 0 && !/\s$/.test(existingText);
-										return [
-											...preRecordingSegments,
-											...(needsSpace ? [{ type: 'text' as const, value: ' ' }] : []),
-											...(voiceText ? [{ type: 'text' as const, value: voiceText }] : []),
-										];
-									})()
-								: segments
-						}
-						onSegmentsChange={setSegments}
-						onKeyDown={handleKeyDown}
-						onCursorChange={setCursorPosition}
-						disabled={speechToText.isRecording}
-						inlineSuffix={speechToText.isRecording ? <BouncingDots className="ml-1 text-text-secondary" /> : undefined}
-						placeholder={
-							isProcessing
-								? 'Type your next message...'
-								: agentMode === 'plan'
-									? 'Describe what to plan...'
-									: agentMode === 'ask'
-										? 'Ask a question...'
-										: 'Ask the AI to help...'
-						}
-					/>
-					<Collapsible open={!!planPath}>
-						{planPath && (
-							<button
-								onClick={() => openFile(planPath)}
-								className="
-									flex w-full items-center gap-1.5 border-t border-border/50 px-2.5 py-1
-									text-xs text-accent transition-colors
-									hover:bg-accent/5
-								"
-							>
-								<MapIcon className="size-3 shrink-0" />
-								<span className="truncate">View plan: {planPath.split('/').pop()}</span>
-							</button>
+				<div className="flex flex-col gap-2">
+					<Collapsible open={queuedMessages.length > 0} className="relative z-20 overflow-visible">
+						{queuedMessages.length > 0 && (
+							<QueuedSteeringStrip
+								messages={queuedMessages}
+								localOnlyMessageIds={localOnlyMessageIds}
+								onRemoveMessage={handleRemoveQueuedMessage}
+							/>
 						)}
 					</Collapsible>
-					{speechToText.isRecording ? (
-						<div className="flex items-center gap-x-1.5 px-1.5 py-1">
-							<div className="relative flex size-3 shrink-0 items-center justify-center">
-								<Spinner
-									size="xs"
-									className={cn(
-										`
-											absolute inset-0 text-text-secondary transition-opacity duration-150
-											ease-out
-										`,
-										speechToText.isMicrophoneReady && 'pointer-events-none opacity-0',
-									)}
-								/>
-								<span
-									className={cn(
-										`
-											size-2 rounded-full bg-error transition-opacity duration-150 ease-out
-										`,
-										speechToText.isMicrophoneReady ? 'animate-pulse opacity-100' : 'opacity-0',
-									)}
-								/>
-							</div>
-							<div className="relative h-4 w-28 shrink-0">
-								<AudioWaveformSkeleton
-									className={cn(
-										'absolute inset-0 transition-opacity duration-150 ease-out',
-										speechToText.isMicrophoneReady && 'pointer-events-none opacity-0',
-									)}
-								/>
-								<AudioWaveform
-									amplitudes={speechToText.amplitudes}
-									className={cn(
-										'absolute inset-0 transition-opacity duration-150 ease-out',
-										speechToText.isMicrophoneReady ? 'opacity-100' : 'opacity-0',
-									)}
-								/>
-							</div>
-							<div className="flex-1" />
-							<button
-								onClick={handleStopRecording}
-								className={cn(
-									'inline-flex cursor-pointer items-center gap-1.5 rounded-md p-1',
-									'text-xs font-medium text-error transition-colors',
-									'hover:bg-error/10',
-								)}
-								aria-label="Stop recording"
-							>
-								<Square className="size-4" />
-							</button>
-						</div>
-					) : (
-						<div
-							className="
-								@container flex flex-wrap-reverse items-center gap-x-1.5 gap-y-0.5
-								px-1.5 py-1
-							"
-						>
-							<AgentModeSelector mode={agentMode} onModeChange={setAgentMode} disabled={isProcessing || !isConnected} />
-							<ModelSelectorDropdown
-								selectedModel={selectedModel}
-								onSelectModel={setSelectedModel}
-								disabled={isProcessing || !isConnected}
-							/>
-							<div className="flex flex-1 shrink-0 items-center justify-end gap-0.5">
-								<ContextRing tokensUsed={contextTokensUsed} contextWindow={getModelLimits(selectedModel).contextWindow} />
-								{!isProcessing && speechToText.microphonePermission !== 'unsupported' && (
-									<Tooltip content={speechToText.microphonePermission === 'denied' ? 'Microphone blocked' : 'Voice input'} side="top">
-										<button
-											onClick={() => {
-												if (speechToText.microphonePermission === 'denied') {
-													toast.info('Allow microphone access for this site in your browser settings, then try again.');
-													return;
-												}
-												setPreRecordingSegments(segments);
-												void speechToText.start();
-											}}
-											disabled={!isConnected}
-											className={cn(
-												'inline-flex items-center gap-1.5 rounded-md p-1',
-												'text-xs font-medium transition-colors',
-												speechToText.microphonePermission === 'denied'
-													? 'cursor-pointer text-text-secondary opacity-50'
-													: isConnected
-														? `
-															cursor-pointer text-text-secondary
-															hover:bg-bg-tertiary hover:text-text-primary
-														`
-														: 'cursor-not-allowed text-text-secondary opacity-40',
-											)}
-											aria-label={speechToText.microphonePermission === 'denied' ? 'Microphone blocked' : 'Start voice input'}
-										>
-											{speechToText.microphonePermission === 'denied' ? <MicOff className="size-4" /> : <Mic className="size-4" />}
-										</button>
-									</Tooltip>
-								)}
-								{isProcessing ? (
-									<button
-										onClick={handleCancel}
+					<div
+						className={cn(
+							`
+								relative overflow-hidden rounded-lg border bg-bg-primary
+								transition-colors
+							`,
+							'focus-within:border-accent',
+							isProcessing ? 'border-warning/40' : 'border-border',
+						)}
+					>
+						<InputInfoBar open={!isConnected} icon={<Spinner className="size-3 shrink-0 text-warning" />}>
+							<span className="flex-1 text-xs text-text-secondary">
+								{agentConnectionState === 'connecting' ? 'Connecting to agent…' : 'Connection lost. Reconnecting…'}
+							</span>
+						</InputInfoBar>
+
+						<RichTextInput
+							ref={inputReference}
+							segments={
+								speechToText.isRecording
+									? (() => {
+											const voiceText = [speechToText.finalTranscript, speechToText.interimTranscript].filter(Boolean).join(' ');
+											const existingText = segmentsToPlainText(preRecordingSegments);
+											const needsSpace = existingText.length > 0 && voiceText.length > 0 && !/\s$/.test(existingText);
+											return [
+												...preRecordingSegments,
+												...(needsSpace ? [{ type: 'text' as const, value: ' ' }] : []),
+												...(voiceText ? [{ type: 'text' as const, value: voiceText }] : []),
+											];
+										})()
+									: segments
+							}
+							onSegmentsChange={setSegments}
+							onKeyDown={handleKeyDown}
+							onCursorChange={setCursorPosition}
+							disabled={speechToText.isRecording}
+							inlineSuffix={speechToText.isRecording ? <BouncingDots className="ml-1 text-text-secondary" /> : undefined}
+							placeholder={
+								isProcessing
+									? 'Type your next message...'
+									: agentMode === 'plan'
+										? 'Describe what to plan...'
+										: agentMode === 'ask'
+											? 'Ask a question...'
+											: 'Ask the AI to help...'
+							}
+						/>
+						<Collapsible open={!!planPath}>
+							{planPath && (
+								<button
+									onClick={() => openFile(planPath)}
+									className="
+										flex w-full items-center gap-1.5 border-t border-border/50 px-2.5 py-1
+										text-xs text-accent transition-colors
+										hover:bg-accent/5
+									"
+								>
+									<MapIcon className="size-3 shrink-0" />
+									<span className="truncate">View plan: {planPath.split('/').pop()}</span>
+								</button>
+							)}
+						</Collapsible>
+						{speechToText.isRecording ? (
+							<div className="flex items-center gap-x-1.5 px-1.5 py-1">
+								<div className="relative flex size-3 shrink-0 items-center justify-center">
+									<Spinner
+										size="xs"
 										className={cn(
 											`
-												inline-flex cursor-pointer items-center justify-center rounded-md
-												p-1
+												absolute inset-0 text-text-secondary transition-opacity duration-150
+												ease-out
 											`,
-											'text-xs font-medium text-error transition-colors',
-											'hover:bg-error/10',
+											speechToText.isMicrophoneReady && 'pointer-events-none opacity-0',
 										)}
-										aria-label="Stop"
-									>
-										<Square className="size-4" />
-									</button>
-								) : (
+									/>
+									<span
+										className={cn(
+											`
+												size-2 rounded-full bg-error transition-opacity duration-150
+												ease-out
+											`,
+											speechToText.isMicrophoneReady ? 'animate-pulse opacity-100' : 'opacity-0',
+										)}
+									/>
+								</div>
+								<div className="relative h-4 w-28 shrink-0">
+									<AudioWaveformSkeleton
+										className={cn(
+											'absolute inset-0 transition-opacity duration-150 ease-out',
+											speechToText.isMicrophoneReady && 'pointer-events-none opacity-0',
+										)}
+									/>
+									<AudioWaveform
+										amplitudes={speechToText.amplitudes}
+										className={cn(
+											'absolute inset-0 transition-opacity duration-150 ease-out',
+											speechToText.isMicrophoneReady ? 'opacity-100' : 'opacity-0',
+										)}
+									/>
+								</div>
+								<div className="flex-1" />
+								<button
+									onClick={handleStopRecording}
+									className={cn(
+										'inline-flex cursor-pointer items-center gap-1.5 rounded-md p-1',
+										'text-xs font-medium text-error transition-colors',
+										'hover:bg-error/10',
+									)}
+									aria-label="Stop recording"
+								>
+									<Square className="size-4" />
+								</button>
+							</div>
+						) : (
+							<div
+								className="
+									@container flex flex-wrap-reverse items-center gap-x-1.5 gap-y-0.5
+									px-1.5 py-1
+								"
+							>
+								<AgentModeSelector mode={agentMode} onModeChange={setAgentMode} disabled={false} />
+								<ModelSelectorDropdown selectedModel={selectedModel} onSelectModel={setSelectedModel} disabled={false} />
+								<div className="flex flex-1 shrink-0 items-center justify-end gap-0.5">
+									<ContextRing tokensUsed={contextTokensUsed} contextWindow={getModelLimits(selectedModel).contextWindow} />
+									{!isProcessing && speechToText.microphonePermission !== 'unsupported' && (
+										<Tooltip content={speechToText.microphonePermission === 'denied' ? 'Microphone blocked' : 'Voice input'} side="top">
+											<button
+												onClick={() => {
+													if (speechToText.microphonePermission === 'denied') {
+														toast.info('Allow microphone access for this site in your browser settings, then try again.');
+														return;
+													}
+													setPreRecordingSegments(segments);
+													void speechToText.start();
+												}}
+												disabled={!isConnected}
+												className={cn(
+													'inline-flex items-center gap-1.5 rounded-md p-1',
+													'text-xs font-medium transition-colors',
+													speechToText.microphonePermission === 'denied'
+														? 'cursor-pointer text-text-secondary opacity-50'
+														: isConnected
+															? `
+																cursor-pointer text-text-secondary
+																hover:bg-bg-tertiary hover:text-text-primary
+															`
+															: 'cursor-not-allowed text-text-secondary opacity-40',
+												)}
+												aria-label={speechToText.microphonePermission === 'denied' ? 'Microphone blocked' : 'Start voice input'}
+											>
+												{speechToText.microphonePermission === 'denied' ? <MicOff className="size-4" /> : <Mic className="size-4" />}
+											</button>
+										</Tooltip>
+									)}
+									{isProcessing && (
+										<button
+											onClick={handleCancel}
+											disabled={isStopPending || !isConnected}
+											className={cn(
+												`
+													inline-flex cursor-pointer items-center justify-center rounded-md
+													p-1
+												`,
+												'text-xs font-medium text-error transition-colors',
+												isStopPending ? 'cursor-wait opacity-70' : isConnected ? 'hover:bg-error/10' : 'cursor-not-allowed opacity-40',
+											)}
+											aria-label={isStopPending ? 'Stopping' : 'Stop'}
+										>
+											{isStopPending ? <Spinner className="size-4" /> : <Square className="size-4" />}
+										</button>
+									)}
 									<button
-										onClick={() => void handleSend()}
-										disabled={!hasContent || !isConnected}
+										onClick={() => void handleSubmit()}
+										disabled={!hasContent}
 										className={cn(
 											'inline-flex items-center justify-center rounded-md p-1',
 											'text-xs font-medium transition-colors',
-											hasContent && isConnected
+											hasContent
 												? `
 													cursor-pointer bg-accent text-white
 													hover:bg-accent-hover
 												`
 												: 'cursor-not-allowed text-text-secondary opacity-40',
 										)}
-										aria-label="Send"
+										aria-label={isProcessing ? 'Queue message' : 'Send'}
 									>
 										<ArrowUp className="size-4" />
 									</button>
-								)}
+								</div>
 							</div>
-						</div>
-					)}
+						)}
+					</div>
 				</div>
 			</div>
 

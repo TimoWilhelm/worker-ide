@@ -24,9 +24,10 @@ import {
 	RotateCcw,
 	Search,
 	Trash2,
+	X,
 } from 'lucide-react';
-import { motion } from 'motion/react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AnimatePresence, motion } from 'motion/react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 
 import { Pill, type PillProperties } from '@/components/ui/pill';
 import { Spinner } from '@/components/ui/spinner';
@@ -39,6 +40,7 @@ import { cn } from '@/lib/utils';
 import { TOOL_ERROR_LABELS } from '@shared/tool-errors';
 
 import { AI_SUGGESTIONS, isRecord, isToolName } from './helpers';
+import { getModelLabel } from './model-config';
 import { parseTextToSegments } from '../../lib/input-segments';
 import { FileReference } from '../file-reference';
 import { MarkdownContent } from '../markdown-content';
@@ -180,6 +182,8 @@ export function MessageBubble({
 	messageIndex,
 	snapshotId,
 	agentMode,
+	modelId,
+	isClientOnly = false,
 	isReverting,
 	revertingMessageIndex,
 	onRevert,
@@ -194,6 +198,8 @@ export function MessageBubble({
 	messageIndex: number;
 	snapshotId?: string;
 	agentMode?: AgentMode;
+	modelId?: string;
+	isClientOnly?: boolean;
 	isReverting: boolean;
 	revertingMessageIndex?: number;
 	onRevert: (snapshotId: string, messageIndex: number) => void;
@@ -215,6 +221,8 @@ export function MessageBubble({
 				messageIndex={messageIndex}
 				snapshotId={snapshotId}
 				agentMode={agentMode}
+				modelId={modelId}
+				isClientOnly={isClientOnly}
 				isReverting={isReverting}
 				isRevertingThis={revertingMessageIndex === messageIndex}
 				onRevert={onRevert}
@@ -256,6 +264,8 @@ function UserMessage({
 	messageIndex,
 	snapshotId,
 	agentMode,
+	modelId,
+	isClientOnly,
 	isReverting,
 	isRevertingThis,
 	onRevert,
@@ -264,6 +274,8 @@ function UserMessage({
 	messageIndex: number;
 	snapshotId?: string;
 	agentMode?: AgentMode;
+	modelId?: string;
+	isClientOnly: boolean;
 	isReverting: boolean;
 	isRevertingThis: boolean;
 	onRevert: (snapshotId: string, messageIndex: number) => void;
@@ -280,6 +292,7 @@ function UserMessage({
 
 	const bubbleStyle = agentMode ? MODE_BUBBLE_STYLES[agentMode] : 'border-accent/20 bg-accent/10';
 	const badge = agentMode ? MODE_BADGE_STYLES[agentMode] : undefined;
+	const modelLabel = modelId ? getModelLabel(modelId) : undefined;
 
 	return (
 		<motion.div
@@ -297,6 +310,7 @@ function UserMessage({
 							{badge.label}
 						</Pill>
 					)}
+					{modelLabel && <Pill size="xs">{modelLabel}</Pill>}
 				</div>
 				{snapshotId && (
 					<Tooltip content="Revert files to before this message">
@@ -316,7 +330,9 @@ function UserMessage({
 					</Tooltip>
 				)}
 			</div>
-			<div className={cn('rounded-lg border px-3 py-2.5', bubbleStyle, 'text-sm/relaxed text-text-primary')}>
+			<div
+				className={cn('rounded-lg border px-3 py-2.5', bubbleStyle, isClientOnly && 'border-dashed', 'text-sm/relaxed text-text-primary')}
+			>
 				<span className="whitespace-pre-wrap">
 					{segments.map((segment, index) =>
 						segment.type === 'mention' ? <FileReference key={index} path={segment.path} /> : <span key={index}>{segment.value}</span>,
@@ -1990,27 +2006,154 @@ export function AIError({
 	);
 }
 
-/**
- * Renders a steering message that is queued but not yet consumed by the agent loop.
- * Visually distinct from committed user messages: dashed border, violet color, "Queued" pill.
- */
-export function PendingSteeringBubble({ content }: { content: string }) {
+function abbreviateQueuedMessage(content: string, maxLength = 72): string {
+	const normalized = content.replaceAll(/\s+/g, ' ').trim();
+	if (normalized.length <= maxLength) {
+		return normalized;
+	}
+	return `${normalized.slice(0, maxLength - 1).trimEnd()}...`;
+}
+
+const QUEUED_PREVIEW_LIMIT = 3;
+
+function getQueuedMessageText(message: ChatMessage): string {
+	return message.parts
+		.filter((part) => part.type === 'text')
+		.map((part) => part.content)
+		.join('\n');
+}
+
+export function QueuedSteeringStrip({
+	messages,
+	localOnlyMessageIds,
+	onRemoveMessage,
+}: {
+	messages: ChatMessage[];
+	localOnlyMessageIds?: Set<string>;
+	onRemoveMessage: (messageId: string) => void;
+}) {
+	const [isExpanded, setIsExpanded] = useState(false);
+	const rootReference = useRef<HTMLDivElement>(null);
+	const orderedMessages = useMemo(() => [...messages], [messages]);
+	const stackDepth = Math.min(messages.length, QUEUED_PREVIEW_LIMIT);
+	const handleRemoveMessage = useCallback(
+		(messageId: string) => {
+			setIsExpanded(true);
+			onRemoveMessage(messageId);
+		},
+		[onRemoveMessage],
+	);
+
+	useEffect(() => {
+		if (!isExpanded) return;
+
+		const handlePointerDown = (event: PointerEvent) => {
+			if (!(event.target instanceof Node) || !rootReference.current?.contains(event.target)) {
+				setIsExpanded(false);
+			}
+		};
+
+		globalThis.addEventListener('pointerdown', handlePointerDown);
+		return () => globalThis.removeEventListener('pointerdown', handlePointerDown);
+	}, [isExpanded]);
+
 	return (
-		<div className="flex min-w-0 animate-chat-item flex-col gap-1">
-			<div className="flex items-center gap-1.5">
-				<span className="text-2xs font-semibold tracking-wider text-accent uppercase">You</span>
-				<Pill size="xs" color="purple">
-					Queued
-				</Pill>
-			</div>
-			<div
-				className={cn(
-					'rounded-lg border border-dashed px-3 py-2.5 text-sm/relaxed',
-					'border-purple-500/25 bg-purple-500/8 text-text-secondary',
-				)}
-			>
-				<span className="whitespace-pre-wrap">{content}</span>
-			</div>
+		<div
+			ref={rootReference}
+			className="relative z-20 h-10 touch-pan-y overflow-visible"
+			style={{ height: 44 } satisfies CSSProperties}
+			onMouseEnter={() => setIsExpanded(true)}
+			onMouseLeave={() => setIsExpanded(false)}
+		>
+			<AnimatePresence initial={false}>
+				{orderedMessages.map((message, index) => {
+					const collapsedIndex = Math.min(index, stackDepth - 1);
+					const offset = isExpanded ? index * 42 : collapsedIndex * 4;
+					const hiddenWhenCollapsed = !isExpanded && index >= stackDepth;
+					const isFrontCard = index === 0;
+					const previewText = abbreviateQueuedMessage(getQueuedMessageText(message), 64);
+					const isInteractiveCard = isExpanded || isFrontCard;
+					const isClientOnly = localOnlyMessageIds?.has(message.id) ?? false;
+
+					return (
+						<motion.div
+							key={message.id}
+							layout={isExpanded ? 'position' : false}
+							initial={{ y: -(offset + 8), opacity: 0 }}
+							animate={{ y: -offset, opacity: hiddenWhenCollapsed ? 0 : 1 }}
+							exit={{ y: -(offset + 8), opacity: 0 }}
+							transition={{ duration: 0.14, ease: 'easeOut' }}
+							className={cn('absolute inset-x-0 bottom-0', hiddenWhenCollapsed && 'pointer-events-none')}
+							style={{ zIndex: orderedMessages.length - index }}
+						>
+							<div
+								className={cn(
+									`
+										flex h-10 items-center gap-0.5 rounded-lg border px-3
+										transition-colors duration-120
+									`,
+									`
+										border-purple-500/25
+										bg-[color-mix(in_oklab,var(--color-bg-secondary)_90%,var(--color-purple-500)_10%)]
+										shadow-[inset_0_0_0_1px_rgba(168,85,247,0.05)]
+									`,
+									isClientOnly && 'border-dashed',
+									'pr-2',
+									isFrontCard && !isExpanded
+										? `
+											hover:border-purple-500/40
+											hover:bg-[color-mix(in_oklab,var(--color-bg-secondary)_88%,var(--color-purple-500)_12%)]
+										`
+										: undefined,
+								)}
+							>
+								{isFrontCard ? (
+									<button
+										type="button"
+										onClick={() => setIsExpanded((current) => !current)}
+										className="flex min-w-0 flex-1 items-center gap-2 text-left"
+										aria-label={isExpanded ? 'Hide queued messages' : `Show ${messages.length} queued messages`}
+									>
+										<div className="flex min-w-0 flex-1 items-center gap-2">
+											<Pill size="xs" color="purple">
+												{messages.length} queued
+											</Pill>
+											<span className="min-w-0 truncate text-sm font-medium text-text-primary">{previewText}</span>
+										</div>
+									</button>
+								) : isExpanded ? (
+									<div className="flex min-w-0 flex-1 items-center gap-2 text-left">
+										<span className="min-w-0 truncate text-sm font-medium text-text-primary">{previewText}</span>
+									</div>
+								) : (
+									<div aria-hidden className="flex min-w-0 flex-1 items-center" />
+								)}
+								<button
+									type="button"
+									onClick={() => handleRemoveMessage(message.id)}
+									disabled={!isInteractiveCard}
+									className={cn(
+										`
+											inline-flex size-6 shrink-0 items-center justify-center rounded-md
+											border transition-colors
+										`,
+										`
+											border-purple-500/20 text-text-secondary
+											hover:border-purple-500/35 hover:bg-purple-500/10
+											hover:text-text-primary
+										`,
+										!isInteractiveCard && 'pointer-events-none opacity-0',
+									)}
+									aria-label={isInteractiveCard ? 'Remove queued message' : undefined}
+									tabIndex={isInteractiveCard ? 0 : -1}
+								>
+									<X className="size-3.5" />
+								</button>
+							</div>
+						</motion.div>
+					);
+				})}
+			</AnimatePresence>
 		</div>
 	);
 }

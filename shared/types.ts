@@ -1,3 +1,5 @@
+import type { AIModelId } from './constants';
+
 export interface FileInfo {
 	path: string;
 	name: string;
@@ -65,8 +67,6 @@ export interface AiSession {
 	titleGenerated?: boolean;
 	createdAt: number;
 	history: ChatMessage[];
-	messageSnapshots?: Record<string, string>;
-	messageModes?: Record<string, AgentMode>;
 	contextTokensUsed?: number;
 	/** Set by the client after a revert to prevent the server-side stream
 	 *  `finally` block from overwriting the truncated history. */
@@ -79,6 +79,7 @@ export interface AiSession {
 	 *  the loop finishes so reloaded sessions can restore the AIError UI. */
 	status?: AgentSessionStatus;
 	errorMessage?: string;
+	stopRequested?: boolean;
 }
 export interface AiSessionSummary {
 	id: string;
@@ -534,4 +535,12 @@ export interface ChatMessage {
 	role: 'user' | 'assistant';
 	parts: MessagePart[];
 	createdAt?: number;
+	metadata?: {
+		request?: {
+			mode?: AgentMode;
+			model?: AIModelId;
+			state: 'queued' | 'committed';
+		};
+		snapshotId?: string;
+	};
 }

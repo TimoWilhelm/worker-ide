@@ -96,7 +96,7 @@ function useTouchGatedTooltip() {
 
 interface TooltipProperties {
 	children: ReactElement<Record<string, unknown>>;
-	content: string;
+	content: ReactNode;
 	side?: 'top' | 'right' | 'bottom' | 'left';
 	delayDuration?: number;
 	className?: string;
@@ -121,13 +121,13 @@ function Tooltip({ children, content, side = 'top', delayDuration, className }: 
 			<AnimatePresence>
 				{open && (
 					<BaseTooltip.Portal keepMounted>
-						<BaseTooltip.Positioner side={side} sideOffset={4}>
+						<BaseTooltip.Positioner side={side} sideOffset={4} className="z-100">
 							<BaseTooltip.Popup
 								role="tooltip"
 								render={<motion.div variants={tooltipVariants} initial="hidden" animate="visible" exit="exit" transition={springSnappy} />}
 								className={cn(
 									`
-										z-50 rounded-sm border border-border bg-bg-primary px-2 py-1 text-xs
+										rounded-sm border border-border bg-bg-primary px-2 py-1 text-xs
 										text-text-primary shadow-md
 									`,
 									className,

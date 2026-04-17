@@ -2,6 +2,7 @@ import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 export const sessionMetadata = sqliteTable('session_metadata', {
 	id: text('id').primaryKey(),
 	titleGenerated: integer('title_generated').notNull().default(0),
+	historyJson: text('history_json'),
 	messageSnapshots: text('message_snapshots'),
 	messageModes: text('message_modes'),
 	contextTokensUsed: integer('context_tokens_used'),
@@ -9,6 +10,7 @@ export const sessionMetadata = sqliteTable('session_metadata', {
 	toolErrors: text('tool_errors'),
 	status: text('status'),
 	errorMessage: text('error_message'),
+	stopRequested: integer('stop_requested').notNull().default(0),
 });
 
 /**

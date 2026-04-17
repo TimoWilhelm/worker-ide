@@ -2,7 +2,7 @@ import type { ProjectFilesystem } from '../../durable/project-filesystem';
 import type { ExtensionManager } from '@cloudflare/think/extensions';
 import type { FiberSnapshot, StreamEvent } from '@shared/agent-state';
 import type { AIModelId } from '@shared/constants';
-import type { AgentMode, ChatMessage, PendingFileChange, ToolErrorInfo, ToolMetadataInfo } from '@shared/types';
+import type { ChatMessage, PendingFileChange, ToolErrorInfo, ToolMetadataInfo } from '@shared/types';
 import type { Agent } from 'agents';
 import type { Session } from 'agents/experimental/memory/session';
 export type { ModelMessage } from 'ai';
@@ -99,8 +99,6 @@ export interface SessionPersistData {
 	createdAt: number;
 	title?: string;
 	history: ChatMessage[];
-	messageSnapshots?: Record<string, string>;
-	messageModes?: Record<string, AgentMode>;
 	contextTokensUsed?: number;
 	toolMetadata?: Record<string, ToolMetadataInfo>;
 	toolErrors?: Record<string, ToolErrorInfo>;

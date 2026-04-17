@@ -61,7 +61,6 @@ export class SubAgentWorker extends Agent<Env, SubAgentState> {
 					await this.session.appendMessage(chatMessageToSessionMessage(message));
 				}
 			},
-			undefined,
 			false,
 			this.session,
 			undefined,

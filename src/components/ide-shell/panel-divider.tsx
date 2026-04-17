@@ -13,7 +13,7 @@ export function PanelDivider({ orientation }: PanelDividerProperties) {
 		<Separator className={cn('group relative', isHorizontal ? 'w-0 cursor-col-resize' : 'h-0 cursor-row-resize')}>
 			<div
 				className={cn(
-					'absolute z-50 bg-border-solid',
+					'absolute z-10 bg-border-solid',
 					'transition-[width,height,background-color] duration-100 ease-out',
 					isHorizontal
 						? `

@@ -1,4 +1,4 @@
-import type { AgentMode, AgentSessionStatus, ChatMessage, FileChange, PendingFileChange, ToolErrorInfo, ToolMetadataInfo } from './types';
+import type { AgentSessionStatus, ChatMessage, FileChange, PendingFileChange, ToolErrorInfo, ToolMetadataInfo } from './types';
 import type { ModelMessage } from 'ai';
 
 /**
@@ -25,12 +25,10 @@ export interface AgentSessionState {
 	error: { message: string; code?: string } | undefined;
 	contextTokensUsed: number;
 	pendingChanges: Record<string, PendingFileChange>;
-	messageSnapshots: Record<string, string>;
-	messageModes: Record<string, AgentMode>;
 	toolMetadata: Record<string, ToolMetadataInfo>;
 	toolErrors: Record<string, ToolErrorInfo>;
 	debugLogId: string | undefined;
-	pendingSteeringMessages: PendingSteeringMessage[];
+	stopRequested: boolean;
 	pendingQuestion: { question: string; options: string } | undefined;
 	needsContinuation: boolean;
 	doomLoopMessage: string | undefined;
@@ -39,15 +37,6 @@ export interface AgentSessionState {
 	extensions?: Array<{ name: string; description?: string; toolCount: number }>;
 }
 
-/**
- * A steering message queued by the user while the agent is running.
- * Displayed with a distinct "pending" style until consumed by the agent loop.
- */
-export interface PendingSteeringMessage {
-	id: string;
-	content: string;
-	createdAt: number;
-}
 export interface SessionSummary {
 	id: string;
 	title: string;
@@ -78,6 +67,7 @@ export type StreamEvent =
 	| ContextUtilizationEvent
 	| UsageEvent
 	| TurnCompleteEvent
+	| SteeringMessageCommittedEvent
 	| MaxIterationsReachedEvent
 	| DoomLoopDetectedEvent
 	| PlanCreatedEvent
@@ -173,6 +163,10 @@ export interface UsageEvent {
 }
 export interface TurnCompleteEvent {
 	type: 'turn-complete';
+}
+export interface SteeringMessageCommittedEvent {
+	type: 'steering-message-committed';
+	id: string;
 }
 export interface MaxIterationsReachedEvent {
 	type: 'max-iterations-reached';

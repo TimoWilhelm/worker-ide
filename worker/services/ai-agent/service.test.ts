@@ -137,7 +137,6 @@ function createTestService(
 			sessionData: Record<string, unknown>,
 			pendingChanges?: Record<string, PendingFileChange>,
 		) => Promise<void>;
-		getSteeringMessages: () => Array<{ id: string; content: string }>;
 	}>,
 ) {
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any -- test stub for DurableObjectStub
@@ -151,7 +150,6 @@ function createTestService(
 		overrides?.mode ?? 'code',
 		'@cf/moonshotai/kimi-k2.5',
 		overrides?.onPersistSession,
-		overrides?.getSteeringMessages,
 	);
 }
 
@@ -478,90 +476,6 @@ describe('AIAgentService', () => {
 		});
 	});
 
-	// ─── Steering messages ─────────────────────────────────────────────────
-
-	describe('steering message injection', () => {
-		it('injects steering messages between tool-call iterations and re-enables the loop', async () => {
-			let callCount = 0;
-			let steeringDrained = false;
-
-			const getSteeringMessages = vi.fn(() => {
-				if (!steeringDrained) {
-					steeringDrained = true;
-					return [{ id: 'steer-1', content: 'Please also check the CSS' }];
-				}
-				return [];
-			});
-
-			vi.mocked(streamText).mockImplementation(() => {
-				callCount++;
-				if (callCount === 1) {
-					// First iteration: tool call → loop continues → steering drained
-					return {
-						fullStream: {
-							async *[Symbol.asyncIterator]() {
-								yield { type: 'tool-call', toolCallId: 'tc-1', toolName: 'file_read', input: { path: '/project/index.ts' } };
-								yield { type: 'tool-result', toolCallId: 'tc-1', toolName: 'file_read', output: 'content' };
-								yield { type: 'finish-step', finishReason: 'tool-calls', usage: { inputTokens: 100, outputTokens: 10 } };
-								yield { type: 'finish', finishReason: 'tool-calls' };
-							},
-						},
-						response: Promise.resolve({
-							messages: [
-								{
-									role: 'assistant',
-									content: [{ type: 'tool-call', toolCallId: 'tc-1', toolName: 'file_read', input: { path: '/project/index.ts' } }],
-								},
-								{
-									role: 'tool',
-									content: [
-										{
-											type: 'tool-result',
-											toolCallId: 'tc-1',
-											toolName: 'file_read',
-											output: { type: 'text', value: 'content' },
-										},
-									],
-								},
-							],
-						}),
-						// eslint-disable-next-line @typescript-eslint/no-explicit-any -- test mock
-					} as any;
-				}
-				// Second iteration (after steering): text only → stops
-				return {
-					fullStream: {
-						async *[Symbol.asyncIterator]() {
-							yield { type: 'text-delta', text: 'Done with CSS check' };
-							yield { type: 'finish-step', finishReason: 'stop', usage: { inputTokens: 200, outputTokens: 10 } };
-							yield { type: 'finish', finishReason: 'stop' };
-						},
-					},
-					response: Promise.resolve({
-						messages: [{ role: 'assistant', content: [{ type: 'text', text: 'Done with CSS check' }] }],
-					}),
-					// eslint-disable-next-line @typescript-eslint/no-explicit-any -- test mock
-				} as any;
-			});
-
-			const service = createTestService({ getSteeringMessages });
-			const abortController = new AbortController();
-			const stream = service.runAgentStream(makeModelMessages('Hello'), [makeUserMessage('Hello')], abortController);
-			const events = await collectEvents(stream);
-
-			// Should have 2 turns: tool call → steering drained → text only → stops
-			const turnCompletes = events.filter((event) => event.type === 'turn-complete');
-			expect(turnCompletes).toHaveLength(2);
-
-			// The steering callback should have been called
-			expect(getSteeringMessages).toHaveBeenCalled();
-
-			// Should have a "Processing your message..." status from the steering drain
-			const processingStatuses = events.filter((event) => event.type === 'status' && event.message.includes('Processing your message'));
-			expect(processingStatuses.length).toBeGreaterThanOrEqual(1);
-		});
-	});
-
 	// ─── Session persistence ───────────────────────────────────────────────
 
 	describe('session persistence', () => {
@@ -624,13 +538,9 @@ describe('AIAgentService', () => {
 			expect(onPersistSession).toHaveBeenCalledTimes(3);
 		});
 
-		it('persists cleared messageSnapshots after deleting an empty snapshot', async () => {
+		it('persists a history without snapshot metadata after deleting an empty snapshot', async () => {
 			const onPersistSession = vi.fn<
-				(
-					sessionId: string,
-					sessionData: { messageSnapshots?: Record<string, string> },
-					pendingChanges?: Record<string, PendingFileChange>,
-				) => Promise<void>
+				(sessionId: string, sessionData: { history: ChatMessage[] }, pendingChanges?: Record<string, PendingFileChange>) => Promise<void>
 			>(async () => {});
 			const service = createTestService({ onPersistSession, sessionId: 'snapshot-cleanup' });
 			const abortController = new AbortController();
@@ -643,11 +553,7 @@ describe('AIAgentService', () => {
 			if (!lastCall) return;
 
 			const sessionData = lastCall[1];
-			expect(sessionData).toEqual(
-				expect.objectContaining({
-					messageSnapshots: undefined,
-				}),
-			);
+			expect(sessionData.history[0]?.metadata?.snapshotId).toBeUndefined();
 		});
 	});
 

@@ -57,7 +57,7 @@ import type { ProjectFilesystem } from '../../durable/project-filesystem';
 import type { ExtensionManager } from '@cloudflare/think/extensions';
 import type { FiberSnapshot, StreamEvent } from '@shared/agent-state';
 import type { AIModelId } from '@shared/constants';
-import type { AgentMode, ChatMessage, PendingFileChange, ToolErrorInfo, ToolMetadataInfo } from '@shared/types';
+import type { ChatMessage, PendingFileChange, ToolErrorInfo, ToolMetadataInfo } from '@shared/types';
 import type { Session } from 'agents/experimental/memory/session';
 import type { ModelMessage } from 'ai';
 
@@ -103,7 +103,6 @@ export class AIAgentService {
 		private mode: 'code' | 'plan' | 'ask' = 'code',
 		private model: AIModelId = DEFAULT_AI_MODEL,
 		private onPersistSession?: (sessionId: string, sessionData: SessionPersistData) => Promise<void>,
-		private getSteeringMessages?: () => Array<{ id: string; content: string }>,
 		private isSubAgent = false,
 		private session?: Session,
 		private extensionManager?: ExtensionManager,
@@ -231,13 +230,17 @@ export class AIAgentService {
 			sessionPersisted = true;
 			if (!this.sessionId || !this.onPersistSession) return;
 			try {
-				const messageSnapshots: Record<string, string> = {};
 				if (sessionSnapshotId && userMessageIndex >= 0) {
-					messageSnapshots[String(userMessageIndex)] = sessionSnapshotId;
-				}
-				const messageModes: Record<string, AgentMode> = {};
-				if (userMessageIndex >= 0) {
-					messageModes[String(userMessageIndex)] = this.mode;
+					const userMessage = currentChatMessages[userMessageIndex];
+					if (userMessage) {
+						currentChatMessages[userMessageIndex] = {
+							...userMessage,
+							metadata: {
+								...userMessage.metadata,
+								snapshotId: sessionSnapshotId,
+							},
+						};
+					}
 				}
 				const firstUserText =
 					chatMessages
@@ -251,8 +254,6 @@ export class AIAgentService {
 					createdAt: Date.now(),
 					title: deriveFallbackTitle(firstUserText),
 					history: currentChatMessages,
-					messageSnapshots: Object.keys(messageSnapshots).length > 0 ? messageSnapshots : undefined,
-					messageModes: Object.keys(messageModes).length > 0 ? messageModes : undefined,
 					contextTokensUsed: contextTokensUsed > 0 ? contextTokensUsed : undefined,
 					toolMetadata: streamToolMetadata.size > 0 ? Object.fromEntries(streamToolMetadata) : undefined,
 					toolErrors: streamToolErrors.size > 0 ? Object.fromEntries(streamToolErrors) : undefined,
@@ -807,27 +808,6 @@ export class AIAgentService {
 				await persistSession();
 
 				yield turnCompleteEvent();
-
-				// Drain any steering messages queued by the user during this iteration
-				if (this.getSteeringMessages && continueLoop) {
-					const steeringMessages = this.getSteeringMessages();
-					for (const { content } of steeringMessages) {
-						workingMessages.push({ role: 'user', content });
-						currentChatMessages.push({
-							id: crypto.randomUUID(),
-							role: 'user',
-							parts: [{ type: 'text', content }],
-							createdAt: Date.now(),
-						});
-						// Re-enable the loop if the agent was about to stop —
-						// the user has provided new input to act on
-						continueLoop = true;
-					}
-					if (steeringMessages.length > 0) {
-						await persistSession();
-						yield statusEvent('Processing your message...');
-					}
-				}
 			}
 
 			// Iteration limit
@@ -842,6 +822,18 @@ export class AIAgentService {
 			if (snapshotContext && queryChanges.length === 0) {
 				await deleteDirectoryRecursive(snapshotContext.directory);
 				sessionSnapshotId = undefined;
+				if (userMessageIndex >= 0) {
+					const userMessage = currentChatMessages[userMessageIndex];
+					if (userMessage) {
+						currentChatMessages[userMessageIndex] = {
+							...userMessage,
+							metadata: {
+								...userMessage.metadata,
+								snapshotId: undefined,
+							},
+						};
+					}
+				}
 				yield snapshotDeletedEvent(snapshotContext.id);
 				if (sessionPersisted) {
 					sessionPersisted = false;
