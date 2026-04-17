@@ -1,15 +1,3 @@
-/**
- * Notification Toggle Button
- *
- * Bell icon button for enabling/disabling push notifications.
- * Placed in the IDE header next to the theme toggle.
- *
- * Three states:
- * - Not subscribed → click subscribes + enables
- * - Subscribed + enabled → click disables (preference only, keeps push subscription)
- * - Subscribed + disabled → click enables (preference only)
- */
-
 import { Bell, BellOff, BellRing } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';

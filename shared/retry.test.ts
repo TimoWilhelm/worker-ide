@@ -1,7 +1,3 @@
-/**
- * Unit tests for the shared retry utility.
- */
-
 import { describe, expect, it, vi } from 'vitest';
 
 import { retry } from './retry';

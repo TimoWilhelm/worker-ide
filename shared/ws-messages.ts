@@ -1,50 +1,18 @@
-/**
- * WebSocket message types and serialization for real-time features.
- *
- * Used by two independent WebSocket connections:
- * 1. **Preview HMR client** (`hmr-client.js`) — handles hot module replacement
- *    in the preview iframe (full-reload, CSS/JS hot-swap).
- * 2. **Project socket** (`use-project-socket.ts`) — handles editor-side
- *    coordination (file cache invalidation, collaboration, server events).
- *
- * Both connect to the same ProjectCoordinator Durable Object.
- */
-
 import { z } from 'zod';
 
 import type { CursorPosition, Participant, SelectionRange, ServerError, ServerLogEntry } from './types';
-
-// =============================================================================
-// Client -> Server Messages
-// =============================================================================
-
-/**
- * Client message for pinging the server
- */
 export interface PingMessage {
 	type: 'ping';
 }
-
-/**
- * Client message to join collaboration session
- */
 export interface CollabJoinMessage {
 	type: 'collab-join';
 }
-
-/**
- * Client message to update cursor position
- */
 export interface CursorUpdateMessage {
 	type: 'cursor-update';
 	file?: string;
 	cursor?: CursorPosition;
 	selection?: SelectionRange;
 }
-
-/**
- * Client message for file edit broadcast
- */
 export interface FileEditMessage {
 	type: 'file-edit';
 	path: string;
@@ -81,47 +49,23 @@ export type ClientMessage =
 	| FileEditMessage
 	| HmrConnectMessage
 	| OutputLogsSyncMessage;
-
-// =============================================================================
-// Server -> Client Messages
-// =============================================================================
-
-/**
- * Server pong response
- */
 export interface PongMessage {
 	type: 'pong';
 }
-
-/**
- * Server message with initial collaboration state
- */
 export interface CollabStateMessage {
 	type: 'collab-state';
 	selfId: string;
 	selfColor: string;
 	participants: Participant[];
 }
-
-/**
- * Server message when a participant joins
- */
 export interface ParticipantJoinedMessage {
 	type: 'participant-joined';
 	participant: Participant;
 }
-
-/**
- * Server message when a participant leaves
- */
 export interface ParticipantLeftMessage {
 	type: 'participant-left';
 	id: string;
 }
-
-/**
- * Server message when a cursor is updated
- */
 export interface CursorUpdatedMessage {
 	type: 'cursor-updated';
 	id: string;
@@ -130,20 +74,12 @@ export interface CursorUpdatedMessage {
 	cursor?: CursorPosition;
 	selection?: SelectionRange;
 }
-
-/**
- * Server message when a file is edited by another participant
- */
 export interface FileEditedMessage {
 	type: 'file-edited';
 	id: string;
 	path: string;
 	content: string;
 }
-
-/**
- * HMR update types
- */
 export type HmrUpdateType = 'css-update' | 'js-update' | 'full-reload';
 
 /**
@@ -162,18 +98,10 @@ export interface HmrUpdateMessage {
 		timestamp: number;
 	}>;
 }
-
-/**
- * Server error message
- */
 export interface ServerErrorMessage {
 	type: 'server-error';
 	error: ServerError;
 }
-
-/**
- * Server logs message
- */
 export interface ServerLogsMessage {
 	type: 'server-logs';
 	logs: ServerLogEntry[];
@@ -228,9 +156,7 @@ export interface TestResultsChangedMessage {
 		bundleErrors: Array<{ file: string; error: string }>;
 		timestamp: number;
 	};
-	/** When set, this was a single-test run and clients should merge into existing results */
 	testName?: string;
-	/** When set, this was a partial run (single file or single test) and clients should merge */
 	pattern?: string;
 }
 
@@ -246,10 +172,6 @@ export type ServerMessage =
 	| ServerLogsMessage
 	| GitStatusChangedMessage
 	| TestResultsChangedMessage;
-
-// =============================================================================
-// Zod Schemas for Validation
-// =============================================================================
 
 const cursorPositionSchema = z.object({
 	line: z.number(),
@@ -422,21 +344,9 @@ export const serverMessageSchema = z.discriminatedUnion('type', [
 		pattern: z.string().optional(),
 	}),
 ]);
-
-// =============================================================================
-// Serialization Helpers
-// =============================================================================
-
-/**
- * Serialize a message for sending over WebSocket
- */
 export function serializeMessage(message: ClientMessage | ServerMessage): string {
 	return JSON.stringify(message);
 }
-
-/**
- * Parse and validate a client message
- */
 export function parseClientMessage(data: string): { success: true; data: ClientMessage } | { success: false; error: string } {
 	try {
 		const parsed: unknown = JSON.parse(data);
@@ -457,10 +367,6 @@ export function parseClientMessage(data: string): { success: true; data: ClientM
 		};
 	}
 }
-
-/**
- * Parse and validate a server message
- */
 export function parseServerMessage(data: string): { success: true; data: ServerMessage } | { success: false; error: string } {
 	try {
 		const parsed: unknown = JSON.parse(data);

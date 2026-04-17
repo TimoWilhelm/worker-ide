@@ -1,11 +1,3 @@
-/**
- * Account Settings Page
- *
- * Active sessions management and account deletion.
- * Sessions use better-auth's listSessions/revokeSession.
- * Account deletion uses the custom API endpoints.
- */
-
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Monitor, Smartphone, Trash2 } from 'lucide-react';
 import { useCallback, useState } from 'react';
@@ -45,7 +37,6 @@ export default function AccountPage() {
 	const navigate = useNavigate();
 	const { data: session } = authClient.useSession();
 
-	// Fetch active sessions
 	const sessionsQuery = useQuery({
 		queryKey: ['sessions'],
 		queryFn: async () => {
@@ -89,7 +80,6 @@ export default function AccountPage() {
 		}
 	}, [queryClient]);
 
-	// Account deletion
 	const [deletePreview, setDeletePreview] = useState<AccountDeletePreview | undefined>();
 	const [isLoadingPreview, setIsLoadingPreview] = useState(false);
 	const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -134,7 +124,6 @@ export default function AccountPage() {
 				<p className="text-sm text-text-secondary">Manage sessions and account settings.</p>
 			</div>
 
-			{/* Active Sessions */}
 			<section>
 				<div className="mb-3 flex items-center justify-between">
 					<h3
@@ -207,7 +196,6 @@ export default function AccountPage() {
 				</div>
 			</section>
 
-			{/* Danger Zone */}
 			<section>
 				<h3 className="mb-3 text-xs font-medium tracking-wider text-error/80 uppercase">Danger zone</h3>
 				<div className="rounded-lg border border-error/30 bg-bg-secondary/40 px-4 py-3">
@@ -230,7 +218,6 @@ export default function AccountPage() {
 				</div>
 			</section>
 
-			{/* Delete account confirmation */}
 			{deletePreview && (
 				<Modal
 					open={showDeleteConfirm}

@@ -1,10 +1,3 @@
-/**
- * Toast Component
- *
- * Accessible toast notifications built on Base UI Toast primitives.
- * Mount `<Toaster />` once near the root of the app.
- */
-
 import { Toast } from '@base-ui/react/toast';
 import { CircleAlert, CircleCheck, Info, X } from 'lucide-react';
 
@@ -12,10 +5,6 @@ import { toastManager } from '@/components/ui/toast-store';
 import { cn } from '@/lib/utils';
 
 import type { ToastData } from '@/components/ui/toast-store';
-
-// =============================================================================
-// Toaster Component
-// =============================================================================
 
 /**
  * Renders the Base UI Toast provider, viewport, and all active toasts.

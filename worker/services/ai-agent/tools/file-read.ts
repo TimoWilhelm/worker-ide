@@ -1,8 +1,3 @@
-/**
- * Tool: file_read
- * Read file contents from the project.
- */
-
 import fs from 'node:fs/promises';
 
 import { HIDDEN_ENTRIES, MAX_DIAGNOSTICS_PER_FILE } from '@shared/constants';
@@ -13,10 +8,6 @@ import { formatLintDiagnostics, lintFile } from '@worker/services/lint-service';
 import { recordFileRead } from '../file-time';
 
 import type { SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
-
-// =============================================================================
-// Constants
-// =============================================================================
 
 const MAX_LINES = 2000;
 const MAX_LINE_LENGTH = 2000;
@@ -70,10 +61,6 @@ const BINARY_EXTENSIONS = new Set([
 	'.wasm',
 ]);
 
-// =============================================================================
-// Description
-// =============================================================================
-
 const DESCRIPTION = `Read a file or directory from the local filesystem. If the path does not exist, an error is returned.
 
 Usage:
@@ -94,10 +81,6 @@ CRITICAL INSTRUCTION: After EVERY file_read, check the status line at the bottom
   - "Use offset=N to continue reading" means there is more content. ONLY then should you call file_read again with that offset.
 CRITICAL INSTRUCTION: If no "Use offset" instruction appears, the file is COMPLETE. Stop reading.`;
 
-// =============================================================================
-// Tool Definition
-// =============================================================================
-
 export const definition: ToolDefinition = {
 	name: 'file_read',
 	description: DESCRIPTION,
@@ -111,14 +94,6 @@ export const definition: ToolDefinition = {
 		required: ['file_path'],
 	},
 };
-
-// =============================================================================
-// Helper Functions
-// =============================================================================
-
-/**
- * Check if a file is binary based on extension and content sampling.
- */
 function isBinaryFile(filepath: string, content?: Buffer): boolean {
 	// Check extension first
 	const extension = filepath.slice(filepath.lastIndexOf('.')).toLowerCase();
@@ -151,13 +126,6 @@ function isBinaryFile(filepath: string, content?: Buffer): boolean {
 
 	return false;
 }
-
-/**
- * Find similar files in the same directory when a file is not found.
- */
-// =============================================================================
-// Execute Function
-// =============================================================================
 
 export async function execute(
 	input: Record<string, string>,

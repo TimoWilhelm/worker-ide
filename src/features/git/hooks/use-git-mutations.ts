@@ -1,25 +1,3 @@
-/**
- * useGitMutations Hook
- *
- * Provides mutation functions for all git write operations:
- * stage, unstage, commit, branch, checkout, merge, tag, stash, discard.
- *
- * Staging and discard mutations use optimistic updates: the query cache is
- * updated immediately to predict the result, then corrected by the server
- * response (inline git status). On error, the previous state is restored
- * and an error toast is shown.
- *
- * Other mutations (commit, branch, checkout, merge, tag, stash) are NOT
- * optimistically updated because their effects are less predictable. They
- * still apply inline status on success and show toasts on error.
- *
- * Mutation responses include inline git status, which is applied directly
- * to the query cache. This avoids a separate status refetch that would
- * race with isomorphic-git's internal AsyncLock on Cloudflare Workers
- * (the lock holds closures from the mutation request's I/O context, and
- * a new request's statusMatrix call would use stale references).
- */
-
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 
 import { toast } from '@/components/ui/toast-store';
@@ -27,10 +5,6 @@ import { createApiClient } from '@/lib/api-client';
 import { throwApiError } from '@/lib/api-error';
 
 import type { GitFileStatus, GitStatusEntry } from '@shared/types';
-
-// =============================================================================
-// Types
-// =============================================================================
 
 interface UseGitMutationsOptions {
 	projectId: string;
@@ -44,19 +18,11 @@ interface GitStatusResponse {
 interface MutationContext {
 	previous: GitStatusResponse | undefined;
 }
-
-// =============================================================================
-// Optimistic status transforms
-// =============================================================================
-
-/** Map of status → what it becomes when staged. */
 const STAGE_STATUS_MAP: Partial<Record<GitFileStatus, GitFileStatus>> = {
 	untracked: 'untracked-staged',
 	modified: 'modified-staged',
 	deleted: 'deleted-staged',
 };
-
-/** Map of status → what it becomes when unstaged. */
 const UNSTAGE_STATUS_MAP: Partial<Record<GitFileStatus, GitFileStatus>> = {
 	'untracked-staged': 'untracked',
 	'untracked-partially-staged': 'untracked',
@@ -64,10 +30,6 @@ const UNSTAGE_STATUS_MAP: Partial<Record<GitFileStatus, GitFileStatus>> = {
 	'modified-partially-staged': 'modified',
 	'deleted-staged': 'deleted',
 };
-
-/**
- * Optimistically stage files: transform matching entries so they appear staged.
- */
 function optimisticStage(entries: GitStatusEntry[], paths: string[]): GitStatusEntry[] {
 	const pathSet = new Set(paths);
 	return entries.map((entry) => {
@@ -77,10 +39,6 @@ function optimisticStage(entries: GitStatusEntry[], paths: string[]): GitStatusE
 		return { ...entry, status: newStatus, staged: true };
 	});
 }
-
-/**
- * Optimistically unstage files: transform matching entries so they appear unstaged.
- */
 function optimisticUnstage(entries: GitStatusEntry[], paths: string[]): GitStatusEntry[] {
 	const pathSet = new Set(paths);
 	return entries.map((entry) => {
@@ -90,10 +48,6 @@ function optimisticUnstage(entries: GitStatusEntry[], paths: string[]): GitStatu
 		return { ...entry, status: newStatus, staged: false };
 	});
 }
-
-/**
- * Optimistically stage all files.
- */
 function optimisticStageAll(entries: GitStatusEntry[]): GitStatusEntry[] {
 	return entries.map((entry) => {
 		const newStatus = STAGE_STATUS_MAP[entry.status];
@@ -101,10 +55,6 @@ function optimisticStageAll(entries: GitStatusEntry[]): GitStatusEntry[] {
 		return { ...entry, status: newStatus, staged: true };
 	});
 }
-
-/**
- * Optimistically unstage all files.
- */
 function optimisticUnstageAll(entries: GitStatusEntry[]): GitStatusEntry[] {
 	return entries.map((entry) => {
 		const newStatus = UNSTAGE_STATUS_MAP[entry.status];
@@ -128,14 +78,6 @@ function optimisticDiscard(entries: GitStatusEntry[], path: string): GitStatusEn
 function optimisticDiscardAll(entries: GitStatusEntry[]): GitStatusEntry[] {
 	return entries.filter((entry) => entry.staged);
 }
-
-// =============================================================================
-// Hook
-// =============================================================================
-
-/**
- * Hook providing all git mutation operations.
- */
 export function useGitMutations({ projectId }: UseGitMutationsOptions) {
 	const queryClient = useQueryClient();
 	const api = createApiClient(projectId);
@@ -156,8 +98,6 @@ export function useGitMutations({ projectId }: UseGitMutationsOptions) {
 			queryClient.setQueryData(statusQueryKey, gitStatus);
 		}
 	};
-
-	/** Invalidate git queries that are NOT status (branches, log). */
 	const invalidateNonStatusGitQueries = async () => {
 		await Promise.all([
 			queryClient.invalidateQueries({ queryKey: ['git-branches', projectId] }),
@@ -174,10 +114,6 @@ export function useGitMutations({ projectId }: UseGitMutationsOptions) {
 		const previous = queryClient.getQueryData<GitStatusResponse>(statusQueryKey);
 		return { previous };
 	};
-
-	/**
-	 * Rollback the optimistic update by restoring the previous snapshot.
-	 */
 	const rollbackStatus = (context: MutationContext | undefined) => {
 		if (context?.previous) {
 			queryClient.setQueryData(statusQueryKey, context.previous);

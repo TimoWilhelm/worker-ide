@@ -1,21 +1,3 @@
-/**
- * Test File Item
- *
- * A single test file row in the tests panel.
- * Shows file path, status indicator, and expandable test list.
- * Tests are shown from discovery data (before execution) or from
- * execution results (after running), with per-test play buttons.
- *
- * Uses flat depth-based indentation (like the file tree) rather than
- * nested margin/padding, so the layout stays clean at any panel width.
- *
- * Visual hierarchy:
- *   depth 0  —  File row      (chevron · status · file-icon · path · count · play)
- *   depth 1  —  Suite row     (chevron · status · suite name · play)
- *   depth 1  —  Top-level test (status · test name · play)
- *   depth 2  —  Nested test    (status · test name · play)
- */
-
 import { CheckCircle2, ChevronDown, ChevronRight, Circle, CircleDashed, File, Play, XCircle } from 'lucide-react';
 import { useState } from 'react';
 
@@ -24,61 +6,35 @@ import { cn } from '@/lib/utils';
 
 import type { DiscoveredTest, TestFileResult } from '@shared/types';
 
-// =============================================================================
-// Constants
-// =============================================================================
-
-/** Pixels of indentation per depth level */
 const INDENT_PX = 8;
-/** Base left padding (depth 0) */
 const BASE_PAD_PX = 6;
-
-// =============================================================================
-// Types
-// =============================================================================
 
 type TestFileStatus = 'idle' | 'running' | 'passed' | 'failed' | 'partial-passed';
 
 interface TestFileItemProperties {
-	/** Relative file path (e.g., "test/math.test.ts") */
 	filePath: string;
-	/** Statically discovered tests (from parsing, available before execution) */
 	discoveredTests?: DiscoveredTest[];
-	/** Test results for this file (undefined if not yet run) */
 	fileResult?: TestFileResult;
-	/** Whether this file's tests are currently running */
 	isRunning?: boolean;
-	/** Called when the user clicks to open the file in the editor */
 	onOpenFile?: (path: string) => void;
-	/** Called when the user clicks a test to navigate to its line in the source */
 	onOpenTest?: (path: string, line: number) => void;
-	/** Called when the user clicks the play button to run this single file */
 	onRunFile?: (path: string) => void;
-	/** Called when the user clicks the play button on an individual test */
 	onRunTest?: (filePath: string, testName: string) => void;
 }
 
-/** Normalized test row used for both discovered and executed tests */
 interface TestRowData {
 	key: string;
-	/** Display name (test name only, without suite prefix) */
 	name: string;
-	/** Full label including suite prefix for running individual tests */
 	fullLabel: string;
 	status?: 'passed' | 'failed';
 	error?: string;
 	line?: number;
 }
 
-/** A group of tests belonging to the same describe block (suite) */
 interface TestSuiteGroup {
 	suiteName: string;
 	tests: TestRowData[];
 }
-
-// =============================================================================
-// Helpers
-// =============================================================================
 
 function getFileStatus(
 	fileResult: TestFileResult | undefined,
@@ -102,7 +58,6 @@ function getFileStatus(
  * remain visible with an "idle" (no status) indicator.
  */
 function buildTestRows(fileResult: TestFileResult | undefined, discoveredTests: DiscoveredTest[] | undefined): TestRowData[] {
-	// Build a lookup of execution results keyed by "suiteName/testName"
 	const executedTests = new Map<string, { status: 'passed' | 'failed'; error?: string }>();
 	if (fileResult) {
 		for (const suite of fileResult.results.suites) {
@@ -112,7 +67,6 @@ function buildTestRows(fileResult: TestFileResult | undefined, discoveredTests: 
 		}
 	}
 
-	// Start from discovered tests so we always show the full set
 	if (discoveredTests && discoveredTests.length > 0) {
 		return discoveredTests.map((test) => {
 			const key = `${test.suiteName}/${test.name}`;
@@ -122,8 +76,6 @@ function buildTestRows(fileResult: TestFileResult | undefined, discoveredTests: 
 		});
 	}
 
-	// Fallback: if there are no discovered tests but we have execution results,
-	// show them directly (e.g., tests created at runtime).
 	if (fileResult && fileResult.results.suites.length > 0) {
 		const rows: TestRowData[] = [];
 		for (const suite of fileResult.results.suites) {
@@ -148,7 +100,6 @@ function buildSuiteGroups(rows: TestRowData[]): TestSuiteGroup[] {
 	const groupOrder: string[] = [];
 
 	for (const row of rows) {
-		// Extract suite name from the key (format: "suiteName/testName")
 		const slashIndex = row.key.indexOf('/');
 		const suiteName = slashIndex === -1 ? '(top-level)' : row.key.slice(0, slashIndex);
 		const normalizedSuite = suiteName === '(top-level)' ? '' : suiteName;
@@ -169,7 +120,6 @@ function buildSuiteGroups(rows: TestRowData[]): TestSuiteGroup[] {
 	}));
 }
 
-/** Derive an aggregate pass/fail status for a suite from its test rows */
 function getSuiteStatus(tests: TestRowData[]): 'idle' | 'passed' | 'failed' {
 	let hasPassed = false;
 	let hasFailed = false;
@@ -185,10 +135,6 @@ function getSuiteStatus(tests: TestRowData[]): 'idle' | 'passed' | 'failed' {
 function paddingForDepth(depth: number) {
 	return `${depth * INDENT_PX + BASE_PAD_PX}px`;
 }
-
-// =============================================================================
-// Icon Components
-// =============================================================================
 
 function StatusIcon({ status }: { status: TestFileStatus }) {
 	switch (status) {
@@ -234,14 +180,9 @@ function TestStatusIcon({ status }: { status?: 'passed' | 'failed' }) {
 	return <Circle className="size-3.5 shrink-0 text-text-secondary" />;
 }
 
-// =============================================================================
-// Play Button (shared by files, suites, and tests)
-// =============================================================================
-
 interface PlayButtonProperties {
 	isRunning: boolean;
 	onClick: (event: React.MouseEvent) => void;
-	/** If true, always visible (file/suite level). If false, show-on-hover (tests). */
 	alwaysVisible?: boolean;
 	groupHoverClass?: string;
 }
@@ -271,10 +212,6 @@ function PlayButton({ isRunning, onClick, alwaysVisible, groupHoverClass = 'grou
 	);
 }
 
-// =============================================================================
-// Suite Group
-// =============================================================================
-
 interface SuiteGroupViewProperties {
 	group: TestSuiteGroup;
 	filePath: string;
@@ -289,7 +226,6 @@ function SuiteGroupView({ group, filePath, isRunning, onOpenTest, onRunFile, onR
 	const [suiteExpanded, setSuiteExpanded] = useState(true);
 	const suiteStatus = getSuiteStatus(group.tests);
 
-	// Top-level tests (no describe block) render at depth 1 without a suite header
 	if (!hasSuiteName) {
 		return (
 			<>
@@ -310,7 +246,6 @@ function SuiteGroupView({ group, filePath, isRunning, onOpenTest, onRunFile, onR
 
 	return (
 		<>
-			{/* Suite header row — same structure as file row: depth-based padding, full-width hover */}
 			<div
 				className="
 					group/row flex min-w-0 cursor-pointer items-center gap-1.5 py-1 pr-2
@@ -320,7 +255,6 @@ function SuiteGroupView({ group, filePath, isRunning, onOpenTest, onRunFile, onR
 				style={{ paddingLeft: paddingForDepth(1) }}
 				onClick={() => setSuiteExpanded(!suiteExpanded)}
 			>
-				{/* Chevron */}
 				<span
 					className="
 						flex size-4 shrink-0 items-center justify-center text-text-secondary
@@ -329,21 +263,17 @@ function SuiteGroupView({ group, filePath, isRunning, onOpenTest, onRunFile, onR
 					{suiteExpanded ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
 				</span>
 
-				{/* Status icon */}
 				{suiteStatus === 'passed' && <CheckCircle2 className="size-3.5 shrink-0 text-green-600 dark:text-green-400" />}
 				{suiteStatus === 'failed' && <XCircle className="size-3.5 shrink-0 text-red-600 dark:text-red-400" />}
 				{suiteStatus === 'idle' && <Circle className="size-3.5 shrink-0 text-text-secondary" />}
 
-				{/* Suite name */}
 				<span className="min-w-0 flex-1 truncate font-medium text-text-primary" title={group.suiteName}>
 					{group.suiteName}
 				</span>
 
-				{/* Run suite (runs entire file) */}
 				{onRunFile && <PlayButton isRunning={isRunning} onClick={() => onRunFile(filePath)} />}
 			</div>
 
-			{/* Nested tests at depth 2 */}
 			{suiteExpanded &&
 				group.tests.map((row) => (
 					<TestRow
@@ -359,10 +289,6 @@ function SuiteGroupView({ group, filePath, isRunning, onOpenTest, onRunFile, onR
 		</>
 	);
 }
-
-// =============================================================================
-// Test Row
-// =============================================================================
 
 interface TestRowProperties {
 	row: TestRowData;
@@ -395,13 +321,10 @@ function TestRow({ row, depth, filePath, isRunning, onOpenTest, onRunTest }: Tes
 				}
 			}}
 		>
-			{/* Spacer — aligns with the chevron column of parent rows */}
 			<span className="size-4 shrink-0" />
 
-			{/* Status icon */}
 			<TestStatusIcon status={row.status} />
 
-			{/* Test name */}
 			<div className="min-w-0 flex-1">
 				<span className="block truncate text-text-secondary" title={row.name}>
 					{row.name}
@@ -419,15 +342,10 @@ function TestRow({ row, depth, filePath, isRunning, onOpenTest, onRunTest }: Tes
 				)}
 			</div>
 
-			{/* Run single test */}
 			{onRunTest && <PlayButton isRunning={isRunning} onClick={() => onRunTest(filePath, row.fullLabel)} />}
 		</div>
 	);
 }
-
-// =============================================================================
-// Main Component
-// =============================================================================
 
 export function TestFileItem({
 	filePath,
@@ -446,7 +364,6 @@ export function TestFileItem({
 
 	return (
 		<div className="min-w-0">
-			{/* File row */}
 			<div
 				className={cn(
 					`
@@ -463,7 +380,6 @@ export function TestFileItem({
 					}
 				}}
 			>
-				{/* Chevron */}
 				{canExpand ? (
 					<button
 						className="
@@ -482,18 +398,14 @@ export function TestFileItem({
 					<span className="size-4 shrink-0" />
 				)}
 
-				{/* Status icon */}
 				<StatusIcon status={status} />
 
-				{/* File icon */}
 				<File className="size-3.5 shrink-0 text-text-secondary" />
 
-				{/* File path */}
 				<span className="min-w-0 flex-1 truncate text-text-primary" title={filePath}>
 					{filePath}
 				</span>
 
-				{/* Counts badge */}
 				{fileResult && (
 					<span className={cn('shrink-0 text-xs text-text-secondary tabular-nums', status === 'running' && 'invisible')}>
 						{fileResult.results.passed}/
@@ -501,14 +413,11 @@ export function TestFileItem({
 					</span>
 				)}
 
-				{/* Run file */}
 				{onRunFile && <PlayButton isRunning={isRunning} onClick={() => onRunFile(filePath)} />}
 			</div>
 
-			{/* Expanded children */}
 			{expanded && canExpand && (
 				<>
-					{/* Runtime error (not per-test) */}
 					{fileResult?.results.error && (
 						<div
 							className="
@@ -521,7 +430,6 @@ export function TestFileItem({
 						</div>
 					)}
 
-					{/* Suite groups */}
 					{buildSuiteGroups(testRows).map((group) => (
 						<SuiteGroupView
 							key={group.suiteName || '__top-level__'}

@@ -1,14 +1,3 @@
-/**
- * Utility Panel Component
- *
- * A tabbed container shell for the bottom panel area of the IDE.
- * Currently hosts the Output sub-panel; designed to support additional
- * panel types (Terminal, Debug Console, etc.) in the future.
- *
- * Owns its own header row: chevron toggle + tab buttons (with inline
- * badges) + optional right-side status content.
- */
-
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import { lazy, Suspense } from 'react';
 
@@ -21,12 +10,7 @@ import { cn } from '@/lib/utils';
 import type { LogCounts } from '@/features/output';
 import type { UtilityTab } from '@/lib/store';
 
-// Lazy-loaded sub-panels for code splitting
 const OutputPanel = lazy(() => import('@/features/output'));
-
-// =============================================================================
-// Types
-// =============================================================================
 
 interface TabDefinition {
 	id: UtilityTab;
@@ -36,23 +20,13 @@ interface TabDefinition {
 const TABS: TabDefinition[] = [{ id: 'output', label: 'Output' }];
 
 export interface UtilityPanelProperties {
-	/** Project ID passed down to sub-panels */
 	projectId: string;
-	/** Called when the user clicks the header to collapse the panel */
 	onToggle: () => void;
-	/** Whether the panel body is collapsed (header still visible) */
 	collapsed?: boolean;
-	/** Log counts to display as badges on the Output tab */
 	logCounts?: LogCounts;
-	/** Optional content rendered on the right side of the header (status bar, etc.) */
 	headerRight?: React.ReactNode;
-	/** CSS class name */
 	className?: string;
 }
-
-// =============================================================================
-// Component
-// =============================================================================
 
 export function UtilityPanel({ projectId, onToggle, collapsed = false, logCounts, headerRight, className }: UtilityPanelProperties) {
 	const activeTab = useStore((state) => state.activeUtilityTab);
@@ -60,7 +34,6 @@ export function UtilityPanel({ projectId, onToggle, collapsed = false, logCounts
 
 	return (
 		<div className={cn('flex flex-col overflow-hidden', !collapsed && 'h-full', className)}>
-			{/* Combined header: clicking the bar collapses the panel */}
 			<div
 				onClick={onToggle}
 				className="
@@ -69,7 +42,6 @@ export function UtilityPanel({ projectId, onToggle, collapsed = false, logCounts
 					hover:bg-bg-tertiary
 				"
 			>
-				{/* Left: chevron + tabs */}
 				<div className="flex shrink-0 items-center gap-0.5" onClick={(event) => event.stopPropagation()}>
 					<button
 						type="button"
@@ -112,11 +84,9 @@ export function UtilityPanel({ projectId, onToggle, collapsed = false, logCounts
 					</DropdownMenu>
 				</div>
 
-				{/* Right: optional header content (cursor position, etc.) */}
 				{headerRight && <div className="flex min-w-0 items-center gap-2">{headerRight}</div>}
 			</div>
 
-			{/* Tab content */}
 			{!collapsed && (
 				<div
 					id={`utility-tabpanel-${activeTab}`}

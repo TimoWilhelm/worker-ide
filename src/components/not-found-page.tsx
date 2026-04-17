@@ -1,10 +1,3 @@
-/**
- * Generic Not Found Page
- *
- * Displayed when navigating to an unknown route.
- * Styled to match ProjectNotFound and other error pages.
- */
-
 import { FileQuestion, Home } from 'lucide-react';
 import { useNavigate } from 'react-router';
 

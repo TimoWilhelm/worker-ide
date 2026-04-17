@@ -1,7 +1,3 @@
-/**
- * Hook for managing the editor state: file content, diffs, save, prettify, and cursor.
- */
-
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 

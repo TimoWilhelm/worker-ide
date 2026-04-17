@@ -1,12 +1,3 @@
-/**
- * Speech-to-Text WebSocket route using the Workers AI binding.
- *
- * Uses `env.AI.run("@cf/deepgram/nova-3", inputs, { websocket: true })`
- * which returns a WebSocket response directly. The client connects,
- * streams linear16 PCM audio, and receives JSON transcript messages
- * with `interim_results` support.
- */
-
 import { env } from 'cloudflare:workers';
 import { Hono } from 'hono';
 

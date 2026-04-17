@@ -1,7 +1,3 @@
-/**
- * Unit tests for the Zustand store.
- */
-
 import { describe, expect, it, beforeEach } from 'vitest';
 
 import { useStore } from './store';
@@ -37,10 +33,6 @@ beforeEach(() => {
 		dependenciesPanelVisible: true,
 	});
 });
-
-// =============================================================================
-// Editor slice
-// =============================================================================
 
 describe('Editor slice', () => {
 	it('opens a file', () => {
@@ -160,10 +152,6 @@ describe('Editor slice', () => {
 	});
 });
 
-// =============================================================================
-// File Tree slice
-// =============================================================================
-
 describe('File Tree slice', () => {
 	it('sets files', () => {
 		const files = [
@@ -200,10 +188,6 @@ describe('File Tree slice', () => {
 	});
 });
 
-// =============================================================================
-// AI slice
-// =============================================================================
-
 describe('AI slice', () => {
 	it('adds a message to history', () => {
 		useStore.getState().addMessage({
@@ -238,10 +222,6 @@ describe('AI slice', () => {
 	});
 });
 
-// =============================================================================
-// Collaboration slice
-// =============================================================================
-
 describe('Collaboration slice', () => {
 	it('adds a participant', () => {
 		useStore.getState().addParticipant({
@@ -267,10 +247,6 @@ describe('Collaboration slice', () => {
 		expect(useStore.getState().isConnected).toBe(true);
 	});
 });
-
-// =============================================================================
-// Pending Changes slice
-// =============================================================================
 
 describe('Pending Changes slice', () => {
 	const sampleChange = {
@@ -733,10 +709,6 @@ describe('Pending Changes slice', () => {
 	});
 });
 
-// =============================================================================
-// Plan mode
-// =============================================================================
-
 describe('Agent mode', () => {
 	it('defaults agentMode to code', () => {
 		expect(useStore.getState().agentMode).toBe('code');
@@ -751,10 +723,6 @@ describe('Agent mode', () => {
 		expect(useStore.getState().agentMode).toBe('code');
 	});
 });
-
-// =============================================================================
-// UI slice
-// =============================================================================
 
 describe('UI slice', () => {
 	it('toggles sidebar', () => {

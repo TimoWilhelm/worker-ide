@@ -1,14 +1,3 @@
-/**
- * Dev-only session resolution helpers.
- *
- * Shared between `worker/index.ts` (dev auth route stubs) and
- * `worker/lib/auth-middleware.ts` (dev fast-path) to avoid duplicating
- * the cookie-parsing and D1 session lookup logic.
- *
- * All code in this module is guarded by `import.meta.env.DEV` at the
- * call-site and is dead-code-eliminated from production builds.
- */
-
 import { getSessionCookie } from 'better-auth/cookies';
 import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';

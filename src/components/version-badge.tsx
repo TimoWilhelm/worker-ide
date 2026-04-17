@@ -1,44 +1,17 @@
-/**
- * Version Badge
- *
- * Displays the app version (git commit SHA) as a small, subtle badge.
- * Shows a truncated hash, reveals the full hash on hover via tooltip,
- * and copies the full hash to clipboard on click with a success toast.
- *
- * Optionally fetches the Cloudflare deployment version at runtime
- * to enrich the tooltip with deployment metadata.
- */
-
 import { useQuery } from '@tanstack/react-query';
 import { useCallback } from 'react';
 
 import { toast } from '@/components/ui/toast-store';
 import { Tooltip, TooltipProvider } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
-
-// =============================================================================
-// Constants
-// =============================================================================
-
-/** Number of characters to show in the truncated version. */
 const TRUNCATED_LENGTH = 7;
-
-/** Build-time git commit SHA injected by Vite's `define`. */
 const GIT_SHA = __APP_VERSION__;
-
-// =============================================================================
-// Types
-// =============================================================================
 
 interface CloudflareVersionMetadata {
 	id: string;
 	tag: string;
 	timestamp: string;
 }
-
-// =============================================================================
-// Hook: fetch CF deployment version
-// =============================================================================
 
 function useCloudflareVersion(): CloudflareVersionMetadata | undefined {
 	const query = useQuery({
@@ -56,12 +29,7 @@ function useCloudflareVersion(): CloudflareVersionMetadata | undefined {
 	return query.data ?? undefined;
 }
 
-// =============================================================================
-// Component
-// =============================================================================
-
 interface VersionBadgeProperties {
-	/** Additional class names for the outer element. */
 	className?: string;
 	/**
 	 * Whether to wrap in its own TooltipProvider.

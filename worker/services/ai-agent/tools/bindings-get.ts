@@ -1,8 +1,3 @@
-/**
- * Tool: bindings_get
- * Read the current bindings configuration for the project.
- */
-
 import { stripIndent } from 'common-tags';
 
 import { readBindingsConfig } from '@worker/lib/protected-files';

@@ -1,16 +1,8 @@
-/**
- * Unit tests for the project template registry.
- */
-
 import { describe, expect, it } from 'vitest';
 
 import { DEFAULT_TEMPLATE_ID, getTemplate, getTemplateMetadata, TEMPLATES } from './templates';
 
 import type { ProjectTemplate, ProjectTemplateMeta } from './templates';
-
-// =============================================================================
-// TEMPLATES array
-// =============================================================================
 
 describe('TEMPLATES', () => {
 	it('contains at least one template', () => {
@@ -61,10 +53,6 @@ describe('TEMPLATES', () => {
 	});
 });
 
-// =============================================================================
-// DEFAULT_TEMPLATE_ID
-// =============================================================================
-
 describe('DEFAULT_TEMPLATE_ID', () => {
 	it('is request-inspector', () => {
 		expect(DEFAULT_TEMPLATE_ID).toBe('request-inspector');
@@ -75,10 +63,6 @@ describe('DEFAULT_TEMPLATE_ID', () => {
 		expect(template).toBeDefined();
 	});
 });
-
-// =============================================================================
-// getTemplate
-// =============================================================================
 
 describe('getTemplate', () => {
 	it('returns a template when given a valid ID', () => {
@@ -115,10 +99,6 @@ describe('getTemplate', () => {
 		expect(template).toBeUndefined();
 	});
 });
-
-// =============================================================================
-// getTemplateMetadata
-// =============================================================================
 
 describe('getTemplateMetadata', () => {
 	it('returns an array of metadata for all templates', () => {

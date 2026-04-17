@@ -1,10 +1,3 @@
-/**
- * Offline Banner
- *
- * Displays a persistent banner at the top of the viewport when the browser
- * reports that the network connection is unavailable (`navigator.onLine === false`).
- */
-
 import { WifiOff } from 'lucide-react';
 
 import { useOnlineStatus } from '@/hooks/use-online-status';

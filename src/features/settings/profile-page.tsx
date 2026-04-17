@@ -1,10 +1,3 @@
-/**
- * Profile Settings Page
- *
- * Edit display name, view email and avatar (from GitHub OAuth),
- * and see linked accounts.
- */
-
 import { Check, Github, Link, Pencil, Unlink } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
@@ -67,13 +60,11 @@ export default function ProfilePage({ user }: ProfilePageProperties) {
 				<p className="text-sm text-text-secondary">Manage your personal information.</p>
 			</div>
 
-			{/* Profile info */}
 			<section
 				className="
 					flex flex-col gap-5 rounded-lg border border-border bg-bg-secondary/40 p-4
 				"
 			>
-				{/* Avatar + identity */}
 				<div className="flex items-center gap-4">
 					{user.image ? (
 						<img src={user.image} alt={user.name} className="size-16 rounded-full border border-border object-cover" />
@@ -93,7 +84,6 @@ export default function ProfilePage({ user }: ProfilePageProperties) {
 					</div>
 				</div>
 
-				{/* Display name */}
 				<div>
 					<label
 						className="
@@ -140,7 +130,6 @@ export default function ProfilePage({ user }: ProfilePageProperties) {
 					)}
 				</div>
 
-				{/* Email */}
 				<div>
 					<label
 						className="
@@ -167,15 +156,10 @@ export default function ProfilePage({ user }: ProfilePageProperties) {
 				</div>
 			</section>
 
-			{/* Linked Accounts */}
 			<LinkedAccountsSection />
 		</div>
 	);
 }
-
-// =============================================================================
-// Linked Accounts Section
-// =============================================================================
 
 interface LinkedAccount {
 	providerId: string;

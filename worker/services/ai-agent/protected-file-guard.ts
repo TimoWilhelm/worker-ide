@@ -1,10 +1,3 @@
-/**
- * Protected file guard for AI agent tools.
- *
- * Returns file-specific NOT_ALLOWED errors when the agent tries to modify
- * system files formatted for LLM consumption.
- */
-
 import { PROTECTED_SYSTEM_FILES } from '@shared/constants';
 import { ToolErrorCode, toolError } from '@shared/tool-errors';
 

@@ -1,10 +1,3 @@
-/**
- * useAiSessions Hook
- *
- * Manages AI session listing, loading, and auto-restore via Agent SDK RPC.
- * Sessions are stored on the AgentRunner DO and auto-synced via agent.state.
- */
-
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { toast } from '@/components/ui/toast-store';
@@ -13,21 +6,9 @@ import { useStore } from '@/lib/store';
 
 import type { AgentState } from '@shared/agent-state';
 import type { PendingFileChange } from '@shared/types';
-
-// =============================================================================
-// Helpers
-// =============================================================================
-
-/**
- * localStorage key for the active session ID, scoped per project.
- */
 function activeSessionKey(projectId: string): string {
 	return `worker-ide-active-session:${projectId}`;
 }
-
-/**
- * Read the active session ID for a project from localStorage.
- */
 function getActiveSessionId(projectId: string): string | undefined {
 	try {
 		return localStorage.getItem(activeSessionKey(projectId)) ?? undefined;
@@ -35,10 +16,6 @@ function getActiveSessionId(projectId: string): string | undefined {
 		return undefined;
 	}
 }
-
-/**
- * Write (or clear) the active session ID for a project in localStorage.
- */
 export function setActiveSessionId(projectId: string, sessionId: string | undefined): void {
 	try {
 		if (sessionId) {
@@ -50,10 +27,6 @@ export function setActiveSessionId(projectId: string, sessionId: string | undefi
 		// Ignore localStorage errors (private browsing, storage full, etc.)
 	}
 }
-
-// =============================================================================
-// Hook
-// =============================================================================
 
 interface AgentHandle {
 	state: unknown;

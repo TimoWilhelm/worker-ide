@@ -1,14 +1,6 @@
-/**
- * Unit tests for tool error utilities.
- */
-
 import { describe, expect, it } from 'vitest';
 
 import { ToolErrorCode, ToolExecutionError, TOOL_ERROR_LABELS, toolError } from './tool-errors';
-
-// =============================================================================
-// ToolErrorCode
-// =============================================================================
 
 describe('ToolErrorCode', () => {
 	it('contains all expected error codes', () => {
@@ -27,10 +19,6 @@ describe('ToolErrorCode', () => {
 		expect(ToolErrorCode.MISSING_INPUT).toBe('MISSING_INPUT');
 	});
 });
-
-// =============================================================================
-// ToolExecutionError
-// =============================================================================
 
 describe('ToolExecutionError', () => {
 	it('creates an error with [CODE] message format', () => {
@@ -60,10 +48,6 @@ describe('ToolExecutionError', () => {
 	});
 });
 
-// =============================================================================
-// toolError
-// =============================================================================
-
 describe('toolError', () => {
 	it('throws a ToolExecutionError', () => {
 		expect(() => toolError(ToolErrorCode.FILE_NOT_FOUND, 'gone')).toThrow(ToolExecutionError);
@@ -87,10 +71,6 @@ describe('toolError', () => {
 		expect.unreachable('toolError did not throw');
 	});
 });
-
-// =============================================================================
-// TOOL_ERROR_LABELS
-// =============================================================================
 
 describe('TOOL_ERROR_LABELS', () => {
 	it('has a label for every error code', () => {

@@ -1,10 +1,3 @@
-/**
- * Password Reset Email Template
- *
- * Sent when a user requests a password reset.
- * Uses React Email components for rendering.
- */
-
 import { Body, Button, Container, Head, Heading, Hr, Html, Preview, Section, Text } from '@react-email/components';
 
 interface PasswordResetProperties {
@@ -38,10 +31,6 @@ export function PasswordResetEmail({ userName, resetUrl }: PasswordResetProperti
 		</Html>
 	);
 }
-
-// =============================================================================
-// Styles
-// =============================================================================
 
 const bodyStyle = {
 	backgroundColor: '#f6f9fc',

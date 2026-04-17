@@ -1,10 +1,3 @@
-/**
- * Settings Mobile Drawer
- *
- * Slide-in drawer for settings navigation on mobile.
- * Same Dialog + motion pattern as MobileFileDrawer.
- */
-
 import { Dialog } from '@base-ui/react/dialog';
 import { Hexagon } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';

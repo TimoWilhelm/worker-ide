@@ -1,10 +1,3 @@
-/**
- * MIME type mappings for the Worker IDE application.
- */
-
-/**
- * File extension to content type mapping
- */
 export const CONTENT_TYPE_MAP: Record<string, string> = {
 	html: 'text/html',
 	js: 'application/javascript',

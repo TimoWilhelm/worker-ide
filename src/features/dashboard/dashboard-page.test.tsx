@@ -1,11 +1,3 @@
-/**
- * React component tests for the Dashboard Page.
- *
- * Mocks API calls and WebGL (jsdom has no WebGL support) to test
- * user interactions: template selection, detail modal, clone input,
- * recent projects, and back button handling.
- */
-
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -14,10 +6,6 @@ import { MemoryRouter } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import DashboardPage from './dashboard-page';
-
-// =============================================================================
-// Mocks
-// =============================================================================
 
 vi.mock('@/components/beta-indicator', () => ({
 	BetaIndicator: () => <span data-testid="beta-indicator">&beta;</span>,
@@ -93,10 +81,6 @@ afterEach(() => {
 	vi.restoreAllMocks();
 });
 
-// =============================================================================
-// Import mocked modules (after vi.mock declarations)
-// =============================================================================
-
 const { createProject, cloneProject, deleteProject, fetchOrgProjects } = await import('@/lib/api-client');
 
 type DashboardProject = Awaited<ReturnType<typeof fetchOrgProjects>>[number];
@@ -128,10 +112,6 @@ const defaultProperties = {
 	organizations: [{ id: 'org1', name: 'Test Org', slug: 'test-org' }],
 	user: { name: 'Test User', email: 'test@example.com' },
 };
-
-// =============================================================================
-// Tests
-// =============================================================================
 
 describe('DashboardPage', () => {
 	it('renders the page title', () => {

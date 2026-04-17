@@ -1,7 +1,3 @@
-/**
- * Types for the AI Agent Service.
- */
-
 import type { ProjectFilesystem } from '../../durable/project-filesystem';
 import type { ExtensionManager } from '@cloudflare/think/extensions';
 import type { FiberSnapshot, StreamEvent } from '@shared/agent-state';
@@ -9,14 +5,6 @@ import type { AIModelId } from '@shared/constants';
 import type { AgentMode, ChatMessage, PendingFileChange, ToolErrorInfo, ToolMetadataInfo } from '@shared/types';
 import type { Agent } from 'agents';
 import type { Session } from 'agents/experimental/memory/session';
-
-// =============================================================================
-// Types
-// =============================================================================
-
-/**
- * Re-export Vercel AI SDK's ModelMessage as our internal message type.
- */
 export type { ModelMessage } from 'ai';
 
 export interface FileChange {
@@ -31,7 +19,6 @@ export interface SnapshotMetadata {
 	id: string;
 	timestamp: number;
 	label: string;
-	/** The AI session that created this snapshot (absent in legacy snapshots) */
 	sessionId?: string;
 	changes: Array<{ path: string; action: 'create' | 'edit' | 'delete' }>;
 }
@@ -97,7 +84,6 @@ export interface ToolExecutorContext {
 	mode: 'code' | 'plan' | 'ask';
 	sessionId?: string;
 	session?: Session;
-	/** Abort signal from the agent loop — tools should check this to bail out early on cancellation. */
 	abortSignal?: AbortSignal;
 	callMcpTool: (serverId: string, toolName: string, arguments_: Record<string, unknown>) => Promise<string>;
 	isSubAgent?: boolean;
@@ -105,9 +91,7 @@ export interface ToolExecutorContext {
 	browser?: Fetcher;
 	agentReference?: Agent<Env, unknown>;
 	extensionManager?: ExtensionManager;
-	/** Filesystem Durable Object stub — needed to construct sub-agent services. */
 	fsStub: DurableObjectStub<ProjectFilesystem>;
-	/** Current AI model ID — sub-agents inherit the parent's model. */
 	model: AIModelId;
 }
 

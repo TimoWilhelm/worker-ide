@@ -1,15 +1,4 @@
-/**
- * Shared test helpers for AI tool integration tests.
- *
- * Provides an in-memory filesystem that backs the `node:fs/promises` mock,
- * so tools exercise real read → write → edit flows against a consistent store.
- */
-
 import type { SendEventFunction, ToolExecutorContext } from '../types';
-
-// =============================================================================
-// In-Memory Filesystem
-// =============================================================================
 
 interface MemoryFsEntry {
 	content: string | Buffer;
@@ -18,19 +7,10 @@ interface MemoryFsEntry {
 }
 
 export interface MemoryFs {
-	/** The underlying store — keyed by absolute path */
 	store: Map<string, MemoryFsEntry>;
-
-	/** Seed a file into the virtual filesystem */
 	seedFile: (absolutePath: string, content: string | Buffer) => void;
-
-	/** Seed a directory into the virtual filesystem */
 	seedDirectory: (absolutePath: string) => void;
-
-	/** Clear all entries — call this in beforeEach to reset between tests */
 	reset: () => void;
-
-	/** Get the mock object suitable for `vi.mock('node:fs/promises')` return */
 	asMock: () => {
 		default: {
 			readFile: (...arguments_: unknown[]) => Promise<string | Buffer>;
@@ -72,8 +52,6 @@ function makeEnoentError(path: string): Error {
 
 export function createMemoryFs(): MemoryFs {
 	const store = new Map<string, MemoryFsEntry>();
-
-	/** Clear all entries — call this in beforeEach to reset between tests */
 	function reset(): void {
 		store.clear();
 	}
@@ -236,10 +214,6 @@ export function createMemoryFs(): MemoryFs {
 	return { store, seedFile, seedDirectory, reset, asMock };
 }
 
-// =============================================================================
-// Mock Context Factory
-// =============================================================================
-
 export function createMockContext(overrides?: Partial<ToolExecutorContext>): ToolExecutorContext {
 	return {
 		projectRoot: '/project',
@@ -252,10 +226,6 @@ export function createMockContext(overrides?: Partial<ToolExecutorContext>): Too
 		...overrides,
 	};
 }
-
-// =============================================================================
-// Mock SendEvent Factory
-// =============================================================================
 
 export function createMockSendEvent(): SendEventFunction & { calls: Array<[string, Record<string, unknown>]> } {
 	const calls: Array<[string, Record<string, unknown>]> = [];

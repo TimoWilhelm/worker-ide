@@ -1,10 +1,3 @@
-/**
- * Integration tests for the file_grep tool.
- *
- * Tests regex search, include filtering (real minimatch), binary skipping,
- * match grouping, and result capping against an in-memory filesystem.
- */
-
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createMemoryFs, createMockContext, createMockSendEvent } from './test-helpers';

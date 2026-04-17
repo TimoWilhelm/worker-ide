@@ -1,12 +1,3 @@
-/**
- * Storage quota resolution.
- *
- * Resolves the effective storage quota for a project by querying the
- * project's org plan, org entitlements, and project entitlements from D1.
- *
- * Resolution order: project entitlement → org entitlement → plan default.
- */
-
 import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
 

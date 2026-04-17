@@ -1,8 +1,3 @@
-/**
- * Shared editor area component used by both mobile and desktop layouts.
- * Includes file tabs, prettify button, diff toolbars, CodeEditor, and empty state.
- */
-
 import { EditorView } from '@codemirror/view';
 import { Package, Sparkles } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
@@ -31,7 +26,6 @@ interface EditorAreaProperties {
 	resolvedTheme: 'light' | 'dark';
 	editorState: EditorState;
 	onSelectFile: (path: string) => void;
-	/** Optional element to show before the tabs (e.g. file-tree toggle on mobile) */
 	tabsPrefix?: React.ReactNode;
 }
 
@@ -267,10 +261,6 @@ export function EditorArea({ projectId, resolvedTheme, editorState, onSelectFile
 		</>
 	);
 }
-
-// =============================================================================
-// Protected File Banner
-// =============================================================================
 
 function ProtectedFileBanner({ path }: { path: string }) {
 	const showDependenciesPanel = useStore((state) => state.showDependenciesPanel);

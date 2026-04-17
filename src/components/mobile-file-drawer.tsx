@@ -1,10 +1,3 @@
-/**
- * Mobile File Drawer Component
- *
- * Slide-in drawer from the left for accessing the file tree on mobile.
- * Uses Base UI Dialog primitives for accessible overlay behavior.
- */
-
 import { Dialog } from '@base-ui/react/dialog';
 import { AnimatePresence, motion } from 'motion/react';
 
@@ -14,10 +7,6 @@ import { useStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 
 import type { ReactNode } from 'react';
-
-// =============================================================================
-// Component
-// =============================================================================
 
 interface MobileFileDrawerProperties {
 	children: ReactNode;

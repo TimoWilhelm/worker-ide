@@ -1,11 +1,3 @@
-/**
- * Diff Floating Bar
- *
- * Floating UI element at the bottom of the editor when a file has pending AI changes.
- * Provides hunk-level navigation (prev/next), a counter ("3 of 12 edits"),
- * and file-level Accept All / Reject All controls.
- */
-
 import { Check, ChevronDown, ChevronUp, X } from 'lucide-react';
 import { motion } from 'motion/react';
 
@@ -14,34 +6,17 @@ import { cn } from '@/lib/utils';
 
 import type { ChangeGroup } from '../lib/diff-decorations';
 
-// =============================================================================
-// Types
-// =============================================================================
-
 export interface DiffFloatingBarProperties {
-	/** Change groups derived from the diff hunks */
 	changeGroups: ChangeGroup[];
-	/** Per-group statuses for showing resolved state */
 	hunkStatuses: Array<'pending' | 'approved' | 'rejected'>;
-	/** Index of the currently focused change group (0-based) */
 	currentGroupIndex: number;
-	/** Called when the user navigates to a different change group */
 	onNavigate: (groupIndex: number) => void;
-	/** Called to accept all pending changes */
 	onAcceptAll: (path: string) => void;
-	/** Called to reject all pending changes */
 	onRejectAll: (path: string) => void;
-	/** File path for accept/reject callbacks */
 	path: string;
-	/** Whether a revert operation is in progress */
 	isReverting: boolean;
-	/** Whether rejection is possible */
 	canReject: boolean;
 }
-
-// =============================================================================
-// Component
-// =============================================================================
 
 export function DiffFloatingBar({
 	changeGroups,
@@ -88,7 +63,6 @@ export function DiffFloatingBar({
 				'border-border-solid bg-bg-secondary shadow-lg',
 			)}
 		>
-			{/* Navigation controls */}
 			<button
 				type="button"
 				onClick={handlePrevious}
@@ -128,10 +102,8 @@ export function DiffFloatingBar({
 				<ChevronDown className="size-3.5" />
 			</button>
 
-			{/* Divider */}
 			<div className="mx-0.5 h-4 w-px bg-border-solid" />
 
-			{/* Accept All */}
 			<button
 				type="button"
 				onClick={() => onAcceptAll(path)}
@@ -147,7 +119,6 @@ export function DiffFloatingBar({
 				Accept
 			</button>
 
-			{/* Reject All */}
 			<button
 				type="button"
 				onClick={() => onRejectAll(path)}

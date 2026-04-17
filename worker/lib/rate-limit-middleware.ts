@@ -1,11 +1,3 @@
-/**
- * API Rate Limit Middleware
- *
- * General-purpose rate limiter for all authenticated API endpoints.
- * Uses the Cloudflare Rate Limiting binding keyed on the authenticated
- * user ID. Must be registered AFTER `requireAuth` so `userId` is available.
- */
-
 import { env } from 'cloudflare:workers';
 import { createMiddleware } from 'hono/factory';
 

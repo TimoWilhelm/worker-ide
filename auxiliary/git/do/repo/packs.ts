@@ -123,10 +123,6 @@ export function parseEpochFromHydrPackKey(key: string): string | null {
 		return null;
 	}
 }
-
-/**
- * Derive epoch id from hydration workId. Example: hydr-1727082945000 -> e1727082945000
- */
 export function getEpochFromWorkId(workId: string): string {
 	if (workId && workId.startsWith('hydr-')) {
 		return `e${workId.slice(5)}`;

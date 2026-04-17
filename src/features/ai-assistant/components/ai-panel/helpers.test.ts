@@ -1,16 +1,8 @@
-/**
- * Unit tests for agent panel helper functions.
- */
-
 import { describe, expect, it } from 'vitest';
 
 import { toolInputSchemas } from '@shared/validation';
 
 import { isToolName, isRecord } from './helpers';
-
-// =============================================================================
-// isToolName
-// =============================================================================
 
 describe('isToolName', () => {
 	it('returns true for every tool name in toolInputSchemas', () => {
@@ -30,10 +22,6 @@ describe('isToolName', () => {
 		expect(isToolName(null)).toBe(false);
 	});
 });
-
-// =============================================================================
-// isRecord
-// =============================================================================
 
 describe('isRecord', () => {
 	it('returns true for plain objects', () => {

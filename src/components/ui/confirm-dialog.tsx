@@ -1,10 +1,3 @@
-/**
- * Confirm Dialog Component
- *
- * Reusable confirmation dialog using Base UI AlertDialog primitives.
- * Replaces browser-native confirm() calls with a styled modal.
- */
-
 import { AlertDialog } from '@base-ui/react/alert-dialog';
 import { AnimatePresence, motion } from 'motion/react';
 
@@ -14,32 +7,16 @@ import { cn } from '@/lib/utils';
 
 import type { ReactNode } from 'react';
 
-// =============================================================================
-// Types
-// =============================================================================
-
 export interface ConfirmDialogProperties {
-	/** Whether the dialog is open */
 	open: boolean;
-	/** Callback when open state changes */
 	onOpenChange: (open: boolean) => void;
-	/** Dialog title */
 	title: string;
-	/** Dialog description / message */
 	description: ReactNode;
-	/** Confirm button label (default: "Confirm") */
 	confirmLabel?: string;
-	/** Cancel button label (default: "Cancel") */
 	cancelLabel?: string;
-	/** Callback when confirmed */
 	onConfirm: () => void;
-	/** Visual variant (default: "default") */
 	variant?: 'default' | 'danger' | 'warning';
 }
-
-// =============================================================================
-// Component
-// =============================================================================
 
 export function ConfirmDialog({
 	open,

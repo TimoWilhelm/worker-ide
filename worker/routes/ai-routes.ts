@@ -1,11 +1,3 @@
-/**
- * AI Agent routes.
- *
- * Most AI operations (startRun, abortRun, loadSession, etc.) are handled
- * via Agent SDK @callable RPC over WebSocket. These HTTP routes serve only
- * debug log file downloads which are better suited to HTTP (binary content).
- */
-
 import fs from 'node:fs/promises';
 
 import { zValidator } from '@hono/zod-validator';
@@ -18,10 +10,6 @@ import { debugLogIdSchema, sessionIdSchema } from '@shared/validation';
 import { httpError } from '../lib/http-error';
 
 import type { AppEnvironment } from '../types';
-
-/**
- * AI routes - all routes are prefixed with /api
- */
 export const aiRoutes = new Hono<AppEnvironment>()
 	// GET /api/ai/latest-debug-log-id?sessionId=X - Get the latest debug log ID for a session
 	.get('/ai/latest-debug-log-id', zValidator('query', z.object({ sessionId: sessionIdSchema })), async (c) => {

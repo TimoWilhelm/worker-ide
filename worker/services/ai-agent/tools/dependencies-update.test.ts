@@ -1,10 +1,3 @@
-/**
- * Integration tests for the dependencies_update tool.
- *
- * Tests add/remove/update actions, duplicate detection,
- * and error handling against an in-memory filesystem.
- */
-
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createMemoryFs, createMockContext, createMockSendEvent } from './test-helpers';

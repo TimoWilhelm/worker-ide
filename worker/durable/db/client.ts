@@ -1,11 +1,3 @@
-/**
- * Drizzle client factory for Durable Object SQLite storage.
- *
- * The `durable-sqlite` driver accepts `DurableObjectStorage` directly
- * (not `storage.sql`) and operates synchronously — matching Cloudflare's
- * synchronous SQLite API on Durable Objects.
- */
-
 import { drizzle } from 'drizzle-orm/durable-sqlite';
 
 import type { DrizzleSqliteDODatabase } from 'drizzle-orm/durable-sqlite';

@@ -1,12 +1,3 @@
-/**
- * Login Page
- *
- * GitHub OAuth login page. Shown when the user is not authenticated.
- * The AuthGate in app.tsx ensures this is only rendered for unauthenticated users.
- *
- * Single-column centered layout over the halftone shader background.
- */
-
 import { Github, Hexagon } from 'lucide-react';
 import { motion } from 'motion/react';
 import { Suspense } from 'react';
@@ -42,7 +33,6 @@ function GoogleIcon({ className }: { className?: string }) {
 export default function LoginPage() {
 	return (
 		<div className="relative flex h-dvh flex-col items-center justify-center">
-			{/* Halftone shader background */}
 			<Suspense fallback={undefined}>
 				<HalftoneBackground />
 			</Suspense>
@@ -55,13 +45,11 @@ export default function LoginPage() {
 				initial="hidden"
 				animate="visible"
 			>
-				{/* Branding */}
 				<motion.div className="flex flex-col items-center gap-3" variants={fadeUpVariants} transition={springGentle}>
 					<Hexagon className="size-10 text-accent" strokeWidth={1.5} />
 					<h1 className="text-2xl font-semibold tracking-tight text-text-primary">Codemaxxing</h1>
 				</motion.div>
 
-				{/* Card-like form area */}
 				<motion.div
 					className="
 						flex w-full flex-col items-center gap-6 rounded-xl border border-border

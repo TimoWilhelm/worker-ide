@@ -1,29 +1,7 @@
-/**
- * Transparent retry proxy for Durable Objects.
- *
- * Wraps a DurableObjectNamespace to automatically retry failed RPC calls
- * with exponential backoff and jitter. Creates a fresh stub on each retry
- * since exceptions can leave stubs in a "broken" state.
- *
- * IMPORTANT — workerd illegal-invocation constraint:
- * workerd uses C++-backed proxy objects for namespaces and stubs. Extracting a
- * method into a variable (via Reflect.get, destructuring, or assignment) detaches
- * the internal `this` binding and throws "Illegal invocation" when called.
- * The ONLY safe pattern is a single expression where property access and call
- * happen together: `obj[key](...args)`.  Never `const fn = obj[key]; fn(...)`.
- *
- * @see https://developers.cloudflare.com/durable-objects/best-practices/error-handling/
- * @see https://developers.cloudflare.com/workers/observability/errors/#illegal-invocation-errors
- */
-
 export interface RetryOptions {
-	/** Maximum number of retry attempts (default: 3) */
 	maxAttempts?: number;
-	/** Base delay in milliseconds for exponential backoff (default: 100) */
 	baseDelayMs?: number;
-	/** Maximum delay in milliseconds (default: 3000) */
 	maxDelayMs?: number;
-	/** Custom function to determine if an error is retryable */
 	isRetryable?: (error: unknown) => boolean;
 }
 
@@ -80,8 +58,6 @@ type StubGetter<T extends Rpc.DurableObjectBranded> = () => DurableObjectStub<T>
 type ResolvedOptions = Required<Omit<RetryOptions, 'isRetryable'>> & {
 	isRetryable?: (error: unknown) => boolean;
 };
-
-/** Non-function properties on DurableObjectStub read directly (no wrapping). */
 const STUB_VALUE_PROPERTIES = new Set(['id', 'name']);
 
 /**

@@ -1,12 +1,3 @@
-/**
- * Storage operations for Git objects in Durable Object and R2
- *
- * This module handles the storage and retrieval of Git objects,
- * maintaining a two-tier storage strategy:
- * - DO storage: Fast, consistent, limited capacity
- * - R2 storage: Cheap, scalable, eventual consistency
- */
-
 import { isValidOid } from '@git/common/index';
 import { inflateAndParseHeader, parseCommitRefs, parseTreeChildOids, parseCommitText } from '@git/git/index';
 import { r2LooseKey } from '@git/keys';

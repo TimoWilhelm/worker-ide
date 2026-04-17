@@ -1,10 +1,3 @@
-/**
- * New File E2E Tests
- *
- * Tests creating a new file via the sidebar "New File" button,
- * verifying it appears in the file tree and opens in the editor.
- */
-
 import { expect, test } from 'playwright/test';
 
 import { gotoIDE, waitForFileTree } from './helpers';

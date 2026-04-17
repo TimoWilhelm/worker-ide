@@ -1,7 +1,3 @@
-/**
- * Component tests for FileTree.
- */
-
 import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -10,10 +6,6 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { FileTree } from './file-tree';
 
 import type { FileInfo } from '@shared/types';
-
-/**
- * Helper to wrap component in required providers.
- */
 function renderWithProviders(ui: React.ReactElement) {
 	return render(<TooltipProvider>{ui}</TooltipProvider>);
 }

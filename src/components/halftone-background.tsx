@@ -1,22 +1,7 @@
-/**
- * Halftone Background Component
- *
- * Full-screen WebGL2 canvas that renders an animated halftone dot pattern
- * with a fire-like warm glow emanating from the bottom of the screen.
- * Adapts to light/dark mode by reading CSS custom properties.
- *
- * This component is lazy-loaded via React.lazy() to avoid increasing
- * the initial bundle size. No external dependencies — pure WebGL2.
- */
-
 import { useEffect, useRef } from 'react';
 
 import fragmentShaderSource from './shaders/halftone.frag.glsl?raw';
 import vertexShaderSource from './shaders/halftone.vert.glsl?raw';
-
-// =============================================================================
-// WebGL Helpers
-// =============================================================================
 
 function createShader(gl: WebGL2RenderingContext, type: number, source: string): WebGLShader | undefined {
 	const shader = gl.createShader(type);
@@ -44,10 +29,6 @@ function createProgram(gl: WebGL2RenderingContext, vertexShader: WebGLShader, fr
 	}
 	return program;
 }
-
-// =============================================================================
-// Color Helpers
-// =============================================================================
 
 /**
  * Offscreen canvas context used to resolve arbitrary CSS color values
@@ -91,17 +72,9 @@ function resolveColorToRgb(cssColor: string, fallback: [number, number, number])
 	const pixel = context.getImageData(0, 0, 1, 1).data;
 	return [pixel[0] / 255, pixel[1] / 255, pixel[2] / 255];
 }
-
-/**
- * Read a CSS custom property value from the document root.
- */
 function getCssVariable(name: string): string {
 	return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 }
-
-// =============================================================================
-// Component
-// =============================================================================
 
 interface WebGLContext {
 	gl: WebGL2RenderingContext;
@@ -163,10 +136,7 @@ function setupWebGL(canvas: HTMLCanvasElement): WebGLContext | undefined {
 		},
 	};
 }
-
-/** Default accent color (dark mode orange) as normalised RGB */
 const DEFAULT_ACCENT: [number, number, number] = [0.945, 0.275, 0.008];
-/** Default background color (dark mode near-black) as normalised RGB */
 const DEFAULT_BACKGROUND: [number, number, number] = [0.071, 0.071, 0.071];
 
 /**

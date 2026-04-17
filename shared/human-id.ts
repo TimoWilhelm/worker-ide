@@ -1,10 +1,3 @@
-/**
- * Human-readable ID generator.
- *
- * Generates memorable IDs in the format "adjective-noun-number"
- * (e.g., "swift-river-42"). ~250K combinations.
- */
-
 const ADJECTIVES = [
 	'bold',
 	'calm',
@@ -109,10 +102,6 @@ const NOUNS = [
 	'wave',
 	'wind',
 ] as const;
-
-/**
- * Generate a human-readable ID like "bold-arch-42".
- */
 export function generateHumanId(): string {
 	const adjective = ADJECTIVES[Math.floor(Math.random() * ADJECTIVES.length)];
 	const noun = NOUNS[Math.floor(Math.random() * NOUNS.length)];

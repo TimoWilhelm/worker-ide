@@ -1,10 +1,3 @@
-/**
- * Git History Panel
- *
- * Shows commit history with an optional graph visualization.
- * Clicking a commit shows its detail view.
- */
-
 import { useQuery } from '@tanstack/react-query';
 import { Clock } from 'lucide-react';
 import { useCallback, useMemo, useState } from 'react';
@@ -19,10 +12,6 @@ import { computeGraphLayout } from '../lib/git-graph-layout';
 
 import type { GitCommitEntry, GitFileDiff } from '@shared/types';
 
-// =============================================================================
-// Types
-// =============================================================================
-
 interface GitHistoryPanelProperties {
 	projectId: string;
 	commits: GitCommitEntry[];
@@ -32,10 +21,6 @@ interface GitHistoryPanelProperties {
 	onFileClick: (path: string, objectId: string) => void;
 	isCheckoutPending?: boolean;
 }
-
-// =============================================================================
-// Helpers
-// =============================================================================
 
 function formatRelativeTime(timestamp: number): string {
 	const now = Date.now() / 1000;
@@ -48,10 +33,6 @@ function formatRelativeTime(timestamp: number): string {
 	if (diff < 2_592_000) return `${Math.floor(diff / 604_800)}w ago`;
 	return new Date(timestamp * 1000).toLocaleDateString();
 }
-
-// =============================================================================
-// Component
-// =============================================================================
 
 export function GitHistoryPanel({
 	projectId,
@@ -118,10 +99,8 @@ export function GitHistoryPanel({
 
 	return (
 		<div className="flex">
-			{/* Graph column */}
 			<GitHistoryGraph entries={graphEntries} />
 
-			{/* Commit list */}
 			<div className="min-w-0 flex-1">
 				{graphEntries.map((entry) => (
 					<button
@@ -142,7 +121,6 @@ export function GitHistoryPanel({
 					>
 						<div className="flex items-center gap-1.5 overflow-hidden">
 							<span className="min-w-0 truncate text-xs text-text-primary">{entry.message.split('\n')[0]}</span>
-							{/* Branch/tag labels */}
 							{entry.branchNames.map((name) => (
 								<span
 									key={`branch-${name}`}

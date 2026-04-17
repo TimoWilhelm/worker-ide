@@ -1,10 +1,3 @@
-/**
- * Model Selector Dropdown
- *
- * Dropdown menu for selecting the AI model to use in the AI agent.
- * Opens upward from the trigger pill, displaying available models with descriptions.
- */
-
 import { Menu } from '@base-ui/react/menu';
 import { motion } from 'motion/react';
 
@@ -14,16 +7,9 @@ import { cn } from '@/lib/utils';
 
 import { AI_MODELS, getModelLabel, type AIModelId } from './model-config';
 
-// =============================================================================
-// Component
-// =============================================================================
-
 interface ModelSelectorDropdownProperties {
-	/** Currently selected model ID */
 	selectedModel: AIModelId;
-	/** Callback when a model is selected */
 	onSelectModel: (modelId: AIModelId) => void;
-	/** Whether the selector is disabled */
 	disabled?: boolean;
 }
 

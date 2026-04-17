@@ -1,19 +1,8 @@
-/**
- * File Reference Pill
- *
- * Renders a clickable file path pill that opens the file in the editor.
- * Used in user messages and assistant messages.
- */
-
 import { FileText } from 'lucide-react';
 
 import { Tooltip } from '@/components/ui/tooltip';
 import { useStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
-
-/**
- * Clickable inline pill that opens a file in the editor.
- */
 export function FileReference({
 	path,
 	className,
@@ -27,7 +16,6 @@ export function FileReference({
 	 * When false AND onClick is provided, renders as a clickable <span> with role="button".
 	 */
 	interactive?: boolean;
-	/** Custom click handler — when provided in non-interactive mode, makes the pill clickable without nesting a <button>. */
 	onClick?: (event: { stopPropagation: () => void }) => void;
 }) {
 	const openFile = useStore((state) => state.openFile);

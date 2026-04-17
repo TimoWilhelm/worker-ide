@@ -1,17 +1,4 @@
-/**
- * Biome Core — standalone Biome WASM logic
- *
- * Contains all lint/fix logic without any Cloudflare-specific imports.
- * This module is imported by both:
- *   - `index.ts` (WorkerEntrypoint wrapper for RPC)
- *   - Tests that need real Biome WASM without cloudflare:workers
- */
-
 import type { FixFileFailure, ServerLintDiagnostic, ServerLintFixResult } from '@shared/biome-types';
-
-// =============================================================================
-// Supported Extensions
-// =============================================================================
 
 const LINTABLE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.css', '.json']);
 
@@ -19,10 +6,6 @@ function isLintableFile(filePath: string): boolean {
 	const extension = filePath.slice(filePath.lastIndexOf('.'));
 	return LINTABLE_EXTENSIONS.has(extension);
 }
-
-// =============================================================================
-// Internal Biome Types (runtime shapes from @biomejs/js-api)
-// =============================================================================
 
 interface BiomeDiagnosticResult {
 	description: string;
@@ -51,10 +34,6 @@ interface BiomeWorkspace {
 		diagnostics: BiomeDiagnosticResult[];
 	};
 }
-
-// =============================================================================
-// Lazy Biome Instance (module-level singleton)
-// =============================================================================
 
 let initPromise: Promise<void> | undefined;
 let initFailed = false;
@@ -111,10 +90,6 @@ async function initBiome(): Promise<void> {
 	}
 }
 
-// =============================================================================
-// Severity Mapping
-// =============================================================================
-
 function mapDiagnosticSeverity(severity: string): ServerLintDiagnostic['severity'] {
 	switch (severity) {
 		case 'error':
@@ -126,10 +101,6 @@ function mapDiagnosticSeverity(severity: string): ServerLintDiagnostic['severity
 		}
 	}
 }
-
-// =============================================================================
-// Offset → Line/Column Conversion
-// =============================================================================
 
 function offsetToLineAndColumn(content: string, offset: number): { line: number; column: number } {
 	let line = 1;
@@ -143,10 +114,6 @@ function offsetToLineAndColumn(content: string, offset: number): { line: number;
 	const column = offset - lastNewlineIndex;
 	return { line, column };
 }
-
-// =============================================================================
-// Workspace-level Diagnostics
-// =============================================================================
 
 /**
  * Pull diagnostics directly from the Biome workspace with pullCodeActions
@@ -174,10 +141,6 @@ function pullDiagnosticsWithCodeActions(key: number, filePath: string, content: 
 	}
 }
 
-// =============================================================================
-// Diagnostic Mapping
-// =============================================================================
-
 function mapDiagnostics(diagnostics: BiomeDiagnosticResult[], content: string): ServerLintDiagnostic[] {
 	return diagnostics.map((diagnostic) => {
 		const span = diagnostic.location?.span;
@@ -198,10 +161,6 @@ function mapDiagnostics(diagnostics: BiomeDiagnosticResult[], content: string): 
 		};
 	});
 }
-
-// =============================================================================
-// Standalone Functions — used by the WorkerEntrypoint and exported for tests
-// =============================================================================
 
 /**
  * Lint a file and return diagnostics.

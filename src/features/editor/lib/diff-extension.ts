@@ -1,36 +1,9 @@
-/**
- * CodeMirror Diff Extension
- *
- * Provides inline diff decorations for the editor: green backgrounds for
- * added lines, red widget decorations for removed lines, and gutter markers.
- *
- * Removed lines are rendered as individual block widgets (one per line) so
- * that each participates in CodeMirror's native gutter system.  The
- * `lineNumberWidgetMarker` facet gives each widget a proper line number in
- * the line-number gutter, and `widgetMarker` on the diff gutter gives each
- * widget a "−" marker — no fake HTML gutters needed.
- *
- * Split into two independent extension sets:
- * - `createDiffDecorations()` — Core diff line/gutter decorations. Used by
- *   both AI change review and read-only git diffs.
- * - `createAiActionBarExtension()` — Inline "AI Change" accept/reject bar.
- *   Only used during AI change review.
- */
-
 import { RangeSetBuilder, StateField, type Extension, type Text, type Transaction } from '@codemirror/state';
 import { Decoration, EditorView, GutterMarker, WidgetType, gutter, type DecorationSet } from '@codemirror/view';
 
 import { groupHunksIntoChanges, type ChangeGroup, type DiffHunk } from './diff-decorations';
 
-// =============================================================================
-// Core decoration marks
-// =============================================================================
-
 const addedLineDecoration = Decoration.line({ class: 'cm-diff-added' });
-
-// =============================================================================
-// Gutter markers
-// =============================================================================
 
 class AddedGutterMarker extends GutterMarker {
 	toDOM(): Node {
@@ -53,10 +26,6 @@ class RemovedGutterMarker extends GutterMarker {
 const addedMarker = new AddedGutterMarker();
 const removedMarker = new RemovedGutterMarker();
 
-// =============================================================================
-// Removed line widget — one per removed line for native gutter integration
-// =============================================================================
-
 /**
  * A single removed line rendered as a block widget.  Each removed line
  * in a diff hunk becomes its own `RemovedLineWidget` so that CodeMirror's
@@ -65,9 +34,7 @@ const removedMarker = new RemovedGutterMarker();
  */
 class RemovedLineWidget extends WidgetType {
 	constructor(
-		/** Text content of the removed line */
 		readonly lineText: string,
-		/** 1-indexed line number in the original (before) document */
 		readonly beforeLineNumber: number,
 	) {
 		super();
@@ -94,10 +61,6 @@ class RemovedLineWidget extends WidgetType {
 		return true;
 	}
 }
-
-// =============================================================================
-// AI action bar widget (AI-only — accept/reject at first hunk)
-// =============================================================================
 
 class AiActionBarWidget extends WidgetType {
 	constructor(
@@ -153,15 +116,7 @@ class AiActionBarWidget extends WidgetType {
 	}
 }
 
-// =============================================================================
-// Core diff decorations (no action bar)
-// =============================================================================
-
 type HunkStatus = 'pending' | 'approved' | 'rejected';
-
-/**
- * Build the set of hunks that should be skipped (belong to resolved change groups).
- */
 function resolvedHunkSet(hunks: DiffHunk[], hunkStatuses: HunkStatus[]): Set<DiffHunk> {
 	if (hunkStatuses.length === 0) return new Set();
 	const groups = groupHunksIntoChanges(hunks);
@@ -244,10 +199,6 @@ function createCoreDiffField(hunks: DiffHunk[], hunkStatuses: HunkStatus[]): Ext
 	});
 }
 
-// =============================================================================
-// AI action bar extension (separate from core decorations)
-// =============================================================================
-
 function buildActionBarDecorations(
 	document_: Text,
 	changeGroups: ChangeGroup[],
@@ -309,10 +260,6 @@ function createAiActionBarField(
 	});
 }
 
-// =============================================================================
-// Gutter extension
-// =============================================================================
-
 function createDiffGutter(hunks: DiffHunk[]): Extension {
 	return gutter({
 		class: 'cm-diff-gutter',
@@ -353,10 +300,6 @@ function createDiffGutter(hunks: DiffHunk[]): Extension {
 	});
 }
 
-// =============================================================================
-// Theme — core diff styles (used by both AI and git diffs)
-// =============================================================================
-
 const coreDiffTheme = EditorView.baseTheme({
 	'.cm-diff-added': {
 		backgroundColor: 'color-mix(in srgb, var(--color-success) 10%, transparent)',
@@ -388,10 +331,6 @@ const coreDiffTheme = EditorView.baseTheme({
 		fontSize: '12px',
 	},
 });
-
-// =============================================================================
-// Theme — AI action bar styles (only loaded when action bar is shown)
-// =============================================================================
 
 const aiActionBarTheme = EditorView.baseTheme({
 	'.cm-diff-action-bar': {
@@ -439,10 +378,6 @@ const aiActionBarTheme = EditorView.baseTheme({
 		},
 	},
 });
-
-// =============================================================================
-// Public API
-// =============================================================================
 
 /**
  * Create core diff decoration extensions (line highlights, removed line widgets, gutter).

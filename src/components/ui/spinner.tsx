@@ -1,9 +1,3 @@
-/**
- * Spinner Component
- *
- * Animated loading spinner.
- */
-
 import { cva, type VariantProps } from 'class-variance-authority';
 import { motion } from 'motion/react';
 import React from 'react';
@@ -30,10 +24,6 @@ export interface SpinnerProperties extends React.ComponentProps<typeof motion.sv
 }
 
 const CUBIC_EASE: [number, number, number, number] = [0.4, 0, 0.2, 1];
-
-/**
- * Animated loading spinner.
- */
 export function Spinner({ size, className, ...properties }: SpinnerProperties) {
 	return (
 		<motion.svg

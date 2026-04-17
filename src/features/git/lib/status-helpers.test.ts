@@ -1,16 +1,8 @@
-/**
- * Unit tests for git status helper utilities.
- */
-
 import { describe, expect, it } from 'vitest';
 
 import { countChangedFiles, getDirectoryPath, getFileName, getStatusDisplay, groupStatusEntries, isStagedStatus } from './status-helpers';
 
 import type { GitFileStatus, GitStatusEntry } from '@shared/types';
-
-// =============================================================================
-// Helpers
-// =============================================================================
 
 function makeEntry(path: string, status: GitFileStatus, staged = false): GitStatusEntry {
 	return {
@@ -22,10 +14,6 @@ function makeEntry(path: string, status: GitFileStatus, staged = false): GitStat
 		stageStatus: 0,
 	};
 }
-
-// =============================================================================
-// getStatusDisplay
-// =============================================================================
 
 describe('getStatusDisplay', () => {
 	it('returns correct display for untracked files', () => {
@@ -84,10 +72,6 @@ describe('getStatusDisplay', () => {
 	});
 });
 
-// =============================================================================
-// groupStatusEntries
-// =============================================================================
-
 describe('groupStatusEntries', () => {
 	it('groups entries into staged, unstaged, and untracked', () => {
 		const entries: GitStatusEntry[] = [
@@ -136,10 +120,6 @@ describe('groupStatusEntries', () => {
 	});
 });
 
-// =============================================================================
-// countChangedFiles
-// =============================================================================
-
 describe('countChangedFiles', () => {
 	it('counts non-unmodified entries', () => {
 		const entries: GitStatusEntry[] = [
@@ -163,10 +143,6 @@ describe('countChangedFiles', () => {
 	});
 });
 
-// =============================================================================
-// isStagedStatus
-// =============================================================================
-
 describe('isStagedStatus', () => {
 	it('returns true for staged statuses', () => {
 		expect(isStagedStatus('untracked-staged')).toBe(true);
@@ -184,10 +160,6 @@ describe('isStagedStatus', () => {
 	});
 });
 
-// =============================================================================
-// getFileName
-// =============================================================================
-
 describe('getFileName', () => {
 	it('extracts file name from path', () => {
 		expect(getFileName('src/components/button.tsx')).toBe('button.tsx');
@@ -201,10 +173,6 @@ describe('getFileName', () => {
 		expect(getFileName('a/b/c/d/e.ts')).toBe('e.ts');
 	});
 });
-
-// =============================================================================
-// getDirectoryPath
-// =============================================================================
 
 describe('getDirectoryPath', () => {
 	it('extracts directory from path', () => {

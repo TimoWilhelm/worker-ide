@@ -1,7 +1,4 @@
 /* eslint-disable unicorn/prevent-abbreviations -- test file for utils.ts which follows shadcn/ui convention */
-/**
- * Unit tests for utility functions.
- */
 
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 
@@ -18,10 +15,6 @@ import {
 	normalizePath,
 	generateId,
 } from './utils';
-
-// =============================================================================
-// cn (class merging)
-// =============================================================================
 
 describe('cn', () => {
 	it('merges class names', () => {
@@ -43,10 +36,6 @@ describe('cn', () => {
 		expect(cn('base', isFalse && 'hidden', isTrue && 'visible')).toBe('base visible');
 	});
 });
-
-// =============================================================================
-// formatFileSize
-// =============================================================================
 
 describe('formatFileSize', () => {
 	it('formats 0 bytes', () => {
@@ -70,10 +59,6 @@ describe('formatFileSize', () => {
 		expect(formatFileSize(1_073_741_824)).toBe('1 GB');
 	});
 });
-
-// =============================================================================
-// formatRelativeTime
-// =============================================================================
 
 describe('formatRelativeTime', () => {
 	beforeEach(() => {
@@ -105,10 +90,6 @@ describe('formatRelativeTime', () => {
 		expect(formatRelativeTime(now - 172_800_000)).toBe('2d ago');
 	});
 });
-
-// =============================================================================
-// debounce
-// =============================================================================
 
 describe('debounce', () => {
 	beforeEach(() => {
@@ -144,10 +125,6 @@ describe('debounce', () => {
 		expect(function_).toHaveBeenCalledOnce();
 	});
 });
-
-// =============================================================================
-// throttle
-// =============================================================================
 
 describe('throttle', () => {
 	beforeEach(() => {
@@ -186,10 +163,6 @@ describe('throttle', () => {
 		expect(function_).toHaveBeenCalledTimes(2);
 	});
 });
-
-// =============================================================================
-// Path utilities
-// =============================================================================
 
 describe('getFileExtension', () => {
 	it('returns extension for simple files', () => {

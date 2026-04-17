@@ -477,42 +477,22 @@ export class RepoDurableObject extends DurableObject<GitWorkerEnvironment> {
 		await this.ensureAccessAndAlarm();
 		return materializeTree(this.ctx, this.env, this.prefix(), reference);
 	}
-
-	/**
-	 * Get the decompressed content of a blob object.
-	 */
 	public async getBlobContent(oid: string): Promise<Uint8Array | undefined> {
 		await this.ensureAccessAndAlarm();
 		return getBlobContent(this.ctx, this.env, this.prefix(), oid);
 	}
-
-	/**
-	 * Batch get blob contents.
-	 */
 	public async getBlobContentBatch(oids: string[]): Promise<Map<string, Uint8Array>> {
 		await this.ensureAccessAndAlarm();
 		return getBlobContentBatch(this.ctx, this.env, this.prefix(), oids);
 	}
-
-	/**
-	 * Get commit log starting from a ref.
-	 */
 	public async getLog(options: { ref: string; depth?: number }): Promise<CommitLogEntry[]> {
 		await this.ensureAccessAndAlarm();
 		return getLog(this.ctx, this.env, this.prefix(), options);
 	}
-
-	/**
-	 * Compare two trees and return changed files.
-	 */
 	public async diffTrees(baseReference: string, headReference: string): Promise<TreeDiffEntry[]> {
 		await this.ensureAccessAndAlarm();
 		return diffTrees(this.ctx, this.env, this.prefix(), baseReference, headReference);
 	}
-
-	/**
-	 * Check if ancestorOid is reachable from descendantRef by walking all parents (BFS).
-	 */
 	public async isAncestor(ancestorOid: string, descendantReference: string): Promise<boolean> {
 		await this.ensureAccessAndAlarm();
 		return isAncestor(this.ctx, this.env, this.prefix(), ancestorOid, descendantReference);
@@ -521,10 +501,6 @@ export class RepoDurableObject extends DurableObject<GitWorkerEnvironment> {
 	// =========================================================================
 	// Ephemeral branches — isolated ref namespace for agent scratch work
 	// =========================================================================
-
-	/**
-	 * Create an ephemeral ref pointing to the same commit as sourceRef.
-	 */
 	public async createEphemeralReference(name: string, sourceReference: string): Promise<EphemeralReference> {
 		await this.ensureAccessAndAlarm();
 		const references = await getReferences(this.ctx);
@@ -552,10 +528,6 @@ export class RepoDurableObject extends DurableObject<GitWorkerEnvironment> {
 
 		return { name, oid };
 	}
-
-	/**
-	 * Promote an ephemeral ref to a real branch.
-	 */
 	public async promoteEphemeralReference(name: string, targetBranch: string): Promise<void> {
 		await this.ensureAccessAndAlarm();
 		const references = await getReferences(this.ctx);
@@ -572,10 +544,6 @@ export class RepoDurableObject extends DurableObject<GitWorkerEnvironment> {
 
 		await setReferences(this.ctx, updatedReferences);
 	}
-
-	/**
-	 * List all ephemeral refs.
-	 */
 	public async listEphemeralReferences(): Promise<EphemeralReference[]> {
 		await this.ensureAccessAndAlarm();
 		const references = await getReferences(this.ctx);
@@ -586,10 +554,6 @@ export class RepoDurableObject extends DurableObject<GitWorkerEnvironment> {
 				oid: reference.oid,
 			}));
 	}
-
-	/**
-	 * Delete an ephemeral ref.
-	 */
 	public async deleteEphemeralReference(name: string): Promise<void> {
 		await this.ensureAccessAndAlarm();
 		const references = await getReferences(this.ctx);

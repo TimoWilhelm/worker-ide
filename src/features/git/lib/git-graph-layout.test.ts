@@ -1,16 +1,8 @@
-/**
- * Unit tests for git graph layout engine.
- */
-
 import { describe, expect, it } from 'vitest';
 
 import { COLUMN_WIDTH, COMMIT_RADIUS, ROW_HEIGHT, computeGraphLayout, getMaxColumns } from './git-graph-layout';
 
 import type { GitCommitEntry } from '@shared/types';
-
-// =============================================================================
-// Helpers
-// =============================================================================
 
 function makeCommit(objectId: string, parentObjectIds: string[] = [], message = `commit ${objectId}`): GitCommitEntry {
 	return {
@@ -22,10 +14,6 @@ function makeCommit(objectId: string, parentObjectIds: string[] = [], message = 
 	};
 }
 
-// =============================================================================
-// Constants
-// =============================================================================
-
 describe('layout constants', () => {
 	it('exports expected constants', () => {
 		expect(COLUMN_WIDTH).toBeGreaterThan(0);
@@ -33,10 +21,6 @@ describe('layout constants', () => {
 		expect(COMMIT_RADIUS).toBeGreaterThan(0);
 	});
 });
-
-// =============================================================================
-// computeGraphLayout — linear history
-// =============================================================================
 
 describe('computeGraphLayout — linear history', () => {
 	it('handles empty commit list', () => {
@@ -74,10 +58,6 @@ describe('computeGraphLayout — linear history', () => {
 	});
 });
 
-// =============================================================================
-// computeGraphLayout — branching
-// =============================================================================
-
 describe('computeGraphLayout — branching', () => {
 	it('allocates a second column for a branch', () => {
 		// History: merge commit with two parents, then each parent
@@ -113,10 +93,6 @@ describe('computeGraphLayout — branching', () => {
 	});
 });
 
-// =============================================================================
-// computeGraphLayout — ref labels
-// =============================================================================
-
 describe('computeGraphLayout — ref labels', () => {
 	it('attaches current branch name to HEAD commit', () => {
 		const commits = [makeCommit('head', ['prev']), makeCommit('prev')];
@@ -144,10 +120,6 @@ describe('computeGraphLayout — ref labels', () => {
 		expect(result[0].tagNames).toHaveLength(0);
 	});
 });
-
-// =============================================================================
-// getMaxColumns
-// =============================================================================
 
 describe('getMaxColumns', () => {
 	it('returns 0 for empty array', () => {

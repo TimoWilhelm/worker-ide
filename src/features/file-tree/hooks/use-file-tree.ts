@@ -1,9 +1,3 @@
-/**
- * useFileTree Hook
- *
- * Hook for loading and managing file tree state.
- */
-
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 
@@ -14,18 +8,10 @@ import { useStore } from '@/lib/store';
 
 import type { FileInfo } from '@shared/types';
 
-// =============================================================================
-// Types
-// =============================================================================
-
 interface UseFileTreeOptions {
 	projectId: string;
 	enabled?: boolean;
 }
-
-// =============================================================================
-// Hook
-// =============================================================================
 
 /**
  * Hook for loading and managing the file tree.

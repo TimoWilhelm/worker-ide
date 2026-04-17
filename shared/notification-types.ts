@@ -1,8 +1,3 @@
-/**
- * Shared notification types used by the push and email auxiliary workers
- * and the main worker for queue message schemas.
- */
-
 export interface PushSubscriptionInfo {
 	endpoint: string;
 	key: string;

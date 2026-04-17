@@ -1,10 +1,3 @@
-/**
- * Integration tests for the file_multiedit tool.
- *
- * Tests atomic multi-edit operations, sequential application,
- * error rollback, diff stats, and event emission.
- */
-
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createMemoryFs, createMockContext, createMockSendEvent } from './test-helpers';
@@ -45,8 +38,6 @@ const PROJECT_ROOT = '/project';
 function context() {
 	return createMockContext({ projectRoot: PROJECT_ROOT });
 }
-
-/** Seed a file and record it as read so edits pass the file-time guard. */
 async function seedAndRead(path: string, content: string) {
 	memoryFs.seedFile(`${PROJECT_ROOT}${path}`, content);
 	const { recordFileRead } = await import('../file-time');

@@ -1,14 +1,6 @@
-/**
- * Unit tests for test-routes utility functions.
- */
-
 import { describe, expect, it } from 'vitest';
 
 import { parseTestNames } from './test-routes';
-
-// =============================================================================
-// parseTestNames
-// =============================================================================
 
 describe('parseTestNames', () => {
 	it('parses a single top-level it()', () => {

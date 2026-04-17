@@ -1,19 +1,4 @@
-/**
- * Analytics Engine write helpers.
- *
- * Type-safe wrappers around `writeDataPoint()` for each Analytics Engine dataset.
- * All writes are non-blocking (fire-and-forget). Each function guards against
- * missing bindings so calls are safe no-ops in local dev where Analytics Engine
- * is unavailable.
- *
- * See ANALYTICS.md at the repo root for full schema documentation.
- */
-
 import { env } from 'cloudflare:workers';
-
-// =============================================================================
-// Internal helpers
-// =============================================================================
 
 function safeWrite(binding: AnalyticsEngineDataset | undefined, dataPoint: AnalyticsEngineDataPoint): void {
 	if (!binding?.writeDataPoint) return;
@@ -39,10 +24,6 @@ function getCountry(request: Request): string {
 function getVersionTag(): string {
 	return env.CF_VERSION_METADATA?.tag ?? '';
 }
-
-// =============================================================================
-// Dataset 1: worker_ide_api — API Request Metrics
-// =============================================================================
 
 export interface ApiRequestEvent {
 	userId: string;
@@ -84,10 +65,6 @@ export function trackApiRequest(event: ApiRequestEvent): void {
 	});
 }
 
-// =============================================================================
-// Dataset 2: worker_ide_projects — Project Lifecycle Events
-// =============================================================================
-
 export type ProjectEventType = 'create' | 'clone' | 'delete' | 'restore' | 'deploy' | 'download';
 
 export interface ProjectEvent {
@@ -127,10 +104,6 @@ export function trackProjectEvent(event: ProjectEvent): void {
 		doubles: [event.durationMs, event.success ? 1 : 0],
 	});
 }
-
-// =============================================================================
-// Dataset 3: worker_ide_ai — AI Agent Usage
-// =============================================================================
 
 export type AiEventType = 'session_start' | 'session_end' | 'turn_complete';
 
@@ -178,10 +151,6 @@ export function trackAiUsage(event: AiUsageEvent): void {
 	});
 }
 
-// =============================================================================
-// Dataset 4: worker_ide_preview — Preview Request Metrics
-// =============================================================================
-
 export interface PreviewRequestEvent {
 	projectId: string;
 	pathname: string;
@@ -218,10 +187,6 @@ export function trackPreviewRequest(event: PreviewRequestEvent): void {
 	});
 }
 
-// =============================================================================
-// Dataset 5: worker_ide_auth — Authentication & User Events
-// =============================================================================
-
 export type AuthEventType = 'signup' | 'login' | 'org_create' | 'org_invite' | 'org_join' | 'project_transfer' | 'account_delete';
 
 export interface AuthEvent {
@@ -257,10 +222,6 @@ export function trackAuthEvent(event: AuthEvent): void {
 	});
 }
 
-// =============================================================================
-// Dataset 6: worker_ide_ws — WebSocket Connection Metrics
-// =============================================================================
-
 export type WebSocketEventType = 'connect' | 'disconnect';
 export type WebSocketConnectionType = 'coordinator' | 'agent';
 
@@ -288,10 +249,6 @@ export function trackWebSocketEvent(event: WebSocketEvent): void {
 		doubles: [event.concurrentConnections ?? 0, event.durationMs ?? 0],
 	});
 }
-
-// =============================================================================
-// Dataset 7: worker_ide_stt — Speech-to-Text Usage
-// =============================================================================
 
 export type SttEventType = 'session_start' | 'session_end';
 

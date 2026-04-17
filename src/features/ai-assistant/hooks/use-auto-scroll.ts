@@ -1,39 +1,13 @@
-/**
- * Smart Auto-Scroll Hook
- *
- * Uses an IntersectionObserver on an invisible anchor element at the bottom
- * of the scroll container to determine whether the user is "at the bottom".
- *
- * Behavior:
- * - Auto-scrolls to bottom when new content arrives AND user is at the bottom.
- * - Stops auto-scrolling when the user scrolls up (anchor leaves viewport).
- * - Tracks `isAtBottom` internally (ref-only, no re-renders).
- * - Exposes `canScrollUp` / `canScrollDown` for fade-edge indicators.
- * - `scrollToBottom()` programmatically scrolls down and re-enables auto-scroll.
- *
- * The anchor-based approach (à la Vercel AI chatbot) is more reliable than
- * scroll-position math because it works regardless of dynamic content height
- * changes during streaming.
- */
-
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 interface UseAutoScrollReturn {
-	/** Ref to attach to the scroll viewport element. */
 	scrollReference: React.RefObject<HTMLDivElement | null>;
-	/** Ref to attach to an invisible anchor div at the bottom of content. */
 	anchorReference: React.RefObject<HTMLDivElement | null>;
-	/** Ref to attach to the wrapper div around the scroll area + fade edges. */
 	wrapperReference: React.RefObject<HTMLDivElement | null>;
-	/** Whether new content arrived while the user was scrolled up. */
 	hasNewContent: boolean;
-	/** Smoothly scroll to the bottom and re-enable auto-scroll. */
 	scrollToBottom: () => void;
-	/** Reset all scroll tracking state (call after replacing message history). */
 	resetScrollState: () => void;
 }
-
-/** Threshold in pixels — if within this distance of the bottom, consider "at bottom". */
 const BOTTOM_THRESHOLD = 24;
 
 export function useAutoScroll(): UseAutoScrollReturn {

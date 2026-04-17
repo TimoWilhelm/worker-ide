@@ -1,26 +1,6 @@
-/**
- * Integration tests for the Snapshot & Revert system.
- *
- * Tests the full lifecycle: snapshot creation, listing, detail fetching,
- * single-file revert, full snapshot revert, and cascade revert.
- *
- * Also covers edge cases: overlapping files across snapshots, missing
- * snapshots, partial failures, pending changes coordination, and
- * the interaction between revert and the pending changes API.
- *
- * These tests run against a live dev server and create real projects
- * with real files on the Durable Object filesystem.
- */
-
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { authedFetch, BASE_URL, cleanupProjects, createdProjectIds, ensureTestSession } from './helpers';
-
-// =============================================================================
-// Helpers
-// =============================================================================
-
-/** Create a fresh project, track it for cleanup, and return its ID. */
 async function createProject(): Promise<string> {
 	const response = await authedFetch(`${BASE_URL}/api/new-project`, {
 		method: 'POST',
@@ -37,8 +17,6 @@ async function createProject(): Promise<string> {
 	await authedFetch(`${BASE_URL}/p/${result.projectId}/api/files`);
 	return result.projectId;
 }
-
-/** Write a file to the project. */
 async function writeFile(projectId: string, path: string, content: string): Promise<void> {
 	const response = await authedFetch(`${BASE_URL}/p/${projectId}/api/file`, {
 		method: 'PUT',
@@ -47,23 +25,17 @@ async function writeFile(projectId: string, path: string, content: string): Prom
 	});
 	expect(response.ok).toBe(true);
 }
-
-/** Read a file's content. Returns undefined if not found. */
 async function readFile(projectId: string, path: string): Promise<string | undefined> {
 	const response = await authedFetch(`${BASE_URL}/p/${projectId}/api/file?path=${encodeURIComponent(path)}`);
 	if (!response.ok) return undefined;
 	const result: { content: string } = await response.json();
 	return result.content;
 }
-
-/** Delete a file from the project. */
 async function deleteFile(projectId: string, path: string): Promise<void> {
 	await authedFetch(`${BASE_URL}/p/${projectId}/api/file?path=${encodeURIComponent(path)}`, {
 		method: 'DELETE',
 	});
 }
-
-/** Check whether a file exists. */
 async function fileExists(projectId: string, path: string): Promise<boolean> {
 	const response = await authedFetch(`${BASE_URL}/p/${projectId}/api/file?path=${encodeURIComponent(path)}`);
 	return response.ok;
@@ -82,7 +54,6 @@ async function createSnapshot(
 		changes: Array<{
 			path: string;
 			action: 'create' | 'edit' | 'delete';
-			/** For edit/delete actions: the original content to back up */
 			beforeContent?: string;
 		}>;
 	},
@@ -105,8 +76,6 @@ async function createSnapshot(
 		}
 	}
 }
-
-/** Save pending changes to the project. */
 async function savePendingChanges(
 	projectId: string,
 	changes: Record<
@@ -130,8 +99,6 @@ async function savePendingChanges(
 	});
 	expect(response.ok).toBe(true);
 }
-
-/** Load pending changes from the project. */
 async function loadPendingChanges(projectId: string): Promise<Record<string, unknown>> {
 	const response = await authedFetch(`${BASE_URL}/p/${projectId}/api/pending-changes`);
 	expect(response.ok).toBe(true);
@@ -151,10 +118,6 @@ type CascadeRevertResult = {
 	failed: Array<{ path: string; snapshotId: string; action: string; error: string }>;
 	missingSnapshots: string[];
 };
-
-// =============================================================================
-// Test Suite
-// =============================================================================
 
 describe('Snapshot & Revert Integration Tests', () => {
 	let projectId: string;

@@ -1,35 +1,12 @@
-/**
- * Session artifact cleanup for the AI agent.
- *
- * Cleans up filesystem artifacts left behind by pruned sessions:
- * - `.agent/sessions/{id}/` — filetime data and debug logs
- * - `.agent/todo/{id}.json` — per-session TODO files
- * - `.agent/plans/{id}.md` — per-session plan files (from plan_update tool)
- * - `.agent/snapshots/{id}/` — snapshots owned by pruned sessions
- *   (preserved if still referenced by surviving pending changes)
- * - `.agent/plans/{timestamp}-plan.md` — global plan-mode plans (capped)
- *
- * All functions expect to run inside a `withMounts()` context so that
- * `node:fs/promises` operations are routed to the virtual filesystem.
- */
-
 import fs from 'node:fs/promises';
 
 import { clearSession } from './file-time';
-
-// =============================================================================
-// Constants
-// =============================================================================
 
 /**
  * Maximum number of timestamped plan-mode plans to keep.
  * These are global (not session-scoped) and accumulate one per plan-mode run.
  */
 const MAX_TIMESTAMP_PLANS = 10;
-
-// =============================================================================
-// Public API
-// =============================================================================
 
 /**
  * Remove filesystem artifacts for a set of pruned session IDs.
@@ -94,14 +71,6 @@ export async function cleanupTimestampPlans(projectRoot: string): Promise<void> 
 		// Directory may not exist
 	}
 }
-
-// =============================================================================
-// Internal Helpers
-// =============================================================================
-
-/**
- * Remove `.agent/sessions/{id}/` directories (filetime.json + debug-logs/).
- */
 async function cleanupSessionDirectories(projectRoot: string, sessionIds: Set<string>): Promise<void> {
 	const sessionsDirectory = `${projectRoot}/.agent/sessions`;
 
@@ -113,10 +82,6 @@ async function cleanupSessionDirectories(projectRoot: string, sessionIds: Set<st
 		}
 	}
 }
-
-/**
- * Remove `.agent/todo/{id}.json` files.
- */
 async function cleanupSessionTodos(projectRoot: string, sessionIds: Set<string>): Promise<void> {
 	const todoDirectory = `${projectRoot}/.agent/todo`;
 
@@ -128,10 +93,6 @@ async function cleanupSessionTodos(projectRoot: string, sessionIds: Set<string>)
 		}
 	}
 }
-
-/**
- * Remove `.agent/plans/{id}.md` files (from plan_update tool).
- */
 async function cleanupSessionPlans(projectRoot: string, sessionIds: Set<string>): Promise<void> {
 	const plansDirectory = `${projectRoot}/.agent/plans`;
 
@@ -180,10 +141,6 @@ async function cleanupOrphanedSnapshots(
 		}
 	}
 }
-
-/**
- * Recursively delete a directory and all its contents.
- */
 async function deleteDirectoryRecursive(directoryPath: string): Promise<void> {
 	try {
 		const entries = await fs.readdir(directoryPath, { withFileTypes: true });

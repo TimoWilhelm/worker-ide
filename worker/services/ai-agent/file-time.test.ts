@@ -1,15 +1,4 @@
-/**
- * Unit tests for the FileTime service.
- *
- * Validates read-tracking, mtime-based assertion, and session clearing.
- * All filesystem calls are mocked since the module runs in a Worker isolate.
- */
-
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-
-// =============================================================================
-// Mock node:fs/promises
-// =============================================================================
 
 const fsMock = vi.hoisted(() => ({
 	readFile: vi.fn().mockRejectedValue(new Error('ENOENT')),
@@ -24,10 +13,6 @@ vi.mock('node:fs/promises', () => ({ default: fsMock }));
 
 import { assertFileWasRead, clearSession, recordFileRead, withLock } from './file-time';
 
-// =============================================================================
-// Helpers
-// =============================================================================
-
 const PROJECT_ROOT = '/projects/test-project';
 const SESSION_ID = 'session-1';
 
@@ -35,10 +20,6 @@ function makeStatResult(mtimeMs: number) {
 	const mtime = new Date(mtimeMs);
 	return { mtime, mtimeMs, size: 100, isFile: () => true, isDirectory: () => false };
 }
-
-// =============================================================================
-// Tests
-// =============================================================================
 
 describe('FileTime', () => {
 	beforeEach(() => {

@@ -1,13 +1,3 @@
-/**
- * Tree read operations for RepoDO.
- *
- * Provides:
- * - materializeTree() — flat file listing at a ref
- * - getBlobContent() / getBlobContentBatch() — decompressed file content
- * - getLog() — commit history
- * - diffTrees() — compare two trees
- */
-
 import { bytesToHex } from '@git/common/hex';
 import { parseCommitText } from '@git/git/core/commit-parse';
 import { inflateAndParseHeader } from '@git/git/core/object-parse';
@@ -45,10 +35,6 @@ async function resolveReferenceToCommitOid(context: DurableObjectState, referenc
 
 	return undefined;
 }
-
-/**
- * Read and parse a commit object, returning its tree OID and parent OIDs.
- */
 async function readCommitObject(
 	context: DurableObjectState,
 	environment: GitWorkerEnvironment,
@@ -73,10 +59,6 @@ async function readCommitObject(
 		authorLine,
 	};
 }
-
-/**
- * Parse binary tree entries from a tree object payload.
- */
 export function parseTreeEntries(payload: Uint8Array): Array<{ mode: string; name: string; oid: string }> {
 	const textDecoder = new TextDecoder();
 	const entries: Array<{ mode: string; name: string; oid: string }> = [];
@@ -103,10 +85,6 @@ export function parseTreeEntries(payload: Uint8Array): Array<{ mode: string; nam
 
 	return entries;
 }
-
-/**
- * Recursively walk a tree and collect all file entries as a flat list.
- */
 async function walkTreeRecursive(
 	context: DurableObjectState,
 	environment: GitWorkerEnvironment,
@@ -163,10 +141,6 @@ export async function materializeTree(
 // ---------------------------------------------------------------------------
 // getBlobContent — decompressed file content
 // ---------------------------------------------------------------------------
-
-/**
- * Get the decompressed content of a blob object (no git header).
- */
 export async function getBlobContent(
 	context: DurableObjectState,
 	environment: GitWorkerEnvironment,
@@ -181,10 +155,6 @@ export async function getBlobContent(
 
 	return parsed.payload;
 }
-
-/**
- * Batch get blob contents.
- */
 export async function getBlobContentBatch(
 	context: DurableObjectState,
 	environment: GitWorkerEnvironment,
@@ -224,10 +194,6 @@ function parseAuthorLine(line: string): { name: string; email: string; timestamp
 		timestamp: Number.parseInt(match[3], 10),
 	};
 }
-
-/**
- * Get commit log starting from a ref, walking first-parent history.
- */
 export async function getLog(
 	context: DurableObjectState,
 	environment: GitWorkerEnvironment,
@@ -329,10 +295,6 @@ export async function isAncestor(
 // ---------------------------------------------------------------------------
 // diffTrees — compare two trees
 // ---------------------------------------------------------------------------
-
-/**
- * Build a flat OID map from a materialized tree.
- */
 function buildOidMap(entries: SharedTreeEntry[]): Map<string, string> {
 	const map = new Map<string, string>();
 	for (const entry of entries) {
@@ -340,10 +302,6 @@ function buildOidMap(entries: SharedTreeEntry[]): Map<string, string> {
 	}
 	return map;
 }
-
-/**
- * Compare two trees and return a list of changed files.
- */
 export async function diffTrees(
 	context: DurableObjectState,
 	environment: GitWorkerEnvironment,

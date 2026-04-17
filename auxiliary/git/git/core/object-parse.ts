@@ -1,7 +1,3 @@
-/**
- * Shared Git object parsing helpers
- */
-
 import { createInflateStream, bytesToHex, createBlobFromBytes } from '@git/common/index';
 
 import { parseCommitText } from './commit-parse';
@@ -23,10 +19,6 @@ export async function inflateAndParseHeader(zdata: Uint8Array): Promise<{ type: 
 		return null;
 	}
 }
-
-/**
- * Parse commit payload to extract referenced OIDs: tree and parents.
- */
 export function parseCommitRefs(payload: Uint8Array): { tree?: string; parents: string[] } {
 	const text = td.decode(payload);
 	const { tree, parents } = parseCommitText(text);
@@ -53,10 +45,6 @@ export function parseTreeChildOids(payload: Uint8Array): string[] {
 	}
 	return out;
 }
-
-/**
- * Parse annotated tag payload to extract its target OID and type.
- */
 export function parseTagTarget(payload: Uint8Array): { targetOid: string; targetType: GitObjectType } | null {
 	const text = td.decode(payload);
 	const mObject = text.match(/^object\s+([0-9a-f]{40})/m);

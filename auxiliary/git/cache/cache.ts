@@ -1,12 +1,3 @@
-/**
- * Small helpers around the Cloudflare Workers Cache API for JSON payloads.
- *
- * Notes
- * - Cache lives per colo; keys should be stable and include all inputs.
- * - Always use the same origin as the incoming request when constructing keys.
- * - Only cache GET responses.
- */
-
 import { asBodyInit } from '@git/common/web-types';
 
 const CACHE_NAME_OBJECTS = 'git-on-cf:objects';
@@ -16,33 +7,19 @@ const CACHE_NAME_OBJECTS = 'git-on-cf:objects';
  * (DO RPCs, R2) within a single Worker request.
  */
 export interface RequestMemo {
-	/** Pin the repository for this request memo to prevent cross-repo contamination */
 	repoId?: string;
-	/** Object results by OID (git header removed) */
 	objects?: Map<string, { type: string; payload: Uint8Array } | undefined>;
-	/** Parsed references for objects: commit -> [tree, parents], tree -> [entries] */
 	refs?: Map<string, string[]>;
-	/** Candidate pack list for the current repo (once per request) */
 	packList?: string[];
-	/** In-flight promise for candidate pack list to coalesce concurrent discovery */
 	packListPromise?: Promise<string[]>;
-	/** Pack OIDs by pack key */
 	packOids?: Map<string, Set<string>>;
-	/** In-memory virtual FS for pack files to reuse across OIDs (current repo only) */
 	packFiles?: Map<string, Uint8Array>;
-	/** Small flags set for once-per-request log throttling and guards */
 	flags?: Set<string>;
-	/** Remaining DO batch budget for getObjectRefsBatch (shared across both closures) */
 	doBatchBudget?: number;
-	/** If true, disable further DO refs batches due to errors or budgets */
 	doBatchDisabled?: boolean;
-	/** Count of DO-backed loose loader calls (stub.getObject) within this request */
 	loaderCalls?: number;
-	/** Soft cap for DO-backed loose loader calls; can be adjusted between phases (closure vs fallback) */
 	loaderCap?: number;
-	/** Optional per-request soft subrequest budget to degrade before hitting platform hard limits */
 	subreqBudget?: number;
-	/** Optional concurrency limiter for upstream calls; must provide a run(label, fn) API */
 	limiter?: { run<T>(label: string, function_: () => Promise<T>): Promise<T> };
 }
 
@@ -54,7 +31,6 @@ export interface RequestMemo {
 export interface CacheContext {
 	req: Request;
 	ctx: ExecutionContext;
-	/** Optional per-request memoization */
 	memo?: RequestMemo;
 }
 

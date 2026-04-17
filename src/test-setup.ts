@@ -1,9 +1,3 @@
-/**
- * Test Setup for React component tests.
- *
- * Configures jsdom environment and testing library matchers.
- */
-
 import { cleanup } from '@testing-library/react';
 import { afterEach } from 'vitest';
 

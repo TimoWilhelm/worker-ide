@@ -1,24 +1,9 @@
-/**
- * Git status helper utilities.
- *
- * Maps git file statuses to display labels, colors, and icons
- * for use in the Git UI.
- */
-
 import type { GitFileStatus, GitStatusEntry } from '@shared/types';
 
-// =============================================================================
-// Status Display Mapping
-// =============================================================================
-
 interface StatusDisplay {
-	/** Short label shown next to file names (e.g. "M", "U", "D") */
 	badge: string;
-	/** Full human-readable label (e.g. "Modified", "Untracked") */
 	label: string;
-	/** Tailwind text color class for the badge/label */
 	colorClass: string;
-	/** Tailwind text color class for the file name in the tree */
 	fileColorClass: string;
 }
 
@@ -78,17 +63,9 @@ const STATUS_DISPLAY_MAP: Record<GitFileStatus, StatusDisplay> = {
 		fileColorClass: 'text-red-400',
 	},
 };
-
-/**
- * Get display info (badge, label, colors) for a git file status.
- */
 export function getStatusDisplay(status: GitFileStatus): StatusDisplay {
 	return STATUS_DISPLAY_MAP[status];
 }
-
-// =============================================================================
-// Status Grouping
-// =============================================================================
 
 export interface StatusGroups {
 	staged: GitStatusEntry[];
@@ -121,10 +98,6 @@ export function groupStatusEntries(entries: ReadonlyArray<GitStatusEntry>): Stat
 
 	return { staged, unstaged, untracked };
 }
-
-/**
- * Count the total number of changed files (excludes unmodified).
- */
 export function countChangedFiles(entries: ReadonlyArray<GitStatusEntry>): number {
 	let count = 0;
 	for (const entry of entries) {
@@ -134,10 +107,6 @@ export function countChangedFiles(entries: ReadonlyArray<GitStatusEntry>): numbe
 	}
 	return count;
 }
-
-/**
- * Check if a file status represents a staged change.
- */
 export function isStagedStatus(status: GitFileStatus): boolean {
 	return (
 		status === 'untracked-staged' ||
@@ -147,10 +116,6 @@ export function isStagedStatus(status: GitFileStatus): boolean {
 		status === 'deleted-staged'
 	);
 }
-
-/**
- * Extract the file name from a full path.
- */
 export function getFileName(filePath: string): string {
 	const lastSlash = filePath.lastIndexOf('/');
 	return lastSlash === -1 ? filePath : filePath.slice(lastSlash + 1);

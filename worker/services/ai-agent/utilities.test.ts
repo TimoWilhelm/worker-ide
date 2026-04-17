@@ -1,14 +1,6 @@
-/**
- * Unit tests for AI Agent utility functions.
- */
-
 import { describe, expect, it } from 'vitest';
 
 import { isRecordObject, validateToolInput } from './utilities';
-
-// =============================================================================
-// isRecordObject
-// =============================================================================
 
 describe('isRecordObject', () => {
 	it('returns true for plain objects', () => {
@@ -33,10 +25,6 @@ describe('isRecordObject', () => {
 		expect(isRecordObject(true)).toBe(false);
 	});
 });
-
-// =============================================================================
-// validateToolInput
-// =============================================================================
 
 describe('validateToolInput', () => {
 	it('validates valid file_read input', () => {

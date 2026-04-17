@@ -14,7 +14,7 @@ const meta = {
 	decorators: [
 		(Story) => (
 			<div className="flex h-screen flex-col bg-bg-primary">
-				<div className="flex-1" /> {/* Push to bottom */}
+				<div className="flex-1" />
 				<Story />
 			</div>
 		),

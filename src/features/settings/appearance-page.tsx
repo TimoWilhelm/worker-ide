@@ -1,10 +1,3 @@
-/**
- * Appearance Settings Page
- *
- * Theme selector with Light / Dark / System options
- * and editor font selector derived from EDITOR_FONTS.
- */
-
 import { Monitor, Moon, Sun } from 'lucide-react';
 
 import { useTheme } from '@/hooks/use-theme';
@@ -40,7 +33,6 @@ export default function AppearancePage() {
 				</p>
 			</div>
 
-			{/* Theme selector */}
 			<section>
 				<h3
 					className="
@@ -78,7 +70,6 @@ export default function AppearancePage() {
 				</div>
 			</section>
 
-			{/* Editor font selector */}
 			<section>
 				<h3
 					className="

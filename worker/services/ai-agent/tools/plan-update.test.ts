@@ -1,10 +1,3 @@
-/**
- * Integration tests for the plan_update tool.
- *
- * Tests plan file creation, updates, checkbox counting,
- * and no-change detection against an in-memory filesystem.
- */
-
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createMemoryFs, createMockContext, createMockSendEvent } from './test-helpers';

@@ -1,39 +1,15 @@
-/**
- * Zod parse schemas for the Worker IDE application.
- * Used for both frontend form parsing and backend request parsing.
- */
-
 import { z } from 'zod';
 
 import { AI_MODEL_IDS_TUPLE, DEFAULT_EDITOR_FONT, EDITOR_FONT_SLUGS, MAX_PROJECT_NAME_LENGTH, USER_PREFERENCE_KEYS } from './constants';
 
-// =============================================================================
-// Validation Constants
-// =============================================================================
-
 export const LIMITS = {
-	/** Maximum file path length */
 	PATH_MAX_LENGTH: 500,
-	/** Maximum file content size in bytes */
 	FILE_MAX_SIZE: 5 * 1024 * 1024, // 5MB
-	/** Maximum AI message length */
-
-	/** Maximum session ID length */
 	SESSION_ID_MAX_LENGTH: 32,
-	/** Maximum snapshot ID length */
 	SNAPSHOT_ID_MAX_LENGTH: 64,
-	/** Maximum label length */
 	TITLE_MAX_LENGTH: 100,
 } as const;
 
-// =============================================================================
-// File Path Schemas
-// =============================================================================
-
-/**
- * Schema for validating file paths
- * Must start with / and not contain ..
- */
 export const filePathSchema = z
 	.string()
 	.min(1, 'Path is required')
@@ -41,47 +17,23 @@ export const filePathSchema = z
 	.startsWith('/', 'Path must start with /')
 	.refine((path) => !path.includes('..'), 'Path cannot contain ".."')
 	.refine((path) => path === path.replaceAll(/\/+/g, '/'), 'Path cannot contain consecutive slashes');
-
-/**
- * Schema for file content
- */
 export const fileContentSchema = z.string().max(LIMITS.FILE_MAX_SIZE, `File content exceeds maximum size`);
-
-// =============================================================================
-// File Operation Schemas
-// =============================================================================
-
-/**
- * Schema for writing a file
- */
 export const writeFileSchema = z.object({
 	path: filePathSchema,
 	content: fileContentSchema,
 });
 
 export type WriteFileInput = z.infer<typeof writeFileSchema>;
-
-/**
- * Schema for deleting a file
- */
 export const deleteFileSchema = z.object({
 	path: filePathSchema,
 });
 
 export type DeleteFileInput = z.infer<typeof deleteFileSchema>;
-
-/**
- * Schema for creating a directory
- */
 export const mkdirSchema = z.object({
 	path: filePathSchema,
 });
 
 export type MkdirInput = z.infer<typeof mkdirSchema>;
-
-/**
- * Schema for moving/renaming a file
- */
 export const moveFileSchema = z.object({
 	from_path: filePathSchema,
 	to_path: filePathSchema,
@@ -89,111 +41,47 @@ export const moveFileSchema = z.object({
 
 export type MoveFileInput = z.infer<typeof moveFileSchema>;
 
-// =============================================================================
-// AI Model Validation
-// =============================================================================
-
-/**
- * Schema for validating AI model selection.
- * Uses the model IDs from the shared constants configuration.
- */
 export const aiModelSchema = z.enum(AI_MODEL_IDS_TUPLE);
-
-/**
- * Type for allowed AI model identifiers
- */
 export type AllowedAIModel = z.infer<typeof aiModelSchema>;
-
-// =============================================================================
-// AI Agent Schemas
-// =============================================================================
-
-/**
- * Schema for AI tool: list_files
- */
 export const listFilesInputSchema = z.object({});
-
-/**
- * Schema for AI tool: read_file
- */
 export const readFileInputSchema = z.object({
 	file_path: filePathSchema,
 	offset: z.coerce.number().int().min(1).optional(),
 	limit: z.coerce.number().int().min(1).optional(),
 });
-
-/**
- * Schema for AI tool: write_file
- */
 export const writeFileInputSchema = z.object({
 	file_path: filePathSchema,
 	content: z.string(),
 });
-
-/**
- * Schema for AI tool: delete_file
- */
 export const deleteFileInputSchema = z.object({
 	file_path: filePathSchema,
 });
-
-/**
- * Schema for AI tool: move_file
- */
 export const moveFileInputSchema = z.object({
 	from_path: filePathSchema,
 	to_path: filePathSchema,
 });
-
-/**
- * Schema for AI tool: search_cloudflare_docs
- */
 export const searchCloudflareDocumentationInputSchema = z.object({
 	query: z.string().min(1, 'Query is required'),
 });
-
-/**
- * Schema for a single TODO item
- */
 export const todoItemSchema = z.object({
 	id: z.string().min(1),
 	content: z.string().min(1),
 	status: z.enum(['pending', 'in_progress', 'completed']),
 	priority: z.enum(['high', 'medium', 'low']),
 });
-
-/**
- * Schema for AI tool: update_plan
- */
 export const updatePlanInputSchema = z.object({
 	content: z.string().min(1, 'Plan content is required'),
 });
-
-/**
- * Schema for AI tool: get_todos
- */
 export const getTodosInputSchema = z.object({});
-
-/**
- * Schema for AI tool: update_todos
- */
 export const updateTodosInputSchema = z.object({
 	todos: z.array(todoItemSchema),
 });
-
-/**
- * Schema for AI tool: edit (exact string replacement)
- */
 export const editInputSchema = z.object({
 	file_path: filePathSchema,
 	old_string: z.string().min(1, 'old_string is required'),
 	new_string: z.string(),
 	replace_all: z.string().optional(),
 });
-
-/**
- * Schema for AI tool: multiedit (multiple exact string replacements in one file)
- */
 export const multiEditInputSchema = z.object({
 	file_path: filePathSchema,
 	edits: z.union([
@@ -207,114 +95,54 @@ export const multiEditInputSchema = z.object({
 		z.string().min(1, 'edits JSON array is required'),
 	]),
 });
-
-/**
- * Schema for AI tool: grep (regex search)
- */
 export const grepInputSchema = z.object({
 	pattern: z.string().min(1, 'Pattern is required'),
 	path: z.string().optional(),
 	include: z.string().optional(),
 });
-
-/**
- * Schema for AI tool: glob (find files by pattern)
- */
 export const globInputSchema = z.object({
 	pattern: z.string().min(1, 'Pattern is required'),
 	path: z.string().optional(),
 });
-
-/**
- * Schema for AI tool: list (directory listing)
- */
 export const listInputSchema = z.object({
 	path: z.string().optional(),
 	pattern: z.string().optional(),
 });
-
-/**
- * Schema for AI tool: question (ask the user)
- */
 export const questionInputSchema = z.object({
 	question: z.string().min(1, 'Question is required'),
 	options: z.string().optional(),
 });
-
-/**
- * Schema for AI tool: webfetch (fetch web content)
- */
 export const webfetchInputSchema = z.object({
 	url: z.string().url('Must be a valid URL'),
 	prompt: z.string().min(1, 'Prompt is required'),
 });
-
-/**
- * Schema for AI tool: dependencies_list (list project dependencies)
- */
 export const dependenciesListInputSchema = z.object({});
-
-/**
- * Schema for AI tool: dependencies_update (add/remove/update a dependency)
- */
 export const dependenciesUpdateInputSchema = z.object({
 	action: z.enum(['add', 'remove', 'update']),
 	name: z.string().min(1, 'Package name is required'),
 	version: z.string().optional(),
 });
-
-/**
- * Schema for AI tool: asset_settings_get (read asset routing settings)
- */
 export const assetSettingsGetInputSchema = z.object({});
-
-/**
- * Schema for AI tool: bindings_get (read bindings config)
- */
 export const bindingsGetInputSchema = z.object({});
-
-/**
- * Schema for AI tool: bindings_update (enable/disable bindings)
- */
 export const bindingsUpdateInputSchema = z.object({
 	storage: z.string().optional(),
 });
-
-/**
- * Schema for AI tool: asset_settings_update (update asset routing settings)
- */
 export const assetSettingsUpdateInputSchema = z.object({
 	not_found_handling: z.string().optional(),
 	html_handling: z.string().optional(),
 	run_worker_first: z.string().optional(),
 });
-
-/**
- * Schema for AI tool: lint_check (check file for lint issues)
- */
 export const lintCheckInputSchema = z.object({
 	path: filePathSchema,
 });
-
-/**
- * Schema for AI tool: lint_fix (apply safe Biome lint fixes)
- */
 export const lintFixInputSchema = z.object({
 	path: filePathSchema,
 });
 
-/**
- * Legacy schema for historic AI tool calls.
- * Retained so persisted sessions that used cdp_eval still validate/render.
- */
 export const cdpEvalInputSchema = z.object({
 	method: z.string().min(1, 'CDP method is required'),
 	params: z.string().optional(),
 });
-
-/**
- * Schema for AI tool: preview_fetch (send HTTP request to the project preview)
- */
 export const previewFetchInputSchema = z.object({
 	path: z.string().min(1, 'Path is required'),
 	method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']).optional(),
@@ -322,26 +150,14 @@ export const previewFetchInputSchema = z.object({
 	body: z.string().optional(),
 	format: z.enum(['raw', 'markdown']).optional(),
 });
-
-/**
- * Schema for AI tool: test_run (run tests in a Worker sandbox)
- */
 export const testRunInputSchema = z.object({
 	pattern: z.string().optional(),
 	testName: z.string().optional(),
 });
-
-/**
- * Schema for AI tool: image_generate (generate images from text prompts)
- */
 export const imageGenerateInputSchema = z.object({
 	prompt: z.string().min(1, 'Prompt is required'),
 	path: filePathSchema,
 });
-
-/**
- * Schema for AI tool: sub_agent (delegate a focused task to a sub-agent)
- */
 export const subAgentInputSchema = z.object({
 	prompt: z.string().min(1, 'Prompt is required'),
 	context: z.string().optional(),
@@ -369,10 +185,6 @@ export const loadExtensionInputSchema = z.object({
 });
 
 export const listExtensionsInputSchema = z.object({});
-
-/**
- * Union of all tool input schemas
- */
 export const toolInputSchemas = {
 	file_edit: editInputSchema,
 	file_multiedit: multiEditInputSchema,
@@ -412,32 +224,16 @@ export const toolInputSchemas = {
 } as const;
 
 export type ToolName = keyof typeof toolInputSchemas;
-
-// =============================================================================
-// Session Schemas
-// =============================================================================
-
-/**
- * Schema for session ID (alphanumeric only)
- */
 export const sessionIdSchema = z
 	.string()
 	.min(1, 'Session ID is required')
 	.max(LIMITS.SESSION_ID_MAX_LENGTH, `Session ID must be at most ${LIMITS.SESSION_ID_MAX_LENGTH} characters`)
 	.regex(/^[a-z0-9]+$/, 'Session ID must contain only lowercase alphanumeric characters');
-
-/**
- * Schema for session title (rename input)
- */
 export const sessionTitleSchema = z
 	.string()
 	.trim()
 	.min(1, 'Title is required')
 	.max(LIMITS.TITLE_MAX_LENGTH, `Title must be at most ${LIMITS.TITLE_MAX_LENGTH} characters`);
-
-/**
- * Schema for saving an AI session
- */
 export const pendingFileChangeSchema = z.object({
 	path: z.string(),
 	action: z.enum(['create', 'edit', 'delete', 'move']),
@@ -458,42 +254,18 @@ export const pendingFileChangeSchema = z.object({
 	sessionId: z.string(),
 });
 
-/**
- * Schema for the project-level pending-changes.json file.
- * Keys are file paths, values are PendingFileChange objects.
- */
 export const pendingChangesFileSchema = z.record(z.string(), pendingFileChangeSchema);
 
-// =============================================================================
-// Debug Log Schemas
-// =============================================================================
-
-/**
- * Schema for debug log ID.
- * Format: `{sessionIdOrUuid}-{timestamp}` — alphanumeric characters and hyphens.
- */
 export const debugLogIdSchema = z
 	.string()
 	.min(1, 'Debug log ID is required')
 	.max(64, 'Debug log ID must be at most 64 characters')
 	.regex(/^[a-z0-9-]+$/, 'Debug log ID must contain only lowercase alphanumeric characters and hyphens');
-
-// =============================================================================
-// Snapshot Schemas
-// =============================================================================
-
-/**
- * Schema for snapshot ID (hexadecimal)
- */
 export const snapshotIdSchema = z
 	.string()
 	.min(1, 'Snapshot ID is required')
 	.max(LIMITS.SNAPSHOT_ID_MAX_LENGTH, `Snapshot ID must be at most ${LIMITS.SNAPSHOT_ID_MAX_LENGTH} characters`)
 	.regex(/^[a-f0-9]+$/, 'Snapshot ID must be a valid hexadecimal string');
-
-/**
- * Schema for reverting a single file from a snapshot
- */
 export const revertFileSchema = z.object({
 	path: filePathSchema,
 	snapshotId: snapshotIdSchema,
@@ -501,37 +273,16 @@ export const revertFileSchema = z.object({
 
 export type RevertFileInput = z.infer<typeof revertFileSchema>;
 
-/**
- * Schema for cascade-reverting multiple snapshots at once.
- * Snapshot IDs should be ordered newest-first (reverse chronological).
- */
 export const revertCascadeSchema = z.object({
 	snapshotIds: z.array(snapshotIdSchema).min(1).max(20),
 });
 
 export type RevertCascadeInput = z.infer<typeof revertCascadeSchema>;
 
-// =============================================================================
-// Dependency Validation
-// =============================================================================
-
-/**
- * Regex for valid npm package names (scoped and unscoped).
- * Based on the npm naming rules: https://docs.npmjs.com/cli/v10/configuring-npm/package-json#name
- */
 const NPM_PACKAGE_NAME_PATTERN = /^(?:@[\da-z~-][\d._a-z~-]*\/)?[\da-z~-][\d._a-z~-]*$/;
 
-/**
- * Regex for valid semver-ish version specifiers accepted by esm.sh / npm.
- * Allows: *, latest, exact versions (1.2.3), ranges (^1.0.0, ~1.0.0, >=1.0.0),
- * pre-release tags (1.0.0-beta.1), and x-ranges (1.x, 1.2.x).
- */
 const DEPENDENCY_VERSION_PATTERN =
 	/^(?:\*|latest|(?:[~^]|[<>]=?)?(?:0|[1-9]\d*)(?:\.(?:0|[1-9]\d*|x))?(?:\.(?:0|[1-9]\d*|x))?(?:-[\d.a-z-]+)?(?:\+[\d.a-z-]+)?)$/;
-
-/**
- * Validate a dependency name. Returns an error message or undefined if valid.
- */
 export function validateDependencyName(name: string): string | undefined {
 	const trimmed = name.trim();
 	if (trimmed.length === 0) {
@@ -545,10 +296,6 @@ export function validateDependencyName(name: string): string | undefined {
 	}
 	return undefined;
 }
-
-/**
- * Validate a dependency version specifier. Returns an error message or undefined if valid.
- */
 export function validateDependencyVersion(version: string): string | undefined {
 	const trimmed = version.trim();
 	if (trimmed.length === 0) {
@@ -559,14 +306,6 @@ export function validateDependencyVersion(version: string): string | undefined {
 	}
 	return undefined;
 }
-
-// =============================================================================
-// Project Meta Schemas
-// =============================================================================
-
-/**
- * Schema for Cloudflare Workers asset routing settings.
- */
 export const assetSettingsSchema = z.object({
 	not_found_handling: z.enum(['none', 'single-page-application', '404-page']).optional(),
 	html_handling: z.enum(['auto-trailing-slash', 'force-trailing-slash', 'drop-trailing-slash', 'none']).optional(),
@@ -574,20 +313,12 @@ export const assetSettingsSchema = z.object({
 });
 
 export type AssetSettingsInput = z.infer<typeof assetSettingsSchema>;
-
-/**
- * Schema for bindings configuration stored in wrangler.jsonc.
- */
 export const bindingsConfigSchema = z.object({
 	storage: z.boolean().optional(),
 });
 
 export type BindingsConfigInput = z.infer<typeof bindingsConfigSchema>;
 
-/**
- * Schema for updating project settings via PUT /api/project/meta.
- * Accepts an optional name and/or asset settings update.
- */
 export const projectMetaSchema = z.object({
 	name: z
 		.string()
@@ -598,102 +329,48 @@ export const projectMetaSchema = z.object({
 	bindingsConfig: bindingsConfigSchema.optional(),
 });
 
-/**
- * Schema for updating project dependencies via PUT /api/dependencies.
- * Validates that all dependency values are strings.
- */
 export const dependenciesUpdateSchema = z.object({
 	dependencies: z.record(z.string(), z.string()),
 });
-
-// =============================================================================
-// Test Run Schemas
-// =============================================================================
-
-/**
- * Schema for test run request body
- */
 export const testRunRequestSchema = z.object({
 	pattern: z.string().max(500, 'Pattern must be at most 500 characters').optional(),
 	testName: z.string().max(500, 'Test name must be at most 500 characters').optional(),
 });
 
 export type TestRunRequestInput = z.infer<typeof testRunRequestSchema>;
-
-// =============================================================================
-// Transform Schemas
-// =============================================================================
-
-/**
- * Schema for code transformation request
- */
 export const transformCodeSchema = z.object({
 	code: z.string(),
 	filename: z.string(),
 });
 
 export type TransformCodeInput = z.infer<typeof transformCodeSchema>;
-
-// =============================================================================
-// Query Parameter Schemas
-// =============================================================================
-
-/**
- * Schema for file path query parameter
- */
 export const pathQuerySchema = z.object({
 	path: filePathSchema,
 });
-
-/**
- * Schema for session ID query parameter
- */
 export const sessionIdQuerySchema = z.object({
 	id: sessionIdSchema,
 });
-
-// =============================================================================
-// Git Operation Schemas
-// =============================================================================
-
-/** Validates that a git working-tree path does not contain traversal sequences. */
 const safeGitPath = z
 	.string()
 	.min(1, 'Path is required')
 	.refine((path) => !path.includes('..'), 'Path must not contain ".."')
 	.refine((path) => !path.includes('\0'), 'Path must not contain null bytes');
-
-/**
- * Schema for staging/unstaging files
- */
 export const gitStageSchema = z.object({
 	paths: z.array(safeGitPath).min(1, 'At least one path is required'),
 });
 
 export type GitStageInput = z.infer<typeof gitStageSchema>;
-
-/**
- * Schema for discarding changes to a file
- */
 export const gitDiscardSchema = z.object({
 	path: safeGitPath,
 });
 
 export type GitDiscardInput = z.infer<typeof gitDiscardSchema>;
-
-/**
- * Schema for creating a commit
- */
 export const gitCommitSchema = z.object({
 	message: z.string().min(1, 'Commit message is required').max(5000, 'Commit message is too long'),
 	amend: z.boolean().optional(),
 });
 
 export type GitCommitInput = z.infer<typeof gitCommitSchema>;
-
-/**
- * Schema for creating or deleting a branch
- */
 export const gitBranchSchema = z.object({
 	name: z
 		.string()
@@ -707,48 +384,28 @@ export const gitBranchSchema = z.object({
 });
 
 export type GitBranchInput = z.infer<typeof gitBranchSchema>;
-
-/**
- * Schema for renaming a branch
- */
 export const gitBranchRenameSchema = z.object({
 	oldName: z.string().min(1, 'Old branch name is required').max(255, 'Branch name is too long'),
 	newName: z.string().min(1, 'New branch name is required').max(255, 'Branch name is too long'),
 });
 
 export type GitBranchRenameInput = z.infer<typeof gitBranchRenameSchema>;
-
-/**
- * Schema for checking out a reference
- */
 export const gitCheckoutSchema = z.object({
 	reference: z.string().min(1, 'Reference is required').max(255, 'Reference is too long'),
 });
 
 export type GitCheckoutInput = z.infer<typeof gitCheckoutSchema>;
-
-/**
- * Schema for merging a branch
- */
 export const gitMergeSchema = z.object({
 	branch: z.string().min(1, 'Branch name is required').max(255, 'Branch name is too long'),
 });
 
 export type GitMergeInput = z.infer<typeof gitMergeSchema>;
-
-/**
- * Schema for creating or deleting a tag
- */
 export const gitTagSchema = z.object({
 	name: z.string().min(1, 'Tag name is required').max(255, 'Tag name is too long'),
 	reference: z.string().optional(),
 });
 
 export type GitTagInput = z.infer<typeof gitTagSchema>;
-
-/**
- * Schema for stash operations
- */
 export const gitStashSchema = z.object({
 	action: z.enum(['push', 'pop', 'apply', 'drop', 'clear']),
 	index: z.number().int().min(0).optional(),
@@ -756,82 +413,42 @@ export const gitStashSchema = z.object({
 });
 
 export type GitStashInput = z.infer<typeof gitStashSchema>;
-
-/**
- * Schema for git log query parameters
- */
 export const gitLogQuerySchema = z.object({
 	reference: z.string().optional(),
 	depth: z.coerce.number().int().min(1).max(500).optional(),
 });
 
 export type GitLogQuery = z.infer<typeof gitLogQuerySchema>;
-
-/**
- * Schema for git graph query parameters
- */
 export const gitGraphQuerySchema = z.object({
 	maxCount: z.coerce.number().int().min(1).max(500).optional(),
 });
 
 export type GitGraphQuery = z.infer<typeof gitGraphQuerySchema>;
-
-/**
- * Schema for git diff query parameters
- */
 export const gitDiffQuerySchema = z.object({
 	path: safeGitPath,
 });
 
 export type GitDiffQuery = z.infer<typeof gitDiffQuerySchema>;
-
-/**
- * Schema for git commit diff query parameters
- */
 export const gitCommitDiffQuerySchema = z.object({
 	objectId: z.string().min(1, 'Object ID is required'),
 });
 
 export type GitCommitDiffQuery = z.infer<typeof gitCommitDiffQuerySchema>;
-
-/**
- * Schema for git file diff at commit query parameters (objectId + path)
- */
 export const gitFileDiffAtCommitQuerySchema = z.object({
 	objectId: z.string().min(1, 'Object ID is required'),
 	path: safeGitPath,
 });
 
 export type GitFileDiffAtCommitQuery = z.infer<typeof gitFileDiffAtCommitQuerySchema>;
-
-/**
- * Schema for git branch name query parameter
- */
 export const gitBranchNameQuerySchema = z.object({
 	name: z.string().min(1, 'Branch name is required'),
 });
-
-/**
- * Schema for git tag name query parameter
- */
 export const gitTagNameQuerySchema = z.object({
 	name: z.string().min(1, 'Tag name is required'),
 });
-
-/**
- * Schema for requesting git credentials.
- */
 export const gitCredentialRequestSchema = z.object({});
 
 export type GitCredentialRequestInput = z.infer<typeof gitCredentialRequestSchema>;
-
-// =============================================================================
-// localStorage Schemas
-// =============================================================================
-
-/**
- * Schema for saved deploy credentials (localStorage).
- */
 export const savedCredentialsSchema = z.object({
 	accountId: z.string(),
 	apiToken: z.string(),
@@ -839,10 +456,6 @@ export const savedCredentialsSchema = z.object({
 
 export type SavedCredentialsParsed = z.infer<typeof savedCredentialsSchema>;
 
-/**
- * Schema for the Zustand persisted store state (localStorage).
- * Must match the shape produced by the `partialize` option in store.ts.
- */
 export const persistedStoreSchema = z.object({
 	sidebarVisible: z.boolean(),
 	utilityPanelVisible: z.boolean(),
@@ -858,28 +471,14 @@ export const persistedStoreSchema = z.object({
 });
 
 export type PersistedStoreParsed = z.infer<typeof persistedStoreSchema>;
-
-/**
- * Schema for the editor session persisted per project (localStorage).
- */
 export const editorSessionSchema = z.object({
 	openFiles: z.array(z.string()),
 	activeFile: z.string().optional(),
-	/** Scroll top (px) per file path */
 	scrollPositions: z.record(z.string(), z.number()).default({}),
-	/** Cursor position {line, column} per file path */
 	cursorPositions: z.record(z.string(), z.object({ line: z.number(), column: z.number() })).default({}),
 });
 
 export type EditorSessionParsed = z.infer<typeof editorSessionSchema>;
-
-// =============================================================================
-// Validation Helpers
-// =============================================================================
-
-/**
- * Validate tool input based on tool name
- */
 export function validateToolInput(
 	toolName: ToolName,
 	input: unknown,
@@ -897,18 +496,10 @@ export function validateToolInput(
 
 	return { success: true, data: result.data };
 }
-
-/**
- * Check if a path is safe (doesn't escape the project root)
- */
 export function isPathSafe(path: string): boolean {
 	const result = filePathSchema.safeParse(path);
 	return result.success;
 }
-
-// =============================================================================
-// Route Body Schemas (used with zValidator for Hono RPC type inference)
-// =============================================================================
 
 export const pushSubscriptionBodySchema = z.object({
 	endpoint: z.string().min(1),
@@ -943,12 +534,6 @@ export const deployRequestSchema = z.object({
 	workerName: z.string().optional(),
 });
 
-/**
- * Schema for PUT /user/preferences body.
- * Accepts a record of preference key → value pairs.
- * Only currently valid keys (from USER_PREFERENCE_KEYS) are accepted;
- * unknown/deprecated keys are stripped.
- */
 export const userPreferencesBodySchema = z
 	.record(z.string(), z.string())
 	.transform((record) => {

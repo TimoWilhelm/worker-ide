@@ -1,11 +1,3 @@
-/**
- * Plan Saver.
- *
- * Writes plan mode output to the .agent/plans/ directory and emits
- * a `plan_created` stream event. Cleans up old timestamped plans
- * to prevent unbounded growth.
- */
-
 import fs from 'node:fs/promises';
 
 import { planCreatedEvent } from './event-helpers';

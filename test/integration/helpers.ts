@@ -1,16 +1,5 @@
-/**
- * Shared helpers for integration tests.
- *
- * Provides session management, authenticated fetch, project tracking,
- * and cleanup utilities used across all integration test suites.
- */
-
 export const BASE_URL = process.env.TEST_BASE_URL || 'http://localhost:3000';
-
-/** Cached session cookie for authenticated requests. */
 let sessionCookie: string;
-
-/** Track all project IDs created during tests for cleanup. */
 export const createdProjectIds: string[] = [];
 
 /**
@@ -46,16 +35,12 @@ export async function ensureTestSession(): Promise<string> {
 
 	throw new Error('Unreachable');
 }
-
-/** Helper to make an authenticated fetch request. */
 export async function authedFetch(url: string, options: RequestInit = {}): Promise<Response> {
 	const cookie = await ensureTestSession();
 	const headers = new Headers(options.headers);
 	headers.set('Cookie', cookie);
 	return fetch(url, { ...options, headers });
 }
-
-/** Clean up all tracked test projects. */
 export async function cleanupProjects(): Promise<void> {
 	const cookie = sessionCookie;
 	if (!cookie) return;

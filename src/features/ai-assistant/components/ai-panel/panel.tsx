@@ -1,14 +1,3 @@
-/**
- * AI Agent Panel Component
- *
- * Chat interface for interacting with the AI coding assistant.
- * Uses useAgentChat hook for server-driven streaming via the AgentRunner DO.
- *
- * Features: welcome screen with suggestions, collapsible tool calls,
- * collapsible reasoning, error handling with retry, session management,
- * snapshot revert buttons on user messages, CUSTOM event handling.
- */
-
 import { ScrollArea } from '@base-ui/react/scroll-area';
 import { useAgent } from 'agents/react';
 import {
@@ -74,21 +63,8 @@ import { RichTextInput, type RichTextInputHandle } from '../rich-text-input';
 
 import type { ChatMessage } from '@shared/types';
 
-// =============================================================================
-// Types
-// =============================================================================
-
 type AgentConnectionState = 'connecting' | 'connected' | 'disconnected';
 
-// =============================================================================
-// Input info bar — a uniform banner displayed above the text input
-// =============================================================================
-
-/**
- * Collapsible info/warning bar rendered above the input area.
- * Used for connection status, interrupt confirmation, and similar
- * transient messages that need the user's attention.
- */
 function InputInfoBar({ open, icon, children }: { open: boolean; icon: React.ReactNode; children: React.ReactNode }) {
 	return (
 		<Collapsible open={open}>
@@ -105,13 +81,6 @@ function InputInfoBar({ open, icon, children }: { open: boolean; icon: React.Rea
 	);
 }
 
-// =============================================================================
-// Component
-// =============================================================================
-
-/**
- * AI agent panel with chat interface.
- */
 export function AIPanel({ projectId, className }: { projectId: string; className?: string }) {
 	// On mobile, when the virtual keyboard opens, switch to position:fixed so the
 	// panel stays pinned above the keyboard — header and input remain visible.
@@ -121,29 +90,18 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	const [planPath, setPlanPath] = useState<string | undefined>();
 	const inputReference = useRef<RichTextInputHandle>(null);
 
-	// Track the last chatError we already surfaced so dismissing it doesn't re-trigger
 	const lastSurfacedChatErrorReference = useRef<Error | undefined>(undefined);
 	const revertInProgressReference = useRef(false);
-	// Diff content (before/after) keyed by tool_use_id — populated from agent state pending changes
 	const [fileDiffContent, setFileDiffContent] = useState<Map<string, { beforeContent: string; afterContent: string }>>(new Map());
 
-	// Derived plain text for the file mention hook
 	const inputPlainText = useMemo(() => segmentsToPlainText(segments), [segments]);
 	const hasContent = useMemo(() => segmentsHaveContent(segments), [segments]);
 
-	// Revert confirmation dialog state.
-	// `snapshotIds` is the full cascade set (from the clicked message forward within the session).
-	// `isLoading` and `error` track the revert operation's progress.
 	const [pendingRevert, setPendingRevert] = useState<
 		{ snapshotIds: string[]; messageIndex: number; isLoading: boolean; error?: string } | undefined
 	>();
 
-	// Store state (only UI preferences — AI session state comes from the Agent)
 	const { files, agentMode, selectedModel, openFile, setAgentMode, setSelectedModel, clearPendingChangesByPaths } = useStore();
-
-	// =========================================================================
-	// Agents SDK: connect to the AgentRunner DO via WebSocket
-	// =========================================================================
 
 	const agent = useAgent({
 		agent: 'AgentRunner',
@@ -154,19 +112,8 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		basePath: `p/${projectId}/__agent`,
 	});
 
-	// =========================================================================
-	// Connection state
-	// =========================================================================
-
-	// Three states:
-	//   'connecting'   — socket opened but identity handshake not yet complete,
-	//                    or reconnecting after a drop (PartySocket auto-retries)
-	//   'connected'    — identity received from server; fully operational
-	//   'disconnected' — socket closed/errored; PartySocket will retry
-	//
-	// agent.identified is proper React state (useState inside useAgent) so it
-	// drives re-renders automatically. We layer a raw open/close listener on top
-	// to distinguish 'connecting' from 'disconnected' without polling readyState.
+	// useAgent exposes identification state, so track whether the socket has ever
+	// opened to distinguish the initial handshake from a reconnecting socket.
 	const [socketEverOpened, setSocketEverOpened] = useState(false);
 	const agentConnectionState = useMemo((): AgentConnectionState => {
 		if (agent.identified) return 'connected';
@@ -184,9 +131,6 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		};
 	}, [agent]);
 
-	// While disconnected, reset socketEverOpened when the socket reconnects so
-	// we go back to 'connecting' rather than immediately showing 'disconnected'
-	// during the reconnect handshake window.
 	useEffect(() => {
 		if (!agent.identified) {
 			const handleOpen = () => setSocketEverOpened(false);
@@ -197,7 +141,6 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 
 	const isConnected = agentConnectionState === 'connected';
 
-	// Derive UI state from the Agent's auto-synced state.
 	const rawState = agent.state;
 	const agentState = isAgentState(rawState) ? rawState : undefined;
 	const currentSession = agentState?.currentSession;
@@ -644,7 +587,6 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		});
 	}, [debugLogId, projectId, sessionId]);
 
-	// Handle suggestion click
 	const handleSuggestion = useCallback(
 		(prompt: string) => {
 			void handleSend(prompt);
@@ -652,7 +594,6 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		[handleSend],
 	);
 
-	// Determine the streaming assistant message (last message if it's still being generated)
 	const streamingAssistantMessage = useMemo((): ChatMessage | undefined => {
 		if (!isProcessing) return undefined;
 		const last = chatMessages.at(-1);
@@ -662,7 +603,6 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		return undefined;
 	}, [isProcessing, chatMessages]);
 
-	// Non-streaming messages (all except the streaming one)
 	const displayMessages = useMemo(() => {
 		if (streamingAssistantMessage) {
 			return chatMessages.slice(0, -1);
@@ -672,7 +612,6 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 
 	return (
 		<div ref={keyboardReference} className={cn('flex h-full flex-col bg-bg-secondary', className)} style={keyboardStyle}>
-			{/* Header */}
 			<div
 				className="
 					flex h-9 shrink-0 items-center justify-between border-b border-border px-3
@@ -682,7 +621,6 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 					<span className="truncate text-xs font-medium text-text-secondary">Agent</span>
 				</div>
 				<div className="flex shrink-0 items-center gap-1">
-					{/* Session dropdown */}
 					<DropdownMenu>
 						<Tooltip content="Sessions" side="bottom">
 							<DropdownMenuTrigger>
@@ -846,7 +784,6 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 						</DropdownMenuContent>
 					</DropdownMenu>
 
-					{/* New session — always available when there's history, even while streaming */}
 					{chatMessages.length > 0 && (
 						<Tooltip content="New session" side="bottom">
 							<Button variant="ghost" size="icon-sm" onClick={clearHistory} disabled={!isConnected}>
@@ -857,7 +794,6 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 				</div>
 			</div>
 
-			{/* Current session title bar with status indicator */}
 			{chatMessages.length > 0 &&
 				(() => {
 					const currentSession = savedSessions.find((session) => session.id === sessionId);
@@ -870,7 +806,6 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 							"
 							title={sessionTitle}
 						>
-							{/* Connection state dot */}
 							<Tooltip
 								content={
 									agentConnectionState === 'connected'
@@ -902,9 +837,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 					);
 				})()}
 
-			{/* Messages — with fade edges and smart auto-scroll */}
 			<div ref={wrapperReference} className="group/scroll relative flex-1 overflow-hidden">
-				{/* Top fade edge — driven by data-can-scroll-up on the wrapper (no React state) */}
 				<div
 					className="
 						pointer-events-none absolute inset-x-0 top-0 z-10 h-6 bg-linear-to-b
@@ -952,11 +885,9 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 									))}
 								</>
 							)}
-							{/* Pending steering messages (queued but not yet consumed by agent) */}
 							{pendingSteeringMessages.map((pending) => (
 								<PendingSteeringBubble key={pending.id} content={pending.content} />
 							))}
-							{/* Streaming assistant message */}
 							{streamingAssistantMessage && (
 								<AssistantMessage
 									message={streamingAssistantMessage}
@@ -969,7 +900,6 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 									showHeader={displayMessages.length === 0 || displayMessages.at(-1)?.role !== 'assistant'}
 								/>
 							)}
-							{/* User question prompt — shown when the AI asks a clarifying question */}
 							{pendingQuestion && !isProcessing && (
 								<UserQuestionPrompt
 									question={pendingQuestion.question}
@@ -977,13 +907,10 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 									onOptionClick={(option) => void handleSend(option)}
 								/>
 							)}
-							{/* Continuation prompt — shown when the agent hit the iteration limit */}
 							{needsContinuation && !isProcessing && (
 								<ContinuationPrompt onContinue={() => void handleSend('continue')} onDismiss={() => {}} />
 							)}
-							{/* Doom loop alert — shown when the agent was stopped due to repetitive behavior */}
 							{doomLoopMessage && !isProcessing && <DoomLoopAlert message={doomLoopMessage} onRetry={handleRetry} onDismiss={() => {}} />}
-							{/* AI Error display */}
 							{displayError && (
 								<AIError message={displayError.message} code={displayError.code} onRetry={handleRetry} onDismiss={handleDismissError} />
 							)}
@@ -999,7 +926,6 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 								</div>
 							) : undefined}
 
-							{/* Actions for the last agent message (e.g. log download, future feedback) */}
 							{!isProcessing && chatMessages.length > 0 && chatMessages.at(-1)?.role === 'assistant' && (
 								<div className="flex animate-chat-item items-center justify-end gap-2 px-2">
 									{debugLogId && (
@@ -1023,7 +949,6 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 								</div>
 							)}
 
-							{/* Invisible anchor for auto-scroll detection */}
 							<div ref={anchorReference} className="h-px shrink-0" aria-hidden />
 						</div>
 					</ScrollArea.Viewport>
@@ -1032,7 +957,6 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 					</ScrollArea.Scrollbar>
 				</ScrollArea.Root>
 
-				{/* Bottom fade edge — driven by data-can-scroll-down on the wrapper (no React state) */}
 				<div
 					className="
 						pointer-events-none absolute inset-x-0 bottom-0 z-10 h-6 bg-linear-to-t
@@ -1041,7 +965,6 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 					"
 				/>
 
-				{/* Floating "new content" pill */}
 				{hasNewContent && (
 					<button
 						type="button"
@@ -1061,7 +984,6 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 				)}
 			</div>
 
-			{/* Changed files summary — shown when AI has pending edits */}
 			<Collapsible open={changeReview.sessionPendingCount(sessionId) > 0} className="shrink-0 overflow-hidden">
 				<div className="border-t border-border px-2 pt-2">
 					<ChangedFilesSummary
@@ -1076,9 +998,8 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 				</div>
 			</Collapsible>
 
-			{/* Input */}
 			<div className="relative shrink-0 border-t border-border p-2">
-				{/* File mention autocomplete dropdown — must be outside overflow-hidden */}
+				{/* Render outside the clipped input shell so the suggestions can overflow normally. */}
 				{isFileMentionOpen && (
 					<FileMentionDropdown results={fileMentionResults} selectedIndex={fileMentionSelectedIndex} onSelect={selectMentionFile} />
 				)}
@@ -1092,7 +1013,6 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 						isProcessing ? 'border-warning/40' : 'border-border',
 					)}
 				>
-					{/* Connection status bar */}
 					<InputInfoBar open={!isConnected} icon={<Spinner className="size-3 shrink-0 text-warning" />}>
 						<span className="flex-1 text-xs text-text-secondary">
 							{agentConnectionState === 'connecting' ? 'Connecting to agent…' : 'Connection lost. Reconnecting…'}
@@ -1147,7 +1067,6 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 					</Collapsible>
 					{speechToText.isRecording ? (
 						<div className="flex items-center gap-x-1.5 px-1.5 py-1">
-							{/* Pulsing recording dot */}
 							<div className="relative flex size-3 shrink-0 items-center justify-center">
 								<Spinner
 									size="xs"
@@ -1168,7 +1087,6 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 									)}
 								/>
 							</div>
-							{/* Rolling waveform visualization */}
 							<div className="relative h-4 w-28 shrink-0">
 								<AudioWaveformSkeleton
 									className={cn(
@@ -1212,7 +1130,6 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 							/>
 							<div className="flex flex-1 shrink-0 items-center justify-end gap-0.5">
 								<ContextRing tokensUsed={contextTokensUsed} contextWindow={getModelLimits(selectedModel).contextWindow} />
-								{/* Microphone button */}
 								{!isProcessing && speechToText.microphonePermission !== 'unsupported' && (
 									<Tooltip content={speechToText.microphonePermission === 'denied' ? 'Microphone blocked' : 'Voice input'} side="top">
 										<button
@@ -1283,7 +1200,6 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 				</div>
 			</div>
 
-			{/* Revert confirmation dialog */}
 			{pendingRevert && (
 				<RevertConfirmDialog
 					open={!!pendingRevert}
@@ -1299,7 +1215,6 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 				/>
 			)}
 
-			{/* Delete session confirmation dialog */}
 			<ConfirmDialog
 				open={!!pendingDeleteSession}
 				onOpenChange={(open) => {

@@ -1,7 +1,3 @@
-/**
- * Common utilities shared across modules
- */
-
 export * from './compression';
 export * from './hex';
 export * from './logger';

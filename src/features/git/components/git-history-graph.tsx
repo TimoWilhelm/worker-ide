@@ -1,25 +1,10 @@
-/**
- * Git History Graph
- *
- * SVG visualization of the commit graph with branch lines and commit dots.
- * Rendered alongside the commit list.
- */
-
 import { COLUMN_WIDTH, COMMIT_RADIUS, ROW_HEIGHT, getMaxColumns } from '../lib/git-graph-layout';
 
 import type { GitGraphEntry } from '@shared/types';
 
-// =============================================================================
-// Types
-// =============================================================================
-
 interface GitHistoryGraphProperties {
 	entries: GitGraphEntry[];
 }
-
-// =============================================================================
-// Helpers
-// =============================================================================
 
 function getColumnX(column: number): number {
 	return column * COLUMN_WIDTH + COLUMN_WIDTH / 2;
@@ -28,10 +13,6 @@ function getColumnX(column: number): number {
 function getRowY(rowIndex: number): number {
 	return rowIndex * ROW_HEIGHT + ROW_HEIGHT / 2;
 }
-
-// =============================================================================
-// Component
-// =============================================================================
 
 export function GitHistoryGraph({ entries }: GitHistoryGraphProperties) {
 	const maxColumns = getMaxColumns(entries);
@@ -44,7 +25,6 @@ export function GitHistoryGraph({ entries }: GitHistoryGraphProperties) {
 
 	return (
 		<svg width={width} height={height} className="shrink-0" style={{ minWidth: width }}>
-			{/* Connection lines */}
 			{entries.map((entry, rowIndex) =>
 				entry.connections.map((connection, connectionIndex) => {
 					const fromX = getColumnX(connection.fromColumn);
@@ -83,7 +63,6 @@ export function GitHistoryGraph({ entries }: GitHistoryGraphProperties) {
 				}),
 			)}
 
-			{/* Commit dots */}
 			{entries.map((entry, rowIndex) => {
 				const centerX = getColumnX(entry.column);
 				const centerY = getRowY(rowIndex);

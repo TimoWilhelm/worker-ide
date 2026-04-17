@@ -1,10 +1,3 @@
-/**
- * Pack unpacking operations
- *
- * This module handles the asynchronous unpacking of Git packfiles,
- * processing objects in time-budgeted chunks to avoid blocking.
- */
-
 import { unpackOidsChunkFromPackBytes } from '@git/git/index';
 
 import { getDb as getDatabase, getPackOidsSlice, getPackObjectCount } from './db/index';

@@ -1,11 +1,3 @@
-/**
- * Custom Search Panel for CodeMirror 6
- *
- * Bridges CM6's panel API with a React component via createRoot.
- * The panel factory creates a DOM container, renders the React
- * SearchPanelContent into it, and unmounts on destroy.
- */
-
 import { getSearchQuery, search, setSearchQuery } from '@codemirror/search';
 import { createElement } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -60,10 +52,6 @@ function createSearchPanel(view: EditorView): Panel {
 		},
 	};
 }
-
-/**
- * Create the search extension with custom panel layout.
- */
 export function createSearchExtension(): Extension {
 	return search({ createPanel: createSearchPanel });
 }

@@ -68,10 +68,6 @@ async function planNextAlarm(
 		return null;
 	}
 }
-
-/**
- * Set the DO alarm only if this would fire sooner than the existing one.
- */
 export async function scheduleAlarmIfSooner(
 	state: DurableObjectState,
 	environment: GitWorkerEnvironment,
@@ -104,10 +100,6 @@ export async function scheduleAlarmIfSooner(
 	}
 	return { scheduled: false, prev: previous ?? null, next: previous };
 }
-
-/**
- * Compute and schedule in one step. No-ops if nothing to schedule.
- */
 export async function ensureScheduled(
 	state: DurableObjectState,
 	environment: GitWorkerEnvironment,

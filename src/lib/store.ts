@@ -1,9 +1,3 @@
-/**
- * Global Application Store
- *
- * Zustand store for managing global application state.
- */
-
 import { create } from 'zustand';
 import { devtools, persist } from 'zustand/middleware';
 
@@ -21,24 +15,13 @@ import type {
 	ChatMessage,
 } from '@shared/types';
 
-// =============================================================================
-// Editor State
-// =============================================================================
-
 interface EditorState {
-	/** Currently open file path */
 	activeFile: string | undefined;
-	/** List of open files (tabs) */
 	openFiles: string[];
-	/** Cursor position in active file */
 	cursorPosition: { line: number; column: number } | undefined;
-	/** Pending navigation target — set externally (e.g. output link, error overlay) and consumed by the editor */
 	pendingGoTo: { line: number; column: number } | undefined;
-	/** Unsaved changes per file */
 	unsavedChanges: Map<string, boolean>;
-	/** Per-file scroll top in pixels (for restoring on tab switch / reload) */
 	fileScrollPositions: Map<string, number>;
-	/** Per-file cursor position (for restoring on tab switch / reload) */
 	fileCursorPositions: Map<string, { line: number; column: number }>;
 }
 
@@ -47,32 +30,19 @@ interface EditorActions {
 	openFile: (path: string) => void;
 	closeFile: (path: string) => void;
 	setCursorPosition: (position: { line: number; column: number } | undefined) => void;
-	/** Navigate the editor to a specific file and position (consumed once by the editor) */
 	goToFilePosition: (path: string, position: { line: number; column: number }) => void;
-	/** Clear pending navigation after the editor has consumed it */
 	clearPendingGoTo: () => void;
 	markFileChanged: (path: string, changed: boolean) => void;
 	closeAllFiles: () => void;
-	/** Save scroll top for a specific file */
 	setFileScrollPosition: (path: string, scrollTop: number) => void;
-	/** Bulk-restore file scroll positions (used on session reload) */
 	restoreFileScrollPositions: (positions: Map<string, number>) => void;
-	/** Save cursor position for a specific file */
 	setFileCursorPosition: (path: string, position: { line: number; column: number }) => void;
 }
 
-// =============================================================================
-// File Tree State
-// =============================================================================
-
 interface FileTreeState {
-	/** List of all files in the project */
 	files: FileInfo[];
-	/** Currently selected file in tree */
 	selectedFile: string | undefined;
-	/** Expanded directories */
 	expandedDirs: Set<string>;
-	/** Loading state */
 	isLoading: boolean;
 }
 
@@ -85,41 +55,24 @@ interface FileTreeActions {
 	setLoading: (loading: boolean) => void;
 }
 
-// =============================================================================
-// AI Agent State
-// =============================================================================
-
 interface AIError {
 	message: string;
 	code?: string;
 }
 
 interface AIState {
-	/** Current conversation history */
 	history: ChatMessage[];
-	/** Whether AI is currently processing */
 	isProcessing: boolean;
-	/** Current status message */
 	statusMessage: string | undefined;
-	/** Current error state */
 	aiError: AIError | undefined;
-	/** Session ID for persistence */
 	sessionId: string | undefined;
-	/** List of saved sessions */
 	savedSessions: Array<{ id: string; title: string; createdAt: number; isRunning: boolean }>;
-	/** Maps message index to snapshot ID (for revert buttons on user messages) */
 	messageSnapshots: Map<number, string>;
-	/** Maps user-message index to the AgentMode that was active when the message was sent */
 	messageModes: Map<number, AgentMode>;
-	/** Current agent operating mode */
 	agentMode: AgentMode;
-	/** Selected AI model identifier */
 	selectedModel: AIModelId;
-	/** Debug log ID from the last agent turn */
 	debugLogId: string | undefined;
-	/** Cumulative input tokens used in the current session (for context window indicator) */
 	contextTokensUsed: number;
-	/** IDs of all agent sessions currently running in the AgentRunner DO */
 	runningSessionIds: Set<string>;
 }
 
@@ -153,18 +106,10 @@ interface AIActions {
 	setRunningSessionIds: (ids: Set<string>) => void;
 }
 
-// =============================================================================
-// Collaboration State
-// =============================================================================
-
 interface CollaborationState {
-	/** Current participants in the session */
 	participants: Participant[];
-	/** Local participant ID */
 	localParticipantId: string | undefined;
-	/** Local participant color (assigned by the server) */
 	localParticipantColor: string | undefined;
-	/** Connection status */
 	isConnected: boolean;
 }
 
@@ -178,14 +123,8 @@ interface CollaborationActions {
 	setConnected: (connected: boolean) => void;
 }
 
-// =============================================================================
-// Snapshot State
-// =============================================================================
-
 interface SnapshotState {
-	/** List of available snapshots */
 	snapshots: SnapshotSummary[];
-	/** Currently viewing snapshot */
 	activeSnapshot: string | undefined;
 }
 
@@ -195,12 +134,7 @@ interface SnapshotActions {
 	setActiveSnapshot: (id: string | undefined) => void;
 }
 
-// =============================================================================
-// Pending AI Changes State
-// =============================================================================
-
 interface PendingChangesState {
-	/** AI file changes awaiting user review, keyed by file path */
 	pendingChanges: Map<string, PendingFileChange>;
 }
 
@@ -210,20 +144,12 @@ interface PendingChangesActions {
 	rejectChange: (path: string) => void;
 	approveHunk: (path: string, groupIndex: number) => void;
 	rejectHunk: (path: string, groupIndex: number) => void;
-	/** Approve all pending changes. If sessionId is provided, only changes from that session. */
 	approveAllChanges: (sessionId?: string) => void;
-	/** Reject all pending changes. If sessionId is provided, only changes from that session. */
 	rejectAllChanges: (sessionId?: string) => void;
 	clearPendingChanges: () => void;
-	/** Remove pending changes for specific file paths. If sessionId is provided, only removes changes from that session. */
 	clearPendingChangesByPaths: (paths: Set<string>, sessionId?: string) => void;
-	/** Replace the entire pending changes map (used for syncing from agent state) */
 	loadPendingChanges: (changes: Map<string, PendingFileChange>) => void;
 }
-
-// =============================================================================
-// UI State
-// =============================================================================
 
 type ColorScheme = 'light' | 'dark' | 'system';
 
@@ -234,27 +160,16 @@ export type SidebarView = 'explorer' | 'git' | 'tests';
 export type UtilityTab = 'output';
 
 interface UIState {
-	/** Whether sidebar is visible */
 	sidebarVisible: boolean;
-	/** Whether utility panel is visible */
 	utilityPanelVisible: boolean;
-	/** Whether agent panel is visible */
 	agentPanelVisible: boolean;
-	/** Whether DevTools panel is visible below the preview */
 	devtoolsVisible: boolean;
-	/** Whether dependencies panel is visible in the sidebar */
 	dependenciesPanelVisible: boolean;
-	/** Color scheme preference */
 	colorScheme: ColorScheme;
-	/** Editor (monospace) font preference */
 	editorFont: EditorFont;
-	/** Active panel on mobile layout */
 	activeMobilePanel: MobilePanel;
-	/** Whether the mobile file tree drawer is open */
 	mobileFileTreeOpen: boolean;
-	/** Which sidebar view is active (activity bar selection) */
 	activeSidebarView: SidebarView;
-	/** Which utility panel tab is active */
 	activeUtilityTab: UtilityTab;
 }
 
@@ -273,35 +188,22 @@ interface UIActions {
 	showUtilityPanel: (tab: UtilityTab) => void;
 }
 
-// =============================================================================
-// Git State
-// =============================================================================
-
 /**
  * Read-only diff view for displaying git file diffs in the editor.
  * Separate from `pendingChanges` (which is for AI change review with accept/reject).
  */
 interface GitDiffView {
-	/** File path being diffed */
 	path: string;
-	/** Content before the change (empty string for new files) */
 	beforeContent: string;
-	/** Content after the change */
 	afterContent: string;
-	/** Description of the diff context (e.g., "Working Changes", "abc1234") */
 	description?: string;
 }
 
 interface GitState {
-	/** Current git status entries for all tracked/untracked files */
 	gitStatus: GitStatusEntry[];
-	/** Available branches */
 	gitBranches: GitBranchInfo[];
-	/** Whether git status is currently being fetched */
 	gitStatusLoading: boolean;
-	/** Whether git has been initialized in this project */
 	gitInitialized: boolean;
-	/** Active read-only diff view (shown in the editor) */
 	gitDiffView: GitDiffView | undefined;
 }
 
@@ -310,15 +212,9 @@ interface GitActions {
 	setGitBranches: (branches: GitBranchInfo[]) => void;
 	setGitStatusLoading: (loading: boolean) => void;
 	setGitInitialized: (initialized: boolean) => void;
-	/** Show a read-only diff in the editor for the given file */
 	showGitDiff: (diffView: GitDiffView) => void;
-	/** Clear the active diff view */
 	clearGitDiff: () => void;
 }
-
-// =============================================================================
-// Combined Store
-// =============================================================================
 
 type StoreState = EditorState &
 	FileTreeState &
@@ -981,10 +877,6 @@ export const useStore = create<StoreState>()(
 		{ name: 'WorkerIDE' },
 	),
 );
-
-// =============================================================================
-// Selectors (for optimized re-renders)
-// =============================================================================
 
 export const selectIsProcessing = (state: StoreState) => state.isProcessing;
 export const selectColorScheme = (state: StoreState) => state.colorScheme;

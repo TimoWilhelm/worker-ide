@@ -1,14 +1,6 @@
-/**
- * Unit tests for shared constants.
- */
-
 import { describe, expect, it } from 'vitest';
 
 import { PLAN_MODE_SYSTEM_PROMPT, AGENTS_MD_MAX_CHARACTERS, MCP_SERVERS, HIDDEN_ENTRIES } from './constants';
-
-// =============================================================================
-// PLAN_MODE_SYSTEM_PROMPT
-// =============================================================================
 
 describe('PLAN_MODE_SYSTEM_PROMPT', () => {
 	it('instructs the agent about read-only mode', () => {
@@ -21,10 +13,6 @@ describe('PLAN_MODE_SYSTEM_PROMPT', () => {
 	});
 });
 
-// =============================================================================
-// AGENTS_MD_MAX_CHARACTERS
-// =============================================================================
-
 describe('AGENTS_MD_MAX_CHARACTERS', () => {
 	it('is a positive number', () => {
 		expect(AGENTS_MD_MAX_CHARACTERS).toBeGreaterThan(0);
@@ -34,10 +22,6 @@ describe('AGENTS_MD_MAX_CHARACTERS', () => {
 		expect(AGENTS_MD_MAX_CHARACTERS).toBe(16_000);
 	});
 });
-
-// =============================================================================
-// MCP_SERVERS
-// =============================================================================
 
 describe('MCP_SERVERS', () => {
 	it('includes the Cloudflare docs server', () => {
@@ -54,10 +38,6 @@ describe('MCP_SERVERS', () => {
 		}
 	});
 });
-
-// =============================================================================
-// HIDDEN_ENTRIES
-// =============================================================================
 
 describe('HIDDEN_ENTRIES', () => {
 	it('includes .agent directory', () => {

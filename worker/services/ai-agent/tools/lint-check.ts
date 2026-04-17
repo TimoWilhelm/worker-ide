@@ -1,9 +1,3 @@
-/**
- * Tool: lint_check
- * Check a file for Biome lint issues without applying any fixes.
- * Reads the file, runs Biome lint diagnostics, and returns the results.
- */
-
 import fs from 'node:fs/promises';
 
 import { MAX_DIAGNOSTICS_PER_FILE } from '@shared/constants';
@@ -13,10 +7,6 @@ import { formatLintDiagnostics, lintFile } from '@worker/services/lint-service';
 
 import type { SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
 
-// =============================================================================
-// Description
-// =============================================================================
-
 const DESCRIPTION = `Check a file for Biome lint issues without applying fixes.
 
 Usage:
@@ -24,10 +14,6 @@ Usage:
 - Does NOT modify the file — this is a read-only check.
 - Returns a summary of all lint diagnostics (errors and warnings) with line numbers, rules, and whether each issue is auto-fixable.
 - Use this to inspect lint issues before deciding whether to fix them manually or with lint_fix.`;
-
-// =============================================================================
-// Definition
-// =============================================================================
 
 export const definition: ToolDefinition = {
 	name: 'lint_check',
@@ -43,10 +29,6 @@ export const definition: ToolDefinition = {
 		required: ['file_path'],
 	},
 };
-
-// =============================================================================
-// Execute
-// =============================================================================
 
 export async function execute(
 	input: Record<string, string>,

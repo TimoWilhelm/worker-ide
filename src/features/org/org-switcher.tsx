@@ -1,12 +1,3 @@
-/**
- * Organization Switcher
- *
- * Dropdown to switch between organizations the user belongs to.
- * Shown in the dashboard header. Navigates via URL — no API call needed.
- * Uses the accessible DropdownMenu primitive for keyboard navigation,
- * ARIA attributes, and focus management.
- */
-
 import { useQuery } from '@tanstack/react-query';
 import { Building2, ChevronDown, Plus, Settings } from 'lucide-react';
 import { useState } from 'react';

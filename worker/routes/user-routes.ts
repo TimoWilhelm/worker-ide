@@ -1,12 +1,3 @@
-/**
- * User-scoped routes.
- *
- * Handles per-user operations that are not scoped to a specific organization:
- * - Recently accessed projects (cross-org)
- * - Project favorites
- * - Account deletion preview and execution
- */
-
 import { zValidator } from '@hono/zod-validator';
 import { and, count, desc, eq, inArray, isNull } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';

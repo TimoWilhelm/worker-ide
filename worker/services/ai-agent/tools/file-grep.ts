@@ -1,9 +1,3 @@
-/**
- * Tool: file_grep
- * Search file contents using regular expressions.
- * Uses minimatch for include pattern filtering.
- */
-
 import fs from 'node:fs/promises';
 
 import { minimatch } from 'minimatch';
@@ -15,18 +9,10 @@ import { isBinaryFilePath } from '../utilities';
 
 import type { SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
 
-// =============================================================================
-// Constants
-// =============================================================================
-
 const MAX_MATCHES = 100;
 const MAX_LINE_LENGTH = 2000;
 const MAX_FILE_BYTES = 1_048_576; // 1 MB — skip files larger than this
 const BATCH_SIZE = 10;
-
-// =============================================================================
-// Description
-// =============================================================================
 
 const DESCRIPTION = String.raw`- Fast content search tool that works with any codebase size
 - Searches file contents using regular expressions
@@ -34,10 +20,6 @@ const DESCRIPTION = String.raw`- Fast content search tool that works with any co
 - Filter files by pattern with the include parameter (eg. "*.js", "*.{ts,tsx}")
 - Returns file paths and line numbers with at least one match sorted by modification time
 - Use this tool when you need to find files containing specific patterns`;
-
-// =============================================================================
-// Tool Definition
-// =============================================================================
 
 export const definition: ToolDefinition = {
 	name: 'file_grep',
@@ -52,10 +34,6 @@ export const definition: ToolDefinition = {
 		required: ['pattern'],
 	},
 };
-
-// =============================================================================
-// Execute Function
-// =============================================================================
 
 export async function execute(
 	input: Record<string, string>,

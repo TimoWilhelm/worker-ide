@@ -1,11 +1,3 @@
-/**
- * Pending Invitations Banner
- *
- * Shows a banner on the dashboard when the current user has pending
- * organization invitations they can accept or reject.
- * Uses better-auth's listUserInvitations / acceptInvitation / rejectInvitation.
- */
-
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, Mail, X } from 'lucide-react';
 import { useCallback, useState } from 'react';

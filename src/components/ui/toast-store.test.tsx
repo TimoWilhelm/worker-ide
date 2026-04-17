@@ -1,9 +1,3 @@
-/**
- * Toast Store Tests
- *
- * Unit tests for the imperative toast notification API backed by Base UI's toast manager.
- */
-
 import { describe, expect, it } from 'vitest';
 
 import { toast, toastManager } from './toast-store';

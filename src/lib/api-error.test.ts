@@ -1,7 +1,3 @@
-/**
- * Unit tests for ApiError class and throwApiError helper.
- */
-
 import { describe, expect, it } from 'vitest';
 
 import { ApiError, throwApiError } from './api-error';

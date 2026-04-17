@@ -1,14 +1,6 @@
-/**
- * Tests for text/binary detection utilities.
- */
-
 import { describe, expect, it } from 'vitest';
 
 import { bytesToText, detectBinary } from './text';
-
-// =============================================================================
-// detectBinary
-// =============================================================================
 
 describe('detectBinary', () => {
 	it('returns false for empty content', () => {
@@ -70,10 +62,6 @@ describe('detectBinary', () => {
 		expect(detectBinary(bytes)).toBe(false);
 	});
 });
-
-// =============================================================================
-// bytesToText
-// =============================================================================
 
 describe('bytesToText', () => {
 	it('returns empty string for empty input', () => {

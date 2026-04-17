@@ -1,8 +1,3 @@
-/**
- * Tool: file_list
- * List files and directories in a given path.
- */
-
 import fs from 'node:fs/promises';
 
 import { HIDDEN_ENTRIES } from '@shared/constants';

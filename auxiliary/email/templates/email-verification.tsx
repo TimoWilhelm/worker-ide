@@ -1,10 +1,3 @@
-/**
- * Email Verification Template
- *
- * Sent when a user needs to verify their email address (signup or email change).
- * Uses React Email components for rendering.
- */
-
 import { Body, Button, Container, Head, Heading, Hr, Html, Preview, Section, Text } from '@react-email/components';
 
 interface EmailVerificationProperties {
@@ -35,10 +28,6 @@ export function EmailVerificationEmail({ userName, verificationUrl }: EmailVerif
 		</Html>
 	);
 }
-
-// =============================================================================
-// Styles
-// =============================================================================
 
 const bodyStyle = {
 	backgroundColor: '#f6f9fc',

@@ -1,7 +1,3 @@
-/**
- * Data access layer for AgentRunner's custom SQLite tables.
- */
-
 import { eq } from 'drizzle-orm';
 
 import { pendingChanges, sessionMetadata } from './schema';

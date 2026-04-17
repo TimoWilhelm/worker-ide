@@ -1,9 +1,3 @@
-/**
- * Tool: image_generate
- * Generate images from text prompts using Cloudflare Workers AI (Lucid Origin).
- * Writes the generated image to the project filesystem.
- */
-
 import fs from 'node:fs/promises';
 
 import { env } from 'cloudflare:workers';
@@ -17,18 +11,10 @@ import { recordFileRead } from '../file-time';
 
 import type { FileChange, SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
 
-// =============================================================================
-// Constants
-// =============================================================================
-
 const IMAGE_WIDTH = 1024;
 const IMAGE_HEIGHT = 1024;
 const IMAGE_STEPS = 20;
 const LUCID_ORIGIN_MODEL = '@cf/leonardo/lucid-origin';
-
-// =============================================================================
-// Description
-// =============================================================================
 
 const SUPPORTED_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp']);
 
@@ -40,10 +26,6 @@ Usage:
 - The image is generated at ${IMAGE_WIDTH}x${IMAGE_HEIGHT} resolution with ${IMAGE_STEPS} inference steps.
 - Parent directories are created automatically if they don't exist.
 - This tool creates a new file — it will NOT overwrite an existing file.`;
-
-// =============================================================================
-// Tool Definition
-// =============================================================================
 
 export const definition: ToolDefinition = {
 	name: 'image_generate',
@@ -57,10 +39,6 @@ export const definition: ToolDefinition = {
 		required: ['prompt', 'file_path'],
 	},
 };
-
-// =============================================================================
-// Execute Function
-// =============================================================================
 
 export async function execute(
 	input: Record<string, string>,

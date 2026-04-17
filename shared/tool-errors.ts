@@ -1,19 +1,3 @@
-/**
- * Tool Error Codes
- *
- * Unique identifiers for tool errors, shared between worker (tools) and
- * frontend (UI). Tool executors call `toolError(code, message)` which throws
- * a `ToolExecutionError`. The AI SDK catches it and wraps it as
- * `{ error: "[CODE] message" }` with `state: 'output-error'`.
- *
- * The frontend detects errors via the `[CODE] message` prefix format and
- * maps codes to short human-readable labels for inline display.
- */
-
-// =============================================================================
-// Error Codes
-// =============================================================================
-
 export const ToolErrorCode = {
 	INVALID_PATH: 'INVALID_PATH',
 	FILE_NOT_FOUND: 'FILE_NOT_FOUND',
@@ -33,10 +17,6 @@ export const ToolErrorCode = {
 
 export type ToolErrorCode = (typeof ToolErrorCode)[keyof typeof ToolErrorCode];
 
-// =============================================================================
-// Error Class
-// =============================================================================
-
 /**
  * Error thrown by tool executors to signal a tool-level failure.
  * The message uses `[CODE] description` format so the frontend can
@@ -51,10 +31,6 @@ export class ToolExecutionError extends Error {
 		this.code = code;
 	}
 }
-
-// =============================================================================
-// Helper
-// =============================================================================
 
 /**
  * Throw a `ToolExecutionError` with the given code and message.
@@ -72,14 +48,6 @@ export class ToolExecutionError extends Error {
 export function toolError(code: ToolErrorCode, message: string): never {
 	throw new ToolExecutionError(code, message);
 }
-
-// =============================================================================
-// UI Label Map
-// =============================================================================
-
-/**
- * Short labels for each error code, used in the agent panel inline display.
- */
 export const TOOL_ERROR_LABELS: Record<ToolErrorCode, string> = {
 	INVALID_PATH: 'Invalid path',
 	FILE_NOT_FOUND: 'File not found',

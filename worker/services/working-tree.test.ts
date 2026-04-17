@@ -1,22 +1,8 @@
-/**
- * Tests for the working tree service.
- *
- * Tests the pure functions that don't require the DO filesystem:
- * - computeBlobOid — SHA-1 of git blob format
- * - computeStatus — diff working tree vs committed tree (with mock fs)
- * - collectChanges — gather changed files for commit (with mock fs)
- * - applyTree — checkout (with mock fs)
- */
-
 import { describe, expect, it, vi } from 'vitest';
 
 import { applyTree, collectChanges, computeBlobOid, computeStatus } from './working-tree';
 
 import type { TreeEntry } from '@shared/git-types';
-
-// =============================================================================
-// computeBlobOid
-// =============================================================================
 
 describe('computeBlobOid', () => {
 	it('computes correct git blob OID for empty content', async () => {
@@ -52,10 +38,6 @@ describe('computeBlobOid', () => {
 		expect(oid1).toBe(oid2);
 	});
 });
-
-// =============================================================================
-// Mock filesystem for status/changes/apply tests
-// =============================================================================
 
 function createMockFilesystem(files: Record<string, string>) {
 	const storage = new Map<string, Uint8Array>();
@@ -111,10 +93,6 @@ function createMockFilesystem(files: Record<string, string>) {
 
 	return { fileSystem, storage };
 }
-
-// =============================================================================
-// computeStatus
-// =============================================================================
 
 describe('computeStatus', () => {
 	it('returns empty array when working tree matches committed tree', async () => {
@@ -201,10 +179,6 @@ describe('computeStatus', () => {
 	});
 });
 
-// =============================================================================
-// collectChanges
-// =============================================================================
-
 describe('collectChanges', () => {
 	it('collects all files when committed tree is empty (initial commit)', async () => {
 		const { fileSystem } = createMockFilesystem({
@@ -267,10 +241,6 @@ describe('collectChanges', () => {
 		expect(deletedPaths).toContain('src/deleted.ts');
 	});
 });
-
-// =============================================================================
-// applyTree
-// =============================================================================
 
 describe('applyTree', () => {
 	it('writes files from the target tree', async () => {

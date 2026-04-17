@@ -1,8 +1,3 @@
-/**
- * Tool: user_question
- * Ask the user clarifying questions.
- */
-
 import type { SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
 
 const DESCRIPTION = `Ask the user a question that ONLY they can answer. Do NOT use this tool for questions you could resolve by reading files, searching the codebase, or using any other tool. Exhaust all other research options first.

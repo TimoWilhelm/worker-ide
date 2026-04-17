@@ -1,30 +1,14 @@
-/**
- * Organization plan definitions and limits.
- *
- * Each organization has a `plan` field that determines its resource limits.
- * Users access resources through org membership.
- */
-
-// =============================================================================
-// Plan Types
-// =============================================================================
-
 export const PLAN_FREE = 'free';
 export const PLAN_PRO = 'pro';
 export const PLAN_ENTERPRISE = 'enterprise';
 
 export type PlanId = typeof PLAN_FREE | typeof PLAN_PRO | typeof PLAN_ENTERPRISE;
 
-// =============================================================================
-// Plan Limits
-// =============================================================================
-
 export interface PlanLimits {
 	maxProjects: number;
 	maxMembers: number;
 	maxPendingInvitations: number;
 	monthlyCredits: number;
-	/** Maximum object storage bytes per project (R2-backed). */
 	storageQuotaBytes: number;
 }
 
@@ -56,19 +40,8 @@ function isPlanId(plan: string): plan is PlanId {
 	return plan in PLAN_LIMITS;
 }
 
-// =============================================================================
-// Helpers
-// =============================================================================
-
-/**
- * Get the limits for a given plan.
- * Falls back to free plan limits for unknown plan values.
- */
 export function getOrgLimits(plan: string): PlanLimits {
 	return isPlanId(plan) ? PLAN_LIMITS[plan] : PLAN_LIMITS[PLAN_FREE];
 }
 
-/**
- * Number of AI credits consumed per agent session.
- */
 export const CREDITS_PER_AI_SESSION = 1;

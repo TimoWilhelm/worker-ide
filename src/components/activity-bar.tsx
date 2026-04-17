@@ -1,9 +1,3 @@
-/**
- * Activity Bar
- *
- * VS Code-style vertical icon strip on the far left of the IDE.
- */
-
 import { Files, FlaskConical, GitBranch } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 
@@ -11,10 +5,6 @@ import { Tooltip } from '@/components/ui';
 import { springSnappy } from '@/lib/motion-config';
 import { useStore, selectActiveSidebarView, selectGitChangedFileCount, type SidebarView } from '@/lib/store';
 import { cn } from '@/lib/utils';
-
-// =============================================================================
-// Types
-// =============================================================================
 
 interface ActivityBarProperties {
 	className?: string;
@@ -28,10 +18,6 @@ interface ActivityBarItemProperties {
 	badge?: number;
 	onSelect: (view: SidebarView) => void;
 }
-
-// =============================================================================
-// ActivityBarItem
-// =============================================================================
 
 function ActivityBarItem({ icon, label, view, activeView, badge, onSelect }: ActivityBarItemProperties) {
 	const isActive = activeView === view;
@@ -75,10 +61,6 @@ function ActivityBarItem({ icon, label, view, activeView, badge, onSelect }: Act
 		</Tooltip>
 	);
 }
-
-// =============================================================================
-// ActivityBar
-// =============================================================================
 
 export function ActivityBar({ className }: ActivityBarProperties) {
 	const activeSidebarView = useStore(selectActiveSidebarView);

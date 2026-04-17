@@ -1,10 +1,3 @@
-/**
- * Settings Layout
- *
- * Header shows the app icon (desktop) or hamburger menu (mobile) left of "Settings".
- * Desktop: left sidebar with navigation. Mobile: slidable drawer from the left.
- */
-
 import { Hexagon, Menu } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useState } from 'react';

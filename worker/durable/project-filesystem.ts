@@ -58,43 +58,23 @@ export class ProjectFilesystem extends DurableObjectFilesystem {
 	// =========================================================================
 	// Staged Paths — Tracking which files are staged for the next commit
 	// =========================================================================
-
-	/**
-	 * Get the list of currently staged file paths.
-	 */
 	getStagedPaths(): string[] {
 		return this.ctx.storage.kv.get<string[]>('stagedPaths') ?? [];
 	}
-
-	/**
-	 * Set the full list of staged file paths (replaces any existing).
-	 */
 	setStagedPaths(paths: string[]): void {
 		this.ctx.storage.kv.put('stagedPaths', paths);
 	}
-
-	/**
-	 * Add paths to the staged set (merge with existing).
-	 */
 	addStagedPaths(paths: string[]): void {
 		const existing = this.getStagedPaths();
 		const merged = [...new Set([...existing, ...paths])];
 		this.ctx.storage.kv.put('stagedPaths', merged);
 	}
-
-	/**
-	 * Remove paths from the staged set.
-	 */
 	removeStagedPaths(paths: string[]): void {
 		const existing = this.getStagedPaths();
 		const removeSet = new Set(paths);
 		const filtered = existing.filter((path) => !removeSet.has(path));
 		this.ctx.storage.kv.put('stagedPaths', filtered);
 	}
-
-	/**
-	 * Clear all staged paths.
-	 */
 	clearStagedPaths(): void {
 		this.ctx.storage.kv.delete('stagedPaths');
 	}

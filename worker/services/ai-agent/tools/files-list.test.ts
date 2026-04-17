@@ -1,10 +1,3 @@
-/**
- * Integration tests for the files_list tool.
- *
- * Tests recursive file listing, hidden directory exclusion,
- * and .initialized filtering against an in-memory filesystem.
- */
-
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createMemoryFs, createMockContext, createMockSendEvent } from './test-helpers';

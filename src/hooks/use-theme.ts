@@ -1,10 +1,3 @@
-/**
- * Theme Hook
- *
- * Syncs the color scheme preference from the store to the `<html>` element
- * by toggling the `.dark` class. Supports 'light', 'dark', and 'system' modes.
- */
-
 import { useEffect, useSyncExternalStore } from 'react';
 
 import { selectColorScheme, useStore } from '@/lib/store';

@@ -1,10 +1,3 @@
-/**
- * Git Commit Detail
- *
- * Shows details for a single commit: hash, author, date, message, and changed files.
- * Includes a "Checkout" button to restore the project to this commit's state.
- */
-
 import { ArrowLeft, Clock, GitCommitHorizontal, User } from 'lucide-react';
 import { useState } from 'react';
 
@@ -12,10 +5,6 @@ import { Button, ConfirmDialog } from '@/components/ui';
 import { cn } from '@/lib/utils';
 
 import type { GitCommitEntry, GitFileDiff } from '@shared/types';
-
-// =============================================================================
-// Types
-// =============================================================================
 
 interface GitCommitDetailProperties {
 	commit: GitCommitEntry;
@@ -27,10 +16,6 @@ interface GitCommitDetailProperties {
 	isCheckoutPending?: boolean;
 }
 
-// =============================================================================
-// Helpers
-// =============================================================================
-
 function formatDate(timestamp: number): string {
 	return new Date(timestamp * 1000).toLocaleString(undefined, {
 		year: 'numeric',
@@ -40,10 +25,6 @@ function formatDate(timestamp: number): string {
 		minute: '2-digit',
 	});
 }
-
-// =============================================================================
-// Component
-// =============================================================================
 
 export function GitCommitDetail({
 	commit,
@@ -58,7 +39,6 @@ export function GitCommitDetail({
 
 	return (
 		<div className="flex flex-col">
-			{/* Header */}
 			<div className="flex items-center justify-between gap-2 px-3 py-2">
 				<button
 					type="button"
@@ -85,7 +65,6 @@ export function GitCommitDetail({
 				</Button>
 			</div>
 
-			{/* Commit info */}
 			<div className="border-b border-border px-3 pb-3">
 				<p className="text-sm text-text-primary">{commit.message}</p>
 				<div className="mt-2 flex flex-col gap-1 text-xs text-text-secondary">
@@ -101,7 +80,6 @@ export function GitCommitDetail({
 				</div>
 			</div>
 
-			{/* Changed files */}
 			<div className="px-3 pt-2">
 				<span
 					className="
@@ -146,7 +124,6 @@ export function GitCommitDetail({
 				)}
 			</div>
 
-			{/* Checkout confirmation */}
 			<ConfirmDialog
 				open={checkoutConfirmOpen}
 				onOpenChange={setCheckoutConfirmOpen}

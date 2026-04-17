@@ -1,11 +1,3 @@
-/**
- * Project Authorization Helper
- *
- * Centralized role-based authorization checks for organizations.
- * Used by transfer routes and org management routes that need
- * admin/owner verification.
- */
-
 import { and, eq } from 'drizzle-orm';
 
 import { HttpErrorCode } from '@shared/http-errors';

@@ -1,10 +1,3 @@
-/**
- * Integration tests for the user_question tool.
- *
- * Tests event emission, options formatting, and result structure.
- * No external dependencies to mock. This tool is self-contained.
- */
-
 import { describe, expect, it } from 'vitest';
 
 import { createMockContext, createMockSendEvent } from './test-helpers';

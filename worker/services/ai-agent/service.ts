@@ -1,23 +1,3 @@
-/**
- * AI Agent Service.
- *
- * Orchestrates the AI agent loop with streaming response using the Vercel AI SDK.
- *
- * Key architecture:
- * - Uses Vercel AI SDK streamText() with provider-specific adapters for the LLM call
- * - Emits typed StreamEvent objects (defined in shared/agent-state.ts)
- * - Manual agent loop: one streamText() call per iteration with maxSteps: 1
- * - Integrates retry, doom loop detection, context pruning, and token tracking
- *
- * Extracted modules:
- * - event-helpers.ts    — Typed StreamEvent constructors
- * - pending-changes.ts  — Server-side pending changes accumulation
- * - snapshot-manager.ts — Snapshot lifecycle (create, populate, cleanup)
- * - system-prompt-builder.ts — System prompt assembly
- * - plan-saver.ts       — Plan mode output persistence
- * - mcp-client.ts       — MCP client connection management
- */
-
 import { generateText, streamText } from 'ai';
 import { mount, withMounts } from 'worker-fs-mount';
 
@@ -81,10 +61,6 @@ import type { AgentMode, ChatMessage, PendingFileChange, ToolErrorInfo, ToolMeta
 import type { Session } from 'agents/experimental/memory/session';
 import type { ModelMessage } from 'ai';
 
-// =============================================================================
-// Helpers
-// =============================================================================
-
 /**
  * Extract a plain text string from an AI SDK tool result value.
  *
@@ -105,29 +81,11 @@ function extractToolResultText(result: unknown): string {
 	}
 	return JSON.stringify(result);
 }
-
-// =============================================================================
-// Constants
-// =============================================================================
-
-/** Hard ceiling on agent loop iterations. */
 const MAX_ITERATIONS = 200;
-
-/** Maximum retry attempts for a single LLM call. */
 const MAX_RETRY_ATTEMPTS = 5;
-
-/** Maximum recovery attempts when the model hits output token limits mid-response. */
 const MAX_OUTPUT_RECOVERY_ATTEMPTS = 3;
-
-/** Soft iteration limit — nudge the agent to wrap up. */
 const SOFT_ITERATION_LIMIT = 50;
-
-/** Context utilization threshold for proactive pruning. */
 const PROACTIVE_PRUNE_THRESHOLD = 0.7;
-
-// =============================================================================
-// AI Agent Service Class
-// =============================================================================
 
 export class AIAgentService {
 	private mcpClientManager = new McpClientManager();
@@ -186,10 +144,6 @@ export class AIAgentService {
 
 		return readable;
 	}
-
-	/**
-	 * Re-flush the shared logger inside a mount scope.
-	 */
 	async flushLogger(): Promise<void> {
 		const logger = this.agentLogger;
 		if (!logger || logger.isFlushed) return;

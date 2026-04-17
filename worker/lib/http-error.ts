@@ -1,17 +1,3 @@
-/**
- * HTTP Error Helper
- *
- * Throws an HTTPException with a JSON `{ error: string, code: string }`
- * response body. Using HTTPException instead of `c.json({ error }, status)`
- * keeps error responses out of Hono's typed route schema, giving the RPC
- * client clean single-type responses without union pollution.
- *
- * The `code` field is a strongly typed `HttpErrorCode` from
- * `shared/http-errors.ts`, enabling the frontend to:
- * 1. Surface the server's descriptive error message to users
- * 2. Branch on error type for conditional UI (e.g. retry on rate limit)
- */
-
 import { HTTPException } from 'hono/http-exception';
 
 import { DEFAULT_STATUS_CODES, type HttpErrorCode } from '@shared/http-errors';

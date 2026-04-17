@@ -1,9 +1,3 @@
-/**
- * Keyboard Shortcuts E2E Tests
- *
- * Tests keyboard shortcut handling in the IDE.
- */
-
 import { expect, test } from 'playwright/test';
 
 import { gotoIDE, waitForFileTree } from './helpers';

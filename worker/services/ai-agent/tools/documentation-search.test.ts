@@ -1,11 +1,3 @@
-/**
- * Integration tests for the docs_search tool.
- *
- * Tests MCP tool delegation, result formatting, and error handling.
- * The callMcpTool context method is mocked since MCP servers
- * are not available in the test environment.
- */
-
 import { describe, expect, it, vi } from 'vitest';
 
 import { execute } from './documentation-search';

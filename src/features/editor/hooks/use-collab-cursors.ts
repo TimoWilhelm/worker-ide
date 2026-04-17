@@ -1,10 +1,3 @@
-/**
- * Hook for managing remote collaboration cursors in the CodeMirror editor.
- *
- * Creates the CodeMirror extension once and updates remote cursor decorations
- * whenever participants or the active file changes.
- */
-
 import { useCallback, useEffect, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 
@@ -16,9 +9,7 @@ import type { Extension } from '@codemirror/state';
 import type { EditorView } from '@codemirror/view';
 
 interface UseCollabCursorsResult {
-	/** CodeMirror extension to include in the editor */
 	extension: Extension;
-	/** Callback to pass to CodeEditor's onViewReady — tracks the current view */
 	handleViewReady: (view?: EditorView) => void;
 }
 

@@ -1,16 +1,8 @@
-/**
- * Unit tests for the editor session persistence utilities.
- */
-
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { loadEditorSession, resolveEditorSession, saveEditorSession } from './editor-session';
 
 import type { EditorSessionParsed } from '@shared/validation';
-
-// =============================================================================
-// Mock localStorage
-// =============================================================================
 
 const localStorageMock = (() => {
 	let store: Record<string, string> = {};
@@ -37,10 +29,6 @@ beforeEach(() => {
 afterEach(() => {
 	vi.restoreAllMocks();
 });
-
-// =============================================================================
-// loadEditorSession
-// =============================================================================
 
 describe('loadEditorSession', () => {
 	it('returns undefined when nothing is stored', () => {
@@ -111,10 +99,6 @@ describe('loadEditorSession', () => {
 	});
 });
 
-// =============================================================================
-// saveEditorSession
-// =============================================================================
-
 describe('saveEditorSession', () => {
 	it('writes a session to localStorage', () => {
 		const session: EditorSessionParsed = {
@@ -138,10 +122,6 @@ describe('saveEditorSession', () => {
 		}).not.toThrow();
 	});
 });
-
-// =============================================================================
-// resolveEditorSession — edge cases
-// =============================================================================
 
 describe('resolveEditorSession', () => {
 	const existingPaths = new Set(['/src/main.ts', '/src/app.tsx', '/src/utils.ts']);

@@ -1,12 +1,3 @@
-/**
- * Git Smart HTTP v2 routes for the git auxiliary worker.
- *
- * Endpoints:
- * - GET  /:owner/:repo/info/refs  — capability advertisement
- * - POST /:owner/:repo/git-upload-pack  — fetch/clone (streaming)
- * - POST /:owner/:repo/git-receive-pack — push
- */
-
 import { authenticateGitRequest, unauthorizedResponse } from '@git/auth/jwt';
 import { asBodyInit, getRepoStub } from '@git/common';
 import {

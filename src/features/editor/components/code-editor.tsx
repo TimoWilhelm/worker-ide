@@ -1,9 +1,3 @@
-/**
- * CodeMirror Editor Component
- *
- * React wrapper for CodeMirror 6 with language support and theme.
- */
-
 import { syntaxHighlighting } from '@codemirror/language';
 import { Compartment, EditorState, type Extension } from '@codemirror/state';
 import { EditorView, type ViewUpdate } from '@codemirror/view';
@@ -23,10 +17,6 @@ import {
 import { createLintExtension } from '../lib/lint-extension';
 
 import type { DiffData } from '../lib/diff-decorations';
-
-// =============================================================================
-// Helpers
-// =============================================================================
 
 /**
  * Build diff extensions: core decorations always, AI action bar only when
@@ -51,54 +41,25 @@ function buildDiffExtensions(
 	return extensions;
 }
 
-// =============================================================================
-// Types
-// =============================================================================
-
 export interface CodeEditorProperties {
-	/** Initial content of the editor */
 	value: string;
-	/** Filename for language detection */
 	filename: string;
-	/** Called when content changes */
 	onChange?: (value: string) => void;
-	/** Called when cursor position changes (includes selection range) */
 	onCursorChange?: (position: { line: number; column: number; anchorLine: number; anchorColumn: number }) => void;
-	/** Called when the editor loses focus (for auto-save on focus change) */
 	onBlur?: () => void;
-	/** Navigate to a specific position (line/column). Consumed once when set. */
 	goToPosition?: { line: number; column: number };
-	/** Called after goToPosition has been consumed so the parent can clear it */
 	onGoToPositionConsumed?: () => void;
-	/** Whether the editor is readonly */
 	readonly?: boolean;
-	/** Tab size (default: 2) */
 	tabSize?: number;
-	/** Inline diff data for AI change review */
 	diffData?: DiffData;
-	/** Per-change-group statuses for filtering resolved hunks from decorations */
 	hunkStatuses?: Array<'pending' | 'approved' | 'rejected'>;
-	/** Called when the user accepts a change group via inline action bar */
 	onDiffApprove?: (groupIndex: number) => void;
-	/** Called when the user rejects a change group via inline action bar */
 	onDiffReject?: (groupIndex: number) => void;
-	/** Resolved color theme */
 	resolvedTheme?: 'light' | 'dark';
-	/** Additional extensions */
 	extensions?: Extension[];
-	/** CSS class name */
 	className?: string;
-	/** Called with the EditorView when it is created (and no argument when destroyed) */
 	onViewReady?: (view?: EditorView) => void;
 }
-
-// =============================================================================
-// Component
-// =============================================================================
-
-/**
- * CodeMirror 6 editor component.
- */
 export function CodeEditor({
 	value,
 	filename,

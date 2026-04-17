@@ -1,10 +1,3 @@
-/**
- * Git Status List
- *
- * Groups git status entries into Staged, Changed, and Untracked sections.
- * Each section is collapsible with bulk stage/unstage actions.
- */
-
 import { ChevronDown, ChevronRight, Minus, Plus } from 'lucide-react';
 import { useState } from 'react';
 
@@ -15,10 +8,6 @@ import { GitFileItem } from './git-file-item';
 import { groupStatusEntries } from '../lib/status-helpers';
 
 import type { GitStatusEntry } from '@shared/types';
-
-// =============================================================================
-// Types
-// =============================================================================
 
 interface GitStatusListProperties {
 	entries: GitStatusEntry[];
@@ -40,10 +29,6 @@ interface StatusSectionProperties {
 	onFileClick?: (path: string) => void;
 }
 
-// =============================================================================
-// StatusSection
-// =============================================================================
-
 function StatusSection({
 	title,
 	entries,
@@ -63,7 +48,6 @@ function StatusSection({
 
 	return (
 		<div>
-			{/* Section header */}
 			<button
 				type="button"
 				className={cn(
@@ -82,7 +66,6 @@ function StatusSection({
 				<span>{title}</span>
 				<span className="ml-1 text-text-secondary">{entries.length}</span>
 				<span className="flex-1" />
-				{/* Bulk action */}
 				{onStageAll && (
 					<Tooltip content="Stage all">
 						<span
@@ -133,7 +116,6 @@ function StatusSection({
 				)}
 			</button>
 
-			{/* File list */}
 			{isExpanded && (
 				<div>
 					{entries.map((entry) => (
@@ -151,10 +133,6 @@ function StatusSection({
 		</div>
 	);
 }
-
-// =============================================================================
-// GitStatusList
-// =============================================================================
 
 export function GitStatusList({ entries, onStage, onUnstage, onDiscard, onFileClick }: GitStatusListProperties) {
 	const groups = groupStatusEntries(entries);

@@ -1,9 +1,3 @@
-/**
- * Dropdown Menu Component
- *
- * Accessible dropdown menu using Base UI Menu primitives.
- */
-
 import { Menu } from '@base-ui/react/menu';
 import { motion } from 'motion/react';
 
@@ -11,10 +5,6 @@ import { popoverVariants, springSnappy } from '@/lib/motion-config';
 import { cn } from '@/lib/utils';
 
 import type { ReactElement, ReactNode, Ref } from 'react';
-
-// =============================================================================
-// Root + Trigger
-// =============================================================================
 
 const DropdownMenu = Menu.Root;
 const DropdownMenuGroup = Menu.Group;
@@ -27,10 +17,6 @@ interface DropdownMenuTriggerProperties {
 function DropdownMenuTrigger({ children, disabled }: DropdownMenuTriggerProperties) {
 	return <Menu.Trigger disabled={disabled} render={children} />;
 }
-
-// =============================================================================
-// Content
-// =============================================================================
 
 interface DropdownMenuContentProperties {
 	children: ReactNode;
@@ -60,10 +46,6 @@ function DropdownMenuContent({ children, className, align = 'end', sideOffset = 
 		</Menu.Portal>
 	);
 }
-
-// =============================================================================
-// Item
-// =============================================================================
 
 interface DropdownMenuItemProperties {
 	children: ReactNode;
@@ -95,10 +77,6 @@ function DropdownMenuItem({ children, className, disabled, onSelect, ref, 'aria-
 		</Menu.Item>
 	);
 }
-
-// =============================================================================
-// Separator + Label
-// =============================================================================
 
 function DropdownMenuSeparator({ className }: { className?: string }) {
 	return <Menu.Separator className={cn('my-1 h-px bg-border', className)} />;

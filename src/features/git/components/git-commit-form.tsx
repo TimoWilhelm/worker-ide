@@ -1,18 +1,8 @@
-/**
- * Git Commit Form
- *
- * Input area for composing commit messages with a commit button.
- */
-
 import { Check } from 'lucide-react';
 import { useState } from 'react';
 
 import { Button } from '@/components/ui';
 import { cn } from '@/lib/utils';
-
-// =============================================================================
-// Types
-// =============================================================================
 
 interface GitCommitFormProperties {
 	onCommit: (message: string) => void;
@@ -21,10 +11,6 @@ interface GitCommitFormProperties {
 	hasStagedChanges: boolean;
 	error?: Error | undefined;
 }
-
-// =============================================================================
-// Component
-// =============================================================================
 
 export function GitCommitForm({ onCommit, isCommitting, isCommitSuccess, hasStagedChanges, error }: GitCommitFormProperties) {
 	const [message, setMessage] = useState('');

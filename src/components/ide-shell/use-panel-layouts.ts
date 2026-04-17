@@ -1,7 +1,3 @@
-/**
- * Hook for computing and persisting resizable panel layouts via react-resizable-panels.
- */
-
 import { useMemo } from 'react';
 import { useDefaultLayout } from 'react-resizable-panels';
 

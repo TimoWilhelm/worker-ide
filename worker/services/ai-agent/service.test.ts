@@ -1,13 +1,3 @@
-/**
- * Integration tests for AIAgentService.createAgentStream orchestration.
- *
- * Tests the agent loop lifecycle by mocking external dependencies
- * (streamText, generateText, filesystem, coordinator) while exercising
- * the real orchestration logic: iteration control, event emission,
- * tool call flow, abort handling, retry, doom loop detection, steering,
- * context budget, and session persistence.
- */
-
 import { streamText } from 'ai';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -15,10 +5,6 @@ import { AIAgentService } from './service';
 
 import type { StreamEvent } from '@shared/agent-state';
 import type { AgentMode, ChatMessage, PendingFileChange } from '@shared/types';
-
-// =============================================================================
-// Module Mocks
-// =============================================================================
 
 // Mock worker-fs-mount (the service wraps the stream in withMounts)
 vi.mock('worker-fs-mount', () => ({
@@ -129,10 +115,6 @@ vi.mock('ai', async (importOriginal) => {
 	};
 });
 
-// =============================================================================
-// Test Helpers
-// =============================================================================
-
 function makeUserMessage(content: string): ChatMessage {
 	return {
 		id: `msg-${crypto.randomUUID().slice(0, 8)}`,
@@ -180,10 +162,6 @@ async function collectEvents(stream: AsyncIterable<StreamEvent>): Promise<Stream
 	}
 	return events;
 }
-
-// =============================================================================
-// Tests
-// =============================================================================
 
 describe('AIAgentService', () => {
 	beforeEach(() => {

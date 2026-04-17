@@ -1,19 +1,9 @@
-/**
- * useFileContent Hook
- *
- * Hook for loading and saving file content via API.
- */
-
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useCallback } from 'react';
 
 import { toast } from '@/components/ui/toast-store';
 import { createApiClient } from '@/lib/api-client';
 import { throwApiError } from '@/lib/api-error';
-
-// =============================================================================
-// Types
-// =============================================================================
 
 interface UseFileContentOptions {
 	projectId: string;
@@ -25,14 +15,6 @@ interface FileContent {
 	path: string;
 	content: string;
 }
-
-// =============================================================================
-// Hook
-// =============================================================================
-
-/**
- * Hook for loading and saving file content.
- */
 export function useFileContent({ projectId, path, enabled = true }: UseFileContentOptions) {
 	const queryClient = useQueryClient();
 	const api = createApiClient(projectId);

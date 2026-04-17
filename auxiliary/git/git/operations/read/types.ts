@@ -1,9 +1,6 @@
 export interface TreeEntry {
-	/** File mode (e.g., "100644" for regular file, "40000" for directory) */
 	mode: string;
-	/** Entry name (filename or directory name) */
 	name: string;
-	/** Object ID of the blob (file) or tree (directory) */
 	oid: string;
 }
 
@@ -17,11 +14,8 @@ export interface CommitInfo {
 }
 
 export interface MergeSideOptions {
-	/** Maximum commits to scan before stopping (default: limit * 3) */
 	scanLimit?: number;
-	/** Time budget in milliseconds before stopping (default: 150ms) */
 	timeBudgetMs?: number;
-	/** Number of mainline commits to probe for early stop (default: 300) */
 	mainlineProbe?: number;
 }
 

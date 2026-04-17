@@ -1,8 +1,3 @@
-/**
- * Tool: sub_agent
- * Delegate a focused task to an isolated facet sub-agent.
- */
-
 import { ToolErrorCode, toolError } from '@shared/tool-errors';
 
 import type { FileChange, SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';

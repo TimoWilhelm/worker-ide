@@ -1,11 +1,3 @@
-/**
- * Project Settings Modal
- *
- * Modal dialog for project-level meta settings.
- * Currently controls preview visibility (public/private).
- * Asset routing settings have moved to the inline wrangler.jsonc editor panel.
- */
-
 import { useQuery } from '@tanstack/react-query';
 import { Eye, EyeOff } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
@@ -17,10 +9,6 @@ import { createApiClient } from '@/lib/api-client';
 import { throwApiError } from '@/lib/api-error';
 import { cn } from '@/lib/utils';
 
-// =============================================================================
-// Types
-// =============================================================================
-
 interface ProjectSettingsModalProperties {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
@@ -28,10 +16,6 @@ interface ProjectSettingsModalProperties {
 }
 
 type Visibility = 'public' | 'private';
-
-// =============================================================================
-// API helpers (project-scoped RPC client)
-// =============================================================================
 
 async function fetchVisibility(projectId: string): Promise<Visibility> {
 	const api = createApiClient(projectId);
@@ -50,10 +34,6 @@ async function updateVisibility(projectId: string, visibility: Visibility): Prom
 		await throwApiError(response, 'Failed to update visibility');
 	}
 }
-
-// =============================================================================
-// Component
-// =============================================================================
 
 export function ProjectSettingsModal({ open, onOpenChange, projectId }: ProjectSettingsModalProperties) {
 	return (

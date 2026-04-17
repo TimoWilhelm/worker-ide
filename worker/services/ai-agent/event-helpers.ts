@@ -1,10 +1,3 @@
-/**
- * Stream Event Helpers.
- *
- * Pure utility functions for constructing typed StreamEvent objects.
- * Constructs strongly-typed StreamEvent objects for the agent stream.
- */
-
 import type {
 	ContextUtilizationEvent,
 	DoomLoopDetectedEvent,
@@ -28,10 +21,6 @@ import type {
 	UsageEvent,
 	UserQuestionEvent,
 } from '@shared/agent-state';
-
-// =============================================================================
-// Event Constructors
-// =============================================================================
 
 export function statusEvent(message: string): StatusEvent {
 	return { type: 'status', message };
@@ -122,10 +111,6 @@ function subAgentActivityEvent(parentToolCallId: string, activity: SubAgentActiv
 	return { type: 'sub-agent-activity', parentToolCallId, activity };
 }
 
-// =============================================================================
-// Internal helpers
-// =============================================================================
-
 function isRecordObject(value: unknown): value is Record<string, unknown> {
 	return !!value && typeof value === 'object' && !Array.isArray(value);
 }
@@ -134,10 +119,6 @@ const FILE_ACTIONS = new Set(['create', 'edit', 'delete', 'move']);
 function isFileAction(value: unknown): value is 'create' | 'edit' | 'delete' | 'move' {
 	return typeof value === 'string' && FILE_ACTIONS.has(value);
 }
-
-// =============================================================================
-// SendEvent factory (used by tool executors)
-// =============================================================================
 
 /**
  * Create a SendEvent function that pushes StreamEvent objects into a queue.

@@ -1,12 +1,3 @@
-/**
- * Organization Management Page
- *
- * Minimal page for managing org members: invite, remove,
- * transfer ownership, leave, rename org, delete org, and
- * promote/demote member roles. Uses better-auth's organization
- * client methods — no custom backend routes needed.
- */
-
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, ChevronDown, ChevronUp, Crown, Mail, Moon, Pencil, Shield, Sun, Trash2, User, UserPlus, X } from 'lucide-react';
 import { useCallback, useState } from 'react';
@@ -25,10 +16,6 @@ import { cn } from '@/lib/utils';
 import { MAX_ORGANIZATION_NAME_LENGTH } from '@shared/constants';
 
 import type { OrgLimits } from '@/lib/api-client';
-
-// =============================================================================
-// Types
-// =============================================================================
 
 interface OrgMember {
 	id: string;
@@ -104,10 +91,6 @@ type ConfirmAction =
 	| { type: 'demote'; member: OrgMember; targetRole: string }
 	| { type: 'leave' };
 
-// =============================================================================
-// Role helpers
-// =============================================================================
-
 const ROLE_CONFIG: Record<string, { label: string; icon: typeof Crown; className: string }> = {
 	owner: { label: 'Owner', icon: Crown, className: 'bg-warning/15 text-warning' },
 	admin: { label: 'Admin', icon: Shield, className: 'bg-accent/15 text-accent' },
@@ -124,10 +107,6 @@ function RoleBadge({ role }: { role: string }) {
 		</span>
 	);
 }
-
-// =============================================================================
-// Member Row
-// =============================================================================
 
 function MemberRow({
 	member,
@@ -224,10 +203,6 @@ function MemberRow({
 	);
 }
 
-// =============================================================================
-// Invitation Row
-// =============================================================================
-
 function InvitationRow({
 	invitation,
 	canCancel,
@@ -269,10 +244,6 @@ function InvitationRow({
 		</div>
 	);
 }
-
-// =============================================================================
-// Invite Form
-// =============================================================================
 
 function InviteForm({
 	organizationId,
@@ -398,10 +369,6 @@ function InviteForm({
 	);
 }
 
-// =============================================================================
-// Main Page Component
-// =============================================================================
-
 interface OrgManagementPageProperties {
 	orgSlug: string;
 	organizationId: string;
@@ -413,7 +380,6 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 	const resolvedTheme = useTheme();
 	const setColorScheme = useStore((state) => state.setColorScheme);
 
-	// Fetch full organization details (members + invitations) via better-auth client
 	const organizationQuery = useQuery({
 		queryKey: ['org-details', organizationId],
 		queryFn: async () => {
@@ -428,7 +394,6 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 	const activeOrganization = isActiveOrganization(organizationQuery.data) ? organizationQuery.data : undefined;
 	const isPending = organizationQuery.isPending;
 
-	// Fetch resolved org limits (plan-based + entitlement overrides)
 	const limitsQuery = useQuery({
 		queryKey: ['org-limits', organizationId],
 		queryFn: () => fetchOrgLimits(organizationId),
@@ -439,13 +404,11 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 	const [confirmAction, setConfirmAction] = useState<ConfirmAction | undefined>();
 	const [isActing, setIsActing] = useState(false);
 
-	// Delete org modal state (separate from ConfirmDialog)
 	const [deleteOrgOpen, setDeleteOrgOpen] = useState(false);
 	const [deleteOrgConfirmText, setDeleteOrgConfirmText] = useState('');
 	const [isDeletingOrg, setIsDeletingOrg] = useState(false);
 	const isDeleteOrgConfirmed = deleteOrgConfirmText.toLowerCase() === 'delete';
 
-	// Rename state
 	const [isEditingName, setIsEditingName] = useState(false);
 	const [editName, setEditName] = useState('');
 	const [isRenaming, setIsRenaming] = useState(false);
@@ -464,7 +427,6 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 		void queryClient.invalidateQueries({ queryKey: ['org-details', organizationId] });
 	}, [queryClient, organizationId]);
 
-	// --- Rename ---
 	const handleStartRename = useCallback(() => {
 		setEditName(activeOrganization?.name ?? '');
 		setIsEditingName(true);
@@ -500,7 +462,6 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 		}
 	}, [editName, activeOrganization?.name, activeOrganization?.id, refreshOrganization]);
 
-	// --- Remove member ---
 	const handleRemoveMember = useCallback(async () => {
 		if (confirmAction?.type !== 'remove') return;
 		setIsActing(true);
@@ -523,7 +484,6 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 		}
 	}, [confirmAction, activeOrganization?.id, refreshOrganization]);
 
-	// --- Transfer ownership ---
 	const handleTransferOwnership = useCallback(async () => {
 		if (confirmAction?.type !== 'transfer') return;
 		setIsActing(true);
@@ -547,7 +507,6 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 		}
 	}, [confirmAction, activeOrganization?.id, refreshOrganization]);
 
-	// --- Promote / Demote ---
 	const handleChangeRole = useCallback(async () => {
 		if (confirmAction?.type !== 'promote' && confirmAction?.type !== 'demote') return;
 		setIsActing(true);
@@ -572,7 +531,6 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 		}
 	}, [confirmAction, activeOrganization?.id, refreshOrganization]);
 
-	// --- Leave ---
 	const handleLeave = useCallback(async () => {
 		setIsActing(true);
 		try {
@@ -593,7 +551,6 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 		}
 	}, [activeOrganization?.id, navigate]);
 
-	// --- Delete org ---
 	const handleDeleteOrg = useCallback(async () => {
 		setIsDeletingOrg(true);
 		try {
@@ -609,7 +566,6 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 		}
 	}, [organizationId, navigate]);
 
-	// --- Cancel invitation ---
 	const handleCancelInvitation = useCallback(
 		async (invitationId: string) => {
 			try {
@@ -629,7 +585,6 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 		[refreshOrganization],
 	);
 
-	// --- Confirm dispatch ---
 	const handleConfirm = useCallback(() => {
 		if (confirmAction?.type === 'remove') void handleRemoveMember();
 		if (confirmAction?.type === 'transfer') void handleTransferOwnership();
@@ -657,7 +612,6 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 
 	return (
 		<div className="flex h-dvh flex-col items-center overflow-y-auto bg-bg-primary">
-			{/* Confirm dialog */}
 			{confirmDialogProperties && (
 				<ConfirmDialog
 					open={confirmAction !== undefined}
@@ -673,7 +627,6 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 			)}
 
 			<main className="w-full max-w-lg px-6 py-12">
-				{/* Header */}
 				<div className="mb-8 flex items-center gap-3">
 					<Link
 						to={`/org/${orgSlug}`}
@@ -766,7 +719,6 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 					</div>
 				</div>
 
-				{/* Members */}
 				<section className="mb-6">
 					<h2
 						className="
@@ -790,7 +742,6 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 					</div>
 				</section>
 
-				{/* Invite */}
 				{isAdminOrOwner && (
 					<section className="mb-6">
 						<h2
@@ -812,7 +763,6 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 					</section>
 				)}
 
-				{/* Pending Invitations */}
 				{pendingInvitations.length > 0 && (
 					<section className="mb-6">
 						<h2
@@ -842,7 +792,6 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 					</section>
 				)}
 
-				{/* Danger Zone — Delete Organization */}
 				{isOwner && (
 					<section>
 						<h2
@@ -877,7 +826,6 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 					</section>
 				)}
 
-				{/* Delete org confirmation modal */}
 				<Modal
 					open={deleteOrgOpen}
 					onOpenChange={(open) => {
@@ -954,10 +902,6 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 		</div>
 	);
 }
-
-// =============================================================================
-// Confirm Dialog Properties Helper
-// =============================================================================
 
 function getConfirmDialogProperties(
 	confirmAction: ConfirmAction | undefined,

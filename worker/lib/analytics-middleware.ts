@@ -1,10 +1,3 @@
-/**
- * Hono middleware that tracks API request timing and status via Analytics Engine.
- *
- * Records the route pattern, HTTP method, response status, and duration for
- * every API request. Mount on API routes and project-scoped API routes.
- */
-
 import { createMiddleware } from 'hono/factory';
 
 import { trackApiRequest } from './analytics';

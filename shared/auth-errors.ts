@@ -1,29 +1,7 @@
-/**
- * Auth Error Messages
- *
- * Maps Better Auth error codes (used during OAuth redirects and API responses)
- * to user-friendly titles and messages. These errors are displayed in the UI
- * when auth operations fail.
- *
- * Better Auth redirect errors: When an OAuth callback fails, Better Auth
- * redirects to the configured errorURL with `?error=<code>`. These codes
- * are listed in the Better Auth docs under /docs/reference/errors.
- */
-
-// =============================================================================
-// Types
-// =============================================================================
-
 export interface AuthErrorInfo {
-	/** Short heading for the error (e.g. "Account Already Linked") */
 	title: string;
-	/** Actionable description explaining what happened and what the user can do */
 	message: string;
 }
-
-// =============================================================================
-// Error Code → Message Map
-// =============================================================================
 
 /**
  * All Better Auth redirect error codes mapped to user-facing messages.
@@ -105,10 +83,6 @@ const AUTH_ERROR_MESSAGES: Record<string, AuthErrorInfo> = {
 			'New account registration is currently disabled. If you already have an account, try signing in with the provider you originally used.',
 	},
 };
-
-// =============================================================================
-// Lookup Helper
-// =============================================================================
 
 /**
  * Look up user-friendly error info for a known Better Auth error code.

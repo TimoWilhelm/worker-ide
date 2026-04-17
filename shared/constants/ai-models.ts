@@ -1,8 +1,3 @@
-/**
- * AI model configuration — single source of truth for available models.
- * To add a new model, add an entry to AI_MODELS below.
- */
-
 export type AIModelProvider = 'workers-ai';
 
 export interface AIModelConfig<TId extends string = string> {
@@ -49,8 +44,6 @@ export const AI_MODEL_IDS: readonly AIModelId[] = AI_MODELS.map((model) => model
 export const AI_MODEL_IDS_TUPLE = AI_MODEL_IDS as readonly [AIModelId, ...AIModelId[]];
 
 export const DEFAULT_AI_MODEL: AIModelId = '@cf/moonshotai/kimi-k2.5' satisfies AIModelId;
-
-/** Used for internal summarization (e.g., web_fetch), not user-selectable. */
 export const SUMMARIZATION_AI_MODEL: AIModelId = '@cf/google/gemma-4-26b-a4b-it' satisfies AIModelId;
 
 export function getModelLabel(modelId: string): string {

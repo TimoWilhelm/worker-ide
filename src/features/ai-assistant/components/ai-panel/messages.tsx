@@ -1,11 +1,3 @@
-/**
- * Agent Panel Message Sub-Components.
- * WelcomeScreen, MessageBubble, UserMessage, AssistantMessage,
- * InlineToolCall, InlineTodoList, ContinuationPrompt, AIError.
- *
- * Renders ChatMessage.parts (TextPart, ToolCallPart, ToolResultPart, ReasoningPart).
- */
-
 import {
 	AlertCircle,
 	Bot,
@@ -64,13 +56,7 @@ import type {
 	ToolResultPart,
 } from '@shared/types';
 import type { ToolName } from '@shared/validation';
-
-/** Threshold in pixels — if within this distance of bottom, consider "at bottom" for the thinking box. */
 const THINKING_BOX_BOTTOM_THRESHOLD = 16;
-
-// =============================================================================
-// Part type guards (narrowing the MessagePart discriminated union)
-// =============================================================================
 
 function isTextPart(part: MessagePart): part is TextPart {
 	return part.type === 'text';
@@ -87,10 +73,6 @@ function isToolResultPart(part: MessagePart): part is ToolResultPart {
 function isReasoningPart(part: MessagePart): part is ReasoningPart {
 	return part.type === 'reasoning';
 }
-
-// =============================================================================
-// Tool icon helper
-// =============================================================================
 
 function ToolIcon({ name, className }: { name: ToolName; className?: string }) {
 	switch (name) {
@@ -153,10 +135,6 @@ function ToolIcon({ name, className }: { name: ToolName; className?: string }) {
 	}
 }
 
-// =============================================================================
-// Welcome Screen
-// =============================================================================
-
 export function WelcomeScreen({
 	onSuggestionClick,
 	onModeChange,
@@ -197,10 +175,6 @@ export function WelcomeScreen({
 	);
 }
 
-// =============================================================================
-// Message Bubble
-// =============================================================================
-
 export function MessageBubble({
 	message,
 	messageIndex,
@@ -219,11 +193,8 @@ export function MessageBubble({
 	message: ChatMessage;
 	messageIndex: number;
 	snapshotId?: string;
-	/** The agent mode that was active when this user message was sent */
 	agentMode?: AgentMode;
-	/** Whether any revert operation is in progress (disables all revert buttons) */
 	isReverting: boolean;
-	/** The message index currently being reverted (shows spinner on that specific button) */
 	revertingMessageIndex?: number;
 	onRevert: (snapshotId: string, messageIndex: number) => void;
 	toolErrors?: Map<string, ToolErrorInfo>;
@@ -264,10 +235,6 @@ export function MessageBubble({
 	);
 }
 
-// =============================================================================
-// User Message
-// =============================================================================
-
 /**
  * Mode-specific border and background colors for user message bubbles.
  * Falls back to the default accent color when no mode is provided.
@@ -296,11 +263,8 @@ function UserMessage({
 	message: ChatMessage;
 	messageIndex: number;
 	snapshotId?: string;
-	/** The agent mode that was active when this message was sent */
 	agentMode?: AgentMode;
-	/** Whether any revert operation is in progress (disables this button) */
 	isReverting: boolean;
-	/** Whether this specific message is being reverted (shows spinner) */
 	isRevertingThis: boolean;
 	onRevert: (snapshotId: string, messageIndex: number) => void;
 }) {
@@ -362,10 +326,6 @@ function UserMessage({
 		</motion.div>
 	);
 }
-
-// =============================================================================
-// Assistant Message
-// =============================================================================
 
 /**
  * Build a list of renderable segments from ChatMessage parts, preserving order.
@@ -432,7 +392,6 @@ export function AssistantMessage({
 	fileDiffContent?: Map<string, { beforeContent: string; afterContent: string }>;
 	subAgentActivities?: Record<string, SubAgentActivityRecord>;
 	projectId?: string;
-	/** Whether to render the "AI" label above this message block. Default true. */
 	showHeader?: boolean;
 }) {
 	const segments = buildRenderSegments(message.parts);
@@ -666,14 +625,6 @@ export function AssistantMessage({
 	);
 }
 
-// =============================================================================
-// Inline Tool Call
-// =============================================================================
-
-// =============================================================================
-// Tool result parsing helpers
-// =============================================================================
-
 /**
  * Extract text content from an XML-like tag, e.g. `<error>msg</error>` -> `msg`.
  * Returns undefined if the tag is not found.
@@ -729,8 +680,6 @@ function deriveCompletedLabel(toolName: ToolName | undefined, rawContent: string
 function isErrorResult(text: string): boolean {
 	return /^\[[A-Z_]+\] /.test(text) || text.startsWith('Error executing tool:') || text.startsWith('Input validation failed');
 }
-
-/** Lookup table typed as a plain record so we can index with an arbitrary string. */
 const errorLabels: Record<string, string> = TOOL_ERROR_LABELS;
 
 /**
@@ -1278,10 +1227,6 @@ function getToolResultContent(toolResult?: ToolResultPart): string | undefined {
 	}
 	return undefined;
 }
-
-/**
- * Check if a tool call has an error result.
- */
 function isToolError(toolResult?: ToolResultPart): boolean {
 	if (toolResult?.isError) return true;
 	const content = getToolResultContent(toolResult);
@@ -1391,10 +1336,6 @@ function InlineDiffView({ beforeContent, afterContent }: { beforeContent: string
 		</div>
 	);
 }
-
-/**
- * Display a list of lint diagnostics in the tool call expanded view.
- */
 function InlineDiagnosticsList({ diagnostics }: { diagnostics: unknown[] }) {
 	return (
 		<div
@@ -1431,8 +1372,6 @@ function InlineDiagnosticsList({ diagnostics }: { diagnostics: unknown[] }) {
 		</div>
 	);
 }
-
-/** Names of tools that write content (show streaming preview). */
 const CONTENT_STREAMING_TOOLS = new Set<string>(['file_write', 'file_edit', 'file_multiedit']);
 
 function InlineToolCall({
@@ -1665,7 +1604,6 @@ function InlineToolCall({
 					</Tooltip>
 				)}
 				{resultSummary && <span className="ml-auto min-w-0 truncate text-text-secondary">{resultSummary}</span>}
-				{/* File edit stats: lines added, removed, lint errors */}
 				{hasEditStats && (
 					<span className={cn('flex shrink-0 items-center gap-1.5', !resultSummary && 'ml-auto')}>
 						{linesAdded !== undefined && linesAdded > 0 && (
@@ -1686,7 +1624,6 @@ function InlineToolCall({
 					</span>
 				)}
 			</button>
-			{/* Streaming content preview for file-writing tools */}
 			{streamingContent && (
 				<pre
 					ref={streamingPreviewReference}
@@ -1729,10 +1666,6 @@ function InlineToolCall({
 		</div>
 	);
 }
-
-// =============================================================================
-// Inline Sub-Agent Activity
-// =============================================================================
 
 function InlineSubAgentActivity({
 	toolCallId,
@@ -1846,10 +1779,6 @@ function InlineSubAgentActivity({
 	);
 }
 
-// =============================================================================
-// User Question Prompt
-// =============================================================================
-
 export function UserQuestionPrompt({
 	question,
 	options,
@@ -1902,10 +1831,6 @@ export function UserQuestionPrompt({
 	);
 }
 
-// =============================================================================
-// Continuation Prompt
-// =============================================================================
-
 export function ContinuationPrompt({ onContinue, onDismiss }: { onContinue: () => void; onDismiss: () => void }) {
 	return (
 		<div
@@ -1954,10 +1879,6 @@ export function ContinuationPrompt({ onContinue, onDismiss }: { onContinue: () =
 	);
 }
 
-// =============================================================================
-// Doom Loop Alert
-// =============================================================================
-
 export function DoomLoopAlert({ message, onRetry, onDismiss }: { message: string; onRetry: () => void; onDismiss: () => void }) {
 	return (
 		<div
@@ -2003,10 +1924,6 @@ export function DoomLoopAlert({ message, onRetry, onDismiss }: { message: string
 		</div>
 	);
 }
-
-// =============================================================================
-// AI Error Component
-// =============================================================================
 
 export function AIError({
 	message,
@@ -2072,10 +1989,6 @@ export function AIError({
 		</div>
 	);
 }
-
-// =============================================================================
-// PendingSteeringBubble
-// =============================================================================
 
 /**
  * Renders a steering message that is queued but not yet consumed by the agent loop.

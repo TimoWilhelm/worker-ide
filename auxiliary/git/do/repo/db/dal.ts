@@ -1,7 +1,3 @@
-/**
- * Data Access Layer (DAL) for repository database operations
- */
-
 import { eq, inArray, and, sql } from 'drizzle-orm';
 
 import { packObjects, hydrCover, hydrPending } from './schema';
@@ -177,10 +173,6 @@ export async function getPackOidsBatch(database: DrizzleSqliteDODatabase, packKe
 
 	return result;
 }
-
-/**
- * Insert pack membership rows for a pack key with chunking to respect param limits.
- */
 export async function insertPackOids(database: DrizzleSqliteDODatabase, packKey: string, oids: readonly string[]): Promise<void> {
 	if (!oids || oids.length === 0) return;
 	const key = normalizePackKey(packKey);
@@ -189,18 +181,10 @@ export async function insertPackOids(database: DrizzleSqliteDODatabase, packKey:
 		if (part.length > 0) await database.insert(packObjects).values(part).onConflictDoNothing();
 	}
 }
-
-/**
- * Delete pack membership data for a specific pack key.
- */
 export async function deletePackObjects(database: DrizzleSqliteDODatabase, packKey: string): Promise<void> {
 	const key = normalizePackKey(packKey);
 	await database.delete(packObjects).where(eq(packObjects.packKey, key));
 }
-
-/**
- * Insert hydration coverage rows for a work id with chunking to respect param limits.
- */
 export async function insertHydrCoverOids(database: DrizzleSqliteDODatabase, workId: string, oids: readonly string[]): Promise<void> {
 	if (!oids || oids.length === 0) return;
 	for (let index = 0; index < oids.length; index += SAFE_ROWS_2COL) {
@@ -208,10 +192,6 @@ export async function insertHydrCoverOids(database: DrizzleSqliteDODatabase, wor
 		if (part.length > 0) await database.insert(hydrCover).values(part).onConflictDoNothing();
 	}
 }
-
-/**
- * Insert hydration pending OIDs with chunking to respect param limits.
- */
 export async function insertHydrPendingOids(
 	database: DrizzleSqliteDODatabase,
 	workId: string,
@@ -224,10 +204,6 @@ export async function insertHydrPendingOids(
 		if (part.length > 0) await database.insert(hydrPending).values(part).onConflictDoNothing();
 	}
 }
-
-/**
- * Get pending OIDs of a specific kind for a work id.
- */
 export async function getHydrPendingOids(
 	database: DrizzleSqliteDODatabase,
 	workId: string,
@@ -280,10 +256,6 @@ export async function filterUncoveredAgainstHydrCover(
 	}
 	return out;
 }
-
-/**
- * Get counts of pending OIDs by kind for a work id.
- */
 export async function getHydrPendingCounts(database: DrizzleSqliteDODatabase, workId: string): Promise<{ bases: number; loose: number }> {
 	const basesCount = await database.$count(hydrPending, and(eq(hydrPending.workId, workId), eq(hydrPending.kind, 'base')));
 	const looseCount = await database.$count(hydrPending, and(eq(hydrPending.workId, workId), eq(hydrPending.kind, 'loose')));
@@ -293,10 +265,6 @@ export async function getHydrPendingCounts(database: DrizzleSqliteDODatabase, wo
 		loose: looseCount,
 	};
 }
-
-/**
- * Delete specific pending OIDs for a work id.
- */
 export async function deleteHydrPendingOids(
 	database: DrizzleSqliteDODatabase,
 	workId: string,
@@ -313,17 +281,9 @@ export async function deleteHydrPendingOids(
 			.where(and(eq(hydrPending.workId, workId), eq(hydrPending.kind, kind), inArray(hydrPending.oid, batch)));
 	}
 }
-
-/**
- * Clear all pending OIDs for a work id.
- */
 export async function clearHydrPending(database: DrizzleSqliteDODatabase, workId: string): Promise<void> {
 	await database.delete(hydrPending).where(eq(hydrPending.workId, workId));
 }
-
-/**
- * Clear hydration coverage for a specific work id.
- */
 export async function clearHydrCover(database: DrizzleSqliteDODatabase, workId: string): Promise<void> {
 	await database.delete(hydrCover).where(eq(hydrCover.workId, workId));
 }

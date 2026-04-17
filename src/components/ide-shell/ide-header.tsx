@@ -1,7 +1,3 @@
-/**
- * IDE header bar with project name, AI toggle, download, and mobile menu.
- */
-
 import { BookOpen, Bot, Bug, Download, EllipsisVertical, Github, Hexagon, Pencil, Rocket, Settings } from 'lucide-react';
 import { Link } from 'react-router';
 
@@ -128,7 +124,6 @@ export function IDEHeader({
 					)}
 				</div>
 				<div className="flex shrink-0 items-center gap-2 wco-interactive">
-					{/* AI toggle (desktop only — mobile uses bottom tab bar) */}
 					{!isMobile && (
 						<div className="relative">
 							<Tooltip content="Toggle Agent panel">
@@ -146,10 +141,8 @@ export function IDEHeader({
 						</div>
 					)}
 
-					{/* Push notifications toggle */}
 					<NotificationToggle />
 
-					{/* Project Settings, Deploy, Download — desktop only */}
 					{!isMobile && (
 						<>
 							<Tooltip content="Project settings">
@@ -172,7 +165,6 @@ export function IDEHeader({
 						</>
 					)}
 
-					{/* More menu (mobile only — project actions + footer links) */}
 					{isMobile && (
 						<Tooltip content="More">
 							<Button variant="ghost" size="icon" aria-label="More options" onClick={() => setMobileMenuOpen(true)}>
@@ -181,15 +173,12 @@ export function IDEHeader({
 						</Tooltip>
 					)}
 
-					{/* User avatar dropdown — always visible */}
 					<UserMenu size="sm" />
 				</div>
 			</header>
 
-			{/* Mobile "More" menu — project actions + footer links */}
 			<Modal open={mobileMenuOpen} onOpenChange={setMobileMenuOpen} title="More">
 				<ModalBody className="flex flex-col gap-1">
-					{/* ── Project section ── */}
 					<button
 						type="button"
 						className="
@@ -238,7 +227,6 @@ export function IDEHeader({
 
 					<div className="my-1 border-t border-border" role="separator" />
 
-					{/* ── Links section ── */}
 					<a
 						href="/docs"
 						target="_blank"

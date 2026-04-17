@@ -1,13 +1,3 @@
-/**
- * Typing Ellipsis
- *
- * Three dots that fade in sequentially like a typing ellipsis,
- * used as a "transcribing" indicator during speech-to-text.
- *
- * Uses motion/react with a gentle opacity-only animation —
- * no vertical movement — for a refined, understated feel.
- */
-
 import { motion } from 'motion/react';
 
 import { cn } from '@/lib/utils';

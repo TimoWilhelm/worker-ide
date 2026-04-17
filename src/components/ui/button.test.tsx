@@ -1,7 +1,3 @@
-/**
- * Component tests for Button.
- */
-
 import { render, screen, fireEvent } from '@testing-library/react';
 import { createRef } from 'react';
 import { describe, expect, it, vi } from 'vitest';

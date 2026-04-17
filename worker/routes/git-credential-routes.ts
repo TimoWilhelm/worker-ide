@@ -1,12 +1,3 @@
-/**
- * Git credential routes.
- *
- * Provides endpoints for generating git clone URLs and short-lived
- * JWT tokens for external git client access (clone/fetch).
- *
- * Mounted under the project-scoped API: /p/:projectId/api/git/...
- */
-
 import { Hono } from 'hono';
 
 import { buildGitOrigin, parseHost } from '@shared/domain';
@@ -17,10 +8,6 @@ import { httpError } from '../lib/http-error';
 import type { AppEnvironment } from '../types';
 
 export const gitCredentialRoutes = new Hono<AppEnvironment>()
-
-	/**
-	 * GET /api/git/remote — Get clone URL and repo metadata.
-	 */
 	.get('/git/remote', (c) => {
 		const projectId = c.get('projectId');
 		const url = new URL(c.req.url);

@@ -1,12 +1,3 @@
-/**
- * Unit tests for the GitClient wrapper.
- *
- * Validates that:
- * - Each method delegates to the correct stub RPC method with the right arguments
- * - The namespace is wrapped with retry logic (cross-worker resilience)
- * - The repo ID convention `ide/{projectId}` is applied correctly
- */
-
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { GitClient } from './git-client';
@@ -42,10 +33,6 @@ afterEach(() => {
 	vi.restoreAllMocks();
 });
 
-// =============================================================================
-// Repo ID convention
-// =============================================================================
-
 describe('repo ID convention', () => {
 	it('derives repo ID as ide/{projectId}', () => {
 		const { namespace } = createMockNamespace();
@@ -61,10 +48,6 @@ describe('repo ID convention', () => {
 		expect(namespace.getByName).toHaveBeenCalledWith('ide/project-with-dashes_and_underscores');
 	});
 });
-
-// =============================================================================
-// Method delegation
-// =============================================================================
 
 describe('method delegation', () => {
 	it('delegates commitTree to stub', async () => {
@@ -264,10 +247,6 @@ describe('method delegation', () => {
 		expect(result).toEqual({ deletedR2: 5, deletedDO: true });
 	});
 });
-
-// =============================================================================
-// Retry wrapping
-// =============================================================================
 
 describe('retry wrapping', () => {
 	it('retries on transient infrastructure errors', async () => {

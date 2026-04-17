@@ -1,7 +1,3 @@
-/**
- * Git module - main exports
- */
-
 // Core utilities
 export * from './core/index';
 

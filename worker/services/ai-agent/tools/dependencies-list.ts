@@ -1,8 +1,3 @@
-/**
- * Tool: dependencies_list
- * List all registered project dependencies from package.json.
- */
-
 import { readDependencies } from '@worker/lib/protected-files';
 
 import type { SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';

@@ -1,8 +1,3 @@
-/**
- * Project management routes.
- * Handles project creation, expiration, and download.
- */
-
 import fs from 'node:fs/promises';
 
 import { zValidator } from '@hono/zod-validator';
@@ -32,10 +27,6 @@ import { resolveStorageQuotaForProject } from '../lib/storage-quota';
 import { createZip } from '../lib/zip';
 
 import type { AppEnvironment } from '../types';
-
-/**
- * Project routes - all routes are prefixed with /api
- */
 export const projectRoutes = new Hono<AppEnvironment>()
 	// GET /api/project/meta - Get project metadata (name + asset settings + bindings config from actual files)
 	.get('/project/meta', async (c) => {
@@ -188,10 +179,6 @@ export const projectRoutes = new Hono<AppEnvironment>()
 			},
 		});
 	});
-
-/**
- * Collect all files in a directory for bundling.
- */
 async function collectFilesForBundle(directory: string, base = ''): Promise<Record<string, string | Uint8Array>> {
 	const files: Record<string, string | Uint8Array> = {};
 	try {

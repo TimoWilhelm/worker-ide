@@ -1,9 +1,3 @@
-/**
- * Skeleton Component
- *
- * Animated placeholder for loading states.
- */
-
 import { cn } from '@/lib/utils';
 
 import { Spinner } from './spinner';
@@ -15,10 +9,6 @@ interface SkeletonProperties extends React.ComponentProps<'div'> {
 export function Skeleton({ className, ...rest }: SkeletonProperties) {
 	return <div className={cn('animate-pulse rounded-md bg-bg-tertiary', className)} {...rest} />;
 }
-
-/**
- * Skeleton fallback for the file tree panel.
- */
 export function FileTreeSkeleton() {
 	return (
 		<div className="flex flex-col gap-1 p-3">
@@ -31,10 +21,6 @@ export function FileTreeSkeleton() {
 		</div>
 	);
 }
-
-/**
- * Skeleton fallback for the editor area.
- */
 export function EditorSkeleton() {
 	return (
 		<div className="flex h-full flex-col gap-1.5 p-4">
@@ -48,10 +34,6 @@ export function EditorSkeleton() {
 		</div>
 	);
 }
-
-/**
- * Skeleton fallback for a panel (AI, Preview, Terminal, Snapshots).
- */
 export function PanelSkeleton({ label }: { label?: string }) {
 	return (
 		<div className="flex h-full flex-col bg-bg-secondary">
@@ -65,10 +47,6 @@ export function PanelSkeleton({ label }: { label?: string }) {
 		</div>
 	);
 }
-
-/**
- * Skeleton fallback for the git panel.
- */
 export function GitPanelSkeleton() {
 	return (
 		<div className="flex h-full flex-col items-center justify-center gap-3 px-4">

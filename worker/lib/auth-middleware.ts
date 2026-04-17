@@ -1,18 +1,3 @@
-/**
- * Auth Middleware
- *
- * Hono middleware that validates the session cookie on protected routes.
- * Sets userId, session, and activeOrganizationId on the Hono context
- * so downstream route handlers can access the authenticated user.
- *
- * Uses better-auth's `api.getSession()` to validate the cookie.
- *
- * On localhost (dev/e2e), an alternative fast path validates a test
- * session token directly against D1 to avoid the miniflare loopback
- * fetch issue where `auth.api.getSession()` crashes because miniflare
- * cannot dispatch internal HTTP requests back to itself.
- */
-
 import { createMiddleware } from 'hono/factory';
 
 import { buildAppOrigin, parseHost } from '@shared/domain';
@@ -20,10 +5,6 @@ import { buildAppOrigin, parseHost } from '@shared/domain';
 import { createAuth } from './auth';
 
 import type { AuthedEnvironment } from '../types';
-
-/**
- * Middleware that requires a valid session. Returns 401 if not authenticated.
- */
 export const requireAuth = createMiddleware<AuthedEnvironment>(async (context, next) => {
 	const url = new URL(context.req.url);
 

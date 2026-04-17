@@ -1,20 +1,7 @@
-/**
- * Snapshot Manager.
- *
- * Manages the lifecycle of file snapshots created before code mode
- * agent runs. Snapshots capture the "before" state of files so that
- * changes can be reviewed or reverted.
- *
- * All functions take `projectRoot` as a parameter instead of relying
- * on class state, making them independently testable with mock filesystems.
- */
-
 import fs from 'node:fs/promises';
 
 import type { FileChange, SnapshotMetadata } from './types';
 import type { ModelMessage } from 'ai';
-
-/** Context object tracking a snapshot's state during an agent run. */
 export interface SnapshotContext {
 	id: string;
 	directory: string;
@@ -128,10 +115,6 @@ async function cleanupOldSnapshots(projectRoot: string, keepCount: number): Prom
 		// No-op
 	}
 }
-
-/**
- * Recursively delete a directory and all its contents.
- */
 export async function deleteDirectoryRecursive(directoryPath: string): Promise<void> {
 	try {
 		const entries = await fs.readdir(directoryPath, { withFileTypes: true });

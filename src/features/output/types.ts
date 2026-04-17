@@ -1,11 +1,5 @@
-/**
- * Output Feature Types
- */
-
 export interface OutputPanelProperties {
-	/** Project ID for log subscription */
 	projectId: string;
-	/** CSS class name */
 	className?: string;
 }
 

@@ -1,10 +1,3 @@
-/**
- * Debug utilities for repository inspection
- *
- * This module provides debug methods to inspect repository state,
- * check object presence, and verify pack membership.
- */
-
 import { isValidOid } from '@git/common/index';
 import { r2LooseKey, doPrefix, packIndexKey } from '@git/keys';
 
@@ -13,10 +6,6 @@ import { asTypedStorage, objKey as objectKey } from './repo-state';
 import { readCommitFromStore } from './storage';
 
 import type { RepoStateSchema, Head, UnpackWork, HydrationWork, HydrationTask } from './repo-state';
-
-/**
- * Small helper to run an async map with a concurrency limit.
- */
 async function mapLimit<T, R>(items: T[], limit: number, function_: (item: T, index: number) => Promise<R>): Promise<R[]> {
 	const returnValue: R[] = Array.from({ length: items.length });
 	let next = 0;
@@ -307,10 +296,6 @@ export async function debugCheckOid(
 		inPacks,
 	};
 }
-
-/**
- * Helpers
- */
 
 async function listLooseSample(context: DurableObjectState): Promise<string[]> {
 	const out: string[] = [];

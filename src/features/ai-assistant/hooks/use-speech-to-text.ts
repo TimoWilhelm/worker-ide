@@ -1,14 +1,3 @@
-/**
- * Speech-to-Text Hook
- *
- * Captures microphone audio via AudioWorklet (linear16 PCM at 16 kHz),
- * streams it over a WebSocket to the backend `/api/stt/ws` route which
- * uses `env.AI.run("@cf/deepgram/nova-3", ..., { websocket: true })`.
- *
- * Receives JSON transcript messages with `interim_results` support for
- * real-time partial transcripts while the user is still speaking.
- */
-
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { toast } from '@/components/ui/toast-store';
@@ -18,14 +7,8 @@ import { createAudioStreamSender } from '../lib/audio-stream-sender';
 const pcmProcessorUrl = new URL('../lib/pcm-processor.js', import.meta.url).href;
 
 type MicrophonePermission = 'default' | 'granted' | 'denied' | 'unsupported';
-
-/** Delay (ms) after the last final transcript before auto-stopping. */
 const AUTO_STOP_SILENCE_MS = 1500;
-
-/** Number of amplitude samples to keep (matches BAR_COUNT in AudioWaveform). */
 const AMPLITUDE_BUFFER_SIZE = 32;
-
-/** How often (ms) to push a new amplitude bar. Controls waveform scroll speed. */
 const AMPLITUDE_INTERVAL_MS = 100;
 
 interface ParsedSttMessage {
@@ -67,20 +50,13 @@ function parseSttMessage(value: unknown): ParsedSttMessage | undefined {
 }
 
 interface SpeechToTextResult {
-	/** Microphone permission state */
 	microphonePermission: MicrophonePermission;
-	/** Whether the microphone is actively recording */
 	isRecording: boolean;
 	isMicrophoneReady: boolean;
-	/** Partial transcript while the user is still speaking */
 	interimTranscript: string;
-	/** Accumulated final transcript from completed utterances */
 	finalTranscript: string;
-	/** Rolling buffer of peak amplitude values (0–1) for waveform display */
 	amplitudes: number[];
-	/** Start recording */
 	start: () => Promise<void>;
-	/** Stop recording and return accumulated final transcript */
 	stop: () => string;
 }
 

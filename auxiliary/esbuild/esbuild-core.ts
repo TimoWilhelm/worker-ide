@@ -1,12 +1,3 @@
-/**
- * Esbuild Core — standalone esbuild-wasm logic
- *
- * Contains all transform/bundle logic without any Cloudflare-specific imports.
- * This module is imported by both:
- *   - `index.ts` (WorkerEntrypoint wrapper for RPC)
- *   - Tests that need real esbuild WASM without cloudflare:workers
- */
-
 import * as esbuild from 'esbuild-wasm';
 
 import { BundleDependencyError } from '@shared/bundler-types';
@@ -16,10 +7,6 @@ import esbuildWasm from '../../vendor/esbuild.wasm';
 
 import type { BundleResult, BundleWithCdnOptions, TransformOptions, TransformResult } from '@shared/bundler-types';
 import type { DependencyError } from '@shared/types';
-
-// =============================================================================
-// Initialization
-// =============================================================================
 
 let esbuildInitialized = false;
 let esbuildInitializePromise: Promise<void> | undefined;
@@ -51,10 +38,6 @@ async function initializeEsbuild(): Promise<void> {
 	return esbuildInitializePromise;
 }
 
-// =============================================================================
-// Loader Helpers
-// =============================================================================
-
 function getLoader(path: string): esbuild.Loader {
 	if (path.endsWith('.ts') || path.endsWith('.mts')) return 'ts';
 	if (path.endsWith('.tsx')) return 'tsx';
@@ -63,14 +46,6 @@ function getLoader(path: string): esbuild.Loader {
 	if (path.endsWith('.css')) return 'css';
 	return 'js';
 }
-
-// =============================================================================
-// Transform Function
-// =============================================================================
-
-/**
- * Transform TypeScript/JSX code to JavaScript using esbuild.
- */
 export async function transformCode(code: string, filename: string, options?: TransformOptions): Promise<TransformResult> {
 	await initializeEsbuild();
 
@@ -91,15 +66,7 @@ export async function transformCode(code: string, filename: string, options?: Tr
 	};
 }
 
-// =============================================================================
-// ESM CDN Resolution
-// =============================================================================
-
 const ESM_CDN = 'https://esm.sh';
-
-/**
- * Extract package name from an esm.sh URL path, stripping version and subpath.
- */
 function extractPackageName(urlPath: string): string {
 	const parts = urlPath.split('/');
 	const scopedName = parts[0].startsWith('@') ? `${parts[0]}/${parts[1]}` : parts[0];
@@ -128,10 +95,6 @@ async function fetchFromCdn(url: string, dependencyErrors?: DependencyError[]): 
 	}
 	return response.text();
 }
-
-/**
- * Resolve a URL relative to a base URL (for esm.sh internal imports).
- */
 function resolveUrl(base: string, relative: string): string {
 	try {
 		return new URL(relative, base).href;
@@ -172,10 +135,6 @@ function createEsmCdnPlugin(dependencyErrors?: DependencyError[]): esbuild.Plugi
 		},
 	};
 }
-
-// =============================================================================
-// Virtual Filesystem Plugin
-// =============================================================================
 
 function resolveRelativePath(resolveDirectory: string, relativePath: string, files: Record<string, string>): string | undefined {
 	const directory = resolveDirectory.replace(/^\//, '');
@@ -364,10 +323,6 @@ function createVirtualFsPlugin(
 	};
 }
 
-// =============================================================================
-// React Fast Refresh Transform
-// =============================================================================
-
 /**
  * Regex to detect React component declarations in esbuild-transformed output.
  *
@@ -443,17 +398,9 @@ function wrapModuleWithRefreshRegistrations(code: string, filePath: string): str
 		`window.$RefreshSig$ = __prevRefreshSig;`,
 	].join('\n');
 }
-
-/**
- * Check if a file path is a JS/TS/JSX/TSX file that could contain React components.
- */
 function isJsxOrTsxFile(filePath: string): boolean {
 	return /\.(tsx|jsx|ts|js|mts|mjs)$/.test(filePath);
 }
-
-// =============================================================================
-// Bundle with CDN
-// =============================================================================
 
 /**
  * Bundle files into a single JavaScript module, resolving bare package imports
@@ -531,14 +478,6 @@ export async function bundleWithCdn(options: BundleWithCdnOptions): Promise<Bund
 		dependencyErrors: deduplicateDependencyErrors(collectedDependencyErrors),
 	};
 }
-
-// =============================================================================
-// Helpers
-// =============================================================================
-
-/**
- * Deduplicate dependency errors by package name (same package may be imported multiple times).
- */
 function deduplicateDependencyErrors(errors: DependencyError[]): DependencyError[] | undefined {
 	if (errors.length === 0) return undefined;
 	const seen = new Set<string>();

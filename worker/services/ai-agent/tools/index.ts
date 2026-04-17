@@ -1,10 +1,3 @@
-/**
- * Tool registry — wraps individual tool modules into Vercel AI SDK tool() format.
- *
- * Individual tool files export { definition, execute }.
- * This barrel wraps them into Vercel AI SDK tools using factories that capture runtime context.
- */
-
 import { jsonSchema } from 'ai';
 
 import { ToolExecutionError } from '@shared/tool-errors';
@@ -51,10 +44,6 @@ import type {
 	ToolFailureQueue,
 } from '../types';
 
-// =============================================================================
-// Tool executor dispatch map
-// =============================================================================
-
 export const TOOL_EXECUTORS: ReadonlyMap<string, ToolExecuteFunction> = new Map([
 	['file_edit', fileEditTool.execute],
 	['file_multiedit', fileMultieditTool.execute],
@@ -85,10 +74,6 @@ export const TOOL_EXECUTORS: ReadonlyMap<string, ToolExecuteFunction> = new Map(
 	['image_generate', imageGenerateTool.execute],
 	['sub_agent', subAgentTool.execute],
 ]);
-
-// =============================================================================
-// Tool definitions
-// =============================================================================
 
 export const AGENT_TOOLS: readonly ToolDefinition[] = [
 	fileEditTool.definition,
@@ -121,10 +106,6 @@ export const AGENT_TOOLS: readonly ToolDefinition[] = [
 	subAgentTool.definition,
 ];
 
-// =============================================================================
-// Plan mode tools (read-only subset)
-// =============================================================================
-
 const PLAN_MODE_TOOL_NAMES = new Set([
 	'file_read',
 	'file_grep',
@@ -147,10 +128,6 @@ const PLAN_MODE_TOOL_NAMES = new Set([
 
 export const PLAN_MODE_TOOLS: readonly ToolDefinition[] = AGENT_TOOLS.filter((t) => PLAN_MODE_TOOL_NAMES.has(t.name));
 
-// =============================================================================
-// Ask mode tools (read-only subset — no plan or mutation tools)
-// =============================================================================
-
 const ASK_MODE_TOOL_NAMES = new Set([
 	'file_read',
 	'file_grep',
@@ -169,10 +146,6 @@ const ASK_MODE_TOOL_NAMES = new Set([
 ]);
 
 export const ASK_MODE_TOOLS: readonly ToolDefinition[] = AGENT_TOOLS.filter((t) => ASK_MODE_TOOL_NAMES.has(t.name));
-
-// =============================================================================
-// Editing tools blocked in plan mode
-// =============================================================================
 
 const EDITING_TOOL_NAMES = new Set(['file_edit', 'file_multiedit', 'file_write', 'file_delete', 'file_move', 'lint_fix', 'image_generate']);
 
@@ -219,14 +192,6 @@ export const MUTATION_TOOL_NAMES = new Set([
 	'bindings_update',
 	'image_generate',
 ]);
-
-// =============================================================================
-// SendEvent factory (re-export from event-helpers for backwards compat)
-// =============================================================================
-
-// =============================================================================
-// Vercel AI SDK Tool Factory
-// =============================================================================
 
 /**
  * Create Vercel AI SDK tools from our tool modules.

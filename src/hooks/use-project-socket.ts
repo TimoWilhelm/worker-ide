@@ -1,11 +1,3 @@
-/**
- * useProjectSocket Hook
- *
- * Hook for managing the project WebSocket connection.
- * Handles HMR update notifications, real-time collaboration,
- * server error/log forwarding, and file edit broadcasts.
- */
-
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef } from 'react';
 import { useShallow } from 'zustand/react/shallow';
@@ -18,18 +10,10 @@ import { mergeTestRunResults } from '@shared/types';
 import type { TestRunResponse } from '@shared/types';
 import type { ClientMessage } from '@shared/ws-messages';
 
-// =============================================================================
-// Types
-// =============================================================================
-
 interface UseProjectSocketOptions {
 	projectId: string;
 	enabled?: boolean;
 }
-
-// =============================================================================
-// Hook
-// =============================================================================
 
 /**
  * Hook for connecting to the project WebSocket and handling updates.

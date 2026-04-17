@@ -1,8 +1,3 @@
-/**
- * Side-effect-only hooks for the IDE shell: message listeners, keyboard shortcuts,
- * window.name setup, dependency error auto-expand, and cursor debounce cleanup.
- */
-
 import { useEffect, useRef } from 'react';
 
 import { getDependencyErrorCount, subscribeDependencyErrors } from '@/features/file-tree/dependency-error-store';
@@ -13,7 +8,6 @@ import type { RefObject } from 'react';
 
 interface UseIDEEffectsOptions {
 	projectId: string;
-	/** The signed preview origin for secure postMessage targeting. Undefined while loading. */
 	previewOrigin: string | undefined;
 	goToFilePosition: (file: string, position: { line: number; column: number }) => void;
 	handleSaveReference: RefObject<() => Promise<void>>;

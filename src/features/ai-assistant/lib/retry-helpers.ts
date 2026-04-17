@@ -1,26 +1,10 @@
-/**
- * Helper functions for AI retry logic.
- * Extracted for testability.
- *
- * Works with ChatMessage which has `parts: MessagePart[]`.
- * Text content is in TextPart: { type: 'text', content: string }.
- */
-
 import type { ChatMessage } from '@shared/types';
-
-/**
- * Extract the text content from a ChatMessage.
- */
 export function extractMessageText(message: ChatMessage): string {
 	return message.parts
 		.filter((part): part is { type: 'text'; content: string } => part.type === 'text')
 		.map((part) => part.content)
 		.join('\n');
 }
-
-/**
- * Find the last user message in history.
- */
 export function findLastUserMessage(history: ChatMessage[]): ChatMessage | undefined {
 	return [...history].toReversed().find((message) => message.role === 'user');
 }

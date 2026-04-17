@@ -1,17 +1,7 @@
-/**
- * useGitCredentials Hooks
- *
- * Provides query and mutation hooks for git remote URL and credential generation.
- */
-
 import { useMutation, useQuery } from '@tanstack/react-query';
 
 import { createApiClient } from '@/lib/api-client';
 import { throwApiError } from '@/lib/api-error';
-
-// =============================================================================
-// Types
-// =============================================================================
 
 interface UseGitRemoteOptions {
 	projectId: string;
@@ -29,14 +19,6 @@ interface GitCredentialsResponse {
 	cloneUrl: string;
 	username: string;
 }
-
-// =============================================================================
-// Hooks
-// =============================================================================
-
-/**
- * Hook for fetching the git remote URL and repo metadata.
- */
 export function useGitRemote({ projectId, enabled = true }: UseGitRemoteOptions) {
 	const api = createApiClient(projectId);
 
@@ -60,10 +42,6 @@ export function useGitRemote({ projectId, enabled = true }: UseGitRemoteOptions)
 		isError: query.isError,
 	};
 }
-
-/**
- * Hook for generating a short-lived git credential token.
- */
 export function useGenerateGitCredentials({ projectId }: { projectId: string }) {
 	const api = createApiClient(projectId);
 

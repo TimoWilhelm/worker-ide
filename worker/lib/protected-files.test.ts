@@ -1,12 +1,4 @@
-/**
- * Unit tests for protected file generation utilities.
- */
-
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-
-// =============================================================================
-// In-memory filesystem mock
-// =============================================================================
 
 const files = new Map<string, string>();
 
@@ -52,10 +44,6 @@ vi.mock('node:fs/promises', () => ({
 	},
 }));
 
-// =============================================================================
-// Import under test (after mock)
-// =============================================================================
-
 const {
 	readDependencies,
 	writeDependencies,
@@ -66,10 +54,6 @@ const {
 	writeBindingsConfig,
 	regenerateProtectedFiles,
 } = await import('./protected-files');
-
-// =============================================================================
-// Tests
-// =============================================================================
 
 const ROOT = '/project';
 

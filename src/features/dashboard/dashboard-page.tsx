@@ -1,15 +1,3 @@
-/**
- * Dashboard Page
- *
- * Displays over a halftone shader background and allows users to:
- * - Start a new project from a template (compact cards + detail modal)
- * - Open a recent project
- * - Clone/remix a project by ID or URL
- *
- * This entire component is lazy-loaded via React.lazy() to keep it
- * out of the main IDE bundle.
- */
-
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { BookOpen, Copy, Github, Hexagon, Search, Trash2 } from 'lucide-react';
 import { motion } from 'motion/react';
@@ -36,10 +24,6 @@ import { isValidProjectId } from '@shared/project-id';
 import type { OrgProject } from '@/lib/api-client';
 import type { ProjectTemplateMeta } from '@shared/types';
 
-// =============================================================================
-// Constants
-// =============================================================================
-
 /**
  * Extract a project ID from various input formats:
  * - Full URL: https://anything.dev/p/<id>
@@ -53,10 +37,6 @@ function extractProjectId(input: string): string | undefined {
 	if (bareMatch) return bareMatch[1];
 	return undefined;
 }
-
-// =============================================================================
-// Icon mapping
-// =============================================================================
 
 /**
  * Maps Lucide icon names (strings from template metadata) to components.
@@ -73,10 +53,6 @@ function TemplateIcon({ name, className }: { name: string; className?: string })
 	return <IconComponent className={className} />;
 }
 
-// =============================================================================
-// Loading overlay
-// =============================================================================
-
 function LoadingOverlay({ message }: { message: string }) {
 	return (
 		<div
@@ -92,10 +68,6 @@ function LoadingOverlay({ message }: { message: string }) {
 		</div>
 	);
 }
-
-// =============================================================================
-// Template card (small box)
-// =============================================================================
 
 function TemplateCard({
 	template,
@@ -147,10 +119,6 @@ function TemplateCardSkeleton() {
 	);
 }
 
-// =============================================================================
-// Template detail modal
-// =============================================================================
-
 function TemplateDetailModal({
 	template,
 	open,
@@ -188,10 +156,6 @@ function TemplateDetailModal({
 	);
 }
 
-// =============================================================================
-// Clone card (appears in the template grid)
-// =============================================================================
-
 function CloneCard({ onSelect, disabled }: { onSelect: () => void; disabled: boolean }) {
 	return (
 		<button
@@ -224,10 +188,6 @@ function CloneCard({ onSelect, disabled }: { onSelect: () => void; disabled: boo
 		</button>
 	);
 }
-
-// =============================================================================
-// Clone modal
-// =============================================================================
 
 function CloneModal({
 	open,
@@ -302,10 +262,6 @@ function CloneModal({
 	);
 }
 
-// =============================================================================
-// Project row (D1-backed org projects)
-// =============================================================================
-
 function ProjectRow({ project, onDelete }: { project: OrgProject; onDelete: (project: OrgProject) => void }) {
 	return (
 		<a
@@ -352,10 +308,6 @@ function ProjectRow({ project, onDelete }: { project: OrgProject; onDelete: (pro
 		</a>
 	);
 }
-
-// =============================================================================
-// Delete confirmation modal
-// =============================================================================
 
 function DeleteProjectModal({
 	project,
@@ -438,10 +390,6 @@ function DeleteProjectModal({
 		</Modal>
 	);
 }
-
-// =============================================================================
-// Main dashboard page component
-// =============================================================================
 
 /**
  * Dashboard page component.
@@ -614,15 +562,12 @@ export default function DashboardPage({ organizationId, organizations, isCreateO
 
 	return (
 		<div className="relative flex h-dvh flex-col items-center overflow-y-auto">
-			{/* Halftone shader background */}
 			<Suspense fallback={undefined}>
 				<HalftoneBackground />
 			</Suspense>
 
-			{/* Loading overlay */}
 			{isLoading && <LoadingOverlay message={loadingMessage} />}
 
-			{/* Template detail modal */}
 			<TemplateDetailModal
 				template={selectedTemplate}
 				open={selectedTemplateId !== undefined && !isLoading}
@@ -631,7 +576,6 @@ export default function DashboardPage({ organizationId, organizations, isCreateO
 				isLoading={isLoading}
 			/>
 
-			{/* Delete confirmation modal */}
 			<DeleteProjectModal
 				project={deleteTarget}
 				open={deleteTarget !== undefined}
@@ -640,7 +584,6 @@ export default function DashboardPage({ organizationId, organizations, isCreateO
 				isDeleting={isDeleting}
 			/>
 
-			{/* Create org modal — auto-opened in create-org mode */}
 			<CreateOrgModal
 				open={createOrgOpen}
 				onOpenChange={setCreateOrgOpen}
@@ -649,7 +592,6 @@ export default function DashboardPage({ organizationId, organizations, isCreateO
 				userName={user?.name}
 			/>
 
-			{/* Clone modal */}
 			<CloneModal
 				open={cloneModalOpen && !isLoading}
 				onOpenChange={handleCloseCloneModal}
@@ -661,7 +603,6 @@ export default function DashboardPage({ organizationId, organizations, isCreateO
 				isLoading={isLoading}
 			/>
 
-			{/* Header actions — top right */}
 			<div className="fixed top-4 right-4 z-10 flex items-center gap-1">
 				{!isCreateOrgMode && (
 					<OrgSwitcher
@@ -691,14 +632,12 @@ export default function DashboardPage({ organizationId, organizations, isCreateO
 				<UserMenu />
 			</div>
 
-			{/* Main content */}
 			<main
 				className="
 					relative z-0 w-full max-w-lg px-6 pt-24 pb-12
 					sm:pt-32
 				"
 			>
-				{/* Header / Branding */}
 				<motion.div
 					className="mb-10 flex flex-col items-center gap-3"
 					initial={{ opacity: 0, y: 10 }}
@@ -712,7 +651,6 @@ export default function DashboardPage({ organizationId, organizations, isCreateO
 					</div>
 				</motion.div>
 
-				{/* Template cards */}
 				<section className="mb-8">
 					<h2
 						className="
@@ -770,10 +708,8 @@ export default function DashboardPage({ organizationId, organizations, isCreateO
 					</motion.div>
 				</section>
 
-				{/* Pending invitations for the current user */}
 				<PendingInvitationsBanner />
 
-				{/* Organization projects */}
 				{projectsQuery.isError && (
 					<section className="mb-8">
 						<div

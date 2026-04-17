@@ -1,24 +1,8 @@
-/**
- * Audio Waveform
- *
- * Renders a rolling waveform visualization from an array of peak amplitude
- * values (0–1). The bars scroll left as new data arrives, showing roughly
- * the last 3 seconds of audio input.
- *
- * Uses a <canvas> element for efficient rendering at 60 fps.
- */
-
 import { useEffect, useRef } from 'react';
 
 import { cn } from '@/lib/utils';
-
-/** Number of bars visible in the waveform. */
 const BAR_COUNT = 32;
-
-/** Minimum bar height as a fraction of canvas height (so silence isn't invisible). */
 const MIN_BAR_FRACTION = 0.1;
-
-/** Amplitude boost exponent — lower = more visible at low volumes. */
 const AMPLITUDE_CURVE = 0.35;
 
 export function AudioWaveform({ amplitudes, className }: { amplitudes: number[]; className?: string }) {

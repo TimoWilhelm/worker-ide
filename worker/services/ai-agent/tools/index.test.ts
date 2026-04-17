@@ -1,16 +1,8 @@
-/**
- * Unit tests for tool definitions and plan mode filtering.
- */
-
 import { describe, expect, it } from 'vitest';
 
 import { toolInputSchemas } from '@shared/validation';
 
 import { AGENT_TOOLS, ASK_MODE_TOOLS, MUTATION_TOOL_NAMES, PLAN_MODE_TOOLS, READ_ONLY_TOOL_NAMES, TOOL_EXECUTORS } from './index';
-
-// =============================================================================
-// PLAN_MODE_TOOLS
-// =============================================================================
 
 describe('PLAN_MODE_TOOLS', () => {
 	it('only includes read-only and research tools', () => {
@@ -43,10 +35,6 @@ describe('PLAN_MODE_TOOLS', () => {
 		}
 	});
 });
-
-// =============================================================================
-// ASK_MODE_TOOLS
-// =============================================================================
 
 describe('ASK_MODE_TOOLS', () => {
 	it('includes read-only tools', () => {
@@ -90,10 +78,6 @@ describe('ASK_MODE_TOOLS', () => {
 	});
 });
 
-// =============================================================================
-// AGENT_TOOLS
-// =============================================================================
-
 describe('AGENT_TOOLS', () => {
 	it('every tool has name, description, and input_schema', () => {
 		for (const tool of AGENT_TOOLS) {
@@ -110,10 +94,6 @@ describe('AGENT_TOOLS', () => {
 	});
 });
 
-// =============================================================================
-// MUTATION_TOOL_NAMES / READ_ONLY_TOOL_NAMES
-// =============================================================================
-
 describe('MUTATION_TOOL_NAMES', () => {
 	it('has no overlap with READ_ONLY_TOOL_NAMES', () => {
 		for (const name of MUTATION_TOOL_NAMES) {
@@ -121,10 +101,6 @@ describe('MUTATION_TOOL_NAMES', () => {
 		}
 	});
 });
-
-// =============================================================================
-// Tool registration sync
-// =============================================================================
 
 describe('tool registration sync', () => {
 	const externalToolNames = ['browser_execute', 'browser_search', 'cdp_eval', 'execute', 'list_extensions', 'load_extension'];

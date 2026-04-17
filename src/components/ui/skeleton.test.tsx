@@ -1,7 +1,3 @@
-/**
- * Component tests for Skeleton components.
- */
-
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 

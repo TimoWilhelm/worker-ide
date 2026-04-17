@@ -1,8 +1,3 @@
-/**
- * Tool: asset_settings_get
- * Read the current Cloudflare Workers asset routing settings for the project.
- */
-
 import { stripIndent } from 'common-tags';
 
 import { resolveAssetSettings } from '@shared/types';

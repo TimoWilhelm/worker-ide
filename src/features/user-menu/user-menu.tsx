@@ -1,13 +1,3 @@
-/**
- * User Menu
- *
- * Avatar dropdown menu shown in page headers across the app.
- * Displays user info and links to profile, account settings, and sign out.
- *
- * Reads user data directly from the auth session so it can be placed
- * in any layout without prop-drilling.
- */
-
 import { LogOut, Palette, Settings, User } from 'lucide-react';
 import { useNavigate } from 'react-router';
 
@@ -23,7 +13,6 @@ import { authClient } from '@/lib/auth-client';
 import { cn } from '@/lib/utils';
 
 interface UserMenuProperties {
-	/** Use 'sm' in compact headers like the IDE. Defaults to 'md'. */
 	size?: 'sm' | 'md';
 }
 
@@ -76,7 +65,6 @@ export function UserMenu({ size = 'md' }: UserMenuProperties = {}) {
 				</button>
 			</DropdownMenuTrigger>
 			<DropdownMenuContent align="end" className="min-w-52">
-				{/* User info */}
 				<div className="px-3 py-2">
 					<p className="truncate text-sm font-medium text-text-primary">{userName}</p>
 					<p className="truncate text-xs text-text-secondary">{userEmail}</p>

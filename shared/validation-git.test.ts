@@ -1,7 +1,3 @@
-/**
- * Unit tests for git validation schemas.
- */
-
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -12,10 +8,6 @@ import {
 	gitCheckoutSchema,
 	gitMergeSchema,
 } from './validation';
-
-// =============================================================================
-// gitDiscardSchema
-// =============================================================================
 
 describe('gitDiscardSchema', () => {
 	it('accepts normal paths like src/index.ts', () => {
@@ -36,10 +28,6 @@ describe('gitDiscardSchema', () => {
 	});
 });
 
-// =============================================================================
-// gitDiffQuerySchema
-// =============================================================================
-
 describe('gitDiffQuerySchema', () => {
 	it('accepts normal paths', () => {
 		expect(gitDiffQuerySchema.safeParse({ path: 'src/main.ts' }).success).toBe(true);
@@ -50,10 +38,6 @@ describe('gitDiffQuerySchema', () => {
 		expect(gitDiffQuerySchema.safeParse({ path: 'src/../secret' }).success).toBe(false);
 	});
 });
-
-// =============================================================================
-// gitStageSchema
-// =============================================================================
 
 describe('gitStageSchema', () => {
 	it('accepts valid paths', () => {
@@ -68,10 +52,6 @@ describe('gitStageSchema', () => {
 		expect(gitStageSchema.safeParse({ paths: [] }).success).toBe(false);
 	});
 });
-
-// =============================================================================
-// gitBranchRenameSchema
-// =============================================================================
 
 describe('gitBranchRenameSchema', () => {
 	it('accepts valid branch names', () => {
@@ -89,10 +69,6 @@ describe('gitBranchRenameSchema', () => {
 	});
 });
 
-// =============================================================================
-// gitCheckoutSchema
-// =============================================================================
-
 describe('gitCheckoutSchema', () => {
 	it('accepts valid references', () => {
 		expect(gitCheckoutSchema.safeParse({ reference: 'main' }).success).toBe(true);
@@ -107,10 +83,6 @@ describe('gitCheckoutSchema', () => {
 		expect(gitCheckoutSchema.safeParse({ reference: '' }).success).toBe(false);
 	});
 });
-
-// =============================================================================
-// gitMergeSchema
-// =============================================================================
 
 describe('gitMergeSchema', () => {
 	it('accepts valid branch names', () => {

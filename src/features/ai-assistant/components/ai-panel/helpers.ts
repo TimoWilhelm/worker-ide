@@ -1,15 +1,7 @@
-/**
- * Helper functions and constants for the agent panel.
- */
-
 import { toolInputSchemas } from '@shared/validation';
 
 import type { AgentMode } from '@shared/types';
 import type { ToolName } from '@shared/validation';
-
-// =============================================================================
-// Tool name validation
-// =============================================================================
 
 /**
  * Derived from toolInputSchemas — adding a new tool to shared/validation.ts
@@ -24,10 +16,6 @@ export function isToolName(value: unknown): value is ToolName {
 export function isRecord(value: unknown): value is Record<string, unknown> {
 	return !!value && typeof value === 'object' && !Array.isArray(value);
 }
-
-// =============================================================================
-// AI Suggestion presets
-// =============================================================================
 
 export const AI_SUGGESTIONS: ReadonlyArray<{ label: string; prompt: string; mode: AgentMode }> = [
 	{ label: 'Add dark mode', prompt: 'Add a dark mode toggle to the app', mode: 'code' },

@@ -1,15 +1,3 @@
-/**
- * Integration tests for the Biome auxiliary worker.
- *
- * These tests load the real Biome WASM binary (~27 MiB) from disk using
- * `initSync` so they run in the Node-based `unit` vitest project, not the
- * workerd pool (which cannot host the WASM).
- *
- * The standalone lintFile/fixFile functions are exercised against real source
- * code in .ts, .tsx, and .js to verify actual lint detection, auto-fixing,
- * and diagnostic mapping.
- */
-
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
@@ -31,19 +19,13 @@ import { fixFile, lintFile } from './index';
 
 import type { FixFileFailure, ServerLintFixResult } from '@shared/biome-types';
 
-// =============================================================================
-// Bootstrap Biome WASM from disk (once for all tests)
-// =============================================================================
-
 beforeAll(() => {
 	const wasmPath = path.resolve('node_modules/@biomejs/wasm-web/biome_wasm_bg.wasm');
 	const wasmBytes = readFileSync(wasmPath);
 	initSync({ module: wasmBytes });
 }, 30_000);
 
-// =============================================================================
-// Test Fixtures — realistic source files with known lint issues
-//
+// Test fixtures with known lint issues.
 // Rules confirmed active in Biome's default recommended config:
 //   - lint/suspicious/noDoubleEquals  (== → ===)     [fixable]
 //   - lint/suspicious/noDebugger      (debugger)     [fixable]
@@ -53,9 +35,6 @@ beforeAll(() => {
 //   - lint/correctness/noUnusedVariables              [fixable]
 //
 // NOTE: lint/style/noVar is NOT in the default recommended rules.
-// =============================================================================
-
-/** TypeScript with == and != (noDoubleEquals — fixable) */
 const tsWithDoubleEquals = `const value = 42;
 if (value == "42") {
   console.log("match");
@@ -64,19 +43,13 @@ if (value != 0) {
   console.log("nonzero");
 }
 `;
-
-/** TypeScript with debugger statement (noDebugger — fixable) */
 const tsWithDebugger = `const x = 1;
 debugger;
 console.log(x);
 `;
-
-/** TypeScript with useless rename (noUselessRename — fixable) */
 const tsWithUselessRename = `const { a: a } = { a: 1 };
 console.log(a);
 `;
-
-/** TypeScript with both fixable and unfixable issues */
 const tsWithMixedIssues = `const x = 42;
 if (x == "42") {
   console.log(typeof x === "strin");
@@ -86,41 +59,27 @@ if (x != 0) {
   console.log(a);
 }
 `;
-
-/** TypeScript that is completely clean */
 const tsClean = `const greeting = "hello";
 const count = 0;
 console.log(greeting, count);
 `;
-
-/** TSX with missing alt attribute on img (useAltText — unfixable) */
 const tsxWithAccessibilityIssue = `export function Banner() {
   return <div><img src="banner.png" /></div>;
 }
 `;
-
-/** TSX that is clean */
 const tsxClean = `export function App() {
   return <div><p>Hello</p></div>;
 }
 `;
-
-/** JSX with multiple fixable issues (== and debugger) */
 const jsWithIssues = `const x = 1;
 debugger;
 if (x == 0) {
   console.log(x);
 }
 `;
-
-/** JS that is clean */
 const jsClean = `const x = 1;
 console.log(x);
 `;
-
-// =============================================================================
-// lintFile
-// =============================================================================
 
 describe('lintFile', () => {
 	it('detects noDoubleEquals in a .ts file', async () => {
@@ -225,10 +184,6 @@ describe('lintFile', () => {
 		expect(unfixable.length).toBeGreaterThanOrEqual(1);
 	});
 });
-
-// =============================================================================
-// fixFile
-// =============================================================================
 
 describe('fixFile', () => {
 	it('fixes == to === in a .ts file', async () => {

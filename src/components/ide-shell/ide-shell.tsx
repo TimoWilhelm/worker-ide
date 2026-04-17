@@ -1,10 +1,3 @@
-/**
- * IDE Shell Component
- *
- * Main IDE layout with resizable panels: file tree, editor, terminal, preview, and AI agent.
- * This is the composition root that wires hooks and sub-components together.
- */
-
 import { useCallback, useRef, useState } from 'react';
 
 import { toast } from '@/components/ui/toast-store';

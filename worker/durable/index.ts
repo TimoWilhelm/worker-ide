@@ -1,7 +1,3 @@
-/**
- * Durable Object exports
- */
-
 export { AgentRunner } from './agent-runner';
 export { ProjectCoordinatorV2 } from './project-coordinator';
 export { ProjectMetadata } from './project-metadata';

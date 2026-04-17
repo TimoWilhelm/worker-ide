@@ -1,9 +1,3 @@
-/**
- * Integration tests for the dependencies_list tool.
- *
- * Tests reading project metadata and returning the dependency map.
- */
-
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createMemoryFs, createMockContext, createMockSendEvent } from './test-helpers';

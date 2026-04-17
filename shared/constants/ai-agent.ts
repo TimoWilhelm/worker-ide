@@ -1,13 +1,4 @@
-/**
- * AI agent constants for the Worker IDE application.
- * Includes system prompts and MCP server configurations.
- */
-
 import { stripIndent } from 'common-tags';
-
-/**
- * Maximum characters to read from an AGENTS.md file for context injection
- */
 export const AGENTS_MD_MAX_CHARACTERS = 16_000;
 
 /**
@@ -67,10 +58,6 @@ export const AGENT_SYSTEM_PROMPT = stripIndent`
   - **Refuse malicious intent:** Do not create, modify, or improve code intended for malware, phishing, or credential harvesting.
   - Defensive security tasks (vulnerability analysis, detection rules, security documentation) are fine.
 `;
-
-/**
- * Additional system prompt appended when Code mode is active
- */
 export const CODE_MODE_SYSTEM_PROMPT = stripIndent`
   You are currently in CODE MODE. You have full tool access — read, search, create, edit, delete, and move files.
 
@@ -116,10 +103,6 @@ export const CODE_MODE_SYSTEM_PROMPT = stripIndent`
   - Only ONE task should be \`in_progress\` at a time.
   - Skip task tracking for single, straightforward, or conversational tasks.
 `;
-
-/**
- * Additional system prompt appended when Plan mode is active
- */
 export const PLAN_MODE_SYSTEM_PROMPT = stripIndent`
   You are currently in PLAN MODE.
   - You have access to read-only and research tools only. You MUST NOT modify files.
@@ -143,10 +126,6 @@ export const PLAN_MODE_SYSTEM_PROMPT = stripIndent`
   - Only ONE task should be \`in_progress\` at a time.
   - Save the plan (\`plan_update\`) only after all research todos are completed.
 `;
-
-/**
- * Additional system prompt appended when Ask mode is active
- */
 export const ASK_MODE_SYSTEM_PROMPT = stripIndent`
   You are currently in ASK MODE.
   - You have access to read-only and research tools. Use them to ground your answers in the actual codebase when relevant.

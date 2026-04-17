@@ -1,14 +1,6 @@
-/**
- * Path utility functions for file operations.
- */
-
 import fs from 'node:fs/promises';
 
 import { BINARY_EXTENSIONS, HIDDEN_ENTRIES, PROTECTED_FILES } from '@shared/constants';
-
-/**
- * Check if a path is safe (doesn't escape the project root).
- */
 export function isPathSafe(_basePath: string, requestedPath: string): boolean {
 	if (typeof requestedPath !== 'string') return false;
 	if (!requestedPath.startsWith('/')) {
@@ -32,10 +24,6 @@ export function isHiddenPath(requestedPath: string): boolean {
 	const segments = requestedPath.split('/');
 	return segments.some((segment) => HIDDEN_ENTRIES.has(segment));
 }
-
-/**
- * Check if a file is protected and cannot be deleted.
- */
 export function isProtectedFile(path: string): boolean {
 	// Exact match check
 	if (PROTECTED_FILES.has(path)) {
@@ -52,18 +40,10 @@ export function isProtectedFile(path: string): boolean {
 
 	return false;
 }
-
-/**
- * Get the file extension from a path.
- */
 export function getExtension(path: string): string {
 	const match = path.match(/\.[^.]+$/);
 	return match ? match[0].toLowerCase() : '';
 }
-
-/**
- * Check if a file is binary based on its extension.
- */
 export function isBinaryFile(path: string): boolean {
 	const extension = getExtension(path);
 	return BINARY_EXTENSIONS.has(extension);

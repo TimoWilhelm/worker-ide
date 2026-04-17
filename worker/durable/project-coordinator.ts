@@ -7,10 +7,6 @@ import { trackWebSocketEvent } from '../lib/analytics';
 
 import type { HmrUpdate, Participant } from '@shared/types';
 import type { ServerMessage } from '@shared/ws-messages';
-
-/**
- * Participant attachment stored on WebSocket connections.
- */
 interface ParticipantAttachment {
 	id: string;
 	color: string;
@@ -25,13 +21,9 @@ interface ParticipantAttachment {
  * All persisted values must be serializable via the structured clone algorithm.
  */
 const STORAGE_KEY = {
-	/** Last serialized server-error message (string). Replayed to late-joining clients. */
 	LAST_SERVER_ERROR: 'lastServerError',
-	/** Monotonic HMR version counter (number). Survives hibernation / eviction. */
 	UPDATE_VERSION: 'updateVersion',
-	/** Latest IDE output-logs snapshot (string). Read by the AI agent service. */
 	OUTPUT_LOGS: 'outputLogs',
-	/** Recent user file edits (JSON string). Drained by the AI agent service between iterations. */
 	RECENT_FILE_EDITS: 'recentFileEdits',
 } as const;
 
@@ -53,18 +45,12 @@ export class ProjectCoordinatorV2 extends DurableObject {
 		super(state, environment);
 		this.ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'));
 	}
-
-	/** Project ID for analytics. Set from the `x-project-id` header on first fetch. */
 	private projectId: string | undefined;
-
-	/** Maximum number of recent file edits to retain before oldest are dropped. */
 	private static readonly MAX_RECENT_FILE_EDITS = 100;
 
 	// =========================================================================
 	// Persisted state — native get/set backed by ctx.storage.kv
 	// =========================================================================
-
-	/** Last server-error message, replayed to newly connected clients. */
 	private get lastServerError(): string | undefined {
 		return this.ctx.storage.kv.get<string>(STORAGE_KEY.LAST_SERVER_ERROR);
 	}
@@ -76,8 +62,6 @@ export class ProjectCoordinatorV2 extends DurableObject {
 			this.ctx.storage.kv.put(STORAGE_KEY.LAST_SERVER_ERROR, value);
 		}
 	}
-
-	/** Monotonically increasing version counter for HMR updates. */
 	private get updateVersion(): number {
 		return this.ctx.storage.kv.get<number>(STORAGE_KEY.UPDATE_VERSION) ?? 0;
 	}
@@ -85,8 +69,6 @@ export class ProjectCoordinatorV2 extends DurableObject {
 	private set updateVersion(value: number) {
 		this.ctx.storage.kv.put(STORAGE_KEY.UPDATE_VERSION, value);
 	}
-
-	/** Latest IDE output logs snapshot pushed by the frontend. */
 	private get outputLogs(): string {
 		return this.ctx.storage.kv.get<string>(STORAGE_KEY.OUTPUT_LOGS) ?? '';
 	}
@@ -94,8 +76,6 @@ export class ProjectCoordinatorV2 extends DurableObject {
 	private set outputLogs(value: string) {
 		this.ctx.storage.kv.put(STORAGE_KEY.OUTPUT_LOGS, value);
 	}
-
-	/** Recent file edits made by connected users. Persisted so they survive hibernation. */
 	private get recentFileEdits(): Array<{ path: string; timestamp: number }> {
 		return this.ctx.storage.kv.get<Array<{ path: string; timestamp: number }>>(STORAGE_KEY.RECENT_FILE_EDITS) ?? [];
 	}
@@ -265,10 +245,6 @@ export class ProjectCoordinatorV2 extends DurableObject {
 		}
 		return [...byPath.entries()].map(([path, timestamp]) => ({ path, timestamp }));
 	}
-
-	/**
-	 * Send the initial collab-state message to a newly joined client.
-	 */
 	private sendCollabState(ws: WebSocket, attachment: ParticipantAttachment): void {
 		try {
 			ws.send(

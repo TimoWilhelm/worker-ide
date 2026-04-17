@@ -1,11 +1,3 @@
-/**
- * Tests for AI-powered session title generation.
- *
- * Mocks Vercel AI SDK `generateText()` and the Workers AI adapter to test
- * title extraction, fallback behavior, and the isAiGenerated flag without
- * real API calls.
- */
-
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ---------------------------------------------------------------------------

@@ -1,24 +1,10 @@
-/**
- * Unit tests for the stateless detectDoomLoop function.
- *
- * Tests the two detection strategies by constructing ModelMessage[] histories:
- * 1. Identical consecutive tool calls (exact name + input)
- * 2. Mutation failure loop (consecutive iterations with MUTATION_FAILURE_TAG)
- */
-
 import { describe, expect, it } from 'vitest';
 
 import { detectDoomLoop, MUTATION_FAILURE_TAG } from './doom-loop';
 
 import type { ModelMessage } from 'ai';
 
-// =============================================================================
-// Test helpers — build ModelMessage[] histories
-// =============================================================================
-
 let toolCallCounter = 0;
-
-/** Create tool-call content parts for assistant messages. */
 function makeToolCallParts(calls: Array<{ name: string; arguments: Record<string, unknown> }>) {
 	return calls.map((c) => ({
 		type: 'tool-call' as const,
@@ -27,32 +13,24 @@ function makeToolCallParts(calls: Array<{ name: string; arguments: Record<string
 		input: c.arguments,
 	}));
 }
-
-/** Create an assistant message with one or more tool calls. */
 function assistantWithTools(...calls: Array<{ name: string; arguments: Record<string, unknown> }>): ModelMessage {
 	return {
 		role: 'assistant',
 		content: makeToolCallParts(calls),
 	};
 }
-
-/** Create a tool result message. */
 function toolResult(toolCallId: string, toolName: string, content: string): ModelMessage {
 	return {
 		role: 'tool',
 		content: [{ type: 'tool-result', toolCallId, toolName, output: { type: 'text', value: content } }],
 	};
 }
-
-/** Create a user corrective message with the mutation failure tag. */
 function mutationFailureMessage(): ModelMessage {
 	return {
 		role: 'user',
 		content: `${MUTATION_FAILURE_TAG} SYSTEM: One or more mutation tools failed.`,
 	};
 }
-
-/** Create a plain user message (no failure tag). */
 function userMessage(content: string): ModelMessage {
 	return { role: 'user', content };
 }
@@ -79,10 +57,6 @@ function buildIteration(
 	}
 	return messages;
 }
-
-// =============================================================================
-// identical_calls (exact same name + arguments, N consecutive)
-// =============================================================================
 
 describe('identical_calls detection', () => {
 	it('returns no doom loop when fewer than 3 identical calls', () => {
@@ -178,10 +152,6 @@ describe('identical_calls detection', () => {
 	});
 });
 
-// =============================================================================
-// mutation_failure_loop (MUTATION_FAILURE_TAG in consecutive iterations)
-// =============================================================================
-
 describe('mutation_failure_loop detection', () => {
 	it('returns no doom loop when only 1 iteration has a mutation failure', () => {
 		const messages: ModelMessage[] = [...buildIteration([{ name: 'file_edit', arguments: { path: '/a.txt' } }], { mutationFailure: true })];
@@ -254,10 +224,6 @@ describe('mutation_failure_loop detection', () => {
 	});
 });
 
-// =============================================================================
-// Combined / edge-case scenarios
-// =============================================================================
-
 describe('combined detection', () => {
 	it('identical_calls takes priority over mutation_failure_loop', () => {
 		const messages: ModelMessage[] = [
@@ -292,10 +258,6 @@ describe('combined detection', () => {
 		expect(detectDoomLoop(messages).isDoomLoop).toBe(false);
 	});
 });
-
-// =============================================================================
-// currentRunStartIndex (scoping to current agent run)
-// =============================================================================
 
 describe('currentRunStartIndex', () => {
 	it('ignores identical tool calls from prior turns when startIndex is set', () => {
@@ -407,20 +369,12 @@ describe('currentRunStartIndex', () => {
 		expect(detectDoomLoop(allMessages, priorTurnMessages.length).isDoomLoop).toBe(false);
 	});
 });
-
-// =============================================================================
-// repeated_error_pattern (same tool, same error code, different arguments)
-// =============================================================================
-
-/** Create a tool result with an error-code-prefixed output. */
 function errorToolResult(toolCallId: string, toolName: string, errorCode: string, detail: string): ModelMessage {
 	return {
 		role: 'tool',
 		content: [{ type: 'tool-result', toolCallId, toolName, output: { type: 'text', value: `[${errorCode}] ${detail}` } }],
 	};
 }
-
-/** Build an iteration where the tool result has an error code. */
 function buildErrorIteration(
 	call: { name: string; arguments: Record<string, unknown> },
 	errorCode: string,

@@ -1,27 +1,10 @@
-/**
- * Standalone HTML error pages for server-side error responses.
- *
- * Returns self-contained HTML pages (no external CSS/JS) styled to match the
- * app's dark theme. Used for 404s on the landing domain, invalid preview
- * projects, and other server-side errors that can't be handled by the SPA.
- */
-
 interface ErrorPageOptions {
-	/** Page title (shown in browser tab). */
 	title?: string;
-	/** Main heading displayed in the card. */
 	heading: string;
-	/** Descriptive paragraph below the heading. */
 	message: string;
-	/** URL for the "Back to Home" button. If omitted, no button is shown. */
 	homeUrl?: string;
-	/** HTTP status code for the response. */
 	status: number;
 }
-
-/**
- * Build a Response containing a styled HTML error page.
- */
 function escapeHtml(unsafe: string): string {
 	return unsafe
 		.replaceAll('&', '&amp;')
@@ -94,10 +77,6 @@ export function errorPage({ title, heading, message, homeUrl, status }: ErrorPag
 		headers: { 'Content-Type': 'text/html;charset=UTF-8' },
 	});
 }
-
-// =============================================================================
-// Preview expired page
-// =============================================================================
 
 /**
  * Build a Response for an expired HMAC preview token.

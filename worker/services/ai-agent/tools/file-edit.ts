@@ -1,9 +1,3 @@
-/**
- * Tool: file_edit
- * Modify existing files using exact string replacements.
- * Uses multiple replacement strategies for robust matching.
- */
-
 import fs from 'node:fs/promises';
 
 import { MAX_DIAGNOSTICS_PER_FILE } from '@shared/constants';
@@ -20,10 +14,6 @@ import { computeDiffStats, generateCompactDiff } from '../utilities';
 
 import type { FileChange, SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
 
-// =============================================================================
-// Description
-// =============================================================================
-
 const DESCRIPTION = `Performs exact string replacements in files.
 
 Usage:
@@ -33,10 +23,6 @@ CRITICAL INSTRUCTION: ALWAYS prefer editing existing files in the codebase. NEVE
 - The edit will FAIL if \`oldString\` is not found in the file with an error "oldString not found in content".
 - The edit will FAIL if \`oldString\` is found multiple times in the file with an error "Found multiple matches for oldString. Provide more surrounding lines in oldString to identify the correct match." Either provide a larger string with more surrounding context to make it unique or use \`replaceAll\` to change every instance of \`oldString\`.
 - Use \`replaceAll\` for replacing and renaming strings across the file. This parameter is useful if you want to rename a variable for instance.`;
-
-// =============================================================================
-// Tool Definition
-// =============================================================================
 
 export const definition: ToolDefinition = {
 	name: 'file_edit',
@@ -52,10 +38,6 @@ export const definition: ToolDefinition = {
 		required: ['file_path', 'old_string', 'new_string'],
 	},
 };
-
-// =============================================================================
-// Execute Function
-// =============================================================================
 
 export async function execute(
 	input: Record<string, string>,

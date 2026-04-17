@@ -1,7 +1,3 @@
-/**
- * Unit tests for deploy route helper functions.
- */
-
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -13,10 +9,6 @@ import {
 	sanitizeR2BucketName,
 	sanitizeWorkerName,
 } from './deploy-routes';
-
-// =============================================================================
-// sanitizeWorkerName
-// =============================================================================
 
 describe('sanitizeWorkerName', () => {
 	it('lowercases uppercase characters', () => {
@@ -56,10 +48,6 @@ describe('sanitizeWorkerName', () => {
 		expect(sanitizeWorkerName('my-worker-123')).toBe('my-worker-123');
 	});
 });
-
-// =============================================================================
-// sanitizeR2BucketName
-// =============================================================================
 
 describe('sanitizeR2BucketName', () => {
 	it('appends a deterministic -storage hash suffix to worker name', () => {
@@ -119,10 +107,6 @@ describe('sanitizeR2BucketName', () => {
 	});
 });
 
-// =============================================================================
-// extractFrontendEntryPoint
-// =============================================================================
-
 describe('extractFrontendEntryPoint', () => {
 	it('extracts src path from script type=module tag', () => {
 		const html = '<html><body><script type="module" src="/src/main.tsx"></script></body></html>';
@@ -179,10 +163,6 @@ describe('extractFrontendEntryPoint', () => {
 	});
 });
 
-// =============================================================================
-// isSourceFile
-// =============================================================================
-
 describe('isSourceFile', () => {
 	it('returns true for .ts files', () => {
 		expect(isSourceFile('src/utils.ts')).toBe(true);
@@ -229,10 +209,6 @@ describe('isSourceFile', () => {
 	});
 });
 
-// =============================================================================
-// generateProductionHtml
-// =============================================================================
-
 describe('generateProductionHtml', () => {
 	it('replaces the original entry path with the bundled path', () => {
 		const html = '<html><body><script type="module" src="/src/main.tsx"></script></body></html>';
@@ -277,10 +253,6 @@ describe('generateProductionHtml', () => {
 		expect(result).toContain('src="/assets/bundle.js"');
 	});
 });
-
-// =============================================================================
-// hashFileForManifest
-// =============================================================================
 
 describe('hashFileForManifest', () => {
 	it('returns a 32-character hex string', async () => {
@@ -330,10 +302,6 @@ describe('hashFileForManifest', () => {
 		expect(hash1).not.toBe(hash2);
 	});
 });
-
-// =============================================================================
-// isConfigFile
-// =============================================================================
 
 describe('isConfigFile', () => {
 	it('returns true for package.json', () => {

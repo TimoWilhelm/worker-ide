@@ -1,29 +1,3 @@
-/**
- * Agent Runner Durable Object.
- *
- * Extends the Agents SDK `Agent` class for:
- * - **Automatic state sync** — `this.state` is SQLite-backed and auto-broadcast
- *   to all connected WebSocket clients (the frontend's `useAgent` hook).
- * - **@callable RPC** — Methods decorated with `callable` are invokable
- *   over WebSocket from the client via `agent.call()`.
- * - **State validation** — `validateStateChange()` enforces structural invariants
- *   before state is persisted and broadcast.
- * - **Eviction recovery** — `onStart()` lifecycle hook detects orphaned runs and
- *   restarts them. `keepAliveWhile()` prevents eviction during active loops.
- *
- * Architecture:
- * - The Agent owns all AI session state. The frontend is a pure renderer.
- * - Streaming content flows via batched `this.setState()` updates (50ms flush).
- * - Session metadata (messages, status, tool data) flows via `this.setState()`.
- * - One instance per project, named `agent:${projectId}`.
- * - Communicates with ProjectCoordinator (for file change HMR triggers) and
- *   DurableObjectFilesystem (for file operations) via DO RPC stubs.
- *
- * Database access uses Drizzle ORM (`drizzle-orm/durable-sqlite`) for all
- * custom tables. The Agent SDK's internal tables remain managed by the SDK.
- * See `worker/durable/db/` for schema, client factory, and data access layer.
- */
-
 import { ExtensionManager } from '@cloudflare/think/extensions';
 import { Agent, callable } from 'agents';
 import { SessionManager } from 'agents/experimental/memory/session';
@@ -79,10 +53,6 @@ import type {
 } from '@shared/types';
 import type { SessionInfo } from 'agents/experimental/memory/session';
 
-// =============================================================================
-// Helpers
-// =============================================================================
-
 const AGENT_SESSION_STATUSES: ReadonlySet<string> = new Set(['running', 'completed', 'error', 'aborted']);
 function isAgentSessionStatus(value: unknown): value is AgentSessionStatus {
 	return typeof value === 'string' && AGENT_SESSION_STATUSES.has(value);
@@ -130,24 +100,8 @@ function parseSessionMetadata(row: ReturnType<typeof readSessionMetadata>): {
 		errorMessage: row.errorMessage ?? undefined,
 	};
 }
-
-// =============================================================================
-// Constants
-// =============================================================================
-
-/** Project root path used by the filesystem mount. */
 const PROJECT_ROOT = '/project';
-
-/** Maximum number of sessions to retain (from shared constants). */
 const MAX_SESSIONS = MAX_AI_SESSIONS_PER_PROJECT;
-
-// =============================================================================
-// Parameters
-// =============================================================================
-
-/**
- * Parameters for starting an agent run.
- */
 export interface StartAgentParameters {
 	projectId: string;
 	messages: ChatMessage[];
@@ -157,10 +111,6 @@ export interface StartAgentParameters {
 	initiatorUserId?: string;
 	_fiberSnapshot?: FiberSnapshot;
 }
-
-// =============================================================================
-// AgentRunner
-// =============================================================================
 
 export class AgentRunner extends Agent<Env, AgentState> {
 	// The instance name (agent:<projectId>) is not sensitive — explicitly opt in
@@ -192,20 +142,10 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		.withSearchableHistory('history');
 
 	// ---- Volatile in-memory state (lost on eviction) ----
-
-	/** Abort controllers for running sessions. */
 	private abortControllers = new Map<string, AbortController>();
-
-	/** Promises for active agent loops (for awaiting cleanup on abort). */
 	private loopPromises = new Map<string, Promise<void>>();
-
-	/** Guards against concurrent title generation. */
 	private titleGenerationInFlight = new Set<string>();
-
-	/** Buffers for accumulating partial tool call argument JSON during streaming, keyed by sessionId. */
 	private toolCallArgumentBuffers = new Map<string, Map<string, string>>();
-
-	/** Snapshot ID for the current agent run, keyed by sessionId. */
 	private currentRunSnapshotIds = new Map<string, string>();
 
 	/**
@@ -222,17 +162,9 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	 */
 	private pendingSubAgentDeltas = new Map<string, Map<string, string>>();
 	private subAgentDeltaFlushTimers = new Map<string, ReturnType<typeof setTimeout>>();
-
-	/** Queued steering messages for running sessions, keyed by sessionId. */
 	private steeringMessages = new Map<string, Array<{ id: string; content: string }>>();
-
-	/** User ID of the person who initiated each session, keyed by sessionId. Survives eviction via StartAgentParameters. */
 	private sessionInitiatorUserIds = new Map<string, string>();
-
-	/** Authenticated user ID per WebSocket connection, set from the server-forwarded header. */
 	private connectionUserIds = new Map<string, string>();
-
-	/** Accumulated analytics data per session, populated from stream events. */
 	private sessionAnalytics = new Map<
 		string,
 		{ inputTokens: number; outputTokens: number; durationMs: number; toolCallCount: number; turnNumber: number }
@@ -478,10 +410,6 @@ export class AgentRunner extends Agent<Env, AgentState> {
 
 		return { sessionId: resolvedSessionId };
 	}
-
-	/**
-	 * Abort a running agent session.
-	 */
 	@callable()
 	async abortRun(sessionId?: string): Promise<void> {
 		if (sessionId) {
@@ -617,10 +545,6 @@ export class AgentRunner extends Agent<Env, AgentState> {
 
 		return session;
 	}
-
-	/**
-	 * List all saved sessions (summary).
-	 */
 	@callable()
 	async listSessions(): Promise<SessionSummary[]> {
 		return this.sessionManager
@@ -648,10 +572,6 @@ export class AgentRunner extends Agent<Env, AgentState> {
 			`,
 		);
 	}
-
-	/**
-	 * Revert a session by truncating history to a given message index.
-	 */
 	@callable()
 	async revertSession(sessionId: string, messageIndex: number): Promise<{ contextTokensUsed: number }> {
 		if (messageIndex <= 0) {
@@ -738,10 +658,6 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		await this.refreshSessionsList();
 		return { contextTokensUsed };
 	}
-
-	/**
-	 * Rename a session's title.
-	 */
 	@callable()
 	async renameSession(sessionId: string, title: string): Promise<void> {
 		const parsed = sessionTitleSchema.safeParse(title);
@@ -811,18 +727,10 @@ export class AgentRunner extends Agent<Env, AgentState> {
 
 		await this.refreshSessionsList();
 	}
-
-	/**
-	 * Load project-level pending changes.
-	 */
 	@callable()
 	async loadPendingChanges(): Promise<Record<string, PendingFileChange>> {
 		return this.loadPendingChangesFromDatabase();
 	}
-
-	/**
-	 * Save project-level pending changes.
-	 */
 	@callable()
 	async savePendingChanges(changes: Record<string, PendingFileChange>): Promise<void> {
 		this.savePendingChangesToDatabase(changes);
@@ -847,10 +755,6 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		}
 		this.setState({ ...this.state, currentSession: undefined });
 	}
-
-	/**
-	 * Get the IDs of all sessions that are currently running.
-	 */
 	@callable()
 	async getRunningSessionIds(): Promise<string[]> {
 		return [...this.abortControllers.keys()];
@@ -859,10 +763,6 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	// =========================================================================
 	// Agent Loop Lifecycle
 	// =========================================================================
-
-	/**
-	 * Launch the agent loop asynchronously. Does not block.
-	 */
 	private async launchAgentLoop(parameters: StartAgentParameters, sessionId: string): Promise<void> {
 		// Create abort controller
 		this.abortControllers.set(sessionId, new AbortController());
@@ -939,10 +839,6 @@ export class AgentRunner extends Agent<Env, AgentState> {
 
 		await this.launchAgentLoop(parameters, sessionId);
 	}
-
-	/**
-	 * Inner agent loop implementation, wrapped by keepAliveWhile() above.
-	 */
 	private async runAgentLoopInner(parameters: StartAgentParameters, sessionId: string): Promise<void> {
 		const projectId = parameters.projectId;
 		let finalStatus: AgentSessionStatus = 'completed';
@@ -1513,10 +1409,6 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		this.pendingSubAgentDeltas.delete(sessionId);
 		this.updateSessionState(sessionId, { subAgentActivities: activities });
 	}
-
-	/**
-	 * Accumulate a sub-agent text delta and schedule a flush.
-	 */
 	private accumulateSubAgentDelta(sessionId: string, parentToolCallId: string, delta: string): void {
 		let sessionDeltas = this.pendingSubAgentDeltas.get(sessionId);
 		if (!sessionDeltas) {
@@ -1665,10 +1557,6 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	// =========================================================================
 	// State Helpers
 	// =========================================================================
-
-	/**
-	 * Partially update the current session state and broadcast to clients.
-	 */
 	private updateSessionState(sessionId: string, patch: Partial<AgentSessionState>): void {
 		const current = this.state.currentSession;
 		if (!current || current.sessionId !== sessionId) {
@@ -1706,10 +1594,6 @@ export class AgentRunner extends Agent<Env, AgentState> {
 			currentSession: { ...current, ...patch },
 		});
 	}
-
-	/**
-	 * Refresh the sessions summary list in state.
-	 */
 	private async refreshSessionsList(): Promise<void> {
 		const sessionsList = await this.listSessions();
 		this.setState({ ...this.state, sessions: sessionsList });
@@ -1718,10 +1602,6 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	// =========================================================================
 	// Database Helpers
 	// =========================================================================
-
-	/**
-	 * Read a session from the database and convert to the AiSession shape.
-	 */
 	private readSessionAsAiSession(sessionId: string): AiSession | undefined {
 		const sessionInfo = this.sessionManager.get(sessionId);
 		if (!sessionInfo) return undefined;
@@ -1729,10 +1609,6 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		const metadata = parseSessionMetadata(readSessionMetadata(this.db, sessionId));
 		return buildAiSession(sessionInfo, history, metadata);
 	}
-
-	/**
-	 * Load pending changes from the database as a parsed object.
-	 */
 	private loadPendingChangesFromDatabase(): Record<string, PendingFileChange> {
 		const data = readPendingChangesData(this.db);
 		try {
@@ -1741,17 +1617,9 @@ export class AgentRunner extends Agent<Env, AgentState> {
 			return {};
 		}
 	}
-
-	/**
-	 * Save pending changes to the database as a JSON string.
-	 */
 	private savePendingChangesToDatabase(changes: Record<string, PendingFileChange>): void {
 		writePendingChangesData(this.db, JSON.stringify(changes));
 	}
-
-	/**
-	 * Remove pending changes that belong to the specified sessions.
-	 */
 	private removePendingChangesForSessions(sessionIds: Set<string>): void {
 		const changes = this.loadPendingChangesFromDatabase();
 		let changed = false;
@@ -1769,10 +1637,6 @@ export class AgentRunner extends Agent<Env, AgentState> {
 			}
 		}
 	}
-
-	/**
-	 * Get snapshot IDs that are still referenced by surviving pending changes.
-	 */
 	private getSurvivingSnapshotIds(): Set<string> {
 		const surviving = new Set<string>();
 		const changes = this.loadPendingChangesFromDatabase();

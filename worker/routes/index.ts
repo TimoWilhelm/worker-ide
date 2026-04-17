@@ -1,8 +1,3 @@
-/**
- * API Routes barrel export and type definition.
- * Combines all route modules for the Hono RPC type inference.
- */
-
 import { Hono } from 'hono';
 
 import { aiRoutes } from './ai-routes';

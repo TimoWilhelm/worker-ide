@@ -1,40 +1,13 @@
-/**
- * DevTools Panel Component
- *
- * Embeds the Chrome DevTools frontend (via chii) in an iframe.
- * Acts as a CDP message relay between the preview iframe (running chobitsu)
- * and the DevTools frontend iframe.
- *
- * Architecture:
- *   Preview iframe (chobitsu) ←→ Parent (this relay) ←→ DevTools iframe (chii)
- *
- * Message flow:
- *   chobitsu  → raw CDP string      → parent → forwards string   → chii
- *   chii     → raw CDP string       → parent → { event:'DEV' }   → chobitsu
- *   parent   → { event:'LOADED' }   → chobitsu (triggers CDP init sequence)
- */
-
 import { useEffect, useMemo, useRef } from 'react';
 
 import { useTheme } from '@/hooks/use-theme';
 import { cn } from '@/lib/utils';
 
-// =============================================================================
-// Types
-// =============================================================================
-
 export interface DevelopmentToolsPanelProperties {
-	/** Ref to the preview iframe for message relay */
 	previewIframeReference: React.RefObject<HTMLIFrameElement | null>;
-	/** The preview iframe's origin for secure postMessage targeting. Undefined while the signed URL is loading. */
 	previewOrigin: string | undefined;
-	/** CSS class name */
 	className?: string;
 }
-
-// =============================================================================
-// Helpers
-// =============================================================================
 
 /**
  * Send navigation reset CDP events to the DevTools frontend so it
@@ -92,10 +65,6 @@ function applyThemeToDevtools(iframe: HTMLIFrameElement | null, theme: 'light' |
 	// 2. Toggle the class that the DevTools frontend checks for dark mode.
 	document_.documentElement.classList.toggle('-theme-with-dark-background', isDark);
 }
-
-// =============================================================================
-// Component
-// =============================================================================
 
 export function DevelopmentToolsPanel({ previewIframeReference, previewOrigin, className }: DevelopmentToolsPanelProperties) {
 	const devtoolsIframeReference = useRef<HTMLIFrameElement>(null);

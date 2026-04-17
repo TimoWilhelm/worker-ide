@@ -1,12 +1,3 @@
-/**
- * Tool: web_fetch
- * Fetch web page content, convert to markdown, and summarize.
- *
- * Raw content is never returned to the caller — it is always processed through
- * a summarization model, which acts as a content barrier against prompt
- * injection attacks embedded in web pages.
- */
-
 import { generateText, jsonSchema, Output } from 'ai';
 import { env } from 'cloudflare:workers';
 
@@ -38,21 +29,7 @@ export const definition: ToolDefinition = {
 		required: ['url', 'prompt'],
 	},
 };
-
-// =============================================================================
-// Constants
-// =============================================================================
-
-/** Maximum characters of markdown content sent to the summarization model. */
 const MAX_CONTENT_LENGTH = 50_000;
-
-// =============================================================================
-// Content detection helpers
-// =============================================================================
-
-/**
- * Check whether the response body looks like markdown rather than HTML.
- */
 function isMarkdownContent(contentType: string, body: string): boolean {
 	if (contentType.includes('text/markdown') || contentType.includes('text/x-markdown')) {
 		return true;
@@ -61,10 +38,6 @@ function isMarkdownContent(contentType: string, body: string): boolean {
 	const trimmed = body.trimStart();
 	return !trimmed.startsWith('<') && !trimmed.startsWith('<!');
 }
-
-// =============================================================================
-// Markdown conversion
-// =============================================================================
 
 /**
  * Convert raw HTML to markdown using Cloudflare Workers AI `toMarkdown()`.
@@ -79,10 +52,6 @@ async function convertHtmlToMarkdown(html: string): Promise<string | undefined> 
 	}
 	return result.data;
 }
-
-// =============================================================================
-// Summarization
-// =============================================================================
 
 /**
  * Send markdown content + user prompt through Vercel AI SDK generateText() for summarization.
@@ -130,10 +99,6 @@ async function summarizeContent(markdownContent: string, userPrompt: string, url
 
 	return output?.summary.trim() ?? '';
 }
-
-// =============================================================================
-// Execute
-// =============================================================================
 
 export async function execute(
 	input: Record<string, string>,

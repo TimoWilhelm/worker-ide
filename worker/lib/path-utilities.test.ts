@@ -1,14 +1,6 @@
-/**
- * Unit tests for worker path utilities.
- */
-
 import { describe, expect, it } from 'vitest';
 
 import { isPathSafe, isProtectedFile, getExtension, isBinaryFile } from './path-utilities';
-
-// =============================================================================
-// isPathSafe
-// =============================================================================
 
 describe('isPathSafe', () => {
 	it('accepts valid absolute paths', () => {
@@ -35,10 +27,6 @@ describe('isPathSafe', () => {
 	});
 });
 
-// =============================================================================
-// isProtectedFile
-// =============================================================================
-
 describe('isProtectedFile', () => {
 	it('returns true for protected files', () => {
 		expect(isProtectedFile('/worker/index.ts')).toBe(true);
@@ -59,10 +47,6 @@ describe('isProtectedFile', () => {
 		expect(isProtectedFile('/src/app.tsx')).toBe(false);
 	});
 });
-
-// =============================================================================
-// getExtension
-// =============================================================================
 
 describe('getExtension', () => {
 	it('returns extension with dot', () => {
@@ -85,10 +69,6 @@ describe('getExtension', () => {
 		expect(getExtension('/LICENSE')).toBe('');
 	});
 });
-
-// =============================================================================
-// isBinaryFile
-// =============================================================================
 
 describe('isBinaryFile', () => {
 	it('returns true for binary extensions', () => {

@@ -1,7 +1,3 @@
-/**
- * Mobile IDE layout — stacked panels with bottom tab bar.
- */
-
 import { ChevronUp, FolderOpen } from 'lucide-react';
 import { lazy, Suspense, useCallback } from 'react';
 
@@ -55,13 +51,9 @@ interface MobileLayoutProperties {
 	fileTree: ReturnType<typeof useFileTree>;
 	logCounts: LogCounts;
 	previewIframeReference: React.RefObject<HTMLIFrameElement | null>;
-	/** Signed preview URL with trailing slash. */
 	previewUrl: string | undefined;
-	/** Signed preview origin (for postMessage targeting). */
 	previewOrigin: string | undefined;
-	/** Whether the signed URL is still being fetched. */
 	isLoadingPreviewUrl: boolean;
-	/** Refresh the signed preview URL (e.g., after token expiry). */
 	refreshPreviewUrl: () => Promise<void>;
 }
 
@@ -141,9 +133,7 @@ export function MobileLayout({
 
 	return (
 		<>
-			{/* Mobile content area — one panel at a time */}
 			<div className="min-h-0 flex-1 overflow-hidden">
-				{/* Editor view */}
 				{activeMobilePanel === 'editor' && (
 					<div className="flex h-full flex-col overflow-hidden">
 						<EditorArea
@@ -169,7 +159,6 @@ export function MobileLayout({
 								</button>
 							}
 						/>
-						{/* Utility panel toggle bar */}
 						{utilityPanelVisible ? (
 							<div className="flex h-48 shrink-0 flex-col border-t border-border">
 								<Suspense fallback={<PanelSkeleton label="Loading output..." />}>
@@ -198,7 +187,7 @@ export function MobileLayout({
 					</div>
 				)}
 
-				{/* Preview view — always mounted so chobitsu stays alive for CDP commands */}
+				{/* Keep the preview mounted so the in-page devtools bridge survives tab switches. */}
 				<div className={cn('flex h-full flex-col overflow-hidden', activeMobilePanel !== 'preview' && 'hidden')}>
 					<div className={cn('overflow-hidden', devtoolsVisible ? 'h-1/2' : 'flex-1')}>
 						<Suspense fallback={<PanelSkeleton label="Loading preview..." />}>
@@ -220,17 +209,14 @@ export function MobileLayout({
 					)}
 				</div>
 
-				{/* Git view */}
 				{activeMobilePanel === 'git' && (
 					<ErrorBoundary fallback={PanelErrorFallback}>
 						<GitPanel projectId={projectId} className="h-full" />
 					</ErrorBoundary>
 				)}
 
-				{/* Tests view */}
 				{activeMobilePanel === 'tests' && <TestsPanel projectId={projectId} className="h-full" />}
 
-				{/* Agent view */}
 				{activeMobilePanel === 'agent' && (
 					<Suspense fallback={<PanelSkeleton label="Loading Agent..." />}>
 						<AIPanel projectId={projectId} className="h-full" />
@@ -238,10 +224,8 @@ export function MobileLayout({
 				)}
 			</div>
 
-			{/* Bottom tab bar */}
 			<MobileTabBar />
 
-			{/* File tree drawer */}
 			<MobileFileDrawer>
 				{isLoadingFiles ? (
 					<div className="flex flex-1 items-center justify-center">

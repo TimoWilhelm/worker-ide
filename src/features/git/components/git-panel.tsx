@@ -1,13 +1,3 @@
-/**
- * Git Panel
- *
- * Main Git sidebar panel. Contains:
- * - Branch selector
- * - Commit form
- * - Staged / Changed / Untracked file lists
- * - Collapsible history section
- */
-
 import { ScrollArea } from '@base-ui/react/scroll-area';
 import { GitBranch, Globe, History, RotateCcw } from 'lucide-react';
 import { Suspense, useCallback, useMemo, useState } from 'react';
@@ -31,18 +21,10 @@ import { useGitMutations } from '../hooks/use-git-mutations';
 import { useGitStatusSuspense } from '../hooks/use-git-status';
 import { groupStatusEntries } from '../lib/status-helpers';
 
-// =============================================================================
-// Types
-// =============================================================================
-
 interface GitPanelProperties {
 	projectId: string;
 	className?: string;
 }
-
-// =============================================================================
-// Component
-// =============================================================================
 
 /**
  * GitPanel with Suspense boundary.
@@ -55,10 +37,6 @@ export function GitPanel({ projectId, className }: GitPanelProperties) {
 		</Suspense>
 	);
 }
-
-/**
- * Inner GitPanel content that uses suspense for data fetching.
- */
 function GitPanelContent({ projectId, className }: GitPanelProperties) {
 	const [showHistory, setShowHistory] = useState(false);
 	const [branchDialogOpen, setBranchDialogOpen] = useState(false);
@@ -167,7 +145,6 @@ function GitPanelContent({ projectId, className }: GitPanelProperties) {
 
 	return (
 		<div className={cn('flex h-full flex-col', className)}>
-			{/* Header */}
 			<div className="flex items-center justify-between px-3 pt-1.5 pb-0.5">
 				<span
 					className="
@@ -237,7 +214,6 @@ function GitPanelContent({ projectId, className }: GitPanelProperties) {
 				</div>
 			</div>
 
-			{/* Branch selector */}
 			<div className="px-2 pb-1">
 				<GitBranchSelector
 					branches={branches}
@@ -251,7 +227,6 @@ function GitPanelContent({ projectId, className }: GitPanelProperties) {
 				/>
 			</div>
 
-			{/* Scrollable content */}
 			<ScrollArea.Root className="h-full flex-1 overflow-hidden">
 				<ScrollArea.Viewport className="size-full">
 					{showHistory ? (
@@ -266,7 +241,6 @@ function GitPanelContent({ projectId, className }: GitPanelProperties) {
 						/>
 					) : (
 						<>
-							{/* Commit form */}
 							<GitCommitForm
 								onCommit={(message) => mutations.commit({ message })}
 								isCommitting={mutations.isCommitPending}
@@ -275,7 +249,6 @@ function GitPanelContent({ projectId, className }: GitPanelProperties) {
 								error={mutations.commitError ?? undefined}
 							/>
 
-							{/* Status list */}
 							<GitStatusList
 								entries={entries}
 								onStage={(paths) => mutations.stageFiles(paths)}
@@ -291,10 +264,8 @@ function GitPanelContent({ projectId, className }: GitPanelProperties) {
 				</ScrollArea.Scrollbar>
 			</ScrollArea.Root>
 
-			{/* Clone dialog */}
 			<GitCloneDialog open={cloneDialogOpen} onOpenChange={setCloneDialogOpen} projectId={projectId} />
 
-			{/* Branch dialog */}
 			<GitBranchDialog
 				open={branchDialogOpen}
 				onOpenChange={setBranchDialogOpen}
@@ -305,7 +276,6 @@ function GitPanelContent({ projectId, className }: GitPanelProperties) {
 				isPending={mutations.isBranchPending}
 			/>
 
-			{/* Discard all confirmation */}
 			<ConfirmDialog
 				open={discardAllConfirmOpen}
 				onOpenChange={setDiscardAllConfirmOpen}
@@ -327,7 +297,6 @@ function GitPanelContent({ projectId, className }: GitPanelProperties) {
 				}}
 			/>
 
-			{/* Discard single file confirmation */}
 			<ConfirmDialog
 				open={discardFilePath !== undefined}
 				onOpenChange={(open) => {

@@ -1,8 +1,3 @@
-/**
- * Tool: file_move
- * Move or rename a file.
- */
-
 import fs from 'node:fs/promises';
 
 import { MAX_DIAGNOSTICS_PER_FILE } from '@shared/constants';

@@ -1,16 +1,3 @@
-/**
- * JWT authentication for external git access.
- *
- * Tokens use ES256 (ECDSA with P-256 + SHA-256) and are verified against
- * a public key stored in the JWT_PUBLIC_KEY secret.
- *
- * Token claims:
- * - iss: "worker-ide"
- * - sub: repository ID (e.g. "ide/abc123")
- * - scopes: ["git:read"] or ["git:read", "git:write"]
- * - exp: expiration timestamp (Unix seconds)
- */
-
 export interface JwtClaims {
 	iss: string;
 	sub: string;
@@ -18,10 +5,6 @@ export interface JwtClaims {
 	exp: number;
 	iat?: number;
 }
-
-/**
- * Import a PEM-encoded ECDSA P-256 public key for JWT verification.
- */
 async function importPublicKey(pem: string): Promise<CryptoKey> {
 	const stripped = pem
 		.replace(/-----BEGIN PUBLIC KEY-----/, '')
@@ -30,10 +13,6 @@ async function importPublicKey(pem: string): Promise<CryptoKey> {
 	const binaryDer = Uint8Array.from(atob(stripped), (character) => character.codePointAt(0)!);
 	return crypto.subtle.importKey('spki', binaryDer, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify']);
 }
-
-/**
- * Base64url decode to Uint8Array.
- */
 function base64UrlDecode(input: string): Uint8Array {
 	const padded = input.replaceAll('-', '+').replaceAll('_', '/');
 	const padding = '='.repeat((4 - (padded.length % 4)) % 4);
@@ -133,10 +112,6 @@ export async function authenticateGitRequest(
 
 	return { authenticated: true, claims };
 }
-
-/**
- * Return a 401 response requesting Basic Auth credentials.
- */
 export function unauthorizedResponse(realm = 'git'): Response {
 	return new Response('Authentication required\n', {
 		status: 401,

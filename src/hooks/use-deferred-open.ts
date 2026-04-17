@@ -1,12 +1,3 @@
-/**
- * Deferred Open Hook
- *
- * Base UI Dialog/AlertDialog immediately hides the popup when `open` becomes
- * false, which kills AnimatePresence exit animations. This hook keeps the
- * dialog's `open` prop true until AnimatePresence fires `onExitComplete`,
- * giving the exit animation time to play.
- */
-
 import { useCallback, useState } from 'react';
 
 interface DeferredOpen {

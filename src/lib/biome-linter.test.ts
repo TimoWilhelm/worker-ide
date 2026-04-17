@@ -1,14 +1,6 @@
-/**
- * Biome Linter Service Tests
- */
-
 import { describe, expect, it } from 'vitest';
 
 import { isLintableFile } from './biome-linter';
-
-// =============================================================================
-// isLintableFile
-// =============================================================================
 
 describe('isLintableFile', () => {
 	it('returns true for TypeScript files', () => {

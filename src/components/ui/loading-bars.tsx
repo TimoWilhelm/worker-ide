@@ -1,11 +1,3 @@
-/**
- * Loading Bars Component
- *
- * Animated equalizer-style bars used as a loading indicator.
- * Uses motion/react for smooth height + opacity animation.
- * The container has a fixed height to prevent layout shifts.
- */
-
 import { motion } from 'motion/react';
 
 import { cn } from '@/lib/utils';

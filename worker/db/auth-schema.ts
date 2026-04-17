@@ -1,20 +1,4 @@
-/**
- * Drizzle ORM schema for the D1 auth database.
- *
- * Contains:
- * - better-auth core tables (user, session, account, verification)
- * - better-auth organization plugin tables (organization, member, invitation)
- * - Custom project table linking projects to organizations
- *
- * This schema is used by drizzle-d1.config.ts for D1 migrations.
- * The table/column names follow better-auth's default conventions.
- */
-
 import { index, integer, primaryKey, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
-
-// =============================================================================
-// better-auth Core Tables
-// =============================================================================
 
 export const user = sqliteTable('user', {
 	id: text('id').primaryKey(),
@@ -86,10 +70,6 @@ export const verification = sqliteTable(
 	(table) => [index('verification_identifier_idx').on(table.identifier)],
 );
 
-// =============================================================================
-// better-auth Organization Plugin Tables
-// =============================================================================
-
 export const organization = sqliteTable('organization', {
 	id: text('id').primaryKey(),
 	name: text('name').notNull(),
@@ -137,10 +117,6 @@ export const invitation = sqliteTable(
 	(table) => [index('invitation_org_id_idx').on(table.organizationId), index('invitation_email_idx').on(table.email)],
 );
 
-// =============================================================================
-// Custom: Project Table
-// =============================================================================
-
 export const project = sqliteTable(
 	'project',
 	{
@@ -166,10 +142,6 @@ export const project = sqliteTable(
 	],
 );
 
-// =============================================================================
-// Custom: User Project Access Table (per-user recent project tracking)
-// =============================================================================
-
 export const userProjectAccess = sqliteTable(
 	'user_project_access',
 	{
@@ -188,10 +160,6 @@ export const userProjectAccess = sqliteTable(
 	],
 );
 
-// =============================================================================
-// Custom: User Project Favorite Table (per-user project favorites)
-// =============================================================================
-
 export const userProjectFavorite = sqliteTable(
 	'user_project_favorite',
 	{
@@ -209,10 +177,6 @@ export const userProjectFavorite = sqliteTable(
 		index('user_project_favorite_user_created_idx').on(table.userId, table.createdAt),
 	],
 );
-
-// =============================================================================
-// Custom: Project Transfer Table (org-to-org project transfers)
-// =============================================================================
 
 export const projectTransfer = sqliteTable(
 	'project_transfer',
@@ -238,10 +202,6 @@ export const projectTransfer = sqliteTable(
 	],
 );
 
-// =============================================================================
-// Custom: Subscription Table (billing infrastructure — no Stripe yet)
-// =============================================================================
-
 export const subscription = sqliteTable(
 	'subscription',
 	{
@@ -262,10 +222,6 @@ export const subscription = sqliteTable(
 	(table) => [index('subscription_org_id_idx').on(table.organizationId), index('subscription_external_id_idx').on(table.externalId)],
 );
 
-// =============================================================================
-// Custom: Billing Event Table (immutable audit log)
-// =============================================================================
-
 export const billingEvent = sqliteTable(
 	'billing_event',
 	{
@@ -277,10 +233,6 @@ export const billingEvent = sqliteTable(
 	},
 	(table) => [index('billing_event_org_id_idx').on(table.organizationId), index('billing_event_type_idx').on(table.type)],
 );
-
-// =============================================================================
-// Custom: Credit Ledger Table (append-only credit transactions)
-// =============================================================================
 
 export const creditLedger = sqliteTable(
 	'credit_ledger',
@@ -303,23 +255,14 @@ export const creditLedger = sqliteTable(
 	],
 );
 
-// =============================================================================
-// Custom: Entitlement Table (per-entity limit/feature overrides)
-// =============================================================================
-
 export const entitlement = sqliteTable(
 	'entitlement',
 	{
 		id: text('id').primaryKey(),
-		/** The entity this entitlement is assigned to (org ID or user ID). */
 		scopeId: text('scope_id').notNull(),
-		/** Entitlement key following `<scope>:<resource>` pattern (e.g. `org:max_projects`). */
 		key: text('key').notNull(),
-		/** Discriminator for the value column: 'number', 'boolean', or 'string'. */
 		valueType: text('value_type').notNull(),
-		/** The entitlement value, stored as text. Interpreted according to `value_type`. */
 		value: text('value').notNull(),
-		/** Optional admin note (e.g. "extended for beta program"). */
 		note: text('note'),
 		createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
 		updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
@@ -327,28 +270,18 @@ export const entitlement = sqliteTable(
 	(table) => [uniqueIndex('entitlement_scope_key_idx').on(table.scopeId, table.key), index('entitlement_scope_id_idx').on(table.scopeId)],
 );
 
-// =============================================================================
-// Custom: User Preference Table (key-value store for global user settings)
-// =============================================================================
-
 export const userPreference = sqliteTable(
 	'user_preference',
 	{
 		userId: text('user_id')
 			.notNull()
 			.references(() => user.id, { onDelete: 'cascade' }),
-		/** Preference key (e.g. 'colorScheme', 'editorFont'). */
 		key: text('key').notNull(),
-		/** Preference value, stored as text. */
 		value: text('value').notNull(),
 		updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
 	},
 	(table) => [primaryKey({ columns: [table.userId, table.key] }), index('user_preference_user_id_idx').on(table.userId)],
 );
-
-// =============================================================================
-// Inferred Types
-// =============================================================================
 
 export type UserRow = typeof user.$inferSelect;
 export type SessionRow = typeof session.$inferSelect;

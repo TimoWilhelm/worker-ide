@@ -1,17 +1,3 @@
-/**
- * better-auth Instance Factory
- *
- * Creates a better-auth instance per request with the D1 binding.
- * Cloudflare Workers don't have persistent process-level state, so
- * the auth instance must be created fresh for each request with the
- * current environment bindings.
- *
- * Includes:
- * - GitHub OAuth as the sole social provider
- * - Organization plugin with default roles (owner, admin, member)
- * - Auto-creation of a personal organization on first signup
- */
-
 import { betterAuth, APIError } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { admin, organization } from 'better-auth/plugins';
