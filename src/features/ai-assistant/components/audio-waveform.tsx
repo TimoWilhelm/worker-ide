@@ -68,11 +68,3 @@ export function AudioWaveform({ amplitudes, className }: { amplitudes: number[];
 		<canvas ref={canvasReference} className={cn('h-4 w-28 shrink-0', className)} style={{ imageRendering: 'pixelated' }} aria-hidden />
 	);
 }
-
-export function AudioWaveformSkeleton({ className }: { className?: string }) {
-	return (
-		<div className={cn('flex h-4 w-28 shrink-0 items-center', className)} aria-hidden>
-			<div className="h-0.5 w-full animate-pulse rounded-full bg-border-solid" />
-		</div>
-	);
-}

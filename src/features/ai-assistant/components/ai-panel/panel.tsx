@@ -1360,8 +1360,25 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 								>
 									<AgentModeSelector mode={agentMode} onModeChange={setAgentMode} disabled={false} />
 									<ModelSelectorDropdown selectedModel={selectedModel} onSelectModel={setSelectedModel} disabled={false} />
-									<div className="flex flex-1 shrink-0 items-center justify-end gap-0.5">
-										<ContextRing tokensUsed={contextTokensUsed} contextWindow={getModelLimits(selectedModel).contextWindow} />
+									<div className="flex flex-1 shrink-0 items-center justify-end gap-1">
+										{isProcessing && (
+											<button
+												type="button"
+												onClick={handleCancel}
+												disabled={isStopPending || !isConnected}
+												className={cn(
+													`
+														inline-flex cursor-pointer items-center justify-center
+														rounded-full p-1
+													`,
+													'text-xs font-medium text-error transition-colors',
+													isStopPending ? 'cursor-wait opacity-70' : isConnected ? 'hover:bg-error/10' : 'cursor-not-allowed opacity-40',
+												)}
+												aria-label={isStopPending ? 'Stopping generation' : 'Stop generation'}
+											>
+												{isStopPending ? <Spinner className="size-4" /> : <Square className="size-4" />}
+											</button>
+										)}
 										{!isProcessing && speechToText.microphonePermission !== 'unsupported' && (
 											<Tooltip
 												content={
@@ -1418,24 +1435,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 												</button>
 											</Tooltip>
 										)}
-										{isProcessing && (
-											<button
-												type="button"
-												onClick={handleCancel}
-												disabled={isStopPending || !isConnected}
-												className={cn(
-													`
-														inline-flex cursor-pointer items-center justify-center rounded-md
-														p-1
-													`,
-													'text-xs font-medium text-error transition-colors',
-													isStopPending ? 'cursor-wait opacity-70' : isConnected ? 'hover:bg-error/10' : 'cursor-not-allowed opacity-40',
-												)}
-												aria-label={isStopPending ? 'Stopping' : 'Stop'}
-											>
-												{isStopPending ? <Spinner className="size-4" /> : <Square className="size-4" />}
-											</button>
-										)}
+										<ContextRing tokensUsed={contextTokensUsed} contextWindow={getModelLimits(selectedModel).contextWindow} />
 										<button
 											type="button"
 											onClick={() => void handleSubmit()}
@@ -1443,6 +1443,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 											className={cn(
 												'inline-flex items-center justify-center rounded-md p-1',
 												'text-xs font-medium transition-colors',
+												'ml-0.5',
 												hasContent
 													? `
 														cursor-pointer bg-accent text-white
