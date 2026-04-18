@@ -350,7 +350,14 @@ function generatePreviewConfig(wsUrl: string, ideOrigin: string, projectId: stri
  * 4. chobitsu + chobitsu-init — Chrome DevTools Protocol bridge
  */
 function generatePreviewScriptTags(integrityHashes?: Record<string, string>): string {
-	const scripts = ['__react-refresh-preamble.js', '__error-overlay.js', '__hmr-client.js', '__chobitsu.js', '__chobitsu-init.js'];
+	const scripts = [
+		'__react-refresh-preamble.js',
+		'__error-overlay.js',
+		'__hmr-client.js',
+		'__chobitsu.js',
+		'__chobitsu-init.js',
+		'__element-picker.js',
+	];
 	return scripts
 		.map((source) => {
 			const hash = integrityHashes?.[source];

@@ -41,6 +41,7 @@ export function UserMenu({ size = 'md' }: UserMenuProperties = {}) {
 		<DropdownMenu>
 			<DropdownMenuTrigger>
 				<button
+					data-local-focus="true"
 					className={cn(
 						`
 							flex shrink-0 cursor-pointer items-center justify-center rounded-full

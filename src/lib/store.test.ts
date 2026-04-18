@@ -20,6 +20,7 @@ beforeEach(() => {
 		statusMessage: undefined,
 		sessionId: undefined,
 		savedSessions: [],
+		pendingPreviewElementReferences: [],
 		participants: [],
 		localParticipantId: undefined,
 		localParticipantColor: undefined,
@@ -768,6 +769,29 @@ describe('UI slice', () => {
 		expect(useStore.getState().agentPanelVisible).toBe(false);
 		useStore.getState().toggleAgentPanel();
 		expect(useStore.getState().agentPanelVisible).toBe(true);
+	});
+
+	it('shows the agent panel and switches mobile to agent', () => {
+		useStore.getState().setActiveMobilePanel('preview');
+
+		useStore.getState().showAgentPanel();
+
+		expect(useStore.getState().agentPanelVisible).toBe(true);
+		expect(useStore.getState().activeMobilePanel).toBe('agent');
+	});
+
+	it('queues and consumes preview element references', () => {
+		useStore.getState().queuePreviewElementReference({ selector: '#hero', tagName: 'div' });
+		useStore.getState().queuePreviewElementReference({ selector: '.card img', tagName: 'img' });
+
+		expect(useStore.getState().pendingPreviewElementReferences).toEqual([
+			{ selector: '#hero', tagName: 'div' },
+			{ selector: '.card img', tagName: 'img' },
+		]);
+
+		useStore.getState().shiftPendingPreviewElementReference();
+
+		expect(useStore.getState().pendingPreviewElementReferences).toEqual([{ selector: '.card img', tagName: 'img' }]);
 	});
 
 	it('toggles dependencies panel', () => {

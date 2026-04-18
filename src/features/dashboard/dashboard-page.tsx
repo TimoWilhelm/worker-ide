@@ -80,6 +80,7 @@ function TemplateCard({
 }) {
 	return (
 		<button
+			data-local-focus="true"
 			onClick={() => onSelect(template.id)}
 			disabled={disabled}
 			className={cn(
@@ -159,6 +160,7 @@ function TemplateDetailModal({
 function CloneCard({ onSelect, disabled }: { onSelect: () => void; disabled: boolean }) {
 	return (
 		<button
+			data-local-focus="true"
 			onClick={onSelect}
 			disabled={disabled}
 			className={cn(

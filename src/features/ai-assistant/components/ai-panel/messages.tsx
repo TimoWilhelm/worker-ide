@@ -41,9 +41,10 @@ import { TOOL_ERROR_LABELS } from '@shared/tool-errors';
 
 import { AI_SUGGESTIONS, isRecord, isToolName } from './helpers';
 import { getModelLabel } from './model-config';
-import { parseTextToSegments } from '../../lib/input-segments';
+import { parseTextToSegments, segmentsToDisplayText } from '../../lib/input-segments';
 import { FileReference } from '../file-reference';
 import { MarkdownContent } from '../markdown-content';
+import { PreviewElementReference } from '../preview-element-reference';
 
 import type { SubAgentActivityRecord } from '@shared/agent-state';
 import type {
@@ -335,7 +336,13 @@ function UserMessage({
 			>
 				<span className="whitespace-pre-wrap">
 					{segments.map((segment, index) =>
-						segment.type === 'mention' ? <FileReference key={index} path={segment.path} /> : <span key={index}>{segment.value}</span>,
+						segment.type === 'mention' ? (
+							<FileReference key={index} path={segment.path} />
+						) : segment.type === 'preview-element' ? (
+							<PreviewElementReference key={index} selector={segment.selector} tagName={segment.tagName} />
+						) : (
+							<span key={index}>{segment.value}</span>
+						),
 					)}
 				</span>
 			</div>
@@ -2017,10 +2024,12 @@ function abbreviateQueuedMessage(content: string, maxLength = 72): string {
 const QUEUED_PREVIEW_LIMIT = 3;
 
 function getQueuedMessageText(message: ChatMessage): string {
-	return message.parts
+	const text = message.parts
 		.filter((part) => part.type === 'text')
 		.map((part) => part.content)
 		.join('\n');
+
+	return segmentsToDisplayText(parseTextToSegments(text, new Set()));
 }
 
 export function QueuedSteeringStrip({

@@ -63,8 +63,9 @@ export function IDEStatusBar({ isConnected, localParticipantColor, participants,
 						target="_blank"
 						rel="noopener noreferrer"
 						className="
-							transition-colors
+							rounded-sm transition-colors
 							hover:text-accent
+							focus-visible:text-accent
 						"
 					>
 						<Github className="size-3.5" />
@@ -76,8 +77,9 @@ export function IDEStatusBar({ isConnected, localParticipantColor, participants,
 						target="_blank"
 						rel="noopener noreferrer"
 						className="
-							transition-colors
+							rounded-sm transition-colors
 							hover:text-accent
+							focus-visible:text-accent
 						"
 					>
 						<Bug className="size-3.5" />
@@ -89,8 +91,9 @@ export function IDEStatusBar({ isConnected, localParticipantColor, participants,
 						target="_blank"
 						rel="noopener noreferrer"
 						className="
-							transition-colors
+							rounded-sm transition-colors
 							hover:text-accent
+							focus-visible:text-accent
 						"
 					>
 						<BookOpen className="size-3.5" />

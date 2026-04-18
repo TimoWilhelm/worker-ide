@@ -13,6 +13,7 @@ import { parseDependencyErrorsFromMessage } from './dependency-error-parser';
 import { transformModule, processHTML, toEsbuildTsconfigRaw, type FileSystem } from './transform-service';
 import { coordinatorNamespace } from '../lib/durable-object-namespaces';
 import { source as chobitsuInitSource, hash as chobitsuInitHash } from '../lib/preview-scripts/chobitsu-init.js?raw-minified';
+import { source as elementPickerSource, hash as elementPickerHash } from '../lib/preview-scripts/element-picker.js?raw-minified';
 import { source as errorOverlaySource, hash as errorOverlayHash } from '../lib/preview-scripts/error-overlay.js?raw-minified';
 import { source as hmrClientSource, hash as hmrClientHash } from '../lib/preview-scripts/hmr-client.js?raw-minified';
 import {
@@ -74,6 +75,7 @@ function buildAssetSecurityHeaders(ideOrigin: string): Record<string, string> {
 const scriptIntegrityHashes: Record<string, string> = {
 	'__chobitsu.js': chobitsuHash,
 	'__chobitsu-init.js': chobitsuInitHash,
+	'__element-picker.js': elementPickerHash,
 	'__error-overlay.js': errorOverlayHash,
 	'__hmr-client.js': hmrClientHash,
 	'__react-refresh-preamble.js': reactRefreshPreambleHash,
@@ -82,6 +84,7 @@ const scriptIntegrityHashes: Record<string, string> = {
 const INTERNAL_SCRIPTS: Record<string, string> = {
 	'/__chobitsu.js': chobitsuSource,
 	'/__chobitsu-init.js': chobitsuInitSource,
+	'/__element-picker.js': elementPickerSource,
 	'/__error-overlay.js': errorOverlaySource,
 	'/__hmr-client.js': hmrClientSource,
 	'/__react-refresh-preamble.js': reactRefreshPreambleSource,

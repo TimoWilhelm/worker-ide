@@ -334,6 +334,7 @@ function DependencyPanel({ projectId, collapsed = false, onToggle, className }: 
 						<div key={entry.name} className="flex flex-col">
 							<div
 								role="option"
+								data-local-focus="true"
 								tabIndex={index === 0 ? 0 : -1}
 								aria-selected={editingName === entry.name}
 								aria-invalid={isInvalid}

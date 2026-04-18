@@ -21,7 +21,10 @@ export function ModelSelectorDropdown({ selectedModel, onSelectModel, disabled }
 				render={
 					<span
 						className={cn(
-							'max-w-full min-w-0 cursor-pointer overflow-hidden transition-colors',
+							`
+								max-w-full min-w-0 cursor-pointer overflow-hidden rounded-full
+								transition-colors
+							`,
 							disabled && 'cursor-not-allowed opacity-40',
 						)}
 					/>

@@ -42,6 +42,45 @@ export function usePushNotifications(): UsePushNotificationsResult {
 	const [isSubscribed, setIsSubscribed] = useState(false);
 	const [isEnabled, setIsEnabled] = useState(false);
 	const [isLoading, setIsLoading] = useState(false);
+	const [isAwaitingPermission, setIsAwaitingPermission] = useState(false);
+
+	const syncPushState = useCallback(async () => {
+		if (!isPushSupported()) return;
+
+		setPermissionState(getPermissionState());
+
+		try {
+			const subscription = await getPushSubscription();
+			if (!subscription?.endpoint) {
+				setIsSubscribed(false);
+				setIsEnabled(false);
+				return;
+			}
+
+			const preferenceResponse = await userApi.user['push-notification-preference'].$get({
+				query: { endpoint: subscription.endpoint },
+			});
+
+			if (!preferenceResponse.ok) {
+				// Backend doesn't recognise this subscription — silently clean up
+				await subscription.unsubscribe();
+				setIsSubscribed(false);
+				setIsEnabled(false);
+				return;
+			}
+
+			const { enabled } = await preferenceResponse.json();
+
+			// The backend returned enabled: false AND no KV entry existed,
+			// the route defaults to { enabled: false }. We can't distinguish
+			// "entry exists with enabled=false" from "entry missing" here,
+			// so we trust the backend response and show the correct state.
+			setIsSubscribed(true);
+			setIsEnabled(enabled);
+		} catch {
+			// Service worker not ready yet — ignore
+		}
+	}, []);
 
 	// Check existing subscription and preference on mount.
 	// If the browser has a push subscription but the backend has no record
@@ -50,51 +89,65 @@ export function usePushNotifications(): UsePushNotificationsResult {
 	useEffect(() => {
 		if (!isPushSupported()) return;
 
-		void (async () => {
-			try {
-				const subscription = await getPushSubscription();
-				if (!subscription?.endpoint) return;
+		void syncPushState();
+	}, [syncPushState]);
 
-				const preferenceResponse = await userApi.user['push-notification-preference'].$get({
-					query: { endpoint: subscription.endpoint },
+	useEffect(() => {
+		if (!isPushSupported()) return;
+
+		const handlePermissionChange = () => {
+			setIsAwaitingPermission(false);
+			void syncPushState();
+		};
+		const handleWindowFocus = () => {
+			void syncPushState();
+		};
+		const handleVisibilityChange = () => {
+			if (document.visibilityState !== 'visible') return;
+			void syncPushState();
+		};
+
+		window.addEventListener('focus', handleWindowFocus);
+		document.addEventListener('visibilitychange', handleVisibilityChange);
+
+		let permissionStatus: PermissionStatus | undefined;
+		if ('permissions' in navigator) {
+			void navigator.permissions
+				.query({ name: 'notifications' })
+				.then((status) => {
+					permissionStatus = status;
+					status.addEventListener('change', handlePermissionChange);
+				})
+				.catch(() => {
+					// Permissions API unsupported — fall back to focus/visibility sync.
 				});
+		}
 
-				if (!preferenceResponse.ok) {
-					// Backend doesn't recognise this subscription — silently clean up
-					await subscription.unsubscribe();
-					return;
-				}
-
-				const { enabled } = await preferenceResponse.json();
-
-				// The backend returned enabled: false AND no KV entry existed,
-				// the route defaults to { enabled: false }. We can't distinguish
-				// "entry exists with enabled=false" from "entry missing" here,
-				// so we trust the backend response and show the correct state.
-				setIsSubscribed(true);
-				setIsEnabled(enabled);
-			} catch {
-				// Service worker not ready yet — ignore
-			}
-		})();
-	}, []);
+		return () => {
+			window.removeEventListener('focus', handleWindowFocus);
+			document.removeEventListener('visibilitychange', handleVisibilityChange);
+			permissionStatus?.removeEventListener('change', handlePermissionChange);
+		};
+	}, [syncPushState]);
 
 	const subscribe = useCallback(async () => {
 		if (!isPushSupported()) return;
 		setIsLoading(true);
+		setIsAwaitingPermission(getPermissionState() === 'default');
 
 		try {
-			// 1. Fetch VAPID public key from the backend
+			// 1. Request notification permission
+			const permission = await Notification.requestPermission();
+			setPermissionState(permission);
+			setIsAwaitingPermission(false);
+			if (permission !== 'granted') return;
+
+			// 2. Fetch VAPID public key from the backend
 			const vapidResponse = await userApi.user['push-vapid-key'].$get({});
 			if (!vapidResponse.ok) {
 				throw new Error('Failed to fetch VAPID key');
 			}
 			const { key: vapidPublicKey } = await vapidResponse.json();
-
-			// 2. Request notification permission
-			const permission = await Notification.requestPermission();
-			setPermissionState(permission);
-			if (permission !== 'granted') return;
 
 			// 3. Subscribe via the service worker's pushManager
 			const registration = await navigator.serviceWorker.ready;
@@ -129,6 +182,7 @@ export function usePushNotifications(): UsePushNotificationsResult {
 		} catch {
 			toast.error('Could not enable notifications. Please check your browser permissions and try again.');
 		} finally {
+			setIsAwaitingPermission(false);
 			setIsLoading(false);
 		}
 	}, []);
@@ -189,7 +243,7 @@ export function usePushNotifications(): UsePushNotificationsResult {
 		isSubscribed,
 		isEnabled,
 		isLoading,
-		needsPermissionApproval: permissionState === 'default' && !isSubscribed,
+		needsPermissionApproval: isAwaitingPermission,
 		subscribe,
 		unsubscribe,
 		toggleEnabled,

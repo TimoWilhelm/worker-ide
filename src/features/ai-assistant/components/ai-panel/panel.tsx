@@ -52,7 +52,13 @@ import { useAutoScroll } from '../../hooks/use-auto-scroll';
 import { useChangeReview } from '../../hooks/use-change-review';
 import { useFileMention } from '../../hooks/use-file-mention';
 import { useSpeechToText } from '../../hooks/use-speech-to-text';
-import { parseTextToSegments, segmentsHaveContent, segmentsToPlainText, type InputSegment } from '../../lib/input-segments';
+import {
+	appendPreviewElementSegment,
+	parseTextToSegments,
+	segmentsHaveContent,
+	segmentsToPlainText,
+	type InputSegment,
+} from '../../lib/input-segments';
 import { extractMessageText } from '../../lib/retry-helpers';
 import { AgentModeSelector } from '../agent-mode-selector';
 import { AudioWaveform } from '../audio-waveform';
@@ -143,6 +149,9 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	>();
 
 	const { files, agentMode, selectedModel, openFile, setAgentMode, setSelectedModel, clearPendingChangesByPaths } = useStore();
+	const pendingPreviewElementReferences = useStore((state) => state.pendingPreviewElementReferences);
+	const shiftPendingPreviewElementReference = useStore((state) => state.shiftPendingPreviewElementReference);
+	const lastProcessedPreviewElementReferenceKeyReference = useRef<string | undefined>(undefined);
 
 	const agent = useAgent({
 		agent: 'AgentRunner',
@@ -444,6 +453,29 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 			inputReference.current?.focus();
 		});
 	}, []);
+
+	useEffect(() => {
+		const nextReference = pendingPreviewElementReferences[0];
+		if (!nextReference) {
+			lastProcessedPreviewElementReferenceKeyReference.current = undefined;
+			return;
+		}
+
+		const referenceKey = `${nextReference.selector}|${nextReference.tagName}`;
+		if (lastProcessedPreviewElementReferenceKeyReference.current === referenceKey) {
+			return;
+		}
+
+		lastProcessedPreviewElementReferenceKeyReference.current = referenceKey;
+
+		setSegments((previous) => appendPreviewElementSegment(previous, nextReference));
+		shiftPendingPreviewElementReference();
+
+		requestAnimationFrame(() => {
+			inputReference.current?.focus();
+			inputReference.current?.moveCursorToEnd();
+		});
+	}, [pendingPreviewElementReferences, shiftPendingPreviewElementReference]);
 
 	const submitOptimisticMessage = useCallback(
 		async (entry: OptimisticMessageEntry): Promise<boolean> => {
@@ -866,8 +898,8 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 					<DropdownMenu>
 						<Tooltip content="Sessions" side="bottom">
 							<DropdownMenuTrigger>
-								<Button variant="ghost" size="icon" aria-label="Sessions">
-									<History className="size-3" />
+								<Button focusStyle="inset" variant="ghost" size="icon" className="size-7" aria-label="Sessions">
+									<History className="size-3.5" />
 								</Button>
 							</DropdownMenuTrigger>
 						</Tooltip>
@@ -1028,7 +1060,15 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 
 					{allMessages.length > 0 && (
 						<Tooltip content="New session" side="bottom">
-							<Button variant="ghost" size="icon" aria-label="New session" onClick={clearHistory} disabled={!isConnected}>
+							<Button
+								focusStyle="inset"
+								variant="ghost"
+								size="icon"
+								className="size-7"
+								aria-label="New session"
+								onClick={clearHistory}
+								disabled={!isConnected}
+							>
 								<Plus className="size-3.5" />
 							</Button>
 						</Tooltip>
@@ -1389,6 +1429,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 															: 'Voice input'
 												}
 												side="top"
+												forceOpen={speechToText.needsPermissionApproval}
 											>
 												<button
 													onClick={() => {
@@ -1425,13 +1466,11 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 																: 'Start voice input'
 													}
 												>
-													{speechToText.needsPermissionApproval && (
-														<PendingApprovalIndicator
-															className="absolute top-1 right-1 size-1.5"
-															data-testid="pending-approval-indicator"
-														/>
+													{speechToText.microphonePermission === 'denied' ? (
+														<MicOff className="size-4" />
+													) : (
+														<Mic className={cn('size-4', speechToText.needsPermissionApproval && 'animate-pulse')} />
 													)}
-													{speechToText.microphonePermission === 'denied' ? <MicOff className="size-4" /> : <Mic className="size-4" />}
 												</button>
 											</Tooltip>
 										)}

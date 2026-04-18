@@ -62,7 +62,10 @@ export function VersionBadge({ className, withProvider = true }: VersionBadgePro
 				type="button"
 				onClick={handleClick}
 				className={cn(
-					'cursor-pointer font-mono text-xs text-text-secondary transition-colors',
+					`
+						cursor-pointer rounded-sm font-mono text-xs text-text-secondary
+						transition-colors
+					`,
 					`
 						hover:text-accent
 						focus-visible:text-accent focus-visible:outline-none

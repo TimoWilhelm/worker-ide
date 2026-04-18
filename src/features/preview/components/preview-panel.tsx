@@ -1,42 +1,73 @@
-import { ExternalLink, RefreshCw, Wrench } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { ExternalLink, RefreshCw, WandSparkles, Wrench } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { LoadingBars } from '@/components/ui/loading-bars';
 import { Tooltip } from '@/components/ui/tooltip';
-import { previewIframeReference } from '@/features/preview/preview-iframe-reference';
+import {
+	cancelPreviewElementPicker,
+	previewIframeReference,
+	previewOriginReference,
+	startPreviewElementPicker,
+} from '@/features/preview/preview-iframe-reference';
 import { useStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 
 export interface PreviewPanelProperties {
 	previewUrl: string | undefined;
+	previewOrigin: string | undefined;
 	isLoadingUrl: boolean;
 	refreshPreviewUrl: () => Promise<void>;
 	iframeReference: React.RefObject<HTMLIFrameElement | null>;
 	className?: string;
 }
 
-export function PreviewPanel({ previewUrl, isLoadingUrl, refreshPreviewUrl, iframeReference, className }: PreviewPanelProperties) {
+export function PreviewPanel({
+	previewUrl,
+	previewOrigin,
+	isLoadingUrl,
+	refreshPreviewUrl,
+	iframeReference,
+	className,
+}: PreviewPanelProperties) {
+	const rootReference = useRef<HTMLDivElement>(null);
 	const [isLoading, setIsLoading] = useState(true);
 	const [previewKey, setPreviewKey] = useState(0);
+	const [isPickerActive, setIsPickerActive] = useState(false);
 	const devtoolsVisible = useStore((state) => state.devtoolsVisible);
 	const toggleDevtools = useStore((state) => state.toggleDevtools);
+	const queuePreviewElementReference = useStore((state) => state.queuePreviewElementReference);
+	const showAgentPanel = useStore((state) => state.showAgentPanel);
+	const pickerActive = isPickerActive && !!previewUrl;
 
 	const handleLoad = useCallback(() => {
 		setIsLoading(false);
 	}, []);
 
 	const handleRefresh = useCallback(() => {
+		if (pickerActive) {
+			cancelPreviewElementPicker();
+			setIsPickerActive(false);
+		}
 		setIsLoading(true);
 		setPreviewKey((previous) => previous + 1);
 		globalThis.dispatchEvent(new CustomEvent('preview-refresh'));
-	}, []);
+	}, [pickerActive]);
 
 	const handleOpenExternal = useCallback(() => {
 		if (previewUrl) {
 			window.open(previewUrl, '_blank');
 		}
 	}, [previewUrl]);
+
+	const handleTogglePicker = useCallback(() => {
+		const didSendMessage = pickerActive ? cancelPreviewElementPicker() : startPreviewElementPicker();
+		if (!didSendMessage) {
+			return;
+		}
+
+		setIsPickerActive((previous) => !previous);
+	}, [pickerActive]);
 
 	useEffect(() => {
 		const FORCE_REFRESH_DELAY_MS = 500;
@@ -80,15 +111,96 @@ export function PreviewPanel({ previewUrl, isLoadingUrl, refreshPreviewUrl, ifra
 
 	useEffect(() => {
 		previewIframeReference.current = iframeReference.current ?? undefined;
+		previewOriginReference.current = previewOrigin;
 		return () => {
 			previewIframeReference.current = undefined;
+			previewOriginReference.current = undefined;
 		};
-	});
+	}, [iframeReference, previewOrigin]);
+
+	useEffect(() => {
+		const handleMessage = (event: MessageEvent) => {
+			if (event.source !== iframeReference.current?.contentWindow) return;
+			if (event.origin !== previewOrigin) return;
+
+			const message = event.data;
+			if (!message || typeof message !== 'object' || !('type' in message) || typeof message.type !== 'string') {
+				return;
+			}
+
+			if (message.type === '__preview-element-picker-cancelled') {
+				setIsPickerActive(false);
+				return;
+			}
+
+			if (message.type !== '__preview-element-picked' || !('selector' in message) || !('tagName' in message)) {
+				return;
+			}
+
+			if (typeof message.selector !== 'string' || typeof message.tagName !== 'string') {
+				return;
+			}
+
+			setIsPickerActive(false);
+			queuePreviewElementReference({ selector: message.selector, tagName: message.tagName });
+			showAgentPanel();
+		};
+
+		globalThis.addEventListener('message', handleMessage);
+		return () => globalThis.removeEventListener('message', handleMessage);
+	}, [iframeReference, previewOrigin, queuePreviewElementReference, showAgentPanel]);
+
+	useEffect(() => {
+		if (!pickerActive) {
+			return;
+		}
+
+		const cancelPicker = () => {
+			cancelPreviewElementPicker();
+			setIsPickerActive(false);
+		};
+
+		const handlePointerDown = (event: PointerEvent) => {
+			const target = event.target;
+			if (!(target instanceof Node)) {
+				cancelPicker();
+				return;
+			}
+
+			if (target === iframeReference.current) {
+				return;
+			}
+
+			if (rootReference.current?.contains(target) && target !== iframeReference.current) {
+				cancelPicker();
+				return;
+			}
+
+			cancelPicker();
+		};
+
+		const handleKeyDown = (event: KeyboardEvent) => {
+			if (event.key !== 'Escape') {
+				return;
+			}
+
+			event.preventDefault();
+			cancelPicker();
+		};
+
+		document.addEventListener('pointerdown', handlePointerDown, true);
+		globalThis.addEventListener('keydown', handleKeyDown);
+
+		return () => {
+			document.removeEventListener('pointerdown', handlePointerDown, true);
+			globalThis.removeEventListener('keydown', handleKeyDown);
+		};
+	}, [iframeReference, pickerActive]);
 
 	const showLoadingOverlay = isLoading || isLoadingUrl;
 
 	return (
-		<div className={cn('flex h-full flex-col bg-bg-secondary', className)}>
+		<div ref={rootReference} className={cn('flex h-full flex-col bg-bg-secondary', className)}>
 			<div
 				className="
 					flex h-9 shrink-0 items-center justify-between border-b border-border px-3
@@ -99,18 +211,37 @@ export function PreviewPanel({ previewUrl, isLoadingUrl, refreshPreviewUrl, ifra
 				</div>
 
 				<div className="flex shrink-0 items-center gap-1">
+					<Tooltip content={pickerActive ? 'Cancel element selection' : 'Send to Agent'}>
+						<Button
+							focusStyle="inset"
+							variant="ghost"
+							size="icon"
+							aria-label="Send to Agent"
+							className={cn('size-7', pickerActive && 'bg-accent/10 text-accent hover:bg-accent/15')}
+							onClick={handleTogglePicker}
+							disabled={!previewUrl}
+						>
+							<WandSparkles className="size-3.5" />
+						</Button>
+					</Tooltip>
 					<Tooltip content="Toggle DevTools">
-						<Button variant="ghost" size="icon" className={cn('size-7', devtoolsVisible && 'text-accent')} onClick={toggleDevtools}>
+						<Button
+							focusStyle="inset"
+							variant="ghost"
+							size="icon"
+							className={cn('size-7', devtoolsVisible && 'text-accent')}
+							onClick={toggleDevtools}
+						>
 							<Wrench className="size-3.5" />
 						</Button>
 					</Tooltip>
 					<Tooltip content="Refresh">
-						<Button variant="ghost" size="icon" className="size-7" onClick={handleRefresh}>
+						<Button focusStyle="inset" variant="ghost" size="icon" className="size-7" onClick={handleRefresh}>
 							<RefreshCw className="size-3.5" />
 						</Button>
 					</Tooltip>
 					<Tooltip content="Open in new tab">
-						<Button variant="ghost" size="icon" className="size-7" onClick={handleOpenExternal} disabled={!previewUrl}>
+						<Button focusStyle="inset" variant="ghost" size="icon" className="size-7" onClick={handleOpenExternal} disabled={!previewUrl}>
 							<ExternalLink className="size-3.5" />
 						</Button>
 					</Tooltip>

@@ -682,11 +682,13 @@ function FileTreeNode({
 	return (
 		<div>
 			<div
+				data-local-focus="true"
 				role="treeitem"
 				tabIndex={tabIndex}
 				aria-selected={isSelected}
 				aria-expanded={item.isDirectory ? isExpanded : undefined}
 				aria-level={depth + 1}
+				aria-description={isProtected ? 'Protected: cannot be renamed or deleted.' : undefined}
 				onClick={handleClick}
 				onKeyDown={(event) => onNodeKeyDown(event, item.path)}
 				onFocus={() => onNodeFocus(item.path)}
@@ -805,7 +807,7 @@ function FileTreeNode({
 				)}
 				{isProtected && (
 					<Tooltip content="Protected: Cannot be renamed or deleted">
-						<span tabIndex={0} role="img" aria-label="Protected" className="ml-1.5 inline-flex shrink-0">
+						<span aria-hidden="true" className="ml-1.5 inline-flex shrink-0">
 							<Lock className="size-3 text-text-secondary/50" />
 						</span>
 					</Tooltip>

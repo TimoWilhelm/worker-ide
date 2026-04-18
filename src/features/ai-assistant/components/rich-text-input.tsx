@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
+import { clearPreviewElementHighlight, highlightPreviewElement } from '@/features/preview/preview-iframe-reference';
+import { getPreviewElementLabel } from '@/lib/preview-element-reference';
 import { cn } from '@/lib/utils';
 
 import { segmentsToPlainText, type InputSegment } from '../lib/input-segments';
@@ -14,6 +16,8 @@ export interface RichTextInputHandle {
 }
 
 const PILL_ATTR = 'data-mention-path';
+const PREVIEW_ELEMENT_SELECTOR_ATTR = 'data-preview-element-selector';
+const PREVIEW_ELEMENT_TAG_ATTR = 'data-preview-element-tag';
 
 function getFileName(path: string): string {
 	return path.split('/').pop() ?? path;
@@ -31,8 +35,12 @@ function parseSegmentsFromDom(container: HTMLElement): InputSegment[] {
 			const element = node instanceof HTMLElement ? node : undefined;
 			if (element) {
 				const mentionPath = element.getAttribute(PILL_ATTR);
+				const previewElementSelector = element.getAttribute(PREVIEW_ELEMENT_SELECTOR_ATTR);
+				const previewElementTagName = element.getAttribute(PREVIEW_ELEMENT_TAG_ATTR);
 				if (mentionPath) {
 					segments.push({ type: 'mention', path: mentionPath });
+				} else if (previewElementSelector && previewElementTagName) {
+					segments.push({ type: 'preview-element', selector: previewElementSelector, tagName: previewElementTagName });
 				} else if (element.tagName === 'BR') {
 					segments.push({ type: 'text', value: '\n' });
 				} else {
@@ -47,6 +55,11 @@ function parseSegmentsFromDom(container: HTMLElement): InputSegment[] {
 
 	return segments;
 }
+
+function getSegmentTextLength(segment: InputSegment): number {
+	return segmentsToPlainText([segment]).length;
+}
+
 function getCursorOffsetInContainer(container: HTMLElement): number {
 	const selection = globalThis.getSelection();
 	if (!selection || selection.rangeCount === 0) return -1;
@@ -66,8 +79,12 @@ function getCursorOffsetInContainer(container: HTMLElement): number {
 			const element = node instanceof HTMLElement ? node : undefined;
 			if (element) {
 				const mentionPath = element.getAttribute(PILL_ATTR);
+				const previewElementSelector = element.getAttribute(PREVIEW_ELEMENT_SELECTOR_ATTR);
+				const previewElementTagName = element.getAttribute(PREVIEW_ELEMENT_TAG_ATTR);
 				if (mentionPath) {
-					offset += 1 + mentionPath.length;
+					offset += getSegmentTextLength({ type: 'mention', path: mentionPath });
+				} else if (previewElementSelector && previewElementTagName) {
+					offset += getSegmentTextLength({ type: 'preview-element', selector: previewElementSelector, tagName: previewElementTagName });
 				} else if (element.tagName === 'BR') {
 					offset += 1;
 				} else {
@@ -99,13 +116,26 @@ function findDomPosition(container: HTMLElement, targetOffset: number): { node: 
 			const element = child instanceof HTMLElement ? child : undefined;
 			if (element) {
 				const mentionPath = element.getAttribute(PILL_ATTR);
+				const previewElementSelector = element.getAttribute(PREVIEW_ELEMENT_SELECTOR_ATTR);
+				const previewElementTagName = element.getAttribute(PREVIEW_ELEMENT_TAG_ATTR);
 				if (mentionPath) {
-					const mentionLength = 1 + mentionPath.length;
+					const mentionLength = getSegmentTextLength({ type: 'mention', path: mentionPath });
 					if (accumulated + mentionLength >= targetOffset) {
 						const index = [...container.childNodes].indexOf(child);
 						return { node: container, offset: index + 1 };
 					}
 					accumulated += mentionLength;
+				} else if (previewElementSelector && previewElementTagName) {
+					const previewElementLength = getSegmentTextLength({
+						type: 'preview-element',
+						selector: previewElementSelector,
+						tagName: previewElementTagName,
+					});
+					if (accumulated + previewElementLength >= targetOffset) {
+						const index = [...container.childNodes].indexOf(child);
+						return { node: container, offset: index + 1 };
+					}
+					accumulated += previewElementLength;
 				} else if (element.tagName === 'BR') {
 					if (accumulated + 1 >= targetOffset) {
 						const index = [...container.childNodes].indexOf(child);
@@ -121,6 +151,7 @@ function findDomPosition(container: HTMLElement, targetOffset: number): { node: 
 
 	return { node: container, offset: container.childNodes.length };
 }
+
 function createPillElement(path: string): HTMLSpanElement {
 	const pill = document.createElement('span');
 	pill.setAttribute(PILL_ATTR, path);
@@ -158,6 +189,60 @@ function createPillElement(path: string): HTMLSpanElement {
 	return pill;
 }
 
+function createPreviewElementPillElement(selector: string, tagName: string): HTMLSpanElement {
+	const pill = document.createElement('span');
+	pill.setAttribute(PREVIEW_ELEMENT_SELECTOR_ATTR, selector);
+	pill.setAttribute(PREVIEW_ELEMENT_TAG_ATTR, tagName);
+	pill.setAttribute('aria-label', `${getPreviewElementLabel(tagName)} ${selector}`);
+	pill.contentEditable = 'false';
+	pill.className = [
+		'inline-flex items-center gap-1 rounded-full px-2 py-0.5 mx-0.5',
+		'bg-linear-to-r from-rose-50 via-amber-50 to-sky-50 text-[11px] font-semibold text-slate-900',
+		'dark:from-fuchsia-950 dark:via-violet-950 dark:to-sky-950 dark:text-slate-50',
+		'align-baseline cursor-default select-none',
+		'border border-fuchsia-200 dark:border-fuchsia-950 shadow-[0_0_0_1px_rgba(255,255,255,0.03)]',
+	].join(' ');
+
+	const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+	icon.setAttribute('width', '10');
+	icon.setAttribute('height', '10');
+	icon.setAttribute('viewBox', '0 0 24 24');
+	icon.setAttribute('fill', 'none');
+	icon.setAttribute('stroke', 'currentColor');
+	icon.setAttribute('stroke-width', '2');
+	icon.setAttribute('stroke-linecap', 'round');
+	icon.setAttribute('stroke-linejoin', 'round');
+	icon.setAttribute('class', 'shrink-0 text-fuchsia-700 dark:text-fuchsia-300');
+	const pathOne = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+	pathOne.setAttribute(
+		'd',
+		'm21.64 3.64-1.28-1.28a1.21 1.21 0 0 0-1.72 0L2.36 18.64a1.21 1.21 0 0 0 0 1.72l1.28 1.28a1.2 1.2 0 0 0 1.72 0L21.64 5.36a1.2 1.2 0 0 0 0-1.72',
+	);
+	const pathTwo = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+	pathTwo.setAttribute('d', 'm14 7 3 3');
+	const pathThree = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+	pathThree.setAttribute('d', 'M5 6v4');
+	const pathFour = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+	pathFour.setAttribute('d', 'M19 14v4');
+	const pathFive = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+	pathFive.setAttribute('d', 'M10 2v2');
+	const pathSix = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+	pathSix.setAttribute('d', 'M7 8H3');
+	const pathSeven = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+	pathSeven.setAttribute('d', 'M21 16h-4');
+	const pathEight = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+	pathEight.setAttribute('d', 'M11 3H9');
+	icon.append(pathOne, pathTwo, pathThree, pathFour, pathFive, pathSix, pathSeven, pathEight);
+
+	const label = document.createElement('span');
+	label.textContent = getPreviewElementLabel(tagName);
+	label.className = 'whitespace-nowrap font-mono';
+
+	pill.append(icon, label);
+
+	return pill;
+}
+
 export function RichTextInput({
 	ref,
 	segments,
@@ -183,6 +268,7 @@ export function RichTextInput({
 	const isComposingReference = useRef(false);
 	const suppressInputReference = useRef(false);
 	const lastRenderedSegmentsReference = useRef<InputSegment[]>([]);
+	const hoveredPreviewElementSelectorReference = useRef<string | undefined>(undefined);
 
 	// Persistent DOM node used as a portal target for inlineSuffix.
 	// Created once via lazy useState initializer and re-appended after
@@ -224,8 +310,10 @@ export function RichTextInput({
 						container.append(document.createTextNode(part));
 					}
 				}
-			} else {
+			} else if (segment.type === 'mention') {
 				container.append(createPillElement(segment.path));
+			} else {
+				container.append(createPreviewElementPillElement(segment.selector, segment.tagName));
 			}
 		}
 
@@ -305,8 +393,10 @@ export function RichTextInput({
 								liveContainer.append(document.createTextNode(part));
 							}
 						}
-					} else {
+					} else if (segment.type === 'mention') {
 						liveContainer.append(createPillElement(segment.path));
+					} else {
+						liveContainer.append(createPreviewElementPillElement(segment.selector, segment.tagName));
 					}
 				}
 				suppressInputReference.current = false;
@@ -391,6 +481,29 @@ export function RichTextInput({
 		}
 	}, []);
 
+	const handleMouseMove = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+		const target =
+			event.target instanceof HTMLElement ? event.target.closest<HTMLElement>(`[${PREVIEW_ELEMENT_SELECTOR_ATTR}]`) : undefined;
+		const selector = target?.getAttribute(PREVIEW_ELEMENT_SELECTOR_ATTR) ?? undefined;
+
+		if (selector === hoveredPreviewElementSelectorReference.current) {
+			return;
+		}
+
+		hoveredPreviewElementSelectorReference.current = selector;
+		if (!selector) {
+			clearPreviewElementHighlight();
+			return;
+		}
+
+		highlightPreviewElement(selector);
+	}, []);
+
+	const handleMouseLeave = useCallback(() => {
+		hoveredPreviewElementSelectorReference.current = undefined;
+		clearPreviewElementHighlight();
+	}, []);
+
 	const isEmpty = segments.length === 0 || (segments.length === 1 && segments[0].type === 'text' && !segments[0].value);
 
 	return (
@@ -421,6 +534,8 @@ export function RichTextInput({
 					handleInput();
 				}}
 				onPaste={handlePaste}
+				onMouseMove={handleMouseMove}
+				onMouseLeave={handleMouseLeave}
 				role="textbox"
 				aria-multiline="true"
 				aria-placeholder={placeholder}

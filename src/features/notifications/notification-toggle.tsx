@@ -1,7 +1,6 @@
 import { Bell, BellOff, BellRing } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
-import { PendingApprovalIndicator } from '@/components/ui/pending-approval-indicator';
 import { toast } from '@/components/ui/toast-store';
 import { Tooltip } from '@/components/ui/tooltip';
 import { usePushNotifications } from '@/hooks/use-push-notifications';
@@ -30,7 +29,7 @@ export function NotificationToggle() {
 					variant="ghost"
 					size="icon"
 					aria-label="Notifications blocked"
-					onClick={() => toast.info('Allow notifications for this site, then reload the page.')}
+					onClick={() => toast.info('Allow notifications for this site in your browser settings, then try again.')}
 				>
 					<BellOff className="size-4 text-text-secondary" />
 				</Button>
@@ -47,7 +46,7 @@ export function NotificationToggle() {
 			: 'Enable notifications';
 
 	return (
-		<Tooltip content={tooltipContent}>
+		<Tooltip content={tooltipContent} forceOpen={needsPermissionApproval}>
 			<Button
 				variant="ghost"
 				size="icon"
@@ -64,13 +63,10 @@ export function NotificationToggle() {
 						`,
 				)}
 			>
-				{needsPermissionApproval && (
-					<PendingApprovalIndicator className="absolute top-1.5 right-1.5" data-testid="pending-approval-indicator" />
-				)}
 				{isSubscribed && isEnabled ? (
 					<BellRing className={cn('size-4', 'text-accent')} />
 				) : (
-					<Bell className={cn('size-4', needsPermissionApproval && 'text-accent')} />
+					<Bell className={cn('size-4', needsPermissionApproval && 'animate-pulse text-accent')} />
 				)}
 			</Button>
 		</Tooltip>

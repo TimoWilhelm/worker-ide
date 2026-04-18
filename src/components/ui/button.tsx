@@ -8,12 +8,20 @@ const buttonVariants = cva(
 	`
 		inline-flex cursor-pointer items-center justify-center gap-2 rounded-sm
 		font-medium transition-colors
-		focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2
-		focus-visible:ring-offset-bg-primary focus-visible:outline-none
 		disabled:pointer-events-none disabled:cursor-default disabled:opacity-50
 	`,
 	{
 		variants: {
+			focusStyle: {
+				default: `
+					focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2
+					focus-visible:ring-offset-bg-primary focus-visible:outline-none
+				`,
+				inset: `
+					focus-visible:ring-1 focus-visible:ring-accent focus-visible:ring-offset-0
+					focus-visible:outline-none focus-visible:ring-inset
+				`,
+			},
 			variant: {
 				default: `
 					bg-accent text-white
@@ -49,6 +57,7 @@ const buttonVariants = cva(
 			},
 		},
 		defaultVariants: {
+			focusStyle: 'default',
 			variant: 'default',
 			size: 'md',
 		},
@@ -65,11 +74,28 @@ interface ButtonProperties extends ButtonHTMLAttributes<HTMLButtonElement>, Vari
  * Button component with variants.
  * Uses React 19 ref-as-prop pattern (no forwardRef).
  */
-function Button({ className, variant, size, isLoading, loadingText, children, disabled, ref, ...properties }: ButtonProperties) {
+function Button({
+	className,
+	focusStyle,
+	variant,
+	size,
+	isLoading,
+	loadingText,
+	children,
+	disabled,
+	ref,
+	...properties
+}: ButtonProperties) {
 	const isDisabledOrLoading = disabled || isLoading;
 
 	return (
-		<button className={buttonVariants({ variant, size, className })} ref={ref} disabled={isDisabledOrLoading} {...properties}>
+		<button
+			data-local-focus="true"
+			className={buttonVariants({ focusStyle, variant, size, className })}
+			ref={ref}
+			disabled={isDisabledOrLoading}
+			{...properties}
+		>
 			{isLoading && <Spinner size="sm" />}
 			{isLoading && loadingText ? loadingText : children}
 		</button>

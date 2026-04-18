@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from 'react';
 
-import type { InputSegment } from '../lib/input-segments';
+import { segmentsToPlainText, type InputSegment } from '../lib/input-segments';
+
 import type { FileInfo } from '@shared/types';
 
 const MAX_RESULTS = 8;
@@ -61,7 +62,7 @@ function getMentionAtOffsets(segments: InputSegment[]): Set<number> {
 			offsets.add(position); // the "@" at this offset is from a pill
 			position += 1 + segment.path.length; // @+path
 		} else {
-			position += segment.value.length;
+			position += segmentsToPlainText([segment]).length;
 		}
 	}
 	return offsets;

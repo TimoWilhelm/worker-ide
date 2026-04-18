@@ -16,7 +16,25 @@ describe('NotificationToggle', () => {
 		usePushNotificationsMock.mockReset();
 	});
 
-	it('shows a pulsing approval state with tooltip text before notification permission is granted', () => {
+	it('keeps the default notification button in its normal state before any prompt is shown', () => {
+		usePushNotificationsMock.mockReturnValue({
+			permissionState: 'default',
+			isSubscribed: false,
+			isEnabled: false,
+			isLoading: false,
+			needsPermissionApproval: false,
+			subscribe: vi.fn(),
+			toggleEnabled: vi.fn(),
+		});
+
+		render(<NotificationToggle />);
+
+		const button = screen.getByRole('button', { name: 'Enable notifications' });
+		expect(button).toBeInTheDocument();
+		expect(button.querySelector('svg')).not.toHaveClass('animate-pulse');
+	});
+
+	it('shows a pulsing approval state only while the notification prompt is pending', () => {
 		usePushNotificationsMock.mockReturnValue({
 			permissionState: 'default',
 			isSubscribed: false,
@@ -29,8 +47,9 @@ describe('NotificationToggle', () => {
 
 		render(<NotificationToggle />);
 
-		expect(screen.getByRole('button', { name: 'Approve notifications in your browser' })).toBeInTheDocument();
-		expect(screen.getByTestId('pending-approval-indicator')).toBeInTheDocument();
+		const button = screen.getByRole('button', { name: 'Approve notifications in your browser' });
+		expect(button).toBeInTheDocument();
+		expect(button.querySelector('svg')).toHaveClass('animate-pulse');
 	});
 
 	it('does not show the approval pulse after permission is denied', () => {
@@ -46,7 +65,8 @@ describe('NotificationToggle', () => {
 
 		render(<NotificationToggle />);
 
-		expect(screen.getByRole('button', { name: 'Notifications blocked' })).toBeInTheDocument();
-		expect(screen.queryByTestId('pending-approval-indicator')).not.toBeInTheDocument();
+		const button = screen.getByRole('button', { name: 'Notifications blocked' });
+		expect(button).toBeInTheDocument();
+		expect(button.querySelector('svg')).not.toHaveClass('animate-pulse');
 	});
 });

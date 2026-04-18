@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { segmentsToPlainText, segmentsHaveContent, parseTextToSegments } from './input-segments';
+import { appendPreviewElementSegment, parseTextToSegments, segmentsHaveContent, segmentsToPlainText } from './input-segments';
 
 import type { InputSegment } from './input-segments';
 
@@ -22,6 +22,11 @@ describe('segmentsToPlainText', () => {
 			{ type: 'text', value: ' please' },
 		];
 		expect(segmentsToPlainText(segments)).toBe('Fix the bug in @/src/app.tsx please');
+	});
+
+	it('serializes preview element segments', () => {
+		const segments: InputSegment[] = [{ type: 'preview-element', selector: '#hero', tagName: 'div' }];
+		expect(segmentsToPlainText(segments)).toBe('[[preview-element:<div>|%23hero]]');
 	});
 
 	it('returns empty string for empty segments', () => {
@@ -54,6 +59,11 @@ describe('segmentsHaveContent', () => {
 			{ type: 'text', value: '   ' },
 			{ type: 'mention', path: '/src/main.ts' },
 		];
+		expect(segmentsHaveContent(segments)).toBe(true);
+	});
+
+	it('returns true for preview element segments', () => {
+		const segments: InputSegment[] = [{ type: 'preview-element', selector: '#hero', tagName: 'section' }];
 		expect(segmentsHaveContent(segments)).toBe(true);
 	});
 });
@@ -104,5 +114,36 @@ describe('parseTextToSegments', () => {
 	it('returns empty array for empty text', () => {
 		const segments = parseTextToSegments('', new Set());
 		expect(segments).toEqual([]);
+	});
+
+	it('parses preview element references', () => {
+		const segments = parseTextToSegments('Inspect [[preview-element:<img>|.hero%20img]] please', new Set());
+		expect(segments).toEqual([
+			{ type: 'text', value: 'Inspect ' },
+			{ type: 'preview-element', selector: '.hero img', tagName: 'img' },
+			{ type: 'text', value: ' please' },
+		]);
+	});
+
+	it('parses preview element references alongside file mentions', () => {
+		const knownPaths = new Set(['/src/main.ts']);
+		const segments = parseTextToSegments('Update [[preview-element:<button>|%23submit]] in @/src/main.ts', knownPaths);
+		expect(segments).toEqual([
+			{ type: 'text', value: 'Update ' },
+			{ type: 'preview-element', selector: '#submit', tagName: 'button' },
+			{ type: 'text', value: ' in ' },
+			{ type: 'mention', path: '/src/main.ts' },
+		]);
+	});
+});
+
+describe('appendPreviewElementSegment', () => {
+	it('appends a preview element with spacing for continued typing', () => {
+		const segments = appendPreviewElementSegment([{ type: 'text', value: 'Inspect' }], { selector: '#hero', tagName: 'div' });
+		expect(segments).toEqual([
+			{ type: 'text', value: 'Inspect ' },
+			{ type: 'preview-element', selector: '#hero', tagName: 'div' },
+			{ type: 'text', value: ' ' },
+		]);
 	});
 });

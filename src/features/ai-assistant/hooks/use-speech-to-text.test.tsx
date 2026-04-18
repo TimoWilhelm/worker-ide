@@ -55,6 +55,7 @@ class MockAudioContext {
 interface MockPermissionStatus {
 	state: PermissionState;
 	addEventListener: ReturnType<typeof vi.fn>;
+	removeEventListener: ReturnType<typeof vi.fn>;
 }
 
 describe('useSpeechToText', () => {
@@ -64,14 +65,25 @@ describe('useSpeechToText', () => {
 	const OriginalAudioContext = globalThis.AudioContext;
 
 	let permissionStatus: MockPermissionStatus;
+	let permissionChangeListener: EventListener | undefined;
 	let getUserMediaMock: ReturnType<typeof vi.fn>;
 	let queryMock: ReturnType<typeof vi.fn>;
 
 	beforeEach(() => {
 		toastError.mockReset();
+		permissionChangeListener = undefined;
 		permissionStatus = {
 			state: 'prompt',
-			addEventListener: vi.fn(),
+			addEventListener: vi.fn((eventName: string, listener: EventListenerOrEventListenerObject) => {
+				if (eventName === 'change' && typeof listener === 'function') {
+					permissionChangeListener = listener;
+				}
+			}),
+			removeEventListener: vi.fn((eventName: string, listener: EventListenerOrEventListenerObject) => {
+				if (eventName === 'change' && listener === permissionChangeListener) {
+					permissionChangeListener = undefined;
+				}
+			}),
 		};
 		getUserMediaMock = vi.fn();
 		queryMock = vi.fn(async () => permissionStatus);
@@ -136,6 +148,16 @@ describe('useSpeechToText', () => {
 		expect(getUserMediaMock).toHaveBeenCalledTimes(2);
 	});
 
+	it('does not mark microphone approval as pending until recording permission is actually requested', async () => {
+		const { result } = renderHook(() => useSpeechToText({ projectId: 'project-1' }));
+
+		await waitFor(() => {
+			expect(result.current.microphonePermission).toBe('default');
+		});
+
+		expect(result.current.needsPermissionApproval).toBe(false);
+	});
+
 	it('marks microphone permission as denied only when the browser reports denied', async () => {
 		permissionStatus.state = 'denied';
 		getUserMediaMock.mockRejectedValue(new DOMException('Permission denied', 'NotAllowedError'));
@@ -151,5 +173,22 @@ describe('useSpeechToText', () => {
 		});
 
 		expect(toastError).toHaveBeenCalledWith('Microphone permission denied');
+	});
+
+	it('updates microphone permission when the browser permission changes', async () => {
+		const { result } = renderHook(() => useSpeechToText({ projectId: 'project-1' }));
+
+		await waitFor(() => {
+			expect(permissionStatus.addEventListener).toHaveBeenCalled();
+		});
+
+		permissionStatus.state = 'granted';
+		await act(async () => {
+			permissionChangeListener?.(new Event('change'));
+		});
+
+		await waitFor(() => {
+			expect(result.current.microphonePermission).toBe('granted');
+		});
 	});
 });

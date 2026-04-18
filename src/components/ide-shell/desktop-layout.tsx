@@ -293,6 +293,7 @@ export function DesktopLayout({
 							<Suspense fallback={<PanelSkeleton label="Loading preview..." />}>
 								<PreviewPanel
 									previewUrl={previewUrl}
+									previewOrigin={previewOrigin}
 									isLoadingUrl={isLoadingPreviewUrl}
 									refreshPreviewUrl={refreshPreviewUrl}
 									iframeReference={previewIframeReference}

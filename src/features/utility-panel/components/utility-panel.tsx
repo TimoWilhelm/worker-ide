@@ -45,6 +45,8 @@ export function UtilityPanel({ projectId, onToggle, collapsed = false, logCounts
 				<div className="flex shrink-0 items-center gap-0.5" onClick={(event) => event.stopPropagation()}>
 					<button
 						type="button"
+						data-local-focus="true"
+						data-focus-style="inset"
 						onClick={onToggle}
 						className="
 							mr-1 flex cursor-pointer items-center justify-center rounded-sm p-0.5
@@ -58,7 +60,12 @@ export function UtilityPanel({ projectId, onToggle, collapsed = false, logCounts
 
 					<DropdownMenu>
 						<DropdownMenuTrigger>
-							<button type="button" className="flex cursor-pointer items-center gap-1.5">
+							<button
+								type="button"
+								data-local-focus="true"
+								data-focus-style="inset"
+								className="flex cursor-pointer items-center gap-1.5 rounded-md p-0.5"
+							>
 								<Pill size="md" color="muted">
 									{TABS.find((t) => t.id === activeTab)?.label}
 								</Pill>

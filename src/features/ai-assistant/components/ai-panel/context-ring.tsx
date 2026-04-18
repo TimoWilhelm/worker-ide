@@ -31,7 +31,7 @@ export function ContextRing({ tokensUsed, contextWindow, className }: ContextRin
 
 	return (
 		<Tooltip content={tooltipContent} side="top">
-			<span tabIndex={0} className={cn('inline-flex items-center p-1', className)}>
+			<span tabIndex={0} className={cn('inline-flex items-center rounded-full p-1', className)}>
 				<svg
 					width={SIZE}
 					height={SIZE}

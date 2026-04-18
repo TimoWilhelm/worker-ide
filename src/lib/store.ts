@@ -4,6 +4,7 @@ import { devtools, persist } from 'zustand/middleware';
 import { DEFAULT_AI_MODEL, DEFAULT_EDITOR_FONT, type AIModelId, type EditorFont } from '@shared/constants';
 import { persistedStoreSchema } from '@shared/validation';
 
+import type { PreviewElementReference } from './preview-element-reference';
 import type {
 	AgentMode,
 	FileInfo,
@@ -72,6 +73,7 @@ interface AIState {
 	debugLogId: string | undefined;
 	contextTokensUsed: number;
 	runningSessionIds: Set<string>;
+	pendingPreviewElementReferences: PreviewElementReference[];
 }
 
 interface AIActions {
@@ -89,6 +91,8 @@ interface AIActions {
 	addRunningSession: (sessionId: string) => void;
 	removeRunningSession: (sessionId: string) => void;
 	setRunningSessionIds: (ids: Set<string>) => void;
+	queuePreviewElementReference: (reference: PreviewElementReference) => void;
+	shiftPendingPreviewElementReference: () => void;
 }
 
 interface CollaborationState {
@@ -162,6 +166,7 @@ interface UIActions {
 	toggleSidebar: () => void;
 	toggleUtilityPanel: () => void;
 	toggleAgentPanel: () => void;
+	showAgentPanel: () => void;
 	toggleDevtools: () => void;
 	toggleDependenciesPanel: () => void;
 	setColorScheme: (scheme: ColorScheme) => void;
@@ -391,6 +396,7 @@ export const useStore = create<StoreState>()(
 				debugLogId: undefined,
 				contextTokensUsed: 0,
 				runningSessionIds: new Set(),
+				pendingPreviewElementReferences: [],
 
 				addMessage: (message) =>
 					set((state) => ({
@@ -438,6 +444,12 @@ export const useStore = create<StoreState>()(
 					}),
 
 				setRunningSessionIds: (ids) => set({ runningSessionIds: ids }),
+
+				queuePreviewElementReference: (reference) =>
+					set((state) => ({ pendingPreviewElementReferences: [...state.pendingPreviewElementReferences, reference] })),
+
+				shiftPendingPreviewElementReference: () =>
+					set((state) => ({ pendingPreviewElementReferences: state.pendingPreviewElementReferences.slice(1) })),
 
 				// =============================================================================
 				// Collaboration State & Actions
@@ -710,6 +722,8 @@ export const useStore = create<StoreState>()(
 				toggleUtilityPanel: () => set((state) => ({ utilityPanelVisible: !state.utilityPanelVisible })),
 
 				toggleAgentPanel: () => set((state) => ({ agentPanelVisible: !state.agentPanelVisible })),
+
+				showAgentPanel: () => set({ agentPanelVisible: true, activeMobilePanel: 'agent' }),
 
 				toggleDevtools: () => set((state) => ({ devtoolsVisible: !state.devtoolsVisible })),
 

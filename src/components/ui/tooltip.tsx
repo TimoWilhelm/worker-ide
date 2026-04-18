@@ -100,17 +100,27 @@ interface TooltipProperties {
 	side?: 'top' | 'right' | 'bottom' | 'left';
 	delayDuration?: number;
 	className?: string;
+	forceOpen?: boolean;
 }
 
 function TooltipProvider({ children }: { children: ReactNode }) {
 	return <BaseTooltip.Provider delay={300}>{children}</BaseTooltip.Provider>;
 }
 
-function Tooltip({ children, content, side = 'top', delayDuration, className }: TooltipProperties) {
+function Tooltip({ children, content, side = 'top', delayDuration, className, forceOpen = false }: TooltipProperties) {
 	const { open, onOpenChange, onTriggerTouchStart, cancelLongPress } = useTouchGatedTooltip();
+	const isOpen = forceOpen || open;
+
+	const handleOpenChange = useCallback(
+		(nextOpen: boolean, eventDetails?: unknown) => {
+			if (forceOpen) return;
+			onOpenChange(nextOpen, eventDetails);
+		},
+		[forceOpen, onOpenChange],
+	);
 
 	return (
-		<BaseTooltip.Root open={open} onOpenChange={onOpenChange}>
+		<BaseTooltip.Root open={isOpen} onOpenChange={handleOpenChange}>
 			<BaseTooltip.Trigger
 				delay={delayDuration}
 				onTouchStart={onTriggerTouchStart}
@@ -119,7 +129,7 @@ function Tooltip({ children, content, side = 'top', delayDuration, className }: 
 				render={children}
 			/>
 			<AnimatePresence>
-				{open && (
+				{isOpen && (
 					<BaseTooltip.Portal keepMounted>
 						<BaseTooltip.Positioner side={side} sideOffset={4} className="z-100">
 							<BaseTooltip.Popup

@@ -156,19 +156,33 @@ export function useSpeechToText({
 		if (!isMicrophoneSupported()) return;
 
 		const abortController = new AbortController();
+		const syncMicrophonePermission = () => {
+			void readMicrophonePermission()
+				.then((status) => {
+					if (abortController.signal.aborted || !status) return;
+					setMicrophonePermission(status);
+				})
+				.catch(() => {
+					// Permissions API not supported for microphone — stay at 'default'
+				});
+		};
+		const handleWindowFocus = () => {
+			syncMicrophonePermission();
+		};
+		const handleVisibilityChange = () => {
+			if (document.visibilityState !== 'visible') return;
+			syncMicrophonePermission();
+		};
 
-		void readMicrophonePermission()
-			.then((status) => {
-				if (abortController.signal.aborted || !status) return;
-				setMicrophonePermission(status);
-			})
-			.catch(() => {
-				// Permissions API not supported for microphone — stay at 'default'
-			});
+		syncMicrophonePermission();
+		window.addEventListener('focus', handleWindowFocus);
+		document.addEventListener('visibilitychange', handleVisibilityChange);
 
 		if (!('permissions' in navigator)) {
 			return () => {
 				abortController.abort();
+				window.removeEventListener('focus', handleWindowFocus);
+				document.removeEventListener('visibilitychange', handleVisibilityChange);
 			};
 		}
 
@@ -189,6 +203,8 @@ export function useSpeechToText({
 
 		return () => {
 			abortController.abort();
+			window.removeEventListener('focus', handleWindowFocus);
+			document.removeEventListener('visibilitychange', handleVisibilityChange);
 		};
 	}, []);
 
@@ -430,7 +446,7 @@ export function useSpeechToText({
 
 	return {
 		microphonePermission,
-		needsPermissionApproval: microphonePermission === 'default',
+		needsPermissionApproval: isAwaitingPermission,
 		isAwaitingPermission,
 		isRecording,
 		isMicrophoneReady,

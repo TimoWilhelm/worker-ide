@@ -233,6 +233,7 @@ function FileTabItem({ tab, isActive, showDirectory, participants, onClose }: Fi
 
 	return (
 		<Tabs.Tab
+			data-local-focus="true"
 			value={tab.path}
 			onMouseDown={handleMiddleClick}
 			className={cn(
@@ -285,6 +286,7 @@ function FileTabItem({ tab, isActive, showDirectory, participants, onClose }: Fi
 			<Tooltip content="Close">
 				<span
 					role="button"
+					data-local-focus="true"
 					tabIndex={0}
 					aria-label={closeLabel}
 					onPointerDown={handleClosePointerDown}
