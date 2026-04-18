@@ -1,4 +1,13 @@
-import type { AgentSessionStatus, ChatMessage, FileChange, PendingFileChange, ToolErrorInfo, ToolMetadataInfo } from './types';
+import type {
+	AgentSessionStatus,
+	ChatMessage,
+	FileChange,
+	PendingFileChange,
+	ReviewEntry,
+	ReviewSummary,
+	ToolErrorInfo,
+	ToolMetadataInfo,
+} from './types';
 import type { ModelMessage } from 'ai';
 
 /**
@@ -8,6 +17,8 @@ import type { ModelMessage } from 'ai';
 export interface AgentState {
 	currentSession: AgentSessionState | undefined;
 	sessions: SessionSummary[];
+	reviewEntries: Record<string, ReviewEntry>;
+	reviewSummary: ReviewSummary;
 }
 
 /**

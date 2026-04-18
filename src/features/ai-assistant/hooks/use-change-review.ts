@@ -1,30 +1,55 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { useCallback, useMemo, useRef } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 
 import { toast } from '@/components/ui/toast-store';
 import { computeDiffHunks, groupHunksIntoChanges, reconstructContent } from '@/features/editor/lib/diff-decorations';
-import { useSnapshots } from '@/features/snapshots';
 import { createApiClient } from '@/lib/api-client';
 import { useStore } from '@/lib/store';
 
+import type { PendingFileChange } from '@shared/types';
+
+function matchesSession(change: PendingFileChange, sessionId?: string): boolean {
+	if (!sessionId) {
+		return true;
+	}
+	return change.sessionId === sessionId || change.sessionIds?.includes(sessionId) === true;
+}
+
+function isReviewActionable(change: PendingFileChange): boolean {
+	return typeof change.reviewId === 'string' && change.reviewId.length > 0;
+}
+
+function buildReconstructedContent(change: PendingFileChange, pendingStatus: 'approved' | 'rejected'): string | undefined {
+	if (change.beforeContent === undefined || change.afterContent === undefined) {
+		return change.afterContent;
+	}
+	const groups = groupHunksIntoChanges(computeDiffHunks(change.beforeContent, change.afterContent));
+	const decisions = groups.map((group) => {
+		const status = change.hunkStatuses[group.index] ?? 'pending';
+		if (status === 'approved') {
+			return true;
+		}
+		if (status === 'rejected') {
+			return false;
+		}
+		return pendingStatus === 'approved';
+	});
+	return reconstructContent(change.beforeContent, change.afterContent, decisions);
+}
+
 export function useChangeReview({ projectId }: { projectId: string }) {
 	const queryClient = useQueryClient();
-	const { pendingChanges, approveChange, rejectChange, approveHunk, rejectHunk, approveAllChanges, rejectAllChanges } = useStore();
-	const { revertFile, revertFileAsync, isReverting } = useSnapshots({ projectId });
 	const apiReference = useRef(createApiClient(projectId));
+	const [pendingMutationCount, setPendingMutationCount] = useState(0);
+	const { pendingChanges, approveChange, rejectChange, approveHunk, rejectHunk, approveAllChanges, rejectAllChanges, loadPendingChanges } =
+		useStore();
 
-	// Persist the current pending changes state to the project-level file.
-	// Reads directly from the store to always get the latest state.
 	const persistPendingChanges = useCallback(async () => {
-		// Pending changes are persisted via the agent state — they are
-		// already stored on the AgentRunner DO as part of the session.
-		// No explicit save needed — the agent-runner persists them during
-		// the generation loop via the onPersistSession callback.
+		// Review state is server-authoritative and syncs back through agent state.
 	}, []);
 
-	// Derive list of pending (unresolved) changes
 	const unresolvedChanges = useMemo(() => {
-		const result: Array<{ path: string; action: 'create' | 'edit' | 'delete' | 'move'; snapshotId: string | undefined }> = [];
+		const result: Array<{ path: string; action: PendingFileChange['action']; snapshotId: string | undefined }> = [];
 		for (const [, change] of pendingChanges) {
 			if (change.status === 'pending') {
 				result.push({ path: change.path, action: change.action, snapshotId: change.snapshotId });
@@ -35,338 +60,288 @@ export function useChangeReview({ projectId }: { projectId: string }) {
 
 	const pendingCount = unresolvedChanges.length;
 
-	// Whether any pending change can be rejected (has snapshot, beforeContent, or is a create)
 	const canReject = useMemo(() => {
 		for (const change of pendingChanges.values()) {
-			if (change.status === 'pending' && (change.snapshotId || change.beforeContent !== undefined || change.action === 'create')) {
+			if (change.status !== 'pending' || !isReviewActionable(change)) {
+				continue;
+			}
+			if (change.snapshotId || change.beforeContent !== undefined || change.action === 'create') {
 				return true;
 			}
 		}
 		return false;
 	}, [pendingChanges]);
 
-	// Serialized write chain — each reconstructAndWrite call waits for the
-	// previous one to complete so rapid hunk decisions don't race.
-	const writeChainReference = useRef<Promise<void>>(Promise.resolve());
+	const refetchProjectFiles = useCallback(async () => {
+		await queryClient.refetchQueries({ queryKey: ['files', projectId] });
+		await queryClient.refetchQueries({ queryKey: ['file', projectId] });
+	}, [projectId, queryClient]);
 
-	// Reconstruct and write the file to disk based on current hunk decisions.
-	// Pending hunks keep the AI version; accepted hunks keep the AI version;
-	// rejected hunks revert to the original. This is called after each hunk
-	// decision so the preview/HMR reflects the user's choices immediately.
-	//
-	// Writes are serialized via writeChainReference so the latest decision
-	// always produces the final on-disk state, even under rapid clicks.
-	const reconstructAndWrite = useCallback(
-		(path: string): Promise<void> => {
-			const writePromise = writeChainReference.current.then(async () => {
-				// Read latest state at execution time (after prior writes complete)
-				const change = useStore.getState().pendingChanges.get(path);
-				if (!change?.beforeContent || !change.afterContent) return;
+	const runMutation = useCallback(async <T>(mutation: () => Promise<T>): Promise<T> => {
+		setPendingMutationCount((count) => count + 1);
+		try {
+			return await mutation();
+		} finally {
+			setPendingMutationCount((count) => Math.max(0, count - 1));
+		}
+	}, []);
 
-				const hunks = computeDiffHunks(change.beforeContent, change.afterContent);
-				const groups = groupHunksIntoChanges(hunks);
-
-				// pending and approved → true (keep AI version), rejected → false (revert)
-				const decisions = groups.map((group) => change.hunkStatuses[group.index] !== 'rejected');
-				const reconstructed = reconstructContent(change.beforeContent, change.afterContent, decisions);
-
-				try {
-					await apiReference.current.file.$put({ json: { path, content: reconstructed } });
-					queryClient.setQueryData(['file', projectId, path], { path, content: reconstructed });
-				} catch (error) {
-					console.error('Failed to write reconstructed file:', error);
+	const setOptimisticFileContent = useCallback(
+		(change: PendingFileChange, decision: 'approved' | 'rejected') => {
+			if (decision === 'approved') {
+				const nextContent = buildReconstructedContent(change, 'approved') ?? change.afterContent;
+				if (nextContent !== undefined) {
+					queryClient.setQueryData(['file', projectId, change.path], { path: change.path, content: nextContent });
 				}
-			});
-			writeChainReference.current = writePromise;
-			return writePromise;
-		},
-		[queryClient, projectId],
-	);
-
-	// Approve a single file change.
-	// If per-hunk review is active, approves remaining undecided hunks,
-	// reconstructs the file to disk, and finalizes.
-	const handleApproveChange = useCallback(
-		(path: string) => {
-			const change = pendingChanges.get(path);
-			if (!change) return;
-
-			approveChange(path);
-
-			// If hunk-level review was active, write the final reconstruction
-			if (change.hunkStatuses.length > 0) {
-				// Optimistically set the cache to the reconstructed content so the
-				// editor shows the correct value immediately (no network wait).
-				const updatedChange = useStore.getState().pendingChanges.get(path);
-				if (updatedChange?.beforeContent && updatedChange.afterContent) {
-					const hunks = computeDiffHunks(updatedChange.beforeContent, updatedChange.afterContent);
-					const groups = groupHunksIntoChanges(hunks);
-					const decisions = groups.map((group) => updatedChange.hunkStatuses[group.index] !== 'rejected');
-					const reconstructed = reconstructContent(updatedChange.beforeContent, updatedChange.afterContent, decisions);
-					queryClient.setQueryData(['file', projectId, path], { path, content: reconstructed });
-				}
-				void reconstructAndWrite(path).then(() => {
-					void queryClient.refetchQueries({ queryKey: ['file', projectId] });
-				});
-			} else if (change.afterContent) {
-				// Full-file approval: the AI already wrote this content to disk.
-				// Optimistically update the cache so the editor shows it immediately.
-				queryClient.setQueryData(['file', projectId, path], { path, content: change.afterContent });
-			}
-
-			void persistPendingChanges();
-		},
-		[pendingChanges, approveChange, reconstructAndWrite, queryClient, projectId, persistPendingChanges],
-	);
-
-	// Reject a single file change (revert via snapshot API or write back beforeContent).
-	// If per-hunk review is active with some accepted hunks, reconstructs to disk
-	// (preserving accepted hunks) instead of doing a full revert.
-	const handleRejectChange = useCallback(
-		(path: string) => {
-			const change = pendingChanges.get(path);
-			if (!change) return;
-
-			// If some hunks are already accepted, reject remaining and reconstruct
-			const hasAcceptedHunks = change.hunkStatuses.includes('approved');
-			if (hasAcceptedHunks) {
-				rejectChange(path);
-				// Optimistically set the cache to the reconstructed content
-				const updatedChange = useStore.getState().pendingChanges.get(path);
-				if (updatedChange?.beforeContent && updatedChange.afterContent) {
-					const hunks = computeDiffHunks(updatedChange.beforeContent, updatedChange.afterContent);
-					const groups = groupHunksIntoChanges(hunks);
-					const decisions = groups.map((group) => updatedChange.hunkStatuses[group.index] !== 'rejected');
-					const reconstructed = reconstructContent(updatedChange.beforeContent, updatedChange.afterContent, decisions);
-					queryClient.setQueryData(['file', projectId, path], { path, content: reconstructed });
-				}
-				void reconstructAndWrite(path).then(() => {
-					void queryClient.refetchQueries({ queryKey: ['file', projectId] });
-					void persistPendingChanges();
-				});
 				return;
 			}
 
-			// No accepted hunks — full revert.
-			// Optimistically update the cache before the network request completes.
+			const reconstructed = buildReconstructedContent(change, 'rejected');
+			if (change.hunkStatuses.includes('approved') && reconstructed !== undefined) {
+				queryClient.setQueryData(['file', projectId, change.path], { path: change.path, content: reconstructed });
+				return;
+			}
+
 			if (change.action === 'edit' && change.beforeContent !== undefined) {
-				queryClient.setQueryData(['file', projectId, path], { path, content: change.beforeContent });
+				queryClient.setQueryData(['file', projectId, change.path], { path: change.path, content: change.beforeContent });
+				return;
 			}
 
-			// Mark as rejected immediately (store update triggers UI)
-			rejectChange(path);
-
-			if (change.snapshotId) {
-				// Preferred: revert through snapshot API
-				revertFile(
-					{ path, snapshotId: change.snapshotId },
-					{
-						onSuccess: () => {
-							void persistPendingChanges();
-						},
-					},
-				);
-			} else if (change.action === 'edit' && change.beforeContent !== undefined) {
-				// Fallback: write back the original content
-				void apiReference.current.file.$put({ json: { path, content: change.beforeContent } }).then(
-					() => {
-						void queryClient.refetchQueries({ queryKey: ['file', projectId] });
-						void persistPendingChanges();
-					},
-					(error) => {
-						console.error('Failed to revert file edit:', error);
-						const fileName = path.split('/').pop() ?? path;
-						toast.error(`Could not revert ${fileName}. The file may still contain AI changes — please check it manually.`);
-						void persistPendingChanges();
-					},
-				);
-			} else if (change.action === 'create') {
-				// Created file with no snapshot — delete it
-				void apiReference.current.file.$delete({ query: { path } }).then(
-					() => {
-						void queryClient.refetchQueries({ queryKey: ['files', projectId] });
-						void persistPendingChanges();
-					},
-					(error) => {
-						console.error('Failed to delete created file:', error);
-						const fileName = path.split('/').pop() ?? path;
-						toast.error(`Could not remove ${fileName}. You may need to delete it manually.`);
-						void persistPendingChanges();
-					},
-				);
-			} else {
-				// No snapshot and no beforeContent — just mark as rejected
-				void persistPendingChanges();
+			if (change.action === 'create') {
+				queryClient.removeQueries({ queryKey: ['file', projectId, change.path], exact: true });
 			}
 		},
-		[pendingChanges, revertFile, rejectChange, reconstructAndWrite, queryClient, projectId, persistPendingChanges],
+		[projectId, queryClient],
 	);
 
-	// When all hunks are resolved, mark the file as done and clean up.
-	// The file content is already correct on disk from the last reconstructAndWrite call.
-	const finalizeReview = useCallback(
+	const handleApproveChange = useCallback(
 		(path: string) => {
-			const change = useStore.getState().pendingChanges.get(path);
-			if (!change) return;
-
-			const allRejected = change.hunkStatuses.every((status) => status === 'rejected');
-			if (allRejected) {
-				rejectChange(path);
-			} else {
-				// All approved, or mixed — file has the user's chosen content
-				approveChange(path);
+			const change = pendingChanges.get(path);
+			if (!change || !isReviewActionable(change) || !change.reviewId) {
+				return;
 			}
+			const reviewId = change.reviewId;
 
-			void queryClient.refetchQueries({ queryKey: ['file', projectId] });
-			void persistPendingChanges();
+			const previousChanges = new Map(useStore.getState().pendingChanges);
+			approveChange(path);
+			setOptimisticFileContent(change, 'approved');
+
+			void runMutation(async () => {
+				const response = await apiReference.current.review[':id'].resolve.$post({
+					param: { id: reviewId },
+					json: { decision: 'accept' },
+				});
+				if (!response.ok) {
+					throw new Error('Failed to accept change');
+				}
+				await refetchProjectFiles();
+				await persistPendingChanges();
+			}).catch(() => {
+				loadPendingChanges(previousChanges);
+				toast.error('Could not accept this change. Please try again.');
+				void refetchProjectFiles();
+			});
 		},
-		[approveChange, rejectChange, queryClient, projectId, persistPendingChanges],
+		[pendingChanges, approveChange, loadPendingChanges, setOptimisticFileContent, runMutation, refetchProjectFiles, persistPendingChanges],
 	);
 
-	// Approve a single change group (hunk) within a file.
-	// Records the decision, writes the reconstructed file to disk, and
-	// finalizes the review when all hunks are resolved.
+	const handleRejectChange = useCallback(
+		(path: string) => {
+			const change = pendingChanges.get(path);
+			if (!change || !isReviewActionable(change) || !change.reviewId) {
+				return;
+			}
+			const reviewId = change.reviewId;
+
+			const previousChanges = new Map(useStore.getState().pendingChanges);
+			rejectChange(path);
+			setOptimisticFileContent(change, 'rejected');
+
+			void runMutation(async () => {
+				const response = await apiReference.current.review[':id'].resolve.$post({
+					param: { id: reviewId },
+					json: { decision: 'reject' },
+				});
+				if (!response.ok) {
+					throw new Error('Failed to reject change');
+				}
+				await refetchProjectFiles();
+				await persistPendingChanges();
+			}).catch(() => {
+				loadPendingChanges(previousChanges);
+				toast.error('Could not reject this change. Please try again.');
+				void refetchProjectFiles();
+			});
+		},
+		[pendingChanges, rejectChange, loadPendingChanges, setOptimisticFileContent, runMutation, refetchProjectFiles, persistPendingChanges],
+	);
+
 	const handleApproveHunk = useCallback(
 		(path: string, groupIndex: number) => {
 			const change = pendingChanges.get(path);
-			if (!change) return;
-
-			approveHunk(path, groupIndex);
-			void reconstructAndWrite(path);
-
-			// Check if all hunks are now resolved
-			const updatedChange = useStore.getState().pendingChanges.get(path);
-			if (updatedChange && updatedChange.hunkStatuses.every((status) => status !== 'pending')) {
-				finalizeReview(path);
+			if (!change || !isReviewActionable(change) || !change.reviewId) {
+				return;
 			}
+			const reviewId = change.reviewId;
 
-			void persistPendingChanges();
+			const previousChanges = new Map(useStore.getState().pendingChanges);
+			approveHunk(path, groupIndex);
+			const updatedChange = useStore.getState().pendingChanges.get(path);
+			if (!updatedChange) {
+				return;
+			}
+			setOptimisticFileContent(updatedChange, 'approved');
+
+			void runMutation(async () => {
+				const response = await apiReference.current.review[':id'].hunks.$put({
+					param: { id: reviewId },
+					json: { hunkStatuses: updatedChange.hunkStatuses },
+				});
+				if (!response.ok) {
+					throw new Error('Failed to update hunk review');
+				}
+				await refetchProjectFiles();
+				await persistPendingChanges();
+			}).catch(() => {
+				loadPendingChanges(previousChanges);
+				toast.error('Could not accept this hunk. Please try again.');
+				void refetchProjectFiles();
+			});
 		},
-		[pendingChanges, approveHunk, reconstructAndWrite, finalizeReview, persistPendingChanges],
+		[pendingChanges, approveHunk, loadPendingChanges, setOptimisticFileContent, runMutation, refetchProjectFiles, persistPendingChanges],
 	);
 
-	// Reject a single change group (hunk) within a file.
-	// Records the decision, writes the reconstructed file to disk, and
-	// finalizes the review when all hunks are resolved.
 	const handleRejectHunk = useCallback(
 		(path: string, groupIndex: number) => {
 			const change = pendingChanges.get(path);
-			if (!change) return;
-
-			rejectHunk(path, groupIndex);
-			void reconstructAndWrite(path);
-
-			// Check if all hunks are now resolved
-			const updatedChange = useStore.getState().pendingChanges.get(path);
-			if (updatedChange && updatedChange.hunkStatuses.every((status) => status !== 'pending')) {
-				finalizeReview(path);
+			if (!change || !isReviewActionable(change) || !change.reviewId) {
+				return;
 			}
+			const reviewId = change.reviewId;
 
-			void persistPendingChanges();
+			const previousChanges = new Map(useStore.getState().pendingChanges);
+			rejectHunk(path, groupIndex);
+			const updatedChange = useStore.getState().pendingChanges.get(path);
+			if (!updatedChange) {
+				return;
+			}
+			setOptimisticFileContent(updatedChange, 'rejected');
+
+			void runMutation(async () => {
+				const response = await apiReference.current.review[':id'].hunks.$put({
+					param: { id: reviewId },
+					json: { hunkStatuses: updatedChange.hunkStatuses },
+				});
+				if (!response.ok) {
+					throw new Error('Failed to update hunk review');
+				}
+				await refetchProjectFiles();
+				await persistPendingChanges();
+			}).catch(() => {
+				loadPendingChanges(previousChanges);
+				toast.error('Could not reject this hunk. Please try again.');
+				void refetchProjectFiles();
+			});
 		},
-		[pendingChanges, rejectHunk, reconstructAndWrite, finalizeReview, persistPendingChanges],
+		[pendingChanges, rejectHunk, loadPendingChanges, setOptimisticFileContent, runMutation, refetchProjectFiles, persistPendingChanges],
 	);
 
-	// Approve all pending changes.
-	// When called from the agent panel (with sessionId), only affects that session's changes.
 	const handleApproveAll = useCallback(
 		(sessionId?: string) => {
-			// Optimistically update the cache for every pending file so the editor
-			// shows the correct content immediately (the AI already wrote these files).
-			for (const change of pendingChanges.values()) {
-				if (change.status !== 'pending') continue;
-				if (sessionId && change.sessionId !== sessionId) continue;
-				if (change.afterContent) {
-					queryClient.setQueryData(['file', projectId, change.path], { path: change.path, content: change.afterContent });
-				}
+			const actionableChanges = [...pendingChanges.values()].filter(
+				(change) => change.status === 'pending' && matchesSession(change, sessionId) && isReviewActionable(change),
+			);
+			if (actionableChanges.length === 0) {
+				return;
 			}
 
+			const previousChanges = new Map(useStore.getState().pendingChanges);
+			for (const change of actionableChanges) {
+				setOptimisticFileContent(change, 'approved');
+			}
 			approveAllChanges(sessionId);
-			void persistPendingChanges();
+
+			void runMutation(async () => {
+				const response = await apiReference.current.review['resolve-many'].$post({
+					json: {
+						decision: 'accept',
+						reviewIds: actionableChanges.map((change) => change.reviewId!).filter(Boolean),
+					},
+				});
+				if (!response.ok) {
+					throw new Error('Failed to accept changes');
+				}
+				await refetchProjectFiles();
+				await persistPendingChanges();
+			}).catch(() => {
+				loadPendingChanges(previousChanges);
+				toast.error('Could not accept all changes. Please try again.');
+				void refetchProjectFiles();
+			});
 		},
-		[pendingChanges, approveAllChanges, queryClient, projectId, persistPendingChanges],
+		[
+			pendingChanges,
+			loadPendingChanges,
+			setOptimisticFileContent,
+			approveAllChanges,
+			runMutation,
+			refetchProjectFiles,
+			persistPendingChanges,
+		],
 	);
 
-	// Reject all pending changes (revert each file individually).
-	// When called from the agent panel (with sessionId), only affects that session's changes.
-	// Files with some accepted hunks get a partial reconstruction instead of full revert.
 	const handleRejectAll = useCallback(
 		async (sessionId?: string) => {
-			const revertPromises: Promise<unknown>[] = [];
-
-			// Snapshot the pending entries we need to act on BEFORE mutating the
-			// store. This avoids reading stale closure state after rejectAllChanges.
-			const changesToReject = [...pendingChanges.values()].filter(
-				(change) => change.status === 'pending' && (!sessionId || change.sessionId === sessionId),
+			const actionableChanges = [...pendingChanges.values()].filter(
+				(change) => change.status === 'pending' && matchesSession(change, sessionId) && isReviewActionable(change),
 			);
-
-			// Optimistically update the cache for every pending file before any
-			// network requests. For edits with beforeContent, show the original
-			// content immediately. For partial reviews, compute the reconstruction.
-			for (const change of changesToReject) {
-				const hasAcceptedHunks = change.hunkStatuses.includes('approved');
-
-				if (hasAcceptedHunks && change.beforeContent && change.afterContent) {
-					// Partial review — compute reconstructed content optimistically
-					const hunks = computeDiffHunks(change.beforeContent, change.afterContent);
-					const groups = groupHunksIntoChanges(hunks);
-					// Reject remaining pending hunks, keep already-approved ones
-					const decisions = groups.map((group) => change.hunkStatuses[group.index] === 'approved');
-					const reconstructed = reconstructContent(change.beforeContent, change.afterContent, decisions);
-					queryClient.setQueryData(['file', projectId, change.path], { path: change.path, content: reconstructed });
-				} else if (change.action === 'edit' && change.beforeContent !== undefined) {
-					queryClient.setQueryData(['file', projectId, change.path], { path: change.path, content: change.beforeContent });
-				}
+			if (actionableChanges.length === 0) {
+				return;
 			}
 
-			// Mark all pending hunkStatuses as rejected (session-scoped if provided)
+			const previousChanges = new Map(useStore.getState().pendingChanges);
+			for (const change of actionableChanges) {
+				setOptimisticFileContent(change, 'rejected');
+			}
 			rejectAllChanges(sessionId);
 
-			// Issue revert actions using the pre-mutation snapshot
-			for (const change of changesToReject) {
-				const hasAcceptedHunks = change.hunkStatuses.includes('approved');
-
-				if (hasAcceptedHunks) {
-					// Partial review with some accepted hunks — reconstruct
-					revertPromises.push(reconstructAndWrite(change.path));
-				} else if (change.snapshotId) {
-					// Preferred: revert through snapshot API
-					revertPromises.push(revertFileAsync({ path: change.path, snapshotId: change.snapshotId }));
-				} else if (change.action === 'edit' && change.beforeContent !== undefined) {
-					// Fallback: write back the original content
-					revertPromises.push(apiReference.current.file.$put({ json: { path: change.path, content: change.beforeContent } }));
-				} else if (change.action === 'create') {
-					// Created file with no snapshot — delete it
-					revertPromises.push(apiReference.current.file.$delete({ query: { path: change.path } }));
-				}
+			try {
+				await runMutation(async () => {
+					const response = await apiReference.current.review['resolve-many'].$post({
+						json: {
+							decision: 'reject',
+							reviewIds: actionableChanges.map((change) => change.reviewId!).filter(Boolean),
+						},
+					});
+					if (!response.ok) {
+						throw new Error('Failed to reject changes');
+					}
+					await refetchProjectFiles();
+					await persistPendingChanges();
+				});
+			} catch {
+				loadPendingChanges(previousChanges);
+				toast.error('Could not reject all changes. Please try again.');
+				await refetchProjectFiles();
 			}
-
-			// Await all reverts/reconstructs before persisting
-			const results = await Promise.allSettled(revertPromises);
-			const failedCount = results.filter((result) => result.status === 'rejected').length;
-			if (failedCount > 0) {
-				toast.error(
-					`${String(failedCount)} file${failedCount === 1 ? '' : 's'} could not be reverted. Those files may still contain AI changes — please check them manually.`,
-				);
-			}
-
-			// Persist the updated pending changes state
-			await persistPendingChanges();
-
-			// Refetch file data
-			await queryClient.refetchQueries({ queryKey: ['files', projectId] });
-			await queryClient.refetchQueries({ queryKey: ['file', projectId] });
 		},
-		[pendingChanges, revertFileAsync, rejectAllChanges, reconstructAndWrite, queryClient, projectId, persistPendingChanges],
+		[
+			pendingChanges,
+			loadPendingChanges,
+			setOptimisticFileContent,
+			rejectAllChanges,
+			runMutation,
+			refetchProjectFiles,
+			persistPendingChanges,
+		],
 	);
 
-	// Session-scoped pending count for the agent panel display
 	const sessionPendingCount = useCallback(
 		(sessionId?: string) => {
 			if (!sessionId) return pendingCount;
 			let count = 0;
 			for (const change of pendingChanges.values()) {
-				if (change.status === 'pending' && change.sessionId === sessionId) {
+				if (change.status === 'pending' && matchesSession(change, sessionId)) {
 					count++;
 				}
 			}
@@ -381,7 +356,7 @@ export function useChangeReview({ projectId }: { projectId: string }) {
 		pendingCount,
 		sessionPendingCount,
 		canReject,
-		isReverting,
+		isReverting: pendingMutationCount > 0,
 		persistPendingChanges,
 		handleApproveChange,
 		handleRejectChange,

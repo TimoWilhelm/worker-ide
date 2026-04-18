@@ -1,8 +1,24 @@
 import { describe, expect, it } from 'vitest';
 
-import { appendPreviewElementSegment, parseTextToSegments, segmentsHaveContent, segmentsToPlainText } from './input-segments';
+import {
+	appendPreviewElementSegment,
+	messagePartsToInputSegments,
+	parseTextToSegments,
+	segmentsHaveContent,
+	segmentsToMessageParts,
+	segmentsToPlainText,
+} from './input-segments';
 
 import type { InputSegment } from './input-segments';
+import type { MessagePart, PreviewElementReference } from '@shared/types';
+
+const PREVIEW_REFERENCE: PreviewElementReference = {
+	tagName: 'button',
+	primarySelector: '#submit',
+	locatorCandidates: ['button[aria-label="Submit"]'],
+	accessibleName: 'Submit',
+	role: 'button',
+};
 
 describe('segmentsToPlainText', () => {
 	it('serializes text segments', () => {
@@ -24,9 +40,9 @@ describe('segmentsToPlainText', () => {
 		expect(segmentsToPlainText(segments)).toBe('Fix the bug in @/src/app.tsx please');
 	});
 
-	it('serializes preview element segments', () => {
-		const segments: InputSegment[] = [{ type: 'preview-element', selector: '#hero', tagName: 'div' }];
-		expect(segmentsToPlainText(segments)).toBe('[[preview-element:<div>|%23hero]]');
+	it('serializes preview element segments to readable text', () => {
+		const segments: InputSegment[] = [{ type: 'preview-element', ...PREVIEW_REFERENCE }];
+		expect(segmentsToPlainText(segments)).toBe('<button> Submit');
 	});
 
 	it('returns empty string for empty segments', () => {
@@ -63,7 +79,7 @@ describe('segmentsHaveContent', () => {
 	});
 
 	it('returns true for preview element segments', () => {
-		const segments: InputSegment[] = [{ type: 'preview-element', selector: '#hero', tagName: 'section' }];
+		const segments: InputSegment[] = [{ type: 'preview-element', ...PREVIEW_REFERENCE }];
 		expect(segmentsHaveContent(segments)).toBe(true);
 	});
 });
@@ -115,34 +131,48 @@ describe('parseTextToSegments', () => {
 		const segments = parseTextToSegments('', new Set());
 		expect(segments).toEqual([]);
 	});
+});
 
-	it('parses preview element references', () => {
-		const segments = parseTextToSegments('Inspect [[preview-element:<img>|.hero%20img]] please', new Set());
-		expect(segments).toEqual([
+describe('messagePartsToInputSegments', () => {
+	it('preserves preview elements between text parts', () => {
+		const parts: MessagePart[] = [
+			{ type: 'text', content: 'Inspect ' },
+			{ type: 'preview-element', ...PREVIEW_REFERENCE },
+			{ type: 'text', content: ' in @/src/main.ts' },
+		];
+
+		expect(messagePartsToInputSegments(parts, new Set(['/src/main.ts']))).toEqual([
 			{ type: 'text', value: 'Inspect ' },
-			{ type: 'preview-element', selector: '.hero img', tagName: 'img' },
-			{ type: 'text', value: ' please' },
-		]);
-	});
-
-	it('parses preview element references alongside file mentions', () => {
-		const knownPaths = new Set(['/src/main.ts']);
-		const segments = parseTextToSegments('Update [[preview-element:<button>|%23submit]] in @/src/main.ts', knownPaths);
-		expect(segments).toEqual([
-			{ type: 'text', value: 'Update ' },
-			{ type: 'preview-element', selector: '#submit', tagName: 'button' },
+			{ type: 'preview-element', ...PREVIEW_REFERENCE },
 			{ type: 'text', value: ' in ' },
 			{ type: 'mention', path: '/src/main.ts' },
 		]);
 	});
 });
 
+describe('segmentsToMessageParts', () => {
+	it('converts mentions back into text parts and preserves preview elements', () => {
+		const segments: InputSegment[] = [
+			{ type: 'text', value: 'Update ' },
+			{ type: 'preview-element', ...PREVIEW_REFERENCE },
+			{ type: 'text', value: ' in ' },
+			{ type: 'mention', path: '/src/main.ts' },
+		];
+
+		expect(segmentsToMessageParts(segments)).toEqual([
+			{ type: 'text', content: 'Update ' },
+			{ type: 'preview-element', ...PREVIEW_REFERENCE },
+			{ type: 'text', content: ' in @/src/main.ts' },
+		]);
+	});
+});
+
 describe('appendPreviewElementSegment', () => {
 	it('appends a preview element with spacing for continued typing', () => {
-		const segments = appendPreviewElementSegment([{ type: 'text', value: 'Inspect' }], { selector: '#hero', tagName: 'div' });
+		const segments = appendPreviewElementSegment([{ type: 'text', value: 'Inspect' }], PREVIEW_REFERENCE);
 		expect(segments).toEqual([
 			{ type: 'text', value: 'Inspect ' },
-			{ type: 'preview-element', selector: '#hero', tagName: 'div' },
+			{ type: 'preview-element', ...PREVIEW_REFERENCE },
 			{ type: 'text', value: ' ' },
 		]);
 	});

@@ -252,9 +252,42 @@ export const pendingFileChangeSchema = z.object({
 	status: z.enum(['pending', 'approved', 'rejected']),
 	hunkStatuses: z.array(z.enum(['pending', 'approved', 'rejected'])),
 	sessionId: z.string(),
+	sessionIds: z.array(z.string()).optional(),
+	reviewId: z.string().optional(),
 });
 
 export const pendingChangesFileSchema = z.record(z.string(), pendingFileChangeSchema);
+
+export const reviewHunkStatusSchema = z.enum(['pending', 'approved', 'rejected']);
+
+export const reviewEntrySchema = z.object({
+	id: z.string(),
+	path: z.string(),
+	action: z.enum(['create', 'edit', 'delete', 'move']),
+	beforeContent: z.string().optional(),
+	afterContent: z.string().optional(),
+	snapshotId: z.string().optional(),
+	status: z.literal('pending'),
+	hunkStatuses: z.array(reviewHunkStatusSchema),
+	latestSessionId: z.string(),
+	sessionIds: z.array(z.string()),
+	diffSignature: z.string(),
+	updatedAt: z.number(),
+});
+
+export const reviewResolveSchema = z.object({
+	decision: z.enum(['accept', 'reject']),
+});
+
+export const reviewResolveManySchema = z.object({
+	decision: z.enum(['accept', 'reject']),
+	sessionId: z.string().optional(),
+	reviewIds: z.array(z.string()).optional(),
+});
+
+export const reviewHunkUpdateSchema = z.object({
+	hunkStatuses: z.array(reviewHunkStatusSchema),
+});
 
 export const debugLogIdSchema = z
 	.string()

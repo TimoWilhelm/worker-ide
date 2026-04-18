@@ -247,7 +247,7 @@ export function EditorArea({ projectId, resolvedTheme, editorState, onSelectFile
 									onRejectAll={changeReview.handleRejectChange}
 									path={activeFile}
 									isReverting={changeReview.isReverting}
-									canReject={changeReview.canReject}
+									canReject={changeReview.canReject && !!activePendingChange.reviewId}
 								/>
 							)}
 						</>

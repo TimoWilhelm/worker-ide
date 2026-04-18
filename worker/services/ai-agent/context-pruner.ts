@@ -1,3 +1,5 @@
+import { messagePartsToPromptText } from '@shared/chat-message-parts';
+
 import type { ChatMessage, MessagePart } from '@shared/types';
 import type { AssistantModelMessage, ModelMessage, ToolModelMessage } from 'ai';
 const CHARACTERS_PER_TOKEN = 4;
@@ -23,9 +25,7 @@ export function chatMessagesToModelMessages(messages: ChatMessage[]): ModelMessa
 
 	for (const message of messages) {
 		if (message.role === 'user') {
-			// Extract text content from user message parts
-			const textParts = message.parts.filter((part) => part.type === 'text');
-			const text = textParts.map((part) => part.content).join('\n');
+			const text = messagePartsToPromptText(message.parts);
 			if (text) {
 				result.push({ role: 'user' as const, content: text });
 			}

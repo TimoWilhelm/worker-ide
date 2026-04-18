@@ -8,28 +8,29 @@ import {
 	resolvePreviewElement,
 } from '@/features/preview/preview-iframe-reference';
 import { useIsMobile } from '@/hooks';
-import { getPreviewElementLabel } from '@/lib/preview-element-reference';
 import { useStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
+import { getPreviewElementDisplayText, getPreviewElementLabel, getPreviewElementSummary } from '@shared/preview-element';
+
+import type { PreviewElementReference as PreviewElementReferenceValue } from '@shared/types';
 
 export function PreviewElementReference({
-	selector,
-	tagName,
+	reference,
 	className,
 	interactive = true,
 }: {
-	selector: string;
-	tagName: string;
+	reference: PreviewElementReferenceValue;
 	className?: string;
 	interactive?: boolean;
 }) {
 	const isMobile = useIsMobile();
 	const setActiveMobilePanel = useStore((state) => state.setActiveMobilePanel);
 	const [availability, setAvailability] = useState<'unknown' | 'available' | 'missing'>('unknown');
+	const summary = getPreviewElementSummary(reference);
 
 	const handleHighlight = useCallback(() => {
-		highlightPreviewElement(selector);
-	}, [selector]);
+		highlightPreviewElement(reference);
+	}, [reference]);
 
 	const handleClearHighlight = useCallback(() => {
 		clearPreviewElementHighlight();
@@ -37,7 +38,7 @@ export function PreviewElementReference({
 
 	const handleClick = useCallback(() => {
 		void (async () => {
-			const found = await resolvePreviewElement(selector);
+			const found = await resolvePreviewElement(reference);
 			if (found === undefined) {
 				return;
 			}
@@ -51,14 +52,14 @@ export function PreviewElementReference({
 			if (isMobile) {
 				setActiveMobilePanel('preview');
 				requestAnimationFrame(() => {
-					revealPreviewElement(selector);
+					revealPreviewElement(reference);
 				});
 				return;
 			}
 
-			revealPreviewElement(selector);
+			revealPreviewElement(reference);
 		})();
-	}, [isMobile, selector, setActiveMobilePanel]);
+	}, [isMobile, reference, setActiveMobilePanel]);
 
 	const sharedClassName = cn(
 		`
@@ -89,7 +90,7 @@ export function PreviewElementReference({
 		<button
 			type="button"
 			className={sharedClassName}
-			aria-label={`${getPreviewElementLabel(tagName)} ${selector}`}
+			aria-label={getPreviewElementDisplayText(reference)}
 			onClick={handleClick}
 			onMouseEnter={interactive && !isMobile && availability !== 'missing' ? handleHighlight : undefined}
 			onMouseLeave={interactive && !isMobile ? handleClearHighlight : undefined}
@@ -97,7 +98,8 @@ export function PreviewElementReference({
 			onBlur={interactive ? handleClearHighlight : undefined}
 		>
 			<WandSparkles className="size-3 shrink-0 text-fuchsia-700 dark:text-fuchsia-300" />
-			<span className="truncate">{getPreviewElementLabel(tagName)}</span>
+			<span className="truncate">{getPreviewElementLabel(reference.tagName)}</span>
+			{summary && <span className="truncate opacity-70">{summary}</span>}
 		</button>
 	);
 }

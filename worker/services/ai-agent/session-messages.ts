@@ -1,3 +1,5 @@
+import { previewElementToPromptText } from '@shared/preview-element';
+
 import type { ChatMessage, MessagePart } from '@shared/types';
 import type { SessionMessage, SessionMessagePart } from 'agents/experimental/memory/session';
 
@@ -27,6 +29,9 @@ function messagePartToSessionPart(part: MessagePart): SessionMessagePart {
 	switch (part.type) {
 		case 'text': {
 			return { type: part.type, text: part.content };
+		}
+		case 'preview-element': {
+			return { type: 'text', text: previewElementToPromptText(part) };
 		}
 		case 'reasoning': {
 			return { type: part.type, text: part.content };

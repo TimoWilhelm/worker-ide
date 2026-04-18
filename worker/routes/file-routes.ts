@@ -9,7 +9,7 @@ import { HttpErrorCode } from '@shared/http-errors';
 import { createHmrUpdateForFile } from '@shared/types';
 import { filePathSchema, writeFileSchema, mkdirSchema, moveFileSchema } from '@shared/validation';
 
-import { coordinatorNamespace } from '../lib/durable-object-namespaces';
+import { agentRunnerNamespace, coordinatorNamespace } from '../lib/durable-object-namespaces';
 import { httpError } from '../lib/http-error';
 import { isPathSafe, isProtectedFile } from '../lib/path-utilities';
 import { invalidateTsConfigCache } from '../services/transform-service';
@@ -68,6 +68,27 @@ export const fileRoutes = new Hono<AppEnvironment>()
 
 		await fs.writeFile(`${projectRoot}${path}`, content);
 
+		try {
+			const agentStub = agentRunnerNamespace.getByName(`agent:${projectId}`);
+			const syncResponse = await agentStub.fetch(
+				new Request('http://agent/review/sync-path', {
+					method: 'POST',
+					headers: {
+						'Content-Type': 'application/json',
+						'x-partykit-room': `agent:${projectId}`,
+					},
+					body: JSON.stringify({ path }),
+				}),
+			);
+			if (!syncResponse.ok) {
+				const body = await syncResponse.text();
+				throw new Error(body || 'Failed to sync review queue');
+			}
+		} catch (error) {
+			const message = error instanceof Error ? error.message : 'Failed to sync review queue';
+			throw httpError(HttpErrorCode.INTERNAL_ERROR, message);
+		}
+
 		// Invalidate tsconfig cache when tsconfig.json is modified
 		if (path === '/tsconfig.json') {
 			invalidateTsConfigCache(projectRoot);
@@ -102,6 +123,26 @@ export const fileRoutes = new Hono<AppEnvironment>()
 
 		try {
 			await fs.rm(`${projectRoot}${path}`, { recursive: true, force: true });
+			try {
+				const agentStub = agentRunnerNamespace.getByName(`agent:${c.get('projectId')}`);
+				const syncResponse = await agentStub.fetch(
+					new Request('http://agent/review/sync-path', {
+						method: 'POST',
+						headers: {
+							'Content-Type': 'application/json',
+							'x-partykit-room': `agent:${c.get('projectId')}`,
+						},
+						body: JSON.stringify({ path }),
+					}),
+				);
+				if (!syncResponse.ok) {
+					const body = await syncResponse.text();
+					throw new Error(body || 'Failed to sync review queue');
+				}
+			} catch (error) {
+				const message = error instanceof Error ? error.message : 'Failed to sync review queue';
+				throw httpError(HttpErrorCode.INTERNAL_ERROR, message);
+			}
 
 			// Trigger HMR so the frontend refreshes the file list
 			const projectId = c.get('projectId');
@@ -144,6 +185,26 @@ export const fileRoutes = new Hono<AppEnvironment>()
 			}
 
 			await fs.rename(`${projectRoot}${fromPath}`, `${projectRoot}${toPath}`);
+			try {
+				const agentStub = agentRunnerNamespace.getByName(`agent:${projectId}`);
+				const syncResponse = await agentStub.fetch(
+					new Request('http://agent/review/move-path', {
+						method: 'POST',
+						headers: {
+							'Content-Type': 'application/json',
+							'x-partykit-room': `agent:${projectId}`,
+						},
+						body: JSON.stringify({ fromPath, toPath }),
+					}),
+				);
+				if (!syncResponse.ok) {
+					const body = await syncResponse.text();
+					throw new Error(body || 'Failed to sync review queue');
+				}
+			} catch (error) {
+				const message = error instanceof Error ? error.message : 'Failed to sync review queue';
+				throw httpError(HttpErrorCode.INTERNAL_ERROR, message);
+			}
 
 			// Trigger HMR so the frontend refreshes
 			const coordinatorStub = coordinatorNamespace.getByName(`project:${projectId}`);

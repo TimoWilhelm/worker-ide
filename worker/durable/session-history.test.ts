@@ -82,6 +82,7 @@ describe('session-history', () => {
 				requestMode: 'plan',
 				requestModel: '@cf/moonshotai/kimi-k2.5',
 				requestState: 'committed',
+				partsJson: undefined,
 				snapshotId: 'snapshot-1',
 			},
 		]);
@@ -89,6 +90,44 @@ describe('session-history', () => {
 		const hydrated = applyPersistedMessageMetadata([{ ...history[0], metadata: undefined }, history[1]], rows);
 		expect(hydrated[0]?.metadata?.snapshotId).toBe('snapshot-1');
 		expect(hydrated[0]?.metadata?.request?.mode).toBe('plan');
+	});
+
+	it('restores persisted preview-element parts for user messages', () => {
+		const history = [createUserMessage('m1', 'Inspect', 'committed')];
+		const rows = [
+			{
+				sessionId: 'session-1',
+				messageId: 'm1',
+				requestMode: 'code',
+				requestModel: '@cf/moonshotai/kimi-k2.5',
+				requestState: 'committed' as const,
+				partsJson: JSON.stringify([
+					{ type: 'text', content: 'Inspect ' },
+					{
+						type: 'preview-element',
+						tagName: 'button',
+						primarySelector: '#submit',
+						locatorCandidates: ['button[aria-label="Submit"]'],
+						accessibleName: 'Submit',
+						role: 'button',
+					},
+				]),
+				snapshotId: undefined,
+			},
+		];
+
+		const hydrated = applyPersistedMessageMetadata(history, rows);
+		expect(hydrated[0]?.parts).toEqual([
+			{ type: 'text', content: 'Inspect ' },
+			{
+				type: 'preview-element',
+				tagName: 'button',
+				primarySelector: '#submit',
+				locatorCandidates: ['button[aria-label="Submit"]'],
+				accessibleName: 'Submit',
+				role: 'button',
+			},
+		]);
 	});
 
 	it('updates snapshot metadata on the last committed user message', () => {

@@ -1,9 +1,28 @@
+import { previewElementToPromptText } from '@shared/preview-element';
+
 import type { ChatMessage } from '@shared/types';
+
 export function extractMessageText(message: ChatMessage): string {
-	return message.parts
-		.filter((part): part is { type: 'text'; content: string } => part.type === 'text')
-		.map((part) => part.content)
-		.join('\n');
+	let extractedText = '';
+	let previousWasText = false;
+
+	for (const part of message.parts) {
+		if (part.type === 'text') {
+			if (previousWasText && extractedText.length > 0) {
+				extractedText += '\n';
+			}
+			extractedText += part.content;
+			previousWasText = true;
+			continue;
+		}
+
+		if (part.type === 'preview-element') {
+			extractedText += previewElementToPromptText(part);
+			previousWasText = false;
+		}
+	}
+
+	return extractedText;
 }
 export function findLastUserMessage(history: ChatMessage[]): ChatMessage | undefined {
 	return [...history].toReversed().find((message) => message.role === 'user');

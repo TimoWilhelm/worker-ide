@@ -1,6 +1,7 @@
 import { generateText, streamText } from 'ai';
 import { mount, withMounts } from 'worker-fs-mount';
 
+import { messagePartsToPromptText } from '@shared/chat-message-parts';
 import { DEFAULT_AI_MODEL, getModelConfig, getModelLimits } from '@shared/constants';
 
 import { AgentLogger } from './agent-logger';
@@ -244,13 +245,8 @@ export class AIAgentService {
 						};
 					}
 				}
-				const firstUserText =
-					chatMessages
-						.find((m) => m.role === 'user')
-						?.parts.filter((p) => p.type === 'text')
-						.map((p) => p.content)
-						.join(' ')
-						.trim() ?? '';
+				const firstUserMessage = chatMessages.find((message) => message.role === 'user');
+				const firstUserText = firstUserMessage ? messagePartsToPromptText(firstUserMessage.parts).trim() : '';
 
 				await this.onPersistSession(this.sessionId, {
 					createdAt: Date.now(),

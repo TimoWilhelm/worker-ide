@@ -12,6 +12,7 @@ import {
 } from '@/features/preview/preview-iframe-reference';
 import { useStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
+import { sanitizePreviewElementReference } from '@shared/preview-element';
 
 export interface PreviewPanelProperties {
 	previewUrl: string | undefined;
@@ -134,16 +135,17 @@ export function PreviewPanel({
 				return;
 			}
 
-			if (message.type !== '__preview-element-picked' || !('selector' in message) || !('tagName' in message)) {
+			if (message.type !== '__preview-element-picked' || !('reference' in message)) {
 				return;
 			}
 
-			if (typeof message.selector !== 'string' || typeof message.tagName !== 'string') {
+			const reference = sanitizePreviewElementReference(message.reference);
+			if (!reference) {
 				return;
 			}
 
 			setIsPickerActive(false);
-			queuePreviewElementReference({ selector: message.selector, tagName: message.tagName });
+			queuePreviewElementReference(reference);
 			showAgentPanel();
 		};
 

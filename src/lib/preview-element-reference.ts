@@ -1,36 +1,19 @@
-export interface PreviewElementReference {
-	selector: string;
-	tagName: string;
-}
+import { sanitizePreviewElementReference } from '@shared/preview-element';
 
-const PREVIEW_ELEMENT_TOKEN_PREFIX = '[[preview-element:';
-const PREVIEW_ELEMENT_TOKEN_SUFFIX = ']]';
-
-export function normalizePreviewElementTagName(tagName: string): string {
-	const normalizedTagName = tagName.trim().replaceAll(/[<>]/g, '').toLowerCase();
-	return normalizedTagName || 'element';
-}
-
-export function getPreviewElementLabel(tagName: string): string {
-	return `<${normalizePreviewElementTagName(tagName)}>`;
-}
+import type { PreviewElementReference } from '@shared/types';
 
 export function serializePreviewElementReference(reference: PreviewElementReference): string {
-	return `${PREVIEW_ELEMENT_TOKEN_PREFIX}${getPreviewElementLabel(reference.tagName)}|${encodeURIComponent(reference.selector)}${PREVIEW_ELEMENT_TOKEN_SUFFIX}`;
+	return encodeURIComponent(JSON.stringify(reference));
 }
 
-export function deserializePreviewElementReference(label: string, encodedSelector: string): PreviewElementReference | undefined {
+export function deserializePreviewElementReference(encodedReference: string): PreviewElementReference | undefined {
 	try {
-		const selector = decodeURIComponent(encodedSelector);
-		if (!selector) {
-			return undefined;
-		}
-
-		return {
-			selector,
-			tagName: normalizePreviewElementTagName(label),
-		};
+		const parsed: unknown = JSON.parse(decodeURIComponent(encodedReference));
+		return sanitizePreviewElementReference(parsed);
 	} catch {
 		return undefined;
 	}
 }
+
+export { getPreviewElementLabel } from '@shared/preview-element';
+export { type PreviewElementReference } from '@shared/types';

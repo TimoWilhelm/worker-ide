@@ -37,11 +37,12 @@ import { downloadDebugLog } from '@/lib/api-client';
 import { fadeUpVariants, springDefault } from '@/lib/motion-config';
 import { useStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
+import { messagePartsToPlainText } from '@shared/chat-message-parts';
 import { TOOL_ERROR_LABELS } from '@shared/tool-errors';
 
 import { AI_SUGGESTIONS, isRecord, isToolName } from './helpers';
 import { getModelLabel } from './model-config';
-import { parseTextToSegments, segmentsToDisplayText } from '../../lib/input-segments';
+import { messagePartsToInputSegments } from '../../lib/input-segments';
 import { FileReference } from '../file-reference';
 import { MarkdownContent } from '../markdown-content';
 import { PreviewElementReference } from '../preview-element-reference';
@@ -281,15 +282,10 @@ function UserMessage({
 	isRevertingThis: boolean;
 	onRevert: (snapshotId: string, messageIndex: number) => void;
 }) {
-	const text = message.parts
-		.filter((part) => isTextPart(part))
-		.map((part) => part.content)
-		.join('\n');
-
 	// Build a set of known file paths to identify file mentions
 	const files = useStore((state) => state.files);
 	const knownPaths = useMemo(() => new Set(files.map((file) => file.path)), [files]);
-	const segments = useMemo(() => parseTextToSegments(text, knownPaths), [text, knownPaths]);
+	const segments = useMemo(() => messagePartsToInputSegments(message.parts, knownPaths), [message.parts, knownPaths]);
 
 	const bubbleStyle = agentMode ? MODE_BUBBLE_STYLES[agentMode] : 'border-accent/20 bg-accent/10';
 	const badge = agentMode ? MODE_BADGE_STYLES[agentMode] : undefined;
@@ -339,7 +335,7 @@ function UserMessage({
 						segment.type === 'mention' ? (
 							<FileReference key={index} path={segment.path} />
 						) : segment.type === 'preview-element' ? (
-							<PreviewElementReference key={index} selector={segment.selector} tagName={segment.tagName} />
+							<PreviewElementReference key={index} reference={segment} />
 						) : (
 							<span key={index}>{segment.value}</span>
 						),
@@ -2024,12 +2020,7 @@ function abbreviateQueuedMessage(content: string, maxLength = 72): string {
 const QUEUED_PREVIEW_LIMIT = 3;
 
 function getQueuedMessageText(message: ChatMessage): string {
-	const text = message.parts
-		.filter((part) => part.type === 'text')
-		.map((part) => part.content)
-		.join('\n');
-
-	return segmentsToDisplayText(parseTextToSegments(text, new Set()));
+	return messagePartsToPlainText(message.parts);
 }
 
 export function QueuedSteeringStrip({

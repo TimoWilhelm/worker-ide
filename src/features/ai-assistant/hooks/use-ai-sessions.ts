@@ -133,73 +133,65 @@ export function useAiSessions({ projectId, agent }: { projectId: string; agent: 
 	// cleared" from "transient undefined during loadSession switch".
 	const lastSessionIdReference = useRef(agentState?.currentSession?.sessionId);
 
-	// Sync pendingChanges from agent state into the Zustand store in real-time.
-	//
-	// The server updates state.currentSession.pendingChanges as file-changed
-	// events stream in and when sessions are reverted. The UI reads from the
-	// Zustand store. This effect bridges the two:
-	//   - New entries from agent state are added to the store
-	//   - Entries removed from agent state (e.g. after revert) are removed
-	//   - Client-side review state (status, hunkStatuses) is preserved
+	// Sync the authoritative project review queue into the Zustand store.
+	// While a session is actively running, overlay its live pending changes so
+	// the editor can preview in-flight edits before the turn is persisted.
 	const agentSessionId = agentState?.currentSession?.sessionId;
 	const agentPendingChanges = agentState?.currentSession?.pendingChanges;
+	const authoritativeReviewEntries = agentState?.reviewEntries;
+	const isSessionRunning = agentState?.currentSession?.status === 'running';
+	const authoritativeReviewSignature = JSON.stringify(authoritativeReviewEntries ?? {});
+	const agentPendingChangesSignature = JSON.stringify(agentPendingChanges ?? {});
 	useEffect(() => {
 		const current = useStore.getState().pendingChanges;
+		const merged = new Map<string, PendingFileChange>();
 
-		if (!agentPendingChanges) {
-			// Only clear the store if the session was explicitly removed (sessionId
-			// went from defined → undefined). Skip if sessionId was already undefined
-			// (avoids clearing during transient loadSession switches).
-			if (agentSessionId === undefined && lastSessionIdReference.current !== undefined) {
-				lastSessionIdReference.current = undefined;
-				if (current.size > 0) {
-					useStore.getState().loadPendingChanges(new Map());
-				}
+		for (const entry of Object.values(authoritativeReviewEntries ?? {})) {
+			merged.set(entry.path, {
+				path: entry.path,
+				action: entry.action,
+				beforeContent: entry.beforeContent,
+				afterContent: entry.afterContent,
+				snapshotId: entry.snapshotId,
+				status: 'pending',
+				hunkStatuses: entry.hunkStatuses,
+				sessionId: entry.latestSessionId,
+				sessionIds: entry.sessionIds,
+				reviewId: entry.id,
+			});
+		}
+
+		if (isSessionRunning && agentPendingChanges) {
+			for (const [path, change] of Object.entries(agentPendingChanges)) {
+				const existing = merged.get(path);
+				merged.set(path, {
+					...change,
+					sessionId: existing?.sessionId ?? change.sessionId,
+					sessionIds: existing?.sessionIds ?? change.sessionIds,
+					reviewId: existing?.reviewId,
+					hunkStatuses: existing?.hunkStatuses ?? change.hunkStatuses,
+				});
+			}
+		}
+
+		if (merged.size === 0 && agentSessionId === undefined && lastSessionIdReference.current !== undefined) {
+			lastSessionIdReference.current = undefined;
+			if (current.size > 0) {
+				useStore.getState().loadPendingChanges(new Map());
 			}
 			return;
 		}
 
 		lastSessionIdReference.current = agentSessionId;
-
-		const incomingKeys = Object.keys(agentPendingChanges);
-
-		// Shallow-equality bail-out: skip if the set of paths and their
-		// server-side content (snapshotId, action, afterContent) are unchanged.
-		// This avoids creating a new Map on every agent state broadcast.
-		if (incomingKeys.length === current.size) {
-			let unchanged = true;
-			for (const key of incomingKeys) {
-				const existing = current.get(key);
-				const incoming = agentPendingChanges[key];
-				if (
-					!existing ||
-					existing.snapshotId !== incoming.snapshotId ||
-					existing.action !== incoming.action ||
-					existing.afterContent !== incoming.afterContent ||
-					existing.beforeContent !== incoming.beforeContent
-				) {
-					unchanged = false;
-					break;
-				}
-			}
-			if (unchanged) return;
-		}
-
-		const merged = new Map<string, PendingFileChange>();
-
-		for (const [path, change] of Object.entries(agentPendingChanges)) {
-			const existing = current.get(path);
-			if (existing) {
-				// Preserve client-side review state (status, hunkStatuses)
-				merged.set(path, { ...change, status: existing.status, hunkStatuses: existing.hunkStatuses });
-			} else {
-				merged.set(path, change);
-			}
-		}
-		// Entries in current but NOT in incoming are dropped (removed by revert)
-
 		useStore.getState().loadPendingChanges(merged);
-	}, [agentSessionId, agentPendingChanges]);
+	}, [
+		agentSessionId,
+		agentPendingChanges,
+		agentPendingChangesSignature,
+		authoritativeReviewEntries,
+		authoritativeReviewSignature,
+		isSessionRunning,
+	]);
 
 	// Eagerly check if there's a session to restore so the loading indicator
 	// renders on the very first frame, avoiding a flash of the welcome screen.

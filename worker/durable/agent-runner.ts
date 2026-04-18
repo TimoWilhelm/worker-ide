@@ -4,9 +4,9 @@ import { SessionManager } from 'agents/experimental/memory/session';
 import { createCompactFunction } from 'agents/experimental/memory/utils';
 import { generateText } from 'ai';
 import { env } from 'cloudflare:workers';
-import { migrate } from 'drizzle-orm/durable-sqlite/migrator';
 import { mount, withMounts } from 'worker-fs-mount';
 
+import { messagePartsHaveUserContent, messagePartsToPromptText } from '@shared/chat-message-parts';
 import {
 	AGENT_SYSTEM_PROMPT,
 	DEFAULT_AI_MODEL,
@@ -14,7 +14,14 @@ import {
 	SUMMARIZATION_AI_MODEL,
 	getModelConfig,
 } from '@shared/constants';
-import { pendingChangesFileSchema, sessionTitleSchema } from '@shared/validation';
+import { sanitizePreviewElementReference } from '@shared/preview-element';
+import {
+	pendingChangesFileSchema,
+	reviewHunkUpdateSchema,
+	reviewResolveManySchema,
+	reviewResolveSchema,
+	sessionTitleSchema,
+} from '@shared/validation';
 
 import {
 	buildLoadedExtensionsSummary,
@@ -25,7 +32,6 @@ import {
 	runSessionSearch,
 } from './agent-runner-helpers';
 import {
-	deletePendingChanges,
 	deleteSessionMessageMetadata,
 	deleteSessionMetadata,
 	getDatabase,
@@ -40,11 +46,10 @@ import { SessionStreamState } from './session-stream-state';
 import { trackAiUsage, trackWebSocketEvent } from '../lib/analytics';
 import { filesystemNamespace } from '../lib/durable-object-namespaces';
 import { toDurableObjectId } from '../lib/project-id';
-import migrations from '../migrations/do-agent/migrations.js';
 import { AIAgentService } from '../services/ai-agent';
 import { chatMessagesToModelMessages, estimateMessagesTokens } from '../services/ai-agent/context-pruner';
-import { accumulatePendingChange } from '../services/ai-agent/pending-changes';
 import { isRequestOriginContext } from '../services/ai-agent/request-origin-context';
+import { ReviewQueueStore } from '../services/ai-agent/review-queue';
 import { cleanupSessionArtifacts, cleanupTimestampPlans } from '../services/ai-agent/session-cleanup';
 import { sessionMessagesToChatMessages } from '../services/ai-agent/session-messages';
 import { readAgentsContext } from '../services/ai-agent/system-prompt-builder';
@@ -55,12 +60,49 @@ import type { AgentDatabase } from './db';
 import type { RequestOriginContext } from '../services/ai-agent/request-origin-context';
 import type { AgentState, AgentSessionState, FiberSnapshot, SessionSummary } from '@shared/agent-state';
 import type { AIModelId } from '@shared/constants';
-import type { AgentMode, AgentSessionStatus, AiSession, ChatMessage, PendingFileChange } from '@shared/types';
+import type { AgentMode, AgentSessionStatus, AiSession, ChatMessage, PendingFileChange, ReviewEntry, UserMessagePart } from '@shared/types';
 
 const REQUEST_ORIGIN_CONTEXT_STORAGE_KEY = 'request-origin-context';
 const SESSION_COMPACTION_THRESHOLD = 100_000;
 const PROJECT_ROOT = '/project';
 const MAX_SESSIONS = MAX_AI_SESSIONS_PER_PROJECT;
+
+function sanitizeSubmittedUserMessageParts(parts: unknown): UserMessagePart[] {
+	if (!Array.isArray(parts)) {
+		return [];
+	}
+
+	const sanitizedParts: UserMessagePart[] = [];
+	for (const part of parts) {
+		if (!part || typeof part !== 'object' || Array.isArray(part) || !('type' in part) || typeof part.type !== 'string') {
+			continue;
+		}
+
+		if (part.type === 'text' && 'content' in part && typeof part.content === 'string') {
+			const previousPart = sanitizedParts.at(-1);
+			if (previousPart?.type === 'text') {
+				previousPart.content += part.content;
+			} else {
+				sanitizedParts.push({ type: 'text', content: part.content });
+			}
+			continue;
+		}
+
+		if (part.type === 'preview-element') {
+			const sanitizedReference = sanitizePreviewElementReference(part);
+			if (sanitizedReference) {
+				sanitizedParts.push({ type: 'preview-element', ...sanitizedReference });
+			}
+		}
+	}
+
+	return sanitizedParts;
+}
+
+function getUserMessagePromptText(parts: readonly UserMessagePart[]): string {
+	return messagePartsToPromptText(parts).trim();
+}
+
 export interface StartAgentParameters {
 	projectId: string;
 	messages: ChatMessage[];
@@ -81,13 +123,17 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	initialState: AgentState = {
 		currentSession: undefined,
 		sessions: [],
+		reviewEntries: {},
+		reviewSummary: { unresolvedCount: 0, reviewVersion: 0, sessionCounts: {} },
 	};
 
 	// ---- Drizzle database instance (initialized in onStart) ----
 
 	private db!: AgentDatabase;
 	private agentSessionStore!: AgentSessionStore;
+	private reviewQueue!: ReviewQueueStore;
 	private extensionManager?: ExtensionManager;
+	private reviewVersion = 0;
 	private sessionManager = SessionManager.create(this)
 		.withContext('soul', {
 			provider: {
@@ -240,12 +286,21 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		this.ctx.storage.kv.put(REQUEST_ORIGIN_CONTEXT_STORAGE_KEY, context);
 	}
 
+	private resolveProjectIdFromRequest(request: Request): string {
+		const roomName = request.headers.get('x-partykit-room');
+		if (roomName?.startsWith('agent:')) {
+			return roomName.slice(6);
+		}
+		return this.getProjectId();
+	}
+
 	// =========================================================================
 	// HTTP Request Handler
 	// =========================================================================
 
 	async onRequest(request: Request): Promise<Response> {
 		const url = new URL(request.url);
+		const projectId = this.resolveProjectIdFromRequest(request);
 
 		if (url.pathname === '/pending-changes') {
 			if (request.method === 'GET') {
@@ -263,13 +318,86 @@ export class AgentRunner extends Agent<Env, AgentState> {
 						},
 					);
 				}
-				if (Object.keys(parsed.data).length === 0) {
-					deletePendingChanges(this.db);
-				} else {
-					this.savePendingChangesToDatabase(parsed.data);
-				}
+				this.savePendingChangesToDatabase(parsed.data);
+				this.reviewQueue.bootstrapLegacyPendingChanges(parsed.data);
+				this.refreshReviewState();
 				return new Response(undefined, { status: 204 });
 			}
+		}
+
+		if (url.pathname === '/review' && request.method === 'GET') {
+			return Response.json({ entries: this.reviewQueue.listReviewEntries() });
+		}
+
+		if (url.pathname === '/review/resolve-many' && request.method === 'POST') {
+			const body: unknown = await request.json();
+			const parsed = reviewResolveManySchema.safeParse(body);
+			if (!parsed.success) {
+				return Response.json({ error: 'Invalid review resolution' }, { status: 400, headers: { 'Content-Type': 'application/json' } });
+			}
+			await this.withProjectMount(async () => {
+				await this.reviewQueue.resolveEntries(PROJECT_ROOT, projectId, parsed.data.decision, parsed.data.sessionId, parsed.data.reviewIds);
+			}, projectId);
+			this.refreshReviewState();
+			return new Response(undefined, { status: 204 });
+		}
+
+		const reviewMatch = url.pathname.match(/^\/review\/([^/]+)\/(hunks|resolve)$/);
+		if (reviewMatch) {
+			const [, reviewId, action] = reviewMatch;
+			if (!reviewId || !action) {
+				return new Response('Not Found', { status: 404 });
+			}
+			if (action === 'hunks' && request.method === 'PUT') {
+				const body: unknown = await request.json();
+				const parsed = reviewHunkUpdateSchema.safeParse(body);
+				if (!parsed.success) {
+					return Response.json({ error: 'Invalid hunk update' }, { status: 400, headers: { 'Content-Type': 'application/json' } });
+				}
+				await this.withProjectMount(async () => {
+					await this.reviewQueue.updateHunkStatuses(PROJECT_ROOT, projectId, reviewId, parsed.data.hunkStatuses);
+				}, projectId);
+				this.refreshReviewState();
+				return new Response(undefined, { status: 204 });
+			}
+			if (action === 'resolve' && request.method === 'POST') {
+				const body: unknown = await request.json();
+				const parsed = reviewResolveSchema.safeParse(body);
+				if (!parsed.success) {
+					return Response.json({ error: 'Invalid review resolution' }, { status: 400, headers: { 'Content-Type': 'application/json' } });
+				}
+				await this.withProjectMount(async () => {
+					await this.reviewQueue.resolveEntry(PROJECT_ROOT, projectId, reviewId, parsed.data.decision);
+				}, projectId);
+				this.refreshReviewState();
+				return new Response(undefined, { status: 204 });
+			}
+		}
+
+		if (url.pathname === '/review/sync-path' && request.method === 'POST') {
+			const body: unknown = await request.json();
+			const path = typeof body === 'object' && body && 'path' in body && typeof body.path === 'string' ? body.path : undefined;
+			if (!path) {
+				return Response.json({ error: 'Invalid path sync' }, { status: 400, headers: { 'Content-Type': 'application/json' } });
+			}
+			await this.withProjectMount(async () => {
+				await this.reviewQueue.syncTrackedPathFromWorkspace(PROJECT_ROOT, path);
+			}, projectId);
+			this.refreshReviewState();
+			return new Response(undefined, { status: 204 });
+		}
+
+		if (url.pathname === '/review/move-path' && request.method === 'POST') {
+			const body: unknown = await request.json();
+			const fromPath =
+				typeof body === 'object' && body && 'fromPath' in body && typeof body.fromPath === 'string' ? body.fromPath : undefined;
+			const toPath = typeof body === 'object' && body && 'toPath' in body && typeof body.toPath === 'string' ? body.toPath : undefined;
+			if (!fromPath || !toPath) {
+				return Response.json({ error: 'Invalid move sync' }, { status: 400, headers: { 'Content-Type': 'application/json' } });
+			}
+			this.reviewQueue.moveTrackedPath(fromPath, toPath);
+			this.refreshReviewState();
+			return new Response(undefined, { status: 204 });
 		}
 
 		return new Response('Not Found', { status: 404 });
@@ -281,15 +409,18 @@ export class AgentRunner extends Agent<Env, AgentState> {
 
 	/**
 	 * Called when the Agent starts (or wakes from hibernation / eviction).
-	 * Initializes Drizzle, runs schema migrations, and restores extensions.
+	 * Initializes storage-backed helpers and restores extensions.
 	 */
 	async onStart(): Promise<void> {
 		this.db = getDatabase(this.ctx.storage);
 		this.agentSessionStore = new AgentSessionStore(this.db, this.sessionManager);
-		await migrate(this.db, migrations);
+		this.ensureAgentDatabaseTables();
+		this.reviewQueue = new ReviewQueueStore(this.db);
+		this.reviewQueue.bootstrapLegacyPendingChanges(this.loadPendingChangesFromDatabase());
 		this.extensionManager = await restoreExtensionManager(env.LOADER, this.ctx.storage);
 		const persistedRequestOriginContext = this.ctx.storage.kv.get<RequestOriginContext>(REQUEST_ORIGIN_CONTEXT_STORAGE_KEY);
 		this.requestOriginContext = isRequestOriginContext(persistedRequestOriginContext) ? persistedRequestOriginContext : undefined;
+		this.refreshReviewState();
 		await this.refreshSessionsList();
 		for (const sessionInfo of this.sessionManager.list()) {
 			const session = this.agentSessionStore.read(sessionInfo.id);
@@ -401,17 +532,19 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	@callable()
 	async submitMessage(
 		projectId: string,
-		messageText: string,
+		parts: unknown,
 		sessionId?: string,
 		mode: AgentMode = 'code',
 		model: AIModelId = DEFAULT_AI_MODEL,
 		messageId?: string,
 		createdAt?: number,
 	): Promise<{ sessionId: string; queued: boolean; started: boolean }> {
-		const trimmedMessage = messageText.trim();
-		if (!trimmedMessage) {
+		const sanitizedParts = sanitizeSubmittedUserMessageParts(parts);
+		if (!messagePartsHaveUserContent(sanitizedParts)) {
 			throw new Error('Message is required.');
 		}
+
+		const promptText = getUserMessagePromptText(sanitizedParts);
 
 		const resolvedSessionId = sessionId ?? crypto.randomUUID().replaceAll('-', '').slice(0, 16);
 		const authenticatedUserId = this.getAuthenticatedUserId();
@@ -421,9 +554,9 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		const stopRequested = persistedSession?.stopRequested ?? false;
 		const isRunActive = this.abortControllers.has(resolvedSessionId);
 		const shouldQueue = isRunActive || stopRequested;
-		const userMessage = this.buildUserMessage(trimmedMessage, mode, model, shouldQueue ? 'queued' : 'committed', messageId, createdAt);
+		const userMessage = this.buildUserMessage(sanitizedParts, mode, model, shouldQueue ? 'queued' : 'committed', messageId, createdAt);
 
-		const promptPreview = deriveFallbackTitle(trimmedMessage, 80);
+		const promptPreview = deriveFallbackTitle(promptText, 80);
 		this.ensureSessionRecord(resolvedSessionId, promptPreview, model, mode);
 
 		const durableHistory = [...persistedHistory, userMessage];
@@ -483,15 +616,8 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	): Promise<{ sessionId: string }> {
 		const resolvedSessionId = sessionId ?? crypto.randomUUID().replaceAll('-', '').slice(0, 16);
 		const authenticatedUserId = this.getAuthenticatedUserId();
-		const promptPreview = deriveFallbackTitle(
-			messages
-				.toReversed()
-				.find((message) => message.role === 'user')
-				?.parts.filter((part): part is { type: 'text'; content: string } => part.type === 'text')
-				.map((part) => part.content)
-				.join(' ') ?? '',
-			80,
-		);
+		const latestUserMessage = messages.toReversed().find((message) => message.role === 'user');
+		const promptPreview = deriveFallbackTitle(latestUserMessage ? messagePartsToPromptText(latestUserMessage.parts).trim() : '', 80);
 
 		this.ensureSessionRecord(resolvedSessionId, promptPreview, model, mode);
 		const normalizedMessages = messages.map((message) => {
@@ -499,8 +625,11 @@ export class AgentRunner extends Agent<Env, AgentState> {
 				return message;
 			}
 
+			const normalizedParts = sanitizeSubmittedUserMessageParts(message.parts);
+
 			const normalizedMessage: ChatMessage = {
 				...message,
+				parts: normalizedParts,
 				metadata: {
 					...message.metadata,
 					request: {
@@ -645,9 +774,8 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		if (messageIndex <= 0) {
 			this.sessionManager.delete(sessionId);
 			deleteSessionMetadata(this.db, sessionId);
-			// Remove this session's pending changes from the global store
-			// (other sessions' changes are preserved)
-			this.removePendingChangesForSessions(new Set([sessionId]));
+			this.reviewQueue.removeSession(sessionId);
+			this.refreshReviewState();
 			// Clear the current session state so the frontend shows an empty chat
 			if (this.state.currentSession?.sessionId === sessionId) {
 				this.setState({
@@ -696,24 +824,15 @@ export class AgentRunner extends Agent<Env, AgentState> {
 				.filter((snapshotId): snapshotId is string => typeof snapshotId === 'string'),
 		);
 		const globalChanges = this.loadPendingChangesFromDatabase();
-		const filteredChanges: Record<string, PendingFileChange> = {};
+		const survivingSessionChanges: Record<string, PendingFileChange> = {};
 		for (const [path, change] of Object.entries(globalChanges)) {
-			if (change.sessionId !== sessionId) {
-				// Different session — always keep
-				filteredChanges[path] = change;
-			} else if (change.snapshotId && survivingSnapshotIds.has(change.snapshotId)) {
-				// Same session but snapshot survives the truncation — keep
-				filteredChanges[path] = { ...change, sessionId: forkedSession.id };
+			if (change.sessionId === sessionId && change.snapshotId && survivingSnapshotIds.has(change.snapshotId)) {
+				survivingSessionChanges[path] = { ...change, sessionId: forkedSession.id };
 			}
-			// Same session, no surviving snapshot — drop (reverted)
 		}
-
-		// Persist filtered changes to SQLite
-		if (Object.keys(filteredChanges).length > 0) {
-			this.savePendingChangesToDatabase(filteredChanges);
-		} else {
-			deletePendingChanges(this.db);
-		}
+		this.reviewQueue.removeSession(sessionId);
+		this.reviewQueue.syncSessionPendingChanges(forkedSession.id, survivingSessionChanges);
+		this.refreshReviewState();
 
 		// Update state for connected clients
 		if (this.state.currentSession?.sessionId === sessionId) {
@@ -725,7 +844,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 				toolMetadata: {},
 				toolErrors: {},
 				stopRequested: false,
-				pendingChanges: filteredChanges,
+				pendingChanges: this.loadPendingChangesFromDatabase(),
 				contextTokensUsed,
 			});
 		}
@@ -776,7 +895,8 @@ export class AgentRunner extends Agent<Env, AgentState> {
 
 		this.sessionManager.delete(sessionId);
 		deleteSessionMetadata(this.db, sessionId);
-		this.removePendingChangesForSessions(new Set([sessionId]));
+		this.reviewQueue.removeSession(sessionId);
+		this.refreshReviewState();
 		const survivingSnapshotIds = this.getSurvivingSnapshotIds();
 
 		try {
@@ -805,6 +925,45 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	@callable()
 	async savePendingChanges(changes: Record<string, PendingFileChange>): Promise<void> {
 		this.savePendingChangesToDatabase(changes);
+		this.reviewQueue.bootstrapLegacyPendingChanges(changes);
+		this.refreshReviewState();
+	}
+	@callable()
+	async listReviewEntries(): Promise<ReviewEntry[]> {
+		return this.reviewQueue.listReviewEntries();
+	}
+	@callable()
+	async updateReviewHunks(reviewId: string, hunkStatuses: PendingFileChange['hunkStatuses']): Promise<void> {
+		await this.withProjectMount(async () => {
+			await this.reviewQueue.updateHunkStatuses(PROJECT_ROOT, this.getProjectId(), reviewId, hunkStatuses);
+		});
+		this.refreshReviewState();
+	}
+	@callable()
+	async resolveReviewEntry(reviewId: string, decision: 'accept' | 'reject'): Promise<void> {
+		await this.withProjectMount(async () => {
+			await this.reviewQueue.resolveEntry(PROJECT_ROOT, this.getProjectId(), reviewId, decision);
+		});
+		this.refreshReviewState();
+	}
+	@callable()
+	async resolveReviewEntries(decision: 'accept' | 'reject', sessionId?: string, reviewIds?: string[]): Promise<void> {
+		await this.withProjectMount(async () => {
+			await this.reviewQueue.resolveEntries(PROJECT_ROOT, this.getProjectId(), decision, sessionId, reviewIds);
+		});
+		this.refreshReviewState();
+	}
+	@callable()
+	async syncReviewPathFromWorkspace(path: string): Promise<void> {
+		await this.withProjectMount(async () => {
+			await this.reviewQueue.syncTrackedPathFromWorkspace(PROJECT_ROOT, path);
+		});
+		this.refreshReviewState();
+	}
+	@callable()
+	async moveTrackedReviewPath(fromPath: string, toPath: string): Promise<void> {
+		this.reviewQueue.moveTrackedPath(fromPath, toPath);
+		this.refreshReviewState();
 	}
 
 	/**
@@ -844,12 +1003,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		}
 
 		const lastUserMessage = parameters.messages.toReversed().find((message) => message.role === 'user');
-		const lastUserText =
-			lastUserMessage?.parts
-				.filter((part): part is { type: 'text'; content: string } => part.type === 'text')
-				.map((part) => part.content)
-				.join(' ')
-				.trim() ?? '';
+		const lastUserText = lastUserMessage ? messagePartsToPromptText(lastUserMessage.parts).trim() : '';
 		const promptPreview = deriveFallbackTitle(lastUserText, 80);
 
 		const existing = this.sessionManager.get(sessionId);
@@ -1076,16 +1230,8 @@ export class AgentRunner extends Agent<Env, AgentState> {
 			stopRequested: existing.stopRequested,
 		});
 
-		// Merge pending changes using dedup logic that preserves the original
-		// beforeContent when multiple sessions edit the same file.
-		if (sessionData.pendingChanges) {
-			const existingChanges = this.loadPendingChangesFromDatabase();
-			const mergedMap = new Map(Object.entries(existingChanges));
-			for (const change of Object.values(sessionData.pendingChanges)) {
-				accumulatePendingChange(mergedMap, change);
-			}
-			this.savePendingChangesToDatabase(Object.fromEntries(mergedMap));
-		}
+		this.reviewQueue.syncSessionPendingChanges(sessionId, sessionData.pendingChanges ?? {});
+		this.refreshReviewState();
 
 		if (sessionData.fiberSnapshot) {
 			this.stash(sessionData.fiberSnapshot);
@@ -1149,9 +1295,10 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		for (const id of sessionsToPrune) {
 			this.sessionManager.delete(id);
 			deleteSessionMetadata(this.db, id);
+			this.reviewQueue.removeSession(id);
 		}
 
-		this.removePendingChangesForSessions(prunedIds);
+		this.refreshReviewState();
 		const survivingSnapshotIds = this.getSurvivingSnapshotIds();
 
 		// Clean up filesystem artifacts
@@ -1212,11 +1359,142 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		this.setState({ ...this.state, sessions: sessionsList });
 	}
 
+	private refreshReviewState(): void {
+		this.reviewVersion = Date.now();
+		this.setState({
+			...this.state,
+			reviewEntries: this.reviewQueue.listReviewEntriesRecord(),
+			reviewSummary: this.reviewQueue.getReviewSummary(this.reviewVersion),
+			currentSession: this.state.currentSession
+				? {
+						...this.state.currentSession,
+						pendingChanges: this.loadPendingChangesFromDatabase(),
+					}
+				: undefined,
+		});
+	}
+
+	private ensureAgentDatabaseTables(): void {
+		this.ctx.storage.sql.exec(`
+			CREATE TABLE IF NOT EXISTS pending_changes (
+				id INTEGER PRIMARY KEY NOT NULL DEFAULT 1,
+				data TEXT DEFAULT '{}' NOT NULL
+			)
+		`);
+		this.ctx.storage.sql.exec(`
+			CREATE TABLE IF NOT EXISTS session_metadata (
+				id TEXT PRIMARY KEY NOT NULL,
+				title_generated INTEGER DEFAULT 0 NOT NULL,
+				context_tokens_used INTEGER,
+				tool_metadata TEXT,
+				tool_errors TEXT,
+				status TEXT,
+				error_message TEXT,
+				stop_requested INTEGER DEFAULT 0 NOT NULL
+			)
+		`);
+		this.ctx.storage.sql.exec(`
+			CREATE TABLE IF NOT EXISTS session_message_metadata (
+				session_id TEXT NOT NULL,
+				message_id TEXT NOT NULL,
+				request_mode TEXT,
+				request_model TEXT,
+				request_state TEXT,
+				parts_json TEXT,
+				snapshot_id TEXT,
+				PRIMARY KEY(session_id, message_id)
+			)
+		`);
+		try {
+			this.ctx.storage.sql.exec('ALTER TABLE session_message_metadata ADD COLUMN parts_json TEXT');
+		} catch {
+			// Column already exists.
+		}
+		this.ctx.storage.sql.exec(`
+			CREATE TABLE IF NOT EXISTS session_pending_changes (
+				session_id TEXT PRIMARY KEY NOT NULL,
+				data TEXT DEFAULT '{}' NOT NULL
+			)
+		`);
+		this.ctx.storage.sql.exec(`
+			CREATE TABLE IF NOT EXISTS session_pending_change_index (
+				session_id TEXT NOT NULL,
+				path TEXT NOT NULL,
+				updated_at INTEGER NOT NULL,
+				latest_change_set_id TEXT,
+				PRIMARY KEY(session_id, path)
+			)
+		`);
+		this.ctx.storage.sql.exec(`
+			CREATE TABLE IF NOT EXISTS change_sets (
+				id TEXT PRIMARY KEY NOT NULL,
+				session_id TEXT NOT NULL,
+				snapshot_id TEXT,
+				created_at INTEGER NOT NULL
+			)
+		`);
+		this.ctx.storage.sql.exec(`
+			CREATE TABLE IF NOT EXISTS change_set_files (
+				change_set_id TEXT NOT NULL,
+				session_id TEXT NOT NULL,
+				path TEXT NOT NULL,
+				action TEXT NOT NULL,
+				before_content TEXT,
+				after_content TEXT,
+				snapshot_id TEXT,
+				PRIMARY KEY(change_set_id, path)
+			)
+		`);
+		this.ctx.storage.sql.exec(`
+			CREATE TABLE IF NOT EXISTS review_entries (
+				id TEXT PRIMARY KEY NOT NULL,
+				path TEXT NOT NULL,
+				action TEXT NOT NULL,
+				before_content TEXT,
+				after_content TEXT,
+				snapshot_id TEXT,
+				status TEXT DEFAULT 'pending' NOT NULL,
+				hunk_statuses TEXT DEFAULT '[]' NOT NULL,
+				latest_session_id TEXT NOT NULL,
+				session_ids TEXT DEFAULT '[]' NOT NULL,
+				diff_signature TEXT DEFAULT '' NOT NULL,
+				updated_at INTEGER NOT NULL
+			)
+		`);
+		this.ctx.storage.sql.exec('CREATE UNIQUE INDEX IF NOT EXISTS review_entries_path_idx ON review_entries (path)');
+		this.ctx.storage.sql.exec(`
+			CREATE TABLE IF NOT EXISTS review_entry_sources (
+				review_entry_id TEXT NOT NULL,
+				change_set_id TEXT NOT NULL,
+				order_index INTEGER NOT NULL,
+				PRIMARY KEY(review_entry_id, change_set_id)
+			)
+		`);
+		this.ctx.storage.sql.exec(`
+			CREATE TABLE IF NOT EXISTS review_resolutions (
+				id TEXT PRIMARY KEY NOT NULL,
+				review_entry_id TEXT NOT NULL,
+				decision TEXT NOT NULL,
+				hunk_statuses TEXT DEFAULT '[]' NOT NULL,
+				resolved_at INTEGER NOT NULL
+			)
+		`);
+	}
+
+	private async withProjectMount<T>(callback: () => Promise<T>, projectId = this.getProjectId()): Promise<T> {
+		const filesystemId = toDurableObjectId(filesystemNamespace, projectId);
+		const filesystemStub = filesystemNamespace.get(filesystemId);
+		return withMounts(async () => {
+			mount(PROJECT_ROOT, filesystemStub);
+			return callback();
+		});
+	}
+
 	// =========================================================================
 	// Database Helpers
 	// =========================================================================
 	private buildUserMessage(
-		content: string,
+		parts: UserMessagePart[],
 		mode: AgentMode,
 		model: AIModelId,
 		state: 'queued' | 'committed',
@@ -1226,7 +1504,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		return {
 			id: messageId,
 			role: 'user',
-			parts: [{ type: 'text', content }],
+			parts,
 			createdAt,
 			metadata: {
 				request: {
@@ -1284,23 +1562,6 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	}
 	private savePendingChangesToDatabase(changes: Record<string, PendingFileChange>): void {
 		writePendingChangesData(this.db, JSON.stringify(changes));
-	}
-	private removePendingChangesForSessions(sessionIds: Set<string>): void {
-		const changes = this.loadPendingChangesFromDatabase();
-		let changed = false;
-		for (const [path, change] of Object.entries(changes)) {
-			if (sessionIds.has(change.sessionId)) {
-				delete changes[path];
-				changed = true;
-			}
-		}
-		if (changed) {
-			if (Object.keys(changes).length === 0) {
-				deletePendingChanges(this.db);
-			} else {
-				this.savePendingChangesToDatabase(changes);
-			}
-		}
 	}
 	private getSurvivingSnapshotIds(): Set<string> {
 		const surviving = new Set<string>();

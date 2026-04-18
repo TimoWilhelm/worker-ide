@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react';
 
 import { Pill } from '@/components/ui/pill';
 import { Tooltip } from '@/components/ui/tooltip';
-import { springDefault } from '@/lib/motion-config';
+import { springCritical } from '@/lib/motion-config';
 import { useStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 
@@ -39,7 +39,7 @@ export function ChangedFilesSummary({
 		const entries: Array<[string, PendingFileChange]> = [];
 		for (const [path, change] of pendingChanges) {
 			if (change.status === 'pending') {
-				if (sessionId && change.sessionId !== sessionId) continue;
+				if (sessionId && change.sessionId !== sessionId && !change.sessionIds?.includes(sessionId)) continue;
 				entries.push([path, change]);
 			}
 		}
@@ -108,13 +108,14 @@ export function ChangedFilesSummary({
 								initial={{ height: 0, opacity: 0 }}
 								animate={{ height: 'auto', opacity: 1 }}
 								exit={{ height: 0, opacity: 0 }}
-								transition={springDefault}
+								transition={springCritical}
 								className="overflow-hidden"
 							>
 								<ChangedFileRow
 									path={path}
 									action={change.action}
 									hasSnapshot={!!change.snapshotId}
+									isActionable={!!change.reviewId}
 									onApprove={onApproveChange}
 									onReject={onRejectChange}
 									isReverting={isReverting}
@@ -132,6 +133,7 @@ function ChangedFileRow({
 	path,
 	action,
 	hasSnapshot,
+	isActionable,
 	onApprove,
 	onReject,
 	isReverting,
@@ -139,6 +141,7 @@ function ChangedFileRow({
 	path: string;
 	action: 'create' | 'edit' | 'delete' | 'move';
 	hasSnapshot: boolean;
+	isActionable: boolean;
 	onApprove: (path: string) => void;
 	onReject: (path: string) => void;
 	isReverting: boolean;
@@ -164,27 +167,27 @@ function ChangedFileRow({
 					<button
 						type="button"
 						onClick={() => onApprove(path)}
-						disabled={isReverting}
+						disabled={isReverting || !isActionable}
 						className={cn(
 							'inline-flex cursor-pointer items-center rounded-sm p-1',
 							'text-text-secondary transition-colors',
 							'hover:bg-success/15 hover:text-success',
-							isReverting && 'cursor-not-allowed opacity-50',
+							(isReverting || !isActionable) && 'cursor-not-allowed opacity-50',
 						)}
 					>
 						<Check className="size-3.5" />
 					</button>
 				</Tooltip>
-				<Tooltip content={hasSnapshot ? 'Reject change' : 'Waiting for snapshot…'}>
+				<Tooltip content={isActionable ? (hasSnapshot ? 'Reject change' : 'Waiting for snapshot…') : 'Waiting for review queue…'}>
 					<button
 						type="button"
 						onClick={() => onReject(path)}
-						disabled={isReverting || !hasSnapshot}
+						disabled={isReverting || !hasSnapshot || !isActionable}
 						className={cn(
 							'inline-flex cursor-pointer items-center rounded-sm p-1',
 							'text-text-secondary transition-colors',
 							'hover:bg-error/15 hover:text-error',
-							(isReverting || !hasSnapshot) && 'cursor-not-allowed opacity-50',
+							(isReverting || !hasSnapshot || !isActionable) && 'cursor-not-allowed opacity-50',
 						)}
 					>
 						<X className="size-3.5" />

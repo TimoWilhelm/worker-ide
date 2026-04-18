@@ -19,6 +19,7 @@ interface SnapshotMetadata {
 	sessionId?: string;
 	changes: Array<{ path: string; action: 'create' | 'edit' | 'delete' }>;
 }
+
 function isBinaryFilePath(path: string): boolean {
 	const extension = path.match(/\.[^.]+$/)?.[0]?.toLowerCase() || '';
 	return BINARY_EXTENSIONS.has(extension);
@@ -90,36 +91,48 @@ export const snapshotRoutes = new Hono<AppEnvironment>()
 		return c.json(result);
 	})
 
-	// GET /api/pending-changes - Load project-level pending changes from the AgentRunner DO
+	// GET /api/pending-changes - Load project-level pending changes from the agent
 	.get('/pending-changes', async (c) => {
-		const projectId = c.get('projectId');
-		const agentStub = agentRunnerNamespace.getByName(`agent:${projectId}`);
-		const response = await agentStub.fetch(
-			new Request('http://agent/pending-changes', {
-				headers: { 'x-partykit-room': `agent:${projectId}` },
-			}),
-		);
-		if (!response.ok) {
-			throw httpError(HttpErrorCode.INTERNAL_ERROR, 'Failed to load pending changes');
+		try {
+			const agentStub = agentRunnerNamespace.getByName(`agent:${c.get('projectId')}`);
+			const response = await agentStub.fetch(
+				new Request('http://agent/pending-changes', {
+					headers: { 'x-partykit-room': `agent:${c.get('projectId')}` },
+				}),
+			);
+			if (!response.ok) {
+				throw new Error(await response.text());
+			}
+			const body: unknown = await response.json();
+			const data = body && typeof body === 'object' && !Array.isArray(body) ? body : {};
+			return c.json(data);
+		} catch (error) {
+			const message = error instanceof Error ? error.message : 'Failed to load pending changes';
+			throw httpError(HttpErrorCode.INTERNAL_ERROR, message);
 		}
-		const data: Record<string, unknown> = await response.json();
-		return c.json(data);
 	})
 
-	// PUT /api/pending-changes - Save project-level pending changes to the AgentRunner DO
+	// PUT /api/pending-changes - Save project-level pending changes to the agent
 	.put('/pending-changes', zValidator('json', pendingChangesFileSchema), async (c) => {
-		const projectId = c.get('projectId');
 		const changes = c.req.valid('json');
-		const agentStub = agentRunnerNamespace.getByName(`agent:${projectId}`);
-		const response = await agentStub.fetch(
-			new Request('http://agent/pending-changes', {
-				method: 'PUT',
-				headers: { 'Content-Type': 'application/json', 'x-partykit-room': `agent:${projectId}` },
-				body: JSON.stringify(changes),
-			}),
-		);
-		if (!response.ok) {
-			throw httpError(HttpErrorCode.INTERNAL_ERROR, 'Failed to save pending changes');
+		try {
+			const agentStub = agentRunnerNamespace.getByName(`agent:${c.get('projectId')}`);
+			const response = await agentStub.fetch(
+				new Request('http://agent/pending-changes', {
+					method: 'PUT',
+					headers: {
+						'Content-Type': 'application/json',
+						'x-partykit-room': `agent:${c.get('projectId')}`,
+					},
+					body: JSON.stringify(changes),
+				}),
+			);
+			if (!response.ok) {
+				throw new Error(await response.text());
+			}
+		} catch (error) {
+			const message = error instanceof Error ? error.message : 'Failed to save pending changes';
+			throw httpError(HttpErrorCode.INTERNAL_ERROR, message);
 		}
 		return c.json({ success: true });
 	})

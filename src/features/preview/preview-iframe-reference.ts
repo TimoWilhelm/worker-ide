@@ -1,4 +1,4 @@
-import type { PreviewElementReference } from '@/lib/preview-element-reference';
+import type { PreviewElementReference } from '@shared/types';
 
 /**
  * Global refs for the preview iframe and origin.
@@ -10,13 +10,14 @@ export const previewOriginReference: { current: string | undefined } = { current
 export type PreviewElementPickerCommand =
 	| { type: '__preview-element-picker-start' }
 	| { type: '__preview-element-picker-cancel' }
-	| { type: '__preview-element-highlight'; selector: string }
+	| { type: '__preview-element-highlight'; reference: PreviewElementReference }
 	| { type: '__preview-element-highlight-clear' }
-	| { type: '__preview-element-reveal'; selector: string }
-	| { type: '__preview-element-resolve'; requestId: string; selector: string };
+	| { type: '__preview-element-reveal'; reference: PreviewElementReference }
+	| { type: '__preview-element-resolve'; requestId: string; reference: PreviewElementReference };
 
-export interface PreviewElementPickedMessage extends PreviewElementReference {
+export interface PreviewElementPickedMessage {
 	type: '__preview-element-picked';
+	reference: PreviewElementReference;
 }
 
 export interface PreviewElementPickerCancelledMessage {
@@ -66,7 +67,7 @@ function getPreviewMessagingTarget(): { previewWindow: Window; previewOrigin: st
 	return { previewWindow, previewOrigin };
 }
 
-export function postMessageToPreview(command: PreviewElementPickerCommand): boolean {
+function postMessageToPreview(command: PreviewElementPickerCommand): boolean {
 	const target = getPreviewMessagingTarget();
 	if (!target) {
 		return false;
@@ -84,19 +85,19 @@ export function cancelPreviewElementPicker(): boolean {
 	return postMessageToPreview({ type: '__preview-element-picker-cancel' });
 }
 
-export function highlightPreviewElement(selector: string): boolean {
-	return postMessageToPreview({ type: '__preview-element-highlight', selector });
+export function highlightPreviewElement(reference: PreviewElementReference): boolean {
+	return postMessageToPreview({ type: '__preview-element-highlight', reference });
 }
 
 export function clearPreviewElementHighlight(): boolean {
 	return postMessageToPreview({ type: '__preview-element-highlight-clear' });
 }
 
-export function revealPreviewElement(selector: string): boolean {
-	return postMessageToPreview({ type: '__preview-element-reveal', selector });
+export function revealPreviewElement(reference: PreviewElementReference): boolean {
+	return postMessageToPreview({ type: '__preview-element-reveal', reference });
 }
 
-export function resolvePreviewElement(selector: string): Promise<boolean | undefined> {
+export function resolvePreviewElement(reference: PreviewElementReference): Promise<boolean | undefined> {
 	let unresolvedResult: boolean | undefined;
 
 	const target = getPreviewMessagingTarget();
@@ -116,6 +117,6 @@ export function resolvePreviewElement(selector: string): Promise<boolean | undef
 			resolve(found);
 		});
 
-		target.previewWindow.postMessage({ type: '__preview-element-resolve', requestId, selector }, target.previewOrigin);
+		target.previewWindow.postMessage({ type: '__preview-element-resolve', requestId, reference }, target.previewOrigin);
 	});
 }

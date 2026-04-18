@@ -781,17 +781,19 @@ describe('UI slice', () => {
 	});
 
 	it('queues and consumes preview element references', () => {
-		useStore.getState().queuePreviewElementReference({ selector: '#hero', tagName: 'div' });
-		useStore.getState().queuePreviewElementReference({ selector: '.card img', tagName: 'img' });
+		useStore.getState().queuePreviewElementReference({ tagName: 'div', primarySelector: '#hero', locatorCandidates: [] });
+		useStore.getState().queuePreviewElementReference({ tagName: 'img', primarySelector: '.card img', locatorCandidates: [] });
 
 		expect(useStore.getState().pendingPreviewElementReferences).toEqual([
-			{ selector: '#hero', tagName: 'div' },
-			{ selector: '.card img', tagName: 'img' },
+			{ tagName: 'div', primarySelector: '#hero', locatorCandidates: [] },
+			{ tagName: 'img', primarySelector: '.card img', locatorCandidates: [] },
 		]);
 
 		useStore.getState().shiftPendingPreviewElementReference();
 
-		expect(useStore.getState().pendingPreviewElementReferences).toEqual([{ selector: '.card img', tagName: 'img' }]);
+		expect(useStore.getState().pendingPreviewElementReferences).toEqual([
+			{ tagName: 'img', primarySelector: '.card img', locatorCandidates: [] },
+		]);
 	});
 
 	it('toggles dependencies panel', () => {

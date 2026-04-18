@@ -5,7 +5,6 @@ const TITLE_MODEL = '@cf/meta/llama-3.1-8b-instruct';
 
 const MAX_TITLE_LENGTH = 100;
 const FALLBACK_TRUNCATION_LENGTH = 50;
-const PREVIEW_ELEMENT_REFERENCE_PATTERN = /\[\[preview-element:(<[\w-]+>)\|([^\]]+)]]/g;
 const FILE_REFERENCE_PATTERN = /@(\/[\w./-]+)/g;
 const TRAILING_FILLER_WORDS_PATTERN = /\b(?:and|for|from|in|of|on|or|to|via|with|within)\s*$/i;
 
@@ -34,7 +33,6 @@ function getFileReferenceLabel(path: string): string {
 
 function getFallbackTitleSourceText(userMessageText: string): string {
 	let titleSourceText = userMessageText
-		.replaceAll(PREVIEW_ELEMENT_REFERENCE_PATTERN, ' ')
 		.replaceAll(FILE_REFERENCE_PATTERN, (_match, path: string) => ` ${getFileReferenceLabel(path)} `)
 		.replaceAll(/\s+([,.;:!?])/g, '$1')
 		.replaceAll(/\s+/g, ' ')

@@ -1,8 +1,9 @@
 import { DEFAULT_AI_MODEL, getModelConfig } from '@shared/constants';
+import { sanitizePreviewElementReference } from '@shared/preview-element';
 
 import type { SessionMessageMetadataInsert, SessionMessageMetadataRow } from './db';
 import type { AIModelId } from '@shared/constants';
-import type { AgentMode, ChatMessage } from '@shared/types';
+import type { AgentMode, ChatMessage, UserMessagePart } from '@shared/types';
 
 function isAgentMode(value: unknown): value is AgentMode {
 	return value === 'code' || value === 'plan' || value === 'ask';
@@ -18,6 +19,42 @@ function isAiModelId(value: unknown): value is AIModelId {
 
 function isQueuedMessage(message: ChatMessage): boolean {
 	return message.role === 'user' && message.metadata?.request?.state === 'queued';
+}
+
+function parsePersistedUserMessageParts(partsJson: string | null | undefined): UserMessagePart[] | undefined {
+	if (!partsJson) {
+		return undefined;
+	}
+
+	try {
+		const parsed: unknown = JSON.parse(partsJson);
+		if (!Array.isArray(parsed)) {
+			return undefined;
+		}
+
+		const parts: UserMessagePart[] = [];
+		for (const part of parsed) {
+			if (!part || typeof part !== 'object' || Array.isArray(part) || !('type' in part) || typeof part.type !== 'string') {
+				continue;
+			}
+
+			if (part.type === 'text' && 'content' in part && typeof part.content === 'string') {
+				parts.push({ type: 'text', content: part.content });
+				continue;
+			}
+
+			if (part.type === 'preview-element') {
+				const sanitizedReference = sanitizePreviewElementReference(part);
+				if (sanitizedReference) {
+					parts.push({ type: 'preview-element', ...sanitizedReference });
+				}
+			}
+		}
+
+		return parts.length > 0 ? parts : undefined;
+	} catch {
+		return undefined;
+	}
 }
 
 export function getQueuedMessages(messages: ChatMessage[]): ChatMessage[] {
@@ -90,6 +127,7 @@ export function applyPersistedMessageMetadata(history: ChatMessage[], rows: Sess
 		const requestState = isRequestState(row.requestState) ? row.requestState : message.metadata?.request?.state;
 		const requestMode = isAgentMode(row.requestMode) ? row.requestMode : message.metadata?.request?.mode;
 		const requestModel = isAiModelId(row.requestModel) ? row.requestModel : message.metadata?.request?.model;
+		const persistedParts = message.role === 'user' ? parsePersistedUserMessageParts(row.partsJson) : undefined;
 		const request =
 			message.role === 'user' && (requestState || requestMode || requestModel)
 				? {
@@ -101,6 +139,7 @@ export function applyPersistedMessageMetadata(history: ChatMessage[], rows: Sess
 
 		return {
 			...message,
+			parts: persistedParts ?? message.parts,
 			metadata: {
 				...message.metadata,
 				request,
@@ -114,8 +153,10 @@ export function serializePersistedMessageMetadata(sessionId: string, history: Ch
 	const rows: SessionMessageMetadataInsert[] = [];
 	for (const message of history) {
 		const request = message.role === 'user' ? message.metadata?.request : undefined;
+		const partsJson =
+			message.role === 'user' && message.parts.some((part) => part.type === 'preview-element') ? JSON.stringify(message.parts) : undefined;
 		const snapshotId = message.metadata?.snapshotId;
-		if (!request && !snapshotId) {
+		if (!request && !snapshotId && !partsJson) {
 			continue;
 		}
 
@@ -125,6 +166,7 @@ export function serializePersistedMessageMetadata(sessionId: string, history: Ch
 			requestMode: request?.mode,
 			requestModel: request?.model,
 			requestState: request?.state,
+			partsJson,
 			snapshotId,
 		});
 	}

@@ -93,6 +93,46 @@ export interface TodoItem {
 	status: 'pending' | 'in_progress' | 'completed';
 	priority: 'high' | 'medium' | 'low';
 }
+export type ReviewHunkStatus = 'pending' | 'approved' | 'rejected';
+export type ReviewResolutionDecision = 'accept' | 'reject' | 'mixed';
+
+export interface ChangeSetFile {
+	path: string;
+	action: 'create' | 'edit' | 'delete' | 'move';
+	beforeContent: string | undefined;
+	afterContent: string | undefined;
+	snapshotId: string | undefined;
+	sessionId: string;
+}
+
+export interface ChangeSet {
+	id: string;
+	sessionId: string;
+	snapshotId: string | undefined;
+	createdAt: number;
+	files: ChangeSetFile[];
+}
+
+export interface ReviewEntry {
+	id: string;
+	path: string;
+	action: 'create' | 'edit' | 'delete' | 'move';
+	beforeContent: string | undefined;
+	afterContent: string | undefined;
+	snapshotId: string | undefined;
+	status: 'pending';
+	hunkStatuses: ReviewHunkStatus[];
+	latestSessionId: string;
+	sessionIds: string[];
+	diffSignature: string;
+	updatedAt: number;
+}
+
+export interface ReviewSummary {
+	unresolvedCount: number;
+	reviewVersion: number;
+	sessionCounts: Record<string, number>;
+}
 
 /**
  * A file change made by the AI that is pending user review.
@@ -111,8 +151,10 @@ export interface PendingFileChange {
 	 * Indices correspond to change groups computed by `groupHunksIntoChanges()`.
 	 * Starts as `[]` and is populated when the diff is first displayed.
 	 */
-	hunkStatuses: Array<'pending' | 'approved' | 'rejected'>;
+	hunkStatuses: ReviewHunkStatus[];
 	sessionId: string;
+	sessionIds?: string[];
+	reviewId?: string;
 }
 export interface FileChange {
 	path: string;
@@ -501,10 +543,33 @@ export interface GitMergeResult {
  * Messages are composed of parts to support mixed content: text interspersed
  * with tool calls, tool results, and model reasoning/thinking blocks.
  */
-export type MessagePart = TextPart | ToolCallPart | ToolResultPart | ReasoningPart;
 export interface TextPart {
 	type: 'text';
 	content: string;
+}
+export interface PreviewElementAttributes {
+	id?: string;
+	name?: string;
+	alt?: string;
+	title?: string;
+	placeholder?: string;
+	type?: string;
+	href?: string;
+	src?: string;
+}
+export interface PreviewElementReference {
+	tagName: string;
+	primarySelector: string;
+	locatorCandidates: string[];
+	containerSelector?: string;
+	textPreview?: string;
+	accessibleName?: string;
+	role?: string;
+	className?: string;
+	attributes?: PreviewElementAttributes;
+}
+export interface PreviewElementPart extends PreviewElementReference {
+	type: 'preview-element';
 }
 export interface ToolCallPart {
 	type: 'tool-call';
@@ -523,6 +588,8 @@ export interface ReasoningPart {
 	type: 'reasoning';
 	content: string;
 }
+export type UserMessagePart = TextPart | PreviewElementPart;
+export type MessagePart = TextPart | PreviewElementPart | ToolCallPart | ToolResultPart | ReasoningPart;
 
 /**
  * A single message in the AI chat conversation.

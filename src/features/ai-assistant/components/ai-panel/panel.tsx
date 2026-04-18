@@ -54,12 +54,13 @@ import { useFileMention } from '../../hooks/use-file-mention';
 import { useSpeechToText } from '../../hooks/use-speech-to-text';
 import {
 	appendPreviewElementSegment,
+	messagePartsToInputSegments,
 	parseTextToSegments,
+	segmentsToMessageParts,
 	segmentsHaveContent,
 	segmentsToPlainText,
 	type InputSegment,
 } from '../../lib/input-segments';
-import { extractMessageText } from '../../lib/retry-helpers';
 import { AgentModeSelector } from '../agent-mode-selector';
 import { AudioWaveform } from '../audio-waveform';
 import { BouncingDots } from '../bouncing-dots';
@@ -101,7 +102,7 @@ function isQueuedRequestMessage(message: ChatMessage): boolean {
 }
 
 function createOptimisticUserMessage(
-	messageText: string,
+	parts: ChatMessage['parts'],
 	mode: AgentMode,
 	model: AIModelId,
 	state: 'queued' | 'committed',
@@ -111,7 +112,7 @@ function createOptimisticUserMessage(
 	return {
 		id,
 		role: 'user',
-		parts: [{ type: 'text', content: messageText }],
+		parts,
 		createdAt,
 		metadata: {
 			request: {
@@ -461,7 +462,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 			return;
 		}
 
-		const referenceKey = `${nextReference.selector}|${nextReference.tagName}`;
+		const referenceKey = `${nextReference.primarySelector}|${nextReference.tagName}`;
 		if (lastProcessedPreviewElementReferenceKeyReference.current === referenceKey) {
 			return;
 		}
@@ -480,8 +481,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	const submitOptimisticMessage = useCallback(
 		async (entry: OptimisticMessageEntry): Promise<boolean> => {
 			const request = entry.message.metadata?.request;
-			const messageText = extractMessageText(entry.message);
-			if (!request?.mode || !request.model || !messageText) {
+			if (!request?.mode || !request.model || entry.message.parts.length === 0) {
 				setOptimisticMessages((previous) => previous.filter((candidate) => candidate.message.id !== entry.message.id));
 				return false;
 			}
@@ -493,7 +493,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 			try {
 				const result = await agent.call<{ sessionId: string; queued: boolean; started: boolean }>('submitMessage', [
 					projectId,
-					messageText,
+					entry.message.parts,
 					entry.sessionId,
 					request.mode,
 					request.model,
@@ -570,14 +570,16 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	// Submit a new request. The server decides whether it starts immediately or queues.
 	const handleSubmit = useCallback(
 		async (messageOverride?: string) => {
-			const messageText = messageOverride ?? inputPlainText.trim();
-			if (!messageText) return;
+			const knownPaths = new Set(files.map((file) => file.path));
+			const messageSegments = messageOverride ? parseTextToSegments(messageOverride.trim(), knownPaths) : segments;
+			const messageParts = segmentsToMessageParts(messageSegments);
+			if (messageParts.length === 0 || (!messageOverride && !hasContent)) return;
 
 			const resolvedSessionId = sessionId ?? crypto.randomUUID().replaceAll('-', '').slice(0, 16);
 			const optimisticMessageId = crypto.randomUUID();
 			const optimisticCreatedAt = Date.now();
 			const optimisticMessage = createOptimisticUserMessage(
-				messageText,
+				messageParts,
 				agentMode,
 				selectedModel,
 				isProcessing || isStopPending || stopRequested ? 'queued' : 'committed',
@@ -607,7 +609,9 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 			}
 		},
 		[
-			inputPlainText,
+			files,
+			segments,
+			hasContent,
 			isConnected,
 			isProcessing,
 			isStopPending,
@@ -768,7 +772,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 
 			// Extract the user prompt text before removing messages
 			const userMessage = committedMessages[messageIndex];
-			const promptText = userMessage ? extractMessageText(userMessage) : '';
+			const promptSegments = userMessage ? messagePartsToInputSegments(userMessage.parts, new Set(files.map((file) => file.path))) : [];
 
 			try {
 				const result = await revertCascadeAsync(snapshotIds);
@@ -817,9 +821,8 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 				await agent.call('revertSession', [sessionId, messageIndex]);
 
 				// Restore the prompt text into the input, parsing file mentions back into pills
-				if (promptText) {
-					const knownPaths = new Set(files.map((file) => file.path));
-					setSegments(parseTextToSegments(promptText, knownPaths));
+				if (promptSegments.length > 0) {
+					setSegments(promptSegments);
 					requestAnimationFrame(() => {
 						inputReference.current?.focus();
 					});

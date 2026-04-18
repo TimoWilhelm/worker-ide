@@ -4,8 +4,8 @@ import { devtools, persist } from 'zustand/middleware';
 import { DEFAULT_AI_MODEL, DEFAULT_EDITOR_FONT, type AIModelId, type EditorFont } from '@shared/constants';
 import { persistedStoreSchema } from '@shared/validation';
 
-import type { PreviewElementReference } from './preview-element-reference';
 import type {
+	PreviewElementReference,
 	AgentMode,
 	FileInfo,
 	GitBranchInfo,
