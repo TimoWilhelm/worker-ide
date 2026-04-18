@@ -87,6 +87,13 @@ describe('generateSessionTitle', () => {
 		expect(callArguments.messages[0].content).toBe(USER_MESSAGE);
 	});
 
+	it('passes rich references through to generateText()', async () => {
+		mockStructuredResponse('Test Title');
+		await generateSessionTitle('Update [[preview-element:<button>|%23submit]] in @/src/main.ts');
+		const callArguments = mockGenerateText.mock.calls[0][0];
+		expect(callArguments.messages[0].content).toBe('Update [[preview-element:<button>|%23submit]] in @/src/main.ts');
+	});
+
 	it('truncates long user messages to 500 characters', async () => {
 		const longMessage = 'A'.repeat(1000);
 		mockStructuredResponse('Title for Long Message');
@@ -114,5 +121,18 @@ describe('deriveFallbackTitle', () => {
 
 	it('trims whitespace', () => {
 		expect(deriveFallbackTitle('  hello world  ')).toBe('hello world');
+	});
+
+	it('uses filenames for file references in fallback titles', () => {
+		expect(deriveFallbackTitle('Fix [[preview-element:<button>|%23app]] in @/src/app.tsx')).toBe('Fix in app.tsx');
+		expect(deriveFallbackTitle('Compare @/src/app.tsx with @/worker/index.ts')).toBe('Compare app.tsx with index.ts');
+	});
+
+	it('returns the filename when the message only contains a file reference', () => {
+		expect(deriveFallbackTitle('@/src/app.tsx')).toBe('app.tsx');
+	});
+
+	it('returns "New chat" when the message only contains element references', () => {
+		expect(deriveFallbackTitle('[[preview-element:<button>|%23app]]')).toBe('New chat');
 	});
 });

@@ -31,6 +31,7 @@ export function PreviewPanel({
 	className,
 }: PreviewPanelProperties) {
 	const rootReference = useRef<HTMLDivElement>(null);
+	const pickerButtonReference = useRef<HTMLButtonElement>(null);
 	const [isLoading, setIsLoading] = useState(true);
 	const [previewKey, setPreviewKey] = useState(0);
 	const [isPickerActive, setIsPickerActive] = useState(false);
@@ -171,6 +172,10 @@ export function PreviewPanel({
 				return;
 			}
 
+			if (pickerButtonReference.current?.contains(target)) {
+				return;
+			}
+
 			if (rootReference.current?.contains(target) && target !== iframeReference.current) {
 				cancelPicker();
 				return;
@@ -213,6 +218,7 @@ export function PreviewPanel({
 				<div className="flex shrink-0 items-center gap-1">
 					<Tooltip content={pickerActive ? 'Cancel element selection' : 'Send to Agent'}>
 						<Button
+							ref={pickerButtonReference}
 							focusStyle="inset"
 							variant="ghost"
 							size="icon"

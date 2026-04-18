@@ -19,7 +19,8 @@ export function ModelSelectorDropdown({ selectedModel, onSelectModel, disabled }
 			<Menu.Trigger
 				disabled={disabled}
 				render={
-					<span
+					<button
+						type="button"
 						className={cn(
 							`
 								max-w-full min-w-0 cursor-pointer overflow-hidden rounded-full

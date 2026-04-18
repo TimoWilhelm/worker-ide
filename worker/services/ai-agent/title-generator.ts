@@ -5,6 +5,9 @@ const TITLE_MODEL = '@cf/meta/llama-3.1-8b-instruct';
 
 const MAX_TITLE_LENGTH = 100;
 const FALLBACK_TRUNCATION_LENGTH = 50;
+const PREVIEW_ELEMENT_REFERENCE_PATTERN = /\[\[preview-element:(<[\w-]+>)\|([^\]]+)]]/g;
+const FILE_REFERENCE_PATTERN = /@(\/[\w./-]+)/g;
+const TRAILING_FILLER_WORDS_PATTERN = /\b(?:and|for|from|in|of|on|or|to|via|with|within)\s*$/i;
 
 const SYSTEM_PROMPT =
 	'You are a title generator. Read the user message below and respond with a short title (under 10 words) that captures what the user wants to do. Do NOT repeat these instructions. Do NOT describe what you are doing. Just output the title text.';
@@ -24,12 +27,37 @@ export interface SessionTitleResult {
 	isAiGenerated: boolean;
 }
 
+function getFileReferenceLabel(path: string): string {
+	const segments = path.split('/');
+	return segments.at(-1) || path;
+}
+
+function getFallbackTitleSourceText(userMessageText: string): string {
+	let titleSourceText = userMessageText
+		.replaceAll(PREVIEW_ELEMENT_REFERENCE_PATTERN, ' ')
+		.replaceAll(FILE_REFERENCE_PATTERN, (_match, path: string) => ` ${getFileReferenceLabel(path)} `)
+		.replaceAll(/\s+([,.;:!?])/g, '$1')
+		.replaceAll(/\s+/g, ' ')
+		.trim();
+
+	while (TRAILING_FILLER_WORDS_PATTERN.test(titleSourceText)) {
+		titleSourceText = titleSourceText.replace(TRAILING_FILLER_WORDS_PATTERN, '').trim();
+	}
+
+	return titleSourceText;
+}
+
 /**
  * Generate a short title for an AI agent session.
  * Falls back to truncating the user message on failure.
  */
 export async function generateSessionTitle(userMessage: string): Promise<SessionTitleResult> {
+	const fallbackTitleSourceText = getFallbackTitleSourceText(userMessage);
 	const fallback = deriveFallbackTitle(userMessage);
+
+	if (fallbackTitleSourceText.length === 0) {
+		return { title: fallback, isAiGenerated: false };
+	}
 
 	try {
 		const model = createAdapter(TITLE_MODEL);
@@ -53,8 +81,8 @@ export async function generateSessionTitle(userMessage: string): Promise<Session
 		return { title: fallback, isAiGenerated: false };
 	}
 }
-export function deriveFallbackTitle(userMessageText: string): string {
-	const trimmed = userMessageText.trim();
+export function deriveFallbackTitle(userMessageText: string, maxLength = FALLBACK_TRUNCATION_LENGTH): string {
+	const trimmed = getFallbackTitleSourceText(userMessageText);
 	if (trimmed.length === 0) return 'New chat';
-	return trimmed.length > FALLBACK_TRUNCATION_LENGTH ? trimmed.slice(0, FALLBACK_TRUNCATION_LENGTH) + '...' : trimmed;
+	return trimmed.length > maxLength ? trimmed.slice(0, maxLength).trim() + '...' : trimmed;
 }

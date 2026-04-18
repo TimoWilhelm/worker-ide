@@ -53,21 +53,25 @@ export function AgentModeSelector({ mode, onModeChange, disabled }: AgentModeSel
 	return (
 		<DropdownMenu>
 			<DropdownMenuTrigger disabled={disabled}>
-				<Pill
-					size="md"
-					color={config.pillColor}
-					className={cn('max-w-full min-w-0 cursor-pointer overflow-hidden transition-colors', disabled && 'cursor-not-allowed opacity-40')}
-				>
-					<Icon className="size-3 shrink-0" />
-					<span
+				<button type="button" className={cn('max-w-full min-w-0 rounded-full', disabled && 'cursor-not-allowed opacity-40')}>
+					<Pill
+						size="md"
+						color={config.pillColor}
 						className="
-							hidden truncate
-							@xs:inline
+							max-w-full min-w-0 cursor-pointer overflow-hidden transition-colors
 						"
 					>
-						{config.label}
-					</span>
-				</Pill>
+						<Icon className="size-3 shrink-0" />
+						<span
+							className="
+								hidden truncate
+								@xs:inline
+							"
+						>
+							{config.label}
+						</span>
+					</Pill>
+				</button>
 			</DropdownMenuTrigger>
 			<DropdownMenuContent align="start" className="w-56">
 				{MODES.map((modeOption) => {

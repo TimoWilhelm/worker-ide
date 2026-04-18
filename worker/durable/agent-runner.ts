@@ -48,7 +48,7 @@ import { isRequestOriginContext } from '../services/ai-agent/request-origin-cont
 import { cleanupSessionArtifacts, cleanupTimestampPlans } from '../services/ai-agent/session-cleanup';
 import { sessionMessagesToChatMessages } from '../services/ai-agent/session-messages';
 import { readAgentsContext } from '../services/ai-agent/system-prompt-builder';
-import { generateSessionTitle } from '../services/ai-agent/title-generator';
+import { deriveFallbackTitle, generateSessionTitle } from '../services/ai-agent/title-generator';
 import { createAdapter as createWorkersAiAdapter } from '../services/ai-agent/workers-ai';
 
 import type { AgentDatabase } from './db';
@@ -423,7 +423,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		const shouldQueue = isRunActive || stopRequested;
 		const userMessage = this.buildUserMessage(trimmedMessage, mode, model, shouldQueue ? 'queued' : 'committed', messageId, createdAt);
 
-		const promptPreview = trimmedMessage.slice(0, 80) || 'New session';
+		const promptPreview = deriveFallbackTitle(trimmedMessage, 80);
 		this.ensureSessionRecord(resolvedSessionId, promptPreview, model, mode);
 
 		const durableHistory = [...persistedHistory, userMessage];
@@ -483,15 +483,15 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	): Promise<{ sessionId: string }> {
 		const resolvedSessionId = sessionId ?? crypto.randomUUID().replaceAll('-', '').slice(0, 16);
 		const authenticatedUserId = this.getAuthenticatedUserId();
-		const promptPreview =
+		const promptPreview = deriveFallbackTitle(
 			messages
 				.toReversed()
 				.find((message) => message.role === 'user')
 				?.parts.filter((part): part is { type: 'text'; content: string } => part.type === 'text')
 				.map((part) => part.content)
-				.join(' ')
-				.trim()
-				.slice(0, 80) || 'New session';
+				.join(' ') ?? '',
+			80,
+		);
 
 		this.ensureSessionRecord(resolvedSessionId, promptPreview, model, mode);
 		const normalizedMessages = messages.map((message) => {
@@ -850,7 +850,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 				.map((part) => part.content)
 				.join(' ')
 				.trim() ?? '';
-		const promptPreview = lastUserText.slice(0, 80) || 'New session';
+		const promptPreview = deriveFallbackTitle(lastUserText, 80);
 
 		const existing = this.sessionManager.get(sessionId);
 		if (!existing) {
