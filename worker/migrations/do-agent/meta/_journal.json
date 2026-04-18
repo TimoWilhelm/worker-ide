@@ -29,6 +29,13 @@
 			"when": 1776422400000,
 			"tag": "0003_spotty_tin",
 			"breakpoints": true
+		},
+		{
+			"idx": 4,
+			"version": "6",
+			"when": 1776510000000,
+			"tag": "0004_solid_voice",
+			"breakpoints": true
 		}
 	]
 }

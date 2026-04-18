@@ -1,13 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-	applyLegacySessionMessageMetadata,
+	applyPersistedMessageMetadata,
 	clearSnapshotFromMessages,
 	getCommittedMessages,
 	getLastCommittedRequestConfig,
 	getQueuedMessages,
 	mergeQueuedMessages,
 	promoteNextQueuedMessage,
+	serializePersistedMessageMetadata,
 	setSnapshotOnLastCommittedUserMessage,
 } from './session-history';
 
@@ -64,11 +65,28 @@ describe('session-history', () => {
 		expect(mergeQueuedMessages(committedHistory, existingHistory).map((message) => message.id)).toEqual(['m1', 'm2']);
 	});
 
-	it('applies legacy snapshot and mode metadata onto messages', () => {
-		const history = [createUserMessage('m1', 'first', 'committed')];
+	it('round-trips persisted message metadata rows', () => {
+		const history = [
+			{
+				...createUserMessage('m1', 'first', 'committed', 'plan'),
+				metadata: { request: { state: 'committed', mode: 'plan', model: '@cf/moonshotai/kimi-k2.5' }, snapshotId: 'snapshot-1' },
+			},
+			{ id: 'm2', role: 'assistant' as const, parts: [{ type: 'text', content: 'done' }], createdAt: 2 },
+		];
 
-		const hydrated = applyLegacySessionMessageMetadata(history, { 0: 'snapshot-1' }, { 0: 'plan' });
+		const rows = serializePersistedMessageMetadata('session-1', history);
+		expect(rows).toEqual([
+			{
+				sessionId: 'session-1',
+				messageId: 'm1',
+				requestMode: 'plan',
+				requestModel: '@cf/moonshotai/kimi-k2.5',
+				requestState: 'committed',
+				snapshotId: 'snapshot-1',
+			},
+		]);
 
+		const hydrated = applyPersistedMessageMetadata([{ ...history[0], metadata: undefined }, history[1]], rows);
 		expect(hydrated[0]?.metadata?.snapshotId).toBe('snapshot-1');
 		expect(hydrated[0]?.metadata?.request?.mode).toBe('plan');
 	});

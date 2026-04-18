@@ -1,6 +1,6 @@
-import { env } from 'cloudflare:workers';
-
 import { ToolExecutionError } from '@shared/tool-errors';
+
+import { convertHtmlToMarkdown } from './html-to-markdown';
 
 import type { SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
 
@@ -81,16 +81,6 @@ function formatResponseHeaders(headers: Headers): string {
 	}
 	return lines.length > 0 ? lines.join('\n') : '  (none of interest)';
 }
-async function convertHtmlToMarkdown(html: string): Promise<string | undefined> {
-	const blob = new Blob([html], { type: 'text/html' });
-	const results = await env.AI.toMarkdown([{ name: 'page.html', blob }]);
-	const result = results[0];
-	if (!result || result.format === 'error') {
-		return undefined;
-	}
-	return result.data;
-}
-
 export async function execute(
 	input: Record<string, string>,
 	sendEvent: SendEventFunction,

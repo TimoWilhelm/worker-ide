@@ -1082,11 +1082,14 @@ app.all('/p/:projectId/*', async (c) => {
 	// environment causes an ERR_ASSERTION crash in #handleLoopback.
 	if (subPath === '/__agent' || subPath.startsWith('/__agent')) {
 		const agentStub = agentRunnerNamespace.getByName(`agent:${projectId}`);
+		const requestUrl = new URL(c.req.url);
 		const agentUrl = new URL(c.req.url);
 		agentUrl.pathname = '/';
 		const agentHeaders = new Headers(c.req.raw.headers);
 		agentHeaders.set('x-partykit-room', `agent:${projectId}`);
 		agentHeaders.set('x-worker-ide-user-id', userId);
+		agentHeaders.set('x-worker-ide-base-domain', parseHost(requestUrl.host).baseDomain);
+		agentHeaders.set('x-worker-ide-protocol', agentUrl.protocol);
 		return agentStub.fetch(new Request(agentUrl, { ...c.req.raw, headers: agentHeaders }));
 	}
 

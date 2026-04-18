@@ -3,12 +3,21 @@ export type { AgentDatabase } from './client';
 
 export {
 	deletePendingChanges,
+	deleteSessionMessageMetadata,
 	deleteSessionMetadata,
 	readPendingChangesData,
+	readSessionMessageMetadata,
 	readSessionMetadata,
+	replaceSessionMessageMetadata,
 	updateSessionMetadataTitleGenerated,
 	upsertSessionMetadata,
 	writePendingChangesData,
 } from './dal';
 
-export type { PendingChangesRow, SessionMetadataInsert, SessionMetadataRow } from './schema';
+export type {
+	PendingChangesRow,
+	SessionMessageMetadataInsert,
+	SessionMessageMetadataRow,
+	SessionMetadataInsert,
+	SessionMetadataRow,
+} from './schema';

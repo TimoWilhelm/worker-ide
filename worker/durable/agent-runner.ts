@@ -1,11 +1,19 @@
 import { ExtensionManager } from '@cloudflare/think/extensions';
 import { Agent, callable } from 'agents';
 import { SessionManager } from 'agents/experimental/memory/session';
+import { createCompactFunction } from 'agents/experimental/memory/utils';
+import { generateText } from 'ai';
 import { env } from 'cloudflare:workers';
 import { migrate } from 'drizzle-orm/durable-sqlite/migrator';
 import { mount, withMounts } from 'worker-fs-mount';
 
-import { AGENT_SYSTEM_PROMPT, DEFAULT_AI_MODEL, MAX_AI_SESSIONS_PER_PROJECT, getModelConfig } from '@shared/constants';
+import {
+	AGENT_SYSTEM_PROMPT,
+	DEFAULT_AI_MODEL,
+	MAX_AI_SESSIONS_PER_PROJECT,
+	SUMMARIZATION_AI_MODEL,
+	getModelConfig,
+} from '@shared/constants';
 import { pendingChangesFileSchema, sessionTitleSchema } from '@shared/validation';
 
 import {
@@ -17,21 +25,25 @@ import {
 	runSessionSearch,
 } from './agent-runner-helpers';
 import {
-	deleteSessionMetadata,
 	deletePendingChanges,
+	deleteSessionMessageMetadata,
+	deleteSessionMetadata,
 	getDatabase,
 	readPendingChangesData,
+	readSessionMessageMetadata,
 	readSessionMetadata,
+	replaceSessionMessageMetadata,
 	updateSessionMetadataTitleGenerated,
 	upsertSessionMetadata,
 	writePendingChangesData,
 } from './db';
 import {
-	applyLegacySessionMessageMetadata,
+	applyPersistedMessageMetadata,
 	clearSnapshotFromMessages,
 	getCommittedMessages,
 	mergeQueuedMessages,
 	promoteNextQueuedMessage,
+	serializePersistedMessageMetadata,
 	setSnapshotOnLastCommittedUserMessage,
 } from './session-history';
 import { trackAiUsage, trackWebSocketEvent } from '../lib/analytics';
@@ -41,12 +53,15 @@ import migrations from '../migrations/do-agent/migrations.js';
 import { AIAgentService } from '../services/ai-agent';
 import { chatMessagesToModelMessages, estimateMessagesTokens } from '../services/ai-agent/context-pruner';
 import { accumulatePendingChange } from '../services/ai-agent/pending-changes';
+import { isRequestOriginContext } from '../services/ai-agent/request-origin-context';
 import { cleanupSessionArtifacts, cleanupTimestampPlans } from '../services/ai-agent/session-cleanup';
 import { chatMessageToSessionMessage, sessionMessagesToChatMessages } from '../services/ai-agent/session-messages';
 import { readAgentsContext } from '../services/ai-agent/system-prompt-builder';
 import { generateSessionTitle } from '../services/ai-agent/title-generator';
+import { createAdapter as createWorkersAiAdapter } from '../services/ai-agent/workers-ai';
 
 import type { AgentDatabase } from './db';
+import type { RequestOriginContext } from '../services/ai-agent/request-origin-context';
 import type { AgentState, AgentSessionState, FiberSnapshot, SessionSummary, StreamEvent } from '@shared/agent-state';
 import type { AIModelId } from '@shared/constants';
 import type {
@@ -62,44 +77,10 @@ import type {
 import type { SessionInfo } from 'agents/experimental/memory/session';
 
 const AGENT_SESSION_STATUSES: ReadonlySet<string> = new Set(['running', 'completed', 'error', 'aborted']);
+const REQUEST_ORIGIN_CONTEXT_STORAGE_KEY = 'request-origin-context';
+const SESSION_COMPACTION_THRESHOLD = 100_000;
 function isAgentSessionStatus(value: unknown): value is AgentSessionStatus {
 	return typeof value === 'string' && AGENT_SESSION_STATUSES.has(value);
-}
-
-function parsePersistedHistory(value: string): ChatMessage[] | undefined {
-	try {
-		const parsed: unknown = JSON.parse(value);
-		if (!Array.isArray(parsed)) {
-			return undefined;
-		}
-
-		const history: ChatMessage[] = [];
-		for (const entry of parsed) {
-			if (!entry || typeof entry !== 'object' || !('id' in entry) || !('role' in entry) || !('parts' in entry)) {
-				continue;
-			}
-
-			const record = Object.fromEntries(Object.entries(entry));
-			if (typeof record.id !== 'string' || (record.role !== 'user' && record.role !== 'assistant') || !Array.isArray(record.parts)) {
-				continue;
-			}
-
-			history.push({
-				id: record.id,
-				role: record.role,
-				parts: record.parts,
-				createdAt: typeof record.createdAt === 'number' ? record.createdAt : undefined,
-				metadata:
-					record.metadata && typeof record.metadata === 'object' && !Array.isArray(record.metadata)
-						? Object.fromEntries(Object.entries(record.metadata))
-						: undefined,
-			});
-		}
-
-		return history;
-	} catch {
-		return undefined;
-	}
 }
 
 function buildAiSession(sessionInfo: SessionInfo, history: ChatMessage[], metadata: ReturnType<typeof parseSessionMetadata>): AiSession {
@@ -120,9 +101,6 @@ function buildAiSession(sessionInfo: SessionInfo, history: ChatMessage[], metada
 
 function parseSessionMetadata(row: ReturnType<typeof readSessionMetadata>): {
 	titleGenerated?: boolean;
-	historyJson?: ChatMessage[];
-	messageSnapshots?: Record<string, string>;
-	messageModes?: Record<string, AgentMode>;
 	contextTokensUsed?: number;
 	toolMetadata?: Record<string, ToolMetadataInfo>;
 	toolErrors?: Record<string, ToolErrorInfo>;
@@ -134,13 +112,8 @@ function parseSessionMetadata(row: ReturnType<typeof readSessionMetadata>): {
 		return {};
 	}
 
-	const historyJson = row.historyJson ? parsePersistedHistory(row.historyJson) : undefined;
-
 	return {
 		titleGenerated: row.titleGenerated === 1,
-		historyJson,
-		messageSnapshots: row.messageSnapshots ? JSON.parse(row.messageSnapshots) : undefined,
-		messageModes: row.messageModes ? JSON.parse(row.messageModes) : undefined,
 		contextTokensUsed: row.contextTokensUsed ?? undefined,
 		toolMetadata: row.toolMetadata ? JSON.parse(row.toolMetadata) : undefined,
 		toolErrors: row.toolErrors ? JSON.parse(row.toolErrors) : undefined,
@@ -187,6 +160,19 @@ export class AgentRunner extends Agent<Env, AgentState> {
 			description: 'Important facts about this project learned across sessions.',
 			maxTokens: 2000,
 		})
+		.onCompaction(
+			createCompactFunction({
+				summarize: async (prompt) => {
+					const { text } = await generateText({
+						model: createWorkersAiAdapter(SUMMARIZATION_AI_MODEL),
+						prompt,
+						maxOutputTokens: 4096,
+					});
+					return text;
+				},
+			}),
+		)
+		.compactAfter(SESSION_COMPACTION_THRESHOLD)
 		.withCachedPrompt()
 		.withSearchableHistory('history');
 
@@ -213,6 +199,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	private subAgentDeltaFlushTimers = new Map<string, ReturnType<typeof setTimeout>>();
 	private sessionInitiatorUserIds = new Map<string, string>();
 	private connectionUserIds = new Map<string, string>();
+	private requestOriginContext?: RequestOriginContext;
 	private sessionAnalytics = new Map<
 		string,
 		{ inputTokens: number; outputTokens: number; durationMs: number; toolCallCount: number; turnNumber: number }
@@ -256,8 +243,13 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	async onConnect(connection: import('agents').Connection<unknown>, context: import('agents').ConnectionContext): Promise<void> {
 		await super.onConnect(connection, context);
 		const userId = context.request?.headers.get('x-worker-ide-user-id');
+		const baseDomain = context.request?.headers.get('x-worker-ide-base-domain');
+		const protocol = context.request?.headers.get('x-worker-ide-protocol');
 		if (userId) {
 			this.connectionUserIds.set(connection.id, userId);
+		}
+		if (baseDomain && protocol) {
+			this.persistRequestOriginContext({ baseDomain, protocol });
 		}
 
 		trackWebSocketEvent({
@@ -294,6 +286,11 @@ export class AgentRunner extends Agent<Env, AgentState> {
 			return userId;
 		}
 		return undefined;
+	}
+
+	private persistRequestOriginContext(context: RequestOriginContext): void {
+		this.requestOriginContext = context;
+		this.ctx.storage.kv.put(REQUEST_ORIGIN_CONTEXT_STORAGE_KEY, context);
 	}
 
 	// =========================================================================
@@ -343,6 +340,8 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		this.db = getDatabase(this.ctx.storage);
 		await migrate(this.db, migrations);
 		this.extensionManager = await restoreExtensionManager(env.LOADER, this.ctx.storage);
+		const persistedRequestOriginContext = this.ctx.storage.kv.get<RequestOriginContext>(REQUEST_ORIGIN_CONTEXT_STORAGE_KEY);
+		this.requestOriginContext = isRequestOriginContext(persistedRequestOriginContext) ? persistedRequestOriginContext : undefined;
 		await this.refreshSessionsList();
 		for (const sessionInfo of this.sessionManager.list()) {
 			const session = this.readSessionAsAiSession(sessionInfo.id);
@@ -480,7 +479,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		this.ensureSessionRecord(resolvedSessionId, promptPreview, model, mode);
 
 		const durableHistory = [...persistedHistory, userMessage];
-		this.persistSessionHistory(resolvedSessionId, durableHistory, stopRequested);
+		await this.persistSessionHistory(resolvedSessionId, durableHistory, stopRequested);
 
 		if (shouldQueue) {
 			this.updateSessionState(resolvedSessionId, {
@@ -516,7 +515,9 @@ export class AgentRunner extends Agent<Env, AgentState> {
 			return { removed: false };
 		}
 
-		this.persistSessionHistory(sessionId, nextHistory, session.stopRequested);
+		this.sessionManager.deleteMessages(sessionId, [messageId]);
+		deleteSessionMessageMetadata(this.db, sessionId, [messageId]);
+		this.writeSessionMetadata(sessionId, { stopRequested: session.stopRequested });
 		if (this.state.currentSession?.sessionId === sessionId) {
 			this.updateSessionState(sessionId, { messages: nextHistory, stopRequested: session.stopRequested ?? false });
 		}
@@ -565,7 +566,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 			return normalizedMessage;
 		});
 
-		this.persistSessionHistory(resolvedSessionId, normalizedMessages, false);
+		await this.persistSessionHistory(resolvedSessionId, normalizedMessages, false);
 		return this.startAgentRun(projectId, getCommittedMessages(normalizedMessages), mode, model, resolvedSessionId, authenticatedUserId);
 	}
 
@@ -577,7 +578,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 				return;
 			}
 
-			this.persistSessionHistory(sessionId, session.history, true);
+			await this.persistSessionHistory(sessionId, session.history, true);
 			this.updateSessionState(sessionId, {
 				stopRequested: true,
 				statusText: 'Stopping...',
@@ -598,7 +599,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		for (const [runningSessionId, controller] of this.abortControllers.entries()) {
 			const session = this.readSessionAsAiSession(runningSessionId);
 			if (session) {
-				this.persistSessionHistory(runningSessionId, session.history, true);
+				await this.persistSessionHistory(runningSessionId, session.history, true);
 				this.updateSessionState(runningSessionId, {
 					stopRequested: true,
 					statusText: 'Stopping...',
@@ -678,17 +679,18 @@ export class AgentRunner extends Agent<Env, AgentState> {
 
 	@callable()
 	async searchSessions(query: string, limit = 20): Promise<Array<{ sessionId: string; role: string; content: string }>> {
-		return runSessionSearch(
-			query,
-			limit,
-			(trimmedQuery, resolvedLimit) =>
-				this.sql<{ sessionId: string; role: string; content: string }>`
-				SELECT session_id as sessionId, role, content
-				FROM assistant_fts
-				WHERE assistant_fts MATCH ${trimmedQuery}
-				LIMIT ${resolvedLimit}
-			`,
-		);
+		return runSessionSearch(query, limit, async (trimmedQuery, resolvedLimit) => {
+			const matches = this.sessionManager.search(trimmedQuery, { limit: resolvedLimit });
+			const results: Array<{ sessionId: string; role: string; content: string }> = [];
+			for (const match of matches) {
+				const sessionId = this.lookupSessionIdForMessage(match.id);
+				if (!sessionId) {
+					continue;
+				}
+				results.push({ sessionId, role: match.role, content: match.content });
+			}
+			return results;
+		});
 	}
 	@callable()
 	async revertSession(sessionId: string, messageIndex: number): Promise<{ contextTokensUsed: number }> {
@@ -717,22 +719,19 @@ export class AgentRunner extends Agent<Env, AgentState> {
 
 		const forkedSession = await this.sessionManager.fork(sessionId, targetMessage.id, `${sourceSession.name} (fork)`);
 		const sourceAiSession = this.readSessionAsAiSession(sessionId);
+		const sourceMetadataByMessageId = new Map(sourceAiSession?.history.map((message) => [message.id, message.metadata]));
 		const forkedHistory = sessionMessagesToChatMessages(this.sessionManager.getHistory(forkedSession.id));
-		const truncatedHistory = forkedHistory.map((message, index) => ({
+		const truncatedHistory = forkedHistory.map((message) => ({
 			...message,
-			metadata: sourceAiSession?.history[index]?.metadata,
+			metadata: sourceMetadataByMessageId.get(message.id),
 		}));
 		const sourceMetadata = parseSessionMetadata(readSessionMetadata(this.db, sessionId));
-		const prunedSnapshots = this.pruneMetadata(sourceMetadata.messageSnapshots, messageIndex);
-		const prunedModes = this.pruneMetadata(sourceMetadata.messageModes, messageIndex);
 		const modelMessages = chatMessagesToModelMessages(truncatedHistory);
 		const contextTokensUsed = estimateMessagesTokens(modelMessages);
+		replaceSessionMessageMetadata(this.db, forkedSession.id, serializePersistedMessageMetadata(forkedSession.id, truncatedHistory));
 		upsertSessionMetadata(this.db, {
 			id: forkedSession.id,
 			titleGenerated: sourceMetadata.titleGenerated ? 1 : 0,
-			historyJson: JSON.stringify(truncatedHistory),
-			messageSnapshots: prunedSnapshots ? JSON.stringify(prunedSnapshots) : undefined,
-			messageModes: prunedModes ? JSON.stringify(prunedModes) : undefined,
 			contextTokensUsed: contextTokensUsed > 0 ? contextTokensUsed : undefined,
 			toolMetadata: undefined,
 			toolErrors: undefined,
@@ -743,7 +742,11 @@ export class AgentRunner extends Agent<Env, AgentState> {
 
 		// Filter pending changes: keep entries from other sessions, or from this
 		// session only if their snapshotId survives the truncation.
-		const survivingSnapshotIds = new Set(Object.values(prunedSnapshots ?? {}));
+		const survivingSnapshotIds = new Set(
+			truncatedHistory
+				.map((message) => message.metadata?.snapshotId)
+				.filter((snapshotId): snapshotId is string => typeof snapshotId === 'string'),
+		);
 		const globalChanges = this.loadPendingChangesFromDatabase();
 		const filteredChanges: Record<string, PendingFileChange> = {};
 		for (const [path, change] of Object.entries(globalChanges)) {
@@ -908,11 +911,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		if (!existing) {
 			this.ensureSessionRecord(sessionId, promptPreview, parameters.model, parameters.mode);
 		}
-		this.sessionManager.clearMessages(sessionId);
-		await this.sessionManager.appendAll(
-			sessionId,
-			parameters.messages.map((message) => chatMessageToSessionMessage(message)),
-		);
+		await this.replaceSessionHistory(sessionId, parameters.messages);
 
 		// Fire title generation independently
 		if (lastUserText.length > 0 && !parseSessionMetadata(readSessionMetadata(this.db, sessionId)).titleGenerated) {
@@ -995,6 +994,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 				env.LOADER,
 				env.BROWSER,
 				this,
+				this.requestOriginContext,
 				parameters._fiberSnapshot,
 			);
 
@@ -1561,26 +1561,18 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		const existing = parseSessionMetadata(readSessionMetadata(this.db, sessionId));
 		const toolMetadata = { ...existing.toolMetadata, ...sessionData.toolMetadata };
 		const toolErrors = { ...existing.toolErrors, ...sessionData.toolErrors };
-		const mergedHistory = mergeQueuedMessages(sessionData.history, existing.historyJson ?? []);
+		const mergedHistory = mergeQueuedMessages(sessionData.history, this.getSessionHistory(sessionId));
 
-		this.sessionManager.clearMessages(sessionId);
-		await this.sessionManager.appendAll(
-			sessionId,
-			sessionData.history.map((message) => chatMessageToSessionMessage(message)),
-		);
+		await this.replaceSessionHistory(sessionId, mergedHistory);
 
-		upsertSessionMetadata(this.db, {
-			id: sessionId,
-			titleGenerated: existing.titleGenerated ? 1 : 0,
-			historyJson: JSON.stringify(mergedHistory),
-			messageSnapshots: existing.messageSnapshots ? JSON.stringify(existing.messageSnapshots) : undefined,
-			messageModes: existing.messageModes ? JSON.stringify(existing.messageModes) : undefined,
+		this.writeSessionMetadata(sessionId, {
+			titleGenerated: existing.titleGenerated,
 			contextTokensUsed: sessionData.contextTokensUsed,
-			toolMetadata: Object.keys(toolMetadata).length > 0 ? JSON.stringify(toolMetadata) : undefined,
-			toolErrors: Object.keys(toolErrors).length > 0 ? JSON.stringify(toolErrors) : undefined,
+			toolMetadata: Object.keys(toolMetadata).length > 0 ? toolMetadata : undefined,
+			toolErrors: Object.keys(toolErrors).length > 0 ? toolErrors : undefined,
 			status: sessionData.error ? 'error' : existing.status,
 			errorMessage: sessionData.error?.message ?? existing.errorMessage,
-			stopRequested: existing.stopRequested ? 1 : 0,
+			stopRequested: existing.stopRequested,
 		});
 
 		// Merge pending changes using dedup logic that preserves the original
@@ -1727,25 +1719,18 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		if (!sessionInfo) return undefined;
 		const metadata = parseSessionMetadata(readSessionMetadata(this.db, sessionId));
 		const sessionHistory = sessionMessagesToChatMessages(this.sessionManager.getHistory(sessionId));
-		const history =
-			metadata.historyJson || applyLegacySessionMessageMetadata(sessionHistory, metadata.messageSnapshots, metadata.messageModes);
+		const persistedMessageMetadata = readSessionMessageMetadata(this.db, sessionId);
+		const history = applyPersistedMessageMetadata(sessionHistory, persistedMessageMetadata);
 		return buildAiSession(sessionInfo, history, metadata);
 	}
 
-	private writeSessionMetadata(
-		sessionId: string,
-		patch: Partial<ReturnType<typeof parseSessionMetadata>> & { history?: ChatMessage[] },
-	): void {
+	private writeSessionMetadata(sessionId: string, patch: Partial<ReturnType<typeof parseSessionMetadata>>): void {
 		const existing = parseSessionMetadata(readSessionMetadata(this.db, sessionId));
-		const history = patch.history ?? existing.historyJson;
 		const toolMetadata = patch.toolMetadata ?? existing.toolMetadata;
 		const toolErrors = patch.toolErrors ?? existing.toolErrors;
 		upsertSessionMetadata(this.db, {
 			id: sessionId,
-			titleGenerated: existing.titleGenerated ? 1 : 0,
-			historyJson: history ? JSON.stringify(history) : undefined,
-			messageSnapshots: existing.messageSnapshots ? JSON.stringify(existing.messageSnapshots) : undefined,
-			messageModes: existing.messageModes ? JSON.stringify(existing.messageModes) : undefined,
+			titleGenerated: (patch.titleGenerated ?? existing.titleGenerated) ? 1 : 0,
 			contextTokensUsed: patch.contextTokensUsed ?? existing.contextTokensUsed,
 			toolMetadata: toolMetadata ? JSON.stringify(toolMetadata) : undefined,
 			toolErrors: toolErrors ? JSON.stringify(toolErrors) : undefined,
@@ -1782,8 +1767,28 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		return this.readSessionAsAiSession(sessionId)?.history ?? [];
 	}
 
-	private persistSessionHistory(sessionId: string, history: ChatMessage[], stopRequested?: boolean): void {
-		this.writeSessionMetadata(sessionId, { history, stopRequested });
+	private async replaceSessionHistory(sessionId: string, history: ChatMessage[]): Promise<void> {
+		this.sessionManager.clearMessages(sessionId);
+		await this.sessionManager.appendAll(
+			sessionId,
+			history.map((message) => chatMessageToSessionMessage(message)),
+		);
+		replaceSessionMessageMetadata(this.db, sessionId, serializePersistedMessageMetadata(sessionId, history));
+	}
+
+	private async persistSessionHistory(sessionId: string, history: ChatMessage[], stopRequested?: boolean): Promise<void> {
+		await this.replaceSessionHistory(sessionId, history);
+		this.writeSessionMetadata(sessionId, { stopRequested });
+	}
+
+	private lookupSessionIdForMessage(messageId: string): string | undefined {
+		const row = this.sql<{ sessionId: string }>`
+			SELECT session_id as sessionId
+			FROM assistant_messages
+			WHERE id = ${messageId}
+			LIMIT 1
+		`[0];
+		return row?.sessionId;
 	}
 
 	private async maybeStartNextQueuedRun(projectId: string, sessionId: string, initiatorUserId: string | undefined): Promise<boolean> {
@@ -1794,7 +1799,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 
 		const { history, promotedMessage } = promoteNextQueuedMessage(session.history);
 		if (!promotedMessage) {
-			this.persistSessionHistory(sessionId, session.history, false);
+			await this.persistSessionHistory(sessionId, session.history, false);
 			return false;
 		}
 
@@ -1803,7 +1808,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		const model = request?.model ?? DEFAULT_AI_MODEL;
 		const committedMessages = getCommittedMessages(history);
 
-		this.persistSessionHistory(sessionId, history, false);
+		await this.persistSessionHistory(sessionId, history, false);
 		await this.startAgentRun(projectId, committedMessages, mode, model, sessionId, initiatorUserId);
 		return true;
 	}
@@ -1869,17 +1874,6 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		} catch {
 			// Push service binding may not be available in dev
 		}
-	}
-
-	private pruneMetadata<T>(metadata: Record<string, T> | undefined, messageIndex: number): Record<string, T> | undefined {
-		if (!metadata) return undefined;
-		const pruned: Record<string, T> = {};
-		for (const [key, value] of Object.entries(metadata)) {
-			if (Number(key) < messageIndex) {
-				pruned[key] = value;
-			}
-		}
-		return Object.keys(pruned).length > 0 ? pruned : undefined;
 	}
 
 	private ensureSessionRecord(sessionId: string, title: string, model?: AIModelId, source?: AgentMode): void {

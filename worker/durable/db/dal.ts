@@ -1,9 +1,9 @@
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 
-import { pendingChanges, sessionMetadata } from './schema';
+import { pendingChanges, sessionMessageMetadata, sessionMetadata } from './schema';
 
 import type { AgentDatabase } from './client';
-import type { SessionMetadataInsert, SessionMetadataRow } from './schema';
+import type { SessionMessageMetadataInsert, SessionMessageMetadataRow, SessionMetadataInsert, SessionMetadataRow } from './schema';
 
 /* eslint-disable unicorn/no-null -- SQL nullable columns are persisted as NULL */
 function toSqlNullable<T>(value: T | undefined): T | null {
@@ -24,9 +24,6 @@ export function upsertSessionMetadata(database: AgentDatabase, data: SessionMeta
 			target: sessionMetadata.id,
 			set: {
 				titleGenerated: data.titleGenerated,
-				historyJson: toSqlNullable(data.historyJson),
-				messageSnapshots: toSqlNullable(data.messageSnapshots),
-				messageModes: toSqlNullable(data.messageModes),
 				contextTokensUsed: toSqlNullable(data.contextTokensUsed),
 				toolMetadata: toSqlNullable(data.toolMetadata),
 				toolErrors: toSqlNullable(data.toolErrors),
@@ -50,7 +47,33 @@ export function updateSessionMetadataTitleGenerated(database: AgentDatabase, ses
 }
 
 export function deleteSessionMetadata(database: AgentDatabase, sessionId: string): void {
+	database.delete(sessionMessageMetadata).where(eq(sessionMessageMetadata.sessionId, sessionId)).run();
 	database.delete(sessionMetadata).where(eq(sessionMetadata.id, sessionId)).run();
+}
+
+export function readSessionMessageMetadata(database: AgentDatabase, sessionId: string): SessionMessageMetadataRow[] {
+	return database.select().from(sessionMessageMetadata).where(eq(sessionMessageMetadata.sessionId, sessionId)).all();
+}
+
+export function replaceSessionMessageMetadata(database: AgentDatabase, sessionId: string, rows: SessionMessageMetadataInsert[]): void {
+	database.delete(sessionMessageMetadata).where(eq(sessionMessageMetadata.sessionId, sessionId)).run();
+	if (rows.length === 0) {
+		return;
+	}
+	database.insert(sessionMessageMetadata).values(rows).run();
+}
+
+export function deleteSessionMessageMetadata(database: AgentDatabase, sessionId: string, messageIds?: string[]): void {
+	if (!messageIds || messageIds.length === 0) {
+		database.delete(sessionMessageMetadata).where(eq(sessionMessageMetadata.sessionId, sessionId)).run();
+		return;
+	}
+	for (const messageId of messageIds) {
+		database
+			.delete(sessionMessageMetadata)
+			.where(and(eq(sessionMessageMetadata.sessionId, sessionId), eq(sessionMessageMetadata.messageId, messageId)))
+			.run();
+	}
 }
 
 export function readPendingChangesData(database: AgentDatabase): string {

@@ -67,8 +67,6 @@ interface AIState {
 	aiError: AIError | undefined;
 	sessionId: string | undefined;
 	savedSessions: Array<{ id: string; title: string; createdAt: number; isRunning: boolean }>;
-	messageSnapshots: Map<number, string>;
-	messageModes: Map<number, AgentMode>;
 	agentMode: AgentMode;
 	selectedModel: AIModelId;
 	debugLogId: string | undefined;
@@ -84,19 +82,6 @@ interface AIActions {
 	setAiError: (error: AIError | undefined) => void;
 	setSessionId: (id: string | undefined) => void;
 	setSavedSessions: (sessions: Array<{ id: string; title: string; createdAt: number; isRunning: boolean }>) => void;
-	loadSession: (
-		history: ChatMessage[],
-		sessionId: string,
-		messageSnapshots?: Map<number, string>,
-		contextTokensUsed?: number,
-		messageModes?: Map<number, AgentMode>,
-		error?: AIError,
-	) => void;
-	setMessageSnapshot: (messageIndex: number, snapshotId: string) => void;
-	clearMessageSnapshot: (snapshotId: string) => void;
-	setMessageMode: (messageIndex: number, mode: AgentMode) => void;
-	removeMessagesAfter: (index: number) => void;
-	removeMessagesFrom: (index: number, contextTokensUsed?: number) => void;
 	setAgentMode: (mode: AgentMode) => void;
 	setSelectedModel: (model: AIModelId) => void;
 	setDebugLogId: (id: string | undefined) => void;
@@ -401,8 +386,6 @@ export const useStore = create<StoreState>()(
 				aiError: undefined,
 				sessionId: undefined,
 				savedSessions: [],
-				messageSnapshots: new Map(),
-				messageModes: new Map(),
 				agentMode: 'code',
 				selectedModel: DEFAULT_AI_MODEL,
 				debugLogId: undefined,
@@ -418,8 +401,6 @@ export const useStore = create<StoreState>()(
 					set({
 						history: [],
 						sessionId: undefined,
-						messageSnapshots: new Map(),
-						messageModes: new Map(),
 						aiError: undefined,
 						debugLogId: undefined,
 						contextTokensUsed: 0,
@@ -434,63 +415,6 @@ export const useStore = create<StoreState>()(
 				setSessionId: (id) => set({ sessionId: id }),
 
 				setSavedSessions: (sessions) => set({ savedSessions: sessions }),
-
-				loadSession: (history, sessionId, messageSnapshots, contextTokensUsed, messageModes, error) =>
-					set({
-						history,
-						sessionId,
-						messageSnapshots: messageSnapshots ?? new Map(),
-						messageModes: messageModes ?? new Map(),
-						aiError: error,
-						debugLogId: undefined,
-						contextTokensUsed: contextTokensUsed ?? 0,
-					}),
-
-				setMessageSnapshot: (messageIndex, snapshotId) =>
-					set((state) => {
-						const newMap = new Map(state.messageSnapshots);
-						newMap.set(messageIndex, snapshotId);
-						return { messageSnapshots: newMap };
-					}),
-
-				clearMessageSnapshot: (snapshotId) =>
-					set((state) => {
-						const newMap = new Map(state.messageSnapshots);
-						for (const [key, value] of newMap) {
-							if (value === snapshotId) {
-								newMap.delete(key);
-							}
-						}
-						return { messageSnapshots: newMap };
-					}),
-
-				setMessageMode: (messageIndex, mode) =>
-					set((state) => {
-						const newMap = new Map(state.messageModes);
-						newMap.set(messageIndex, mode);
-						return { messageModes: newMap };
-					}),
-
-				removeMessagesAfter: (index) =>
-					set((state) => {
-						const newSnapshots = new Map<number, string>();
-						for (const [key, value] of state.messageSnapshots) {
-							if (key <= index) {
-								newSnapshots.set(key, value);
-							}
-						}
-						const newModes = new Map<number, AgentMode>();
-						for (const [key, value] of state.messageModes) {
-							if (key <= index) {
-								newModes.set(key, value);
-							}
-						}
-						return {
-							history: state.history.slice(0, index + 1),
-							messageSnapshots: newSnapshots,
-							messageModes: newModes,
-						};
-					}),
 				setAgentMode: (mode) => set({ agentMode: mode }),
 
 				setSelectedModel: (model) => set({ selectedModel: model }),
@@ -498,28 +422,6 @@ export const useStore = create<StoreState>()(
 				setDebugLogId: (id) => set({ debugLogId: id }),
 
 				setContextTokensUsed: (tokens) => set({ contextTokensUsed: tokens }),
-
-				removeMessagesFrom: (index, contextTokensUsed) =>
-					set((state) => {
-						const newSnapshots = new Map<number, string>();
-						for (const [key, value] of state.messageSnapshots) {
-							if (key < index) {
-								newSnapshots.set(key, value);
-							}
-						}
-						const newModes = new Map<number, AgentMode>();
-						for (const [key, value] of state.messageModes) {
-							if (key < index) {
-								newModes.set(key, value);
-							}
-						}
-						return {
-							history: state.history.slice(0, index),
-							messageSnapshots: newSnapshots,
-							messageModes: newModes,
-							contextTokensUsed: contextTokensUsed ?? 0,
-						};
-					}),
 
 				addRunningSession: (sessionId) =>
 					set((state) => {

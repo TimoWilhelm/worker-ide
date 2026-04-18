@@ -1,3 +1,4 @@
+import type { RequestOriginContext } from './request-origin-context';
 import type { ProjectFilesystem } from '../../durable/project-filesystem';
 import type { ExtensionManager } from '@cloudflare/think/extensions';
 import type { FiberSnapshot, StreamEvent } from '@shared/agent-state';
@@ -93,6 +94,7 @@ export interface ToolExecutorContext {
 	extensionManager?: ExtensionManager;
 	fsStub: DurableObjectStub<ProjectFilesystem>;
 	model: AIModelId;
+	requestOriginContext?: RequestOriginContext;
 }
 
 export interface SessionPersistData {

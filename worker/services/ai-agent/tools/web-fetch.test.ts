@@ -76,7 +76,7 @@ describe('web_fetch', () => {
 			createMockContext(),
 		);
 
-		expect(result.metadata).toHaveProperty('url', 'https://example.com');
+		expect(result.metadata).toHaveProperty('url', 'https://example.com/');
 		expect(result.output).toBeDefined();
 		expect(result.metadata).toHaveProperty('contentLength');
 		expect(mockFetch).toHaveBeenCalledOnce();
@@ -96,6 +96,47 @@ describe('web_fetch', () => {
 		await expect(
 			execute({ url: 'ftp://example.com/file', prompt: 'Get info' }, createMockSendEvent(), createMockContext()),
 		).rejects.toThrow('Only http:// and https://');
+	});
+
+	it('rejects credentialed URLs', async () => {
+		await expect(
+			execute({ url: 'https://user:pass@example.com', prompt: 'Get info' }, createMockSendEvent(), createMockContext()),
+		).rejects.toThrow('Credentialed URLs');
+	});
+
+	it('rejects localhost targets', async () => {
+		await expect(execute({ url: 'http://localhost:8787', prompt: 'Get info' }, createMockSendEvent(), createMockContext())).rejects.toThrow(
+			'Blocked target host',
+		);
+	});
+
+	it('follows safe redirects', async () => {
+		mockFetch
+			.mockResolvedValueOnce(
+				new Response('', {
+					status: 302,
+					headers: { location: 'https://example.com/final' },
+				}),
+			)
+			.mockResolvedValueOnce(makeResponse('# Final destination', { contentType: 'text/markdown' }));
+
+		const result = await execute({ url: 'https://example.com/start', prompt: 'Summarize' }, createMockSendEvent(), createMockContext());
+
+		expect(result.metadata).toHaveProperty('url', 'https://example.com/final');
+		expect(mockFetch).toHaveBeenCalledTimes(2);
+	});
+
+	it('rejects redirects to blocked targets', async () => {
+		mockFetch.mockResolvedValueOnce(
+			new Response('', {
+				status: 302,
+				headers: { location: 'http://127.0.0.1:8787/private' },
+			}),
+		);
+
+		await expect(
+			execute({ url: 'https://example.com/start', prompt: 'Summarize' }, createMockSendEvent(), createMockContext()),
+		).rejects.toThrow('Blocked target host');
 	});
 
 	// ── HTTP errors ───────────────────────────────────────────────────────

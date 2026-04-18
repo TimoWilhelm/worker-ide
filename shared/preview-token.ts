@@ -73,6 +73,10 @@ export async function constantTimeEqual(a: string, b: string): Promise<boolean> 
  */
 export async function generatePreviewToken(projectId: string, secret: string): Promise<string> {
 	const bucket = currentBucket();
+	return generatePreviewTokenForBucket(projectId, secret, bucket);
+}
+
+export async function generatePreviewTokenForBucket(projectId: string, secret: string, bucket: number): Promise<string> {
 	const mac = await hmacHex(secret, `${projectId}:${bucket}`);
 	return mac.slice(0, TOKEN_HEX_LENGTH);
 }

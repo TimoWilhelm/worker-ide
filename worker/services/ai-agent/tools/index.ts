@@ -1,4 +1,5 @@
 import { jsonSchema } from 'ai';
+import { env } from 'cloudflare:workers';
 
 import { ToolExecutionError } from '@shared/tool-errors';
 
@@ -22,6 +23,7 @@ import * as filesListTool from './files-list';
 import * as imageGenerateTool from './image-generate';
 import * as lintCheckTool from './lint-check';
 import * as lintFixTool from './lint-fix';
+import { buildAllowedPreviewOrigins } from './network-policy';
 import * as planUpdateTool from './plan-update';
 import * as previewFetchTool from './preview-fetch';
 import * as subAgentTool from './sub-agent';
@@ -30,6 +32,7 @@ import * as todosGetTool from './todos-get';
 import * as todosUpdateTool from './todos-update';
 import * as userQuestionTool from './user-question';
 import * as webFetchTool from './web-fetch';
+import { DEV_PREVIEW_SECRET } from '../../../lib/preview-secret';
 import { sanitizeToolInput, summarizeToolResult } from '../agent-logger';
 
 import type { AgentLogger } from '../agent-logger';
@@ -370,22 +373,95 @@ export async function createServerTools(
 			tools: codeTools,
 			loader: context.loader,
 			timeout: 30_000,
+			// eslint-disable-next-line unicorn/no-null -- Think's execute tool uses null to fully disable sandbox outbound network access
+			globalOutbound: null,
 		});
 	}
 
 	if (context.loader && context.browser) {
 		const { createBrowserTools } = await import('@cloudflare/think/tools/browser');
-		Object.assign(
-			tools,
-			createBrowserTools({
-				browser: context.browser,
-				loader: context.loader,
-				timeout: 30_000,
-			}),
-		);
+		const browserTools = createBrowserTools({
+			browser: context.browser,
+			loader: context.loader,
+			timeout: 30_000,
+		});
+
+		tools.browser_search = browserTools.browser_search;
+
+		if (mode === 'code' && context.requestOriginContext) {
+			const secret = import.meta.env.DEV ? env.PREVIEW_SECRET || DEV_PREVIEW_SECRET : env.PREVIEW_SECRET;
+			const allowedPreviewOrigins = await buildAllowedPreviewOrigins(context.projectId, context.requestOriginContext, secret);
+			const primaryPreviewOrigin = allowedPreviewOrigins[0];
+			const browserExecute = browserTools.browser_execute;
+			tools.browser_execute = {
+				...browserExecute,
+				execute: async (input: { code: string }) => {
+					if (!primaryPreviewOrigin) {
+						throw new ToolExecutionError('NOT_ALLOWED', 'browser_execute is unavailable until the project preview origin is known.');
+					}
+					if (typeof browserExecute.execute !== 'function') {
+						throw new ToolExecutionError('NOT_ALLOWED', 'browser_execute is unavailable in the current browser tool configuration.');
+					}
+
+					return Reflect.apply(browserExecute.execute, browserExecute, [
+						{
+							code: wrapBrowserExecuteCode(input.code, primaryPreviewOrigin, allowedPreviewOrigins),
+						},
+						undefined,
+					]);
+				},
+			};
+		}
 	}
 
 	return tools;
+}
+
+function wrapBrowserExecuteCode(code: string, primaryPreviewOrigin: string, allowedPreviewOrigins: string[]): string {
+	const allowedOriginsJson = JSON.stringify(allowedPreviewOrigins);
+	const primaryOriginJson = JSON.stringify(primaryPreviewOrigin);
+	return `async () => {
+  const __allowedOrigins = new Set(${allowedOriginsJson});
+  const __primaryOrigin = ${primaryOriginJson};
+  const __normalizeUrl = (value) => {
+    if (typeof value !== "string") {
+      throw new Error("browser_execute navigation URLs must be strings.");
+    }
+    if (value === "about:blank") {
+      return value;
+    }
+    if (value.startsWith("/") || value.startsWith("?") || value.startsWith("#")) {
+      return new URL(value, __primaryOrigin).toString();
+    }
+    return value;
+  };
+  const __assertAllowedTarget = (value) => {
+    const normalized = __normalizeUrl(value);
+    if (normalized === "about:blank") {
+      return normalized;
+    }
+    const parsed = new URL(normalized);
+			if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+				throw new Error("browser_execute only supports http:// and https:// preview URLs.");
+			}
+			if (!__allowedOrigins.has(parsed.origin)) {
+				throw new Error("browser_execute may only navigate to this project's preview origin. Allowed origins: ${allowedPreviewOrigins.join(', ')}");
+			}
+    return parsed.toString();
+  };
+  const __originalSend = cdp.send.bind(cdp);
+  cdp.send = async (method, params, options) => {
+    if ((method === "Target.createTarget" || method === "Page.navigate") && params && typeof params === "object" && "url" in params) {
+      params = { ...params, url: __assertAllowedTarget(params.url) };
+    }
+    return __originalSend(method, params, options);
+  };
+  const __userFunction = (${code});
+  if (typeof __userFunction !== "function") {
+    throw new Error("browser_execute expects an async arrow function.");
+  }
+  return await __userFunction();
+}`;
 }
 
 export { createSendEventFunction as createSendEvent } from '../event-helpers';

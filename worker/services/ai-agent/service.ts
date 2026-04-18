@@ -43,6 +43,7 @@ import { parseApiError } from './utilities';
 import { createAdapter as createWorkersAiAdapter } from './workers-ai';
 import { coordinatorNamespace } from '../../lib/durable-object-namespaces';
 
+import type { RequestOriginContext } from './request-origin-context';
 import type { SnapshotContext } from './snapshot-manager';
 import type {
 	FileChange,
@@ -109,6 +110,7 @@ export class AIAgentService {
 		private loader?: WorkerLoader,
 		private browser?: Fetcher,
 		private agentReference?: import('agents').Agent<Env, unknown>,
+		private requestOriginContext?: RequestOriginContext,
 		private fiberSnapshot?: FiberSnapshot,
 	) {}
 
@@ -310,6 +312,7 @@ export class AIAgentService {
 				fsStub: this.fsStub,
 				model: this.model,
 				isSubAgent: this.isSubAgent,
+				requestOriginContext: this.requestOriginContext,
 			};
 
 			// Mutable copy of messages for the agent loop

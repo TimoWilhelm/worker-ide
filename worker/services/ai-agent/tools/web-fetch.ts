@@ -1,9 +1,10 @@
 import { generateText, jsonSchema, Output } from 'ai';
-import { env } from 'cloudflare:workers';
 
 import { SUMMARIZATION_AI_MODEL } from '@shared/constants';
 import { ToolExecutionError } from '@shared/tool-errors';
 
+import { convertHtmlToMarkdown } from './html-to-markdown';
+import { assertSafeExternalUrl, fetchTextWithSafeRedirects } from './network-policy';
 import { createAdapter } from '../workers-ai';
 
 import type { SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
@@ -30,6 +31,7 @@ export const definition: ToolDefinition = {
 	},
 };
 const MAX_CONTENT_LENGTH = 50_000;
+const MAX_RESPONSE_BYTES = 250_000;
 function isMarkdownContent(contentType: string, body: string): boolean {
 	if (contentType.includes('text/markdown') || contentType.includes('text/x-markdown')) {
 		return true;
@@ -37,20 +39,6 @@ function isMarkdownContent(contentType: string, body: string): boolean {
 	// Heuristic: if the body doesn't start with < it's probably not HTML
 	const trimmed = body.trimStart();
 	return !trimmed.startsWith('<') && !trimmed.startsWith('<!');
-}
-
-/**
- * Convert raw HTML to markdown using Cloudflare Workers AI `toMarkdown()`.
- * Returns `undefined` on conversion failure.
- */
-async function convertHtmlToMarkdown(html: string): Promise<string | undefined> {
-	const blob = new Blob([html], { type: 'text/html' });
-	const results = await env.AI.toMarkdown([{ name: 'page.html', blob }]);
-	const result = results[0];
-	if (!result || result.format === 'error') {
-		return undefined;
-	}
-	return result.data;
 }
 
 /**
@@ -112,9 +100,7 @@ export async function execute(
 
 	try {
 		const parsedUrl = new URL(fetchUrl);
-		if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
-			throw new ToolExecutionError('MISSING_INPUT', 'Only http:// and https:// URLs are supported');
-		}
+		assertSafeExternalUrl(parsedUrl, context.requestOriginContext);
 
 		// Combine the 10s timeout with the parent abort signal so
 		// cancelling the agent also cancels the in-flight fetch.
@@ -122,13 +108,19 @@ export async function execute(
 		if (context.abortSignal) signals.push(context.abortSignal);
 		const combinedSignal = AbortSignal.any(signals);
 
-		const response = await fetch(fetchUrl, {
+		const {
+			finalUrl,
+			response,
+			body: raw,
+			truncated,
+		} = await fetchTextWithSafeRedirects(parsedUrl, context.requestOriginContext, {
 			headers: {
 				'User-Agent':
 					'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; Codemaxxing.ai-Agent/1.0) Chrome/131.0.6778.135 Safari/537.36',
-				Accept: 'text/markdown, text/html',
+				Accept: 'text/markdown, text/html, application/json, application/xml, application/xhtml+xml, image/svg+xml',
 			},
 			signal: combinedSignal,
+			maxBytes: MAX_RESPONSE_BYTES,
 		});
 
 		if (!response.ok) {
@@ -136,7 +128,6 @@ export async function execute(
 		}
 
 		const contentType = response.headers.get('content-type') ?? '';
-		const raw = await response.text();
 
 		// ── Step 1: Convert to markdown ──────────────────────────────────────
 		sendEvent('status', { message: 'Converting to markdown...' });
@@ -164,6 +155,9 @@ export async function execute(
 		if (markdown.length > MAX_CONTENT_LENGTH) {
 			markdown = markdown.slice(0, MAX_CONTENT_LENGTH) + '\n... (truncated)';
 		}
+		if (truncated) {
+			markdown += '\n\n[Response body truncated before summarization due to size limits]';
+		}
 
 		// ── Step 2: Summarize ────────────────────────────────────────────────
 		sendEvent('status', { message: 'Summarizing content...' });
@@ -171,8 +165,8 @@ export async function execute(
 		try {
 			const summary = await summarizeContent(markdown, userPrompt, fetchUrl);
 			return {
-				title: fetchUrl.length > 60 ? fetchUrl.slice(0, 60) + '...' : fetchUrl,
-				metadata: { url: fetchUrl, contentLength: summary.length },
+				title: finalUrl.toString().length > 60 ? finalUrl.toString().slice(0, 60) + '...' : finalUrl.toString(),
+				metadata: { url: finalUrl.toString(), contentLength: summary.length, truncated },
 				output: summary,
 			};
 		} catch (error) {

@@ -265,7 +265,7 @@ export const docsTopics: DocsTopic[] = [
 			},
 		],
 		notes: [
-			'The agent runs <strong>independently of client connections</strong> inside the AgentRunner DO. A heartbeat alarm reschedules every 30s — if the DO is evicted, the alarm restarts the loop from persisted parameters. Three modes: <code>code</code> (full tool access), <code>plan</code> (read-only + planning), <code>ask</code> (read-only Q&amp;A). Tools include file CRUD, grep/glob, lint check/fix (via Biome service binding), test execution, browser automation via the Agents SDK browser tools, web fetch, and Cloudflare docs search via MCP.',
+			'The agent runs <strong>independently of client connections</strong> inside the AgentRunner DO. In-flight runs recover from persisted fiber checkpoints after eviction, rather than relying on a custom heartbeat loop. Three modes: <code>code</code> (full tool access), <code>plan</code> (read-only + planning), <code>ask</code> (read-only Q&amp;A). Tools include file CRUD, grep/glob, lint check/fix (via Biome service binding), test execution, browser automation via the Agents SDK browser tools, web fetch, and Cloudflare docs search via MCP.',
 		],
 	},
 
