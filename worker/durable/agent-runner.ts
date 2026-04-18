@@ -30,22 +30,13 @@ import {
 	deleteSessionMetadata,
 	getDatabase,
 	readPendingChangesData,
-	readSessionMessageMetadata,
-	readSessionMetadata,
-	replaceSessionMessageMetadata,
 	updateSessionMetadataTitleGenerated,
 	upsertSessionMetadata,
 	writePendingChangesData,
 } from './db';
-import {
-	applyPersistedMessageMetadata,
-	clearSnapshotFromMessages,
-	getCommittedMessages,
-	mergeQueuedMessages,
-	promoteNextQueuedMessage,
-	serializePersistedMessageMetadata,
-	setSnapshotOnLastCommittedUserMessage,
-} from './session-history';
+import { getCommittedMessages, mergeQueuedMessages, promoteNextQueuedMessage } from './session-history';
+import { AgentSessionStore } from './session-store';
+import { SessionStreamState } from './session-stream-state';
 import { trackAiUsage, trackWebSocketEvent } from '../lib/analytics';
 import { filesystemNamespace } from '../lib/durable-object-namespaces';
 import { toDurableObjectId } from '../lib/project-id';
@@ -55,73 +46,19 @@ import { chatMessagesToModelMessages, estimateMessagesTokens } from '../services
 import { accumulatePendingChange } from '../services/ai-agent/pending-changes';
 import { isRequestOriginContext } from '../services/ai-agent/request-origin-context';
 import { cleanupSessionArtifacts, cleanupTimestampPlans } from '../services/ai-agent/session-cleanup';
-import { chatMessageToSessionMessage, sessionMessagesToChatMessages } from '../services/ai-agent/session-messages';
+import { sessionMessagesToChatMessages } from '../services/ai-agent/session-messages';
 import { readAgentsContext } from '../services/ai-agent/system-prompt-builder';
 import { generateSessionTitle } from '../services/ai-agent/title-generator';
 import { createAdapter as createWorkersAiAdapter } from '../services/ai-agent/workers-ai';
 
 import type { AgentDatabase } from './db';
 import type { RequestOriginContext } from '../services/ai-agent/request-origin-context';
-import type { AgentState, AgentSessionState, FiberSnapshot, SessionSummary, StreamEvent } from '@shared/agent-state';
+import type { AgentState, AgentSessionState, FiberSnapshot, SessionSummary } from '@shared/agent-state';
 import type { AIModelId } from '@shared/constants';
-import type {
-	AgentMode,
-	AgentSessionStatus,
-	AiSession,
-	ChatMessage,
-	MessagePart,
-	PendingFileChange,
-	ToolErrorInfo,
-	ToolMetadataInfo,
-} from '@shared/types';
-import type { SessionInfo } from 'agents/experimental/memory/session';
+import type { AgentMode, AgentSessionStatus, AiSession, ChatMessage, PendingFileChange } from '@shared/types';
 
-const AGENT_SESSION_STATUSES: ReadonlySet<string> = new Set(['running', 'completed', 'error', 'aborted']);
 const REQUEST_ORIGIN_CONTEXT_STORAGE_KEY = 'request-origin-context';
 const SESSION_COMPACTION_THRESHOLD = 100_000;
-function isAgentSessionStatus(value: unknown): value is AgentSessionStatus {
-	return typeof value === 'string' && AGENT_SESSION_STATUSES.has(value);
-}
-
-function buildAiSession(sessionInfo: SessionInfo, history: ChatMessage[], metadata: ReturnType<typeof parseSessionMetadata>): AiSession {
-	return {
-		id: sessionInfo.id,
-		title: sessionInfo.name,
-		titleGenerated: metadata.titleGenerated,
-		createdAt: Date.parse(sessionInfo.created_at),
-		history,
-		contextTokensUsed: metadata.contextTokensUsed,
-		toolMetadata: metadata.toolMetadata,
-		toolErrors: metadata.toolErrors,
-		status: metadata.status,
-		errorMessage: metadata.errorMessage,
-		stopRequested: metadata.stopRequested,
-	};
-}
-
-function parseSessionMetadata(row: ReturnType<typeof readSessionMetadata>): {
-	titleGenerated?: boolean;
-	contextTokensUsed?: number;
-	toolMetadata?: Record<string, ToolMetadataInfo>;
-	toolErrors?: Record<string, ToolErrorInfo>;
-	status?: AgentSessionStatus;
-	errorMessage?: string;
-	stopRequested?: boolean;
-} {
-	if (!row) {
-		return {};
-	}
-
-	return {
-		titleGenerated: row.titleGenerated === 1,
-		contextTokensUsed: row.contextTokensUsed ?? undefined,
-		toolMetadata: row.toolMetadata ? JSON.parse(row.toolMetadata) : undefined,
-		toolErrors: row.toolErrors ? JSON.parse(row.toolErrors) : undefined,
-		status: isAgentSessionStatus(row.status) ? row.status : undefined,
-		errorMessage: row.errorMessage ?? undefined,
-		stopRequested: row.stopRequested === 1,
-	};
-}
 const PROJECT_ROOT = '/project';
 const MAX_SESSIONS = MAX_AI_SESSIONS_PER_PROJECT;
 export interface StartAgentParameters {
@@ -149,6 +86,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	// ---- Drizzle database instance (initialized in onStart) ----
 
 	private db!: AgentDatabase;
+	private agentSessionStore!: AgentSessionStore;
 	private extensionManager?: ExtensionManager;
 	private sessionManager = SessionManager.create(this)
 		.withContext('soul', {
@@ -180,23 +118,32 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	private abortControllers = new Map<string, AbortController>();
 	private loopPromises = new Map<string, Promise<void>>();
 	private titleGenerationInFlight = new Set<string>();
-	private toolCallArgumentBuffers = new Map<string, Map<string, string>>();
-	private currentRunSnapshotIds = new Map<string, string>();
-
-	/**
-	 * Pending content delta that hasn't been flushed to state yet, keyed by sessionId.
-	 * Accumulates reasoning-delta and text-delta content between flushes.
-	 * Flushed on a 50ms timer or immediately when a structural event arrives.
-	 */
-	private pendingContentDeltas = new Map<string, { type: 'reasoning' | 'text'; content: string }>();
-	private contentFlushTimers = new Map<string, ReturnType<typeof setTimeout>>();
-
-	/**
-	 * Pending sub-agent streaming text deltas, keyed by sessionId → parentToolCallId.
-	 * Batched on a 50ms timer to avoid per-token setState broadcasts.
-	 */
-	private pendingSubAgentDeltas = new Map<string, Map<string, string>>();
-	private subAgentDeltaFlushTimers = new Map<string, ReturnType<typeof setTimeout>>();
+	private sessionStreamState = new SessionStreamState({
+		getCurrentSession: () => this.state.currentSession,
+		updateSessionState: (sessionId, patch) => this.updateSessionState(sessionId, patch),
+		readSession: (sessionId) => this.agentSessionStore.read(sessionId),
+		getSessionInitiatorUserId: (sessionId) => this.sessionInitiatorUserIds.get(sessionId),
+		sendPushNotification: (userId, sessionId, title, body) => this.sendPushNotification(userId, sessionId, title, body),
+		recordToolCall: (sessionId) => {
+			const analytics = this.sessionAnalytics.get(sessionId);
+			if (analytics) {
+				analytics.toolCallCount += 1;
+			}
+		},
+		recordTurnComplete: (sessionId) => {
+			const analytics = this.sessionAnalytics.get(sessionId);
+			if (analytics) {
+				analytics.turnNumber += 1;
+			}
+		},
+		recordUsage: (sessionId, inputTokens, outputTokens) => {
+			const analytics = this.sessionAnalytics.get(sessionId);
+			if (analytics) {
+				analytics.inputTokens = inputTokens;
+				analytics.outputTokens = outputTokens;
+			}
+		},
+	});
 	private sessionInitiatorUserIds = new Map<string, string>();
 	private connectionUserIds = new Map<string, string>();
 	private requestOriginContext?: RequestOriginContext;
@@ -338,13 +285,14 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	 */
 	async onStart(): Promise<void> {
 		this.db = getDatabase(this.ctx.storage);
+		this.agentSessionStore = new AgentSessionStore(this.db, this.sessionManager);
 		await migrate(this.db, migrations);
 		this.extensionManager = await restoreExtensionManager(env.LOADER, this.ctx.storage);
 		const persistedRequestOriginContext = this.ctx.storage.kv.get<RequestOriginContext>(REQUEST_ORIGIN_CONTEXT_STORAGE_KEY);
 		this.requestOriginContext = isRequestOriginContext(persistedRequestOriginContext) ? persistedRequestOriginContext : undefined;
 		await this.refreshSessionsList();
 		for (const sessionInfo of this.sessionManager.list()) {
-			const session = this.readSessionAsAiSession(sessionInfo.id);
+			const session = this.agentSessionStore.read(sessionInfo.id);
 			if (!session?.stopRequested) {
 				continue;
 			}
@@ -467,7 +415,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 
 		const resolvedSessionId = sessionId ?? crypto.randomUUID().replaceAll('-', '').slice(0, 16);
 		const authenticatedUserId = this.getAuthenticatedUserId();
-		const persistedSession = this.readSessionAsAiSession(resolvedSessionId);
+		const persistedSession = this.agentSessionStore.read(resolvedSessionId);
 		const persistedHistory = persistedSession?.history ?? [];
 		const liveHistory = this.state.currentSession?.sessionId === resolvedSessionId ? this.state.currentSession.messages : persistedHistory;
 		const stopRequested = persistedSession?.stopRequested ?? false;
@@ -479,7 +427,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		this.ensureSessionRecord(resolvedSessionId, promptPreview, model, mode);
 
 		const durableHistory = [...persistedHistory, userMessage];
-		await this.persistSessionHistory(resolvedSessionId, durableHistory, stopRequested);
+		await this.agentSessionStore.persistHistory(resolvedSessionId, durableHistory, stopRequested);
 
 		if (shouldQueue) {
 			this.updateSessionState(resolvedSessionId, {
@@ -503,7 +451,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 
 	@callable()
 	async removeQueuedMessage(sessionId: string, messageId: string): Promise<{ removed: boolean }> {
-		const session = this.readSessionAsAiSession(sessionId);
+		const session = this.agentSessionStore.read(sessionId);
 		if (!session) {
 			return { removed: false };
 		}
@@ -517,7 +465,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 
 		this.sessionManager.deleteMessages(sessionId, [messageId]);
 		deleteSessionMessageMetadata(this.db, sessionId, [messageId]);
-		this.writeSessionMetadata(sessionId, { stopRequested: session.stopRequested });
+		this.agentSessionStore.writeMetadata(sessionId, { stopRequested: session.stopRequested });
 		if (this.state.currentSession?.sessionId === sessionId) {
 			this.updateSessionState(sessionId, { messages: nextHistory, stopRequested: session.stopRequested ?? false });
 		}
@@ -566,19 +514,19 @@ export class AgentRunner extends Agent<Env, AgentState> {
 			return normalizedMessage;
 		});
 
-		await this.persistSessionHistory(resolvedSessionId, normalizedMessages, false);
+		await this.agentSessionStore.persistHistory(resolvedSessionId, normalizedMessages, false);
 		return this.startAgentRun(projectId, getCommittedMessages(normalizedMessages), mode, model, resolvedSessionId, authenticatedUserId);
 	}
 
 	@callable()
 	async abortRun(sessionId?: string): Promise<void> {
 		if (sessionId) {
-			const session = this.readSessionAsAiSession(sessionId);
+			const session = this.agentSessionStore.read(sessionId);
 			if (!session) {
 				return;
 			}
 
-			await this.persistSessionHistory(sessionId, session.history, true);
+			await this.agentSessionStore.persistHistory(sessionId, session.history, true);
 			this.updateSessionState(sessionId, {
 				stopRequested: true,
 				statusText: 'Stopping...',
@@ -597,9 +545,9 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		}
 
 		for (const [runningSessionId, controller] of this.abortControllers.entries()) {
-			const session = this.readSessionAsAiSession(runningSessionId);
+			const session = this.agentSessionStore.read(runningSessionId);
 			if (session) {
-				await this.persistSessionHistory(runningSessionId, session.history, true);
+				await this.agentSessionStore.persistHistory(runningSessionId, session.history, true);
 				this.updateSessionState(runningSessionId, {
 					stopRequested: true,
 					statusText: 'Stopping...',
@@ -622,7 +570,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	 */
 	@callable()
 	async loadSession(sessionId: string): Promise<AiSession | undefined> {
-		const session = this.readSessionAsAiSession(sessionId);
+		const session = this.agentSessionStore.read(sessionId);
 		if (!session) return undefined;
 
 		// If this session is already loaded and actively running, don't overwrite
@@ -718,17 +666,17 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		if (!targetMessage) return { contextTokensUsed: 0 };
 
 		const forkedSession = await this.sessionManager.fork(sessionId, targetMessage.id, `${sourceSession.name} (fork)`);
-		const sourceAiSession = this.readSessionAsAiSession(sessionId);
+		const sourceAiSession = this.agentSessionStore.read(sessionId);
 		const sourceMetadataByMessageId = new Map(sourceAiSession?.history.map((message) => [message.id, message.metadata]));
 		const forkedHistory = sessionMessagesToChatMessages(this.sessionManager.getHistory(forkedSession.id));
 		const truncatedHistory = forkedHistory.map((message) => ({
 			...message,
 			metadata: sourceMetadataByMessageId.get(message.id),
 		}));
-		const sourceMetadata = parseSessionMetadata(readSessionMetadata(this.db, sessionId));
+		const sourceMetadata = this.agentSessionStore.getMetadata(sessionId);
 		const modelMessages = chatMessagesToModelMessages(truncatedHistory);
 		const contextTokensUsed = estimateMessagesTokens(modelMessages);
-		replaceSessionMessageMetadata(this.db, forkedSession.id, serializePersistedMessageMetadata(forkedSession.id, truncatedHistory));
+		await this.agentSessionStore.replaceHistory(forkedSession.id, truncatedHistory);
 		upsertSessionMetadata(this.db, {
 			id: forkedSession.id,
 			titleGenerated: sourceMetadata.titleGenerated ? 1 : 0,
@@ -821,10 +769,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		}
 
 		// Clean up all volatile in-memory state for this session
-		this.flushContentDelta(sessionId);
-		this.pendingContentDeltas.delete(sessionId);
-		this.flushSubAgentDeltas(sessionId);
-		this.currentRunSnapshotIds.delete(sessionId);
+		this.sessionStreamState.disposeSession(sessionId);
 		this.sessionInitiatorUserIds.delete(sessionId);
 		this.sessionAnalytics.delete(sessionId);
 		this.titleGenerationInFlight.delete(sessionId);
@@ -911,10 +856,10 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		if (!existing) {
 			this.ensureSessionRecord(sessionId, promptPreview, parameters.model, parameters.mode);
 		}
-		await this.replaceSessionHistory(sessionId, parameters.messages);
+		await this.agentSessionStore.replaceHistory(sessionId, parameters.messages);
 
 		// Fire title generation independently
-		if (lastUserText.length > 0 && !parseSessionMetadata(readSessionMetadata(this.db, sessionId)).titleGenerated) {
+		if (lastUserText.length > 0 && !this.agentSessionStore.getMetadata(sessionId).titleGenerated) {
 			void this.generateTitle(sessionId, lastUserText);
 		}
 
@@ -955,7 +900,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		}
 		const sessionId = context.name.slice('agent-loop:'.length);
 		const snapshot = parseFiberSnapshot(context.snapshot);
-		const session = this.readSessionAsAiSession(sessionId);
+		const session = this.agentSessionStore.read(sessionId);
 		const parameters = session ? buildRecoveredRunParameters(this.getProjectId(), sessionId, session.history, snapshot) : undefined;
 		if (!parameters) {
 			return;
@@ -1011,7 +956,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 				}
 
 				// Update agent state — auto-broadcast to all useAgent subscribers
-				this.handleStreamEventForState(sessionId, event);
+				this.sessionStreamState.handleEvent(sessionId, event);
 			}
 
 			logger?.info('session', 'stream_completed', { finalStatus, errorMessage });
@@ -1032,10 +977,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 			}
 		} finally {
 			// Clear run-scoped volatile state
-			this.currentRunSnapshotIds.delete(sessionId);
-			this.flushContentDelta(sessionId);
-			this.pendingContentDeltas.delete(sessionId);
-			this.flushSubAgentDeltas(sessionId);
+			this.sessionStreamState.disposeSession(sessionId);
 
 			// Clean up in-memory state
 			this.abortControllers.delete(sessionId);
@@ -1048,7 +990,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 				stopRequested: false,
 			});
 
-			this.writeSessionMetadata(sessionId, {
+			this.agentSessionStore.writeMetadata(sessionId, {
 				status: finalStatus,
 				errorMessage,
 				stopRequested: false,
@@ -1109,447 +1051,6 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		}
 	}
 
-	/**
-	 * Route a stream event into the agent state for real-time UI updates.
-	 *
-	 * Content events (reasoning-delta, text-delta, tool-call-start, tool-call-args-delta,
-	 * tool-call-end) build up the in-progress assistant message in state. On turn-complete
-	 * the finalized version from the DB replaces it.
-	 */
-	private handleStreamEventForState(sessionId: string, event: StreamEvent): void {
-		if (this.state.currentSession?.sessionId !== sessionId) return;
-
-		switch (event.type) {
-			// ── Metadata events ─────────────────────────────────────────
-			case 'status': {
-				this.updateSessionState(sessionId, { statusText: event.message });
-				break;
-			}
-			case 'context-utilization': {
-				this.updateSessionState(sessionId, { contextTokensUsed: event.estimatedTokens });
-				break;
-			}
-			case 'snapshot-created': {
-				this.currentRunSnapshotIds.set(sessionId, event.id);
-				const current = this.state.currentSession;
-				if (current) {
-					const messages = setSnapshotOnLastCommittedUserMessage(current.messages, event.id);
-					if (messages !== current.messages) {
-						this.updateSessionState(sessionId, { messages });
-					}
-				}
-				break;
-			}
-			case 'snapshot-deleted': {
-				this.currentRunSnapshotIds.delete(sessionId);
-				const current = this.state.currentSession;
-				if (!current) break;
-				const messages = clearSnapshotFromMessages(current.messages, event.id);
-				if (messages !== current.messages) {
-					this.updateSessionState(sessionId, { messages });
-				}
-				break;
-			}
-			case 'file-changed': {
-				if (event.action === 'create' || event.action === 'edit' || event.action === 'delete' || event.action === 'move') {
-					const current = this.state.currentSession;
-					if (current) {
-						// Use accumulatePendingChange to preserve the original
-						// beforeContent when the same file is edited multiple times.
-						const changesMap = new Map(Object.entries(current.pendingChanges));
-						accumulatePendingChange(changesMap, {
-							path: event.path,
-							action: event.action,
-							beforeContent: event.beforeContent,
-							afterContent: event.afterContent,
-							snapshotId: this.currentRunSnapshotIds.get(sessionId),
-							sessionId,
-						});
-						this.updateSessionState(sessionId, { pendingChanges: Object.fromEntries(changesMap) });
-					}
-				}
-				break;
-			}
-			case 'tool-result': {
-				// Structured metadata for rich rendering (line counts, file paths, etc.)
-				const current = this.state.currentSession;
-				if (!current) break;
-				const toolMetadata = {
-					...current.toolMetadata,
-					[event.toolCallId]: {
-						toolCallId: event.toolCallId,
-						toolName: event.toolName,
-						title: event.title,
-						metadata: event.metadata,
-					},
-				};
-				this.updateSessionState(sessionId, { toolMetadata });
-				break;
-			}
-
-			// ── Turn lifecycle ──────────────────────────────────────────
-			case 'turn-complete': {
-				this.flushContentDelta(sessionId);
-				this.toolCallArgumentBuffers.delete(sessionId);
-				const session = this.readSessionAsAiSession(sessionId);
-				if (session && this.state.currentSession?.sessionId === sessionId) {
-					this.updateSessionState(sessionId, {
-						messages: session.history,
-						toolMetadata: session.toolMetadata ?? {},
-						toolErrors: session.toolErrors ?? {},
-						stopRequested: session.stopRequested ?? false,
-					});
-				}
-				// Increment turn counter for analytics
-				const turnAnalytics = this.sessionAnalytics.get(sessionId);
-				if (turnAnalytics) {
-					turnAnalytics.turnNumber += 1;
-				}
-				break;
-			}
-			case 'steering-message-committed': {
-				break;
-			}
-
-			// ── Content streaming events ────────────────────────────────
-			case 'reasoning-delta': {
-				this.accumulateContentDelta(sessionId, 'reasoning', event.delta);
-				break;
-			}
-			case 'text-delta': {
-				this.accumulateContentDelta(sessionId, 'text', event.delta);
-				break;
-			}
-			case 'tool-call-start': {
-				// Flush any pending content before adding a tool call part
-				this.flushContentDelta(sessionId);
-				const messages = this.appendToStreamingAssistantMessage(sessionId, (parts) => {
-					parts.push({
-						type: 'tool-call',
-						toolCallId: event.toolCallId,
-						toolName: event.toolName,
-						arguments: {},
-					});
-				});
-				if (messages) this.updateSessionState(sessionId, { messages });
-				// Increment tool call counter for analytics
-				const toolAnalytics = this.sessionAnalytics.get(sessionId);
-				if (toolAnalytics) {
-					toolAnalytics.toolCallCount += 1;
-				}
-				break;
-			}
-			case 'tool-call-args-delta': {
-				// Accumulate partial JSON; update arguments when it parses successfully
-				let sessionBuffers = this.toolCallArgumentBuffers.get(sessionId);
-				if (!sessionBuffers) {
-					sessionBuffers = new Map();
-					this.toolCallArgumentBuffers.set(sessionId, sessionBuffers);
-				}
-				const buffer = (sessionBuffers.get(event.toolCallId) ?? '') + event.delta;
-				sessionBuffers.set(event.toolCallId, buffer);
-
-				try {
-					const parsed: unknown = JSON.parse(buffer);
-					if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-						const current = this.state.currentSession;
-						if (!current) break;
-						const messages = [...current.messages];
-						const last = messages.at(-1);
-						if (last?.role === 'assistant') {
-							const parts = [...last.parts];
-							const partIndex = parts.findLastIndex((p) => p.type === 'tool-call' && p.toolCallId === event.toolCallId);
-							if (partIndex !== -1 && parts[partIndex].type === 'tool-call') {
-								parts[partIndex] = {
-									...parts[partIndex],
-									arguments: Object.fromEntries(Object.entries(parsed)),
-								};
-								messages[messages.length - 1] = { ...last, parts };
-								this.updateSessionState(sessionId, { messages });
-							}
-						}
-					}
-				} catch {
-					// Partial JSON — wait for more deltas
-				}
-				break;
-			}
-			case 'tool-call-end': {
-				this.flushContentDelta(sessionId);
-				this.toolCallArgumentBuffers.get(sessionId)?.delete(event.toolCallId);
-
-				const messages = this.appendToStreamingAssistantMessage(sessionId, (parts) => {
-					parts.push({
-						type: 'tool-result',
-						toolCallId: event.toolCallId,
-						toolName: event.toolName,
-						result: event.result ?? '',
-						isError: event.isError,
-					});
-				});
-				if (messages) this.updateSessionState(sessionId, { messages });
-				break;
-			}
-
-			// ── Follow-up prompt events ─────────────────────────────────
-			case 'user-question': {
-				this.updateSessionState(sessionId, {
-					pendingQuestion: { question: event.question, options: event.options },
-				});
-				// Send push notification so the user knows the agent needs input
-				const questionInitiatorUserId = this.sessionInitiatorUserIds.get(sessionId);
-				if (questionInitiatorUserId) {
-					this.sendPushNotification(questionInitiatorUserId, sessionId, 'Agent needs your input', event.question);
-				}
-				break;
-			}
-			case 'max-iterations-reached': {
-				this.updateSessionState(sessionId, { needsContinuation: true });
-				break;
-			}
-			case 'doom-loop-detected': {
-				this.updateSessionState(sessionId, { doomLoopMessage: event.message });
-				break;
-			}
-
-			// ── Sub-agent activity events ────────────────────────────────
-			case 'sub-agent-activity': {
-				if (!this.state.currentSession) break;
-				const parentId = event.parentToolCallId;
-
-				// Text deltas are batched on a 50ms timer (same pattern as main content deltas)
-				if (event.activity.kind === 'text-delta') {
-					this.accumulateSubAgentDelta(sessionId, parentId, event.activity.delta);
-					break;
-				}
-
-				// tool-start and non-error tool-end don't change state — skip the broadcast
-				if (event.activity.kind === 'tool-start' || (event.activity.kind === 'tool-end' && !event.activity.isError)) {
-					break;
-				}
-
-				// Structural event — flush any pending text deltas first
-				this.flushSubAgentDeltas(sessionId);
-
-				// Re-read state after flush (flush may have called updateSessionState)
-				const current = this.state.currentSession;
-				if (!current) break;
-
-				const activities = { ...current.subAgentActivities };
-				const existing = activities[parentId] ?? { tools: [], debugLogId: undefined, streamingText: undefined };
-
-				switch (event.activity.kind) {
-					case 'debug-log': {
-						// Persist the sub-agent's debug log ID for UI download
-						activities[parentId] = {
-							...existing,
-							debugLogId: event.activity.debugLogId,
-						};
-						break;
-					}
-					case 'tool-metadata': {
-						// Append a completed tool entry with metadata
-						activities[parentId] = {
-							...existing,
-							tools: [
-								...existing.tools,
-								{
-									toolName: event.activity.toolName,
-									title: event.activity.title,
-									metadata: event.activity.metadata,
-								},
-							],
-						};
-						break;
-					}
-					case 'tool-end': {
-						// Only error tool-end reaches here (non-error filtered above)
-						activities[parentId] = {
-							...existing,
-							tools: [
-								...existing.tools,
-								{
-									toolName: event.activity.toolName,
-									title: 'Error',
-									metadata: {},
-									isError: true,
-								},
-							],
-						};
-						break;
-					}
-					default: {
-						break;
-					}
-				}
-
-				this.updateSessionState(sessionId, { subAgentActivities: activities });
-				break;
-			}
-
-			// ── Token usage event ────────────────────────────────────────
-			case 'usage': {
-				// Capture cumulative token totals for session_end analytics
-				const usageAnalytics = this.sessionAnalytics.get(sessionId);
-				if (usageAnalytics) {
-					usageAnalytics.inputTokens = event.input;
-					usageAnalytics.outputTokens = event.output;
-				}
-				break;
-			}
-
-			// ── Events that don't update state ──────────────────────────
-			default: {
-				// run-error, run-finished, plan-created, snapshot-deleted
-				break;
-			}
-		}
-	}
-
-	/**
-	 * Get or create the in-progress assistant message, run a mutation on its
-	 * parts array, and return the updated messages array. Returns undefined
-	 * if no session is active.
-	 */
-	private appendToStreamingAssistantMessage(sessionId: string, mutate: (parts: MessagePart[]) => void): ChatMessage[] | undefined {
-		const current = this.state.currentSession;
-		if (!current || current.sessionId !== sessionId) return undefined;
-
-		const messages = [...current.messages];
-		const last = messages.at(-1);
-
-		if (last?.role === 'assistant') {
-			const parts = [...last.parts];
-			mutate(parts);
-			messages[messages.length - 1] = { ...last, parts };
-		} else {
-			const parts: MessagePart[] = [];
-			mutate(parts);
-			messages.push({
-				id: crypto.randomUUID(),
-				role: 'assistant',
-				parts,
-				createdAt: Date.now(),
-			});
-		}
-
-		return messages;
-	}
-
-	/**
-	 * Flush any accumulated content delta to state immediately.
-	 * Called by structural events (tool-call-start, tool-call-end, turn-complete)
-	 * and on a 50ms timer for token-by-token streaming.
-	 */
-	private flushContentDelta(sessionId: string): void {
-		const timer = this.contentFlushTimers.get(sessionId);
-		if (timer) {
-			clearTimeout(timer);
-			this.contentFlushTimers.delete(sessionId);
-		}
-
-		const pending = this.pendingContentDeltas.get(sessionId);
-		if (!pending) return;
-		this.pendingContentDeltas.delete(sessionId);
-
-		const messages = this.appendToStreamingAssistantMessage(sessionId, (parts) => {
-			const lastPart = parts.at(-1);
-			if (lastPart?.type === pending.type) {
-				parts[parts.length - 1] = { ...lastPart, content: lastPart.content + pending.content };
-			} else {
-				if (pending.type === 'reasoning') {
-					parts.push({ type: 'reasoning', content: pending.content });
-				} else {
-					parts.push({ type: 'text', content: pending.content });
-				}
-			}
-		});
-		if (messages) this.updateSessionState(sessionId, { messages });
-	}
-
-	/**
-	 * Accumulate a content delta and schedule a flush.
-	 * If the delta type changes (reasoning → text or vice versa), flush first.
-	 */
-	private accumulateContentDelta(sessionId: string, type: 'reasoning' | 'text', content: string): void {
-		const pending = this.pendingContentDeltas.get(sessionId);
-
-		if (pending && pending.type !== type) {
-			// Type changed — flush the previous batch first
-			this.flushContentDelta(sessionId);
-		}
-
-		const current = this.pendingContentDeltas.get(sessionId);
-		if (current) {
-			current.content += content;
-		} else {
-			this.pendingContentDeltas.set(sessionId, { type, content });
-		}
-
-		// Schedule flush if not already scheduled
-		if (!this.contentFlushTimers.has(sessionId)) {
-			this.contentFlushTimers.set(
-				sessionId,
-				setTimeout(() => {
-					this.contentFlushTimers.delete(sessionId);
-					this.flushContentDelta(sessionId);
-				}, 50),
-			);
-		}
-	}
-
-	/**
-	 * Flush any accumulated sub-agent text deltas to state immediately.
-	 * Called by structural sub-agent events (tool-metadata, tool-end, debug-log)
-	 * and on a 50ms timer for token-by-token streaming.
-	 */
-	private flushSubAgentDeltas(sessionId: string): void {
-		const timer = this.subAgentDeltaFlushTimers.get(sessionId);
-		if (timer) {
-			clearTimeout(timer);
-			this.subAgentDeltaFlushTimers.delete(sessionId);
-		}
-
-		const sessionDeltas = this.pendingSubAgentDeltas.get(sessionId);
-		if (!sessionDeltas || sessionDeltas.size === 0) return;
-
-		const current = this.state.currentSession;
-		if (!current || current.sessionId !== sessionId) {
-			this.pendingSubAgentDeltas.delete(sessionId);
-			return;
-		}
-
-		const activities = { ...current.subAgentActivities };
-		for (const [parentId, delta] of sessionDeltas) {
-			const existing = activities[parentId] ?? { tools: [], debugLogId: undefined, streamingText: undefined };
-			activities[parentId] = {
-				...existing,
-				streamingText: (existing.streamingText ?? '') + delta,
-			};
-		}
-		this.pendingSubAgentDeltas.delete(sessionId);
-		this.updateSessionState(sessionId, { subAgentActivities: activities });
-	}
-	private accumulateSubAgentDelta(sessionId: string, parentToolCallId: string, delta: string): void {
-		let sessionDeltas = this.pendingSubAgentDeltas.get(sessionId);
-		if (!sessionDeltas) {
-			sessionDeltas = new Map();
-			this.pendingSubAgentDeltas.set(sessionId, sessionDeltas);
-		}
-		const current = sessionDeltas.get(parentToolCallId);
-		sessionDeltas.set(parentToolCallId, (current ?? '') + delta);
-
-		if (!this.subAgentDeltaFlushTimers.has(sessionId)) {
-			this.subAgentDeltaFlushTimers.set(
-				sessionId,
-				setTimeout(() => {
-					this.subAgentDeltaFlushTimers.delete(sessionId);
-					this.flushSubAgentDeltas(sessionId);
-				}, 50),
-			);
-		}
-	}
-
 	// =========================================================================
 	// Session Persistence (called by AIAgentService)
 	// =========================================================================
@@ -1558,14 +1059,14 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		sessionId: string,
 		sessionData: import('../services/ai-agent/types').SessionPersistData,
 	): Promise<void> {
-		const existing = parseSessionMetadata(readSessionMetadata(this.db, sessionId));
+		const existing = this.agentSessionStore.getMetadata(sessionId);
 		const toolMetadata = { ...existing.toolMetadata, ...sessionData.toolMetadata };
 		const toolErrors = { ...existing.toolErrors, ...sessionData.toolErrors };
 		const mergedHistory = mergeQueuedMessages(sessionData.history, this.getSessionHistory(sessionId));
 
-		await this.replaceSessionHistory(sessionId, mergedHistory);
+		await this.agentSessionStore.replaceHistory(sessionId, mergedHistory);
 
-		this.writeSessionMetadata(sessionId, {
+		this.agentSessionStore.writeMetadata(sessionId, {
 			titleGenerated: existing.titleGenerated,
 			contextTokensUsed: sessionData.contextTokensUsed,
 			toolMetadata: Object.keys(toolMetadata).length > 0 ? toolMetadata : undefined,
@@ -1675,7 +1176,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		const current = this.state.currentSession;
 		if (!current || current.sessionId !== sessionId) {
 			// Create a new session state if none exists for this ID
-			const session = this.readSessionAsAiSession(sessionId);
+			const session = this.agentSessionStore.read(sessionId);
 			const newState: AgentSessionState = {
 				sessionId,
 				title: session?.title ?? 'New session',
@@ -1714,32 +1215,6 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	// =========================================================================
 	// Database Helpers
 	// =========================================================================
-	private readSessionAsAiSession(sessionId: string): AiSession | undefined {
-		const sessionInfo = this.sessionManager.get(sessionId);
-		if (!sessionInfo) return undefined;
-		const metadata = parseSessionMetadata(readSessionMetadata(this.db, sessionId));
-		const sessionHistory = sessionMessagesToChatMessages(this.sessionManager.getHistory(sessionId));
-		const persistedMessageMetadata = readSessionMessageMetadata(this.db, sessionId);
-		const history = applyPersistedMessageMetadata(sessionHistory, persistedMessageMetadata);
-		return buildAiSession(sessionInfo, history, metadata);
-	}
-
-	private writeSessionMetadata(sessionId: string, patch: Partial<ReturnType<typeof parseSessionMetadata>>): void {
-		const existing = parseSessionMetadata(readSessionMetadata(this.db, sessionId));
-		const toolMetadata = patch.toolMetadata ?? existing.toolMetadata;
-		const toolErrors = patch.toolErrors ?? existing.toolErrors;
-		upsertSessionMetadata(this.db, {
-			id: sessionId,
-			titleGenerated: (patch.titleGenerated ?? existing.titleGenerated) ? 1 : 0,
-			contextTokensUsed: patch.contextTokensUsed ?? existing.contextTokensUsed,
-			toolMetadata: toolMetadata ? JSON.stringify(toolMetadata) : undefined,
-			toolErrors: toolErrors ? JSON.stringify(toolErrors) : undefined,
-			status: patch.status ?? existing.status,
-			errorMessage: patch.errorMessage ?? existing.errorMessage,
-			stopRequested: (patch.stopRequested ?? existing.stopRequested) ? 1 : 0,
-		});
-	}
-
 	private buildUserMessage(
 		content: string,
 		mode: AgentMode,
@@ -1764,21 +1239,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	}
 
 	private getSessionHistory(sessionId: string): ChatMessage[] {
-		return this.readSessionAsAiSession(sessionId)?.history ?? [];
-	}
-
-	private async replaceSessionHistory(sessionId: string, history: ChatMessage[]): Promise<void> {
-		this.sessionManager.clearMessages(sessionId);
-		await this.sessionManager.appendAll(
-			sessionId,
-			history.map((message) => chatMessageToSessionMessage(message)),
-		);
-		replaceSessionMessageMetadata(this.db, sessionId, serializePersistedMessageMetadata(sessionId, history));
-	}
-
-	private async persistSessionHistory(sessionId: string, history: ChatMessage[], stopRequested?: boolean): Promise<void> {
-		await this.replaceSessionHistory(sessionId, history);
-		this.writeSessionMetadata(sessionId, { stopRequested });
+		return this.agentSessionStore.getHistory(sessionId);
 	}
 
 	private lookupSessionIdForMessage(messageId: string): string | undefined {
@@ -1792,14 +1253,14 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	}
 
 	private async maybeStartNextQueuedRun(projectId: string, sessionId: string, initiatorUserId: string | undefined): Promise<boolean> {
-		const session = this.readSessionAsAiSession(sessionId);
+		const session = this.agentSessionStore.read(sessionId);
 		if (!session) {
 			return false;
 		}
 
 		const { history, promotedMessage } = promoteNextQueuedMessage(session.history);
 		if (!promotedMessage) {
-			await this.persistSessionHistory(sessionId, session.history, false);
+			await this.agentSessionStore.persistHistory(sessionId, session.history, false);
 			return false;
 		}
 
@@ -1808,7 +1269,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		const model = request?.model ?? DEFAULT_AI_MODEL;
 		const committedMessages = getCommittedMessages(history);
 
-		await this.persistSessionHistory(sessionId, history, false);
+		await this.agentSessionStore.persistHistory(sessionId, history, false);
 		await this.startAgentRun(projectId, committedMessages, mode, model, sessionId, initiatorUserId);
 		return true;
 	}
