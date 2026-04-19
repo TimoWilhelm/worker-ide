@@ -75,7 +75,7 @@ export async function execute(
 	const { beforeContent } = lockResult;
 
 	const coordinatorStub = coordinatorNamespace.getByName(`project:${projectId}`);
-	await coordinatorStub.triggerUpdate({ type: 'full-reload', path: deletePath, timestamp: Date.now(), isCSS: false });
+	await coordinatorStub.triggerUpdate({ type: 'full-reload', path: deletePath, timestamp: Date.now(), targets: [] });
 
 	sendEvent('file_changed', {
 		path: deletePath,

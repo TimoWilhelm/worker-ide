@@ -49,6 +49,7 @@ describe('triggerUpdate', () => {
 				type: 'update',
 				path: '/test.js',
 				timestamp: Date.now(),
+				targets: [{ id: '/test.js', kind: 'module' }],
 			}),
 		).resolves.toBeUndefined();
 	});
@@ -60,6 +61,7 @@ describe('triggerUpdate', () => {
 				type: 'full-reload',
 				path: '*',
 				timestamp: Date.now(),
+				targets: [],
 			}),
 		).resolves.toBeUndefined();
 	});
@@ -71,7 +73,10 @@ describe('triggerUpdate', () => {
 				type: 'update',
 				path: '/style.css',
 				timestamp: Date.now(),
-				isCSS: true,
+				targets: [
+					{ id: '/style.css', kind: 'style-link' },
+					{ id: '/style.css?mode=module', kind: 'module' },
+				],
 			}),
 		).resolves.toBeUndefined();
 	});
@@ -108,9 +113,9 @@ describe('instance consistency', () => {
 	it('triggerUpdate and sendMessage work on the same instance', async () => {
 		const stub = getCoordinatorStub('test-mixed-rpc');
 
-		await stub.triggerUpdate({ type: 'update', path: '/a.js', timestamp: 1 });
+		await stub.triggerUpdate({ type: 'update', path: '/a.js', timestamp: 1, targets: [{ id: '/a.js', kind: 'module' }] });
 		await stub.sendMessage({ type: 'git-status-changed' });
-		await stub.triggerUpdate({ type: 'update', path: '/b.js', timestamp: 2 });
+		await stub.triggerUpdate({ type: 'update', path: '/b.js', timestamp: 2, targets: [{ id: '/b.js', kind: 'module' }] });
 
 		// Should not throw or corrupt state
 		const logs = await stub.getOutputLogs();

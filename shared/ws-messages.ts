@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import type { PreviewUpdateTarget } from './preview-path';
 import type { CursorPosition, Participant, SelectionRange, ServerError, ServerLogEntry } from './types';
 export interface PingMessage {
 	type: 'ping';
@@ -80,7 +81,9 @@ export interface FileEditedMessage {
 	path: string;
 	content: string;
 }
-export type HmrUpdateType = 'css-update' | 'js-update' | 'full-reload';
+export type HmrUpdateType = 'update' | 'full-reload';
+
+export type HmrUpdateTargetMessage = PreviewUpdateTarget;
 
 /**
  * HMR update message.
@@ -96,6 +99,7 @@ export interface HmrUpdateMessage {
 		type: HmrUpdateType;
 		path: string;
 		timestamp: number;
+		targets: HmrUpdateTargetMessage[];
 	}>;
 }
 export interface ServerErrorMessage {
@@ -242,9 +246,15 @@ const serverLogSchema = z.object({
 });
 
 const hmrUpdateSchema = z.object({
-	type: z.enum(['css-update', 'js-update', 'full-reload']),
+	type: z.enum(['update', 'full-reload']),
 	path: z.string(),
 	timestamp: z.number(),
+	targets: z.array(
+		z.object({
+			id: z.string(),
+			kind: z.enum(['module', 'style-link']),
+		}),
+	),
 });
 
 export const serverMessageSchema = z.discriminatedUnion('type', [

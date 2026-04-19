@@ -261,16 +261,7 @@ export class ProjectCoordinatorV2 extends DurableObject {
 	}
 
 	private async broadcastHmrUpdate(update: HmrUpdate): Promise<void> {
-		let updateType: 'css-update' | 'js-update' | 'full-reload';
-		if (update.type === 'full-reload') {
-			updateType = 'full-reload';
-		} else if (update.isCSS) {
-			updateType = 'css-update';
-		} else {
-			updateType = 'js-update';
-		}
-
-		// Clear stale error on any successful update (full-reload, JS, or CSS).
+		// Clear stale error on any successful preview update or full reload.
 		// A successful file write means the previous error may no longer apply.
 		if (this.lastServerError !== undefined) {
 			this.lastServerError = undefined;
@@ -287,9 +278,10 @@ export class ProjectCoordinatorV2 extends DurableObject {
 			version: nextVersion,
 			updates: [
 				{
-					type: updateType,
+					type: update.type,
 					path: update.path,
 					timestamp: update.timestamp,
+					targets: update.targets,
 				},
 			],
 		});
@@ -321,6 +313,7 @@ export class ProjectCoordinatorV2 extends DurableObject {
 										type: 'full-reload',
 										path: '*',
 										timestamp: Date.now(),
+										targets: [],
 									},
 								],
 							}),

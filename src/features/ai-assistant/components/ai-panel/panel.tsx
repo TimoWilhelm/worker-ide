@@ -1434,10 +1434,11 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 										@container flex flex-wrap-reverse items-center gap-x-1.5 gap-y-0.5
 										px-1.5 py-1
 									"
+									data-testid="agent-input-toolbar"
 								>
 									<AgentModeSelector mode={agentMode} onModeChange={setAgentMode} disabled={false} />
 									<ModelSelectorDropdown selectedModel={selectedModel} onSelectModel={setSelectedModel} disabled={false} />
-									<div className="flex min-w-0 flex-1 items-center justify-end gap-1">
+									<div className="ml-auto flex shrink-0 items-center justify-end gap-1" data-testid="agent-input-toolbar-actions">
 										<ContextRing tokensUsed={contextTokensUsed} contextWindow={getModelLimits(selectedModel).contextWindow} />
 										{speechToText.microphonePermission !== 'unsupported' && (
 											<Tooltip

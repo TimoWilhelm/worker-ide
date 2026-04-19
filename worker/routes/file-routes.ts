@@ -151,7 +151,7 @@ export const fileRoutes = new Hono<AppEnvironment>()
 				type: 'full-reload',
 				path,
 				timestamp: Date.now(),
-				isCSS: false,
+				targets: [],
 			});
 
 			// Notify clients that git status may have changed
@@ -212,7 +212,7 @@ export const fileRoutes = new Hono<AppEnvironment>()
 				type: 'full-reload',
 				path: toPath,
 				timestamp: Date.now(),
-				isCSS: false,
+				targets: [],
 			});
 
 			// Notify clients that git status may have changed

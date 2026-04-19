@@ -81,7 +81,7 @@ export const projectRoutes = new Hono<AppEnvironment>()
 				type: 'full-reload',
 				path: parsed.data.name ? '/package.json' : '/wrangler.jsonc',
 				timestamp: Date.now(),
-				isCSS: false,
+				targets: [],
 			});
 		}
 
@@ -114,7 +114,7 @@ export const projectRoutes = new Hono<AppEnvironment>()
 			type: 'full-reload',
 			path: '/package.json',
 			timestamp: Date.now(),
-			isCSS: false,
+			targets: [],
 		});
 
 		return c.json({ dependencies });

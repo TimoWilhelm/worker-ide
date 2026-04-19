@@ -1,0 +1,89 @@
+import { describe, expect, it, vi } from 'vitest';
+
+vi.mock('./bundler-client', () => ({
+	transformCode: vi.fn(async (code: string) => ({ code })),
+}));
+
+import { rewriteExternalModuleImports, transformModule } from './transform-service';
+
+function createFileSystem(existingPaths: string[]) {
+	const knownPaths = new Set(existingPaths);
+	return {
+		readFile: vi.fn(async () => {
+			throw new Error('Unexpected readFile call');
+		}),
+		access: vi.fn(async (path: string) => {
+			if (!knownPaths.has(path)) {
+				throw new Error(`ENOENT: ${path}`);
+			}
+		}),
+	};
+}
+
+describe('transformModule', () => {
+	it('rewrites local imports to explicit preview module ids', async () => {
+		const fileSystem = createFileSystem(['/project/src/style.css', '/project/src/data.json', '/project/src/logo.png']);
+
+		const result = await transformModule(
+			'/src/main.tsx',
+			[
+				'import { jsx } from "react/jsx-runtime";',
+				'import "./style.css";',
+				'import data from "./data.json";',
+				'import logo from "./logo.png";',
+				'export function App() {',
+				'	return jsx("div", { children: logo + data.name });',
+				'}',
+			].join('\n'),
+			{ fs: fileSystem, projectRoot: '/project' },
+		);
+
+		expect(result.contentType).toBe('application/javascript');
+		expect(result.code).toContain('/src/style.css?mode=module');
+		expect(result.code).toContain('/src/data.json?mode=module');
+		expect(result.code).toContain('/src/logo.png?mode=url');
+		expect(result.code).toContain('/__preview_external?url=https%3A%2F%2Fesm.sh%2Freact%2Fjsx-runtime');
+		expect(result.code).toContain('createHotContext(__preview_module_id__)');
+		expect(result.code).toContain('registerModule(__preview_module_id__');
+	});
+
+	it('wraps css files as self-accepting style modules', async () => {
+		const result = await transformModule('/src/style.css', 'body { color: red; }', {
+			fs: createFileSystem([]),
+			projectRoot: '/project',
+		});
+
+		expect(result.contentType).toBe('application/javascript');
+		expect(result.code).toContain('/src/style.css?mode=module');
+		expect(result.code).toContain('upsertStyle(__preview_module_id__, css)');
+		expect(result.code).toContain('__preview_hot__.accept()');
+	});
+
+	it('exports cache-busted asset urls from url modules', async () => {
+		const result = await transformModule('/src/logo.png', 'binary', {
+			fs: createFileSystem([]),
+			projectRoot: '/project',
+			requestTimestamp: '42',
+		});
+
+		expect(result.code).toContain('export default "/src/logo.png?t=42";');
+		expect(result.code).toContain('/src/logo.png?mode=url');
+	});
+
+	it('rewrites external module source imports through the preview proxy', () => {
+		const rewritten = rewriteExternalModuleImports(
+			[
+				'import*as React from"/react@19.0.0/es2022/react.mjs";',
+				'import "/react@19.0.0/es2022/react.mjs";',
+				'export { hydrateRoot } from "./client.mjs";',
+				'const runtime = import("https://esm.sh/react/jsx-runtime");',
+			].join('\n'),
+			'https://esm.sh/react-dom@19.0.0/client',
+			'77',
+		);
+
+		expect(rewritten).toContain('/__preview_external?url=https%3A%2F%2Fesm.sh%2Freact%4019.0.0%2Fes2022%2Freact.mjs&t=77');
+		expect(rewritten).toContain('/__preview_external?url=https%3A%2F%2Fesm.sh%2Freact-dom%4019.0.0%2Fclient.mjs&t=77');
+		expect(rewritten).toContain('/__preview_external?url=https%3A%2F%2Fesm.sh%2Freact%2Fjsx-runtime&t=77');
+	});
+});

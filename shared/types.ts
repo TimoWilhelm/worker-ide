@@ -1,4 +1,7 @@
+import { getPreviewUpdateTargets, isPreviewHotUpdatePath } from './preview-path';
+
 import type { AIModelId } from './constants';
+import type { PreviewUpdateTarget } from './preview-path';
 
 export interface FileInfo {
 	path: string;
@@ -190,29 +193,28 @@ export interface HmrUpdate {
 	type: 'update' | 'full-reload';
 	path: string;
 	timestamp: number;
-	isCSS?: boolean;
+	targets: PreviewUpdateTarget[];
 }
-const HMR_CAPABLE_EXTENSIONS = new Set(['.css', '.js', '.jsx', '.ts', '.tsx', '.mjs', '.mts']);
 
 /**
  * Create an HmrUpdate for a file content change (write, edit, lint-fix).
  *
  * Determines whether the change can be applied as a hot update or requires
  * a full page reload based on the file extension:
- * - CSS files → hot CSS swap (update in-place)
- * - JS/TS/JSX/TSX files → hot JS update (re-bundle + React Fast Refresh)
- * - Other files (HTML, JSON, config) → full page reload
+ * - CSS files → hot updates for linked stylesheets and imported css modules
+ * - JS/TS/JSX/TSX/JSON/imported assets → graph-driven module hot updates
+ * - Other files (HTML, config, unknown assets) → full page reload
  */
 export function createHmrUpdateForFile(path: string): HmrUpdate {
-	const extension = path.slice(path.lastIndexOf('.')).toLowerCase();
-	const isCSS = extension === '.css';
-	const isHmrCapable = HMR_CAPABLE_EXTENSIONS.has(extension);
+	const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+	const targets = getPreviewUpdateTargets(normalizedPath);
+	const isHmrCapable = isPreviewHotUpdatePath(normalizedPath) && targets.length > 0;
 
 	return {
 		type: isHmrCapable ? 'update' : 'full-reload',
-		path,
+		path: normalizedPath,
 		timestamp: Date.now(),
-		isCSS,
+		targets,
 	};
 }
 export interface DependencyError {

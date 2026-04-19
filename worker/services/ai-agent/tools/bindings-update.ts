@@ -59,7 +59,7 @@ export async function execute(
 
 	// Trigger full reload so the preview picks up new bindings
 	const coordinatorStub = coordinatorNamespace.getByName(`project:${projectId}`);
-	await coordinatorStub.triggerUpdate({ type: 'full-reload', path: '/wrangler.jsonc', timestamp: Date.now(), isCSS: false });
+	await coordinatorStub.triggerUpdate({ type: 'full-reload', path: '/wrangler.jsonc', timestamp: Date.now(), targets: [] });
 
 	return {
 		title: 'bindings updated',

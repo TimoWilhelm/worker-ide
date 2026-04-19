@@ -31,7 +31,7 @@ export function ModelSelectorDropdown({ selectedModel, onSelectModel, disabled }
 					/>
 				}
 			>
-				<Pill size="md" color="muted">
+				<Pill size="md" color="muted" className="max-w-full min-w-0">
 					<span className="truncate">{getModelLabel(selectedModel)}</span>
 				</Pill>
 			</Menu.Trigger>

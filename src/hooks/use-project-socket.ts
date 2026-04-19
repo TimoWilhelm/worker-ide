@@ -123,10 +123,9 @@ export function useProjectSocket({ projectId, enabled = true }: UseProjectSocket
 								});
 							}
 							// full-reload is sent for structural changes (file delete,
-							// move, git checkout) that require a hard iframe refresh.
-							// The HMR client inside the sandboxed preview iframe uses
-							// location.replace() which may not reliably trigger a full
-							// re-bundle, so we force-refresh from the parent.
+							// move, git checkout) that cannot be reconciled through the
+							// module graph runtime inside the preview iframe, so force a
+							// top-level iframe refresh from the parent.
 							if (message.type === 'full-reload') {
 								globalThis.dispatchEvent(new CustomEvent('preview-force-refresh'));
 							}

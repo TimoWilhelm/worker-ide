@@ -12,10 +12,10 @@
  *   window.$RefreshReg$       – per-module component registration (set to no-op initially)
  *   window.$RefreshSig$       – per-module signature tracking (set to no-op initially)
  *
- * The bundler-service wraps each user module's output so that
+ * The preview module transformer wraps each user module's output so that
  * $RefreshReg$ / $RefreshSig$ point to file-scoped helpers during
- * module evaluation. After the entire bundle executes, the HMR client
- * calls __RefreshRuntime.performReactRefresh() to apply pending updates.
+ * module evaluation. After an accepted module re-import finishes, the
+ * preview runtime calls __RefreshRuntime.performReactRefresh().
  */
 (function () {
 	'use strict';

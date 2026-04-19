@@ -256,7 +256,7 @@ async function revertSingleFile(
 			type: 'full-reload',
 			path,
 			timestamp: Date.now(),
-			isCSS: false,
+			targets: [],
 		});
 	} catch {
 		// HMR trigger failure is non-fatal

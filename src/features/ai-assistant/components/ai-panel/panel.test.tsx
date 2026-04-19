@@ -359,6 +359,14 @@ describe('AIPanel footer controls', () => {
 		expect(mocks.speechStart).toHaveBeenCalledTimes(1);
 	});
 
+	it('keeps the action cluster from collapsing underneath the selectors', () => {
+		render(<AIPanel projectId="project-1" className="h-full" />);
+
+		expect(screen.getByTestId('agent-input-toolbar')).toHaveClass('@container', 'flex', 'flex-wrap-reverse');
+		expect(screen.getByTestId('agent-input-toolbar-actions')).toHaveClass('ml-auto', 'shrink-0');
+		expect(screen.getByTestId('agent-input-toolbar-actions')).not.toHaveClass('flex-1', 'min-w-0');
+	});
+
 	it('does not interrupt generation when starting or stopping STT', () => {
 		const view = render(<AIPanel projectId="project-1" className="h-full" />);
 

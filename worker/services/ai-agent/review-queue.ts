@@ -214,7 +214,7 @@ async function notifyWorkspaceChange(projectId: string, path: string, forceFullR
 					type: 'full-reload',
 					path,
 					timestamp: Date.now(),
-					isCSS: false,
+					targets: [],
 				}
 			: createHmrUpdateForFile(path),
 	);

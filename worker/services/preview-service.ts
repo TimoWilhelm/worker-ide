@@ -5,17 +5,24 @@ import { env, exports } from 'cloudflare:workers';
 import stripJsonComments from 'strip-json-comments';
 
 import { HIDDEN_ENTRIES, STORAGE_BINDING_NAME, WORKERS_COMPATIBILITY_DATE } from '@shared/constants';
+import {
+	isAllowedPreviewExternalModuleUrl,
+	parsePreviewExternalModuleRequest,
+	parsePreviewRequest,
+	PREVIEW_EXTERNAL_MODULE_PATH,
+} from '@shared/preview-path';
 import { resolveAssetSettings } from '@shared/types';
 
 import { bundleFiles } from './bundle-service';
 import { BundleDependencyError } from './bundler-client';
 import { parseDependencyErrorsFromMessage } from './dependency-error-parser';
-import { transformModule, processHTML, toEsbuildTsconfigRaw, type FileSystem } from './transform-service';
+import { processHTML, rewriteExternalModuleImports, toEsbuildTsconfigRaw, transformModule, type FileSystem } from './transform-service';
 import { coordinatorNamespace } from '../lib/durable-object-namespaces';
 import { source as chobitsuInitSource, hash as chobitsuInitHash } from '../lib/preview-scripts/chobitsu-init.js?raw-minified';
 import { source as elementPickerSource, hash as elementPickerHash } from '../lib/preview-scripts/element-picker.js?raw-minified';
 import { source as errorOverlaySource, hash as errorOverlayHash } from '../lib/preview-scripts/error-overlay.js?raw-minified';
 import { source as hmrClientSource, hash as hmrClientHash } from '../lib/preview-scripts/hmr-client.js?raw-minified';
+import { source as previewRuntimeSource, hash as previewRuntimeHash } from '../lib/preview-scripts/preview-runtime.js?raw-minified';
 import {
 	source as reactRefreshPreambleSource,
 	hash as reactRefreshPreambleHash,
@@ -78,6 +85,7 @@ const scriptIntegrityHashes: Record<string, string> = {
 	'__element-picker.js': elementPickerHash,
 	'__error-overlay.js': errorOverlayHash,
 	'__hmr-client.js': hmrClientHash,
+	'__preview-runtime.js': previewRuntimeHash,
 	'__react-refresh-preamble.js': reactRefreshPreambleHash,
 };
 
@@ -87,6 +95,7 @@ const INTERNAL_SCRIPTS: Record<string, string> = {
 	'/__element-picker.js': elementPickerSource,
 	'/__error-overlay.js': errorOverlaySource,
 	'/__hmr-client.js': hmrClientSource,
+	'/__preview-runtime.js': previewRuntimeSource,
 	'/__react-refresh-preamble.js': reactRefreshPreambleSource,
 };
 
@@ -141,11 +150,11 @@ export class PreviewService {
 	 */
 	async serveFile(request: Request, ideOrigin: string, preloadedAssetSettings?: ResolvedAssetSettings): Promise<Response> {
 		const url = new URL(request.url);
-		let filePath = url.pathname === '/' ? '/index.html' : url.pathname;
+		const previewRequest = parsePreviewRequest(url.pathname + url.search);
+		let filePath = previewRequest.path === '/' ? '/index.html' : previewRequest.path;
 
 		// Serve internal preview scripts
-		const scriptLookupPath = filePath.split('?')[0];
-		const internalScript = INTERNAL_SCRIPTS[scriptLookupPath];
+		const internalScript = INTERNAL_SCRIPTS[filePath];
 		if (internalScript !== undefined) {
 			return new Response(internalScript, {
 				headers: {
@@ -159,11 +168,16 @@ export class PreviewService {
 			return new Response(undefined, { status: 204, headers: buildAssetSecurityHeaders(ideOrigin) });
 		}
 
-		const isRawRequest = url.searchParams.has('raw');
-		const acceptHeader = request.headers.get('Accept') || '';
-		const isCssAccept = acceptHeader.includes('text/css');
-
-		filePath = filePath.split('?')[0];
+		const externalModuleRequest = parsePreviewExternalModuleRequest(url.pathname + url.search);
+		if (externalModuleRequest !== undefined) {
+			return this.serveExternalModule(externalModuleRequest.externalUrl, externalModuleRequest.timestamp, ideOrigin);
+		}
+		if (filePath === PREVIEW_EXTERNAL_MODULE_PATH) {
+			return new Response('Invalid external module request', {
+				status: 400,
+				headers: { 'Cache-Control': 'no-cache', ...buildAssetSecurityHeaders(ideOrigin) },
+			});
+		}
 
 		const assetSettings = preloadedAssetSettings ?? (await this.loadAssetSettings());
 
@@ -226,44 +240,20 @@ export class PreviewService {
 			const textContent = typeof content === 'string' ? content : new TextDecoder().decode(content);
 			const extension = this.getExtension(filePath);
 
-			if (extension === '.html') {
+			if (extension === '.html' && previewRequest.mode === 'source') {
 				return this.serveHtmlFile(textContent, filePath, url, ideOrigin, viteFs);
 			}
 
-			if (extension === '.css' && (isRawRequest || isCssAccept)) {
-				return new Response(textContent, {
-					headers: { 'Content-Type': 'text/css', 'Cache-Control': 'no-cache', ...buildAssetSecurityHeaders(ideOrigin) },
-				});
-			}
-
-			if (['.ts', '.tsx', '.jsx', '.js', '.mjs', '.mts'].includes(extension)) {
-				const sourceFiles = await this.collectFilesForBundle(`${this.projectRoot}/src`, 'src');
-				const allFiles: Record<string, string> = { ...sourceFiles };
-				const relativeFilePath = filePath.startsWith('/') ? filePath.slice(1) : filePath;
-				if (!(relativeFilePath in allFiles)) {
-					allFiles[relativeFilePath] = textContent;
-				}
-
-				const tsconfigRaw = await this.loadTsconfigRaw();
-				const knownDependencies = await this.loadKnownDependencies();
-
-				const bundled = await bundleFiles({
-					files: allFiles,
-					entryPoint: relativeFilePath,
-					platform: 'browser',
-					tsconfigRaw,
-					knownDependencies,
-					reactRefresh: true,
-				});
-
-				return new Response(bundled.code, {
-					headers: { 'Content-Type': 'application/javascript', 'Cache-Control': 'no-cache', ...buildAssetSecurityHeaders(ideOrigin) },
+			if (previewRequest.mode === 'source' && !['.ts', '.tsx', '.jsx', '.js', '.mjs', '.mts'].includes(extension)) {
+				return new Response(content, {
+					headers: { 'Content-Type': this.getContentType(extension), 'Cache-Control': 'no-cache', ...buildAssetSecurityHeaders(ideOrigin) },
 				});
 			}
 
 			const transformed = await transformModule(filePath, textContent, {
 				fs: viteFs,
 				projectRoot: this.projectRoot,
+				requestTimestamp: previewRequest.timestamp,
 			});
 
 			return new Response(transformed.code, {
@@ -422,6 +412,75 @@ export class PreviewService {
 		const match = path.match(/\.[^./]+$/);
 		return match ? match[0].toLowerCase() : '';
 	}
+
+	private getContentType(extension: string): string {
+		const contentTypes: Record<string, string> = {
+			'.css': 'text/css',
+			'.gif': 'image/gif',
+			'.html': 'text/html',
+			'.jpeg': 'image/jpeg',
+			'.jpg': 'image/jpeg',
+			'.json': 'application/json',
+			'.js': 'application/javascript',
+			'.mjs': 'application/javascript',
+			'.png': 'image/png',
+			'.svg': 'image/svg+xml',
+			'.webp': 'image/webp',
+		};
+		return contentTypes[extension] || 'text/plain';
+	}
+
+	private async serveExternalModule(externalUrl: string, requestTimestamp: string | undefined, ideOrigin: string): Promise<Response> {
+		try {
+			const requestUrl = new URL(externalUrl);
+			if (!isAllowedPreviewExternalModuleUrl(requestUrl)) {
+				throw new Error(`Unsupported external module URL: ${requestUrl.href}`);
+			}
+
+			const upstreamResponse = await fetch(externalUrl, { redirect: 'follow' });
+			if (!upstreamResponse.ok) {
+				throw new Error(`Failed to load external module ${externalUrl} (${upstreamResponse.status} ${upstreamResponse.statusText})`);
+			}
+
+			const finalUrl = new URL(upstreamResponse.url);
+			if (!isAllowedPreviewExternalModuleUrl(finalUrl)) {
+				throw new Error(`External module redirect target is not allowed: ${finalUrl.href}`);
+			}
+
+			const contentTypeHeader = upstreamResponse.headers.get('content-type') || 'application/javascript';
+			const contentType = contentTypeHeader.split(';')[0]?.trim() || 'application/javascript';
+			const bodyText = await upstreamResponse.text();
+
+			if (contentType.includes('javascript') || contentType.includes('ecmascript') || contentType === 'text/plain') {
+				return new Response(rewriteExternalModuleImports(bodyText, upstreamResponse.url, requestTimestamp), {
+					headers: {
+						'Content-Type': 'application/javascript',
+						'Cache-Control': 'no-cache',
+						...buildAssetSecurityHeaders(ideOrigin),
+					},
+				});
+			}
+
+			return new Response(bodyText, {
+				headers: {
+					'Content-Type': contentType,
+					'Cache-Control': 'no-cache',
+					...buildAssetSecurityHeaders(ideOrigin),
+				},
+			});
+		} catch (error) {
+			const errorMessage = error instanceof Error ? error.message : String(error);
+			const errorModule = `throw new Error(${JSON.stringify(cleanBuildErrorMessage(errorMessage))});`;
+			return new Response(errorModule, {
+				headers: {
+					'Content-Type': 'application/javascript',
+					'Cache-Control': 'no-cache',
+					...buildAssetSecurityHeaders(ideOrigin),
+				},
+			});
+		}
+	}
+
 	private async serveHtmlFile(textContent: string, filePath: string, url: URL, ideOrigin: string, viteFs: FileSystem): Promise<Response> {
 		const protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
 		const wsUrl = `${protocol}//${url.host}/__ws`;

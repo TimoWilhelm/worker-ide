@@ -97,7 +97,7 @@ export async function execute(
 
 	// Notify connected clients so the dependencies panel refreshes immediately.
 	const coordinatorStub = coordinatorNamespace.getByName(`project:${context.projectId}`);
-	await coordinatorStub.triggerUpdate({ type: 'full-reload', path: '/package.json', timestamp: Date.now(), isCSS: false });
+	await coordinatorStub.triggerUpdate({ type: 'full-reload', path: '/package.json', timestamp: Date.now(), targets: [] });
 
 	const verbMap: Record<string, string> = { add: 'Added', remove: 'Removed', update: 'Updated' };
 	const verb = verbMap[action] ?? action;
