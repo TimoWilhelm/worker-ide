@@ -182,10 +182,10 @@ export function WelcomeScreen({
 export function MessageBubble({
 	message,
 	messageIndex,
-	snapshotId,
 	agentMode,
 	modelId,
 	isClientOnly = false,
+	canRevert = false,
 	isReverting,
 	revertingMessageIndex,
 	onRevert,
@@ -198,13 +198,13 @@ export function MessageBubble({
 }: {
 	message: ChatMessage;
 	messageIndex: number;
-	snapshotId?: string;
 	agentMode?: AgentMode;
 	modelId?: string;
 	isClientOnly?: boolean;
+	canRevert?: boolean;
 	isReverting: boolean;
 	revertingMessageIndex?: number;
-	onRevert: (snapshotId: string, messageIndex: number) => void;
+	onRevert: (messageIndex: number) => void;
 	toolErrors?: Map<string, ToolErrorInfo>;
 	toolMetadata?: Map<string, ToolMetadataInfo>;
 	fileDiffContent?: Map<string, { beforeContent: string; afterContent: string }>;
@@ -221,10 +221,10 @@ export function MessageBubble({
 			<UserMessage
 				message={message}
 				messageIndex={messageIndex}
-				snapshotId={snapshotId}
 				agentMode={agentMode}
 				modelId={modelId}
 				isClientOnly={isClientOnly}
+				canRevert={canRevert}
 				isReverting={isReverting}
 				isRevertingThis={revertingMessageIndex === messageIndex}
 				onRevert={onRevert}
@@ -264,23 +264,23 @@ const MODE_BADGE_STYLES: Record<AgentMode, { label: string; pillColor: NonNullab
 function UserMessage({
 	message,
 	messageIndex,
-	snapshotId,
 	agentMode,
 	modelId,
 	isClientOnly,
+	canRevert,
 	isReverting,
 	isRevertingThis,
 	onRevert,
 }: {
 	message: ChatMessage;
 	messageIndex: number;
-	snapshotId?: string;
 	agentMode?: AgentMode;
 	modelId?: string;
 	isClientOnly: boolean;
+	canRevert: boolean;
 	isReverting: boolean;
 	isRevertingThis: boolean;
-	onRevert: (snapshotId: string, messageIndex: number) => void;
+	onRevert: (messageIndex: number) => void;
 }) {
 	// Build a set of known file paths to identify file mentions
 	const files = useStore((state) => state.files);
@@ -309,10 +309,10 @@ function UserMessage({
 					)}
 					{modelLabel && <Pill size="xs">{modelLabel}</Pill>}
 				</div>
-				{snapshotId && (
-					<Tooltip content="Revert files to before this message">
+				{canRevert && (
+					<Tooltip content="Revert the session to before this message">
 						<button
-							onClick={() => onRevert(snapshotId, messageIndex)}
+							onClick={() => onRevert(messageIndex)}
 							disabled={isReverting}
 							className={cn(
 								'inline-flex cursor-pointer items-center gap-1 rounded-md px-1.5 py-0.5',

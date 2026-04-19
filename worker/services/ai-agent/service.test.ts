@@ -300,6 +300,78 @@ describe('AIAgentService', () => {
 			const toolEnds = events.filter((event) => event.type === 'tool-call-end');
 			expect(toolEnds).toHaveLength(1);
 		});
+
+		it('retries an empty stop response after tool calls instead of completing early', async () => {
+			let callCount = 0;
+
+			vi.mocked(streamText).mockImplementation(() => {
+				callCount++;
+				if (callCount === 1) {
+					return {
+						fullStream: {
+							async *[Symbol.asyncIterator]() {
+								yield { type: 'tool-call', toolCallId: 'tc-1', toolName: 'file_read', input: { path: '/project/index.ts' } };
+								yield { type: 'tool-result', toolCallId: 'tc-1', toolName: 'file_read', output: 'file content' };
+								yield { type: 'finish-step', finishReason: 'tool-calls', usage: { inputTokens: 100, outputTokens: 20 } };
+								yield { type: 'finish', finishReason: 'tool-calls' };
+							},
+						},
+						response: Promise.resolve({
+							messages: [
+								{
+									role: 'assistant',
+									content: [{ type: 'tool-call', toolCallId: 'tc-1', toolName: 'file_read', input: { path: '/project/index.ts' } }],
+								},
+								{
+									role: 'tool',
+									content: [
+										{ type: 'tool-result', toolCallId: 'tc-1', toolName: 'file_read', output: { type: 'text', value: 'file content' } },
+									],
+								},
+							],
+						}),
+						// eslint-disable-next-line @typescript-eslint/no-explicit-any -- test mock
+					} as any;
+				}
+
+				if (callCount === 2) {
+					return {
+						fullStream: {
+							async *[Symbol.asyncIterator]() {
+								yield { type: 'finish-step', finishReason: 'stop', usage: { inputTokens: 120, outputTokens: 0 } };
+								yield { type: 'finish', finishReason: 'stop' };
+							},
+						},
+						response: Promise.resolve({ messages: [] }),
+						// eslint-disable-next-line @typescript-eslint/no-explicit-any -- test mock
+					} as any;
+				}
+
+				return {
+					fullStream: {
+						async *[Symbol.asyncIterator]() {
+							yield { type: 'text-delta', text: 'Done!' };
+							yield { type: 'finish-step', finishReason: 'stop', usage: { inputTokens: 200, outputTokens: 10 } };
+							yield { type: 'finish', finishReason: 'stop' };
+						},
+					},
+					response: Promise.resolve({
+						messages: [{ role: 'assistant', content: [{ type: 'text', text: 'Done!' }] }],
+					}),
+					// eslint-disable-next-line @typescript-eslint/no-explicit-any -- test mock
+				} as any;
+			});
+
+			const service = createTestService();
+			const abortController = new AbortController();
+			const stream = service.runAgentStream(makeModelMessages('Read my file'), [makeUserMessage('Read my file')], abortController);
+			const events = await collectEvents(stream);
+
+			expect(callCount).toBe(3);
+			expect(events.some((event) => event.type === 'status' && event.message === 'Retrying empty response...')).toBe(true);
+			expect(events.some((event) => event.type === 'text-delta' && event.delta === 'Done!')).toBe(true);
+			expect(events.filter((event) => event.type === 'run-error')).toHaveLength(0);
+		});
 	});
 
 	// ─── Abort handling ────────────────────────────────────────────────────

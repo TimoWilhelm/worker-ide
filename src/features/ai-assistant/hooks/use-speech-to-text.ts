@@ -193,9 +193,15 @@ export function useSpeechToText({
 			.then((status) => {
 				if (abortController.signal.aborted) return;
 
-				status.addEventListener('change', () => setMicrophonePermission(mapMicrophonePermissionState(status.state)), {
-					signal: abortController.signal,
-				});
+				status.addEventListener(
+					'change',
+					() => {
+						setMicrophonePermission(mapMicrophonePermissionState(status.state));
+					},
+					{
+						signal: abortController.signal,
+					},
+				);
 			})
 			.catch(() => {
 				// Permissions API not supported for microphone — stay at 'default'

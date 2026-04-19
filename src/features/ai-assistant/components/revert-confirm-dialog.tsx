@@ -108,9 +108,17 @@ export function RevertConfirmDialog({
 		return result;
 	}, [aggregatedChanges, pendingChanges, snapshotIds]);
 
-	const hasData = allMetadata.length > 0 || allFailed;
+	const hasData = snapshotIds.length === 0 || allMetadata.length > 0 || allFailed;
 	const isCascade = snapshotIds.length > 1;
 	const { dialogOpen, show, onExitComplete } = useDeferredOpen(open);
+	const summary =
+		snapshotIds.length === 0 || aggregatedChanges.length === 0
+			? isCascade
+				? 'This will remove this and later AI messages. No files will change.'
+				: 'This will remove this AI message. No files will change.'
+			: isCascade
+				? 'This will revert this and later AI changes.'
+				: 'This will revert this AI change.';
 
 	return (
 		<AlertDialog.Root open={dialogOpen} onOpenChange={onOpenChange}>
@@ -177,13 +185,7 @@ export function RevertConfirmDialog({
 
 								{hasData && (
 									<div className="flex flex-col gap-3">
-										<AlertDialog.Description className="text-sm text-text-secondary">
-											{aggregatedChanges.length === 0
-												? 'This undo action will not make any code changes.'
-												: isCascade
-													? 'This will undo all changes from this message and all subsequent AI turns. The following operations will be performed:'
-													: 'This will undo all changes made by the AI in response to this prompt. The following operations will be performed:'}
-										</AlertDialog.Description>
+										<AlertDialog.Description className="text-sm text-text-secondary">{summary}</AlertDialog.Description>
 
 										{warnings.length > 0 && (
 											<div className="rounded-md border border-warning/30 bg-warning/5">
@@ -197,7 +199,7 @@ export function RevertConfirmDialog({
 														<AlertTriangle className="size-3.5" />
 														Warning
 													</span>
-													<span className="text-2xs text-text-secondary">Some files have been modified since the AI change</span>
+													<span className="text-2xs text-text-secondary">These files changed since then.</span>
 												</div>
 												<div
 													className="
@@ -217,8 +219,8 @@ export function RevertConfirmDialog({
 
 										{createdFiles.length > 0 && (
 											<ChangeGroup
-												label="Will delete"
-												description="Files created by AI will be removed"
+												label="Delete"
+												description="New AI files"
 												icon={<FileMinus className="size-3.5" />}
 												colorClass="text-error"
 												backgroundClass="bg-error/5"
@@ -229,8 +231,8 @@ export function RevertConfirmDialog({
 
 										{editedFiles.length > 0 && (
 											<ChangeGroup
-												label="Will undo edits"
-												description="Files will be restored to their pre-edit content"
+												label="Undo edits"
+												description="Edited files"
 												icon={<FilePen className="size-3.5" />}
 												colorClass="text-warning"
 												backgroundClass="bg-warning/5"
@@ -241,8 +243,8 @@ export function RevertConfirmDialog({
 
 										{deletedFiles.length > 0 && (
 											<ChangeGroup
-												label="Will restore"
-												description="Deleted files will be recreated"
+												label="Restore"
+												description="Deleted files"
 												icon={<FilePlus className="size-3.5" />}
 												colorClass="text-success"
 												backgroundClass="bg-success/5"

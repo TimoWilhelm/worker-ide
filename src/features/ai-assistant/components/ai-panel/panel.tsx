@@ -750,14 +750,12 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	// Computes the full cascade set: all snapshot IDs from the clicked message forward
 	// within the current session, so the dialog can show what will be reverted.
 	const handleRevert = useCallback(
-		(_snapshotId: string, messageIndex: number) => {
+		(messageIndex: number) => {
 			const sortedSnapshotIds = committedMessages
 				.slice(messageIndex)
 				.map((message) => message.metadata?.snapshotId)
 				.filter((snapshotId): snapshotId is string => !!snapshotId)
 				.toReversed();
-
-			if (sortedSnapshotIds.length === 0) return;
 
 			setPendingRevert({ snapshotIds: sortedSnapshotIds, messageIndex, isLoading: false });
 		},
@@ -782,7 +780,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 			const promptSegments = userMessage ? messagePartsToInputSegments(userMessage.parts, new Set(files.map((file) => file.path))) : [];
 
 			try {
-				const result = await revertCascadeAsync(snapshotIds);
+				const result = snapshotIds.length > 0 ? await revertCascadeAsync(snapshotIds) : { reverted: [], failed: [], missingSnapshots: [] };
 
 				// Build the set of successfully reverted file paths
 				const revertedPaths = new Set(result.reverted.map((file) => file.path));
@@ -1199,10 +1197,10 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 											key={message.id}
 											message={message}
 											messageIndex={index}
-											snapshotId={message.metadata?.snapshotId}
 											agentMode={message.metadata?.request?.mode}
 											modelId={message.metadata?.request?.model}
 											isClientOnly={localOnlyMessageIds.has(message.id)}
+											canRevert={message.role === 'user' && (!isProcessing || index < committedMessages.length - 1)}
 											isReverting={isReverting}
 											revertingMessageIndex={pendingRevert?.isLoading ? pendingRevert.messageIndex : undefined}
 											onRevert={handleRevert}

@@ -88,6 +88,7 @@ const MAX_RETRY_ATTEMPTS = 5;
 const MAX_OUTPUT_RECOVERY_ATTEMPTS = 3;
 const SOFT_ITERATION_LIMIT = 50;
 const PROACTIVE_PRUNE_THRESHOLD = 0.7;
+const EMPTY_RESPONSE_RETRY_DELAY_MS = 250;
 
 export class AIAgentService {
 	private mcpClientManager = new McpClientManager();
@@ -443,6 +444,7 @@ export class AIAgentService {
 				const llmTimer = logger.startTimer();
 
 				let latestFinishReason: string | undefined;
+				let responseMessageCount = 0;
 
 				while (true) {
 					// Reset per-attempt state so failed attempts don't contaminate retries.
@@ -652,6 +654,7 @@ export class AIAgentService {
 						// response.messages can be undefined when the model returns a reasoning-only
 						// turn (thinks but produces no text or tool output).
 						const responseMessages = response.messages ?? [];
+						responseMessageCount = responseMessages.length;
 						workingMessages.push(...responseMessages);
 						// Also append to currentChatMessages so persistSession saves the full history.
 						const newChatMessages = responseMessagesToChatMessages(responseMessages);
@@ -708,6 +711,22 @@ export class AIAgentService {
 						});
 						yield statusEvent('Continuing truncated response...');
 						continue;
+					}
+
+					const isEmptyStopResponse =
+						latestFinishReason === 'stop' && !hadToolCalls && responseMessageCount === 0 && lastAssistantText.length === 0;
+
+					if (isEmptyStopResponse) {
+						retryAttempt++;
+						if (retryAttempt < MAX_RETRY_ATTEMPTS) {
+							yield statusEvent('Retrying empty response...');
+							await sleep(EMPTY_RESPONSE_RETRY_DELAY_MS, signal);
+							continue;
+						}
+
+						yield runErrorEvent('The model returned an empty response. Please try again.');
+						continueLoop = false;
+						break;
 					}
 
 					// Success — exit retry loop
@@ -800,7 +819,9 @@ export class AIAgentService {
 					continueLoop = false;
 				}
 
-				if (hadUserQuestion) continueLoop = false;
+				if (hadUserQuestion) {
+					continueLoop = false;
+				}
 
 				// Persist after every turn so turn-complete always reloads the full history.
 				// The throttle was causing skipped persists and stale DB state.

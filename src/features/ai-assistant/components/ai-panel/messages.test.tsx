@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
-import { QueuedSteeringStrip } from './messages';
+import { MessageBubble, QueuedSteeringStrip } from './messages';
 
 import type { ChatMessage } from '@shared/types';
 import type { ReactElement } from 'react';
@@ -97,5 +97,35 @@ describe('QueuedSteeringStrip', () => {
 		);
 
 		expect(screen.getByText('First queued message').closest('.border-dashed')).toBeInTheDocument();
+	});
+});
+
+describe('MessageBubble', () => {
+	it('shows a revert button for completed user turns even without a snapshot', () => {
+		const onRevert = vi.fn();
+		renderWithProviders(
+			<MessageBubble
+				message={{
+					id: 'user-1',
+					role: 'user',
+					parts: [{ type: 'text', content: 'Fix the bug' }],
+					createdAt: 1,
+					metadata: {
+						request: {
+							state: 'committed',
+							mode: 'code',
+							model: '@cf/moonshotai/kimi-k2.5',
+						},
+					},
+				}}
+				messageIndex={0}
+				canRevert
+				isReverting={false}
+				onRevert={onRevert}
+			/>,
+		);
+
+		fireEvent.click(screen.getByRole('button', { name: /revert/i }));
+		expect(onRevert).toHaveBeenCalledWith(0);
 	});
 });

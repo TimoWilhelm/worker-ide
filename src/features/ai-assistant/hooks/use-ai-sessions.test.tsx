@@ -174,7 +174,7 @@ describe('useAiSessions', () => {
 			get state() {
 				return state;
 			},
-			call: vi.fn().mockResolvedValue(),
+			call: vi.fn().mockImplementation(async () => {}),
 		};
 
 		const { result } = renderHook(() => useAiSessions({ projectId: 'project-1', agent, agentConnectionState: 'connected' }));
@@ -204,7 +204,7 @@ describe('useAiSessions', () => {
 			get state() {
 				return state;
 			},
-			call: vi.fn().mockResolvedValue(),
+			call: vi.fn().mockImplementation(async () => {}),
 		};
 
 		renderHook(() => useAiSessions({ projectId: 'project-1', agent, agentConnectionState: 'connected' }));

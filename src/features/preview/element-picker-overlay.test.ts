@@ -1,11 +1,11 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 declare global {
-	interface Window {
-		__PREVIEW_CONFIG?: {
-			ideOrigin?: string;
-		};
-	}
+	var __PREVIEW_CONFIG:
+		| {
+				ideOrigin?: string;
+		  }
+		| undefined;
 }
 
 const ideOrigin = 'https://ide.example';
@@ -134,7 +134,7 @@ describe('element picker overlay', () => {
 			restore();
 		}
 
-		delete globalThis.__PREVIEW_CONFIG;
+		globalThis.__PREVIEW_CONFIG = undefined;
 	});
 
 	it('shows the rainbow overlay without preselecting an element', () => {
