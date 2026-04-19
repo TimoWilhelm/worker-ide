@@ -10,9 +10,9 @@ export const previewOriginReference: { current: string | undefined } = { current
 export type PreviewElementPickerCommand =
 	| { type: '__preview-element-picker-start' }
 	| { type: '__preview-element-picker-cancel' }
-	| { type: '__preview-element-highlight'; reference: PreviewElementReference }
+	| { type: '__preview-element-highlight'; reference: PreviewElementReference; sticky?: boolean }
 	| { type: '__preview-element-highlight-clear' }
-	| { type: '__preview-element-reveal'; reference: PreviewElementReference }
+	| { type: '__preview-element-reveal'; reference: PreviewElementReference; sticky?: boolean; scroll?: 'always' | 'if-needed' }
 	| { type: '__preview-element-resolve'; requestId: string; reference: PreviewElementReference };
 
 export interface PreviewElementPickedMessage {
@@ -25,6 +25,15 @@ export interface PreviewElementPickerCancelledMessage {
 }
 
 const pendingPreviewElementResolves = new Map<string, (found: boolean) => void>();
+let stickyPreviewElementHighlightActive = false;
+
+function clearStickyPreviewElementHighlight() {
+	if (!stickyPreviewElementHighlightActive) {
+		return;
+	}
+
+	clearPreviewElementHighlight();
+}
 
 if (typeof globalThis !== 'undefined') {
 	globalThis.addEventListener('message', (event: MessageEvent) => {
@@ -55,6 +64,14 @@ if (typeof globalThis !== 'undefined') {
 		pendingPreviewElementResolves.delete(message.requestId);
 		resolve(message.found);
 	});
+
+	if (typeof document !== 'undefined') {
+		document.addEventListener('pointerdown', clearStickyPreviewElementHighlight, true);
+		document.addEventListener('touchstart', clearStickyPreviewElementHighlight, true);
+	}
+
+	globalThis.addEventListener('keydown', clearStickyPreviewElementHighlight, true);
+	globalThis.addEventListener('wheel', clearStickyPreviewElementHighlight, { capture: true });
 }
 
 function getPreviewMessagingTarget(): { previewWindow: Window; previewOrigin: string } | undefined {
@@ -85,16 +102,27 @@ export function cancelPreviewElementPicker(): boolean {
 	return postMessageToPreview({ type: '__preview-element-picker-cancel' });
 }
 
-export function highlightPreviewElement(reference: PreviewElementReference): boolean {
-	return postMessageToPreview({ type: '__preview-element-highlight', reference });
+export function highlightPreviewElement(reference: PreviewElementReference, options?: { sticky?: boolean }): boolean {
+	stickyPreviewElementHighlightActive = options?.sticky ?? false;
+	return postMessageToPreview({ type: '__preview-element-highlight', reference, sticky: options?.sticky });
 }
 
 export function clearPreviewElementHighlight(): boolean {
+	stickyPreviewElementHighlightActive = false;
 	return postMessageToPreview({ type: '__preview-element-highlight-clear' });
 }
 
-export function revealPreviewElement(reference: PreviewElementReference): boolean {
-	return postMessageToPreview({ type: '__preview-element-reveal', reference });
+export function revealPreviewElement(
+	reference: PreviewElementReference,
+	options?: { sticky?: boolean; scroll?: 'always' | 'if-needed' },
+): boolean {
+	stickyPreviewElementHighlightActive = options?.sticky ?? false;
+	return postMessageToPreview({
+		type: '__preview-element-reveal',
+		reference,
+		sticky: options?.sticky,
+		scroll: options?.scroll,
+	});
 }
 
 export function resolvePreviewElement(reference: PreviewElementReference): Promise<boolean | undefined> {

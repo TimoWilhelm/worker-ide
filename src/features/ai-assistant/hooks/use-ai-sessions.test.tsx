@@ -90,7 +90,7 @@ describe('useAiSessions', () => {
 			call: vi.fn().mockImplementation(async () => {}),
 		};
 
-		const { rerender } = renderHook(() => useAiSessions({ projectId: 'project-1', agent }));
+		const { rerender } = renderHook(() => useAiSessions({ projectId: 'project-1', agent, agentConnectionState: 'connected' }));
 
 		await waitFor(() => {
 			expect(useStore.getState().pendingChanges.has('/src/a.ts')).toBe(true);
@@ -127,7 +127,7 @@ describe('useAiSessions', () => {
 			call: vi.fn().mockImplementation(async () => {}),
 		};
 
-		const { rerender } = renderHook(() => useAiSessions({ projectId: 'project-1', agent }));
+		const { rerender } = renderHook(() => useAiSessions({ projectId: 'project-1', agent, agentConnectionState: 'connected' }));
 
 		await waitFor(() => {
 			expect(useStore.getState().pendingChanges.size).toBe(0);
@@ -141,5 +141,78 @@ describe('useAiSessions', () => {
 			const liveChange = useStore.getState().pendingChanges.get('/src/live.ts');
 			expect(liveChange?.sessionId).toBe('session-2');
 		});
+	});
+
+	it('does not show a restore spinner when there is no saved session to restore', () => {
+		const agent = {
+			get state() {
+				return;
+			},
+			call: vi.fn().mockImplementation(async () => {}),
+		};
+
+		const { result } = renderHook(() => useAiSessions({ projectId: 'project-1', agent, agentConnectionState: 'connecting' }));
+
+		expect(result.current.isRestoringSession).toBe(false);
+		expect(agent.call).not.toHaveBeenCalled();
+	});
+
+	it('clears stale saved sessions that cannot be restored', async () => {
+		localStorage.setItem('worker-ide-active-session:project-1', 'missing-session');
+
+		const state: AgentState = {
+			currentSession: undefined,
+			sessions: [],
+			reviewEntries: {},
+			reviewSummary: {
+				unresolvedCount: 0,
+				reviewVersion: 1,
+				sessionCounts: {},
+			},
+		};
+		const agent = {
+			get state() {
+				return state;
+			},
+			call: vi.fn().mockResolvedValue(),
+		};
+
+		const { result } = renderHook(() => useAiSessions({ projectId: 'project-1', agent, agentConnectionState: 'connected' }));
+
+		await waitFor(() => {
+			expect(agent.call).toHaveBeenCalledWith('loadSession', ['missing-session']);
+			expect(result.current.isRestoringSession).toBe(false);
+		});
+
+		expect(localStorage.getItem('worker-ide-active-session:project-1')).toBeNull();
+	});
+
+	it('syncs a restored current session back into persisted session storage', async () => {
+		localStorage.setItem('worker-ide-active-session:project-1', 'outdated-session');
+
+		const state: AgentState = {
+			currentSession: createCurrentSession('session-3'),
+			sessions: [{ id: 'session-3', title: 'Session 3', createdAt: 3, isRunning: false }],
+			reviewEntries: {},
+			reviewSummary: {
+				unresolvedCount: 0,
+				reviewVersion: 1,
+				sessionCounts: {},
+			},
+		};
+		const agent = {
+			get state() {
+				return state;
+			},
+			call: vi.fn().mockResolvedValue(),
+		};
+
+		renderHook(() => useAiSessions({ projectId: 'project-1', agent, agentConnectionState: 'connected' }));
+
+		await waitFor(() => {
+			expect(localStorage.getItem('worker-ide-active-session:project-1')).toBe('session-3');
+		});
+
+		expect(agent.call).not.toHaveBeenCalledWith('loadSession', expect.anything());
 	});
 });

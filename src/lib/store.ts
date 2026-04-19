@@ -235,9 +235,18 @@ function rehydratePersistedState(state: StoreState | undefined): void {
 	// Parse the fields that came from localStorage.
 	const result = persistedStoreSchema.safeParse(state);
 	if (result.success) {
+		state.sidebarVisible = result.data.sidebarVisible;
+		state.utilityPanelVisible = result.data.utilityPanelVisible;
+		state.agentPanelVisible = result.data.agentPanelVisible;
+		state.devtoolsVisible = result.data.devtoolsVisible;
+		state.dependenciesPanelVisible = result.data.dependenciesPanelVisible;
+		state.colorScheme = result.data.colorScheme;
 		state.expandedDirs = new Set(result.data.expandedDirs);
 		// Apply defaults for fields that may be missing in older persisted data
 		state.editorFont = result.data.editorFont;
+		state.activeMobilePanel = result.data.activeMobilePanel;
+		state.activeSidebarView = result.data.activeSidebarView;
+		state.selectedModel = result.data.selectedModel;
 	} else {
 		// Persisted data is corrupt — reset to defaults
 		state.expandedDirs = new Set(['/src', '/worker']);

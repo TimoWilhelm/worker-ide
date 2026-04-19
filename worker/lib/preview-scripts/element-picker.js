@@ -8,13 +8,12 @@
 	var pickerActive = false;
 	var pickerTarget = null;
 	var highlightedTarget = null;
+	var stickyHighlightActive = false;
 	var overlayRoot;
 	var backdrop;
-	var spotlight;
 	var frame;
 	var label;
 	var cursorStyle;
-	var lastPointer = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
 	var MAX_REFERENCE_TEXT_LENGTH = 160;
 	var MAX_CLASS_NAME_LENGTH = 120;
 	var MAX_LOCATOR_CANDIDATES = 6;
@@ -47,17 +46,7 @@
 			opacity: '0',
 			transition: 'opacity 140ms ease-out',
 			background:
-				'radial-gradient(circle at 50% 50%, rgba(217,70,239,0.18) 0%, rgba(168,85,247,0.16) 18%, rgba(59,130,246,0.12) 34%, rgba(15,23,42,0.08) 52%, rgba(15,23,42,0.28) 100%)',
-		});
-
-		spotlight = document.createElement('div');
-		applyStyles(spotlight, {
-			position: 'absolute',
-			width: '160px',
-			height: '160px',
-			borderRadius: '9999px',
-			background: 'radial-gradient(circle, rgba(244,114,182,0.28) 0%, rgba(168,85,247,0.18) 48%, rgba(59,130,246,0) 75%)',
-			transform: 'translate(-50%, -50%)',
+				'linear-gradient(135deg, rgba(244,114,182,0.12) 0%, rgba(168,85,247,0.1) 28%, rgba(59,130,246,0.1) 58%, rgba(45,212,191,0.08) 100%), radial-gradient(circle at top left, rgba(244,114,182,0.14) 0%, rgba(244,114,182,0) 38%), radial-gradient(circle at top right, rgba(59,130,246,0.12) 0%, rgba(59,130,246,0) 42%), radial-gradient(circle at bottom center, rgba(45,212,191,0.1) 0%, rgba(45,212,191,0) 44%), rgba(15,23,42,0.16)',
 		});
 
 		frame = document.createElement('div');
@@ -98,7 +87,7 @@
 		cursorStyle = document.createElement('style');
 		cursorStyle.textContent = 'html, body, body * { cursor: crosshair !important; }';
 
-		overlayRoot.append(backdrop, spotlight, frame, label);
+		overlayRoot.append(backdrop, frame, label);
 		(document.body || document.documentElement).appendChild(overlayRoot);
 	}
 
@@ -622,31 +611,14 @@
 		}
 	}
 
-	function updateBackdrop() {
-		if (!backdrop || !spotlight) {
-			return;
-		}
-
-		spotlight.style.left = lastPointer.x + 'px';
-		spotlight.style.top = lastPointer.y + 'px';
-		backdrop.style.background =
-			'radial-gradient(circle at ' +
-			lastPointer.x +
-			'px ' +
-			lastPointer.y +
-			'px, rgba(217,70,239,0.2) 0%, rgba(168,85,247,0.16) 16%, rgba(59,130,246,0.12) 32%, rgba(15,23,42,0.08) 54%, rgba(15,23,42,0.28) 100%)';
-	}
-
 	function renderOverlay() {
 		ensureOverlay();
-		updateBackdrop();
 		setPickerCursor(pickerActive);
 
 		var viewportPadding = 6;
 		var framePadding = 6;
 
 		backdrop.style.opacity = pickerActive ? '1' : '0';
-		spotlight.style.opacity = pickerActive ? '1' : '0';
 
 		var target = getActiveTarget();
 		if (!target || !document.contains(target)) {
@@ -656,12 +628,13 @@
 		}
 
 		var rect = target.getBoundingClientRect();
-		var frameLeft = Math.max(rect.left - framePadding, viewportPadding);
-		var frameTop = Math.max(rect.top - framePadding, viewportPadding);
-		var frameRight = Math.min(rect.right + framePadding, window.innerWidth - viewportPadding);
-		var frameBottom = Math.min(rect.bottom + framePadding, window.innerHeight - viewportPadding);
-		var frameWidth = Math.max(frameRight - frameLeft, 24);
-		var frameHeight = Math.max(frameBottom - frameTop, 24);
+		var frameLeft = rect.left - framePadding;
+		var frameTop = rect.top - framePadding;
+		var frameWidth = Math.max(rect.right - rect.left + framePadding * 2, 24);
+		var frameHeight = Math.max(rect.bottom - rect.top + framePadding * 2, 24);
+		var frameRight = frameLeft + frameWidth;
+		var frameBottom = frameTop + frameHeight;
+		var frameEnclosesViewport = frameLeft <= 0 && frameTop <= 0 && frameRight >= window.innerWidth && frameBottom >= window.innerHeight;
 
 		frame.style.opacity = '1';
 		frame.style.left = frameLeft + 'px';
@@ -674,16 +647,22 @@
 
 		var labelWidth = label.offsetWidth;
 		var labelHeight = label.offsetHeight;
-		var labelLeft = Math.min(Math.max(frameLeft + 8, viewportPadding), window.innerWidth - viewportPadding - labelWidth);
-		var labelTop = frameTop > labelHeight + 14 ? frameTop - labelHeight - 8 : frameBottom + 8;
-		labelTop = Math.min(Math.max(labelTop, viewportPadding), window.innerHeight - viewportPadding - labelHeight);
+		var labelLeft;
+		var labelTop;
+		if (frameEnclosesViewport) {
+			labelLeft = Math.min(viewportPadding + 8, window.innerWidth - viewportPadding - labelWidth);
+			labelTop = Math.min(viewportPadding + 8, window.innerHeight - viewportPadding - labelHeight);
+		} else {
+			labelLeft = Math.min(Math.max(frameLeft + 8, viewportPadding), window.innerWidth - viewportPadding - labelWidth);
+			labelTop = frameTop > labelHeight + 14 ? frameTop - labelHeight - 8 : frameBottom + 8;
+			labelTop = Math.min(Math.max(labelTop, viewportPadding), window.innerHeight - viewportPadding - labelHeight);
+		}
 
 		label.style.left = labelLeft + 'px';
 		label.style.top = labelTop + 'px';
 	}
 
 	function setPickerTargetFromPoint(x, y) {
-		lastPointer = { x: x, y: y };
 		pickerTarget = getElementFromPoint(x, y);
 		renderOverlay();
 	}
@@ -709,15 +688,32 @@
 		window.parent.postMessage({ type: '__preview-element-picked', reference: reference }, ideOrigin);
 	}
 
-	function setHighlightedTarget(reference) {
+	function clearHighlightedTarget() {
+		highlightedTarget = null;
+		stickyHighlightActive = false;
+		renderOverlay();
+	}
+
+	function setHighlightedTarget(reference, sticky) {
 		highlightedTarget = findElementByReference(reference);
+		stickyHighlightActive = !!sticky && !!highlightedTarget;
 		renderOverlay();
 		return !!highlightedTarget;
 	}
 
-	function revealHighlightedTarget(reference) {
+	function isElementWithinViewport(element) {
+		var rect = element.getBoundingClientRect();
+		return rect.top >= 0 && rect.left >= 0 && rect.bottom <= window.innerHeight && rect.right <= window.innerWidth;
+	}
+
+	function revealHighlightedTarget(reference, options) {
 		highlightedTarget = findElementByReference(reference);
-		if (highlightedTarget && typeof highlightedTarget.scrollIntoView === 'function') {
+		stickyHighlightActive = !!(options && options.sticky) && !!highlightedTarget;
+		var shouldScroll =
+			highlightedTarget &&
+			((options && options.scroll === 'always') ||
+				(options && options.scroll === 'if-needed' ? !isElementWithinViewport(highlightedTarget) : true));
+		if (shouldScroll && typeof highlightedTarget.scrollIntoView === 'function') {
 			highlightedTarget.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
 		}
 		renderOverlay();
@@ -766,6 +762,10 @@
 	window.addEventListener(
 		'pointerdown',
 		function (event) {
+			if (!pickerActive && stickyHighlightActive) {
+				clearHighlightedTarget();
+			}
+
 			if (!pickerActive) {
 				return;
 			}
@@ -777,8 +777,54 @@
 	);
 
 	window.addEventListener(
+		'touchstart',
+		function (event) {
+			if (!pickerActive && stickyHighlightActive) {
+				clearHighlightedTarget();
+			}
+
+			if (!pickerActive || !event.touches[0]) {
+				return;
+			}
+
+			event.preventDefault();
+			event.stopPropagation();
+			setPickerTargetFromPoint(event.touches[0].clientX, event.touches[0].clientY);
+		},
+		{ capture: true, passive: false },
+	);
+
+	window.addEventListener(
+		'touchend',
+		function (event) {
+			if (!pickerActive || !event.changedTouches[0]) {
+				return;
+			}
+
+			event.preventDefault();
+			event.stopPropagation();
+			selectTarget(getElementFromPoint(event.changedTouches[0].clientX, event.changedTouches[0].clientY));
+		},
+		{ capture: true, passive: false },
+	);
+
+	window.addEventListener(
+		'wheel',
+		function () {
+			if (!pickerActive && stickyHighlightActive) {
+				clearHighlightedTarget();
+			}
+		},
+		true,
+	);
+
+	window.addEventListener(
 		'keydown',
 		function (event) {
+			if (!pickerActive && stickyHighlightActive) {
+				clearHighlightedTarget();
+			}
+
 			if (!pickerActive) {
 				return;
 			}
@@ -809,7 +855,8 @@
 
 		if (event.data.type === '__preview-element-picker-start') {
 			pickerActive = true;
-			pickerTarget = document.body;
+			pickerTarget = null;
+			stickyHighlightActive = false;
 			highlightedTarget = null;
 			renderOverlay();
 			return;
@@ -821,12 +868,12 @@
 		}
 
 		if (event.data.type === '__preview-element-highlight' && event.data.reference && typeof event.data.reference === 'object') {
-			setHighlightedTarget(event.data.reference);
+			setHighlightedTarget(event.data.reference, !!event.data.sticky);
 			return;
 		}
 
 		if (event.data.type === '__preview-element-reveal' && event.data.reference && typeof event.data.reference === 'object') {
-			revealHighlightedTarget(event.data.reference);
+			revealHighlightedTarget(event.data.reference, { sticky: !!event.data.sticky, scroll: event.data.scroll });
 			return;
 		}
 
@@ -844,8 +891,7 @@
 		}
 
 		if (event.data.type === '__preview-element-highlight-clear') {
-			highlightedTarget = null;
-			renderOverlay();
+			clearHighlightedTarget();
 		}
 	});
 })();

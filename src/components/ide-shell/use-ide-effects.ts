@@ -4,6 +4,8 @@ import { getDependencyErrorCount, subscribeDependencyErrors } from '@/features/f
 import { isMessageFromPreview } from '@/lib/preview-origin';
 import { useStore } from '@/lib/store';
 
+import { useUnsavedChangesWarning } from './use-unsaved-changes-warning';
+
 import type { RefObject } from 'react';
 
 interface UseIDEEffectsOptions {
@@ -23,6 +25,8 @@ export function useIDEEffects({
 	previewIframeReference,
 	cursorUpdateTimeoutReference,
 }: UseIDEEffectsOptions) {
+	useUnsavedChangesWarning();
+
 	// Auto-expand dependencies panel when new errors are detected.
 	const showDependenciesPanel = useStore((state) => state.showDependenciesPanel);
 	const previousDependencyErrorCount = useRef(0);

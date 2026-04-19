@@ -1,6 +1,7 @@
 import * as esbuild from 'esbuild-wasm';
 
 import { BundleDependencyError } from '@shared/bundler-types';
+import { toAbsolutePreviewPath } from '@shared/preview-path';
 
 // @ts-expect-error -- WASM module import resolved to WebAssembly.Module by Cloudflare at deploy time
 import esbuildWasm from '../../vendor/esbuild.wasm';
@@ -287,7 +288,7 @@ function createVirtualFsPlugin(
 				// styles in-place rather than appending duplicate <style> tags.
 				if (arguments_.path.endsWith('.css')) {
 					const cssContent = JSON.stringify(content);
-					const developmentId = JSON.stringify(arguments_.path);
+					const developmentId = JSON.stringify(toAbsolutePreviewPath(arguments_.path));
 					const jsCode = [
 						`const css = ${cssContent};`,
 						`var existing = document.querySelector('style[data-dev-id=' + JSON.stringify(${developmentId}) + ']');`,

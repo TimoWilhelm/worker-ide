@@ -16,6 +16,7 @@ import type { PreviewElementReference } from '@shared/types';
 
 export interface RichTextInputHandle {
 	focus: () => void;
+	setCursorPosition: (offset: number) => void;
 	moveCursorToEnd: () => void;
 	insertMention: (path: string, triggerOffset: number, queryLength: number) => void;
 	getPlainText: () => string;
@@ -28,6 +29,13 @@ const PREVIEW_ELEMENT_REFERENCE_ATTR = 'data-preview-element-reference';
 function getFileName(path: string): string {
 	return path.split('/').pop() ?? path;
 }
+
+function normalizeContainerDom(container: HTMLElement): void {
+	while (container.firstChild instanceof HTMLBRElement) {
+		container.firstChild.remove();
+	}
+}
+
 function parseSegmentsFromDom(container: HTMLElement): InputSegment[] {
 	const segments: InputSegment[] = [];
 
@@ -63,6 +71,88 @@ function parseSegmentsFromDom(container: HTMLElement): InputSegment[] {
 
 function getSegmentTextLength(segment: InputSegment): number {
 	return segmentsToPlainText([segment]).length;
+}
+
+function getSegmentsTextLength(segments: InputSegment[]): number {
+	return segmentsToPlainText(segments).length;
+}
+
+function normalizeSegments(segments: InputSegment[]): InputSegment[] {
+	const normalizedSegments: InputSegment[] = [];
+
+	for (const segment of segments) {
+		if (segment.type === 'text') {
+			if (!segment.value) {
+				continue;
+			}
+
+			const previousSegment = normalizedSegments.at(-1);
+			if (previousSegment?.type === 'text') {
+				previousSegment.value += segment.value;
+				continue;
+			}
+		}
+
+		normalizedSegments.push(segment);
+	}
+
+	return normalizedSegments;
+}
+
+function getSegmentStartOffset(segments: InputSegment[], segmentIndex: number): number {
+	let offset = 0;
+
+	for (const [index, segment] of segments.entries()) {
+		if (index === segmentIndex) {
+			return offset;
+		}
+
+		offset += getSegmentTextLength(segment);
+	}
+
+	return offset;
+}
+
+function getAdjacentRemovableSegmentIndex(
+	segments: InputSegment[],
+	cursorOffset: number,
+	direction: 'backward' | 'forward',
+): number | undefined {
+	let offset = 0;
+
+	for (const [index, segment] of segments.entries()) {
+		const segmentLength = getSegmentTextLength(segment);
+		const segmentStart = offset;
+		const segmentEnd = offset + segmentLength;
+
+		if (segment.type !== 'text') {
+			if (direction === 'backward' && cursorOffset === segmentEnd) {
+				return index;
+			}
+
+			if (direction === 'forward' && cursorOffset === segmentStart) {
+				return index;
+			}
+		}
+
+		offset = segmentEnd;
+	}
+
+	return undefined;
+}
+
+function getLeadingPlaceholderBreakCount(container: HTMLElement): number {
+	let count = 0;
+
+	for (const childNode of container.childNodes) {
+		if (!(childNode instanceof HTMLBRElement)) {
+			break;
+		}
+
+		count += 1;
+	}
+
+	return count;
 }
 
 function getCursorOffsetInContainer(container: HTMLElement): number {
@@ -104,7 +194,7 @@ function getCursorOffsetInContainer(container: HTMLElement): number {
 		walk(child);
 	}
 
-	return offset;
+	return Math.max(0, offset - getLeadingPlaceholderBreakCount(container));
 }
 function findDomPosition(container: HTMLElement, targetOffset: number): { node: Node; offset: number } | undefined {
 	let accumulated = 0;
@@ -149,6 +239,24 @@ function findDomPosition(container: HTMLElement, targetOffset: number): { node: 
 	}
 
 	return { node: container, offset: container.childNodes.length };
+}
+
+function setCursorOffsetInContainer(container: HTMLElement, targetOffset: number): void {
+	const position = findDomPosition(container, targetOffset);
+	if (!position) {
+		return;
+	}
+
+	const selection = globalThis.getSelection();
+	if (!selection) {
+		return;
+	}
+
+	const range = document.createRange();
+	range.setStart(position.node, position.offset);
+	range.collapse(true);
+	selection.removeAllRanges();
+	selection.addRange(range);
 }
 
 function createPillElement(path: string): HTMLSpanElement {
@@ -266,6 +374,7 @@ export function RichTextInput({
 	const isComposingReference = useRef(false);
 	const suppressInputReference = useRef(false);
 	const lastRenderedSegmentsReference = useRef<InputSegment[]>([]);
+	const lastCursorOffsetReference = useRef(0);
 	const hoveredPreviewElementKeyReference = useRef<string | undefined>(undefined);
 
 	// Persistent DOM node used as a portal target for inlineSuffix.
@@ -293,6 +402,7 @@ export function RichTextInput({
 		if (!container) return;
 
 		const cursorOffset = getCursorOffsetInContainer(container);
+		normalizeContainerDom(container);
 
 		suppressInputReference.current = true;
 		container.textContent = '';
@@ -317,17 +427,8 @@ export function RichTextInput({
 
 		// Restore cursor
 		if (cursorOffset >= 0) {
-			const position = findDomPosition(container, cursorOffset);
-			if (position) {
-				const selection = globalThis.getSelection();
-				if (selection) {
-					const range = document.createRange();
-					range.setStart(position.node, position.offset);
-					range.collapse(true);
-					selection.removeAllRanges();
-					selection.addRange(range);
-				}
-			}
+			lastCursorOffsetReference.current = cursorOffset;
+			setCursorOffsetInContainer(container, cursorOffset);
 		}
 
 		// Append inline suffix anchor at the end of content
@@ -345,16 +446,24 @@ export function RichTextInput({
 		focus() {
 			containerReference.current?.focus();
 		},
+		setCursorPosition(offset: number) {
+			const container = containerReference.current;
+			if (!container) return;
+			normalizeContainerDom(container);
+
+			const maxOffset = getSegmentsTextLength(segments);
+			const nextOffset = Math.max(0, Math.min(offset, maxOffset));
+			lastCursorOffsetReference.current = nextOffset;
+			setCursorOffsetInContainer(container, nextOffset);
+		},
 		moveCursorToEnd() {
 			const container = containerReference.current;
 			if (!container) return;
-			const selection = globalThis.getSelection();
-			if (!selection) return;
-			const range = document.createRange();
-			range.selectNodeContents(container);
-			range.collapse(false);
-			selection.removeAllRanges();
-			selection.addRange(range);
+			normalizeContainerDom(container);
+
+			const maxOffset = getSegmentsTextLength(segments);
+			lastCursorOffsetReference.current = maxOffset;
+			setCursorOffsetInContainer(container, maxOffset);
 		},
 		insertMention(path: string, triggerOffset: number, queryLength: number) {
 			const container = containerReference.current;
@@ -401,17 +510,8 @@ export function RichTextInput({
 
 				// Place cursor after the pill + space
 				const newOffset = before.length + 1 + path.length + 1;
-				const position = findDomPosition(liveContainer, newOffset);
-				if (position) {
-					const selection = globalThis.getSelection();
-					if (selection) {
-						const range = document.createRange();
-						range.setStart(position.node, position.offset);
-						range.collapse(true);
-						selection.removeAllRanges();
-						selection.addRange(range);
-					}
-				}
+				lastCursorOffsetReference.current = newOffset;
+				setCursorOffsetInContainer(liveContainer, newOffset);
 				liveContainer.focus();
 
 				onCursorChangeReference.current?.(newOffset);
@@ -442,13 +542,15 @@ export function RichTextInput({
 		if (suppressInputReference.current || isComposingReference.current) return;
 		const container = containerReference.current;
 		if (!container) return;
+		normalizeContainerDom(container);
 
-		const newSegments = parseSegmentsFromDom(container);
+		const newSegments = normalizeSegments(parseSegmentsFromDom(container));
 		lastRenderedSegmentsReference.current = newSegments;
 		onSegmentsChange(newSegments);
 
 		if (onCursorChange) {
 			const offset = getCursorOffsetInContainer(container);
+			lastCursorOffsetReference.current = Math.max(0, offset);
 			onCursorChange(offset);
 		}
 	}, [onSegmentsChange, onCursorChange]);
@@ -459,16 +561,52 @@ export function RichTextInput({
 		const container = containerReference.current;
 		if (!container) return;
 		const offset = getCursorOffsetInContainer(container);
+		normalizeContainerDom(container);
 		if (offset >= 0) {
+			lastCursorOffsetReference.current = offset;
 			onCursorChange(offset);
 		}
 	}, [onCursorChange]);
 
 	const handleKeyDown = useCallback(
 		(event: React.KeyboardEvent<HTMLDivElement>) => {
+			const container = containerReference.current;
+			if (container && (event.key === 'Backspace' || event.key === 'Delete') && !event.defaultPrevented && !event.nativeEvent.isComposing) {
+				const selection = globalThis.getSelection();
+				if (!selection || selection.isCollapsed) {
+					const cursorOffset = selection?.rangeCount
+						? Math.max(getCursorOffsetInContainer(container), lastCursorOffsetReference.current)
+						: lastCursorOffsetReference.current;
+					normalizeContainerDom(container);
+					const removableSegmentIndex = getAdjacentRemovableSegmentIndex(
+						segments,
+						cursorOffset,
+						event.key === 'Backspace' ? 'backward' : 'forward',
+					);
+
+					if (removableSegmentIndex !== undefined) {
+						event.preventDefault();
+						const nextSegments = segments.filter((_, index) => index !== removableSegmentIndex);
+						const nextCursorOffset = getSegmentStartOffset(segments, removableSegmentIndex);
+
+						lastRenderedSegmentsReference.current = nextSegments;
+						onSegmentsChange(nextSegments);
+
+						requestAnimationFrame(() => {
+							const liveContainer = containerReference.current;
+							if (!liveContainer) return;
+
+							lastCursorOffsetReference.current = nextCursorOffset;
+							setCursorOffsetInContainer(liveContainer, nextCursorOffset);
+							onCursorChange?.(nextCursorOffset);
+						});
+					}
+				}
+			}
+
 			onKeyDown?.(event);
 		},
-		[onKeyDown],
+		[onCursorChange, onKeyDown, onSegmentsChange, segments],
 	);
 
 	const handlePaste = useCallback((event: React.ClipboardEvent<HTMLDivElement>) => {

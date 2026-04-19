@@ -2,6 +2,7 @@ import { useCallback, useRef, useState } from 'react';
 
 import { toast } from '@/components/ui/toast-store';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import { AgentRuntimeProvider } from '@/features/ai-assistant';
 import { DeployModal } from '@/features/deploy';
 import { useFileTree } from '@/features/file-tree';
 import { ProjectSettingsModal } from '@/features/project-settings';
@@ -99,57 +100,59 @@ export function IDEShell({ projectId }: { projectId: string }) {
 
 	return (
 		<TooltipProvider>
-			<title>{projectNameState.projectName ? `${projectNameState.projectName} | Codemaxxing` : 'Codemaxxing'}</title>
-			<div className="flex h-full flex-col overflow-hidden bg-bg-primary">
-				<IDEHeader
-					projectNameState={projectNameState}
-					isMobile={isMobile}
-					aiPanelVisible={layouts.aiPanelVisible}
-					toggleAgentPanel={toggleAgentPanel}
-					isAgentProcessing={isAgentProcessing}
-					mobileMenuOpen={mobileMenuOpen}
-					setMobileMenuOpen={setMobileMenuOpen}
-					onDownload={handleDownload}
-					onDeploy={handleDeploy}
-					onSettings={handleSettings}
-				/>
+			<AgentRuntimeProvider key={projectId} projectId={projectId}>
+				<title>{projectNameState.projectName ? `${projectNameState.projectName} | Codemaxxing` : 'Codemaxxing'}</title>
+				<div className="flex h-full flex-col overflow-hidden bg-bg-primary">
+					<IDEHeader
+						projectNameState={projectNameState}
+						isMobile={isMobile}
+						aiPanelVisible={layouts.aiPanelVisible}
+						toggleAgentPanel={toggleAgentPanel}
+						isAgentProcessing={isAgentProcessing}
+						mobileMenuOpen={mobileMenuOpen}
+						setMobileMenuOpen={setMobileMenuOpen}
+						onDownload={handleDownload}
+						onDeploy={handleDeploy}
+						onSettings={handleSettings}
+					/>
 
-				{isMobile ? (
-					<MobileLayout
+					{isMobile ? (
+						<MobileLayout
+							projectId={projectId}
+							resolvedTheme={resolvedTheme}
+							editorState={editorState}
+							fileTree={fileTree}
+							logCounts={logCounts}
+							previewIframeReference={previewIframeReference}
+							previewUrl={previewUrl}
+							previewOrigin={previewOrigin}
+							isLoadingPreviewUrl={isLoadingPreviewUrl}
+							refreshPreviewUrl={refreshPreviewUrl}
+						/>
+					) : (
+						<DesktopLayout
+							projectId={projectId}
+							resolvedTheme={resolvedTheme}
+							editorState={editorState}
+							fileTree={fileTree}
+							layouts={layouts}
+							logCounts={logCounts}
+							previewIframeReference={previewIframeReference}
+							previewUrl={previewUrl}
+							previewOrigin={previewOrigin}
+							isLoadingPreviewUrl={isLoadingPreviewUrl}
+							refreshPreviewUrl={refreshPreviewUrl}
+						/>
+					)}
+					<DeployModal
+						open={deployModalOpen}
+						onOpenChange={setDeployModalOpen}
 						projectId={projectId}
-						resolvedTheme={resolvedTheme}
-						editorState={editorState}
-						fileTree={fileTree}
-						logCounts={logCounts}
-						previewIframeReference={previewIframeReference}
-						previewUrl={previewUrl}
-						previewOrigin={previewOrigin}
-						isLoadingPreviewUrl={isLoadingPreviewUrl}
-						refreshPreviewUrl={refreshPreviewUrl}
+						projectName={projectNameState.projectName ?? `project-${projectId.slice(0, 8)}`}
 					/>
-				) : (
-					<DesktopLayout
-						projectId={projectId}
-						resolvedTheme={resolvedTheme}
-						editorState={editorState}
-						fileTree={fileTree}
-						layouts={layouts}
-						logCounts={logCounts}
-						previewIframeReference={previewIframeReference}
-						previewUrl={previewUrl}
-						previewOrigin={previewOrigin}
-						isLoadingPreviewUrl={isLoadingPreviewUrl}
-						refreshPreviewUrl={refreshPreviewUrl}
-					/>
-				)}
-				<DeployModal
-					open={deployModalOpen}
-					onOpenChange={setDeployModalOpen}
-					projectId={projectId}
-					projectName={projectNameState.projectName ?? `project-${projectId.slice(0, 8)}`}
-				/>
-				<ProjectSettingsModal open={settingsModalOpen} onOpenChange={setSettingsModalOpen} projectId={projectId} />
-			</div>
+					<ProjectSettingsModal open={settingsModalOpen} onOpenChange={setSettingsModalOpen} projectId={projectId} />
+				</div>
+			</AgentRuntimeProvider>
 		</TooltipProvider>
 	);
 }

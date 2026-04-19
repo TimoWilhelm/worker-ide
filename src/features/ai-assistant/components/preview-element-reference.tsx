@@ -1,12 +1,7 @@
 import { WandSparkles } from 'lucide-react';
 import { useCallback, useState } from 'react';
 
-import {
-	clearPreviewElementHighlight,
-	highlightPreviewElement,
-	revealPreviewElement,
-	resolvePreviewElement,
-} from '@/features/preview/preview-iframe-reference';
+import { clearPreviewElementHighlight, revealPreviewElement, resolvePreviewElement } from '@/features/preview/preview-iframe-reference';
 import { useIsMobile } from '@/hooks';
 import { useStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
@@ -29,7 +24,7 @@ export function PreviewElementReference({
 	const summary = getPreviewElementSummary(reference);
 
 	const handleHighlight = useCallback(() => {
-		highlightPreviewElement(reference);
+		revealPreviewElement(reference, { scroll: 'if-needed' });
 	}, [reference]);
 
 	const handleClearHighlight = useCallback(() => {
@@ -52,12 +47,12 @@ export function PreviewElementReference({
 			if (isMobile) {
 				setActiveMobilePanel('preview');
 				requestAnimationFrame(() => {
-					revealPreviewElement(reference);
+					revealPreviewElement(reference, { scroll: 'if-needed', sticky: true });
 				});
 				return;
 			}
 
-			revealPreviewElement(reference);
+			revealPreviewElement(reference, { scroll: 'if-needed' });
 		})();
 	}, [isMobile, reference, setActiveMobilePanel]);
 

@@ -1,5 +1,7 @@
 import stripJsonComments from 'strip-json-comments';
 
+import { toAbsolutePreviewPath } from '@shared/preview-path';
+
 import { transformCode } from './bundler-client';
 
 const ESM_CDN = 'https://esm.sh';
@@ -307,10 +309,11 @@ export async function transformModule(
 
 	if (extension === '.css') {
 		const cssContent = JSON.stringify(content);
+		const developmentId = JSON.stringify(toAbsolutePreviewPath(filePath));
 		const code = `
 const css = ${cssContent};
 const style = document.createElement('style');
-style.setAttribute('data-dev-id', ${JSON.stringify(filePath)});
+style.setAttribute('data-dev-id', ${developmentId});
 style.textContent = css;
 document.head.appendChild(style);
 export default css;

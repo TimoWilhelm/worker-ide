@@ -4,8 +4,9 @@ import { toast } from '@/components/ui/toast-store';
 import { isAgentState } from '@/features/ai-assistant/lib/agent-state';
 import { useStore } from '@/lib/store';
 
+import type { AgentConnectionState } from '../components/agent-runtime-context';
 import type { AgentState } from '@shared/agent-state';
-import type { PendingFileChange } from '@shared/types';
+import type { PendingFileChange, AiSession } from '@shared/types';
 function activeSessionKey(projectId: string): string {
 	return `worker-ide-active-session:${projectId}`;
 }
@@ -33,7 +34,18 @@ interface AgentHandle {
 	call: <T = unknown>(method: string, arguments_?: unknown[]) => Promise<T>;
 }
 
-export function useAiSessions({ projectId, agent }: { projectId: string; agent: AgentHandle }) {
+type SessionLoadPhase = 'idle' | 'awaiting-agent-state' | 'loading-saved-session';
+type SessionLoadResult = { status: 'loaded'; session: AiSession } | { status: 'missing' } | { status: 'error' };
+
+export function useAiSessions({
+	projectId,
+	agent,
+	agentConnectionState,
+}: {
+	projectId: string;
+	agent: AgentHandle;
+	agentConnectionState: AgentConnectionState;
+}) {
 	// Session list comes from agent.state.sessions (auto-synced)
 	const rawState = agent.state;
 	const agentState: AgentState | undefined = isAgentState(rawState) ? rawState : undefined;
@@ -71,21 +83,60 @@ export function useAiSessions({ projectId, agent }: { projectId: string; agent: 
 	// =========================================================================
 
 	const [isLoadingSession, setIsLoadingSession] = useState(false);
+	const [sessionLoadPhase, setSessionLoadPhase] = useState<SessionLoadPhase>(() => {
+		const currentSession = agentState?.currentSession;
+		return !currentSession && getActiveSessionId(projectId) ? 'awaiting-agent-state' : 'idle';
+	});
+
+	const updateSessionLoadPhase = useCallback((nextPhase: SessionLoadPhase) => {
+		queueMicrotask(() => {
+			setSessionLoadPhase((currentPhase) => (currentPhase === nextPhase ? currentPhase : nextPhase));
+		});
+	}, []);
+
+	const loadSessionById = useCallback(
+		async (targetSessionId: string, reason: 'manual' | 'restore'): Promise<SessionLoadResult> => {
+			if (reason === 'manual') {
+				setIsLoadingSession(true);
+			} else {
+				updateSessionLoadPhase('loading-saved-session');
+			}
+
+			try {
+				const session = await agent.call<AiSession | undefined>('loadSession', [targetSessionId]);
+				if (!session) {
+					if (getActiveSessionId(projectId) === targetSessionId) {
+						setActiveSessionId(projectId, undefined);
+					}
+					if (reason === 'manual') {
+						toast.error('This session is no longer available.');
+					}
+					return { status: 'missing' };
+				}
+
+				setActiveSessionId(projectId, session.id);
+				return { status: 'loaded', session };
+			} catch {
+				if (reason === 'manual') {
+					toast.error('Could not load the session. Please try again.');
+				}
+				return { status: 'error' };
+			} finally {
+				if (reason === 'manual') {
+					setIsLoadingSession(false);
+				} else {
+					updateSessionLoadPhase('idle');
+				}
+			}
+		},
+		[agent, projectId, updateSessionLoadPhase],
+	);
 
 	const handleLoadSession = useCallback(
 		(targetSessionId: string) => {
-			setIsLoadingSession(true);
-			void agent.call('loadSession', [targetSessionId]).then(
-				() => {
-					setIsLoadingSession(false);
-				},
-				() => {
-					setIsLoadingSession(false);
-					toast.error('Could not load the session. Please try again.');
-				},
-			);
+			void loadSessionById(targetSessionId, 'manual');
 		},
-		[agent],
+		[loadSessionById],
 	);
 
 	// =========================================================================
@@ -127,7 +178,7 @@ export function useAiSessions({ projectId, agent }: { projectId: string; agent: 
 	// Auto-restore the active session on mount
 	// =========================================================================
 
-	const hasRestoredReference = useRef(false);
+	const attemptedRestoreSessionIdReference = useRef<string | undefined>(undefined);
 
 	// Track the last-known session ID so we can distinguish "session genuinely
 	// cleared" from "transient undefined during loadSession switch".
@@ -193,48 +244,45 @@ export function useAiSessions({ projectId, agent }: { projectId: string; agent: 
 		isSessionRunning,
 	]);
 
-	// Eagerly check if there's a session to restore so the loading indicator
-	// renders on the very first frame, avoiding a flash of the welcome screen.
-	const [isRestoringSession, setIsRestoringSession] = useState(() => {
-		const currentSession = agentState?.currentSession;
-		return !currentSession && !!getActiveSessionId(projectId);
-	});
-
 	useEffect(() => {
-		if (hasRestoredReference.current) return;
+		const currentSession = agentState?.currentSession;
+		const activeSessionId = getActiveSessionId(projectId);
 
-		// Wait for the Agents SDK to sync state before deciding whether to
-		// call loadSession. On page refresh, agentState starts as undefined
-		// (SDK hasn't connected yet). If we call loadSession before state
-		// arrives, it overwrites the live in-memory streaming state on the
-		// DO with stale DB data, losing mid-turn messages.
-		if (!agentState) return;
-
-		hasRestoredReference.current = true;
-
-		const currentSession = agentState.currentSession;
 		if (currentSession) {
-			queueMicrotask(() => setIsRestoringSession(false));
-		} else {
-			const activeId = getActiveSessionId(projectId);
-			if (!activeId) {
-				queueMicrotask(() => setIsRestoringSession(false));
-				return;
+			attemptedRestoreSessionIdReference.current = currentSession.sessionId;
+			if (activeSessionId !== currentSession.sessionId) {
+				setActiveSessionId(projectId, currentSession.sessionId);
 			}
-
-			void agent.call('loadSession', [activeId]).then(
-				() => {
-					setIsRestoringSession(false);
-				},
-				() => {
-					// Allow the effect to retry on the next agentState change so a
-					// transient network hiccup doesn't permanently prevent restore.
-					hasRestoredReference.current = false;
-					setIsRestoringSession(false);
-				},
-			);
+			updateSessionLoadPhase('idle');
+			return;
 		}
-	}, [projectId, agent, agentState]);
+
+		if (!activeSessionId) {
+			attemptedRestoreSessionIdReference.current = undefined;
+			updateSessionLoadPhase('idle');
+			return;
+		}
+
+		if (!agentState) {
+			updateSessionLoadPhase(agentConnectionState === 'disconnected' ? 'idle' : 'awaiting-agent-state');
+			return;
+		}
+
+		if (attemptedRestoreSessionIdReference.current === activeSessionId) {
+			updateSessionLoadPhase('idle');
+			return;
+		}
+
+		attemptedRestoreSessionIdReference.current = activeSessionId;
+		void loadSessionById(activeSessionId, 'restore').then((result) => {
+			if (result.status !== 'loaded') {
+				attemptedRestoreSessionIdReference.current = undefined;
+			}
+		});
+	}, [agentConnectionState, agentState, loadSessionById, projectId, updateSessionLoadPhase]);
+
+	const isRestoringSession =
+		sessionLoadPhase === 'loading-saved-session' || (sessionLoadPhase === 'awaiting-agent-state' && agentConnectionState === 'connecting');
 
 	return {
 		savedSessions: displaySessions,

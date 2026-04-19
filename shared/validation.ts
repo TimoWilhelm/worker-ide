@@ -489,10 +489,10 @@ export const savedCredentialsSchema = z.object({
 
 export type SavedCredentialsParsed = z.infer<typeof savedCredentialsSchema>;
 
-export const persistedStoreSchema = z.object({
+const persistedStoreShape = {
 	sidebarVisible: z.boolean(),
 	utilityPanelVisible: z.boolean(),
-	aiPanelVisible: z.boolean(),
+	agentPanelVisible: z.boolean(),
 	devtoolsVisible: z.boolean(),
 	dependenciesPanelVisible: z.boolean(),
 	colorScheme: z.enum(['light', 'dark', 'system']),
@@ -501,7 +501,18 @@ export const persistedStoreSchema = z.object({
 	activeSidebarView: z.enum(['explorer', 'git', 'tests']),
 	expandedDirs: z.array(z.string()),
 	selectedModel: aiModelSchema,
-});
+} as const;
+
+export const persistedStoreSchema = z
+	.object({
+		...persistedStoreShape,
+		agentPanelVisible: z.boolean().optional(),
+		aiPanelVisible: z.boolean().optional(),
+	})
+	.transform(({ aiPanelVisible, agentPanelVisible, ...state }) => ({
+		...state,
+		agentPanelVisible: agentPanelVisible ?? aiPanelVisible ?? false,
+	}));
 
 export type PersistedStoreParsed = z.infer<typeof persistedStoreSchema>;
 export const editorSessionSchema = z.object({

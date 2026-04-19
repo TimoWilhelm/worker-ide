@@ -1,5 +1,4 @@
 import { ScrollArea } from '@base-ui/react/scroll-area';
-import { useAgent } from 'agents/react';
 import {
 	ArrowDown,
 	Check,
@@ -16,6 +15,7 @@ import {
 	Trash2,
 	X,
 } from 'lucide-react';
+import { AnimatePresence, motion } from 'motion/react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
@@ -31,6 +31,7 @@ import { isAgentState } from '@/features/ai-assistant/lib/agent-state';
 import { useSnapshots } from '@/features/snapshots';
 import { useMobileKeyboardLayout } from '@/hooks/use-mobile-keyboard-height';
 import { createApiClient, downloadDebugLog } from '@/lib/api-client';
+import { tweenFast } from '@/lib/motion-config';
 import { useStore } from '@/lib/store';
 import { cn, formatRelativeTime } from '@/lib/utils';
 import { sessionTitleSchema } from '@shared/validation';
@@ -62,6 +63,7 @@ import {
 	type InputSegment,
 } from '../../lib/input-segments';
 import { AgentModeSelector } from '../agent-mode-selector';
+import { useAgentRuntime } from '../agent-runtime-context';
 import { AudioWaveform } from '../audio-waveform';
 import { BouncingDots } from '../bouncing-dots';
 import { ChangedFilesSummary } from '../changed-files-summary';
@@ -71,8 +73,6 @@ import { RichTextInput, type RichTextInputHandle } from '../rich-text-input';
 
 import type { AIModelId } from '@shared/constants';
 import type { AgentMode, ChatMessage } from '@shared/types';
-
-type AgentConnectionState = 'connecting' | 'connected' | 'disconnected';
 
 type OptimisticMessageEntry = {
 	sessionId: string;
@@ -128,8 +128,6 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	// On mobile, when the virtual keyboard opens, switch to position:fixed so the
 	// panel stays pinned above the keyboard — header and input remain visible.
 	const { style: keyboardStyle, ref: keyboardReference } = useMobileKeyboardLayout();
-	const [segments, setSegments] = useState<InputSegment[]>([]);
-	const [cursorPosition, setCursorPosition] = useState(0);
 	const [planPath, setPlanPath] = useState<string | undefined>();
 	const inputReference = useRef<RichTextInputHandle>(null);
 
@@ -141,9 +139,11 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	const [optimisticRemovedQueuedMessages, setOptimisticRemovedQueuedMessages] = useState<Array<{ sessionId: string; messageId: string }>>(
 		[],
 	);
+	const { agent, agentConnectionState, isConnected, segments, setSegments, cursorPosition, setCursorPosition } = useAgentRuntime();
+	const initialCursorPositionReference = useRef(cursorPosition);
+	const initialInputPlainTextLengthReference = useRef(segmentsToPlainText(segments).length);
 
 	const inputPlainText = useMemo(() => segmentsToPlainText(segments), [segments]);
-	const hasContent = useMemo(() => segmentsHaveContent(segments), [segments]);
 
 	const [pendingRevert, setPendingRevert] = useState<
 		{ snapshotIds: string[]; messageIndex: number; isLoading: boolean; error?: string } | undefined
@@ -153,44 +153,6 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	const pendingPreviewElementReferences = useStore((state) => state.pendingPreviewElementReferences);
 	const shiftPendingPreviewElementReference = useStore((state) => state.shiftPendingPreviewElementReference);
 	const lastProcessedPreviewElementReferenceKeyReference = useRef<string | undefined>(undefined);
-
-	const agent = useAgent({
-		agent: 'AgentRunner',
-		// basePath connects to /p/{projectId}/__agent which the worker
-		// entry point forwards to the AgentRunner DO.
-		// Note: partysocket prepends a "/" when building the URL, so basePath
-		// must NOT start with a slash — otherwise the URL becomes "//p/...".
-		basePath: `p/${projectId}/__agent`,
-	});
-
-	// useAgent exposes identification state, so track whether the socket has ever
-	// opened to distinguish the initial handshake from a reconnecting socket.
-	const [socketEverOpened, setSocketEverOpened] = useState(false);
-	const agentConnectionState = useMemo((): AgentConnectionState => {
-		if (agent.identified) return 'connected';
-		return socketEverOpened ? 'disconnected' : 'connecting';
-	}, [agent.identified, socketEverOpened]);
-
-	useEffect(() => {
-		const handleOpen = () => setSocketEverOpened(true);
-		const handleClose = () => setSocketEverOpened((previous) => previous); // keep true once set
-		agent.addEventListener('open', handleOpen);
-		agent.addEventListener('close', handleClose);
-		return () => {
-			agent.removeEventListener('open', handleOpen);
-			agent.removeEventListener('close', handleClose);
-		};
-	}, [agent]);
-
-	useEffect(() => {
-		if (!agent.identified) {
-			const handleOpen = () => setSocketEverOpened(false);
-			agent.addEventListener('open', handleOpen);
-			return () => agent.removeEventListener('open', handleOpen);
-		}
-	}, [agent, agent.identified]);
-
-	const isConnected = agentConnectionState === 'connected';
 
 	const rawState = agent.state;
 	const agentState = isAgentState(rawState) ? rawState : undefined;
@@ -351,6 +313,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	} = useAiSessions({
 		projectId,
 		agent,
+		agentConnectionState,
 	});
 
 	// Session rename/delete UI state
@@ -394,11 +357,30 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 				inputReference.current?.moveCursorToEnd();
 			});
 		},
-		[files, preRecordingSegments],
+		[files, preRecordingSegments, setSegments],
 	);
 
 	// Speech-to-text hook for voice input
 	const speechToText = useSpeechToText({ projectId, onAutoStop: appendTranscriptToInput });
+	const liveTranscript = useMemo(
+		() => [speechToText.finalTranscript, speechToText.interimTranscript].filter(Boolean).join(' '),
+		[speechToText.finalTranscript, speechToText.interimTranscript],
+	);
+	const recordingSegments = useMemo(() => {
+		if (!speechToText.isRecording) {
+			return segments;
+		}
+
+		const existingText = segmentsToPlainText(preRecordingSegments);
+		const needsSpace = existingText.length > 0 && liveTranscript.length > 0 && !/\s$/.test(existingText);
+		return [
+			...preRecordingSegments,
+			...(needsSpace ? [{ type: 'text' as const, value: ' ' }] : []),
+			...(liveTranscript ? [{ type: 'text' as const, value: liveTranscript }] : []),
+		];
+	}, [liveTranscript, preRecordingSegments, segments, speechToText.isRecording]);
+	const visibleInputSegments = speechToText.isRecording ? recordingSegments : segments;
+	const hasVisibleInputContent = useMemo(() => segmentsHaveContent(visibleInputSegments), [visibleInputSegments]);
 
 	// Move cursor to end of input as transcript grows during recording
 	useEffect(() => {
@@ -412,8 +394,23 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	// Handle manually stopping STT and inserting the transcript into the input
 	const handleStopRecording = useCallback(() => {
 		const transcript = speechToText.stop();
-		appendTranscriptToInput(transcript);
-	}, [speechToText, appendTranscriptToInput]);
+		appendTranscriptToInput(transcript || liveTranscript);
+	}, [speechToText, appendTranscriptToInput, liveTranscript]);
+
+	const handleMicrophoneClick = useCallback(() => {
+		if (speechToText.isRecording) {
+			handleStopRecording();
+			return;
+		}
+
+		if (speechToText.microphonePermission === 'denied') {
+			toast.info('Allow microphone access for this site in your browser settings, then try again.');
+			return;
+		}
+
+		setPreRecordingSegments(segments);
+		void speechToText.start();
+	}, [handleStopRecording, segments, speechToText]);
 
 	// Start a new session. Pending changes are NOT cleared — they persist
 	// across sessions at the project level.
@@ -442,16 +439,20 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 			setOptimisticRemovedQueuedMessages([]);
 			resetScrollState();
 			loadSession(targetSessionId);
-			setActiveSessionId(projectId, targetSessionId);
 		},
-		[loadSession, projectId, isConnected, isProcessing, sessionId, agent, resetScrollState],
+		[loadSession, isConnected, isProcessing, sessionId, agent, resetScrollState],
 	);
 
 	// Focus input on mount
 	useEffect(() => {
+		const restoredCursorPosition = Math.max(
+			0,
+			Math.min(initialCursorPositionReference.current, initialInputPlainTextLengthReference.current),
+		);
 		// Small delay to let contentEditable mount
 		requestAnimationFrame(() => {
 			inputReference.current?.focus();
+			inputReference.current?.setCursorPosition(restoredCursorPosition);
 		});
 	}, []);
 
@@ -476,7 +477,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 			inputReference.current?.focus();
 			inputReference.current?.moveCursorToEnd();
 		});
-	}, [pendingPreviewElementReferences, shiftPendingPreviewElementReference]);
+	}, [pendingPreviewElementReferences, setSegments, shiftPendingPreviewElementReference]);
 
 	const submitOptimisticMessage = useCallback(
 		async (entry: OptimisticMessageEntry): Promise<boolean> => {
@@ -571,9 +572,9 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	const handleSubmit = useCallback(
 		async (messageOverride?: string) => {
 			const knownPaths = new Set(files.map((file) => file.path));
-			const messageSegments = messageOverride ? parseTextToSegments(messageOverride.trim(), knownPaths) : segments;
+			const messageSegments = messageOverride ? parseTextToSegments(messageOverride.trim(), knownPaths) : visibleInputSegments;
 			const messageParts = segmentsToMessageParts(messageSegments);
-			if (messageParts.length === 0 || (!messageOverride && !hasContent)) return;
+			if (messageParts.length === 0 || (!messageOverride && !hasVisibleInputContent)) return;
 
 			const resolvedSessionId = sessionId ?? crypto.randomUUID().replaceAll('-', '').slice(0, 16);
 			const optimisticMessageId = crypto.randomUUID();
@@ -599,6 +600,10 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 			};
 
 			setOptimisticMessages((previous) => [...previous, optimisticEntry]);
+			if (speechToText.isRecording) {
+				speechToText.stop();
+				setPreRecordingSegments([]);
+			}
 			setSegments([]);
 			setOptimisticStoppingSessionId(undefined);
 			inputReference.current?.clear();
@@ -610,8 +615,9 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		},
 		[
 			files,
-			segments,
-			hasContent,
+			visibleInputSegments,
+			setSegments,
+			hasVisibleInputContent,
 			isConnected,
 			isProcessing,
 			isStopPending,
@@ -621,6 +627,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 			agentMode,
 			selectedModel,
 			scrollToBottom,
+			speechToText,
 			submitOptimisticMessage,
 		],
 	);
@@ -853,7 +860,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 				setPendingRevert((previous) => (previous ? { ...previous, isLoading: false, error: message } : previous));
 			}
 		},
-		[isProcessing, committedMessages, projectId, sessionId, files, agent, revertCascadeAsync, clearPendingChangesByPaths],
+		[isProcessing, committedMessages, projectId, sessionId, files, agent, revertCascadeAsync, clearPendingChangesByPaths, setSegments],
 	);
 
 	// Download debug log
@@ -1087,37 +1094,74 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 					return (
 						<div
 							className="
-								flex h-7 shrink-0 items-center gap-1.5 border-b border-border px-3
+								flex h-7 min-w-0 shrink-0 items-center justify-between gap-2 border-b
+								border-border px-3
 							"
 							title={sessionTitle}
 						>
-							<Tooltip
-								content={
-									agentConnectionState === 'connected'
-										? 'Connected'
-										: agentConnectionState === 'connecting'
-											? 'Connecting…'
-											: 'Reconnecting…'
-								}
-								side="bottom"
-							>
-								<span
-									className={cn(
-										'size-1.5 shrink-0 rounded-full transition-colors',
+							<div className="flex min-w-0 items-center gap-1.5 overflow-hidden">
+								<Tooltip
+									content={
 										agentConnectionState === 'connected'
-											? 'bg-success'
+											? 'Connected'
 											: agentConnectionState === 'connecting'
-												? 'animate-pulse bg-text-secondary/50'
-												: 'animate-pulse bg-error',
-									)}
-								/>
-							</Tooltip>
-							{needsAttention && (
-								<Tooltip content="Action required">
-									<MessageCircleQuestion className="size-3 shrink-0 text-accent" />
+												? 'Connecting…'
+												: 'Reconnecting…'
+									}
+									side="bottom"
+								>
+									<span
+										className={cn(
+											'size-1.5 shrink-0 rounded-full transition-colors',
+											agentConnectionState === 'connected'
+												? 'bg-success'
+												: agentConnectionState === 'connecting'
+													? 'animate-pulse bg-text-secondary/50'
+													: 'animate-pulse bg-error',
+										)}
+									/>
 								</Tooltip>
-							)}
-							<span className="truncate text-2xs text-text-secondary">{sessionTitle}</span>
+								{needsAttention && (
+									<Tooltip content="Action required">
+										<MessageCircleQuestion className="size-3 shrink-0 text-accent" />
+									</Tooltip>
+								)}
+								<span className="min-w-0 truncate text-2xs text-text-secondary">{sessionTitle}</span>
+							</div>
+							<AnimatePresence initial={false}>
+								{isProcessing && (
+									<motion.div
+										initial={{ opacity: 0, x: 4, scale: 0.96 }}
+										animate={{ opacity: 1, x: 0, scale: 1 }}
+										exit={{ opacity: 0, x: 4, scale: 0.96 }}
+										transition={tweenFast}
+										className="shrink-0"
+									>
+										<Tooltip content={isStopPending ? 'Stopping generation' : 'Stop generation'} side="bottom">
+											<button
+												type="button"
+												onClick={handleCancel}
+												disabled={isStopPending || !isConnected}
+												className={cn(
+													'inline-flex items-center justify-center rounded-md p-1',
+													'text-error transition-colors',
+													isStopPending
+														? 'cursor-wait opacity-70'
+														: isConnected
+															? `
+																cursor-pointer
+																hover:bg-error/10
+															`
+															: 'cursor-not-allowed opacity-40',
+												)}
+												aria-label={isStopPending ? 'Stopping generation' : 'Stop generation'}
+											>
+												{isStopPending ? <Spinner className="size-3.5" /> : <Square className="size-3.5" />}
+											</button>
+										</Tooltip>
+									</motion.div>
+								)}
+							</AnimatePresence>
 						</div>
 					);
 				})()}
@@ -1316,20 +1360,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 
 							<RichTextInput
 								ref={inputReference}
-								segments={
-									speechToText.isRecording
-										? (() => {
-												const voiceText = [speechToText.finalTranscript, speechToText.interimTranscript].filter(Boolean).join(' ');
-												const existingText = segmentsToPlainText(preRecordingSegments);
-												const needsSpace = existingText.length > 0 && voiceText.length > 0 && !/\s$/.test(existingText);
-												return [
-													...preRecordingSegments,
-													...(needsSpace ? [{ type: 'text' as const, value: ' ' }] : []),
-													...(voiceText ? [{ type: 'text' as const, value: voiceText }] : []),
-												];
-											})()
-										: segments
-								}
+								segments={visibleInputSegments}
 								onSegmentsChange={setSegments}
 								onKeyDown={handleKeyDown}
 								onCursorChange={setCursorPosition}
@@ -1361,7 +1392,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 								)}
 							</Collapsible>
 							{speechToText.isRecording ? (
-								<div className="flex items-center gap-x-1.5 px-1.5 py-1">
+								<div className="flex min-w-0 items-center gap-x-1.5 px-1.5 py-1">
 									<div className="relative flex size-3 shrink-0 items-center justify-center">
 										{speechToText.isAwaitingPermission ? (
 											<PendingApprovalIndicator className="size-2" />
@@ -1372,7 +1403,11 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 									<div className={cn('relative h-4', speechToText.isAwaitingPermission ? 'min-w-0 flex-1' : 'w-28 shrink-0')}>
 										{speechToText.isAwaitingPermission ? (
 											<Tooltip content="Approve microphone access in your browser to start recording" side="top">
-												<div className={cn('flex h-full items-center gap-1.5 text-xs text-text-secondary')}>
+												<div
+													className="
+														flex h-full items-center gap-1.5 text-xs text-text-secondary
+													"
+												>
 													<span className="truncate font-medium text-text-primary">Approve microphone access</span>
 													<span className="truncate text-[11px] text-text-secondary/80">Browser prompt waiting</span>
 												</div>
@@ -1383,6 +1418,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 									</div>
 									{!speechToText.isAwaitingPermission && <div className="flex-1" />}
 									<button
+										type="button"
 										onClick={handleStopRecording}
 										className={cn(
 											'inline-flex cursor-pointer items-center gap-1.5 rounded-md p-1',
@@ -1403,26 +1439,9 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 								>
 									<AgentModeSelector mode={agentMode} onModeChange={setAgentMode} disabled={false} />
 									<ModelSelectorDropdown selectedModel={selectedModel} onSelectModel={setSelectedModel} disabled={false} />
-									<div className="flex flex-1 shrink-0 items-center justify-end gap-1">
-										{isProcessing && (
-											<button
-												type="button"
-												onClick={handleCancel}
-												disabled={isStopPending || !isConnected}
-												className={cn(
-													`
-														inline-flex cursor-pointer items-center justify-center
-														rounded-full p-1
-													`,
-													'text-xs font-medium text-error transition-colors',
-													isStopPending ? 'cursor-wait opacity-70' : isConnected ? 'hover:bg-error/10' : 'cursor-not-allowed opacity-40',
-												)}
-												aria-label={isStopPending ? 'Stopping generation' : 'Stop generation'}
-											>
-												{isStopPending ? <Spinner className="size-4" /> : <Square className="size-4" />}
-											</button>
-										)}
-										{!isProcessing && speechToText.microphonePermission !== 'unsupported' && (
+									<div className="flex min-w-0 flex-1 items-center justify-end gap-1">
+										<ContextRing tokensUsed={contextTokensUsed} contextWindow={getModelLimits(selectedModel).contextWindow} />
+										{speechToText.microphonePermission !== 'unsupported' && (
 											<Tooltip
 												content={
 													speechToText.microphonePermission === 'denied'
@@ -1435,14 +1454,8 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 												forceOpen={speechToText.needsPermissionApproval}
 											>
 												<button
-													onClick={() => {
-														if (speechToText.microphonePermission === 'denied') {
-															toast.info('Allow microphone access for this site in your browser settings, then try again.');
-															return;
-														}
-														setPreRecordingSegments(segments);
-														void speechToText.start();
-													}}
+													type="button"
+													onClick={handleMicrophoneClick}
 													disabled={!isConnected}
 													className={cn(
 														'relative inline-flex items-center gap-1.5 rounded-md p-1',
@@ -1477,16 +1490,14 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 												</button>
 											</Tooltip>
 										)}
-										<ContextRing tokensUsed={contextTokensUsed} contextWindow={getModelLimits(selectedModel).contextWindow} />
 										<button
 											type="button"
 											onClick={() => void handleSubmit()}
-											disabled={!hasContent}
+											disabled={!hasVisibleInputContent}
 											className={cn(
-												'inline-flex items-center justify-center rounded-md p-1',
+												'ml-0.5 inline-flex items-center justify-center rounded-md p-1',
 												'text-xs font-medium transition-colors',
-												'ml-0.5',
-												hasContent
+												hasVisibleInputContent
 													? `
 														cursor-pointer bg-accent text-white
 														hover:bg-accent-hover

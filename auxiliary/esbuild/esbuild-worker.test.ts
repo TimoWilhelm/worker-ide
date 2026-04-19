@@ -225,6 +225,8 @@ describe('bundleWithCdn', () => {
 		// Verify the output contains CSS-related content.
 		expect(result.code).toBeDefined();
 		expect(result.code.length).toBeGreaterThan(0);
+		expect(result.code).toContain('data-dev-id');
+		expect(result.code).toContain('/src/style.css');
 	});
 
 	it('handles TypeScript with exports in bundled files', async () => {
