@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 
 import { getDependencyErrorCount, subscribeDependencyErrors } from '@/features/file-tree/dependency-error-store';
+import { useFileTargetOpener } from '@/lib/file-target';
 import { isMessageFromPreview } from '@/lib/preview-origin';
 import { useStore } from '@/lib/store';
 
@@ -11,7 +12,6 @@ import type { RefObject } from 'react';
 interface UseIDEEffectsOptions {
 	projectId: string;
 	previewOrigin: string | undefined;
-	goToFilePosition: (file: string, position: { line: number; column: number }) => void;
 	handleSaveReference: RefObject<() => Promise<void>>;
 	previewIframeReference: RefObject<HTMLIFrameElement | null>;
 	cursorUpdateTimeoutReference: RefObject<ReturnType<typeof setTimeout> | undefined>;
@@ -20,12 +20,12 @@ interface UseIDEEffectsOptions {
 export function useIDEEffects({
 	projectId,
 	previewOrigin,
-	goToFilePosition,
 	handleSaveReference,
 	previewIframeReference,
 	cursorUpdateTimeoutReference,
 }: UseIDEEffectsOptions) {
 	useUnsavedChangesWarning();
+	const openFileTarget = useFileTargetOpener();
 
 	// Auto-expand dependencies panel when new errors are detected.
 	const showDependenciesPanel = useStore((state) => state.showDependenciesPanel);
@@ -45,16 +45,15 @@ export function useIDEEffects({
 		const handleMessage = (event: MessageEvent) => {
 			if (!isMessageFromPreview(event)) return;
 			if (event.data?.type === '__open-file' && typeof event.data.file === 'string') {
-				const file: string = event.data.file.startsWith('/') ? event.data.file : `/${event.data.file}`;
 				const line = typeof event.data.line === 'number' ? event.data.line : 1;
 				const column = typeof event.data.column === 'number' ? event.data.column : 1;
-				goToFilePosition(file, { line, column });
+				openFileTarget({ path: event.data.file, position: { line, column } });
 			}
 		};
 
 		globalThis.addEventListener('message', handleMessage);
 		return () => globalThis.removeEventListener('message', handleMessage);
-	}, [goToFilePosition]);
+	}, [openFileTarget]);
 
 	// Set a known window name so full-screen preview can focus this tab via window.open()
 	useEffect(() => {
@@ -68,10 +67,9 @@ export function useIDEEffects({
 
 		const handleBroadcast = (event: MessageEvent) => {
 			if (event.data?.type === '__open-file' && typeof event.data.file === 'string') {
-				const file: string = event.data.file.startsWith('/') ? event.data.file : `/${event.data.file}`;
 				const line = typeof event.data.line === 'number' ? event.data.line : 1;
 				const column = typeof event.data.column === 'number' ? event.data.column : 1;
-				goToFilePosition(file, { line, column });
+				openFileTarget({ path: event.data.file, position: { line, column } });
 				broadcastChannel.postMessage({ type: '__open-file-ack' });
 			}
 		};
@@ -82,7 +80,7 @@ export function useIDEEffects({
 			broadcastChannel.removeEventListener('message', handleBroadcast);
 			broadcastChannel.close();
 		};
-	}, [projectId, goToFilePosition]);
+	}, [openFileTarget, projectId]);
 
 	// Handle #goto=<file>:<line>:<col> hash when IDE tab is opened from full-screen preview
 	useEffect(() => {
@@ -96,11 +94,11 @@ export function useIDEEffects({
 		const file = decodeURIComponent(match[1]);
 		const line = Number(match[2]);
 		const column = Number(match[3]);
-		goToFilePosition(file, { line, column });
+		openFileTarget({ path: file, position: { line, column } });
 
 		// Clear the hash so it doesn't re-trigger on HMR or navigation
 		history.replaceState(undefined, '', globalThis.location.pathname + globalThis.location.search);
-	}, [goToFilePosition]);
+	}, [openFileTarget]);
 
 	// Forward bundle errors to the preview iframe so the error overlay shows.
 	// The preview is cross-origin, so target its specific origin.

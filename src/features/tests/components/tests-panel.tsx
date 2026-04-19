@@ -3,7 +3,7 @@ import { CheckCircle2, FlaskConical, Play, RefreshCw, XCircle } from 'lucide-rea
 import { useMemo } from 'react';
 
 import { Button, Spinner, Tooltip } from '@/components/ui';
-import { useStore } from '@/lib/store';
+import { useFileTargetOpener } from '@/lib/file-target';
 import { cn } from '@/lib/utils';
 
 import { TestFileItem } from './test-file-item';
@@ -26,8 +26,7 @@ function buildResultsMap(results: TestRunResponse | undefined): Map<string, Test
 }
 
 export function TestsPanel({ projectId, className }: TestsPanelProperties) {
-	const goToFilePosition = useStore((state) => state.goToFilePosition);
-	const openFile = useStore((state) => state.openFile);
+	const openFileTarget = useFileTargetOpener();
 	const { discoveredFiles, isLoading: isLoadingFiles, isRefreshing, refresh: refreshFiles } = useTestDiscovery({ projectId });
 	const { results } = useTestResults({ projectId });
 	const { runTests, isRunning, error, openTestFile } = useRunTests({ projectId });
@@ -150,10 +149,7 @@ export function TestsPanel({ projectId, className }: TestsPanelProperties) {
 									isRunning={isRunning}
 									onOpenFile={openTestFile}
 									onOpenTest={(path, line) => {
-										// Needs both: goToFilePosition to set the target line, and openFile to ensure
-										// it becomes the active tab if it's already open but in the background.
-										goToFilePosition(path, { line, column: 1 });
-										openFile(path);
+										openFileTarget({ path, position: { line, column: 1 } });
 									}}
 									onRunFile={(path) => runTests({ pattern: path })}
 									onRunTest={(filePath, testName) => runTests({ pattern: filePath, testName })}

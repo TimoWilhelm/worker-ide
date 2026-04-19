@@ -1,8 +1,16 @@
 import { FileText } from 'lucide-react';
+import { useCallback } from 'react';
 
 import { Tooltip } from '@/components/ui/tooltip';
+import {
+	FILE_REFERENCE_BASE_CLASS_NAME,
+	FILE_REFERENCE_INTERACTIVE_CLASS_NAME,
+	FILE_REFERENCE_LABEL_CLASS_NAME,
+} from '@/features/ai-assistant/lib/reference-pill-styles';
+import { resolveFileTargetPath, useFileTargetOpener } from '@/lib/file-target';
 import { useStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
+
 export function FileReference({
 	path,
 	className,
@@ -18,57 +26,58 @@ export function FileReference({
 	interactive?: boolean;
 	onClick?: (event: { stopPropagation: () => void }) => void;
 }) {
-	const openFile = useStore((state) => state.openFile);
+	const files = useStore((state) => state.files);
+	const openFileTarget = useFileTargetOpener();
 
-	const fileName = path.split('/').findLast(Boolean) || path;
-
+	const resolvedPath = resolveFileTargetPath(path, files);
+	const fileName = resolvedPath.split('/').findLast(Boolean) || resolvedPath;
 	const isClickable = interactive || !!onClick;
 
-	const sharedClassName = cn(
-		`
-			inline-flex max-w-full min-w-0 items-center gap-1 overflow-hidden rounded-sm
-			px-1.5 py-px
-		`,
-		'bg-accent/15 font-mono text-xs text-accent',
-		isClickable &&
-			`
-				cursor-pointer transition-colors
-				hover:bg-accent/25
-			`,
-		className,
-	);
+	const handleOpenReference = useCallback(() => {
+		openFileTarget({ path });
+	}, [openFileTarget, path]);
+
+	const sharedClassName = cn(FILE_REFERENCE_BASE_CLASS_NAME, isClickable && FILE_REFERENCE_INTERACTIVE_CLASS_NAME, className);
 
 	if (!interactive) {
 		return (
-			<Tooltip content={path} side="bottom">
+			<Tooltip content={resolvedPath} side="bottom">
 				<span
 					className={sharedClassName}
 					role={onClick ? 'button' : undefined}
 					tabIndex={onClick ? 0 : undefined}
-					onClick={onClick}
+					onClick={
+						onClick
+							? (event) => {
+									onClick({ stopPropagation: () => event.stopPropagation() });
+									handleOpenReference();
+								}
+							: undefined
+					}
 					onKeyDown={
 						onClick
 							? (event) => {
 									if (event.key === 'Enter' || event.key === ' ') {
 										event.preventDefault();
 										onClick({ stopPropagation: () => event.stopPropagation() });
+										handleOpenReference();
 									}
 								}
 							: undefined
 					}
 				>
 					<FileText className="size-3 shrink-0" />
-					<span className="truncate">{fileName}</span>
+					<span className={FILE_REFERENCE_LABEL_CLASS_NAME}>{fileName}</span>
 				</span>
 			</Tooltip>
 		);
 	}
 
 	return (
-		<Tooltip content={path} side="bottom">
-			<button type="button" onClick={() => openFile(path)} className={sharedClassName}>
+		<Tooltip content={resolvedPath} side="bottom">
+			<button type="button" onClick={handleOpenReference} className={sharedClassName}>
 				<FileText className="size-3 shrink-0" />
-				<span className="truncate">{fileName}</span>
+				<span className={FILE_REFERENCE_LABEL_CLASS_NAME}>{fileName}</span>
 			</button>
 		</Tooltip>
 	);

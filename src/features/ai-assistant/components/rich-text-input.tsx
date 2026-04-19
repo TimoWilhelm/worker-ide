@@ -1,14 +1,27 @@
 import { useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
-import { clearPreviewElementHighlight, highlightPreviewElement } from '@/features/preview/preview-iframe-reference';
+import { usePreviewReferenceInteractions } from '@/features/ai-assistant/lib/reference-actions';
 import {
-	deserializePreviewElementReference,
-	getPreviewElementLabel,
-	serializePreviewElementReference,
-} from '@/lib/preview-element-reference';
+	FILE_REFERENCE_BASE_CLASS_NAME,
+	FILE_REFERENCE_INTERACTIVE_CLASS_NAME,
+	FILE_REFERENCE_LABEL_CLASS_NAME,
+	PREVIEW_REFERENCE_BASE_CLASS_NAME,
+	PREVIEW_REFERENCE_ICON_CLASS_NAME,
+	PREVIEW_REFERENCE_INTERACTIVE_CLASS_NAME,
+	PREVIEW_REFERENCE_LABEL_CLASS_NAME,
+	PREVIEW_REFERENCE_SUMMARY_CLASS_NAME,
+	PREVIEW_REFERENCE_TEXT_ROW_CLASS_NAME,
+} from '@/features/ai-assistant/lib/reference-pill-styles';
+import { useFileTargetOpener } from '@/lib/file-target';
+import { deserializePreviewElementReference, serializePreviewElementReference } from '@/lib/preview-element-reference';
 import { cn } from '@/lib/utils';
-import { getPreviewElementDisplayText, getPreviewElementReferenceKey } from '@shared/preview-element';
+import {
+	getPreviewElementDisplayText,
+	getPreviewElementLabel,
+	getPreviewElementReferenceKey,
+	getPreviewElementSummary,
+} from '@shared/preview-element';
 
 import { segmentsToPlainText, type InputSegment } from '../lib/input-segments';
 
@@ -259,15 +272,16 @@ function setCursorOffsetInContainer(container: HTMLElement, targetOffset: number
 	selection.addRange(range);
 }
 
-function createPillElement(path: string): HTMLSpanElement {
-	const pill = document.createElement('span');
+function createPillElement(path: string): HTMLButtonElement {
+	const pill = document.createElement('button');
+	pill.type = 'button';
 	pill.setAttribute(PILL_ATTR, path);
+	pill.setAttribute('aria-label', path);
 	pill.contentEditable = 'false';
 	pill.className = [
-		'inline-flex items-center gap-1 rounded px-1.5 py-px mx-0.5',
-		'bg-accent/15 text-accent text-xs font-mono',
-		'align-baseline cursor-default select-none',
-		'border border-accent/25',
+		FILE_REFERENCE_BASE_CLASS_NAME,
+		FILE_REFERENCE_INTERACTIVE_CLASS_NAME,
+		'mx-0.5 align-baseline border border-accent/25 select-none',
 	].join(' ');
 
 	// File icon (inline SVG for imperative DOM)
@@ -289,24 +303,23 @@ function createPillElement(path: string): HTMLSpanElement {
 
 	const label = document.createElement('span');
 	label.textContent = getFileName(path);
-	label.className = 'truncate max-w-[120px]';
+	label.className = `${FILE_REFERENCE_LABEL_CLASS_NAME} max-w-[120px]`;
 
 	pill.append(icon, label);
 
 	return pill;
 }
 
-function createPreviewElementPillElement(reference: PreviewElementReference): HTMLSpanElement {
-	const pill = document.createElement('span');
+function createPreviewElementPillElement(reference: PreviewElementReference): HTMLButtonElement {
+	const pill = document.createElement('button');
+	pill.type = 'button';
 	pill.setAttribute(PREVIEW_ELEMENT_REFERENCE_ATTR, serializePreviewElementReference(reference));
 	pill.setAttribute('aria-label', getPreviewElementDisplayText(reference));
 	pill.contentEditable = 'false';
 	pill.className = [
-		'inline-flex items-center gap-1 rounded-full px-2 py-0.5 mx-0.5',
-		'bg-linear-to-r from-rose-50 via-amber-50 to-sky-50 text-[11px] font-semibold text-slate-900',
-		'dark:from-fuchsia-950 dark:via-violet-950 dark:to-sky-950 dark:text-slate-50',
-		'align-baseline cursor-default select-none',
-		'border border-fuchsia-200 dark:border-fuchsia-950 shadow-[0_0_0_1px_rgba(255,255,255,0.03)]',
+		PREVIEW_REFERENCE_BASE_CLASS_NAME,
+		PREVIEW_REFERENCE_INTERACTIVE_CLASS_NAME,
+		'mx-0.5 align-baseline cursor-pointer select-none',
 	].join(' ');
 
 	const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -318,7 +331,7 @@ function createPreviewElementPillElement(reference: PreviewElementReference): HT
 	icon.setAttribute('stroke-width', '2');
 	icon.setAttribute('stroke-linecap', 'round');
 	icon.setAttribute('stroke-linejoin', 'round');
-	icon.setAttribute('class', 'shrink-0 text-fuchsia-700 dark:text-fuchsia-300');
+	icon.setAttribute('class', PREVIEW_REFERENCE_ICON_CLASS_NAME);
 	const pathOne = document.createElementNS('http://www.w3.org/2000/svg', 'path');
 	pathOne.setAttribute(
 		'd',
@@ -340,11 +353,23 @@ function createPreviewElementPillElement(reference: PreviewElementReference): HT
 	pathEight.setAttribute('d', 'M11 3H9');
 	icon.append(pathOne, pathTwo, pathThree, pathFour, pathFive, pathSix, pathSeven, pathEight);
 
+	const textRow = document.createElement('span');
+	textRow.className = PREVIEW_REFERENCE_TEXT_ROW_CLASS_NAME;
+
 	const label = document.createElement('span');
 	label.textContent = getPreviewElementLabel(reference.tagName);
-	label.className = 'whitespace-nowrap font-mono';
+	label.className = PREVIEW_REFERENCE_LABEL_CLASS_NAME;
+	textRow.append(label);
 
-	pill.append(icon, label);
+	const summary = getPreviewElementSummary(reference);
+	if (summary) {
+		const summaryElement = document.createElement('span');
+		summaryElement.textContent = summary;
+		summaryElement.className = PREVIEW_REFERENCE_SUMMARY_CLASS_NAME;
+		textRow.append(summaryElement);
+	}
+
+	pill.append(icon, textRow);
 
 	return pill;
 }
@@ -376,6 +401,8 @@ export function RichTextInput({
 	const lastRenderedSegmentsReference = useRef<InputSegment[]>([]);
 	const lastCursorOffsetReference = useRef(0);
 	const hoveredPreviewElementKeyReference = useRef<string | undefined>(undefined);
+	const openFileTarget = useFileTargetOpener();
+	const { activateReference, clearReferenceHighlight, hoverReference } = usePreviewReferenceInteractions();
 
 	// Persistent DOM node used as a portal target for inlineSuffix.
 	// Created once via lazy useState initializer and re-appended after
@@ -570,6 +597,31 @@ export function RichTextInput({
 
 	const handleKeyDown = useCallback(
 		(event: React.KeyboardEvent<HTMLDivElement>) => {
+			const target = event.target instanceof HTMLElement ? event.target : undefined;
+			const fileReferenceElement = target?.closest<HTMLElement>(`[${PILL_ATTR}]`);
+			if (fileReferenceElement && target !== containerReference.current) {
+				const path = fileReferenceElement.getAttribute(PILL_ATTR);
+				if (event.key === 'Enter' || event.key === ' ') {
+					event.preventDefault();
+					if (path) {
+						openFileTarget({ path });
+					}
+				}
+				return;
+			}
+
+			const previewReferenceElement = target?.closest<HTMLElement>(`[${PREVIEW_ELEMENT_REFERENCE_ATTR}]`);
+			const previewReference = deserializePreviewElementReference(
+				previewReferenceElement?.getAttribute(PREVIEW_ELEMENT_REFERENCE_ATTR) ?? '',
+			);
+			if (previewReference && target !== containerReference.current) {
+				if (event.key === 'Enter' || event.key === ' ') {
+					event.preventDefault();
+					activateReference(previewReference);
+				}
+				return;
+			}
+
 			const container = containerReference.current;
 			if (container && (event.key === 'Backspace' || event.key === 'Delete') && !event.defaultPrevented && !event.nativeEvent.isComposing) {
 				const selection = globalThis.getSelection();
@@ -606,7 +658,7 @@ export function RichTextInput({
 
 			onKeyDown?.(event);
 		},
-		[onCursorChange, onKeyDown, onSegmentsChange, segments],
+		[activateReference, onCursorChange, onKeyDown, onSegmentsChange, openFileTarget, segments],
 	);
 
 	const handlePaste = useCallback((event: React.ClipboardEvent<HTMLDivElement>) => {
@@ -617,29 +669,60 @@ export function RichTextInput({
 		}
 	}, []);
 
-	const handleMouseMove = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
-		const target =
-			event.target instanceof HTMLElement ? event.target.closest<HTMLElement>(`[${PREVIEW_ELEMENT_REFERENCE_ATTR}]`) : undefined;
-		const reference = deserializePreviewElementReference(target?.getAttribute(PREVIEW_ELEMENT_REFERENCE_ATTR) ?? '');
-		const referenceKey = reference ? getPreviewElementReferenceKey(reference) : undefined;
+	const handleMouseMove = useCallback(
+		(event: React.MouseEvent<HTMLDivElement>) => {
+			const target =
+				event.target instanceof HTMLElement ? event.target.closest<HTMLElement>(`[${PREVIEW_ELEMENT_REFERENCE_ATTR}]`) : undefined;
+			const reference = deserializePreviewElementReference(target?.getAttribute(PREVIEW_ELEMENT_REFERENCE_ATTR) ?? '');
+			const referenceKey = reference ? getPreviewElementReferenceKey(reference) : undefined;
 
-		if (referenceKey === hoveredPreviewElementKeyReference.current) {
-			return;
-		}
+			if (referenceKey === hoveredPreviewElementKeyReference.current) {
+				return;
+			}
 
-		hoveredPreviewElementKeyReference.current = referenceKey;
-		if (!reference) {
-			clearPreviewElementHighlight();
-			return;
-		}
+			hoveredPreviewElementKeyReference.current = referenceKey;
+			if (!reference) {
+				clearReferenceHighlight();
+				return;
+			}
 
-		highlightPreviewElement(reference);
-	}, []);
+			hoverReference(reference);
+		},
+		[clearReferenceHighlight, hoverReference],
+	);
 
 	const handleMouseLeave = useCallback(() => {
 		hoveredPreviewElementKeyReference.current = undefined;
-		clearPreviewElementHighlight();
-	}, []);
+		clearReferenceHighlight();
+	}, [clearReferenceHighlight]);
+
+	const handleClick = useCallback(
+		(event: React.MouseEvent<HTMLDivElement>) => {
+			const target = event.target instanceof HTMLElement ? event.target : undefined;
+			const fileReferenceElement = target?.closest<HTMLElement>(`[${PILL_ATTR}]`);
+			if (fileReferenceElement) {
+				const path = fileReferenceElement.getAttribute(PILL_ATTR);
+				event.preventDefault();
+				if (path) {
+					openFileTarget({ path });
+				}
+				return;
+			}
+
+			const previewReferenceElement = target?.closest<HTMLElement>(`[${PREVIEW_ELEMENT_REFERENCE_ATTR}]`);
+			const previewReference = deserializePreviewElementReference(
+				previewReferenceElement?.getAttribute(PREVIEW_ELEMENT_REFERENCE_ATTR) ?? '',
+			);
+			if (previewReference) {
+				event.preventDefault();
+				activateReference(previewReference);
+				return;
+			}
+
+			handleSelect();
+		},
+		[activateReference, handleSelect, openFileTarget],
+	);
 
 	const isEmpty = segments.length === 0 || (segments.length === 1 && segments[0].type === 'text' && !segments[0].value);
 
@@ -662,7 +745,7 @@ export function RichTextInput({
 				onInput={handleInput}
 				onKeyDown={handleKeyDown}
 				onSelect={handleSelect}
-				onClick={handleSelect}
+				onClick={handleClick}
 				onCompositionStart={() => {
 					isComposingReference.current = true;
 				}}

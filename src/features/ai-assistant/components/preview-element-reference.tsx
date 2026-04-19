@@ -1,9 +1,15 @@
 import { WandSparkles } from 'lucide-react';
 import { useCallback, useState } from 'react';
 
-import { clearPreviewElementHighlight, revealPreviewElement, resolvePreviewElement } from '@/features/preview/preview-iframe-reference';
-import { useIsMobile } from '@/hooks';
-import { useStore } from '@/lib/store';
+import { usePreviewReferenceInteractions } from '@/features/ai-assistant/lib/reference-actions';
+import {
+	PREVIEW_REFERENCE_BASE_CLASS_NAME,
+	PREVIEW_REFERENCE_ICON_CLASS_NAME,
+	PREVIEW_REFERENCE_INTERACTIVE_CLASS_NAME,
+	PREVIEW_REFERENCE_LABEL_CLASS_NAME,
+	PREVIEW_REFERENCE_SUMMARY_CLASS_NAME,
+	PREVIEW_REFERENCE_TEXT_ROW_CLASS_NAME,
+} from '@/features/ai-assistant/lib/reference-pill-styles';
 import { cn } from '@/lib/utils';
 import { getPreviewElementDisplayText, getPreviewElementLabel, getPreviewElementSummary } from '@shared/preview-element';
 
@@ -18,65 +24,28 @@ export function PreviewElementReference({
 	className?: string;
 	interactive?: boolean;
 }) {
-	const isMobile = useIsMobile();
-	const setActiveMobilePanel = useStore((state) => state.setActiveMobilePanel);
+	const { activateReference, clearReferenceHighlight, hoverReference, isMobile } = usePreviewReferenceInteractions();
 	const [availability, setAvailability] = useState<'unknown' | 'available' | 'missing'>('unknown');
 	const summary = getPreviewElementSummary(reference);
 
 	const handleHighlight = useCallback(() => {
-		revealPreviewElement(reference, { scroll: 'if-needed' });
-	}, [reference]);
+		hoverReference(reference);
+	}, [hoverReference, reference]);
 
 	const handleClearHighlight = useCallback(() => {
-		clearPreviewElementHighlight();
-	}, []);
+		clearReferenceHighlight();
+	}, [clearReferenceHighlight]);
 
 	const handleClick = useCallback(() => {
-		void (async () => {
-			const found = await resolvePreviewElement(reference);
-			if (found === undefined) {
-				return;
-			}
-
+		activateReference(reference, (found) => {
 			setAvailability(found ? 'available' : 'missing');
-			if (!found) {
-				clearPreviewElementHighlight();
-				return;
-			}
-
-			if (isMobile) {
-				setActiveMobilePanel('preview');
-				requestAnimationFrame(() => {
-					revealPreviewElement(reference, { scroll: 'if-needed', sticky: true });
-				});
-				return;
-			}
-
-			revealPreviewElement(reference, { scroll: 'if-needed' });
-		})();
-	}, [isMobile, reference, setActiveMobilePanel]);
+		});
+	}, [activateReference, reference]);
 
 	const sharedClassName = cn(
-		`
-			inline-flex max-w-full min-w-0 items-center gap-1.5 overflow-hidden
-			rounded-full px-2 py-1
-		`,
+		PREVIEW_REFERENCE_BASE_CLASS_NAME,
 		availability === 'missing' && 'line-through opacity-65',
-		[
-			'border border-fuchsia-200 bg-linear-to-r from-rose-50 via-amber-50 to-sky-50',
-			'dark:border-fuchsia-950 dark:from-fuchsia-950 dark:via-violet-950 dark:to-sky-950',
-		].join(' '),
-		`
-			font-mono text-xs font-semibold text-slate-900
-			shadow-[0_0_0_1px_rgba(255,255,255,0.03)]
-			dark:text-slate-50
-		`,
-		interactive &&
-			[
-				'transition-colors',
-				'hover:from-rose-100 hover:via-amber-100 hover:to-sky-100',
-				'dark:hover:from-fuchsia-900 dark:hover:via-violet-900 dark:hover:to-sky-900',
-			].join(' '),
+		interactive && PREVIEW_REFERENCE_INTERACTIVE_CLASS_NAME,
 		interactive && (isMobile ? 'cursor-pointer' : 'cursor-default'),
 		className,
 	);
@@ -89,12 +58,14 @@ export function PreviewElementReference({
 			onClick={handleClick}
 			onMouseEnter={interactive && !isMobile && availability !== 'missing' ? handleHighlight : undefined}
 			onMouseLeave={interactive && !isMobile ? handleClearHighlight : undefined}
-			onFocus={interactive && availability !== 'missing' ? handleHighlight : undefined}
-			onBlur={interactive ? handleClearHighlight : undefined}
+			onFocus={interactive && !isMobile && availability !== 'missing' ? handleHighlight : undefined}
+			onBlur={interactive && !isMobile ? handleClearHighlight : undefined}
 		>
-			<WandSparkles className="size-3 shrink-0 text-fuchsia-700 dark:text-fuchsia-300" />
-			<span className="truncate">{getPreviewElementLabel(reference.tagName)}</span>
-			{summary && <span className="truncate opacity-70">{summary}</span>}
+			<WandSparkles className={PREVIEW_REFERENCE_ICON_CLASS_NAME} />
+			<span className={PREVIEW_REFERENCE_TEXT_ROW_CLASS_NAME}>
+				<span className={PREVIEW_REFERENCE_LABEL_CLASS_NAME}>{getPreviewElementLabel(reference.tagName)}</span>
+				{summary && <span className={PREVIEW_REFERENCE_SUMMARY_CLASS_NAME}>{summary}</span>}
+			</span>
 		</button>
 	);
 }

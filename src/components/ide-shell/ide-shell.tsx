@@ -65,7 +65,6 @@ export function IDEShell({ projectId }: { projectId: string }) {
 	useIDEEffects({
 		projectId,
 		previewOrigin,
-		goToFilePosition: editorState.goToFilePosition,
 		handleSaveReference: editorState.handleSaveReference,
 		previewIframeReference,
 		cursorUpdateTimeoutReference: editorState.cursorUpdateTimeoutReference,

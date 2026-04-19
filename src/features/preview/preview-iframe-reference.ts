@@ -102,11 +102,6 @@ export function cancelPreviewElementPicker(): boolean {
 	return postMessageToPreview({ type: '__preview-element-picker-cancel' });
 }
 
-export function highlightPreviewElement(reference: PreviewElementReference, options?: { sticky?: boolean }): boolean {
-	stickyPreviewElementHighlightActive = options?.sticky ?? false;
-	return postMessageToPreview({ type: '__preview-element-highlight', reference, sticky: options?.sticky });
-}
-
 export function clearPreviewElementHighlight(): boolean {
 	stickyPreviewElementHighlightActive = false;
 	return postMessageToPreview({ type: '__preview-element-highlight-clear' });

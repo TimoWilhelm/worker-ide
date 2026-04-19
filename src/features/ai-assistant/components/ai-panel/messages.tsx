@@ -1416,8 +1416,6 @@ function InlineToolCall({
 	isExpanded: boolean;
 	onToggleExpand: () => void;
 }) {
-	const openFile = useStore((state) => state.openFile);
-
 	const knownToolName: ToolName | undefined = isToolName(toolCall.toolName) ? toolCall.toolName : undefined;
 	const displayToolName = toolCall.toolName || 'unknown';
 
@@ -1545,9 +1543,20 @@ function InlineToolCall({
 
 	return (
 		<div className="flex min-w-0 animate-chat-item flex-col gap-1.5">
-			<button
-				type="button"
+			<div
 				onClick={() => expandable && onToggleExpand()}
+				onKeyDown={
+					expandable
+						? (event) => {
+								if (event.key === 'Enter' || event.key === ' ') {
+									event.preventDefault();
+									onToggleExpand();
+								}
+							}
+						: undefined
+				}
+				role={expandable ? 'button' : undefined}
+				tabIndex={expandable ? 0 : undefined}
 				className={cn(
 					`
 						flex flex-wrap items-center gap-x-2 gap-y-1 overflow-hidden rounded-md
@@ -1579,7 +1588,6 @@ function InlineToolCall({
 						interactive={false}
 						onClick={(event) => {
 							event.stopPropagation();
-							openFile(singlePath);
 						}}
 					/>
 				)}
@@ -1591,7 +1599,6 @@ function InlineToolCall({
 							interactive={false}
 							onClick={(event) => {
 								event.stopPropagation();
-								openFile(fromPath);
 							}}
 						/>
 						<span className="shrink-0 text-text-secondary">→</span>
@@ -1601,7 +1608,6 @@ function InlineToolCall({
 							interactive={false}
 							onClick={(event) => {
 								event.stopPropagation();
-								openFile(toPath);
 							}}
 						/>
 					</span>
@@ -1642,7 +1648,7 @@ function InlineToolCall({
 						)}
 					</span>
 				)}
-			</button>
+			</div>
 			{streamingContent && (
 				<pre
 					ref={streamingPreviewReference}

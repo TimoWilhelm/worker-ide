@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
-import { MessageBubble, QueuedSteeringStrip } from './messages';
+import { AssistantMessage, MessageBubble, QueuedSteeringStrip } from './messages';
 
 import type { ChatMessage } from '@shared/types';
 import type { ReactElement } from 'react';
@@ -127,5 +127,35 @@ describe('MessageBubble', () => {
 
 		fireEvent.click(screen.getByRole('button', { name: /revert/i }));
 		expect(onRevert).toHaveBeenCalledWith(0);
+	});
+
+	it('renders tool-call file references as standalone buttons', () => {
+		renderWithProviders(
+			<AssistantMessage
+				message={{
+					id: 'assistant-1',
+					role: 'assistant',
+					parts: [
+						{
+							type: 'tool-call',
+							toolCallId: 'tool-1',
+							toolName: 'file_read',
+							arguments: { path: '/src/main.ts' },
+						},
+						{
+							type: 'tool-result',
+							toolCallId: 'tool-1',
+							toolName: 'file_read',
+							result: 'line 1',
+						},
+					],
+					createdAt: 1,
+				}}
+			/>,
+		);
+
+		const toolCallToggle = screen.getByRole('button', { name: /file read/i });
+		expect(screen.getByText('main.ts').closest('[role="button"]')).toBeInTheDocument();
+		expect(toolCallToggle.tagName).toBe('DIV');
 	});
 });

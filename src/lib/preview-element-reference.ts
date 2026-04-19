@@ -15,5 +15,4 @@ export function deserializePreviewElementReference(encodedReference: string): Pr
 	}
 }
 
-export { getPreviewElementLabel } from '@shared/preview-element';
 export { type PreviewElementReference } from '@shared/types';

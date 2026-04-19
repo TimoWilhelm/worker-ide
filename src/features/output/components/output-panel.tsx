@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { Pill } from '@/components/ui/pill';
 import { Tooltip } from '@/components/ui/tooltip';
-import { useStore } from '@/lib/store';
+import { useFileTargetOpener } from '@/lib/file-target';
 import { cn } from '@/lib/utils';
 
 import { clearLogs, getPreserveLogs, setPreserveLogs, useLogs } from '../lib/log-buffer';
@@ -274,13 +274,11 @@ function LogLine({ log }: { log: LogEntry }) {
 }
 
 function FileLink({ file, line, column, children }: { file: string; line: number; column?: number; children: React.ReactNode }) {
-	const goToFilePosition = useStore((state) => state.goToFilePosition);
+	const openFileTarget = useFileTargetOpener();
 
 	const handleClick = useCallback(() => {
-		// Ensure path starts with /
-		const path = file.startsWith('/') ? file : `/${file}`;
-		goToFilePosition(path, { line, column: column ?? 1 });
-	}, [file, line, column, goToFilePosition]);
+		openFileTarget({ path: file, position: { line, column: column ?? 1 } });
+	}, [column, file, line, openFileTarget]);
 
 	return (
 		<button

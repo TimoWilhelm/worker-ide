@@ -1,6 +1,6 @@
 import { act, fireEvent, render, waitFor } from '@testing-library/react';
 import { createRef, useState } from 'react';
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { serializePreviewElementReference } from '@/lib/preview-element-reference';
 
@@ -8,10 +8,29 @@ import { RichTextInput, type RichTextInputHandle } from './rich-text-input';
 
 import type { InputSegment } from '../lib/input-segments';
 
+const mockActivateReference = vi.fn();
+const mockClearReferenceHighlight = vi.fn();
+const mockHoverReference = vi.fn();
+const mockOpenFileTarget = vi.fn();
+
+vi.mock('@/lib/file-target', () => ({
+	useFileTargetOpener: () => mockOpenFileTarget,
+}));
+
+vi.mock('@/features/ai-assistant/lib/reference-actions', () => ({
+	usePreviewReferenceInteractions: () => ({
+		activateReference: mockActivateReference,
+		clearReferenceHighlight: mockClearReferenceHighlight,
+		hoverReference: mockHoverReference,
+		isMobile: false,
+	}),
+}));
+
 const previewReference = {
 	tagName: 'div',
 	primarySelector: '#hero',
 	locatorCandidates: [],
+	accessibleName: 'Hero section content',
 };
 
 function ControlledRichTextInput({
@@ -27,6 +46,10 @@ function ControlledRichTextInput({
 }
 
 describe('RichTextInput', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+	});
+
 	it('restores the cursor to a requested offset', () => {
 		const reference = createRef<RichTextInputHandle>();
 		render(
@@ -86,5 +109,44 @@ describe('RichTextInput', () => {
 			expect(textbox.querySelector('br')).toBeNull();
 			expect(textbox.querySelector('[data-preview-element-reference]')).not.toBeNull();
 		});
+	});
+
+	it('renders draft reference pills as buttons and prioritizes the preview tag label', () => {
+		const { getByRole } = render(
+			<ControlledRichTextInput
+				initialSegments={[
+					{ type: 'mention', path: '/src/main.ts' },
+					{ type: 'text', value: ' ' },
+					{ type: 'preview-element', ...previewReference },
+				]}
+			/>,
+		);
+
+		const textbox = getByRole('textbox');
+		const fileButton = textbox.querySelector('[data-mention-path]');
+		const previewButton = textbox.querySelector('[data-preview-element-reference]');
+
+		expect(fileButton?.tagName).toBe('BUTTON');
+		expect(previewButton?.tagName).toBe('BUTTON');
+		expect(previewButton?.querySelectorAll('span')[1]?.textContent).toBe('<div>');
+		expect(previewButton?.querySelectorAll('span')[2]?.textContent).toBe('Hero section content');
+	});
+
+	it('opens file draft pills through the shared reference action', () => {
+		const { getByRole } = render(<ControlledRichTextInput initialSegments={[{ type: 'mention', path: '/src/main.ts' }]} />);
+		const textbox = getByRole('textbox');
+
+		fireEvent.click(textbox.querySelector('[data-mention-path]')!);
+
+		expect(mockOpenFileTarget).toHaveBeenCalledWith({ path: '/src/main.ts' });
+	});
+
+	it('reveals preview draft pills through the shared reference action', () => {
+		const { getByRole } = render(<ControlledRichTextInput initialSegments={[{ type: 'preview-element', ...previewReference }]} />);
+		const textbox = getByRole('textbox');
+
+		fireEvent.click(textbox.querySelector('[data-preview-element-reference]')!);
+
+		expect(mockActivateReference).toHaveBeenCalledWith(previewReference);
 	});
 });

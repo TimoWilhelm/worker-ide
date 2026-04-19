@@ -32,6 +32,7 @@ const reference: PreviewElementReferenceValue = {
 	tagName: 'button',
 	primarySelector: '#submit',
 	locatorCandidates: [],
+	accessibleName: 'Submit order',
 };
 
 describe('PreviewElementReference', () => {
@@ -55,6 +56,8 @@ describe('PreviewElementReference', () => {
 		render(<PreviewElementReference reference={reference} />);
 
 		const button = screen.getByRole('button', { name: /button/i });
+		expect(button).toHaveTextContent('<button>');
+		expect(button).toHaveTextContent('Submit order');
 		fireEvent.mouseEnter(button);
 
 		expect(mockRevealPreviewElement).toHaveBeenCalledWith(reference, { scroll: 'if-needed' });
@@ -76,5 +79,38 @@ describe('PreviewElementReference', () => {
 		});
 
 		expect(mockRevealPreviewElement).toHaveBeenCalledWith(reference, { scroll: 'if-needed', sticky: true });
+	});
+
+	it('switches mobile to preview even when element resolution is unavailable', async () => {
+		isMobile = true;
+		mockResolvePreviewElement.mockImplementation(async () => {});
+
+		render(<PreviewElementReference reference={reference} />);
+
+		fireEvent.click(screen.getByRole('button', { name: /button/i }));
+
+		await waitFor(() => {
+			expect(mockSetActiveMobilePanel).toHaveBeenCalledWith('preview');
+		});
+
+		expect(mockRevealPreviewElement).toHaveBeenCalledWith(reference, { scroll: 'if-needed', sticky: true });
+		expect(mockClearPreviewElementHighlight).not.toHaveBeenCalled();
+	});
+
+	it('does not clear the sticky highlight on mobile blur', async () => {
+		isMobile = true;
+		mockResolvePreviewElement.mockResolvedValue(true);
+
+		render(<PreviewElementReference reference={reference} />);
+
+		const button = screen.getByRole('button', { name: /button/i });
+		fireEvent.click(button);
+		fireEvent.blur(button);
+
+		await waitFor(() => {
+			expect(mockSetActiveMobilePanel).toHaveBeenCalledWith('preview');
+		});
+
+		expect(mockClearPreviewElementHighlight).not.toHaveBeenCalled();
 	});
 });
