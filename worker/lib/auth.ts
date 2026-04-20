@@ -2,7 +2,7 @@ import { betterAuth, APIError } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { admin, organization } from 'better-auth/plugins';
 import { env } from 'cloudflare:workers';
-import { eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
 
 import {
@@ -113,7 +113,8 @@ export function createAuth(environment: AuthEnvironment, baseUrl: string, reques
 					const userOrganizations = await entitlementDatabase
 						.select({ id: schema.member.organizationId })
 						.from(schema.member)
-						.where(eq(schema.member.userId, user.id));
+						.innerJoin(schema.organization, eq(schema.organization.id, schema.member.organizationId))
+						.where(and(eq(schema.member.userId, user.id), isNull(schema.organization.deletedAt)));
 
 					return userOrganizations.length >= maxOrganizations;
 				},

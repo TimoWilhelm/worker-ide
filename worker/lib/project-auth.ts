@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 
 import { HttpErrorCode } from '@shared/http-errors';
 
@@ -16,7 +16,8 @@ async function getOrgRole(database: DrizzleD1Database, organizationId: string, u
 	const memberRow = await database
 		.select({ role: schema.member.role })
 		.from(schema.member)
-		.where(and(eq(schema.member.organizationId, organizationId), eq(schema.member.userId, userId)))
+		.innerJoin(schema.organization, eq(schema.organization.id, schema.member.organizationId))
+		.where(and(eq(schema.member.organizationId, organizationId), eq(schema.member.userId, userId), isNull(schema.organization.deletedAt)))
 		.limit(1);
 
 	return memberRow[0]?.role;

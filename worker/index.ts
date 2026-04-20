@@ -1,6 +1,6 @@
 import { getCookies } from 'better-auth/cookies';
 import { env } from 'cloudflare:workers';
-import { and, eq, gt, inArray, isNotNull, isNull, lte } from 'drizzle-orm';
+import { and, eq, gt, inArray, isNotNull, isNull, lte, or } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
@@ -86,6 +86,7 @@ export { ObjectStorageBinding } from './services/object-storage-binding';
 const PROJECT_ROOT = '/project';
 const AUTHENTICATED_API_ROUTE_PATTERNS = ['/api/*', '/p/*/api/*'];
 const AUTHENTICATED_NON_API_ROUTE_PATTERNS = ['/p/*/__agent', '/p/*/__agent/*', '/p/*/__ws', '/p/*/__ws/*'];
+const PROJECT_DELETED_VIA_PROJECT = 'project';
 
 function registerMiddleware(
 	appInstance: Hono<AuthedEnvironment>,
@@ -102,6 +103,83 @@ function registerProtectedApiMiddleware(
 	middleware: typeof requireAuth | typeof analyticsMiddleware | typeof requireRateLimit,
 ) {
 	registerMiddleware(appInstance, AUTHENTICATED_API_ROUTE_PATTERNS, middleware);
+}
+
+async function destroyProjectStorage(durableObjectHexId: string): Promise<void> {
+	const filesystemId = filesystemNamespace.idFromString(durableObjectHexId);
+	const filesystemStub = filesystemNamespace.get(filesystemId);
+	await filesystemStub.destroyStorage();
+}
+
+async function deleteProjectRowsByIds(database: ReturnType<typeof drizzle>, projectIds: string[]): Promise<void> {
+	if (projectIds.length === 0) {
+		return;
+	}
+
+	await database.batch([
+		database.delete(authSchema.userProjectAccess).where(inArray(authSchema.userProjectAccess.projectId, projectIds)),
+		database.delete(authSchema.userProjectFavorite).where(inArray(authSchema.userProjectFavorite.projectId, projectIds)),
+		database.delete(authSchema.projectTransfer).where(inArray(authSchema.projectTransfer.projectId, projectIds)),
+		database.delete(authSchema.project).where(inArray(authSchema.project.id, projectIds)),
+	]);
+}
+
+async function hardDeleteProjectById(
+	database: ReturnType<typeof drizzle>,
+	project: { id: string; durableObjectHexId: string },
+): Promise<boolean> {
+	try {
+		await destroyProjectStorage(project.durableObjectHexId);
+	} catch (error) {
+		console.warn(`Failed to delete DO for project ${project.id}:`, error);
+		return false;
+	}
+
+	await deleteProjectRowsByIds(database, [project.id]);
+
+	return true;
+}
+
+async function hardDeleteOrganizationById(database: ReturnType<typeof drizzle>, organizationId: string): Promise<boolean> {
+	const projectRows = await database
+		.select({ id: authSchema.project.id, durableObjectHexId: authSchema.project.durableObjectHexId })
+		.from(authSchema.project)
+		.where(eq(authSchema.project.organizationId, organizationId));
+
+	for (const project of projectRows) {
+		try {
+			await destroyProjectStorage(project.durableObjectHexId);
+		} catch (error) {
+			console.warn(`Failed to delete DO for project ${project.id}:`, error);
+			return false;
+		}
+	}
+
+	await deleteProjectRowsByIds(
+		database,
+		projectRows.map((project) => project.id),
+	);
+
+	await database.batch([
+		database
+			.delete(authSchema.projectTransfer)
+			.where(
+				or(
+					eq(authSchema.projectTransfer.sourceOrganizationId, organizationId),
+					eq(authSchema.projectTransfer.targetOrganizationId, organizationId),
+				),
+			),
+		database.delete(authSchema.billingEvent).where(eq(authSchema.billingEvent.organizationId, organizationId)),
+		database.delete(authSchema.entitlement).where(eq(authSchema.entitlement.scopeId, organizationId)),
+		database
+			.update(authSchema.session)
+			// eslint-disable-next-line unicorn/no-null -- D1 requires null to clear nullable columns
+			.set({ activeOrganizationId: null, updatedAt: new Date() })
+			.where(eq(authSchema.session.activeOrganizationId, organizationId)),
+		database.delete(authSchema.organization).where(eq(authSchema.organization.id, organizationId)),
+	]);
+
+	return true;
 }
 
 async function writeTemplateFiles(
@@ -295,7 +373,10 @@ if (import.meta.env.DEV) {
 		const organizationIds = memberships.map((m) => m.organizationId);
 		if (organizationIds.length === 0) return c.json([]);
 
-		const organizations = await database.select().from(authSchema.organization).where(inArray(authSchema.organization.id, organizationIds));
+		const organizations = await database
+			.select()
+			.from(authSchema.organization)
+			.where(and(inArray(authSchema.organization.id, organizationIds), isNull(authSchema.organization.deletedAt)));
 		return c.json(organizations);
 	});
 
@@ -313,7 +394,14 @@ if (import.meta.env.DEV) {
 		const membership = await database
 			.select({ id: authSchema.member.id })
 			.from(authSchema.member)
-			.where(and(eq(authSchema.member.organizationId, body.organizationId), eq(authSchema.member.userId, result.user.id)))
+			.innerJoin(authSchema.organization, eq(authSchema.organization.id, authSchema.member.organizationId))
+			.where(
+				and(
+					eq(authSchema.member.organizationId, body.organizationId),
+					eq(authSchema.member.userId, result.user.id),
+					isNull(authSchema.organization.deletedAt),
+				),
+			)
 			.limit(1);
 		if (membership.length === 0) return c.json({ error: 'Forbidden' }, 403);
 
@@ -451,6 +539,7 @@ app.get('/p/:projectId/__preview-auth/bootstrap', async (c) => {
 		.select({
 			deletedAt: authSchema.project.deletedAt,
 			projectBannedAt: authSchema.project.bannedAt,
+			orgDeletedAt: authSchema.organization.deletedAt,
 			orgBannedAt: authSchema.organization.bannedAt,
 			previewVisibility: authSchema.project.previewVisibility,
 			organizationId: authSchema.project.organizationId,
@@ -460,7 +549,7 @@ app.get('/p/:projectId/__preview-auth/bootstrap', async (c) => {
 		.where(eq(authSchema.project.id, projectId))
 		.limit(1);
 
-	if (previewProjectRow.length === 0 || previewProjectRow[0].deletedAt) {
+	if (previewProjectRow.length === 0 || previewProjectRow[0].deletedAt || previewProjectRow[0].orgDeletedAt) {
 		return errorPage({
 			heading: 'Project not found',
 			message: "The project you're looking for doesn't exist or has expired.",
@@ -896,6 +985,7 @@ app.post('/api/new-project', async (c) => {
 	const orgMemberRow = await database
 		.select({
 			plan: authSchema.organization.plan,
+			orgDeletedAt: authSchema.organization.deletedAt,
 			orgBannedAt: authSchema.organization.bannedAt,
 			memberId: authSchema.member.id,
 		})
@@ -909,6 +999,10 @@ app.post('/api/new-project', async (c) => {
 
 	if (orgMemberRow.length === 0) {
 		return c.json({ error: 'Forbidden' }, 403);
+	}
+
+	if (orgMemberRow[0].orgDeletedAt) {
+		return c.json({ error: 'Organization not found.' }, 404);
 	}
 
 	if (orgMemberRow[0].orgBannedAt) {
@@ -956,7 +1050,6 @@ app.post('/api/new-project', async (c) => {
 			durableObjectHexId: doId.toString(),
 			name: projectName,
 			previewVisibility: 'public',
-			createdByUserId: userId,
 			createdAt: now,
 			updatedAt: now,
 			lastActivityAt: now,
@@ -1058,6 +1151,7 @@ app.post('/api/clone-project', async (c) => {
 	const cloneOrgMemberRow = await cloneDatabase
 		.select({
 			plan: authSchema.organization.plan,
+			orgDeletedAt: authSchema.organization.deletedAt,
 			orgBannedAt: authSchema.organization.bannedAt,
 			memberId: authSchema.member.id,
 		})
@@ -1071,6 +1165,10 @@ app.post('/api/clone-project', async (c) => {
 
 	if (cloneOrgMemberRow.length === 0) {
 		return c.json({ error: 'Forbidden' }, 403);
+	}
+
+	if (cloneOrgMemberRow[0].orgDeletedAt) {
+		return c.json({ error: 'Organization not found.' }, 404);
 	}
 
 	if (cloneOrgMemberRow[0].orgBannedAt) {
@@ -1154,7 +1252,6 @@ app.post('/api/clone-project', async (c) => {
 			durableObjectHexId: newDoId.toString(),
 			name: projectName,
 			previewVisibility: 'public',
-			createdByUserId: userId,
 			createdAt: now,
 			updatedAt: now,
 			lastActivityAt: now,
@@ -1524,11 +1621,10 @@ export default {
 	/**
 	 * Scheduled handler — runs daily via cron trigger (03:00 UTC).
 	 *
-	 * Two-phase project lifecycle cleanup:
-	 * 1. Auto soft-delete: Projects older than PROJECT_INACTIVITY_DAYS (1 year)
-	 *    that haven't been soft-deleted yet get soft-deleted automatically.
-	 * 2. Permanent purge: Projects soft-deleted more than SOFT_DELETE_RETENTION_DAYS
-	 *    (30 days) ago have their DO storage destroyed and D1 rows hard-deleted.
+	 * Lifecycle cleanup:
+	 * 1. Auto soft-delete projects older than PROJECT_INACTIVITY_DAYS (1 year).
+	 * 2. Permanently purge projects, organizations, and users soft-deleted more than
+	 *    SOFT_DELETE_RETENTION_DAYS (30 days) ago.
 	 */
 	async scheduled(_event: ScheduledEvent, environment: Env, _executionContext: ExecutionContext): Promise<void> {
 		const database = drizzle(environment.DB);
@@ -1544,7 +1640,16 @@ export default {
 		if (staleProjects.length > 0) {
 			console.log(`Auto soft-deleting ${staleProjects.length} project(s) older than ${PROJECT_INACTIVITY_DAYS} days`);
 			for (const project of staleProjects) {
-				await database.update(authSchema.project).set({ deletedAt: now, updatedAt: now }).where(eq(authSchema.project.id, project.id));
+				await database.batch([
+					database
+						.update(authSchema.project)
+						.set({ deletedAt: now, deletedViaType: PROJECT_DELETED_VIA_PROJECT, deletedViaId: project.id, updatedAt: now })
+						.where(eq(authSchema.project.id, project.id)),
+					database
+						.update(authSchema.projectTransfer)
+						.set({ status: 'cancelled', resolvedAt: now })
+						.where(and(eq(authSchema.projectTransfer.projectId, project.id), eq(authSchema.projectTransfer.status, 'pending'))),
+				]);
 			}
 		}
 
@@ -1555,24 +1660,61 @@ export default {
 			.from(authSchema.project)
 			.where(and(isNotNull(authSchema.project.deletedAt), lte(authSchema.project.deletedAt, purgeCutoff)));
 
-		if (expiredProjects.length === 0) return;
+		if (expiredProjects.length > 0) {
+			console.log(`Purging ${expiredProjects.length} soft-deleted project(s)`);
 
-		console.log(`Purging ${expiredProjects.length} soft-deleted project(s)`);
+			for (const project of expiredProjects) {
+				const deleted = await hardDeleteProjectById(database, project);
+				if (!deleted) {
+					continue;
+				}
 
-		for (const project of expiredProjects) {
-			try {
-				// Destroy the Durable Object filesystem via RPC.
-				// destroyStorage() clears all alarms and wipes all stored data.
-				const fsId = filesystemNamespace.idFromString(project.durableObjectHexId);
-				const fsStub = filesystemNamespace.get(fsId);
-				await fsStub.destroyStorage();
-			} catch (error) {
-				console.warn(`Failed to delete DO for project ${project.id}:`, error);
+				console.log(`Purged project ${project.id}`);
 			}
+		}
 
-			// Hard-delete the D1 row regardless of DO cleanup result
-			await database.delete(authSchema.project).where(eq(authSchema.project.id, project.id));
-			console.log(`Purged project ${project.id}`);
+		const expiredOrganizations = await database
+			.select({ id: authSchema.organization.id })
+			.from(authSchema.organization)
+			.where(and(isNotNull(authSchema.organization.deletedAt), lte(authSchema.organization.deletedAt, purgeCutoff)));
+
+		if (expiredOrganizations.length > 0) {
+			console.log(`Purging ${expiredOrganizations.length} soft-deleted organization(s)`);
+
+			for (const organization of expiredOrganizations) {
+				const deleted = await hardDeleteOrganizationById(database, organization.id);
+				if (!deleted) {
+					console.warn(`Skipped purging organization ${organization.id} because one or more projects could not be fully deleted.`);
+					continue;
+				}
+
+				console.log(`Purged organization ${organization.id}`);
+			}
+		}
+
+		const expiredUsers = await database
+			.select({ id: authSchema.user.id })
+			.from(authSchema.user)
+			.where(and(isNotNull(authSchema.user.deletedAt), lte(authSchema.user.deletedAt, purgeCutoff)));
+
+		if (expiredUsers.length > 0) {
+			console.log(`Purging ${expiredUsers.length} soft-deleted user(s)`);
+
+			for (const user of expiredUsers) {
+				const softDeletedOrgMemberships = await database
+					.select({ organizationId: authSchema.member.organizationId })
+					.from(authSchema.member)
+					.innerJoin(authSchema.organization, eq(authSchema.organization.id, authSchema.member.organizationId))
+					.where(and(eq(authSchema.member.userId, user.id), isNotNull(authSchema.organization.deletedAt)));
+
+				if (softDeletedOrgMemberships.length > 0) {
+					console.warn(`Skipped purging user ${user.id} because they still belong to soft-deleted organizations awaiting final cleanup.`);
+					continue;
+				}
+
+				await database.delete(authSchema.user).where(eq(authSchema.user.id, user.id));
+				console.log(`Purged user ${user.id}`);
+			}
 		}
 	},
 };

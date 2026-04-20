@@ -32,12 +32,16 @@ export const transferRoutes = new Hono<AuthedEnvironment>()
 
 		// Verify source org is not banned
 		const sourceOrgRow = await database
-			.select({ bannedAt: schema.organization.bannedAt })
+			.select({ bannedAt: schema.organization.bannedAt, deletedAt: schema.organization.deletedAt })
 			.from(schema.organization)
 			.where(eq(schema.organization.id, orgId))
 			.limit(1);
 
-		if (sourceOrgRow.length > 0 && sourceOrgRow[0].bannedAt) {
+		if (sourceOrgRow.length === 0 || sourceOrgRow[0].deletedAt) {
+			throw httpError(HttpErrorCode.NOT_FOUND, 'Source organization not found.');
+		}
+
+		if (sourceOrgRow[0].bannedAt) {
 			throw httpError(HttpErrorCode.FORBIDDEN, 'Please contact us for assistance.');
 		}
 
@@ -61,12 +65,12 @@ export const transferRoutes = new Hono<AuthedEnvironment>()
 
 		// Verify target org exists and is not banned
 		const targetOrgRow = await database
-			.select({ id: schema.organization.id, bannedAt: schema.organization.bannedAt })
+			.select({ id: schema.organization.id, bannedAt: schema.organization.bannedAt, deletedAt: schema.organization.deletedAt })
 			.from(schema.organization)
 			.where(eq(schema.organization.id, body.targetOrganizationId))
 			.limit(1);
 
-		if (targetOrgRow.length === 0) {
+		if (targetOrgRow.length === 0 || targetOrgRow[0].deletedAt) {
 			throw httpError(HttpErrorCode.NOT_FOUND, 'Target organization not found.');
 		}
 
@@ -110,7 +114,8 @@ export const transferRoutes = new Hono<AuthedEnvironment>()
 		const memberships = await database
 			.select({ organizationId: schema.member.organizationId, role: schema.member.role })
 			.from(schema.member)
-			.where(eq(schema.member.userId, userId));
+			.innerJoin(schema.organization, eq(schema.organization.id, schema.member.organizationId))
+			.where(and(eq(schema.member.userId, userId), isNull(schema.organization.deletedAt)));
 
 		const adminOrgIds = memberships.filter((m) => m.role === 'owner' || m.role === 'admin').map((m) => m.organizationId);
 
@@ -214,23 +219,41 @@ export const transferRoutes = new Hono<AuthedEnvironment>()
 
 		// Re-verify source org is not banned (may have been banned after transfer was initiated)
 		const sourceOrgRow = await database
-			.select({ bannedAt: schema.organization.bannedAt })
+			.select({ bannedAt: schema.organization.bannedAt, deletedAt: schema.organization.deletedAt })
 			.from(schema.organization)
 			.where(eq(schema.organization.id, transfer.sourceOrganizationId))
 			.limit(1);
 
-		if (sourceOrgRow.length > 0 && sourceOrgRow[0].bannedAt) {
+		if (sourceOrgRow.length === 0 || sourceOrgRow[0].deletedAt) {
+			const now = new Date();
+			await database
+				.update(schema.projectTransfer)
+				.set({ status: 'cancelled', resolvedAt: now, resolvedByUserId: userId })
+				.where(eq(schema.projectTransfer.id, transferId));
+			throw httpError(HttpErrorCode.VALIDATION_ERROR, 'Source organization no longer exists. Transfer cancelled.');
+		}
+
+		if (sourceOrgRow[0].bannedAt) {
 			throw httpError(HttpErrorCode.FORBIDDEN, 'Source organization has been restricted.');
 		}
 
 		// Check target org exists, is not banned, and has room (plan-based)
 		const targetOrgRow = await database
-			.select({ plan: schema.organization.plan, bannedAt: schema.organization.bannedAt })
+			.select({ plan: schema.organization.plan, bannedAt: schema.organization.bannedAt, deletedAt: schema.organization.deletedAt })
 			.from(schema.organization)
 			.where(eq(schema.organization.id, transfer.targetOrganizationId))
 			.limit(1);
 
-		if (targetOrgRow.length > 0 && targetOrgRow[0].bannedAt) {
+		if (targetOrgRow.length === 0 || targetOrgRow[0].deletedAt) {
+			const now = new Date();
+			await database
+				.update(schema.projectTransfer)
+				.set({ status: 'cancelled', resolvedAt: now, resolvedByUserId: userId })
+				.where(eq(schema.projectTransfer.id, transferId));
+			throw httpError(HttpErrorCode.VALIDATION_ERROR, 'Target organization no longer exists. Transfer cancelled.');
+		}
+
+		if (targetOrgRow[0].bannedAt) {
 			throw httpError(HttpErrorCode.FORBIDDEN, 'Target organization is restricted.');
 		}
 

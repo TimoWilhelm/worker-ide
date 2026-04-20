@@ -95,7 +95,6 @@ function makeProject(overrides: Partial<DashboardProject> = {}): DashboardProjec
 		durableObjectHexId: 'abc123',
 		name: 'My Project',
 		previewVisibility: 'public',
-		createdByUserId: 'user1',
 		createdAt: timestamp,
 		updatedAt: timestamp,
 		deletedAt: null,

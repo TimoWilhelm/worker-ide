@@ -1,5 +1,5 @@
 import { zValidator } from '@hono/zod-validator';
-import { and, count, desc, eq, inArray, isNull } from 'drizzle-orm';
+import { and, count, desc, eq, inArray, isNull, or } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
 import { Hono } from 'hono';
 
@@ -14,6 +14,7 @@ import {
 	userPreferencesBodySchema,
 } from '@shared/validation';
 
+import { softDeleteOrganizationById } from './org-routes';
 import * as schema from '../db/auth-schema';
 import { trackAuthEvent } from '../lib/analytics';
 import { queryEntitlements } from '../lib/entitlements';
@@ -23,6 +24,85 @@ import type { AuthedEnvironment } from '../types';
 
 const MAX_RECENT_PROJECTS = 20;
 
+interface UserDeletionImpact {
+	blockers: Array<{ id: string; name: string; memberCount: number }>;
+	singleMemberOrganizations: Array<{ id: string; name: string; projectCount: number }>;
+	membershipOrganizations: Array<{ id: string; name: string }>;
+}
+
+async function getUserDeletionImpact(database: ReturnType<typeof drizzle>, userId: string): Promise<UserDeletionImpact> {
+	const memberships = await database
+		.select({
+			organizationId: schema.member.organizationId,
+			role: schema.member.role,
+		})
+		.from(schema.member)
+		.innerJoin(schema.organization, eq(schema.organization.id, schema.member.organizationId))
+		.where(and(eq(schema.member.userId, userId), isNull(schema.organization.deletedAt)));
+
+	const blockers: Array<{ id: string; name: string; memberCount: number }> = [];
+	const singleMemberOrganizations: Array<{ id: string; name: string; projectCount: number }> = [];
+	const membershipOrganizations: Array<{ id: string; name: string }> = [];
+
+	for (const membership of memberships) {
+		const [activeMembers, organizationRows] = await Promise.all([
+			database
+				.select({ userId: schema.member.userId, role: schema.member.role })
+				.from(schema.member)
+				.innerJoin(schema.user, eq(schema.user.id, schema.member.userId))
+				.where(
+					and(
+						eq(schema.member.organizationId, membership.organizationId),
+						or(eq(schema.member.userId, userId), isNull(schema.user.deletedAt)),
+					),
+				),
+			database
+				.select({ name: schema.organization.name })
+				.from(schema.organization)
+				.where(eq(schema.organization.id, membership.organizationId))
+				.limit(1),
+		]);
+
+		const organizationName = organizationRows[0]?.name ?? 'Unknown';
+		const otherActiveMembers = activeMembers.filter((member) => member.userId !== userId);
+
+		if (otherActiveMembers.length === 0) {
+			const projectCountRows = await database
+				.select({ count: count() })
+				.from(schema.project)
+				.where(and(eq(schema.project.organizationId, membership.organizationId), isNull(schema.project.deletedAt)));
+
+			singleMemberOrganizations.push({
+				id: membership.organizationId,
+				name: organizationName,
+				projectCount: projectCountRows[0]?.count ?? 0,
+			});
+			continue;
+		}
+
+		const otherOwners = otherActiveMembers.filter((member) => member.role === 'owner');
+		if (membership.role === 'owner' && otherOwners.length === 0) {
+			blockers.push({
+				id: membership.organizationId,
+				name: organizationName,
+				memberCount: activeMembers.length,
+			});
+			continue;
+		}
+
+		membershipOrganizations.push({
+			id: membership.organizationId,
+			name: organizationName,
+		});
+	}
+
+	return {
+		blockers,
+		singleMemberOrganizations,
+		membershipOrganizations,
+	};
+}
+
 export const userRoutes = new Hono<AuthedEnvironment>()
 	// GET /api/user/limits — Resolved limits + current usage for the authenticated user
 	.get('/user/limits', async (c) => {
@@ -31,7 +111,11 @@ export const userRoutes = new Hono<AuthedEnvironment>()
 
 		const [entitlementRows, orgCountRows] = await Promise.all([
 			queryEntitlements(database, userId),
-			database.select({ count: count() }).from(schema.member).where(eq(schema.member.userId, userId)),
+			database
+				.select({ count: count() })
+				.from(schema.member)
+				.innerJoin(schema.organization, eq(schema.organization.id, schema.member.organizationId))
+				.where(and(eq(schema.member.userId, userId), isNull(schema.organization.deletedAt))),
 		]);
 
 		const limits = resolveUserLimitsFromRows(entitlementRows);
@@ -51,7 +135,8 @@ export const userRoutes = new Hono<AuthedEnvironment>()
 		const memberships = await database
 			.select({ organizationId: schema.member.organizationId })
 			.from(schema.member)
-			.where(eq(schema.member.userId, userId));
+			.innerJoin(schema.organization, eq(schema.organization.id, schema.member.organizationId))
+			.where(and(eq(schema.member.userId, userId), isNull(schema.organization.deletedAt)));
 
 		const organizationIds = memberships.map((m) => m.organizationId);
 		if (organizationIds.length === 0) {
@@ -83,7 +168,6 @@ export const userRoutes = new Hono<AuthedEnvironment>()
 				organizationId: schema.project.organizationId,
 				name: schema.project.name,
 				previewVisibility: schema.project.previewVisibility,
-				createdByUserId: schema.project.createdByUserId,
 				createdAt: schema.project.createdAt,
 				updatedAt: schema.project.updatedAt,
 			})
@@ -95,6 +179,7 @@ export const userRoutes = new Hono<AuthedEnvironment>()
 					inArray(schema.project.organizationId, organizationIds),
 					isNull(schema.project.deletedAt),
 					isNull(schema.project.bannedAt),
+					isNull(schema.organization.deletedAt),
 					isNull(schema.organization.bannedAt),
 				),
 			);
@@ -146,8 +231,9 @@ export const userRoutes = new Hono<AuthedEnvironment>()
 		const projectMember = await database
 			.select({ memberId: schema.member.id })
 			.from(schema.project)
+			.innerJoin(schema.organization, eq(schema.organization.id, schema.project.organizationId))
 			.leftJoin(schema.member, and(eq(schema.member.organizationId, schema.project.organizationId), eq(schema.member.userId, userId)))
-			.where(and(eq(schema.project.id, projectId), isNull(schema.project.deletedAt)))
+			.where(and(eq(schema.project.id, projectId), isNull(schema.project.deletedAt), isNull(schema.organization.deletedAt)))
 			.limit(1);
 
 		if (projectMember.length === 0 || !projectMember[0].memberId) {
@@ -179,66 +265,7 @@ export const userRoutes = new Hono<AuthedEnvironment>()
 	.get('/user/account/delete-preview', async (c) => {
 		const { userId } = c.get('session');
 		const database = drizzle(c.env.DB);
-
-		// Find all orgs the user belongs to
-		const memberships = await database
-			.select({
-				organizationId: schema.member.organizationId,
-				role: schema.member.role,
-			})
-			.from(schema.member)
-			.where(eq(schema.member.userId, userId));
-
-		const blockers: Array<{ id: string; name: string; memberCount: number }> = [];
-		const singleMemberOrganizations: Array<{ id: string; name: string; projectCount: number }> = [];
-		const membershipOrganizations: Array<{ id: string; name: string }> = [];
-
-		for (const membership of memberships) {
-			// Count all members in this org
-			const allMembers = await database
-				.select({ userId: schema.member.userId, role: schema.member.role })
-				.from(schema.member)
-				.where(eq(schema.member.organizationId, membership.organizationId));
-
-			const organizationRows = await database
-				.select({ name: schema.organization.name })
-				.from(schema.organization)
-				.where(eq(schema.organization.id, membership.organizationId))
-				.limit(1);
-			const organizationName = organizationRows[0]?.name ?? 'Unknown';
-
-			if (allMembers.length === 1) {
-				// Single-member org — will be auto-deleted
-				const projectCount = await database
-					.select({ id: schema.project.id })
-					.from(schema.project)
-					.where(and(eq(schema.project.organizationId, membership.organizationId), isNull(schema.project.deletedAt)));
-
-				singleMemberOrganizations.push({
-					id: membership.organizationId,
-					name: organizationName,
-					projectCount: projectCount.length,
-				});
-			} else {
-				// Multi-member org
-				const otherSuperAdmins = allMembers.filter((m) => m.role === 'owner' && m.userId !== userId);
-
-				if (membership.role === 'owner' && otherSuperAdmins.length === 0) {
-					// Sole super admin of multi-member org — BLOCKER
-					blockers.push({
-						id: membership.organizationId,
-						name: organizationName,
-						memberCount: allMembers.length,
-					});
-				} else {
-					// Other super admins exist, or user is not a super admin — safe to remove
-					membershipOrganizations.push({
-						id: membership.organizationId,
-						name: organizationName,
-					});
-				}
-			}
-		}
+		const { blockers, membershipOrganizations, singleMemberOrganizations } = await getUserDeletionImpact(database, userId);
 
 		return c.json({
 			canDelete: blockers.length === 0,
@@ -252,77 +279,22 @@ export const userRoutes = new Hono<AuthedEnvironment>()
 	.delete('/user/account', async (c) => {
 		const { userId } = c.get('session');
 		const database = drizzle(c.env.DB);
+		const deletionImpact = await getUserDeletionImpact(database, userId);
 
-		// Pre-check: find all orgs where user is sole super admin of multi-member org.
-		// Cache member lists per org to avoid re-querying in the classification loop below.
-		const memberships = await database
-			.select({
-				organizationId: schema.member.organizationId,
-				role: schema.member.role,
-			})
-			.from(schema.member)
-			.where(eq(schema.member.userId, userId));
-
-		const orgMemberCache = new Map<string, Array<{ userId: string; role: string }>>();
-
-		for (const membership of memberships) {
-			const allMembers = await database
-				.select({ userId: schema.member.userId, role: schema.member.role })
-				.from(schema.member)
-				.where(eq(schema.member.organizationId, membership.organizationId));
-
-			orgMemberCache.set(membership.organizationId, allMembers);
-
-			if (membership.role === 'owner' && allMembers.length > 1) {
-				const otherSuperAdmins = allMembers.filter((m) => m.role === 'owner' && m.userId !== userId);
-				if (otherSuperAdmins.length === 0) {
-					throw httpError(
-						HttpErrorCode.VALIDATION_ERROR,
-						'Cannot delete account: you are the sole super admin of a multi-member organization. Promote another member or delete the organization first.',
-						// eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- 409 Conflict is not in Hono's standard status type
-						409 as 400,
-					);
-				}
-			}
+		if (deletionImpact.blockers.length > 0) {
+			throw httpError(
+				HttpErrorCode.VALIDATION_ERROR,
+				'Cannot delete account: you are the sole super admin of a multi-member organization. Promote another member or delete the organization first.',
+				// eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- 409 Conflict is not in Hono's standard status type
+				409 as 400,
+			);
 		}
 
 		const now = new Date();
 
-		// Classify memberships by org size using cached member data
-		const singleMemberOrgIds: string[] = [];
-		const multiMemberOrgIds: string[] = [];
-
-		for (const membership of memberships) {
-			const allMembers = orgMemberCache.get(membership.organizationId);
-			if (allMembers && allMembers.length === 1) {
-				singleMemberOrgIds.push(membership.organizationId);
-			} else {
-				multiMemberOrgIds.push(membership.organizationId);
-			}
-		}
-
-		// Batch single-member org cleanup (cancel transfers, soft-delete projects, delete org)
-		for (const orgId of singleMemberOrgIds) {
-			await database.batch([
-				database
-					.update(schema.projectTransfer)
-					.set({ status: 'cancelled', resolvedAt: now, resolvedByUserId: userId })
-					.where(and(eq(schema.projectTransfer.status, 'pending'), eq(schema.projectTransfer.sourceOrganizationId, orgId))),
-				database
-					.update(schema.projectTransfer)
-					.set({ status: 'cancelled', resolvedAt: now, resolvedByUserId: userId })
-					.where(and(eq(schema.projectTransfer.status, 'pending'), eq(schema.projectTransfer.targetOrganizationId, orgId))),
-				database
-					.update(schema.project)
-					.set({ deletedAt: now, updatedAt: now })
-					.where(and(eq(schema.project.organizationId, orgId), isNull(schema.project.deletedAt))),
-				database.delete(schema.organization).where(eq(schema.organization.id, orgId)),
-			]);
-		}
-
-		// Batch multi-member org membership removals
-		for (const orgId of multiMemberOrgIds) {
-			await database.delete(schema.member).where(and(eq(schema.member.organizationId, orgId), eq(schema.member.userId, userId)));
+		// Single-member orgs follow the same soft-delete flow as direct org deletion.
+		for (const organization of deletionImpact.singleMemberOrganizations) {
+			await softDeleteOrganizationById(database, organization.id, now, userId);
 		}
 
 		// Batch the final user-level cleanup

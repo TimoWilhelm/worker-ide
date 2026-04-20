@@ -222,7 +222,6 @@ export interface RecentProject {
 	organizationId: string;
 	name: string;
 	previewVisibility: string;
-	createdByUserId: string;
 	createdAt: string;
 	updatedAt: string;
 	lastAccessedAt: string;

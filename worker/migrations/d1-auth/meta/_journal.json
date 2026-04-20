@@ -120,6 +120,20 @@
 			"when": 1776087805907,
 			"tag": "0016_stiff_mimic",
 			"breakpoints": true
+		},
+		{
+			"idx": 17,
+			"version": "6",
+			"when": 1776716901572,
+			"tag": "0017_sparkling_butterfly",
+			"breakpoints": true
+		},
+		{
+			"idx": 18,
+			"version": "6",
+			"when": 1776721525028,
+			"tag": "0018_slim_paibok",
+			"breakpoints": true
 		}
 	]
 }

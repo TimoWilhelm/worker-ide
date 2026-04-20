@@ -109,9 +109,7 @@ export const invitation = sqliteTable(
 		role: text('role'),
 		status: text('status').notNull().default('pending'),
 		expiresAt: integer('expires_at', { mode: 'timestamp' }).notNull(),
-		inviterId: text('inviter_id')
-			.notNull()
-			.references(() => user.id, { onDelete: 'cascade' }),
+		inviterId: text('inviter_id').references(() => user.id, { onDelete: 'set null' }),
 		createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
 	},
 	(table) => [index('invitation_org_id_idx').on(table.organizationId), index('invitation_email_idx').on(table.email)],
@@ -125,12 +123,11 @@ export const project = sqliteTable(
 		durableObjectHexId: text('durable_object_hex_id').notNull(),
 		name: text('name').notNull(),
 		previewVisibility: text('preview_visibility').notNull().default('public'),
-		createdByUserId: text('created_by_user_id')
-			.notNull()
-			.references(() => user.id, { onDelete: 'cascade' }),
 		createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
 		updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
 		deletedAt: integer('deleted_at', { mode: 'timestamp' }),
+		deletedViaType: text('deleted_via_type'),
+		deletedViaId: text('deleted_via_id'),
 		bannedAt: integer('banned_at', { mode: 'timestamp' }),
 		lastActivityAt: integer('last_activity_at', { mode: 'timestamp' }),
 	},
@@ -187,9 +184,7 @@ export const projectTransfer = sqliteTable(
 			.references(() => project.id, { onDelete: 'cascade' }),
 		sourceOrganizationId: text('source_organization_id').notNull(),
 		targetOrganizationId: text('target_organization_id').notNull(),
-		initiatedByUserId: text('initiated_by_user_id')
-			.notNull()
-			.references(() => user.id, { onDelete: 'cascade' }),
+		initiatedByUserId: text('initiated_by_user_id').references(() => user.id, { onDelete: 'set null' }),
 		status: text('status').notNull().default('pending'),
 		createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
 		resolvedAt: integer('resolved_at', { mode: 'timestamp' }),

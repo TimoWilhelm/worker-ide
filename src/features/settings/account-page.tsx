@@ -247,7 +247,7 @@ export default function AccountPage() {
 									)}
 									{deletePreview.membershipOrganizations.length > 0 && (
 										<p className="text-xs text-text-secondary">
-											You will be removed from{' '}
+											You will lose access to{' '}
 											<strong className="text-text-primary">{deletePreview.membershipOrganizations.length} organization(s)</strong>.
 										</p>
 									)}

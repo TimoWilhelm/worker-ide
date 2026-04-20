@@ -14,6 +14,58 @@ import { httpError } from '../lib/http-error';
 import { assertOrgSuperAdmin } from '../lib/project-auth';
 
 import type { AuthedEnvironment } from '../types';
+import type { DrizzleD1Database } from 'drizzle-orm/d1';
+
+const PROJECT_DELETED_VIA_PROJECT = 'project';
+const PROJECT_DELETED_VIA_ORGANIZATION = 'organization';
+
+export async function softDeleteProjectById(
+	database: DrizzleD1Database,
+	projectId: string,
+	now: Date,
+	deletedViaType: string,
+	deletedViaId: string,
+	resolvedByUserId?: string,
+): Promise<void> {
+	await database.batch([
+		database
+			.update(schema.project)
+			.set({ deletedAt: now, deletedViaType, deletedViaId, updatedAt: now })
+			.where(and(eq(schema.project.id, projectId), isNull(schema.project.deletedAt))),
+		database
+			.update(schema.projectTransfer)
+			.set({ status: 'cancelled', resolvedAt: now, resolvedByUserId })
+			.where(and(eq(schema.projectTransfer.projectId, projectId), eq(schema.projectTransfer.status, 'pending'))),
+	]);
+}
+
+export async function softDeleteOrganizationById(
+	database: DrizzleD1Database,
+	organizationId: string,
+	now: Date,
+	resolvedByUserId?: string,
+): Promise<void> {
+	await database.batch([
+		database
+			.update(schema.projectTransfer)
+			.set({ status: 'cancelled', resolvedAt: now, resolvedByUserId })
+			.where(and(eq(schema.projectTransfer.status, 'pending'), eq(schema.projectTransfer.sourceOrganizationId, organizationId))),
+		database
+			.update(schema.projectTransfer)
+			.set({ status: 'cancelled', resolvedAt: now, resolvedByUserId })
+			.where(and(eq(schema.projectTransfer.status, 'pending'), eq(schema.projectTransfer.targetOrganizationId, organizationId))),
+		database
+			.update(schema.project)
+			.set({ deletedAt: now, deletedViaType: PROJECT_DELETED_VIA_ORGANIZATION, deletedViaId: organizationId, updatedAt: now })
+			.where(and(eq(schema.project.organizationId, organizationId), isNull(schema.project.deletedAt))),
+		database.update(schema.organization).set({ deletedAt: now }).where(eq(schema.organization.id, organizationId)),
+		database
+			.update(schema.session)
+			// eslint-disable-next-line unicorn/no-null -- D1 requires null to clear nullable columns
+			.set({ activeOrganizationId: null, updatedAt: now })
+			.where(eq(schema.session.activeOrganizationId, organizationId)),
+	]);
+}
 
 export const orgRoutes = new Hono<AuthedEnvironment>()
 	// Verify the user is a member of the :orgId organization and the org is not banned
@@ -26,6 +78,7 @@ export const orgRoutes = new Hono<AuthedEnvironment>()
 		const orgMemberRow = await database
 			.select({
 				memberId: schema.member.id,
+				orgDeletedAt: schema.organization.deletedAt,
 				orgBannedAt: schema.organization.bannedAt,
 			})
 			.from(schema.organization)
@@ -39,6 +92,10 @@ export const orgRoutes = new Hono<AuthedEnvironment>()
 
 		if (orgMemberRow[0].orgBannedAt) {
 			throw httpError(HttpErrorCode.FORBIDDEN, 'Please contact us for assistance.');
+		}
+
+		if (orgMemberRow[0].orgDeletedAt) {
+			throw httpError(HttpErrorCode.NOT_FOUND, 'Organization not found.');
 		}
 
 		if (!orgMemberRow[0].memberId) {
@@ -61,7 +118,11 @@ export const orgRoutes = new Hono<AuthedEnvironment>()
 				.select({ count: count() })
 				.from(schema.project)
 				.where(and(eq(schema.project.organizationId, orgId), isNull(schema.project.deletedAt))),
-			database.select({ count: count() }).from(schema.member).where(eq(schema.member.organizationId, orgId)),
+			database
+				.select({ count: count() })
+				.from(schema.member)
+				.innerJoin(schema.user, eq(schema.user.id, schema.member.userId))
+				.where(and(eq(schema.member.organizationId, orgId), isNull(schema.user.deletedAt))),
 		]);
 
 		const plan = organizationRows[0]?.plan ?? 'free';
@@ -87,7 +148,6 @@ export const orgRoutes = new Hono<AuthedEnvironment>()
 				durableObjectHexId: schema.project.durableObjectHexId,
 				name: schema.project.name,
 				previewVisibility: schema.project.previewVisibility,
-				createdByUserId: schema.project.createdByUserId,
 				createdAt: schema.project.createdAt,
 				updatedAt: schema.project.updatedAt,
 				deletedAt: schema.project.deletedAt,
@@ -111,7 +171,14 @@ export const orgRoutes = new Hono<AuthedEnvironment>()
 		const existing = await database
 			.select()
 			.from(schema.project)
-			.where(and(eq(schema.project.id, projectId), eq(schema.project.organizationId, orgId), isNull(schema.project.bannedAt)))
+			.where(
+				and(
+					eq(schema.project.id, projectId),
+					eq(schema.project.organizationId, orgId),
+					isNull(schema.project.deletedAt),
+					isNull(schema.project.bannedAt),
+				),
+			)
 			.limit(1);
 
 		if (existing.length === 0) {
@@ -149,7 +216,7 @@ export const orgRoutes = new Hono<AuthedEnvironment>()
 		}
 
 		const now = new Date();
-		await database.update(schema.project).set({ deletedAt: now, updatedAt: now }).where(eq(schema.project.id, projectId));
+		await softDeleteProjectById(database, projectId, now, PROJECT_DELETED_VIA_PROJECT, projectId, c.get('session').userId);
 
 		trackProjectEvent({
 			organizationId: orgId,
@@ -175,26 +242,7 @@ export const orgRoutes = new Hono<AuthedEnvironment>()
 
 		const now = new Date();
 
-		// Atomically: cancel transfers, soft-delete projects, and remove the org
-		await database.batch([
-			// Cancel all OUTGOING pending transfers
-			database
-				.update(schema.projectTransfer)
-				.set({ status: 'cancelled', resolvedAt: now, resolvedByUserId: userId })
-				.where(and(eq(schema.projectTransfer.status, 'pending'), eq(schema.projectTransfer.sourceOrganizationId, orgId))),
-			// Cancel all INCOMING pending transfers
-			database
-				.update(schema.projectTransfer)
-				.set({ status: 'cancelled', resolvedAt: now, resolvedByUserId: userId })
-				.where(and(eq(schema.projectTransfer.status, 'pending'), eq(schema.projectTransfer.targetOrganizationId, orgId))),
-			// Soft-delete all projects in the org
-			database
-				.update(schema.project)
-				.set({ deletedAt: now, updatedAt: now })
-				.where(and(eq(schema.project.organizationId, orgId), isNull(schema.project.deletedAt))),
-			// Delete the organization (members and invitations cascade via FK)
-			database.delete(schema.organization).where(eq(schema.organization.id, orgId)),
-		]);
+		await softDeleteOrganizationById(database, orgId, now, userId);
 
 		return c.json({ organizationId: orgId, deletedAt: now.toISOString() });
 	});

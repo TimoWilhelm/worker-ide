@@ -55,6 +55,15 @@ function LoadingFallback() {
 	);
 }
 
+function isDeletedOrganization(value: unknown): boolean {
+	if (typeof value !== 'object' || value === null) {
+		return false;
+	}
+
+	const deletedAt = Reflect.get(value, 'deletedAt');
+	return deletedAt instanceof Date || typeof deletedAt === 'string';
+}
+
 function ErrorFallback({ error, resetErrorBoundary }: { error: Error; resetErrorBoundary: () => void }) {
 	const [copied, setCopied] = useState(false);
 	const copyTimerReference = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -169,18 +178,20 @@ function AuthGate() {
 	const { data: session, isPending: sessionPending } = authClient.useSession();
 	const { data: organizations, isPending: listPending } = authClient.useListOrganizations();
 	const { data: activeOrganization } = authClient.useActiveOrganization();
+	const visibleOrganizations = (organizations ?? []).filter((organization) => !isDeletedOrganization(organization));
+	const visibleActiveOrganization = activeOrganization && !isDeletedOrganization(activeOrganization) ? activeOrganization : undefined;
 
 	// Auto-set the active organization when the session has none
 	const autoActivatedReference = useRef(false);
 	useEffect(() => {
 		if (autoActivatedReference.current) return;
 		if (!session || listPending) return;
-		if (activeOrganization) return;
-		const firstOrganization = organizations?.[0];
+		if (visibleActiveOrganization) return;
+		const firstOrganization = visibleOrganizations[0];
 		if (!firstOrganization) return;
 		autoActivatedReference.current = true;
 		void authClient.organization.setActive({ organizationId: firstOrganization.id });
-	}, [session, listPending, activeOrganization, organizations]);
+	}, [session, listPending, visibleActiveOrganization, visibleOrganizations]);
 
 	if (sessionPending) {
 		return <LoadingFallback />;
@@ -204,7 +215,7 @@ function AuthGate() {
 		image: session.user.image ?? undefined,
 		emailVerified: session.user.emailVerified,
 	};
-	return <AppContent organizations={organizations ?? []} user={user} activeOrganizationId={activeOrganization?.id} />;
+	return <AppContent organizations={visibleOrganizations} user={user} activeOrganizationId={visibleActiveOrganization?.id} />;
 }
 
 interface OrganizationEntry {
