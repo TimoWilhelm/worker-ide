@@ -7,6 +7,9 @@ const PRUNE_MINIMUM = 20_000;
 const PRUNE_PROTECT = 40_000;
 const PRUNED_PLACEHOLDER = '[Old tool result content cleared]';
 const PRUNEABLE_INPUT_TOOLS = new Set(['file_write', 'file_edit', 'file_multiedit']);
+const MICRO_COMPACTION_KEEP_RECENT_MESSAGES = 4;
+const MICRO_COMPACTION_MAX_TOOL_OUTPUT_CHARACTERS = 2000;
+const MICRO_COMPACTION_MAX_TEXT_CHARACTERS = 4000;
 
 /**
  * Buffer reserved for model output and system prompt overhead.
@@ -237,6 +240,119 @@ export function responseMessagesToChatMessages(messages: Array<AssistantModelMes
 function estimateTokens(text: string): number {
 	return Math.round(text.length / CHARACTERS_PER_TOKEN);
 }
+
+function isRecordObject(value: unknown): value is Record<string, unknown> {
+	return value !== undefined && value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function truncateText(text: string, maxCharacters: number): string {
+	if (text.length <= maxCharacters) {
+		return text;
+	}
+
+	return `${text.slice(0, maxCharacters)}... [truncated ${text.length} chars]`;
+}
+
+/**
+ * Lightweight read-time micro-compaction applied before every model request.
+ * This keeps recent messages intact while truncating oversized older text and
+ * tool output payloads on a copy of the message list.
+ */
+export function microCompactMessages(
+	messages: ModelMessage[],
+	options?: {
+		keepRecentMessages?: number;
+		maxToolOutputCharacters?: number;
+		maxTextCharacters?: number;
+	},
+): ModelMessage[] {
+	const keepRecentMessages = options?.keepRecentMessages ?? MICRO_COMPACTION_KEEP_RECENT_MESSAGES;
+	const maxToolOutputCharacters = options?.maxToolOutputCharacters ?? MICRO_COMPACTION_MAX_TOOL_OUTPUT_CHARACTERS;
+	const maxTextCharacters = options?.maxTextCharacters ?? MICRO_COMPACTION_MAX_TEXT_CHARACTERS;
+
+	if (messages.length <= keepRecentMessages) {
+		return messages;
+	}
+
+	const cutoff = messages.length - keepRecentMessages;
+	return messages.map((message, index): ModelMessage => {
+		if (index >= cutoff) {
+			return message;
+		}
+
+		if (typeof message.content === 'string') {
+			const truncatedContent = truncateText(message.content, maxTextCharacters);
+			if (truncatedContent === message.content || message.role === 'tool') {
+				return message;
+			}
+
+			return { ...message, content: truncatedContent };
+		}
+
+		if (!Array.isArray(message.content)) {
+			return message;
+		}
+
+		if (message.role === 'tool') {
+			let changed = false;
+			const truncatedToolContent = message.content.map((part) => {
+				if (
+					'output' in part &&
+					isRecordObject(part.output) &&
+					(part.output.type === 'text' || part.output.type === 'error-text') &&
+					typeof part.output.value === 'string'
+				) {
+					const truncatedValue = truncateText(part.output.value, maxToolOutputCharacters);
+					if (truncatedValue !== part.output.value) {
+						changed = true;
+						return { ...part, output: { ...part.output, value: truncatedValue } };
+					}
+				}
+
+				return part;
+			});
+
+			return changed ? { ...message, content: truncatedToolContent } : message;
+		}
+
+		if (message.role === 'assistant') {
+			let changed = false;
+			const truncatedAssistantContent = message.content.map((part) => {
+				if ('text' in part && typeof part.text === 'string') {
+					const truncatedText = truncateText(part.text, maxTextCharacters);
+					if (truncatedText !== part.text) {
+						changed = true;
+						return { ...part, text: truncatedText };
+					}
+				}
+
+				return part;
+			});
+
+			return changed ? { ...message, content: truncatedAssistantContent } : message;
+		}
+
+		if (message.role === 'user') {
+			let changed = false;
+			const truncatedUserContent = message.content.map((part) => {
+				if ('text' in part && typeof part.text === 'string') {
+					const truncatedText = truncateText(part.text, maxTextCharacters);
+					if (truncatedText !== part.text) {
+						changed = true;
+						return { ...part, text: truncatedText };
+					}
+				}
+
+				return part;
+			});
+
+			return changed ? { ...message, content: truncatedUserContent } : message;
+		}
+
+		return message;
+	});
+}
+
 export function estimateMessagesTokens(messages: ModelMessage[]): number {
 	let total = 0;
 	for (const message of messages) {

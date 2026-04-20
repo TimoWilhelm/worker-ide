@@ -95,6 +95,7 @@ export interface ToolExecutorContext {
 	fsStub: DurableObjectStub<ProjectFilesystem>;
 	model: AIModelId;
 	requestOriginContext?: RequestOriginContext;
+	indexArtifact?: (entry: { key: string; content: string }) => Promise<void>;
 }
 
 export interface SessionPersistData {

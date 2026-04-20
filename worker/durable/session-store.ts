@@ -1,5 +1,6 @@
 import { readSessionMessageMetadata, readSessionMetadata, replaceSessionMessageMetadata, upsertSessionMetadata } from './db';
 import { applyPersistedMessageMetadata, serializePersistedMessageMetadata } from './session-history';
+import { compactHistoryForPersistence } from '../services/ai-agent/persisted-history-compactor';
 import { chatMessageToSessionMessage, sessionMessagesToChatMessages } from '../services/ai-agent/session-messages';
 
 import type { AgentDatabase, SessionMetadataRow } from './db';
@@ -26,7 +27,7 @@ export interface SessionHistoryStore {
 	get(sessionId: string): SessionInfo | null | undefined;
 	getHistory(sessionId: string): SessionMessage[];
 	clearMessages(sessionId: string): void;
-	appendAll(sessionId: string, messages: SessionMessage[]): Promise<unknown>;
+	appendAll(sessionId: string, messages: SessionMessage[], parentId?: string): Promise<unknown>;
 }
 
 function parseSessionMetadata(row: SessionMetadataRow | undefined): SessionMetadataState {
@@ -59,6 +60,15 @@ function buildAiSession(sessionInfo: SessionInfo, history: ChatMessage[], metada
 		errorMessage: metadata.errorMessage,
 		stopRequested: metadata.stopRequested,
 	};
+}
+
+function getSharedPrefixLength(left: ChatMessage[], right: ChatMessage[]): number {
+	const shortestLength = Math.min(left.length, right.length);
+	let index = 0;
+	while (index < shortestLength && left[index]?.id === right[index]?.id) {
+		index++;
+	}
+	return index;
 }
 
 export class AgentSessionStore {
@@ -106,16 +116,40 @@ export class AgentSessionStore {
 	}
 
 	async replaceHistory(sessionId: string, history: ChatMessage[]): Promise<void> {
+		const compactedHistory = compactHistoryForPersistence(history);
 		this.sessionHistoryStore.clearMessages(sessionId);
 		await this.sessionHistoryStore.appendAll(
 			sessionId,
-			history.map((message) => chatMessageToSessionMessage(message)),
+			compactedHistory.map((message) => chatMessageToSessionMessage(message)),
 		);
-		replaceSessionMessageMetadata(this.database, sessionId, serializePersistedMessageMetadata(sessionId, history));
+		replaceSessionMessageMetadata(this.database, sessionId, serializePersistedMessageMetadata(sessionId, compactedHistory));
+	}
+
+	async syncHistory(sessionId: string, history: ChatMessage[]): Promise<void> {
+		const compactedHistory = compactHistoryForPersistence(history);
+		const existingHistory = sessionMessagesToChatMessages(this.sessionHistoryStore.getHistory(sessionId));
+		const sharedPrefixLength = getSharedPrefixLength(existingHistory, compactedHistory);
+
+		if (sharedPrefixLength !== existingHistory.length) {
+			await this.replaceHistory(sessionId, compactedHistory);
+			return;
+		}
+
+		const suffix = compactedHistory.slice(sharedPrefixLength);
+		if (suffix.length > 0) {
+			const parentId = sharedPrefixLength > 0 ? compactedHistory[sharedPrefixLength - 1]?.id : undefined;
+			await this.sessionHistoryStore.appendAll(
+				sessionId,
+				suffix.map((message) => chatMessageToSessionMessage(message)),
+				parentId,
+			);
+		}
+
+		replaceSessionMessageMetadata(this.database, sessionId, serializePersistedMessageMetadata(sessionId, compactedHistory));
 	}
 
 	async persistHistory(sessionId: string, history: ChatMessage[], stopRequested?: boolean): Promise<void> {
-		await this.replaceHistory(sessionId, history);
+		await this.syncHistory(sessionId, history);
 		this.writeMetadata(sessionId, { stopRequested });
 	}
 }

@@ -1,5 +1,7 @@
 import { ToolErrorCode, toolError } from '@shared/tool-errors';
 
+import { buildSubAgentArtifactEntry } from '../memory/artifacts';
+
 import type { FileChange, SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
 import type { SubAgentActivity, StreamEvent } from '@shared/agent-state';
 import type { ChatMessage } from '@shared/types';
@@ -38,10 +40,11 @@ export async function execute(
 	if (!prompt) {
 		return toolError(ToolErrorCode.MISSING_INPUT, 'A non-empty prompt is required.');
 	}
+	const additionalContext = input.context?.trim();
 
 	let fullPrompt = prompt;
-	if (input.context?.trim()) {
-		fullPrompt += `\n\nAdditional context:\n${input.context.trim()}`;
+	if (additionalContext) {
+		fullPrompt += `\n\nAdditional context:\n${additionalContext}`;
 	}
 
 	const messages: ChatMessage[] = [
@@ -65,6 +68,16 @@ export async function execute(
 	sendEvent('status', { message: 'Delegating task to sub-agent...' });
 	const subAgent = await context.agentReference.subAgent(SubAgentWorker, `sub-agent-${crypto.randomUUID().slice(0, 8)}`);
 	const result = await subAgent.executeTask(context.projectId, messages, context.model, callback);
+	const artifactEntry = buildSubAgentArtifactEntry({
+		sessionId: context.sessionId,
+		prompt,
+		additionalContext,
+		resultText: result.text,
+		iterations: result.iterations,
+	});
+	if (context.indexArtifact) {
+		await context.indexArtifact(artifactEntry);
+	}
 
 	if (result.debugLogId) {
 		forwardActivity(sendEvent, { kind: 'debug-log', debugLogId: result.debugLogId });
@@ -77,6 +90,7 @@ export async function execute(
 			iterations: result.iterations,
 			outputLength: result.text.length,
 			debugLogId: result.debugLogId,
+			artifactKey: context.indexArtifact ? artifactEntry.key : undefined,
 			shortTitle,
 		},
 		output: result.text,

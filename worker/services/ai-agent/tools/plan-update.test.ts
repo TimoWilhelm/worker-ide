@@ -94,6 +94,19 @@ describe('plan_update', () => {
 		expect(planEvent![1]).toHaveProperty('content', '# Plan');
 	});
 
+	it('indexes the updated plan into searchable artifacts when available', async () => {
+		const indexArtifact = vi.fn(async () => {});
+
+		await execute(
+			{ content: '# Plan\n\n- [ ] Step 1' },
+			createMockSendEvent(),
+			createMockContext({ projectRoot: PROJECT_ROOT, sessionId: 'ses-123', indexArtifact }),
+		);
+
+		expect(indexArtifact).toHaveBeenCalledOnce();
+		expect(indexArtifact.mock.calls[0]?.[0]).toMatchObject({ key: 'plan:ses-123' });
+	});
+
 	// ── Default session ID ────────────────────────────────────────────────
 
 	it('uses "default" when sessionId is not set', async () => {

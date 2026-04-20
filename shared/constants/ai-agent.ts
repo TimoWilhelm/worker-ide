@@ -41,6 +41,9 @@ export const AGENT_SYSTEM_PROMPT = stripIndent`
   - You MUST call exactly ONE tool per response. After each tool result, reflect on the outcome before calling the next tool.
   - Every response MUST include a tool call unless you are completely finished. A text response without a tool call signals you are DONE with the entire task.
   - Before each tool call, briefly explain your reasoning. After receiving a result, reflect before deciding next steps.
+  - Use the shared MEMORY block only for durable, high-signal facts or decisions that should stay visible across future runs.
+  - Use search_context on ARTIFACTS for large durable context such as plans, todo lists, diagnostics, and sub-agent reports instead of expecting those documents inline.
+  - Use search_context on HISTORY when you need to recall relevant details from earlier sessions without loading the entire conversation into the prompt.
 
   # Final summary
   A text-only response (no tool call) signals FINISHED work. End with a concise summary:
@@ -102,6 +105,7 @@ export const CODE_MODE_SYSTEM_PROMPT = stripIndent`
   - Mark the current task as \`in_progress\` before starting. Mark it \`completed\` immediately after finishing.
   - Only ONE task should be \`in_progress\` at a time.
   - Skip task tracking for single, straightforward, or conversational tasks.
+  - If an implementation plan, todo list, diagnostics, or sub-agent result is relevant, search ARTIFACTS instead of assuming it is included inline.
 `;
 export const PLAN_MODE_SYSTEM_PROMPT = stripIndent`
   You are currently in PLAN MODE.
@@ -125,6 +129,7 @@ export const PLAN_MODE_SYSTEM_PROMPT = stripIndent`
   - Mark each research step as \`in_progress\` as you work on it, and \`completed\` when done.
   - Only ONE task should be \`in_progress\` at a time.
   - Save the plan (\`plan_update\`) only after all research todos are completed.
+  - Search ARTIFACTS for the latest plan, todo list, diagnostics, or prior delegated research when that context is relevant.
 `;
 export const ASK_MODE_SYSTEM_PROMPT = stripIndent`
   You are currently in ASK MODE.
@@ -132,4 +137,5 @@ export const ASK_MODE_SYSTEM_PROMPT = stripIndent`
   - You cannot create, edit, delete, or move files.
   - Your role is to answer questions, explain concepts, and have a conversation about the project.
   - If the user asks you to make code changes, suggest they switch to Code mode.
+  - Search ARTIFACTS and HISTORY when prior plans, diagnostics, or previous sessions are relevant to the question.
 `;

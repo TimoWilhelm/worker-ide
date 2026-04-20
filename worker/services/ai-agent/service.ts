@@ -9,6 +9,7 @@ import {
 	estimateMessagesTokens,
 	getContextUtilization,
 	hasContextBudget,
+	microCompactMessages,
 	pruneOldAssistantText,
 	pruneSystemMessages,
 	pruneToolOutputs,
@@ -31,6 +32,7 @@ import {
 	usageEvent,
 } from './event-helpers';
 import { McpClientManager } from './mcp-client';
+import { buildDiagnosticsArtifactEntry } from './memory/artifacts';
 import { accumulatePendingChange, pendingChangesMapToRecord } from './pending-changes';
 import { savePlan } from './plan-saver';
 import { classifyRetryableError, calculateRetryDelay, sleep } from './retry';
@@ -89,6 +91,15 @@ const MAX_OUTPUT_RECOVERY_ATTEMPTS = 3;
 const SOFT_ITERATION_LIMIT = 50;
 const PROACTIVE_PRUNE_THRESHOLD = 0.7;
 const EMPTY_RESPONSE_RETRY_DELAY_MS = 250;
+const MAX_INLINE_DIAGNOSTIC_CHARACTERS = 8000;
+
+function truncateDiagnosticsForPrompt(content: string): string {
+	if (content.length <= MAX_INLINE_DIAGNOSTIC_CHARACTERS) {
+		return content;
+	}
+
+	return `... (older diagnostics truncated)\n${content.slice(-MAX_INLINE_DIAGNOSTIC_CHARACTERS)}`;
+}
 
 export class AIAgentService {
 	private mcpClientManager = new McpClientManager();
@@ -114,6 +125,7 @@ export class AIAgentService {
 		private agentReference?: import('agents').Agent<Env, unknown>,
 		private requestOriginContext?: RequestOriginContext,
 		private fiberSnapshot?: FiberSnapshot,
+		private indexArtifactEntry?: (entry: { key: string; content: string }) => Promise<void>,
 	) {}
 
 	/**
@@ -285,6 +297,9 @@ export class AIAgentService {
 		try {
 			yield statusEvent('Starting...');
 			const outputLogs = await coordinatorStub.getOutputLogs().catch((): string | undefined => undefined);
+			if (outputLogs?.trim() && this.indexArtifactEntry) {
+				await this.indexArtifact(buildDiagnosticsArtifactEntry(this.sessionId, outputLogs, 'initial'), logger);
+			}
 
 			const runtimePromptAdditions = await buildRuntimePromptAdditions(this.projectRoot, this.mode, outputLogs, this.sessionId);
 
@@ -310,7 +325,21 @@ export class AIAgentService {
 				model: this.model,
 				isSubAgent: this.isSubAgent,
 				requestOriginContext: this.requestOriginContext,
+				indexArtifact: this.indexArtifactEntry,
 			};
+
+			if (outputLogs?.trim() && this.indexArtifactEntry) {
+				workingMessages.push({
+					role: 'user',
+					content:
+						'SYSTEM: Recent IDE diagnostics were indexed into the searchable ARTIFACTS context for this session. Search artifacts before diagnosing build, runtime, or lint failures.',
+				});
+			} else if (outputLogs?.trim()) {
+				workingMessages.push({
+					role: 'user',
+					content: `SYSTEM: Recent IDE diagnostics:\n\n<output_logs>\n${truncateDiagnosticsForPrompt(outputLogs)}\n</output_logs>`,
+				});
+			}
 
 			// Mutable copy of messages for the agent loop
 			const currentRunStartIndex = workingMessages.length;
@@ -333,12 +362,6 @@ export class AIAgentService {
 				iteration++;
 				logger.setIteration(iteration);
 
-				const estimatedTokens = estimateMessagesTokens(workingMessages);
-				contextTokensUsed = estimatedTokens;
-				const contextUtilization = getContextUtilization(workingMessages, modelLimits);
-				yield contextUtilizationEvent(estimatedTokens, modelLimits.contextWindow, Math.round(contextUtilization * 100));
-				yield statusEvent(this.mode === 'plan' ? 'Researching...' : 'Thinking...');
-
 				// Soft iteration nudge
 				if (iteration === SOFT_ITERATION_LIMIT && !softLimitNudged) {
 					softLimitNudged = true;
@@ -347,6 +370,13 @@ export class AIAgentService {
 						content: 'SYSTEM: You have been working for many iterations. Please try to wrap up the current task efficiently.',
 					});
 				}
+
+				let messagesForModel = microCompactMessages(workingMessages);
+				const estimatedTokens = estimateMessagesTokens(messagesForModel);
+				contextTokensUsed = estimatedTokens;
+				let contextUtilization = getContextUtilization(messagesForModel, modelLimits);
+				yield contextUtilizationEvent(estimatedTokens, modelLimits.contextWindow, Math.round(contextUtilization * 100));
+				yield statusEvent(this.mode === 'plan' ? 'Researching...' : 'Thinking...');
 
 				// Proactive pruning — multi-stage, from cheapest to most aggressive
 				if (contextUtilization >= PROACTIVE_PRUNE_THRESHOLD) {
@@ -369,7 +399,7 @@ export class AIAgentService {
 					}
 
 					// Stage 3: If still very full (>90%), truncate old assistant text
-					const postStage2Utilization = getContextUtilization(workingMessages, modelLimits);
+					const postStage2Utilization = getContextUtilization(microCompactMessages(workingMessages), modelLimits);
 					if (postStage2Utilization >= 0.9) {
 						const { messages: stage4, prunedTokens: stage4Tokens } = pruneOldAssistantText(workingMessages);
 						if (stage4Tokens > 0) {
@@ -380,15 +410,18 @@ export class AIAgentService {
 					}
 
 					if (totalPruned > 0) {
-						const postPruneTokens = estimateMessagesTokens(workingMessages);
-						const postPruneUtilization = getContextUtilization(workingMessages, modelLimits);
+						messagesForModel = microCompactMessages(workingMessages);
+						const postPruneTokens = estimateMessagesTokens(messagesForModel);
+						const postPruneUtilization = getContextUtilization(messagesForModel, modelLimits);
+						contextTokensUsed = postPruneTokens;
+						contextUtilization = postPruneUtilization;
 						yield contextUtilizationEvent(postPruneTokens, modelLimits.contextWindow, Math.round(postPruneUtilization * 100));
 						yield statusEvent(`Pruned ${totalPruned} tokens of old context`);
 					}
 				}
 
 				// Context budget check
-				if (!hasContextBudget(workingMessages, modelLimits)) {
+				if (!hasContextBudget(messagesForModel, modelLimits)) {
 					yield statusEvent('Context window exhausted');
 					hitIterationLimit = true;
 					break;
@@ -463,7 +496,7 @@ export class AIAgentService {
 						const typedTools: Parameters<typeof streamText>[0]['tools'] = tools as any;
 						const result = streamText({
 							model: languageModel,
-							messages: workingMessages,
+							messages: messagesForModel,
 							system: systemPrompt,
 							tools: typedTools,
 							maxOutputTokens: modelLimits.maxOutput,
@@ -778,10 +811,19 @@ export class AIAgentService {
 						if (freshLogs) {
 							const hasErrors = /\bERROR:/i.test(freshLogs) || /\bWARNING:/i.test(freshLogs);
 							if (hasErrors) {
-								workingMessages.push({
-									role: 'user',
-									content: `SYSTEM: The IDE output panel shows new warnings or errors after your recent changes.\n\n<output_logs>\n${freshLogs}\n</output_logs>`,
-								});
+								if (this.indexArtifactEntry) {
+									await this.indexArtifact(buildDiagnosticsArtifactEntry(this.sessionId, freshLogs, 'post-change'), logger);
+									workingMessages.push({
+										role: 'user',
+										content:
+											'SYSTEM: The IDE output panel shows new warnings or errors after your recent changes. The full diagnostics were indexed into searchable ARTIFACTS context. Search artifacts before making another fix.',
+									});
+								} else {
+									workingMessages.push({
+										role: 'user',
+										content: `SYSTEM: The IDE output panel shows new warnings or errors after your recent changes.\n\n<output_logs>\n${truncateDiagnosticsForPrompt(freshLogs)}\n</output_logs>`,
+									});
+								}
 								yield statusEvent('Detected output errors, reviewing...');
 							}
 						}
@@ -929,6 +971,21 @@ export class AIAgentService {
 				}
 			}
 			await this.mcpClientManager.closeAll();
+		}
+	}
+
+	private async indexArtifact(entry: { key: string; content: string }, logger?: AgentLogger): Promise<void> {
+		if (!this.indexArtifactEntry) {
+			return;
+		}
+
+		try {
+			await this.indexArtifactEntry(entry);
+		} catch (error) {
+			logger?.warn('context', 'artifact_index_failed', {
+				key: entry.key,
+				error: error instanceof Error ? error.message : String(error),
+			});
 		}
 	}
 }

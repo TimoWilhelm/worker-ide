@@ -176,8 +176,10 @@ export const READ_ONLY_TOOL_NAMES = new Set([
  * Tools excluded from sub-agent runs.
  * - sub_agent: prevents recursive spawning
  * - user_question: sub-agents cannot interact with the user
+ * - plan/todos tools: sub-agents are ephemeral and should report back to the
+ *   root agent instead of creating durable task state of their own
  */
-export const SUB_AGENT_EXCLUDED_TOOLS = new Set(['sub_agent', 'user_question']);
+export const SUB_AGENT_EXCLUDED_TOOLS = new Set(['sub_agent', 'user_question', 'plan_update', 'todos_get', 'todos_update']);
 
 /**
  * Mutation tool names — tools that modify files or project state.

@@ -42,7 +42,11 @@ describe('sub_agent', () => {
 		const agentReference = {
 			subAgent: vi.fn(async () => subAgent),
 		};
-		const context = createMockContext({ agentReference: agentReference as ToolExecutorContext['agentReference'] });
+		const indexArtifact = vi.fn(async () => {});
+		const context = createMockContext({
+			agentReference: agentReference as ToolExecutorContext['agentReference'],
+			indexArtifact,
+		});
 
 		const result = await execute(
 			{ prompt: 'Inspect the failing integration', context: 'Focus on src/example.ts' },
@@ -54,7 +58,8 @@ describe('sub_agent', () => {
 		expect(agentReference.subAgent).toHaveBeenCalledOnce();
 		expect(executeTask).toHaveBeenCalledOnce();
 		expect(result.output).toContain('Sub-agent result');
-		expect(result.metadata).toMatchObject({ iterations: 2, debugLogId: 'debug-123' });
+		expect(result.metadata).toMatchObject({ iterations: 2, debugLogId: 'debug-123', artifactKey: expect.any(String) });
+		expect(indexArtifact).toHaveBeenCalledOnce();
 		expect(queryChanges).toEqual([
 			{
 				path: 'src/example.ts',

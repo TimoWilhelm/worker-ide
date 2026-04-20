@@ -1,6 +1,6 @@
 import { ExtensionManager } from '@cloudflare/think/extensions';
 import { Agent, callable } from 'agents';
-import { SessionManager } from 'agents/experimental/memory/session';
+import { AgentSearchProvider, SessionManager } from 'agents/experimental/memory/session';
 import { createCompactFunction } from 'agents/experimental/memory/utils';
 import { generateText } from 'ai';
 import { env } from 'cloudflare:workers';
@@ -48,6 +48,13 @@ import { filesystemNamespace } from '../lib/durable-object-namespaces';
 import { toDurableObjectId } from '../lib/project-id';
 import { AIAgentService } from '../services/ai-agent';
 import { chatMessagesToModelMessages, estimateMessagesTokens } from '../services/ai-agent/context-pruner';
+import {
+	ARTIFACTS_CONTEXT_LABEL,
+	HISTORY_CONTEXT_LABEL,
+	ROOT_MEMORY_CONTEXT_LABEL,
+	type SearchableArtifactEntry,
+} from '../services/ai-agent/memory/artifacts';
+import { SharedContextProvider } from '../services/ai-agent/memory/shared-context-provider';
 import { isRequestOriginContext } from '../services/ai-agent/request-origin-context';
 import { ReviewQueueStore } from '../services/ai-agent/review-queue';
 import { cleanupSessionArtifacts, cleanupTimestampPlans } from '../services/ai-agent/session-cleanup';
@@ -64,6 +71,10 @@ import type { AgentMode, AgentSessionStatus, AiSession, ChatMessage, PendingFile
 
 const REQUEST_ORIGIN_CONTEXT_STORAGE_KEY = 'request-origin-context';
 const SESSION_COMPACTION_THRESHOLD = 100_000;
+const SESSION_COMPACTION_PROTECT_HEAD = 3;
+const SESSION_COMPACTION_TAIL_TOKEN_BUDGET = 32_000;
+const SESSION_COMPACTION_MIN_TAIL_MESSAGES = 4;
+const ROOT_MEMORY_MAX_TOKENS = 2000;
 const PROJECT_ROOT = '/project';
 const MAX_SESSIONS = MAX_AI_SESSIONS_PER_PROJECT;
 
@@ -134,15 +145,29 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	private reviewQueue!: ReviewQueueStore;
 	private extensionManager?: ExtensionManager;
 	private reviewVersion = 0;
+	private rootMemoryProvider = new SharedContextProvider(this, ROOT_MEMORY_CONTEXT_LABEL);
+	private artifactsProvider = new AgentSearchProvider(this);
+	private artifactsContextProvider = {
+		init: (label: string) => {
+			this.artifactsProvider.init(label);
+		},
+		get: async () => this.artifactsProvider.get(),
+		search: async (query: string) => this.artifactsProvider.search(query),
+	};
 	private sessionManager = SessionManager.create(this)
 		.withContext('soul', {
 			provider: {
 				get: async () => this.getSoulPrompt(),
 			},
 		})
-		.withContext('memory', {
+		.withContext(ROOT_MEMORY_CONTEXT_LABEL, {
 			description: 'Important facts about this project learned across sessions.',
-			maxTokens: 2000,
+			maxTokens: ROOT_MEMORY_MAX_TOKENS,
+			provider: this.rootMemoryProvider,
+		})
+		.withContext(ARTIFACTS_CONTEXT_LABEL, {
+			description: 'Searchable project artifacts such as plans, todos, diagnostics, and sub-agent reports.',
+			provider: this.artifactsContextProvider,
 		})
 		.onCompaction(
 			createCompactFunction({
@@ -154,11 +179,14 @@ export class AgentRunner extends Agent<Env, AgentState> {
 					});
 					return text;
 				},
+				protectHead: SESSION_COMPACTION_PROTECT_HEAD,
+				tailTokenBudget: SESSION_COMPACTION_TAIL_TOKEN_BUDGET,
+				minTailMessages: SESSION_COMPACTION_MIN_TAIL_MESSAGES,
 			}),
 		)
 		.compactAfter(SESSION_COMPACTION_THRESHOLD)
 		.withCachedPrompt()
-		.withSearchableHistory('history');
+		.withSearchableHistory(HISTORY_CONTEXT_LABEL);
 
 	// ---- Volatile in-memory state (lost on eviction) ----
 	private abortControllers = new Map<string, AbortController>();
@@ -489,6 +517,8 @@ export class AgentRunner extends Agent<Env, AgentState> {
 			model,
 			initiatorUserId,
 		};
+
+		await this.refreshSessionPrompt(sessionId);
 
 		await this.launchAgentLoop(parameters, sessionId);
 
@@ -1095,6 +1125,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 				this,
 				this.requestOriginContext,
 				parameters._fiberSnapshot,
+				(entry) => this.indexArtifact(entry),
 			);
 
 			const abortController = this.abortControllers.get(sessionId) ?? new AbortController();
@@ -1618,6 +1649,27 @@ export class AgentRunner extends Agent<Env, AgentState> {
 
 	private getLoadedExtensionsSummary(): Array<{ name: string; description?: string; toolCount: number }> {
 		return buildLoadedExtensionsSummary(this.extensionManager);
+	}
+
+	private async refreshSessionPrompt(sessionId: string): Promise<void> {
+		this.invalidateCachedSession(sessionId);
+		await this.sessionManager
+			.getSession(sessionId)
+			.refreshSystemPrompt()
+			.catch((error) => {
+				console.error('[AgentRunner] Failed to refresh session prompt:', error);
+			});
+	}
+
+	private invalidateCachedSession(sessionId: string): void {
+		const sessionCache = Reflect.get(this.sessionManager, '_sessions');
+		if (sessionCache instanceof Map) {
+			sessionCache.delete(sessionId);
+		}
+	}
+
+	private async indexArtifact(entry: SearchableArtifactEntry): Promise<void> {
+		await this.artifactsProvider.set(entry.key, entry.content);
 	}
 
 	private getProjectId(): string {

@@ -7,7 +7,6 @@ import { filesystemNamespace } from '../lib/durable-object-namespaces';
 import { toDurableObjectId } from '../lib/project-id';
 import { AIAgentService } from '../services/ai-agent';
 import { chatMessagesToModelMessages } from '../services/ai-agent/context-pruner';
-import { chatMessageToSessionMessage } from '../services/ai-agent/session-messages';
 
 import type { AIModelId } from '@shared/constants';
 import type { ChatMessage } from '@shared/types';
@@ -29,13 +28,11 @@ interface StreamCallback {
 export class SubAgentWorker extends Agent<Env, SubAgentState> {
 	initialState: SubAgentState = { status: 'idle' };
 	private abortController?: AbortController;
-	private session = Session.create(this)
-		.withContext('soul', {
-			provider: {
-				get: async () => 'You are a focused sub-agent. Complete the delegated task efficiently and report concise results.',
-			},
-		})
-		.withCachedPrompt();
+	private session = Session.create(this).withContext('soul', {
+		provider: {
+			get: async () => 'You are a focused sub-agent. Complete the delegated task efficiently and report concise results.',
+		},
+	});
 
 	async executeTask(
 		projectId: string,
@@ -55,12 +52,7 @@ export class SubAgentWorker extends Agent<Env, SubAgentState> {
 			`${this.name}-session`,
 			'code',
 			model,
-			async (_sessionId, sessionData) => {
-				this.session.clearMessages();
-				for (const message of sessionData.history) {
-					await this.session.appendMessage(chatMessageToSessionMessage(message));
-				}
-			},
+			undefined,
 			false,
 			this.session,
 			undefined,
@@ -106,6 +98,7 @@ export class SubAgentWorker extends Agent<Env, SubAgentState> {
 			throw error;
 		} finally {
 			this.abortController = undefined;
+			this.session.clearMessages();
 		}
 	}
 

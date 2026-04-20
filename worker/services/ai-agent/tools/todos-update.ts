@@ -3,6 +3,8 @@ import fs from 'node:fs/promises';
 import { ToolExecutionError } from '@shared/tool-errors';
 import { todoItemSchema } from '@shared/validation';
 
+import { buildTodosArtifactEntry } from '../memory/artifacts';
+
 import type { SendEventFunction, TodoItem, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
 
 const DESCRIPTION = `Create or update the TODO list for this session. Use this to track progress, organize complex tasks, and help the user understand overall progress. Provide the full list of TODO items. Each item must have id, content, status (pending/in_progress/completed), and priority (high/medium/low).
@@ -100,6 +102,9 @@ export async function execute(
 		}
 
 		await writeTodos(validated, projectRoot, sessionId);
+		if (context.indexArtifact) {
+			await context.indexArtifact(buildTodosArtifactEntry(sessionId, validated));
+		}
 		return { title: 'todos', metadata: { todos: validated }, output: `Updated ${validated.length} TODO(s).` };
 	} catch (error) {
 		if (error instanceof ToolExecutionError) {

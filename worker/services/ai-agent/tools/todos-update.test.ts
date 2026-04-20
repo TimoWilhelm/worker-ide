@@ -115,4 +115,18 @@ describe('todos_update', () => {
 		const todosResult = result.metadata.todos as unknown[];
 		expect(todosResult).toHaveLength(3);
 	});
+
+	it('indexes todos into searchable artifacts when available', async () => {
+		const indexArtifact = vi.fn(async () => {});
+		const todos = [{ id: '1', content: 'Track me', status: 'pending', priority: 'high' }];
+
+		await execute(
+			{ todos } as unknown as Record<string, string>,
+			createMockSendEvent(),
+			createMockContext({ projectRoot: PROJECT_ROOT, sessionId: 'ses-update', indexArtifact }),
+		);
+
+		expect(indexArtifact).toHaveBeenCalledOnce();
+		expect(indexArtifact.mock.calls[0]?.[0]).toMatchObject({ key: 'todos:ses-update' });
+	});
 });

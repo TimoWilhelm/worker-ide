@@ -132,6 +132,7 @@ function createTestService(
 	overrides?: Partial<{
 		mode: AgentMode;
 		sessionId: string;
+		indexArtifactEntry: (entry: { key: string; content: string }) => Promise<void>;
 		onPersistSession: (
 			sessionId: string,
 			sessionData: Record<string, unknown>,
@@ -150,6 +151,15 @@ function createTestService(
 		overrides?.mode ?? 'code',
 		'@cf/moonshotai/kimi-k2.5',
 		overrides?.onPersistSession,
+		false,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		overrides?.indexArtifactEntry,
 	);
 }
 
@@ -173,6 +183,18 @@ describe('AIAgentService', () => {
 	// ─── Basic text-only loop ──────────────────────────────────────────────
 
 	describe('text-only response (no tool calls)', () => {
+		it('indexes initial diagnostics into searchable artifacts when logs are available', async () => {
+			mockGetOutputLogs.mockResolvedValueOnce('ERROR: build failed');
+			const indexArtifactEntry = vi.fn(async () => {});
+			const service = createTestService({ indexArtifactEntry });
+			const abortController = new AbortController();
+
+			await collectEvents(service.runAgentStream(makeModelMessages('Hello'), [makeUserMessage('Hello')], abortController));
+
+			expect(indexArtifactEntry).toHaveBeenCalledOnce();
+			expect(indexArtifactEntry.mock.calls[0]?.[0]).toMatchObject({ key: 'diagnostics:test-session:initial' });
+		});
+
 		it('emits status, text-delta, context-utilization, turn-complete, and usage events', async () => {
 			const service = createTestService();
 			const abortController = new AbortController();

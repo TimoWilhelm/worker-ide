@@ -2,6 +2,8 @@ import fs from 'node:fs/promises';
 
 import { ToolExecutionError } from '@shared/tool-errors';
 
+import { buildPlanArtifactEntry } from '../memory/artifacts';
+
 import type { SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
 
 const DESCRIPTION = `Update the current implementation plan. Use this to mark steps as complete, add new steps, or revise the plan as you make progress. The plan helps the user understand your approach and track progress.
@@ -48,6 +50,9 @@ export async function execute(
 		}
 
 		await fs.writeFile(planFile, content);
+		if (context.indexArtifact) {
+			await context.indexArtifact(buildPlanArtifactEntry(sessionId, content));
+		}
 		sendEvent('plan_updated', { content });
 
 		const lineCount = content.split('\n').length;
