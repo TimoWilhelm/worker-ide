@@ -36,10 +36,14 @@ export function ChangedFilesSummary({
 
 	// Collect only pending (unresolved) changes, optionally filtered by session
 	const pendingEntries = useMemo(() => {
+		if (!sessionId) {
+			return [];
+		}
+
 		const entries: Array<[string, PendingFileChange]> = [];
 		for (const [path, change] of pendingChanges) {
 			if (change.status === 'pending') {
-				if (sessionId && change.sessionId !== sessionId && !change.sessionIds?.includes(sessionId)) continue;
+				if (change.sessionId !== sessionId && !change.sessionIds?.includes(sessionId)) continue;
 				entries.push([path, change]);
 			}
 		}

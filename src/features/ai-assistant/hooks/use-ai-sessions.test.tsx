@@ -17,13 +17,14 @@ function createPendingChange(path: string, sessionId: string, reviewId?: string)
 		snapshotId: `${sessionId}-snapshot`,
 		status: 'pending',
 		hunkStatuses: ['pending'],
+		hunkSessionIds: [[sessionId]],
 		sessionId,
 		sessionIds: [sessionId],
 		reviewId,
 	};
 }
 
-function createReviewEntry(path: string, sessionId: string, sessionIds = [sessionId]): ReviewEntry {
+function createReviewEntry(path: string, sessionId: string, sessionIds = [sessionId], hunkSessionIds = [[sessionId]]): ReviewEntry {
 	return {
 		id: `${path}:${sessionId}`,
 		path,
@@ -33,6 +34,7 @@ function createReviewEntry(path: string, sessionId: string, sessionIds = [sessio
 		snapshotId: `${sessionId}-snapshot`,
 		status: 'pending',
 		hunkStatuses: ['pending'],
+		hunkSessionIds,
 		latestSessionId: sessionId,
 		sessionIds,
 		diffSignature: `${path}:${sessionId}`,
@@ -67,7 +69,7 @@ beforeEach(() => {
 });
 
 describe('useAiSessions', () => {
-	it('syncs review queue changes when agent state mutates in place', async () => {
+	it('syncs project review queue changes when agent state mutates in place', async () => {
 		const state: AgentState = {
 			currentSession: createCurrentSession('session-1'),
 			sessions: [
@@ -96,7 +98,7 @@ describe('useAiSessions', () => {
 			expect(useStore.getState().pendingChanges.has('/src/a.ts')).toBe(true);
 		});
 
-		state.reviewEntries['/src/b.ts'] = createReviewEntry('/src/b.ts', 'session-2');
+		state.reviewEntries['/src/b.ts'] = createReviewEntry('/src/b.ts', 'session-2', ['session-2'], [['session-2']]);
 		state.reviewSummary.reviewVersion = 2;
 		state.reviewSummary.unresolvedCount = 2;
 		state.reviewSummary.sessionCounts['session-2'] = 1;
@@ -104,7 +106,44 @@ describe('useAiSessions', () => {
 		rerender();
 
 		await waitFor(() => {
-			expect(useStore.getState().pendingChanges.has('/src/b.ts')).toBe(true);
+			const pendingChange = useStore.getState().pendingChanges.get('/src/b.ts');
+			expect(pendingChange?.hunkSessionIds).toEqual([['session-2']]);
+		});
+	});
+
+	it('preserves project pending changes when the active session is cleared for a new session', async () => {
+		const state: AgentState = {
+			currentSession: createCurrentSession('session-1'),
+			sessions: [{ id: 'session-1', title: 'Session 1', createdAt: 1, isRunning: false }],
+			reviewEntries: {
+				'/src/a.ts': createReviewEntry('/src/a.ts', 'session-1'),
+			},
+			reviewSummary: {
+				unresolvedCount: 1,
+				reviewVersion: 1,
+				sessionCounts: { 'session-1': 1 },
+			},
+		};
+		const agent = {
+			get state() {
+				return state;
+			},
+			call: vi.fn().mockImplementation(async () => {}),
+		};
+
+		const { rerender } = renderHook(() => useAiSessions({ projectId: 'project-1', agent, agentConnectionState: 'connected' }));
+
+		await waitFor(() => {
+			expect(useStore.getState().pendingChanges.has('/src/a.ts')).toBe(true);
+		});
+
+		state.currentSession = undefined;
+
+		rerender();
+
+		await waitFor(() => {
+			const pendingChange = useStore.getState().pendingChanges.get('/src/a.ts');
+			expect(pendingChange?.sessionId).toBe('session-1');
 		});
 	});
 

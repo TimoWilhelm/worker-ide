@@ -114,11 +114,11 @@ export function RevertConfirmDialog({
 	const summary =
 		snapshotIds.length === 0 || aggregatedChanges.length === 0
 			? isCascade
-				? 'This will remove this and later AI messages. No files will change.'
-				: 'This will remove this AI message. No files will change.'
+				? 'Removes this message and everything after it. Your files stay as they are.'
+				: 'Removes this message from the history. Your files stay as they are.'
 			: isCascade
-				? 'This will revert this and later AI changes.'
-				: 'This will revert this AI change.';
+				? 'Rolls back every AI change from this message onward.'
+				: 'Rolls back the AI changes from this message.';
 
 	return (
 		<AlertDialog.Root open={dialogOpen} onOpenChange={onOpenChange}>

@@ -125,6 +125,7 @@ export interface ReviewEntry {
 	snapshotId: string | undefined;
 	status: 'pending';
 	hunkStatuses: ReviewHunkStatus[];
+	hunkSessionIds?: string[][];
 	latestSessionId: string;
 	sessionIds: string[];
 	diffSignature: string;
@@ -155,6 +156,7 @@ export interface PendingFileChange {
 	 * Starts as `[]` and is populated when the diff is first displayed.
 	 */
 	hunkStatuses: ReviewHunkStatus[];
+	hunkSessionIds?: string[][];
 	sessionId: string;
 	sessionIds?: string[];
 	reviewId?: string;

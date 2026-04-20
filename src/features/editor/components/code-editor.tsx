@@ -26,8 +26,10 @@ import type { DiffData } from '../lib/diff-decorations';
 function buildDiffExtensions(
 	diffData: DiffData,
 	hunkStatuses: Array<'pending' | 'approved' | 'rejected'>,
+	hunkSessionReferences: Array<Array<{ sessionId: string; label: string }>>,
 	onApproveReference: React.RefObject<((groupIndex: number) => void) | undefined>,
 	onRejectReference: React.RefObject<((groupIndex: number) => void) | undefined>,
+	onOpenSessionReference: React.RefObject<((sessionId: string) => void) | undefined>,
 ): Extension[] {
 	const extensions = createDiffDecorations(diffData.hunks, hunkStatuses);
 
@@ -35,7 +37,16 @@ function buildDiffExtensions(
 	const onApprove = onApproveReference.current;
 	const onReject = onRejectReference.current;
 	if (onApprove && onReject) {
-		extensions.push(...createAiActionBarExtension(diffData.hunks, hunkStatuses, onApprove, onReject));
+		extensions.push(
+			...createAiActionBarExtension(
+				diffData.hunks,
+				hunkStatuses,
+				hunkSessionReferences,
+				onApprove,
+				onReject,
+				onOpenSessionReference.current,
+			),
+		);
 	}
 
 	return extensions;
@@ -53,8 +64,10 @@ export interface CodeEditorProperties {
 	tabSize?: number;
 	diffData?: DiffData;
 	hunkStatuses?: Array<'pending' | 'approved' | 'rejected'>;
+	hunkSessionReferences?: Array<Array<{ sessionId: string; label: string }>>;
 	onDiffApprove?: (groupIndex: number) => void;
 	onDiffReject?: (groupIndex: number) => void;
+	onOpenDiffSession?: (sessionId: string) => void;
 	resolvedTheme?: 'light' | 'dark';
 	extensions?: Extension[];
 	className?: string;
@@ -72,8 +85,10 @@ export function CodeEditor({
 	tabSize = 2,
 	diffData,
 	hunkStatuses = [],
+	hunkSessionReferences = [],
 	onDiffApprove,
 	onDiffReject,
+	onOpenDiffSession,
 	resolvedTheme = 'dark',
 	extensions: additionalExtensions = [],
 	className,
@@ -97,24 +112,33 @@ export function CodeEditor({
 	const onCursorChangeReference = useRef(onCursorChange);
 	const onBlurReference = useRef(onBlur);
 	const onViewReadyReference = useRef(onViewReady);
+	const isApplyingExternalValueReference = useRef(false);
 	const hunkStatusesReference = useRef(hunkStatuses);
+	const hunkSessionReferencesReference = useRef(hunkSessionReferences);
 	const onDiffApproveReference = useRef(onDiffApprove);
 	const onDiffRejectReference = useRef(onDiffReject);
+	const onOpenDiffSessionReference = useRef(onOpenDiffSession);
 	useEffect(() => {
 		onChangeReference.current = onChange;
 		onCursorChangeReference.current = onCursorChange;
 		onBlurReference.current = onBlur;
 		onViewReadyReference.current = onViewReady;
 		hunkStatusesReference.current = hunkStatuses;
+		hunkSessionReferencesReference.current = hunkSessionReferences;
 		onDiffApproveReference.current = onDiffApprove;
 		onDiffRejectReference.current = onDiffReject;
+		onOpenDiffSessionReference.current = onOpenDiffSession;
 	});
 
 	// Create update listener extension — uses refs so it never goes stale
 	const createUpdateListener = useCallback(() => {
 		return EditorView.updateListener.of((update: ViewUpdate) => {
 			if (update.docChanged) {
-				onChangeReference.current?.(update.state.doc.toString());
+				if (isApplyingExternalValueReference.current) {
+					isApplyingExternalValueReference.current = false;
+				} else {
+					onChangeReference.current?.(update.state.doc.toString());
+				}
 			}
 
 			if (update.selectionSet) {
@@ -145,7 +169,14 @@ export function CodeEditor({
 
 		// Build diff extensions: core decorations always, AI action bar only when callbacks provided
 		const diffExtensions = diffData
-			? buildDiffExtensions(diffData, hunkStatusesReference.current, onDiffApproveReference, onDiffRejectReference)
+			? buildDiffExtensions(
+					diffData,
+					hunkStatusesReference.current,
+					hunkSessionReferencesReference.current,
+					onDiffApproveReference,
+					onDiffRejectReference,
+					onOpenDiffSessionReference,
+				)
 			: [];
 		const isDark = resolvedTheme === 'dark';
 
@@ -191,6 +222,7 @@ export function CodeEditor({
 
 		const currentDocument = viewReference.current.state.doc.toString();
 		if (currentDocument !== value) {
+			isApplyingExternalValueReference.current = true;
 			viewReference.current.dispatch({
 				changes: {
 					from: 0,
@@ -248,12 +280,19 @@ export function CodeEditor({
 		if (!viewReference.current) return;
 
 		const diffExtensions = diffData
-			? buildDiffExtensions(diffData, hunkStatusesReference.current, onDiffApproveReference, onDiffRejectReference)
+			? buildDiffExtensions(
+					diffData,
+					hunkStatusesReference.current,
+					hunkSessionReferencesReference.current,
+					onDiffApproveReference,
+					onDiffRejectReference,
+					onOpenDiffSessionReference,
+				)
 			: [];
 		viewReference.current.dispatch({
 			effects: diffCompartment.reconfigure(diffExtensions),
 		});
-	}, [diffData, hunkStatuses, diffCompartment]);
+	}, [diffData, hunkStatuses, hunkSessionReferences, diffCompartment]);
 
 	// Navigate to a specific position when goToPosition is set
 	useEffect(() => {

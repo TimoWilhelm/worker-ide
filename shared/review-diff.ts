@@ -20,6 +20,11 @@ export interface ChangeGroup {
 	startLine: number;
 }
 
+export interface DiffHunkSessionStep {
+	afterContent: string;
+	sessionId: string;
+}
+
 export function computeDiffHunks(beforeContent: string, afterContent: string): DiffHunk[] {
 	if (beforeContent === afterContent) return [];
 
@@ -103,6 +108,124 @@ export function groupHunksIntoChanges(hunks: DiffHunk[]): ChangeGroup[] {
 	return groups;
 }
 
+interface LineToken {
+	originLineNumbers: number[];
+	sessionIds: string[];
+}
+
+export function computeDiffHunkSessionIds(
+	beforeContent: string,
+	afterContent: string,
+	steps: DiffHunkSessionStep[],
+	fallbackSessionId: string,
+): string[][] {
+	const groups = groupHunksIntoChanges(computeDiffHunks(beforeContent, afterContent));
+	if (groups.length === 0) {
+		return [];
+	}
+
+	const fallback = groups.map(() => [fallbackSessionId]);
+	if (steps.length === 0) {
+		return fallback;
+	}
+
+	let currentContent = beforeContent;
+	let currentTokens: LineToken[] = splitLines(beforeContent).map((_, index) => ({
+		originLineNumbers: [index + 1],
+		sessionIds: [],
+	}));
+	const deletedSessionsByOriginLine = new Map<number, string[]>();
+
+	for (const step of steps) {
+		if (!step.sessionId || step.afterContent === currentContent) {
+			currentContent = step.afterContent;
+			continue;
+		}
+
+		const nextTokens: LineToken[] = [];
+		const changes = diffLines(ensureTrailingNewline(currentContent), ensureTrailingNewline(step.afterContent));
+		let tokenIndex = 0;
+
+		for (let changeIndex = 0; changeIndex < changes.length; changeIndex++) {
+			const change = changes[changeIndex];
+			const lineCount = splitLines(change.value).length;
+
+			if (!change.added && !change.removed) {
+				nextTokens.push(...currentTokens.slice(tokenIndex, tokenIndex + lineCount));
+				tokenIndex += lineCount;
+				continue;
+			}
+
+			if (change.removed) {
+				const removedTokens = currentTokens.slice(tokenIndex, tokenIndex + lineCount);
+				tokenIndex += lineCount;
+
+				const nextChange = changes[changeIndex + 1];
+				if (nextChange?.added) {
+					const addedLines = splitLines(nextChange.value);
+					const originLineNumbers = uniqueStrings(removedTokens.flatMap((token) => token.originLineNumbers.map(String))).map(Number);
+					const sessionIds = uniqueStrings([...removedTokens.flatMap((token) => token.sessionIds), step.sessionId]);
+					for (const _ of addedLines) {
+						nextTokens.push({ originLineNumbers, sessionIds });
+					}
+					changeIndex++;
+					continue;
+				}
+
+				const deletionSessionIds = uniqueStrings([...removedTokens.flatMap((token) => token.sessionIds), step.sessionId]);
+				for (const token of removedTokens) {
+					for (const originLineNumber of token.originLineNumbers) {
+						deletedSessionsByOriginLine.set(
+							originLineNumber,
+							uniqueStrings([...(deletedSessionsByOriginLine.get(originLineNumber) ?? []), ...deletionSessionIds]),
+						);
+					}
+				}
+				continue;
+			}
+
+			for (const _ of splitLines(change.value)) {
+				nextTokens.push({ originLineNumbers: [], sessionIds: [step.sessionId] });
+			}
+		}
+
+		currentTokens = nextTokens;
+		currentContent = step.afterContent;
+	}
+
+	if (currentContent !== afterContent) {
+		return fallback;
+	}
+
+	return groups.map((group) => {
+		const sessionIds = new Set<string>();
+		let hasAddedHunk = false;
+
+		for (const hunk of group.hunks) {
+			if (hunk.type === 'added') {
+				hasAddedHunk = true;
+				for (let index = 0; index < hunk.lineCount; index++) {
+					for (const sessionId of currentTokens[hunk.startLine + index - 1]?.sessionIds ?? []) {
+						sessionIds.add(sessionId);
+					}
+				}
+			}
+		}
+
+		if (!hasAddedHunk) {
+			for (const hunk of group.hunks) {
+				for (let index = 0; index < hunk.lineCount; index++) {
+					for (const sessionId of deletedSessionsByOriginLine.get(hunk.beforeStartLine + index) ?? []) {
+						sessionIds.add(sessionId);
+					}
+				}
+			}
+		}
+
+		return sessionIds.size > 0 ? [...sessionIds] : [fallbackSessionId];
+	});
+}
+
 export function reconstructContent(beforeContent: string, afterContent: string, decisions: boolean[]): string {
 	const normalisedBefore = ensureTrailingNewline(beforeContent);
 	const normalisedAfter = ensureTrailingNewline(afterContent);
@@ -161,6 +284,10 @@ export function reconstructContent(beforeContent: string, afterContent: string, 
 function ensureTrailingNewline(content: string): string {
 	if (!content) return content;
 	return content.endsWith('\n') ? content : `${content}\n`;
+}
+
+function uniqueStrings(values: string[]): string[] {
+	return [...new Set(values.filter(Boolean))];
 }
 
 function splitLines(text: string): string[] {

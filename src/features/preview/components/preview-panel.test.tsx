@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -47,14 +47,14 @@ function createIframeReference() {
 	return { iframeReference: { current: iframe } };
 }
 
-function renderPreviewPanel(options?: { refreshPreviewUrl?: () => Promise<void> }) {
+function renderPreviewPanel(options?: { refreshPreviewUrl?: () => Promise<string | undefined> }) {
 	const { iframeReference } = createIframeReference();
 	return render(
 		<PreviewPanel
 			previewUrl="https://example.com"
 			previewOrigin="https://example.com"
 			isLoadingUrl={false}
-			refreshPreviewUrl={options?.refreshPreviewUrl ?? vi.fn(async () => {})}
+			refreshPreviewUrl={options?.refreshPreviewUrl ?? vi.fn(async () => 'https://example.com')}
 			iframeReference={iframeReference}
 		/>,
 	);
@@ -105,8 +105,21 @@ describe('PreviewPanel', () => {
 		expect(openSpy).toHaveBeenCalledWith('https://example.com/', '_blank', 'noopener,noreferrer');
 	});
 
+	it('refreshes the signed preview URL from the header button', async () => {
+		const user = userEvent.setup();
+		const refreshPreviewUrl = vi.fn(async () => 'https://example.com');
+
+		renderPreviewPanel({ refreshPreviewUrl });
+
+		await user.click(screen.getByRole('button', { name: 'Refresh' }));
+
+		await waitFor(() => {
+			expect(refreshPreviewUrl).toHaveBeenCalledOnce();
+		});
+	});
+
 	it('only refreshes when preview-expired comes from the active preview origin', () => {
-		const refreshPreviewUrl = vi.fn(async () => {});
+		const refreshPreviewUrl = vi.fn(async () => 'https://example.com');
 		const { iframeReference } = createIframeReference();
 		render(
 			<PreviewPanel

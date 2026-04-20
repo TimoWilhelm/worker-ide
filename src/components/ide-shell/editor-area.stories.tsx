@@ -1,8 +1,11 @@
 import { expect, fn, within } from 'storybook/test';
 
+import { AgentRuntimeContext } from '@/features/ai-assistant/components/agent-runtime-context';
+
 import { EditorArea } from './editor-area';
 
 import type { useEditorState } from './use-editor-state';
+import type { AgentRuntimeValue } from '@/features/ai-assistant/components/agent-runtime-context';
 import type { Meta, StoryObj } from '@storybook/react-vite';
 
 // Since useChangeReview isn't easily imported as a type for mocking, we just cast the mock
@@ -66,6 +69,29 @@ const defaultMockEditorState: ReturnType<typeof useEditorState> = {
 	isLintableFile: () => true,
 };
 
+const mockAgentRuntimeValue = {
+	agent: {
+		identified: true,
+		state: {
+			currentSession: undefined,
+			sessions: [],
+			reviewEntries: {},
+			reviewSummary: { unresolvedCount: 0, reviewVersion: 0, sessionCounts: {} },
+		},
+		addEventListener: fn(),
+		removeEventListener: fn(),
+		call: async <_T = unknown,>() => {
+			throw new Error('Storybook mock agent does not implement call()');
+		},
+	},
+	agentConnectionState: 'connected',
+	isConnected: true,
+	segments: [],
+	setSegments: fn(),
+	cursorPosition: 0,
+	setCursorPosition: fn(),
+} satisfies AgentRuntimeValue;
+
 const meta = {
 	title: 'IDE/EditorArea',
 	component: EditorArea,
@@ -81,9 +107,11 @@ const meta = {
 	},
 	decorators: [
 		(Story) => (
-			<div className="flex h-[400px] flex-col border border-border bg-bg-primary">
-				<Story />
-			</div>
+			<AgentRuntimeContext.Provider value={mockAgentRuntimeValue}>
+				<div className="flex h-[400px] flex-col border border-border bg-bg-primary">
+					<Story />
+				</div>
+			</AgentRuntimeContext.Provider>
 		),
 	],
 } satisfies Meta<typeof EditorArea>;

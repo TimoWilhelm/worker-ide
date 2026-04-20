@@ -152,6 +152,7 @@ interface UIState {
 	sidebarVisible: boolean;
 	utilityPanelVisible: boolean;
 	agentPanelVisible: boolean;
+	requestedAgentSessionId: string | undefined;
 	devtoolsVisible: boolean;
 	dependenciesPanelVisible: boolean;
 	colorScheme: ColorScheme;
@@ -167,6 +168,8 @@ interface UIActions {
 	toggleUtilityPanel: () => void;
 	toggleAgentPanel: () => void;
 	showAgentPanel: () => void;
+	requestAgentSession: (sessionId: string) => void;
+	clearRequestedAgentSession: () => void;
 	toggleDevtools: () => void;
 	toggleDependenciesPanel: () => void;
 	setColorScheme: (scheme: ColorScheme) => void;
@@ -718,6 +721,7 @@ export const useStore = create<StoreState>()(
 				sidebarVisible: true,
 				utilityPanelVisible: true,
 				agentPanelVisible: false,
+				requestedAgentSessionId: undefined,
 				devtoolsVisible: false,
 				dependenciesPanelVisible: true,
 				colorScheme: 'dark',
@@ -733,6 +737,15 @@ export const useStore = create<StoreState>()(
 				toggleAgentPanel: () => set((state) => ({ agentPanelVisible: !state.agentPanelVisible })),
 
 				showAgentPanel: () => set({ agentPanelVisible: true, activeMobilePanel: 'agent' }),
+
+				requestAgentSession: (sessionId) =>
+					set({
+						agentPanelVisible: true,
+						activeMobilePanel: 'agent',
+						requestedAgentSessionId: sessionId,
+					}),
+
+				clearRequestedAgentSession: () => set({ requestedAgentSessionId: undefined }),
 
 				toggleDevtools: () => set((state) => ({ devtoolsVisible: !state.devtoolsVisible })),
 

@@ -65,8 +65,10 @@ class RemovedLineWidget extends WidgetType {
 class AiActionBarWidget extends WidgetType {
 	constructor(
 		readonly groupIndex: number,
+		readonly sessionReferences: Array<{ sessionId: string; label: string }>,
 		readonly onApprove: (groupIndex: number) => void,
 		readonly onReject: (groupIndex: number) => void,
+		readonly onOpenSession?: (sessionId: string) => void,
 	) {
 		super();
 	}
@@ -99,12 +101,40 @@ class AiActionBarWidget extends WidgetType {
 		buttonGroup.append(rejectButton);
 
 		container.append(buttonGroup);
+
+		if (this.sessionReferences.length > 0) {
+			const sessionGroup = document.createElement('span');
+			sessionGroup.className = 'cm-diff-action-sessions';
+
+			for (const sessionReference of this.sessionReferences) {
+				const sessionButton = document.createElement('button');
+				sessionButton.className = 'cm-diff-action-session';
+				sessionButton.textContent = sessionReference.label;
+				sessionButton.title = `Open ${sessionReference.label}`;
+				sessionButton.disabled = this.onOpenSession === undefined;
+				sessionButton.addEventListener('click', (event) => {
+					event.preventDefault();
+					event.stopPropagation();
+					this.onOpenSession?.(sessionReference.sessionId);
+				});
+				sessionGroup.append(sessionButton);
+			}
+
+			container.append(sessionGroup);
+		}
+
 		return container;
 	}
 
 	override eq(other: WidgetType): boolean {
 		if (!(other instanceof AiActionBarWidget)) return false;
-		return this.groupIndex === other.groupIndex && this.onApprove === other.onApprove && this.onReject === other.onReject;
+		return (
+			this.groupIndex === other.groupIndex &&
+			this.onApprove === other.onApprove &&
+			this.onReject === other.onReject &&
+			this.onOpenSession === other.onOpenSession &&
+			sessionReferencesEqual(this.sessionReferences, other.sessionReferences)
+		);
 	}
 
 	override get estimatedHeight(): number {
@@ -114,6 +144,17 @@ class AiActionBarWidget extends WidgetType {
 	override ignoreEvent(): boolean {
 		return true;
 	}
+}
+
+function sessionReferencesEqual(
+	left: Array<{ sessionId: string; label: string }>,
+	right: Array<{ sessionId: string; label: string }>,
+): boolean {
+	if (left.length !== right.length) {
+		return false;
+	}
+
+	return left.every((reference, index) => reference.sessionId === right[index]?.sessionId && reference.label === right[index]?.label);
 }
 
 type HunkStatus = 'pending' | 'approved' | 'rejected';
@@ -203,8 +244,10 @@ function buildActionBarDecorations(
 	document_: Text,
 	changeGroups: ChangeGroup[],
 	hunkStatuses: HunkStatus[],
+	hunkSessionReferences: Array<Array<{ sessionId: string; label: string }>>,
 	onApprove: (groupIndex: number) => void,
 	onReject: (groupIndex: number) => void,
+	onOpenSession?: (sessionId: string) => void,
 ): DecorationSet {
 	const builder = new RangeSetBuilder<Decoration>();
 	const decorations: Array<{ from: number; decoration: Decoration }> = [];
@@ -220,7 +263,7 @@ function buildActionBarDecorations(
 		const hunkLine = Math.min(group.startLine, document_.lines);
 		const line = document_.line(hunkLine);
 		const actionWidget = Decoration.widget({
-			widget: new AiActionBarWidget(group.index, onApprove, onReject),
+			widget: new AiActionBarWidget(group.index, hunkSessionReferences[group.index] ?? [], onApprove, onReject, onOpenSession),
 			block: true,
 			// Each action bar needs a unique side value below all removed-line
 			// widgets at the same position.  Removed lines use -1 to -999;
@@ -241,16 +284,26 @@ function buildActionBarDecorations(
 function createAiActionBarField(
 	changeGroups: ChangeGroup[],
 	hunkStatuses: HunkStatus[],
+	hunkSessionReferences: Array<Array<{ sessionId: string; label: string }>>,
 	onApprove: (groupIndex: number) => void,
 	onReject: (groupIndex: number) => void,
+	onOpenSession?: (sessionId: string) => void,
 ): Extension {
 	return StateField.define<DecorationSet>({
 		create(state) {
-			return buildActionBarDecorations(state.doc, changeGroups, hunkStatuses, onApprove, onReject);
+			return buildActionBarDecorations(state.doc, changeGroups, hunkStatuses, hunkSessionReferences, onApprove, onReject, onOpenSession);
 		},
 		update(decorations: DecorationSet, transaction: Transaction) {
 			if (transaction.docChanged) {
-				return buildActionBarDecorations(transaction.state.doc, changeGroups, hunkStatuses, onApprove, onReject);
+				return buildActionBarDecorations(
+					transaction.state.doc,
+					changeGroups,
+					hunkStatuses,
+					hunkSessionReferences,
+					onApprove,
+					onReject,
+					onOpenSession,
+				);
 			}
 			return decorations;
 		},
@@ -351,6 +404,29 @@ const aiActionBarTheme = EditorView.baseTheme({
 		display: 'flex',
 		gap: '4px',
 	},
+	'.cm-diff-action-sessions': {
+		display: 'flex',
+		flexWrap: 'wrap',
+		gap: '4px',
+		marginLeft: '6px',
+	},
+	'.cm-diff-action-session': {
+		cursor: 'pointer',
+		padding: '2px 8px',
+		borderRadius: '9999px',
+		border: '1px solid color-mix(in srgb, var(--color-accent) 20%, transparent)',
+		backgroundColor: 'color-mix(in srgb, var(--color-bg-secondary) 88%, transparent)',
+		color: 'var(--color-accent)',
+		fontSize: '11px',
+		fontWeight: '600',
+		'&:hover': {
+			backgroundColor: 'color-mix(in srgb, var(--color-accent) 12%, transparent)',
+		},
+		'&:disabled': {
+			cursor: 'default',
+			opacity: '0.75',
+		},
+	},
 	'.cm-diff-action-accept': {
 		cursor: 'pointer',
 		padding: '2px 10px',
@@ -400,10 +476,12 @@ export function createDiffDecorations(hunks: DiffHunk[], hunkStatuses: HunkStatu
 export function createAiActionBarExtension(
 	hunks: DiffHunk[],
 	hunkStatuses: HunkStatus[],
+	hunkSessionReferences: Array<Array<{ sessionId: string; label: string }>>,
 	onApprove: (groupIndex: number) => void,
 	onReject: (groupIndex: number) => void,
+	onOpenSession?: (sessionId: string) => void,
 ): Extension[] {
 	if (hunks.length === 0) return [];
 	const changeGroups = groupHunksIntoChanges(hunks);
-	return [aiActionBarTheme, createAiActionBarField(changeGroups, hunkStatuses, onApprove, onReject)];
+	return [aiActionBarTheme, createAiActionBarField(changeGroups, hunkStatuses, hunkSessionReferences, onApprove, onReject, onOpenSession)];
 }

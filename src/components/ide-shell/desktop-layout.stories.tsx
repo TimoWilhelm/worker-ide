@@ -2,10 +2,13 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Suspense } from 'react';
 import { expect, fn, within } from 'storybook/test';
 
+import { AgentRuntimeContext } from '@/features/ai-assistant/components/agent-runtime-context';
+
 import { DesktopLayout } from './desktop-layout';
 
 import type { useEditorState } from './use-editor-state';
 import type { usePanelLayouts } from './use-panel-layouts';
+import type { AgentRuntimeValue } from '@/features/ai-assistant/components/agent-runtime-context';
 import type { useFileTree } from '@/features/file-tree';
 import type { LogCounts } from '@/features/output';
 import type { Meta, StoryObj } from '@storybook/react-vite';
@@ -63,6 +66,29 @@ const defaultMockEditorState: ReturnType<typeof useEditorState> = {
 	isLintableFile: () => true,
 };
 
+const mockAgentRuntimeValue = {
+	agent: {
+		identified: true,
+		state: {
+			currentSession: undefined,
+			sessions: [],
+			reviewEntries: {},
+			reviewSummary: { unresolvedCount: 0, reviewVersion: 0, sessionCounts: {} },
+		},
+		addEventListener: fn(),
+		removeEventListener: fn(),
+		call: async <_T = unknown,>() => {
+			throw new Error('Storybook mock agent does not implement call()');
+		},
+	},
+	agentConnectionState: 'connected',
+	isConnected: true,
+	segments: [],
+	setSegments: fn(),
+	cursorPosition: 0,
+	setCursorPosition: fn(),
+} satisfies AgentRuntimeValue;
+
 const defaultMockFileTree: ReturnType<typeof useFileTree> = {
 	files: [
 		{ name: 'src', path: 'src', isDirectory: true },
@@ -119,16 +145,18 @@ const meta = {
 		previewUrl: 'http://494rtk7ddoepe5ru2lx4oc855i6lc23p3apolh04feq8q517sa-a1b2c3d4e5f6.preview.localhost:3000/',
 		previewOrigin: 'http://494rtk7ddoepe5ru2lx4oc855i6lc23p3apolh04feq8q517sa-a1b2c3d4e5f6.preview.localhost:3000',
 		isLoadingPreviewUrl: false,
-		refreshPreviewUrl: fn(() => Promise.resolve()),
+		refreshPreviewUrl: fn(async (): Promise<string | undefined> => undefined),
 	},
 	decorators: [
 		(Story) => (
 			<QueryClientProvider client={queryClient}>
-				<Suspense fallback={<div>Loading...</div>}>
-					<div className="flex h-full flex-col overflow-hidden bg-bg-primary">
-						<Story />
-					</div>
-				</Suspense>
+				<AgentRuntimeContext.Provider value={mockAgentRuntimeValue}>
+					<Suspense fallback={<div>Loading...</div>}>
+						<div className="flex h-full flex-col overflow-hidden bg-bg-primary">
+							<Story />
+						</div>
+					</Suspense>
+				</AgentRuntimeContext.Provider>
 			</QueryClientProvider>
 		),
 	],

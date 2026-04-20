@@ -2,6 +2,7 @@ import { useAgent } from 'agents/react';
 import { useEffect, useMemo, useState } from 'react';
 
 import { AgentRuntimeContext } from './agent-runtime-context';
+import { createAgentCaller } from '../lib/agent-call';
 import { loadAgentDraftSession, saveAgentDraftSession } from '../lib/agent-draft-session';
 import { segmentsToPlainText } from '../lib/input-segments';
 
@@ -20,6 +21,7 @@ export function AgentRuntimeProvider({ projectId, children }: { projectId: strin
 		// must NOT start with a slash — otherwise the URL becomes "//p/...".
 		basePath: `p/${projectId}/__agent`,
 	});
+	const callAgent = useMemo(() => createAgentCaller(rawAgent.call.bind(rawAgent)), [rawAgent]);
 	const agent = useMemo<AgentRuntimeHandle>(
 		() => ({
 			get identified() {
@@ -34,9 +36,9 @@ export function AgentRuntimeProvider({ projectId, children }: { projectId: strin
 			removeEventListener: (type, listener) => {
 				rawAgent.removeEventListener(type, listener);
 			},
-			call: (method, arguments_) => rawAgent.call(method, arguments_),
+			call: (method, arguments_, options) => callAgent(method, arguments_, options),
 		}),
-		[rawAgent],
+		[callAgent, rawAgent],
 	);
 	const [agentConnectionState, setAgentConnectionState] = useState<'connecting' | 'connected' | 'disconnected'>(
 		rawAgent.identified ? 'connected' : 'connecting',

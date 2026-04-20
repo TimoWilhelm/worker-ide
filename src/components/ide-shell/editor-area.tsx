@@ -5,6 +5,8 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
 
 import { Spinner } from '@/components/ui/spinner';
 import { Tooltip } from '@/components/ui/tooltip';
+import { useAgentRuntime } from '@/features/ai-assistant/components/agent-runtime-context';
+import { isAgentState } from '@/features/ai-assistant/lib/agent-state';
 import { CodeEditor, DiffFloatingBar, FileTabs, GitDiffToolbar, groupHunksIntoChanges } from '@/features/editor';
 import { useCollabCursors } from '@/features/editor/hooks/use-collab-cursors';
 import { isLintableFile } from '@/lib/biome-linter';
@@ -13,13 +15,35 @@ import { useStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 import { isProtectedSystemFile } from '@shared/constants';
 
+import type { useEditorState } from './use-editor-state';
+import type { PendingFileChange } from '@shared/types';
+
 const WranglerSettingsPanel = lazy(() =>
 	import('@/features/project-settings/wrangler-settings-panel').then((m) => ({ default: m.WranglerSettingsPanel })),
 );
 
-import type { useEditorState } from './use-editor-state';
-
 type EditorState = ReturnType<typeof useEditorState>;
+
+interface HunkSessionReference {
+	sessionId: string;
+	label: string;
+}
+
+function buildSessionLabel(sessionId: string, title?: string): string {
+	return title?.trim() || `Session ${sessionId.slice(0, 8)}`;
+}
+
+function buildVisibleHunkSessionIds(change: PendingFileChange, groupCount: number): string[][] {
+	if (groupCount === 0) {
+		return [];
+	}
+
+	const fallbackSessionIds = change.sessionIds?.length === 1 ? change.sessionIds : [change.sessionId];
+	return Array.from({ length: groupCount }, (_, index) => {
+		const sessionIds = change.hunkSessionIds?.[index]?.filter(Boolean);
+		return sessionIds && sessionIds.length > 0 ? [...new Set(sessionIds)] : fallbackSessionIds;
+	});
+}
 
 interface EditorAreaProperties {
 	projectId: string;
@@ -55,6 +79,13 @@ export function EditorArea({ projectId, resolvedTheme, editorState, onSelectFile
 	} = editorState;
 
 	const closeAllFiles = useStore((state) => state.closeAllFiles);
+	const requestAgentSession = useStore((state) => state.requestAgentSession);
+	const { agent } = useAgentRuntime();
+	const agentState = isAgentState(agent.state) ? agent.state : undefined;
+	const sessionLabelById = useMemo(
+		() => new Map((agentState?.sessions ?? []).map((session) => [session.id, buildSessionLabel(session.id, session.title)])),
+		[agentState?.sessions],
+	);
 
 	// Track whether the active file has fixable lint issues (to show/hide prettify FAB).
 	// We store [filePath, hasFixable] so that when activeFile changes the stale value
@@ -97,6 +128,18 @@ export function EditorArea({ projectId, resolvedTheme, editorState, onSelectFile
 		() => (hasActiveDiff && effectiveDiffData ? groupHunksIntoChanges(effectiveDiffData.hunks) : []),
 		[hasActiveDiff, effectiveDiffData],
 	);
+	const hunkSessionReferences = useMemo<Array<HunkSessionReference[]>>(() => {
+		if (!activePendingChange) {
+			return [];
+		}
+
+		return buildVisibleHunkSessionIds(activePendingChange, changeGroups.length).map((sessionIds) =>
+			sessionIds.map((sessionId) => ({
+				sessionId,
+				label: sessionLabelById.get(sessionId) ?? buildSessionLabel(sessionId),
+			})),
+		);
+	}, [activePendingChange, changeGroups.length, sessionLabelById]);
 
 	// Track which change group the user is currently viewing
 	const [currentGroupIndex, setCurrentGroupIndex] = useState(0);
@@ -133,6 +176,13 @@ export function EditorArea({ projectId, resolvedTheme, editorState, onSelectFile
 			view.focus();
 		},
 		[changeGroups],
+	);
+
+	const handleOpenAgentSession = useCallback(
+		(targetSessionId: string) => {
+			requestAgentSession(targetSessionId);
+		},
+		[requestAgentSession],
 	);
 
 	return (
@@ -198,6 +248,8 @@ export function EditorArea({ projectId, resolvedTheme, editorState, onSelectFile
 										? (groupIndex: number) => changeReview.handleRejectHunk(activeFile, groupIndex)
 										: undefined
 								}
+								hunkSessionReferences={hasActiveDiff ? hunkSessionReferences : undefined}
+								onOpenDiffSession={hasActiveDiff ? handleOpenAgentSession : undefined}
 								resolvedTheme={resolvedTheme}
 								extensions={[collabCursorsExtension]}
 								onViewReady={combinedHandleViewReady}

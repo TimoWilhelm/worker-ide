@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 
 import { eq } from 'drizzle-orm';
 
-import { computeDiffHunks, groupHunksIntoChanges, reconstructContent } from '@shared/review-diff';
+import { computeDiffHunkSessionIds, computeDiffHunks, groupHunksIntoChanges, reconstructContent } from '@shared/review-diff';
 import {
 	createHmrUpdateForFile,
 	type ChangeSetFile,
@@ -37,8 +37,10 @@ interface PendingChangeContribution {
 }
 
 type ReviewEntryRow = typeof reviewEntries.$inferSelect;
+type ChangeSetFileRow = typeof changeSetFiles.$inferSelect;
 type SessionPendingChangeIndexRow = typeof sessionPendingChangeIndex.$inferSelect;
 type SessionPendingChangesRow = typeof sessionPendingChanges.$inferSelect;
+type ReviewEntrySourceRow = typeof reviewEntrySources.$inferSelect;
 
 function parsePendingChangesRecord(raw: string): Record<string, PendingFileChange> {
 	try {
@@ -60,6 +62,7 @@ function parsePendingChangesRecord(raw: string): Record<string, PendingFileChang
 				continue;
 			}
 			const rawHunkStatuses: unknown[] = Array.isArray(pendingChange.hunkStatuses) ? pendingChange.hunkStatuses : [];
+			const rawHunkSessionIds = parseHunkSessionIds(pendingChange.hunkSessionIds);
 			const rawSessionIds: unknown[] = Array.isArray(pendingChange.sessionIds) ? pendingChange.sessionIds : [];
 			record[key] = {
 				path: pendingChange.path,
@@ -77,6 +80,7 @@ function parsePendingChangesRecord(raw: string): Record<string, PendingFileChang
 				hunkStatuses: rawHunkStatuses.filter(
 					(status): status is ReviewHunkStatus => status === 'pending' || status === 'approved' || status === 'rejected',
 				),
+				hunkSessionIds: rawHunkSessionIds,
 				sessionId: pendingChange.sessionId,
 				sessionIds: rawSessionIds.filter((sessionId): sessionId is string => typeof sessionId === 'string'),
 				reviewId: typeof pendingChange.reviewId === 'string' ? pendingChange.reviewId : undefined,
@@ -106,6 +110,16 @@ function parseHunkStatuses(raw: string): ReviewHunkStatus[] {
 	} catch {
 		return [];
 	}
+}
+
+function parseHunkSessionIds(value: unknown): string[][] | undefined {
+	if (!Array.isArray(value)) {
+		return undefined;
+	}
+
+	return value
+		.map((entry) => (Array.isArray(entry) ? entry.filter((sessionId): sessionId is string => typeof sessionId === 'string') : []))
+		.filter((entry) => entry.length > 0);
 }
 
 function stringify(value: unknown): string {
@@ -155,7 +169,7 @@ function parsePendingAction(value: string): SharedReviewEntry['action'] {
 	return 'edit';
 }
 
-function toReviewEntry(row: typeof reviewEntries.$inferSelect): SharedReviewEntry {
+function toReviewEntry(row: typeof reviewEntries.$inferSelect, hunkSessionIds?: string[][]): SharedReviewEntry {
 	return {
 		id: row.id,
 		path: row.path,
@@ -165,6 +179,7 @@ function toReviewEntry(row: typeof reviewEntries.$inferSelect): SharedReviewEntr
 		snapshotId: row.snapshotId ?? undefined,
 		status: 'pending',
 		hunkStatuses: parseHunkStatuses(row.hunkStatuses),
+		hunkSessionIds,
 		latestSessionId: row.latestSessionId,
 		sessionIds: parseStringArray(row.sessionIds),
 		diffSignature: row.diffSignature,
@@ -184,6 +199,41 @@ function buildReviewSummary(entries: SharedReviewEntry[], reviewVersion: number)
 		reviewVersion,
 		sessionCounts,
 	};
+}
+
+function buildFallbackHunkSessionIds(entry: SharedReviewEntry): string[][] | undefined {
+	if (entry.action === 'move') {
+		return [];
+	}
+	const beforeContent = entry.beforeContent ?? '';
+	const afterContent = entry.afterContent ?? '';
+	const groupCount = groupHunksIntoChanges(computeDiffHunks(beforeContent, afterContent)).length;
+	return groupCount > 0 ? Array.from({ length: groupCount }, () => [entry.latestSessionId]) : [];
+}
+
+function buildReviewEntryHunkSessionIds(
+	entry: SharedReviewEntry,
+	sourceRows: ReviewEntrySourceRow[],
+	changeSetFilesByKey: Map<string, ChangeSetFileRow>,
+): string[][] | undefined {
+	if (entry.action === 'move') {
+		return [];
+	}
+
+	const steps = sourceRows
+		.toSorted((left, right) => left.orderIndex - right.orderIndex)
+		.map((sourceRow) => changeSetFilesByKey.get(`${sourceRow.changeSetId}:${entry.path}`))
+		.filter((row): row is ChangeSetFileRow => row !== undefined)
+		.map((row) => ({
+			afterContent: row.action === 'delete' ? '' : (row.afterContent ?? ''),
+			sessionId: row.sessionId,
+		}));
+
+	if (steps.length === 0) {
+		return buildFallbackHunkSessionIds(entry);
+	}
+
+	return computeDiffHunkSessionIds(entry.beforeContent ?? '', entry.afterContent ?? '', steps, entry.latestSessionId);
 }
 
 async function readWorkspaceContent(projectRoot: string, path: string): Promise<string | undefined> {
@@ -230,7 +280,25 @@ export class ReviewQueueStore {
 
 	listReviewEntries(): SharedReviewEntry[] {
 		const rows: ReviewEntryRow[] = this.db.select().from(reviewEntries).all();
-		return rows.map((row) => toReviewEntry(row)).toSorted((left, right) => right.updatedAt - left.updatedAt);
+		const sourceRows: ReviewEntrySourceRow[] = this.db.select().from(reviewEntrySources).all();
+		const changeSetFileRows: ChangeSetFileRow[] = this.db.select().from(changeSetFiles).all();
+		const sourceRowsByReviewEntryId = new Map<string, ReviewEntrySourceRow[]>();
+		for (const sourceRow of sourceRows) {
+			const reviewEntrySourceRows = sourceRowsByReviewEntryId.get(sourceRow.reviewEntryId) ?? [];
+			reviewEntrySourceRows.push(sourceRow);
+			sourceRowsByReviewEntryId.set(sourceRow.reviewEntryId, reviewEntrySourceRows);
+		}
+		const changeSetFilesByKey = new Map<string, ChangeSetFileRow>();
+		for (const row of changeSetFileRows) {
+			changeSetFilesByKey.set(`${row.changeSetId}:${row.path}`, row);
+		}
+
+		return rows
+			.map((row) => {
+				const entry = toReviewEntry(row);
+				return toReviewEntry(row, buildReviewEntryHunkSessionIds(entry, sourceRowsByReviewEntryId.get(row.id) ?? [], changeSetFilesByKey));
+			})
+			.toSorted((left, right) => right.updatedAt - left.updatedAt);
 	}
 
 	listReviewEntriesRecord(): Record<string, SharedReviewEntry> {
@@ -601,6 +669,15 @@ export class ReviewQueueStore {
 			const previousEntry = previousEntriesByPath.get(path);
 			const hunkStatuses =
 				previousEntry?.diffSignature === diffSignature ? previousEntry.hunkStatuses : buildInitialHunkStatuses(finalChange);
+			const hunkSessionIds = computeDiffHunkSessionIds(
+				finalChange.beforeContent ?? '',
+				finalChange.afterContent ?? '',
+				orderedContributions.map((contribution) => ({
+					afterContent: contribution.change.action === 'delete' ? '' : (contribution.change.afterContent ?? ''),
+					sessionId: contribution.sessionId,
+				})),
+				latestSessionId,
+			);
 			const reviewEntryId = previousEntry?.id ?? crypto.randomUUID();
 			const updatedAt = orderedContributions.at(-1)?.updatedAt ?? Date.now();
 
@@ -633,6 +710,7 @@ export class ReviewQueueStore {
 				...finalChange,
 				status: 'pending',
 				hunkStatuses,
+				hunkSessionIds,
 				sessionId: latestSessionId,
 				sessionIds,
 				reviewId: reviewEntryId,

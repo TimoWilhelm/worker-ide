@@ -338,7 +338,7 @@ export function useChangeReview({ projectId }: { projectId: string }) {
 
 	const sessionPendingCount = useCallback(
 		(sessionId?: string) => {
-			if (!sessionId) return pendingCount;
+			if (!sessionId) return 0;
 			let count = 0;
 			for (const change of pendingChanges.values()) {
 				if (change.status === 'pending' && matchesSession(change, sessionId)) {
@@ -347,7 +347,7 @@ export function useChangeReview({ projectId }: { projectId: string }) {
 			}
 			return count;
 		},
-		[pendingChanges, pendingCount],
+		[pendingChanges],
 	);
 
 	return {

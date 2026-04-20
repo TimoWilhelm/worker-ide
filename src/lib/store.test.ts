@@ -31,6 +31,7 @@ beforeEach(() => {
 		sidebarVisible: true,
 		utilityPanelVisible: true,
 		agentPanelVisible: false,
+		requestedAgentSessionId: undefined,
 		devtoolsVisible: false,
 		dependenciesPanelVisible: true,
 		activeMobilePanel: 'editor',
@@ -778,6 +779,20 @@ describe('UI slice', () => {
 
 		expect(useStore.getState().agentPanelVisible).toBe(true);
 		expect(useStore.getState().activeMobilePanel).toBe('agent');
+	});
+
+	it('requests an agent session and clears the request', () => {
+		useStore.getState().setActiveMobilePanel('preview');
+
+		useStore.getState().requestAgentSession('session-2');
+
+		expect(useStore.getState().agentPanelVisible).toBe(true);
+		expect(useStore.getState().activeMobilePanel).toBe('agent');
+		expect(useStore.getState().requestedAgentSessionId).toBe('session-2');
+
+		useStore.getState().clearRequestedAgentSession();
+
+		expect(useStore.getState().requestedAgentSessionId).toBeUndefined();
 	});
 
 	it('queues and consumes preview element references', () => {

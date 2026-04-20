@@ -152,6 +152,8 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	const { files, agentMode, selectedModel, openFile, setAgentMode, setSelectedModel, clearPendingChangesByPaths } = useStore();
 	const pendingPreviewElementReferences = useStore((state) => state.pendingPreviewElementReferences);
 	const shiftPendingPreviewElementReference = useStore((state) => state.shiftPendingPreviewElementReference);
+	const requestedAgentSessionId = useStore((state) => state.requestedAgentSessionId);
+	const clearRequestedAgentSession = useStore((state) => state.clearRequestedAgentSession);
 	const lastProcessedPreviewElementReferenceKeyReference = useRef<string | undefined>(undefined);
 
 	const rawState = agent.state;
@@ -423,15 +425,21 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		setActiveSessionId(projectId, undefined);
 		// Tell the agent to clear the current session state via RPC
 		// (also aborts any running session server-side)
-		void agent.call('clearCurrentSession', [isProcessing ? sessionId : undefined]);
+		void agent.call('clearCurrentSession', [isProcessing ? sessionId : undefined]).catch((error: unknown) => {
+			console.error('[AIPanel] Failed to clear current session:', error);
+			toast.error('Could not start a new session. Please try again.');
+		});
 	}, [projectId, isConnected, isProcessing, sessionId, agent]);
 
 	// Load a session via Agent RPC and clear transient UI state
 	const handleLoadSession = useCallback(
 		(targetSessionId: string) => {
 			if (!isConnected) return;
+			if (targetSessionId === sessionId) return;
 			if (isProcessing) {
-				void agent.call('abortRun', [sessionId]);
+				void agent.call('abortRun', [sessionId]).catch((error: unknown) => {
+					console.error('[AIPanel] Failed to stop session before loading another:', error);
+				});
 			}
 			setPlanPath(undefined);
 			setFileDiffContent(new Map());
@@ -442,6 +450,19 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		},
 		[loadSession, isConnected, isProcessing, sessionId, agent, resetScrollState],
 	);
+
+	useEffect(() => {
+		if (!requestedAgentSessionId || !isConnected) {
+			return;
+		}
+		if (requestedAgentSessionId === sessionId) {
+			clearRequestedAgentSession();
+			return;
+		}
+
+		handleLoadSession(requestedAgentSessionId);
+		clearRequestedAgentSession();
+	}, [clearRequestedAgentSession, handleLoadSession, isConnected, requestedAgentSessionId, sessionId]);
 
 	// Focus input on mount
 	useEffect(() => {
@@ -732,11 +753,14 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 
 		const trimmedHistory = committedMessages.slice(0, lastUserIndex + 1);
 		const resolvedSessionId = sessionId ?? crypto.randomUUID().replaceAll('-', '').slice(0, 16);
+		const retryRequestId = crypto.randomUUID();
 
 		setOptimisticStoppingSessionId(undefined);
-		void agent.call('startRun', [projectId, trimmedHistory, agentMode, selectedModel, resolvedSessionId]).catch((error: unknown) => {
-			console.error('[AIPanel] Failed to retry:', error);
-		});
+		void agent
+			.call('startRun', [projectId, trimmedHistory, agentMode, selectedModel, resolvedSessionId, retryRequestId])
+			.catch((error: unknown) => {
+				console.error('[AIPanel] Failed to retry:', error);
+			});
 	}, [committedMessages, sessionId, projectId, agentMode, selectedModel, agent]);
 
 	// Dismiss error — track locally since error comes from agent state
@@ -772,7 +796,9 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 
 			revertInProgressReference.current = true;
 			if (isProcessing) {
-				void agent.call('abortRun', [sessionId]);
+				void agent.call('abortRun', [sessionId]).catch((error: unknown) => {
+					console.error('[AIPanel] Failed to stop session before revert:', error);
+				});
 			}
 
 			// Extract the user prompt text before removing messages

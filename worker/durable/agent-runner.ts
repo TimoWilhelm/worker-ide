@@ -192,6 +192,11 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	private abortControllers = new Map<string, AbortController>();
 	private loopPromises = new Map<string, Promise<void>>();
 	private titleGenerationInFlight = new Set<string>();
+	private startRunRequestCache = new Map<string, { expiresAt: number; promise: Promise<{ sessionId: string }> }>();
+	private submitMessageRequestCache = new Map<
+		string,
+		{ expiresAt: number; promise: Promise<{ sessionId: string; queued: boolean; started: boolean }> }
+	>();
 	private sessionStreamState = new SessionStreamState({
 		getCurrentSession: () => this.state.currentSession,
 		updateSessionState: (sessionId, patch) => this.updateSessionState(sessionId, patch),
@@ -250,6 +255,42 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		if (!Array.isArray(nextState.sessions)) {
 			throw new TypeError('AgentState.sessions must be an array');
 		}
+	}
+
+	private withRpcRequestCache<T>(
+		cache: Map<string, { expiresAt: number; promise: Promise<T> }>,
+		cacheKey: string | undefined,
+		callback: () => Promise<T>,
+	): Promise<T> {
+		if (!cacheKey) {
+			return callback();
+		}
+
+		const now = Date.now();
+		for (const [key, value] of cache) {
+			if (value.expiresAt <= now) {
+				cache.delete(key);
+			}
+		}
+
+		const cached = cache.get(cacheKey);
+		if (cached && cached.expiresAt > now) {
+			return cached.promise;
+		}
+
+		const promise = callback();
+		cache.set(cacheKey, {
+			expiresAt: now + 60_000,
+			promise,
+		});
+
+		void promise.catch(() => {
+			if (cache.get(cacheKey)?.promise === promise) {
+				cache.delete(cacheKey);
+			}
+		});
+
+		return promise;
 	}
 
 	// =========================================================================
@@ -577,39 +618,60 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		const promptText = getUserMessagePromptText(sanitizedParts);
 
 		const resolvedSessionId = sessionId ?? crypto.randomUUID().replaceAll('-', '').slice(0, 16);
-		const authenticatedUserId = this.getAuthenticatedUserId();
-		const persistedSession = this.agentSessionStore.read(resolvedSessionId);
-		const persistedHistory = persistedSession?.history ?? [];
-		const liveHistory = this.state.currentSession?.sessionId === resolvedSessionId ? this.state.currentSession.messages : persistedHistory;
-		const stopRequested = persistedSession?.stopRequested ?? false;
-		const isRunActive = this.abortControllers.has(resolvedSessionId);
-		const shouldQueue = isRunActive || stopRequested;
-		const userMessage = this.buildUserMessage(sanitizedParts, mode, model, shouldQueue ? 'queued' : 'committed', messageId, createdAt);
 
-		const promptPreview = deriveFallbackTitle(promptText, 80);
-		this.ensureSessionRecord(resolvedSessionId, promptPreview, model, mode);
+		return this.withRpcRequestCache(
+			this.submitMessageRequestCache,
+			messageId ? `submitMessage:${resolvedSessionId}:${messageId}` : undefined,
+			async () => {
+				const authenticatedUserId = this.getAuthenticatedUserId();
+				const persistedSession = this.agentSessionStore.read(resolvedSessionId);
+				const persistedHistory = persistedSession?.history ?? [];
+				const duplicateMessage = messageId ? persistedHistory.find((message) => message.id === messageId) : undefined;
+				if (duplicateMessage) {
+					const duplicateQueued = duplicateMessage.role === 'user' && duplicateMessage.metadata?.request?.state === 'queued';
+					return {
+						sessionId: resolvedSessionId,
+						queued: duplicateQueued,
+						started: !duplicateQueued,
+					};
+				}
+				const liveHistory =
+					this.state.currentSession?.sessionId === resolvedSessionId ? this.state.currentSession.messages : persistedHistory;
+				const stopRequested = persistedSession?.stopRequested ?? false;
+				const isRunActive = this.abortControllers.has(resolvedSessionId);
+				const shouldQueue = isRunActive || stopRequested;
+				const userMessage = this.buildUserMessage(sanitizedParts, mode, model, shouldQueue ? 'queued' : 'committed', messageId, createdAt);
 
-		const durableHistory = [...persistedHistory, userMessage];
-		await this.agentSessionStore.persistHistory(resolvedSessionId, durableHistory, stopRequested);
+				const promptPreview = deriveFallbackTitle(promptText, 80);
+				this.ensureSessionRecord(resolvedSessionId, promptPreview, model, mode);
 
-		if (shouldQueue) {
-			this.updateSessionState(resolvedSessionId, {
-				messages: [...liveHistory, userMessage],
-				stopRequested,
-				status:
-					this.state.currentSession?.sessionId === resolvedSessionId ? this.state.currentSession.status : isRunActive ? 'running' : 'idle',
-				statusText:
-					this.state.currentSession?.sessionId === resolvedSessionId
-						? this.state.currentSession.statusText
-						: persistedSession?.status === 'running'
-							? 'Thinking...'
-							: undefined,
-			});
-			return { sessionId: resolvedSessionId, queued: true, started: false };
-		}
+				const durableHistory = [...persistedHistory, userMessage];
+				await this.agentSessionStore.persistHistory(resolvedSessionId, durableHistory, stopRequested);
 
-		await this.startAgentRun(projectId, getCommittedMessages(durableHistory), mode, model, resolvedSessionId, authenticatedUserId);
-		return { sessionId: resolvedSessionId, queued: false, started: true };
+				if (shouldQueue) {
+					this.updateSessionState(resolvedSessionId, {
+						messages: [...liveHistory, userMessage],
+						stopRequested,
+						status:
+							this.state.currentSession?.sessionId === resolvedSessionId
+								? this.state.currentSession.status
+								: isRunActive
+									? 'running'
+									: 'idle',
+						statusText:
+							this.state.currentSession?.sessionId === resolvedSessionId
+								? this.state.currentSession.statusText
+								: persistedSession?.status === 'running'
+									? 'Thinking...'
+									: undefined,
+					});
+					return { sessionId: resolvedSessionId, queued: true, started: false };
+				}
+
+				await this.startAgentRun(projectId, getCommittedMessages(durableHistory), mode, model, resolvedSessionId, authenticatedUserId);
+				return { sessionId: resolvedSessionId, queued: false, started: true };
+			},
+		);
 	}
 
 	@callable()
@@ -643,38 +705,46 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		mode: AgentMode = 'code',
 		model: AIModelId = DEFAULT_AI_MODEL,
 		sessionId?: string,
+		requestId?: string,
 	): Promise<{ sessionId: string }> {
 		const resolvedSessionId = sessionId ?? crypto.randomUUID().replaceAll('-', '').slice(0, 16);
-		const authenticatedUserId = this.getAuthenticatedUserId();
-		const latestUserMessage = messages.toReversed().find((message) => message.role === 'user');
-		const promptPreview = deriveFallbackTitle(latestUserMessage ? messagePartsToPromptText(latestUserMessage.parts).trim() : '', 80);
 
-		this.ensureSessionRecord(resolvedSessionId, promptPreview, model, mode);
-		const normalizedMessages = messages.map((message) => {
-			if (message.role !== 'user') {
-				return message;
-			}
+		return this.withRpcRequestCache(
+			this.startRunRequestCache,
+			requestId ? `startRun:${resolvedSessionId}:${requestId}` : undefined,
+			async () => {
+				const authenticatedUserId = this.getAuthenticatedUserId();
+				const latestUserMessage = messages.toReversed().find((message) => message.role === 'user');
+				const promptPreview = deriveFallbackTitle(latestUserMessage ? messagePartsToPromptText(latestUserMessage.parts).trim() : '', 80);
 
-			const normalizedParts = sanitizeSubmittedUserMessageParts(message.parts);
+				this.ensureSessionRecord(resolvedSessionId, promptPreview, model, mode);
+				const normalizedMessages = messages.map((message) => {
+					if (message.role !== 'user') {
+						return message;
+					}
 
-			const normalizedMessage: ChatMessage = {
-				...message,
-				parts: normalizedParts,
-				metadata: {
-					...message.metadata,
-					request: {
-						mode: message.metadata?.request?.mode ?? mode,
-						model: message.metadata?.request?.model ?? model,
-						state: 'committed',
-					},
-				},
-			};
+					const normalizedParts = sanitizeSubmittedUserMessageParts(message.parts);
 
-			return normalizedMessage;
-		});
+					const normalizedMessage: ChatMessage = {
+						...message,
+						parts: normalizedParts,
+						metadata: {
+							...message.metadata,
+							request: {
+								mode: message.metadata?.request?.mode ?? mode,
+								model: message.metadata?.request?.model ?? model,
+								state: 'committed',
+							},
+						},
+					};
 
-		await this.agentSessionStore.persistHistory(resolvedSessionId, normalizedMessages, false);
-		return this.startAgentRun(projectId, getCommittedMessages(normalizedMessages), mode, model, resolvedSessionId, authenticatedUserId);
+					return normalizedMessage;
+				});
+
+				await this.agentSessionStore.persistHistory(resolvedSessionId, normalizedMessages, false);
+				return this.startAgentRun(projectId, getCommittedMessages(normalizedMessages), mode, model, resolvedSessionId, authenticatedUserId);
+			},
+		);
 	}
 
 	@callable()

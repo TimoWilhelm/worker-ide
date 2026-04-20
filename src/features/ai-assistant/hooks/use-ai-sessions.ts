@@ -5,8 +5,10 @@ import { isAgentState } from '@/features/ai-assistant/lib/agent-state';
 import { useStore } from '@/lib/store';
 
 import type { AgentConnectionState } from '../components/agent-runtime-context';
+import type { AgentCallOptions } from '../lib/agent-call';
 import type { AgentState } from '@shared/agent-state';
 import type { PendingFileChange, AiSession } from '@shared/types';
+
 function activeSessionKey(projectId: string): string {
 	return `worker-ide-active-session:${projectId}`;
 }
@@ -31,7 +33,7 @@ export function setActiveSessionId(projectId: string, sessionId: string | undefi
 
 interface AgentHandle {
 	state: unknown;
-	call: <T = unknown>(method: string, arguments_?: unknown[]) => Promise<T>;
+	call: <T = unknown>(method: string, arguments_?: unknown[], options?: AgentCallOptions) => Promise<T>;
 }
 
 type SessionLoadPhase = 'idle' | 'awaiting-agent-state' | 'loading-saved-session';
@@ -206,6 +208,7 @@ export function useAiSessions({
 				snapshotId: entry.snapshotId,
 				status: 'pending',
 				hunkStatuses: entry.hunkStatuses,
+				hunkSessionIds: entry.hunkSessionIds,
 				sessionId: entry.latestSessionId,
 				sessionIds: entry.sessionIds,
 				reviewId: entry.id,
@@ -221,6 +224,7 @@ export function useAiSessions({
 					sessionIds: existing?.sessionIds ?? change.sessionIds,
 					reviewId: existing?.reviewId,
 					hunkStatuses: existing?.hunkStatuses ?? change.hunkStatuses,
+					hunkSessionIds: existing?.hunkSessionIds ?? change.hunkSessionIds,
 				});
 			}
 		}

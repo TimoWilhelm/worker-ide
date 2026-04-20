@@ -18,7 +18,7 @@ export interface PreviewPanelProperties {
 	previewUrl: string | undefined;
 	previewOrigin: string | undefined;
 	isLoadingUrl: boolean;
-	refreshPreviewUrl: () => Promise<void>;
+	refreshPreviewUrl: () => Promise<string | undefined>;
 	iframeReference: React.RefObject<HTMLIFrameElement | null>;
 	className?: string;
 }
@@ -42,19 +42,43 @@ export function PreviewPanel({
 	const showAgentPanel = useStore((state) => state.showAgentPanel);
 	const pickerActive = isPickerActive && !!previewUrl;
 
+	const deactivatePicker = useCallback(() => {
+		if (!pickerActive) {
+			return;
+		}
+
+		cancelPreviewElementPicker();
+		setIsPickerActive(false);
+	}, [pickerActive]);
+
 	const handleLoad = useCallback(() => {
 		setIsLoading(false);
 	}, []);
 
-	const handleRefresh = useCallback(() => {
-		if (pickerActive) {
-			cancelPreviewElementPicker();
-			setIsPickerActive(false);
-		}
+	const reloadPreview = useCallback(() => {
+		deactivatePicker();
 		setIsLoading(true);
 		setPreviewKey((previous) => previous + 1);
 		globalThis.dispatchEvent(new CustomEvent('preview-refresh'));
-	}, [pickerActive]);
+	}, [deactivatePicker]);
+
+	const handleRefresh = useCallback(async () => {
+		deactivatePicker();
+		setIsLoading(true);
+		globalThis.dispatchEvent(new CustomEvent('preview-refresh'));
+
+		const refreshedPreviewUrl = await refreshPreviewUrl();
+		if (refreshedPreviewUrl !== previewUrl) {
+			return;
+		}
+
+		if (!previewUrl) {
+			setIsLoading(false);
+			return;
+		}
+
+		setPreviewKey((previous) => previous + 1);
+	}, [deactivatePicker, previewUrl, refreshPreviewUrl]);
 
 	const handleOpenExternal = useCallback(() => {
 		const externalPreviewUrl = previewOrigin ? `${previewOrigin}/` : previewUrl;
@@ -80,7 +104,7 @@ export function PreviewPanel({
 			if (timer) clearTimeout(timer);
 			timer = setTimeout(() => {
 				timer = undefined;
-				handleRefresh();
+				reloadPreview();
 			}, FORCE_REFRESH_DELAY_MS);
 		};
 
@@ -89,7 +113,7 @@ export function PreviewPanel({
 			globalThis.removeEventListener('preview-force-refresh', handleForceRefresh);
 			if (timer) clearTimeout(timer);
 		};
-	}, [handleRefresh]);
+	}, [reloadPreview]);
 
 	// Detect token expiry via postMessage from the preview iframe.
 	//
@@ -247,7 +271,14 @@ export function PreviewPanel({
 						</Button>
 					</Tooltip>
 					<Tooltip content="Refresh">
-						<Button focusStyle="inset" variant="ghost" size="icon" className="size-7" aria-label="Refresh" onClick={handleRefresh}>
+						<Button
+							focusStyle="inset"
+							variant="ghost"
+							size="icon"
+							className="size-7"
+							aria-label="Refresh"
+							onClick={() => void handleRefresh()}
+						>
 							<RefreshCw className="size-3.5" />
 						</Button>
 					</Tooltip>

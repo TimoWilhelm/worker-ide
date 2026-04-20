@@ -54,7 +54,7 @@ interface MobileLayoutProperties {
 	previewUrl: string | undefined;
 	previewOrigin: string | undefined;
 	isLoadingPreviewUrl: boolean;
-	refreshPreviewUrl: () => Promise<void>;
+	refreshPreviewUrl: () => Promise<string | undefined>;
 }
 
 export function MobileLayout({

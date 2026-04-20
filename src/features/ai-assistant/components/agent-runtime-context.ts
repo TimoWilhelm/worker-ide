@@ -1,5 +1,6 @@
 import { createContext, useContext } from 'react';
 
+import type { AgentCallOptions } from '../lib/agent-call';
 import type { InputSegment } from '../lib/input-segments';
 import type { Dispatch, SetStateAction } from 'react';
 
@@ -10,7 +11,7 @@ export interface AgentRuntimeHandle {
 	state: unknown;
 	addEventListener: (type: string, listener: () => void) => void;
 	removeEventListener: (type: string, listener: () => void) => void;
-	call: <T = unknown>(method: string, arguments_?: unknown[]) => Promise<T>;
+	call: <T = unknown>(method: string, arguments_?: unknown[], options?: AgentCallOptions) => Promise<T>;
 }
 
 export interface AgentRuntimeValue {
