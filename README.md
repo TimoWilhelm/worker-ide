@@ -15,6 +15,7 @@ A browser-based full-stack development environment built on Cloudflare Workers. 
 - Cloudflare Workers with Hono. Two Durable Objects: one for per-project file storage (SQLite-backed, with Git via `isomorphic-git`) and one for WebSocket coordination (HMR, collaboration).
 - User backend code runs in isolated V8 isolates via Cloudflare's [Dynamic Worker Loader](https://developers.cloudflare.com/workers/runtime-apis/bindings/worker-loader/) API.
 - AI coding assistant powered by the Cloudflare Agents SDK and Vercel AI SDK, with real-time state sync via WebSocket.
+- Private previews use a preview-only host cookie minted through an app-origin bootstrap flow, so app auth cookies never leave the main app origin.
 
 ### Shared (`shared/`)
 

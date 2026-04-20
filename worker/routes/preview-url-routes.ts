@@ -1,11 +1,15 @@
 import { env } from 'cloudflare:workers';
+import { eq } from 'drizzle-orm';
+import { drizzle } from 'drizzle-orm/d1';
 import { Hono } from 'hono';
 
 import { buildPreviewOrigin, getBaseDomain } from '@shared/domain';
 import { HttpErrorCode } from '@shared/http-errors';
 import { generatePreviewToken } from '@shared/preview-token';
 
+import * as schema from '../db/auth-schema';
 import { httpError } from '../lib/http-error';
+import { buildPreviewRedeemUrl, createPreviewAccessGrant } from '../lib/preview-access';
 import { DEV_PREVIEW_SECRET } from '../lib/preview-secret';
 
 import type { AppEnvironment } from '../types';
@@ -41,7 +45,33 @@ export const previewUrlRoutes = new Hono<AppEnvironment>()
 		const protocol = requestUrl.protocol;
 
 		const previewOrigin = buildPreviewOrigin(projectId, token, baseDomain, protocol);
-		const previewUrl = `${previewOrigin}/`;
+		const directPreviewUrl = `${previewOrigin}/`;
+
+		const database = drizzle(c.env.DB);
+		const projectRows = await database
+			.select({ previewVisibility: schema.project.previewVisibility, organizationId: schema.project.organizationId })
+			.from(schema.project)
+			.where(eq(schema.project.id, projectId))
+			.limit(1);
+		const previewProject = projectRows[0];
+		const previewVisibility = previewProject?.previewVisibility ?? 'public';
+
+		const previewUrl =
+			previewVisibility === 'private' && previewProject?.organizationId
+				? buildPreviewRedeemUrl(
+						previewOrigin,
+						await createPreviewAccessGrant(
+							{
+								projectId,
+								previewToken: token,
+								organizationId: previewProject.organizationId,
+								userId,
+								redirectPath: '/',
+							},
+							secret,
+						),
+					)
+				: directPreviewUrl;
 
 		return c.json({ url: previewUrl, origin: previewOrigin });
 	});

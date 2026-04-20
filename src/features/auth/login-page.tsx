@@ -1,6 +1,7 @@
 import { Github, Hexagon } from 'lucide-react';
 import { motion } from 'motion/react';
 import { Suspense } from 'react';
+import { useSearchParams } from 'react-router';
 
 import { HalftoneBackground } from '@/components/halftone-background';
 import { Button } from '@/components/ui/button';
@@ -8,9 +9,25 @@ import { toast } from '@/components/ui/toast-store';
 import { authClient } from '@/lib/auth-client';
 import { fadeUpVariants, springGentle, staggerContainer } from '@/lib/motion-config';
 
-async function handleSocialLogin(provider: 'github' | 'google') {
+function resolveCallbackUrl(next: string | null): string {
+	if (!next) {
+		return '/';
+	}
+
 	try {
-		const { error } = await authClient.signIn.social({ provider, callbackURL: '/' });
+		const url = new URL(next, globalThis.location.origin);
+		if (url.origin !== globalThis.location.origin) {
+			return '/';
+		}
+		return `${url.pathname}${url.search}${url.hash}`;
+	} catch {
+		return '/';
+	}
+}
+
+async function handleSocialLogin(provider: 'github' | 'google', callbackURL: string) {
+	try {
+		const { error } = await authClient.signIn.social({ provider, callbackURL });
 		if (error) {
 			toast.error(error.message ?? 'Could not start sign-in. Please try again.');
 		}
@@ -31,6 +48,9 @@ function GoogleIcon({ className }: { className?: string }) {
 }
 
 export default function LoginPage() {
+	const [searchParameters] = useSearchParams();
+	const callbackURL = resolveCallbackUrl(searchParameters.get('next'));
+
 	return (
 		<div className="relative flex h-dvh flex-col items-center justify-center">
 			<Suspense fallback={undefined}>
@@ -64,11 +84,11 @@ export default function LoginPage() {
 					</div>
 
 					<div className="flex w-full flex-col gap-3">
-						<Button onClick={() => void handleSocialLogin('github')} className="w-full gap-2" size="lg">
+						<Button onClick={() => void handleSocialLogin('github', callbackURL)} className="w-full gap-2" size="lg">
 							<Github className="size-5" />
 							Continue with GitHub
 						</Button>
-						<Button onClick={() => void handleSocialLogin('google')} variant="outline" className="w-full gap-2" size="lg">
+						<Button onClick={() => void handleSocialLogin('google', callbackURL)} variant="outline" className="w-full gap-2" size="lg">
 							<GoogleIcon className="size-5" />
 							Continue with Google
 						</Button>

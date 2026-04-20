@@ -40,13 +40,10 @@ export function errorPage({ title, heading, message, homeUrl, status }: ErrorPag
 	<meta name="viewport" content="width=device-width, initial-scale=1.0">
 	<title>${pageTitle}</title>
 	<link rel="icon" type="image/svg+xml" href="/favicon.svg">
-	<link rel="preconnect" href="https://fonts.googleapis.com">
-	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-	<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600&display=swap" rel="stylesheet">
 	<style>
 		*{margin:0;padding:0;box-sizing:border-box}
 		body{
-			font-family:'Space Grotesk',sans-serif;
+			font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
 			background:#121212;color:#f0e3de;
 			display:flex;align-items:center;justify-content:center;
 			min-height:100vh;padding:16px;
@@ -74,7 +71,7 @@ export function errorPage({ title, heading, message, homeUrl, status }: ErrorPag
 
 	return new Response(html, {
 		status,
-		headers: { 'Content-Type': 'text/html;charset=UTF-8' },
+		headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Referrer-Policy': 'no-referrer' },
 	});
 }
 
@@ -94,6 +91,7 @@ export function errorPage({ title, heading, message, homeUrl, status }: ErrorPag
  *   (`NotFoundPage` / `ProjectNotFound`) with a "Back to Home" button.
  */
 export function previewExpiredPage({ baseDomain, protocol }: { baseDomain: string; protocol: string }): Response {
+	const appOrigin = `${protocol}//${baseDomain}`;
 	const homeUrl = escapeHtml(`${protocol}//${baseDomain}/`);
 
 	// Lucide TimerOff icon
@@ -105,13 +103,10 @@ export function previewExpiredPage({ baseDomain, protocol }: { baseDomain: strin
 	<meta charset="UTF-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1.0">
 	<title>Preview link expired</title>
-	<link rel="preconnect" href="https://fonts.googleapis.com">
-	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-	<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600&display=swap" rel="stylesheet">
 	<style>
 		*{margin:0;padding:0;box-sizing:border-box}
 		body{
-			font-family:'Space Grotesk',sans-serif;
+			font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
 			background:#121212;color:#f0e3de;
 			display:flex;align-items:center;justify-content:center;
 			min-height:100vh;padding:16px;
@@ -176,7 +171,7 @@ export function previewExpiredPage({ baseDomain, protocol }: { baseDomain: strin
 	<script>
 		if (window.self !== window.top) {
 			// Embedded in iframe: notify the IDE and show spinner
-			window.parent.postMessage({ type: '__preview-expired' }, '*');
+			window.parent.postMessage({ type: '__preview-expired' }, ${JSON.stringify(appOrigin)});
 		} else {
 			// Direct visit: hide spinner, show full card
 			document.getElementById('iframe-view').style.display = 'none';
@@ -188,6 +183,6 @@ export function previewExpiredPage({ baseDomain, protocol }: { baseDomain: strin
 
 	return new Response(html, {
 		status: 403,
-		headers: { 'Content-Type': 'text/html;charset=UTF-8' },
+		headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Referrer-Policy': 'no-referrer' },
 	});
 }

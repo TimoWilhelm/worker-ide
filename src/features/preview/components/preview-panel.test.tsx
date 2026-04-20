@@ -37,14 +37,25 @@ vi.mock('@/lib/store', () => ({
 		}),
 }));
 
-function renderPreviewPanel() {
+function createIframeReference() {
+	const iframe = document.createElement('iframe');
+	const contentWindow = {} as Window;
+	Object.defineProperty(iframe, 'contentWindow', {
+		configurable: true,
+		value: contentWindow,
+	});
+	return { iframeReference: { current: iframe } };
+}
+
+function renderPreviewPanel(options?: { refreshPreviewUrl?: () => Promise<void> }) {
+	const { iframeReference } = createIframeReference();
 	return render(
 		<PreviewPanel
 			previewUrl="https://example.com"
 			previewOrigin="https://example.com"
 			isLoadingUrl={false}
-			refreshPreviewUrl={vi.fn(async () => {})}
-			iframeReference={{ current: document.createElement('iframe') }}
+			refreshPreviewUrl={options?.refreshPreviewUrl ?? vi.fn(async () => {})}
+			iframeReference={iframeReference}
 		/>,
 	);
 }
@@ -81,5 +92,50 @@ describe('PreviewPanel', () => {
 		fireEvent.pointerDown(document.body);
 		expect(mockCancelPreviewElementPicker).toHaveBeenCalledOnce();
 		expect(pickerButton.className).not.toContain('bg-accent/10');
+	});
+
+	it('opens external preview with noopener and noreferrer', async () => {
+		const user = userEvent.setup();
+		const mockWindow: Window = globalThis.window;
+		const openSpy = vi.spyOn(globalThis, 'open').mockImplementation(() => mockWindow);
+		renderPreviewPanel();
+
+		await user.click(screen.getByRole('button', { name: 'Open in new tab' }));
+
+		expect(openSpy).toHaveBeenCalledWith('https://example.com/', '_blank', 'noopener,noreferrer');
+	});
+
+	it('only refreshes when preview-expired comes from the active preview origin', () => {
+		const refreshPreviewUrl = vi.fn(async () => {});
+		const { iframeReference } = createIframeReference();
+		render(
+			<PreviewPanel
+				previewUrl="https://example.com"
+				previewOrigin="https://example.com"
+				isLoadingUrl={false}
+				refreshPreviewUrl={refreshPreviewUrl}
+				iframeReference={iframeReference}
+			/>,
+		);
+		const previewWindow = iframeReference.current?.contentWindow;
+		expect(previewWindow).toBeDefined();
+
+		globalThis.dispatchEvent(
+			new MessageEvent('message', {
+				origin: 'https://attacker.example.com',
+				source: previewWindow,
+				data: { type: '__preview-expired' },
+			}),
+		);
+		expect(refreshPreviewUrl).not.toHaveBeenCalled();
+
+		globalThis.dispatchEvent(
+			new MessageEvent('message', {
+				origin: 'https://example.com',
+				source: previewWindow,
+				data: { type: '__preview-expired' },
+			}),
+		);
+		expect(refreshPreviewUrl).toHaveBeenCalledOnce();
 	});
 });

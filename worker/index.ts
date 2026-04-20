@@ -23,6 +23,20 @@ import { requireAuth } from './lib/auth-middleware';
 import { agentRunnerNamespace, coordinatorNamespace, filesystemNamespace } from './lib/durable-object-namespaces';
 import { queryEntitlements } from './lib/entitlements';
 import { errorPage, previewExpiredPage } from './lib/error-page';
+import {
+	buildPreviewAccessBootstrapUrl,
+	buildPreviewAccessLoginUrl,
+	buildPreviewRedeemUrl,
+	clearPreviewAccessCookie,
+	createPreviewAccessCookieToken,
+	createPreviewAccessGrant,
+	getRedirectPath,
+	isNavigationRequest,
+	PREVIEW_ACCESS_REDEEM_PATH,
+	readPreviewAccessCookie,
+	readPreviewAccessGrant,
+	serializePreviewAccessCookie,
+} from './lib/preview-access';
 import { DEV_PREVIEW_SECRET } from './lib/preview-secret';
 import { generateProjectId, toDurableObjectId } from './lib/project-id';
 import { requireRateLimit } from './lib/rate-limit-middleware';
@@ -114,6 +128,35 @@ async function writeTemplateFiles(
 	await fs.writeFile(`${projectRoot}/.initialized`, '1');
 }
 
+async function resolveSessionFromRequest(
+	request: Request,
+	environment: Pick<
+		Env,
+		'DB' | 'BETTER_AUTH_SECRET' | 'GITHUB_CLIENT_ID' | 'GITHUB_CLIENT_SECRET' | 'GOOGLE_CLIENT_ID' | 'GOOGLE_CLIENT_SECRET'
+	>,
+	baseUrl: string,
+): Promise<{ sessionId: string; userId: string } | undefined> {
+	if (import.meta.env.DEV) {
+		const { resolveDevelopmentSession } = await import('./lib/development-session');
+		const result = await resolveDevelopmentSession(environment.DB, request.headers);
+		if (!result) {
+			return undefined;
+		}
+		return { sessionId: result.session.id, userId: result.session.userId };
+	}
+
+	const auth = createAuth(environment, baseUrl);
+	const session = await auth.api.getSession({ headers: request.headers });
+	if (!session) {
+		return undefined;
+	}
+
+	return {
+		sessionId: session.session.id,
+		userId: session.user.id,
+	};
+}
+
 function parseProjectRoute(path: string): { projectId: string; subPath: string } | undefined {
 	const match = path.match(/^\/p\/([a-z\d]{1,50})(\/.*)$/);
 	if (match) {
@@ -124,6 +167,51 @@ function parseProjectRoute(path: string): { projectId: string; subPath: string }
 		return { projectId: exactMatch[1], subPath: '/' };
 	}
 	return undefined;
+}
+
+function withUpdatedHeaders(response: Response, headers: Record<string, string>): Response {
+	if (response.status === 101) {
+		return response;
+	}
+
+	const nextHeaders = new Headers(response.headers);
+	for (const [name, value] of Object.entries(headers)) {
+		nextHeaders.set(name, value);
+	}
+	return new Response(response.body, {
+		status: response.status,
+		statusText: response.statusText,
+		headers: nextHeaders,
+	});
+}
+
+function applyAppSecurityHeaders(response: Response): Response {
+	return withUpdatedHeaders(response, {
+		'Content-Security-Policy': "frame-ancestors 'self'",
+		'X-Frame-Options': 'SAMEORIGIN',
+	});
+}
+
+function hasValidWebSocketOrigin(request: Request, expectedOrigin: string): boolean {
+	return request.headers.get('Origin') === expectedOrigin;
+}
+
+function hasValidAppRequestOrigin(request: Request, expectedOrigin: string): boolean {
+	const origin = request.headers.get('Origin');
+	if (origin) {
+		return origin === expectedOrigin;
+	}
+
+	const referer = request.headers.get('Referer');
+	if (!referer) {
+		return true;
+	}
+
+	try {
+		return new URL(referer).origin === expectedOrigin;
+	} catch {
+		return false;
+	}
 }
 
 const app = new Hono<AuthedEnvironment>();
@@ -150,6 +238,35 @@ app.use(
 		credentials: true,
 	}),
 );
+
+app.use('/api/*', async (c, next) => {
+	if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(c.req.method)) {
+		await next();
+		return;
+	}
+
+	const requestUrl = new URL(c.req.url);
+	const appOrigin = buildAppOrigin(parseHost(requestUrl.host).baseDomain, requestUrl.protocol);
+	if (!hasValidAppRequestOrigin(c.req.raw, appOrigin)) {
+		return c.json({ error: 'Forbidden' }, 403);
+	}
+
+	await next();
+});
+app.use('/p/*/api/*', async (c, next) => {
+	if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(c.req.method)) {
+		await next();
+		return;
+	}
+
+	const requestUrl = new URL(c.req.url);
+	const appOrigin = buildAppOrigin(parseHost(requestUrl.host).baseDomain, requestUrl.protocol);
+	if (!hasValidAppRequestOrigin(c.req.raw, appOrigin)) {
+		return c.json({ error: 'Forbidden' }, 403);
+	}
+
+	await next();
+});
 
 app.get('/api/health', (c) => c.json({ ok: true }));
 
@@ -272,6 +389,130 @@ app.on(['GET', 'POST'], '/api/auth/*', async (c) => {
 		c.req.raw,
 	);
 	return auth.handler(c.req.raw);
+});
+
+app.get('/p/:projectId/__preview-auth/bootstrap', async (c) => {
+	const { projectId } = c.req.param();
+	if (!isValidProjectId(projectId)) {
+		return c.notFound();
+	}
+
+	const currentUrl = new URL(c.req.url);
+	const appOrigin = buildAppOrigin(parseHost(currentUrl.host).baseDomain, currentUrl.protocol);
+	const returnTo = c.req.query('returnTo');
+	if (!returnTo) {
+		return errorPage({
+			heading: 'Invalid preview link',
+			message: 'This preview link is missing its return target.',
+			homeUrl: `${appOrigin}/`,
+			status: 400,
+		});
+	}
+
+	let returnToUrl: URL;
+	try {
+		returnToUrl = new URL(returnTo);
+	} catch {
+		return errorPage({
+			heading: 'Invalid preview link',
+			message: 'This preview link could not be validated.',
+			homeUrl: `${appOrigin}/`,
+			status: 400,
+		});
+	}
+
+	const parsedReturnHost = parseHost(returnToUrl.host);
+	if (
+		parsedReturnHost.type !== 'preview' ||
+		parsedReturnHost.projectId !== projectId ||
+		parsedReturnHost.baseDomain !== parseHost(currentUrl.host).baseDomain
+	) {
+		return errorPage({
+			heading: 'Invalid preview link',
+			message: 'This preview link does not belong to this project.',
+			homeUrl: `${appOrigin}/`,
+			status: 400,
+		});
+	}
+
+	const secret = import.meta.env.DEV ? c.env.PREVIEW_SECRET || DEV_PREVIEW_SECRET : c.env.PREVIEW_SECRET;
+	const isValidToken = await validatePreviewToken(parsedReturnHost.projectId, parsedReturnHost.token, secret);
+	if (!isValidToken) {
+		return errorPage({
+			heading: 'Preview link expired',
+			message: 'This preview link is no longer valid. Open the editor to get a fresh preview link.',
+			homeUrl: `${appOrigin}/`,
+			status: 403,
+		});
+	}
+
+	const database = drizzle(c.env.DB);
+	const previewProjectRow = await database
+		.select({
+			deletedAt: authSchema.project.deletedAt,
+			projectBannedAt: authSchema.project.bannedAt,
+			orgBannedAt: authSchema.organization.bannedAt,
+			previewVisibility: authSchema.project.previewVisibility,
+			organizationId: authSchema.project.organizationId,
+		})
+		.from(authSchema.project)
+		.leftJoin(authSchema.organization, eq(authSchema.project.organizationId, authSchema.organization.id))
+		.where(eq(authSchema.project.id, projectId))
+		.limit(1);
+
+	if (previewProjectRow.length === 0 || previewProjectRow[0].deletedAt) {
+		return errorPage({
+			heading: 'Project not found',
+			message: "The project you're looking for doesn't exist or has expired.",
+			homeUrl: `${appOrigin}/`,
+			status: 404,
+		});
+	}
+
+	if (previewProjectRow[0].projectBannedAt || previewProjectRow[0].orgBannedAt) {
+		return errorPage({
+			heading: 'Access restricted',
+			message: 'Please contact us for assistance.',
+			homeUrl: `${appOrigin}/`,
+			status: 403,
+		});
+	}
+
+	if ((previewProjectRow[0].previewVisibility ?? 'public') !== 'private') {
+		return Response.redirect(returnToUrl.toString(), 302);
+	}
+
+	const session = await resolveSessionFromRequest(c.req.raw, c.env, appOrigin);
+	if (!session) {
+		return Response.redirect(buildPreviewAccessLoginUrl(appOrigin, currentUrl.toString()), 302);
+	}
+
+	const memberRow = await database
+		.select({ id: authSchema.member.id })
+		.from(authSchema.member)
+		.where(and(eq(authSchema.member.organizationId, previewProjectRow[0].organizationId), eq(authSchema.member.userId, session.userId)))
+		.limit(1);
+	if (memberRow.length === 0) {
+		return errorPage({
+			heading: 'Private project',
+			message: 'You do not have access to this preview.',
+			homeUrl: `${appOrigin}/`,
+			status: 403,
+		});
+	}
+
+	const grant = await createPreviewAccessGrant(
+		{
+			projectId,
+			previewToken: parsedReturnHost.token,
+			organizationId: previewProjectRow[0].organizationId,
+			userId: session.userId,
+			redirectPath: getRedirectPath(returnToUrl),
+		},
+		secret,
+	);
+
+	return Response.redirect(buildPreviewRedeemUrl(returnToUrl.origin, grant), 302);
 });
 
 app.get('/api/templates', (c) => {
@@ -429,7 +670,7 @@ function isDevelopmentInfrastructurePath(pathname: string): boolean {
  * Handle all requests on `<projectId>.preview.<baseDomain>`.
  * The request path maps directly to the user's project filesystem.
  */
-async function handlePreviewRequest(request: Request, projectId: string): Promise<Response> {
+async function handlePreviewRequest(request: Request, projectId: string, previewToken: string): Promise<Response> {
 	const previewStart = Date.now();
 	const url = new URL(request.url);
 
@@ -529,46 +770,62 @@ async function handlePreviewRequest(request: Request, projectId: string): Promis
 	}
 
 	const previewVisibility = previewProjectRow[0].previewVisibility ?? 'public';
+	const previewSecret = import.meta.env.DEV ? env.PREVIEW_SECRET || DEV_PREVIEW_SECRET : env.PREVIEW_SECRET;
 
-	// Enforce preview visibility: private previews require authenticated org membership
-	if (previewProjectRow[0].previewVisibility === 'private') {
-		const baseUrl = buildAppOrigin(parseHost(url.host).baseDomain, url.protocol);
-		const auth = createAuth(
-			{
-				DB: env.DB,
-				BETTER_AUTH_SECRET: env.BETTER_AUTH_SECRET,
-				GITHUB_CLIENT_ID: env.GITHUB_CLIENT_ID,
-				GITHUB_CLIENT_SECRET: env.GITHUB_CLIENT_SECRET,
-				GOOGLE_CLIENT_ID: env.GOOGLE_CLIENT_ID,
-				GOOGLE_CLIENT_SECRET: env.GOOGLE_CLIENT_SECRET,
-			},
-			baseUrl,
-		);
-		const session = await auth.api.getSession({ headers: request.headers });
-		if (!session) {
+	if (url.pathname === PREVIEW_ACCESS_REDEEM_PATH) {
+		const grantToken = url.searchParams.get('grant');
+		const grantPayload = grantToken ? await readPreviewAccessGrant(grantToken, previewSecret) : undefined;
+		if (!grantPayload || grantPayload.projectId !== projectId || grantPayload.previewToken !== previewToken) {
 			return trackAndReturn(
 				errorPage({
-					heading: 'Private project',
-					message: 'Sign in to access this preview.',
+					heading: 'Preview access expired',
+					message: 'This preview access link is no longer valid. Open the editor to get a fresh preview link.',
 					homeUrl,
 					status: 403,
 				}),
 				previewVisibility,
 			);
 		}
-		// Check that the authenticated user is a member of the project's org
-		const memberRow = await previewDatabase
-			.select({ id: authSchema.member.id })
-			.from(authSchema.member)
-			.where(and(eq(authSchema.member.organizationId, previewProjectRow[0].organizationId), eq(authSchema.member.userId, session.user.id)))
-			.limit(1);
-		if (memberRow.length === 0) {
+
+		const cookieToken = await createPreviewAccessCookieToken(
+			{
+				projectId,
+				previewToken,
+				organizationId: grantPayload.organizationId,
+				userId: grantPayload.userId,
+			},
+			previewSecret,
+		);
+		const headers = new Headers();
+		headers.set('Location', new URL(grantPayload.redirectPath, url.origin).toString());
+		for (const cookie of serializePreviewAccessCookie(cookieToken, url)) {
+			headers.append('Set-Cookie', cookie);
+		}
+		return trackAndReturn(new Response(undefined, { status: 302, headers }), previewVisibility);
+	}
+
+	// Enforce preview visibility with a preview-only host cookie. The preview host
+	// never receives app session cookies; it only sees its own scoped access grant.
+	if (previewProjectRow[0].previewVisibility === 'private') {
+		const previewAccess = await readPreviewAccessCookie(request.headers, previewSecret, projectId, previewToken, url);
+		if (!previewAccess) {
+			if (isNavigationRequest(request)) {
+				return trackAndReturn(
+					Response.redirect(buildPreviewAccessBootstrapUrl(appOrigin, projectId, url.toString()), 302),
+					previewVisibility,
+				);
+			}
+
 			return trackAndReturn(
-				errorPage({
-					heading: 'Private project',
-					message: 'You do not have access to this preview.',
-					homeUrl,
+				new Response('Forbidden', {
 					status: 403,
+					headers: (() => {
+						const headers = new Headers({ 'Cache-Control': 'no-cache' });
+						for (const cookie of clearPreviewAccessCookie(url)) {
+							headers.append('Set-Cookie', cookie);
+						}
+						return headers;
+					})(),
 				}),
 				previewVisibility,
 			);
@@ -579,11 +836,15 @@ async function handlePreviewRequest(request: Request, projectId: string): Promis
 		mount(PROJECT_ROOT, fsStub);
 
 		if (url.pathname === '/__ws' || url.pathname.startsWith('/__ws')) {
+			if (!hasValidWebSocketOrigin(request, url.origin)) {
+				return new Response('Forbidden', { status: 403 });
+			}
 			const coordinatorStub = coordinatorNamespace.getByName(`project:${projectId}`);
 			const wsUrl = new URL(request.url);
 			wsUrl.pathname = '/ws';
 			const wsRequest = new Request(wsUrl, request);
 			wsRequest.headers.set('x-project-id', projectId);
+			wsRequest.headers.set('x-worker-ide-client-kind', 'preview');
 			return coordinatorStub.fetch(wsRequest);
 		}
 
@@ -978,6 +1239,8 @@ app.all('/p/:projectId/*', async (c) => {
 	}
 
 	const { projectId, subPath } = projectRoute;
+	const requestUrl = new URL(c.req.url);
+	const appOrigin = buildAppOrigin(parseHost(requestUrl.host).baseDomain, requestUrl.protocol);
 
 	let fsId: DurableObjectId;
 	try {
@@ -1081,8 +1344,16 @@ app.all('/p/:projectId/*', async (c) => {
 	// "Missing namespace or room headers", which in the miniflare dev
 	// environment causes an ERR_ASSERTION crash in #handleLoopback.
 	if (subPath === '/__agent' || subPath.startsWith('/__agent')) {
+		if (
+			(c.req.raw.headers.has('Origin') || ['POST', 'PUT', 'PATCH', 'DELETE'].includes(c.req.method)) &&
+			!hasValidAppRequestOrigin(c.req.raw, appOrigin)
+		) {
+			return new Response('Forbidden', { status: 403 });
+		}
+		if (c.req.raw.headers.get('Upgrade') === 'websocket' && !hasValidWebSocketOrigin(c.req.raw, appOrigin)) {
+			return new Response('Forbidden', { status: 403 });
+		}
 		const agentStub = agentRunnerNamespace.getByName(`agent:${projectId}`);
-		const requestUrl = new URL(c.req.url);
 		const agentUrl = new URL(c.req.url);
 		agentUrl.pathname = '/';
 		const agentHeaders = new Headers(c.req.raw.headers);
@@ -1097,11 +1368,15 @@ app.all('/p/:projectId/*', async (c) => {
 		mount(PROJECT_ROOT, fsStub);
 
 		if (subPath === '/__ws' || subPath.startsWith('/__ws')) {
+			if (!hasValidWebSocketOrigin(c.req.raw, appOrigin)) {
+				return new Response('Forbidden', { status: 403 });
+			}
 			const coordinatorStub = coordinatorNamespace.getByName(`project:${projectId}`);
 			const wsUrl = new URL(c.req.url);
 			wsUrl.pathname = '/ws';
 			const wsRequest = new Request(wsUrl, c.req.raw);
 			wsRequest.headers.set('x-project-id', projectId);
+			wsRequest.headers.set('x-worker-ide-client-kind', 'ide');
 			return coordinatorStub.fetch(wsRequest);
 		}
 
@@ -1187,7 +1462,7 @@ export default {
 					}
 				}
 
-				return handlePreviewRequest(request, parsed.projectId);
+				return handlePreviewRequest(request, parsed.projectId, parsed.token);
 			}
 
 			case 'git': {
@@ -1197,7 +1472,7 @@ export default {
 			}
 
 			case 'app': {
-				return app.fetch(request, environment, executionContext);
+				return applyAppSecurityHeaders(await app.fetch(request, environment, executionContext));
 			}
 
 			case 'unknown': {

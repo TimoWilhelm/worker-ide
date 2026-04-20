@@ -7,9 +7,12 @@ import { trackWebSocketEvent } from '../lib/analytics';
 
 import type { HmrUpdate, Participant } from '@shared/types';
 import type { ServerMessage } from '@shared/ws-messages';
+type ProjectSocketClientKind = 'ide' | 'preview';
+
 interface ParticipantAttachment {
 	id: string;
 	color: string;
+	kind: ProjectSocketClientKind;
 	file?: string;
 	cursor?: { line: number; ch: number };
 	selection?: { anchor: { line: number; ch: number }; head: { line: number; ch: number } };
@@ -112,7 +115,7 @@ export class ProjectCoordinatorV2 extends DurableObject {
 		for (const ws of this.ctx.getWebSockets()) {
 			if (ws.readyState !== WebSocket.OPEN) continue;
 			const att = this.getAttachment(ws);
-			if (att?.joined && att.id !== excludeId) {
+			if (att?.kind === 'ide' && att.joined && att.id !== excludeId) {
 				participants.push({
 					id: att.id,
 					color: att.color,
@@ -129,7 +132,7 @@ export class ProjectCoordinatorV2 extends DurableObject {
 		for (const ws of this.ctx.getWebSockets()) {
 			if (ws === sender || ws.readyState !== WebSocket.OPEN) continue;
 			const att = this.getAttachment(ws);
-			if (!att?.joined) continue;
+			if (!att?.joined || att.kind !== 'ide') continue;
 			try {
 				ws.send(message);
 			} catch {
@@ -157,6 +160,23 @@ export class ProjectCoordinatorV2 extends DurableObject {
 		}
 	}
 
+	private sendToKind(kind: ProjectSocketClientKind, message: string): void {
+		for (const ws of this.ctx.getWebSockets()) {
+			if (ws.readyState !== WebSocket.OPEN) continue;
+			const att = this.getAttachment(ws);
+			if (!att || att.kind !== kind) continue;
+			try {
+				ws.send(message);
+			} catch {
+				try {
+					ws.close(1011, 'send failed');
+				} catch {
+					// Ignore close errors
+				}
+			}
+		}
+	}
+
 	async fetch(request: Request): Promise<Response> {
 		const url = new URL(request.url);
 
@@ -168,9 +188,11 @@ export class ProjectCoordinatorV2 extends DurableObject {
 
 		// WebSocket upgrade
 		if (url.pathname === '/ws' && request.headers.get('Upgrade') === 'websocket') {
+			const clientKind = request.headers.get('x-worker-ide-client-kind') === 'preview' ? 'preview' : 'ide';
 			// Enforce concurrent collaborator limit
 			const openSockets = this.ctx.getWebSockets().filter((ws) => ws.readyState === WebSocket.OPEN);
-			if (openSockets.length >= MAX_CONCURRENT_COLLABORATORS) {
+			const openIdeSockets = openSockets.filter((ws) => this.getAttachment(ws)?.kind === 'ide');
+			if (clientKind === 'ide' && openIdeSockets.length >= MAX_CONCURRENT_COLLABORATORS) {
 				return new Response('Too many collaborators', { status: 429 });
 			}
 
@@ -182,6 +204,7 @@ export class ProjectCoordinatorV2 extends DurableObject {
 			const attachment: ParticipantAttachment = {
 				id: participantId,
 				color,
+				kind: clientKind,
 				joined: false,
 			};
 
@@ -214,8 +237,10 @@ export class ProjectCoordinatorV2 extends DurableObject {
 		// Track last server-error so it can be replayed to late-joining clients
 		if (message.type === 'server-error') {
 			this.lastServerError = serialized;
+			this.sendToAll(serialized);
+			return;
 		}
-		this.sendToAll(serialized);
+		this.sendToKind('ide', serialized);
 	}
 
 	/**
@@ -295,6 +320,8 @@ export class ProjectCoordinatorV2 extends DurableObject {
 			const parsed = parseClientMessage(messageString);
 			if (!parsed.success) return;
 			const data = parsed.data;
+			const att = this.getAttachment(ws);
+			if (!att) return;
 
 			if (data.type === 'hmr-connect') {
 				// The HMR client sends its last-seen version after connecting
@@ -326,8 +353,14 @@ export class ProjectCoordinatorV2 extends DurableObject {
 			}
 
 			if (data.type === 'collab-join') {
-				const att = this.getAttachment(ws);
-				if (!att) return;
+				if (att.kind !== 'ide') {
+					try {
+						ws.close(1008, 'Forbidden');
+					} catch {
+						// Ignore close errors
+					}
+					return;
+				}
 				att.joined = true;
 				this.setAttachment(ws, att);
 
@@ -362,7 +395,7 @@ export class ProjectCoordinatorV2 extends DurableObject {
 			}
 
 			if (data.type === 'cursor-update') {
-				const att = this.getAttachment(ws);
+				if (att.kind !== 'ide') return;
 				if (!att?.joined) return;
 				att.file = data.file;
 				att.cursor = data.cursor;
@@ -383,7 +416,7 @@ export class ProjectCoordinatorV2 extends DurableObject {
 			}
 
 			if (data.type === 'file-edit') {
-				const att = this.getAttachment(ws);
+				if (att.kind !== 'ide') return;
 				if (!att?.joined) return;
 				this.sendToOthersJoined(
 					ws,
@@ -406,6 +439,7 @@ export class ProjectCoordinatorV2 extends DurableObject {
 			}
 
 			if (data.type === 'output-logs-sync') {
+				if (att.kind !== 'ide') return;
 				this.outputLogs = data.logs;
 				return;
 			}

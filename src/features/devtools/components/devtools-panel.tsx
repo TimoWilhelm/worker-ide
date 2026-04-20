@@ -36,34 +36,13 @@ function notifyDevtoolsOfNavigation(devtoolsWindow: Window, previewWindow: Windo
 }
 
 /**
- * Apply the resolved editor theme to the DevTools iframe.
+ * Apply the resolved editor theme to the sandboxed DevTools iframe.
  *
- * The chii DevTools frontend uses `prefers-color-scheme` media queries and
- * the `.-theme-with-dark-background` CSS class on `<html>` to switch themes.
- * Because the iframe is a same-origin blob URL we can manipulate its DOM
- * directly.  We:
- *   1. Set `<meta name="color-scheme">` so internal media queries resolve
- *      to the correct scheme (overrides the OS-level preference).
- *   2. Toggle the `.-theme-with-dark-background` class that the DevTools
- *      CSS hooks into for dark-mode styles.
+ * The iframe is intentionally sandboxed without `allow-same-origin`, so theme
+ * updates are forwarded via `postMessage` instead of direct DOM access.
  */
-function applyThemeToDevtools(iframe: HTMLIFrameElement | null, theme: 'light' | 'dark'): void {
-	const document_ = iframe?.contentDocument;
-	if (!document_) return;
-
-	const isDark = theme === 'dark';
-
-	// 1. Ensure a <meta name="color-scheme"> exists and reflects the theme.
-	let meta = document_.head.querySelector<HTMLMetaElement>('meta[name="color-scheme"]');
-	if (!meta) {
-		meta = document_.createElement('meta');
-		meta.name = 'color-scheme';
-		document_.head.append(meta);
-	}
-	meta.content = isDark ? 'dark' : 'light';
-
-	// 2. Toggle the class that the DevTools frontend checks for dark mode.
-	document_.documentElement.classList.toggle('-theme-with-dark-background', isDark);
+function postThemeToDevtools(devtoolsWindow: Window | null | undefined, theme: 'light' | 'dark'): void {
+	devtoolsWindow?.postMessage({ type: '__worker-ide-theme', theme }, '*');
 }
 
 export function DevelopmentToolsPanel({ previewIframeReference, previewOrigin, className }: DevelopmentToolsPanelProperties) {
@@ -84,6 +63,20 @@ export function DevelopmentToolsPanel({ previewIframeReference, previewOrigin, c
 }
 </style>
 <meta name="referrer" content="no-referrer">
+<script>
+window.addEventListener('message', function (event) {
+  if (!event.data || event.data.type !== '__worker-ide-theme') return;
+  var theme = event.data.theme === 'dark' ? 'dark' : 'light';
+  var meta = document.head.querySelector('meta[name="color-scheme"]');
+  if (!meta) {
+    meta = document.createElement('meta');
+    meta.name = 'color-scheme';
+    document.head.appendChild(meta);
+  }
+  meta.content = theme;
+  document.documentElement.classList.toggle('-theme-with-dark-background', theme === 'dark');
+});
+</script>
 <script src="https://unpkg.com/@ungap/custom-elements/es.js"></script>
 <script type="module" src="https://cdn.jsdelivr.net/npm/chii@1/public/front_end/entrypoints/chii_app/chii_app.js"></script>
 </head>
@@ -140,7 +133,7 @@ export function DevelopmentToolsPanel({ previewIframeReference, previewOrigin, c
 	// Also send LOADED in case the preview's __chobitsu-ready arrived first.
 	const handleDevtoolsLoad = () => {
 		devtoolsReadyReference.current = true;
-		applyThemeToDevtools(devtoolsIframeReference.current, resolvedTheme);
+		postThemeToDevtools(devtoolsIframeReference.current?.contentWindow, resolvedTheme);
 		if (previewOrigin) {
 			previewIframeReference.current?.contentWindow?.postMessage({ event: 'LOADED' }, previewOrigin);
 		}
@@ -149,7 +142,7 @@ export function DevelopmentToolsPanel({ previewIframeReference, previewOrigin, c
 	// Re-apply theme whenever the editor theme changes after initial load.
 	useEffect(() => {
 		if (devtoolsReadyReference.current) {
-			applyThemeToDevtools(devtoolsIframeReference.current, resolvedTheme);
+			postThemeToDevtools(devtoolsIframeReference.current?.contentWindow, resolvedTheme);
 		}
 	}, [resolvedTheme]);
 
@@ -160,6 +153,7 @@ export function DevelopmentToolsPanel({ previewIframeReference, previewOrigin, c
 				src={devtoolsSource}
 				onLoad={handleDevtoolsLoad}
 				className="size-full border-0"
+				sandbox="allow-scripts"
 				title="DevTools"
 			/>
 		</div>

@@ -57,10 +57,11 @@ export function PreviewPanel({
 	}, [pickerActive]);
 
 	const handleOpenExternal = useCallback(() => {
-		if (previewUrl) {
-			window.open(previewUrl, '_blank');
+		const externalPreviewUrl = previewOrigin ? `${previewOrigin}/` : previewUrl;
+		if (externalPreviewUrl) {
+			window.open(externalPreviewUrl, '_blank', 'noopener,noreferrer');
 		}
-	}, [previewUrl]);
+	}, [previewOrigin, previewUrl]);
 
 	const handleTogglePicker = useCallback(() => {
 		const didSendMessage = pickerActive ? cancelPreviewElementPicker() : startPreviewElementPicker();
@@ -102,6 +103,7 @@ export function PreviewPanel({
 	useEffect(() => {
 		const handleMessage = (event: MessageEvent) => {
 			if (event.source !== iframeReference.current?.contentWindow) return;
+			if (previewOrigin && event.origin !== previewOrigin) return;
 			if (typeof event.data === 'object' && event.data !== null && event.data.type === '__preview-expired') {
 				void refreshPreviewUrl();
 			}
@@ -109,7 +111,7 @@ export function PreviewPanel({
 
 		globalThis.addEventListener('message', handleMessage);
 		return () => globalThis.removeEventListener('message', handleMessage);
-	}, [iframeReference, refreshPreviewUrl]);
+	}, [iframeReference, previewOrigin, refreshPreviewUrl]);
 
 	useEffect(() => {
 		previewIframeReference.current = iframeReference.current ?? undefined;
@@ -237,6 +239,7 @@ export function PreviewPanel({
 							focusStyle="inset"
 							variant="ghost"
 							size="icon"
+							aria-label="Toggle DevTools"
 							className={cn('size-7', devtoolsVisible && 'text-accent')}
 							onClick={toggleDevtools}
 						>
@@ -244,12 +247,20 @@ export function PreviewPanel({
 						</Button>
 					</Tooltip>
 					<Tooltip content="Refresh">
-						<Button focusStyle="inset" variant="ghost" size="icon" className="size-7" onClick={handleRefresh}>
+						<Button focusStyle="inset" variant="ghost" size="icon" className="size-7" aria-label="Refresh" onClick={handleRefresh}>
 							<RefreshCw className="size-3.5" />
 						</Button>
 					</Tooltip>
 					<Tooltip content="Open in new tab">
-						<Button focusStyle="inset" variant="ghost" size="icon" className="size-7" onClick={handleOpenExternal} disabled={!previewUrl}>
+						<Button
+							focusStyle="inset"
+							variant="ghost"
+							size="icon"
+							className="size-7"
+							aria-label="Open in new tab"
+							onClick={handleOpenExternal}
+							disabled={!previewUrl}
+						>
 							<ExternalLink className="size-3.5" />
 						</Button>
 					</Tooltip>

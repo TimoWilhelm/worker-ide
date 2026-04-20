@@ -1,13 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { getBaseDomain, isPreviewOrigin } from '@shared/domain';
+import { previewIframeReference, previewOriginReference } from '@/features/preview/preview-iframe-reference';
 
 import { createApiClient } from './api-client';
 export function getProjectUrl(projectId: string): string {
 	return `/p/${projectId}`;
 }
 export function isMessageFromPreview(event: MessageEvent): boolean {
-	return isPreviewOrigin(event.origin, getBaseDomain(globalThis.location.host));
+	const previewWindow = previewIframeReference.current?.contentWindow;
+	const previewOrigin = previewOriginReference.current;
+	if (!previewWindow || !previewOrigin) {
+		return false;
+	}
+
+	return event.source === previewWindow && event.origin === previewOrigin;
 }
 
 interface PreviewUrlState {
@@ -20,9 +26,10 @@ interface PreviewUrlState {
 /**
  * Fetch and manage a signed preview URL for a project.
  *
- * The hook fetches a signed URL from `GET /api/preview-url` on mount
- * and exposes a `refresh()` function for the preview panel to call
- * when it detects a 403 (expired token).
+ * The hook fetches a preview URL from `GET /api/preview-url` on mount.
+ * For private previews this is a short-lived preview-host redeem URL that sets
+ * a preview-only cookie before redirecting to the actual preview origin. Direct
+ * shared preview links still use the preview-host bootstrap fallback.
  */
 export function usePreviewUrl(projectId: string): PreviewUrlState {
 	const [previewUrl, setPreviewUrl] = useState<string | undefined>();

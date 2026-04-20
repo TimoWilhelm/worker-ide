@@ -76,6 +76,7 @@ function buildAssetSecurityHeaders(ideOrigin: string): Record<string, string> {
 	return {
 		'Cross-Origin-Resource-Policy': 'same-site',
 		'Content-Security-Policy': `frame-ancestors ${ideOrigin}`,
+		'Referrer-Policy': 'no-referrer',
 	};
 }
 
@@ -355,7 +356,11 @@ export class PreviewService {
 
 			const apiUrl = new URL(request.url);
 			apiUrl.pathname = apiPath;
-			const apiRequest = new Request(apiUrl.toString(), request);
+			const headers = new Headers(request.headers);
+			for (const headerName of ['authorization', 'cookie', 'proxy-authorization']) {
+				headers.delete(headerName);
+			}
+			const apiRequest = new Request(apiUrl.toString(), { ...request, headers });
 
 			const entrypoint = worker.getEntrypoint();
 			return await entrypoint.fetch(apiRequest);
@@ -497,6 +502,7 @@ export class PreviewService {
 				'Content-Type': 'text/html',
 				'Cache-Control': 'no-cache',
 				'Content-Security-Policy': buildPreviewCsp(ideOrigin),
+				'Referrer-Policy': 'no-referrer',
 			},
 		});
 	}
@@ -543,6 +549,7 @@ export class PreviewService {
 							'Content-Type': 'text/html',
 							'Cache-Control': 'no-cache',
 							'Content-Security-Policy': buildPreviewCsp(ideOrigin),
+							'Referrer-Policy': 'no-referrer',
 						},
 					});
 				} catch {
