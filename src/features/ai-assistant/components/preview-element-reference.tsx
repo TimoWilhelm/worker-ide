@@ -7,6 +7,7 @@ import {
 	PREVIEW_REFERENCE_ICON_CLASS_NAME,
 	PREVIEW_REFERENCE_INTERACTIVE_CLASS_NAME,
 	PREVIEW_REFERENCE_LABEL_CLASS_NAME,
+	PREVIEW_REFERENCE_MISSING_CLASS_NAME,
 	PREVIEW_REFERENCE_SUMMARY_CLASS_NAME,
 	PREVIEW_REFERENCE_TEXT_ROW_CLASS_NAME,
 } from '@/features/ai-assistant/lib/reference-pill-styles';
@@ -44,7 +45,7 @@ export function PreviewElementReference({
 
 	const sharedClassName = cn(
 		PREVIEW_REFERENCE_BASE_CLASS_NAME,
-		availability === 'missing' && 'line-through opacity-65',
+		availability === 'missing' && PREVIEW_REFERENCE_MISSING_CLASS_NAME,
 		interactive && PREVIEW_REFERENCE_INTERACTIVE_CLASS_NAME,
 		interactive && (isMobile ? 'cursor-pointer' : 'cursor-default'),
 		className,

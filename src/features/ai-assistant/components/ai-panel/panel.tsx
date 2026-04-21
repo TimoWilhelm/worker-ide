@@ -31,6 +31,7 @@ import { isAgentState } from '@/features/ai-assistant/lib/agent-state';
 import { useSnapshots } from '@/features/snapshots';
 import { useMobileKeyboardLayout } from '@/hooks/use-mobile-keyboard-height';
 import { createApiClient, downloadDebugLog } from '@/lib/api-client';
+import { authClient } from '@/lib/auth-client';
 import { tweenFast } from '@/lib/motion-config';
 import { useStore } from '@/lib/store';
 import { cn, formatRelativeTime } from '@/lib/utils';
@@ -71,6 +72,7 @@ import { FileMentionDropdown } from '../file-mention-dropdown';
 import { RevertConfirmDialog } from '../revert-confirm-dialog';
 import { RichTextInput, type RichTextInputHandle } from '../rich-text-input';
 
+import type { SessionParticipantProfile } from '@shared/agent-state';
 import type { AIModelId } from '@shared/constants';
 import type { AgentMode, ChatMessage } from '@shared/types';
 
@@ -106,6 +108,7 @@ function createOptimisticUserMessage(
 	mode: AgentMode,
 	model: AIModelId,
 	state: 'queued' | 'committed',
+	authorUserId: string | undefined,
 	id: string,
 	createdAt: number,
 ): ChatMessage {
@@ -113,6 +116,7 @@ function createOptimisticUserMessage(
 		id,
 		role: 'user',
 		parts,
+		authorUserId,
 		createdAt,
 		metadata: {
 			request: {
@@ -150,6 +154,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	>();
 
 	const { files, agentMode, selectedModel, openFile, setAgentMode, setSelectedModel, clearPendingChangesByPaths } = useStore();
+	const { data: session } = authClient.useSession();
 	const pendingPreviewElementReferences = useStore((state) => state.pendingPreviewElementReferences);
 	const shiftPendingPreviewElementReference = useStore((state) => state.shiftPendingPreviewElementReference);
 	const requestedAgentSessionId = useStore((state) => state.requestedAgentSessionId);
@@ -159,6 +164,8 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	const rawState = agent.state;
 	const agentState = isAgentState(rawState) ? rawState : undefined;
 	const currentSession = agentState?.currentSession;
+	const sessionParticipants: Record<string, SessionParticipantProfile> = agentState?.sessionParticipants ?? {};
+	const currentUserId = session?.user.id;
 	const sessionId = currentSession?.sessionId;
 	const statusMessage = currentSession?.statusText;
 	const contextTokensUsed = currentSession?.contextTokensUsed ?? 0;
@@ -605,6 +612,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 				agentMode,
 				selectedModel,
 				isProcessing || isStopPending || stopRequested ? 'queued' : 'committed',
+				currentUserId,
 				optimisticMessageId,
 				optimisticCreatedAt,
 			);
@@ -647,6 +655,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 			projectId,
 			agentMode,
 			selectedModel,
+			currentUserId,
 			scrollToBottom,
 			speechToText,
 			submitOptimisticMessage,
@@ -1223,6 +1232,8 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 											key={message.id}
 											message={message}
 											messageIndex={index}
+											currentUserId={currentUserId}
+											sessionParticipants={sessionParticipants}
 											agentMode={message.metadata?.request?.mode}
 											modelId={message.metadata?.request?.model}
 											isClientOnly={localOnlyMessageIds.has(message.id)}
@@ -1361,6 +1372,8 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 							{queuedMessages.length > 0 && (
 								<QueuedSteeringStrip
 									messages={queuedMessages}
+									currentUserId={currentUserId}
+									sessionParticipants={sessionParticipants}
 									localOnlyMessageIds={localOnlyMessageIds}
 									onRemoveMessage={handleRemoveQueuedMessage}
 								/>

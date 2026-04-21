@@ -2,6 +2,7 @@ import { act, fireEvent, render, waitFor } from '@testing-library/react';
 import { createRef, useState } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { resolvePreviewElement } from '@/features/preview/preview-iframe-reference';
 import { serializePreviewElementReference } from '@/lib/preview-element-reference';
 
 import { RichTextInput, type RichTextInputHandle } from './rich-text-input';
@@ -26,6 +27,10 @@ vi.mock('@/features/ai-assistant/lib/reference-actions', () => ({
 	}),
 }));
 
+vi.mock('@/features/preview/preview-iframe-reference', () => ({
+	resolvePreviewElement: vi.fn(),
+}));
+
 const previewReference = {
 	tagName: 'div',
 	primarySelector: '#hero',
@@ -48,6 +53,7 @@ function ControlledRichTextInput({
 describe('RichTextInput', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		vi.mocked(resolvePreviewElement).mockResolvedValue(true);
 	});
 
 	it('restores the cursor to a requested offset', () => {
@@ -147,6 +153,17 @@ describe('RichTextInput', () => {
 
 		fireEvent.click(textbox.querySelector('[data-preview-element-reference]')!);
 
-		expect(mockActivateReference).toHaveBeenCalledWith(previewReference);
+		expect(mockActivateReference).toHaveBeenCalledWith(previewReference, expect.any(Function));
+	});
+
+	it('crosses out draft preview pills when the referenced element cannot be resolved', async () => {
+		vi.mocked(resolvePreviewElement).mockResolvedValue(false);
+
+		const { getByRole } = render(<ControlledRichTextInput initialSegments={[{ type: 'preview-element', ...previewReference }]} />);
+		const textbox = getByRole('textbox');
+
+		await waitFor(() => {
+			expect(textbox.querySelector('[data-preview-element-reference]')).toHaveClass('line-through', 'opacity-65');
+		});
 	});
 });

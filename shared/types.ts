@@ -605,6 +605,7 @@ export interface ChatMessage {
 	id: string;
 	role: 'user' | 'assistant';
 	parts: MessagePart[];
+	authorUserId?: string;
 	createdAt?: number;
 	metadata?: {
 		request?: {

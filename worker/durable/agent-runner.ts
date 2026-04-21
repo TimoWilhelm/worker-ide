@@ -1,14 +1,17 @@
 import { ExtensionManager } from '@cloudflare/think/extensions';
-import { Agent, callable } from 'agents';
+import { Agent, callable, getCurrentAgent } from 'agents';
 import { AgentSearchProvider, SessionManager } from 'agents/experimental/memory/session';
 import { createCompactFunction } from 'agents/experimental/memory/utils';
 import { generateText } from 'ai';
 import { env } from 'cloudflare:workers';
+import { eq, inArray } from 'drizzle-orm';
+import { drizzle } from 'drizzle-orm/d1';
 import { mount, withMounts } from 'worker-fs-mount';
 
 import { messagePartsHaveUserContent, messagePartsToPromptText } from '@shared/chat-message-parts';
 import {
 	AGENT_SYSTEM_PROMPT,
+	COLLAB_COLORS,
 	DEFAULT_AI_MODEL,
 	MAX_AI_SESSIONS_PER_PROJECT,
 	SUMMARIZATION_AI_MODEL,
@@ -43,6 +46,7 @@ import {
 import { getCommittedMessages, mergeQueuedMessages, promoteNextQueuedMessage } from './session-history';
 import { AgentSessionStore } from './session-store';
 import { SessionStreamState } from './session-stream-state';
+import * as authSchema from '../db/auth-schema';
 import { trackAiUsage, trackWebSocketEvent } from '../lib/analytics';
 import { filesystemNamespace } from '../lib/durable-object-namespaces';
 import { toDurableObjectId } from '../lib/project-id';
@@ -65,7 +69,7 @@ import { createAdapter as createWorkersAiAdapter } from '../services/ai-agent/wo
 
 import type { AgentDatabase } from './db';
 import type { RequestOriginContext } from '../services/ai-agent/request-origin-context';
-import type { AgentState, AgentSessionState, FiberSnapshot, SessionSummary } from '@shared/agent-state';
+import type { AgentState, AgentSessionState, FiberSnapshot, SessionParticipantProfile, SessionSummary } from '@shared/agent-state';
 import type { AIModelId } from '@shared/constants';
 import type { AgentMode, AgentSessionStatus, AiSession, ChatMessage, PendingFileChange, ReviewEntry, UserMessagePart } from '@shared/types';
 
@@ -77,6 +81,49 @@ const SESSION_COMPACTION_MIN_TAIL_MESSAGES = 4;
 const ROOT_MEMORY_MAX_TOKENS = 2000;
 const PROJECT_ROOT = '/project';
 const MAX_SESSIONS = MAX_AI_SESSIONS_PER_PROJECT;
+
+type AgentConnection = import('agents').Connection<unknown>;
+
+interface ConnectionIdentityAttachment extends SessionParticipantProfile {
+	userId: string;
+}
+
+function isConnectionIdentityAttachment(value: unknown): value is ConnectionIdentityAttachment {
+	if (!value || typeof value !== 'object' || Array.isArray(value)) {
+		return false;
+	}
+
+	return (
+		'userId' in value &&
+		typeof value.userId === 'string' &&
+		'name' in value &&
+		typeof value.name === 'string' &&
+		'color' in value &&
+		typeof value.color === 'string' &&
+		(!('image' in value) || typeof value.image === 'string' || value.image === undefined)
+	);
+}
+
+function hashString(value: string): number {
+	let hash = 0;
+	for (const character of value) {
+		hash = (hash << 5) - hash + (character.codePointAt(0) ?? 0);
+		hash = Math.trunc(hash);
+	}
+	return Math.abs(hash);
+}
+
+function getParticipantColor(userId: string): string {
+	return COLLAB_COLORS[hashString(userId) % COLLAB_COLORS.length] ?? COLLAB_COLORS[0];
+}
+
+function getParticipantProfile(identity: ConnectionIdentityAttachment): SessionParticipantProfile {
+	return {
+		name: identity.name,
+		image: identity.image,
+		color: identity.color,
+	};
+}
 
 function sanitizeSubmittedUserMessageParts(parts: unknown): UserMessagePart[] {
 	if (!Array.isArray(parts)) {
@@ -134,6 +181,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	initialState: AgentState = {
 		currentSession: undefined,
 		sessions: [],
+		sessionParticipants: {},
 		reviewEntries: {},
 		reviewSummary: { unresolvedCount: 0, reviewVersion: 0, sessionCounts: {} },
 	};
@@ -224,8 +272,8 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		},
 	});
 	private sessionInitiatorUserIds = new Map<string, string>();
-	private connectionUserIds = new Map<string, string>();
 	private requestOriginContext?: RequestOriginContext;
+	private sessionMutationTails = new Map<string, Promise<void>>();
 	private sessionAnalytics = new Map<
 		string,
 		{ inputTokens: number; outputTokens: number; durationMs: number; toolCallCount: number; turnNumber: number }
@@ -254,6 +302,34 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		}
 		if (!Array.isArray(nextState.sessions)) {
 			throw new TypeError('AgentState.sessions must be an array');
+		}
+		if (
+			typeof nextState.sessionParticipants !== 'object' ||
+			Array.isArray(nextState.sessionParticipants) ||
+			!nextState.sessionParticipants
+		) {
+			throw new TypeError('AgentState.sessionParticipants must be an object');
+		}
+	}
+
+	private async withSessionMutationLock<T>(sessionId: string, callback: () => Promise<T>): Promise<T> {
+		const previousTail = this.sessionMutationTails.get(sessionId) ?? Promise.resolve();
+		let resolveCurrentTail: (() => void) | undefined;
+		const currentTail = new Promise<void>((resolve) => {
+			resolveCurrentTail = resolve;
+		});
+		const nextTail = previousTail.catch(() => {}).then(() => currentTail);
+		this.sessionMutationTails.set(sessionId, nextTail);
+
+		await previousTail.catch(() => {});
+
+		try {
+			return await callback();
+		} finally {
+			resolveCurrentTail?.();
+			if (this.sessionMutationTails.get(sessionId) === nextTail) {
+				this.sessionMutationTails.delete(sessionId);
+			}
 		}
 	}
 
@@ -300,18 +376,27 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	/**
 	 * Called by the Agents SDK when a new WebSocket connection is established.
 	 * Extracts the authenticated userId forwarded by the main Worker and stores
-	 * it keyed by connection ID for later use in @callable methods.
+	 * the resolved user identity in the WebSocket attachment so it survives
+	 * hibernation and can be read back from @callable methods.
 	 */
-	async onConnect(connection: import('agents').Connection<unknown>, context: import('agents').ConnectionContext): Promise<void> {
+	async onConnect(connection: AgentConnection, context: import('agents').ConnectionContext): Promise<void> {
 		await super.onConnect(connection, context);
 		const userId = context.request?.headers.get('x-worker-ide-user-id');
 		const baseDomain = context.request?.headers.get('x-worker-ide-base-domain');
 		const protocol = context.request?.headers.get('x-worker-ide-protocol');
 		if (userId) {
-			this.connectionUserIds.set(connection.id, userId);
+			const identity = await this.loadConnectionIdentity(userId);
+			connection.serializeAttachment(identity);
+			this.setSessionParticipants({
+				...this.state.sessionParticipants,
+				[identity.userId]: getParticipantProfile(identity),
+			});
 		}
 		if (baseDomain && protocol) {
 			this.persistRequestOriginContext({ baseDomain, protocol });
+		}
+		if (this.state.currentSession) {
+			await this.syncStateSessionParticipants(this.state.currentSession.messages);
 		}
 
 		trackWebSocketEvent({
@@ -319,35 +404,154 @@ export class AgentRunner extends Agent<Env, AgentState> {
 			eventType: 'connect',
 			connectionType: 'agent',
 			userId: userId ?? undefined,
-			concurrentConnections: this.connectionUserIds.size,
+			concurrentConnections: this.getConnectedConnectionCount(),
 		});
 	}
 
-	onClose(connection: import('agents').Connection<unknown>): void {
-		this.connectionUserIds.delete(connection.id);
-
+	onClose(_connection: AgentConnection): void {
 		trackWebSocketEvent({
 			projectId: this.ctx.id.toString(),
 			eventType: 'disconnect',
 			connectionType: 'agent',
-			concurrentConnections: this.connectionUserIds.size,
+			concurrentConnections: this.getConnectedConnectionCount(),
 		});
 	}
 
-	/**
-	 * Get the authenticated user ID for the current caller.
-	 * Falls back to scanning all connections when exact match is not found.
-	 */
-	private getAuthenticatedUserId(): string | undefined {
-		// If there's only one connection, return its userId (most common case)
-		if (this.connectionUserIds.size === 1) {
-			return [...this.connectionUserIds.values()][0];
+	private getConnectionIdentity(connection: WebSocket | AgentConnection | undefined): ConnectionIdentityAttachment | undefined {
+		if (!connection) {
+			return undefined;
 		}
-		// Return the first userId found (all connections are pre-authed by the main Worker)
-		for (const userId of this.connectionUserIds.values()) {
-			return userId;
+
+		try {
+			const attachment: unknown = connection.deserializeAttachment();
+			return isConnectionIdentityAttachment(attachment) ? attachment : undefined;
+		} catch {
+			return undefined;
 		}
-		return undefined;
+	}
+
+	private getCurrentCallerIdentity(): ConnectionIdentityAttachment | undefined {
+		return this.getConnectionIdentity(getCurrentAgent().connection);
+	}
+
+	private getConnectedConnectionCount(): number {
+		let count = 0;
+		for (const connection of this.ctx.getWebSockets()) {
+			if (connection.readyState === WebSocket.OPEN && this.getConnectionIdentity(connection)) {
+				count += 1;
+			}
+		}
+		return count;
+	}
+
+	private getLiveConnectionParticipants(): Record<string, SessionParticipantProfile> {
+		const participants: Record<string, SessionParticipantProfile> = {};
+		for (const connection of this.ctx.getWebSockets()) {
+			if (connection.readyState !== WebSocket.OPEN) {
+				continue;
+			}
+			const identity = this.getConnectionIdentity(connection);
+			if (identity) {
+				participants[identity.userId] = getParticipantProfile(identity);
+			}
+		}
+		return participants;
+	}
+
+	private setSessionParticipants(sessionParticipants: Record<string, SessionParticipantProfile>): void {
+		if (this.state.sessionParticipants === sessionParticipants) {
+			return;
+		}
+
+		this.setState({
+			...this.state,
+			sessionParticipants,
+		});
+	}
+
+	private async loadConnectionIdentity(userId: string): Promise<ConnectionIdentityAttachment> {
+		// Failures here must never reject the WebSocket handshake — fall back to a
+		// minimal identity so the connection still succeeds. The worst case is a
+		// participant displayed as "Unknown" until their profile is refreshed.
+		try {
+			const database = drizzle(env.DB);
+			const userRows = await database
+				.select({ name: authSchema.user.name, image: authSchema.user.image })
+				.from(authSchema.user)
+				.where(eq(authSchema.user.id, userId))
+				.limit(1);
+
+			return {
+				userId,
+				name: userRows[0]?.name ?? 'Unknown',
+				image: userRows[0]?.image ?? undefined,
+				color: getParticipantColor(userId),
+			};
+		} catch (error) {
+			console.error('[AgentRunner] Failed to load connection identity from D1:', error);
+			return {
+				userId,
+				name: 'Unknown',
+				color: getParticipantColor(userId),
+			};
+		}
+	}
+
+	private async resolveSessionParticipants(messages: readonly ChatMessage[]): Promise<Record<string, SessionParticipantProfile>> {
+		const nextParticipants = { ...this.state.sessionParticipants };
+		const unresolvedUserIds = new Set<string>();
+
+		for (const message of messages) {
+			if (!message.authorUserId || nextParticipants[message.authorUserId]) {
+				continue;
+			}
+
+			const liveIdentity = [...this.ctx.getWebSockets()]
+				.map((connection) => this.getConnectionIdentity(connection))
+				.find((identity) => identity?.userId === message.authorUserId);
+			if (liveIdentity) {
+				nextParticipants[liveIdentity.userId] = getParticipantProfile(liveIdentity);
+				continue;
+			}
+
+			unresolvedUserIds.add(message.authorUserId);
+		}
+
+		const missingUserIds = [...unresolvedUserIds];
+		if (missingUserIds.length > 0) {
+			const database = drizzle(env.DB);
+			const userRows = await database
+				.select({ id: authSchema.user.id, name: authSchema.user.name, image: authSchema.user.image })
+				.from(authSchema.user)
+				.where(inArray(authSchema.user.id, missingUserIds));
+
+			for (const userRow of userRows) {
+				nextParticipants[userRow.id] = {
+					name: userRow.name,
+					image: userRow.image ?? undefined,
+					color: getParticipantColor(userRow.id),
+				};
+			}
+
+			for (const userId of missingUserIds) {
+				if (nextParticipants[userId]) {
+					continue;
+				}
+
+				nextParticipants[userId] = {
+					name: 'Unknown',
+					color: getParticipantColor(userId),
+				};
+			}
+		}
+
+		return nextParticipants;
+	}
+
+	private async syncStateSessionParticipants(messages: readonly ChatMessage[]): Promise<Record<string, SessionParticipantProfile>> {
+		const sessionParticipants = await this.resolveSessionParticipants(messages);
+		this.setSessionParticipants(sessionParticipants);
+		return sessionParticipants;
 	}
 
 	private persistRequestOriginContext(context: RequestOriginContext): void {
@@ -559,6 +763,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 			initiatorUserId,
 		};
 
+		await this.syncStateSessionParticipants(messages);
 		await this.refreshSessionPrompt(sessionId);
 
 		await this.launchAgentLoop(parameters, sessionId);
@@ -623,79 +828,111 @@ export class AgentRunner extends Agent<Env, AgentState> {
 			this.submitMessageRequestCache,
 			messageId ? `submitMessage:${resolvedSessionId}:${messageId}` : undefined,
 			async () => {
-				const authenticatedUserId = this.getAuthenticatedUserId();
-				const persistedSession = this.agentSessionStore.read(resolvedSessionId);
-				const persistedHistory = persistedSession?.history ?? [];
-				const duplicateMessage = messageId ? persistedHistory.find((message) => message.id === messageId) : undefined;
-				if (duplicateMessage) {
-					const duplicateQueued = duplicateMessage.role === 'user' && duplicateMessage.metadata?.request?.state === 'queued';
-					return {
-						sessionId: resolvedSessionId,
-						queued: duplicateQueued,
-						started: !duplicateQueued,
-					};
-				}
-				const liveHistory =
-					this.state.currentSession?.sessionId === resolvedSessionId ? this.state.currentSession.messages : persistedHistory;
-				const stopRequested = persistedSession?.stopRequested ?? false;
-				const isRunActive = this.abortControllers.has(resolvedSessionId);
-				const shouldQueue = isRunActive || stopRequested;
-				const userMessage = this.buildUserMessage(sanitizedParts, mode, model, shouldQueue ? 'queued' : 'committed', messageId, createdAt);
+				const callerIdentity = this.getCurrentCallerIdentity();
+				const authenticatedUserId = callerIdentity?.userId;
 
-				const promptPreview = deriveFallbackTitle(promptText, 80);
-				this.ensureSessionRecord(resolvedSessionId, promptPreview, model, mode);
+				return this.withSessionMutationLock(resolvedSessionId, async () => {
+					const persistedSession = this.agentSessionStore.read(resolvedSessionId);
+					const persistedHistory = persistedSession?.history ?? [];
+					const duplicateMessage = messageId ? persistedHistory.find((message) => message.id === messageId) : undefined;
+					if (duplicateMessage) {
+						const duplicateQueued = duplicateMessage.role === 'user' && duplicateMessage.metadata?.request?.state === 'queued';
+						return {
+							sessionId: resolvedSessionId,
+							queued: duplicateQueued,
+							started: !duplicateQueued,
+						};
+					}
 
-				const durableHistory = [...persistedHistory, userMessage];
-				await this.agentSessionStore.persistHistory(resolvedSessionId, durableHistory, stopRequested);
+					if (callerIdentity) {
+						this.setSessionParticipants({
+							...this.state.sessionParticipants,
+							[callerIdentity.userId]: getParticipantProfile(callerIdentity),
+						});
+					}
 
-				if (shouldQueue) {
-					this.updateSessionState(resolvedSessionId, {
-						messages: [...liveHistory, userMessage],
-						stopRequested,
-						status:
-							this.state.currentSession?.sessionId === resolvedSessionId
-								? this.state.currentSession.status
-								: isRunActive
-									? 'running'
-									: 'idle',
-						statusText:
-							this.state.currentSession?.sessionId === resolvedSessionId
-								? this.state.currentSession.statusText
-								: persistedSession?.status === 'running'
-									? 'Thinking...'
-									: undefined,
-					});
-					return { sessionId: resolvedSessionId, queued: true, started: false };
-				}
+					const liveHistory =
+						this.state.currentSession?.sessionId === resolvedSessionId ? this.state.currentSession.messages : persistedHistory;
+					const stopRequested = persistedSession?.stopRequested ?? false;
+					const isRunActive = this.abortControllers.has(resolvedSessionId);
+					const shouldQueue = isRunActive || stopRequested;
+					const userMessage = this.buildUserMessage(
+						sanitizedParts,
+						mode,
+						model,
+						shouldQueue ? 'queued' : 'committed',
+						authenticatedUserId,
+						messageId,
+						createdAt,
+					);
 
-				await this.startAgentRun(projectId, getCommittedMessages(durableHistory), mode, model, resolvedSessionId, authenticatedUserId);
-				return { sessionId: resolvedSessionId, queued: false, started: true };
+					const promptPreview = deriveFallbackTitle(promptText, 80);
+					this.ensureSessionRecord(resolvedSessionId, promptPreview, model, mode);
+
+					const durableHistory = [...persistedHistory, userMessage];
+					await this.agentSessionStore.persistHistory(resolvedSessionId, durableHistory, stopRequested);
+
+					if (shouldQueue) {
+						this.updateSessionState(resolvedSessionId, {
+							messages: [...liveHistory, userMessage],
+							stopRequested,
+							status:
+								this.state.currentSession?.sessionId === resolvedSessionId
+									? this.state.currentSession.status
+									: isRunActive
+										? 'running'
+										: 'idle',
+							statusText:
+								this.state.currentSession?.sessionId === resolvedSessionId
+									? this.state.currentSession.statusText
+									: persistedSession?.status === 'running'
+										? 'Thinking...'
+										: undefined,
+						});
+						return { sessionId: resolvedSessionId, queued: true, started: false };
+					}
+
+					await this.startAgentRun(projectId, getCommittedMessages(durableHistory), mode, model, resolvedSessionId, authenticatedUserId);
+					return { sessionId: resolvedSessionId, queued: false, started: true };
+				});
 			},
 		);
 	}
 
 	@callable()
 	async removeQueuedMessage(sessionId: string, messageId: string): Promise<{ removed: boolean }> {
-		const session = this.agentSessionStore.read(sessionId);
-		if (!session) {
-			return { removed: false };
-		}
+		const callerIdentity = this.getCurrentCallerIdentity();
 
-		const nextHistory = session.history.filter(
-			(message) => !(message.id === messageId && message.role === 'user' && message.metadata?.request?.state === 'queued'),
-		);
-		if (nextHistory.length === session.history.length) {
-			return { removed: false };
-		}
+		return this.withSessionMutationLock(sessionId, async () => {
+			const session = this.agentSessionStore.read(sessionId);
+			if (!session) {
+				return { removed: false };
+			}
 
-		this.sessionManager.deleteMessages(sessionId, [messageId]);
-		deleteSessionMessageMetadata(this.db, sessionId, [messageId]);
-		this.agentSessionStore.writeMetadata(sessionId, { stopRequested: session.stopRequested });
-		if (this.state.currentSession?.sessionId === sessionId) {
-			this.updateSessionState(sessionId, { messages: nextHistory, stopRequested: session.stopRequested ?? false });
-		}
+			const targetMessage = session.history.find(
+				(message) => message.id === messageId && message.role === 'user' && message.metadata?.request?.state === 'queued',
+			);
+			if (!targetMessage) {
+				return { removed: false };
+			}
 
-		return { removed: true };
+			// Only the author of a queued message may remove it. Legacy messages without
+			// an authorUserId predate this tracking and are allowed through for any caller.
+			if (targetMessage.authorUserId && targetMessage.authorUserId !== callerIdentity?.userId) {
+				throw new Error('Not authorized to remove this queued message.');
+			}
+
+			const nextHistory = session.history.filter((message) => message.id !== messageId);
+
+			this.sessionManager.deleteMessages(sessionId, [messageId]);
+			deleteSessionMessageMetadata(this.db, sessionId, [messageId]);
+			this.agentSessionStore.writeMetadata(sessionId, { stopRequested: session.stopRequested });
+			if (this.state.currentSession?.sessionId === sessionId) {
+				this.updateSessionState(sessionId, { messages: nextHistory, stopRequested: session.stopRequested ?? false });
+			}
+
+			return { removed: true };
+		});
 	}
 
 	@callable()
@@ -713,36 +950,55 @@ export class AgentRunner extends Agent<Env, AgentState> {
 			this.startRunRequestCache,
 			requestId ? `startRun:${resolvedSessionId}:${requestId}` : undefined,
 			async () => {
-				const authenticatedUserId = this.getAuthenticatedUserId();
-				const latestUserMessage = messages.toReversed().find((message) => message.role === 'user');
-				const promptPreview = deriveFallbackTitle(latestUserMessage ? messagePartsToPromptText(latestUserMessage.parts).trim() : '', 80);
+				const callerIdentity = this.getCurrentCallerIdentity();
+				const authenticatedUserId = callerIdentity?.userId;
 
-				this.ensureSessionRecord(resolvedSessionId, promptPreview, model, mode);
-				const normalizedMessages = messages.map((message) => {
-					if (message.role !== 'user') {
-						return message;
+				return this.withSessionMutationLock(resolvedSessionId, async () => {
+					const latestUserMessage = messages.toReversed().find((message) => message.role === 'user');
+					const promptPreview = deriveFallbackTitle(latestUserMessage ? messagePartsToPromptText(latestUserMessage.parts).trim() : '', 80);
+
+					this.ensureSessionRecord(resolvedSessionId, promptPreview, model, mode);
+					if (callerIdentity) {
+						this.setSessionParticipants({
+							...this.state.sessionParticipants,
+							[callerIdentity.userId]: getParticipantProfile(callerIdentity),
+						});
 					}
 
-					const normalizedParts = sanitizeSubmittedUserMessageParts(message.parts);
+					const normalizedMessages = messages.map((message) => {
+						if (message.role !== 'user') {
+							return message;
+						}
 
-					const normalizedMessage: ChatMessage = {
-						...message,
-						parts: normalizedParts,
-						metadata: {
-							...message.metadata,
-							request: {
-								mode: message.metadata?.request?.mode ?? mode,
-								model: message.metadata?.request?.model ?? model,
-								state: 'committed',
+						const normalizedParts = sanitizeSubmittedUserMessageParts(message.parts);
+
+						const normalizedMessage: ChatMessage = {
+							...message,
+							authorUserId: message.authorUserId ?? authenticatedUserId,
+							parts: normalizedParts,
+							metadata: {
+								...message.metadata,
+								request: {
+									mode: message.metadata?.request?.mode ?? mode,
+									model: message.metadata?.request?.model ?? model,
+									state: 'committed',
+								},
 							},
-						},
-					};
+						};
 
-					return normalizedMessage;
+						return normalizedMessage;
+					});
+
+					await this.agentSessionStore.persistHistory(resolvedSessionId, normalizedMessages, false);
+					return this.startAgentRun(
+						projectId,
+						getCommittedMessages(normalizedMessages),
+						mode,
+						model,
+						resolvedSessionId,
+						authenticatedUserId,
+					);
 				});
-
-				await this.agentSessionStore.persistHistory(resolvedSessionId, normalizedMessages, false);
-				return this.startAgentRun(projectId, getCommittedMessages(normalizedMessages), mode, model, resolvedSessionId, authenticatedUserId);
 			},
 		);
 	}
@@ -750,15 +1006,17 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	@callable()
 	async abortRun(sessionId?: string): Promise<void> {
 		if (sessionId) {
-			const session = this.agentSessionStore.read(sessionId);
-			if (!session) {
-				return;
-			}
+			await this.withSessionMutationLock(sessionId, async () => {
+				const session = this.agentSessionStore.read(sessionId);
+				if (!session) {
+					return;
+				}
 
-			await this.agentSessionStore.persistHistory(sessionId, session.history, true);
-			this.updateSessionState(sessionId, {
-				stopRequested: true,
-				statusText: 'Stopping...',
+				await this.agentSessionStore.persistHistory(sessionId, session.history, true);
+				this.updateSessionState(sessionId, {
+					stopRequested: true,
+					statusText: 'Stopping...',
+				});
 			});
 
 			const controller = this.abortControllers.get(sessionId);
@@ -774,14 +1032,16 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		}
 
 		for (const [runningSessionId, controller] of this.abortControllers.entries()) {
-			const session = this.agentSessionStore.read(runningSessionId);
-			if (session) {
-				await this.agentSessionStore.persistHistory(runningSessionId, session.history, true);
-				this.updateSessionState(runningSessionId, {
-					stopRequested: true,
-					statusText: 'Stopping...',
-				});
-			}
+			await this.withSessionMutationLock(runningSessionId, async () => {
+				const session = this.agentSessionStore.read(runningSessionId);
+				if (session) {
+					await this.agentSessionStore.persistHistory(runningSessionId, session.history, true);
+					this.updateSessionState(runningSessionId, {
+						stopRequested: true,
+						statusText: 'Stopping...',
+					});
+				}
+			});
 			controller.abort();
 		}
 
@@ -814,9 +1074,11 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		// Update agent state so all clients see the loaded session
 		const pendingChangesMap = this.loadPendingChangesFromDatabase();
 		const isRunning = this.abortControllers.has(sessionId);
+		const sessionParticipants = await this.resolveSessionParticipants(session.history);
 
 		this.setState({
 			...this.state,
+			sessionParticipants,
 			currentSession: {
 				sessionId,
 				title: session.title,
@@ -880,6 +1142,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 			if (this.state.currentSession?.sessionId === sessionId) {
 				this.setState({
 					...this.state,
+					sessionParticipants: this.getLiveConnectionParticipants(),
 					currentSession: undefined,
 				});
 			}
@@ -895,11 +1158,14 @@ export class AgentRunner extends Agent<Env, AgentState> {
 
 		const forkedSession = await this.sessionManager.fork(sessionId, targetMessage.id, `${sourceSession.name} (fork)`);
 		const sourceAiSession = this.agentSessionStore.read(sessionId);
-		const sourceMetadataByMessageId = new Map(sourceAiSession?.history.map((message) => [message.id, message.metadata]));
+		const sourceMessageStateByMessageId = new Map(
+			sourceAiSession?.history.map((message) => [message.id, { authorUserId: message.authorUserId, metadata: message.metadata }]),
+		);
 		const forkedHistory = sessionMessagesToChatMessages(this.sessionManager.getHistory(forkedSession.id));
 		const truncatedHistory = forkedHistory.map((message) => ({
 			...message,
-			metadata: sourceMetadataByMessageId.get(message.id),
+			authorUserId: sourceMessageStateByMessageId.get(message.id)?.authorUserId,
+			metadata: sourceMessageStateByMessageId.get(message.id)?.metadata,
 		}));
 		const sourceMetadata = this.agentSessionStore.getMetadata(sessionId);
 		const modelMessages = chatMessagesToModelMessages(truncatedHistory);
@@ -936,16 +1202,30 @@ export class AgentRunner extends Agent<Env, AgentState> {
 
 		// Update state for connected clients
 		if (this.state.currentSession?.sessionId === sessionId) {
-			this.updateSessionState(forkedSession.id, {
-				status: 'idle',
-				statusText: undefined,
-				error: undefined,
-				messages: truncatedHistory,
-				toolMetadata: {},
-				toolErrors: {},
-				stopRequested: false,
-				pendingChanges: this.loadPendingChangesFromDatabase(),
-				contextTokensUsed,
+			const sessionParticipants = await this.resolveSessionParticipants(truncatedHistory);
+			this.setState({
+				...this.state,
+				sessionParticipants,
+				currentSession: {
+					sessionId: forkedSession.id,
+					title: forkedSession.name,
+					status: 'idle',
+					statusText: undefined,
+					error: undefined,
+					messages: truncatedHistory,
+					contextTokensUsed,
+					pendingChanges: this.loadPendingChangesFromDatabase(),
+					toolMetadata: {},
+					toolErrors: {},
+					debugLogId: undefined,
+					stopRequested: false,
+					pendingQuestion: undefined,
+					needsContinuation: false,
+					doomLoopMessage: undefined,
+					subAgentActivities: {},
+					contextBlocksSummary: this.getContextBlocksSummary(forkedSession.id),
+					extensions: this.getLoadedExtensionsSummary(),
+				},
 			});
 		}
 
@@ -1013,7 +1293,11 @@ export class AgentRunner extends Agent<Env, AgentState> {
 
 		// Clear current session for all clients if this was the active session
 		if (this.state.currentSession?.sessionId === sessionId) {
-			this.setState({ ...this.state, currentSession: undefined });
+			this.setState({
+				...this.state,
+				currentSession: undefined,
+				sessionParticipants: this.getLiveConnectionParticipants(),
+			});
 		}
 
 		await this.refreshSessionsList();
@@ -1083,7 +1367,11 @@ export class AgentRunner extends Agent<Env, AgentState> {
 				await loopPromise.catch(() => {});
 			}
 		}
-		this.setState({ ...this.state, currentSession: undefined });
+		this.setState({
+			...this.state,
+			currentSession: undefined,
+			sessionParticipants: this.getLiveConnectionParticipants(),
+		});
 	}
 	@callable()
 	async getRunningSessionIds(): Promise<string[]> {
@@ -1314,29 +1602,32 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		sessionId: string,
 		sessionData: import('../services/ai-agent/types').SessionPersistData,
 	): Promise<void> {
-		const existing = this.agentSessionStore.getMetadata(sessionId);
-		const toolMetadata = { ...existing.toolMetadata, ...sessionData.toolMetadata };
-		const toolErrors = { ...existing.toolErrors, ...sessionData.toolErrors };
-		const mergedHistory = mergeQueuedMessages(sessionData.history, this.getSessionHistory(sessionId));
+		await this.withSessionMutationLock(sessionId, async () => {
+			const existing = this.agentSessionStore.getMetadata(sessionId);
+			const toolMetadata = { ...existing.toolMetadata, ...sessionData.toolMetadata };
+			const toolErrors = { ...existing.toolErrors, ...sessionData.toolErrors };
+			const mergedHistory = mergeQueuedMessages(sessionData.history, this.getSessionHistory(sessionId));
 
-		await this.agentSessionStore.replaceHistory(sessionId, mergedHistory);
+			await this.agentSessionStore.replaceHistory(sessionId, mergedHistory);
+			await this.syncStateSessionParticipants(mergedHistory);
 
-		this.agentSessionStore.writeMetadata(sessionId, {
-			titleGenerated: existing.titleGenerated,
-			contextTokensUsed: sessionData.contextTokensUsed,
-			toolMetadata: Object.keys(toolMetadata).length > 0 ? toolMetadata : undefined,
-			toolErrors: Object.keys(toolErrors).length > 0 ? toolErrors : undefined,
-			status: sessionData.error ? 'error' : existing.status,
-			errorMessage: sessionData.error?.message ?? existing.errorMessage,
-			stopRequested: existing.stopRequested,
+			this.agentSessionStore.writeMetadata(sessionId, {
+				titleGenerated: existing.titleGenerated,
+				contextTokensUsed: sessionData.contextTokensUsed,
+				toolMetadata: Object.keys(toolMetadata).length > 0 ? toolMetadata : undefined,
+				toolErrors: Object.keys(toolErrors).length > 0 ? toolErrors : undefined,
+				status: sessionData.error ? 'error' : existing.status,
+				errorMessage: sessionData.error?.message ?? existing.errorMessage,
+				stopRequested: existing.stopRequested,
+			});
+
+			this.reviewQueue.syncSessionPendingChanges(sessionId, sessionData.pendingChanges ?? {});
+			this.refreshReviewState();
+
+			if (sessionData.fiberSnapshot) {
+				this.stash(sessionData.fiberSnapshot);
+			}
 		});
-
-		this.reviewQueue.syncSessionPendingChanges(sessionId, sessionData.pendingChanges ?? {});
-		this.refreshReviewState();
-
-		if (sessionData.fiberSnapshot) {
-			this.stash(sessionData.fiberSnapshot);
-		}
 	}
 
 	// =========================================================================
@@ -1501,6 +1792,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 				request_mode TEXT,
 				request_model TEXT,
 				request_state TEXT,
+				author_user_id TEXT,
 				parts_json TEXT,
 				snapshot_id TEXT,
 				PRIMARY KEY(session_id, message_id)
@@ -1508,6 +1800,11 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		`);
 		try {
 			this.ctx.storage.sql.exec('ALTER TABLE session_message_metadata ADD COLUMN parts_json TEXT');
+		} catch {
+			// Column already exists.
+		}
+		try {
+			this.ctx.storage.sql.exec('ALTER TABLE session_message_metadata ADD COLUMN author_user_id TEXT');
 		} catch {
 			// Column already exists.
 		}
@@ -1599,6 +1896,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		mode: AgentMode,
 		model: AIModelId,
 		state: 'queued' | 'committed',
+		authorUserId?: string,
 		messageId = crypto.randomUUID(),
 		createdAt = Date.now(),
 	): ChatMessage {
@@ -1606,6 +1904,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 			id: messageId,
 			role: 'user',
 			parts,
+			authorUserId,
 			createdAt,
 			metadata: {
 				request: {
@@ -1632,25 +1931,27 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	}
 
 	private async maybeStartNextQueuedRun(projectId: string, sessionId: string, initiatorUserId: string | undefined): Promise<boolean> {
-		const session = this.agentSessionStore.read(sessionId);
-		if (!session) {
-			return false;
-		}
+		return this.withSessionMutationLock(sessionId, async () => {
+			const session = this.agentSessionStore.read(sessionId);
+			if (!session) {
+				return false;
+			}
 
-		const { history, promotedMessage } = promoteNextQueuedMessage(session.history);
-		if (!promotedMessage) {
-			await this.agentSessionStore.persistHistory(sessionId, session.history, false);
-			return false;
-		}
+			const { history, promotedMessage } = promoteNextQueuedMessage(session.history);
+			if (!promotedMessage) {
+				await this.agentSessionStore.persistHistory(sessionId, session.history, false);
+				return false;
+			}
 
-		const request = promotedMessage.metadata?.request;
-		const mode = request?.mode ?? 'code';
-		const model = request?.model ?? DEFAULT_AI_MODEL;
-		const committedMessages = getCommittedMessages(history);
+			const request = promotedMessage.metadata?.request;
+			const mode = request?.mode ?? 'code';
+			const model = request?.model ?? DEFAULT_AI_MODEL;
+			const committedMessages = getCommittedMessages(history);
 
-		await this.agentSessionStore.persistHistory(sessionId, history, false);
-		await this.startAgentRun(projectId, committedMessages, mode, model, sessionId, initiatorUserId);
-		return true;
+			await this.agentSessionStore.persistHistory(sessionId, history, false);
+			await this.startAgentRun(projectId, committedMessages, mode, model, sessionId, initiatorUserId);
+			return true;
+		});
 	}
 
 	private loadPendingChangesFromDatabase(): Record<string, PendingFileChange> {

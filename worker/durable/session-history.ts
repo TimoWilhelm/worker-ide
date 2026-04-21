@@ -139,6 +139,7 @@ export function applyPersistedMessageMetadata(history: ChatMessage[], rows: Sess
 
 		return {
 			...message,
+			authorUserId: row.authorUserId ?? message.authorUserId,
 			parts: persistedParts ?? message.parts,
 			metadata: {
 				...message.metadata,
@@ -156,7 +157,7 @@ export function serializePersistedMessageMetadata(sessionId: string, history: Ch
 		const partsJson =
 			message.role === 'user' && message.parts.some((part) => part.type === 'preview-element') ? JSON.stringify(message.parts) : undefined;
 		const snapshotId = message.metadata?.snapshotId;
-		if (!request && !snapshotId && !partsJson) {
+		if (!request && !snapshotId && !partsJson && !message.authorUserId) {
 			continue;
 		}
 
@@ -166,6 +167,7 @@ export function serializePersistedMessageMetadata(sessionId: string, history: Ch
 			requestMode: request?.mode,
 			requestModel: request?.model,
 			requestState: request?.state,
+			authorUserId: message.authorUserId,
 			partsJson,
 			snapshotId,
 		});

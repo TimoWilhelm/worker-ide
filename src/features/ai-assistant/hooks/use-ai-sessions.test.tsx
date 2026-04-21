@@ -76,6 +76,7 @@ describe('useAiSessions', () => {
 				{ id: 'session-1', title: 'Session 1', createdAt: 1, isRunning: false },
 				{ id: 'session-2', title: 'Session 2', createdAt: 2, isRunning: false },
 			],
+			sessionParticipants: {},
 			reviewEntries: {
 				'/src/a.ts': createReviewEntry('/src/a.ts', 'session-1'),
 			},
@@ -115,6 +116,7 @@ describe('useAiSessions', () => {
 		const state: AgentState = {
 			currentSession: createCurrentSession('session-1'),
 			sessions: [{ id: 'session-1', title: 'Session 1', createdAt: 1, isRunning: false }],
+			sessionParticipants: {},
 			reviewEntries: {
 				'/src/a.ts': createReviewEntry('/src/a.ts', 'session-1'),
 			},
@@ -152,6 +154,7 @@ describe('useAiSessions', () => {
 		const state: AgentState = {
 			currentSession,
 			sessions: [{ id: 'session-2', title: 'Session 2', createdAt: 2, isRunning: true }],
+			sessionParticipants: {},
 			reviewEntries: {},
 			reviewSummary: {
 				unresolvedCount: 0,
@@ -202,6 +205,7 @@ describe('useAiSessions', () => {
 		const state: AgentState = {
 			currentSession: undefined,
 			sessions: [],
+			sessionParticipants: {},
 			reviewEntries: {},
 			reviewSummary: {
 				unresolvedCount: 0,
@@ -232,6 +236,7 @@ describe('useAiSessions', () => {
 		const state: AgentState = {
 			currentSession: createCurrentSession('session-3'),
 			sessions: [{ id: 'session-3', title: 'Session 3', createdAt: 3, isRunning: false }],
+			sessionParticipants: {},
 			reviewEntries: {},
 			reviewSummary: {
 				unresolvedCount: 0,

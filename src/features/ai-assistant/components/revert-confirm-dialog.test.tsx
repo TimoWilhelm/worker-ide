@@ -26,7 +26,7 @@ describe('RevertConfirmDialog', () => {
 			/>,
 		);
 
-		expect(screen.getByText(/no files will change/i)).toBeInTheDocument();
+		expect(screen.getByText(/your files stay as they are/i)).toBeInTheDocument();
 		fireEvent.click(screen.getByRole('button', { name: 'Revert' }));
 		expect(onConfirm).toHaveBeenCalledWith([], 2);
 	});

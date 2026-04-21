@@ -71,6 +71,7 @@ const mockAgentRuntimeValue = {
 		state: {
 			currentSession: undefined,
 			sessions: [],
+			sessionParticipants: {},
 			reviewEntries: {},
 			reviewSummary: { unresolvedCount: 0, reviewVersion: 0, sessionCounts: {} },
 		},

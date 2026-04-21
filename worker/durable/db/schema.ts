@@ -103,6 +103,7 @@ export const sessionMessageMetadata = sqliteTable(
 		requestMode: text('request_mode'),
 		requestModel: text('request_model'),
 		requestState: text('request_state'),
+		authorUserId: text('author_user_id'),
 		partsJson: text('parts_json'),
 		snapshotId: text('snapshot_id'),
 	},

@@ -47,7 +47,7 @@ import { FileReference } from '../file-reference';
 import { MarkdownContent } from '../markdown-content';
 import { PreviewElementReference } from '../preview-element-reference';
 
-import type { SubAgentActivityRecord } from '@shared/agent-state';
+import type { SessionParticipantProfile, SubAgentActivityRecord } from '@shared/agent-state';
 import type {
 	AgentMode,
 	ChatMessage,
@@ -182,6 +182,8 @@ export function WelcomeScreen({
 export function MessageBubble({
 	message,
 	messageIndex,
+	currentUserId,
+	sessionParticipants,
 	agentMode,
 	modelId,
 	isClientOnly = false,
@@ -198,6 +200,8 @@ export function MessageBubble({
 }: {
 	message: ChatMessage;
 	messageIndex: number;
+	currentUserId?: string;
+	sessionParticipants: Record<string, SessionParticipantProfile>;
 	agentMode?: AgentMode;
 	modelId?: string;
 	isClientOnly?: boolean;
@@ -221,6 +225,8 @@ export function MessageBubble({
 			<UserMessage
 				message={message}
 				messageIndex={messageIndex}
+				currentUserId={currentUserId}
+				sessionParticipants={sessionParticipants}
 				agentMode={agentMode}
 				modelId={modelId}
 				isClientOnly={isClientOnly}
@@ -261,9 +267,38 @@ const MODE_BADGE_STYLES: Record<AgentMode, { label: string; pillColor: NonNullab
 	ask: { label: 'Ask', pillColor: 'sky' },
 };
 
+function resolveAuthorName(
+	authorUserId: string | undefined,
+	currentUserId: string | undefined,
+	sessionParticipants: Record<string, SessionParticipantProfile>,
+): string {
+	if (authorUserId && currentUserId && authorUserId === currentUserId) {
+		return 'You';
+	}
+
+	if (!authorUserId) {
+		return 'Unknown';
+	}
+
+	return sessionParticipants[authorUserId]?.name ?? 'Unknown';
+}
+
+function resolveAuthorColor(
+	authorUserId: string | undefined,
+	sessionParticipants: Record<string, SessionParticipantProfile>,
+): string | undefined {
+	if (!authorUserId) {
+		return undefined;
+	}
+
+	return sessionParticipants[authorUserId]?.color;
+}
+
 function UserMessage({
 	message,
 	messageIndex,
+	currentUserId,
+	sessionParticipants,
 	agentMode,
 	modelId,
 	isClientOnly,
@@ -274,6 +309,8 @@ function UserMessage({
 }: {
 	message: ChatMessage;
 	messageIndex: number;
+	currentUserId?: string;
+	sessionParticipants: Record<string, SessionParticipantProfile>;
 	agentMode?: AgentMode;
 	modelId?: string;
 	isClientOnly: boolean;
@@ -290,6 +327,7 @@ function UserMessage({
 	const bubbleStyle = agentMode ? MODE_BUBBLE_STYLES[agentMode] : 'border-accent/20 bg-accent/10';
 	const badge = agentMode ? MODE_BADGE_STYLES[agentMode] : undefined;
 	const modelLabel = modelId ? getModelLabel(modelId) : undefined;
+	const authorName = resolveAuthorName(message.authorUserId, currentUserId, sessionParticipants);
 
 	return (
 		<motion.div
@@ -301,7 +339,7 @@ function UserMessage({
 		>
 			<div className="flex items-center justify-between">
 				<div className="flex items-center gap-1.5">
-					<span className="text-2xs font-semibold tracking-wider text-accent uppercase">You</span>
+					<span className="text-2xs font-semibold tracking-wider text-accent">{authorName}</span>
 					{badge && (
 						<Pill size="xs" color={badge.pillColor}>
 							{badge.label}
@@ -2031,10 +2069,14 @@ function getQueuedMessageText(message: ChatMessage): string {
 
 export function QueuedSteeringStrip({
 	messages,
+	currentUserId,
+	sessionParticipants,
 	localOnlyMessageIds,
 	onRemoveMessage,
 }: {
 	messages: ChatMessage[];
+	currentUserId?: string;
+	sessionParticipants: Record<string, SessionParticipantProfile>;
 	localOnlyMessageIds?: Set<string>;
 	onRemoveMessage: (messageId: string) => void;
 }) {
@@ -2080,6 +2122,8 @@ export function QueuedSteeringStrip({
 					const previewText = abbreviateQueuedMessage(getQueuedMessageText(message), 64);
 					const isInteractiveCard = isExpanded || isFrontCard;
 					const isClientOnly = localOnlyMessageIds?.has(message.id) ?? false;
+					const authorName = resolveAuthorName(message.authorUserId, currentUserId, sessionParticipants);
+					const authorColor = resolveAuthorColor(message.authorUserId, sessionParticipants);
 
 					return (
 						<motion.div
@@ -2124,11 +2168,21 @@ export function QueuedSteeringStrip({
 											<Pill size="xs" color="purple">
 												{messages.length} queued
 											</Pill>
+											<span
+												className="size-2.5 shrink-0 rounded-full border border-white/15"
+												style={authorColor ? { backgroundColor: authorColor } : undefined}
+												title={authorName}
+											/>
 											<span className="min-w-0 truncate text-sm font-medium text-text-primary">{previewText}</span>
 										</div>
 									</button>
 								) : isExpanded ? (
 									<div className="flex min-w-0 flex-1 items-center gap-2 text-left">
+										<span
+											className="size-2.5 shrink-0 rounded-full border border-white/15"
+											style={authorColor ? { backgroundColor: authorColor } : undefined}
+											title={authorName}
+										/>
 										<span className="min-w-0 truncate text-sm font-medium text-text-primary">{previewText}</span>
 									</div>
 								) : (

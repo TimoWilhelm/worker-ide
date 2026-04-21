@@ -14,6 +14,7 @@ function createQueuedMessage(id: string, content: string): ChatMessage {
 	return {
 		id,
 		role: 'user',
+		authorUserId: `user-${id}`,
 		parts: [{ type: 'text', content }],
 		createdAt: 1,
 		metadata: {
@@ -36,6 +37,13 @@ describe('QueuedSteeringStrip', () => {
 					createQueuedMessage('3', 'Third queued message'),
 					createQueuedMessage('4', 'Fourth queued message'),
 				]}
+				currentUserId="user-1"
+				sessionParticipants={{
+					'user-1': { name: 'Taylor', color: '#f97316' },
+					'user-2': { name: 'Alex', color: '#22d3ee' },
+					'user-3': { name: 'Sam', color: '#a78bfa' },
+					'user-4': { name: 'Jordan', color: '#f472b6' },
+				}}
 				onRemoveMessage={() => {}}
 			/>,
 		);
@@ -54,6 +62,13 @@ describe('QueuedSteeringStrip', () => {
 					createQueuedMessage('3', 'Third queued message'),
 					createQueuedMessage('4', 'Fourth queued message'),
 				]}
+				currentUserId="user-1"
+				sessionParticipants={{
+					'user-1': { name: 'Taylor', color: '#f97316' },
+					'user-2': { name: 'Alex', color: '#22d3ee' },
+					'user-3': { name: 'Sam', color: '#a78bfa' },
+					'user-4': { name: 'Jordan', color: '#f472b6' },
+				}}
 				onRemoveMessage={() => {}}
 			/>,
 		);
@@ -65,6 +80,7 @@ describe('QueuedSteeringStrip', () => {
 			expect(screen.getAllByLabelText('Remove queued message')).toHaveLength(4);
 		});
 		expect(screen.getByText('Fourth queued message')).toBeInTheDocument();
+		expect(screen.getByTitle('Alex')).toBeInTheDocument();
 	});
 
 	it('calls onRemoveMessage for the chosen card', async () => {
@@ -72,6 +88,11 @@ describe('QueuedSteeringStrip', () => {
 		renderWithProviders(
 			<QueuedSteeringStrip
 				messages={[createQueuedMessage('1', 'First queued message'), createQueuedMessage('2', 'Second queued message')]}
+				currentUserId="user-1"
+				sessionParticipants={{
+					'user-1': { name: 'Taylor', color: '#f97316' },
+					'user-2': { name: 'Alex', color: '#22d3ee' },
+				}}
 				onRemoveMessage={onRemoveMessage}
 			/>,
 		);
@@ -91,6 +112,10 @@ describe('QueuedSteeringStrip', () => {
 		renderWithProviders(
 			<QueuedSteeringStrip
 				messages={[createQueuedMessage('1', 'First queued message')]}
+				currentUserId="user-1"
+				sessionParticipants={{
+					'user-1': { name: 'Taylor', color: '#f97316' },
+				}}
 				localOnlyMessageIds={new Set(['1'])}
 				onRemoveMessage={() => {}}
 			/>,
@@ -108,6 +133,7 @@ describe('MessageBubble', () => {
 				message={{
 					id: 'user-1',
 					role: 'user',
+					authorUserId: 'user-1',
 					parts: [{ type: 'text', content: 'Fix the bug' }],
 					createdAt: 1,
 					metadata: {
@@ -119,6 +145,8 @@ describe('MessageBubble', () => {
 					},
 				}}
 				messageIndex={0}
+				currentUserId="user-1"
+				sessionParticipants={{ 'user-1': { name: 'Taylor', color: '#f97316' } }}
 				canRevert
 				isReverting={false}
 				onRevert={onRevert}
@@ -157,5 +185,34 @@ describe('MessageBubble', () => {
 		const toolCallToggle = screen.getByRole('button', { name: /file read/i });
 		expect(screen.getByText('main.ts').closest('[role="button"]')).toBeInTheDocument();
 		expect(toolCallToggle.tagName).toBe('DIV');
+	});
+
+	it('shows collaborator names for non-self user messages', () => {
+		renderWithProviders(
+			<MessageBubble
+				message={{
+					id: 'user-2-message',
+					role: 'user',
+					authorUserId: 'user-2',
+					parts: [{ type: 'text', content: 'Please check the queue' }],
+					createdAt: 2,
+					metadata: {
+						request: {
+							state: 'committed',
+							mode: 'code',
+							model: '@cf/moonshotai/kimi-k2.5',
+						},
+					},
+				}}
+				messageIndex={1}
+				currentUserId="user-1"
+				sessionParticipants={{ 'user-2': { name: 'Alex', color: '#22d3ee' } }}
+				canRevert={false}
+				isReverting={false}
+				onRevert={() => {}}
+			/>,
+		);
+
+		expect(screen.getByText('Alex')).toBeInTheDocument();
 	});
 });

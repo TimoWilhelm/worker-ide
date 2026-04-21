@@ -10,6 +10,12 @@ import type {
 } from './types';
 import type { ModelMessage } from 'ai';
 
+export interface SessionParticipantProfile {
+	name: string;
+	image?: string;
+	color: string;
+}
+
 /**
  * The top-level state shape for the AgentRunner Durable Object.
  * Auto-synced to all connected clients via the Agents SDK.
@@ -17,6 +23,7 @@ import type { ModelMessage } from 'ai';
 export interface AgentState {
 	currentSession: AgentSessionState | undefined;
 	sessions: SessionSummary[];
+	sessionParticipants: Record<string, SessionParticipantProfile>;
 	reviewEntries: Record<string, ReviewEntry>;
 	reviewSummary: ReviewSummary;
 }

@@ -62,6 +62,7 @@ const mocks = vi.hoisted(() => {
 				messages: [{ id: 'message-1', role: 'user', parts: [{ type: 'text', content: 'Hello' }], createdAt: 1 }],
 			},
 			sessions: [{ id: 'session-1', title: 'Current session', createdAt: 1, isRunning: true }],
+			sessionParticipants: {},
 		},
 		identified: true,
 		call: agentCall,
@@ -212,6 +213,12 @@ vi.mock('@/lib/api-client', () => ({
 		},
 	}),
 	downloadDebugLog: vi.fn(async () => {}),
+}));
+
+vi.mock('@/lib/auth-client', () => ({
+	authClient: {
+		useSession: () => ({ data: { user: { id: 'user-1' } } }),
+	},
 }));
 
 vi.mock('@/lib/store', () => ({ useStore: useMockStore }));

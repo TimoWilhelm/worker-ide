@@ -19,7 +19,7 @@ import type { DrizzleD1Database } from 'drizzle-orm/d1';
 const PROJECT_DELETED_VIA_PROJECT = 'project';
 const PROJECT_DELETED_VIA_ORGANIZATION = 'organization';
 
-export async function softDeleteProjectById(
+async function softDeleteProjectById(
 	database: DrizzleD1Database,
 	projectId: string,
 	now: Date,

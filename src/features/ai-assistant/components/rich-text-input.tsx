@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
+import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import { usePreviewReferenceInteractions } from '@/features/ai-assistant/lib/reference-actions';
@@ -10,9 +10,11 @@ import {
 	PREVIEW_REFERENCE_ICON_CLASS_NAME,
 	PREVIEW_REFERENCE_INTERACTIVE_CLASS_NAME,
 	PREVIEW_REFERENCE_LABEL_CLASS_NAME,
+	PREVIEW_REFERENCE_MISSING_CLASS_NAME,
 	PREVIEW_REFERENCE_SUMMARY_CLASS_NAME,
 	PREVIEW_REFERENCE_TEXT_ROW_CLASS_NAME,
 } from '@/features/ai-assistant/lib/reference-pill-styles';
+import { resolvePreviewElement } from '@/features/preview/preview-iframe-reference';
 import { useFileTargetOpener } from '@/lib/file-target';
 import { deserializePreviewElementReference, serializePreviewElementReference } from '@/lib/preview-element-reference';
 import { cn } from '@/lib/utils';
@@ -23,7 +25,7 @@ import {
 	getPreviewElementSummary,
 } from '@shared/preview-element';
 
-import { segmentsToPlainText, type InputSegment } from '../lib/input-segments';
+import { segmentsToPlainText, type InputSegment, type PreviewElementSegment } from '../lib/input-segments';
 
 import type { PreviewElementReference } from '@shared/types';
 
@@ -41,6 +43,20 @@ const PREVIEW_ELEMENT_REFERENCE_ATTR = 'data-preview-element-reference';
 
 function getFileName(path: string): string {
 	return path.split('/').pop() ?? path;
+}
+
+function areSetsEqual(left: ReadonlySet<string>, right: ReadonlySet<string>): boolean {
+	if (left.size !== right.size) {
+		return false;
+	}
+
+	for (const value of left) {
+		if (!right.has(value)) {
+			return false;
+		}
+	}
+
+	return true;
 }
 
 function normalizeContainerDom(container: HTMLElement): void {
@@ -310,7 +326,7 @@ function createPillElement(path: string): HTMLButtonElement {
 	return pill;
 }
 
-function createPreviewElementPillElement(reference: PreviewElementReference): HTMLButtonElement {
+function createPreviewElementPillElement(reference: PreviewElementReference, isMissing = false): HTMLButtonElement {
 	const pill = document.createElement('button');
 	pill.type = 'button';
 	pill.setAttribute(PREVIEW_ELEMENT_REFERENCE_ATTR, serializePreviewElementReference(reference));
@@ -318,6 +334,7 @@ function createPreviewElementPillElement(reference: PreviewElementReference): HT
 	pill.contentEditable = 'false';
 	pill.className = [
 		PREVIEW_REFERENCE_BASE_CLASS_NAME,
+		isMissing ? PREVIEW_REFERENCE_MISSING_CLASS_NAME : '',
 		PREVIEW_REFERENCE_INTERACTIVE_CLASS_NAME,
 		'mx-0.5 align-baseline cursor-pointer select-none',
 	].join(' ');
@@ -401,8 +418,49 @@ export function RichTextInput({
 	const lastRenderedSegmentsReference = useRef<InputSegment[]>([]);
 	const lastCursorOffsetReference = useRef(0);
 	const hoveredPreviewElementKeyReference = useRef<string | undefined>(undefined);
+	const [missingPreviewElementReferenceKeys, setMissingPreviewElementReferenceKeys] = useState<ReadonlySet<string>>(() => new Set());
+	const activePreviewElementReferenceKeys = useMemo(
+		() =>
+			new Set(
+				segments
+					.filter((segment): segment is PreviewElementSegment => segment.type === 'preview-element')
+					.map((segment) => getPreviewElementReferenceKey(segment)),
+			),
+		[segments],
+	);
+	const activeMissingPreviewElementReferenceKeys = useMemo(() => {
+		const nextKeys = new Set(
+			[...missingPreviewElementReferenceKeys].filter((referenceKey) => activePreviewElementReferenceKeys.has(referenceKey)),
+		);
+
+		return areSetsEqual(missingPreviewElementReferenceKeys, nextKeys) ? missingPreviewElementReferenceKeys : nextKeys;
+	}, [activePreviewElementReferenceKeys, missingPreviewElementReferenceKeys]);
 	const openFileTarget = useFileTargetOpener();
 	const { activateReference, clearReferenceHighlight, hoverReference } = usePreviewReferenceInteractions();
+
+	const updatePreviewReferenceAvailability = useCallback((reference: PreviewElementReference, found: boolean) => {
+		const referenceKey = getPreviewElementReferenceKey(reference);
+		setMissingPreviewElementReferenceKeys((currentKeys) => {
+			const isMissing = currentKeys.has(referenceKey);
+			if (!found) {
+				if (isMissing) {
+					return currentKeys;
+				}
+
+				const nextKeys = new Set(currentKeys);
+				nextKeys.add(referenceKey);
+				return nextKeys;
+			}
+
+			if (!isMissing) {
+				return currentKeys;
+			}
+
+			const nextKeys = new Set(currentKeys);
+			nextKeys.delete(referenceKey);
+			return nextKeys;
+		});
+	}, []);
 
 	// Persistent DOM node used as a portal target for inlineSuffix.
 	// Created once via lazy useState initializer and re-appended after
@@ -448,7 +506,9 @@ export function RichTextInput({
 			} else if (segment.type === 'mention') {
 				container.append(createPillElement(segment.path));
 			} else {
-				container.append(createPreviewElementPillElement(segment));
+				container.append(
+					createPreviewElementPillElement(segment, activeMissingPreviewElementReferenceKeys.has(getPreviewElementReferenceKey(segment))),
+				);
 			}
 		}
 
@@ -466,7 +526,7 @@ export function RichTextInput({
 		}
 
 		suppressInputReference.current = false;
-	}, [segments, inlineSuffix, suffixAnchor]);
+	}, [activeMissingPreviewElementReferenceKeys, inlineSuffix, segments, suffixAnchor]);
 
 	// Expose imperative handle
 	useImperativeHandle(ref, () => ({
@@ -530,7 +590,12 @@ export function RichTextInput({
 					} else if (segment.type === 'mention') {
 						liveContainer.append(createPillElement(segment.path));
 					} else {
-						liveContainer.append(createPreviewElementPillElement(segment));
+						liveContainer.append(
+							createPreviewElementPillElement(
+								segment,
+								activeMissingPreviewElementReferenceKeys.has(getPreviewElementReferenceKey(segment)),
+							),
+						);
 					}
 				}
 				suppressInputReference.current = false;
@@ -563,6 +628,62 @@ export function RichTextInput({
 			renderSegments();
 		}
 	}, [segments, renderSegments]);
+
+	useEffect(() => {
+		renderSegments();
+	}, [renderSegments]);
+
+	useEffect(() => {
+		const previewReferences = segments.filter((segment): segment is PreviewElementSegment => segment.type === 'preview-element');
+		const previewReferenceKeys = new Set(previewReferences.map((reference) => getPreviewElementReferenceKey(reference)));
+
+		if (previewReferences.length === 0) {
+			return;
+		}
+
+		const uniquePreviewReferences = [
+			...new Map(previewReferences.map((reference) => [getPreviewElementReferenceKey(reference), reference])).values(),
+		];
+		let isCancelled = false;
+
+		void Promise.all(uniquePreviewReferences.map(async (reference) => ({ reference, found: await resolvePreviewElement(reference) }))).then(
+			(results) => {
+				if (isCancelled) {
+					return;
+				}
+
+				setMissingPreviewElementReferenceKeys((currentKeys) => {
+					const nextKeys = new Set([...currentKeys].filter((key) => previewReferenceKeys.has(key)));
+					let didChange = !areSetsEqual(currentKeys, nextKeys);
+
+					for (const { reference, found } of results) {
+						if (found === undefined) {
+							continue;
+						}
+
+						const referenceKey = getPreviewElementReferenceKey(reference);
+						if (!found) {
+							if (!nextKeys.has(referenceKey)) {
+								nextKeys.add(referenceKey);
+								didChange = true;
+							}
+							continue;
+						}
+
+						if (nextKeys.delete(referenceKey)) {
+							didChange = true;
+						}
+					}
+
+					return didChange ? nextKeys : currentKeys;
+				});
+			},
+		);
+
+		return () => {
+			isCancelled = true;
+		};
+	}, [segments]);
 
 	// Handle input events — re-parse DOM into segments
 	const handleInput = useCallback(() => {
@@ -617,7 +738,9 @@ export function RichTextInput({
 			if (previewReference && target !== containerReference.current) {
 				if (event.key === 'Enter' || event.key === ' ') {
 					event.preventDefault();
-					activateReference(previewReference);
+					activateReference(previewReference, (found) => {
+						updatePreviewReferenceAvailability(previewReference, found);
+					});
 				}
 				return;
 			}
@@ -658,7 +781,7 @@ export function RichTextInput({
 
 			onKeyDown?.(event);
 		},
-		[activateReference, onCursorChange, onKeyDown, onSegmentsChange, openFileTarget, segments],
+		[activateReference, onCursorChange, onKeyDown, onSegmentsChange, openFileTarget, segments, updatePreviewReferenceAvailability],
 	);
 
 	const handlePaste = useCallback((event: React.ClipboardEvent<HTMLDivElement>) => {
@@ -681,14 +804,14 @@ export function RichTextInput({
 			}
 
 			hoveredPreviewElementKeyReference.current = referenceKey;
-			if (!reference) {
+			if (!reference || (referenceKey !== undefined && activeMissingPreviewElementReferenceKeys.has(referenceKey))) {
 				clearReferenceHighlight();
 				return;
 			}
 
 			hoverReference(reference);
 		},
-		[clearReferenceHighlight, hoverReference],
+		[activeMissingPreviewElementReferenceKeys, clearReferenceHighlight, hoverReference],
 	);
 
 	const handleMouseLeave = useCallback(() => {
@@ -715,13 +838,15 @@ export function RichTextInput({
 			);
 			if (previewReference) {
 				event.preventDefault();
-				activateReference(previewReference);
+				activateReference(previewReference, (found) => {
+					updatePreviewReferenceAvailability(previewReference, found);
+				});
 				return;
 			}
 
 			handleSelect();
 		},
-		[activateReference, handleSelect, openFileTarget],
+		[activateReference, handleSelect, openFileTarget, updatePreviewReferenceAvailability],
 	);
 
 	const isEmpty = segments.length === 0 || (segments.length === 1 && segments[0].type === 'text' && !segments[0].value);

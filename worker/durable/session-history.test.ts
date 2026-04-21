@@ -24,6 +24,7 @@ function createUserMessage(
 	return {
 		id,
 		role: 'user',
+		authorUserId: `${id}-author`,
 		parts: [{ type: 'text', content }],
 		createdAt: 1,
 		metadata: {
@@ -82,6 +83,7 @@ describe('session-history', () => {
 				requestMode: 'plan',
 				requestModel: '@cf/moonshotai/kimi-k2.5',
 				requestState: 'committed',
+				authorUserId: 'm1-author',
 				partsJson: undefined,
 				snapshotId: 'snapshot-1',
 			},
@@ -90,6 +92,7 @@ describe('session-history', () => {
 		const hydrated = applyPersistedMessageMetadata([{ ...history[0], metadata: undefined }, history[1]], rows);
 		expect(hydrated[0]?.metadata?.snapshotId).toBe('snapshot-1');
 		expect(hydrated[0]?.metadata?.request?.mode).toBe('plan');
+		expect(hydrated[0]?.authorUserId).toBe('m1-author');
 	});
 
 	it('restores persisted preview-element parts for user messages', () => {
@@ -101,6 +104,7 @@ describe('session-history', () => {
 				requestMode: 'code',
 				requestModel: '@cf/moonshotai/kimi-k2.5',
 				requestState: 'committed' as const,
+				authorUserId: 'm1-author',
 				partsJson: JSON.stringify([
 					{ type: 'text', content: 'Inspect ' },
 					{

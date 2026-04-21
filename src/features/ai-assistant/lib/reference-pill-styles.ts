@@ -28,3 +28,5 @@ export const PREVIEW_REFERENCE_LABEL_CLASS_NAME = 'max-w-full flex-none truncate
 export const PREVIEW_REFERENCE_SUMMARY_CLASS_NAME = 'min-w-0 flex-1 truncate opacity-70';
 
 export const PREVIEW_REFERENCE_ICON_CLASS_NAME = 'size-3 shrink-0 text-fuchsia-700 dark:text-fuchsia-300';
+
+export const PREVIEW_REFERENCE_MISSING_CLASS_NAME = 'line-through opacity-65';

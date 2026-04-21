@@ -1050,6 +1050,7 @@ app.post('/api/new-project', async (c) => {
 			durableObjectHexId: doId.toString(),
 			name: projectName,
 			previewVisibility: 'public',
+			createdByUserId: userId,
 			createdAt: now,
 			updatedAt: now,
 			lastActivityAt: now,
@@ -1108,6 +1109,7 @@ app.post('/api/new-project', async (c) => {
 
 		return c.json({ projectId, url: `/p/${projectId}`, name: projectName });
 	} catch (error) {
+		console.error('Failed to create project:', error);
 		trackProjectEvent({
 			organizationId,
 			eventType: 'create',
@@ -1252,6 +1254,7 @@ app.post('/api/clone-project', async (c) => {
 			durableObjectHexId: newDoId.toString(),
 			name: projectName,
 			previewVisibility: 'public',
+			createdByUserId: userId,
 			createdAt: now,
 			updatedAt: now,
 			lastActivityAt: now,
@@ -1310,6 +1313,7 @@ app.post('/api/clone-project', async (c) => {
 
 		return c.json({ projectId: newProjectId, url: `/p/${newProjectId}`, name: projectName });
 	} catch (error) {
+		console.error('Failed to clone project:', error);
 		trackProjectEvent({
 			organizationId,
 			eventType: 'clone',

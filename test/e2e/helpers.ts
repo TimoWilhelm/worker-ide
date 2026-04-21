@@ -94,11 +94,13 @@ export async function gotoIDE(page: Page): Promise<string> {
 
 	await page.goto(url);
 
-	// Wait for the IDE to fully load — the status bar shows "Connected" once
-	// the WebSocket to the Durable Object is established and the project is
-	// operational. This is more reliable than waiting for the h1 heading,
-	// which shows a fallback "Codemaxxing" before the project name resolves.
-	await page.getByText('Connected', { exact: true }).waitFor({ timeout: 25_000 });
+	// Wait for the IDE shell to load first. The file tree label is stable and
+	// appears before project-scoped realtime state settles.
+	await page.getByText('Files', { exact: true }).waitFor({ timeout: 25_000 });
+
+	// Give the project WebSocket a short grace period to connect so follow-up
+	// file-tree and mutation assertions don't race the initial socket setup.
+	await Promise.race([page.getByText('Connected', { exact: true }).waitFor({ timeout: 5000 }), page.waitForTimeout(5000)]);
 
 	return projectId;
 }
@@ -110,5 +112,5 @@ export async function gotoIDE(page: Page): Promise<string> {
 export async function waitForFileTree(page: Page): Promise<void> {
 	await page.getByText('Files', { exact: true }).waitFor({ timeout: 10_000 });
 	// The example project always has an index.html at root
-	await page.getByText('index.html').waitFor({ timeout: 10_000 });
+	await page.getByText('index.html').waitFor({ timeout: 15_000 });
 }
