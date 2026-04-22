@@ -23,6 +23,7 @@ const EXTERNAL_URL_SEARCH_PARAM = 'url';
 
 export const PREVIEW_EXTERNAL_MODULE_PATH = '/__preview_external';
 const DEFAULT_EXTERNAL_MODULE_ORIGIN = 'https://esm.sh/';
+const REACT_DEV_EXTERNAL_SPECIFIERS = new Set(['react', 'react-dom', 'react-dom/client', 'react/jsx-dev-runtime', 'react/jsx-runtime']);
 
 export function isAllowedPreviewExternalModuleUrl(url: URL): boolean {
 	return (
@@ -115,7 +116,46 @@ function resolveExternalModuleUrl(specifierOrUrl: string, baseUrl?: string): URL
 		!specifierOrUrl.startsWith('/') &&
 		!/^[a-zA-Z][a-zA-Z\d+.-]*:/.test(specifierOrUrl);
 	const resolutionBaseUrl = shouldResolveFromOriginRoot ? DEFAULT_EXTERNAL_MODULE_ORIGIN : (baseUrl ?? DEFAULT_EXTERNAL_MODULE_ORIGIN);
-	return new URL(specifierOrUrl, resolutionBaseUrl);
+	const resolvedUrl = new URL(specifierOrUrl, resolutionBaseUrl);
+	applyDevelopmentFlagToReactExternalModule(resolvedUrl);
+	return resolvedUrl;
+}
+
+function appendSearchFlag(url: URL, flag: string): void {
+	if (url.searchParams.has(flag)) {
+		return;
+	}
+
+	url.search = url.search.length > 1 ? `${url.search}&${flag}` : `?${flag}`;
+}
+
+function getEsmShPackageSpecifier(pathname: string): string | undefined {
+	const normalizedPath = pathname.replace(/^\/+/, '');
+	if (normalizedPath.length === 0) {
+		return undefined;
+	}
+
+	const [packageSegment, ...subpathSegments] = normalizedPath.split('/');
+	const packageName = packageSegment?.replace(/@[^/]+$/, '');
+	if (packageName !== 'react' && packageName !== 'react-dom') {
+		return undefined;
+	}
+
+	const subpath = subpathSegments.join('/');
+	return subpath.length > 0 ? `${packageName}/${subpath}` : packageName;
+}
+
+function applyDevelopmentFlagToReactExternalModule(url: URL): void {
+	if (!isAllowedPreviewExternalModuleUrl(url)) {
+		return;
+	}
+
+	const specifier = getEsmShPackageSpecifier(url.pathname);
+	if (!specifier || !REACT_DEV_EXTERNAL_SPECIFIERS.has(specifier)) {
+		return;
+	}
+
+	appendSearchFlag(url, 'dev');
 }
 
 export function buildPreviewExternalModuleRequest(

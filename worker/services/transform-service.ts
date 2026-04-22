@@ -205,12 +205,12 @@ function createLocalImportResolution(original: string, resolvedPath: string, req
 function createExternalImportResolution(
 	original: string,
 	specifierOrUrl: string,
-	requestTimestamp: string | undefined,
+	_requestTimestamp: string | undefined,
 	baseUrl?: string,
 ): ResolvedImport {
 	return {
 		original,
-		resolved: buildPreviewExternalModuleRequest(specifierOrUrl, { baseUrl, timestamp: requestTimestamp }),
+		resolved: buildPreviewExternalModuleRequest(specifierOrUrl, { baseUrl }),
 		importedModuleId: toPreviewExternalModuleId(specifierOrUrl, baseUrl),
 	};
 }
@@ -299,6 +299,7 @@ async function rewriteImports(
 export function rewriteExternalModuleImports(code: string, externalModuleUrl: string, requestTimestamp?: string): string {
 	const imports = collectImportReferences(code);
 	let result = code;
+	void requestTimestamp;
 
 	for (const importReference of imports.toSorted((a, b) => b.start - a.start)) {
 		const { specifier } = importReference;
@@ -308,7 +309,6 @@ export function rewriteExternalModuleImports(code: string, externalModuleUrl: st
 
 		const resolvedSpecifier = buildPreviewExternalModuleRequest(specifier, {
 			baseUrl: externalModuleUrl,
-			timestamp: requestTimestamp,
 		});
 		const rewrittenStatement = importReference.match.replace(specifier, resolvedSpecifier);
 		result = result.slice(0, importReference.start) + rewrittenStatement + result.slice(importReference.end);

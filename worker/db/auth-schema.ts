@@ -123,9 +123,6 @@ export const project = sqliteTable(
 		durableObjectHexId: text('durable_object_hex_id').notNull(),
 		name: text('name').notNull(),
 		previewVisibility: text('preview_visibility').notNull().default('public'),
-		createdByUserId: text('created_by_user_id')
-			.notNull()
-			.references(() => user.id, { onDelete: 'cascade' }),
 		createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
 		updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
 		deletedAt: integer('deleted_at', { mode: 'timestamp' }),

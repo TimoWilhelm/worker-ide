@@ -63,7 +63,14 @@ describe('buildPreviewRequest', () => {
 describe('external preview module requests', () => {
 	it('builds same-origin proxy requests for bare package imports', () => {
 		expect(buildPreviewExternalModuleRequest('react/jsx-runtime')).toBe(
-			'/__preview_external?url=https%3A%2F%2Fesm.sh%2Freact%2Fjsx-runtime',
+			'/__preview_external?url=https%3A%2F%2Fesm.sh%2Freact%2Fjsx-runtime%3Fdev',
+		);
+	});
+
+	it('forces the React dev build for versioned package entrypoints', () => {
+		expect(buildPreviewExternalModuleRequest('react@19.2.0')).toBe('/__preview_external?url=https%3A%2F%2Fesm.sh%2Freact%4019.2.0%3Fdev');
+		expect(buildPreviewExternalModuleRequest('react-dom@19.2.0/client')).toBe(
+			'/__preview_external?url=https%3A%2F%2Fesm.sh%2Freact-dom%4019.2.0%2Fclient%3Fdev',
 		);
 	});
 
@@ -80,12 +87,12 @@ describe('external preview module requests', () => {
 			buildPreviewExternalModuleRequest('react', {
 				baseUrl: 'https://esm.sh/react-dom@19.1.0/es2022/client.mjs',
 			}),
-		).toBe('/__preview_external?url=https%3A%2F%2Fesm.sh%2Freact');
+		).toBe('/__preview_external?url=https%3A%2F%2Fesm.sh%2Freact%3Fdev');
 	});
 
 	it('parses proxied external module requests', () => {
-		expect(parsePreviewExternalModuleRequest('/__preview_external?url=https%3A%2F%2Fesm.sh%2Freact&t=123')).toEqual({
-			externalUrl: 'https://esm.sh/react',
+		expect(parsePreviewExternalModuleRequest('/__preview_external?url=https%3A%2F%2Fesm.sh%2Freact%3Fdev&t=123')).toEqual({
+			externalUrl: 'https://esm.sh/react?dev',
 			timestamp: '123',
 		});
 	});
@@ -96,7 +103,7 @@ describe('external preview module requests', () => {
 	});
 
 	it('uses timestamp-free requests as canonical external module ids', () => {
-		expect(toPreviewExternalModuleId('react-dom/client')).toBe('/__preview_external?url=https%3A%2F%2Fesm.sh%2Freact-dom%2Fclient');
+		expect(toPreviewExternalModuleId('react-dom/client')).toBe('/__preview_external?url=https%3A%2F%2Fesm.sh%2Freact-dom%2Fclient%3Fdev');
 	});
 
 	it('throws when building requests for disallowed external module urls', () => {

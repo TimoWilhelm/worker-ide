@@ -32,6 +32,14 @@
 		return import(importUrl);
 	}
 
+	function reloadPreview() {
+		if (typeof window.__PREVIEW_RUNTIME_RELOAD__ === 'function') {
+			window.__PREVIEW_RUNTIME_RELOAD__();
+			return;
+		}
+		location.reload();
+	}
+
 	var moduleRecords = new Map();
 
 	function ensureModuleRecord(moduleId) {
@@ -92,7 +100,6 @@
 			accept: function (dependenciesOrCallback, callback) {
 				if (dependenciesOrCallback === undefined) {
 					record.selfAccept = true;
-					record.selfAcceptCallback = undefined;
 					return;
 				}
 
@@ -117,7 +124,7 @@
 				}
 			},
 			invalidate: function () {
-				location.reload();
+				reloadPreview();
 			},
 		};
 	}
@@ -255,10 +262,12 @@
 	async function applyModuleUpdate(moduleId, timestamp) {
 		var plan = collectBoundaryPlans(moduleId);
 		if (!plan.touchedGraph) {
+			console.debug('[preview-hmr] changed module not in running graph; reloading preview', normalizeModuleId(moduleId));
+			reloadPreview();
 			return;
 		}
 		if (plan.shouldReload) {
-			location.reload();
+			reloadPreview();
 			return;
 		}
 

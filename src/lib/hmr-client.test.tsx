@@ -113,6 +113,7 @@ describe('preview runtime and hmr transport', () => {
 		Reflect.deleteProperty(globalThis, '__PREVIEW_CONFIG');
 		Reflect.deleteProperty(globalThis, '__PREVIEW_RUNTIME__');
 		Reflect.deleteProperty(globalThis, '__PREVIEW_RUNTIME_IMPORT__');
+		Reflect.deleteProperty(globalThis, '__PREVIEW_RUNTIME_RELOAD__');
 		document.head.innerHTML = '';
 		document.body.innerHTML = '';
 	});
@@ -206,5 +207,53 @@ describe('preview runtime and hmr transport', () => {
 
 		expect(importModule).toHaveBeenCalledWith('/src/dep.ts', '/src/dep.ts?t=789');
 		expect(acceptCallback).toHaveBeenCalledWith({ moduleId: '/src/dep.ts', next: true });
+	});
+
+	it('reloads when an updated module is not in the running graph', async () => {
+		bootPreviewRuntime();
+		const previewRuntime = getPreviewRuntime();
+		const reloadSpy = vi.fn();
+		const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
+		Reflect.set(globalThis, '__PREVIEW_RUNTIME_RELOAD__', reloadSpy);
+
+		await previewRuntime.applyUpdate({
+			type: 'update',
+			path: '/src/new-module.ts',
+			timestamp: 101,
+			targets: [{ id: '/src/new-module.ts', kind: 'module' }],
+		});
+
+		expect(debugSpy).toHaveBeenCalledWith('[preview-hmr] changed module not in running graph; reloading preview', '/src/new-module.ts');
+		expect(reloadSpy).toHaveBeenCalledTimes(1);
+	});
+
+	it('preserves an existing self-accept callback when auto-accept runs afterwards', async () => {
+		bootPreviewRuntime();
+		const previewRuntime = getPreviewRuntime();
+
+		const acceptCallback = vi.fn();
+		const importModule = vi.fn(async () => {
+			previewRuntime.registerModule('/src/app.tsx', []);
+			const hot = previewRuntime.createHotContext('/src/app.tsx');
+			hot.accept(acceptCallback);
+			hot.accept();
+			return { refreshed: true };
+		});
+		Reflect.set(globalThis, '__PREVIEW_RUNTIME_IMPORT__', importModule);
+
+		previewRuntime.registerModule('/src/app.tsx', []);
+		const hot = previewRuntime.createHotContext('/src/app.tsx');
+		hot.accept(acceptCallback);
+		hot.accept();
+
+		await previewRuntime.applyUpdate({
+			type: 'update',
+			path: '/src/app.tsx',
+			timestamp: 202,
+			targets: [{ id: '/src/app.tsx', kind: 'module' }],
+		});
+
+		expect(importModule).toHaveBeenCalledWith('/src/app.tsx', '/src/app.tsx?t=202');
+		expect(acceptCallback).toHaveBeenCalledWith({ refreshed: true });
 	});
 });

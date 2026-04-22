@@ -42,7 +42,7 @@ describe('transformModule', () => {
 		expect(result.code).toContain('/src/style.css?mode=module');
 		expect(result.code).toContain('/src/data.json?mode=module');
 		expect(result.code).toContain('/src/logo.png?mode=url');
-		expect(result.code).toContain('/__preview_external?url=https%3A%2F%2Fesm.sh%2Freact%2Fjsx-runtime');
+		expect(result.code).toContain('/__preview_external?url=https%3A%2F%2Fesm.sh%2Freact%2Fjsx-runtime%3Fdev');
 		expect(result.code).toContain('createHotContext(__preview_module_id__)');
 		expect(result.code).toContain('registerModule(__preview_module_id__');
 	});
@@ -82,8 +82,9 @@ describe('transformModule', () => {
 			'77',
 		);
 
-		expect(rewritten).toContain('/__preview_external?url=https%3A%2F%2Fesm.sh%2Freact%4019.0.0%2Fes2022%2Freact.mjs&t=77');
-		expect(rewritten).toContain('/__preview_external?url=https%3A%2F%2Fesm.sh%2Freact-dom%4019.0.0%2Fclient.mjs&t=77');
-		expect(rewritten).toContain('/__preview_external?url=https%3A%2F%2Fesm.sh%2Freact%2Fjsx-runtime&t=77');
+		expect(rewritten).toContain('/__preview_external?url=https%3A%2F%2Fesm.sh%2Freact%4019.0.0%2Fes2022%2Freact.mjs');
+		expect(rewritten).toContain('/__preview_external?url=https%3A%2F%2Fesm.sh%2Freact-dom%4019.0.0%2Fclient.mjs');
+		expect(rewritten).toContain('/__preview_external?url=https%3A%2F%2Fesm.sh%2Freact%2Fjsx-runtime%3Fdev');
+		expect(rewritten).not.toContain('&t=77');
 	});
 });
