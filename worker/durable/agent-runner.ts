@@ -685,6 +685,11 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	 * Initializes storage-backed helpers and restores extensions.
 	 */
 	async onStart(): Promise<void> {
+		// MIGRATION: ensure sessionParticipants is an object
+		if (!this.state.sessionParticipants || typeof this.state.sessionParticipants !== 'object') {
+			this.setState({ ...this.state, sessionParticipants: {} });
+		}
+
 		this.db = getDatabase(this.ctx.storage);
 		this.agentSessionStore = new AgentSessionStore(this.db, this.sessionManager);
 		this.ensureAgentDatabaseTables();
