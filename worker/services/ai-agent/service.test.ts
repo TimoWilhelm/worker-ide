@@ -3,7 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AIAgentService } from './service';
 
-import type { StreamEvent } from '@shared/agent-state';
+import type { SessionPersistData } from './types';
+import type { FiberSnapshot, StreamEvent } from '@shared/agent-state';
 import type { AgentMode, ChatMessage, PendingFileChange } from '@shared/types';
 
 // Mock worker-fs-mount (the service wraps the stream in withMounts)
@@ -133,11 +134,9 @@ function createTestService(
 		mode: AgentMode;
 		sessionId: string;
 		indexArtifactEntry: (entry: { key: string; content: string }) => Promise<void>;
-		onPersistSession: (
-			sessionId: string,
-			sessionData: Record<string, unknown>,
-			pendingChanges?: Record<string, PendingFileChange>,
-		) => Promise<void>;
+		onPersistSession: (sessionId: string, sessionData: SessionPersistData) => Promise<void>;
+		fiberSnapshot: FiberSnapshot;
+		initialPendingChanges: Record<string, PendingFileChange>;
 	}>,
 ) {
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any -- test stub for DurableObjectStub
@@ -158,7 +157,8 @@ function createTestService(
 		undefined,
 		undefined,
 		undefined,
-		undefined,
+		overrides?.fiberSnapshot,
+		overrides?.initialPendingChanges,
 		overrides?.indexArtifactEntry,
 	);
 }
@@ -573,6 +573,41 @@ describe('AIAgentService', () => {
 	// ─── Session persistence ───────────────────────────────────────────────
 
 	describe('session persistence', () => {
+		it('preserves persisted pending changes during a no-op follow-up turn', async () => {
+			const initialPendingChanges: Record<string, PendingFileChange> = {
+				'src/app.ts': {
+					path: 'src/app.ts',
+					action: 'edit',
+					beforeContent: 'export const count = 1;\n',
+					afterContent: 'export const count = 2;\n',
+					snapshotId: 'snapshot-1',
+					status: 'pending',
+					hunkStatuses: ['pending'],
+					sessionId: 'follow-up-session',
+				},
+			};
+			const onPersistSession = vi.fn(async () => {});
+			const service = createTestService({
+				onPersistSession,
+				sessionId: 'follow-up-session',
+				initialPendingChanges,
+			});
+			const abortController = new AbortController();
+			const stream = service.runAgentStream(
+				makeModelMessages('Explain the last change'),
+				[makeUserMessage('Explain the last change')],
+				abortController,
+			);
+			await collectEvents(stream);
+
+			const lastCall = onPersistSession.mock.calls.at(-1);
+			expect(lastCall).toBeDefined();
+			if (!lastCall) return;
+
+			expect(lastCall[1].pendingChanges).toEqual(initialPendingChanges);
+			expect(lastCall[1].fiberSnapshot?.pendingChanges).toEqual(initialPendingChanges);
+		});
+
 		it('calls onPersistSession after each turn', async () => {
 			let callCount = 0;
 

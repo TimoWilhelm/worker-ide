@@ -94,6 +94,13 @@ export function buildRecoveredRunParameters(
 	};
 }
 
+export function resolveInitialPendingChanges(
+	fiberSnapshot: FiberSnapshot | undefined,
+	persistedPendingChanges: Record<string, PendingFileChange> | undefined,
+): Record<string, PendingFileChange> {
+	return fiberSnapshot?.pendingChanges ?? persistedPendingChanges ?? {};
+}
+
 export async function restoreExtensionManager(loader: WorkerLoader, storage: DurableObjectStorage): Promise<ExtensionManager>;
 export async function restoreExtensionManager<T extends RestorableExtensionManager>(
 	loader: WorkerLoader,

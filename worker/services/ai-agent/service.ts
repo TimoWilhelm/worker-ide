@@ -125,6 +125,7 @@ export class AIAgentService {
 		private agentReference?: import('agents').Agent<Env, unknown>,
 		private requestOriginContext?: RequestOriginContext,
 		private fiberSnapshot?: FiberSnapshot,
+		private initialPendingChanges?: Record<string, PendingFileChange>,
 		private indexArtifactEntry?: (entry: { key: string; content: string }) => Promise<void>,
 	) {}
 
@@ -229,7 +230,7 @@ export class AIAgentService {
 		const userMessageIndex = chatMessages.length - 1;
 		let contextTokensUsed = this.fiberSnapshot?.contextTokensUsed ?? 0;
 		let sessionPersisted = false;
-		const streamPendingChanges = new Map<string, PendingFileChange>(Object.entries(this.fiberSnapshot?.pendingChanges ?? {}));
+		const streamPendingChanges = new Map<string, PendingFileChange>(Object.entries(this.initialPendingChanges ?? {}));
 		const streamToolMetadata = new Map<string, ToolMetadataInfo>(Object.entries(this.fiberSnapshot?.toolMetadata ?? {}));
 		const streamToolErrors = new Map<string, ToolErrorInfo>(Object.entries(this.fiberSnapshot?.toolErrors ?? {}));
 

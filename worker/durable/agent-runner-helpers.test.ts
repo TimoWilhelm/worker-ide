@@ -7,12 +7,13 @@ import {
 	buildLoadedExtensionsSummary,
 	buildRecoveredRunParameters,
 	parseFiberSnapshot,
+	resolveInitialPendingChanges,
 	restoreExtensionManager,
 	runSessionSearch,
 } from './agent-runner-helpers';
 
 import type { FiberSnapshot } from '@shared/agent-state';
-import type { ChatMessage } from '@shared/types';
+import type { ChatMessage, PendingFileChange } from '@shared/types';
 
 function createUserMessage(content: string): ChatMessage {
 	return {
@@ -83,6 +84,25 @@ describe('agent-runner helpers', () => {
 			model: DEFAULT_AI_MODEL,
 			_fiberSnapshot: snapshot,
 		});
+	});
+
+	it('prefers fiber snapshot pending changes and otherwise falls back to persisted session changes', () => {
+		const fiberPendingChanges = createValidSnapshot().pendingChanges;
+		const persistedPendingChanges: Record<string, PendingFileChange> = {
+			'src/other.ts': {
+				path: 'src/other.ts',
+				action: 'edit',
+				beforeContent: 'old',
+				afterContent: 'new',
+				status: 'pending',
+				hunkStatuses: ['pending'],
+				sessionId: 'session-1',
+			},
+		};
+
+		expect(resolveInitialPendingChanges(createValidSnapshot(), persistedPendingChanges)).toEqual(fiberPendingChanges);
+		expect(resolveInitialPendingChanges(undefined, persistedPendingChanges)).toEqual(persistedPendingChanges);
+		expect(resolveInitialPendingChanges()).toEqual({});
 	});
 
 	it('skips session search for blank queries and trims non-empty queries', async () => {

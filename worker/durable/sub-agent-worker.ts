@@ -59,6 +59,7 @@ export class SubAgentWorker extends Agent<Env, SubAgentState> {
 			this.env.LOADER,
 			this.env.BROWSER,
 			this,
+			undefined,
 		);
 
 		let lastAssistantText = '';

@@ -31,6 +31,7 @@ import {
 	buildTerminalNotification,
 	buildRecoveredRunParameters,
 	parseFiberSnapshot,
+	resolveInitialPendingChanges,
 	restoreExtensionManager,
 	runSessionSearch,
 } from './agent-runner-helpers';
@@ -1468,6 +1469,10 @@ export class AgentRunner extends Agent<Env, AgentState> {
 			const mode = parameters.mode ?? 'code';
 			const model = parameters.model ?? DEFAULT_AI_MODEL;
 			const session = this.sessionManager.getSession(sessionId);
+			const initialPendingChanges = resolveInitialPendingChanges(
+				parameters._fiberSnapshot,
+				parameters._fiberSnapshot ? undefined : this.reviewQueue.readSessionPendingChanges(sessionId),
+			);
 
 			// Convert ChatMessage[] to ModelMessage[] for the AI SDK
 			const modelMessages = chatMessagesToModelMessages(parameters.messages);
@@ -1488,6 +1493,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 				this,
 				this.requestOriginContext,
 				parameters._fiberSnapshot,
+				initialPendingChanges,
 				(entry) => this.indexArtifact(entry),
 			);
 
