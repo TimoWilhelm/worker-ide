@@ -1,3 +1,5 @@
+import { DEFAULT_AI_MODEL } from '@shared/constants';
+
 import type { SendEventFunction, ToolExecutorContext } from '../types';
 
 interface MemoryFsEntry {
@@ -222,7 +224,7 @@ export function createMockContext(overrides?: Partial<ToolExecutorContext>): Too
 		sessionId: 'test-session',
 		callMcpTool: async () => 'mock-mcp-result',
 		fsStub: {} as ToolExecutorContext['fsStub'],
-		model: '@cf/moonshotai/kimi-k2.5',
+		model: DEFAULT_AI_MODEL,
 		...overrides,
 	};
 }

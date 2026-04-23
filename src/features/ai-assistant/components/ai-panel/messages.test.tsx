@@ -1,6 +1,8 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
+import { DEFAULT_AI_MODEL } from '@shared/constants';
+
 import { AssistantMessage, MessageBubble, QueuedSteeringStrip } from './messages';
 
 import type { ChatMessage } from '@shared/types';
@@ -21,7 +23,7 @@ function createQueuedMessage(id: string, content: string): ChatMessage {
 			request: {
 				state: 'queued',
 				mode: 'code',
-				model: '@cf/moonshotai/kimi-k2.5',
+				model: DEFAULT_AI_MODEL,
 			},
 		},
 	};
@@ -140,7 +142,7 @@ describe('MessageBubble', () => {
 						request: {
 							state: 'committed',
 							mode: 'code',
-							model: '@cf/moonshotai/kimi-k2.5',
+							model: DEFAULT_AI_MODEL,
 						},
 					},
 				}}
@@ -200,7 +202,7 @@ describe('MessageBubble', () => {
 						request: {
 							state: 'committed',
 							mode: 'code',
-							model: '@cf/moonshotai/kimi-k2.5',
+							model: DEFAULT_AI_MODEL,
 						},
 					},
 				}}

@@ -2,6 +2,8 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { useImperativeHandle, type ComponentProps, type ReactNode, type Ref } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { DEFAULT_AI_MODEL } from '@shared/constants';
+
 const mocks = vi.hoisted(() => {
 	const agentCall = vi.fn(async (method: string) => {
 		if (method === 'submitMessage') {
@@ -37,7 +39,7 @@ const mocks = vi.hoisted(() => {
 	const storeState = {
 		files: [],
 		agentMode: 'code',
-		selectedModel: '@cf/moonshotai/kimi-k2.5',
+		selectedModel: '',
 		openFile,
 		setAgentMode,
 		setSelectedModel,
@@ -115,6 +117,8 @@ const mocks = vi.hoisted(() => {
 		speechToText,
 	};
 });
+
+mocks.storeState.selectedModel = DEFAULT_AI_MODEL;
 
 function useMockStore(selector?: (state: typeof mocks.storeState) => unknown) {
 	if (!selector) {

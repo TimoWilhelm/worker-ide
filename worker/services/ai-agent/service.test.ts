@@ -1,6 +1,8 @@
 import { streamText } from 'ai';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { DEFAULT_AI_MODEL } from '@shared/constants';
+
 import { AIAgentService } from './service';
 
 import type { SessionPersistData } from './types';
@@ -148,7 +150,7 @@ function createTestService(
 		fsStub,
 		overrides?.sessionId ?? 'test-session',
 		overrides?.mode ?? 'code',
-		'@cf/moonshotai/kimi-k2.5',
+		DEFAULT_AI_MODEL,
 		overrides?.onPersistSession,
 		false,
 		undefined,

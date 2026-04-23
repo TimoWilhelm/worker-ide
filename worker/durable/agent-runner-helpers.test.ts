@@ -50,7 +50,7 @@ function createValidSnapshot(overrides?: Partial<FiberSnapshot>): FiberSnapshot 
 		},
 		contextTokensUsed: 42,
 		snapshotId: 'snapshot-1',
-		model: '@cf/moonshotai/kimi-k2.5',
+		model: DEFAULT_AI_MODEL,
 		mode: 'ask',
 		...overrides,
 	};

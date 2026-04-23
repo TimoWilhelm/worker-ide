@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { DEFAULT_AI_MODEL } from './constants';
 import {
 	filePathSchema,
 	writeFileSchema,
@@ -237,7 +238,7 @@ describe('persistedStoreSchema', () => {
 			activeMobilePanel: 'editor',
 			activeSidebarView: 'explorer',
 			expandedDirs: ['/src'],
-			selectedModel: '@cf/moonshotai/kimi-k2.5',
+			selectedModel: DEFAULT_AI_MODEL,
 		});
 
 		expect(result.success).toBe(true);
@@ -259,7 +260,7 @@ describe('persistedStoreSchema', () => {
 			activeMobilePanel: 'editor',
 			activeSidebarView: 'explorer',
 			expandedDirs: ['/src'],
-			selectedModel: '@cf/moonshotai/kimi-k2.5',
+			selectedModel: DEFAULT_AI_MODEL,
 		});
 
 		expect(result.success).toBe(true);

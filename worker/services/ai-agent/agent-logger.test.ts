@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { DEFAULT_AI_MODEL } from '@shared/constants';
+
 import { AgentLogger, sanitizeToolInput, summarizeToolResult } from './agent-logger';
 
 import type { AgentDebugLog } from './agent-logger';
@@ -17,7 +19,7 @@ describe('AgentLogger', () => {
 	let logger: AgentLogger;
 
 	beforeEach(() => {
-		logger = new AgentLogger('test-session', 'test-project', '@cf/moonshotai/kimi-k2.5', 'code');
+		logger = new AgentLogger('test-session', 'test-project', DEFAULT_AI_MODEL, 'code');
 	});
 
 	afterEach(() => {
@@ -203,7 +205,7 @@ describe('AgentLogger', () => {
 			expect(result.id).toBeTruthy();
 			expect(result.sessionId).toBe('test-session');
 			expect(result.projectId).toBe('test-project');
-			expect(result.model).toBe('@cf/moonshotai/kimi-k2.5');
+			expect(result.model).toBe(DEFAULT_AI_MODEL);
 			expect(result.mode).toBe('code');
 			expect(result.startedAt).toBeTruthy();
 			expect(result.completedAt).toBeTruthy();

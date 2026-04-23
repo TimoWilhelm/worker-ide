@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
+import { DEFAULT_AI_MODEL } from '@shared/constants';
+
 import {
 	applyPersistedMessageMetadata,
 	clearSnapshotFromMessages,
@@ -19,7 +21,7 @@ function createUserMessage(
 	content: string,
 	state: 'queued' | 'committed',
 	mode = 'code',
-	model = '@cf/moonshotai/kimi-k2.5',
+	model = DEFAULT_AI_MODEL,
 ): ChatMessage {
 	return {
 		id,
@@ -70,7 +72,7 @@ describe('session-history', () => {
 		const history = [
 			{
 				...createUserMessage('m1', 'first', 'committed', 'plan'),
-				metadata: { request: { state: 'committed', mode: 'plan', model: '@cf/moonshotai/kimi-k2.5' }, snapshotId: 'snapshot-1' },
+				metadata: { request: { state: 'committed', mode: 'plan', model: DEFAULT_AI_MODEL }, snapshotId: 'snapshot-1' },
 			},
 			{ id: 'm2', role: 'assistant' as const, parts: [{ type: 'text', content: 'done' }], createdAt: 2 },
 		];
@@ -81,7 +83,7 @@ describe('session-history', () => {
 				sessionId: 'session-1',
 				messageId: 'm1',
 				requestMode: 'plan',
-				requestModel: '@cf/moonshotai/kimi-k2.5',
+				requestModel: DEFAULT_AI_MODEL,
 				requestState: 'committed',
 				authorUserId: 'm1-author',
 				partsJson: undefined,
@@ -102,7 +104,7 @@ describe('session-history', () => {
 				sessionId: 'session-1',
 				messageId: 'm1',
 				requestMode: 'code',
-				requestModel: '@cf/moonshotai/kimi-k2.5',
+				requestModel: DEFAULT_AI_MODEL,
 				requestState: 'committed' as const,
 				authorUserId: 'm1-author',
 				partsJson: JSON.stringify([
