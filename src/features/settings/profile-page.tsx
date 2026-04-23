@@ -1,10 +1,12 @@
 import { Check, Github, Link, Pencil, Unlink } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
+import { InlineRenameField } from '@/components/ui/inline-rename-field';
 import { Spinner } from '@/components/ui/spinner';
 import { toast } from '@/components/ui/toast-store';
 import { authClient } from '@/lib/auth-client';
+import { selectOptimisticUserName, useStore } from '@/lib/store';
 
 interface ProfilePageProperties {
 	user: { name: string; email: string; image?: string; emailVerified?: boolean };
@@ -13,9 +15,11 @@ interface ProfilePageProperties {
 export default function ProfilePage({ user }: ProfilePageProperties) {
 	const [isEditingName, setIsEditingName] = useState(false);
 	const [editName, setEditName] = useState(user.name);
-	const nameInputReference = useRef<HTMLInputElement>(null);
+	const [isRenaming, setIsRenaming] = useState(false);
 
 	const { refetch: refetchSession } = authClient.useSession();
+	const optimisticUserName = useStore(selectOptimisticUserName);
+	const setOptimisticUserName = useStore((state) => state.setOptimisticUserName);
 
 	const initials = user.name
 		.split(' ')
@@ -27,31 +31,44 @@ export default function ProfilePage({ user }: ProfilePageProperties) {
 	const handleStartEditName = useCallback(() => {
 		setEditName(user.name);
 		setIsEditingName(true);
-		requestAnimationFrame(() => {
-			nameInputReference.current?.focus();
-			nameInputReference.current?.select();
-		});
 	}, [user.name]);
 
+	const handleCancelEditName = useCallback(() => {
+		setIsEditingName(false);
+	}, []);
+
 	const handleSaveName = useCallback(async () => {
+		if (isRenaming) {
+			return;
+		}
+
 		const trimmed = editName.trim();
 		setIsEditingName(false);
 
 		if (!trimmed || trimmed === user.name) {
 			return;
 		}
+
+		const previousOptimisticUserName = optimisticUserName;
+		setIsRenaming(true);
+		setOptimisticUserName(trimmed);
+
 		try {
 			const { error } = await authClient.updateUser({ name: trimmed });
 			if (error) {
+				setOptimisticUserName(previousOptimisticUserName);
 				toast.error(error.message ?? 'Failed to update your display name. Please try again.');
 				return;
 			}
-			await refetchSession();
+			void refetchSession();
 			toast.success('Name updated');
 		} catch {
+			setOptimisticUserName(previousOptimisticUserName);
 			toast.error('Failed to update name. Please check your connection and try again.');
+		} finally {
+			setIsRenaming(false);
 		}
-	}, [editName, user.name, refetchSession]);
+	}, [editName, isRenaming, optimisticUserName, refetchSession, setOptimisticUserName, user.name]);
 
 	return (
 		<div className="flex flex-col gap-8">
@@ -89,41 +106,39 @@ export default function ProfilePage({ user }: ProfilePageProperties) {
 					>
 						Display name
 					</label>
-					{isEditingName ? (
-						<input
-							ref={nameInputReference}
-							type="text"
-							value={editName}
-							onChange={(event) => setEditName(event.target.value)}
-							onKeyDown={(event) => {
-								if (event.key === 'Enter') void handleSaveName();
-								if (event.key === 'Escape') {
-									setIsEditingName(false);
-								}
-							}}
-							onBlur={() => void handleSaveName()}
-							maxLength={50}
-							className="
-								h-9 min-w-0 rounded-md border border-accent bg-bg-secondary/60 px-3
-								text-sm text-text-primary
-								focus:outline-none
-							"
-						/>
-					) : (
-						<div className="flex items-center gap-2">
-							<span className="text-sm text-text-primary">{user.name}</span>
-							<button
-								onClick={handleStartEditName}
-								className="
-									cursor-pointer rounded-md p-1 text-text-secondary transition-colors
-									hover:text-text-primary
-								"
-								aria-label="Edit display name"
-							>
-								<Pencil className="size-3.5" />
-							</button>
-						</div>
-					)}
+					<InlineRenameField
+						isEditing={isEditingName}
+						displayValue={user.name}
+						inputValue={editName}
+						onInputValueChange={setEditName}
+						onStartEditing={handleStartEditName}
+						onSubmit={handleSaveName}
+						onCancel={handleCancelEditName}
+						inputAriaLabel="Edit display name"
+						maxLength={50}
+						className="min-h-9 w-full"
+						inputClassName="
+							h-9 rounded-md border border-accent bg-bg-secondary/60 px-3 text-sm
+							text-text-primary
+							focus:outline-none
+						"
+					>
+						{({ displayValue, startEditing }) => (
+							<div className="flex w-full items-center gap-2">
+								<span className="text-sm text-text-primary">{displayValue}</span>
+								<button
+									onClick={startEditing}
+									className="
+										cursor-pointer rounded-md p-1 text-text-secondary transition-colors
+										hover:text-text-primary
+									"
+									aria-label="Edit display name"
+								>
+									<Pencil className="size-3.5" />
+								</button>
+							</div>
+						)}
+					</InlineRenameField>
 				</div>
 
 				<div>

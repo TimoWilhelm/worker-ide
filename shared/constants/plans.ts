@@ -4,10 +4,6 @@ export const PLAN_ENTERPRISE = 'enterprise';
 
 export type PlanId = typeof PLAN_FREE | typeof PLAN_PRO | typeof PLAN_ENTERPRISE;
 
-export interface UserPlanLimits {
-	maxOwnedOrganizations: number;
-}
-
 export interface PlanLimits {
 	maxProjects: number;
 	maxMembers: number;
@@ -40,28 +36,12 @@ export const PLAN_LIMITS: Record<PlanId, PlanLimits> = {
 	},
 };
 
-export const USER_PLAN_LIMITS: Record<PlanId, UserPlanLimits> = {
-	[PLAN_FREE]: {
-		maxOwnedOrganizations: 1,
-	},
-	[PLAN_PRO]: {
-		maxOwnedOrganizations: 5,
-	},
-	[PLAN_ENTERPRISE]: {
-		maxOwnedOrganizations: 50,
-	},
-};
-
 function isPlanId(plan: string): plan is PlanId {
 	return plan in PLAN_LIMITS;
 }
 
 export function getOrgLimits(plan: string): PlanLimits {
 	return isPlanId(plan) ? PLAN_LIMITS[plan] : PLAN_LIMITS[PLAN_FREE];
-}
-
-export function getUserPlanLimits(plan: string): UserPlanLimits {
-	return isPlanId(plan) ? USER_PLAN_LIMITS[plan] : USER_PLAN_LIMITS[PLAN_FREE];
 }
 
 export const CREDITS_PER_AI_SESSION = 1;

@@ -1,4 +1,4 @@
-import { getOrgLimits, getUserPlanLimits, PLAN_FREE } from './constants/plans';
+import { getOrgLimits, PLAN_FREE } from './constants/plans';
 
 import type { PlanLimits } from './constants/plans';
 
@@ -41,7 +41,8 @@ export const ENTITLEMENT_ORG_STORAGE_QUOTA_BYTES = 'org:storage_quota_bytes' as 
  * User-scoped entitlement keys.
  * Assigned to a user to override global defaults.
  */
-export const ENTITLEMENT_USER_MAX_ORGANIZATIONS = 'user:max_organizations' as const;
+export const ENTITLEMENT_USER_MAX_FREE_ORGS = 'user:max_free_orgs' as const;
+export const DEFAULT_MAX_FREE_ORGS = 3;
 
 /**
  * Project-scoped entitlement keys.
@@ -54,7 +55,7 @@ export type OrgEntitlementKey =
 	| typeof ENTITLEMENT_ORG_MAX_MEMBERS
 	| typeof ENTITLEMENT_ORG_STORAGE_QUOTA_BYTES;
 
-export type UserEntitlementKey = typeof ENTITLEMENT_USER_MAX_ORGANIZATIONS;
+export type UserEntitlementKey = typeof ENTITLEMENT_USER_MAX_FREE_ORGS;
 
 export type ProjectEntitlementKey = typeof ENTITLEMENT_PROJECT_STORAGE_QUOTA_BYTES;
 
@@ -68,7 +69,7 @@ export const ENTITLEMENT_REGISTRY: Record<EntitlementKey, { valueType: Entitleme
 	[ENTITLEMENT_ORG_MAX_PROJECTS]: { valueType: 'number', description: 'Maximum active projects per organization' },
 	[ENTITLEMENT_ORG_MAX_MEMBERS]: { valueType: 'number', description: 'Maximum members per organization' },
 	[ENTITLEMENT_ORG_STORAGE_QUOTA_BYTES]: { valueType: 'number', description: 'Maximum object storage bytes per project (org default)' },
-	[ENTITLEMENT_USER_MAX_ORGANIZATIONS]: { valueType: 'number', description: 'Maximum organizations a user can create' },
+	[ENTITLEMENT_USER_MAX_FREE_ORGS]: { valueType: 'number', description: 'Maximum free organizations a user can belong to' },
 	[ENTITLEMENT_PROJECT_STORAGE_QUOTA_BYTES]: {
 		valueType: 'number',
 		description: 'Maximum object storage bytes for this project (overrides org)',
@@ -100,7 +101,7 @@ export interface ResolvedOrgLimits {
 	storageQuotaBytes: number;
 }
 export interface ResolvedUserLimits {
-	maxOrganizations: number;
+	maxFreeOrganizations: number;
 }
 
 /**
@@ -136,21 +137,16 @@ export function resolveOrgLimits(plan: string, entitlements: Map<string, Entitle
 		storageQuotaBytes: getNumber(entitlements, ENTITLEMENT_ORG_STORAGE_QUOTA_BYTES) ?? planLimits.storageQuotaBytes,
 	};
 }
-export function resolveUserLimits(plan: string, entitlements: Map<string, EntitlementValue>): ResolvedUserLimits {
-	const planLimits = getUserPlanLimits(plan);
-
+export function resolveUserLimits(entitlements: Map<string, EntitlementValue>): ResolvedUserLimits {
 	return {
-		maxOrganizations: getNumber(entitlements, ENTITLEMENT_USER_MAX_ORGANIZATIONS) ?? planLimits.maxOwnedOrganizations,
+		maxFreeOrganizations: getNumber(entitlements, ENTITLEMENT_USER_MAX_FREE_ORGS) ?? DEFAULT_MAX_FREE_ORGS,
 	};
 }
 export function resolveOrgLimitsFromRows(plan: string, rows: Array<{ key: string; valueType: string; value: string }>): ResolvedOrgLimits {
 	return resolveOrgLimits(plan ?? PLAN_FREE, toEntitlementMap(rows));
 }
-export function resolveUserLimitsFromRows(
-	plan: string,
-	rows: Array<{ key: string; valueType: string; value: string }>,
-): ResolvedUserLimits {
-	return resolveUserLimits(plan ?? PLAN_FREE, toEntitlementMap(rows));
+export function resolveUserLimitsFromRows(rows: Array<{ key: string; valueType: string; value: string }>): ResolvedUserLimits {
+	return resolveUserLimits(toEntitlementMap(rows));
 }
 
 /**

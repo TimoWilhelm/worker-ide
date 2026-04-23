@@ -145,10 +145,8 @@ export interface OrgLimits {
 	currentPendingInvitations: number;
 }
 export interface UserLimits {
-	maxOrganizations: number;
-	currentOrganizations: number;
-	currentOwnedOrganizations: number;
-	userPlan: string;
+	maxFreeOrganizations: number;
+	currentFreeOrganizations: number;
 }
 
 export async function fetchOrgLimits(organizationId: string): Promise<OrgLimits> {

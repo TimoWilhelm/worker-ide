@@ -602,8 +602,8 @@ export default function DashboardPage({ organizationId, organizations, isCreateO
 			<CreateOrgModal
 				open={createOrgOpen}
 				onOpenChange={setCreateOrgOpen}
-				ownedOrganizationCount={userLimitsQuery.data?.currentOwnedOrganizations ?? 0}
-				maxOrganizations={userLimitsQuery.data?.maxOrganizations}
+				freeOrganizationCount={userLimitsQuery.data?.currentFreeOrganizations ?? 0}
+				maxFreeOrganizations={userLimitsQuery.data?.maxFreeOrganizations}
 				required={hasNoOrgs}
 				userName={user?.name}
 			/>

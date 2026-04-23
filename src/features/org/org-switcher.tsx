@@ -44,9 +44,9 @@ export function OrgSwitcher({ organizations, currentOrganizationId, currentOrgan
 		queryFn: fetchUserLimits,
 		staleTime: 1000 * 60,
 	});
-	const maxOrganizations = userLimitsQuery.data?.maxOrganizations;
-	const currentOwnedOrganizations = userLimitsQuery.data?.currentOwnedOrganizations ?? 0;
-	const canCreateOrganization = maxOrganizations !== undefined && currentOwnedOrganizations < maxOrganizations;
+	const maxFreeOrganizations = userLimitsQuery.data?.maxFreeOrganizations;
+	const currentFreeOrganizations = userLimitsQuery.data?.currentFreeOrganizations ?? 0;
+	const canCreateOrganization = maxFreeOrganizations !== undefined && currentFreeOrganizations < maxFreeOrganizations;
 
 	return (
 		<>
@@ -112,8 +112,8 @@ export function OrgSwitcher({ organizations, currentOrganizationId, currentOrgan
 			<CreateOrgModal
 				open={createModalOpen}
 				onOpenChange={setCreateModalOpen}
-				ownedOrganizationCount={currentOwnedOrganizations}
-				maxOrganizations={maxOrganizations}
+				freeOrganizationCount={currentFreeOrganizations}
+				maxFreeOrganizations={maxFreeOrganizations}
 			/>
 		</>
 	);

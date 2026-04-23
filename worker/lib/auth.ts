@@ -2,7 +2,7 @@ import { betterAuth, APIError } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { admin, organization } from 'better-auth/plugins';
 import { env } from 'cloudflare:workers';
-import { and, eq, isNull } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
 
 import {
@@ -13,10 +13,11 @@ import {
 	PLAN_FREE,
 	SESSION_COOKIE_CACHE,
 } from '@shared/constants';
-import { resolveOrgLimitsFromRows, resolveUserLimitsFromRows } from '@shared/entitlements';
+import { resolveOrgLimitsFromRows } from '@shared/entitlements';
 
 import { trackAuthEvent } from './analytics';
 import { queryEntitlements } from './entitlements';
+import { shouldBlockOrganizationCreate } from './organization-limits';
 import * as schema from '../db/auth-schema';
 
 interface AuthEnvironment {
@@ -26,11 +27,6 @@ interface AuthEnvironment {
 	GITHUB_CLIENT_SECRET: string;
 	GOOGLE_CLIENT_ID: string;
 	GOOGLE_CLIENT_SECRET: string;
-}
-
-async function getUserPlan(database: ReturnType<typeof drizzle>, userId: string): Promise<string> {
-	const userRows = await database.select({ plan: schema.user.plan }).from(schema.user).where(eq(schema.user.id, userId)).limit(1);
-	return userRows[0]?.plan ?? PLAN_FREE;
 }
 
 export function createAuth(environment: AuthEnvironment, baseUrl: string, request?: Request) {
@@ -110,22 +106,7 @@ export function createAuth(environment: AuthEnvironment, baseUrl: string, reques
 		plugins: [
 			admin(ADMIN_PLUGIN_OPTIONS),
 			organization({
-				// Dynamic org-creation limit: checks owned organizations against the user's plan.
-				organizationLimit: async (user) => {
-					const entitlementDatabase = drizzle(environment.DB);
-					const [rows, userPlan, ownedOrganizations] = await Promise.all([
-						queryEntitlements(entitlementDatabase, user.id),
-						getUserPlan(entitlementDatabase, user.id),
-						entitlementDatabase
-							.select({ id: schema.member.organizationId })
-							.from(schema.member)
-							.innerJoin(schema.organization, eq(schema.organization.id, schema.member.organizationId))
-							.where(and(eq(schema.member.userId, user.id), eq(schema.member.role, 'owner'), isNull(schema.organization.deletedAt))),
-					]);
-					const { maxOrganizations } = resolveUserLimitsFromRows(userPlan, rows);
-
-					return ownedOrganizations.length >= maxOrganizations;
-				},
+				organizationLimit: async (user) => shouldBlockOrganizationCreate(drizzle(environment.DB), user.id),
 
 				// Dynamic membership limit: plan-based + org entitlements
 				membershipLimit: async (_user, organizationRecord) => {
@@ -158,19 +139,6 @@ export function createAuth(environment: AuthEnvironment, baseUrl: string, reques
 					const { maxPendingInvitations } = resolveOrgLimitsFromRows(plan, entitlementRows);
 					return maxPendingInvitations;
 				},
-				organizationHooks: {
-					beforeCreateOrganization: async ({ user }) => {
-						const authDatabase = drizzle(environment.DB);
-						const plan = await getUserPlan(authDatabase, user.id);
-
-						return {
-							data: {
-								plan,
-							},
-						};
-					},
-				},
-
 				schema: {
 					organization: {
 						additionalFields: {
@@ -213,14 +181,6 @@ export function createAuth(environment: AuthEnvironment, baseUrl: string, reques
 			}),
 		],
 		user: {
-			additionalFields: {
-				plan: {
-					type: 'string',
-					defaultValue: PLAN_FREE,
-					required: false,
-					input: false,
-				},
-			},
 			deleteUser: {
 				enabled: false,
 			},

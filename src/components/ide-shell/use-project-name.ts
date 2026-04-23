@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useState } from 'react';
 
 import { toast } from '@/components/ui/toast-store';
 import { fetchProjectMeta, updateProjectMeta } from '@/lib/api-client';
@@ -16,15 +16,10 @@ export function useProjectName({ projectId }: { projectId: string }) {
 	const projectName = metaQuery.data?.name;
 	const [isEditingName, setIsEditingName] = useState(false);
 	const [editNameValue, setEditNameValue] = useState('');
-	const nameInputReference = useRef<HTMLInputElement>(null);
 
 	const handleStartRename = useCallback(() => {
 		setEditNameValue(projectName ?? '');
 		setIsEditingName(true);
-		requestAnimationFrame(() => {
-			nameInputReference.current?.focus();
-			nameInputReference.current?.select();
-		});
 	}, [projectName]);
 
 	const handleSaveRename = useCallback(async () => {
@@ -58,7 +53,6 @@ export function useProjectName({ projectId }: { projectId: string }) {
 		isEditingName,
 		editNameValue,
 		setEditNameValue,
-		nameInputReference,
 		handleStartRename,
 		handleSaveRename,
 		handleCancelRename,

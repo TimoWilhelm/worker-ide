@@ -140,6 +140,16 @@ interface PendingChangesActions {
 	loadPendingChanges: (changes: Map<string, PendingFileChange>) => void;
 }
 
+interface IdentityState {
+	optimisticUserName: string | undefined;
+	optimisticOrganizationNames: Record<string, string>;
+}
+
+interface IdentityActions {
+	setOptimisticUserName: (name: string | undefined) => void;
+	setOptimisticOrganizationName: (organizationId: string, name: string | undefined) => void;
+}
+
 type ColorScheme = 'light' | 'dark' | 'system';
 
 export type MobilePanel = 'editor' | 'preview' | 'git' | 'agent' | 'tests';
@@ -215,6 +225,7 @@ type StoreState = EditorState &
 	CollaborationState &
 	SnapshotState &
 	PendingChangesState &
+	IdentityState &
 	UIState &
 	GitState &
 	EditorActions &
@@ -223,6 +234,7 @@ type StoreState = EditorState &
 	CollaborationActions &
 	SnapshotActions &
 	PendingChangesActions &
+	IdentityActions &
 	UIActions &
 	GitActions;
 
@@ -716,6 +728,25 @@ export const useStore = create<StoreState>()(
 				loadPendingChanges: (changes) => set({ pendingChanges: changes }),
 
 				// =============================================================================
+				// Identity State & Actions
+				// =============================================================================
+				optimisticUserName: undefined,
+				optimisticOrganizationNames: {},
+
+				setOptimisticUserName: (name) => set({ optimisticUserName: name }),
+
+				setOptimisticOrganizationName: (organizationId, name) =>
+					set((state) => {
+						const optimisticOrganizationNames = { ...state.optimisticOrganizationNames };
+						if (name === undefined) {
+							delete optimisticOrganizationNames[organizationId];
+						} else {
+							optimisticOrganizationNames[organizationId] = name;
+						}
+						return { optimisticOrganizationNames };
+					}),
+
+				// =============================================================================
 				// UI State & Actions
 				// =============================================================================
 				sidebarVisible: true,
@@ -826,3 +857,4 @@ export const selectGitStatus = (state: StoreState) => state.gitStatus;
 export const selectActiveSidebarView = (state: StoreState) => state.activeSidebarView;
 export const selectGitChangedFileCount = (state: StoreState) => state.gitStatus.filter((entry) => entry.status !== 'unmodified').length;
 export const selectGitDiffView = (state: StoreState) => state.gitDiffView;
+export const selectOptimisticUserName = (state: StoreState) => state.optimisticUserName;

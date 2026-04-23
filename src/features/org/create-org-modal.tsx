@@ -10,15 +10,15 @@ import { MAX_ORGANIZATION_NAME_LENGTH } from '@shared/constants';
 export function CreateOrgModal({
 	open,
 	onOpenChange,
-	ownedOrganizationCount,
-	maxOrganizations,
+	freeOrganizationCount,
+	maxFreeOrganizations,
 	required,
 	userName,
 }: {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
-	ownedOrganizationCount: number;
-	maxOrganizations?: number;
+	freeOrganizationCount: number;
+	maxFreeOrganizations?: number;
 	required?: boolean;
 	userName?: string;
 }) {
@@ -26,8 +26,8 @@ export function CreateOrgModal({
 	const defaultName = required && userName ? `${userName}'s Workspace` : '';
 	const [name, setName] = useState(defaultName);
 	const [isCreating, setIsCreating] = useState(false);
-	const resolvedMax = maxOrganizations ?? 1;
-	const isAtLimit = ownedOrganizationCount >= resolvedMax;
+	const resolvedMax = maxFreeOrganizations ?? 3;
+	const isAtLimit = freeOrganizationCount >= resolvedMax;
 
 	const handleCreate = useCallback(async () => {
 		const trimmed = name.trim();
@@ -114,7 +114,7 @@ export function CreateOrgModal({
 						focus:outline-none
 					"
 				/>
-				{isAtLimit && <p className="mt-2 text-xs text-error/80">You have reached the maximum number of organizations.</p>}
+				{isAtLimit && <p className="mt-2 text-xs text-error/80">Maximum number of organizations reached.</p>}
 			</ModalBody>
 			<ModalFooter>
 				{!required && (

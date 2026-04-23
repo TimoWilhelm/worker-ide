@@ -10,6 +10,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { toast } from '@/components/ui/toast-store';
 import { authClient } from '@/lib/auth-client';
+import { selectOptimisticUserName, useStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 
 interface UserMenuProperties {
@@ -18,12 +19,13 @@ interface UserMenuProperties {
 
 export function UserMenu({ size = 'md' }: UserMenuProperties = {}) {
 	const { data: session } = authClient.useSession();
+	const optimisticUserName = useStore(selectOptimisticUserName);
 	const navigate = useNavigate();
 	const location = useLocation();
 
 	if (!session?.user) return;
 
-	const userName = session.user.name;
+	const userName = optimisticUserName ?? session.user.name;
 	const userEmail = session.user.email;
 	const userImage = session.user.image ?? undefined;
 

@@ -3,7 +3,7 @@ import { and, count, desc, eq, inArray, isNull, or } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
 import { Hono } from 'hono';
 
-import { resolveUserPreferences } from '@shared/constants';
+import { PLAN_FREE, resolveUserPreferences } from '@shared/constants';
 import { resolveUserLimitsFromRows } from '@shared/entitlements';
 import { HttpErrorCode } from '@shared/http-errors';
 import {
@@ -109,29 +109,20 @@ export const userRoutes = new Hono<AuthedEnvironment>()
 		const { userId } = c.get('session');
 		const database = drizzle(c.env.DB);
 
-		const [entitlementRows, userRows, membershipCountRows, ownedOrgCountRows] = await Promise.all([
+		const [entitlementRows, freeOrganizationCountRows] = await Promise.all([
 			queryEntitlements(database, userId),
-			database.select({ plan: schema.user.plan }).from(schema.user).where(eq(schema.user.id, userId)).limit(1),
 			database
 				.select({ count: count() })
 				.from(schema.member)
 				.innerJoin(schema.organization, eq(schema.organization.id, schema.member.organizationId))
-				.where(and(eq(schema.member.userId, userId), isNull(schema.organization.deletedAt))),
-			database
-				.select({ count: count() })
-				.from(schema.member)
-				.innerJoin(schema.organization, eq(schema.organization.id, schema.member.organizationId))
-				.where(and(eq(schema.member.userId, userId), eq(schema.member.role, 'owner'), isNull(schema.organization.deletedAt))),
+				.where(and(eq(schema.member.userId, userId), eq(schema.organization.plan, PLAN_FREE), isNull(schema.organization.deletedAt))),
 		]);
 
-		const userPlan = userRows[0]?.plan ?? 'free';
-		const limits = resolveUserLimitsFromRows(userPlan, entitlementRows);
+		const limits = resolveUserLimitsFromRows(entitlementRows);
 
 		return c.json({
-			maxOrganizations: limits.maxOrganizations,
-			currentOrganizations: membershipCountRows[0]?.count ?? 0,
-			currentOwnedOrganizations: ownedOrgCountRows[0]?.count ?? 0,
-			userPlan,
+			maxFreeOrganizations: limits.maxFreeOrganizations,
+			currentFreeOrganizations: freeOrganizationCountRows[0]?.count ?? 0,
 		});
 	})
 

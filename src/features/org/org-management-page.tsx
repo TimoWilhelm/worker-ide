@@ -1,15 +1,17 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, ChevronDown, ChevronUp, Crown, Mail, Pencil, Shield, Trash2, User, UserPlus, X } from 'lucide-react';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { InlineRenameField } from '@/components/ui/inline-rename-field';
 import { Modal, ModalBody, ModalFooter } from '@/components/ui/modal';
 import { Spinner } from '@/components/ui/spinner';
 import { toast } from '@/components/ui/toast-store';
 import { deleteOrganization, fetchOrgDetails, fetchOrgLimits } from '@/lib/api-client';
 import { authClient } from '@/lib/auth-client';
+import { useStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 import { MAX_ORGANIZATION_NAME_LENGTH } from '@shared/constants';
 
@@ -339,7 +341,8 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 	const [isEditingName, setIsEditingName] = useState(false);
 	const [editName, setEditName] = useState('');
 	const [isRenaming, setIsRenaming] = useState(false);
-	const nameInputReference = useRef<HTMLInputElement>(null);
+	const optimisticOrganizationName = useStore((state) => state.optimisticOrganizationNames[organizationId]);
+	const setOptimisticOrganizationName = useStore((state) => state.setOptimisticOrganizationName);
 
 	const currentUserId = session?.user.id;
 	const members = organization?.members ?? [];
@@ -354,15 +357,18 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 	const refreshOrganization = useCallback(() => {
 		void queryClient.invalidateQueries({ queryKey: ['org-details', organizationId] });
 	}, [queryClient, organizationId]);
+	const refreshUserLimits = useCallback(() => {
+		void queryClient.invalidateQueries({ queryKey: ['user-limits'] });
+	}, [queryClient]);
 
 	const handleStartRename = useCallback(() => {
 		setEditName(organization?.name ?? '');
 		setIsEditingName(true);
-		requestAnimationFrame(() => {
-			nameInputReference.current?.focus();
-			nameInputReference.current?.select();
-		});
 	}, [organization?.name]);
+
+	const handleCancelRename = useCallback(() => {
+		setIsEditingName(false);
+	}, []);
 
 	const handleRename = useCallback(async () => {
 		if (isRenaming) {
@@ -378,25 +384,49 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 			toast.error(`Name must be ${MAX_ORGANIZATION_NAME_LENGTH} characters or fewer.`);
 			return;
 		}
+
+		const previousOrganization = organization;
+		const previousOptimisticOrganizationName = optimisticOrganizationName;
 		setIsEditingName(false);
 		setIsRenaming(true);
+		setOptimisticOrganizationName(organizationId, trimmed);
+		if (previousOrganization) {
+			queryClient.setQueryData(['org-details', organizationId], { ...previousOrganization, name: trimmed });
+		}
 		try {
 			const { error } = await authClient.organization.update({
 				data: { name: trimmed },
 				organizationId: organization?.id ?? '',
 			});
 			if (error) {
+				setOptimisticOrganizationName(organizationId, previousOptimisticOrganizationName);
+				if (previousOrganization) {
+					queryClient.setQueryData(['org-details', organizationId], previousOrganization);
+				}
 				toast.error(error.message ?? 'Failed to rename organization');
 				return;
 			}
 			toast.success('Organization renamed');
 			refreshOrganization();
 		} catch {
+			setOptimisticOrganizationName(organizationId, previousOptimisticOrganizationName);
+			if (previousOrganization) {
+				queryClient.setQueryData(['org-details', organizationId], previousOrganization);
+			}
 			toast.error('Failed to rename organization');
 		} finally {
 			setIsRenaming(false);
 		}
-	}, [editName, isRenaming, organization?.name, organization?.id, refreshOrganization]);
+	}, [
+		editName,
+		isRenaming,
+		optimisticOrganizationName,
+		organization,
+		organizationId,
+		queryClient,
+		refreshOrganization,
+		setOptimisticOrganizationName,
+	]);
 
 	const handleRemoveMember = useCallback(async () => {
 		if (confirmAction?.type !== 'remove') return;
@@ -412,13 +442,14 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 			}
 			toast.success(`${confirmAction.member.user.name} removed`);
 			refreshOrganization();
+			refreshUserLimits();
 		} catch {
 			toast.error('Failed to remove member');
 		} finally {
 			setIsActing(false);
 			setConfirmAction(undefined);
 		}
-	}, [confirmAction, organization?.id, refreshOrganization]);
+	}, [confirmAction, organization?.id, refreshOrganization, refreshUserLimits]);
 
 	const handleTransferOwnership = useCallback(async () => {
 		if (confirmAction?.type !== 'transfer') return;
@@ -478,6 +509,7 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 				return;
 			}
 			toast.success('You left the organization');
+			refreshUserLimits();
 			void navigate('/');
 		} catch {
 			toast.error('Failed to leave organization');
@@ -485,7 +517,7 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 			setIsActing(false);
 			setConfirmAction(undefined);
 		}
-	}, [organization?.id, navigate]);
+	}, [organization?.id, navigate, refreshUserLimits]);
 
 	const handleDeleteOrg = useCallback(async () => {
 		setIsDeletingOrg(true);
@@ -591,43 +623,42 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 						</div>
 					)}
 					<div className="min-w-0 flex-1">
-						{isEditingName ? (
-							<input
-								ref={nameInputReference}
-								type="text"
-								value={editName}
-								onChange={(event) => setEditName(event.target.value)}
-								onKeyDown={(event) => {
-									if (event.key === 'Enter') void handleRename();
-									if (event.key === 'Escape') setIsEditingName(false);
-								}}
-								onBlur={() => void handleRename()}
-								maxLength={MAX_ORGANIZATION_NAME_LENGTH}
-								disabled={isRenaming}
-								className="
-									h-8 w-full min-w-0 rounded-md border border-border bg-bg-secondary/60
-									px-2 text-sm font-semibold text-text-primary transition-colors
-									focus-within:border-accent
-									focus:outline-none
-								"
-							/>
-						) : (
-							<div className="flex items-center gap-2">
-								<h1 className="truncate text-lg font-semibold text-text-primary">{organization.name}</h1>
-								{isOwner && (
-									<button
-										onClick={handleStartRename}
-										title="Rename organization"
-										className="
-											cursor-pointer rounded-md p-1 text-text-secondary transition-colors
-											hover:bg-bg-tertiary hover:text-text-primary
-										"
-									>
-										<Pencil className="size-3.5" />
-									</button>
-								)}
-							</div>
-						)}
+						<InlineRenameField
+							isEditing={isEditingName}
+							displayValue={organization.name}
+							inputValue={editName}
+							onInputValueChange={setEditName}
+							onStartEditing={handleStartRename}
+							onSubmit={handleRename}
+							onCancel={handleCancelRename}
+							inputAriaLabel="Rename organization"
+							maxLength={MAX_ORGANIZATION_NAME_LENGTH}
+							disabled={isRenaming}
+							className="min-h-8 w-full"
+							inputClassName="
+								h-8 rounded-md border border-border bg-bg-secondary/60 px-2 text-sm
+								font-semibold text-text-primary transition-colors
+								focus:border-accent focus:outline-none
+							"
+						>
+							{({ displayValue, startEditing }) => (
+								<div className="flex items-center gap-2">
+									<h1 className="truncate text-lg font-semibold text-text-primary">{displayValue}</h1>
+									{isOwner && (
+										<button
+											onClick={startEditing}
+											title="Rename organization"
+											className="
+												cursor-pointer rounded-md p-1 text-text-secondary transition-colors
+												hover:bg-bg-tertiary hover:text-text-primary
+											"
+										>
+											<Pencil className="size-3.5" />
+										</button>
+									)}
+								</div>
+							)}
+						</InlineRenameField>
 						<p className="text-xs text-text-secondary">Organization settings</p>
 						<p className="mt-0.5 font-mono text-xs text-text-secondary/50">{organization.id}</p>
 					</div>

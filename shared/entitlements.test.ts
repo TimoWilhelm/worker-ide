@@ -1,13 +1,15 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-	ENTITLEMENT_USER_MAX_ORGANIZATIONS,
+	DEFAULT_MAX_FREE_ORGS,
+	ENTITLEMENT_USER_MAX_FREE_ORGS,
 	ENTITLEMENT_ORG_STORAGE_QUOTA_BYTES,
 	ENTITLEMENT_PROJECT_STORAGE_QUOTA_BYTES,
 	getEntitlementScope,
 	resolveOrgLimits,
 	resolveProjectStorageQuota,
 	resolveUserLimits,
+	resolveUserLimitsFromRows,
 	toEntitlementMap,
 } from './entitlements';
 
@@ -18,7 +20,7 @@ describe('getEntitlementScope', () => {
 	});
 
 	it('returns "user" for user-scoped keys', () => {
-		expect(getEntitlementScope('user:max_organizations')).toBe('user');
+		expect(getEntitlementScope('user:max_free_orgs')).toBe('user');
 	});
 
 	it('returns "project" for project-scoped keys', () => {
@@ -79,15 +81,26 @@ describe('resolveOrgLimits', () => {
 });
 
 describe('resolveUserLimits', () => {
-	it('uses the user plan defaults for owned organization count', () => {
-		expect(resolveUserLimits('free', toEntitlementMap([])).maxOrganizations).toBe(1);
-		expect(resolveUserLimits('pro', toEntitlementMap([])).maxOrganizations).toBe(5);
-		expect(resolveUserLimits('enterprise', toEntitlementMap([])).maxOrganizations).toBe(50);
+	it('uses the default free organization cap', () => {
+		expect(resolveUserLimits(toEntitlementMap([])).maxFreeOrganizations).toBe(DEFAULT_MAX_FREE_ORGS);
 	});
 
 	it('lets user entitlements override the plan default', () => {
-		const entitlements = toEntitlementMap([{ key: ENTITLEMENT_USER_MAX_ORGANIZATIONS, valueType: 'number', value: '3' }]);
+		const entitlements = toEntitlementMap([{ key: ENTITLEMENT_USER_MAX_FREE_ORGS, valueType: 'number', value: '5' }]);
 
-		expect(resolveUserLimits('free', entitlements).maxOrganizations).toBe(3);
+		expect(resolveUserLimits(entitlements).maxFreeOrganizations).toBe(5);
+	});
+
+	it('ignores rows with the wrong value type', () => {
+		const entitlements = toEntitlementMap([{ key: ENTITLEMENT_USER_MAX_FREE_ORGS, valueType: 'string', value: '5' }]);
+
+		expect(resolveUserLimits(entitlements).maxFreeOrganizations).toBe(DEFAULT_MAX_FREE_ORGS);
+	});
+
+	it('resolves limits from entitlement rows', () => {
+		expect(resolveUserLimitsFromRows([])).toEqual({ maxFreeOrganizations: DEFAULT_MAX_FREE_ORGS });
+		expect(resolveUserLimitsFromRows([{ key: ENTITLEMENT_USER_MAX_FREE_ORGS, valueType: 'number', value: '4' }])).toEqual({
+			maxFreeOrganizations: 4,
+		});
 	});
 });

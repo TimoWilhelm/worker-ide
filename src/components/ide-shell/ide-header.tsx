@@ -4,6 +4,7 @@ import { Link } from 'react-router';
 import { BetaIndicator } from '@/components/beta-indicator';
 import { BorderBeam } from '@/components/ui/border-beam';
 import { Button } from '@/components/ui/button';
+import { InlineRenameField } from '@/components/ui/inline-rename-field';
 import { Modal, ModalBody } from '@/components/ui/modal';
 import { Tooltip } from '@/components/ui/tooltip';
 import { VersionBadge } from '@/components/version-badge';
@@ -38,16 +39,8 @@ export function IDEHeader({
 	onDeploy,
 	onSettings,
 }: IDEHeaderProperties) {
-	const {
-		projectName,
-		isEditingName,
-		editNameValue,
-		setEditNameValue,
-		nameInputReference,
-		handleStartRename,
-		handleSaveRename,
-		handleCancelRename,
-	} = projectNameState;
+	const { projectName, isEditingName, editNameValue, setEditNameValue, handleStartRename, handleSaveRename, handleCancelRename } =
+		projectNameState;
 
 	return (
 		<>
@@ -71,57 +64,56 @@ export function IDEHeader({
 							<BetaIndicator />
 						</Link>
 					</Tooltip>
-					{isEditingName ? (
-						<div className="z-10 flex items-center gap-1">
-							<input
-								ref={nameInputReference}
-								value={editNameValue}
-								onChange={(event) => setEditNameValue(event.target.value)}
-								onKeyDown={(event) => {
-									if (event.key === 'Enter') void handleSaveRename();
-									if (event.key === 'Escape') handleCancelRename();
-								}}
-								onBlur={() => void handleSaveRename()}
-								className="
-									h-6 w-40 rounded-sm border border-accent bg-bg-primary px-1.5 text-sm
-									text-text-primary
-									focus:outline-none
-								"
-								maxLength={60}
-							/>
-						</div>
-					) : (
-						<div className="group flex min-w-20 items-center gap-1.5">
-							<h1
-								className="cursor-pointer truncate font-semibold text-text-primary"
-								onClick={handleStartRename}
-								role="button"
-								tabIndex={0}
-								onKeyDown={(event) => {
-									if (event.key === 'Enter' || event.key === ' ') {
-										event.preventDefault();
-										handleStartRename();
-									}
-								}}
-							>
-								{projectName ?? 'Codemaxxing'}
-							</h1>
-							<Tooltip content="Rename project">
-								<button
-									onClick={handleStartRename}
-									className="
-										cursor-pointer text-text-secondary opacity-0 transition-opacity
-										pointer-coarse:hidden
-										hover-always:text-accent
-										group-hover-always:opacity-100
-									"
-									aria-label="Rename project"
+					<InlineRenameField
+						isEditing={isEditingName}
+						displayValue={projectName ?? 'Codemaxxing'}
+						inputValue={editNameValue}
+						onInputValueChange={setEditNameValue}
+						onStartEditing={handleStartRename}
+						onSubmit={handleSaveRename}
+						onCancel={handleCancelRename}
+						inputAriaLabel="Rename project"
+						maxLength={60}
+						className="min-w-20"
+						inputClassName="
+							h-6 rounded-sm border border-accent bg-bg-primary px-1.5 text-sm font-semibold
+							text-text-primary
+							focus:outline-none
+						"
+					>
+						{({ displayValue, startEditing }) => (
+							<div className="group flex min-w-20 items-center gap-1.5">
+								<h1
+									className="cursor-pointer truncate font-semibold text-text-primary"
+									onClick={startEditing}
+									role="button"
+									tabIndex={0}
+									onKeyDown={(event) => {
+										if (event.key === 'Enter' || event.key === ' ') {
+											event.preventDefault();
+											startEditing();
+										}
+									}}
 								>
-									<Pencil className="size-3" />
-								</button>
-							</Tooltip>
-						</div>
-					)}
+									{displayValue}
+								</h1>
+								<Tooltip content="Rename project">
+									<button
+										onClick={startEditing}
+										className="
+											cursor-pointer text-text-secondary opacity-0 transition-opacity
+											pointer-coarse:hidden
+											hover-always:text-accent
+											group-hover-always:opacity-100
+										"
+										aria-label="Rename project"
+									>
+										<Pencil className="size-3" />
+									</button>
+								</Tooltip>
+							</div>
+						)}
+					</InlineRenameField>
 				</div>
 				<div className="flex shrink-0 items-center gap-2 wco-interactive">
 					{!isMobile && (

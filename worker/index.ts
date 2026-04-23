@@ -10,7 +10,7 @@ import { z } from 'zod';
 
 import { PROJECT_INACTIVITY_DAYS, SOFT_DELETE_RETENTION_DAYS } from '@shared/constants';
 import { buildAppOrigin, parseHost } from '@shared/domain';
-import { resolveOrgLimitsFromRows } from '@shared/entitlements';
+import { ENTITLEMENT_ORG_MAX_PROJECTS, ENTITLEMENT_USER_MAX_FREE_ORGS, resolveOrgLimitsFromRows } from '@shared/entitlements';
 import { generateHumanId } from '@shared/human-id';
 import { validatePreviewToken } from '@shared/preview-token';
 import { isValidProjectId } from '@shared/project-id';
@@ -638,27 +638,58 @@ if (import.meta.env.DEV) {
 					name: 'E2E Test User',
 					email: 'e2e@test.local',
 					emailVerified: false,
-					plan: 'enterprise',
 					createdAt: now,
 					updatedAt: now,
 				})
 				.onConflictDoUpdate({
 					target: authSchema.user.id,
-					set: { plan: 'enterprise', updatedAt: now },
+					set: { updatedAt: now },
 				});
 
 			await database
 				.insert(authSchema.organization)
-				.values({ id: organizationId, name: 'E2E Test Org', slug: 'e2e-test-org', plan: 'enterprise', createdAt: now })
+				.values({ id: organizationId, name: 'E2E Test Org', slug: 'e2e-test-org', plan: 'free', createdAt: now })
 				.onConflictDoUpdate({
 					target: authSchema.organization.id,
-					set: { plan: 'enterprise' },
+					set: { plan: 'free' },
 				});
 
 			await database
 				.insert(authSchema.member)
 				.values({ id: memberId, organizationId, userId, role: 'owner', createdAt: now })
 				.onConflictDoNothing();
+
+			await database
+				.insert(authSchema.entitlement)
+				.values({
+					id: 'e2e-test-max-free-orgs',
+					scopeId: userId,
+					key: ENTITLEMENT_USER_MAX_FREE_ORGS,
+					valueType: 'number',
+					value: '100',
+					createdAt: now,
+					updatedAt: now,
+				})
+				.onConflictDoUpdate({
+					target: [authSchema.entitlement.scopeId, authSchema.entitlement.key],
+					set: { value: '100', updatedAt: now },
+				});
+
+			await database
+				.insert(authSchema.entitlement)
+				.values({
+					id: 'e2e-test-org-max-projects',
+					scopeId: organizationId,
+					key: ENTITLEMENT_ORG_MAX_PROJECTS,
+					valueType: 'number',
+					value: '100',
+					createdAt: now,
+					updatedAt: now,
+				})
+				.onConflictDoUpdate({
+					target: [authSchema.entitlement.scopeId, authSchema.entitlement.key],
+					set: { value: '100', updatedAt: now },
+				});
 
 			// Purge stale test projects (older than 5 min) so the org limit is never
 			// hit from prior runs, without deleting projects that a concurrent

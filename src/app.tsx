@@ -22,6 +22,7 @@ import { usePwaUpdate } from '@/hooks/use-pwa-update';
 import { useUserPreferences } from '@/hooks/use-user-preferences';
 import { authClient } from '@/lib/auth-client';
 import { checkProjectAccess } from '@/lib/project-access';
+import { selectOptimisticUserName, useStore } from '@/lib/store';
 import { isNetworkError } from '@/lib/utils';
 import { getAuthErrorInfo } from '@shared/auth-errors';
 import { parseHost } from '@shared/domain';
@@ -178,8 +179,31 @@ function AuthGate() {
 	const { data: session, isPending: sessionPending } = authClient.useSession();
 	const { data: organizations, isPending: listPending } = authClient.useListOrganizations();
 	const { data: activeOrganization } = authClient.useActiveOrganization();
-	const visibleOrganizations = (organizations ?? []).filter((organization) => !isDeletedOrganization(organization));
+	const optimisticUserName = useStore(selectOptimisticUserName);
+	const optimisticOrganizationNames = useStore((state) => state.optimisticOrganizationNames);
+	const setOptimisticUserName = useStore((state) => state.setOptimisticUserName);
+	const setOptimisticOrganizationName = useStore((state) => state.setOptimisticOrganizationName);
+	const baseVisibleOrganizations = (organizations ?? []).filter((organization) => !isDeletedOrganization(organization));
+	const visibleOrganizations = baseVisibleOrganizations.map((organization) => ({
+		...organization,
+		name: optimisticOrganizationNames[organization.id] ?? organization.name,
+	}));
 	const visibleActiveOrganization = activeOrganization && !isDeletedOrganization(activeOrganization) ? activeOrganization : undefined;
+
+	useEffect(() => {
+		if (optimisticUserName && session?.user.name === optimisticUserName) {
+			setOptimisticUserName(undefined);
+		}
+	}, [optimisticUserName, session?.user.name, setOptimisticUserName]);
+
+	useEffect(() => {
+		for (const organization of baseVisibleOrganizations) {
+			const optimisticName = optimisticOrganizationNames[organization.id];
+			if (optimisticName && organization.name === optimisticName) {
+				setOptimisticOrganizationName(organization.id, undefined);
+			}
+		}
+	}, [baseVisibleOrganizations, optimisticOrganizationNames, setOptimisticOrganizationName]);
 
 	// Auto-set the active organization when the session has none
 	const autoActivatedReference = useRef(false);
@@ -210,7 +234,7 @@ function AuthGate() {
 	}
 
 	const user = {
-		name: session.user.name,
+		name: optimisticUserName ?? session.user.name,
 		email: session.user.email,
 		image: session.user.image ?? undefined,
 		emailVerified: session.user.emailVerified,

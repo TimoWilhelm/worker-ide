@@ -27,9 +27,7 @@ vi.mock('@/lib/api-client', () => ({
 		]),
 	),
 	fetchOrgProjects: vi.fn(() => Promise.resolve([])),
-	fetchUserLimits: vi.fn(() =>
-		Promise.resolve({ maxOrganizations: 1, currentOrganizations: 1, currentOwnedOrganizations: 1, userPlan: 'free' }),
-	),
+	fetchUserLimits: vi.fn(() => Promise.resolve({ maxFreeOrganizations: 3, currentFreeOrganizations: 1 })),
 }));
 
 // Mock org switcher
