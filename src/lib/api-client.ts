@@ -141,10 +141,14 @@ export interface OrgLimits {
 	currentProjects: number;
 	maxMembers: number;
 	currentMembers: number;
+	maxPendingInvitations: number;
+	currentPendingInvitations: number;
 }
 export interface UserLimits {
 	maxOrganizations: number;
 	currentOrganizations: number;
+	currentOwnedOrganizations: number;
+	userPlan: string;
 }
 
 export async function fetchOrgLimits(organizationId: string): Promise<OrgLimits> {
@@ -164,6 +168,15 @@ export async function fetchUserLimits(): Promise<UserLimits> {
 	}
 	return response.json();
 }
+export async function fetchOrgDetails(organizationId: string) {
+	const orgApi = createOrgApiClient();
+	const response = await orgApi.org[':orgId'].full.$get({ param: { orgId: organizationId } });
+	if (!response.ok) {
+		await throwApiError(response, 'Failed to fetch organization details');
+	}
+	return response.json();
+}
+export type OrgDetails = Awaited<ReturnType<typeof fetchOrgDetails>>;
 export async function fetchUserPreferences(): Promise<UserPreferences> {
 	const userApi = createUserApiClient();
 	const response = await userApi.user.preferences.$get({});

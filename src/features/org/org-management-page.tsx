@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, ChevronDown, ChevronUp, Crown, Mail, Moon, Pencil, Shield, Sun, Trash2, User, UserPlus, X } from 'lucide-react';
-import { useCallback, useState } from 'react';
+import { ArrowLeft, ChevronDown, ChevronUp, Crown, Mail, Pencil, Shield, Trash2, User, UserPlus, X } from 'lucide-react';
+import { useCallback, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 
 import { Button } from '@/components/ui/button';
@@ -8,81 +8,15 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Modal, ModalBody, ModalFooter } from '@/components/ui/modal';
 import { Spinner } from '@/components/ui/spinner';
 import { toast } from '@/components/ui/toast-store';
-import { useTheme } from '@/hooks/use-theme';
-import { deleteOrganization, fetchOrgLimits } from '@/lib/api-client';
+import { deleteOrganization, fetchOrgDetails, fetchOrgLimits } from '@/lib/api-client';
 import { authClient } from '@/lib/auth-client';
-import { useStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 import { MAX_ORGANIZATION_NAME_LENGTH } from '@shared/constants';
 
-import type { OrgLimits } from '@/lib/api-client';
+import type { OrgDetails, OrgLimits } from '@/lib/api-client';
 
-interface OrgMember {
-	id: string;
-	userId: string;
-	role: string;
-	user: { name: string; email: string; image?: string | undefined };
-}
-
-interface OrgInvitation {
-	id: string;
-	email: string;
-	role?: string | undefined;
-	status: string;
-}
-
-interface ActiveOrganization {
-	id: string;
-	name: string;
-	slug?: string;
-	logo?: string;
-	plan?: string;
-	members?: unknown[];
-	invitations?: unknown[];
-}
-
-function isActiveOrganization(value: unknown): value is ActiveOrganization {
-	return (
-		value !== null &&
-		typeof value === 'object' &&
-		typeof Reflect.get(value, 'id') === 'string' &&
-		typeof Reflect.get(value, 'name') === 'string' &&
-		(typeof Reflect.get(value, 'slug') === 'string' || Reflect.get(value, 'slug') === undefined) &&
-		(typeof Reflect.get(value, 'logo') === 'string' || Reflect.get(value, 'logo') === undefined) &&
-		(typeof Reflect.get(value, 'plan') === 'string' || Reflect.get(value, 'plan') === undefined) &&
-		(Array.isArray(Reflect.get(value, 'members')) || Reflect.get(value, 'members') === undefined) &&
-		(Array.isArray(Reflect.get(value, 'invitations')) || Reflect.get(value, 'invitations') === undefined)
-	);
-}
-
-function isOrgMember(value: unknown): value is OrgMember {
-	if (value === null || typeof value !== 'object') {
-		return false;
-	}
-
-	const user = Reflect.get(value, 'user');
-	return (
-		typeof Reflect.get(value, 'id') === 'string' &&
-		typeof Reflect.get(value, 'userId') === 'string' &&
-		typeof Reflect.get(value, 'role') === 'string' &&
-		user !== null &&
-		typeof user === 'object' &&
-		typeof Reflect.get(user, 'name') === 'string' &&
-		typeof Reflect.get(user, 'email') === 'string' &&
-		(typeof Reflect.get(user, 'image') === 'string' || Reflect.get(user, 'image') === undefined)
-	);
-}
-
-function isOrgInvitation(value: unknown): value is OrgInvitation {
-	return (
-		value !== null &&
-		typeof value === 'object' &&
-		typeof Reflect.get(value, 'id') === 'string' &&
-		typeof Reflect.get(value, 'email') === 'string' &&
-		(typeof Reflect.get(value, 'role') === 'string' || Reflect.get(value, 'role') === undefined) &&
-		typeof Reflect.get(value, 'status') === 'string'
-	);
-}
+type OrgMember = OrgDetails['members'][number];
+type OrgInvitation = OrgDetails['invitations'][number];
 
 type ConfirmAction =
 	| { type: 'remove'; member: OrgMember }
@@ -250,21 +184,22 @@ function InviteForm({
 	memberCount,
 	pendingInvitationCount,
 	maxMembers,
+	maxPendingInvitations,
 	onInvited,
 }: {
 	organizationId: string;
 	memberCount: number;
 	pendingInvitationCount: number;
 	maxMembers: number;
+	maxPendingInvitations: number;
 	onInvited: () => void;
 }) {
 	const [email, setEmail] = useState('');
 	const [role, setRole] = useState<'member' | 'admin'>('member');
 	const [isSending, setIsSending] = useState(false);
 
-	// Invitation limit shares the member limit (invitations are pre-members)
 	const memberLimitReached = memberCount >= maxMembers;
-	const invitationLimitReached = pendingInvitationCount >= maxMembers;
+	const invitationLimitReached = pendingInvitationCount >= maxPendingInvitations;
 	const isLimitReached = memberLimitReached || invitationLimitReached;
 
 	const handleInvite = useCallback(async () => {
@@ -362,7 +297,7 @@ function InviteForm({
 			</div>
 			{isLimitReached && (
 				<p className="mt-2 text-xs text-text-secondary/80">
-					{memberLimitReached ? `Member limit reached (${maxMembers}).` : `Pending invitation limit reached (${maxMembers}).`}
+					{memberLimitReached ? `Member limit reached (${maxMembers}).` : `Pending invitation limit reached (${maxPendingInvitations}).`}
 				</p>
 			)}
 		</div>
@@ -377,21 +312,13 @@ interface OrgManagementPageProperties {
 export default function OrgManagementPage({ orgSlug, organizationId }: OrgManagementPageProperties) {
 	const navigate = useNavigate();
 	const { data: session } = authClient.useSession();
-	const resolvedTheme = useTheme();
-	const setColorScheme = useStore((state) => state.setColorScheme);
 
 	const organizationQuery = useQuery({
 		queryKey: ['org-details', organizationId],
-		queryFn: async () => {
-			const { data, error } = await authClient.organization.getFullOrganization({
-				query: { organizationId },
-			});
-			if (error) throw new Error(error.message ?? 'Failed to load organization');
-			return data;
-		},
+		queryFn: () => fetchOrgDetails(organizationId),
 		staleTime: 1000 * 30,
 	});
-	const activeOrganization = isActiveOrganization(organizationQuery.data) ? organizationQuery.data : undefined;
+	const organization = organizationQuery.data;
 	const isPending = organizationQuery.isPending;
 
 	const limitsQuery = useQuery({
@@ -412,10 +339,11 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 	const [isEditingName, setIsEditingName] = useState(false);
 	const [editName, setEditName] = useState('');
 	const [isRenaming, setIsRenaming] = useState(false);
+	const nameInputReference = useRef<HTMLInputElement>(null);
 
 	const currentUserId = session?.user.id;
-	const members = (activeOrganization?.members ?? []).filter((member) => isOrgMember(member));
-	const invitations = (activeOrganization?.invitations ?? []).filter((invitation) => isOrgInvitation(invitation));
+	const members = organization?.members ?? [];
+	const invitations = organization?.invitations ?? [];
 	const pendingInvitations = invitations.filter((invitation) => invitation.status === 'pending');
 
 	const currentMember = members.find((member) => member.userId === currentUserId);
@@ -428,13 +356,21 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 	}, [queryClient, organizationId]);
 
 	const handleStartRename = useCallback(() => {
-		setEditName(activeOrganization?.name ?? '');
+		setEditName(organization?.name ?? '');
 		setIsEditingName(true);
-	}, [activeOrganization?.name]);
+		requestAnimationFrame(() => {
+			nameInputReference.current?.focus();
+			nameInputReference.current?.select();
+		});
+	}, [organization?.name]);
 
 	const handleRename = useCallback(async () => {
+		if (isRenaming) {
+			return;
+		}
+
 		const trimmed = editName.trim();
-		if (!trimmed || trimmed === activeOrganization?.name) {
+		if (!trimmed || trimmed === organization?.name) {
 			setIsEditingName(false);
 			return;
 		}
@@ -442,11 +378,12 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 			toast.error(`Name must be ${MAX_ORGANIZATION_NAME_LENGTH} characters or fewer.`);
 			return;
 		}
+		setIsEditingName(false);
 		setIsRenaming(true);
 		try {
 			const { error } = await authClient.organization.update({
 				data: { name: trimmed },
-				organizationId: activeOrganization?.id ?? '',
+				organizationId: organization?.id ?? '',
 			});
 			if (error) {
 				toast.error(error.message ?? 'Failed to rename organization');
@@ -458,9 +395,8 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 			toast.error('Failed to rename organization');
 		} finally {
 			setIsRenaming(false);
-			setIsEditingName(false);
 		}
-	}, [editName, activeOrganization?.name, activeOrganization?.id, refreshOrganization]);
+	}, [editName, isRenaming, organization?.name, organization?.id, refreshOrganization]);
 
 	const handleRemoveMember = useCallback(async () => {
 		if (confirmAction?.type !== 'remove') return;
@@ -468,7 +404,7 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 		try {
 			const { error } = await authClient.organization.removeMember({
 				memberIdOrEmail: confirmAction.member.id,
-				organizationId: activeOrganization?.id ?? '',
+				organizationId: organization?.id ?? '',
 			});
 			if (error) {
 				toast.error(error.message ?? 'Failed to remove member');
@@ -482,7 +418,7 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 			setIsActing(false);
 			setConfirmAction(undefined);
 		}
-	}, [confirmAction, activeOrganization?.id, refreshOrganization]);
+	}, [confirmAction, organization?.id, refreshOrganization]);
 
 	const handleTransferOwnership = useCallback(async () => {
 		if (confirmAction?.type !== 'transfer') return;
@@ -491,7 +427,7 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 			const { error } = await authClient.organization.updateMemberRole({
 				memberId: confirmAction.member.id,
 				role: 'owner',
-				organizationId: activeOrganization?.id ?? '',
+				organizationId: organization?.id ?? '',
 			});
 			if (error) {
 				toast.error(error.message ?? 'Failed to transfer ownership');
@@ -505,7 +441,7 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 			setIsActing(false);
 			setConfirmAction(undefined);
 		}
-	}, [confirmAction, activeOrganization?.id, refreshOrganization]);
+	}, [confirmAction, organization?.id, refreshOrganization]);
 
 	const handleChangeRole = useCallback(async () => {
 		if (confirmAction?.type !== 'promote' && confirmAction?.type !== 'demote') return;
@@ -514,7 +450,7 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 			const { error } = await authClient.organization.updateMemberRole({
 				memberId: confirmAction.member.id,
 				role: confirmAction.targetRole,
-				organizationId: activeOrganization?.id ?? '',
+				organizationId: organization?.id ?? '',
 			});
 			if (error) {
 				toast.error(error.message ?? 'Failed to change role');
@@ -529,13 +465,13 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 			setIsActing(false);
 			setConfirmAction(undefined);
 		}
-	}, [confirmAction, activeOrganization?.id, refreshOrganization]);
+	}, [confirmAction, organization?.id, refreshOrganization]);
 
 	const handleLeave = useCallback(async () => {
 		setIsActing(true);
 		try {
 			const { error } = await authClient.organization.leave({
-				organizationId: activeOrganization?.id ?? '',
+				organizationId: organization?.id ?? '',
 			});
 			if (error) {
 				toast.error(error.message ?? 'Failed to leave organization');
@@ -549,7 +485,7 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 			setIsActing(false);
 			setConfirmAction(undefined);
 		}
-	}, [activeOrganization?.id, navigate]);
+	}, [organization?.id, navigate]);
 
 	const handleDeleteOrg = useCallback(async () => {
 		setIsDeletingOrg(true);
@@ -600,15 +536,15 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 		);
 	}
 
-	if (!activeOrganization) {
+	if (!organization) {
 		return (
 			<div className="flex h-dvh items-center justify-center bg-bg-primary">
-				<p className="text-text-secondary">No active organization</p>
+				<p className="text-text-secondary">Organization not found or you don't have access to it.</p>
 			</div>
 		);
 	}
 
-	const confirmDialogProperties = getConfirmDialogProperties(confirmAction, activeOrganization.name);
+	const confirmDialogProperties = getConfirmDialogProperties(confirmAction, organization.name);
 
 	return (
 		<div className="flex h-dvh flex-col items-center overflow-y-auto bg-bg-primary">
@@ -638,10 +574,10 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 					>
 						<ArrowLeft className="size-4" />
 					</Link>
-					{activeOrganization.logo ? (
+					{organization.logo ? (
 						<img
-							src={activeOrganization.logo}
-							alt={activeOrganization.name}
+							src={organization.logo}
+							alt={organization.name}
 							className="size-10 shrink-0 rounded-lg border border-border object-cover"
 						/>
 					) : (
@@ -651,40 +587,33 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 								bg-bg-tertiary text-sm font-medium text-text-secondary
 							"
 						>
-							{activeOrganization.name.charAt(0).toUpperCase()}
+							{organization.name.charAt(0).toUpperCase()}
 						</div>
 					)}
 					<div className="min-w-0 flex-1">
 						{isEditingName ? (
-							<div className="flex items-center gap-2">
-								<input
-									type="text"
-									value={editName}
-									onChange={(event) => setEditName(event.target.value)}
-									onKeyDown={(event) => {
-										if (event.key === 'Enter') void handleRename();
-										if (event.key === 'Escape') setIsEditingName(false);
-									}}
-									maxLength={MAX_ORGANIZATION_NAME_LENGTH}
-									disabled={isRenaming}
-									autoFocus
-									className="
-										h-8 min-w-0 flex-1 rounded-md border border-border bg-bg-secondary/60
-										px-2 text-sm font-semibold text-text-primary transition-colors
-										focus-within:border-accent
-										focus:outline-none
-									"
-								/>
-								<Button size="sm" className="h-8 shrink-0" onClick={() => void handleRename()} disabled={isRenaming} isLoading={isRenaming}>
-									Save
-								</Button>
-								<Button variant="ghost" size="sm" className="h-8 shrink-0" onClick={() => setIsEditingName(false)} disabled={isRenaming}>
-									Cancel
-								</Button>
-							</div>
+							<input
+								ref={nameInputReference}
+								type="text"
+								value={editName}
+								onChange={(event) => setEditName(event.target.value)}
+								onKeyDown={(event) => {
+									if (event.key === 'Enter') void handleRename();
+									if (event.key === 'Escape') setIsEditingName(false);
+								}}
+								onBlur={() => void handleRename()}
+								maxLength={MAX_ORGANIZATION_NAME_LENGTH}
+								disabled={isRenaming}
+								className="
+									h-8 w-full min-w-0 rounded-md border border-border bg-bg-secondary/60
+									px-2 text-sm font-semibold text-text-primary transition-colors
+									focus-within:border-accent
+									focus:outline-none
+								"
+							/>
 						) : (
 							<div className="flex items-center gap-2">
-								<h1 className="truncate text-lg font-semibold text-text-primary">{activeOrganization.name}</h1>
+								<h1 className="truncate text-lg font-semibold text-text-primary">{organization.name}</h1>
 								{isOwner && (
 									<button
 										onClick={handleStartRename}
@@ -700,17 +629,9 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 							</div>
 						)}
 						<p className="text-xs text-text-secondary">Organization settings</p>
-						<p className="mt-0.5 font-mono text-xs text-text-secondary/50">{activeOrganization.id}</p>
+						<p className="mt-0.5 font-mono text-xs text-text-secondary/50">{organization.id}</p>
 					</div>
 					<div className="flex shrink-0 items-center gap-2">
-						<Button
-							variant="ghost"
-							size="icon"
-							aria-label={resolvedTheme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-							onClick={() => setColorScheme(resolvedTheme === 'dark' ? 'light' : 'dark')}
-						>
-							{resolvedTheme === 'dark' ? <Sun className="size-4" /> : <Moon className="size-4" />}
-						</Button>
 						{!isOwner && (
 							<Button variant="outline" size="sm" onClick={() => setConfirmAction({ type: 'leave' })}>
 								Leave
@@ -753,10 +674,11 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 						</h2>
 						<div className="rounded-lg border border-border bg-bg-secondary/40">
 							<InviteForm
-								organizationId={activeOrganization.id}
+								organizationId={organization.id}
 								memberCount={members.length}
 								pendingInvitationCount={pendingInvitations.length}
 								maxMembers={orgLimits?.maxMembers ?? members.length + 1}
+								maxPendingInvitations={orgLimits?.maxPendingInvitations ?? pendingInvitations.length + 1}
 								onInvited={refreshOrganization}
 							/>
 						</div>
@@ -845,7 +767,7 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 									text-sm font-medium text-text-primary
 								"
 							>
-								{activeOrganization.name}
+								{organization.name}
 							</p>
 							<p className="text-xs text-text-secondary">This action cannot be undone.</p>
 							<div>

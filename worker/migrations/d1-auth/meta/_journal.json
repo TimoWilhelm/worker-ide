@@ -134,6 +134,13 @@
 			"when": 1776721525028,
 			"tag": "0018_slim_paibok",
 			"breakpoints": true
+		},
+		{
+			"idx": 19,
+			"version": "6",
+			"when": 1776975797945,
+			"tag": "0019_user-plan",
+			"breakpoints": true
 		}
 	]
 }

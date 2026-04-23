@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+	ENTITLEMENT_USER_MAX_ORGANIZATIONS,
 	ENTITLEMENT_ORG_STORAGE_QUOTA_BYTES,
 	ENTITLEMENT_PROJECT_STORAGE_QUOTA_BYTES,
 	getEntitlementScope,
+	resolveOrgLimits,
 	resolveProjectStorageQuota,
+	resolveUserLimits,
 	toEntitlementMap,
 } from './entitlements';
 
@@ -63,5 +66,28 @@ describe('resolveProjectStorageQuota', () => {
 		const projectEntitlements = toEntitlementMap([]);
 
 		expect(resolveProjectStorageQuota('nonexistent', orgEntitlements, projectEntitlements)).toBe(FREE_DEFAULT);
+	});
+});
+
+describe('resolveOrgLimits', () => {
+	it('includes plan-based pending invitation limits', () => {
+		const limits = resolveOrgLimits('free', toEntitlementMap([]));
+
+		expect(limits.maxMembers).toBe(10);
+		expect(limits.maxPendingInvitations).toBe(10);
+	});
+});
+
+describe('resolveUserLimits', () => {
+	it('uses the user plan defaults for owned organization count', () => {
+		expect(resolveUserLimits('free', toEntitlementMap([])).maxOrganizations).toBe(1);
+		expect(resolveUserLimits('pro', toEntitlementMap([])).maxOrganizations).toBe(5);
+		expect(resolveUserLimits('enterprise', toEntitlementMap([])).maxOrganizations).toBe(50);
+	});
+
+	it('lets user entitlements override the plan default', () => {
+		const entitlements = toEntitlementMap([{ key: ENTITLEMENT_USER_MAX_ORGANIZATIONS, valueType: 'number', value: '3' }]);
+
+		expect(resolveUserLimits('free', entitlements).maxOrganizations).toBe(3);
 	});
 });

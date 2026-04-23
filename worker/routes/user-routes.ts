@@ -109,20 +109,29 @@ export const userRoutes = new Hono<AuthedEnvironment>()
 		const { userId } = c.get('session');
 		const database = drizzle(c.env.DB);
 
-		const [entitlementRows, orgCountRows] = await Promise.all([
+		const [entitlementRows, userRows, membershipCountRows, ownedOrgCountRows] = await Promise.all([
 			queryEntitlements(database, userId),
+			database.select({ plan: schema.user.plan }).from(schema.user).where(eq(schema.user.id, userId)).limit(1),
 			database
 				.select({ count: count() })
 				.from(schema.member)
 				.innerJoin(schema.organization, eq(schema.organization.id, schema.member.organizationId))
 				.where(and(eq(schema.member.userId, userId), isNull(schema.organization.deletedAt))),
+			database
+				.select({ count: count() })
+				.from(schema.member)
+				.innerJoin(schema.organization, eq(schema.organization.id, schema.member.organizationId))
+				.where(and(eq(schema.member.userId, userId), eq(schema.member.role, 'owner'), isNull(schema.organization.deletedAt))),
 		]);
 
-		const limits = resolveUserLimitsFromRows(entitlementRows);
+		const userPlan = userRows[0]?.plan ?? 'free';
+		const limits = resolveUserLimitsFromRows(userPlan, entitlementRows);
 
 		return c.json({
 			maxOrganizations: limits.maxOrganizations,
-			currentOrganizations: orgCountRows[0]?.count ?? 0,
+			currentOrganizations: membershipCountRows[0]?.count ?? 0,
+			currentOwnedOrganizations: ownedOrgCountRows[0]?.count ?? 0,
+			userPlan,
 		});
 	})
 

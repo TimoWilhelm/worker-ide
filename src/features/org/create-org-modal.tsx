@@ -6,19 +6,18 @@ import { Modal, ModalBody, ModalFooter } from '@/components/ui/modal';
 import { toast } from '@/components/ui/toast-store';
 import { authClient } from '@/lib/auth-client';
 import { MAX_ORGANIZATION_NAME_LENGTH } from '@shared/constants';
-import { DEFAULT_MAX_ORGANIZATIONS } from '@shared/entitlements';
 
 export function CreateOrgModal({
 	open,
 	onOpenChange,
-	organizationCount,
+	ownedOrganizationCount,
 	maxOrganizations,
 	required,
 	userName,
 }: {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
-	organizationCount: number;
+	ownedOrganizationCount: number;
 	maxOrganizations?: number;
 	required?: boolean;
 	userName?: string;
@@ -27,7 +26,8 @@ export function CreateOrgModal({
 	const defaultName = required && userName ? `${userName}'s Workspace` : '';
 	const [name, setName] = useState(defaultName);
 	const [isCreating, setIsCreating] = useState(false);
-	const resolvedMax = maxOrganizations ?? DEFAULT_MAX_ORGANIZATIONS;
+	const resolvedMax = maxOrganizations ?? 1;
+	const isAtLimit = ownedOrganizationCount >= resolvedMax;
 
 	const handleCreate = useCallback(async () => {
 		const trimmed = name.trim();
@@ -114,9 +114,7 @@ export function CreateOrgModal({
 						focus:outline-none
 					"
 				/>
-				{organizationCount >= resolvedMax && (
-					<p className="mt-2 text-xs text-error/80">You have reached the maximum of {resolvedMax} organizations.</p>
-				)}
+				{isAtLimit && <p className="mt-2 text-xs text-error/80">You have reached the maximum number of organizations.</p>}
 			</ModalBody>
 			<ModalFooter>
 				{!required && (
@@ -127,7 +125,7 @@ export function CreateOrgModal({
 				<Button
 					size="sm"
 					onClick={() => void handleCreate()}
-					disabled={isCreating || !name.trim() || organizationCount >= resolvedMax}
+					disabled={isCreating || !name.trim() || isAtLimit}
 					isLoading={isCreating}
 					loadingText="Creating..."
 				>

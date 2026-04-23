@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { Building2, ChevronDown, Plus, Settings } from 'lucide-react';
+import { Building2, ChevronDown, Plus, SlidersHorizontal } from 'lucide-react';
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
 
@@ -12,6 +12,7 @@ import {
 	DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { toast } from '@/components/ui/toast-store';
+import { Tooltip } from '@/components/ui/tooltip';
 import { fetchUserLimits } from '@/lib/api-client';
 import { authClient } from '@/lib/auth-client';
 import { cn } from '@/lib/utils';
@@ -44,62 +45,74 @@ export function OrgSwitcher({ organizations, currentOrganizationId, currentOrgan
 		staleTime: 1000 * 60,
 	});
 	const maxOrganizations = userLimitsQuery.data?.maxOrganizations;
+	const currentOwnedOrganizations = userLimitsQuery.data?.currentOwnedOrganizations ?? 0;
+	const canCreateOrganization = maxOrganizations !== undefined && currentOwnedOrganizations < maxOrganizations;
 
 	return (
 		<>
-			<DropdownMenu>
-				<DropdownMenuTrigger>
-					<Button variant="ghost" size="sm" className="gap-2 bg-bg-secondary/40 backdrop-blur-sm">
-						<Building2 className="size-4" />
-						<span className="max-w-32 truncate text-xs">{currentOrganizationName}</span>
-						<ChevronDown className="size-3" />
-					</Button>
-				</DropdownMenuTrigger>
-				<DropdownMenuContent align="end" className="min-w-48">
-					{organizations.map((organization) => (
-						<DropdownMenuItem
-							key={organization.id}
-							onSelect={() => {
-								const slug = organization.slug ?? organization.id;
-								void authClient.organization.setActive({ organizationId: organization.id }).then(
-									() => {
-										void navigate(`/org/${slug}`);
-									},
-									() => {
-										toast.error('Could not switch organization. Please try again.');
-									},
-								);
-							}}
-							className={cn('gap-2 text-xs', currentOrganizationId === organization.id && 'bg-bg-tertiary font-medium')}
-						>
-							{organization.logo ? (
-								<img src={organization.logo} alt="" className="size-4 shrink-0 rounded-sm object-cover" />
-							) : (
-								<Building2 className="size-3.5 shrink-0 text-text-secondary" />
-							)}
-							<span className="truncate">{organization.name}</span>
-						</DropdownMenuItem>
-					))}
-					<DropdownMenuSeparator />
-					<DropdownMenuItem
-						onSelect={() => {
+			<div className="flex items-center gap-1">
+				<DropdownMenu>
+					<DropdownMenuTrigger>
+						<Button variant="ghost" size="sm" className="gap-2 bg-bg-secondary/40 backdrop-blur-sm">
+							<Building2 className="size-4" />
+							<span className="max-w-32 truncate text-xs">{currentOrganizationName}</span>
+							<ChevronDown className="size-3" />
+						</Button>
+					</DropdownMenuTrigger>
+					<DropdownMenuContent align="end" className="min-w-48">
+						{organizations.map((organization) => (
+							<DropdownMenuItem
+								key={organization.id}
+								onSelect={() => {
+									const slug = organization.slug ?? organization.id;
+									void authClient.organization.setActive({ organizationId: organization.id }).then(
+										() => {
+											void navigate(`/org/${slug}`);
+										},
+										() => {
+											toast.error('Could not switch organization. Please try again.');
+										},
+									);
+								}}
+								className={cn('gap-2 text-xs', currentOrganizationId === organization.id && 'bg-bg-tertiary font-medium')}
+							>
+								{organization.logo ? (
+									<img src={organization.logo} alt="" className="size-4 shrink-0 rounded-sm object-cover" />
+								) : (
+									<Building2 className="size-3.5 shrink-0 text-text-secondary" />
+								)}
+								<span className="truncate">{organization.name}</span>
+							</DropdownMenuItem>
+						))}
+						{canCreateOrganization && (
+							<>
+								<DropdownMenuSeparator />
+								<DropdownMenuItem onSelect={() => setCreateModalOpen(true)} className="gap-2 text-xs text-text-secondary">
+									<Plus className="size-3.5 shrink-0" />
+									<span>New organization</span>
+								</DropdownMenuItem>
+							</>
+						)}
+					</DropdownMenuContent>
+				</DropdownMenu>
+				<Tooltip content="Manage organization">
+					<Button
+						variant="ghost"
+						size="icon"
+						className="bg-bg-secondary/40 backdrop-blur-sm"
+						aria-label="Manage organization"
+						onClick={() => {
 							void navigate(`/org/${currentOrgIdentifier}/settings`);
 						}}
-						className="gap-2 text-xs text-text-secondary"
 					>
-						<Settings className="size-3.5 shrink-0" />
-						<span>Manage organization</span>
-					</DropdownMenuItem>
-					<DropdownMenuItem onSelect={() => setCreateModalOpen(true)} className="gap-2 text-xs text-text-secondary">
-						<Plus className="size-3.5 shrink-0" />
-						<span>New organization</span>
-					</DropdownMenuItem>
-				</DropdownMenuContent>
-			</DropdownMenu>
+						<SlidersHorizontal className="size-4" />
+					</Button>
+				</Tooltip>
+			</div>
 			<CreateOrgModal
 				open={createModalOpen}
 				onOpenChange={setCreateModalOpen}
-				organizationCount={organizations.length}
+				ownedOrganizationCount={currentOwnedOrganizations}
 				maxOrganizations={maxOrganizations}
 			/>
 		</>

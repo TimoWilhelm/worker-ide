@@ -10,6 +10,7 @@ import {
 	AUTH_BASE_PATH,
 	IP_ADDRESS_HEADERS,
 	INVITATION_EXPIRES_IN_SECONDS,
+	PLAN_FREE,
 	SESSION_COOKIE_CACHE,
 } from '@shared/constants';
 import { resolveOrgLimitsFromRows, resolveUserLimitsFromRows } from '@shared/entitlements';
@@ -25,6 +26,11 @@ interface AuthEnvironment {
 	GITHUB_CLIENT_SECRET: string;
 	GOOGLE_CLIENT_ID: string;
 	GOOGLE_CLIENT_SECRET: string;
+}
+
+async function getUserPlan(database: ReturnType<typeof drizzle>, userId: string): Promise<string> {
+	const userRows = await database.select({ plan: schema.user.plan }).from(schema.user).where(eq(schema.user.id, userId)).limit(1);
+	return userRows[0]?.plan ?? PLAN_FREE;
 }
 
 export function createAuth(environment: AuthEnvironment, baseUrl: string, request?: Request) {
@@ -104,19 +110,21 @@ export function createAuth(environment: AuthEnvironment, baseUrl: string, reques
 		plugins: [
 			admin(ADMIN_PLUGIN_OPTIONS),
 			organization({
-				// Dynamic org-creation limit: checks user entitlements
+				// Dynamic org-creation limit: checks owned organizations against the user's plan.
 				organizationLimit: async (user) => {
 					const entitlementDatabase = drizzle(environment.DB);
-					const rows = await queryEntitlements(entitlementDatabase, user.id);
-					const { maxOrganizations } = resolveUserLimitsFromRows(rows);
+					const [rows, userPlan, ownedOrganizations] = await Promise.all([
+						queryEntitlements(entitlementDatabase, user.id),
+						getUserPlan(entitlementDatabase, user.id),
+						entitlementDatabase
+							.select({ id: schema.member.organizationId })
+							.from(schema.member)
+							.innerJoin(schema.organization, eq(schema.organization.id, schema.member.organizationId))
+							.where(and(eq(schema.member.userId, user.id), eq(schema.member.role, 'owner'), isNull(schema.organization.deletedAt))),
+					]);
+					const { maxOrganizations } = resolveUserLimitsFromRows(userPlan, rows);
 
-					const userOrganizations = await entitlementDatabase
-						.select({ id: schema.member.organizationId })
-						.from(schema.member)
-						.innerJoin(schema.organization, eq(schema.organization.id, schema.member.organizationId))
-						.where(and(eq(schema.member.userId, user.id), isNull(schema.organization.deletedAt)));
-
-					return userOrganizations.length >= maxOrganizations;
+					return ownedOrganizations.length >= maxOrganizations;
 				},
 
 				// Dynamic membership limit: plan-based + org entitlements
@@ -135,7 +143,7 @@ export function createAuth(environment: AuthEnvironment, baseUrl: string, reques
 					return maxMembers;
 				},
 
-				// Dynamic invitation limit: shares the member limit (invitations are pre-members)
+				// Dynamic invitation limit: plan-based + org entitlements
 				invitationLimit: async ({ organization: organizationRecord }) => {
 					const entitlementDatabase = drizzle(environment.DB);
 					const [entitlementRows, organizationRows] = await Promise.all([
@@ -147,8 +155,20 @@ export function createAuth(environment: AuthEnvironment, baseUrl: string, reques
 							.limit(1),
 					]);
 					const plan = organizationRows[0]?.plan ?? 'free';
-					const { maxMembers } = resolveOrgLimitsFromRows(plan, entitlementRows);
-					return maxMembers;
+					const { maxPendingInvitations } = resolveOrgLimitsFromRows(plan, entitlementRows);
+					return maxPendingInvitations;
+				},
+				organizationHooks: {
+					beforeCreateOrganization: async ({ user }) => {
+						const authDatabase = drizzle(environment.DB);
+						const plan = await getUserPlan(authDatabase, user.id);
+
+						return {
+							data: {
+								plan,
+							},
+						};
+					},
 				},
 
 				schema: {
@@ -193,6 +213,14 @@ export function createAuth(environment: AuthEnvironment, baseUrl: string, reques
 			}),
 		],
 		user: {
+			additionalFields: {
+				plan: {
+					type: 'string',
+					defaultValue: PLAN_FREE,
+					required: false,
+					input: false,
+				},
+			},
 			deleteUser: {
 				enabled: false,
 			},
@@ -269,6 +297,7 @@ export function createAuth(environment: AuthEnvironment, baseUrl: string, reques
 										id: organizationId,
 										name: `${user.name}'s Workspace`,
 										slug: orgSlug,
+										plan: PLAN_FREE,
 										createdAt: now,
 									}),
 									authDatabase.insert(schema.member).values({

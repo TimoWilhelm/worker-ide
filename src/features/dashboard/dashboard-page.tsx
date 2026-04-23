@@ -15,7 +15,15 @@ import { CreateOrgModal } from '@/features/org/create-org-modal';
 import { OrgSwitcher } from '@/features/org/org-switcher';
 import { PendingInvitationsBanner } from '@/features/org/pending-invitations-banner';
 import { UserMenu } from '@/features/user-menu';
-import { cloneProject, createProject, deleteProject, fetchOrgLimits, fetchOrgProjects, fetchTemplates } from '@/lib/api-client';
+import {
+	cloneProject,
+	createProject,
+	deleteProject,
+	fetchOrgLimits,
+	fetchOrgProjects,
+	fetchTemplates,
+	fetchUserLimits,
+} from '@/lib/api-client';
 import { fadeUpVariants, springGentle, staggerContainer } from '@/lib/motion-config';
 import { getProjectUrl } from '@/lib/preview-origin';
 import { cn, formatRelativeTime } from '@/lib/utils';
@@ -561,6 +569,11 @@ export default function DashboardPage({ organizationId, organizations, isCreateO
 	}, []);
 
 	const hasNoOrgs = organizations.length === 0;
+	const userLimitsQuery = useQuery({
+		queryKey: ['user-limits'],
+		queryFn: fetchUserLimits,
+		staleTime: 1000 * 60,
+	});
 
 	return (
 		<div className="relative flex h-dvh flex-col items-center overflow-y-auto">
@@ -589,7 +602,8 @@ export default function DashboardPage({ organizationId, organizations, isCreateO
 			<CreateOrgModal
 				open={createOrgOpen}
 				onOpenChange={setCreateOrgOpen}
-				organizationCount={organizations.length}
+				ownedOrganizationCount={userLimitsQuery.data?.currentOwnedOrganizations ?? 0}
+				maxOrganizations={userLimitsQuery.data?.maxOrganizations}
 				required={hasNoOrgs}
 				userName={user?.name}
 			/>

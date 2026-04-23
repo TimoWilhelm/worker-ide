@@ -633,8 +633,19 @@ if (import.meta.env.DEV) {
 
 			await database
 				.insert(authSchema.user)
-				.values({ id: userId, name: 'E2E Test User', email: 'e2e@test.local', emailVerified: false, createdAt: now, updatedAt: now })
-				.onConflictDoNothing();
+				.values({
+					id: userId,
+					name: 'E2E Test User',
+					email: 'e2e@test.local',
+					emailVerified: false,
+					plan: 'enterprise',
+					createdAt: now,
+					updatedAt: now,
+				})
+				.onConflictDoUpdate({
+					target: authSchema.user.id,
+					set: { plan: 'enterprise', updatedAt: now },
+				});
 
 			await database
 				.insert(authSchema.organization)

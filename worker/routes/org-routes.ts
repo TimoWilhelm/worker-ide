@@ -111,7 +111,7 @@ export const orgRoutes = new Hono<AuthedEnvironment>()
 		const database = drizzle(c.env.DB);
 
 		// Fetch org plan, entitlements, and current counts in parallel
-		const [organizationRows, entitlementRows, projectCountRows, memberCountRows] = await Promise.all([
+		const [organizationRows, entitlementRows, projectCountRows, memberCountRows, pendingInvitationCountRows] = await Promise.all([
 			database.select({ plan: schema.organization.plan }).from(schema.organization).where(eq(schema.organization.id, orgId)).limit(1),
 			queryEntitlements(database, orgId),
 			database
@@ -123,6 +123,10 @@ export const orgRoutes = new Hono<AuthedEnvironment>()
 				.from(schema.member)
 				.innerJoin(schema.user, eq(schema.user.id, schema.member.userId))
 				.where(and(eq(schema.member.organizationId, orgId), isNull(schema.user.deletedAt))),
+			database
+				.select({ count: count() })
+				.from(schema.invitation)
+				.where(and(eq(schema.invitation.organizationId, orgId), eq(schema.invitation.status, 'pending'))),
 		]);
 
 		const plan = organizationRows[0]?.plan ?? 'free';
@@ -133,6 +137,91 @@ export const orgRoutes = new Hono<AuthedEnvironment>()
 			currentProjects: projectCountRows[0]?.count ?? 0,
 			maxMembers: limits.maxMembers,
 			currentMembers: memberCountRows[0]?.count ?? 0,
+			maxPendingInvitations: limits.maxPendingInvitations,
+			currentPendingInvitations: pendingInvitationCountRows[0]?.count ?? 0,
+		});
+	})
+
+	// GET /api/org/:orgId/full — Organization details for settings pages
+	.get('/org/:orgId/full', async (c) => {
+		const { orgId } = c.req.param();
+		const database = drizzle(c.env.DB);
+
+		const [organizationRows, memberRows, invitationRows] = await Promise.all([
+			database
+				.select({
+					id: schema.organization.id,
+					name: schema.organization.name,
+					slug: schema.organization.slug,
+					logo: schema.organization.logo,
+					plan: schema.organization.plan,
+					createdAt: schema.organization.createdAt,
+				})
+				.from(schema.organization)
+				.where(eq(schema.organization.id, orgId))
+				.limit(1),
+			database
+				.select({
+					id: schema.member.id,
+					userId: schema.member.userId,
+					role: schema.member.role,
+					createdAt: schema.member.createdAt,
+					userName: schema.user.name,
+					userEmail: schema.user.email,
+					userImage: schema.user.image,
+				})
+				.from(schema.member)
+				.innerJoin(schema.user, eq(schema.user.id, schema.member.userId))
+				.where(and(eq(schema.member.organizationId, orgId), isNull(schema.user.deletedAt)))
+				.orderBy(desc(schema.member.createdAt)),
+			database
+				.select({
+					id: schema.invitation.id,
+					email: schema.invitation.email,
+					role: schema.invitation.role,
+					status: schema.invitation.status,
+					expiresAt: schema.invitation.expiresAt,
+					inviterId: schema.invitation.inviterId,
+					createdAt: schema.invitation.createdAt,
+				})
+				.from(schema.invitation)
+				.where(eq(schema.invitation.organizationId, orgId))
+				.orderBy(desc(schema.invitation.createdAt)),
+		]);
+
+		const organization = organizationRows[0];
+		if (!organization) {
+			throw httpError(HttpErrorCode.NOT_FOUND, 'Organization not found.');
+		}
+
+		return c.json({
+			id: organization.id,
+			name: organization.name,
+			slug: organization.slug,
+			logo: organization.logo,
+			plan: organization.plan,
+			createdAt: organization.createdAt.toISOString(),
+			members: memberRows.map((member) => ({
+				id: member.id,
+				userId: member.userId,
+				role: member.role,
+				createdAt: member.createdAt.toISOString(),
+				user: {
+					id: member.userId,
+					name: member.userName,
+					email: member.userEmail,
+					image: member.userImage ?? undefined,
+				},
+			})),
+			invitations: invitationRows.map((invitation) => ({
+				id: invitation.id,
+				email: invitation.email,
+				role: invitation.role ?? undefined,
+				status: invitation.status,
+				expiresAt: invitation.expiresAt.toISOString(),
+				inviterId: invitation.inviterId ?? undefined,
+				createdAt: invitation.createdAt.toISOString(),
+			})),
 		});
 	})
 

@@ -1,4 +1,4 @@
-import { getOrgLimits, PLAN_FREE } from './constants/plans';
+import { getOrgLimits, getUserPlanLimits, PLAN_FREE } from './constants/plans';
 
 import type { PlanLimits } from './constants/plans';
 
@@ -96,12 +96,12 @@ export interface EntitlementRecord {
 export interface ResolvedOrgLimits {
 	maxProjects: number;
 	maxMembers: number;
+	maxPendingInvitations: number;
 	storageQuotaBytes: number;
 }
 export interface ResolvedUserLimits {
 	maxOrganizations: number;
 }
-export const DEFAULT_MAX_ORGANIZATIONS = 5;
 
 /**
  * Build a lookup map from raw entitlement DB rows.
@@ -132,19 +132,25 @@ export function resolveOrgLimits(plan: string, entitlements: Map<string, Entitle
 	return {
 		maxProjects: getNumber(entitlements, ENTITLEMENT_ORG_MAX_PROJECTS) ?? planLimits.maxProjects,
 		maxMembers: getNumber(entitlements, ENTITLEMENT_ORG_MAX_MEMBERS) ?? planLimits.maxMembers,
+		maxPendingInvitations: planLimits.maxPendingInvitations,
 		storageQuotaBytes: getNumber(entitlements, ENTITLEMENT_ORG_STORAGE_QUOTA_BYTES) ?? planLimits.storageQuotaBytes,
 	};
 }
-export function resolveUserLimits(entitlements: Map<string, EntitlementValue>): ResolvedUserLimits {
+export function resolveUserLimits(plan: string, entitlements: Map<string, EntitlementValue>): ResolvedUserLimits {
+	const planLimits = getUserPlanLimits(plan);
+
 	return {
-		maxOrganizations: getNumber(entitlements, ENTITLEMENT_USER_MAX_ORGANIZATIONS) ?? DEFAULT_MAX_ORGANIZATIONS,
+		maxOrganizations: getNumber(entitlements, ENTITLEMENT_USER_MAX_ORGANIZATIONS) ?? planLimits.maxOwnedOrganizations,
 	};
 }
 export function resolveOrgLimitsFromRows(plan: string, rows: Array<{ key: string; valueType: string; value: string }>): ResolvedOrgLimits {
 	return resolveOrgLimits(plan ?? PLAN_FREE, toEntitlementMap(rows));
 }
-export function resolveUserLimitsFromRows(rows: Array<{ key: string; valueType: string; value: string }>): ResolvedUserLimits {
-	return resolveUserLimits(toEntitlementMap(rows));
+export function resolveUserLimitsFromRows(
+	plan: string,
+	rows: Array<{ key: string; valueType: string; value: string }>,
+): ResolvedUserLimits {
+	return resolveUserLimits(plan ?? PLAN_FREE, toEntitlementMap(rows));
 }
 
 /**
