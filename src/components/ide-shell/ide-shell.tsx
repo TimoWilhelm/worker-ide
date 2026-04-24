@@ -6,7 +6,7 @@ import { AgentRuntimeProvider } from '@/features/ai-assistant';
 import { DeployModal } from '@/features/deploy';
 import { useFileTree } from '@/features/file-tree';
 import { ProjectSettingsModal } from '@/features/project-settings';
-import { useIsMobile, useProjectSocket, useTheme } from '@/hooks';
+import { useIsMobile, useProjectSocket, useResolvedTheme } from '@/hooks';
 import { downloadProject } from '@/lib/api-client';
 import { usePreviewUrl } from '@/lib/preview-origin';
 import { selectIsProcessing, useStore } from '@/lib/store';
@@ -30,7 +30,7 @@ export function IDEShell({ projectId }: { projectId: string }) {
 	useProjectSocket({ projectId });
 
 	// Theme (still needed for editor/terminal theming in Desktop/Mobile layouts)
-	const resolvedTheme = useTheme();
+	const resolvedTheme = useResolvedTheme();
 
 	// Mobile layout
 	const isMobile = useIsMobile();

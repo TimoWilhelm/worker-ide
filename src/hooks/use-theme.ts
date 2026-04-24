@@ -15,15 +15,19 @@ function subscribeToSystemTheme(callback: () => void): () => void {
 	return () => mediaQuery.removeEventListener('change', callback);
 }
 
+export function useResolvedTheme(): 'light' | 'dark' {
+	const colorScheme = useStore(selectColorScheme);
+	const systemPrefersDark = useSyncExternalStore(subscribeToSystemTheme, getSystemPrefersDark);
+
+	return colorScheme === 'system' ? (systemPrefersDark ? 'dark' : 'light') : colorScheme;
+}
+
 /**
  * Returns the resolved theme ('light' | 'dark') based on the current
  * color scheme preference, and keeps the `.dark` class on `<html>` in sync.
  */
 export function useTheme(): 'light' | 'dark' {
-	const colorScheme = useStore(selectColorScheme);
-	const systemPrefersDark = useSyncExternalStore(subscribeToSystemTheme, getSystemPrefersDark);
-
-	const resolved: 'light' | 'dark' = colorScheme === 'system' ? (systemPrefersDark ? 'dark' : 'light') : colorScheme;
+	const resolved = useResolvedTheme();
 
 	useEffect(() => {
 		document.documentElement.classList.toggle('dark', resolved === 'dark');

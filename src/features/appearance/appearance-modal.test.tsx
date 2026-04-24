@@ -10,10 +10,6 @@ const mockSetAppearanceModalOpen = vi.fn();
 const mockSetColorScheme = vi.fn();
 const mockSetEditorFont = vi.fn();
 
-vi.mock('@/hooks/use-theme', () => ({
-	useTheme: () => 'dark',
-}));
-
 vi.mock('@/lib/store', () => ({
 	useStore: (
 		selector: (state: {

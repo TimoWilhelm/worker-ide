@@ -414,8 +414,6 @@ if (import.meta.env.DEV) {
 		return c.json({ ...result.session, activeOrganizationId: body.organizationId, updatedAt: now });
 	});
 }
-
-// Redeem a one-time session exchange code
 const exchangeCodeSchema = z
 	.string()
 	.min(1)
@@ -430,8 +428,6 @@ app.get('/api/auth/session/exchange', async (c) => {
 	const database = drizzle(c.env.DB);
 	const now = new Date();
 	const identifier = `session-exchange:${code}`;
-
-	// Atomic delete-and-return to prevent the same code from being redeemed twice
 	const [row] = await database
 		.delete(authSchema.verification)
 		.where(and(eq(authSchema.verification.identifier, identifier), gt(authSchema.verification.expiresAt, now)))
@@ -441,24 +437,28 @@ app.get('/api/auth/session/exchange', async (c) => {
 
 	const url = new URL(c.req.url);
 	const baseUrl = buildAppOrigin(parseHost(url.host).baseDomain, url.protocol);
-	const { sessionToken, sessionData } = getCookies({ baseURL: baseUrl, secret: c.env.BETTER_AUTH_SECRET });
-	const { prefix: _, ...cookieOptions } = sessionToken.attributes;
-	const setSessionCookie = await serializeSigned(sessionToken.name, row.value, c.env.BETTER_AUTH_SECRET, cookieOptions);
+	const { sessionToken, sessionData, dontRememberToken } = getCookies({ baseURL: baseUrl, secret: c.env.BETTER_AUTH_SECRET });
 
-	// Expire the session_data cache cookie so getSession falls through to the
-	// DB lookup with the new token instead of returning the stale cached session.
-	const { prefix: __, ...dataCookieOptions } = sessionData.attributes;
-	const expireDataCookie = serialize(sessionData.name, '', { ...dataCookieOptions, maxAge: 0 });
+	const setSessionCookie = await serializeSigned(sessionToken.name, row.value, c.env.BETTER_AUTH_SECRET, sessionToken.attributes);
+	const expireDataCookie = serialize(sessionData.name, '', { ...sessionData.attributes, maxAge: 0 });
+
+	const setDontRememberCookie = await serializeSigned(
+		dontRememberToken.name,
+		'true',
+		c.env.BETTER_AUTH_SECRET,
+		dontRememberToken.attributes,
+	);
 
 	const headers = new Headers();
 	headers.set('Location', '/');
 	headers.append('Set-Cookie', setSessionCookie);
 	headers.append('Set-Cookie', expireDataCookie);
+	headers.append('Set-Cookie', setDontRememberCookie);
 
 	return new Response(undefined, { status: 302, headers });
 });
 
-// Admin plugin HTTP endpoints are not exposed
+// Disable better-auth admin plugin HTTP endpoints
 app.all('/api/auth/admin/*', (c) => c.notFound());
 
 app.on(['GET', 'POST'], '/api/auth/*', async (c) => {

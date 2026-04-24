@@ -40,20 +40,6 @@ vi.mock('@/features/user-menu', () => ({
 	UserMenu: () => <div data-testid="user-menu" />,
 }));
 
-// Mock the store (for theme toggle)
-const mockSetColorScheme = vi.fn();
-vi.mock('@/lib/store', () => ({
-	useStore: (selector: (state: Record<string, unknown>) => unknown) => {
-		const state = { setColorScheme: mockSetColorScheme };
-		return selector(state);
-	},
-}));
-
-// Mock the theme hook
-vi.mock('@/hooks/use-theme', () => ({
-	useTheme: () => 'dark',
-}));
-
 // Mock the HalftoneBackground — WebGL is not available in jsdom
 vi.mock('@/components/halftone-background', () => ({
 	HalftoneBackground: () => <canvas data-testid="halftone-background" />,

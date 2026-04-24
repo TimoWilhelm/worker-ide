@@ -20,6 +20,7 @@ import { OrgManagementPage } from '@/features/org';
 import { AccountPage, ProfilePage, SettingsLayout } from '@/features/settings';
 import { useEditorFont } from '@/hooks/use-editor-font';
 import { usePwaUpdate } from '@/hooks/use-pwa-update';
+import { useTheme } from '@/hooks/use-theme';
 import { useUserPreferences } from '@/hooks/use-user-preferences';
 import { authClient } from '@/lib/auth-client';
 import { checkProjectAccess } from '@/lib/project-access';
@@ -362,6 +363,8 @@ function AppContent({
 
 	// Sync user preferences from server → store → localStorage
 	useUserPreferences();
+
+	useTheme();
 
 	// Sync editor font CSS variable with user preference
 	useEditorFont();

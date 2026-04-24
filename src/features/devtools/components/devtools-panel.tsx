@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react';
 
-import { useTheme } from '@/hooks/use-theme';
+import { useResolvedTheme } from '@/hooks/use-theme';
 import { cn } from '@/lib/utils';
 
 export interface DevelopmentToolsPanelProperties {
@@ -48,7 +48,7 @@ function postThemeToDevtools(devtoolsWindow: Window | null | undefined, theme: '
 export function DevelopmentToolsPanel({ previewIframeReference, previewOrigin, className }: DevelopmentToolsPanelProperties) {
 	const devtoolsIframeReference = useRef<HTMLIFrameElement>(null);
 	const devtoolsReadyReference = useRef(false);
-	const resolvedTheme = useTheme();
+	const resolvedTheme = useResolvedTheme();
 
 	// Generate the DevTools frontend URL using chii's hosted build
 	const devtoolsSource = useMemo(() => {
