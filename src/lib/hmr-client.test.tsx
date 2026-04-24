@@ -80,11 +80,12 @@ function getPreviewRuntime(): PreviewRuntimeApi {
 	return runtime;
 }
 
-function bootHmrClient(): FakeWebSocket {
+function bootHmrClient(bootVersion = 0): FakeWebSocket {
 	Reflect.set(globalThis, '__PREVIEW_CONFIG', {
 		wsUrl: 'ws://preview.test/__ws',
 		ideOrigin: 'https://ide.test',
 		projectId: 'project-1',
+		bootVersion,
 	});
 
 	globalThis.eval(hmrClientSource);
@@ -103,6 +104,7 @@ describe('preview runtime and hmr transport', () => {
 		FakeWebSocket.reset();
 		document.head.innerHTML = '';
 		document.body.innerHTML = '';
+		globalThis.history.replaceState(undefined, '', '/');
 		vi.stubGlobal('WebSocket', FakeWebSocket);
 	});
 
@@ -141,6 +143,34 @@ describe('preview runtime and hmr transport', () => {
 		await flushPromises();
 
 		expect(applyUpdate).toHaveBeenCalledWith(update);
+	});
+
+	it('reloads without adding a hash fragment and reconnects using the injected boot version', () => {
+		globalThis.history.replaceState(undefined, '', '/preview?view=split');
+		const reloadSpy = vi.fn();
+		Reflect.set(globalThis, '__PREVIEW_RUNTIME_RELOAD__', reloadSpy);
+
+		const socket = bootHmrClient();
+		socket.dispatch('message', {
+			data: JSON.stringify({
+				type: 'full-reload',
+				version: 35,
+			}),
+		});
+
+		vi.advanceTimersByTime(200);
+
+		expect(reloadSpy).toHaveBeenCalledTimes(1);
+		expect(globalThis.location.pathname).toBe('/preview');
+		expect(globalThis.location.search).toBe('?view=split');
+		expect(globalThis.location.hash).toBe('');
+
+		FakeWebSocket.reset();
+
+		const reloadedSocket = bootHmrClient(35);
+		reloadedSocket.dispatch('open');
+
+		expect(reloadedSocket.sentMessages).toContain(JSON.stringify({ type: 'hmr-connect', version: 35 }));
 	});
 
 	it('updates linked stylesheets using canonical preview ids', async () => {

@@ -15,6 +15,11 @@ vi.mock('../../preview-service', () => ({
 		handlePreviewAPI: mockHandlePreviewAPI,
 		loadAssetSettings: mockLoadAssetSettings,
 		matchesRunWorkerFirst: mockMatchesRunWorkerFirst,
+		routePreviewRequest: vi.fn(async (request: Request, ideOrigin: string, assetSettings: { run_worker_first: boolean | string[] }) => {
+			return mockMatchesRunWorkerFirst(new URL(request.url).pathname, assetSettings.run_worker_first)
+				? mockHandlePreviewAPI(request, new URL(request.url).pathname)
+				: mockServeFile(request, ideOrigin, assetSettings);
+		}),
 	})),
 }));
 
@@ -68,13 +73,13 @@ describe('preview_fetch', () => {
 
 	// ── Routing ──────────────────────────────────────────────────────────
 
-	it('routes /api/* paths to handlePreviewAPI', async () => {
-		mockHandlePreviewAPI.mockResolvedValue(makeResponse('{"users":[]}', { contentType: 'application/json' }));
+	it('routes non-worker-first /api/* paths to serveFile', async () => {
+		mockServeFile.mockResolvedValue(makeResponse('{"users":[]}', { contentType: 'application/json' }));
 
 		const result = await execute({ path: '/api/users' }, createMockSendEvent(), createMockContext());
 
-		expect(mockHandlePreviewAPI).toHaveBeenCalledOnce();
-		expect(mockServeFile).not.toHaveBeenCalled();
+		expect(mockServeFile).toHaveBeenCalledOnce();
+		expect(mockHandlePreviewAPI).not.toHaveBeenCalled();
 		expect(result.output).toContain('200');
 		expect(result.output).toContain('{"users":[]}');
 	});
@@ -122,6 +127,7 @@ describe('preview_fetch', () => {
 	});
 
 	it('supports POST method with body', async () => {
+		mockMatchesRunWorkerFirst.mockReturnValue(true);
 		mockHandlePreviewAPI.mockResolvedValue(
 			makeResponse('{"id":1}', { contentType: 'application/json', status: 201, statusText: 'Created' }),
 		);
@@ -143,6 +149,7 @@ describe('preview_fetch', () => {
 	});
 
 	it('supports PUT method', async () => {
+		mockMatchesRunWorkerFirst.mockReturnValue(true);
 		mockHandlePreviewAPI.mockResolvedValue(makeResponse('updated', { contentType: 'text/plain' }));
 
 		await execute({ path: '/api/users/1', method: 'PUT', body: '{"name":"Bob"}' }, createMockSendEvent(), createMockContext());
@@ -152,6 +159,7 @@ describe('preview_fetch', () => {
 	});
 
 	it('supports DELETE method', async () => {
+		mockMatchesRunWorkerFirst.mockReturnValue(true);
 		mockHandlePreviewAPI.mockResolvedValue(makeResponse('', { status: 204, statusText: 'No Content' }));
 
 		const result = await execute({ path: '/api/users/1', method: 'DELETE' }, createMockSendEvent(), createMockContext());
@@ -170,6 +178,7 @@ describe('preview_fetch', () => {
 	// ── Headers ──────────────────────────────────────────────────────────
 
 	it('passes parsed headers to the request', async () => {
+		mockMatchesRunWorkerFirst.mockReturnValue(true);
 		mockHandlePreviewAPI.mockResolvedValue(makeResponse('ok', { contentType: 'text/plain' }));
 
 		await execute(
@@ -220,6 +229,7 @@ describe('preview_fetch', () => {
 
 	it('skips markdown conversion for non-HTML content', async () => {
 		const json = '{"data": "test"}';
+		mockMatchesRunWorkerFirst.mockReturnValue(true);
 		mockHandlePreviewAPI.mockResolvedValue(makeResponse(json, { contentType: 'application/json' }));
 
 		const result = await execute({ path: '/api/data', format: 'markdown' }, createMockSendEvent(), createMockContext());

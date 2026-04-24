@@ -141,6 +141,31 @@ export class PreviewService {
 		}
 		return false;
 	}
+	async routePreviewRequest(request: Request, ideOrigin: string, preloadedAssetSettings?: ResolvedAssetSettings): Promise<Response> {
+		const assetSettings = preloadedAssetSettings ?? (await this.loadAssetSettings());
+		const url = new URL(request.url);
+
+		if (this.matchesRunWorkerFirst(url.pathname, assetSettings.run_worker_first)) {
+			return this.handlePreviewAPI(request, url.pathname);
+		}
+
+		const assetResponse = await this.serveFile(request, ideOrigin, assetSettings);
+		if (assetResponse.status !== 404 || assetSettings.not_found_handling !== 'none') {
+			return assetResponse;
+		}
+
+		if (!(await this.hasWorkerEntrypoint())) {
+			return assetResponse;
+		}
+
+		return this.handlePreviewAPI(request, url.pathname);
+	}
+	async hasWorkerEntrypoint(): Promise<boolean> {
+		const workerEntrypoints = ['worker/index.ts', 'worker/index.js'];
+		const checks = await Promise.allSettled(workerEntrypoints.map((entryFile) => fs.access(`${this.projectRoot}/${entryFile}`)));
+
+		return checks.some((result) => result.status === 'fulfilled');
+	}
 
 	/**
 	 * Serve a file from the project for preview.
@@ -356,11 +381,10 @@ export class PreviewService {
 
 			const apiUrl = new URL(request.url);
 			apiUrl.pathname = apiPath;
-			const headers = new Headers(request.headers);
+			const apiRequest = new Request(apiUrl.toString(), request);
 			for (const headerName of ['authorization', 'cookie', 'proxy-authorization']) {
-				headers.delete(headerName);
+				apiRequest.headers.delete(headerName);
 			}
-			const apiRequest = new Request(apiUrl.toString(), { ...request, headers });
 
 			const entrypoint = worker.getEntrypoint();
 			return await entrypoint.fetch(apiRequest);
@@ -489,12 +513,14 @@ export class PreviewService {
 	private async serveHtmlFile(textContent: string, filePath: string, url: URL, ideOrigin: string, viteFs: FileSystem): Promise<Response> {
 		const protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
 		const wsUrl = `${protocol}//${url.host}/__ws`;
+		const bootVersion = await this.getBootVersion();
 		const html = await processHTML(textContent, filePath, {
 			fs: viteFs,
 			projectRoot: this.projectRoot,
 			wsUrl,
 			ideOrigin,
 			projectId: this.projectId,
+			bootVersion,
 			scriptIntegrityHashes,
 		});
 		return new Response(html, {
@@ -506,6 +532,7 @@ export class PreviewService {
 			},
 		});
 	}
+
 	private async handleNotFoundFallback(url: URL, ideOrigin: string, notFoundHandling: string | undefined): Promise<Response | undefined> {
 		const viteFs: FileSystem = {
 			readFile: (path: string) => fs.readFile(path),
@@ -535,12 +562,14 @@ export class PreviewService {
 					const textContent = typeof content === 'string' ? content : new TextDecoder().decode(content);
 					const protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
 					const wsUrl = `${protocol}//${url.host}/__ws`;
+					const bootVersion = await this.getBootVersion();
 					const html = await processHTML(textContent, `${directory}/404.html`, {
 						fs: viteFs,
 						projectRoot: this.projectRoot,
 						wsUrl,
 						ideOrigin,
 						projectId: this.projectId,
+						bootVersion,
 						scriptIntegrityHashes,
 					});
 					return new Response(html, {
@@ -561,6 +590,7 @@ export class PreviewService {
 
 		return undefined;
 	}
+
 	private async handleHtmlRedirects(url: URL, filePath: string, htmlHandling = 'auto-trailing-slash'): Promise<Response | undefined> {
 		if (htmlHandling === 'none') {
 			return undefined;
@@ -677,6 +707,11 @@ export class PreviewService {
 	private async broadcastMessage(message: ServerMessage): Promise<void> {
 		const coordinatorStub = coordinatorNamespace.getByName(`project:${this.projectId}`);
 		await coordinatorStub.sendMessage(message);
+	}
+
+	private async getBootVersion(): Promise<number> {
+		const coordinatorStub = coordinatorNamespace.getByName(`project:${this.projectId}`);
+		return coordinatorStub.getUpdateVersion();
 	}
 
 	private async hashContent(content: string): Promise<string> {

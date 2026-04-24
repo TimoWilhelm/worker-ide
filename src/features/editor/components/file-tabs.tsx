@@ -1,8 +1,10 @@
 import { Tabs } from '@base-ui/react/tabs';
-import { File, ListX, X } from 'lucide-react';
+import { File, ListX, MoreHorizontal, X } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 
+import { Button } from '@/components/ui/button';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Spinner } from '@/components/ui/spinner';
 import { Tooltip } from '@/components/ui/tooltip';
 import { springSnappy } from '@/lib/motion-config';
@@ -24,16 +26,20 @@ export interface FileTabsProperties {
 	onClose: (path: string) => void;
 	participants?: Participant[];
 	onCloseAll?: () => void;
+	actions?: React.ReactNode;
 	className?: string;
 }
+
 function getFilename(path: string): string {
 	const parts = path.split('/');
 	return parts.at(-1) || path;
 }
+
 function getParentDirectory(path: string): string {
 	const parts = path.split('/').filter(Boolean);
 	return parts.length > 1 ? (parts.at(-2) ?? '') : '';
 }
+
 function getFileIconColor(path: string): string {
 	const extension = path.split('.').pop()?.toLowerCase();
 	switch (extension) {
@@ -85,10 +91,12 @@ function getDuplicateBasenames(tabs: FileTab[]): Set<string> {
 	}
 	return duplicates;
 }
+
 function handleClosePointerDown(event: React.PointerEvent) {
 	event.stopPropagation();
 }
-export function FileTabs({ tabs, activeTab, onSelect, onClose, onCloseAll, participants = [], className }: FileTabsProperties) {
+
+export function FileTabs({ tabs, activeTab, onSelect, onClose, onCloseAll, actions, participants = [], className }: FileTabsProperties) {
 	const duplicates = useMemo(() => getDuplicateBasenames(tabs), [tabs]);
 	const listReference = useRef<HTMLDivElement>(null);
 
@@ -135,10 +143,21 @@ export function FileTabs({ tabs, activeTab, onSelect, onClose, onCloseAll, parti
 		listReference.current?.releasePointerCapture(event.pointerId);
 	}, []);
 
+	const hasHeaderActions = !!onCloseAll || !!actions;
+
 	if (tabs.length === 0) {
 		return (
-			<div className={cn('flex h-tabs items-center border-b border-border bg-bg-secondary px-4', className)}>
+			<div
+				className={cn(
+					`
+						flex h-tabs items-center justify-between border-b border-border
+						bg-bg-secondary px-4
+					`,
+					className,
+				)}
+			>
 				<span className="text-sm text-text-secondary">No files open</span>
+				{hasHeaderActions && <div className="flex h-full shrink-0 items-stretch">{actions}</div>}
 			</div>
 		);
 	}
@@ -172,24 +191,30 @@ export function FileTabs({ tabs, activeTab, onSelect, onClose, onCloseAll, parti
 					))}
 				</Tabs.List>
 			</Tabs.Root>
-			{onCloseAll && tabs.length > 0 && (
-				<Tooltip content="Close all tabs">
-					<button
-						type="button"
-						onClick={onCloseAll}
-						className={cn(
-							'flex h-tabs shrink-0 cursor-pointer items-center justify-center px-2',
-							`
-								border-b border-border bg-bg-secondary text-text-secondary
-								transition-colors
-							`,
-							'hover:bg-bg-tertiary hover:text-text-primary',
-						)}
-						aria-label="Close all tabs"
-					>
-						<ListX className="size-3.5" />
-					</button>
-				</Tooltip>
+			{hasHeaderActions && (
+				<div
+					className="
+						flex h-tabs shrink-0 items-center gap-0.5 border-b border-border
+						bg-bg-secondary px-1
+					"
+				>
+					{actions}
+					{onCloseAll && tabs.length > 0 && (
+						<DropdownMenu>
+							<DropdownMenuTrigger>
+								<Button type="button" focusStyle="inset" variant="ghost" size="icon" className="size-7" aria-label="Tab actions">
+									<MoreHorizontal className="size-3.5" />
+								</Button>
+							</DropdownMenuTrigger>
+							<DropdownMenuContent align="end" sideOffset={4}>
+								<DropdownMenuItem onSelect={onCloseAll}>
+									<ListX className="size-3.5" />
+									<span>Close all tabs</span>
+								</DropdownMenuItem>
+							</DropdownMenuContent>
+						</DropdownMenu>
+					)}
+				</div>
 			)}
 		</div>
 	);

@@ -262,7 +262,7 @@ export function useEditorState({ projectId }: { projectId: string }) {
 		setIsPrettifying(true);
 		try {
 			const result = await fixFile(activeFile, editorContent);
-			if (!result || result.fixCount === 0) return;
+			if (!result || result.content === editorContent) return;
 
 			// Dispatch directly through CodeMirror to preserve scroll position.
 			const view = editorViewReference.current;

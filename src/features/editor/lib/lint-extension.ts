@@ -37,7 +37,7 @@ function replaceDocument(view: EditorView, newContent: string): void {
 async function applyAllFixes(view: EditorView, filename: string): Promise<boolean> {
 	const content = view.state.doc.toString();
 	const result = await fixFile(filename, content);
-	if (!result || result.fixCount === 0) return false;
+	if (!result || result.content === content) return false;
 	replaceDocument(view, result.content);
 	dispatchLintDiagnostics(filename, result.remainingDiagnostics);
 	return true;

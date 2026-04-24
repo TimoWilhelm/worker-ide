@@ -10,22 +10,7 @@
 
 	var socket = new WebSocket(config.wsUrl);
 	var ideOrigin = config.ideOrigin || '*';
-
-	function readVersionFromHash() {
-		var match = location.hash.match(/hmr-v=(\d+)/);
-		return match ? Number(match[1]) : 0;
-	}
-
-	var lastVersion = readVersionFromHash();
-
-	if (lastVersion > 0) {
-		try {
-			var cleanHash = location.hash.replace(/hmr-v=\d+&?/, '').replace(/^#$/, '');
-			history.replaceState(null, '', location.pathname + location.search + cleanHash);
-		} catch (_) {
-			// Sandboxed iframes may block replaceState.
-		}
-	}
+	var version = Number.isFinite(config.bootVersion) ? config.bootVersion : 0;
 
 	var reloadTimer = null;
 	var RELOAD_DEBOUNCE_MS = 200;
@@ -34,8 +19,12 @@
 		if (reloadTimer) clearTimeout(reloadTimer);
 		reloadTimer = setTimeout(function () {
 			reloadTimer = null;
-			var hash = '#hmr-v=' + lastVersion;
-			location.replace(location.pathname + location.search + hash);
+			var runtimeReload = window.__PREVIEW_RUNTIME_RELOAD__;
+			if (typeof runtimeReload === 'function') {
+				runtimeReload();
+				return;
+			}
+			location.reload();
 		}, RELOAD_DEBOUNCE_MS);
 	}
 
@@ -54,8 +43,8 @@
 	socket.addEventListener('message', function (event) {
 		var data = JSON.parse(event.data);
 
-		if (typeof data.version === 'number' && data.version > lastVersion) {
-			lastVersion = data.version;
+		if (typeof data.version === 'number' && data.version > version) {
+			version = data.version;
 		}
 
 		if (data.type === 'full-reload') {
@@ -92,7 +81,7 @@
 
 	socket.addEventListener('open', function () {
 		console.log('[hmr] connected.');
-		socket.send(JSON.stringify({ type: 'hmr-connect', lastVersion: lastVersion }));
+		socket.send(JSON.stringify({ type: 'hmr-connect', version: version }));
 	});
 
 	socket.addEventListener('close', function () {

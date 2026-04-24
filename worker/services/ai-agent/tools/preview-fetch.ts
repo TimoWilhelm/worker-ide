@@ -147,21 +147,7 @@ export async function execute(
 		}
 		const request = new Request(syntheticUrl.toString(), requestInit);
 
-		// Route the request the same way worker/index.ts does for preview paths:
-		// 1. /api/* paths always go to handlePreviewAPI
-		// 2. Paths matching run_worker_first go to handlePreviewAPI
-		// 3. Everything else goes to serveFile
-		let response: Response;
-		if (normalizedPath.startsWith('/api/')) {
-			response = await previewService.handlePreviewAPI(request, normalizedPath);
-		} else if (previewService.matchesRunWorkerFirst(normalizedPath, assetSettings.run_worker_first)) {
-			response = await previewService.handlePreviewAPI(request, normalizedPath);
-		} else {
-			// Placeholder IDE origin — preview-fetch runs server-side so the CSP
-			// frame-ancestors and injected __PREVIEW_CONFIG.ideOrigin are never
-			// evaluated by a browser. The HTML is only consumed as text.
-			response = await previewService.serveFile(request, 'http://localhost', assetSettings);
-		}
+		const response = await previewService.routePreviewRequest(request, 'http://localhost', assetSettings);
 
 		// Read response body
 		const contentType = response.headers.get('content-type') ?? '';

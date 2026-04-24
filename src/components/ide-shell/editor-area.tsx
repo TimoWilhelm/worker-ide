@@ -1,8 +1,8 @@
 import { EditorView } from '@codemirror/view';
 import { Package, Sparkles } from 'lucide-react';
-import { AnimatePresence, motion } from 'motion/react';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { Tooltip } from '@/components/ui/tooltip';
 import { useAgentRuntime } from '@/features/ai-assistant/components/agent-runtime-context';
@@ -10,7 +10,6 @@ import { isAgentState } from '@/features/ai-assistant/lib/agent-state';
 import { CodeEditor, DiffFloatingBar, FileTabs, GitDiffToolbar, groupHunksIntoChanges } from '@/features/editor';
 import { useCollabCursors } from '@/features/editor/hooks/use-collab-cursors';
 import { isLintableFile } from '@/lib/biome-linter';
-import { springSnappy } from '@/lib/motion-config';
 import { useStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 import { isProtectedSystemFile } from '@shared/constants';
@@ -185,6 +184,8 @@ export function EditorArea({ projectId, resolvedTheme, editorState, onSelectFile
 		[requestAgentSession],
 	);
 
+	const showPrettifyAction = !!activeFile && !isGitDiffActive && !isProtectedSystemFile(activeFile) && isLintableFile(activeFile);
+
 	return (
 		<>
 			<div className="flex items-stretch">
@@ -195,6 +196,28 @@ export function EditorArea({ projectId, resolvedTheme, editorState, onSelectFile
 					onSelect={onSelectFile}
 					onClose={handleCloseFile}
 					onCloseAll={closeAllFiles}
+					actions={
+						showPrettifyAction ? (
+							<Tooltip content="Prettify (Shift+Alt+F)">
+								<Button
+									type="button"
+									focusStyle="inset"
+									variant="ghost"
+									size="icon"
+									onClick={() => void handlePrettify()}
+									disabled={isPrettifying}
+									className={cn('size-7', 'text-text-secondary', 'hover:text-accent')}
+									aria-label="Prettify file"
+								>
+									{isPrettifying ? (
+										<Spinner className="size-3.5" />
+									) : (
+										<Sparkles className={cn('size-3.5', hasFixableIssues && 'text-accent')} />
+									)}
+								</Button>
+							</Tooltip>
+						) : undefined
+					}
 					participants={participants}
 					className="min-w-0 flex-1"
 				/>
@@ -254,41 +277,6 @@ export function EditorArea({ projectId, resolvedTheme, editorState, onSelectFile
 								extensions={[collabCursorsExtension]}
 								onViewReady={combinedHandleViewReady}
 							/>
-							<AnimatePresence>
-								{activeFile && !isGitDiffActive && !isProtectedSystemFile(activeFile) && isLintableFile(activeFile) && hasFixableIssues && (
-									<motion.div
-										initial={{ opacity: 0, scale: 0.8 }}
-										animate={{ opacity: 1, scale: 1 }}
-										exit={{ opacity: 0, scale: 0.8 }}
-										transition={springSnappy}
-										className="absolute right-4 bottom-4 z-10"
-									>
-										<Tooltip content="Prettify (Shift+Alt+F)">
-											<motion.button
-												type="button"
-												whileTap={{ scale: 0.85 }}
-												transition={springSnappy}
-												onClick={() => void handlePrettify()}
-												disabled={isPrettifying}
-												className={cn(
-													`
-														flex size-8 cursor-pointer items-center justify-center
-														rounded-full shadow-lg transition-colors
-													`,
-													`
-														border border-border bg-bg-secondary text-text-secondary
-														hover:bg-bg-tertiary hover:text-accent
-													`,
-													'disabled:pointer-events-none disabled:opacity-50',
-												)}
-												aria-label="Prettify file"
-											>
-												{isPrettifying ? <Spinner className="size-3.5" /> : <Sparkles className="size-3.5" />}
-											</motion.button>
-										</Tooltip>
-									</motion.div>
-								)}
-							</AnimatePresence>
 							{!isGitDiffActive && hasActiveDiff && activeFile && activePendingChange && (
 								<DiffFloatingBar
 									changeGroups={changeGroups}

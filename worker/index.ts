@@ -982,15 +982,7 @@ async function handlePreviewRequest(request: Request, projectId: string, preview
 		const previewService = await getPreviewService(PROJECT_ROOT, projectId);
 		const assetSettings = await previewService.loadAssetSettings();
 
-		if (url.pathname.startsWith('/api/')) {
-			return previewService.handlePreviewAPI(request, url.pathname);
-		}
-
-		if (previewService.matchesRunWorkerFirst(url.pathname, assetSettings.run_worker_first)) {
-			return previewService.handlePreviewAPI(request, url.pathname);
-		}
-
-		return previewService.serveFile(request, appOrigin, assetSettings);
+		return previewService.routePreviewRequest(request, appOrigin, assetSettings);
 	});
 
 	return trackAndReturn(response, previewVisibility);

@@ -195,11 +195,18 @@ export function useAiSessions({
 	const isSessionRunning = agentState?.currentSession?.status === 'running';
 	const authoritativeReviewSignature = JSON.stringify(authoritativeReviewEntries ?? {});
 	const agentPendingChangesSignature = JSON.stringify(agentPendingChanges ?? {});
+	const authoritativeReviewEntriesReference = useRef(authoritativeReviewEntries);
+	const agentPendingChangesReference = useRef(agentPendingChanges);
+	useEffect(() => {
+		authoritativeReviewEntriesReference.current = authoritativeReviewEntries;
+		agentPendingChangesReference.current = agentPendingChanges;
+	}, [authoritativeReviewEntries, agentPendingChanges]);
+
 	useEffect(() => {
 		const current = useStore.getState().pendingChanges;
 		const merged = new Map<string, PendingFileChange>();
 
-		for (const entry of Object.values(authoritativeReviewEntries ?? {})) {
+		for (const entry of Object.values(authoritativeReviewEntriesReference.current ?? {})) {
 			merged.set(entry.path, {
 				path: entry.path,
 				action: entry.action,
@@ -215,8 +222,8 @@ export function useAiSessions({
 			});
 		}
 
-		if (isSessionRunning && agentPendingChanges) {
-			for (const [path, change] of Object.entries(agentPendingChanges)) {
+		if (isSessionRunning && agentPendingChangesReference.current) {
+			for (const [path, change] of Object.entries(agentPendingChangesReference.current)) {
 				const existing = merged.get(path);
 				merged.set(path, {
 					...change,
@@ -239,14 +246,7 @@ export function useAiSessions({
 
 		lastSessionIdReference.current = agentSessionId;
 		useStore.getState().loadPendingChanges(merged);
-	}, [
-		agentSessionId,
-		agentPendingChanges,
-		agentPendingChangesSignature,
-		authoritativeReviewEntries,
-		authoritativeReviewSignature,
-		isSessionRunning,
-	]);
+	}, [agentSessionId, agentPendingChangesSignature, authoritativeReviewSignature, isSessionRunning]);
 
 	useEffect(() => {
 		const currentSession = agentState?.currentSession;

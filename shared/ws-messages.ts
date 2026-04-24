@@ -30,7 +30,7 @@ export interface FileEditMessage {
  */
 export interface HmrConnectMessage {
 	type: 'hmr-connect';
-	lastVersion: number;
+	version: number;
 }
 
 /**
@@ -204,7 +204,7 @@ export const clientMessageSchema = z.discriminatedUnion('type', [
 	}),
 	z.object({
 		type: z.literal('hmr-connect'),
-		lastVersion: z.number(),
+		version: z.number(),
 	}),
 	z.object({
 		type: z.literal('output-logs-sync'),

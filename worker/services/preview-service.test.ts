@@ -1,5 +1,31 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+const mocks = vi.hoisted(() => {
+	const forwardedFetch = vi.fn(async (request: Request) => {
+		return Response.json({
+			method: request.method,
+			contentType: request.headers.get('content-type'),
+			body: await request.text(),
+		});
+	});
+	const loaderGet = vi.fn(() => ({
+		getEntrypoint: () => ({
+			fetch: forwardedFetch,
+		}),
+	}));
+	const logTailer = vi.fn(() => ({}));
+	const objectStorageBinding = vi.fn(() => ({}));
+	const readBindingsConfig = vi.fn(async () => ({}));
+
+	return {
+		forwardedFetch,
+		loaderGet,
+		logTailer,
+		objectStorageBinding,
+		readBindingsConfig,
+	};
+});
+
 vi.mock('chobitsu?raw-minified', () => ({
 	hash: 'test-hash',
 	source: 'export default {}',
@@ -28,6 +54,21 @@ vi.mock('../lib/preview-scripts/react-refresh-preamble.js?raw-minified', () => (
 	hash: 'test-hash',
 	source: 'export default {}',
 }));
+vi.mock('cloudflare:workers', () => ({
+	env: {
+		DB: {},
+		LOADER: {
+			get: mocks.loaderGet,
+		},
+	},
+	exports: {
+		LogTailer: mocks.logTailer,
+		ObjectStorageBinding: mocks.objectStorageBinding,
+	},
+}));
+vi.mock('../lib/protected-files', () => ({
+	readBindingsConfig: mocks.readBindingsConfig,
+}));
 
 import { buildPreviewExternalModuleRequest } from '@shared/preview-path';
 
@@ -41,6 +82,11 @@ function createResponseWithUrl(body: string, url: string, contentType = 'applica
 
 describe('PreviewService external module proxy', () => {
 	afterEach(() => {
+		mocks.forwardedFetch.mockClear();
+		mocks.loaderGet.mockClear();
+		mocks.logTailer.mockClear();
+		mocks.objectStorageBinding.mockClear();
+		mocks.readBindingsConfig.mockClear();
 		vi.restoreAllMocks();
 		vi.unstubAllGlobals();
 	});
@@ -73,5 +119,86 @@ describe('PreviewService external module proxy', () => {
 		expect(response.headers.get('Content-Type')).toBe('application/javascript');
 		expect(await response.text()).toContain('External module redirect target is not allowed');
 		expect(fetchMock).toHaveBeenCalledTimes(1);
+	});
+
+	it('preserves POST method and JSON body when forwarding preview API requests', async () => {
+		const previewService = new PreviewService('/project', 'project-1');
+		Reflect.set(
+			previewService,
+			'collectFilesForBundle',
+			vi.fn(async () => ({
+				'worker/index.ts': 'export default { async fetch(request) { return Response.json({ ok: true }); } };',
+			})),
+		);
+		Reflect.set(
+			previewService,
+			'loadKnownDependencies',
+			vi.fn(async () => new Map()),
+		);
+		Reflect.set(
+			previewService,
+			'hashContent',
+			vi.fn(async () => 'hash'),
+		);
+
+		const response = await previewService.handlePreviewAPI(
+			new Request('https://preview.local/api/store', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json', cookie: 'session=secret' },
+				body: JSON.stringify({ key: 'greeting', value: 'hello' }),
+			}),
+			'/api/store',
+		);
+
+		expect(mocks.loaderGet).toHaveBeenCalledOnce();
+		expect(mocks.forwardedFetch).toHaveBeenCalledOnce();
+		expect(await response.json()).toEqual({
+			method: 'POST',
+			contentType: 'application/json',
+			body: JSON.stringify({ key: 'greeting', value: 'hello' }),
+		});
+	});
+
+	it('falls through to the worker on asset miss when not_found_handling is none', async () => {
+		const previewService = new PreviewService('/project', 'project-1');
+		const serveFile = vi.fn(async () => new Response('Not Found', { status: 404 }));
+		const handlePreviewAPI = vi.fn(async () => new Response('worker response'));
+		const hasWorkerEntrypoint = vi.fn(async () => true);
+		Reflect.set(previewService, 'serveFile', serveFile);
+		Reflect.set(previewService, 'handlePreviewAPI', handlePreviewAPI);
+		Reflect.set(previewService, 'hasWorkerEntrypoint', hasWorkerEntrypoint);
+
+		const response = await previewService.routePreviewRequest(new Request('https://preview.local/api/store'), 'https://ide.local', {
+			run_worker_first: false,
+			not_found_handling: 'none',
+			html_handling: 'auto-trailing-slash',
+		});
+
+		expect(serveFile).toHaveBeenCalledOnce();
+		expect(hasWorkerEntrypoint).toHaveBeenCalledOnce();
+		expect(handlePreviewAPI).toHaveBeenCalledWith(expect.any(Request), '/api/store');
+		expect(await response.text()).toBe('worker response');
+	});
+
+	it('does not fall through to the worker when not_found_handling is configured', async () => {
+		const previewService = new PreviewService('/project', 'project-1');
+		const assetResponse = new Response('custom 404', { status: 404 });
+		const serveFile = vi.fn(async () => assetResponse);
+		const handlePreviewAPI = vi.fn(async () => new Response('worker response'));
+		const hasWorkerEntrypoint = vi.fn(async () => true);
+		Reflect.set(previewService, 'serveFile', serveFile);
+		Reflect.set(previewService, 'handlePreviewAPI', handlePreviewAPI);
+		Reflect.set(previewService, 'hasWorkerEntrypoint', hasWorkerEntrypoint);
+
+		const response = await previewService.routePreviewRequest(new Request('https://preview.local/missing'), 'https://ide.local', {
+			run_worker_first: false,
+			not_found_handling: '404-page',
+			html_handling: 'auto-trailing-slash',
+		});
+
+		expect(serveFile).toHaveBeenCalledOnce();
+		expect(hasWorkerEntrypoint).not.toHaveBeenCalled();
+		expect(handlePreviewAPI).not.toHaveBeenCalled();
+		expect(response).toBe(assetResponse);
 	});
 });

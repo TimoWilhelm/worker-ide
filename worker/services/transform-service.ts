@@ -506,11 +506,14 @@ function escapeForScriptTag(s: string): string {
 		.replaceAll('\r', String.raw`\r`)
 		.replaceAll(/<\/(script)/gi, String.raw`<\/$1`);
 }
-function generatePreviewConfig(wsUrl: string, ideOrigin: string, projectId: string): string {
+
+function generatePreviewConfig(wsUrl: string, ideOrigin: string, projectId: string, bootVersion: number): string {
 	const safeWsUrl = escapeForScriptTag(wsUrl);
 	const safeIdeOrigin = escapeForScriptTag(ideOrigin);
 	const safeProjectId = escapeForScriptTag(projectId);
-	return `<script>window.__PREVIEW_CONFIG={wsUrl:'${safeWsUrl}',ideOrigin:'${safeIdeOrigin}',projectId:'${safeProjectId}'};</script>`;
+	return `<script>window.__PREVIEW_CONFIG={wsUrl:'${safeWsUrl}',ideOrigin:'${safeIdeOrigin}',projectId:'${safeProjectId}',bootVersion:${String(
+		bootVersion,
+	)}};</script>`;
 }
 
 /**
@@ -547,6 +550,7 @@ export interface ProcessHtmlOptions extends TransformOptions {
 	wsUrl: string;
 	ideOrigin: string;
 	projectId: string;
+	bootVersion: number;
 	scriptIntegrityHashes?: Record<string, string>;
 }
 
@@ -557,9 +561,9 @@ function isLocalHtmlReference(reference: string): boolean {
 }
 
 export async function processHTML(html: string, filePath: string, options: ProcessHtmlOptions): Promise<string> {
-	const { wsUrl, ideOrigin, projectId, scriptIntegrityHashes } = options;
+	const { wsUrl, ideOrigin, projectId, bootVersion, scriptIntegrityHashes } = options;
 
-	const previewConfig = generatePreviewConfig(wsUrl, ideOrigin, projectId);
+	const previewConfig = generatePreviewConfig(wsUrl, ideOrigin, projectId, bootVersion);
 	const previewScripts = generatePreviewScriptTags(scriptIntegrityHashes);
 
 	const rewriter = new HTMLRewriter()

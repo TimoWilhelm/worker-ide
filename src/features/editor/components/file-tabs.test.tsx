@@ -86,6 +86,22 @@ describe('FileTabs', () => {
 		expect(screen.getByLabelText('Close index.css')).toBeInTheDocument();
 	});
 
+	it('renders header actions alongside the close all tabs button', () => {
+		renderWithProviders(
+			<FileTabs
+				tabs={SAMPLE_TABS}
+				activeTab="/src/main.ts"
+				onSelect={vi.fn()}
+				onClose={vi.fn()}
+				onCloseAll={vi.fn()}
+				actions={<button type="button" aria-label="Prettify file" />}
+			/>,
+		);
+
+		expect(screen.getByLabelText('Tab actions')).toBeInTheDocument();
+		expect(screen.getByLabelText('Prettify file')).toBeInTheDocument();
+	});
+
 	it('shows file type icons', () => {
 		renderWithProviders(<FileTabs tabs={SAMPLE_TABS} activeTab="/src/main.ts" onSelect={vi.fn()} onClose={vi.fn()} />);
 

@@ -72,6 +72,11 @@ export class ProjectCoordinatorV2 extends DurableObject {
 	private set updateVersion(value: number) {
 		this.ctx.storage.kv.put(STORAGE_KEY.UPDATE_VERSION, value);
 	}
+
+	getUpdateVersion(): number {
+		return this.updateVersion;
+	}
+
 	private get outputLogs(): string {
 		return this.ctx.storage.kv.get<string>(STORAGE_KEY.OUTPUT_LOGS) ?? '';
 	}
@@ -329,7 +334,7 @@ export class ProjectCoordinatorV2 extends DurableObject {
 				// is higher, the client missed one or more updates and needs
 				// to reload to pick up the latest content.
 				const currentVersion = this.updateVersion;
-				if (data.lastVersion < currentVersion) {
+				if (data.version < currentVersion) {
 					try {
 						ws.send(
 							serializeMessage({
