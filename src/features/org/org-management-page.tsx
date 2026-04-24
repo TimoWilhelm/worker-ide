@@ -1,8 +1,9 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, ChevronDown, ChevronUp, Crown, Mail, Pencil, Shield, Trash2, User, UserPlus, X } from 'lucide-react';
+import { ChevronDown, ChevronUp, Crown, Mail, Pencil, Shield, Trash2, User, UserPlus, X } from 'lucide-react';
 import { useCallback, useState } from 'react';
-import { Link, useNavigate } from 'react-router';
+import { useNavigate } from 'react-router';
 
+import { PageHeader } from '@/components/page-header';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { InlineRenameField } from '@/components/ui/inline-rename-field';
@@ -309,9 +310,10 @@ function InviteForm({
 interface OrgManagementPageProperties {
 	orgSlug: string;
 	organizationId: string;
+	organizations: Array<{ id: string; name: string; slug: string | null; logo?: string | null }>;
 }
 
-export default function OrgManagementPage({ orgSlug, organizationId }: OrgManagementPageProperties) {
+export default function OrgManagementPage({ orgSlug, organizationId, organizations }: OrgManagementPageProperties) {
 	const navigate = useNavigate();
 	const { data: session } = authClient.useSession();
 
@@ -579,7 +581,7 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 	const confirmDialogProperties = getConfirmDialogProperties(confirmAction, organization.name);
 
 	return (
-		<div className="flex h-dvh flex-col items-center overflow-y-auto bg-bg-primary">
+		<div className="flex h-dvh flex-col bg-bg-primary">
 			{confirmDialogProperties && (
 				<ConfirmDialog
 					open={confirmAction !== undefined}
@@ -594,263 +596,266 @@ export default function OrgManagementPage({ orgSlug, organizationId }: OrgManage
 				/>
 			)}
 
-			<main className="w-full max-w-lg px-6 py-12">
-				<div className="mb-8 flex items-center gap-3">
-					<Link
-						to={`/org/${orgSlug}`}
-						className="
-							rounded-md p-1.5 text-text-secondary transition-colors
-							hover:bg-bg-tertiary hover:text-text-primary
-						"
-						aria-label="Back to dashboard"
-					>
-						<ArrowLeft className="size-4" />
-					</Link>
-					{organization.logo ? (
-						<img
-							src={organization.logo}
-							alt={organization.name}
-							className="size-10 shrink-0 rounded-lg border border-border object-cover"
-						/>
-					) : (
-						<div
-							className="
-								flex size-10 shrink-0 items-center justify-center rounded-lg
-								bg-bg-tertiary text-sm font-medium text-text-secondary
-							"
-						>
-							{organization.name.charAt(0).toUpperCase()}
-						</div>
-					)}
-					<div className="min-w-0 flex-1">
-						<InlineRenameField
-							isEditing={isEditingName}
-							displayValue={organization.name}
-							inputValue={editName}
-							onInputValueChange={setEditName}
-							onStartEditing={handleStartRename}
-							onSubmit={handleRename}
-							onCancel={handleCancelRename}
-							inputAriaLabel="Rename organization"
-							maxLength={MAX_ORGANIZATION_NAME_LENGTH}
-							disabled={isRenaming}
-							className="min-h-8 w-full"
-							inputClassName="
-								h-8 rounded-md border border-border bg-bg-secondary/60 px-2 text-sm
-								font-semibold text-text-primary transition-colors
-								focus:border-accent focus:outline-none
-							"
-						>
-							{({ displayValue, startEditing }) => (
-								<div className="flex items-center gap-2">
-									<h1 className="truncate text-lg font-semibold text-text-primary">{displayValue}</h1>
-									{isOwner && (
-										<button
-											onClick={startEditing}
-											title="Rename organization"
-											className="
-												cursor-pointer rounded-md p-1 text-text-secondary transition-colors
-												hover:bg-bg-tertiary hover:text-text-primary
-											"
-										>
-											<Pencil className="size-3.5" />
-										</button>
-									)}
-								</div>
-							)}
-						</InlineRenameField>
-						<p className="text-xs text-text-secondary">Organization settings</p>
-						<p className="mt-0.5 font-mono text-xs text-text-secondary/50">{organization.id}</p>
-					</div>
-					<div className="flex shrink-0 items-center gap-2">
-						{!isOwner && (
-							<Button variant="outline" size="sm" onClick={() => setConfirmAction({ type: 'leave' })}>
-								Leave
-							</Button>
+			<PageHeader
+				backTo={`/org/${orgSlug}`}
+				organizationSwitcher={{
+					organizations,
+					currentOrganizationId: organizationId,
+					currentOrganizationName: organization.name,
+				}}
+			/>
+
+			<main className="flex-1 overflow-y-auto">
+				<div className="mx-auto w-full max-w-lg px-6 py-12">
+					<div className="mb-8 flex items-center gap-3">
+						{organization.logo ? (
+							<img
+								src={organization.logo}
+								alt={organization.name}
+								className="
+									size-10 shrink-0 rounded-lg border border-border object-cover
+								"
+							/>
+						) : (
+							<div
+								className="
+									flex size-10 shrink-0 items-center justify-center rounded-lg
+									bg-bg-tertiary text-sm font-medium text-text-secondary
+								"
+							>
+								{organization.name.charAt(0).toUpperCase()}
+							</div>
 						)}
-					</div>
-				</div>
-
-				<section className="mb-6">
-					<h2
-						className="
-							mb-3 text-xs font-medium tracking-wider text-text-secondary uppercase
-						"
-					>
-						Members ({members.length}/{orgLimits?.maxMembers ?? '...'})
-					</h2>
-					<div className={cn('overflow-hidden rounded-lg border border-border bg-bg-secondary/40', 'divide-y divide-border')}>
-						{members.map((member) => (
-							<MemberRow
-								key={member.id}
-								member={member}
-								currentUserId={currentUserId ?? ''}
-								isOwner={isOwner}
-								onRemove={(m) => setConfirmAction({ type: 'remove', member: m })}
-								onTransferOwnership={(m) => setConfirmAction({ type: 'transfer', member: m })}
-								onChangeRole={(m, targetRole, direction) => setConfirmAction({ type: direction, member: m, targetRole })}
-							/>
-						))}
-					</div>
-				</section>
-
-				{isAdminOrOwner && (
-					<section className="mb-6">
-						<h2
-							className="
-								mb-3 text-xs font-medium tracking-wider text-text-secondary uppercase
-							"
-						>
-							Invite member
-						</h2>
-						<div className="rounded-lg border border-border bg-bg-secondary/40">
-							<InviteForm
-								organizationId={organization.id}
-								memberCount={members.length}
-								pendingInvitationCount={pendingInvitations.length}
-								maxMembers={orgLimits?.maxMembers ?? members.length + 1}
-								maxPendingInvitations={orgLimits?.maxPendingInvitations ?? pendingInvitations.length + 1}
-								onInvited={refreshOrganization}
-							/>
+						<div className="min-w-0 flex-1">
+							<InlineRenameField
+								isEditing={isEditingName}
+								displayValue={organization.name}
+								inputValue={editName}
+								onInputValueChange={setEditName}
+								onStartEditing={handleStartRename}
+								onSubmit={handleRename}
+								onCancel={handleCancelRename}
+								inputAriaLabel="Rename organization"
+								maxLength={MAX_ORGANIZATION_NAME_LENGTH}
+								disabled={isRenaming}
+								className="min-h-8 w-full"
+								inputClassName="
+									h-8 rounded-md border border-border bg-bg-secondary/60 px-2 text-sm
+									font-semibold text-text-primary transition-colors
+									focus:border-accent focus:outline-none
+								"
+							>
+								{({ displayValue, startEditing }) => (
+									<div className="flex items-center gap-2">
+										<h1 className="truncate text-lg font-semibold text-text-primary">{displayValue}</h1>
+										{isOwner && (
+											<button
+												onClick={startEditing}
+												title="Rename organization"
+												className="
+													cursor-pointer rounded-md p-1 text-text-secondary transition-colors
+													hover:bg-bg-tertiary hover:text-text-primary
+												"
+											>
+												<Pencil className="size-3.5" />
+											</button>
+										)}
+									</div>
+								)}
+							</InlineRenameField>
+							<p className="text-xs text-text-secondary">Organization settings</p>
+							<p className="mt-0.5 font-mono text-xs text-text-secondary/50">{organization.id}</p>
 						</div>
-					</section>
-				)}
+						<div className="flex shrink-0 items-center gap-2">
+							{!isOwner && (
+								<Button variant="outline" size="sm" onClick={() => setConfirmAction({ type: 'leave' })}>
+									Leave
+								</Button>
+							)}
+						</div>
+					</div>
 
-				{pendingInvitations.length > 0 && (
 					<section className="mb-6">
 						<h2
 							className="
 								mb-3 text-xs font-medium tracking-wider text-text-secondary uppercase
 							"
 						>
-							Pending invitations ({pendingInvitations.length})
+							Members ({members.length}/{orgLimits?.maxMembers ?? '...'})
 						</h2>
-						<div
-							className={cn(
-								`
-									divide-y divide-border overflow-hidden rounded-lg border border-border
-									bg-bg-secondary/40
-								`,
-							)}
-						>
-							{pendingInvitations.map((invitation) => (
-								<InvitationRow
-									key={invitation.id}
-									invitation={invitation}
-									canCancel={isAdminOrOwner}
-									onCancel={(id) => void handleCancelInvitation(id)}
+						<div className={cn('overflow-hidden rounded-lg border border-border bg-bg-secondary/40', 'divide-y divide-border')}>
+							{members.map((member) => (
+								<MemberRow
+									key={member.id}
+									member={member}
+									currentUserId={currentUserId ?? ''}
+									isOwner={isOwner}
+									onRemove={(memberToRemove) => setConfirmAction({ type: 'remove', member: memberToRemove })}
+									onTransferOwnership={(memberToTransfer) => setConfirmAction({ type: 'transfer', member: memberToTransfer })}
+									onChangeRole={(memberToUpdate, targetRole, direction) =>
+										setConfirmAction({ type: direction, member: memberToUpdate, targetRole })
+									}
 								/>
 							))}
 						</div>
 					</section>
-				)}
 
-				{isOwner && (
-					<section>
-						<h2
-							className="
-								mb-3 text-xs font-medium tracking-wider text-error/80 uppercase
-							"
-						>
-							Danger zone
-						</h2>
-						<div
-							className="
-								rounded-lg border border-error/30 bg-bg-secondary/40 px-4 py-3
-							"
-						>
-							<div className="flex items-center justify-between gap-3">
-								<div className="min-w-0">
-									<p className="text-sm font-medium text-text-primary">Delete organization</p>
-									<p className="text-xs text-text-secondary">Permanently delete this organization. This action cannot be undone.</p>
-								</div>
-								<Button
-									variant="danger"
-									size="sm"
-									onClick={() => {
-										setDeleteOrgConfirmText('');
-										setDeleteOrgOpen(true);
-									}}
-								>
-									Delete
-								</Button>
-							</div>
-						</div>
-					</section>
-				)}
-
-				<Modal
-					open={deleteOrgOpen}
-					onOpenChange={(open) => {
-						if (!open && !isDeletingOrg) {
-							setDeleteOrgOpen(false);
-							setDeleteOrgConfirmText('');
-						}
-					}}
-					title="Delete organization"
-				>
-					<ModalBody>
-						<div className="space-y-4">
-							<p className="text-sm font-medium">Are you sure you want to delete this organization?</p>
-							<p
+					{isAdminOrOwner && (
+						<section className="mb-6">
+							<h2
 								className="
-									truncate rounded-sm border border-border bg-bg-tertiary px-2 py-1
-									text-sm font-medium text-text-primary
+									mb-3 text-xs font-medium tracking-wider text-text-secondary uppercase
 								"
 							>
-								{organization.name}
-							</p>
-							<p className="text-xs text-text-secondary">This action cannot be undone.</p>
-							<div>
-								<label className="mb-1.5 block text-xs text-text-secondary">
-									Type <strong className="text-text-primary uppercase">delete</strong> to confirm
-								</label>
-								<input
-									type="text"
-									value={deleteOrgConfirmText}
-									onChange={(event) => setDeleteOrgConfirmText(event.target.value)}
-									onKeyDown={(event) => {
-										if (event.key === 'Enter' && isDeleteOrgConfirmed && !isDeletingOrg) {
-											void handleDeleteOrg();
-										}
-									}}
-									disabled={isDeletingOrg}
-									autoComplete="off"
-									className="
-										h-8 w-full rounded-md border border-border bg-bg-secondary/60 px-2
-										text-sm text-text-primary transition-colors
-										placeholder:text-text-secondary/50
-										focus-within:border-accent
-										focus:outline-none
-									"
+								Invite member
+							</h2>
+							<div className="rounded-lg border border-border bg-bg-secondary/40">
+								<InviteForm
+									organizationId={organization.id}
+									memberCount={members.length}
+									pendingInvitationCount={pendingInvitations.length}
+									maxMembers={orgLimits?.maxMembers ?? members.length + 1}
+									maxPendingInvitations={orgLimits?.maxPendingInvitations ?? pendingInvitations.length + 1}
+									onInvited={refreshOrganization}
 								/>
 							</div>
-						</div>
-					</ModalBody>
-					<ModalFooter>
-						<Button
-							variant="secondary"
-							size="sm"
-							onClick={() => {
+						</section>
+					)}
+
+					{pendingInvitations.length > 0 && (
+						<section className="mb-6">
+							<h2
+								className="
+									mb-3 text-xs font-medium tracking-wider text-text-secondary uppercase
+								"
+							>
+								Pending invitations ({pendingInvitations.length})
+							</h2>
+							<div
+								className={cn(`
+									divide-y divide-border overflow-hidden rounded-lg border border-border
+									bg-bg-secondary/40
+								`)}
+							>
+								{pendingInvitations.map((invitation) => (
+									<InvitationRow
+										key={invitation.id}
+										invitation={invitation}
+										canCancel={isAdminOrOwner}
+										onCancel={(invitationId) => void handleCancelInvitation(invitationId)}
+									/>
+								))}
+							</div>
+						</section>
+					)}
+
+					{isOwner && (
+						<section>
+							<h2
+								className="
+									mb-3 text-xs font-medium tracking-wider text-error/80 uppercase
+								"
+							>
+								Danger zone
+							</h2>
+							<div
+								className="
+									rounded-lg border border-error/30 bg-bg-secondary/40 px-4 py-3
+								"
+							>
+								<div className="flex items-center justify-between gap-3">
+									<div className="min-w-0">
+										<p className="text-sm font-medium text-text-primary">Delete organization</p>
+										<p className="text-xs text-text-secondary">Permanently delete this organization. This action cannot be undone.</p>
+									</div>
+									<Button
+										variant="danger"
+										size="sm"
+										onClick={() => {
+											setDeleteOrgConfirmText('');
+											setDeleteOrgOpen(true);
+										}}
+									>
+										Delete
+									</Button>
+								</div>
+							</div>
+						</section>
+					)}
+
+					<Modal
+						open={deleteOrgOpen}
+						onOpenChange={(open) => {
+							if (!open && !isDeletingOrg) {
 								setDeleteOrgOpen(false);
 								setDeleteOrgConfirmText('');
-							}}
-							disabled={isDeletingOrg}
-						>
-							Cancel
-						</Button>
-						<Button
-							size="sm"
-							variant="danger"
-							onClick={() => void handleDeleteOrg()}
-							disabled={isDeletingOrg || !isDeleteOrgConfirmed}
-							isLoading={isDeletingOrg}
-							loadingText="Deleting..."
-						>
-							Delete
-						</Button>
-					</ModalFooter>
-				</Modal>
+							}
+						}}
+						title="Delete organization"
+					>
+						<ModalBody>
+							<div className="space-y-4">
+								<p className="text-sm font-medium">Are you sure you want to delete this organization?</p>
+								<p
+									className="
+										truncate rounded-sm border border-border bg-bg-tertiary px-2 py-1
+										text-sm font-medium text-text-primary
+									"
+								>
+									{organization.name}
+								</p>
+								<p className="text-xs text-text-secondary">This action cannot be undone.</p>
+								<div>
+									<label className="mb-1.5 block text-xs text-text-secondary">
+										Type <strong className="text-text-primary uppercase">delete</strong> to confirm
+									</label>
+									<input
+										type="text"
+										value={deleteOrgConfirmText}
+										onChange={(event) => setDeleteOrgConfirmText(event.target.value)}
+										onKeyDown={(event) => {
+											if (event.key === 'Enter' && isDeleteOrgConfirmed && !isDeletingOrg) {
+												void handleDeleteOrg();
+											}
+										}}
+										disabled={isDeletingOrg}
+										autoComplete="off"
+										className="
+											h-8 w-full rounded-md border border-border bg-bg-secondary/60 px-2
+											text-sm text-text-primary transition-colors
+											placeholder:text-text-secondary/50
+											focus-within:border-accent
+											focus:outline-none
+										"
+									/>
+								</div>
+							</div>
+						</ModalBody>
+						<ModalFooter>
+							<Button
+								variant="secondary"
+								size="sm"
+								onClick={() => {
+									setDeleteOrgOpen(false);
+									setDeleteOrgConfirmText('');
+								}}
+								disabled={isDeletingOrg}
+							>
+								Cancel
+							</Button>
+							<Button
+								size="sm"
+								variant="danger"
+								onClick={() => void handleDeleteOrg()}
+								disabled={isDeletingOrg || !isDeleteOrgConfirmed}
+								isLoading={isDeletingOrg}
+								loadingText="Deleting..."
+							>
+								Delete
+							</Button>
+						</ModalFooter>
+					</Modal>
+				</div>
 			</main>
 		</div>
 	);

@@ -3,7 +3,7 @@ import { Monitor, Smartphone, Trash2 } from 'lucide-react';
 import { useCallback, useState } from 'react';
 import { useNavigate } from 'react-router';
 
-import { Button } from '@/components/ui/button';
+import { Button, ConfirmButton } from '@/components/ui';
 import { Modal, ModalBody, ModalFooter } from '@/components/ui/modal';
 import { Spinner } from '@/components/ui/spinner';
 import { toast } from '@/components/ui/toast-store';
@@ -134,9 +134,17 @@ export default function AccountPage() {
 						Active sessions
 					</h3>
 					{sessions.length > 1 && (
-						<Button variant="outline" size="sm" onClick={() => void handleRevokeAllOtherSessions()}>
+						<ConfirmButton
+							title="Sign out all sessions?"
+							confirmLabel="Sign out"
+							loadingText="Signing out..."
+							onConfirm={handleRevokeAllOtherSessions}
+							variant="outline"
+							size="sm"
+							confirmVariant="warning"
+						>
 							Sign out all others
-						</Button>
+						</ConfirmButton>
 					)}
 				</div>
 				<div
@@ -177,17 +185,20 @@ export default function AccountPage() {
 										</div>
 									</div>
 									{!session.current && (
-										<Button
+										<ConfirmButton
+											title="Revoke this session?"
+											confirmLabel="Revoke"
+											loadingText="Revoking..."
+											onConfirm={() => handleRevokeSession(session.token)}
 											variant="ghost"
 											size="sm"
-											onClick={() => void handleRevokeSession(session.token)}
 											className="
 												shrink-0 text-xs text-text-secondary
 												hover:text-error
 											"
 										>
 											Revoke
-										</Button>
+										</ConfirmButton>
 									)}
 								</div>
 							);

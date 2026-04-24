@@ -1,24 +1,25 @@
 import { Monitor, Moon, Sun } from 'lucide-react';
 
-import { useTheme } from '@/hooks/use-theme';
+import { Modal, ModalBody } from '@/components/ui/modal';
 import { useStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 import { EDITOR_FONTS } from '@shared/constants';
+
+import type { ComponentType } from 'react';
 
 type ColorScheme = 'light' | 'dark' | 'system';
 
 const THEME_OPTIONS: Array<{
 	value: ColorScheme;
 	label: string;
-	icon: React.ComponentType<{ className?: string }>;
+	icon: ComponentType<{ className?: string }>;
 }> = [
 	{ value: 'light', label: 'Light', icon: Sun },
 	{ value: 'dark', label: 'Dark', icon: Moon },
 	{ value: 'system', label: 'System', icon: Monitor },
 ];
 
-export default function AppearancePage() {
-	const resolvedTheme = useTheme();
+function AppearanceContent() {
 	const colorScheme = useStore((state) => state.colorScheme);
 	const setColorScheme = useStore((state) => state.setColorScheme);
 	const editorFont = useStore((state) => state.editorFont);
@@ -26,25 +27,19 @@ export default function AppearancePage() {
 
 	return (
 		<div className="flex flex-col gap-8">
-			<div>
-				<h2 className="mb-1 text-lg font-semibold text-text-primary">Appearance</h2>
-				<p className="text-sm text-text-secondary">
-					Customize how the app looks. Currently using <strong className="text-text-primary">{resolvedTheme}</strong> mode.
-				</p>
-			</div>
-
 			<section>
-				<h3
+				<h2
 					className="
 						mb-3 text-xs font-medium tracking-wider text-text-secondary uppercase
 					"
 				>
 					Theme
-				</h3>
+				</h2>
 				<div className="grid grid-cols-3 gap-3">
 					{THEME_OPTIONS.map((option) => {
 						const isSelected = colorScheme === option.value;
 						const Icon = option.icon;
+
 						return (
 							<button
 								key={option.value}
@@ -71,16 +66,17 @@ export default function AppearancePage() {
 			</section>
 
 			<section>
-				<h3
+				<h2
 					className="
 						mb-3 text-xs font-medium tracking-wider text-text-secondary uppercase
 					"
 				>
 					Editor Font
-				</h3>
+				</h2>
 				<div className="grid grid-cols-2 gap-3">
 					{EDITOR_FONTS.map((font) => {
 						const isSelected = editorFont === font.slug;
+
 						return (
 							<button
 								key={font.slug}
@@ -108,5 +104,18 @@ export default function AppearancePage() {
 				</div>
 			</section>
 		</div>
+	);
+}
+
+export function AppearanceModal() {
+	const isOpen = useStore((state) => state.isAppearanceModalOpen);
+	const setAppearanceModalOpen = useStore((state) => state.setAppearanceModalOpen);
+
+	return (
+		<Modal open={isOpen} onOpenChange={setAppearanceModalOpen} title="Appearance" className="w-[480px]">
+			<ModalBody>
+				<AppearanceContent />
+			</ModalBody>
+		</Modal>
 	);
 }

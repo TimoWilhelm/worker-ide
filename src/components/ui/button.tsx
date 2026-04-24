@@ -40,8 +40,10 @@ const buttonVariants = cva(
 					hover:bg-red-700
 				`,
 				warning: `
-					bg-warning text-black
-					hover:bg-yellow-600 hover:text-black
+					bg-warning text-white
+					hover:bg-yellow-700 hover:text-white
+					dark:text-black
+					dark:hover:bg-yellow-600 dark:hover:text-black
 				`,
 				outline: `
 					border border-border bg-transparent text-text-primary

@@ -1,4 +1,5 @@
 export { Button } from './button';
+export { ConfirmButton } from './confirm-button';
 export { ConfirmDialog, type ConfirmDialogProperties } from './confirm-dialog';
 export {
 	DropdownMenu,

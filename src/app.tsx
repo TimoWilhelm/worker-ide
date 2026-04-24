@@ -13,10 +13,11 @@ import { PageContentSkeleton, SettingsContentSkeleton } from '@/components/ui/sk
 import { Spinner } from '@/components/ui/spinner';
 import { Toaster } from '@/components/ui/toast';
 import { toast } from '@/components/ui/toast-store';
+import { AppearanceModal } from '@/features/appearance';
 import { LoginPage } from '@/features/auth';
 import { DashboardPage } from '@/features/dashboard';
 import { OrgManagementPage } from '@/features/org';
-import { AccountPage, AppearancePage, ProfilePage, SettingsLayout } from '@/features/settings';
+import { AccountPage, ProfilePage, SettingsLayout } from '@/features/settings';
 import { useEditorFont } from '@/hooks/use-editor-font';
 import { usePwaUpdate } from '@/hooks/use-pwa-update';
 import { useUserPreferences } from '@/hooks/use-user-preferences';
@@ -303,7 +304,7 @@ function OrgSettingsRoute({ organizations }: { organizations: OrganizationEntry[
 
 	return (
 		<Suspense fallback={<PageContentSkeleton />}>
-			<OrgManagementPage orgSlug={orgSlug} organizationId={organization.id} />
+			<OrgManagementPage orgSlug={orgSlug} organizationId={organization.id} organizations={organizations} />
 		</Suspense>
 	);
 }
@@ -403,7 +404,6 @@ function AppContent({
 				<Route index element={<Navigate to="profile" replace />} />
 				<Route path="profile" element={<ProfilePage user={user} />} />
 				<Route path="account" element={<AccountPage />} />
-				<Route path="appearance" element={<AppearancePage />} />
 			</Route>
 			<Route path="/org/:orgSlug/settings" element={<OrgSettingsRoute organizations={organizations} />} />
 			<Route path="/org/:orgSlug" element={<OrgDashboardRoute organizations={organizations} user={user} />} />
@@ -462,6 +462,7 @@ export function App() {
 				<OfflineBanner />
 				<AuthErrorHandler />
 				<AuthGate />
+				<AppearanceModal />
 				<PwaUpdateHandler />
 				<Toaster />
 			</QueryClientProvider>

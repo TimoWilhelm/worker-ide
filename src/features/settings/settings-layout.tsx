@@ -1,11 +1,8 @@
-import { ArrowLeft, Hexagon, Menu } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useState } from 'react';
-import { Link, useLocation, useNavigate } from 'react-router';
+import { Link, useLocation } from 'react-router';
 
-import { BetaIndicator } from '@/components/beta-indicator';
-import { Tooltip } from '@/components/ui/tooltip';
-import { UserMenu } from '@/features/user-menu';
+import { PageHeader } from '@/components/page-header';
 import { springSnappy } from '@/lib/motion-config';
 import { cn } from '@/lib/utils';
 
@@ -28,61 +25,12 @@ function getSettingsBackTarget(state: unknown): string | undefined {
 export default function SettingsLayout({ children, activePath }: SettingsLayoutProperties) {
 	const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
 	const location = useLocation();
-	const navigate = useNavigate();
 	const backTarget = getSettingsBackTarget(location.state);
 	const navigationState = backTarget ? { from: backTarget } : undefined;
 
 	return (
 		<div className="flex h-dvh flex-col bg-bg-primary">
-			<header
-				className="
-					flex h-12 shrink-0 items-center gap-3 border-b border-border
-					bg-bg-secondary px-4
-				"
-			>
-				<button
-					onClick={() => setMobileDrawerOpen(true)}
-					className="
-						rounded-md p-1.5 text-text-secondary transition-colors
-						hover:bg-bg-tertiary hover:text-text-primary
-						sm:hidden
-					"
-					aria-label="Open settings menu"
-				>
-					<Menu className="size-4" />
-				</button>
-
-				<button
-					type="button"
-					onClick={() => void navigate(backTarget ?? '/')}
-					className="
-						flex shrink-0 items-center justify-center rounded-md p-1.5
-						text-text-secondary transition-colors
-						hover:bg-bg-tertiary hover:text-text-primary
-					"
-					aria-label="Go back"
-				>
-					<ArrowLeft className="size-4" />
-				</button>
-
-				<Tooltip content="Back to home">
-					<Link
-						to="/"
-						className="
-							hidden shrink-0 items-center gap-1 text-accent transition-colors
-							hover:text-accent-hover
-							sm:flex
-						"
-						aria-label="Back to home"
-					>
-						<Hexagon className="size-4" />
-						<BetaIndicator />
-					</Link>
-				</Tooltip>
-
-				<h1 className="flex-1 text-sm font-semibold text-text-primary">Settings</h1>
-				<UserMenu />
-			</header>
+			<PageHeader title="Settings" backTo={backTarget ?? '/'} onOpenNavigationMenu={() => setMobileDrawerOpen(true)} />
 
 			<div className="flex min-h-0 flex-1">
 				<nav

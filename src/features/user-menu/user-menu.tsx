@@ -20,6 +20,7 @@ interface UserMenuProperties {
 export function UserMenu({ size = 'md' }: UserMenuProperties = {}) {
 	const { data: session } = authClient.useSession();
 	const optimisticUserName = useStore(selectOptimisticUserName);
+	const setAppearanceModalOpen = useStore((state) => state.setAppearanceModalOpen);
 	const navigate = useNavigate();
 	const location = useLocation();
 
@@ -97,7 +98,7 @@ export function UserMenu({ size = 'md' }: UserMenuProperties = {}) {
 				</DropdownMenuItem>
 				<DropdownMenuItem
 					onSelect={() => {
-						void navigate('/settings/appearance', { state: settingsNavigationState });
+						setAppearanceModalOpen(true);
 					}}
 					className="gap-2 text-xs"
 				>

@@ -167,6 +167,7 @@ interface UIState {
 	dependenciesPanelVisible: boolean;
 	colorScheme: ColorScheme;
 	editorFont: EditorFont;
+	isAppearanceModalOpen: boolean;
 	activeMobilePanel: MobilePanel;
 	mobileFileTreeOpen: boolean;
 	activeSidebarView: SidebarView;
@@ -184,6 +185,7 @@ interface UIActions {
 	toggleDependenciesPanel: () => void;
 	setColorScheme: (scheme: ColorScheme) => void;
 	setEditorFont: (font: EditorFont) => void;
+	setAppearanceModalOpen: (open: boolean) => void;
 	setActiveMobilePanel: (panel: MobilePanel) => void;
 	toggleMobileFileTree: () => void;
 	setActiveSidebarView: (view: SidebarView) => void;
@@ -757,6 +759,7 @@ export const useStore = create<StoreState>()(
 				dependenciesPanelVisible: true,
 				colorScheme: 'dark',
 				editorFont: DEFAULT_EDITOR_FONT,
+				isAppearanceModalOpen: false,
 				activeMobilePanel: 'editor',
 				mobileFileTreeOpen: false,
 				activeSidebarView: 'explorer',
@@ -789,6 +792,8 @@ export const useStore = create<StoreState>()(
 				setColorScheme: (scheme) => set({ colorScheme: scheme }),
 
 				setEditorFont: (font) => set({ editorFont: font }),
+
+				setAppearanceModalOpen: (open) => set({ isAppearanceModalOpen: open }),
 
 				setActiveMobilePanel: (panel) => set({ activeMobilePanel: panel }),
 

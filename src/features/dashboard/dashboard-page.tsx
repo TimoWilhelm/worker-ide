@@ -1,20 +1,19 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { BookOpen, Copy, Github, Hexagon, Search, Trash2 } from 'lucide-react';
+import { Copy, Hexagon, Search, Trash2 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 
 import { BetaIndicator } from '@/components/beta-indicator';
 import { HalftoneBackground } from '@/components/halftone-background';
-import { Button, buttonVariants } from '@/components/ui/button';
+import { PageHeader } from '@/components/page-header';
+import { Button } from '@/components/ui/button';
 import { Modal, ModalBody, ModalFooter } from '@/components/ui/modal';
 import { Spinner } from '@/components/ui/spinner';
 import { toast } from '@/components/ui/toast-store';
 import { VersionBadge } from '@/components/version-badge';
 import { CreateOrgModal } from '@/features/org/create-org-modal';
-import { OrgSwitcher } from '@/features/org/org-switcher';
 import { PendingInvitationsBanner } from '@/features/org/pending-invitations-banner';
-import { UserMenu } from '@/features/user-menu';
 import {
 	cloneProject,
 	createProject,
@@ -414,6 +413,7 @@ interface DashboardPageProperties {
 
 export default function DashboardPage({ organizationId, organizations, isCreateOrgMode, user }: DashboardPageProperties) {
 	const navigate = useNavigate();
+	const [scrollContainer, setScrollContainer] = useState<HTMLDivElement | undefined>();
 	const [createOrgOpen, setCreateOrgOpen] = useState(!!isCreateOrgMode);
 	const [selectedTemplateId, setSelectedTemplateId] = useState<string | undefined>();
 	const [cloneInput, setCloneInput] = useState('');
@@ -576,10 +576,25 @@ export default function DashboardPage({ organizationId, organizations, isCreateO
 	});
 
 	return (
-		<div className="relative flex h-dvh flex-col items-center overflow-y-auto">
+		<div ref={(element) => setScrollContainer(element ?? undefined)} className="relative h-dvh overflow-y-auto">
 			<Suspense fallback={undefined}>
 				<HalftoneBackground />
 			</Suspense>
+
+			<PageHeader
+				variant="floating"
+				scrollContainer={scrollContainer}
+				organizationSwitcher={
+					isCreateOrgMode
+						? undefined
+						: {
+								organizations,
+								currentOrganizationId: organizationId,
+								currentOrganizationName: organizations.find((organization) => organization.id === organizationId)?.name ?? '',
+							}
+				}
+				showExternalLinks
+			/>
 
 			{isLoading && <LoadingOverlay message={loadingMessage} />}
 
@@ -619,38 +634,9 @@ export default function DashboardPage({ organizationId, organizations, isCreateO
 				isLoading={isLoading}
 			/>
 
-			<div className="fixed top-4 right-4 z-10 flex items-center gap-1">
-				{!isCreateOrgMode && (
-					<OrgSwitcher
-						organizations={organizations}
-						currentOrganizationId={organizationId}
-						currentOrganizationName={organizations.find((o) => o.id === organizationId)?.name ?? ''}
-					/>
-				)}
-				<a
-					href="/docs"
-					target="_blank"
-					rel="noopener noreferrer"
-					aria-label="Architecture docs"
-					className={buttonVariants({ variant: 'ghost', size: 'icon', className: 'bg-bg-secondary/40 backdrop-blur-sm' })}
-				>
-					<BookOpen className="size-4" />
-				</a>
-				<a
-					href="https://github.com/TimoWilhelm/worker-ide"
-					target="_blank"
-					rel="noopener noreferrer"
-					aria-label="GitHub repository"
-					className={buttonVariants({ variant: 'ghost', size: 'icon', className: 'bg-bg-secondary/40 backdrop-blur-sm' })}
-				>
-					<Github className="size-4" />
-				</a>
-				<UserMenu />
-			</div>
-
 			<main
 				className="
-					relative z-0 w-full max-w-lg px-6 pt-24 pb-12
+					relative z-0 mx-auto w-full max-w-lg px-6 pt-24 pb-12
 					sm:pt-32
 				"
 			>
