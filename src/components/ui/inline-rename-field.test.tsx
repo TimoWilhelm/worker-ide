@@ -7,24 +7,21 @@ import { InlineRenameField } from './inline-rename-field';
 
 function TestHarness({ onSubmitValue }: { onSubmitValue?: (value: string) => void }) {
 	const [displayValue, setDisplayValue] = useState('Project One');
-	const [inputValue, setInputValue] = useState(displayValue);
 	const [isEditing, setIsEditing] = useState(false);
 
 	return (
 		<InlineRenameField
 			isEditing={isEditing}
 			displayValue={displayValue}
-			inputValue={inputValue}
+			inputValue={displayValue}
 			inputAriaLabel="Rename test item"
-			onInputValueChange={setInputValue}
 			onStartEditing={() => {
-				setInputValue(displayValue);
 				setIsEditing(true);
 			}}
-			onSubmit={() => {
+			onSubmit={(value) => {
 				setIsEditing(false);
 
-				const trimmed = inputValue.trim();
+				const trimmed = value.trim();
 				if (!trimmed || trimmed === displayValue) {
 					return;
 				}

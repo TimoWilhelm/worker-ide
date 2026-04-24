@@ -39,8 +39,7 @@ export function IDEHeader({
 	onDeploy,
 	onSettings,
 }: IDEHeaderProperties) {
-	const { projectName, isEditingName, editNameValue, setEditNameValue, handleStartRename, handleSaveRename, handleCancelRename } =
-		projectNameState;
+	const { projectName, isEditingName, handleStartRename, handleSaveRename, handleCancelRename } = projectNameState;
 
 	return (
 		<>
@@ -67,14 +66,16 @@ export function IDEHeader({
 					<InlineRenameField
 						isEditing={isEditingName}
 						displayValue={projectName ?? 'Codemaxxing'}
-						inputValue={editNameValue}
-						onInputValueChange={setEditNameValue}
+						inputValue={projectName ?? 'Codemaxxing'}
 						onStartEditing={handleStartRename}
 						onSubmit={handleSaveRename}
 						onCancel={handleCancelRename}
 						inputAriaLabel="Rename project"
 						maxLength={60}
-						className="min-w-20"
+						className={`
+							min-w-32
+							sm:min-w-48
+						`}
 						inputClassName="
 							h-6 rounded-sm border border-accent bg-bg-primary px-1.5 text-sm font-semibold
 							text-text-primary
@@ -82,7 +83,12 @@ export function IDEHeader({
 						"
 					>
 						{({ displayValue, startEditing }) => (
-							<div className="group flex min-w-20 items-center gap-1.5">
+							<div
+								className={`
+									group flex min-w-32 items-center gap-1.5
+									sm:min-w-48
+								`}
+							>
 								<h1
 									className="cursor-pointer truncate font-semibold text-text-primary"
 									onClick={startEditing}

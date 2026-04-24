@@ -15,34 +15,36 @@ export function useProjectName({ projectId }: { projectId: string }) {
 
 	const projectName = metaQuery.data?.name;
 	const [isEditingName, setIsEditingName] = useState(false);
-	const [editNameValue, setEditNameValue] = useState('');
 
 	const handleStartRename = useCallback(() => {
-		setEditNameValue(projectName ?? '');
 		setIsEditingName(true);
-	}, [projectName]);
+	}, []);
 
-	const handleSaveRename = useCallback(async () => {
-		const trimmed = editNameValue.trim();
-		setIsEditingName(false);
+	const handleSaveRename = useCallback(
+		async (value: string) => {
+			const trimmed = value.trim();
+			setIsEditingName(false);
 
-		if (trimmed && trimmed !== projectName) {
-			const previousMeta = queryClient.getQueryData<Awaited<ReturnType<typeof fetchProjectMeta>>>(['project-meta', projectId]);
+			if (trimmed && trimmed !== projectName) {
+				const previousMeta = queryClient.getQueryData<Awaited<ReturnType<typeof fetchProjectMeta>>>(['project-meta', projectId]);
 
-			// Optimistically set the cache
-			if (previousMeta) {
-				queryClient.setQueryData(['project-meta', projectId], { ...previousMeta, name: trimmed });
+				// Optimistically set the cache
+				if (previousMeta) {
+					queryClient.setQueryData(['project-meta', projectId], { ...previousMeta, name: trimmed });
+				}
+
+				try {
+					const newMeta = await updateProjectMeta(projectId, { name: trimmed });
+					queryClient.setQueryData(['project-meta', projectId], newMeta);
+					void queryClient.invalidateQueries({ queryKey: ['org-projects'] });
+				} catch {
+					queryClient.setQueryData(['project-meta', projectId], previousMeta);
+					toast.error('Failed to rename project');
+				}
 			}
-
-			try {
-				const newMeta = await updateProjectMeta(projectId, { name: trimmed });
-				queryClient.setQueryData(['project-meta', projectId], newMeta);
-			} catch {
-				queryClient.setQueryData(['project-meta', projectId], previousMeta);
-				toast.error('Failed to rename project');
-			}
-		}
-	}, [editNameValue, projectName, projectId, queryClient]);
+		},
+		[projectName, projectId, queryClient],
+	);
 
 	const handleCancelRename = useCallback(() => {
 		setIsEditingName(false);
@@ -51,8 +53,6 @@ export function useProjectName({ projectId }: { projectId: string }) {
 	return {
 		projectName,
 		isEditingName,
-		editNameValue,
-		setEditNameValue,
 		handleStartRename,
 		handleSaveRename,
 		handleCancelRename,

@@ -562,11 +562,13 @@ export default function DashboardPage({ organizationId, organizations, isCreateO
 				setLoadingMessage(undefined);
 				setSelectedTemplateId(undefined);
 				setCloneModalOpen(false);
+				void queryClient.invalidateQueries({ queryKey: ['org-projects', organizationId] });
+				void queryClient.invalidateQueries({ queryKey: ['org-limits', organizationId] });
 			}
 		}
 		globalThis.addEventListener('pageshow', handlePageShow);
 		return () => globalThis.removeEventListener('pageshow', handlePageShow);
-	}, []);
+	}, [organizationId, queryClient]);
 
 	const hasNoOrgs = organizations.length === 0;
 	const userLimitsQuery = useQuery({

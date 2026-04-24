@@ -341,7 +341,6 @@ export default function OrgManagementPage({ orgSlug, organizationId, organizatio
 	const isDeleteOrgConfirmed = deleteOrgConfirmText.toLowerCase() === 'delete';
 
 	const [isEditingName, setIsEditingName] = useState(false);
-	const [editName, setEditName] = useState('');
 	const [isRenaming, setIsRenaming] = useState(false);
 	const optimisticOrganizationName = useStore((state) => state.optimisticOrganizationNames[organizationId]);
 	const setOptimisticOrganizationName = useStore((state) => state.setOptimisticOrganizationName);
@@ -364,71 +363,64 @@ export default function OrgManagementPage({ orgSlug, organizationId, organizatio
 	}, [queryClient]);
 
 	const handleStartRename = useCallback(() => {
-		setEditName(organization?.name ?? '');
 		setIsEditingName(true);
-	}, [organization?.name]);
+	}, []);
 
 	const handleCancelRename = useCallback(() => {
 		setIsEditingName(false);
 	}, []);
 
-	const handleRename = useCallback(async () => {
-		if (isRenaming) {
-			return;
-		}
+	const handleRename = useCallback(
+		async (value: string) => {
+			if (isRenaming) {
+				return;
+			}
 
-		const trimmed = editName.trim();
-		if (!trimmed || trimmed === organization?.name) {
+			const trimmed = value.trim();
+			if (!trimmed || trimmed === organization?.name) {
+				setIsEditingName(false);
+				return;
+			}
+			if (trimmed.length > MAX_ORGANIZATION_NAME_LENGTH) {
+				toast.error(`Name must be ${MAX_ORGANIZATION_NAME_LENGTH} characters or fewer.`);
+				return;
+			}
+
+			const previousOrganization = organization;
+			const previousOptimisticOrganizationName = optimisticOrganizationName;
 			setIsEditingName(false);
-			return;
-		}
-		if (trimmed.length > MAX_ORGANIZATION_NAME_LENGTH) {
-			toast.error(`Name must be ${MAX_ORGANIZATION_NAME_LENGTH} characters or fewer.`);
-			return;
-		}
-
-		const previousOrganization = organization;
-		const previousOptimisticOrganizationName = optimisticOrganizationName;
-		setIsEditingName(false);
-		setIsRenaming(true);
-		setOptimisticOrganizationName(organizationId, trimmed);
-		if (previousOrganization) {
-			queryClient.setQueryData(['org-details', organizationId], { ...previousOrganization, name: trimmed });
-		}
-		try {
-			const { error } = await authClient.organization.update({
-				data: { name: trimmed },
-				organizationId: organization?.id ?? '',
-			});
-			if (error) {
+			setIsRenaming(true);
+			setOptimisticOrganizationName(organizationId, trimmed);
+			if (previousOrganization) {
+				queryClient.setQueryData(['org-details', organizationId], { ...previousOrganization, name: trimmed });
+			}
+			try {
+				const { error } = await authClient.organization.update({
+					data: { name: trimmed },
+					organizationId: organization?.id ?? '',
+				});
+				if (error) {
+					setOptimisticOrganizationName(organizationId, previousOptimisticOrganizationName);
+					if (previousOrganization) {
+						queryClient.setQueryData(['org-details', organizationId], previousOrganization);
+					}
+					toast.error(error.message ?? 'Failed to rename organization');
+					return;
+				}
+				toast.success('Organization renamed');
+				refreshOrganization();
+			} catch {
 				setOptimisticOrganizationName(organizationId, previousOptimisticOrganizationName);
 				if (previousOrganization) {
 					queryClient.setQueryData(['org-details', organizationId], previousOrganization);
 				}
-				toast.error(error.message ?? 'Failed to rename organization');
-				return;
+				toast.error('Failed to rename organization');
+			} finally {
+				setIsRenaming(false);
 			}
-			toast.success('Organization renamed');
-			refreshOrganization();
-		} catch {
-			setOptimisticOrganizationName(organizationId, previousOptimisticOrganizationName);
-			if (previousOrganization) {
-				queryClient.setQueryData(['org-details', organizationId], previousOrganization);
-			}
-			toast.error('Failed to rename organization');
-		} finally {
-			setIsRenaming(false);
-		}
-	}, [
-		editName,
-		isRenaming,
-		optimisticOrganizationName,
-		organization,
-		organizationId,
-		queryClient,
-		refreshOrganization,
-		setOptimisticOrganizationName,
-	]);
+		},
+		[isRenaming, optimisticOrganizationName, organization, organizationId, queryClient, refreshOrganization, setOptimisticOrganizationName],
+	);
 
 	const handleRemoveMember = useCallback(async () => {
 		if (confirmAction?.type !== 'remove') return;
@@ -630,10 +622,9 @@ export default function OrgManagementPage({ orgSlug, organizationId, organizatio
 							<InlineRenameField
 								isEditing={isEditingName}
 								displayValue={organization.name}
-								inputValue={editName}
-								onInputValueChange={setEditName}
+								inputValue={organization.name}
 								onStartEditing={handleStartRename}
-								onSubmit={handleRename}
+								onSubmit={(value) => void handleRename(value)}
 								onCancel={handleCancelRename}
 								inputAriaLabel="Rename organization"
 								maxLength={MAX_ORGANIZATION_NAME_LENGTH}

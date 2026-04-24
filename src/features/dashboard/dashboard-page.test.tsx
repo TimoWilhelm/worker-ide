@@ -533,6 +533,26 @@ describe('DashboardPage', () => {
 		});
 	});
 
+	it('refreshes the project list when page is restored from bfcache', async () => {
+		const mockedFetchOrgProjects = vi.mocked(fetchOrgProjects);
+		mockedFetchOrgProjects
+			.mockResolvedValueOnce([makeProject({ name: 'Old Project Name' })])
+			.mockResolvedValueOnce([makeProject({ name: 'Renamed Project' })]);
+
+		renderWithQuery(<DashboardPage {...defaultProperties} />);
+
+		await waitFor(() => {
+			expect(screen.getByText('Old Project Name')).toBeInTheDocument();
+		});
+
+		globalThis.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }));
+
+		await waitFor(() => {
+			expect(screen.getByText('Renamed Project')).toBeInTheDocument();
+		});
+		expect(screen.queryByText('Old Project Name')).not.toBeInTheDocument();
+	});
+
 	it('project rows are links to the project page', async () => {
 		const projectId = '494rtk7ddoepe5ru2lx4oc855i6lc23p3apolh04feq8q517sa';
 		vi.mocked(fetchOrgProjects).mockResolvedValue([makeProject({ id: projectId, name: 'Test Project' })]);

@@ -23,8 +23,6 @@ const meta = {
 		projectNameState: {
 			projectName: 'Test Project',
 			isEditingName: false,
-			editNameValue: 'Test Project',
-			setEditNameValue: fn(),
 			handleStartRename: fn(),
 			handleSaveRename: fn(),
 			handleCancelRename: fn(),
@@ -94,10 +92,8 @@ export const MobileView: Story = {
 export const EditingName: Story = {
 	args: {
 		projectNameState: {
-			projectName: 'Test Project',
+			projectName: 'New Name Edited',
 			isEditingName: true,
-			editNameValue: 'New Name Edited',
-			setEditNameValue: fn(),
 			handleStartRename: fn(),
 			handleSaveRename: fn(),
 			handleCancelRename: fn(),

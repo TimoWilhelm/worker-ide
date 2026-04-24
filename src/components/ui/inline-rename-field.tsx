@@ -7,9 +7,9 @@ interface InlineRenameFieldProperties {
 	displayValue: string;
 	inputValue: string;
 	inputAriaLabel: string;
-	onInputValueChange: (value: string) => void;
+	onInputValueChange?: (value: string) => void;
 	onStartEditing: () => void;
-	onSubmit: () => void | Promise<void>;
+	onSubmit: (value: string) => void | Promise<void>;
 	onCancel: () => void;
 	children: (properties: { displayValue: string; startEditing: () => void; isEditing: boolean }) => ReactNode;
 	className?: string;
@@ -46,12 +46,17 @@ export function InlineRenameField({
 		}
 
 		const frameId = requestAnimationFrame(() => {
-			inputReference.current?.focus();
-			inputReference.current?.select();
+			if (!inputReference.current) {
+				return;
+			}
+
+			inputReference.current.value = inputValue;
+			inputReference.current.focus();
+			inputReference.current.select();
 		});
 
 		return () => cancelAnimationFrame(frameId);
-	}, [isEditing]);
+	}, [inputValue, isEditing]);
 
 	return (
 		<div className={cn('relative', className)}>
@@ -62,12 +67,14 @@ export function InlineRenameField({
 				<input
 					ref={inputReference}
 					type="text"
-					value={inputValue}
-					onChange={(event) => onInputValueChange(event.target.value)}
+					defaultValue={inputValue}
+					onChange={(event) => {
+						onInputValueChange?.(event.target.value);
+					}}
 					onKeyDown={(event) => {
 						if (event.key === 'Enter') {
 							event.preventDefault();
-							void onSubmit();
+							void onSubmit(event.currentTarget.value);
 						}
 
 						if (event.key === 'Escape') {
@@ -76,13 +83,13 @@ export function InlineRenameField({
 							onCancel();
 						}
 					}}
-					onBlur={() => {
+					onBlur={(event) => {
 						if (skipSubmitOnBlurReference.current) {
 							skipSubmitOnBlurReference.current = false;
 							return;
 						}
 
-						void onSubmit();
+						void onSubmit(event.currentTarget.value);
 					}}
 					maxLength={maxLength}
 					disabled={disabled}

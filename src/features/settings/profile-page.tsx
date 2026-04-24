@@ -14,7 +14,6 @@ interface ProfilePageProperties {
 
 export default function ProfilePage({ user }: ProfilePageProperties) {
 	const [isEditingName, setIsEditingName] = useState(false);
-	const [editName, setEditName] = useState(user.name);
 	const [isRenaming, setIsRenaming] = useState(false);
 
 	const { refetch: refetchSession } = authClient.useSession();
@@ -29,46 +28,48 @@ export default function ProfilePage({ user }: ProfilePageProperties) {
 		.slice(0, 2);
 
 	const handleStartEditName = useCallback(() => {
-		setEditName(user.name);
 		setIsEditingName(true);
-	}, [user.name]);
+	}, []);
 
 	const handleCancelEditName = useCallback(() => {
 		setIsEditingName(false);
 	}, []);
 
-	const handleSaveName = useCallback(async () => {
-		if (isRenaming) {
-			return;
-		}
-
-		const trimmed = editName.trim();
-		setIsEditingName(false);
-
-		if (!trimmed || trimmed === user.name) {
-			return;
-		}
-
-		const previousOptimisticUserName = optimisticUserName;
-		setIsRenaming(true);
-		setOptimisticUserName(trimmed);
-
-		try {
-			const { error } = await authClient.updateUser({ name: trimmed });
-			if (error) {
-				setOptimisticUserName(previousOptimisticUserName);
-				toast.error(error.message ?? 'Failed to update your display name. Please try again.');
+	const handleSaveName = useCallback(
+		async (value: string) => {
+			if (isRenaming) {
 				return;
 			}
-			void refetchSession();
-			toast.success('Name updated');
-		} catch {
-			setOptimisticUserName(previousOptimisticUserName);
-			toast.error('Failed to update name. Please check your connection and try again.');
-		} finally {
-			setIsRenaming(false);
-		}
-	}, [editName, isRenaming, optimisticUserName, refetchSession, setOptimisticUserName, user.name]);
+
+			const trimmed = value.trim();
+			setIsEditingName(false);
+
+			if (!trimmed || trimmed === user.name) {
+				return;
+			}
+
+			const previousOptimisticUserName = optimisticUserName;
+			setIsRenaming(true);
+			setOptimisticUserName(trimmed);
+
+			try {
+				const { error } = await authClient.updateUser({ name: trimmed });
+				if (error) {
+					setOptimisticUserName(previousOptimisticUserName);
+					toast.error(error.message ?? 'Failed to update your display name. Please try again.');
+					return;
+				}
+				void refetchSession();
+				toast.success('Name updated');
+			} catch {
+				setOptimisticUserName(previousOptimisticUserName);
+				toast.error('Failed to update name. Please check your connection and try again.');
+			} finally {
+				setIsRenaming(false);
+			}
+		},
+		[isRenaming, optimisticUserName, refetchSession, setOptimisticUserName, user.name],
+	);
 
 	return (
 		<div className="flex flex-col gap-8">
@@ -109,8 +110,7 @@ export default function ProfilePage({ user }: ProfilePageProperties) {
 					<InlineRenameField
 						isEditing={isEditingName}
 						displayValue={user.name}
-						inputValue={editName}
-						onInputValueChange={setEditName}
+						inputValue={user.name}
 						onStartEditing={handleStartEditName}
 						onSubmit={handleSaveName}
 						onCancel={handleCancelEditName}
