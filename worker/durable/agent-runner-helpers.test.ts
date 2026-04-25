@@ -94,6 +94,7 @@ describe('agent-runner helpers', () => {
 				action: 'edit',
 				beforeContent: 'old',
 				afterContent: 'new',
+				snapshotId: undefined,
 				status: 'pending',
 				hunkStatuses: ['pending'],
 				sessionId: 'session-1',
@@ -122,7 +123,7 @@ describe('agent-runner helpers', () => {
 	it('restores extension manager instances and builds summaries', async () => {
 		class FakeExtensionManager {
 			static restoreCalls = 0;
-			constructor(public readonly options: { loader: WorkerLoader; storage: DurableObjectStorage }) {}
+			constructor(public readonly options: { loader: unknown; storage: unknown }) {}
 
 			async restore(): Promise<void> {
 				FakeExtensionManager.restoreCalls += 1;
@@ -136,8 +137,8 @@ describe('agent-runner helpers', () => {
 			}
 		}
 
-		const loader = {} as WorkerLoader;
-		const storage = {} as DurableObjectStorage;
+		const loader = {};
+		const storage = {};
 		const manager = await restoreExtensionManager(loader, storage, FakeExtensionManager);
 
 		expect(FakeExtensionManager.restoreCalls).toBe(1);

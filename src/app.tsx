@@ -28,6 +28,7 @@ import { selectOptimisticUserName, useStore } from '@/lib/store';
 import { isNetworkError } from '@/lib/utils';
 import { getAuthErrorInfo } from '@shared/auth-errors';
 import { parseHost } from '@shared/domain';
+import { parseProjectDeepLink, type ProjectDeepLinkTarget } from '@shared/project-deep-link';
 import { PROJECT_ID_PATTERN } from '@shared/project-id';
 
 const queryClient = new QueryClient({
@@ -134,7 +135,7 @@ function ErrorFallback({ error, resetErrorBoundary }: { error: Error; resetError
  * Gate component that verifies a project is accessible before mounting the IDE.
  * Uses React 19 `use()` to suspend until the access check resolves.
  */
-function ProjectGate({ projectId }: { projectId: string }) {
+function ProjectGate({ projectId, initialProjectDeepLink }: { projectId: string; initialProjectDeepLink?: ProjectDeepLinkTarget }) {
 	const accessStatus = use(checkProjectAccess(projectId));
 
 	if (accessStatus === 'forbidden') {
@@ -145,10 +146,10 @@ function ProjectGate({ projectId }: { projectId: string }) {
 		return <ProjectNotFound />;
 	}
 
-	return <ValidProject projectId={projectId} />;
+	return <ValidProject projectId={projectId} initialProjectDeepLink={initialProjectDeepLink} />;
 }
-function ValidProject({ projectId }: { projectId: string }) {
-	return <IDEShell projectId={projectId} />;
+function ValidProject({ projectId, initialProjectDeepLink }: { projectId: string; initialProjectDeepLink?: ProjectDeepLinkTarget }) {
+	return <IDEShell projectId={projectId} initialProjectDeepLink={initialProjectDeepLink} />;
 }
 
 /**
@@ -259,6 +260,8 @@ interface UserInfo {
 }
 function ProjectRoute() {
 	const { projectId } = useParams<{ projectId: string }>();
+	const [searchParameters] = useSearchParams();
+	const initialProjectDeepLink = parseProjectDeepLink(searchParameters);
 
 	if (!projectId || !PROJECT_ID_PATTERN.test(projectId)) {
 		return <NotFoundPage />;
@@ -266,7 +269,7 @@ function ProjectRoute() {
 
 	return (
 		<Suspense fallback={<LoadingFallback />}>
-			<ProjectGate projectId={projectId} />
+			<ProjectGate projectId={projectId} initialProjectDeepLink={initialProjectDeepLink} />
 		</Suspense>
 	);
 }

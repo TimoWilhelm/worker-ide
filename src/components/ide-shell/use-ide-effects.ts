@@ -1,9 +1,9 @@
 import { useEffect, useRef } from 'react';
 
 import { getDependencyErrorCount, subscribeDependencyErrors } from '@/features/file-tree/dependency-error-store';
-import { useFileTargetOpener } from '@/lib/file-target';
-import { isMessageFromPreview } from '@/lib/preview-origin';
+import { useProjectDeepLinkApplier } from '@/lib/project-deep-link';
 import { useStore } from '@/lib/store';
+import { isProjectDeepLinkTarget } from '@shared/project-deep-link';
 
 import { useUnsavedChangesWarning } from './use-unsaved-changes-warning';
 
@@ -25,7 +25,7 @@ export function useIDEEffects({
 	cursorUpdateTimeoutReference,
 }: UseIDEEffectsOptions) {
 	useUnsavedChangesWarning();
-	const openFileTarget = useFileTargetOpener();
+	const applyProjectDeepLink = useProjectDeepLinkApplier();
 
 	// Auto-expand dependencies panel when new errors are detected.
 	const showDependenciesPanel = useStore((state) => state.showDependenciesPanel);
@@ -40,65 +40,27 @@ export function useIDEEffects({
 		});
 	}, [showDependenciesPanel]);
 
-	// Listen for __open-file messages from the preview iframe (error overlay).
+	// Listen for canonical deep-link messages from preview surfaces.
 	useEffect(() => {
 		const handleMessage = (event: MessageEvent) => {
-			if (!isMessageFromPreview(event)) return;
-			if (event.data?.type === '__open-file' && typeof event.data.file === 'string') {
-				const line = typeof event.data.line === 'number' ? event.data.line : 1;
-				const column = typeof event.data.column === 'number' ? event.data.column : 1;
-				openFileTarget({ path: event.data.file, position: { line, column } });
+			if (!previewOrigin || event.origin !== previewOrigin) {
+				return;
 			}
+			if (event.data?.type !== '__deep-link' || !isProjectDeepLinkTarget(event.data.target)) {
+				return;
+			}
+
+			applyProjectDeepLink(event.data.target);
 		};
 
 		globalThis.addEventListener('message', handleMessage);
 		return () => globalThis.removeEventListener('message', handleMessage);
-	}, [openFileTarget]);
+	}, [applyProjectDeepLink, previewOrigin]);
 
-	// Set a known window name so full-screen preview can focus this tab via window.open()
+	// Set a known window name so full-screen preview can focus this tab via window.open().
 	useEffect(() => {
 		window.name = `worker-ide:${projectId}`;
 	}, [projectId]);
-
-	// Listen for __open-file via BroadcastChannel (full-screen preview in another tab)
-	useEffect(() => {
-		const channelName = `worker-ide:${projectId}`;
-		const broadcastChannel = new BroadcastChannel(channelName);
-
-		const handleBroadcast = (event: MessageEvent) => {
-			if (event.data?.type === '__open-file' && typeof event.data.file === 'string') {
-				const line = typeof event.data.line === 'number' ? event.data.line : 1;
-				const column = typeof event.data.column === 'number' ? event.data.column : 1;
-				openFileTarget({ path: event.data.file, position: { line, column } });
-				broadcastChannel.postMessage({ type: '__open-file-ack' });
-			}
-		};
-
-		broadcastChannel.addEventListener('message', handleBroadcast);
-
-		return () => {
-			broadcastChannel.removeEventListener('message', handleBroadcast);
-			broadcastChannel.close();
-		};
-	}, [openFileTarget, projectId]);
-
-	// Handle #goto=<file>:<line>:<col> hash when IDE tab is opened from full-screen preview
-	useEffect(() => {
-		const hash = globalThis.location.hash;
-		if (!hash.startsWith('#goto=')) return;
-
-		const gotoValue = hash.slice('#goto='.length);
-		const match = gotoValue.match(/^(.+):(\d+):(\d+)$/);
-		if (!match) return;
-
-		const file = decodeURIComponent(match[1]);
-		const line = Number(match[2]);
-		const column = Number(match[3]);
-		openFileTarget({ path: file, position: { line, column } });
-
-		// Clear the hash so it doesn't re-trigger on HMR or navigation
-		history.replaceState(undefined, '', globalThis.location.pathname + globalThis.location.search);
-	}, [openFileTarget]);
 
 	// Forward bundle errors to the preview iframe so the error overlay shows.
 	// The preview is cross-origin, so target its specific origin.

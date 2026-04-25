@@ -97,6 +97,61 @@ describe('output logs persistence', () => {
 	});
 });
 
+describe('external change buffering', () => {
+	it('deduplicates repeated file edits by path and keeps the latest timestamp', async () => {
+		const stub = getCoordinatorStub('test-external-file-edits');
+
+		await stub.recordExternalChange({ kind: 'file-edit', path: '/src/index.ts', timestamp: 10 });
+		await stub.recordExternalChange({ kind: 'file-edit', path: '/src/index.ts', timestamp: 20 });
+		await stub.recordExternalChange({ kind: 'file-edit', path: '/src/other.ts', timestamp: 15 });
+
+		const changes = await stub.getRecentExternalChanges();
+		expect(changes).toEqual([
+			{ kind: 'file-edit', path: '/src/other.ts', timestamp: 15 },
+			{ kind: 'file-edit', path: '/src/index.ts', timestamp: 20 },
+		]);
+
+		expect(await stub.getRecentExternalChanges()).toEqual([]);
+	});
+
+	it('merges Wrangler settings updates into one semantic change entry', async () => {
+		const stub = getCoordinatorStub('test-external-wrangler-settings');
+
+		await stub.recordExternalChange({
+			kind: 'wrangler-settings',
+			path: '/wrangler.jsonc',
+			timestamp: 30,
+			domains: ['asset-settings'],
+			assetSettings: {
+				not_found_handling: 'single-page-application',
+				html_handling: 'drop-trailing-slash',
+			},
+		});
+		await stub.recordExternalChange({
+			kind: 'wrangler-settings',
+			path: '/wrangler.jsonc',
+			timestamp: 40,
+			domains: ['bindings-config'],
+			bindingsConfig: { storage: true },
+		});
+
+		const changes = await stub.getRecentExternalChanges();
+		expect(changes).toEqual([
+			{
+				kind: 'wrangler-settings',
+				path: '/wrangler.jsonc',
+				timestamp: 40,
+				domains: ['asset-settings', 'bindings-config'],
+				assetSettings: {
+					not_found_handling: 'single-page-application',
+					html_handling: 'drop-trailing-slash',
+				},
+				bindingsConfig: { storage: true },
+			},
+		]);
+	});
+});
+
 describe('instance consistency', () => {
 	it('multiple RPC calls on the same stub work correctly', async () => {
 		const stub = getCoordinatorStub('test-instance-consistency');

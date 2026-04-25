@@ -26,10 +26,30 @@ vi.mock('./workers-ai', () => ({
 
 // Mock the coordinator namespace
 const mockGetOutputLogs = vi.fn<() => Promise<string | undefined>>(async (): Promise<string | undefined> => undefined);
+const mockGetRecentExternalChanges = vi.fn<
+	() => Promise<
+		Array<
+			| { kind: 'file-edit'; path: string; timestamp: number }
+			| {
+					kind: 'wrangler-settings';
+					path: '/wrangler.jsonc';
+					timestamp: number;
+					domains: Array<'asset-settings' | 'bindings-config'>;
+					assetSettings?: {
+						not_found_handling?: 'none' | 'single-page-application' | '404-page';
+						html_handling?: 'auto-trailing-slash' | 'force-trailing-slash' | 'drop-trailing-slash' | 'none';
+						run_worker_first?: boolean | string[];
+					};
+					bindingsConfig?: { storage?: boolean };
+			  }
+		>
+	>
+>(async () => []);
 vi.mock('../../lib/durable-object-namespaces', () => ({
 	coordinatorNamespace: {
 		getByName: vi.fn(() => ({
 			getOutputLogs: mockGetOutputLogs,
+			getRecentExternalChanges: mockGetRecentExternalChanges,
 		})),
 	},
 }));
@@ -176,6 +196,7 @@ async function collectEvents(stream: AsyncIterable<StreamEvent>): Promise<Stream
 describe('AIAgentService', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		mockGetRecentExternalChanges.mockResolvedValue([]);
 	});
 
 	afterEach(() => {
@@ -323,6 +344,94 @@ describe('AIAgentService', () => {
 
 			const toolEnds = events.filter((event) => event.type === 'tool-call-end');
 			expect(toolEnds).toHaveLength(1);
+		});
+
+		it('injects semantic Wrangler settings changes into the next iteration context', async () => {
+			let callCount = 0;
+			mockGetRecentExternalChanges.mockResolvedValueOnce([
+				{
+					kind: 'wrangler-settings',
+					path: '/wrangler.jsonc',
+					timestamp: 123,
+					domains: ['asset-settings', 'bindings-config'],
+					assetSettings: {
+						not_found_handling: 'single-page-application',
+						html_handling: 'drop-trailing-slash',
+						run_worker_first: ['/api/*'],
+					},
+					bindingsConfig: { storage: true },
+				},
+			]);
+
+			vi.mocked(streamText).mockImplementation((parameters) => {
+				callCount++;
+				if (callCount === 1) {
+					return {
+						fullStream: {
+							async *[Symbol.asyncIterator]() {
+								yield { type: 'tool-call', toolCallId: 'tc-1', toolName: 'file_read', input: { path: '/project/index.ts' } };
+								yield { type: 'tool-result', toolCallId: 'tc-1', toolName: 'file_read', output: 'file content' };
+								yield { type: 'finish-step', finishReason: 'tool-calls', usage: { inputTokens: 100, outputTokens: 20 } };
+								yield { type: 'finish', finishReason: 'tool-calls' };
+							},
+						},
+						response: Promise.resolve({
+							messages: [
+								{
+									role: 'assistant',
+									content: [{ type: 'tool-call', toolCallId: 'tc-1', toolName: 'file_read', input: { path: '/project/index.ts' } }],
+								},
+								{
+									role: 'tool',
+									content: [
+										{ type: 'tool-result', toolCallId: 'tc-1', toolName: 'file_read', output: { type: 'text', value: 'file content' } },
+									],
+								},
+							],
+						}),
+						// eslint-disable-next-line @typescript-eslint/no-explicit-any -- test mock
+					} as any;
+				}
+
+				expect(parameters.messages).toEqual(
+					expect.arrayContaining([
+						expect.objectContaining({
+							role: 'user',
+							content: expect.stringContaining('Wrangler settings changed in /wrangler.jsonc'),
+						}),
+						expect.objectContaining({
+							role: 'user',
+							content: expect.stringContaining('storage=enabled'),
+						}),
+						expect.objectContaining({
+							role: 'user',
+							content: expect.stringContaining('run_worker_first=enabled for patterns /api/*'),
+						}),
+					]),
+				);
+
+				return {
+					fullStream: {
+						async *[Symbol.asyncIterator]() {
+							yield { type: 'text-delta', text: 'Done!' };
+							yield { type: 'finish-step', finishReason: 'stop', usage: { inputTokens: 200, outputTokens: 10 } };
+							yield { type: 'finish', finishReason: 'stop' };
+						},
+					},
+					response: Promise.resolve({
+						messages: [{ role: 'assistant', content: [{ type: 'text', text: 'Done!' }] }],
+					}),
+					// eslint-disable-next-line @typescript-eslint/no-explicit-any -- test mock
+				} as any;
+			});
+
+			const service = createTestService();
+			const abortController = new AbortController();
+			const stream = service.runAgentStream(makeModelMessages('Read my file'), [makeUserMessage('Read my file')], abortController);
+			const events = await collectEvents(stream);
+
+			expect(callCount).toBe(2);
+			expect(events.some((event) => event.type === 'status' && event.message === 'Detected user edits, reviewing...')).toBe(true);
 		});
 
 		it('retries an empty stop response after tool calls instead of completing early', async () => {

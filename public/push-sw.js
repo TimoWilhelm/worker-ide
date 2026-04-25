@@ -28,18 +28,19 @@ globalThis.addEventListener('notificationclick', (event) => {
 	event.notification.close();
 
 	const path = event.notification.data?.path || '/';
+	const targetUrl = new globalThis.URL(path, globalThis.location.origin).toString();
 
 	event.waitUntil(
 		globalThis.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
-			// If a window is already open, focus it and navigate
+			// If a window is already open, navigate it to the deep link and focus it.
 			for (const client of clientList) {
-				if (client.url.includes(path) && 'focus' in client) {
-					return client.focus();
+				if ('navigate' in client && 'focus' in client) {
+					return client.navigate(targetUrl).then(() => client.focus());
 				}
 			}
 			// Otherwise open a new window
 			if (globalThis.clients.openWindow) {
-				return globalThis.clients.openWindow(path);
+				return globalThis.clients.openWindow(targetUrl);
 			}
 		}),
 	);

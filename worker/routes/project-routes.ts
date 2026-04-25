@@ -77,6 +77,28 @@ export const projectRoutes = new Hono<AppEnvironment>()
 		if (parsed.data.name || parsed.data.assetSettings !== undefined || parsed.data.bindingsConfig !== undefined) {
 			const projectId = c.get('projectId');
 			const coordinatorStub = coordinatorNamespace.getByName(`project:${projectId}`);
+			const assetSettings = await readAssetSettings(projectRoot);
+			const bindingsConfig = await readBindingsConfig(projectRoot);
+
+			if (parsed.data.assetSettings !== undefined || parsed.data.bindingsConfig !== undefined) {
+				const domains: Array<'asset-settings' | 'bindings-config'> = [];
+				if (parsed.data.assetSettings !== undefined) {
+					domains.push('asset-settings');
+				}
+				if (parsed.data.bindingsConfig !== undefined) {
+					domains.push('bindings-config');
+				}
+
+				await coordinatorStub.recordExternalChange({
+					kind: 'wrangler-settings',
+					path: '/wrangler.jsonc',
+					timestamp: Date.now(),
+					domains,
+					assetSettings,
+					bindingsConfig,
+				});
+			}
+
 			await coordinatorStub.triggerUpdate({
 				type: 'full-reload',
 				path: parsed.data.name ? '/package.json' : '/wrangler.jsonc',

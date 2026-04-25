@@ -18,6 +18,7 @@ import {
 	getModelConfig,
 } from '@shared/constants';
 import { sanitizePreviewElementReference } from '@shared/preview-element';
+import { buildProjectDeepLinkPath } from '@shared/project-deep-link';
 import {
 	pendingChangesFileSchema,
 	reviewHunkUpdateSchema,
@@ -2002,7 +2003,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 				tag: sessionId,
 				title,
 				body,
-				path: `/p/${projectId}`,
+				path: buildProjectDeepLinkPath(projectId, { kind: 'agent-session', sessionId }),
 			}).catch((error: unknown) => {
 				console.error('[AgentRunner] Failed to send push notification:', error);
 			});

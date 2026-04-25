@@ -61,7 +61,7 @@ import type { ProjectFilesystem } from '../../durable/project-filesystem';
 import type { ExtensionManager } from '@cloudflare/think/extensions';
 import type { FiberSnapshot, StreamEvent } from '@shared/agent-state';
 import type { AIModelId } from '@shared/constants';
-import type { ChatMessage, PendingFileChange, ToolErrorInfo, ToolMetadataInfo } from '@shared/types';
+import type { AssetSettings, BindingsConfig, ChatMessage, PendingFileChange, ToolErrorInfo, ToolMetadataInfo } from '@shared/types';
 import type { Session } from 'agents/experimental/memory/session';
 import type { ModelMessage } from 'ai';
 
@@ -99,6 +99,77 @@ function truncateDiagnosticsForPrompt(content: string): string {
 	}
 
 	return `... (older diagnostics truncated)\n${content.slice(-MAX_INLINE_DIAGNOSTIC_CHARACTERS)}`;
+}
+
+type ExternalChange =
+	| {
+			kind: 'file-edit';
+			path: string;
+			timestamp: number;
+	  }
+	| {
+			kind: 'wrangler-settings';
+			path: '/wrangler.jsonc';
+			timestamp: number;
+			domains: Array<'asset-settings' | 'bindings-config'>;
+			assetSettings?: AssetSettings;
+			bindingsConfig?: BindingsConfig;
+	  };
+
+function formatRunWorkerFirst(runWorkerFirst: AssetSettings['run_worker_first']): string {
+	if (runWorkerFirst === true) {
+		return 'enabled for all requests';
+	}
+	if (Array.isArray(runWorkerFirst) && runWorkerFirst.length > 0) {
+		return `enabled for patterns ${runWorkerFirst.join(', ')}`;
+	}
+	return 'disabled';
+}
+
+function buildWranglerSettingsSummary(change: Extract<ExternalChange, { kind: 'wrangler-settings' }>): string[] {
+	const summaryLines: string[] = [];
+	if (change.domains.includes('asset-settings')) {
+		const assetSettings = change.assetSettings ?? {};
+		summaryLines.push(
+			`asset settings → not_found_handling=${assetSettings.not_found_handling ?? 'none'}, html_handling=${assetSettings.html_handling ?? 'auto-trailing-slash'}, run_worker_first=${formatRunWorkerFirst(assetSettings.run_worker_first)}`,
+		);
+	}
+	if (change.domains.includes('bindings-config')) {
+		summaryLines.push(`bindings config → storage=${change.bindingsConfig?.storage ? 'enabled' : 'disabled'}`);
+	}
+
+	return summaryLines;
+}
+
+function buildExternalChangesPrompt(changes: ExternalChange[]): string | undefined {
+	const fileEdits = changes.filter((change): change is Extract<ExternalChange, { kind: 'file-edit' }> => change.kind === 'file-edit');
+	const wranglerSettingsChanges = changes.filter(
+		(change): change is Extract<ExternalChange, { kind: 'wrangler-settings' }> => change.kind === 'wrangler-settings',
+	);
+	if (fileEdits.length === 0 && wranglerSettingsChanges.length === 0) {
+		return undefined;
+	}
+
+	const promptLines = ['SYSTEM: While you were working, a user changed project state outside the agent loop.'];
+	if (fileEdits.length > 0) {
+		promptLines.push(
+			`- File edits: ${fileEdits.map((change) => change.path).join(', ')}`,
+			'- If any of these files are relevant to your task, re-read them with file_read before making further changes.',
+		);
+	}
+	if (wranglerSettingsChanges.length > 0) {
+		promptLines.push('- Wrangler settings changed in /wrangler.jsonc:');
+		for (const change of wranglerSettingsChanges) {
+			for (const summaryLine of buildWranglerSettingsSummary(change)) {
+				promptLines.push(`  - ${summaryLine}`);
+			}
+		}
+		promptLines.push(
+			'- If these settings matter to your task, refresh your understanding with the dedicated settings/bindings tools before changing related code.',
+		);
+	}
+
+	return promptLines.join('\n');
 }
 
 export class AIAgentService {
@@ -836,12 +907,12 @@ export class AIAgentService {
 				// Probe for concurrent user file edits
 				if (continueLoop) {
 					try {
-						const recentEdits = await coordinatorStub.getRecentFileEdits();
-						if (recentEdits.length > 0) {
-							const editedPaths = recentEdits.map((edit: { path: string }) => edit.path).join(', ');
+						const recentExternalChanges = await coordinatorStub.getRecentExternalChanges();
+						const externalChangesPrompt = buildExternalChangesPrompt(recentExternalChanges);
+						if (externalChangesPrompt) {
 							workingMessages.push({
 								role: 'user',
-								content: `SYSTEM: While you were working, a user manually edited the following files: ${editedPaths}. If any of these files are relevant to your current task, re-read them with file_read before making further changes to avoid conflicts.`,
+								content: externalChangesPrompt,
 							});
 							yield statusEvent('Detected user edits, reviewing...');
 						}

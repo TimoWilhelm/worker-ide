@@ -5,7 +5,7 @@ import { serializeMessage, parseClientMessage } from '@shared/ws-messages';
 
 import { trackWebSocketEvent } from '../lib/analytics';
 
-import type { HmrUpdate, Participant } from '@shared/types';
+import type { AssetSettings, BindingsConfig, HmrUpdate, Participant } from '@shared/types';
 import type { ServerMessage } from '@shared/ws-messages';
 type ProjectSocketClientKind = 'ide' | 'preview';
 
@@ -19,6 +19,101 @@ interface ParticipantAttachment {
 	joined: boolean;
 }
 
+type WranglerSettingsDomain = 'asset-settings' | 'bindings-config';
+
+type RecentExternalChange =
+	| {
+			kind: 'file-edit';
+			path: string;
+			timestamp: number;
+	  }
+	| {
+			kind: 'wrangler-settings';
+			path: '/wrangler.jsonc';
+			timestamp: number;
+			domains: WranglerSettingsDomain[];
+			assetSettings?: AssetSettings;
+			bindingsConfig?: BindingsConfig;
+	  };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return value !== undefined && value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function normalizeAssetSettings(value: unknown): AssetSettings | undefined {
+	if (!isRecord(value)) {
+		return undefined;
+	}
+
+	const normalizedSettings: AssetSettings = {};
+	if (
+		value.not_found_handling === 'none' ||
+		value.not_found_handling === 'single-page-application' ||
+		value.not_found_handling === '404-page'
+	) {
+		normalizedSettings.not_found_handling = value.not_found_handling;
+	}
+	if (
+		value.html_handling === 'auto-trailing-slash' ||
+		value.html_handling === 'force-trailing-slash' ||
+		value.html_handling === 'drop-trailing-slash' ||
+		value.html_handling === 'none'
+	) {
+		normalizedSettings.html_handling = value.html_handling;
+	}
+	if (typeof value.run_worker_first === 'boolean') {
+		normalizedSettings.run_worker_first = value.run_worker_first;
+	}
+	if (Array.isArray(value.run_worker_first) && value.run_worker_first.every((entry) => typeof entry === 'string')) {
+		normalizedSettings.run_worker_first = value.run_worker_first;
+	}
+
+	return Object.keys(normalizedSettings).length > 0 ? normalizedSettings : {};
+}
+
+function normalizeBindingsConfig(value: unknown): BindingsConfig | undefined {
+	if (!isRecord(value)) {
+		return undefined;
+	}
+
+	const normalizedBindings: BindingsConfig = {};
+	if (typeof value.storage === 'boolean') {
+		normalizedBindings.storage = value.storage;
+	}
+
+	return Object.keys(normalizedBindings).length > 0 ? normalizedBindings : {};
+}
+
+function normalizeRecentExternalChange(value: unknown): RecentExternalChange | undefined {
+	if (!isRecord(value) || typeof value.path !== 'string' || typeof value.timestamp !== 'number') {
+		return undefined;
+	}
+
+	if (value.kind === 'wrangler-settings') {
+		const domains = Array.isArray(value.domains)
+			? value.domains.filter((domain): domain is WranglerSettingsDomain => domain === 'asset-settings' || domain === 'bindings-config')
+			: [];
+		if (domains.length === 0) {
+			return undefined;
+		}
+
+		return {
+			kind: 'wrangler-settings',
+			path: '/wrangler.jsonc',
+			timestamp: value.timestamp,
+			domains,
+			assetSettings: normalizeAssetSettings(value.assetSettings),
+			bindingsConfig: normalizeBindingsConfig(value.bindingsConfig),
+		};
+	}
+
+	return {
+		kind: 'file-edit',
+		path: value.path,
+		timestamp: value.timestamp,
+	};
+}
+
 /**
  * Storage keys used by the synchronous KV API (`ctx.storage.kv`).
  * All persisted values must be serializable via the structured clone algorithm.
@@ -28,7 +123,7 @@ const STORAGE_KEY = {
 	UPDATE_VERSION: 'updateVersion',
 	OUTPUT_LOGS: 'outputLogs',
 	RECENT_FILE_EDITS: 'recentFileEdits',
-} as const;
+};
 
 /**
  * Project Coordinator Durable Object
@@ -49,7 +144,7 @@ export class ProjectCoordinatorV2 extends DurableObject {
 		this.ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'));
 	}
 	private projectId: string | undefined;
-	private static readonly MAX_RECENT_FILE_EDITS = 100;
+	private static readonly MAX_RECENT_EXTERNAL_CHANGES = 100;
 
 	// =========================================================================
 	// Persisted state — native get/set backed by ctx.storage.kv
@@ -84,16 +179,32 @@ export class ProjectCoordinatorV2 extends DurableObject {
 	private set outputLogs(value: string) {
 		this.ctx.storage.kv.put(STORAGE_KEY.OUTPUT_LOGS, value);
 	}
-	private get recentFileEdits(): Array<{ path: string; timestamp: number }> {
-		return this.ctx.storage.kv.get<Array<{ path: string; timestamp: number }>>(STORAGE_KEY.RECENT_FILE_EDITS) ?? [];
+	private get recentExternalChanges(): RecentExternalChange[] {
+		const storedValue = this.ctx.storage.kv.get<unknown>(STORAGE_KEY.RECENT_FILE_EDITS);
+		if (!Array.isArray(storedValue)) {
+			return [];
+		}
+
+		return storedValue
+			.map((value) => normalizeRecentExternalChange(value))
+			.filter((value): value is RecentExternalChange => value !== undefined);
 	}
 
-	private set recentFileEdits(value: Array<{ path: string; timestamp: number }>) {
+	private set recentExternalChanges(value: RecentExternalChange[]) {
 		if (value.length === 0) {
 			this.ctx.storage.kv.delete(STORAGE_KEY.RECENT_FILE_EDITS);
 		} else {
 			this.ctx.storage.kv.put(STORAGE_KEY.RECENT_FILE_EDITS, value);
 		}
+	}
+
+	private appendRecentExternalChange(change: RecentExternalChange): void {
+		const recentExternalChanges = this.recentExternalChanges;
+		recentExternalChanges.push(change);
+		if (recentExternalChanges.length > ProjectCoordinatorV2.MAX_RECENT_EXTERNAL_CHANGES) {
+			recentExternalChanges.splice(0, recentExternalChanges.length - ProjectCoordinatorV2.MAX_RECENT_EXTERNAL_CHANGES);
+		}
+		this.recentExternalChanges = recentExternalChanges;
 	}
 
 	private getAttachment(ws: WebSocket): ParticipantAttachment | undefined {
@@ -257,23 +368,59 @@ export class ProjectCoordinatorV2 extends DurableObject {
 	}
 
 	/**
-	 * Drain recent file edits made by connected users.
+	 * Drain recent external changes made while the agent was running.
 	 * Called by the AI agent service between iterations to detect concurrent
-	 * user changes. Returns deduplicated paths and clears the buffer.
+	 * user changes. Returns deduplicated file edits plus merged Wrangler settings updates.
 	 */
-	async getRecentFileEdits(): Promise<Array<{ path: string; timestamp: number }>> {
-		const edits = this.recentFileEdits;
-		if (edits.length === 0) return [];
-		this.recentFileEdits = [];
-		// Deduplicate by path, keeping the latest timestamp per path
-		const byPath = new Map<string, number>();
-		for (const edit of edits) {
-			const existing = byPath.get(edit.path);
-			if (existing === undefined || edit.timestamp > existing) {
-				byPath.set(edit.path, edit.timestamp);
+	async getRecentExternalChanges(): Promise<RecentExternalChange[]> {
+		const recentExternalChanges = this.recentExternalChanges;
+		if (recentExternalChanges.length === 0) return [];
+		this.recentExternalChanges = [];
+
+		const latestFileEditsByPath = new Map<string, Extract<RecentExternalChange, { kind: 'file-edit' }>>();
+		const wranglerDomains = new Set<WranglerSettingsDomain>();
+		let latestWranglerTimestamp = 0;
+		let latestAssetSettings: AssetSettings | undefined;
+		let latestBindingsConfig: BindingsConfig | undefined;
+
+		for (const change of recentExternalChanges) {
+			if (change.kind === 'file-edit') {
+				const existing = latestFileEditsByPath.get(change.path);
+				if (!existing || change.timestamp > existing.timestamp) {
+					latestFileEditsByPath.set(change.path, change);
+				}
+				continue;
+			}
+
+			latestWranglerTimestamp = Math.max(latestWranglerTimestamp, change.timestamp);
+			for (const domain of change.domains) {
+				wranglerDomains.add(domain);
+			}
+			if (change.assetSettings !== undefined) {
+				latestAssetSettings = change.assetSettings;
+			}
+			if (change.bindingsConfig !== undefined) {
+				latestBindingsConfig = change.bindingsConfig;
 			}
 		}
-		return [...byPath.entries()].map(([path, timestamp]) => ({ path, timestamp }));
+
+		const deduplicatedChanges: RecentExternalChange[] = [...latestFileEditsByPath.values()];
+		if (wranglerDomains.size > 0) {
+			deduplicatedChanges.push({
+				kind: 'wrangler-settings',
+				path: '/wrangler.jsonc',
+				timestamp: latestWranglerTimestamp,
+				domains: [...wranglerDomains],
+				assetSettings: latestAssetSettings,
+				bindingsConfig: latestBindingsConfig,
+			});
+		}
+
+		return deduplicatedChanges.toSorted((left, right) => left.timestamp - right.timestamp);
+	}
+
+	async recordExternalChange(change: RecentExternalChange): Promise<void> {
+		this.appendRecentExternalChange(change);
 	}
 	private sendCollabState(ws: WebSocket, attachment: ParticipantAttachment): void {
 		try {
@@ -432,14 +579,7 @@ export class ProjectCoordinatorV2 extends DurableObject {
 						content: data.content,
 					}),
 				);
-				// Track the edit so the AI agent can be notified between iterations
-				const edits = this.recentFileEdits;
-				edits.push({ path: data.path, timestamp: Date.now() });
-				// Cap to prevent unbounded growth
-				if (edits.length > ProjectCoordinatorV2.MAX_RECENT_FILE_EDITS) {
-					edits.splice(0, edits.length - ProjectCoordinatorV2.MAX_RECENT_FILE_EDITS);
-				}
-				this.recentFileEdits = edits;
+				this.appendRecentExternalChange({ kind: 'file-edit', path: data.path, timestamp: Date.now() });
 				return;
 			}
 

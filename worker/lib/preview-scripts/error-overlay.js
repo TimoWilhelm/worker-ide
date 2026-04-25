@@ -5,10 +5,9 @@
  * build or runtime error occurs. Exposes window.showErrorOverlay()
  * and window.hideErrorOverlay() for the HMR client to call.
  *
- * Clicking the file location sends an __open-file postMessage to the
- * parent IDE frame so it can open the file at the error position.
- * When opened full-screen (no parent frame), it uses BroadcastChannel
- * to reach an existing IDE tab, or opens a new IDE tab with a #goto hash.
+ * Clicking the file location sends a canonical project deep-link target
+ * to the IDE. When opened full-screen, it opens or focuses the IDE tab
+ * using the same canonical deep-link query format.
  *
  * Reads config from window.__PREVIEW_CONFIG:
  *   { ideOrigin: string, projectId: string }
@@ -80,6 +79,44 @@
 		var el = document.getElementById('__error-overlay');
 		if (el) el.remove();
 		showErrorPill();
+	}
+
+	function buildIdeDeepLinkUrl(target) {
+		if (!projectId) return undefined;
+
+		var url = new URL('/p/' + projectId, ideOrigin);
+		if (target.kind === 'agent-session') {
+			url.searchParams.set('session', target.sessionId);
+			return url.toString();
+		}
+
+		if (target.kind === 'panel') {
+			url.searchParams.set('panel', target.panel);
+			return url.toString();
+		}
+
+		url.searchParams.set('file', target.file.path);
+		if (target.file.line !== undefined) {
+			url.searchParams.set('line', String(target.file.line));
+			if (target.file.column !== undefined) {
+				url.searchParams.set('column', String(target.file.column));
+			}
+		}
+		return url.toString();
+	}
+
+	function openProjectDeepLink(target) {
+		var payload = { type: '__deep-link', target: target };
+
+		if (window.parent !== window) {
+			window.parent.postMessage(payload, ideOrigin);
+			return;
+		}
+
+		var deepLinkUrl = buildIdeDeepLinkUrl(target);
+		if (!deepLinkUrl) return;
+
+		window.open(deepLinkUrl, 'worker-ide:' + projectId);
 	}
 
 	function showErrorOverlay(err) {
@@ -165,30 +202,14 @@
 			var file = el.dataset.file;
 			var line = parseInt(el.dataset.line, 10) || 1;
 			var column = parseInt(el.dataset.column, 10) || 1;
-			var payload = { type: '__open-file', file: file, line: line, column: column };
-
-			// When inside the IDE iframe, postMessage to the parent frame
-			if (window.parent !== window) {
-				window.parent.postMessage(payload, ideOrigin);
-				return;
-			}
-
-			// Full-screen preview: focus the existing IDE tab (or open a new one).
-			if (!projectId) return;
-
-			// Build IDE URL from ideOrigin
-			var ideUrl = ideOrigin + '/p/' + projectId;
-			var windowName = 'worker-ide:' + projectId;
-			var hash = '#goto=' + encodeURIComponent(file) + ':' + line + ':' + column;
-
-			var channelName = 'worker-ide:' + projectId;
-			var bc = new BroadcastChannel(channelName);
-			bc.postMessage(payload);
-			setTimeout(function () {
-				bc.close();
-			}, 500);
-
-			window.open(ideUrl + hash, windowName);
+			openProjectDeepLink({
+				kind: 'file',
+				file: {
+					path: file,
+					line: line,
+					column: column,
+				},
+			});
 		}
 
 		var fileEl = overlay.querySelector('.__eo-file');
