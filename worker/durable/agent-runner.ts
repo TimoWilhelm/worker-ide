@@ -1999,11 +1999,16 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		if (!projectId) return;
 
 		try {
+			const deepLinkTarget = { kind: 'agent-session' as const, sessionId };
 			env.PUSH.notifyUser(userId, {
 				tag: sessionId,
 				title,
 				body,
-				path: buildProjectDeepLinkPath(projectId, { kind: 'agent-session', sessionId }),
+				path: buildProjectDeepLinkPath(projectId, deepLinkTarget),
+				deepLink: {
+					projectId,
+					target: deepLinkTarget,
+				},
 			}).catch((error: unknown) => {
 				console.error('[AgentRunner] Failed to send push notification:', error);
 			});

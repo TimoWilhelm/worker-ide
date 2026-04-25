@@ -11,17 +11,22 @@ import type { DrizzleD1Database } from 'drizzle-orm/d1';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- accepts schema and non-schema drizzle clients
 type Database = DrizzleD1Database<any>;
 
+export async function getCurrentFreeOrganizationCount(database: Database, userId: string): Promise<number> {
+	const freeOrganizationCountRows = await database
+		.select({ count: count() })
+		.from(schema.member)
+		.innerJoin(schema.organization, eq(schema.organization.id, schema.member.organizationId))
+		.where(and(eq(schema.member.userId, userId), eq(schema.organization.plan, PLAN_FREE), isNull(schema.organization.deletedAt)));
+
+	return freeOrganizationCountRows[0]?.count ?? 0;
+}
+
 export async function shouldBlockOrganizationCreate(database: Database, userId: string): Promise<boolean> {
-	const [entitlementRows, freeOrganizationCountRows] = await Promise.all([
+	const [entitlementRows, freeOrganizationCount] = await Promise.all([
 		queryEntitlements(database, userId),
-		database
-			.select({ count: count() })
-			.from(schema.member)
-			.innerJoin(schema.organization, eq(schema.organization.id, schema.member.organizationId))
-			.where(and(eq(schema.member.userId, userId), eq(schema.organization.plan, PLAN_FREE), isNull(schema.organization.deletedAt))),
+		getCurrentFreeOrganizationCount(database, userId),
 	]);
 	const { maxFreeOrganizations } = resolveUserLimitsFromRows(entitlementRows);
-	const freeOrganizationCount = freeOrganizationCountRows[0]?.count ?? 0;
 
 	return freeOrganizationCount >= maxFreeOrganizations;
 }

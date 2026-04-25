@@ -3,7 +3,6 @@ import { Hexagon } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { Link } from 'react-router';
 
-import { BetaIndicator } from '@/components/beta-indicator';
 import { useDeferredOpen } from '@/hooks/use-deferred-open';
 import { overlayVariants, slideLeftVariants, springCritical, springSnappy, tweenFast } from '@/lib/motion-config';
 import { cn } from '@/lib/utils';
@@ -51,7 +50,6 @@ export function SettingsMobileDrawer({ open, onOpenChange, activePath, navigatio
 									onClick={() => onOpenChange(false)}
 								>
 									<Hexagon className="size-4" />
-									<BetaIndicator />
 								</Link>
 							</div>
 

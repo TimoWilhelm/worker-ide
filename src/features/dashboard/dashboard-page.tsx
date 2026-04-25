@@ -1,16 +1,16 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Copy, Hexagon, Search, Trash2 } from 'lucide-react';
+import { BookOpen, Bug, Copy, Github, Hexagon, Search, Trash2 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 
-import { BetaIndicator } from '@/components/beta-indicator';
 import { HalftoneBackground } from '@/components/halftone-background';
 import { PageHeader } from '@/components/page-header';
 import { Button } from '@/components/ui/button';
 import { Modal, ModalBody, ModalFooter } from '@/components/ui/modal';
 import { Spinner } from '@/components/ui/spinner';
 import { toast } from '@/components/ui/toast-store';
+import { Tooltip, TooltipProvider } from '@/components/ui/tooltip';
 import { VersionBadge } from '@/components/version-badge';
 import { CreateOrgModal } from '@/features/org/create-org-modal';
 import { PendingInvitationsBanner } from '@/features/org/pending-invitations-banner';
@@ -74,6 +74,48 @@ function LoadingOverlay({ message }: { message: string }) {
 			</div>
 		</div>
 	);
+}
+
+interface DashboardUser {
+	name: string;
+	email: string;
+	image?: string;
+}
+
+function getDashboardGreetingPrefix(currentDate: Date): string {
+	const hour = currentDate.getHours();
+	if (hour < 12) {
+		return 'Good morning';
+	}
+
+	if (hour < 18) {
+		return 'Hello';
+	}
+
+	return 'Hi';
+}
+
+function getDashboardDisplayName(user: DashboardUser | undefined): string {
+	const trimmedName = user?.name.trim();
+	if (trimmedName) {
+		return trimmedName;
+	}
+
+	const emailName = user?.email.split('@')[0]?.trim();
+	if (emailName) {
+		return emailName;
+	}
+
+	return '';
+}
+
+function getDashboardGreeting(user: DashboardUser | undefined): string {
+	const displayName = getDashboardDisplayName(user);
+	if (!displayName) {
+		return getDashboardGreetingPrefix(new Date());
+	}
+
+	return `${getDashboardGreetingPrefix(new Date())} ${displayName}`;
 }
 
 function TemplateCard({
@@ -406,9 +448,9 @@ function DeleteProjectModal({
  */
 interface DashboardPageProperties {
 	organizationId: string;
-	organizations: Array<{ id: string; name: string; slug: string | null; plan?: string }>;
+	organizations: Array<{ id: string; name: string; slug: string; plan?: string }>;
 	isCreateOrgMode?: boolean;
-	user?: { name: string; email: string; image?: string };
+	user?: DashboardUser;
 }
 
 export default function DashboardPage({ organizationId, organizations, isCreateOrgMode, user }: DashboardPageProperties) {
@@ -555,6 +597,8 @@ export default function DashboardPage({ organizationId, organizations, isCreateO
 
 	const isLoading = loadingMessage !== undefined;
 
+	const dashboardGreeting = useMemo(() => getDashboardGreeting(user), [user]);
+
 	// Clear loading state when the page is restored from bfcache (browser back/forward)
 	useEffect(() => {
 		function handlePageShow(event: PageTransitionEvent) {
@@ -595,7 +639,6 @@ export default function DashboardPage({ organizationId, organizations, isCreateO
 								currentOrganizationName: organizations.find((organization) => organization.id === organizationId)?.name ?? '',
 							}
 				}
-				showExternalLinks
 			/>
 
 			{isLoading && <LoadingOverlay message={loadingMessage} />}
@@ -649,10 +692,13 @@ export default function DashboardPage({ organizationId, organizations, isCreateO
 					transition={springGentle}
 				>
 					<Hexagon className="size-8 text-accent" strokeWidth={1.5} />
-					<div className="flex items-center gap-1.5">
-						<h1 className="text-xl font-semibold tracking-tight text-text-primary">Codemaxxing</h1>
-						<BetaIndicator className="text-sm" />
-					</div>
+					<h1
+						className="
+							text-center text-xl font-semibold tracking-tight text-text-primary
+						"
+					>
+						{dashboardGreeting}
+					</h1>
 				</motion.div>
 
 				<section className="mb-8">
@@ -754,7 +800,59 @@ export default function DashboardPage({ organizationId, organizations, isCreateO
 					</section>
 				)}
 			</main>
-			<VersionBadge className="fixed right-4 bottom-4" />
+			<TooltipProvider>
+				<div
+					className="
+						fixed right-4 bottom-4 flex items-center gap-4 text-xs text-text-secondary
+					"
+				>
+					<Tooltip content="GitHub">
+						<a
+							href="https://github.com/TimoWilhelm/worker-ide"
+							target="_blank"
+							rel="noopener noreferrer"
+							aria-label="GitHub repository"
+							className="
+								rounded-sm transition-colors
+								hover:text-accent
+								focus-visible:text-accent
+							"
+						>
+							<Github className="size-3.5" />
+						</a>
+					</Tooltip>
+					<Tooltip content="Report a bug">
+						<a
+							href="https://github.com/TimoWilhelm/worker-ide/issues/new?template=bug-report.yml"
+							target="_blank"
+							rel="noopener noreferrer"
+							className="
+								rounded-sm transition-colors
+								hover:text-accent
+								focus-visible:text-accent
+							"
+						>
+							<Bug className="size-3.5" />
+						</a>
+					</Tooltip>
+					<Tooltip content="Docs">
+						<a
+							href="/docs"
+							target="_blank"
+							rel="noopener noreferrer"
+							aria-label="Architecture docs"
+							className="
+								rounded-sm transition-colors
+								hover:text-accent
+								focus-visible:text-accent
+							"
+						>
+							<BookOpen className="size-3.5" />
+						</a>
+					</Tooltip>
+					<VersionBadge withProvider={false} />
+				</div>
+			</TooltipProvider>
 		</div>
 	);
 }

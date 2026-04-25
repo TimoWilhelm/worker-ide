@@ -310,12 +310,14 @@ function InviteForm({
 interface OrgManagementPageProperties {
 	orgSlug: string;
 	organizationId: string;
-	organizations: Array<{ id: string; name: string; slug: string | null; logo?: string | null }>;
+	organizations: Array<{ id: string; name: string; slug: string; logo?: string | null }>;
 }
 
 export default function OrgManagementPage({ orgSlug, organizationId, organizations }: OrgManagementPageProperties) {
 	const navigate = useNavigate();
 	const { data: session } = authClient.useSession();
+	const { refetch: refetchOrganizations } = authClient.useListOrganizations();
+	const { refetch: refetchActiveOrganization } = authClient.useActiveOrganization();
 
 	const organizationQuery = useQuery({
 		queryKey: ['org-details', organizationId],
@@ -334,6 +336,7 @@ export default function OrgManagementPage({ orgSlug, organizationId, organizatio
 
 	const [confirmAction, setConfirmAction] = useState<ConfirmAction | undefined>();
 	const [isActing, setIsActing] = useState(false);
+	const [isRedirectingAway, setIsRedirectingAway] = useState(false);
 
 	const [deleteOrgOpen, setDeleteOrgOpen] = useState(false);
 	const [deleteOrgConfirmText, setDeleteOrgConfirmText] = useState('');
@@ -361,6 +364,30 @@ export default function OrgManagementPage({ orgSlug, organizationId, organizatio
 	const refreshUserLimits = useCallback(() => {
 		void queryClient.invalidateQueries({ queryKey: ['user-limits'] });
 	}, [queryClient]);
+	const fallbackOrganization = organizations.find((organizationEntry) => organizationEntry.id !== organizationId);
+	const navigateToFallbackOrganization = useCallback(async () => {
+		setIsRedirectingAway(true);
+
+		if (!fallbackOrganization) {
+			globalThis.localStorage.removeItem('lastOrgSlug');
+			void navigate('/create-org', { replace: true });
+			void Promise.allSettled([
+				refetchOrganizations(),
+				refetchActiveOrganization(),
+				queryClient.invalidateQueries({ queryKey: ['user-limits'] }),
+			]);
+			return;
+		}
+
+		globalThis.localStorage.setItem('lastOrgSlug', fallbackOrganization.slug);
+		void navigate(`/org/${fallbackOrganization.slug}`, { replace: true });
+		void Promise.allSettled([
+			authClient.organization.setActive({ organizationId: fallbackOrganization.id }),
+			refetchOrganizations(),
+			refetchActiveOrganization(),
+			queryClient.invalidateQueries({ queryKey: ['user-limits'] }),
+		]);
+	}, [fallbackOrganization, navigate, queryClient, refetchActiveOrganization, refetchOrganizations]);
 
 	const handleStartRename = useCallback(() => {
 		setIsEditingName(true);
@@ -503,22 +530,21 @@ export default function OrgManagementPage({ orgSlug, organizationId, organizatio
 				return;
 			}
 			toast.success('You left the organization');
-			refreshUserLimits();
-			void navigate('/');
+			await navigateToFallbackOrganization();
 		} catch {
 			toast.error('Failed to leave organization');
 		} finally {
 			setIsActing(false);
 			setConfirmAction(undefined);
 		}
-	}, [organization?.id, navigate, refreshUserLimits]);
+	}, [navigateToFallbackOrganization, organization?.id]);
 
 	const handleDeleteOrg = useCallback(async () => {
 		setIsDeletingOrg(true);
 		try {
 			await deleteOrganization(organizationId);
 			toast.success('Organization deleted');
-			void navigate('/');
+			await navigateToFallbackOrganization();
 		} catch {
 			toast.error('Failed to delete organization');
 		} finally {
@@ -526,7 +552,7 @@ export default function OrgManagementPage({ orgSlug, organizationId, organizatio
 			setDeleteOrgOpen(false);
 			setDeleteOrgConfirmText('');
 		}
-	}, [organizationId, navigate]);
+	}, [navigateToFallbackOrganization, organizationId]);
 
 	const handleCancelInvitation = useCallback(
 		async (invitationId: string) => {
@@ -554,7 +580,7 @@ export default function OrgManagementPage({ orgSlug, organizationId, organizatio
 		if (confirmAction?.type === 'leave') void handleLeave();
 	}, [confirmAction, handleRemoveMember, handleTransferOwnership, handleChangeRole, handleLeave]);
 
-	if (isPending) {
+	if (isPending || isRedirectingAway) {
 		return (
 			<div className="flex h-dvh items-center justify-center bg-bg-primary">
 				<Spinner size="lg" />
@@ -594,6 +620,7 @@ export default function OrgManagementPage({ orgSlug, organizationId, organizatio
 					organizations,
 					currentOrganizationId: organizationId,
 					currentOrganizationName: organization.name,
+					getOrganizationPath: (organizationEntry) => `/org/${organizationEntry.slug}/settings`,
 				}}
 			/>
 

@@ -1,5 +1,31 @@
 // Handle incoming push notifications
 
+function buildDeepLinkPath(deepLink) {
+	if (!deepLink?.projectId || !deepLink?.target) return undefined;
+
+	var target = deepLink.target;
+	var url = new globalThis.URL('/p/' + deepLink.projectId, globalThis.location.origin);
+	if (target.kind === 'agent-session') {
+		url.searchParams.set('session', target.sessionId);
+		return url.pathname + url.search;
+	}
+
+	if (target.kind === 'panel') {
+		url.searchParams.set('panel', target.panel);
+		return url.pathname + url.search;
+	}
+
+	url.searchParams.set('file', target.file.path);
+	if (target.file.line !== undefined) {
+		url.searchParams.set('line', String(target.file.line));
+		if (target.file.column !== undefined) {
+			url.searchParams.set('column', String(target.file.column));
+		}
+	}
+
+	return url.pathname + url.search;
+}
+
 globalThis.addEventListener('push', (event) => {
 	if (!event.data) return;
 
@@ -10,7 +36,7 @@ globalThis.addEventListener('push', (event) => {
 		payload = { title: 'Codemaxxing', body: event.data.text() };
 	}
 
-	const { title = 'Codemaxxing', body = '', tag, path } = payload;
+	const { title = 'Codemaxxing', body = '', tag, path, deepLink } = payload;
 
 	event.waitUntil(
 		globalThis.registration.showNotification(title, {
@@ -18,7 +44,7 @@ globalThis.addEventListener('push', (event) => {
 			tag: tag || undefined,
 			icon: '/favicon.svg',
 			badge: '/favicon.svg',
-			data: { path },
+			data: { path, deepLink },
 		}),
 	);
 });
@@ -27,7 +53,7 @@ globalThis.addEventListener('push', (event) => {
 globalThis.addEventListener('notificationclick', (event) => {
 	event.notification.close();
 
-	const path = event.notification.data?.path || '/';
+	const path = buildDeepLinkPath(event.notification.data?.deepLink) || event.notification.data?.path || '/';
 	const targetUrl = new globalThis.URL(path, globalThis.location.origin).toString();
 
 	event.waitUntil(

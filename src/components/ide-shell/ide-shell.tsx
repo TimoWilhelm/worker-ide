@@ -24,7 +24,15 @@ import { useProjectName } from './use-project-name';
 
 import type { ProjectDeepLinkTarget } from '@shared/project-deep-link';
 
-export function IDEShell({ projectId, initialProjectDeepLink }: { projectId: string; initialProjectDeepLink?: ProjectDeepLinkTarget }) {
+export function IDEShell({
+	projectId,
+	initialProjectDeepLink,
+	onInitialProjectDeepLinkHandled,
+}: {
+	projectId: string;
+	initialProjectDeepLink?: ProjectDeepLinkTarget;
+	onInitialProjectDeepLinkHandled?: () => void;
+}) {
 	// Restore and persist editor session (open tabs, active file, cursor/scroll positions)
 	// Must run before useEditorState so the store is populated before the first render
 	useEditorSessionPersistence({ projectId });
@@ -103,7 +111,7 @@ export function IDEShell({ projectId, initialProjectDeepLink }: { projectId: str
 	return (
 		<TooltipProvider>
 			<AgentRuntimeProvider key={projectId} projectId={projectId}>
-				<ProjectDeepLinkHandler projectId={projectId} deepLink={initialProjectDeepLink} />
+				<ProjectDeepLinkHandler projectId={projectId} deepLink={initialProjectDeepLink} onHandled={onInitialProjectDeepLinkHandled} />
 				<title>{projectNameState.projectName ? `${projectNameState.projectName} | Codemaxxing` : 'Codemaxxing'}</title>
 				<div className="flex h-full flex-col overflow-hidden bg-bg-primary">
 					<IDEHeader

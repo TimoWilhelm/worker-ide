@@ -4,7 +4,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 
 import { ENTITLEMENT_USER_MAX_FREE_ORGS } from '@shared/entitlements';
 
-import { shouldBlockOrganizationCreate } from './organization-limits';
+import { getCurrentFreeOrganizationCount, shouldBlockOrganizationCreate } from './organization-limits';
 import * as schema from '../db/auth-schema';
 
 const database = drizzle(env.DB);
@@ -156,5 +156,17 @@ describe('shouldBlockOrganizationCreate', () => {
 		await addUserEntitlement(userId, 0);
 
 		await expect(shouldBlockOrganizationCreate(database, userId)).resolves.toBe(true);
+	});
+});
+
+describe('getCurrentFreeOrganizationCount', () => {
+	it('excludes soft-deleted free organizations from the current usage count', async () => {
+		const userId = await insertUser();
+		await addOrganizationMembership(userId, 'member');
+		await addOrganizationMembership(userId, 'admin');
+		await addOrganizationMembership(userId, 'member', 'free', new Date());
+		await addOrganizationMembership(userId, 'member', 'pro');
+
+		await expect(getCurrentFreeOrganizationCount(database, userId)).resolves.toBe(2);
 	});
 });

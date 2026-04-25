@@ -13,10 +13,8 @@ import {
 import { useStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 import { sanitizePreviewElementReference } from '@shared/preview-element';
-import { buildProjectDeepLinkPath } from '@shared/project-deep-link';
 
 export interface PreviewPanelProperties {
-	projectId: string;
 	previewUrl: string | undefined;
 	previewOrigin: string | undefined;
 	isLoadingUrl: boolean;
@@ -26,7 +24,6 @@ export interface PreviewPanelProperties {
 }
 
 export function PreviewPanel({
-	projectId,
 	previewUrl,
 	previewOrigin,
 	isLoadingUrl,
@@ -84,12 +81,10 @@ export function PreviewPanel({
 	}, [deactivatePicker, previewUrl, refreshPreviewUrl]);
 
 	const handleOpenExternal = useCallback(() => {
-		if (!previewUrl) {
-			return;
+		if (previewUrl) {
+			window.open(previewUrl, '_blank', 'noopener,noreferrer');
 		}
-
-		window.open(buildProjectDeepLinkPath(projectId, { kind: 'panel', panel: 'preview' }), '_blank', 'noopener,noreferrer');
-	}, [previewUrl, projectId]);
+	}, [previewUrl]);
 
 	const handleTogglePicker = useCallback(() => {
 		const didSendMessage = pickerActive ? cancelPreviewElementPicker() : startPreviewElementPicker();
@@ -324,6 +319,7 @@ export function PreviewPanel({
 						onLoad={handleLoad}
 						data-preview
 						className={cn('size-full border-0', showLoadingOverlay ? 'invisible' : 'visible')}
+						allow="clipboard-write"
 						sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"
 						title="Project Preview"
 					/>

@@ -1,4 +1,5 @@
 export const BASE_URL = process.env.TEST_BASE_URL || 'http://localhost:3000';
+export const TEST_ORGANIZATION_ID = '11111111-1111-4111-8111-111111111111';
 let sessionCookie: string;
 export const createdProjectIds: string[] = [];
 
@@ -47,7 +48,7 @@ export async function cleanupProjects(): Promise<void> {
 
 	for (const projectId of createdProjectIds) {
 		try {
-			await fetch(`${BASE_URL}/api/org/e2e-test-org/project/${projectId}`, {
+			await fetch(`${BASE_URL}/api/org/${TEST_ORGANIZATION_ID}/project/${projectId}`, {
 				method: 'DELETE',
 				headers: { Cookie: cookie },
 			});

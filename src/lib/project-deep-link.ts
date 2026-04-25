@@ -9,7 +9,9 @@ interface ProjectDeepLinkActions {
 	openFileTarget: (target: { path: string; position?: { line: number; column: number } }) => void;
 	requestAgentSession: (sessionId: string) => void;
 	setActiveMobilePanel: (panel: 'editor' | 'preview' | 'git' | 'agent' | 'tests') => void;
+	setActiveSidebarView: (view: 'explorer' | 'git' | 'tests') => void;
 	showAgentPanel: () => void;
+	showDependenciesPanel: () => void;
 }
 
 export function applyProjectDeepLink(target: ProjectDeepLinkTarget, actions: ProjectDeepLinkActions): void {
@@ -39,6 +41,13 @@ export function applyProjectDeepLink(target: ProjectDeepLinkTarget, actions: Pro
 		return;
 	}
 
+	if (target.panel === 'dependencies') {
+		actions.setActiveSidebarView('explorer');
+		actions.showDependenciesPanel();
+		actions.setActiveMobilePanel('editor');
+		return;
+	}
+
 	actions.setActiveMobilePanel(target.panel);
 }
 
@@ -46,7 +55,9 @@ export function useProjectDeepLinkApplier(): (target: ProjectDeepLinkTarget) => 
 	const openFileTarget = useFileTargetOpener();
 	const requestAgentSession = useStore((state) => state.requestAgentSession);
 	const setActiveMobilePanel = useStore((state) => state.setActiveMobilePanel);
+	const setActiveSidebarView = useStore((state) => state.setActiveSidebarView);
 	const showAgentPanel = useStore((state) => state.showAgentPanel);
+	const showDependenciesPanel = useStore((state) => state.showDependenciesPanel);
 
 	return useCallback(
 		(target: ProjectDeepLinkTarget) => {
@@ -54,9 +65,11 @@ export function useProjectDeepLinkApplier(): (target: ProjectDeepLinkTarget) => 
 				openFileTarget,
 				requestAgentSession,
 				setActiveMobilePanel,
+				setActiveSidebarView,
 				showAgentPanel,
+				showDependenciesPanel,
 			});
 		},
-		[openFileTarget, requestAgentSession, setActiveMobilePanel, showAgentPanel],
+		[openFileTarget, requestAgentSession, setActiveMobilePanel, setActiveSidebarView, showAgentPanel, showDependenciesPanel],
 	);
 }

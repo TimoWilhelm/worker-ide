@@ -12,7 +12,6 @@ import {
 	DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { toast } from '@/components/ui/toast-store';
-import { Tooltip } from '@/components/ui/tooltip';
 import { fetchUserLimits } from '@/lib/api-client';
 import { authClient } from '@/lib/auth-client';
 import { cn } from '@/lib/utils';
@@ -22,7 +21,7 @@ import { CreateOrgModal } from './create-org-modal';
 interface OrgSwitcherOrganization {
 	id: string;
 	name: string;
-	slug: string | null;
+	slug: string;
 	logo?: string | null;
 }
 
@@ -30,11 +29,11 @@ interface OrgSwitcherProperties {
 	organizations: OrgSwitcherOrganization[];
 	currentOrganizationId: string;
 	currentOrganizationName: string;
+	getOrganizationPath?: (organization: OrgSwitcherOrganization) => string;
 }
 
-export function OrgSwitcher({ organizations, currentOrganizationId, currentOrganizationName }: OrgSwitcherProperties) {
-	const currentOrg = organizations.find((o) => o.id === currentOrganizationId);
-	const currentOrgIdentifier = currentOrg?.slug ?? currentOrganizationId;
+export function OrgSwitcher({ organizations, currentOrganizationId, currentOrganizationName, getOrganizationPath }: OrgSwitcherProperties) {
+	const currentOrg = organizations.find((organization) => organization.id === currentOrganizationId);
 	const navigate = useNavigate();
 	const [createModalOpen, setCreateModalOpen] = useState(false);
 
@@ -46,7 +45,6 @@ export function OrgSwitcher({ organizations, currentOrganizationId, currentOrgan
 	});
 	const maxFreeOrganizations = userLimitsQuery.data?.maxFreeOrganizations;
 	const currentFreeOrganizations = userLimitsQuery.data?.currentFreeOrganizations ?? 0;
-	const canCreateOrganization = maxFreeOrganizations !== undefined && currentFreeOrganizations < maxFreeOrganizations;
 
 	return (
 		<>
@@ -64,10 +62,9 @@ export function OrgSwitcher({ organizations, currentOrganizationId, currentOrgan
 							<DropdownMenuItem
 								key={organization.id}
 								onSelect={() => {
-									const slug = organization.slug ?? organization.id;
 									void authClient.organization.setActive({ organizationId: organization.id }).then(
 										() => {
-											void navigate(`/org/${slug}`);
+											void navigate(getOrganizationPath?.(organization) ?? `/org/${organization.slug}`);
 										},
 										() => {
 											toast.error('Could not switch organization. Please try again.');
@@ -84,30 +81,26 @@ export function OrgSwitcher({ organizations, currentOrganizationId, currentOrgan
 								<span className="truncate">{organization.name}</span>
 							</DropdownMenuItem>
 						))}
-						{canCreateOrganization && (
+						{currentOrg && <DropdownMenuSeparator />}
+						<DropdownMenuItem onSelect={() => setCreateModalOpen(true)} className="gap-2 text-xs text-text-secondary">
+							<Plus className="size-3.5 shrink-0" />
+							<span>New organization</span>
+						</DropdownMenuItem>
+						{currentOrg && (
 							<>
-								<DropdownMenuSeparator />
-								<DropdownMenuItem onSelect={() => setCreateModalOpen(true)} className="gap-2 text-xs text-text-secondary">
-									<Plus className="size-3.5 shrink-0" />
-									<span>New organization</span>
+								<DropdownMenuItem
+									onSelect={() => {
+										void navigate(`/org/${currentOrg.slug}/settings`);
+									}}
+									className="gap-2 text-xs text-text-secondary"
+								>
+									<SlidersHorizontal className="size-3.5 shrink-0" />
+									<span>Manage organization</span>
 								</DropdownMenuItem>
 							</>
 						)}
 					</DropdownMenuContent>
 				</DropdownMenu>
-				<Tooltip content="Manage organization">
-					<Button
-						variant="ghost"
-						size="icon"
-						className="bg-bg-secondary/40 backdrop-blur-sm"
-						aria-label="Manage organization"
-						onClick={() => {
-							void navigate(`/org/${currentOrgIdentifier}/settings`);
-						}}
-					>
-						<SlidersHorizontal className="size-4" />
-					</Button>
-				</Tooltip>
 			</div>
 			<CreateOrgModal
 				open={createModalOpen}

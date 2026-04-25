@@ -8,7 +8,9 @@ describe('applyProjectDeepLink', () => {
 			openFileTarget: vi.fn(),
 			requestAgentSession: vi.fn(),
 			setActiveMobilePanel: vi.fn(),
+			setActiveSidebarView: vi.fn(),
 			showAgentPanel: vi.fn(),
+			showDependenciesPanel: vi.fn(),
 		};
 
 		applyProjectDeepLink({ kind: 'agent-session', sessionId: 'session-2' }, actions);
@@ -22,7 +24,9 @@ describe('applyProjectDeepLink', () => {
 			openFileTarget: vi.fn(),
 			requestAgentSession: vi.fn(),
 			setActiveMobilePanel: vi.fn(),
+			setActiveSidebarView: vi.fn(),
 			showAgentPanel: vi.fn(),
+			showDependenciesPanel: vi.fn(),
 		};
 
 		applyProjectDeepLink({ kind: 'file', file: { path: '/src/app.ts', line: 4 } }, actions);
@@ -38,7 +42,9 @@ describe('applyProjectDeepLink', () => {
 			openFileTarget: vi.fn(),
 			requestAgentSession: vi.fn(),
 			setActiveMobilePanel: vi.fn(),
+			setActiveSidebarView: vi.fn(),
 			showAgentPanel: vi.fn(),
+			showDependenciesPanel: vi.fn(),
 		};
 
 		applyProjectDeepLink({ kind: 'panel', panel: 'preview' }, actions);
@@ -51,11 +57,30 @@ describe('applyProjectDeepLink', () => {
 			openFileTarget: vi.fn(),
 			requestAgentSession: vi.fn(),
 			setActiveMobilePanel: vi.fn(),
+			setActiveSidebarView: vi.fn(),
 			showAgentPanel: vi.fn(),
+			showDependenciesPanel: vi.fn(),
 		};
 
 		applyProjectDeepLink({ kind: 'panel', panel: 'agent' }, actions);
 
 		expect(actions.showAgentPanel).toHaveBeenCalledTimes(1);
+	});
+
+	it('opens the dependencies panel for dependencies deep links', () => {
+		const actions = {
+			openFileTarget: vi.fn(),
+			requestAgentSession: vi.fn(),
+			setActiveMobilePanel: vi.fn(),
+			setActiveSidebarView: vi.fn(),
+			showAgentPanel: vi.fn(),
+			showDependenciesPanel: vi.fn(),
+		};
+
+		applyProjectDeepLink({ kind: 'panel', panel: 'dependencies' }, actions);
+
+		expect(actions.setActiveSidebarView).toHaveBeenCalledWith('explorer');
+		expect(actions.showDependenciesPanel).toHaveBeenCalledTimes(1);
+		expect(actions.setActiveMobilePanel).toHaveBeenCalledWith('editor');
 	});
 });

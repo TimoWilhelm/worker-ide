@@ -1,11 +1,11 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { authedFetch, BASE_URL, cleanupProjects, createdProjectIds, ensureTestSession } from './helpers';
+import { authedFetch, BASE_URL, cleanupProjects, createdProjectIds, ensureTestSession, TEST_ORGANIZATION_ID } from './helpers';
 async function createProject(): Promise<string> {
 	const response = await authedFetch(`${BASE_URL}/api/new-project`, {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify({ template: 'request-inspector', organizationId: 'e2e-test-org' }),
+		body: JSON.stringify({ template: 'request-inspector', organizationId: TEST_ORGANIZATION_ID }),
 	});
 	if (!response.ok) {
 		const body = await response.text().catch(() => '');

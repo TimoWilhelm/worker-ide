@@ -1,4 +1,4 @@
-export const projectDeepLinkPanels = ['editor', 'preview', 'git', 'agent', 'tests'] as const;
+export const projectDeepLinkPanels = ['editor', 'preview', 'git', 'agent', 'tests', 'dependencies'] as const;
 
 export type ProjectDeepLinkPanel = (typeof projectDeepLinkPanels)[number];
 
@@ -7,6 +7,8 @@ export interface ProjectDeepLinkFileLocation {
 	line?: number;
 	column?: number;
 }
+
+const projectDeepLinkParameterKeys = ['panel', 'session', 'file', 'line', 'column'] as const;
 
 export type ProjectDeepLinkTarget =
 	| {
@@ -40,6 +42,34 @@ function parsePositiveInteger(value: string | null): number | undefined {
 	return parsedValue;
 }
 
+export function normalizeProjectDeepLinkFilePath(path: string): string {
+	const trimmedPath = path.trim();
+	if (!trimmedPath) {
+		return '/';
+	}
+
+	const withoutCurrentDirectoryPrefix = trimmedPath.replace(/^(?:\.\/)+/, '');
+	const withSingleLeadingSlash = withoutCurrentDirectoryPrefix.startsWith('/')
+		? `/${withoutCurrentDirectoryPrefix.replace(/^\/+/, '')}`
+		: `/${withoutCurrentDirectoryPrefix}`;
+
+	return withSingleLeadingSlash.replaceAll(/\/{2,}/g, '/');
+}
+
+export function normalizeProjectDeepLinkTarget(target: ProjectDeepLinkTarget): ProjectDeepLinkTarget {
+	if (target.kind !== 'file') {
+		return target;
+	}
+
+	return {
+		kind: 'file',
+		file: {
+			...target.file,
+			path: normalizeProjectDeepLinkFilePath(target.file.path),
+		},
+	};
+}
+
 function parseProjectDeepLinkPanel(value: string | null): ProjectDeepLinkPanel | undefined {
 	const normalizedValue = normalizeProjectDeepLinkValue(value);
 	if (!normalizedValue) {
@@ -59,7 +89,8 @@ function isProjectDeepLinkPanelValue(value: unknown): value is ProjectDeepLinkPa
 		case 'preview':
 		case 'git':
 		case 'agent':
-		case 'tests': {
+		case 'tests':
+		case 'dependencies': {
 			return true;
 		}
 		default: {
@@ -69,21 +100,23 @@ function isProjectDeepLinkPanelValue(value: unknown): value is ProjectDeepLinkPa
 }
 
 function appendProjectDeepLinkParameters(searchParameters: URLSearchParams, target: ProjectDeepLinkTarget): void {
-	if (target.kind === 'panel') {
-		searchParameters.set('panel', target.panel);
+	const normalizedTarget = normalizeProjectDeepLinkTarget(target);
+
+	if (normalizedTarget.kind === 'panel') {
+		searchParameters.set('panel', normalizedTarget.panel);
 		return;
 	}
 
-	if (target.kind === 'agent-session') {
-		searchParameters.set('session', target.sessionId);
+	if (normalizedTarget.kind === 'agent-session') {
+		searchParameters.set('session', normalizedTarget.sessionId);
 		return;
 	}
 
-	searchParameters.set('file', target.file.path);
-	if (target.file.line !== undefined) {
-		searchParameters.set('line', String(target.file.line));
-		if (target.file.column !== undefined) {
-			searchParameters.set('column', String(target.file.column));
+	searchParameters.set('file', normalizedTarget.file.path);
+	if (normalizedTarget.file.line !== undefined) {
+		searchParameters.set('line', String(normalizedTarget.file.line));
+		if (normalizedTarget.file.column !== undefined) {
+			searchParameters.set('column', String(normalizedTarget.file.column));
 		}
 	}
 }
@@ -97,6 +130,15 @@ export function serializeProjectDeepLinkTarget(target: ProjectDeepLinkTarget): s
 export function buildProjectDeepLinkPath(projectId: string, target: ProjectDeepLinkTarget): string {
 	const serializedTarget = serializeProjectDeepLinkTarget(target);
 	return serializedTarget ? `/p/${projectId}?${serializedTarget}` : `/p/${projectId}`;
+}
+
+export function clearProjectDeepLinkSearchParameters(searchParameters: URLSearchParams): URLSearchParams {
+	const nextSearchParameters = new URLSearchParams(searchParameters);
+	for (const parameterKey of projectDeepLinkParameterKeys) {
+		nextSearchParameters.delete(parameterKey);
+	}
+
+	return nextSearchParameters;
 }
 
 export function parseProjectDeepLink(searchParameters: URLSearchParams): ProjectDeepLinkTarget | undefined {
@@ -113,7 +155,7 @@ export function parseProjectDeepLink(searchParameters: URLSearchParams): Project
 		return {
 			kind: 'file',
 			file: {
-				path: filePath,
+				path: normalizeProjectDeepLinkFilePath(filePath),
 				...(line === undefined ? {} : { line, ...(column === undefined ? {} : { column }) }),
 			},
 		};

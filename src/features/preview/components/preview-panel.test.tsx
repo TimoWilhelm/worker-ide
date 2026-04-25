@@ -51,7 +51,6 @@ function renderPreviewPanel(options?: { refreshPreviewUrl?: () => Promise<string
 	const { iframeReference } = createIframeReference();
 	return render(
 		<PreviewPanel
-			projectId="project-1"
 			previewUrl="https://example.com"
 			previewOrigin="https://example.com"
 			isLoadingUrl={false}
@@ -95,7 +94,7 @@ describe('PreviewPanel', () => {
 		expect(pickerButton.className).not.toContain('bg-accent/10');
 	});
 
-	it('opens the canonical preview deep link with noopener and noreferrer', async () => {
+	it('opens external preview with noopener and noreferrer', async () => {
 		const user = userEvent.setup();
 		const mockWindow: Window = globalThis.window;
 		const openSpy = vi.spyOn(globalThis, 'open').mockImplementation(() => mockWindow);
@@ -103,7 +102,7 @@ describe('PreviewPanel', () => {
 
 		await user.click(screen.getByRole('button', { name: 'Open in new tab' }));
 
-		expect(openSpy).toHaveBeenCalledWith('/p/project-1?panel=preview', '_blank', 'noopener,noreferrer');
+		expect(openSpy).toHaveBeenCalledWith('https://example.com', '_blank', 'noopener,noreferrer');
 	});
 
 	it('refreshes the signed preview URL from the header button', async () => {
@@ -124,7 +123,6 @@ describe('PreviewPanel', () => {
 		const { iframeReference } = createIframeReference();
 		render(
 			<PreviewPanel
-				projectId="project-1"
 				previewUrl="https://example.com"
 				previewOrigin="https://example.com"
 				isLoadingUrl={false}

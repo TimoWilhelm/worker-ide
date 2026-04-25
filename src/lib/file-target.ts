@@ -1,6 +1,7 @@
 import { useCallback } from 'react';
 
 import { useStore, type SidebarView } from '@/lib/store';
+import { normalizeProjectDeepLinkFilePath } from '@shared/project-deep-link';
 
 interface FileLike {
 	path: string;
@@ -25,11 +26,7 @@ export interface FileTarget {
 }
 
 function normalizeFileTargetPath(path: string): string {
-	if (path.startsWith('/')) {
-		return path;
-	}
-
-	return `/${path.replace(/^\.?\//, '')}`;
+	return normalizeProjectDeepLinkFilePath(path);
 }
 
 export function resolveFileTargetPath(path: string, files: readonly FileLike[]): string {

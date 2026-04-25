@@ -624,7 +624,8 @@ if (import.meta.env.DEV) {
 		try {
 			const database = drizzle(c.env.DB);
 			const userId = 'e2e-test-user';
-			const organizationId = 'e2e-test-org';
+			const organizationId = '11111111-1111-4111-8111-111111111111';
+			const organizationSlug = '22222222-2222-4222-8222-222222222222';
 			const memberId = 'e2e-test-member';
 			const sessionId = 'e2e-test-session';
 			const sessionToken = 'e2e-test-session-token';
@@ -648,16 +649,19 @@ if (import.meta.env.DEV) {
 
 			await database
 				.insert(authSchema.organization)
-				.values({ id: organizationId, name: 'E2E Test Org', slug: 'e2e-test-org', plan: 'free', createdAt: now })
+				.values({ id: organizationId, name: 'E2E Test Org', slug: organizationSlug, plan: 'free', createdAt: now })
 				.onConflictDoUpdate({
 					target: authSchema.organization.id,
-					set: { plan: 'free' },
+					set: { plan: 'free', slug: organizationSlug },
 				});
 
 			await database
 				.insert(authSchema.member)
 				.values({ id: memberId, organizationId, userId, role: 'owner', createdAt: now })
-				.onConflictDoNothing();
+				.onConflictDoUpdate({
+					target: authSchema.member.id,
+					set: { organizationId, userId, role: 'owner', createdAt: now },
+				});
 
 			await database
 				.insert(authSchema.entitlement)
@@ -671,8 +675,14 @@ if (import.meta.env.DEV) {
 					updatedAt: now,
 				})
 				.onConflictDoUpdate({
-					target: [authSchema.entitlement.scopeId, authSchema.entitlement.key],
-					set: { value: '100', updatedAt: now },
+					target: authSchema.entitlement.id,
+					set: {
+						scopeId: userId,
+						key: ENTITLEMENT_USER_MAX_FREE_ORGS,
+						valueType: 'number',
+						value: '100',
+						updatedAt: now,
+					},
 				});
 
 			await database
@@ -687,8 +697,14 @@ if (import.meta.env.DEV) {
 					updatedAt: now,
 				})
 				.onConflictDoUpdate({
-					target: [authSchema.entitlement.scopeId, authSchema.entitlement.key],
-					set: { value: '100', updatedAt: now },
+					target: authSchema.entitlement.id,
+					set: {
+						scopeId: organizationId,
+						key: ENTITLEMENT_ORG_MAX_PROJECTS,
+						valueType: 'number',
+						value: '100',
+						updatedAt: now,
+					},
 				});
 
 			// Purge stale test projects (older than 5 min) so the org limit is never
@@ -728,7 +744,7 @@ if (import.meta.env.DEV) {
 	app.post('/__test/cleanup', async (c) => {
 		try {
 			const database = drizzle(c.env.DB);
-			const organizationId = 'e2e-test-org';
+			const organizationId = '11111111-1111-4111-8111-111111111111';
 
 			await database.delete(authSchema.project).where(eq(authSchema.project.organizationId, organizationId));
 

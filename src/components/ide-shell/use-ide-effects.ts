@@ -51,6 +51,9 @@ export function useIDEEffects({
 			}
 
 			applyProjectDeepLink(event.data.target);
+			if (typeof event.data.requestId === 'string' && event.source && 'postMessage' in event.source) {
+				event.source.postMessage({ type: '__deep-link-ack', requestId: event.data.requestId }, { targetOrigin: event.origin });
+			}
 		};
 
 		globalThis.addEventListener('message', handleMessage);
@@ -59,7 +62,7 @@ export function useIDEEffects({
 
 	// Set a known window name so full-screen preview can focus this tab via window.open().
 	useEffect(() => {
-		window.name = `worker-ide:${projectId}`;
+		Reflect.set(globalThis, 'name', `worker-ide:${projectId}`);
 	}, [projectId]);
 
 	// Forward bundle errors to the preview iframe so the error overlay shows.

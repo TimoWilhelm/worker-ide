@@ -6,10 +6,6 @@ import SettingsLayout from './settings-layout';
 
 import type { ReactNode } from 'react';
 
-vi.mock('@/components/beta-indicator', () => ({
-	BetaIndicator: () => <span>Beta</span>,
-}));
-
 vi.mock('@/components/ui/tooltip', () => ({
 	Tooltip: ({ children }: { children: ReactNode }) => children,
 }));

@@ -239,18 +239,13 @@ export function createAuth(environment: AuthEnvironment, baseUrl: string, reques
 						// Uses D1 batch() for atomicity — both inserts succeed or neither does.
 						// Retries up to 3 times to handle rare slug uniqueness collisions.
 						const authDatabase = drizzle(environment.DB);
-						const baseSlug =
-							user.name
-								.toLowerCase()
-								.replaceAll(/[^\da-z]+/g, '-')
-								.replaceAll(/^-|-$/g, '') || 'workspace';
 
 						let lastError: unknown;
 						for (let attempt = 0; attempt < 3; attempt++) {
 							try {
 								const organizationId = crypto.randomUUID();
 								const now = new Date();
-								const orgSlug = `${baseSlug}-${crypto.randomUUID().slice(0, 6)}`;
+								const orgSlug = crypto.randomUUID();
 
 								await authDatabase.batch([
 									authDatabase.insert(schema.organization).values({
@@ -324,6 +319,9 @@ export function createAuth(environment: AuthEnvironment, baseUrl: string, reques
 			},
 		},
 		advanced: {
+			database: {
+				generateId: 'uuid',
+			},
 			ipAddress: {
 				ipAddressHeaders: [...IP_ADDRESS_HEADERS],
 			},

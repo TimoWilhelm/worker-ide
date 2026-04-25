@@ -13,7 +13,6 @@ import {
 	getDirectory,
 	isDirectory,
 	normalizePath,
-	generateId,
 } from './utils';
 
 describe('cn', () => {
@@ -235,27 +234,5 @@ describe('normalizePath', () => {
 
 	it('removes consecutive slashes', () => {
 		expect(normalizePath('/src//main.ts')).toBe('/src/main.ts');
-	});
-});
-
-describe('generateId', () => {
-	it('generates an ID of default length', () => {
-		const id = generateId();
-		expect(id).toHaveLength(8);
-	});
-
-	it('generates an ID of specified length', () => {
-		const id = generateId(16);
-		expect(id).toHaveLength(16);
-	});
-
-	it('generates alphanumeric characters only', () => {
-		const id = generateId(100);
-		expect(id).toMatch(/^[a-z0-9]+$/);
-	});
-
-	it('generates unique IDs', () => {
-		const ids = new Set(Array.from({ length: 100 }, () => generateId()));
-		expect(ids.size).toBe(100);
 	});
 });

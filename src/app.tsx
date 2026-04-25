@@ -1,6 +1,6 @@
 import { MutationCache, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Check, ClipboardCopy } from 'lucide-react';
-import { Suspense, use, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, use, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate, Outlet, Route, Routes, useLocation, useParams, useSearchParams } from 'react-router';
 
 import { ErrorBoundary } from '@/components/error-boundary';
@@ -28,7 +28,7 @@ import { selectOptimisticUserName, useStore } from '@/lib/store';
 import { isNetworkError } from '@/lib/utils';
 import { getAuthErrorInfo } from '@shared/auth-errors';
 import { parseHost } from '@shared/domain';
-import { parseProjectDeepLink, type ProjectDeepLinkTarget } from '@shared/project-deep-link';
+import { clearProjectDeepLinkSearchParameters, parseProjectDeepLink, type ProjectDeepLinkTarget } from '@shared/project-deep-link';
 import { PROJECT_ID_PATTERN } from '@shared/project-id';
 
 const queryClient = new QueryClient({
@@ -66,6 +66,10 @@ function isDeletedOrganization(value: unknown): boolean {
 
 	const deletedAt = Reflect.get(value, 'deletedAt');
 	return deletedAt instanceof Date || typeof deletedAt === 'string';
+}
+
+function hasOrganizationSlug<T extends { slug: string | null }>(organization: T): organization is T & { slug: string } {
+	return typeof organization.slug === 'string' && organization.slug.length > 0;
 }
 
 function ErrorFallback({ error, resetErrorBoundary }: { error: Error; resetErrorBoundary: () => void }) {
@@ -135,7 +139,15 @@ function ErrorFallback({ error, resetErrorBoundary }: { error: Error; resetError
  * Gate component that verifies a project is accessible before mounting the IDE.
  * Uses React 19 `use()` to suspend until the access check resolves.
  */
-function ProjectGate({ projectId, initialProjectDeepLink }: { projectId: string; initialProjectDeepLink?: ProjectDeepLinkTarget }) {
+function ProjectGate({
+	projectId,
+	initialProjectDeepLink,
+	onInitialProjectDeepLinkHandled,
+}: {
+	projectId: string;
+	initialProjectDeepLink?: ProjectDeepLinkTarget;
+	onInitialProjectDeepLinkHandled?: () => void;
+}) {
 	const accessStatus = use(checkProjectAccess(projectId));
 
 	if (accessStatus === 'forbidden') {
@@ -146,10 +158,30 @@ function ProjectGate({ projectId, initialProjectDeepLink }: { projectId: string;
 		return <ProjectNotFound />;
 	}
 
-	return <ValidProject projectId={projectId} initialProjectDeepLink={initialProjectDeepLink} />;
+	return (
+		<ValidProject
+			projectId={projectId}
+			initialProjectDeepLink={initialProjectDeepLink}
+			onInitialProjectDeepLinkHandled={onInitialProjectDeepLinkHandled}
+		/>
+	);
 }
-function ValidProject({ projectId, initialProjectDeepLink }: { projectId: string; initialProjectDeepLink?: ProjectDeepLinkTarget }) {
-	return <IDEShell projectId={projectId} initialProjectDeepLink={initialProjectDeepLink} />;
+function ValidProject({
+	projectId,
+	initialProjectDeepLink,
+	onInitialProjectDeepLinkHandled,
+}: {
+	projectId: string;
+	initialProjectDeepLink?: ProjectDeepLinkTarget;
+	onInitialProjectDeepLinkHandled?: () => void;
+}) {
+	return (
+		<IDEShell
+			projectId={projectId}
+			initialProjectDeepLink={initialProjectDeepLink}
+			onInitialProjectDeepLinkHandled={onInitialProjectDeepLinkHandled}
+		/>
+	);
 }
 
 /**
@@ -186,7 +218,9 @@ function AuthGate() {
 	const optimisticOrganizationNames = useStore((state) => state.optimisticOrganizationNames);
 	const setOptimisticUserName = useStore((state) => state.setOptimisticUserName);
 	const setOptimisticOrganizationName = useStore((state) => state.setOptimisticOrganizationName);
-	const baseVisibleOrganizations = (organizations ?? []).filter((organization) => !isDeletedOrganization(organization));
+	const baseVisibleOrganizations = (organizations ?? []).filter(
+		(organization) => !isDeletedOrganization(organization) && hasOrganizationSlug(organization),
+	);
 	const visibleOrganizations = baseVisibleOrganizations.map((organization) => ({
 		...organization,
 		name: optimisticOrganizationNames[organization.id] ?? organization.name,
@@ -248,7 +282,7 @@ function AuthGate() {
 interface OrganizationEntry {
 	id: string;
 	name: string;
-	slug: string | null;
+	slug: string;
 	plan?: string;
 }
 
@@ -260,8 +294,15 @@ interface UserInfo {
 }
 function ProjectRoute() {
 	const { projectId } = useParams<{ projectId: string }>();
-	const [searchParameters] = useSearchParams();
+	const [searchParameters, setSearchParameters] = useSearchParams();
 	const initialProjectDeepLink = parseProjectDeepLink(searchParameters);
+	const handleInitialProjectDeepLinkHandled = useCallback(() => {
+		if (!initialProjectDeepLink) {
+			return;
+		}
+
+		setSearchParameters(clearProjectDeepLinkSearchParameters(searchParameters), { replace: true });
+	}, [initialProjectDeepLink, searchParameters, setSearchParameters]);
 
 	if (!projectId || !PROJECT_ID_PATTERN.test(projectId)) {
 		return <NotFoundPage />;
@@ -269,7 +310,11 @@ function ProjectRoute() {
 
 	return (
 		<Suspense fallback={<LoadingFallback />}>
-			<ProjectGate projectId={projectId} initialProjectDeepLink={initialProjectDeepLink} />
+			<ProjectGate
+				projectId={projectId}
+				initialProjectDeepLink={initialProjectDeepLink}
+				onInitialProjectDeepLinkHandled={handleInitialProjectDeepLinkHandled}
+			/>
 		</Suspense>
 	);
 }
@@ -280,8 +325,8 @@ function ProjectRoute() {
  */
 function OrgDashboardRoute({ organizations, user }: { organizations: OrganizationEntry[]; user: UserInfo }) {
 	const { orgSlug } = useParams<{ orgSlug: string }>();
-	const organization = orgSlug ? organizations.find((o) => o.slug === orgSlug || o.id === orgSlug) : undefined;
-	const orgIdentifier = organization ? (organization.slug ?? organization.id) : undefined;
+	const organization = orgSlug ? organizations.find((entry) => entry.slug === orgSlug) : undefined;
+	const orgIdentifier = organization?.slug;
 
 	useRememberOrgSlug(orgIdentifier);
 
@@ -297,8 +342,8 @@ function OrgDashboardRoute({ organizations, user }: { organizations: Organizatio
 }
 function OrgSettingsRoute({ organizations }: { organizations: OrganizationEntry[] }) {
 	const { orgSlug } = useParams<{ orgSlug: string }>();
-	const organization = orgSlug ? organizations.find((o) => o.slug === orgSlug || o.id === orgSlug) : undefined;
-	const orgIdentifier = organization ? (organization.slug ?? organization.id) : undefined;
+	const organization = orgSlug ? organizations.find((entry) => entry.slug === orgSlug) : undefined;
+	const orgIdentifier = organization?.slug;
 
 	useRememberOrgSlug(orgIdentifier);
 
@@ -324,13 +369,12 @@ function RootRedirect({ organizations, activeOrganizationId }: { organizations: 
 
 	const activeOrg = activeOrganizationId ? organizations.find((o) => o.id === activeOrganizationId) : undefined;
 	const lastSlug = globalThis.localStorage.getItem(LAST_ORG_SLUG_KEY);
-	const lastOrg = lastSlug ? organizations.find((o) => o.slug === lastSlug || o.id === lastSlug) : undefined;
+	const lastOrg = lastSlug ? organizations.find((o) => o.slug === lastSlug) : undefined;
 	const targetOrg = activeOrg ?? lastOrg ?? organizations[0];
 	if (!targetOrg) {
 		return <Navigate to="/create-org" replace />;
 	}
-	const slug = targetOrg.slug ?? targetOrg.id;
-	return <Navigate to={`/org/${slug}`} replace />;
+	return <Navigate to={`/org/${targetOrg.slug}`} replace />;
 }
 
 /**

@@ -22,15 +22,27 @@
 		return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 	}
 
+	function normalizeDeepLinkFilePath(path) {
+		var trimmedPath = (path || '').trim();
+		if (!trimmedPath) return '/';
+		var withoutCurrentDirectoryPrefix = trimmedPath.replace(/^(?:\.\/)+/, '');
+		var withSingleLeadingSlash =
+			withoutCurrentDirectoryPrefix.charAt(0) === '/'
+				? '/' + withoutCurrentDirectoryPrefix.replace(/^\/+/, '')
+				: '/' + withoutCurrentDirectoryPrefix;
+		return withSingleLeadingSlash.replace(/\/{2,}/g, '/');
+	}
+
 	function linkifyFiles(escaped) {
 		return escaped.replace(
 			/(?:^|\s)((?:[\w.@\-]+\/)*[\w.\-]+\.(?:ts|tsx|js|jsx|css|html|json|mjs|cjs|vue|svelte)):(\d+):(\d+)/gm,
 			function (match, file, line, col) {
+				var normalizedFile = normalizeDeepLinkFilePath(file);
 				var leading = match.charAt(0) !== file.charAt(0) ? match.charAt(0) : '';
 				return (
 					leading +
-					'<span class="__eo-file-link" data-file="/' +
-					file +
+					'<span class="__eo-file-link" data-file="' +
+					normalizedFile +
 					'" data-line="' +
 					line +
 					'" data-column="' +
@@ -105,6 +117,10 @@
 		return url.toString();
 	}
 
+	function buildDeepLinkRequestId() {
+		return 'deep-link-' + Date.now() + '-' + Math.random().toString(36).slice(2);
+	}
+
 	function openProjectDeepLink(target) {
 		var payload = { type: '__deep-link', target: target };
 
@@ -115,6 +131,28 @@
 
 		var deepLinkUrl = buildIdeDeepLinkUrl(target);
 		if (!deepLinkUrl) return;
+
+		var ideWindow = window.open('', 'worker-ide:' + projectId);
+		if (ideWindow) {
+			var requestId = buildDeepLinkRequestId();
+			var acknowledged = false;
+			var handleAck = function (event) {
+				if (event.origin !== ideOrigin) return;
+				if (event.data?.type !== '__deep-link-ack' || event.data.requestId !== requestId) return;
+				acknowledged = true;
+				window.removeEventListener('message', handleAck);
+			};
+			window.addEventListener('message', handleAck);
+			ideWindow.postMessage({ type: '__deep-link', target: target, requestId: requestId }, ideOrigin);
+			ideWindow.focus();
+			window.setTimeout(function () {
+				window.removeEventListener('message', handleAck);
+				if (acknowledged) return;
+				ideWindow.location.href = deepLinkUrl;
+				ideWindow.focus();
+			}, 250);
+			return;
+		}
 
 		window.open(deepLinkUrl, 'worker-ide:' + projectId);
 	}
@@ -129,6 +167,7 @@
 		var overlay = document.createElement('div');
 		overlay.id = '__error-overlay';
 		var loc = err.file ? esc(err.file + (err.line ? ':' + err.line : '') + (err.column ? ':' + err.column : '')) : '';
+		var hasDependencyErrors = Array.isArray(err.dependencyErrors) && err.dependencyErrors.length > 0;
 		overlay.innerHTML =
 			'<style>' +
 			'#__error-overlay{position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,0.75);display:flex;align-items:center;justify-content:center;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,monospace}' +
@@ -144,6 +183,9 @@
 			'.__eo-body{padding:16px 20px}' +
 			'.__eo-file{color:#58a6ff;font-size:13px;margin-bottom:12px;cursor:pointer;text-decoration:underline}' +
 			'.__eo-file:hover{color:#79b8ff}' +
+			'.__eo-actions{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}' +
+			'.__eo-action{background:none;border:1px solid rgba(88,166,255,0.45);color:#58a6ff;cursor:pointer;border-radius:6px;padding:6px 10px;font-size:12px}' +
+			'.__eo-action:hover{background:rgba(88,166,255,0.12);color:#79b8ff}' +
 			'.__eo-msg{background:#0d1117;border-radius:8px;padding:14px 16px;font-size:13px;line-height:1.6;white-space:pre-wrap;word-break:break-all;color:#f0f0f0;border:1px solid rgba(48,54,61,0.8)}' +
 			'.__eo-file-link{color:#58a6ff;cursor:pointer;text-decoration:underline}' +
 			'.__eo-file-link:hover{color:#79b8ff}' +
@@ -161,8 +203,8 @@
 			'</div>' +
 			'<div class="__eo-body">' +
 			(loc
-				? '<div class="__eo-file" data-file="/' +
-					esc(err.file || '') +
+				? '<div class="__eo-file" data-file="' +
+					esc(normalizeDeepLinkFilePath(err.file || '')) +
 					'" data-line="' +
 					(err.line || 1) +
 					'" data-column="' +
@@ -170,6 +212,9 @@
 					'">' +
 					loc +
 					'</div>'
+				: '') +
+			(hasDependencyErrors
+				? '<div class="__eo-actions"><button class="__eo-action" id="__eo-dependencies-btn">Open Dependencies panel</button></div>'
 				: '') +
 			'<div class="__eo-msg">' +
 			linkifyFiles(esc(err.message || 'Unknown error')) +
@@ -199,7 +244,7 @@
 			if (e.target === overlay) dismissOverlay();
 		});
 		function handleFileClick(el) {
-			var file = el.dataset.file;
+			var file = normalizeDeepLinkFilePath(el.dataset.file || '');
 			var line = parseInt(el.dataset.line, 10) || 1;
 			var column = parseInt(el.dataset.column, 10) || 1;
 			openProjectDeepLink({
@@ -216,6 +261,12 @@
 		if (fileEl) {
 			fileEl.addEventListener('click', function () {
 				handleFileClick(fileEl);
+			});
+		}
+		var dependenciesButton = overlay.querySelector('#__eo-dependencies-btn');
+		if (dependenciesButton) {
+			dependenciesButton.addEventListener('click', function () {
+				openProjectDeepLink({ kind: 'panel', panel: 'dependencies' });
 			});
 		}
 		overlay.querySelectorAll('.__eo-file-link').forEach(function (link) {

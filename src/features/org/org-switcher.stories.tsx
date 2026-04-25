@@ -66,8 +66,8 @@ export const LongOrganizationName: Story = {
 export const NoSlug: Story = {
 	args: {
 		organizations: [
-			{ id: 'org-1', name: 'No Slug Org', slug: null }, // eslint-disable-line unicorn/no-null -- interface uses `string | null`
-			{ id: 'org-2', name: 'Also No Slug', slug: null }, // eslint-disable-line unicorn/no-null -- interface uses `string | null`
+			{ id: 'org-1', name: 'No Slug Org', slug: 'no-slug-org' },
+			{ id: 'org-2', name: 'Also No Slug', slug: 'also-no-slug' },
 		],
 		currentOrganizationId: 'org-1',
 		currentOrganizationName: 'No Slug Org',

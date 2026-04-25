@@ -92,6 +92,7 @@ export default class PushWorker extends WorkerEntrypoint<PushWorkerEnvironment> 
 			title: notification.title,
 			body: notification.body,
 			path: notification.path,
+			deepLink: notification.deepLink,
 			ttl: notification.ttl,
 		};
 		await this.env.PUSH_QUEUE.send(message);
@@ -143,7 +144,7 @@ export default class PushWorker extends WorkerEntrypoint<PushWorkerEnvironment> 
 		// same queue message when a user has multiple push subscriptions.
 		await Promise.all(
 			batch.messages.map(async (message) => {
-				const { userId, tag, timestamp, title, body, path } = message.body;
+				const { userId, tag, timestamp, title, body, path, deepLink } = message.body;
 				const subscriptions = userSubscriptions.get(userId);
 
 				if (!subscriptions || subscriptions.length === 0) {
@@ -151,7 +152,7 @@ export default class PushWorker extends WorkerEntrypoint<PushWorkerEnvironment> 
 					return;
 				}
 
-				const payload = JSON.stringify({ tag, userId, timestamp, title, body, path });
+				const payload = JSON.stringify({ tag, userId, timestamp, title, body, path, deepLink });
 
 				let anySucceeded = false;
 				let anyRetryableError = false;

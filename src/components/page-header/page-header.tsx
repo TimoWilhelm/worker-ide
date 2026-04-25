@@ -1,16 +1,17 @@
-import { ArrowLeft, BookOpen, Github, Menu } from 'lucide-react';
+import { ArrowLeft, Menu } from 'lucide-react';
 import { useNavigate } from 'react-router';
 
-import { Button, buttonVariants } from '@/components/ui/button';
+import { Button } from '@/components/ui/button';
 import { OrgSwitcher } from '@/features/org/org-switcher';
 import { UserMenu } from '@/features/user-menu';
 import { useScrollThreshold } from '@/hooks/use-scroll-threshold';
 import { cn } from '@/lib/utils';
 
 interface OrganizationSwitcherProperties {
-	organizations: Array<{ id: string; name: string; slug: string | null; logo?: string | null }>;
+	organizations: Array<{ id: string; name: string; slug: string; logo?: string | null }>;
 	currentOrganizationId: string;
 	currentOrganizationName: string;
+	getOrganizationPath?: (organization: { id: string; name: string; slug: string; logo?: string | null }) => string;
 }
 
 interface PageHeaderProperties {
@@ -19,7 +20,6 @@ interface PageHeaderProperties {
 	backTo?: string;
 	onOpenNavigationMenu?: () => void;
 	organizationSwitcher?: OrganizationSwitcherProperties;
-	showExternalLinks?: boolean;
 	scrollContainer?: HTMLElement;
 }
 
@@ -29,7 +29,6 @@ export function PageHeader({
 	backTo,
 	onOpenNavigationMenu,
 	organizationSwitcher,
-	showExternalLinks = false,
 	scrollContainer,
 }: PageHeaderProperties) {
 	const navigate = useNavigate();
@@ -78,30 +77,8 @@ export function PageHeader({
 							organizations={organizationSwitcher.organizations}
 							currentOrganizationId={organizationSwitcher.currentOrganizationId}
 							currentOrganizationName={organizationSwitcher.currentOrganizationName}
+							getOrganizationPath={organizationSwitcher.getOrganizationPath}
 						/>
-					)}
-
-					{showExternalLinks && (
-						<>
-							<a
-								href="/docs"
-								target="_blank"
-								rel="noopener noreferrer"
-								aria-label="Architecture docs"
-								className={buttonVariants({ variant: 'ghost', size: 'icon', className: 'bg-bg-secondary/40 backdrop-blur-sm' })}
-							>
-								<BookOpen className="size-4" />
-							</a>
-							<a
-								href="https://github.com/TimoWilhelm/worker-ide"
-								target="_blank"
-								rel="noopener noreferrer"
-								aria-label="GitHub repository"
-								className={buttonVariants({ variant: 'ghost', size: 'icon', className: 'bg-bg-secondary/40 backdrop-blur-sm' })}
-							>
-								<Github className="size-4" />
-							</a>
-						</>
 					)}
 
 					<UserMenu />

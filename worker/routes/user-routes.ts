@@ -3,7 +3,7 @@ import { and, count, desc, eq, inArray, isNull, or } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
 import { Hono } from 'hono';
 
-import { PLAN_FREE, resolveUserPreferences } from '@shared/constants';
+import { resolveUserPreferences } from '@shared/constants';
 import { resolveUserLimitsFromRows } from '@shared/entitlements';
 import { HttpErrorCode } from '@shared/http-errors';
 import {
@@ -19,6 +19,7 @@ import * as schema from '../db/auth-schema';
 import { trackAuthEvent } from '../lib/analytics';
 import { queryEntitlements } from '../lib/entitlements';
 import { httpError } from '../lib/http-error';
+import { getCurrentFreeOrganizationCount } from '../lib/organization-limits';
 
 import type { AuthedEnvironment } from '../types';
 
@@ -109,20 +110,16 @@ export const userRoutes = new Hono<AuthedEnvironment>()
 		const { userId } = c.get('session');
 		const database = drizzle(c.env.DB);
 
-		const [entitlementRows, freeOrganizationCountRows] = await Promise.all([
+		const [entitlementRows, currentFreeOrganizations] = await Promise.all([
 			queryEntitlements(database, userId),
-			database
-				.select({ count: count() })
-				.from(schema.member)
-				.innerJoin(schema.organization, eq(schema.organization.id, schema.member.organizationId))
-				.where(and(eq(schema.member.userId, userId), eq(schema.organization.plan, PLAN_FREE), isNull(schema.organization.deletedAt))),
+			getCurrentFreeOrganizationCount(database, userId),
 		]);
 
 		const limits = resolveUserLimitsFromRows(entitlementRows);
 
 		return c.json({
 			maxFreeOrganizations: limits.maxFreeOrganizations,
-			currentFreeOrganizations: freeOrganizationCountRows[0]?.count ?? 0,
+			currentFreeOrganizations,
 		});
 	})
 

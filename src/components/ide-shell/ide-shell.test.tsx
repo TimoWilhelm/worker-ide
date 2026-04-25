@@ -136,19 +136,34 @@ describe('IDEShell deep links', () => {
 
 	it('passes the initial project deep link to the shared handler', () => {
 		const deepLink = { kind: 'agent-session' as const, sessionId: 'session-2' };
-		const view = render(<IDEShell projectId="project-1" initialProjectDeepLink={deepLink} />);
+		const onInitialProjectDeepLinkHandled = vi.fn();
+		const view = render(
+			<IDEShell
+				projectId="project-1"
+				initialProjectDeepLink={deepLink}
+				onInitialProjectDeepLinkHandled={onInitialProjectDeepLinkHandled}
+			/>,
+		);
 
 		expect(mocks.projectDeepLinkHandler).toHaveBeenCalledWith({
 			projectId: 'project-1',
 			deepLink,
+			onHandled: onInitialProjectDeepLinkHandled,
 		});
 
 		const nextDeepLink = { kind: 'panel' as const, panel: 'preview' as const };
-		view.rerender(<IDEShell projectId="project-1" initialProjectDeepLink={nextDeepLink} />);
+		view.rerender(
+			<IDEShell
+				projectId="project-1"
+				initialProjectDeepLink={nextDeepLink}
+				onInitialProjectDeepLinkHandled={onInitialProjectDeepLinkHandled}
+			/>,
+		);
 
 		expect(mocks.projectDeepLinkHandler).toHaveBeenLastCalledWith({
 			projectId: 'project-1',
 			deepLink: nextDeepLink,
+			onHandled: onInitialProjectDeepLinkHandled,
 		});
 	});
 });

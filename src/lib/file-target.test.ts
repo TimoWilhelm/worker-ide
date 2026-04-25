@@ -6,6 +6,10 @@ describe('resolveFileTargetPath', () => {
 	it('normalizes relative paths when the file list does not contain an exact match', () => {
 		expect(resolveFileTargetPath('src/main.ts', [{ path: '/src/app.tsx' }])).toBe('/src/main.ts');
 	});
+
+	it('normalizes duplicate leading slashes to the canonical file path', () => {
+		expect(resolveFileTargetPath('//src//app.tsx', [{ path: '/src/app.tsx' }])).toBe('/src/app.tsx');
+	});
 });
 
 describe('openFileTarget', () => {

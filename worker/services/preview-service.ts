@@ -216,6 +216,7 @@ export class PreviewService {
 			readFile: (path: string) => fs.readFile(path),
 			access: (path: string) => fs.access(path),
 		};
+		const knownDependencies = await this.loadKnownDependencies();
 
 		// Track whether the entry file was successfully resolved.
 		// ENOENT errors during file resolution → true 404.
@@ -279,6 +280,7 @@ export class PreviewService {
 			const transformed = await transformModule(filePath, textContent, {
 				fs: viteFs,
 				projectRoot: this.projectRoot,
+				knownDependencies,
 				requestTimestamp: previewRequest.timestamp,
 			});
 

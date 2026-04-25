@@ -84,11 +84,3 @@ export function normalizePath(path: string): string {
 export function isNetworkError(error: unknown): boolean {
 	return error instanceof TypeError && (error.message === 'Failed to fetch' || error.message === 'Load failed');
 }
-export function generateId(length: number = 8): string {
-	const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
-	let result = '';
-	for (let index = 0; index < length; index++) {
-		result += chars.charAt(Math.floor(Math.random() * chars.length));
-	}
-	return result;
-}

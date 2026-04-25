@@ -23,6 +23,7 @@ export interface FileSystem {
 export interface TransformOptions {
 	fs: FileSystem;
 	projectRoot: string;
+	knownDependencies?: Map<string, string>;
 	requestTimestamp?: string;
 }
 
@@ -37,6 +38,11 @@ interface ParsedImportReference {
 	specifier: string;
 	start: number;
 	end: number;
+}
+
+interface BarePackageSpecifier {
+	packageName: string;
+	subpath: string | undefined;
 }
 
 interface TsConfigCompilerOptions {
@@ -215,6 +221,39 @@ function createExternalImportResolution(
 	};
 }
 
+function parseBarePackageSpecifier(specifier: string): BarePackageSpecifier {
+	const pathSegments = specifier.split('/');
+	if (specifier.startsWith('@')) {
+		const packageName = [pathSegments[0], pathSegments[1]].filter(Boolean).join('/');
+		const subpath = pathSegments.slice(2).join('/');
+		return {
+			packageName,
+			subpath: subpath.length > 0 ? subpath : undefined,
+		};
+	}
+
+	const packageName = pathSegments[0] ?? specifier;
+	const subpath = pathSegments.slice(1).join('/');
+	return {
+		packageName,
+		subpath: subpath.length > 0 ? subpath : undefined,
+	};
+}
+
+function resolveRegisteredDependencySpecifier(specifier: string, knownDependencies: Map<string, string>): string {
+	const { packageName, subpath } = parseBarePackageSpecifier(specifier);
+	const version = knownDependencies.get(packageName);
+	if (version === undefined) {
+		throw new Error(`Unregistered dependency "${packageName}". Add it to project dependencies using the Dependencies panel.`);
+	}
+
+	if (version === '*' || version.length === 0) {
+		return specifier;
+	}
+
+	return subpath === undefined ? `${packageName}@${version}` : `${packageName}@${version}/${subpath}`;
+}
+
 function collectImportReferences(code: string): ParsedImportReference[] {
 	const staticImportRegex = /\bimport\s*(?:[^"'()]+?\s*from\s*)?['"]([^'"]+)['"]/g;
 	const staticExportRegex = /\bexport\s+[^"'()]+?\s*from\s*['"]([^'"]+)['"]/g;
@@ -243,6 +282,7 @@ async function resolveImport(
 	fs: FileSystem,
 	projectRoot: string,
 	tsConfig: TsConfig | undefined,
+	knownDependencies: Map<string, string> | undefined,
 	requestTimestamp: string | undefined,
 ): Promise<ResolvedImport> {
 	if (/^[a-zA-Z][a-zA-Z\d+.-]*:/.test(specifier)) {
@@ -257,7 +297,8 @@ async function resolveImport(
 			return createLocalImportResolution(specifier, resolvedPath, requestTimestamp);
 		}
 
-		return createExternalImportResolution(specifier, specifier, requestTimestamp);
+		const resolvedSpecifier = knownDependencies ? resolveRegisteredDependencySpecifier(specifier, knownDependencies) : specifier;
+		return createExternalImportResolution(specifier, resolvedSpecifier, requestTimestamp);
 	}
 
 	// Relative imports
@@ -272,6 +313,7 @@ async function rewriteImports(
 	fs: FileSystem,
 	projectRoot: string,
 	tsConfig: TsConfig | undefined,
+	knownDependencies: Map<string, string> | undefined,
 	requestTimestamp: string | undefined,
 ): Promise<{ code: string; importedModuleIds: string[] }> {
 	const imports = collectImportReferences(code);
@@ -279,7 +321,7 @@ async function rewriteImports(
 	const resolved = await Promise.all(
 		imports.map(async (imp) => ({
 			...imp,
-			resolution: await resolveImport(imp.specifier, filePath, fs, projectRoot, tsConfig, requestTimestamp),
+			resolution: await resolveImport(imp.specifier, filePath, fs, projectRoot, tsConfig, knownDependencies, requestTimestamp),
 		})),
 	);
 
@@ -431,7 +473,7 @@ export async function transformModule(
 	content: string,
 	options: TransformOptions,
 ): Promise<{ code: string; contentType: string }> {
-	const { fs, projectRoot, requestTimestamp } = options;
+	const { fs, projectRoot, knownDependencies, requestTimestamp } = options;
 	const extension = filePath.match(/\.[^.]+$/)?.[0]?.toLowerCase() ?? '';
 	const normalizedPath = normalizePreviewPath(filePath);
 	const moduleId = toPreviewModuleId(normalizedPath);
@@ -440,7 +482,15 @@ export async function transformModule(
 	if (['.ts', '.tsx', '.jsx', '.mts'].includes(extension)) {
 		const tsconfigRaw = toEsbuildTsconfigRaw(tsConfig);
 		const transformed = await transformCode(content, filePath, { sourcemap: true, tsconfigRaw });
-		const rewritten = await rewriteImports(transformed.code, normalizedPath, fs, projectRoot, tsConfig, requestTimestamp);
+		const rewritten = await rewriteImports(
+			transformed.code,
+			normalizedPath,
+			fs,
+			projectRoot,
+			tsConfig,
+			knownDependencies,
+			requestTimestamp,
+		);
 		return {
 			code: wrapJavaScriptModule(rewritten.code, moduleId, rewritten.importedModuleIds, false),
 			contentType: 'application/javascript',
@@ -448,7 +498,7 @@ export async function transformModule(
 	}
 
 	if (['.js', '.mjs'].includes(extension)) {
-		const rewritten = await rewriteImports(content, normalizedPath, fs, projectRoot, tsConfig, requestTimestamp);
+		const rewritten = await rewriteImports(content, normalizedPath, fs, projectRoot, tsConfig, knownDependencies, requestTimestamp);
 		return {
 			code: wrapJavaScriptModule(rewritten.code, moduleId, rewritten.importedModuleIds, false),
 			contentType: 'application/javascript',

@@ -1,7 +1,6 @@
 import { BookOpen, Bot, Bug, Download, EllipsisVertical, Github, Hexagon, Pencil, Rocket, Settings } from 'lucide-react';
 import { Link } from 'react-router';
 
-import { BetaIndicator } from '@/components/beta-indicator';
 import { BorderBeam } from '@/components/ui/border-beam';
 import { Button } from '@/components/ui/button';
 import { InlineRenameField } from '@/components/ui/inline-rename-field';
@@ -60,7 +59,6 @@ export function IDEHeader({
 							aria-label="Back to home"
 						>
 							<Hexagon className="size-4" />
-							<BetaIndicator />
 						</Link>
 					</Tooltip>
 					<InlineRenameField

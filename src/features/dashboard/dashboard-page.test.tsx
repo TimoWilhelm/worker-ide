@@ -7,10 +7,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import DashboardPage from './dashboard-page';
 
-vi.mock('@/components/beta-indicator', () => ({
-	BetaIndicator: () => <span data-testid="beta-indicator">&beta;</span>,
-}));
-
 // Mock the API client
 vi.mock('@/lib/api-client', () => ({
 	createProject: vi.fn(),
@@ -64,7 +60,13 @@ function renderWithQuery(ui: React.ReactElement) {
 	return render(ui, { wrapper: QueryWrapper });
 }
 
+function setLocalTime(isoDateTime: string) {
+	vi.useFakeTimers();
+	vi.setSystemTime(new Date(isoDateTime));
+}
+
 afterEach(() => {
+	vi.useRealTimers();
 	vi.restoreAllMocks();
 });
 
@@ -100,10 +102,60 @@ const defaultProperties = {
 };
 
 describe('DashboardPage', () => {
-	it('renders the page title', () => {
+	it('renders a morning greeting', () => {
+		setLocalTime('2026-04-25T09:00:00');
+
 		renderWithQuery(<DashboardPage {...defaultProperties} />);
 
-		expect(screen.getByText('Codemaxxing')).toBeInTheDocument();
+		expect(screen.getByRole('heading', { level: 1, name: 'Good morning Test User' })).toBeInTheDocument();
+	});
+
+	it('renders an afternoon greeting', () => {
+		setLocalTime('2026-04-25T15:00:00');
+
+		renderWithQuery(<DashboardPage {...defaultProperties} />);
+
+		expect(screen.getByRole('heading', { level: 1, name: 'Hello Test User' })).toBeInTheDocument();
+	});
+
+	it('renders an evening greeting', () => {
+		setLocalTime('2026-04-25T20:00:00');
+
+		renderWithQuery(<DashboardPage {...defaultProperties} />);
+
+		expect(screen.getByRole('heading', { level: 1, name: 'Hi Test User' })).toBeInTheDocument();
+	});
+
+	it('falls back to the email name when the user name is blank', () => {
+		setLocalTime('2026-04-25T09:00:00');
+
+		renderWithQuery(
+			<DashboardPage
+				{...defaultProperties}
+				user={{
+					name: '   ',
+					email: 'fallback-user@example.com',
+				}}
+			/>,
+		);
+
+		expect(screen.getByRole('heading', { level: 1, name: 'Good morning fallback-user' })).toBeInTheDocument();
+	});
+
+	it('omits the name when no display name is available', () => {
+		setLocalTime('2026-04-25T09:00:00');
+
+		renderWithQuery(
+			<DashboardPage
+				{...defaultProperties}
+				user={{
+					name: '   ',
+					email: '',
+				}}
+			/>,
+		);
+
+		expect(screen.getByRole('heading', { level: 1, name: 'Good morning' })).toBeInTheDocument();
 	});
 
 	it('renders the halftone background', () => {
@@ -283,7 +335,6 @@ describe('DashboardPage', () => {
 	});
 
 	it('enables clone button in modal when a full project URL is entered', async () => {
-		const user = userEvent.setup();
 		renderWithQuery(<DashboardPage {...defaultProperties} />);
 
 		// Open clone modal
@@ -299,7 +350,7 @@ describe('DashboardPage', () => {
 		const dialog = screen.getByRole('dialog');
 		const input = within(dialog).getByPlaceholderText('Project URL or ID');
 		const validUrl = `https://example.dev/p/${'4og1sx0wpug6bz5f2vb8qruk2geg9nwv786ngf3qgy79ljxqkb'}`;
-		await user.type(input, validUrl);
+		fireEvent.change(input, { target: { value: validUrl } });
 
 		const cloneButton = within(dialog).getByRole('button', { name: 'Clone' });
 		expect(cloneButton).not.toBeDisabled();

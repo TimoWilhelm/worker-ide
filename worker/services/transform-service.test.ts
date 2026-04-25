@@ -47,6 +47,33 @@ describe('transformModule', () => {
 		expect(result.code).toContain('registerModule(__preview_module_id__');
 	});
 
+	it('uses registered dependency versions for preview bare imports', async () => {
+		const fileSystem = createFileSystem([]);
+
+		const result = await transformModule('/src/main.tsx', 'import { createRoot } from "react-dom/client";', {
+			fs: fileSystem,
+			projectRoot: '/project',
+			knownDependencies: new Map([
+				['react', '^19.2.4'],
+				['react-dom', '^19.2.4'],
+			]),
+		});
+
+		expect(result.code).toContain('/__preview_external?url=https%3A%2F%2Fesm.sh%2Freact-dom%40%255E19.2.4%2Fclient%3Fdev');
+	});
+
+	it('throws for unregistered preview bare imports when project dependencies are provided', async () => {
+		const fileSystem = createFileSystem([]);
+
+		await expect(
+			transformModule('/src/main.tsx', 'import { createRoot } from "react-dom/client";', {
+				fs: fileSystem,
+				projectRoot: '/project',
+				knownDependencies: new Map([['react', '^19.2.4']]),
+			}),
+		).rejects.toThrow('Unregistered dependency "react-dom". Add it to project dependencies using the Dependencies panel.');
+	});
+
 	it('wraps css files as self-accepting style modules', async () => {
 		const result = await transformModule('/src/style.css', 'body { color: red; }', {
 			fs: createFileSystem([]),
