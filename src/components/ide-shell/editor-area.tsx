@@ -3,6 +3,7 @@ import { Package, Sparkles } from 'lucide-react';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
+import { EditorSkeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
 import { Tooltip } from '@/components/ui/tooltip';
 import { useAgentRuntime } from '@/features/ai-assistant/components/agent-runtime-context';
@@ -228,19 +229,11 @@ export function EditorArea({ projectId, resolvedTheme, editorState, onSelectFile
 			<div className="relative flex-1 overflow-hidden">
 				{activeFile ? (
 					activeFile === '/wrangler.jsonc' ? (
-						<Suspense
-							fallback={
-								<div className="flex h-full items-center justify-center">
-									<Spinner size="md" />
-								</div>
-							}
-						>
+						<Suspense fallback={<EditorSkeleton />}>
 							<WranglerSettingsPanel projectId={projectId} />
 						</Suspense>
 					) : isLoadingContent ? (
-						<div className="flex h-full items-center justify-center">
-							<Spinner size="md" />
-						</div>
+						<EditorSkeleton />
 					) : (
 						<>
 							{isProtectedSystemFile(activeFile) && <ProtectedFileBanner path={activeFile} />}

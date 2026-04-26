@@ -10,7 +10,6 @@ import { OfflineBanner } from '@/components/offline-banner';
 import { ProjectAccessRestricted } from '@/components/project-access-restricted';
 import { ProjectNotFound } from '@/components/project-not-found';
 import { PageContentSkeleton, SettingsContentSkeleton } from '@/components/ui/skeleton';
-import { Spinner } from '@/components/ui/spinner';
 import { Toaster } from '@/components/ui/toast';
 import { toast } from '@/components/ui/toast-store';
 import { AppearanceModal } from '@/features/appearance';
@@ -49,14 +48,7 @@ const queryClient = new QueryClient({
 });
 
 function LoadingFallback() {
-	return (
-		<div className="flex h-dvh items-center justify-center bg-bg-primary">
-			<div className="flex flex-col items-center gap-4">
-				<Spinner size="lg" />
-				<p className="text-text-secondary">Loading Codemaxxing...</p>
-			</div>
-		</div>
-	);
+	return <PageContentSkeleton />;
 }
 
 function isDeletedOrganization(value: unknown): boolean {

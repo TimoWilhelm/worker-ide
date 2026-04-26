@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { InlineRenameField } from '@/components/ui/inline-rename-field';
-import { Spinner } from '@/components/ui/spinner';
+import { ListSkeleton } from '@/components/ui/skeleton';
 import { toast } from '@/components/ui/toast-store';
 import { authClient } from '@/lib/auth-client';
 import { selectOptimisticUserName, useStore } from '@/lib/store';
@@ -292,8 +292,8 @@ function LinkedAccountsSection() {
 				Linked accounts
 			</label>
 			{isLoading ? (
-				<div className="flex items-center justify-center py-4">
-					<Spinner size="sm" />
+				<div className="py-1">
+					<ListSkeleton itemCount={SUPPORTED_PROVIDERS.length} />
 				</div>
 			) : loadError ? (
 				<div className="py-4 text-center text-sm text-text-secondary">

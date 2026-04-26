@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { InlineRenameField } from '@/components/ui/inline-rename-field';
 import { Modal, ModalBody, ModalFooter } from '@/components/ui/modal';
-import { Spinner } from '@/components/ui/spinner';
+import { PageContentSkeleton } from '@/components/ui/skeleton';
 import { toast } from '@/components/ui/toast-store';
 import { deleteOrganization, fetchOrgDetails, fetchOrgLimits } from '@/lib/api-client';
 import { authClient } from '@/lib/auth-client';
@@ -581,11 +581,7 @@ export default function OrgManagementPage({ orgSlug, organizationId, organizatio
 	}, [confirmAction, handleRemoveMember, handleTransferOwnership, handleChangeRole, handleLeave]);
 
 	if (isPending || isRedirectingAway) {
-		return (
-			<div className="flex h-dvh items-center justify-center bg-bg-primary">
-				<Spinner size="lg" />
-			</div>
-		);
+		return <PageContentSkeleton />;
 	}
 
 	if (!organization) {

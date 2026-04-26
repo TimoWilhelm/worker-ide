@@ -1,7 +1,5 @@
 import { cn } from '@/lib/utils';
 
-import { Spinner } from './spinner';
-
 interface SkeletonProperties extends React.ComponentProps<'div'> {
 	className?: string;
 }
@@ -34,24 +32,104 @@ export function EditorSkeleton() {
 		</div>
 	);
 }
+
 export function PanelSkeleton({ label }: { label?: string }) {
 	return (
 		<div className="flex h-full flex-col bg-bg-secondary">
-			<div className="flex h-9 shrink-0 items-center border-b border-border px-3">
-				<Skeleton className="h-4 w-24" />
+			<div className="flex h-9 shrink-0 items-center gap-2 border-b border-border px-3">
+				<Skeleton className="size-4 rounded-sm" />
+				{label ? <span className="text-xs text-text-secondary">{label}</span> : <Skeleton className="h-4 w-24" />}
 			</div>
-			<div className="flex flex-1 flex-col items-center justify-center gap-3">
-				<Spinner />
-				{label && <span className="text-xs text-text-secondary">{label}</span>}
+			<div className="flex flex-1 flex-col gap-3 p-3">
+				<Skeleton className="h-8 w-full rounded-md" />
+				<div className="flex flex-col gap-2">
+					{Array.from({ length: 4 }, (_, index) => (
+						<Skeleton key={index} className="h-4" style={{ width: `${58 + ((index * 11) % 28)}%` }} />
+					))}
+				</div>
+				<div className="mt-auto flex items-center justify-between gap-3 pt-2">
+					<Skeleton className="h-4 w-20" />
+					<Skeleton className="h-8 w-24 rounded-md" />
+				</div>
 			</div>
 		</div>
 	);
 }
+
 export function GitPanelSkeleton() {
 	return (
-		<div className="flex h-full flex-col items-center justify-center gap-3 px-4">
-			<Spinner size="sm" />
-			<Skeleton className="h-4 w-32" />
+		<div className="flex h-full flex-col bg-bg-secondary">
+			<div className="flex h-9 shrink-0 items-center gap-2 border-b border-border px-3">
+				<Skeleton className="size-4 rounded-sm" />
+				<Skeleton className="h-4 w-16" />
+				<span className="flex-1" />
+				<Skeleton className="h-6 w-14 rounded-md" />
+			</div>
+			<div className="flex flex-1 flex-col gap-2 p-3">
+				{Array.from({ length: 5 }, (_, index) => (
+					<div
+						key={index}
+						className="
+							flex items-start gap-3 rounded-md border border-border/60 p-2.5
+						"
+					>
+						<Skeleton className="mt-0.5 size-4 rounded-full" />
+						<div className="flex min-w-0 flex-1 flex-col gap-2">
+							<Skeleton className="h-4" style={{ width: `${55 + ((index * 9) % 25)}%` }} />
+							<Skeleton className="h-3" style={{ width: `${34 + ((index * 13) % 22)}%` }} />
+						</div>
+						<Skeleton className="h-3 w-10 shrink-0" />
+					</div>
+				))}
+			</div>
+		</div>
+	);
+}
+
+interface ListSkeletonProperties {
+	itemCount?: number;
+	className?: string;
+	showLeadingIcon?: boolean;
+}
+
+export function ListSkeleton({ itemCount = 4, className, showLeadingIcon = true }: ListSkeletonProperties) {
+	return (
+		<div className={cn('flex flex-col gap-2', className)}>
+			{Array.from({ length: itemCount }, (_, index) => (
+				<div key={index} className="flex items-center gap-3 rounded-md border border-border/60 p-3">
+					{showLeadingIcon ? <Skeleton className="size-8 shrink-0 rounded-full" /> : undefined}
+					<div className="flex min-w-0 flex-1 flex-col gap-2">
+						<Skeleton className="h-4" style={{ width: `${44 + ((index * 17) % 32)}%` }} />
+						<Skeleton className="h-3" style={{ width: `${28 + ((index * 19) % 26)}%` }} />
+					</div>
+					<Skeleton className="h-8 w-20 shrink-0 rounded-md" />
+				</div>
+			))}
+		</div>
+	);
+}
+
+export function ModalContentSkeleton() {
+	return (
+		<div className="flex flex-col gap-4">
+			<div className="flex flex-col gap-2">
+				<Skeleton className="h-4 w-32" />
+				<Skeleton className="h-4 w-full" />
+				<Skeleton className="h-4 w-3/4" />
+			</div>
+			<div className="flex flex-col gap-2">
+				{Array.from({ length: 2 }, (_, index) => (
+					<div key={index} className="rounded-sm border border-border/60 p-3">
+						<div className="flex items-start gap-2.5">
+							<Skeleton className="mt-0.5 size-3.5 rounded-full" />
+							<div className="flex flex-1 flex-col gap-1.5">
+								<Skeleton className="h-4 w-24" />
+								<Skeleton className="h-3 w-full" />
+							</div>
+						</div>
+					</div>
+				))}
+			</div>
 		</div>
 	);
 }

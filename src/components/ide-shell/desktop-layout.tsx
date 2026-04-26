@@ -3,8 +3,7 @@ import { Group as PanelGroup, Panel } from 'react-resizable-panels';
 
 import { ActivityBar } from '@/components/activity-bar';
 import { ErrorBoundary } from '@/components/error-boundary';
-import { PanelSkeleton } from '@/components/ui/skeleton';
-import { Spinner } from '@/components/ui/spinner';
+import { FileTreeSkeleton, PanelSkeleton } from '@/components/ui/skeleton';
 import { DependencyPanel, FileTree, type useFileTree } from '@/features/file-tree';
 import { GitPanel } from '@/features/git';
 import { TestsPanel } from '@/features/tests';
@@ -180,9 +179,7 @@ export function DesktopLayout({
 										<Panel id="file-tree" defaultSize={dependenciesPanelVisible ? TOP_PANEL_DEFAULT_SIZE : '100%'} minSize="20%">
 											<div className="flex h-full flex-col overflow-hidden">
 												{isLoadingFiles ? (
-													<div className="flex flex-1 items-center justify-center p-4">
-														<Spinner size="sm" />
-													</div>
+													<FileTreeSkeleton />
 												) : (
 													<FileTree
 														participants={participants}

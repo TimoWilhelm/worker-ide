@@ -3,6 +3,7 @@ import { CheckCircle2, FlaskConical, Play, RefreshCw, XCircle } from 'lucide-rea
 import { useMemo } from 'react';
 
 import { Button, Spinner, Tooltip } from '@/components/ui';
+import { ListSkeleton } from '@/components/ui/skeleton';
 import { useFileTargetOpener } from '@/lib/file-target';
 import { cn } from '@/lib/utils';
 
@@ -133,8 +134,8 @@ export function TestsPanel({ projectId, className }: TestsPanelProperties) {
 			)}
 
 			{isLoadingFiles ? (
-				<div className="flex flex-1 items-center justify-center">
-					<Spinner className="size-5 text-text-secondary" />
+				<div className="p-3">
+					<ListSkeleton itemCount={4} showLeadingIcon={false} />
 				</div>
 			) : hasTestFiles ? (
 				<ScrollArea.Root className="h-full flex-1 overflow-hidden">

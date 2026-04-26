@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router';
 
 import { Button, ConfirmButton } from '@/components/ui';
 import { Modal, ModalBody, ModalFooter } from '@/components/ui/modal';
-import { Spinner } from '@/components/ui/spinner';
+import { ListSkeleton } from '@/components/ui/skeleton';
 import { toast } from '@/components/ui/toast-store';
 import { deleteAccount, fetchAccountDeletePreview } from '@/lib/api-client';
 import { authClient } from '@/lib/auth-client';
@@ -153,8 +153,8 @@ export default function AccountPage() {
 					"
 				>
 					{sessionsQuery.isPending ? (
-						<div className="flex items-center justify-center py-8">
-							<Spinner size="sm" />
+						<div className="p-3">
+							<ListSkeleton itemCount={3} />
 						</div>
 					) : sessionsQuery.isError ? (
 						<div className="px-4 py-6 text-center text-sm text-text-secondary">

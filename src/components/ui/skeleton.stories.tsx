@@ -5,6 +5,8 @@ import {
 	EditorSkeleton,
 	FileTreeSkeleton,
 	GitPanelSkeleton,
+	ListSkeleton,
+	ModalContentSkeleton,
 	PageContentSkeleton,
 	PanelSkeleton,
 	SettingsContentSkeleton,
@@ -86,6 +88,30 @@ export const GitPanel: Story = {
 	play: async ({ canvasElement }) => {
 		const canvas = within(canvasElement);
 		await expect(canvas.getByTestId('git-panel-skeleton')).toBeInTheDocument();
+	},
+};
+
+export const List: Story = {
+	render: () => (
+		<div data-testid="list-skeleton" className="w-96 border border-border bg-bg-secondary p-3">
+			<ListSkeleton itemCount={3} />
+		</div>
+	),
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		await expect(canvas.getByTestId('list-skeleton')).toBeInTheDocument();
+	},
+};
+
+export const ModalContent: Story = {
+	render: () => (
+		<div data-testid="modal-content-skeleton" className="w-96 border border-border bg-bg-secondary p-4">
+			<ModalContentSkeleton />
+		</div>
+	),
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		await expect(canvas.getByTestId('modal-content-skeleton')).toBeInTheDocument();
 	},
 };
 

@@ -5,8 +5,7 @@ import { ErrorBoundary } from '@/components/error-boundary';
 import { MobileFileDrawer } from '@/components/mobile-file-drawer';
 import { MobileTabBar } from '@/components/mobile-tab-bar';
 import { Pill } from '@/components/ui/pill';
-import { PanelSkeleton } from '@/components/ui/skeleton';
-import { Spinner } from '@/components/ui/spinner';
+import { FileTreeSkeleton, PanelSkeleton } from '@/components/ui/skeleton';
 import { DependencyPanel, FileTree, type useFileTree } from '@/features/file-tree';
 import { GitPanel } from '@/features/git';
 import { TestsPanel } from '@/features/tests';
@@ -229,9 +228,7 @@ export function MobileLayout({
 
 			<MobileFileDrawer>
 				{isLoadingFiles ? (
-					<div className="flex flex-1 items-center justify-center">
-						<Spinner size="sm" />
-					</div>
+					<FileTreeSkeleton />
 				) : (
 					<FileTree
 						participants={participants}

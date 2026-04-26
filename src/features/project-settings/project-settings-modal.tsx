@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Modal, ModalBody, ModalFooter } from '@/components/ui/modal';
-import { Spinner } from '@/components/ui/spinner';
+import { ModalContentSkeleton } from '@/components/ui/skeleton';
 import { createApiClient } from '@/lib/api-client';
 import { throwApiError } from '@/lib/api-error';
 import { cn } from '@/lib/utils';
@@ -77,8 +77,8 @@ function ProjectSettingsContent({ onOpenChange, projectId }: { onOpenChange: (op
 
 	if (visibilityQuery.isLoading) {
 		return (
-			<ModalBody className="flex h-40 items-center justify-center">
-				<Spinner size="md" />
+			<ModalBody className="min-h-40">
+				<ModalContentSkeleton />
 			</ModalBody>
 		);
 	}

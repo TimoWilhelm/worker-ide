@@ -1,7 +1,17 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
-import { Skeleton, FileTreeSkeleton, EditorSkeleton, PanelSkeleton, PageContentSkeleton, SettingsContentSkeleton } from './skeleton';
+import {
+	EditorSkeleton,
+	FileTreeSkeleton,
+	GitPanelSkeleton,
+	ListSkeleton,
+	ModalContentSkeleton,
+	PageContentSkeleton,
+	PanelSkeleton,
+	SettingsContentSkeleton,
+	Skeleton,
+} from './skeleton';
 
 describe('Skeleton', () => {
 	it('renders a div with pulse animation', () => {
@@ -50,6 +60,30 @@ describe('PanelSkeleton', () => {
 	it('renders with label', () => {
 		render(<PanelSkeleton label="Loading preview..." />);
 		expect(screen.getByText('Loading preview...')).toBeInTheDocument();
+	});
+});
+
+describe('GitPanelSkeleton', () => {
+	it('renders multiple skeleton rows', () => {
+		const { container } = render(<GitPanelSkeleton />);
+		const skeletons = container.querySelectorAll('.animate-pulse');
+		expect(skeletons.length).toBeGreaterThanOrEqual(10);
+	});
+});
+
+describe('ListSkeleton', () => {
+	it('renders the requested number of list items', () => {
+		const { container } = render(<ListSkeleton itemCount={3} />);
+		const skeletons = container.querySelectorAll('.animate-pulse');
+		expect(skeletons.length).toBeGreaterThanOrEqual(9);
+	});
+});
+
+describe('ModalContentSkeleton', () => {
+	it('renders structured modal placeholders', () => {
+		const { container } = render(<ModalContentSkeleton />);
+		const skeletons = container.querySelectorAll('.animate-pulse');
+		expect(skeletons.length).toBeGreaterThanOrEqual(6);
 	});
 });
 
