@@ -5,7 +5,7 @@ import { ToolExecutionError } from '@shared/tool-errors';
 
 import { convertHtmlToMarkdown } from './html-to-markdown';
 import { assertSafeExternalUrl, fetchTextWithSafeRedirects } from './network-policy';
-import { createAdapter } from '../workers-ai';
+import { createAdapter } from '../workers-ai/adapter';
 
 import type { SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
 
@@ -56,8 +56,18 @@ const summaryOutput = Output.object({
 	}),
 });
 
-async function summarizeContent(markdownContent: string, userPrompt: string, url: string): Promise<string> {
-	const model = createAdapter(SUMMARIZATION_AI_MODEL);
+async function summarizeContent(
+	markdownContent: string,
+	userPrompt: string,
+	url: string,
+	context: { projectId?: string; organizationId?: string; userId?: string },
+): Promise<string> {
+	const model = createAdapter(SUMMARIZATION_AI_MODEL, {
+		generationType: 'web_summarize',
+		projectId: context.projectId,
+		organizationId: context.organizationId,
+		userId: context.userId,
+	});
 
 	const systemPrompt = [
 		'You are a web content summarization assistant.',
@@ -163,7 +173,7 @@ export async function execute(
 		sendEvent('status', { message: 'Summarizing content...' });
 
 		try {
-			const summary = await summarizeContent(markdown, userPrompt, fetchUrl);
+			const summary = await summarizeContent(markdown, userPrompt, fetchUrl, context);
 			return {
 				title: finalUrl.toString().length > 60 ? finalUrl.toString().slice(0, 60) + '...' : finalUrl.toString(),
 				metadata: { url: finalUrl.toString(), contentLength: summary.length, truncated },

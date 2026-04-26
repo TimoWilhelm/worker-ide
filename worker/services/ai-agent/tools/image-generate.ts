@@ -79,12 +79,30 @@ export async function execute(
 	try {
 		// eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- TODO: Remove once `wrangler types` includes Lucid Origin in AiModels
 		const model = LUCID_ORIGIN_MODEL as Parameters<typeof env.AI.run>[0];
-		const result = await env.AI.run(model, {
-			prompt,
-			width: IMAGE_WIDTH,
-			height: IMAGE_HEIGHT,
-			steps: IMAGE_STEPS,
-		});
+		const result = await env.AI.run(
+			model,
+			{
+				prompt,
+				width: IMAGE_WIDTH,
+				height: IMAGE_HEIGHT,
+				steps: IMAGE_STEPS,
+			},
+			{
+				gateway: {
+					id: 'default',
+					metadata: {
+						app: 'worker-ide',
+						type: 'gen_image',
+						project_id: projectId,
+						org_id: '',
+						user_id: context.userId ?? '',
+					},
+				},
+				extraHeaders: {
+					'cf-aig-collect-log-payload': 'false',
+				},
+			},
+		);
 
 		if (result instanceof Uint8Array) {
 			imageBytes = result;

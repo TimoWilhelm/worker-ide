@@ -3,20 +3,21 @@ import { describe, expect, it, vi } from 'vitest';
 import { execute } from './sub-agent';
 import { createMockContext, createMockSendEvent } from './test-helpers';
 
-import type { ToolExecutorContext } from '../types';
+import type { FileChange } from '../types';
 
 describe('sub_agent', () => {
 	it('delegates to a facet sub-agent and forwards streamed activity', async () => {
 		const sendEvent = createMockSendEvent();
-		const queryChanges: Array<{
-			path: string;
-			action: 'create' | 'edit' | 'delete';
-			beforeContent?: string;
-			afterContent?: string;
-			isBinary: boolean;
-		}> = [];
+		const queryChanges: FileChange[] = [];
 		const executeTask = vi.fn(
-			async (_projectId: string, _messages: unknown[], _model: string, callback: { pushEvent: (payload: string) => Promise<void> }) => {
+			async (
+				_projectId: string,
+				_messages: unknown[],
+				_model: string,
+				callback: { pushEvent: (payload: string) => Promise<void> },
+				_userId?: string,
+				_organizationId?: string,
+			) => {
 				await callback.pushEvent(JSON.stringify({ type: 'text-delta', delta: 'Investigating...' }));
 				await callback.pushEvent(JSON.stringify({ type: 'tool-call-start', toolCallId: 'tc-1', toolName: 'file_read' }));
 				await callback.pushEvent(JSON.stringify({ type: 'tool-call-end', toolCallId: 'tc-1', toolName: 'file_read', result: 'ok' }));
@@ -44,9 +45,11 @@ describe('sub_agent', () => {
 		};
 		const indexArtifact = vi.fn(async () => {});
 		const context = createMockContext({
-			agentReference: agentReference as ToolExecutorContext['agentReference'],
 			indexArtifact,
+			userId: 'user-123',
+			organizationId: 'org-123',
 		});
+		Object.defineProperty(context, 'agentReference', { value: agentReference, configurable: true, writable: true });
 
 		const result = await execute(
 			{ prompt: 'Inspect the failing integration', context: 'Focus on src/example.ts' },
@@ -57,6 +60,14 @@ describe('sub_agent', () => {
 
 		expect(agentReference.subAgent).toHaveBeenCalledOnce();
 		expect(executeTask).toHaveBeenCalledOnce();
+		expect(executeTask).toHaveBeenCalledWith(
+			'test-project',
+			expect.any(Array),
+			expect.any(String),
+			expect.anything(),
+			'user-123',
+			'org-123',
+		);
 		expect(result.output).toContain('Sub-agent result');
 		expect(result.metadata).toMatchObject({ iterations: 2, debugLogId: 'debug-123', artifactKey: expect.any(String) });
 		expect(indexArtifact).toHaveBeenCalledOnce();

@@ -43,7 +43,7 @@ import { TokenTracker } from './token-tracker';
 import { readTodos } from './tool-executor';
 import { createServerTools, MUTATION_TOOL_NAMES, SUB_AGENT_EXCLUDED_TOOLS, createSendEvent } from './tools';
 import { parseApiError } from './utilities';
-import { createAdapter as createWorkersAiAdapter } from './workers-ai';
+import { createAdapter as createWorkersAiAdapter } from './workers-ai/adapter';
 import { coordinatorNamespace } from '../../lib/durable-object-namespaces';
 
 import type { RequestOriginContext } from './request-origin-context';
@@ -64,6 +64,28 @@ import type { AIModelId } from '@shared/constants';
 import type { AssetSettings, BindingsConfig, ChatMessage, PendingFileChange, ToolErrorInfo, ToolMetadataInfo } from '@shared/types';
 import type { Session } from 'agents/experimental/memory/session';
 import type { ModelMessage } from 'ai';
+
+export interface AIAgentServiceOptions {
+	projectRoot: string;
+	projectId: string;
+	fsStub: DurableObjectStub<ProjectFilesystem>;
+	sessionId?: string;
+	mode?: 'code' | 'plan' | 'ask';
+	model?: AIModelId;
+	organizationId?: string;
+	initiatorUserId?: string;
+	isSubAgent?: boolean;
+	session?: Session;
+	extensionManager?: ExtensionManager;
+	loader?: WorkerLoader;
+	browser?: Fetcher;
+	agentReference?: import('agents').Agent<Env, unknown>;
+	requestOriginContext?: RequestOriginContext;
+	fiberSnapshot?: FiberSnapshot;
+	initialPendingChanges?: Record<string, PendingFileChange>;
+	onPersistSession?: (sessionId: string, sessionData: SessionPersistData) => Promise<void>;
+	indexArtifactEntry?: (entry: { key: string; content: string }) => Promise<void>;
+}
 
 /**
  * Extract a plain text string from an AI SDK tool result value.
@@ -175,30 +197,20 @@ function buildExternalChangesPrompt(changes: ExternalChange[]): string | undefin
 export class AIAgentService {
 	private mcpClientManager = new McpClientManager();
 	private agentLogger: AgentLogger | undefined;
+	private readonly options: AIAgentServiceOptions & { mode: 'code' | 'plan' | 'ask'; model: AIModelId; isSubAgent: boolean };
 
 	getLogger(): AgentLogger | undefined {
 		return this.agentLogger;
 	}
 
-	constructor(
-		private projectRoot: string,
-		private projectId: string,
-		private fsStub: DurableObjectStub<ProjectFilesystem>,
-		private sessionId?: string,
-		private mode: 'code' | 'plan' | 'ask' = 'code',
-		private model: AIModelId = DEFAULT_AI_MODEL,
-		private onPersistSession?: (sessionId: string, sessionData: SessionPersistData) => Promise<void>,
-		private isSubAgent = false,
-		private session?: Session,
-		private extensionManager?: ExtensionManager,
-		private loader?: WorkerLoader,
-		private browser?: Fetcher,
-		private agentReference?: import('agents').Agent<Env, unknown>,
-		private requestOriginContext?: RequestOriginContext,
-		private fiberSnapshot?: FiberSnapshot,
-		private initialPendingChanges?: Record<string, PendingFileChange>,
-		private indexArtifactEntry?: (entry: { key: string; content: string }) => Promise<void>,
-	) {}
+	constructor(options: AIAgentServiceOptions) {
+		this.options = {
+			...options,
+			mode: options.mode ?? 'code',
+			model: options.model ?? DEFAULT_AI_MODEL,
+			isSubAgent: options.isSubAgent ?? false,
+		};
+	}
 
 	/**
 	 * Run the AI agent loop, returning an async iterable of StreamEvent objects.
@@ -208,7 +220,7 @@ export class AIAgentService {
 	 * to connected clients.
 	 */
 	runAgentStream(messages: ModelMessage[], chatMessages: ChatMessage[], abortController: AbortController): AsyncIterable<StreamEvent> {
-		const logger = new AgentLogger(this.sessionId, this.projectId, this.model, this.mode);
+		const logger = new AgentLogger(this.options.sessionId, this.options.projectId, this.options.model, this.options.mode);
 		this.agentLogger = logger;
 
 		// We need to run inside withMounts for filesystem access.
@@ -217,7 +229,7 @@ export class AIAgentService {
 		const writer = writable.getWriter();
 
 		void withMounts(async () => {
-			mount(this.projectRoot, this.fsStub);
+			mount(this.options.projectRoot, this.options.fsStub);
 			const innerStream = this.createAgentStream(messages, chatMessages, abortController, logger);
 			try {
 				for await (const event of innerStream) {
@@ -236,13 +248,13 @@ export class AIAgentService {
 		if (!logger || logger.isFlushed) return;
 
 		await withMounts(async () => {
-			mount(this.projectRoot, this.fsStub);
-			await logger.flush(this.projectRoot);
+			mount(this.options.projectRoot, this.options.fsStub);
+			await logger.flush(this.options.projectRoot);
 		});
 	}
 
 	getFsStub(): DurableObjectStub<ProjectFilesystem> {
-		return this.fsStub;
+		return this.options.fsStub;
 	}
 
 	// =============================================================================
@@ -265,15 +277,15 @@ export class AIAgentService {
 		logger?: AgentLogger,
 	): AsyncIterable<StreamEvent> {
 		const signal = abortController.signal;
-		const queryChanges: FileChange[] = this.fiberSnapshot?.queryChanges ? [...this.fiberSnapshot.queryChanges] : [];
+		const queryChanges: FileChange[] = this.options.fiberSnapshot?.queryChanges ? [...this.options.fiberSnapshot.queryChanges] : [];
 		const tokenTracker = new TokenTracker();
 		const eventQueue: StreamEventQueue = [];
-		logger ??= new AgentLogger(this.sessionId, this.projectId, this.model, this.mode);
+		logger ??= new AgentLogger(this.options.sessionId, this.options.projectId, this.options.model, this.options.mode);
 
 		logger.info('agent_loop', 'started', {
-			mode: this.mode,
-			model: this.model,
-			sessionId: this.sessionId,
+			mode: this.options.mode,
+			model: this.options.model,
+			sessionId: this.options.sessionId,
 			messageCount: messages.length,
 			maxIterations: MAX_ITERATIONS,
 			softLimit: SOFT_ITERATION_LIMIT,
@@ -285,8 +297,8 @@ export class AIAgentService {
 
 		// Eagerly create a snapshot directory for code mode
 		let snapshotContext: SnapshotContext | undefined;
-		if (this.mode === 'code') {
-			snapshotContext = await initSnapshot(this.projectRoot, this.sessionId, messages, sendEvent);
+		if (this.options.mode === 'code') {
+			snapshotContext = await initSnapshot(this.options.projectRoot, this.options.sessionId, messages, sendEvent);
 			logger.debug('snapshot', 'created', { snapshotId: snapshotContext.id });
 			while (eventQueue.length > 0) {
 				const queued = eventQueue.shift();
@@ -294,29 +306,29 @@ export class AIAgentService {
 			}
 		}
 
-		const coordinatorStub = coordinatorNamespace.getByName(`project:${this.projectId}`);
+		const coordinatorStub = coordinatorNamespace.getByName(`project:${this.options.projectId}`);
 
 		// Accumulate metadata for session persistence
-		let sessionSnapshotId: string | undefined = this.fiberSnapshot?.snapshotId ?? snapshotContext?.id;
+		let sessionSnapshotId: string | undefined = this.options.fiberSnapshot?.snapshotId ?? snapshotContext?.id;
 		const userMessageIndex = chatMessages.length - 1;
-		let contextTokensUsed = this.fiberSnapshot?.contextTokensUsed ?? 0;
+		let contextTokensUsed = this.options.fiberSnapshot?.contextTokensUsed ?? 0;
 		let sessionPersisted = false;
-		const streamPendingChanges = new Map<string, PendingFileChange>(Object.entries(this.initialPendingChanges ?? {}));
-		const streamToolMetadata = new Map<string, ToolMetadataInfo>(Object.entries(this.fiberSnapshot?.toolMetadata ?? {}));
-		const streamToolErrors = new Map<string, ToolErrorInfo>(Object.entries(this.fiberSnapshot?.toolErrors ?? {}));
+		const streamPendingChanges = new Map<string, PendingFileChange>(Object.entries(this.options.initialPendingChanges ?? {}));
+		const streamToolMetadata = new Map<string, ToolMetadataInfo>(Object.entries(this.options.fiberSnapshot?.toolMetadata ?? {}));
+		const streamToolErrors = new Map<string, ToolErrorInfo>(Object.entries(this.options.fiberSnapshot?.toolErrors ?? {}));
 
 		// Mutable chat history that grows as the agent loop progresses.
 		// Starts with the caller-supplied messages (user prompt + any prior history)
 		// and gets each turn's assistant+tool response messages appended after
 		// response.messages is received. This is what gets persisted to SQLite.
-		const currentChatMessages = this.fiberSnapshot?.chatMessages ? [...this.fiberSnapshot.chatMessages] : [...chatMessages];
-		const workingMessages = this.fiberSnapshot?.workingMessages ? [...this.fiberSnapshot.workingMessages] : [...messages];
-		let iteration = this.fiberSnapshot?.iteration ?? 0;
+		const currentChatMessages = this.options.fiberSnapshot?.chatMessages ? [...this.options.fiberSnapshot.chatMessages] : [...chatMessages];
+		const workingMessages = this.options.fiberSnapshot?.workingMessages ? [...this.options.fiberSnapshot.workingMessages] : [...messages];
+		let iteration = this.options.fiberSnapshot?.iteration ?? 0;
 
 		// Session persistence helper
 		const persistSession = async () => {
 			sessionPersisted = true;
-			if (!this.sessionId || !this.onPersistSession) return;
+			if (!this.options.sessionId || !this.options.onPersistSession) return;
 			try {
 				if (sessionSnapshotId && userMessageIndex >= 0) {
 					const userMessage = currentChatMessages[userMessageIndex];
@@ -333,7 +345,7 @@ export class AIAgentService {
 				const firstUserMessage = chatMessages.find((message) => message.role === 'user');
 				const firstUserText = firstUserMessage ? messagePartsToPromptText(firstUserMessage.parts).trim() : '';
 
-				await this.onPersistSession(this.sessionId, {
+				await this.options.onPersistSession(this.options.sessionId, {
 					createdAt: Date.now(),
 					title: deriveFallbackTitle(firstUserText),
 					history: currentChatMessages,
@@ -357,8 +369,8 @@ export class AIAgentService {
 						toolErrors: streamToolErrors.size > 0 ? Object.fromEntries(streamToolErrors) : {},
 						contextTokensUsed,
 						snapshotId: sessionSnapshotId,
-						model: this.model,
-						mode: this.mode,
+						model: this.options.model,
+						mode: this.options.mode,
 					},
 				});
 			} catch (error) {
@@ -369,38 +381,50 @@ export class AIAgentService {
 		try {
 			yield statusEvent('Starting...');
 			const outputLogs = await coordinatorStub.getOutputLogs().catch((): string | undefined => undefined);
-			if (outputLogs?.trim() && this.indexArtifactEntry) {
-				await this.indexArtifact(buildDiagnosticsArtifactEntry(this.sessionId, outputLogs, 'initial'), logger);
+			if (outputLogs?.trim() && this.options.indexArtifactEntry) {
+				await this.indexArtifact(buildDiagnosticsArtifactEntry(this.options.sessionId, outputLogs, 'initial'), logger);
 			}
 
-			const runtimePromptAdditions = await buildRuntimePromptAdditions(this.projectRoot, this.mode, outputLogs, this.sessionId);
+			const runtimePromptAdditions = await buildRuntimePromptAdditions(
+				this.options.projectRoot,
+				this.options.mode,
+				outputLogs,
+				this.options.sessionId,
+			);
 
-			const modelConfig = getModelConfig(this.model);
-			if (!modelConfig) throw new Error(`Unknown model: ${this.model}`);
+			const modelConfig = getModelConfig(this.options.model);
+			if (!modelConfig) throw new Error(`Unknown model: ${this.options.model}`);
 
-			const languageModel = createWorkersAiAdapter(this.model);
-			const modelLimits = getModelLimits(this.model);
+			const languageModel = createWorkersAiAdapter(this.options.model, {
+				generationType: 'agent',
+				projectId: this.options.projectId,
+				organizationId: this.options.organizationId,
+				userId: this.options.initiatorUserId,
+			});
+			const modelLimits = getModelLimits(this.options.model);
 
 			const toolContext: ToolExecutorContext = {
-				projectRoot: this.projectRoot,
-				projectId: this.projectId,
-				mode: this.mode,
-				sessionId: this.sessionId,
-				session: this.session,
+				projectRoot: this.options.projectRoot,
+				projectId: this.options.projectId,
+				organizationId: this.options.organizationId,
+				mode: this.options.mode,
+				sessionId: this.options.sessionId,
+				userId: this.options.initiatorUserId,
+				session: this.options.session,
 				abortSignal: signal,
 				callMcpTool: (serverId, toolName, arguments_) => this.mcpClientManager.callTool(serverId, toolName, arguments_),
-				loader: this.loader,
-				browser: this.browser,
-				agentReference: this.agentReference,
-				extensionManager: this.extensionManager,
-				fsStub: this.fsStub,
-				model: this.model,
-				isSubAgent: this.isSubAgent,
-				requestOriginContext: this.requestOriginContext,
-				indexArtifact: this.indexArtifactEntry,
+				loader: this.options.loader,
+				browser: this.options.browser,
+				agentReference: this.options.agentReference,
+				extensionManager: this.options.extensionManager,
+				fsStub: this.options.fsStub,
+				model: this.options.model,
+				isSubAgent: this.options.isSubAgent,
+				requestOriginContext: this.options.requestOriginContext,
+				indexArtifact: this.options.indexArtifactEntry,
 			};
 
-			if (outputLogs?.trim() && this.indexArtifactEntry) {
+			if (outputLogs?.trim() && this.options.indexArtifactEntry) {
 				workingMessages.push({
 					role: 'user',
 					content:
@@ -448,7 +472,7 @@ export class AIAgentService {
 				contextTokensUsed = estimatedTokens;
 				let contextUtilization = getContextUtilization(messagesForModel, modelLimits);
 				yield contextUtilizationEvent(estimatedTokens, modelLimits.contextWindow, Math.round(contextUtilization * 100));
-				yield statusEvent(this.mode === 'plan' ? 'Researching...' : 'Thinking...');
+				yield statusEvent(this.options.mode === 'plan' ? 'Researching...' : 'Thinking...');
 
 				// Proactive pruning — multi-stage, from cheapest to most aggressive
 				if (contextUtilization >= PROACTIVE_PRUNE_THRESHOLD) {
@@ -519,7 +543,7 @@ export class AIAgentService {
 					}
 					toolFailures.length = 0;
 				};
-				const baseExcludedTools = this.isSubAgent ? SUB_AGENT_EXCLUDED_TOOLS : undefined;
+				const baseExcludedTools = this.options.isSubAgent ? SUB_AGENT_EXCLUDED_TOOLS : undefined;
 				const iterationExcludedTools = previousIterationHadMutationFailure
 					? baseExcludedTools
 						? new Set([...baseExcludedTools, ...MUTATION_TOOL_NAMES])
@@ -530,14 +554,14 @@ export class AIAgentService {
 					sendEvent,
 					toolContext,
 					queryChanges,
-					this.mode,
+					this.options.mode,
 					logger,
 					toolFailures,
 					toolCallIdReference,
 					pendingToolCallIds,
 					iterationExcludedTools,
 				);
-				const frozenSystemPrompt = this.session ? await this.session.freezeSystemPrompt().catch(() => '') : '';
+				const frozenSystemPrompt = this.options.session ? await this.options.session.freezeSystemPrompt().catch(() => '') : '';
 				const systemPrompt = `${frozenSystemPrompt}${runtimePromptAdditions ? `\n\n${runtimePromptAdditions}` : ''}`.trim();
 
 				// ─── Call streamText() ───────────────────────────────────────
@@ -671,7 +695,7 @@ export class AIAgentService {
 														beforeContent: queued.beforeContent,
 														afterContent: queued.afterContent,
 														snapshotId: sessionSnapshotId,
-														sessionId: this.sessionId ?? '',
+														sessionId: this.options.sessionId ?? '',
 													});
 
 													break;
@@ -713,7 +737,7 @@ export class AIAgentService {
 								}
 								case 'finish-step': {
 									if (part.usage) {
-										tokenTracker.recordTurn(this.model, {
+										tokenTracker.recordTurn(this.options.model, {
 											inputTokens: part.usage.inputTokens ?? 0,
 											outputTokens: part.usage.outputTokens ?? 0,
 											cacheReadInputTokens: part.usage.inputTokenDetails?.cacheReadTokens ?? 0,
@@ -858,8 +882,8 @@ export class AIAgentService {
 					}
 
 					// Plan mode todo nudge
-					if (this.mode === 'plan' && !planModeTodoNudged && iteration > 1) {
-						const currentTodos = await readTodos(this.projectRoot, this.sessionId);
+					if (this.options.mode === 'plan' && !planModeTodoNudged && iteration > 1) {
+						const currentTodos = await readTodos(this.options.projectRoot, this.options.sessionId);
 						if (currentTodos.length === 0) {
 							planModeTodoNudged = true;
 							workingMessages.push({
@@ -883,8 +907,8 @@ export class AIAgentService {
 						if (freshLogs) {
 							const hasErrors = /\bERROR:/i.test(freshLogs) || /\bWARNING:/i.test(freshLogs);
 							if (hasErrors) {
-								if (this.indexArtifactEntry) {
-									await this.indexArtifact(buildDiagnosticsArtifactEntry(this.sessionId, freshLogs, 'post-change'), logger);
+								if (this.options.indexArtifactEntry) {
+									await this.indexArtifact(buildDiagnosticsArtifactEntry(this.options.sessionId, freshLogs, 'post-change'), logger);
 									workingMessages.push({
 										role: 'user',
 										content:
@@ -976,8 +1000,8 @@ export class AIAgentService {
 			}
 
 			// Save plan in plan mode
-			if (this.mode === 'plan' && lastAssistantText.trim()) {
-				yield* savePlan(this.projectRoot, lastAssistantText, workingMessages);
+			if (this.options.mode === 'plan' && lastAssistantText.trim()) {
+				yield* savePlan(this.options.projectRoot, lastAssistantText, workingMessages);
 			}
 
 			if (hitIterationLimit) {
@@ -1002,12 +1026,12 @@ export class AIAgentService {
 			// Final persist and flush
 			logger.info('agent_loop', 'completed', { totalIterations: iteration, totalFileChanges: queryChanges.length });
 			if (!sessionPersisted) await persistSession();
-			await logger.flush(this.projectRoot);
+			await logger.flush(this.options.projectRoot);
 		} catch (error) {
 			if (error instanceof Error && error.name === 'AbortError') {
 				logger.markAborted();
 				if (!sessionPersisted) await persistSession().catch(() => {});
-				await logger.flush(this.projectRoot);
+				await logger.flush(this.options.projectRoot);
 				if (snapshotContext && queryChanges.length === 0) {
 					try {
 						await deleteDirectoryRecursive(snapshotContext.directory);
@@ -1019,7 +1043,7 @@ export class AIAgentService {
 			}
 			logger.error('agent_loop', 'error', { message: error instanceof Error ? error.message : String(error) });
 			if (!sessionPersisted) await persistSession().catch(() => {});
-			await logger.flush(this.projectRoot);
+			await logger.flush(this.options.projectRoot);
 			if (snapshotContext && queryChanges.length === 0) {
 				try {
 					await deleteDirectoryRecursive(snapshotContext.directory);
@@ -1033,7 +1057,7 @@ export class AIAgentService {
 			if (!logger.isFlushed) {
 				logger.markAborted();
 				if (!sessionPersisted) await persistSession().catch(() => {});
-				await logger.flush(this.projectRoot).catch(() => {});
+				await logger.flush(this.options.projectRoot).catch(() => {});
 				if (snapshotContext && queryChanges.length === 0) {
 					try {
 						await deleteDirectoryRecursive(snapshotContext.directory);
@@ -1047,12 +1071,12 @@ export class AIAgentService {
 	}
 
 	private async indexArtifact(entry: { key: string; content: string }, logger?: AgentLogger): Promise<void> {
-		if (!this.indexArtifactEntry) {
+		if (!this.options.indexArtifactEntry) {
 			return;
 		}
 
 		try {
-			await this.indexArtifactEntry(entry);
+			await this.options.indexArtifactEntry(entry);
 		} catch (error) {
 			logger?.warn('context', 'artifact_index_failed', {
 				key: entry.key,

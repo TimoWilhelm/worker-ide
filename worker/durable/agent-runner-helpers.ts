@@ -25,10 +25,12 @@ interface ExtensionManagerConstructor<T extends RestorableExtensionManager> {
 
 export interface RecoveredRunParameters {
 	projectId: string;
+	organizationId?: string;
 	messages: ChatMessage[];
 	mode: AgentMode;
 	sessionId: string;
 	model: AIModelId;
+	initiatorUserId?: string;
 	_fiberSnapshot: FiberSnapshot;
 }
 
@@ -76,6 +78,7 @@ export function parseFiberSnapshot(snapshot: unknown): FiberSnapshot | undefined
 
 export function buildRecoveredRunParameters(
 	projectId: string,
+	organizationId: string | undefined,
 	sessionId: string,
 	history: ChatMessage[],
 	snapshot: FiberSnapshot | undefined,
@@ -86,10 +89,12 @@ export function buildRecoveredRunParameters(
 
 	return {
 		projectId,
+		organizationId,
 		messages: history,
 		mode: normalizeRecoveredMode(snapshot.mode),
 		sessionId,
 		model: normalizeRecoveredModel(snapshot.model),
+		initiatorUserId: history.toReversed().find((message) => message.role === 'user')?.authorUserId,
 		_fiberSnapshot: snapshot,
 	};
 }

@@ -1,6 +1,6 @@
 import { generateText, jsonSchema, Output } from 'ai';
 
-import { createAdapter } from './workers-ai';
+import { createAdapter } from './workers-ai/adapter';
 const TITLE_MODEL = '@cf/meta/llama-3.1-8b-instruct';
 
 const MAX_TITLE_LENGTH = 100;
@@ -26,6 +26,11 @@ export interface SessionTitleResult {
 	isAiGenerated: boolean;
 }
 
+export interface SessionTitleContext {
+	projectId?: string;
+	organizationId?: string;
+}
+
 function getFileReferenceLabel(path: string): string {
 	const segments = path.split('/');
 	return segments.at(-1) || path;
@@ -49,7 +54,7 @@ function getFallbackTitleSourceText(userMessageText: string): string {
  * Generate a short title for an AI agent session.
  * Falls back to truncating the user message on failure.
  */
-export async function generateSessionTitle(userMessage: string): Promise<SessionTitleResult> {
+export async function generateSessionTitle(userMessage: string, context?: SessionTitleContext): Promise<SessionTitleResult> {
 	const fallbackTitleSourceText = getFallbackTitleSourceText(userMessage);
 	const fallback = deriveFallbackTitle(userMessage);
 
@@ -58,7 +63,11 @@ export async function generateSessionTitle(userMessage: string): Promise<Session
 	}
 
 	try {
-		const model = createAdapter(TITLE_MODEL);
+		const model = createAdapter(TITLE_MODEL, {
+			generationType: 'title',
+			projectId: context?.projectId,
+			organizationId: context?.organizationId,
+		});
 
 		const { output } = await generateText({
 			model,

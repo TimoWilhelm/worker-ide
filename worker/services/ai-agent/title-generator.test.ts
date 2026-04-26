@@ -12,7 +12,7 @@ vi.mock('ai', () => ({
 	Output: { object: (config: unknown) => config },
 }));
 
-vi.mock('./workers-ai', () => ({
+vi.mock('./workers-ai/adapter', () => ({
 	createAdapter: () => ({}),
 }));
 
@@ -100,6 +100,12 @@ describe('generateSessionTitle', () => {
 		await generateSessionTitle(longMessage);
 		const callArguments = mockGenerateText.mock.calls[0][0];
 		expect(callArguments.messages[0].content).toBe('A'.repeat(500));
+	});
+
+	it('accepts project and organization metadata context', async () => {
+		mockStructuredResponse('Test Title');
+		await generateSessionTitle(USER_MESSAGE, { projectId: 'project-1', organizationId: 'org-1' });
+		expect(mockGenerateText).toHaveBeenCalledOnce();
 	});
 });
 

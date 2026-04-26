@@ -31,7 +31,7 @@ vi.mock('ai', () => ({
 }));
 
 // Mock the workers-ai adapter
-vi.mock('../workers-ai', () => ({
+vi.mock('../workers-ai/adapter', () => ({
 	createAdapter: () => ({}),
 }));
 

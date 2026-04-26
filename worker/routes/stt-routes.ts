@@ -1,8 +1,11 @@
 import { env } from 'cloudflare:workers';
+import { and, eq, isNull } from 'drizzle-orm';
+import { drizzle } from 'drizzle-orm/d1';
 import { Hono } from 'hono';
 
 import { HttpErrorCode } from '@shared/http-errors';
 
+import * as authSchema from '../db/auth-schema';
 import { trackSttEvent } from '../lib/analytics';
 import { httpError } from '../lib/http-error';
 
@@ -17,10 +20,27 @@ const STT_READY_DELAY_MS = 250;
  * generic `.run(model, inputs, options)` signature using an untyped
  * wrapper to avoid `as` type assertions.
  */
-function runSttWebSocket(ai: Ai, parameters: Record<string, string>): Promise<Response> {
+function runSttWebSocket(
+	ai: Ai,
+	parameters: Record<string, string>,
+	metadata: { organizationId: string; projectId: string; userId: string },
+): Promise<Response> {
 	// eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- env.AI.run with { websocket: true } has a different contract than the typed overload
 	return (ai as { run: (model: string, inputs: unknown, options: unknown) => Promise<Response> }).run('@cf/deepgram/nova-3', parameters, {
 		websocket: true,
+		gateway: {
+			id: 'default',
+			metadata: {
+				app: 'worker-ide',
+				type: 'stt',
+				project_id: metadata.projectId,
+				org_id: metadata.organizationId,
+				user_id: metadata.userId,
+			},
+		},
+		extraHeaders: {
+			'cf-aig-collect-log-payload': 'false',
+		},
 	});
 }
 
@@ -31,6 +51,20 @@ export const sttRoutes = new Hono<AppEnvironment>().get('/stt/ws', async (c) => 
 
 	const { userId } = c.get('session');
 	const projectId = c.get('projectId');
+	const database = drizzle(c.env.DB);
+	const projectRows = await database
+		.select({ organizationId: authSchema.project.organizationId })
+		.from(authSchema.project)
+		.where(and(eq(authSchema.project.id, projectId), isNull(authSchema.project.deletedAt), isNull(authSchema.project.bannedAt)))
+		.limit(1);
+	const projectRow = projectRows[0];
+	if (!projectRow) {
+		throw httpError(HttpErrorCode.NOT_FOUND, 'Project not found.');
+	}
+	const organizationId = projectRow.organizationId;
+	if (!organizationId) {
+		throw httpError(HttpErrorCode.NOT_FOUND, 'Project organization not found.');
+	}
 	const request = c.req.raw;
 	const sessionStart = Date.now();
 
@@ -41,20 +75,24 @@ export const sttRoutes = new Hono<AppEnvironment>().get('/stt/ws', async (c) => 
 		request,
 	});
 
-	const aiResponse = await runSttWebSocket(env.AI, {
-		encoding: 'linear16',
-		sample_rate: '16000',
-		interim_results: 'true',
-		punctuate: 'true',
-		smart_format: 'true',
-		// Enable endpoint detection — the model will send `speech_final: true`
-		// when it detects the speaker has finished an utterance. The value is
-		// the silence duration (ms) that triggers the endpoint.
-		endpointing: '300',
-		// Send an explicit UtteranceEnd message after this silence duration
-		// following the last word, as a secondary signal.
-		utterance_end_ms: '1000',
-	});
+	const aiResponse = await runSttWebSocket(
+		env.AI,
+		{
+			encoding: 'linear16',
+			sample_rate: '16000',
+			interim_results: 'true',
+			punctuate: 'true',
+			smart_format: 'true',
+			// Enable endpoint detection — the model will send `speech_final: true`
+			// when it detects the speaker has finished an utterance. The value is
+			// the silence duration (ms) that triggers the endpoint.
+			endpointing: '300',
+			// Send an explicit UtteranceEnd message after this silence duration
+			// following the last word, as a secondary signal.
+			utterance_end_ms: '1000',
+		},
+		{ organizationId, projectId, userId },
+	);
 
 	// The AI binding returns a 101 with a webSocket on the response.
 	// Intercept with our own pair so we can detect close and track session_end.

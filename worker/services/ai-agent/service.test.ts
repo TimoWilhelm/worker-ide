@@ -16,12 +16,15 @@ vi.mock('worker-fs-mount', () => ({
 }));
 
 // Mock the workers-ai adapter
-vi.mock('./workers-ai', () => ({
-	createAdapter: vi.fn(() => ({
+const { mockCreateAdapter } = vi.hoisted(() => ({
+	mockCreateAdapter: vi.fn(() => ({
 		specificationVersion: 'v2',
 		provider: 'workers-ai',
 		modelId: 'test-model',
 	})),
+}));
+vi.mock('./workers-ai/adapter', () => ({
+	createAdapter: mockCreateAdapter,
 }));
 
 // Mock the coordinator namespace
@@ -155,6 +158,8 @@ function createTestService(
 	overrides?: Partial<{
 		mode: AgentMode;
 		sessionId: string;
+		organizationId: string;
+		userId: string;
 		indexArtifactEntry: (entry: { key: string; content: string }) => Promise<void>;
 		onPersistSession: (sessionId: string, sessionData: SessionPersistData) => Promise<void>;
 		fiberSnapshot: FiberSnapshot;
@@ -164,25 +169,20 @@ function createTestService(
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any -- test stub for DurableObjectStub
 	const fsStub = {} as any;
 
-	return new AIAgentService(
-		'/project',
-		'test-project',
+	return new AIAgentService({
+		projectRoot: '/project',
+		projectId: 'test-project',
 		fsStub,
-		overrides?.sessionId ?? 'test-session',
-		overrides?.mode ?? 'code',
-		DEFAULT_AI_MODEL,
-		overrides?.onPersistSession,
-		false,
-		undefined,
-		undefined,
-		undefined,
-		undefined,
-		undefined,
-		undefined,
-		overrides?.fiberSnapshot,
-		overrides?.initialPendingChanges,
-		overrides?.indexArtifactEntry,
-	);
+		sessionId: overrides?.sessionId ?? 'test-session',
+		mode: overrides?.mode ?? 'code',
+		model: DEFAULT_AI_MODEL,
+		organizationId: overrides?.organizationId,
+		initiatorUserId: overrides?.userId,
+		onPersistSession: overrides?.onPersistSession,
+		fiberSnapshot: overrides?.fiberSnapshot,
+		initialPendingChanges: overrides?.initialPendingChanges,
+		indexArtifactEntry: overrides?.indexArtifactEntry,
+	});
 }
 
 async function collectEvents(stream: AsyncIterable<StreamEvent>): Promise<StreamEvent[]> {
@@ -215,7 +215,8 @@ describe('AIAgentService', () => {
 			await collectEvents(service.runAgentStream(makeModelMessages('Hello'), [makeUserMessage('Hello')], abortController));
 
 			expect(indexArtifactEntry).toHaveBeenCalledOnce();
-			expect(indexArtifactEntry.mock.calls[0]?.[0]).toMatchObject({ key: 'diagnostics:test-session:initial' });
+			const firstIndexedArtifact = indexArtifactEntry.mock.calls.at(0)?.at(0);
+			expect(firstIndexedArtifact).toMatchObject({ key: 'diagnostics:test-session:initial' });
 		});
 
 		it('emits status, text-delta, context-utilization, turn-complete, and usage events', async () => {
@@ -272,6 +273,23 @@ describe('AIAgentService', () => {
 						iteration: 1,
 						mode: 'code',
 					}),
+				}),
+			);
+		});
+
+		it('passes project, organization, and user metadata to the agent model adapter', async () => {
+			const service = createTestService({ organizationId: 'org-123', userId: 'user-123' });
+			const abortController = new AbortController();
+
+			await collectEvents(service.runAgentStream(makeModelMessages('Hello'), [makeUserMessage('Hello')], abortController));
+
+			expect(mockCreateAdapter).toHaveBeenCalledWith(
+				DEFAULT_AI_MODEL,
+				expect.objectContaining({
+					generationType: 'agent',
+					projectId: 'test-project',
+					organizationId: 'org-123',
+					userId: 'user-123',
 				}),
 			);
 		});
@@ -715,8 +733,12 @@ describe('AIAgentService', () => {
 			expect(lastCall).toBeDefined();
 			if (!lastCall) return;
 
-			expect(lastCall[1].pendingChanges).toEqual(initialPendingChanges);
-			expect(lastCall[1].fiberSnapshot?.pendingChanges).toEqual(initialPendingChanges);
+			const sessionData = lastCall.at(1);
+			expect(sessionData).toBeDefined();
+			if (!sessionData) return;
+
+			expect(sessionData.pendingChanges).toEqual(initialPendingChanges);
+			expect(sessionData.fiberSnapshot?.pendingChanges).toEqual(initialPendingChanges);
 		});
 
 		it('calls onPersistSession after each turn', async () => {

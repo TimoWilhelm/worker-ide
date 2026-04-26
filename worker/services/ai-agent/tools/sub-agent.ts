@@ -67,7 +67,7 @@ export async function execute(
 
 	sendEvent('status', { message: 'Delegating task to sub-agent...' });
 	const subAgent = await context.agentReference.subAgent(SubAgentWorker, `sub-agent-${crypto.randomUUID().slice(0, 8)}`);
-	const result = await subAgent.executeTask(context.projectId, messages, context.model, callback);
+	const result = await subAgent.executeTask(context.projectId, messages, context.model, callback, context.userId, context.organizationId);
 	const artifactEntry = buildSubAgentArtifactEntry({
 		sessionId: context.sessionId,
 		prompt,

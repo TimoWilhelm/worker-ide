@@ -39,28 +39,28 @@ export class SubAgentWorker extends Agent<Env, SubAgentState> {
 		messages: ChatMessage[],
 		model: AIModelId = DEFAULT_AI_MODEL,
 		callback?: StreamCallback,
+		userId?: string,
+		organizationId?: string,
 	): Promise<SubAgentResult> {
 		this.setState({ status: 'running' });
 		this.abortController = new AbortController();
 
 		const fsId = toDurableObjectId(filesystemNamespace, projectId);
 		const fsStub = filesystemNamespace.get(fsId);
-		const service = new AIAgentService(
-			'/project',
+		const service = new AIAgentService({
+			projectRoot: '/project',
 			projectId,
 			fsStub,
-			`${this.name}-session`,
-			'code',
+			sessionId: `${this.name}-session`,
+			mode: 'code',
 			model,
-			undefined,
-			false,
-			this.session,
-			undefined,
-			this.env.LOADER,
-			this.env.BROWSER,
-			this,
-			undefined,
-		);
+			session: this.session,
+			loader: this.env.LOADER,
+			browser: this.env.BROWSER,
+			agentReference: this,
+			organizationId,
+			initiatorUserId: userId,
+		});
 
 		let lastAssistantText = '';
 		let iterations = 0;

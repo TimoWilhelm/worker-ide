@@ -4,7 +4,7 @@ import { AgentSearchProvider, SessionManager } from 'agents/experimental/memory/
 import { createCompactFunction } from 'agents/experimental/memory/utils';
 import { generateText } from 'ai';
 import { env } from 'cloudflare:workers';
-import { eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
 import { mount, withMounts } from 'worker-fs-mount';
 
@@ -67,7 +67,7 @@ import { cleanupSessionArtifacts, cleanupTimestampPlans } from '../services/ai-a
 import { sessionMessagesToChatMessages } from '../services/ai-agent/session-messages';
 import { readAgentsContext } from '../services/ai-agent/system-prompt-builder';
 import { deriveFallbackTitle, generateSessionTitle } from '../services/ai-agent/title-generator';
-import { createAdapter as createWorkersAiAdapter } from '../services/ai-agent/workers-ai';
+import { createAdapter as createWorkersAiAdapter } from '../services/ai-agent/workers-ai/adapter';
 
 import type { AgentDatabase } from './db';
 import type { RequestOriginContext } from '../services/ai-agent/request-origin-context';
@@ -165,6 +165,7 @@ function getUserMessagePromptText(parts: readonly UserMessagePart[]): string {
 
 export interface StartAgentParameters {
 	projectId: string;
+	organizationId?: string;
 	messages: ChatMessage[];
 	mode?: AgentMode;
 	sessionId?: string;
@@ -223,7 +224,11 @@ export class AgentRunner extends Agent<Env, AgentState> {
 			createCompactFunction({
 				summarize: async (prompt) => {
 					const { text } = await generateText({
-						model: createWorkersAiAdapter(SUMMARIZATION_AI_MODEL),
+						model: createWorkersAiAdapter(SUMMARIZATION_AI_MODEL, {
+							generationType: 'compaction',
+							projectId: this.getProjectId(),
+							organizationId: this.projectOrganizationId,
+						}),
 						prompt,
 						maxOutputTokens: 4096,
 					});
@@ -247,6 +252,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		string,
 		{ expiresAt: number; promise: Promise<{ sessionId: string; queued: boolean; started: boolean }> }
 	>();
+	private projectOrganizationId?: string;
 	private sessionStreamState = new SessionStreamState({
 		getCurrentSession: () => this.state.currentSession,
 		updateSessionState: (sessionId, patch) => this.updateSessionState(sessionId, patch),
@@ -698,6 +704,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		this.reviewQueue = new ReviewQueueStore(this.db);
 		this.reviewQueue.bootstrapLegacyPendingChanges(this.loadPendingChangesFromDatabase());
 		this.extensionManager = await restoreExtensionManager(env.LOADER, this.ctx.storage);
+		this.projectOrganizationId = await this.lookupProjectOrganizationId(this.getProjectId());
 		const persistedRequestOriginContext = this.ctx.storage.kv.get<RequestOriginContext>(REQUEST_ORIGIN_CONTEXT_STORAGE_KEY);
 		this.requestOriginContext = isRequestOriginContext(persistedRequestOriginContext) ? persistedRequestOriginContext : undefined;
 		this.refreshReviewState();
@@ -710,11 +717,14 @@ export class AgentRunner extends Agent<Env, AgentState> {
 			if (this.abortControllers.has(sessionInfo.id)) {
 				continue;
 			}
-			await this.maybeStartNextQueuedRun(this.getProjectId(), sessionInfo.id, this.sessionInitiatorUserIds.get(sessionInfo.id)).catch(
-				(error) => {
-					console.error('[AgentRunner] Failed to recover queued follow-up run:', error);
-				},
-			);
+			await this.maybeStartNextQueuedRun(
+				this.getProjectId(),
+				this.projectOrganizationId,
+				sessionInfo.id,
+				this.sessionInitiatorUserIds.get(sessionInfo.id),
+			).catch((error) => {
+				console.error('[AgentRunner] Failed to recover queued follow-up run:', error);
+			});
 		}
 	}
 
@@ -736,6 +746,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	 */
 	private async startAgentRun(
 		projectId: string,
+		organizationId: string | undefined,
 		messages: ChatMessage[],
 		mode: AgentMode = 'code',
 		model: AIModelId = DEFAULT_AI_MODEL,
@@ -763,6 +774,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 
 		const parameters: StartAgentParameters = {
 			projectId,
+			organizationId,
 			messages,
 			mode,
 			sessionId,
@@ -899,7 +911,15 @@ export class AgentRunner extends Agent<Env, AgentState> {
 						return { sessionId: resolvedSessionId, queued: true, started: false };
 					}
 
-					await this.startAgentRun(projectId, getCommittedMessages(durableHistory), mode, model, resolvedSessionId, authenticatedUserId);
+					await this.startAgentRun(
+						projectId,
+						this.projectOrganizationId,
+						getCommittedMessages(durableHistory),
+						mode,
+						model,
+						resolvedSessionId,
+						authenticatedUserId,
+					);
 					return { sessionId: resolvedSessionId, queued: false, started: true };
 				});
 			},
@@ -999,6 +1019,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 					await this.agentSessionStore.persistHistory(resolvedSessionId, normalizedMessages, false);
 					return this.startAgentRun(
 						projectId,
+						this.projectOrganizationId,
 						getCommittedMessages(normalizedMessages),
 						mode,
 						model,
@@ -1450,7 +1471,9 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		const sessionId = context.name.slice('agent-loop:'.length);
 		const snapshot = parseFiberSnapshot(context.snapshot);
 		const session = this.agentSessionStore.read(sessionId);
-		const parameters = session ? buildRecoveredRunParameters(this.getProjectId(), sessionId, session.history, snapshot) : undefined;
+		const parameters = session
+			? buildRecoveredRunParameters(this.getProjectId(), this.projectOrganizationId, sessionId, session.history, snapshot)
+			: undefined;
 		if (!parameters) {
 			return;
 		}
@@ -1478,25 +1501,26 @@ export class AgentRunner extends Agent<Env, AgentState> {
 			// Convert ChatMessage[] to ModelMessage[] for the AI SDK
 			const modelMessages = chatMessagesToModelMessages(parameters.messages);
 
-			agentService = new AIAgentService(
-				PROJECT_ROOT,
+			agentService = new AIAgentService({
+				projectRoot: PROJECT_ROOT,
 				projectId,
 				fsStub,
 				sessionId,
 				mode,
 				model,
-				(sid, sessionData) => this.persistSessionFromService(sid, sessionData),
-				false,
+				organizationId: parameters.organizationId,
+				initiatorUserId: parameters.initiatorUserId,
 				session,
-				this.extensionManager,
-				env.LOADER,
-				env.BROWSER,
-				this,
-				this.requestOriginContext,
-				parameters._fiberSnapshot,
+				extensionManager: this.extensionManager,
+				loader: env.LOADER,
+				browser: env.BROWSER,
+				agentReference: this,
+				requestOriginContext: this.requestOriginContext,
+				fiberSnapshot: parameters._fiberSnapshot,
 				initialPendingChanges,
-				(entry) => this.indexArtifact(entry),
-			);
+				onPersistSession: (sid, sessionData) => this.persistSessionFromService(sid, sessionData),
+				indexArtifactEntry: (entry) => this.indexArtifact(entry),
+			});
 
 			const abortController = this.abortControllers.get(sessionId) ?? new AbortController();
 			const stream = agentService.runAgentStream(modelMessages, parameters.messages, abortController);
@@ -1573,10 +1597,12 @@ export class AgentRunner extends Agent<Env, AgentState> {
 
 			const initiatorUserId = this.sessionInitiatorUserIds.get(sessionId);
 
-			const startedNextRun = await this.maybeStartNextQueuedRun(projectId, sessionId, initiatorUserId).catch((nextRunError) => {
-				console.error('[AgentRunner] Failed to start queued follow-up run:', nextRunError);
-				return false;
-			});
+			const startedNextRun = await this.maybeStartNextQueuedRun(projectId, parameters.organizationId, sessionId, initiatorUserId).catch(
+				(nextRunError) => {
+					console.error('[AgentRunner] Failed to start queued follow-up run:', nextRunError);
+					return false;
+				},
+			);
 			const terminalNotification = buildTerminalNotification(finalStatus, errorMessage, startedNextRun);
 
 			// Only notify once the queue drains; the final auto-started run will notify when the agent becomes idle.
@@ -1651,7 +1677,10 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		this.titleGenerationInFlight.add(sessionId);
 
 		try {
-			const result = await generateSessionTitle(userText);
+			const result = await generateSessionTitle(userText, {
+				projectId: this.getProjectId(),
+				organizationId: this.projectOrganizationId,
+			});
 
 			this.sessionManager.rename(sessionId, result.title);
 			updateSessionMetadataTitleGenerated(this.db, sessionId, result.isAiGenerated);
@@ -1942,7 +1971,12 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		return row?.sessionId;
 	}
 
-	private async maybeStartNextQueuedRun(projectId: string, sessionId: string, initiatorUserId: string | undefined): Promise<boolean> {
+	private async maybeStartNextQueuedRun(
+		projectId: string,
+		organizationId: string | undefined,
+		sessionId: string,
+		initiatorUserId: string | undefined,
+	): Promise<boolean> {
 		return this.withSessionMutationLock(sessionId, async () => {
 			const session = this.agentSessionStore.read(sessionId);
 			if (!session) {
@@ -1958,12 +1992,24 @@ export class AgentRunner extends Agent<Env, AgentState> {
 			const request = promotedMessage.metadata?.request;
 			const mode = request?.mode ?? 'code';
 			const model = request?.model ?? DEFAULT_AI_MODEL;
+			const resolvedInitiatorUserId = initiatorUserId ?? promotedMessage.authorUserId;
 			const committedMessages = getCommittedMessages(history);
 
 			await this.agentSessionStore.persistHistory(sessionId, history, false);
-			await this.startAgentRun(projectId, committedMessages, mode, model, sessionId, initiatorUserId);
+			await this.startAgentRun(projectId, organizationId, committedMessages, mode, model, sessionId, resolvedInitiatorUserId);
 			return true;
 		});
+	}
+
+	private async lookupProjectOrganizationId(projectId: string): Promise<string | undefined> {
+		const database = drizzle(env.DB);
+		const projectRow = await database
+			.select({ organizationId: authSchema.project.organizationId })
+			.from(authSchema.project)
+			.where(and(eq(authSchema.project.id, projectId), isNull(authSchema.project.deletedAt), isNull(authSchema.project.bannedAt)))
+			.limit(1);
+
+		return projectRow[0]?.organizationId;
 	}
 
 	private loadPendingChangesFromDatabase(): Record<string, PendingFileChange> {

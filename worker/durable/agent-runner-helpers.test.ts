@@ -74,14 +74,16 @@ describe('agent-runner helpers', () => {
 		const history = [createUserMessage('Recover me')];
 		const snapshot = createValidSnapshot({ mode: 'invalid-mode', model: 'invalid-model' });
 
-		const recovered = buildRecoveredRunParameters('project-1', 'session-1', history, snapshot);
+		const recovered = buildRecoveredRunParameters('project-1', 'org-1', 'session-1', history, snapshot);
 
 		expect(recovered).toMatchObject({
 			projectId: 'project-1',
+			organizationId: 'org-1',
 			sessionId: 'session-1',
 			messages: history,
 			mode: 'code',
 			model: DEFAULT_AI_MODEL,
+			initiatorUserId: history[0]?.authorUserId,
 			_fiberSnapshot: snapshot,
 		});
 	});
