@@ -1,6 +1,6 @@
 import { generateText, jsonSchema, Output } from 'ai';
 
-import { createAdapter } from './workers-ai/adapter';
+import { createAdapter } from './workers-ai';
 const TITLE_MODEL = '@cf/meta/llama-3.1-8b-instruct';
 
 const MAX_TITLE_LENGTH = 100;

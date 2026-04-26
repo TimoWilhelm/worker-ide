@@ -23,7 +23,7 @@ const { mockCreateAdapter } = vi.hoisted(() => ({
 		modelId: 'test-model',
 	})),
 }));
-vi.mock('./workers-ai/adapter', () => ({
+vi.mock('./workers-ai', () => ({
 	createAdapter: mockCreateAdapter,
 }));
 

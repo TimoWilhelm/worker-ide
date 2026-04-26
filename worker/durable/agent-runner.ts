@@ -67,7 +67,7 @@ import { cleanupSessionArtifacts, cleanupTimestampPlans } from '../services/ai-a
 import { sessionMessagesToChatMessages } from '../services/ai-agent/session-messages';
 import { readAgentsContext } from '../services/ai-agent/system-prompt-builder';
 import { deriveFallbackTitle, generateSessionTitle } from '../services/ai-agent/title-generator';
-import { createAdapter as createWorkersAiAdapter } from '../services/ai-agent/workers-ai/adapter';
+import { createAdapter as createWorkersAiAdapter } from '../services/ai-agent/workers-ai';
 
 import type { AgentDatabase } from './db';
 import type { RequestOriginContext } from '../services/ai-agent/request-origin-context';

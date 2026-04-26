@@ -12,7 +12,7 @@ vi.mock('ai', () => ({
 	Output: { object: (config: unknown) => config },
 }));
 
-vi.mock('./workers-ai/adapter', () => ({
+vi.mock('./workers-ai', () => ({
 	createAdapter: () => ({}),
 }));
 

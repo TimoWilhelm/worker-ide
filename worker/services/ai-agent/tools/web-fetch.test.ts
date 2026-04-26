@@ -23,15 +23,13 @@ vi.mock('cloudflare:workers', () => ({
 
 // Mock Vercel AI SDK generateText to avoid real LLM calls
 vi.mock('ai', () => ({
-	generateText: () => {
-		return Promise.resolve({ output: { summary: 'Summarized: page content about testing.' } });
-	},
+	generateText: vi.fn(),
 	jsonSchema: (schema: unknown) => schema,
 	Output: { object: (config: unknown) => config },
 }));
 
 // Mock the workers-ai adapter
-vi.mock('../workers-ai/adapter', () => ({
+vi.mock('../workers-ai', () => ({
 	createAdapter: () => ({}),
 }));
 

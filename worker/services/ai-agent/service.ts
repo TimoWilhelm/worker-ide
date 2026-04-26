@@ -43,7 +43,7 @@ import { TokenTracker } from './token-tracker';
 import { readTodos } from './tool-executor';
 import { createServerTools, MUTATION_TOOL_NAMES, SUB_AGENT_EXCLUDED_TOOLS, createSendEvent } from './tools';
 import { parseApiError } from './utilities';
-import { createAdapter as createWorkersAiAdapter } from './workers-ai/adapter';
+import { createAdapter as createWorkersAiAdapter } from './workers-ai';
 import { coordinatorNamespace } from '../../lib/durable-object-namespaces';
 
 import type { RequestOriginContext } from './request-origin-context';

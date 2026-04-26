@@ -5,7 +5,7 @@ import { ToolExecutionError } from '@shared/tool-errors';
 
 import { convertHtmlToMarkdown } from './html-to-markdown';
 import { assertSafeExternalUrl, fetchTextWithSafeRedirects } from './network-policy';
-import { createAdapter } from '../workers-ai/adapter';
+import { createAdapter } from '../workers-ai';
 
 import type { SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
 
