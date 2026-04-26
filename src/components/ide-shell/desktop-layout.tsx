@@ -3,7 +3,13 @@ import { Group as PanelGroup, Panel } from 'react-resizable-panels';
 
 import { ActivityBar } from '@/components/activity-bar';
 import { ErrorBoundary } from '@/components/error-boundary';
-import { FileTreeSkeleton, PanelSkeleton } from '@/components/ui/skeleton';
+import {
+	AgentPanelSkeleton,
+	DevelopmentToolsPanelSkeleton,
+	FileTreeSkeleton,
+	OutputPanelSkeleton,
+	PreviewPanelSkeleton,
+} from '@/components/ui/skeleton';
 import { DependencyPanel, FileTree, type useFileTree } from '@/features/file-tree';
 import { GitPanel } from '@/features/git';
 import { TestsPanel } from '@/features/tests';
@@ -248,7 +254,7 @@ export function DesktopLayout({
 								<>
 									<PanelDivider orientation="vertical" />
 									<Panel id="utility-panel" defaultSize={BOTTOM_PANEL_DEFAULT_SIZE} minSize="10%" maxSize="60%">
-										<Suspense fallback={<PanelSkeleton label="Loading output..." />}>
+										<Suspense fallback={<OutputPanelSkeleton showUtilityHeader />}>
 											<UtilityPanel
 												projectId={projectId}
 												onToggle={toggleUtilityPanel}
@@ -287,7 +293,7 @@ export function DesktopLayout({
 						onLayoutChanged={previewDevtoolsLayout.onLayoutChanged}
 					>
 						<Panel id="preview" defaultSize={devtoolsVisible ? '70%' : '100%'} minSize="20%">
-							<Suspense fallback={<PanelSkeleton label="Loading preview..." />}>
+							<Suspense fallback={<PreviewPanelSkeleton />}>
 								<PreviewPanel
 									previewUrl={previewUrl}
 									previewOrigin={previewOrigin}
@@ -303,7 +309,7 @@ export function DesktopLayout({
 							<>
 								<PanelDivider orientation="vertical" />
 								<Panel id="devtools" defaultSize="30%" minSize="15%" maxSize="80%">
-									<Suspense fallback={<PanelSkeleton label="Loading DevTools..." />}>
+									<Suspense fallback={<DevelopmentToolsPanelSkeleton />}>
 										<DevelopmentToolsPanel
 											previewIframeReference={previewIframeReference}
 											previewOrigin={previewOrigin}
@@ -321,7 +327,7 @@ export function DesktopLayout({
 						<PanelDivider orientation="horizontal" />
 						<Panel id="ai-panel" defaultSize="20%" minSize="15%" maxSize="35%">
 							<aside className="flex h-full flex-col border-l border-border">
-								<Suspense fallback={<PanelSkeleton label="Loading Agent..." />}>
+								<Suspense fallback={<AgentPanelSkeleton />}>
 									<AIPanel projectId={projectId} className="h-full" />
 								</Suspense>
 							</aside>

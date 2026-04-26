@@ -3,7 +3,7 @@ import { lazy, Suspense } from 'react';
 
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Pill } from '@/components/ui/pill';
-import { PanelSkeleton } from '@/components/ui/skeleton';
+import { OutputPanelSkeleton } from '@/components/ui/skeleton';
 import { useStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 
@@ -102,7 +102,7 @@ export function UtilityPanel({ projectId, onToggle, collapsed = false, logCounts
 					className="flex-1 overflow-hidden"
 				>
 					{activeTab === 'output' && (
-						<Suspense fallback={<PanelSkeleton label="Loading output..." />}>
+						<Suspense fallback={<OutputPanelSkeleton />}>
 							<OutputPanel projectId={projectId} className="h-full" />
 						</Suspense>
 					)}

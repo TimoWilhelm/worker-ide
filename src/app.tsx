@@ -9,7 +9,7 @@ import { NotFoundPage } from '@/components/not-found-page';
 import { OfflineBanner } from '@/components/offline-banner';
 import { ProjectAccessRestricted } from '@/components/project-access-restricted';
 import { ProjectNotFound } from '@/components/project-not-found';
-import { PageContentSkeleton, SettingsContentSkeleton } from '@/components/ui/skeleton';
+import { AppLoadingSkeleton, OrganizationManagementSkeleton, PageContentSkeleton, SettingsContentSkeleton } from '@/components/ui/skeleton';
 import { Toaster } from '@/components/ui/toast';
 import { toast } from '@/components/ui/toast-store';
 import { AppearanceModal } from '@/features/appearance';
@@ -48,7 +48,7 @@ const queryClient = new QueryClient({
 });
 
 function LoadingFallback() {
-	return <PageContentSkeleton />;
+	return <AppLoadingSkeleton />;
 }
 
 function isDeletedOrganization(value: unknown): boolean {
@@ -344,7 +344,7 @@ function OrgSettingsRoute({ organizations }: { organizations: OrganizationEntry[
 	}
 
 	return (
-		<Suspense fallback={<PageContentSkeleton />}>
+		<Suspense fallback={<OrganizationManagementSkeleton />}>
 			<OrgManagementPage orgSlug={orgSlug} organizationId={organization.id} organizations={organizations} />
 		</Suspense>
 	);

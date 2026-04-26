@@ -134,6 +134,516 @@ export function ModalContentSkeleton() {
 	);
 }
 
+export function AppLoadingSkeleton() {
+	return (
+		<div className="flex h-dvh flex-col bg-bg-primary">
+			<div
+				className="
+					flex h-12 shrink-0 items-center justify-between border-b border-border
+					bg-bg-secondary px-4
+					sm:px-6
+				"
+			>
+				<div className="flex items-center gap-3">
+					<Skeleton className="size-8 rounded-md" />
+					<Skeleton className="h-4 w-28" />
+				</div>
+				<div className="flex items-center gap-2">
+					<Skeleton className="h-8 w-24 rounded-md" />
+					<Skeleton className="size-8 rounded-full" />
+				</div>
+			</div>
+			<div className="flex min-h-0 flex-1">
+				<div
+					className="
+						hidden w-56 shrink-0 border-r border-border bg-bg-secondary/40 p-3
+						lg:flex lg:flex-col lg:gap-3
+					"
+				>
+					<Skeleton className="h-8 rounded-md" />
+					{Array.from({ length: 6 }, (_, index) => (
+						<Skeleton key={index} className="h-4" style={{ width: `${48 + ((index * 9) % 24)}%` }} />
+					))}
+				</div>
+				<div className="flex min-h-0 flex-1 flex-col gap-6 p-6">
+					<div className="flex flex-col gap-2">
+						<Skeleton className="h-7 w-40" />
+						<Skeleton className="h-4 w-64 max-w-full" />
+					</div>
+					<div
+						className="
+							grid gap-4
+							sm:grid-cols-2
+							xl:grid-cols-3
+						"
+					>
+						{Array.from({ length: 3 }, (_, index) => (
+							<div key={index} className="rounded-xl border border-border bg-bg-secondary/40 p-4">
+								<div className="mb-4 flex items-center justify-between gap-3">
+									<Skeleton className="h-5 w-24" />
+									<Skeleton className="size-8 rounded-lg" />
+								</div>
+								<div className="flex flex-col gap-2">
+									<Skeleton className="h-4 w-full" />
+									<Skeleton className="h-4 w-2/3" />
+								</div>
+							</div>
+						))}
+					</div>
+					<div className="rounded-xl border border-border bg-bg-secondary/40 p-4">
+						<div className="mb-4 flex items-center justify-between gap-3">
+							<Skeleton className="h-5 w-32" />
+							<Skeleton className="h-8 w-24 rounded-md" />
+						</div>
+						<div
+							className="
+								grid gap-3
+								md:grid-cols-2
+								xl:grid-cols-3
+							"
+						>
+							{Array.from({ length: 6 }, (_, index) => (
+								<Skeleton key={index} className="h-24 rounded-xl" />
+							))}
+						</div>
+					</div>
+				</div>
+			</div>
+		</div>
+	);
+}
+
+export function PreviewPanelSkeleton() {
+	return (
+		<div className="flex h-full flex-col bg-bg-secondary">
+			<div
+				className="
+					flex h-9 shrink-0 items-center justify-between gap-3 border-b border-border
+					px-3
+				"
+			>
+				<Skeleton className="h-4 w-16" />
+				<div className="flex items-center gap-1.5">
+					<Skeleton className="size-7 rounded-md" />
+					<Skeleton className="size-7 rounded-md" />
+					<Skeleton className="size-7 rounded-md" />
+				</div>
+			</div>
+			<div className="flex flex-1 flex-col gap-3 p-3">
+				<div
+					className="
+						flex items-center gap-2 rounded-lg border border-border/70 bg-bg-primary
+						px-3 py-2
+					"
+				>
+					<Skeleton className="size-2 rounded-full" />
+					<Skeleton className="size-2 rounded-full" />
+					<Skeleton className="size-2 rounded-full" />
+					<Skeleton className="h-4 w-full rounded-full" />
+				</div>
+				<div
+					className="
+						flex flex-1 flex-col gap-4 rounded-xl border border-border/70
+						bg-bg-primary p-4
+					"
+				>
+					<Skeleton className="h-8 w-48 rounded-md" />
+					<div
+						className="
+							grid gap-3
+							md:grid-cols-2
+						"
+					>
+						<Skeleton className="h-24 rounded-xl" />
+						<Skeleton className="h-24 rounded-xl" />
+					</div>
+					<Skeleton className="h-40 flex-1 rounded-xl" />
+				</div>
+			</div>
+		</div>
+	);
+}
+
+export function DevelopmentToolsPanelSkeleton() {
+	return (
+		<div className="flex h-full flex-col bg-bg-secondary">
+			<div className="flex h-8 shrink-0 items-center gap-1 border-b border-border px-2">
+				{Array.from({ length: 5 }, (_, index) => (
+					<Skeleton key={index} className="h-5 rounded-sm" style={{ width: `${40 + ((index * 11) % 22)}px` }} />
+				))}
+			</div>
+			<div
+				className="
+					flex h-7 shrink-0 items-center justify-between gap-2 border-b border-border
+					px-2
+				"
+			>
+				<div className="flex items-center gap-1.5">
+					<Skeleton className="size-5 rounded-sm" />
+					<Skeleton className="size-5 rounded-sm" />
+					<Skeleton className="h-4 w-16" />
+				</div>
+				<Skeleton className="h-4 w-24" />
+			</div>
+			<div className="flex min-h-0 flex-1">
+				<div className="flex w-52 shrink-0 flex-col gap-2 border-r border-border p-2">
+					<Skeleton className="h-5 w-20" />
+					{Array.from({ length: 6 }, (_, index) => (
+						<Skeleton key={index} className="h-4" style={{ width: `${58 + ((index * 9) % 24)}%` }} />
+					))}
+				</div>
+				<div className="flex min-h-0 flex-1 flex-col">
+					<div
+						className="
+							grid grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_96px] gap-2 border-b
+							border-border px-3 py-2
+						"
+					>
+						<Skeleton className="h-4 w-full" />
+						<Skeleton className="h-4 w-full" />
+						<Skeleton className="h-4 w-16" />
+					</div>
+					<div className="flex flex-1 flex-col gap-2 p-3">
+						{Array.from({ length: 7 }, (_, index) => (
+							<div key={index} className="grid grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_96px] gap-2">
+								<Skeleton className="h-4 w-full" />
+								<Skeleton className="h-4 w-full" />
+								<Skeleton className="h-4 w-12" />
+							</div>
+						))}
+					</div>
+				</div>
+			</div>
+		</div>
+	);
+}
+
+export function AgentPanelSkeleton() {
+	return (
+		<div className="flex h-full flex-col bg-bg-secondary">
+			<div
+				className="
+					flex h-9 shrink-0 items-center justify-between gap-3 border-b border-border
+					px-3
+				"
+			>
+				<div className="flex items-center gap-2">
+					<Skeleton className="size-6 rounded-md" />
+					<Skeleton className="h-4 w-28" />
+				</div>
+				<div className="flex items-center gap-1.5">
+					<Skeleton className="size-7 rounded-md" />
+					<Skeleton className="size-7 rounded-md" />
+				</div>
+			</div>
+			<div
+				className="
+					flex h-7 shrink-0 items-center justify-between gap-2 border-b border-border
+					px-3
+				"
+			>
+				<div className="flex items-center gap-2">
+					<Skeleton className="size-2 rounded-full" />
+					<Skeleton className="h-3 w-24" />
+				</div>
+				<Skeleton className="size-5 rounded-md" />
+			</div>
+			<div className="flex flex-1 flex-col gap-3 overflow-hidden p-3">
+				<div className="flex justify-start">
+					<div className="flex max-w-[80%] items-start gap-2">
+						<Skeleton className="size-8 shrink-0 rounded-full" />
+						<div
+							className="
+								flex flex-col gap-2 rounded-2xl border border-border/70 bg-bg-primary
+								px-3 py-2.5
+							"
+						>
+							<Skeleton className="h-4 w-40" />
+							<Skeleton className="h-4 w-56 max-w-full" />
+							<Skeleton className="h-4 w-32" />
+						</div>
+					</div>
+				</div>
+				<div className="flex justify-end">
+					<div
+						className="
+							flex max-w-[72%] flex-col gap-2 rounded-2xl bg-bg-tertiary px-3 py-2.5
+						"
+					>
+						<Skeleton className="h-4 w-36" />
+						<Skeleton className="h-4 w-24" />
+					</div>
+				</div>
+				<div className="flex justify-start">
+					<div className="flex max-w-[85%] items-start gap-2">
+						<Skeleton className="size-8 shrink-0 rounded-full" />
+						<div
+							className="
+								flex flex-col gap-2 rounded-2xl border border-border/70 bg-bg-primary
+								px-3 py-2.5
+							"
+						>
+							<Skeleton className="h-4 w-48" />
+							<Skeleton className="h-24 w-64 max-w-full rounded-xl" />
+						</div>
+					</div>
+				</div>
+				<div className="mt-auto flex flex-col gap-2 border-t border-border pt-3">
+					<Skeleton className="h-9 rounded-xl" />
+					<div className="flex items-center justify-between gap-2">
+						<div className="flex items-center gap-1.5">
+							<Skeleton className="size-7 rounded-md" />
+							<Skeleton className="size-7 rounded-md" />
+						</div>
+						<Skeleton className="h-8 w-20 rounded-md" />
+					</div>
+				</div>
+			</div>
+		</div>
+	);
+}
+
+interface OutputPanelSkeletonProperties {
+	showUtilityHeader?: boolean;
+}
+
+export function OutputPanelSkeleton({ showUtilityHeader = false }: OutputPanelSkeletonProperties) {
+	return (
+		<div className="flex h-full flex-col bg-bg-secondary">
+			{showUtilityHeader ? (
+				<div
+					className="
+						flex h-7 shrink-0 items-center justify-between gap-2 border-b
+						border-border px-2
+					"
+				>
+					<div className="flex items-center gap-2">
+						<Skeleton className="size-4 rounded-sm" />
+						<Skeleton className="h-4 w-16 rounded-full" />
+					</div>
+					<Skeleton className="h-4 w-12" />
+				</div>
+			) : undefined}
+			<div
+				className="
+					flex shrink-0 items-center justify-between gap-2 border-b border-border
+					px-2 py-1
+				"
+			>
+				<div className="flex items-center gap-1.5">
+					<Skeleton className="h-4 w-10 rounded-sm" />
+					<Skeleton className="h-4 w-14 rounded-sm" />
+					<Skeleton className="h-4 w-12 rounded-sm" />
+				</div>
+				<div className="flex items-center gap-1.5">
+					<Skeleton className="h-4 w-14 rounded-sm" />
+					<Skeleton className="size-5 rounded-sm" />
+				</div>
+			</div>
+			<div className="flex flex-1 flex-col gap-2 px-3 py-2">
+				{Array.from({ length: 8 }, (_, index) => (
+					<div key={index} className="flex items-start gap-2">
+						<Skeleton className="mt-1 size-1.5 shrink-0 rounded-full" />
+						<div className="flex min-w-0 flex-1 flex-col gap-1.5">
+							<Skeleton className="h-3" style={{ width: `${62 + ((index * 7) % 22)}%` }} />
+							{index % 3 === 0 ? <Skeleton className="h-3" style={{ width: `${36 + ((index * 5) % 20)}%` }} /> : undefined}
+						</div>
+					</div>
+				))}
+			</div>
+		</div>
+	);
+}
+
+export function WranglerSettingsSkeleton() {
+	return (
+		<div className="flex h-full flex-col overflow-hidden bg-bg-secondary">
+			<div
+				className="
+					flex shrink-0 items-center justify-between border-b border-border px-4
+					py-2.5
+				"
+			>
+				<div className="flex items-center gap-2">
+					<Skeleton className="size-4 rounded-sm" />
+					<Skeleton className="h-4 w-40" />
+				</div>
+				<div className="flex items-center gap-2">
+					<Skeleton className="h-4 w-10" />
+					<Skeleton className="h-8 w-20 rounded-md" />
+				</div>
+			</div>
+			<div className="flex-1 overflow-y-auto p-4">
+				<div className="mx-auto flex max-w-lg flex-col gap-6">
+					<div className="flex flex-col gap-2">
+						<Skeleton className="h-5 w-28" />
+						<Skeleton className="h-4 w-full" />
+					</div>
+					<div className="flex flex-col gap-2">
+						<Skeleton className="h-4 w-32" />
+						<Skeleton className="h-3 w-72 max-w-full" />
+						{Array.from({ length: 3 }, (_, index) => (
+							<div
+								key={index}
+								className="
+									flex items-start gap-2.5 rounded-sm border border-border p-2.5
+								"
+							>
+								<Skeleton className="mt-0.5 size-3.5 rounded-full" />
+								<div className="flex flex-1 flex-col gap-1.5">
+									<Skeleton className="h-4 w-28" />
+									<Skeleton className="h-3 w-full" />
+								</div>
+							</div>
+						))}
+					</div>
+					<div className="flex flex-col gap-2">
+						<Skeleton className="h-4 w-24" />
+						<Skeleton className="h-8 w-full rounded-sm" />
+						<Skeleton className="h-3 w-56 max-w-full" />
+					</div>
+					<div className="flex flex-col gap-2">
+						<Skeleton className="h-4 w-32" />
+						<Skeleton className="h-3 w-72 max-w-full" />
+						{Array.from({ length: 3 }, (_, index) => (
+							<div
+								key={index}
+								className="
+									flex items-start gap-2.5 rounded-sm border border-border p-2.5
+								"
+							>
+								<Skeleton className="mt-0.5 size-3.5 rounded-full" />
+								<div className="flex flex-1 flex-col gap-1.5">
+									<Skeleton className="h-4 w-32" />
+									<Skeleton className="h-3 w-full" />
+								</div>
+							</div>
+						))}
+					</div>
+					<div className="flex flex-col gap-2">
+						<Skeleton className="h-4 w-28" />
+						<div className="rounded-md border border-border p-3">
+							<div className="mb-3 flex items-center justify-between gap-3">
+								<Skeleton className="h-4 w-24" />
+								<Skeleton className="h-4 w-16" />
+							</div>
+							<Skeleton className="h-3 w-full rounded-full" />
+						</div>
+					</div>
+				</div>
+			</div>
+		</div>
+	);
+}
+
+export function OrganizationManagementSkeleton() {
+	return (
+		<div className="flex h-dvh flex-col bg-bg-primary">
+			<div
+				className="
+					flex h-12 shrink-0 items-center justify-between border-b border-border
+					bg-bg-secondary px-4
+					sm:px-6
+				"
+			>
+				<div className="flex items-center gap-3">
+					<Skeleton className="size-8 rounded-md" />
+					<Skeleton className="h-4 w-28" />
+				</div>
+				<div className="flex items-center gap-2">
+					<Skeleton className="h-8 w-32 rounded-md" />
+					<Skeleton className="size-8 rounded-full" />
+				</div>
+			</div>
+			<main className="flex-1 overflow-y-auto">
+				<div className="mx-auto flex w-full max-w-lg flex-col gap-6 px-6 py-12">
+					<div className="flex items-center gap-3">
+						<Skeleton className="size-10 shrink-0 rounded-lg" />
+						<div className="flex min-w-0 flex-1 flex-col gap-2">
+							<Skeleton className="h-6 w-44 max-w-full" />
+							<Skeleton className="h-3 w-32" />
+							<Skeleton className="h-3 w-48 max-w-full" />
+						</div>
+						<Skeleton className="h-8 w-20 rounded-md" />
+					</div>
+					<section className="flex flex-col gap-3">
+						<Skeleton className="h-4 w-36" />
+						<div
+							className="
+								overflow-hidden rounded-lg border border-border bg-bg-secondary/40
+							"
+						>
+							{Array.from({ length: 4 }, (_, index) => (
+								<div key={index} className={cn('flex items-center justify-between gap-3 px-4 py-3', index > 0 && 'border-t border-border')}>
+									<div className="flex min-w-0 items-center gap-3">
+										<Skeleton className="size-8 shrink-0 rounded-full" />
+										<div className="flex min-w-0 flex-col gap-1.5">
+											<Skeleton className="h-4 w-28" />
+											<Skeleton className="h-3 w-40 max-w-full" />
+										</div>
+									</div>
+									<div className="flex items-center gap-2">
+										<Skeleton className="h-6 w-16 rounded-md" />
+										<Skeleton className="size-7 rounded-md" />
+									</div>
+								</div>
+							))}
+						</div>
+					</section>
+					<section className="flex flex-col gap-3">
+						<Skeleton className="h-4 w-28" />
+						<div className="rounded-lg border border-border bg-bg-secondary/40 p-4">
+							<div className="mb-3 flex items-center gap-2">
+								<Skeleton className="h-9 flex-1 rounded-md" />
+								<Skeleton className="h-9 w-24 rounded-md" />
+								<Skeleton className="h-9 w-20 rounded-md" />
+							</div>
+							<Skeleton className="h-3 w-44" />
+						</div>
+					</section>
+					<section className="flex flex-col gap-3">
+						<Skeleton className="h-4 w-40" />
+						<div
+							className="
+								overflow-hidden rounded-lg border border-border bg-bg-secondary/40
+							"
+						>
+							{Array.from({ length: 2 }, (_, index) => (
+								<div key={index} className={cn('flex items-center justify-between gap-3 px-4 py-3', index > 0 && 'border-t border-border')}>
+									<div className="flex min-w-0 items-center gap-3">
+										<Skeleton className="size-8 shrink-0 rounded-full" />
+										<div className="flex min-w-0 flex-col gap-1.5">
+											<Skeleton className="h-4 w-36" />
+											<Skeleton className="h-3 w-24" />
+										</div>
+									</div>
+									<Skeleton className="size-7 rounded-md" />
+								</div>
+							))}
+						</div>
+					</section>
+					<section className="flex flex-col gap-3">
+						<Skeleton className="h-4 w-24" />
+						<div
+							className="
+								rounded-lg border border-error/20 bg-bg-secondary/40 px-4 py-3
+							"
+						>
+							<div className="flex items-center justify-between gap-3">
+								<div className="flex min-w-0 flex-col gap-1.5">
+									<Skeleton className="h-4 w-32" />
+									<Skeleton className="h-3 w-56 max-w-full" />
+								</div>
+								<Skeleton className="h-8 w-20 rounded-md" />
+							</div>
+						</div>
+					</section>
+				</div>
+			</main>
+		</div>
+	);
+}
+
 /**
  * Lightweight skeleton for page-level content areas.
  *

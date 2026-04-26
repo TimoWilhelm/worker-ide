@@ -5,7 +5,7 @@ import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
-import { EditorSkeleton } from '@/components/ui/skeleton';
+import { WranglerSettingsSkeleton } from '@/components/ui/skeleton';
 import { fetchProjectMeta, fetchStorageUsage, updateProjectMeta } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
 
@@ -100,7 +100,7 @@ function SettingsErrorFallback({ resetErrorBoundary }: { error: Error; resetErro
 export function WranglerSettingsPanel({ projectId }: WranglerSettingsPanelProperties) {
 	return (
 		<ErrorBoundary fallback={SettingsErrorFallback}>
-			<Suspense fallback={<EditorSkeleton />}>
+			<Suspense fallback={<WranglerSettingsSkeleton />}>
 				<WranglerSettingsContent projectId={projectId} />
 			</Suspense>
 		</ErrorBoundary>

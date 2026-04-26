@@ -5,7 +5,13 @@ import { ErrorBoundary } from '@/components/error-boundary';
 import { MobileFileDrawer } from '@/components/mobile-file-drawer';
 import { MobileTabBar } from '@/components/mobile-tab-bar';
 import { Pill } from '@/components/ui/pill';
-import { FileTreeSkeleton, PanelSkeleton } from '@/components/ui/skeleton';
+import {
+	AgentPanelSkeleton,
+	DevelopmentToolsPanelSkeleton,
+	FileTreeSkeleton,
+	OutputPanelSkeleton,
+	PreviewPanelSkeleton,
+} from '@/components/ui/skeleton';
 import { DependencyPanel, FileTree, type useFileTree } from '@/features/file-tree';
 import { GitPanel } from '@/features/git';
 import { TestsPanel } from '@/features/tests';
@@ -160,7 +166,7 @@ export function MobileLayout({
 						/>
 						{utilityPanelVisible ? (
 							<div className="flex h-48 shrink-0 flex-col border-t border-border">
-								<Suspense fallback={<PanelSkeleton label="Loading output..." />}>
+								<Suspense fallback={<OutputPanelSkeleton showUtilityHeader />}>
 									<UtilityPanel projectId={projectId} onToggle={toggleUtilityPanel} logCounts={logCounts} className="h-full" />
 								</Suspense>
 							</div>
@@ -189,7 +195,7 @@ export function MobileLayout({
 				{/* Keep the preview mounted so the in-page devtools bridge survives tab switches. */}
 				<div className={cn('flex h-full flex-col overflow-hidden', activeMobilePanel !== 'preview' && 'hidden')}>
 					<div className={cn('overflow-hidden', devtoolsVisible ? 'h-1/2' : 'flex-1')}>
-						<Suspense fallback={<PanelSkeleton label="Loading preview..." />}>
+						<Suspense fallback={<PreviewPanelSkeleton />}>
 							<PreviewPanel
 								previewUrl={previewUrl}
 								previewOrigin={previewOrigin}
@@ -202,7 +208,7 @@ export function MobileLayout({
 					</div>
 					{devtoolsVisible && (
 						<div className="h-1/2 border-t border-border">
-							<Suspense fallback={<PanelSkeleton label="Loading DevTools..." />}>
+							<Suspense fallback={<DevelopmentToolsPanelSkeleton />}>
 								<DevelopmentToolsPanel previewIframeReference={previewIframeReference} previewOrigin={previewOrigin} className="h-full" />
 							</Suspense>
 						</div>
@@ -218,7 +224,7 @@ export function MobileLayout({
 				{activeMobilePanel === 'tests' && <TestsPanel projectId={projectId} className="h-full" />}
 
 				{activeMobilePanel === 'agent' && (
-					<Suspense fallback={<PanelSkeleton label="Loading Agent..." />}>
+					<Suspense fallback={<AgentPanelSkeleton />}>
 						<AIPanel projectId={projectId} className="h-full" />
 					</Suspense>
 				)}

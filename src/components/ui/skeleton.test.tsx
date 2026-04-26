@@ -2,15 +2,22 @@ import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
 import {
+	AgentPanelSkeleton,
+	AppLoadingSkeleton,
+	DevelopmentToolsPanelSkeleton,
 	EditorSkeleton,
 	FileTreeSkeleton,
 	GitPanelSkeleton,
 	ListSkeleton,
 	ModalContentSkeleton,
+	OrganizationManagementSkeleton,
+	OutputPanelSkeleton,
 	PageContentSkeleton,
 	PanelSkeleton,
+	PreviewPanelSkeleton,
 	SettingsContentSkeleton,
 	Skeleton,
+	WranglerSettingsSkeleton,
 } from './skeleton';
 
 describe('Skeleton', () => {
@@ -84,6 +91,62 @@ describe('ModalContentSkeleton', () => {
 		const { container } = render(<ModalContentSkeleton />);
 		const skeletons = container.querySelectorAll('.animate-pulse');
 		expect(skeletons.length).toBeGreaterThanOrEqual(6);
+	});
+});
+
+describe('AppLoadingSkeleton', () => {
+	it('renders multiple app shell placeholders', () => {
+		const { container } = render(<AppLoadingSkeleton />);
+		const skeletons = container.querySelectorAll('.animate-pulse');
+		expect(skeletons.length).toBeGreaterThanOrEqual(12);
+	});
+});
+
+describe('PreviewPanelSkeleton', () => {
+	it('renders browser-like preview placeholders', () => {
+		const { container } = render(<PreviewPanelSkeleton />);
+		const skeletons = container.querySelectorAll('.animate-pulse');
+		expect(skeletons.length).toBeGreaterThanOrEqual(8);
+	});
+});
+
+describe('DevelopmentToolsPanelSkeleton', () => {
+	it('renders split-pane devtools placeholders', () => {
+		const { container } = render(<DevelopmentToolsPanelSkeleton />);
+		const skeletons = container.querySelectorAll('.animate-pulse');
+		expect(skeletons.length).toBeGreaterThanOrEqual(14);
+	});
+});
+
+describe('AgentPanelSkeleton', () => {
+	it('renders chat and composer placeholders', () => {
+		const { container } = render(<AgentPanelSkeleton />);
+		const skeletons = container.querySelectorAll('.animate-pulse');
+		expect(skeletons.length).toBeGreaterThanOrEqual(12);
+	});
+});
+
+describe('OutputPanelSkeleton', () => {
+	it('renders output log placeholders', () => {
+		const { container } = render(<OutputPanelSkeleton />);
+		const skeletons = container.querySelectorAll('.animate-pulse');
+		expect(skeletons.length).toBeGreaterThanOrEqual(10);
+	});
+});
+
+describe('WranglerSettingsSkeleton', () => {
+	it('renders settings-form placeholders', () => {
+		const { container } = render(<WranglerSettingsSkeleton />);
+		const skeletons = container.querySelectorAll('.animate-pulse');
+		expect(skeletons.length).toBeGreaterThanOrEqual(12);
+	});
+});
+
+describe('OrganizationManagementSkeleton', () => {
+	it('renders organization management placeholders', () => {
+		const { container } = render(<OrganizationManagementSkeleton />);
+		const skeletons = container.querySelectorAll('.animate-pulse');
+		expect(skeletons.length).toBeGreaterThanOrEqual(16);
 	});
 });
 
