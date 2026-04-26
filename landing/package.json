@@ -8,12 +8,10 @@
 		"build": "astro build",
 		"preview": "astro preview",
 		"typecheck": "astro check",
-		"format": "prettier --check .",
-		"format:fix": "prettier --write .",
-		"lint": "eslint .",
-		"lint:fix": "eslint --fix .",
+		"format": "prettier --write . && eslint --fix .",
+		"lint": "prettier --check . && eslint .",
 		"knip": "knip",
-		"check": "bun run format && bun run lint && bun run typecheck && bun run knip",
+		"check": "bun run lint && bun run typecheck && bun run knip",
 		"deploy": "astro build && wrangler deploy"
 	},
 	"devDependencies": {
@@ -33,6 +31,7 @@
 		"eslint-plugin-unicorn": "^63.0.0",
 		"eslint-plugin-unused-imports": "^4.4.1",
 		"knip": "^5.87.0",
+		"@lucide/astro": "^1.0.0",
 		"prettier": "^3.8.1",
 		"prettier-plugin-astro": "^0.14.1",
 		"react": "^19.2.4",

@@ -10,6 +10,7 @@
         "@astrojs/react": "^5.0.2",
         "@astrojs/sitemap": "^3.7.1",
         "@eslint/js": "^10.0.1",
+        "@lucide/astro": "^1.0.0",
         "@tailwindcss/vite": "^4.1.7",
         "@types/react": "^19.2.14",
         "@types/react-dom": "^19.2.3",
@@ -275,6 +276,8 @@
     "@jridgewell/sourcemap-codec": ["@jridgewell/sourcemap-codec@1.5.5", "", {}, "sha512-cYQ9310grqxueWbl+WuIUIaiUaDcj7WOq5fVhEljNVgRfOUhY9fy2zTvfoqWsnebh8Sl70VScFbICvJnLKB0Og=="],
 
     "@jridgewell/trace-mapping": ["@jridgewell/trace-mapping@0.3.31", "", { "dependencies": { "@jridgewell/resolve-uri": "^3.1.0", "@jridgewell/sourcemap-codec": "^1.4.14" } }, "sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw=="],
+
+    "@lucide/astro": ["@lucide/astro@1.11.0", "", { "peerDependencies": { "astro": "^4 || ^5 || ^6" } }, "sha512-b9AA35k3L/DR9J9OoGWIHks4dtMzcDo9P0sZEEDmFxIy0qqw+rKMt3TLk+YEoXppcqXMK/DTM1tIfuaH+frX/w=="],
 
     "@napi-rs/wasm-runtime": ["@napi-rs/wasm-runtime@1.1.1", "", { "dependencies": { "@emnapi/core": "^1.7.1", "@emnapi/runtime": "^1.7.1", "@tybys/wasm-util": "^0.10.1" } }, "sha512-p64ah1M1ld8xjWv3qbvFwHiFVWrq1yFvV4f7w+mzaqiR4IlSgkqhcRdHwsGgomwzBH51sRY4NEowLxnaBjcW/A=="],
 

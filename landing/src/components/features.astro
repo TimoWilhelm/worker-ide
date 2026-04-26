@@ -1,55 +1,44 @@
 ---
+import { Code2, Eye, GitBranch, Rocket, Sparkles, Users, type Icon as IconType } from '@lucide/astro';
+
 interface Feature {
 	title: string;
 	description: string;
-	icon: string;
+	icon: typeof IconType;
 }
 
 const features: Feature[] = [
 	{
-		title: 'Cloud-Native Editor',
-		description:
-			'Full CodeMirror 6 editor with syntax highlighting, autocomplete, linting, and multi-file support — all running in your browser.',
-		icon: 'code',
+		title: 'Browser Editor',
+		description: 'Editing, autocomplete, linting, and multi-file work in one place, right in the browser.',
+		icon: Code2,
 	},
 	{
-		title: 'Real-Time Collaboration',
-		description:
-			'Work together with live cursors, selections, and instant sync. See your teammates code in real time like Google Docs for developers.',
-		icon: 'users',
+		title: 'Collaborate in Real-Time',
+		description: 'Share a project and work together with live cursors and synced changes.',
+		icon: Users,
 	},
 	{
 		title: 'AI Agent',
-		description:
-			'Built-in AI agent that understands your project context. Generate code, debug issues, and refactor — directly in the editor.',
-		icon: 'sparkles',
+		description: ' Built-in AI agent that understands your project. Generate code, debug issues, and refactor.',
+		icon: Sparkles,
 	},
 	{
 		title: 'Instant Preview',
-		description: 'Every project gets a live preview URL. See changes instantly as you type, with full DevTools support built right in.',
-		icon: 'eye',
+		description: 'Each project gets a live preview URL so you can check changes as you make them, with DevTools built-in.',
+		icon: Eye,
 	},
 	{
 		title: 'Git Integration',
-		description: 'Commit, branch, diff, and push without leaving the IDE. Full isomorphic Git support runs natively in the browser.',
-		icon: 'git-branch',
+		description: 'Review diffs, create commits, switch branches, and push from the same workspace.',
+		icon: GitBranch,
 	},
 	{
-		title: 'Deploy to the Edge',
+		title: 'Deploy',
 		description: 'Deploy to Cloudflare in one click. Your app runs on 300+ data centers worldwide with zero cold starts.',
-		icon: 'rocket',
+		icon: Rocket,
 	},
 ];
-
-const iconPaths: Record<string, string> = {
-	code: 'M16 18l6-6-6-6M8 6l-6 6 6 6',
-	users: 'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 3a4 4 0 1 0 0 8 4 4 0 0 0 0-8zM22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75',
-	sparkles: 'M12 3l1.912 5.813L20 10.5l-6.088 1.688L12 18l-1.912-5.813L4 10.5l6.088-1.688L12 3zM5 3v4M19 17v4M3 5h4M17 19h4',
-	eye: 'M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8zM12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6z',
-	'git-branch': 'M6 3v12M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM18 9a9 9 0 0 1-9 9',
-	rocket:
-		'M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09zM12 15l-3-3M22 2l-7.5 7.5M9.75 14.25L8 16M15 9.5l1.5-1.5M22 2l-5 5M11.25 11.25 10 13',
-};
 ---
 
 <section id="features" class="relative py-24 sm:py-32">
@@ -65,9 +54,9 @@ const iconPaths: Record<string, string> = {
 		<!-- Section header -->
 		<div class="mx-auto mb-16 max-w-2xl text-center">
 			<p class="mb-4 font-mono text-xs uppercase tracking-widest text-accent">Features</p>
-			<h2 class="text-3xl font-bold tracking-tight sm:text-4xl">Everything you need to build from your browser</h2>
+			<h2 class="text-3xl font-bold tracking-tight sm:text-4xl">Build apps from your browser</h2>
 			<p class="mt-4 text-lg leading-relaxed text-text-secondary">
-				A complete development environment that runs entirely in the cloud. No downloads, no configuration, no waiting.
+				Start a project, edit code, preview it, and ship it without installing anything.
 			</p>
 		</div>
 
@@ -80,22 +69,11 @@ const iconPaths: Record<string, string> = {
 						style={`transition-delay: ${index * 80}ms;`}
 						data-reveal
 					>
-						<div class="mb-4 inline-flex rounded-lg bg-accent/10 p-2.5 transition-colors group-hover:bg-accent/20">
-							<svg
-								xmlns="http://www.w3.org/2000/svg"
-								width="22"
-								height="22"
-								viewBox="0 0 24 24"
-								fill="none"
-								stroke="currentColor"
-								stroke-width="1.5"
-								stroke-linecap="round"
-								stroke-linejoin="round"
-								class="text-accent"
-							>
-								<path d={iconPaths[feature.icon]} />
-							</svg>
-						</div>
+						<feature.icon
+							size={22}
+							stroke-width={1.5}
+							class="mb-4 inline-flex rounded-lg bg-accent/10 p-2.5 text-accent transition-colors group-hover:bg-accent/20"
+						/>
 						<h3 class="mb-2 text-base font-semibold">{feature.title}</h3>
 						<p class="text-sm leading-relaxed text-text-secondary">{feature.description}</p>
 					</div>

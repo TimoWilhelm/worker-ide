@@ -1,4 +1,5 @@
 ---
+import { ArrowRight } from '@lucide/astro';
 import { highlight } from 'sugar-high';
 
 const appUrl = 'https://codemaxxing.app';
@@ -51,14 +52,21 @@ const highlightedCode = highlight(code);
 					<span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-success opacity-60"></span>
 					<span class="relative inline-flex h-2 w-2 rounded-full bg-success"></span>
 				</span>
-				Powered by Cloudflare Workers
+				<span
+					>Powered by <a
+						href="https://workers.cloudflare.com"
+						target="_blank"
+						rel="noopener noreferrer"
+						class="transition-colors hover:text-accent">Cloudflare Workers</a
+					></span
+				>
 			</span>
 		</div>
 
 		<!-- Headline — staggered lines -->
 		<div class="text-center">
 			<h1 class="text-4xl leading-[1.1] font-bold tracking-tight sm:text-5xl md:text-6xl lg:text-7xl">
-				<span class="block animate-reveal-2">Code, Build & Deploy</span>
+				<span class="block animate-reveal-2">Code, build, and deploy</span>
 				<span
 					class="mt-2 block animate-reveal-3 text-accent sm:mt-3"
 					style="text-shadow: 0 0 60px color-mix(in srgb, var(--color-accent) 25%, transparent);"
@@ -70,8 +78,7 @@ const highlightedCode = highlight(code);
 
 		<!-- Subtitle -->
 		<p class="mx-auto mt-7 max-w-2xl text-center text-lg leading-relaxed text-text-secondary animate-reveal-4 sm:text-xl">
-			A full-featured cloud IDE with real-time collaboration, AI agent, and instant preview. No setup required — just open and start
-			building.
+			A browser-based IDE for building on Cloudflare. Edit files, work with others, use the AI agent, and preview changes right away.
 		</p>
 
 		<!-- CTA buttons -->
@@ -81,21 +88,8 @@ const highlightedCode = highlight(code);
 				href={appUrl}
 				class="border-beam inline-flex items-center gap-2 rounded-full bg-accent px-8 py-3.5 text-base font-bold text-white animate-glow-pulse transition-all hover:brightness-110"
 			>
-				Start Building
-				<svg
-					xmlns="http://www.w3.org/2000/svg"
-					width="18"
-					height="18"
-					viewBox="0 0 24 24"
-					fill="none"
-					stroke="currentColor"
-					stroke-width="2.5"
-					stroke-linecap="round"
-					stroke-linejoin="round"
-				>
-					<path d="M5 12h14"></path>
-					<path d="m12 5 7 7-7 7"></path>
-				</svg>
+				Open the IDE
+				<ArrowRight size={18} stroke-width={2.5} />
 			</a>
 
 			<!-- Secondary CTA — frosted glass -->
@@ -103,7 +97,7 @@ const highlightedCode = highlight(code);
 				href="#features"
 				class="inline-flex items-center gap-2 rounded-full border border-border bg-bg-secondary/40 px-8 py-3.5 text-base font-semibold backdrop-blur-sm transition-all hover:border-accent/40 hover:bg-bg-secondary/60"
 			>
-				See Features
+				View features
 			</a>
 		</div>
 
