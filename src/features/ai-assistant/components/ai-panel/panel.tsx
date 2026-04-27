@@ -927,6 +927,13 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		return committedMessages;
 	}, [committedMessages, streamingAssistantMessage]);
 
+	let inputPlaceholder = 'Ask anything...';
+	if (agentMode === 'plan') {
+		inputPlaceholder = 'Describe what to plan...';
+	} else if (agentMode === 'ask') {
+		inputPlaceholder = 'Ask a question...';
+	}
+
 	return (
 		<div ref={keyboardReference} className={cn('flex h-full flex-col bg-bg-secondary', className)} style={keyboardStyle}>
 			<div
@@ -1401,15 +1408,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 								onCursorChange={setCursorPosition}
 								disabled={speechToText.isRecording}
 								inlineSuffix={speechToText.isRecording ? <BouncingDots className="ml-1 text-text-secondary" /> : undefined}
-								placeholder={
-									isProcessing
-										? 'Type your next message...'
-										: agentMode === 'plan'
-											? 'Describe what to plan...'
-											: agentMode === 'ask'
-												? 'Ask a question...'
-												: 'Ask the AI to help...'
-								}
+								placeholder={inputPlaceholder}
 							/>
 							<Collapsible open={!!planPath}>
 								{planPath && (

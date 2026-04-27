@@ -1,3 +1,4 @@
+import { AnimatePresence, motion } from 'motion/react';
 import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
@@ -853,16 +854,22 @@ export function RichTextInput({
 
 	return (
 		<div className="relative">
-			{isEmpty && !disabled && (
-				<div
-					className="
-						pointer-events-none absolute inset-0 truncate px-2.5 pt-2 text-sm/relaxed
-						text-text-secondary
-					"
-				>
-					{placeholder}
-				</div>
-			)}
+			<AnimatePresence>
+				{isEmpty && !disabled && placeholder && (
+					<motion.div
+						key={placeholder}
+						initial={{ opacity: 0, y: 2 }}
+						animate={{ opacity: 1, y: 0, transition: { duration: 0.15 } }}
+						exit={{ opacity: 0, transition: { duration: 0.05 } }}
+						className="
+							pointer-events-none absolute inset-0 truncate px-2.5 pt-2 text-sm/relaxed
+							text-text-secondary
+						"
+					>
+						{placeholder}
+					</motion.div>
+				)}
+			</AnimatePresence>
 			<div
 				ref={containerReference}
 				contentEditable={!disabled}
