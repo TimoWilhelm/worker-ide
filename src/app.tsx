@@ -1,5 +1,6 @@
 import { MutationCache, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Check, ClipboardCopy } from 'lucide-react';
+import { motion } from 'motion/react';
 import { Suspense, use, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate, Outlet, Route, Routes, useLocation, useParams, useSearchParams } from 'react-router';
 
@@ -9,7 +10,8 @@ import { NotFoundPage } from '@/components/not-found-page';
 import { OfflineBanner } from '@/components/offline-banner';
 import { ProjectAccessRestricted } from '@/components/project-access-restricted';
 import { ProjectNotFound } from '@/components/project-not-found';
-import { AppLoadingSkeleton, OrganizationManagementSkeleton, PageContentSkeleton, SettingsContentSkeleton } from '@/components/ui/skeleton';
+import { OrganizationManagementSkeleton, PageContentSkeleton, SettingsContentSkeleton } from '@/components/ui/skeleton';
+import { Spinner } from '@/components/ui/spinner';
 import { Toaster } from '@/components/ui/toast';
 import { toast } from '@/components/ui/toast-store';
 import { AppearanceModal } from '@/features/appearance';
@@ -48,7 +50,13 @@ const queryClient = new QueryClient({
 });
 
 function LoadingFallback() {
-	return <AppLoadingSkeleton />;
+	return (
+		<div className="flex h-dvh items-center justify-center bg-bg-primary">
+			<motion.div layoutId="global-app-spinner">
+				<Spinner size="xl" className="text-text-secondary" />
+			</motion.div>
+		</div>
+	);
 }
 
 function isDeletedOrganization(value: unknown): boolean {

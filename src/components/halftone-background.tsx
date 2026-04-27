@@ -338,7 +338,7 @@ export function HalftoneBackground() {
 			ref={canvasReference}
 			className="fixed inset-0 -z-10 size-full bg-bg-primary"
 			aria-hidden="true"
-			style={{ imageRendering: 'pixelated' }}
+			style={{ imageRendering: 'pixelated', backgroundColor: 'var(--color-bg-primary, #121212)' }}
 		/>
 	);
 }

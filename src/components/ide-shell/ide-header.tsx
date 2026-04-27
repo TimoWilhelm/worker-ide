@@ -1,4 +1,5 @@
 import { BookOpen, Bot, Bug, Download, EllipsisVertical, Github, Hexagon, Pencil, Rocket, Settings } from 'lucide-react';
+import { motion } from 'motion/react';
 import { Link } from 'react-router';
 
 import { BorderBeam } from '@/components/ui/border-beam';
@@ -58,7 +59,9 @@ export function IDEHeader({
 							"
 							aria-label="Back to home"
 						>
-							<Hexagon className="size-4" />
+							<motion.div layoutId="app-logo-hexagon" className="flex items-center justify-center">
+								<Hexagon className="size-4" />
+							</motion.div>
 						</Link>
 					</Tooltip>
 					<InlineRenameField
@@ -169,7 +172,9 @@ export function IDEHeader({
 						</Tooltip>
 					)}
 
-					<UserMenu size="sm" />
+					<motion.div layoutId="app-user-menu">
+						<UserMenu size="sm" />
+					</motion.div>
 				</div>
 			</header>
 

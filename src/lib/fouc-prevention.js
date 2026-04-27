@@ -10,6 +10,7 @@ try {
 	var c = p.colorScheme || (s.state && s.state.colorScheme) || 'dark';
 	if (c === 'system') c = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
 	if (c !== 'dark') document.documentElement.classList.remove('dark');
+	document.documentElement.style.backgroundColor = c === 'dark' ? '#121212' : '#fffdfb';
 	var f = p.editorFont || (s.state && s.state.editorFont) || __DEFAULT_EDITOR_FONT__;
 	var fonts = __EDITOR_FONT_FAMILIES__;
 	if (fonts[f]) document.documentElement.style.setProperty('--font-mono', fonts[f]);

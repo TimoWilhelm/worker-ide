@@ -1280,11 +1280,9 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 							{statusMessage ? (
 								<div
 									className="
-										flex animate-chat-item items-center gap-2 px-1 text-xs
-										text-text-secondary
+										shimmer-text flex animate-chat-item items-center gap-2 px-1 text-xs
 									"
 								>
-									<Spinner className="size-3" />
 									{statusMessage}
 								</div>
 							) : undefined}

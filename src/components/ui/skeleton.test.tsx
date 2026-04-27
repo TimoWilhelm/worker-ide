@@ -3,7 +3,6 @@ import { describe, expect, it } from 'vitest';
 
 import {
 	AgentPanelSkeleton,
-	AppLoadingSkeleton,
 	DevelopmentToolsPanelSkeleton,
 	EditorSkeleton,
 	FileTreeSkeleton,
@@ -91,14 +90,6 @@ describe('ModalContentSkeleton', () => {
 		const { container } = render(<ModalContentSkeleton />);
 		const skeletons = container.querySelectorAll('.animate-pulse');
 		expect(skeletons.length).toBeGreaterThanOrEqual(6);
-	});
-});
-
-describe('AppLoadingSkeleton', () => {
-	it('renders multiple app shell placeholders', () => {
-		const { container } = render(<AppLoadingSkeleton />);
-		const skeletons = container.querySelectorAll('.animate-pulse');
-		expect(skeletons.length).toBeGreaterThanOrEqual(12);
 	});
 });
 
