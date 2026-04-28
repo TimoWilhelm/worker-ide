@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Suspense } from 'react';
-import { expect, fn, within } from 'storybook/test';
+import { expect, fn, userEvent, within } from 'storybook/test';
 
 import { AgentRuntimeContext } from '@/features/ai-assistant/components/agent-runtime-context';
 
@@ -157,7 +157,11 @@ type Story = StoryObj<typeof meta>;
 export const DefaultEditorView: Story = {
 	play: async ({ canvasElement, step }) => {
 		const canvas = within(canvasElement);
-		await step('Verify editor is visible by default', async () => {
+		await step('Switch to editor view', async () => {
+			const editorTab = await canvas.findByRole('button', { name: /Editor/i });
+			await userEvent.click(editorTab);
+		});
+		await step('Verify editor is visible', async () => {
 			await expect(await canvas.findByText('main.ts')).toBeInTheDocument();
 		});
 		await step('Verify Output summary button is visible', async () => {

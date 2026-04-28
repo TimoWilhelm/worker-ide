@@ -780,7 +780,7 @@ export default function OrgManagementPage({ orgSlug, organizationId, organizatio
 								<div className="flex items-center justify-between gap-3">
 									<div className="min-w-0">
 										<p className="text-sm font-medium text-text-primary">Delete organization</p>
-										<p className="text-xs text-text-secondary">Permanently delete this organization. This action cannot be undone.</p>
+										<p className="text-xs text-text-secondary">Permanently delete this organization.</p>
 									</div>
 									<Button
 										variant="danger"

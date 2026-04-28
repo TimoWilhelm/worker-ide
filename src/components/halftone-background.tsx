@@ -336,7 +336,9 @@ export function HalftoneBackground() {
 	return (
 		<canvas
 			ref={canvasReference}
-			className="fixed inset-0 -z-10 size-full bg-bg-primary"
+			className="
+				pointer-events-none absolute inset-0 -z-10 size-full bg-bg-primary
+			"
 			aria-hidden="true"
 			style={{ imageRendering: 'pixelated', backgroundColor: 'var(--color-bg-primary, #121212)' }}
 		/>

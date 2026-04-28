@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { BookOpen, Bug, Copy, Github, Hexagon, Search, Trash2 } from 'lucide-react';
+import { BookOpen, Bug, Copy, Github, Hexagon, Search } from 'lucide-react';
 import { motion } from 'motion/react';
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
@@ -14,15 +14,7 @@ import { Tooltip, TooltipProvider } from '@/components/ui/tooltip';
 import { VersionBadge } from '@/components/version-badge';
 import { CreateOrgModal } from '@/features/org/create-org-modal';
 import { PendingInvitationsBanner } from '@/features/org/pending-invitations-banner';
-import {
-	cloneProject,
-	createProject,
-	deleteProject,
-	fetchOrgLimits,
-	fetchOrgProjects,
-	fetchTemplates,
-	fetchUserLimits,
-} from '@/lib/api-client';
+import { cloneProject, createProject, fetchOrgLimits, fetchOrgProjects, fetchTemplates, fetchUserLimits } from '@/lib/api-client';
 import { fadeUpVariants, springGentle, staggerContainer } from '@/lib/motion-config';
 import { getProjectUrl } from '@/lib/preview-origin';
 import { cn, formatRelativeTime } from '@/lib/utils';
@@ -315,7 +307,7 @@ function CloneModal({
 	);
 }
 
-function ProjectRow({ project, onDelete }: { project: OrgProject; onDelete: (project: OrgProject) => void }) {
+function ProjectRow({ project }: { project: OrgProject }) {
 	return (
 		<a
 			href={getProjectUrl(project.id)}
@@ -331,116 +323,10 @@ function ProjectRow({ project, onDelete }: { project: OrgProject; onDelete: (pro
 			)}
 		>
 			<span className="truncate text-xs">{project.name || project.id.slice(0, 12)}</span>
-			<div className="ml-3 flex shrink-0 items-center gap-1">
-				<span
-					className="
-						text-xs text-text-secondary/60
-						group-hover/row:hidden
-					"
-				>
-					{formatRelativeTime(new Date(project.lastActivityAt ?? project.updatedAt).getTime())}
-				</span>
-				<button
-					onPointerDown={(event) => event.stopPropagation()}
-					onClick={(event) => {
-						event.preventDefault();
-						event.stopPropagation();
-						onDelete(project);
-					}}
-					className="
-						hidden cursor-pointer rounded-sm p-0.5 text-text-secondary/60
-						transition-colors
-						group-hover/row:inline-flex
-						hover:text-error
-					"
-					aria-label={`Delete ${project.name || project.id.slice(0, 12)}`}
-				>
-					<Trash2 className="size-3" />
-				</button>
-			</div>
+			<span className="ml-3 shrink-0 text-xs text-text-secondary/60">
+				{formatRelativeTime(new Date(project.lastActivityAt ?? project.updatedAt).getTime())}
+			</span>
 		</a>
-	);
-}
-
-function DeleteProjectModal({
-	project,
-	open,
-	onOpenChange,
-	onConfirm,
-	isDeleting,
-}: {
-	project: OrgProject | undefined;
-	open: boolean;
-	onOpenChange: (open: boolean) => void;
-	onConfirm: () => void;
-	isDeleting: boolean;
-}) {
-	const [confirmText, setConfirmText] = useState('');
-	const [lastProjectId, setLastProjectId] = useState<string | undefined>();
-	const isConfirmed = confirmText.toLowerCase() === 'delete';
-
-	// Reset confirmation text when a different project is targeted
-	if (project?.id !== lastProjectId) {
-		setLastProjectId(project?.id);
-		setConfirmText('');
-	}
-
-	if (!project) return;
-
-	return (
-		<Modal open={open} onOpenChange={onOpenChange} title="Delete project">
-			<ModalBody>
-				<div className="space-y-4">
-					<p className="text-sm font-medium">Are you sure you want to delete this project?</p>
-					<p
-						className="
-							truncate rounded-sm border border-border bg-bg-tertiary px-2 py-1 text-sm
-							font-medium text-text-primary
-						"
-					>
-						{project.name || project.id.slice(0, 12)}
-					</p>
-					<p className="text-xs text-text-secondary">This action cannot be undone.</p>
-					<div>
-						<label className="mb-1.5 block text-xs text-text-secondary">
-							Type <strong className="text-text-primary uppercase">delete</strong> to confirm
-						</label>
-						<input
-							type="text"
-							value={confirmText}
-							onChange={(event) => setConfirmText(event.target.value)}
-							onKeyDown={(event) => {
-								if (event.key === 'Enter' && isConfirmed && !isDeleting) onConfirm();
-							}}
-							disabled={isDeleting}
-							autoComplete="off"
-							className="
-								h-8 w-full rounded-md border border-border bg-bg-secondary/60 px-2
-								text-sm text-text-primary transition-colors
-								placeholder:text-text-secondary/50
-								focus-within:border-accent
-								focus:outline-none
-							"
-						/>
-					</div>
-				</div>
-			</ModalBody>
-			<ModalFooter>
-				<Button variant="secondary" size="sm" onClick={() => onOpenChange(false)} disabled={isDeleting}>
-					Cancel
-				</Button>
-				<Button
-					size="sm"
-					variant="danger"
-					onClick={onConfirm}
-					disabled={isDeleting || !isConfirmed}
-					isLoading={isDeleting}
-					loadingText="Deleting..."
-				>
-					Delete
-				</Button>
-			</ModalFooter>
-		</Modal>
 	);
 }
 
@@ -565,38 +451,6 @@ export default function DashboardPage({ organizationId, organizations, isCreateO
 		}
 	}, [organizationId, parsedProjectId, queryClient, navigate]);
 
-	const [deleteTarget, setDeleteTarget] = useState<OrgProject | undefined>();
-	const [isDeleting, setIsDeleting] = useState(false);
-
-	const handleDeleteProject = useCallback((project: OrgProject) => {
-		setDeleteTarget(project);
-	}, []);
-
-	const handleConfirmDelete = useCallback(async () => {
-		if (!deleteTarget) return;
-		setIsDeleting(true);
-		try {
-			await deleteProject(organizationId, deleteTarget.id);
-			void queryClient.invalidateQueries({ queryKey: ['org-projects'] });
-			void queryClient.invalidateQueries({ queryKey: ['org-limits'] });
-			setDeleteTarget(undefined);
-			toast.success(`"${deleteTarget.name || deleteTarget.id.slice(0, 12)}" deleted`);
-		} catch {
-			toast.error('Failed to delete project. Please try again.');
-		} finally {
-			setIsDeleting(false);
-		}
-	}, [organizationId, deleteTarget, queryClient]);
-
-	const handleCloseDeleteModal = useCallback(
-		(open: boolean) => {
-			if (!open && !isDeleting) {
-				setDeleteTarget(undefined);
-			}
-		},
-		[isDeleting],
-	);
-
 	const isLoading = loadingMessage !== undefined;
 
 	const dashboardGreeting = useMemo(() => getDashboardGreeting(user), [user]);
@@ -624,7 +478,7 @@ export default function DashboardPage({ organizationId, organizations, isCreateO
 	});
 
 	return (
-		<div ref={(element) => setScrollContainer(element ?? undefined)} className="relative h-dvh overflow-y-auto">
+		<div ref={(element) => setScrollContainer(element ?? undefined)} className="relative isolate h-dvh overflow-y-auto">
 			<Suspense fallback={undefined}>
 				<HalftoneBackground />
 			</Suspense>
@@ -651,14 +505,6 @@ export default function DashboardPage({ organizationId, organizations, isCreateO
 				onOpenChange={handleCloseTemplateModal}
 				onCreateProject={handleCreateFromTemplate}
 				isLoading={isLoading}
-			/>
-
-			<DeleteProjectModal
-				project={deleteTarget}
-				open={deleteTarget !== undefined}
-				onOpenChange={handleCloseDeleteModal}
-				onConfirm={() => void handleConfirmDelete()}
-				isDeleting={isDeleting}
 			/>
 
 			<CreateOrgModal
@@ -798,7 +644,7 @@ export default function DashboardPage({ organizationId, organizations, isCreateO
 							)}
 						>
 							{orgProjects.map((project) => (
-								<ProjectRow key={project.id} project={project} onDelete={handleDeleteProject} />
+								<ProjectRow key={project.id} project={project} />
 							))}
 						</div>
 					</section>

@@ -123,7 +123,7 @@ export function ConfirmButton({
 						aria-labelledby={titleId}
 						aria-describedby={description ? descriptionId : undefined}
 						variants={confirmPopoverVariants}
-						initial="hidden"
+						initial={false}
 						animate="visible"
 						exit="exit"
 						transition={springSnappy}

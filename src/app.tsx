@@ -10,6 +10,7 @@ import { NotFoundPage } from '@/components/not-found-page';
 import { OfflineBanner } from '@/components/offline-banner';
 import { ProjectAccessRestricted } from '@/components/project-access-restricted';
 import { ProjectNotFound } from '@/components/project-not-found';
+import { GlobalDialogBackdrop } from '@/components/ui/global-dialog-backdrop';
 import { OrganizationManagementSkeleton, PageContentSkeleton, SettingsContentSkeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
 import { Toaster } from '@/components/ui/toast';
@@ -513,6 +514,7 @@ export function App() {
 				<AuthErrorHandler />
 				<AuthGate />
 				<AppearanceModal />
+				<GlobalDialogBackdrop />
 				<PwaUpdateHandler />
 				<Toaster />
 			</QueryClientProvider>

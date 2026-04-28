@@ -359,6 +359,16 @@ export class ProjectCoordinatorV2 extends DurableObject {
 		this.sendToKind('ide', serialized);
 	}
 
+	async closeProjectConnections(code: number, reason: string): Promise<void> {
+		for (const ws of this.ctx.getWebSockets()) {
+			try {
+				ws.close(code, reason);
+			} catch {
+				// Ignore close errors
+			}
+		}
+	}
+
 	/**
 	 * Get the latest IDE output logs snapshot.
 	 * Called by the AI agent service between iterations to check for new errors/warnings.

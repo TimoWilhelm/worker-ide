@@ -274,7 +274,7 @@ function rehydratePersistedState(state: StoreState | undefined): void {
 		state.dependenciesPanelVisible = true;
 		state.colorScheme = 'dark';
 		state.editorFont = DEFAULT_EDITOR_FONT;
-		state.activeMobilePanel = 'editor';
+		state.activeMobilePanel = 'preview';
 		state.activeSidebarView = 'explorer';
 		state.selectedModel = DEFAULT_AI_MODEL;
 	}
@@ -760,7 +760,7 @@ export const useStore = create<StoreState>()(
 				colorScheme: 'dark',
 				editorFont: DEFAULT_EDITOR_FONT,
 				isAppearanceModalOpen: false,
-				activeMobilePanel: 'editor',
+				activeMobilePanel: 'preview',
 				mobileFileTreeOpen: false,
 				activeSidebarView: 'explorer',
 				activeUtilityTab: 'output',

@@ -8,6 +8,67 @@ import type { ApiRoutes, OrgRoutes, TransferRoutes, UserRoutes } from '@server/r
 import type { UserPreferences } from '@shared/constants';
 import type { AssetSettings, BindingsConfig, ProjectTemplateMeta } from '@shared/types';
 
+export interface ProjectPermissions {
+	delete: boolean;
+	updateVisibility: boolean;
+}
+
+export interface ProjectMeta {
+	name: string;
+	assetSettings?: AssetSettings;
+	bindingsConfig?: BindingsConfig;
+	organizationId: string;
+	organizationSlug?: string;
+	permissions: ProjectPermissions;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === 'object' && value !== undefined && value !== null && !Array.isArray(value);
+}
+
+function normalizeProjectPermissions(value: unknown): ProjectPermissions {
+	if (!isRecord(value)) {
+		throw new TypeError('Invalid project permissions response');
+	}
+
+	const canDelete = Reflect.get(value, 'delete');
+	const canUpdateVisibility = Reflect.get(value, 'updateVisibility');
+	if (typeof canDelete !== 'boolean' || typeof canUpdateVisibility !== 'boolean') {
+		throw new TypeError('Invalid project permissions response');
+	}
+
+	return {
+		delete: canDelete,
+		updateVisibility: canUpdateVisibility,
+	};
+}
+
+function normalizeProjectMeta(value: unknown): ProjectMeta {
+	if (!isRecord(value)) {
+		throw new Error('Invalid project metadata response');
+	}
+
+	const name = Reflect.get(value, 'name');
+	const organizationId = Reflect.get(value, 'organizationId');
+	if (typeof name !== 'string' || typeof organizationId !== 'string') {
+		throw new TypeError('Invalid project metadata response');
+	}
+
+	const organizationSlugValue = Reflect.get(value, 'organizationSlug');
+	const assetSettingsValue = Reflect.get(value, 'assetSettings');
+	const bindingsConfigValue = Reflect.get(value, 'bindingsConfig');
+	const permissionsValue = Reflect.get(value, 'permissions');
+
+	return {
+		name,
+		organizationId,
+		organizationSlug: typeof organizationSlugValue === 'string' ? organizationSlugValue : undefined,
+		permissions: normalizeProjectPermissions(permissionsValue),
+		assetSettings: isRecord(assetSettingsValue) ? assetSettingsValue : undefined,
+		bindingsConfig: isRecord(bindingsConfigValue) ? bindingsConfigValue : undefined,
+	};
+}
+
 export function createApiClient(projectId: string) {
 	const baseUrl = `/p/${projectId}`;
 	return hc<ApiRoutes>(`${baseUrl}/api`);
@@ -80,15 +141,14 @@ export async function deleteProject(organizationId: string, projectId: string): 
 		await throwApiError(response, 'Failed to delete project');
 	}
 }
-export async function fetchProjectMeta(
-	projectId: string,
-): Promise<{ name: string; assetSettings?: AssetSettings; bindingsConfig?: BindingsConfig }> {
+export async function fetchProjectMeta(projectId: string): Promise<ProjectMeta> {
 	const api = createApiClient(projectId);
 	const response = await api.project.meta.$get({});
 	if (!response.ok) {
 		await throwApiError(response, 'Failed to fetch project meta');
 	}
-	return response.json();
+	const data: unknown = await response.json();
+	return normalizeProjectMeta(data);
 }
 export async function fetchDependencies(projectId: string): Promise<Record<string, string>> {
 	const api = createApiClient(projectId);
@@ -103,13 +163,14 @@ export async function fetchDependencies(projectId: string): Promise<Record<strin
 export async function updateProjectMeta(
 	projectId: string,
 	meta: { name?: string; assetSettings?: AssetSettings; bindingsConfig?: BindingsConfig },
-): Promise<{ name: string; assetSettings?: AssetSettings; bindingsConfig?: BindingsConfig }> {
+): Promise<ProjectMeta> {
 	const api = createApiClient(projectId);
 	const response = await api.project.meta.$put({ json: meta });
 	if (!response.ok) {
 		await throwApiError(response, 'Failed to update project meta');
 	}
-	return response.json();
+	const data: unknown = await response.json();
+	return normalizeProjectMeta(data);
 }
 export async function fetchStorageUsage(projectId: string): Promise<{ usageBytes: number; quotaBytes: number; enabled: boolean }> {
 	const api = createApiClient(projectId);
@@ -345,10 +406,15 @@ export interface ProjectSocketConnection {
 	send: (data: ClientMessage) => void;
 }
 
+export interface ProjectSocketCloseDetails {
+	code: number;
+	reason: string;
+}
+
 export function connectProjectSocket(
 	projectId: string,
 	onMessage: (message: ServerMessage) => void,
-	onClose?: () => void,
+	onClose?: (details: ProjectSocketCloseDetails) => void,
 	onOpen?: () => void,
 ): ProjectSocketConnection {
 	const protocol = globalThis.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -372,10 +438,18 @@ export function connectProjectSocket(
 		}
 	});
 
-	socket.addEventListener('close', () => {
+	// Keep connection alive
+	const pingInterval = setInterval(() => {
+		if (socket.readyState === WebSocket.OPEN) {
+			socket.send(serializeMessage({ type: 'ping' }));
+		}
+	}, 30_000);
+
+	socket.addEventListener('close', (event) => {
+		clearInterval(pingInterval);
 		// Only fire onClose for unexpected disconnects
 		if (!intentionalClose) {
-			onClose?.();
+			onClose?.({ code: event.code, reason: event.reason });
 		}
 	});
 
@@ -383,13 +457,6 @@ export function connectProjectSocket(
 		// Error events are always followed by close events, so we don't need
 		// to do anything special here — just let the close handler fire.
 	});
-
-	// Keep connection alive
-	const pingInterval = setInterval(() => {
-		if (socket.readyState === WebSocket.OPEN) {
-			socket.send(serializeMessage({ type: 'ping' }));
-		}
-	}, 30_000);
 
 	const send = (data: ClientMessage) => {
 		if (socket.readyState === WebSocket.OPEN) {

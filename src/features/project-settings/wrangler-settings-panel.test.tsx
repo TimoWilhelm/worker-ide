@@ -38,6 +38,12 @@ describe('WranglerSettingsPanel', () => {
 			name: 'demo-project',
 			assetSettings: {},
 			bindingsConfig: storageEnabled ? { storage: true } : {},
+			organizationId: 'org-1',
+			organizationSlug: 'demo-org',
+			permissions: {
+				delete: true,
+				updateVisibility: true,
+			},
 		}));
 		vi.mocked(fetchStorageUsage).mockImplementation(async () => ({
 			usageBytes: 0,
@@ -50,6 +56,12 @@ describe('WranglerSettingsPanel', () => {
 				name: 'demo-project',
 				assetSettings: meta.assetSettings,
 				bindingsConfig: storageEnabled ? { storage: true } : {},
+				organizationId: 'org-1',
+				organizationSlug: 'demo-org',
+				permissions: {
+					delete: true,
+					updateVisibility: true,
+				},
 			};
 		});
 

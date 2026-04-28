@@ -9,6 +9,7 @@ import { visibilityBodySchema } from '@shared/validation';
 
 import * as schema from '../db/auth-schema';
 import { trackProjectEvent } from '../lib/analytics';
+import { coordinatorNamespace } from '../lib/durable-object-namespaces';
 import { queryEntitlements } from '../lib/entitlements';
 import { httpError } from '../lib/http-error';
 import { assertOrgSuperAdmin } from '../lib/project-auth';
@@ -306,6 +307,7 @@ export const orgRoutes = new Hono<AuthedEnvironment>()
 
 		const now = new Date();
 		await softDeleteProjectById(database, projectId, now, PROJECT_DELETED_VIA_PROJECT, projectId, c.get('session').userId);
+		await coordinatorNamespace.getByName(`project:${projectId}`).closeProjectConnections(4004, 'project-deleted');
 
 		trackProjectEvent({
 			organizationId: orgId,

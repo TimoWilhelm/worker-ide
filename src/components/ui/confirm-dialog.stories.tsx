@@ -3,6 +3,7 @@ import { expect, userEvent, within } from 'storybook/test';
 
 import { Button } from './button';
 import { ConfirmDialog } from './confirm-dialog';
+import { GlobalDialogBackdrop } from './global-dialog-backdrop';
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
 
@@ -29,6 +30,7 @@ const ConfirmDialogDemo = ({ variant = 'default' }: { variant?: 'default' | 'dan
 
 	return (
 		<>
+			<GlobalDialogBackdrop />
 			<Button variant={variant === 'danger' ? 'danger' : 'default'} onClick={() => setOpen(true)}>
 				Open Confirm Dialog
 			</Button>

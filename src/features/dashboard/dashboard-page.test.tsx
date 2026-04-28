@@ -61,7 +61,7 @@ function renderWithQuery(ui: React.ReactElement) {
 }
 
 function setLocalTime(isoDateTime: string) {
-	vi.useFakeTimers();
+	vi.useFakeTimers({ shouldAdvanceTime: true });
 	vi.setSystemTime(new Date(isoDateTime));
 }
 
@@ -70,7 +70,7 @@ afterEach(() => {
 	vi.restoreAllMocks();
 });
 
-const { createProject, cloneProject, deleteProject, fetchOrgProjects } = await import('@/lib/api-client');
+const { createProject, cloneProject, fetchOrgProjects } = await import('@/lib/api-client');
 
 type DashboardProject = Awaited<ReturnType<typeof fetchOrgProjects>>[number];
 
@@ -497,44 +497,35 @@ describe('DashboardPage', () => {
 		expect(screen.getByText('Old Project')).toBeInTheDocument();
 	});
 
-	it('opens delete confirmation modal and deletes a project', async () => {
-		const user = userEvent.setup();
-		vi.mocked(fetchOrgProjects).mockResolvedValue([makeProject({ name: 'Doomed Project' })]);
+	it('shows the latest access or activity time inline on project rows', async () => {
+		setLocalTime('2026-04-28T09:15:00');
+		vi.mocked(fetchOrgProjects).mockResolvedValue([
+			makeProject({
+				name: 'Recent Project',
+				lastActivityAt: new Date('2026-04-28T09:10:00').toISOString(),
+				updatedAt: new Date('2026-04-28T09:00:00').toISOString(),
+			}),
+		]);
 
 		renderWithQuery(<DashboardPage {...defaultProperties} />);
 
 		await waitFor(() => {
-			expect(screen.getByText('Doomed Project')).toBeInTheDocument();
+			expect(screen.getByText('Recent Project')).toBeInTheDocument();
 		});
 
-		// Click the delete button (visible on hover, but rendered in DOM)
-		const deleteButton = screen.getByLabelText('Delete Doomed Project');
-		await user.click(deleteButton);
+		expect(screen.getByText('5m ago')).toBeInTheDocument();
+	});
 
-		// Confirmation modal should appear
-		await waitFor(() => {
-			expect(screen.getByRole('dialog')).toBeInTheDocument();
-		});
+	it('does not render an inline delete button on dashboard project rows', async () => {
+		vi.mocked(fetchOrgProjects).mockResolvedValue([makeProject({ name: 'No Trash Project' })]);
 
-		const dialog = screen.getByRole('dialog');
-		expect(within(dialog).getByText(/Are you sure you want to delete/)).toBeInTheDocument();
-		expect(within(dialog).getByText('Doomed Project')).toBeInTheDocument();
-		expect(within(dialog).getByText(/cannot be undone/)).toBeInTheDocument();
-
-		// Delete button should be disabled until confirmation text is typed
-		const confirmButton = within(dialog).getByRole('button', { name: 'Delete' });
-		expect(confirmButton).toBeDisabled();
-
-		// Type 'DELETE' to unlock the button
-		const confirmInput = within(dialog).getByRole('textbox');
-		await user.type(confirmInput, 'DELETE');
-		expect(confirmButton).toBeEnabled();
-
-		await user.click(confirmButton);
+		renderWithQuery(<DashboardPage {...defaultProperties} />);
 
 		await waitFor(() => {
-			expect(vi.mocked(deleteProject)).toHaveBeenCalledWith('org1', '5ydvqzhiqckl5fa63nhky2pstb212hcdj0lk19eklkmc7snawe');
+			expect(screen.getByText('No Trash Project')).toBeInTheDocument();
 		});
+
+		expect(screen.queryByLabelText('Delete No Trash Project')).not.toBeInTheDocument();
 	});
 
 	it('clears loading overlay when page is restored from bfcache (browser back)', async () => {

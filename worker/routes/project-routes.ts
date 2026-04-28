@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 
 import { zValidator } from '@hono/zod-validator';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
 import { Hono } from 'hono';
 
@@ -31,10 +31,43 @@ export const projectRoutes = new Hono<AppEnvironment>()
 	// GET /api/project/meta - Get project metadata (name + asset settings + bindings config from actual files)
 	.get('/project/meta', async (c) => {
 		const projectRoot = c.get('projectRoot');
+		const projectId = c.get('projectId');
+		const database = drizzle(c.env.DB);
+		const projectRows = await database
+			.select({
+				organizationId: schema.project.organizationId,
+				organizationSlug: schema.organization.slug,
+			})
+			.from(schema.project)
+			.leftJoin(schema.organization, eq(schema.organization.id, schema.project.organizationId))
+			.where(eq(schema.project.id, projectId))
+			.limit(1);
+
+		const project = projectRows[0];
+		if (!project) {
+			throw httpError(HttpErrorCode.NOT_FOUND, 'Project not found');
+		}
+
+		const memberRows = await database
+			.select({ memberId: schema.member.id })
+			.from(schema.member)
+			.where(and(eq(schema.member.organizationId, project.organizationId), eq(schema.member.userId, c.get('session').userId)))
+			.limit(1);
+
 		const name = await readProjectName(projectRoot);
 		const assetSettings = await readAssetSettings(projectRoot);
 		const bindingsConfig = await readBindingsConfig(projectRoot);
-		return c.json({ name, assetSettings, bindingsConfig });
+		return c.json({
+			name,
+			assetSettings,
+			bindingsConfig,
+			organizationId: project.organizationId,
+			organizationSlug: project.organizationSlug ?? undefined,
+			permissions: {
+				delete: memberRows.length > 0,
+				updateVisibility: memberRows.length > 0,
+			},
+		});
 	})
 
 	// PUT /api/project/meta - Update project name and/or asset settings
@@ -110,7 +143,34 @@ export const projectRoutes = new Hono<AppEnvironment>()
 		const name = await readProjectName(projectRoot);
 		const assetSettings = await readAssetSettings(projectRoot);
 		const bindingsConfig = await readBindingsConfig(projectRoot);
-		return c.json({ name, assetSettings, bindingsConfig });
+		const projectId = c.get('projectId');
+		const database = drizzle(c.env.DB);
+		const projectRows = await database
+			.select({
+				organizationId: schema.project.organizationId,
+				organizationSlug: schema.organization.slug,
+			})
+			.from(schema.project)
+			.leftJoin(schema.organization, eq(schema.organization.id, schema.project.organizationId))
+			.where(eq(schema.project.id, projectId))
+			.limit(1);
+
+		const project = projectRows[0];
+		if (!project) {
+			throw httpError(HttpErrorCode.NOT_FOUND, 'Project not found');
+		}
+
+		return c.json({
+			name,
+			assetSettings,
+			bindingsConfig,
+			organizationId: project.organizationId,
+			organizationSlug: project.organizationSlug ?? undefined,
+			permissions: {
+				delete: true,
+				updateVisibility: true,
+			},
+		});
 	})
 
 	// GET /api/dependencies - Read dependencies from package.json

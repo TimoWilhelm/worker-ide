@@ -8,22 +8,19 @@ interface DeferredOpen {
 
 export function useDeferredOpen(open: boolean): DeferredOpen {
 	const [previousOpen, setPreviousOpen] = useState(open);
-	const [animating, setAnimating] = useState(false);
+	const [hasDeferredOpen, setHasDeferredOpen] = useState(open);
 
-	// Adjust state during render when the prop changes (React 19 pattern).
 	if (open !== previousOpen) {
 		setPreviousOpen(open);
-		if (open) {
-			setAnimating(true);
-		}
+		setHasDeferredOpen(true);
 	}
 
 	const onExitComplete = useCallback(() => {
-		setAnimating(false);
+		setHasDeferredOpen(false);
 	}, []);
 
 	return {
-		dialogOpen: open || animating,
+		dialogOpen: open || hasDeferredOpen,
 		show: open,
 		onExitComplete,
 	};

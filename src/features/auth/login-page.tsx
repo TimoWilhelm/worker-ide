@@ -52,7 +52,7 @@ export default function LoginPage() {
 	const callbackURL = resolveCallbackUrl(searchParameters.get('next'));
 
 	return (
-		<div className="relative flex h-dvh flex-col items-center justify-center">
+		<div className="relative isolate flex h-dvh flex-col items-center justify-center">
 			<Suspense fallback={undefined}>
 				<HalftoneBackground />
 			</Suspense>

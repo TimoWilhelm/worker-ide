@@ -19,6 +19,10 @@ const projectAccessCache = new Map<string, Promise<ProjectAccessStatus>>();
 const NOT_FOUND_TTL_MS = 30_000;
 const FORBIDDEN_TTL_MS = 60_000;
 
+export function invalidateProjectAccess(projectId: string): void {
+	projectAccessCache.delete(projectId);
+}
+
 export function checkProjectAccess(projectId: string): Promise<ProjectAccessStatus> {
 	let promise = projectAccessCache.get(projectId);
 	if (!promise) {

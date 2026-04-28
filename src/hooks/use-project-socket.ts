@@ -4,6 +4,7 @@ import { useShallow } from 'zustand/react/shallow';
 
 import { toast } from '@/components/ui/toast-store';
 import { connectProjectSocket } from '@/lib/api-client';
+import { checkProjectAccess, invalidateProjectAccess } from '@/lib/project-access';
 import { useStore } from '@/lib/store';
 import { mergeTestRunResults } from '@shared/types';
 
@@ -27,6 +28,10 @@ interface UseProjectSocketOptions {
  * Used by the editor to send cursor updates without prop drilling.
  */
 export const projectSocketSendReference: { current: ((data: ClientMessage) => void) | undefined } = { current: undefined };
+
+function dispatchProjectUnavailable(projectId: string, status: 'not-found' | 'forbidden'): void {
+	globalThis.dispatchEvent(new CustomEvent('project-unavailable', { detail: { projectId, status } }));
+}
 
 export function useProjectSocket({ projectId, enabled = true }: UseProjectSocketOptions) {
 	const queryClient = useQueryClient();
@@ -66,6 +71,8 @@ export function useProjectSocket({ projectId, enabled = true }: UseProjectSocket
 		isMountedReference.current = true;
 
 		const doConnect = () => {
+			const connectedProjectId = projectId;
+
 			// Bail out if unmounted between reconnect timeout and execution
 			if (!isMountedReference.current) return;
 
@@ -219,10 +226,30 @@ export function useProjectSocket({ projectId, enabled = true }: UseProjectSocket
 				},
 				// onClose — only fires for unexpected disconnects (intentional
 				// closes are suppressed by the connectProjectSocket cleanup function)
-				() => {
+				(details) => {
 					if (!isMountedReference.current) return;
 
 					storeActionsReference.current.setConnected(false);
+
+					if (details.code === 4004 && details.reason === 'project-deleted') {
+						void (async () => {
+							invalidateProjectAccess(connectedProjectId);
+							try {
+								const status = await checkProjectAccess(connectedProjectId);
+								if (!isMountedReference.current) {
+									return;
+								}
+								if (status === 'not-found' || status === 'forbidden') {
+									dispatchProjectUnavailable(connectedProjectId, status);
+									return;
+								}
+							} catch {
+								dispatchProjectUnavailable(connectedProjectId, 'not-found');
+							}
+						})();
+						return;
+					}
+
 					const maxAttempts = 10;
 					const baseDelay = 2000;
 					if (reconnectAttemptsReference.current < maxAttempts) {

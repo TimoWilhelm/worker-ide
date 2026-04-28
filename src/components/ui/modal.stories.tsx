@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { expect, userEvent, within } from 'storybook/test';
 
 import { Button } from './button';
+import { GlobalDialogBackdrop } from './global-dialog-backdrop';
 import { Modal, ModalBody, ModalFooter } from './modal';
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
@@ -28,6 +29,7 @@ const ModalDemo = () => {
 
 	return (
 		<>
+			<GlobalDialogBackdrop />
 			<Button onClick={() => setOpen(true)}>Open Modal</Button>
 			<Modal open={open} onOpenChange={setOpen} title="Edit Profile">
 				<ModalBody>

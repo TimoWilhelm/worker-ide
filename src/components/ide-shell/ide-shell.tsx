@@ -1,5 +1,7 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { ProjectAccessRestricted } from '@/components/project-access-restricted';
+import { ProjectNotFound } from '@/components/project-not-found';
 import { toast } from '@/components/ui/toast-store';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { AgentRuntimeProvider } from '@/features/ai-assistant';
@@ -52,6 +54,10 @@ export function IDEShell({
 
 	// Project settings modal
 	const [settingsModalOpen, setSettingsModalOpen] = useState(false);
+	const [projectAvailabilityState, setProjectAvailabilityState] = useState<{
+		projectId: string;
+		status: 'available' | 'not-found' | 'forbidden';
+	}>({ projectId, status: 'available' });
 
 	// Agent panel toggle
 	const toggleAgentPanel = useStore((state) => state.toggleAgentPanel);
@@ -71,6 +77,7 @@ export function IDEShell({
 
 	// Signed preview URL (HMAC time-bucket token)
 	const { previewUrl, previewOrigin, isLoading: isLoadingPreviewUrl, refresh: refreshPreviewUrl } = usePreviewUrl(projectId);
+	const projectAvailability = projectAvailabilityState.projectId === projectId ? projectAvailabilityState.status : 'available';
 
 	// Side-effect-only hooks
 	useIDEEffects({
@@ -107,6 +114,36 @@ export function IDEShell({
 	const handleSettings = useCallback(() => {
 		setSettingsModalOpen(true);
 	}, []);
+
+	useEffect(() => {
+		function handleProjectUnavailable(event: Event) {
+			if (!(event instanceof CustomEvent)) {
+				return;
+			}
+
+			const eventProjectId = Reflect.get(event.detail, 'projectId');
+			const status = Reflect.get(event.detail, 'status');
+			if (eventProjectId !== projectId) {
+				return;
+			}
+
+			if (status === 'not-found' || status === 'forbidden') {
+				setSettingsModalOpen(false);
+				setProjectAvailabilityState({ projectId, status });
+			}
+		}
+
+		globalThis.addEventListener('project-unavailable', handleProjectUnavailable);
+		return () => globalThis.removeEventListener('project-unavailable', handleProjectUnavailable);
+	}, [projectId]);
+
+	if (projectAvailability === 'not-found') {
+		return <ProjectNotFound />;
+	}
+
+	if (projectAvailability === 'forbidden') {
+		return <ProjectAccessRestricted />;
+	}
 
 	return (
 		<TooltipProvider>
