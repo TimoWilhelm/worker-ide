@@ -20,7 +20,7 @@ export interface ModalProperties {
 
 export function Modal({ open, onOpenChange, title, children, className, hideClose }: ModalProperties) {
 	const { dialogOpen, show, onExitComplete } = useDeferredOpen(open);
-	useDialogStackPresence(dialogOpen);
+	useDialogStackPresence(open, () => onOpenChange(false));
 
 	return (
 		<Dialog.Root open={dialogOpen} onOpenChange={onOpenChange}>

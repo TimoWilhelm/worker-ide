@@ -31,7 +31,7 @@ export function ConfirmDialog({
 	variant = 'default',
 }: ConfirmDialogProperties) {
 	const { dialogOpen, show, onExitComplete } = useDeferredOpen(open);
-	useDialogStackPresence(dialogOpen);
+	useDialogStackPresence(open);
 
 	return (
 		<AlertDialog.Root open={dialogOpen} onOpenChange={onOpenChange}>

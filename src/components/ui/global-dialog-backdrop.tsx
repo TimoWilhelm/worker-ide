@@ -2,7 +2,7 @@ import { motion } from 'motion/react';
 import { useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 
-import { getDialogStackSnapshot, subscribeDialogStack } from './dialog-stack';
+import { closeTopDialog, getDialogStackSnapshot, subscribeDialogStack } from './dialog-stack';
 
 /**
  * Single global backdrop element. Mount once at the app root.
@@ -27,6 +27,7 @@ export function GlobalDialogBackdrop() {
 			animate={{ opacity: visible ? 1 : 0 }}
 			transition={{ duration: 0.15, ease: 'easeOut' }}
 			style={{ pointerEvents: visible ? 'auto' : 'none' }}
+			onClick={closeTopDialog}
 			className="fixed inset-0 z-40 bg-black/60"
 		/>,
 		document.body,
