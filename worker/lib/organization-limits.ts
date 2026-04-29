@@ -1,15 +1,12 @@
 import { and, count, eq, isNull } from 'drizzle-orm';
 
 import { PLAN_FREE } from '@shared/constants';
-import { resolveUserLimitsFromRows } from '@shared/entitlements';
+import { EFFECTIVE_LIMIT_USER_MAX_FREE_ORGANIZATIONS } from '@shared/limits';
 
-import { queryEntitlements } from './entitlements';
+import { getEffectiveLimit } from './limits';
 import * as schema from '../db/auth-schema';
 
-import type { DrizzleD1Database } from 'drizzle-orm/d1';
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- accepts schema and non-schema drizzle clients
-type Database = DrizzleD1Database<any>;
+import type { Database } from './limits';
 
 export async function getCurrentFreeOrganizationCount(database: Database, userId: string): Promise<number> {
 	const freeOrganizationCountRows = await database
@@ -22,11 +19,10 @@ export async function getCurrentFreeOrganizationCount(database: Database, userId
 }
 
 export async function shouldBlockOrganizationCreate(database: Database, userId: string): Promise<boolean> {
-	const [entitlementRows, freeOrganizationCount] = await Promise.all([
-		queryEntitlements(database, userId),
+	const [maxFreeOrganizations, freeOrganizationCount] = await Promise.all([
+		getEffectiveLimit(database, { key: EFFECTIVE_LIMIT_USER_MAX_FREE_ORGANIZATIONS, userId }),
 		getCurrentFreeOrganizationCount(database, userId),
 	]);
-	const { maxFreeOrganizations } = resolveUserLimitsFromRows(entitlementRows);
 
 	return freeOrganizationCount >= maxFreeOrganizations;
 }

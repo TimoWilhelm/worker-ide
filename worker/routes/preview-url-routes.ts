@@ -47,7 +47,7 @@ export const previewUrlRoutes = new Hono<AppEnvironment>()
 		const previewOrigin = buildPreviewOrigin(projectId, token, baseDomain, protocol);
 		const directPreviewUrl = `${previewOrigin}/`;
 
-		const database = drizzle(c.env.DB);
+		const database = drizzle(c.env.DB, { schema });
 		const projectRows = await database
 			.select({ previewVisibility: schema.project.previewVisibility, organizationId: schema.project.organizationId })
 			.from(schema.project)

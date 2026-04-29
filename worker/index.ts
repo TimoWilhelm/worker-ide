@@ -10,8 +10,9 @@ import { z } from 'zod';
 
 import { PROJECT_INACTIVITY_DAYS, SOFT_DELETE_RETENTION_DAYS } from '@shared/constants';
 import { buildAppOrigin, parseHost } from '@shared/domain';
-import { ENTITLEMENT_ORG_MAX_PROJECTS, ENTITLEMENT_USER_MAX_FREE_ORGS, resolveOrgLimitsFromRows } from '@shared/entitlements';
+import { ENTITLEMENT_ORG_MAX_PROJECTS, ENTITLEMENT_USER_MAX_FREE_ORGS } from '@shared/entitlements';
 import { generateHumanId } from '@shared/human-id';
+import { EFFECTIVE_LIMIT_ORG_MAX_PROJECTS } from '@shared/limits';
 import { validatePreviewToken } from '@shared/preview-token';
 import { isValidProjectId } from '@shared/project-id';
 
@@ -21,8 +22,8 @@ import { analyticsMiddleware } from './lib/analytics-middleware';
 import { createAuth } from './lib/auth';
 import { requireAuth } from './lib/auth-middleware';
 import { agentRunnerNamespace, coordinatorNamespace, filesystemNamespace } from './lib/durable-object-namespaces';
-import { queryEntitlements } from './lib/entitlements';
 import { errorPage, previewExpiredPage } from './lib/error-page';
+import { getEffectiveLimit } from './lib/limits';
 import {
 	buildPreviewAccessBootstrapUrl,
 	buildPreviewAccessLoginUrl,
@@ -364,7 +365,7 @@ if (import.meta.env.DEV) {
 		const result = await resolveDevelopmentSession(c.env.DB, c.req.raw.headers);
 		if (!result) return c.json({ error: 'Unauthorized' }, 401);
 
-		const database = drizzle(c.env.DB);
+		const database = drizzle(c.env.DB, { schema: authSchema });
 		const memberships = await database
 			.select({ organizationId: authSchema.member.organizationId })
 			.from(authSchema.member)
@@ -389,7 +390,7 @@ if (import.meta.env.DEV) {
 		if (!body.organizationId || typeof body.organizationId !== 'string') {
 			return c.json({ error: 'Missing organizationId' }, 400);
 		}
-		const database = drizzle(c.env.DB);
+		const database = drizzle(c.env.DB, { schema: authSchema });
 
 		const membership = await database
 			.select({ id: authSchema.member.id })
@@ -425,7 +426,7 @@ app.get('/api/auth/session/exchange', async (c) => {
 	if (!codeResult.success) return c.redirect('/');
 
 	const code = codeResult.data;
-	const database = drizzle(c.env.DB);
+	const database = drizzle(c.env.DB, { schema: authSchema });
 	const now = new Date();
 	const identifier = `session-exchange:${code}`;
 	const [row] = await database
@@ -534,7 +535,7 @@ app.get('/p/:projectId/__preview-auth/bootstrap', async (c) => {
 		});
 	}
 
-	const database = drizzle(c.env.DB);
+	const database = drizzle(c.env.DB, { schema: authSchema });
 	const previewProjectRow = await database
 		.select({
 			deletedAt: authSchema.project.deletedAt,
@@ -622,7 +623,7 @@ app.get('/api/version', (c) => {
 if (import.meta.env.DEV) {
 	app.post('/__test/create-session', async (c) => {
 		try {
-			const database = drizzle(c.env.DB);
+			const database = drizzle(c.env.DB, { schema: authSchema });
 			const userId = 'e2e-test-user';
 			const organizationId = '11111111-1111-4111-8111-111111111111';
 			const organizationSlug = '22222222-2222-4222-8222-222222222222';
@@ -743,7 +744,7 @@ if (import.meta.env.DEV) {
 
 	app.post('/__test/cleanup', async (c) => {
 		try {
-			const database = drizzle(c.env.DB);
+			const database = drizzle(c.env.DB, { schema: authSchema });
 			const organizationId = '11111111-1111-4111-8111-111111111111';
 
 			await database.delete(authSchema.project).where(eq(authSchema.project.organizationId, organizationId));
@@ -869,7 +870,7 @@ async function handlePreviewRequest(request: Request, projectId: string, preview
 	}
 
 	// Block soft-deleted and banned projects from being previewed (single query)
-	const previewDatabase = drizzle(env.DB);
+	const previewDatabase = drizzle(env.DB, { schema: authSchema });
 	const previewProjectRow = await previewDatabase
 		.select({
 			deletedAt: authSchema.project.deletedAt,
@@ -1031,7 +1032,7 @@ app.post('/api/new-project', async (c) => {
 	}
 
 	// Single query: verify membership, get org plan, and check org ban
-	const database = drizzle(c.env.DB);
+	const database = drizzle(c.env.DB, { schema: authSchema });
 	const orgMemberRow = await database
 		.select({
 			plan: authSchema.organization.plan,
@@ -1064,19 +1065,17 @@ app.post('/api/new-project', async (c) => {
 	}
 
 	// Enforce per-org project limit (plan-based + entitlement overrides)
-	const plan = orgMemberRow[0].plan ?? 'free';
-	const entitlementRows = await queryEntitlements(database, organizationId);
-	const orgLimits = resolveOrgLimitsFromRows(plan, entitlementRows);
-
+	const orgMaxProjects = await getEffectiveLimit(database, {
+		key: EFFECTIVE_LIMIT_ORG_MAX_PROJECTS,
+		organizationId,
+		plan: orgMemberRow[0].plan ?? 'free',
+	});
 	const existingProjects = await database
 		.select({ id: authSchema.project.id })
 		.from(authSchema.project)
 		.where(and(eq(authSchema.project.organizationId, organizationId), isNull(authSchema.project.deletedAt)));
-	if (existingProjects.length >= orgLimits.maxProjects) {
-		return c.json(
-			{ error: `Organization project limit reached (${orgLimits.maxProjects}). Upgrade your plan to create more projects.` },
-			400,
-		);
+	if (existingProjects.length >= orgMaxProjects) {
+		return c.json({ error: `Organization project limit reached (${orgMaxProjects}). Upgrade your plan to create more projects.` }, 400);
 	}
 
 	const doId = filesystemNamespace.newUniqueId();
@@ -1150,7 +1149,7 @@ app.post('/api/new-project', async (c) => {
 			projectId,
 			userId,
 			detail: templateId,
-			plan,
+			plan: orgMemberRow[0].plan ?? 'free',
 			durationMs: Date.now() - projectCreateStart,
 			success: true,
 			request: c.req.raw,
@@ -1165,7 +1164,7 @@ app.post('/api/new-project', async (c) => {
 			projectId,
 			userId,
 			detail: templateId,
-			plan,
+			plan: orgMemberRow[0].plan ?? 'free',
 			error: error instanceof Error ? error.message : String(error),
 			durationMs: Date.now() - projectCreateStart,
 			success: false,
@@ -1198,7 +1197,7 @@ app.post('/api/clone-project', async (c) => {
 	}
 
 	// Single query: verify membership, get org plan, and check org ban
-	const cloneDatabase = drizzle(c.env.DB);
+	const cloneDatabase = drizzle(c.env.DB, { schema: authSchema });
 	const cloneOrgMemberRow = await cloneDatabase
 		.select({
 			plan: authSchema.organization.plan,
@@ -1263,17 +1262,18 @@ app.post('/api/clone-project', async (c) => {
 	}
 
 	// Enforce per-org project limit (plan-based + entitlement overrides)
-	const clonePlan = cloneOrgMemberRow[0].plan ?? 'free';
-	const cloneEntitlementRows = await queryEntitlements(cloneDatabase, organizationId);
-	const cloneOrgLimits = resolveOrgLimitsFromRows(clonePlan, cloneEntitlementRows);
-
+	const cloneOrgMaxProjects = await getEffectiveLimit(cloneDatabase, {
+		key: EFFECTIVE_LIMIT_ORG_MAX_PROJECTS,
+		organizationId,
+		plan: cloneOrgMemberRow[0].plan ?? 'free',
+	});
 	const existingCloneProjects = await cloneDatabase
 		.select({ id: authSchema.project.id })
 		.from(authSchema.project)
 		.where(and(eq(authSchema.project.organizationId, organizationId), isNull(authSchema.project.deletedAt)));
-	if (existingCloneProjects.length >= cloneOrgLimits.maxProjects) {
+	if (existingCloneProjects.length >= cloneOrgMaxProjects) {
 		return c.json(
-			{ error: `Organization project limit reached (${cloneOrgLimits.maxProjects}). Upgrade your plan to create more projects.` },
+			{ error: `Organization project limit reached (${cloneOrgMaxProjects}). Upgrade your plan to create more projects.` },
 			400,
 		);
 	}
@@ -1295,7 +1295,7 @@ app.post('/api/clone-project', async (c) => {
 		});
 
 		// Register cloned project in D1
-		const database = drizzle(c.env.DB);
+		const database = drizzle(c.env.DB, { schema: authSchema });
 		const now = new Date();
 		await database.insert(authSchema.project).values({
 			id: newProjectId,
@@ -1423,7 +1423,7 @@ app.all('/p/:projectId/*', async (c) => {
 	}
 
 	{
-		const database = drizzle(c.env.DB);
+		const database = drizzle(c.env.DB, { schema: authSchema });
 		const projectAccessRow = await database
 			.select({
 				deletedAt: authSchema.project.deletedAt,
@@ -1459,7 +1459,7 @@ app.all('/p/:projectId/*', async (c) => {
 		c.executionCtx.waitUntil(
 			(async () => {
 				try {
-					const database = drizzle(c.env.DB);
+					const database = drizzle(c.env.DB, { schema: authSchema });
 					const now = new Date();
 					await database.batch([
 						database
@@ -1679,7 +1679,7 @@ export default {
 	 *    SOFT_DELETE_RETENTION_DAYS (30 days) ago.
 	 */
 	async scheduled(_event: ScheduledEvent, environment: Env, _executionContext: ExecutionContext): Promise<void> {
-		const database = drizzle(environment.DB);
+		const database = drizzle(environment.DB, { schema: authSchema });
 		const now = new Date();
 
 		// Phase 1: Auto soft-delete projects older than 1 year

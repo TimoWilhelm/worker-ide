@@ -1,13 +1,13 @@
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 
 import * as schema from '../db/auth-schema';
 
+import type { EntitlementKey } from '@shared/entitlements';
 import type { DrizzleD1Database } from 'drizzle-orm/d1';
 
-// Accept any D1 drizzle instance (with or without schema type parameter).
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- drizzle generic variance
-type Database = DrizzleD1Database<any>;
-export async function queryEntitlements(database: Database, scopeId: string) {
+type Database = DrizzleD1Database<typeof schema>;
+
+export async function queryEntitlement(database: Database, scopeId: string, key: EntitlementKey) {
 	return database
 		.select({
 			key: schema.entitlement.key,
@@ -15,5 +15,6 @@ export async function queryEntitlements(database: Database, scopeId: string) {
 			value: schema.entitlement.value,
 		})
 		.from(schema.entitlement)
-		.where(eq(schema.entitlement.scopeId, scopeId));
+		.where(and(eq(schema.entitlement.scopeId, scopeId), eq(schema.entitlement.key, key)))
+		.limit(1);
 }

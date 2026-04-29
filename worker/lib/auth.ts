@@ -13,10 +13,10 @@ import {
 	PLAN_FREE,
 	SESSION_COOKIE_CACHE,
 } from '@shared/constants';
-import { resolveOrgLimitsFromRows } from '@shared/entitlements';
+import { EFFECTIVE_LIMIT_ORG_MAX_MEMBERS, EFFECTIVE_LIMIT_ORG_MAX_PENDING_INVITATIONS } from '@shared/limits';
 
 import { trackAuthEvent } from './analytics';
-import { queryEntitlements } from './entitlements';
+import { getEffectiveLimit } from './limits';
 import { shouldBlockOrganizationCreate } from './organization-limits';
 import * as schema from '../db/auth-schema';
 
@@ -30,7 +30,7 @@ interface AuthEnvironment {
 }
 
 export function createAuth(environment: AuthEnvironment, baseUrl: string, request?: Request) {
-	const database = drizzle(environment.DB);
+	const database = drizzle(environment.DB, { schema });
 
 	return betterAuth({
 		database: drizzleAdapter(database, {
@@ -106,38 +106,22 @@ export function createAuth(environment: AuthEnvironment, baseUrl: string, reques
 		plugins: [
 			admin(ADMIN_PLUGIN_OPTIONS),
 			organization({
-				organizationLimit: async (user) => shouldBlockOrganizationCreate(drizzle(environment.DB), user.id),
+				organizationLimit: async (user) => shouldBlockOrganizationCreate(drizzle(environment.DB, { schema }), user.id),
 
 				// Dynamic membership limit: plan-based + org entitlements
 				membershipLimit: async (_user, organizationRecord) => {
-					const entitlementDatabase = drizzle(environment.DB);
-					const [entitlementRows, organizationRows] = await Promise.all([
-						queryEntitlements(entitlementDatabase, organizationRecord.id),
-						entitlementDatabase
-							.select({ plan: schema.organization.plan })
-							.from(schema.organization)
-							.where(eq(schema.organization.id, organizationRecord.id))
-							.limit(1),
-					]);
-					const plan = organizationRows[0]?.plan ?? 'free';
-					const { maxMembers } = resolveOrgLimitsFromRows(plan, entitlementRows);
-					return maxMembers;
+					return getEffectiveLimit(drizzle(environment.DB, { schema }), {
+						key: EFFECTIVE_LIMIT_ORG_MAX_MEMBERS,
+						organizationId: organizationRecord.id,
+					});
 				},
 
 				// Dynamic invitation limit: plan-based + org entitlements
 				invitationLimit: async ({ organization: organizationRecord }) => {
-					const entitlementDatabase = drizzle(environment.DB);
-					const [entitlementRows, organizationRows] = await Promise.all([
-						queryEntitlements(entitlementDatabase, organizationRecord.id),
-						entitlementDatabase
-							.select({ plan: schema.organization.plan })
-							.from(schema.organization)
-							.where(eq(schema.organization.id, organizationRecord.id))
-							.limit(1),
-					]);
-					const plan = organizationRows[0]?.plan ?? 'free';
-					const { maxPendingInvitations } = resolveOrgLimitsFromRows(plan, entitlementRows);
-					return maxPendingInvitations;
+					return getEffectiveLimit(drizzle(environment.DB, { schema }), {
+						key: EFFECTIVE_LIMIT_ORG_MAX_PENDING_INVITATIONS,
+						organizationId: organizationRecord.id,
+					});
 				},
 				schema: {
 					organization: {
@@ -161,7 +145,6 @@ export function createAuth(environment: AuthEnvironment, baseUrl: string, reques
 						},
 					},
 				},
-
 				invitationExpiresIn: INVITATION_EXPIRES_IN_SECONDS,
 				sendInvitationEmail: async (data) => {
 					const acceptUrl = `${baseUrl}/api/auth/organization/accept-invitation?id=${data.id}`;
@@ -200,7 +183,7 @@ export function createAuth(environment: AuthEnvironment, baseUrl: string, reques
 						if (!organizationData.id) return; // Can't check without an ID
 						const organizationId = organizationData.id;
 						try {
-							const authDatabase = drizzle(environment.DB);
+							const authDatabase = drizzle(environment.DB, { schema });
 							const orgRows = await authDatabase
 								.select({ bannedAt: schema.organization.bannedAt })
 								.from(schema.organization)
@@ -238,7 +221,7 @@ export function createAuth(environment: AuthEnvironment, baseUrl: string, reques
 						// Auto-create a personal organization for every new user.
 						// Uses D1 batch() for atomicity — both inserts succeed or neither does.
 						// Retries up to 3 times to handle rare slug uniqueness collisions.
-						const authDatabase = drizzle(environment.DB);
+						const authDatabase = drizzle(environment.DB, { schema });
 
 						let lastError: unknown;
 						for (let attempt = 0; attempt < 3; attempt++) {
@@ -287,7 +270,7 @@ export function createAuth(environment: AuthEnvironment, baseUrl: string, reques
 					before: async (session) => {
 						// Soft-deleted users are restored on sign-in.
 						try {
-							const authDatabase = drizzle(environment.DB);
+							const authDatabase = drizzle(environment.DB, { schema });
 							const userRows = await authDatabase
 								.select({ deletedAt: schema.user.deletedAt })
 								.from(schema.user)

@@ -63,7 +63,7 @@ import {
 import { SharedContextProvider } from '../services/ai-agent/memory/shared-context-provider';
 import { isRequestOriginContext } from '../services/ai-agent/request-origin-context';
 import { ReviewQueueStore } from '../services/ai-agent/review-queue';
-import { cleanupSessionArtifacts, cleanupTimestampPlans } from '../services/ai-agent/session-cleanup';
+import { cleanupSessionArtifacts } from '../services/ai-agent/session-cleanup';
 import { sessionMessagesToChatMessages } from '../services/ai-agent/session-messages';
 import { readAgentsContext } from '../services/ai-agent/system-prompt-builder';
 import { deriveFallbackTitle, generateSessionTitle } from '../services/ai-agent/title-generator';
@@ -482,7 +482,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		// minimal identity so the connection still succeeds. The worst case is a
 		// participant displayed as "Unknown" until their profile is refreshed.
 		try {
-			const database = drizzle(env.DB);
+			const database = drizzle(env.DB, { schema: authSchema });
 			const userRows = await database
 				.select({ name: authSchema.user.name, image: authSchema.user.image })
 				.from(authSchema.user)
@@ -527,7 +527,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 
 		const missingUserIds = [...unresolvedUserIds];
 		if (missingUserIds.length > 0) {
-			const database = drizzle(env.DB);
+			const database = drizzle(env.DB, { schema: authSchema });
 			const userRows = await database
 				.select({ id: authSchema.user.id, name: authSchema.user.name, image: authSchema.user.image })
 				.from(authSchema.user)
@@ -1170,8 +1170,8 @@ export class AgentRunner extends Agent<Env, AgentState> {
 			if (this.state.currentSession?.sessionId === sessionId) {
 				this.setState({
 					...this.state,
-					sessionParticipants: this.getLiveConnectionParticipants(),
 					currentSession: undefined,
+					sessionParticipants: this.getLiveConnectionParticipants(),
 				});
 			}
 			await this.refreshSessionsList();
@@ -1742,7 +1742,6 @@ export class AgentRunner extends Agent<Env, AgentState> {
 			await withMounts(async () => {
 				mount(PROJECT_ROOT, fsStub);
 				await cleanupSessionArtifacts(PROJECT_ROOT, prunedIds, survivingSnapshotIds);
-				await cleanupTimestampPlans(PROJECT_ROOT);
 			});
 		} catch (error) {
 			console.error('[AgentRunner] Filesystem cleanup failed:', error);
@@ -2002,7 +2001,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	}
 
 	private async lookupProjectOrganizationId(projectId: string): Promise<string | undefined> {
-		const database = drizzle(env.DB);
+		const database = drizzle(env.DB, { schema: authSchema });
 		const projectRow = await database
 			.select({ organizationId: authSchema.project.organizationId })
 			.from(authSchema.project)

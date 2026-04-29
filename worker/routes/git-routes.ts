@@ -41,7 +41,7 @@ function getGitClient(c: { env: Env; var: { projectId: string } }): GitClient {
  * Falls back to defaults if the user is not found.
  */
 async function getCommitAuthor(environment: Env, userId: string): Promise<{ name: string; email: string }> {
-	const database = drizzle(environment.DB);
+	const database = drizzle(environment.DB, { schema: authSchema });
 	const userRow = await database
 		.select({ name: authSchema.user.name, email: authSchema.user.email })
 		.from(authSchema.user)

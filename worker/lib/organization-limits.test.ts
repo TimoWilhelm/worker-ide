@@ -7,7 +7,7 @@ import { ENTITLEMENT_USER_MAX_FREE_ORGS } from '@shared/entitlements';
 import { getCurrentFreeOrganizationCount, shouldBlockOrganizationCreate } from './organization-limits';
 import * as schema from '../db/auth-schema';
 
-const database = drizzle(env.DB);
+const database = drizzle(env.DB, { schema });
 
 beforeAll(async () => {
 	await env.DB.exec(

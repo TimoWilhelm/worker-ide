@@ -29,7 +29,7 @@ export const deployRoutes = new Hono<AppEnvironment>().post('/deploy', zValidato
 	const { accountId, apiToken, workerName } = c.req.valid('json');
 
 	// Look up the project's organizationId for analytics
-	const deployDatabase = drizzle(c.env.DB);
+	const deployDatabase = drizzle(c.env.DB, { schema });
 	const deployProjectRow = await deployDatabase
 		.select({ organizationId: schema.project.organizationId })
 		.from(schema.project)

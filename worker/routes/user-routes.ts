@@ -4,8 +4,8 @@ import { drizzle } from 'drizzle-orm/d1';
 import { Hono } from 'hono';
 
 import { resolveUserPreferences } from '@shared/constants';
-import { resolveUserLimitsFromRows } from '@shared/entitlements';
 import { HttpErrorCode } from '@shared/http-errors';
+import { EFFECTIVE_LIMIT_USER_MAX_FREE_ORGANIZATIONS } from '@shared/limits';
 import {
 	favoriteBodySchema,
 	pushNotificationPreferenceBodySchema,
@@ -17,8 +17,8 @@ import {
 import { softDeleteOrganizationById } from './org-routes';
 import * as schema from '../db/auth-schema';
 import { trackAuthEvent } from '../lib/analytics';
-import { queryEntitlements } from '../lib/entitlements';
 import { httpError } from '../lib/http-error';
+import { getEffectiveLimit } from '../lib/limits';
 import { getCurrentFreeOrganizationCount } from '../lib/organization-limits';
 
 import type { AuthedEnvironment } from '../types';
@@ -108,17 +108,15 @@ export const userRoutes = new Hono<AuthedEnvironment>()
 	// GET /api/user/limits — Resolved limits + current usage for the authenticated user
 	.get('/user/limits', async (c) => {
 		const { userId } = c.get('session');
-		const database = drizzle(c.env.DB);
+		const database = drizzle(c.env.DB, { schema: schema });
 
-		const [entitlementRows, currentFreeOrganizations] = await Promise.all([
-			queryEntitlements(database, userId),
+		const [maxFreeOrganizations, currentFreeOrganizations] = await Promise.all([
+			getEffectiveLimit(database, { key: EFFECTIVE_LIMIT_USER_MAX_FREE_ORGANIZATIONS, userId }),
 			getCurrentFreeOrganizationCount(database, userId),
 		]);
 
-		const limits = resolveUserLimitsFromRows(entitlementRows);
-
 		return c.json({
-			maxFreeOrganizations: limits.maxFreeOrganizations,
+			maxFreeOrganizations,
 			currentFreeOrganizations,
 		});
 	})
@@ -126,7 +124,7 @@ export const userRoutes = new Hono<AuthedEnvironment>()
 	// GET /api/user/recent-projects — Recently accessed projects across all orgs
 	.get('/user/recent-projects', async (c) => {
 		const { userId } = c.get('session');
-		const database = drizzle(c.env.DB);
+		const database = drizzle(c.env.DB, { schema: schema });
 
 		// Get all orgs the user belongs to
 		const memberships = await database
@@ -220,7 +218,7 @@ export const userRoutes = new Hono<AuthedEnvironment>()
 	.put('/user/project/:projectId/favorite', zValidator('json', favoriteBodySchema), async (c) => {
 		const { userId } = c.get('session');
 		const { projectId } = c.req.param();
-		const database = drizzle(c.env.DB);
+		const database = drizzle(c.env.DB, { schema: schema });
 
 		const body = c.req.valid('json');
 
@@ -261,7 +259,7 @@ export const userRoutes = new Hono<AuthedEnvironment>()
 	// GET /api/user/account/delete-preview — Preview account deletion consequences
 	.get('/user/account/delete-preview', async (c) => {
 		const { userId } = c.get('session');
-		const database = drizzle(c.env.DB);
+		const database = drizzle(c.env.DB, { schema: schema });
 		const { blockers, membershipOrganizations, singleMemberOrganizations } = await getUserDeletionImpact(database, userId);
 
 		return c.json({
@@ -275,7 +273,7 @@ export const userRoutes = new Hono<AuthedEnvironment>()
 	// DELETE /api/user/account — Soft-delete user account
 	.delete('/user/account', async (c) => {
 		const { userId } = c.get('session');
-		const database = drizzle(c.env.DB);
+		const database = drizzle(c.env.DB, { schema: schema });
 		const deletionImpact = await getUserDeletionImpact(database, userId);
 
 		if (deletionImpact.blockers.length > 0) {
@@ -376,7 +374,7 @@ export const userRoutes = new Hono<AuthedEnvironment>()
 	// GET /api/user/preferences — All user preferences merged with defaults
 	.get('/user/preferences', async (c) => {
 		const { userId } = c.get('session');
-		const database = drizzle(c.env.DB);
+		const database = drizzle(c.env.DB, { schema: schema });
 
 		const rows = await database
 			.select({ key: schema.userPreference.key, value: schema.userPreference.value })
@@ -391,7 +389,7 @@ export const userRoutes = new Hono<AuthedEnvironment>()
 	.put('/user/preferences', zValidator('json', userPreferencesBodySchema), async (c) => {
 		const { userId } = c.get('session');
 		const preferences = c.req.valid('json');
-		const database = drizzle(c.env.DB);
+		const database = drizzle(c.env.DB, { schema: schema });
 		const now = new Date();
 
 		// Upsert each preference. Typically 1-2 keys per call.

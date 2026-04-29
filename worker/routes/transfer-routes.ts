@@ -3,14 +3,14 @@ import { and, eq, inArray, isNull, or } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
 import { Hono } from 'hono';
 
-import { resolveOrgLimitsFromRows } from '@shared/entitlements';
 import { HttpErrorCode } from '@shared/http-errors';
+import { EFFECTIVE_LIMIT_ORG_MAX_PROJECTS } from '@shared/limits';
 import { transferInitiateBodySchema } from '@shared/validation';
 
 import * as schema from '../db/auth-schema';
 import { trackAuthEvent } from '../lib/analytics';
-import { queryEntitlements } from '../lib/entitlements';
 import { httpError } from '../lib/http-error';
+import { getEffectiveLimit } from '../lib/limits';
 import { assertOrgAdmin } from '../lib/project-auth';
 
 import type { AuthedEnvironment } from '../types';
@@ -20,7 +20,7 @@ export const transferRoutes = new Hono<AuthedEnvironment>()
 	.post('/org/:orgId/project/:projectId/transfer', zValidator('json', transferInitiateBodySchema), async (c) => {
 		const { orgId, projectId } = c.req.param();
 		const { userId } = c.get('session');
-		const database = drizzle(c.env.DB);
+		const database = drizzle(c.env.DB, { schema });
 
 		// Verify user is admin/owner of source org
 		await assertOrgAdmin(database, orgId, userId);
@@ -108,7 +108,7 @@ export const transferRoutes = new Hono<AuthedEnvironment>()
 	// GET /api/user/pending-transfers — List all pending transfers for the user's orgs
 	.get('/user/pending-transfers', async (c) => {
 		const { userId } = c.get('session');
-		const database = drizzle(c.env.DB);
+		const database = drizzle(c.env.DB, { schema });
 
 		// Get orgs where user is admin/owner
 		const memberships = await database
@@ -179,7 +179,7 @@ export const transferRoutes = new Hono<AuthedEnvironment>()
 	.post('/transfer/:transferId/accept', async (c) => {
 		const { transferId } = c.req.param();
 		const { userId } = c.get('session');
-		const database = drizzle(c.env.DB);
+		const database = drizzle(c.env.DB, { schema });
 
 		const transferRow = await database
 			.select()
@@ -257,19 +257,21 @@ export const transferRoutes = new Hono<AuthedEnvironment>()
 			throw httpError(HttpErrorCode.FORBIDDEN, 'Target organization is restricted.');
 		}
 
-		const targetPlan = targetOrgRow[0]?.plan ?? 'free';
-		const targetEntitlementRows = await queryEntitlements(database, transfer.targetOrganizationId);
-		const targetOrgLimits = resolveOrgLimitsFromRows(targetPlan, targetEntitlementRows);
+		const targetOrgMaxProjects = await getEffectiveLimit(database, {
+			key: EFFECTIVE_LIMIT_ORG_MAX_PROJECTS,
+			organizationId: transfer.targetOrganizationId,
+			plan: targetOrgRow[0].plan ?? 'free',
+		});
 
 		const existingProjects = await database
 			.select({ id: schema.project.id })
 			.from(schema.project)
 			.where(and(eq(schema.project.organizationId, transfer.targetOrganizationId), isNull(schema.project.deletedAt)));
 
-		if (existingProjects.length >= targetOrgLimits.maxProjects) {
+		if (existingProjects.length >= targetOrgMaxProjects) {
 			throw httpError(
 				HttpErrorCode.VALIDATION_ERROR,
-				`Target organization project limit reached (${targetOrgLimits.maxProjects}). Upgrade the plan or remove a project.`,
+				`Target organization project limit reached (${targetOrgMaxProjects}). Upgrade the plan or remove a project.`,
 			);
 		}
 
@@ -294,7 +296,7 @@ export const transferRoutes = new Hono<AuthedEnvironment>()
 	.post('/transfer/:transferId/reject', async (c) => {
 		const { transferId } = c.req.param();
 		const { userId } = c.get('session');
-		const database = drizzle(c.env.DB);
+		const database = drizzle(c.env.DB, { schema });
 
 		const transferRow = await database
 			.select()
@@ -306,7 +308,6 @@ export const transferRoutes = new Hono<AuthedEnvironment>()
 			throw httpError(HttpErrorCode.NOT_FOUND, 'Pending transfer not found.');
 		}
 
-		// Verify user is admin/owner of target org
 		await assertOrgAdmin(database, transferRow[0].targetOrganizationId, userId);
 
 		const now = new Date();
@@ -322,7 +323,7 @@ export const transferRoutes = new Hono<AuthedEnvironment>()
 	.post('/transfer/:transferId/cancel', async (c) => {
 		const { transferId } = c.req.param();
 		const { userId } = c.get('session');
-		const database = drizzle(c.env.DB);
+		const database = drizzle(c.env.DB, { schema });
 
 		const transferRow = await database
 			.select()

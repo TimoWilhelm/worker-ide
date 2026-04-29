@@ -3,15 +3,19 @@ import { and, count, desc, eq, isNull } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
 import { Hono } from 'hono';
 
-import { resolveOrgLimitsFromRows } from '@shared/entitlements';
 import { HttpErrorCode } from '@shared/http-errors';
+import {
+	EFFECTIVE_LIMIT_ORG_MAX_MEMBERS,
+	EFFECTIVE_LIMIT_ORG_MAX_PENDING_INVITATIONS,
+	EFFECTIVE_LIMIT_ORG_MAX_PROJECTS,
+} from '@shared/limits';
 import { visibilityBodySchema } from '@shared/validation';
 
 import * as schema from '../db/auth-schema';
 import { trackProjectEvent } from '../lib/analytics';
 import { coordinatorNamespace } from '../lib/durable-object-namespaces';
-import { queryEntitlements } from '../lib/entitlements';
 import { httpError } from '../lib/http-error';
+import { getEffectiveLimit } from '../lib/limits';
 import { assertOrgSuperAdmin } from '../lib/project-auth';
 
 import type { AuthedEnvironment } from '../types';
@@ -21,7 +25,7 @@ const PROJECT_DELETED_VIA_PROJECT = 'project';
 const PROJECT_DELETED_VIA_ORGANIZATION = 'organization';
 
 async function softDeleteProjectById(
-	database: DrizzleD1Database,
+	database: DrizzleD1Database<typeof schema>,
 	projectId: string,
 	now: Date,
 	deletedViaType: string,
@@ -41,7 +45,7 @@ async function softDeleteProjectById(
 }
 
 export async function softDeleteOrganizationById(
-	database: DrizzleD1Database,
+	database: DrizzleD1Database<typeof schema>,
 	organizationId: string,
 	now: Date,
 	resolvedByUserId?: string,
@@ -73,7 +77,7 @@ export const orgRoutes = new Hono<AuthedEnvironment>()
 	.use('/org/:orgId/*', async (c, next) => {
 		const { orgId } = c.req.param();
 		const { userId } = c.get('session');
-		const database = drizzle(c.env.DB);
+		const database = drizzle(c.env.DB, { schema });
 
 		// Single query: check membership + org ban
 		const orgMemberRow = await database
@@ -109,36 +113,34 @@ export const orgRoutes = new Hono<AuthedEnvironment>()
 	// GET /api/org/:orgId/limits — Resolved limits + current usage for this organization
 	.get('/org/:orgId/limits', async (c) => {
 		const { orgId } = c.req.param();
-		const database = drizzle(c.env.DB);
+		const database = drizzle(c.env.DB, { schema });
 
-		// Fetch org plan, entitlements, and current counts in parallel
-		const [organizationRows, entitlementRows, projectCountRows, memberCountRows, pendingInvitationCountRows] = await Promise.all([
-			database.select({ plan: schema.organization.plan }).from(schema.organization).where(eq(schema.organization.id, orgId)).limit(1),
-			queryEntitlements(database, orgId),
-			database
-				.select({ count: count() })
-				.from(schema.project)
-				.where(and(eq(schema.project.organizationId, orgId), isNull(schema.project.deletedAt))),
-			database
-				.select({ count: count() })
-				.from(schema.member)
-				.innerJoin(schema.user, eq(schema.user.id, schema.member.userId))
-				.where(and(eq(schema.member.organizationId, orgId), isNull(schema.user.deletedAt))),
-			database
-				.select({ count: count() })
-				.from(schema.invitation)
-				.where(and(eq(schema.invitation.organizationId, orgId), eq(schema.invitation.status, 'pending'))),
-		]);
-
-		const plan = organizationRows[0]?.plan ?? 'free';
-		const limits = resolveOrgLimitsFromRows(plan, entitlementRows);
+		const [maxProjects, maxMembers, maxPendingInvitations, projectCountRows, memberCountRows, pendingInvitationCountRows] =
+			await Promise.all([
+				getEffectiveLimit(database, { key: EFFECTIVE_LIMIT_ORG_MAX_PROJECTS, organizationId: orgId }),
+				getEffectiveLimit(database, { key: EFFECTIVE_LIMIT_ORG_MAX_MEMBERS, organizationId: orgId }),
+				getEffectiveLimit(database, { key: EFFECTIVE_LIMIT_ORG_MAX_PENDING_INVITATIONS, organizationId: orgId }),
+				database
+					.select({ count: count() })
+					.from(schema.project)
+					.where(and(eq(schema.project.organizationId, orgId), isNull(schema.project.deletedAt))),
+				database
+					.select({ count: count() })
+					.from(schema.member)
+					.innerJoin(schema.user, eq(schema.user.id, schema.member.userId))
+					.where(and(eq(schema.member.organizationId, orgId), isNull(schema.user.deletedAt))),
+				database
+					.select({ count: count() })
+					.from(schema.invitation)
+					.where(and(eq(schema.invitation.organizationId, orgId), eq(schema.invitation.status, 'pending'))),
+			]);
 
 		return c.json({
-			maxProjects: limits.maxProjects,
+			maxProjects,
 			currentProjects: projectCountRows[0]?.count ?? 0,
-			maxMembers: limits.maxMembers,
+			maxMembers,
 			currentMembers: memberCountRows[0]?.count ?? 0,
-			maxPendingInvitations: limits.maxPendingInvitations,
+			maxPendingInvitations,
 			currentPendingInvitations: pendingInvitationCountRows[0]?.count ?? 0,
 		});
 	})
@@ -146,7 +148,7 @@ export const orgRoutes = new Hono<AuthedEnvironment>()
 	// GET /api/org/:orgId/full — Organization details for settings pages
 	.get('/org/:orgId/full', async (c) => {
 		const { orgId } = c.req.param();
-		const database = drizzle(c.env.DB);
+		const database = drizzle(c.env.DB, { schema });
 
 		const [organizationRows, memberRows, invitationRows] = await Promise.all([
 			database
@@ -230,7 +232,7 @@ export const orgRoutes = new Hono<AuthedEnvironment>()
 	.get('/org/:orgId/projects', async (c) => {
 		const { orgId } = c.req.param();
 
-		const database = drizzle(c.env.DB);
+		const database = drizzle(c.env.DB, { schema });
 		const projects = await database
 			.select({
 				id: schema.project.id,
@@ -257,7 +259,7 @@ export const orgRoutes = new Hono<AuthedEnvironment>()
 
 		const body = c.req.valid('json');
 
-		const database = drizzle(c.env.DB);
+		const database = drizzle(c.env.DB, { schema });
 		const existing = await database
 			.select()
 			.from(schema.project)
@@ -287,7 +289,7 @@ export const orgRoutes = new Hono<AuthedEnvironment>()
 	.delete('/org/:orgId/project/:projectId', async (c) => {
 		const { orgId, projectId } = c.req.param();
 
-		const database = drizzle(c.env.DB);
+		const database = drizzle(c.env.DB, { schema });
 		const existing = await database
 			.select()
 			.from(schema.project)
@@ -326,7 +328,7 @@ export const orgRoutes = new Hono<AuthedEnvironment>()
 	.delete('/org/:orgId', async (c) => {
 		const { orgId } = c.req.param();
 		const { userId } = c.get('session');
-		const database = drizzle(c.env.DB);
+		const database = drizzle(c.env.DB, { schema });
 
 		// Only super admins (owners) can delete an org
 		await assertOrgSuperAdmin(database, orgId, userId);

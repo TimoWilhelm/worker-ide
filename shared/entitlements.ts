@@ -1,7 +1,3 @@
-import { getOrgLimits, PLAN_FREE } from './constants/plans';
-
-import type { PlanLimits } from './constants/plans';
-
 export type EntitlementValueType = 'number' | 'boolean' | 'string';
 
 /**
@@ -12,9 +8,11 @@ export type EntitlementValue =
 	| { valueType: 'number'; value: number }
 	| { valueType: 'boolean'; value: boolean }
 	| { valueType: 'string'; value: string };
+
 export function serializeEntitlementValue(typed: EntitlementValue): string {
 	return String(typed.value);
 }
+
 export function deserializeEntitlementValue(raw: string, valueType: EntitlementValueType): EntitlementValue {
 	switch (valueType) {
 		case 'number': {
@@ -42,7 +40,6 @@ export const ENTITLEMENT_ORG_STORAGE_QUOTA_BYTES = 'org:storage_quota_bytes' as 
  * Assigned to a user to override global defaults.
  */
 export const ENTITLEMENT_USER_MAX_FREE_ORGS = 'user:max_free_orgs' as const;
-export const DEFAULT_MAX_FREE_ORGS = 3;
 
 /**
  * Project-scoped entitlement keys.
@@ -50,40 +47,48 @@ export const DEFAULT_MAX_FREE_ORGS = 3;
  */
 export const ENTITLEMENT_PROJECT_STORAGE_QUOTA_BYTES = 'project:storage_quota_bytes' as const;
 
-export type OrgEntitlementKey =
+export type EntitlementKey =
 	| typeof ENTITLEMENT_ORG_MAX_PROJECTS
 	| typeof ENTITLEMENT_ORG_MAX_MEMBERS
-	| typeof ENTITLEMENT_ORG_STORAGE_QUOTA_BYTES;
+	| typeof ENTITLEMENT_ORG_STORAGE_QUOTA_BYTES
+	| typeof ENTITLEMENT_USER_MAX_FREE_ORGS
+	| typeof ENTITLEMENT_PROJECT_STORAGE_QUOTA_BYTES;
 
-export type UserEntitlementKey = typeof ENTITLEMENT_USER_MAX_FREE_ORGS;
+export type OrgEntitlementKey = Extract<EntitlementKey, `org:${string}`>;
+export type UserEntitlementKey = Extract<EntitlementKey, `user:${string}`>;
+export type ProjectEntitlementKey = Extract<EntitlementKey, `project:${string}`>;
 
-export type ProjectEntitlementKey = typeof ENTITLEMENT_PROJECT_STORAGE_QUOTA_BYTES;
+type EntitlementRegistryEntry = {
+	valueType: EntitlementValueType;
+	description: string;
+};
 
-export type EntitlementKey = OrgEntitlementKey | UserEntitlementKey | ProjectEntitlementKey;
+function numberEntitlement(description: string): EntitlementRegistryEntry {
+	return { valueType: 'number', description };
+}
 
 /**
  * All valid entitlement keys with their expected value types.
  * Used for validation and documentation.
  */
-export const ENTITLEMENT_REGISTRY: Record<EntitlementKey, { valueType: EntitlementValueType; description: string }> = {
-	[ENTITLEMENT_ORG_MAX_PROJECTS]: { valueType: 'number', description: 'Maximum active projects per organization' },
-	[ENTITLEMENT_ORG_MAX_MEMBERS]: { valueType: 'number', description: 'Maximum members per organization' },
-	[ENTITLEMENT_ORG_STORAGE_QUOTA_BYTES]: { valueType: 'number', description: 'Maximum object storage bytes per project (org default)' },
-	[ENTITLEMENT_USER_MAX_FREE_ORGS]: { valueType: 'number', description: 'Maximum free organizations a user can belong to' },
-	[ENTITLEMENT_PROJECT_STORAGE_QUOTA_BYTES]: {
-		valueType: 'number',
-		description: 'Maximum object storage bytes for this project (overrides org)',
-	},
+export const ENTITLEMENT_REGISTRY: Record<EntitlementKey, EntitlementRegistryEntry> = {
+	[ENTITLEMENT_ORG_MAX_PROJECTS]: numberEntitlement('Maximum active projects per organization'),
+	[ENTITLEMENT_ORG_MAX_MEMBERS]: numberEntitlement('Maximum members per organization'),
+	[ENTITLEMENT_ORG_STORAGE_QUOTA_BYTES]: numberEntitlement('Maximum object storage bytes per project (org default)'),
+	[ENTITLEMENT_USER_MAX_FREE_ORGS]: numberEntitlement('Maximum free organizations a user can belong to'),
+	[ENTITLEMENT_PROJECT_STORAGE_QUOTA_BYTES]: numberEntitlement('Maximum object storage bytes for this project (overrides org)'),
 };
 
 export function isValidEntitlementKey(key: string): key is EntitlementKey {
 	return key in ENTITLEMENT_REGISTRY;
 }
+
 export function getEntitlementScope(key: EntitlementKey): 'org' | 'user' | 'project' {
 	if (key.startsWith('org:')) return 'org';
 	if (key.startsWith('project:')) return 'project';
 	return 'user';
 }
+
 export interface EntitlementRecord {
 	id: string;
 	scopeId: string;
@@ -94,84 +99,26 @@ export interface EntitlementRecord {
 	createdAt: Date;
 	updatedAt: Date;
 }
-export interface ResolvedOrgLimits {
-	maxProjects: number;
-	maxMembers: number;
-	maxPendingInvitations: number;
-	storageQuotaBytes: number;
-}
-export interface ResolvedUserLimits {
-	maxFreeOrganizations: number;
-}
+
+export type EntitlementMapInput = Pick<EntitlementRecord, 'key' | 'valueType' | 'value'>;
 
 /**
  * Build a lookup map from raw entitlement DB rows.
  * Only includes rows whose key/valueType match the registry.
  */
-export function toEntitlementMap(rows: Array<{ key: string; valueType: string; value: string }>): Map<string, EntitlementValue> {
+export function toEntitlementMap(rows: EntitlementMapInput[]): Map<string, EntitlementValue> {
 	const map = new Map<string, EntitlementValue>();
 	for (const row of rows) {
-		if (isValidEntitlementKey(row.key)) {
-			const expectedType = ENTITLEMENT_REGISTRY[row.key].valueType;
-			if (row.valueType === expectedType) {
-				map.set(row.key, deserializeEntitlementValue(row.value, expectedType));
-			}
+		if (!isValidEntitlementKey(row.key)) {
+			continue;
 		}
+
+		const expectedType = ENTITLEMENT_REGISTRY[row.key].valueType;
+		if (row.valueType !== expectedType) {
+			continue;
+		}
+
+		map.set(row.key, deserializeEntitlementValue(row.value, expectedType));
 	}
 	return map;
-}
-function getNumber(map: Map<string, EntitlementValue>, key: string): number | undefined {
-	const entry = map.get(key);
-	if (entry?.valueType === 'number') {
-		return entry.value;
-	}
-	return undefined;
-}
-export function resolveOrgLimits(plan: string, entitlements: Map<string, EntitlementValue>): ResolvedOrgLimits {
-	const planLimits: PlanLimits = getOrgLimits(plan);
-
-	return {
-		maxProjects: getNumber(entitlements, ENTITLEMENT_ORG_MAX_PROJECTS) ?? planLimits.maxProjects,
-		maxMembers: getNumber(entitlements, ENTITLEMENT_ORG_MAX_MEMBERS) ?? planLimits.maxMembers,
-		maxPendingInvitations: planLimits.maxPendingInvitations,
-		storageQuotaBytes: getNumber(entitlements, ENTITLEMENT_ORG_STORAGE_QUOTA_BYTES) ?? planLimits.storageQuotaBytes,
-	};
-}
-export function resolveUserLimits(entitlements: Map<string, EntitlementValue>): ResolvedUserLimits {
-	return {
-		maxFreeOrganizations: getNumber(entitlements, ENTITLEMENT_USER_MAX_FREE_ORGS) ?? DEFAULT_MAX_FREE_ORGS,
-	};
-}
-export function resolveOrgLimitsFromRows(plan: string, rows: Array<{ key: string; valueType: string; value: string }>): ResolvedOrgLimits {
-	return resolveOrgLimits(plan ?? PLAN_FREE, toEntitlementMap(rows));
-}
-export function resolveUserLimitsFromRows(rows: Array<{ key: string; valueType: string; value: string }>): ResolvedUserLimits {
-	return resolveUserLimits(toEntitlementMap(rows));
-}
-
-/**
- * Resolve the effective storage quota for a project.
- *
- * Resolution order: project entitlement override → org entitlement override → plan default.
- */
-export function resolveProjectStorageQuota(
-	plan: string,
-	orgEntitlements: Map<string, EntitlementValue>,
-	projectEntitlements: Map<string, EntitlementValue>,
-): number {
-	const projectOverride = getNumber(projectEntitlements, ENTITLEMENT_PROJECT_STORAGE_QUOTA_BYTES);
-	if (projectOverride !== undefined) return projectOverride;
-
-	const orgOverride = getNumber(orgEntitlements, ENTITLEMENT_ORG_STORAGE_QUOTA_BYTES);
-	if (orgOverride !== undefined) return orgOverride;
-
-	const planLimits: PlanLimits = getOrgLimits(plan);
-	return planLimits.storageQuotaBytes;
-}
-export function resolveProjectStorageQuotaFromRows(
-	plan: string,
-	orgRows: Array<{ key: string; valueType: string; value: string }>,
-	projectRows: Array<{ key: string; valueType: string; value: string }>,
-): number {
-	return resolveProjectStorageQuota(plan, toEntitlementMap(orgRows), toEntitlementMap(projectRows));
 }

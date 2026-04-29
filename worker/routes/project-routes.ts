@@ -32,7 +32,7 @@ export const projectRoutes = new Hono<AppEnvironment>()
 	.get('/project/meta', async (c) => {
 		const projectRoot = c.get('projectRoot');
 		const projectId = c.get('projectId');
-		const database = drizzle(c.env.DB);
+		const database = drizzle(c.env.DB, { schema });
 		const projectRows = await database
 			.select({
 				organizationId: schema.project.organizationId,
@@ -102,7 +102,7 @@ export const projectRoutes = new Hono<AppEnvironment>()
 		// Sync project name to D1 so dashboards and admin UI reflect the update
 		if (parsed.data.name) {
 			const projectId = c.get('projectId');
-			const database = drizzle(c.env.DB);
+			const database = drizzle(c.env.DB, { schema });
 			await database.update(schema.project).set({ name: parsed.data.name, updatedAt: new Date() }).where(eq(schema.project.id, projectId));
 		}
 
@@ -144,7 +144,7 @@ export const projectRoutes = new Hono<AppEnvironment>()
 		const assetSettings = await readAssetSettings(projectRoot);
 		const bindingsConfig = await readBindingsConfig(projectRoot);
 		const projectId = c.get('projectId');
-		const database = drizzle(c.env.DB);
+		const database = drizzle(c.env.DB, { schema });
 		const projectRows = await database
 			.select({
 				organizationId: schema.project.organizationId,
@@ -205,7 +205,7 @@ export const projectRoutes = new Hono<AppEnvironment>()
 	// GET /api/project/visibility - Get preview visibility
 	.get('/project/visibility', async (c) => {
 		const projectId = c.get('projectId');
-		const database = drizzle(c.env.DB);
+		const database = drizzle(c.env.DB, { schema });
 		const rows = await database
 			.select({ previewVisibility: schema.project.previewVisibility })
 			.from(schema.project)
@@ -219,7 +219,7 @@ export const projectRoutes = new Hono<AppEnvironment>()
 	.put('/project/visibility', zValidator('json', visibilityBodySchema), async (c) => {
 		const projectId = c.get('projectId');
 		const body = c.req.valid('json');
-		const database = drizzle(c.env.DB);
+		const database = drizzle(c.env.DB, { schema });
 		await database
 			.update(schema.project)
 			.set({ previewVisibility: body.visibility, updatedAt: new Date() })

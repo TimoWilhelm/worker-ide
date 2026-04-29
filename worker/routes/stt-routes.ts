@@ -51,7 +51,7 @@ export const sttRoutes = new Hono<AppEnvironment>().get('/stt/ws', async (c) => 
 
 	const { userId } = c.get('session');
 	const projectId = c.get('projectId');
-	const database = drizzle(c.env.DB);
+	const database = drizzle(c.env.DB, { schema: authSchema });
 	const projectRows = await database
 		.select({ organizationId: authSchema.project.organizationId })
 		.from(authSchema.project)

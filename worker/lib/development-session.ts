@@ -29,7 +29,7 @@ export async function resolveDevelopmentSession(
 	const token = getSessionToken(headers);
 	if (!token) return undefined;
 
-	const drizzleDatabase = drizzle(database);
+	const drizzleDatabase = drizzle(database, { schema: authSchema });
 	const sessions = await drizzleDatabase.select().from(authSchema.session).where(eq(authSchema.session.token, token)).limit(1);
 	if (sessions.length === 0 || sessions[0].expiresAt < new Date()) return undefined;
 
