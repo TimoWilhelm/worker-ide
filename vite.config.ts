@@ -183,8 +183,7 @@ export default defineConfig({
 				id: '7c3a8f1e-9d4b-4e2a-b6f5-1a2d3c4e5f6a',
 				name: 'Codemaxxing',
 				short_name: 'Codemaxxing',
-				description:
-					'A full-featured cloud IDE with real-time collaboration, AI agent, and instant preview. Build and deploy directly from your browser.',
+				description: 'Cloud IDE with AI agent, and instant preview. Code, build, and deploy from anywhere.',
 				orientation: 'natural',
 				start_url: '/',
 				scope: '/',
