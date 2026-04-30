@@ -39,7 +39,9 @@ export async function execute(
 	try {
 		const planDirectory = `${projectRoot}/.agent/plans`;
 		await fs.mkdir(planDirectory, { recursive: true });
-		const planFile = `${planDirectory}/${sessionId || 'default'}.md`;
+		const planFileName = `${sessionId || 'default'}.md`;
+		const planFilePath = `.agent/plans/${planFileName}`;
+		const planFile = `${planDirectory}/${planFileName}`;
 
 		// Read previous plan to compute a meaningful diff
 		let previousContent: string | undefined;
@@ -68,7 +70,7 @@ export async function execute(
 			result += ' (no changes from previous plan)';
 		}
 
-		return { title: 'plan', metadata: { completedTasks: completedCount, totalTasks }, output: result };
+		return { title: 'plan', metadata: { completedTasks: completedCount, totalTasks, planFilePath }, output: result };
 	} catch (error) {
 		throw new ToolExecutionError('MISSING_INPUT', `Failed to update plan: ${String(error)}`);
 	}

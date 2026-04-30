@@ -189,6 +189,195 @@ describe('MessageBubble', () => {
 		expect(toolCallToggle.tagName).toBe('DIV');
 	});
 
+	it('shows the plan file reference for plan updates', () => {
+		renderWithProviders(
+			<AssistantMessage
+				message={{
+					id: 'assistant-plan',
+					role: 'assistant',
+					parts: [
+						{
+							type: 'tool-call',
+							toolCallId: 'tool-plan',
+							toolName: 'plan_update',
+							arguments: { content: '# Plan' },
+						},
+						{
+							type: 'tool-result',
+							toolCallId: 'tool-plan',
+							toolName: 'plan_update',
+							result: 'Plan updated',
+						},
+					],
+					createdAt: 1,
+				}}
+				toolMetadata={
+					new Map([
+						[
+							'tool-plan',
+							{
+								toolCallId: 'tool-plan',
+								toolName: 'plan_update',
+								title: 'plan',
+								metadata: { completedTasks: 1, totalTasks: 2, planFilePath: '.agent/plans/ses-123.md' },
+							},
+						],
+					])
+				}
+			/>,
+		);
+
+		expect(screen.getByText('ses-123.md')).toBeInTheDocument();
+		expect(screen.getByText('1/2')).toBeInTheDocument();
+	});
+
+	it('shows all completed TODOs after todos_update', () => {
+		renderWithProviders(
+			<AssistantMessage
+				message={{
+					id: 'assistant-todos',
+					role: 'assistant',
+					parts: [
+						{
+							type: 'tool-call',
+							toolCallId: 'tool-todos',
+							toolName: 'todos_update',
+							arguments: {},
+						},
+						{
+							type: 'tool-result',
+							toolCallId: 'tool-todos',
+							toolName: 'todos_update',
+							result: 'Updated 2 TODO(s).',
+						},
+					],
+					createdAt: 1,
+				}}
+				toolMetadata={
+					new Map([
+						[
+							'tool-todos',
+							{
+								toolCallId: 'tool-todos',
+								toolName: 'todos_update',
+								title: 'todos',
+								metadata: {
+									todos: [
+										{ id: 'one', content: 'Finish implementation', status: 'completed', priority: 'high' },
+										{ id: 'two', content: 'Run validation', status: 'completed', priority: 'medium' },
+									],
+								},
+							},
+						],
+					])
+				}
+			/>,
+		);
+
+		expect(screen.getByText('2/2 completed')).toBeInTheDocument();
+		expect(screen.getByText('Finish implementation')).toBeInTheDocument();
+		expect(screen.getByText('Run validation')).toBeInTheDocument();
+	});
+
+	it('shows current asset settings after asset_settings_update', () => {
+		renderWithProviders(
+			<AssistantMessage
+				message={{
+					id: 'assistant-asset-settings',
+					role: 'assistant',
+					parts: [
+						{
+							type: 'tool-call',
+							toolCallId: 'tool-asset-settings',
+							toolName: 'asset_settings_update',
+							arguments: { not_found_handling: 'single-page-application' },
+						},
+						{
+							type: 'tool-result',
+							toolCallId: 'tool-asset-settings',
+							toolName: 'asset_settings_update',
+							result: 'Updated asset settings',
+						},
+					],
+					createdAt: 1,
+				}}
+				toolMetadata={
+					new Map([
+						[
+							'tool-asset-settings',
+							{
+								toolCallId: 'tool-asset-settings',
+								toolName: 'asset_settings_update',
+								title: 'asset settings updated',
+								metadata: {
+									assetSettings: {
+										not_found_handling: 'single-page-application',
+										html_handling: 'auto-trailing-slash',
+										run_worker_first: ['/api/*', '!/api/docs/*'],
+									},
+									changes: ['not_found_handling = single-page-application'],
+								},
+							},
+						],
+					])
+				}
+			/>,
+		);
+
+		expect(screen.getByText('1 changed')).toBeInTheDocument();
+		expect(screen.getByText('Asset settings')).toBeInTheDocument();
+		expect(screen.getByText('not_found_handling')).toBeInTheDocument();
+		expect(screen.getByText('single-page-application')).toBeInTheDocument();
+		expect(screen.getByText('/api/*, !/api/docs/*')).toBeInTheDocument();
+	});
+
+	it('shows current bindings after bindings_update', () => {
+		renderWithProviders(
+			<AssistantMessage
+				message={{
+					id: 'assistant-bindings',
+					role: 'assistant',
+					parts: [
+						{
+							type: 'tool-call',
+							toolCallId: 'tool-bindings',
+							toolName: 'bindings_update',
+							arguments: { storage: 'true' },
+						},
+						{
+							type: 'tool-result',
+							toolCallId: 'tool-bindings',
+							toolName: 'bindings_update',
+							result: 'Updated bindings',
+						},
+					],
+					createdAt: 1,
+				}}
+				toolMetadata={
+					new Map([
+						[
+							'tool-bindings',
+							{
+								toolCallId: 'tool-bindings',
+								toolName: 'bindings_update',
+								title: 'bindings updated',
+								metadata: {
+									bindingsConfig: { storage: true },
+									changes: ['storage = enabled'],
+								},
+							},
+						],
+					])
+				}
+			/>,
+		);
+
+		expect(screen.getByText('1 changed')).toBeInTheDocument();
+		expect(screen.getByText('Bindings')).toBeInTheDocument();
+		expect(screen.getByText('storage')).toBeInTheDocument();
+		expect(screen.getByText('enabled')).toBeInTheDocument();
+	});
+
 	it('shows collaborator names for non-self user messages', () => {
 		renderWithProviders(
 			<MessageBubble

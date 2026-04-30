@@ -6,6 +6,7 @@ import {
 	ChevronRight,
 	Circle,
 	Clock,
+	Database,
 	Download,
 	Eye,
 	FastForward,
@@ -23,6 +24,7 @@ import {
 	RefreshCw,
 	RotateCcw,
 	Search,
+	Settings,
 	Trash2,
 	X,
 } from 'lucide-react';
@@ -126,6 +128,14 @@ function ToolIcon({ name, className }: { name: ToolName; className?: string }) {
 		}
 		case 'test_run': {
 			return <FlaskConical className={cn('size-3', className)} />;
+		}
+		case 'asset_settings_get':
+		case 'asset_settings_update': {
+			return <Settings className={cn('size-3', className)} />;
+		}
+		case 'bindings_get':
+		case 'bindings_update': {
+			return <Database className={cn('size-3', className)} />;
 		}
 		case 'image_generate': {
 			return <Image className={cn('size-3', className)} />;
@@ -860,6 +870,22 @@ function summarizeFromMetadata(toolName: ToolName | undefined, info: ToolMetadat
 			return undefined;
 		}
 
+		case 'asset_settings_get': {
+			return 'Retrieved';
+		}
+
+		case 'asset_settings_update': {
+			return Array.isArray(metadata.changes) && metadata.changes.length > 0 ? `${metadata.changes.length} changed` : 'No changes';
+		}
+
+		case 'bindings_get': {
+			return 'Retrieved';
+		}
+
+		case 'bindings_update': {
+			return Array.isArray(metadata.changes) && metadata.changes.length > 0 ? `${metadata.changes.length} changed` : 'No changes';
+		}
+
 		case 'plan_update': {
 			if (typeof metadata.completedTasks === 'number' && typeof metadata.totalTasks === 'number') {
 				return `${metadata.completedTasks}/${metadata.totalTasks}`;
@@ -872,7 +898,11 @@ function summarizeFromMetadata(toolName: ToolName | undefined, info: ToolMetadat
 		}
 
 		case 'todos_update': {
-			return 'Updated';
+			if (Array.isArray(metadata.todos)) {
+				const todos = metadata.todos.filter((item) => isTodoItemDisplay(item));
+				if (todos.length > 0) return summarizeTodos(todos);
+			}
+			return undefined;
 		}
 
 		case 'web_fetch': {
@@ -960,6 +990,37 @@ const PRIORITY_PILL_COLOR: Record<TodoItemDisplay['priority'], NonNullable<PillP
 	low: 'muted',
 };
 
+function isTodoItemDisplay(item: unknown): item is TodoItemDisplay {
+	return (
+		isRecord(item) &&
+		typeof item.id === 'string' &&
+		typeof item.content === 'string' &&
+		(item.status === 'pending' || item.status === 'in_progress' || item.status === 'completed') &&
+		(item.priority === 'high' || item.priority === 'medium' || item.priority === 'low')
+	);
+}
+
+function parseTodosFromRawResult(rawResult: string | undefined): TodoItemDisplay[] | undefined {
+	if (!rawResult) return undefined;
+	try {
+		const parsed: unknown = JSON.parse(rawResult);
+		if (Array.isArray(parsed)) {
+			return parsed.filter((item) => isTodoItemDisplay(item));
+		}
+		if (isRecord(parsed) && Array.isArray(parsed.todos)) {
+			return parsed.todos.filter((item) => isTodoItemDisplay(item));
+		}
+	} catch {
+		// Not JSON
+	}
+	return undefined;
+}
+
+function summarizeTodos(todos: TodoItemDisplay[]): string {
+	const completed = todos.filter((item) => item.status === 'completed').length;
+	return `${completed}/${todos.length} completed`;
+}
+
 function InlineTodoList({ todos }: { todos: TodoItemDisplay[] }) {
 	return (
 		<div
@@ -998,6 +1059,65 @@ function InlineTodoList({ todos }: { todos: TodoItemDisplay[] }) {
 			</div>
 		</div>
 	);
+}
+
+function stringifyConfigValue(value: unknown): string {
+	if (Array.isArray(value)) return value.length > 0 ? value.join(', ') : '[]';
+	if (typeof value === 'boolean') return value ? 'enabled' : 'disabled';
+	if (typeof value === 'string') return value;
+	return value === undefined ? 'default' : String(value);
+}
+
+function InlineKeyValueState({ title, entries }: { title: string; entries: Array<{ key: string; value: unknown }> }) {
+	if (entries.length === 0) return;
+
+	return (
+		<div
+			className="
+				animate-chat-item rounded-lg border border-border bg-bg-secondary p-2
+			"
+		>
+			<div
+				className="
+					mb-1.5 flex items-center gap-1.5 text-2xs font-semibold tracking-wider
+					text-text-secondary uppercase
+				"
+			>
+				<Settings className="size-3.5" />
+				{title}
+			</div>
+			<div className="flex flex-col gap-1">
+				{entries.map((entry) => (
+					<div
+						key={entry.key}
+						className="
+							flex items-center justify-between gap-3 rounded-md bg-bg-primary px-2.5
+							py-1.5 text-xs
+						"
+					>
+						<span className="text-text-secondary">{entry.key}</span>
+						<span className="min-w-0 truncate font-mono text-text-primary">{stringifyConfigValue(entry.value)}</span>
+					</div>
+				))}
+			</div>
+		</div>
+	);
+}
+
+function getAssetSettingsEntries(metadata: Record<string, unknown> | undefined): Array<{ key: string; value: unknown }> | undefined {
+	const settings = metadata && isRecord(metadata.assetSettings) ? metadata.assetSettings : undefined;
+	if (!settings) return undefined;
+	return [
+		{ key: 'not_found_handling', value: settings.not_found_handling },
+		{ key: 'html_handling', value: settings.html_handling },
+		{ key: 'run_worker_first', value: settings.run_worker_first },
+	];
+}
+
+function getBindingsEntries(metadata: Record<string, unknown> | undefined): Array<{ key: string; value: unknown }> | undefined {
+	const bindingsConfig = metadata && isRecord(metadata.bindingsConfig) ? metadata.bindingsConfig : undefined;
+	if (!bindingsConfig) return undefined;
+	return [{ key: 'storage', value: bindingsConfig.storage === true }];
 }
 
 /**
@@ -1526,18 +1646,13 @@ function InlineToolCall({
 	}, [streamingContent]);
 
 	// Extract TODOs — prefer structured metadata, fall back to parsing raw result
-	const metadataTodos =
-		metadata && Array.isArray(metadata.todos)
-			? metadata.todos.filter(
-					(item): item is TodoItemDisplay =>
-						isRecord(item) &&
-						typeof item.id === 'string' &&
-						typeof item.content === 'string' &&
-						typeof item.status === 'string' &&
-						typeof item.priority === 'string',
-				)
-			: undefined;
-	const todos = metadataTodos;
+	const metadataTodos = metadata && Array.isArray(metadata.todos) ? metadata.todos.filter((item) => isTodoItemDisplay(item)) : undefined;
+	const todos = metadataTodos ?? parseTodosFromRawResult(rawResultContent);
+	const assetSettingsEntries =
+		knownToolName === 'asset_settings_get' || knownToolName === 'asset_settings_update' ? getAssetSettingsEntries(metadata) : undefined;
+	const bindingsEntries =
+		knownToolName === 'bindings_get' || knownToolName === 'bindings_update' ? getBindingsEntries(metadata) : undefined;
+	const planFilePath = knownToolName === 'plan_update' && typeof metadata?.planFilePath === 'string' ? metadata.planFilePath : undefined;
 
 	// Extract file-edit stats from structured metadata (file_edit, file_write, lint_fix).
 	// Metadata is always available — persisted with the session for loaded sessions.
@@ -1666,6 +1781,16 @@ function InlineToolCall({
 						</span>
 					</Tooltip>
 				)}
+				{planFilePath && (
+					<FileReference
+						path={planFilePath}
+						className="max-w-48 truncate"
+						interactive={false}
+						onClick={(event) => {
+							event.stopPropagation();
+						}}
+					/>
+				)}
 				{resultSummary && <span className="ml-auto min-w-0 truncate text-text-secondary">{resultSummary}</span>}
 				{hasEditStats && (
 					<span className={cn('flex shrink-0 items-center gap-1.5', !resultSummary && 'ml-auto')}>
@@ -1726,6 +1851,8 @@ function InlineToolCall({
 				/>
 			)}
 			{todos && todos.length > 0 && <InlineTodoList todos={todos} />}
+			{assetSettingsEntries && <InlineKeyValueState title="Asset settings" entries={assetSettingsEntries} />}
+			{bindingsEntries && <InlineKeyValueState title="Bindings" entries={bindingsEntries} />}
 		</div>
 	);
 }

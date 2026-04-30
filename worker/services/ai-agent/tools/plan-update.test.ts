@@ -44,6 +44,7 @@ describe('plan_update', () => {
 
 		expect(result).toHaveProperty('output');
 		expect(result.output).toContain('Plan updated');
+		expect(result.metadata).toHaveProperty('planFilePath', '.agent/plans/ses-123.md');
 		// File should be written
 		expect(memoryFs.store.has(`${PROJECT_ROOT}/.agent/plans/ses-123.md`)).toBe(true);
 	});
