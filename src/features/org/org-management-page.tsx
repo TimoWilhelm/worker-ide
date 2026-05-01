@@ -380,6 +380,11 @@ export default function OrgManagementPage({ orgSlug, organizationId, organizatio
 		}
 
 		globalThis.localStorage.setItem('lastOrgSlug', fallbackOrganization.slug);
+		void Promise.all([
+			queryClient.resetQueries({ queryKey: ['org-projects', fallbackOrganization.id] }),
+			queryClient.resetQueries({ queryKey: ['org-details', fallbackOrganization.id] }),
+			queryClient.resetQueries({ queryKey: ['org-limits', fallbackOrganization.id] }),
+		]);
 		void navigate(`/org/${fallbackOrganization.slug}`, { replace: true });
 		void Promise.allSettled([
 			authClient.organization.setActive({ organizationId: fallbackOrganization.id }),

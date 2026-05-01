@@ -8,6 +8,7 @@ import { HalftoneBackground } from '@/components/halftone-background';
 import { PageHeader } from '@/components/page-header';
 import { Button } from '@/components/ui/button';
 import { Modal, ModalBody, ModalFooter } from '@/components/ui/modal';
+import { PageContentSkeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
 import { toast } from '@/components/ui/toast-store';
 import { Tooltip, TooltipProvider } from '@/components/ui/tooltip';
@@ -476,6 +477,11 @@ export default function DashboardPage({ organizationId, organizations, isCreateO
 		queryFn: fetchUserLimits,
 		staleTime: 1000 * 60,
 	});
+	const isLoadingOrganizationData = !isCreateOrgMode && (projectsQuery.isPending || limitsQuery.isPending);
+
+	if (isLoadingOrganizationData) {
+		return <PageContentSkeleton />;
+	}
 
 	return (
 		<div ref={(element) => setScrollContainer(element ?? undefined)} className="relative isolate h-dvh overflow-y-auto">

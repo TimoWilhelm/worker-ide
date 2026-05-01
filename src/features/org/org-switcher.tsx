@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Building2, ChevronDown, Plus, SlidersHorizontal } from 'lucide-react';
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
@@ -35,6 +35,7 @@ interface OrgSwitcherProperties {
 export function OrgSwitcher({ organizations, currentOrganizationId, currentOrganizationName, getOrganizationPath }: OrgSwitcherProperties) {
 	const currentOrg = organizations.find((organization) => organization.id === currentOrganizationId);
 	const navigate = useNavigate();
+	const queryClient = useQueryClient();
 	const [createModalOpen, setCreateModalOpen] = useState(false);
 
 	// Fetch resolved user limits (defaults + entitlement overrides)
@@ -62,14 +63,16 @@ export function OrgSwitcher({ organizations, currentOrganizationId, currentOrgan
 							<DropdownMenuItem
 								key={organization.id}
 								onSelect={() => {
-									void authClient.organization.setActive({ organizationId: organization.id }).then(
-										() => {
-											void navigate(getOrganizationPath?.(organization) ?? `/org/${organization.slug}`);
-										},
-										() => {
-											toast.error('Could not switch organization. Please try again.');
-										},
-									);
+									if (organization.id === currentOrganizationId) return;
+									void Promise.all([
+										queryClient.resetQueries({ queryKey: ['org-projects', organization.id] }),
+										queryClient.resetQueries({ queryKey: ['org-details', organization.id] }),
+										queryClient.resetQueries({ queryKey: ['org-limits', organization.id] }),
+									]);
+									void navigate(getOrganizationPath?.(organization) ?? `/org/${organization.slug}`);
+									void authClient.organization.setActive({ organizationId: organization.id }).catch(() => {
+										toast.error('Could not switch organization. Please try again.');
+									});
 								}}
 								className={cn('gap-2 text-xs', currentOrganizationId === organization.id && 'bg-bg-tertiary font-medium')}
 							>

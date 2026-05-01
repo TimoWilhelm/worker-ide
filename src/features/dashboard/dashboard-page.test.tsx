@@ -23,6 +23,7 @@ vi.mock('@/lib/api-client', () => ({
 		]),
 	),
 	fetchOrgProjects: vi.fn(() => Promise.resolve([])),
+	fetchOrgLimits: vi.fn(() => Promise.resolve({ currentProjects: 0, maxProjects: 10 })),
 	fetchUserLimits: vi.fn(() => Promise.resolve({ maxFreeOrganizations: 3, currentFreeOrganizations: 1 })),
 }));
 
@@ -102,31 +103,31 @@ const defaultProperties = {
 };
 
 describe('DashboardPage', () => {
-	it('renders a morning greeting', () => {
+	it('renders a morning greeting', async () => {
 		setLocalTime('2026-04-25T09:00:00');
 
 		renderWithQuery(<DashboardPage {...defaultProperties} />);
 
-		expect(screen.getByRole('heading', { level: 1, name: 'Good morning Test User' })).toBeInTheDocument();
+		expect(await screen.findByRole('heading', { level: 1, name: 'Good morning Test User' })).toBeInTheDocument();
 	});
 
-	it('renders an afternoon greeting', () => {
+	it('renders an afternoon greeting', async () => {
 		setLocalTime('2026-04-25T15:00:00');
 
 		renderWithQuery(<DashboardPage {...defaultProperties} />);
 
-		expect(screen.getByRole('heading', { level: 1, name: 'Hello Test User' })).toBeInTheDocument();
+		expect(await screen.findByRole('heading', { level: 1, name: 'Hello Test User' })).toBeInTheDocument();
 	});
 
-	it('renders an evening greeting', () => {
+	it('renders an evening greeting', async () => {
 		setLocalTime('2026-04-25T20:00:00');
 
 		renderWithQuery(<DashboardPage {...defaultProperties} />);
 
-		expect(screen.getByRole('heading', { level: 1, name: 'Hi Test User' })).toBeInTheDocument();
+		expect(await screen.findByRole('heading', { level: 1, name: 'Hi Test User' })).toBeInTheDocument();
 	});
 
-	it('falls back to the email name when the user name is blank', () => {
+	it('falls back to the email name when the user name is blank', async () => {
 		setLocalTime('2026-04-25T09:00:00');
 
 		renderWithQuery(
@@ -139,10 +140,10 @@ describe('DashboardPage', () => {
 			/>,
 		);
 
-		expect(screen.getByRole('heading', { level: 1, name: 'Good morning fallback-user' })).toBeInTheDocument();
+		expect(await screen.findByRole('heading', { level: 1, name: 'Good morning fallback-user' })).toBeInTheDocument();
 	});
 
-	it('omits the name when no display name is available', () => {
+	it('omits the name when no display name is available', async () => {
 		setLocalTime('2026-04-25T09:00:00');
 
 		renderWithQuery(
@@ -155,19 +156,19 @@ describe('DashboardPage', () => {
 			/>,
 		);
 
-		expect(screen.getByRole('heading', { level: 1, name: 'Good morning' })).toBeInTheDocument();
+		expect(await screen.findByRole('heading', { level: 1, name: 'Good morning' })).toBeInTheDocument();
 	});
 
-	it('renders the halftone background', () => {
+	it('renders the halftone background', async () => {
 		renderWithQuery(<DashboardPage {...defaultProperties} />);
 
-		expect(screen.getByTestId('halftone-background')).toBeInTheDocument();
+		expect(await screen.findByTestId('halftone-background')).toBeInTheDocument();
 	});
 
 	it('renders template cards', async () => {
 		renderWithQuery(<DashboardPage {...defaultProperties} />);
 
-		expect(screen.getByText('Start a new project')).toBeInTheDocument();
+		expect(await screen.findByText('Start a new project')).toBeInTheDocument();
 		await waitFor(() => {
 			expect(screen.getByText('Request Inspector')).toBeInTheDocument();
 		});
@@ -200,10 +201,10 @@ describe('DashboardPage', () => {
 		expect(within(dialog).getByPlaceholderText('Project URL or ID')).toBeInTheDocument();
 	});
 
-	it('renders user menu', () => {
+	it('renders user menu', async () => {
 		renderWithQuery(<DashboardPage {...defaultProperties} />);
 
-		expect(screen.getByTestId('user-menu')).toBeInTheDocument();
+		expect(await screen.findByTestId('user-menu')).toBeInTheDocument();
 	});
 
 	// ---------------------------------------------------------------------------

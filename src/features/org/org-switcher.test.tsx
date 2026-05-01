@@ -111,6 +111,38 @@ describe('OrgSwitcher', () => {
 		});
 	});
 
+	it('navigates immediately and resets destination organization queries when switching organizations', async () => {
+		const user = userEvent.setup();
+		const queryClient = createTestQueryClient();
+		const resetQueriesSpy = vi.spyOn(queryClient, 'resetQueries');
+
+		render(
+			<MemoryRouter initialEntries={['/org/acme']}>
+				<QueryClientProvider client={queryClient}>
+					<Routes>
+						<Route
+							path="*"
+							element={
+								<>
+									<OrgSwitcher organizations={organizations} currentOrganizationId="org-1" currentOrganizationName="Acme" />
+									<LocationDisplay />
+								</>
+							}
+						/>
+					</Routes>
+				</QueryClientProvider>
+			</MemoryRouter>,
+		);
+
+		await user.click(screen.getByRole('button', { name: 'Globex' }));
+
+		expect(screen.getByTestId('location-display')).toHaveTextContent('/org/globex');
+		expect(mockSetActive).toHaveBeenCalledWith({ organizationId: 'org-2' });
+		expect(resetQueriesSpy).toHaveBeenCalledWith({ queryKey: ['org-projects', 'org-2'] });
+		expect(resetQueriesSpy).toHaveBeenCalledWith({ queryKey: ['org-details', 'org-2'] });
+		expect(resetQueriesSpy).toHaveBeenCalledWith({ queryKey: ['org-limits', 'org-2'] });
+	});
+
 	it('navigates to manage organization from the dropdown action', async () => {
 		const user = userEvent.setup();
 
