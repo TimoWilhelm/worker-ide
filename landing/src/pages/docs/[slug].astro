@@ -29,12 +29,10 @@ const accentVariable = `--docs-${topic.accent}`;
 
 <DocsLayout title={topic.title} description={topic.description} currentSlug={topic.slug}>
 	<article class="docs-topic-page" style={`--docs-accent: var(${accentVariable});`}>
-		<a href="/docs" class="docs-back-link">{'<-'} Back to docs overview</a>
+		<a href="/docs" class="docs-back-link">{'<-'} Architecture overview</a>
 		<header class="docs-topic-header">
-			<p class="docs-kicker">{topic.title}</p>
-			<h1>{topic.tagline}</h1>
-			<p>{topic.description}</p>
-			<p class="docs-lane-description">{topic.laneDescription}</p>
+			<h1>{topic.title}</h1>
+			<p>{topic.description} {topic.laneDescription}</p>
 		</header>
 
 		{

@@ -22,7 +22,7 @@ export interface FlowSection {
 	edges: GraphEdge[];
 }
 
-export interface DocsTopic {
+interface DocsTopic {
 	slug: string;
 	title: string;
 	description: string;
@@ -39,14 +39,14 @@ export const docsTopics: DocsTopic[] = [
 	// 1. Asset Pipeline + HMR
 	{
 		slug: 'asset-pipeline',
-		title: 'Asset Pipeline + HMR',
-		description: 'How file edits move from the editor to preview with durable persistence and low-latency hot updates.',
-		tagline: 'Save file → durable write → HMR event → preview module reload',
+		title: 'Preview updates',
+		description: 'Saved files reach durable storage and refresh the preview.',
+		tagline: 'File saves and hot updates',
 		accent: 'asset',
-		laneDescription: 'Save triggers HMR, then Preview fetches assets on-demand through esbuild',
+		laneDescription: 'The editor writes files, the coordinator broadcasts changes, and preview requests transform source on demand.',
 		sections: [
 			{
-				label: 'Save + HMR Path',
+				label: 'Save path',
 				labelColor: 'asset',
 				nodes: [
 					{ id: 'ap-editor-ui', name: 'Editor UI', detail: 'edit & save', color: 'text' },
@@ -63,7 +63,7 @@ export const docsTopics: DocsTopic[] = [
 				],
 			},
 			{
-				label: 'On-Demand Fetch Path',
+				label: 'Asset request',
 				labelColor: 'orange',
 				nodes: [
 					{ id: 'ap-preview-2', name: 'Preview', detail: 'GET /src/main.ts', color: 'text' },
@@ -86,11 +86,11 @@ export const docsTopics: DocsTopic[] = [
 	// 2. Worker Execution
 	{
 		slug: 'worker-execution',
-		title: 'Worker Execution',
-		description: 'Preview API requests are bundled from project files and executed inside isolated V8 runtimes.',
-		tagline: 'Preview API → bundle worker code → isolate run → response payload',
+		title: 'Worker runtime',
+		description: 'Preview requests execute project worker code.',
+		tagline: 'Preview API execution',
 		accent: 'worker',
-		laneDescription: 'API request → read & bundle worker/ → spawn V8 isolate → return response',
+		laneDescription: 'Preview routes collect worker files, bundle them, and run the result in an isolated runtime.',
 		sections: [
 			{
 				nodes: [
@@ -116,11 +116,11 @@ export const docsTopics: DocsTopic[] = [
 	// 3. WebSocket Feedback
 	{
 		slug: 'websocket-feedback',
-		title: 'WebSocket Feedback',
-		description: 'Operational events stream through a shared coordinator channel so every collaborator sees the same runtime state.',
-		tagline: 'Runtime logs + errors → coordinator normalization → multi-client fan-out',
+		title: 'Runtime feedback',
+		description: 'Logs, errors, and runtime events reach connected clients.',
+		tagline: 'Logs and errors over WebSockets',
 		accent: 'ws',
-		laneDescription: 'Logs & errors flow from Sources → Coordinator → Editor',
+		laneDescription: 'Runtime sources send messages through the project coordinator for shared editor state.',
 		sections: [
 			{
 				nodes: [
@@ -145,19 +145,19 @@ export const docsTopics: DocsTopic[] = [
 	{
 		slug: 'dependency-resolution',
 		title: 'Dependency Resolution',
-		description: 'Bare imports are resolved against project metadata and rewritten to CDN-backed modules at build time.',
-		tagline: 'Import parse → metadata lookup → CDN rewrite → bundled dependency graph',
+		description: 'Project imports resolve to local files or CDN-backed packages.',
+		tagline: 'Imports and CDN packages',
 		accent: 'cyan',
-		laneDescription: 'Bare imports resolved via esm.sh CDN at bundle time',
+		laneDescription: 'The preview and bundler resolve imports against project files, aliases, and registered dependencies.',
 		sections: [
 			{
-				label: 'Import Resolution Flow',
+				label: 'Import resolution',
 				labelColor: 'cyan',
 				nodes: [
 					{ id: 'dr-source', name: 'Source Code', detail: 'import "react"', color: 'text' },
-					{ id: 'dr-vfs-plugin', name: 'VirtualFsPlugin', detail: 'bare import check', color: 'yellow' },
+					{ id: 'dr-vfs-plugin', name: 'Resolver', detail: 'bare import check', color: 'yellow' },
 					{ id: 'dr-project-meta', name: 'package.json', detail: 'dependencies map', color: 'magenta' },
-					{ id: 'dr-esm-cdn-plugin', name: 'EsmCdnPlugin', detail: 'onLoad handler', color: 'cyan' },
+					{ id: 'dr-esm-cdn-plugin', name: 'CDN loader', detail: 'module fetch', color: 'cyan' },
 					{ id: 'dr-esm-cdn', name: 'esm.sh CDN', detail: 'react@19.0.0', color: 'cyan' },
 					{ id: 'dr-esbuild', name: 'esbuild-wasm', detail: 'bundleWithCdn()', color: 'yellow' },
 				],
@@ -178,21 +178,21 @@ export const docsTopics: DocsTopic[] = [
 	// 5. Git Integration
 	{
 		slug: 'git-integration',
-		title: 'Git Integration',
-		description: 'Git commands execute inside durable storage context with isomorphic-git and synchronized status updates.',
-		tagline: 'Git UI action → Host route → DO mount → isomorphic-git → status broadcast',
+		title: 'Git workflow',
+		description: 'Git actions operate on the durable project tree and refresh client state.',
+		tagline: 'Git in durable storage',
 		accent: 'emerald',
-		laneDescription: 'isomorphic-git running inside Durable Object with SQLite storage',
+		laneDescription: 'Routes mount the project filesystem, update Git state, and broadcast status changes.',
 		sections: [
 			{
-				label: 'Git Operations Flow',
+				label: 'Git operations',
 				labelColor: 'emerald',
 				nodes: [
 					{ id: 'gi-git-panel', name: 'Git Panel', detail: 'stage / commit', color: 'text' },
 					{ id: 'gi-host', name: 'Host Worker', detail: 'git-routes.ts', color: 'orange' },
-					{ id: 'gi-expiring-fs', name: 'ExpiringFilesystem', detail: 'Durable Object', color: 'magenta' },
-					{ id: 'gi-git-service', name: 'GitService', detail: 'isomorphic-git wrapper', color: 'emerald' },
-					{ id: 'gi-iso-git', name: 'isomorphic-git', detail: 'stage / commit / etc', color: 'emerald' },
+					{ id: 'gi-expiring-fs', name: 'ProjectFilesystem', detail: 'Durable Object', color: 'magenta' },
+					{ id: 'gi-git-service', name: 'GitClient', detail: 'REPO_DO client', color: 'emerald' },
+					{ id: 'gi-iso-git', name: 'Git storage DO', detail: 'commit tree / status', color: 'emerald' },
 					{ id: 'gi-worker-fs', name: 'worker-fs-mount', detail: 'DO SQLite storage', color: 'magenta' },
 				],
 				edges: [
@@ -204,10 +204,10 @@ export const docsTopics: DocsTopic[] = [
 				],
 			},
 			{
-				label: 'Real-time Status Updates',
+				label: 'Status updates',
 				labelColor: 'ws',
 				nodes: [
-					{ id: 'gi-expiring-fs-2', name: 'ExpiringFilesystem', detail: 'broadcastGitStatusChanged()', color: 'magenta' },
+					{ id: 'gi-expiring-fs-2', name: 'Git route', detail: 'broadcastGitStatusChanged()', color: 'magenta' },
 					{ id: 'gi-coordinator', name: 'ProjectCoordinator', detail: 'sendMessage()', color: 'ws' },
 					{ id: 'gi-git-panel-2', name: 'Git Panel', detail: 'refetch status', color: 'text' },
 				],
@@ -218,18 +218,18 @@ export const docsTopics: DocsTopic[] = [
 			},
 		],
 		notes: [
-			"Git operations run inside the Durable Object's single-threaded context, avoiding race conditions with isomorphic-git's AsyncLock. The <code>node:fs/promises</code> import is aliased to <code>worker-fs-mount/fs</code> at build time.",
+			'Git routes mount the project filesystem with <code>worker-fs-mount</code> and use <code>GitClient</code> to talk to the repository Durable Object. Mutations send <code>git-status-changed</code> through ProjectCoordinator.',
 		],
 	},
 
 	// 6. AI Agent System
 	{
 		slug: 'ai-agent',
-		title: 'AI Agent System',
-		description: 'AgentRunner Durable Objects execute autonomous coding runs with tool calls and resumable stream state.',
-		tagline: 'Chat request → guarded dispatch → tool/model loop → streamed project updates',
+		title: 'AI agent loop',
+		description: 'Chat requests become tool calls, file changes, and streamed session state.',
+		tagline: 'Agent sessions and tools',
 		accent: 'ai',
-		laneDescription: 'Autonomous coding agent with 24 tools, running in a dedicated Durable Object',
+		laneDescription: 'AgentRunner owns session state while AIAgentService runs the model and tools.',
 		sections: [
 			{
 				label: 'Agent Loop',
@@ -251,7 +251,7 @@ export const docsTopics: DocsTopic[] = [
 				],
 			},
 			{
-				label: 'Agent SDK State Sync',
+				label: 'State sync',
 				labelColor: 'ws',
 				nodes: [
 					{ id: 'ai-agent-runner-2', name: 'AgentRunner DO', detail: 'buffer + index chunks', color: 'ai' },
@@ -265,7 +265,7 @@ export const docsTopics: DocsTopic[] = [
 			},
 		],
 		notes: [
-			'The agent runs <strong>independently of client connections</strong> inside the AgentRunner DO. In-flight runs recover from persisted fiber checkpoints after eviction, rather than relying on a custom heartbeat loop. Three modes: <code>code</code> (full tool access), <code>plan</code> (read-only + planning), <code>ask</code> (read-only Q&amp;A). Tools include file CRUD, grep/glob, lint check/fix (via Biome service binding), test execution, browser automation via the Agents SDK browser tools, web fetch, and Cloudflare docs search via MCP.',
+			'AgentRunner stores session state with the Agents SDK and starts AIAgentService for model/tool execution. Modes are <code>code</code>, <code>plan</code>, and <code>ask</code>; code mode creates file snapshots before mutations.',
 		],
 	},
 
@@ -273,10 +273,10 @@ export const docsTopics: DocsTopic[] = [
 	{
 		slug: 'test-runner',
 		title: 'Test Runner',
-		description: 'A built-in test harness runs in isolated runtimes and publishes structured result updates in real time.',
-		tagline: 'Run request → bundle harness + tests → isolate execution → synchronized results',
+		description: 'Project tests run in isolated preview infrastructure.',
+		tagline: 'Built-in test execution',
 		accent: 'test',
-		laneDescription: 'In-browser test execution with a built-in describe/it/expect harness',
+		laneDescription: 'Test files are bundled with a lightweight harness and results are broadcast to clients.',
 		sections: [
 			{
 				label: 'Test Execution',
@@ -296,7 +296,7 @@ export const docsTopics: DocsTopic[] = [
 				],
 			},
 			{
-				label: 'Result Broadcasting',
+				label: 'Result updates',
 				labelColor: 'ws',
 				nodes: [
 					{ id: 'tr-host-2', name: 'Host Worker', detail: 'sendMessage()', color: 'orange' },
@@ -310,7 +310,7 @@ export const docsTopics: DocsTopic[] = [
 			},
 		],
 		notes: [
-			"Tests use a built-in <code>describe</code>/<code>it</code>/<code>expect</code> harness — no Vitest or Jest dependency. Each test file is bundled with the harness and executed in an isolated WorkerLoader V8 sandbox (max 30s timeout). The AI agent's <code>test_run</code> tool shares the same runner. Partial re-runs merge results at the suite level via <code>mergeTestRunResults()</code>.",
+			"Tests use a built-in <code>describe</code>/<code>it</code>/<code>expect</code> harness — no Vitest or Jest dependency. Each test file is bundled with the harness and executed server-side in an isolated WorkerLoader sandbox. The AI agent's <code>test_run</code> tool shares the same runner.",
 		],
 	},
 
@@ -318,13 +318,13 @@ export const docsTopics: DocsTopic[] = [
 	{
 		slug: 'deploy-pipeline',
 		title: 'Deploy Pipeline',
-		description: 'Deployment packages assets and worker code, uploads them, then returns a production URL.',
-		tagline: 'Deploy trigger → file collection → bundle + upload → script publish',
+		description: 'Projects are packaged and published to Cloudflare Workers.',
+		tagline: 'Build and publish',
 		accent: 'deploy',
-		laneDescription: 'One-click production deployment to the edge',
+		laneDescription: 'Deploy reads project config, bundles worker and frontend code, uploads assets, and returns the workers.dev URL.',
 		sections: [
 			{
-				label: 'Deploy Flow',
+				label: 'Deploy flow',
 				labelColor: 'deploy',
 				nodes: [
 					{ id: 'dp-deploy-modal', name: 'Deploy Modal', detail: 'credentials + deploy', color: 'text' },
@@ -351,14 +351,14 @@ export const docsTopics: DocsTopic[] = [
 	// 9. Snapshots + Revert
 	{
 		slug: 'snapshots',
-		title: 'Snapshots + Revert',
-		description: 'Before AI mutations, file snapshots are stored so users can revert individual files or full runs.',
-		tagline: 'Pre-mutation capture → durable snapshot → revert command → reload broadcast',
+		title: 'Snapshots',
+		description: 'AI edits keep enough history for review and revert operations.',
+		tagline: 'Reviewable file changes',
 		accent: 'snapshot',
-		laneDescription: 'Point-in-time backups of files before AI agent modifications',
+		laneDescription: 'Code-mode agent runs capture before-content and review actions can keep or revert changes.',
 		sections: [
 			{
-				label: 'Snapshot Creation (during AI runs)',
+				label: 'Snapshot creation',
 				labelColor: 'snapshot',
 				nodes: [
 					{ id: 'sn-ai-service', name: 'AIAgentService', detail: 'code mode run', color: 'ai' },
@@ -371,7 +371,7 @@ export const docsTopics: DocsTopic[] = [
 				],
 			},
 			{
-				label: 'Revert Flow',
+				label: 'Revert flow',
 				labelColor: 'snapshot',
 				nodes: [
 					{ id: 'sn-editor', name: 'Editor UI', detail: 'revert snapshot', color: 'text' },
@@ -385,7 +385,7 @@ export const docsTopics: DocsTopic[] = [
 			},
 		],
 		notes: [
-			'Snapshots are created automatically at the start of each AI <code>code</code> mode run. The before-content of every mutated file is saved to <code>.agent/snapshots/&lt;id&gt;/</code>. Supports single-file revert, full-snapshot revert, and cascade revert (multiple snapshots in reverse-chronological order with per-file deduplication). Rolling limit of 10 snapshots. Reverts trigger HMR <code>full-reload</code> via the ProjectCoordinator.',
+			'Snapshots are created automatically for AI <code>code</code> mode runs. Reverts and review rejections restore saved content and trigger preview updates through the ProjectCoordinator.',
 		],
 	},
 
@@ -393,10 +393,10 @@ export const docsTopics: DocsTopic[] = [
 	{
 		slug: 'collaboration',
 		title: 'Real-time Collaboration',
-		description: 'All participants share one project socket channel for cursors, edits, and operational events.',
-		tagline: 'Participant events → project coordinator → peer updates',
+		description: 'Collaborators share cursors, edits, and project events.',
+		tagline: 'Shared project sockets',
 		accent: 'collab',
-		laneDescription: 'Multi-user editing with cursor sharing and file edit broadcasting',
+		laneDescription: 'Each project uses a coordinator socket hub for participant state and live updates.',
 		sections: [
 			{
 				nodes: [
@@ -419,7 +419,7 @@ export const docsTopics: DocsTopic[] = [
 			},
 		],
 		notes: [
-			'All real-time features share a single WebSocket connection per client through the ProjectCoordinator DO (keyed <code>project:&lt;id&gt;</code>). Uses the WebSocket Hibernation API — connections survive DO eviction. On <code>collab-join</code>, the server sends back <code>collab-state</code> with participant list, self-id, assigned color, and any running AI sessions. The full protocol has 7 client message types and 15 server message types covering HMR, collaboration, errors/logs, AI streaming, git status, and test results.',
+			'ProjectCoordinator is keyed by <code>project:&lt;id&gt;</code> and uses WebSocket hibernation. <code>collab-join</code> returns <code>collab-state</code> with the caller id, color, and current participants.',
 		],
 	},
 ];

@@ -33,6 +33,10 @@ interface LayoutResult {
 	totalHeight: number;
 }
 
+export function computeFlowCanvasHeight(totalHeight: number): number {
+	return Math.max(290, Math.min(480, totalHeight + 20));
+}
+
 function assignColumns(section: FlowSection): Map<string, number> {
 	const incomingCount = new Map<string, number>();
 	const outgoing = new Map<string, string[]>();

@@ -1,14 +1,17 @@
 ---
 import type { FlowSection } from '../../data/docs-content';
 import ArchitectureFlow from './architecture-flow';
+import { computeFlowCanvasHeight, computeSectionLayout } from './compute-docs-layout';
 
 interface Props {
 	section: FlowSection;
 }
 
 const { section } = Astro.props;
+const initialLayout = computeSectionLayout(section, 900);
+const initialHeight = computeFlowCanvasHeight(initialLayout.totalHeight);
 ---
 
-<div class="flow-diagram-container">
+<div class="flow-diagram-container" style={`--flow-canvas-height: ${initialHeight}px;`}>
 	<ArchitectureFlow client:only="react" section={section} />
 </div>

@@ -13,7 +13,7 @@ interface Props {
 const { title, description, currentSlug } = Astro.props;
 ---
 
-<BaseLayout title={`${title} - Codemaxxing Docs`} description={description}>
+<BaseLayout title={`${title} - Codemaxxing Architecture`} description={description}>
 	<Header />
 	<main class="docs-shell">
 		<div class="docs-atmosphere" aria-hidden="true">
@@ -26,7 +26,7 @@ const { title, description, currentSlug } = Astro.props;
 				<p class="docs-sidebar-label">Architecture</p>
 				<ul>
 					<li>
-						<a href="/docs" class:list={{ 'docs-topic-link-active': currentSlug === undefined }}>Overview</a>
+						<a href="/docs" class:list={{ 'docs-topic-link-active': currentSlug === undefined }}>Architecture overview</a>
 					</li>
 					{
 						docsTopics.map((topic) => (

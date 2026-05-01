@@ -5,6 +5,7 @@ import {
 	ReactFlow,
 	ReactFlowProvider,
 	useReactFlow,
+	type CoordinateExtent,
 	type Edge,
 	type Node,
 	type NodeProps,
@@ -14,7 +15,7 @@ import '@xyflow/react/dist/style.css';
 import { type JSX, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { FlowSection } from '../../data/docs-content';
 import AnimatedEdge from './animated-edge';
-import { computeSectionLayout } from './compute-docs-layout';
+import { computeFlowCanvasHeight, computeSectionLayout } from './compute-docs-layout';
 
 const COLOR_MAP: Record<string, string> = {
 	text: '#f0e3de',
@@ -150,6 +151,8 @@ const nodeTypes = {
 const edgeTypes = {
 	animated: AnimatedEdge,
 };
+
+const TRANSLATE_PADDING = 180;
 
 // ── Handle computation: spread multiple connections along a side ──
 
@@ -337,6 +340,26 @@ function LayoutFlow({ section }: LayoutFlowProperties): JSX.Element {
 		() => computeHandleAssignments(layoutResult.edges, nodePositionById),
 		[layoutResult.edges, nodePositionById],
 	);
+	const containerHeight = computeFlowCanvasHeight(layoutResult.totalHeight);
+
+	const translateExtent = useMemo<CoordinateExtent>(() => {
+		if (layoutResult.nodes.length === 0) {
+			return [
+				[-TRANSLATE_PADDING, -TRANSLATE_PADDING],
+				[containerWidth + TRANSLATE_PADDING, containerHeight + TRANSLATE_PADDING],
+			];
+		}
+
+		const minX = Math.min(...layoutResult.nodes.map((node) => node.x));
+		const minY = Math.min(...layoutResult.nodes.map((node) => node.y));
+		const maxX = Math.max(...layoutResult.nodes.map((node) => node.x + node.width));
+		const maxY = Math.max(...layoutResult.nodes.map((node) => node.y + node.height));
+
+		return [
+			[Math.min(0, minX - TRANSLATE_PADDING), Math.min(0, minY - TRANSLATE_PADDING)],
+			[Math.max(containerWidth, maxX + TRANSLATE_PADDING), Math.max(containerHeight, maxY + TRANSLATE_PADDING)],
+		];
+	}, [containerHeight, containerWidth, layoutResult.nodes]);
 
 	const nodes = useMemo<Node[]>(() => {
 		return layoutResult.nodes.map((node) => ({
@@ -392,8 +415,6 @@ function LayoutFlow({ section }: LayoutFlowProperties): JSX.Element {
 		});
 	}, [fitView, hasInitialized, layoutResult]);
 
-	const containerHeight = Math.max(290, Math.min(480, layoutResult.totalHeight + 20));
-
 	return (
 		<div ref={containerReference} className="docs-flow-canvas" style={{ width: '100%', height: `${containerHeight}px` }}>
 			<ReactFlow
@@ -406,6 +427,7 @@ function LayoutFlow({ section }: LayoutFlowProperties): JSX.Element {
 				fitViewOptions={{ padding: 0.06, minZoom: 0.35, maxZoom: 1.25 }}
 				minZoom={0.35}
 				maxZoom={1.6}
+				translateExtent={translateExtent}
 				panOnDrag
 				zoomOnScroll
 				zoomOnPinch
