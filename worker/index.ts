@@ -52,12 +52,14 @@ import { getTemplate, getTemplateMetadata } from './templates';
 import type { PreviewService } from './services/preview-service';
 import type { AppEnvironment, AuthedEnvironment } from './types';
 import type { CommitFileEntry } from '@shared/git-types';
+import type { MiddlewareHandler } from 'hono';
 
 // Cache PreviewService instances at module scope. The service is stateless, so
 // reusing it only avoids repeated dynamic imports on hot paths.
 
 const MAX_PREVIEW_SERVICE_CACHE_SIZE = 100;
 const previewServiceCache = new Map<string, PreviewService>();
+const PREVIEW_ROBOTS_HEADER_VALUE = 'noindex, nofollow';
 
 async function getPreviewService(projectRoot: string, projectId: string): Promise<PreviewService> {
 	let service = previewServiceCache.get(projectId);
@@ -88,21 +90,21 @@ const PROJECT_ROOT = '/project';
 const AUTHENTICATED_API_ROUTE_PATTERNS = ['/api/*', '/p/*/api/*'];
 const AUTHENTICATED_NON_API_ROUTE_PATTERNS = ['/p/*/__agent', '/p/*/__agent/*', '/p/*/__ws', '/p/*/__ws/*'];
 const PROJECT_DELETED_VIA_PROJECT = 'project';
+const UNSAFE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+
+type ResponseMiddleware = (request: Request, next: () => Promise<Response>) => Promise<Response>;
 
 function registerMiddleware(
 	appInstance: Hono<AuthedEnvironment>,
 	routePatterns: string[],
-	middleware: typeof requireAuth | typeof analyticsMiddleware | typeof requireRateLimit,
+	middleware: MiddlewareHandler<AuthedEnvironment>,
 ) {
 	for (const routePattern of routePatterns) {
 		appInstance.use(routePattern, middleware);
 	}
 }
 
-function registerProtectedApiMiddleware(
-	appInstance: Hono<AuthedEnvironment>,
-	middleware: typeof requireAuth | typeof analyticsMiddleware | typeof requireRateLimit,
-) {
+function registerProtectedApiMiddleware(appInstance: Hono<AuthedEnvironment>, middleware: MiddlewareHandler<AuthedEnvironment>) {
 	registerMiddleware(appInstance, AUTHENTICATED_API_ROUTE_PATTERNS, middleware);
 }
 
@@ -271,6 +273,33 @@ function applyAppSecurityHeaders(response: Response): Response {
 	});
 }
 
+function applyPreviewRobotsHeader(response: Response): Response {
+	return withUpdatedHeaders(response, {
+		'X-Robots-Tag': PREVIEW_ROBOTS_HEADER_VALUE,
+	});
+}
+
+async function appSecurityHeadersMiddleware(_request: Request, next: () => Promise<Response>): Promise<Response> {
+	return applyAppSecurityHeaders(await next());
+}
+
+async function previewRobotsHeadersMiddleware(_request: Request, next: () => Promise<Response>): Promise<Response> {
+	return applyPreviewRobotsHeader(await next());
+}
+
+function composeResponseMiddleware(
+	request: Request,
+	handler: () => Promise<Response>,
+	middlewares: ResponseMiddleware[],
+): Promise<Response> {
+	let next = handler;
+	for (const middleware of middlewares.toReversed()) {
+		const currentNext = next;
+		next = () => middleware(request, currentNext);
+	}
+	return next();
+}
+
 function hasValidWebSocketOrigin(request: Request, expectedOrigin: string): boolean {
 	return request.headers.get('Origin') === expectedOrigin;
 }
@@ -292,6 +321,21 @@ function hasValidAppRequestOrigin(request: Request, expectedOrigin: string): boo
 		return false;
 	}
 }
+
+const requireSameOriginUnsafeMethods: MiddlewareHandler<AuthedEnvironment> = async (c, next) => {
+	if (!UNSAFE_METHODS.has(c.req.method)) {
+		await next();
+		return;
+	}
+
+	const requestUrl = new URL(c.req.url);
+	const appOrigin = buildAppOrigin(parseHost(requestUrl.host).baseDomain, requestUrl.protocol);
+	if (!hasValidAppRequestOrigin(c.req.raw, appOrigin)) {
+		return c.json({ error: 'Forbidden' }, 403);
+	}
+
+	await next();
+};
 
 const app = new Hono<AuthedEnvironment>();
 
@@ -318,34 +362,7 @@ app.use(
 	}),
 );
 
-app.use('/api/*', async (c, next) => {
-	if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(c.req.method)) {
-		await next();
-		return;
-	}
-
-	const requestUrl = new URL(c.req.url);
-	const appOrigin = buildAppOrigin(parseHost(requestUrl.host).baseDomain, requestUrl.protocol);
-	if (!hasValidAppRequestOrigin(c.req.raw, appOrigin)) {
-		return c.json({ error: 'Forbidden' }, 403);
-	}
-
-	await next();
-});
-app.use('/p/*/api/*', async (c, next) => {
-	if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(c.req.method)) {
-		await next();
-		return;
-	}
-
-	const requestUrl = new URL(c.req.url);
-	const appOrigin = buildAppOrigin(parseHost(requestUrl.host).baseDomain, requestUrl.protocol);
-	if (!hasValidAppRequestOrigin(c.req.raw, appOrigin)) {
-		return c.json({ error: 'Forbidden' }, 403);
-	}
-
-	await next();
-});
+registerProtectedApiMiddleware(app, requireSameOriginUnsafeMethods);
 
 app.get('/api/health', (c) => c.json({ ok: true }));
 
@@ -478,6 +495,11 @@ app.on(['GET', 'POST'], '/api/auth/*', async (c) => {
 		c.req.raw,
 	);
 	return auth.handler(c.req.raw);
+});
+
+app.use('/p/:projectId/__preview-auth/*', async (c, next) => {
+	await next();
+	c.res = applyPreviewRobotsHeader(c.res);
 });
 
 app.get('/p/:projectId/__preview-auth/bootstrap', async (c) => {
@@ -1493,10 +1515,7 @@ app.all('/p/:projectId/*', async (c) => {
 	// "Missing namespace or room headers", which in the miniflare dev
 	// environment causes an ERR_ASSERTION crash in #handleLoopback.
 	if (subPath === '/__agent' || subPath.startsWith('/__agent')) {
-		if (
-			(c.req.raw.headers.has('Origin') || ['POST', 'PUT', 'PATCH', 'DELETE'].includes(c.req.method)) &&
-			!hasValidAppRequestOrigin(c.req.raw, appOrigin)
-		) {
+		if ((c.req.raw.headers.has('Origin') || UNSAFE_METHODS.has(c.req.method)) && !hasValidAppRequestOrigin(c.req.raw, appOrigin)) {
 			return new Response('Forbidden', { status: 403 });
 		}
 		if (c.req.raw.headers.get('Upgrade') === 'websocket' && !hasValidWebSocketOrigin(c.req.raw, appOrigin)) {
@@ -1590,28 +1609,30 @@ export default {
 
 		switch (parsed.type) {
 			case 'preview': {
-				const secret = import.meta.env.DEV ? env.PREVIEW_SECRET || DEV_PREVIEW_SECRET : env.PREVIEW_SECRET;
-				const isValidToken = await validatePreviewToken(parsed.projectId, parsed.token, secret);
-				if (!isValidToken) {
-					return previewExpiredPage({ baseDomain: parsed.baseDomain, protocol: url.protocol });
-				}
-
-				// Block cross-site subresource requests (hotlinking).
-				// Must run after token validation so we don't leak timing info
-				// about whether a token is valid to cross-site probes.
-				if (isHotlinkRequest(request)) {
-					return new Response('Forbidden', { status: 403 });
-				}
-
-				// Rate-limit preview requests per project to prevent abuse.
-				if (env.PREVIEW_RATE_LIMITER) {
-					const { success } = await env.PREVIEW_RATE_LIMITER.limit({ key: parsed.projectId });
-					if (!success) {
-						return new Response('Too Many Requests', { status: 429 });
+				return composeResponseMiddleware(request, async () => {
+					const secret = import.meta.env.DEV ? environment.PREVIEW_SECRET || DEV_PREVIEW_SECRET : environment.PREVIEW_SECRET;
+					const isValidToken = await validatePreviewToken(parsed.projectId, parsed.token, secret);
+					if (!isValidToken) {
+						return previewExpiredPage({ baseDomain: parsed.baseDomain, protocol: url.protocol });
 					}
-				}
 
-				return handlePreviewRequest(request, parsed.projectId, parsed.token);
+					// Block cross-site subresource requests (hotlinking).
+					// Must run after token validation so we don't leak timing info
+					// about whether a token is valid to cross-site probes.
+					if (isHotlinkRequest(request)) {
+						return new Response('Forbidden', { status: 403 });
+					}
+
+					// Rate-limit preview requests per project to prevent abuse.
+					if (environment.PREVIEW_RATE_LIMITER) {
+						const { success } = await environment.PREVIEW_RATE_LIMITER.limit({ key: parsed.projectId });
+						if (!success) {
+							return new Response('Too Many Requests', { status: 429 });
+						}
+					}
+
+					return handlePreviewRequest(request, parsed.projectId, parsed.token);
+				}, [previewRobotsHeadersMiddleware]);
 			}
 
 			case 'git': {
@@ -1621,7 +1642,9 @@ export default {
 			}
 
 			case 'app': {
-				return applyAppSecurityHeaders(await app.fetch(request, environment, executionContext));
+				return composeResponseMiddleware(request, async () => app.fetch(request, environment, executionContext), [
+					appSecurityHeadersMiddleware,
+				]);
 			}
 
 			case 'unknown': {

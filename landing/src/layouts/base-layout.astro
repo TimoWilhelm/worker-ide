@@ -1,5 +1,6 @@
 ---
 import '../styles/global.css';
+import type { Graph, WebApplication, WebSite } from 'schema-dts';
 
 interface Props {
 	title: string;
@@ -12,6 +13,30 @@ const { title, description, canonicalUrl = Astro.url.href, ogImage = new URL('/o
 
 const siteName = 'Codemaxxing';
 const appUrl = 'https://codemaxxing.app';
+const siteUrl = new URL('/', Astro.site).href;
+
+const websiteSchema: WebSite = {
+	'@type': 'WebSite',
+	'@id': `${siteUrl}#website`,
+	name: siteName,
+	url: siteUrl,
+	description,
+};
+
+const webApplicationSchema: WebApplication = {
+	'@type': 'WebApplication',
+	'@id': `${appUrl}/#webapplication`,
+	name: siteName,
+	url: appUrl,
+	description,
+	applicationCategory: 'DeveloperApplication',
+	operatingSystem: 'Any',
+};
+
+const structuredData: Graph = {
+	'@context': 'https://schema.org',
+	'@graph': [websiteSchema, webApplicationSchema],
+};
 ---
 
 <!doctype html>
@@ -54,24 +79,7 @@ const appUrl = 'https://codemaxxing.app';
 		/>
 
 		<!-- JSON-LD structured data -->
-		<script
-			is:inline
-			type="application/ld+json"
-			set:html={JSON.stringify({
-				'@context': 'https://schema.org',
-				'@type': 'WebApplication',
-				name: siteName,
-				url: appUrl,
-				description,
-				applicationCategory: 'DeveloperApplication',
-				operatingSystem: 'Any',
-				offers: {
-					'@type': 'Offer',
-					price: '0',
-					priceCurrency: 'USD',
-				},
-			})}
-		/>
+		<script is:inline type="application/ld+json" set:html={JSON.stringify(structuredData)} />
 	</head>
 	<body class="min-h-screen overflow-x-hidden bg-bg-primary text-text-primary">
 		<slot />

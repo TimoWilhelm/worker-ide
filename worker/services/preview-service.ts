@@ -33,6 +33,8 @@ import { resolveStorageQuotaForProject } from '../lib/storage-quota';
 import type { ResolvedAssetSettings, ServerError } from '@shared/types';
 import type { ServerMessage } from '@shared/ws-messages';
 
+const PREVIEW_ROBOTS_HEADER_VALUE = 'noindex, nofollow';
+
 /**
  * Build the CSP header for preview HTML responses.
  *
@@ -80,6 +82,45 @@ function buildAssetSecurityHeaders(ideOrigin: string): Record<string, string> {
 	};
 }
 
+interface PreviewResponseContext {
+	ideOrigin: string;
+}
+
+type PreviewResponseMiddleware = (headers: Headers, response: Response, context: PreviewResponseContext) => void;
+
+function applyAssetSecurityHeaders(headers: Headers, response: Response, context: PreviewResponseContext): void {
+	if (response.headers.get('Content-Type')?.includes('text/html')) return;
+
+	for (const [name, value] of Object.entries(buildAssetSecurityHeaders(context.ideOrigin))) {
+		headers.set(name, value);
+	}
+}
+
+function applyPreviewRobotsHeader(headers: Headers): void {
+	headers.set('X-Robots-Tag', PREVIEW_ROBOTS_HEADER_VALUE);
+}
+
+const previewResponseMiddlewares: PreviewResponseMiddleware[] = [applyAssetSecurityHeaders, applyPreviewRobotsHeader];
+
+function applyPreviewResponseMiddlewares(
+	response: Response,
+	context: PreviewResponseContext,
+	middlewares: PreviewResponseMiddleware[],
+): Response {
+	if (response.status === 101) return response;
+
+	const headers = new Headers(response.headers);
+	for (const middleware of middlewares) {
+		middleware(headers, response, context);
+	}
+
+	return new Response(response.body, {
+		status: response.status,
+		statusText: response.statusText,
+		headers,
+	});
+}
+
 const scriptIntegrityHashes: Record<string, string> = {
 	'__chobitsu.js': chobitsuHash,
 	'__chobitsu-init.js': chobitsuInitHash,
@@ -117,6 +158,15 @@ export class PreviewService {
 		private projectRoot: string,
 		private projectId: string,
 	) {}
+	withPreviewRobotsHeader(response: Response): Response {
+		return applyPreviewResponseMiddlewares(response, { ideOrigin: '' }, [applyPreviewRobotsHeader]);
+	}
+	withAssetSecurityHeaders(response: Response, ideOrigin: string): Response {
+		return applyPreviewResponseMiddlewares(response, { ideOrigin }, [applyAssetSecurityHeaders]);
+	}
+	finalizePreviewResponse(response: Response, ideOrigin: string): Response {
+		return applyPreviewResponseMiddlewares(response, { ideOrigin }, previewResponseMiddlewares);
+	}
 	async loadAssetSettings(): Promise<ResolvedAssetSettings> {
 		try {
 			const raw = await fs.readFile(`${this.projectRoot}/wrangler.jsonc`, 'utf8');
@@ -146,19 +196,19 @@ export class PreviewService {
 		const url = new URL(request.url);
 
 		if (this.matchesRunWorkerFirst(url.pathname, assetSettings.run_worker_first)) {
-			return this.handlePreviewAPI(request, url.pathname);
+			return this.finalizePreviewResponse(await this.handlePreviewAPI(request, url.pathname), ideOrigin);
 		}
 
 		const assetResponse = await this.serveFile(request, ideOrigin, assetSettings);
 		if (assetResponse.status !== 404 || assetSettings.not_found_handling !== 'none') {
-			return assetResponse;
+			return this.finalizePreviewResponse(assetResponse, ideOrigin);
 		}
 
 		if (!(await this.hasWorkerEntrypoint())) {
-			return assetResponse;
+			return this.finalizePreviewResponse(assetResponse, ideOrigin);
 		}
 
-		return this.handlePreviewAPI(request, url.pathname);
+		return this.finalizePreviewResponse(await this.handlePreviewAPI(request, url.pathname), ideOrigin);
 	}
 	async hasWorkerEntrypoint(): Promise<boolean> {
 		const workerEntrypoints = ['worker/index.ts', 'worker/index.js'];
@@ -186,12 +236,11 @@ export class PreviewService {
 				headers: {
 					'Content-Type': 'application/javascript',
 					'Cache-Control': 'public, max-age=31536000, immutable',
-					...buildAssetSecurityHeaders(ideOrigin),
 				},
 			});
 		}
 		if (filePath === '/chobitsu.js.map') {
-			return new Response(undefined, { status: 204, headers: buildAssetSecurityHeaders(ideOrigin) });
+			return new Response(undefined, { status: 204 });
 		}
 
 		const externalModuleRequest = parsePreviewExternalModuleRequest(url.pathname + url.search);
@@ -201,7 +250,7 @@ export class PreviewService {
 		if (filePath === PREVIEW_EXTERNAL_MODULE_PATH) {
 			return new Response('Invalid external module request', {
 				status: 400,
-				headers: { 'Cache-Control': 'no-cache', ...buildAssetSecurityHeaders(ideOrigin) },
+				headers: { 'Cache-Control': 'no-cache' },
 			});
 		}
 
@@ -273,7 +322,7 @@ export class PreviewService {
 
 			if (previewRequest.mode === 'source' && !['.ts', '.tsx', '.jsx', '.js', '.mjs', '.mts'].includes(extension)) {
 				return new Response(content, {
-					headers: { 'Content-Type': this.getContentType(extension), 'Cache-Control': 'no-cache', ...buildAssetSecurityHeaders(ideOrigin) },
+					headers: { 'Content-Type': this.getContentType(extension), 'Cache-Control': 'no-cache' },
 				});
 			}
 
@@ -285,7 +334,7 @@ export class PreviewService {
 			});
 
 			return new Response(transformed.code, {
-				headers: { 'Content-Type': transformed.contentType, 'Cache-Control': 'no-cache', ...buildAssetSecurityHeaders(ideOrigin) },
+				headers: { 'Content-Type': transformed.contentType, 'Cache-Control': 'no-cache' },
 			});
 		} catch (error) {
 			const errorMessage = error instanceof Error ? error.message : String(error);
@@ -299,7 +348,7 @@ export class PreviewService {
 				// Return a plain 404 instead of the JS error overlay.
 				return new Response('Not Found', {
 					status: 404,
-					headers: { 'Cache-Control': 'no-cache', ...buildAssetSecurityHeaders(ideOrigin) },
+					headers: { 'Cache-Control': 'no-cache' },
 				});
 			}
 
@@ -322,7 +371,7 @@ export class PreviewService {
 				.replaceAll('>', String.raw`\u003e`);
 			const errorModule = `if(typeof showErrorOverlay==='function'){showErrorOverlay(${errorJson})}else{console.error(${errorJson}.message)}`;
 			return new Response(errorModule, {
-				headers: { 'Content-Type': 'application/javascript', 'Cache-Control': 'no-cache', ...buildAssetSecurityHeaders(ideOrigin) },
+				headers: { 'Content-Type': 'application/javascript', 'Cache-Control': 'no-cache' },
 			});
 		}
 	}
@@ -461,7 +510,7 @@ export class PreviewService {
 		return contentTypes[extension] || 'text/plain';
 	}
 
-	private async serveExternalModule(externalUrl: string, requestTimestamp: string | undefined, ideOrigin: string): Promise<Response> {
+	private async serveExternalModule(externalUrl: string, requestTimestamp: string | undefined, _ideOrigin: string): Promise<Response> {
 		try {
 			const requestUrl = new URL(externalUrl);
 			if (!isAllowedPreviewExternalModuleUrl(requestUrl)) {
@@ -487,7 +536,6 @@ export class PreviewService {
 					headers: {
 						'Content-Type': 'application/javascript',
 						'Cache-Control': 'no-cache',
-						...buildAssetSecurityHeaders(ideOrigin),
 					},
 				});
 			}
@@ -496,7 +544,6 @@ export class PreviewService {
 				headers: {
 					'Content-Type': contentType,
 					'Cache-Control': 'no-cache',
-					...buildAssetSecurityHeaders(ideOrigin),
 				},
 			});
 		} catch (error) {
@@ -506,7 +553,6 @@ export class PreviewService {
 				headers: {
 					'Content-Type': 'application/javascript',
 					'Cache-Control': 'no-cache',
-					...buildAssetSecurityHeaders(ideOrigin),
 				},
 			});
 		}
@@ -531,6 +577,7 @@ export class PreviewService {
 				'Cache-Control': 'no-cache',
 				'Content-Security-Policy': buildPreviewCsp(ideOrigin),
 				'Referrer-Policy': 'no-referrer',
+				'X-Robots-Tag': PREVIEW_ROBOTS_HEADER_VALUE,
 			},
 		});
 	}
@@ -581,6 +628,7 @@ export class PreviewService {
 							'Cache-Control': 'no-cache',
 							'Content-Security-Policy': buildPreviewCsp(ideOrigin),
 							'Referrer-Policy': 'no-referrer',
+							'X-Robots-Tag': PREVIEW_ROBOTS_HEADER_VALUE,
 						},
 					});
 				} catch {

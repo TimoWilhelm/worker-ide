@@ -4,6 +4,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 // Mocks — must be declared before importing the module under test
 // ---------------------------------------------------------------------------
 
+const mockGenerateText = vi.hoisted(() => vi.fn(async () => ({ output: { summary: 'Mock summary' } })));
+
 // Mock the global fetch used by web-fetch.ts
 const mockFetch = vi.fn<(input: string | URL | Request, init?: RequestInit) => Promise<Response>>();
 vi.stubGlobal('fetch', mockFetch);
@@ -23,7 +25,7 @@ vi.mock('cloudflare:workers', () => ({
 
 // Mock Vercel AI SDK generateText to avoid real LLM calls
 vi.mock('ai', () => ({
-	generateText: vi.fn(),
+	generateText: mockGenerateText,
 	jsonSchema: (schema: unknown) => schema,
 	Output: { object: (config: unknown) => config },
 }));
@@ -61,6 +63,7 @@ function makeResponse(body: string, options: { status?: number; contentType?: st
 describe('web_fetch', () => {
 	beforeEach(() => {
 		mockFetch.mockReset();
+		mockGenerateText.mockClear();
 	});
 
 	// ── Successful fetch ──────────────────────────────────────────────────

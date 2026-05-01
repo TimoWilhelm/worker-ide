@@ -1,5 +1,5 @@
 ---
-import { Code2, Eye, GitBranch, Rocket, Sparkles, Users, type Icon as IconType } from '@lucide/astro';
+import { Code, Eye, GitBranch, Rocket, Sparkles, Users, type Icon as IconType } from '@lucide/astro';
 
 interface Feature {
 	title: string;
@@ -10,8 +10,8 @@ interface Feature {
 const features: Feature[] = [
 	{
 		title: 'Browser Editor',
-		description: 'Editing, autocomplete, linting, and multi-file work in one place, right in the browser.',
-		icon: Code2,
+		description: 'Editing, autocomplete, linting, and testing in the browser.',
+		icon: Code,
 	},
 	{
 		title: 'Collaborate in Real-Time',
@@ -19,23 +19,23 @@ const features: Feature[] = [
 		icon: Users,
 	},
 	{
-		title: 'AI Agent',
-		description: ' Built-in AI agent that understands your project. Generate code, debug issues, and refactor.',
+		title: 'AI Agents',
+		description: 'Agents that understand your project and work alongside you directly in your editor.',
 		icon: Sparkles,
 	},
 	{
 		title: 'Instant Preview',
-		description: 'Each project gets a live preview URL so you can check changes as you make them, with DevTools built-in.',
+		description: 'Live preview URL so you can instantly see any changes.',
 		icon: Eye,
 	},
 	{
-		title: 'Git Integration',
-		description: 'Review diffs, create commits, switch branches, and push from the same workspace.',
+		title: 'Version Control',
+		description: 'Full Git integration to track and manage your code changes.',
 		icon: GitBranch,
 	},
 	{
-		title: 'Deploy',
-		description: 'Deploy to Cloudflare in one click. Your app runs on 300+ data centers worldwide with zero cold starts.',
+		title: 'Ship',
+		description: 'Deploy to your own Cloudflare account in one click.',
 		icon: Rocket,
 	},
 ];
@@ -55,9 +55,7 @@ const features: Feature[] = [
 		<div class="mx-auto mb-16 max-w-2xl text-center">
 			<p class="mb-4 font-mono text-xs uppercase tracking-widest text-accent">Features</p>
 			<h2 class="text-3xl font-bold tracking-tight sm:text-4xl">Build apps in your browser</h2>
-			<p class="mt-4 text-lg leading-relaxed text-text-secondary">
-				Start a project, edit code, preview it, and ship it without installing anything.
-			</p>
+			<p class="mt-4 text-lg leading-relaxed text-text-secondary">Your entire dev environment without installing anything.</p>
 		</div>
 
 		<!-- Feature grid -->
@@ -69,11 +67,9 @@ const features: Feature[] = [
 						style={`transition-delay: ${index * 80}ms;`}
 						data-reveal
 					>
-						<feature.icon
-							size={22}
-							stroke-width={1.5}
-							class="mb-4 inline-flex rounded-lg bg-accent/10 p-2.5 text-accent transition-colors group-hover:bg-accent/20"
-						/>
+						<span class="mb-4 inline-flex rounded-lg bg-accent/10 p-2.5 text-accent transition-colors group-hover:bg-accent/20">
+							<feature.icon size={22} stroke-width={1.5} />
+						</span>
 						<h3 class="mb-2 text-base font-semibold">{feature.title}</h3>
 						<p class="text-sm leading-relaxed text-text-secondary">{feature.description}</p>
 					</div>

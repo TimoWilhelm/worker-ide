@@ -102,6 +102,7 @@ describe('PreviewService external module proxy', () => {
 		);
 
 		expect(response.status).toBe(400);
+		expect(response.headers.get('X-Robots-Tag')).toBeNull();
 		expect(await response.text()).toBe('Invalid external module request');
 		expect(fetchMock).not.toHaveBeenCalled();
 	});
@@ -117,6 +118,7 @@ describe('PreviewService external module proxy', () => {
 		);
 
 		expect(response.headers.get('Content-Type')).toBe('application/javascript');
+		expect(response.headers.get('X-Robots-Tag')).toBeNull();
 		expect(await response.text()).toContain('External module redirect target is not allowed');
 		expect(fetchMock).toHaveBeenCalledTimes(1);
 	});
@@ -152,6 +154,7 @@ describe('PreviewService external module proxy', () => {
 
 		expect(mocks.loaderGet).toHaveBeenCalledOnce();
 		expect(mocks.forwardedFetch).toHaveBeenCalledOnce();
+		expect(response.headers.get('X-Robots-Tag')).toBeNull();
 		expect(await response.json()).toEqual({
 			method: 'POST',
 			contentType: 'application/json',
@@ -177,6 +180,7 @@ describe('PreviewService external module proxy', () => {
 		expect(serveFile).toHaveBeenCalledOnce();
 		expect(hasWorkerEntrypoint).toHaveBeenCalledOnce();
 		expect(handlePreviewAPI).toHaveBeenCalledWith(expect.any(Request), '/api/store');
+		expect(response.headers.get('X-Robots-Tag')).toBe('noindex, nofollow');
 		expect(await response.text()).toBe('worker response');
 	});
 
@@ -199,6 +203,57 @@ describe('PreviewService external module proxy', () => {
 		expect(serveFile).toHaveBeenCalledOnce();
 		expect(hasWorkerEntrypoint).not.toHaveBeenCalled();
 		expect(handlePreviewAPI).not.toHaveBeenCalled();
-		expect(response).toBe(assetResponse);
+		expect(response).not.toBe(assetResponse);
+		expect(response.headers.get('X-Robots-Tag')).toBe('noindex, nofollow');
+		expect(await response.text()).toBe('custom 404');
+	});
+
+	it('adds no-index headers to preview worker-first responses', async () => {
+		const previewService = new PreviewService('/project', 'project-1');
+		const serveFile = vi.fn(async () => new Response('asset response'));
+		const handlePreviewAPI = vi.fn(async () => new Response('worker response'));
+		Reflect.set(previewService, 'serveFile', serveFile);
+		Reflect.set(previewService, 'handlePreviewAPI', handlePreviewAPI);
+
+		const response = await previewService.routePreviewRequest(new Request('https://preview.local/api/store'), 'https://ide.local', {
+			run_worker_first: true,
+			not_found_handling: 'none',
+			html_handling: 'auto-trailing-slash',
+		});
+
+		expect(serveFile).not.toHaveBeenCalled();
+		expect(handlePreviewAPI).toHaveBeenCalledWith(expect.any(Request), '/api/store');
+		expect(response.headers.get('X-Robots-Tag')).toBe('noindex, nofollow');
+		expect(await response.text()).toBe('worker response');
+	});
+
+	it('preserves multiple Set-Cookie headers when adding no-index headers', async () => {
+		const previewService = new PreviewService('/project', 'project-1');
+		const headers = new Headers();
+		headers.append('Set-Cookie', 'preview_access=one; Path=/; HttpOnly');
+		headers.append('Set-Cookie', 'preview_metadata=two; Path=/; HttpOnly');
+		const handlePreviewAPI = vi.fn(async () => new Response('worker response', { headers }));
+		Reflect.set(previewService, 'handlePreviewAPI', handlePreviewAPI);
+
+		const response = await previewService.routePreviewRequest(new Request('https://preview.local/api/store'), 'https://ide.local', {
+			run_worker_first: true,
+			not_found_handling: 'none',
+			html_handling: 'auto-trailing-slash',
+		});
+
+		expect(response.headers.get('X-Robots-Tag')).toBe('noindex, nofollow');
+		expect(response.headers.getSetCookie()).toEqual(['preview_access=one; Path=/; HttpOnly', 'preview_metadata=two; Path=/; HttpOnly']);
+		expect(await response.text()).toBe('worker response');
+	});
+
+	it('does not rewrap WebSocket upgrade responses when adding no-index headers', () => {
+		const previewService = new PreviewService('/project', 'project-1');
+		const response = new Response(undefined, { headers: { Upgrade: 'websocket' } });
+		Object.defineProperty(response, 'status', { value: 101 });
+
+		const nextResponse = previewService.withPreviewRobotsHeader(response);
+
+		expect(nextResponse).toBe(response);
+		expect(nextResponse.headers.get('X-Robots-Tag')).toBeNull();
 	});
 });
