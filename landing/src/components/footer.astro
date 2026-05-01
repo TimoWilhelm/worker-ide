@@ -24,7 +24,7 @@ const isHomePage = Astro.url.pathname === '/';
 			</a>
 
 			<!-- Links -->
-			<div class="flex items-center gap-6 font-mono text-xs uppercase tracking-widest text-text-secondary">
+			<div class="justify-center flex items-center gap-6 font-mono text-xs uppercase tracking-widest text-text-secondary flex-wrap">
 				<a href={appUrl} class="transition-colors hover:text-accent"> Editor </a>
 				<a href={isHomePage ? '#features' : '/#features'} class="transition-colors hover:text-accent"> Features </a>
 				<a href="/docs" class="transition-colors hover:text-accent"> Docs </a>

@@ -104,7 +104,7 @@ const highlightedCode = highlight(code);
 		<!-- Editor preview mock -->
 		<div class="mt-20 animate-reveal-7">
 			<div class="border-beam mx-auto max-w-4xl rounded-xl">
-				<div class="overflow-hidden rounded-xl border border-border bg-bg-secondary/60 backdrop-blur-md">
+				<div class="rounded-xl border border-border bg-bg-secondary/60 backdrop-blur-md">
 					<!-- Title bar -->
 					<div class="flex items-center gap-2 border-b border-border bg-bg-tertiary/60 px-4 py-2.5">
 						<div class="flex gap-1.5">
@@ -116,7 +116,7 @@ const highlightedCode = highlight(code);
 					</div>
 
 					<!-- Code area (sugar-high, rendered at build time) -->
-					<pre class="p-6 text-left font-mono text-sm leading-relaxed"><code set:html={highlightedCode} /></pre>
+					<pre class="overflow-x-auto whitespace-pre p-6 text-left font-mono text-sm leading-relaxed"><code set:html={highlightedCode} /></pre>
 				</div>
 			</div>
 		</div>
