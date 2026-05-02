@@ -49,7 +49,7 @@ export function Modal({ open, onOpenChange, title, children, className, hideClos
 										<Dialog.Close
 											className={cn(
 												`
-													flex size-6 items-center justify-center rounded-sm
+													flex size-6 cursor-pointer items-center justify-center rounded-sm
 													text-text-secondary
 												`,
 												`

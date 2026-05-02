@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest';
 
 import { DEFAULT_AI_MODEL } from './constants';
 import {
+	deployAccountIdSchema,
+	deployApiTokenSchema,
+	deployWorkerNameSchema,
 	filePathSchema,
 	writeFileSchema,
 	sessionIdSchema,
@@ -15,6 +18,40 @@ import {
 	persistedStoreSchema,
 	LIMITS,
 } from './validation';
+
+describe('deploy validation schemas', () => {
+	it('accepts a valid deploy account ID', () => {
+		expect(deployAccountIdSchema.safeParse('d64471fef208e0cf9687449dc8a5878b').success).toBe(true);
+	});
+
+	it('rejects a non-hex deploy account ID', () => {
+		expect(deployAccountIdSchema.safeParse('not-an-account-id').success).toBe(false);
+	});
+
+	it('accepts an API token without whitespace', () => {
+		expect(deployApiTokenSchema.safeParse('cfapitoken123').success).toBe(true);
+	});
+
+	it('rejects an API token with whitespace', () => {
+		expect(deployApiTokenSchema.safeParse('token with spaces').success).toBe(false);
+	});
+
+	it('accepts a worker name that sanitizes to a valid value', () => {
+		expect(deployWorkerNameSchema.safeParse('My New Worker').success).toBe(true);
+	});
+
+	it('rejects a worker name longer than 24 characters', () => {
+		expect(deployWorkerNameSchema.safeParse('a'.repeat(25)).success).toBe(false);
+	});
+
+	it('rejects a worker name with no letters or numbers', () => {
+		expect(deployWorkerNameSchema.safeParse('---').success).toBe(false);
+	});
+
+	it('rejects worker names with control characters', () => {
+		expect(deployWorkerNameSchema.safeParse(`worker${String.fromCodePoint(10)}name`).success).toBe(false);
+	});
+});
 
 describe('filePathSchema', () => {
 	it('accepts valid paths', () => {

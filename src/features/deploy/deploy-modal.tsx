@@ -1,13 +1,18 @@
-import { CheckCircle, ExternalLink, Rocket, XCircle } from 'lucide-react';
-import { useCallback, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { CheckCircle, Database, ExternalLink, FolderOpen, Globe, Rocket, Server, XCircle } from 'lucide-react';
+import { useCallback, useMemo, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Modal, ModalBody, ModalFooter } from '@/components/ui/modal';
 import { deployProject } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
-import { savedCredentialsSchema } from '@shared/validation';
+import { sanitizeR2BucketName, sanitizeWorkerName } from '@shared/deploy-helpers';
+import { deployFormSchema, savedCredentialsSchema } from '@shared/validation';
 
+import type { ProjectMeta } from '@/lib/api-client';
+import type { FileInfo } from '@shared/types';
 import type { SavedCredentialsParsed } from '@shared/validation';
+import type { ReactNode } from 'react';
 
 const LOCAL_STORAGE_KEY = 'worker-ide-deploy-credentials';
 const CLOUDFLARE_DASHBOARD_URL = 'https://dash.cloudflare.com/';
@@ -74,14 +79,51 @@ function clearSavedCredentials(): void {
 	localStorage.removeItem(LOCAL_STORAGE_KEY);
 }
 
-function sanitizeWorkerName(name: string): string {
+interface DeployResourceSummaryProperties {
+	workerName: string;
+	hasStaticAssets: boolean;
+	hasR2Storage: boolean;
+}
+
+interface DeployFormErrors {
+	accountId?: string;
+	apiToken?: string;
+	workerName?: string;
+}
+
+interface ResourceRowProperties {
+	icon: ReactNode;
+	label: string;
+	name: string;
+}
+
+function ResourceRow({ icon, label, name }: ResourceRowProperties) {
 	return (
-		name
-			.toLowerCase()
-			.replaceAll(/[^a-z\d-]/g, '-')
-			.replaceAll(/-+/g, '-')
-			.replaceAll(/^-|-$/g, '')
-			.slice(0, 63) || 'my-worker'
+		<div className="flex flex-col gap-0.5 overflow-hidden">
+			<div className="flex min-h-5 items-center gap-1.5 overflow-hidden">
+				<span className="shrink-0 text-text-secondary">{icon}</span>
+				<span className="shrink-0 font-medium text-text-primary">{label}</span>
+			</div>
+			<div className="pl-5">
+				<span className="block truncate font-mono text-[11px] text-text-secondary">{name}</span>
+			</div>
+		</div>
+	);
+}
+
+function DeployResourceSummary({ workerName, hasStaticAssets, hasR2Storage }: DeployResourceSummaryProperties) {
+	const r2BucketName = useMemo(() => sanitizeR2BucketName(workerName), [workerName]);
+
+	return (
+		<div className="flex flex-col gap-1.5">
+			<div className="text-xs font-medium text-text-secondary">Resources</div>
+			<div className="rounded-md border border-border bg-bg-primary p-2.5 text-xs" aria-label="Resources to deploy">
+				<ResourceRow icon={<Server className="size-3.5" />} label="Worker" name={workerName} />
+				{hasStaticAssets && <ResourceRow icon={<FolderOpen className="size-3.5" />} label="Assets" name="Static assets" />}
+				{hasR2Storage && <ResourceRow icon={<Database className="size-3.5" />} label="R2 bucket" name={r2BucketName} />}
+				<ResourceRow icon={<Globe className="size-3.5" />} label="Route" name={`${workerName}.workers.dev`} />
+			</div>
+		</div>
 	);
 }
 
@@ -102,30 +144,63 @@ export function DeployModal({ open, onOpenChange, projectId, projectName }: Depl
  * Remounts each time the modal opens, so state is always fresh.
  */
 function DeployModalContent({ onOpenChange, projectId, projectName }: Omit<DeployModalProperties, 'open'>) {
+	const queryClient = useQueryClient();
 	const [saved] = useState(loadSavedCredentials);
 	const [accountId, setAccountId] = useState(saved?.accountId ?? '');
 	const [apiToken, setApiToken] = useState(saved?.apiToken ?? '');
 	const [workerName, setWorkerName] = useState(() => sanitizeWorkerName(projectName));
+	const [touchedFields, setTouchedFields] = useState<Record<keyof DeployFormErrors, boolean>>({
+		accountId: false,
+		apiToken: false,
+		workerName: false,
+	});
 	const [rememberCredentials, setRememberCredentials] = useState(saved !== undefined);
 	const [deployState, setDeployState] = useState<DeployState>({ status: 'idle' });
+	const projectMeta = queryClient.getQueryData<ProjectMeta>(['project-meta', projectId]);
+	const fileTree = queryClient.getQueryData<FileInfo[]>(['files', projectId]);
+	const validationResult = useMemo(
+		() => deployFormSchema.safeParse({ accountId, apiToken, workerName }),
+		[accountId, apiToken, workerName],
+	);
+	const formErrors = useMemo<DeployFormErrors>(() => {
+		if (validationResult.success) {
+			return {};
+		}
+
+		const fieldErrors = validationResult.error.flatten().fieldErrors;
+		return {
+			accountId: touchedFields.accountId ? fieldErrors.accountId?.[0] : undefined,
+			apiToken: touchedFields.apiToken ? fieldErrors.apiToken?.[0] : undefined,
+			workerName: touchedFields.workerName ? fieldErrors.workerName?.[0] : undefined,
+		};
+	}, [touchedFields, validationResult]);
+	const sanitizedWorkerName = useMemo(() => sanitizeWorkerName(workerName), [workerName]);
+	const hasStaticAssets =
+		fileTree?.some((file) => (file.path === '/index.html' || file.path === 'index.html') && !file.isDirectory) ?? false;
+	const hasR2Storage = projectMeta?.bindingsConfig?.storage === true;
+
+	const markFieldTouched = useCallback((field: keyof DeployFormErrors) => {
+		setTouchedFields((current) => ({ ...current, [field]: true }));
+	}, []);
 
 	const handleDeploy = useCallback(async () => {
-		if (!accountId.trim() || !apiToken.trim()) return;
+		setTouchedFields({ accountId: true, apiToken: true, workerName: true });
+		if (!validationResult.success) return;
 
 		setDeployState({ status: 'deploying' });
+		const parsedCredentials = validationResult.data;
 
-		// Save or clear credentials based on user preference
 		if (rememberCredentials) {
-			saveCredentials({ accountId: accountId.trim(), apiToken: apiToken.trim() });
+			saveCredentials({ accountId: parsedCredentials.accountId, apiToken: parsedCredentials.apiToken });
 		} else {
 			clearSavedCredentials();
 		}
 
 		try {
 			const result = await deployProject(projectId, {
-				accountId: accountId.trim(),
-				apiToken: apiToken.trim(),
-				workerName: workerName.trim() || undefined,
+				accountId: parsedCredentials.accountId,
+				apiToken: parsedCredentials.apiToken,
+				workerName: sanitizedWorkerName,
 			});
 
 			setDeployState({
@@ -139,9 +214,9 @@ function DeployModalContent({ onOpenChange, projectId, projectName }: Omit<Deplo
 				message: error instanceof Error ? error.message : 'Deployment failed',
 			});
 		}
-	}, [accountId, apiToken, workerName, rememberCredentials, projectId]);
+	}, [projectId, rememberCredentials, sanitizedWorkerName, validationResult]);
 
-	const isFormValid = accountId.trim().length > 0 && apiToken.trim().length > 0;
+	const isFormValid = validationResult.success;
 	const isDeploying = deployState.status === 'deploying';
 
 	return (
@@ -191,6 +266,7 @@ function DeployModalContent({ onOpenChange, projectId, projectName }: Omit<Deplo
 								type="text"
 								value={accountId}
 								onChange={(event) => setAccountId(event.target.value)}
+								onBlur={() => markFieldTouched('accountId')}
 								placeholder="e.g., d64471fef208e0cf..."
 								disabled={isDeploying}
 								className={cn(
@@ -200,10 +276,12 @@ function DeployModalContent({ onOpenChange, projectId, projectName }: Omit<Deplo
 									`,
 									'placeholder:text-text-secondary/50',
 									'focus:border-accent focus:outline-none',
+									formErrors.accountId && 'border-red-500',
 									'disabled:opacity-50',
 								)}
 							/>
 							<p className="text-xs text-text-secondary">Found in the Cloudflare dashboard under Workers & Pages &gt; Overview.</p>
+							{formErrors.accountId && <p className="text-xs text-red-500">{formErrors.accountId}</p>}
 						</div>
 
 						<div className="flex flex-col gap-1.5">
@@ -215,6 +293,7 @@ function DeployModalContent({ onOpenChange, projectId, projectName }: Omit<Deplo
 								type="password"
 								value={apiToken}
 								onChange={(event) => setApiToken(event.target.value)}
+								onBlur={() => markFieldTouched('apiToken')}
 								placeholder="Cloudflare API Token"
 								disabled={isDeploying}
 								className={cn(
@@ -224,6 +303,7 @@ function DeployModalContent({ onOpenChange, projectId, projectName }: Omit<Deplo
 									`,
 									'placeholder:text-text-secondary/50',
 									'focus:border-accent focus:outline-none',
+									formErrors.apiToken && 'border-red-500',
 									'disabled:opacity-50',
 								)}
 							/>
@@ -233,6 +313,18 @@ function DeployModalContent({ onOpenChange, projectId, projectName }: Omit<Deplo
 									Create an account token
 								</a>
 							</p>
+							<label className="flex cursor-pointer items-center gap-2 pt-1" htmlFor="deploy-remember">
+								<input
+									id="deploy-remember"
+									type="checkbox"
+									checked={rememberCredentials}
+									onChange={(event) => setRememberCredentials(event.target.checked)}
+									disabled={isDeploying}
+									className="size-3.5 accent-accent"
+								/>
+								<span className="text-xs text-text-secondary">Remember credentials in this browser</span>
+							</label>
+							{formErrors.apiToken && <p className="text-xs text-red-500">{formErrors.apiToken}</p>}
 						</div>
 
 						<div className="flex flex-col gap-1.5">
@@ -244,6 +336,7 @@ function DeployModalContent({ onOpenChange, projectId, projectName }: Omit<Deplo
 								type="text"
 								value={workerName}
 								onChange={(event) => setWorkerName(event.target.value)}
+								onBlur={() => markFieldTouched('workerName')}
 								placeholder="my-worker"
 								disabled={isDeploying}
 								className={cn(
@@ -253,23 +346,15 @@ function DeployModalContent({ onOpenChange, projectId, projectName }: Omit<Deplo
 									`,
 									'placeholder:text-text-secondary/50',
 									'focus:border-accent focus:outline-none',
+									formErrors.workerName && 'border-red-500',
 									'disabled:opacity-50',
 								)}
 							/>
 							<p className="text-xs text-text-secondary">The name for your deployed Worker (lowercase, hyphens allowed).</p>
+							{formErrors.workerName && <p className="text-xs text-red-500">{formErrors.workerName}</p>}
 						</div>
 
-						<label className="flex cursor-pointer items-center gap-2" htmlFor="deploy-remember">
-							<input
-								id="deploy-remember"
-								type="checkbox"
-								checked={rememberCredentials}
-								onChange={(event) => setRememberCredentials(event.target.checked)}
-								disabled={isDeploying}
-								className="size-3.5 accent-accent"
-							/>
-							<span className="text-xs text-text-secondary">Remember credentials in this browser</span>
-						</label>
+						<DeployResourceSummary workerName={sanitizedWorkerName} hasStaticAssets={hasStaticAssets} hasR2Storage={hasR2Storage} />
 					</>
 				)}
 			</ModalBody>

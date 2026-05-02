@@ -484,9 +484,42 @@ export const gitTagNameQuerySchema = z.object({
 export const gitCredentialRequestSchema = z.object({});
 
 export type GitCredentialRequestInput = z.infer<typeof gitCredentialRequestSchema>;
+function containsControlCharacters(value: string): boolean {
+	for (const character of value) {
+		const codePoint = character.codePointAt(0) ?? 0;
+		if ((codePoint >= 0 && codePoint <= 31) || codePoint === 127) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+export const deployAccountIdSchema = z
+	.string()
+	.trim()
+	.min(1, 'Account ID is required')
+	.max(64, 'Account ID must be at most 64 characters')
+	.regex(/^[a-f\d]+$/i, 'Account ID must be a hexadecimal string');
+
+export const deployApiTokenSchema = z
+	.string()
+	.trim()
+	.min(1, 'API Token is required')
+	.max(512, 'API Token is too long')
+	.refine((value) => !/\s/.test(value), 'API Token must not contain whitespace');
+
+export const deployWorkerNameSchema = z
+	.string()
+	.trim()
+	.min(1, 'Worker name is required')
+	.max(24, 'Worker name must be at most 24 characters')
+	.refine((value) => /[a-z\d]/i.test(value), 'Worker name must contain at least one letter or number')
+	.refine((value) => !containsControlCharacters(value), 'Worker name must not contain control characters');
+
 export const savedCredentialsSchema = z.object({
-	accountId: z.string(),
-	apiToken: z.string(),
+	accountId: deployAccountIdSchema,
+	apiToken: deployApiTokenSchema,
 });
 
 export type SavedCredentialsParsed = z.infer<typeof savedCredentialsSchema>;
@@ -575,9 +608,15 @@ export const transferInitiateBodySchema = z.object({
 });
 
 export const deployRequestSchema = z.object({
-	accountId: z.string().min(1, 'Account ID is required'),
-	apiToken: z.string().min(1, 'API Token is required'),
-	workerName: z.string().optional(),
+	accountId: deployAccountIdSchema,
+	apiToken: deployApiTokenSchema,
+	workerName: deployWorkerNameSchema.optional(),
+});
+
+export const deployFormSchema = z.object({
+	accountId: deployAccountIdSchema,
+	apiToken: deployApiTokenSchema,
+	workerName: deployWorkerNameSchema,
 });
 
 export const userPreferencesBodySchema = z

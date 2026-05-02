@@ -5,8 +5,10 @@ import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
 import { Hono } from 'hono';
 import stripJsonComments from 'strip-json-comments';
+import { z } from 'zod';
 
 import { HIDDEN_ENTRIES, WORKERS_COMPATIBILITY_DATE } from '@shared/constants';
+import { sanitizeR2BucketName, sanitizeWorkerName } from '@shared/deploy-helpers';
 import { HttpErrorCode } from '@shared/http-errors';
 import { resolveAssetSettings } from '@shared/types';
 import { deployRequestSchema } from '@shared/validation';
@@ -23,6 +25,37 @@ import type { AppEnvironment } from '../types';
 import type { AssetSettings } from '@shared/types';
 
 const CLOUDFLARE_API_BASE = 'https://api.cloudflare.com/client/v4';
+const assetUploadSessionResponseSchema = z.object({
+	result: z
+		.object({
+			jwt: z.string().optional(),
+			buckets: z.array(z.array(z.string())).optional(),
+		})
+		.optional(),
+});
+const assetUploadResponseSchema = z.object({
+	result: z
+		.object({
+			jwt: z.string().optional(),
+		})
+		.optional(),
+});
+const workersSubdomainResponseSchema = z.object({
+	result: z
+		.object({
+			subdomain: z.string().optional(),
+		})
+		.optional(),
+});
+
+function parseUpstreamResponse<T>(schema: z.ZodType<T>, value: unknown, message: string): T {
+	const parsed = schema.safeParse(value);
+	if (!parsed.success) {
+		throw httpError(HttpErrorCode.UPSTREAM_ERROR, message);
+	}
+
+	return parsed.data;
+}
 
 export const deployRoutes = new Hono<AppEnvironment>().post('/deploy', zValidator('json', deployRequestSchema), async (c) => {
 	const deployStart = Date.now();
@@ -230,46 +263,6 @@ export const deployRoutes = new Hono<AppEnvironment>().post('/deploy', zValidato
 		throw error;
 	}
 });
-
-function sanitizeWorkerName(name: string): string {
-	return (
-		name
-			.toLowerCase()
-			.replaceAll(/[^a-z\d-]/g, '-')
-			.replaceAll(/-+/g, '-')
-			.replaceAll(/^-|-$/g, '')
-			.slice(0, 63) || 'my-worker'
-	);
-}
-
-function hashBucketNameSeed(value: string): string {
-	let hash = 2_166_136_261;
-	for (const character of value) {
-		hash ^= character.codePointAt(0) ?? 0;
-		hash = Math.imul(hash, 16_777_619);
-	}
-	return (hash >>> 0).toString(16).padStart(8, '0');
-}
-
-/**
- * Derive a valid R2 bucket name from a worker name.
- * R2 rules: lowercase a-z, 0-9, hyphens only; 3-63 chars; no leading/trailing hyphens.
- * A deterministic hash suffix avoids collisions when long names are truncated.
- */
-function sanitizeR2BucketName(workerName: string): string {
-	const normalized = workerName
-		.toLowerCase()
-		.replaceAll(/[^a-z\d-]/g, '-')
-		.replaceAll(/-+/g, '-')
-		.replace(/^-/, '')
-		.replace(/-$/, '');
-
-	const base = normalized.length > 0 ? normalized : 'app';
-	const suffix = `-storage-${hashBucketNameSeed(workerName)}`;
-	const maxBaseLength = 63 - suffix.length;
-	const trimmed = (maxBaseLength > 0 ? base.slice(0, maxBaseLength) : '').replace(/-$/, '') || 'app';
-	return `${trimmed}${suffix}`;
-}
 
 async function collectProjectFiles(directory: string, base = ''): Promise<Record<string, string>> {
 	const files: Record<string, string> = {};
@@ -505,9 +498,11 @@ async function uploadStaticAssets(
 		);
 	}
 
-	const sessionData: {
-		result?: { jwt?: string; buckets?: string[][] };
-	} = await sessionResponse.json();
+	const sessionData = parseUpstreamResponse(
+		assetUploadSessionResponseSchema,
+		await sessionResponse.json(),
+		'Asset upload session returned an invalid response',
+	);
 
 	const uploadJwt = sessionData.result?.jwt;
 	const buckets = sessionData.result?.buckets;
@@ -548,7 +543,11 @@ async function uploadStaticAssets(
 			throw httpError(HttpErrorCode.UPSTREAM_ERROR, `Failed to upload assets: ${extractApiError(errorText, uploadResponse.status)}`);
 		}
 
-		const uploadData: { result?: { jwt?: string } } = await uploadResponse.json();
+		const uploadData = parseUpstreamResponse(
+			assetUploadResponseSchema,
+			await uploadResponse.json(),
+			'Asset upload returned an invalid response',
+		);
 		if (uploadData.result?.jwt) {
 			completionJwt = uploadData.result.jwt;
 		}
@@ -660,7 +659,11 @@ async function getWorkersDevelopmentUrl(accountId: string, apiToken: string, wor
 			headers: { Authorization: `Bearer ${apiToken}` },
 		});
 		if (subdomainResponse.ok) {
-			const data: { result?: { subdomain?: string } } = await subdomainResponse.json();
+			const data = parseUpstreamResponse(
+				workersSubdomainResponseSchema,
+				await subdomainResponse.json(),
+				'Workers subdomain lookup returned an invalid response',
+			);
 			if (data.result?.subdomain) {
 				return `https://${workerName}.${data.result.subdomain}.workers.dev`;
 			}
@@ -682,14 +685,8 @@ function extractApiError(responseBody: string, statusCode: number): string {
 	return `API returned status ${statusCode}`;
 }
 
-export {
-	extractFrontendEntryPoint,
-	generateProductionHtml,
-	hashFileForManifest,
-	isConfigFile,
-	isSourceFile,
-	sanitizeR2BucketName,
-	sanitizeWorkerName,
-};
+export { extractFrontendEntryPoint, generateProductionHtml, hashFileForManifest, isConfigFile, isSourceFile };
+
+export { sanitizeR2BucketName, sanitizeWorkerName } from '@shared/deploy-helpers';
 
 export type DeployRoutes = typeof deployRoutes;
