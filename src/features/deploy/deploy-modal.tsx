@@ -10,13 +10,34 @@ import { savedCredentialsSchema } from '@shared/validation';
 import type { SavedCredentialsParsed } from '@shared/validation';
 
 const LOCAL_STORAGE_KEY = 'worker-ide-deploy-credentials';
+const CLOUDFLARE_DASHBOARD_URL = 'https://dash.cloudflare.com/';
+const ACCOUNT_TOKEN_PATH = '/:account/api-tokens';
+const DEPLOY_TOKEN_NAME = 'Worker IDE Deploy Token';
+
+interface CloudflareTokenPermission {
+	key: string;
+	type: 'edit';
+}
+
+const DEPLOY_TOKEN_PERMISSIONS: CloudflareTokenPermission[] = [
+	{ key: 'workers_scripts', type: 'edit' },
+	{ key: 'workers_r2', type: 'edit' },
+];
+
+function createAccountTokenUrl(tokenName: string, permissions: CloudflareTokenPermission[]): string {
+	const parameters = new URLSearchParams({
+		permissionGroupKeys: JSON.stringify(permissions),
+		name: tokenName,
+	});
+
+	return `${CLOUDFLARE_DASHBOARD_URL}?to=${ACCOUNT_TOKEN_PATH}&${parameters.toString()}`;
+}
 
 /**
- * Cloudflare dashboard URL with pre-filled Workers Scripts Edit + R2 Storage Edit permissions.
- * Opens the token creation page with the correct permissions already selected.
+ * Cloudflare dashboard URL for an account-scoped token with pre-filled Workers Scripts Edit + R2 Storage Edit permissions.
+ * Opens the account token creation page with the correct permissions already selected.
  */
-const CREATE_TOKEN_URL =
-	'https://dash.cloudflare.com/profile/api-tokens?permissionGroupKeys=%5B%7B%22key%22%3A%22workers_scripts%22%2C%22type%22%3A%22edit%22%7D%2C%7B%22key%22%3A%22workers_r2_storage%22%2C%22type%22%3A%22edit%22%7D%5D&accountId=%2A&zoneId=all&name=Worker%20IDE%20Deploy%20Token';
+const CREATE_TOKEN_URL = createAccountTokenUrl(DEPLOY_TOKEN_NAME, DEPLOY_TOKEN_PERMISSIONS);
 
 type SavedCredentials = SavedCredentialsParsed;
 
@@ -207,9 +228,9 @@ function DeployModalContent({ onOpenChange, projectId, projectName }: Omit<Deplo
 								)}
 							/>
 							<p className="text-xs text-text-secondary">
-								Needs <strong>Workers Scripts: Edit</strong> and <strong>R2 Storage: Edit</strong> permissions.{' '}
+								Needs an account-scoped token with <strong>Workers Scripts: Edit</strong> and <strong>R2 Storage: Edit</strong> permissions.{' '}
 								<a href={CREATE_TOKEN_URL} target="_blank" rel="noopener noreferrer" className="text-accent hover:text-accent-hover">
-									Create a token
+									Create an account token
 								</a>
 							</p>
 						</div>

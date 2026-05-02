@@ -75,9 +75,22 @@ describe('DeployModal', () => {
 	it('renders the Create a token link', () => {
 		render(<DeployModal open={true} onOpenChange={vi.fn()} projectId="abc123" projectName="my-project" />);
 
-		const link = screen.getByRole('link', { name: /create a token/i });
+		const link = screen.getByRole('link', { name: /create an account token/i });
+		const href = link.getAttribute('href');
+		const tokenUrl = new URL(href ?? '');
+		const permissions = JSON.parse(tokenUrl.searchParams.get('permissionGroupKeys') ?? '[]');
+
 		expect(link).toBeInTheDocument();
 		expect(link).toHaveAttribute('target', '_blank');
+		expect(tokenUrl.origin).toBe('https://dash.cloudflare.com');
+		expect(tokenUrl.searchParams.get('to')).toBe('/:account/api-tokens');
+		expect(tokenUrl.searchParams.has('accountId')).toBe(false);
+		expect(tokenUrl.searchParams.has('zoneId')).toBe(false);
+		expect(tokenUrl.searchParams.get('name')).toBe('Worker IDE Deploy Token');
+		expect(permissions).toEqual([
+			{ key: 'workers_scripts', type: 'edit' },
+			{ key: 'workers_r2', type: 'edit' },
+		]);
 	});
 
 	it('calls onOpenChange when Cancel is clicked', async () => {
