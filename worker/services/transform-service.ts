@@ -1,5 +1,4 @@
-import stripJsonComments from 'strip-json-comments';
-
+import { parseJsonc } from '@shared/jsonc';
 import {
 	buildPreviewExternalModuleRequest,
 	buildPreviewRequest,
@@ -129,7 +128,7 @@ async function loadTsConfig(fs: FileSystem, projectRoot: string): Promise<TsConf
 	try {
 		const content = await fs.readFile(`${projectRoot}/tsconfig.json`);
 		const text = typeof content === 'string' ? content : new TextDecoder().decode(content);
-		const config: TsConfig = JSON.parse(stripJsonComments(text));
+		const config: TsConfig = parseJsonc(text);
 
 		if (!config.compilerOptions) {
 			return await loadTsConfigFile(fs, `${projectRoot}/tsconfig.app.json`);
@@ -145,7 +144,7 @@ async function loadTsConfigFile(fs: FileSystem, filePath: string): Promise<TsCon
 	try {
 		const content = await fs.readFile(filePath);
 		const text = typeof content === 'string' ? content : new TextDecoder().decode(content);
-		return JSON.parse(stripJsonComments(text));
+		return parseJsonc(text);
 	} catch {
 		return undefined;
 	}

@@ -4,12 +4,12 @@ import { zValidator } from '@hono/zod-validator';
 import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
 import { Hono } from 'hono';
-import stripJsonComments from 'strip-json-comments';
 import { z } from 'zod';
 
 import { HIDDEN_ENTRIES, WORKERS_COMPATIBILITY_DATE } from '@shared/constants';
 import { sanitizeR2BucketName, sanitizeWorkerName } from '@shared/deploy-helpers';
 import { HttpErrorCode } from '@shared/http-errors';
+import { parseJsonc } from '@shared/jsonc';
 import { resolveAssetSettings } from '@shared/types';
 import { deployRequestSchema } from '@shared/validation';
 
@@ -369,14 +369,15 @@ function generateProductionHtml(html: string, originalEntry: string, bundledPath
 async function loadTsconfigRaw(projectRoot: string): Promise<string | undefined> {
 	try {
 		const content = await fs.readFile(`${projectRoot}/tsconfig.json`, 'utf8');
-		const tsConfig = JSON.parse(stripJsonComments(content));
+		const tsConfig: NonNullable<Parameters<typeof toEsbuildTsconfigRaw>[0]> = parseJsonc(content);
 
 		// If the root tsconfig is a solution-style project references file (no compilerOptions),
 		// try loading tsconfig.app.json which has the frontend compiler settings (jsx, etc.)
 		if (!tsConfig.compilerOptions) {
 			try {
 				const appContent = await fs.readFile(`${projectRoot}/tsconfig.app.json`, 'utf8');
-				return toEsbuildTsconfigRaw(JSON.parse(stripJsonComments(appContent)));
+				const appTsConfig: NonNullable<Parameters<typeof toEsbuildTsconfigRaw>[0]> = parseJsonc(appContent);
+				return toEsbuildTsconfigRaw(appTsConfig);
 			} catch {
 				return undefined;
 			}

@@ -78,6 +78,7 @@
         "husky": "^9.1.7",
         "isomorphic-git": "^1.37.4",
         "jsdom": "^26.1.0",
+        "jsonc-parser": "^3.3.1",
         "knip": "^5.88.1",
         "lint-staged": "^16.4.0",
         "lucide-react": "^0.563.0",
@@ -92,7 +93,6 @@
         "react-router": "^7.13.2",
         "remark-gfm": "^4.0.1",
         "storybook": "^10.3.3",
-        "strip-json-comments": "^5.0.3",
         "tailwind-merge": "^3.5.0",
         "tailwindcss": "^4.2.2",
         "turbo": "^2.8.20",
@@ -1698,6 +1698,8 @@
     "json-stable-stringify-without-jsonify": ["json-stable-stringify-without-jsonify@1.0.1", "", {}, "sha512-Bdboy+l7tA3OGW6FjyFHWkP5LuByj1Tk33Ljyq0axyzdk9//JSi2u3fP1QSmd1KNwq6VOKYGlAu87CisVir6Pw=="],
 
     "json5": ["json5@2.2.3", "", { "bin": { "json5": "lib/cli.js" } }, "sha512-XmOWe7eyHYH14cLdVPoyg+GOH3rYX++KpzrylJwSW98t3Nk+U8XOl8FWKOgwtzdb8lXGf6zYwDUzeHMWfxasyg=="],
+
+    "jsonc-parser": ["jsonc-parser@3.3.1", "", {}, "sha512-HUgH65KyejrUFPvHFPbqOY0rsFip3Bo5wb4ngvdi1EpCYWUQDC5V+Y7mZws+DLkr4M//zQJoanu1SP+87Dv1oQ=="],
 
     "jsonfile": ["jsonfile@6.2.0", "", { "dependencies": { "universalify": "^2.0.0" }, "optionalDependencies": { "graceful-fs": "^4.1.6" } }, "sha512-FGuPw30AdOIUTRMC2OMRtQV+jkVj2cfPqSeWXv1NEAJ1qZ5zb1X6z1mFhbfOB/iy3ssJCD+3KuZ8r8C3uVFlAg=="],
 

@@ -134,6 +134,25 @@ describe('readAssetSettings / writeAssetSettings', () => {
 		expect(result).toEqual({ not_found_handling: 'single-page-application' });
 	});
 
+	it('reads asset settings from wrangler.jsonc with trailing commas', async () => {
+		files.set(
+			`${ROOT}/wrangler.jsonc`,
+			`{
+				"assets": {
+					"not_found_handling": "single-page-application",
+					"run_worker_first": ["/api/*"],
+				},
+			}`,
+		);
+
+		const result = await readAssetSettings(ROOT);
+
+		expect(result).toEqual({
+			not_found_handling: 'single-page-application',
+			run_worker_first: ['/api/*'],
+		});
+	});
+
 	it('returns empty object when wrangler.jsonc is missing', async () => {
 		const result = await readAssetSettings(ROOT);
 
@@ -282,6 +301,21 @@ describe('readBindingsConfig / writeBindingsConfig', () => {
 
 	it('reads bindings config from r2_buckets in wrangler.jsonc', async () => {
 		files.set(`${ROOT}/wrangler.jsonc`, JSON.stringify({ r2_buckets: [{ binding: 'STORAGE', bucket_name: 'my-bucket' }] }));
+
+		const result = await readBindingsConfig(ROOT);
+
+		expect(result).toEqual({ storage: true });
+	});
+
+	it('reads bindings config from wrangler.jsonc with trailing commas', async () => {
+		files.set(
+			`${ROOT}/wrangler.jsonc`,
+			`{
+				"r2_buckets": [
+					{ "binding": "STORAGE", "bucket_name": "my-bucket" },
+				],
+			}`,
+		);
 
 		const result = await readBindingsConfig(ROOT);
 

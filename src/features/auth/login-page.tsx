@@ -66,7 +66,7 @@ export default function LoginPage() {
 				animate="visible"
 			>
 				<motion.div className="flex flex-col items-center gap-3" variants={fadeUpVariants} transition={springGentle}>
-					<motion.div layoutId="app-logo-hexagon" className="flex items-center justify-center">
+					<motion.div className="flex items-center justify-center">
 						<Hexagon className="size-10 text-accent" strokeWidth={1.5} />
 					</motion.div>
 					<h1 className="text-2xl font-semibold tracking-tight text-text-primary">Codemaxxing</h1>

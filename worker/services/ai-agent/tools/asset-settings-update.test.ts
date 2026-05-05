@@ -64,7 +64,7 @@ describe('asset_settings_update', () => {
 			expect(assets!.not_found_handling).toBe('404-page');
 		});
 
-		it('clears not_found_handling when set to none (default)', async () => {
+		it('clears not_found_handling when set to none', async () => {
 			seedProject({ not_found_handling: 'single-page-application' });
 			const sendEvent = createMockSendEvent();
 
@@ -96,7 +96,7 @@ describe('asset_settings_update', () => {
 			expect(assets!.html_handling).toBe('force-trailing-slash');
 		});
 
-		it('clears html_handling when set to auto-trailing-slash (default)', async () => {
+		it('clears html_handling when set to auto-trailing-slash', async () => {
 			seedProject({ html_handling: 'none' });
 			const sendEvent = createMockSendEvent();
 
@@ -128,7 +128,7 @@ describe('asset_settings_update', () => {
 			expect(assets!.run_worker_first).toBe(true);
 		});
 
-		it('clears run_worker_first when set to false (default)', async () => {
+		it('clears run_worker_first when set to false', async () => {
 			seedProject({ run_worker_first: true });
 			const sendEvent = createMockSendEvent();
 

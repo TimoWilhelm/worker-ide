@@ -1,3 +1,5 @@
+import fs from 'node:fs/promises';
+
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => {
@@ -159,6 +161,24 @@ describe('PreviewService external module proxy', () => {
 			method: 'POST',
 			contentType: 'application/json',
 			body: JSON.stringify({ key: 'greeting', value: 'hello' }),
+		});
+	});
+
+	it('loads asset settings from wrangler.jsonc with trailing commas', async () => {
+		vi.spyOn(fs, 'readFile').mockResolvedValue(`{
+			"assets": {
+				"not_found_handling": "single-page-application",
+				"run_worker_first": ["/api/*"],
+			},
+		}`);
+
+		const previewService = new PreviewService('/project', 'project-1');
+		const assetSettings = await previewService.loadAssetSettings();
+
+		expect(assetSettings).toEqual({
+			not_found_handling: 'single-page-application',
+			html_handling: 'auto-trailing-slash',
+			run_worker_first: ['/api/*'],
 		});
 	});
 

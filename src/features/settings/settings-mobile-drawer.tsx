@@ -49,7 +49,7 @@ export function SettingsMobileDrawer({ open, onOpenChange, activePath, navigatio
 										aria-label="Back to home"
 										onClick={() => onOpenChange(false)}
 									>
-										<motion.div layoutId="app-logo-hexagon" className="flex items-center justify-center">
+										<motion.div className="flex items-center justify-center">
 											<Hexagon className="size-4" />
 										</motion.div>
 									</Link>

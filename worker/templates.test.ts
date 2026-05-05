@@ -1,5 +1,6 @@
-import stripJsonComments from 'strip-json-comments';
 import { describe, expect, it } from 'vitest';
+
+import { parseJsonc } from '@shared/jsonc';
 
 import { DEFAULT_TEMPLATE_ID, getTemplate, getTemplateMetadata, TEMPLATES } from './templates';
 
@@ -65,9 +66,11 @@ describe('TEMPLATES', () => {
 		for (const template of TEMPLATES.filter((projectTemplate) => templateUsesWorkerApi(projectTemplate))) {
 			const wranglerConfig = template.files['wrangler.jsonc'];
 			expect(wranglerConfig).toBeDefined();
-			const normalizedWranglerConfig = stripJsonComments(wranglerConfig ?? '');
-			expect(normalizedWranglerConfig).toContain('"not_found_handling": "single-page-application"');
-			expect(normalizedWranglerConfig).toContain('"run_worker_first": ["/api/*"]');
+			const parsedWranglerConfig: { assets?: { not_found_handling?: string; run_worker_first?: boolean | string[] } } = parseJsonc(
+				wranglerConfig ?? '',
+			);
+			expect(parsedWranglerConfig.assets?.not_found_handling).toBe('single-page-application');
+			expect(parsedWranglerConfig.assets?.run_worker_first).toEqual(['/api/*']);
 		}
 	});
 });

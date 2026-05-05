@@ -18,7 +18,7 @@ interface WranglerSettingsPanelProperties {
 type RunWorkerFirstMode = 'off' | 'all' | 'patterns';
 
 const NOT_FOUND_HANDLING_OPTIONS: Array<{ value: NotFoundHandling; label: string; description: string }> = [
-	{ value: 'none', label: 'None', description: 'Return 404 for unmatched requests (default)' },
+	{ value: 'none', label: 'None', description: 'Return 404 for unmatched requests' },
 	{
 		value: 'single-page-application',
 		label: 'Single Page Application',
@@ -31,7 +31,7 @@ const HTML_HANDLING_OPTIONS: Array<{ value: HtmlHandling; label: string; descrip
 	{
 		value: 'auto-trailing-slash',
 		label: 'Auto Trailing Slash',
-		description: 'Automatically add or remove trailing slashes (default)',
+		description: 'Automatically add or remove trailing slashes',
 	},
 	{
 		value: 'force-trailing-slash',
@@ -310,7 +310,7 @@ function WranglerSettingsContent({ projectId }: { projectId: string }) {
 								/>
 								<div className="flex flex-col gap-0.5">
 									<span className="text-xs font-medium text-text-primary">Off</span>
-									<span className="text-xs text-text-secondary/70">Serve static assets first (default)</span>
+									<span className="text-xs text-text-secondary/70">Serve static assets first</span>
 								</div>
 							</label>
 							<label

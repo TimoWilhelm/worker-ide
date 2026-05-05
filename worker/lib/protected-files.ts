@@ -1,9 +1,9 @@
 import fs from 'node:fs/promises';
 
 import { stripIndent } from 'common-tags';
-import stripJsonComments from 'strip-json-comments';
 
 import { PROTECTED_SYSTEM_FILES, STORAGE_BINDING_NAME, WORKERS_COMPATIBILITY_DATE } from '@shared/constants';
+import { parseJsonc } from '@shared/jsonc';
 import { resolveAssetSettings } from '@shared/types';
 
 import type { AssetSettings, BindingsConfig } from '@shared/types';
@@ -78,7 +78,7 @@ export async function writeProjectName(projectRoot: string, name: string): Promi
 export async function readAssetSettings(projectRoot: string): Promise<AssetSettings> {
 	try {
 		const raw = await fs.readFile(`${projectRoot}/wrangler.jsonc`, 'utf8');
-		const parsed: { assets?: AssetSettings } = JSON.parse(stripJsonComments(raw));
+		const parsed: { assets?: AssetSettings } = parseJsonc(raw);
 		return parsed.assets ?? {};
 	} catch {
 		return {};
@@ -92,7 +92,7 @@ export async function readAssetSettings(projectRoot: string): Promise<AssetSetti
 export async function readBindingsConfig(projectRoot: string): Promise<BindingsConfig> {
 	try {
 		const raw = await fs.readFile(`${projectRoot}/wrangler.jsonc`, 'utf8');
-		const parsed: { r2_buckets?: Array<{ binding?: string }> } = JSON.parse(stripJsonComments(raw));
+		const parsed: { r2_buckets?: Array<{ binding?: string }> } = parseJsonc(raw);
 
 		const hasStorageBinding = Array.isArray(parsed.r2_buckets) && parsed.r2_buckets.some((b) => b.binding === STORAGE_BINDING_NAME);
 		return hasStorageBinding ? { storage: true } : {};

@@ -2,9 +2,9 @@ import fs from 'node:fs/promises';
 
 import { env } from 'cloudflare:workers';
 import { minimatch } from 'minimatch';
-import stripJsonComments from 'strip-json-comments';
 
 import { HIDDEN_ENTRIES, WORKERS_COMPATIBILITY_DATE } from '@shared/constants';
+import { parseJsonc } from '@shared/jsonc';
 import { ToolExecutionError } from '@shared/tool-errors';
 
 import { listFilesRecursive } from '../tool-executor';
@@ -510,7 +510,7 @@ async function collectProjectFiles(projectRoot: string): Promise<Record<string, 
 async function loadTsconfigRaw(projectRoot: string): Promise<string | undefined> {
 	try {
 		const content = await fs.readFile(`${projectRoot}/tsconfig.json`, 'utf8');
-		const parsed = JSON.parse(stripJsonComments(content));
+		const parsed: { compilerOptions?: unknown } = parseJsonc(content);
 
 		// If the root tsconfig is a solution-style project references file (no compilerOptions),
 		// try loading tsconfig.app.json which has the frontend compiler settings (jsx, etc.)

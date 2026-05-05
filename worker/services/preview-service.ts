@@ -2,9 +2,9 @@ import fs from 'node:fs/promises';
 
 import { source as chobitsuSource, hash as chobitsuHash } from 'chobitsu?raw-minified';
 import { env, exports } from 'cloudflare:workers';
-import stripJsonComments from 'strip-json-comments';
 
 import { HIDDEN_ENTRIES, STORAGE_BINDING_NAME, WORKERS_COMPATIBILITY_DATE } from '@shared/constants';
+import { parseJsonc } from '@shared/jsonc';
 import {
 	isAllowedPreviewExternalModuleUrl,
 	parsePreviewExternalModuleRequest,
@@ -170,7 +170,7 @@ export class PreviewService {
 	async loadAssetSettings(): Promise<ResolvedAssetSettings> {
 		try {
 			const raw = await fs.readFile(`${this.projectRoot}/wrangler.jsonc`, 'utf8');
-			const wrangler: { assets?: Record<string, unknown> } = JSON.parse(stripJsonComments(raw));
+			const wrangler: { assets?: Record<string, unknown> } = parseJsonc(raw);
 			return resolveAssetSettings(wrangler.assets);
 		} catch {
 			return resolveAssetSettings();
@@ -683,7 +683,7 @@ export class PreviewService {
 			return undefined;
 		}
 
-		// "auto-trailing-slash" (default)
+		// "auto-trailing-slash"
 		if (!hasTrailingSlash && pathname !== '/') {
 			try {
 				await fs.access(`${this.projectRoot}${pathname}/index.html`);
@@ -720,12 +720,13 @@ export class PreviewService {
 	private async loadTsconfigRaw(): Promise<string | undefined> {
 		try {
 			const content = await fs.readFile(`${this.projectRoot}/tsconfig.json`, 'utf8');
-			const tsConfig = JSON.parse(stripJsonComments(content));
+			const tsConfig: NonNullable<Parameters<typeof toEsbuildTsconfigRaw>[0]> = parseJsonc(content);
 
 			if (!tsConfig.compilerOptions) {
 				try {
 					const appContent = await fs.readFile(`${this.projectRoot}/tsconfig.app.json`, 'utf8');
-					return toEsbuildTsconfigRaw(JSON.parse(stripJsonComments(appContent)));
+					const appTsConfig: NonNullable<Parameters<typeof toEsbuildTsconfigRaw>[0]> = parseJsonc(appContent);
+					return toEsbuildTsconfigRaw(appTsConfig);
 				} catch {
 					return undefined;
 				}

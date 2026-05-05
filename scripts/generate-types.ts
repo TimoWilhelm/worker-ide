@@ -1,7 +1,7 @@
 import { execSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 
-import stripJsonComments from 'strip-json-comments';
+import { parseJsonc } from '../shared/jsonc';
 
 interface AuxiliaryWorkerConfig {
 	name: string;
@@ -12,8 +12,7 @@ interface AuxiliaryWorkerConfig {
 
 function getDeclaredStringEnvironmentKeys(configPath: string): Set<string> {
 	const rawConfig = readFileSync(configPath, 'utf8');
-	const normalizedConfig = stripJsonComments(rawConfig).replaceAll(/,\s*([}\]])/g, '$1');
-	const parsedConfig: unknown = JSON.parse(normalizedConfig);
+	const parsedConfig: unknown = parseJsonc(rawConfig);
 
 	if (typeof parsedConfig !== 'object' || parsedConfig === null) {
 		return new Set();

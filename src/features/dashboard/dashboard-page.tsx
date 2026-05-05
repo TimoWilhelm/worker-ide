@@ -545,7 +545,7 @@ export default function DashboardPage({ organizationId, organizations, isCreateO
 					animate={{ opacity: 1, y: 0 }}
 					transition={springGentle}
 				>
-					<motion.div layoutId="app-logo-hexagon" className="flex items-center justify-center">
+					<motion.div className="flex items-center justify-center">
 						<Hexagon className="size-8 text-accent" strokeWidth={1.5} />
 					</motion.div>
 					<h1
