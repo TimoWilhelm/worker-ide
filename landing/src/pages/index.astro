@@ -4,13 +4,11 @@ import Features from '../components/features.astro';
 import Footer from '../components/footer.astro';
 import Header from '../components/header.astro';
 import Hero from '../components/hero.astro';
+import { landingPagePresets } from '../lib/site-metadata';
 import BaseLayout from '../layouts/base-layout.astro';
 ---
 
-<BaseLayout
-	title="Codemaxxing — Agentic Cloud IDE"
-	description="A browser-based cloud IDE with AI agents and instant previews. Code, build, and deploy from anywhere."
->
+<BaseLayout metadata={landingPagePresets.home}>
 	<Header />
 	<main>
 		<Hero />

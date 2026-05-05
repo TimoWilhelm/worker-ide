@@ -1,6 +1,7 @@
 ---
 import FlowDiagram from '../../components/docs/flow-diagram.astro';
 import { docsTopics, getTopicBySlug } from '../../data/docs-content';
+import { createDocsTopicPageMetadata } from '../../lib/site-metadata';
 import DocsLayout from '../../layouts/docs-layout.astro';
 
 export function getStaticPaths() {
@@ -25,9 +26,14 @@ const topicIndex = docsTopics.findIndex((item) => item.slug === topic.slug);
 const previousTopic = topicIndex > 0 ? docsTopics[topicIndex - 1] : undefined;
 const nextTopic = topicIndex < docsTopics.length - 1 ? docsTopics[topicIndex + 1] : undefined;
 const accentVariable = `--docs-${topic.accent}`;
+const metadata = createDocsTopicPageMetadata({
+	description: `${topic.description} ${topic.laneDescription}`,
+	slug: topic.slug,
+	title: topic.title,
+});
 ---
 
-<DocsLayout title={topic.title} description={topic.description} currentSlug={topic.slug}>
+<DocsLayout metadata={metadata} currentSlug={topic.slug}>
 	<article class="docs-topic-page" style={`--docs-accent: var(${accentVariable});`}>
 		<a href="/docs" class="docs-back-link">{'<-'} Architecture overview</a>
 		<header class="docs-topic-header">

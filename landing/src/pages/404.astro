@@ -1,8 +1,9 @@
 ---
+import { landingPagePresets } from '../lib/site-metadata';
 import BaseLayout from '../layouts/base-layout.astro';
 ---
 
-<BaseLayout title="Page Not Found — Codemaxxing" description="The page you are looking for does not exist.">
+<BaseLayout metadata={landingPagePresets.notFound}>
 	<div class="relative flex min-h-screen flex-col items-center justify-center px-6 text-center">
 		<!-- Background glow -->
 		<div

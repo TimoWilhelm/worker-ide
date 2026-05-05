@@ -2,18 +2,18 @@
 import Footer from '../components/footer.astro';
 import Header from '../components/header.astro';
 import { docsTopics } from '../data/docs-content';
+import type { LandingPageMetadataInput } from '../lib/site-metadata';
 import BaseLayout from './base-layout.astro';
 
 interface Props {
-	title: string;
-	description: string;
 	currentSlug?: string;
+	metadata: LandingPageMetadataInput;
 }
 
-const { title, description, currentSlug } = Astro.props;
+const { currentSlug, metadata } = Astro.props;
 ---
 
-<BaseLayout title={`${title} - Codemaxxing Architecture`} description={description}>
+<BaseLayout metadata={metadata}>
 	<Header />
 	<main class="docs-shell">
 		<div class="docs-atmosphere" aria-hidden="true">

@@ -1,9 +1,10 @@
 ---
 import { docsTopics } from '../../data/docs-content';
+import { landingPagePresets } from '../../lib/site-metadata';
 import DocsLayout from '../../layouts/docs-layout.astro';
 ---
 
-<DocsLayout title="Architecture" description="Codemaxxing runtime, realtime, AI, and workflow systems.">
+<DocsLayout metadata={landingPagePresets.docsOverview}>
 	<section class="docs-hero">
 		<p class="docs-kicker">Architecture</p>
 		<h1>Codemaxxing architecture</h1>

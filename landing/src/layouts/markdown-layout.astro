@@ -19,12 +19,17 @@ const lastUpdatedFormatted = frontmatter.lastUpdated
 			day: 'numeric',
 		})
 	: undefined;
+const metadata = {
+	description: frontmatter.description,
+	openGraphType: 'article' as const,
+	title: `${frontmatter.title} — Codemaxxing`,
+};
 ---
 
-<BaseLayout title={`${frontmatter.title} — Codemaxxing`} description={frontmatter.description}>
+<BaseLayout metadata={metadata}>
 	<Header />
 	<main class="mx-auto max-w-3xl px-6 pt-28 pb-16">
-		<article class="prose">
+		<article class="prose" data-nosnippet>
 			<h1>{frontmatter.title}</h1>
 			{lastUpdatedFormatted && <p class="text-sm text-gray-500">Last Updated: {lastUpdatedFormatted}</p>}
 			<slot />

@@ -78,7 +78,7 @@ const highlightedCode = highlight(code);
 
 		<!-- Subtitle -->
 		<p class="mx-auto mt-7 max-w-2xl text-center text-lg leading-relaxed text-text-secondary animate-reveal-4 sm:text-xl">
-			A browser-based cloud IDE with AI agents and instant previews.
+			Browser-based cloud IDE with AI agents and instant previews.
 		</p>
 
 		<!-- CTA buttons -->
@@ -116,7 +116,8 @@ const highlightedCode = highlight(code);
 					</div>
 
 					<!-- Code area (sugar-high, rendered at build time) -->
-					<pre class="overflow-x-auto whitespace-pre p-6 text-left font-mono text-sm leading-relaxed"><code set:html={highlightedCode} /></pre>
+					<pre
+						class="overflow-x-auto whitespace-pre p-6 text-left font-mono text-sm leading-relaxed"><code set:html={highlightedCode} /></pre>
 				</div>
 			</div>
 		</div>

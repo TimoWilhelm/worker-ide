@@ -10,9 +10,10 @@ import react from '@vitejs/plugin-react';
 import { defineConfig, transformWithEsbuild } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
+import { appMetadata } from './shared/app-metadata';
 import { DEFAULT_EDITOR_FONT, EDITOR_FONT_FAMILIES } from './shared/constants/editor-fonts';
 
-import type { Plugin, ResolvedConfig } from 'vite';
+import type { HtmlTagDescriptor, Plugin, ResolvedConfig } from 'vite';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -160,10 +161,56 @@ function biomeWasmNoopPlugin(): Plugin {
 	};
 }
 
+function createAppHeadTags(): HtmlTagDescriptor[] {
+	const socialImage = appMetadata.socialImage;
+
+	return [
+		{ tag: 'title', children: appMetadata.title, injectTo: 'head' },
+		{ tag: 'link', attrs: { rel: 'canonical', href: appMetadata.canonicalUrl }, injectTo: 'head' },
+		{ tag: 'meta', attrs: { name: 'viewport', content: appMetadata.viewport }, injectTo: 'head' },
+		{ tag: 'meta', attrs: { name: 'description', content: appMetadata.description }, injectTo: 'head' },
+		{ tag: 'meta', attrs: { name: 'robots', content: appMetadata.robots }, injectTo: 'head' },
+		{ tag: 'meta', attrs: { name: 'googlebot', content: appMetadata.googlebot }, injectTo: 'head' },
+		{ tag: 'meta', attrs: { name: 'theme-color', content: appMetadata.themeColor }, injectTo: 'head' },
+		{ tag: 'meta', attrs: { name: 'application-name', content: appMetadata.applicationName }, injectTo: 'head' },
+		{ tag: 'meta', attrs: { name: 'apple-mobile-web-app-title', content: appMetadata.appleMobileWebAppTitle }, injectTo: 'head' },
+		{ tag: 'meta', attrs: { name: 'apple-mobile-web-app-capable', content: 'yes' }, injectTo: 'head' },
+		{ tag: 'meta', attrs: { name: 'mobile-web-app-capable', content: 'yes' }, injectTo: 'head' },
+		{ tag: 'meta', attrs: { name: 'format-detection', content: appMetadata.formatDetection }, injectTo: 'head' },
+		{ tag: 'meta', attrs: { property: 'og:type', content: 'website' }, injectTo: 'head' },
+		{ tag: 'meta', attrs: { property: 'og:url', content: appMetadata.canonicalUrl }, injectTo: 'head' },
+		{ tag: 'meta', attrs: { property: 'og:title', content: appMetadata.socialTitle }, injectTo: 'head' },
+		{ tag: 'meta', attrs: { property: 'og:description', content: appMetadata.socialDescription }, injectTo: 'head' },
+		{ tag: 'meta', attrs: { property: 'og:image', content: socialImage.absoluteUrl }, injectTo: 'head' },
+		{ tag: 'meta', attrs: { property: 'og:image:secure_url', content: socialImage.absoluteUrl }, injectTo: 'head' },
+		{ tag: 'meta', attrs: { property: 'og:image:type', content: socialImage.type }, injectTo: 'head' },
+		{ tag: 'meta', attrs: { property: 'og:image:width', content: String(socialImage.width) }, injectTo: 'head' },
+		{ tag: 'meta', attrs: { property: 'og:image:height', content: String(socialImage.height) }, injectTo: 'head' },
+		{ tag: 'meta', attrs: { property: 'og:image:alt', content: socialImage.alt }, injectTo: 'head' },
+		{ tag: 'meta', attrs: { property: 'og:site_name', content: appMetadata.productName }, injectTo: 'head' },
+		{ tag: 'meta', attrs: { property: 'og:locale', content: appMetadata.locale }, injectTo: 'head' },
+		{ tag: 'meta', attrs: { name: 'twitter:card', content: appMetadata.twitterCard }, injectTo: 'head' },
+		{ tag: 'meta', attrs: { name: 'twitter:title', content: appMetadata.socialTitle }, injectTo: 'head' },
+		{ tag: 'meta', attrs: { name: 'twitter:description', content: appMetadata.socialDescription }, injectTo: 'head' },
+		{ tag: 'meta', attrs: { name: 'twitter:image', content: socialImage.absoluteUrl }, injectTo: 'head' },
+		{ tag: 'meta', attrs: { name: 'twitter:image:alt', content: socialImage.alt }, injectTo: 'head' },
+	];
+}
+
+function appMetadataPlugin(): Plugin {
+	return {
+		name: 'app-metadata',
+		transformIndexHtml() {
+			return createAppHeadTags();
+		},
+	};
+}
+
 export default defineConfig({
 	plugins: [
 		rawMinifiedPlugin(),
 		foucPreventionPlugin(),
+		appMetadataPlugin(),
 		biomeWasmNoopPlugin(),
 		tailwindcss(),
 		react(),
@@ -179,27 +226,7 @@ export default defineConfig({
 		}),
 		VitePWA({
 			registerType: 'prompt',
-			manifest: {
-				id: '7c3a8f1e-9d4b-4e2a-b6f5-1a2d3c4e5f6a',
-				name: 'Codemaxxing',
-				short_name: 'Codemaxxing',
-				description: 'Cloud IDE with AI agent, and instant preview. Code, build, and deploy from anywhere.',
-				orientation: 'natural',
-				start_url: '/',
-				scope: '/',
-				display: 'standalone',
-				display_override: ['window-controls-overlay'],
-				background_color: '#ffffff',
-				theme_color: '#f14602',
-				icons: [
-					{
-						src: '/favicon.svg',
-						sizes: 'any',
-						type: 'image/svg+xml',
-						purpose: 'any',
-					},
-				],
-			},
+			manifest: appMetadata.manifest,
 			workbox: {
 				navigateFallback: '/index.html',
 				navigateFallbackDenylist: [/^\/api\//, /^\/p\//, /^\/docs/],

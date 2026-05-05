@@ -1,42 +1,17 @@
 ---
 import '../styles/global.css';
-import type { Graph, WebApplication, WebSite } from 'schema-dts';
+import { landingSiteUrl, resolveLandingPageMetadata } from '../lib/site-metadata';
 
 interface Props {
-	title: string;
-	description: string;
-	canonicalUrl?: string;
-	ogImage?: string;
+	metadata: import('../lib/site-metadata').LandingPageMetadataInput;
 }
 
-const { title, description, canonicalUrl = Astro.url.href, ogImage = new URL('/og-image.png', Astro.site).href } = Astro.props;
-
-const siteName = 'Codemaxxing';
-const appUrl = 'https://codemaxxing.app';
-const siteUrl = new URL('/', Astro.site).href;
-
-const websiteSchema: WebSite = {
-	'@type': 'WebSite',
-	'@id': `${siteUrl}#website`,
-	name: siteName,
-	url: siteUrl,
-	description,
-};
-
-const webApplicationSchema: WebApplication = {
-	'@type': 'WebApplication',
-	'@id': `${appUrl}/#webapplication`,
-	name: siteName,
-	url: appUrl,
-	description,
-	applicationCategory: 'DeveloperApplication',
-	operatingSystem: 'Any',
-};
-
-const structuredData: Graph = {
-	'@context': 'https://schema.org',
-	'@graph': [websiteSchema, webApplicationSchema],
-};
+const { metadata } = Astro.props;
+const resolvedMetadata = resolveLandingPageMetadata({
+	currentUrl: Astro.url,
+	metadata,
+	siteOrigin: Astro.site?.href ?? landingSiteUrl,
+});
 ---
 
 <!doctype html>
@@ -46,9 +21,15 @@ const structuredData: Graph = {
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
 
 		<!-- Primary SEO -->
-		<title>{title}</title>
-		<meta name="description" content={description} />
-		<link rel="canonical" href={canonicalUrl} />
+		<title>{resolvedMetadata.title}</title>
+		<meta name="description" content={resolvedMetadata.description} />
+		<link rel="canonical" href={resolvedMetadata.canonicalUrl} />
+		<meta name="robots" content={resolvedMetadata.robots} />
+		<meta name="googlebot" content={resolvedMetadata.googlebot} />
+		<meta name="theme-color" content={resolvedMetadata.themeColor} />
+		<meta name="application-name" content={resolvedMetadata.applicationName} />
+		<meta name="format-detection" content={resolvedMetadata.formatDetection} />
+		{resolvedMetadata.googleSiteVerification && <meta name="google-site-verification" content={resolvedMetadata.googleSiteVerification} />}
 
 		<!-- Favicon -->
 		<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
@@ -57,18 +38,25 @@ const structuredData: Graph = {
 		<link rel="sitemap" href="/sitemap-index.xml" />
 
 		<!-- Open Graph -->
-		<meta property="og:type" content="website" />
-		<meta property="og:url" content={canonicalUrl} />
-		<meta property="og:title" content={title} />
-		<meta property="og:description" content={description} />
-		<meta property="og:image" content={ogImage} />
-		<meta property="og:site_name" content={siteName} />
+		<meta property="og:type" content={resolvedMetadata.openGraphType} />
+		<meta property="og:url" content={resolvedMetadata.canonicalUrl} />
+		<meta property="og:title" content={resolvedMetadata.title} />
+		<meta property="og:description" content={resolvedMetadata.description} />
+		<meta property="og:image" content={resolvedMetadata.openGraphImage.absoluteUrl} />
+		<meta property="og:image:secure_url" content={resolvedMetadata.openGraphImage.absoluteUrl} />
+		<meta property="og:image:type" content={resolvedMetadata.openGraphImage.type} />
+		<meta property="og:image:width" content={String(resolvedMetadata.openGraphImage.width)} />
+		<meta property="og:image:height" content={String(resolvedMetadata.openGraphImage.height)} />
+		<meta property="og:image:alt" content={resolvedMetadata.openGraphImage.alt} />
+		<meta property="og:site_name" content={resolvedMetadata.applicationName} />
+		<meta property="og:locale" content={resolvedMetadata.locale} />
 
 		<!-- Twitter Card -->
-		<meta name="twitter:card" content="summary_large_image" />
-		<meta name="twitter:title" content={title} />
-		<meta name="twitter:description" content={description} />
-		<meta name="twitter:image" content={ogImage} />
+		<meta name="twitter:card" content={resolvedMetadata.twitterCard} />
+		<meta name="twitter:title" content={resolvedMetadata.title} />
+		<meta name="twitter:description" content={resolvedMetadata.description} />
+		<meta name="twitter:image" content={resolvedMetadata.openGraphImage.absoluteUrl} />
+		<meta name="twitter:image:alt" content={resolvedMetadata.openGraphImage.alt} />
 
 		<!-- Fonts -->
 		<link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -79,7 +67,7 @@ const structuredData: Graph = {
 		/>
 
 		<!-- JSON-LD structured data -->
-		<script is:inline type="application/ld+json" set:html={JSON.stringify(structuredData)} />
+		<script is:inline type="application/ld+json" set:html={JSON.stringify(resolvedMetadata.structuredData)} />
 	</head>
 	<body class="min-h-screen overflow-x-hidden bg-bg-primary text-text-primary">
 		<slot />
