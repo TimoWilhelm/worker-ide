@@ -231,6 +231,24 @@ export default defineConfig({
 				navigateFallback: '/index.html',
 				navigateFallbackDenylist: [/^\/api\//, /^\/p\//, /^\/docs/],
 				globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+				runtimeCaching: [
+					{
+						urlPattern: ({ sameOrigin, url }) =>
+							sameOrigin &&
+							!url.pathname.startsWith('/api/') &&
+							!url.pathname.startsWith('/p/') &&
+							!url.pathname.startsWith('/docs') &&
+							!/\.[^/]+$/.test(url.pathname),
+						handler: 'NetworkFirst',
+						options: {
+							cacheName: 'app-shell',
+							networkTimeoutSeconds: 3,
+							cacheableResponse: {
+								statuses: [200],
+							},
+						},
+					},
+				],
 				importScripts: ['/push-sw.js'],
 			},
 			devOptions: {

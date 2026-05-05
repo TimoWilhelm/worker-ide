@@ -1,7 +1,8 @@
-import { useEffect, useRef } from 'react';
-import { useRegisterSW } from 'virtual:pwa-register/react';
+import { useCallback, useEffect, useRef } from 'react';
 
 import { toast } from '@/components/ui/toast-store';
+import { useRegisterSW } from '@/lib/pwa-register';
+import { recoverFromStaleAsset } from '@/lib/stale-asset-recovery';
 
 // Grace period to distinguish "new SW was already waiting on page load"
 // from "update arrived mid-session".
@@ -10,6 +11,23 @@ const INITIAL_LOAD_GRACE_PERIOD_MS = 2000;
 export function usePwaUpdate() {
 	const updateIntervalReference = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
 	const isInitialLoadReference = useRef(true);
+	const isAwaitingActivationReloadReference = useRef(false);
+
+	useEffect(() => {
+		function handleControllerChange() {
+			if (!isAwaitingActivationReloadReference.current) {
+				return;
+			}
+
+			isAwaitingActivationReloadReference.current = false;
+			recoverFromStaleAsset();
+		}
+
+		navigator.serviceWorker?.addEventListener('controllerchange', handleControllerChange);
+		return () => {
+			navigator.serviceWorker?.removeEventListener('controllerchange', handleControllerChange);
+		};
+	}, []);
 
 	const {
 		needRefresh: [needRefresh],
@@ -17,24 +35,36 @@ export function usePwaUpdate() {
 	} = useRegisterSW({
 		onRegisteredSW(_swUrl, registration) {
 			if (registration) {
+				void registration.update();
 				const intervalMs = 5 * 60 * 1000;
 				updateIntervalReference.current = setInterval(async () => {
 					if (!(!registration.installing && navigator)) return;
 
 					if ('connection' in navigator && !navigator.onLine) return;
 
-					const response = await fetch(_swUrl, {
-						cache: 'no-store',
-						headers: { cache: 'no-store' },
-					});
+					try {
+						const response = await fetch(_swUrl, {
+							cache: 'no-store',
+							headers: { cache: 'no-store' },
+						});
 
-					if (response.ok) {
+						if (!response.ok) {
+							return;
+						}
+
 						await registration.update();
+					} catch {
+						return;
 					}
 				}, intervalMs);
 			}
 		},
 	});
+
+	const activateUpdate = useCallback(() => {
+		isAwaitingActivationReloadReference.current = true;
+		void updateServiceWorker(true);
+	}, [updateServiceWorker]);
 
 	useEffect(() => {
 		const timeout = setTimeout(() => {
@@ -54,7 +84,7 @@ export function usePwaUpdate() {
 
 		// Non-disruptive: silently activate during initial load
 		if (isInitialLoadReference.current) {
-			void updateServiceWorker(true);
+			activateUpdate();
 			return;
 		}
 
@@ -62,8 +92,8 @@ export function usePwaUpdate() {
 			persist: true,
 			action: {
 				label: 'Reload',
-				onClick: () => updateServiceWorker(true),
+				onClick: activateUpdate,
 			},
 		});
-	}, [needRefresh, updateServiceWorker]);
+	}, [activateUpdate, needRefresh]);
 }

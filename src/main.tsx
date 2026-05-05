@@ -3,18 +3,11 @@ import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router';
 
 import { App } from './app';
+import { installStaleAssetRecovery } from './lib/stale-asset-recovery';
 
 import './index.css';
 
-// Safety net: reload once if a lazy-loaded chunk fails after a new deployment
-globalThis.addEventListener('vite:preloadError', (event) => {
-	event.preventDefault();
-	const key = 'stale-asset-reload';
-	const last = sessionStorage.getItem(key);
-	if (last && Date.now() - Number(last) < 10_000) return;
-	sessionStorage.setItem(key, String(Date.now()));
-	globalThis.location.reload();
-});
+installStaleAssetRecovery();
 
 // WORKAROUND(react-resizable-panels): pointermove on iframes re-triggers
 // separator hover via expanded hit regions. preventDefault skips the handler.

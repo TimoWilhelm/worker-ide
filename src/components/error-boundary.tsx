@@ -1,5 +1,7 @@
 import { Component, type ComponentType, type ReactNode } from 'react';
 
+import { isDynamicImportFailure, recoverFromStaleAsset } from '@/lib/stale-asset-recovery';
+
 interface FallbackProperties {
 	error: Error;
 	resetErrorBoundary: () => void;
@@ -14,6 +16,7 @@ interface ErrorBoundaryState {
 	hasError: boolean;
 	error: Error | undefined;
 }
+
 export class ErrorBoundary extends Component<ErrorBoundaryProperties, ErrorBoundaryState> {
 	constructor(properties: ErrorBoundaryProperties) {
 		super(properties);
@@ -25,6 +28,10 @@ export class ErrorBoundary extends Component<ErrorBoundaryProperties, ErrorBound
 	}
 
 	componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+		if (isDynamicImportFailure(error)) {
+			recoverFromStaleAsset();
+		}
+
 		console.error('ErrorBoundary caught error:', error, errorInfo);
 	}
 

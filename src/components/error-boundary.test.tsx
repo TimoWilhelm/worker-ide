@@ -1,6 +1,15 @@
 import { render, screen, fireEvent } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+const { recoverFromStaleAssetMock } = vi.hoisted(() => ({
+	recoverFromStaleAssetMock: vi.fn(),
+}));
+
+vi.mock('@/lib/stale-asset-recovery', () => ({
+	isDynamicImportFailure: (error: unknown) => error instanceof Error && error.message === 'Failed to fetch dynamically imported module',
+	recoverFromStaleAsset: recoverFromStaleAssetMock,
+}));
+
 import { ErrorBoundary } from './error-boundary';
 
 // Suppress console.error from ErrorBoundary during tests
@@ -8,11 +17,12 @@ const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
 afterEach(() => {
 	consoleSpy.mockClear();
+	recoverFromStaleAssetMock.mockClear();
 });
 
-function ThrowingComponent({ shouldThrow }: { shouldThrow: boolean }) {
+function ThrowingComponent({ message = 'Test error', shouldThrow }: { message?: string; shouldThrow: boolean }) {
 	if (shouldThrow) {
-		throw new Error('Test error');
+		throw new Error(message);
 	}
 	return <div>Content renders fine</div>;
 }
@@ -45,6 +55,17 @@ describe('ErrorBoundary', () => {
 		);
 
 		expect(screen.getByText('Error caught: Test error')).toBeInTheDocument();
+	});
+
+	it('triggers stale asset recovery for dynamic import failures', () => {
+		render(
+			<ErrorBoundary fallback={TestFallback}>
+				<ThrowingComponent shouldThrow={true} message="Failed to fetch dynamically imported module" />
+			</ErrorBoundary>,
+		);
+
+		expect(recoverFromStaleAssetMock).toHaveBeenCalledTimes(1);
+		expect(screen.getByText('Error caught: Failed to fetch dynamically imported module')).toBeInTheDocument();
 	});
 
 	it('resets error state when reset button is clicked', () => {
