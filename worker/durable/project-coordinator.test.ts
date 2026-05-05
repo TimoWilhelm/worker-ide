@@ -1,7 +1,10 @@
 import { env } from 'cloudflare:test';
 import { describe, expect, it } from 'vitest';
 
+import { parseServerMessage, serializeMessage } from '@shared/ws-messages';
+
 import type { ProjectCoordinatorV2 } from './project-coordinator';
+import type { ServerMessage } from '@shared/ws-messages';
 
 /**
  * Get a fresh ProjectCoordinatorV2 stub for testing.
@@ -10,6 +13,95 @@ import type { ProjectCoordinatorV2 } from './project-coordinator';
 function getCoordinatorStub(name: string): DurableObjectStub<ProjectCoordinatorV2> {
 	const namespace = env.ProjectCoordinatorV2 as DurableObjectNamespace<ProjectCoordinatorV2>;
 	return namespace.getByName(name);
+}
+
+async function connectIdeSocket(
+	stub: DurableObjectStub<ProjectCoordinatorV2>,
+	name: string,
+	collaborationVisible: boolean,
+): Promise<WebSocket> {
+	const response = await stub.fetch(
+		new Request(`https://example.test/ws?name=${name}`, {
+			headers: {
+				Upgrade: 'websocket',
+				'x-project-id': name,
+				'x-worker-ide-client-kind': 'ide',
+				'x-worker-ide-collaboration-visible': collaborationVisible ? 'true' : 'false',
+			},
+		}),
+	);
+	const socket = response.webSocket;
+	if (!socket) {
+		throw new Error('Expected WebSocket upgrade response');
+	}
+	socket.accept();
+	return socket;
+}
+
+function readNextMessage(socket: WebSocket, timeoutMs = 1000): Promise<ServerMessage> {
+	return new Promise((resolve, reject) => {
+		const timeout = setTimeout(() => {
+			socket.removeEventListener('message', handleMessage);
+			reject(new Error(`Timed out waiting for WebSocket message after ${timeoutMs}ms`));
+		}, timeoutMs);
+
+		function handleMessage(event: MessageEvent) {
+			clearTimeout(timeout);
+			socket.removeEventListener('message', handleMessage);
+			if (typeof event.data !== 'string') {
+				reject(new Error('Expected string WebSocket message payload'));
+				return;
+			}
+			const parsed = parseServerMessage(event.data);
+			if (!parsed.success) {
+				reject(new Error(parsed.error));
+				return;
+			}
+			resolve(parsed.data);
+		}
+
+		socket.addEventListener('message', handleMessage);
+	});
+}
+
+async function expectNoMessage(socket: WebSocket, timeoutMs = 75): Promise<void> {
+	await expect(
+		new Promise<ServerMessage>((resolve, reject) => {
+			const timeout = setTimeout(() => {
+				socket.removeEventListener('message', handleMessage);
+				resolve({ type: 'pong' });
+			}, timeoutMs);
+
+			function handleMessage(event: MessageEvent) {
+				clearTimeout(timeout);
+				socket.removeEventListener('message', handleMessage);
+				if (typeof event.data !== 'string') {
+					reject(new Error('Expected string WebSocket message payload'));
+					return;
+				}
+				const parsed = parseServerMessage(event.data);
+				if (!parsed.success) {
+					reject(new Error(parsed.error));
+					return;
+				}
+				reject(new Error(`Unexpected WebSocket message: ${parsed.data.type}`));
+			}
+
+			socket.addEventListener('message', handleMessage);
+		}),
+	).resolves.toEqual({ type: 'pong' });
+}
+
+function sendClientMessage(socket: WebSocket, message: string): void {
+	socket.send(message);
+}
+
+function closeSocket(socket: WebSocket): void {
+	try {
+		socket.close(1000, 'test complete');
+	} catch {
+		// ignore
+	}
 }
 
 describe('getOutputLogs', () => {
@@ -175,5 +267,119 @@ describe('instance consistency', () => {
 		// Should not throw or corrupt state
 		const logs = await stub.getOutputLogs();
 		expect(logs).toBe('');
+	});
+});
+
+describe('collaboration visibility', () => {
+	it('hides excluded sockets from participant state and presence broadcasts in both directions', async () => {
+		const stub = getCoordinatorStub('test-hidden-collaboration-presence');
+		const visibleSocket = await connectIdeSocket(stub, 'visible-user', true);
+		const hiddenSocket = await connectIdeSocket(stub, 'hidden-user', false);
+		const secondVisibleSocket = await connectIdeSocket(stub, 'visible-user-2', true);
+
+		try {
+			sendClientMessage(visibleSocket, serializeMessage({ type: 'collab-join' }));
+			const visibleState = await readNextMessage(visibleSocket);
+			expect(visibleState.type).toBe('collab-state');
+			if (visibleState.type === 'collab-state') {
+				expect(visibleState.participants).toEqual([]);
+			}
+
+			sendClientMessage(hiddenSocket, serializeMessage({ type: 'collab-join' }));
+			const hiddenState = await readNextMessage(hiddenSocket);
+			expect(hiddenState.type).toBe('collab-state');
+			if (hiddenState.type === 'collab-state') {
+				expect(hiddenState.participants).toEqual([]);
+			}
+			await expectNoMessage(visibleSocket);
+
+			sendClientMessage(secondVisibleSocket, serializeMessage({ type: 'collab-join' }));
+			const secondVisibleState = await readNextMessage(secondVisibleSocket);
+			expect(secondVisibleState.type).toBe('collab-state');
+			if (secondVisibleState.type === 'collab-state') {
+				expect(secondVisibleState.participants).toHaveLength(1);
+				if (visibleState.type === 'collab-state') {
+					expect(secondVisibleState.participants[0]?.id).toBe(visibleState.selfId);
+				}
+			}
+
+			const joinedMessage = await readNextMessage(visibleSocket);
+			expect(joinedMessage.type).toBe('participant-joined');
+			if (joinedMessage.type === 'participant-joined' && secondVisibleState.type === 'collab-state') {
+				expect(joinedMessage.participant.id).toBe(secondVisibleState.selfId);
+			}
+			await expectNoMessage(hiddenSocket);
+
+			sendClientMessage(
+				visibleSocket,
+				serializeMessage({
+					type: 'cursor-update',
+					file: '/src/app.ts',
+					cursor: { line: 1, ch: 2 },
+					selection: { anchor: { line: 1, ch: 2 }, head: { line: 1, ch: 4 } },
+				}),
+			);
+			const visibleCursorUpdate = await readNextMessage(secondVisibleSocket);
+			expect(visibleCursorUpdate.type).toBe('cursor-updated');
+			await expectNoMessage(hiddenSocket);
+
+			sendClientMessage(
+				hiddenSocket,
+				serializeMessage({
+					type: 'cursor-update',
+					file: '/src/hidden.ts',
+					cursor: { line: 4, ch: 1 },
+					selection: { anchor: { line: 4, ch: 1 }, head: { line: 4, ch: 3 } },
+				}),
+			);
+			await expectNoMessage(visibleSocket);
+			await expectNoMessage(secondVisibleSocket);
+
+			closeSocket(secondVisibleSocket);
+			const leftMessage = await readNextMessage(visibleSocket);
+			expect(leftMessage.type).toBe('participant-left');
+			await expectNoMessage(hiddenSocket);
+
+			closeSocket(hiddenSocket);
+			await expectNoMessage(visibleSocket);
+		} finally {
+			closeSocket(visibleSocket);
+			closeSocket(hiddenSocket);
+			closeSocket(secondVisibleSocket);
+		}
+	});
+
+	it('still delivers file edit messages to hidden sockets', async () => {
+		const stub = getCoordinatorStub('test-hidden-collaboration-file-edits');
+		const visibleSocket = await connectIdeSocket(stub, 'visible-file-user', true);
+		const hiddenSocket = await connectIdeSocket(stub, 'hidden-file-user', false);
+
+		try {
+			sendClientMessage(visibleSocket, serializeMessage({ type: 'collab-join' }));
+			await readNextMessage(visibleSocket);
+
+			sendClientMessage(hiddenSocket, serializeMessage({ type: 'collab-join' }));
+			await readNextMessage(hiddenSocket);
+			await expectNoMessage(visibleSocket);
+
+			sendClientMessage(visibleSocket, serializeMessage({ type: 'file-edit', path: '/src/demo.ts', content: 'export const value = 1;' }));
+			const editForHiddenSocket = await readNextMessage(hiddenSocket);
+			expect(editForHiddenSocket.type).toBe('file-edited');
+			if (editForHiddenSocket.type === 'file-edited') {
+				expect(editForHiddenSocket.path).toBe('/src/demo.ts');
+				expect(editForHiddenSocket.content).toBe('export const value = 1;');
+			}
+
+			sendClientMessage(hiddenSocket, serializeMessage({ type: 'file-edit', path: '/src/demo.ts', content: 'export const value = 2;' }));
+			const editForVisibleSocket = await readNextMessage(visibleSocket);
+			expect(editForVisibleSocket.type).toBe('file-edited');
+			if (editForVisibleSocket.type === 'file-edited') {
+				expect(editForVisibleSocket.path).toBe('/src/demo.ts');
+				expect(editForVisibleSocket.content).toBe('export const value = 2;');
+			}
+		} finally {
+			closeSocket(visibleSocket);
+			closeSocket(hiddenSocket);
+		}
 	});
 });

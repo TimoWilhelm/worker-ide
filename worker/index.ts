@@ -1539,12 +1539,14 @@ app.all('/p/:projectId/*', async (c) => {
 			if (!hasValidWebSocketOrigin(c.req.raw, appOrigin)) {
 				return new Response('Forbidden', { status: 403 });
 			}
+			const { collaborationVisible } = c.get('session');
 			const coordinatorStub = coordinatorNamespace.getByName(`project:${projectId}`);
 			const wsUrl = new URL(c.req.url);
 			wsUrl.pathname = '/ws';
 			const wsRequest = new Request(wsUrl, c.req.raw);
 			wsRequest.headers.set('x-project-id', projectId);
 			wsRequest.headers.set('x-worker-ide-client-kind', 'ide');
+			wsRequest.headers.set('x-worker-ide-collaboration-visible', collaborationVisible ? 'true' : 'false');
 			return coordinatorStub.fetch(wsRequest);
 		}
 

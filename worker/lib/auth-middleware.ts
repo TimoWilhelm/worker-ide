@@ -21,10 +21,13 @@ export const requireAuth = createMiddleware<AuthedEnvironment>(async (context, n
 			return context.json({ error: 'Unauthorized' }, 401);
 		}
 
+		const collaborationVisible = typeof result.session.impersonatedBy !== 'string' || result.session.impersonatedBy.length === 0;
+
 		context.set('session', {
 			id: result.session.id,
 			userId: result.session.userId,
-			updateActivity: !(result.session.impersonatedBy && result.session.impersonatedBy.length > 0),
+			updateActivity: collaborationVisible,
+			collaborationVisible,
 		});
 		await next();
 		return;
@@ -53,10 +56,14 @@ export const requireAuth = createMiddleware<AuthedEnvironment>(async (context, n
 		return context.json({ error: 'Unauthorized' }, 401);
 	}
 
+	const impersonatedBy = 'impersonatedBy' in session.session ? session.session.impersonatedBy : undefined;
+	const collaborationVisible = typeof impersonatedBy !== 'string' || impersonatedBy.length === 0;
+
 	context.set('session', {
 		id: session.session.id,
 		userId: session.user.id,
-		updateActivity: !('impersonatedBy' in session.session && session.session.impersonatedBy),
+		updateActivity: collaborationVisible,
+		collaborationVisible,
 	});
 
 	await next();

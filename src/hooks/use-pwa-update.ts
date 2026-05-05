@@ -59,6 +59,7 @@ export function usePwaUpdate() {
 		}
 
 		toast.info('New version available', {
+			persist: true,
 			action: {
 				label: 'Reload',
 				onClick: () => updateServiceWorker(true),

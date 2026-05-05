@@ -13,6 +13,7 @@ interface ParticipantAttachment {
 	id: string;
 	color: string;
 	kind: ProjectSocketClientKind;
+	collaborationVisible: boolean;
 	file?: string;
 	cursor?: { line: number; ch: number };
 	selection?: { anchor: { line: number; ch: number }; head: { line: number; ch: number } };
@@ -226,12 +227,20 @@ export class ProjectCoordinatorV2 extends DurableObject {
 		return COLLAB_COLORS[currentCount % COLLAB_COLORS.length];
 	}
 
+	private isJoinedIdeAttachment(attachment: ParticipantAttachment | undefined): attachment is ParticipantAttachment {
+		return attachment?.kind === 'ide' && attachment.joined;
+	}
+
+	private isVisibleJoinedIdeAttachment(attachment: ParticipantAttachment | undefined): attachment is ParticipantAttachment {
+		return this.isJoinedIdeAttachment(attachment) && attachment.collaborationVisible;
+	}
+
 	private getAllParticipants(excludeId?: string): Participant[] {
 		const participants: Participant[] = [];
 		for (const ws of this.ctx.getWebSockets()) {
 			if (ws.readyState !== WebSocket.OPEN) continue;
 			const att = this.getAttachment(ws);
-			if (att?.kind === 'ide' && att.joined && att.id !== excludeId) {
+			if (this.isVisibleJoinedIdeAttachment(att) && att.id !== excludeId) {
 				participants.push({
 					id: att.id,
 					color: att.color,
@@ -244,11 +253,28 @@ export class ProjectCoordinatorV2 extends DurableObject {
 		return participants;
 	}
 
-	private sendToOthersJoined(sender: WebSocket, message: string): void {
+	private sendToOtherJoinedIdeSockets(sender: WebSocket, message: string): void {
 		for (const ws of this.ctx.getWebSockets()) {
 			if (ws === sender || ws.readyState !== WebSocket.OPEN) continue;
 			const att = this.getAttachment(ws);
-			if (!att?.joined || att.kind !== 'ide') continue;
+			if (!this.isJoinedIdeAttachment(att)) continue;
+			try {
+				ws.send(message);
+			} catch {
+				try {
+					ws.close(1011, 'send failed');
+				} catch {
+					// Ignore close errors
+				}
+			}
+		}
+	}
+
+	private sendToOtherVisibleParticipants(sender: WebSocket, message: string): void {
+		for (const ws of this.ctx.getWebSockets()) {
+			if (ws === sender || ws.readyState !== WebSocket.OPEN) continue;
+			const att = this.getAttachment(ws);
+			if (!this.isVisibleJoinedIdeAttachment(att)) continue;
 			try {
 				ws.send(message);
 			} catch {
@@ -317,10 +343,12 @@ export class ProjectCoordinatorV2 extends DurableObject {
 
 			const participantId = crypto.randomUUID();
 			const color = this.nextColor();
+			const collaborationVisible = clientKind === 'ide' ? request.headers.get('x-worker-ide-collaboration-visible') !== 'false' : true;
 			const attachment: ParticipantAttachment = {
 				id: participantId,
 				color,
 				kind: clientKind,
+				collaborationVisible,
 				joined: false,
 			};
 
@@ -439,7 +467,7 @@ export class ProjectCoordinatorV2 extends DurableObject {
 					type: 'collab-state',
 					selfId: attachment.id,
 					selfColor: attachment.color,
-					participants: this.getAllParticipants(attachment.id),
+					participants: attachment.collaborationVisible ? this.getAllParticipants(attachment.id) : [],
 				}),
 			);
 		} catch {
@@ -540,19 +568,21 @@ export class ProjectCoordinatorV2 extends DurableObject {
 						// Ignore send errors
 					}
 				}
-				this.sendToOthersJoined(
-					ws,
-					serializeMessage({
-						type: 'participant-joined',
-						participant: {
-							id: att.id,
-							color: att.color,
-							file: att.file,
-							cursor: att.cursor,
-							selection: att.selection,
-						},
-					}),
-				);
+				if (att.collaborationVisible) {
+					this.sendToOtherVisibleParticipants(
+						ws,
+						serializeMessage({
+							type: 'participant-joined',
+							participant: {
+								id: att.id,
+								color: att.color,
+								file: att.file,
+								cursor: att.cursor,
+								selection: att.selection,
+							},
+						}),
+					);
+				}
 				return;
 			}
 
@@ -563,24 +593,26 @@ export class ProjectCoordinatorV2 extends DurableObject {
 				att.cursor = data.cursor;
 				att.selection = data.selection;
 				this.setAttachment(ws, att);
-				this.sendToOthersJoined(
-					ws,
-					serializeMessage({
-						type: 'cursor-updated',
-						id: att.id,
-						color: att.color,
-						file: att.file,
-						cursor: att.cursor,
-						selection: att.selection,
-					}),
-				);
+				if (att.collaborationVisible) {
+					this.sendToOtherVisibleParticipants(
+						ws,
+						serializeMessage({
+							type: 'cursor-updated',
+							id: att.id,
+							color: att.color,
+							file: att.file,
+							cursor: att.cursor,
+							selection: att.selection,
+						}),
+					);
+				}
 				return;
 			}
 
 			if (data.type === 'file-edit') {
 				if (att.kind !== 'ide') return;
 				if (!att?.joined) return;
-				this.sendToOthersJoined(
+				this.sendToOtherJoinedIdeSockets(
 					ws,
 					serializeMessage({
 						type: 'file-edited',
@@ -605,8 +637,8 @@ export class ProjectCoordinatorV2 extends DurableObject {
 
 	webSocketClose(ws: WebSocket, code: number, reason: string): void {
 		const att = this.getAttachment(ws);
-		if (att?.joined) {
-			this.sendToOthersJoined(
+		if (this.isVisibleJoinedIdeAttachment(att)) {
+			this.sendToOtherVisibleParticipants(
 				ws,
 				serializeMessage({
 					type: 'participant-left',
@@ -633,8 +665,8 @@ export class ProjectCoordinatorV2 extends DurableObject {
 
 	webSocketError(ws: WebSocket): void {
 		const att = this.getAttachment(ws);
-		if (att?.joined) {
-			this.sendToOthersJoined(
+		if (this.isVisibleJoinedIdeAttachment(att)) {
+			this.sendToOtherVisibleParticipants(
 				ws,
 				serializeMessage({
 					type: 'participant-left',

@@ -52,7 +52,7 @@ describe('toast store', () => {
 		unsubscribe();
 	});
 
-	it('uses undefined timeout when no title is provided', () => {
+	it('omits timeout when no title is provided', () => {
 		let addedOptions: Record<string, unknown> | undefined;
 		const unsubscribe = toastManager[' subscribe']((event) => {
 			if (event.action === 'add') {
@@ -60,7 +60,7 @@ describe('toast store', () => {
 			}
 		});
 		toast.error('Simple message');
-		expect(addedOptions?.timeout).toBeUndefined();
+		expect(Object.prototype.hasOwnProperty.call(addedOptions ?? {}, 'timeout')).toBe(false);
 		unsubscribe();
 	});
 
@@ -73,6 +73,18 @@ describe('toast store', () => {
 		});
 		toast.error('Custom timing', { duration: 15_000 });
 		expect(addedOptions?.timeout).toBe(15_000);
+		unsubscribe();
+	});
+
+	it('uses timeout 0 for persistent toasts', () => {
+		let addedOptions: Record<string, unknown> | undefined;
+		const unsubscribe = toastManager[' subscribe']((event) => {
+			if (event.action === 'add') {
+				addedOptions = event.options;
+			}
+		});
+		toast.info('Persistent toast', { persist: true });
+		expect(addedOptions?.timeout).toBe(0);
 		unsubscribe();
 	});
 

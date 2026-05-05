@@ -1,8 +1,17 @@
+import stripJsonComments from 'strip-json-comments';
 import { describe, expect, it } from 'vitest';
 
 import { DEFAULT_TEMPLATE_ID, getTemplate, getTemplateMetadata, TEMPLATES } from './templates';
 
 import type { ProjectTemplate, ProjectTemplateMeta } from './templates';
+
+const FRONTEND_WORKER_API_FETCH_PATTERN = /\bfetch\s*\(\s*['"`]\/api\//;
+
+function templateUsesWorkerApi(template: ProjectTemplate): boolean {
+	return Object.entries(template.files).some(
+		([filePath, content]) => filePath.startsWith('src/') && FRONTEND_WORKER_API_FETCH_PATTERN.test(content),
+	);
+}
 
 describe('TEMPLATES', () => {
 	it('contains at least one template', () => {
@@ -49,6 +58,16 @@ describe('TEMPLATES', () => {
 	it('no template includes template.json in its files', () => {
 		for (const template of TEMPLATES) {
 			expect(template.files).not.toHaveProperty('template.json');
+		}
+	});
+
+	it('routes worker API paths first for starter templates that call /api/* from the frontend', () => {
+		for (const template of TEMPLATES.filter((projectTemplate) => templateUsesWorkerApi(projectTemplate))) {
+			const wranglerConfig = template.files['wrangler.jsonc'];
+			expect(wranglerConfig).toBeDefined();
+			const normalizedWranglerConfig = stripJsonComments(wranglerConfig ?? '');
+			expect(normalizedWranglerConfig).toContain('"not_found_handling": "single-page-application"');
+			expect(normalizedWranglerConfig).toContain('"run_worker_first": ["/api/*"]');
 		}
 	});
 });

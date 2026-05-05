@@ -1,6 +1,7 @@
 import type { ProjectFilesystem } from './durable/project-filesystem';
+
 interface AuthVariables {
-	session: { id: string; userId: string; updateActivity: boolean };
+	session: { id: string; userId: string; updateActivity: boolean; collaborationVisible: boolean };
 }
 
 /**
