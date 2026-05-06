@@ -13,6 +13,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { toast } from '@/components/ui/toast-store';
 import { Tooltip, TooltipProvider } from '@/components/ui/tooltip';
 import { VersionBadge } from '@/components/version-badge';
+import { getDashboardGreeting } from '@/features/dashboard/dashboard-greeting';
 import { CreateOrgModal } from '@/features/org/create-org-modal';
 import { PendingInvitationsBanner } from '@/features/org/pending-invitations-banner';
 import { cloneProject, createProject, fetchOrgLimits, fetchOrgProjects, fetchTemplates, fetchUserLimits } from '@/lib/api-client';
@@ -75,42 +76,6 @@ interface DashboardUser {
 	name: string;
 	email: string;
 	image?: string;
-}
-
-function getDashboardGreetingPrefix(currentDate: Date): string {
-	const hour = currentDate.getHours();
-	if (hour < 12) {
-		return 'Good morning';
-	}
-
-	if (hour < 18) {
-		return 'Hello';
-	}
-
-	return 'Hi';
-}
-
-function getDashboardDisplayName(user: DashboardUser | undefined): string {
-	const trimmedName = user?.name.trim();
-	if (trimmedName) {
-		return trimmedName;
-	}
-
-	const emailName = user?.email.split('@')[0]?.trim();
-	if (emailName) {
-		return emailName;
-	}
-
-	return '';
-}
-
-function getDashboardGreeting(user: DashboardUser | undefined): string {
-	const displayName = getDashboardDisplayName(user);
-	if (!displayName) {
-		return getDashboardGreetingPrefix(new Date());
-	}
-
-	return `${getDashboardGreetingPrefix(new Date())} ${displayName}`;
 }
 
 function TemplateCard({
@@ -454,7 +419,14 @@ export default function DashboardPage({ organizationId, organizations, isCreateO
 
 	const isLoading = loadingMessage !== undefined;
 
-	const dashboardGreeting = useMemo(() => getDashboardGreeting(user), [user]);
+	const dashboardGreeting = useMemo(() => {
+		const greetingName = user?.name.trim();
+		if (!greetingName) {
+			return 'Codemaxxing';
+		}
+
+		return getDashboardGreeting(greetingName);
+	}, [user]);
 
 	// Clear loading state when the page is restored from bfcache (browser back/forward)
 	useEffect(() => {
