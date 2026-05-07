@@ -200,7 +200,7 @@ describe('useAiSessions', () => {
 	});
 
 	it('clears stale saved sessions that cannot be restored', async () => {
-		localStorage.setItem('worker-ide-active-session:project-1', 'missing-session');
+		localStorage.setItem('worker-ide-project:project-1', JSON.stringify({ activeSessionId: 'missing-session' }));
 
 		const state: AgentState = {
 			currentSession: undefined,
@@ -227,11 +227,12 @@ describe('useAiSessions', () => {
 			expect(result.current.isRestoringSession).toBe(false);
 		});
 
-		expect(localStorage.getItem('worker-ide-active-session:project-1')).toBeNull();
+		const stored = JSON.parse(localStorage.getItem('worker-ide-project:project-1') ?? '{}');
+		expect(stored.activeSessionId).toBeUndefined();
 	});
 
 	it('syncs a restored current session back into persisted session storage', async () => {
-		localStorage.setItem('worker-ide-active-session:project-1', 'outdated-session');
+		localStorage.setItem('worker-ide-project:project-1', JSON.stringify({ activeSessionId: 'outdated-session' }));
 
 		const state: AgentState = {
 			currentSession: createCurrentSession('session-3'),
@@ -254,7 +255,8 @@ describe('useAiSessions', () => {
 		renderHook(() => useAiSessions({ projectId: 'project-1', agent, agentConnectionState: 'connected' }));
 
 		await waitFor(() => {
-			expect(localStorage.getItem('worker-ide-active-session:project-1')).toBe('session-3');
+			const stored = JSON.parse(localStorage.getItem('worker-ide-project:project-1') ?? '{}');
+			expect(stored.activeSessionId).toBe('session-3');
 		});
 
 		expect(agent.call).not.toHaveBeenCalledWith('loadSession', expect.anything());

@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 
-import { DEFAULT_AI_MODEL } from './constants';
 import {
 	deployAccountIdSchema,
 	deployApiTokenSchema,
@@ -15,7 +14,6 @@ import {
 	validateToolInput,
 	validateDependencyName,
 	validateDependencyVersion,
-	persistedStoreSchema,
 	LIMITS,
 } from './validation';
 
@@ -260,52 +258,6 @@ describe('validateToolInput', () => {
 			todos: [{ id: '1', content: 'Fix bug' }],
 		});
 		expect(result.success).toBe(false);
-	});
-});
-
-describe('persistedStoreSchema', () => {
-	it('accepts the current agent panel visibility key', () => {
-		const result = persistedStoreSchema.safeParse({
-			sidebarVisible: true,
-			utilityPanelVisible: true,
-			agentPanelVisible: true,
-			devtoolsVisible: false,
-			dependenciesPanelVisible: true,
-			colorScheme: 'dark',
-			activeMobilePanel: 'editor',
-			activeSidebarView: 'explorer',
-			expandedDirs: ['/src'],
-			selectedModel: DEFAULT_AI_MODEL,
-		});
-
-		expect(result.success).toBe(true);
-		if (!result.success) {
-			return;
-		}
-
-		expect(result.data.agentPanelVisible).toBe(true);
-	});
-
-	it('rehydrates legacy ai panel visibility into agentPanelVisible', () => {
-		const result = persistedStoreSchema.safeParse({
-			sidebarVisible: true,
-			utilityPanelVisible: true,
-			aiPanelVisible: true,
-			devtoolsVisible: false,
-			dependenciesPanelVisible: true,
-			colorScheme: 'dark',
-			activeMobilePanel: 'editor',
-			activeSidebarView: 'explorer',
-			expandedDirs: ['/src'],
-			selectedModel: DEFAULT_AI_MODEL,
-		});
-
-		expect(result.success).toBe(true);
-		if (!result.success) {
-			return;
-		}
-
-		expect(result.data.agentPanelVisible).toBe(true);
 	});
 });
 

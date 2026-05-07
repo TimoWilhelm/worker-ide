@@ -5,6 +5,8 @@ layout: ../layouts/markdown-layout.astro
 lastUpdated: 2026-03-27
 ---
 
+import { meta } from '../../../shared/meta';
+
 **Your privacy is very important to us. This privacy statement explains the personal data we
 processes, how we processes it, and for what purposes.**
 
@@ -188,7 +190,9 @@ current version of this Privacy Policy.
 
 If you have any questions or comments regarding this Privacy Policy, or if you would like to
 exercise your rights to your Personal Information, you may contact us by emailing us at
-<support@codemaxxing.ai>.
+
+<a href={`mailto:${meta.supportEmail}`}>{meta.supportEmail}</a>.
 
 If you have any thoughts or questions about this Privacy Policy please
-[let us know](mailto:support@codemaxxing.ai).
+
+<a href={`mailto:${meta.supportEmail}`}>let us know</a>.

@@ -1,5 +1,6 @@
 import { WorkflowEntrypoint } from 'cloudflare:workers';
 import { NonRetryableError } from 'cloudflare:workflows';
+import { mount, withMounts } from 'worker-fs-mount';
 
 import { sanitizeR2BucketName } from '@shared/deploy-helpers';
 
@@ -15,6 +16,8 @@ import {
 	uploadWorkerScript,
 } from './deploy-helpers';
 import { trackProjectEvent } from '../lib/analytics';
+import { filesystemNamespace } from '../lib/durable-object-namespaces';
+import { toDurableObjectId } from '../lib/project-id';
 
 import type { DeployResult, DeployWorkflowParameters } from '@shared/deploy-types';
 import type { WorkflowEvent, WorkflowStep, WorkflowStepConfig } from 'cloudflare:workers';
@@ -42,20 +45,33 @@ function toNonRetryableError(error: unknown): Error {
 export class DeployWorkflow extends WorkflowEntrypoint<Env, DeployWorkflowParameters> {
 	async run(event: WorkflowEvent<DeployWorkflowParameters>, step: WorkflowStep): Promise<DeployResult> {
 		const parameters = event.payload;
+		const filesystemId = toDurableObjectId(filesystemNamespace, parameters.projectId);
+		const filesystemStub = filesystemNamespace.get(filesystemId);
 
 		try {
-			const inputs = await step.do('read-project-config', async () => readProjectBuildInputs(parameters.projectRoot));
+			const inputs = await step.do('read-project-config', async () =>
+				withMounts(async () => {
+					mount(parameters.projectRoot, filesystemStub);
+					return readProjectBuildInputs(parameters.projectRoot);
+				}),
+			);
 
-			const workerBundle = await step.do('bundle-worker', BUILD_STEP_CONFIG, async () => {
-				try {
-					return await bundleWorker(parameters.projectRoot, inputs);
-				} catch (error) {
-					throw toNonRetryableError(error);
-				}
-			});
+			const workerBundle = await step.do('bundle-worker', BUILD_STEP_CONFIG, async () =>
+				withMounts(async () => {
+					mount(parameters.projectRoot, filesystemStub);
+					try {
+						return await bundleWorker(parameters.projectRoot, inputs);
+					} catch (error) {
+						throw toNonRetryableError(error);
+					}
+				}),
+			);
 
 			const frontendBundle = await step.do('bundle-frontend', BUILD_STEP_CONFIG, async () =>
-				bundleFrontend(parameters.projectRoot, inputs),
+				withMounts(async () => {
+					mount(parameters.projectRoot, filesystemStub);
+					return bundleFrontend(parameters.projectRoot, inputs);
+				}),
 			);
 
 			const staticAssets = entriesToStaticAssets(frontendBundle.staticAssetsEntries);
@@ -119,7 +135,7 @@ export class DeployWorkflow extends WorkflowEntrypoint<Env, DeployWorkflowParame
 				durationMs: Date.now() - parameters.requestStartedAt,
 				success: false,
 			});
-			throw error;
+			return { success: false, workerName: parameters.workerName, error: message };
 		}
 	}
 }

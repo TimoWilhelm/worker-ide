@@ -36,12 +36,12 @@ describe('loadEditorSession', () => {
 	});
 
 	it('returns undefined for malformed JSON', () => {
-		localStorageMock.setItem('worker-ide-editor-session:test-project', '{bad json');
+		localStorageMock.setItem('worker-ide-project:test-project', '{bad json');
 		expect(loadEditorSession('test-project')).toBeUndefined();
 	});
 
 	it('returns undefined for invalid schema', () => {
-		localStorageMock.setItem('worker-ide-editor-session:test-project', JSON.stringify({ openFiles: 'not-an-array' }));
+		localStorageMock.setItem('worker-ide-project:test-project', JSON.stringify({ editorSession: { openFiles: 'not-an-array' } }));
 		expect(loadEditorSession('test-project')).toBeUndefined();
 	});
 
@@ -58,15 +58,15 @@ describe('loadEditorSession', () => {
 			activeFile: '/src/main.ts',
 			scrollPositions: { '/src/main.ts': 200 },
 		};
-		localStorageMock.setItem('worker-ide-editor-session:test-project', JSON.stringify(session));
+		localStorageMock.setItem('worker-ide-project:test-project', JSON.stringify({ editorSession: session }));
 
 		expect(loadEditorSession('test-project')).toEqual({ ...session, cursorPositions: {} });
 	});
 
 	it('defaults scrollPositions when omitted', () => {
 		localStorageMock.setItem(
-			'worker-ide-editor-session:test-project',
-			JSON.stringify({ openFiles: ['/src/main.ts'], activeFile: '/src/main.ts' }),
+			'worker-ide-project:test-project',
+			JSON.stringify({ editorSession: { openFiles: ['/src/main.ts'], activeFile: '/src/main.ts' } }),
 		);
 
 		expect(loadEditorSession('test-project')).toEqual({
@@ -89,8 +89,10 @@ describe('loadEditorSession', () => {
 
 	it('strips unknown keys gracefully (forward-compat)', () => {
 		localStorageMock.setItem(
-			'worker-ide-editor-session:test-project',
-			JSON.stringify({ openFiles: ['/src/main.ts'], activeFile: '/src/main.ts', scrollPositions: {}, unknownFutureField: 42 }),
+			'worker-ide-project:test-project',
+			JSON.stringify({
+				editorSession: { openFiles: ['/src/main.ts'], activeFile: '/src/main.ts', scrollPositions: {}, unknownFutureField: 42 },
+			}),
 		);
 
 		const result = loadEditorSession('test-project');
@@ -100,7 +102,7 @@ describe('loadEditorSession', () => {
 });
 
 describe('saveEditorSession', () => {
-	it('writes a session to localStorage', () => {
+	it('writes a session to localStorage under the project key', () => {
 		const session: EditorSessionParsed = {
 			openFiles: ['/src/main.ts'],
 			activeFile: '/src/main.ts',
@@ -109,16 +111,22 @@ describe('saveEditorSession', () => {
 		};
 		saveEditorSession('test-project', session);
 
-		expect(localStorageMock.setItem).toHaveBeenCalledWith('worker-ide-editor-session:test-project', JSON.stringify(session));
+		const stored = JSON.parse(localStorageMock.getItem('worker-ide-project:test-project'));
+		expect(stored.editorSession).toEqual(session);
 	});
 
 	it('silently ignores QuotaExceededError', () => {
-		localStorageMock.setItem.mockImplementationOnce(() => {
-			throw new Error('QuotaExceededError');
+		// First call reads (returns undefined), second call for write throws
+		let callCount = 0;
+		localStorageMock.setItem.mockImplementation(() => {
+			callCount++;
+			if (callCount >= 1) {
+				throw new Error('QuotaExceededError');
+			}
 		});
 
 		expect(() => {
-			saveEditorSession('test-project', { openFiles: [], scrollPositions: {}, cursorPositions: {} });
+			saveEditorSession('test-project', { openFiles: ['/a.ts'], scrollPositions: {}, cursorPositions: {} });
 		}).not.toThrow();
 	});
 });

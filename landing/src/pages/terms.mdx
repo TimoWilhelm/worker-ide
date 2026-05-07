@@ -5,6 +5,8 @@ layout: ../layouts/markdown-layout.astro
 lastUpdated: 2026-03-27
 ---
 
+import { meta } from '../../../shared/meta';
+
 ## Please read the following terms carefully
 
 BY CLICKING "I ACCEPT," OR BY DOWNLOADING, INSTALLING, OR OTHERWISE ACCESSING OR USING THE SERVICE,
@@ -23,7 +25,7 @@ incorporated by this reference into, and made a part of, these Terms.
 We are committed to making our website's content accessible and user friendly to everyone. If you
 are having difficulty viewing or navigating the content, feature, or functionality that you believe
 is not fully accessible to people with disabilities, we encourage you to notify us by sending an
-email at <support@codemaxxing.ai> with "Accessibility" in the subject line. Please provide a description of
+email at <a href={`mailto:${meta.supportEmail}`}>{meta.supportEmail}</a> with "Accessibility" in the subject line. Please provide a description of
 the specific feature you feel is not fully accessible or a suggestion for improvement.
 
 We take your feedback seriously and will consider it as we evaluate ways to accommodate all of our
@@ -32,7 +34,7 @@ visitors and our overall accessibility policies.
 ## Security
 
 Security is a top priority for us! If you believe you've found a security issue in our product or
-service please let us know by emailing us at <support@codemaxxing.ai> with "Security" in the subject line.
+service please let us know by emailing us at <a href={`mailto:${meta.supportEmail}`}>{meta.supportEmail}</a> with "Security" in the subject line.
 We will work with you to evaluate and resolve the issue promptly.
 
 Make a good faith effort to avoid privacy violations, destruction of data, and interruption or
@@ -273,4 +275,4 @@ THE FOREGOING DOES NOT AFFECT ANY LIABILITY THAT CANNOT BE EXCLUDED OR LIMITED U
 
 ## Contact Information
 
-You may contact us by emailing us at <support@codemaxxing.ai>.
+You may contact us by emailing us at <a href={`mailto:${meta.supportEmail}`}>{meta.supportEmail}</a>.

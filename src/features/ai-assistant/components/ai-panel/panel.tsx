@@ -26,13 +26,14 @@ import { PendingApprovalIndicator } from '@/components/ui/pending-approval-indic
 import { Spinner } from '@/components/ui/spinner';
 import { toast } from '@/components/ui/toast-store';
 import { Tooltip } from '@/components/ui/tooltip';
-import { setActiveSessionId, useAiSessions } from '@/features/ai-assistant/hooks/use-ai-sessions';
+import { useAiSessions } from '@/features/ai-assistant/hooks/use-ai-sessions';
 import { isAgentState } from '@/features/ai-assistant/lib/agent-state';
 import { useSnapshots } from '@/features/snapshots';
 import { useMobileKeyboardLayout } from '@/hooks/use-mobile-keyboard-height';
 import { createApiClient, downloadDebugLog } from '@/lib/api-client';
 import { authClient } from '@/lib/auth-client';
 import { tweenFast } from '@/lib/motion-config';
+import { setActiveSessionId } from '@/lib/project-storage';
 import { useStore } from '@/lib/store';
 import { cn, formatRelativeTime } from '@/lib/utils';
 import { sessionTitleSchema } from '@shared/validation';

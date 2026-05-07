@@ -3,6 +3,7 @@ import { useEffect } from 'react';
 import { useNavigate } from 'react-router';
 
 import { Button } from '@/components/ui/button';
+import { meta } from '@shared/meta';
 
 export function ProjectAccessRestricted() {
 	const navigate = useNavigate();
@@ -27,7 +28,7 @@ export function ProjectAccessRestricted() {
 				</div>
 				<p className="mb-8 text-sm text-text-secondary">
 					Please{' '}
-					<a href="mailto:support@codemaxxing.com" className="underline hover:text-text-primary">
+					<a href={`mailto:${meta.supportEmail}`} className="underline hover:text-text-primary">
 						contact support
 					</a>{' '}
 					for assistance.

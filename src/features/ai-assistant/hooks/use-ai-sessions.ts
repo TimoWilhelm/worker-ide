@@ -2,34 +2,13 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { toast } from '@/components/ui/toast-store';
 import { isAgentState } from '@/features/ai-assistant/lib/agent-state';
+import { getActiveSessionId, setActiveSessionId } from '@/lib/project-storage';
 import { useStore } from '@/lib/store';
 
 import type { AgentConnectionState } from '../components/agent-runtime-context';
 import type { AgentCallOptions } from '../lib/agent-call';
 import type { AgentState } from '@shared/agent-state';
 import type { PendingFileChange, AiSession } from '@shared/types';
-
-function activeSessionKey(projectId: string): string {
-	return `worker-ide-active-session:${projectId}`;
-}
-function getActiveSessionId(projectId: string): string | undefined {
-	try {
-		return localStorage.getItem(activeSessionKey(projectId)) ?? undefined;
-	} catch {
-		return undefined;
-	}
-}
-export function setActiveSessionId(projectId: string, sessionId: string | undefined): void {
-	try {
-		if (sessionId) {
-			localStorage.setItem(activeSessionKey(projectId), sessionId);
-		} else {
-			localStorage.removeItem(activeSessionKey(projectId));
-		}
-	} catch {
-		// Ignore localStorage errors (private browsing, storage full, etc.)
-	}
-}
 
 interface AgentHandle {
 	state: unknown;

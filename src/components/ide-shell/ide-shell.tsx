@@ -23,6 +23,7 @@ import { useIDEEffects } from './use-ide-effects';
 import { useLogCounts } from './use-log-counts';
 import { usePanelLayouts } from './use-panel-layouts';
 import { useProjectName } from './use-project-name';
+import { useProjectStatePersistence } from './use-project-state-persistence';
 
 import type { ProjectDeepLinkTarget } from '@shared/project-deep-link';
 
@@ -35,8 +36,11 @@ export function IDEShell({
 	initialProjectDeepLink?: ProjectDeepLinkTarget;
 	onInitialProjectDeepLinkHandled?: () => void;
 }) {
+	// Restore per-project UI/panel state (sidebar, devtools, expanded dirs, etc.)
+	// Must run before other hooks so the store is populated before the first render
+	useProjectStatePersistence({ projectId });
+
 	// Restore and persist editor session (open tabs, active file, cursor/scroll positions)
-	// Must run before useEditorState so the store is populated before the first render
 	useEditorSessionPersistence({ projectId });
 
 	// Project WebSocket connection (HMR notifications, collaboration, server events)

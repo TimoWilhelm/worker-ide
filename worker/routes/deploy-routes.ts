@@ -14,6 +14,27 @@ import { sanitizeWorkerName } from '../workflows/deploy-helpers';
 import type { AppEnvironment } from '../types';
 import type { DeployResult, DeployStatusResponse, DeployWorkflowParameters } from '@shared/deploy-types';
 
+const WORKFLOW_JARGON_PATTERNS = [
+	/^NonRetryableError$/i,
+	/^WorkflowFatalError$/i,
+	/the execution of the workflow instance was terminated/i,
+	/a step threw a?n? ?NonRetryableError/i,
+];
+
+function sanitizeDeployError(message: string | undefined): string | undefined {
+	if (!message) {
+		return undefined;
+	}
+
+	for (const pattern of WORKFLOW_JARGON_PATTERNS) {
+		if (pattern.test(message)) {
+			return 'An unexpected error occurred during deployment. Please try again.';
+		}
+	}
+
+	return message;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return Boolean(value) && typeof value === 'object';
 }
@@ -23,14 +44,15 @@ function parseDeployResult(value: unknown): DeployResult | undefined {
 		return undefined;
 	}
 
-	if (value.success !== true || typeof value.workerName !== 'string') {
+	if (typeof value.workerName !== 'string') {
 		return undefined;
 	}
 
 	return {
-		success: true,
+		success: value.success === true,
 		workerName: value.workerName,
 		workerUrl: typeof value.workerUrl === 'string' ? value.workerUrl : undefined,
+		error: typeof value.error === 'string' ? value.error : undefined,
 	};
 }
 
@@ -74,11 +96,12 @@ export const deployRoutes = new Hono<AppEnvironment>()
 
 		const workflowInstance = await c.env.DEPLOY_WORKFLOW.get(instanceId);
 		const workflowStatus = await workflowInstance.status();
+		const result = parseDeployResult(workflowStatus.output);
 		return c.json({
 			instanceId,
 			status: workflowStatus.status,
-			result: parseDeployResult(workflowStatus.output),
-			error: workflowStatus.error?.message,
+			result: result?.success ? result : undefined,
+			error: sanitizeDeployError(result?.error ?? workflowStatus.error?.message),
 		} satisfies DeployStatusResponse);
 	});
 

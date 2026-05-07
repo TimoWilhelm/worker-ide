@@ -1,36 +1,6 @@
-import { editorSessionSchema } from '@shared/validation';
+export { loadEditorSession, saveEditorSession } from '@/lib/project-storage';
 
 import type { EditorSessionParsed } from '@shared/validation';
-function editorSessionKey(projectId: string): string {
-	return `worker-ide-editor-session:${projectId}`;
-}
-
-/**
- * Load the persisted editor session for a project.
- * Returns `undefined` if nothing is stored or the data is malformed.
- */
-export function loadEditorSession(projectId: string): EditorSessionParsed | undefined {
-	try {
-		const raw = localStorage.getItem(editorSessionKey(projectId));
-		if (!raw) return undefined;
-
-		const parsed: unknown = JSON.parse(raw);
-		const result = editorSessionSchema.safeParse(parsed);
-		if (result.success) {
-			return result.data;
-		}
-	} catch {
-		// Corrupt or unavailable — silently ignore
-	}
-	return undefined;
-}
-export function saveEditorSession(projectId: string, session: EditorSessionParsed): void {
-	try {
-		localStorage.setItem(editorSessionKey(projectId), JSON.stringify(session));
-	} catch {
-		// Storage full or unavailable — silently ignore
-	}
-}
 
 export interface ResolvedEditorSession {
 	openFiles: string[];

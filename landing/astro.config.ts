@@ -1,4 +1,5 @@
 import cloudflare from '@astrojs/cloudflare';
+import mdx from '@astrojs/mdx';
 import react from '@astrojs/react';
 import sitemap from '@astrojs/sitemap';
 import tailwindcss from '@tailwindcss/vite';
@@ -8,7 +9,7 @@ import { meta } from '../shared/meta';
 export default defineConfig({
 	site: meta.landingSiteUrl,
 	adapter: cloudflare(),
-	integrations: [react(), sitemap()],
+	integrations: [mdx(), react(), sitemap()],
 	vite: {
 		plugins: [tailwindcss()],
 	},

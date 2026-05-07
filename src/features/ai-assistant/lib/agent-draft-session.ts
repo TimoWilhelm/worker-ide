@@ -1,13 +1,11 @@
+import { clearAgentDraft, loadAgentDraft, saveAgentDraft } from '@/lib/project-storage';
+
 import type { InputSegment } from './input-segments';
 import type { PreviewElementAttributes } from '@shared/types';
 
 export interface AgentDraftSession {
 	segments: InputSegment[];
 	cursorPosition: number;
-}
-
-function buildAgentDraftKey(projectId: string): string {
-	return `worker-ide-agent-draft:${projectId}`;
 }
 
 function isPreviewElementAttributes(value: unknown): value is PreviewElementAttributes {
@@ -85,35 +83,15 @@ function normalizeAgentDraftSession(value: unknown): AgentDraftSession | undefin
 }
 
 export function loadAgentDraftSession(projectId: string): AgentDraftSession | undefined {
-	try {
-		const rawValue = localStorage.getItem(buildAgentDraftKey(projectId));
-		if (!rawValue) {
-			return undefined;
-		}
-
-		return normalizeAgentDraftSession(JSON.parse(rawValue));
-	} catch {
-		return undefined;
-	}
+	const raw = loadAgentDraft(projectId);
+	if (!raw) return undefined;
+	return normalizeAgentDraftSession(raw);
 }
 
 export function saveAgentDraftSession(projectId: string, session: AgentDraftSession): void {
-	try {
-		if (session.segments.length === 0 && session.cursorPosition === 0) {
-			localStorage.removeItem(buildAgentDraftKey(projectId));
-			return;
-		}
-
-		localStorage.setItem(buildAgentDraftKey(projectId), JSON.stringify(session));
-	} catch {
-		// Ignore storage failures. The in-memory draft still works.
-	}
+	saveAgentDraft(projectId, session);
 }
 
 export function clearAgentDraftSession(projectId: string): void {
-	try {
-		localStorage.removeItem(buildAgentDraftKey(projectId));
-	} catch {
-		// Ignore storage failures.
-	}
+	clearAgentDraft(projectId);
 }

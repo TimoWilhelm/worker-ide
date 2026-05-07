@@ -37,7 +37,7 @@
 	],
 	"workflows": [
 		{
-			"name": "deploy-workflow",
+			"name": "worker-ide-deploy",
 			"binding": "DEPLOY_WORKFLOW",
 			"class_name": "DeployWorkflow",
 		},

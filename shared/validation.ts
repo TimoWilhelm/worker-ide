@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { AI_MODEL_IDS_TUPLE, DEFAULT_EDITOR_FONT, EDITOR_FONT_SLUGS, MAX_PROJECT_NAME_LENGTH, USER_PREFERENCE_KEYS } from './constants';
+import { AI_MODEL_IDS_TUPLE, MAX_PROJECT_NAME_LENGTH, USER_PREFERENCE_KEYS } from './constants';
 
 export const LIMITS = {
 	PATH_MAX_LENGTH: 500,
@@ -524,32 +524,6 @@ export const savedCredentialsSchema = z.object({
 
 export type SavedCredentialsParsed = z.infer<typeof savedCredentialsSchema>;
 
-const persistedStoreShape = {
-	sidebarVisible: z.boolean(),
-	utilityPanelVisible: z.boolean(),
-	agentPanelVisible: z.boolean(),
-	devtoolsVisible: z.boolean(),
-	dependenciesPanelVisible: z.boolean(),
-	colorScheme: z.enum(['light', 'dark', 'system']),
-	editorFont: z.enum(EDITOR_FONT_SLUGS).optional().default(DEFAULT_EDITOR_FONT),
-	activeMobilePanel: z.enum(['editor', 'preview', 'git', 'agent', 'tests']),
-	activeSidebarView: z.enum(['explorer', 'git', 'tests']),
-	expandedDirs: z.array(z.string()),
-	selectedModel: aiModelSchema,
-} as const;
-
-export const persistedStoreSchema = z
-	.object({
-		...persistedStoreShape,
-		agentPanelVisible: z.boolean().optional(),
-		aiPanelVisible: z.boolean().optional(),
-	})
-	.transform(({ aiPanelVisible, agentPanelVisible, ...state }) => ({
-		...state,
-		agentPanelVisible: agentPanelVisible ?? aiPanelVisible ?? false,
-	}));
-
-export type PersistedStoreParsed = z.infer<typeof persistedStoreSchema>;
 export const editorSessionSchema = z.object({
 	openFiles: z.array(z.string()),
 	activeFile: z.string().optional(),

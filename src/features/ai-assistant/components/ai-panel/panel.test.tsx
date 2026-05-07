@@ -184,8 +184,11 @@ vi.mock('@/components/ui/tooltip', () => ({
 	Tooltip: ({ children }: { children: ReactNode }) => <>{children}</>,
 }));
 
-vi.mock('@/features/ai-assistant/hooks/use-ai-sessions', () => ({
+vi.mock('@/lib/project-storage', () => ({
 	setActiveSessionId: mocks.setActiveSessionId,
+}));
+
+vi.mock('@/features/ai-assistant/hooks/use-ai-sessions', () => ({
 	useAiSessions: () => ({
 		savedSessions: [{ id: 'session-1', title: 'Current session', createdAt: 1, isRunning: true }],
 		handleLoadSession: mocks.loadSession,

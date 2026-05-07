@@ -42,7 +42,7 @@ describe('agent-draft-session', () => {
 	});
 
 	it('drops invalid draft payloads', () => {
-		localStorage.setItem('worker-ide-agent-draft:project-1', JSON.stringify({ segments: [{ type: 'text', value: 123 }] }));
+		localStorage.setItem('worker-ide-project:project-1', JSON.stringify({ agentDraft: { segments: [{ type: 'text', value: 123 }] } }));
 
 		expect(loadAgentDraftSession('project-1')).toBeUndefined();
 	});

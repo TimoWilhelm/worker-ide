@@ -98,6 +98,10 @@ vi.mock('./mobile-layout', () => ({
 	MobileLayout: () => <div data-testid="mobile-layout" />,
 }));
 
+vi.mock('./use-project-state-persistence', () => ({
+	useProjectStatePersistence: vi.fn(),
+}));
+
 vi.mock('./use-editor-session-persistence', () => ({
 	useEditorSessionPersistence: vi.fn(),
 }));

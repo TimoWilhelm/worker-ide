@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { CheckCircle, Database, ExternalLink, FolderOpen, Globe, Rocket, Server, XCircle } from 'lucide-react';
+import { CheckCircle, Database, ExternalLink, FolderOpen, Globe, Loader2, Rocket, Server, XCircle } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
@@ -10,7 +10,6 @@ import { sanitizeR2BucketName, sanitizeWorkerName } from '@shared/deploy-helpers
 import { deployFormSchema, savedCredentialsSchema } from '@shared/validation';
 
 import type { ProjectMeta } from '@/lib/api-client';
-import type { DeployWorkflowStatus } from '@shared/deploy-types';
 import type { FileInfo } from '@shared/types';
 import type { SavedCredentialsParsed } from '@shared/validation';
 import type { ReactNode } from 'react';
@@ -56,21 +55,9 @@ interface DeployModalProperties {
 
 type DeployState =
 	| { status: 'idle' }
-	| { status: 'deploying'; instanceId: string; workflowStatus: DeployWorkflowStatus }
+	| { status: 'deploying'; instanceId: string }
 	| { status: 'success'; workerName: string; workerUrl?: string }
 	| { status: 'error'; message: string };
-
-const DEPLOY_STATUS_LABELS: Record<DeployWorkflowStatus, string> = {
-	complete: 'Complete',
-	errored: 'Errored',
-	paused: 'Paused',
-	queued: 'Queued',
-	running: 'Running',
-	terminated: 'Terminated',
-	unknown: 'Unknown',
-	waiting: 'Waiting',
-	waitingForPause: 'Waiting to pause',
-};
 
 function loadSavedCredentials(): SavedCredentials | undefined {
 	try {
@@ -141,22 +128,48 @@ function DeployResourceSummary({ workerName, hasStaticAssets, hasR2Storage }: De
 }
 
 /**
- * Outer wrapper that handles modal open/close state.
- * Renders DeployModalContent only when open, giving it fresh state on each mount.
+ * Outer wrapper that owns deploy state so it persists across modal open/close.
+ * State resets only when the user dismisses the modal after a terminal result.
  */
 export function DeployModal({ open, onOpenChange, projectId, projectName }: DeployModalProperties) {
+	const [deployState, setDeployState] = useState<DeployState>({ status: 'idle' });
+
+	const handleOpenChange = useCallback(
+		(nextOpen: boolean) => {
+			if (!nextOpen && (deployState.status === 'success' || deployState.status === 'error' || deployState.status === 'idle')) {
+				setDeployState({ status: 'idle' });
+			}
+			onOpenChange(nextOpen);
+		},
+		[deployState.status, onOpenChange],
+	);
+
 	return (
-		<Modal open={open} onOpenChange={onOpenChange} title="Deploy to Cloudflare" className="w-[460px]">
-			{open && <DeployModalContent onOpenChange={onOpenChange} projectId={projectId} projectName={projectName} />}
+		<Modal open={open} onOpenChange={handleOpenChange} title="Deploy to Cloudflare" className="w-[460px]">
+			{open && (
+				<DeployModalContent
+					onOpenChange={handleOpenChange}
+					projectId={projectId}
+					projectName={projectName}
+					deployState={deployState}
+					setDeployState={setDeployState}
+				/>
+			)}
 		</Modal>
 	);
 }
 
+interface DeployModalContentProperties extends Omit<DeployModalProperties, 'open'> {
+	deployState: DeployState;
+	setDeployState: (state: DeployState) => void;
+}
+
 /**
  * Inner content that holds form state.
- * Remounts each time the modal opens, so state is always fresh.
+ * Remounts each time the modal opens, so form fields are fresh.
+ * Deploy state is owned by the parent so it persists across open/close.
  */
-function DeployModalContent({ onOpenChange, projectId, projectName }: Omit<DeployModalProperties, 'open'>) {
+function DeployModalContent({ onOpenChange, projectId, projectName, deployState, setDeployState }: DeployModalContentProperties) {
 	const queryClient = useQueryClient();
 	const [saved] = useState(loadSavedCredentials);
 	const [accountId, setAccountId] = useState(saved?.accountId ?? '');
@@ -168,7 +181,6 @@ function DeployModalContent({ onOpenChange, projectId, projectName }: Omit<Deplo
 		workerName: false,
 	});
 	const [rememberCredentials, setRememberCredentials] = useState(saved !== undefined);
-	const [deployState, setDeployState] = useState<DeployState>({ status: 'idle' });
 	const projectMeta = queryClient.getQueryData<ProjectMeta>(['project-meta', projectId]);
 	const fileTree = queryClient.getQueryData<FileInfo[]>(['files', projectId]);
 	const validationResult = useMemo(
@@ -208,6 +220,8 @@ function DeployModalContent({ onOpenChange, projectId, projectName }: Omit<Deplo
 			clearSavedCredentials();
 		}
 
+		setDeployState({ status: 'deploying', instanceId: '' });
+
 		try {
 			const result = await startDeployProject(projectId, {
 				accountId: parsedCredentials.accountId,
@@ -218,7 +232,6 @@ function DeployModalContent({ onOpenChange, projectId, projectName }: Omit<Deplo
 			setDeployState({
 				status: 'deploying',
 				instanceId: result.instanceId,
-				workflowStatus: 'queued',
 			});
 		} catch (error) {
 			setDeployState({
@@ -226,40 +239,53 @@ function DeployModalContent({ onOpenChange, projectId, projectName }: Omit<Deplo
 				message: error instanceof Error ? error.message : 'Deployment failed',
 			});
 		}
-	}, [projectId, rememberCredentials, sanitizedWorkerName, validationResult]);
+	}, [projectId, rememberCredentials, sanitizedWorkerName, setDeployState, validationResult]);
 
 	useEffect(() => {
-		if (deployState.status !== 'deploying') return;
+		if (deployState.status !== 'deploying' || !deployState.instanceId) return;
 
 		const instanceId = deployState.instanceId;
 		let cancelled = false;
+		let consecutiveErrors = 0;
 		let timeoutId: ReturnType<typeof setTimeout> | undefined;
+		const MAX_CONSECUTIVE_POLL_ERRORS = 3;
 
 		async function pollDeployStatus() {
 			try {
 				const status = await getDeployStatus(projectId, instanceId);
 				if (cancelled) return;
+				consecutiveErrors = 0;
 
-				if (status.status === 'complete') {
-					if (!status.result) {
-						setDeployState({ status: 'error', message: 'Deployment completed without a result' });
-						return;
-					}
+				if (status.error) {
+					setDeployState({ status: 'error', message: status.error });
+					return;
+				}
 
+				if (status.status === 'complete' && status.result) {
 					setDeployState({ status: 'success', workerName: status.result.workerName, workerUrl: status.result.workerUrl });
 					return;
 				}
 
-				if (status.status === 'errored' || status.status === 'terminated') {
-					setDeployState({ status: 'error', message: status.error ?? 'Deployment failed' });
+				if (status.status === 'complete') {
+					setDeployState({ status: 'error', message: 'Deployment failed' });
 					return;
 				}
 
-				setDeployState({ status: 'deploying', instanceId: status.instanceId, workflowStatus: status.status });
+				if (status.status === 'errored' || status.status === 'terminated') {
+					setDeployState({ status: 'error', message: 'Deployment failed' });
+					return;
+				}
+
+				setDeployState({ status: 'deploying', instanceId: status.instanceId });
 				timeoutId = setTimeout(pollDeployStatus, 2000);
-			} catch (error) {
+			} catch {
 				if (cancelled) return;
-				setDeployState({ status: 'error', message: error instanceof Error ? error.message : 'Failed to get deployment status' });
+				consecutiveErrors++;
+				if (consecutiveErrors >= MAX_CONSECUTIVE_POLL_ERRORS) {
+					setDeployState({ status: 'error', message: 'Lost connection to the deployment. Please try again.' });
+					return;
+				}
+				timeoutId = setTimeout(pollDeployStatus, 3000);
 			}
 		}
 
@@ -271,7 +297,7 @@ function DeployModalContent({ onOpenChange, projectId, projectName }: Omit<Deplo
 				clearTimeout(timeoutId);
 			}
 		};
-	}, [deployState, projectId]);
+	}, [deployState, projectId, setDeployState]);
 
 	const isFormValid = validationResult.success;
 	const isDeploying = deployState.status === 'deploying';
@@ -313,21 +339,10 @@ function DeployModalContent({ onOpenChange, projectId, projectName }: Omit<Deplo
 						</div>
 					</div>
 				) : deployState.status === 'deploying' ? (
-					<div className="flex flex-col gap-3">
-						<div className="flex flex-col gap-1">
-							<p className="text-sm font-medium text-text-primary">Deploying to Cloudflare</p>
-							<p className="text-xs text-text-secondary">Your deployment is running as a reliable Cloudflare Workflow.</p>
-						</div>
-						<div className="rounded-md border border-border bg-bg-primary p-3 text-sm" aria-label="Deployment workflow status">
-							<div className="flex items-center gap-2">
-								<div className="size-2 rounded-full bg-accent" />
-								<span className="font-medium text-text-primary">Workflow status</span>
-								<span className="ml-auto text-xs text-text-secondary">{DEPLOY_STATUS_LABELS[deployState.workflowStatus]}</span>
-							</div>
-							<p className="mt-2 text-xs text-text-secondary">
-								Cloudflare exposes detailed step history in Wrangler and the dashboard. The app polls the documented Workers API status.
-							</p>
-						</div>
+					<div className="flex flex-col items-center gap-3 py-6">
+						<Loader2 className="size-8 animate-spin text-accent" />
+						<p className="text-sm font-medium text-text-primary">Deploying to Cloudflare&hellip;</p>
+						<p className="text-xs text-text-secondary">This may take a moment.</p>
 					</div>
 				) : (
 					<>
