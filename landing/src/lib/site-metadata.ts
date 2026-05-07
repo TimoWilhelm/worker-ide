@@ -46,16 +46,15 @@ interface ResolvedLandingPageMetadata {
 	twitterCard: 'summary_large_image';
 }
 
-const defaultDescription = 'Build in the browser with AI agents, instant previews, Git workflows, and Cloudflare-native deploys.';
+const defaultDescription = 'Browser-based cloud IDE with AI agents and instant previews. Code, build, and deploy from anywhere.';
 const defaultOpenGraphImage: SocialImageMetadata = {
-	alt: 'Codemaxxing landing page social card with browser IDE messaging',
+	alt: 'Codemaxxing — Cloud IDE',
 	height: 630,
 	path: landingOpenGraphImagePath,
 	type: 'image/png',
 	width: 1200,
 };
 const defaultThemeColor = '#f14602';
-const webApplicationDescription = 'Codemaxxing is a browser-based cloud IDE with AI agents, previews, tests, Git workflows, and deploys.';
 
 function createAbsoluteUrl(pathOrUrl: string, siteOrigin: string): string {
 	return new URL(pathOrUrl, siteOrigin).href;
@@ -107,7 +106,7 @@ function createStructuredData(properties: {
 		'@id': `${appSiteUrl}/#webapplication`,
 		'@type': 'WebApplication',
 		applicationCategory: 'DeveloperApplication',
-		description: webApplicationDescription,
+		description: defaultDescription,
 		name: siteName,
 		operatingSystem: 'Any',
 		url: appSiteUrl,
@@ -130,19 +129,19 @@ function createStructuredData(properties: {
 export const landingPagePresets = {
 	docsOverview: {
 		canonicalUrl: `${landingSiteUrl}/docs`,
-		description: 'Codemaxxing runtime, realtime, AI, and workflow systems.',
-		title: 'Architecture — Codemaxxing Architecture',
+		description: 'Codemaxxing Documentation.',
+		title: 'Codemaxxing — Docs',
 	},
 	home: {
 		canonicalUrl: `${landingSiteUrl}/`,
-		description: 'A browser-based cloud IDE with AI agents and instant previews. Code, build, and deploy from anywhere.',
+		description: defaultDescription,
 		title: 'Codemaxxing — Agentic Cloud IDE',
 	},
 	notFound: {
 		canonicalUrl: `${landingSiteUrl}/404`,
-		description: 'The page you are looking for does not exist.',
+		description: "This page isn't available",
 		noIndex: true,
-		title: 'Page Not Found — Codemaxxing',
+		title: 'Codemaxxing — Page Not Found',
 	},
 } satisfies Record<'docsOverview' | 'home' | 'notFound', LandingPageMetadataInput>;
 

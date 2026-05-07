@@ -51,11 +51,11 @@ const appOrigin = 'https://codemaxxing.app';
 const productName = 'Codemaxxing';
 const shortName = 'Codemaxxing';
 const socialImagePath = '/meta/app-og.png';
-const title = 'Codemaxxing App — Cloud IDE';
-const description = 'Open the Codemaxxing cloud IDE to code, preview, test, and deploy from your browser.';
+const title = 'Codemaxxing — Cloud IDE';
+const description = 'Browser-based cloud IDE with AI agents and instant previews. Code, build, and deploy from anywhere.';
 
 export const appMetadata: AppMetadata = {
-	applicationName: 'Codemaxxing App',
+	applicationName: 'Codemaxxing',
 	appOrigin,
 	appleMobileWebAppTitle: shortName,
 	canonicalUrl: `${appOrigin}/`,
@@ -77,7 +77,7 @@ export const appMetadata: AppMetadata = {
 			},
 		],
 		id: '7c3a8f1e-9d4b-4e2a-b6f5-1a2d3c4e5f6a',
-		name: 'Codemaxxing App',
+		name: 'Codemaxxing',
 		orientation: 'natural',
 		scope: '/',
 		short_name: shortName,
@@ -90,7 +90,7 @@ export const appMetadata: AppMetadata = {
 	socialDescription: description,
 	socialImage: {
 		absoluteUrl: `${appOrigin}${socialImagePath}`,
-		alt: 'Codemaxxing App cloud IDE workspace preview card',
+		alt: 'Codemaxxing — Cloud IDE',
 		height: 630,
 		path: socialImagePath,
 		type: 'image/png',
