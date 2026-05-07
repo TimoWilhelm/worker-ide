@@ -1,9 +1,16 @@
 ---
-import { landingPagePresets } from '../lib/site-metadata';
+import type { LandingPageMetadataInput } from '../lib/site-metadata';
 import BaseLayout from '../layouts/base-layout.astro';
+
+const metadata = {
+	canonicalUrl: 'https://codemaxxing.ai/404',
+	description: "This page isn't available",
+	noIndex: true,
+	title: 'Codemaxxing — Page Not Found',
+} satisfies LandingPageMetadataInput;
 ---
 
-<BaseLayout metadata={landingPagePresets.notFound}>
+<BaseLayout metadata={metadata}>
 	<div class="relative flex min-h-screen flex-col items-center justify-center px-6 text-center">
 		<!-- Background glow -->
 		<div

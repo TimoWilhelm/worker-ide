@@ -4,6 +4,7 @@ import { motion } from 'motion/react';
 import { Suspense, use, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate, Outlet, Route, Routes, useLocation, useParams, useSearchParams } from 'react-router';
 
+import { AppDocumentMetadata } from '@/components/app-document-metadata';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { IDEShell } from '@/components/ide-shell';
 import { NotFoundPage } from '@/components/not-found-page';
@@ -510,6 +511,7 @@ export function App() {
 	return (
 		<ErrorBoundary fallback={ErrorFallback}>
 			<QueryClientProvider client={queryClient}>
+				<AppDocumentMetadata />
 				<OfflineBanner />
 				<AuthErrorHandler />
 				<AuthGate />

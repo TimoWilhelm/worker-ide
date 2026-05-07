@@ -1,10 +1,16 @@
 ---
 import { docsTopics } from '../../data/docs-content';
-import { landingPagePresets } from '../../lib/site-metadata';
+import type { LandingPageMetadataInput } from '../../lib/site-metadata';
 import DocsLayout from '../../layouts/docs-layout.astro';
+
+const metadata = {
+	canonicalUrl: 'https://codemaxxing.ai/docs',
+	description: 'Codemaxxing Documentation.',
+	title: 'Codemaxxing — Docs',
+} satisfies LandingPageMetadataInput;
 ---
 
-<DocsLayout metadata={landingPagePresets.docsOverview}>
+<DocsLayout metadata={metadata}>
 	<section class="docs-hero">
 		<p class="docs-kicker">Architecture</p>
 		<h1>Codemaxxing architecture</h1>

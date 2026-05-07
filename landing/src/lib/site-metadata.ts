@@ -1,9 +1,9 @@
 import type { Graph, Organization, WebApplication, WebPage, WebSite } from 'schema-dts';
 
-import { appSiteUrl, landingSiteUrl, siteLocale, siteName, supportEmail } from '../../site-config';
+import { meta } from '../../../shared/meta';
 import landingOpenGraphImagePath from '../assets/meta/landing-og.png?url';
 
-export interface SocialImageMetadata {
+export interface OpenGraphImageMetadata {
 	alt: string;
 	height: number;
 	path: string;
@@ -17,7 +17,7 @@ export interface LandingPageMetadataInput {
 	googlebot?: string;
 	googleSiteVerification?: string;
 	noIndex?: boolean;
-	openGraphImage?: SocialImageMetadata;
+	openGraphImage?: OpenGraphImageMetadata;
 	openGraphType?: 'article' | 'website';
 	robots?: string;
 	title: string;
@@ -27,6 +27,7 @@ interface ResolveLandingPageMetadataOptions {
 	currentUrl: URL;
 	metadata: LandingPageMetadataInput;
 	siteOrigin?: string;
+	canonicalUrl?: string;
 }
 
 interface ResolvedLandingPageMetadata {
@@ -37,7 +38,7 @@ interface ResolvedLandingPageMetadata {
 	googleSiteVerification?: string;
 	googlebot: string;
 	locale: string;
-	openGraphImage: SocialImageMetadata & { absoluteUrl: string };
+	openGraphImage: OpenGraphImageMetadata & { absoluteUrl: string };
 	openGraphType: 'article' | 'website';
 	robots: string;
 	structuredData: Graph;
@@ -46,9 +47,9 @@ interface ResolvedLandingPageMetadata {
 	twitterCard: 'summary_large_image';
 }
 
-const defaultDescription = 'Browser-based cloud IDE with AI agents and instant previews. Code, build, and deploy from anywhere.';
-const defaultOpenGraphImage: SocialImageMetadata = {
-	alt: 'Codemaxxing — Cloud IDE',
+const defaultDescription = meta.description;
+const defaultOpenGraphImage: OpenGraphImageMetadata = {
+	alt: meta.title,
 	height: 630,
 	path: landingOpenGraphImagePath,
 	type: 'image/png',
@@ -73,8 +74,8 @@ function createGooglebotValue(metadata: LandingPageMetadataInput, robots: string
 }
 
 function createCanonicalUrl(properties: ResolveLandingPageMetadataOptions, siteOrigin: string): string {
-	if (properties.metadata.canonicalUrl) {
-		return properties.metadata.canonicalUrl;
+	if (properties.canonicalUrl) {
+		return properties.canonicalUrl;
 	}
 
 	return createAbsoluteUrl(properties.currentUrl.pathname, siteOrigin);
@@ -91,25 +92,25 @@ function createStructuredData(properties: {
 		'@id': `${properties.siteOrigin}#website`,
 		'@type': 'WebSite',
 		description: defaultDescription,
-		name: siteName,
+		name: meta.applicationName,
 		url: properties.siteOrigin,
 	};
 	const organizationSchema: Organization = {
 		'@id': `${properties.siteOrigin}#organization`,
 		'@type': 'Organization',
-		email: `mailto:${supportEmail}`,
+		email: `mailto:${meta.supportEmail}`,
 		logo: createAbsoluteUrl('/favicon.svg', properties.siteOrigin),
-		name: siteName,
+		name: meta.applicationName,
 		url: properties.siteOrigin,
 	};
 	const webApplicationSchema: WebApplication = {
-		'@id': `${appSiteUrl}/#webapplication`,
+		'@id': `${meta.appSiteUrl}/#webapplication`,
 		'@type': 'WebApplication',
 		applicationCategory: 'DeveloperApplication',
 		description: defaultDescription,
-		name: siteName,
+		name: meta.applicationName,
 		operatingSystem: 'Any',
-		url: appSiteUrl,
+		url: meta.appSiteUrl,
 	};
 	const webPageSchema: WebPage = {
 		'@id': `${properties.canonicalUrl}#webpage`,
@@ -126,36 +127,8 @@ function createStructuredData(properties: {
 	};
 }
 
-export const landingPagePresets = {
-	docsOverview: {
-		canonicalUrl: `${landingSiteUrl}/docs`,
-		description: 'Codemaxxing Documentation.',
-		title: 'Codemaxxing — Docs',
-	},
-	home: {
-		canonicalUrl: `${landingSiteUrl}/`,
-		description: defaultDescription,
-		title: 'Codemaxxing — Agentic Cloud IDE',
-	},
-	notFound: {
-		canonicalUrl: `${landingSiteUrl}/404`,
-		description: "This page isn't available",
-		noIndex: true,
-		title: 'Codemaxxing — Page Not Found',
-	},
-} satisfies Record<'docsOverview' | 'home' | 'notFound', LandingPageMetadataInput>;
-
-export function createDocsTopicPageMetadata(properties: { description: string; slug: string; title: string }): LandingPageMetadataInput {
-	return {
-		canonicalUrl: `${landingSiteUrl}/docs/${properties.slug}`,
-		description: properties.description,
-		openGraphType: 'article',
-		title: `${properties.title} — Codemaxxing Architecture`,
-	};
-}
-
 export function resolveLandingPageMetadata(properties: ResolveLandingPageMetadataOptions): ResolvedLandingPageMetadata {
-	const siteOrigin = properties.siteOrigin ?? landingSiteUrl;
+	const siteOrigin = properties.siteOrigin ?? meta.landingSiteUrl;
 	const robots = createRobotsValue(properties.metadata);
 	const googlebot = createGooglebotValue(properties.metadata, robots);
 	const canonicalUrl = createCanonicalUrl(properties, siteOrigin);
@@ -164,13 +137,13 @@ export function resolveLandingPageMetadata(properties: ResolveLandingPageMetadat
 	const openGraphType = properties.metadata.openGraphType ?? 'website';
 
 	return {
-		applicationName: siteName,
+		applicationName: meta.applicationName,
 		canonicalUrl,
 		description: properties.metadata.description,
 		formatDetection: 'telephone=no',
 		googleSiteVerification: properties.metadata.googleSiteVerification,
 		googlebot,
-		locale: siteLocale,
+		locale: 'en_US',
 		openGraphImage: {
 			...openGraphImage,
 			absoluteUrl: absoluteOpenGraphImageUrl,
@@ -189,5 +162,3 @@ export function resolveLandingPageMetadata(properties: ResolveLandingPageMetadat
 		twitterCard: 'summary_large_image',
 	};
 }
-
-export { landingSiteUrl } from '../../site-config';

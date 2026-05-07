@@ -1,7 +1,7 @@
 ---
 import FlowDiagram from '../../components/docs/flow-diagram.astro';
 import { docsTopics, getTopicBySlug } from '../../data/docs-content';
-import { createDocsTopicPageMetadata } from '../../lib/site-metadata';
+import { meta } from '../../../../shared/meta';
 import DocsLayout from '../../layouts/docs-layout.astro';
 
 export function getStaticPaths() {
@@ -26,11 +26,12 @@ const topicIndex = docsTopics.findIndex((item) => item.slug === topic.slug);
 const previousTopic = topicIndex > 0 ? docsTopics[topicIndex - 1] : undefined;
 const nextTopic = topicIndex < docsTopics.length - 1 ? docsTopics[topicIndex + 1] : undefined;
 const accentVariable = `--docs-${topic.accent}`;
-const metadata = createDocsTopicPageMetadata({
+const metadata = {
+	canonicalUrl: `${meta.landingSiteUrl}/docs/${topic.slug}`,
 	description: `${topic.description} ${topic.laneDescription}`,
-	slug: topic.slug,
-	title: topic.title,
-});
+	openGraphType: 'article' as const,
+	title: `${topic.title} — Codemaxxing`,
+};
 ---
 
 <DocsLayout metadata={metadata} currentSlug={topic.slug}>

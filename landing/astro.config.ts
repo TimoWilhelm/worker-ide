@@ -3,11 +3,10 @@ import react from '@astrojs/react';
 import sitemap from '@astrojs/sitemap';
 import tailwindcss from '@tailwindcss/vite';
 import { defineConfig } from 'astro/config';
-
-import { landingSiteUrl } from './site-config';
+import { meta } from '../shared/meta';
 
 export default defineConfig({
-	site: landingSiteUrl,
+	site: meta.landingSiteUrl,
 	adapter: cloudflare(),
 	integrations: [react(), sitemap()],
 	vite: {

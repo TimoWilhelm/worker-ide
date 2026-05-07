@@ -1,16 +1,18 @@
 ---
 import '../styles/global.css';
-import { landingSiteUrl, resolveLandingPageMetadata } from '../lib/site-metadata';
+import { type LandingPageMetadataInput, resolveLandingPageMetadata } from '../lib/site-metadata';
+import { meta } from '../../../shared/meta';
 
 interface Props {
-	metadata: import('../lib/site-metadata').LandingPageMetadataInput;
+	metadata?: LandingPageMetadataInput;
 }
 
 const { metadata } = Astro.props;
 const resolvedMetadata = resolveLandingPageMetadata({
 	currentUrl: Astro.url,
-	metadata,
-	siteOrigin: Astro.site?.href ?? landingSiteUrl,
+	siteOrigin: Astro.site?.href ?? meta.landingSiteUrl,
+	metadata: metadata ?? { title: meta.title, description: meta.description },
+	canonicalUrl: metadata?.canonicalUrl,
 });
 ---
 
