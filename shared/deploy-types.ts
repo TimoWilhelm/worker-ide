@@ -17,6 +17,7 @@ export interface DeployResult {
 	success: boolean;
 	workerName: string;
 	workerUrl?: string;
+	dashboardUrl?: string;
 	error?: string;
 }
 

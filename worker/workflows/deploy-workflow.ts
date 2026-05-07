@@ -111,7 +111,8 @@ export class DeployWorkflow extends WorkflowEntrypoint<Env, DeployWorkflowParame
 				getWorkersDevelopmentUrl(parameters.accountId, parameters.apiToken, parameters.workerName),
 			);
 
-			const result: DeployResult = { success: true, workerName: parameters.workerName, workerUrl };
+			const dashboardUrl = `https://dash.cloudflare.com/${parameters.accountId}/workers/services/view/${parameters.workerName}`;
+			const result: DeployResult = { success: true, workerName: parameters.workerName, workerUrl, dashboardUrl };
 
 			trackProjectEvent({
 				organizationId: parameters.organizationId,

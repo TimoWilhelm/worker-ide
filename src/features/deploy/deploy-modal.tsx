@@ -56,7 +56,7 @@ interface DeployModalProperties {
 type DeployState =
 	| { status: 'idle' }
 	| { status: 'deploying'; instanceId: string }
-	| { status: 'success'; workerName: string; workerUrl?: string }
+	| { status: 'success'; workerName: string; workerUrl?: string; dashboardUrl?: string }
 	| { status: 'error'; message: string };
 
 function loadSavedCredentials(): SavedCredentials | undefined {
@@ -262,7 +262,12 @@ function DeployModalContent({ onOpenChange, projectId, projectName, deployState,
 				}
 
 				if (status.status === 'complete' && status.result) {
-					setDeployState({ status: 'success', workerName: status.result.workerName, workerUrl: status.result.workerUrl });
+					setDeployState({
+						status: 'success',
+						workerName: status.result.workerName,
+						workerUrl: status.result.workerUrl,
+						dashboardUrl: status.result.dashboardUrl,
+					});
 					return;
 				}
 
@@ -311,20 +316,38 @@ function DeployModalContent({ onOpenChange, projectId, projectName, deployState,
 						<p className="text-center text-sm font-medium text-text-primary">
 							Successfully deployed <strong>{deployState.workerName}</strong>
 						</p>
-						{deployState.workerUrl && (
-							<a
-								href={deployState.workerUrl}
-								target="_blank"
-								rel="noopener noreferrer"
-								className="
-									flex items-center gap-1.5 text-sm text-accent transition-colors
-									hover:text-accent-hover
-								"
-							>
-								{deployState.workerUrl}
-								<ExternalLink className="size-3" />
-							</a>
-						)}
+						<div className="flex flex-col gap-2">
+							{deployState.workerUrl && (
+								<a
+									href={deployState.workerUrl}
+									target="_blank"
+									rel="noopener noreferrer"
+									className="
+										flex items-center gap-1.5 text-sm text-accent transition-colors
+										hover:text-accent-hover
+									"
+								>
+									<Globe className="size-3.5 shrink-0" />
+									{deployState.workerUrl}
+									<ExternalLink className="size-3 shrink-0" />
+								</a>
+							)}
+							{deployState.dashboardUrl && (
+								<a
+									href={deployState.dashboardUrl}
+									target="_blank"
+									rel="noopener noreferrer"
+									className="
+										flex items-center gap-1.5 text-sm text-accent transition-colors
+										hover:text-accent-hover
+									"
+								>
+									<Server className="size-3.5 shrink-0" />
+									Manage in Cloudflare Dashboard
+									<ExternalLink className="size-3 shrink-0" />
+								</a>
+							)}
+						</div>
 					</div>
 				) : deployState.status === 'error' ? (
 					<div className="flex flex-col gap-3">
@@ -341,7 +364,7 @@ function DeployModalContent({ onOpenChange, projectId, projectName, deployState,
 				) : deployState.status === 'deploying' ? (
 					<div className="flex flex-col items-center gap-3 py-6">
 						<Loader2 className="size-8 animate-spin text-accent" />
-						<p className="text-sm font-medium text-text-primary">Deploying to Cloudflare&hellip;</p>
+						<p className="text-sm font-medium text-text-primary">Deploying...&hellip;</p>
 						<p className="text-xs text-text-secondary">This may take a moment.</p>
 					</div>
 				) : (
