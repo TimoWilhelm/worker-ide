@@ -1,4 +1,4 @@
-import { meta } from '@shared/meta';
+import { meta } from '../../shared/meta';
 
 import type { ManifestOptions } from 'vite-plugin-pwa';
 

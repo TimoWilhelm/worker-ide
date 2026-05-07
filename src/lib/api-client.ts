@@ -6,6 +6,7 @@ import { throwApiError } from './api-error';
 
 import type { ApiRoutes, OrgRoutes, TransferRoutes, UserRoutes } from '@server/routes';
 import type { UserPreferences } from '@shared/constants';
+import type { DeployStartResponse, DeployStatusResponse } from '@shared/deploy-types';
 import type { AssetSettings, BindingsConfig, ProjectTemplateMeta } from '@shared/types';
 
 export interface ProjectPermissions {
@@ -257,14 +258,20 @@ export interface DeployCredentials {
 	workerName?: string;
 }
 
-export async function deployProject(
-	projectId: string,
-	credentials: DeployCredentials,
-): Promise<{ success: boolean; workerName: string; workerUrl?: string }> {
+export async function startDeployProject(projectId: string, credentials: DeployCredentials): Promise<DeployStartResponse> {
 	const api = createApiClient(projectId);
 	const response = await api.deploy.$post({ json: credentials });
 	if (!response.ok) {
 		await throwApiError(response, 'Failed to deploy project');
+	}
+	return response.json();
+}
+
+export async function getDeployStatus(projectId: string, instanceId: string): Promise<DeployStatusResponse> {
+	const api = createApiClient(projectId);
+	const response = await api.deploy.status.$get({ query: { instanceId } });
+	if (!response.ok) {
+		await throwApiError(response, 'Failed to get deployment status');
 	}
 	return response.json();
 }

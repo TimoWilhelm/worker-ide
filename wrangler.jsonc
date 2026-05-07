@@ -35,6 +35,13 @@
 			"migrations_dir": "./worker/migrations/d1-auth",
 		},
 	],
+	"workflows": [
+		{
+			"name": "deploy-workflow",
+			"binding": "DEPLOY_WORKFLOW",
+			"class_name": "DeployWorkflow",
+		},
+	],
 	"migrations": [
 		{
 			"new_sqlite_classes": ["DurableObjectFilesystem", "HMRCoordinator"],

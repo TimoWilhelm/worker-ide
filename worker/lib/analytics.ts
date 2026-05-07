@@ -13,11 +13,19 @@ function getRequestCfString(request: Request, key: 'colo' | 'country'): string {
 	return typeof value === 'string' ? value : '';
 }
 
-function getColo(request: Request): string {
+function getColo(request?: Request): string {
+	if (!request) {
+		return '';
+	}
+
 	return getRequestCfString(request, 'colo');
 }
 
-function getCountry(request: Request): string {
+function getCountry(request?: Request): string {
+	if (!request) {
+		return '';
+	}
+
 	return getRequestCfString(request, 'country');
 }
 
@@ -77,7 +85,7 @@ export interface ProjectEvent {
 	error?: string;
 	durationMs: number;
 	success: boolean;
-	request: Request;
+	request?: Request;
 }
 
 /**

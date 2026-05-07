@@ -79,6 +79,14 @@ const route = new Hono<AppEnvironment>().post('/example', async (c) => {
 });
 ```
 
+## Cloudflare Workflows Guidance
+
+Use Cloudflare Workflows for backend jobs that need durable, resumable orchestration across multiple steps. They are a good fit when work may take longer than a normal request, depends on external APIs or network I/O, benefits from retries, and can be represented as meaningful asynchronous status for the user.
+
+Prefer Workflows when each step can be made idempotent and the user experience benefits from starting a job, polling status, and receiving a final result. They are especially useful when partial progress should be preserved across retries, restarts, or transient failures.
+
+Prefer regular Workers or Durable Objects for fast request/response operations, low-latency reads, interactive actions, and work already naturally owned by a Durable Object. Choose the simplest reliable primitive for the job.
+
 ## React Best Practices
 
 - If you can calculate something during render, you don't need an Effect.

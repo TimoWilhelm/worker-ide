@@ -85,6 +85,7 @@ async function getPreviewService(projectRoot: string, projectId: string): Promis
 export { AgentRunner, DurableObjectFilesystem, ProjectCoordinatorV2, ProjectMetadata, SubAgentWorker } from './durable';
 export { LogTailer } from './services/log-tailer';
 export { ObjectStorageBinding } from './services/object-storage-binding';
+export { DeployWorkflow } from './workflows/deploy-workflow';
 
 const PROJECT_ROOT = '/project';
 const AUTHENTICATED_API_ROUTE_PATTERNS = ['/api/*', '/p/*/api/*'];
