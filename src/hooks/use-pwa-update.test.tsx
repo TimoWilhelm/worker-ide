@@ -1,12 +1,14 @@
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { recoverFromStaleAssetMock, toastInfoMock, updateServiceWorkerMock, useRegisterSWMock } = vi.hoisted(() => ({
-	recoverFromStaleAssetMock: vi.fn(),
-	toastInfoMock: vi.fn(),
-	updateServiceWorkerMock: vi.fn(),
-	useRegisterSWMock: vi.fn(),
-}));
+const { markUpdateActivationReloadPendingMock, recoverFromStaleAssetMock, toastInfoMock, updateServiceWorkerMock, useRegisterSWMock } =
+	vi.hoisted(() => ({
+		markUpdateActivationReloadPendingMock: vi.fn(),
+		recoverFromStaleAssetMock: vi.fn(),
+		toastInfoMock: vi.fn(),
+		updateServiceWorkerMock: vi.fn(),
+		useRegisterSWMock: vi.fn(),
+	}));
 
 vi.mock('@/components/ui/toast-store', () => ({
 	toast: {
@@ -15,6 +17,7 @@ vi.mock('@/components/ui/toast-store', () => ({
 }));
 
 vi.mock('@/lib/stale-asset-recovery', () => ({
+	markUpdateActivationReloadPending: markUpdateActivationReloadPendingMock,
 	recoverFromStaleAsset: recoverFromStaleAssetMock,
 }));
 
@@ -41,6 +44,7 @@ describe('usePwaUpdate', () => {
 		vi.resetModules();
 		vi.useFakeTimers();
 		toastInfoMock.mockReset();
+		markUpdateActivationReloadPendingMock.mockReset();
 		recoverFromStaleAssetMock.mockReset();
 		updateServiceWorkerMock.mockReset();
 		registrationUpdateMock = vi.fn(async () => {});
@@ -99,6 +103,7 @@ describe('usePwaUpdate', () => {
 		renderHook(() => usePwaUpdate());
 
 		expect(updateServiceWorkerMock).toHaveBeenCalledWith(true);
+		expect(markUpdateActivationReloadPendingMock).toHaveBeenCalledTimes(1);
 		expect(toastInfoMock).not.toHaveBeenCalled();
 		expect(registrationUpdateMock).toHaveBeenCalledTimes(1);
 
@@ -163,6 +168,7 @@ describe('usePwaUpdate', () => {
 		});
 
 		expect(updateServiceWorkerMock).toHaveBeenCalledWith(true);
+		expect(markUpdateActivationReloadPendingMock).toHaveBeenCalledTimes(1);
 
 		await act(async () => {
 			controllerChangeListener?.(new Event('controllerchange'));

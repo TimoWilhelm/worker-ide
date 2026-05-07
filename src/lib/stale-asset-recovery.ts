@@ -1,6 +1,9 @@
 const STALE_ASSET_RELOAD_KEY = 'stale-asset-reload';
 const STALE_ASSET_RELOAD_WINDOW_MS = 10_000;
 
+const UPDATE_ACTIVATION_RELOAD_KEY = 'update-activation-reload';
+const UPDATE_ACTIVATION_RELOAD_WINDOW_MS = 30_000;
+
 const dynamicImportFailurePatterns = [
 	/Failed to fetch dynamically imported module/i,
 	/Failed to import dynamically imported module/i,
@@ -79,6 +82,49 @@ function writeLastRecoveryTimestamp(timestamp: number): void {
 	}
 }
 
+function readTimestamp(key: string): number | undefined {
+	try {
+		const storedValue = globalThis.sessionStorage.getItem(key);
+		if (!storedValue) {
+			return undefined;
+		}
+
+		const parsedValue = Number(storedValue);
+		return Number.isFinite(parsedValue) ? parsedValue : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+function writeTimestamp(key: string, timestamp: number): void {
+	try {
+		globalThis.sessionStorage.setItem(key, String(timestamp));
+	} catch {
+		return;
+	}
+}
+
+export function markUpdateActivationReloadPending(): void {
+	writeTimestamp(UPDATE_ACTIVATION_RELOAD_KEY, Date.now());
+}
+
+export function clearUpdateActivationReloadPending(): void {
+	try {
+		globalThis.sessionStorage.removeItem(UPDATE_ACTIVATION_RELOAD_KEY);
+	} catch {
+		return;
+	}
+}
+
+export function isUpdateActivationReloadPending(): boolean {
+	const timestamp = readTimestamp(UPDATE_ACTIVATION_RELOAD_KEY);
+	if (timestamp === undefined) {
+		return false;
+	}
+
+	return Date.now() - timestamp < UPDATE_ACTIVATION_RELOAD_WINDOW_MS;
+}
+
 export function isDynamicImportFailure(error: unknown): boolean {
 	const message = getMessage(error);
 	if (!message) {
@@ -119,6 +165,7 @@ export function installStaleAssetRecovery(): void {
 		return;
 	}
 
+	clearUpdateActivationReloadPending();
 	recoveryListenersInstalled = true;
 	globalThis.addEventListener('vite:preloadError', handlePreloadError);
 	globalThis.addEventListener('unhandledrejection', handleUnhandledRejection);

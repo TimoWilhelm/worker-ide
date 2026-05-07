@@ -75,4 +75,25 @@ describe('stale asset recovery', () => {
 		expect(reloadMock).toHaveBeenCalledTimes(2);
 		vi.useRealTimers();
 	});
+
+	it('tracks pending update activation reloads within the grace window', async () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date('2026-05-05T20:00:00Z'));
+		const { clearUpdateActivationReloadPending, isUpdateActivationReloadPending, markUpdateActivationReloadPending } =
+			await import('./stale-asset-recovery');
+
+		expect(isUpdateActivationReloadPending()).toBe(false);
+
+		markUpdateActivationReloadPending();
+		expect(isUpdateActivationReloadPending()).toBe(true);
+
+		vi.setSystemTime(new Date('2026-05-05T20:00:31Z'));
+		expect(isUpdateActivationReloadPending()).toBe(false);
+
+		markUpdateActivationReloadPending();
+		clearUpdateActivationReloadPending();
+		expect(isUpdateActivationReloadPending()).toBe(false);
+
+		vi.useRealTimers();
+	});
 });

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef } from 'react';
 
 import { toast } from '@/components/ui/toast-store';
 import { useRegisterSW } from '@/lib/pwa-register';
-import { recoverFromStaleAsset } from '@/lib/stale-asset-recovery';
+import { markUpdateActivationReloadPending, recoverFromStaleAsset } from '@/lib/stale-asset-recovery';
 
 // Grace period to distinguish "new SW was already waiting on page load"
 // from "update arrived mid-session".
@@ -63,6 +63,7 @@ export function usePwaUpdate() {
 
 	const activateUpdate = useCallback(() => {
 		isAwaitingActivationReloadReference.current = true;
+		markUpdateActivationReloadPending();
 		void updateServiceWorker(true);
 	}, [updateServiceWorker]);
 
