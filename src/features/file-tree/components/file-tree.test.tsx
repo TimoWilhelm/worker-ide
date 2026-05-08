@@ -362,6 +362,11 @@ describe('FileTree', () => {
 		fileItem.focus();
 		fireEvent.keyDown(fileItem, { key: 'Delete' });
 
+		expect(onDeleteFile).not.toHaveBeenCalled();
+		expect(screen.getByLabelText('Confirm delete main.ts')).toBeInTheDocument();
+
+		fireEvent.keyDown(fileItem, { key: 'Delete' });
+
 		expect(onDeleteFile).toHaveBeenCalledWith('/src/main.ts');
 	});
 

@@ -1,7 +1,7 @@
 import { AnimatePresence, motion } from 'motion/react';
 import { useEffect, useId, useState } from 'react';
 
-import { springSnappy, tweenFast } from '@/lib/motion-config';
+import { springCritical, tweenFast } from '@/lib/motion-config';
 import { cn } from '@/lib/utils';
 
 import { Button } from './button';
@@ -121,10 +121,10 @@ export function ConfirmButton({
 						aria-labelledby={titleId}
 						aria-describedby={description ? descriptionId : undefined}
 						variants={confirmPopoverVariants}
-						initial={false}
+						initial="hidden"
 						animate="visible"
 						exit="exit"
-						transition={springSnappy}
+						transition={springCritical}
 						className={cn(
 							`
 								absolute top-1/2 left-1/2 z-20 flex min-w-40 -translate-1/2 flex-col

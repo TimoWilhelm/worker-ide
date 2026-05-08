@@ -1,26 +1,10 @@
 import { ScrollArea } from '@base-ui/react/scroll-area';
-import {
-	ArrowDown,
-	Check,
-	Download,
-	History,
-	Map as MapIcon,
-	MessageCircleQuestion,
-	Mic,
-	MicOff,
-	Pencil,
-	Plus,
-	ArrowUp,
-	Square,
-	Trash2,
-	X,
-} from 'lucide-react';
+import { ArrowDown, Download, History, Map as MapIcon, Mic, MicOff, Pencil, Plus, ArrowUp, Square, Trash2, X } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Collapsible } from '@/components/ui/collapsible';
-import { ConfirmButton } from '@/components/ui/confirm-button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { PendingApprovalIndicator } from '@/components/ui/pending-approval-indicator';
 import { Spinner } from '@/components/ui/spinner';
@@ -313,6 +297,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	});
 
 	const {
+		allSessions,
 		savedSessions,
 		handleLoadSession: loadSession,
 		handleRenameSession,
@@ -326,10 +311,13 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		agentConnectionState,
 	});
 
-	// Session rename/delete UI state
-	const [renamingSessionId, setRenamingSessionId] = useState<string | undefined>();
+	// Session rename UI state
+	const [isRenamingSessionTitle, setIsRenamingSessionTitle] = useState(false);
 	const [renameValue, setRenameValue] = useState('');
-	const [renameError, setRenameError] = useState<string | undefined>();
+
+	// Inline delete confirmation state (2-click pattern in session dropdown)
+	const [confirmingDeleteSessionId, setConfirmingDeleteSessionId] = useState<string | undefined>();
+	const [deletingSessionId, setDeletingSessionId] = useState<string | undefined>();
 
 	// Snapshot hook for revert
 	const { revertCascadeAsync, isReverting } = useSnapshots({ projectId });
@@ -904,6 +892,31 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		});
 	}, [debugLogId, projectId, sessionId]);
 
+	const handleStartRenameSessionTitle = useCallback(() => {
+		if (!sessionId) return;
+		const currentSession = allSessions.find((session) => session.id === sessionId);
+		setRenameValue(currentSession?.title ?? 'New session');
+		setIsRenamingSessionTitle(true);
+	}, [allSessions, sessionId]);
+
+	const handleSubmitRenameSessionTitle = useCallback(
+		async (value: string) => {
+			if (!sessionId) return;
+			const parsed = sessionTitleSchema.safeParse(value);
+			if (!parsed.success) {
+				toast.error(parsed.error.issues[0]?.message ?? 'Invalid title');
+				return;
+			}
+
+			const success = await handleRenameSession(sessionId, parsed.data);
+			if (success) {
+				setRenameValue(parsed.data);
+				setIsRenamingSessionTitle(false);
+			}
+		},
+		[handleRenameSession, sessionId],
+	);
+
 	const handleSuggestion = useCallback(
 		(prompt: string) => {
 			void handleSubmit(prompt);
@@ -936,278 +949,278 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 
 	return (
 		<div ref={keyboardReference} className={cn('flex h-full flex-col bg-bg-secondary', className)} style={keyboardStyle}>
-			<div
-				className="
-					flex h-9 shrink-0 items-center justify-between border-b border-border px-3
-				"
-			>
-				<div className="flex min-w-0 items-center gap-2 overflow-hidden">
-					<span className="truncate text-xs font-medium text-text-secondary">Agent</span>
-				</div>
-				<div className="flex shrink-0 items-center gap-1">
-					<DropdownMenu>
-						<Tooltip content="Sessions" side="bottom">
-							<DropdownMenuTrigger>
-								<Button focusStyle="inset" variant="ghost" size="icon" className="size-7" aria-label="Sessions">
-									<History className="size-3.5" />
-								</Button>
-							</DropdownMenuTrigger>
-						</Tooltip>
-						<DropdownMenuContent align="end" className="max-h-80 w-64 overflow-y-auto">
-							<div className="border-b border-border p-2">
+			{(() => {
+				const hasSession = allMessages.length > 0;
+				const currentSession = allSessions.find((session) => session.id === sessionId);
+				const sessionTitle = currentSession?.title ?? 'New session';
+				const needsAttention = !!pendingQuestion || needsContinuation || !!doomLoopMessage;
+
+				// Status dot: session state takes priority over connection state
+				let statusDotClassName: string;
+				let statusTooltip: string;
+				if (!isConnected) {
+					statusDotClassName = agentConnectionState === 'connecting' ? 'animate-pulse bg-text-secondary/50' : 'animate-pulse bg-error';
+					statusTooltip = agentConnectionState === 'connecting' ? 'Connecting…' : 'Reconnecting…';
+				} else if (isProcessing) {
+					statusDotClassName = 'animate-pulse bg-warning';
+					statusTooltip = 'Generating…';
+				} else if (needsAttention) {
+					statusDotClassName = 'animate-pulse bg-accent';
+					statusTooltip = 'Waiting for input';
+				} else {
+					statusDotClassName = 'bg-success';
+					statusTooltip = 'Ready';
+				}
+
+				return (
+					<div
+						className="
+							relative flex h-9 shrink-0 items-center gap-2 border-b border-border px-3
+						"
+					>
+						{/* Left: status dot + session title + pencil (or plain label) */}
+						<div className="group flex min-w-0 flex-1 items-center gap-2">
+							{hasSession && (
+								<Tooltip content={statusTooltip} side="bottom">
+									<span className={cn('size-1.5 shrink-0 rounded-full transition-colors', statusDotClassName)} />
+								</Tooltip>
+							)}
+							{hasSession ? (
+								<>
+									<button
+										type="button"
+										onClick={handleStartRenameSessionTitle}
+										className="
+											min-w-0 cursor-pointer truncate text-xs font-medium
+											text-text-secondary
+										"
+										title={sessionTitle}
+										aria-label="Rename session"
+									>
+										{sessionTitle}
+									</button>
+									<Tooltip content="Rename session" side="bottom">
+										<button
+											type="button"
+											onClick={handleStartRenameSessionTitle}
+											className="
+												shrink-0 cursor-pointer text-text-secondary opacity-0
+												transition-opacity
+												pointer-coarse:hidden
+												hover-always:text-accent
+												group-hover-always:opacity-100
+											"
+											aria-label="Rename session"
+										>
+											<Pencil className="size-3" />
+										</button>
+									</Tooltip>
+								</>
+							) : (
+								<span className="truncate text-xs font-medium text-text-secondary">Agent</span>
+							)}
+						</div>
+
+						{/* Absolute rename overlay — sits on top of the header, avoids overflow clipping */}
+						{isRenamingSessionTitle && (
+							<div className="absolute inset-0 z-10 flex items-center px-3">
 								<input
+									autoFocus
 									type="text"
-									value={sessionSearchQuery}
-									onChange={(event) => setSessionSearchQuery(event.target.value)}
-									onKeyDown={(event) => event.stopPropagation()}
-									placeholder="Search session history..."
+									defaultValue={renameValue || sessionTitle}
+									onKeyDown={(event) => {
+										if (event.key === 'Enter') {
+											event.preventDefault();
+											void handleSubmitRenameSessionTitle(event.currentTarget.value);
+										}
+										if (event.key === 'Escape') {
+											event.preventDefault();
+											setIsRenamingSessionTitle(false);
+										}
+									}}
+									onBlur={(event) => {
+										void handleSubmitRenameSessionTitle(event.currentTarget.value);
+									}}
+									maxLength={80}
+									aria-label="Rename session"
 									className="
-										w-full rounded-sm border border-border bg-bg-primary px-2 py-1 text-xs
-										text-text-primary outline-none
-										focus:border-accent
+										h-6 w-full rounded-sm border border-accent bg-bg-primary px-1.5
+										text-xs text-text-primary shadow-sm
+										focus:outline-none
 									"
 								/>
 							</div>
-							{savedSessions.length === 0 ? (
-								<div className="px-3 py-2 text-xs text-text-secondary">
-									{sessionSearchQuery.trim() ? 'No matching sessions' : 'No recent sessions'}
-								</div>
-							) : (
-								savedSessions.map((session) =>
-									renamingSessionId === session.id ? (
-										<div key={session.id} className="flex items-center gap-1 px-2 py-1.5">
-											<input
-												autoFocus
-												type="text"
-												value={renameValue}
-												onChange={(event) => {
-													setRenameValue(event.target.value);
-													setRenameError(undefined);
-												}}
-												onKeyDown={(event) => {
-													if (event.key === 'Enter') {
-														event.preventDefault();
-														const parsed = sessionTitleSchema.safeParse(renameValue);
-														if (!parsed.success) {
-															setRenameError(parsed.error.issues[0]?.message ?? 'Invalid title');
-															return;
-														}
-														void handleRenameSession(session.id, parsed.data).then((success) => {
-															if (success) setRenamingSessionId(undefined);
-														});
-													}
-													if (event.key === 'Escape') {
-														event.preventDefault();
-														setRenamingSessionId(undefined);
-														setRenameError(undefined);
-													}
-													event.stopPropagation();
-												}}
-												className={cn(
-													`
-														min-w-0 flex-1 rounded-sm border bg-bg-primary px-1.5 py-0.5
-														text-sm text-text-primary outline-none
-													`,
-													renameError
-														? 'border-error'
-														: `
-															border-border
-															focus:border-accent
-														`,
-												)}
-												title={renameError}
-											/>
-											<button
-												type="button"
-												onClick={() => {
-													const parsed = sessionTitleSchema.safeParse(renameValue);
-													if (!parsed.success) {
-														setRenameError(parsed.error.issues[0]?.message ?? 'Invalid title');
-														return;
-													}
-													void handleRenameSession(session.id, parsed.data).then((success) => {
-														if (success) setRenamingSessionId(undefined);
-													});
-												}}
-												className="
-													rounded-sm p-0.5 text-text-secondary transition-colors
-													hover:bg-bg-tertiary hover:text-success
-												"
+						)}
+
+						{/* Right: action buttons */}
+						<div className="flex shrink-0 items-center gap-1">
+							{hasSession && (
+								<>
+									<AnimatePresence initial={false}>
+										{isProcessing && (
+											<motion.div
+												initial={{ opacity: 0, x: 4, scale: 0.96 }}
+												animate={{ opacity: 1, x: 0, scale: 1 }}
+												exit={{ opacity: 0, x: 4, scale: 0.96 }}
+												transition={tweenFast}
+												className="shrink-0"
 											>
-												<Check className="size-3.5" />
-											</button>
-											<button
-												type="button"
-												onClick={() => {
-													setRenamingSessionId(undefined);
-													setRenameError(undefined);
-												}}
-												className="
-													rounded-sm p-0.5 text-text-secondary transition-colors
-													hover:bg-bg-tertiary hover:text-error
-												"
-											>
-												<X className="size-3.5" />
-											</button>
-										</div>
-									) : (
-										<DropdownMenuItem key={session.id} onSelect={() => handleLoadSession(session.id)}>
-											<div
-												className="
-													group/session flex w-full items-center justify-between gap-1
-												"
-												title={session.title}
-											>
-												<span className="truncate text-sm">{session.title}</span>
-												<div className="flex shrink-0 items-center gap-0.5">
-													{session.isRunning && <Spinner className="size-3 text-warning" />}
-													<span
-														className="
-															text-2xs text-text-secondary
-															group-hover/session:hidden
-														"
-													>
-														{formatRelativeTime(session.createdAt)}
-													</span>
+												<Tooltip content={isStopPending ? 'Stopping generation' : 'Stop generation'} side="bottom">
 													<button
 														type="button"
-														onClick={(event) => {
-															event.stopPropagation();
-															setRenamingSessionId(session.id);
-															setRenameValue(session.title);
-															setRenameError(undefined);
-														}}
-														className="
-															hidden rounded-sm p-0.5 text-text-secondary transition-colors
-															group-hover/session:block
-															hover:bg-bg-tertiary hover:text-text-primary
-														"
+														onClick={handleCancel}
+														disabled={isStopPending || !isConnected}
+														className={cn(
+															'inline-flex items-center justify-center rounded-md p-1',
+															'text-error transition-colors',
+															isStopPending
+																? 'cursor-wait opacity-70'
+																: isConnected
+																	? `
+																		cursor-pointer
+																		hover:bg-error/10
+																	`
+																	: 'cursor-not-allowed opacity-40',
+														)}
+														aria-label={isStopPending ? 'Stopping generation' : 'Stop generation'}
 													>
-														<Pencil className="size-3" />
+														{isStopPending ? <Spinner className="size-3.5" /> : <Square className="size-3.5" />}
 													</button>
-													<div onClick={(event) => event.stopPropagation()} className="hidden group-hover/session:block">
-														<ConfirmButton
-															title="Delete this session?"
-															description="Your code changes will be preserved."
-															confirmLabel="Delete"
-															onConfirm={() => void handleDeleteSession(session.id)}
-															variant="ghost"
-															size="icon-sm"
-															confirmVariant="danger"
-															className="
-																size-5 rounded-sm text-text-secondary
-																hover:bg-bg-tertiary hover:text-error
-															"
-														>
-															<Trash2 className="size-3" />
-														</ConfirmButton>
+												</Tooltip>
+											</motion.div>
+										)}
+									</AnimatePresence>
+								</>
+							)}
+							<DropdownMenu
+								onOpenChange={(open) => {
+									if (!open) setConfirmingDeleteSessionId(undefined);
+								}}
+							>
+								<Tooltip content="Sessions" side="bottom">
+									<DropdownMenuTrigger>
+										<Button focusStyle="inset" variant="ghost" size="icon" className="size-7" aria-label="Sessions">
+											<History className="size-3.5" />
+										</Button>
+									</DropdownMenuTrigger>
+								</Tooltip>
+								<DropdownMenuContent align="end" className="max-h-80 w-64 overflow-y-auto">
+									<div className="border-b border-border p-2">
+										<input
+											type="text"
+											value={sessionSearchQuery}
+											onChange={(event) => setSessionSearchQuery(event.target.value)}
+											onKeyDown={(event) => event.stopPropagation()}
+											placeholder="Search session history..."
+											className="
+												w-full rounded-sm border border-border bg-bg-primary px-2 py-1
+												text-xs text-text-primary outline-none
+												focus:border-accent
+											"
+										/>
+									</div>
+									{savedSessions.length === 0 ? (
+										<div className="px-3 py-2 text-xs text-text-secondary">
+											{sessionSearchQuery.trim() ? 'No matching sessions' : 'No recent sessions'}
+										</div>
+									) : (
+										savedSessions.map((session) => (
+											<DropdownMenuItem key={session.id} onSelect={() => handleLoadSession(session.id)}>
+												<div className="flex w-full items-center justify-between gap-2" title={session.title}>
+													<span className="truncate text-sm">{session.title}</span>
+													<div className="flex shrink-0 items-center gap-1">
+														{deletingSessionId === session.id ? (
+															<Spinner className="size-3 text-text-secondary" />
+														) : (
+															confirmingDeleteSessionId !== session.id && (
+																<>
+																	{session.isRunning && <Spinner className="size-3 text-warning" />}
+																	<span className="text-2xs text-text-secondary">{formatRelativeTime(session.createdAt)}</span>
+																</>
+															)
+														)}
+														{deletingSessionId === session.id ? undefined : confirmingDeleteSessionId === session.id ? (
+															<>
+																<button
+																	type="button"
+																	onClick={(event) => {
+																		event.stopPropagation();
+																		setConfirmingDeleteSessionId(undefined);
+																		setDeletingSessionId(session.id);
+																		if (session.id === sessionId) {
+																			clearHistory();
+																		}
+																		void handleDeleteSession(session.id).finally(() => {
+																			setDeletingSessionId((current) => (current === session.id ? undefined : current));
+																		});
+																	}}
+																	className="
+																		cursor-pointer rounded-sm p-0.5 text-error transition-colors
+																		hover:bg-error/10
+																	"
+																	aria-label={`Confirm delete ${session.title}`}
+																>
+																	<Trash2 className="size-3" />
+																</button>
+																<button
+																	type="button"
+																	onClick={(event) => {
+																		event.stopPropagation();
+																		setConfirmingDeleteSessionId(undefined);
+																	}}
+																	className="
+																		cursor-pointer rounded-sm p-0.5 text-text-secondary
+																		transition-colors
+																		hover:bg-bg-tertiary hover:text-text-primary
+																	"
+																	aria-label="Cancel delete"
+																>
+																	<X className="size-3" />
+																</button>
+															</>
+														) : (
+															<button
+																type="button"
+																onClick={(event) => {
+																	event.stopPropagation();
+																	setConfirmingDeleteSessionId(session.id);
+																}}
+																className="
+																	cursor-pointer rounded-sm p-0.5 text-text-secondary
+																	transition-colors
+																	hover:bg-bg-tertiary hover:text-error
+																"
+																aria-label={`Delete ${session.title}`}
+															>
+																<Trash2 className="size-3" />
+															</button>
+														)}
 													</div>
 												</div>
-											</div>
-										</DropdownMenuItem>
-									),
-								)
-							)}
-						</DropdownMenuContent>
-					</DropdownMenu>
-
-					{allMessages.length > 0 && (
-						<Tooltip content="New session" side="bottom">
-							<Button
-								focusStyle="inset"
-								variant="ghost"
-								size="icon"
-								className="size-7"
-								aria-label="New session"
-								onClick={clearHistory}
-								disabled={!isConnected}
-							>
-								<Plus className="size-3.5" />
-							</Button>
-						</Tooltip>
-					)}
-				</div>
-			</div>
-
-			{allMessages.length > 0 &&
-				(() => {
-					const currentSession = savedSessions.find((session) => session.id === sessionId);
-					const sessionTitle = currentSession?.title ?? 'New session';
-					const needsAttention = !!pendingQuestion || needsContinuation || !!doomLoopMessage;
-					return (
-						<div
-							className="
-								flex h-7 min-w-0 shrink-0 items-center justify-between gap-2 border-b
-								border-border px-3
-							"
-							title={sessionTitle}
-						>
-							<div className="flex min-w-0 items-center gap-1.5 overflow-hidden">
-								<Tooltip
-									content={
-										agentConnectionState === 'connected'
-											? 'Connected'
-											: agentConnectionState === 'connecting'
-												? 'Connecting…'
-												: 'Reconnecting…'
-									}
-									side="bottom"
-								>
-									<span
-										className={cn(
-											'size-1.5 shrink-0 rounded-full transition-colors',
-											agentConnectionState === 'connected'
-												? 'bg-success'
-												: agentConnectionState === 'connecting'
-													? 'animate-pulse bg-text-secondary/50'
-													: 'animate-pulse bg-error',
-										)}
-									/>
-								</Tooltip>
-								{needsAttention && (
-									<Tooltip content="Action required">
-										<MessageCircleQuestion className="size-3 shrink-0 text-accent" />
-									</Tooltip>
-								)}
-								<span className="min-w-0 truncate text-2xs text-text-secondary">{sessionTitle}</span>
-							</div>
-							<AnimatePresence initial={false}>
-								{isProcessing && (
-									<motion.div
-										initial={{ opacity: 0, x: 4, scale: 0.96 }}
-										animate={{ opacity: 1, x: 0, scale: 1 }}
-										exit={{ opacity: 0, x: 4, scale: 0.96 }}
-										transition={tweenFast}
-										className="shrink-0"
+											</DropdownMenuItem>
+										))
+									)}
+								</DropdownMenuContent>
+							</DropdownMenu>
+							{hasSession && (
+								<Tooltip content="New session" side="bottom">
+									<Button
+										focusStyle="inset"
+										variant="ghost"
+										size="icon"
+										className="size-7"
+										aria-label="New session"
+										onClick={clearHistory}
+										disabled={!isConnected}
 									>
-										<Tooltip content={isStopPending ? 'Stopping generation' : 'Stop generation'} side="bottom">
-											<button
-												type="button"
-												onClick={handleCancel}
-												disabled={isStopPending || !isConnected}
-												className={cn(
-													'inline-flex items-center justify-center rounded-md p-1',
-													'text-error transition-colors',
-													isStopPending
-														? 'cursor-wait opacity-70'
-														: isConnected
-															? `
-																cursor-pointer
-																hover:bg-error/10
-															`
-															: 'cursor-not-allowed opacity-40',
-												)}
-												aria-label={isStopPending ? 'Stopping generation' : 'Stop generation'}
-											>
-												{isStopPending ? <Spinner className="size-3.5" /> : <Square className="size-3.5" />}
-											</button>
-										</Tooltip>
-									</motion.div>
-								)}
-							</AnimatePresence>
+										<Plus className="size-3.5" />
+									</Button>
+								</Tooltip>
+							)}
 						</div>
-					);
-				})()}
+					</div>
+				);
+			})()}
 
 			<div ref={wrapperReference} className="group/scroll relative flex-1 overflow-hidden">
 				<div

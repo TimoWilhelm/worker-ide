@@ -1,9 +1,8 @@
 import { ScrollArea } from '@base-ui/react/scroll-area';
-import { ChevronDown, ChevronRight, File, FilePlus, Folder, FolderOpen, FolderPlus, Lock, Pencil, Trash2 } from 'lucide-react';
+import { ChevronDown, ChevronRight, File, FilePlus, Folder, FolderOpen, FolderPlus, Lock, Pencil, Trash2, X } from 'lucide-react';
 import { useCallback, useId, useMemo, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
-import { ConfirmButton } from '@/components/ui/confirm-button';
 import { Modal, ModalBody, ModalFooter } from '@/components/ui/modal';
 import { Tooltip } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
@@ -182,6 +181,7 @@ export function FileTree({
 	const [newFilePath, setNewFilePath] = useState('');
 	const [newFolderPath, setNewFolderPath] = useState('');
 	const [renamingPath, setRenamingPath] = useState<string | undefined>();
+	const [confirmingDeletePath, setConfirmingDeletePath] = useState<string | undefined>();
 	const [dragOverPath, setDragOverPath] = useState<string | undefined>();
 	const activeFocusPath =
 		(focusedPath && visibleNodeIndex.has(focusedPath) ? focusedPath : undefined) ??
@@ -316,7 +316,12 @@ export function FileTree({
 						const isNodeProtected = PROTECTED_FILES.has(node.path);
 						if (!isNodeProtected) {
 							event.preventDefault();
-							onDeleteFile(node.path);
+							if (confirmingDeletePath === node.path) {
+								setConfirmingDeletePath(undefined);
+								onDeleteFile(node.path);
+								return;
+							}
+							setConfirmingDeletePath(node.path);
 						}
 					}
 					return;
@@ -326,7 +331,7 @@ export function FileTree({
 				}
 			}
 		},
-		[focusNode, onDeleteFile, onDirectoryToggle, onFileSelect, onRenameFile, visibleNodeIndex, visibleNodes],
+		[confirmingDeletePath, focusNode, onDeleteFile, onDirectoryToggle, onFileSelect, onRenameFile, visibleNodeIndex, visibleNodes],
 	);
 
 	const handleOpenCreateModal = useCallback((prefillPath?: string) => {
@@ -449,8 +454,10 @@ export function FileTree({
 									dragOverPath={dragOverPath}
 									onDragOverPathChange={setDragOverPath}
 									renamingPath={renamingPath}
+									confirmingDeletePath={confirmingDeletePath}
 									onStartRename={setRenamingPath}
 									onCancelRename={() => setRenamingPath(undefined)}
+									onConfirmDeletePathChange={setConfirmingDeletePath}
 									participants={participants}
 									gitStatusMap={gitStatusMap}
 									activeFocusPath={activeFocusPath}
@@ -547,8 +554,10 @@ interface FileTreeNodeProperties {
 	dragOverPath: string | undefined;
 	onDragOverPathChange: (path?: string) => void;
 	renamingPath: string | undefined;
+	confirmingDeletePath: string | undefined;
 	onStartRename: (path: string) => void;
 	onCancelRename: () => void;
+	onConfirmDeletePathChange: (path?: string) => void;
 	participants: Participant[];
 	gitStatusMap?: Map<string, GitFileStatus>;
 	activeFocusPath: string | undefined;
@@ -572,8 +581,10 @@ function FileTreeNode({
 	dragOverPath,
 	onDragOverPathChange,
 	renamingPath,
+	confirmingDeletePath,
 	onStartRename,
 	onCancelRename,
+	onConfirmDeletePathChange,
 	participants,
 	gitStatusMap,
 	activeFocusPath,
@@ -590,6 +601,7 @@ function FileTreeNode({
 	const isRenaming = renamingPath === item.path;
 	const isDragOver = dragOverPath === item.path;
 	const canDrag = onMoveFile && !isProtected && !isRenaming;
+	const isDeleteConfirming = confirmingDeletePath === item.path;
 	// Git status: path in gitStatusMap uses no leading slash (e.g. "src/main.ts")
 	const gitStatus =
 		!item.isDirectory && gitStatusMap ? gitStatusMap.get(item.path.startsWith('/') ? item.path.slice(1) : item.path) : undefined;
@@ -637,9 +649,35 @@ function FileTreeNode({
 	const handleStartRename = (event: React.MouseEvent) => {
 		event.stopPropagation();
 		if (!isProtected && onRenameFile) {
+			onConfirmDeletePathChange();
 			onStartRename(item.path);
 		}
 	};
+
+	const handleStartDeleteConfirm = useCallback(
+		(event: React.MouseEvent) => {
+			event.stopPropagation();
+			onConfirmDeletePathChange(item.path);
+		},
+		[item.path, onConfirmDeletePathChange],
+	);
+
+	const handleCancelDeleteConfirm = useCallback(
+		(event: React.MouseEvent) => {
+			event.stopPropagation();
+			onConfirmDeletePathChange();
+		},
+		[onConfirmDeletePathChange],
+	);
+
+	const handleConfirmDelete = useCallback(
+		(event: React.MouseEvent) => {
+			event.stopPropagation();
+			onConfirmDeletePathChange();
+			onDeleteFile?.(item.path);
+		},
+		[item.path, onConfirmDeletePathChange, onDeleteFile],
+	);
 
 	return (
 		<div>
@@ -782,7 +820,7 @@ function FileTreeNode({
 						{fileParticipants.length > 3 && <span className="text-3xs text-text-secondary">+{fileParticipants.length - 3}</span>}
 					</div>
 				)}
-				{item.isDirectory && onCreateFileInDirectory && (
+				{item.isDirectory && onCreateFileInDirectory && !isDeleteConfirming && (
 					<button
 						type="button"
 						tabIndex={-1}
@@ -798,7 +836,7 @@ function FileTreeNode({
 						<FilePlus className="size-3" />
 					</button>
 				)}
-				{item.isDirectory && onCreateFolderInDirectory && (
+				{item.isDirectory && onCreateFolderInDirectory && !isDeleteConfirming && (
 					<button
 						type="button"
 						tabIndex={-1}
@@ -817,7 +855,7 @@ function FileTreeNode({
 						<FolderPlus className="size-3" />
 					</button>
 				)}
-				{!item.isDirectory && !isProtected && onRenameFile && !isRenaming && (
+				{!item.isDirectory && !isProtected && onRenameFile && !isRenaming && !isDeleteConfirming && (
 					<button
 						type="button"
 						tabIndex={-1}
@@ -833,24 +871,54 @@ function FileTreeNode({
 						<Pencil className="size-3" />
 					</button>
 				)}
-				{!isProtected && onDeleteFile && !isRenaming && (
-					<div onClick={(event) => event.stopPropagation()} className="hidden shrink-0 group-hover-always:block">
-						<ConfirmButton
-							title={`Delete ${item.name}?`}
-							confirmLabel="Delete"
-							onConfirm={() => onDeleteFile(item.path)}
-							variant="ghost"
-							size="icon-sm"
-							confirmVariant="danger"
+				{!isProtected &&
+					onDeleteFile &&
+					!isRenaming &&
+					(isDeleteConfirming ? (
+						<div className="flex shrink-0 items-center gap-0.5" onClick={(event) => event.stopPropagation()}>
+							<button
+								type="button"
+								tabIndex={-1}
+								onClick={handleConfirmDelete}
+								className="
+									flex size-4 cursor-pointer items-center justify-center rounded-sm
+									text-error transition-colors
+									hover:bg-error/10
+								"
+								aria-label={`Confirm delete ${item.name}`}
+							>
+								<Trash2 className="size-3" />
+							</button>
+							<button
+								type="button"
+								tabIndex={-1}
+								onClick={handleCancelDeleteConfirm}
+								className="
+									flex size-4 cursor-pointer items-center justify-center rounded-sm
+									text-text-secondary transition-colors
+									hover:bg-bg-tertiary hover:text-text-primary
+								"
+								aria-label={`Cancel delete ${item.name}`}
+							>
+								<X className="size-3" />
+							</button>
+						</div>
+					) : (
+						<button
+							type="button"
+							tabIndex={-1}
+							onClick={handleStartDeleteConfirm}
 							className="
-								size-4 text-text-secondary
-								hover:text-error
+								hidden size-4 shrink-0 cursor-pointer items-center justify-center
+								rounded-sm text-text-secondary transition-colors
+								hover-always:text-error
+								group-hover-always:flex
 							"
+							aria-label={`Delete ${item.name}`}
 						>
 							<Trash2 className="size-3" />
-						</ConfirmButton>
-					</div>
-				)}
+						</button>
+					))}
 			</div>
 			{item.isDirectory && isExpanded && item.children && (
 				<div role="group">
@@ -871,8 +939,10 @@ function FileTreeNode({
 							dragOverPath={dragOverPath}
 							onDragOverPathChange={onDragOverPathChange}
 							renamingPath={renamingPath}
+							confirmingDeletePath={confirmingDeletePath}
 							onStartRename={onStartRename}
 							onCancelRename={onCancelRename}
+							onConfirmDeletePathChange={onConfirmDeletePathChange}
 							participants={participants}
 							gitStatusMap={gitStatusMap}
 							activeFocusPath={activeFocusPath}

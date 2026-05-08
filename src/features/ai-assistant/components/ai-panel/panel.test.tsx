@@ -154,8 +154,8 @@ vi.mock('@/components/ui/collapsible', () => ({
 		open ? <div className={className}>{children}</div> : undefined,
 }));
 
-vi.mock('@/components/ui/confirm-dialog', () => ({
-	ConfirmDialog: () => {},
+vi.mock('@/components/ui/confirm-button', () => ({
+	ConfirmButton: ({ children }: { children: ReactNode }) => <div>{children}</div>,
 }));
 
 vi.mock('@/components/ui/dropdown-menu', () => ({
@@ -190,6 +190,7 @@ vi.mock('@/lib/project-storage', () => ({
 
 vi.mock('@/features/ai-assistant/hooks/use-ai-sessions', () => ({
 	useAiSessions: () => ({
+		allSessions: [{ id: 'session-1', title: 'Current session', createdAt: 1, isRunning: true }],
 		savedSessions: [{ id: 'session-1', title: 'Current session', createdAt: 1, isRunning: true }],
 		handleLoadSession: mocks.loadSession,
 		handleRenameSession: mocks.handleRenameSession,

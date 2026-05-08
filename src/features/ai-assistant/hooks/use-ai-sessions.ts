@@ -268,6 +268,7 @@ export function useAiSessions({
 		sessionLoadPhase === 'loading-saved-session' || (sessionLoadPhase === 'awaiting-agent-state' && agentConnectionState === 'connecting');
 
 	return {
+		allSessions: savedSessions,
 		savedSessions: displaySessions,
 		handleLoadSession,
 		handleRenameSession,
