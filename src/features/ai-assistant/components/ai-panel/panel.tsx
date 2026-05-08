@@ -1,11 +1,12 @@
 import { ScrollArea } from '@base-ui/react/scroll-area';
-import { ArrowDown, Download, History, Map as MapIcon, Mic, MicOff, Pencil, Plus, ArrowUp, Square, Trash2, X } from 'lucide-react';
+import { ArrowDown, Download, History, Map as MapIcon, Mic, MicOff, Pencil, Plus, ArrowUp, Square, Trash2 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Collapsible } from '@/components/ui/collapsible';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { InlineConfirmGroup } from '@/components/ui/inline-confirm-group';
 import { PendingApprovalIndicator } from '@/components/ui/pending-approval-indicator';
 import { Spinner } from '@/components/ui/spinner';
 import { toast } from '@/components/ui/toast-store';
@@ -318,6 +319,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	// Inline delete confirmation state (2-click pattern in session dropdown)
 	const [confirmingDeleteSessionId, setConfirmingDeleteSessionId] = useState<string | undefined>();
 	const [deletingSessionId, setDeletingSessionId] = useState<string | undefined>();
+	const deleteTriggerReferences = useRef<Map<string, HTMLButtonElement>>(new Map());
 
 	// Snapshot hook for revert
 	const { revertCascadeAsync, isReverting } = useSnapshots({ projectId });
@@ -767,6 +769,12 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		if (aiError) setDismissedError(aiError.message);
 	}, [aiError]);
 
+	const focusDeleteTrigger = useCallback((sessionIdentifier: string) => {
+		requestAnimationFrame(() => {
+			deleteTriggerReferences.current.get(sessionIdentifier)?.focus();
+		});
+	}, []);
+
 	// Open revert confirmation dialog.
 	// Computes the full cascade set: all snapshot IDs from the clicked message forward
 	// within the current session, so the dialog can show what will be reverted.
@@ -1140,47 +1148,33 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 															)
 														)}
 														{deletingSessionId === session.id ? undefined : confirmingDeleteSessionId === session.id ? (
-															<>
-																<button
-																	type="button"
-																	onClick={(event) => {
-																		event.stopPropagation();
-																		setConfirmingDeleteSessionId(undefined);
-																		setDeletingSessionId(session.id);
-																		if (session.id === sessionId) {
-																			clearHistory();
-																		}
-																		void handleDeleteSession(session.id).finally(() => {
-																			setDeletingSessionId((current) => (current === session.id ? undefined : current));
-																		});
-																	}}
-																	className="
-																		cursor-pointer rounded-sm p-0.5 text-error transition-colors
-																		hover:bg-error/10
-																	"
-																	aria-label={`Confirm delete ${session.title}`}
-																>
-																	<Trash2 className="size-3" />
-																</button>
-																<button
-																	type="button"
-																	onClick={(event) => {
-																		event.stopPropagation();
-																		setConfirmingDeleteSessionId(undefined);
-																	}}
-																	className="
-																		cursor-pointer rounded-sm p-0.5 text-text-secondary
-																		transition-colors
-																		hover:bg-bg-tertiary hover:text-text-primary
-																	"
-																	aria-label="Cancel delete"
-																>
-																	<X className="size-3" />
-																</button>
-															</>
+															<InlineConfirmGroup
+																itemName={session.title}
+																onConfirm={() => {
+																	setConfirmingDeleteSessionId(undefined);
+																	setDeletingSessionId(session.id);
+																	if (session.id === sessionId) {
+																		clearHistory();
+																	}
+																	void handleDeleteSession(session.id).finally(() => {
+																		setDeletingSessionId((current) => (current === session.id ? undefined : current));
+																	});
+																}}
+																onCancel={() => {
+																	setConfirmingDeleteSessionId(undefined);
+																	focusDeleteTrigger(session.id);
+																}}
+															/>
 														) : (
 															<button
 																type="button"
+																ref={(element) => {
+																	if (element) {
+																		deleteTriggerReferences.current.set(session.id, element);
+																		return;
+																	}
+																	deleteTriggerReferences.current.delete(session.id);
+																}}
 																onClick={(event) => {
 																	event.stopPropagation();
 																	setConfirmingDeleteSessionId(session.id);

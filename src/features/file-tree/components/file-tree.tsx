@@ -1,8 +1,9 @@
 import { ScrollArea } from '@base-ui/react/scroll-area';
-import { ChevronDown, ChevronRight, File, FilePlus, Folder, FolderOpen, FolderPlus, Lock, Pencil, Trash2, X } from 'lucide-react';
-import { useCallback, useId, useMemo, useRef, useState } from 'react';
+import { ChevronDown, ChevronRight, File, FilePlus, Folder, FolderOpen, FolderPlus, Lock, Pencil, Trash2 } from 'lucide-react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
+import { InlineConfirmGroup } from '@/components/ui/inline-confirm-group';
 import { Modal, ModalBody, ModalFooter } from '@/components/ui/modal';
 import { Tooltip } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
@@ -183,34 +184,54 @@ export function FileTree({
 	const [renamingPath, setRenamingPath] = useState<string | undefined>();
 	const [confirmingDeletePath, setConfirmingDeletePath] = useState<string | undefined>();
 	const [dragOverPath, setDragOverPath] = useState<string | undefined>();
+	const pendingFocusPath = useRef<string | undefined>(undefined);
+	const modalFocusRestoreReference = useRef<(() => void) | undefined>(undefined);
 	const activeFocusPath =
 		(focusedPath && visibleNodeIndex.has(focusedPath) ? focusedPath : undefined) ??
 		(selectedFile && visibleNodeIndex.has(selectedFile) ? selectedFile : firstVisiblePath);
+
+	const ensureAncestorsExpanded = useCallback(
+		(path: string) => {
+			const segments = path.split('/').filter(Boolean);
+			let currentPath = '';
+
+			for (const segment of segments.slice(0, -1)) {
+				currentPath = `${currentPath}/${segment}`;
+				if (!expandedDirectories.has(currentPath)) {
+					onDirectoryToggle(currentPath);
+				}
+			}
+		},
+		[expandedDirectories, onDirectoryToggle],
+	);
 
 	const handleCreateSubmit = useCallback(() => {
 		const trimmed = newFilePath.trim();
 		if (trimmed && onCreateFile) {
 			const path = trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
+			ensureAncestorsExpanded(path);
 			onCreateFile(path);
+			setFocusedPath(path);
+			pendingFocusPath.current = path;
+			modalFocusRestoreReference.current = undefined;
 		}
 		setIsCreateModalOpen(false);
 		setNewFilePath('');
-	}, [newFilePath, onCreateFile]);
+	}, [ensureAncestorsExpanded, newFilePath, onCreateFile]);
 
 	const handleCreateFolderSubmit = useCallback(() => {
 		const trimmed = newFolderPath.trim();
 		if (trimmed && onCreateFolder) {
 			const path = trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
+			ensureAncestorsExpanded(path);
 			onCreateFolder(path);
+			setFocusedPath(path);
+			pendingFocusPath.current = path;
+			modalFocusRestoreReference.current = undefined;
 		}
 		setIsCreateFolderModalOpen(false);
 		setNewFolderPath('');
-	}, [newFolderPath, onCreateFolder]);
-
-	const handleOpenCreateFolderModal = useCallback((prefillPath?: string) => {
-		setNewFolderPath(prefillPath ?? '');
-		setIsCreateFolderModalOpen(true);
-	}, []);
+	}, [ensureAncestorsExpanded, newFolderPath, onCreateFolder]);
 
 	const setNodeReference = useCallback((path: string, node: HTMLDivElement | null) => {
 		if (node) {
@@ -225,9 +246,95 @@ export function FileTree({
 		nodeReferences.current.get(path)?.focus();
 	}, []);
 
+	const restoreModalFocus = useCallback(() => {
+		requestAnimationFrame(() => {
+			modalFocusRestoreReference.current?.();
+			modalFocusRestoreReference.current = undefined;
+		});
+	}, []);
+
+	const setModalFocusRestoreTarget = useCallback(
+		(triggerElement?: HTMLButtonElement | null) => {
+			if (triggerElement) {
+				modalFocusRestoreReference.current = () => {
+					const treeItemElement = triggerElement.closest<HTMLElement>('[role="treeitem"]');
+					if (treeItemElement instanceof HTMLDivElement) {
+						treeItemElement.focus();
+						requestAnimationFrame(() => {
+							if (triggerElement.isConnected) {
+								triggerElement.focus();
+							}
+						});
+						return;
+					}
+
+					if (triggerElement.isConnected) {
+						triggerElement.focus();
+					}
+				};
+				return;
+			}
+
+			const pathToRestore = activeFocusPath;
+			modalFocusRestoreReference.current = () => {
+				if (!pathToRestore) return;
+				setFocusedPath(pathToRestore);
+				focusNode(pathToRestore);
+			};
+		},
+		[activeFocusPath, focusNode],
+	);
+
 	const handleNodeFocus = useCallback((path: string) => {
 		setFocusedPath(path);
 	}, []);
+
+	// Focus the pending path once it appears in the visible tree
+	useEffect(() => {
+		if (pendingFocusPath.current && visibleNodeIndex.has(pendingFocusPath.current)) {
+			const pathToFocus = pendingFocusPath.current;
+			pendingFocusPath.current = undefined;
+			setFocusedPath(pathToFocus);
+			modalFocusRestoreReference.current = undefined;
+			requestAnimationFrame(() => focusNode(pathToFocus));
+		}
+	}, [visibleNodeIndex, focusNode]);
+
+	const handleOpenCreateFolderModal = useCallback(
+		(prefillPath?: string, triggerElement?: HTMLButtonElement | null) => {
+			setModalFocusRestoreTarget(triggerElement);
+			setNewFolderPath(prefillPath ?? '');
+			setIsCreateFolderModalOpen(true);
+		},
+		[setModalFocusRestoreTarget],
+	);
+
+	const handleDeleteFile = useCallback(
+		(path: string) => {
+			if (!onDeleteFile) return;
+			const entry = visibleNodeIndex.get(path);
+			if (entry) {
+				const { index } = entry;
+				const nextNode = visibleNodes[index + 1] ?? visibleNodes[index - 1];
+				if (nextNode) {
+					setFocusedPath(nextNode.path);
+					pendingFocusPath.current = nextNode.path;
+				}
+			}
+			onDeleteFile(path);
+		},
+		[onDeleteFile, visibleNodeIndex, visibleNodes],
+	);
+
+	const handleRenameFile = useCallback(
+		(fromPath: string, toPath: string) => {
+			if (!onRenameFile) return;
+			onRenameFile(fromPath, toPath);
+			setFocusedPath(toPath);
+			pendingFocusPath.current = toPath;
+		},
+		[onRenameFile],
+	);
 
 	const handleTreeItemKeyDown = useCallback(
 		(event: React.KeyboardEvent, path: string) => {
@@ -254,17 +361,28 @@ export function FileTree({
 					return;
 				}
 				case 'ArrowRight': {
-					if (!node.isDirectory) return;
-					if (!node.isExpanded) {
+					const treeItemElement = nodeReferences.current.get(path);
+					const firstAction = treeItemElement?.querySelector<HTMLElement>('[data-action-button]');
+					if (firstAction) {
 						event.preventDefault();
-						onDirectoryToggle(node.path);
+						firstAction.focus();
 						return;
 					}
-					const next = visibleNodes[index + 1];
-					if (!next || next.parentPath !== node.path) return;
-					event.preventDefault();
-					setFocusedPath(next.path);
-					focusNode(next.path);
+
+					if (node.isDirectory) {
+						if (!node.isExpanded) {
+							event.preventDefault();
+							onDirectoryToggle(node.path);
+							return;
+						}
+						const next = visibleNodes[index + 1];
+						if (next && next.parentPath === node.path) {
+							event.preventDefault();
+							setFocusedPath(next.path);
+							focusNode(next.path);
+							return;
+						}
+					}
 					return;
 				}
 				case 'ArrowLeft': {
@@ -318,7 +436,7 @@ export function FileTree({
 							event.preventDefault();
 							if (confirmingDeletePath === node.path) {
 								setConfirmingDeletePath(undefined);
-								onDeleteFile(node.path);
+								handleDeleteFile(node.path);
 								return;
 							}
 							setConfirmingDeletePath(node.path);
@@ -331,13 +449,27 @@ export function FileTree({
 				}
 			}
 		},
-		[confirmingDeletePath, focusNode, onDeleteFile, onDirectoryToggle, onFileSelect, onRenameFile, visibleNodeIndex, visibleNodes],
+		[
+			confirmingDeletePath,
+			focusNode,
+			handleDeleteFile,
+			onDeleteFile,
+			onDirectoryToggle,
+			onFileSelect,
+			onRenameFile,
+			visibleNodeIndex,
+			visibleNodes,
+		],
 	);
 
-	const handleOpenCreateModal = useCallback((prefillPath?: string) => {
-		setNewFilePath(prefillPath ?? '');
-		setIsCreateModalOpen(true);
-	}, []);
+	const handleOpenCreateModal = useCallback(
+		(prefillPath?: string, triggerElement?: HTMLButtonElement | null) => {
+			setModalFocusRestoreTarget(triggerElement);
+			setNewFilePath(prefillPath ?? '');
+			setIsCreateModalOpen(true);
+		},
+		[setModalFocusRestoreTarget],
+	);
 
 	return (
 		<>
@@ -350,7 +482,7 @@ export function FileTree({
 						{onCreateFile && (
 							<Tooltip content="New file">
 								<button
-									onClick={() => handleOpenCreateModal()}
+									onClick={(event) => handleOpenCreateModal(undefined, event.currentTarget)}
 									className={cn(
 										`
 											flex size-6 cursor-pointer items-center justify-center rounded-sm
@@ -370,7 +502,7 @@ export function FileTree({
 						{onCreateFolder && (
 							<Tooltip content="New folder">
 								<button
-									onClick={() => handleOpenCreateFolderModal()}
+									onClick={(event) => handleOpenCreateFolderModal(undefined, event.currentTarget)}
 									className={cn(
 										`
 											flex size-6 cursor-pointer items-center justify-center rounded-sm
@@ -446,10 +578,10 @@ export function FileTree({
 									expandedDirectories={expandedDirectories}
 									onFileSelect={onFileSelect}
 									onDirectoryToggle={onDirectoryToggle}
-									onDeleteFile={onDeleteFile}
+									onDeleteFile={onDeleteFile ? handleDeleteFile : undefined}
 									onCreateFileInDirectory={onCreateFile ? handleOpenCreateModal : undefined}
 									onCreateFolderInDirectory={onCreateFolder ? handleOpenCreateFolderModal : undefined}
-									onRenameFile={onRenameFile}
+									onRenameFile={onRenameFile ? handleRenameFile : undefined}
 									onMoveFile={onMoveFile}
 									dragOverPath={dragOverPath}
 									onDragOverPathChange={setDragOverPath}
@@ -474,7 +606,14 @@ export function FileTree({
 				</ScrollArea.Root>
 			</div>
 
-			<Modal open={isCreateModalOpen} onOpenChange={setIsCreateModalOpen} title="New File">
+			<Modal
+				open={isCreateModalOpen}
+				onOpenChange={(open) => {
+					setIsCreateModalOpen(open);
+					if (!open && !pendingFocusPath.current) restoreModalFocus();
+				}}
+				title="New File"
+			>
 				<ModalBody>
 					<input
 						autoFocus
@@ -505,7 +644,14 @@ export function FileTree({
 				</ModalFooter>
 			</Modal>
 
-			<Modal open={isCreateFolderModalOpen} onOpenChange={setIsCreateFolderModalOpen} title="New Folder">
+			<Modal
+				open={isCreateFolderModalOpen}
+				onOpenChange={(open) => {
+					setIsCreateFolderModalOpen(open);
+					if (!open && !pendingFocusPath.current) restoreModalFocus();
+				}}
+				title="New Folder"
+			>
 				<ModalBody>
 					<input
 						autoFocus
@@ -547,8 +693,8 @@ interface FileTreeNodeProperties {
 	onFileSelect: (path: string) => void;
 	onDirectoryToggle: (path: string) => void;
 	onDeleteFile?: (path: string) => void;
-	onCreateFileInDirectory?: (prefillPath: string) => void;
-	onCreateFolderInDirectory?: (prefillPath: string) => void;
+	onCreateFileInDirectory?: (prefillPath: string, triggerElement?: HTMLButtonElement | null) => void;
+	onCreateFolderInDirectory?: (prefillPath: string, triggerElement?: HTMLButtonElement | null) => void;
 	onRenameFile?: (fromPath: string, toPath: string) => void;
 	onMoveFile?: (fromPath: string, toPath: string) => void;
 	dragOverPath: string | undefined;
@@ -607,6 +753,7 @@ function FileTreeNode({
 		!item.isDirectory && gitStatusMap ? gitStatusMap.get(item.path.startsWith('/') ? item.path.slice(1) : item.path) : undefined;
 	const gitColor = getGitStatusColor(gitStatus);
 	const renameInputReference = useRef<HTMLInputElement>(null);
+	const treeItemReference = useRef<HTMLDivElement>(null);
 
 	const handleRenameSubmit = useCallback(
 		(newName: string) => {
@@ -615,6 +762,9 @@ function FileTreeNode({
 				const directory = item.path.slice(0, item.path.lastIndexOf('/'));
 				const newPath = `${directory}/${trimmed}`;
 				onRenameFile(item.path, newPath);
+			} else {
+				// Name unchanged — restore focus to this treeitem after re-render
+				requestAnimationFrame(() => treeItemReference.current?.focus());
 			}
 			onCancelRename();
 		},
@@ -639,10 +789,10 @@ function FileTreeNode({
 		}
 	};
 
-	const handleCreateInFolder = (event: React.MouseEvent) => {
+	const handleCreateInFolder = (event: React.MouseEvent<HTMLButtonElement>) => {
 		event.stopPropagation();
 		if (onCreateFileInDirectory) {
-			onCreateFileInDirectory(`${item.path}/`);
+			onCreateFileInDirectory(`${item.path}/`, event.currentTarget);
 		}
 	};
 
@@ -662,22 +812,56 @@ function FileTreeNode({
 		[item.path, onConfirmDeletePathChange],
 	);
 
-	const handleCancelDeleteConfirm = useCallback(
-		(event: React.MouseEvent) => {
-			event.stopPropagation();
-			onConfirmDeletePathChange();
-		},
-		[onConfirmDeletePathChange],
-	);
+	const handleCancelDeleteConfirm = useCallback(() => {
+		onConfirmDeletePathChange();
+		treeItemReference.current?.focus();
+	}, [onConfirmDeletePathChange]);
 
-	const handleConfirmDelete = useCallback(
-		(event: React.MouseEvent) => {
-			event.stopPropagation();
-			onConfirmDeletePathChange();
-			onDeleteFile?.(item.path);
-		},
-		[item.path, onConfirmDeletePathChange, onDeleteFile],
-	);
+	const handleConfirmDelete = useCallback(() => {
+		onConfirmDeletePathChange();
+		onDeleteFile?.(item.path);
+	}, [item.path, onConfirmDeletePathChange, onDeleteFile]);
+
+	const handleActionKeyDown = useCallback((event: React.KeyboardEvent<HTMLButtonElement>) => {
+		const treeItemElement = treeItemReference.current;
+		if (!treeItemElement) return;
+
+		const actionButtons = [...treeItemElement.querySelectorAll<HTMLElement>('[data-action-button]')];
+		const currentIndex = actionButtons.indexOf(event.currentTarget);
+
+		switch (event.key) {
+			case 'ArrowRight': {
+				event.preventDefault();
+				event.stopPropagation();
+				actionButtons[currentIndex + 1]?.focus();
+				return;
+			}
+			case 'ArrowLeft': {
+				event.preventDefault();
+				event.stopPropagation();
+				if (currentIndex > 0) {
+					actionButtons[currentIndex - 1]?.focus();
+				} else {
+					treeItemElement.focus();
+				}
+				return;
+			}
+			case 'Escape': {
+				event.preventDefault();
+				event.stopPropagation();
+				treeItemElement.focus();
+				return;
+			}
+			case 'Enter':
+			case ' ': {
+				event.stopPropagation();
+				return;
+			}
+			default: {
+				return;
+			}
+		}
+	}, []);
 
 	return (
 		<div>
@@ -692,7 +876,10 @@ function FileTreeNode({
 				onClick={handleClick}
 				onKeyDown={(event) => onNodeKeyDown(event, item.path)}
 				onFocus={() => onNodeFocus(item.path)}
-				ref={(node) => setNodeReference(item.path, node)}
+				ref={(node) => {
+					treeItemReference.current = node;
+					setNodeReference(item.path, node);
+				}}
 				style={{ paddingLeft }}
 				draggable={canDrag ? true : undefined}
 				onDragStart={
@@ -794,6 +981,7 @@ function FileTreeNode({
 							}
 							if (event.key === 'Escape') {
 								onCancelRename();
+								requestAnimationFrame(() => treeItemReference.current?.focus());
 							}
 						}}
 						onClick={(event) => event.stopPropagation()}
@@ -824,13 +1012,18 @@ function FileTreeNode({
 					<button
 						type="button"
 						tabIndex={-1}
+						data-action-button
 						onClick={handleCreateInFolder}
-						className="
-							hidden size-4 shrink-0 cursor-pointer items-center justify-center
-							rounded-sm text-text-secondary transition-colors
-							hover-always:text-accent
-							group-hover-always:flex
-						"
+						onKeyDown={handleActionKeyDown}
+						className={cn(
+							'hidden size-4 shrink-0 cursor-pointer items-center justify-center',
+							'rounded-sm text-text-secondary transition-colors',
+							`
+								group-focus-within:flex
+								group-hover-always:flex
+							`,
+							'hover-always:text-accent',
+						)}
 						aria-label={`New file in ${item.name}`}
 					>
 						<FilePlus className="size-3" />
@@ -840,16 +1033,21 @@ function FileTreeNode({
 					<button
 						type="button"
 						tabIndex={-1}
+						data-action-button
 						onClick={(event) => {
 							event.stopPropagation();
-							onCreateFolderInDirectory(`${item.path}/`);
+							onCreateFolderInDirectory(`${item.path}/`, event.currentTarget);
 						}}
-						className="
-							hidden size-4 shrink-0 cursor-pointer items-center justify-center
-							rounded-sm text-text-secondary transition-colors
-							hover-always:text-accent
-							group-hover-always:flex
-						"
+						onKeyDown={handleActionKeyDown}
+						className={cn(
+							'hidden size-4 shrink-0 cursor-pointer items-center justify-center',
+							'rounded-sm text-text-secondary transition-colors',
+							`
+								group-focus-within:flex
+								group-hover-always:flex
+							`,
+							'hover-always:text-accent',
+						)}
 						aria-label={`New folder in ${item.name}`}
 					>
 						<FolderPlus className="size-3" />
@@ -859,13 +1057,18 @@ function FileTreeNode({
 					<button
 						type="button"
 						tabIndex={-1}
+						data-action-button
 						onClick={handleStartRename}
-						className="
-							hidden size-4 shrink-0 cursor-pointer items-center justify-center
-							rounded-sm text-text-secondary transition-colors
-							hover-always:text-accent
-							group-hover-always:flex
-						"
+						onKeyDown={handleActionKeyDown}
+						className={cn(
+							'hidden size-4 shrink-0 cursor-pointer items-center justify-center',
+							'rounded-sm text-text-secondary transition-colors',
+							`
+								group-focus-within:flex
+								group-hover-always:flex
+							`,
+							'hover-always:text-accent',
+						)}
 						aria-label={`Rename ${item.name}`}
 					>
 						<Pencil className="size-3" />
@@ -875,45 +1078,23 @@ function FileTreeNode({
 					onDeleteFile &&
 					!isRenaming &&
 					(isDeleteConfirming ? (
-						<div className="flex shrink-0 items-center gap-0.5" onClick={(event) => event.stopPropagation()}>
-							<button
-								type="button"
-								tabIndex={-1}
-								onClick={handleConfirmDelete}
-								className="
-									flex size-4 cursor-pointer items-center justify-center rounded-sm
-									text-error transition-colors
-									hover:bg-error/10
-								"
-								aria-label={`Confirm delete ${item.name}`}
-							>
-								<Trash2 className="size-3" />
-							</button>
-							<button
-								type="button"
-								tabIndex={-1}
-								onClick={handleCancelDeleteConfirm}
-								className="
-									flex size-4 cursor-pointer items-center justify-center rounded-sm
-									text-text-secondary transition-colors
-									hover:bg-bg-tertiary hover:text-text-primary
-								"
-								aria-label={`Cancel delete ${item.name}`}
-							>
-								<X className="size-3" />
-							</button>
-						</div>
+						<InlineConfirmGroup itemName={item.name} onConfirm={handleConfirmDelete} onCancel={handleCancelDeleteConfirm} />
 					) : (
 						<button
 							type="button"
 							tabIndex={-1}
+							data-action-button
 							onClick={handleStartDeleteConfirm}
-							className="
-								hidden size-4 shrink-0 cursor-pointer items-center justify-center
-								rounded-sm text-text-secondary transition-colors
-								hover-always:text-error
-								group-hover-always:flex
-							"
+							onKeyDown={handleActionKeyDown}
+							className={cn(
+								'hidden size-4 shrink-0 cursor-pointer items-center justify-center',
+								'rounded-sm text-text-secondary transition-colors',
+								`
+									group-focus-within:flex
+									group-hover-always:flex
+								`,
+								'hover-always:text-error',
+							)}
 							aria-label={`Delete ${item.name}`}
 						>
 							<Trash2 className="size-3" />
