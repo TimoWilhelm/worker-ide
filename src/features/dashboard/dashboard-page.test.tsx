@@ -80,7 +80,7 @@ afterEach(() => {
 	vi.restoreAllMocks();
 });
 
-const { createProject, cloneProject, fetchOrgProjects } = await import('@/lib/api-client');
+const { createProject, cloneProject, fetchOrgProjects, fetchOrgLimits } = await import('@/lib/api-client');
 const { getDashboardGreeting } = await import('./dashboard-greeting');
 
 type DashboardProject = Awaited<ReturnType<typeof fetchOrgProjects>>[number];
@@ -416,6 +416,101 @@ describe('DashboardPage', () => {
 		await waitFor(() => {
 			expect(screen.getByText('Source project not found or not initialized')).toBeInTheDocument();
 		});
+	});
+
+	// ---------------------------------------------------------------------------
+	// Project limit reached
+	// ---------------------------------------------------------------------------
+
+	it('shows warning and disables Create Project button in template modal when project limit is reached', async () => {
+		vi.mocked(fetchOrgLimits).mockResolvedValue({
+			currentProjects: 10,
+			maxProjects: 10,
+			maxMembers: 5,
+			currentMembers: 1,
+			maxPendingInvitations: 10,
+			currentPendingInvitations: 0,
+		});
+
+		renderWithQuery(<DashboardPage {...defaultProperties} />);
+
+		// Open template detail modal
+		const templateButton = await waitFor(() => {
+			const button = screen.getByText('Request Inspector').closest('button');
+			expect(button).toBeTruthy();
+			return button!;
+		});
+		fireEvent.click(templateButton);
+
+		await waitFor(() => {
+			expect(screen.getByRole('dialog')).toBeInTheDocument();
+		});
+
+		const dialog = screen.getByRole('dialog');
+		expect(within(dialog).getByText(/You have exceeded the maximum number of projects/)).toBeInTheDocument();
+		expect(within(dialog).getByRole('button', { name: 'Create Project' })).toBeDisabled();
+	});
+
+	it('does not show warning in template modal when project limit is not reached', async () => {
+		vi.mocked(fetchOrgLimits).mockResolvedValue({
+			currentProjects: 5,
+			maxProjects: 10,
+			maxMembers: 5,
+			currentMembers: 1,
+			maxPendingInvitations: 10,
+			currentPendingInvitations: 0,
+		});
+
+		renderWithQuery(<DashboardPage {...defaultProperties} />);
+
+		const templateButton = await waitFor(() => {
+			const button = screen.getByText('Request Inspector').closest('button');
+			expect(button).toBeTruthy();
+			return button!;
+		});
+		fireEvent.click(templateButton);
+
+		await waitFor(() => {
+			expect(screen.getByRole('dialog')).toBeInTheDocument();
+		});
+
+		const dialog = screen.getByRole('dialog');
+		expect(within(dialog).queryByText(/You have exceeded the maximum number of projects/)).not.toBeInTheDocument();
+		expect(within(dialog).getByRole('button', { name: 'Create Project' })).not.toBeDisabled();
+	});
+
+	it('shows warning and disables Clone button in clone modal when project limit is reached', async () => {
+		const user = userEvent.setup();
+		vi.mocked(fetchOrgLimits).mockResolvedValue({
+			currentProjects: 10,
+			maxProjects: 10,
+			maxMembers: 5,
+			currentMembers: 1,
+			maxPendingInvitations: 10,
+			currentPendingInvitations: 0,
+		});
+
+		renderWithQuery(<DashboardPage {...defaultProperties} />);
+
+		// Open clone modal
+		await waitFor(() => {
+			expect(screen.getByText('Clone a project').closest('button')).toBeTruthy();
+		});
+		fireEvent.click(screen.getByText('Clone a project').closest('button')!);
+
+		await waitFor(() => {
+			expect(screen.getByRole('dialog')).toBeInTheDocument();
+		});
+
+		const dialog = screen.getByRole('dialog');
+
+		// Enter a valid project ID
+		const input = within(dialog).getByPlaceholderText('Project URL or ID');
+		const validId = '494rtk7ddoepe5ru2lx4oc855i6lc23p3apolh04feq8q517sa';
+		await user.type(input, validId);
+
+		expect(within(dialog).getByText(/You have exceeded the maximum number of projects/)).toBeInTheDocument();
+		expect(within(dialog).getByRole('button', { name: 'Clone' })).toBeDisabled();
 	});
 
 	// ---------------------------------------------------------------------------

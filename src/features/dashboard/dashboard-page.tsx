@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { BookOpen, Bug, Copy, Github, Hexagon, Search } from 'lucide-react';
+import { BookOpen, Bug, Copy, Github, Hexagon, Search, TriangleAlert } from 'lucide-react';
 import { motion } from 'motion/react';
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
@@ -135,12 +135,14 @@ function TemplateDetailModal({
 	onOpenChange,
 	onCreateProject,
 	isLoading,
+	projectLimitReached,
 }: {
 	template: ProjectTemplateMeta | undefined;
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 	onCreateProject: (templateId: string) => void;
 	isLoading: boolean;
+	projectLimitReached: boolean;
 }) {
 	if (!template) return;
 
@@ -153,12 +155,23 @@ function TemplateDetailModal({
 					</div>
 					<p className="text-sm/relaxed text-text-secondary">{template.description}</p>
 				</div>
+				{projectLimitReached && (
+					<div
+						className="
+							mt-3 flex items-center gap-2 rounded-md bg-warning/10 px-3 py-2 text-xs
+							text-warning
+						"
+					>
+						<TriangleAlert className="size-3.5 shrink-0" />
+						<span>You have exceeded the maximum number of projects that you can create.</span>
+					</div>
+				)}
 			</ModalBody>
 			<ModalFooter>
 				<Button variant="secondary" size="sm" onClick={() => onOpenChange(false)}>
 					Cancel
 				</Button>
-				<Button size="sm" onClick={() => onCreateProject(template.id)} disabled={isLoading} isLoading={isLoading} loadingText="Creating...">
+				<Button size="sm" onClick={() => onCreateProject(template.id)} disabled={isLoading || projectLimitReached} isLoading={isLoading}>
 					Create Project
 				</Button>
 			</ModalFooter>
@@ -209,6 +222,7 @@ function CloneModal({
 	onClone,
 	cloneError,
 	isLoading,
+	projectLimitReached,
 }: {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
@@ -218,6 +232,7 @@ function CloneModal({
 	onClone: () => void;
 	cloneError: string | undefined;
 	isLoading: boolean;
+	projectLimitReached: boolean;
 }) {
 	const inputReference = useRef<HTMLInputElement>(null);
 
@@ -260,12 +275,23 @@ function CloneModal({
 					/>
 				</div>
 				{cloneError && <p className="mt-2 text-xs text-error">{cloneError}</p>}
+				{projectLimitReached && (
+					<div
+						className="
+							mt-3 flex items-center gap-2 rounded-md bg-warning/10 px-3 py-2 text-xs
+							text-warning
+						"
+					>
+						<TriangleAlert className="size-3.5 shrink-0" />
+						<span>You have exceeded the maximum number of projects that you can create.</span>
+					</div>
+				)}
 			</ModalBody>
 			<ModalFooter>
 				<Button variant="secondary" size="sm" onClick={() => onOpenChange(false)}>
 					Cancel
 				</Button>
-				<Button size="sm" onClick={onClone} disabled={isLoading || !parsedProjectId} isLoading={isLoading} loadingText="Cloning...">
+				<Button size="sm" onClick={onClone} disabled={isLoading || !parsedProjectId || projectLimitReached} isLoading={isLoading}>
 					Clone
 				</Button>
 			</ModalFooter>
@@ -343,7 +369,6 @@ export default function DashboardPage({ organizationId, organizations, isCreateO
 		enabled: !isCreateOrgMode && !!organizationId,
 	});
 	const orgLimits = limitsQuery.data;
-	const projectLimitReached = !!orgLimits && orgLimits.currentProjects >= orgLimits.maxProjects;
 
 	const selectedTemplate = useMemo(() => templates.find((template) => template.id === selectedTemplateId), [templates, selectedTemplateId]);
 
@@ -483,6 +508,7 @@ export default function DashboardPage({ organizationId, organizations, isCreateO
 				onOpenChange={handleCloseTemplateModal}
 				onCreateProject={handleCreateFromTemplate}
 				isLoading={isLoading}
+				projectLimitReached={orgLimits !== undefined && orgLimits.currentProjects >= orgLimits.maxProjects}
 			/>
 
 			<CreateOrgModal
@@ -503,6 +529,7 @@ export default function DashboardPage({ organizationId, organizations, isCreateO
 				onClone={() => void handleClone()}
 				cloneError={cloneError}
 				isLoading={isLoading}
+				projectLimitReached={orgLimits !== undefined && orgLimits.currentProjects >= orgLimits.maxProjects}
 			/>
 
 			<main
@@ -542,11 +569,7 @@ export default function DashboardPage({ organizationId, organizations, isCreateO
 							</span>
 						)}
 					</h2>
-					{projectLimitReached && (
-						<p className="mb-3 text-xs text-text-secondary/80">
-							Project limit reached ({orgLimits?.maxProjects}). Upgrade your plan to create more projects.
-						</p>
-					)}
+
 					<motion.div
 						className="
 							grid grid-cols-3 gap-2
@@ -573,11 +596,11 @@ export default function DashboardPage({ organizationId, organizations, isCreateO
 							<>
 								{templates.map((template) => (
 									<motion.div key={template.id} variants={fadeUpVariants} transition={springGentle}>
-										<TemplateCard template={template} onSelect={handleSelectTemplate} disabled={isLoading || projectLimitReached} />
+										<TemplateCard template={template} onSelect={handleSelectTemplate} disabled={isLoading} />
 									</motion.div>
 								))}
 								<motion.div variants={fadeUpVariants} transition={springGentle}>
-									<CloneCard onSelect={handleOpenCloneModal} disabled={isLoading || projectLimitReached} />
+									<CloneCard onSelect={handleOpenCloneModal} disabled={isLoading} />
 								</motion.div>
 							</>
 						) : (

@@ -293,7 +293,6 @@ function InviteForm({
 					onClick={() => void handleInvite()}
 					disabled={isSending || !email.trim() || isLimitReached}
 					isLoading={isSending}
-					loadingText="Sending..."
 				>
 					Invite
 				</Button>
@@ -868,7 +867,6 @@ export default function OrgManagementPage({ orgSlug, organizationId, organizatio
 								onClick={() => void handleDeleteOrg()}
 								disabled={isDeletingOrg || !isDeleteOrgConfirmed}
 								isLoading={isDeletingOrg}
-								loadingText="Deleting..."
 							>
 								Delete
 							</Button>

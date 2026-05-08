@@ -1,5 +1,7 @@
 import { cva, type VariantProps } from 'class-variance-authority';
 
+import { cn } from '@/lib/utils';
+
 import { Spinner } from './spinner';
 
 import type { ButtonHTMLAttributes, Ref } from 'react';
@@ -68,7 +70,6 @@ const buttonVariants = cva(
 
 interface ButtonProperties extends ButtonHTMLAttributes<HTMLButtonElement>, VariantProps<typeof buttonVariants> {
 	isLoading?: boolean;
-	loadingText?: string;
 	ref?: Ref<HTMLButtonElement>;
 }
 
@@ -76,30 +77,23 @@ interface ButtonProperties extends ButtonHTMLAttributes<HTMLButtonElement>, Vari
  * Button component with variants.
  * Uses React 19 ref-as-prop pattern (no forwardRef).
  */
-function Button({
-	className,
-	focusStyle,
-	variant,
-	size,
-	isLoading,
-	loadingText,
-	children,
-	disabled,
-	ref,
-	...properties
-}: ButtonProperties) {
+function Button({ className, focusStyle, variant, size, isLoading, children, disabled, ref, ...properties }: ButtonProperties) {
 	const isDisabledOrLoading = disabled || isLoading;
 
 	return (
 		<button
 			data-local-focus="true"
-			className={buttonVariants({ focusStyle, variant, size, className })}
+			className={cn(buttonVariants({ focusStyle, variant, size, className }), isLoading && 'relative')}
 			ref={ref}
 			disabled={isDisabledOrLoading}
 			{...properties}
 		>
-			{isLoading && <Spinner size="sm" />}
-			{isLoading && loadingText ? loadingText : children}
+			<span className={cn('inline-flex items-center gap-2', isLoading && 'invisible')}>{children}</span>
+			{isLoading && (
+				<span className="absolute inset-0 flex items-center justify-center">
+					<Spinner size="sm" />
+				</span>
+			)}
 		</button>
 	);
 }

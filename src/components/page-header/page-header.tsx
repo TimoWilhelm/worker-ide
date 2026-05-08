@@ -1,5 +1,4 @@
 import { ArrowLeft, Menu } from 'lucide-react';
-import { motion } from 'motion/react';
 import { useNavigate } from 'react-router';
 
 import { Button } from '@/components/ui/button';
@@ -82,9 +81,7 @@ export function PageHeader({
 						/>
 					)}
 
-					<motion.div layoutId="app-user-menu">
-						<UserMenu />
-					</motion.div>
+					<UserMenu />
 				</div>
 			</div>
 		</header>

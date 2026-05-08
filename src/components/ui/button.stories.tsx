@@ -96,11 +96,15 @@ export const Loading: Story = {
 	},
 };
 
-export const LoadingWithText: Story = {
+export const LoadingWithIcon: Story = {
 	args: {
-		children: 'Save',
+		children: (
+			<>
+				<Download className="size-4" />
+				Save
+			</>
+		),
 		isLoading: true,
-		loadingText: 'Saving...',
 	},
 };
 

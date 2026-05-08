@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Monitor, Smartphone, Trash2 } from 'lucide-react';
+import { Check, Copy, Monitor, Smartphone, Trash2 } from 'lucide-react';
 import { useCallback, useState } from 'react';
 import { useNavigate } from 'react-router';
 
@@ -85,7 +85,9 @@ export default function AccountPage() {
 	const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 	const [isDeleting, setIsDeleting] = useState(false);
 	const [deleteConfirmText, setDeleteConfirmText] = useState('');
-	const isDeleteConfirmed = deleteConfirmText.toLowerCase() === 'delete';
+	const userEmail = session?.user.email ?? '';
+	const isDeleteConfirmed = userEmail ? deleteConfirmText === userEmail : deleteConfirmText.toLowerCase() === 'delete';
+	const [emailCopied, setEmailCopied] = useState(false);
 
 	const handleOpenDeleteModal = useCallback(async () => {
 		setIsLoadingPreview(true);
@@ -137,7 +139,6 @@ export default function AccountPage() {
 						<ConfirmButton
 							title="Sign out all sessions?"
 							confirmLabel="Sign out"
-							loadingText="Signing out..."
 							onConfirm={handleRevokeAllOtherSessions}
 							variant="outline"
 							size="sm"
@@ -188,7 +189,6 @@ export default function AccountPage() {
 										<ConfirmButton
 											title="Revoke this session?"
 											confirmLabel="Revoke"
-											loadingText="Revoking..."
 											onConfirm={() => handleRevokeSession(session.token)}
 											variant="ghost"
 											size="sm"
@@ -242,14 +242,34 @@ export default function AccountPage() {
 							<ModalBody>
 								<div className="space-y-4">
 									<p className="text-sm font-medium">Are you sure you want to delete your account?</p>
-									<p
+									<button
+										type="button"
+										onClick={() => {
+											void navigator.clipboard.writeText(userEmail).then(() => {
+												setEmailCopied(true);
+												setTimeout(() => setEmailCopied(false), 2000);
+												toast.success('Copied to clipboard');
+											});
+										}}
 										className="
-											truncate rounded-sm border border-border bg-bg-tertiary px-2 py-1
-											text-sm font-medium text-text-primary
+											flex w-full cursor-pointer items-center gap-2 rounded-sm border
+											border-border bg-bg-tertiary px-2 py-1 text-left transition-colors
+											hover:bg-border/50
 										"
 									>
-										{session?.user.email}
-									</p>
+										<span
+											className="
+												min-w-0 flex-1 truncate text-sm font-medium text-text-primary
+											"
+										>
+											{userEmail}
+										</span>
+										{emailCopied ? (
+											<Check className="size-3.5 shrink-0 text-success" />
+										) : (
+											<Copy className="size-3.5 shrink-0 text-text-secondary" />
+										)}
+									</button>
 									{deletePreview.singleMemberOrganizations.length > 0 && (
 										<p className="text-xs text-text-secondary">
 											<strong className="text-text-primary">{deletePreview.singleMemberOrganizations.length} organization(s)</strong> you
@@ -264,9 +284,7 @@ export default function AccountPage() {
 									)}
 									<p className="text-xs text-text-secondary">This action cannot be undone.</p>
 									<div>
-										<label className="mb-1.5 block text-xs text-text-secondary">
-											Type <strong className="text-text-primary uppercase">delete</strong> to confirm
-										</label>
+										<label className="mb-1.5 block text-xs text-text-secondary">Type your email to confirm</label>
 										<input
 											type="text"
 											value={deleteConfirmText}
@@ -299,7 +317,6 @@ export default function AccountPage() {
 									onClick={() => void handleConfirmDelete()}
 									disabled={isDeleting || !isDeleteConfirmed}
 									isLoading={isDeleting}
-									loadingText="Deleting..."
 								>
 									Delete
 								</Button>

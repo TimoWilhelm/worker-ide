@@ -292,7 +292,7 @@ function ProjectSettingsContent({
 							<Button variant="secondary" onClick={() => onOpenChange(false)} disabled={isSaving || isDeleting}>
 								Cancel
 							</Button>
-							<Button onClick={handleSave} disabled={isSaving || isDeleting} isLoading={isSaving} loadingText="Saving...">
+							<Button onClick={handleSave} disabled={isSaving || isDeleting} isLoading={isSaving}>
 								Save
 							</Button>
 						</ModalFooter>
@@ -365,7 +365,6 @@ function ProjectSettingsContent({
 						onClick={() => void handleDelete()}
 						disabled={isDeleting || !isDeleteConfirmed}
 						isLoading={isDeleting}
-						loadingText="Deleting..."
 					>
 						Delete
 					</Button>

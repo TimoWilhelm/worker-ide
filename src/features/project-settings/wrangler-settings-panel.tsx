@@ -208,7 +208,7 @@ function WranglerSettingsContent({ projectId }: { projectId: string }) {
 				</div>
 				<div className="flex items-center gap-2">
 					{savedMessage && <span className="text-xs text-green-500">Saved</span>}
-					<Button size="sm" onClick={handleSave} disabled={isSaving} isLoading={isSaving} loadingText="Saving...">
+					<Button size="sm" onClick={handleSave} disabled={isSaving} isLoading={isSaving}>
 						<Save className="mr-1 size-3" />
 						Save
 					</Button>

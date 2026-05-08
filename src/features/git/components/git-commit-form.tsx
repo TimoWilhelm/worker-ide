@@ -67,7 +67,6 @@ export function GitCommitForm({ onCommit, isCommitting, isCommitSuccess, hasStag
 				size="sm"
 				onClick={handleSubmit}
 				isLoading={isCommitting}
-				loadingText="Committing..."
 				disabled={message.trim().length === 0 || !hasStagedChanges || isCommitting}
 				className="w-full"
 			>

@@ -28,13 +28,18 @@ describe('Button', () => {
 		expect(screen.getByRole('button')).toBeDisabled();
 	});
 
-	it('shows loading text when isLoading and loadingText provided', () => {
-		render(
-			<Button isLoading loadingText="Please wait...">
-				Submit
-			</Button>,
-		);
-		expect(screen.getByRole('button')).toHaveTextContent('Please wait...');
+	it('shows spinner overlay and hides content when loading', () => {
+		render(<Button isLoading>Submit</Button>);
+		expect(screen.getByRole('status', { name: 'Loading' })).toBeInTheDocument();
+		const button = screen.getByRole('button');
+		const contentSpan = button.querySelector('span:first-child');
+		expect(contentSpan?.className).toContain('invisible');
+	});
+
+	it('does not resize when loading (children remain in DOM)', () => {
+		render(<Button isLoading>Submit</Button>);
+		const button = screen.getByRole('button');
+		expect(button).toHaveTextContent('Submit');
 	});
 
 	it('applies variant classes', () => {

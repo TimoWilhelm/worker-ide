@@ -15,7 +15,6 @@ interface ConfirmButtonProperties {
 	description?: string;
 	confirmLabel: string;
 	cancelLabel?: string;
-	loadingText?: string;
 	onConfirm: () => Promise<void> | void;
 	variant?: ButtonProperties['variant'];
 	size?: ButtonProperties['size'];
@@ -41,7 +40,6 @@ export function ConfirmButton({
 	description,
 	confirmLabel,
 	cancelLabel = 'Cancel',
-	loadingText,
 	onConfirm,
 	variant = 'outline',
 	size = 'sm',
@@ -155,7 +153,6 @@ export function ConfirmButton({
 								size="sm"
 								onClick={() => void handleConfirm()}
 								isLoading={isConfirming}
-								loadingText={loadingText}
 							>
 								{confirmLabel}
 							</Button>

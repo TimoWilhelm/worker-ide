@@ -493,7 +493,7 @@ function DeployModalContent({ onOpenChange, projectId, projectName, deployState,
 						<Button variant="secondary" onClick={() => onOpenChange(false)} disabled={isDeploying}>
 							Cancel
 						</Button>
-						<Button onClick={handleDeploy} disabled={!isFormValid || isDeploying} isLoading={isDeploying} loadingText="Deploying...">
+						<Button onClick={handleDeploy} disabled={!isFormValid || isDeploying} isLoading={isDeploying}>
 							<Rocket className="size-4" />
 							Deploy
 						</Button>

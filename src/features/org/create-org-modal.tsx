@@ -143,13 +143,7 @@ export function CreateOrgModal({
 						Cancel
 					</Button>
 				)}
-				<Button
-					size="sm"
-					onClick={() => void handleCreate()}
-					disabled={isCreating || !name.trim() || isAtLimit}
-					isLoading={isCreating}
-					loadingText="Creating..."
-				>
+				<Button size="sm" onClick={() => void handleCreate()} disabled={isCreating || !name.trim() || isAtLimit} isLoading={isCreating}>
 					Create
 				</Button>
 			</ModalFooter>

@@ -1295,10 +1295,7 @@ app.post('/api/clone-project', async (c) => {
 		.from(authSchema.project)
 		.where(and(eq(authSchema.project.organizationId, organizationId), isNull(authSchema.project.deletedAt)));
 	if (existingCloneProjects.length >= cloneOrgMaxProjects) {
-		return c.json(
-			{ error: `Organization project limit reached (${cloneOrgMaxProjects}). Upgrade your plan to create more projects.` },
-			400,
-		);
+		return c.json({ error: `Organization project limit reached (${cloneOrgMaxProjects}).` }, 400);
 	}
 
 	const newDoId = filesystemNamespace.newUniqueId();
