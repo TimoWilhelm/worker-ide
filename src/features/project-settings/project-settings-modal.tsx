@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
 
 import { Button } from '@/components/ui/button';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Modal, ModalBody, ModalFooter } from '@/components/ui/modal';
 import { ModalContentSkeleton } from '@/components/ui/skeleton';
 import { toast } from '@/components/ui/toast-store';
@@ -84,7 +85,6 @@ function ProjectSettingsContent({
 	const [isSaving, setIsSaving] = useState(false);
 	const [isDeleting, setIsDeleting] = useState(false);
 	const [error, setError] = useState<string | undefined>();
-	const [deleteConfirmText, setDeleteConfirmText] = useState('');
 
 	const metaQuery = useQuery({
 		queryKey: ['project-meta', projectId],
@@ -105,8 +105,6 @@ function ProjectSettingsContent({
 			setVisibility(visibilityQuery.data);
 		}
 	}, [visibilityQuery.data]);
-
-	const isDeleteConfirmed = deleteConfirmText.toLowerCase() === 'delete';
 
 	const handleSave = useCallback(async () => {
 		setIsSaving(true);
@@ -276,7 +274,6 @@ function ProjectSettingsContent({
 												size="sm"
 												disabled={isSaving || isDeleting}
 												onClick={() => {
-													setDeleteConfirmText('');
 													onOpenChange(false);
 													setDeleteConfirmOpen(true);
 												}}
@@ -299,77 +296,25 @@ function ProjectSettingsContent({
 					</>
 				)}
 			</Modal>
-			<Modal
+			<ConfirmDialog
 				open={deleteConfirmOpen}
 				onOpenChange={(open) => {
 					if (!open && !isDeleting) {
 						setDeleteConfirmOpen(false);
-						setDeleteConfirmText('');
 					}
 				}}
 				title="Delete project"
-			>
-				<ModalBody>
-					<div className="space-y-4">
-						<p className="text-sm font-medium">Are you sure you want to delete this project?</p>
-						<p
-							className="
-								truncate rounded-sm border border-border bg-bg-tertiary px-2 py-1
-								text-sm font-medium text-text-primary
-							"
-						>
-							{metaQuery.data?.name ?? ''}
-						</p>
-						<p className="text-xs text-text-secondary">This action cannot be undone.</p>
-						<div>
-							<label className="mb-1.5 block text-xs text-text-secondary">
-								Type <strong className="text-text-primary uppercase">delete</strong> to confirm
-							</label>
-							<input
-								type="text"
-								value={deleteConfirmText}
-								onChange={(event) => setDeleteConfirmText(event.target.value)}
-								onKeyDown={(event) => {
-									if (event.key === 'Enter' && isDeleteConfirmed && !isDeleting) {
-										void handleDelete();
-									}
-								}}
-								disabled={isDeleting}
-								autoComplete="off"
-								className="
-									h-8 w-full rounded-md border border-border bg-bg-secondary/60 px-2
-									text-sm text-text-primary transition-colors
-									placeholder:text-text-secondary/50
-									focus-within:border-accent
-									focus:outline-none
-								"
-							/>
-						</div>
-					</div>
-				</ModalBody>
-				<ModalFooter>
-					<Button
-						variant="secondary"
-						size="sm"
-						onClick={() => {
-							setDeleteConfirmOpen(false);
-							setDeleteConfirmText('');
-						}}
-						disabled={isDeleting}
-					>
-						Cancel
-					</Button>
-					<Button
-						size="sm"
-						variant="danger"
-						onClick={() => void handleDelete()}
-						disabled={isDeleting || !isDeleteConfirmed}
-						isLoading={isDeleting}
-					>
-						Delete
-					</Button>
-				</ModalFooter>
-			</Modal>
+				description={
+					<>
+						Deleting <strong className="text-text-primary">{metaQuery.data?.name}</strong> is permanent and cannot be undone.
+					</>
+				}
+				resourceName={metaQuery.data?.name ?? ''}
+				confirmLabel="Delete"
+				variant="danger"
+				isConfirming={isDeleting}
+				onConfirm={() => void handleDelete()}
+			/>
 		</>
 	);
 }

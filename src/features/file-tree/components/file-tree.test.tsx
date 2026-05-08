@@ -345,7 +345,7 @@ describe('FileTree', () => {
 		expect(document.activeElement).toBe(parentItem);
 	});
 
-	it('triggers delete confirmation with Delete key on a non-protected file', () => {
+	it('calls onDeleteFile with Delete key on a non-protected file', () => {
 		const onDeleteFile = vi.fn();
 		renderWithProviders(
 			<FileTree
@@ -362,8 +362,7 @@ describe('FileTree', () => {
 		fileItem.focus();
 		fireEvent.keyDown(fileItem, { key: 'Delete' });
 
-		// Should open the confirmation dialog
-		expect(screen.getByText('Delete Item')).toBeInTheDocument();
+		expect(onDeleteFile).toHaveBeenCalledWith('/src/main.ts');
 	});
 
 	it('enters rename mode with F2 key on a non-protected file', () => {
@@ -399,9 +398,6 @@ describe('FileTree', () => {
 				onRenameFile={vi.fn()}
 			/>,
 		);
-
-		const deleteButton = screen.getByLabelText('Delete main.ts');
-		expect(deleteButton).toHaveAttribute('tabindex', '-1');
 
 		const renameButton = screen.getByLabelText('Rename main.ts');
 		expect(renameButton).toHaveAttribute('tabindex', '-1');

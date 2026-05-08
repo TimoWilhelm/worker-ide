@@ -80,3 +80,53 @@ export const Danger: Story = {
 		await userEvent.click(confirm);
 	},
 };
+
+const ResourceNameDemo = () => {
+	const [open, setOpen] = useState(false);
+
+	return (
+		<>
+			<GlobalDialogBackdrop />
+			<Button variant="danger" onClick={() => setOpen(true)}>
+				Delete Project
+			</Button>
+			<ConfirmDialog
+				open={open}
+				onOpenChange={setOpen}
+				title="Delete project"
+				description={
+					<>
+						Deleting <strong className="text-text-primary">my-awesome-project</strong> is permanent and cannot be undone.
+					</>
+				}
+				resourceName="my-awesome-project"
+				confirmLabel="Delete"
+				variant="danger"
+				onConfirm={() => setOpen(false)}
+			/>
+		</>
+	);
+};
+
+export const DangerWithResourceName: Story = {
+	render: () => <ResourceNameDemo />,
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		const button = canvas.getByRole('button', { name: /Delete Project/i });
+		await userEvent.click(button);
+
+		const body = within(document.body);
+		const dialog = await body.findByRole('alertdialog');
+		await expect(dialog).toBeInTheDocument();
+
+		await expect(body.getByRole('button', { name: /my-awesome-project/i })).toBeInTheDocument();
+		await expect(body.getByPlaceholderText('my-awesome-project')).toBeInTheDocument();
+
+		const confirmButton = body.getByRole('button', { name: /Delete/i });
+		await expect(confirmButton).toBeDisabled();
+
+		const input = body.getByRole('textbox');
+		await userEvent.type(input, 'my-awesome-project');
+		await expect(confirmButton).toBeEnabled();
+	},
+};

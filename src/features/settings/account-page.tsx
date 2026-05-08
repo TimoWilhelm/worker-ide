@@ -1,9 +1,10 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, Copy, Monitor, Smartphone, Trash2 } from 'lucide-react';
+import { Monitor, Smartphone, Trash2 } from 'lucide-react';
 import { useCallback, useState } from 'react';
 import { useNavigate } from 'react-router';
 
 import { Button, ConfirmButton } from '@/components/ui';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Modal, ModalBody, ModalFooter } from '@/components/ui/modal';
 import { ListSkeleton } from '@/components/ui/skeleton';
 import { toast } from '@/components/ui/toast-store';
@@ -83,19 +84,19 @@ export default function AccountPage() {
 	const [deletePreview, setDeletePreview] = useState<AccountDeletePreview | undefined>();
 	const [isLoadingPreview, setIsLoadingPreview] = useState(false);
 	const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+	const [showBlockersModal, setShowBlockersModal] = useState(false);
 	const [isDeleting, setIsDeleting] = useState(false);
-	const [deleteConfirmText, setDeleteConfirmText] = useState('');
-	const userEmail = session?.user.email ?? '';
-	const isDeleteConfirmed = userEmail ? deleteConfirmText === userEmail : deleteConfirmText.toLowerCase() === 'delete';
-	const [emailCopied, setEmailCopied] = useState(false);
 
 	const handleOpenDeleteModal = useCallback(async () => {
 		setIsLoadingPreview(true);
 		try {
 			const preview = await fetchAccountDeletePreview();
 			setDeletePreview(preview);
-			setDeleteConfirmText('');
-			setShowDeleteConfirm(true);
+			if (preview.canDelete) {
+				setShowDeleteConfirm(true);
+			} else {
+				setShowBlockersModal(true);
+			}
 		} catch {
 			toast.error('Could not load account deletion details. Please check your connection and try again.');
 		} finally {
@@ -229,121 +230,58 @@ export default function AccountPage() {
 				</div>
 			</section>
 
-			{deletePreview && (
-				<Modal
-					open={showDeleteConfirm}
-					onOpenChange={(open) => {
-						if (!open && !isDeleting) setShowDeleteConfirm(false);
-					}}
-					title="Delete account"
-				>
-					{deletePreview.canDelete ? (
-						<>
-							<ModalBody>
-								<div className="space-y-4">
-									<p className="text-sm font-medium">Are you sure you want to delete your account?</p>
-									<button
-										type="button"
-										onClick={() => {
-											void navigator.clipboard.writeText(userEmail).then(() => {
-												setEmailCopied(true);
-												setTimeout(() => setEmailCopied(false), 2000);
-												toast.success('Copied to clipboard');
-											});
-										}}
-										className="
-											flex w-full cursor-pointer items-center gap-2 rounded-sm border
-											border-border bg-bg-tertiary px-2 py-1 text-left transition-colors
-											hover:bg-border/50
-										"
-									>
-										<span
-											className="
-												min-w-0 flex-1 truncate text-sm font-medium text-text-primary
-											"
-										>
-											{userEmail}
-										</span>
-										{emailCopied ? (
-											<Check className="size-3.5 shrink-0 text-success" />
-										) : (
-											<Copy className="size-3.5 shrink-0 text-text-secondary" />
-										)}
-									</button>
-									{deletePreview.singleMemberOrganizations.length > 0 && (
-										<p className="text-xs text-text-secondary">
-											<strong className="text-text-primary">{deletePreview.singleMemberOrganizations.length} organization(s)</strong> you
-											own alone will be deleted, including their projects.
-										</p>
-									)}
-									{deletePreview.membershipOrganizations.length > 0 && (
-										<p className="text-xs text-text-secondary">
-											You will lose access to{' '}
-											<strong className="text-text-primary">{deletePreview.membershipOrganizations.length} organization(s)</strong>.
-										</p>
-									)}
-									<p className="text-xs text-text-secondary">This action cannot be undone.</p>
-									<div>
-										<label className="mb-1.5 block text-xs text-text-secondary">Type your email to confirm</label>
-										<input
-											type="text"
-											value={deleteConfirmText}
-											onChange={(event) => setDeleteConfirmText(event.target.value)}
-											onKeyDown={(event) => {
-												if (event.key === 'Enter' && isDeleteConfirmed && !isDeleting) {
-													void handleConfirmDelete();
-												}
-											}}
-											disabled={isDeleting}
-											autoComplete="off"
-											className="
-												h-8 w-full rounded-md border border-border bg-bg-secondary/60 px-2
-												text-sm text-text-primary transition-colors
-												placeholder:text-text-secondary/50
-												focus-within:border-accent
-												focus:outline-none
-											"
-										/>
-									</div>
-								</div>
-							</ModalBody>
-							<ModalFooter>
-								<Button variant="secondary" size="sm" onClick={() => setShowDeleteConfirm(false)} disabled={isDeleting}>
-									Cancel
-								</Button>
-								<Button
-									size="sm"
-									variant="danger"
-									onClick={() => void handleConfirmDelete()}
-									disabled={isDeleting || !isDeleteConfirmed}
-									isLoading={isDeleting}
-								>
-									Delete
-								</Button>
-							</ModalFooter>
-						</>
-					) : (
-						<>
-							<ModalBody>
-								<div className="flex flex-col gap-2 text-sm text-text-secondary">
-									<p>You cannot delete your account yet. You are the sole Super admin of:</p>
-									<ul className="list-disc pl-4">
-										{deletePreview.blockers.map((blocker) => (
-											<li key={blocker.id}>
-												<strong className="text-text-primary">{blocker.name}</strong> ({blocker.memberCount} members)
-											</li>
-										))}
-									</ul>
-									<p>Promote another member to Super admin or delete those organizations first.</p>
-								</div>
-							</ModalBody>
-							<ModalFooter>
-								<Button variant="secondary" size="sm" onClick={() => setShowDeleteConfirm(false)}>
-									OK
-								</Button>
-							</ModalFooter>
-						</>
-					)}
+			<ConfirmDialog
+				open={showDeleteConfirm}
+				onOpenChange={(open) => {
+					if (!open && !isDeleting) setShowDeleteConfirm(false);
+				}}
+				title="Delete account"
+				description={
+					<>
+						<p>
+							Deleting <strong className="text-text-primary">{session?.user.email}</strong> is permanent and cannot be undone.
+						</p>
+						{deletePreview && deletePreview.singleMemberOrganizations.length > 0 && (
+							<p className="mt-2 text-xs">
+								<strong className="text-text-primary">{deletePreview.singleMemberOrganizations.length} organization(s)</strong> you own
+								alone will also be deleted, including their projects.
+							</p>
+						)}
+						{deletePreview && deletePreview.membershipOrganizations.length > 0 && (
+							<p className="mt-1 text-xs">
+								You will lose access to{' '}
+								<strong className="text-text-primary">{deletePreview.membershipOrganizations.length} organization(s)</strong>.
+							</p>
+						)}
+					</>
+				}
+				resourceName={session?.user.email ?? ''}
+				confirmLabel="Delete"
+				variant="danger"
+				isConfirming={isDeleting}
+				onConfirm={() => void handleConfirmDelete()}
+			/>
+
+			{deletePreview && !deletePreview.canDelete && (
+				<Modal open={showBlockersModal} onOpenChange={setShowBlockersModal} title="Delete account">
+					<ModalBody>
+						<div className="flex flex-col gap-2 text-sm text-text-secondary">
+							<p>You cannot delete your account yet. You are the sole Super admin of:</p>
+							<ul className="list-disc pl-4">
+								{deletePreview.blockers.map((blocker) => (
+									<li key={blocker.id}>
+										<strong className="text-text-primary">{blocker.name}</strong> ({blocker.memberCount} members)
+									</li>
+								))}
+							</ul>
+							<p>Promote another member to Super admin or delete those organizations first.</p>
+						</div>
+					</ModalBody>
+					<ModalFooter>
+						<Button variant="secondary" size="sm" onClick={() => setShowBlockersModal(false)}>
+							OK
+						</Button>
+					</ModalFooter>
 				</Modal>
 			)}
 		</div>

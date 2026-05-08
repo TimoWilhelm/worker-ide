@@ -1,7 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { useCallback } from 'react';
 
-import { toast } from '@/components/ui/toast-store';
 import { Tooltip, TooltipProvider } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 const TRUNCATED_LENGTH = 7;
@@ -46,14 +45,9 @@ export function VersionBadge({ className, withProvider = true }: VersionBadgePro
 	const tooltipContent = cloudflareVersion ? `${GIT_SHA}\nDeploy: ${cloudflareVersion.id.slice(0, TRUNCATED_LENGTH)}` : GIT_SHA;
 
 	const handleClick = useCallback(() => {
-		void navigator.clipboard.writeText(GIT_SHA).then(
-			() => {
-				toast.success('Version copied to clipboard');
-			},
-			() => {
-				// Clipboard API unavailable (HTTP context, iframe restrictions, etc.)
-			},
-		);
+		void navigator.clipboard.writeText(GIT_SHA).catch(() => {
+			// Clipboard API unavailable (HTTP context, iframe restrictions, etc.)
+		});
 	}, []);
 
 	const badge = (

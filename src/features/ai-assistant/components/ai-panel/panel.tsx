@@ -20,7 +20,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Collapsible } from '@/components/ui/collapsible';
-import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { ConfirmButton } from '@/components/ui/confirm-button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { PendingApprovalIndicator } from '@/components/ui/pending-approval-indicator';
 import { Spinner } from '@/components/ui/spinner';
@@ -330,7 +330,6 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	const [renamingSessionId, setRenamingSessionId] = useState<string | undefined>();
 	const [renameValue, setRenameValue] = useState('');
 	const [renameError, setRenameError] = useState<string | undefined>();
-	const [pendingDeleteSession, setPendingDeleteSession] = useState<{ id: string; title: string } | undefined>();
 
 	// Snapshot hook for revert
 	const { revertCascadeAsync, isReverting } = useSnapshots({ projectId });
@@ -1086,20 +1085,23 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 													>
 														<Pencil className="size-3" />
 													</button>
-													<button
-														type="button"
-														onClick={(event) => {
-															event.stopPropagation();
-															setPendingDeleteSession({ id: session.id, title: session.title });
-														}}
-														className="
-															hidden rounded-sm p-0.5 text-text-secondary transition-colors
-															group-hover/session:block
-															hover:bg-bg-tertiary hover:text-error
-														"
-													>
-														<Trash2 className="size-3" />
-													</button>
+													<div onClick={(event) => event.stopPropagation()} className="hidden group-hover/session:block">
+														<ConfirmButton
+															title="Delete this session?"
+															description="Your code changes will be preserved."
+															confirmLabel="Delete"
+															onConfirm={() => void handleDeleteSession(session.id)}
+															variant="ghost"
+															size="icon-sm"
+															confirmVariant="danger"
+															className="
+																size-5 rounded-sm text-text-secondary
+																hover:bg-bg-tertiary hover:text-error
+															"
+														>
+															<Trash2 className="size-3" />
+														</ConfirmButton>
+													</div>
 												</div>
 											</div>
 										</DropdownMenuItem>
@@ -1566,36 +1568,6 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 					revertError={pendingRevert.error}
 				/>
 			)}
-
-			<ConfirmDialog
-				open={!!pendingDeleteSession}
-				onOpenChange={(open) => {
-					if (!open) setPendingDeleteSession(undefined);
-				}}
-				title="Delete session"
-				description={
-					<div className="space-y-4">
-						<p className="text-sm font-medium">Are you sure you want to delete this session?</p>
-						<p
-							className="
-								truncate rounded-sm border border-border bg-bg-tertiary px-2 py-1
-								text-sm font-medium text-text-primary
-							"
-						>
-							{pendingDeleteSession?.title}
-						</p>
-						<p className="text-xs text-text-secondary">This action cannot be undone. Your code changes will be preserved.</p>
-					</div>
-				}
-				confirmLabel="Delete"
-				variant="danger"
-				onConfirm={() => {
-					if (pendingDeleteSession) {
-						void handleDeleteSession(pendingDeleteSession.id);
-						setPendingDeleteSession(undefined);
-					}
-				}}
-			/>
 		</div>
 	);
 }

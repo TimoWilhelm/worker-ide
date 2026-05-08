@@ -7,7 +7,6 @@ import { PageHeader } from '@/components/page-header';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { InlineRenameField } from '@/components/ui/inline-rename-field';
-import { Modal, ModalBody, ModalFooter } from '@/components/ui/modal';
 import { OrganizationManagementSkeleton } from '@/components/ui/skeleton';
 import { toast } from '@/components/ui/toast-store';
 import { deleteOrganization, fetchOrgDetails, fetchOrgLimits } from '@/lib/api-client';
@@ -338,9 +337,7 @@ export default function OrgManagementPage({ orgSlug, organizationId, organizatio
 	const [isRedirectingAway, setIsRedirectingAway] = useState(false);
 
 	const [deleteOrgOpen, setDeleteOrgOpen] = useState(false);
-	const [deleteOrgConfirmText, setDeleteOrgConfirmText] = useState('');
 	const [isDeletingOrg, setIsDeletingOrg] = useState(false);
-	const isDeleteOrgConfirmed = deleteOrgConfirmText.toLowerCase() === 'delete';
 
 	const [isEditingName, setIsEditingName] = useState(false);
 	const [isRenaming, setIsRenaming] = useState(false);
@@ -554,7 +551,6 @@ export default function OrgManagementPage({ orgSlug, organizationId, organizatio
 		} finally {
 			setIsDeletingOrg(false);
 			setDeleteOrgOpen(false);
-			setDeleteOrgConfirmText('');
 		}
 	}, [navigateToFallbackOrganization, organizationId]);
 
@@ -786,14 +782,7 @@ export default function OrgManagementPage({ orgSlug, organizationId, organizatio
 										<p className="text-sm font-medium text-text-primary">Delete organization</p>
 										<p className="text-xs text-text-secondary">Permanently delete this organization.</p>
 									</div>
-									<Button
-										variant="danger"
-										size="sm"
-										onClick={() => {
-											setDeleteOrgConfirmText('');
-											setDeleteOrgOpen(true);
-										}}
-									>
+									<Button variant="danger" size="sm" onClick={() => setDeleteOrgOpen(true)}>
 										Delete
 									</Button>
 								</div>
@@ -801,77 +790,26 @@ export default function OrgManagementPage({ orgSlug, organizationId, organizatio
 						</section>
 					)}
 
-					<Modal
+					<ConfirmDialog
 						open={deleteOrgOpen}
 						onOpenChange={(open) => {
 							if (!open && !isDeletingOrg) {
 								setDeleteOrgOpen(false);
-								setDeleteOrgConfirmText('');
 							}
 						}}
 						title="Delete organization"
-					>
-						<ModalBody>
-							<div className="space-y-4">
-								<p className="text-sm font-medium">Are you sure you want to delete this organization?</p>
-								<p
-									className="
-										truncate rounded-sm border border-border bg-bg-tertiary px-2 py-1
-										text-sm font-medium text-text-primary
-									"
-								>
-									{organization.name}
-								</p>
-								<p className="text-xs text-text-secondary">This action cannot be undone.</p>
-								<div>
-									<label className="mb-1.5 block text-xs text-text-secondary">
-										Type <strong className="text-text-primary uppercase">delete</strong> to confirm
-									</label>
-									<input
-										type="text"
-										value={deleteOrgConfirmText}
-										onChange={(event) => setDeleteOrgConfirmText(event.target.value)}
-										onKeyDown={(event) => {
-											if (event.key === 'Enter' && isDeleteOrgConfirmed && !isDeletingOrg) {
-												void handleDeleteOrg();
-											}
-										}}
-										disabled={isDeletingOrg}
-										autoComplete="off"
-										className="
-											h-8 w-full rounded-md border border-border bg-bg-secondary/60 px-2
-											text-sm text-text-primary transition-colors
-											placeholder:text-text-secondary/50
-											focus-within:border-accent
-											focus:outline-none
-										"
-									/>
-								</div>
-							</div>
-						</ModalBody>
-						<ModalFooter>
-							<Button
-								variant="secondary"
-								size="sm"
-								onClick={() => {
-									setDeleteOrgOpen(false);
-									setDeleteOrgConfirmText('');
-								}}
-								disabled={isDeletingOrg}
-							>
-								Cancel
-							</Button>
-							<Button
-								size="sm"
-								variant="danger"
-								onClick={() => void handleDeleteOrg()}
-								disabled={isDeletingOrg || !isDeleteOrgConfirmed}
-								isLoading={isDeletingOrg}
-							>
-								Delete
-							</Button>
-						</ModalFooter>
-					</Modal>
+						description={
+							<>
+								Deleting <strong className="text-text-primary">{organization.name}</strong> is permanent and cannot be undone. All projects
+								in this organization will also be deleted.
+							</>
+						}
+						resourceName={organization.name}
+						confirmLabel="Delete"
+						variant="danger"
+						isConfirming={isDeletingOrg}
+						onConfirm={() => void handleDeleteOrg()}
+					/>
 				</div>
 			</main>
 		</div>

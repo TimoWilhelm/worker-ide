@@ -3,7 +3,7 @@ import { ChevronDown, ChevronRight, File, FilePlus, Folder, FolderOpen, FolderPl
 import { useCallback, useId, useMemo, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
-import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { ConfirmButton } from '@/components/ui/confirm-button';
 import { Modal, ModalBody, ModalFooter } from '@/components/ui/modal';
 import { Tooltip } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
@@ -181,7 +181,6 @@ export function FileTree({
 	const [isCreateFolderModalOpen, setIsCreateFolderModalOpen] = useState(false);
 	const [newFilePath, setNewFilePath] = useState('');
 	const [newFolderPath, setNewFolderPath] = useState('');
-	const [deleteTarget, setDeleteTarget] = useState<string | undefined>();
 	const [renamingPath, setRenamingPath] = useState<string | undefined>();
 	const [dragOverPath, setDragOverPath] = useState<string | undefined>();
 	const activeFocusPath =
@@ -228,10 +227,6 @@ export function FileTree({
 
 	const handleNodeFocus = useCallback((path: string) => {
 		setFocusedPath(path);
-	}, []);
-
-	const handleDeleteRequest = useCallback((path: string) => {
-		setDeleteTarget(path);
 	}, []);
 
 	const handleTreeItemKeyDown = useCallback(
@@ -321,7 +316,7 @@ export function FileTree({
 						const isNodeProtected = PROTECTED_FILES.has(node.path);
 						if (!isNodeProtected) {
 							event.preventDefault();
-							handleDeleteRequest(node.path);
+							onDeleteFile(node.path);
 						}
 					}
 					return;
@@ -331,20 +326,13 @@ export function FileTree({
 				}
 			}
 		},
-		[focusNode, handleDeleteRequest, onDeleteFile, onDirectoryToggle, onFileSelect, onRenameFile, visibleNodeIndex, visibleNodes],
+		[focusNode, onDeleteFile, onDirectoryToggle, onFileSelect, onRenameFile, visibleNodeIndex, visibleNodes],
 	);
 
 	const handleOpenCreateModal = useCallback((prefillPath?: string) => {
 		setNewFilePath(prefillPath ?? '');
 		setIsCreateModalOpen(true);
 	}, []);
-
-	const handleDeleteConfirm = useCallback(() => {
-		if (deleteTarget && onDeleteFile) {
-			onDeleteFile(deleteTarget);
-		}
-		setDeleteTarget(undefined);
-	}, [deleteTarget, onDeleteFile]);
 
 	return (
 		<>
@@ -453,7 +441,7 @@ export function FileTree({
 									expandedDirectories={expandedDirectories}
 									onFileSelect={onFileSelect}
 									onDirectoryToggle={onDirectoryToggle}
-									onDeleteFile={onDeleteFile ? handleDeleteRequest : undefined}
+									onDeleteFile={onDeleteFile}
 									onCreateFileInDirectory={onCreateFile ? handleOpenCreateModal : undefined}
 									onCreateFolderInDirectory={onCreateFolder ? handleOpenCreateFolderModal : undefined}
 									onRenameFile={onRenameFile}
@@ -540,25 +528,6 @@ export function FileTree({
 					</Button>
 				</ModalFooter>
 			</Modal>
-
-			<ConfirmDialog
-				open={deleteTarget !== undefined}
-				onOpenChange={(open) => {
-					if (!open) setDeleteTarget(undefined);
-				}}
-				title="Delete Item"
-				description={
-					<>
-						Are you sure you want to delete <strong className="text-text-primary">{deleteTarget}</strong>?
-						<br />
-						This action cannot be undone.
-					</>
-				}
-				confirmLabel="Delete"
-				cancelLabel="Cancel"
-				variant="danger"
-				onConfirm={handleDeleteConfirm}
-			/>
 		</>
 	);
 }
@@ -655,13 +624,6 @@ function FileTreeNode({
 			onDirectoryToggle(item.path);
 		} else {
 			onFileSelect(item.path);
-		}
-	};
-
-	const handleDelete = (event: React.MouseEvent) => {
-		event.stopPropagation();
-		if (onDeleteFile && !isProtected) {
-			onDeleteFile(item.path);
 		}
 	};
 
@@ -872,20 +834,22 @@ function FileTreeNode({
 					</button>
 				)}
 				{!isProtected && onDeleteFile && !isRenaming && (
-					<button
-						type="button"
-						tabIndex={-1}
-						onClick={handleDelete}
-						className="
-							hidden size-4 shrink-0 cursor-pointer items-center justify-center
-							rounded-sm text-text-secondary transition-colors
-							hover-always:text-error
-							group-hover-always:flex
-						"
-						aria-label={`Delete ${item.name}`}
-					>
-						<Trash2 className="size-3" />
-					</button>
+					<div onClick={(event) => event.stopPropagation()} className="hidden shrink-0 group-hover-always:block">
+						<ConfirmButton
+							title={`Delete ${item.name}?`}
+							confirmLabel="Delete"
+							onConfirm={() => onDeleteFile(item.path)}
+							variant="ghost"
+							size="icon-sm"
+							confirmVariant="danger"
+							className="
+								size-4 text-text-secondary
+								hover:text-error
+							"
+						>
+							<Trash2 className="size-3" />
+						</ConfirmButton>
+					</div>
 				)}
 			</div>
 			{item.isDirectory && isExpanded && item.children && (
