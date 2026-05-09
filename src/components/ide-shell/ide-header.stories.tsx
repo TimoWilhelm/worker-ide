@@ -28,7 +28,7 @@ const meta = {
 			handleCancelRename: fn(),
 		},
 		isMobile: false,
-		aiPanelVisible: false,
+		agentPanelVisible: false,
 		toggleAgentPanel: fn(),
 		isAgentProcessing: false,
 		mobileMenuOpen: false,
@@ -56,9 +56,9 @@ export const DesktopView: Story = {
 			await expect(await canvas.findByLabelText('Download project')).toBeInTheDocument();
 		});
 
-		await step('Interact with AI Toggle', async () => {
-			const aiToggle = await canvas.findByLabelText('Toggle Agent panel');
-			await userEvent.click(aiToggle);
+		await step('Interact with Agent Toggle', async () => {
+			const agentToggle = await canvas.findByLabelText('Toggle Agent panel');
+			await userEvent.click(agentToggle);
 			await expect(args.toggleAgentPanel).toHaveBeenCalled();
 		});
 	},
@@ -67,13 +67,14 @@ export const DesktopView: Story = {
 export const MobileView: Story = {
 	args: {
 		isMobile: true,
+		agentPanelVisible: false,
 	},
 	play: async ({ canvasElement, step }) => {
 		const canvas = within(canvasElement);
 
-		await step('Verify AI toggle is hidden on mobile', async () => {
-			const aiToggle = canvas.queryByLabelText('Toggle Agent panel');
-			await expect(aiToggle).not.toBeInTheDocument();
+		await step('Verify Agent toggle is hidden on mobile', async () => {
+			const agentToggle = canvas.queryByLabelText('Toggle Agent panel');
+			await expect(agentToggle).not.toBeInTheDocument();
 		});
 
 		await step('Verify settings, deploy, download are hidden on mobile', async () => {
@@ -91,6 +92,7 @@ export const MobileView: Story = {
 
 export const EditingName: Story = {
 	args: {
+		agentPanelVisible: false,
 		projectNameState: {
 			projectName: 'New Name Edited',
 			isEditingName: true,

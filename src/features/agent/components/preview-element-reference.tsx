@@ -1,7 +1,7 @@
 import { WandSparkles } from 'lucide-react';
 import { useCallback, useState } from 'react';
 
-import { usePreviewReferenceInteractions } from '@/features/ai-assistant/lib/reference-actions';
+import { usePreviewReferenceInteractions } from '@/features/agent/lib/reference-actions';
 import {
 	PREVIEW_REFERENCE_BASE_CLASS_NAME,
 	PREVIEW_REFERENCE_ICON_CLASS_NAME,
@@ -10,7 +10,7 @@ import {
 	PREVIEW_REFERENCE_MISSING_CLASS_NAME,
 	PREVIEW_REFERENCE_SUMMARY_CLASS_NAME,
 	PREVIEW_REFERENCE_TEXT_ROW_CLASS_NAME,
-} from '@/features/ai-assistant/lib/reference-pill-styles';
+} from '@/features/agent/lib/reference-pill-styles';
 import { cn } from '@/lib/utils';
 import { getPreviewElementDisplayText, getPreviewElementLabel, getPreviewElementSummary } from '@shared/preview-element';
 

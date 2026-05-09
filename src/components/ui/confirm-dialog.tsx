@@ -7,8 +7,8 @@ import { useDeferredOpen } from '@/hooks/use-deferred-open';
 import { modalContentVariants, springDefault } from '@/lib/motion-config';
 import { cn } from '@/lib/utils';
 
+import { Button } from './button';
 import { useDialogStackPresence } from './dialog-stack';
-import { Spinner } from './spinner';
 
 import type { ReactNode } from 'react';
 
@@ -62,7 +62,10 @@ export function ConfirmDialog({
 	}
 
 	const cancelButtonClassName = cn(
-		`inline-flex items-center justify-center rounded-md border border-border`,
+		`
+			inline-flex cursor-pointer items-center justify-center rounded-md border
+			border-border
+		`,
 		`bg-bg-tertiary px-3 py-1.5 text-sm font-medium text-text-primary`,
 		`
 			transition-colors
@@ -71,7 +74,10 @@ export function ConfirmDialog({
 	);
 
 	const confirmButtonClassName = cn(
-		`inline-flex items-center justify-center rounded-md px-3 py-1.5 text-sm`,
+		`
+			inline-flex cursor-pointer items-center justify-center rounded-md px-3 py-1.5
+			text-sm
+		`,
 		`font-medium text-white transition-colors`,
 		variant === 'danger'
 			? `
@@ -171,23 +177,18 @@ export function ConfirmDialog({
 								<div className="flex justify-end gap-2 border-t border-border px-4 py-3">
 									{resourceName ? (
 										<>
-											<button
-												type="button"
-												onClick={() => handleOpenChange(false)}
-												disabled={isConfirming}
-												className={cancelButtonClassName}
-											>
+											<Button type="button" variant="secondary" onClick={() => handleOpenChange(false)} disabled={isConfirming}>
 												{cancelLabel}
-											</button>
-											<button
+											</Button>
+											<Button
 												type="button"
 												onClick={onConfirm}
-												disabled={!confirmationMatches || isConfirming}
-												className={confirmButtonClassName}
+												disabled={!confirmationMatches}
+												variant={variant === 'danger' ? 'danger' : variant === 'warning' ? 'warning' : 'default'}
+												isLoading={isConfirming}
 											>
-												{isConfirming && <Spinner className="mr-1.5 size-3.5" />}
 												{confirmLabel}
-											</button>
+											</Button>
 										</>
 									) : (
 										<>

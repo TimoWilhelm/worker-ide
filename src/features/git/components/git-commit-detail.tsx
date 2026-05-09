@@ -1,7 +1,8 @@
 import { ArrowLeft, Clock, GitCommitHorizontal, User } from 'lucide-react';
 import { useState } from 'react';
 
-import { Button, ConfirmDialog } from '@/components/ui';
+import { Button } from '@/components/ui/button';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { cn } from '@/lib/utils';
 
 import type { GitCommitEntry, GitFileDiff } from '@shared/types';

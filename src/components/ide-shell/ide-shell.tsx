@@ -4,7 +4,7 @@ import { ProjectAccessRestricted } from '@/components/project-access-restricted'
 import { ProjectNotFound } from '@/components/project-not-found';
 import { toast } from '@/components/ui/toast-store';
 import { TooltipProvider } from '@/components/ui/tooltip';
-import { AgentRuntimeProvider } from '@/features/ai-assistant';
+import { AgentRuntimeProvider } from '@/features/agent';
 import { DeployModal } from '@/features/deploy';
 import { useFileTree } from '@/features/file-tree';
 import { ProjectSettingsModal } from '@/features/project-settings';
@@ -158,7 +158,7 @@ export function IDEShell({
 					<IDEHeader
 						projectNameState={projectNameState}
 						isMobile={isMobile}
-						aiPanelVisible={layouts.aiPanelVisible}
+						agentPanelVisible={layouts.agentPanelVisible}
 						toggleAgentPanel={toggleAgentPanel}
 						isAgentProcessing={isAgentProcessing}
 						mobileMenuOpen={mobileMenuOpen}

@@ -2,12 +2,12 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Suspense } from 'react';
 import { expect, fn, userEvent, within } from 'storybook/test';
 
-import { AgentRuntimeContext } from '@/features/ai-assistant/components/agent-runtime-context';
+import { AgentRuntimeContext } from '@/features/agent/components/agent-runtime-context';
 
 import { MobileLayout } from './mobile-layout';
 
 import type { useEditorState } from './use-editor-state';
-import type { AgentRuntimeValue } from '@/features/ai-assistant/components/agent-runtime-context';
+import type { AgentRuntimeValue } from '@/features/agent/components/agent-runtime-context';
 import type { useFileTree } from '@/features/file-tree';
 import type { LogCounts } from '@/features/output';
 import type { Meta, StoryObj } from '@storybook/react-vite';

@@ -4,10 +4,9 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
 
 import { Button } from '@/components/ui/button';
 import { EditorSkeleton, WranglerSettingsSkeleton } from '@/components/ui/skeleton';
-import { Spinner } from '@/components/ui/spinner';
 import { Tooltip } from '@/components/ui/tooltip';
-import { useAgentRuntime } from '@/features/ai-assistant/components/agent-runtime-context';
-import { isAgentState } from '@/features/ai-assistant/lib/agent-state';
+import { useAgentRuntime } from '@/features/agent/components/agent-runtime-context';
+import { isAgentState } from '@/features/agent/lib/agent-state';
 import { CodeEditor, DiffFloatingBar, FileTabs, GitDiffToolbar, groupHunksIntoChanges } from '@/features/editor';
 import { useCollabCursors } from '@/features/editor/hooks/use-collab-cursors';
 import { isLintableFile } from '@/lib/biome-linter';
@@ -206,15 +205,11 @@ export function EditorArea({ projectId, resolvedTheme, editorState, onSelectFile
 									variant="ghost"
 									size="icon"
 									onClick={() => void handlePrettify()}
-									disabled={isPrettifying}
+									isLoading={isPrettifying}
 									className={cn('size-7', 'text-text-secondary', 'hover:text-accent')}
 									aria-label="Prettify file"
 								>
-									{isPrettifying ? (
-										<Spinner className="size-3.5" />
-									) : (
-										<Sparkles className={cn('size-3.5', hasFixableIssues && 'text-accent')} />
-									)}
+									<Sparkles className={cn('size-3.5', hasFixableIssues && 'text-accent')} />
 								</Button>
 							</Tooltip>
 						) : undefined

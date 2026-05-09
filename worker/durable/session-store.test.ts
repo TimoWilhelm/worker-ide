@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { AgentSessionStore } from './session-store';
-import { chatMessageToSessionMessage } from '../services/ai-agent/session-messages';
+import { chatMessageToSessionMessage } from '../services/agent/session-messages';
 
 import type { ChatMessage } from '@shared/types';
 import type { SessionInfo, SessionMessage } from 'agents/experimental/memory/session';

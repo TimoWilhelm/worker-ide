@@ -31,6 +31,7 @@ import {
 import { AnimatePresence, motion } from 'motion/react';
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 
+import { Button } from '@/components/ui/button';
 import { Pill, type PillProperties } from '@/components/ui/pill';
 import { Spinner } from '@/components/ui/spinner';
 import { Tooltip } from '@/components/ui/tooltip';
@@ -359,19 +360,18 @@ function UserMessage({
 				</div>
 				{canRevert && (
 					<Tooltip content="Revert the session to before this message">
-						<button
+						<Button
+							type="button"
+							variant="ghost"
+							size="sm"
 							onClick={() => onRevert(messageIndex)}
 							disabled={isReverting}
-							className={cn(
-								'inline-flex cursor-pointer items-center gap-1 rounded-md px-1.5 py-0.5',
-								'text-2xs font-medium text-text-secondary transition-colors',
-								'hover:bg-warning/10 hover:text-warning',
-								isReverting && 'cursor-not-allowed opacity-50',
-							)}
+							isLoading={isRevertingThis}
+							className={cn('h-auto px-1.5 py-0.5 text-2xs font-medium text-text-secondary', 'hover:bg-warning/10 hover:text-warning')}
 						>
-							{isRevertingThis ? <Spinner className="size-3" /> : <RotateCcw className="size-3" />}
-							{isRevertingThis ? 'Reverting...' : 'Revert'}
-						</button>
+							<RotateCcw className="size-3" />
+							Revert
+						</Button>
 					</Tooltip>
 				)}
 			</div>
@@ -2115,7 +2115,7 @@ export function DoomLoopAlert({ message, onRetry, onDismiss }: { message: string
 	);
 }
 
-export function AIError({
+export function AgentError({
 	message,
 	code,
 	onRetry,

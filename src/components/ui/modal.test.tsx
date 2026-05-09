@@ -98,6 +98,27 @@ describe('Modal', () => {
 		const backdropAfter = screen.getByTestId('modal-backdrop');
 		expect(backdropAfter).toBe(backdropBefore);
 	});
+
+	it('uses the shared button loading state for resource confirmation actions', () => {
+		render(
+			<ConfirmDialog
+				open={true}
+				onOpenChange={vi.fn()}
+				title="Delete project"
+				description="This cannot be undone."
+				resourceName="demo-project"
+				confirmLabel="Delete"
+				onConfirm={vi.fn()}
+				isConfirming={true}
+			/>,
+		);
+
+		const confirmButton = screen.getAllByRole('button').find((button) => button.textContent?.includes('Delete'));
+		expect(confirmButton).toBeDefined();
+		expect(confirmButton).toBeDisabled();
+		expect(confirmButton).toHaveTextContent('Delete');
+		expect(screen.getByRole('status', { name: 'Loading' })).toBeInTheDocument();
+	});
 });
 
 describe('ModalBody', () => {

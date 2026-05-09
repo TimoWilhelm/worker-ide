@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DEFAULT_AI_MODEL } from '@shared/constants';
 
-import { AIAgentService } from './service';
+import { AgentService } from './service';
 
 import type { SessionPersistData } from './types';
 import type { FiberSnapshot, StreamEvent } from '@shared/agent-state';
@@ -169,7 +169,7 @@ function createTestService(
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any -- test stub for DurableObjectStub
 	const fsStub = {} as any;
 
-	return new AIAgentService({
+	return new AgentService({
 		projectRoot: '/project',
 		projectId: 'test-project',
 		fsStub,
@@ -193,7 +193,7 @@ async function collectEvents(stream: AsyncIterable<StreamEvent>): Promise<Stream
 	return events;
 }
 
-describe('AIAgentService', () => {
+describe('AgentService', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		mockGetRecentExternalChanges.mockResolvedValue([]);

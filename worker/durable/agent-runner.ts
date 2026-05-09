@@ -52,25 +52,25 @@ import * as authSchema from '../db/auth-schema';
 import { trackAiUsage, trackWebSocketEvent } from '../lib/analytics';
 import { filesystemNamespace } from '../lib/durable-object-namespaces';
 import { toDurableObjectId } from '../lib/project-id';
-import { AIAgentService } from '../services/ai-agent';
-import { chatMessagesToModelMessages, estimateMessagesTokens } from '../services/ai-agent/context-pruner';
+import { AgentService } from '../services/agent';
+import { chatMessagesToModelMessages, estimateMessagesTokens } from '../services/agent/context-pruner';
 import {
 	ARTIFACTS_CONTEXT_LABEL,
 	HISTORY_CONTEXT_LABEL,
 	ROOT_MEMORY_CONTEXT_LABEL,
 	type SearchableArtifactEntry,
-} from '../services/ai-agent/memory/artifacts';
-import { SharedContextProvider } from '../services/ai-agent/memory/shared-context-provider';
-import { isRequestOriginContext } from '../services/ai-agent/request-origin-context';
-import { ReviewQueueStore } from '../services/ai-agent/review-queue';
-import { cleanupSessionArtifacts } from '../services/ai-agent/session-cleanup';
-import { sessionMessagesToChatMessages } from '../services/ai-agent/session-messages';
-import { readAgentsContext } from '../services/ai-agent/system-prompt-builder';
-import { deriveFallbackTitle, generateSessionTitle } from '../services/ai-agent/title-generator';
-import { createAdapter as createWorkersAiAdapter } from '../services/ai-agent/workers-ai';
+} from '../services/agent/memory/artifacts';
+import { SharedContextProvider } from '../services/agent/memory/shared-context-provider';
+import { isRequestOriginContext } from '../services/agent/request-origin-context';
+import { ReviewQueueStore } from '../services/agent/review-queue';
+import { cleanupSessionArtifacts } from '../services/agent/session-cleanup';
+import { sessionMessagesToChatMessages } from '../services/agent/session-messages';
+import { readAgentsContext } from '../services/agent/system-prompt-builder';
+import { deriveFallbackTitle, generateSessionTitle } from '../services/agent/title-generator';
+import { createAdapter as createWorkersAiAdapter } from '../services/agent/workers-ai';
 
 import type { AgentDatabase } from './db';
-import type { RequestOriginContext } from '../services/ai-agent/request-origin-context';
+import type { RequestOriginContext } from '../services/agent/request-origin-context';
 import type { AgentState, AgentSessionState, FiberSnapshot, SessionParticipantProfile, SessionSummary } from '@shared/agent-state';
 import type { AIModelId } from '@shared/constants';
 import type { AgentMode, AgentSessionStatus, AiSession, ChatMessage, PendingFileChange, ReviewEntry, UserMessagePart } from '@shared/types';
@@ -1484,8 +1484,8 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		const projectId = parameters.projectId;
 		let finalStatus: AgentSessionStatus = 'completed';
 		let errorMessage: string | undefined;
-		let logger: import('../services/ai-agent/agent-logger').AgentLogger | undefined;
-		let agentService: AIAgentService | undefined;
+		let logger: import('../services/agent/agent-logger').AgentLogger | undefined;
+		let agentService: AgentService | undefined;
 
 		try {
 			const fsId = toDurableObjectId(filesystemNamespace, projectId);
@@ -1501,7 +1501,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 			// Convert ChatMessage[] to ModelMessage[] for the AI SDK
 			const modelMessages = chatMessagesToModelMessages(parameters.messages);
 
-			agentService = new AIAgentService({
+			agentService = new AgentService({
 				projectRoot: PROJECT_ROOT,
 				projectId,
 				fsStub,
@@ -1633,12 +1633,12 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	}
 
 	// =========================================================================
-	// Session Persistence (called by AIAgentService)
+	// Session Persistence (called by AgentService)
 	// =========================================================================
 
 	private async persistSessionFromService(
 		sessionId: string,
-		sessionData: import('../services/ai-agent/types').SessionPersistData,
+		sessionData: import('../services/agent/types').SessionPersistData,
 	): Promise<void> {
 		await this.withSessionMutationLock(sessionId, async () => {
 			const existing = this.agentSessionStore.getMetadata(sessionId);

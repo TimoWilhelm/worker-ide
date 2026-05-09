@@ -1,6 +1,7 @@
 import { useState } from 'react';
 
-import { Button, Modal, ModalBody, ModalFooter } from '@/components/ui';
+import { Button } from '@/components/ui/button';
+import { Modal, ModalBody, ModalFooter } from '@/components/ui/modal';
 import { cn } from '@/lib/utils';
 
 interface GitBranchDialogProperties {

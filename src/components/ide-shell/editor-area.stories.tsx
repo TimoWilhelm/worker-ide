@@ -1,11 +1,11 @@
 import { expect, fn, within } from 'storybook/test';
 
-import { AgentRuntimeContext } from '@/features/ai-assistant/components/agent-runtime-context';
+import { AgentRuntimeContext } from '@/features/agent/components/agent-runtime-context';
 
 import { EditorArea } from './editor-area';
 
 import type { useEditorState } from './use-editor-state';
-import type { AgentRuntimeValue } from '@/features/ai-assistant/components/agent-runtime-context';
+import type { AgentRuntimeValue } from '@/features/agent/components/agent-runtime-context';
 import type { Meta, StoryObj } from '@storybook/react-vite';
 
 // Since useChangeReview isn't easily imported as a type for mocking, we just cast the mock

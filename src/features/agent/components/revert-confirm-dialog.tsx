@@ -4,6 +4,7 @@ import { AlertCircle, AlertTriangle, FileMinus, FilePen, FilePlus, RotateCcw } f
 import { AnimatePresence, motion } from 'motion/react';
 import { useMemo } from 'react';
 
+import { Button } from '@/components/ui/button';
 import { useDialogStackPresence } from '@/components/ui/dialog-stack';
 import { Spinner } from '@/components/ui/spinner';
 import { useDeferredOpen } from '@/hooks/use-deferred-open';
@@ -260,12 +261,9 @@ export function RevertConfirmDialog({
 										disabled={isReverting}
 										className={cn(
 											`
-												inline-flex items-center justify-center rounded-md border
-												border-border
-											`,
-											'bg-bg-tertiary px-3 py-1.5 text-sm font-medium text-text-primary',
-											`
-												transition-colors
+												inline-flex cursor-pointer items-center justify-center rounded-md
+												border border-border bg-bg-tertiary px-3 py-1.5 text-sm font-medium
+												text-text-primary transition-colors
 												hover:bg-border
 											`,
 											isReverting && 'cursor-not-allowed opacity-50',
@@ -273,35 +271,16 @@ export function RevertConfirmDialog({
 									>
 										Cancel
 									</AlertDialog.Close>
-									<button
+									<Button
 										type="button"
 										onClick={() => onConfirm(snapshotIds, messageIndex)}
-										disabled={isLoading || !!fetchError || isReverting}
-										className={cn(
-											`
-												inline-flex items-center justify-center gap-1.5 rounded-md px-3
-												py-1.5
-											`,
-											'text-sm font-medium text-black transition-colors',
-											`
-												bg-warning
-												hover:bg-yellow-600
-											`,
-											'disabled:cursor-not-allowed disabled:opacity-50',
-										)}
+										disabled={isLoading || !!fetchError}
+										variant="warning"
+										isLoading={isReverting}
 									>
-										{isReverting ? (
-											<>
-												<Spinner className="size-3.5" />
-												Reverting...
-											</>
-										) : (
-											<>
-												<RotateCcw className="size-3.5" />
-												Revert
-											</>
-										)}
-									</button>
+										<RotateCcw className="size-3.5" />
+										Revert
+									</Button>
 								</div>
 							</AlertDialog.Popup>
 						)}

@@ -23,14 +23,32 @@ import * as schema from '../db/auth-schema';
 interface AuthEnvironment {
 	DB: D1Database;
 	BETTER_AUTH_SECRET: string;
-	GITHUB_CLIENT_ID: string;
-	GITHUB_CLIENT_SECRET: string;
-	GOOGLE_CLIENT_ID: string;
-	GOOGLE_CLIENT_SECRET: string;
+	GITHUB_CLIENT_ID?: string;
+	GITHUB_CLIENT_SECRET?: string;
+	GOOGLE_CLIENT_ID?: string;
+	GOOGLE_CLIENT_SECRET?: string;
 }
 
 export function createAuth(environment: AuthEnvironment, baseUrl: string, request?: Request) {
 	const database = drizzle(environment.DB, { schema });
+	const socialProviders = {
+		...(environment.GITHUB_CLIENT_ID && environment.GITHUB_CLIENT_SECRET
+			? {
+					github: {
+						clientId: environment.GITHUB_CLIENT_ID,
+						clientSecret: environment.GITHUB_CLIENT_SECRET,
+					},
+				}
+			: {}),
+		...(environment.GOOGLE_CLIENT_ID && environment.GOOGLE_CLIENT_SECRET
+			? {
+					google: {
+						clientId: environment.GOOGLE_CLIENT_ID,
+						clientSecret: environment.GOOGLE_CLIENT_SECRET,
+					},
+				}
+			: {}),
+	};
 
 	return betterAuth({
 		database: drizzleAdapter(database, {
@@ -40,16 +58,7 @@ export function createAuth(environment: AuthEnvironment, baseUrl: string, reques
 		baseURL: baseUrl,
 		basePath: AUTH_BASE_PATH,
 		secret: environment.BETTER_AUTH_SECRET,
-		socialProviders: {
-			github: {
-				clientId: environment.GITHUB_CLIENT_ID,
-				clientSecret: environment.GITHUB_CLIENT_SECRET,
-			},
-			google: {
-				clientId: environment.GOOGLE_CLIENT_ID,
-				clientSecret: environment.GOOGLE_CLIENT_SECRET,
-			},
-		},
+		socialProviders,
 		account: {
 			accountLinking: {
 				enabled: true,

@@ -28,7 +28,7 @@ vi.mock('@/components/ui/tooltip', () => ({
 	TooltipProvider: ({ children }: { children: import('react').ReactNode }) => <>{children}</>,
 }));
 
-vi.mock('@/features/ai-assistant', () => ({
+vi.mock('@/features/agent', () => ({
 	AgentRuntimeProvider: ({ children }: { children: import('react').ReactNode; projectId: string }) => <>{children}</>,
 }));
 
@@ -123,7 +123,7 @@ vi.mock('./use-log-counts', () => ({
 
 vi.mock('./use-panel-layouts', () => ({
 	usePanelLayouts: () => ({
-		aiPanelVisible: false,
+		agentPanelVisible: false,
 	}),
 }));
 

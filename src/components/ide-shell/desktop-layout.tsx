@@ -25,7 +25,7 @@ import type { LogCounts } from '@/features/output';
 const BOTTOM_PANEL_DEFAULT_SIZE = '30%';
 const TOP_PANEL_DEFAULT_SIZE = '70%';
 
-const AIPanel = lazy(() => import('@/features/ai-assistant'));
+const AgentPanel = lazy(() => import('@/features/agent'));
 const DevelopmentToolsPanel = lazy(() => import('@/features/devtools'));
 const PreviewPanel = lazy(() => import('@/features/preview'));
 const UtilityPanel = lazy(() => import('@/features/utility-panel'));
@@ -100,7 +100,7 @@ export function DesktopLayout({
 	const { participants, cursorPosition, isSaving, gitStatusMap } = editorState;
 
 	const {
-		aiPanelVisible,
+		agentPanelVisible,
 		utilityPanelVisible,
 		devtoolsVisible,
 		dependenciesPanelVisible,
@@ -285,7 +285,7 @@ export function DesktopLayout({
 
 				<PanelDivider orientation="horizontal" />
 
-				<Panel id="preview-col" defaultSize={aiPanelVisible ? '20%' : '40%'} minSize="15%">
+				<Panel id="preview-col" defaultSize={agentPanelVisible ? '20%' : '40%'} minSize="15%">
 					<PanelGroup
 						orientation="vertical"
 						id="ide-preview-devtools"
@@ -322,13 +322,13 @@ export function DesktopLayout({
 					</PanelGroup>
 				</Panel>
 
-				{aiPanelVisible && (
+				{agentPanelVisible && (
 					<>
 						<PanelDivider orientation="horizontal" />
-						<Panel id="ai-panel" defaultSize="20%" minSize="15%" maxSize="35%">
+						<Panel id="agent-panel" defaultSize="20%" minSize="15%" maxSize="35%">
 							<aside className="flex h-full flex-col border-l border-border">
 								<Suspense fallback={<AgentPanelSkeleton />}>
-									<AIPanel projectId={projectId} className="h-full" />
+									<AgentPanel projectId={projectId} className="h-full" />
 								</Suspense>
 							</aside>
 						</Panel>

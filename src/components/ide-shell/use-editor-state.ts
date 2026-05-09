@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 
-import { useChangeReview } from '@/features/ai-assistant/hooks/use-change-review';
+import { useChangeReview } from '@/features/agent/hooks/use-change-review';
 import { computeDiffData, groupHunksIntoChanges, useFileContent } from '@/features/editor';
 import { dispatchLintDiagnostics } from '@/features/editor/lib/lint-extension';
 import { projectSocketSendReference } from '@/hooks';

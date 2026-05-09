@@ -10,9 +10,9 @@ import { debugLogIdSchema, sessionIdSchema } from '@shared/validation';
 import { httpError } from '../lib/http-error';
 
 import type { AppEnvironment } from '../types';
-export const aiRoutes = new Hono<AppEnvironment>()
-	// GET /api/ai/latest-debug-log-id?sessionId=X - Get the latest debug log ID for a session
-	.get('/ai/latest-debug-log-id', zValidator('query', z.object({ sessionId: sessionIdSchema })), async (c) => {
+export const agentRoutes = new Hono<AppEnvironment>()
+	// GET /api/agent/latest-debug-log-id?sessionId=X - Get the latest debug log ID for a session
+	.get('/agent/latest-debug-log-id', zValidator('query', z.object({ sessionId: sessionIdSchema })), async (c) => {
 		const projectRoot = c.get('projectRoot');
 		const { sessionId } = c.req.valid('query');
 		const logsDirectory = `${projectRoot}/.agent/sessions/${sessionId}/debug-logs`;
@@ -38,8 +38,8 @@ export const aiRoutes = new Hono<AppEnvironment>()
 		}
 	})
 
-	// GET /api/ai/debug-log?id=X&sessionId=Y - Download an agent debug log
-	.get('/ai/debug-log', zValidator('query', z.object({ id: debugLogIdSchema, sessionId: sessionIdSchema.optional() })), async (c) => {
+	// GET /api/agent/debug-log?id=X&sessionId=Y - Download an agent debug log
+	.get('/agent/debug-log', zValidator('query', z.object({ id: debugLogIdSchema, sessionId: sessionIdSchema.optional() })), async (c) => {
 		const projectRoot = c.get('projectRoot');
 		const { id, sessionId } = c.req.valid('query');
 
@@ -67,4 +67,4 @@ export const aiRoutes = new Hono<AppEnvironment>()
 		return c.body(content, 200, { 'Content-Type': 'application/json' });
 	});
 
-export type AIRoutes = typeof aiRoutes;
+export type AgentRoutes = typeof agentRoutes;

@@ -2,9 +2,11 @@ import { ScrollArea } from '@base-ui/react/scroll-area';
 import { GitBranch, Globe, History, RotateCcw } from 'lucide-react';
 import { Suspense, useCallback, useMemo, useState } from 'react';
 
-import { Button, ConfirmDialog, Tooltip } from '@/components/ui';
+import { Button } from '@/components/ui/button';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { GitPanelSkeleton } from '@/components/ui/skeleton';
 import { toast } from '@/components/ui/toast-store';
+import { Tooltip } from '@/components/ui/tooltip';
 import { createApiClient } from '@/lib/api-client';
 import { useStore } from '@/lib/store';
 import { cn } from '@/lib/utils';

@@ -1,15 +1,15 @@
 import { ChevronDown, GitBranch, GitMerge, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import {
-	ConfirmDialog,
 	DropdownMenu,
 	DropdownMenuContent,
 	DropdownMenuItem,
 	DropdownMenuLabel,
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
-} from '@/components/ui';
+} from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 
 import type { GitBranchInfo } from '@shared/types';

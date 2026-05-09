@@ -1,7 +1,7 @@
 import { readSessionMessageMetadata, readSessionMetadata, replaceSessionMessageMetadata, upsertSessionMetadata } from './db';
 import { applyPersistedMessageMetadata, serializePersistedMessageMetadata } from './session-history';
-import { compactHistoryForPersistence } from '../services/ai-agent/persisted-history-compactor';
-import { chatMessageToSessionMessage, sessionMessagesToChatMessages } from '../services/ai-agent/session-messages';
+import { compactHistoryForPersistence } from '../services/agent/persisted-history-compactor';
+import { chatMessageToSessionMessage, sessionMessagesToChatMessages } from '../services/agent/session-messages';
 
 import type { AgentDatabase, SessionMetadataRow } from './db';
 import type { AgentSessionStatus, AiSession, ChatMessage, ToolErrorInfo, ToolMetadataInfo } from '@shared/types';

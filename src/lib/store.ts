@@ -56,16 +56,16 @@ interface FileTreeActions {
 	setLoading: (loading: boolean) => void;
 }
 
-interface AIError {
+interface AgentError {
 	message: string;
 	code?: string;
 }
 
-interface AIState {
+interface AgentState {
 	history: ChatMessage[];
 	isProcessing: boolean;
 	statusMessage: string | undefined;
-	aiError: AIError | undefined;
+	agentError: AgentError | undefined;
 	sessionId: string | undefined;
 	savedSessions: Array<{ id: string; title: string; createdAt: number; isRunning: boolean }>;
 	agentMode: AgentMode;
@@ -76,12 +76,12 @@ interface AIState {
 	pendingPreviewElementReferences: PreviewElementReference[];
 }
 
-interface AIActions {
+interface AgentActions {
 	addMessage: (message: ChatMessage) => void;
 	clearHistory: () => void;
 	setProcessing: (processing: boolean) => void;
 	setStatusMessage: (message: string | undefined) => void;
-	setAiError: (error: AIError | undefined) => void;
+	setAgentError: (error: AgentError | undefined) => void;
 	setSessionId: (id: string | undefined) => void;
 	setSavedSessions: (sessions: Array<{ id: string; title: string; createdAt: number; isRunning: boolean }>) => void;
 	setAgentMode: (mode: AgentMode) => void;
@@ -223,7 +223,7 @@ interface GitActions {
 
 type StoreState = EditorState &
 	FileTreeState &
-	AIState &
+	AgentState &
 	CollaborationState &
 	SnapshotState &
 	PendingChangesState &
@@ -232,7 +232,7 @@ type StoreState = EditorState &
 	GitState &
 	EditorActions &
 	FileTreeActions &
-	AIActions &
+	AgentActions &
 	CollaborationActions &
 	SnapshotActions &
 	PendingChangesActions &
@@ -403,12 +403,12 @@ export const useStore = create<StoreState>()(
 			setLoading: (loading) => set({ isLoading: loading }),
 
 			// =============================================================================
-			// AI State & Actions
+			// Agent State & Actions
 			// =============================================================================
 			history: [],
 			isProcessing: false,
 			statusMessage: undefined,
-			aiError: undefined,
+			agentError: undefined,
 			sessionId: undefined,
 			savedSessions: [],
 			agentMode: 'code',
@@ -427,7 +427,7 @@ export const useStore = create<StoreState>()(
 				set({
 					history: [],
 					sessionId: undefined,
-					aiError: undefined,
+					agentError: undefined,
 					debugLogId: undefined,
 					contextTokensUsed: 0,
 				}),
@@ -436,7 +436,7 @@ export const useStore = create<StoreState>()(
 
 			setStatusMessage: (message) => set({ statusMessage: message }),
 
-			setAiError: (error) => set({ aiError: error }),
+			setAgentError: (error) => set({ agentError: error }),
 
 			setSessionId: (id) => set({ sessionId: id }),
 

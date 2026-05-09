@@ -10,7 +10,7 @@ import { testRunRequestSchema } from '@shared/validation';
 
 import { coordinatorNamespace } from '../lib/durable-object-namespaces';
 import { httpError } from '../lib/http-error';
-import { runTests } from '../services/ai-agent/tools/test-run';
+import { runTests } from '../services/agent/tools/test-run';
 
 import type { AppEnvironment } from '../types';
 import type { DiscoveredTest, DiscoveredTestFile } from '@shared/types';

@@ -16,10 +16,17 @@ export function MobileFileDrawer({ children }: MobileFileDrawerProperties) {
 	const mobileFileTreeOpen = useStore((state) => state.mobileFileTreeOpen);
 	const toggleMobileFileTree = useStore((state) => state.toggleMobileFileTree);
 	const { dialogOpen, show, onExitComplete } = useDeferredOpen(mobileFileTreeOpen);
-	useDialogStackPresence(dialogOpen);
+	const handleOpenChange = (nextOpen: boolean) => {
+		if (nextOpen || !mobileFileTreeOpen) {
+			return;
+		}
+
+		toggleMobileFileTree();
+	};
+	useDialogStackPresence(dialogOpen, () => handleOpenChange(false));
 
 	return (
-		<Dialog.Root open={dialogOpen} onOpenChange={(nextOpen) => !nextOpen && toggleMobileFileTree()}>
+		<Dialog.Root open={dialogOpen} onOpenChange={handleOpenChange}>
 			{dialogOpen && (
 				<Dialog.Portal keepMounted>
 					<AnimatePresence onExitComplete={onExitComplete}>

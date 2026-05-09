@@ -5,8 +5,8 @@ import { DEFAULT_AI_MODEL } from '@shared/constants';
 
 import { filesystemNamespace } from '../lib/durable-object-namespaces';
 import { toDurableObjectId } from '../lib/project-id';
-import { AIAgentService } from '../services/ai-agent';
-import { chatMessagesToModelMessages } from '../services/ai-agent/context-pruner';
+import { AgentService } from '../services/agent';
+import { chatMessagesToModelMessages } from '../services/agent/context-pruner';
 
 import type { AIModelId } from '@shared/constants';
 import type { ChatMessage } from '@shared/types';
@@ -47,7 +47,7 @@ export class SubAgentWorker extends Agent<Env, SubAgentState> {
 
 		const fsId = toDurableObjectId(filesystemNamespace, projectId);
 		const fsStub = filesystemNamespace.get(fsId);
-		const service = new AIAgentService({
+		const service = new AgentService({
 			projectRoot: '/project',
 			projectId,
 			fsStub,

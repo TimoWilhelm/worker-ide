@@ -3,7 +3,8 @@ import { Monitor, Smartphone, Trash2 } from 'lucide-react';
 import { useCallback, useState } from 'react';
 import { useNavigate } from 'react-router';
 
-import { Button, ConfirmButton } from '@/components/ui';
+import { Button } from '@/components/ui/button';
+import { ConfirmButton } from '@/components/ui/confirm-button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Modal, ModalBody, ModalFooter } from '@/components/ui/modal';
 import { ListSkeleton } from '@/components/ui/skeleton';

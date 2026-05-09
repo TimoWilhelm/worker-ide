@@ -11,8 +11,8 @@ import { PendingApprovalIndicator } from '@/components/ui/pending-approval-indic
 import { Spinner } from '@/components/ui/spinner';
 import { toast } from '@/components/ui/toast-store';
 import { Tooltip } from '@/components/ui/tooltip';
-import { useAiSessions } from '@/features/ai-assistant/hooks/use-ai-sessions';
-import { isAgentState } from '@/features/ai-assistant/lib/agent-state';
+import { useAgentSessions } from '@/features/agent/hooks/use-agent-sessions';
+import { isAgentState } from '@/features/agent/lib/agent-state';
 import { useSnapshots } from '@/features/snapshots';
 import { useMobileKeyboardLayout } from '@/hooks/use-mobile-keyboard-height';
 import { createApiClient, downloadDebugLog } from '@/lib/api-client';
@@ -25,7 +25,7 @@ import { sessionTitleSchema } from '@shared/validation';
 
 import { ContextRing } from './context-ring';
 import {
-	AIError,
+	AgentError,
 	AssistantMessage,
 	ContinuationPrompt,
 	DoomLoopAlert,
@@ -114,7 +114,7 @@ function createOptimisticUserMessage(
 	};
 }
 
-export function AIPanel({ projectId, className }: { projectId: string; className?: string }) {
+export function AgentPanel({ projectId, className }: { projectId: string; className?: string }) {
 	// On mobile, when the virtual keyboard opens, switch to position:fixed so the
 	// panel stays pinned above the keyboard — header and input remain visible.
 	const { style: keyboardStyle, ref: keyboardReference } = useMobileKeyboardLayout();
@@ -157,7 +157,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	const contextTokensUsed = currentSession?.contextTokensUsed ?? 0;
 	const debugLogId = currentSession?.debugLogId;
 	const isProcessing = currentSession?.status === 'running';
-	const aiError = currentSession?.error;
+	const agentError = currentSession?.error;
 	const stopRequested = currentSession?.stopRequested ?? false;
 	const isStopPending = isProcessing && ((sessionId !== undefined && optimisticStoppingSessionId === sessionId) || stopRequested);
 	const pendingQuestion = currentSession?.pendingQuestion;
@@ -271,7 +271,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 	// Only surface it once — if the user dismisses it, don't re-trigger
 	// until a genuinely new error arrives from the agent.
 	// Track displayed error to avoid re-surfacing after dismiss
-	const displayedError = aiError?.message;
+	const displayedError = agentError?.message;
 	useEffect(() => {
 		if (displayedError) {
 			lastSurfacedChatErrorReference.current = new Error(displayedError);
@@ -306,7 +306,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		sessionSearchQuery,
 		setSessionSearchQuery,
 		isRestoringSession,
-	} = useAiSessions({
+	} = useAgentSessions({
 		projectId,
 		agent,
 		agentConnectionState,
@@ -423,7 +423,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		// Tell the agent to clear the current session state via RPC
 		// (also aborts any running session server-side)
 		void agent.call('clearCurrentSession', [isProcessing ? sessionId : undefined]).catch((error: unknown) => {
-			console.error('[AIPanel] Failed to clear current session:', error);
+			console.error('[AgentPanel] Failed to clear current session:', error);
 			toast.error('Could not start a new session. Please try again.');
 		});
 	}, [projectId, isConnected, isProcessing, sessionId, agent]);
@@ -435,7 +435,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 			if (targetSessionId === sessionId) return;
 			if (isProcessing) {
 				void agent.call('abortRun', [sessionId]).catch((error: unknown) => {
-					console.error('[AIPanel] Failed to stop session before loading another:', error);
+					console.error('[AgentPanel] Failed to stop session before loading another:', error);
 				});
 			}
 			setPlanPath(undefined);
@@ -559,7 +559,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 				if (error instanceof Error && error.name === 'AbortError') {
 					return false;
 				}
-				console.error('[AIPanel] Failed to submit message:', error);
+				console.error('[AgentPanel] Failed to submit message:', error);
 				toast.error('Could not send the message. Please try again.');
 				return false;
 			}
@@ -699,7 +699,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 							{ sessionId: renderedSessionId, message: optimisticQueuedMessage, clientOnly: false, submitting: false },
 						]);
 					}
-					console.error('[AIPanel] Failed to remove queued message:', error);
+					console.error('[AgentPanel] Failed to remove queued message:', error);
 					toast.error('Could not remove the queued message. Please try again.');
 				});
 		},
@@ -712,7 +712,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		setOptimisticStoppingSessionId(sessionId);
 		void agent.call('abortRun', [sessionId]).catch((error: unknown) => {
 			setOptimisticStoppingSessionId((currentSessionId) => (currentSessionId === sessionId ? undefined : currentSessionId));
-			console.error('[AIPanel] Failed to abort agent:', error);
+			console.error('[AgentPanel] Failed to abort agent:', error);
 			toast.error('Could not stop the agent. Please try again.');
 		});
 	}, [agent, sessionId, isProcessing, optimisticStoppingSessionId, stopRequested]);
@@ -758,16 +758,16 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 		void agent
 			.call('startRun', [projectId, trimmedHistory, agentMode, selectedModel, resolvedSessionId, retryRequestId])
 			.catch((error: unknown) => {
-				console.error('[AIPanel] Failed to retry:', error);
+				console.error('[AgentPanel] Failed to retry:', error);
 			});
 	}, [committedMessages, sessionId, projectId, agentMode, selectedModel, agent]);
 
 	// Dismiss error — track locally since error comes from agent state
 	const [dismissedError, setDismissedError] = useState<string | undefined>();
-	const displayError = aiError && aiError.message !== dismissedError ? aiError : undefined;
+	const displayError = agentError && agentError.message !== dismissedError ? agentError : undefined;
 	const handleDismissError = useCallback(() => {
-		if (aiError) setDismissedError(aiError.message);
-	}, [aiError]);
+		if (agentError) setDismissedError(agentError.message);
+	}, [agentError]);
 
 	const focusDeleteTrigger = useCallback((sessionIdentifier: string) => {
 		requestAnimationFrame(() => {
@@ -802,7 +802,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 			revertInProgressReference.current = true;
 			if (isProcessing) {
 				void agent.call('abortRun', [sessionId]).catch((error: unknown) => {
-					console.error('[AIPanel] Failed to stop session before revert:', error);
+					console.error('[AgentPanel] Failed to stop session before revert:', error);
 				});
 			}
 
@@ -1074,26 +1074,19 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 												className="shrink-0"
 											>
 												<Tooltip content={isStopPending ? 'Stopping generation' : 'Stop generation'} side="bottom">
-													<button
+													<Button
 														type="button"
+														focusStyle="inset"
+														variant="ghost"
+														size="icon-sm"
 														onClick={handleCancel}
-														disabled={isStopPending || !isConnected}
-														className={cn(
-															'inline-flex items-center justify-center rounded-md p-1',
-															'text-error transition-colors',
-															isStopPending
-																? 'cursor-wait opacity-70'
-																: isConnected
-																	? `
-																		cursor-pointer
-																		hover:bg-error/10
-																	`
-																	: 'cursor-not-allowed opacity-40',
-														)}
+														disabled={!isConnected}
+														isLoading={isStopPending}
+														className={cn('text-error', isConnected ? 'hover:bg-error/10 hover:text-error' : 'opacity-40')}
 														aria-label={isStopPending ? 'Stopping generation' : 'Stop generation'}
 													>
-														{isStopPending ? <Spinner className="size-3.5" /> : <Square className="size-3.5" />}
-													</button>
+														<Square className="size-3.5" />
+													</Button>
 												</Tooltip>
 											</motion.div>
 										)}
@@ -1133,7 +1126,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 										</div>
 									) : (
 										savedSessions.map((session) => (
-											<DropdownMenuItem key={session.id} onSelect={() => handleLoadSession(session.id)}>
+											<DropdownMenuItem key={session.id} className="group" onSelect={() => handleLoadSession(session.id)}>
 												<div className="flex w-full items-center justify-between gap-2" title={session.title}>
 													<span className="truncate text-sm">{session.title}</span>
 													<div className="flex shrink-0 items-center gap-1">
@@ -1143,7 +1136,9 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 															confirmingDeleteSessionId !== session.id && (
 																<>
 																	{session.isRunning && <Spinner className="size-3 text-warning" />}
-																	<span className="text-2xs text-text-secondary">{formatRelativeTime(session.createdAt)}</span>
+																	<span className={cn('text-2xs text-text-secondary', 'group-hover:hidden')}>
+																		{formatRelativeTime(session.createdAt)}
+																	</span>
 																</>
 															)
 														)}
@@ -1179,11 +1174,17 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 																	event.stopPropagation();
 																	setConfirmingDeleteSessionId(session.id);
 																}}
-																className="
-																	cursor-pointer rounded-sm p-0.5 text-text-secondary
-																	transition-colors
-																	hover:bg-bg-tertiary hover:text-error
-																"
+																className={cn(
+																	`
+																		hidden cursor-pointer rounded-sm p-0.5 text-text-secondary
+																		transition-colors
+																	`,
+																	`
+																		group-focus-within:flex
+																		group-hover-always:flex
+																	`,
+																	'hover:bg-bg-tertiary hover:text-error',
+																)}
 																aria-label={`Delete ${session.title}`}
 															>
 																<Trash2 className="size-3" />
@@ -1292,7 +1293,7 @@ export function AIPanel({ projectId, className }: { projectId: string; className
 							)}
 							{doomLoopMessage && !isProcessing && <DoomLoopAlert message={doomLoopMessage} onRetry={handleRetry} onDismiss={() => {}} />}
 							{displayError && (
-								<AIError message={displayError.message} code={displayError.code} onRetry={handleRetry} onDismiss={handleDismissError} />
+								<AgentError message={displayError.message} code={displayError.code} onRetry={handleRetry} onDismiss={handleDismissError} />
 							)}
 							{statusMessage ? (
 								<div

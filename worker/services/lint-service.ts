@@ -1,12 +1,12 @@
 import { waitUntil } from 'cloudflare:workers';
 
-import { lintFileForAgent } from './ai-agent/lib/biome-linter';
+import { lintFileForAgent } from './agent/lib/biome-linter';
 
 import type { ServerLintDiagnostic } from '@shared/biome-types';
 
 // Re-export types and helpers so callers only need to import from this module
 export type { FixFileFailure, ServerLintDiagnostic, ServerLintFixResult } from '@shared/biome-types';
-export { formatLintDiagnostics } from './ai-agent/lib/biome-linter';
+export { formatLintDiagnostics } from './agent/lib/biome-linter';
 
 const CACHE_NAME = 'lint-cache-v1';
 const CACHE_ORIGIN = 'https://lint-cache.internal';
@@ -95,4 +95,4 @@ export async function lintFile(filePath: string, content: string): Promise<Serve
  * Fix results are not cached because the operation is infrequent and
  * the caller typically writes the fixed content back to disk immediately.
  */
-export { fixFileForAgent as fixFile } from './ai-agent/lib/biome-linter';
+export { fixFileForAgent as fixFile } from './agent/lib/biome-linter';

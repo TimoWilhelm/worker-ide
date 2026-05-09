@@ -23,7 +23,7 @@ import { EditorArea } from './editor-area';
 import type { useEditorState } from './use-editor-state';
 import type { LogCounts } from '@/features/output';
 
-const AIPanel = lazy(() => import('@/features/ai-assistant'));
+const AgentPanel = lazy(() => import('@/features/agent'));
 const DevelopmentToolsPanel = lazy(() => import('@/features/devtools'));
 const PreviewPanel = lazy(() => import('@/features/preview'));
 const UtilityPanel = lazy(() => import('@/features/utility-panel'));
@@ -225,7 +225,7 @@ export function MobileLayout({
 
 				{activeMobilePanel === 'agent' && (
 					<Suspense fallback={<AgentPanelSkeleton />}>
-						<AIPanel projectId={projectId} className="h-full" />
+						<AgentPanel projectId={projectId} className="h-full" />
 					</Suspense>
 				)}
 			</div>

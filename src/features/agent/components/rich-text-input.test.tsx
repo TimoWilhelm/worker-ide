@@ -18,7 +18,7 @@ vi.mock('@/lib/file-target', () => ({
 	useFileTargetOpener: () => mockOpenFileTarget,
 }));
 
-vi.mock('@/features/ai-assistant/lib/reference-actions', () => ({
+vi.mock('@/features/agent/lib/reference-actions', () => ({
 	usePreviewReferenceInteractions: () => ({
 		activateReference: mockActivateReference,
 		clearReferenceHighlight: mockClearReferenceHighlight,

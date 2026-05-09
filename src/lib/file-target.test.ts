@@ -21,18 +21,18 @@ describe('openFileTarget', () => {
 		const setSelectedFile = vi.fn();
 
 		openFileTarget(
-			{ path: '/src/features/ai-assistant/components/file-reference.tsx' },
-			[{ path: '/src/features/ai-assistant/components/file-reference.tsx' }],
+			{ path: '/src/features/agent/components/file-reference.tsx' },
+			[{ path: '/src/features/agent/components/file-reference.tsx' }],
 			{ expandDirectory, goToFilePosition, openFile, setActiveSidebarView, setSelectedFile },
 		);
 
 		expect(setActiveSidebarView).toHaveBeenCalledWith('explorer');
 		expect(expandDirectory).toHaveBeenNthCalledWith(1, '/src');
 		expect(expandDirectory).toHaveBeenNthCalledWith(2, '/src/features');
-		expect(expandDirectory).toHaveBeenNthCalledWith(3, '/src/features/ai-assistant');
-		expect(expandDirectory).toHaveBeenNthCalledWith(4, '/src/features/ai-assistant/components');
-		expect(setSelectedFile).toHaveBeenCalledWith('/src/features/ai-assistant/components/file-reference.tsx');
-		expect(openFile).toHaveBeenCalledWith('/src/features/ai-assistant/components/file-reference.tsx');
+		expect(expandDirectory).toHaveBeenNthCalledWith(3, '/src/features/agent');
+		expect(expandDirectory).toHaveBeenNthCalledWith(4, '/src/features/agent/components');
+		expect(setSelectedFile).toHaveBeenCalledWith('/src/features/agent/components/file-reference.tsx');
+		expect(openFile).toHaveBeenCalledWith('/src/features/agent/components/file-reference.tsx');
 		expect(goToFilePosition).not.toHaveBeenCalled();
 	});
 

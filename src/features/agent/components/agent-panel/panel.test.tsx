@@ -188,8 +188,8 @@ vi.mock('@/lib/project-storage', () => ({
 	setActiveSessionId: mocks.setActiveSessionId,
 }));
 
-vi.mock('@/features/ai-assistant/hooks/use-ai-sessions', () => ({
-	useAiSessions: () => ({
+vi.mock('@/features/agent/hooks/use-agent-sessions', () => ({
+	useAgentSessions: () => ({
 		allSessions: [{ id: 'session-1', title: 'Current session', createdAt: 1, isRunning: true }],
 		savedSessions: [{ id: 'session-1', title: 'Current session', createdAt: 1, isRunning: true }],
 		handleLoadSession: mocks.loadSession,
@@ -201,7 +201,7 @@ vi.mock('@/features/ai-assistant/hooks/use-ai-sessions', () => ({
 	}),
 }));
 
-vi.mock('@/features/ai-assistant/lib/agent-state', () => ({
+vi.mock('@/features/agent/lib/agent-state', () => ({
 	isAgentState: (value: unknown) => value,
 }));
 
@@ -236,7 +236,7 @@ vi.mock('./context-ring', () => ({
 }));
 
 vi.mock('./messages', () => ({
-	AIError: () => {},
+	AgentError: () => {},
 	AssistantMessage: () => {},
 	ContinuationPrompt: () => {},
 	DoomLoopAlert: () => {},
@@ -342,9 +342,9 @@ vi.mock('../rich-text-input', () => {
 	return { RichTextInput };
 });
 
-import { AIPanel } from './panel';
+import { AgentPanel } from './panel';
 
-describe('AIPanel footer controls', () => {
+describe('AgentPanel footer controls', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		mocks.agentRuntime.segments = [];
@@ -363,7 +363,7 @@ describe('AIPanel footer controls', () => {
 	});
 
 	it('keeps context, microphone, and send available during generation', () => {
-		render(<AIPanel projectId="project-1" className="h-full" />);
+		render(<AgentPanel projectId="project-1" className="h-full" />);
 
 		expect(screen.getByTestId('context-ring')).toBeInTheDocument();
 		expect(screen.getByRole('button', { name: 'Start voice input' })).toBeInTheDocument();
@@ -375,7 +375,7 @@ describe('AIPanel footer controls', () => {
 	});
 
 	it('keeps the action cluster from collapsing underneath the selectors', () => {
-		render(<AIPanel projectId="project-1" className="h-full" />);
+		render(<AgentPanel projectId="project-1" className="h-full" />);
 
 		expect(screen.getByTestId('agent-input-toolbar')).toHaveClass('@container', 'flex', 'flex-wrap-reverse');
 		expect(screen.getByTestId('agent-input-toolbar-actions')).toHaveClass('ml-auto', 'shrink-0');
@@ -383,7 +383,7 @@ describe('AIPanel footer controls', () => {
 	});
 
 	it('does not interrupt generation when starting or stopping STT', () => {
-		const view = render(<AIPanel projectId="project-1" className="h-full" />);
+		const view = render(<AgentPanel projectId="project-1" className="h-full" />);
 
 		fireEvent.click(screen.getByRole('button', { name: 'Start voice input' }));
 
@@ -393,7 +393,7 @@ describe('AIPanel footer controls', () => {
 		expect(screen.getByRole('button', { name: 'Stop generation' })).toBeInTheDocument();
 
 		mocks.speechToText.isRecording = true;
-		view.rerender(<AIPanel projectId="project-1" className="h-full" />);
+		view.rerender(<AgentPanel projectId="project-1" className="h-full" />);
 
 		expect(screen.getByRole('button', { name: 'Stop generation' })).toBeInTheDocument();
 		expect(screen.getByRole('button', { name: 'Stop recording' })).toBeInTheDocument();
@@ -411,7 +411,7 @@ describe('AIPanel footer controls', () => {
 		mocks.speechToText.interimTranscript = 'now';
 		mocks.speechStop.mockReturnValue('Need logs now');
 
-		render(<AIPanel projectId="project-1" className="h-full" />);
+		render(<AgentPanel projectId="project-1" className="h-full" />);
 
 		expect(screen.getByRole('button', { name: 'Stop recording' })).toBeInTheDocument();
 		expect(screen.getByTestId('audio-waveform')).toBeInTheDocument();

@@ -1,7 +1,7 @@
 import { Files, FlaskConical, GitBranch } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 
-import { Tooltip } from '@/components/ui';
+import { Tooltip } from '@/components/ui/tooltip';
 import { springSnappy } from '@/lib/motion-config';
 import { useStore, selectActiveSidebarView, selectGitChangedFileCount, type SidebarView } from '@/lib/store';
 import { cn } from '@/lib/utils';

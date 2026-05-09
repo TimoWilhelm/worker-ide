@@ -2,7 +2,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
-import { usePreviewReferenceInteractions } from '@/features/ai-assistant/lib/reference-actions';
+import { usePreviewReferenceInteractions } from '@/features/agent/lib/reference-actions';
 import {
 	FILE_REFERENCE_BASE_CLASS_NAME,
 	FILE_REFERENCE_INTERACTIVE_CLASS_NAME,
@@ -14,7 +14,7 @@ import {
 	PREVIEW_REFERENCE_MISSING_CLASS_NAME,
 	PREVIEW_REFERENCE_SUMMARY_CLASS_NAME,
 	PREVIEW_REFERENCE_TEXT_ROW_CLASS_NAME,
-} from '@/features/ai-assistant/lib/reference-pill-styles';
+} from '@/features/agent/lib/reference-pill-styles';
 import { resolvePreviewElement } from '@/features/preview/preview-iframe-reference';
 import { useFileTargetOpener } from '@/lib/file-target';
 import { deserializePreviewElementReference, serializePreviewElementReference } from '@/lib/preview-element-reference';

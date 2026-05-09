@@ -1,7 +1,7 @@
 import { Check, Copy, KeyRound } from 'lucide-react';
 import { useCallback, useState } from 'react';
 
-import { Button } from '@/components/ui';
+import { Button } from '@/components/ui/button';
 import { Modal, ModalBody, ModalFooter } from '@/components/ui/modal';
 import { cn } from '@/lib/utils';
 

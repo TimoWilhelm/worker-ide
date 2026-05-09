@@ -1,5 +1,5 @@
 import { clearSnapshotFromMessages, setSnapshotOnLastCommittedUserMessage } from './session-history';
-import { accumulatePendingChange } from '../services/ai-agent/pending-changes';
+import { accumulatePendingChange } from '../services/agent/pending-changes';
 
 import type { AgentSessionState, StreamEvent } from '@shared/agent-state';
 import type { AiSession, ChatMessage, MessagePart } from '@shared/types';

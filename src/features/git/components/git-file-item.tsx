@@ -1,6 +1,6 @@
 import { Minus, Plus, RotateCcw } from 'lucide-react';
 
-import { Tooltip } from '@/components/ui';
+import { Tooltip } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 
 import { getFileName, getDirectoryPath, getStatusDisplay } from '../lib/status-helpers';

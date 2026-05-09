@@ -9,9 +9,9 @@ class PCMProcessor extends AudioWorkletProcessor {
 		// Compute peak amplitude from raw Float32 samples (0–1 range)
 		let peak = 0;
 		const pcm = new Int16Array(channelData.length);
-		for (let i = 0; i < channelData.length; i++) {
-			const s = Math.max(-1, Math.min(1, channelData[i]));
-			pcm[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+		for (const [index, channelDatum] of channelData.entries()) {
+			const s = Math.max(-1, Math.min(1, channelDatum));
+			pcm[index] = s < 0 ? s * 0x80_00 : s * 0x7f_ff;
 			const abs = s < 0 ? -s : s;
 			if (abs > peak) peak = abs;
 		}

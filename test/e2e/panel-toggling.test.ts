@@ -74,10 +74,10 @@ test.describe('Panel Toggling', () => {
 		await expect(page.getByRole('tabpanel', { name: 'Output' })).toBeVisible();
 	});
 
-	test('clicking AI toggle shows the agent panel', async ({ page }) => {
+	test('clicking Agent toggle shows the agent panel', async ({ page }) => {
 		await gotoIDE(page);
 
-		// Agent panel is hidden by default, AI button should be visible
+		// Agent panel is hidden by default, Agent button should be visible
 		const agentButton = page.getByLabel('Toggle Agent panel');
 		await expect(agentButton).toBeVisible();
 

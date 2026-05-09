@@ -17,7 +17,7 @@ import type { useProjectName } from './use-project-name';
 interface IDEHeaderProperties {
 	projectNameState: ReturnType<typeof useProjectName>;
 	isMobile: boolean;
-	aiPanelVisible: boolean;
+	agentPanelVisible: boolean;
 	toggleAgentPanel: () => void;
 	isAgentProcessing: boolean;
 	mobileMenuOpen: boolean;
@@ -30,7 +30,7 @@ interface IDEHeaderProperties {
 export function IDEHeader({
 	projectNameState,
 	isMobile,
-	aiPanelVisible,
+	agentPanelVisible,
 	toggleAgentPanel,
 	isAgentProcessing,
 	mobileMenuOpen,
@@ -131,12 +131,12 @@ export function IDEHeader({
 									size="icon"
 									aria-label="Toggle Agent panel"
 									onClick={toggleAgentPanel}
-									className={cn(aiPanelVisible && 'text-accent')}
+									className={cn(agentPanelVisible && 'text-accent')}
 								>
 									<Bot className="size-4" />
 								</Button>
 							</Tooltip>
-							{isAgentProcessing && !aiPanelVisible && <BorderBeam duration={1.5} />}
+							{isAgentProcessing && !agentPanelVisible && <BorderBeam duration={1.5} />}
 						</div>
 					)}
 
@@ -177,14 +177,13 @@ export function IDEHeader({
 					</motion.div>
 				</div>
 			</header>
-
 			<Modal open={mobileMenuOpen} onOpenChange={setMobileMenuOpen} title="More">
 				<ModalBody className="flex flex-col gap-1">
 					<button
 						type="button"
 						className="
-							flex items-center gap-3 rounded-md px-3 py-2 text-sm text-text-primary
-							transition-colors
+							flex cursor-pointer items-center gap-3 rounded-md px-3 py-2 text-sm
+							text-text-primary transition-colors
 							hover:bg-bg-tertiary
 						"
 						onClick={() => {
@@ -198,8 +197,8 @@ export function IDEHeader({
 					<button
 						type="button"
 						className="
-							flex items-center gap-3 rounded-md px-3 py-2 text-sm text-text-primary
-							transition-colors
+							flex cursor-pointer items-center gap-3 rounded-md px-3 py-2 text-sm
+							text-text-primary transition-colors
 							hover:bg-bg-tertiary
 						"
 						onClick={() => {
@@ -213,8 +212,8 @@ export function IDEHeader({
 					<button
 						type="button"
 						className="
-							flex items-center gap-3 rounded-md px-3 py-2 text-sm text-text-primary
-							transition-colors
+							flex cursor-pointer items-center gap-3 rounded-md px-3 py-2 text-sm
+							text-text-primary transition-colors
 							hover:bg-bg-tertiary
 						"
 						onClick={() => {
@@ -233,8 +232,8 @@ export function IDEHeader({
 						target="_blank"
 						rel="noopener noreferrer"
 						className="
-							flex items-center gap-3 rounded-md px-3 py-2 text-sm text-text-primary
-							transition-colors
+							flex cursor-pointer items-center gap-3 rounded-md px-3 py-2 text-sm
+							text-text-primary transition-colors
 							hover:bg-bg-tertiary
 						"
 					>
@@ -246,8 +245,8 @@ export function IDEHeader({
 						target="_blank"
 						rel="noopener noreferrer"
 						className="
-							flex items-center gap-3 rounded-md px-3 py-2 text-sm text-text-primary
-							transition-colors
+							flex cursor-pointer items-center gap-3 rounded-md px-3 py-2 text-sm
+							text-text-primary transition-colors
 							hover:bg-bg-tertiary
 						"
 					>
@@ -259,8 +258,8 @@ export function IDEHeader({
 						target="_blank"
 						rel="noopener noreferrer"
 						className="
-							flex items-center gap-3 rounded-md px-3 py-2 text-sm text-text-primary
-							transition-colors
+							flex cursor-pointer items-center gap-3 rounded-md px-3 py-2 text-sm
+							text-text-primary transition-colors
 							hover:bg-bg-tertiary
 						"
 					>

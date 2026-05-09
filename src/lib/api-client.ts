@@ -281,7 +281,7 @@ export async function downloadDebugLog(projectId: string, logId: string, session
 	if (sessionId) {
 		parameters.set('sessionId', sessionId);
 	}
-	const response = await fetch(`/p/${projectId}/api/ai/debug-log?${parameters.toString()}`);
+	const response = await fetch(`/p/${projectId}/api/agent/debug-log?${parameters.toString()}`);
 	if (!response.ok) {
 		await throwApiError(response, 'Failed to download debug log');
 	}

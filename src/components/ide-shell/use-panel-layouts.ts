@@ -4,17 +4,17 @@ import { useDefaultLayout } from 'react-resizable-panels';
 import { useStore } from '@/lib/store';
 
 export function usePanelLayouts(projectId: string) {
-	const aiPanelVisible = useStore((state) => state.agentPanelVisible);
+	const agentPanelVisible = useStore((state) => state.agentPanelVisible);
 	const utilityPanelVisible = useStore((state) => state.utilityPanelVisible);
 	const devtoolsVisible = useStore((state) => state.devtoolsVisible);
 	const dependenciesPanelVisible = useStore((state) => state.dependenciesPanelVisible);
 
-	// Main horizontal layout: sidebar | editor-col | preview-col | ai-panel
+	// Main horizontal layout: sidebar | editor-col | preview-col | agent-panel
 	const mainPanelIds = useMemo(() => {
 		const ids = ['sidebar', 'editor-col', 'preview-col'];
-		if (aiPanelVisible) ids.push('ai-panel');
+		if (agentPanelVisible) ids.push('agent-panel');
 		return ids;
-	}, [aiPanelVisible]);
+	}, [agentPanelVisible]);
 
 	const mainLayout = useDefaultLayout({ id: `ide-main-${projectId}`, panelIds: mainPanelIds });
 
@@ -46,7 +46,7 @@ export function usePanelLayouts(projectId: string) {
 	const previewDevtoolsLayout = useDefaultLayout({ id: `ide-preview-devtools-${projectId}`, panelIds: previewDevtoolsPanelIds });
 
 	return {
-		aiPanelVisible,
+		agentPanelVisible,
 		utilityPanelVisible,
 		devtoolsVisible,
 		dependenciesPanelVisible,

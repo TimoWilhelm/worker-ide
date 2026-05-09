@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { toast } from '@/components/ui/toast-store';
-import { isAgentState } from '@/features/ai-assistant/lib/agent-state';
+import { isAgentState } from '@/features/agent/lib/agent-state';
 import { getActiveSessionId, setActiveSessionId } from '@/lib/project-storage';
 import { useStore } from '@/lib/store';
 
@@ -18,7 +18,7 @@ interface AgentHandle {
 type SessionLoadPhase = 'idle' | 'awaiting-agent-state' | 'loading-saved-session';
 type SessionLoadResult = { status: 'loaded'; session: AiSession } | { status: 'missing' } | { status: 'error' };
 
-export function useAiSessions({
+export function useAgentSessions({
 	projectId,
 	agent,
 	agentConnectionState,

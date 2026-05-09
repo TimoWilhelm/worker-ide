@@ -1,7 +1,7 @@
 import { Check } from 'lucide-react';
 import { useState } from 'react';
 
-import { Button } from '@/components/ui';
+import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
 interface GitCommitFormProperties {

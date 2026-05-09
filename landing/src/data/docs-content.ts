@@ -222,50 +222,50 @@ export const docsTopics: DocsTopic[] = [
 		],
 	},
 
-	// 6. AI Agent System
+	// 6. Agent System
 	{
-		slug: 'ai-agent',
-		title: 'AI agent loop',
+		slug: 'agent',
+		title: 'Agent loop',
 		description: 'Chat requests become tool calls, file changes, and streamed session state.',
 		tagline: 'Agent sessions and tools',
 		accent: 'ai',
-		laneDescription: 'AgentRunner owns session state while AIAgentService runs the model and tools.',
+		laneDescription: 'AgentRunner owns session state while AgentService runs the model and tools.',
 		sections: [
 			{
 				label: 'Agent Loop',
 				labelColor: 'ai',
 				nodes: [
-					{ id: 'ai-editor', name: 'Editor UI', detail: 'chat message', color: 'text' },
-					{ id: 'ai-host', name: 'Host Worker', detail: 'rate limit + validate', color: 'orange' },
-					{ id: 'ai-agent-runner', name: 'AgentRunner DO', detail: 'per-project Durable Object', color: 'ai' },
-					{ id: 'ai-service', name: 'AIAgentService', detail: '24 tools, 3 modes', color: 'ai' },
-					{ id: 'ai-workers-ai', name: 'Workers AI', detail: 'streamText() with retry', color: 'yellow' },
-					{ id: 'ai-expiring-fs', name: 'ExpiringFilesystem', detail: 'file read / write', color: 'magenta' },
+					{ id: 'agent-editor', name: 'Editor UI', detail: 'chat message', color: 'text' },
+					{ id: 'agent-host', name: 'Host Worker', detail: 'rate limit + validate', color: 'orange' },
+					{ id: 'agent-runner', name: 'AgentRunner DO', detail: 'per-project Durable Object', color: 'ai' },
+					{ id: 'agent-service', name: 'AgentService', detail: '24 tools, 3 modes', color: 'ai' },
+					{ id: 'agent-workers-ai', name: 'Workers AI', detail: 'streamText() with retry', color: 'yellow' },
+					{ id: 'agent-expiring-fs', name: 'ExpiringFilesystem', detail: 'file read / write', color: 'magenta' },
 				],
 				edges: [
-					{ id: 'ai-e1', source: 'ai-editor', target: 'ai-host', label: 'POST /api/ai/chat', color: 'ai' },
-					{ id: 'ai-e2', source: 'ai-host', target: 'ai-agent-runner', label: 'RPC', color: 'ai' },
-					{ id: 'ai-e3', source: 'ai-agent-runner', target: 'ai-service', label: 'ctx.waitUntil()', color: 'ai' },
-					{ id: 'ai-e4', source: 'ai-service', target: 'ai-workers-ai', label: 'LLM call', color: 'yellow' },
-					{ id: 'ai-e5', source: 'ai-service', target: 'ai-expiring-fs', label: 'tool execution', color: 'magenta' },
+					{ id: 'agent-e1', source: 'agent-editor', target: 'agent-host', label: 'POST /api/agent/chat', color: 'ai' },
+					{ id: 'agent-e2', source: 'agent-host', target: 'agent-runner', label: 'RPC', color: 'ai' },
+					{ id: 'agent-e3', source: 'agent-runner', target: 'agent-service', label: 'ctx.waitUntil()', color: 'ai' },
+					{ id: 'agent-e4', source: 'agent-service', target: 'agent-workers-ai', label: 'LLM call', color: 'yellow' },
+					{ id: 'agent-e5', source: 'agent-service', target: 'agent-expiring-fs', label: 'tool execution', color: 'magenta' },
 				],
 			},
 			{
 				label: 'State sync',
 				labelColor: 'ws',
 				nodes: [
-					{ id: 'ai-agent-runner-2', name: 'AgentRunner DO', detail: 'buffer + index chunks', color: 'ai' },
-					{ id: 'ai-coordinator', name: 'ProjectCoordinator', detail: 'WS fan-out', color: 'ws' },
-					{ id: 'ai-editor-2', name: 'Editor UI', detail: 'useAgent + Agents SDK', color: 'text' },
+					{ id: 'agent-runner-2', name: 'AgentRunner DO', detail: 'buffer + index chunks', color: 'ai' },
+					{ id: 'agent-coordinator', name: 'ProjectCoordinator', detail: 'WS fan-out', color: 'ws' },
+					{ id: 'agent-editor-2', name: 'Editor UI', detail: 'useAgent + Agents SDK', color: 'text' },
 				],
 				edges: [
-					{ id: 'ai-e6', source: 'ai-agent-runner-2', target: 'ai-coordinator', label: 'sendMessage()', color: 'ws' },
-					{ id: 'ai-e7', source: 'ai-coordinator', target: 'ai-editor-2', label: 'agent-stream-event', color: 'ws' },
+					{ id: 'agent-e6', source: 'agent-runner-2', target: 'agent-coordinator', label: 'sendMessage()', color: 'ws' },
+					{ id: 'agent-e7', source: 'agent-coordinator', target: 'agent-editor-2', label: 'agent-stream-event', color: 'ws' },
 				],
 			},
 		],
 		notes: [
-			'AgentRunner stores session state with the Agents SDK and starts AIAgentService for model/tool execution. Modes are <code>code</code>, <code>plan</code>, and <code>ask</code>; code mode creates file snapshots before mutations.',
+			'AgentRunner stores session state with the Agents SDK and starts AgentService for model/tool execution. Modes are <code>code</code>, <code>plan</code>, and <code>ask</code>; code mode creates file snapshots before mutations.',
 		],
 	},
 
@@ -352,7 +352,7 @@ export const docsTopics: DocsTopic[] = [
 	{
 		slug: 'snapshots',
 		title: 'Snapshots',
-		description: 'AI edits keep enough history for review and revert operations.',
+		description: 'Agent edits keep enough history for review and revert operations.',
 		tagline: 'Reviewable file changes',
 		accent: 'snapshot',
 		laneDescription: 'Code-mode agent runs capture before-content and review actions can keep or revert changes.',
@@ -361,12 +361,12 @@ export const docsTopics: DocsTopic[] = [
 				label: 'Snapshot creation',
 				labelColor: 'snapshot',
 				nodes: [
-					{ id: 'sn-ai-service', name: 'AIAgentService', detail: 'code mode run', color: 'ai' },
+					{ id: 'sn-agent-service', name: 'AgentService', detail: 'code mode run', color: 'ai' },
 					{ id: 'sn-snapshot-fn', name: 'addFileToSnapshot()', detail: 'saves before-content', color: 'snapshot' },
 					{ id: 'sn-snapshot-dir', name: '.agent/snapshots/', detail: 'metadata.json + files', color: 'magenta' },
 				],
 				edges: [
-					{ id: 'sn-e1', source: 'sn-ai-service', target: 'sn-snapshot-fn', label: 'file mutation', color: 'snapshot' },
+					{ id: 'sn-e1', source: 'sn-agent-service', target: 'sn-snapshot-fn', label: 'file mutation', color: 'snapshot' },
 					{ id: 'sn-e2', source: 'sn-snapshot-fn', target: 'sn-snapshot-dir', label: 'fs.writeFile()', color: 'magenta' },
 				],
 			},

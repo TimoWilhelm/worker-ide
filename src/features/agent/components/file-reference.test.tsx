@@ -20,7 +20,7 @@ vi.mock('@/lib/file-target', () => ({
 vi.mock('@/lib/store', () => ({
 	useStore: (selector: (state: { files: Array<{ path: string }> }) => unknown) =>
 		selector({
-			files: [{ path: '/src/main.ts' }, { path: '/src/features/ai-assistant/components/file-reference.tsx' }],
+			files: [{ path: '/src/main.ts' }, { path: '/src/features/agent/components/file-reference.tsx' }],
 		}),
 }));
 
@@ -30,11 +30,11 @@ describe('FileReference', () => {
 	});
 
 	it('opens the file and reveals it in the explorer state', () => {
-		render(<FileReference path="/src/features/ai-assistant/components/file-reference.tsx" />);
+		render(<FileReference path="/src/features/agent/components/file-reference.tsx" />);
 
 		fireEvent.click(screen.getByRole('button', { name: /file-reference\.tsx/i }));
 
-		expect(mockOpenFileTarget).toHaveBeenCalledWith({ path: '/src/features/ai-assistant/components/file-reference.tsx' });
+		expect(mockOpenFileTarget).toHaveBeenCalledWith({ path: '/src/features/agent/components/file-reference.tsx' });
 	});
 
 	it('supports nested clickable usage without toggling the parent button', () => {

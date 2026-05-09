@@ -65,7 +65,7 @@ import type { AssetSettings, BindingsConfig, ChatMessage, PendingFileChange, Too
 import type { Session } from 'agents/experimental/memory/session';
 import type { ModelMessage } from 'ai';
 
-export interface AIAgentServiceOptions {
+export interface AgentServiceOptions {
 	projectRoot: string;
 	projectId: string;
 	fsStub: DurableObjectStub<ProjectFilesystem>;
@@ -194,16 +194,16 @@ function buildExternalChangesPrompt(changes: ExternalChange[]): string | undefin
 	return promptLines.join('\n');
 }
 
-export class AIAgentService {
+export class AgentService {
 	private mcpClientManager = new McpClientManager();
 	private agentLogger: AgentLogger | undefined;
-	private readonly options: AIAgentServiceOptions & { mode: 'code' | 'plan' | 'ask'; model: AIModelId; isSubAgent: boolean };
+	private readonly options: AgentServiceOptions & { mode: 'code' | 'plan' | 'ask'; model: AIModelId; isSubAgent: boolean };
 
 	getLogger(): AgentLogger | undefined {
 		return this.agentLogger;
 	}
 
-	constructor(options: AIAgentServiceOptions) {
+	constructor(options: AgentServiceOptions) {
 		this.options = {
 			...options,
 			mode: options.mode ?? 'code',

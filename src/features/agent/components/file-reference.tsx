@@ -6,7 +6,7 @@ import {
 	FILE_REFERENCE_BASE_CLASS_NAME,
 	FILE_REFERENCE_INTERACTIVE_CLASS_NAME,
 	FILE_REFERENCE_LABEL_CLASS_NAME,
-} from '@/features/ai-assistant/lib/reference-pill-styles';
+} from '@/features/agent/lib/reference-pill-styles';
 import { resolveFileTargetPath, useFileTargetOpener } from '@/lib/file-target';
 import { useStore } from '@/lib/store';
 import { cn } from '@/lib/utils';

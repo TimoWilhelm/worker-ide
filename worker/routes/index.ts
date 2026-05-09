@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 
-import { aiRoutes } from './ai-routes';
+import { agentRoutes } from './agent-routes';
 import { deployRoutes } from './deploy-routes';
 import { fileRoutes } from './file-routes';
 import { gitCredentialRoutes } from './git-credential-routes';
@@ -25,7 +25,7 @@ export const apiRoutes = new Hono<AppEnvironment>()
 	.route('', previewUrlRoutes)
 	.route('', reviewRoutes)
 	.route('', snapshotRoutes)
-	.route('', aiRoutes)
+	.route('', agentRoutes)
 	.route('', transformRoutes)
 	.route('', gitRoutes)
 	.route('', gitCredentialRoutes)

@@ -1,7 +1,7 @@
 import { ChevronDown, ChevronRight, Minus, Plus } from 'lucide-react';
 import { useState } from 'react';
 
-import { Tooltip } from '@/components/ui';
+import { Tooltip } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 
 import { GitFileItem } from './git-file-item';
@@ -82,7 +82,8 @@ function StatusSection({
 								}
 							}}
 							className="
-								flex size-4 items-center justify-center rounded-sm text-text-secondary
+								flex size-4 cursor-pointer items-center justify-center rounded-sm
+								text-text-secondary
 								hover:text-text-primary
 							"
 						>
@@ -106,7 +107,8 @@ function StatusSection({
 								}
 							}}
 							className="
-								flex size-4 items-center justify-center rounded-sm text-text-secondary
+								flex size-4 cursor-pointer items-center justify-center rounded-sm
+								text-text-secondary
 								hover:text-text-primary
 							"
 						>

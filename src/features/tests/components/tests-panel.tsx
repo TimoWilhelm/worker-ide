@@ -2,8 +2,9 @@ import { ScrollArea } from '@base-ui/react/scroll-area';
 import { CheckCircle2, FlaskConical, Play, RefreshCw, XCircle } from 'lucide-react';
 import { useMemo } from 'react';
 
-import { Button, Spinner, Tooltip } from '@/components/ui';
+import { Button } from '@/components/ui/button';
 import { ListSkeleton } from '@/components/ui/skeleton';
+import { Tooltip } from '@/components/ui/tooltip';
 import { useFileTargetOpener } from '@/lib/file-target';
 import { cn } from '@/lib/utils';
 
@@ -55,8 +56,8 @@ export function TestsPanel({ projectId, className }: TestsPanelProperties) {
 					<button
 						className={cn(
 							`
-								flex size-6 items-center justify-center rounded-sm text-text-secondary
-								transition-colors
+								flex size-6 cursor-pointer items-center justify-center rounded-sm
+								text-text-secondary transition-colors
 							`,
 							isRefreshing ? 'cursor-default opacity-60' : 'hover:bg-bg-tertiary hover:text-text-primary',
 						)}
@@ -73,9 +74,10 @@ export function TestsPanel({ projectId, className }: TestsPanelProperties) {
 						size="sm"
 						className={cn('h-6 gap-1 px-2 text-xs transition-colors', 'hover:bg-bg-tertiary hover:text-text-primary')}
 						onClick={() => runTests()}
-						disabled={isRunning || !hasTestFiles}
+						disabled={!hasTestFiles}
+						isLoading={isRunning}
 					>
-						{isRunning ? <Spinner size="xs" /> : <Play className="size-3" />}
+						<Play className="size-3" />
 						Run
 					</Button>
 				</Tooltip>

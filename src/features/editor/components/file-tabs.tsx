@@ -319,8 +319,8 @@ function FileTabItem({ tab, isActive, showDirectory, participants, onClose }: Fi
 					onKeyDown={handleCloseKeyDown}
 					className={cn(
 						`
-							flex size-4 shrink-0 items-center justify-center rounded-sm
-							transition-colors
+							flex size-4 shrink-0 cursor-pointer items-center justify-center
+							rounded-sm transition-colors
 						`,
 						`
 							opacity-0

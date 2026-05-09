@@ -2,13 +2,13 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Suspense } from 'react';
 import { expect, fn, within } from 'storybook/test';
 
-import { AgentRuntimeContext } from '@/features/ai-assistant/components/agent-runtime-context';
+import { AgentRuntimeContext } from '@/features/agent/components/agent-runtime-context';
 
 import { DesktopLayout } from './desktop-layout';
 
 import type { useEditorState } from './use-editor-state';
 import type { usePanelLayouts } from './use-panel-layouts';
-import type { AgentRuntimeValue } from '@/features/ai-assistant/components/agent-runtime-context';
+import type { AgentRuntimeValue } from '@/features/agent/components/agent-runtime-context';
 import type { useFileTree } from '@/features/file-tree';
 import type { LogCounts } from '@/features/output';
 import type { Meta, StoryObj } from '@storybook/react-vite';
@@ -114,7 +114,7 @@ const defaultMockFileTree: ReturnType<typeof useFileTree> = {
 };
 
 const mockLayouts: ReturnType<typeof usePanelLayouts> = {
-	aiPanelVisible: false,
+	agentPanelVisible: false,
 	utilityPanelVisible: true,
 	devtoolsVisible: false,
 	dependenciesPanelVisible: true,

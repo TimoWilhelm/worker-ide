@@ -1,2 +1,2 @@
-export { AIAgentService } from './service';
+export { AgentService } from './service';
 export type { AgentDebugLog, AgentDebugLogSummary, AgentLogEntry, ModelMessage, FileChange, SnapshotMetadata } from './types';

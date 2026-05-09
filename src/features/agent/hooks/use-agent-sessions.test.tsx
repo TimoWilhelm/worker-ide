@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { useStore } from '@/lib/store';
 
-import { useAiSessions } from './use-ai-sessions';
+import { useAgentSessions } from './use-agent-sessions';
 
 import type { AgentState, AgentSessionState } from '@shared/agent-state';
 import type { PendingFileChange, ReviewEntry } from '@shared/types';
@@ -68,7 +68,7 @@ beforeEach(() => {
 	localStorage.clear();
 });
 
-describe('useAiSessions', () => {
+describe('useAgentSessions', () => {
 	it('syncs project review queue changes when agent state mutates in place', async () => {
 		const state: AgentState = {
 			currentSession: createCurrentSession('session-1'),
@@ -93,7 +93,7 @@ describe('useAiSessions', () => {
 			call: vi.fn().mockImplementation(async () => {}),
 		};
 
-		const { rerender } = renderHook(() => useAiSessions({ projectId: 'project-1', agent, agentConnectionState: 'connected' }));
+		const { rerender } = renderHook(() => useAgentSessions({ projectId: 'project-1', agent, agentConnectionState: 'connected' }));
 
 		await waitFor(() => {
 			expect(useStore.getState().pendingChanges.has('/src/a.ts')).toBe(true);
@@ -133,7 +133,7 @@ describe('useAiSessions', () => {
 			call: vi.fn().mockImplementation(async () => {}),
 		};
 
-		const { rerender } = renderHook(() => useAiSessions({ projectId: 'project-1', agent, agentConnectionState: 'connected' }));
+		const { rerender } = renderHook(() => useAgentSessions({ projectId: 'project-1', agent, agentConnectionState: 'connected' }));
 
 		await waitFor(() => {
 			expect(useStore.getState().pendingChanges.has('/src/a.ts')).toBe(true);
@@ -169,7 +169,7 @@ describe('useAiSessions', () => {
 			call: vi.fn().mockImplementation(async () => {}),
 		};
 
-		const { rerender } = renderHook(() => useAiSessions({ projectId: 'project-1', agent, agentConnectionState: 'connected' }));
+		const { rerender } = renderHook(() => useAgentSessions({ projectId: 'project-1', agent, agentConnectionState: 'connected' }));
 
 		await waitFor(() => {
 			expect(useStore.getState().pendingChanges.size).toBe(0);
@@ -193,7 +193,7 @@ describe('useAiSessions', () => {
 			call: vi.fn().mockImplementation(async () => {}),
 		};
 
-		const { result } = renderHook(() => useAiSessions({ projectId: 'project-1', agent, agentConnectionState: 'connecting' }));
+		const { result } = renderHook(() => useAgentSessions({ projectId: 'project-1', agent, agentConnectionState: 'connecting' }));
 
 		expect(result.current.isRestoringSession).toBe(false);
 		expect(agent.call).not.toHaveBeenCalled();
@@ -220,7 +220,7 @@ describe('useAiSessions', () => {
 			call: vi.fn().mockImplementation(async () => {}),
 		};
 
-		const { result } = renderHook(() => useAiSessions({ projectId: 'project-1', agent, agentConnectionState: 'connected' }));
+		const { result } = renderHook(() => useAgentSessions({ projectId: 'project-1', agent, agentConnectionState: 'connected' }));
 
 		await waitFor(() => {
 			expect(agent.call).toHaveBeenCalledWith('loadSession', ['missing-session']);
@@ -252,7 +252,7 @@ describe('useAiSessions', () => {
 			call: vi.fn().mockImplementation(async () => {}),
 		};
 
-		renderHook(() => useAiSessions({ projectId: 'project-1', agent, agentConnectionState: 'connected' }));
+		renderHook(() => useAgentSessions({ projectId: 'project-1', agent, agentConnectionState: 'connected' }));
 
 		await waitFor(() => {
 			const stored = JSON.parse(localStorage.getItem('worker-ide-project:project-1') ?? '{}');

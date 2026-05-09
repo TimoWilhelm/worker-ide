@@ -79,7 +79,7 @@ export interface AiSession {
 	toolMetadata?: Record<string, ToolMetadataInfo>;
 	toolErrors?: Record<string, ToolErrorInfo>;
 	/** Terminal status of the last agent run. Set by the agent-runner after
-	 *  the loop finishes so reloaded sessions can restore the AIError UI. */
+	 *  the loop finishes so reloaded sessions can restore the AgentError UI. */
 	status?: AgentSessionStatus;
 	errorMessage?: string;
 	stopRequested?: boolean;

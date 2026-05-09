@@ -1,1 +1,0 @@
-export { AIPanel } from './panel';
