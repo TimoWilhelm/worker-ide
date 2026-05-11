@@ -290,6 +290,7 @@ describe('AgentService', () => {
 					projectId: 'test-project',
 					organizationId: 'org-123',
 					userId: 'user-123',
+					sessionId: 'test-session',
 				}),
 			);
 		});
@@ -715,7 +716,7 @@ describe('AgentService', () => {
 					sessionId: 'follow-up-session',
 				},
 			};
-			const onPersistSession = vi.fn(async () => {});
+			const onPersistSession = vi.fn<(sessionId: string, sessionData: SessionPersistData) => Promise<void>>(async () => {});
 			const service = createTestService({
 				onPersistSession,
 				sessionId: 'follow-up-session',
@@ -733,7 +734,7 @@ describe('AgentService', () => {
 			expect(lastCall).toBeDefined();
 			if (!lastCall) return;
 
-			const sessionData = lastCall.at(1);
+			const [, sessionData] = lastCall;
 			expect(sessionData).toBeDefined();
 			if (!sessionData) return;
 

@@ -3,6 +3,9 @@ import { createWorkersAI } from 'workers-ai-provider';
 
 import type { LanguageModel } from 'ai';
 
+const MAX_AFFINITY_COMPONENT_LENGTH = 80;
+const MAX_REPEATED_CONTEXT_KEY_LENGTH = 512;
+
 /**
  * Metadata context for AI Gateway tracking.
  */
@@ -12,6 +15,62 @@ export interface WorkersAiContext {
 	projectId?: string;
 	userId?: string;
 	organizationId?: string;
+	sessionId?: string;
+	repeatedContextKey?: string;
+}
+
+function normalizeAffinityComponent(value: string | undefined): string | undefined {
+	if (!value) {
+		return undefined;
+	}
+
+	const trimmedValue = value.trim();
+	if (trimmedValue.length === 0) {
+		return undefined;
+	}
+
+	const normalizedValue = trimmedValue.replaceAll(/[^a-zA-Z0-9:_-]+/g, '-').replaceAll(/^-+|-+$/g, '');
+	if (normalizedValue.length === 0) {
+		return undefined;
+	}
+
+	return normalizedValue.slice(0, MAX_AFFINITY_COMPONENT_LENGTH);
+}
+
+function hashRepeatedContextKey(value: string): string {
+	let hashValue = 2_166_136_261;
+	for (const character of value) {
+		hashValue ^= character.codePointAt(0) ?? 0;
+		hashValue = Math.imul(hashValue, 16_777_619);
+	}
+
+	return (hashValue >>> 0).toString(16).padStart(8, '0');
+}
+
+function getSessionAffinity(modelId: string, context: WorkersAiContext): string | undefined {
+	const projectId = normalizeAffinityComponent(context.projectId) ?? 'global';
+	const normalizedModelId = normalizeAffinityComponent(modelId) ?? 'model';
+
+	if (context.generationType === 'agent') {
+		const sessionId = normalizeAffinityComponent(context.sessionId);
+		if (!sessionId) {
+			return undefined;
+		}
+
+		return ['agent', projectId, sessionId, normalizedModelId].join(':');
+	}
+
+	if (context.generationType === 'compaction') {
+		const repeatedContextKey = context.repeatedContextKey?.trim();
+		if (!repeatedContextKey) {
+			return undefined;
+		}
+
+		const repeatedContextHash = hashRepeatedContextKey(repeatedContextKey.slice(0, MAX_REPEATED_CONTEXT_KEY_LENGTH));
+		return ['compaction', projectId, normalizedModelId, repeatedContextHash].join(':');
+	}
+
+	return undefined;
 }
 
 /**
@@ -21,6 +80,8 @@ export interface WorkersAiContext {
  * @param context - Metadata context for AI Gateway tracking
  */
 export function createAdapter(modelId: string, context: WorkersAiContext): LanguageModel {
+	const sessionAffinity = getSessionAffinity(modelId, context);
+
 	return createWorkersAI({
 		binding: env.AI,
 		gateway: {
@@ -37,5 +98,6 @@ export function createAdapter(modelId: string, context: WorkersAiContext): Langu
 		extraHeaders: {
 			'cf-aig-collect-log-payload': 'false',
 		},
+		sessionAffinity,
 	});
 }

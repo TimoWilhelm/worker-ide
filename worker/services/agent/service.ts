@@ -400,6 +400,7 @@ export class AgentService {
 				projectId: this.options.projectId,
 				organizationId: this.options.organizationId,
 				userId: this.options.initiatorUserId,
+				sessionId: this.options.sessionId,
 			});
 			const modelLimits = getModelLimits(this.options.model);
 

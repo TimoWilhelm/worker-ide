@@ -228,6 +228,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 							generationType: 'compaction',
 							projectId: this.getProjectId(),
 							organizationId: this.projectOrganizationId,
+							repeatedContextKey: prompt,
 						}),
 						prompt,
 						maxOutputTokens: 4096,
