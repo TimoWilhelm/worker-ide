@@ -25,16 +25,6 @@ beforeAll(() => {
 	initSync({ module: wasmBytes });
 }, 30_000);
 
-// Test fixtures with known lint issues.
-// Rules confirmed active in Biome's default recommended config:
-//   - lint/suspicious/noDoubleEquals  (== → ===)     [fixable]
-//   - lint/suspicious/noDebugger      (debugger)     [fixable]
-//   - lint/complexity/noUselessRename ({a:a} → {a})  [fixable]
-//   - lint/a11y/useAltText            (<img> no alt) [unfixable]
-//   - lint/correctness/useValidTypeof ("strin")       [unfixable]
-//   - lint/correctness/noUnusedVariables              [fixable]
-//
-// NOTE: lint/style/noVar is NOT in the default recommended rules.
 const tsWithDoubleEquals = `const value = 42;
 if (value == "42") {
   console.log("match");

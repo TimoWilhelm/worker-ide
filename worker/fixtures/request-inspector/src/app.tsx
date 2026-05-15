@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 
 interface InspectData {
 	timestamp: string;
@@ -91,7 +91,7 @@ export function App() {
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState('');
 
-	const fetchInspect = useCallback(async () => {
+	async function fetchInspect() {
 		setLoading(true);
 		setError('');
 		try {
@@ -104,11 +104,18 @@ export function App() {
 		} finally {
 			setLoading(false);
 		}
-	}, []);
+	}
 
 	useEffect(() => {
-		void fetchInspect();
-	}, [fetchInspect]);
+		fetch('/api/inspect')
+			.then((response) => {
+				if (!response.ok) throw new Error(`HTTP ${response.status}`);
+				return response.json();
+			})
+			.then((json: InspectData) => setData(json))
+			.catch(() => setError('Failed to reach the worker API'))
+			.finally(() => setLoading(false));
+	}, []);
 
 	const handleEcho = async () => {
 		setEchoResult(undefined);

@@ -132,18 +132,21 @@ function WranglerSettingsContent({ projectId }: { projectId: string }) {
 	);
 	const [runWorkerFirstPatterns, setRunWorkerFirstPatterns] = useState(() => getRunWorkerFirstPatterns(loadedSettings?.run_worker_first));
 	const [storageEnabled, setStorageEnabled] = useState(() => loadedBindings?.storage ?? false);
+	const [previousLoadedSettings, setPreviousLoadedSettings] = useState(loadedSettings);
+	const [previousLoadedBindings, setPreviousLoadedBindings] = useState(loadedBindings);
 
-	// Sync form state when the query refetches (e.g. after save + invalidation)
-	useEffect(() => {
+	if (loadedSettings !== previousLoadedSettings) {
+		setPreviousLoadedSettings(loadedSettings);
 		setNotFoundHandling(loadedSettings?.not_found_handling ?? 'none');
 		setHtmlHandling(loadedSettings?.html_handling ?? 'auto-trailing-slash');
 		setRunWorkerFirstMode(getRunWorkerFirstMode(loadedSettings?.run_worker_first));
 		setRunWorkerFirstPatterns(getRunWorkerFirstPatterns(loadedSettings?.run_worker_first));
-	}, [loadedSettings]);
+	}
 
-	useEffect(() => {
+	if (loadedBindings !== previousLoadedBindings) {
+		setPreviousLoadedBindings(loadedBindings);
 		setStorageEnabled(loadedBindings?.storage ?? false);
-	}, [loadedBindings]);
+	}
 
 	const handleSave = useCallback(async () => {
 		setIsSaving(true);

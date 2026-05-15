@@ -203,7 +203,7 @@ function LinkedAccountsSection() {
 	const [loadError, setLoadError] = useState(false);
 	const [actingProvider, setActingProvider] = useState<string | undefined>();
 
-	const fetchAccounts = useCallback(async (signal?: AbortSignal) => {
+	const fetchAccounts = async (signal?: AbortSignal) => {
 		setLoadError(false);
 		try {
 			const { data, error } = await authClient.listAccounts();
@@ -227,15 +227,15 @@ function LinkedAccountsSection() {
 				setIsLoading(false);
 			}
 		}
-	}, []);
+	};
 
 	useEffect(() => {
 		const controller = new AbortController();
-		void fetchAccounts(controller.signal);
+		void Promise.resolve().then(() => fetchAccounts(controller.signal));
 		return () => controller.abort();
-	}, [fetchAccounts]);
+	}, []);
 
-	const handleLink = useCallback(async (providerId: string) => {
+	const handleLink = async (providerId: string) => {
 		const providerName = SUPPORTED_PROVIDERS.find((p) => p.id === providerId)?.name ?? providerId;
 		setActingProvider(providerId);
 		try {
@@ -246,38 +246,34 @@ function LinkedAccountsSection() {
 			if (error) {
 				toast.error(error.message ?? `Could not start linking ${providerName}. Please try again.`);
 			}
-			// If no error, the browser will redirect to the provider's OAuth page
 		} catch {
 			toast.error(`Could not connect to ${providerName}. Please check your connection and try again.`);
 		} finally {
 			setActingProvider(undefined);
 		}
-	}, []);
+	};
 
-	const handleUnlink = useCallback(
-		async (providerId: string) => {
-			const providerName = SUPPORTED_PROVIDERS.find((p) => p.id === providerId)?.name ?? providerId;
-			setActingProvider(providerId);
-			try {
-				const { error } = await authClient.unlinkAccount({ providerId });
-				if (error) {
-					const message =
-						error.code === 'CANT_UNLINK_LAST_ACCOUNT'
-							? `Cannot unlink ${providerName} because it is your only sign-in method. Link another account first.`
-							: (error.message ?? `Failed to unlink ${providerName}. Please try again.`);
-					toast.error(message);
-				} else {
-					toast.success(`${providerName} account unlinked`);
-					void fetchAccounts();
-				}
-			} catch {
-				toast.error(`Could not unlink ${providerName}. Please check your connection and try again.`);
-			} finally {
-				setActingProvider(undefined);
+	const handleUnlink = async (providerId: string) => {
+		const providerName = SUPPORTED_PROVIDERS.find((p) => p.id === providerId)?.name ?? providerId;
+		setActingProvider(providerId);
+		try {
+			const { error } = await authClient.unlinkAccount({ providerId });
+			if (error) {
+				const message =
+					error.code === 'CANT_UNLINK_LAST_ACCOUNT'
+						? `Cannot unlink ${providerName} because it is your only sign-in method. Link another account first.`
+						: (error.message ?? `Failed to unlink ${providerName}. Please try again.`);
+				toast.error(message);
+			} else {
+				toast.success(`${providerName} account unlinked`);
+				void fetchAccounts();
 			}
-		},
-		[fetchAccounts],
-	);
+		} catch {
+			toast.error(`Could not unlink ${providerName}. Please check your connection and try again.`);
+		} finally {
+			setActingProvider(undefined);
+		}
+	};
 
 	const linkedProviderIds = new Set(accounts.map((account) => account.providerId));
 	const canUnlink = accounts.length > 1;

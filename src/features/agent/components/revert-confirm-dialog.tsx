@@ -222,7 +222,7 @@ export function RevertConfirmDialog({
 													label="Delete"
 													description="New AI files"
 													icon={<FileMinus className="size-3.5" />}
-													colorClass="text-error"
+													dotClass="bg-error"
 													backgroundClass="bg-error/5"
 													badgeClass="bg-error/15 text-error"
 													changes={createdFiles}
@@ -234,7 +234,7 @@ export function RevertConfirmDialog({
 													label="Undo edits"
 													description="Edited files"
 													icon={<FilePen className="size-3.5" />}
-													colorClass="text-warning"
+													dotClass="bg-warning"
 													backgroundClass="bg-warning/5"
 													badgeClass="bg-warning/15 text-warning"
 													changes={editedFiles}
@@ -246,7 +246,7 @@ export function RevertConfirmDialog({
 													label="Restore"
 													description="Deleted files"
 													icon={<FilePlus className="size-3.5" />}
-													colorClass="text-success"
+													dotClass="bg-success"
 													backgroundClass="bg-success/5"
 													badgeClass="bg-success/15 text-success"
 													changes={deletedFiles}
@@ -295,7 +295,7 @@ function ChangeGroup({
 	label,
 	description,
 	icon,
-	colorClass,
+	dotClass,
 	backgroundClass,
 	badgeClass,
 	changes,
@@ -303,7 +303,7 @@ function ChangeGroup({
 	label: string;
 	description: string;
 	icon: React.ReactNode;
-	colorClass: string;
+	dotClass: string;
 	backgroundClass: string;
 	badgeClass: string;
 	changes: Array<{ path: string; action: string }>;
@@ -328,7 +328,7 @@ function ChangeGroup({
 			<div className="flex flex-col gap-1 border-t border-border/50 px-3 py-2">
 				{changes.map((change) => (
 					<div key={change.path} className="flex items-center gap-2">
-						<span className={cn('size-1 shrink-0 rounded-full', colorClass.replace('text-', 'bg-'))} />
+						<span className={cn('size-1 shrink-0 rounded-full', dotClass)} />
 						<FileReference path={change.path} className="text-2xs" />
 					</div>
 				))}

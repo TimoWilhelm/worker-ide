@@ -1,7 +1,7 @@
 import { syntaxHighlighting } from '@codemirror/language';
 import { Compartment, EditorState, type Extension } from '@codemirror/state';
 import { EditorView, type ViewUpdate } from '@codemirror/view';
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 
 import { createAiActionBarExtension, createDiffDecorations } from '../lib/diff-extension';
 import {
@@ -97,13 +97,12 @@ export function CodeEditor({
 	const containerReference = useRef<HTMLDivElement>(null);
 	const viewReference = useRef<EditorView | undefined>(undefined);
 
-	// Per-instance compartments for dynamic reconfiguration
-	const languageCompartment = useRef(new Compartment()).current;
-	const readonlyCompartment = useRef(new Compartment()).current;
-	const tabSizeCompartment = useRef(new Compartment()).current;
-	const diffCompartment = useRef(new Compartment()).current;
-	const lintCompartment = useRef(new Compartment()).current;
-	const themeCompartment = useRef(new Compartment()).current;
+	const languageCompartment = useMemo(() => new Compartment(), []);
+	const readonlyCompartment = useMemo(() => new Compartment(), []);
+	const tabSizeCompartment = useMemo(() => new Compartment(), []);
+	const diffCompartment = useMemo(() => new Compartment(), []);
+	const lintCompartment = useMemo(() => new Compartment(), []);
+	const themeCompartment = useMemo(() => new Compartment(), []);
 
 	// Use refs for all callbacks so the CodeMirror extension (created once
 	// at mount) always calls the latest version without needing to

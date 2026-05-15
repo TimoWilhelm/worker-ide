@@ -32,7 +32,7 @@ describe('ConfirmButton', () => {
 	});
 
 	it('closes without confirming when cancelled', async () => {
-		const user = userEvent.setup();
+		const user = userEvent.setup({ pointerEventsCheck: 0 });
 		const onConfirm = vi.fn();
 
 		render(

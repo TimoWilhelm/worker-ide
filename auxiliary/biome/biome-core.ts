@@ -27,11 +27,19 @@ interface BiomeLintApi {
 	};
 }
 
+interface BiomeAction {
+	category?: { quickFix?: string };
+	ruleName?: string[];
+}
+
 interface BiomeWorkspace {
 	openFile: (options: { projectKey: number; content: { type: string; content: string; version: number }; path: string }) => void;
 	closeFile: (options: { projectKey: number; path: string }) => void;
-	pullDiagnostics: (options: { projectKey: number; path: string; categories: string[]; pullCodeActions: boolean }) => {
+	pullDiagnostics: (options: { projectKey: number; path: string; categories: string[] }) => {
 		diagnostics: BiomeDiagnosticResult[];
+	};
+	pullActions: (options: { projectKey: number; path: string }) => {
+		actions: BiomeAction[];
 	};
 }
 
@@ -115,13 +123,13 @@ function offsetToLineAndColumn(content: string, offset: number): { line: number;
 	return { line, column };
 }
 
-/**
- * Pull diagnostics directly from the Biome workspace with pullCodeActions
- * enabled so that the `fixable` tag is populated on each diagnostic.
- */
-function pullDiagnosticsWithCodeActions(key: number, filePath: string, content: string): BiomeDiagnosticResult[] {
+function pullDiagnosticsAndActions(
+	key: number,
+	filePath: string,
+	content: string,
+): { diagnostics: BiomeDiagnosticResult[]; fixableRules: Set<string> } {
 	if (!biomeWorkspace) {
-		return [];
+		return { diagnostics: [], fixableRules: new Set() };
 	}
 	biomeWorkspace.openFile({
 		projectKey: key,
@@ -132,16 +140,25 @@ function pullDiagnosticsWithCodeActions(key: number, filePath: string, content: 
 		const { diagnostics } = biomeWorkspace.pullDiagnostics({
 			projectKey: key,
 			path: filePath,
-			categories: ['syntax', 'lint', 'action'],
-			pullCodeActions: true,
+			categories: ['syntax', 'lint'],
 		});
-		return diagnostics;
+		const { actions } = biomeWorkspace.pullActions({
+			projectKey: key,
+			path: filePath,
+		});
+		const fixableRules = new Set<string>();
+		for (const action of actions) {
+			if (action.category?.quickFix && action.ruleName) {
+				fixableRules.add(`lint/${action.ruleName.join('/')}`);
+			}
+		}
+		return { diagnostics, fixableRules };
 	} finally {
 		biomeWorkspace.closeFile({ projectKey: key, path: filePath });
 	}
 }
 
-function mapDiagnostics(diagnostics: BiomeDiagnosticResult[], content: string): ServerLintDiagnostic[] {
+function mapDiagnostics(diagnostics: BiomeDiagnosticResult[], content: string, fixableRules?: Set<string>): ServerLintDiagnostic[] {
 	return diagnostics.map((diagnostic) => {
 		const span = diagnostic.location?.span;
 		const { line, column } = span ? offsetToLineAndColumn(content, span[0]) : { line: 1, column: 1 };
@@ -151,13 +168,15 @@ function mapDiagnostics(diagnostics: BiomeDiagnosticResult[], content: string): 
 			message = diagnostic.message.map((node) => node.content).join('');
 		}
 
+		const rule = diagnostic.category ?? 'biome';
+
 		return {
 			line,
 			column,
-			rule: diagnostic.category ?? 'biome',
+			rule,
 			message: message || 'Unknown lint issue',
 			severity: mapDiagnosticSeverity(diagnostic.severity),
-			fixable: diagnostic.tags.includes('fixable'),
+			fixable: fixableRules ? fixableRules.has(rule) : diagnostic.tags.includes('fixable'),
 		};
 	});
 }
@@ -173,8 +192,8 @@ export async function lintFile(filePath: string, content: string): Promise<Serve
 	if (!ready || storedProjectKey === undefined || !biomeWorkspace) return [];
 
 	try {
-		const diagnostics = pullDiagnosticsWithCodeActions(storedProjectKey, filePath, content);
-		return mapDiagnostics(diagnostics, content);
+		const { diagnostics, fixableRules } = pullDiagnosticsAndActions(storedProjectKey, filePath, content);
+		return mapDiagnostics(diagnostics, content, fixableRules);
 	} catch {
 		return [];
 	}

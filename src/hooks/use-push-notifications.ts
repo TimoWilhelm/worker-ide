@@ -82,18 +82,10 @@ export function usePushNotifications(): UsePushNotificationsResult {
 		}
 	}, []);
 
-	// Check existing subscription and preference on mount.
-	// If the browser has a push subscription but the backend has no record
-	// (KV entry deleted by queue consumer), silently clean up the stale
-	// browser subscription so the UI stays consistent.
 	useEffect(() => {
 		if (!isPushSupported()) return;
 
-		void syncPushState();
-	}, [syncPushState]);
-
-	useEffect(() => {
-		if (!isPushSupported()) return;
+		void Promise.resolve().then(syncPushState);
 
 		const handlePermissionChange = () => {
 			setIsAwaitingPermission(false);

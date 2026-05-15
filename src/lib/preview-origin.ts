@@ -36,14 +36,21 @@ export function usePreviewUrl(projectId: string): PreviewUrlState {
 	const [previewUrl, setPreviewUrl] = useState<string | undefined>();
 	const [previewOrigin, setPreviewOrigin] = useState<string | undefined>();
 	const [isLoading, setIsLoading] = useState(true);
+	const [previousProjectId, setPreviousProjectId] = useState(projectId);
 	const fetchingReference = useRef(false);
 	const refreshRequestedReference = useRef(false);
 	const previewUrlReference = useRef<string | undefined>(undefined);
+	const fetchReference = useRef<() => Promise<string | undefined>>(undefined);
 
-	const fetchPreviewUrl = useCallback(async (): Promise<string | undefined> => {
+	if (projectId !== previousProjectId) {
+		setPreviousProjectId(projectId);
+		setIsLoading(true);
+		setPreviewUrl(undefined);
+		setPreviewOrigin(undefined);
+	}
+
+	const doFetch = useCallback(async (currentProjectId: string): Promise<string | undefined> => {
 		if (fetchingReference.current) {
-			// A fetch is already in progress — flag that a refresh was requested
-			// so we re-fetch once the current request completes.
 			refreshRequestedReference.current = true;
 			return previewUrlReference.current;
 		}
@@ -52,7 +59,7 @@ export function usePreviewUrl(projectId: string): PreviewUrlState {
 		fetchingReference.current = true;
 		refreshRequestedReference.current = false;
 		try {
-			const api = createApiClient(projectId);
+			const api = createApiClient(currentProjectId);
 			let response = await api['preview-url'].$get({});
 			if (response.status === 401) {
 				const session = await authClient.getSession();
@@ -76,25 +83,23 @@ export function usePreviewUrl(projectId: string): PreviewUrlState {
 			setIsLoading(false);
 			fetchingReference.current = false;
 
-			// If a refresh was requested while we were fetching, re-fetch now.
 			if (refreshRequestedReference.current) {
 				refreshRequestedReference.current = false;
-				void fetchPreviewUrl();
+				void fetchReference.current?.();
 			}
 		}
-	}, [projectId]);
+	}, []);
 
 	useEffect(() => {
-		setIsLoading(true);
-		setPreviewUrl(undefined);
-		setPreviewOrigin(undefined);
 		previewUrlReference.current = undefined;
-		void fetchPreviewUrl();
-	}, [fetchPreviewUrl]);
+		const boundFetch = () => doFetch(projectId);
+		fetchReference.current = boundFetch;
+		void Promise.resolve().then(boundFetch);
+	}, [projectId, doFetch]);
 
 	const refresh = useCallback(async () => {
-		return fetchPreviewUrl();
-	}, [fetchPreviewUrl]);
+		return doFetch(projectId);
+	}, [doFetch, projectId]);
 
 	return { previewUrl, previewOrigin, isLoading, refresh };
 }

@@ -128,8 +128,11 @@ function useMockStore(selector?: (state: typeof mocks.storeState) => unknown) {
 	return selector(mocks.storeState);
 }
 
+const noop = () => {};
+
 Object.assign(useMockStore, {
 	getState: () => mocks.storeState,
+	subscribe: () => noop,
 });
 
 vi.mock('@base-ui/react/scroll-area', async () => {

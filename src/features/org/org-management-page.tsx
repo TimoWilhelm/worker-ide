@@ -450,7 +450,7 @@ export default function OrgManagementPage({ orgSlug, organizationId, organizatio
 		[isRenaming, optimisticOrganizationName, organization, organizationId, queryClient, refreshOrganization, setOptimisticOrganizationName],
 	);
 
-	const handleRemoveMember = useCallback(async () => {
+	const handleRemoveMember = async () => {
 		if (confirmAction?.type !== 'remove') return;
 		setIsActing(true);
 		try {
@@ -471,9 +471,9 @@ export default function OrgManagementPage({ orgSlug, organizationId, organizatio
 			setIsActing(false);
 			setConfirmAction(undefined);
 		}
-	}, [confirmAction, organization?.id, refreshOrganization, refreshUserLimits]);
+	};
 
-	const handleTransferOwnership = useCallback(async () => {
+	const handleTransferOwnership = async () => {
 		if (confirmAction?.type !== 'transfer') return;
 		setIsActing(true);
 		try {
@@ -494,9 +494,9 @@ export default function OrgManagementPage({ orgSlug, organizationId, organizatio
 			setIsActing(false);
 			setConfirmAction(undefined);
 		}
-	}, [confirmAction, organization?.id, refreshOrganization]);
+	};
 
-	const handleChangeRole = useCallback(async () => {
+	const handleChangeRole = async () => {
 		if (confirmAction?.type !== 'promote' && confirmAction?.type !== 'demote') return;
 		setIsActing(true);
 		try {
@@ -518,9 +518,9 @@ export default function OrgManagementPage({ orgSlug, organizationId, organizatio
 			setIsActing(false);
 			setConfirmAction(undefined);
 		}
-	}, [confirmAction, organization?.id, refreshOrganization]);
+	};
 
-	const handleLeave = useCallback(async () => {
+	const handleLeave = async () => {
 		setIsActing(true);
 		try {
 			const { error } = await authClient.organization.leave({
@@ -538,7 +538,7 @@ export default function OrgManagementPage({ orgSlug, organizationId, organizatio
 			setIsActing(false);
 			setConfirmAction(undefined);
 		}
-	}, [navigateToFallbackOrganization, organization?.id]);
+	};
 
 	const handleDeleteOrg = useCallback(async () => {
 		setIsDeletingOrg(true);
@@ -573,12 +573,12 @@ export default function OrgManagementPage({ orgSlug, organizationId, organizatio
 		[refreshOrganization],
 	);
 
-	const handleConfirm = useCallback(() => {
+	const handleConfirm = () => {
 		if (confirmAction?.type === 'remove') void handleRemoveMember();
 		if (confirmAction?.type === 'transfer') void handleTransferOwnership();
 		if (confirmAction?.type === 'promote' || confirmAction?.type === 'demote') void handleChangeRole();
 		if (confirmAction?.type === 'leave') void handleLeave();
-	}, [confirmAction, handleRemoveMember, handleTransferOwnership, handleChangeRole, handleLeave]);
+	};
 
 	if (isPending || isRedirectingAway) {
 		return <OrganizationManagementSkeleton />;

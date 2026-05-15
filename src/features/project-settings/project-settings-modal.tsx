@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Eye, EyeOff } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { useNavigate } from 'react-router';
 
 import { Button } from '@/components/ui/button';
@@ -99,12 +99,12 @@ function ProjectSettingsContent({
 	});
 
 	const [visibility, setVisibility] = useState<Visibility>('public');
+	const [lastSyncedVisibility, setLastSyncedVisibility] = useState<Visibility | undefined>();
 
-	useEffect(() => {
-		if (visibilityQuery.data) {
-			setVisibility(visibilityQuery.data);
-		}
-	}, [visibilityQuery.data]);
+	if (visibilityQuery.data && visibilityQuery.data !== lastSyncedVisibility) {
+		setLastSyncedVisibility(visibilityQuery.data);
+		setVisibility(visibilityQuery.data);
+	}
 
 	const handleSave = useCallback(async () => {
 		setIsSaving(true);

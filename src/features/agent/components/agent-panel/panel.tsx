@@ -143,8 +143,7 @@ export function AgentPanel({ projectId, className }: { projectId: string; classN
 	const { data: session } = authClient.useSession();
 	const pendingPreviewElementReferences = useStore((state) => state.pendingPreviewElementReferences);
 	const shiftPendingPreviewElementReference = useStore((state) => state.shiftPendingPreviewElementReference);
-	const requestedAgentSessionId = useStore((state) => state.requestedAgentSessionId);
-	const clearRequestedAgentSession = useStore((state) => state.clearRequestedAgentSession);
+
 	const lastProcessedPreviewElementReferenceKeyReference = useRef<string | undefined>(undefined);
 
 	const rawState = agent.state;
@@ -449,17 +448,15 @@ export function AgentPanel({ projectId, className }: { projectId: string; classN
 	);
 
 	useEffect(() => {
-		if (!requestedAgentSessionId || !isConnected) {
-			return;
-		}
-		if (requestedAgentSessionId === sessionId) {
-			clearRequestedAgentSession();
-			return;
-		}
-
-		handleLoadSession(requestedAgentSessionId);
-		clearRequestedAgentSession();
-	}, [clearRequestedAgentSession, handleLoadSession, isConnected, requestedAgentSessionId, sessionId]);
+		return useStore.subscribe((state, previousState) => {
+			const requested = state.requestedAgentSessionId;
+			if (!requested || requested === previousState.requestedAgentSessionId) return;
+			state.clearRequestedAgentSession();
+			if (!isConnected) return;
+			if (requested === sessionId) return;
+			handleLoadSession(requested);
+		});
+	}, [handleLoadSession, isConnected, sessionId]);
 
 	// Focus input on mount
 	useEffect(() => {
