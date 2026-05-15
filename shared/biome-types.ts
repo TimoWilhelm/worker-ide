@@ -1,6 +1,8 @@
 export interface ServerLintDiagnostic {
 	line: number;
 	column: number;
+	from: number;
+	to: number;
 	rule: string;
 	message: string;
 	severity: 'error' | 'warning';

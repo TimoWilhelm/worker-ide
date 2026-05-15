@@ -43,6 +43,17 @@ export async function fixFileForAgent(filePath: string, content: string): Promis
 	}
 }
 
+export async function applySingleFixForAgent(filePath: string, content: string, from: number, to: number): Promise<string | undefined> {
+	if (!isLintableFile(filePath)) return undefined;
+
+	try {
+		return await env.BIOME.applySingleFix(filePath, content, from, to);
+	} catch (error) {
+		console.warn('[biome-linter] applySingleFix RPC failed:', error);
+		return undefined;
+	}
+}
+
 /**
  * Format pre-computed lint diagnostics as a string suitable for appending to tool results.
  * Returns undefined if the array is empty.

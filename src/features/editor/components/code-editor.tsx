@@ -53,6 +53,12 @@ function buildDiffExtensions(
 }
 
 export interface CodeEditorProperties {
+	/**
+	 * Required for in-editor linting; lint requests are scoped per project.
+	 * When omitted, lint extensions are disabled (e.g. tests that render the
+	 * editor in isolation).
+	 */
+	projectId?: string;
 	value: string;
 	filename: string;
 	onChange?: (value: string) => void;
@@ -74,6 +80,7 @@ export interface CodeEditorProperties {
 	onViewReady?: (view?: EditorView) => void;
 }
 export function CodeEditor({
+	projectId,
 	value,
 	filename,
 	onChange,
@@ -179,7 +186,7 @@ export function CodeEditor({
 			: [];
 		const isDark = resolvedTheme === 'dark';
 
-		const lintExtensions = readonly ? [] : createLintExtension(filename);
+		const lintExtensions = readonly || !projectId ? [] : createLintExtension(projectId, filename);
 
 		const extensions = [
 			...baseExtensions,
@@ -237,11 +244,11 @@ export function CodeEditor({
 		if (!viewReference.current) return;
 
 		const langExtension = getLanguageExtension(filename);
-		const lintExtensions = readonly ? [] : createLintExtension(filename);
+		const lintExtensions = readonly || !projectId ? [] : createLintExtension(projectId, filename);
 		viewReference.current.dispatch({
 			effects: [languageCompartment.reconfigure(langExtension ?? []), lintCompartment.reconfigure(lintExtensions)],
 		});
-	}, [filename, readonly, languageCompartment, lintCompartment]);
+	}, [filename, projectId, readonly, languageCompartment, lintCompartment]);
 
 	// Update readonly state
 	useEffect(() => {

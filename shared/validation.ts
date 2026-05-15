@@ -379,6 +379,14 @@ export const transformCodeSchema = z.object({
 });
 
 export type TransformCodeInput = z.infer<typeof transformCodeSchema>;
+export const lintFileRequestSchema = z.object({
+	path: filePathSchema,
+	content: fileContentSchema,
+});
+export const lintSingleFixRequestSchema = lintFileRequestSchema.extend({
+	from: z.number().int().min(0),
+	to: z.number().int().min(0),
+});
 export const pathQuerySchema = z.object({
 	path: filePathSchema,
 });

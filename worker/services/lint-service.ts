@@ -95,4 +95,4 @@ export async function lintFile(filePath: string, content: string): Promise<Serve
  * Fix results are not cached because the operation is infrequent and
  * the caller typically writes the fixed content back to disk immediately.
  */
-export { fixFileForAgent as fixFile } from './agent/lib/biome-linter';
+export { fixFileForAgent as fixFile, applySingleFixForAgent as applySingleFix } from './agent/lib/biome-linter';

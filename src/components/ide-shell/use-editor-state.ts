@@ -261,7 +261,7 @@ export function useEditorState({ projectId }: { projectId: string }) {
 		if (!activeFile || isGitDiffActive) return;
 		setIsPrettifying(true);
 		try {
-			const result = await fixFile(activeFile, editorContent);
+			const result = await fixFile(projectId, activeFile, editorContent);
 			if (!result || result.content === editorContent) return;
 
 			// Dispatch directly through CodeMirror to preserve scroll position.
@@ -283,7 +283,7 @@ export function useEditorState({ projectId }: { projectId: string }) {
 		} finally {
 			setIsPrettifying(false);
 		}
-	}, [activeFile, editorContent, isGitDiffActive, markFileChanged]);
+	}, [activeFile, editorContent, isGitDiffActive, markFileChanged, projectId]);
 
 	// Wrap selectFile from file tree: autosave current file before switching + clear git diff
 	// Also save current scroll position before switching to the new file

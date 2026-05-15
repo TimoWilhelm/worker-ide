@@ -87,7 +87,8 @@ interface LintDiagnosticEvent {
 	diagnostics: Array<{
 		message: string;
 		severity: string;
-		from: number;
+		line: number;
+		column: number;
 		rule?: string;
 	}>;
 }
@@ -116,7 +117,7 @@ globalThis.addEventListener('lint-diagnostics', (event: Event) => {
 		id: nextId(),
 		timestamp: Date.now(),
 		level: diagnostic.severity === 'error' ? ('error' as const) : ('warning' as const),
-		message: `${filePath}:${diagnostic.from} ${diagnostic.rule ? `(${diagnostic.rule}) ` : ''}${diagnostic.message}`,
+		message: `${filePath}:${diagnostic.line}:${diagnostic.column} ${diagnostic.rule ? `(${diagnostic.rule}) ` : ''}${diagnostic.message}`,
 		source: 'lint' as const,
 	}));
 

@@ -233,6 +233,7 @@ export function EditorArea({ projectId, resolvedTheme, editorState, onSelectFile
 						<>
 							{isProtectedSystemFile(activeFile) && <ProtectedFileBanner path={activeFile} />}
 							<CodeEditor
+								projectId={projectId}
 								value={
 									isGitDiffActive && gitDiffView
 										? gitDiffView.afterContent

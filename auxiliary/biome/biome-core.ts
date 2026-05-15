@@ -28,8 +28,23 @@ interface BiomeLintApi {
 }
 
 interface BiomeAction {
+	suggestion?: {
+		span: [number, number];
+		suggestion: BiomeTextEdit;
+	};
 	category?: { quickFix?: string };
 	ruleName?: string[];
+}
+
+type TextRange = [number, number];
+
+type DiffOp = { equal: { range: TextRange } } | { insert: { range: TextRange } } | { delete: { range: TextRange } };
+
+type CompressedOp = { diffOp: DiffOp } | { equalLines: { line_count: number } };
+
+interface BiomeTextEdit {
+	dictionary: string;
+	ops: CompressedOp[];
 }
 
 interface BiomeWorkspace {
@@ -38,7 +53,7 @@ interface BiomeWorkspace {
 	pullDiagnostics: (options: { projectKey: number; path: string; categories: string[] }) => {
 		diagnostics: BiomeDiagnosticResult[];
 	};
-	pullActions: (options: { projectKey: number; path: string }) => {
+	pullActions: (options: { projectKey: number; path: string; range?: [number, number]; categories?: string[] }) => {
 		actions: BiomeAction[];
 	};
 }
@@ -161,7 +176,9 @@ function pullDiagnosticsAndActions(
 function mapDiagnostics(diagnostics: BiomeDiagnosticResult[], content: string, fixableRules?: Set<string>): ServerLintDiagnostic[] {
 	return diagnostics.map((diagnostic) => {
 		const span = diagnostic.location?.span;
-		const { line, column } = span ? offsetToLineAndColumn(content, span[0]) : { line: 1, column: 1 };
+		const from = span ? span[0] : 0;
+		const to = span ? span[1] : from + 1;
+		const { line, column } = span ? offsetToLineAndColumn(content, from) : { line: 1, column: 1 };
 
 		let message = diagnostic.description;
 		if (!message && diagnostic.message && diagnostic.message.length > 0) {
@@ -173,12 +190,64 @@ function mapDiagnostics(diagnostics: BiomeDiagnosticResult[], content: string, f
 		return {
 			line,
 			column,
+			from,
+			to: to > from ? to : from + 1,
 			rule,
 			message: message || 'Unknown lint issue',
 			severity: mapDiagnosticSeverity(diagnostic.severity),
 			fixable: fixableRules ? fixableRules.has(rule) : diagnostic.tags.includes('fixable'),
 		};
 	});
+}
+
+function* splitInclusive(text: string, delimiter: string): Generator<string> {
+	let start = 0;
+	let index = text.indexOf(delimiter, start);
+	while (index !== -1) {
+		yield text.slice(start, index + delimiter.length);
+		start = index + delimiter.length;
+		index = text.indexOf(delimiter, start);
+	}
+	if (start < text.length) {
+		yield text.slice(start);
+	}
+}
+
+function applyTextEdit(originalContent: string, edit: BiomeTextEdit): string {
+	const { dictionary, ops } = edit;
+	let result = '';
+	let inputPosition = 0;
+
+	for (const op of ops) {
+		if ('equalLines' in op) {
+			const input = originalContent.slice(inputPosition);
+			const lineBreakCount = op.equalLines.line_count + 1;
+			let consumed = 0;
+			let linesFound = 0;
+			for (const line of splitInclusive(input, '\n')) {
+				if (linesFound >= lineBreakCount) break;
+				result += line;
+				consumed += line.length;
+				linesFound++;
+			}
+			inputPosition += consumed;
+		} else if ('diffOp' in op) {
+			const diffOp = op.diffOp;
+			if ('equal' in diffOp) {
+				const [start, end] = diffOp.equal.range;
+				result += dictionary.slice(start, end);
+				inputPosition += end - start;
+			} else if ('insert' in diffOp) {
+				const [start, end] = diffOp.insert.range;
+				result += dictionary.slice(start, end);
+			} else if ('delete' in diffOp) {
+				const [start, end] = diffOp.delete.range;
+				inputPosition += end - start;
+			}
+		}
+	}
+
+	return result;
 }
 
 /**
@@ -237,5 +306,49 @@ export async function fixFile(filePath: string, content: string): Promise<Server
 		};
 	} catch (error) {
 		return { failed: true, reason: `Biome threw an error: ${error instanceof Error ? error.message : String(error)}` };
+	}
+}
+
+export async function applySingleFix(filePath: string, content: string, from: number, to: number): Promise<string | undefined> {
+	if (!isLintableFile(filePath)) return undefined;
+
+	const ready = await ensureBiome();
+	if (!ready || storedProjectKey === undefined || !biomeWorkspace) return undefined;
+
+	try {
+		biomeWorkspace.openFile({
+			projectKey: storedProjectKey,
+			content: { type: 'fromClient', content, version: 0 },
+			path: filePath,
+		});
+
+		try {
+			const { actions } = biomeWorkspace.pullActions({
+				projectKey: storedProjectKey,
+				path: filePath,
+				range: [from, to],
+				categories: ['syntax', 'lint', 'action'],
+			});
+
+			// Pick the first quick-fix action that has an attached suggestion
+			// AND whose span matches the requested diagnostic range. Falling back
+			// to actions[0] would risk applying an unrelated refactor (e.g.
+			// organizeImports) that happened to overlap the range.
+			const action =
+				actions.find((candidate) => {
+					if (!candidate.suggestion) return false;
+					if (!candidate.category?.quickFix) return false;
+					const [actionFrom, actionTo] = candidate.suggestion.span;
+					return actionFrom === from && actionTo === to;
+				}) ?? actions.find((candidate) => candidate.suggestion && candidate.category?.quickFix);
+			if (!action?.suggestion) return undefined;
+
+			return applyTextEdit(content, action.suggestion.suggestion);
+		} finally {
+			biomeWorkspace.closeFile({ projectKey: storedProjectKey, path: filePath });
+		}
+	} catch (error) {
+		console.warn('[biome-worker] applySingleFix failed:', error);
+		return undefined;
 	}
 }

@@ -15,7 +15,7 @@ vi.mock('cloudflare:workers', () => ({
 	},
 }));
 
-import { fixFile, lintFile } from './index';
+import { applySingleFix, fixFile, lintFile } from './index';
 
 import type { FixFileFailure, ServerLintFixResult } from '@shared/biome-types';
 
@@ -299,5 +299,18 @@ describe('fixFile', () => {
 		const result = await fixFile('/broken.ts', 'const x = {{{;');
 		// Should either return a valid result or a failure — not throw
 		expect(result).toBeDefined();
+	});
+});
+
+describe('applySingleFix', () => {
+	it('applies a targeted quick fix for a specific diagnostic span', async () => {
+		const diagnostics = await lintFile('/equality.ts', tsWithDoubleEquals);
+		const targetDiagnostic = diagnostics.find((diagnostic) => diagnostic.rule.includes('noDoubleEquals'));
+
+		expect(targetDiagnostic).toBeDefined();
+		const fixedContent = await applySingleFix('/equality.ts', tsWithDoubleEquals, targetDiagnostic!.from, targetDiagnostic!.to);
+
+		expect(fixedContent).toBeDefined();
+		expect(fixedContent).toContain('===');
 	});
 });

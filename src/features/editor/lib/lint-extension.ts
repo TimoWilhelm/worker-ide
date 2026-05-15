@@ -34,9 +34,9 @@ function replaceDocument(view: EditorView, newContent: string): void {
 		changes: { from: 0, to: view.state.doc.length, insert: newContent },
 	});
 }
-async function applyAllFixes(view: EditorView, filename: string): Promise<boolean> {
+async function applyAllFixes(projectId: string, view: EditorView, filename: string): Promise<boolean> {
 	const content = view.state.doc.toString();
-	const result = await fixFile(filename, content);
+	const result = await fixFile(projectId, filename, content);
 	if (!result || result.content === content) return false;
 	replaceDocument(view, result.content);
 	dispatchLintDiagnostics(filename, result.remainingDiagnostics);
@@ -47,12 +47,12 @@ async function applyAllFixes(view: EditorView, filename: string): Promise<boolea
  * Create a "Fix" action for a specific lint diagnostic.
  * Uses workspace.pullActions to apply the fix for just this diagnostic's span.
  */
-function createFixAction(filename: string, from: number, to: number): Action {
+function createFixAction(projectId: string, filename: string, from: number, to: number): Action {
 	return {
 		name: 'Fix',
 		apply: (view: EditorView) => {
 			const content = view.state.doc.toString();
-			void applySingleFix(filename, content, from, to).then((fixedContent) => {
+			void applySingleFix(projectId, filename, content, from, to).then((fixedContent) => {
 				if (fixedContent !== undefined) {
 					replaceDocument(view, fixedContent);
 				}
@@ -70,7 +70,7 @@ function createFixAction(filename: string, from: number, to: number): Action {
  * - Lint gutter markers
  * - Keyboard shortcuts for quick fix (Ctrl+.) and fix all (Ctrl+Shift+.)
  */
-export function createLintExtension(filename: string): Extension[] {
+export function createLintExtension(projectId: string, filename: string): Extension[] {
 	if (!isLintableFile(filename)) {
 		return [];
 	}
@@ -78,7 +78,7 @@ export function createLintExtension(filename: string): Extension[] {
 	const biomeLinter = linter(
 		async (view: EditorView): Promise<Diagnostic[]> => {
 			const content = view.state.doc.toString();
-			const lintDiagnostics = await lintFile(filename, content);
+			const lintDiagnostics = await lintFile(projectId, filename, content);
 
 			dispatchLintDiagnostics(filename, lintDiagnostics);
 
@@ -93,7 +93,7 @@ export function createLintExtension(filename: string): Extension[] {
 					severity: mapSeverity(diagnostic.severity),
 					message: diagnostic.message,
 					source: diagnostic.rule ?? 'biome',
-					actions: diagnostic.fixable ? [createFixAction(filename, from, to)] : [],
+					actions: diagnostic.fixable ? [createFixAction(projectId, filename, from, to)] : [],
 				};
 			});
 		},
@@ -122,7 +122,7 @@ export function createLintExtension(filename: string): Extension[] {
 				});
 				if (targetFrom !== undefined && targetTo !== undefined) {
 					const content = view.state.doc.toString();
-					void applySingleFix(filename, content, targetFrom, targetTo).then((fixedContent) => {
+					void applySingleFix(projectId, filename, content, targetFrom, targetTo).then((fixedContent) => {
 						if (fixedContent !== undefined) {
 							replaceDocument(view, fixedContent);
 						}
@@ -136,7 +136,7 @@ export function createLintExtension(filename: string): Extension[] {
 			key: 'Mod-Shift-.',
 			run: (view: EditorView) => {
 				// Fix All: apply all safe fixes in the file
-				void applyAllFixes(view, filename);
+				void applyAllFixes(projectId, view, filename);
 				return true;
 			},
 		},
@@ -144,7 +144,7 @@ export function createLintExtension(filename: string): Extension[] {
 			key: 'Shift-Alt-f',
 			run: (view: EditorView) => {
 				// Prettify: apply all safe fixes (same as Fix All, standard format shortcut)
-				void applyAllFixes(view, filename);
+				void applyAllFixes(projectId, view, filename);
 				return true;
 			},
 		},
