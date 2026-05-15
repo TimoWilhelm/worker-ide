@@ -1,4 +1,5 @@
 {
+	"account_id": "d64471fef208e0cf9687449dc8a5878b",
 	"$schema": "../../node_modules/wrangler/config-schema.json",
 	"name": "email-worker",
 	"main": "index.ts",
