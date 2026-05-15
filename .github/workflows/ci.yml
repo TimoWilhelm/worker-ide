@@ -143,11 +143,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # Node.js is required for Vitest - https://github.com/oven-sh/bun/issues/4145
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version-file: '.nvmrc'
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -182,11 +181,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # Node.js is required for Vitest
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version-file: '.nvmrc'
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -218,7 +216,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version-file: '.nvmrc'
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -268,11 +266,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # Node.js is required for Vitest - https://github.com/oven-sh/bun/issues/4145
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version-file: '.nvmrc'
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -356,7 +353,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version-file: '.nvmrc'
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
