@@ -1,9 +1,9 @@
 import { env } from 'cloudflare:workers';
 
-import type { FixFileFailure, ServerLintDiagnostic, ServerLintFixResult } from '@shared/biome-types';
+import type { FixFileFailure, ServerLintDiagnostic, ServerFixResult } from '@shared/biome-types';
 
 // Re-export shared types so consumers can import from this module
-export type { FixFileFailure, ServerLintDiagnostic, ServerLintFixResult } from '@shared/biome-types';
+export type { FixFileFailure, ServerLintDiagnostic, ServerFixResult } from '@shared/biome-types';
 
 const LINTABLE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.css', '.json']);
 
@@ -27,13 +27,13 @@ export async function lintFileForAgent(filePath: string, content: string): Promi
 }
 
 /**
- * Apply safe lint fixes to a file using the Biome auxiliary worker.
+ * Format a file and apply safe lint fixes using the Biome auxiliary worker.
  * Returns the fixed content and remaining diagnostics, or a failure object
- * with a human-readable reason when fixes cannot be applied.
+ * with a human-readable reason when the operation cannot be performed.
  */
-export async function fixFileForAgent(filePath: string, content: string): Promise<ServerLintFixResult | FixFileFailure> {
+export async function fixFileForAgent(filePath: string, content: string): Promise<ServerFixResult | FixFileFailure> {
 	if (!isLintableFile(filePath)) {
-		return { failed: true, reason: `File type not supported for lint fixing: ${filePath}` };
+		return { failed: true, reason: `File type not supported for fixing: ${filePath}` };
 	}
 
 	try {

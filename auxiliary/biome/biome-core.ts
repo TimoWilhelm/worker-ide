@@ -1,4 +1,4 @@
-import type { FixFileFailure, ServerLintDiagnostic, ServerLintFixResult } from '@shared/biome-types';
+import type { FixFileFailure, ServerLintDiagnostic, ServerFixResult } from '@shared/biome-types';
 
 const LINTABLE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.css', '.json']);
 
@@ -16,11 +16,19 @@ interface BiomeDiagnosticResult {
 	tags: string[];
 }
 
-interface BiomeLintApi {
+interface BiomeApi {
 	lintContent: (
 		projectKey: number,
 		content: string,
 		options: { filePath: string; fixFileMode?: 'safeFixes' | 'safeAndUnsafeFixes' },
+	) => {
+		content: string;
+		diagnostics: BiomeDiagnosticResult[];
+	};
+	formatContent: (
+		projectKey: number,
+		content: string,
+		options: { filePath: string },
 	) => {
 		content: string;
 		diagnostics: BiomeDiagnosticResult[];
@@ -61,7 +69,7 @@ interface BiomeWorkspace {
 let initPromise: Promise<void> | undefined;
 let initFailed = false;
 let storedProjectKey: number | undefined;
-let biomeLintApi: BiomeLintApi | undefined;
+let biomeApi: BiomeApi | undefined;
 let biomeWorkspace: BiomeWorkspace | undefined;
 
 async function ensureBiome(): Promise<boolean> {
@@ -102,8 +110,8 @@ async function initBiome(): Promise<void> {
 		},
 	});
 
-	// Store the high-level lintContent API (used by fixFile)
-	biomeLintApi = biome;
+	// Store the high-level API for lintContent + formatContent (used by fixFile)
+	biomeApi = biome;
 
 	// Extract the workspace reference for direct pullDiagnostics calls.
 	// The `workspace` property is private on BiomeCommon but exists at runtime.
@@ -269,39 +277,45 @@ export async function lintFile(filePath: string, content: string): Promise<Serve
 }
 
 /**
- * Apply safe lint fixes to a file using Biome WASM.
+ * Format and apply lint fixes to a file using Biome WASM.
+ *
+ * Runs the Biome formatter first (indentation, spacing, line length, etc.)
+ * then applies all safe + unsafe lint auto-fixes on the formatted output.
+ *
  * Returns the fixed content and remaining diagnostics, or a failure object
- * with a human-readable reason when fixes cannot be applied.
+ * with a human-readable reason when the operation cannot be performed.
  */
-export async function fixFile(filePath: string, content: string): Promise<ServerLintFixResult | FixFileFailure> {
+export async function fixFile(filePath: string, content: string): Promise<ServerFixResult | FixFileFailure> {
 	if (!isLintableFile(filePath)) {
-		return { failed: true, reason: `File type not supported for lint fixing: ${filePath}` };
+		return { failed: true, reason: `File type not supported for fixing: ${filePath}` };
 	}
 
 	const ready = await ensureBiome();
-	if (!ready || storedProjectKey === undefined || !biomeLintApi) {
-		return { failed: true, reason: 'Biome linter failed to initialize' };
+	if (!ready || storedProjectKey === undefined || !biomeApi) {
+		return { failed: true, reason: 'Biome failed to initialize' };
 	}
 
 	try {
-		// Count original diagnostics
-		const originalResult = biomeLintApi.lintContent(storedProjectKey, content, { filePath });
-		const originalCount = originalResult.diagnostics.length;
-		if (originalCount === 0) return { fixedContent: content, fixCount: 0, remainingDiagnostics: [] };
+		// Step 1: Format the content (indentation, spacing, trailing commas, etc.)
+		const formatted = biomeApi.formatContent(storedProjectKey, content, { filePath });
 
-		// Apply all fixes (safe + unsafe)
-		const fixedResult = biomeLintApi.lintContent(storedProjectKey, content, {
+		// Step 2: Apply all lint auto-fixes on the formatted content
+		const linted = biomeApi.lintContent(storedProjectKey, formatted.content, {
 			filePath,
 			fixFileMode: 'safeAndUnsafeFixes',
 		});
 
-		// Lint the fixed content to get remaining diagnostics
-		const remainingResult = biomeLintApi.lintContent(storedProjectKey, fixedResult.content, { filePath });
-		const remainingDiagnostics = mapDiagnostics(remainingResult.diagnostics, fixedResult.content);
+		// Step 3: Re-lint the final content to get remaining diagnostics
+		const remaining = biomeApi.lintContent(storedProjectKey, linted.content, { filePath });
+		const remainingDiagnostics = mapDiagnostics(remaining.diagnostics, linted.content);
+
+		// Count how many lint diagnostics were fixed (formatting changes are not counted)
+		const originalLintResult = biomeApi.lintContent(storedProjectKey, content, { filePath });
+		const fixCount = originalLintResult.diagnostics.length - remainingDiagnostics.length;
 
 		return {
-			fixedContent: fixedResult.content,
-			fixCount: originalCount - remainingDiagnostics.length,
+			fixedContent: linted.content,
+			fixCount: Math.max(fixCount, 0),
 			remainingDiagnostics,
 		};
 	} catch (error) {

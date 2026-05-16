@@ -8,14 +8,15 @@ export interface ServerLintDiagnostic {
 	severity: 'error' | 'warning';
 	fixable: boolean;
 }
-export interface ServerLintFixResult {
+export interface ServerFixResult {
 	fixedContent: string;
+	/** Number of lint diagnostics resolved by auto-fix (does not count formatting changes). */
 	fixCount: number;
 	remainingDiagnostics: ServerLintDiagnostic[];
 }
 
 /**
- * Returned when fixFileForAgent cannot apply fixes.
+ * Returned when fixFile cannot apply formatting/fixes.
  * The `reason` field contains a human-readable explanation of why.
  */
 export interface FixFileFailure {

@@ -4,7 +4,7 @@ import type { ServerLintDiagnostic } from '@shared/biome-types';
 
 export type LintDiagnostic = ServerLintDiagnostic;
 
-export interface LintFixResult {
+export interface FixResult {
 	content: string;
 	fixCount: number;
 	remainingDiagnostics: LintDiagnostic[];
@@ -36,7 +36,7 @@ export async function lintFile(projectId: string, filePath: string, content: str
 	}
 }
 
-export async function fixFile(projectId: string, filePath: string, content: string): Promise<LintFixResult | undefined> {
+export async function fixFile(projectId: string, filePath: string, content: string): Promise<FixResult | undefined> {
 	if (!isLintableFile(filePath)) {
 		return undefined;
 	}

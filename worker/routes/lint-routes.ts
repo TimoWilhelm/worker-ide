@@ -28,7 +28,7 @@ export const lintRoutes = new Hono<AppEnvironment>()
 			// Log internal reason for diagnostics but return a generic message so
 			// we do not leak linter internals (paths, panic strings) to clients.
 			console.warn('[lint-routes] fixFile failed:', result.reason);
-			throw httpError(HttpErrorCode.INTERNAL_ERROR, 'Failed to apply lint fixes');
+			throw httpError(HttpErrorCode.INTERNAL_ERROR, 'Failed to format and fix file');
 		}
 
 		return c.json(result);

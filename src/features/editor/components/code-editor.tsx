@@ -317,7 +317,7 @@ export function CodeEditor({
 
 		view.dispatch({
 			selection: { anchor: position },
-			scrollIntoView: true,
+			effects: EditorView.scrollIntoView(position, { y: 'center' }),
 		});
 
 		// Focus the editor so the cursor is visible

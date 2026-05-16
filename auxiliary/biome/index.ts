@@ -2,7 +2,7 @@ import { WorkerEntrypoint } from 'cloudflare:workers';
 
 import { applySingleFix, fixFile, lintFile } from './biome-core';
 
-import type { FixFileFailure, ServerLintDiagnostic, ServerLintFixResult } from '@shared/biome-types';
+import type { FixFileFailure, ServerLintDiagnostic, ServerFixResult } from '@shared/biome-types';
 
 // Re-export standalone functions for direct use in tests
 export { applySingleFix, fixFile, lintFile } from './biome-core';
@@ -12,7 +12,7 @@ export default class BiomeWorker extends WorkerEntrypoint {
 		return lintFile(filePath, content);
 	}
 
-	async fixFile(filePath: string, content: string): Promise<ServerLintFixResult | FixFileFailure> {
+	async fixFile(filePath: string, content: string): Promise<ServerFixResult | FixFileFailure> {
 		return fixFile(filePath, content);
 	}
 

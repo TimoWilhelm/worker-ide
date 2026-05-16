@@ -5,7 +5,7 @@ import { lintFileForAgent } from './agent/lib/biome-linter';
 import type { ServerLintDiagnostic } from '@shared/biome-types';
 
 // Re-export types and helpers so callers only need to import from this module
-export type { FixFileFailure, ServerLintDiagnostic, ServerLintFixResult } from '@shared/biome-types';
+export type { FixFileFailure, ServerLintDiagnostic, ServerFixResult } from '@shared/biome-types';
 export { formatLintDiagnostics } from './agent/lib/biome-linter';
 
 const CACHE_NAME = 'lint-cache-v1';
@@ -90,9 +90,9 @@ export async function lintFile(filePath: string, content: string): Promise<Serve
 }
 
 /**
- * Apply safe lint fixes to a file.
+ * Format a file and apply safe lint fixes.
  *
- * Fix results are not cached because the operation is infrequent and
+ * Results are not cached because the operation is infrequent and
  * the caller typically writes the fixed content back to disk immediately.
  */
 export { fixFileForAgent as fixFile, applySingleFixForAgent as applySingleFix } from './agent/lib/biome-linter';

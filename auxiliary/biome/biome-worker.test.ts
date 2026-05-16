@@ -17,7 +17,7 @@ vi.mock('cloudflare:workers', () => ({
 
 import { applySingleFix, fixFile, lintFile } from './index';
 
-import type { FixFileFailure, ServerLintFixResult } from '@shared/biome-types';
+import type { FixFileFailure, ServerFixResult } from '@shared/biome-types';
 
 beforeAll(() => {
 	const wasmPath = path.resolve('node_modules/@biomejs/wasm-web/biome_wasm_bg.wasm');
@@ -70,6 +70,25 @@ if (x == 0) {
 const jsClean = `const x = 1;
 console.log(x);
 `;
+
+// Formatting-only fixtures (no lint errors, but bad formatting)
+const tsBadIndentation = `export function greet(name: string): void {
+      const message = \`hello \${name}\`;
+          console.log(message);
+}
+`;
+const tsBadSpacing = `export const x=1;
+export const y   =   2;
+console.log(x,y);
+`;
+const tsFormattingAndLintIssues = `export function check(value: number): void {
+      if (value == 0) {
+            console.log("zero");
+      }
+}
+`;
+const jsonBadFormatting = `{"name":"test","version":"1.0.0","scripts":{"dev":"vite"}}`;
+const cssBadFormatting = `.container {color:red;margin:0;padding:  10px;  display:flex}`;
 
 describe('lintFile', () => {
 	it('detects noDoubleEquals in a .ts file', async () => {
@@ -180,7 +199,7 @@ describe('fixFile', () => {
 		const result = await fixFile('/equality.ts', tsWithDoubleEquals);
 
 		expect('failed' in result).toBe(false);
-		const fixResult = result as ServerLintFixResult;
+		const fixResult = result as ServerFixResult;
 
 		expect(fixResult.fixCount).toBeGreaterThanOrEqual(2);
 		expect(fixResult.fixedContent).toContain('===');
@@ -193,7 +212,7 @@ describe('fixFile', () => {
 		const result = await fixFile('/debug.ts', tsWithDebugger);
 
 		expect('failed' in result).toBe(false);
-		const fixResult = result as ServerLintFixResult;
+		const fixResult = result as ServerFixResult;
 
 		expect(fixResult.fixCount).toBeGreaterThanOrEqual(1);
 		expect(fixResult.fixedContent).not.toContain('debugger');
@@ -206,7 +225,7 @@ describe('fixFile', () => {
 		const result = await fixFile('/rename.ts', tsWithUselessRename);
 
 		expect('failed' in result).toBe(false);
-		const fixResult = result as ServerLintFixResult;
+		const fixResult = result as ServerFixResult;
 
 		expect(fixResult.fixCount).toBeGreaterThanOrEqual(1);
 		// { a: a } should become { a }
@@ -218,7 +237,7 @@ describe('fixFile', () => {
 		const result = await fixFile('/clean.ts', tsClean);
 
 		expect('failed' in result).toBe(false);
-		const fixResult = result as ServerLintFixResult;
+		const fixResult = result as ServerFixResult;
 
 		expect(fixResult.fixCount).toBe(0);
 		expect(fixResult.fixedContent).toBe(tsClean);
@@ -229,7 +248,7 @@ describe('fixFile', () => {
 		const result = await fixFile('/script.js', jsWithIssues);
 
 		expect('failed' in result).toBe(false);
-		const fixResult = result as ServerLintFixResult;
+		const fixResult = result as ServerFixResult;
 
 		expect(fixResult.fixCount).toBeGreaterThanOrEqual(2);
 		expect(fixResult.fixedContent).not.toContain('debugger');
@@ -240,7 +259,7 @@ describe('fixFile', () => {
 		const result = await fixFile('/mixed.ts', tsWithMixedIssues);
 
 		expect('failed' in result).toBe(false);
-		const fixResult = result as ServerLintFixResult;
+		const fixResult = result as ServerFixResult;
 
 		// Should fix == → ===, != → !==, {a: a} → {a}
 		expect(fixResult.fixCount).toBeGreaterThanOrEqual(1);
@@ -267,7 +286,7 @@ describe('fixFile', () => {
 	it('produces valid content that can be re-linted without crashing', async () => {
 		const result = await fixFile('/equality.ts', tsWithDoubleEquals);
 		expect('failed' in result).toBe(false);
-		const fixResult = result as ServerLintFixResult;
+		const fixResult = result as ServerFixResult;
 
 		// Re-lint the fixed content — should not crash
 		const reLintDiagnostics = await lintFile('/equality.ts', fixResult.fixedContent);
@@ -280,7 +299,7 @@ describe('fixFile', () => {
 		const result = await fixFile('/banner.tsx', tsxWithAccessibilityIssue);
 
 		expect('failed' in result).toBe(false);
-		const fixResult = result as ServerLintFixResult;
+		const fixResult = result as ServerFixResult;
 
 		// useAltText is unfixable, so the content should be unchanged or
 		// only other fixable issues are resolved
@@ -291,7 +310,7 @@ describe('fixFile', () => {
 	it('does not crash on empty content', async () => {
 		const result = await fixFile('/empty.ts', '');
 		expect('failed' in result).toBe(false);
-		const fixResult = result as ServerLintFixResult;
+		const fixResult = result as ServerFixResult;
 		expect(fixResult.fixCount).toBe(0);
 	});
 
@@ -299,6 +318,72 @@ describe('fixFile', () => {
 		const result = await fixFile('/broken.ts', 'const x = {{{;');
 		// Should either return a valid result or a failure — not throw
 		expect(result).toBeDefined();
+	});
+
+	it('formats badly indented code even when there are no lint issues', async () => {
+		const result = await fixFile('/indent.ts', tsBadIndentation);
+
+		expect('failed' in result).toBe(false);
+		const fixResult = result as ServerFixResult;
+
+		// Content should change due to formatting
+		expect(fixResult.fixedContent).not.toBe(tsBadIndentation);
+		// Irregular indentation should be fixed
+		expect(fixResult.fixedContent).not.toContain('      const');
+		expect(fixResult.fixedContent).not.toContain('          console');
+		// No lint issues were fixed — fixCount tracks lint fixes only
+		expect(fixResult.fixCount).toBe(0);
+		expect(fixResult.remainingDiagnostics).toEqual([]);
+	});
+
+	it('formats bad spacing even when there are no lint issues', async () => {
+		const result = await fixFile('/spacing.ts', tsBadSpacing);
+
+		expect('failed' in result).toBe(false);
+		const fixResult = result as ServerFixResult;
+
+		expect(fixResult.fixedContent).not.toBe(tsBadSpacing);
+		// Extra spaces around assignments should be cleaned up
+		expect(fixResult.fixedContent).not.toContain('   =   ');
+		expect(fixResult.fixCount).toBe(0);
+	});
+
+	it('applies both formatting and lint fixes together', async () => {
+		const result = await fixFile('/both.ts', tsFormattingAndLintIssues);
+
+		expect('failed' in result).toBe(false);
+		const fixResult = result as ServerFixResult;
+
+		// Should fix formatting (bad indentation)
+		expect(fixResult.fixedContent).not.toContain('      if');
+		expect(fixResult.fixedContent).not.toContain('            console');
+		// Should fix lint (== → ===)
+		expect(fixResult.fixedContent).toContain('===');
+		expect(fixResult.fixedContent).not.toContain(' == ');
+		// At least one lint fix was applied
+		expect(fixResult.fixCount).toBeGreaterThanOrEqual(1);
+	});
+
+	it('formats JSON files', async () => {
+		const result = await fixFile('/package.json', jsonBadFormatting);
+
+		expect('failed' in result).toBe(false);
+		const fixResult = result as ServerFixResult;
+
+		// Minified JSON should be expanded with indentation
+		expect(fixResult.fixedContent).not.toBe(jsonBadFormatting);
+		expect(fixResult.fixedContent).toContain('\n');
+	});
+
+	it('formats CSS files', async () => {
+		const result = await fixFile('/styles.css', cssBadFormatting);
+
+		expect('failed' in result).toBe(false);
+		const fixResult = result as ServerFixResult;
+
+		// Single-line CSS should be expanded
+		expect(fixResult.fixedContent).not.toBe(cssBadFormatting);
+		expect(fixResult.fixedContent).toContain('\n');
 	});
 });
 

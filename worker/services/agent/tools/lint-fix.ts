@@ -13,13 +13,13 @@ import { computeDiffStats, generateCompactDiff } from '../utilities';
 
 import type { FileChange, SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
 
-const DESCRIPTION = `Apply safe Biome lint fixes to a file automatically.
+const DESCRIPTION = `Format a file and apply safe Biome lint fixes automatically.
 
 Usage:
-- Reads the file, applies all safe lint autofixes using Biome, and writes the fixed content back.
-- Only applies "safe" fixes that do not change program behavior.
-- Returns a summary of fixes applied and any remaining diagnostics that require manual attention.
-- Use this after writing or editing files to clean up lint issues automatically.`;
+- Reads the file, formats it with Biome (indentation, spacing, etc.), applies all safe lint autofixes, and writes the result back.
+- Only applies "safe" lint fixes that do not change program behavior.
+- Returns a summary of changes applied and any remaining diagnostics that require manual attention.
+- Use this after writing or editing files to clean up formatting and lint issues automatically.`;
 
 export const definition: ToolDefinition = {
 	name: 'lint_fix',
@@ -79,7 +79,9 @@ export async function execute(
 			return toolError(ToolErrorCode.LINT_FIX_FAILED, result.reason);
 		}
 
-		if (result.fixCount === 0) {
+		const contentChanged = result.fixedContent !== originalContent;
+
+		if (!contentChanged) {
 			if (result.remainingDiagnostics.length === 0) {
 				return {
 					title: fixPath,
@@ -152,7 +154,7 @@ export async function execute(
 
 	// Build result with a compact diff so the model can see what changed
 	let resultText = generateCompactDiff(fixPath, originalContent, fixedContent);
-	resultText += `\n\nFixed ${fixCount} lint issue(s) in ${fixPath}.`;
+	resultText += fixCount > 0 ? `\n\nFixed ${fixCount} lint issue(s) in ${fixPath}.` : `\n\nFormatted ${fixPath}.`;
 
 	const lintOutput = formatLintDiagnostics(limitedDiagnostics);
 	if (lintOutput) {
