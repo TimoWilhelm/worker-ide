@@ -612,6 +612,10 @@ export class ProjectCoordinatorV2 extends DurableObject {
 			if (data.type === 'file-edit') {
 				if (att.kind !== 'ide') return;
 				if (!att?.joined) return;
+				att.file = data.path;
+				att.cursor = data.cursor;
+				att.selection = data.selection;
+				this.setAttachment(ws, att);
 				this.sendToOtherJoinedIdeSockets(
 					ws,
 					serializeMessage({
@@ -619,6 +623,8 @@ export class ProjectCoordinatorV2 extends DurableObject {
 						id: att.id,
 						path: data.path,
 						content: data.content,
+						cursor: data.cursor,
+						selection: data.selection,
 					}),
 				);
 				this.appendRecentExternalChange({ kind: 'file-edit', path: data.path, timestamp: Date.now() });

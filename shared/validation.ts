@@ -279,16 +279,19 @@ export const reviewEntrySchema = z.object({
 
 export const reviewResolveSchema = z.object({
 	decision: z.enum(['accept', 'reject']),
+	liveContent: z.string().optional(),
 });
 
 export const reviewResolveManySchema = z.object({
 	decision: z.enum(['accept', 'reject']),
 	sessionId: z.string().optional(),
 	reviewIds: z.array(z.string()).optional(),
+	liveContents: z.record(z.string(), z.string()).optional(),
 });
 
 export const reviewHunkUpdateSchema = z.object({
 	hunkStatuses: z.array(reviewHunkStatusSchema),
+	liveContent: z.string().optional(),
 });
 
 export const debugLogIdSchema = z

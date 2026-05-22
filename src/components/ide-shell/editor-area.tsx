@@ -234,13 +234,7 @@ export function EditorArea({ projectId, resolvedTheme, editorState, onSelectFile
 							{isProtectedSystemFile(activeFile) && <ProtectedFileBanner path={activeFile} />}
 							<CodeEditor
 								projectId={projectId}
-								value={
-									isGitDiffActive && gitDiffView
-										? gitDiffView.afterContent
-										: hasActiveDiff && activePendingChange?.afterContent
-											? activePendingChange.afterContent
-											: editorContent
-								}
+								value={isGitDiffActive && gitDiffView ? gitDiffView.afterContent : editorContent}
 								filename={activeFile}
 								onChange={isGitDiffActive || isProtectedSystemFile(activeFile) ? undefined : handleEditorChange}
 								onCursorChange={handleCursorChange}

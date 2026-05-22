@@ -36,7 +36,7 @@ export const reviewRoutes = new Hono<AppEnvironment>()
 	.put('/review/:id/hunks', zValidator('param', reviewIdParameterSchema), zValidator('json', reviewHunkUpdateSchema), async (c) => {
 		const projectId = c.get('projectId');
 		const { id } = c.req.valid('param');
-		const { hunkStatuses } = c.req.valid('json');
+		const { hunkStatuses, liveContent } = c.req.valid('json');
 		const agentStub = agentRunnerNamespace.getByName(`agent:${projectId}`);
 		try {
 			const response = await agentStub.fetch(
@@ -46,7 +46,7 @@ export const reviewRoutes = new Hono<AppEnvironment>()
 						'Content-Type': 'application/json',
 						'x-partykit-room': `agent:${projectId}`,
 					},
-					body: JSON.stringify({ hunkStatuses }),
+					body: JSON.stringify({ hunkStatuses, liveContent }),
 				}),
 			);
 			if (!response.ok) {
@@ -61,7 +61,7 @@ export const reviewRoutes = new Hono<AppEnvironment>()
 	.post('/review/:id/resolve', zValidator('param', reviewIdParameterSchema), zValidator('json', reviewResolveSchema), async (c) => {
 		const projectId = c.get('projectId');
 		const { id } = c.req.valid('param');
-		const { decision } = c.req.valid('json');
+		const { decision, liveContent } = c.req.valid('json');
 		const agentStub = agentRunnerNamespace.getByName(`agent:${projectId}`);
 		try {
 			const response = await agentStub.fetch(
@@ -71,7 +71,7 @@ export const reviewRoutes = new Hono<AppEnvironment>()
 						'Content-Type': 'application/json',
 						'x-partykit-room': `agent:${projectId}`,
 					},
-					body: JSON.stringify({ decision }),
+					body: JSON.stringify({ decision, liveContent }),
 				}),
 			);
 			if (!response.ok) {
@@ -85,7 +85,7 @@ export const reviewRoutes = new Hono<AppEnvironment>()
 	})
 	.post('/review/resolve-many', zValidator('json', reviewResolveManySchema), async (c) => {
 		const projectId = c.get('projectId');
-		const { decision, sessionId, reviewIds } = c.req.valid('json');
+		const { decision, sessionId, reviewIds, liveContents } = c.req.valid('json');
 		const agentStub = agentRunnerNamespace.getByName(`agent:${projectId}`);
 		try {
 			const response = await agentStub.fetch(
@@ -95,7 +95,7 @@ export const reviewRoutes = new Hono<AppEnvironment>()
 						'Content-Type': 'application/json',
 						'x-partykit-room': `agent:${projectId}`,
 					},
-					body: JSON.stringify({ decision, sessionId, reviewIds }),
+					body: JSON.stringify({ decision, sessionId, reviewIds, liveContents }),
 				}),
 			);
 			if (!response.ok) {

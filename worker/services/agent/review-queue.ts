@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 
 import { eq } from 'drizzle-orm';
 
-import { computeDiffHunkSessionIds, computeDiffHunks, groupHunksIntoChanges, reconstructContent } from '@shared/review-diff';
+import { computeDiffHunkSessionIds, computeDiffHunks, groupHunksIntoChanges, resolveReviewContent } from '@shared/review-diff';
 import {
 	createHmrUpdateForFile,
 	type ChangeSetFile,
@@ -549,6 +549,7 @@ export class ReviewQueueStore {
 		projectId: string,
 		reviewEntryId: string,
 		hunkStatuses: SharedReviewHunkStatus[],
+		liveContent?: string,
 	): Promise<void> {
 		const entry = this.db.select().from(reviewEntries).where(eq(reviewEntries.id, reviewEntryId)).all()[0];
 		if (!entry) {
@@ -560,7 +561,7 @@ export class ReviewQueueStore {
 			.set({ hunkStatuses: stringify(hunkStatuses) })
 			.where(eq(reviewEntries.id, reviewEntryId))
 			.run();
-		await this.applyReviewEntryWorkspaceState(projectRoot, projectId, reviewEntry, hunkStatuses, false);
+		await this.applyReviewEntryWorkspaceState(projectRoot, projectId, reviewEntry, hunkStatuses, false, liveContent);
 		if (hunkStatuses.every((status) => status !== 'pending')) {
 			await this.finalizeResolvedEntry(projectRoot, projectId, reviewEntry, resolveDecisionFromHunks(hunkStatuses), hunkStatuses);
 			return;
@@ -573,13 +574,14 @@ export class ReviewQueueStore {
 		projectId: string,
 		reviewEntryId: string,
 		decision: Extract<ReviewResolutionDecision, 'accept' | 'reject'>,
+		liveContent?: string,
 	): Promise<void> {
 		const entry = this.db.select().from(reviewEntries).where(eq(reviewEntries.id, reviewEntryId)).all()[0];
 		if (!entry) {
 			return;
 		}
 		const reviewEntry = toReviewEntry(entry);
-		await this.finalizeResolvedEntry(projectRoot, projectId, reviewEntry, decision, reviewEntry.hunkStatuses);
+		await this.finalizeResolvedEntry(projectRoot, projectId, reviewEntry, decision, reviewEntry.hunkStatuses, liveContent);
 	}
 
 	async resolveEntries(
@@ -588,6 +590,7 @@ export class ReviewQueueStore {
 		decision: Extract<ReviewResolutionDecision, 'accept' | 'reject'>,
 		sessionId?: string,
 		reviewIds?: string[],
+		liveContents?: Record<string, string>,
 	): Promise<void> {
 		const entries = this.listReviewEntries().filter((entry) => {
 			if (reviewIds && reviewIds.length > 0) {
@@ -599,7 +602,7 @@ export class ReviewQueueStore {
 			return entry.sessionIds.includes(sessionId);
 		});
 		for (const entry of entries) {
-			await this.finalizeResolvedEntry(projectRoot, projectId, entry, decision, entry.hunkStatuses);
+			await this.finalizeResolvedEntry(projectRoot, projectId, entry, decision, entry.hunkStatuses, liveContents?.[entry.path]);
 		}
 	}
 
@@ -731,6 +734,7 @@ export class ReviewQueueStore {
 		reviewEntry: SharedReviewEntry,
 		hunkStatuses: SharedReviewHunkStatus[],
 		finalizing: boolean,
+		liveContentOverride?: string,
 	): Promise<void> {
 		if (reviewEntry.action === 'move') {
 			return;
@@ -739,18 +743,23 @@ export class ReviewQueueStore {
 			return;
 		}
 
-		const beforeContent = reviewEntry.beforeContent ?? '';
-		const afterContent = reviewEntry.afterContent ?? '';
-		const decisions = hunkStatuses.map((status) => status !== 'rejected');
-		const reconstructed = reconstructContent(beforeContent, afterContent, decisions);
+		const workspaceContent = liveContentOverride ?? (await readWorkspaceContent(projectRoot, reviewEntry.path));
+		const resolution = resolveReviewContent({
+			action: reviewEntry.action,
+			beforeContent: reviewEntry.beforeContent,
+			agentAfterContent: reviewEntry.afterContent,
+			liveContent: workspaceContent,
+			hunkStatuses,
+			finalizing,
+		});
 
-		if (reviewEntry.action === 'create' && finalizing && hunkStatuses.every((status) => status === 'rejected')) {
+		if (resolution.action === 'delete') {
 			await deleteWorkspacePath(projectRoot, reviewEntry.path);
 			await notifyWorkspaceChange(projectId, reviewEntry.path, true);
 			return;
 		}
 
-		await writeWorkspaceContent(projectRoot, reviewEntry.path, reconstructed);
+		await writeWorkspaceContent(projectRoot, reviewEntry.path, resolution.content);
 		await notifyWorkspaceChange(projectId, reviewEntry.path);
 	}
 
@@ -760,6 +769,7 @@ export class ReviewQueueStore {
 		reviewEntry: SharedReviewEntry,
 		decision: ReviewResolutionDecision,
 		existingHunkStatuses: SharedReviewHunkStatus[],
+		liveContent?: string,
 	): Promise<void> {
 		let resolutionDecision: ReviewResolutionDecision = decision;
 		let finalHunkStatuses = existingHunkStatuses;
@@ -768,17 +778,14 @@ export class ReviewQueueStore {
 			finalHunkStatuses = existingHunkStatuses.map((status) => (status === 'pending' ? 'rejected' : status));
 			resolutionDecision = resolveDecisionFromHunks(finalHunkStatuses);
 		}
+		if (finalHunkStatuses.length === 0) {
+			const initialStatuses = buildInitialHunkStatuses(reviewEntry);
+			finalHunkStatuses = initialStatuses.map(() => (decision === 'reject' ? 'rejected' : 'approved'));
+			resolutionDecision = resolveDecisionFromHunks(finalHunkStatuses);
+		}
 
-		if (decision === 'reject' && resolutionDecision === 'reject') {
-			if (reviewEntry.action === 'create') {
-				await deleteWorkspacePath(projectRoot, reviewEntry.path);
-				await notifyWorkspaceChange(projectId, reviewEntry.path, true);
-			} else if (reviewEntry.beforeContent !== undefined) {
-				await writeWorkspaceContent(projectRoot, reviewEntry.path, reviewEntry.beforeContent);
-				await notifyWorkspaceChange(projectId, reviewEntry.path);
-			}
-		} else if (finalHunkStatuses.length > 0) {
-			await this.applyReviewEntryWorkspaceState(projectRoot, projectId, reviewEntry, finalHunkStatuses, true);
+		if (finalHunkStatuses.length > 0) {
+			await this.applyReviewEntryWorkspaceState(projectRoot, projectId, reviewEntry, finalHunkStatuses, true, liveContent);
 		}
 
 		this.db

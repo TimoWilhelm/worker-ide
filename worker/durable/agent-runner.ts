@@ -618,7 +618,14 @@ export class AgentRunner extends Agent<Env, AgentState> {
 				return Response.json({ error: 'Invalid review resolution' }, { status: 400, headers: { 'Content-Type': 'application/json' } });
 			}
 			await this.withProjectMount(async () => {
-				await this.reviewQueue.resolveEntries(PROJECT_ROOT, projectId, parsed.data.decision, parsed.data.sessionId, parsed.data.reviewIds);
+				await this.reviewQueue.resolveEntries(
+					PROJECT_ROOT,
+					projectId,
+					parsed.data.decision,
+					parsed.data.sessionId,
+					parsed.data.reviewIds,
+					parsed.data.liveContents,
+				);
 			}, projectId);
 			this.refreshReviewState();
 			return new Response(undefined, { status: 204 });
@@ -637,7 +644,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 					return Response.json({ error: 'Invalid hunk update' }, { status: 400, headers: { 'Content-Type': 'application/json' } });
 				}
 				await this.withProjectMount(async () => {
-					await this.reviewQueue.updateHunkStatuses(PROJECT_ROOT, projectId, reviewId, parsed.data.hunkStatuses);
+					await this.reviewQueue.updateHunkStatuses(PROJECT_ROOT, projectId, reviewId, parsed.data.hunkStatuses, parsed.data.liveContent);
 				}, projectId);
 				this.refreshReviewState();
 				return new Response(undefined, { status: 204 });
@@ -649,7 +656,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 					return Response.json({ error: 'Invalid review resolution' }, { status: 400, headers: { 'Content-Type': 'application/json' } });
 				}
 				await this.withProjectMount(async () => {
-					await this.reviewQueue.resolveEntry(PROJECT_ROOT, projectId, reviewId, parsed.data.decision);
+					await this.reviewQueue.resolveEntry(PROJECT_ROOT, projectId, reviewId, parsed.data.decision, parsed.data.liveContent);
 				}, projectId);
 				this.refreshReviewState();
 				return new Response(undefined, { status: 204 });

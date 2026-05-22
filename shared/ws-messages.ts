@@ -18,6 +18,8 @@ export interface FileEditMessage {
 	type: 'file-edit';
 	path: string;
 	content: string;
+	cursor?: CursorPosition;
+	selection?: SelectionRange;
 }
 
 /**
@@ -80,6 +82,8 @@ export interface FileEditedMessage {
 	id: string;
 	path: string;
 	content: string;
+	cursor?: CursorPosition;
+	selection?: SelectionRange;
 }
 export type HmrUpdateType = 'update' | 'full-reload';
 
@@ -201,6 +205,8 @@ export const clientMessageSchema = z.discriminatedUnion('type', [
 		type: z.literal('file-edit'),
 		path: z.string(),
 		content: z.string(),
+		cursor: cursorPositionSchema.optional(),
+		selection: selectionRangeSchema.optional(),
 	}),
 	z.object({
 		type: z.literal('hmr-connect'),
@@ -286,6 +292,8 @@ export const serverMessageSchema = z.discriminatedUnion('type', [
 		id: z.string(),
 		path: z.string(),
 		content: z.string(),
+		cursor: cursorPositionSchema.optional(),
+		selection: selectionRangeSchema.optional(),
 	}),
 	z.object({
 		type: z.literal('update'),

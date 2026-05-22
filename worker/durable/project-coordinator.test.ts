@@ -362,12 +362,23 @@ describe('collaboration visibility', () => {
 			await readNextMessage(hiddenSocket);
 			await expectNoMessage(visibleSocket);
 
-			sendClientMessage(visibleSocket, serializeMessage({ type: 'file-edit', path: '/src/demo.ts', content: 'export const value = 1;' }));
+			sendClientMessage(
+				visibleSocket,
+				serializeMessage({
+					type: 'file-edit',
+					path: '/src/demo.ts',
+					content: 'export const value = 1;',
+					cursor: { line: 1, ch: 23 },
+					selection: { anchor: { line: 1, ch: 21 }, head: { line: 1, ch: 23 } },
+				}),
+			);
 			const editForHiddenSocket = await readNextMessage(hiddenSocket);
 			expect(editForHiddenSocket.type).toBe('file-edited');
 			if (editForHiddenSocket.type === 'file-edited') {
 				expect(editForHiddenSocket.path).toBe('/src/demo.ts');
 				expect(editForHiddenSocket.content).toBe('export const value = 1;');
+				expect(editForHiddenSocket.cursor).toEqual({ line: 1, ch: 23 });
+				expect(editForHiddenSocket.selection).toEqual({ anchor: { line: 1, ch: 21 }, head: { line: 1, ch: 23 } });
 			}
 
 			sendClientMessage(hiddenSocket, serializeMessage({ type: 'file-edit', path: '/src/demo.ts', content: 'export const value = 2;' }));

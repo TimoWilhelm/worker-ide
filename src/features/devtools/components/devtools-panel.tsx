@@ -64,6 +64,42 @@ export function DevelopmentToolsPanel({ previewIframeReference, previewOrigin, c
 </style>
 <meta name="referrer" content="no-referrer">
 <script>
+// Chii expects Web Storage. Sandboxed documents without allow-same-origin throw
+// when localStorage/sessionStorage are read, so provide ephemeral storage.
+(function () {
+  function createStorage() {
+    var values = Object.create(null);
+    return {
+      get length() {
+        return Object.keys(values).length;
+      },
+      key: function (index) {
+        return Object.keys(values)[index] || null;
+      },
+      getItem: function (key) {
+        key = String(key);
+        return Object.prototype.hasOwnProperty.call(values, key) ? values[key] : null;
+      },
+      setItem: function (key, value) {
+        values[String(key)] = String(value);
+      },
+      removeItem: function (key) {
+        delete values[String(key)];
+      },
+      clear: function () {
+        values = Object.create(null);
+      }
+    };
+  }
+
+  try {
+    Object.defineProperty(window, 'localStorage', { value: createStorage(), configurable: true });
+    Object.defineProperty(window, 'sessionStorage', { value: createStorage(), configurable: true });
+  } catch (error) {
+    console.warn('[devtools] failed to install storage shim', error);
+  }
+})();
+
 window.addEventListener('message', function (event) {
   if (!event.data || event.data.type !== '__worker-ide-theme') return;
   var theme = event.data.theme === 'dark' ? 'dark' : 'light';

@@ -2,7 +2,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useMemo, useRef, useState } from 'react';
 
 import { toast } from '@/components/ui/toast-store';
-import { computeDiffHunks, groupHunksIntoChanges, reconstructContent } from '@/features/editor/lib/diff-decorations';
+import { resolveReviewContent } from '@/features/editor/lib/diff-decorations';
 import { createApiClient } from '@/lib/api-client';
 import { useStore } from '@/lib/store';
 
@@ -19,25 +19,23 @@ function isReviewActionable(change: PendingFileChange): boolean {
 	return typeof change.reviewId === 'string' && change.reviewId.length > 0;
 }
 
-function buildReconstructedContent(change: PendingFileChange, pendingStatus: 'approved' | 'rejected'): string | undefined {
-	if (change.beforeContent === undefined || change.afterContent === undefined) {
-		return change.afterContent;
+function buildLiveContentRecord(changes: PendingFileChange[], getContent: (path: string) => string | undefined): Record<string, string> {
+	const record: Record<string, string> = {};
+	for (const change of changes) {
+		const content = getContent(change.path);
+		if (content !== undefined) {
+			record[change.path] = content;
+		}
 	}
-	const groups = groupHunksIntoChanges(computeDiffHunks(change.beforeContent, change.afterContent));
-	const decisions = groups.map((group) => {
-		const status = change.hunkStatuses[group.index] ?? 'pending';
-		if (status === 'approved') {
-			return true;
-		}
-		if (status === 'rejected') {
-			return false;
-		}
-		return pendingStatus === 'approved';
-	});
-	return reconstructContent(change.beforeContent, change.afterContent, decisions);
+	return record;
 }
 
-export function useChangeReview({ projectId }: { projectId: string }) {
+interface UseChangeReviewOptions {
+	projectId: string;
+	getLiveContent?: (path: string) => string | undefined;
+}
+
+export function useChangeReview({ projectId, getLiveContent }: UseChangeReviewOptions) {
 	const queryClient = useQueryClient();
 	const apiReference = useRef(createApiClient(projectId));
 	const [pendingMutationCount, setPendingMutationCount] = useState(0);
@@ -87,31 +85,31 @@ export function useChangeReview({ projectId }: { projectId: string }) {
 	}, []);
 
 	const setOptimisticFileContent = useCallback(
-		(change: PendingFileChange, decision: 'approved' | 'rejected') => {
-			if (decision === 'approved') {
-				const nextContent = buildReconstructedContent(change, 'approved') ?? change.afterContent;
-				if (nextContent !== undefined) {
-					queryClient.setQueryData(['file', projectId, change.path], { path: change.path, content: nextContent });
-				}
-				return;
-			}
+		(change: PendingFileChange) => {
+			const cachedContent = queryClient.getQueryData<{ content: string }>(['file', projectId, change.path])?.content;
+			const liveContent = getLiveContent?.(change.path) ?? cachedContent ?? change.afterContent ?? change.beforeContent ?? '';
+			const resolution = resolveReviewContent({
+				action: change.action,
+				beforeContent: change.beforeContent,
+				agentAfterContent: change.afterContent,
+				liveContent,
+				hunkStatuses: change.hunkStatuses,
+				finalizing: true,
+			});
 
-			const reconstructed = buildReconstructedContent(change, 'rejected');
-			if (change.hunkStatuses.includes('approved') && reconstructed !== undefined) {
-				queryClient.setQueryData(['file', projectId, change.path], { path: change.path, content: reconstructed });
-				return;
-			}
-
-			if (change.action === 'edit' && change.beforeContent !== undefined) {
-				queryClient.setQueryData(['file', projectId, change.path], { path: change.path, content: change.beforeContent });
-				return;
-			}
-
-			if (change.action === 'create') {
+			if (resolution.action === 'delete') {
 				queryClient.removeQueries({ queryKey: ['file', projectId, change.path], exact: true });
+				return;
 			}
+
+			queryClient.setQueryData(['file', projectId, change.path], { path: change.path, content: resolution.content });
 		},
-		[projectId, queryClient],
+		[getLiveContent, projectId, queryClient],
+	);
+
+	const getReviewLiveContent = useCallback(
+		(path: string) => getLiveContent?.(path) ?? queryClient.getQueryData<{ content: string }>(['file', projectId, path])?.content,
+		[getLiveContent, projectId, queryClient],
 	);
 
 	const handleApproveChange = useCallback(
@@ -124,12 +122,13 @@ export function useChangeReview({ projectId }: { projectId: string }) {
 
 			const previousChanges = new Map(useStore.getState().pendingChanges);
 			approveChange(path);
-			setOptimisticFileContent(change, 'approved');
+			const updatedChange = useStore.getState().pendingChanges.get(path) ?? change;
+			setOptimisticFileContent(updatedChange);
 
 			void runMutation(async () => {
 				const response = await apiReference.current.review[':id'].resolve.$post({
 					param: { id: reviewId },
-					json: { decision: 'accept' },
+					json: { decision: 'accept', liveContent: getReviewLiveContent(path) },
 				});
 				if (!response.ok) {
 					throw new Error('Failed to accept change');
@@ -142,7 +141,16 @@ export function useChangeReview({ projectId }: { projectId: string }) {
 				void refetchProjectFiles();
 			});
 		},
-		[pendingChanges, approveChange, loadPendingChanges, setOptimisticFileContent, runMutation, refetchProjectFiles, persistPendingChanges],
+		[
+			pendingChanges,
+			approveChange,
+			loadPendingChanges,
+			setOptimisticFileContent,
+			runMutation,
+			refetchProjectFiles,
+			persistPendingChanges,
+			getReviewLiveContent,
+		],
 	);
 
 	const handleRejectChange = useCallback(
@@ -155,12 +163,13 @@ export function useChangeReview({ projectId }: { projectId: string }) {
 
 			const previousChanges = new Map(useStore.getState().pendingChanges);
 			rejectChange(path);
-			setOptimisticFileContent(change, 'rejected');
+			const updatedChange = useStore.getState().pendingChanges.get(path) ?? change;
+			setOptimisticFileContent(updatedChange);
 
 			void runMutation(async () => {
 				const response = await apiReference.current.review[':id'].resolve.$post({
 					param: { id: reviewId },
-					json: { decision: 'reject' },
+					json: { decision: 'reject', liveContent: getReviewLiveContent(path) },
 				});
 				if (!response.ok) {
 					throw new Error('Failed to reject change');
@@ -173,7 +182,16 @@ export function useChangeReview({ projectId }: { projectId: string }) {
 				void refetchProjectFiles();
 			});
 		},
-		[pendingChanges, rejectChange, loadPendingChanges, setOptimisticFileContent, runMutation, refetchProjectFiles, persistPendingChanges],
+		[
+			pendingChanges,
+			rejectChange,
+			loadPendingChanges,
+			setOptimisticFileContent,
+			runMutation,
+			refetchProjectFiles,
+			persistPendingChanges,
+			getReviewLiveContent,
+		],
 	);
 
 	const handleApproveHunk = useCallback(
@@ -190,12 +208,12 @@ export function useChangeReview({ projectId }: { projectId: string }) {
 			if (!updatedChange) {
 				return;
 			}
-			setOptimisticFileContent(updatedChange, 'approved');
+			setOptimisticFileContent(updatedChange);
 
 			void runMutation(async () => {
 				const response = await apiReference.current.review[':id'].hunks.$put({
 					param: { id: reviewId },
-					json: { hunkStatuses: updatedChange.hunkStatuses },
+					json: { hunkStatuses: updatedChange.hunkStatuses, liveContent: getReviewLiveContent(path) },
 				});
 				if (!response.ok) {
 					throw new Error('Failed to update hunk review');
@@ -208,7 +226,16 @@ export function useChangeReview({ projectId }: { projectId: string }) {
 				void refetchProjectFiles();
 			});
 		},
-		[pendingChanges, approveHunk, loadPendingChanges, setOptimisticFileContent, runMutation, refetchProjectFiles, persistPendingChanges],
+		[
+			pendingChanges,
+			approveHunk,
+			loadPendingChanges,
+			setOptimisticFileContent,
+			runMutation,
+			refetchProjectFiles,
+			persistPendingChanges,
+			getReviewLiveContent,
+		],
 	);
 
 	const handleRejectHunk = useCallback(
@@ -225,12 +252,12 @@ export function useChangeReview({ projectId }: { projectId: string }) {
 			if (!updatedChange) {
 				return;
 			}
-			setOptimisticFileContent(updatedChange, 'rejected');
+			setOptimisticFileContent(updatedChange);
 
 			void runMutation(async () => {
 				const response = await apiReference.current.review[':id'].hunks.$put({
 					param: { id: reviewId },
-					json: { hunkStatuses: updatedChange.hunkStatuses },
+					json: { hunkStatuses: updatedChange.hunkStatuses, liveContent: getReviewLiveContent(path) },
 				});
 				if (!response.ok) {
 					throw new Error('Failed to update hunk review');
@@ -243,7 +270,16 @@ export function useChangeReview({ projectId }: { projectId: string }) {
 				void refetchProjectFiles();
 			});
 		},
-		[pendingChanges, rejectHunk, loadPendingChanges, setOptimisticFileContent, runMutation, refetchProjectFiles, persistPendingChanges],
+		[
+			pendingChanges,
+			rejectHunk,
+			loadPendingChanges,
+			setOptimisticFileContent,
+			runMutation,
+			refetchProjectFiles,
+			persistPendingChanges,
+			getReviewLiveContent,
+		],
 	);
 
 	const handleApproveAll = useCallback(
@@ -257,15 +293,20 @@ export function useChangeReview({ projectId }: { projectId: string }) {
 
 			const previousChanges = new Map(useStore.getState().pendingChanges);
 			for (const change of actionableChanges) {
-				setOptimisticFileContent(change, 'approved');
+				setOptimisticFileContent({
+					...change,
+					hunkStatuses: change.hunkStatuses.map((status) => (status === 'pending' ? 'approved' : status)),
+				});
 			}
 			approveAllChanges(sessionId);
 
 			void runMutation(async () => {
+				const liveContents = buildLiveContentRecord(actionableChanges, getReviewLiveContent);
 				const response = await apiReference.current.review['resolve-many'].$post({
 					json: {
 						decision: 'accept',
 						reviewIds: actionableChanges.map((change) => change.reviewId!).filter(Boolean),
+						liveContents,
 					},
 				});
 				if (!response.ok) {
@@ -287,6 +328,7 @@ export function useChangeReview({ projectId }: { projectId: string }) {
 			runMutation,
 			refetchProjectFiles,
 			persistPendingChanges,
+			getReviewLiveContent,
 		],
 	);
 
@@ -301,16 +343,21 @@ export function useChangeReview({ projectId }: { projectId: string }) {
 
 			const previousChanges = new Map(useStore.getState().pendingChanges);
 			for (const change of actionableChanges) {
-				setOptimisticFileContent(change, 'rejected');
+				setOptimisticFileContent({
+					...change,
+					hunkStatuses: change.hunkStatuses.map((status) => (status === 'pending' ? 'rejected' : status)),
+				});
 			}
 			rejectAllChanges(sessionId);
 
 			try {
 				await runMutation(async () => {
+					const liveContents = buildLiveContentRecord(actionableChanges, getReviewLiveContent);
 					const response = await apiReference.current.review['resolve-many'].$post({
 						json: {
 							decision: 'reject',
 							reviewIds: actionableChanges.map((change) => change.reviewId!).filter(Boolean),
+							liveContents,
 						},
 					});
 					if (!response.ok) {
@@ -333,6 +380,7 @@ export function useChangeReview({ projectId }: { projectId: string }) {
 			runMutation,
 			refetchProjectFiles,
 			persistPendingChanges,
+			getReviewLiveContent,
 		],
 	);
 

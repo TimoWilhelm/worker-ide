@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 
 import { useChangeReview } from '@/features/agent/hooks/use-change-review';
-import { computeDiffData, groupHunksIntoChanges, useFileContent } from '@/features/editor';
+import { computeDiffData, computeRebasedDiffData, groupHunksIntoChanges, useFileContent } from '@/features/editor';
 import { dispatchLintDiagnostics } from '@/features/editor/lib/lint-extension';
 import { projectSocketSendReference } from '@/hooks';
 import { fixFile, isLintableFile } from '@/lib/biome-linter';
@@ -61,9 +61,6 @@ export function useEditorState({ projectId }: { projectId: string }) {
 		return map;
 	}, [gitStatusEntries]);
 
-	// Change review for diff toolbar
-	const changeReview = useChangeReview({ projectId });
-
 	// File content hook
 	const { content, isLoading: isLoadingContent, saveFile, isSaving } = useFileContent({ projectId, path: activeFile });
 
@@ -80,6 +77,10 @@ export function useEditorState({ projectId }: { projectId: string }) {
 	}
 
 	const editorContent = localEditorContent ?? content ?? '';
+	const changeReview = useChangeReview({
+		projectId,
+		getLiveContent: (path) => (path === activeFile ? editorContent : undefined),
+	});
 
 	// Compute inline diff data for the active file (if it has a pending AI change).
 	const activePendingChange = activeFile ? pendingChanges.get(activeFile) : undefined;
@@ -89,7 +90,7 @@ export function useEditorState({ projectId }: { projectId: string }) {
 		if (!activeFile) return;
 		const pendingChange = pendingChanges.get(activeFile);
 		if (!pendingChange || pendingChange.status !== 'pending') return;
-		return computeDiffData(pendingChange.beforeContent, pendingChange.afterContent ?? editorContent);
+		return computeRebasedDiffData(pendingChange.beforeContent, pendingChange.afterContent, editorContent);
 	}, [activeFile, pendingChanges, editorContent]);
 
 	// Synchronously initialize per-hunk statuses when a diff is first displayed.
@@ -130,26 +131,34 @@ export function useEditorState({ projectId }: { projectId: string }) {
 
 	// Handle editor content changes
 	const handleEditorChange = useCallback(
-		(newContent: string) => {
+		(newContent: string, position?: { line: number; column: number; anchorLine: number; anchorColumn: number }) => {
 			setLocalEditorContent(newContent);
 			if (!activeFile) return;
 
-			// During active AI diff: update the pending change's afterContent
-			// so the diff recomputes to include the user's edits.
-			// Reset hunkStatuses since the diff structure may have changed.
-			const pending = pendingChanges.get(activeFile);
-			if (pending?.status === 'pending') {
-				const newDiff = computeDiffData(pending.beforeContent, newContent);
-				const newGroups = newDiff ? groupHunksIntoChanges(newDiff.hunks) : [];
-				const newStatuses = newGroups.map(() => 'pending' as const);
-				useStore.setState((state) => {
-					const newMap = new Map(state.pendingChanges);
-					const change = newMap.get(activeFile);
-					if (change && change.status === 'pending') {
-						newMap.set(activeFile, { ...change, afterContent: newContent, hunkStatuses: newStatuses });
+			const cursor = position ? { line: position.line, ch: position.column } : undefined;
+			const hasSelection = position && (position.line !== position.anchorLine || position.column !== position.anchorColumn);
+			const selection = hasSelection
+				? {
+						anchor: { line: position.anchorLine, ch: position.anchorColumn },
+						head: { line: position.line, ch: position.column },
 					}
-					return { pendingChanges: newMap };
-				});
+				: undefined;
+
+			if (position) {
+				const cursorValue = { line: position.line, column: position.column };
+				setCursorPosition(cursorValue);
+				setFileCursorPosition(activeFile, cursorValue);
+			}
+
+			projectSocketSendReference.current?.({
+				type: 'file-edit',
+				path: activeFile,
+				content: newContent,
+				...(cursor ? { cursor } : {}),
+				...(selection ? { selection } : {}),
+			});
+
+			if (pendingChanges.get(activeFile)?.status === 'pending') {
 				markFileChanged(activeFile, true);
 				return;
 			}
@@ -158,7 +167,7 @@ export function useEditorState({ projectId }: { projectId: string }) {
 				markFileChanged(activeFile, true);
 			}
 		},
-		[activeFile, content, markFileChanged, pendingChanges],
+		[activeFile, content, markFileChanged, pendingChanges, setCursorPosition, setFileCursorPosition],
 	);
 
 	// Handle save

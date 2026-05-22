@@ -1,5 +1,5 @@
 import { EditorView } from '@codemirror/view';
-import { render } from '@testing-library/react';
+import { act, render } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { CodeEditor } from './code-editor';
@@ -12,6 +12,36 @@ describe('CodeEditor', () => {
 		rerender(<CodeEditor value="const after = true;" filename="/src/main.ts" onChange={handleChange} />);
 
 		expect(handleChange).not.toHaveBeenCalled();
+	});
+
+	it('emits post-change cursor with document changes', () => {
+		const handleChange = vi.fn();
+		const handleCursorChange = vi.fn();
+		let editorView: EditorView | undefined;
+
+		render(
+			<CodeEditor
+				value="const value = 1;"
+				filename="/src/main.ts"
+				onChange={handleChange}
+				onCursorChange={handleCursorChange}
+				onViewReady={(view) => {
+					editorView = view;
+				}}
+			/>,
+		);
+
+		if (!editorView) {
+			throw new Error('Expected editor view');
+		}
+		const view = editorView;
+
+		act(() => {
+			view.dispatch({ changes: { from: 14, to: 15, insert: '12' }, selection: { anchor: 16 } });
+		});
+
+		expect(handleChange).toHaveBeenCalledWith('const value = 12;', { line: 1, column: 17, anchorLine: 1, anchorColumn: 17 });
+		expect(handleCursorChange).not.toHaveBeenCalled();
 	});
 
 	describe('goToPosition', () => {

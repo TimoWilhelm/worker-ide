@@ -61,7 +61,7 @@ export interface CodeEditorProperties {
 	projectId?: string;
 	value: string;
 	filename: string;
-	onChange?: (value: string) => void;
+	onChange?: (value: string, position?: { line: number; column: number; anchorLine: number; anchorColumn: number }) => void;
 	onCursorChange?: (position: { line: number; column: number; anchorLine: number; anchorColumn: number }) => void;
 	onBlur?: () => void;
 	goToPosition?: { line: number; column: number };
@@ -143,11 +143,20 @@ export function CodeEditor({
 				if (isApplyingExternalValueReference.current) {
 					isApplyingExternalValueReference.current = false;
 				} else {
-					onChangeReference.current?.(update.state.doc.toString());
+					const head = update.state.selection.main.head;
+					const headLine = update.state.doc.lineAt(head);
+					const anchor = update.state.selection.main.anchor;
+					const anchorLine = update.state.doc.lineAt(anchor);
+					onChangeReference.current?.(update.state.doc.toString(), {
+						line: headLine.number,
+						column: head - headLine.from + 1,
+						anchorLine: anchorLine.number,
+						anchorColumn: anchor - anchorLine.from + 1,
+					});
 				}
 			}
 
-			if (update.selectionSet) {
+			if (update.selectionSet && !update.docChanged) {
 				const head = update.state.selection.main.head;
 				const headLine = update.state.doc.lineAt(head);
 				const anchor = update.state.selection.main.anchor;

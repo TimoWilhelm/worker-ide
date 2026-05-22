@@ -141,17 +141,24 @@ export function useProjectSocket({ projectId, enabled = true }: UseProjectSocket
 							break;
 						}
 						case 'file-edited': {
-							// Invalidate queries for updated file paths, but skip
-							// the currently active file — its content is managed
-							// locally by the editor and refetching would race with
-							// unsaved edits.
-							const activeFilePath = storeActionsReference.current.activeFile;
-							for (const update of message.path) {
-								if (update === activeFilePath) continue;
-								void queryClientCurrent.invalidateQueries({
-									queryKey: ['file', projectIdCurrent, update],
+							queryClientCurrent.setQueryData(['file', projectIdCurrent, message.path], {
+								path: message.path,
+								content: message.content,
+							});
+							if (message.cursor || message.selection) {
+								updateParticipant(message.id, {
+									file: message.path,
+									cursor: message.cursor,
+									selection: message.selection,
 								});
 							}
+							useStore.setState((state) => {
+								if (state.gitDiffView?.path !== message.path) {
+									return {};
+								}
+
+								return { gitDiffView: { ...state.gitDiffView, afterContent: message.content } };
+							});
 							break;
 						}
 						case 'collab-state': {
