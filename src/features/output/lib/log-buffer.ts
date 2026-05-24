@@ -3,7 +3,7 @@ import { createStore, useStore } from 'zustand';
 import { isMessageFromPreview } from '@/lib/preview-origin';
 
 import type { LogEntry } from '../types';
-import type { ServerError, ServerLogEntry } from '@shared/types';
+import type { ServerError, ServerLogEntry, SourceLocation } from '@shared/types';
 
 interface LogBufferState {
 	entries: LogEntry[];
@@ -29,6 +29,39 @@ function append(...newEntries: LogEntry[]) {
 	}));
 }
 
+function isSourceLocation(value: unknown): value is SourceLocation {
+	if (typeof value !== 'object' || value === undefined || value === null) return false;
+	if (!('file' in value) || typeof value.file !== 'string' || value.file.trim() === '') return false;
+	if ('line' in value && value.line !== undefined && typeof value.line !== 'number') return false;
+	if ('column' in value && value.column !== undefined && typeof value.column !== 'number') return false;
+	return true;
+}
+
+function resolveLogLevel(level: unknown): LogEntry['level'] {
+	if (level === 'warn' || level === 'warning') return 'warning';
+	if (level === 'error') return 'error';
+	if (level === 'debug') return 'debug';
+	if (level === 'info') return 'info';
+	return 'log';
+}
+
+function appendServerError(error: ServerError, source: LogEntry['source']) {
+	if (error.id && seenErrorIds.has(error.id)) return;
+	if (error.id) seenErrorIds.add(error.id);
+	append({
+		id: nextId(),
+		timestamp: error.timestamp,
+		level: 'error',
+		message: error.message,
+		source,
+		location: error.location,
+	});
+}
+
+function formatSourceLocation(location: SourceLocation): string {
+	return `${location.file}${location.line ? `:${location.line}` : ''}${location.column ? `:${location.column}` : ''}`;
+}
+
 function clearIfNotPreserving() {
 	const { preserveLogs } = logBufferStore.getState();
 	if (!preserveLogs) {
@@ -40,19 +73,7 @@ function clearIfNotPreserving() {
 globalThis.addEventListener('server-error', (event: Event) => {
 	if (event instanceof CustomEvent) {
 		const error: ServerError = event.detail;
-		if (error.id && seenErrorIds.has(error.id)) return;
-		if (error.id) seenErrorIds.add(error.id);
-		const parts = [error.message];
-		if (error.file) {
-			parts.push(`  at ${error.file}${error.line ? `:${error.line}` : ''}${error.column ? `:${error.column}` : ''}`);
-		}
-		append({
-			id: nextId(),
-			timestamp: error.timestamp,
-			level: 'error',
-			message: parts.join('\n'),
-			source: 'server',
-		});
+		appendServerError(error, 'server');
 	}
 });
 
@@ -70,6 +91,7 @@ globalThis.addEventListener('server-logs', (event: Event) => {
 				level: log.level,
 				message: log.message,
 				source: 'server' as const,
+				location: log.location,
 			})),
 		);
 	}
@@ -137,18 +159,16 @@ globalThis.addEventListener('message', (event: MessageEvent) => {
 	const { type } = event.data ?? {};
 
 	if (type === '__console-log') {
-		const { level, message, timestamp } = event.data;
+		const { level, location, message, timestamp } = event.data;
 		if (typeof message !== 'string' || typeof timestamp !== 'number') return;
-
-		const validLevels = new Set(['log', 'info', 'warning', 'error', 'debug']);
-		const resolvedLevel: LogEntry['level'] = validLevels.has(level) ? level : 'log';
 
 		append({
 			id: nextId(),
 			timestamp,
-			level: resolvedLevel,
+			level: resolveLogLevel(level),
 			message,
 			source: 'client',
+			location: isSourceLocation(location) ? location : undefined,
 		});
 		return;
 	}
@@ -156,20 +176,17 @@ globalThis.addEventListener('message', (event: MessageEvent) => {
 	if (type === '__server-error') {
 		const error = event.data.error;
 		if (!error || typeof error.message !== 'string') return;
-		if (error.id && seenErrorIds.has(error.id)) return;
-		if (error.id) seenErrorIds.add(error.id);
-
-		const parts = [error.message];
-		if (error.file) {
-			parts.push(`  at ${error.file}${error.line ? `:${error.line}` : ''}${error.column ? `:${error.column}` : ''}`);
-		}
-		append({
-			id: nextId(),
-			timestamp: error.timestamp ?? Date.now(),
-			level: 'error',
-			message: parts.join('\n'),
-			source: 'client',
-		});
+		appendServerError(
+			{
+				id: typeof error.id === 'string' ? error.id : '',
+				timestamp: typeof error.timestamp === 'number' ? error.timestamp : Date.now(),
+				type: error.type === 'runtime' ? 'runtime' : 'bundle',
+				message: error.message,
+				location: isSourceLocation(error.location) ? error.location : undefined,
+				dependencyErrors: Array.isArray(error.dependencyErrors) ? error.dependencyErrors : undefined,
+			},
+			'client',
+		);
 	}
 });
 export function useLogs(): LogEntry[] {
@@ -239,7 +256,8 @@ export function getLogSnapshot(maxEntries = LOG_SNAPSHOT_MAX_ENTRIES, maxBytes =
 			second: '2-digit',
 		});
 		const source = entry.source ? `[${entry.source}]` : '';
-		const line = `${time} ${source} ${entry.level.toUpperCase()}: ${entry.message}`;
+		const location = entry.location ? `\n  at ${formatSourceLocation(entry.location)}` : '';
+		const line = `${time} ${source} ${entry.level.toUpperCase()}: ${entry.message}${location}`;
 
 		if (totalLength + line.length > maxBytes) break;
 		lines.push(line);

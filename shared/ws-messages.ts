@@ -233,14 +233,18 @@ const dependencyErrorSchema = z.object({
 	message: z.string(),
 });
 
+const sourceLocationSchema = z.object({
+	file: z.string(),
+	line: z.number().optional(),
+	column: z.number().optional(),
+});
+
 const serverErrorSchema = z.object({
 	id: z.string(),
 	timestamp: z.number(),
 	type: z.enum(['bundle', 'runtime']),
 	message: z.string(),
-	file: z.string().optional(),
-	line: z.number().optional(),
-	column: z.number().optional(),
+	location: sourceLocationSchema.optional(),
 	dependencyErrors: z.array(dependencyErrorSchema).optional(),
 });
 
@@ -249,6 +253,7 @@ const serverLogSchema = z.object({
 	timestamp: z.number(),
 	level: z.enum(['log', 'warning', 'error', 'debug', 'info']),
 	message: z.string(),
+	location: sourceLocationSchema.optional(),
 });
 
 const hmrUpdateSchema = z.object({

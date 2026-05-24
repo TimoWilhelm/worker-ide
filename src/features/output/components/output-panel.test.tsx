@@ -5,7 +5,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { TooltipProvider } from '@/components/ui/tooltip';
 
 const mockOpenFileTarget = vi.fn();
-let logs: Array<{ id: string; level: 'error'; message: string; source: 'client'; timestamp: number }> = [];
+let logs: Array<{
+	id: string;
+	level: 'error';
+	message: string;
+	source: 'client';
+	timestamp: number;
+	location?: { file: string; line?: number; column?: number };
+}> = [];
 
 vi.mock('../lib/log-buffer', () => ({
 	useLogs: () => logs,
@@ -94,5 +101,24 @@ describe('OutputPanel accessibility', () => {
 		await userEvent.click(screen.getByRole('button', { name: 'at src/main.ts:10:7' }));
 
 		expect(mockOpenFileTarget).toHaveBeenCalledWith({ path: 'src/main.ts', position: { line: 10, column: 7 } });
+	});
+
+	it('opens structured log locations through the shared file target opener', async () => {
+		logs = [
+			{
+				id: '1',
+				level: 'error',
+				message: 'asdasda is not defined',
+				source: 'client',
+				timestamp: Date.now(),
+				location: { file: 'https://preview.local/src/main.tsx?t=123', line: 4, column: 2 },
+			},
+		];
+
+		renderWithProviders(<OutputPanel projectId="test" />);
+
+		await userEvent.click(screen.getByRole('button', { name: '/src/main.tsx:4:2' }));
+
+		expect(mockOpenFileTarget).toHaveBeenCalledWith({ path: '/src/main.tsx', position: { line: 4, column: 2 } });
 	});
 });

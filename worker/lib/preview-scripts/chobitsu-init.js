@@ -33,6 +33,47 @@
 		chobitsu.sendRawMessage(JSON.stringify(message));
 	}
 
+	function toOneBased(value) {
+		return typeof value === 'number' && Number.isFinite(value) ? Math.max(1, Math.floor(value) + 1) : undefined;
+	}
+
+	function locationFromCallFrame(callFrame) {
+		if (!callFrame || typeof callFrame.url !== 'string' || !callFrame.url) return null;
+		return {
+			file: callFrame.url,
+			line: toOneBased(callFrame.lineNumber),
+			column: toOneBased(callFrame.columnNumber),
+		};
+	}
+
+	function firstStackLocation(stackTrace) {
+		if (!stackTrace) return null;
+		if (Array.isArray(stackTrace.callFrames)) {
+			for (var i = 0; i < stackTrace.callFrames.length; i++) {
+				var location = locationFromCallFrame(stackTrace.callFrames[i]);
+				if (location) return location;
+			}
+		}
+		return firstStackLocation(stackTrace.parent);
+	}
+
+	function locationFromExceptionDetails(detail) {
+		if (!detail) return null;
+		if (typeof detail.url === 'string' && detail.url) {
+			return {
+				file: detail.url,
+				line: toOneBased(detail.lineNumber),
+				column: toOneBased(detail.columnNumber),
+			};
+		}
+		return firstStackLocation(detail.stackTrace);
+	}
+
+	function withLocation(payload, location) {
+		if (location) payload.location = location;
+		return payload;
+	}
+
 	// Enable Runtime and Log immediately so console logs and browser
 	// issues are captured even when the DevTools panel is not open.
 	sendToChobitsu({ method: 'Runtime.enable' });
@@ -76,13 +117,21 @@
 						})
 						.join(' ');
 					if (!text.startsWith('[hmr]') && isEmbedded) {
+						var consoleType = parsed.params.type || 'log';
+						var location =
+							consoleType === 'error' || consoleType === 'warning' || consoleType === 'assert'
+								? firstStackLocation(parsed.params.stackTrace)
+								: null;
 						window.parent.postMessage(
-							{
-								type: '__console-log',
-								level: parsed.params.type || 'log',
-								message: text,
-								timestamp: parsed.params.timestamp ? Math.floor(parsed.params.timestamp) : Date.now(),
-							},
+							withLocation(
+								{
+									type: '__console-log',
+									level: consoleType,
+									message: text,
+									timestamp: parsed.params.timestamp ? Math.floor(parsed.params.timestamp) : Date.now(),
+								},
+								location,
+							),
 							ideOrigin,
 						);
 					}
@@ -94,17 +143,21 @@
 					var entry = parsedLog.params.entry;
 					var logLevel = entry.level === 'error' ? 'error' : entry.level === 'warning' ? 'warning' : 'info';
 					var logText = entry.text || '';
-					if (entry.url) {
-						logText += '\n  at ' + entry.url + (entry.lineNumber ? ':' + entry.lineNumber : '');
-					}
+					var logLocation =
+						typeof entry.url === 'string' && entry.url
+							? { file: entry.url, line: toOneBased(entry.lineNumber), column: toOneBased(entry.columnNumber) }
+							: null;
 					if (logText && isEmbedded) {
 						window.parent.postMessage(
-							{
-								type: '__console-log',
-								level: logLevel,
-								message: logText,
-								timestamp: entry.timestamp ? Math.floor(entry.timestamp) : Date.now(),
-							},
+							withLocation(
+								{
+									type: '__console-log',
+									level: logLevel,
+									message: logText,
+									timestamp: entry.timestamp ? Math.floor(entry.timestamp) : Date.now(),
+								},
+								logLocation,
+							),
 							ideOrigin,
 						);
 					}
@@ -122,13 +175,17 @@
 							errorText = detail.text;
 						}
 						if (errorText && isEmbedded) {
+							var errorLocation = locationFromExceptionDetails(detail);
 							window.parent.postMessage(
-								{
-									type: '__console-log',
-									level: 'error',
-									message: errorText,
-									timestamp: parsedException.params.timestamp ? Math.floor(parsedException.params.timestamp) : Date.now(),
-								},
+								withLocation(
+									{
+										type: '__console-log',
+										level: 'error',
+										message: errorText,
+										timestamp: parsedException.params.timestamp ? Math.floor(parsedException.params.timestamp) : Date.now(),
+									},
+									errorLocation,
+								),
 								ideOrigin,
 							);
 						}

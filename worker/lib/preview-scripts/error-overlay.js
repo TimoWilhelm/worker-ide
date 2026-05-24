@@ -157,6 +157,11 @@
 		window.open(deepLinkUrl, 'worker-ide:' + projectId);
 	}
 
+	function getErrorLocation(err) {
+		if (!err || !err.location || !err.location.file) return null;
+		return err.location;
+	}
+
 	function showErrorOverlay(err) {
 		hideErrorOverlay();
 		lastError = err;
@@ -166,7 +171,10 @@
 		}
 		var overlay = document.createElement('div');
 		overlay.id = '__error-overlay';
-		var loc = err.file ? esc(err.file + (err.line ? ':' + err.line : '') + (err.column ? ':' + err.column : '')) : '';
+		var location = getErrorLocation(err);
+		var loc = location
+			? esc(location.file + (location.line ? ':' + location.line : '') + (location.column ? ':' + location.column : ''))
+			: '';
 		var hasDependencyErrors = Array.isArray(err.dependencyErrors) && err.dependencyErrors.length > 0;
 		overlay.innerHTML =
 			'<style>' +
@@ -204,11 +212,11 @@
 			'<div class="__eo-body">' +
 			(loc
 				? '<div class="__eo-file" data-file="' +
-					esc(normalizeDeepLinkFilePath(err.file || '')) +
+					esc(normalizeDeepLinkFilePath(location.file || '')) +
 					'" data-line="' +
-					(err.line || 1) +
+					(location.line || 1) +
 					'" data-column="' +
-					(err.column || 1) +
+					(location.column || 1) +
 					'">' +
 					loc +
 					'</div>'
@@ -229,8 +237,9 @@
 		var copyBtn = overlay.querySelector('#__eo-copy-btn');
 		copyBtn.addEventListener('click', function () {
 			var text =
-				(err.file ? err.file + (err.line ? ':' + err.line : '') + (err.column ? ':' + err.column : '') + '\n' : '') +
-				(err.message || 'Unknown error');
+				(location
+					? location.file + (location.line ? ':' + location.line : '') + (location.column ? ':' + location.column : '') + '\n'
+					: '') + (err.message || 'Unknown error');
 			navigator.clipboard.writeText(text).then(function () {
 				copyBtn.innerHTML =
 					'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';

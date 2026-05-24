@@ -1,3 +1,5 @@
+import type { SourceLocation } from '@shared/types';
+
 export interface OutputPanelProperties {
 	projectId: string;
 	className?: string;
@@ -9,6 +11,7 @@ export interface LogEntry {
 	level: 'log' | 'info' | 'warning' | 'error' | 'debug';
 	message: string;
 	source?: 'server' | 'client' | 'system' | 'lint';
+	location?: SourceLocation;
 }
 
 export interface LogCounts {

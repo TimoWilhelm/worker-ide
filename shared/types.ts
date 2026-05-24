@@ -224,14 +224,17 @@ export interface DependencyError {
 	code: 'unregistered' | 'not-found' | 'resolve-failed';
 	message: string;
 }
+export interface SourceLocation {
+	file: string;
+	line?: number;
+	column?: number;
+}
 export interface ServerError {
 	id: string;
 	timestamp: number;
 	type: 'bundle' | 'runtime';
 	message: string;
-	file?: string;
-	line?: number;
-	column?: number;
+	location?: SourceLocation;
 	dependencyErrors?: DependencyError[];
 }
 export interface ServerLogEntry {
@@ -239,6 +242,7 @@ export interface ServerLogEntry {
 	timestamp: number;
 	level: 'log' | 'warning' | 'error' | 'debug' | 'info';
 	message: string;
+	location?: SourceLocation;
 }
 
 /**

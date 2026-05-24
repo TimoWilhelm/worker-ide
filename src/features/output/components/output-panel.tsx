@@ -10,6 +10,7 @@ import { cn } from '@/lib/utils';
 import { clearLogs, getPreserveLogs, setPreserveLogs, useLogs } from '../lib/log-buffer';
 
 import type { LogEntry, OutputPanelProperties } from '../types';
+import type { SourceLocation } from '@shared/types';
 
 /**
  * Regex to match file references like `worker/database.ts:10:26` or
@@ -51,13 +52,22 @@ function normalizeFilePath(raw: string): string | undefined {
 	return path;
 }
 
-interface MessageSegment {
-	type: 'text' | 'file-link';
-	value: string;
-	file?: string;
-	line?: number;
-	column?: number;
+type MessageSegment = { type: 'text'; value: string } | { type: 'file-link'; value: string; file: string; line: number; column?: number };
+
+function normalizeSourceLocation(location: SourceLocation | undefined): SourceLocation | undefined {
+	if (!location) return undefined;
+	const normalizedFile = normalizeFilePath(location.file);
+	if (!normalizedFile) return undefined;
+	return {
+		...location,
+		file: normalizedFile,
+	};
 }
+
+function formatSourceLocation(location: SourceLocation): string {
+	return `${location.file}${location.line ? `:${location.line}` : ''}${location.column ? `:${location.column}` : ''}`;
+}
+
 function parseMessage(message: string): MessageSegment[] {
 	const segments: MessageSegment[] = [];
 	let lastIndex = 0;
@@ -242,7 +252,8 @@ function LogLine({ log }: { log: LogEntry }) {
 		second: '2-digit',
 	});
 
-	const segments = parseMessage(log.message);
+	const location = normalizeSourceLocation(log.location);
+	const segments: MessageSegment[] = location ? [{ type: 'text', value: log.message }] : parseMessage(log.message);
 
 	return (
 		<div
@@ -261,22 +272,34 @@ function LogLine({ log }: { log: LogEntry }) {
 			<span className="break-all whitespace-pre-wrap text-text-primary">
 				{segments.map((segment, index) =>
 					segment.type === 'file-link' ? (
-						<FileLink key={index} file={segment.file!} line={segment.line!} column={segment.column}>
+						<FileLink key={index} file={segment.file} line={segment.line} column={segment.column}>
 							{segment.value}
 						</FileLink>
 					) : (
 						<span key={index}>{segment.value}</span>
 					),
 				)}
+				{location && (
+					<span>
+						{'\n  at '}
+						<FileLink file={location.file} line={location.line} column={location.column}>
+							{formatSourceLocation(location)}
+						</FileLink>
+					</span>
+				)}
 			</span>
 		</div>
 	);
 }
 
-function FileLink({ file, line, column, children }: { file: string; line: number; column?: number; children: React.ReactNode }) {
+function FileLink({ file, line, column, children }: { file: string; line?: number; column?: number; children: React.ReactNode }) {
 	const openFileTarget = useFileTargetOpener();
 
 	const handleClick = useCallback(() => {
+		if (line === undefined) {
+			openFileTarget({ path: file });
+			return;
+		}
 		openFileTarget({ path: file, position: { line, column: column ?? 1 } });
 	}, [column, file, line, openFileTarget]);
 

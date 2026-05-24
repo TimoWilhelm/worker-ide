@@ -2,7 +2,7 @@ import { WorkerEntrypoint } from 'cloudflare:workers';
 
 import { coordinatorNamespace } from '../lib/durable-object-namespaces';
 
-import type { ServerLogEntry } from '@shared/types';
+import type { ServerLogEntry, SourceLocation } from '@shared/types';
 
 interface LogTailerProperties {
 	projectId: string;
@@ -38,6 +38,7 @@ export class LogTailer extends WorkerEntrypoint<Env, LogTailerProperties> {
 					timestamp: exception.timestamp,
 					level: 'error',
 					message: exception.message + (exception.stack ? `\n${exception.stack}` : ''),
+					location: exception.stack ? parseStackLocation(exception.stack) : undefined,
 				});
 			}
 		}
@@ -51,6 +52,19 @@ export class LogTailer extends WorkerEntrypoint<Env, LogTailerProperties> {
 			// Best-effort — don't fail the tail if broadcast fails
 		}
 	}
+}
+
+function parseStackLocation(stack: string): SourceLocation | undefined {
+	for (const stackLine of stack.split('\n')) {
+		const match = stackLine.match(/at\s+.*?\(?([\w./-]+\.(?:js|ts|mjs|tsx|jsx)):(\d+):(\d+)\)?/);
+		if (!match || !/^worker\//.test(match[1])) continue;
+		return {
+			file: match[1],
+			line: Number(match[2]),
+			column: Number(match[3]),
+		};
+	}
+	return undefined;
 }
 
 function mapLogLevel(level: string): 'log' | 'warning' | 'error' | 'debug' | 'info' {

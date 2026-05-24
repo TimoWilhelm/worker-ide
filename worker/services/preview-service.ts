@@ -358,10 +358,14 @@ export class PreviewService {
 				id: crypto.randomUUID(),
 				timestamp: Date.now(),
 				type: 'bundle',
-				message: cleanBuildErrorMessage(errorMessage),
-				file: locMatch ? locMatch[1] : undefined,
-				line: locMatch ? Number(locMatch[2]) : undefined,
-				column: locMatch ? Number(locMatch[3]) : undefined,
+				message: cleanBuildErrorMessage(locMatch ? locMatch[4] : errorMessage),
+				location: locMatch
+					? {
+							file: locMatch[1],
+							line: Number(locMatch[2]),
+							column: Number(locMatch[3]),
+						}
+					: undefined,
 				dependencyErrors:
 					(error instanceof BundleDependencyError ? error.dependencyErrors : undefined) ?? parseDependencyErrorsFromMessage(errorMessage),
 			};
@@ -464,10 +468,8 @@ export class PreviewService {
 				id: crypto.randomUUID(),
 				timestamp: Date.now(),
 				type: isBundleError ? 'bundle' : 'runtime',
-				message: cleanBuildErrorMessage(errorMessage),
-				file,
-				line,
-				column,
+				message: cleanBuildErrorMessage(locMatch ? locMatch[4] : errorMessage),
+				location: file ? { file, line, column } : undefined,
 				dependencyErrors:
 					(error instanceof BundleDependencyError ? error.dependencyErrors : undefined) ?? parseDependencyErrorsFromMessage(errorMessage),
 			};

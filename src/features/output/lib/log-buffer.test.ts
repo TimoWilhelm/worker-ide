@@ -5,12 +5,13 @@ import { clearLogs, getLogSnapshot } from './log-buffer';
 // The log buffer listens for CustomEvents on globalThis.
 // We can push entries by dispatching 'server-logs' events.
 
-function dispatchServerLogs(logs: Array<{ level: string; message: string }>) {
+function dispatchServerLogs(logs: Array<{ level: string; message: string; location?: { file: string; line?: number; column?: number } }>) {
 	const entries = logs.map((log) => ({
 		type: 'server-log' as const,
 		timestamp: Date.now(),
 		level: log.level,
 		message: log.message,
+		location: log.location,
 	}));
 	globalThis.dispatchEvent(new CustomEvent('server-logs', { detail: entries }));
 }
@@ -70,5 +71,37 @@ describe('getLogSnapshot', () => {
 		const snapshot = getLogSnapshot();
 		expect(snapshot).toContain('[server]');
 		expect(snapshot).toContain('WARNING:');
+	});
+
+	it('includes structured server log locations in snapshots', () => {
+		dispatchServerLogs([
+			{
+				level: 'error',
+				message: 'Worker crashed',
+				location: { file: 'worker/index.ts', line: 12, column: 8 },
+			},
+		]);
+
+		const snapshot = getLogSnapshot();
+		expect(snapshot).toContain('ERROR: Worker crashed');
+		expect(snapshot).toContain('  at worker/index.ts:12:8');
+	});
+
+	it('uses structured server-error locations instead of mutating the message', () => {
+		globalThis.dispatchEvent(
+			new CustomEvent('server-error', {
+				detail: {
+					id: 'error-1',
+					timestamp: Date.now(),
+					type: 'runtime',
+					message: 'ReferenceError: asdasda is not defined',
+					location: { file: 'worker/index.ts', line: 3, column: 5 },
+				},
+			}),
+		);
+
+		const snapshot = getLogSnapshot();
+		expect(snapshot).toContain('ERROR: ReferenceError: asdasda is not defined');
+		expect(snapshot).toContain('  at worker/index.ts:3:5');
 	});
 });
