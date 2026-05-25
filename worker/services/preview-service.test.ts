@@ -149,6 +149,50 @@ describe('PreviewService external module proxy', () => {
 		expect(fetchMock).toHaveBeenCalledTimes(1);
 	});
 
+	it('caches external modules between preview requests', async () => {
+		const fetchMock = vi.fn(async () => createResponseWithUrl('export default 1;', 'https://esm.sh/react?dev'));
+		vi.stubGlobal('fetch', fetchMock);
+
+		const previewService = new PreviewService('/project', crypto.randomUUID());
+		const request = new Request(`https://preview.local${buildPreviewExternalModuleRequest('react')}`);
+
+		const firstResponse = await previewService.serveFile(request, 'https://ide.local');
+		const secondResponse = await previewService.serveFile(request, 'https://ide.local');
+
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+		expect(firstResponse.headers.get('Cache-Control')).toBe('public, max-age=1800');
+		expect(secondResponse.headers.get('Cache-Control')).toBe('public, max-age=1800');
+		expect(await firstResponse.text()).toBe('export default 1;');
+		expect(await secondResponse.text()).toBe('export default 1;');
+	});
+
+	it('coalesces concurrent external module requests', async () => {
+		let resolveFetch: ((response: Response) => void) | undefined;
+		const fetchMock = vi.fn(
+			() =>
+				new Promise<Response>((resolve) => {
+					resolveFetch = resolve;
+				}),
+		);
+		vi.stubGlobal('fetch', fetchMock);
+
+		const previewService = new PreviewService('/project', crypto.randomUUID());
+		const request = new Request(`https://preview.local${buildPreviewExternalModuleRequest('react-dom/client')}`);
+		const firstResponsePromise = previewService.serveFile(request, 'https://ide.local');
+		const secondResponsePromise = previewService.serveFile(request, 'https://ide.local');
+
+		await Promise.resolve();
+		if (!resolveFetch) {
+			throw new Error('Expected external module fetch to start.');
+		}
+		resolveFetch(createResponseWithUrl('export default 1;', 'https://esm.sh/react-dom/client?dev'));
+		const [firstResponse, secondResponse] = await Promise.all([firstResponsePromise, secondResponsePromise]);
+
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+		expect(await firstResponse.text()).toBe('export default 1;');
+		expect(await secondResponse.text()).toBe('export default 1;');
+	});
+
 	it('preserves POST method and JSON body when forwarding preview API requests', async () => {
 		const previewService = new PreviewService('/project', 'project-1');
 		Reflect.set(

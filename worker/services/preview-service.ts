@@ -39,6 +39,18 @@ const PREVIEW_API_WORKER_VERSION = 'preview-api-v2';
 const PREVIEW_API_WRAPPER_MODULE = 'worker.js';
 const PREVIEW_API_USER_MODULE = 'user-worker.js';
 const PREVIEW_RUNTIME_ERROR_HEADER = 'X-Worker-Ide-Preview-Runtime-Error';
+const EXTERNAL_MODULE_CACHE_TTL_MS = 1000 * 60 * 30;
+const MAX_EXTERNAL_MODULE_CACHE_ENTRIES = 500;
+
+interface ExternalModuleCacheEntry {
+	bodyText: string;
+	contentType: string;
+	finalUrl: string;
+	expiresAt: number;
+}
+
+const externalModuleCache = new Map<string, ExternalModuleCacheEntry>();
+const externalModuleInflightRequests = new Map<string, Promise<ExternalModuleCacheEntry>>();
 
 /**
  * Build the CSP header for preview HTML responses.
@@ -536,6 +548,57 @@ export class PreviewService {
 		};
 		return contentTypes[extension] || 'text/plain';
 	}
+	private async loadExternalModule(externalUrl: string): Promise<ExternalModuleCacheEntry> {
+		const cached = externalModuleCache.get(externalUrl);
+		if (cached && Date.now() < cached.expiresAt) {
+			return cached;
+		}
+
+		const inflightRequest = externalModuleInflightRequests.get(externalUrl);
+		if (inflightRequest) {
+			return inflightRequest;
+		}
+
+		const requestPromise = this.fetchExternalModule(externalUrl);
+		externalModuleInflightRequests.set(externalUrl, requestPromise);
+		try {
+			const entry = await requestPromise;
+			externalModuleCache.set(externalUrl, entry);
+			while (externalModuleCache.size > MAX_EXTERNAL_MODULE_CACHE_ENTRIES) {
+				const firstKey = externalModuleCache.keys().next().value;
+				if (firstKey === undefined) {
+					break;
+				}
+				externalModuleCache.delete(firstKey);
+			}
+			return entry;
+		} finally {
+			externalModuleInflightRequests.delete(externalUrl);
+		}
+	}
+
+	private async fetchExternalModule(externalUrl: string): Promise<ExternalModuleCacheEntry> {
+		const upstreamResponse = await fetch(externalUrl, { redirect: 'follow' });
+		if (!upstreamResponse.ok) {
+			throw new Error(`Failed to load external module ${externalUrl} (${upstreamResponse.status} ${upstreamResponse.statusText})`);
+		}
+
+		const finalUrl = new URL(upstreamResponse.url);
+		if (!isAllowedPreviewExternalModuleUrl(finalUrl)) {
+			throw new Error(`External module redirect target is not allowed: ${finalUrl.href}`);
+		}
+
+		const contentTypeHeader = upstreamResponse.headers.get('content-type') || 'application/javascript';
+		const contentType = contentTypeHeader.split(';')[0]?.trim() || 'application/javascript';
+		const bodyText = await upstreamResponse.text();
+
+		return {
+			bodyText,
+			contentType,
+			finalUrl: upstreamResponse.url,
+			expiresAt: Date.now() + EXTERNAL_MODULE_CACHE_TTL_MS,
+		};
+	}
 
 	private async serveExternalModule(externalUrl: string, requestTimestamp: string | undefined, _ideOrigin: string): Promise<Response> {
 		try {
@@ -544,33 +607,25 @@ export class PreviewService {
 				throw new Error(`Unsupported external module URL: ${requestUrl.href}`);
 			}
 
-			const upstreamResponse = await fetch(externalUrl, { redirect: 'follow' });
-			if (!upstreamResponse.ok) {
-				throw new Error(`Failed to load external module ${externalUrl} (${upstreamResponse.status} ${upstreamResponse.statusText})`);
-			}
+			const externalModule = await this.loadExternalModule(externalUrl);
 
-			const finalUrl = new URL(upstreamResponse.url);
-			if (!isAllowedPreviewExternalModuleUrl(finalUrl)) {
-				throw new Error(`External module redirect target is not allowed: ${finalUrl.href}`);
-			}
-
-			const contentTypeHeader = upstreamResponse.headers.get('content-type') || 'application/javascript';
-			const contentType = contentTypeHeader.split(';')[0]?.trim() || 'application/javascript';
-			const bodyText = await upstreamResponse.text();
-
-			if (contentType.includes('javascript') || contentType.includes('ecmascript') || contentType === 'text/plain') {
-				return new Response(rewriteExternalModuleImports(bodyText, upstreamResponse.url, requestTimestamp), {
+			if (
+				externalModule.contentType.includes('javascript') ||
+				externalModule.contentType.includes('ecmascript') ||
+				externalModule.contentType === 'text/plain'
+			) {
+				return new Response(rewriteExternalModuleImports(externalModule.bodyText, externalModule.finalUrl, requestTimestamp), {
 					headers: {
 						'Content-Type': 'application/javascript',
-						'Cache-Control': 'no-cache',
+						'Cache-Control': 'public, max-age=1800',
 					},
 				});
 			}
 
-			return new Response(bodyText, {
+			return new Response(externalModule.bodyText, {
 				headers: {
-					'Content-Type': contentType,
-					'Cache-Control': 'no-cache',
+					'Content-Type': externalModule.contentType,
+					'Cache-Control': 'public, max-age=1800',
 				},
 			});
 		} catch (error) {
