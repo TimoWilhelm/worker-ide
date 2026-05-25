@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises';
 
+import { originalPositionFor, TraceMap } from '@jridgewell/trace-mapping';
 import { source as chobitsuSource, hash as chobitsuHash } from 'chobitsu?raw-minified';
 import { env, exports } from 'cloudflare:workers';
 
@@ -34,6 +35,10 @@ import type { ResolvedAssetSettings, ServerError } from '@shared/types';
 import type { ServerMessage } from '@shared/ws-messages';
 
 const PREVIEW_ROBOTS_HEADER_VALUE = 'noindex, nofollow';
+const PREVIEW_API_WORKER_VERSION = 'preview-api-v2';
+const PREVIEW_API_WRAPPER_MODULE = 'worker.js';
+const PREVIEW_API_USER_MODULE = 'user-worker.js';
+const PREVIEW_RUNTIME_ERROR_HEADER = 'X-Worker-Ide-Preview-Runtime-Error';
 
 /**
  * Build the CSP header for preview HTML responses.
@@ -55,6 +60,27 @@ function buildPreviewCsp(ideOrigin: string): string {
 		"form-action 'self'",
 		"base-uri 'self'",
 	].join('; ');
+}
+
+function createPreviewApiWrapperModule(): string {
+	return `export default {
+	async fetch(request, env, ctx) {
+		try {
+			const { default: worker } = await import('./${PREVIEW_API_USER_MODULE}');
+			if (!worker || typeof worker.fetch !== 'function') {
+				throw new TypeError('Worker default export must include a fetch handler.');
+			}
+			return await worker.fetch(request, env, ctx);
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			const stack = error instanceof Error ? error.stack : undefined;
+			return Response.json(
+				{ message, stack },
+				{ status: 500, headers: { '${PREVIEW_RUNTIME_ERROR_HEADER}': '1' } },
+			);
+		}
+	},
+};`;
 }
 
 /**
@@ -410,25 +436,30 @@ export class PreviewService {
 			}
 			const hasCustomBindings = Object.keys(workerEnvironment).length > 0;
 
+			const tsconfigRaw = await this.loadTsconfigRaw();
 			const contentHash = await this.hashContent(
-				JSON.stringify(workerFiles) + JSON.stringify([...knownDependencies.entries()]) + JSON.stringify(bindingsConfig),
+				JSON.stringify(workerFiles) +
+					JSON.stringify([...knownDependencies.entries()]) +
+					JSON.stringify(bindingsConfig) +
+					(tsconfigRaw ?? ''),
 			);
+			const bundled = await bundleFiles({
+				files,
+				entryPoint: workerEntry,
+				platform: 'neutral',
+				sourcemap: true,
+				tsconfigRaw,
+				knownDependencies,
+			});
 
-			const worker = env.LOADER.get(`worker:${contentHash}`, async () => {
-				const tsconfigRaw = await this.loadTsconfigRaw();
-
-				const bundled = await bundleFiles({
-					files,
-					entryPoint: workerEntry,
-					platform: 'neutral',
-					tsconfigRaw,
-					knownDependencies,
-				});
-
+			const worker = env.LOADER.get(`worker:${PREVIEW_API_WORKER_VERSION}:${contentHash}`, () => {
 				return {
 					compatibilityDate: WORKERS_COMPATIBILITY_DATE,
-					mainModule: 'worker.js',
-					modules: { 'worker.js': bundled.code },
+					mainModule: PREVIEW_API_WRAPPER_MODULE,
+					modules: {
+						[PREVIEW_API_WRAPPER_MODULE]: createPreviewApiWrapperModule(),
+						[PREVIEW_API_USER_MODULE]: bundled.code,
+					},
 					tails: [logTailer],
 					...(hasCustomBindings ? { env: workerEnvironment } : {}),
 				};
@@ -442,34 +473,28 @@ export class PreviewService {
 			}
 
 			const entrypoint = worker.getEntrypoint();
-			return await entrypoint.fetch(apiRequest);
+			const response = await entrypoint.fetch(apiRequest);
+			if (response.headers.get(PREVIEW_RUNTIME_ERROR_HEADER) === '1') {
+				return await this.handlePreviewRuntimeErrorResponse(response, bundled.code);
+			}
+			return response;
 		} catch (error) {
 			const errorMessage = error instanceof Error ? error.message : String(error);
 			const isBundleError = errorMessage.includes('ERROR:');
 			const locMatch = errorMessage.match(/([^\s:]+):(\d+):(\d+):\s*ERROR:\s*(.*)/);
-			let file = locMatch ? locMatch[1] : undefined;
-			let line = locMatch ? Number(locMatch[2]) : undefined;
-			let column = locMatch ? Number(locMatch[3]) + 1 : undefined;
-
-			if (!file && error instanceof Error && error.stack) {
-				const stackLines = error.stack.split('\n');
-				for (const stackLine of stackLines) {
-					const m = stackLine.match(/at\s+.*?\(?([\w./-]+\.(?:js|ts|mjs|tsx|jsx)):(\d+):(\d+)\)?/);
-					if (m && /^worker\//.test(m[1])) {
-						file = m[1];
-						line = Number(m[2]);
-						column = Number(m[3]);
-						break;
-					}
-				}
-			}
 
 			const serverError: ServerError = {
 				id: crypto.randomUUID(),
 				timestamp: Date.now(),
 				type: isBundleError ? 'bundle' : 'runtime',
 				message: cleanBuildErrorMessage(locMatch ? locMatch[4] : errorMessage),
-				location: file ? { file, line, column } : undefined,
+				location: locMatch
+					? {
+							file: locMatch[1],
+							line: Number(locMatch[2]),
+							column: Number(locMatch[3]) + 1,
+						}
+					: undefined,
 				dependencyErrors:
 					(error instanceof BundleDependencyError ? error.dependencyErrors : undefined) ?? parseDependencyErrorsFromMessage(errorMessage),
 			};
@@ -751,6 +776,91 @@ export class PreviewService {
 			// No package.json or parse error
 		}
 		return new Map();
+	}
+
+	private async handlePreviewRuntimeErrorResponse(response: Response, bundledCode: string | undefined): Promise<Response> {
+		let errorMessage = 'Worker runtime error';
+		let stack: string | undefined;
+
+		try {
+			const body: unknown = await response.json();
+			if (typeof body === 'object' && body !== undefined && body !== null) {
+				if ('message' in body && typeof body.message === 'string') {
+					errorMessage = body.message;
+				}
+				if ('stack' in body && typeof body.stack === 'string') {
+					stack = body.stack;
+				}
+			}
+		} catch {
+			// Keep fallback message when the internal wrapper response is malformed.
+		}
+
+		const mappedLocation = this.resolveOriginalLocationFromStack(stack, bundledCode);
+		const serverError: ServerError = {
+			id: crypto.randomUUID(),
+			timestamp: Date.now(),
+			type: 'runtime',
+			message: errorMessage,
+			location: mappedLocation,
+		};
+
+		await this.broadcastError(serverError).catch(() => {});
+		return Response.json({ error: errorMessage, serverError }, { status: 500 });
+	}
+
+	private resolveOriginalLocationFromStack(
+		stack: string | undefined,
+		bundledCode: string | undefined,
+	): { file: string; line?: number; column?: number } | undefined {
+		if (!stack || !bundledCode) {
+			return undefined;
+		}
+
+		const sourceMap = this.extractInlineSourceMap(bundledCode);
+		if (!sourceMap) {
+			return undefined;
+		}
+
+		const traceMap = new TraceMap(sourceMap);
+		for (const stackLine of stack.split('\n')) {
+			const generatedLocation = this.parseGeneratedWorkerLocation(stackLine);
+			if (!generatedLocation) {
+				continue;
+			}
+
+			const originalLocation = originalPositionFor(traceMap, {
+				line: generatedLocation.line,
+				column: generatedLocation.column - 1,
+			});
+			if (originalLocation.source && originalLocation.line) {
+				return {
+					file: originalLocation.source,
+					line: originalLocation.line,
+					column: originalLocation.column === null ? undefined : originalLocation.column + 1,
+				};
+			}
+		}
+
+		return undefined;
+	}
+
+	private parseGeneratedWorkerLocation(stackLine: string): { line: number; column: number } | undefined {
+		const match = stackLine.match(/\b(?:worker|user-worker|bundle)\.js:(\d+):(\d+)\b/);
+		if (!match) {
+			return undefined;
+		}
+
+		return { line: Number(match[1]), column: Number(match[2]) };
+	}
+
+	private extractInlineSourceMap(code: string): string | undefined {
+		const match = code.match(/sourceMappingURL=data:application\/json(?:;charset=utf-8)?;base64,([^\s]+)/);
+		if (!match) {
+			return undefined;
+		}
+
+		return atob(match[1]);
 	}
 
 	private async broadcastError(error: ServerError): Promise<void> {

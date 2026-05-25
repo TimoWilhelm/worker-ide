@@ -139,8 +139,9 @@ globalThis.addEventListener('lint-diagnostics', (event: Event) => {
 		id: nextId(),
 		timestamp: Date.now(),
 		level: diagnostic.severity === 'error' ? ('error' as const) : ('warning' as const),
-		message: `${filePath}:${diagnostic.line}:${diagnostic.column} ${diagnostic.rule ? `(${diagnostic.rule}) ` : ''}${diagnostic.message}`,
+		message: `${diagnostic.rule ? `(${diagnostic.rule}) ` : ''}${diagnostic.message}`,
 		source: 'lint' as const,
+		location: { file: filePath, line: diagnostic.line, column: diagnostic.column },
 	}));
 
 	append(...newEntries);

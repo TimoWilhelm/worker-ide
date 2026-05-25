@@ -25,6 +25,8 @@
 		"@codemirror/view": "^6.40.0",
 		"@eslint/js": "^9.39.4",
 		"@hono/zod-validator": "^0.7.6",
+		"@jridgewell/gen-mapping": "^0.3.13",
+		"@jridgewell/trace-mapping": "^0.3.31",
 		"@lezer/highlight": "^1.2.3",
 		"@modelcontextprotocol/sdk": "^1.29.0",
 		"@playwright/test": "^1.60.0",

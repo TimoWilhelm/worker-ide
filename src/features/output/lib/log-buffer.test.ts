@@ -104,4 +104,27 @@ describe('getLogSnapshot', () => {
 		expect(snapshot).toContain('ERROR: ReferenceError: asdasda is not defined');
 		expect(snapshot).toContain('  at worker/index.ts:3:5');
 	});
+
+	it('includes structured lint diagnostic locations in snapshots', () => {
+		globalThis.dispatchEvent(
+			new CustomEvent('lint-diagnostics', {
+				detail: {
+					filePath: 'src/app.ts',
+					diagnostics: [
+						{
+							message: 'Unexpected var, use let or const instead.',
+							severity: 'error',
+							line: 2,
+							column: 7,
+							rule: 'lint/style/noVar',
+						},
+					],
+				},
+			}),
+		);
+
+		const snapshot = getLogSnapshot();
+		expect(snapshot).toContain('[lint] ERROR: (lint/style/noVar) Unexpected var, use let or const instead.');
+		expect(snapshot).toContain('  at src/app.ts:2:7');
+	});
 });

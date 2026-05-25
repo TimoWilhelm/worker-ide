@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises';
 
+import { addMapping, GenMapping, setSourceContent, toEncodedMap } from '@jridgewell/gen-mapping';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => {
@@ -10,9 +11,13 @@ const mocks = vi.hoisted(() => {
 			body: await request.text(),
 		});
 	});
-	const loaderGet = vi.fn(() => ({
+	const bundleFiles = vi.fn(async () => ({ code: 'export default {};', warnings: [] }));
+	const loaderGet = vi.fn((_key: string, callback?: () => Promise<unknown>) => ({
 		getEntrypoint: () => ({
-			fetch: forwardedFetch,
+			fetch: async (request: Request) => {
+				await callback?.();
+				return forwardedFetch(request);
+			},
 		}),
 	}));
 	const logTailer = vi.fn(() => ({}));
@@ -20,6 +25,7 @@ const mocks = vi.hoisted(() => {
 	const readBindingsConfig = vi.fn(async () => ({}));
 
 	return {
+		bundleFiles,
 		forwardedFetch,
 		loaderGet,
 		logTailer,
@@ -71,6 +77,9 @@ vi.mock('cloudflare:workers', () => ({
 vi.mock('../lib/protected-files', () => ({
 	readBindingsConfig: mocks.readBindingsConfig,
 }));
+vi.mock('./bundle-service', () => ({
+	bundleFiles: mocks.bundleFiles,
+}));
 
 import { buildPreviewExternalModuleRequest } from '@shared/preview-path';
 
@@ -82,6 +91,20 @@ function createResponseWithUrl(body: string, url: string, contentType = 'applica
 	return response;
 }
 
+function createBundleWithInlineSourceMap(sourceMapBase64: string): string {
+	return `export default {};\n//# source${'MappingURL'}=data:application/json;base64,${sourceMapBase64}`;
+}
+
+function createPreviewRuntimeErrorResponse(message: string, stack: string): Response {
+	return Response.json(
+		{ message, stack },
+		{
+			status: 500,
+			headers: { 'X-Worker-Ide-Preview-Runtime-Error': '1' },
+		},
+	);
+}
+
 describe('PreviewService external module proxy', () => {
 	afterEach(() => {
 		mocks.forwardedFetch.mockClear();
@@ -89,6 +112,7 @@ describe('PreviewService external module proxy', () => {
 		mocks.logTailer.mockClear();
 		mocks.objectStorageBinding.mockClear();
 		mocks.readBindingsConfig.mockClear();
+		mocks.bundleFiles.mockClear();
 		vi.restoreAllMocks();
 		vi.unstubAllGlobals();
 	});
@@ -161,6 +185,77 @@ describe('PreviewService external module proxy', () => {
 			method: 'POST',
 			contentType: 'application/json',
 			body: JSON.stringify({ key: 'greeting', value: 'hello' }),
+		});
+	});
+
+	it('maps preview API runtime stack locations through inline source maps', async () => {
+		const sourceMap = new GenMapping({ file: 'worker.js' });
+		setSourceContent(sourceMap, 'worker/index.ts', 'export default { async fetch() { return Response.json({ value: asdasdasqs1 }); } };');
+		addMapping(sourceMap, {
+			generated: { line: 1, column: 64 },
+			source: 'worker/index.ts',
+			original: { line: 1, column: 64 },
+		});
+		const sourceMapBase64 = btoa(JSON.stringify(toEncodedMap(sourceMap)));
+		mocks.forwardedFetch.mockResolvedValueOnce(
+			createPreviewRuntimeErrorResponse(
+				'asdasdasqs1 is not defined',
+				'ReferenceError: asdasdasqs1 is not defined\n    at fetch (user-worker.js:1:65)',
+			),
+		);
+		const previewService = new PreviewService('/project', 'project-1');
+		Reflect.set(
+			previewService,
+			'collectFilesForBundle',
+			vi.fn(async () => ({
+				'worker/index.ts': [
+					'export default {',
+					'\tasync fetch() {',
+					'\t\treturn Response.json({ value: asdasdasqs1 });',
+					'\t},',
+					'};',
+				].join('\n'),
+			})),
+		);
+		Reflect.set(
+			previewService,
+			'loadKnownDependencies',
+			vi.fn(async () => new Map()),
+		);
+		Reflect.set(
+			previewService,
+			'hashContent',
+			vi.fn(async () => 'hash'),
+		);
+		mocks.bundleFiles.mockResolvedValueOnce({
+			code: createBundleWithInlineSourceMap(sourceMapBase64),
+			warnings: [],
+		});
+
+		const response = await previewService.handlePreviewAPI(new Request('https://preview.local/api/inspect'), '/api/inspect');
+		const body = await response.json();
+
+		const loaderCallback = mocks.loaderGet.mock.calls[0]?.[1];
+		expect(mocks.loaderGet.mock.calls[0]?.[0]).toBe('worker:preview-api-v2:hash');
+		expect(loaderCallback).toBeDefined();
+		const workerCode = await loaderCallback?.();
+		expect(workerCode).toEqual(
+			expect.objectContaining({
+				mainModule: 'worker.js',
+				modules: expect.objectContaining({
+					'worker.js': expect.stringContaining("await import('./user-worker.js')"),
+				}),
+			}),
+		);
+
+		expect(response.status).toBe(500);
+		expect(body).toEqual({
+			error: 'asdasdasqs1 is not defined',
+			serverError: expect.objectContaining({
+				type: 'runtime',
+				message: 'asdasdasqs1 is not defined',
+				location: { file: 'worker/index.ts', line: 1, column: 65 },
+			}),
 		});
 	});
 
