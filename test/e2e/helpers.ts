@@ -94,9 +94,9 @@ export async function gotoIDE(page: Page): Promise<string> {
 
 	await page.goto(url);
 
-	// Wait for the IDE shell to load first. The file tree label is stable and
-	// appears before project-scoped realtime state settles.
-	await page.getByText('Files', { exact: true }).waitFor({ timeout: 25_000 });
+	// Wait for the IDE shell to render. The project header is available even while
+	// the file tree itself is still showing its loading skeleton.
+	await page.getByRole('button', { name: 'Rename project' }).waitFor({ timeout: 25_000 });
 
 	// Give the project WebSocket a short grace period to connect so follow-up
 	// file-tree and mutation assertions don't race the initial socket setup.
@@ -110,7 +110,7 @@ export async function gotoIDE(page: Page): Promise<string> {
  * and at least one file entry.
  */
 export async function waitForFileTree(page: Page): Promise<void> {
-	await page.getByText('Files', { exact: true }).waitFor({ timeout: 10_000 });
+	await page.getByRole('tree').waitFor({ timeout: 10_000 });
 	// The example project always has an index.html at root
-	await page.getByText('index.html').waitFor({ timeout: 15_000 });
+	await page.getByRole('treeitem', { name: 'index.html' }).waitFor({ timeout: 15_000 });
 }

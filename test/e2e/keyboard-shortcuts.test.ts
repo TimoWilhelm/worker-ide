@@ -19,7 +19,7 @@ test.describe('Keyboard Shortcuts', () => {
 		await waitForFileTree(page);
 
 		// Open a file
-		await page.getByText('index.html').click();
+		await page.getByRole('treeitem', { name: 'index.html' }).click();
 		await expect(page.getByRole('tab', { name: /index\.html/i })).toBeVisible();
 
 		// Press Ctrl+S — should trigger save without crashing

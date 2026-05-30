@@ -10,10 +10,14 @@ test.describe('New File', () => {
 		// Click the "New file" button in the sidebar header
 		const newFileButton = page.getByLabel('New file', { exact: true });
 		await expect(newFileButton).toBeVisible();
+		let dialogMessage = '';
+		page.once('dialog', async (dialog) => {
+			expect(dialog.type()).toBe('prompt');
+			dialogMessage = dialog.message();
+			await dialog.dismiss();
+		});
 		await newFileButton.click();
-
-		// A dialog should appear asking for the file name
-		await expect(page.getByText('New File')).toBeVisible();
+		expect(dialogMessage).toBe('New file name');
 	});
 
 	test('creating a file adds it to the tree and opens it', async ({ page }) => {
@@ -21,16 +25,14 @@ test.describe('New File', () => {
 		await waitForFileTree(page);
 
 		// Open new file dialog
+		page.once('dialog', async (dialog) => {
+			expect(dialog.type()).toBe('prompt');
+			await dialog.accept('hello.txt');
+		});
 		await page.getByLabel('New file', { exact: true }).click();
-		await expect(page.getByText('New File')).toBeVisible();
-
-		// Type a file name and submit
-		const input = page.getByPlaceholder('e.g. /src/utils.js');
-		await input.fill('hello.txt');
-		await page.getByRole('button', { name: 'Create' }).click();
 
 		// File should appear in the tree
-		await expect(page.getByRole('treeitem', { name: /hello\.txt/i })).toBeVisible();
+		await expect(page.getByRole('treeitem', { name: 'hello.txt' })).toBeVisible();
 
 		// A tab should open for the new file
 		await expect(page.getByRole('tab', { name: /hello\.txt/i })).toBeVisible();

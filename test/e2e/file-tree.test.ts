@@ -8,8 +8,8 @@ test.describe('File Tree', () => {
 		await waitForFileTree(page);
 
 		// Root-level files from the example project
-		await expect(page.getByText('index.html')).toBeVisible();
-		await expect(page.getByText('tsconfig.json')).toBeVisible();
+		await expect(page.getByRole('treeitem', { name: 'index.html' })).toBeVisible();
+		await expect(page.getByRole('treeitem', { name: 'tsconfig.json' })).toBeVisible();
 	});
 
 	test('displays directory entries', async ({ page }) => {
@@ -20,8 +20,8 @@ test.describe('File Tree', () => {
 		const fileTree = page.getByRole('tree');
 
 		// Directories derived from example project file paths
-		await expect(fileTree.getByText('src', { exact: true })).toBeVisible();
-		await expect(fileTree.getByText('worker', { exact: true })).toBeVisible();
+		await expect(fileTree.getByRole('treeitem', { name: 'src', exact: true })).toBeVisible();
+		await expect(fileTree.getByRole('treeitem', { name: 'worker', exact: true })).toBeVisible();
 	});
 
 	test('can collapse and re-expand a directory', async ({ page }) => {
@@ -29,22 +29,22 @@ test.describe('File Tree', () => {
 		await waitForFileTree(page);
 
 		// Directories start expanded — child files should already be visible
-		await expect(page.getByText('main.tsx')).toBeVisible();
-		await expect(page.getByText('app.tsx')).toBeVisible();
-		await expect(page.getByText('style.css')).toBeVisible();
+		await expect(page.getByRole('treeitem', { name: 'main.tsx' })).toBeVisible();
+		await expect(page.getByRole('treeitem', { name: 'app.tsx' })).toBeVisible();
+		await expect(page.getByRole('treeitem', { name: 'style.css' })).toBeVisible();
 
 		// Click on the "src" directory to collapse it
-		const sourceDirectory = page.getByText('src', { exact: true });
+		const sourceDirectory = page.getByRole('treeitem', { name: 'src' });
 		await sourceDirectory.click();
 
 		// After collapse, child files should be hidden
-		await expect(page.getByText('main.tsx')).not.toBeVisible();
+		await expect(page.getByRole('treeitem', { name: 'main.tsx' })).not.toBeVisible();
 
 		// Click again to re-expand
 		await sourceDirectory.click();
 
 		// Child files should be visible again
-		await expect(page.getByText('main.tsx')).toBeVisible();
+		await expect(page.getByRole('treeitem', { name: 'main.tsx' })).toBeVisible();
 	});
 
 	test('clicking a file opens it in the editor', async ({ page }) => {
@@ -52,7 +52,7 @@ test.describe('File Tree', () => {
 		await waitForFileTree(page);
 
 		// Click on a root-level file
-		await page.getByText('index.html').click();
+		await page.getByRole('treeitem', { name: 'index.html' }).click();
 
 		// The "Select a file to edit" placeholder should disappear
 		await expect(page.getByText('Select a file to edit')).not.toBeVisible();
@@ -66,7 +66,7 @@ test.describe('File Tree', () => {
 		await waitForFileTree(page);
 
 		// Click on index.html
-		await page.getByText('index.html').click();
+		await page.getByRole('treeitem', { name: 'index.html' }).click();
 
 		// The index.html tab should be selected
 		await expect(page.getByRole('tab', { name: /index\.html/i })).toHaveAttribute('aria-selected', 'true');

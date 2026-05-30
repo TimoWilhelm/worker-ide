@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { expect, userEvent, within } from 'storybook/test';
+import { expect, userEvent, waitFor, within } from 'storybook/test';
 
 import { ConfirmButton } from './confirm-button';
 
@@ -48,7 +48,13 @@ export const Default: Story = {
 		await userEvent.click(canvas.getByRole('button', { name: 'Sign out all others' }));
 
 		const body = within(document.body);
+		const dialog = body.getByRole('dialog');
 		await expect(body.getByText('Sign out all other sessions?')).toBeInTheDocument();
+		await waitFor(() => {
+			if (globalThis.getComputedStyle(dialog).pointerEvents !== 'auto') {
+				throw new Error('Confirm dialog is not interactive yet');
+			}
+		});
 
 		await userEvent.click(body.getByRole('button', { name: 'Sign out others' }));
 		await expect(canvas.getByText('Confirmed: 1')).toBeInTheDocument();

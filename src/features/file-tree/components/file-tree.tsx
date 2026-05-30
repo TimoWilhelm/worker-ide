@@ -206,6 +206,8 @@ export function FileTree({
 	);
 
 	const initialSelectedPaths = useMemo(() => (selectedFile ? [selectedFile.replace(/^\/+/, '')] : []), []); // eslint-disable-line react-hooks/exhaustive-deps
+	const appliedPathsKeyReference = useRef(initialPaths.join('\u0000'));
+	const appliedExpandedPathsKeyReference = useRef(initialExpandedPaths.join('\u0000'));
 
 	const { model } = useTreesModel({
 		preparedInput,
@@ -293,14 +295,18 @@ export function FileTree({
 	// Rebuild the tree paths whenever the underlying file list changes. Skip the
 	// initial render since the model already mounts with the prepared input and
 	// the configured initial expansion.
-	const hasResetOnce = useRef(false);
 	useEffect(() => {
-		if (!hasResetOnce.current) {
-			hasResetOnce.current = true;
-			return;
-		}
 		const paths = files.map((file) => toTreePath(file.path, file.isDirectory));
 		const expanded = [...expandedDirectories].map((path) => `${path.replace(/^\/+/, '')}/`);
+		const pathsKey = paths.join('\u0000');
+		const expandedPathsKey = expanded.join('\u0000');
+
+		if (appliedPathsKeyReference.current === pathsKey && appliedExpandedPathsKeyReference.current === expandedPathsKey) {
+			return;
+		}
+
+		appliedPathsKeyReference.current = pathsKey;
+		appliedExpandedPathsKeyReference.current = expandedPathsKey;
 		model.resetPaths(paths, { initialExpandedPaths: expanded });
 	}, [files, expandedDirectories, model]);
 
