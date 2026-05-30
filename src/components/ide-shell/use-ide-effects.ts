@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 
 import { getDependencyErrorCount, subscribeDependencyErrors } from '@/features/file-tree/dependency-error-store';
+import { useGitStatusBackgroundLoader } from '@/features/git';
 import { useProjectDeepLinkApplier } from '@/lib/project-deep-link';
 import { useStore } from '@/lib/store';
 import { isProjectDeepLinkTarget } from '@shared/project-deep-link';
@@ -26,6 +27,11 @@ export function useIDEEffects({
 }: UseIDEEffectsOptions) {
 	useUnsavedChangesWarning();
 	const applyProjectDeepLink = useProjectDeepLinkApplier();
+
+	// Always load git status in the background so file tree decorations stay
+	// accurate regardless of which sidebar view is active. Non-blocking: the app
+	// stays interactive while the request is in flight.
+	useGitStatusBackgroundLoader({ projectId });
 
 	// Auto-expand dependencies panel when new errors are detected.
 	const showDependenciesPanel = useStore((state) => state.showDependenciesPanel);

@@ -11,7 +11,7 @@ import { filePathSchema, writeFileSchema, mkdirSchema, moveFileSchema } from '@s
 
 import { agentRunnerNamespace, coordinatorNamespace } from '../lib/durable-object-namespaces';
 import { httpError } from '../lib/http-error';
-import { isPathSafe, isProtectedFile } from '../lib/path-utilities';
+import { isHiddenPath, isPathSafe, isProtectedFile } from '../lib/path-utilities';
 import { invalidateTsConfigCache } from '../services/transform-service';
 
 import type { AppEnvironment } from '../types';
@@ -54,6 +54,10 @@ export const fileRoutes = new Hono<AppEnvironment>()
 
 		if (!isPathSafe(projectRoot, path)) {
 			throw httpError(HttpErrorCode.INVALID_PATH, 'Invalid path');
+		}
+
+		if (isHiddenPath(path)) {
+			throw httpError(HttpErrorCode.INVALID_PATH, 'Cannot modify internal system files');
 		}
 
 		if (isProtectedSystemFile(path)) {
@@ -121,6 +125,10 @@ export const fileRoutes = new Hono<AppEnvironment>()
 			throw httpError(HttpErrorCode.PROTECTED_FILE, 'Cannot modify git repository internals');
 		}
 
+		if (isHiddenPath(path)) {
+			throw httpError(HttpErrorCode.INVALID_PATH, 'Cannot modify internal system files');
+		}
+
 		try {
 			await fs.rm(`${projectRoot}${path}`, { recursive: true, force: true });
 			try {
@@ -175,6 +183,10 @@ export const fileRoutes = new Hono<AppEnvironment>()
 
 		if (isProtectedFile(fromPath)) {
 			throw httpError(HttpErrorCode.PROTECTED_FILE, 'Cannot move protected file');
+		}
+
+		if (isHiddenPath(fromPath) || isHiddenPath(toPath)) {
+			throw httpError(HttpErrorCode.INVALID_PATH, 'Cannot modify internal system files');
 		}
 
 		try {

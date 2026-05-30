@@ -29,6 +29,7 @@
 		"@jridgewell/trace-mapping": "^0.3.31",
 		"@lezer/highlight": "^1.2.3",
 		"@modelcontextprotocol/sdk": "^1.29.0",
+		"@pierre/trees": "^1.0.0-beta.4",
 		"@playwright/test": "^1.60.0",
 		"@react-email/components": "^1.0.12",
 		"@stablelib/base64": "^2.0.1",

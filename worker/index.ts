@@ -42,6 +42,7 @@ import { DEV_PREVIEW_SECRET } from './lib/preview-secret';
 import { generateProjectId, toDurableObjectId } from './lib/project-id';
 import { requireRateLimit } from './lib/rate-limit-middleware';
 import { apiRoutes } from './routes';
+import { developmentTestRoutes } from './routes/development-test-routes';
 import { orgRoutes } from './routes/org-routes';
 import { transferRoutes } from './routes/transfer-routes';
 import { userRoutes } from './routes/user-routes';
@@ -1557,6 +1558,10 @@ app.all('/p/:projectId/*', async (c) => {
 			context.set('fsStub', fsStub);
 			await innerNext();
 		});
+
+		if (import.meta.env.DEV) {
+			projectApp.route('/api', developmentTestRoutes);
+		}
 
 		projectApp.route('/api', apiRoutes);
 

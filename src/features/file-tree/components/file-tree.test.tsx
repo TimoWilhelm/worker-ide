@@ -6,6 +6,7 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { FileTree } from './file-tree';
 
 import type { FileInfo } from '@shared/types';
+
 function renderWithProviders(ui: React.ReactElement) {
 	return render(<TooltipProvider>{ui}</TooltipProvider>);
 }
@@ -16,103 +17,72 @@ const SAMPLE_FILES: FileInfo[] = [
 	{ path: '/src/lib/utils.ts', name: 'utils.ts', isDirectory: false },
 	{ path: '/styles/index.css', name: 'index.css', isDirectory: false },
 	{ path: '/index.html', name: 'index.html', isDirectory: false },
-	{ path: '/docs', name: 'docs', isDirectory: true }, // Empty directory
+	{ path: '/docs', name: 'docs', isDirectory: true },
 ];
 
 describe('FileTree', () => {
-	it('renders file tree from flat paths', () => {
-		renderWithProviders(
-			<FileTree
-				files={SAMPLE_FILES}
-				selectedFile={undefined}
-				expandedDirectories={new Set(['/src', '/src/lib', '/styles'])}
-				onFileSelect={vi.fn()}
-				onDirectoryToggle={vi.fn()}
-			/>,
-		);
-
-		// Directories should be visible
-		expect(screen.getByText('src')).toBeInTheDocument();
-		expect(screen.getByText('styles')).toBeInTheDocument();
-		expect(screen.getByText('docs')).toBeInTheDocument();
-
-		// Files should be visible when parent is expanded
-		expect(screen.getByText('main.ts')).toBeInTheDocument();
-		expect(screen.getByText('app.tsx')).toBeInTheDocument();
-		expect(screen.getByText('utils.ts')).toBeInTheDocument();
-		expect(screen.getByText('index.css')).toBeInTheDocument();
-		expect(screen.getByText('index.html')).toBeInTheDocument();
-	});
-
-	it('hides children when directory is collapsed', () => {
-		renderWithProviders(
-			<FileTree
-				files={SAMPLE_FILES}
-				selectedFile={undefined}
-				expandedDirectories={new Set()} // all collapsed
-				onFileSelect={vi.fn()}
-				onDirectoryToggle={vi.fn()}
-			/>,
-		);
-
-		// Directories should still be visible at root level
-		expect(screen.getByText('src')).toBeInTheDocument();
-		expect(screen.getByText('styles')).toBeInTheDocument();
-		expect(screen.getByText('index.html')).toBeInTheDocument();
-
-		// Files inside collapsed dirs should not be visible
-		expect(screen.queryByText('main.ts')).not.toBeInTheDocument();
-		expect(screen.queryByText('app.tsx')).not.toBeInTheDocument();
-	});
-
-	it('calls onFileSelect when a file is clicked', () => {
-		const onFileSelect = vi.fn();
+	it('renders the panel header', () => {
 		renderWithProviders(
 			<FileTree
 				files={SAMPLE_FILES}
 				selectedFile={undefined}
 				expandedDirectories={new Set(['/src'])}
-				onFileSelect={onFileSelect}
+				onFileSelect={vi.fn()}
 				onDirectoryToggle={vi.fn()}
 			/>,
 		);
 
-		fireEvent.click(screen.getByText('main.ts'));
-		expect(onFileSelect).toHaveBeenCalledWith('/src/main.ts');
+		expect(screen.getByText('Files')).toBeInTheDocument();
 	});
 
-	it('calls onDirectoryToggle when a directory is clicked', () => {
-		const onDirectoryToggle = vi.fn();
-		renderWithProviders(
+	it('mounts the @pierre/trees host element', () => {
+		const { container } = renderWithProviders(
+			<FileTree
+				files={SAMPLE_FILES}
+				selectedFile={undefined}
+				expandedDirectories={new Set(['/src'])}
+				onFileSelect={vi.fn()}
+				onDirectoryToggle={vi.fn()}
+			/>,
+		);
+
+		// The React wrapper mounts the tree into a custom element host.
+		expect(container.querySelector('file-tree-container')).toBeInTheDocument();
+	});
+
+	it('renders create buttons only when their callbacks are provided', () => {
+		const { rerender } = renderWithProviders(
 			<FileTree
 				files={SAMPLE_FILES}
 				selectedFile={undefined}
 				expandedDirectories={new Set()}
 				onFileSelect={vi.fn()}
-				onDirectoryToggle={onDirectoryToggle}
-			/>,
-		);
-
-		fireEvent.click(screen.getByText('src'));
-		expect(onDirectoryToggle).toHaveBeenCalledWith('/src');
-	});
-
-	it('highlights the selected file', () => {
-		renderWithProviders(
-			<FileTree
-				files={SAMPLE_FILES}
-				selectedFile="/src/main.ts"
-				expandedDirectories={new Set(['/src'])}
-				onFileSelect={vi.fn()}
 				onDirectoryToggle={vi.fn()}
 			/>,
 		);
 
-		const treeItem = screen.getByText('main.ts').closest('[role="treeitem"]');
-		expect(treeItem).toHaveAttribute('aria-selected', 'true');
+		expect(screen.queryByLabelText('New file')).not.toBeInTheDocument();
+		expect(screen.queryByLabelText('New folder')).not.toBeInTheDocument();
+
+		rerender(
+			<TooltipProvider>
+				<FileTree
+					files={SAMPLE_FILES}
+					selectedFile={undefined}
+					expandedDirectories={new Set()}
+					onFileSelect={vi.fn()}
+					onDirectoryToggle={vi.fn()}
+					onCreateFile={vi.fn()}
+					onCreateFolder={vi.fn()}
+				/>
+			</TooltipProvider>,
+		);
+
+		expect(screen.getByLabelText('New file')).toBeInTheDocument();
+		expect(screen.getByLabelText('New folder')).toBeInTheDocument();
 	});
 
-	it('sorts directories before files', () => {
+	it('toggles the search field via the search button', () => {
 		renderWithProviders(
 			<FileTree
 				files={SAMPLE_FILES}
@@ -123,311 +93,63 @@ describe('FileTree', () => {
 			/>,
 		);
 
-		const treeItems = screen.getAllByRole('treeitem');
-		const labels = treeItems.map((item) => item.textContent);
+		expect(screen.queryByPlaceholderText('Search files')).not.toBeInTheDocument();
 
-		// src and styles dirs should come before index.html
-		const sourceIndex = labels.findIndex((label) => label?.includes('src'));
-		const stylesIndex = labels.findIndex((label) => label?.includes('styles'));
-		const htmlIndex = labels.findIndex((label) => label?.includes('index.html'));
+		fireEvent.click(screen.getByLabelText('Search files'));
+		expect(screen.getByPlaceholderText('Search files')).toBeInTheDocument();
 
-		expect(sourceIndex).toBeLessThan(htmlIndex);
-		expect(stylesIndex).toBeLessThan(htmlIndex);
+		fireEvent.click(screen.getByLabelText('Close search'));
+		expect(screen.queryByPlaceholderText('Search files')).not.toBeInTheDocument();
 	});
 
-	it('supports keyboard navigation with Enter', () => {
-		const onFileSelect = vi.fn();
+	it('prompts and forwards a leading-slash path to onCreateFile', () => {
+		const onCreateFile = vi.fn();
+		const promptSpy = vi.spyOn(globalThis, 'prompt').mockReturnValue('new-file.ts');
+
 		renderWithProviders(
 			<FileTree
 				files={SAMPLE_FILES}
 				selectedFile={undefined}
-				expandedDirectories={new Set(['/src'])}
-				onFileSelect={onFileSelect}
+				expandedDirectories={new Set()}
+				onFileSelect={vi.fn()}
 				onDirectoryToggle={vi.fn()}
+				onCreateFile={onCreateFile}
 			/>,
 		);
 
-		const treeItem = screen.getByText('main.ts').closest('[role="treeitem"]')!;
-		fireEvent.keyDown(treeItem, { key: 'Enter' });
-		expect(onFileSelect).toHaveBeenCalledWith('/src/main.ts');
+		fireEvent.click(screen.getByLabelText('New file'));
+		expect(onCreateFile).toHaveBeenCalledTimes(1);
+		expect(onCreateFile.mock.calls[0][0]).toMatch(/^\/.*new-file\.ts$/);
+
+		promptSpy.mockRestore();
 	});
 
-	it('renders empty tree for empty files list', () => {
+	it('does not create a file when the prompt is empty', () => {
+		const onCreateFile = vi.fn();
+		const promptSpy = vi.spyOn(globalThis, 'prompt').mockReturnValue('   ');
+
+		renderWithProviders(
+			<FileTree
+				files={SAMPLE_FILES}
+				selectedFile={undefined}
+				expandedDirectories={new Set()}
+				onFileSelect={vi.fn()}
+				onDirectoryToggle={vi.fn()}
+				onCreateFile={onCreateFile}
+			/>,
+		);
+
+		fireEvent.click(screen.getByLabelText('New file'));
+		expect(onCreateFile).not.toHaveBeenCalled();
+
+		promptSpy.mockRestore();
+	});
+
+	it('renders without crashing for an empty file list', () => {
 		const { container } = renderWithProviders(
 			<FileTree files={[]} selectedFile={undefined} expandedDirectories={new Set()} onFileSelect={vi.fn()} onDirectoryToggle={vi.fn()} />,
 		);
 
-		expect(container.querySelectorAll('[role="treeitem"]')).toHaveLength(0);
-	});
-
-	it('has a role="tree" container', () => {
-		renderWithProviders(
-			<FileTree
-				files={SAMPLE_FILES}
-				selectedFile={undefined}
-				expandedDirectories={new Set()}
-				onFileSelect={vi.fn()}
-				onDirectoryToggle={vi.fn()}
-			/>,
-		);
-
-		expect(screen.getByRole('tree')).toBeInTheDocument();
-	});
-
-	it('uses roving tabindex — only one treeitem has tabIndex 0', () => {
-		renderWithProviders(
-			<FileTree
-				files={SAMPLE_FILES}
-				selectedFile={undefined}
-				expandedDirectories={new Set(['/src', '/styles'])}
-				onFileSelect={vi.fn()}
-				onDirectoryToggle={vi.fn()}
-			/>,
-		);
-
-		const treeItems = screen.getAllByRole('treeitem');
-		const focusableItems = treeItems.filter((item) => item.tabIndex === 0);
-		expect(focusableItems).toHaveLength(1);
-
-		const nonFocusableItems = treeItems.filter((item) => item.tabIndex === -1);
-		expect(nonFocusableItems.length).toBe(treeItems.length - 1);
-	});
-
-	it('sets aria-level on treeitems', () => {
-		renderWithProviders(
-			<FileTree
-				files={SAMPLE_FILES}
-				selectedFile={undefined}
-				expandedDirectories={new Set(['/src'])}
-				onFileSelect={vi.fn()}
-				onDirectoryToggle={vi.fn()}
-			/>,
-		);
-
-		const sourceDirectory = screen.getByText('src').closest('[role="treeitem"]');
-		expect(sourceDirectory).toHaveAttribute('aria-level', '1');
-
-		const mainFile = screen.getByText('main.ts').closest('[role="treeitem"]');
-		expect(mainFile).toHaveAttribute('aria-level', '2');
-	});
-
-	it('navigates with ArrowDown and ArrowUp keys', () => {
-		renderWithProviders(
-			<FileTree
-				files={SAMPLE_FILES}
-				selectedFile={undefined}
-				expandedDirectories={new Set()}
-				onFileSelect={vi.fn()}
-				onDirectoryToggle={vi.fn()}
-			/>,
-		);
-
-		const treeItems = screen.getAllByRole('treeitem');
-		const firstItem = treeItems[0];
-		firstItem.focus();
-
-		fireEvent.keyDown(firstItem, { key: 'ArrowDown' });
-		expect(document.activeElement).toBe(treeItems[1]);
-
-		fireEvent.keyDown(treeItems[1], { key: 'ArrowUp' });
-		expect(document.activeElement).toBe(firstItem);
-	});
-
-	it('expands a collapsed directory with ArrowRight', () => {
-		const onDirectoryToggle = vi.fn();
-		renderWithProviders(
-			<FileTree
-				files={SAMPLE_FILES}
-				selectedFile={undefined}
-				expandedDirectories={new Set()}
-				onFileSelect={vi.fn()}
-				onDirectoryToggle={onDirectoryToggle}
-			/>,
-		);
-
-		const sourceItem = screen.getByText('src').closest<HTMLElement>('[role="treeitem"]')!;
-		sourceItem.focus();
-		fireEvent.keyDown(sourceItem, { key: 'ArrowRight' });
-		expect(onDirectoryToggle).toHaveBeenCalledWith('/src');
-	});
-
-	it('collapses an expanded directory with ArrowLeft', () => {
-		const onDirectoryToggle = vi.fn();
-		renderWithProviders(
-			<FileTree
-				files={SAMPLE_FILES}
-				selectedFile={undefined}
-				expandedDirectories={new Set(['/src'])}
-				onFileSelect={vi.fn()}
-				onDirectoryToggle={onDirectoryToggle}
-			/>,
-		);
-
-		const sourceItem = screen.getByText('src').closest<HTMLElement>('[role="treeitem"]')!;
-		sourceItem.focus();
-		fireEvent.keyDown(sourceItem, { key: 'ArrowLeft' });
-		expect(onDirectoryToggle).toHaveBeenCalledWith('/src');
-	});
-
-	it('exposes aria-expanded on directories', () => {
-		renderWithProviders(
-			<FileTree
-				files={SAMPLE_FILES}
-				selectedFile={undefined}
-				expandedDirectories={new Set(['/src'])}
-				onFileSelect={vi.fn()}
-				onDirectoryToggle={vi.fn()}
-			/>,
-		);
-
-		const expandedDirectory = screen.getByText('src').closest('[role="treeitem"]');
-		expect(expandedDirectory).toHaveAttribute('aria-expanded', 'true');
-
-		const collapsedDirectory = screen.getByText('styles').closest('[role="treeitem"]');
-		expect(collapsedDirectory).toHaveAttribute('aria-expanded', 'false');
-
-		const fileItem = screen.getByText('main.ts').closest('[role="treeitem"]');
-		expect(fileItem).not.toHaveAttribute('aria-expanded');
-	});
-
-	it('toggles directory with Space key', () => {
-		const onDirectoryToggle = vi.fn();
-		renderWithProviders(
-			<FileTree
-				files={SAMPLE_FILES}
-				selectedFile={undefined}
-				expandedDirectories={new Set()}
-				onFileSelect={vi.fn()}
-				onDirectoryToggle={onDirectoryToggle}
-			/>,
-		);
-
-		const sourceItem = screen.getByText('src').closest<HTMLElement>('[role="treeitem"]')!;
-		sourceItem.focus();
-		fireEvent.keyDown(sourceItem, { key: ' ' });
-		expect(onDirectoryToggle).toHaveBeenCalledWith('/src');
-	});
-
-	it('selects a file with Space key', () => {
-		const onFileSelect = vi.fn();
-		renderWithProviders(
-			<FileTree
-				files={SAMPLE_FILES}
-				selectedFile={undefined}
-				expandedDirectories={new Set(['/src'])}
-				onFileSelect={onFileSelect}
-				onDirectoryToggle={vi.fn()}
-			/>,
-		);
-
-		const fileItem = screen.getByText('main.ts').closest<HTMLElement>('[role="treeitem"]')!;
-		fileItem.focus();
-		fireEvent.keyDown(fileItem, { key: ' ' });
-		expect(onFileSelect).toHaveBeenCalledWith('/src/main.ts');
-	});
-
-	it('ArrowLeft on a child node moves focus to parent directory', () => {
-		renderWithProviders(
-			<FileTree
-				files={SAMPLE_FILES}
-				selectedFile={undefined}
-				expandedDirectories={new Set(['/src'])}
-				onFileSelect={vi.fn()}
-				onDirectoryToggle={vi.fn()}
-			/>,
-		);
-
-		const childItem = screen.getByText('main.ts').closest<HTMLElement>('[role="treeitem"]')!;
-		childItem.focus();
-		fireEvent.keyDown(childItem, { key: 'ArrowLeft' });
-
-		const parentItem = screen.getByText('src').closest<HTMLElement>('[role="treeitem"]')!;
-		expect(document.activeElement).toBe(parentItem);
-	});
-
-	it('calls onDeleteFile with Delete key on a non-protected file', () => {
-		const onDeleteFile = vi.fn();
-		renderWithProviders(
-			<FileTree
-				files={SAMPLE_FILES}
-				selectedFile={undefined}
-				expandedDirectories={new Set(['/src'])}
-				onFileSelect={vi.fn()}
-				onDirectoryToggle={vi.fn()}
-				onDeleteFile={onDeleteFile}
-			/>,
-		);
-
-		const fileItem = screen.getByText('main.ts').closest<HTMLElement>('[role="treeitem"]')!;
-		fileItem.focus();
-		fireEvent.keyDown(fileItem, { key: 'Delete' });
-
-		expect(onDeleteFile).not.toHaveBeenCalled();
-		expect(screen.getByLabelText('Confirm delete main.ts')).toBeInTheDocument();
-
-		fireEvent.keyDown(fileItem, { key: 'Delete' });
-
-		expect(onDeleteFile).toHaveBeenCalledWith('/src/main.ts');
-	});
-
-	it('enters rename mode with F2 key on a non-protected file', () => {
-		const onRenameFile = vi.fn();
-		renderWithProviders(
-			<FileTree
-				files={SAMPLE_FILES}
-				selectedFile={undefined}
-				expandedDirectories={new Set(['/src'])}
-				onFileSelect={vi.fn()}
-				onDirectoryToggle={vi.fn()}
-				onRenameFile={onRenameFile}
-			/>,
-		);
-
-		const fileItem = screen.getByText('main.ts').closest<HTMLElement>('[role="treeitem"]')!;
-		fileItem.focus();
-		fireEvent.keyDown(fileItem, { key: 'F2' });
-
-		// Should show a rename input
-		expect(screen.getByLabelText('Rename main.ts')).toBeInTheDocument();
-	});
-
-	it('action buttons are not in the tab order', () => {
-		renderWithProviders(
-			<FileTree
-				files={SAMPLE_FILES}
-				selectedFile={undefined}
-				expandedDirectories={new Set(['/src'])}
-				onFileSelect={vi.fn()}
-				onDirectoryToggle={vi.fn()}
-				onDeleteFile={vi.fn()}
-				onRenameFile={vi.fn()}
-			/>,
-		);
-
-		const renameButton = screen.getByLabelText('Rename main.ts');
-		expect(renameButton).toHaveAttribute('tabindex', '-1');
-	});
-
-	it('navigates to first and last items with Home and End', () => {
-		renderWithProviders(
-			<FileTree
-				files={SAMPLE_FILES}
-				selectedFile={undefined}
-				expandedDirectories={new Set()}
-				onFileSelect={vi.fn()}
-				onDirectoryToggle={vi.fn()}
-			/>,
-		);
-
-		const treeItems = screen.getAllByRole('treeitem');
-		const lastItem = treeItems.at(-1)!;
-		const firstItem = treeItems[0];
-
-		firstItem.focus();
-		fireEvent.keyDown(firstItem, { key: 'End' });
-		expect(document.activeElement).toBe(lastItem);
-
-		fireEvent.keyDown(lastItem, { key: 'Home' });
-		expect(document.activeElement).toBe(firstItem);
+		expect(container.querySelector('file-tree-container')).toBeInTheDocument();
 	});
 });

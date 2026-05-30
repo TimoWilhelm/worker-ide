@@ -42,6 +42,34 @@ export async function authedFetch(url: string, options: RequestInit = {}): Promi
 	headers.set('Cookie', cookie);
 	return fetch(url, { ...options, headers });
 }
+
+/**
+ * Like authedFetch but retries transient failures (network errors or 5xx
+ * responses) with exponential backoff. Deterministic 4xx responses are
+ * returned immediately without retrying. Useful for mutation endpoints that
+ * can intermittently fail under heavy parallel test load.
+ */
+export async function authedFetchWithRetry(url: string, options: RequestInit = {}, maxRetries = 4): Promise<Response> {
+	let lastError: unknown;
+	for (let attempt = 1; attempt <= maxRetries; attempt++) {
+		try {
+			const response = await authedFetch(url, options);
+			// Only retry transient server-side failures; 2xx/3xx/4xx are deterministic.
+			if (response.status < 500) {
+				return response;
+			}
+			lastError = new Error(`Request to ${url} failed: ${response.status} ${response.statusText}`);
+		} catch (error) {
+			lastError = error;
+		}
+
+		if (attempt < maxRetries) {
+			await new Promise((resolve) => setTimeout(resolve, 250 * attempt));
+		}
+	}
+
+	throw lastError instanceof Error ? lastError : new Error(`Request to ${url} failed after ${maxRetries} attempts`);
+}
 export async function cleanupProjects(): Promise<void> {
 	const cookie = sessionCookie;
 	if (!cookie) return;

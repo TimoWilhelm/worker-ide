@@ -1,5 +1,14 @@
 import { RangeSetBuilder, StateField, type Extension, type Text, type Transaction } from '@codemirror/state';
-import { Decoration, EditorView, GutterMarker, WidgetType, gutter, type DecorationSet } from '@codemirror/view';
+import {
+	Decoration,
+	EditorView,
+	GutterMarker,
+	ViewPlugin,
+	WidgetType,
+	gutter,
+	type DecorationSet,
+	type ViewUpdate,
+} from '@codemirror/view';
 
 import { groupHunksIntoChanges, type ChangeGroup, type DiffHunk } from './diff-decorations';
 
@@ -176,61 +185,150 @@ function resolvedHunkSet(hunks: DiffHunk[], hunkStatuses: HunkStatus[]): Set<Dif
 	return resolved;
 }
 
-function buildCoreDecorations(document_: Text, hunks: DiffHunk[], hunkStatuses: HunkStatus[]): DecorationSet {
-	const builder = new RangeSetBuilder<Decoration>();
-	const decorations: Array<{ from: number; to: number; decoration: Decoration }> = [];
+interface DiffLineIndex {
+	/** After-document line numbers belonging to pending added hunks, ascending. */
+	addedLines: number[];
+	/** Pending removed hunks rendered as block widgets. */
+	removedHunks: DiffHunk[];
+}
+
+/**
+ * Precompute a compact index of the diff once per reconfigure so the
+ * per-viewport render work is a binary search + slice instead of a full
+ * hunk scan.
+ */
+function buildDiffLineIndex(hunks: DiffHunk[], hunkStatuses: HunkStatus[]): DiffLineIndex {
 	const resolved = resolvedHunkSet(hunks, hunkStatuses);
+	const addedLines: number[] = [];
+	const removedHunks: DiffHunk[] = [];
 
 	for (const hunk of hunks) {
 		if (resolved.has(hunk)) continue;
 		if (hunk.type === 'added') {
 			for (let index = 0; index < hunk.lineCount; index++) {
-				const lineNumber = hunk.startLine + index;
-				if (lineNumber > document_.lines) break;
-				const line = document_.line(lineNumber);
-				decorations.push({ from: line.from, to: line.from, decoration: addedLineDecoration });
+				addedLines.push(hunk.startLine + index);
 			}
-		} else if (hunk.type === 'removed') {
-			const lineNumber = Math.min(hunk.startLine, document_.lines);
-			const line = document_.line(lineNumber);
-
-			// Emit one block widget per removed line so each gets its own
-			// gutter row (line number + diff marker) from CodeMirror's
-			// native gutter system.
-			//
-			// side ordering: more-negative → appears earlier.  Within a
-			// hunk the first removed line gets the most-negative side so
-			// they render top-to-bottom.  We reserve side values -1 to
-			// -999 for removed-line widgets; the AI action bar uses
-			// -1000 to ensure it appears before all removed lines.
-			for (let index = 0; index < hunk.lineCount; index++) {
-				const widget = Decoration.widget({
-					widget: new RemovedLineWidget(hunk.lines[index], hunk.beforeStartLine + index),
-					block: true,
-					side: -(hunk.lineCount - index),
-				});
-				decorations.push({ from: line.from, to: line.from, decoration: widget });
-			}
+		} else {
+			removedHunks.push(hunk);
 		}
 	}
 
-	decorations.sort((a, b) => a.from - b.from || a.decoration.startSide - b.decoration.startSide);
+	// Added hunks already arrive in ascending order, but sort defensively so
+	// the binary search below is always correct.
+	addedLines.sort((a, b) => a - b);
+	return { addedLines, removedHunks };
+}
 
-	for (const { from, to, decoration } of decorations) {
-		builder.add(from, to, decoration);
+/** First index in `values` whose entry is >= `target` (lower bound). */
+function lowerBound(values: number[], target: number): number {
+	let low = 0;
+	let high = values.length;
+	while (low < high) {
+		const mid = (low + high) >>> 1;
+		if (values[mid] < target) {
+			low = mid + 1;
+		} else {
+			high = mid;
+		}
+	}
+	return low;
+}
+
+function buildAddedLineDecorations(view: EditorView, index: DiffLineIndex): DecorationSet {
+	const builder = new RangeSetBuilder<Decoration>();
+	const document_ = view.state.doc;
+
+	for (const { from, to } of view.visibleRanges) {
+		const fromLine = document_.lineAt(from).number;
+		const toLine = document_.lineAt(to).number;
+		for (let pointer = lowerBound(index.addedLines, fromLine); pointer < index.addedLines.length; pointer++) {
+			const lineNumber = index.addedLines[pointer];
+			if (lineNumber > toLine) break;
+			if (lineNumber > document_.lines) break;
+			const line = document_.line(lineNumber);
+			builder.add(line.from, line.from, addedLineDecoration);
+		}
 	}
 
 	return builder.finish();
 }
 
-function createCoreDiffField(hunks: DiffHunk[], hunkStatuses: HunkStatus[]): Extension {
+/**
+ * Added-line background decorations, computed lazily over the visible
+ * ranges only. Added-line decorations do not change line height, so
+ * scoping them to the viewport is safe and keeps construction at roughly
+ * O(visible lines) instead of O(total diff lines).
+ */
+function createAddedLinesPlugin(index: DiffLineIndex): Extension {
+	return ViewPlugin.fromClass(
+		class {
+			decorations: DecorationSet;
+
+			constructor(view: EditorView) {
+				this.decorations = buildAddedLineDecorations(view, index);
+			}
+
+			update(update: ViewUpdate) {
+				if (update.docChanged || update.viewportChanged) {
+					this.decorations = buildAddedLineDecorations(update.view, index);
+				}
+			}
+		},
+		{
+			decorations: (value) => value.decorations,
+		},
+	);
+}
+
+/**
+ * Removed-line block widgets. Unlike added-line decorations these add
+ * vertical height to the layout, so they must stay in the height map for
+ * every position (not just the viewport) to keep scrolling stable.
+ * CodeMirror still virtualizes their DOM via `estimatedHeight`.
+ */
+function buildRemovedWidgets(document_: Text, removedHunks: DiffHunk[]): DecorationSet {
+	const builder = new RangeSetBuilder<Decoration>();
+	const decorations: Array<{ from: number; decoration: Decoration }> = [];
+
+	for (const hunk of removedHunks) {
+		const lineNumber = Math.min(hunk.startLine, document_.lines);
+		const line = document_.line(lineNumber);
+
+		// Emit one block widget per removed line so each gets its own gutter
+		// row (line number + diff marker) from CodeMirror's native gutter
+		// system.
+		//
+		// side ordering: more-negative → appears earlier.  Within a hunk the
+		// first removed line gets the most-negative side so they render
+		// top-to-bottom.  We reserve side values -1 to -999 for removed-line
+		// widgets; the AI action bar uses -1000 to ensure it appears before
+		// all removed lines.
+		for (let index = 0; index < hunk.lineCount; index++) {
+			const widget = Decoration.widget({
+				widget: new RemovedLineWidget(hunk.lines[index], hunk.beforeStartLine + index),
+				block: true,
+				side: -(hunk.lineCount - index),
+			});
+			decorations.push({ from: line.from, decoration: widget });
+		}
+	}
+
+	decorations.sort((a, b) => a.from - b.from || a.decoration.startSide - b.decoration.startSide);
+	for (const { from, decoration } of decorations) {
+		builder.add(from, from, decoration);
+	}
+
+	return builder.finish();
+}
+
+function createRemovedWidgetsField(removedHunks: DiffHunk[]): Extension {
 	return StateField.define<DecorationSet>({
 		create(state) {
-			return buildCoreDecorations(state.doc, hunks, hunkStatuses);
+			return buildRemovedWidgets(state.doc, removedHunks);
 		},
 		update(decorations: DecorationSet, transaction: Transaction) {
 			if (transaction.docChanged) {
-				return buildCoreDecorations(transaction.state.doc, hunks, hunkStatuses);
+				return buildRemovedWidgets(transaction.state.doc, removedHunks);
 			}
 			return decorations;
 		},
@@ -313,31 +411,25 @@ function createAiActionBarField(
 	});
 }
 
-function createDiffGutter(hunks: DiffHunk[]): Extension {
+function createDiffGutter(index: DiffLineIndex): Extension {
 	return gutter({
 		class: 'cm-diff-gutter',
 		markers(view) {
 			const builder = new RangeSetBuilder<GutterMarker>();
 			const document_ = view.state.doc;
-			const markers: Array<{ from: number; marker: GutterMarker }> = [];
 
-			// Only added lines need markers from the rangeset — removed
+			// Added-line markers are scoped to the visible ranges; removed
 			// lines get their "−" via `widgetMarker` below.
-			for (const hunk of hunks) {
-				if (hunk.type === 'added') {
-					for (let index = 0; index < hunk.lineCount; index++) {
-						const lineNumber = hunk.startLine + index;
-						if (lineNumber > document_.lines) break;
-						const line = document_.line(lineNumber);
-						markers.push({ from: line.from, marker: addedMarker });
-					}
+			for (const { from, to } of view.visibleRanges) {
+				const fromLine = document_.lineAt(from).number;
+				const toLine = document_.lineAt(to).number;
+				for (let pointer = lowerBound(index.addedLines, fromLine); pointer < index.addedLines.length; pointer++) {
+					const lineNumber = index.addedLines[pointer];
+					if (lineNumber > toLine) break;
+					if (lineNumber > document_.lines) break;
+					const line = document_.line(lineNumber);
+					builder.add(line.from, line.from, addedMarker);
 				}
-			}
-
-			markers.sort((a, b) => a.from - b.from);
-
-			for (const { from, marker } of markers) {
-				builder.add(from, from, marker);
 			}
 
 			return builder.finish();
@@ -464,7 +556,8 @@ const aiActionBarTheme = EditorView.baseTheme({
  */
 export function createDiffDecorations(hunks: DiffHunk[], hunkStatuses: HunkStatus[] = []): Extension[] {
 	if (hunks.length === 0) return [];
-	return [coreDiffTheme, createDiffGutter(hunks), createCoreDiffField(hunks, hunkStatuses)];
+	const index = buildDiffLineIndex(hunks, hunkStatuses);
+	return [coreDiffTheme, createDiffGutter(index), createAddedLinesPlugin(index), createRemovedWidgetsField(index.removedHunks)];
 }
 
 /**
