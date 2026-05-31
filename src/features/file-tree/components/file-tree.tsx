@@ -164,6 +164,15 @@ const TREE_THEME_STYLE: Record<string, string> = {
 	'--trees-theme-git-ignored-fg': 'var(--color-text-secondary)',
 };
 
+const FILE_TREE_UNSAFE_CSS = `
+	@media not all and (hover: hover) and (pointer: fine) {
+		[data-type='context-menu-anchor'][data-visible='true'] > [data-type='context-menu-trigger'][data-visible='true'] {
+			opacity: 1 !important;
+			pointer-events: auto !important;
+		}
+	}
+`;
+
 export function FileTree({
 	files,
 	selectedFile,
@@ -218,6 +227,7 @@ export function FileTree({
 		density: 'compact',
 		icons: 'standard',
 		stickyFolders: true,
+		unsafeCSS: FILE_TREE_UNSAFE_CSS,
 		composition: {
 			contextMenu: { enabled: true, triggerMode: 'both', buttonVisibility: 'when-needed' },
 		},
