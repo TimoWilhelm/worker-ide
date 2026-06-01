@@ -7,6 +7,10 @@ interface MockUseFileTreeOptions {
 			buttonVisibility?: 'always' | 'when-needed';
 		};
 	};
+	onSelectionChange?: (selectedPaths: readonly string[]) => void;
+	dragAndDrop?: {
+		canDrag?: (paths: readonly string[]) => boolean;
+	};
 }
 
 const mocks = vi.hoisted(() => {
@@ -170,5 +174,123 @@ describe('FileTree sync', () => {
 		expect(mocks.resetPaths).toHaveBeenCalledWith(['index.html', 'src/main.tsx'], {
 			initialExpandedPaths: ['src/'],
 		});
+	});
+
+	it('opens the file on a plain selection change', () => {
+		const onFileSelect = vi.fn();
+		renderWithProviders(
+			<FileTree
+				files={[]}
+				selectedFile={undefined}
+				expandedDirectories={new Set()}
+				onFileSelect={onFileSelect}
+				onDirectoryToggle={vi.fn()}
+				onMoveFile={vi.fn()}
+			/>,
+		);
+
+		const options = getUseFileTreeOptions();
+		options.onSelectionChange?.(['src/main.tsx']);
+
+		expect(onFileSelect).toHaveBeenCalledWith('/src/main.tsx');
+	});
+
+	it('does not open the file when the selection change comes from a drag pickup', () => {
+		const onFileSelect = vi.fn();
+		renderWithProviders(
+			<FileTree
+				files={[]}
+				selectedFile={undefined}
+				expandedDirectories={new Set()}
+				onFileSelect={onFileSelect}
+				onDirectoryToggle={vi.fn()}
+				onMoveFile={vi.fn()}
+			/>,
+		);
+
+		const options = getUseFileTreeOptions();
+		expect(options.dragAndDrop?.canDrag?.(['src/main.tsx'])).toBe(true);
+		options.onSelectionChange?.(['src/main.tsx']);
+
+		expect(onFileSelect).not.toHaveBeenCalled();
+
+		// The suppression is one-shot: the next plain selection opens normally.
+		options.onSelectionChange?.(['src/other.tsx']);
+		expect(onFileSelect).toHaveBeenCalledExactlyOnceWith('/src/other.tsx');
+	});
+
+	it('restores the model selection to the open file after a drag pickup', async () => {
+		const deselect = vi.fn();
+		const select = vi.fn();
+		// The model has the dragged row selected after pickup; the open file is
+		// '/src/open.tsx'.
+		mocks.getSelectedPaths.mockReturnValue(['src/dragged.tsx']);
+		mocks.getItem.mockImplementation((path: string) => ({
+			deselect: path === 'src/dragged.tsx' ? deselect : vi.fn(),
+			select: path === 'src/open.tsx' ? select : vi.fn(),
+		}));
+
+		renderWithProviders(
+			<FileTree
+				files={[]}
+				selectedFile="/src/open.tsx"
+				expandedDirectories={new Set()}
+				onFileSelect={vi.fn()}
+				onDirectoryToggle={vi.fn()}
+				onMoveFile={vi.fn()}
+			/>,
+		);
+
+		// Ignore the initial mount sync; only assert on the post-drag restore.
+		deselect.mockClear();
+		select.mockClear();
+
+		const options = getUseFileTreeOptions();
+		options.dragAndDrop?.canDrag?.(['src/dragged.tsx']);
+		options.onSelectionChange?.(['src/dragged.tsx']);
+
+		await Promise.resolve();
+
+		expect(deselect).toHaveBeenCalledTimes(1);
+		expect(select).toHaveBeenCalledTimes(1);
+	});
+
+	it('vibrates on drag pickup only on touch devices', () => {
+		const vibrate = vi.fn();
+		Object.defineProperty(globalThis.navigator, 'vibrate', { configurable: true, writable: true, value: vibrate });
+
+		hasFinePointer = false;
+		const { unmount } = renderWithProviders(
+			<FileTree
+				files={[]}
+				selectedFile={undefined}
+				expandedDirectories={new Set()}
+				onFileSelect={vi.fn()}
+				onDirectoryToggle={vi.fn()}
+				onMoveFile={vi.fn()}
+			/>,
+		);
+
+		getUseFileTreeOptions().dragAndDrop?.canDrag?.(['src/main.tsx']);
+		expect(vibrate).toHaveBeenCalledWith(15);
+
+		unmount();
+		vibrate.mockClear();
+		mocks.useFileTree.mockClear();
+
+		hasFinePointer = true;
+		renderWithProviders(
+			<FileTree
+				files={[]}
+				selectedFile={undefined}
+				expandedDirectories={new Set()}
+				onFileSelect={vi.fn()}
+				onDirectoryToggle={vi.fn()}
+				onMoveFile={vi.fn()}
+			/>,
+		);
+
+		getUseFileTreeOptions().dragAndDrop?.canDrag?.(['src/main.tsx']);
+		expect(vibrate).not.toHaveBeenCalled();
 	});
 });

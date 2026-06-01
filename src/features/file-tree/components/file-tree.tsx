@@ -186,11 +186,40 @@ function getFinePointerServerSnapshot(): boolean {
 	return false;
 }
 
+// Bring the model selection in line with the externally-opened file. The model
+// is the source of truth for the tree highlight, so we deselect any stray paths
+// and select the open file. Scrolling is opt-in because revealing the row is
+// only wanted for genuine navigation, not for background re-syncs (e.g. while a
+// drag is in progress).
+function syncModelSelection(
+	model: ReturnType<typeof useTreesModel>['model'],
+	selectedFile: string | undefined,
+	options: { scroll: boolean },
+): void {
+	const treePath = selectedFile?.replace(/^\/+/, '');
+	for (const path of model.getSelectedPaths()) {
+		if (path !== treePath) model.getItem(path)?.deselect();
+	}
+	if (!treePath) return;
+	if (model.getSelectedPaths().includes(treePath)) return;
+	const item = model.getItem(treePath);
+	if (!item) return;
+	item.select();
+	if (options.scroll) model.scrollToPath(treePath, { offset: 'nearest' });
+}
+
 export function FileTree(properties: FileTreeProperties) {
 	const hasFinePointer = useSyncExternalStore(subscribeToFinePointer, getFinePointerSnapshot, getFinePointerServerSnapshot);
 	const contextMenuButtonVisibility = hasFinePointer ? 'when-needed' : 'always';
 
-	return <FileTreeContent key={contextMenuButtonVisibility} {...properties} contextMenuButtonVisibility={contextMenuButtonVisibility} />;
+	return (
+		<FileTreeContent
+			key={contextMenuButtonVisibility}
+			{...properties}
+			hasFinePointer={hasFinePointer}
+			contextMenuButtonVisibility={contextMenuButtonVisibility}
+		/>
+	);
 }
 
 function FileTreeContent({
@@ -207,8 +236,9 @@ function FileTreeContent({
 	participants = [],
 	gitStatusMap,
 	className,
+	hasFinePointer,
 	contextMenuButtonVisibility,
-}: FileTreeProperties & { contextMenuButtonVisibility: 'always' | 'when-needed' }) {
+}: FileTreeProperties & { hasFinePointer: boolean; contextMenuButtonVisibility: 'always' | 'when-needed' }) {
 	const treeLabelId = useId();
 
 	// Stable references so option callbacks always see the latest props without
@@ -217,6 +247,28 @@ function FileTreeContent({
 	useEffect(() => {
 		callbacks.current = { onFileSelect, onDirectoryToggle, onRenameFile, onMoveFile };
 	}, [onFileSelect, onDirectoryToggle, onRenameFile, onMoveFile]);
+
+	// Picking a file up for drag (long-press on touch, or native drag start)
+	// changes the model selection, which would otherwise be treated as "open
+	// this file". canDrag runs synchronously inside the same startDrag() call
+	// that emits the selection change, so this flag is always set immediately
+	// before onSelectionChange consumes it.
+	const selectionFromDragPickupReference = useRef(false);
+
+	// Selection changes we drive ourselves (keeping the model in sync with the
+	// open file) must never be reported back as "open this file".
+	const isProgrammaticSelectionReference = useRef(false);
+	const selectedFileReference = useRef(selectedFile);
+	const modelReference = useRef<ReturnType<typeof useTreesModel>['model'] | undefined>(undefined);
+
+	const runProgrammaticSelection = useCallback((run: () => void) => {
+		isProgrammaticSelectionReference.current = true;
+		try {
+			run();
+		} finally {
+			isProgrammaticSelectionReference.current = false;
+		}
+	}, []);
 
 	// renderRowDecoration is captured once at model creation, so it reads the
 	// per-file presence icons from a ref. The presence effect below rebuilds the
@@ -253,6 +305,20 @@ function FileTreeContent({
 		},
 		gitStatus: buildGitStatus(files, gitStatusMap),
 		onSelectionChange: (selectedPaths) => {
+			if (isProgrammaticSelectionReference.current) return;
+			if (selectionFromDragPickupReference.current) {
+				selectionFromDragPickupReference.current = false;
+				// A drag pickup forces the model selection onto the dragged row.
+				// Restore it to the open file (after this emit, to avoid re-entrant
+				// selection mutations) so the highlight keeps matching the editor and
+				// a later click on the dragged row still emits a selection change.
+				globalThis.queueMicrotask(() => {
+					const model = modelReference.current;
+					if (!model) return;
+					runProgrammaticSelection(() => syncModelSelection(model, selectedFileReference.current, { scroll: false }));
+				});
+				return;
+			}
 			const path = selectedPaths.at(-1);
 			if (!path || path.endsWith('/')) return;
 			callbacks.current.onFileSelect(toStorePath(path));
@@ -267,7 +333,15 @@ function FileTreeContent({
 			: undefined,
 		dragAndDrop: onMoveFile
 			? {
-					canDrag: (paths) => paths.every((path) => !isProtectedTreePath(path)),
+					canDrag: (paths) => {
+						if (!paths.every((path) => !isProtectedTreePath(path))) return false;
+						// A drag pickup will emit a selection change; mark it so
+						// onSelectionChange does not treat it as opening the file.
+						selectionFromDragPickupReference.current = true;
+						// Confirm the pickup with a short haptic pulse on touch devices.
+						if (!hasFinePointer) globalThis.navigator?.vibrate?.(15);
+						return true;
+					},
 					onDropComplete: ({ draggedPaths, target }) => {
 						const directory = target.directoryPath;
 						for (const dragged of draggedPaths) {
@@ -305,22 +379,21 @@ function FileTreeContent({
 		}
 	}, [expandedDirectories, model]);
 
+	// Expose the model and latest open file to the (one-shot) option callbacks,
+	// which are created before the model exists and must read fresh values.
+	useEffect(() => {
+		modelReference.current = model;
+	}, [model]);
+	useEffect(() => {
+		selectedFileReference.current = selectedFile;
+	}, [selectedFile]);
+
 	// Keep the model selection in sync with externally-driven file selection
 	// (e.g. switching tabs, agent navigation). Deselect any stale paths so the
 	// tree highlight always matches the currently opened file.
 	useEffect(() => {
-		const treePath = selectedFile?.replace(/^\/+/, '');
-		for (const path of model.getSelectedPaths()) {
-			if (path !== treePath) model.getItem(path)?.deselect();
-		}
-		if (!treePath) return;
-		if (model.getSelectedPaths().includes(treePath)) return;
-		const item = model.getItem(treePath);
-		if (item) {
-			item.select();
-			model.scrollToPath(treePath, { offset: 'nearest' });
-		}
-	}, [selectedFile, model]);
+		runProgrammaticSelection(() => syncModelSelection(model, selectedFile, { scroll: true }));
+	}, [selectedFile, model, runProgrammaticSelection]);
 
 	// Rebuild the tree paths whenever the underlying file list changes. Skip the
 	// initial render since the model already mounts with the prepared input and
