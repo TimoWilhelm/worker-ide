@@ -7,7 +7,7 @@ import {
 } from '@pierre/trees';
 import { FileTree as TreesFileTree, useFileTree as useTreesModel, useFileTreeSearch } from '@pierre/trees/react';
 import { FilePlus, FolderPlus, Pencil, Search, Trash2, X } from 'lucide-react';
-import { useCallback, useEffect, useId, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 
 import { cn } from '@/lib/utils';
@@ -164,16 +164,36 @@ const TREE_THEME_STYLE: Record<string, string> = {
 	'--trees-theme-git-ignored-fg': 'var(--color-text-secondary)',
 };
 
-const FILE_TREE_UNSAFE_CSS = `
-	@media not all and (hover: hover) and (pointer: fine) {
-		[data-type='context-menu-anchor'][data-visible='true'] > [data-type='context-menu-trigger'][data-visible='true'] {
-			opacity: 1 !important;
-			pointer-events: auto !important;
-		}
-	}
-`;
+const FINE_POINTER_MEDIA_QUERY = '(hover: hover) and (pointer: fine)';
 
-export function FileTree({
+function getFinePointerMediaQueryList(): MediaQueryList | undefined {
+	if (typeof globalThis.matchMedia !== 'function') return undefined;
+	return globalThis.matchMedia(FINE_POINTER_MEDIA_QUERY);
+}
+
+function subscribeToFinePointer(callback: () => void): () => void {
+	const mediaQueryList = getFinePointerMediaQueryList();
+	if (!mediaQueryList) return () => {};
+	mediaQueryList.addEventListener('change', callback);
+	return () => mediaQueryList.removeEventListener('change', callback);
+}
+
+function getFinePointerSnapshot(): boolean {
+	return getFinePointerMediaQueryList()?.matches ?? false;
+}
+
+function getFinePointerServerSnapshot(): boolean {
+	return false;
+}
+
+export function FileTree(properties: FileTreeProperties) {
+	const hasFinePointer = useSyncExternalStore(subscribeToFinePointer, getFinePointerSnapshot, getFinePointerServerSnapshot);
+	const contextMenuButtonVisibility = hasFinePointer ? 'when-needed' : 'always';
+
+	return <FileTreeContent key={contextMenuButtonVisibility} {...properties} contextMenuButtonVisibility={contextMenuButtonVisibility} />;
+}
+
+function FileTreeContent({
 	files,
 	selectedFile,
 	expandedDirectories,
@@ -187,7 +207,8 @@ export function FileTree({
 	participants = [],
 	gitStatusMap,
 	className,
-}: FileTreeProperties) {
+	contextMenuButtonVisibility,
+}: FileTreeProperties & { contextMenuButtonVisibility: 'always' | 'when-needed' }) {
 	const treeLabelId = useId();
 
 	// Stable references so option callbacks always see the latest props without
@@ -227,9 +248,8 @@ export function FileTree({
 		density: 'compact',
 		icons: 'standard',
 		stickyFolders: true,
-		unsafeCSS: FILE_TREE_UNSAFE_CSS,
 		composition: {
-			contextMenu: { enabled: true, triggerMode: 'both', buttonVisibility: 'when-needed' },
+			contextMenu: { enabled: true, triggerMode: 'both', buttonVisibility: contextMenuButtonVisibility },
 		},
 		gitStatus: buildGitStatus(files, gitStatusMap),
 		onSelectionChange: (selectedPaths) => {

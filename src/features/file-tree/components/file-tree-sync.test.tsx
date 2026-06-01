@@ -1,5 +1,13 @@
 import { render } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+interface MockUseFileTreeOptions {
+	composition?: {
+		contextMenu?: {
+			buttonVisibility?: 'always' | 'when-needed';
+		};
+	};
+}
 
 const mocks = vi.hoisted(() => {
 	const resetPaths = vi.fn();
@@ -19,6 +27,17 @@ const mocks = vi.hoisted(() => {
 		focusNextMatch: vi.fn(),
 		focusPreviousMatch: vi.fn(),
 	};
+	const useFileTree = vi.fn((_options: MockUseFileTreeOptions) => ({
+		model: {
+			resetPaths,
+			setGitStatus,
+			setIcons,
+			scrollToPath,
+			getSelectedPaths,
+			getFocusedPath,
+			getItem,
+		},
+	}));
 
 	return {
 		resetPaths,
@@ -29,6 +48,7 @@ const mocks = vi.hoisted(() => {
 		getFocusedPath,
 		getItem,
 		onSelectionChangeValues,
+		useFileTree,
 	};
 });
 
@@ -38,17 +58,7 @@ vi.mock('@pierre/trees', () => ({
 
 vi.mock('@pierre/trees/react', () => ({
 	FileTree: ({ className }: { className?: string }) => <div data-testid="mock-tree" className={className} />,
-	useFileTree: () => ({
-		model: {
-			resetPaths: mocks.resetPaths,
-			setGitStatus: mocks.setGitStatus,
-			setIcons: mocks.setIcons,
-			scrollToPath: mocks.scrollToPath,
-			getSelectedPaths: mocks.getSelectedPaths,
-			getFocusedPath: mocks.getFocusedPath,
-			getItem: mocks.getItem,
-		},
-	}),
+	useFileTree: mocks.useFileTree,
 	useFileTreeSearch: () => mocks.onSelectionChangeValues,
 }));
 
@@ -58,11 +68,72 @@ import { FileTree } from './file-tree';
 
 import type { FileInfo } from '@shared/types';
 
+const FINE_POINTER_MEDIA_QUERY = '(hover: hover) and (pointer: fine)';
+const originalMatchMedia = globalThis.matchMedia;
+let hasFinePointer = true;
+
 function renderWithProviders(ui: React.ReactElement) {
 	return render(<TooltipProvider>{ui}</TooltipProvider>);
 }
 
+function getUseFileTreeOptions(): MockUseFileTreeOptions {
+	expect(mocks.useFileTree).toHaveBeenCalled();
+	const firstCall = mocks.useFileTree.mock.calls[0];
+	if (!firstCall) {
+		throw new Error('Expected useFileTree to be called');
+	}
+	const [options] = firstCall;
+	return options;
+}
+
+beforeEach(() => {
+	hasFinePointer = true;
+	vi.clearAllMocks();
+	Object.defineProperty(globalThis, 'matchMedia', {
+		configurable: true,
+		writable: true,
+		value: vi.fn((query: string) => ({
+			matches: query === FINE_POINTER_MEDIA_QUERY ? hasFinePointer : false,
+			media: query,
+			onchange: undefined,
+			addEventListener: vi.fn(),
+			removeEventListener: vi.fn(),
+			addListener: vi.fn(),
+			removeListener: vi.fn(),
+			dispatchEvent: vi.fn(() => false),
+		})),
+	});
+});
+
+afterEach(() => {
+	Object.defineProperty(globalThis, 'matchMedia', {
+		configurable: true,
+		writable: true,
+		value: originalMatchMedia,
+	});
+});
+
 describe('FileTree sync', () => {
+	it('uses always-visible context menu buttons without a fine pointer', () => {
+		hasFinePointer = false;
+
+		renderWithProviders(
+			<FileTree files={[]} selectedFile={undefined} expandedDirectories={new Set()} onFileSelect={vi.fn()} onDirectoryToggle={vi.fn()} />,
+		);
+
+		const options = getUseFileTreeOptions();
+		expect(options.composition?.contextMenu?.buttonVisibility).toBe('always');
+	});
+
+	it('uses when-needed context menu buttons with a fine pointer', () => {
+		renderWithProviders(
+			<FileTree files={[]} selectedFile={undefined} expandedDirectories={new Set()} onFileSelect={vi.fn()} onDirectoryToggle={vi.fn()} />,
+		);
+
+		const options = getUseFileTreeOptions();
+		expect(options.composition?.contextMenu?.buttonVisibility).toBe('when-needed');
+	});
+
 	it('resets the model when files arrive after the initial empty render', () => {
 		const onFileSelect = vi.fn();
 		const onDirectoryToggle = vi.fn();
