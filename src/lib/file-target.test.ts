@@ -18,12 +18,11 @@ describe('openFileTarget', () => {
 		const goToFilePosition = vi.fn();
 		const openFile = vi.fn();
 		const setActiveSidebarView = vi.fn();
-		const setSelectedFile = vi.fn();
 
 		openFileTarget(
 			{ path: '/src/features/agent/components/file-reference.tsx' },
 			[{ path: '/src/features/agent/components/file-reference.tsx' }],
-			{ expandDirectory, goToFilePosition, openFile, setActiveSidebarView, setSelectedFile },
+			{ expandDirectory, goToFilePosition, openFile, setActiveSidebarView },
 		);
 
 		expect(setActiveSidebarView).toHaveBeenCalledWith('explorer');
@@ -31,7 +30,6 @@ describe('openFileTarget', () => {
 		expect(expandDirectory).toHaveBeenNthCalledWith(2, '/src/features');
 		expect(expandDirectory).toHaveBeenNthCalledWith(3, '/src/features/agent');
 		expect(expandDirectory).toHaveBeenNthCalledWith(4, '/src/features/agent/components');
-		expect(setSelectedFile).toHaveBeenCalledWith('/src/features/agent/components/file-reference.tsx');
 		expect(openFile).toHaveBeenCalledWith('/src/features/agent/components/file-reference.tsx');
 		expect(goToFilePosition).not.toHaveBeenCalled();
 	});
@@ -41,17 +39,14 @@ describe('openFileTarget', () => {
 		const goToFilePosition = vi.fn();
 		const openFile = vi.fn();
 		const setActiveSidebarView = vi.fn();
-		const setSelectedFile = vi.fn();
 
 		openFileTarget({ path: 'src/main.ts', position: { line: 10, column: 5 } }, [{ path: '/src/main.ts' }], {
 			expandDirectory,
 			goToFilePosition,
 			openFile,
 			setActiveSidebarView,
-			setSelectedFile,
 		});
 
-		expect(setSelectedFile).toHaveBeenCalledWith('/src/main.ts');
 		expect(goToFilePosition).toHaveBeenCalledWith('/src/main.ts', { line: 10, column: 5 });
 		expect(openFile).not.toHaveBeenCalled();
 	});

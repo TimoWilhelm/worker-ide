@@ -22,16 +22,7 @@ export function useFileTree({ projectId, enabled = true }: UseFileTreeOptions) {
 	const api = createApiClient(projectId);
 
 	// Store state
-	const {
-		setFiles,
-		setSelectedFile,
-		toggleDirectory,
-		openFile,
-		setLoading,
-		files,
-		selectedFile,
-		expandedDirs: expandedDirectories,
-	} = useStore();
+	const { setFiles, toggleDirectory, openFile, setLoading, files, activeFile, expandedDirs: expandedDirectories } = useStore();
 
 	// Query for fetching files
 	const query = useQuery({
@@ -80,7 +71,6 @@ export function useFileTree({ projectId, enabled = true }: UseFileTreeOptions) {
 					[...previous, { path: variables.path, name: variables.path.split('/').pop() ?? '', isDirectory: false }],
 				);
 			}
-			setSelectedFile(variables.path);
 			openFile(variables.path);
 			return { previous };
 		},
@@ -160,9 +150,9 @@ export function useFileTree({ projectId, enabled = true }: UseFileTreeOptions) {
 					}),
 				);
 			}
-			// If the renamed file was selected, update the selection
-			if (selectedFile === variables.fromPath) {
-				setSelectedFile(variables.toPath);
+			// If the renamed file was open, re-open it under its new path so the
+			// editor tab and tree selection follow the rename.
+			if (activeFile === variables.fromPath) {
 				openFile(variables.toPath);
 			}
 			return { previous };
@@ -213,16 +203,16 @@ export function useFileTree({ projectId, enabled = true }: UseFileTreeOptions) {
 		},
 	});
 
-	// Select a file and open it in the editor
+	// Select a file and open it in the editor. The active file is the single
+	// source of truth for both the editor and the tree selection.
 	const selectFile = (path: string) => {
-		setSelectedFile(path);
 		openFile(path);
 	};
 
 	return {
 		// State
 		files,
-		selectedFile,
+		selectedFile: activeFile,
 		expandedDirectories,
 		isLoading: query.isLoading,
 		isError: query.isError,

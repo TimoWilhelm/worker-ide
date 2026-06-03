@@ -12,7 +12,6 @@ beforeEach(() => {
 		fileScrollPositions: new Map(),
 		fileCursorPositions: new Map(),
 		files: [],
-		selectedFile: undefined,
 		expandedDirs: new Set(),
 		isLoading: false,
 		history: [],
@@ -89,6 +88,18 @@ describe('Editor slice', () => {
 		useStore.getState().closeFile('/src/a.ts');
 
 		expect(useStore.getState().activeFile).toBeUndefined();
+	});
+
+	it('clears the active file (tree selection) when closing all files', () => {
+		useStore.getState().openFile('/src/a.ts');
+		useStore.getState().openFile('/src/b.ts');
+
+		useStore.getState().closeAllFiles();
+
+		// activeFile is the single source of truth for the tree selection, so
+		// closing every tab must leave nothing selected.
+		expect(useStore.getState().activeFile).toBeUndefined();
+		expect(useStore.getState().openFiles).toEqual([]);
 	});
 
 	it('sets cursor position', () => {
@@ -209,9 +220,9 @@ describe('File Tree slice', () => {
 		expect(useStore.getState().expandedDirs.has('/src')).toBe(false);
 	});
 
-	it('sets selected file', () => {
-		useStore.getState().setSelectedFile('/src/main.ts');
-		expect(useStore.getState().selectedFile).toBe('/src/main.ts');
+	it('uses the active file as the tree selection source of truth', () => {
+		useStore.getState().openFile('/src/main.ts');
+		expect(useStore.getState().activeFile).toBe('/src/main.ts');
 	});
 });
 

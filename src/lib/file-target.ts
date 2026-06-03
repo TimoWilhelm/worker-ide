@@ -12,7 +12,6 @@ interface FileTargetActions {
 	goToFilePosition: (path: string, position: FileTargetPosition) => void;
 	openFile: (path: string) => void;
 	setActiveSidebarView: (view: SidebarView) => void;
-	setSelectedFile: (path: string | undefined) => void;
 }
 
 export interface FileTargetPosition {
@@ -53,8 +52,9 @@ export function openFileTarget(target: FileTarget, files: readonly FileLike[], a
 	for (const directoryPath of getFileTargetParentDirectories(resolvedPath)) {
 		actions.expandDirectory(directoryPath);
 	}
-	actions.setSelectedFile(resolvedPath);
 
+	// Both goToFilePosition and openFile set the active file, which is the
+	// single source of truth for the editor and the tree selection.
 	if (target.position) {
 		actions.goToFilePosition(resolvedPath, target.position);
 		return;
@@ -69,12 +69,11 @@ export function useFileTargetOpener(): (target: FileTarget) => void {
 	const goToFilePosition = useStore((state) => state.goToFilePosition);
 	const openFile = useStore((state) => state.openFile);
 	const setActiveSidebarView = useStore((state) => state.setActiveSidebarView);
-	const setSelectedFile = useStore((state) => state.setSelectedFile);
 
 	return useCallback(
 		(target: FileTarget) => {
-			openFileTarget(target, files, { expandDirectory, goToFilePosition, openFile, setActiveSidebarView, setSelectedFile });
+			openFileTarget(target, files, { expandDirectory, goToFilePosition, openFile, setActiveSidebarView });
 		},
-		[expandDirectory, files, goToFilePosition, openFile, setActiveSidebarView, setSelectedFile],
+		[expandDirectory, files, goToFilePosition, openFile, setActiveSidebarView],
 	);
 }

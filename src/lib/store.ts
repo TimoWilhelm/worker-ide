@@ -42,14 +42,12 @@ interface EditorActions {
 
 interface FileTreeState {
 	files: FileInfo[];
-	selectedFile: string | undefined;
 	expandedDirs: Set<string>;
 	isLoading: boolean;
 }
 
 interface FileTreeActions {
 	setFiles: (files: FileInfo[]) => void;
-	setSelectedFile: (path: string | undefined) => void;
 	toggleDirectory: (path: string) => void;
 	expandDirectory: (path: string) => void;
 	collapseDirectory: (path: string) => void;
@@ -369,13 +367,10 @@ export const useStore = create<StoreState>()(
 			// File Tree State & Actions
 			// =============================================================================
 			files: [],
-			selectedFile: undefined,
 			expandedDirs: new Set(['/src', '/worker']),
 			isLoading: true,
 
 			setFiles: (files) => set({ files, isLoading: false }),
-
-			setSelectedFile: (path) => set({ selectedFile: path }),
 
 			toggleDirectory: (path) =>
 				set((state) => {

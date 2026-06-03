@@ -71,4 +71,22 @@ test.describe('File Tree', () => {
 		// The index.html tab should be selected
 		await expect(page.getByRole('tab', { name: /index\.html/i })).toHaveAttribute('aria-selected', 'true');
 	});
+
+	test('re-opens a file after its tab was closed', async ({ page }) => {
+		await gotoIDE(page);
+		await waitForFileTree(page);
+
+		// Open index.html — the tree selection follows the active file.
+		await page.getByRole('treeitem', { name: 'index.html' }).click();
+		const tab = page.getByRole('tab', { name: /index\.html/i });
+		await expect(tab).toBeVisible();
+
+		// Close the tab. The active file (and therefore the tree selection) clears.
+		await tab.getByRole('button', { name: /close/i }).click();
+		await expect(tab).not.toBeVisible();
+
+		// Clicking the row again must re-open the file.
+		await page.getByRole('treeitem', { name: 'index.html' }).click();
+		await expect(page.getByRole('tab', { name: /index\.html/i })).toBeVisible();
+	});
 });

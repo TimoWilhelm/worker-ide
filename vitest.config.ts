@@ -71,6 +71,7 @@ export default defineConfig({
 									AgentRunner: 'AgentRunner',
 									ProjectCoordinatorV2: 'ProjectCoordinatorV2',
 									SubAgentWorker: 'SubAgentWorker',
+									DurableObjectFilesystem: 'DurableObjectFilesystem',
 								},
 							},
 							wrangler: {
