@@ -17,7 +17,17 @@ export class McpClientManager {
 		}
 
 		const client = new Client({ name: 'worker-ide-agent', version: '1.0.0' });
-		const transport = new StreamableHTTPClientTransport(new URL(serverConfig.endpoint));
+		const transport = new StreamableHTTPClientTransport(new URL(serverConfig.endpoint), {
+			// Enable resumable SSE streams so an in-flight tool call survives a
+			// dropped connection: the transport reconnects with a Last-Event-ID
+			// header and replays missed events instead of failing the call.
+			reconnectionOptions: {
+				initialReconnectionDelay: 1000,
+				maxReconnectionDelay: 30_000,
+				reconnectionDelayGrowFactor: 1.5,
+				maxRetries: 2,
+			},
+		});
 		await client.connect(transport);
 
 		this.clients.set(serverId, client);

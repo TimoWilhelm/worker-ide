@@ -86,6 +86,12 @@ export interface ToolExecutorContext {
 	mode: 'code' | 'plan' | 'ask';
 	sessionId?: string;
 	userId?: string;
+	/**
+	 * The current tool call's ID (supplied by the AI SDK at execute time).
+	 * Used for deterministic sub-resource naming so durable work can be
+	 * re-attached rather than re-run after a Durable Object restart.
+	 */
+	toolCallId?: string;
 	session?: Session;
 	abortSignal?: AbortSignal;
 	callMcpTool: (serverId: string, toolName: string, arguments_: Record<string, unknown>) => Promise<string>;

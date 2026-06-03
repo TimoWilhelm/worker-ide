@@ -66,7 +66,16 @@ export async function execute(
 	});
 
 	sendEvent('status', { message: 'Delegating task to sub-agent...' });
-	const subAgent = await context.agentReference.subAgent(SubAgentWorker, `sub-agent-${crypto.randomUUID().slice(0, 8)}`);
+	// Use a deterministic name keyed off the parent tool call so that if the
+	// parent run is recovered after a Durable Object restart, the re-executed
+	// tool call re-attaches to the same sub-agent and returns its cached result
+	// instead of redoing the work. Falls back to a random name when no
+	// toolCallId is available (e.g. tests).
+	const subAgentName =
+		context.toolCallId && context.sessionId
+			? `sub-agent-${context.sessionId}-${context.toolCallId}`
+			: `sub-agent-${crypto.randomUUID().slice(0, 8)}`;
+	const subAgent = await context.agentReference.subAgent(SubAgentWorker, subAgentName);
 	const result = await subAgent.executeTask(context.projectId, messages, context.model, callback, context.userId, context.organizationId);
 	const artifactEntry = buildSubAgentArtifactEntry({
 		sessionId: context.sessionId,
@@ -101,6 +110,14 @@ function handleSubAgentEvent(event: StreamEvent, sendEvent: SendEventFunction, q
 	switch (event.type) {
 		case 'text-delta': {
 			forwardActivity(sendEvent, { kind: 'text-delta', delta: event.delta });
+			break;
+		}
+		case 'reasoning-delta': {
+			// Forwarded purely as a keep-alive so the parent run's stream stall
+			// timer does not trip while a sub-agent is in an extended reasoning
+			// phase (which otherwise emits no parent-visible events). Not rendered
+			// as output text.
+			forwardActivity(sendEvent, { kind: 'reasoning-delta', delta: event.delta });
 			break;
 		}
 		case 'tool-call-start': {

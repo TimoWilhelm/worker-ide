@@ -283,11 +283,15 @@ export async function createServerTools(
 			// for tool call validation and repair. Using parameters causes the
 			// validate function to be ignored entirely.
 			inputSchema: schema,
-			execute: async (input: Record<string, string>) => {
+			execute: async (input: Record<string, string>, executeOptions?: { toolCallId?: string }) => {
 				// Bail out immediately if the agent was cancelled
 				if (context.abortSignal?.aborted) {
 					throw new DOMException('Aborted', 'AbortError');
 				}
+
+				// Per-call context carrying the AI SDK's toolCallId so durable
+				// sub-resources can use deterministic, recovery-stable names.
+				const callContext: ToolExecutorContext = { ...context, toolCallId: executeOptions?.toolCallId };
 
 				// Defense-in-depth: reject editing tools in non-code modes
 				if (mode !== 'code' && EDITING_TOOL_NAMES.has(toolName)) {
@@ -307,7 +311,7 @@ export async function createServerTools(
 				const timer = logger?.startTimer();
 
 				try {
-					const result = await executor(input, sendEvent, context, queryChanges);
+					const result = await executor(input, sendEvent, callContext, queryChanges);
 
 					logger?.info(
 						'tool_call',

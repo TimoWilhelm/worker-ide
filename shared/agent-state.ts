@@ -53,6 +53,12 @@ export interface AgentSessionState {
 	subAgentActivities: Record<string, SubAgentActivityRecord>;
 	contextBlocksSummary?: Record<string, { description?: string; available?: boolean }>;
 	extensions?: Array<{ name: string; description?: string; toolCount: number }>;
+	/**
+	 * True while a run is being recovered after a Durable Object restart (fiber
+	 * recovery) and has not yet produced its first stream event. Lets the UI
+	 * show a "recovering" affordance instead of appearing frozen.
+	 */
+	isRecovering?: boolean;
 }
 
 export interface SessionSummary {
@@ -223,6 +229,7 @@ export type SubAgentActivity =
 	| { kind: 'tool-end'; toolName: string; isError?: boolean }
 	| { kind: 'tool-metadata'; toolName: string; title: string; metadata: Record<string, unknown> }
 	| { kind: 'text-delta'; delta: string }
+	| { kind: 'reasoning-delta'; delta: string }
 	| { kind: 'debug-log'; debugLogId: string };
 export interface SubAgentActivityRecord {
 	tools: SubAgentToolEntry[];

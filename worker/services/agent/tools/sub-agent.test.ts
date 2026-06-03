@@ -87,4 +87,29 @@ describe('sub_agent', () => {
 		expect(sendEvent.calls.some(([type, payload]) => type === 'sub_agent_activity' && payload.activity.kind === 'text-delta')).toBe(true);
 		expect(sendEvent.calls.some(([type]) => type === 'file_changed')).toBe(true);
 	}, 15_000);
+
+	it('uses a deterministic sub-agent name keyed off the tool call for recovery re-attach', async () => {
+		const sendEvent = createMockSendEvent();
+		const executeTask = vi.fn(async () => ({ text: 'done', iterations: 1, debugLogId: undefined }));
+		const agentReference = { subAgent: vi.fn(async () => ({ executeTask })) };
+		const context = createMockContext({ sessionId: 'sess-1', toolCallId: 'call-abc' });
+		Object.defineProperty(context, 'agentReference', { value: agentReference, configurable: true, writable: true });
+
+		await execute({ prompt: 'Do the thing' }, sendEvent, context, []);
+
+		expect(agentReference.subAgent).toHaveBeenCalledWith(expect.anything(), 'sub-agent-sess-1-call-abc');
+	}, 15_000);
+
+	it('falls back to a random sub-agent name when no tool call id is available', async () => {
+		const sendEvent = createMockSendEvent();
+		const executeTask = vi.fn(async () => ({ text: 'done', iterations: 1, debugLogId: undefined }));
+		const agentReference = { subAgent: vi.fn(async () => ({ executeTask })) };
+		const context = createMockContext({ sessionId: 'sess-1', toolCallId: undefined });
+		Object.defineProperty(context, 'agentReference', { value: agentReference, configurable: true, writable: true });
+
+		await execute({ prompt: 'Do the thing' }, sendEvent, context, []);
+
+		const firstCall = agentReference.subAgent.mock.calls[0];
+		expect(firstCall?.[1]).toMatch(/^sub-agent-[\da-f]{8}$/);
+	}, 15_000);
 });

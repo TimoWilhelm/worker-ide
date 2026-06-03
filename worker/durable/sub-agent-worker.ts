@@ -13,6 +13,12 @@ import type { ChatMessage } from '@shared/types';
 
 export interface SubAgentState {
 	status: 'idle' | 'running' | 'completed' | 'error';
+	/**
+	 * Cached result of the last completed task. Lets a recovered parent run
+	 * re-attach to this sub-agent (same deterministic name) and retrieve the
+	 * result instead of re-running the delegated work.
+	 */
+	result?: SubAgentResult;
 }
 
 export interface SubAgentResult {
@@ -42,7 +48,14 @@ export class SubAgentWorker extends Agent<Env, SubAgentState> {
 		userId?: string,
 		organizationId?: string,
 	): Promise<SubAgentResult> {
-		this.setState({ status: 'running' });
+		// Re-attach: if this sub-agent already completed (parent run was recovered
+		// and re-issued the same deterministic call), return the cached result
+		// instead of redoing the delegated work.
+		if (this.state.status === 'completed' && this.state.result) {
+			return this.state.result;
+		}
+
+		this.setState({ status: 'running', result: undefined });
 		this.abortController = new AbortController();
 
 		const fsId = toDurableObjectId(filesystemNamespace, projectId);
@@ -80,13 +93,14 @@ export class SubAgentWorker extends Agent<Env, SubAgentState> {
 				}
 			}
 
-			this.setState({ status: 'completed' });
-			await service.flushLogger().catch(() => {});
-			return {
+			const completedResult: SubAgentResult = {
 				text: lastAssistantText.trim() || '(Sub-agent completed without producing text output)',
 				iterations,
 				debugLogId: service.getLogger()?.id,
 			};
+			this.setState({ status: 'completed', result: completedResult });
+			await service.flushLogger().catch(() => {});
+			return completedResult;
 		} catch (error) {
 			this.setState({ status: 'error' });
 			if (error instanceof Error && error.name === 'AbortError') {
@@ -99,7 +113,7 @@ export class SubAgentWorker extends Agent<Env, SubAgentState> {
 			throw error;
 		} finally {
 			this.abortController = undefined;
-			this.session.clearMessages();
+			await this.session.clearMessages();
 		}
 	}
 

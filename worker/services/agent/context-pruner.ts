@@ -353,6 +353,35 @@ export function microCompactMessages(
 	});
 }
 
+interface SessionTokenMessage {
+	parts?: Array<{ text?: string; reasoning?: string; input?: unknown; output?: unknown; result?: unknown }>;
+}
+
+/**
+ * Token counter for the Agents SDK Session compaction. Counts the frozen
+ * system prompt plus every message part using the same char heuristic the rest
+ * of the agent uses, so the compaction trigger and boundary stay consistent.
+ */
+export function estimateSessionTokens(messages: readonly SessionTokenMessage[], systemPrompt: string): number {
+	let total = estimateTokens(systemPrompt);
+	for (const message of messages) {
+		for (const part of message.parts ?? []) {
+			if (typeof part.text === 'string') {
+				total += estimateTokens(part.text);
+			}
+			if (typeof part.reasoning === 'string') {
+				total += estimateTokens(part.reasoning);
+			}
+			for (const value of [part.input, part.output, part.result]) {
+				if (value !== undefined && value !== null) {
+					total += estimateTokens(typeof value === 'string' ? value : JSON.stringify(value));
+				}
+			}
+		}
+	}
+	return total;
+}
+
 export function estimateMessagesTokens(messages: ModelMessage[]): number {
 	let total = 0;
 	for (const message of messages) {

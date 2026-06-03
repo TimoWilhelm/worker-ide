@@ -1,8 +1,39 @@
 import { describe, expect, it } from 'vitest';
 
-import { microCompactMessages } from './context-pruner';
+import { estimateSessionTokens, microCompactMessages } from './context-pruner';
 
 import type { ModelMessage } from 'ai';
+
+describe('estimateSessionTokens', () => {
+	it('counts the system prompt even with no messages', () => {
+		// 'a' * 40 -> ~10 tokens at 4 chars/token.
+		expect(estimateSessionTokens([], 'a'.repeat(40))).toBe(10);
+	});
+
+	it('counts text, reasoning, and tool input/output/result parts', () => {
+		const tokens = estimateSessionTokens(
+			[
+				{
+					parts: [
+						{ text: 'x'.repeat(40) },
+						{ reasoning: 'y'.repeat(40) },
+						{ input: { value: 'z'.repeat(36) } },
+						{ output: 'w'.repeat(40) },
+					],
+				},
+			],
+			'',
+		);
+		// text 10 + reasoning 10 + input (JSON ~48 chars -> 12) + output 10 = 42
+		expect(tokens).toBeGreaterThanOrEqual(40);
+	});
+
+	it('grows with more messages, so it can drive the compaction boundary', () => {
+		const small = estimateSessionTokens([{ parts: [{ text: 'hello world' }] }], '');
+		const large = estimateSessionTokens([{ parts: [{ text: 'hello world'.repeat(100) }] }], '');
+		expect(large).toBeGreaterThan(small);
+	});
+});
 
 describe('microCompactMessages', () => {
 	it('truncates older tool output while preserving recent messages', () => {

@@ -7,7 +7,7 @@ import type { AiSession, ChatMessage, MessagePart } from '@shared/types';
 interface SessionStreamStateHost {
 	getCurrentSession(): AgentSessionState | undefined;
 	updateSessionState(sessionId: string, patch: Partial<AgentSessionState>): void;
-	readSession(sessionId: string): AiSession | undefined;
+	readSession(sessionId: string): Promise<AiSession | undefined>;
 	getSessionInitiatorUserId(sessionId: string): string | undefined;
 	sendPushNotification(userId: string, sessionId: string, title: string, body: string): void;
 	recordToolCall(sessionId: string): void;
@@ -25,7 +25,7 @@ export class SessionStreamState {
 
 	constructor(private host: SessionStreamStateHost) {}
 
-	handleEvent(sessionId: string, event: StreamEvent): void {
+	async handleEvent(sessionId: string, event: StreamEvent): Promise<void> {
 		if (this.host.getCurrentSession()?.sessionId !== sessionId) {
 			return;
 		}
@@ -101,7 +101,7 @@ export class SessionStreamState {
 			case 'turn-complete': {
 				this.flushContentDelta(sessionId);
 				this.toolCallArgumentBuffers.delete(sessionId);
-				const session = this.host.readSession(sessionId);
+				const session = await this.host.readSession(sessionId);
 				if (session && this.host.getCurrentSession()?.sessionId === sessionId) {
 					this.host.updateSessionState(sessionId, {
 						messages: session.history,
@@ -219,6 +219,11 @@ export class SessionStreamState {
 				const parentId = event.parentToolCallId;
 				if (event.activity.kind === 'text-delta') {
 					this.accumulateSubAgentDelta(sessionId, parentId, event.activity.delta);
+					break;
+				}
+				if (event.activity.kind === 'reasoning-delta') {
+					// Keep-alive only (resets the parent run's stall timer upstream);
+					// sub-agent reasoning is not surfaced in the activity record.
 					break;
 				}
 				if (event.activity.kind === 'tool-start' || (event.activity.kind === 'tool-end' && !event.activity.isError)) {

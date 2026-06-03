@@ -53,7 +53,7 @@ import { trackAiUsage, trackWebSocketEvent } from '../lib/analytics';
 import { filesystemNamespace } from '../lib/durable-object-namespaces';
 import { toDurableObjectId } from '../lib/project-id';
 import { AgentService } from '../services/agent';
-import { chatMessagesToModelMessages, estimateMessagesTokens } from '../services/agent/context-pruner';
+import { chatMessagesToModelMessages, estimateMessagesTokens, estimateSessionTokens } from '../services/agent/context-pruner';
 import {
 	ARTIFACTS_CONTEXT_LABEL,
 	HISTORY_CONTEXT_LABEL,
@@ -80,6 +80,21 @@ const SESSION_COMPACTION_THRESHOLD = 100_000;
 const SESSION_COMPACTION_PROTECT_HEAD = 3;
 const SESSION_COMPACTION_TAIL_TOKEN_BUDGET = 32_000;
 const SESSION_COMPACTION_MIN_TAIL_MESSAGES = 4;
+
+/**
+ * Maximum time to wait for the next event from the model stream before
+ * treating the run as stalled. A hung provider connection would otherwise keep
+ * the loop pending forever; on stall we abort so the run ends deterministically
+ * and the durable fiber checkpoints allow the user to resume.
+ */
+const AGENT_STREAM_STALL_TIMEOUT_MS = 120_000;
+
+class AgentStreamStallError extends Error {
+	constructor() {
+		super('The model stream stalled and was aborted.');
+		this.name = 'AgentStreamStallError';
+	}
+}
 const ROOT_MEMORY_MAX_TOKENS = 2000;
 const PROJECT_ROOT = '/project';
 const MAX_SESSIONS = MAX_AI_SESSIONS_PER_PROJECT;
@@ -240,7 +255,12 @@ export class AgentRunner extends Agent<Env, AgentState> {
 				minTailMessages: SESSION_COMPACTION_MIN_TAIL_MESSAGES,
 			}),
 		)
-		.compactAfter(SESSION_COMPACTION_THRESHOLD)
+		.compactAfter(SESSION_COMPACTION_THRESHOLD, {
+			// Drive BOTH the compaction trigger and the boundary ("what to
+			// compress") decision off the same accurate char-heuristic estimate
+			// the rest of the agent uses, instead of the SDK's default estimate.
+			tokenCounter: ({ messages, systemPrompt }) => estimateSessionTokens(messages, systemPrompt),
+		})
 		.withCachedPrompt()
 		.withSearchableHistory(HISTORY_CONTEXT_LABEL);
 
@@ -718,7 +738,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		this.refreshReviewState();
 		await this.refreshSessionsList();
 		for (const sessionInfo of this.sessionManager.list()) {
-			const session = this.agentSessionStore.read(sessionInfo.id);
+			const session = await this.agentSessionStore.read(sessionInfo.id);
 			if (!session?.stopRequested) {
 				continue;
 			}
@@ -820,7 +840,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		this.updateSessionState(sessionId, {
 			status: 'running',
 			statusText: 'Starting...',
-			messages: this.getSessionHistory(sessionId),
+			messages: await this.getSessionHistory(sessionId),
 			error: undefined,
 			stopRequested: false,
 			pendingQuestion: undefined,
@@ -859,7 +879,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 				const authenticatedUserId = callerIdentity?.userId;
 
 				return this.withSessionMutationLock(resolvedSessionId, async () => {
-					const persistedSession = this.agentSessionStore.read(resolvedSessionId);
+					const persistedSession = await this.agentSessionStore.read(resolvedSessionId);
 					const persistedHistory = persistedSession?.history ?? [];
 					const duplicateMessage = messageId ? persistedHistory.find((message) => message.id === messageId) : undefined;
 					if (duplicateMessage) {
@@ -939,7 +959,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		const callerIdentity = this.getCurrentCallerIdentity();
 
 		return this.withSessionMutationLock(sessionId, async () => {
-			const session = this.agentSessionStore.read(sessionId);
+			const session = await this.agentSessionStore.read(sessionId);
 			if (!session) {
 				return { removed: false };
 			}
@@ -959,7 +979,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 
 			const nextHistory = session.history.filter((message) => message.id !== messageId);
 
-			this.sessionManager.deleteMessages(sessionId, [messageId]);
+			await this.sessionManager.deleteMessages(sessionId, [messageId]);
 			deleteSessionMessageMetadata(this.db, sessionId, [messageId]);
 			this.agentSessionStore.writeMetadata(sessionId, { stopRequested: session.stopRequested });
 			if (this.state.currentSession?.sessionId === sessionId) {
@@ -1043,7 +1063,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	async abortRun(sessionId?: string): Promise<void> {
 		if (sessionId) {
 			await this.withSessionMutationLock(sessionId, async () => {
-				const session = this.agentSessionStore.read(sessionId);
+				const session = await this.agentSessionStore.read(sessionId);
 				if (!session) {
 					return;
 				}
@@ -1069,7 +1089,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 
 		for (const [runningSessionId, controller] of this.abortControllers.entries()) {
 			await this.withSessionMutationLock(runningSessionId, async () => {
-				const session = this.agentSessionStore.read(runningSessionId);
+				const session = await this.agentSessionStore.read(runningSessionId);
 				if (session) {
 					await this.agentSessionStore.persistHistory(runningSessionId, session.history, true);
 					this.updateSessionState(runningSessionId, {
@@ -1095,7 +1115,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	 */
 	@callable()
 	async loadSession(sessionId: string): Promise<AiSession | undefined> {
-		const session = this.agentSessionStore.read(sessionId);
+		const session = await this.agentSessionStore.read(sessionId);
 		if (!session) return undefined;
 
 		// If this session is already loaded and actively running, don't overwrite
@@ -1170,7 +1190,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	@callable()
 	async revertSession(sessionId: string, messageIndex: number): Promise<{ contextTokensUsed: number }> {
 		if (messageIndex <= 0) {
-			this.sessionManager.delete(sessionId);
+			await this.sessionManager.delete(sessionId);
 			deleteSessionMetadata(this.db, sessionId);
 			this.reviewQueue.removeSession(sessionId);
 			this.refreshReviewState();
@@ -1188,16 +1208,16 @@ export class AgentRunner extends Agent<Env, AgentState> {
 
 		const sourceSession = this.sessionManager.get(sessionId);
 		if (!sourceSession) return { contextTokensUsed: 0 };
-		const sourceHistory = this.sessionManager.getHistory(sessionId);
+		const sourceHistory = await this.sessionManager.getHistory(sessionId);
 		const targetMessage = sourceHistory[messageIndex];
 		if (!targetMessage) return { contextTokensUsed: 0 };
 
 		const forkedSession = await this.sessionManager.fork(sessionId, targetMessage.id, `${sourceSession.name} (fork)`);
-		const sourceAiSession = this.agentSessionStore.read(sessionId);
+		const sourceAiSession = await this.agentSessionStore.read(sessionId);
 		const sourceMessageStateByMessageId = new Map(
 			sourceAiSession?.history.map((message) => [message.id, { authorUserId: message.authorUserId, metadata: message.metadata }]),
 		);
-		const forkedHistory = sessionMessagesToChatMessages(this.sessionManager.getHistory(forkedSession.id));
+		const forkedHistory = sessionMessagesToChatMessages(await this.sessionManager.getHistory(forkedSession.id));
 		const truncatedHistory = forkedHistory.map((message) => ({
 			...message,
 			authorUserId: sourceMessageStateByMessageId.get(message.id)?.authorUserId,
@@ -1309,7 +1329,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		this.sessionAnalytics.delete(sessionId);
 		this.titleGenerationInFlight.delete(sessionId);
 
-		this.sessionManager.delete(sessionId);
+		await this.sessionManager.delete(sessionId);
 		deleteSessionMetadata(this.db, sessionId);
 		this.reviewQueue.removeSession(sessionId);
 		this.refreshReviewState();
@@ -1478,7 +1498,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		}
 		const sessionId = context.name.slice('agent-loop:'.length);
 		const snapshot = parseFiberSnapshot(context.snapshot);
-		const session = this.agentSessionStore.read(sessionId);
+		const session = await this.agentSessionStore.read(sessionId);
 		const parameters = session
 			? buildRecoveredRunParameters(this.getProjectId(), this.projectOrganizationId, sessionId, session.history, snapshot)
 			: undefined;
@@ -1486,8 +1506,55 @@ export class AgentRunner extends Agent<Env, AgentState> {
 			return;
 		}
 
+		// Surface a recovering affordance until the resumed run emits its first
+		// event (cleared in runAgentLoopInner). Seed the persisted history so a
+		// freshly-created session state (when this isn't already the current
+		// session) doesn't render an empty chat until the first turn-complete.
+		this.updateSessionState(sessionId, {
+			isRecovering: true,
+			status: 'running',
+			statusText: 'Recovering...',
+			messages: parameters.messages,
+		});
+
 		await this.launchAgentLoop(parameters, sessionId);
 	}
+	/**
+	 * Read the next event from the model stream, aborting the run if no event
+	 * arrives within the stall timeout. This prevents a hung provider stream
+	 * from leaving the loop pending indefinitely.
+	 */
+	private async readNextStreamEvent(
+		iterator: AsyncIterator<import('@shared/agent-state').StreamEvent>,
+		abortController: AbortController,
+	): Promise<IteratorResult<import('@shared/agent-state').StreamEvent>> {
+		let stallTimer: ReturnType<typeof setTimeout> | undefined;
+		const nextPromise = iterator.next();
+		const stallPromise = new Promise<never>((_, reject) => {
+			stallTimer = setTimeout(() => {
+				abortController.abort();
+				reject(new AgentStreamStallError());
+			}, AGENT_STREAM_STALL_TIMEOUT_MS);
+		});
+
+		try {
+			return await Promise.race([nextPromise, stallPromise]);
+		} catch (error) {
+			if (error instanceof AgentStreamStallError) {
+				// The stall won the race, leaving nextPromise orphaned. Swallow its
+				// eventual settlement (it may reject once the abort propagates) and
+				// proactively close the generator so it releases its resources.
+				void Promise.resolve(nextPromise).catch(() => {});
+				void Promise.resolve(iterator.return?.()).catch(() => {});
+			}
+			throw error;
+		} finally {
+			if (stallTimer !== undefined) {
+				clearTimeout(stallTimer);
+			}
+		}
+	}
+
 	private async runAgentLoopInner(parameters: StartAgentParameters, sessionId: string): Promise<void> {
 		const projectId = parameters.projectId;
 		let finalStatus: AgentSessionStatus = 'completed';
@@ -1535,7 +1602,23 @@ export class AgentRunner extends Agent<Env, AgentState> {
 
 			logger = agentService.getLogger();
 
-			for await (const event of stream) {
+			const iterator = stream[Symbol.asyncIterator]();
+			let clearedRecovering = false;
+			while (true) {
+				const next = await this.readNextStreamEvent(iterator, abortController);
+				if (next.done) {
+					break;
+				}
+				const event = next.value;
+
+				// Clear the recovering affordance as soon as the resumed run produces output.
+				if (!clearedRecovering) {
+					clearedRecovering = true;
+					if (this.state.currentSession?.sessionId === sessionId && this.state.currentSession.isRecovering) {
+						this.updateSessionState(sessionId, { isRecovering: false });
+					}
+				}
+
 				if (event.type === 'run-error') {
 					finalStatus = 'error';
 					errorMessage = event.message || 'An unexpected error occurred during generation.';
@@ -1543,12 +1626,16 @@ export class AgentRunner extends Agent<Env, AgentState> {
 				}
 
 				// Update agent state — auto-broadcast to all useAgent subscribers
-				this.sessionStreamState.handleEvent(sessionId, event);
+				await this.sessionStreamState.handleEvent(sessionId, event);
 			}
 
 			logger?.info('session', 'stream_completed', { finalStatus, errorMessage });
 		} catch (error) {
-			if (error instanceof Error && error.name === 'AbortError') {
+			if (error instanceof AgentStreamStallError) {
+				finalStatus = 'error';
+				errorMessage = 'The model stopped responding. Please try again.';
+				logger?.error('session', 'stream_stalled', {});
+			} else if (error instanceof Error && error.name === 'AbortError') {
 				finalStatus = 'aborted';
 				logger?.info('session', 'aborted');
 			} else {
@@ -1652,7 +1739,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 			const existing = this.agentSessionStore.getMetadata(sessionId);
 			const toolMetadata = { ...existing.toolMetadata, ...sessionData.toolMetadata };
 			const toolErrors = { ...existing.toolErrors, ...sessionData.toolErrors };
-			const mergedHistory = mergeQueuedMessages(sessionData.history, this.getSessionHistory(sessionId));
+			const mergedHistory = mergeQueuedMessages(sessionData.history, await this.getSessionHistory(sessionId));
 
 			await this.agentSessionStore.replaceHistory(sessionId, mergedHistory);
 			await this.syncStateSessionParticipants(mergedHistory);
@@ -1734,7 +1821,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 
 		// Delete from DB
 		for (const id of sessionsToPrune) {
-			this.sessionManager.delete(id);
+			await this.sessionManager.delete(id);
 			deleteSessionMetadata(this.db, id);
 			this.reviewQueue.removeSession(id);
 		}
@@ -1762,21 +1849,25 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	private updateSessionState(sessionId: string, patch: Partial<AgentSessionState>): void {
 		const current = this.state.currentSession;
 		if (!current || current.sessionId !== sessionId) {
-			// Create a new session state if none exists for this ID
-			const session = this.agentSessionStore.read(sessionId);
+			// Create a new session state if none exists for this ID. Session
+			// history is loaded asynchronously elsewhere; here we only seed
+			// synchronously-available metadata and rely on the patch (and later
+			// turn-complete syncs) to fill in messages.
+			const sessionInfo = this.sessionManager.get(sessionId);
+			const metadata = this.agentSessionStore.getMetadata(sessionId);
 			const newState: AgentSessionState = {
 				sessionId,
-				title: session?.title ?? 'New session',
+				title: sessionInfo?.name ?? 'New session',
 				status: 'idle',
-				messages: session?.history ?? [],
+				messages: [],
 				statusText: undefined,
 				error: undefined,
-				contextTokensUsed: session?.contextTokensUsed ?? 0,
+				contextTokensUsed: metadata.contextTokensUsed ?? 0,
 				pendingChanges: this.loadPendingChangesFromDatabase(),
-				toolMetadata: session?.toolMetadata ?? {},
-				toolErrors: session?.toolErrors ?? {},
+				toolMetadata: metadata.toolMetadata ?? {},
+				toolErrors: metadata.toolErrors ?? {},
 				debugLogId: undefined,
-				stopRequested: session?.stopRequested ?? false,
+				stopRequested: metadata.stopRequested ?? false,
 				pendingQuestion: undefined,
 				needsContinuation: false,
 				doomLoopMessage: undefined,
@@ -1964,7 +2055,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		};
 	}
 
-	private getSessionHistory(sessionId: string): ChatMessage[] {
+	private getSessionHistory(sessionId: string): Promise<ChatMessage[]> {
 		return this.agentSessionStore.getHistory(sessionId);
 	}
 
@@ -1985,7 +2076,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		initiatorUserId: string | undefined,
 	): Promise<boolean> {
 		return this.withSessionMutationLock(sessionId, async () => {
-			const session = this.agentSessionStore.read(sessionId);
+			const session = await this.agentSessionStore.read(sessionId);
 			if (!session) {
 				return false;
 			}
