@@ -64,13 +64,7 @@ export const fileRoutes = new Hono<AppEnvironment>()
 			throw httpError(HttpErrorCode.VALIDATION_ERROR, 'This file is managed by the IDE and cannot be edited directly.');
 		}
 
-		// Ensure directory exists
-		const directory = path.slice(0, path.lastIndexOf('/'));
-		if (directory) {
-			await fs.mkdir(`${projectRoot}${directory}`, { recursive: true });
-		}
-
-		await fs.writeFile(`${projectRoot}${path}`, content);
+		await c.get('fsStub').writeFileContent(path, content);
 
 		try {
 			const agentStub = agentRunnerNamespace.getByName(`agent:${projectId}`);

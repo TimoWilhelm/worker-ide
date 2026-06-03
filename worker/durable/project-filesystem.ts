@@ -41,6 +41,42 @@ export class ProjectFilesystem extends DurableObjectFilesystem {
 	}
 
 	// =========================================================================
+	// File writes
+	// =========================================================================
+
+	async writeFileContent(path: string, content: string): Promise<void> {
+		await this.writeFileContentInternal(path, content);
+	}
+
+	async writeFiles(files: ReadonlyArray<{ path: string; content: string }>): Promise<void> {
+		for (const file of files) {
+			await this.writeFileContentInternal(file.path, file.content);
+		}
+	}
+
+	private async writeFileContentInternal(path: string, content: string): Promise<void> {
+		const directory = path.slice(0, path.lastIndexOf('/'));
+		await this.mkdir(directory === '' ? '/' : directory, { recursive: true });
+
+		const bytes = new TextEncoder().encode(content);
+		const stream = await this.createWriteStream(path, { flags: 'w' });
+		const writer = stream.getWriter();
+		try {
+			if (bytes.length > 0) {
+				await writer.write(bytes);
+			}
+			await writer.close();
+		} catch (error) {
+			try {
+				await writer.abort(error);
+			} catch (abortError) {
+				console.error('Failed to abort file writer:', abortError);
+			}
+			throw error;
+		}
+	}
+
+	// =========================================================================
 	// Storage destruction
 	// =========================================================================
 

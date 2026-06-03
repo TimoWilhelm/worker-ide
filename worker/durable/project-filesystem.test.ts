@@ -1,67 +1,55 @@
 import { env } from 'cloudflare:test';
 import { describe, expect, it } from 'vitest';
 import { mount, withMounts } from 'worker-fs-mount';
-import { mkdir, readFile, writeFile } from 'worker-fs-mount/fs';
+import { readFile } from 'worker-fs-mount/fs';
 
 import type { ProjectFilesystem } from './project-filesystem';
 
-/**
- * Regression test for empty project files.
- *
- * Writes to the ProjectFilesystem Durable Object go through worker-fs-mount's
- * async `writeFile`, which returns a `WritableStream` over Durable Object RPC
- * and resolves its `close()` via a cross-request promise continuation.
- *
- * The `no_handle_cross_request_promise_resolution` compatibility flag (removed
- * from wrangler.jsonc) reverted workerd to legacy behavior that dropped those
- * continuations, causing every written file to persist empty while reads still
- * worked. This test asserts a write -> read round-trip preserves content, so it
- * fails if that flag (or equivalent behavior) is reintroduced.
- */
 function getFilesystemStub(name: string): DurableObjectStub<ProjectFilesystem> {
 	const namespace = env.DurableObjectFilesystem as DurableObjectNamespace<ProjectFilesystem>;
 	return namespace.getByName(name);
 }
 
-describe('ProjectFilesystem streaming write round-trip', () => {
-	it('persists written file content (not empty) across a mount write/read', async () => {
-		const stub = getFilesystemStub('test-fs-roundtrip');
+async function readViaMount(stub: DurableObjectStub<ProjectFilesystem>, path: string): Promise<string> {
+	return withMounts(async () => {
+		mount('/project', stub);
+		const data = await readFile(`/project${path}`, 'utf8');
+		return typeof data === 'string' ? data : data.toString('utf8');
+	});
+}
+
+describe('ProjectFilesystem writes', () => {
+	it('writeFileContent persists non-empty content and creates parent directories', async () => {
+		const stub = getFilesystemStub('test-fs-direct-single');
 		const content = 'export const value = 42;\n';
 
-		const readBack = await withMounts(async () => {
-			mount('/project', stub);
-			await mkdir('/project/src', { recursive: true });
-			await writeFile('/project/src/index.ts', content);
-			return readFile('/project/src/index.ts', 'utf8');
-		});
+		await stub.writeFileContent('/src/index.ts', content);
 
-		expect(readBack).toBe(content);
+		expect(await readViaMount(stub, '/src/index.ts')).toBe(content);
 	});
 
-	it('persists multiple files written sequentially in a single mount context', async () => {
-		const stub = getFilesystemStub('test-fs-roundtrip-multi');
-		const files: Record<string, string> = {
-			'/project/package.json': '{\n\t"name": "generated-name"\n}\n',
-			'/project/worker/index.ts': '// Worker entry point\nexport default { fetch: () => new Response("ok") };\n',
-			'/project/src/app.tsx': 'export function App() {\n\treturn null;\n}\n',
-		};
+	it('writeFiles seeds a full project in one RPC call with intact content', async () => {
+		const stub = getFilesystemStub('test-fs-direct-multi');
+		const files = [
+			{ path: '/package.json', content: '{\n\t"name": "generated-name"\n}\n' },
+			{ path: '/worker/index.ts', content: '// Worker entry point\nexport default { fetch: () => new Response("ok") };\n' },
+			{ path: '/src/app.tsx', content: 'export function App() {\n\treturn null;\n}\n' },
+			{ path: '/.initialized', content: '1' },
+		];
 
-		const readBack = await withMounts(async () => {
-			mount('/project', stub);
-			for (const [path, body] of Object.entries(files)) {
-				const directory = path.slice(0, path.lastIndexOf('/'));
-				await mkdir(directory, { recursive: true });
-				await writeFile(path, body);
-			}
+		await stub.writeFiles(files);
 
-			const result: Record<string, string> = {};
-			for (const path of Object.keys(files)) {
-				const data = await readFile(path, 'utf8');
-				result[path] = typeof data === 'string' ? data : data.toString('utf8');
-			}
-			return result;
-		});
+		for (const file of files) {
+			expect(await readViaMount(stub, file.path), `content of ${file.path}`).toBe(file.content);
+		}
+		await expect(stub.projectExists()).resolves.toBe(true);
+	});
 
-		expect(readBack).toEqual(files);
+	it('writeFileContent overwrites existing content (truncate semantics)', async () => {
+		const stub = getFilesystemStub('test-fs-direct-overwrite');
+		await stub.writeFileContent('/notes.txt', 'first version that is long');
+		await stub.writeFileContent('/notes.txt', 'second');
+
+		expect(await readViaMount(stub, '/notes.txt')).toBe('second');
 	});
 });

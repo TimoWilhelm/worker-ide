@@ -187,28 +187,22 @@ async function hardDeleteOrganizationById(database: ReturnType<typeof drizzle>, 
 	return true;
 }
 
-async function writeTemplateFiles(
-	fs: typeof import('node:fs/promises'),
-	projectRoot: string,
-	files: Record<string, string>,
-	projectName: string,
-): Promise<void> {
+function buildSeedFiles(files: Record<string, string>, projectName: string): Array<{ path: string; content: string }> {
+	const seedFiles: Array<{ path: string; content: string }> = [];
+
 	for (const [filePath, content] of Object.entries(files)) {
-		const fullPath = `${projectRoot}/${filePath}`;
-		const directory = fullPath.slice(0, fullPath.lastIndexOf('/'));
-		await fs.mkdir(directory, { recursive: true });
-		// Stamp the generated project name into package.json so the project
-		// name shown in the IDE header matches the DB record.
 		if (filePath === 'package.json') {
 			const packageJson: Record<string, unknown> = JSON.parse(content);
 			packageJson.name = projectName;
-			await fs.writeFile(fullPath, JSON.stringify(packageJson, undefined, '\t') + '\n');
+			seedFiles.push({ path: '/package.json', content: JSON.stringify(packageJson, undefined, '\t') + '\n' });
 		} else {
-			await fs.writeFile(fullPath, content);
+			seedFiles.push({ path: `/${filePath}`, content });
 		}
 	}
 
-	await fs.writeFile(`${projectRoot}/.initialized`, '1');
+	seedFiles.push({ path: '/.initialized', content: '1' });
+
+	return seedFiles;
 }
 
 async function resolveSessionFromRequest(
@@ -1107,13 +1101,8 @@ app.post('/api/new-project', async (c) => {
 	const projectName = generateHumanId();
 
 	try {
-		await withMounts(async () => {
-			const fsStub = filesystemNamespace.get(doId);
-			mount(PROJECT_ROOT, fsStub);
-
-			const fs = await import('node:fs/promises');
-			await writeTemplateFiles(fs, PROJECT_ROOT, template.files, projectName);
-		});
+		const seedStub = filesystemNamespace.get(doId);
+		await seedStub.writeFiles(buildSeedFiles(template.files, projectName));
 
 		// Register project in D1
 		const now = new Date();

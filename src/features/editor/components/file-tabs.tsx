@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Spinner } from '@/components/ui/spinner';
 import { Tooltip } from '@/components/ui/tooltip';
-import { springSnappy } from '@/lib/motion-config';
+import { springCritical } from '@/lib/motion-config';
 import { cn } from '@/lib/utils';
 
 import type { Participant } from '@shared/types';
@@ -280,7 +280,7 @@ function FileTabItem({ tab, isActive, showDirectory, participants, onClose }: Fi
 			)}
 		>
 			{isActive && (
-				<motion.span layoutId="file-tab-indicator" className="absolute inset-x-0 bottom-0 h-[2px] bg-accent" transition={springSnappy} />
+				<motion.span layoutId="file-tab-indicator" className="absolute inset-x-0 bottom-0 h-[2px] bg-accent" transition={springCritical} />
 			)}
 			<File className={cn('size-3.5 shrink-0', iconColor)} />
 			<Tooltip content={tab.path}>

@@ -75,7 +75,17 @@ describe('Editor slice', () => {
 		expect(state.openFiles).toContain('/src/app.tsx');
 	});
 
-	it('sets active file to last open file when closing active', () => {
+	it('sets active file to the tab on the right when closing the active tab', () => {
+		useStore.getState().openFile('/src/a.ts');
+		useStore.getState().openFile('/src/b.ts');
+		useStore.getState().openFile('/src/c.ts');
+		useStore.getState().setActiveFile('/src/b.ts');
+		useStore.getState().closeFile('/src/b.ts');
+
+		expect(useStore.getState().activeFile).toBe('/src/c.ts');
+	});
+
+	it('sets active file to the tab on the left when closing the active tab without a right neighbor', () => {
 		useStore.getState().openFile('/src/a.ts');
 		useStore.getState().openFile('/src/b.ts');
 		useStore.getState().closeFile('/src/b.ts');

@@ -299,6 +299,7 @@ export const useStore = create<StoreState>()(
 
 			closeFile: (path) =>
 				set((state) => {
+					const closedFileIndex = state.openFiles.indexOf(path);
 					const newOpenFiles = state.openFiles.filter((f) => f !== path);
 					const newUnsavedChanges = new Map(state.unsavedChanges);
 					newUnsavedChanges.delete(path);
@@ -306,9 +307,11 @@ export const useStore = create<StoreState>()(
 					newFileScrollPositions.delete(path);
 					const newFileCursorPositions = new Map(state.fileCursorPositions);
 					newFileCursorPositions.delete(path);
+					const nextActiveFile =
+						state.activeFile === path ? (newOpenFiles[closedFileIndex] ?? newOpenFiles[closedFileIndex - 1]) : state.activeFile;
 					return {
 						openFiles: newOpenFiles,
-						activeFile: state.activeFile === path ? newOpenFiles.at(-1) : state.activeFile,
+						activeFile: nextActiveFile,
 						unsavedChanges: newUnsavedChanges,
 						fileScrollPositions: newFileScrollPositions,
 						fileCursorPositions: newFileCursorPositions,
