@@ -74,6 +74,16 @@ describe('REST API Integration Tests', () => {
 			expect(result.projectId).toMatch(/^[a-z\d]{1,50}$/);
 		});
 
+		it('POST /api/new-project initializes git status as clean immediately', async () => {
+			const result = await createTrackedProject();
+			const statusResponse = await authedFetch(`${BASE_URL}/p/${result.projectId}/api/git/status`);
+
+			expect(statusResponse.ok).toBe(true);
+			const status: { entries: unknown[]; initialized: boolean } = await statusResponse.json();
+			expect(status.initialized).toBe(true);
+			expect(status.entries).toEqual([]);
+		});
+
 		it('POST /api/new-project with invalid template returns 400', async () => {
 			const response = await authedFetch(`${BASE_URL}/api/new-project`, {
 				method: 'POST',

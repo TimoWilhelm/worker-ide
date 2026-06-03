@@ -1130,31 +1130,23 @@ app.post('/api/new-project', async (c) => {
 
 		// Create initial git commit via the git auxiliary worker
 		const fsStub = filesystemNamespace.get(doId);
-		c.executionCtx.waitUntil(
-			(async () => {
-				try {
-					const gitClient = new GitClient(env.REPO_DO, projectId);
-					let files: CommitFileEntry[] = [];
+		const gitClient = new GitClient(env.REPO_DO, projectId);
+		let files: CommitFileEntry[] = [];
 
-					await withMounts(async () => {
-						mount(PROJECT_ROOT, fsStub);
-						const fileSystem = await import('node:fs/promises');
-						const { files: changedFiles } = await collectChanges(fileSystem, PROJECT_ROOT, []);
-						files = changedFiles;
-					});
+		await withMounts(async () => {
+			mount(PROJECT_ROOT, fsStub);
+			const fileSystem = await import('node:fs/promises');
+			const { files: changedFiles } = await collectChanges(fileSystem, PROJECT_ROOT, []);
+			files = changedFiles;
+		});
 
-					if (files.length > 0) {
-						await gitClient.commitTree({
-							files,
-							message: 'Initial commit',
-							author: commitAuthor,
-						});
-					}
-				} catch (error) {
-					console.error('Git initialization failed:', error);
-				}
-			})(),
-		);
+		if (files.length > 0) {
+			await gitClient.commitTree({
+				files,
+				message: 'Initial commit',
+				author: commitAuthor,
+			});
+		}
 
 		trackProjectEvent({
 			organizationId,
@@ -1331,31 +1323,23 @@ app.post('/api/clone-project', async (c) => {
 
 		// Create initial git commit for cloned project via the git auxiliary worker
 		const newFsStub = filesystemNamespace.get(newDoId);
-		c.executionCtx.waitUntil(
-			(async () => {
-				try {
-					const gitClient = new GitClient(env.REPO_DO, newProjectId);
-					let files: CommitFileEntry[] = [];
+		const gitClient = new GitClient(env.REPO_DO, newProjectId);
+		let files: CommitFileEntry[] = [];
 
-					await withMounts(async () => {
-						mount(PROJECT_ROOT, newFsStub);
-						const fileSystem = await import('node:fs/promises');
-						const { files: changedFiles } = await collectChanges(fileSystem, PROJECT_ROOT, []);
-						files = changedFiles;
-					});
+		await withMounts(async () => {
+			mount(PROJECT_ROOT, newFsStub);
+			const fileSystem = await import('node:fs/promises');
+			const { files: changedFiles } = await collectChanges(fileSystem, PROJECT_ROOT, []);
+			files = changedFiles;
+		});
 
-					if (files.length > 0) {
-						await gitClient.commitTree({
-							files,
-							message: 'Initial commit',
-							author: cloneCommitAuthor,
-						});
-					}
-				} catch (error) {
-					console.error('Git initialization failed for clone:', error);
-				}
-			})(),
-		);
+		if (files.length > 0) {
+			await gitClient.commitTree({
+				files,
+				message: 'Initial commit',
+				author: cloneCommitAuthor,
+			});
+		}
 
 		trackProjectEvent({
 			organizationId,
