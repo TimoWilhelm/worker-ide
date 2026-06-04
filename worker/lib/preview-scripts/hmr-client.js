@@ -15,6 +15,30 @@
 	var reloadTimer = null;
 	var RELOAD_DEBOUNCE_MS = 200;
 
+	function emitRuntimeEvent(event, payload) {
+		var runtime = window.__PREVIEW_RUNTIME__;
+		if (runtime && typeof runtime.emitEvent === 'function') {
+			runtime.emitEvent(event, payload);
+		}
+	}
+
+	// Report HMR lifecycle status to the parent IDE so it can surface a live
+	// indicator (connected / updating / updated / reloading / error).
+	function postStatus(status) {
+		if (window.parent !== window) {
+			window.parent.postMessage({ type: '__hmr-status', status: status }, ideOrigin);
+		}
+	}
+
+	// Allow modules using import.meta.hot.send(event, data) to deliver custom
+	// messages back over the websocket. The coordinator ignores unknown
+	// message types, so this is safe even without a server-side consumer.
+	window.__PREVIEW_RUNTIME_SEND__ = function (event, data) {
+		if (socket.readyState === WebSocket.OPEN) {
+			socket.send(JSON.stringify({ type: 'custom', event: event, data: data }));
+		}
+	};
+
 	function debouncedReload() {
 		if (reloadTimer) clearTimeout(reloadTimer);
 		reloadTimer = setTimeout(function () {
@@ -48,11 +72,20 @@
 		}
 
 		if (data.type === 'full-reload') {
+			postStatus('reloading');
 			debouncedReload();
 			return;
 		}
 
+		// Custom events pushed from the server (Vite's import.meta.hot.on).
+		if (data.type === 'custom' && typeof data.event === 'string') {
+			emitRuntimeEvent(data.event, data.data);
+			return;
+		}
+
 		if (data.type === 'server-error' && data.error) {
+			postStatus('error');
+			emitRuntimeEvent('vite:error', { err: data.error });
 			if (typeof window.showErrorOverlay === 'function' && data.error.type === 'bundle') {
 				window.showErrorOverlay(data.error);
 			}
@@ -72,20 +105,29 @@
 			if (typeof window.hideErrorOverlay === 'function') {
 				window.hideErrorOverlay();
 			}
-			applyUpdates(data.updates).catch(function (error) {
-				console.error('[hmr] update failed', error);
-				debouncedReload();
-			});
+			postStatus('updating');
+			applyUpdates(data.updates)
+				.then(function () {
+					postStatus('updated');
+				})
+				.catch(function (error) {
+					console.error('[hmr] update failed', error);
+					debouncedReload();
+				});
 		}
 	});
 
 	socket.addEventListener('open', function () {
 		console.log('[hmr] connected.');
 		socket.send(JSON.stringify({ type: 'hmr-connect', version: version }));
+		emitRuntimeEvent('vite:ws:connect', {});
+		postStatus('connected');
 	});
 
 	socket.addEventListener('close', function () {
 		console.log('[hmr] server connection lost. polling for restart...');
+		emitRuntimeEvent('vite:ws:disconnect', {});
+		postStatus('disconnected');
 		function poll() {
 			fetch(location.href, { method: 'HEAD' })
 				.then(function () {

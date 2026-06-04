@@ -416,11 +416,73 @@ function detectComponentNames(code: string): string[] {
 	return [...names];
 }
 
+const NAMED_DECLARATION_EXPORT_REGEX = /\bexport\s+(?:async\s+)?(?:function|class|const|let|var)\s+([A-Za-z_$][\w$]*)/g;
+const DEFAULT_IDENTIFIER_EXPORT_REGEX = /\bexport\s+default\s+([A-Za-z_$][\w$]*)\s*;?/g;
+const EXPORT_LIST_REGEX = /\bexport\s*\{([^}]*)\}/g;
+const WILDCARD_REEXPORT_REGEX = /\bexport\s+\*(?:\s+as\s+[A-Za-z_$][\w$]*)?\s+from\b/;
+
+function isComponentName(name: string): boolean {
+	return /^[A-Z]/.test(name);
+}
+
+/**
+ * Determine whether a module is a safe React Fast Refresh boundary.
+ *
+ * Mirrors @vitejs/plugin-react: a module may self-accept only when *every*
+ * export is a React component (PascalCase). Modules that also export
+ * non-component values must let the update propagate to their importers so
+ * those non-component exports are not left stale.
+ */
+function hasNonComponentExport(code: string): boolean {
+	if (WILDCARD_REEXPORT_REGEX.test(code)) {
+		return true;
+	}
+
+	let match: RegExpExecArray | null;
+
+	NAMED_DECLARATION_EXPORT_REGEX.lastIndex = 0;
+	while ((match = NAMED_DECLARATION_EXPORT_REGEX.exec(code)) !== null) {
+		if (!isComponentName(match[1])) {
+			return true;
+		}
+	}
+
+	DEFAULT_IDENTIFIER_EXPORT_REGEX.lastIndex = 0;
+	while ((match = DEFAULT_IDENTIFIER_EXPORT_REGEX.exec(code)) !== null) {
+		if (!isComponentName(match[1])) {
+			return true;
+		}
+	}
+
+	EXPORT_LIST_REGEX.lastIndex = 0;
+	while ((match = EXPORT_LIST_REGEX.exec(code)) !== null) {
+		const specifiers = match[1].split(',');
+		for (const specifier of specifiers) {
+			const trimmed = specifier.trim();
+			if (trimmed.length === 0 || trimmed.startsWith('type ')) {
+				continue;
+			}
+			const parts = trimmed.split(/\s+as\s+/);
+			const exportedName = (parts[1] ?? parts[0]).trim();
+			if (exportedName === 'default' || exportedName.length === 0) {
+				continue;
+			}
+			if (!isComponentName(exportedName)) {
+				return true;
+			}
+		}
+	}
+
+	return false;
+}
+
 function wrapModuleWithRefreshRegistrations(code: string, moduleId: string): { code: string; isBoundary: boolean } {
 	const componentNames = detectComponentNames(code);
 	if (componentNames.length === 0) {
 		return { code, isBoundary: false };
 	}
+
+	const isBoundary = !hasNonComponentExport(code);
 
 	const fileId = JSON.stringify(moduleId);
 	const registrations = componentNames.map((name) => `  $RefreshReg$(${name}, ${JSON.stringify(name)});`).join('\n');
@@ -440,7 +502,7 @@ function wrapModuleWithRefreshRegistrations(code: string, moduleId: string): { c
 			`window.$RefreshReg$ = __prevRefreshReg;`,
 			`window.$RefreshSig$ = __prevRefreshSig;`,
 		].join('\n'),
-		isBoundary: true,
+		isBoundary,
 	};
 }
 

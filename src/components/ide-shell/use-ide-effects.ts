@@ -14,17 +14,10 @@ interface UseIDEEffectsOptions {
 	projectId: string;
 	previewOrigin: string | undefined;
 	handleSaveReference: RefObject<() => Promise<void>>;
-	previewIframeReference: RefObject<HTMLIFrameElement | null>;
 	cursorUpdateTimeoutReference: RefObject<ReturnType<typeof setTimeout> | undefined>;
 }
 
-export function useIDEEffects({
-	projectId,
-	previewOrigin,
-	handleSaveReference,
-	previewIframeReference,
-	cursorUpdateTimeoutReference,
-}: UseIDEEffectsOptions) {
+export function useIDEEffects({ projectId, previewOrigin, handleSaveReference, cursorUpdateTimeoutReference }: UseIDEEffectsOptions) {
 	useUnsavedChangesWarning();
 	const applyProjectDeepLink = useProjectDeepLinkApplier();
 
@@ -70,21 +63,6 @@ export function useIDEEffects({
 	useEffect(() => {
 		Reflect.set(globalThis, 'name', `worker-ide:${projectId}`);
 	}, [projectId]);
-
-	// Forward bundle errors to the preview iframe so the error overlay shows.
-	// The preview is cross-origin, so target its specific origin.
-	useEffect(() => {
-		const handleServerError = (event: Event) => {
-			if (!(event instanceof CustomEvent)) return;
-			if (!previewOrigin) return;
-			const error = event.detail;
-			if (error?.type !== 'bundle') return;
-			previewIframeReference.current?.contentWindow?.postMessage({ type: '__show-error-overlay', error }, previewOrigin);
-		};
-
-		globalThis.addEventListener('server-error', handleServerError);
-		return () => globalThis.removeEventListener('server-error', handleServerError);
-	}, [previewIframeReference, previewOrigin]);
 
 	// Keyboard shortcuts
 	useEffect(() => {

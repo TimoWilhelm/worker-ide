@@ -294,11 +294,4 @@
 
 	window.showErrorOverlay = showErrorOverlay;
 	window.hideErrorOverlay = hideErrorOverlay;
-
-	// Listen for __show-error-overlay messages from the parent IDE frame
-	window.addEventListener('message', function (event) {
-		if (event.data && event.data.type === '__show-error-overlay' && event.data.error) {
-			showErrorOverlay(event.data.error);
-		}
-	});
 })();

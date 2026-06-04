@@ -1,5 +1,6 @@
 import { createStore, useStore } from 'zustand';
 
+import { onEditorEvent } from '@/lib/editor-events';
 import { isMessageFromPreview } from '@/lib/preview-origin';
 
 import type { DependencyError } from '@shared/types';
@@ -101,12 +102,11 @@ function processDependencyErrors(errors: DependencyError[]) {
 	}
 }
 
-// Channel 1: WebSocket server-error dispatched as CustomEvent
-function handleServerError(event: Event) {
-	if (!(event instanceof CustomEvent)) return;
-	const errors = extractDependencyErrors(event.detail);
+// Channel 1: WebSocket server-error dispatched as a typed editor event
+onEditorEvent('server-error', (error) => {
+	const errors = extractDependencyErrors(error);
 	if (errors) processDependencyErrors(errors);
-}
+});
 
 // Channel 2: Preview iframe postMessage (__server-error)
 // The preview runs on a separate subdomain, so validate origin accordingly.
@@ -117,7 +117,6 @@ function handleMessage(event: MessageEvent) {
 	if (errors) processDependencyErrors(errors);
 }
 
-globalThis.addEventListener('server-error', handleServerError);
 globalThis.addEventListener('message', handleMessage);
 
 function subscribeDependencyErrors(listener: () => void) {

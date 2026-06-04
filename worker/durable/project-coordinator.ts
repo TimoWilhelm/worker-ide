@@ -539,6 +539,19 @@ export class ProjectCoordinatorV2 extends DurableObject {
 						// Ignore send errors
 					}
 				}
+
+				// Replay the last bundle error to a freshly-connected (or reloaded)
+				// preview so its in-iframe overlay reflects the current state without
+				// the editor having to forward it. The preview client renders the
+				// overlay for bundle errors; runtime errors are ignored there.
+				const lastError = this.lastServerError;
+				if (lastError) {
+					try {
+						ws.send(lastError);
+					} catch {
+						// Ignore send errors
+					}
+				}
 				return;
 			}
 

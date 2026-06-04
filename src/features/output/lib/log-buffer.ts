@@ -1,9 +1,10 @@
 import { createStore, useStore } from 'zustand';
 
+import { onEditorEvent } from '@/lib/editor-events';
 import { isMessageFromPreview } from '@/lib/preview-origin';
 
 import type { LogEntry } from '../types';
-import type { ServerError, ServerLogEntry, SourceLocation } from '@shared/types';
+import type { ServerError, SourceLocation } from '@shared/types';
 
 interface LogBufferState {
 	entries: LogEntry[];
@@ -70,33 +71,27 @@ function clearIfNotPreserving() {
 	}
 }
 
-globalThis.addEventListener('server-error', (event: Event) => {
-	if (event instanceof CustomEvent) {
-		const error: ServerError = event.detail;
-		appendServerError(error, 'server');
-	}
+onEditorEvent('server-error', (error) => {
+	appendServerError(error, 'server');
 });
 
-globalThis.addEventListener('rebuild', () => {
+onEditorEvent('rebuild', () => {
 	clearIfNotPreserving();
 });
 
-globalThis.addEventListener('server-logs', (event: Event) => {
-	if (event instanceof CustomEvent) {
-		const logs: ServerLogEntry[] = event.detail;
-		append(
-			...logs.map((log) => ({
-				id: nextId(),
-				timestamp: log.timestamp,
-				level: log.level,
-				message: log.message,
-				source: 'server' as const,
-				location: log.location,
-			})),
-		);
-	}
+onEditorEvent('server-logs', (logs) => {
+	append(
+		...logs.map((log) => ({
+			id: nextId(),
+			timestamp: log.timestamp,
+			level: log.level,
+			message: log.message,
+			source: 'server' as const,
+			location: log.location,
+		})),
+	);
 });
-globalThis.addEventListener('preview-refresh', () => {
+onEditorEvent('preview-refresh', () => {
 	clearIfNotPreserving();
 });
 

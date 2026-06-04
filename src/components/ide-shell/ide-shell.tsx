@@ -88,7 +88,6 @@ export function IDEShell({
 		projectId,
 		previewOrigin,
 		handleSaveReference: editorState.handleSaveReference,
-		previewIframeReference,
 		cursorUpdateTimeoutReference: editorState.cursorUpdateTimeoutReference,
 	});
 

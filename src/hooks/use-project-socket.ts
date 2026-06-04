@@ -4,6 +4,7 @@ import { useShallow } from 'zustand/react/shallow';
 
 import { toast } from '@/components/ui/toast-store';
 import { connectProjectSocket } from '@/lib/api-client';
+import { emitEditorEvent } from '@/lib/editor-events';
 import { checkProjectAccess, invalidateProjectAccess } from '@/lib/project-access';
 import { useStore } from '@/lib/store';
 import { mergeTestRunResults } from '@shared/types';
@@ -134,10 +135,10 @@ export function useProjectSocket({ projectId, enabled = true }: UseProjectSocket
 							// module graph runtime inside the preview iframe, so force a
 							// top-level iframe refresh from the parent.
 							if (message.type === 'full-reload') {
-								globalThis.dispatchEvent(new CustomEvent('preview-force-refresh'));
+								emitEditorEvent('preview-force-refresh');
 							}
 							// Notify the log buffer that a rebuild occurred
-							globalThis.dispatchEvent(new CustomEvent('rebuild'));
+							emitEditorEvent('rebuild');
 							break;
 						}
 						case 'file-edited': {
@@ -180,14 +181,12 @@ export function useProjectSocket({ projectId, enabled = true }: UseProjectSocket
 							break;
 						}
 						case 'server-error': {
-							const errorEvent = new CustomEvent('server-error', { detail: message.error });
-							globalThis.dispatchEvent(errorEvent);
+							emitEditorEvent('server-error', message.error);
 							break;
 						}
 
 						case 'server-logs': {
-							const logsEvent = new CustomEvent('server-logs', { detail: message.logs });
-							globalThis.dispatchEvent(logsEvent);
+							emitEditorEvent('server-logs', message.logs);
 							break;
 						}
 						case 'cursor-updated': {

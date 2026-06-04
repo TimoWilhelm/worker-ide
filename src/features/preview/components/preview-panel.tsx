@@ -10,9 +10,12 @@ import {
 	previewOriginReference,
 	startPreviewElementPicker,
 } from '@/features/preview/preview-iframe-reference';
+import { emitEditorEvent, onEditorEvent } from '@/lib/editor-events';
 import { useStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 import { sanitizePreviewElementReference } from '@shared/preview-element';
+
+import { HmrStatusIndicator } from './hmr-status-indicator';
 
 export interface PreviewPanelProperties {
 	previewUrl: string | undefined;
@@ -59,13 +62,13 @@ export function PreviewPanel({
 		deactivatePicker();
 		setIsLoading(true);
 		setPreviewKey((previous) => previous + 1);
-		globalThis.dispatchEvent(new CustomEvent('preview-refresh'));
+		emitEditorEvent('preview-refresh');
 	}, [deactivatePicker]);
 
 	const handleRefresh = useCallback(async () => {
 		deactivatePicker();
 		setIsLoading(true);
-		globalThis.dispatchEvent(new CustomEvent('preview-refresh'));
+		emitEditorEvent('preview-refresh');
 
 		const refreshedPreviewUrl = await refreshPreviewUrl();
 		if (refreshedPreviewUrl !== previewUrl) {
@@ -107,9 +110,9 @@ export function PreviewPanel({
 			}, FORCE_REFRESH_DELAY_MS);
 		};
 
-		globalThis.addEventListener('preview-force-refresh', handleForceRefresh);
+		const unsubscribe = onEditorEvent('preview-force-refresh', handleForceRefresh);
 		return () => {
-			globalThis.removeEventListener('preview-force-refresh', handleForceRefresh);
+			unsubscribe();
 			if (timer) clearTimeout(timer);
 		};
 	}, [reloadPreview]);
@@ -238,8 +241,9 @@ export function PreviewPanel({
 					flex h-9 shrink-0 items-center justify-between border-b border-border px-3
 				"
 			>
-				<div className="flex min-w-0 items-center gap-1.5">
+				<div className="flex min-w-0 items-center gap-2">
 					<span className="truncate text-xs font-medium text-text-secondary">Preview</span>
+					<HmrStatusIndicator />
 				</div>
 
 				<div className="flex shrink-0 items-center gap-1">

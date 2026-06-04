@@ -4,6 +4,21 @@ import hmrClientSource from '@worker/lib/preview-scripts/hmr-client.js?raw';
 
 const { default: previewRuntimeSource } = await import('@worker/lib/preview-scripts/preview-runtime.js?raw');
 
+interface PreviewHotContext {
+	readonly data: Record<string, unknown>;
+	accept(
+		dependenciesOrCallback?: string | string[] | ((moduleNamespace: unknown) => void),
+		callback?: (moduleNamespace: unknown) => void,
+	): void;
+	acceptExports(exportNames: string | string[], callback?: (moduleNamespace: unknown) => void): void;
+	dispose(callback: (data: Record<string, unknown>) => void): void;
+	prune(callback: (data: Record<string, unknown>) => void): void;
+	invalidate(message?: string): void;
+	on(event: string, callback: (payload: unknown) => void): void;
+	off(event: string, callback: (payload: unknown) => void): void;
+	send(event: string, data?: unknown): void;
+}
+
 interface PreviewRuntimeApi {
 	applyUpdate(update: {
 		type: 'update';
@@ -12,12 +27,9 @@ interface PreviewRuntimeApi {
 		targets: Array<{ id: string; kind: 'module' | 'style-link' }>;
 	}): Promise<void>;
 	registerModule(moduleId: string, importedModuleIds: string[]): void;
-	createHotContext(moduleId: string): {
-		accept(
-			dependenciesOrCallback?: string | string[] | ((moduleNamespace: unknown) => void),
-			callback?: (moduleNamespace: unknown) => void,
-		): void;
-	};
+	createHotContext(moduleId: string): PreviewHotContext;
+	upsertStyle(moduleId: string, cssText: string): void;
+	emitEvent(event: string, payload: unknown): void;
 }
 
 function isPreviewRuntimeApi(value: unknown): value is PreviewRuntimeApi {
@@ -255,6 +267,132 @@ describe('preview runtime and hmr transport', () => {
 
 		expect(debugSpy).toHaveBeenCalledWith('[preview-hmr] changed module not in running graph; reloading preview', '/src/new-module.ts');
 		expect(reloadSpy).toHaveBeenCalledTimes(1);
+	});
+
+	it('prunes orphaned modules and removes their injected styles when imports are dropped', async () => {
+		bootPreviewRuntime();
+		const previewRuntime = getPreviewRuntime();
+
+		previewRuntime.registerModule('/src/style.css', []);
+		previewRuntime.upsertStyle('/src/style.css', 'body { color: red; }');
+		const prune = vi.fn();
+		previewRuntime.createHotContext('/src/style.css').prune(prune);
+
+		// app imports the style module.
+		previewRuntime.registerModule('/src/app.tsx', ['/src/style.css']);
+		expect(document.querySelector('style[data-preview-id="/src/style.css"]')).not.toBeNull();
+
+		// app stops importing the style module → it becomes orphaned and is pruned.
+		previewRuntime.registerModule('/src/app.tsx', []);
+
+		expect(prune).toHaveBeenCalledTimes(1);
+		expect(document.querySelector('style[data-preview-id="/src/style.css"]')).toBeNull();
+	});
+
+	it('bubbles invalidate() to importers and reruns the nearest accepting boundary', async () => {
+		bootPreviewRuntime();
+		const previewRuntime = getPreviewRuntime();
+
+		// Re-importing the child re-registers a self-accept callback that
+		// immediately invalidates — the runtime must then bubble to the parent.
+		const importModule = vi.fn(async (moduleId: string, importUrl: string) => {
+			if (moduleId === '/src/child.tsx') {
+				previewRuntime.registerModule('/src/child.tsx', []);
+				const refreshedChildHot = previewRuntime.createHotContext('/src/child.tsx');
+				refreshedChildHot.accept(() => {
+					refreshedChildHot.invalidate('cannot handle');
+				});
+			}
+			return { importUrl };
+		});
+		Reflect.set(globalThis, '__PREVIEW_RUNTIME_IMPORT__', importModule);
+		Reflect.set(globalThis, '__RefreshRuntime', { performReactRefresh: vi.fn() });
+
+		previewRuntime.registerModule('/src/child.tsx', []);
+		previewRuntime.registerModule('/src/parent.tsx', ['/src/child.tsx']);
+		previewRuntime.createHotContext('/src/parent.tsx').accept();
+
+		const childHot = previewRuntime.createHotContext('/src/child.tsx');
+		childHot.accept(() => {
+			childHot.invalidate('cannot handle');
+		});
+
+		await previewRuntime.applyUpdate({
+			type: 'update',
+			path: '/src/child.tsx',
+			timestamp: 555,
+			targets: [{ id: '/src/child.tsx', kind: 'module' }],
+		});
+
+		// child boundary runs first, then invalidation bubbles to the parent boundary.
+		expect(importModule).toHaveBeenCalledWith('/src/child.tsx', '/src/child.tsx?t=555');
+		expect(importModule).toHaveBeenCalledWith('/src/parent.tsx', '/src/parent.tsx?t=555');
+	});
+
+	it('reloads when invalidate() reaches a root module with no importers', async () => {
+		bootPreviewRuntime();
+		const previewRuntime = getPreviewRuntime();
+		const reloadSpy = vi.fn();
+		Reflect.set(globalThis, '__PREVIEW_RUNTIME_RELOAD__', reloadSpy);
+		const importModule = vi.fn(async (moduleId: string) => {
+			if (moduleId === '/src/entry.tsx') {
+				previewRuntime.registerModule('/src/entry.tsx', []);
+				const refreshedEntryHot = previewRuntime.createHotContext('/src/entry.tsx');
+				refreshedEntryHot.accept(() => {
+					refreshedEntryHot.invalidate();
+				});
+			}
+			return {};
+		});
+		Reflect.set(globalThis, '__PREVIEW_RUNTIME_IMPORT__', importModule);
+		Reflect.set(globalThis, '__RefreshRuntime', { performReactRefresh: vi.fn() });
+
+		previewRuntime.registerModule('/src/entry.tsx', []);
+		const entryHot = previewRuntime.createHotContext('/src/entry.tsx');
+		entryHot.accept(() => {
+			entryHot.invalidate();
+		});
+
+		await previewRuntime.applyUpdate({
+			type: 'update',
+			path: '/src/entry.tsx',
+			timestamp: 606,
+			targets: [{ id: '/src/entry.tsx', kind: 'module' }],
+		});
+
+		expect(reloadSpy).toHaveBeenCalledTimes(1);
+	});
+
+	it('delivers hot.on listeners for runtime-dispatched events', async () => {
+		bootPreviewRuntime();
+		const previewRuntime = getPreviewRuntime();
+
+		previewRuntime.registerModule('/src/listener.ts', []);
+		const listener = vi.fn();
+		previewRuntime.createHotContext('/src/listener.ts').on('custom:event', listener);
+
+		previewRuntime.emitEvent('custom:event', { value: 1 });
+		expect(listener).toHaveBeenCalledWith({ value: 1 });
+	});
+
+	it('routes server custom messages and hot.send through the transport', async () => {
+		bootPreviewRuntime();
+		const previewRuntime = getPreviewRuntime();
+
+		const listener = vi.fn();
+		previewRuntime.registerModule('/src/custom.ts', []);
+		previewRuntime.createHotContext('/src/custom.ts').on('plugin:data', listener);
+
+		const socket = bootHmrClient();
+		socket.dispatch('open');
+
+		socket.dispatch('message', {
+			data: JSON.stringify({ type: 'custom', event: 'plugin:data', data: { hello: 'world' } }),
+		});
+		expect(listener).toHaveBeenCalledWith({ hello: 'world' });
+
+		previewRuntime.createHotContext('/src/custom.ts').send('client:event', { ok: true });
+		expect(socket.sentMessages).toContain(JSON.stringify({ type: 'custom', event: 'client:event', data: { ok: true } }));
 	});
 
 	it('preserves an existing self-accept callback when auto-accept runs afterwards', async () => {

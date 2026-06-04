@@ -86,6 +86,41 @@ describe('transformModule', () => {
 		expect(result.code).toContain('__preview_hot__.accept()');
 	});
 
+	it('self-accepts modules whose exports are all React components', async () => {
+		const result = await transformModule('/src/button.tsx', ['export function Button() {', '	return null;', '}'].join('\n'), {
+			fs: createFileSystem([]),
+			projectRoot: '/project',
+		});
+
+		expect(result.code).toContain('__preview_hot__.accept()');
+	});
+
+	it('does not self-accept modules that also export non-component values', async () => {
+		const result = await transformModule(
+			'/src/widget.tsx',
+			['export function Widget() {', '	return null;', '}', 'export const helper = () => 42;'].join('\n'),
+			{
+				fs: createFileSystem([]),
+				projectRoot: '/project',
+			},
+		);
+
+		expect(result.code).not.toContain('__preview_hot__.accept()');
+	});
+
+	it('does not self-accept modules that re-export with a wildcard', async () => {
+		const result = await transformModule(
+			'/src/barrel.tsx',
+			['export function Panel() {', '	return null;', '}', "export * from './helpers';"].join('\n'),
+			{
+				fs: createFileSystem([]),
+				projectRoot: '/project',
+			},
+		);
+
+		expect(result.code).not.toContain('__preview_hot__.accept()');
+	});
+
 	it('exports cache-busted asset urls from url modules', async () => {
 		const result = await transformModule('/src/logo.png', 'binary', {
 			fs: createFileSystem([]),
