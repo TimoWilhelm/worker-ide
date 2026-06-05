@@ -1,12 +1,49 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 
 import { emitEditorEvent, onEditorEvent } from './editor-events';
 
 import type { ServerError } from '@shared/types';
 
+const originalAddEventListener = Reflect.get(globalThis, 'addEventListener');
+const originalRemoveEventListener = Reflect.get(globalThis, 'removeEventListener');
+const originalDispatchEvent = Reflect.get(globalThis, 'dispatchEvent');
+
+function installEventTargetPolyfill() {
+	const eventTarget = new EventTarget();
+	Reflect.set(globalThis, 'addEventListener', eventTarget.addEventListener.bind(eventTarget));
+	Reflect.set(globalThis, 'removeEventListener', eventTarget.removeEventListener.bind(eventTarget));
+	Reflect.set(globalThis, 'dispatchEvent', eventTarget.dispatchEvent.bind(eventTarget));
+}
+
+function restoreEventTargetPolyfill() {
+	if (originalAddEventListener === undefined) {
+		Reflect.deleteProperty(globalThis, 'addEventListener');
+	} else {
+		Reflect.set(globalThis, 'addEventListener', originalAddEventListener);
+	}
+
+	if (originalRemoveEventListener === undefined) {
+		Reflect.deleteProperty(globalThis, 'removeEventListener');
+	} else {
+		Reflect.set(globalThis, 'removeEventListener', originalRemoveEventListener);
+	}
+
+	if (originalDispatchEvent === undefined) {
+		Reflect.deleteProperty(globalThis, 'dispatchEvent');
+	} else {
+		Reflect.set(globalThis, 'dispatchEvent', originalDispatchEvent);
+	}
+}
+
 describe('editor-events', () => {
+	installEventTargetPolyfill();
+
 	afterEach(() => {
 		vi.restoreAllMocks();
+	});
+
+	afterAll(() => {
+		restoreEventTargetPolyfill();
 	});
 
 	it('delivers a typed detail payload to listeners', () => {
