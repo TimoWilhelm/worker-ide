@@ -21,13 +21,13 @@ function isHmrStatus(value: unknown): value is HmrStatus {
 	);
 }
 
-const STATUS_PRESENTATION: Record<HmrStatus, { label: string; dotClassName: string; textClassName: string }> = {
-	connected: { label: 'HMR connected', dotClassName: 'bg-green-500', textClassName: 'text-text-secondary' },
-	disconnected: { label: 'HMR disconnected', dotClassName: 'bg-text-tertiary', textClassName: 'text-text-tertiary' },
-	updating: { label: 'Hot updating…', dotClassName: 'bg-amber-500 animate-pulse', textClassName: 'text-text-secondary' },
-	updated: { label: 'Hot updated', dotClassName: 'bg-green-500', textClassName: 'text-text-secondary' },
-	reloading: { label: 'Reloading…', dotClassName: 'bg-amber-500 animate-pulse', textClassName: 'text-text-secondary' },
-	error: { label: 'Build error', dotClassName: 'bg-red-500', textClassName: 'text-red-500' },
+const STATUS_PRESENTATION: Record<HmrStatus, { label: string; dotClassName: string }> = {
+	connected: { label: 'HMR connected', dotClassName: 'bg-green-500' },
+	disconnected: { label: 'HMR disconnected', dotClassName: 'bg-text-tertiary' },
+	updating: { label: 'Hot updating…', dotClassName: 'bg-amber-500 animate-pulse' },
+	updated: { label: 'Hot updated', dotClassName: 'bg-green-500' },
+	reloading: { label: 'Reloading…', dotClassName: 'bg-amber-500 animate-pulse' },
+	error: { label: 'Build error', dotClassName: 'bg-red-500' },
 };
 
 // How long the transient "updated" state stays visible before reverting to the
@@ -74,17 +74,6 @@ export function HmrStatusIndicator() {
 		<Tooltip content={presentation.label}>
 			<div className="flex items-center gap-1.5" aria-live="polite" aria-label={presentation.label} role="status">
 				<span className={cn('size-1.5 rounded-full', presentation.dotClassName)} aria-hidden="true" />
-				<span
-					className={cn(
-						`
-							hidden text-[10px] font-medium
-							sm:inline
-						`,
-						presentation.textClassName,
-					)}
-				>
-					{presentation.label}
-				</span>
 			</div>
 		</Tooltip>
 	);

@@ -5,8 +5,8 @@ import {
 	type GitStatus,
 	type GitStatusEntry,
 } from '@pierre/trees';
-import { FileTree as TreesFileTree, useFileTree as useTreesModel, useFileTreeSearch } from '@pierre/trees/react';
-import { FilePlus, FolderPlus, Pencil, Search, Trash2, X } from 'lucide-react';
+import { FileTree as TreesFileTree, useFileTree as useTreesModel } from '@pierre/trees/react';
+import { FilePlus, FolderPlus, Pencil, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useId, useMemo, useRef, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 
@@ -427,8 +427,6 @@ function FileTreeContent({
 		model.setIcons({ set: 'standard', spriteSheet });
 	}, [participants, model]);
 
-	const search = useFileTreeSearch(model);
-
 	const focusedDirectoryPath = useCallback(() => {
 		const focused = model.getFocusedPath() ?? model.getSelectedPaths().at(-1);
 		if (!focused) return '';
@@ -473,64 +471,27 @@ function FileTreeContent({
 
 	return (
 		<div className={cn('flex h-full flex-col', className)}>
-			<div className="flex items-center justify-between px-3 pt-1.5 pb-0.5">
-				<span id={treeLabelId} className="text-xs font-semibold tracking-wider text-text-secondary">
-					Files
-				</span>
-				<div className="flex items-center gap-0.5">
-					<HeaderButton label="Search files" onClick={() => (search.isOpen ? search.close() : search.open())}>
-						<Search className="size-3.5" />
-					</HeaderButton>
-					{onCreateFile && (
-						<HeaderButton label="New file" onClick={handleCreateFile}>
-							<FilePlus className="size-3.5" />
-						</HeaderButton>
-					)}
-					{onCreateFolder && (
-						<HeaderButton label="New folder" onClick={handleCreateFolder}>
-							<FolderPlus className="size-3.5" />
-						</HeaderButton>
-					)}
-				</div>
-			</div>
-
-			{search.isOpen && (
-				<div className="flex items-center gap-1.5 px-3 pb-1">
-					<input
-						autoFocus
-						type="search"
-						value={search.value}
-						onChange={(event) => search.setValue(event.target.value)}
-						onKeyDown={(event) => {
-							if (event.key === 'Escape') search.close();
-							if (event.key === 'Enter') {
-								if (event.shiftKey) search.focusPreviousMatch();
-								else search.focusNextMatch();
-							}
-						}}
-						placeholder="Search files"
-						aria-label="Search files"
-						className={cn(
-							`
-								min-w-0 flex-1 rounded-sm border border-border bg-bg-primary px-2 py-1
-								text-xs
-							`,
-							`
-								text-text-primary
-								placeholder:text-text-secondary
-								focus:border-accent focus:outline-none
-							`,
-						)}
-					/>
-					<span className="shrink-0 text-2xs text-text-secondary tabular-nums">{search.matchingPaths.length}</span>
-					<HeaderButton label="Close search" onClick={() => search.close()}>
-						<X className="size-3.5" />
-					</HeaderButton>
-				</div>
-			)}
-
 			<TreesFileTree
 				model={model}
+				header={
+					<div className="flex items-center justify-between">
+						<span id={treeLabelId} className="text-xs font-semibold tracking-wider text-text-secondary">
+							Files
+						</span>
+						<div className="flex items-center gap-0.5">
+							{onCreateFile && (
+								<HeaderButton label="New file" onClick={handleCreateFile}>
+									<FilePlus className="size-3.5" />
+								</HeaderButton>
+							)}
+							{onCreateFolder && (
+								<HeaderButton label="New folder" onClick={handleCreateFolder}>
+									<FolderPlus className="size-3.5" />
+								</HeaderButton>
+							)}
+						</div>
+					</div>
+				}
 				renderContextMenu={renderContextMenu}
 				aria-labelledby={treeLabelId}
 				className="min-h-0 flex-1"

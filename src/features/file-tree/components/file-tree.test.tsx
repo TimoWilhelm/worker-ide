@@ -82,7 +82,7 @@ describe('FileTree', () => {
 		expect(screen.getByLabelText('New folder')).toBeInTheDocument();
 	});
 
-	it('toggles the search field via the search button', () => {
+	it('does not render a duplicate external search field', () => {
 		renderWithProviders(
 			<FileTree
 				files={SAMPLE_FILES}
@@ -93,12 +93,7 @@ describe('FileTree', () => {
 			/>,
 		);
 
-		expect(screen.queryByPlaceholderText('Search files')).not.toBeInTheDocument();
-
-		fireEvent.click(screen.getByLabelText('Search files'));
-		expect(screen.getByPlaceholderText('Search files')).toBeInTheDocument();
-
-		fireEvent.click(screen.getByLabelText('Close search'));
+		expect(screen.queryByLabelText('Search files')).not.toBeInTheDocument();
 		expect(screen.queryByPlaceholderText('Search files')).not.toBeInTheDocument();
 	});
 
