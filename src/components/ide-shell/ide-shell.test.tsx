@@ -65,6 +65,10 @@ vi.mock('@/lib/api-client', () => ({
 	downloadProject: vi.fn(async () => new Blob()),
 }));
 
+vi.mock('@/hooks/use-queued-save-flusher', () => ({
+	useQueuedSaveFlusher: vi.fn(),
+}));
+
 vi.mock('@/lib/preview-origin', () => ({
 	usePreviewUrl: () => ({
 		previewUrl: 'https://example.com',
@@ -125,6 +129,10 @@ vi.mock('./use-panel-layouts', () => ({
 	usePanelLayouts: () => ({
 		agentPanelVisible: false,
 	}),
+}));
+
+vi.mock('./use-project-data-prefetch', () => ({
+	useProjectDataPrefetch: vi.fn(),
 }));
 
 vi.mock('./use-project-name', () => ({

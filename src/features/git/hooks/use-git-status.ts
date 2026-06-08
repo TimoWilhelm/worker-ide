@@ -59,7 +59,8 @@ export function useGitStatusBackgroundLoader({ projectId }: UseGitStatusSuspense
  * Suspends until the initial status is loaded.
  */
 export function useGitStatusSuspense({ projectId }: UseGitStatusSuspenseOptions) {
-	const { setGitStatus, setGitInitialized } = useStore();
+	const setGitStatus = useStore((state) => state.setGitStatus);
+	const setGitInitialized = useStore((state) => state.setGitInitialized);
 
 	const query = useSuspenseQuery({
 		queryKey: ['git-status', projectId],

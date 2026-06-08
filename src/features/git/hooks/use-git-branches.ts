@@ -23,7 +23,7 @@ interface BranchesResponse {
  */
 export function useGitBranches({ projectId, enabled = true }: UseGitBranchesOptions) {
 	const api = createApiClient(projectId);
-	const { setGitBranches } = useStore();
+	const setGitBranches = useStore((state) => state.setGitBranches);
 
 	const query = useQuery({
 		queryKey: ['git-branches', projectId],

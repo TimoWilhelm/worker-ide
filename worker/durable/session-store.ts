@@ -25,9 +25,9 @@ export interface SessionMetadataState {
 
 export interface SessionHistoryStore {
 	get(sessionId: string): SessionInfo | null | undefined;
-	getHistory(sessionId: string): Promise<SessionMessage[]>;
-	clearMessages(sessionId: string): Promise<unknown>;
-	appendAll(sessionId: string, messages: SessionMessage[], parentId?: string): Promise<unknown>;
+	getHistory(sessionId: string): SessionMessage[] | Promise<SessionMessage[]>;
+	clearMessages(sessionId: string): unknown;
+	appendAll(sessionId: string, messages: SessionMessage[], parentId?: string): unknown;
 }
 
 function parseSessionMetadata(row: SessionMetadataRow | undefined): SessionMetadataState {

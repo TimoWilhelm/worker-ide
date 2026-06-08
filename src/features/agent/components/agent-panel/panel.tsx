@@ -2,6 +2,7 @@ import { ScrollArea } from '@base-ui/react/scroll-area';
 import { ArrowDown, Download, History, Map as MapIcon, Mic, MicOff, Pencil, Plus, ArrowUp, Square, Trash2 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 
 import { Button } from '@/components/ui/button';
 import { Collapsible } from '@/components/ui/collapsible';
@@ -139,7 +140,17 @@ export function AgentPanel({ projectId, className }: { projectId: string; classN
 		{ snapshotIds: string[]; messageIndex: number; isLoading: boolean; error?: string } | undefined
 	>();
 
-	const { files, agentMode, selectedModel, openFile, setAgentMode, setSelectedModel, clearPendingChangesByPaths } = useStore();
+	const { files, agentMode, selectedModel, openFile, setAgentMode, setSelectedModel, clearPendingChangesByPaths } = useStore(
+		useShallow((state) => ({
+			files: state.files,
+			agentMode: state.agentMode,
+			selectedModel: state.selectedModel,
+			openFile: state.openFile,
+			setAgentMode: state.setAgentMode,
+			setSelectedModel: state.setSelectedModel,
+			clearPendingChangesByPaths: state.clearPendingChangesByPaths,
+		})),
+	);
 	const { data: session } = authClient.useSession();
 	const pendingPreviewElementReferences = useStore((state) => state.pendingPreviewElementReferences);
 	const shiftPendingPreviewElementReference = useStore((state) => state.shiftPendingPreviewElementReference);

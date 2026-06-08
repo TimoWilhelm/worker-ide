@@ -1,5 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useMemo, useRef, useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 
 import { toast } from '@/components/ui/toast-store';
 import { resolveReviewContent } from '@/features/editor/lib/diff-decorations';
@@ -40,7 +41,18 @@ export function useChangeReview({ projectId, getLiveContent }: UseChangeReviewOp
 	const apiReference = useRef(createApiClient(projectId));
 	const [pendingMutationCount, setPendingMutationCount] = useState(0);
 	const { pendingChanges, approveChange, rejectChange, approveHunk, rejectHunk, approveAllChanges, rejectAllChanges, loadPendingChanges } =
-		useStore();
+		useStore(
+			useShallow((state) => ({
+				pendingChanges: state.pendingChanges,
+				approveChange: state.approveChange,
+				rejectChange: state.rejectChange,
+				approveHunk: state.approveHunk,
+				rejectHunk: state.rejectHunk,
+				approveAllChanges: state.approveAllChanges,
+				rejectAllChanges: state.rejectAllChanges,
+				loadPendingChanges: state.loadPendingChanges,
+			})),
+		);
 
 	const persistPendingChanges = useCallback(async () => {
 		// Review state is server-authoritative and syncs back through agent state.
