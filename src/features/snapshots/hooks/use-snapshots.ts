@@ -24,7 +24,7 @@ export interface CascadeRevertResult {
 export function useSnapshots({ projectId, enabled = true }: UseSnapshotsOptions) {
 	const queryClient = useQueryClient();
 	const api = createApiClient(projectId);
-	const { setSnapshots } = useStore();
+	const setSnapshots = useStore((state) => state.setSnapshots);
 
 	// List all snapshots
 	const listQuery = useQuery({

@@ -6,6 +6,7 @@ import { toast } from '@/components/ui/toast-store';
 import { connectProjectSocket } from '@/lib/api-client';
 import { emitEditorEvent } from '@/lib/editor-events';
 import { checkProjectAccess, invalidateProjectAccess } from '@/lib/project-access';
+import { flushProjectSaveQueue } from '@/lib/queued-save-flush';
 import { useStore } from '@/lib/store';
 import { mergeTestRunResults } from '@shared/types';
 
@@ -16,6 +17,9 @@ interface UseProjectSocketOptions {
 	projectId: string;
 	enabled?: boolean;
 }
+
+const HEARTBEAT_INTERVAL_MS = 30_000;
+const HEARTBEAT_TIMEOUT_MS = 90_000;
 
 /**
  * Hook for connecting to the project WebSocket and handling updates.
@@ -32,6 +36,28 @@ export const projectSocketSendReference: { current: ((data: ClientMessage) => vo
 
 function dispatchProjectUnavailable(projectId: string, status: 'not-found' | 'forbidden'): void {
 	globalThis.dispatchEvent(new CustomEvent('project-unavailable', { detail: { projectId, status } }));
+}
+
+function invalidateReconnectState(
+	queryClient: ReturnType<typeof useQueryClient>,
+	projectId: string,
+	activeFilePath: string | undefined,
+): void {
+	void queryClient.invalidateQueries({ queryKey: ['files', projectId] });
+	void queryClient.invalidateQueries({ queryKey: ['git-status', projectId] });
+	void queryClient.invalidateQueries({ queryKey: ['git-branches', projectId] });
+	void queryClient.invalidateQueries({ queryKey: ['git-log', projectId] });
+	void queryClient.invalidateQueries({ queryKey: ['project-deps', projectId] });
+	void queryClient.invalidateQueries({ queryKey: ['project-settings', projectId] });
+	void queryClient.invalidateQueries({ queryKey: ['project-meta', projectId] });
+
+	const fileQueries = queryClient.getQueryCache().findAll({ queryKey: ['file', projectId] });
+	for (const query of fileQueries) {
+		const filePath = query.queryKey[2];
+		if (typeof filePath !== 'string' || filePath === activeFilePath) continue;
+
+		void queryClient.invalidateQueries({ queryKey: ['file', projectId, filePath], exact: true });
+	}
 }
 
 export function useProjectSocket({ projectId, enabled = true }: UseProjectSocketOptions) {
@@ -53,6 +79,9 @@ export function useProjectSocket({ projectId, enabled = true }: UseProjectSocket
 	const reconnectTimeoutReference = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 	const reconnectAttemptsReference = useRef(0);
 	const connectionReference = useRef<import('@/lib/api-client').ProjectSocketConnection | undefined>(undefined);
+	const heartbeatIntervalReference = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
+	const lastPongAtReference = useRef(0);
+	const hasOpenedReference = useRef(false);
 	const queryClientReference = useRef(queryClient);
 	const storeActionsReference = useRef(storeActions);
 	const projectIdReference = useRef(projectId);
@@ -70,6 +99,30 @@ export function useProjectSocket({ projectId, enabled = true }: UseProjectSocket
 		if (!enabled) return;
 
 		isMountedReference.current = true;
+		hasOpenedReference.current = false;
+
+		const stopHeartbeat = () => {
+			if (heartbeatIntervalReference.current) {
+				clearInterval(heartbeatIntervalReference.current);
+				heartbeatIntervalReference.current = undefined;
+			}
+		};
+
+		const startHeartbeat = () => {
+			stopHeartbeat();
+			lastPongAtReference.current = Date.now();
+			heartbeatIntervalReference.current = setInterval(() => {
+				const connection = connectionReference.current;
+				if (!connection) return;
+
+				if (Date.now() - lastPongAtReference.current > HEARTBEAT_TIMEOUT_MS) {
+					connection.close(4000, 'heartbeat-timeout');
+					return;
+				}
+
+				connection.send({ type: 'ping' });
+			}, HEARTBEAT_INTERVAL_MS);
+		};
 
 		const doConnect = () => {
 			const connectedProjectId = projectId;
@@ -79,6 +132,7 @@ export function useProjectSocket({ projectId, enabled = true }: UseProjectSocket
 
 			// Tear down any existing connection
 			connectionReference.current?.cleanup();
+			stopHeartbeat();
 			if (reconnectTimeoutReference.current) {
 				clearTimeout(reconnectTimeoutReference.current);
 				reconnectTimeoutReference.current = undefined;
@@ -225,7 +279,7 @@ export function useProjectSocket({ projectId, enabled = true }: UseProjectSocket
 							break;
 						}
 						case 'pong': {
-							// Handled elsewhere or ignored
+							lastPongAtReference.current = Date.now();
 							break;
 						}
 					}
@@ -235,6 +289,7 @@ export function useProjectSocket({ projectId, enabled = true }: UseProjectSocket
 				(details) => {
 					if (!isMountedReference.current) return;
 
+					stopHeartbeat();
 					storeActionsReference.current.setConnected(false);
 
 					if (details.code === 4004 && details.reason === 'project-deleted') {
@@ -259,7 +314,8 @@ export function useProjectSocket({ projectId, enabled = true }: UseProjectSocket
 					const maxAttempts = 10;
 					const baseDelay = 2000;
 					if (reconnectAttemptsReference.current < maxAttempts) {
-						const delay = Math.min(baseDelay * 2 ** reconnectAttemptsReference.current, 30_000);
+						const jitter = Math.floor(Math.random() * 1000);
+						const delay = Math.min(baseDelay * 2 ** reconnectAttemptsReference.current + jitter, 30_000);
 						reconnectTimeoutReference.current = setTimeout(() => {
 							reconnectAttemptsReference.current++;
 							doConnect();
@@ -272,9 +328,19 @@ export function useProjectSocket({ projectId, enabled = true }: UseProjectSocket
 				},
 				// onOpen
 				() => {
+					const isReconnect = hasOpenedReference.current;
+					hasOpenedReference.current = true;
 					storeActionsReference.current.setConnected(true);
 					reconnectAttemptsReference.current = 0;
 					projectSocketSendReference.current = connectionReference.current?.send;
+					startHeartbeat();
+
+					const projectIdCurrent = projectIdReference.current;
+					const queryClientCurrent = queryClientReference.current;
+					void flushProjectSaveQueue({ projectId: projectIdCurrent, queryClient: queryClientCurrent });
+					if (isReconnect) {
+						invalidateReconnectState(queryClientCurrent, projectIdCurrent, storeActionsReference.current.activeFile);
+					}
 				},
 			);
 		};
@@ -284,6 +350,7 @@ export function useProjectSocket({ projectId, enabled = true }: UseProjectSocket
 		return () => {
 			isMountedReference.current = false;
 			connectionReference.current?.cleanup();
+			stopHeartbeat();
 			connectionReference.current = undefined;
 			projectSocketSendReference.current = undefined;
 			if (reconnectTimeoutReference.current) {

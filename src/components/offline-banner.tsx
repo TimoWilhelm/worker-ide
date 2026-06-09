@@ -1,9 +1,11 @@
 import { WifiOff } from 'lucide-react';
 
 import { useOnlineStatus } from '@/hooks/use-online-status';
+import { useSaveQueueCount } from '@/hooks/use-save-queue-count';
 
 export function OfflineBanner() {
 	const isOnline = useOnlineStatus();
+	const queuedSaveCount = useSaveQueueCount();
 
 	if (isOnline) {
 		return;
@@ -24,7 +26,11 @@ export function OfflineBanner() {
 				"
 			>
 				<WifiOff className="size-3.5 shrink-0" />
-				<span className="text-center">You are offline. Some features may not work until your connection is restored.</span>
+				<span className="text-center">
+					{queuedSaveCount > 0
+						? `${queuedSaveCount} save${queuedSaveCount === 1 ? '' : 's'} queued and ready to sync when your connection is restored.`
+						: 'You are offline. Cached files remain editable; saves will queue until your connection is restored.'}
+				</span>
 			</div>
 		</div>
 	);

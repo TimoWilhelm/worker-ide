@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 
 import { toast } from '@/components/ui/toast-store';
 import { createApiClient } from '@/lib/api-client';
@@ -22,7 +23,25 @@ export function useFileTree({ projectId, enabled = true }: UseFileTreeOptions) {
 	const api = createApiClient(projectId);
 
 	// Store state
-	const { setFiles, toggleDirectory, openFile, setLoading, files, activeFile, expandedDirs: expandedDirectories } = useStore();
+	const {
+		setFiles,
+		toggleDirectory,
+		openFile,
+		setLoading,
+		files,
+		activeFile,
+		expandedDirs: expandedDirectories,
+	} = useStore(
+		useShallow((state) => ({
+			setFiles: state.setFiles,
+			toggleDirectory: state.toggleDirectory,
+			openFile: state.openFile,
+			setLoading: state.setLoading,
+			files: state.files,
+			activeFile: state.activeFile,
+			expandedDirs: state.expandedDirs,
+		})),
+	);
 
 	// Query for fetching files
 	const query = useQuery({

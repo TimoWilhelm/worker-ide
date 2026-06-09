@@ -9,6 +9,7 @@ import { DeployModal } from '@/features/deploy';
 import { useFileTree } from '@/features/file-tree';
 import { ProjectSettingsModal } from '@/features/project-settings';
 import { useIsMobile, useProjectSocket, useResolvedTheme } from '@/hooks';
+import { useQueuedSaveFlusher } from '@/hooks/use-queued-save-flusher';
 import { downloadProject } from '@/lib/api-client';
 import { usePreviewUrl } from '@/lib/preview-origin';
 import { selectIsProcessing, useStore } from '@/lib/store';
@@ -22,6 +23,7 @@ import { useEditorState } from './use-editor-state';
 import { useIDEEffects } from './use-ide-effects';
 import { useLogCounts } from './use-log-counts';
 import { usePanelLayouts } from './use-panel-layouts';
+import { useProjectDataPrefetch } from './use-project-data-prefetch';
 import { useProjectName } from './use-project-name';
 import { useProjectStatePersistence } from './use-project-state-persistence';
 
@@ -42,6 +44,8 @@ export function IDEShell({
 
 	// Restore and persist editor session (open tabs, active file, cursor/scroll positions)
 	useEditorSessionPersistence({ projectId });
+	useProjectDataPrefetch(projectId);
+	useQueuedSaveFlusher(projectId);
 
 	// Project WebSocket connection (HMR notifications, collaboration, server events)
 	useProjectSocket({ projectId });

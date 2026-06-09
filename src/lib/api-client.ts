@@ -410,6 +410,7 @@ export async function deleteOrganization(organizationId: string): Promise<void> 
 
 export interface ProjectSocketConnection {
 	cleanup: () => void;
+	close: (code?: number, reason?: string) => void;
 	send: (data: ClientMessage) => void;
 }
 
@@ -445,15 +446,7 @@ export function connectProjectSocket(
 		}
 	});
 
-	// Keep connection alive
-	const pingInterval = setInterval(() => {
-		if (socket.readyState === WebSocket.OPEN) {
-			socket.send(serializeMessage({ type: 'ping' }));
-		}
-	}, 30_000);
-
 	socket.addEventListener('close', (event) => {
-		clearInterval(pingInterval);
 		// Only fire onClose for unexpected disconnects
 		if (!intentionalClose) {
 			onClose?.({ code: event.code, reason: event.reason });
@@ -474,9 +467,13 @@ export function connectProjectSocket(
 	return {
 		cleanup: () => {
 			intentionalClose = true;
-			clearInterval(pingInterval);
 			if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
 				socket.close(1000, 'cleanup');
+			}
+		},
+		close: (code = 1000, reason = '') => {
+			if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
+				socket.close(code, reason);
 			}
 		},
 		send,
