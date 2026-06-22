@@ -40,8 +40,7 @@ export function TestsPanel({ projectId, className }: TestsPanelProperties) {
 
 	return (
 		<div className={cn('flex h-full min-w-0 flex-col overflow-hidden', className)}>
-			<div className="flex shrink-0 items-center gap-1.5 border-b border-border p-2">
-				<FlaskConical className="size-4 text-text-secondary" />
+			<div className="flex shrink-0 items-center justify-between px-3 pt-1.5 pb-0.5">
 				<span
 					className="
 						text-xs font-semibold tracking-wider text-text-secondary uppercase
@@ -50,37 +49,36 @@ export function TestsPanel({ projectId, className }: TestsPanelProperties) {
 					Tests
 				</span>
 
-				<span className="flex-1" />
+				<div className="flex items-center gap-0.5">
+					<Tooltip content="Refresh test files">
+						<button
+							className={cn(
+								`
+									flex size-6 cursor-pointer items-center justify-center rounded-sm
+									text-text-secondary transition-colors
+								`,
+								isRefreshing ? 'cursor-default opacity-60' : 'hover:bg-bg-tertiary hover:text-text-primary',
+							)}
+							onClick={refreshFiles}
+							disabled={isRefreshing}
+						>
+							<RefreshCw className={cn('size-3.5', isRefreshing && 'animate-spin')} />
+						</button>
+					</Tooltip>
 
-				<Tooltip content="Refresh test files">
-					<button
-						className={cn(
-							`
-								flex size-6 cursor-pointer items-center justify-center rounded-sm
-								text-text-secondary transition-colors
-							`,
-							isRefreshing ? 'cursor-default opacity-60' : 'hover:bg-bg-tertiary hover:text-text-primary',
-						)}
-						onClick={refreshFiles}
-						disabled={isRefreshing}
-					>
-						<RefreshCw className={cn('size-3.5', isRefreshing && 'animate-spin')} />
-					</button>
-				</Tooltip>
-
-				<Tooltip content="Run all tests">
-					<Button
-						variant="ghost"
-						size="sm"
-						className={cn('h-6 gap-1 px-2 text-xs transition-colors', 'hover:bg-bg-tertiary hover:text-text-primary')}
-						onClick={() => runTests()}
-						disabled={!hasTestFiles}
-						isLoading={isRunning}
-					>
-						<Play className="size-3" />
-						Run
-					</Button>
-				</Tooltip>
+					<Tooltip content="Run all tests">
+						<Button
+							variant="ghost"
+							size="sm"
+							className={cn('size-6 px-0 transition-colors', 'hover:bg-bg-tertiary hover:text-text-primary')}
+							onClick={() => runTests()}
+							disabled={!hasTestFiles}
+							isLoading={isRunning}
+						>
+							<Play className="size-3.5" />
+						</Button>
+					</Tooltip>
+				</div>
 			</div>
 
 			{hasResults && results && (
