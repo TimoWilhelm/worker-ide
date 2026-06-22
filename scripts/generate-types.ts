@@ -82,12 +82,6 @@ const auxiliaryWorkers: AuxiliaryWorkerConfig[] = [
 		envInterface: 'EsbuildWorkerEnvironment',
 	},
 	{
-		name: 'git',
-		configPath: 'auxiliary/git/wrangler.jsonc',
-		outputPath: 'auxiliary/git/worker-configuration.d.ts',
-		envInterface: 'GitWorkerEnvironment',
-	},
-	{
 		name: 'push',
 		configPath: 'auxiliary/push/wrangler.jsonc',
 		outputPath: 'auxiliary/push/worker-configuration.d.ts',

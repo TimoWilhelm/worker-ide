@@ -5,7 +5,6 @@ import { drizzle } from 'drizzle-orm/d1';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { serialize, serializeSigned } from 'hono/utils/cookie';
-import { mount, withMounts } from 'worker-fs-mount';
 import { z } from 'zod';
 
 import { PROJECT_INACTIVITY_DAYS, SOFT_DELETE_RETENTION_DAYS } from '@shared/constants';
@@ -39,6 +38,7 @@ import {
 	serializePreviewAccessCookie,
 } from './lib/preview-access';
 import { DEV_PREVIEW_SECRET } from './lib/preview-secret';
+import { runWithProjectStub } from './lib/project-fs';
 import { generateProjectId, toDurableObjectId } from './lib/project-id';
 import { requireRateLimit } from './lib/rate-limit-middleware';
 import { apiRoutes } from './routes';
@@ -46,14 +46,25 @@ import { developmentTestRoutes } from './routes/development-test-routes';
 import { orgRoutes } from './routes/org-routes';
 import { transferRoutes } from './routes/transfer-routes';
 import { userRoutes } from './routes/user-routes';
-import { GitClient } from './services/git-client';
-import { collectChanges } from './services/working-tree';
+import { deleteArtifactsRepo, ensureArtifactsRepo } from './services/artifacts-repo';
+import { handleGitProxy } from './services/git-proxy';
 import { getTemplate, getTemplateMetadata } from './templates';
 
 import type { PreviewService } from './services/preview-service';
 import type { AppEnvironment, AuthedEnvironment } from './types';
-import type { CommitFileEntry } from '@shared/git-types';
 import type { MiddlewareHandler } from 'hono';
+
+/**
+ * Extract the project ID (Artifacts repo name) from a `cf.artifacts.repo.pushed`
+ * event subscription message, or undefined if the message is not a push event.
+ */
+function extractPushedProjectId(event: unknown): string | undefined {
+	if (typeof event !== 'object' || event === null) return undefined;
+	if (!('type' in event) || event.type !== 'cf.artifacts.repo.pushed') return undefined;
+	if (!('source' in event) || typeof event.source !== 'object' || event.source === null) return undefined;
+	if (!('repoName' in event.source) || typeof event.source.repoName !== 'string') return undefined;
+	return event.source.repoName;
+}
 
 // Cache PreviewService instances at module scope. The service is stateless, so
 // reusing it only avoids repeated dynamic imports on hot paths.
@@ -84,6 +95,9 @@ async function getPreviewService(projectRoot: string, projectId: string): Promis
 	return service;
 }
 export { AgentRunner, DurableObjectFilesystem, ProjectCoordinatorV2, ProjectMetadata, SubAgentWorker } from './durable';
+// The browser/codemode tools run their durable runtime inside a Durable Object
+// facet, so the facet class must be exported from the worker entry.
+export { CodemodeRuntime } from '@cloudflare/codemode';
 export { LogTailer } from './services/log-tailer';
 export { ObjectStorageBinding } from './services/object-storage-binding';
 export { DeployWorkflow } from './workflows/deploy-workflow';
@@ -141,6 +155,10 @@ async function hardDeleteProjectById(
 	}
 
 	await deleteProjectRowsByIds(database, [project.id]);
+	await deleteArtifactsRepo(env, project.id).catch((error) => {
+		console.warn(`Failed to delete Artifacts repo for project ${project.id}:`, error);
+		return false;
+	});
 
 	return true;
 }
@@ -158,6 +176,10 @@ async function hardDeleteOrganizationById(database: ReturnType<typeof drizzle>, 
 			console.warn(`Failed to delete DO for project ${project.id}:`, error);
 			return false;
 		}
+		await deleteArtifactsRepo(env, project.id).catch((error) => {
+			console.warn(`Failed to delete Artifacts repo for project ${project.id}:`, error);
+			return false;
+		});
 	}
 
 	await deleteProjectRowsByIds(
@@ -998,9 +1020,7 @@ async function handlePreviewRequest(request: Request, projectId: string, preview
 		}
 	}
 
-	const response = await withMounts(async () => {
-		mount(PROJECT_ROOT, fsStub);
-
+	const response = await runWithProjectStub(fsStub, async () => {
 		if (url.pathname === '/__ws' || url.pathname.startsWith('/__ws')) {
 			if (!hasValidWebSocketOrigin(request, url.origin)) {
 				return new Response('Forbidden', { status: 403 });
@@ -1022,6 +1042,48 @@ async function handlePreviewRequest(request: Request, projectId: string, preview
 
 	return trackAndReturn(response, previewVisibility);
 }
+
+/**
+ * One-time migration of existing projects from the legacy durable-object-fs
+ * `entries` table to the durable `@cloudflare/shell` Workspace (and a real
+ * `.git` cloned from Artifacts). Admin-only and idempotent: re-running reports
+ * `migrated: false` for projects already migrated. Process in batches via
+ * `?limit=` until every project reports `migrated: false`.
+ */
+app.post('/api/admin/migrate-fs', async (c) => {
+	const { userId } = c.get('session');
+	const database = drizzle(c.env.DB, { schema: authSchema });
+
+	const userRow = await database
+		.select({ role: authSchema.user.role })
+		.from(authSchema.user)
+		.where(eq(authSchema.user.id, userId))
+		.limit(1);
+	if (userRow[0]?.role !== 'admin') {
+		return c.json({ error: 'Forbidden' }, 403);
+	}
+
+	const limit = Math.min(Math.max(Number(new URL(c.req.url).searchParams.get('limit') ?? '50'), 1), 200);
+	const projects = await database
+		.select({ id: authSchema.project.id, durableObjectHexId: authSchema.project.durableObjectHexId })
+		.from(authSchema.project)
+		.where(isNull(authSchema.project.deletedAt))
+		.limit(limit);
+
+	const results: Array<{ projectId: string; migrated?: boolean; fileCount?: number; error?: string }> = [];
+	for (const project of projects) {
+		try {
+			const stub = filesystemNamespace.get(filesystemNamespace.idFromString(project.durableObjectHexId));
+			const result = await stub.migrateToWorkspace();
+			results.push({ projectId: project.id, ...result });
+		} catch (error) {
+			results.push({ projectId: project.id, error: error instanceof Error ? error.message : String(error) });
+		}
+	}
+
+	const migrated = results.filter((result) => result.migrated).length;
+	return c.json({ processed: results.length, migrated, results });
+});
 
 app.post('/api/new-project', async (c) => {
 	const projectCreateStart = Date.now();
@@ -1128,25 +1190,12 @@ app.post('/api/new-project', async (c) => {
 			email: userRow[0]?.email ?? 'user@example.com',
 		};
 
-		// Create initial git commit via the git auxiliary worker
+		// Create the project's Cloudflare Artifacts repo and push the initial
+		// commit. Artifacts is the source of truth; commitTree() pushes
+		// synchronously, so a failure here aborts project creation.
 		const fsStub = filesystemNamespace.get(doId);
-		const gitClient = new GitClient(env.REPO_DO, projectId);
-		let files: CommitFileEntry[] = [];
-
-		await withMounts(async () => {
-			mount(PROJECT_ROOT, fsStub);
-			const fileSystem = await import('node:fs/promises');
-			const { files: changedFiles } = await collectChanges(fileSystem, PROJECT_ROOT, []);
-			files = changedFiles;
-		});
-
-		if (files.length > 0) {
-			await gitClient.commitTree({
-				files,
-				message: 'Initial commit',
-				author: commitAuthor,
-			});
-		}
+		await ensureArtifactsRepo(env, projectId);
+		await fsStub.gitInitialCommit(commitAuthor);
 
 		trackProjectEvent({
 			organizationId,
@@ -1285,16 +1334,8 @@ app.post('/api/clone-project', async (c) => {
 	const projectName = generateHumanId();
 
 	try {
-		await withMounts(async () => {
-			const destinationStub = filesystemNamespace.get(newDoId);
-			mount('/source', sourceStub);
-			mount('/destination', destinationStub);
-
-			const fs = await import('node:fs/promises');
-
-			await copyDirectoryRecursive(fs, '/source', '/destination');
-			await fs.writeFile('/destination/.initialized', '1');
-		});
+		const destinationStub = filesystemNamespace.get(newDoId);
+		await destinationStub.importTree(await sourceStub.exportTree());
 
 		// Register cloned project in D1
 		const database = drizzle(c.env.DB, { schema: authSchema });
@@ -1321,25 +1362,9 @@ app.post('/api/clone-project', async (c) => {
 			email: cloneUserRow[0]?.email ?? 'user@example.com',
 		};
 
-		// Create initial git commit for cloned project via the git auxiliary worker
-		const newFsStub = filesystemNamespace.get(newDoId);
-		const gitClient = new GitClient(env.REPO_DO, newProjectId);
-		let files: CommitFileEntry[] = [];
-
-		await withMounts(async () => {
-			mount(PROJECT_ROOT, newFsStub);
-			const fileSystem = await import('node:fs/promises');
-			const { files: changedFiles } = await collectChanges(fileSystem, PROJECT_ROOT, []);
-			files = changedFiles;
-		});
-
-		if (files.length > 0) {
-			await gitClient.commitTree({
-				files,
-				message: 'Initial commit',
-				author: cloneCommitAuthor,
-			});
-		}
+		// Create the cloned project's Artifacts repo and push the initial commit.
+		await ensureArtifactsRepo(env, newProjectId);
+		await destinationStub.gitInitialCommit(cloneCommitAuthor);
 
 		trackProjectEvent({
 			organizationId,
@@ -1504,9 +1529,7 @@ app.all('/p/:projectId/*', async (c) => {
 		return agentStub.fetch(new Request(agentUrl, { ...c.req.raw, headers: agentHeaders }));
 	}
 
-	return withMounts(async () => {
-		mount(PROJECT_ROOT, fsStub);
-
+	return runWithProjectStub(fsStub, async () => {
 		if (subPath === '/__ws' || subPath.startsWith('/__ws')) {
 			if (!hasValidWebSocketOrigin(c.req.raw, appOrigin)) {
 				return new Response('Forbidden', { status: 403 });
@@ -1614,9 +1637,11 @@ export default {
 			}
 
 			case 'git': {
-				// Proxy Git Smart HTTP v2 requests to the git auxiliary worker.
-				// JWT verification is handled by the git worker itself.
-				return environment.GIT_WORKER.fetch(request);
+				// Proxy Git Smart HTTP requests to the project's Cloudflare Artifacts
+				// remote. We verify our own short-lived token and mint a scoped
+				// Artifacts token before forwarding (the Artifacts token never
+				// reaches the client).
+				return handleGitProxy(request, environment);
 			}
 
 			case 'app': {
@@ -1638,30 +1663,20 @@ export default {
 	},
 
 	/**
-	 * Queue consumer for git push event notifications.
-	 * When an external client pushes to the git worker, it publishes an event
-	 * to the git-push-events queue. This handler broadcasts a git-status-changed
-	 * message to all connected WebSocket clients for the affected project.
+	 * Queue consumer for Cloudflare Artifacts event subscriptions.
+	 * When commits are pushed to a project's Artifacts repo (by an external
+	 * client or another session), Artifacts emits a `cf.artifacts.repo.pushed`
+	 * event. This handler broadcasts git-status-changed to all connected
+	 * WebSocket clients for the affected project. The repo name is the projectId.
 	 */
 	async queue(batch: MessageBatch, _environment: Env, _executionContext: ExecutionContext): Promise<void> {
 		for (const message of batch.messages) {
 			try {
-				const event = message.body;
-				if (
-					typeof event === 'object' &&
-					event !== undefined &&
-					event !== null &&
-					'type' in event &&
-					'repoId' in event &&
-					event.type === 'push' &&
-					typeof event.repoId === 'string'
-				) {
-					// Extract projectId from repoId (format: "ide/{projectId}")
-					const projectId = event.repoId.startsWith('ide/') ? event.repoId.slice(4) : undefined;
-					if (projectId) {
-						const coordinatorStub = coordinatorNamespace.getByName(`project:${projectId}`);
-						await coordinatorStub.sendMessage({ type: 'git-status-changed' });
-					}
+				const event: unknown = message.body;
+				const projectId = extractPushedProjectId(event);
+				if (projectId) {
+					const coordinatorStub = coordinatorNamespace.getByName(`project:${projectId}`);
+					await coordinatorStub.sendMessage({ type: 'git-status-changed' });
 				}
 				message.ack();
 			} catch (error) {
@@ -1771,28 +1786,3 @@ export default {
 		}
 	},
 };
-
-const CLONE_SKIP_ENTRIES = new Set(['.initialized', '.agent', '.git']);
-
-async function copyDirectoryRecursive(fs: typeof import('node:fs/promises'), source: string, destination: string): Promise<void> {
-	const entries = await fs.readdir(source, { withFileTypes: true });
-
-	for (const entry of entries) {
-		if (CLONE_SKIP_ENTRIES.has(entry.name)) {
-			continue;
-		}
-
-		const sourcePath = `${source}/${entry.name}`;
-		const destinationPath = `${destination}/${entry.name}`;
-
-		if (entry.isDirectory()) {
-			await fs.mkdir(destinationPath, { recursive: true });
-			await copyDirectoryRecursive(fs, sourcePath, destinationPath);
-		} else {
-			const content = await fs.readFile(sourcePath);
-			const directory = destinationPath.slice(0, destinationPath.lastIndexOf('/'));
-			await fs.mkdir(directory, { recursive: true });
-			await fs.writeFile(destinationPath, content);
-		}
-	}
-}

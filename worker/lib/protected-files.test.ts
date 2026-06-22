@@ -2,8 +2,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const files = new Map<string, string>();
 
-vi.mock('node:fs/promises', () => ({
-	default: {
+vi.mock('@worker/lib/project-fs', () => ({
+	runWithProjectFs: <R>(_adapter: unknown, function_: () => R): R => function_(),
+	runWithProjectStub: <R>(_stub: unknown, function_: () => R): R => function_(),
+	currentProjectFs: () => {},
+	fs: {
 		readFile: async (path: string) => {
 			const content = files.get(path);
 			if (content === undefined) {

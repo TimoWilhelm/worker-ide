@@ -372,10 +372,11 @@ export async function createServerTools(
 		Object.assign(tools, context.extensionManager.getTools());
 	}
 
-	if (context.loader && mode === 'code') {
+	if (context.ctx && context.loader && mode === 'code') {
 		const { createExecuteTool } = await import('@cloudflare/think/tools/execute');
 		const codeTools = { ...tools };
 		tools.execute = createExecuteTool({
+			ctx: context.ctx,
 			tools: codeTools,
 			loader: context.loader,
 			timeout: 30_000,
@@ -384,20 +385,34 @@ export async function createServerTools(
 		});
 	}
 
-	if (context.loader && context.browser) {
+	if (context.ctx && context.loader && context.browser && context.requestOriginContext) {
 		const { createBrowserTools } = await import('@cloudflare/think/tools/browser');
+		// New Browser Run interface: the durable `browser_execute` tool plus
+		// stateless Quick Action tools (browser_markdown/extract/links/scrape).
+		// The runtime lives in a facet of the agent DO (`ctx`); the browser
+		// binding is passed directly — no Fetcher adapter required.
 		const browserTools = createBrowserTools({
+			ctx: context.ctx,
 			browser: context.browser,
 			loader: context.loader,
-			timeout: 30_000,
+			session: { mode: 'dynamic' },
 		});
 
-		tools.browser_search = browserTools.browser_search;
+		const secret = import.meta.env.DEV ? env.PREVIEW_SECRET || DEV_PREVIEW_SECRET : env.PREVIEW_SECRET;
+		const allowedPreviewOrigins = await buildAllowedPreviewOrigins(context.projectId, context.requestOriginContext, secret);
+		const primaryPreviewOrigin = allowedPreviewOrigins[0];
 
-		if (mode === 'code' && context.requestOriginContext) {
-			const secret = import.meta.env.DEV ? env.PREVIEW_SECRET || DEV_PREVIEW_SECRET : env.PREVIEW_SECRET;
-			const allowedPreviewOrigins = await buildAllowedPreviewOrigins(context.projectId, context.requestOriginContext, secret);
-			const primaryPreviewOrigin = allowedPreviewOrigins[0];
+		// Quick Action tools are read-only page reads, available in every mode.
+		// Restrict their target URL to the project's preview origin(s).
+		for (const quickActionName of QUICK_ACTION_TOOL_NAMES) {
+			const quickActionTool = browserTools[quickActionName];
+			if (quickActionTool) {
+				tools[quickActionName] = wrapQuickActionTool(quickActionTool, allowedPreviewOrigins);
+			}
+		}
+
+		// The durable CDP tool can mutate page state, so it is code-mode only.
+		if (mode === 'code') {
 			const browserExecute = browserTools.browser_execute;
 			tools.browser_execute = {
 				...browserExecute,
@@ -421,6 +436,49 @@ export async function createServerTools(
 	}
 
 	return tools;
+}
+
+/**
+ * Browser Run Quick Action tools exposed by the new `createBrowserTools`
+ * interface. These are stateless, read-only page reads.
+ */
+const QUICK_ACTION_TOOL_NAMES = ['browser_markdown', 'browser_extract', 'browser_links', 'browser_scrape'] as const;
+
+/**
+ * Wrap a Quick Action tool so it can only navigate to the project's preview
+ * origin(s). Quick Actions accept either a `url` or raw `html`; raw HTML never
+ * navigates, so it passes through untouched.
+ */
+function wrapQuickActionTool(quickActionTool: { execute?: unknown }, allowedPreviewOrigins: string[]): unknown {
+	const originalExecute = quickActionTool.execute;
+	if (typeof originalExecute !== 'function') {
+		return quickActionTool;
+	}
+
+	const allowedOrigins = new Set(allowedPreviewOrigins);
+	return {
+		...quickActionTool,
+		execute: async (input: Record<string, unknown>, options?: unknown) => {
+			if (typeof input.url === 'string') {
+				let parsed: URL;
+				try {
+					parsed = new URL(input.url);
+				} catch {
+					throw new ToolExecutionError('MISSING_INPUT', 'Browser tool URLs must be valid absolute URLs.');
+				}
+				if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+					throw new ToolExecutionError('NOT_ALLOWED', 'Browser tools only support http:// and https:// preview URLs.');
+				}
+				if (!allowedOrigins.has(parsed.origin)) {
+					throw new ToolExecutionError(
+						'NOT_ALLOWED',
+						`Browser tools may only read this project's preview origin. Allowed origins: ${allowedPreviewOrigins.join(', ')}`,
+					);
+				}
+			}
+			return Reflect.apply(originalExecute, quickActionTool, [input, options]);
+		},
+	};
 }
 
 function wrapBrowserExecuteCode(code: string, primaryPreviewOrigin: string, allowedPreviewOrigins: string[]): string {

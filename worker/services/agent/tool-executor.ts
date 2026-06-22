@@ -1,7 +1,6 @@
-import fs from 'node:fs/promises';
-
 import { HIDDEN_ENTRIES } from '@shared/constants';
 import { todoItemSchema } from '@shared/validation';
+import { fs } from '@worker/lib/project-fs';
 
 import type { TodoItem } from './types';
 

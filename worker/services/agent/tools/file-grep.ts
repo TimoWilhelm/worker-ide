@@ -1,8 +1,7 @@
-import fs from 'node:fs/promises';
-
 import { minimatch } from 'minimatch';
 
 import { ToolErrorCode, toolError } from '@shared/tool-errors';
+import { fs } from '@worker/lib/project-fs';
 
 import { listFilesRecursive } from '../tool-executor';
 import { isBinaryFilePath } from '../utilities';

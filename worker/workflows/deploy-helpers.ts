@@ -1,11 +1,10 @@
-import fs from 'node:fs/promises';
-
 import { z } from 'zod';
 
 import { HIDDEN_ENTRIES, WORKERS_COMPATIBILITY_DATE } from '@shared/constants';
 import { HttpErrorCode } from '@shared/http-errors';
 import { parseJsonc } from '@shared/jsonc';
 import { resolveAssetSettings } from '@shared/types';
+import { fs } from '@worker/lib/project-fs';
 
 import { getContentType } from '../lib/content-type';
 import { httpError } from '../lib/http-error';

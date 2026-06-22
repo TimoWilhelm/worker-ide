@@ -1,6 +1,5 @@
-import fs from 'node:fs/promises';
-
 import { ToolExecutionError } from '@shared/tool-errors';
+import { fs } from '@worker/lib/project-fs';
 
 import { buildPlanArtifactEntry } from '../memory/artifacts';
 

@@ -1,5 +1,3 @@
-import fs from 'node:fs/promises';
-
 import { zValidator } from '@hono/zod-validator';
 import { and, eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
@@ -8,6 +6,7 @@ import { Hono } from 'hono';
 import { BINARY_EXTENSIONS, HIDDEN_ENTRIES } from '@shared/constants';
 import { HttpErrorCode } from '@shared/http-errors';
 import { dependenciesUpdateSchema, projectMetaSchema, visibilityBodySchema } from '@shared/validation';
+import { fs } from '@worker/lib/project-fs';
 
 import * as schema from '../db/auth-schema';
 import { coordinatorNamespace, projectMetadataNamespace } from '../lib/durable-object-namespaces';

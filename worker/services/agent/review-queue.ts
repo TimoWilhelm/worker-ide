@@ -1,5 +1,3 @@
-import fs from 'node:fs/promises';
-
 import { eq } from 'drizzle-orm';
 
 import { computeDiffHunkSessionIds, computeDiffHunks, groupHunksIntoChanges, resolveReviewContent } from '@shared/review-diff';
@@ -13,6 +11,7 @@ import {
 	type ReviewResolutionDecision,
 	type ReviewSummary,
 } from '@shared/types';
+import { fs } from '@worker/lib/project-fs';
 
 import { accumulatePendingChange } from './pending-changes';
 import { deletePendingChanges, writePendingChangesData } from '../../durable/db';

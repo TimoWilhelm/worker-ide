@@ -103,7 +103,17 @@ describe('MUTATION_TOOL_NAMES', () => {
 });
 
 describe('tool registration sync', () => {
-	const externalToolNames = ['browser_execute', 'browser_search', 'cdp_eval', 'execute', 'list_extensions', 'load_extension'];
+	const externalToolNames = [
+		'browser_execute',
+		'browser_markdown',
+		'browser_extract',
+		'browser_links',
+		'browser_scrape',
+		'cdp_eval',
+		'execute',
+		'list_extensions',
+		'load_extension',
+	];
 	const executorNames = [...TOOL_EXECUTORS.keys()].toSorted();
 	const definitionNames = AGENT_TOOLS.map((tool) => tool.name).toSorted();
 	const schemaNames = Object.keys(toolInputSchemas)

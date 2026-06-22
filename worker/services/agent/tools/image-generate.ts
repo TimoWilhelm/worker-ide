@@ -1,11 +1,10 @@
-import fs from 'node:fs/promises';
-
 import { env } from 'cloudflare:workers';
 
 import { ToolErrorCode, toolError } from '@shared/tool-errors';
 import { createHmrUpdateForFile } from '@shared/types';
 import { coordinatorNamespace } from '@worker/lib/durable-object-namespaces';
 import { isHiddenPath, isPathSafe } from '@worker/lib/path-utilities';
+import { fs } from '@worker/lib/project-fs';
 
 import { recordFileRead } from '../file-time';
 

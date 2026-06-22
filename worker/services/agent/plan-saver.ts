@@ -1,4 +1,4 @@
-import fs from 'node:fs/promises';
+import { fs } from '@worker/lib/project-fs';
 
 import { planCreatedEvent } from './event-helpers';
 import { cleanupTimestampPlans } from './session-cleanup';

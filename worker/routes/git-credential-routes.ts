@@ -3,9 +3,12 @@ import { Hono } from 'hono';
 import { buildGitOrigin, parseHost } from '@shared/domain';
 import { HttpErrorCode } from '@shared/http-errors';
 
+import { signGitToken } from '../lib/git-token';
 import { httpError } from '../lib/http-error';
 
 import type { AppEnvironment } from '../types';
+
+const GIT_NAMESPACE = 'ide';
 
 export const gitCredentialRoutes = new Hono<AppEnvironment>()
 	.get('/git/remote', (c) => {
@@ -13,7 +16,7 @@ export const gitCredentialRoutes = new Hono<AppEnvironment>()
 		const url = new URL(c.req.url);
 		const { baseDomain } = parseHost(url.host);
 		const gitOrigin = buildGitOrigin(baseDomain, url.protocol);
-		const repoId = `ide/${projectId}`;
+		const repoId = `${GIT_NAMESPACE}/${projectId}`;
 
 		return c.json({
 			cloneUrl: `${gitOrigin}/${repoId}`,
@@ -24,32 +27,31 @@ export const gitCredentialRoutes = new Hono<AppEnvironment>()
 	/**
 	 * POST /api/git/credentials — Generate a short-lived read-only git token.
 	 *
-	 * Returns a 1-hour JWT that can be used with `git clone` via HTTP Basic Auth:
-	 *   git clone https://t:<token>@git.<domain>/ide/<projectId>
+	 * The token authorizes clone/fetch through our `git.<domain>` proxy, which
+	 * verifies it and mints a real Cloudflare Artifacts token before forwarding:
+	 *   git clone https://x:<token>@git.<domain>/ide/<projectId>
 	 */
 	.post('/git/credentials', async (c) => {
 		const projectId = c.get('projectId');
 		const url = new URL(c.req.url);
 		const { baseDomain } = parseHost(url.host);
 		const gitOrigin = buildGitOrigin(baseDomain, url.protocol);
-		const repoId = `ide/${projectId}`;
-
-		const scopes = ['git:read'];
+		const repoId = `${GIT_NAMESPACE}/${projectId}`;
 
 		try {
-			const { token, expiresAt } = await c.env.GIT_WORKER.signJwt({
-				sub: repoId,
-				scopes,
+			const { token, expiresAt } = await signGitToken(c.env.BETTER_AUTH_SECRET, {
+				projectId,
+				scope: 'read',
 			});
 
 			return c.json({
 				token,
 				expiresAt,
 				cloneUrl: `${gitOrigin}/${repoId}`,
-				username: 't',
+				username: 'x',
 			});
 		} catch (error) {
-			console.error('Failed to sign git JWT:', error);
+			console.error('Failed to mint git token:', error);
 			throw httpError(HttpErrorCode.INTERNAL_ERROR, 'Failed to generate git credentials');
 		}
 	});

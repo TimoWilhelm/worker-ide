@@ -445,98 +445,6 @@ export function useGitMutations({ projectId }: UseGitMutationsOptions) {
 		},
 	});
 
-	// =========================================================================
-	// Stash
-	// =========================================================================
-
-	const stashPush = useMutation({
-		mutationFn: async (message?: string) => {
-			const response = await api.git.stash.$post({ json: { action: 'push', message } });
-			if (!response.ok) {
-				await throwApiError(response, 'Failed to push stash');
-			}
-			return response.json();
-		},
-		onSuccess: (data) => {
-			applyInlineGitStatus(data.gitStatus);
-		},
-		onError: (error) => {
-			toast.error(error.message);
-		},
-	});
-
-	const stashPop = useMutation({
-		mutationFn: async (index?: number) => {
-			const response = await api.git.stash.$post({ json: { action: 'pop', index } });
-			if (!response.ok) {
-				await throwApiError(response, 'Failed to pop stash');
-			}
-			return response.json();
-		},
-		onSuccess: async (data) => {
-			applyInlineGitStatus(data.gitStatus);
-			await Promise.all([
-				queryClient.invalidateQueries({ queryKey: ['files', projectId] }),
-				queryClient.refetchQueries({ queryKey: ['file', projectId] }),
-			]);
-		},
-		onError: (error) => {
-			toast.error(error.message);
-		},
-	});
-
-	const stashApply = useMutation({
-		mutationFn: async (index?: number) => {
-			const response = await api.git.stash.$post({ json: { action: 'apply', index } });
-			if (!response.ok) {
-				await throwApiError(response, 'Failed to apply stash');
-			}
-			return response.json();
-		},
-		onSuccess: async (data) => {
-			applyInlineGitStatus(data.gitStatus);
-			await Promise.all([
-				queryClient.invalidateQueries({ queryKey: ['files', projectId] }),
-				queryClient.refetchQueries({ queryKey: ['file', projectId] }),
-			]);
-		},
-		onError: (error) => {
-			toast.error(error.message);
-		},
-	});
-
-	const stashDrop = useMutation({
-		mutationFn: async (index?: number) => {
-			const response = await api.git.stash.$post({ json: { action: 'drop', index } });
-			if (!response.ok) {
-				await throwApiError(response, 'Failed to drop stash');
-			}
-			return response.json();
-		},
-		onSuccess: (data) => {
-			applyInlineGitStatus(data.gitStatus);
-		},
-		onError: (error) => {
-			toast.error(error.message);
-		},
-	});
-
-	const stashClear = useMutation({
-		mutationFn: async () => {
-			const response = await api.git.stash.$post({ json: { action: 'clear' } });
-			if (!response.ok) {
-				await throwApiError(response, 'Failed to clear stash');
-			}
-			return response.json();
-		},
-		onSuccess: (data) => {
-			applyInlineGitStatus(data.gitStatus);
-		},
-		onError: (error) => {
-			toast.error(error.message);
-		},
-	});
-
 	return {
 		// Initialize
 		initializeRepository: initializeRepository.mutate,
@@ -575,20 +483,12 @@ export function useGitMutations({ projectId }: UseGitMutationsOptions) {
 		createTag: createTag.mutate,
 		deleteTag: deleteTag.mutate,
 
-		// Stash
-		stashPush: stashPush.mutate,
-		stashPop: stashPop.mutate,
-		stashApply: stashApply.mutate,
-		stashDrop: stashDrop.mutate,
-		stashClear: stashClear.mutate,
-
 		// Loading states
 		isInitPending: initializeRepository.isPending,
 		isStagePending: stageFiles.isPending || unstageFiles.isPending || stageAll.isPending || unstageAll.isPending,
 		isCommitPending: commit.isPending,
 		isBranchPending: createBranch.isPending || deleteBranch.isPending || renameBranch.isPending || checkout.isPending,
 		isMergePending: merge.isPending,
-		isStashPending: stashPush.isPending || stashPop.isPending || stashApply.isPending || stashDrop.isPending || stashClear.isPending,
 		isDiscardPending: discardChanges.isPending || discardAll.isPending,
 
 		// Error states

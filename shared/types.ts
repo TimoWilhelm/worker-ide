@@ -533,11 +533,6 @@ export interface GitFileDiff {
 	beforeContent?: string;
 	afterContent?: string;
 }
-export interface GitStashEntry {
-	index: number;
-	message: string;
-	objectId: string;
-}
 export interface GitMergeResult {
 	objectId?: string;
 	alreadyMerged?: boolean;

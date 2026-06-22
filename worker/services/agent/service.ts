@@ -1,8 +1,8 @@
 import { generateText, streamText } from 'ai';
-import { mount, withMounts } from 'worker-fs-mount';
 
 import { messagePartsToPromptText } from '@shared/chat-message-parts';
 import { DEFAULT_AI_MODEL, getModelConfig, getModelLimits } from '@shared/constants';
+import { runWithProjectStub } from '@worker/lib/project-fs';
 
 import { AgentLogger } from './agent-logger';
 import {
@@ -49,6 +49,7 @@ import { coordinatorNamespace } from '../../lib/durable-object-namespaces';
 import type { RequestOriginContext } from './request-origin-context';
 import type { SnapshotContext } from './snapshot-manager';
 import type {
+	BrowserBinding,
 	FileChange,
 	PendingToolCallIds,
 	SessionPersistData,
@@ -77,8 +78,9 @@ export interface AgentServiceOptions {
 	isSubAgent?: boolean;
 	session?: Session;
 	extensionManager?: ExtensionManager;
+	ctx?: DurableObjectState;
 	loader?: WorkerLoader;
-	browser?: Fetcher;
+	browser?: BrowserBinding;
 	agentReference?: import('agents').Agent<Env, unknown>;
 	requestOriginContext?: RequestOriginContext;
 	fiberSnapshot?: FiberSnapshot;
@@ -228,8 +230,7 @@ export class AgentService {
 		const { readable, writable } = new TransformStream<StreamEvent>();
 		const writer = writable.getWriter();
 
-		void withMounts(async () => {
-			mount(this.options.projectRoot, this.options.fsStub);
+		void runWithProjectStub(this.options.fsStub, async () => {
 			const innerStream = this.createAgentStream(messages, chatMessages, abortController, logger);
 			try {
 				for await (const event of innerStream) {
@@ -247,8 +248,7 @@ export class AgentService {
 		const logger = this.agentLogger;
 		if (!logger || logger.isFlushed) return;
 
-		await withMounts(async () => {
-			mount(this.options.projectRoot, this.options.fsStub);
+		await runWithProjectStub(this.options.fsStub, async () => {
 			await logger.flush(this.options.projectRoot);
 		});
 	}
@@ -414,6 +414,7 @@ export class AgentService {
 				session: this.options.session,
 				abortSignal: signal,
 				callMcpTool: (serverId, toolName, arguments_) => this.mcpClientManager.callTool(serverId, toolName, arguments_),
+				ctx: this.options.ctx,
 				loader: this.options.loader,
 				browser: this.options.browser,
 				agentReference: this.options.agentReference,

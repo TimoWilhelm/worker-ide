@@ -1,5 +1,3 @@
-import fs from 'node:fs/promises';
-
 import { zValidator } from '@hono/zod-validator';
 import { Hono } from 'hono';
 
@@ -7,6 +5,7 @@ import { HIDDEN_ENTRIES } from '@shared/constants/file-system';
 import { HttpErrorCode } from '@shared/http-errors';
 import { ToolExecutionError } from '@shared/tool-errors';
 import { testRunRequestSchema } from '@shared/validation';
+import { fs } from '@worker/lib/project-fs';
 
 import { coordinatorNamespace } from '../lib/durable-object-namespaces';
 import { httpError } from '../lib/http-error';

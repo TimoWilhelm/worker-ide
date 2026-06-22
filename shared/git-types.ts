@@ -59,18 +59,22 @@ export interface CommitLogEntry {
 }
 
 // ---------------------------------------------------------------------------
-// Ephemeral branches
+// Artifacts "pushed" event subscription payload (queue message)
+//
+// Delivered by Cloudflare Artifacts event subscriptions (source
+// `artifacts.repo`) whenever commits are pushed to a repository. The IDE
+// consumes these to broadcast `git-status-changed` to connected clients.
 // ---------------------------------------------------------------------------
-export interface EphemeralReference {
-	name: string;
-	oid: string;
-}
-
-// ---------------------------------------------------------------------------
-// Push event (queue message)
-// ---------------------------------------------------------------------------
-export interface GitPushEvent {
-	type: 'push';
-	repoId: string;
-	timestamp: number;
+export interface ArtifactsPushedEvent {
+	type: 'cf.artifacts.repo.pushed';
+	source: {
+		type: 'artifacts.repo';
+		namespace: string;
+		repoName: string;
+	};
+	payload: {
+		ref: string;
+		before: string;
+		after: string;
+	};
 }

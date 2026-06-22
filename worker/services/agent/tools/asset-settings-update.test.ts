@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createMemoryFs, createMockContext, createMockSendEvent } from './test-helpers';
 
 const memoryFs = createMemoryFs();
-vi.mock('node:fs/promises', () => memoryFs.asMock());
+vi.mock('@worker/lib/project-fs', () => memoryFs.asMock());
 
 vi.mock('../../../lib/durable-object-namespaces', () => ({
 	coordinatorNamespace: {

@@ -1,7 +1,6 @@
-import fs from 'node:fs/promises';
-
 import { ToolExecutionError } from '@shared/tool-errors';
 import { todoItemSchema } from '@shared/validation';
+import { fs } from '@worker/lib/project-fs';
 
 import { buildTodosArtifactEntry } from '../memory/artifacts';
 

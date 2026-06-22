@@ -6,7 +6,6 @@ import { generateText } from 'ai';
 import { env } from 'cloudflare:workers';
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
-import { mount, withMounts } from 'worker-fs-mount';
 
 import { messagePartsHaveUserContent, messagePartsToPromptText } from '@shared/chat-message-parts';
 import {
@@ -26,6 +25,7 @@ import {
 	reviewResolveSchema,
 	sessionTitleSchema,
 } from '@shared/validation';
+import { runWithProjectStub } from '@worker/lib/project-fs';
 
 import {
 	buildLoadedExtensionsSummary,
@@ -1339,8 +1339,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 			const fsId = toDurableObjectId(filesystemNamespace, projectId);
 			const fsStub = filesystemNamespace.get(fsId);
 
-			await withMounts(async () => {
-				mount(PROJECT_ROOT, fsStub);
+			await runWithProjectStub(fsStub, async () => {
 				await cleanupSessionArtifacts(PROJECT_ROOT, new Set([sessionId]), survivingSnapshotIds);
 			});
 		} catch (error) {
@@ -1587,6 +1586,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 				initiatorUserId: parameters.initiatorUserId,
 				session,
 				extensionManager: this.extensionManager,
+				ctx: this.ctx,
 				loader: env.LOADER,
 				browser: env.BROWSER,
 				agentReference: this,
@@ -1834,8 +1834,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 			const fsId = toDurableObjectId(filesystemNamespace, projectId);
 			const fsStub = filesystemNamespace.get(fsId);
 
-			await withMounts(async () => {
-				mount(PROJECT_ROOT, fsStub);
+			await runWithProjectStub(fsStub, async () => {
 				await cleanupSessionArtifacts(PROJECT_ROOT, prunedIds, survivingSnapshotIds);
 			});
 		} catch (error) {
@@ -2021,10 +2020,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	private async withProjectMount<T>(callback: () => Promise<T>, projectId = this.getProjectId()): Promise<T> {
 		const filesystemId = toDurableObjectId(filesystemNamespace, projectId);
 		const filesystemStub = filesystemNamespace.get(filesystemId);
-		return withMounts(async () => {
-			mount(PROJECT_ROOT, filesystemStub);
-			return callback();
-		});
+		return runWithProjectStub(filesystemStub, callback);
 	}
 
 	// =========================================================================

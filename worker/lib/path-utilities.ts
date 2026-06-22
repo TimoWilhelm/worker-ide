@@ -1,6 +1,6 @@
-import fs from 'node:fs/promises';
-
 import { BINARY_EXTENSIONS, HIDDEN_ENTRIES, PROTECTED_FILES } from '@shared/constants';
+import { fs } from '@worker/lib/project-fs';
+
 export function isPathSafe(_basePath: string, requestedPath: string): boolean {
 	if (typeof requestedPath !== 'string') return false;
 	if (!requestedPath.startsWith('/')) {

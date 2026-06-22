@@ -18,8 +18,7 @@
 			"@/*": ["./src/*"],
 			"@shared/*": ["./shared/*"],
 			"@server/*": ["./dist/worker/worker/*"],
-			"@worker/*": ["./worker/*"],
-			"@git/*": ["./auxiliary/git/*"]
+			"@worker/*": ["./worker/*"]
 		}
 	},
 	"include": ["src"],

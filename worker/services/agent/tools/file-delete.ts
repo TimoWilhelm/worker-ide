@@ -1,8 +1,7 @@
-import fs from 'node:fs/promises';
-
 import { ToolErrorCode, toolError } from '@shared/tool-errors';
 import { coordinatorNamespace } from '@worker/lib/durable-object-namespaces';
 import { isHiddenPath, isPathSafe, isProtectedFile } from '@worker/lib/path-utilities';
+import { fs } from '@worker/lib/project-fs';
 
 import { withLock } from '../file-time';
 

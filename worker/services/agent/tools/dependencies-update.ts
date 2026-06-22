@@ -1,9 +1,8 @@
-import fs from 'node:fs/promises';
-
 import { stripIndent } from 'common-tags';
 
 import { ToolExecutionError } from '@shared/tool-errors';
 import { coordinatorNamespace } from '@worker/lib/durable-object-namespaces';
+import { fs } from '@worker/lib/project-fs';
 import { readDependencies, regenerateProtectedFiles, writeDependencies } from '@worker/lib/protected-files';
 
 import type { SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';

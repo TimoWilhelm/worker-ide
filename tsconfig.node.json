@@ -16,13 +16,11 @@
 		"allowJs": true,
 		"paths": {
 			"@shared/*": ["./shared/*"],
-			"@git/*": ["./auxiliary/git/*"],
 			"@worker/*": ["./worker/*"]
 		},
 		"jsx": "react-jsx",
 		"types": [
 			"./worker-configuration.d.ts",
-			"./auxiliary/git/worker-configuration.d.ts",
 			"./auxiliary/push/worker-configuration.d.ts",
 			"./auxiliary/email/worker-configuration.d.ts",
 			"./raw-minified.d.ts",

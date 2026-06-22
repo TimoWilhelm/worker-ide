@@ -1,5 +1,3 @@
-import fs from 'node:fs/promises';
-
 import { originalPositionFor, TraceMap } from '@jridgewell/trace-mapping';
 import { source as chobitsuSource, hash as chobitsuHash } from 'chobitsu?raw-minified';
 import { env, exports } from 'cloudflare:workers';
@@ -13,6 +11,7 @@ import {
 	PREVIEW_EXTERNAL_MODULE_PATH,
 } from '@shared/preview-path';
 import { resolveAssetSettings } from '@shared/types';
+import { fs } from '@worker/lib/project-fs';
 
 import { bundleFiles } from './bundle-service';
 import { BundleDependencyError } from './bundler-client';

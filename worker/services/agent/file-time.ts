@@ -1,4 +1,4 @@
-import fs from 'node:fs/promises';
+import { fs } from '@worker/lib/project-fs';
 
 const SESSIONS_DIR = '.agent/sessions';
 

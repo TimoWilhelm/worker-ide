@@ -167,12 +167,34 @@ export const executeInputSchema = z.object({
 	code: z.string().min(1, 'Code is required'),
 });
 
-export const browserSearchInputSchema = z.object({
+export const browserExecuteInputSchema = z.object({
 	code: z.string().min(1, 'Code is required'),
 });
 
-export const browserExecuteInputSchema = z.object({
-	code: z.string().min(1, 'Code is required'),
+// Browser Run Quick Action tools. Each operates on a page identified by a
+// `url` (or raw `html`), mirroring the input shapes of the Agents SDK
+// `createBrowserTools` Quick Action tools.
+export const browserMarkdownInputSchema = z.object({
+	url: z.string().optional(),
+	html: z.string().optional(),
+});
+
+export const browserLinksInputSchema = z.object({
+	url: z.string().optional(),
+	html: z.string().optional(),
+});
+
+export const browserExtractInputSchema = z.object({
+	url: z.string().optional(),
+	html: z.string().optional(),
+	prompt: z.string().optional(),
+	schema: z.unknown().optional(),
+});
+
+export const browserScrapeInputSchema = z.object({
+	url: z.string().optional(),
+	html: z.string().optional(),
+	selectors: z.array(z.string()).min(1, 'At least one selector is required'),
 });
 
 export const loadExtensionInputSchema = z.object({
@@ -217,8 +239,11 @@ export const toolInputSchemas = {
 	image_generate: imageGenerateInputSchema,
 	sub_agent: subAgentInputSchema,
 	execute: executeInputSchema,
-	browser_search: browserSearchInputSchema,
 	browser_execute: browserExecuteInputSchema,
+	browser_markdown: browserMarkdownInputSchema,
+	browser_extract: browserExtractInputSchema,
+	browser_links: browserLinksInputSchema,
+	browser_scrape: browserScrapeInputSchema,
 	load_extension: loadExtensionInputSchema,
 	list_extensions: listExtensionsInputSchema,
 } as const;
@@ -452,13 +477,6 @@ export const gitTagSchema = z.object({
 });
 
 export type GitTagInput = z.infer<typeof gitTagSchema>;
-export const gitStashSchema = z.object({
-	action: z.enum(['push', 'pop', 'apply', 'drop', 'clear']),
-	index: z.number().int().min(0).optional(),
-	message: z.string().max(500).optional(),
-});
-
-export type GitStashInput = z.infer<typeof gitStashSchema>;
 export const gitLogQuerySchema = z.object({
 	reference: z.string().optional(),
 	depth: z.coerce.number().int().min(1).max(500).optional(),

@@ -6,13 +6,16 @@ import { AgentLogger, sanitizeToolInput, summarizeToolResult } from './agent-log
 
 import type { AgentDebugLog } from './agent-logger';
 
-vi.mock('node:fs/promises', () => ({
-	default: {
+vi.mock('@worker/lib/project-fs', () => ({
+	fs: {
 		mkdir: vi.fn().mockResolvedValue(true),
 		writeFile: vi.fn().mockResolvedValue(true),
 		readdir: vi.fn().mockResolvedValue([]),
 		unlink: vi.fn().mockResolvedValue(true),
 	},
+	runWithProjectFs: <R>(_adapter: unknown, function_: () => R): R => function_(),
+	runWithProjectStub: <R>(_stub: unknown, function_: () => R): R => function_(),
+	currentProjectFs: () => {},
 }));
 
 describe('AgentLogger', () => {
@@ -235,35 +238,35 @@ describe('AgentLogger', () => {
 
 	describe('flush', () => {
 		it('calls mkdir and writeFile with session-scoped paths', async () => {
-			const fs = await import('node:fs/promises');
+			const { fs } = await import('@worker/lib/project-fs');
 			logger.info('agent_loop', 'started');
 
 			await logger.flush('/project');
 
-			expect(fs.default.mkdir).toHaveBeenCalledWith('/project/.agent/sessions/test-session/debug-logs', { recursive: true });
-			expect(fs.default.writeFile).toHaveBeenCalledWith(
+			expect(fs.mkdir).toHaveBeenCalledWith('/project/.agent/sessions/test-session/debug-logs', { recursive: true });
+			expect(fs.writeFile).toHaveBeenCalledWith(
 				expect.stringMatching(/^\/project\/\.agent\/sessions\/test-session\/debug-logs\/test-session-\d+\.json$/),
 				expect.any(String),
 			);
 		});
 
 		it('falls back to project-scoped path when no sessionId is provided', async () => {
-			const fs = await import('node:fs/promises');
+			const { fs } = await import('@worker/lib/project-fs');
 			const noSessionLogger = new AgentLogger(undefined, 'proj', 'model', 'code');
 			noSessionLogger.info('agent_loop', 'started');
 
 			await noSessionLogger.flush('/project');
 
-			expect(fs.default.mkdir).toHaveBeenCalledWith('/project/.agent/debug-logs', { recursive: true });
+			expect(fs.mkdir).toHaveBeenCalledWith('/project/.agent/debug-logs', { recursive: true });
 		});
 
 		it('writes valid JSON content', async () => {
-			const fs = await import('node:fs/promises');
+			const { fs } = await import('@worker/lib/project-fs');
 			logger.info('agent_loop', 'completed');
 
 			await logger.flush('/project');
 
-			const writeCall = vi.mocked(fs.default.writeFile).mock.calls[0];
+			const writeCall = vi.mocked(fs.writeFile).mock.calls[0];
 			const content = String(writeCall[1]);
 			const parsed = JSON.parse(content);
 			expect(parsed.id).toBeTruthy();
@@ -271,15 +274,15 @@ describe('AgentLogger', () => {
 		});
 
 		it('does not throw on filesystem errors', async () => {
-			const fs = await import('node:fs/promises');
-			vi.mocked(fs.default.mkdir).mockRejectedValue(new Error('Permission denied'));
+			const { fs } = await import('@worker/lib/project-fs');
+			vi.mocked(fs.mkdir).mockRejectedValue(new Error('Permission denied'));
 
 			// Should not throw
 			await expect(logger.flush('/project')).resolves.toBeUndefined();
 		});
 
 		it('cleans up old logs beyond the retention limit', async () => {
-			const fs = await import('node:fs/promises');
+			const { fs } = await import('@worker/lib/project-fs');
 			// Simulate 25 existing log files with realistic timestamp-based names.
 			// Prefixes vary so lexicographic sort would NOT match chronological order.
 			const existingFiles = Array.from({ length: 25 }, (_, index) => {
@@ -287,13 +290,13 @@ describe('AgentLogger', () => {
 				return `${prefix}-${1000 + index}.json`;
 			});
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any -- readdir mock needs string[] but TS expects Dirent[]
-			vi.mocked(fs.default.readdir).mockResolvedValue(existingFiles as any);
+			vi.mocked(fs.readdir).mockResolvedValue(existingFiles as any);
 
 			await logger.flush('/project');
 
 			// Should remove the 5 oldest files by timestamp (timestamps 1000–1004)
-			expect(fs.default.unlink).toHaveBeenCalledTimes(5);
-			const removedFiles = vi.mocked(fs.default.unlink).mock.calls.map((call) => String(call[0]));
+			expect(fs.unlink).toHaveBeenCalledTimes(5);
+			const removedFiles = vi.mocked(fs.unlink).mock.calls.map((call) => String(call[0]));
 			for (const file of removedFiles) {
 				const timestamp = Number(file.slice(0, -5).split('-').pop());
 				expect(timestamp).toBeLessThan(1005);

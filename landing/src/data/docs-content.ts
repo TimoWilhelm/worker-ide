@@ -180,9 +180,10 @@ export const docsTopics: DocsTopic[] = [
 		slug: 'git-integration',
 		title: 'Git workflow',
 		description: 'Git actions operate on the durable project tree and refresh client state.',
-		tagline: 'Git in durable storage',
+		tagline: 'Artifacts-backed git flow',
 		accent: 'emerald',
-		laneDescription: 'Routes mount the project filesystem, update Git state, and broadcast status changes.',
+		laneDescription:
+			'Routes mount the project filesystem, clone the Artifacts repo into an in-memory scratch FS, push mutations back to Artifacts, and broadcast status changes.',
 		sections: [
 			{
 				label: 'Git operations',
@@ -190,17 +191,17 @@ export const docsTopics: DocsTopic[] = [
 				nodes: [
 					{ id: 'gi-git-panel', name: 'Git Panel', detail: 'stage / commit', color: 'text' },
 					{ id: 'gi-host', name: 'Host Worker', detail: 'git-routes.ts', color: 'orange' },
-					{ id: 'gi-expiring-fs', name: 'ProjectFilesystem', detail: 'Durable Object', color: 'magenta' },
-					{ id: 'gi-git-service', name: 'GitClient', detail: 'REPO_DO client', color: 'emerald' },
-					{ id: 'gi-iso-git', name: 'Git storage DO', detail: 'commit tree / status', color: 'emerald' },
-					{ id: 'gi-worker-fs', name: 'worker-fs-mount', detail: 'DO SQLite storage', color: 'magenta' },
+					{ id: 'gi-project-fs', name: 'ProjectFilesystem', detail: 'Durable Object', color: 'magenta' },
+					{ id: 'gi-git-service', name: 'GitClient', detail: 'isomorphic-git facade', color: 'emerald' },
+					{ id: 'gi-scratch-fs', name: 'MemoryFs', detail: 'ephemeral clone scratch', color: 'emerald' },
+					{ id: 'gi-artifacts', name: 'Cloudflare Artifacts', detail: 'git remote + repo tokens', color: 'emerald' },
 				],
 				edges: [
 					{ id: 'gi-e1', source: 'gi-git-panel', target: 'gi-host', label: 'POST /api/git/*', color: 'emerald' },
-					{ id: 'gi-e2', source: 'gi-host', target: 'gi-expiring-fs', label: 'RPC call', color: 'magenta' },
-					{ id: 'gi-e3', source: 'gi-expiring-fs', target: 'gi-git-service', label: 'withMounts()', color: 'emerald' },
-					{ id: 'gi-e4', source: 'gi-git-service', target: 'gi-iso-git', label: 'git operations', color: 'emerald' },
-					{ id: 'gi-e5', source: 'gi-iso-git', target: 'gi-worker-fs', label: 'node:fs/promises', color: 'magenta' },
+					{ id: 'gi-e2', source: 'gi-host', target: 'gi-project-fs', label: 'mounted working tree', color: 'magenta' },
+					{ id: 'gi-e3', source: 'gi-host', target: 'gi-git-service', label: 'withMounts()', color: 'emerald' },
+					{ id: 'gi-e4', source: 'gi-git-service', target: 'gi-scratch-fs', label: 'clone / commit / diff', color: 'emerald' },
+					{ id: 'gi-e5', source: 'gi-git-service', target: 'gi-artifacts', label: 'fetch / push via repo token', color: 'emerald' },
 				],
 			},
 			{
@@ -218,7 +219,7 @@ export const docsTopics: DocsTopic[] = [
 			},
 		],
 		notes: [
-			'Git routes mount the project filesystem with <code>worker-fs-mount</code> and use <code>GitClient</code> to talk to the repository Durable Object. Mutations send <code>git-status-changed</code> through ProjectCoordinator.',
+			'Git routes mount the project filesystem with <code>worker-fs-mount</code>. <code>GitClient</code> clones the Artifacts repo into an ephemeral in-memory filesystem, performs git operations with <code>isomorphic-git</code>, and pushes mutations back to Artifacts. Mutations send <code>git-status-changed</code> through ProjectCoordinator.',
 		],
 	},
 

@@ -1,4 +1,4 @@
-import fs from 'node:fs/promises';
+import { fs } from '@worker/lib/project-fs';
 
 import { clearSession } from './file-time';
 

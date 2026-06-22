@@ -1,6 +1,6 @@
 # Worker-IDE
 
-A browser-based full-stack development environment built on Cloudflare Workers. User projects are stored in Durable Object-backed filesystems with full Git support, transformed on-the-fly with esbuild-wasm, and previewed with HMR. Includes an AI coding assistant powered by the Cloudflare Agents SDK and Workers AI.
+A browser-based full-stack development environment built on Cloudflare Workers. User projects are stored in Durable Object-backed filesystems with Git history backed by Cloudflare Artifacts, transformed on-the-fly with esbuild-wasm, and previewed with HMR. Includes an AI coding assistant powered by the Cloudflare Agents SDK and Workers AI.
 
 ## Architecture
 
@@ -12,7 +12,8 @@ A browser-based full-stack development environment built on Cloudflare Workers. 
 
 ### Backend (`worker/`)
 
-- Cloudflare Workers with Hono. Two Durable Objects: one for per-project file storage (SQLite-backed, with Git via `isomorphic-git`) and one for WebSocket coordination (HMR, collaboration).
+- Cloudflare Workers with Hono. Two Durable Objects: one for per-project file storage (SQLite-backed working tree) and one for WebSocket coordination (HMR, collaboration).
+- Git operations use `isomorphic-git` against Cloudflare Artifacts remotes, with the project working tree mounted from the project filesystem DO.
 - User backend code runs in isolated V8 isolates via Cloudflare's [Dynamic Worker Loader](https://developers.cloudflare.com/workers/runtime-apis/bindings/worker-loader/) API.
 - AI coding assistant powered by the Cloudflare Agents SDK and Vercel AI SDK, with real-time state sync via WebSocket.
 - Private previews use a preview-only host cookie minted through an app-origin bootstrap flow, so app auth cookies never leave the main app origin.
@@ -47,7 +48,6 @@ The auxiliary email worker does not need a local `.dev.vars` example. It uses Cl
 | Worker | Example file                       |
 | ------ | ---------------------------------- |
 | Main   | `.dev.vars.example`                |
-| Git    | `auxiliary/git/.dev.vars.example`  |
 | Push   | `auxiliary/push/.dev.vars.example` |
 
 ## Scripts
@@ -70,9 +70,13 @@ The auxiliary email worker does not need a local `.dev.vars` example. It uses Cl
 
 ## Path Aliases
 
-| Alias              | Resolves to          |
-| ------------------ | -------------------- |
-| `@/*`              | `./src/*`            |
-| `@shared/*`        | `./shared/*`         |
-| `@server/*`        | `./worker/*`         |
-| `node:fs/promises` | `worker-fs-mount/fs` |
+| Alias       | Resolves to  |
+| ----------- | ------------ |
+| `@/*`       | `./src/*`    |
+| `@shared/*` | `./shared/*` |
+| `@server/*` | `./worker/*` |
+| `@worker/*` | `./worker/*` |
+
+## Filesystem & Git Storage
+
+Each project has a single durable [`@cloudflare/shell`](https://github.com/cloudflare/agents/tree/main/packages/shell) `Workspace` (SQLite + R2 spillover) living in the `DurableObjectFilesystem` Durable Object. It holds both the working tree and a real `.git`. Git operations run inside that DO via isomorphic-git against the local Workspace (no in-memory scratch filesystem); Cloudflare Artifacts remains the git remote. Worker code accesses the Workspace through the `fs` proxy in `worker/lib/project-fs.ts` (a `node:fs/promises`-compatible view over a cross-DO RPC client), bound per request via `runWithProjectStub`.

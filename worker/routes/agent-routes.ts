@@ -1,11 +1,10 @@
-import fs from 'node:fs/promises';
-
 import { zValidator } from '@hono/zod-validator';
 import { Hono } from 'hono';
 import { z } from 'zod';
 
 import { HttpErrorCode } from '@shared/http-errors';
 import { debugLogIdSchema, sessionIdSchema } from '@shared/validation';
+import { fs } from '@worker/lib/project-fs';
 
 import { httpError } from '../lib/http-error';
 

@@ -1,117 +1,286 @@
-import { DurableObjectFilesystem } from 'durable-object-fs';
+import { Workspace } from '@cloudflare/shell';
+import { DurableObject } from 'cloudflare:workers';
+
+import { GitService } from './git-service';
+import { generateProjectId } from '../lib/project-id';
+import { WorkspaceFsAdapter } from '../lib/workspace-fs-adapter';
+
+import type { GitAuthor, GitStatusResponse } from './git-service';
+import type { FileInfo, FileStat } from '@cloudflare/shell';
+import type { GitBranchInfo, GitCommitEntry, GitFileDiff, GitMergeResult } from '@shared/types';
+
+interface SeedFile {
+	path: string;
+	content: string;
+}
 
 /**
- * Extended DurableObjectFilesystem that adds project lifecycle helpers
- * and staged path tracking for git operations.
+ * Project filesystem Durable Object.
  *
- * The working tree (files the editor/agent sees) lives in this DO's SQLite database.
- * Git storage (objects, refs, packs) is handled by the git auxiliary worker's RepoDO.
- * The staged paths are tracked here to support the IDE's staging UI.
- *
- * Project lifecycle (creation, soft-delete, permanent purge) is managed at the
- * D1 layer. This class does not set alarms or auto-expire.
+ * A single durable `@cloudflare/shell` `Workspace` (SQLite + R2 spillover) holds
+ * both the working tree and a real `.git`. Git operations run here, locally,
+ * against that Workspace via {@link GitService}; Cloudflare Artifacts remains
+ * the remote. There is no in-memory filesystem.
  */
-export class ProjectFilesystem extends DurableObjectFilesystem {
-	// =========================================================================
-	// Project existence check
-	// =========================================================================
+export class ProjectFilesystem extends DurableObject<Env> {
+	private workspaceInstance?: Workspace;
 
-	/**
-	 * Check if this project has been initialized, without creating any state.
-	 *
-	 * Queries SQLite directly for the `.initialized` sentinel file.
-	 * If the filesystem schema hasn't been created yet (the DO was never
-	 * used), this returns false without creating any tables or rows.
-	 */
-	projectExists(): boolean {
-		try {
-			// Check if the entries table exists — if not, the DO was never used
-			const tableCheck = this.ctx.storage.sql.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='entries' LIMIT 1");
-			if ([...tableCheck].length === 0) {
-				return false;
-			}
+	private get projectId(): string {
+		return generateProjectId(this.ctx.id);
+	}
 
-			// Check if the .initialized sentinel file exists.
-			// Paths in the DO's SQLite are relative to the mount root (no /project prefix).
-			const result = this.ctx.storage.sql.exec("SELECT 1 FROM entries WHERE path = '/.initialized' AND type = 'file' LIMIT 1");
-			return [...result].length > 0;
-		} catch {
-			return false;
-		}
+	private get workspace(): Workspace {
+		this.workspaceInstance ??= new Workspace({
+			sql: this.ctx.storage.sql,
+			r2: this.env.STORAGE_BUCKET,
+			r2Prefix: `workspace/${this.projectId}`,
+			name: () => this.projectId,
+		});
+		return this.workspaceInstance;
+	}
+
+	private git(): GitService {
+		return new GitService(new WorkspaceFsAdapter(this.workspace), this.env, this.projectId);
 	}
 
 	// =========================================================================
-	// File writes
+	// Workspace file RPC surface (forwarded to by the worker-side WorkspaceClient)
 	// =========================================================================
+	async wsReadFile(path: string): Promise<string | null> {
+		return this.workspace.readFile(path);
+	}
+	async wsReadFileBytes(path: string): Promise<Uint8Array | null> {
+		return this.workspace.readFileBytes(path);
+	}
+	async wsWriteFile(path: string, content: string): Promise<void> {
+		await this.workspace.writeFile(path, content);
+	}
+	async wsWriteFileBytes(path: string, data: Uint8Array): Promise<void> {
+		await this.workspace.writeFileBytes(path, data);
+	}
+	async wsAppendFile(path: string, content: string): Promise<void> {
+		await this.workspace.appendFile(path, content);
+	}
+	async wsExists(path: string): Promise<boolean> {
+		return this.workspace.exists(path);
+	}
+	async wsStat(path: string): Promise<FileStat | null> {
+		return this.workspace.stat(path);
+	}
+	async wsLstat(path: string): Promise<FileStat | null> {
+		return this.workspace.lstat(path);
+	}
+	async wsMkdir(path: string, recursive: boolean): Promise<void> {
+		await this.workspace.mkdir(path, { recursive });
+	}
+	async wsReadDir(path: string): Promise<FileInfo[]> {
+		return this.workspace.readDir(path);
+	}
+	async wsRm(path: string, recursive: boolean, force: boolean): Promise<void> {
+		await this.workspace.rm(path, { recursive, force });
+	}
+	async wsCp(source: string, destination: string, recursive: boolean): Promise<void> {
+		await this.workspace.cp(source, destination, { recursive });
+	}
+	async wsMv(source: string, destination: string): Promise<void> {
+		await this.workspace.mv(source, destination);
+	}
+	async wsSymlink(target: string, linkPath: string): Promise<void> {
+		await this.workspace.symlink(target, linkPath);
+	}
+	async wsReadlink(path: string): Promise<string> {
+		return this.workspace.readlink(path);
+	}
+	async wsGlob(pattern: string): Promise<FileInfo[]> {
+		return this.workspace.glob(pattern);
+	}
+
+	// =========================================================================
+	// Project lifecycle
+	// =========================================================================
+	async projectExists(): Promise<boolean> {
+		if (this.ctx.storage.kv.get<boolean>('initialized')) return true;
+		const info = await this.workspace.getWorkspaceInfo().catch(() => {});
+		if (info && info.fileCount > 0) return true;
+		return this.hasLegacyEntries();
+	}
 
 	async writeFileContent(path: string, content: string): Promise<void> {
-		await this.writeFileContentInternal(path, content);
+		await this.workspace.writeFile(path, content);
+		this.ctx.storage.kv.put('initialized', true);
 	}
 
-	async writeFiles(files: ReadonlyArray<{ path: string; content: string }>): Promise<void> {
+	async writeFiles(files: ReadonlyArray<SeedFile>): Promise<void> {
 		for (const file of files) {
-			await this.writeFileContentInternal(file.path, file.content);
+			await this.workspace.writeFile(file.path, file.content);
 		}
+		this.ctx.storage.kv.put('initialized', true);
 	}
 
-	private async writeFileContentInternal(path: string, content: string): Promise<void> {
-		const directory = path.slice(0, path.lastIndexOf('/'));
-		await this.mkdir(directory === '' ? '/' : directory, { recursive: true });
-
-		const bytes = new TextEncoder().encode(content);
-		const stream = await this.createWriteStream(path, { flags: 'w' });
-		const writer = stream.getWriter();
-		try {
-			if (bytes.length > 0) {
-				await writer.write(bytes);
-			}
-			await writer.close();
-		} catch (error) {
-			try {
-				await writer.abort(error);
-			} catch (abortError) {
-				console.error('Failed to abort file writer:', abortError);
-			}
-			throw error;
-		}
-	}
-
-	// =========================================================================
-	// Storage destruction
-	// =========================================================================
-
-	/**
-	 * Immediately destroy all storage in this Durable Object.
-	 * Called via RPC from the scheduled purge job when a soft-deleted project's
-	 * retention period has expired.
-	 */
 	async destroyStorage(): Promise<void> {
 		await this.ctx.storage.deleteAlarm();
 		await this.ctx.storage.deleteAll();
-		console.log(`Project storage destroyed at ${new Date().toISOString()}`);
+		this.workspaceInstance = undefined;
+	}
+
+	/** Export the working tree (excluding `.git`) for cloning into another project. */
+	async exportTree(): Promise<Array<{ path: string; content: Uint8Array }>> {
+		const paths = await this.workspace._getAllPaths();
+		const files: Array<{ path: string; content: Uint8Array }> = [];
+		for (const path of paths) {
+			if (path === '/.git' || path.startsWith('/.git/')) continue;
+			const info = await this.workspace.stat(path);
+			if (!info || info.type !== 'file') continue;
+			const content = await this.workspace.readFileBytes(path);
+			if (content) files.push({ path, content });
+		}
+		return files;
+	}
+
+	/** Import a working tree exported by {@link exportTree}. */
+	async importTree(files: ReadonlyArray<{ path: string; content: Uint8Array }>): Promise<void> {
+		for (const file of files) {
+			await this.workspace.writeFileBytes(file.path, file.content);
+		}
+		this.ctx.storage.kv.put('initialized', true);
 	}
 
 	// =========================================================================
-	// Staged Paths — Tracking which files are staged for the next commit
+	// Git RPC surface — each method returns route-ready payloads.
 	// =========================================================================
-	getStagedPaths(): string[] {
-		return this.ctx.storage.kv.get<string[]>('stagedPaths') ?? [];
+	async gitStatus(): Promise<GitStatusResponse> {
+		return this.git().status();
 	}
-	setStagedPaths(paths: string[]): void {
-		this.ctx.storage.kv.put('stagedPaths', paths);
+	async gitInitialCommit(author: GitAuthor): Promise<void> {
+		await this.git().initAndCommit('Initial commit', author);
 	}
-	addStagedPaths(paths: string[]): void {
-		const existing = this.getStagedPaths();
-		const merged = [...new Set([...existing, ...paths])];
-		this.ctx.storage.kv.put('stagedPaths', merged);
+	async gitInit(author: GitAuthor): Promise<{ success: true }> {
+		await this.git().initAndCommit('Initial commit', author);
+		return { success: true };
 	}
-	removeStagedPaths(paths: string[]): void {
-		const existing = this.getStagedPaths();
-		const removeSet = new Set(paths);
-		const filtered = existing.filter((path) => !removeSet.has(path));
-		this.ctx.storage.kv.put('stagedPaths', filtered);
+	async gitStage(paths: string[]): Promise<{ success: true; gitStatus: GitStatusResponse }> {
+		return { success: true, gitStatus: await this.git().stage(paths) };
 	}
-	clearStagedPaths(): void {
+	async gitUnstage(paths: string[]): Promise<{ success: true; gitStatus: GitStatusResponse }> {
+		return { success: true, gitStatus: await this.git().unstage(paths) };
+	}
+	async gitStageAll(): Promise<{ success: true; gitStatus: GitStatusResponse }> {
+		return { success: true, gitStatus: await this.git().stageAll() };
+	}
+	async gitUnstageAll(): Promise<{ success: true; gitStatus: GitStatusResponse }> {
+		return { success: true, gitStatus: await this.git().unstageAll() };
+	}
+	async gitDiscard(path: string): Promise<{ success: true; gitStatus: GitStatusResponse }> {
+		return { success: true, gitStatus: await this.git().discard(path) };
+	}
+	async gitDiscardAll(): Promise<{ success: true; gitStatus: GitStatusResponse }> {
+		return { success: true, gitStatus: await this.git().discardAll() };
+	}
+	async gitCommit(message: string, author: GitAuthor): Promise<{ objectId: string; gitStatus: GitStatusResponse }> {
+		return this.git().commit(message, author);
+	}
+	async gitLog(reference: string, depth: number): Promise<{ commits: GitCommitEntry[] }> {
+		return { commits: await this.git().log(reference, depth) };
+	}
+	async gitBranches(): Promise<{ branches: GitBranchInfo[]; current: string | undefined }> {
+		return this.git().branches();
+	}
+	async gitCreateBranch(name: string, checkout: boolean): Promise<{ success: true }> {
+		await this.git().createBranch(name, checkout);
+		return { success: true };
+	}
+	async gitDeleteBranch(name: string): Promise<{ success: true }> {
+		await this.git().deleteBranch(name);
+		return { success: true };
+	}
+	async gitRenameBranch(oldName: string, newName: string): Promise<{ success: true }> {
+		await this.git().renameBranch(oldName, newName);
+		return { success: true };
+	}
+	async gitCheckout(reference: string): Promise<{ success: true; gitStatus: GitStatusResponse }> {
+		return { success: true, gitStatus: await this.git().checkout(reference) };
+	}
+	async gitMerge(branch: string): Promise<GitMergeResult & { gitStatus: GitStatusResponse }> {
+		return this.git().merge(branch);
+	}
+	async gitTags(): Promise<{ tags: string[] }> {
+		return { tags: await this.git().tags() };
+	}
+	async gitCreateTag(name: string, reference?: string): Promise<{ success: true }> {
+		await this.git().createTag(name, reference);
+		return { success: true };
+	}
+	async gitDeleteTag(name: string): Promise<{ success: true }> {
+		await this.git().deleteTag(name);
+		return { success: true };
+	}
+	async gitDiff(path: string): Promise<{ diff: GitFileDiff }> {
+		return { diff: await this.git().diffWorkingFile(path) };
+	}
+	async gitDiffCommit(objectId: string): Promise<{ files: GitFileDiff[] }> {
+		const changes = await this.git().diffCommit(objectId);
+		return { files: changes.map((change) => ({ path: change.path, status: change.status, hunks: [] })) };
+	}
+	async gitDiffFile(objectId: string, path: string): Promise<{ diff: GitFileDiff }> {
+		return { diff: await this.git().diffFileAtCommit(objectId, path) };
+	}
+
+	// =========================================================================
+	// One-time migration from the legacy durable-object-fs `entries` table.
+	// =========================================================================
+	async migrateToWorkspace(): Promise<{ migrated: boolean; fileCount: number }> {
+		if (this.ctx.storage.kv.get<boolean>('fsMigrated')) {
+			return { migrated: false, fileCount: 0 };
+		}
+
+		const currentBranch = this.ctx.storage.kv.get<string>('currentBranch');
+		let fileCount = 0;
+
+		if (this.hasLegacyEntries()) {
+			const rows = this.ctx.storage.sql
+				.exec<{
+					path: string;
+					type: string;
+					content: ArrayBuffer | null;
+					symlink_target: string | null;
+				}>('SELECT path, type, content, symlink_target FROM entries ORDER BY path')
+				.toArray();
+
+			for (const row of rows) {
+				if (row.type === 'directory') {
+					await this.workspace.mkdir(row.path, { recursive: true });
+				} else if (row.type === 'symlink') {
+					if (row.symlink_target) await this.workspace.symlink(row.symlink_target, row.path);
+				} else {
+					const bytes = row.content ? new Uint8Array(row.content) : new Uint8Array();
+					await this.workspace.writeFileBytes(row.path, bytes);
+					fileCount += 1;
+				}
+			}
+		}
+
+		// Populate the durable `.git` from Artifacts without overwriting the
+		// working tree, then drop the legacy table — leaving no migration
+		// artifacts in the repo or storage.
+		await this.git().cloneHistory(currentBranch);
+
+		this.ctx.storage.sql.exec('DROP TABLE IF EXISTS entries');
 		this.ctx.storage.kv.delete('stagedPaths');
+		this.ctx.storage.kv.delete('currentBranch');
+		this.ctx.storage.kv.put('fsMigrated', true);
+		this.ctx.storage.kv.put('initialized', true);
+
+		return { migrated: true, fileCount };
+	}
+
+	private hasLegacyEntries(): boolean {
+		try {
+			const tableCheck = this.ctx.storage.sql.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='entries' LIMIT 1");
+			if (tableCheck.toArray().length === 0) return false;
+			const result = this.ctx.storage.sql.exec('SELECT 1 FROM entries LIMIT 1');
+			return result.toArray().length > 0;
+		} catch {
+			return false;
+		}
 	}
 }

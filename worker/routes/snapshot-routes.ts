@@ -1,5 +1,3 @@
-import fs from 'node:fs/promises';
-
 import { zValidator } from '@hono/zod-validator';
 import { Hono } from 'hono';
 import { z } from 'zod';
@@ -7,6 +5,7 @@ import { z } from 'zod';
 import { BINARY_EXTENSIONS } from '@shared/constants';
 import { HttpErrorCode } from '@shared/http-errors';
 import { snapshotIdSchema, revertFileSchema, revertCascadeSchema, filePathSchema, pendingChangesFileSchema } from '@shared/validation';
+import { fs } from '@worker/lib/project-fs';
 
 import { agentRunnerNamespace, coordinatorNamespace } from '../lib/durable-object-namespaces';
 import { httpError } from '../lib/http-error';

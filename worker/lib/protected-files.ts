@@ -1,10 +1,9 @@
-import fs from 'node:fs/promises';
-
 import { stripIndent } from 'common-tags';
 
 import { PROTECTED_SYSTEM_FILES, STORAGE_BINDING_NAME, WORKERS_COMPATIBILITY_DATE } from '@shared/constants';
 import { parseJsonc } from '@shared/jsonc';
 import { resolveAssetSettings } from '@shared/types';
+import { fs } from '@worker/lib/project-fs';
 
 import type { AssetSettings, BindingsConfig } from '@shared/types';
 

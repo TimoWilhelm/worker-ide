@@ -11,7 +11,6 @@ const sharedAlias = {
 	'@shared': path.resolve(__dirname, './shared'),
 	'@server': path.resolve(__dirname, './worker'),
 	'@worker': path.resolve(__dirname, './worker'),
-	'@git': path.resolve(__dirname, './auxiliary/git'),
 };
 
 export default defineConfig({
@@ -43,14 +42,23 @@ export default defineConfig({
 						optimizer: {
 							ssr: {
 								enabled: true,
-								include: ['ai'],
+								// Pre-bundle `ai` together with the Agents SDK packages that
+								// re-import its named exports (e.g. `asSchema`). Without this,
+								// workerd's ESM runtime fails to resolve those re-exports when
+								// loading `@cloudflare/codemode` from the worker entry.
+								include: ['ai', '@cloudflare/codemode', '@cloudflare/think', 'agents'],
 							},
 						},
 					},
 					poolOptions: {
 						workers: {
+							// Bindings flagged `remote: true` in wrangler.jsonc (AI, ARTIFACTS,
+							// BROWSER) are stubbed/mocked in tests, so we don't need a remote
+							// proxy session. Disabling it also avoids the non-interactive
+							// "more than one account available" failure.
+							remoteBindings: false,
 							miniflare: {
-								// Auxiliary workers (biome, esbuild, git) are not available in the
+								// Auxiliary workers (biome, esbuild) are not available in the
 								// test pool. Override their bindings with stubs so miniflare can start.
 								serviceBindings: {
 									BIOME: () => new Response('service unavailable', { status: 503 }),
@@ -58,16 +66,11 @@ export default defineConfig({
 									PUSH: () => new Response('service unavailable', { status: 503 }),
 									EMAIL: () => new Response('service unavailable', { status: 503 }),
 									AI: () => new Response('service unavailable', { status: 503 }),
-									GIT_WORKER: () => new Response('service unavailable', { status: 503 }),
 								},
-								// The REPO_DO cross-worker DO binding references git-worker which
-								// isn't available in tests. Remove the script_name so miniflare
-								// doesn't try to resolve it. Git integration tests use a separate config.
 								// ProjectCoordinatorV2 is an internal DO (accessed via `exports` at
 								// runtime) but needs an explicit binding here so tests can access
 								// it through `env` from `cloudflare:test`.
 								durableObjects: {
-									REPO_DO: 'RepoDurableObject',
 									AgentRunner: 'AgentRunner',
 									ProjectCoordinatorV2: 'ProjectCoordinatorV2',
 									SubAgentWorker: 'SubAgentWorker',

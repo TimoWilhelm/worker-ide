@@ -1,5 +1,3 @@
-import fs from 'node:fs/promises';
-
 import { zValidator } from '@hono/zod-validator';
 import { Hono } from 'hono';
 import { z } from 'zod';
@@ -8,6 +6,7 @@ import { HIDDEN_ENTRIES, isProtectedSystemFile } from '@shared/constants';
 import { HttpErrorCode } from '@shared/http-errors';
 import { createHmrUpdateForFile } from '@shared/types';
 import { filePathSchema, writeFileSchema, mkdirSchema, moveFileSchema } from '@shared/validation';
+import { fs } from '@worker/lib/project-fs';
 
 import { agentRunnerNamespace, coordinatorNamespace } from '../lib/durable-object-namespaces';
 import { httpError } from '../lib/http-error';

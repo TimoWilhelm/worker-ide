@@ -26,8 +26,6 @@ export default defineConfig(
 			// AudioWorklet processor — runs in worklet scope, not main thread
 			'src/features/agent/lib/pcm-processor.js',
 			'landing',
-			// TODO: Git auxiliary worker — adapted from git-on-cloudflare
-			'auxiliary/git/**',
 			// Auto-generated type declarations for auxiliary workers
 			'auxiliary/*/worker-configuration.d.ts',
 			// Fixture files are user project templates — they use Cloudflare conventions (Env, not Environment)

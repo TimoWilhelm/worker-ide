@@ -1,6 +1,5 @@
 import { WorkflowEntrypoint } from 'cloudflare:workers';
 import { NonRetryableError } from 'cloudflare:workflows';
-import { mount, withMounts } from 'worker-fs-mount';
 
 import { sanitizeR2BucketName } from '@shared/deploy-helpers';
 
@@ -17,6 +16,7 @@ import {
 } from './deploy-helpers';
 import { trackProjectEvent } from '../lib/analytics';
 import { filesystemNamespace } from '../lib/durable-object-namespaces';
+import { runWithProjectStub } from '../lib/project-fs';
 import { toDurableObjectId } from '../lib/project-id';
 
 import type { DeployResult, DeployWorkflowParameters } from '@shared/deploy-types';
@@ -50,28 +50,25 @@ export class DeployWorkflow extends WorkflowEntrypoint<Env, DeployWorkflowParame
 
 		try {
 			const inputs = await step.do('read-project-config', async () =>
-				withMounts(async () => {
-					mount(parameters.projectRoot, filesystemStub);
-					return readProjectBuildInputs(parameters.projectRoot);
-				}),
+				runWithProjectStub(filesystemStub, async () => readProjectBuildInputs(parameters.projectRoot), parameters.projectRoot),
 			);
 
 			const workerBundle = await step.do('bundle-worker', BUILD_STEP_CONFIG, async () =>
-				withMounts(async () => {
-					mount(parameters.projectRoot, filesystemStub);
-					try {
-						return await bundleWorker(parameters.projectRoot, inputs);
-					} catch (error) {
-						throw toNonRetryableError(error);
-					}
-				}),
+				runWithProjectStub(
+					filesystemStub,
+					async () => {
+						try {
+							return await bundleWorker(parameters.projectRoot, inputs);
+						} catch (error) {
+							throw toNonRetryableError(error);
+						}
+					},
+					parameters.projectRoot,
+				),
 			);
 
 			const frontendBundle = await step.do('bundle-frontend', BUILD_STEP_CONFIG, async () =>
-				withMounts(async () => {
-					mount(parameters.projectRoot, filesystemStub);
-					return bundleFrontend(parameters.projectRoot, inputs);
-				}),
+				runWithProjectStub(filesystemStub, async () => bundleFrontend(parameters.projectRoot, inputs), parameters.projectRoot),
 			);
 
 			const staticAssets = entriesToStaticAssets(frontendBundle.staticAssetsEntries);

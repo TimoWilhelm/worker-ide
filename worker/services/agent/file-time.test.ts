@@ -9,7 +9,12 @@ const fsMock = vi.hoisted(() => ({
 	rm: vi.fn().mockResolvedValue(),
 }));
 
-vi.mock('node:fs/promises', () => ({ default: fsMock }));
+vi.mock('@worker/lib/project-fs', () => ({
+	fs: fsMock,
+	runWithProjectFs: <R>(_adapter: unknown, function_: () => R): R => function_(),
+	runWithProjectStub: <R>(_stub: unknown, function_: () => R): R => function_(),
+	currentProjectFs: () => fsMock,
+}));
 
 import { assertFileWasRead, clearSession, recordFileRead, withLock } from './file-time';
 

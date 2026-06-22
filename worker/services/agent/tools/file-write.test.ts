@@ -10,7 +10,7 @@ import type { FileChange } from '../types';
 
 const memoryFs = createMemoryFs();
 
-vi.mock('node:fs/promises', () => memoryFs.asMock());
+vi.mock('@worker/lib/project-fs', () => memoryFs.asMock());
 
 vi.mock('../../../lib/durable-object-namespaces', () => ({
 	coordinatorNamespace: {

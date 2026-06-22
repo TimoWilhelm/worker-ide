@@ -1,7 +1,5 @@
 import { env } from 'cloudflare:test';
 import { describe, expect, it } from 'vitest';
-import { mount, withMounts } from 'worker-fs-mount';
-import { readFile } from 'worker-fs-mount/fs';
 
 import type { ProjectFilesystem } from './project-filesystem';
 
@@ -11,11 +9,8 @@ function getFilesystemStub(name: string): DurableObjectStub<ProjectFilesystem> {
 }
 
 async function readViaMount(stub: DurableObjectStub<ProjectFilesystem>, path: string): Promise<string> {
-	return withMounts(async () => {
-		mount('/project', stub);
-		const data = await readFile(`/project${path}`, 'utf8');
-		return typeof data === 'string' ? data : data.toString('utf8');
-	});
+	const data = await stub.wsReadFile(path);
+	return data ?? '';
 }
 
 describe('ProjectFilesystem writes', () => {

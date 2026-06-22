@@ -1,6 +1,5 @@
-import fs from 'node:fs/promises';
-
 import { AGENTS_MD_MAX_CHARACTERS, ASK_MODE_SYSTEM_PROMPT, CODE_MODE_SYSTEM_PROMPT, PLAN_MODE_SYSTEM_PROMPT } from '@shared/constants';
+import { fs } from '@worker/lib/project-fs';
 
 export async function buildRuntimePromptAdditions(
 	_projectRoot: string,

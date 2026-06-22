@@ -68,6 +68,7 @@ export class SubAgentWorker extends Agent<Env, SubAgentState> {
 			mode: 'code',
 			model,
 			session: this.session,
+			ctx: this.ctx,
 			loader: this.env.LOADER,
 			browser: this.env.BROWSER,
 			agentReference: this,

@@ -176,7 +176,6 @@ export default defineConfig({
 			auxiliaryWorkers: [
 				{ configPath: './auxiliary/biome/wrangler.jsonc' },
 				{ configPath: './auxiliary/esbuild/wrangler.jsonc' },
-				{ configPath: './auxiliary/git/wrangler.jsonc' },
 				{ configPath: './auxiliary/push/wrangler.jsonc' },
 				{ configPath: './auxiliary/email/wrangler.jsonc' },
 			],
@@ -222,8 +221,6 @@ export default defineConfig({
 			'@shared': path.resolve(__dirname, './shared'),
 			'@server': path.resolve(__dirname, './worker'),
 			'@worker': path.resolve(__dirname, './worker'),
-			'@git': path.resolve(__dirname, './auxiliary/git'),
-			'node:fs/promises': 'worker-fs-mount/fs',
 			'esbuild-wasm': 'esbuild-wasm/lib/browser.js',
 		},
 	},

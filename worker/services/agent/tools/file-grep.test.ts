@@ -8,7 +8,7 @@ import { createMemoryFs, createMockContext, createMockSendEvent } from './test-h
 
 const memoryFs = createMemoryFs();
 
-vi.mock('node:fs/promises', () => memoryFs.asMock());
+vi.mock('@worker/lib/project-fs', () => memoryFs.asMock());
 
 // ---------------------------------------------------------------------------
 // Import under test

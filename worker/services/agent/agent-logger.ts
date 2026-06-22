@@ -1,5 +1,6 @@
 import diagnosticsChannel from 'node:diagnostics_channel';
-import fs from 'node:fs/promises';
+
+import { fs } from '@worker/lib/project-fs';
 
 /**
  * Custom diagnostics channel for agent loop log events.

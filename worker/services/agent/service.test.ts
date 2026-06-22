@@ -9,12 +9,6 @@ import type { SessionPersistData } from './types';
 import type { FiberSnapshot, StreamEvent } from '@shared/agent-state';
 import type { AgentMode, ChatMessage, PendingFileChange } from '@shared/types';
 
-// Mock worker-fs-mount (the service wraps the stream in withMounts)
-vi.mock('worker-fs-mount', () => ({
-	mount: vi.fn(),
-	withMounts: vi.fn(async (callback: () => Promise<void>) => callback()),
-}));
-
 // Mock the workers-ai adapter
 const { mockCreateAdapter } = vi.hoisted(() => ({
 	mockCreateAdapter: vi.fn(() => ({
@@ -95,8 +89,8 @@ vi.mock('@modelcontextprotocol/sdk/client/streamableHttp.js', () => ({
 
 // Mock node:fs/promises and node:diagnostics_channel so AgentLogger
 // doesn't try real filesystem I/O or diagnostics channel publishing.
-vi.mock('node:fs/promises', () => ({
-	default: {
+vi.mock('@worker/lib/project-fs', () => ({
+	fs: {
 		mkdir: vi.fn(async () => {}),
 		writeFile: vi.fn(async () => {}),
 		readdir: vi.fn().mockResolvedValue([]),
@@ -106,6 +100,9 @@ vi.mock('node:fs/promises', () => ({
 		access: vi.fn().mockRejectedValue(new Error('ENOENT')),
 		rm: vi.fn(async () => {}),
 	},
+	runWithProjectFs: <R>(_adapter: unknown, function_: () => R): R => function_(),
+	runWithProjectStub: <R>(_stub: unknown, function_: () => R): R => function_(),
+	currentProjectFs: () => {},
 }));
 
 // We need to mock streamText and generateText from 'ai'

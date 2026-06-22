@@ -86,6 +86,8 @@
 	],
 	"browser": {
 		"binding": "BROWSER",
+		// `remote: true` enables Browser Run Quick Actions during local `wrangler dev`.
+		"remote": true,
 	},
 	"ratelimits": [
 		{
@@ -138,24 +140,19 @@
 			"binding": "EMAIL",
 			"service": "email-worker",
 		},
+	],
+	"artifacts": [
 		{
-			"binding": "GIT_WORKER",
-			"service": "git-worker",
+			"binding": "ARTIFACTS",
+			"namespace": "ide",
+			"remote": true,
 		},
 	],
-	"durable_objects": {
-		"bindings": [
-			{
-				"name": "REPO_DO",
-				"class_name": "RepoDurableObject",
-				"script_name": "git-worker",
-			},
-		],
-	},
 	"queues": {
 		"consumers": [
 			{
-				"queue": "git-push-events",
+				// Cloudflare Artifacts event subscription (cf.artifacts.repo.pushed).
+				"queue": "artifacts-push-events",
 				"max_batch_size": 10,
 				"max_batch_timeout": 5,
 			},

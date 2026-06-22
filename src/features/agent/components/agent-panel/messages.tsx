@@ -112,11 +112,12 @@ function ToolIcon({ name, className }: { name: ToolName; className?: string }) {
 			return <Globe className={cn('size-3', className)} />;
 		}
 		case 'browser_execute':
-		case 'cdp_eval': {
+		case 'cdp_eval':
+		case 'browser_markdown':
+		case 'browser_extract':
+		case 'browser_links':
+		case 'browser_scrape': {
 			return <Globe className={cn('size-3', className)} />;
-		}
-		case 'browser_search': {
-			return <Search className={cn('size-3', className)} />;
 		}
 		case 'todos_get': {
 			return <ListTodo className={cn('size-3', className)} />;
@@ -927,8 +928,20 @@ function summarizeFromMetadata(toolName: ToolName | undefined, info: ToolMetadat
 			return 'Browser run';
 		}
 
-		case 'browser_search': {
-			return 'CDP spec query';
+		case 'browser_markdown': {
+			return 'Read as Markdown';
+		}
+
+		case 'browser_extract': {
+			return 'Extracted data';
+		}
+
+		case 'browser_links': {
+			return 'Listed links';
+		}
+
+		case 'browser_scrape': {
+			return 'Scraped elements';
 		}
 
 		case 'test_run': {
@@ -1290,7 +1303,10 @@ function formatToolResultDetail(toolName: ToolName, rawResult: string): string {
 		}
 
 		case 'browser_execute':
-		case 'browser_search': {
+		case 'browser_markdown':
+		case 'browser_extract':
+		case 'browser_links':
+		case 'browser_scrape': {
 			return rawResult;
 		}
 

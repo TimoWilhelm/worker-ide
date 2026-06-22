@@ -8,7 +8,7 @@ import { createMemoryFs, createMockContext, createMockSendEvent } from './test-h
 
 const memoryFs = createMemoryFs();
 
-vi.mock('node:fs/promises', () => memoryFs.asMock());
+vi.mock('@worker/lib/project-fs', () => memoryFs.asMock());
 
 // Biome linter — return empty diagnostics by default (overridable per-test)
 const lintMock = vi.hoisted(() => ({

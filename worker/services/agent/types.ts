@@ -76,6 +76,18 @@ export type PendingToolCallIds = string[];
 export type SendEventFunction = (type: string, data: Record<string, unknown>) => void;
 
 /**
+ * Minimal browser binding shape used by the browser tooling.
+ *
+ * The generated `BROWSER` binding type in this project exposes `fetch`, while
+ * the global `Fetcher` type in workerd also includes `connect()`. The browser
+ * tools only need `fetch()`, so we model the narrower contract here and adapt
+ * it to `Fetcher` at the integration boundary.
+ */
+export interface BrowserBinding {
+	fetch: Fetcher['fetch'];
+}
+
+/**
  * Context passed to tool execute functions.
  * This is captured in closures when creating tool definitions.
  */
@@ -96,8 +108,14 @@ export interface ToolExecutorContext {
 	abortSignal?: AbortSignal;
 	callMcpTool: (serverId: string, toolName: string, arguments_: Record<string, unknown>) => Promise<string>;
 	isSubAgent?: boolean;
+	/**
+	 * Durable Object state of the agent that owns this run. The codemode
+	 * runtime backing the browser/execute tools lives in a facet of this DO,
+	 * so it must be provided to create those tools.
+	 */
+	ctx?: DurableObjectState;
 	loader?: WorkerLoader;
-	browser?: Fetcher;
+	browser?: BrowserBinding;
 	agentReference?: Agent<Env, unknown>;
 	extensionManager?: ExtensionManager;
 	fsStub: DurableObjectStub<ProjectFilesystem>;

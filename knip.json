@@ -2,13 +2,13 @@
 	"$schema": "https://unpkg.com/knip@5/schema.json",
 	"ignoreExportsUsedInFile": {
 		"interface": true,
-		"type": true
+		"type": true,
+		"class": true
 	},
 	"exclude": ["types"],
 	"entry": [
 		"auxiliary/biome/index.ts",
 		"auxiliary/esbuild/index.ts",
-		"auxiliary/git/index.ts",
 		"auxiliary/push/index.ts",
 		"auxiliary/email/index.ts",
 		"shared/**/*.ts",

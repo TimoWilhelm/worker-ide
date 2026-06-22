@@ -1,11 +1,10 @@
-import fs from 'node:fs/promises';
-
 import { env } from 'cloudflare:workers';
 import { minimatch } from 'minimatch';
 
 import { HIDDEN_ENTRIES, WORKERS_COMPATIBILITY_DATE } from '@shared/constants';
 import { parseJsonc } from '@shared/jsonc';
 import { ToolExecutionError } from '@shared/tool-errors';
+import { fs } from '@worker/lib/project-fs';
 
 import { listFilesRecursive } from '../tool-executor';
 

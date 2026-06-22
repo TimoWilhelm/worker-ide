@@ -1,7 +1,6 @@
-import fs from 'node:fs/promises';
-
 import { HIDDEN_ENTRIES } from '@shared/constants';
 import { ToolExecutionError } from '@shared/tool-errors';
+import { fs } from '@worker/lib/project-fs';
 
 import type { SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
 

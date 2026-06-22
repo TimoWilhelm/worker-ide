@@ -1,7 +1,9 @@
-import fs from 'node:fs/promises';
-
 import { addMapping, GenMapping, setSourceContent, toEncodedMap } from '@jridgewell/gen-mapping';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+
+import { buildPreviewExternalModuleRequest } from '@shared/preview-path';
+import { runWithProjectFs } from '@worker/lib/project-fs';
+import { createInMemoryProjectFs } from '@worker/lib/test-workspace';
 
 const mocks = vi.hoisted(() => {
 	const forwardedFetch = vi.fn(async (request: Request) => {
@@ -80,8 +82,6 @@ vi.mock('../lib/protected-files', () => ({
 vi.mock('./bundle-service', () => ({
 	bundleFiles: mocks.bundleFiles,
 }));
-
-import { buildPreviewExternalModuleRequest } from '@shared/preview-path';
 
 import { PreviewService } from './preview-service';
 
@@ -304,15 +304,19 @@ describe('PreviewService external module proxy', () => {
 	});
 
 	it('loads asset settings from wrangler.jsonc with trailing commas', async () => {
-		vi.spyOn(fs, 'readFile').mockResolvedValue(`{
+		const { workspace, adapter } = createInMemoryProjectFs();
+		await workspace.writeFile(
+			'/project/wrangler.jsonc',
+			`{
 			"assets": {
 				"not_found_handling": "single-page-application",
 				"run_worker_first": ["/api/*"],
 			},
-		}`);
+		}`,
+		);
 
 		const previewService = new PreviewService('/project', 'project-1');
-		const assetSettings = await previewService.loadAssetSettings();
+		const assetSettings = await runWithProjectFs(adapter, () => previewService.loadAssetSettings());
 
 		expect(assetSettings).toEqual({
 			not_found_handling: 'single-page-application',

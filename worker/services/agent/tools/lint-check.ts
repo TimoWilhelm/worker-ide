@@ -1,8 +1,7 @@
-import fs from 'node:fs/promises';
-
 import { MAX_DIAGNOSTICS_PER_FILE } from '@shared/constants';
 import { ToolErrorCode, toolError } from '@shared/tool-errors';
 import { isHiddenPath, isPathSafe } from '@worker/lib/path-utilities';
+import { fs } from '@worker/lib/project-fs';
 import { formatLintDiagnostics, lintFile } from '@worker/services/lint-service';
 
 import type { SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';

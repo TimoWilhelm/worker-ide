@@ -13,36 +13,12 @@ export interface MemoryFs {
 	seedFile: (absolutePath: string, content: string | Buffer) => void;
 	seedDirectory: (absolutePath: string) => void;
 	reset: () => void;
+	/** Module mock for `@worker/lib/project-fs` (the durable Workspace fs proxy). */
 	asMock: () => {
-		default: {
-			readFile: (...arguments_: unknown[]) => Promise<string | Buffer>;
-			writeFile: (path: string, content: string | Buffer) => Promise<void>;
-			stat: (path: string) => Promise<{
-				size: number;
-				mtime: Date;
-				mtimeMs: number;
-				isDirectory: () => boolean;
-				isFile: () => boolean;
-			}>;
-			readdir: (
-				path: string,
-				options?: { withFileTypes?: boolean },
-			) => Promise<
-				Array<
-					| string
-					| {
-							name: string;
-							isDirectory: () => boolean;
-							isFile: () => boolean;
-					  }
-				>
-			>;
-			access: (path: string) => Promise<void>;
-			mkdir: (path: string, options?: { recursive?: boolean }) => Promise<void>;
-			unlink: (path: string) => Promise<void>;
-			rename: (from: string, to: string) => Promise<void>;
-			rm: (path: string, options?: { recursive?: boolean; force?: boolean }) => Promise<void>;
-		};
+		fs: Record<string, unknown>;
+		runWithProjectFs: <R>(adapter: unknown, function_: () => R) => R;
+		runWithProjectStub: <R>(stub: unknown, function_: () => R) => R;
+		currentProjectFs: () => unknown;
 	};
 }
 
@@ -79,137 +55,141 @@ export function createMemoryFs(): MemoryFs {
 	}
 
 	function asMock() {
-		return {
-			default: {
-				readFile: async (...arguments_: unknown[]): Promise<string | Buffer> => {
-					const path = arguments_[0] as string;
-					const encoding = typeof arguments_[1] === 'string' ? arguments_[1] : undefined;
-					const entry = store.get(path);
-					if (!entry || entry.isDirectory) {
-						throw makeEnoentError(path);
-					}
-					// eslint-disable-next-line unicorn/text-encoding-identifier-case -- mock must match both encoding forms callers may pass
-					if (encoding === 'utf8' || encoding === 'utf-8') {
-						return typeof entry.content === 'string' ? entry.content : entry.content.toString('utf8');
-					}
-					// Return as Buffer for binary reads
-					return typeof entry.content === 'string' ? Buffer.from(entry.content, 'utf8') : entry.content;
-				},
-
-				writeFile: async (path: string, content: string | Buffer): Promise<void> => {
-					const existing = store.get(path);
-					store.set(path, {
-						content,
-						mtime: new Date(),
-						isDirectory: false,
-					});
-					// Preserve existing entry's directory status — but we're writing a file
-					if (existing?.isDirectory) {
-						throw new Error(`EISDIR: illegal operation on a directory, write '${path}'`);
-					}
-				},
-
-				stat: async (path: string) => {
-					let normalizedPath = path.replaceAll(/\/+/g, '/');
-					if (normalizedPath.endsWith('/') && normalizedPath.length > 1) {
-						normalizedPath = normalizedPath.slice(0, -1);
-					}
-					const entry = store.get(normalizedPath);
-					if (!entry) {
-						throw makeEnoentError(path);
-					}
-					const size = typeof entry.content === 'string' ? Buffer.byteLength(entry.content, 'utf8') : entry.content.length;
-					return {
-						size,
-						mtime: entry.mtime,
-						mtimeMs: entry.mtime.getTime(),
-						isDirectory: () => entry.isDirectory,
-						isFile: () => !entry.isDirectory,
-					};
-				},
-
-				readdir: async (path: string, options?: { withFileTypes?: boolean }) => {
-					// Normalize path — remove trailing slash for consistency
-					const normalizedPath = path.endsWith('/') ? path.slice(0, -1) : path;
-
-					// Check if path itself is a known directory
-					const directoryEntry = store.get(normalizedPath);
-					if (directoryEntry && !directoryEntry.isDirectory) {
-						throw new Error(`ENOTDIR: not a directory, scandir '${path}'`);
-					}
-
-					// Collect immediate children
-					const prefix = normalizedPath + '/';
-					const childrenMap = new Map<string, boolean>();
-
-					for (const [key, entry] of store) {
-						if (!key.startsWith(prefix)) continue;
-						const remainder = key.slice(prefix.length);
-						// Immediate child: no further slashes
-						const slashIndex = remainder.indexOf('/');
-						if (slashIndex === -1) {
-							childrenMap.set(remainder, entry.isDirectory);
-						} else {
-							// This is a nested path — the first segment is a directory child
-							const childName = remainder.slice(0, slashIndex);
-							if (!childrenMap.has(childName)) {
-								childrenMap.set(childName, true);
-							}
-						}
-					}
-
-					if (childrenMap.size === 0 && !directoryEntry) {
-						throw makeEnoentError(path);
-					}
-
-					if (options?.withFileTypes) {
-						return [...childrenMap.entries()].map(([name, isDirectory]) => ({
-							name,
-							isDirectory: () => isDirectory,
-							isFile: () => !isDirectory,
-						}));
-					}
-
-					return [...childrenMap.keys()];
-				},
-
-				access: async (path: string): Promise<void> => {
-					const entry = store.get(path);
-					if (!entry) {
-						throw makeEnoentError(path);
-					}
-				},
-
-				mkdir: async (_path: string, _options?: { recursive?: boolean }): Promise<void> => {
-					// No-op — directories are implicit from file paths in the memory store
-				},
-
-				unlink: async (path: string): Promise<void> => {
-					if (!store.has(path)) {
-						throw makeEnoentError(path);
-					}
-					store.delete(path);
-				},
-
-				rename: async (from: string, to: string): Promise<void> => {
-					const entry = store.get(from);
-					if (!entry) {
-						throw makeEnoentError(from);
-					}
-					store.set(to, { ...entry, mtime: new Date() });
-					store.delete(from);
-				},
-
-				rm: async (path: string, _options?: { recursive?: boolean; force?: boolean }): Promise<void> => {
-					// Remove path and all children
-					const prefix = path + '/';
-					for (const key of store.keys()) {
-						if (key === path || key.startsWith(prefix)) {
-							store.delete(key);
-						}
-					}
-				},
+		const fsObject = {
+			readFile: async (...arguments_: unknown[]): Promise<string | Buffer> => {
+				const path = arguments_[0] as string;
+				const encoding = typeof arguments_[1] === 'string' ? arguments_[1] : undefined;
+				const entry = store.get(path);
+				if (!entry || entry.isDirectory) {
+					throw makeEnoentError(path);
+				}
+				// eslint-disable-next-line unicorn/text-encoding-identifier-case -- mock must match both encoding forms callers may pass
+				if (encoding === 'utf8' || encoding === 'utf-8') {
+					return typeof entry.content === 'string' ? entry.content : entry.content.toString('utf8');
+				}
+				// Return as Buffer for binary reads
+				return typeof entry.content === 'string' ? Buffer.from(entry.content, 'utf8') : entry.content;
 			},
+
+			writeFile: async (path: string, content: string | Buffer): Promise<void> => {
+				const existing = store.get(path);
+				store.set(path, {
+					content,
+					mtime: new Date(),
+					isDirectory: false,
+				});
+				// Preserve existing entry's directory status — but we're writing a file
+				if (existing?.isDirectory) {
+					throw new Error(`EISDIR: illegal operation on a directory, write '${path}'`);
+				}
+			},
+
+			stat: async (path: string) => {
+				let normalizedPath = path.replaceAll(/\/+/g, '/');
+				if (normalizedPath.endsWith('/') && normalizedPath.length > 1) {
+					normalizedPath = normalizedPath.slice(0, -1);
+				}
+				const entry = store.get(normalizedPath);
+				if (!entry) {
+					throw makeEnoentError(path);
+				}
+				const size = typeof entry.content === 'string' ? Buffer.byteLength(entry.content, 'utf8') : entry.content.length;
+				return {
+					size,
+					mtime: entry.mtime,
+					mtimeMs: entry.mtime.getTime(),
+					isDirectory: () => entry.isDirectory,
+					isFile: () => !entry.isDirectory,
+				};
+			},
+
+			readdir: async (path: string, options?: { withFileTypes?: boolean }) => {
+				// Normalize path — remove trailing slash for consistency
+				const normalizedPath = path.endsWith('/') ? path.slice(0, -1) : path;
+
+				// Check if path itself is a known directory
+				const directoryEntry = store.get(normalizedPath);
+				if (directoryEntry && !directoryEntry.isDirectory) {
+					throw new Error(`ENOTDIR: not a directory, scandir '${path}'`);
+				}
+
+				// Collect immediate children
+				const prefix = normalizedPath + '/';
+				const childrenMap = new Map<string, boolean>();
+
+				for (const [key, entry] of store) {
+					if (!key.startsWith(prefix)) continue;
+					const remainder = key.slice(prefix.length);
+					// Immediate child: no further slashes
+					const slashIndex = remainder.indexOf('/');
+					if (slashIndex === -1) {
+						childrenMap.set(remainder, entry.isDirectory);
+					} else {
+						// This is a nested path — the first segment is a directory child
+						const childName = remainder.slice(0, slashIndex);
+						if (!childrenMap.has(childName)) {
+							childrenMap.set(childName, true);
+						}
+					}
+				}
+
+				if (childrenMap.size === 0 && !directoryEntry) {
+					throw makeEnoentError(path);
+				}
+
+				if (options?.withFileTypes) {
+					return [...childrenMap.entries()].map(([name, isDirectory]) => ({
+						name,
+						isDirectory: () => isDirectory,
+						isFile: () => !isDirectory,
+					}));
+				}
+
+				return [...childrenMap.keys()];
+			},
+
+			access: async (path: string): Promise<void> => {
+				const entry = store.get(path);
+				if (!entry) {
+					throw makeEnoentError(path);
+				}
+			},
+
+			mkdir: async (_path: string, _options?: { recursive?: boolean }): Promise<void> => {
+				// No-op — directories are implicit from file paths in the memory store
+			},
+
+			unlink: async (path: string): Promise<void> => {
+				if (!store.has(path)) {
+					throw makeEnoentError(path);
+				}
+				store.delete(path);
+			},
+
+			rename: async (from: string, to: string): Promise<void> => {
+				const entry = store.get(from);
+				if (!entry) {
+					throw makeEnoentError(from);
+				}
+				store.set(to, { ...entry, mtime: new Date() });
+				store.delete(from);
+			},
+
+			rm: async (path: string, _options?: { recursive?: boolean; force?: boolean }): Promise<void> => {
+				// Remove path and all children
+				const prefix = path + '/';
+				for (const key of store.keys()) {
+					if (key === path || key.startsWith(prefix)) {
+						store.delete(key);
+					}
+				}
+			},
+		};
+		return {
+			fs: fsObject,
+			runWithProjectFs: <R>(_adapter: unknown, function_: () => R): R => function_(),
+			runWithProjectStub: <R>(_stub: unknown, function_: () => R): R => function_(),
+			currentProjectFs: () => fsObject,
 		};
 	}
 
