@@ -1043,48 +1043,6 @@ async function handlePreviewRequest(request: Request, projectId: string, preview
 	return trackAndReturn(response, previewVisibility);
 }
 
-/**
- * One-time migration of existing projects from the legacy durable-object-fs
- * `entries` table to the durable `@cloudflare/shell` Workspace (and a real
- * `.git` cloned from Artifacts). Admin-only and idempotent: re-running reports
- * `migrated: false` for projects already migrated. Process in batches via
- * `?limit=` until every project reports `migrated: false`.
- */
-app.post('/api/admin/migrate-fs', async (c) => {
-	const { userId } = c.get('session');
-	const database = drizzle(c.env.DB, { schema: authSchema });
-
-	const userRow = await database
-		.select({ role: authSchema.user.role })
-		.from(authSchema.user)
-		.where(eq(authSchema.user.id, userId))
-		.limit(1);
-	if (userRow[0]?.role !== 'admin') {
-		return c.json({ error: 'Forbidden' }, 403);
-	}
-
-	const limit = Math.min(Math.max(Number(new URL(c.req.url).searchParams.get('limit') ?? '50'), 1), 200);
-	const projects = await database
-		.select({ id: authSchema.project.id, durableObjectHexId: authSchema.project.durableObjectHexId })
-		.from(authSchema.project)
-		.where(isNull(authSchema.project.deletedAt))
-		.limit(limit);
-
-	const results: Array<{ projectId: string; migrated?: boolean; fileCount?: number; error?: string }> = [];
-	for (const project of projects) {
-		try {
-			const stub = filesystemNamespace.get(filesystemNamespace.idFromString(project.durableObjectHexId));
-			const result = await stub.migrateToWorkspace();
-			results.push({ projectId: project.id, ...result });
-		} catch (error) {
-			results.push({ projectId: project.id, error: error instanceof Error ? error.message : String(error) });
-		}
-	}
-
-	const migrated = results.filter((result) => result.migrated).length;
-	return c.json({ processed: results.length, migrated, results });
-});
-
 app.post('/api/new-project', async (c) => {
 	const projectCreateStart = Date.now();
 	const { userId } = c.get('session');
@@ -1191,11 +1149,17 @@ app.post('/api/new-project', async (c) => {
 		};
 
 		// Create the project's Cloudflare Artifacts repo and push the initial
-		// commit. Artifacts is the source of truth; commitTree() pushes
-		// synchronously, so a failure here aborts project creation.
+		// commit. This is best-effort: the project (D1 row + working tree) is
+		// already persisted, so a transient remote/git failure must not surface
+		// as "failed to create project". The local commit is authoritative and
+		// the push reconciles on the next commit.
 		const fsStub = filesystemNamespace.get(doId);
-		await ensureArtifactsRepo(env, projectId);
-		await fsStub.gitInitialCommit(commitAuthor);
+		try {
+			await ensureArtifactsRepo(env, projectId);
+			await fsStub.gitInitialCommit(commitAuthor);
+		} catch (gitError) {
+			console.error('Initial git setup failed for new project (project still created):', gitError);
+		}
 
 		trackProjectEvent({
 			organizationId,
@@ -1363,8 +1327,14 @@ app.post('/api/clone-project', async (c) => {
 		};
 
 		// Create the cloned project's Artifacts repo and push the initial commit.
-		await ensureArtifactsRepo(env, newProjectId);
-		await destinationStub.gitInitialCommit(cloneCommitAuthor);
+		// Best-effort: the project is already persisted, so a transient remote/git
+		// failure must not surface as a clone failure; it reconciles on next commit.
+		try {
+			await ensureArtifactsRepo(env, newProjectId);
+			await destinationStub.gitInitialCommit(cloneCommitAuthor);
+		} catch (gitError) {
+			console.error('Initial git setup failed for cloned project (project still created):', gitError);
+		}
 
 		trackProjectEvent({
 			organizationId,

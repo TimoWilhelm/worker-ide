@@ -76,7 +76,7 @@ function getSessionAffinity(modelId: string, context: WorkersAiContext): string 
 /**
  * Create a Vercel AI SDK v6 language model for Workers AI.
  *
- * @param modelId - Workers AI model ID (e.g. '@cf/moonshotai/kimi-k2.6')
+ * @param modelId - Workers AI model ID
  * @param context - Metadata context for AI Gateway tracking
  */
 export function createAdapter(modelId: string, context: WorkersAiContext): LanguageModel {

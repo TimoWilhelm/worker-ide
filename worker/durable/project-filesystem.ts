@@ -101,8 +101,7 @@ export class ProjectFilesystem extends DurableObject<Env> {
 	async projectExists(): Promise<boolean> {
 		if (this.ctx.storage.kv.get<boolean>('initialized')) return true;
 		const info = await this.workspace.getWorkspaceInfo().catch(() => {});
-		if (info && info.fileCount > 0) return true;
-		return this.hasLegacyEntries();
+		return Boolean(info && info.fileCount > 0);
 	}
 
 	async writeFileContent(path: string, content: string): Promise<void> {
@@ -223,64 +222,5 @@ export class ProjectFilesystem extends DurableObject<Env> {
 	}
 	async gitDiffFile(objectId: string, path: string): Promise<{ diff: GitFileDiff }> {
 		return { diff: await this.git().diffFileAtCommit(objectId, path) };
-	}
-
-	// =========================================================================
-	// One-time migration from the legacy durable-object-fs `entries` table.
-	// =========================================================================
-	async migrateToWorkspace(): Promise<{ migrated: boolean; fileCount: number }> {
-		if (this.ctx.storage.kv.get<boolean>('fsMigrated')) {
-			return { migrated: false, fileCount: 0 };
-		}
-
-		const currentBranch = this.ctx.storage.kv.get<string>('currentBranch');
-		let fileCount = 0;
-
-		if (this.hasLegacyEntries()) {
-			const rows = this.ctx.storage.sql
-				.exec<{
-					path: string;
-					type: string;
-					content: ArrayBuffer | null;
-					symlink_target: string | null;
-				}>('SELECT path, type, content, symlink_target FROM entries ORDER BY path')
-				.toArray();
-
-			for (const row of rows) {
-				if (row.type === 'directory') {
-					await this.workspace.mkdir(row.path, { recursive: true });
-				} else if (row.type === 'symlink') {
-					if (row.symlink_target) await this.workspace.symlink(row.symlink_target, row.path);
-				} else {
-					const bytes = row.content ? new Uint8Array(row.content) : new Uint8Array();
-					await this.workspace.writeFileBytes(row.path, bytes);
-					fileCount += 1;
-				}
-			}
-		}
-
-		// Populate the durable `.git` from Artifacts without overwriting the
-		// working tree, then drop the legacy table — leaving no migration
-		// artifacts in the repo or storage.
-		await this.git().cloneHistory(currentBranch);
-
-		this.ctx.storage.sql.exec('DROP TABLE IF EXISTS entries');
-		this.ctx.storage.kv.delete('stagedPaths');
-		this.ctx.storage.kv.delete('currentBranch');
-		this.ctx.storage.kv.put('fsMigrated', true);
-		this.ctx.storage.kv.put('initialized', true);
-
-		return { migrated: true, fileCount };
-	}
-
-	private hasLegacyEntries(): boolean {
-		try {
-			const tableCheck = this.ctx.storage.sql.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='entries' LIMIT 1");
-			if (tableCheck.toArray().length === 0) return false;
-			const result = this.ctx.storage.sql.exec('SELECT 1 FROM entries LIMIT 1');
-			return result.toArray().length > 0;
-		} catch {
-			return false;
-		}
 	}
 }

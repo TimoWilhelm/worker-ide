@@ -46,7 +46,6 @@ export class GitService {
 	private readonly projectId: string;
 
 	private remoteUrl?: string;
-	private readToken?: string;
 	private writeToken?: string;
 
 	constructor(fs: WorkspaceFsAdapter, environment: Env, projectId: string) {
@@ -69,15 +68,6 @@ export class GitService {
 			this.remoteUrl = repo.remote;
 		}
 		return this.remoteUrl;
-	}
-
-	private async readAuth(): Promise<OnAuth> {
-		if (!this.readToken) {
-			const { secret } = await mintArtifactsToken(this.environment, this.projectId, 'read', 300);
-			this.readToken = secret;
-		}
-		const password = this.readToken;
-		return () => ({ username: 'x', password });
 	}
 
 	private async writeAuth(): Promise<OnAuth> {
@@ -482,40 +472,15 @@ export class GitService {
 		if (files.length === 0) return;
 		for (const filepath of files) await git.add({ ...this.base(), filepath });
 		await git.commit({ ...this.base(), message, author: { name: author.name, email: author.email } });
-		await this.ensureOrigin();
-		await this.pushCurrentBranch();
-	}
 
-	/** Clone history from Artifacts into the durable `.git` without touching the working tree. */
-	async cloneHistory(currentBranch?: string): Promise<void> {
-		const url = await this.getRemote();
-		const http = await this.getHttp();
-		const onAuth = await this.readAuth();
+		// The local commit is authoritative for the project. Syncing to the
+		// Artifacts remote is best-effort here: transient remote/network errors
+		// must not fail project creation — the next commit reconciles the push.
 		try {
-			await git.clone({ ...this.base(), http, url, singleBranch: false, noCheckout: true, onAuth });
-			await this.mirrorRemoteBranches();
-		} catch {
-			await git.init({ ...this.base(), defaultBranch: DEFAULT_BRANCH });
-		}
-		await this.ensureOrigin();
-		if (currentBranch) {
-			await git.checkout({ ...this.base(), ref: currentBranch, noCheckout: true }).catch(() => {});
-		}
-		// Reset the index to HEAD so pre-existing working-tree files surface as
-		// modifications rather than being overwritten.
-		await git.resetIndex({ ...this.base(), filepath: '.' }).catch(() => {});
-	}
-
-	private async mirrorRemoteBranches(): Promise<void> {
-		const remoteBranches = await git.listBranches({ ...this.base(), remote: 'origin' }).catch(() => []);
-		for (const name of remoteBranches) {
-			if (name === 'HEAD') continue;
-			try {
-				const oid = await git.resolveRef({ ...this.base(), ref: `refs/remotes/origin/${name}` });
-				await git.writeRef({ ...this.base(), ref: `refs/heads/${name}`, value: oid, force: true });
-			} catch {
-				// Skip unresolved branches.
-			}
+			await this.ensureOrigin();
+			await this.pushCurrentBranch();
+		} catch (error) {
+			console.error('initAndCommit: initial push to Artifacts failed (will reconcile on next commit):', error);
 		}
 	}
 

@@ -34,12 +34,20 @@ export async function ensureArtifactsRepo(environment: Env, projectId: string): 
 	try {
 		const repo = await environment.ARTIFACTS.get(name);
 		return { name: repo.name, remote: repo.remote };
-	} catch (error) {
-		if (isArtifactsErrorCode(error, 'NOT_FOUND')) {
+	} catch {
+		// The repo does not exist (or get is momentarily unavailable). Try to
+		// create it; if creation races/fails because it now exists, re-get.
+		try {
 			const created = await environment.ARTIFACTS.create(name, { setDefaultBranch: 'main' });
 			return { name: created.name, remote: created.remote };
+		} catch (createError) {
+			try {
+				const repo = await environment.ARTIFACTS.get(name);
+				return { name: repo.name, remote: repo.remote };
+			} catch {
+				throw createError;
+			}
 		}
-		throw error;
 	}
 }
 

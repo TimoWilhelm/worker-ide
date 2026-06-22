@@ -18,8 +18,8 @@ export const AI_MODELS = [
 		maxOutput: 16_384,
 	},
 	{
-		id: '@cf/moonshotai/kimi-k2.6',
-		label: 'Kimi K2.6',
+		id: '@cf/moonshotai/kimi-k2.7-code',
+		label: 'Kimi K2.7 Code',
 		description: 'Frontier-scale model from Moonshot AI',
 		provider: 'workers-ai',
 		contextWindow: 262_144,
@@ -43,7 +43,7 @@ export const AI_MODEL_IDS: readonly AIModelId[] = AI_MODELS.map((model) => model
 // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- Required for Zod enum tuple type
 export const AI_MODEL_IDS_TUPLE = AI_MODEL_IDS as readonly [AIModelId, ...AIModelId[]];
 
-export const DEFAULT_AI_MODEL: AIModelId = '@cf/moonshotai/kimi-k2.6' satisfies AIModelId;
+export const DEFAULT_AI_MODEL: AIModelId = '@cf/moonshotai/kimi-k2.7-code' satisfies AIModelId;
 export const SUMMARIZATION_AI_MODEL: AIModelId = '@cf/google/gemma-4-26b-a4b-it' satisfies AIModelId;
 
 export function getModelLabel(modelId: string): string {
