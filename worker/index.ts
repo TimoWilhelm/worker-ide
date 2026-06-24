@@ -42,6 +42,7 @@ import { runWithProjectStub } from './lib/project-fs';
 import { generateProjectId, toDurableObjectId } from './lib/project-id';
 import { requireRateLimit } from './lib/rate-limit-middleware';
 import { apiRoutes } from './routes';
+import { cloudflareOAuthRoutes } from './routes/cloudflare-oauth-routes';
 import { developmentTestRoutes } from './routes/development-test-routes';
 import { orgRoutes } from './routes/org-routes';
 import { transferRoutes } from './routes/transfer-routes';
@@ -809,6 +810,7 @@ registerProtectedApiMiddleware(app, requireRateLimit);
 app.route('/api', orgRoutes);
 app.route('/api', userRoutes);
 app.route('/api', transferRoutes);
+app.route('/api', cloudflareOAuthRoutes);
 
 /**
  * Detect cross-site hotlink requests using Sec-Fetch metadata headers.

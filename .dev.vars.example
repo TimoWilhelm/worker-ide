@@ -21,3 +21,13 @@ GITHUB_CLIENT_SECRET=
 #   - Authorized redirect URI: http://localhost:3000/api/auth/callback/google
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
+
+# Cloudflare OAuth client credentials (for deploying Workers to the user's own
+# Cloudflare account). Create at: Cloudflare dashboard → Manage Account →
+# OAuth clients → Create client.
+#   - Grant type: authorization_code; Response type: code
+#   - Token endpoint auth: client_secret_basic
+#   - Redirect URL: http://localhost:3000/api/cloudflare/oauth/callback
+#   - Scopes: workers-scripts.write, workers-r2.write, memberships.read, offline_access
+CLOUDFLARE_OAUTH_CLIENT_ID=
+CLOUDFLARE_OAUTH_CLIENT_SECRET=

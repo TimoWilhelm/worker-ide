@@ -15,6 +15,7 @@ import {
 	uploadWorkerScript,
 } from './deploy-helpers';
 import { trackProjectEvent } from '../lib/analytics';
+import { getValidAccessToken } from '../lib/cloudflare-oauth';
 import { filesystemNamespace } from '../lib/durable-object-namespaces';
 import { runWithProjectStub } from '../lib/project-fs';
 import { toDurableObjectId } from '../lib/project-id';
@@ -43,6 +44,28 @@ function toNonRetryableError(error: unknown): Error {
 }
 
 export class DeployWorkflow extends WorkflowEntrypoint<Env, DeployWorkflowParameters> {
+	/**
+	 * Resolve a valid Cloudflare access token for the deploying user, refreshing
+	 * it if needed. Fetched fresh inside each Cloudflare API step so long-running
+	 * or retried deploys never use an expired token. The token is never stored in
+	 * workflow step output.
+	 */
+	private async resolveAccessToken(userId: string): Promise<string> {
+		const accessToken = await getValidAccessToken(
+			{
+				DB: this.env.DB,
+				BETTER_AUTH_SECRET: this.env.BETTER_AUTH_SECRET,
+				CLOUDFLARE_OAUTH_CLIENT_ID: this.env.CLOUDFLARE_OAUTH_CLIENT_ID,
+				CLOUDFLARE_OAUTH_CLIENT_SECRET: this.env.CLOUDFLARE_OAUTH_CLIENT_SECRET,
+			},
+			userId,
+		);
+		if (!accessToken) {
+			throw new NonRetryableError('Cloudflare account is not connected. Please reconnect and try again.');
+		}
+		return accessToken;
+	}
+
 	async run(event: WorkflowEvent<DeployWorkflowParameters>, step: WorkflowStep): Promise<DeployResult> {
 		const parameters = event.payload;
 		const filesystemId = toDurableObjectId(filesystemNamespace, parameters.projectId);
@@ -74,39 +97,44 @@ export class DeployWorkflow extends WorkflowEntrypoint<Env, DeployWorkflowParame
 			const staticAssets = entriesToStaticAssets(frontendBundle.staticAssetsEntries);
 			let assetsCompletionJwt: string | undefined;
 			if (staticAssets.size > 0) {
-				assetsCompletionJwt = await step.do('upload-assets', CLOUDFLARE_API_STEP_CONFIG, async () =>
-					uploadStaticAssets(parameters.accountId, parameters.apiToken, parameters.workerName, staticAssets),
-				);
+				assetsCompletionJwt = await step.do('upload-assets', CLOUDFLARE_API_STEP_CONFIG, async () => {
+					const accessToken = await this.resolveAccessToken(parameters.userId);
+					return uploadStaticAssets(parameters.accountId, accessToken, parameters.workerName, staticAssets);
+				});
 			}
 
 			let r2BucketName: string | undefined;
 			if (inputs.bindingsConfig.storage) {
 				const bucketName = sanitizeR2BucketName(parameters.workerName);
 				r2BucketName = bucketName;
-				await step.do('ensure-r2-bucket', SHORT_CLOUDFLARE_API_STEP_CONFIG, async () =>
-					ensureR2Bucket(parameters.accountId, parameters.apiToken, bucketName),
-				);
+				await step.do('ensure-r2-bucket', SHORT_CLOUDFLARE_API_STEP_CONFIG, async () => {
+					const accessToken = await this.resolveAccessToken(parameters.userId);
+					return ensureR2Bucket(parameters.accountId, accessToken, bucketName);
+				});
 			}
 
-			await step.do('upload-worker-script', CLOUDFLARE_API_STEP_CONFIG, async () =>
-				uploadWorkerScript(
+			await step.do('upload-worker-script', CLOUDFLARE_API_STEP_CONFIG, async () => {
+				const accessToken = await this.resolveAccessToken(parameters.userId);
+				return uploadWorkerScript(
 					parameters.accountId,
-					parameters.apiToken,
+					accessToken,
 					parameters.workerName,
 					workerBundle.workerCode,
 					assetsCompletionJwt,
 					inputs.assetSettings,
 					r2BucketName,
-				),
-			);
+				);
+			});
 
-			await step.do('enable-subdomain', SHORT_CLOUDFLARE_API_STEP_CONFIG, async () =>
-				enableWorkersDevelopmentSubdomain(parameters.accountId, parameters.apiToken, parameters.workerName),
-			);
+			await step.do('enable-subdomain', SHORT_CLOUDFLARE_API_STEP_CONFIG, async () => {
+				const accessToken = await this.resolveAccessToken(parameters.userId);
+				return enableWorkersDevelopmentSubdomain(parameters.accountId, accessToken, parameters.workerName);
+			});
 
-			const workerUrl = await step.do('get-worker-url', SHORT_CLOUDFLARE_API_STEP_CONFIG, async () =>
-				getWorkersDevelopmentUrl(parameters.accountId, parameters.apiToken, parameters.workerName),
-			);
+			const workerUrl = await step.do('get-worker-url', SHORT_CLOUDFLARE_API_STEP_CONFIG, async () => {
+				const accessToken = await this.resolveAccessToken(parameters.userId);
+				return getWorkersDevelopmentUrl(parameters.accountId, accessToken, parameters.workerName);
+			});
 
 			const dashboardUrl = `https://dash.cloudflare.com/${parameters.accountId}/workers/services/view/${parameters.workerName}`;
 			const result: DeployResult = { success: true, workerName: parameters.workerName, workerUrl, dashboardUrl };

@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 
 import {
 	deployAccountIdSchema,
-	deployApiTokenSchema,
 	deployWorkerNameSchema,
 	filePathSchema,
 	writeFileSchema,
@@ -24,14 +23,6 @@ describe('deploy validation schemas', () => {
 
 	it('rejects a non-hex deploy account ID', () => {
 		expect(deployAccountIdSchema.safeParse('not-an-account-id').success).toBe(false);
-	});
-
-	it('accepts an API token without whitespace', () => {
-		expect(deployApiTokenSchema.safeParse('cfapitoken123').success).toBe(true);
-	});
-
-	it('rejects an API token with whitespace', () => {
-		expect(deployApiTokenSchema.safeParse('token with spaces').success).toBe(false);
 	});
 
 	it('accepts a worker name that sanitizes to a valid value', () => {

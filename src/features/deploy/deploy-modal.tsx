@@ -7,44 +7,17 @@ import { Modal, ModalBody, ModalFooter } from '@/components/ui/modal';
 import { getDeployStatus, startDeployProject } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
 import { sanitizeR2BucketName, sanitizeWorkerName } from '@shared/deploy-helpers';
-import { deployFormSchema, savedCredentialsSchema } from '@shared/validation';
+import { deployFormSchema, savedDeployAccountSchema } from '@shared/validation';
+
+import { useCloudflareConnection } from './use-cloudflare-connection';
 
 import type { ProjectMeta } from '@/lib/api-client';
 import type { FileInfo } from '@shared/types';
-import type { SavedCredentialsParsed } from '@shared/validation';
 import type { ReactNode } from 'react';
 
-const LOCAL_STORAGE_KEY = 'worker-ide-deploy-credentials';
-const CLOUDFLARE_DASHBOARD_URL = 'https://dash.cloudflare.com/';
-const ACCOUNT_TOKEN_PATH = '/:account/api-tokens';
-const DEPLOY_TOKEN_NAME = 'Worker IDE Deploy Token';
-
-interface CloudflareTokenPermission {
-	key: string;
-	type: 'edit';
+function accountStorageKey(projectId: string): string {
+	return `worker-ide-deploy-account:${projectId}`;
 }
-
-const DEPLOY_TOKEN_PERMISSIONS: CloudflareTokenPermission[] = [
-	{ key: 'workers_scripts', type: 'edit' },
-	{ key: 'workers_r2', type: 'edit' },
-];
-
-function createAccountTokenUrl(tokenName: string, permissions: CloudflareTokenPermission[]): string {
-	const parameters = new URLSearchParams({
-		permissionGroupKeys: JSON.stringify(permissions),
-		name: tokenName,
-	});
-
-	return `${CLOUDFLARE_DASHBOARD_URL}?to=${ACCOUNT_TOKEN_PATH}&${parameters.toString()}`;
-}
-
-/**
- * Cloudflare dashboard URL for an account-scoped token with pre-filled Workers Scripts Edit + R2 Storage Edit permissions.
- * Opens the account token creation page with the correct permissions already selected.
- */
-const CREATE_TOKEN_URL = createAccountTokenUrl(DEPLOY_TOKEN_NAME, DEPLOY_TOKEN_PERMISSIONS);
-
-type SavedCredentials = SavedCredentialsParsed;
 
 interface DeployModalProperties {
 	open: boolean;
@@ -59,36 +32,30 @@ type DeployState =
 	| { status: 'success'; workerName: string; workerUrl?: string; dashboardUrl?: string }
 	| { status: 'error'; message: string };
 
-function loadSavedCredentials(): SavedCredentials | undefined {
+function loadSavedAccountId(projectId: string): string | undefined {
 	try {
-		const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
+		const raw = localStorage.getItem(accountStorageKey(projectId));
 		if (!raw) return undefined;
-		const result = savedCredentialsSchema.safeParse(JSON.parse(raw));
-		if (result.success) return result.data;
+		const result = savedDeployAccountSchema.safeParse(JSON.parse(raw));
+		if (result.success) return result.data.accountId;
 	} catch {
 		// Ignore invalid stored data
 	}
 	return undefined;
 }
 
-function saveCredentials(credentials: SavedCredentials): void {
-	localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(credentials));
-}
-
-function clearSavedCredentials(): void {
-	localStorage.removeItem(LOCAL_STORAGE_KEY);
+function saveAccountId(projectId: string, accountId: string): void {
+	try {
+		localStorage.setItem(accountStorageKey(projectId), JSON.stringify({ accountId }));
+	} catch {
+		// Ignore storage failures (e.g., private mode)
+	}
 }
 
 interface DeployResourceSummaryProperties {
 	workerName: string;
 	hasStaticAssets: boolean;
 	hasR2Storage: boolean;
-}
-
-interface DeployFormErrors {
-	accountId?: string;
-	apiToken?: string;
-	workerName?: string;
 }
 
 interface ResourceRowProperties {
@@ -148,6 +115,7 @@ export function DeployModal({ open, onOpenChange, projectId, projectName }: Depl
 		<Modal open={open} onOpenChange={handleOpenChange} title="Deploy to Cloudflare" className="w-[460px]">
 			{open && (
 				<DeployModalContent
+					open={open}
 					onOpenChange={handleOpenChange}
 					projectId={projectId}
 					projectName={projectName}
@@ -159,7 +127,7 @@ export function DeployModal({ open, onOpenChange, projectId, projectName }: Depl
 	);
 }
 
-interface DeployModalContentProperties extends Omit<DeployModalProperties, 'open'> {
+interface DeployModalContentProperties extends DeployModalProperties {
 	deployState: DeployState;
 	setDeployState: (state: DeployState) => void;
 }
@@ -169,77 +137,55 @@ interface DeployModalContentProperties extends Omit<DeployModalProperties, 'open
  * Remounts each time the modal opens, so form fields are fresh.
  * Deploy state is owned by the parent so it persists across open/close.
  */
-function DeployModalContent({ onOpenChange, projectId, projectName, deployState, setDeployState }: DeployModalContentProperties) {
+function DeployModalContent({ open, onOpenChange, projectId, projectName, deployState, setDeployState }: DeployModalContentProperties) {
 	const queryClient = useQueryClient();
-	const [saved] = useState(loadSavedCredentials);
-	const [accountId, setAccountId] = useState(saved?.accountId ?? '');
-	const [apiToken, setApiToken] = useState(saved?.apiToken ?? '');
+	const { isLoadingConnection, connected, email, accounts, isLoadingAccounts, accountsError, connect, disconnect, isDisconnecting } =
+		useCloudflareConnection(open);
+
+	const [selectedAccountId, setSelectedAccountId] = useState(() => loadSavedAccountId(projectId) ?? '');
 	const [workerName, setWorkerName] = useState(() => sanitizeWorkerName(projectName));
-	const [touchedFields, setTouchedFields] = useState<Record<keyof DeployFormErrors, boolean>>({
-		accountId: false,
-		apiToken: false,
-		workerName: false,
-	});
-	const [rememberCredentials, setRememberCredentials] = useState(saved !== undefined);
+	const [workerNameTouched, setWorkerNameTouched] = useState(false);
 	const projectMeta = queryClient.getQueryData<ProjectMeta>(['project-meta', projectId]);
 	const fileTree = queryClient.getQueryData<FileInfo[]>(['files', projectId]);
-	const validationResult = useMemo(
-		() => deployFormSchema.safeParse({ accountId, apiToken, workerName }),
-		[accountId, apiToken, workerName],
-	);
-	const formErrors = useMemo<DeployFormErrors>(() => {
-		if (validationResult.success) {
-			return {};
-		}
 
-		const fieldErrors = validationResult.error.flatten().fieldErrors;
-		return {
-			accountId: touchedFields.accountId ? fieldErrors.accountId?.[0] : undefined,
-			apiToken: touchedFields.apiToken ? fieldErrors.apiToken?.[0] : undefined,
-			workerName: touchedFields.workerName ? fieldErrors.workerName?.[0] : undefined,
-		};
-	}, [touchedFields, validationResult]);
+	// Derive the effective account during render: the user's explicit choice when
+	// it is still available, otherwise the first account. Avoids syncing state in
+	// an effect.
+	const accountId =
+		selectedAccountId && accounts.some((account) => account.id === selectedAccountId) ? selectedAccountId : (accounts[0]?.id ?? '');
+
+	const validationResult = useMemo(() => deployFormSchema.safeParse({ accountId, workerName }), [accountId, workerName]);
+	const workerNameError = useMemo<string | undefined>(() => {
+		if (validationResult.success || !workerNameTouched) return;
+		return validationResult.error.flatten().fieldErrors.workerName?.[0];
+	}, [validationResult, workerNameTouched]);
+
 	const sanitizedWorkerName = useMemo(() => sanitizeWorkerName(workerName), [workerName]);
 	const hasStaticAssets =
 		fileTree?.some((file) => (file.path === '/index.html' || file.path === 'index.html') && !file.isDirectory) ?? false;
 	const hasR2Storage = projectMeta?.bindingsConfig?.storage === true;
 
-	const markFieldTouched = useCallback((field: keyof DeployFormErrors) => {
-		setTouchedFields((current) => ({ ...current, [field]: true }));
-	}, []);
-
 	const handleDeploy = useCallback(async () => {
-		setTouchedFields({ accountId: true, apiToken: true, workerName: true });
+		setWorkerNameTouched(true);
 		if (!validationResult.success) return;
 
-		const parsedCredentials = validationResult.data;
-
-		if (rememberCredentials) {
-			saveCredentials({ accountId: parsedCredentials.accountId, apiToken: parsedCredentials.apiToken });
-		} else {
-			clearSavedCredentials();
-		}
-
+		const parsed = validationResult.data;
+		saveAccountId(projectId, parsed.accountId);
 		setDeployState({ status: 'deploying', instanceId: '' });
 
 		try {
 			const result = await startDeployProject(projectId, {
-				accountId: parsedCredentials.accountId,
-				apiToken: parsedCredentials.apiToken,
+				accountId: parsed.accountId,
 				workerName: sanitizedWorkerName,
 			});
-
-			setDeployState({
-				status: 'deploying',
-				instanceId: result.instanceId,
-			});
+			setDeployState({ status: 'deploying', instanceId: result.instanceId });
 		} catch (error) {
 			setDeployState({
 				status: 'error',
 				message: error instanceof Error ? error.message : 'Deployment failed',
 			});
 		}
-	}, [projectId, rememberCredentials, sanitizedWorkerName, setDeployState, validationResult]);
+	}, [projectId, sanitizedWorkerName, setDeployState, validationResult]);
 
 	useEffect(() => {
 		if (deployState.status !== 'deploying' || !deployState.instanceId) return;
@@ -304,8 +250,8 @@ function DeployModalContent({ onOpenChange, projectId, projectName, deployState,
 		};
 	}, [deployState, projectId, setDeployState]);
 
-	const isFormValid = validationResult.success;
 	const isDeploying = deployState.status === 'deploying';
+	const canDeploy = connected && validationResult.success && !isDeploying;
 
 	return (
 		<>
@@ -364,79 +310,69 @@ function DeployModalContent({ onOpenChange, projectId, projectName, deployState,
 				) : deployState.status === 'deploying' ? (
 					<div className="flex flex-col items-center gap-3 py-6">
 						<Loader2 className="size-8 animate-spin text-accent" />
-						<p className="text-sm font-medium text-text-primary">Deploying...&hellip;</p>
+						<p className="text-sm font-medium text-text-primary">Deploying&hellip;</p>
 						<p className="text-xs text-text-secondary">This may take a moment.</p>
 					</div>
-				) : (
+				) : isLoadingConnection ? (
+					<div className="flex flex-col items-center gap-3 py-6">
+						<Loader2 className="size-6 animate-spin text-accent" />
+						<p className="text-xs text-text-secondary">Checking Cloudflare connection&hellip;</p>
+					</div>
+				) : connected ? (
 					<>
-						<div className="flex flex-col gap-1.5">
-							<label htmlFor="deploy-account-id" className="text-xs font-medium text-text-secondary">
-								Account ID
-							</label>
-							<input
-								id="deploy-account-id"
-								type="text"
-								value={accountId}
-								onChange={(event) => setAccountId(event.target.value)}
-								onBlur={() => markFieldTouched('accountId')}
-								placeholder="e.g., d64471fef208e0cf..."
-								disabled={isDeploying}
-								className={cn(
-									`
-										h-8 rounded-sm border border-border bg-bg-primary px-2.5 text-sm
-										text-text-primary
-									`,
-									'placeholder:text-text-secondary/50',
-									'focus:border-accent focus:outline-none',
-									formErrors.accountId && 'border-red-500',
-									'disabled:opacity-50',
-								)}
-							/>
-							<p className="text-xs text-text-secondary">Found in the Cloudflare dashboard under Workers & Pages &gt; Overview.</p>
-							{formErrors.accountId && <p className="text-xs text-red-500">{formErrors.accountId}</p>}
+						<div
+							className="
+								flex items-center justify-between gap-2 rounded-md border border-border
+								bg-bg-primary p-2.5 text-xs
+							"
+						>
+							<div className="flex items-center gap-1.5 overflow-hidden">
+								<CheckCircle className="size-3.5 shrink-0 text-green-500" />
+								<span className="truncate text-text-secondary">Connected{email ? ` as ${email}` : ''}</span>
+							</div>
+							<button
+								type="button"
+								onClick={() => disconnect()}
+								disabled={isDisconnecting}
+								className="
+									shrink-0 text-text-secondary underline transition-colors
+									hover:text-text-primary
+									disabled:opacity-50
+								"
+							>
+								Disconnect
+							</button>
 						</div>
 
 						<div className="flex flex-col gap-1.5">
-							<label htmlFor="deploy-api-token" className="text-xs font-medium text-text-secondary">
-								API Token
+							<label htmlFor="deploy-account-id" className="text-xs font-medium text-text-secondary">
+								Cloudflare Account
 							</label>
-							<input
-								id="deploy-api-token"
-								type="password"
-								value={apiToken}
-								onChange={(event) => setApiToken(event.target.value)}
-								onBlur={() => markFieldTouched('apiToken')}
-								placeholder="Cloudflare API Token"
-								disabled={isDeploying}
+							<select
+								id="deploy-account-id"
+								value={accountId}
+								onChange={(event) => setSelectedAccountId(event.target.value)}
+								disabled={isDeploying || isLoadingAccounts || accounts.length === 0}
 								className={cn(
 									`
 										h-8 rounded-sm border border-border bg-bg-primary px-2.5 text-sm
 										text-text-primary
 									`,
-									'placeholder:text-text-secondary/50',
 									'focus:border-accent focus:outline-none',
-									formErrors.apiToken && 'border-red-500',
 									'disabled:opacity-50',
 								)}
-							/>
-							<p className="text-xs text-text-secondary">
-								Needs an account-scoped token with <strong>Workers Scripts: Edit</strong> and <strong>R2 Storage: Edit</strong> permissions.{' '}
-								<a href={CREATE_TOKEN_URL} target="_blank" rel="noopener noreferrer" className="text-accent hover:text-accent-hover">
-									Create an account token
-								</a>
-							</p>
-							<label className="flex cursor-pointer items-center gap-2 pt-1" htmlFor="deploy-remember">
-								<input
-									id="deploy-remember"
-									type="checkbox"
-									checked={rememberCredentials}
-									onChange={(event) => setRememberCredentials(event.target.checked)}
-									disabled={isDeploying}
-									className="size-3.5 accent-accent"
-								/>
-								<span className="text-xs text-text-secondary">Remember credentials in this browser</span>
-							</label>
-							{formErrors.apiToken && <p className="text-xs text-red-500">{formErrors.apiToken}</p>}
+							>
+								{accounts.length === 0 ? (
+									<option value="">{isLoadingAccounts ? 'Loading accounts…' : 'No accounts available'}</option>
+								) : (
+									accounts.map((account) => (
+										<option key={account.id} value={account.id}>
+											{account.name}
+										</option>
+									))
+								)}
+							</select>
+							{accountsError && <p className="text-xs text-red-500">Failed to load accounts. Try reconnecting.</p>}
 						</div>
 
 						<div className="flex flex-col gap-1.5">
@@ -448,7 +384,7 @@ function DeployModalContent({ onOpenChange, projectId, projectName, deployState,
 								type="text"
 								value={workerName}
 								onChange={(event) => setWorkerName(event.target.value)}
-								onBlur={() => markFieldTouched('workerName')}
+								onBlur={() => setWorkerNameTouched(true)}
 								placeholder="my-worker"
 								disabled={isDeploying}
 								className={cn(
@@ -458,16 +394,29 @@ function DeployModalContent({ onOpenChange, projectId, projectName, deployState,
 									`,
 									'placeholder:text-text-secondary/50',
 									'focus:border-accent focus:outline-none',
-									formErrors.workerName && 'border-red-500',
+									workerNameError && 'border-red-500',
 									'disabled:opacity-50',
 								)}
 							/>
 							<p className="text-xs text-text-secondary">The name for your deployed Worker (lowercase, hyphens allowed).</p>
-							{formErrors.workerName && <p className="text-xs text-red-500">{formErrors.workerName}</p>}
+							{workerNameError && <p className="text-xs text-red-500">{workerNameError}</p>}
 						</div>
 
 						<DeployResourceSummary workerName={sanitizedWorkerName} hasStaticAssets={hasStaticAssets} hasR2Storage={hasR2Storage} />
 					</>
+				) : (
+					<div className="flex flex-col items-center gap-3 py-4 text-center">
+						<Server className="size-8 text-text-secondary" />
+						<p className="text-sm font-medium text-text-primary">Connect your Cloudflare account</p>
+						<p className="text-xs text-text-secondary">
+							Authorize Worker IDE to deploy Workers to your Cloudflare account. You will be asked to grant access to Workers Scripts and R2
+							Storage.
+						</p>
+						<Button onClick={connect}>
+							<ExternalLink className="size-4" />
+							Connect Cloudflare
+						</Button>
+					</div>
 				)}
 			</ModalBody>
 			<ModalFooter>
@@ -493,10 +442,12 @@ function DeployModalContent({ onOpenChange, projectId, projectName, deployState,
 						<Button variant="secondary" onClick={() => onOpenChange(false)} disabled={isDeploying}>
 							Cancel
 						</Button>
-						<Button onClick={handleDeploy} disabled={!isFormValid || isDeploying} isLoading={isDeploying}>
-							<Rocket className="size-4" />
-							Deploy
-						</Button>
+						{connected && (
+							<Button onClick={handleDeploy} disabled={!canDeploy} isLoading={isDeploying}>
+								<Rocket className="size-4" />
+								Deploy
+							</Button>
+						)}
 					</>
 				)}
 			</ModalFooter>

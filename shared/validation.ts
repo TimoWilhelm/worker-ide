@@ -477,13 +477,6 @@ export const deployAccountIdSchema = z
 	.max(64, 'Account ID must be at most 64 characters')
 	.regex(/^[a-f\d]+$/i, 'Account ID must be a hexadecimal string');
 
-export const deployApiTokenSchema = z
-	.string()
-	.trim()
-	.min(1, 'API Token is required')
-	.max(512, 'API Token is too long')
-	.refine((value) => !/\s/.test(value), 'API Token must not contain whitespace');
-
 export const deployWorkerNameSchema = z
 	.string()
 	.trim()
@@ -492,12 +485,11 @@ export const deployWorkerNameSchema = z
 	.refine((value) => /[a-z\d]/i.test(value), 'Worker name must contain at least one letter or number')
 	.refine((value) => !containsControlCharacters(value), 'Worker name must not contain control characters');
 
-export const savedCredentialsSchema = z.object({
+export const savedDeployAccountSchema = z.object({
 	accountId: deployAccountIdSchema,
-	apiToken: deployApiTokenSchema,
 });
 
-export type SavedCredentialsParsed = z.infer<typeof savedCredentialsSchema>;
+export type SavedDeployAccountParsed = z.infer<typeof savedDeployAccountSchema>;
 
 export const editorSessionSchema = z.object({
 	openFiles: z.array(z.string()),
@@ -558,13 +550,11 @@ export const transferInitiateBodySchema = z.object({
 
 export const deployRequestSchema = z.object({
 	accountId: deployAccountIdSchema,
-	apiToken: deployApiTokenSchema,
 	workerName: deployWorkerNameSchema.optional(),
 });
 
 export const deployFormSchema = z.object({
 	accountId: deployAccountIdSchema,
-	apiToken: deployApiTokenSchema,
 	workerName: deployWorkerNameSchema,
 });
 

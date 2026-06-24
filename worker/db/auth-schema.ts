@@ -265,6 +265,30 @@ export const entitlement = sqliteTable(
 	(table) => [uniqueIndex('entitlement_scope_key_idx').on(table.scopeId, table.key), index('entitlement_scope_id_idx').on(table.scopeId)],
 );
 
+/**
+ * Per-user Cloudflare OAuth connection, used to deploy Workers into the user's
+ * own Cloudflare account. Replaces the legacy "paste an API token" flow.
+ *
+ * Access and refresh tokens are stored encrypted (AES-GCM); see
+ * `worker/lib/cloudflare-oauth-crypto.ts`.
+ */
+export const cloudflareConnection = sqliteTable(
+	'cloudflare_connection',
+	{
+		userId: text('user_id')
+			.primaryKey()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		accessTokenEncrypted: text('access_token_encrypted').notNull(),
+		refreshTokenEncrypted: text('refresh_token_encrypted'),
+		accessTokenExpiresAt: integer('access_token_expires_at', { mode: 'timestamp' }),
+		scope: text('scope'),
+		cloudflareEmail: text('cloudflare_email'),
+		createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+		updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+	},
+	(table) => [index('cloudflare_connection_user_id_idx').on(table.userId)],
+);
+
 export const userPreference = sqliteTable(
 	'user_preference',
 	{
@@ -302,3 +326,5 @@ export type EntitlementRow = typeof entitlement.$inferSelect;
 export type EntitlementInsert = typeof entitlement.$inferInsert;
 export type UserPreferenceRow = typeof userPreference.$inferSelect;
 export type UserPreferenceInsert = typeof userPreference.$inferInsert;
+export type CloudflareConnectionRow = typeof cloudflareConnection.$inferSelect;
+export type CloudflareConnectionInsert = typeof cloudflareConnection.$inferInsert;

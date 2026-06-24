@@ -305,9 +305,9 @@ export function entriesToStaticAssets(entries: Array<[string, number[]]>): Map<s
 	return new Map(entries.map(([path, content]) => [path, new Uint8Array(content)]));
 }
 
-export async function ensureR2Bucket(accountId: string, apiToken: string, bucketName: string): Promise<void> {
+export async function ensureR2Bucket(accountId: string, accessToken: string, bucketName: string): Promise<void> {
 	const checkResponse = await fetch(`${CLOUDFLARE_API_BASE}/accounts/${accountId}/r2/buckets/${bucketName}`, {
-		headers: { Authorization: `Bearer ${apiToken}` },
+		headers: { Authorization: `Bearer ${accessToken}` },
 	});
 
 	if (checkResponse.ok) {
@@ -317,7 +317,7 @@ export async function ensureR2Bucket(accountId: string, apiToken: string, bucket
 	const createResponse = await fetch(`${CLOUDFLARE_API_BASE}/accounts/${accountId}/r2/buckets`, {
 		method: 'POST',
 		headers: {
-			Authorization: `Bearer ${apiToken}`,
+			Authorization: `Bearer ${accessToken}`,
 			'Content-Type': 'application/json',
 		},
 		body: JSON.stringify({ name: bucketName }),
@@ -334,7 +334,7 @@ export async function ensureR2Bucket(accountId: string, apiToken: string, bucket
 
 export async function uploadStaticAssets(
 	accountId: string,
-	apiToken: string,
+	accessToken: string,
 	workerName: string,
 	assets: Map<string, Uint8Array>,
 ): Promise<string> {
@@ -352,7 +352,7 @@ export async function uploadStaticAssets(
 	const sessionResponse = await fetch(`${CLOUDFLARE_API_BASE}/accounts/${accountId}/workers/scripts/${workerName}/assets-upload-session`, {
 		method: 'POST',
 		headers: {
-			Authorization: `Bearer ${apiToken}`,
+			Authorization: `Bearer ${accessToken}`,
 			'Content-Type': 'application/json',
 		},
 		body: JSON.stringify({ manifest }),
@@ -427,7 +427,7 @@ export async function uploadStaticAssets(
 
 export async function uploadWorkerScript(
 	accountId: string,
-	apiToken: string,
+	accessToken: string,
 	workerName: string,
 	workerCode: string,
 	assetsCompletionJwt: string | undefined,
@@ -477,7 +477,7 @@ export async function uploadWorkerScript(
 
 	const uploadResponse = await fetch(`${CLOUDFLARE_API_BASE}/accounts/${accountId}/workers/scripts/${workerName}`, {
 		method: 'PUT',
-		headers: { Authorization: `Bearer ${apiToken}` },
+		headers: { Authorization: `Bearer ${accessToken}` },
 		body: formData,
 	});
 
@@ -487,11 +487,11 @@ export async function uploadWorkerScript(
 	}
 }
 
-export async function enableWorkersDevelopmentSubdomain(accountId: string, apiToken: string, workerName: string): Promise<void> {
+export async function enableWorkersDevelopmentSubdomain(accountId: string, accessToken: string, workerName: string): Promise<void> {
 	const response = await fetch(`${CLOUDFLARE_API_BASE}/accounts/${accountId}/workers/scripts/${workerName}/subdomain`, {
 		method: 'POST',
 		headers: {
-			Authorization: `Bearer ${apiToken}`,
+			Authorization: `Bearer ${accessToken}`,
 			'Content-Type': 'application/json',
 		},
 		body: JSON.stringify({ enabled: true }),
@@ -503,10 +503,10 @@ export async function enableWorkersDevelopmentSubdomain(accountId: string, apiTo
 	}
 }
 
-export async function getWorkersDevelopmentUrl(accountId: string, apiToken: string, workerName: string): Promise<string | undefined> {
+export async function getWorkersDevelopmentUrl(accountId: string, accessToken: string, workerName: string): Promise<string | undefined> {
 	try {
 		const subdomainResponse = await fetch(`${CLOUDFLARE_API_BASE}/accounts/${accountId}/workers/subdomain`, {
-			headers: { Authorization: `Bearer ${apiToken}` },
+			headers: { Authorization: `Bearer ${accessToken}` },
 		});
 		if (subdomainResponse.ok) {
 			const data = parseUpstreamResponse(

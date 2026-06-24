@@ -4,9 +4,9 @@ import { serializeMessage, parseServerMessage, type ClientMessage, type ServerMe
 
 import { throwApiError } from './api-error';
 
-import type { ApiRoutes, OrgRoutes, TransferRoutes, UserRoutes } from '@server/routes';
+import type { ApiRoutes, CloudflareOAuthRoutes, OrgRoutes, TransferRoutes, UserRoutes } from '@server/routes';
 import type { UserPreferences } from '@shared/constants';
-import type { DeployStartResponse, DeployStatusResponse } from '@shared/deploy-types';
+import type { CloudflareAccount, CloudflareConnectionStatus, DeployStartResponse, DeployStatusResponse } from '@shared/deploy-types';
 import type { AssetSettings, BindingsConfig, ProjectTemplateMeta } from '@shared/types';
 
 export interface ProjectPermissions {
@@ -84,6 +84,9 @@ export function createOrgApiClient() {
 }
 export function createTransferApiClient() {
 	return hc<TransferRoutes>('/api');
+}
+export function createCloudflareApiClient() {
+	return hc<CloudflareOAuthRoutes>('/api');
 }
 
 export async function createProject(organizationId: string, templateId: string): Promise<{ projectId: string; url: string; name: string }> {
@@ -252,19 +255,48 @@ export async function updateUserPreferences(preferences: Record<string, string>)
 		await throwApiError(response, 'Failed to save user preferences');
 	}
 }
-export interface DeployCredentials {
+export interface DeployRequest {
 	accountId: string;
-	apiToken: string;
 	workerName?: string;
 }
 
-export async function startDeployProject(projectId: string, credentials: DeployCredentials): Promise<DeployStartResponse> {
+export async function startDeployProject(projectId: string, request: DeployRequest): Promise<DeployStartResponse> {
 	const api = createApiClient(projectId);
-	const response = await api.deploy.$post({ json: credentials });
+	const response = await api.deploy.$post({ json: request });
 	if (!response.ok) {
 		await throwApiError(response, 'Failed to deploy project');
 	}
 	return response.json();
+}
+
+/** URL that begins the Cloudflare OAuth connect flow (opened in a popup). */
+export const CLOUDFLARE_CONNECT_URL = '/api/cloudflare/oauth/connect';
+
+export async function getCloudflareConnection(): Promise<CloudflareConnectionStatus> {
+	const api = createCloudflareApiClient();
+	const response = await api.cloudflare.connection.$get({});
+	if (!response.ok) {
+		await throwApiError(response, 'Failed to check Cloudflare connection');
+	}
+	return response.json();
+}
+
+export async function listCloudflareAccounts(): Promise<CloudflareAccount[]> {
+	const api = createCloudflareApiClient();
+	const response = await api.cloudflare.accounts.$get({});
+	if (!response.ok) {
+		await throwApiError(response, 'Failed to list Cloudflare accounts');
+	}
+	const data = await response.json();
+	return data.accounts;
+}
+
+export async function disconnectCloudflare(): Promise<void> {
+	const api = createCloudflareApiClient();
+	const response = await api.cloudflare.disconnect.$post({});
+	if (!response.ok) {
+		await throwApiError(response, 'Failed to disconnect Cloudflare account');
+	}
 }
 
 export async function getDeployStatus(projectId: string, instanceId: string): Promise<DeployStatusResponse> {

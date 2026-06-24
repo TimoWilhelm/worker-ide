@@ -7,6 +7,7 @@ import { HttpErrorCode } from '@shared/http-errors';
 import { deployRequestSchema } from '@shared/validation';
 
 import * as schema from '../db/auth-schema';
+import { getConnection } from '../lib/cloudflare-oauth';
 import { httpError } from '../lib/http-error';
 import { readProjectName } from '../lib/protected-files';
 import { sanitizeWorkerName } from '../workflows/deploy-helpers';
@@ -59,7 +60,16 @@ function parseDeployResult(value: unknown): DeployResult | undefined {
 
 export const deployRoutes = new Hono<AppEnvironment>()
 	.post('/deploy', zValidator('json', deployRequestSchema), async (c) => {
-		const { accountId, apiToken, workerName } = c.req.valid('json');
+		const { accountId, workerName } = c.req.valid('json');
+		const userId = c.get('session').userId;
+
+		// Deployment now relies on the user's Cloudflare OAuth connection rather
+		// than a pasted API token. Reject early if they have not connected.
+		const connection = await getConnection({ DB: c.env.DB }, userId);
+		if (!connection) {
+			throw httpError(HttpErrorCode.VALIDATION_ERROR, 'Connect your Cloudflare account before deploying');
+		}
+
 		const database = drizzle(c.env.DB, { schema });
 		const projectRows = await database
 			.select({ organizationId: schema.project.organizationId })
@@ -76,12 +86,11 @@ export const deployRoutes = new Hono<AppEnvironment>()
 		const instanceId = crypto.randomUUID();
 		const parameters: DeployWorkflowParameters = {
 			accountId: accountId.trim(),
-			apiToken: apiToken.trim(),
 			workerName: sanitizedWorkerName,
 			projectId: c.get('projectId'),
 			projectRoot: c.get('projectRoot'),
 			organizationId,
-			userId: c.get('session').userId,
+			userId,
 			requestStartedAt: Date.now(),
 		};
 
