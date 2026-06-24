@@ -162,6 +162,17 @@ function biomeWasmNoopPlugin(): Plugin {
 	};
 }
 
+function justBashWorkerdPlugin(): Plugin {
+	return {
+		name: 'just-bash-workerd',
+		enforce: 'pre',
+		transform(code, id) {
+			if (!id.includes('node_modules/just-bash/dist/bundle/')) return;
+			return code.replaceAll('import.meta.url', JSON.stringify('file:///shell.js'));
+		},
+	};
+}
+
 const appManifest: Partial<ManifestOptions> = { ...appManifestMetadata };
 
 export default defineConfig({
@@ -169,6 +180,7 @@ export default defineConfig({
 		rawMinifiedPlugin(),
 		foucPreventionPlugin(),
 		biomeWasmNoopPlugin(),
+		justBashWorkerdPlugin(),
 		tailwindcss(),
 		react(),
 		cloudflare({
@@ -222,6 +234,11 @@ export default defineConfig({
 			'@server': path.resolve(__dirname, './worker'),
 			'@worker': path.resolve(__dirname, './worker'),
 			'esbuild-wasm': 'esbuild-wasm/lib/browser.js',
+			// Force just-bash's code-split ESM entry instead of its `browser` export
+			// (which the Workers build would otherwise pick). The browser build inlines
+			// every optional command and runs turndown's `require()` at module load,
+			// which is fatal in the Workers runtime; the main build keeps them lazy.
+			'just-bash': path.resolve(__dirname, 'node_modules/just-bash/dist/bundle/index.js'),
 		},
 	},
 	optimizeDeps: {

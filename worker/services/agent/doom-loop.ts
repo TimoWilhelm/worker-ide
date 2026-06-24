@@ -133,7 +133,7 @@ export function detectDoomLoop(messages: ModelMessage[], currentRunStartIndex = 
 						isDoomLoop: true,
 						reason: 'mutation_failure_loop',
 						message:
-							'Mutation tools (file_edit, file_write, etc.) have failed across multiple consecutive iterations. The agent was stopped to prevent wasting resources.',
+							'Mutation tools have failed across multiple consecutive iterations. The agent was stopped to prevent wasting resources.',
 					};
 				}
 				seenFailureThisIteration = false;

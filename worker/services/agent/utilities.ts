@@ -1,10 +1,5 @@
-import { BINARY_EXTENSIONS } from '@shared/constants';
 import { toolInputSchemas, type ToolName } from '@shared/validation';
 
-export function isBinaryFilePath(path: string): boolean {
-	const extension = path.match(/\.[^.]+$/)?.[0]?.toLowerCase() || '';
-	return BINARY_EXTENSIONS.has(extension);
-}
 export function isRecordObject(value: unknown): value is Record<string, unknown> {
 	return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -83,13 +78,6 @@ export function parseApiError(error: unknown): { message: string; code: string |
 
 	return { message: upstreamMessage || raw, code: undefined };
 }
-export function toUint8Array(buffer: Buffer | Uint8Array): Uint8Array {
-	if (buffer instanceof Uint8Array) {
-		return buffer;
-	}
-	return new Uint8Array(buffer);
-}
-
 /**
  * Compute the number of lines added and removed between two strings.
  * Returns { linesAdded, linesRemoved }.

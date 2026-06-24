@@ -6,8 +6,11 @@ import { generateProjectId } from '../lib/project-id';
 import { WorkspaceFsAdapter } from '../lib/workspace-fs-adapter';
 
 import type { GitAuthor, GitStatusResponse } from './git-service';
-import type { FileInfo, FileStat } from '@cloudflare/shell';
+import type { FileInfo, FileStat, WorkspaceChangeEvent } from '@cloudflare/shell';
 import type { GitBranchInfo, GitCommitEntry, GitFileDiff, GitMergeResult } from '@shared/types';
+
+/** Cap on buffered change events to avoid unbounded growth between drains. */
+const MAX_BUFFERED_CHANGES = 5000;
 
 interface SeedFile {
 	path: string;
@@ -24,6 +27,8 @@ interface SeedFile {
  */
 export class ProjectFilesystem extends DurableObject<Env> {
 	private workspaceInstance?: Workspace;
+	/** Workspace change events since the last drain (excludes `.git`). */
+	private changeBuffer: WorkspaceChangeEvent[] = [];
 
 	private get projectId(): string {
 		return generateProjectId(this.ctx.id);
@@ -35,8 +40,22 @@ export class ProjectFilesystem extends DurableObject<Env> {
 			r2: this.env.STORAGE_BUCKET,
 			r2Prefix: `workspace/${this.projectId}`,
 			name: () => this.projectId,
+			onChange: (event) => this.recordChange(event),
 		});
 		return this.workspaceInstance;
+	}
+
+	private recordChange(event: WorkspaceChangeEvent): void {
+		if (event.path.startsWith('/.git')) return;
+		if (this.changeBuffer.length >= MAX_BUFFERED_CHANGES) this.changeBuffer.shift();
+		this.changeBuffer.push(event);
+	}
+
+	/** Return and clear the buffered workspace change events. */
+	async drainWorkspaceChanges(): Promise<WorkspaceChangeEvent[]> {
+		const drained = this.changeBuffer;
+		this.changeBuffer = [];
+		return drained;
 	}
 
 	private git(): GitService {

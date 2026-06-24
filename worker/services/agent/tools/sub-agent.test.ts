@@ -19,8 +19,8 @@ describe('sub_agent', () => {
 				_organizationId?: string,
 			) => {
 				await callback.pushEvent(JSON.stringify({ type: 'text-delta', delta: 'Investigating...' }));
-				await callback.pushEvent(JSON.stringify({ type: 'tool-call-start', toolCallId: 'tc-1', toolName: 'file_read' }));
-				await callback.pushEvent(JSON.stringify({ type: 'tool-call-end', toolCallId: 'tc-1', toolName: 'file_read', result: 'ok' }));
+				await callback.pushEvent(JSON.stringify({ type: 'tool-call-start', toolCallId: 'tc-1', toolName: 'lint_check' }));
+				await callback.pushEvent(JSON.stringify({ type: 'tool-call-end', toolCallId: 'tc-1', toolName: 'lint_check', result: 'ok' }));
 				await callback.pushEvent(
 					JSON.stringify({
 						type: 'file-changed',

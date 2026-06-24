@@ -43,10 +43,10 @@ function createValidSnapshot(overrides?: Partial<FiberSnapshot>): FiberSnapshot 
 			},
 		},
 		toolMetadata: {
-			tool1: { toolCallId: 'tool1', toolName: 'file_edit', title: 'Edited file', metadata: { path: 'src/app.ts' } },
+			tool1: { toolCallId: 'tool1', toolName: 'lint_fix', title: 'Edited file', metadata: { path: 'src/app.ts' } },
 		},
 		toolErrors: {
-			tool2: { toolCallId: 'tool2', toolName: 'file_read', errorCode: 'not_found', errorMessage: 'missing' },
+			tool2: { toolCallId: 'tool2', toolName: 'lint_check', errorCode: 'not_found', errorMessage: 'missing' },
 		},
 		contextTokensUsed: 42,
 		snapshotId: 'snapshot-1',

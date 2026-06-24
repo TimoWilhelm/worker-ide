@@ -43,23 +43,6 @@ export type MoveFileInput = z.infer<typeof moveFileSchema>;
 
 export const aiModelSchema = z.enum(AI_MODEL_IDS_TUPLE);
 export type AllowedAIModel = z.infer<typeof aiModelSchema>;
-export const listFilesInputSchema = z.object({});
-export const readFileInputSchema = z.object({
-	file_path: filePathSchema,
-	offset: z.coerce.number().int().min(1).optional(),
-	limit: z.coerce.number().int().min(1).optional(),
-});
-export const writeFileInputSchema = z.object({
-	file_path: filePathSchema,
-	content: z.string(),
-});
-export const deleteFileInputSchema = z.object({
-	file_path: filePathSchema,
-});
-export const moveFileInputSchema = z.object({
-	from_path: filePathSchema,
-	to_path: filePathSchema,
-});
 export const searchCloudflareDocumentationInputSchema = z.object({
 	query: z.string().min(1, 'Query is required'),
 });
@@ -75,38 +58,6 @@ export const updatePlanInputSchema = z.object({
 export const getTodosInputSchema = z.object({});
 export const updateTodosInputSchema = z.object({
 	todos: z.array(todoItemSchema),
-});
-export const editInputSchema = z.object({
-	file_path: filePathSchema,
-	old_string: z.string().min(1, 'old_string is required'),
-	new_string: z.string(),
-	replace_all: z.string().optional(),
-});
-export const multiEditInputSchema = z.object({
-	file_path: filePathSchema,
-	edits: z.union([
-		z.array(
-			z.object({
-				old_string: z.string().min(1, 'old_string is required'),
-				new_string: z.string(),
-				replace_all: z.boolean().optional(),
-			}),
-		),
-		z.string().min(1, 'edits JSON array is required'),
-	]),
-});
-export const grepInputSchema = z.object({
-	pattern: z.string().min(1, 'Pattern is required'),
-	path: z.string().optional(),
-	include: z.string().optional(),
-});
-export const globInputSchema = z.object({
-	pattern: z.string().min(1, 'Pattern is required'),
-	path: z.string().optional(),
-});
-export const listInputSchema = z.object({
-	path: z.string().optional(),
-	pattern: z.string().optional(),
 });
 export const questionInputSchema = z.object({
 	question: z.string().min(1, 'Question is required'),
@@ -163,7 +114,7 @@ export const subAgentInputSchema = z.object({
 	context: z.string().optional(),
 });
 
-export const executeInputSchema = z.object({
+export const codemodeInputSchema = z.object({
 	code: z.string().min(1, 'Code is required'),
 });
 
@@ -207,18 +158,12 @@ export const loadExtensionInputSchema = z.object({
 });
 
 export const listExtensionsInputSchema = z.object({});
-export const toolInputSchemas = {
-	file_edit: editInputSchema,
-	file_multiedit: multiEditInputSchema,
-	file_write: writeFileInputSchema,
-	file_read: readFileInputSchema,
-	file_grep: grepInputSchema,
-	file_glob: globInputSchema,
-	file_list: listInputSchema,
-	files_list: listFilesInputSchema,
 
-	file_delete: deleteFileInputSchema,
-	file_move: moveFileInputSchema,
+export const bashInputSchema = z.object({
+	command: z.string().min(1, 'Command is required'),
+});
+
+export const toolInputSchemas = {
 	user_question: questionInputSchema,
 	web_fetch: webfetchInputSchema,
 	docs_search: searchCloudflareDocumentationInputSchema,
@@ -238,7 +183,8 @@ export const toolInputSchemas = {
 	test_run: testRunInputSchema,
 	image_generate: imageGenerateInputSchema,
 	sub_agent: subAgentInputSchema,
-	execute: executeInputSchema,
+	bash: bashInputSchema,
+	codemode: codemodeInputSchema,
 	browser_execute: browserExecuteInputSchema,
 	browser_markdown: browserMarkdownInputSchema,
 	browser_extract: browserExtractInputSchema,

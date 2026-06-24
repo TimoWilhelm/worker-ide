@@ -6,8 +6,6 @@ import { coordinatorNamespace } from '@worker/lib/durable-object-namespaces';
 import { isHiddenPath, isPathSafe } from '@worker/lib/path-utilities';
 import { fs } from '@worker/lib/project-fs';
 
-import { recordFileRead } from '../file-time';
-
 import type { FileChange, SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
 
 const IMAGE_WIDTH = 1024;
@@ -45,7 +43,7 @@ export async function execute(
 	context: ToolExecutorContext,
 	queryChanges?: FileChange[],
 ): Promise<ToolResult> {
-	const { projectRoot, projectId, sessionId } = context;
+	const { projectRoot, projectId } = context;
 	const { prompt, file_path: imagePath } = input;
 
 	// Validate path
@@ -144,11 +142,6 @@ export async function execute(
 
 	// Write the image file
 	await fs.writeFile(`${projectRoot}${imagePath}`, imageBytes);
-
-	// Record as read for subsequent operations
-	if (sessionId) {
-		await recordFileRead(projectRoot, sessionId, imagePath);
-	}
 
 	// Track file change for snapshots
 	if (queryChanges) {

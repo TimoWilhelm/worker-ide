@@ -178,7 +178,7 @@ function buildExternalChangesPrompt(changes: ExternalChange[]): string | undefin
 	if (fileEdits.length > 0) {
 		promptLines.push(
 			`- File edits: ${fileEdits.map((change) => change.path).join(', ')}`,
-			'- If any of these files are relevant to your task, re-read them with file_read before making further changes.',
+			'- If any of these files are relevant to your task, re-read them with `state.readFile` before making further changes.',
 		);
 	}
 	if (wranglerSettingsChanges.length > 0) {
@@ -879,7 +879,7 @@ export class AgentService {
 						previousIterationHadMutationFailure = true;
 						workingMessages.push({
 							role: 'user',
-							content: `${MUTATION_FAILURE_TAG} SYSTEM: One or more mutation tools FAILED this turn. Before retrying, you MUST file_read the target file(s) to see their ACTUAL current content.`,
+							content: `${MUTATION_FAILURE_TAG} SYSTEM: One or more mutation tools FAILED this turn. Before retrying, you MUST re-read the target file(s) with \`state.readFile\` to see their ACTUAL current content.`,
 						});
 					}
 

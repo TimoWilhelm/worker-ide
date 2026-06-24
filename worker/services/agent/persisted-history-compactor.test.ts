@@ -42,7 +42,7 @@ describe('compactHistoryForPersistence', () => {
 					{
 						type: 'tool-call',
 						toolCallId: 'tool-2',
-						toolName: 'file_write',
+						toolName: 'lint_fix',
 						arguments: { path: 'src/app.ts', content: 'x'.repeat(20_000) },
 					},
 				],
@@ -56,7 +56,7 @@ describe('compactHistoryForPersistence', () => {
 		if (toolCall?.type === 'tool-call') {
 			expect(toolCall.arguments).toMatchObject({
 				__truncated: true,
-				toolName: 'file_write',
+				toolName: 'lint_fix',
 				path: 'src/app.ts',
 			});
 		}

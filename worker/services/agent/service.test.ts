@@ -306,8 +306,8 @@ describe('AgentService', () => {
 					return {
 						fullStream: {
 							async *[Symbol.asyncIterator]() {
-								yield { type: 'tool-call', toolCallId: 'tc-1', toolName: 'file_read', input: { path: '/project/index.ts' } };
-								yield { type: 'tool-result', toolCallId: 'tc-1', toolName: 'file_read', output: 'file content' };
+								yield { type: 'tool-call', toolCallId: 'tc-1', toolName: 'lint_check', input: { path: '/project/index.ts' } };
+								yield { type: 'tool-result', toolCallId: 'tc-1', toolName: 'lint_check', output: 'file content' };
 								yield { type: 'finish-step', finishReason: 'tool-calls', usage: { inputTokens: 100, outputTokens: 20 } };
 								yield { type: 'finish', finishReason: 'tool-calls' };
 							},
@@ -316,12 +316,12 @@ describe('AgentService', () => {
 							messages: [
 								{
 									role: 'assistant',
-									content: [{ type: 'tool-call', toolCallId: 'tc-1', toolName: 'file_read', input: { path: '/project/index.ts' } }],
+									content: [{ type: 'tool-call', toolCallId: 'tc-1', toolName: 'lint_check', input: { path: '/project/index.ts' } }],
 								},
 								{
 									role: 'tool',
 									content: [
-										{ type: 'tool-result', toolCallId: 'tc-1', toolName: 'file_read', output: { type: 'text', value: 'file content' } },
+										{ type: 'tool-result', toolCallId: 'tc-1', toolName: 'lint_check', output: { type: 'text', value: 'file content' } },
 									],
 								},
 							],
@@ -385,8 +385,8 @@ describe('AgentService', () => {
 					return {
 						fullStream: {
 							async *[Symbol.asyncIterator]() {
-								yield { type: 'tool-call', toolCallId: 'tc-1', toolName: 'file_read', input: { path: '/project/index.ts' } };
-								yield { type: 'tool-result', toolCallId: 'tc-1', toolName: 'file_read', output: 'file content' };
+								yield { type: 'tool-call', toolCallId: 'tc-1', toolName: 'lint_check', input: { path: '/project/index.ts' } };
+								yield { type: 'tool-result', toolCallId: 'tc-1', toolName: 'lint_check', output: 'file content' };
 								yield { type: 'finish-step', finishReason: 'tool-calls', usage: { inputTokens: 100, outputTokens: 20 } };
 								yield { type: 'finish', finishReason: 'tool-calls' };
 							},
@@ -395,12 +395,12 @@ describe('AgentService', () => {
 							messages: [
 								{
 									role: 'assistant',
-									content: [{ type: 'tool-call', toolCallId: 'tc-1', toolName: 'file_read', input: { path: '/project/index.ts' } }],
+									content: [{ type: 'tool-call', toolCallId: 'tc-1', toolName: 'lint_check', input: { path: '/project/index.ts' } }],
 								},
 								{
 									role: 'tool',
 									content: [
-										{ type: 'tool-result', toolCallId: 'tc-1', toolName: 'file_read', output: { type: 'text', value: 'file content' } },
+										{ type: 'tool-result', toolCallId: 'tc-1', toolName: 'lint_check', output: { type: 'text', value: 'file content' } },
 									],
 								},
 							],
@@ -459,8 +459,8 @@ describe('AgentService', () => {
 					return {
 						fullStream: {
 							async *[Symbol.asyncIterator]() {
-								yield { type: 'tool-call', toolCallId: 'tc-1', toolName: 'file_read', input: { path: '/project/index.ts' } };
-								yield { type: 'tool-result', toolCallId: 'tc-1', toolName: 'file_read', output: 'file content' };
+								yield { type: 'tool-call', toolCallId: 'tc-1', toolName: 'lint_check', input: { path: '/project/index.ts' } };
+								yield { type: 'tool-result', toolCallId: 'tc-1', toolName: 'lint_check', output: 'file content' };
 								yield { type: 'finish-step', finishReason: 'tool-calls', usage: { inputTokens: 100, outputTokens: 20 } };
 								yield { type: 'finish', finishReason: 'tool-calls' };
 							},
@@ -469,12 +469,12 @@ describe('AgentService', () => {
 							messages: [
 								{
 									role: 'assistant',
-									content: [{ type: 'tool-call', toolCallId: 'tc-1', toolName: 'file_read', input: { path: '/project/index.ts' } }],
+									content: [{ type: 'tool-call', toolCallId: 'tc-1', toolName: 'lint_check', input: { path: '/project/index.ts' } }],
 								},
 								{
 									role: 'tool',
 									content: [
-										{ type: 'tool-result', toolCallId: 'tc-1', toolName: 'file_read', output: { type: 'text', value: 'file content' } },
+										{ type: 'tool-result', toolCallId: 'tc-1', toolName: 'lint_check', output: { type: 'text', value: 'file content' } },
 									],
 								},
 							],
@@ -748,22 +748,22 @@ describe('AgentService', () => {
 					return {
 						fullStream: {
 							async *[Symbol.asyncIterator]() {
-								yield { type: 'tool-call', toolCallId: 'tc-1', toolName: 'files_list', input: {} };
-								yield { type: 'tool-result', toolCallId: 'tc-1', toolName: 'files_list', output: 'files' };
+								yield { type: 'tool-call', toolCallId: 'tc-1', toolName: 'docs_search', input: {} };
+								yield { type: 'tool-result', toolCallId: 'tc-1', toolName: 'docs_search', output: 'files' };
 								yield { type: 'finish-step', finishReason: 'tool-calls', usage: { inputTokens: 100, outputTokens: 10 } };
 								yield { type: 'finish', finishReason: 'tool-calls' };
 							},
 						},
 						response: Promise.resolve({
 							messages: [
-								{ role: 'assistant', content: [{ type: 'tool-call', toolCallId: 'tc-1', toolName: 'files_list', input: {} }] },
+								{ role: 'assistant', content: [{ type: 'tool-call', toolCallId: 'tc-1', toolName: 'docs_search', input: {} }] },
 								{
 									role: 'tool',
 									content: [
 										{
 											type: 'tool-result',
 											toolCallId: 'tc-1',
-											toolName: 'files_list',
+											toolName: 'docs_search',
 											output: { type: 'text', value: 'files' },
 										},
 									],

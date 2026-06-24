@@ -4,6 +4,12 @@ import { detectDoomLoop, MUTATION_FAILURE_TAG } from './doom-loop';
 
 import type { ModelMessage } from 'ai';
 
+// The doom-loop detector matches tool calls purely by name+args string identity,
+// so these fixtures only need real, distinct tool names with the right intent.
+const READ_TOOL = 'lint_check'; // a read-only tool
+const EDIT_TOOL = 'lint_fix'; // a mutating tool
+const WRITE_TOOL = 'bash'; // a second, distinct mutating tool
+
 let toolCallCounter = 0;
 function makeToolCallParts(calls: Array<{ name: string; arguments: Record<string, unknown> }>) {
 	return calls.map((c) => ({
@@ -61,92 +67,92 @@ function buildIteration(
 describe('identical_calls detection', () => {
 	it('returns no doom loop when fewer than 3 identical calls', () => {
 		const messages: ModelMessage[] = [
-			...buildIteration([{ name: 'file_read', arguments: { path: '/a.txt' } }]),
-			...buildIteration([{ name: 'file_read', arguments: { path: '/a.txt' } }]),
+			...buildIteration([{ name: READ_TOOL, arguments: { path: '/a.txt' } }]),
+			...buildIteration([{ name: READ_TOOL, arguments: { path: '/a.txt' } }]),
 		];
 		expect(detectDoomLoop(messages).isDoomLoop).toBe(false);
 	});
 
 	it('detects 3 identical consecutive tool calls', () => {
 		const messages: ModelMessage[] = [
-			...buildIteration([{ name: 'file_read', arguments: { path: '/a.txt' } }]),
-			...buildIteration([{ name: 'file_read', arguments: { path: '/a.txt' } }]),
-			...buildIteration([{ name: 'file_read', arguments: { path: '/a.txt' } }]),
+			...buildIteration([{ name: READ_TOOL, arguments: { path: '/a.txt' } }]),
+			...buildIteration([{ name: READ_TOOL, arguments: { path: '/a.txt' } }]),
+			...buildIteration([{ name: READ_TOOL, arguments: { path: '/a.txt' } }]),
 		];
 		const result = detectDoomLoop(messages);
 		expect(result.isDoomLoop).toBe(true);
 		expect(result.reason).toBe('identical_calls');
-		expect(result.toolName).toBe('file_read');
+		expect(result.toolName).toBe(READ_TOOL);
 	});
 
 	it('does not trigger for same tool with different inputs', () => {
 		const messages: ModelMessage[] = [
-			...buildIteration([{ name: 'file_read', arguments: { path: '/a.txt' } }]),
-			...buildIteration([{ name: 'file_read', arguments: { path: '/b.txt' } }]),
-			...buildIteration([{ name: 'file_read', arguments: { path: '/c.txt' } }]),
+			...buildIteration([{ name: READ_TOOL, arguments: { path: '/a.txt' } }]),
+			...buildIteration([{ name: READ_TOOL, arguments: { path: '/b.txt' } }]),
+			...buildIteration([{ name: READ_TOOL, arguments: { path: '/c.txt' } }]),
 		];
 		expect(detectDoomLoop(messages).isDoomLoop).toBe(false);
 	});
 
 	it('does not trigger for different tool names', () => {
 		const messages: ModelMessage[] = [
-			...buildIteration([{ name: 'file_read', arguments: { path: '/a.txt' } }]),
-			...buildIteration([{ name: 'file_write', arguments: { path: '/a.txt' } }]),
-			...buildIteration([{ name: 'file_read', arguments: { path: '/a.txt' } }]),
+			...buildIteration([{ name: READ_TOOL, arguments: { path: '/a.txt' } }]),
+			...buildIteration([{ name: WRITE_TOOL, arguments: { path: '/a.txt' } }]),
+			...buildIteration([{ name: READ_TOOL, arguments: { path: '/a.txt' } }]),
 		];
 		expect(detectDoomLoop(messages).isDoomLoop).toBe(false);
 	});
 
 	it('detects identical calls after many non-identical ones', () => {
 		const messages: ModelMessage[] = [
-			...buildIteration([{ name: 'file_read', arguments: { path: '/a.txt' } }]),
-			...buildIteration([{ name: 'file_write', arguments: { path: '/b.txt' } }]),
-			...buildIteration([{ name: 'file_delete', arguments: { path: '/c.txt' } }]),
-			...buildIteration([{ name: 'file_edit', arguments: { path: '/x.txt', old_string: 'a', new_string: 'b' } }]),
-			...buildIteration([{ name: 'file_edit', arguments: { path: '/x.txt', old_string: 'a', new_string: 'b' } }]),
-			...buildIteration([{ name: 'file_edit', arguments: { path: '/x.txt', old_string: 'a', new_string: 'b' } }]),
+			...buildIteration([{ name: READ_TOOL, arguments: { path: '/a.txt' } }]),
+			...buildIteration([{ name: WRITE_TOOL, arguments: { path: '/b.txt' } }]),
+			...buildIteration([{ name: EDIT_TOOL, arguments: { path: '/c.txt' } }]),
+			...buildIteration([{ name: EDIT_TOOL, arguments: { path: '/x.txt', old_string: 'a', new_string: 'b' } }]),
+			...buildIteration([{ name: EDIT_TOOL, arguments: { path: '/x.txt', old_string: 'a', new_string: 'b' } }]),
+			...buildIteration([{ name: EDIT_TOOL, arguments: { path: '/x.txt', old_string: 'a', new_string: 'b' } }]),
 		];
 		const result = detectDoomLoop(messages);
 		expect(result.isDoomLoop).toBe(true);
 		expect(result.reason).toBe('identical_calls');
-		expect(result.toolName).toBe('file_edit');
+		expect(result.toolName).toBe(EDIT_TOOL);
 	});
 
 	it('detects identical calls across multi-tool iterations', () => {
 		// Each iteration has 2 tool calls; the last 3 calls across iterations are identical
 		const messages: ModelMessage[] = [
 			...buildIteration([
-				{ name: 'file_read', arguments: { path: '/a.txt' } },
-				{ name: 'file_edit', arguments: { path: '/x.txt' } },
+				{ name: READ_TOOL, arguments: { path: '/a.txt' } },
+				{ name: EDIT_TOOL, arguments: { path: '/x.txt' } },
 			]),
-			...buildIteration([{ name: 'file_edit', arguments: { path: '/x.txt' } }]),
-			...buildIteration([{ name: 'file_edit', arguments: { path: '/x.txt' } }]),
+			...buildIteration([{ name: EDIT_TOOL, arguments: { path: '/x.txt' } }]),
+			...buildIteration([{ name: EDIT_TOOL, arguments: { path: '/x.txt' } }]),
 		];
 		const result = detectDoomLoop(messages);
 		expect(result.isDoomLoop).toBe(true);
 		expect(result.reason).toBe('identical_calls');
-		expect(result.toolName).toBe('file_edit');
+		expect(result.toolName).toBe(EDIT_TOOL);
 	});
 
 	it('does NOT trigger for same mutation tool with different files (legitimate work)', () => {
 		// Editing 5 different files in a row is normal behavior, not a doom loop
 		const messages: ModelMessage[] = [
-			...buildIteration([{ name: 'file_edit', arguments: { path: '/a.txt' } }]),
-			...buildIteration([{ name: 'file_edit', arguments: { path: '/b.txt' } }]),
-			...buildIteration([{ name: 'file_edit', arguments: { path: '/c.txt' } }]),
-			...buildIteration([{ name: 'file_edit', arguments: { path: '/d.txt' } }]),
-			...buildIteration([{ name: 'file_edit', arguments: { path: '/e.txt' } }]),
+			...buildIteration([{ name: EDIT_TOOL, arguments: { path: '/a.txt' } }]),
+			...buildIteration([{ name: EDIT_TOOL, arguments: { path: '/b.txt' } }]),
+			...buildIteration([{ name: EDIT_TOOL, arguments: { path: '/c.txt' } }]),
+			...buildIteration([{ name: EDIT_TOOL, arguments: { path: '/d.txt' } }]),
+			...buildIteration([{ name: EDIT_TOOL, arguments: { path: '/e.txt' } }]),
 		];
 		expect(detectDoomLoop(messages).isDoomLoop).toBe(false);
 	});
 
 	it('does NOT trigger for same read-only tool called many times with different inputs', () => {
 		const messages: ModelMessage[] = [
-			...buildIteration([{ name: 'file_read', arguments: { path: '/a.txt' } }]),
-			...buildIteration([{ name: 'file_read', arguments: { path: '/b.txt' } }]),
-			...buildIteration([{ name: 'file_read', arguments: { path: '/c.txt' } }]),
-			...buildIteration([{ name: 'file_read', arguments: { path: '/d.txt' } }]),
-			...buildIteration([{ name: 'file_read', arguments: { path: '/e.txt' } }]),
+			...buildIteration([{ name: READ_TOOL, arguments: { path: '/a.txt' } }]),
+			...buildIteration([{ name: READ_TOOL, arguments: { path: '/b.txt' } }]),
+			...buildIteration([{ name: READ_TOOL, arguments: { path: '/c.txt' } }]),
+			...buildIteration([{ name: READ_TOOL, arguments: { path: '/d.txt' } }]),
+			...buildIteration([{ name: READ_TOOL, arguments: { path: '/e.txt' } }]),
 		];
 		expect(detectDoomLoop(messages).isDoomLoop).toBe(false);
 	});
@@ -154,14 +160,14 @@ describe('identical_calls detection', () => {
 
 describe('mutation_failure_loop detection', () => {
 	it('returns no doom loop when only 1 iteration has a mutation failure', () => {
-		const messages: ModelMessage[] = [...buildIteration([{ name: 'file_edit', arguments: { path: '/a.txt' } }], { mutationFailure: true })];
+		const messages: ModelMessage[] = [...buildIteration([{ name: EDIT_TOOL, arguments: { path: '/a.txt' } }], { mutationFailure: true })];
 		expect(detectDoomLoop(messages).isDoomLoop).toBe(false);
 	});
 
 	it('detects 2 consecutive iterations with mutation failures', () => {
 		const messages: ModelMessage[] = [
-			...buildIteration([{ name: 'file_edit', arguments: { path: '/a.txt' } }], { mutationFailure: true }),
-			...buildIteration([{ name: 'file_edit', arguments: { path: '/b.txt' } }], { mutationFailure: true }),
+			...buildIteration([{ name: EDIT_TOOL, arguments: { path: '/a.txt' } }], { mutationFailure: true }),
+			...buildIteration([{ name: EDIT_TOOL, arguments: { path: '/b.txt' } }], { mutationFailure: true }),
 		];
 		const result = detectDoomLoop(messages);
 		expect(result.isDoomLoop).toBe(true);
@@ -170,17 +176,17 @@ describe('mutation_failure_loop detection', () => {
 
 	it('does not trigger when an iteration had no mutation failure', () => {
 		const messages: ModelMessage[] = [
-			...buildIteration([{ name: 'file_edit', arguments: { path: '/a.txt' } }], { mutationFailure: true }),
-			...buildIteration([{ name: 'file_edit', arguments: { path: '/b.txt' } }]),
+			...buildIteration([{ name: EDIT_TOOL, arguments: { path: '/a.txt' } }], { mutationFailure: true }),
+			...buildIteration([{ name: EDIT_TOOL, arguments: { path: '/b.txt' } }]),
 		];
 		expect(detectDoomLoop(messages).isDoomLoop).toBe(false);
 	});
 
 	it('detects mutation failure loop after an initial successful iteration', () => {
 		const messages: ModelMessage[] = [
-			...buildIteration([{ name: 'file_edit', arguments: { path: '/a.txt' } }]),
-			...buildIteration([{ name: 'file_edit', arguments: { path: '/b.txt' } }], { mutationFailure: true }),
-			...buildIteration([{ name: 'file_edit', arguments: { path: '/c.txt' } }], { mutationFailure: true }),
+			...buildIteration([{ name: EDIT_TOOL, arguments: { path: '/a.txt' } }]),
+			...buildIteration([{ name: EDIT_TOOL, arguments: { path: '/b.txt' } }], { mutationFailure: true }),
+			...buildIteration([{ name: EDIT_TOOL, arguments: { path: '/c.txt' } }], { mutationFailure: true }),
 		];
 		const result = detectDoomLoop(messages);
 		expect(result.isDoomLoop).toBe(true);
@@ -189,11 +195,11 @@ describe('mutation_failure_loop detection', () => {
 
 	it('does not trigger on user messages without the mutation failure tag', () => {
 		const messages: ModelMessage[] = [
-			assistantWithTools({ name: 'file_edit', arguments: { path: '/a.txt' } }),
-			toolResult('tc_prev', 'file_edit', 'ok'),
+			assistantWithTools({ name: EDIT_TOOL, arguments: { path: '/a.txt' } }),
+			toolResult('tc_prev', EDIT_TOOL, 'ok'),
 			userMessage('Please fix the bug'),
-			assistantWithTools({ name: 'file_edit', arguments: { path: '/b.txt' } }),
-			toolResult('tc_prev2', 'file_edit', 'ok'),
+			assistantWithTools({ name: EDIT_TOOL, arguments: { path: '/b.txt' } }),
+			toolResult('tc_prev2', EDIT_TOOL, 'ok'),
 			userMessage('Try again'),
 		];
 		expect(detectDoomLoop(messages).isDoomLoop).toBe(false);
@@ -205,15 +211,15 @@ describe('mutation_failure_loop detection', () => {
 		const messages: ModelMessage[] = [
 			...buildIteration(
 				[
-					{ name: 'file_read', arguments: { path: '/src/app.tsx' } },
-					{ name: 'file_write', arguments: { path: '/src/app.tsx' } },
+					{ name: READ_TOOL, arguments: { path: '/src/app.tsx' } },
+					{ name: WRITE_TOOL, arguments: { path: '/src/app.tsx' } },
 				],
 				{ mutationFailure: true },
 			),
 			...buildIteration(
 				[
-					{ name: 'file_read', arguments: { path: '/src/app.tsx' } },
-					{ name: 'file_write', arguments: { path: '/src/app.tsx' } },
+					{ name: READ_TOOL, arguments: { path: '/src/app.tsx' } },
+					{ name: WRITE_TOOL, arguments: { path: '/src/app.tsx' } },
 				],
 				{ mutationFailure: true },
 			),
@@ -227,9 +233,9 @@ describe('mutation_failure_loop detection', () => {
 describe('combined detection', () => {
 	it('identical_calls takes priority over mutation_failure_loop', () => {
 		const messages: ModelMessage[] = [
-			...buildIteration([{ name: 'file_edit', arguments: { path: '/a.txt' } }], { mutationFailure: true }),
-			...buildIteration([{ name: 'file_edit', arguments: { path: '/a.txt' } }], { mutationFailure: true }),
-			...buildIteration([{ name: 'file_edit', arguments: { path: '/a.txt' } }], { mutationFailure: true }),
+			...buildIteration([{ name: EDIT_TOOL, arguments: { path: '/a.txt' } }], { mutationFailure: true }),
+			...buildIteration([{ name: EDIT_TOOL, arguments: { path: '/a.txt' } }], { mutationFailure: true }),
+			...buildIteration([{ name: EDIT_TOOL, arguments: { path: '/a.txt' } }], { mutationFailure: true }),
 		];
 		const result = detectDoomLoop(messages);
 		// identical_calls is checked first
@@ -261,11 +267,11 @@ describe('combined detection', () => {
 
 describe('currentRunStartIndex', () => {
 	it('ignores identical tool calls from prior turns when startIndex is set', () => {
-		// Simulate prior turn: 3 identical file_read calls (would normally trigger)
+		// Simulate prior turn: 3 identical read calls (would normally trigger)
 		const priorTurnMessages: ModelMessage[] = [
-			...buildIteration([{ name: 'file_read', arguments: { path: '/a.txt' } }]),
-			...buildIteration([{ name: 'file_read', arguments: { path: '/a.txt' } }]),
-			...buildIteration([{ name: 'file_read', arguments: { path: '/a.txt' } }]),
+			...buildIteration([{ name: READ_TOOL, arguments: { path: '/a.txt' } }]),
+			...buildIteration([{ name: READ_TOOL, arguments: { path: '/a.txt' } }]),
+			...buildIteration([{ name: READ_TOOL, arguments: { path: '/a.txt' } }]),
 		];
 		// Current turn: assistant replies with no tool calls
 		const currentTurnMessages: ModelMessage[] = [{ role: 'assistant', content: 'Here is what the file contains...' }];
@@ -281,29 +287,29 @@ describe('currentRunStartIndex', () => {
 
 	it('detects identical calls within the current run even with prior history', () => {
 		// Prior turn: different tool calls
-		const priorTurnMessages: ModelMessage[] = [...buildIteration([{ name: 'file_read', arguments: { path: '/a.txt' } }])];
+		const priorTurnMessages: ModelMessage[] = [...buildIteration([{ name: READ_TOOL, arguments: { path: '/a.txt' } }])];
 		// Current turn: 3 identical calls (should trigger)
 		const currentTurnMessages: ModelMessage[] = [
-			...buildIteration([{ name: 'file_read', arguments: { path: '/b.txt' } }]),
-			...buildIteration([{ name: 'file_read', arguments: { path: '/b.txt' } }]),
-			...buildIteration([{ name: 'file_read', arguments: { path: '/b.txt' } }]),
+			...buildIteration([{ name: READ_TOOL, arguments: { path: '/b.txt' } }]),
+			...buildIteration([{ name: READ_TOOL, arguments: { path: '/b.txt' } }]),
+			...buildIteration([{ name: READ_TOOL, arguments: { path: '/b.txt' } }]),
 		];
 
 		const allMessages = [...priorTurnMessages, ...currentTurnMessages];
 		const result = detectDoomLoop(allMessages, priorTurnMessages.length);
 		expect(result.isDoomLoop).toBe(true);
 		expect(result.reason).toBe('identical_calls');
-		expect(result.toolName).toBe('file_read');
+		expect(result.toolName).toBe(READ_TOOL);
 	});
 
 	it('does not trigger when prior + current calls total 3 but current has fewer', () => {
 		// Prior turn: 2 identical calls
 		const priorTurnMessages: ModelMessage[] = [
-			...buildIteration([{ name: 'file_read', arguments: { path: '/a.txt' } }]),
-			...buildIteration([{ name: 'file_read', arguments: { path: '/a.txt' } }]),
+			...buildIteration([{ name: READ_TOOL, arguments: { path: '/a.txt' } }]),
+			...buildIteration([{ name: READ_TOOL, arguments: { path: '/a.txt' } }]),
 		];
 		// Current turn: 1 identical call (total 3 across turns, but only 1 in current)
-		const currentTurnMessages: ModelMessage[] = [...buildIteration([{ name: 'file_read', arguments: { path: '/a.txt' } }])];
+		const currentTurnMessages: ModelMessage[] = [...buildIteration([{ name: READ_TOOL, arguments: { path: '/a.txt' } }])];
 
 		const allMessages = [...priorTurnMessages, ...currentTurnMessages];
 
@@ -316,11 +322,11 @@ describe('currentRunStartIndex', () => {
 
 	it('still detects mutation failure loop across current run iterations', () => {
 		// Prior turn: successful
-		const priorTurnMessages: ModelMessage[] = [...buildIteration([{ name: 'file_edit', arguments: { path: '/a.txt' } }])];
+		const priorTurnMessages: ModelMessage[] = [...buildIteration([{ name: EDIT_TOOL, arguments: { path: '/a.txt' } }])];
 		// Current turn: 2 consecutive mutation failures
 		const currentTurnMessages: ModelMessage[] = [
-			...buildIteration([{ name: 'file_edit', arguments: { path: '/b.txt' } }], { mutationFailure: true }),
-			...buildIteration([{ name: 'file_edit', arguments: { path: '/c.txt' } }], { mutationFailure: true }),
+			...buildIteration([{ name: EDIT_TOOL, arguments: { path: '/b.txt' } }], { mutationFailure: true }),
+			...buildIteration([{ name: EDIT_TOOL, arguments: { path: '/c.txt' } }], { mutationFailure: true }),
 		];
 
 		const allMessages = [...priorTurnMessages, ...currentTurnMessages];
@@ -333,18 +339,18 @@ describe('currentRunStartIndex', () => {
 
 	it('handles startIndex at 0 (same as no argument)', () => {
 		const messages: ModelMessage[] = [
-			...buildIteration([{ name: 'file_read', arguments: { path: '/a.txt' } }]),
-			...buildIteration([{ name: 'file_read', arguments: { path: '/a.txt' } }]),
-			...buildIteration([{ name: 'file_read', arguments: { path: '/a.txt' } }]),
+			...buildIteration([{ name: READ_TOOL, arguments: { path: '/a.txt' } }]),
+			...buildIteration([{ name: READ_TOOL, arguments: { path: '/a.txt' } }]),
+			...buildIteration([{ name: READ_TOOL, arguments: { path: '/a.txt' } }]),
 		];
 		expect(detectDoomLoop(messages, 0).isDoomLoop).toBe(true);
 	});
 
 	it('handles startIndex beyond message length gracefully', () => {
 		const messages: ModelMessage[] = [
-			...buildIteration([{ name: 'file_read', arguments: { path: '/a.txt' } }]),
-			...buildIteration([{ name: 'file_read', arguments: { path: '/a.txt' } }]),
-			...buildIteration([{ name: 'file_read', arguments: { path: '/a.txt' } }]),
+			...buildIteration([{ name: READ_TOOL, arguments: { path: '/a.txt' } }]),
+			...buildIteration([{ name: READ_TOOL, arguments: { path: '/a.txt' } }]),
+			...buildIteration([{ name: READ_TOOL, arguments: { path: '/a.txt' } }]),
 		];
 		// startIndex beyond messages — no tool calls to analyze
 		expect(detectDoomLoop(messages, messages.length + 10).isDoomLoop).toBe(false);
@@ -354,9 +360,9 @@ describe('currentRunStartIndex', () => {
 		// This is the exact scenario from the bug report: prior turn had tool calls
 		// with empty arguments (non-streaming adapter), and current turn has none.
 		const priorTurnMessages: ModelMessage[] = [
-			...buildIteration([{ name: 'file_read', arguments: {} }]),
-			...buildIteration([{ name: 'file_read', arguments: {} }]),
-			...buildIteration([{ name: 'file_read', arguments: {} }]),
+			...buildIteration([{ name: READ_TOOL, arguments: {} }]),
+			...buildIteration([{ name: READ_TOOL, arguments: {} }]),
+			...buildIteration([{ name: READ_TOOL, arguments: {} }]),
 		];
 		const currentTurnMessages: ModelMessage[] = [{ role: 'assistant', content: 'Here is the answer.' }];
 
@@ -388,47 +394,47 @@ function buildErrorIteration(
 describe('repeated_error_pattern detection', () => {
 	it('detects 3 consecutive same-tool same-error-code results with different arguments', () => {
 		const messages: ModelMessage[] = [
-			...buildErrorIteration({ name: 'file_edit', arguments: { path: '/a.txt' } }, 'INVALID_PATH', 'bad path /a.txt'),
-			...buildErrorIteration({ name: 'file_edit', arguments: { path: '/b.txt' } }, 'INVALID_PATH', 'bad path /b.txt'),
-			...buildErrorIteration({ name: 'file_edit', arguments: { path: '/c.txt' } }, 'INVALID_PATH', 'bad path /c.txt'),
+			...buildErrorIteration({ name: EDIT_TOOL, arguments: { path: '/a.txt' } }, 'INVALID_PATH', 'bad path /a.txt'),
+			...buildErrorIteration({ name: EDIT_TOOL, arguments: { path: '/b.txt' } }, 'INVALID_PATH', 'bad path /b.txt'),
+			...buildErrorIteration({ name: EDIT_TOOL, arguments: { path: '/c.txt' } }, 'INVALID_PATH', 'bad path /c.txt'),
 		];
 		const result = detectDoomLoop(messages);
 		expect(result.isDoomLoop).toBe(true);
 		expect(result.reason).toBe('repeated_error_pattern');
-		expect(result.toolName).toBe('file_edit');
+		expect(result.toolName).toBe(EDIT_TOOL);
 	});
 
 	it('does not trigger when error codes differ', () => {
 		const messages: ModelMessage[] = [
-			...buildErrorIteration({ name: 'file_edit', arguments: { path: '/a.txt' } }, 'INVALID_PATH', 'bad path'),
-			...buildErrorIteration({ name: 'file_edit', arguments: { path: '/b.txt' } }, 'NO_MATCH', 'not found'),
-			...buildErrorIteration({ name: 'file_edit', arguments: { path: '/c.txt' } }, 'INVALID_PATH', 'bad path'),
+			...buildErrorIteration({ name: EDIT_TOOL, arguments: { path: '/a.txt' } }, 'INVALID_PATH', 'bad path'),
+			...buildErrorIteration({ name: EDIT_TOOL, arguments: { path: '/b.txt' } }, 'NO_MATCH', 'not found'),
+			...buildErrorIteration({ name: EDIT_TOOL, arguments: { path: '/c.txt' } }, 'INVALID_PATH', 'bad path'),
 		];
 		expect(detectDoomLoop(messages).isDoomLoop).toBe(false);
 	});
 
 	it('does not trigger when tool names differ', () => {
 		const messages: ModelMessage[] = [
-			...buildErrorIteration({ name: 'file_edit', arguments: { path: '/a.txt' } }, 'INVALID_PATH', 'bad'),
-			...buildErrorIteration({ name: 'file_write', arguments: { path: '/b.txt' } }, 'INVALID_PATH', 'bad'),
-			...buildErrorIteration({ name: 'file_edit', arguments: { path: '/c.txt' } }, 'INVALID_PATH', 'bad'),
+			...buildErrorIteration({ name: EDIT_TOOL, arguments: { path: '/a.txt' } }, 'INVALID_PATH', 'bad'),
+			...buildErrorIteration({ name: WRITE_TOOL, arguments: { path: '/b.txt' } }, 'INVALID_PATH', 'bad'),
+			...buildErrorIteration({ name: EDIT_TOOL, arguments: { path: '/c.txt' } }, 'INVALID_PATH', 'bad'),
 		];
 		expect(detectDoomLoop(messages).isDoomLoop).toBe(false);
 	});
 
 	it('does not trigger with fewer than 3 errors', () => {
 		const messages: ModelMessage[] = [
-			...buildErrorIteration({ name: 'file_edit', arguments: { path: '/a.txt' } }, 'INVALID_PATH', 'bad'),
-			...buildErrorIteration({ name: 'file_edit', arguments: { path: '/b.txt' } }, 'INVALID_PATH', 'bad'),
+			...buildErrorIteration({ name: EDIT_TOOL, arguments: { path: '/a.txt' } }, 'INVALID_PATH', 'bad'),
+			...buildErrorIteration({ name: EDIT_TOOL, arguments: { path: '/b.txt' } }, 'INVALID_PATH', 'bad'),
 		];
 		expect(detectDoomLoop(messages).isDoomLoop).toBe(false);
 	});
 
 	it('does not trigger when tool results have no error code prefix', () => {
 		const messages: ModelMessage[] = [
-			...buildIteration([{ name: 'file_edit', arguments: { path: '/a.txt' } }]),
-			...buildIteration([{ name: 'file_edit', arguments: { path: '/b.txt' } }]),
-			...buildIteration([{ name: 'file_edit', arguments: { path: '/c.txt' } }]),
+			...buildIteration([{ name: EDIT_TOOL, arguments: { path: '/a.txt' } }]),
+			...buildIteration([{ name: EDIT_TOOL, arguments: { path: '/b.txt' } }]),
+			...buildIteration([{ name: EDIT_TOOL, arguments: { path: '/c.txt' } }]),
 		];
 		expect(detectDoomLoop(messages).isDoomLoop).toBe(false);
 	});
@@ -436,9 +442,9 @@ describe('repeated_error_pattern detection', () => {
 	it('identical_calls takes priority over repeated_error_pattern', () => {
 		// Same tool, same args, same error — should hit identical_calls first
 		const messages: ModelMessage[] = [
-			...buildErrorIteration({ name: 'file_edit', arguments: { path: '/a.txt' } }, 'INVALID_PATH', 'bad'),
-			...buildErrorIteration({ name: 'file_edit', arguments: { path: '/a.txt' } }, 'INVALID_PATH', 'bad'),
-			...buildErrorIteration({ name: 'file_edit', arguments: { path: '/a.txt' } }, 'INVALID_PATH', 'bad'),
+			...buildErrorIteration({ name: EDIT_TOOL, arguments: { path: '/a.txt' } }, 'INVALID_PATH', 'bad'),
+			...buildErrorIteration({ name: EDIT_TOOL, arguments: { path: '/a.txt' } }, 'INVALID_PATH', 'bad'),
+			...buildErrorIteration({ name: EDIT_TOOL, arguments: { path: '/a.txt' } }, 'INVALID_PATH', 'bad'),
 		];
 		const result = detectDoomLoop(messages);
 		expect(result.isDoomLoop).toBe(true);

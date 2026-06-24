@@ -169,13 +169,13 @@ describe('MessageBubble', () => {
 						{
 							type: 'tool-call',
 							toolCallId: 'tool-1',
-							toolName: 'file_read',
+							toolName: 'lint_check',
 							arguments: { path: '/src/main.ts' },
 						},
 						{
 							type: 'tool-result',
 							toolCallId: 'tool-1',
-							toolName: 'file_read',
+							toolName: 'lint_check',
 							result: 'line 1',
 						},
 					],
@@ -184,7 +184,7 @@ describe('MessageBubble', () => {
 			/>,
 		);
 
-		const toolCallToggle = screen.getByRole('button', { name: /file read/i });
+		const toolCallToggle = screen.getByRole('button', { name: /lint check/i });
 		expect(screen.getByText('main.ts').closest('[role="button"]')).toBeInTheDocument();
 		expect(toolCallToggle.tagName).toBe('DIV');
 	});

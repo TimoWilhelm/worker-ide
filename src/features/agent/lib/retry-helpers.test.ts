@@ -22,7 +22,7 @@ function createToolCallMessage(role: 'assistant'): ChatMessage {
 	return {
 		id: nextId(),
 		role,
-		parts: [{ type: 'tool-call', toolCallId: 'tc-123', toolName: 'file_read', arguments: {} }],
+		parts: [{ type: 'tool-call', toolCallId: 'tc-123', toolName: 'lint_check', arguments: {} }],
 	};
 }
 
@@ -30,7 +30,7 @@ function createMixedMessage(role: 'user' | 'assistant', text: string, hasToolCal
 	const parts: ChatMessage['parts'] = [{ type: 'text', content: text }];
 	if (hasToolCall) {
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any -- test helper
-		(parts as any[]).push({ type: 'tool-call', toolCallId: 'tc-456', toolName: 'file_read', arguments: {} });
+		(parts as any[]).push({ type: 'tool-call', toolCallId: 'tc-456', toolName: 'lint_check', arguments: {} });
 	}
 	return { id: nextId(), role, parts };
 }

@@ -4,7 +4,7 @@ import { createMockContext, createMockSendEvent } from './test-helpers';
 
 import type { BrowserBinding } from '../types';
 
-const mockCreateExecuteTool = vi.fn();
+const mockCreateExecuteRuntime = vi.fn();
 const mockBrowserExecute = vi.fn(async ({ code }: { code: string }) => code);
 const mockBrowserMarkdown = vi.fn(async (_input: { url?: string; html?: string }) => 'markdown');
 
@@ -15,9 +15,9 @@ vi.mock('cloudflare:workers', () => ({
 }));
 
 vi.mock('@cloudflare/think/tools/execute', () => ({
-	createExecuteTool: (...arguments_: Parameters<typeof mockCreateExecuteTool>) => {
-		mockCreateExecuteTool(...arguments_);
-		return { execute: vi.fn() };
+	createExecuteRuntime: (...arguments_: Parameters<typeof mockCreateExecuteRuntime>) => {
+		mockCreateExecuteRuntime(...arguments_);
+		return { runtime: {}, connectors: [], tool: { description: 'codemode', inputSchema: {}, execute: vi.fn() } };
 	},
 }));
 
@@ -50,53 +50,49 @@ function createBrowserFetcher(): BrowserBinding {
 	};
 }
 
+/** The `tools.*` set (incl. browser tools) passed into the most recent Code Mode runtime. */
+function lastCodeModeTools(): Record<string, { execute?: unknown }> {
+	const call = mockCreateExecuteRuntime.mock.calls.at(-1);
+	if (!call) throw new Error('createExecuteRuntime was not called');
+	return call[0].tools;
+}
+
+function contextOverrides() {
+	return createMockContext({
+		ctx: createMockDurableObjectState(),
+		loader: createLoader(),
+		browser: createBrowserFetcher(),
+		requestOriginContext: { baseDomain: 'example.com', protocol: 'https:' },
+	});
+}
+
 describe('createServerTools external guards', () => {
 	beforeEach(() => {
-		mockCreateExecuteTool.mockReset();
+		mockCreateExecuteRuntime.mockReset();
 		mockBrowserExecute.mockClear();
 		mockBrowserMarkdown.mockClear();
 	});
 
-	it('sets execute to explicit no-network mode and passes the DO ctx', async () => {
-		await createServerTools(
-			createMockSendEvent(),
-			createMockContext({
-				ctx: createMockDurableObjectState(),
-				loader: createLoader(),
-				browser: createBrowserFetcher(),
-				requestOriginContext: { baseDomain: 'example.com', protocol: 'https:' },
-			}),
-			[],
-			'code',
-		);
+	it('exposes a single codemode tool with no-network sandbox, ctx, and state', async () => {
+		const tools = await createServerTools(createMockSendEvent(), contextOverrides(), [], 'code');
 
-		expect(mockCreateExecuteTool).toHaveBeenCalledWith(
-			// eslint-disable-next-line unicorn/no-null -- createExecuteTool uses null to disable sandbox outbound network access
-			expect.objectContaining({ globalOutbound: null, ctx: expect.anything() }),
+		expect(tools).toHaveProperty('codemode');
+		// Domain tools live inside Code Mode's tools.*, never at the top level.
+		expect(tools).not.toHaveProperty('web_fetch');
+		expect(tools).not.toHaveProperty('lint_fix');
+		expect(mockCreateExecuteRuntime).toHaveBeenCalledWith(
+			// eslint-disable-next-line unicorn/no-null -- codemode uses null to disable sandbox outbound network access
+			expect.objectContaining({ globalOutbound: null, ctx: expect.anything(), state: expect.anything() }),
 		);
 	});
 
-	it('only exposes browser_execute in code mode with request origin context', async () => {
-		const tools = await createServerTools(
-			createMockSendEvent(),
-			createMockContext({
-				ctx: createMockDurableObjectState(),
-				loader: createLoader(),
-				browser: createBrowserFetcher(),
-				requestOriginContext: { baseDomain: 'example.com', protocol: 'https:' },
-			}),
-			[],
-			'code',
-		);
+	it('exposes browser_execute inside Code Mode tools.* in code mode with origin context', async () => {
+		await createServerTools(createMockSendEvent(), contextOverrides(), [], 'code');
 
-		expect(tools).toHaveProperty('browser_execute');
-		const browserExecuteTool = tools.browser_execute;
-		if (
-			!browserExecuteTool ||
-			typeof browserExecuteTool !== 'object' ||
-			!('execute' in browserExecuteTool) ||
-			typeof browserExecuteTool.execute !== 'function'
-		) {
+		const codeModeTools = lastCodeModeTools();
+		expect(codeModeTools).toHaveProperty('browser_execute');
+		const browserExecuteTool = codeModeTools.browser_execute;
+		if (!browserExecuteTool || typeof browserExecuteTool.execute !== 'function') {
 			throw new Error('browser_execute tool was not created');
 		}
 		await browserExecuteTool.execute({ code: 'async () => cdp.send("Page.navigate", { url: "/docs" })' });
@@ -107,40 +103,21 @@ describe('createServerTools external guards', () => {
 	});
 
 	it('exposes quick action tools and omits browser_execute outside code mode', async () => {
-		const tools = await createServerTools(
-			createMockSendEvent(),
-			createMockContext({
-				ctx: createMockDurableObjectState(),
-				loader: createLoader(),
-				browser: createBrowserFetcher(),
-				requestOriginContext: { baseDomain: 'example.com', protocol: 'https:' },
-			}),
-			[],
-			'plan',
-		);
+		await createServerTools(createMockSendEvent(), contextOverrides(), [], 'plan');
 
-		expect(tools).not.toHaveProperty('browser_execute');
-		expect(tools).toHaveProperty('browser_markdown');
-		expect(tools).toHaveProperty('browser_extract');
-		expect(tools).toHaveProperty('browser_links');
-		expect(tools).toHaveProperty('browser_scrape');
+		const codeModeTools = lastCodeModeTools();
+		expect(codeModeTools).not.toHaveProperty('browser_execute');
+		expect(codeModeTools).toHaveProperty('browser_markdown');
+		expect(codeModeTools).toHaveProperty('browser_extract');
+		expect(codeModeTools).toHaveProperty('browser_links');
+		expect(codeModeTools).toHaveProperty('browser_scrape');
 	});
 
 	it('restricts quick action tool URLs to the project preview origin', async () => {
-		const tools = await createServerTools(
-			createMockSendEvent(),
-			createMockContext({
-				ctx: createMockDurableObjectState(),
-				loader: createLoader(),
-				browser: createBrowserFetcher(),
-				requestOriginContext: { baseDomain: 'example.com', protocol: 'https:' },
-			}),
-			[],
-			'code',
-		);
+		await createServerTools(createMockSendEvent(), contextOverrides(), [], 'code');
 
-		const markdownTool = tools.browser_markdown;
-		if (!markdownTool || typeof markdownTool !== 'object' || !('execute' in markdownTool) || typeof markdownTool.execute !== 'function') {
+		const markdownTool = lastCodeModeTools().browser_markdown;
+		if (!markdownTool || typeof markdownTool.execute !== 'function') {
 			throw new Error('browser_markdown tool was not created');
 		}
 

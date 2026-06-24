@@ -48,3 +48,34 @@ describe('ProjectFilesystem writes', () => {
 		expect(await readViaMount(stub, '/notes.txt')).toBe('second');
 	});
 });
+
+describe('ProjectFilesystem change drain', () => {
+	it('buffers workspace writes and clears them on drain', async () => {
+		const stub = getFilesystemStub('test-fs-drain');
+		await stub.drainWorkspaceChanges();
+
+		await stub.wsWriteFile('/src/a.ts', 'export const a = 1;\n');
+		await stub.wsWriteFile('/src/b.ts', 'export const b = 2;\n');
+
+		const changes = await stub.drainWorkspaceChanges();
+		const paths = changes.map((change) => change.path);
+		expect(paths).toContain('/src/a.ts');
+		expect(paths).toContain('/src/b.ts');
+
+		// Draining a second time returns nothing — the buffer was cleared.
+		expect(await stub.drainWorkspaceChanges()).toEqual([]);
+	});
+
+	it('excludes .git writes from the change buffer', async () => {
+		const stub = getFilesystemStub('test-fs-drain-git');
+		await stub.drainWorkspaceChanges();
+
+		await stub.wsWriteFile('/.git/config', '[core]\n');
+		await stub.wsWriteFile('/src/c.ts', 'export const c = 3;\n');
+
+		const changes = await stub.drainWorkspaceChanges();
+		const paths = changes.map((change) => change.path);
+		expect(paths).toContain('/src/c.ts');
+		expect(paths.some((path) => path.startsWith('/.git'))).toBe(false);
+	});
+});

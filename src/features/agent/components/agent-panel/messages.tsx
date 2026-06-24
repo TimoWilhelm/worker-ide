@@ -8,24 +8,20 @@ import {
 	Clock,
 	Database,
 	Download,
-	Eye,
 	FastForward,
 	FileText,
 	FlaskConical,
-	FolderSearch,
 	Globe,
 	HelpCircle,
 	Image,
 	ListTodo,
 	Map as MapIcon,
-	MoveRight,
-	Pencil,
 	PlayCircle,
 	RefreshCw,
 	RotateCcw,
-	Search,
 	Settings,
-	Trash2,
+	SquareTerminal,
+	Terminal,
 	X,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
@@ -83,27 +79,6 @@ function isReasoningPart(part: MessagePart): part is ReasoningPart {
 
 function ToolIcon({ name, className }: { name: ToolName; className?: string }) {
 	switch (name) {
-		case 'file_read':
-		case 'files_list': {
-			return <Eye className={cn('size-3', className)} />;
-		}
-		case 'file_edit':
-		case 'file_write': {
-			return <Pencil className={cn('size-3', className)} />;
-		}
-		case 'file_delete': {
-			return <Trash2 className={cn('size-3', className)} />;
-		}
-		case 'file_move': {
-			return <MoveRight className={cn('size-3', className)} />;
-		}
-		case 'file_grep': {
-			return <Search className={cn('size-3', className)} />;
-		}
-		case 'file_glob':
-		case 'file_list': {
-			return <FolderSearch className={cn('size-3', className)} />;
-		}
 		case 'user_question': {
 			return <HelpCircle className={cn('size-3', className)} />;
 		}
@@ -144,6 +119,12 @@ function ToolIcon({ name, className }: { name: ToolName; className?: string }) {
 		}
 		case 'sub_agent': {
 			return <Bot className={cn('size-3', className)} />;
+		}
+		case 'bash': {
+			return <Terminal className={cn('size-3', className)} />;
+		}
+		case 'codemode': {
+			return <SquareTerminal className={cn('size-3', className)} />;
 		}
 		default: {
 			return <FileText className={cn('size-3', className)} />;
@@ -694,19 +675,6 @@ export function AssistantMessage({
 }
 
 /**
- * Extract text content from an XML-like tag, e.g. `<error>msg</error>` -> `msg`.
- * Returns undefined if the tag is not found.
- */
-function extractTag(text: string, tag: string): string | undefined {
-	const openTag = `<${tag}>`;
-	const closeTag = `</${tag}>`;
-	const start = text.indexOf(openTag);
-	const end = text.indexOf(closeTag);
-	if (start === -1 || end === -1) return undefined;
-	return text.slice(start + openTag.length, end).trim();
-}
-
-/**
  * Check whether the tool result text represents an error.
  *
  * Error formats from the AI SDK:
@@ -719,29 +687,8 @@ function extractTag(text: string, tag: string): string | undefined {
  * metadata is not available (e.g. loaded sessions where tool_result events
  * were not persisted).
  */
-function deriveCompletedLabel(toolName: ToolName | undefined, rawContent: string | undefined): string {
+function deriveCompletedLabel(_toolName: ToolName | undefined, rawContent: string | undefined): string {
 	if (!rawContent) return 'Completed';
-
-	// file_read — count lines
-	if (toolName === 'file_read') {
-		const lineCount = rawContent.split('\n').length;
-		return `${lineCount} ${lineCount === 1 ? 'line' : 'lines'}`;
-	}
-
-	// file_glob, file_grep — count result entries
-	if (toolName === 'file_glob' || toolName === 'file_grep') {
-		try {
-			const parsed: unknown = JSON.parse(rawContent);
-			if (isRecord(parsed) && Array.isArray(parsed.files)) {
-				return `${parsed.files.length} ${parsed.files.length === 1 ? 'match' : 'matches'}`;
-			}
-		} catch {
-			// Not JSON — count lines as a fallback
-			const lines = rawContent.trim().split('\n').filter(Boolean);
-			return `${lines.length} ${lines.length === 1 ? 'result' : 'results'}`;
-		}
-	}
-
 	return 'Completed';
 }
 
@@ -773,76 +720,6 @@ function summarizeFromMetadata(toolName: ToolName | undefined, info: ToolMetadat
 	const { metadata } = info;
 
 	switch (toolName) {
-		case 'file_read': {
-			if (metadata.type === 'directory' && typeof metadata.entryCount === 'number') {
-				return `${metadata.entryCount} entr${metadata.entryCount === 1 ? 'y' : 'ies'}`;
-			}
-			if (metadata.type === 'binary') return 'Binary file';
-			if (metadata.type === 'file' && typeof metadata.lineCount === 'number') {
-				return `${metadata.lineCount} line${metadata.lineCount === 1 ? '' : 's'}`;
-			}
-			return undefined;
-		}
-
-		case 'file_edit': {
-			return 'Applied';
-		}
-
-		case 'file_multiedit': {
-			if (typeof metadata.editCount === 'number') {
-				return `${metadata.editCount} edit${metadata.editCount === 1 ? '' : 's'} applied`;
-			}
-			return 'Applied';
-		}
-
-		case 'file_write': {
-			return 'Written';
-		}
-
-		case 'file_delete': {
-			return 'Deleted';
-		}
-
-		case 'file_move': {
-			return 'Moved';
-		}
-
-		case 'file_glob': {
-			if (typeof metadata.count === 'number') {
-				if (metadata.count === 0) return 'No files found';
-				return `${metadata.count} file${metadata.count === 1 ? '' : 's'}`;
-			}
-			return undefined;
-		}
-
-		case 'file_grep': {
-			if (typeof metadata.matchCount === 'number') {
-				if (metadata.matchCount === 0) return 'No matches';
-				return `${metadata.matchCount} match${metadata.matchCount === 1 ? '' : 'es'}`;
-			}
-			return undefined;
-		}
-
-		case 'file_list': {
-			if (Array.isArray(metadata.entries)) {
-				const count = metadata.entries.length;
-				return `${count} entr${count === 1 ? 'y' : 'ies'}`;
-			}
-			if (typeof metadata.count === 'number') {
-				return `${metadata.count} entr${metadata.count === 1 ? 'y' : 'ies'}`;
-			}
-			// Fall through to raw-result parsing which reliably counts entries
-			return undefined;
-		}
-
-		case 'files_list': {
-			if (typeof metadata.count === 'number') {
-				return `${metadata.count} file${metadata.count === 1 ? '' : 's'}`;
-			}
-			// Fall through to raw-result parsing
-			return undefined;
-		}
-
 		case 'lint_check': {
 			if (typeof metadata.issueCount === 'number') {
 				if (metadata.issueCount === 0) return 'No issues';
@@ -968,6 +845,17 @@ function summarizeFromMetadata(toolName: ToolName | undefined, info: ToolMetadat
 
 		case 'user_question': {
 			return undefined;
+		}
+
+		case 'bash': {
+			if (typeof metadata.exitCode === 'number') {
+				return metadata.exitCode === 0 ? 'Done' : `Exit ${metadata.exitCode}`;
+			}
+			return undefined;
+		}
+
+		case 'codemode': {
+			return 'Ran code';
 		}
 
 		default: {
@@ -1160,69 +1048,15 @@ function formatToolResultDetail(toolName: ToolName, rawResult: string): string {
 	}
 
 	switch (toolName) {
-		case 'file_read': {
-			// Show just the file content or directory entries, without XML wrapper
-			const content = extractTag(rawResult, 'content');
-			if (content) return content;
-			const entries = extractTag(rawResult, 'entries');
-			if (entries) return entries;
-			return rawResult;
-		}
-
-		case 'file_edit':
-		case 'file_multiedit':
-		case 'file_write':
 		case 'lint_fix': {
-			// These tools return { result: "diff...", linesAdded, ... }
+			// Returns { result: "diff...", linesAdded, ... }
 			// Show the diff/result text (fallback for when InlineDiffView is unavailable, e.g. page reload)
 			return extractResultField(rawResult) ?? rawResult;
 		}
 
-		case 'file_delete':
-		case 'file_move':
 		case 'plan_update': {
-			// These tools return { result: "summary..." }
+			// Returns { result: "summary..." }
 			return extractResultField(rawResult) ?? rawResult;
-		}
-
-		case 'file_grep':
-		case 'file_glob': {
-			// Already plain text, show as-is
-			return rawResult;
-		}
-
-		case 'file_list': {
-			// JSON with { path, entries: [...] } — format as a clean directory listing
-			try {
-				const parsed: unknown = JSON.parse(rawResult);
-				if (isRecord(parsed) && Array.isArray(parsed.entries)) {
-					return parsed.entries
-						.filter((entry): entry is Record<string, unknown> => isRecord(entry))
-						.map((entry) => {
-							const name = typeof entry.name === 'string' ? entry.name : '';
-							const suffix = entry.type === 'directory' ? '/' : '';
-							const size = typeof entry.size === 'number' ? `  (${entry.size} bytes)` : '';
-							return `${name}${suffix}${size}`;
-						})
-						.join('\n');
-				}
-			} catch {
-				// Not JSON
-			}
-			return rawResult;
-		}
-
-		case 'files_list': {
-			// JSON with { files: [...] } — format as a file list
-			try {
-				const parsed: unknown = JSON.parse(rawResult);
-				if (isRecord(parsed) && Array.isArray(parsed.files)) {
-					return parsed.files.filter((file): file is string => typeof file === 'string').join('\n');
-				}
-			} catch {
-				// Not JSON
-			}
-			return rawResult;
 		}
 
 		case 'dependencies_list': {
@@ -1565,7 +1399,7 @@ function InlineDiagnosticsList({ diagnostics }: { diagnostics: unknown[] }) {
 		</div>
 	);
 }
-const CONTENT_STREAMING_TOOLS = new Set<string>(['file_write', 'file_edit', 'file_multiedit']);
+const CONTENT_STREAMING_TOOLS = new Set<string>(['codemode', 'bash']);
 
 function InlineToolCall({
 	toolCall,
@@ -1643,13 +1477,13 @@ function InlineToolCall({
 		extraLabel = input.prompt;
 	}
 
-	// Streaming content preview for file-writing tools
+	// Streaming content preview for code/command tools (codemode, bash)
 	const streamingContent =
 		isArgumentsStreaming && CONTENT_STREAMING_TOOLS.has(toolCall.toolName)
-			? typeof input.content === 'string'
-				? input.content
-				: typeof input.new_string === 'string'
-					? input.new_string
+			? typeof input.code === 'string'
+				? input.code
+				: typeof input.command === 'string'
+					? input.command
 					: undefined
 			: undefined;
 
@@ -1670,7 +1504,7 @@ function InlineToolCall({
 		knownToolName === 'bindings_get' || knownToolName === 'bindings_update' ? getBindingsEntries(metadata) : undefined;
 	const planFilePath = knownToolName === 'plan_update' && typeof metadata?.planFilePath === 'string' ? metadata.planFilePath : undefined;
 
-	// Extract file-edit stats from structured metadata (file_edit, file_write, lint_fix).
+	// Extract file-edit stats from structured metadata (lint_fix).
 	// Metadata is always available — persisted with the session for loaded sessions.
 	const linesAdded = typeof metadata?.linesAdded === 'number' ? metadata.linesAdded : undefined;
 	const linesRemoved = typeof metadata?.linesRemoved === 'number' ? metadata.linesRemoved : undefined;

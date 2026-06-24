@@ -178,40 +178,14 @@ describe('isPathSafe', () => {
 });
 
 describe('validateToolInput', () => {
-	it('validates file_read input', () => {
-		const result = validateToolInput('file_read', { file_path: '/src/main.ts' });
+	it('validates bash input', () => {
+		const result = validateToolInput('bash', { command: 'ls -la' });
 		expect(result.success).toBe(true);
 	});
 
-	it('rejects invalid file_read input', () => {
-		const result = validateToolInput('file_read', { file_path: 'invalid' });
+	it('rejects invalid bash input', () => {
+		const result = validateToolInput('bash', { command: '' });
 		expect(result.success).toBe(false);
-	});
-
-	it('validates file_write input', () => {
-		const result = validateToolInput('file_write', {
-			file_path: '/src/main.ts',
-			content: 'hello',
-		});
-		expect(result.success).toBe(true);
-	});
-
-	it('validates files_list input (empty object)', () => {
-		const result = validateToolInput('files_list', {});
-		expect(result.success).toBe(true);
-	});
-
-	it('validates file_delete input', () => {
-		const result = validateToolInput('file_delete', { file_path: '/src/old.ts' });
-		expect(result.success).toBe(true);
-	});
-
-	it('validates file_move input', () => {
-		const result = validateToolInput('file_move', {
-			from_path: '/src/old.ts',
-			to_path: '/src/new.ts',
-		});
-		expect(result.success).toBe(true);
 	});
 
 	it('validates docs_search input', () => {

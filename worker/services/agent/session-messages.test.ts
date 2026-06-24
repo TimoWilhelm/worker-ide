@@ -12,8 +12,8 @@ describe('session message bridges', () => {
 			parts: [
 				{ type: 'text', content: 'Hello world' },
 				{ type: 'reasoning', content: 'Thinking...' },
-				{ type: 'tool-call', toolCallId: 'tool-1', toolName: 'file_read', arguments: { path: 'src/app.tsx' } },
-				{ type: 'tool-result', toolCallId: 'tool-1', toolName: 'file_read', result: 'file contents', isError: false },
+				{ type: 'tool-call', toolCallId: 'tool-1', toolName: 'lint_check', arguments: { path: 'src/app.tsx' } },
+				{ type: 'tool-result', toolCallId: 'tool-1', toolName: 'lint_check', result: 'file contents', isError: false },
 			],
 			createdAt: 123,
 		};
@@ -29,8 +29,8 @@ describe('session message bridges', () => {
 		expect(roundTripped.parts).toEqual([
 			{ type: 'text', content: 'Hello world' },
 			{ type: 'reasoning', content: 'Thinking...' },
-			{ type: 'tool-call', toolCallId: 'tool-1', toolName: 'file_read', arguments: { path: 'src/app.tsx' } },
-			{ type: 'tool-result', toolCallId: 'tool-1', toolName: 'file_read', result: 'file contents', isError: false },
+			{ type: 'tool-call', toolCallId: 'tool-1', toolName: 'lint_check', arguments: { path: 'src/app.tsx' } },
+			{ type: 'tool-result', toolCallId: 'tool-1', toolName: 'lint_check', result: 'file contents', isError: false },
 		]);
 	});
 

@@ -1,7 +1,5 @@
 import { fs } from '@worker/lib/project-fs';
 
-import { clearSession } from './file-time';
-
 /**
  * Maximum number of timestamped plan-mode plans to keep.
  * These are global (not session-scoped) and accumulate one per plan-mode run.
@@ -21,11 +19,6 @@ export async function cleanupSessionArtifacts(
 	prunedSessionIds: Set<string>,
 	survivingSnapshotIds: Set<string>,
 ): Promise<void> {
-	// Evict file-time entries from the in-memory promise cache (synchronous).
-	for (const sessionId of prunedSessionIds) {
-		clearSession(projectRoot, sessionId);
-	}
-
 	const results = await Promise.allSettled([
 		// Clean up per-session directories (.agent/sessions/{id}/)
 		cleanupSessionDirectories(projectRoot, prunedSessionIds),

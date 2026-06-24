@@ -6,7 +6,7 @@ import { isHiddenPath, isPathSafe } from '@worker/lib/path-utilities';
 import { fs } from '@worker/lib/project-fs';
 import { fixFile, formatLintDiagnostics, lintFile } from '@worker/services/lint-service';
 
-import { recordFileRead, withLock } from '../file-time';
+import { withLock } from '../file-lock';
 import { guardProtectedFile } from '../protected-file-guard';
 import { computeDiffStats, generateCompactDiff } from '../utilities';
 
@@ -41,7 +41,7 @@ export async function execute(
 	context: ToolExecutorContext,
 	queryChanges?: FileChange[],
 ): Promise<ToolResult> {
-	const { projectRoot, projectId, sessionId } = context;
+	const { projectRoot, projectId } = context;
 	const fixPath = input.file_path;
 
 	if (!fixPath) {
@@ -58,8 +58,7 @@ export async function execute(
 
 	guardProtectedFile(fixPath);
 
-	// Acquire a per-file lock so that a concurrent write tool cannot clobber
-	// this fix, and so the recordFileRead timestamp stays accurate.
+	// Acquire a per-file lock so a concurrent write cannot clobber this fix.
 	type LockResult = ToolResult | { originalContent: string; fixedContent: string; fixCount: number };
 
 	const lockResult: LockResult = await withLock(fixPath, async () => {
@@ -107,11 +106,6 @@ export async function execute(
 
 		// Write the fixed content
 		await fs.writeFile(`${projectRoot}${fixPath}`, result.fixedContent);
-
-		// Record as read for subsequent operations
-		if (sessionId) {
-			await recordFileRead(projectRoot, sessionId, fixPath);
-		}
 
 		// Track file change for snapshots
 		if (queryChanges) {

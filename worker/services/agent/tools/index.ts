@@ -1,25 +1,22 @@
+import { createWorkspaceStateBackend } from '@cloudflare/shell';
 import { jsonSchema } from 'ai';
 import { env } from 'cloudflare:workers';
 
 import { ToolExecutionError } from '@shared/tool-errors';
+import { createHmrUpdateForFile } from '@shared/types';
+import { coordinatorNamespace } from '@worker/lib/durable-object-namespaces';
+import { isHiddenPath } from '@worker/lib/path-utilities';
+import { fs } from '@worker/lib/project-fs';
+import { PROJECT_ROOT, WorkspaceClient } from '@worker/lib/workspace-client';
 
 import * as assetSettingsGetTool from './asset-settings-get';
 import * as assetSettingsUpdateTool from './asset-settings-update';
+import * as bashTool from './bash';
 import * as bindingsGetTool from './bindings-get';
 import * as bindingsUpdateTool from './bindings-update';
 import * as dependenciesListTool from './dependencies-list';
 import * as dependenciesUpdateTool from './dependencies-update';
 import * as documentationSearchTool from './documentation-search';
-import * as fileDeleteTool from './file-delete';
-import * as fileEditTool from './file-edit';
-import * as fileGlobTool from './file-glob';
-import * as fileGrepTool from './file-grep';
-import * as fileListTool from './file-list';
-import * as fileMoveTool from './file-move';
-import * as fileMultieditTool from './file-multiedit';
-import * as fileReadTool from './file-read';
-import * as fileWriteTool from './file-write';
-import * as filesListTool from './files-list';
 import * as imageGenerateTool from './image-generate';
 import * as lintCheckTool from './lint-check';
 import * as lintFixTool from './lint-fix';
@@ -46,18 +43,9 @@ import type {
 	ToolExecutorContext,
 	ToolFailureQueue,
 } from '../types';
+import type { StateBackend, WorkspaceChangeEvent } from '@cloudflare/shell';
 
 export const TOOL_EXECUTORS: ReadonlyMap<string, ToolExecuteFunction> = new Map([
-	['file_edit', fileEditTool.execute],
-	['file_multiedit', fileMultieditTool.execute],
-	['file_write', fileWriteTool.execute],
-	['file_read', fileReadTool.execute],
-	['file_grep', fileGrepTool.execute],
-	['file_glob', fileGlobTool.execute],
-	['file_list', fileListTool.execute],
-	['files_list', filesListTool.execute],
-	['file_delete', fileDeleteTool.execute],
-	['file_move', fileMoveTool.execute],
 	['user_question', userQuestionTool.execute],
 	['web_fetch', webFetchTool.execute],
 	['docs_search', documentationSearchTool.execute],
@@ -76,19 +64,10 @@ export const TOOL_EXECUTORS: ReadonlyMap<string, ToolExecuteFunction> = new Map(
 	['test_run', testRunTool.execute],
 	['image_generate', imageGenerateTool.execute],
 	['sub_agent', subAgentTool.execute],
+	['bash', bashTool.execute],
 ]);
 
 export const AGENT_TOOLS: readonly ToolDefinition[] = [
-	fileEditTool.definition,
-	fileMultieditTool.definition,
-	fileWriteTool.definition,
-	fileReadTool.definition,
-	fileGrepTool.definition,
-	fileGlobTool.definition,
-	fileListTool.definition,
-	filesListTool.definition,
-	fileDeleteTool.definition,
-	fileMoveTool.definition,
 	userQuestionTool.definition,
 	webFetchTool.definition,
 	documentationSearchTool.definition,
@@ -107,14 +86,18 @@ export const AGENT_TOOLS: readonly ToolDefinition[] = [
 	testRunTool.definition,
 	imageGenerateTool.definition,
 	subAgentTool.definition,
+	bashTool.definition,
 ];
 
+const DEFINITIONS_BY_NAME: ReadonlyMap<string, ToolDefinition> = new Map(AGENT_TOOLS.map((definition) => [definition.name, definition]));
+
+/**
+ * Tools the model calls directly (outside Code Mode): they pause for user
+ * input or drive durable UI panels, so they cannot run inside the sandbox.
+ */
+const DIRECT_TOOL_NAMES = new Set(['user_question', 'plan_update', 'todos_get', 'todos_update']);
+
 const PLAN_MODE_TOOL_NAMES = new Set([
-	'file_read',
-	'file_grep',
-	'file_glob',
-	'file_list',
-	'files_list',
 	'user_question',
 	'web_fetch',
 	'docs_search',
@@ -132,11 +115,6 @@ const PLAN_MODE_TOOL_NAMES = new Set([
 export const PLAN_MODE_TOOLS: readonly ToolDefinition[] = AGENT_TOOLS.filter((t) => PLAN_MODE_TOOL_NAMES.has(t.name));
 
 const ASK_MODE_TOOL_NAMES = new Set([
-	'file_read',
-	'file_grep',
-	'file_glob',
-	'file_list',
-	'files_list',
 	'user_question',
 	'web_fetch',
 	'docs_search',
@@ -150,18 +128,13 @@ const ASK_MODE_TOOL_NAMES = new Set([
 
 export const ASK_MODE_TOOLS: readonly ToolDefinition[] = AGENT_TOOLS.filter((t) => ASK_MODE_TOOL_NAMES.has(t.name));
 
-const EDITING_TOOL_NAMES = new Set(['file_edit', 'file_multiedit', 'file_write', 'file_delete', 'file_move', 'lint_fix', 'image_generate']);
+const EDITING_TOOL_NAMES = new Set(['lint_fix', 'image_generate', 'bash']);
 
 /**
  * Read-only tools that can be batched freely within a single iteration.
  * These have no side effects and are safe to execute in parallel.
  */
 export const READ_ONLY_TOOL_NAMES = new Set([
-	'file_read',
-	'file_grep',
-	'file_glob',
-	'file_list',
-	'files_list',
 	'docs_search',
 	'todos_get',
 	'dependencies_list',
@@ -186,29 +159,50 @@ export const SUB_AGENT_EXCLUDED_TOOLS = new Set(['sub_agent', 'user_question', '
  * Used by the doom loop detector and logging to track mutation activity.
  */
 export const MUTATION_TOOL_NAMES = new Set([
-	'file_edit',
-	'file_multiedit',
-	'file_write',
-	'file_delete',
-	'file_move',
 	'lint_fix',
 	'dependencies_update',
 	'asset_settings_update',
 	'bindings_update',
 	'image_generate',
+	'bash',
 ]);
 
 /**
- * Create Vercel AI SDK tools from our tool modules.
- *
- * Each tool's execute function is wrapped in a closure that captures:
- * - sendEvent: callback to push stream events to the event queue
- * - context: project root, mode, session ID, MCP client
- * - queryChanges: mutable array for tracking file changes (for snapshots)
- * - toolCallIdRef: mutable ref for the current tool call's ID
- * - pendingToolCallIds: ordered queue of tool call IDs
- *
- * Returns a Record<string, Tool> suitable for passing to streamText().
+ * `state.*` methods that mutate the workspace. In plan/ask mode the state
+ * backend is wrapped to reject these so Code Mode stays read-only.
+ */
+const STATE_WRITE_METHODS = new Set([
+	'writeFile',
+	'writeFileBytes',
+	'appendFile',
+	'writeJson',
+	'updateJson',
+	'mkdir',
+	'rm',
+	'cp',
+	'mv',
+	'symlink',
+	'replaceInFile',
+	'replaceInFiles',
+	'applyEdits',
+	'applyEditPlan',
+	'createArchive',
+	'extractArchive',
+	'compressFile',
+	'decompressFile',
+	'removeTree',
+	'copyTree',
+	'moveTree',
+]);
+
+type AnyTool = Record<string, unknown>;
+
+/**
+ * Assemble the model-facing tool surface: a single `codemode` tool exposing
+ * domain tools as `tools.*`, the workspace filesystem as `state.*`, and the
+ * browser as `tools.browser_*`, plus the interactive tools that must stay direct
+ * (they pause for input or drive UI panels). Without isolate bindings (tests,
+ * sub-agents) every tool is exposed directly instead.
  */
 export async function createServerTools(
 	sendEvent: SendEventFunction,
@@ -221,226 +215,323 @@ export async function createServerTools(
 	_pendingToolCallIds?: PendingToolCallIds,
 	excludedToolNames?: ReadonlySet<string>,
 ): Promise<Record<string, unknown>> {
-	// Select which tool definitions to use based on mode, then apply exclusions
-	const baseDefinitions = mode === 'ask' ? ASK_MODE_TOOLS : mode === 'plan' ? PLAN_MODE_TOOLS : AGENT_TOOLS;
-	const activeToolDefinitions = excludedToolNames ? baseDefinitions.filter((t) => !excludedToolNames.has(t.name)) : baseDefinitions;
-
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Tool generic variance; streamText accepts ToolSet (Record<string, Tool<any, any>>)
-	const tools: Record<string, any> = {};
-
-	for (const definition of activeToolDefinitions) {
-		const executor = TOOL_EXECUTORS.get(definition.name);
-		if (!executor) {
-			throw new Error(`No executor found for tool: ${definition.name}`);
+	// Paths whose file_changed event a tool already emitted, so the Code Mode
+	// drain can skip re-emitting them after a sandbox run.
+	const emittedChangePaths = new Set<string>();
+	const trackedSendEvent: SendEventFunction = (type, data) => {
+		if (type === 'file_changed' && typeof data.path === 'string') {
+			emittedChangePaths.add(data.path);
 		}
+		sendEvent(type, data);
+	};
 
-		// Convert our JSON Schema-based tool definition into a Vercel AI SDK
-		// jsonSchema-wrapped parameter schema. We use jsonSchema<Record<string, string>>()
-		// because our tool executors expect Record<string, string> input.
-		//
-		// IMPORTANT: A `validate` function is required. Without it, the AI SDK
-		// skips input validation entirely (always returns success), which means
-		// `experimental_repairToolCall` never fires for invalid inputs like
-		// hallucinated property names (e.g. `filePath` instead of `path`).
-		const requiredProperties = new Set<string>(Array.isArray(definition.input_schema.required) ? definition.input_schema.required : []);
-		const knownProperties = new Set<string>(definition.input_schema.properties ? Object.keys(definition.input_schema.properties) : []);
+	const isExcluded = (name: string): boolean => Boolean(excludedToolNames?.has(name));
+	const wrapDeps = (events: SendEventFunction): WrapDeps => ({ sendEvent: events, context, queryChanges, mode, logger, toolFailures });
 
-		// eslint-disable-next-line @typescript-eslint/consistent-type-assertions, @typescript-eslint/no-explicit-any -- Bridge between our JSON Schema definitions and the AI SDK's JSONSchema7 type
-		const schema = jsonSchema<Record<string, string>>(definition.input_schema as any, {
-			validate: (value): { success: true; value: Record<string, string> } | { success: false; error: Error } => {
-				if (value === undefined || value === null || typeof value !== 'object' || Array.isArray(value)) {
-					return { success: false, error: new Error('Expected an object') };
-				}
-				const entries = Object.entries(value);
-				const keys = entries.map(([key]) => key);
-				// Check required properties
-				for (const required of requiredProperties) {
-					if (!keys.includes(required)) {
-						return {
-							success: false,
-							error: new Error(`Missing required property: "${required}". Received keys: ${keys.join(', ')}`),
-						};
-					}
-				}
-				// Strip unknown properties (matches additionalProperties: false behavior)
-				// and coerce values to strings (arrays/objects are JSON-serialized
-				// so structured data like `edits` in file_multiedit survives).
-				const validated: Record<string, string> = {};
-				for (const [key, entryValue] of entries) {
-					if (knownProperties.has(key)) {
-						validated[key] = typeof entryValue === 'object' && entryValue !== null ? JSON.stringify(entryValue) : String(entryValue);
-					}
-				}
-				return { success: true, value: validated };
-			},
-		});
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Tool generic variance; streamText/createExecuteRuntime accept ToolSet (Record<string, Tool<any, any>>)
+	const llmTools: Record<string, any> = {};
 
-		const toolName = definition.name;
+	// 1. Direct interactive tools.
+	for (const name of directToolNames(mode)) {
+		if (isExcluded(name)) continue;
+		const definition = DEFINITIONS_BY_NAME.get(name);
+		const executor = TOOL_EXECUTORS.get(name);
+		if (definition && executor) {
+			llmTools[name] = wrapTool(definition, executor, wrapDeps(sendEvent));
+		}
+	}
 
-		tools[toolName] = {
-			description: definition.description,
-			// Use inputSchema (not parameters) — the AI SDK reads inputSchema
-			// for tool call validation and repair. Using parameters causes the
-			// validate function to be ignored entirely.
-			inputSchema: schema,
-			execute: async (input: Record<string, string>, executeOptions?: { toolCallId?: string }) => {
-				// Bail out immediately if the agent was cancelled
-				if (context.abortSignal?.aborted) {
-					throw new DOMException('Aborted', 'AbortError');
-				}
-
-				// Per-call context carrying the AI SDK's toolCallId so durable
-				// sub-resources can use deterministic, recovery-stable names.
-				const callContext: ToolExecutorContext = { ...context, toolCallId: executeOptions?.toolCallId };
-
-				// Defense-in-depth: reject editing tools in non-code modes
-				if (mode !== 'code' && EDITING_TOOL_NAMES.has(toolName)) {
-					logger?.warn('tool_call', 'blocked', {
-						toolName,
-						reason: 'editing_tool_in_non_code_mode',
-						mode,
-					});
-					return 'File editing tools are not available in this mode. Switch to Code mode to make changes.';
-				}
-
-				// input is already validated + string-coerced by the schema validate function
-				logger?.info('tool_call', 'started', {
-					toolName,
-					input: sanitizeToolInput(input),
-				});
-				const timer = logger?.startTimer();
-
-				try {
-					const result = await executor(input, sendEvent, callContext, queryChanges);
-
-					logger?.info(
-						'tool_call',
-						'completed',
-						{
-							toolName,
-							resultSummary: summarizeToolResult(result.output),
-							resultLength: result.output.length,
-						},
-						{ durationMs: timer?.() },
-					);
-
-					// Emit structured metadata as an event for the UI
-					sendEvent('tool_result', {
-						tool_name: toolName,
-						title: result.title,
-						metadata: result.metadata,
-					});
-
-					// Return the text output to the LLM
-					return result.output;
-				} catch (error) {
-					const isToolError = error instanceof ToolExecutionError;
-					const logMethod = isToolError ? 'warn' : 'error';
-					const event = isToolError ? 'tool_error' : 'error';
-					logger?.[logMethod](
-						'tool_call',
-						event,
-						{
-							toolName,
-							errorCode: isToolError ? error.code : undefined,
-							error: error instanceof Error ? error.message : String(error),
-							stack: isToolError ? undefined : error instanceof Error ? error.stack : undefined,
-						},
-						{ durationMs: timer?.() },
-					);
-
-					// Push typed failure record for doom-loop detection
-					toolFailures?.push({
-						toolName,
-						errorCode: isToolError ? error.code : undefined,
-						errorMessage: error instanceof Error ? error.message : String(error),
-					});
-
-					throw error;
-				}
-			},
-		};
+	// 2. Code Mode `tools.*` — domain tools, MCP tools, extension tools, browser tools.
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Tool generic variance; createExecuteRuntime accepts ToolSet (Record<string, Tool<any, any>>)
+	const codeModeTools: Record<string, any> = {};
+	for (const name of codeModeToolNames(mode)) {
+		if (isExcluded(name)) continue;
+		const definition = DEFINITIONS_BY_NAME.get(name);
+		const executor = TOOL_EXECUTORS.get(name);
+		if (definition && executor) {
+			codeModeTools[name] = wrapTool(definition, executor, wrapDeps(trackedSendEvent));
+		}
 	}
 
 	if (context.session) {
-		Object.assign(tools, await context.session.tools());
+		Object.assign(codeModeTools, await context.session.tools());
 	}
 
 	if (context.extensionManager) {
 		const { createExtensionTools } = await import('@cloudflare/think/tools/extensions');
-		Object.assign(tools, createExtensionTools({ manager: context.extensionManager }));
-		Object.assign(tools, context.extensionManager.getTools());
+		Object.assign(codeModeTools, createExtensionTools({ manager: context.extensionManager }));
+		Object.assign(codeModeTools, context.extensionManager.getTools());
 	}
 
-	if (context.ctx && context.loader && mode === 'code') {
-		const { createExecuteTool } = await import('@cloudflare/think/tools/execute');
-		const codeTools = { ...tools };
-		tools.execute = createExecuteTool({
+	await addBrowserTools(codeModeTools, context, mode);
+
+	// 3. Assemble the single Code Mode tool — or fall back to direct exposure.
+	if (context.ctx && context.loader) {
+		const { createExecuteRuntime } = await import('@cloudflare/think/tools/execute');
+		const { tool } = createExecuteRuntime({
 			ctx: context.ctx,
-			tools: codeTools,
+			tools: codeModeTools,
+			state: createStateBackend(context, mode),
 			loader: context.loader,
-			timeout: 30_000,
-			// eslint-disable-next-line unicorn/no-null -- Think's execute tool uses null to fully disable sandbox outbound network access
+			// eslint-disable-next-line unicorn/no-null -- codemode uses null to fully disable sandbox outbound network access
 			globalOutbound: null,
 		});
+		llmTools.codemode = wrapCodemodeTool(tool, context, trackedSendEvent, queryChanges, emittedChangePaths);
+	} else {
+		Object.assign(llmTools, codeModeTools);
 	}
 
-	if (context.ctx && context.loader && context.browser && context.requestOriginContext) {
-		const { createBrowserTools } = await import('@cloudflare/think/tools/browser');
-		// New Browser Run interface: the durable `browser_execute` tool plus
-		// stateless Quick Action tools (browser_markdown/extract/links/scrape).
-		// The runtime lives in a facet of the agent DO (`ctx`); the browser
-		// binding is passed directly — no Fetcher adapter required.
-		const browserTools = createBrowserTools({
-			ctx: context.ctx,
-			browser: context.browser,
-			loader: context.loader,
-			session: { mode: 'dynamic' },
-		});
+	return llmTools;
+}
 
-		const secret = import.meta.env.DEV ? env.PREVIEW_SECRET || DEV_PREVIEW_SECRET : env.PREVIEW_SECRET;
-		const allowedPreviewOrigins = await buildAllowedPreviewOrigins(context.projectId, context.requestOriginContext, secret);
-		const primaryPreviewOrigin = allowedPreviewOrigins[0];
+interface WrapDeps {
+	sendEvent: SendEventFunction;
+	context: ToolExecutorContext;
+	queryChanges: FileChange[];
+	mode: 'code' | 'plan' | 'ask';
+	logger?: AgentLogger;
+	toolFailures?: ToolFailureQueue;
+}
 
-		// Quick Action tools are read-only page reads, available in every mode.
-		// Restrict their target URL to the project's preview origin(s).
-		for (const quickActionName of QUICK_ACTION_TOOL_NAMES) {
-			const quickActionTool = browserTools[quickActionName];
-			if (quickActionTool) {
-				tools[quickActionName] = wrapQuickActionTool(quickActionTool, allowedPreviewOrigins);
+/** Names of the direct (non-Code-Mode) tools available in a given mode. */
+function directToolNames(mode: 'code' | 'plan' | 'ask'): string[] {
+	if (mode === 'ask') return [...DIRECT_TOOL_NAMES].filter((name) => ASK_MODE_TOOL_NAMES.has(name));
+	if (mode === 'plan') return [...DIRECT_TOOL_NAMES].filter((name) => PLAN_MODE_TOOL_NAMES.has(name));
+	return [...DIRECT_TOOL_NAMES];
+}
+
+/** Names of the tools exposed inside Code Mode as `tools.*` for a given mode. */
+function codeModeToolNames(mode: 'code' | 'plan' | 'ask'): string[] {
+	const base = mode === 'ask' ? ASK_MODE_TOOL_NAMES : mode === 'plan' ? PLAN_MODE_TOOL_NAMES : new Set(AGENT_TOOLS.map((t) => t.name));
+	return [...base].filter((name) => !DIRECT_TOOL_NAMES.has(name));
+}
+
+/** Build the `state.*` backend, read-only in plan/ask mode. */
+function createStateBackend(context: ToolExecutorContext, mode: 'code' | 'plan' | 'ask'): StateBackend {
+	const backend = createWorkspaceStateBackend(new WorkspaceClient(context.fsStub, PROJECT_ROOT));
+	if (mode === 'code') return backend;
+	return new Proxy(backend, {
+		get(target, property, receiver) {
+			if (typeof property === 'string' && STATE_WRITE_METHODS.has(property)) {
+				return () => {
+					throw new ToolExecutionError(
+						'NOT_ALLOWED',
+						`state.${property} is read-only in ${mode} mode. Switch to Code mode to make changes.`,
+					);
+				};
 			}
-		}
-
-		// The durable CDP tool can mutate page state, so it is code-mode only.
-		if (mode === 'code') {
-			const browserExecute = browserTools.browser_execute;
-			tools.browser_execute = {
-				...browserExecute,
-				execute: async (input: { code: string }) => {
-					if (!primaryPreviewOrigin) {
-						throw new ToolExecutionError('NOT_ALLOWED', 'browser_execute is unavailable until the project preview origin is known.');
-					}
-					if (typeof browserExecute.execute !== 'function') {
-						throw new ToolExecutionError('NOT_ALLOWED', 'browser_execute is unavailable in the current browser tool configuration.');
-					}
-
-					return Reflect.apply(browserExecute.execute, browserExecute, [
-						{
-							code: wrapBrowserExecuteCode(input.code, primaryPreviewOrigin, allowedPreviewOrigins),
-						},
-						undefined,
-					]);
-				},
-			};
-		}
-	}
-
-	return tools;
+			return Reflect.get(target, property, receiver);
+		},
+	});
 }
 
 /**
- * Browser Run Quick Action tools exposed by the new `createBrowserTools`
- * interface. These are stateless, read-only page reads.
+ * After each sandbox run, reflect workspace writes made via `state.*`/`bash`
+ * back to the UI (file-change events, preview HMR, snapshots). Writes already
+ * surfaced by a `tools.*` call are skipped.
+ */
+function wrapCodemodeTool(
+	tool: AnyTool,
+	context: ToolExecutorContext,
+	sendEvent: SendEventFunction,
+	queryChanges: FileChange[],
+	emittedChangePaths: ReadonlySet<string>,
+): AnyTool {
+	const originalExecute = tool.execute;
+	if (typeof originalExecute !== 'function') return tool;
+	return {
+		...tool,
+		execute: async (input: unknown, options: unknown) => {
+			try {
+				return await Reflect.apply(originalExecute, tool, [input, options]);
+			} finally {
+				await drainWorkspaceChanges(context, sendEvent, queryChanges, emittedChangePaths);
+			}
+		},
+	};
+}
+
+async function drainWorkspaceChanges(
+	context: ToolExecutorContext,
+	sendEvent: SendEventFunction,
+	queryChanges: FileChange[],
+	emittedChangePaths: ReadonlySet<string>,
+): Promise<void> {
+	const changes: WorkspaceChangeEvent[] = await context.fsStub.drainWorkspaceChanges();
+	const seen = new Set<string>();
+	const hmrPaths: string[] = [];
+
+	for (const change of changes) {
+		const path = change.path;
+		if (seen.has(path) || emittedChangePaths.has(path)) continue;
+		if (path.startsWith('/.git') || isHiddenPath(path)) continue;
+		seen.add(path);
+
+		const action = change.type === 'create' ? 'create' : change.type === 'delete' ? 'delete' : 'edit';
+		let afterContent: string | undefined;
+		if (action !== 'delete') {
+			try {
+				afterContent = await fs.readFile(`${PROJECT_ROOT}${path}`, 'utf8');
+			} catch {
+				afterContent = undefined;
+			}
+		}
+
+		sendEvent('file_changed', { path, action, afterContent });
+		queryChanges.push({ path, action, beforeContent: undefined, afterContent, isBinary: false });
+		hmrPaths.push(path);
+	}
+
+	if (hmrPaths.length > 0) {
+		const coordinator = coordinatorNamespace.getByName(`project:${context.projectId}`);
+		await Promise.all(hmrPaths.map((path) => coordinator.triggerUpdate(createHmrUpdateForFile(path))));
+	}
+}
+
+/**
+ * Convert a {@link ToolDefinition} + executor into an AI SDK tool: validate and
+ * string-coerce input, enforce mode gating, log, emit `tool_result`, and feed
+ * the doom-loop failure queue.
+ */
+function wrapTool(definition: ToolDefinition, executor: ToolExecuteFunction, deps: WrapDeps): AnyTool {
+	const { sendEvent, context, queryChanges, mode, logger, toolFailures } = deps;
+	const toolName = definition.name;
+
+	const requiredProperties = new Set<string>(Array.isArray(definition.input_schema.required) ? definition.input_schema.required : []);
+	const knownProperties = new Set<string>(definition.input_schema.properties ? Object.keys(definition.input_schema.properties) : []);
+
+	// A `validate` function is required so the AI SDK runs input validation
+	// (and `experimental_repairToolCall` fires) for hallucinated property names.
+	// eslint-disable-next-line @typescript-eslint/consistent-type-assertions, @typescript-eslint/no-explicit-any -- Bridge between our JSON Schema definitions and the AI SDK's JSONSchema7 type
+	const schema = jsonSchema<Record<string, string>>(definition.input_schema as any, {
+		validate: (value): { success: true; value: Record<string, string> } | { success: false; error: Error } => {
+			if (value === undefined || value === null || typeof value !== 'object' || Array.isArray(value)) {
+				return { success: false, error: new Error('Expected an object') };
+			}
+			const entries = Object.entries(value);
+			const keys = entries.map(([key]) => key);
+			for (const required of requiredProperties) {
+				if (!keys.includes(required)) {
+					return { success: false, error: new Error(`Missing required property: "${required}". Received keys: ${keys.join(', ')}`) };
+				}
+			}
+			// Strip unknown properties and string-coerce values (objects/arrays are
+			// JSON-serialized so structured data survives).
+			const validated: Record<string, string> = {};
+			for (const [key, entryValue] of entries) {
+				if (knownProperties.has(key)) {
+					validated[key] = typeof entryValue === 'object' && entryValue !== null ? JSON.stringify(entryValue) : String(entryValue);
+				}
+			}
+			return { success: true, value: validated };
+		},
+	});
+
+	return {
+		description: definition.description,
+		inputSchema: schema,
+		execute: async (input: Record<string, string>, executeOptions?: { toolCallId?: string }) => {
+			if (context.abortSignal?.aborted) {
+				throw new DOMException('Aborted', 'AbortError');
+			}
+
+			const callContext: ToolExecutorContext = { ...context, toolCallId: executeOptions?.toolCallId };
+
+			// Defense-in-depth: reject editing tools in non-code modes.
+			if (mode !== 'code' && EDITING_TOOL_NAMES.has(toolName)) {
+				logger?.warn('tool_call', 'blocked', { toolName, reason: 'editing_tool_in_non_code_mode', mode });
+				return 'File editing tools are not available in this mode. Switch to Code mode to make changes.';
+			}
+
+			logger?.info('tool_call', 'started', { toolName, input: sanitizeToolInput(input) });
+			const timer = logger?.startTimer();
+
+			try {
+				const result = await executor(input, sendEvent, callContext, queryChanges);
+				logger?.info(
+					'tool_call',
+					'completed',
+					{ toolName, resultSummary: summarizeToolResult(result.output), resultLength: result.output.length },
+					{ durationMs: timer?.() },
+				);
+				sendEvent('tool_result', { tool_name: toolName, title: result.title, metadata: result.metadata });
+				return result.output;
+			} catch (error) {
+				const isToolError = error instanceof ToolExecutionError;
+				logger?.[isToolError ? 'warn' : 'error'](
+					'tool_call',
+					isToolError ? 'tool_error' : 'error',
+					{
+						toolName,
+						errorCode: isToolError ? error.code : undefined,
+						error: error instanceof Error ? error.message : String(error),
+						stack: isToolError ? undefined : error instanceof Error ? error.stack : undefined,
+					},
+					{ durationMs: timer?.() },
+				);
+				toolFailures?.push({
+					toolName,
+					errorCode: isToolError ? error.code : undefined,
+					errorMessage: error instanceof Error ? error.message : String(error),
+				});
+				throw error;
+			}
+		},
+	};
+}
+
+/**
+ * Browser Run tools, exposed inside Code Mode as `tools.browser_*`. Quick
+ * Actions are read-only page reads (every mode); the durable `browser_execute`
+ * can mutate page state, so it is code-mode only. Both are restricted to the
+ * project's preview origin(s).
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Tool generic variance; mixed AI SDK tool shapes
+async function addBrowserTools(target: Record<string, any>, context: ToolExecutorContext, mode: 'code' | 'plan' | 'ask'): Promise<void> {
+	if (!context.ctx || !context.loader || !context.browser || !context.requestOriginContext) return;
+
+	const { createBrowserTools } = await import('@cloudflare/think/tools/browser');
+	const browserTools = createBrowserTools({
+		ctx: context.ctx,
+		browser: context.browser,
+		loader: context.loader,
+		session: { mode: 'dynamic' },
+	});
+
+	const secret = import.meta.env.DEV ? env.PREVIEW_SECRET || DEV_PREVIEW_SECRET : env.PREVIEW_SECRET;
+	const allowedPreviewOrigins = await buildAllowedPreviewOrigins(context.projectId, context.requestOriginContext, secret);
+	const primaryPreviewOrigin = allowedPreviewOrigins[0];
+
+	for (const quickActionName of QUICK_ACTION_TOOL_NAMES) {
+		const quickActionTool = browserTools[quickActionName];
+		if (quickActionTool) {
+			target[quickActionName] = wrapQuickActionTool(quickActionTool, allowedPreviewOrigins);
+		}
+	}
+
+	if (mode === 'code') {
+		const browserExecute = browserTools.browser_execute;
+		target.browser_execute = {
+			...browserExecute,
+			execute: async (input: { code: string }) => {
+				if (!primaryPreviewOrigin) {
+					throw new ToolExecutionError('NOT_ALLOWED', 'browser_execute is unavailable until the project preview origin is known.');
+				}
+				if (typeof browserExecute.execute !== 'function') {
+					throw new ToolExecutionError('NOT_ALLOWED', 'browser_execute is unavailable in the current browser tool configuration.');
+				}
+				return Reflect.apply(browserExecute.execute, browserExecute, [
+					{ code: wrapBrowserExecuteCode(input.code, primaryPreviewOrigin, allowedPreviewOrigins) },
+					undefined,
+				]);
+			},
+		};
+	}
+}
+
+/**
+ * Browser Run Quick Action tools exposed by `createBrowserTools`.
+ * These are stateless, read-only page reads.
  */
 const QUICK_ACTION_TOOL_NAMES = ['browser_markdown', 'browser_extract', 'browser_links', 'browser_scrape'] as const;
 
@@ -449,7 +540,7 @@ const QUICK_ACTION_TOOL_NAMES = ['browser_markdown', 'browser_extract', 'browser
  * origin(s). Quick Actions accept either a `url` or raw `html`; raw HTML never
  * navigates, so it passes through untouched.
  */
-function wrapQuickActionTool(quickActionTool: { execute?: unknown }, allowedPreviewOrigins: string[]): unknown {
+function wrapQuickActionTool(quickActionTool: { execute?: unknown }, allowedPreviewOrigins: string[]): AnyTool {
 	const originalExecute = quickActionTool.execute;
 	if (typeof originalExecute !== 'function') {
 		return quickActionTool;

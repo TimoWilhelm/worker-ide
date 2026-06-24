@@ -78,7 +78,7 @@ describe('AgentLogger', () => {
 		});
 
 		it('includes durationMs when provided', () => {
-			logger.info('tool_call', 'completed', { toolName: 'file_read' }, { durationMs: 42 });
+			logger.info('tool_call', 'completed', { toolName: 'lint_check' }, { durationMs: 42 });
 			const entry = logger.toJSON().entries[0];
 			expect(entry.durationMs).toBe(42);
 		});
@@ -126,12 +126,12 @@ describe('AgentLogger', () => {
 
 	describe('summary tracking', () => {
 		it('tracks tool calls by name', () => {
-			logger.recordToolCall('file_read');
-			logger.recordToolCall('file_read');
-			logger.recordToolCall('file_write');
+			logger.recordToolCall('lint_check');
+			logger.recordToolCall('lint_check');
+			logger.recordToolCall('lint_fix');
 			const summary = logger.toJSON().summary;
 			expect(summary.totalToolCalls).toBe(3);
-			expect(summary.toolCallsByName).toEqual({ file_read: 2, file_write: 1 });
+			expect(summary.toolCallsByName).toEqual({ lint_check: 2, lint_fix: 1 });
 		});
 
 		it('tracks token usage cumulatively', () => {
@@ -201,7 +201,7 @@ describe('AgentLogger', () => {
 	describe('toJSON', () => {
 		it('produces a valid AgentDebugLog document', () => {
 			logger.info('agent_loop', 'started');
-			logger.recordToolCall('file_read');
+			logger.recordToolCall('lint_check');
 
 			const result: AgentDebugLog = logger.toJSON();
 

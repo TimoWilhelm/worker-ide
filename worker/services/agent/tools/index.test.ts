@@ -7,11 +7,6 @@ import { AGENT_TOOLS, ASK_MODE_TOOLS, MUTATION_TOOL_NAMES, PLAN_MODE_TOOLS, READ
 describe('PLAN_MODE_TOOLS', () => {
 	it('only includes read-only and research tools', () => {
 		const toolNames = PLAN_MODE_TOOLS.map((tool) => tool.name);
-		expect(toolNames).toContain('file_read');
-		expect(toolNames).toContain('file_grep');
-		expect(toolNames).toContain('file_glob');
-		expect(toolNames).toContain('file_list');
-		expect(toolNames).toContain('files_list');
 		expect(toolNames).toContain('docs_search');
 		expect(toolNames).toContain('web_fetch');
 		expect(toolNames).toContain('user_question');
@@ -19,13 +14,12 @@ describe('PLAN_MODE_TOOLS', () => {
 		expect(toolNames).toContain('todos_update');
 	});
 
-	it('excludes file-editing tools', () => {
+	it('excludes mutating tools (file ops are state.* in Code Mode)', () => {
 		const toolNames = PLAN_MODE_TOOLS.map((tool) => tool.name);
-		expect(toolNames).not.toContain('file_edit');
-		expect(toolNames).not.toContain('file_write');
-
-		expect(toolNames).not.toContain('file_delete');
-		expect(toolNames).not.toContain('file_move');
+		expect(toolNames).not.toContain('lint_fix');
+		expect(toolNames).not.toContain('dependencies_update');
+		expect(toolNames).not.toContain('image_generate');
+		expect(toolNames).not.toContain('bash');
 	});
 
 	it('is a subset of AGENT_TOOLS', () => {
@@ -39,11 +33,6 @@ describe('PLAN_MODE_TOOLS', () => {
 describe('ASK_MODE_TOOLS', () => {
 	it('includes read-only tools', () => {
 		const toolNames = ASK_MODE_TOOLS.map((tool) => tool.name);
-		expect(toolNames).toContain('file_read');
-		expect(toolNames).toContain('file_grep');
-		expect(toolNames).toContain('file_glob');
-		expect(toolNames).toContain('file_list');
-		expect(toolNames).toContain('files_list');
 		expect(toolNames).toContain('docs_search');
 		expect(toolNames).toContain('web_fetch');
 		expect(toolNames).toContain('user_question');
@@ -59,15 +48,11 @@ describe('ASK_MODE_TOOLS', () => {
 		expect(toolNames).not.toContain('plan_update');
 	});
 
-	it('excludes file-editing tools', () => {
+	it('excludes mutating tools', () => {
 		const toolNames = ASK_MODE_TOOLS.map((tool) => tool.name);
-		expect(toolNames).not.toContain('file_edit');
-		expect(toolNames).not.toContain('file_multiedit');
-		expect(toolNames).not.toContain('file_write');
-		expect(toolNames).not.toContain('file_delete');
-		expect(toolNames).not.toContain('file_move');
 		expect(toolNames).not.toContain('lint_fix');
 		expect(toolNames).not.toContain('dependencies_update');
+		expect(toolNames).not.toContain('bash');
 	});
 
 	it('is a subset of AGENT_TOOLS', () => {
@@ -110,7 +95,7 @@ describe('tool registration sync', () => {
 		'browser_links',
 		'browser_scrape',
 		'cdp_eval',
-		'execute',
+		'codemode',
 		'list_extensions',
 		'load_extension',
 	];
