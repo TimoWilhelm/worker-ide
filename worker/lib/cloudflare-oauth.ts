@@ -99,22 +99,23 @@ export function buildAuthorizationUrl(options: { clientId: string; redirectUri: 
 // Token endpoint calls
 // ---------------------------------------------------------------------------
 
-function basicAuthHeader(environment: CloudflareOAuthEnvironment): string {
-	return `Basic ${btoa(`${environment.CLOUDFLARE_OAUTH_CLIENT_ID}:${environment.CLOUDFLARE_OAUTH_CLIENT_SECRET}`)}`;
+function appendClientCredentials(environment: CloudflareOAuthEnvironment, body: URLSearchParams): void {
+	body.set('client_id', environment.CLOUDFLARE_OAUTH_CLIENT_ID);
+	body.set('client_secret', environment.CLOUDFLARE_OAUTH_CLIENT_SECRET);
 }
 
 async function requestToken(environment: CloudflareOAuthEnvironment, body: URLSearchParams): Promise<TokenResponse> {
+	appendClientCredentials(environment, body);
+
 	const response = await fetch(CLOUDFLARE_OAUTH_TOKEN_URL, {
 		method: 'POST',
-		headers: {
-			'Content-Type': 'application/x-www-form-urlencoded',
-			Authorization: basicAuthHeader(environment),
-		},
+		headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
 		body: body.toString(),
 	});
 
 	if (!response.ok) {
-		throw new Error(`Cloudflare token endpoint returned ${response.status}`);
+		const detail = await response.text();
+		throw new Error(`Cloudflare token endpoint returned ${response.status}: ${detail}`);
 	}
 
 	const parsed = tokenResponseSchema.safeParse(await response.json());
@@ -147,13 +148,12 @@ async function refreshAccessToken(environment: CloudflareOAuthEnvironment, refre
 
 export async function revokeToken(environment: CloudflareOAuthEnvironment, token: string): Promise<void> {
 	try {
+		const body = new URLSearchParams({ token });
+		appendClientCredentials(environment, body);
 		await fetch(CLOUDFLARE_OAUTH_REVOKE_URL, {
 			method: 'POST',
-			headers: {
-				'Content-Type': 'application/x-www-form-urlencoded',
-				Authorization: basicAuthHeader(environment),
-			},
-			body: new URLSearchParams({ token }).toString(),
+			headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+			body: body.toString(),
 		});
 	} catch (error) {
 		// Revocation is best-effort; the local connection is deleted regardless.

@@ -94,8 +94,10 @@ describe('exchangeCodeForTokens', () => {
 		expect(body).toContain('grant_type=authorization_code');
 		expect(body).toContain('code=the-code');
 		expect(body).toContain('code_verifier=the-verifier');
+		expect(body).toContain('client_id=client-id');
+		expect(body).toContain('client_secret=client-secret');
 		const headers = new Headers(options?.headers);
-		expect(headers.get('Authorization')).toBe(`Basic ${btoa('client-id:client-secret')}`);
+		expect(headers.get('Authorization')).toBeNull();
 	});
 
 	it('throws when the token endpoint fails', async () => {
