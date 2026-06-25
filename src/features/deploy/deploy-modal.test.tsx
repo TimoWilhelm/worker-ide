@@ -96,7 +96,7 @@ describe('DeployModal', () => {
 		mockGetCloudflareConnection.mockResolvedValue({ connected: false });
 		renderDeployModal();
 
-		expect(await screen.findByRole('button', { name: /connect cloudflare/i })).toBeInTheDocument();
+		expect(await screen.findByRole('button', { name: /connect to cloudflare/i })).toBeInTheDocument();
 		expect(screen.queryByLabelText('Cloudflare Account')).not.toBeInTheDocument();
 	});
 

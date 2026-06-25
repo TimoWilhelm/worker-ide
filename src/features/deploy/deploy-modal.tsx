@@ -139,8 +139,18 @@ interface DeployModalContentProperties extends DeployModalProperties {
  */
 function DeployModalContent({ open, onOpenChange, projectId, projectName, deployState, setDeployState }: DeployModalContentProperties) {
 	const queryClient = useQueryClient();
-	const { isLoadingConnection, connected, email, accounts, isLoadingAccounts, accountsError, connect, disconnect, isDisconnecting } =
-		useCloudflareConnection(open);
+	const {
+		isLoadingConnection,
+		connected,
+		email,
+		accounts,
+		isLoadingAccounts,
+		accountsError,
+		connect,
+		isConnecting,
+		disconnect,
+		isDisconnecting,
+	} = useCloudflareConnection(open);
 
 	const [selectedAccountId, setSelectedAccountId] = useState(() => loadSavedAccountId(projectId) ?? '');
 	const [workerName, setWorkerName] = useState(() => sanitizeWorkerName(projectName));
@@ -251,7 +261,7 @@ function DeployModalContent({ open, onOpenChange, projectId, projectName, deploy
 	}, [deployState, projectId, setDeployState]);
 
 	const isDeploying = deployState.status === 'deploying';
-	const canDeploy = connected && validationResult.success && !isDeploying;
+	const canDeploy = connected && validationResult.success && !isDeploying && !isConnecting && !isDisconnecting;
 
 	return (
 		<>
@@ -330,18 +340,36 @@ function DeployModalContent({ open, onOpenChange, projectId, projectName, deploy
 								<CheckCircle className="size-3.5 shrink-0 text-green-500" />
 								<span className="truncate text-text-secondary">Connected{email ? ` as ${email}` : ''}</span>
 							</div>
-							<button
-								type="button"
-								onClick={() => disconnect()}
-								disabled={isDisconnecting}
-								className="
-									shrink-0 text-text-secondary underline transition-colors
-									hover:text-text-primary
-									disabled:opacity-50
-								"
-							>
-								Disconnect
-							</button>
+							<div className="flex shrink-0 items-center gap-3">
+								<button
+									type="button"
+									onClick={() => connect()}
+									disabled={isConnecting || isDisconnecting}
+									className="
+										flex cursor-pointer items-center gap-1 text-text-secondary underline
+										transition-colors
+										hover:text-text-primary
+										disabled:cursor-default disabled:opacity-50
+									"
+								>
+									{isConnecting && <Loader2 className="size-3 animate-spin" />}
+									{isConnecting ? 'Waiting…' : 'Edit access'}
+								</button>
+								<button
+									type="button"
+									onClick={() => disconnect()}
+									disabled={isConnecting || isDisconnecting}
+									className="
+										flex cursor-pointer items-center gap-1 text-text-secondary underline
+										transition-colors
+										hover:text-text-primary
+										disabled:cursor-default disabled:opacity-50
+									"
+								>
+									{isDisconnecting && <Loader2 className="size-3 animate-spin" />}
+									{isDisconnecting ? 'Disconnecting…' : 'Disconnect'}
+								</button>
+							</div>
 						</div>
 
 						<div className="flex flex-col gap-1.5">
@@ -398,7 +426,6 @@ function DeployModalContent({ open, onOpenChange, projectId, projectName, deploy
 									'disabled:opacity-50',
 								)}
 							/>
-							<p className="text-xs text-text-secondary">The name for your deployed Worker (lowercase, hyphens allowed).</p>
 							{workerNameError && <p className="text-xs text-red-500">{workerNameError}</p>}
 						</div>
 
@@ -407,14 +434,9 @@ function DeployModalContent({ open, onOpenChange, projectId, projectName, deploy
 				) : (
 					<div className="flex flex-col items-center gap-3 py-4 text-center">
 						<Server className="size-8 text-text-secondary" />
-						<p className="text-sm font-medium text-text-primary">Connect your Cloudflare account</p>
-						<p className="text-xs text-text-secondary">
-							Authorize Worker IDE to deploy Workers to your Cloudflare account. You will be asked to grant access to Workers Scripts and R2
-							Storage.
-						</p>
-						<Button onClick={connect}>
+						<Button onClick={connect} isLoading={isConnecting}>
 							<ExternalLink className="size-4" />
-							Connect Cloudflare
+							{isConnecting ? 'Connecting…' : 'Connect to Cloudflare'}
 						</Button>
 					</div>
 				)}

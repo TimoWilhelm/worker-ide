@@ -107,13 +107,13 @@ describe('exchangeCodeForTokens', () => {
 });
 
 describe('listAccounts', () => {
-	it('maps accepted memberships to accounts', async () => {
-		vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+	it('returns the accounts the token can access', async () => {
+		const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
 			Response.json(
 				{
 					result: [
-						{ status: 'accepted', account: { id: 'acc-1', name: 'Account One' } },
-						{ status: 'pending', account: { id: 'acc-2', name: 'Account Two' } },
+						{ id: 'acc-1', name: 'Account One' },
+						{ id: 'acc-2', name: 'Account Two' },
 					],
 				},
 				{ status: 200, headers: { 'Content-Type': 'application/json' } },
@@ -121,10 +121,14 @@ describe('listAccounts', () => {
 		);
 
 		const accounts = await listAccounts('access-token');
-		expect(accounts).toEqual([{ id: 'acc-1', name: 'Account One' }]);
+		expect(accounts).toEqual([
+			{ id: 'acc-1', name: 'Account One' },
+			{ id: 'acc-2', name: 'Account Two' },
+		]);
+		expect(String(fetchMock.mock.calls[0][0])).toContain('/accounts');
 	});
 
-	it('throws when the memberships request fails', async () => {
+	it('throws when the accounts request fails', async () => {
 		vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('error', { status: 403 }));
 		await expect(listAccounts('access-token')).rejects.toThrow();
 	});

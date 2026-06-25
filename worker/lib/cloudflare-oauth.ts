@@ -49,15 +49,8 @@ const userInfoSchema = z.object({
 	email: z.string().optional(),
 });
 
-const membershipsResponseSchema = z.object({
-	result: z
-		.array(
-			z.object({
-				status: z.string().optional(),
-				account: z.object({ id: z.string(), name: z.string() }),
-			}),
-		)
-		.optional(),
+const accountsResponseSchema = z.object({
+	result: z.array(z.object({ id: z.string(), name: z.string() })).optional(),
 });
 
 // ---------------------------------------------------------------------------
@@ -178,20 +171,24 @@ export async function fetchCloudflareEmail(accessToken: string): Promise<string 
 	}
 }
 
+/**
+ * List the accounts the OAuth token is allowed to act on. Uses `/accounts`
+ * (not `/memberships`) so the result respects the account restriction the user
+ * chose during consent — if they granted access to a single account, only that
+ * account is returned.
+ */
 export async function listAccounts(accessToken: string): Promise<CloudflareAccount[]> {
-	const response = await fetch(`${CLOUDFLARE_API_BASE}/memberships?per_page=50`, {
+	const response = await fetch(`${CLOUDFLARE_API_BASE}/accounts?per_page=50`, {
 		headers: { Authorization: `Bearer ${accessToken}` },
 	});
 	if (!response.ok) {
 		throw new Error(`Failed to list Cloudflare accounts (status ${response.status})`);
 	}
-	const parsed = membershipsResponseSchema.safeParse(await response.json());
+	const parsed = accountsResponseSchema.safeParse(await response.json());
 	if (!parsed.success || !parsed.data.result) {
 		return [];
 	}
-	return parsed.data.result
-		.filter((membership) => membership.status === undefined || membership.status === 'accepted')
-		.map((membership) => ({ id: membership.account.id, name: membership.account.name }));
+	return parsed.data.result.map((account) => ({ id: account.id, name: account.name }));
 }
 
 // ---------------------------------------------------------------------------

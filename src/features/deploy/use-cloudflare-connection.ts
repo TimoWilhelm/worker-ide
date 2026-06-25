@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { disconnectCloudflare, getCloudflareConnection, listCloudflareAccounts } from '@/lib/api-client';
 
@@ -15,6 +15,16 @@ const ACCOUNTS_QUERY_KEY = ['cloudflare-accounts'];
  */
 export function useCloudflareConnection(enabled: boolean) {
 	const queryClient = useQueryClient();
+	const [isConnecting, setIsConnecting] = useState(false);
+	const popupPollReference = useRef<ReturnType<typeof setInterval>>(undefined);
+
+	const stopConnecting = useCallback(() => {
+		setIsConnecting(false);
+		if (popupPollReference.current) {
+			clearInterval(popupPollReference.current);
+			popupPollReference.current = undefined;
+		}
+	}, []);
 
 	const connectionQuery = useQuery({
 		queryKey: CONNECTION_QUERY_KEY,
@@ -53,20 +63,34 @@ export function useCloudflareConnection(enabled: boolean) {
 			const data: unknown = event.data;
 			if (typeof data !== 'object' || data === null) return;
 			if (!('type' in data) || data.type !== 'cloudflare-oauth') return;
-			void refreshConnection();
+			void refreshConnection().finally(stopConnecting);
 		}
 
 		window.addEventListener('message', handleMessage);
 		return () => window.removeEventListener('message', handleMessage);
-	}, [enabled, refreshConnection]);
+	}, [enabled, refreshConnection, stopConnecting]);
+
+	// Clean up the popup poll on unmount.
+	useEffect(() => stopConnecting, [stopConnecting]);
 
 	const connect = useCallback(() => {
 		const width = 600;
 		const height = 720;
 		const left = window.screenX + Math.max(0, (window.outerWidth - width) / 2);
 		const top = window.screenY + Math.max(0, (window.outerHeight - height) / 2);
-		window.open('/api/cloudflare/oauth/connect', 'cloudflare-oauth', `width=${width},height=${height},left=${left},top=${top}`);
-	}, []);
+		const popup = window.open(
+			'/api/cloudflare/oauth/connect',
+			'cloudflare-oauth',
+			`width=${width},height=${height},left=${left},top=${top}`,
+		);
+		if (!popup) return;
+
+		setIsConnecting(true);
+		// Reset the connecting state if the user closes the popup without finishing.
+		popupPollReference.current = setInterval(() => {
+			if (popup.closed) stopConnecting();
+		}, 500);
+	}, [stopConnecting]);
 
 	return {
 		isLoadingConnection: connectionQuery.isLoading,
@@ -76,6 +100,7 @@ export function useCloudflareConnection(enabled: boolean) {
 		isLoadingAccounts: accountsQuery.isLoading,
 		accountsError: accountsQuery.isError,
 		connect,
+		isConnecting,
 		disconnect: disconnectMutation.mutate,
 		isDisconnecting: disconnectMutation.isPending,
 		refreshConnection,
