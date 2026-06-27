@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { parseJsonc } from '@shared/jsonc';
 
+import { isVinextProject } from './services/vite-host/vinext-detection';
 import { DEFAULT_TEMPLATE_ID, getTemplate, getTemplateMetadata, TEMPLATES } from './templates';
 
 import type { ProjectTemplate, ProjectTemplateMeta } from './templates';
@@ -119,6 +120,29 @@ describe('getTemplate', () => {
 	it('is case-sensitive', () => {
 		const template = getTemplate('Request-Inspector');
 		expect(template).toBeUndefined();
+	});
+});
+
+describe('vinext template', () => {
+	it('is registered and detected as a vinext project', () => {
+		const template = getTemplate('vinext');
+		expect(template).toBeDefined();
+		expect(isVinextProject(template?.files ?? {})).toBe(true);
+	});
+
+	it('ships an App Router with a server page and a client component', () => {
+		const template = getTemplate('vinext');
+		expect(template?.files['app/page.tsx']).toContain('export default function Page');
+		expect(template?.files['app/layout.tsx']).toContain('RootLayout');
+		expect(template?.files['app/counter.tsx']).toContain("'use client'");
+	});
+
+	it('declares vinext and the RSC runtime dependencies', () => {
+		const template = getTemplate('vinext');
+		const manifest: { devDependencies?: Record<string, string> } = JSON.parse(template?.files['package.json'] ?? '{}');
+		expect(manifest.devDependencies?.vinext).toBeDefined();
+		expect(manifest.devDependencies?.['@vitejs/plugin-rsc']).toBeDefined();
+		expect(manifest.devDependencies?.['react-server-dom-webpack']).toBeDefined();
 	});
 });
 

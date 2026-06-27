@@ -17,6 +17,7 @@ import { bundleFiles } from './bundle-service';
 import { BundleDependencyError } from './bundler-client';
 import { parseDependencyErrorsFromMessage } from './dependency-error-parser';
 import { processHTML, rewriteExternalModuleImports, toEsbuildTsconfigRaw, transformModule, type FileSystem } from './transform-service';
+import { VinextPreviewService } from './vinext-preview';
 import { coordinatorNamespace } from '../lib/durable-object-namespaces';
 import { source as chobitsuInitSource, hash as chobitsuInitHash } from '../lib/preview-scripts/chobitsu-init.js?raw-minified';
 import { source as elementPickerSource, hash as elementPickerHash } from '../lib/preview-scripts/element-picker.js?raw-minified';
@@ -191,10 +192,31 @@ function cleanBuildErrorMessage(message: string): string {
 }
 
 export class PreviewService {
+	/** Lazily-created vinext preview, instantiated only for vinext projects. */
+	private vinextPreview?: VinextPreviewService;
+	/** Cached vinext detection result for this project (undefined = not probed). */
+	private vinextDetected?: boolean;
+
 	constructor(
 		private projectRoot: string,
 		private projectId: string,
 	) {}
+
+	/** Resolve (and memoize) whether this project should use the vinext build flow. */
+	private async resolveVinextPreview(): Promise<VinextPreviewService | undefined> {
+		if (this.vinextDetected === false) {
+			return undefined;
+		}
+		const preview = this.vinextPreview ?? new VinextPreviewService(this.projectRoot, this.projectId);
+		if (this.vinextDetected === undefined) {
+			this.vinextDetected = await preview.isVinext();
+		}
+		if (!this.vinextDetected) {
+			return undefined;
+		}
+		this.vinextPreview = preview;
+		return preview;
+	}
 	withPreviewRobotsHeader(response: Response): Response {
 		return applyPreviewResponseMiddlewares(response, { ideOrigin: '' }, [applyPreviewRobotsHeader]);
 	}
@@ -229,6 +251,14 @@ export class PreviewService {
 		return false;
 	}
 	async routePreviewRequest(request: Request, ideOrigin: string, preloadedAssetSettings?: ResolvedAssetSettings): Promise<Response> {
+		// vinext projects need a full multi-environment build (RSC + SSR + client)
+		// rather than the legacy per-request transform pipeline; route them through
+		// the in-worker Vite Surface Host.
+		const vinextPreview = await this.resolveVinextPreview();
+		if (vinextPreview !== undefined) {
+			return this.finalizePreviewResponse(await vinextPreview.serve(request, ideOrigin), ideOrigin);
+		}
+
 		const assetSettings = preloadedAssetSettings ?? (await this.loadAssetSettings());
 		const url = new URL(request.url);
 

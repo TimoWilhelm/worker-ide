@@ -1,0 +1,6 @@
+{
+	"id": "vinext",
+	"name": "Next.js (vinext)",
+	"description": "A Next.js App Router app running on Vite via vinext — React Server Components rendered on Cloudflare Workers.",
+	"icon": "Triangle"
+}

@@ -32,6 +32,14 @@ import requestInspectorVitestConfig from './fixtures/request-inspector/vitest.co
 import requestInspectorWorkerIndexTs from './fixtures/request-inspector/worker/index.ts?raw';
 import requestInspectorWorkerEnvironmentDts from './fixtures/request-inspector/worker-env.d.ts?raw';
 import requestInspectorWranglerJsonc from './fixtures/request-inspector/wrangler.jsonc?raw';
+import vinextCounterTsx from './fixtures/vinext/app/counter.tsx?raw';
+import vinextGlobalsCss from './fixtures/vinext/app/globals.css?raw';
+import vinextLayoutTsx from './fixtures/vinext/app/layout.tsx?raw';
+import vinextPageTsx from './fixtures/vinext/app/page.tsx?raw';
+import vinextGitignore from './fixtures/vinext/gitignore.txt?raw';
+import vinextPackageJson from './fixtures/vinext/package.json?raw';
+import vinextMetaRaw from './fixtures/vinext/template.json?raw';
+import vinextTsconfig from './fixtures/vinext/tsconfig.json?raw';
 
 import type { ProjectTemplateMeta } from '@shared/types';
 
@@ -100,11 +108,21 @@ const requestInspectorTemplate = defineTemplate(requestInspectorMetaRaw, {
 	'.gitignore': requestInspectorGitignore,
 });
 
+const vinextTemplate = defineTemplate(vinextMetaRaw, {
+	'package.json': vinextPackageJson,
+	'tsconfig.json': vinextTsconfig,
+	'app/layout.tsx': vinextLayoutTsx,
+	'app/page.tsx': vinextPageTsx,
+	'app/counter.tsx': vinextCounterTsx,
+	'app/globals.css': vinextGlobalsCss,
+	'.gitignore': vinextGitignore,
+});
+
 /**
  * All available project templates.
  * The first template in the array is the default.
  */
-export const TEMPLATES: ProjectTemplate[] = [requestInspectorTemplate, minimalTemplate];
+export const TEMPLATES: ProjectTemplate[] = [requestInspectorTemplate, minimalTemplate, vinextTemplate];
 export const DEFAULT_TEMPLATE_ID = 'request-inspector';
 
 /**

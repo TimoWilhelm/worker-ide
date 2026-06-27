@@ -1,0 +1,27 @@
+:root {
+	color-scheme: light dark;
+	font-family:
+		system-ui,
+		-apple-system,
+		sans-serif;
+}
+
+body {
+	margin: 0;
+	padding: 2rem;
+	line-height: 1.6;
+}
+
+.container {
+	max-width: 40rem;
+	margin: 0 auto;
+}
+
+.counter {
+	font: inherit;
+	padding: 0.5rem 1rem;
+	border: 2px solid currentColor;
+	border-radius: 0.5rem;
+	background: transparent;
+	cursor: pointer;
+}

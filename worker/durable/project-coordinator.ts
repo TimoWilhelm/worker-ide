@@ -124,6 +124,7 @@ const STORAGE_KEY = {
 	UPDATE_VERSION: 'updateVersion',
 	OUTPUT_LOGS: 'outputLogs',
 	RECENT_FILE_EDITS: 'recentFileEdits',
+	IS_VINEXT_PREVIEW: 'isVinextPreview',
 };
 
 /**
@@ -171,6 +172,20 @@ export class ProjectCoordinatorV2 extends DurableObject {
 
 	getUpdateVersion(): number {
 		return this.updateVersion;
+	}
+
+	private get isVinextPreview(): boolean {
+		return this.ctx.storage.kv.get<boolean>(STORAGE_KEY.IS_VINEXT_PREVIEW) ?? false;
+	}
+
+	/**
+	 * Mark this project as using the vinext preview. Preview sockets receive HMR
+	 * exclusively through `vinext:hmr` custom events, which carry React Fast
+	 * Refresh and the state-preserving server refresh; the generic
+	 * `update`/`full-reload` broadcast is reserved for non-preview clients.
+	 */
+	markVinextPreview(): void {
+		this.ctx.storage.kv.put(STORAGE_KEY.IS_VINEXT_PREVIEW, true);
 	}
 
 	private get outputLogs(): string {
@@ -500,6 +515,15 @@ export class ProjectCoordinatorV2 extends DurableObject {
 				},
 			],
 		});
+
+		if (this.isVinextPreview) {
+			// vinext drives module-level HMR: the preview glue re-imports the changed
+			// client component (React Fast Refresh, state preserved) or runs the
+			// router's server refresh for server-component edits. Preview sockets
+			// receive a single `vinext:hmr` event carrying that change.
+			this.sendToKind('preview', JSON.stringify({ type: 'custom', event: 'vinext:hmr', data: { path: update.path } }));
+			return;
+		}
 
 		this.sendToAll(message);
 	}

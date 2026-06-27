@@ -73,6 +73,10 @@
 			"new_sqlite_classes": ["ProjectMetadata"],
 			"tag": "v7",
 		},
+		{
+			"new_sqlite_classes": ["VinextPreviewHost"],
+			"tag": "v8",
+		},
 	],
 	"r2_buckets": [
 		{
