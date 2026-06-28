@@ -41,7 +41,7 @@ const workersSubdomainResponseSchema = z.object({
 		.optional(),
 });
 
-interface ProjectBuildInputs {
+export interface ProjectBuildInputs {
 	projectName: string;
 	assetSettings: AssetSettings | undefined;
 	bindingsConfig: { storage?: boolean };
@@ -425,15 +425,36 @@ export async function uploadStaticAssets(
 	return completionJwt;
 }
 
-export async function uploadWorkerScript(
-	accountId: string,
-	accessToken: string,
-	workerName: string,
-	workerCode: string,
-	assetsCompletionJwt: string | undefined,
-	assetSettings?: AssetSettings,
-	r2BucketName?: string,
-): Promise<void> {
+/** A single module in a Workers module-worker upload. */
+export interface WorkerScriptModule {
+	/** Module name, matching the import specifier used inside the bundle. */
+	name: string;
+	contents: string;
+}
+
+/** Workers module content type for a module-worker part, chosen by extension. */
+function workerModuleContentType(name: string): string {
+	if (name.endsWith('.json')) return 'application/json';
+	if (name.endsWith('.js') || name.endsWith('.mjs')) return 'application/javascript+module';
+	// Manifests without a JS/JSON extension (e.g. `BUILD_ID`) and emitted CSS are
+	// uploaded as text modules, matching how the LOADER isolate loads them.
+	return 'text/plain';
+}
+
+export interface UploadWorkerModulesOptions {
+	accountId: string;
+	accessToken: string;
+	workerName: string;
+	/** Entry module name within {@link modules}. */
+	mainModule: string;
+	modules: WorkerScriptModule[];
+	assetsCompletionJwt?: string;
+	assetSettings?: AssetSettings;
+	r2BucketName?: string;
+}
+
+/** Upload a (possibly multi-module) module worker with its metadata + bindings. */
+export async function uploadWorkerModules(options: UploadWorkerModulesOptions): Promise<void> {
 	const formData = new FormData();
 
 	interface DeployMetadata {
@@ -453,31 +474,33 @@ export async function uploadWorkerScript(
 	}
 
 	const metadata: DeployMetadata = {
-		main_module: 'worker.mjs',
+		main_module: options.mainModule,
 		compatibility_date: WORKERS_COMPATIBILITY_DATE,
 		compatibility_flags: ['nodejs_compat'],
 		observability: { enabled: true },
 	};
 
-	if (assetsCompletionJwt) {
+	if (options.assetsCompletionJwt) {
 		metadata.assets = {
-			jwt: assetsCompletionJwt,
-			config: resolveAssetSettings(assetSettings),
+			jwt: options.assetsCompletionJwt,
+			config: resolveAssetSettings(options.assetSettings),
 		};
 		metadata.bindings = [{ type: 'assets', name: 'ASSETS' }];
 	}
 
-	if (r2BucketName) {
+	if (options.r2BucketName) {
 		metadata.bindings ??= [];
-		metadata.bindings.push({ type: 'r2_bucket', name: 'STORAGE', bucket_name: r2BucketName });
+		metadata.bindings.push({ type: 'r2_bucket', name: 'STORAGE', bucket_name: options.r2BucketName });
 	}
 
 	formData.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
-	formData.append('worker.mjs', new Blob([workerCode], { type: 'application/javascript+module' }), 'worker.mjs');
+	for (const module of options.modules) {
+		formData.append(module.name, new Blob([module.contents], { type: workerModuleContentType(module.name) }), module.name);
+	}
 
-	const uploadResponse = await fetch(`${CLOUDFLARE_API_BASE}/accounts/${accountId}/workers/scripts/${workerName}`, {
+	const uploadResponse = await fetch(`${CLOUDFLARE_API_BASE}/accounts/${options.accountId}/workers/scripts/${options.workerName}`, {
 		method: 'PUT',
-		headers: { Authorization: `Bearer ${accessToken}` },
+		headers: { Authorization: `Bearer ${options.accessToken}` },
 		body: formData,
 	});
 
@@ -485,6 +508,27 @@ export async function uploadWorkerScript(
 		const errorText = await uploadResponse.text();
 		throw httpError(HttpErrorCode.UPSTREAM_ERROR, `Failed to deploy worker: ${extractApiError(errorText, uploadResponse.status)}`);
 	}
+}
+
+export async function uploadWorkerScript(
+	accountId: string,
+	accessToken: string,
+	workerName: string,
+	workerCode: string,
+	assetsCompletionJwt: string | undefined,
+	assetSettings?: AssetSettings,
+	r2BucketName?: string,
+): Promise<void> {
+	return uploadWorkerModules({
+		accountId,
+		accessToken,
+		workerName,
+		mainModule: 'worker.mjs',
+		modules: [{ name: 'worker.mjs', contents: workerCode }],
+		assetsCompletionJwt,
+		assetSettings,
+		r2BucketName,
+	});
 }
 
 export async function enableWorkersDevelopmentSubdomain(accountId: string, accessToken: string, workerName: string): Promise<void> {

@@ -12,13 +12,16 @@ import {
 	getWorkersDevelopmentUrl,
 	readProjectBuildInputs,
 	uploadStaticAssets,
+	uploadWorkerModules,
 	uploadWorkerScript,
+	type ProjectBuildInputs,
 } from './deploy-helpers';
 import { trackProjectEvent } from '../lib/analytics';
 import { getValidAccessToken } from '../lib/cloudflare-oauth';
-import { filesystemNamespace } from '../lib/durable-object-namespaces';
+import { filesystemNamespace, vinextPreviewHostNamespace } from '../lib/durable-object-namespaces';
 import { runWithProjectStub } from '../lib/project-fs';
 import { toDurableObjectId } from '../lib/project-id';
+import { isVinextProject } from '../services/vite-host/vinext-detection';
 
 import type { DeployResult, DeployWorkflowParameters } from '@shared/deploy-types';
 import type { WorkflowEvent, WorkflowStep, WorkflowStepConfig } from 'cloudflare:workers';
@@ -36,6 +39,13 @@ const CLOUDFLARE_API_STEP_CONFIG: WorkflowStepConfig = {
 const SHORT_CLOUDFLARE_API_STEP_CONFIG: WorkflowStepConfig = {
 	retries: { limit: 3, delay: '5 seconds', backoff: 'exponential' },
 	timeout: '5 minutes',
+};
+
+// The vinext build + asset/script uploads run together in one step (so the
+// large bundle is never persisted as step state); allow ample time for both.
+const VINEXT_DEPLOY_STEP_CONFIG: WorkflowStepConfig = {
+	retries: { limit: 2, delay: '5 seconds', backoff: 'exponential' },
+	timeout: '10 minutes',
 };
 
 function toNonRetryableError(error: unknown): Error {
@@ -76,55 +86,9 @@ export class DeployWorkflow extends WorkflowEntrypoint<Env, DeployWorkflowParame
 				runWithProjectStub(filesystemStub, async () => readProjectBuildInputs(parameters.projectRoot), parameters.projectRoot),
 			);
 
-			const workerBundle = await step.do('bundle-worker', BUILD_STEP_CONFIG, async () =>
-				runWithProjectStub(
-					filesystemStub,
-					async () => {
-						try {
-							return await bundleWorker(parameters.projectRoot, inputs);
-						} catch (error) {
-							throw toNonRetryableError(error);
-						}
-					},
-					parameters.projectRoot,
-				),
-			);
-
-			const frontendBundle = await step.do('bundle-frontend', BUILD_STEP_CONFIG, async () =>
-				runWithProjectStub(filesystemStub, async () => bundleFrontend(parameters.projectRoot, inputs), parameters.projectRoot),
-			);
-
-			const staticAssets = entriesToStaticAssets(frontendBundle.staticAssetsEntries);
-			let assetsCompletionJwt: string | undefined;
-			if (staticAssets.size > 0) {
-				assetsCompletionJwt = await step.do('upload-assets', CLOUDFLARE_API_STEP_CONFIG, async () => {
-					const accessToken = await this.resolveAccessToken(parameters.userId);
-					return uploadStaticAssets(parameters.accountId, accessToken, parameters.workerName, staticAssets);
-				});
-			}
-
-			let r2BucketName: string | undefined;
-			if (inputs.bindingsConfig.storage) {
-				const bucketName = sanitizeR2BucketName(parameters.workerName);
-				r2BucketName = bucketName;
-				await step.do('ensure-r2-bucket', SHORT_CLOUDFLARE_API_STEP_CONFIG, async () => {
-					const accessToken = await this.resolveAccessToken(parameters.userId);
-					return ensureR2Bucket(parameters.accountId, accessToken, bucketName);
-				});
-			}
-
-			await step.do('upload-worker-script', CLOUDFLARE_API_STEP_CONFIG, async () => {
-				const accessToken = await this.resolveAccessToken(parameters.userId);
-				return uploadWorkerScript(
-					parameters.accountId,
-					accessToken,
-					parameters.workerName,
-					workerBundle.workerCode,
-					assetsCompletionJwt,
-					inputs.assetSettings,
-					r2BucketName,
-				);
-			});
+			await (isVinextProject(inputs.allFiles)
+				? this.bundleAndUploadVinext(step, parameters, inputs)
+				: this.bundleAndUploadLegacy(step, parameters, filesystemStub, inputs));
 
 			await step.do('enable-subdomain', SHORT_CLOUDFLARE_API_STEP_CONFIG, async () => {
 				const accessToken = await this.resolveAccessToken(parameters.userId);
@@ -163,5 +127,117 @@ export class DeployWorkflow extends WorkflowEntrypoint<Env, DeployWorkflowParame
 			});
 			return { success: false, workerName: parameters.workerName, error: message };
 		}
+	}
+
+	/**
+	 * Standard project deploy: bundle the worker entry + frontend, upload static
+	 * assets, ensure the R2 bucket, then upload the single-module worker script.
+	 */
+	private async bundleAndUploadLegacy(
+		step: WorkflowStep,
+		parameters: DeployWorkflowParameters,
+		filesystemStub: ReturnType<typeof filesystemNamespace.get>,
+		inputs: ProjectBuildInputs,
+	): Promise<void> {
+		const workerBundle = await step.do('bundle-worker', BUILD_STEP_CONFIG, async () =>
+			runWithProjectStub(
+				filesystemStub,
+				async () => {
+					try {
+						return await bundleWorker(parameters.projectRoot, inputs);
+					} catch (error) {
+						throw toNonRetryableError(error);
+					}
+				},
+				parameters.projectRoot,
+			),
+		);
+
+		const frontendBundle = await step.do('bundle-frontend', BUILD_STEP_CONFIG, async () =>
+			runWithProjectStub(filesystemStub, async () => bundleFrontend(parameters.projectRoot, inputs), parameters.projectRoot),
+		);
+
+		const staticAssets = entriesToStaticAssets(frontendBundle.staticAssetsEntries);
+		let assetsCompletionJwt: string | undefined;
+		if (staticAssets.size > 0) {
+			assetsCompletionJwt = await step.do('upload-assets', CLOUDFLARE_API_STEP_CONFIG, async () => {
+				const accessToken = await this.resolveAccessToken(parameters.userId);
+				return uploadStaticAssets(parameters.accountId, accessToken, parameters.workerName, staticAssets);
+			});
+		}
+
+		const r2BucketName = await this.ensureProjectR2Bucket(step, parameters, inputs);
+
+		await step.do('upload-worker-script', CLOUDFLARE_API_STEP_CONFIG, async () => {
+			const accessToken = await this.resolveAccessToken(parameters.userId);
+			return uploadWorkerScript(
+				parameters.accountId,
+				accessToken,
+				parameters.workerName,
+				workerBundle.workerCode,
+				assetsCompletionJwt,
+				inputs.assetSettings,
+				r2BucketName,
+			);
+		});
+	}
+
+	/**
+	 * vinext project deploy: build the production server module set + client
+	 * assets in the project's build Durable Object, then upload the client output
+	 * as static assets and the server module set as a multi-module worker. The
+	 * build + uploads happen inside a single step so the multi-megabyte bundle is
+	 * never persisted as workflow step state (only the project source crosses step
+	 * boundaries).
+	 */
+	private async bundleAndUploadVinext(step: WorkflowStep, parameters: DeployWorkflowParameters, inputs: ProjectBuildInputs): Promise<void> {
+		const r2BucketName = await this.ensureProjectR2Bucket(step, parameters, inputs);
+
+		await step.do('build-and-deploy-vinext', VINEXT_DEPLOY_STEP_CONFIG, async () => {
+			const buildHost = vinextPreviewHostNamespace.getByName(`vinext:${parameters.projectId}`);
+			let build;
+			try {
+				build = await buildHost.buildForDeploy(parameters.projectId, parameters.projectRoot);
+			} catch (error) {
+				throw toNonRetryableError(error);
+			}
+
+			const accessToken = await this.resolveAccessToken(parameters.userId);
+			const staticAssets = new Map<string, Uint8Array>(
+				Object.entries(build.clientOutput).map(([path, contents]) => [`/${path}`, new TextEncoder().encode(contents)]),
+			);
+			const assetsCompletionJwt =
+				staticAssets.size > 0
+					? await uploadStaticAssets(parameters.accountId, accessToken, parameters.workerName, staticAssets)
+					: undefined;
+
+			await uploadWorkerModules({
+				accountId: parameters.accountId,
+				accessToken,
+				workerName: parameters.workerName,
+				mainModule: build.mainModule,
+				modules: Object.entries(build.serverModules).map(([name, contents]) => ({ name, contents })),
+				assetsCompletionJwt,
+				assetSettings: inputs.assetSettings,
+				r2BucketName,
+			});
+		});
+	}
+
+	/** Ensure the project's R2 bucket exists when storage is enabled. */
+	private async ensureProjectR2Bucket(
+		step: WorkflowStep,
+		parameters: DeployWorkflowParameters,
+		inputs: ProjectBuildInputs,
+	): Promise<string | undefined> {
+		if (!inputs.bindingsConfig.storage) {
+			return undefined;
+		}
+		const bucketName = sanitizeR2BucketName(parameters.workerName);
+		await step.do('ensure-r2-bucket', SHORT_CLOUDFLARE_API_STEP_CONFIG, async () => {
+			const accessToken = await this.resolveAccessToken(parameters.userId);
+			return ensureR2Bucket(parameters.accountId, accessToken, bucketName);
+		});
+		return bucketName;
 	}
 }

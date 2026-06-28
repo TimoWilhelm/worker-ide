@@ -16,10 +16,12 @@ import { DurableObject } from 'cloudflare:workers';
 import { HIDDEN_ENTRIES, WORKERS_COMPATIBILITY_DATE } from '@shared/constants';
 import { fs, runWithProjectStub } from '@worker/lib/project-fs';
 
+import { toBundleServerError } from '../lib/build-server-error';
 import { coordinatorNamespace, filesystemNamespace } from '../lib/durable-object-namespaces';
 import { toDurableObjectId } from '../lib/project-id';
 import { VINEXT_PREVIEW_HEADERS } from '../lib/vinext-preview-protocol';
 import { routeAppRequest } from '../services/vite-host/runtime/app-runtime';
+import { buildVinextForDeploy, type VinextDeployBuild } from '../services/vite-host/runtime/deploy-build';
 import {
 	isDevelopmentModuleRequest,
 	serveDevelopmentModule,
@@ -166,6 +168,26 @@ export class VinextPreviewHost extends DurableObject<Env> {
 		return runWithProjectStub(filesystemStub, () => this.serve(request, ideOrigin), this.projectRoot);
 	}
 
+	/**
+	 * Produce a production deploy build (server module set + client assets) for
+	 * the project. Runs in this per-project DO so the build is single-threaded and
+	 * isolated from the request-serving worker; the deploy workflow uploads the
+	 * returned bundle directly (it is never persisted as workflow step state).
+	 */
+	async buildForDeploy(projectId: string, projectRoot: string): Promise<VinextDeployBuild> {
+		this.projectId = projectId;
+		this.projectRoot = projectRoot;
+		const filesystemStub = filesystemNamespace.get(toDurableObjectId(filesystemNamespace, projectId));
+		return runWithProjectStub(
+			filesystemStub,
+			async () => {
+				const snapshot = await this.collectSnapshot();
+				return buildVinextForDeploy(snapshot);
+			},
+			projectRoot,
+		);
+	}
+
 	private async serve(request: Request, ideOrigin: string): Promise<Response> {
 		const url = new URL(request.url);
 
@@ -177,34 +199,69 @@ export class VinextPreviewHost extends DurableObject<Env> {
 			return scriptResponse(VINEXT_HMR_GLUE);
 		}
 
-		// Dev module requests (HMR re-imports) must be cheap: serve the changed
-		// client module from its CURRENT source against the warm build's context
-		// (node_modules + React globals) — no full rebuild.
-		if (isDevelopmentModuleRequest(url.pathname)) {
-			const build = await this.latestOrBuild();
-			const module = await serveDevelopmentModule(url.pathname, this.liveDevContext(build));
-			if (module !== undefined) {
-				return scriptResponse(module.code);
+		try {
+			// Dev module requests (HMR re-imports) must be cheap: serve the changed
+			// client module from its CURRENT source against the warm build's context
+			// (node_modules + React globals) — no full rebuild.
+			if (isDevelopmentModuleRequest(url.pathname)) {
+				const build = await this.latestOrBuild();
+				const module = await serveDevelopmentModule(url.pathname, this.liveDevContext(build));
+				if (module !== undefined) {
+					return scriptResponse(module.code);
+				}
 			}
-		}
 
-		const { build, cacheKey } = await this.buildForCurrentSnapshot();
-		const server = getServerEntrypoint({
-			loader: this.env.LOADER,
-			cacheKey: `vinext:${cacheKey}`,
-			moduleSet: {
-				compatibilityDate: WORKERS_COMPATIBILITY_DATE,
-				compatibilityFlags: SERVER_COMPATIBILITY_FLAGS,
-				mainModule: build.mainModule,
-				modules: build.serverModules,
-			},
-		});
+			const { build, cacheKey } = await this.buildForCurrentSnapshot();
+			const server = getServerEntrypoint({
+				loader: this.env.LOADER,
+				cacheKey: `vinext:${cacheKey}`,
+				moduleSet: {
+					compatibilityDate: WORKERS_COMPATIBILITY_DATE,
+					compatibilityFlags: SERVER_COMPATIBILITY_FLAGS,
+					mainModule: build.mainModule,
+					modules: build.serverModules,
+				},
+			});
 
-		const response = await routeAppRequest(request, { clientOutput: build.clientOutput, server });
-		if (response.headers.get('Content-Type')?.includes('text/html')) {
-			return this.injectHmrRuntime(response, request, ideOrigin);
+			const response = await routeAppRequest(request, { clientOutput: build.clientOutput, server });
+			if (response.headers.get('Content-Type')?.includes('text/html')) {
+				return this.injectHmrRuntime(response, request, ideOrigin);
+			}
+			return response;
+		} catch (error) {
+			return this.serveBuildError(error, request, ideOrigin);
 		}
-		return response;
+	}
+
+	/**
+	 * Surface a build failure through the preview error overlay, matching the
+	 * legacy preview pipeline. The error is broadcast so any already-open preview
+	 * shows it on a failed rebuild, and the response itself renders the overlay:
+	 * an HTML navigation gets a minimal document that loads the overlay script,
+	 * while a script/asset request gets a module that calls into the overlay.
+	 */
+	private async serveBuildError(error: unknown, request: Request, ideOrigin: string): Promise<Response> {
+		const serverError = toBundleServerError(error);
+		try {
+			await coordinatorNamespace.getByName(`project:${this.projectId}`).sendMessage({ type: 'server-error', error: serverError });
+		} catch {
+			// The overlay still renders from the response below when the broadcast
+			// cannot be delivered (e.g. no coordinator sockets yet).
+		}
+		const payload = JSON.stringify(serverError)
+			.replaceAll('<', String.raw`\u003c`)
+			.replaceAll('>', String.raw`\u003e`);
+		if (request.headers.get('Accept')?.includes('text/html')) {
+			const config = { ideOrigin, projectId: this.projectId };
+			const html =
+				`<!doctype html><html><head><meta charset="utf-8">` +
+				`<script>window.__PREVIEW_CONFIG=${JSON.stringify(config).replaceAll('<', String.raw`\u003c`)}</script>` +
+				`<script src="/__vinext_error_overlay.js"></script></head>` +
+				`<body><script>window.showErrorOverlay(${payload})</script></body></html>`;
+			return new Response(html, { status: 200, headers: { 'Content-Type': 'text/html', 'Cache-Control': 'no-cache' } });
+		}
+		const module = `if(typeof showErrorOverlay==='function'){showErrorOverlay(${payload})}else{console.error(${payload}.message)}`;
+		return scriptResponse(module);
 	}
 
 	/** Inject the preview config + HMR runtime scripts into an SSR HTML response. */
