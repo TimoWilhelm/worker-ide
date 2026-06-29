@@ -19,6 +19,7 @@ import { fs, runWithProjectStub } from '@worker/lib/project-fs';
 import { toBundleServerError } from '../lib/build-server-error';
 import { coordinatorNamespace, filesystemNamespace } from '../lib/durable-object-namespaces';
 import { toDurableObjectId } from '../lib/project-id';
+import { createSerialRunner } from '../lib/serial-runner';
 import { VINEXT_PREVIEW_HEADERS } from '../lib/vinext-preview-protocol';
 import { routeAppRequest } from '../services/vite-host/runtime/app-runtime';
 import { buildVinextForDeploy, type VinextDeployBuild } from '../services/vite-host/runtime/deploy-build';
@@ -147,6 +148,14 @@ export class VinextPreviewHost extends DurableObject<Env> {
 	private hmrScripts?: Record<string, string>;
 	/** Whether the coordinator has been told this project uses the vinext preview. */
 	private coordinatorMarked = false;
+	/**
+	 * Serializes builds within this DO. `ViteHost.create` installs process-global
+	 * state (the in-memory filesystem bridge, Vite host services, `process.cwd`,
+	 * the emitted-files collector), so builds must run one at a time — concurrent
+	 * requests on a cold open (HTML + assets) would otherwise interleave two
+	 * builds and clobber that shared state, yielding an incomplete module set.
+	 */
+	private readonly runExclusive = createSerialRunner();
 
 	async fetch(request: Request): Promise<Response> {
 		this.projectId = request.headers.get(VINEXT_PREVIEW_HEADERS.projectId) ?? this.projectId;
@@ -182,7 +191,7 @@ export class VinextPreviewHost extends DurableObject<Env> {
 			filesystemStub,
 			async () => {
 				const snapshot = await this.collectSnapshot();
-				return buildVinextForDeploy(snapshot);
+				return this.runExclusive(() => buildVinextForDeploy(snapshot));
 			},
 			projectRoot,
 		);
@@ -327,15 +336,24 @@ export class VinextPreviewHost extends DurableObject<Env> {
 			this.latest = cached;
 			return { build: cached, cacheKey: `${this.projectId}:${hash}` };
 		}
-		const build = await this.build(snapshot);
-		this.builds.set(hash, build);
-		this.latest = build;
-		// Keep only the two most recent builds to bound memory.
-		while (this.builds.size > 2) {
-			const oldest = this.builds.keys().next().value;
-			if (oldest === undefined) break;
-			this.builds.delete(oldest);
-		}
+		const build = await this.runExclusive(async () => {
+			// A build queued behind another may now find this snapshot already built.
+			const existing = this.builds.get(hash);
+			if (existing !== undefined) {
+				this.latest = existing;
+				return existing;
+			}
+			const built = await this.build(snapshot);
+			this.builds.set(hash, built);
+			this.latest = built;
+			// Keep only the two most recent builds to bound memory.
+			while (this.builds.size > 2) {
+				const oldest = this.builds.keys().next().value;
+				if (oldest === undefined) break;
+				this.builds.delete(oldest);
+			}
+			return built;
+		});
 		return { build, cacheKey: `${this.projectId}:${hash}` };
 	}
 
