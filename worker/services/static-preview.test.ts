@@ -83,7 +83,7 @@ vi.mock('./bundle-service', () => ({
 	bundleFiles: mocks.bundleFiles,
 }));
 
-import { PreviewService } from './preview-service';
+import { StaticReactPreview } from './static-preview';
 
 function createResponseWithUrl(body: string, url: string, contentType = 'application/javascript'): Response {
 	const response = new Response(body, { headers: { 'Content-Type': contentType } });
@@ -121,7 +121,7 @@ describe('PreviewService external module proxy', () => {
 		const fetchMock = vi.fn();
 		vi.stubGlobal('fetch', fetchMock);
 
-		const previewService = new PreviewService('/project', 'project-1');
+		const previewService = new StaticReactPreview('/project', 'project-1');
 		const response = await previewService.serveFile(
 			new Request('https://preview.local/__preview_external?url=https%3A%2F%2Fexample.com%2Fmodule.mjs'),
 			'https://ide.local',
@@ -137,7 +137,7 @@ describe('PreviewService external module proxy', () => {
 		const fetchMock = vi.fn(async () => createResponseWithUrl('export default 1;', 'https://example.com/module.mjs'));
 		vi.stubGlobal('fetch', fetchMock);
 
-		const previewService = new PreviewService('/project', 'project-1');
+		const previewService = new StaticReactPreview('/project', 'project-1');
 		const response = await previewService.serveFile(
 			new Request(`https://preview.local${buildPreviewExternalModuleRequest('react')}`),
 			'https://ide.local',
@@ -153,7 +153,7 @@ describe('PreviewService external module proxy', () => {
 		const fetchMock = vi.fn(async () => createResponseWithUrl('export default 1;', 'https://esm.sh/react?dev'));
 		vi.stubGlobal('fetch', fetchMock);
 
-		const previewService = new PreviewService('/project', crypto.randomUUID());
+		const previewService = new StaticReactPreview('/project', crypto.randomUUID());
 		const request = new Request(`https://preview.local${buildPreviewExternalModuleRequest('react')}`);
 
 		const firstResponse = await previewService.serveFile(request, 'https://ide.local');
@@ -176,7 +176,7 @@ describe('PreviewService external module proxy', () => {
 		);
 		vi.stubGlobal('fetch', fetchMock);
 
-		const previewService = new PreviewService('/project', crypto.randomUUID());
+		const previewService = new StaticReactPreview('/project', crypto.randomUUID());
 		const request = new Request(`https://preview.local${buildPreviewExternalModuleRequest('react-dom/client')}`);
 		const firstResponsePromise = previewService.serveFile(request, 'https://ide.local');
 		const secondResponsePromise = previewService.serveFile(request, 'https://ide.local');
@@ -194,7 +194,7 @@ describe('PreviewService external module proxy', () => {
 	});
 
 	it('preserves POST method and JSON body when forwarding preview API requests', async () => {
-		const previewService = new PreviewService('/project', 'project-1');
+		const previewService = new StaticReactPreview('/project', 'project-1');
 		Reflect.set(
 			previewService,
 			'collectFilesForBundle',
@@ -247,7 +247,7 @@ describe('PreviewService external module proxy', () => {
 				'ReferenceError: asdasdasqs1 is not defined\n    at fetch (user-worker.js:1:65)',
 			),
 		);
-		const previewService = new PreviewService('/project', 'project-1');
+		const previewService = new StaticReactPreview('/project', 'project-1');
 		Reflect.set(
 			previewService,
 			'collectFilesForBundle',
@@ -315,7 +315,7 @@ describe('PreviewService external module proxy', () => {
 		}`,
 		);
 
-		const previewService = new PreviewService('/project', 'project-1');
+		const previewService = new StaticReactPreview('/project', 'project-1');
 		const assetSettings = await runWithProjectFs(adapter, () => previewService.loadAssetSettings());
 
 		expect(assetSettings).toEqual({
@@ -326,7 +326,7 @@ describe('PreviewService external module proxy', () => {
 	});
 
 	it('falls through to the worker on asset miss when not_found_handling is none', async () => {
-		const previewService = new PreviewService('/project', 'project-1');
+		const previewService = new StaticReactPreview('/project', 'project-1');
 		const serveFile = vi.fn(async () => new Response('Not Found', { status: 404 }));
 		const handlePreviewAPI = vi.fn(async () => new Response('worker response'));
 		const hasWorkerEntrypoint = vi.fn(async () => true);
@@ -348,7 +348,7 @@ describe('PreviewService external module proxy', () => {
 	});
 
 	it('does not fall through to the worker when not_found_handling is configured', async () => {
-		const previewService = new PreviewService('/project', 'project-1');
+		const previewService = new StaticReactPreview('/project', 'project-1');
 		const assetResponse = new Response('custom 404', { status: 404 });
 		const serveFile = vi.fn(async () => assetResponse);
 		const handlePreviewAPI = vi.fn(async () => new Response('worker response'));
@@ -372,7 +372,7 @@ describe('PreviewService external module proxy', () => {
 	});
 
 	it('adds no-index headers to preview worker-first responses', async () => {
-		const previewService = new PreviewService('/project', 'project-1');
+		const previewService = new StaticReactPreview('/project', 'project-1');
 		const serveFile = vi.fn(async () => new Response('asset response'));
 		const handlePreviewAPI = vi.fn(async () => new Response('worker response'));
 		Reflect.set(previewService, 'serveFile', serveFile);
@@ -391,7 +391,7 @@ describe('PreviewService external module proxy', () => {
 	});
 
 	it('preserves multiple Set-Cookie headers when adding no-index headers', async () => {
-		const previewService = new PreviewService('/project', 'project-1');
+		const previewService = new StaticReactPreview('/project', 'project-1');
 		const headers = new Headers();
 		headers.append('Set-Cookie', 'preview_access=one; Path=/; HttpOnly');
 		headers.append('Set-Cookie', 'preview_metadata=two; Path=/; HttpOnly');
@@ -410,7 +410,7 @@ describe('PreviewService external module proxy', () => {
 	});
 
 	it('does not rewrap WebSocket upgrade responses when adding no-index headers', () => {
-		const previewService = new PreviewService('/project', 'project-1');
+		const previewService = new StaticReactPreview('/project', 'project-1');
 		const response = new Response(undefined, { headers: { Upgrade: 'websocket' } });
 		Object.defineProperty(response, 'status', { value: 101 });
 

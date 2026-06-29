@@ -21,7 +21,7 @@ import { getValidAccessToken } from '../lib/cloudflare-oauth';
 import { filesystemNamespace, vinextPreviewHostNamespace } from '../lib/durable-object-namespaces';
 import { runWithProjectStub } from '../lib/project-fs';
 import { toDurableObjectId } from '../lib/project-id';
-import { isVinextProject } from '../services/vite-host/vinext-detection';
+import { selectRuntime } from '../services/vite-host/runtimes/registry';
 
 import type { DeployResult, DeployWorkflowParameters } from '@shared/deploy-types';
 import type { WorkflowEvent, WorkflowStep, WorkflowStepConfig } from 'cloudflare:workers';
@@ -86,9 +86,10 @@ export class DeployWorkflow extends WorkflowEntrypoint<Env, DeployWorkflowParame
 				runWithProjectStub(filesystemStub, async () => readProjectBuildInputs(parameters.projectRoot), parameters.projectRoot),
 			);
 
-			await (isVinextProject(inputs.allFiles)
-				? this.bundleAndUploadVinext(step, parameters, inputs)
-				: this.bundleAndUploadLegacy(step, parameters, filesystemStub, inputs));
+			const runtime = selectRuntime({ files: inputs.allFiles });
+			await (runtime.hosting === 'durable'
+				? this.bundleAndUploadRuntime(step, parameters, inputs, runtime.id)
+				: this.bundleAndUploadStatic(step, parameters, filesystemStub, inputs));
 
 			await step.do('enable-subdomain', SHORT_CLOUDFLARE_API_STEP_CONFIG, async () => {
 				const accessToken = await this.resolveAccessToken(parameters.userId);
@@ -133,7 +134,7 @@ export class DeployWorkflow extends WorkflowEntrypoint<Env, DeployWorkflowParame
 	 * Standard project deploy: bundle the worker entry + frontend, upload static
 	 * assets, ensure the R2 bucket, then upload the single-module worker script.
 	 */
-	private async bundleAndUploadLegacy(
+	private async bundleAndUploadStatic(
 		step: WorkflowStep,
 		parameters: DeployWorkflowParameters,
 		filesystemStub: ReturnType<typeof filesystemNamespace.get>,
@@ -183,21 +184,26 @@ export class DeployWorkflow extends WorkflowEntrypoint<Env, DeployWorkflowParame
 	}
 
 	/**
-	 * vinext project deploy: build the production server module set + client
-	 * assets in the project's build Durable Object, then upload the client output
-	 * as static assets and the server module set as a multi-module worker. The
-	 * build + uploads happen inside a single step so the multi-megabyte bundle is
-	 * never persisted as workflow step state (only the project source crosses step
-	 * boundaries).
+	 * Framework-runtime deploy (vinext, plain React, …): build the production
+	 * server module set + client assets in the project's build Durable Object,
+	 * then upload the client output as static assets and the server module set as
+	 * a multi-module worker. The build + uploads happen inside a single step so the
+	 * multi-megabyte bundle is never persisted as workflow step state (only the
+	 * project source crosses step boundaries).
 	 */
-	private async bundleAndUploadVinext(step: WorkflowStep, parameters: DeployWorkflowParameters, inputs: ProjectBuildInputs): Promise<void> {
+	private async bundleAndUploadRuntime(
+		step: WorkflowStep,
+		parameters: DeployWorkflowParameters,
+		inputs: ProjectBuildInputs,
+		runtimeId: string,
+	): Promise<void> {
 		const r2BucketName = await this.ensureProjectR2Bucket(step, parameters, inputs);
 
-		await step.do('build-and-deploy-vinext', VINEXT_DEPLOY_STEP_CONFIG, async () => {
+		await step.do('build-and-deploy-runtime', VINEXT_DEPLOY_STEP_CONFIG, async () => {
 			const buildHost = vinextPreviewHostNamespace.getByName(`vinext:${parameters.projectId}`);
 			let build;
 			try {
-				build = await buildHost.buildForDeploy(parameters.projectId, parameters.projectRoot);
+				build = await buildHost.buildForDeploy(parameters.projectId, parameters.projectRoot, runtimeId);
 			} catch (error) {
 				throw toNonRetryableError(error);
 			}

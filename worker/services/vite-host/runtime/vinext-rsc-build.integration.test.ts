@@ -7,6 +7,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { ViteHost } from '../vite-host';
+import { seedVinextRuntime } from './seed-vinext-runtime';
 import { SERVER_RUNTIME_EXTERNALS } from './server-externals';
 
 const APP_ROUTER_FILES = {
@@ -26,6 +27,7 @@ async function createVinextHost(): Promise<ViteHost> {
 			const { vinext } = await import('../../../../auxiliary/vite-host/vendor/native-plugins.mjs');
 			return vinext();
 		},
+		seedRuntime: seedVinextRuntime,
 	});
 }
 

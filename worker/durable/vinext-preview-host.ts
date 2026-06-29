@@ -1,15 +1,17 @@
 /**
- * Per-project Durable Object that owns a vinext project's warm preview build.
+ * Per-project Durable Object that owns a project's warm preview build.
  *
- * One DO per project (deterministic `getByName` routing) holds the RSC + SSR +
- * client build as instance state, keeping it warm and single-threaded for the
- * whole preview/HMR session so the dev module server and React Fast Refresh
- * share one stable, low-latency build context across edits. After an eviction
- * the first request transparently rebuilds and warms the DO again.
+ * The DO is framework-agnostic: it holds the build as instance state and
+ * delegates every framework-specific decision (plugins, build, preview routing,
+ * HMR glue, server compatibility flags) to the {@link FrameworkRuntime} selected
+ * from the registry. One DO per project (deterministic `getByName` routing) keeps
+ * the build warm and single-threaded for the whole preview/HMR session so the dev
+ * module server and React Fast Refresh share one stable, low-latency context.
+ * After an eviction the first request transparently rebuilds and warms the DO.
  *
  * The DO binds the project filesystem (cross-DO RPC to `DurableObjectFilesystem`)
- * for its async context, then delegates to the build/serve logic. SSR/RSC run in
- * a `LOADER` isolate (no eval); only the client is served unbundled for HMR.
+ * for its async context. The server module set runs in a `LOADER` isolate (no
+ * eval); only the client is served unbundled for HMR.
  */
 import { DurableObject } from 'cloudflare:workers';
 
@@ -21,23 +23,18 @@ import { coordinatorNamespace, filesystemNamespace } from '../lib/durable-object
 import { toDurableObjectId } from '../lib/project-id';
 import { createSerialRunner } from '../lib/serial-runner';
 import { VINEXT_PREVIEW_HEADERS } from '../lib/vinext-preview-protocol';
-import { routeAppRequest } from '../services/vite-host/runtime/app-runtime';
-import { buildVinextForDeploy, type VinextDeployBuild } from '../services/vite-host/runtime/deploy-build';
 import {
 	isDevelopmentModuleRequest,
 	serveDevelopmentModule,
 	type DevelopmentModuleContext,
 } from '../services/vite-host/runtime/development-module-server';
-import { runWithHostDevelopmentMode } from '../services/vite-host/runtime/host-development-mode';
-import { getServerEntrypoint, serverModulesFromOutput, type LoaderModule } from '../services/vite-host/runtime/loader-runner';
-import { SERVER_RUNTIME_EXTERNALS } from '../services/vite-host/runtime/server-externals';
-import { ViteHost } from '../services/vite-host/vite-host';
+import { getServerEntrypoint, serverModulesFromOutput } from '../services/vite-host/runtime/loader-runner';
+import { getRuntimeById } from '../services/vite-host/runtimes/registry';
 
-/** vinext's App Router worker entry, seeded into the in-memory runtime tree. */
-const APP_ROUTER_ENTRY = '/__vinext__/dist/server/app-router-entry.js';
+import type { DurableFrameworkRuntime, RuntimeBuild, RuntimePreviewBuild } from '../services/vite-host/runtimes/types';
 
-/** Compatibility flags the built server bundle requires in its isolate. */
-const SERVER_COMPATIBILITY_FLAGS = ['nodejs_compat', 'enable_nodejs_fs_module'];
+/** The default runtime when no id is supplied (the original preview surface). */
+const DEFAULT_RUNTIME_ID = 'vinext';
 
 /** Directories never included in the build snapshot. */
 const EXCLUDED_DIRECTORIES = new Set(['node_modules', 'dist', '.git', ...HIDDEN_ENTRIES]);
@@ -50,103 +47,20 @@ const HMR_SCRIPT_PATHS = [
 	'/__vinext_hmr_client.js',
 ];
 
-/** Source extensions Vite (and this glue) treat as stylesheets. */
-const STYLE_EXTENSION_PATTERN = String.raw`\.(css|scss|sass|less|styl|stylus|pcss|postcss|sss)([?#].*)?$`;
-
-/**
- * Browser glue bridging the coordinator's `vinext:hmr` events to a surgical
- * update, mirroring Vite's HMR boundaries:
- *  - a changed stylesheet swaps the live `<link rel="stylesheet">` in place;
- *  - a changed client module is re-imported (React Fast Refresh, state preserved);
- *  - a changed server component emits `rsc:update` so vinext's client dev runtime
- *    re-fetches and reconciles the route's RSC tree in place.
- * Every path keeps client component state. Runs after the preview runtime is
- * installed.
- */
-const VINEXT_HMR_GLUE = `(function () {
-	var runtime = window.__PREVIEW_RUNTIME__;
-	if (!runtime) return;
-	var STYLE_RE = new RegExp(${JSON.stringify(STYLE_EXTENSION_PATTERN)});
-	// Installed before any module runs (classic script): the client build's
-	// \`import.meta.hot\` resolves to this, connecting vinext's client HMR runtime
-	// to the preview runtime's event bus.
-	window.__vinext_client_hot__ = runtime.createHotContext('vinext-client-runtime');
-	function softRefresh() {
-		// Server-component change: vinext's client dev runtime listens for
-		// \`rsc:update\` on \`import.meta.hot\` (wired here to this preview runtime's
-		// event bus). Emitting it re-fetches the route's RSC payload and reconciles
-		// the tree in place (hmrReplaceTree), preserving client component state.
-		// A hard reload covers the case where that runtime is not wired.
-		if (window.__vinext_client_hot__) {
-			runtime.emitEvent('rsc:update', {});
-			return;
-		}
-		location.reload();
-	}
-	// A stylesheet edit re-builds the same stable (non-hashed) CSS asset on the
-	// server, so re-fetching each same-origin \`<link>\` with a fresh cache-busting
-	// query applies the new styles without touching the DOM or React state. The
-	// replacement link loads before the old one is removed to avoid a flash.
-	function updateStyles() {
-		var timestamp = Date.now();
-		var links = document.querySelectorAll('link[rel="stylesheet"][href]');
-		for (var index = 0; index < links.length; index++) {
-			var link = links[index];
-			var resolved;
-			try {
-				resolved = new URL(link.getAttribute('href'), document.baseURI);
-			} catch (error) {
-				continue;
-			}
-			if (resolved.origin !== window.location.origin) continue;
-			resolved.searchParams.set('t', String(timestamp));
-			var replacement = link.cloneNode(false);
-			replacement.setAttribute('href', resolved.pathname + resolved.search);
-			(function (oldLink) {
-				replacement.addEventListener('load', function () {
-					if (oldLink.parentNode) oldLink.parentNode.removeChild(oldLink);
-				});
-			})(link);
-			link.parentNode.insertBefore(replacement, link.nextSibling);
-		}
-	}
-	// A server-component edit reaches a non-Fast-Refresh boundary and bubbles to a
-	// "reload"; route that to the state-preserving RSC refetch instead.
-	window.__PREVIEW_RUNTIME_RELOAD__ = function () { softRefresh(); };
-	var hot = runtime.createHotContext('/@vinext-hmr-glue');
-	hot.on('vinext:hmr', function (data) {
-		var path = data && data.path;
-		if (!path) return;
-		if (STYLE_RE.test(path)) {
-			updateStyles();
-			return;
-		}
-		// A user client module is a registered self-accepting boundary → React
-		// Fast Refresh patches it in place (state preserved). A server component
-		// is unregistered → the runtime bubbles to the RSC refetch above.
-		var id = '/@vinext-client/' + encodeURIComponent(path);
-		Promise.resolve(runtime.applyUpdate({ timestamp: Date.now(), targets: [{ id: id, kind: 'module' }] })).catch(softRefresh);
-	});
-})();`;
-
-/** A built vinext app: client assets, the server isolate module set, dev context. */
-interface VinextBuild {
-	clientOutput: Record<string, string>;
-	serverModules: Record<string, LoaderModule>;
-	mainModule: string;
-	devContext: DevelopmentModuleContext;
-}
+/** Path serving the runtime's browser HMR glue. */
+const HMR_GLUE_PATH = '/__vinext_hmr_glue.js';
 
 export class VinextPreviewHost extends DurableObject<Env> {
 	/** Warm builds keyed by snapshot hash. Capped — only recent builds kept. */
-	private readonly builds = new Map<string, VinextBuild>();
+	private readonly builds = new Map<string, RuntimePreviewBuild>();
 	/** Most recent build, reused to serve dev modules without rebuilding. */
-	private latest?: VinextBuild;
+	private latest?: RuntimePreviewBuild;
 	private projectId = '';
 	private projectRoot = '/project';
+	private runtimeId = DEFAULT_RUNTIME_ID;
 	/** Lazily-loaded HMR script sources (`path → source`). */
 	private hmrScripts?: Record<string, string>;
-	/** Whether the coordinator has been told this project uses the vinext preview. */
+	/** Whether the coordinator has been told this project uses the surface preview. */
 	private coordinatorMarked = false;
 	/**
 	 * Serializes builds within this DO. `ViteHost.create` installs process-global
@@ -157,13 +71,23 @@ export class VinextPreviewHost extends DurableObject<Env> {
 	 */
 	private readonly runExclusive = createSerialRunner();
 
+	/** The (durable) framework runtime selected for this project. */
+	private get runtime(): DurableFrameworkRuntime {
+		const runtime = getRuntimeById(this.runtimeId);
+		if (runtime === undefined || runtime.hosting !== 'durable') {
+			throw new Error(`Not a durable framework runtime: ${this.runtimeId}`);
+		}
+		return runtime;
+	}
+
 	async fetch(request: Request): Promise<Response> {
 		this.projectId = request.headers.get(VINEXT_PREVIEW_HEADERS.projectId) ?? this.projectId;
 		this.projectRoot = request.headers.get(VINEXT_PREVIEW_HEADERS.projectRoot) ?? this.projectRoot;
+		this.runtimeId = request.headers.get(VINEXT_PREVIEW_HEADERS.runtimeId) ?? this.runtimeId;
 		const ideOrigin = request.headers.get(VINEXT_PREVIEW_HEADERS.ideOrigin) ?? '';
 
 		// Mark this project so the coordinator drives preview HMR through the
-		// `vinext:hmr` event, letting React Fast Refresh own state preservation.
+		// `vinext:hmr` event, letting the runtime own state preservation.
 		if (!this.coordinatorMarked) {
 			this.coordinatorMarked = true;
 			try {
@@ -183,15 +107,17 @@ export class VinextPreviewHost extends DurableObject<Env> {
 	 * isolated from the request-serving worker; the deploy workflow uploads the
 	 * returned bundle directly (it is never persisted as workflow step state).
 	 */
-	async buildForDeploy(projectId: string, projectRoot: string): Promise<VinextDeployBuild> {
+	async buildForDeploy(projectId: string, projectRoot: string, runtimeId: string): Promise<RuntimeBuild> {
 		this.projectId = projectId;
 		this.projectRoot = projectRoot;
+		this.runtimeId = runtimeId;
 		const filesystemStub = filesystemNamespace.get(toDurableObjectId(filesystemNamespace, projectId));
 		return runWithProjectStub(
 			filesystemStub,
 			async () => {
 				const snapshot = await this.collectSnapshot();
-				return this.runExclusive(() => buildVinextForDeploy(snapshot));
+				const build = await this.runExclusive(() => this.runtime.build(snapshot, { hostDevelopment: false }));
+				return { mainModule: build.mainModule, serverModules: build.serverModules, clientOutput: build.clientOutput };
 			},
 			projectRoot,
 		);
@@ -204,8 +130,8 @@ export class VinextPreviewHost extends DurableObject<Env> {
 			const scripts = await this.getHmrScripts();
 			return scriptResponse(scripts[url.pathname]);
 		}
-		if (url.pathname === '/__vinext_hmr_glue.js') {
-			return scriptResponse(VINEXT_HMR_GLUE);
+		if (url.pathname === HMR_GLUE_PATH) {
+			return scriptResponse(this.runtime.hmrGlue());
 		}
 
 		try {
@@ -221,18 +147,11 @@ export class VinextPreviewHost extends DurableObject<Env> {
 			}
 
 			const { build, cacheKey } = await this.buildForCurrentSnapshot();
-			const server = getServerEntrypoint({
-				loader: this.env.LOADER,
-				cacheKey: `vinext:${cacheKey}`,
-				moduleSet: {
-					compatibilityDate: WORKERS_COMPATIBILITY_DATE,
-					compatibilityFlags: SERVER_COMPATIBILITY_FLAGS,
-					mainModule: build.mainModule,
-					modules: build.serverModules,
-				},
+			const response = await this.runtime.route(request, {
+				clientOutput: build.clientOutput,
+				projectRoot: this.projectRoot,
+				getServer: this.serverFactory(build, cacheKey),
 			});
-
-			const response = await routeAppRequest(request, { clientOutput: build.clientOutput, server });
 			if (response.headers.get('Content-Type')?.includes('text/html')) {
 				return this.injectHmrRuntime(response, request, ideOrigin);
 			}
@@ -240,6 +159,24 @@ export class VinextPreviewHost extends DurableObject<Env> {
 		} catch (error) {
 			return this.serveBuildError(error, request, ideOrigin);
 		}
+	}
+
+	/** A lazy server-isolate factory for a build (instantiated only when needed). */
+	private serverFactory(build: RuntimePreviewBuild, cacheKey: string): () => ReturnType<typeof getServerEntrypoint> {
+		let server: ReturnType<typeof getServerEntrypoint> | undefined;
+		return () => {
+			server ??= getServerEntrypoint({
+				loader: this.env.LOADER,
+				cacheKey: `${this.runtimeId}:${cacheKey}`,
+				moduleSet: {
+					compatibilityDate: WORKERS_COMPATIBILITY_DATE,
+					compatibilityFlags: [...this.runtime.serverCompatibilityFlags],
+					mainModule: build.mainModule,
+					modules: serverModulesFromOutput(build.serverModules),
+				},
+			});
+			return server;
+		};
 	}
 
 	/**
@@ -290,7 +227,7 @@ export class VinextPreviewHost extends DurableObject<Env> {
 		const injected = [
 			`<script>window.__PREVIEW_CONFIG=${JSON.stringify(config).replaceAll('<', String.raw`\u003c`)}</script>`,
 			...HMR_SCRIPT_PATHS.map((path) => `<script src="${path}"></script>`),
-			`<script src="/__vinext_hmr_glue.js"></script>`,
+			`<script src="${HMR_GLUE_PATH}"></script>`,
 		].join('');
 		const withScripts = html.includes('<head>') ? html.replace('<head>', `<head>${injected}`) : injected + html;
 		return new Response(withScripts, { status: response.status, headers: response.headers });
@@ -328,7 +265,7 @@ export class VinextPreviewHost extends DurableObject<Env> {
 	}
 
 	/** Build (or reuse) for the current project snapshot. */
-	private async buildForCurrentSnapshot(): Promise<{ build: VinextBuild; cacheKey: string }> {
+	private async buildForCurrentSnapshot(): Promise<{ build: RuntimePreviewBuild; cacheKey: string }> {
 		const snapshot = await this.collectSnapshot();
 		const hash = await hashSnapshot(snapshot);
 		const cached = this.builds.get(hash);
@@ -343,7 +280,7 @@ export class VinextPreviewHost extends DurableObject<Env> {
 				this.latest = existing;
 				return existing;
 			}
-			const built = await this.build(snapshot);
+			const built = await this.runtime.build(snapshot, { hostDevelopment: true });
 			this.builds.set(hash, built);
 			this.latest = built;
 			// Keep only the two most recent builds to bound memory.
@@ -358,7 +295,7 @@ export class VinextPreviewHost extends DurableObject<Env> {
 	}
 
 	/** The latest warm build, building from the current snapshot if none exists. */
-	private async latestOrBuild(): Promise<VinextBuild> {
+	private async latestOrBuild(): Promise<RuntimePreviewBuild> {
 		if (this.latest !== undefined) {
 			return this.latest;
 		}
@@ -367,7 +304,7 @@ export class VinextPreviewHost extends DurableObject<Env> {
 	}
 
 	/** A dev context that reads user modules from the LIVE project filesystem. */
-	private liveDevContext(build: VinextBuild): DevelopmentModuleContext {
+	private liveDevContext(build: RuntimePreviewBuild): DevelopmentModuleContext {
 		return {
 			...build.devContext,
 			readSource: async (id) => {
@@ -377,28 +314,6 @@ export class VinextPreviewHost extends DurableObject<Env> {
 					return;
 				}
 			},
-		};
-	}
-
-	private async build(snapshot: Record<string, string>): Promise<VinextBuild> {
-		const host = await ViteHost.create({
-			files: snapshot,
-			root: '/',
-			command: 'build',
-			mode: 'production',
-			createPlugins: async () => {
-				const { vinext } = await import('../../auxiliary/vite-host/vendor/native-plugins.mjs');
-				return vinext();
-			},
-		});
-		// Host development mode → DEV-style client references (unbundled, HMR-able).
-		await runWithHostDevelopmentMode(() => host.build([...SERVER_RUNTIME_EXTERNALS], APP_ROUTER_ENTRY));
-
-		return {
-			clientOutput: host.readOutput('/dist/client'),
-			serverModules: serverModulesFromOutput(host.readOutput('/dist/server')),
-			mainModule: 'index.js',
-			devContext: host.devModuleContext(),
 		};
 	}
 

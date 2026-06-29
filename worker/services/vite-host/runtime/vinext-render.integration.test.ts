@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest';
 
 import { routeAppRequest } from './app-runtime';
 import { getServerEntrypoint, serverModulesFromOutput } from './loader-runner';
+import { seedVinextRuntime } from './seed-vinext-runtime';
 import { SERVER_RUNTIME_EXTERNALS } from './server-externals';
 import { ViteHost } from '../vite-host';
 
@@ -33,6 +34,7 @@ describe('vinext App Router render', () => {
 				const { vinext } = await import('../../../../auxiliary/vite-host/vendor/native-plugins.mjs');
 				return vinext();
 			},
+			seedRuntime: seedVinextRuntime,
 		});
 		await host.build([...SERVER_RUNTIME_EXTERNALS], APP_ROUTER_ENTRY);
 

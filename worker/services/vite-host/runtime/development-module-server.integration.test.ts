@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 
 import { serveDevelopmentModule } from './development-module-server';
 import { runWithHostDevelopmentMode } from './host-development-mode';
+import { seedVinextRuntime } from './seed-vinext-runtime';
 import { SERVER_RUNTIME_EXTERNALS } from './server-externals';
 import { getTemplate } from '../../../templates';
 import { ViteHost } from '../vite-host';
@@ -26,6 +27,7 @@ async function buildTemplateHost(): Promise<ViteHost> {
 			const { vinext } = await import('../../../../auxiliary/vite-host/vendor/native-plugins.mjs');
 			return vinext();
 		},
+		seedRuntime: seedVinextRuntime,
 	});
 	await runWithHostDevelopmentMode(() => host.build([...SERVER_RUNTIME_EXTERNALS], APP_ROUTER_ENTRY));
 	return host;

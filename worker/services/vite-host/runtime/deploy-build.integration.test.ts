@@ -9,9 +9,12 @@ import { env } from 'cloudflare:test';
 import { describe, expect, it } from 'vitest';
 
 import { routeAppRequest } from './app-runtime';
-import { buildVinextForDeploy } from './deploy-build';
 import { getServerEntrypoint, serverModulesFromOutput } from './loader-runner';
 import { getTemplate } from '../../../templates';
+import { vinextRuntime } from '../runtimes/vinext';
+
+/** Production (deploy) build of the vinext runtime from a project snapshot. */
+const buildVinextForDeploy = (snapshot: Record<string, string>) => vinextRuntime.build(snapshot, { hostDevelopment: false });
 
 function templateSnapshot(): Record<string, string> {
 	const template = getTemplate('vinext');

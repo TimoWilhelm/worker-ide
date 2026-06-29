@@ -24,7 +24,6 @@ import { MemoryFileSystem } from './node-fs/memory-file-system';
 import { installProjectFileSystem } from './node-fs/node-fs-bridge';
 import { PluginContainer } from './plugin-container';
 import { seedNodeModules } from './runtime/seed-node-modules';
-import { seedVinextRuntime } from './runtime/seed-vinext-runtime';
 import { parseAst } from './vite-shim/index';
 import { installViteHostServices } from './vite-shim/services';
 
@@ -44,6 +43,12 @@ export interface ViteHostOptions {
 	 * are installed so plugin factories (vinext) can read the project tree.
 	 */
 	createPlugins: () => PluginOption[] | Promise<PluginOption[]>;
+	/**
+	 * Seed framework-specific runtime modules into the in-memory filesystem before
+	 * plugins run (e.g. vinext's `dist` runtime). React/RSC packages are always
+	 * seeded; this is for anything a particular framework adapter needs on top.
+	 */
+	seedRuntime?: (fileSystem: MemoryFileSystem) => void;
 }
 
 export interface BundleRequest {
@@ -73,10 +78,10 @@ export class ViteHost {
 	static async create(options: ViteHostOptions): Promise<ViteHost> {
 		const esbuild = await ensureEsbuild();
 		const fileSystem = MemoryFileSystem.fromSnapshot(options.files);
-		// Make vinext's runtime modules + the React/RSC package source resolvable
-		// for the RSC/SSR/client builds.
-		seedVinextRuntime(fileSystem);
+		// The React/RSC package source is always resolvable; framework adapters
+		// seed any additional runtime modules they need (e.g. vinext's `dist`).
 		seedNodeModules(fileSystem);
+		options.seedRuntime?.(fileSystem);
 
 		// vinext resolves the project root from the working directory at factory
 		// time; the host defines it as the project root so app/pages detection
