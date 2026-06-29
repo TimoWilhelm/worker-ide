@@ -12,9 +12,10 @@ A browser-based full-stack development environment built on Cloudflare Workers. 
 
 ### Backend (`worker/`)
 
-- Cloudflare Workers with Hono. Two Durable Objects: one for per-project file storage (SQLite-backed working tree) and one for WebSocket coordination (HMR, collaboration).
+- Cloudflare Workers with Hono. Durable Objects back per-project file storage (SQLite-backed working tree), WebSocket coordination (HMR, collaboration), and warm vinext preview builds.
 - Git operations use `isomorphic-git` against Cloudflare Artifacts remotes, with the project working tree mounted from the project filesystem DO.
 - User backend code runs in isolated V8 isolates via Cloudflare's [Dynamic Worker Loader](https://developers.cloudflare.com/workers/runtime-apis/bindings/worker-loader/) API.
+- Next.js (App Router) projects use [vinext](https://github.com/cloudflare/vinext) built by an in-worker Vite/esbuild host (no Vite dev server, since workerd forbids code-gen-from-strings). React Server Components render in a Worker Loader isolate; the browser gets module-level HMR with React Fast Refresh and state-preserving RSC + CSS updates. Deploys produce a standalone Worker (bundled server module set + static client assets).
 - AI coding assistant powered by the Cloudflare Agents SDK and Vercel AI SDK, with real-time state sync via WebSocket.
 - Private previews use a preview-only host cookie minted through an app-origin bootstrap flow, so app auth cookies never leave the main app origin.
 

@@ -40,7 +40,7 @@ async function ensureTestSession(): Promise<string> {
 
 	throw new Error('Unreachable');
 }
-async function createProject(): Promise<{ projectId: string; url: string }> {
+async function createProject(template = 'request-inspector'): Promise<{ projectId: string; url: string }> {
 	const cookie = await ensureTestSession();
 
 	const response = await fetch(`${BASE_URL}/api/new-project`, {
@@ -49,7 +49,7 @@ async function createProject(): Promise<{ projectId: string; url: string }> {
 			'Content-Type': 'application/json',
 			Cookie: cookie,
 		},
-		body: JSON.stringify({ template: 'request-inspector', organizationId: testOrganizationId }),
+		body: JSON.stringify({ template, organizationId: testOrganizationId }),
 	});
 
 	if (!response.ok) {
@@ -69,9 +69,9 @@ async function createProject(): Promise<{ projectId: string; url: string }> {
  * AuthGate passes, then clears localStorage to reset persisted Zustand
  * state (sidebar/terminal visibility, etc.) before the page loads.
  */
-export async function gotoIDE(page: Page): Promise<string> {
+export async function gotoIDE(page: Page, options: { template?: string } = {}): Promise<string> {
 	const cookie = await ensureTestSession();
-	const { url, projectId } = await createProject();
+	const { url, projectId } = await createProject(options.template);
 
 	// Inject the session cookie into the browser context
 	const separatorIndex = cookie.indexOf('=');
@@ -109,8 +109,8 @@ export async function gotoIDE(page: Page): Promise<string> {
  * Wait for the file tree to load by checking for the Explorer label
  * and at least one file entry.
  */
-export async function waitForFileTree(page: Page): Promise<void> {
+export async function waitForFileTree(page: Page, entryName = 'index.html'): Promise<void> {
 	await page.getByRole('tree').waitFor({ timeout: 10_000 });
-	// The example project always has an index.html at root
-	await page.getByRole('treeitem', { name: 'index.html' }).waitFor({ timeout: 15_000 });
+	// Wait for a known root entry so follow-up assertions don't race the load.
+	await page.getByRole('treeitem', { name: entryName }).waitFor({ timeout: 15_000 });
 }

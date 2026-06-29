@@ -95,7 +95,7 @@ async function getPreviewService(projectRoot: string, projectId: string): Promis
 	previewServiceCache.set(projectId, service);
 	return service;
 }
-export { AgentRunner, DurableObjectFilesystem, ProjectCoordinatorV2, ProjectMetadata, SubAgentWorker } from './durable';
+export { AgentRunner, DurableObjectFilesystem, ProjectCoordinatorV2, ProjectMetadata, SubAgentWorker, VinextPreviewHost } from './durable';
 // The browser/codemode tools run their durable runtime inside a Durable Object
 // facet, so the facet class must be exported from the worker entry.
 export { CodemodeRuntime } from '@cloudflare/codemode';
