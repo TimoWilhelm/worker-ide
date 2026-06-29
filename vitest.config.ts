@@ -64,7 +64,6 @@ export default defineConfig({
 									BIOME: () => new Response('service unavailable', { status: 503 }),
 									ESBUILD: () => new Response('service unavailable', { status: 503 }),
 									VITE_HOST: () => new Response('service unavailable', { status: 503 }),
-									VITE_HOST_DEPLOY: () => new Response('service unavailable', { status: 503 }),
 									PUSH: () => new Response('service unavailable', { status: 503 }),
 									EMAIL: () => new Response('service unavailable', { status: 503 }),
 									AI: () => new Response('service unavailable', { status: 503 }),

@@ -10,6 +10,7 @@
 		"worker/services/vite-host/runtime/node-module-shim.ts",
 		"worker/services/vite-host/runtime/node-os-shim.ts",
 		"worker/services/vite-host/runtime/optional-dependency-unavailable.ts",
+		"worker/services/vite-host/runtime/react-plugin-stub.ts",
 		"worker/services/vite-host/runtime/vite-module-runner-stub.ts"
 	],
 	"ignore": ["landing/**", "public/**", "auxiliary/vite-host/vendor/**", "**/worker-configuration.d.ts", "worker/migrations/**/*.d.ts"],

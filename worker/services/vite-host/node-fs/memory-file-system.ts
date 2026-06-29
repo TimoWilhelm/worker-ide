@@ -101,8 +101,16 @@ function baseName(path: string): string {
  * the ~18 MB of vendored React/RSC/runtime source is resident a single time.
  */
 export class VendoredLayer {
-	/** `absolutePath -> contents`. */
+	/**
+	 * `absolutePath -> stored value`. The value is the file contents directly,
+	 * or — when {@link decompress} is set — a compressed-and-encoded form that is
+	 * inflated to the real contents on first read.
+	 */
 	private readonly files: Map<string, string>;
+	/** Decompresses a stored value to file contents; identity for raw layers. */
+	private readonly decompress?: (stored: string) => string;
+	/** Decompressed-contents cache, populated lazily (compressed layers only). */
+	private readonly decompressedCache = new Map<string, string>();
 	/** Every directory path implied by the files (always includes `/`). */
 	private readonly directories = new Set<string>();
 	/** `directory -> (childName -> type)`, for `readdir`. */
@@ -110,8 +118,9 @@ export class VendoredLayer {
 	/** Lazily-computed UTF-8 byte length per file (for `stat().size`). */
 	private readonly sizes = new Map<string, number>();
 
-	private constructor(files: Map<string, string>) {
+	private constructor(files: Map<string, string>, decompress?: (stored: string) => string) {
 		this.files = files;
+		this.decompress = decompress;
 		this.directories.add('/');
 		for (const path of files.keys()) {
 			this.indexAncestors(path, 'file');
@@ -128,6 +137,21 @@ export class VendoredLayer {
 			files.set(normalizePosixPath(`${pathPrefix}/${relativePath}`), contents);
 		}
 		return new VendoredLayer(files);
+	}
+
+	/**
+	 * Build a layer from a `path -> compressed value` record, decompressing each
+	 * file lazily on first read via `decompress`. The compressed values stay
+	 * resident (a fraction of the source size); only files a build actually reads
+	 * are ever materialised as full strings — keeping the vendored React/RSC
+	 * source cheap in the 128 MB build isolate.
+	 */
+	static fromCompressedRecord(record: Record<string, string>, decompress: (stored: string) => string, pathPrefix = ''): VendoredLayer {
+		const files = new Map<string, string>();
+		for (const [relativePath, stored] of Object.entries(record)) {
+			files.set(normalizePosixPath(`${pathPrefix}/${relativePath}`), stored);
+		}
+		return new VendoredLayer(files, decompress);
 	}
 
 	/** Register `path` and all of its ancestor directories in the index. */
@@ -166,7 +190,17 @@ export class VendoredLayer {
 	}
 
 	getFileText(path: string): string | undefined {
-		return this.files.get(path);
+		const stored = this.files.get(path);
+		if (stored === undefined || this.decompress === undefined) {
+			return stored;
+		}
+		const cached = this.decompressedCache.get(path);
+		if (cached !== undefined) {
+			return cached;
+		}
+		const contents = this.decompress(stored);
+		this.decompressedCache.set(path, contents);
+		return contents;
 	}
 
 	sizeOf(path: string): number {
@@ -174,7 +208,7 @@ export class VendoredLayer {
 		if (cached !== undefined) {
 			return cached;
 		}
-		const contents = this.files.get(path);
+		const contents = this.getFileText(path);
 		const size = contents === undefined ? 0 : textEncoder.encode(contents).byteLength;
 		this.sizes.set(path, size);
 		return size;
@@ -248,6 +282,14 @@ export class MemoryFileSystem {
 		return undefined;
 	}
 
+	/** Whether a base layer holds `path` as a file — without decompressing it. */
+	private baseHasFile(path: string): boolean {
+		if (this.isHiddenInBase(path)) {
+			return false;
+		}
+		return this.baseLayers.some((layer) => layer.hasFile(path));
+	}
+
 	private baseHasDirectory(path: string): boolean {
 		if (this.isHiddenInBase(path)) {
 			return false;
@@ -305,7 +347,7 @@ export class MemoryFileSystem {
 		if (this.isHiddenInBase(normalized)) {
 			return false;
 		}
-		return this.baseFile(normalized) !== undefined || this.baseHasDirectory(normalized);
+		return this.baseHasFile(normalized) || this.baseHasDirectory(normalized);
 	}
 
 	private ensureDirectory(path: string): void {
@@ -453,7 +495,7 @@ export class MemoryFileSystem {
 	remove(path: string, options?: { recursive?: boolean }): void {
 		const normalized = normalizePosixPath(path);
 		const existsInOverlay = this.nodes.has(normalized);
-		const existsInBase = this.baseFile(normalized) !== undefined || this.baseHasDirectory(normalized);
+		const existsInBase = this.baseHasFile(normalized) || this.baseHasDirectory(normalized);
 		if (!existsInOverlay && !existsInBase) {
 			if (options?.recursive) {
 				return;

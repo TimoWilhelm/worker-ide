@@ -168,3 +168,60 @@ describe('MemoryFileSystem read-through base layer', () => {
 		expect(fs.readFilesUnder('/dist/server')).toEqual({ 'index.js': 'server-output' });
 	});
 });
+
+// A trivial reversible "decompression" (reverse the stored string) stands in
+// for gzip+base64 so the test stays pure and deterministic.
+const reverseString = (value: string): string => [...value].toReversed().join('');
+
+describe('VendoredLayer.fromCompressedRecord', () => {
+	const decompress = reverseString;
+	const encode = reverseString;
+
+	function withCompressed(): { fs: MemoryFileSystem; calls: () => number } {
+		let count = 0;
+		const fs = new MemoryFileSystem();
+		fs.addBaseLayer(
+			VendoredLayer.fromCompressedRecord(
+				{
+					'node_modules/react/index.js': encode('module.exports = {};'),
+					'node_modules/react/package.json': encode('{"name":"react"}'),
+				},
+				(stored) => {
+					count += 1;
+					return decompress(stored);
+				},
+				'/',
+			),
+		);
+		return { fs, calls: () => count };
+	}
+
+	it('decompresses file contents lazily on read', () => {
+		const { fs, calls } = withCompressed();
+		// Directory/existence checks must not trigger any decompression.
+		expect(fs.exists('/node_modules/react/index.js')).toBe(true);
+		expect(
+			fs
+				.readdir('/node_modules/react')
+				.map((entry) => entry.name)
+				.toSorted(),
+		).toEqual(['index.js', 'package.json']);
+		expect(calls()).toBe(0);
+
+		expect(fs.readFileText('/node_modules/react/index.js')).toBe('module.exports = {};');
+		expect(calls()).toBe(1);
+	});
+
+	it('caches decompressed contents (decompresses each file at most once)', () => {
+		const { fs, calls } = withCompressed();
+		fs.readFileText('/node_modules/react/index.js');
+		fs.readFileText('/node_modules/react/index.js');
+		fs.stat('/node_modules/react/index.js'); // size also uses the decompressed text
+		expect(calls()).toBe(1);
+	});
+
+	it('reports the decompressed byte length from stat', () => {
+		const { fs } = withCompressed();
+		expect(fs.stat('/node_modules/react/package.json').size).toBe('{"name":"react"}'.length);
+	});
+});

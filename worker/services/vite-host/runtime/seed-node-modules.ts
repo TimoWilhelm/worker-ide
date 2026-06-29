@@ -15,6 +15,7 @@
  * branch, and never reads those files — so skipping them keeps ~7 MB of unused
  * source out of the deploy isolate's 128 MB budget.
  */
+import { decompressVendoredFile } from './vendored-decompress';
 import nodeModuleDevelopmentFiles from '../../../../auxiliary/vite-host/vendor/node-modules-development.js';
 import nodeModuleFiles from '../../../../auxiliary/vite-host/vendor/node-modules.js';
 import { VendoredLayer } from '../node-fs/memory-file-system';
@@ -40,10 +41,10 @@ let developmentLayer: VendoredLayer | undefined;
  *   too (required by the preview client's Fast Refresh; omitted for deploy).
  */
 export function seedNodeModules(fileSystem: MemoryFileSystem, options: { includeDevelopment: boolean }): void {
-	baseLayer ??= VendoredLayer.fromRecord(baseFiles, '/');
+	baseLayer ??= VendoredLayer.fromCompressedRecord(baseFiles, decompressVendoredFile, '/');
 	fileSystem.addBaseLayer(baseLayer);
 	if (options.includeDevelopment) {
-		developmentLayer ??= VendoredLayer.fromRecord(developmentFiles, '/');
+		developmentLayer ??= VendoredLayer.fromCompressedRecord(developmentFiles, decompressVendoredFile, '/');
 		fileSystem.addBaseLayer(developmentLayer);
 	}
 }
