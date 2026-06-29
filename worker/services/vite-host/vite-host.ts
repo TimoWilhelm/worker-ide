@@ -49,6 +49,13 @@ export interface ViteHostOptions {
 	 * seeded; this is for anything a particular framework adapter needs on top.
 	 */
 	seedRuntime?: (fileSystem: MemoryFileSystem) => void;
+	/**
+	 * Seed the vendored `*.development.js` React/RSC builds (needed by the preview
+	 * client's Fast Refresh). Omit/`false` for production deploy builds, which
+	 * never resolve them — keeping ~7 MB of unused source out of the isolate.
+	 * Defaults to `true`.
+	 */
+	includeDevelopmentModules?: boolean;
 }
 
 export interface BundleRequest {
@@ -80,7 +87,7 @@ export class ViteHost {
 		const fileSystem = MemoryFileSystem.fromSnapshot(options.files);
 		// The React/RSC package source is always resolvable; framework adapters
 		// seed any additional runtime modules they need (e.g. vinext's `dist`).
-		seedNodeModules(fileSystem);
+		seedNodeModules(fileSystem, { includeDevelopment: options.includeDevelopmentModules ?? true });
 		options.seedRuntime?.(fileSystem);
 
 		// vinext resolves the project root from the working directory at factory

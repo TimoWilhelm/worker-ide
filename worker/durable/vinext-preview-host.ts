@@ -102,8 +102,10 @@ export class VinextPreviewHost extends DurableObject<Env> {
 
 	/**
 	 * Produce a production deploy build (server module set + client assets) for
-	 * the project. Runs in this per-project DO so the build is single-threaded and
-	 * isolated from the request-serving worker; the deploy workflow uploads the
+	 * the project. Coordinated single-threaded through this per-project DO, but
+	 * the heavy build runs on the dedicated `VITE_HOST_DEPLOY` worker (its own
+	 * isolate pool) so a production build never contends for the 128 MB isolate
+	 * budget with interactive preview rebuilds. The deploy workflow uploads the
 	 * returned bundle directly (it is never persisted as workflow step state).
 	 */
 	async buildForDeploy(projectId: string, projectRoot: string, runtimeId: string): Promise<RuntimeBuild> {
@@ -115,7 +117,10 @@ export class VinextPreviewHost extends DurableObject<Env> {
 			filesystemStub,
 			async () => {
 				const snapshot = await this.collectSnapshot();
-				return this.runExclusive(() => this.env.VITE_HOST.build(snapshot, this.runtimeId, { hostDevelopment: false }));
+				// Deploy builds run on a dedicated worker (own isolate pool) so a heavy
+				// production build never shares a 128 MB isolate with interactive
+				// preview rebuilds (which stay on VITE_HOST).
+				return this.runExclusive(() => this.env.VITE_HOST_DEPLOY.build(snapshot, this.runtimeId, { hostDevelopment: false }));
 			},
 			projectRoot,
 		);

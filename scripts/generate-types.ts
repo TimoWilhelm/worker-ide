@@ -88,6 +88,12 @@ const auxiliaryWorkers: AuxiliaryWorkerConfig[] = [
 		envInterface: 'ViteHostWorkerEnvironment',
 	},
 	{
+		name: 'viteHostDeploy',
+		configPath: 'auxiliary/vite-host-deploy/wrangler.jsonc',
+		outputPath: 'auxiliary/vite-host-deploy/worker-configuration.d.ts',
+		envInterface: 'ViteHostDeployWorkerEnvironment',
+	},
+	{
 		name: 'push',
 		configPath: 'auxiliary/push/wrangler.jsonc',
 		outputPath: 'auxiliary/push/worker-configuration.d.ts',

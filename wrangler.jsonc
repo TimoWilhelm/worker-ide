@@ -142,6 +142,10 @@
 			"service": "vite-host-worker",
 		},
 		{
+			"binding": "VITE_HOST_DEPLOY",
+			"service": "vite-host-deploy-worker",
+		},
+		{
 			"binding": "PUSH",
 			"service": "push-worker",
 		},

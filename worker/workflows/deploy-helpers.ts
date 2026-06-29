@@ -432,13 +432,32 @@ export interface WorkerScriptModule {
 	contents: string;
 }
 
-/** Workers module content type for a module-worker part, chosen by extension. */
-function workerModuleContentType(name: string): string {
-	if (name.endsWith('.json')) return 'application/json';
-	if (name.endsWith('.js') || name.endsWith('.mjs')) return 'application/javascript+module';
-	// Manifests without a JS/JSON extension (e.g. `BUILD_ID`) and emitted CSS are
-	// uploaded as text modules, matching how the LOADER isolate loads them.
-	return 'text/plain';
+/**
+ * Map an emitted server module to its Workers multipart upload part (Content-Type
+ * + body), chosen by extension.
+ *
+ * The Workers Script Upload API does not accept `application/json` as a module
+ * Content-Type (it rejects with "unsupported Content-Type application/json").
+ * We therefore handle `.json` exactly the way Vite / the Cloudflare Vite plugin
+ * do: compile it to an ES module that default-exports the parsed value (Vite's
+ * `json` plugin and esbuild's `json` loader emit precisely this). The module
+ * keeps its `.json` name, so any `import x from "./x.json"` — or dynamic
+ * `import("./x.json")`, which yields `{ default: value }` either way — still
+ * resolves to the parsed object, identical to the JSON-module semantics the
+ * preview LOADER isolate uses (`{ json }`). Manifests without a JS extension
+ * (e.g. `BUILD_ID`) and emitted CSS are uploaded as text modules.
+ */
+export function toWorkerModulePart(name: string, contents: string): { contentType: string; body: string } {
+	if (name.endsWith('.json')) {
+		// JSON is a strict subset of JS expressions, so `export default <json>` is
+		// valid; guard the (invalid-JSON) empty file to a defined module.
+		const value = contents.trim() === '' ? 'null' : contents;
+		return { contentType: 'application/javascript+module', body: `export default ${value};\n` };
+	}
+	if (name.endsWith('.js') || name.endsWith('.mjs')) {
+		return { contentType: 'application/javascript+module', body: contents };
+	}
+	return { contentType: 'text/plain', body: contents };
 }
 
 export interface UploadWorkerModulesOptions {
@@ -495,7 +514,8 @@ export async function uploadWorkerModules(options: UploadWorkerModulesOptions): 
 
 	formData.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
 	for (const module of options.modules) {
-		formData.append(module.name, new Blob([module.contents], { type: workerModuleContentType(module.name) }), module.name);
+		const part = toWorkerModulePart(module.name, module.contents);
+		formData.append(module.name, new Blob([part.body], { type: part.contentType }), module.name);
 	}
 
 	const uploadResponse = await fetch(`${CLOUDFLARE_API_BASE}/accounts/${options.accountId}/workers/scripts/${options.workerName}`, {

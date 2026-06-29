@@ -189,6 +189,7 @@ export default defineConfig({
 				{ configPath: './auxiliary/biome/wrangler.jsonc' },
 				{ configPath: './auxiliary/esbuild/wrangler.jsonc' },
 				{ configPath: './auxiliary/vite-host/wrangler.jsonc' },
+				{ configPath: './auxiliary/vite-host-deploy/wrangler.jsonc' },
 				{ configPath: './auxiliary/push/wrangler.jsonc' },
 				{ configPath: './auxiliary/email/wrangler.jsonc' },
 			],

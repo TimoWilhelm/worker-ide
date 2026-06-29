@@ -7,6 +7,7 @@
  * preview Durable Object and the deploy workflow, so that build memory never
  * counts against the preview DO's isolate budget.
  */
+import { createSerialRunner } from '../../../lib/serial-runner';
 import { ensureEsbuild } from '../esbuild-runtime';
 import { MemoryFileSystem } from '../node-fs/memory-file-system';
 import { serveDevelopmentModule } from '../runtime/development-module-server';
@@ -23,13 +24,23 @@ import type { PluginOption } from '../types';
 /** vinext's App Router worker entry — the server module set's main module. */
 const APP_ROUTER_ENTRY = '/__vinext__/dist/server/app-router-entry.js';
 
+/**
+ * Serialise esbuild work within this isolate. The build installs process-global
+ * state (`process.cwd`) and esbuild-wasm shares one isolate-wide instance, so
+ * concurrent cross-project builds would both race that global and stack their
+ * working sets against the 128 MB isolate budget. Running one at a time avoids
+ * both. Module scope ⇒ one runner per isolate; builds across the fleet still run
+ * in parallel over many isolates.
+ */
+const runBuildExclusive = createSerialRunner();
+
 /** Load vinext's Vite plugins from the vendored native-plugin bundle. */
 function createPlugins(): Promise<PluginOption[]> {
 	return import('../../../../auxiliary/vite-host/vendor/native-plugins.mjs').then(({ vinext }) => vinext());
 }
 
 /** Build a Vite host over the project snapshot, with vinext's plugins + runtime. */
-function createHost(snapshot: Record<string, string>): Promise<ViteHost> {
+function createHost(snapshot: Record<string, string>, options: { hostDevelopment: boolean }): Promise<ViteHost> {
 	return ViteHost.create({
 		files: stripIdeManagedConfig(snapshot),
 		root: '/',
@@ -37,6 +48,9 @@ function createHost(snapshot: Record<string, string>): Promise<ViteHost> {
 		mode: 'production',
 		createPlugins,
 		seedRuntime: (fileSystem) => seedVinextRuntime(fileSystem),
+		// Only the preview client (NODE_ENV=development) resolves React's dev
+		// builds; deploy stays production and skips seeding them to save memory.
+		includeDevelopmentModules: options.hostDevelopment,
 	});
 }
 
@@ -48,14 +62,16 @@ function createHost(snapshot: Record<string, string>): Promise<ViteHost> {
  * snapshot via {@link serveVinextDevelopmentModule}.
  */
 export async function buildVinext(snapshot: Record<string, string>, options: { hostDevelopment: boolean }): Promise<RuntimeBuild> {
-	const host = await createHost(snapshot);
-	const runBuild = (): Promise<unknown> => host.build([...SERVER_RUNTIME_EXTERNALS], APP_ROUTER_ENTRY);
-	await (options.hostDevelopment ? runWithHostDevelopmentMode(runBuild) : runBuild());
-	return {
-		mainModule: 'index.js',
-		serverModules: host.readOutput('/dist/server'),
-		clientOutput: host.readOutput('/dist/client'),
-	};
+	return runBuildExclusive(async () => {
+		const host = await createHost(snapshot, options);
+		const runBuild = (): Promise<unknown> => host.build([...SERVER_RUNTIME_EXTERNALS], APP_ROUTER_ENTRY);
+		await (options.hostDevelopment ? runWithHostDevelopmentMode(runBuild) : runBuild());
+		return {
+			mainModule: 'index.js',
+			serverModules: host.readOutput('/dist/server'),
+			clientOutput: host.readOutput('/dist/client'),
+		};
+	});
 }
 
 /**
@@ -67,10 +83,14 @@ export async function buildVinext(snapshot: Record<string, string>, options: { h
  * is not a dev module the server produces.
  */
 export async function serveVinextDevelopmentModule(pathname: string, snapshot: Record<string, string>): Promise<string | undefined> {
-	const esbuild = await ensureEsbuild();
-	const fileSystem = MemoryFileSystem.fromSnapshot(stripIdeManagedConfig(snapshot));
-	seedNodeModules(fileSystem);
-	seedVinextRuntime(fileSystem);
-	const result = await serveDevelopmentModule(pathname, { esbuild, fileSystem });
-	return result?.code;
+	// Serialised with builds so it never races the build's process-global state.
+	return runBuildExclusive(async () => {
+		const esbuild = await ensureEsbuild();
+		const fileSystem = MemoryFileSystem.fromSnapshot(stripIdeManagedConfig(snapshot));
+		// HMR runs against the development build, so seed the dev React/RSC source.
+		seedNodeModules(fileSystem, { includeDevelopment: true });
+		seedVinextRuntime(fileSystem);
+		const result = await serveDevelopmentModule(pathname, { esbuild, fileSystem });
+		return result?.code;
+	});
 }
