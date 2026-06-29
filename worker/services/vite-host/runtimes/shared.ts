@@ -1,25 +1,14 @@
 /**
- * Shared building blocks for framework runtime adapters: host construction and a
- * parameterized browser HMR glue builder. The glue's transport (the coordinator
- * `vinext:hmr` event, the `/@vinext-client/` dev module ids, the CSS `<link>`
- * swap) is identical across frameworks; only the "soft refresh" fallback and any
- * per-framework client setup differ, so those are injected.
+ * Shared building block for framework runtime adapters: a parameterized browser
+ * HMR glue builder. The glue's transport (the coordinator `vinext:hmr` event,
+ * the `/@vinext-client/` dev module ids, the CSS `<link>` swap) is identical
+ * across frameworks; only the "soft refresh" fallback and any per-framework
+ * client setup differ, so those are injected.
+ *
+ * This module is intentionally light (no esbuild/ViteHost import) so the preview
+ * Durable Object can use {@link buildHmrGlue} without pulling the build engine
+ * into its isolate.
  */
-import { ViteHost } from '../vite-host';
-
-import type { DurableFrameworkRuntime } from './types';
-
-/** Create a Vite host for a runtime from a project snapshot. */
-export function createRuntimeHost(runtime: DurableFrameworkRuntime, snapshot: Record<string, string>): Promise<ViteHost> {
-	return ViteHost.create({
-		files: snapshot,
-		root: '/',
-		command: 'build',
-		mode: 'production',
-		createPlugins: () => runtime.createPlugins(),
-		seedRuntime: runtime.seedRuntime?.bind(runtime),
-	});
-}
 
 /** Source extensions treated as stylesheets for CSS HMR (mirrors Vite). */
 const STYLE_EXTENSION_PATTERN = String.raw`\.(css|scss|sass|less|styl|stylus|pcss|postcss|sss)([?#].*)?$`;

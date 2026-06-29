@@ -130,6 +130,20 @@ describe('vinext template', () => {
 		expect(isVinextProject(template?.files ?? {})).toBe(true);
 	});
 
+	it('ships a Cloudflare-ready wrangler.jsonc', () => {
+		const template = getTemplate('vinext');
+		const wranglerConfig = template?.files['wrangler.jsonc'];
+		expect(wranglerConfig).toBeDefined();
+		const parsedWranglerConfig: { main?: string; compatibility_flags?: string[] } = parseJsonc(wranglerConfig ?? '');
+		expect(parsedWranglerConfig.main).toBe('vinext/server/app-router-entry');
+		expect(parsedWranglerConfig.compatibility_flags).toContain('nodejs_compat');
+	});
+
+	it('does not ship a vite.config.ts (vinext auto-configures Vite at build time)', () => {
+		const template = getTemplate('vinext');
+		expect(template?.files['vite.config.ts']).toBeUndefined();
+	});
+
 	it('ships an App Router with a server page and a client component', () => {
 		const template = getTemplate('vinext');
 		expect(template?.files['app/page.tsx']).toContain('export default function Page');
@@ -147,9 +161,13 @@ describe('vinext template', () => {
 });
 
 describe('getTemplateMetadata', () => {
-	it('returns an array of metadata for all templates', () => {
+	it('returns metadata for all templates', () => {
 		const metadata = getTemplateMetadata();
 		expect(metadata).toHaveLength(TEMPLATES.length);
+	});
+
+	it('includes the vinext template', () => {
+		expect(getTemplateMetadata().some((meta) => meta.id === 'vinext')).toBe(true);
 	});
 
 	it('returns metadata without file contents', () => {

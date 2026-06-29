@@ -8,10 +8,7 @@
  * registering it (see `registry.ts`). The build Durable Object, preview router,
  * and deploy workflow stay generic and delegate to the selected runtime.
  */
-import type { MemoryFileSystem } from '../node-fs/memory-file-system';
 import type { ServerFetcher } from '../runtime/app-runtime';
-import type { DevelopmentModuleContext } from '../runtime/development-module-server';
-import type { PluginOption } from '../types';
 import type { ResolvedAssetSettings } from '@shared/types';
 
 /** A cheap project snapshot for detection: `path -> contents` (leading slash optional). */
@@ -27,11 +24,6 @@ export interface RuntimeBuild {
 	serverModules: Record<string, string>;
 	/** Client build output, served as static assets. */
 	clientOutput: Record<string, string>;
-}
-
-/** A build plus the esbuild/filesystem context the dev module server reuses for HMR. */
-export interface RuntimePreviewBuild extends RuntimeBuild {
-	devContext: DevelopmentModuleContext;
 }
 
 /** Context handed to a runtime when routing a preview request. */
@@ -61,21 +53,18 @@ interface BaseRuntime {
  * A runtime whose build is expensive and stateful, hosted in the per-project
  * build Durable Object (vinext, plain React on Vite, …). It produces a warm
  * build and routes preview requests across it, with module-level HMR.
+ *
+ * The heavy build itself (esbuild + the vendored React/RSC source) is NOT part
+ * of this interface — it runs in the dedicated `vite-host` worker (see
+ * `runtimes/vinext-build.ts` and `auxiliary/vite-host`) so the preview Durable
+ * Object's isolate never loads esbuild-wasm or the ~20 MB of vendored source.
+ * This interface is the light, DO-facing contract: detection, request routing
+ * across an already-built module set, and the browser HMR glue.
  */
 export interface DurableFrameworkRuntime extends BaseRuntime {
 	readonly hosting: 'durable';
 	/** Compatibility flags the built server isolate requires. */
 	readonly serverCompatibilityFlags: readonly string[];
-	/** Framework Vite plugins (e.g. `vinext()`); empty for plugin-less builds. */
-	createPlugins(): PluginOption[] | Promise<PluginOption[]>;
-	/** Seed framework runtime modules into the in-memory fs (optional). */
-	seedRuntime?(fileSystem: MemoryFileSystem): void;
-	/**
-	 * Build the project from a snapshot. `hostDevelopment` selects the preview
-	 * build (unbundled, HMR-able client references) over the production deploy
-	 * build (fully bundled, standalone).
-	 */
-	build(snapshot: Record<string, string>, options: { hostDevelopment: boolean }): Promise<RuntimePreviewBuild>;
 	/** Route a preview request across the build (static asset / SSR / SPA fallback). */
 	route(request: Request, context: RuntimeRouteContext): Promise<Response>;
 	/**

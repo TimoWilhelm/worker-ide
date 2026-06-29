@@ -1,0 +1,12 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "my-vinext-app",
+	"compatibility_date": "2026-03-24",
+	"compatibility_flags": ["nodejs_compat"],
+	"main": "vinext/server/app-router-entry",
+	"assets": {
+		"directory": "dist/client",
+		"not_found_handling": "none",
+		"binding": "ASSETS",
+	},
+}

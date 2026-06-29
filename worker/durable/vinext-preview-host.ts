@@ -13,25 +13,23 @@
  * for its async context. The server module set runs in a `LOADER` isolate (no
  * eval); only the client is served unbundled for HMR.
  */
-import { DurableObject } from 'cloudflare:workers';
+import { DurableObject, exports } from 'cloudflare:workers';
 
-import { HIDDEN_ENTRIES, WORKERS_COMPATIBILITY_DATE } from '@shared/constants';
+import { HIDDEN_ENTRIES, STORAGE_BINDING_NAME, WORKERS_COMPATIBILITY_DATE } from '@shared/constants';
 import { fs, runWithProjectStub } from '@worker/lib/project-fs';
 
 import { toBundleServerError } from '../lib/build-server-error';
 import { coordinatorNamespace, filesystemNamespace } from '../lib/durable-object-namespaces';
 import { toDurableObjectId } from '../lib/project-id';
+import { readBindingsConfig } from '../lib/protected-files';
 import { createSerialRunner } from '../lib/serial-runner';
+import { resolveStorageQuotaForProject } from '../lib/storage-quota';
 import { VINEXT_PREVIEW_HEADERS } from '../lib/vinext-preview-protocol';
-import {
-	isDevelopmentModuleRequest,
-	serveDevelopmentModule,
-	type DevelopmentModuleContext,
-} from '../services/vite-host/runtime/development-module-server';
+import { isDevelopmentModuleRequest } from '../services/vite-host/runtime/development-module-server';
 import { getServerEntrypoint, serverModulesFromOutput } from '../services/vite-host/runtime/loader-runner';
 import { getRuntimeById } from '../services/vite-host/runtimes/registry';
 
-import type { DurableFrameworkRuntime, RuntimeBuild, RuntimePreviewBuild } from '../services/vite-host/runtimes/types';
+import type { DurableFrameworkRuntime, RuntimeBuild } from '../services/vite-host/runtimes/types';
 
 /** The default runtime when no id is supplied (the original preview surface). */
 const DEFAULT_RUNTIME_ID = 'vinext';
@@ -51,10 +49,13 @@ const HMR_SCRIPT_PATHS = [
 const HMR_GLUE_PATH = '/__vinext_hmr_glue.js';
 
 export class VinextPreviewHost extends DurableObject<Env> {
-	/** Warm builds keyed by snapshot hash. Capped — only recent builds kept. */
-	private readonly builds = new Map<string, RuntimePreviewBuild>();
-	/** Most recent build, reused to serve dev modules without rebuilding. */
-	private latest?: RuntimePreviewBuild;
+	/**
+	 * Warm builds keyed by snapshot hash. Capped — only recent builds kept. These
+	 * are the lightweight, routable outputs (module maps); the heavy build itself
+	 * (esbuild + the vendored React/RSC source) runs in the `VITE_HOST` worker, so
+	 * the build never loads onto this Durable Object's isolate.
+	 */
+	private readonly builds = new Map<string, RuntimeBuild>();
 	private projectId = '';
 	private projectRoot = '/project';
 	private runtimeId = DEFAULT_RUNTIME_ID;
@@ -63,11 +64,9 @@ export class VinextPreviewHost extends DurableObject<Env> {
 	/** Whether the coordinator has been told this project uses the surface preview. */
 	private coordinatorMarked = false;
 	/**
-	 * Serializes builds within this DO. `ViteHost.create` installs process-global
-	 * state (the in-memory filesystem bridge, Vite host services, `process.cwd`,
-	 * the emitted-files collector), so builds must run one at a time — concurrent
-	 * requests on a cold open (HTML + assets) would otherwise interleave two
-	 * builds and clobber that shared state, yielding an incomplete module set.
+	 * Serializes builds within this DO so a burst of cold-open requests (HTML +
+	 * assets) triggers a single build for a given snapshot rather than several
+	 * concurrent `VITE_HOST` builds.
 	 */
 	private readonly runExclusive = createSerialRunner();
 
@@ -116,8 +115,7 @@ export class VinextPreviewHost extends DurableObject<Env> {
 			filesystemStub,
 			async () => {
 				const snapshot = await this.collectSnapshot();
-				const build = await this.runExclusive(() => this.runtime.build(snapshot, { hostDevelopment: false }));
-				return { mainModule: build.mainModule, serverModules: build.serverModules, clientOutput: build.clientOutput };
+				return this.runExclusive(() => this.env.VITE_HOST.build(snapshot, this.runtimeId, { hostDevelopment: false }));
 			},
 			projectRoot,
 		);
@@ -139,18 +137,19 @@ export class VinextPreviewHost extends DurableObject<Env> {
 			// client module from its CURRENT source against the warm build's context
 			// (node_modules + React globals) — no full rebuild.
 			if (isDevelopmentModuleRequest(url.pathname)) {
-				const build = await this.latestOrBuild();
-				const module = await serveDevelopmentModule(url.pathname, this.liveDevContext(build));
-				if (module !== undefined) {
-					return scriptResponse(module.code);
+				const snapshot = await this.collectSnapshot();
+				const code = await this.env.VITE_HOST.serveDevelopmentModule(url.pathname, snapshot);
+				if (code !== undefined) {
+					return scriptResponse(code);
 				}
 			}
 
 			const { build, cacheKey } = await this.buildForCurrentSnapshot();
+			const serverEnvironment = await this.resolveServerEnvironment();
 			const response = await this.runtime.route(request, {
 				clientOutput: build.clientOutput,
 				projectRoot: this.projectRoot,
-				getServer: this.serverFactory(build, cacheKey),
+				getServer: this.serverFactory(build, cacheKey, serverEnvironment),
 			});
 			if (response.headers.get('Content-Type')?.includes('text/html')) {
 				return this.injectHmrRuntime(response, request, ideOrigin);
@@ -161,8 +160,28 @@ export class VinextPreviewHost extends DurableObject<Env> {
 		}
 	}
 
+	/**
+	 * Resolve the Cloudflare bindings exposed to the running vinext server isolate
+	 * as `env` (and thus `import { env } from "cloudflare:workers"`). Mirrors the
+	 * React-SPA preview path: the curated `STORAGE` R2 binding is provided via the
+	 * `ObjectStorageBinding` entrypoint when enabled in the project's bindings config.
+	 */
+	private async resolveServerEnvironment(): Promise<Record<string, unknown>> {
+		const bindingsConfig = await readBindingsConfig(this.projectRoot);
+		const environment: Record<string, unknown> = {};
+		if (bindingsConfig.storage) {
+			const quotaBytes = await resolveStorageQuotaForProject(this.projectId, this.env.DB);
+			environment[STORAGE_BINDING_NAME] = exports.ObjectStorageBinding({ props: { projectId: this.projectId, quotaBytes } });
+		}
+		return environment;
+	}
+
 	/** A lazy server-isolate factory for a build (instantiated only when needed). */
-	private serverFactory(build: RuntimePreviewBuild, cacheKey: string): () => ReturnType<typeof getServerEntrypoint> {
+	private serverFactory(
+		build: RuntimeBuild,
+		cacheKey: string,
+		environment: Record<string, unknown>,
+	): () => ReturnType<typeof getServerEntrypoint> {
 		let server: ReturnType<typeof getServerEntrypoint> | undefined;
 		return () => {
 			server ??= getServerEntrypoint({
@@ -173,6 +192,7 @@ export class VinextPreviewHost extends DurableObject<Env> {
 					compatibilityFlags: [...this.runtime.serverCompatibilityFlags],
 					mainModule: build.mainModule,
 					modules: serverModulesFromOutput(build.serverModules),
+					...(Object.keys(environment).length > 0 ? { env: environment } : {}),
 				},
 			});
 			return server;
@@ -265,25 +285,23 @@ export class VinextPreviewHost extends DurableObject<Env> {
 	}
 
 	/** Build (or reuse) for the current project snapshot. */
-	private async buildForCurrentSnapshot(): Promise<{ build: RuntimePreviewBuild; cacheKey: string }> {
+	private async buildForCurrentSnapshot(): Promise<{ build: RuntimeBuild; cacheKey: string }> {
 		const snapshot = await this.collectSnapshot();
 		const hash = await hashSnapshot(snapshot);
 		const cached = this.builds.get(hash);
 		if (cached !== undefined) {
-			this.latest = cached;
 			return { build: cached, cacheKey: `${this.projectId}:${hash}` };
 		}
 		const build = await this.runExclusive(async () => {
 			// A build queued behind another may now find this snapshot already built.
 			const existing = this.builds.get(hash);
 			if (existing !== undefined) {
-				this.latest = existing;
 				return existing;
 			}
-			const built = await this.runtime.build(snapshot, { hostDevelopment: true });
+			// The heavy build runs in the VITE_HOST worker's isolate, not this DO.
+			const built = await this.env.VITE_HOST.build(snapshot, this.runtimeId, { hostDevelopment: true });
 			this.builds.set(hash, built);
-			this.latest = built;
-			// Keep only the two most recent builds to bound memory.
+			// Keep only the two most recent (lightweight) builds to bound memory.
 			while (this.builds.size > 2) {
 				const oldest = this.builds.keys().next().value;
 				if (oldest === undefined) break;
@@ -292,29 +310,6 @@ export class VinextPreviewHost extends DurableObject<Env> {
 			return built;
 		});
 		return { build, cacheKey: `${this.projectId}:${hash}` };
-	}
-
-	/** The latest warm build, building from the current snapshot if none exists. */
-	private async latestOrBuild(): Promise<RuntimePreviewBuild> {
-		if (this.latest !== undefined) {
-			return this.latest;
-		}
-		const { build } = await this.buildForCurrentSnapshot();
-		return build;
-	}
-
-	/** A dev context that reads user modules from the LIVE project filesystem. */
-	private liveDevContext(build: RuntimePreviewBuild): DevelopmentModuleContext {
-		return {
-			...build.devContext,
-			readSource: async (id) => {
-				try {
-					return await fs.readFile(`${this.projectRoot}${id}`, 'utf8');
-				} catch {
-					return;
-				}
-			},
-		};
 	}
 
 	/**

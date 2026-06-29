@@ -10,6 +10,7 @@ import { runWithHostDevelopmentMode } from './host-development-mode';
 import { seedVinextRuntime } from './seed-vinext-runtime';
 import { SERVER_RUNTIME_EXTERNALS } from './server-externals';
 import { getTemplate } from '../../../templates';
+import { stripIdeManagedConfig } from '../runtimes/vinext';
 import { ViteHost } from '../vite-host';
 
 const APP_ROUTER_ENTRY = '/__vinext__/dist/server/app-router-entry.js';
@@ -17,7 +18,8 @@ const APP_ROUTER_ENTRY = '/__vinext__/dist/server/app-router-entry.js';
 async function buildTemplateHost(): Promise<ViteHost> {
 	const template = getTemplate('vinext');
 	if (template === undefined) throw new Error('vinext template is not registered');
-	const files = Object.fromEntries(Object.entries(template.files).map(([path, contents]) => [`/${path}`, contents]));
+	// Mirror VinextRuntime.build: IDE-managed wrangler.jsonc is not a build input.
+	const files = stripIdeManagedConfig(Object.fromEntries(Object.entries(template.files).map(([path, contents]) => [`/${path}`, contents])));
 	const host = await ViteHost.create({
 		files,
 		root: '/',

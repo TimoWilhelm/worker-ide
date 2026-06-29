@@ -10,29 +10,39 @@
  */
 import { VINEXT_RUNTIME_DIST_ROOT, VINEXT_RUNTIME_ROOT } from './vinext-runtime-paths';
 import vinextRuntimeFiles from '../../../../auxiliary/vite-host/vendor/vinext-runtime.js';
+import { VendoredLayer } from '../node-fs/memory-file-system';
 
 import type { MemoryFileSystem } from '../node-fs/memory-file-system';
 
 const runtimeFiles: Record<string, string> = vinextRuntimeFiles;
 
-let cachedEntries: Array<[string, string]> | undefined;
+/**
+ * The embedded vinext runtime as a single shared, read-only layer, built once
+ * per isolate. The runtime is mirrored at both roots vinext resolves against
+ * (`/__vinext__/dist` and one level up); because the layer is referenced (not
+ * copied), mirroring it costs only map entries, not a second ~3.5 MB byte copy.
+ */
+let layer: VendoredLayer | undefined;
 
-function runtimeEntries(): Array<[string, string]> {
-	cachedEntries ??= Object.entries(runtimeFiles);
-	return cachedEntries;
-}
-
-/** Write the embedded vinext runtime into `fileSystem` at the expected roots. */
-export function seedVinextRuntime(fileSystem: MemoryFileSystem): void {
-	for (const [relativePath, contents] of runtimeEntries()) {
-		fileSystem.writeFile(`${VINEXT_RUNTIME_DIST_ROOT}/${relativePath}`, contents);
-		fileSystem.writeFile(`${VINEXT_RUNTIME_ROOT}/${relativePath}`, contents);
+/** Build the read-through runtime layer mirrored at both expected roots. */
+function buildRuntimeLayer(): VendoredLayer {
+	const mirrored: Record<string, string> = {};
+	for (const [relativePath, contents] of Object.entries(runtimeFiles)) {
+		mirrored[`${VINEXT_RUNTIME_DIST_ROOT}/${relativePath}`] = contents;
+		mirrored[`${VINEXT_RUNTIME_ROOT}/${relativePath}`] = contents;
 	}
 	// vinext resolves its instrumentation empty-module relative to the pinned
 	// runtime dirname (`/__vinext__/dist`), but the real file lives in
-	// `dist/client`. Seed an empty module at the resolved root so the `.js`
+	// `dist/client`. Provide an empty module at the resolved root so the `.js`
 	// existence check succeeds.
 	for (const root of [VINEXT_RUNTIME_DIST_ROOT, VINEXT_RUNTIME_ROOT]) {
-		fileSystem.writeFile(`${root}/empty-module.js`, 'export {};\n');
+		mirrored[`${root}/empty-module.js`] = 'export {};\n';
 	}
+	return VendoredLayer.fromRecord(mirrored);
+}
+
+/** Expose the embedded vinext runtime to `fileSystem` at the expected roots. */
+export function seedVinextRuntime(fileSystem: MemoryFileSystem): void {
+	layer ??= buildRuntimeLayer();
+	fileSystem.addBaseLayer(layer);
 }

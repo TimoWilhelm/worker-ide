@@ -5,7 +5,39 @@ import { parseJsonc } from '@shared/jsonc';
 import { resolveAssetSettings } from '@shared/types';
 import { fs } from '@worker/lib/project-fs';
 
+import { isVinextProject } from '../services/vite-host/vinext-detection';
+
 import type { AssetSettings, BindingsConfig } from '@shared/types';
+
+/**
+ * Detect whether the project on disk is a vinext (Next.js-on-Vite) app.
+ *
+ * vinext projects manage their own framework-shaped config, so the IDE must
+ * generate vinext-appropriate `wrangler.jsonc`/`vite.config.ts`/`package.json`
+ * for them rather than the Worker-SPA defaults (which would clobber the project).
+ * Mirrors the runtime detector by combining the `package.json` manifest with the
+ * presence of an `app/` or `pages/` directory.
+ */
+async function detectVinextProject(projectRoot: string): Promise<boolean> {
+	let packageJsonRaw: string;
+	try {
+		packageJsonRaw = await fs.readFile(`${projectRoot}/package.json`, 'utf8');
+	} catch {
+		return false;
+	}
+	const files: Record<string, string> = { '/package.json': packageJsonRaw };
+	for (const directory of ['app', 'pages']) {
+		try {
+			const entries = await fs.readdir(`${projectRoot}/${directory}`);
+			if (entries.length > 0) {
+				files[`/${directory}/.marker`] = '';
+			}
+		} catch {
+			// Directory absent — ignore.
+		}
+	}
+	return isVinextProject(files);
+}
 
 interface ProjectFileFlags {
 	hasReact: boolean;
@@ -107,8 +139,17 @@ export async function readBindingsConfig(projectRoot: string): Promise<BindingsC
 export async function writeAssetSettings(projectRoot: string, assetSettings: AssetSettings): Promise<void> {
 	const projectName = await readProjectName(projectRoot);
 	const bindingsConfig = await readBindingsConfig(projectRoot);
-	const assetsConfig = resolveAssetSettings(assetSettings);
 
+	// vinext manages its own assets config; only bindings carry over.
+	if (await detectVinextProject(projectRoot)) {
+		await fs.writeFile(
+			`${projectRoot}/wrangler.jsonc`,
+			JSON.stringify(buildVinextWranglerConfig(projectName, bindingsConfig), undefined, '\t'),
+		);
+		return;
+	}
+
+	const assetsConfig = resolveAssetSettings(assetSettings);
 	await fs.writeFile(
 		`${projectRoot}/wrangler.jsonc`,
 		JSON.stringify(buildWranglerConfig(projectName, assetsConfig, bindingsConfig), undefined, '\t'),
@@ -122,9 +163,17 @@ export async function writeAssetSettings(projectRoot: string, assetSettings: Ass
  */
 export async function writeBindingsConfig(projectRoot: string, bindingsConfig: BindingsConfig): Promise<void> {
 	const projectName = await readProjectName(projectRoot);
+
+	if (await detectVinextProject(projectRoot)) {
+		await fs.writeFile(
+			`${projectRoot}/wrangler.jsonc`,
+			JSON.stringify(buildVinextWranglerConfig(projectName, bindingsConfig), undefined, '\t'),
+		);
+		return;
+	}
+
 	const assetSettings = await readAssetSettings(projectRoot);
 	const assetsConfig = resolveAssetSettings(assetSettings);
-
 	await fs.writeFile(
 		`${projectRoot}/wrangler.jsonc`,
 		JSON.stringify(buildWranglerConfig(projectName, assetsConfig, bindingsConfig), undefined, '\t'),
@@ -154,6 +203,54 @@ function buildWranglerConfig(
 	}
 
 	return config;
+}
+
+/**
+ * Build the vinext-shaped `wrangler.jsonc` config object.
+ *
+ * vinext deploys via `@cloudflare/vite-plugin` + `vinext/server/app-router-entry`,
+ * so the config differs from the Worker-SPA shape: no hand-written `worker/index.ts`
+ * entry, and the client build directory is served as assets. The R2 storage binding
+ * still uses the curated `STORAGE` name so it round-trips through `readBindingsConfig`
+ * and is attached on deploy.
+ */
+function buildVinextWranglerConfig(projectName: string, bindingsConfig: BindingsConfig): Record<string, unknown> {
+	const config: Record<string, unknown> = {
+		$schema: 'node_modules/wrangler/config-schema.json',
+		name: projectName,
+		compatibility_date: WORKERS_COMPATIBILITY_DATE,
+		compatibility_flags: ['nodejs_compat'],
+		main: 'vinext/server/app-router-entry',
+		assets: {
+			directory: 'dist/client',
+			not_found_handling: 'none',
+			binding: 'ASSETS',
+		},
+	};
+
+	if (bindingsConfig.storage) {
+		config.r2_buckets = [{ binding: STORAGE_BINDING_NAME, bucket_name: 'my-bucket' }];
+	}
+
+	return config;
+}
+
+/**
+ * Regenerate a vinext project's `package.json`, preserving its framework-specific
+ * `scripts`/`devDependencies`/`type` while syncing the IDE-owned `name` and
+ * `dependencies` fields. (The Worker-SPA generator would otherwise replace the
+ * vinext scripts and devDependencies, breaking the project.)
+ */
+async function generateVinextPackageJson(projectRoot: string, projectName: string, dependencies: Record<string, string>): Promise<string> {
+	let existing: Record<string, unknown> = {};
+	try {
+		existing = JSON.parse(await fs.readFile(`${projectRoot}/package.json`, 'utf8'));
+	} catch {
+		// No existing package.json — start from an empty object.
+	}
+	existing.name = projectName;
+	existing.dependencies = dependencies;
+	return JSON.stringify(existing, undefined, 2);
 }
 function generatePackageJson(projectName: string, filePaths: string[], dependencies: Record<string, string>): string {
 	const { hasReact, hasTypeScript, hasTests } = detectProjectFlags(dependencies, filePaths);
@@ -393,6 +490,20 @@ async function doRegenerate(projectRoot: string): Promise<void> {
 	const dependencies = await readDependencies(projectRoot);
 	const assetSettings = await readAssetSettings(projectRoot);
 	const bindingsConfig = await readBindingsConfig(projectRoot);
+
+	// vinext projects use framework-shaped config. The IDE only owns package.json
+	// (name/deps) and wrangler.jsonc for vinext; vinext auto-configures Vite at
+	// build time, so a project-level vite.config.ts is intentionally NOT generated
+	// (shipping one couples us to the framework's exact expected config and breaks
+	// the preview build). vitest.config.ts/worker-env.d.ts are not part of vinext.
+	if (await detectVinextProject(projectRoot)) {
+		await fs.writeFile(`${projectRoot}/package.json`, await generateVinextPackageJson(projectRoot, projectName, dependencies));
+		await fs.writeFile(
+			`${projectRoot}/wrangler.jsonc`,
+			JSON.stringify(buildVinextWranglerConfig(projectName, bindingsConfig), undefined, '\t'),
+		);
+		return;
+	}
 
 	await fs.writeFile(`${projectRoot}/package.json`, generatePackageJson(projectName, filePaths, dependencies));
 	await fs.writeFile(`${projectRoot}/wrangler.jsonc`, generateWranglerJsonc(projectName, assetSettings, bindingsConfig));

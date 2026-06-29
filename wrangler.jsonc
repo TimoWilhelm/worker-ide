@@ -138,6 +138,10 @@
 			"service": "esbuild-worker",
 		},
 		{
+			"binding": "VITE_HOST",
+			"service": "vite-host-worker",
+		},
+		{
 			"binding": "PUSH",
 			"service": "push-worker",
 		},

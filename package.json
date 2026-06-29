@@ -150,7 +150,7 @@
 		"test:e2e": "playwright test",
 		"test:e2e:report": "playwright show-report",
 		"preview": "turbo run build:vite && vite preview --host 0.0.0.0 --port 4173",
-		"deploy": "turbo run build:vite && wrangler d1 migrations apply worker-ide-auth --remote && wrangler deploy -c dist/biome_worker/wrangler.json && wrangler deploy -c dist/esbuild_worker/wrangler.json && wrangler deploy -c dist/push_worker/wrangler.json && wrangler deploy -c dist/email_worker/wrangler.json && wrangler deploy --no-bundle",
+		"deploy": "turbo run build:vite && wrangler d1 migrations apply worker-ide-auth --remote && wrangler deploy -c dist/biome_worker/wrangler.json && wrangler deploy -c dist/esbuild_worker/wrangler.json && wrangler deploy -c dist/vite_host_worker/wrangler.json && wrangler deploy -c dist/push_worker/wrangler.json && wrangler deploy -c dist/email_worker/wrangler.json && wrangler deploy --no-bundle",
 		"cf-typegen": "bun run scripts/generate-types.ts",
 		"db:generate": "drizzle-kit generate --config drizzle-d1.config.ts",
 		"db:migrate:local": "wrangler d1 migrations apply worker-ide-auth --local",

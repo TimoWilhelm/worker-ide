@@ -12,15 +12,20 @@ import { getServerEntrypoint, serverModulesFromOutput } from './loader-runner';
 import { seedVinextRuntime } from './seed-vinext-runtime';
 import { SERVER_RUNTIME_EXTERNALS } from './server-externals';
 import { getTemplate } from '../../../templates';
+import { stripIdeManagedConfig } from '../runtimes/vinext';
 import { ViteHost } from '../vite-host';
 
 const APP_ROUTER_ENTRY = '/__vinext__/dist/server/app-router-entry.js';
 
-/** The template's files, re-keyed to the absolute paths the host expects. */
+/**
+ * The template's files, re-keyed to the absolute paths the host expects. Mirrors
+ * `VinextRuntime.build` by stripping IDE-managed Cloudflare config (wrangler.jsonc)
+ * that is not part of the framework build input.
+ */
 function templateSnapshot(): Record<string, string> {
 	const template = getTemplate('vinext');
 	if (template === undefined) throw new Error('vinext template is not registered');
-	return Object.fromEntries(Object.entries(template.files).map(([path, contents]) => [`/${path}`, contents]));
+	return stripIdeManagedConfig(Object.fromEntries(Object.entries(template.files).map(([path, contents]) => [`/${path}`, contents])));
 }
 
 describe('vinext starter template', () => {

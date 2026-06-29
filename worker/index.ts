@@ -1073,6 +1073,7 @@ app.post('/api/new-project', async (c) => {
 
 	// Single query: verify membership, get org plan, and check org ban
 	const database = drizzle(c.env.DB, { schema: authSchema });
+
 	const orgMemberRow = await database
 		.select({
 			plan: authSchema.organization.plan,

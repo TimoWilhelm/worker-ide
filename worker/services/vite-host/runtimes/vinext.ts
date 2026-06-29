@@ -1,23 +1,42 @@
 /**
- * vinext (Next.js App Router on Vite) framework runtime.
+ * vinext (Next.js App Router on Vite) framework runtime — the light, DO-facing
+ * half.
  *
- * Builds React Server Components + SSR into a server module set and an unbundled
- * (preview) or bundled (deploy) client. Preview serving delegates to the shared
- * asset-then-SSR router; HMR routes server-component edits through vinext's
- * client dev runtime (`rsc:update` → `hmrReplaceTree`).
+ * This module holds only what the preview Durable Object needs: detection,
+ * request routing across an already-built module set, the server isolate's
+ * compatibility flags, and the browser HMR glue. The expensive build (esbuild +
+ * the vendored React/RSC source) lives in `./vinext-build`, which runs in the
+ * dedicated `vite-host` worker so this module — and anything that imports the
+ * runtime registry — never loads esbuild-wasm or the ~20 MB of vendored source.
  */
 import { routeAppRequest } from '../runtime/app-runtime';
-import { runWithHostDevelopmentMode } from '../runtime/host-development-mode';
-import { seedVinextRuntime } from '../runtime/seed-vinext-runtime';
-import { SERVER_RUNTIME_EXTERNALS } from '../runtime/server-externals';
 import { isVinextProject } from '../vinext-detection';
-import { buildHmrGlue, createRuntimeHost } from './shared';
+import { buildHmrGlue } from './shared';
 
-import type { DurableFrameworkRuntime, ProjectProbe, RuntimePreviewBuild, RuntimeRouteContext } from './types';
-import type { MemoryFileSystem } from '../node-fs/memory-file-system';
+import type { DurableFrameworkRuntime, ProjectProbe, RuntimeRouteContext } from './types';
 
-/** vinext's App Router worker entry — the server module set's main module. */
-const APP_ROUTER_ENTRY = '/__vinext__/dist/server/app-router-entry.js';
+/**
+ * IDE-managed config files excluded from the vinext build input.
+ *
+ * vinext treats the presence of a wrangler config as a Cloudflare deploy target
+ * and then requires `@cloudflare/vite-plugin` in the Vite config. The IDE's
+ * vinext build instead uses its own loader-based runtime (and a separate deploy
+ * path), so it must not surface the wrangler config to the framework build.
+ * These files still live on the project filesystem for the wrangler overlay,
+ * `readBindingsConfig`, and external `vinext deploy`.
+ */
+const IDE_MANAGED_CONFIG_FILES: ReadonlySet<string> = new Set(['/wrangler.jsonc', '/wrangler.json', '/wrangler.toml']);
+
+/** Remove IDE-managed Cloudflare config from a build snapshot (see {@link IDE_MANAGED_CONFIG_FILES}). */
+export function stripIdeManagedConfig(snapshot: Record<string, string>): Record<string, string> {
+	const filtered: Record<string, string> = {};
+	for (const [path, contents] of Object.entries(snapshot)) {
+		if (!IDE_MANAGED_CONFIG_FILES.has(path)) {
+			filtered[path] = contents;
+		}
+	}
+	return filtered;
+}
 
 class VinextRuntime implements DurableFrameworkRuntime {
 	readonly id = 'vinext';
@@ -26,28 +45,6 @@ class VinextRuntime implements DurableFrameworkRuntime {
 
 	detect(probe: ProjectProbe): boolean {
 		return isVinextProject(probe.files);
-	}
-
-	createPlugins(): Promise<import('../types').PluginOption[]> {
-		return import('../../../../auxiliary/vite-host/vendor/native-plugins.mjs').then(({ vinext }) => vinext());
-	}
-
-	seedRuntime(fileSystem: MemoryFileSystem): void {
-		seedVinextRuntime(fileSystem);
-	}
-
-	async build(snapshot: Record<string, string>, options: { hostDevelopment: boolean }): Promise<RuntimePreviewBuild> {
-		const host = await createRuntimeHost(this, snapshot);
-		const runBuild = () => host.build([...SERVER_RUNTIME_EXTERNALS], APP_ROUTER_ENTRY);
-		// Preview builds run in host-development mode (unbundled, HMR-able client
-		// references); deploy builds run plain (fully bundled, standalone).
-		await (options.hostDevelopment ? runWithHostDevelopmentMode(runBuild) : runBuild());
-		return {
-			mainModule: 'index.js',
-			serverModules: host.readOutput('/dist/server'),
-			clientOutput: host.readOutput('/dist/client'),
-			devContext: host.devModuleContext(),
-		};
 	}
 
 	route(request: Request, context: RuntimeRouteContext): Promise<Response> {

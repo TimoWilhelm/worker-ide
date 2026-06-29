@@ -8,14 +8,21 @@
  * single, correctly-conditioned React instance.
  */
 import nodeModuleFiles from '../../../../auxiliary/vite-host/vendor/node-modules.js';
+import { VendoredLayer } from '../node-fs/memory-file-system';
 
 import type { MemoryFileSystem } from '../node-fs/memory-file-system';
 
 const files: Record<string, string> = nodeModuleFiles;
 
-/** Write the vendored `node_modules` package source into `fileSystem`. */
+/**
+ * The vendored `node_modules` as a single shared, read-only layer, built once
+ * per isolate. Every build's filesystem references it (no per-build copy), so
+ * the ~11 MB of package source is resident a single time.
+ */
+let layer: VendoredLayer | undefined;
+
+/** Expose the vendored `node_modules` package source to `fileSystem`. */
 export function seedNodeModules(fileSystem: MemoryFileSystem): void {
-	for (const [relativePath, contents] of Object.entries(files)) {
-		fileSystem.writeFile(`/${relativePath}`, contents);
-	}
+	layer ??= VendoredLayer.fromRecord(files, '/');
+	fileSystem.addBaseLayer(layer);
 }

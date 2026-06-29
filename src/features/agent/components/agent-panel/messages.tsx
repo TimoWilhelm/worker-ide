@@ -22,6 +22,7 @@ import {
 	Settings,
 	SquareTerminal,
 	Terminal,
+	Wrench,
 	X,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
@@ -687,8 +688,9 @@ export function AssistantMessage({
  * metadata is not available (e.g. loaded sessions where tool_result events
  * were not persisted).
  */
-function deriveCompletedLabel(_toolName: ToolName | undefined, rawContent: string | undefined): string {
-	if (!rawContent) return 'Completed';
+function deriveCompletedLabel(toolName: ToolName | undefined, _rawContent: string | undefined): string {
+	// codemode has no structured metadata summary; its label is always the same.
+	if (toolName === 'codemode') return 'Ran code';
 	return 'Completed';
 }
 
@@ -1144,6 +1146,36 @@ function formatToolResultDetail(toolName: ToolName, rawResult: string): string {
 			return rawResult;
 		}
 
+		case 'codemode': {
+			// Codemode returns { result, error?, logs? }. Surface console logs and
+			// the return value legibly instead of dumping the raw envelope.
+			try {
+				const parsed: unknown = JSON.parse(rawResult);
+				if (isRecord(parsed) && ('logs' in parsed || 'result' in parsed || 'error' in parsed)) {
+					const sections: string[] = [];
+					if (Array.isArray(parsed.logs) && parsed.logs.length > 0) {
+						const logText = parsed.logs.map((line) => (typeof line === 'string' ? line : JSON.stringify(line))).join('\n');
+						sections.push(`Console:\n${logText}`);
+					}
+					if (typeof parsed.error === 'string' && parsed.error) {
+						sections.push(`Error: ${parsed.error}`);
+					}
+					if (parsed.result !== undefined && parsed.result !== null) {
+						const resultText = typeof parsed.result === 'string' ? parsed.result : JSON.stringify(parsed.result, undefined, 2);
+						if (resultText && resultText !== '""') {
+							sections.push(`Result:\n${resultText}`);
+						}
+					}
+					if (sections.length > 0) {
+						return sections.join('\n\n');
+					}
+				}
+			} catch {
+				// Not JSON — fall through to raw
+			}
+			return rawResult;
+		}
+
 		case 'user_question': {
 			// JSON with { question, options, message }
 			try {
@@ -1401,6 +1433,33 @@ function InlineDiagnosticsList({ diagnostics }: { diagnostics: unknown[] }) {
 }
 const CONTENT_STREAMING_TOOLS = new Set<string>(['codemode', 'bash']);
 
+/**
+ * A labeled monospace block used in the codemode expanded view to show the
+ * executed code and its output separately.
+ */
+function InlineCodeSection({ label, content }: { label: string; content: string }) {
+	if (!content) return;
+	return (
+		<div className="flex flex-col gap-1">
+			<span
+				className="
+					text-2xs font-medium tracking-wide text-text-secondary/70 uppercase
+				"
+			>
+				{label}
+			</span>
+			<pre
+				className="
+					max-h-60 overflow-auto rounded-md bg-bg-primary p-2.5 font-mono
+					text-2xs/relaxed break-all whitespace-pre-wrap text-text-secondary
+				"
+			>
+				{content}
+			</pre>
+		</div>
+	);
+}
+
 function InlineToolCall({
 	toolCall,
 	toolResult,
@@ -1441,9 +1500,11 @@ function InlineToolCall({
 	const structuredMetadata = toolMetadata?.get(toolCall.toolCallId);
 	const metadata = structuredMetadata?.metadata;
 
-	// Structured error data from tool_error events
+	// Structured error data from tool_error events.
+	// Unknown (unsupported/hallucinated) tools are NOT treated as execution
+	// errors — they render with neutral styling instead of the alarming red path.
 	const structuredError = toolErrors?.get(toolCall.toolCallId);
-	const isError = isUnknownTool || structuredError !== undefined || isToolError(toolResult);
+	const isError = structuredError !== undefined || isToolError(toolResult);
 
 	// Extract file paths from tool arguments.
 	// Accept `file_path` (schema-defined), `path` (legacy/search tools), and `filePath` (model sometimes hallucinates this key).
@@ -1487,6 +1548,10 @@ function InlineToolCall({
 					: undefined
 			: undefined;
 
+	// Executed code for codemode — shown in the expanded detail so the code
+	// stays visible after streaming completes (streamingContent clears on done).
+	const codemodeCode = knownToolName === 'codemode' && typeof input.code === 'string' ? input.code : undefined;
+
 	// Auto-scroll ref for the streaming content preview
 	const streamingPreviewReference = useRef<HTMLPreElement>(null);
 	useEffect(() => {
@@ -1515,7 +1580,7 @@ function InlineToolCall({
 	// Build summary text from structured metadata (single code path for both
 	// live-streamed and loaded sessions — no raw-text fallbacks).
 	const resultSummary = isUnknownTool
-		? `Unknown tool: ${displayToolName}`
+		? `Unsupported tool: ${displayToolName}`
 		: isError
 			? structuredError
 				? shortenErrorFromStructured(structuredError)
@@ -1541,8 +1606,8 @@ function InlineToolCall({
 
 	// Every completed tool call with content or a structured error is expandable.
 	// File-editing tools with before/after content are also expandable (for the diff view).
-	const hasDetailContent = rawResultContent !== undefined || structuredError !== undefined || hasDiffContent;
-	const expandable = !isUnknownTool && isCompleted && hasDetailContent;
+	const hasDetailContent = rawResultContent !== undefined || structuredError !== undefined || hasDiffContent || codemodeCode !== undefined;
+	const expandable = !isUnknownTool && (isCompleted || codemodeCode !== undefined) && hasDetailContent;
 
 	return (
 		<div className="flex min-w-0 animate-chat-item flex-col gap-1.5">
@@ -1565,9 +1630,10 @@ function InlineToolCall({
 						flex flex-wrap items-center gap-x-2 gap-y-1 overflow-hidden rounded-md
 						px-3 py-1.5 text-xs
 					`,
-					isCompleted && !isError && 'bg-success/5 text-text-secondary',
-					isError && 'bg-error/5 text-error',
-					!isCompleted && 'bg-bg-tertiary text-text-secondary',
+					isUnknownTool && 'bg-bg-tertiary text-text-secondary',
+					!isUnknownTool && isCompleted && !isError && 'bg-success/5 text-text-secondary',
+					!isUnknownTool && isError && 'bg-error/5 text-error',
+					!isUnknownTool && !isCompleted && !isError && 'bg-bg-tertiary text-text-secondary',
 					expandable &&
 						`
 							cursor-pointer transition-colors
@@ -1580,8 +1646,13 @@ function InlineToolCall({
 				) : !isCompleted && !isError && !isCancelled ? (
 					<Spinner className="size-3 shrink-0 text-accent" />
 				) : undefined}
-				<span className={cn('shrink-0', isCompleted && !isError && 'text-success', isError && 'text-error')}>
-					{knownToolName ? <ToolIcon name={knownToolName} /> : <AlertCircle className="size-3" />}
+				<span
+					className={cn(
+						'shrink-0',
+						isUnknownTool ? 'text-text-secondary' : isCompleted && !isError ? 'text-success' : isError ? 'text-error' : undefined,
+					)}
+				>
+					{knownToolName ? <ToolIcon name={knownToolName} /> : <Wrench className="size-3" />}
 				</span>
 				<span className="shrink-0 font-medium capitalize">{displayToolName.replaceAll('_', ' ')}</span>
 				{singlePath && (
@@ -1674,8 +1745,17 @@ function InlineToolCall({
 					{streamingContent}
 				</pre>
 			)}
+			{isExpanded && codemodeCode !== undefined && (
+				<div className="flex flex-col gap-1.5">
+					<InlineCodeSection label="Code" content={codemodeCode} />
+					{rawResultContent !== undefined && (
+						<InlineCodeSection label="Output" content={getExpandableDetailText('codemode', rawResultContent, structuredError)} />
+					)}
+				</div>
+			)}
 			{isExpanded &&
 				hasDetailContent &&
+				codemodeCode === undefined &&
 				knownToolName !== 'sub_agent' &&
 				(hasDiffContent ? (
 					<InlineDiffView beforeContent={diffContent.beforeContent} afterContent={diffContent.afterContent} />
@@ -1768,7 +1848,7 @@ function InlineSubAgentActivity({
 									entry.isError ? 'text-error' : 'text-text-secondary',
 								)}
 							>
-								<span className="shrink-0">{entryToolName ? <ToolIcon name={entryToolName} /> : <FileText className="size-3" />}</span>
+								<span className="shrink-0">{entryToolName ? <ToolIcon name={entryToolName} /> : <Wrench className="size-3" />}</span>
 								<span className="font-medium capitalize">{entry.toolName.replaceAll('_', ' ')}</span>
 								{entryPath && <span className="max-w-32 truncate font-mono opacity-70">{entryPath}</span>}
 								{entry.title && entry.title !== 'Error' && <span className="ml-auto shrink-0 text-text-secondary/70">{entry.title}</span>}

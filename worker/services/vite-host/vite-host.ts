@@ -194,18 +194,23 @@ export class ViteHost {
 	}
 
 	/**
+	 * Drop the build output tree from the in-memory filesystem once it has been
+	 * read out. The dev module server (HMR) only ever reads project source and
+	 * vendored `node_modules`, never `/dist`, so a retained build's filesystem
+	 * need not also hold the outputs that already live in the returned module
+	 * maps — keeping a warm preview build cheap.
+	 */
+	dropBuildOutputs(directory = '/dist'): void {
+		this.fileSystem.remove(directory, { recursive: true });
+	}
+
+	/**
 	 * Read all files written under `directory`, keyed by path relative to it
 	 * (e.g. the server build output under `/dist/server`).
 	 */
 	readOutput(directory: string): Record<string, string> {
-		const normalized = directory.replace(/\/$/, '');
-		const prefix = `${normalized}/`;
-		const output: Record<string, string> = {};
-		for (const [path, contents] of Object.entries(this.fileSystem.toSnapshot())) {
-			if (path.startsWith(prefix)) {
-				output[path.slice(prefix.length)] = contents;
-			}
-		}
-		return output;
+		// Build outputs are written into the overlay, so reading them never needs
+		// to decode the (read-through) vendored base layers.
+		return this.fileSystem.readFilesUnder(directory);
 	}
 }

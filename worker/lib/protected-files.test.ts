@@ -60,6 +60,21 @@ const {
 
 const ROOT = '/project';
 
+/** Seed a minimal vinext project (vinext devDep + an `app/` directory). */
+function seedVinextProject(): void {
+	files.set(
+		`${ROOT}/package.json`,
+		JSON.stringify({
+			name: 'my-vinext-app',
+			type: 'module',
+			scripts: { dev: 'vinext dev', build: 'vinext build', deploy: 'vinext deploy' },
+			dependencies: { react: '^19.0.0', 'react-dom': '^19.0.0' },
+			devDependencies: { vinext: '^0.1.8', vite: '^6.0.0' },
+		}),
+	);
+	files.set(`${ROOT}/app/page.tsx`, 'export default function Page() { return null; }');
+}
+
 describe('readDependencies', () => {
 	beforeEach(() => files.clear());
 
@@ -349,5 +364,63 @@ describe('readBindingsConfig / writeBindingsConfig', () => {
 
 		const wrangler = JSON.parse(files.get(`${ROOT}/wrangler.jsonc`)!);
 		expect(wrangler.r2_buckets).toBeUndefined();
+	});
+});
+
+describe('vinext projects', () => {
+	beforeEach(() => files.clear());
+
+	it('regenerateProtectedFiles preserves vinext package.json scripts and devDependencies', async () => {
+		seedVinextProject();
+
+		await regenerateProtectedFiles(ROOT);
+
+		const packageJson = JSON.parse(files.get(`${ROOT}/package.json`)!);
+		expect(packageJson.scripts).toEqual({ dev: 'vinext dev', build: 'vinext build', deploy: 'vinext deploy' });
+		expect(packageJson.devDependencies).toEqual({ vinext: '^0.1.8', vite: '^6.0.0' });
+		expect(packageJson.type).toBe('module');
+		expect(packageJson.name).toBe('my-vinext-app');
+	});
+
+	it('regenerateProtectedFiles writes a vinext-shaped wrangler.jsonc', async () => {
+		seedVinextProject();
+
+		await regenerateProtectedFiles(ROOT);
+
+		const wrangler = JSON.parse(files.get(`${ROOT}/wrangler.jsonc`)!);
+		expect(wrangler.main).toBe('vinext/server/app-router-entry');
+		expect(wrangler.assets).toEqual({ directory: 'dist/client', not_found_handling: 'none', binding: 'ASSETS' });
+	});
+
+	it('regenerateProtectedFiles does not generate Worker-SPA files for vinext (incl. vite.config.ts)', async () => {
+		seedVinextProject();
+
+		await regenerateProtectedFiles(ROOT);
+
+		expect(files.has(`${ROOT}/vite.config.ts`)).toBe(false);
+		expect(files.has(`${ROOT}/vitest.config.ts`)).toBe(false);
+		expect(files.has(`${ROOT}/worker-env.d.ts`)).toBe(false);
+	});
+
+	it('writeBindingsConfig writes the storage binding into a vinext wrangler.jsonc and round-trips', async () => {
+		seedVinextProject();
+
+		await writeBindingsConfig(ROOT, { storage: true });
+
+		const wrangler = JSON.parse(files.get(`${ROOT}/wrangler.jsonc`)!);
+		expect(wrangler.main).toBe('vinext/server/app-router-entry');
+		expect(wrangler.r2_buckets).toEqual([{ binding: 'STORAGE', bucket_name: 'my-bucket' }]);
+		expect(await readBindingsConfig(ROOT)).toEqual({ storage: true });
+	});
+
+	it('regenerateProtectedFiles keeps the storage binding in the vinext wrangler.jsonc', async () => {
+		seedVinextProject();
+		await writeBindingsConfig(ROOT, { storage: true });
+
+		await regenerateProtectedFiles(ROOT);
+
+		const wrangler = JSON.parse(files.get(`${ROOT}/wrangler.jsonc`)!);
+		expect(wrangler.main).toBe('vinext/server/app-router-entry');
+		expect(wrangler.r2_buckets).toEqual([{ binding: 'STORAGE', bucket_name: 'my-bucket' }]);
 	});
 });

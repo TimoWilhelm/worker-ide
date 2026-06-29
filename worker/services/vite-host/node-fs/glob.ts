@@ -85,7 +85,7 @@ export async function* glob(fileSystem: MemoryFileSystem, pattern: string, optio
 	const matchers = expandBraces(pattern).map((expanded) => globToRegExp(expanded));
 	const isExcluded = makeExcluder(options.exclude);
 
-	for (const absolutePath of Object.keys(fileSystem.toSnapshot())) {
+	for (const absolutePath of fileSystem.filePaths()) {
 		if (!absolutePath.startsWith(prefix)) {
 			continue;
 		}

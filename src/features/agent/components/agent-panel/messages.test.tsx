@@ -378,6 +378,71 @@ describe('MessageBubble', () => {
 		expect(screen.getByText('enabled')).toBeInTheDocument();
 	});
 
+	it('shows the executed code and output when a codemode call is expanded', () => {
+		renderWithProviders(
+			<AssistantMessage
+				message={{
+					id: 'assistant-codemode',
+					role: 'assistant',
+					parts: [
+						{
+							type: 'tool-call',
+							toolCallId: 'tool-codemode',
+							toolName: 'codemode',
+							arguments: { code: 'const files = await state.glob({ pattern: "src/**" });\nreturn files.length;' },
+						},
+						{
+							type: 'tool-result',
+							toolCallId: 'tool-codemode',
+							toolName: 'codemode',
+							result: JSON.stringify({ result: 42, logs: ['scanning src'] }),
+						},
+					],
+					createdAt: 1,
+				}}
+			/>,
+		);
+
+		// Header shows the friendly summary, not raw JSON.
+		expect(screen.getByText('Ran code')).toBeInTheDocument();
+
+		// Expanding reveals the executed code plus parsed console/result sections.
+		fireEvent.click(screen.getByRole('button', { name: /codemode/i }));
+		expect(screen.getByText(/state\.glob/)).toBeInTheDocument();
+		expect(screen.getByText(/scanning src/)).toBeInTheDocument();
+		expect(screen.getByText(/Result:/)).toBeInTheDocument();
+		expect(screen.getByText('Code')).toBeInTheDocument();
+		expect(screen.getByText('Output')).toBeInTheDocument();
+	});
+
+	it('renders an unsupported (hallucinated) tool with neutral, non-error styling', () => {
+		renderWithProviders(
+			<AssistantMessage
+				message={{
+					id: 'assistant-unknown',
+					role: 'assistant',
+					parts: [
+						{
+							type: 'tool-call',
+							toolCallId: 'tool-unknown',
+							toolName: 'file_grep',
+							arguments: { pattern: 'src' },
+						},
+					],
+					createdAt: 1,
+				}}
+			/>,
+		);
+
+		const summary = screen.getByText('Unsupported tool: file_grep');
+		expect(summary).toBeInTheDocument();
+
+		// The row must not use the red error styling reserved for real failures.
+		const row = summary.closest('div');
+		expect(row?.className).not.toContain('text-error');
+		expect(row?.className).not.toContain('bg-error');
+	});
+
 	it('shows collaborator names for non-self user messages', () => {
 		renderWithProviders(
 			<MessageBubble

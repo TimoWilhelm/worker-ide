@@ -40,6 +40,7 @@ import vinextGitignore from './fixtures/vinext/gitignore.txt?raw';
 import vinextPackageJson from './fixtures/vinext/package.json?raw';
 import vinextMetaRaw from './fixtures/vinext/template.json?raw';
 import vinextTsconfig from './fixtures/vinext/tsconfig.json?raw';
+import vinextWranglerJsonc from './fixtures/vinext/wrangler.jsonc?raw';
 
 import type { ProjectTemplateMeta } from '@shared/types';
 
@@ -108,9 +109,13 @@ const requestInspectorTemplate = defineTemplate(requestInspectorMetaRaw, {
 	'.gitignore': requestInspectorGitignore,
 });
 
+// vinext uses a separate framework build/deploy path. (No vite.config.ts is
+// shipped — vinext auto-configures Vite at build time; see
+// worker/lib/protected-files.ts.)
 const vinextTemplate = defineTemplate(vinextMetaRaw, {
 	'package.json': vinextPackageJson,
 	'tsconfig.json': vinextTsconfig,
+	'wrangler.jsonc': vinextWranglerJsonc,
 	'app/layout.tsx': vinextLayoutTsx,
 	'app/page.tsx': vinextPageTsx,
 	'app/counter.tsx': vinextCounterTsx,
