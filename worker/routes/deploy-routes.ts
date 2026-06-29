@@ -54,7 +54,7 @@ function parseDeployResult(value: unknown): DeployResult | undefined {
 		workerName: value.workerName,
 		workerUrl: typeof value.workerUrl === 'string' ? value.workerUrl : undefined,
 		dashboardUrl: typeof value.dashboardUrl === 'string' ? value.dashboardUrl : undefined,
-		error: typeof value.error === 'string' ? value.error : undefined,
+		error: typeof value.error === 'string' && value.error.trim() !== '' ? value.error : undefined,
 	};
 }
 

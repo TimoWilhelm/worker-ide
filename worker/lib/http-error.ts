@@ -27,6 +27,12 @@ export function httpError(code: HttpErrorCode, message: string, status?: Content
 	// eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- DEFAULT_STATUS_CODES values are valid HTTP status codes but typed as `number`
 	const httpStatus = status ?? (DEFAULT_STATUS_CODES[code] as ContentfulStatusCode);
 	return new HTTPException(httpStatus, {
+		// Populate the Error's `message` too (not just the response body). Hono's
+		// default error handler still uses `getResponse()` (the `res` below), so
+		// route responses are unchanged — but `error.message` is now non-empty for
+		// consumers that read it directly (e.g. the deploy workflow), instead of
+		// silently surfacing as an empty string.
+		message,
 		res: Response.json(
 			{ error: message, code },
 			{

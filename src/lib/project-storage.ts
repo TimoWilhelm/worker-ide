@@ -22,7 +22,7 @@ const DEFAULT_PROJECT_UI: ProjectUIState = {
 	activeMobilePanel: defaultMobilePanel,
 	activeSidebarView: defaultSidebarView,
 	activeUtilityTab: defaultUtilityTab,
-	expandedDirs: ['/src', '/worker'],
+	expandedDirs: [],
 	selectedModel: defaultSelectedModel,
 };
 

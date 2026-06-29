@@ -234,6 +234,29 @@ describe('File Tree slice', () => {
 		useStore.getState().openFile('/src/main.ts');
 		expect(useStore.getState().activeFile).toBe('/src/main.ts');
 	});
+
+	it('reveals a file by expanding its ancestor directories when opened', () => {
+		useStore.getState().openFile('/src/components/ui/button.tsx');
+		const expanded = useStore.getState().expandedDirs;
+		expect(expanded.has('/src')).toBe(true);
+		expect(expanded.has('/src/components')).toBe(true);
+		expect(expanded.has('/src/components/ui')).toBe(true);
+		// The file leaf itself is not a directory and must not be added.
+		expect(expanded.has('/src/components/ui/button.tsx')).toBe(false);
+	});
+
+	it('reveals ancestor directories when navigating to a file position', () => {
+		useStore.getState().goToFilePosition('/worker/routes/file-routes.ts', { line: 1, column: 1 });
+		const expanded = useStore.getState().expandedDirs;
+		expect(expanded.has('/worker')).toBe(true);
+		expect(expanded.has('/worker/routes')).toBe(true);
+	});
+
+	it('keeps the same expandedDirs reference when opening a root-level file', () => {
+		const before = useStore.getState().expandedDirs;
+		useStore.getState().openFile('/readme.md');
+		expect(useStore.getState().expandedDirs).toBe(before);
+	});
 });
 
 describe('AI slice', () => {

@@ -48,9 +48,16 @@ const VINEXT_DEPLOY_STEP_CONFIG: WorkflowStepConfig = {
 	timeout: '10 minutes',
 };
 
-function toNonRetryableError(error: unknown): Error {
+function extractErrorMessage(error: unknown): string {
 	const message = error instanceof Error ? error.message : String(error);
-	return new NonRetryableError(message);
+	// Never surface an empty string: some errors (e.g. a Hono HTTPException built
+	// only from a `res` body) have an empty `.message`, which would otherwise
+	// reach the user as a blank deploy error.
+	return message.trim() === '' ? 'Deploy failed with an unknown error' : message;
+}
+
+function toNonRetryableError(error: unknown): Error {
+	return new NonRetryableError(extractErrorMessage(error));
 }
 
 export class DeployWorkflow extends WorkflowEntrypoint<Env, DeployWorkflowParameters> {
@@ -116,7 +123,7 @@ export class DeployWorkflow extends WorkflowEntrypoint<Env, DeployWorkflowParame
 
 			return result;
 		} catch (error) {
-			const message = error instanceof Error ? error.message : String(error);
+			const message = extractErrorMessage(error);
 			trackProjectEvent({
 				organizationId: parameters.organizationId,
 				eventType: 'deploy',

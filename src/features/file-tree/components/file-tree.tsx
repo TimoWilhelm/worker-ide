@@ -270,6 +270,31 @@ function FileTreeContent({
 		}
 	}, []);
 
+	// The library has no expansion-change event, so we detect user expand/collapse
+	// by diffing the model in a subscription (below). Model mutations we drive
+	// ourselves (reconciling the model with the store, resetting paths) must not
+	// be reported back as user toggles, so they run behind this guard.
+	const isProgrammaticExpansionReference = useRef(false);
+	const runProgrammaticExpansion = useCallback((run: () => void) => {
+		isProgrammaticExpansionReference.current = true;
+		try {
+			run();
+		} finally {
+			isProgrammaticExpansionReference.current = false;
+		}
+	}, []);
+
+	// Latest values for the (one-shot) model subscription, which is created once
+	// and must read fresh props without being torn down on every change.
+	const filesReference = useRef(files);
+	const expandedDirectoriesReference = useRef(expandedDirectories);
+	useEffect(() => {
+		filesReference.current = files;
+	}, [files]);
+	useEffect(() => {
+		expandedDirectoriesReference.current = expandedDirectories;
+	}, [expandedDirectories]);
+
 	// renderRowDecoration is captured once at model creation, so it reads the
 	// per-file presence icons from a ref. The presence effect below rebuilds the
 	// sprite + lookup and re-renders the rows whenever participants change.
@@ -293,6 +318,8 @@ function FileTreeContent({
 
 	const { model } = useTreesModel({
 		preparedInput,
+		// Directories are collapsed by default (VS Code style); the store-driven
+		// expandedDirectories restores the folders the user previously opened.
 		initialExpandedPaths,
 		initialSelectedPaths,
 		search: true,
@@ -369,15 +396,37 @@ function FileTreeContent({
 		},
 	});
 
-	// Reflect collaborative directory expansion/collapse coming from the store.
+	// Reflect store-driven expansion in the model: restore persisted expansions
+	// and reveal directories opened externally (e.g. revealing a file). Folders
+	// are collapsed by default, so this only ever expands.
 	useEffect(() => {
-		for (const path of expandedDirectories) {
-			const directory = model.getItem(`${path.replace(/^\/+/, '')}/`);
-			if (directory && 'expand' in directory && !directory.isExpanded()) {
-				directory.expand();
+		runProgrammaticExpansion(() => {
+			for (const path of expandedDirectories) {
+				const directory = model.getItem(`${path.replace(/^\/+/, '')}/`);
+				if (directory && 'expand' in directory && !directory.isExpanded()) {
+					directory.expand();
+				}
 			}
-		}
-	}, [expandedDirectories, model]);
+		});
+	}, [expandedDirectories, model, runProgrammaticExpansion]);
+
+	// Persist user expand/collapse. The library exposes no expansion event, so we
+	// diff every known directory's model state against the store on each change
+	// and report genuine (non-programmatic) differences as toggles.
+	useEffect(() => {
+		return model.subscribe(() => {
+			if (isProgrammaticExpansionReference.current) return;
+			const expanded = expandedDirectoriesReference.current;
+			for (const file of filesReference.current) {
+				if (!file.isDirectory) continue;
+				const directory = model.getItem(toTreePath(file.path, true));
+				if (!directory || !('isExpanded' in directory)) continue;
+				if (directory.isExpanded() !== expanded.has(file.path)) {
+					callbacks.current.onDirectoryToggle(file.path);
+				}
+			}
+		});
+	}, [model]);
 
 	// Expose the model and latest open file to the (one-shot) option callbacks,
 	// which are created before the model exists and must read fresh values.
@@ -410,8 +459,8 @@ function FileTreeContent({
 
 		appliedPathsKeyReference.current = pathsKey;
 		appliedExpandedPathsKeyReference.current = expandedPathsKey;
-		model.resetPaths(paths, { initialExpandedPaths: expanded });
-	}, [files, expandedDirectories, model]);
+		runProgrammaticExpansion(() => model.resetPaths(paths, { initialExpandedPaths: expanded }));
+	}, [files, expandedDirectories, model, runProgrammaticExpansion]);
 
 	// Push git status updates into the model.
 	useEffect(() => {

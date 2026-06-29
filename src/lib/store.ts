@@ -16,6 +16,28 @@ import type {
 	ChatMessage,
 } from '@shared/types';
 
+// Ancestor directory paths of a file, e.g. "/src/lib/a.ts" -> ["/src", "/src/lib"].
+function ancestorDirectories(path: string): string[] {
+	const segments = path.split('/').filter(Boolean);
+	segments.pop(); // drop the file leaf
+	const ancestors: string[] = [];
+	let current = '';
+	for (const segment of segments) {
+		current += `/${segment}`;
+		ancestors.push(current);
+	}
+	return ancestors;
+}
+
+// Return an expandedDirs set that additionally reveals a file by expanding all
+// of its ancestor directories (VS Code-style reveal on open). Returns the same
+// reference when nothing changes so subscribers do not fire needlessly.
+function withRevealedAncestors(expandedDirectories: Set<string>, path: string): Set<string> {
+	const ancestors = ancestorDirectories(path);
+	if (ancestors.every((directory) => expandedDirectories.has(directory))) return expandedDirectories;
+	return new Set([...expandedDirectories, ...ancestors]);
+}
+
 interface EditorState {
 	activeFile: string | undefined;
 	openFiles: string[];
@@ -42,6 +64,8 @@ interface EditorActions {
 
 interface FileTreeState {
 	files: FileInfo[];
+	// Directories are collapsed by default (VS Code style); this set tracks the
+	// ones the user has expanded so the state survives reloads and re-syncs.
 	expandedDirs: Set<string>;
 	isLoading: boolean;
 }
@@ -295,6 +319,7 @@ export const useStore = create<StoreState>()(
 					activeFile: path,
 					activeMobilePanel: 'editor',
 					cursorPosition: undefined,
+					expandedDirs: withRevealedAncestors(state.expandedDirs, path),
 				})),
 
 			closeFile: (path) =>
@@ -326,6 +351,7 @@ export const useStore = create<StoreState>()(
 					activeFile: path,
 					activeMobilePanel: 'editor',
 					pendingGoTo: position,
+					expandedDirs: withRevealedAncestors(state.expandedDirs, path),
 				})),
 
 			clearPendingGoTo: () => set({ pendingGoTo: undefined }),
@@ -370,32 +396,34 @@ export const useStore = create<StoreState>()(
 			// File Tree State & Actions
 			// =============================================================================
 			files: [],
-			expandedDirs: new Set(['/src', '/worker']),
+			expandedDirs: new Set(),
 			isLoading: true,
 
 			setFiles: (files) => set({ files, isLoading: false }),
 
 			toggleDirectory: (path) =>
 				set((state) => {
-					const newExpanded = new Set(state.expandedDirs);
-					if (newExpanded.has(path)) {
-						newExpanded.delete(path);
+					const expanded = new Set(state.expandedDirs);
+					if (expanded.has(path)) {
+						expanded.delete(path);
 					} else {
-						newExpanded.add(path);
+						expanded.add(path);
 					}
-					return { expandedDirs: newExpanded };
+					return { expandedDirs: expanded };
 				}),
 
 			expandDirectory: (path) =>
-				set((state) => ({
-					expandedDirs: new Set([...state.expandedDirs, path]),
-				})),
+				set((state) => {
+					if (state.expandedDirs.has(path)) return {};
+					return { expandedDirs: new Set([...state.expandedDirs, path]) };
+				}),
 
 			collapseDirectory: (path) =>
 				set((state) => {
-					const newExpanded = new Set(state.expandedDirs);
-					newExpanded.delete(path);
-					return { expandedDirs: newExpanded };
+					if (!state.expandedDirs.has(path)) return {};
+					const expanded = new Set(state.expandedDirs);
+					expanded.delete(path);
+					return { expandedDirs: expanded };
 				}),
 
 			setLoading: (loading) => set({ isLoading: loading }),

@@ -21,6 +21,14 @@ const mocks = vi.hoisted(() => {
 	const getSelectedPaths = vi.fn((): string[] => []);
 	const getFocusedPath = vi.fn();
 	const getItem = vi.fn();
+	const subscribeListeners: Array<() => void> = [];
+	const subscribe = vi.fn((listener: () => void) => {
+		subscribeListeners.push(listener);
+		return () => {
+			const index = subscribeListeners.indexOf(listener);
+			if (index !== -1) subscribeListeners.splice(index, 1);
+		};
+	});
 	const onSelectionChangeValues = {
 		matchingPaths: [],
 		isOpen: false,
@@ -40,6 +48,7 @@ const mocks = vi.hoisted(() => {
 			getSelectedPaths,
 			getFocusedPath,
 			getItem,
+			subscribe,
 		},
 	}));
 
@@ -51,6 +60,8 @@ const mocks = vi.hoisted(() => {
 		getSelectedPaths,
 		getFocusedPath,
 		getItem,
+		subscribe,
+		subscribeListeners,
 		onSelectionChangeValues,
 		useFileTree,
 	};
@@ -93,6 +104,7 @@ function getUseFileTreeOptions(): MockUseFileTreeOptions {
 beforeEach(() => {
 	hasFinePointer = true;
 	vi.clearAllMocks();
+	mocks.subscribeListeners.length = 0;
 	Object.defineProperty(globalThis, 'matchMedia', {
 		configurable: true,
 		writable: true,
@@ -174,6 +186,53 @@ describe('FileTree sync', () => {
 		expect(mocks.resetPaths).toHaveBeenCalledWith(['index.html', 'src/main.tsx'], {
 			initialExpandedPaths: ['src/'],
 		});
+	});
+
+	it('persists a user-driven directory expansion as a toggle', () => {
+		const onDirectoryToggle = vi.fn();
+		const files: FileInfo[] = [
+			{ path: '/src', name: 'src', isDirectory: true },
+			{ path: '/src/main.tsx', name: 'main.tsx', isDirectory: false },
+		];
+		// The model reports /src (tree path 'src/') as expanded by the user.
+		mocks.getItem.mockImplementation((path: string) => (path === 'src/' ? { isExpanded: () => true } : undefined));
+
+		renderWithProviders(
+			<FileTree
+				files={files}
+				selectedFile={undefined}
+				expandedDirectories={new Set()}
+				onFileSelect={vi.fn()}
+				onDirectoryToggle={onDirectoryToggle}
+			/>,
+		);
+
+		// Fire the model subscription as if the user expanded the folder.
+		const listener = mocks.subscribeListeners.at(-1);
+		expect(listener).toBeDefined();
+		listener?.();
+
+		expect(onDirectoryToggle).toHaveBeenCalledExactlyOnceWith('/src');
+	});
+
+	it('does not report a toggle when the model already matches the store', () => {
+		const onDirectoryToggle = vi.fn();
+		const files: FileInfo[] = [{ path: '/src', name: 'src', isDirectory: true }];
+		mocks.getItem.mockImplementation((path: string) => (path === 'src/' ? { isExpanded: () => true } : undefined));
+
+		renderWithProviders(
+			<FileTree
+				files={files}
+				selectedFile={undefined}
+				expandedDirectories={new Set(['/src'])}
+				onFileSelect={vi.fn()}
+				onDirectoryToggle={onDirectoryToggle}
+			/>,
+		);
+
+		mocks.subscribeListeners.at(-1)?.();
+
+		expect(onDirectoryToggle).not.toHaveBeenCalled();
 	});
 
 	it('opens the file on a plain selection change', () => {
