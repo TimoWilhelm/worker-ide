@@ -24,27 +24,29 @@ test.describe('File Tree', () => {
 		await expect(fileTree.getByRole('treeitem', { name: 'worker', exact: true })).toBeVisible();
 	});
 
-	test('can collapse and re-expand a directory', async ({ page }) => {
+	test('can expand, collapse, and re-expand a directory', async ({ page }) => {
 		await gotoIDE(page);
 		await waitForFileTree(page);
 
-		// Directories start expanded — child files should already be visible
-		await expect(page.getByRole('treeitem', { name: 'main.tsx' })).toBeVisible();
-		await expect(page.getByRole('treeitem', { name: 'app.tsx' })).toBeVisible();
-		await expect(page.getByRole('treeitem', { name: 'style.css' })).toBeVisible();
+		// Directories are collapsed by default (VS Code style), so nested files
+		// are hidden until their directory is expanded.
+		const fileTree = page.getByRole('tree');
+		await expect(fileTree.getByRole('treeitem', { name: 'main.tsx' })).toHaveCount(0);
 
-		// Click on the "src" directory to collapse it
-		const sourceDirectory = page.getByRole('treeitem', { name: 'src' });
+		// Expand "src" — its child files become visible.
+		const sourceDirectory = fileTree.getByRole('treeitem', { name: 'src', exact: true });
 		await sourceDirectory.click();
+		await expect(fileTree.getByRole('treeitem', { name: 'main.tsx' })).toBeVisible();
+		await expect(fileTree.getByRole('treeitem', { name: 'app.tsx' })).toBeVisible();
+		await expect(fileTree.getByRole('treeitem', { name: 'style.css' })).toBeVisible();
 
-		// After collapse, child files should be hidden
-		await expect(page.getByRole('treeitem', { name: 'main.tsx' })).not.toBeVisible();
-
-		// Click again to re-expand
+		// Collapse it again — child files are hidden.
 		await sourceDirectory.click();
+		await expect(fileTree.getByRole('treeitem', { name: 'main.tsx' })).toHaveCount(0);
 
-		// Child files should be visible again
-		await expect(page.getByRole('treeitem', { name: 'main.tsx' })).toBeVisible();
+		// Re-expand — child files are visible again.
+		await sourceDirectory.click();
+		await expect(fileTree.getByRole('treeitem', { name: 'main.tsx' })).toBeVisible();
 	});
 
 	test('clicking a file opens it in the editor', async ({ page }) => {

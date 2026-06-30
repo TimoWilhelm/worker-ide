@@ -37,12 +37,21 @@ const DEFAULT_RUNTIME_ID = 'vinext';
 /** Directories never included in the build snapshot. */
 const EXCLUDED_DIRECTORIES = new Set(['node_modules', 'dist', '.git', ...HIDDEN_ENTRIES]);
 
-/** Internal HMR script paths, injected into the SSR HTML in this load order. */
+/**
+ * Internal preview script paths, injected into the SSR HTML in this load order.
+ * Mirrors the static (react-spa) preview's script set so vinext previews get the
+ * same IDE integrations: HMR, the chii/chobitsu Chrome DevTools Protocol bridge
+ * (console + network relay), and the element picker ("send to agent" overlay).
+ * `chobitsu` must load before `chobitsu_init` (which uses its global).
+ */
 const HMR_SCRIPT_PATHS = [
 	'/__vinext_react_refresh.js',
 	'/__vinext_error_overlay.js',
 	'/__vinext_preview_runtime.js',
 	'/__vinext_hmr_client.js',
+	'/__vinext_chobitsu.js',
+	'/__vinext_chobitsu_init.js',
+	'/__vinext_element_picker.js',
 ];
 
 /** Path serving the runtime's browser HMR glue. */
@@ -260,17 +269,23 @@ export class VinextPreviewHost extends DurableObject<Env> {
 	 */
 	private async getHmrScripts(): Promise<Record<string, string>> {
 		if (this.hmrScripts === undefined) {
-			const [refresh, overlay, runtime, hmrClient] = await Promise.all([
+			const [refresh, overlay, runtime, hmrClient, chobitsu, chobitsuInit, elementPicker] = await Promise.all([
 				import('@worker/lib/preview-scripts/react-refresh-preamble.js?raw-minified'),
 				import('@worker/lib/preview-scripts/error-overlay.js?raw-minified'),
 				import('@worker/lib/preview-scripts/preview-runtime.js?raw-minified'),
 				import('@worker/lib/preview-scripts/hmr-client.js?raw-minified'),
+				import('chobitsu?raw-minified'),
+				import('@worker/lib/preview-scripts/chobitsu-init.js?raw-minified'),
+				import('@worker/lib/preview-scripts/element-picker.js?raw-minified'),
 			]);
 			this.hmrScripts = {
 				'/__vinext_react_refresh.js': refresh.source,
 				'/__vinext_error_overlay.js': overlay.source,
 				'/__vinext_preview_runtime.js': runtime.source,
 				'/__vinext_hmr_client.js': hmrClient.source,
+				'/__vinext_chobitsu.js': chobitsu.source,
+				'/__vinext_chobitsu_init.js': chobitsuInit.source,
+				'/__vinext_element_picker.js': elementPicker.source,
 			};
 		}
 		return this.hmrScripts;
