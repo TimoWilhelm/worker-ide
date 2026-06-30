@@ -6,7 +6,7 @@ import { ToolExecutionError } from '@shared/tool-errors';
 import { createHmrUpdateForFile } from '@shared/types';
 import { coordinatorNamespace } from '@worker/lib/durable-object-namespaces';
 import { isHiddenPath } from '@worker/lib/path-utilities';
-import { fs } from '@worker/lib/project-fs';
+import { fs, runWithProjectStub } from '@worker/lib/project-fs';
 import { PROJECT_ROOT, WorkspaceClient } from '@worker/lib/workspace-client';
 
 import * as assetSettingsGetTool from './asset-settings-get';
@@ -428,7 +428,21 @@ function wrapTool(definition: ToolDefinition, executor: ToolExecuteFunction, dep
 			const timer = logger?.startTimer();
 
 			try {
-				const result = await executor(input, sendEvent, callContext, queryChanges);
+				// Re-bind the project filesystem for the executor. In Code Mode a
+				// `tools.*` call is dispatched from the sandbox via an inbound Workers
+				// RPC into the codemode runtime facet — a fresh I/O context that does
+				// NOT inherit the `runWithProjectStub` AsyncLocalStorage store the
+				// agent loop established. Without this, tools that read/write through
+				// the `fs` proxy (readDependencies, protected files, …) would see an
+				// unbound filesystem and silently fail (e.g. dependencies_list
+				// returning "No dependencies registered"). The fsStub is a DO stub, so
+				// re-binding works across contexts and is a harmless no-op for direct
+				// tools already inside the agent-loop scope.
+				const result = await runWithProjectStub(
+					context.fsStub,
+					() => executor(input, sendEvent, callContext, queryChanges),
+					context.projectRoot,
+				);
 				logger?.info(
 					'tool_call',
 					'completed',

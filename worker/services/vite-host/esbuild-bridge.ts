@@ -12,8 +12,16 @@
  * ready to hand to `env.LOADER`.
  */
 import { conditionsForEnvironment } from './conditions';
+import {
+	buildEsmCdnUrl,
+	ESM_CDN_NAMESPACE,
+	fetchEsmModule,
+	isEsmCdnExcluded,
+	readDependencyVersions,
+	resolveEsmCdnImport,
+} from './esm-cdn';
 import { normalizePosixPath } from './node-fs/memory-file-system';
-import { resolvePackage } from './package-resolver';
+import { parsePackageSpecifier, resolvePackage } from './package-resolver';
 import { applyAlias } from './resolve-alias';
 import { parse as lexParse } from './runtime/es-module-lexer-shim';
 import { VINEXT_RUNTIME_DIST_ROOT } from './runtime/vinext-runtime-paths';
@@ -276,10 +284,70 @@ function createBridgePlugin(options: BundleModuleGraphOptions, moduleExports?: M
 	// prefixed with the React global-expose in host development mode.
 	let clientEntryId: string | undefined;
 
+	// Versions for esm.sh fallback (registered third-party deps not in the
+	// vendored node_modules), pinned from the project's package.json.
+	const dependencyVersions = readDependencyVersions(fileSystem);
+
+	/**
+	 * A bare specifier the vendored `node_modules` can't resolve. If it's a
+	 * registered project dependency, fetch it from esm.sh at build time instead
+	 * of leaving it as a bare external that fails to load at runtime. React-family
+	 * deps and unregistered specifiers keep the previous (external) behaviour.
+	 */
+	const routeUnresolvedBare = (specifier: string): { path: string; namespace?: string; external?: boolean } => {
+		const { packageName } = parsePackageSpecifier(specifier);
+		const version = dependencyVersions.get(packageName);
+		// Only registered runtime dependencies are CDN-fetched. React-family deps
+		// and anything not in `dependencies` (toolchain, build-time-only) keep the
+		// previous external behaviour.
+		if (version === undefined || isEsmCdnExcluded(packageName)) {
+			return { path: specifier, external: true };
+		}
+		return { path: buildEsmCdnUrl(specifier, version), namespace: ESM_CDN_NAMESPACE };
+	};
+
 	return {
 		name: 'vite-host-bridge',
 		setup(build) {
+			// Imports *inside* an esm.sh module: relative/absolute paths resolve
+			// against the module's esm.sh URL; bare specifiers resolve to the
+			// vendored instance when possible (dedupes React), else fetch from
+			// esm.sh too (deep transitive deps).
+			build.onResolve({ filter: /.*/, namespace: ESM_CDN_NAMESPACE }, (arguments_) => {
+				if (arguments_.path.startsWith('node:')) {
+					return environment === 'client'
+						? { path: arguments_.path, namespace: NODE_STUB_NAMESPACE }
+						: { path: arguments_.path, external: true };
+				}
+				if (arguments_.path.startsWith('.') || arguments_.path.startsWith('/')) {
+					return { path: resolveEsmCdnImport(arguments_.importer, arguments_.path), namespace: ESM_CDN_NAMESPACE };
+				}
+				const vendored = defaultResolveSpecifier(arguments_.path, undefined, environment, {
+					fileSystem,
+					externals,
+					alias: options.alias,
+				});
+				if (vendored !== undefined && !vendored.external) {
+					return { path: vendored.id, namespace: NAMESPACE };
+				}
+				// Do NOT trigger new esm.sh fetches transitively from within a fetched
+				// module. esm.sh bundles a package's own dependencies (we only
+				// externalize the React family), so a stray bare import here is a
+				// peer/runtime dep best left external rather than cascading into more
+				// fetches (e.g. `vite` → `@vitejs/devtools` → `devframe`, which 404).
+				return { path: arguments_.path, external: true };
+			});
+
+			build.onLoad({ filter: /.*/, namespace: ESM_CDN_NAMESPACE }, async (arguments_) => {
+				const source = await fetchEsmModule(arguments_.path);
+				return { contents: source, loader: 'js' };
+			});
+
 			build.onResolve({ filter: /.*/ }, async (arguments_) => {
+				// esm.sh-namespace imports are handled by the dedicated resolver above.
+				if (arguments_.namespace === ESM_CDN_NAMESPACE) {
+					return;
+				}
 				const importer = arguments_.kind === 'entry-point' ? undefined : arguments_.importer;
 
 				// Node builtins: on the server, defer to esbuild's platform-`node`
@@ -337,6 +405,13 @@ function createBridgePlugin(options: BundleModuleGraphOptions, moduleExports?: M
 				// `this.resolve` uses.
 				const fallback = defaultResolveSpecifier(specifier, importer, environment, { fileSystem, externals, alias: options.alias });
 				if (fallback !== undefined) {
+					// A bare specifier the vendored node_modules couldn't resolve would
+					// otherwise become a bare external that fails at load time
+					// (`No such module "<env>/<pkg>"`). If it's a registered project
+					// dependency, fetch it from esm.sh and bundle it instead.
+					if (fallback.external && isBareSpecifier(fallback.id)) {
+						return routeUnresolvedBare(fallback.id);
+					}
 					return fallback.external ? { path: fallback.id, external: true } : { path: fallback.id, namespace: NAMESPACE };
 				}
 				return { errors: [{ text: `Could not resolve "${specifier}" from "${importer ?? '<entry>'}"` }] };
