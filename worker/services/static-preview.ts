@@ -26,6 +26,13 @@ import { BundleDependencyError } from './bundler-client';
 import { parseDependencyErrorsFromMessage } from './dependency-error-parser';
 import { processHTML, rewriteExternalModuleImports, toEsbuildTsconfigRaw, transformModule, type FileSystem } from './transform-service';
 import { coordinatorNamespace } from '../lib/durable-object-namespaces';
+import {
+	applyAssetSecurityHeaders,
+	applyPreviewResponseMiddlewares,
+	applyPreviewRobotsHeader,
+	PREVIEW_ROBOTS_HEADER_VALUE,
+	previewResponseMiddlewares,
+} from '../lib/preview-response-headers';
 import { source as chobitsuInitSource, hash as chobitsuInitHash } from '../lib/preview-scripts/chobitsu-init.js?raw-minified';
 import { source as elementPickerSource, hash as elementPickerHash } from '../lib/preview-scripts/element-picker.js?raw-minified';
 import { source as errorOverlaySource, hash as errorOverlayHash } from '../lib/preview-scripts/error-overlay.js?raw-minified';
@@ -40,8 +47,6 @@ import { resolveStorageQuotaForProject } from '../lib/storage-quota';
 
 import type { ResolvedAssetSettings, ServerError } from '@shared/types';
 import type { ServerMessage } from '@shared/ws-messages';
-
-const PREVIEW_ROBOTS_HEADER_VALUE = 'noindex, nofollow';
 const PREVIEW_API_WORKER_VERSION = 'preview-api-v2';
 const PREVIEW_API_WRAPPER_MODULE = 'worker.js';
 const PREVIEW_API_USER_MODULE = 'user-worker.js';
@@ -100,70 +105,6 @@ function createPreviewApiWrapperModule(): string {
 		}
 	},
 };`;
-}
-
-/**
- * Security headers for non-HTML preview responses (JS, CSS, images, etc.).
- *
- * - `Cross-Origin-Resource-Policy: same-site` tells browsers to reject
- *   cross-origin `no-cors` subresource fetches of this resource.
- *   This prevents third-party pages from hotlinking preview assets.
- *   "same-site" (rather than "same-origin") allows loading across
- *   subdomains (e.g. the IDE embedding preview scripts from the
- *   preview subdomain, which shares the same registrable domain).
- *
- * - `Content-Security-Policy: frame-ancestors <ideOrigin>` restricts
- *   which origins can embed the response in a frame. Only the IDE
- *   app origin is allowed.
- *
- * These headers are NOT applied to HTML responses, which need to remain
- * navigable cross-origin by the IDE iframe.
- */
-function buildAssetSecurityHeaders(ideOrigin: string): Record<string, string> {
-	return {
-		'Cross-Origin-Resource-Policy': 'same-site',
-		'Content-Security-Policy': `frame-ancestors ${ideOrigin}`,
-		'Referrer-Policy': 'no-referrer',
-	};
-}
-
-interface PreviewResponseContext {
-	ideOrigin: string;
-}
-
-type PreviewResponseMiddleware = (headers: Headers, response: Response, context: PreviewResponseContext) => void;
-
-function applyAssetSecurityHeaders(headers: Headers, response: Response, context: PreviewResponseContext): void {
-	if (response.headers.get('Content-Type')?.includes('text/html')) return;
-
-	for (const [name, value] of Object.entries(buildAssetSecurityHeaders(context.ideOrigin))) {
-		headers.set(name, value);
-	}
-}
-
-function applyPreviewRobotsHeader(headers: Headers): void {
-	headers.set('X-Robots-Tag', PREVIEW_ROBOTS_HEADER_VALUE);
-}
-
-const previewResponseMiddlewares: PreviewResponseMiddleware[] = [applyAssetSecurityHeaders, applyPreviewRobotsHeader];
-
-function applyPreviewResponseMiddlewares(
-	response: Response,
-	context: PreviewResponseContext,
-	middlewares: PreviewResponseMiddleware[],
-): Response {
-	if (response.status === 101) return response;
-
-	const headers = new Headers(response.headers);
-	for (const middleware of middlewares) {
-		middleware(headers, response, context);
-	}
-
-	return new Response(response.body, {
-		status: response.status,
-		statusText: response.statusText,
-		headers,
-	});
 }
 
 const scriptIntegrityHashes: Record<string, string> = {

@@ -71,6 +71,8 @@ export const CODE_MODE_SYSTEM_PROMPT = stripIndent`
 
   Write a single \`codemode\` snippet per step that performs the work (read several files, search, then edit) and \`return\` a concise result. NEVER invent a top-level tool name — if it is not \`codemode\` (or one of the interactive tools below), it does not exist.
 
+  Every \`tools.*\` and \`state.*\` function is fully typed: the codemode tool definition lists each one's exact TypeScript input signature. Read that signature before calling — do NOT guess argument names or shapes. Every function takes exactly ONE object argument (use \`{}\` when it has no fields, e.g. \`await tools.dependencies_list({})\`). If a call fails validation, the error message restates the expected shape — fix your arguments to match it instead of guessing again.
+
   ## File operations
 
   CRITICAL: You MUST read a file (\`state.readFile\`) before editing it. Never assume file contents — variable names, function signatures, JSX structure, class names, CSS selectors, and HTML content are all UNKNOWN until you read them. If you guess wrong, your edits will fail.
@@ -86,7 +88,9 @@ export const CODE_MODE_SYSTEM_PROMPT = stripIndent`
   - **Use real Unicode characters:** When writing emojis or special symbols in code (e.g. button labels, headings, placeholder text), always use the actual Unicode character (e.g. \`🌞\`) — NEVER use HTML numeric entities like \`&#127774;\` or named entities like \`&hearts;\`.
 
   ## Dependencies
-  Dependencies are stored in package.json. Use the \`dependencies_update\` tool to add, remove, or update packages.
+  Dependencies are stored in package.json. Use \`dependencies_update\` to add, remove, or update packages — ONE package per call (there is no batch/array form).
+  - Signature: \`tools.dependencies_update({ action: "add" | "remove" | "update", name: string, version?: string })\`. Example: \`await tools.dependencies_update({ action: "add", name: "react-confetti", version: "^6.4.0" })\`. To register several packages, make one call per package.
+  - List current packages with \`await tools.dependencies_list({})\` before adding (it takes no fields, but still requires the \`{}\` argument).
   - You MUST register new packages using the dependency management tool before importing them.
   - NEVER assume a package is installed. Verify before using a new import.
 

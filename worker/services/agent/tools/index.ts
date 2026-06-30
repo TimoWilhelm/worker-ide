@@ -28,6 +28,7 @@ import * as testRunTool from './test-run';
 import * as todosGetTool from './todos-get';
 import * as todosUpdateTool from './todos-update';
 import * as userQuestionTool from './user-question';
+import { validateAndCoerceToolInput } from './validate-tool-input';
 import * as webFetchTool from './web-fetch';
 import { DEV_PREVIEW_SECRET } from '../../../lib/preview-secret';
 import { sanitizeToolInput, summarizeToolResult } from '../agent-logger';
@@ -397,34 +398,14 @@ function wrapTool(definition: ToolDefinition, executor: ToolExecuteFunction, dep
 	const { sendEvent, context, queryChanges, mode, logger, toolFailures } = deps;
 	const toolName = definition.name;
 
-	const requiredProperties = new Set<string>(Array.isArray(definition.input_schema.required) ? definition.input_schema.required : []);
-	const knownProperties = new Set<string>(definition.input_schema.properties ? Object.keys(definition.input_schema.properties) : []);
-
 	// A `validate` function is required so the AI SDK runs input validation
 	// (and `experimental_repairToolCall` fires) for hallucinated property names.
+	// In Code Mode this same `validate` runs inside the codemode sandbox for
+	// every `tools.*` call, where there is NO repair step — so it coerces loose
+	// input and reports the expected schema on failure (see validate-tool-input).
 	// eslint-disable-next-line @typescript-eslint/consistent-type-assertions, @typescript-eslint/no-explicit-any -- Bridge between our JSON Schema definitions and the AI SDK's JSONSchema7 type
 	const schema = jsonSchema<Record<string, string>>(definition.input_schema as any, {
-		validate: (value): { success: true; value: Record<string, string> } | { success: false; error: Error } => {
-			if (value === undefined || value === null || typeof value !== 'object' || Array.isArray(value)) {
-				return { success: false, error: new Error('Expected an object') };
-			}
-			const entries = Object.entries(value);
-			const keys = entries.map(([key]) => key);
-			for (const required of requiredProperties) {
-				if (!keys.includes(required)) {
-					return { success: false, error: new Error(`Missing required property: "${required}". Received keys: ${keys.join(', ')}`) };
-				}
-			}
-			// Strip unknown properties and string-coerce values (objects/arrays are
-			// JSON-serialized so structured data survives).
-			const validated: Record<string, string> = {};
-			for (const [key, entryValue] of entries) {
-				if (knownProperties.has(key)) {
-					validated[key] = typeof entryValue === 'object' && entryValue !== null ? JSON.stringify(entryValue) : String(entryValue);
-				}
-			}
-			return { success: true, value: validated };
-		},
+		validate: (value) => validateAndCoerceToolInput(toolName, definition.input_schema, value),
 	});
 
 	return {

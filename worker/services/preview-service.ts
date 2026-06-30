@@ -15,6 +15,7 @@ import { resolveAssetSettings } from '@shared/types';
 import { fs } from '@worker/lib/project-fs';
 
 import { vinextPreviewHostNamespace } from '../lib/durable-object-namespaces';
+import { applyPreviewResponseMiddlewares, previewResponseMiddlewares } from '../lib/preview-response-headers';
 import { VINEXT_PREVIEW_HEADERS } from '../lib/vinext-preview-protocol';
 import { selectRuntime } from './vite-host/runtimes/registry';
 
@@ -56,7 +57,7 @@ export class PreviewService {
 	}
 
 	/** Forward a preview request to the project's warm build Durable Object. */
-	private forwardToDurableHost(request: Request, ideOrigin: string, runtimeId: string): Promise<Response> {
+	private async forwardToDurableHost(request: Request, ideOrigin: string, runtimeId: string): Promise<Response> {
 		// `getByName` derives a valid id for THIS namespace (the projectId hex is
 		// only a valid id for the project's primary namespace).
 		const stub = vinextPreviewHostNamespace.getByName(`vinext:${this.projectId}`);
@@ -65,7 +66,10 @@ export class PreviewService {
 		forwarded.headers.set(VINEXT_PREVIEW_HEADERS.projectRoot, this.projectRoot);
 		forwarded.headers.set(VINEXT_PREVIEW_HEADERS.ideOrigin, ideOrigin);
 		forwarded.headers.set(VINEXT_PREVIEW_HEADERS.runtimeId, runtimeId);
-		return stub.fetch(forwarded);
+		const response = await stub.fetch(forwarded);
+		// Finalize with the same headers the stateless runtime applies (robots +
+		// asset security), so preview parity holds across both hosting modes.
+		return applyPreviewResponseMiddlewares(response, { ideOrigin }, previewResponseMiddlewares);
 	}
 
 	/** Minimal snapshot for runtime detection: the manifest plus entry/router probes. */
