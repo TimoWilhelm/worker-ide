@@ -1,7 +1,9 @@
 import { generateText, jsonSchema, Output } from 'ai';
 
+import { SUMMARIZATION_AI_MODEL } from '@shared/constants';
+
 import { createAdapter } from './workers-ai';
-const TITLE_MODEL = '@cf/meta/llama-3.1-8b-instruct';
+const TITLE_MODEL = SUMMARIZATION_AI_MODEL;
 
 const MAX_TITLE_LENGTH = 100;
 const FALLBACK_TRUNCATION_LENGTH = 50;

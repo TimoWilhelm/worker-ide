@@ -32,8 +32,6 @@ describe('useEditorSessionPersistence', () => {
 	});
 
 	it('clears stale editor state when the project has no session to restore', () => {
-		resolveEditorSession.mockReturnValue();
-
 		const { unmount } = renderHook(() => useEditorSessionPersistence({ projectId: 'project-new' }));
 
 		expect(useStore.getState().openFiles).toEqual([]);
