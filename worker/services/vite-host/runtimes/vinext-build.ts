@@ -12,6 +12,7 @@ import { ensureEsbuild } from '../esbuild-runtime';
 import { MemoryFileSystem } from '../node-fs/memory-file-system';
 import { serveDevelopmentModule } from '../runtime/development-module-server';
 import { runWithHostDevelopmentMode } from '../runtime/host-development-mode';
+import { buildReactRuntimeModulesCached } from '../runtime/react-runtime-modules';
 import { seedNodeModules } from '../runtime/seed-node-modules';
 import { seedVinextRuntime } from '../runtime/seed-vinext-runtime';
 import { SERVER_RUNTIME_EXTERNALS } from '../runtime/server-externals';
@@ -19,7 +20,7 @@ import { ViteHost } from '../vite-host';
 import { stripIdeManagedConfig } from './vinext';
 
 import type { RuntimeBuild } from './types';
-import type { PluginOption } from '../types';
+import type { PluginOption, ViteEnvironmentName } from '../types';
 
 /** vinext's App Router worker entry — the server module set's main module. */
 const APP_ROUTER_ENTRY = '/__vinext__/dist/server/app-router-entry.js';
@@ -45,7 +46,11 @@ function createHost(snapshot: Record<string, string>, options: { hostDevelopment
 		files: stripIdeManagedConfig(snapshot),
 		root: '/',
 		command: 'build',
-		mode: 'production',
+		// Preview builds development (full error message + stack from vinext/React);
+		// deploy builds production. The app bundle's NODE_ENV must match the shared
+		// React modules' (see serverDefine) so the patched react-server-dom-webpack
+		// and the renderer agree on __DEV__ internals.
+		mode: options.hostDevelopment ? 'development' : 'production',
 		createPlugins,
 		seedRuntime: (fileSystem) => seedVinextRuntime(fileSystem),
 		// Only the preview client (NODE_ENV=development) resolves React's dev
@@ -66,12 +71,47 @@ export async function buildVinext(snapshot: Record<string, string>, options: { h
 		const host = await createHost(snapshot, options);
 		const runBuild = (): Promise<unknown> => host.build([...SERVER_RUNTIME_EXTERNALS], APP_ROUTER_ENTRY);
 		await (options.hostDevelopment ? runWithHostDevelopmentMode(runBuild) : runBuild());
+
 		return {
 			mainModule: 'index.js',
-			serverModules: host.readOutput('/dist/server'),
-			clientOutput: host.readOutput('/dist/client'),
+			...(await buildVinextOutput(host, options)),
 		};
 	});
+}
+
+/**
+ * Assemble the routable build output (`serverModules` + `clientOutput`) from a
+ * completed host build, emitting the shared React runtime modules the bundles
+ * import (the build externalises `react`/`react-dom`/`scheduler` rather than
+ * inlining a copy into each environment). The modules are cached per isolate, so
+ * React is compiled once instead of re-bundled on every build pass.
+ *
+ * The shared modules are referenced by root-absolute paths (`/__react/<env>/…`,
+ * see `runtimeImportPath`), so they sit at the output root regardless of which
+ * chunk imports them — the rsc worker (`/dist/server`) and the ssr bundle
+ * (`/dist/server/ssr/`) both resolve the same `/__react/<env>/…` key. Shared so
+ * the host-driven integration tests build the exact production output.
+ */
+export async function buildVinextOutput(
+	host: ViteHost,
+	options: { hostDevelopment: boolean },
+): Promise<Pick<RuntimeBuild, 'serverModules' | 'clientOutput'>> {
+	const { esbuild, fileSystem } = host.devModuleContext();
+	// Server React matches the app bundle's mode (see createHost): development in
+	// preview, production for deploy. Mixing the two breaks the dev RSC dispatcher.
+	const serverDefine = { 'process.env.NODE_ENV': options.hostDevelopment ? '"development"' : '"production"' };
+	// The preview client builds as development React (Fast Refresh); deploy stays production.
+	const clientDefine = { 'process.env.NODE_ENV': options.hostDevelopment ? '"development"' : '"production"' };
+	const reactRuntime = (environment: ViteEnvironmentName, define: Record<string, string>): Promise<Record<string, string>> =>
+		buildReactRuntimeModulesCached({ esbuild, fileSystem, environment, define });
+	const rscRuntime = await reactRuntime('rsc', serverDefine);
+	const ssrRuntime = await reactRuntime('ssr', serverDefine);
+	const clientRuntime = await reactRuntime('client', clientDefine);
+
+	return {
+		serverModules: { ...host.readOutput('/dist/server'), ...rscRuntime, ...ssrRuntime },
+		clientOutput: { ...host.readOutput('/dist/client'), ...clientRuntime },
+	};
 }
 
 /**

@@ -30,6 +30,7 @@ import { getServerEntrypoint, serverModulesFromOutput } from '../services/vite-h
 import { getRuntimeById } from '../services/vite-host/runtimes/registry';
 
 import type { DurableFrameworkRuntime, RuntimeBuild } from '../services/vite-host/runtimes/types';
+import type { ServerError } from '@shared/types';
 
 /** The default runtime when no id is supplied (the original preview surface). */
 const DEFAULT_RUNTIME_ID = 'vinext';
@@ -160,6 +161,16 @@ export class VinextPreviewHost extends DurableObject<Env> {
 				projectRoot: this.projectRoot,
 				getServer: this.serverFactory(build, cacheKey, serverEnvironment),
 			});
+			// A server-side render error is returned by the framework as a normal
+			// HTTP 500 page (it never throws out to the catch below), so surface it
+			// through the same overlay + broadcast as build errors instead of letting
+			// the silent framework error page reach the iframe.
+			if (response.status >= 500) {
+				const surfaced = await this.surfaceServerRenderError(response, request, ideOrigin);
+				if (surfaced !== undefined) {
+					return surfaced;
+				}
+			}
 			if (response.headers.get('Content-Type')?.includes('text/html')) {
 				return this.injectHmrRuntime(response, request, ideOrigin);
 			}
@@ -215,8 +226,39 @@ export class VinextPreviewHost extends DurableObject<Env> {
 	 * an HTML navigation gets a minimal document that loads the overlay script,
 	 * while a script/asset request gets a module that calls into the overlay.
 	 */
-	private async serveBuildError(error: unknown, request: Request, ideOrigin: string): Promise<Response> {
-		const serverError = toBundleServerError(error);
+	private serveBuildError(error: unknown, request: Request, ideOrigin: string): Promise<Response> {
+		return this.renderServerError(toBundleServerError(error), request, ideOrigin);
+	}
+
+	/**
+	 * vinext renders a server-side render failure as a normal HTTP 500
+	 * `__next_error__` page, which `route()` returns as a Response — so it never
+	 * reaches the build-error catch above. Detect that page and surface it through
+	 * the same overlay + broadcast, turning a silent framework error page into
+	 * actionable in-IDE feedback. Returns `undefined` for any other 5xx response
+	 * (e.g. an intentional 500 from the app), which is then passed through.
+	 *
+	 * The detailed message/stack is not recoverable here: the server is built in
+	 * production mode, where the framework strips the error to a digest before
+	 * responding (a development server build is required to surface the message,
+	 * which currently regresses RSC rendering — tracked separately).
+	 */
+	private async surfaceServerRenderError(response: Response, request: Request, ideOrigin: string): Promise<Response | undefined> {
+		const body = await response.clone().text();
+		if (!body.includes('id="__next_error__"')) {
+			return undefined;
+		}
+		const serverError: ServerError = {
+			id: crypto.randomUUID(),
+			timestamp: Date.now(),
+			type: 'runtime',
+			message:
+				'The server failed while rendering this route (HTTP 500). A Server Component threw during render — check this route and any packages it imports for runtime or SSR-incompatible code (for example, accessing browser globals like `window` or `document` on the server).',
+		};
+		return this.renderServerError(serverError, request, ideOrigin);
+	}
+
+	private async renderServerError(serverError: ServerError, request: Request, ideOrigin: string): Promise<Response> {
 		try {
 			await coordinatorNamespace.getByName(`project:${this.projectId}`).sendMessage({ type: 'server-error', error: serverError });
 		} catch {

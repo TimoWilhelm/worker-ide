@@ -194,6 +194,25 @@ export function clearLogs(): void {
 	logBufferStore.setState({ entries: [] });
 }
 
+/**
+ * The project whose logs currently fill the (process-global) buffer.
+ *
+ * The log buffer and its event listeners live at module scope for the tab's
+ * lifetime. Switching projects is SPA navigation that never reloads this module,
+ * so without an explicit reset the previous project's console/server logs would
+ * leak into the new project's output panel. {@link setActiveLogProject} clears
+ * the buffer whenever the active project changes.
+ */
+let activeProjectId: string | undefined;
+
+/** Reset the log buffer when the active project changes (idempotent for the same id). */
+export function setActiveLogProject(projectId: string): void {
+	if (activeProjectId === projectId) return;
+	activeProjectId = projectId;
+	seenErrorIds.clear();
+	logBufferStore.setState({ entries: [] });
+}
+
 export function getPreserveLogs(): boolean {
 	return logBufferStore.getState().preserveLogs;
 }

@@ -24,6 +24,12 @@ import { normalizePosixPath } from './node-fs/memory-file-system';
 import { parsePackageSpecifier, resolvePackage } from './package-resolver';
 import { applyAlias } from './resolve-alias';
 import { parse as lexParse } from './runtime/es-module-lexer-shim';
+import {
+	isReactClosureSpecifier,
+	REACT_CLOSURE_EXTERNAL_MARKER,
+	reactRuntimeShimContents,
+	runtimeImportPath,
+} from './runtime/react-runtime-modules';
 import { VINEXT_RUNTIME_DIST_ROOT } from './runtime/vinext-runtime-paths';
 
 import type { Esbuild } from './esbuild-runtime';
@@ -36,6 +42,14 @@ const NAMESPACE = 'vite-host';
 
 /** Namespace for browser-client stubs of `node:` builtins (empty CJS module). */
 const NODE_STUB_NAMESPACE = 'vite-host-node-stub';
+
+/**
+ * Namespace for the React-closure ESM re-export shim. A closure import
+ * (`react`, `react-dom`, `scheduler`, …) resolves here; the shim re-exports the
+ * external shared runtime module, converting a CommonJS `require` into a static
+ * ESM `import` (see `runtime/react-runtime-modules`).
+ */
+const REACT_SHIM_NAMESPACE = 'vite-host-react-shim';
 
 /**
  * Prepended to the client entry in host development mode: exposes the bundled
@@ -231,6 +245,12 @@ function defaultResolveSpecifier(
 	}
 
 	if (isBareSpecifier(specifier)) {
+		// React-closure imports resolve to the shared runtime module, left external
+		// (the single instance every environment references). Reported here too so
+		// plugins re-resolving via `this.resolve` (plugin-rsc) see the same result.
+		if (isReactClosureSpecifier(specifier, environment)) {
+			return { id: runtimeImportPath(environment, specifier), external: true };
+		}
 		const packageResolved = resolvePackage(specifier, context.fileSystem, conditionsForEnvironment(environment));
 		if (packageResolved !== undefined) {
 			return { id: packageResolved.path, external: false };
@@ -348,6 +368,16 @@ function createBridgePlugin(options: BundleModuleGraphOptions, moduleExports?: M
 				if (arguments_.namespace === ESM_CDN_NAMESPACE) {
 					return;
 				}
+				// The React-closure shim's re-export target → the external shared
+				// runtime module. Crossed by ESM `export * from`, so esbuild emits a
+				// real `import` the workerd module worker resolves (a CommonJS
+				// `require` would become an unresolvable `__require` shim).
+				if (arguments_.path.startsWith(REACT_CLOSURE_EXTERNAL_MARKER)) {
+					return {
+						path: runtimeImportPath(environment, arguments_.path.slice(REACT_CLOSURE_EXTERNAL_MARKER.length)),
+						external: true,
+					};
+				}
 				const importer = arguments_.kind === 'entry-point' ? undefined : arguments_.importer;
 
 				// Node builtins: on the server, defer to esbuild's platform-`node`
@@ -368,6 +398,14 @@ function createBridgePlugin(options: BundleModuleGraphOptions, moduleExports?: M
 				}
 
 				const requestPath = normalizeFileUrlSpecifier(arguments_.path, fileSystem);
+
+				// React-closure imports (incl. the CommonJS `require`s inside the
+				// still-bundled, plugin-rsc-patched react-server-dom-webpack) resolve
+				// to the shared runtime module via an ESM re-export shim — one React
+				// instance per environment, referenced rather than inlined.
+				if (arguments_.kind !== 'entry-point' && isReactClosureSpecifier(requestPath, environment)) {
+					return { path: requestPath, namespace: REACT_SHIM_NAMESPACE };
+				}
 
 				// 1. `resolve.alias` (vinext maps `next/*` and config aliases to its
 				// seeded shim files). Aliased targets resolve as project files.
@@ -421,6 +459,13 @@ function createBridgePlugin(options: BundleModuleGraphOptions, moduleExports?: M
 			// ESM) so any named import (`{ AsyncLocalStorage }`) resolves to
 			// `undefined` instead of an esbuild "no matching export" error.
 			build.onLoad({ filter: /.*/, namespace: NODE_STUB_NAMESPACE }, () => ({ contents: 'module.exports = {};', loader: 'js' }));
+
+			// The React-closure shim: an ESM re-export of the external shared runtime
+			// module (see the `REACT_CLOSURE_EXTERNAL_MARKER` resolver above).
+			build.onLoad({ filter: /.*/, namespace: REACT_SHIM_NAMESPACE }, (arguments_) => ({
+				contents: reactRuntimeShimContents(arguments_.path),
+				loader: 'js',
+			}));
 
 			build.onLoad({ filter: /.*/, namespace: NAMESPACE }, async (arguments_) => {
 				const id = arguments_.path;

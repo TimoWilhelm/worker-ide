@@ -19,10 +19,19 @@ type Stub = DurableObjectStub<ProjectFilesystem>;
 export class WorkspaceClient implements WorkspaceLike {
 	private readonly stub: Stub;
 	private readonly prefix: string;
+	/**
+	 * Identifies the writer (agent session) behind every mutation made through
+	 * this client, so the project Durable Object can attribute changes per
+	 * session when multiple agents edit the same Workspace concurrently. When
+	 * `undefined`, mutations are not attributed/tracked (e.g. preview, deploy,
+	 * user-driven file routes).
+	 */
+	private readonly writerId?: string;
 
-	constructor(stub: Stub, prefix: string = PROJECT_ROOT) {
+	constructor(stub: Stub, prefix: string = PROJECT_ROOT, writerId?: string) {
 		this.stub = stub;
 		this.prefix = prefix;
+		this.writerId = writerId;
 	}
 
 	private strip(path: string): string {
@@ -47,13 +56,13 @@ export class WorkspaceClient implements WorkspaceLike {
 		return this.stub.wsReadFileBytes(this.strip(path));
 	}
 	async writeFile(path: string, content: string): Promise<void> {
-		await this.stub.wsWriteFile(this.strip(path), content);
+		await this.stub.wsWriteFile(this.strip(path), content, this.writerId);
 	}
 	async writeFileBytes(path: string, data: Uint8Array): Promise<void> {
-		await this.stub.wsWriteFileBytes(this.strip(path), data);
+		await this.stub.wsWriteFileBytes(this.strip(path), data, this.writerId);
 	}
 	async appendFile(path: string, content: string): Promise<void> {
-		await this.stub.wsAppendFile(this.strip(path), content);
+		await this.stub.wsAppendFile(this.strip(path), content, this.writerId);
 	}
 	async exists(path: string): Promise<boolean> {
 		return this.stub.wsExists(this.strip(path));
@@ -74,13 +83,13 @@ export class WorkspaceClient implements WorkspaceLike {
 		return entries.map((entry) => this.mapInfo(entry));
 	}
 	async rm(path: string, options?: { recursive?: boolean; force?: boolean }): Promise<void> {
-		await this.stub.wsRm(this.strip(path), options?.recursive ?? false, options?.force ?? false);
+		await this.stub.wsRm(this.strip(path), options?.recursive ?? false, options?.force ?? false, this.writerId);
 	}
 	async cp(source: string, destination: string, options?: { recursive?: boolean }): Promise<void> {
-		await this.stub.wsCp(this.strip(source), this.strip(destination), options?.recursive ?? false);
+		await this.stub.wsCp(this.strip(source), this.strip(destination), options?.recursive ?? false, this.writerId);
 	}
 	async mv(source: string, destination: string): Promise<void> {
-		await this.stub.wsMv(this.strip(source), this.strip(destination));
+		await this.stub.wsMv(this.strip(source), this.strip(destination), this.writerId);
 	}
 	async symlink(target: string, linkPath: string): Promise<void> {
 		await this.stub.wsSymlink(target, this.strip(linkPath));
@@ -99,8 +108,8 @@ export class WorkspaceClient implements WorkspaceLike {
  * project Durable Object's durable `Workspace`. This is the replacement for the
  * removed `worker-fs-mount` / `node:fs/promises` alias.
  */
-export function createProjectFileSystem(stub: Stub, prefix: string = PROJECT_ROOT): WorkspaceFsAdapter {
-	return new WorkspaceFsAdapter(new WorkspaceClient(stub, prefix));
+export function createProjectFileSystem(stub: Stub, prefix: string = PROJECT_ROOT, writerId?: string): WorkspaceFsAdapter {
+	return new WorkspaceFsAdapter(new WorkspaceClient(stub, prefix, writerId));
 }
 
 /** The structural type application code depends on (a subset of node:fs/promises). */

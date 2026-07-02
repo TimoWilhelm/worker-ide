@@ -10,11 +10,7 @@ import { describe, expect, it } from 'vitest';
 
 import { routeAppRequest } from './app-runtime';
 import { getServerEntrypoint, serverModulesFromOutput } from './loader-runner';
-import { seedVinextRuntime } from './seed-vinext-runtime';
-import { SERVER_RUNTIME_EXTERNALS } from './server-externals';
-import { ViteHost } from '../vite-host';
-
-const APP_ROUTER_ENTRY = '/__vinext__/dist/server/app-router-entry.js';
+import { buildVinext } from '../runtimes/vinext-build';
 
 const FILES = {
 	'/app/page.tsx': 'export default function Page() { return <h1>Hello vinext</h1>; }',
@@ -25,22 +21,10 @@ const FILES = {
 
 describe('vinext App Router render', () => {
 	it('renders a route to HTML in a LOADER isolate', async () => {
-		const host = await ViteHost.create({
-			files: FILES,
-			root: '/',
-			command: 'build',
-			mode: 'production',
-			createPlugins: async () => {
-				const { vinext } = await import('../../../../auxiliary/vite-host/vendor/native-plugins.mjs');
-				return vinext();
-			},
-			seedRuntime: seedVinextRuntime,
-		});
-		await host.build([...SERVER_RUNTIME_EXTERNALS], APP_ROUTER_ENTRY);
+		const build = await buildVinext(FILES, { hostDevelopment: false });
 
-		const output = host.readOutput('/dist/server');
-		expect(output['index.js']).toBeDefined();
-		expect(output['ssr/index.js']).toBeDefined();
+		expect(build.serverModules['index.js']).toBeDefined();
+		expect(build.serverModules['ssr/index.js']).toBeDefined();
 
 		const entrypoint = getServerEntrypoint({
 			loader: env.LOADER,
@@ -48,13 +32,12 @@ describe('vinext App Router render', () => {
 			moduleSet: {
 				compatibilityDate: '2025-06-01',
 				compatibilityFlags: ['nodejs_compat', 'enable_nodejs_fs_module'],
-				mainModule: 'index.js',
-				modules: serverModulesFromOutput(output),
+				mainModule: build.mainModule,
+				modules: serverModulesFromOutput(build.serverModules),
 			},
 		});
 
-		const clientOutput = host.readOutput('/dist/client');
-		const sources = { clientOutput, server: entrypoint };
+		const sources = { clientOutput: build.clientOutput, server: entrypoint };
 
 		const response = await routeAppRequest(new Request('https://example.com/'), sources);
 		const body = await response.text();

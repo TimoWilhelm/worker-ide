@@ -7,6 +7,7 @@ import {
 	buildLoadedExtensionsSummary,
 	buildRecoveredRunParameters,
 	parseFiberSnapshot,
+	reattachForkedMessageState,
 	resolveInitialPendingChanges,
 	restoreExtensionManager,
 	runSessionSearch,
@@ -149,6 +150,47 @@ describe('agent-runner helpers', () => {
 			{ name: 'github', description: 'GitHub helpers', toolCount: 2 },
 			{ name: 'deploy', description: undefined, toolCount: 1 },
 		]);
+	});
+
+	it('reattaches forked message author and metadata by index, not by id', () => {
+		// `fork` assigns fresh message IDs, so the forked history shares no IDs
+		// with the source. Reattachment must align by position.
+		const sourceHistory: ChatMessage[] = [
+			{
+				id: 'source-1',
+				role: 'user',
+				parts: [{ type: 'text', content: 'first' }],
+				createdAt: 1,
+				authorUserId: 'user-1',
+				metadata: { request: { mode: 'code', model: DEFAULT_AI_MODEL, state: 'committed' } },
+			},
+			{
+				id: 'source-2',
+				role: 'assistant',
+				parts: [{ type: 'text', content: 'reply' }],
+				createdAt: 2,
+			},
+			{
+				id: 'source-3',
+				role: 'user',
+				parts: [{ type: 'text', content: 'second' }],
+				createdAt: 3,
+				authorUserId: 'user-2',
+			},
+		];
+		const forkedHistory: ChatMessage[] = sourceHistory.map((message) => ({
+			id: crypto.randomUUID(),
+			role: message.role,
+			parts: message.parts,
+			createdAt: message.createdAt,
+		}));
+
+		const reattached = reattachForkedMessageState(forkedHistory, sourceHistory);
+
+		expect(reattached.map((message) => message.authorUserId)).toEqual(['user-1', undefined, 'user-2']);
+		expect(reattached[0]?.metadata).toEqual(sourceHistory[0]?.metadata);
+		// Forked IDs are preserved, only author/metadata are reattached.
+		expect(reattached.map((message) => message.id)).toEqual(forkedHistory.map((message) => message.id));
 	});
 
 	it('suppresses terminal notifications while a queued follow-up starts', () => {

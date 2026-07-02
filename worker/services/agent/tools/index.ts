@@ -3,10 +3,7 @@ import { jsonSchema } from 'ai';
 import { env } from 'cloudflare:workers';
 
 import { ToolExecutionError } from '@shared/tool-errors';
-import { createHmrUpdateForFile } from '@shared/types';
-import { coordinatorNamespace } from '@worker/lib/durable-object-namespaces';
-import { isHiddenPath } from '@worker/lib/path-utilities';
-import { fs, runWithProjectStub } from '@worker/lib/project-fs';
+import { runWithProjectStub } from '@worker/lib/project-fs';
 import { PROJECT_ROOT, WorkspaceClient } from '@worker/lib/workspace-client';
 
 import * as assetSettingsGetTool from './asset-settings-get';
@@ -17,6 +14,7 @@ import * as bindingsUpdateTool from './bindings-update';
 import * as dependenciesListTool from './dependencies-list';
 import * as dependenciesUpdateTool from './dependencies-update';
 import * as documentationSearchTool from './documentation-search';
+import { drainWorkspaceChanges } from './drain-workspace-changes';
 import * as imageGenerateTool from './image-generate';
 import * as lintCheckTool from './lint-check';
 import * as lintFixTool from './lint-fix';
@@ -44,7 +42,7 @@ import type {
 	ToolExecutorContext,
 	ToolFailureQueue,
 } from '../types';
-import type { StateBackend, WorkspaceChangeEvent } from '@cloudflare/shell';
+import type { StateBackend } from '@cloudflare/shell';
 
 export const TOOL_EXECUTORS: ReadonlyMap<string, ToolExecuteFunction> = new Map([
 	['user_question', userQuestionTool.execute],
@@ -279,7 +277,13 @@ export async function createServerTools(
 		});
 		llmTools.codemode = wrapCodemodeTool(tool, context, trackedSendEvent, queryChanges, emittedChangePaths);
 	} else {
-		Object.assign(llmTools, codeModeTools);
+		// No Code Mode sandbox: expose `tools.*` directly. They run in THIS context
+		// and push their own changes into `queryChanges`, so wrap each with a drain
+		// that surfaces drain-only tools (e.g. dependencies_update) without
+		// double-recording paths the tool already pushed.
+		for (const [name, codeModeTool] of Object.entries(codeModeTools)) {
+			llmTools[name] = wrapFallbackTool(codeModeTool, context, trackedSendEvent, queryChanges, emittedChangePaths);
+		}
 	}
 
 	return llmTools;
@@ -309,7 +313,7 @@ function codeModeToolNames(mode: 'code' | 'plan' | 'ask'): string[] {
 
 /** Build the `state.*` backend, read-only in plan/ask mode. */
 function createStateBackend(context: ToolExecutorContext, mode: 'code' | 'plan' | 'ask'): StateBackend {
-	const backend = createWorkspaceStateBackend(new WorkspaceClient(context.fsStub, PROJECT_ROOT));
+	const backend = createWorkspaceStateBackend(new WorkspaceClient(context.fsStub, PROJECT_ROOT, context.sessionId));
 	if (mode === 'code') return backend;
 	return new Proxy(backend, {
 		get(target, property, receiver) {
@@ -352,41 +356,35 @@ function wrapCodemodeTool(
 	};
 }
 
-async function drainWorkspaceChanges(
+/**
+ * No-loader fallback: `tools.*` are exposed directly (no Code Mode sandbox), so
+ * they run in this context and push their own changes into `queryChanges`. Wrap
+ * each with a post-run drain so tools that surface changes ONLY via the drain
+ * (e.g. dependencies_update) still appear, deduping paths the tool already
+ * recorded to avoid double entries.
+ */
+function wrapFallbackTool(
+	tool: AnyTool,
 	context: ToolExecutorContext,
 	sendEvent: SendEventFunction,
 	queryChanges: FileChange[],
 	emittedChangePaths: ReadonlySet<string>,
-): Promise<void> {
-	const changes: WorkspaceChangeEvent[] = await context.fsStub.drainWorkspaceChanges();
-	const seen = new Set<string>();
-	const hmrPaths: string[] = [];
-
-	for (const change of changes) {
-		const path = change.path;
-		if (seen.has(path) || emittedChangePaths.has(path)) continue;
-		if (path.startsWith('/.git') || isHiddenPath(path)) continue;
-		seen.add(path);
-
-		const action = change.type === 'create' ? 'create' : change.type === 'delete' ? 'delete' : 'edit';
-		let afterContent: string | undefined;
-		if (action !== 'delete') {
+): AnyTool {
+	const originalExecute = tool.execute;
+	if (typeof originalExecute !== 'function') return tool;
+	return {
+		...tool,
+		execute: async (input: unknown, options: unknown) => {
 			try {
-				afterContent = await fs.readFile(`${PROJECT_ROOT}${path}`, 'utf8');
-			} catch {
-				afterContent = undefined;
+				return await Reflect.apply(originalExecute, tool, [input, options]);
+			} finally {
+				// Snapshot AFTER the tool ran: these paths (including the tool's own
+				// pushes) must not be re-recorded by the drain.
+				const alreadyRecorded = new Set(queryChanges.map((change) => change.path));
+				await drainWorkspaceChanges(context, sendEvent, queryChanges, emittedChangePaths, undefined, alreadyRecorded);
 			}
-		}
-
-		sendEvent('file_changed', { path, action, afterContent });
-		queryChanges.push({ path, action, beforeContent: undefined, afterContent, isBinary: false });
-		hmrPaths.push(path);
-	}
-
-	if (hmrPaths.length > 0) {
-		const coordinator = coordinatorNamespace.getByName(`project:${context.projectId}`);
-		await Promise.all(hmrPaths.map((path) => coordinator.triggerUpdate(createHmrUpdateForFile(path))));
-	}
+		},
+	};
 }
 
 /**
@@ -442,6 +440,7 @@ function wrapTool(definition: ToolDefinition, executor: ToolExecuteFunction, dep
 					context.fsStub,
 					() => executor(input, sendEvent, callContext, queryChanges),
 					context.projectRoot,
+					context.sessionId,
 				);
 				logger?.info(
 					'tool_call',

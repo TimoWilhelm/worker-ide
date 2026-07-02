@@ -9,39 +9,22 @@ import { describe, expect, it } from 'vitest';
 
 import { routeAppRequest } from './app-runtime';
 import { getServerEntrypoint, serverModulesFromOutput } from './loader-runner';
-import { seedVinextRuntime } from './seed-vinext-runtime';
-import { SERVER_RUNTIME_EXTERNALS } from './server-externals';
 import { getTemplate } from '../../../templates';
-import { stripIdeManagedConfig } from '../runtimes/vinext';
-import { ViteHost } from '../vite-host';
-
-const APP_ROUTER_ENTRY = '/__vinext__/dist/server/app-router-entry.js';
+import { buildVinext } from '../runtimes/vinext-build';
 
 /**
- * The template's files, re-keyed to the absolute paths the host expects. Mirrors
- * `VinextRuntime.build` by stripping IDE-managed Cloudflare config (wrangler.jsonc)
- * that is not part of the framework build input.
+ * The template's files, re-keyed to the absolute paths the host expects.
+ * `buildVinext` strips IDE-managed Cloudflare config (wrangler.jsonc) itself.
  */
 function templateSnapshot(): Record<string, string> {
 	const template = getTemplate('vinext');
 	if (template === undefined) throw new Error('vinext template is not registered');
-	return stripIdeManagedConfig(Object.fromEntries(Object.entries(template.files).map(([path, contents]) => [`/${path}`, contents])));
+	return Object.fromEntries(Object.entries(template.files).map(([path, contents]) => [`/${path}`, contents]));
 }
 
 describe('vinext starter template', () => {
 	it('builds and renders the App Router template with a client component', async () => {
-		const host = await ViteHost.create({
-			files: templateSnapshot(),
-			root: '/',
-			command: 'build',
-			mode: 'production',
-			createPlugins: async () => {
-				const { vinext } = await import('../../../../auxiliary/vite-host/vendor/native-plugins.mjs');
-				return vinext();
-			},
-			seedRuntime: seedVinextRuntime,
-		});
-		await host.build([...SERVER_RUNTIME_EXTERNALS], APP_ROUTER_ENTRY);
+		const build = await buildVinext(templateSnapshot(), { hostDevelopment: false });
 
 		const server = getServerEntrypoint({
 			loader: env.LOADER,
@@ -49,11 +32,11 @@ describe('vinext starter template', () => {
 			moduleSet: {
 				compatibilityDate: '2025-06-01',
 				compatibilityFlags: ['nodejs_compat', 'enable_nodejs_fs_module'],
-				mainModule: 'index.js',
-				modules: serverModulesFromOutput(host.readOutput('/dist/server')),
+				mainModule: build.mainModule,
+				modules: serverModulesFromOutput(build.serverModules),
 			},
 		});
-		const sources = { clientOutput: host.readOutput('/dist/client'), server };
+		const sources = { clientOutput: build.clientOutput, server };
 
 		const response = await routeAppRequest(new Request('https://example.com/'), sources);
 		const body = await response.text();

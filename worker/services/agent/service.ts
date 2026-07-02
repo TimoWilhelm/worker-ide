@@ -230,17 +230,27 @@ export class AgentService {
 		const { readable, writable } = new TransformStream<StreamEvent>();
 		const writer = writable.getWriter();
 
-		void runWithProjectStub(this.options.fsStub, async () => {
-			const innerStream = this.createAgentStream(messages, chatMessages, abortController, logger);
-			try {
-				for await (const event of innerStream) {
-					await writer.write(event);
+		void runWithProjectStub(
+			this.options.fsStub,
+			async () => {
+				const innerStream = this.createAgentStream(messages, chatMessages, abortController, logger);
+				try {
+					for await (const event of innerStream) {
+						await writer.write(event);
+					}
+					await writer.close();
+				} catch (error) {
+					await writer.abort(error);
 				}
-				await writer.close();
-			} catch (error) {
-				await writer.abort(error);
-			}
-		});
+			},
+			this.options.projectRoot,
+			// Attribute every write in the agent-loop scope to this session so the
+			// project DO tracks per-session diffs. `wrapTool` re-binds the same
+			// writerId inside the codemode facet; this covers writes made directly
+			// in the loop scope (e.g. the no-loader fallback where `tools.*` are
+			// exposed without the codemode sandbox).
+			this.options.sessionId,
+		);
 
 		return readable;
 	}

@@ -32,6 +32,7 @@ import {
 	buildTerminalNotification,
 	buildRecoveredRunParameters,
 	parseFiberSnapshot,
+	reattachForkedMessageState,
 	resolveInitialPendingChanges,
 	restoreExtensionManager,
 	runSessionSearch,
@@ -1214,15 +1215,8 @@ export class AgentRunner extends Agent<Env, AgentState> {
 
 		const forkedSession = await this.sessionManager.fork(sessionId, targetMessage.id, `${sourceSession.name} (fork)`);
 		const sourceAiSession = await this.agentSessionStore.read(sessionId);
-		const sourceMessageStateByMessageId = new Map(
-			sourceAiSession?.history.map((message) => [message.id, { authorUserId: message.authorUserId, metadata: message.metadata }]),
-		);
 		const forkedHistory = sessionMessagesToChatMessages(await this.sessionManager.getHistory(forkedSession.id));
-		const truncatedHistory = forkedHistory.map((message) => ({
-			...message,
-			authorUserId: sourceMessageStateByMessageId.get(message.id)?.authorUserId,
-			metadata: sourceMessageStateByMessageId.get(message.id)?.metadata,
-		}));
+		const truncatedHistory = reattachForkedMessageState(forkedHistory, sourceAiSession?.history ?? []);
 		const sourceMetadata = this.agentSessionStore.getMetadata(sessionId);
 		const modelMessages = chatMessagesToModelMessages(truncatedHistory);
 		const contextTokensUsed = estimateMessagesTokens(modelMessages);
@@ -1295,7 +1289,9 @@ export class AgentRunner extends Agent<Env, AgentState> {
 			throw new Error(parsed.error.issues[0]?.message ?? 'Invalid title');
 		}
 		this.sessionManager.rename(sessionId, parsed.data);
-		updateSessionMetadataTitleGenerated(this.db, sessionId, false);
+		// A manual rename is a deliberate title; mark it settled so the next agent
+		// turn's auto title generation does not overwrite the user's choice.
+		updateSessionMetadataTitleGenerated(this.db, sessionId, true);
 
 		// Update current session state so all clients see the new title immediately
 		if (this.state.currentSession?.sessionId === sessionId) {
@@ -1778,7 +1774,12 @@ export class AgentRunner extends Agent<Env, AgentState> {
 			});
 
 			this.sessionManager.rename(sessionId, result.title);
-			updateSessionMetadataTitleGenerated(this.db, sessionId, result.isAiGenerated);
+			// Mark the title settled after this attempt regardless of whether the
+			// model produced it or we fell back to the prompt preview. Otherwise a
+			// fallback (isAiGenerated === false) leaves the flag unset and every
+			// subsequent turn re-derives and renames the session from that turn's
+			// message — the "title changes constantly" churn.
+			updateSessionMetadataTitleGenerated(this.db, sessionId, true);
 
 			// Update state if this is the current session
 			if (this.state.currentSession?.sessionId === sessionId) {

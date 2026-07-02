@@ -69,7 +69,7 @@ describe('esbuild bridge to plugin container', () => {
 		const plugin: Plugin = {
 			name: 'entry',
 			resolveId: (source) => (source === 'virtual:main' ? source : undefined),
-			load: (id) => (id === 'virtual:main' ? 'import React from "react";\nexport default React;' : undefined),
+			load: (id) => (id === 'virtual:main' ? 'import dep from "external-lib";\nexport default dep;' : undefined),
 		};
 		const container = PluginContainer.create({ config: makeConfig(), plugins: [plugin], parse: () => ({}) });
 
@@ -79,9 +79,9 @@ describe('esbuild bridge to plugin container', () => {
 			fileSystem,
 			entryId: 'virtual:main',
 			environment: 'rsc',
-			externals: ['react'],
+			externals: ['external-lib'],
 		});
 
-		expect(code).toContain('from "react"');
+		expect(code).toContain('from "external-lib"');
 	});
 });

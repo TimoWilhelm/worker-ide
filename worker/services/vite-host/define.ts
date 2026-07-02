@@ -21,7 +21,15 @@ export interface DefineOptions {
 }
 
 export function toEsbuildDefine(config: ResolvedConfig, options: DefineOptions = {}): Record<string, string> {
-	const isProduction = config.command === 'build' || config.mode === 'production';
+	// Key production off `mode`, NOT `command`: the vinext host always builds with
+	// `command: 'build'` and overloads `mode` to select the build (`development`
+	// for preview, `production` for deploy). Using `command` here would force the
+	// preview SERVER bundle to NODE_ENV=production while the shared React modules
+	// are built development (see vinext-build serverDefine) — a __DEV__ mismatch
+	// that crashes the dev RSC render with `dispatcher.getOwner is not a function`
+	// (production react-server-dom-webpack sets an owner dispatcher the dev React
+	// createElement calls `getOwner()` on).
+	const isProduction = config.mode === 'production';
 	// The client HMR build must use development React so React DOM exposes its
 	// Fast Refresh renderer helpers; everything else stays production.
 	const nodeEnvironment = options.clientHmr ? 'development' : isProduction ? 'production' : 'development';

@@ -36,7 +36,13 @@ export function useEditorSessionPersistence({ projectId }: { projectId: string }
 		const session = loadEditorSession(projectId);
 		const existingPaths = new Set(files.map((file) => file.path));
 		const resolved = resolveEditorSession(session, existingPaths);
-		if (!resolved) return;
+		if (!resolved) {
+			// No session to restore for this project. Clear any editor state left
+			// over from a previously open project so its tabs don't leak across
+			// the (non-remounting) project switch.
+			useStore.getState().closeAllFiles();
+			return;
+		}
 
 		useStore.setState({
 			openFiles: resolved.openFiles,

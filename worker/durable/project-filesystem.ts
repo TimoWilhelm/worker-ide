@@ -9,13 +9,38 @@ import type { GitAuthor, GitStatusResponse } from './git-service';
 import type { FileInfo, FileStat, WorkspaceChangeEvent } from '@cloudflare/shell';
 import type { GitBranchInfo, GitCommitEntry, GitFileDiff, GitMergeResult } from '@shared/types';
 
-/** Cap on buffered change events to avoid unbounded growth between drains. */
-const MAX_BUFFERED_CHANGES = 5000;
-
 interface SeedFile {
 	path: string;
 	content: string;
 }
+
+/**
+ * A workspace change with the content before/after the writer's edits, ready to
+ * render as a diff. `beforeContent`/`afterContent` are `undefined` for
+ * create/delete (respectively) or when content could not be read (binary,
+ * directory, …).
+ */
+export interface DrainedWorkspaceChange {
+	type: WorkspaceChangeEvent['type'];
+	path: string;
+	entryType: WorkspaceChangeEvent['entryType'];
+	beforeContent?: string;
+	afterContent?: string;
+}
+
+/**
+ * SQLite table backing per-writer (per agent session) change tracking. Concurrent
+ * sessions share one Workspace, so changes are attributed to the writer that made
+ * them. On first touch a row records the pre-edit `baseline` content of a path;
+ * `drainWorkspaceChanges(writerId)` diffs each baseline against current content
+ * for that writer only, then clears the writer's rows.
+ *
+ * Persisted (not in-memory) so per-session diffs survive a Durable Object
+ * eviction mid-turn — the checkpoint is durable, matching accept/reject
+ * semantics. `baseline` is NULL when the path did not exist (or was unreadable)
+ * at first touch, i.e. a create.
+ */
+const WRITER_CHANGE_TABLE = 'agent_writer_change';
 
 /**
  * Project filesystem Durable Object.
@@ -27,8 +52,8 @@ interface SeedFile {
  */
 export class ProjectFilesystem extends DurableObject<Env> {
 	private workspaceInstance?: Workspace;
-	/** Workspace change events since the last drain (excludes `.git`). */
-	private changeBuffer: WorkspaceChangeEvent[] = [];
+	/** Whether the per-writer change table has been created this isolate. */
+	private writerTableReady = false;
 
 	private get projectId(): string {
 		return generateProjectId(this.ctx.id);
@@ -40,22 +65,107 @@ export class ProjectFilesystem extends DurableObject<Env> {
 			r2: this.env.STORAGE_BUCKET,
 			r2Prefix: `workspace/${this.projectId}`,
 			name: () => this.projectId,
-			onChange: (event) => this.recordChange(event),
 		});
 		return this.workspaceInstance;
 	}
 
-	private recordChange(event: WorkspaceChangeEvent): void {
-		if (event.path.startsWith('/.git')) return;
-		if (this.changeBuffer.length >= MAX_BUFFERED_CHANGES) this.changeBuffer.shift();
-		this.changeBuffer.push(event);
+	/** Create the per-writer change table once per isolate (idempotent). */
+	private ensureWriterTable(): void {
+		if (this.writerTableReady) return;
+		this.ctx.storage.sql.exec(
+			`CREATE TABLE IF NOT EXISTS ${WRITER_CHANGE_TABLE} (writer_id TEXT NOT NULL, path TEXT NOT NULL, baseline TEXT, PRIMARY KEY (writer_id, path))`,
+		);
+		this.writerTableReady = true;
 	}
 
-	/** Return and clear the buffered workspace change events. */
-	async drainWorkspaceChanges(): Promise<WorkspaceChangeEvent[]> {
-		const drained = this.changeBuffer;
-		this.changeBuffer = [];
-		return drained;
+	/**
+	 * Record a path's pre-edit content for `writerId`, once per path per drain
+	 * window. Called BEFORE the mutation so the captured content is the true
+	 * baseline. Reads that fail (new file, directory, binary) store NULL.
+	 */
+	private async captureBaseline(writerId: string, path: string): Promise<void> {
+		if (path.startsWith('/.git')) return;
+		this.ensureWriterTable();
+		const existing = this.ctx.storage.sql
+			.exec(`SELECT 1 FROM ${WRITER_CHANGE_TABLE} WHERE writer_id = ? AND path = ? LIMIT 1`, writerId, path)
+			.toArray();
+		if (existing.length > 0) return;
+		let content: string | undefined;
+		try {
+			content = (await this.workspace.readFile(path)) ?? undefined;
+		} catch {
+			content = undefined;
+		}
+		if (content === undefined) {
+			// No readable pre-edit content — leave `baseline` NULL (a create).
+			this.ctx.storage.sql.exec(`INSERT OR IGNORE INTO ${WRITER_CHANGE_TABLE} (writer_id, path) VALUES (?, ?)`, writerId, path);
+			return;
+		}
+		this.ctx.storage.sql.exec(
+			`INSERT OR IGNORE INTO ${WRITER_CHANGE_TABLE} (writer_id, path, baseline) VALUES (?, ?, ?)`,
+			writerId,
+			path,
+			content,
+		);
+	}
+
+	/**
+	 * Mark `path` as touched by `writerId` (after the mutation completed). Ensures
+	 * a row exists even if the baseline capture was skipped; `INSERT OR IGNORE`
+	 * never clobbers a baseline already captured before the write.
+	 */
+	private markTouched(writerId: string, path: string): void {
+		if (path.startsWith('/.git')) return;
+		this.ensureWriterTable();
+		this.ctx.storage.sql.exec(
+			`INSERT OR IGNORE INTO ${WRITER_CHANGE_TABLE} (writer_id, path, baseline) VALUES (?, ?, NULL)`,
+			writerId,
+			path,
+		);
+	}
+
+	/**
+	 * Drain the changes attributed to `writerId` (an agent session), each enriched
+	 * with before/after content and with true no-ops (content unchanged) dropped.
+	 * Reads the durable per-writer baselines, then clears that writer's rows.
+	 *
+	 * Returns `[]` when no `writerId` is given — changes are only ever surfaced
+	 * per session; there is no unattributed/global drain.
+	 *
+	 * Concurrent same-file boundary: `afterContent` is the CURRENT content, so if
+	 * two sessions edit the same path, each session's diff reflects its own
+	 * baseline but the shared latest content. Non-overlapping paths (the common
+	 * multi-agent case) are attributed exactly.
+	 */
+	async drainWorkspaceChanges(writerId?: string): Promise<DrainedWorkspaceChange[]> {
+		if (writerId === undefined) return [];
+		this.ensureWriterTable();
+		const rows = this.ctx.storage.sql
+			.exec<{ path: string; baseline: string | null }>(`SELECT path, baseline FROM ${WRITER_CHANGE_TABLE} WHERE writer_id = ?`, writerId)
+			.toArray();
+		this.ctx.storage.sql.exec(`DELETE FROM ${WRITER_CHANGE_TABLE} WHERE writer_id = ?`, writerId);
+
+		const result: DrainedWorkspaceChange[] = [];
+		for (const row of rows) {
+			const path = row.path;
+			const beforeContent = row.baseline ?? undefined;
+			let afterContent: string | undefined;
+			try {
+				afterContent = (await this.workspace.readFile(path)) ?? undefined;
+			} catch {
+				afterContent = undefined;
+			}
+
+			// Nothing on either side — not a real change.
+			if (beforeContent === undefined && afterContent === undefined) continue;
+			// Content unchanged — a no-op write (e.g. read-then-rewrite). Drop it so
+			// it never surfaces as a phantom "edited" entry with an empty diff.
+			if (beforeContent === afterContent) continue;
+
+			const type: WorkspaceChangeEvent['type'] = afterContent === undefined ? 'delete' : beforeContent === undefined ? 'create' : 'update';
+			result.push({ type, path, entryType: 'file', beforeContent, afterContent });
+		}
+		return result;
 	}
 
 	private git(): GitService {
@@ -71,14 +181,20 @@ export class ProjectFilesystem extends DurableObject<Env> {
 	async wsReadFileBytes(path: string): Promise<Uint8Array | null> {
 		return this.workspace.readFileBytes(path);
 	}
-	async wsWriteFile(path: string, content: string): Promise<void> {
+	async wsWriteFile(path: string, content: string, writerId?: string): Promise<void> {
+		if (writerId !== undefined) await this.captureBaseline(writerId, path);
 		await this.workspace.writeFile(path, content);
+		if (writerId !== undefined) this.markTouched(writerId, path);
 	}
-	async wsWriteFileBytes(path: string, data: Uint8Array): Promise<void> {
+	async wsWriteFileBytes(path: string, data: Uint8Array, writerId?: string): Promise<void> {
+		if (writerId !== undefined) await this.captureBaseline(writerId, path);
 		await this.workspace.writeFileBytes(path, data);
+		if (writerId !== undefined) this.markTouched(writerId, path);
 	}
-	async wsAppendFile(path: string, content: string): Promise<void> {
+	async wsAppendFile(path: string, content: string, writerId?: string): Promise<void> {
+		if (writerId !== undefined) await this.captureBaseline(writerId, path);
 		await this.workspace.appendFile(path, content);
+		if (writerId !== undefined) this.markTouched(writerId, path);
 	}
 	async wsExists(path: string): Promise<boolean> {
 		return this.workspace.exists(path);
@@ -95,14 +211,26 @@ export class ProjectFilesystem extends DurableObject<Env> {
 	async wsReadDir(path: string): Promise<FileInfo[]> {
 		return this.workspace.readDir(path);
 	}
-	async wsRm(path: string, recursive: boolean, force: boolean): Promise<void> {
+	async wsRm(path: string, recursive: boolean, force: boolean, writerId?: string): Promise<void> {
+		if (writerId !== undefined) await this.captureBaseline(writerId, path);
 		await this.workspace.rm(path, { recursive, force });
+		if (writerId !== undefined) this.markTouched(writerId, path);
 	}
-	async wsCp(source: string, destination: string, recursive: boolean): Promise<void> {
+	async wsCp(source: string, destination: string, recursive: boolean, writerId?: string): Promise<void> {
+		if (writerId !== undefined) await this.captureBaseline(writerId, destination);
 		await this.workspace.cp(source, destination, { recursive });
+		if (writerId !== undefined) this.markTouched(writerId, destination);
 	}
-	async wsMv(source: string, destination: string): Promise<void> {
+	async wsMv(source: string, destination: string, writerId?: string): Promise<void> {
+		if (writerId !== undefined) {
+			await this.captureBaseline(writerId, source);
+			await this.captureBaseline(writerId, destination);
+		}
 		await this.workspace.mv(source, destination);
+		if (writerId !== undefined) {
+			this.markTouched(writerId, source);
+			this.markTouched(writerId, destination);
+		}
 	}
 	async wsSymlink(target: string, linkPath: string): Promise<void> {
 		await this.workspace.symlink(target, linkPath);

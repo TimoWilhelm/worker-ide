@@ -99,6 +99,24 @@ export function buildRecoveredRunParameters(
 	};
 }
 
+/**
+ * Reattach `authorUserId` and `metadata` from a source history onto a forked
+ * history by position.
+ *
+ * `SessionManager.fork` assigns fresh message IDs to every copied message and
+ * does not copy the agent-side per-message metadata (author, request mode/model,
+ * snapshot id). The forked history is a positional prefix of the source history,
+ * so the original state is reattached by index rather than by message ID — an
+ * ID-based match would never hit, leaving authors resolved as "Unknown".
+ */
+export function reattachForkedMessageState(forkedHistory: readonly ChatMessage[], sourceHistory: readonly ChatMessage[]): ChatMessage[] {
+	return forkedHistory.map((message, index) => ({
+		...message,
+		authorUserId: sourceHistory[index]?.authorUserId,
+		metadata: sourceHistory[index]?.metadata,
+	}));
+}
+
 export function resolveInitialPendingChanges(
 	fiberSnapshot: FiberSnapshot | undefined,
 	persistedPendingChanges: Record<string, PendingFileChange> | undefined,

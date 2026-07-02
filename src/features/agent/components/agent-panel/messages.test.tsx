@@ -50,7 +50,7 @@ describe('QueuedSteeringStrip', () => {
 			/>,
 		);
 
-		expect(screen.getByText('4 queued')).toBeInTheDocument();
+		expect(screen.getByRole('button', { name: 'Show 4 queued messages' })).toBeInTheDocument();
 		expect(screen.getByText('First queued message')).toBeInTheDocument();
 		expect(screen.getAllByLabelText('Remove queued message')).toHaveLength(1);
 	});
@@ -413,6 +413,49 @@ describe('MessageBubble', () => {
 		expect(screen.getByText(/Result:/)).toBeInTheDocument();
 		expect(screen.getByText('Code')).toBeInTheDocument();
 		expect(screen.getByText('Output')).toBeInTheDocument();
+	});
+
+	it('keeps a user-opened tool pill expanded when its state updates', () => {
+		const completedMessage: ChatMessage = {
+			id: 'assistant-lint',
+			role: 'assistant',
+			parts: [
+				{
+					type: 'tool-call',
+					toolCallId: 'tool-lint',
+					toolName: 'lint_check',
+					arguments: { path: '/src/main.ts' },
+				},
+				{
+					type: 'tool-result',
+					toolCallId: 'tool-lint',
+					toolName: 'lint_check',
+					result: 'lint output here',
+				},
+			],
+			createdAt: 1,
+		};
+
+		const { rerender } = render(<AssistantMessage message={completedMessage} />);
+
+		// User opens the pill (it is expandable once completed with detail content).
+		fireEvent.click(screen.getByRole('button', { name: /lint check/i }));
+		expect(screen.getByText('lint output here')).toBeInTheDocument();
+
+		// A state update arrives that would otherwise flip `expandable` to false
+		// (the tool re-enters an in-flight, result-less state during streaming).
+		// The pill must remain expandable rather than collapsing.
+		rerender(
+			<AssistantMessage
+				message={{
+					...completedMessage,
+					parts: [completedMessage.parts[0]!],
+				}}
+				streaming
+			/>,
+		);
+
+		expect(screen.getByRole('button', { name: /lint check/i })).toBeInTheDocument();
 	});
 
 	it('renders an unsupported (hallucinated) tool with neutral, non-error styling', () => {

@@ -42,7 +42,7 @@ export async function execute(
 		return toolError(ToolErrorCode.MISSING_INPUT, 'A non-empty command is required.');
 	}
 
-	const fileSystem = new WorkspaceFileSystem(new WorkspaceClient(context.fsStub, PROJECT_ROOT));
+	const fileSystem = new WorkspaceFileSystem(new WorkspaceClient(context.fsStub, PROJECT_ROOT, context.sessionId));
 	const result = await runBashCommand(command, fileSystem, { abortSignal: context.abortSignal });
 
 	return {

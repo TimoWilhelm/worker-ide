@@ -21,9 +21,15 @@ export function runWithProjectFs<R>(adapter: WorkspaceFsAdapter, function_: () =
 	return storage.run(adapter, function_);
 }
 
-/** Bind a project filesystem for a DO stub and run `fn` within that context. */
-export function runWithProjectStub<R>(stub: Stub, function_: () => R, prefix: string = PROJECT_ROOT): R {
-	return storage.run(createProjectFileSystem(stub, prefix), function_);
+/**
+ * Bind a project filesystem for a DO stub and run `fn` within that context.
+ *
+ * `writerId` attributes mutations made during `fn` to an agent session, so the
+ * project Durable Object can track per-session diffs when concurrent sessions
+ * share one Workspace. Omit it for non-session callers (preview, deploy, etc.).
+ */
+export function runWithProjectStub<R>(stub: Stub, function_: () => R, prefix: string = PROJECT_ROOT, writerId?: string): R {
+	return storage.run(createProjectFileSystem(stub, prefix, writerId), function_);
 }
 
 function requireFs(): WorkspaceFsAdapter {

@@ -38,6 +38,8 @@ function createFakeFsStub(files: Record<string, string>): ToolExecutorContext['f
 	const stub = {
 		// eslint-disable-next-line unicorn/no-null -- the ProjectFilesystem RPC contract returns `null` for a missing file
 		wsReadFile: async (path: string): Promise<string | null> => (path in files ? files[path] : null),
+		// The no-loader fallback drains after each tool; this fake has no writes.
+		drainWorkspaceChanges: async () => [],
 	};
 	return stub as unknown as ToolExecutorContext['fsStub'];
 }

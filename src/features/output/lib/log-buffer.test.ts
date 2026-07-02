@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { clearLogs, getLogSnapshot } from './log-buffer';
+import { clearLogs, getLogSnapshot, setActiveLogProject } from './log-buffer';
 
 // The log buffer listens for CustomEvents on globalThis.
 // We can push entries by dispatching 'server-logs' events.
@@ -126,5 +126,31 @@ describe('getLogSnapshot', () => {
 		const snapshot = getLogSnapshot();
 		expect(snapshot).toContain('[lint] ERROR: (lint/style/noVar) Unexpected var, use let or const instead.');
 		expect(snapshot).toContain('  at src/app.ts:2:7');
+	});
+});
+
+describe('setActiveLogProject', () => {
+	afterEach(() => {
+		clearLogs();
+		// Reset module state so each test starts from a known active project.
+		setActiveLogProject('reset-sentinel');
+	});
+
+	it('clears buffered logs when the active project changes', () => {
+		setActiveLogProject('project-a');
+		dispatchServerLogs([{ level: 'log', message: 'from project A' }]);
+		expect(getLogSnapshot()).toContain('from project A');
+
+		// Switching to a different project drops the previous project's logs.
+		setActiveLogProject('project-b');
+		expect(getLogSnapshot()).toBe('');
+	});
+
+	it('does not clear logs when set to the same project (idempotent)', () => {
+		setActiveLogProject('project-c');
+		dispatchServerLogs([{ level: 'log', message: 'stays for project C' }]);
+
+		setActiveLogProject('project-c');
+		expect(getLogSnapshot()).toContain('stays for project C');
 	});
 });

@@ -857,7 +857,7 @@ function summarizeFromMetadata(toolName: ToolName | undefined, info: ToolMetadat
 		}
 
 		case 'codemode': {
-			return 'Ran code';
+			return 'Executed';
 		}
 
 		default: {
@@ -1607,7 +1607,9 @@ function InlineToolCall({
 	// Every completed tool call with content or a structured error is expandable.
 	// File-editing tools with before/after content are also expandable (for the diff view).
 	const hasDetailContent = rawResultContent !== undefined || structuredError !== undefined || hasDiffContent || codemodeCode !== undefined;
-	const expandable = !isUnknownTool && (isCompleted || codemodeCode !== undefined) && hasDetailContent;
+	// Once the user has opened a pill, keep it expandable so subsequent state
+	// updates (streaming → completed, metadata arriving, etc.) never collapse it.
+	const expandable = isExpanded || (!isUnknownTool && (isCompleted || codemodeCode !== undefined) && hasDetailContent);
 
 	return (
 		<div className="flex min-w-0 animate-chat-item flex-col gap-1.5">
@@ -2222,8 +2224,8 @@ export function QueuedSteeringStrip({
 										aria-label={isExpanded ? 'Hide queued messages' : `Show ${messages.length} queued messages`}
 									>
 										<div className="flex min-w-0 flex-1 items-center gap-2">
-											<Pill size="xs" color="purple">
-												{messages.length} queued
+											<Pill size="xs" color="purple" className="whitespace-nowrap">
+												{messages.length}
 											</Pill>
 											<span
 												className="size-2.5 shrink-0 rounded-full border border-white/15"

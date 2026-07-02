@@ -7,6 +7,7 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { AgentRuntimeProvider } from '@/features/agent';
 import { DeployModal } from '@/features/deploy';
 import { useFileTree } from '@/features/file-tree';
+import { setActiveLogProject } from '@/features/output';
 import { ProjectSettingsModal } from '@/features/project-settings';
 import { useIsMobile, useProjectSocket, useResolvedTheme } from '@/hooks';
 import { useQueuedSaveFlusher } from '@/hooks/use-queued-save-flusher';
@@ -49,6 +50,12 @@ export function IDEShell({
 
 	// Project WebSocket connection (HMR notifications, collaboration, server events)
 	useProjectSocket({ projectId });
+
+	// Reset the process-global output log buffer when switching projects so the
+	// previous project's console/server logs don't leak into this project's panel.
+	useEffect(() => {
+		setActiveLogProject(projectId);
+	}, [projectId]);
 
 	// Theme (still needed for editor/terminal theming in Desktop/Mobile layouts)
 	const resolvedTheme = useResolvedTheme();
