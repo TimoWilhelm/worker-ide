@@ -29,6 +29,7 @@ import * as userQuestionTool from './user-question';
 import { validateAndCoerceToolInput } from './validate-tool-input';
 import * as webFetchTool from './web-fetch';
 import { DEV_PREVIEW_SECRET } from '../../../lib/preview-secret';
+import { withSpan } from '../../../lib/tracing';
 import { sanitizeToolInput, summarizeToolResult } from '../agent-logger';
 
 import type { AgentLogger } from '../agent-logger';
@@ -436,11 +437,16 @@ function wrapTool(definition: ToolDefinition, executor: ToolExecuteFunction, dep
 				// returning "No dependencies registered"). The fsStub is a DO stub, so
 				// re-binding works across contexts and is a harmless no-op for direct
 				// tools already inside the agent-loop scope.
-				const result = await runWithProjectStub(
-					context.fsStub,
-					() => executor(input, sendEvent, callContext, queryChanges),
-					context.projectRoot,
-					context.sessionId,
+				const result = await withSpan(
+					`tool.${toolName}`,
+					() =>
+						runWithProjectStub(
+							context.fsStub,
+							() => executor(input, sendEvent, callContext, queryChanges),
+							context.projectRoot,
+							context.sessionId,
+						),
+					{ 'tool.name': toolName, 'agent.mode': mode },
 				);
 				logger?.info(
 					'tool_call',

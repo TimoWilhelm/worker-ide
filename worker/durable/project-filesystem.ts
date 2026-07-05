@@ -3,6 +3,7 @@ import { DurableObject } from 'cloudflare:workers';
 
 import { GitService } from './git-service';
 import { generateProjectId } from '../lib/project-id';
+import { withSpan } from '../lib/tracing';
 import { WorkspaceFsAdapter } from '../lib/workspace-fs-adapter';
 
 import type { GitAuthor, GitStatusResponse } from './git-service';
@@ -271,6 +272,10 @@ export class ProjectFilesystem extends DurableObject<Env> {
 
 	/** Export the working tree (excluding `.git`) for cloning into another project. */
 	async exportTree(): Promise<Array<{ path: string; content: Uint8Array }>> {
+		return withSpan('fs.exportTree', () => this.exportTreeInner());
+	}
+
+	private async exportTreeInner(): Promise<Array<{ path: string; content: Uint8Array }>> {
 		const paths = await this.workspace._getAllPaths();
 		const files: Array<{ path: string; content: Uint8Array }> = [];
 		for (const path of paths) {

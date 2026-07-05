@@ -11,8 +11,10 @@
  * `writeBundle` hooks, and writes outputs to the in-memory filesystem when the
  * pass is not a scan.
  */
+
 import { toEsbuildDefine } from './define';
 import { bundleEnvironment } from './esbuild-bridge';
+import { withSpan } from '../../lib/tracing';
 
 import type { EmittedFiles } from './emitted-files';
 import type { Esbuild } from './esbuild-runtime';
@@ -76,7 +78,18 @@ function outputOptionsFor(environment: BuilderEnvironment): NormalizedOutputOpti
  * (unless this is a scan pass with `build.write === false`) write the resulting
  * files into the project filesystem under the environment's `outDir`.
  */
-async function buildOneEnvironment(
+function buildOneEnvironment(
+	environment: BuilderEnvironment,
+	environmentName: ViteEnvironmentName,
+	options: RunBuildAppOptions,
+): Promise<void> {
+	return withSpan(`buildApp.env.${environmentName}`, () => buildOneEnvironmentTraced(environment, environmentName, options), {
+		'env.name': environmentName,
+		'env.write': environment.config.build.write !== false,
+	});
+}
+
+async function buildOneEnvironmentTraced(
 	environment: BuilderEnvironment,
 	environmentName: ViteEnvironmentName,
 	options: RunBuildAppOptions,
@@ -92,18 +105,20 @@ async function buildOneEnvironment(
 	}
 	const entryId = entry.id;
 
-	const bundle = await bundleEnvironment({
-		esbuild: options.esbuild,
-		container: options.container,
-		fileSystem: options.fileSystem,
-		entryId,
-		entryName: entry.name,
-		environment: environmentName,
-		externals: options.externals,
-		alias: options.config.resolve.alias,
-		// Activate vinext's client RSC-HMR only for the browser build in host dev.
-		define: toEsbuildDefine(options.config, { clientHmr: environmentName === 'client' && globalThis.__VINEXT_HOST_DEV__ === true }),
-	});
+	const bundle = await withSpan('buildApp.bundle', () =>
+		bundleEnvironment({
+			esbuild: options.esbuild,
+			container: options.container,
+			fileSystem: options.fileSystem,
+			entryId,
+			entryName: entry.name,
+			environment: environmentName,
+			externals: options.externals,
+			alias: options.config.resolve.alias,
+			// Activate vinext's client RSC-HMR only for the browser build in host dev.
+			define: toEsbuildDefine(options.config, { clientHmr: environmentName === 'client' && globalThis.__VINEXT_HOST_DEV__ === true }),
+		}),
+	);
 
 	const outputOptions = outputOptionsFor(environment);
 	const outputBundle: OutputBundle = {};
@@ -143,17 +158,19 @@ async function buildOneEnvironment(
 	}
 
 	// renderChunk: pipe each chunk's code through the plugins.
-	for (const fileName of Object.keys(outputBundle)) {
-		const entry = outputBundle[fileName];
-		if (entry.type !== 'chunk') {
-			continue;
+	await withSpan('buildApp.renderChunk', async () => {
+		for (const fileName of Object.keys(outputBundle)) {
+			const entry = outputBundle[fileName];
+			if (entry.type !== 'chunk') {
+				continue;
+			}
+			entry.code = await options.container.renderChunk(entry.code, entry, outputOptions, environmentName);
 		}
-		entry.code = await options.container.renderChunk(entry.code, entry, outputOptions, environmentName);
-	}
+	});
 
 	await options.container.buildEnd(environmentName);
 	const isWrite = environment.config.build.write !== false;
-	await options.container.generateBundle(outputOptions, outputBundle, isWrite, environmentName);
+	await withSpan('buildApp.generateBundle', () => options.container.generateBundle(outputOptions, outputBundle, isWrite, environmentName));
 
 	// Fold assets emitted via `this.emitFile` during generateBundle into the bundle.
 	for (const asset of options.emittedFiles.assetsFor(environmentName)) {
@@ -167,14 +184,16 @@ async function buildOneEnvironment(
 	}
 
 	if (isWrite) {
-		const outputDirectory = environment.config.build.outDir.replace(/\/$/, '');
-		for (const [fileName, entry] of Object.entries(outputBundle)) {
-			const target = `${outputDirectory}/${fileName}`;
-			const contents = entry.type === 'chunk' ? entry.code : entry.source;
-			options.fileSystem.writeFile(target, contents);
-		}
-		await options.container.writeBundle(outputOptions, outputBundle, environmentName);
-		await options.container.closeBundle(environmentName);
+		await withSpan('buildApp.writeBundle', async () => {
+			const outputDirectory = environment.config.build.outDir.replace(/\/$/, '');
+			for (const [fileName, entry] of Object.entries(outputBundle)) {
+				const target = `${outputDirectory}/${fileName}`;
+				const contents = entry.type === 'chunk' ? entry.code : entry.source;
+				options.fileSystem.writeFile(target, contents);
+			}
+			await options.container.writeBundle(outputOptions, outputBundle, environmentName);
+			await options.container.closeBundle(environmentName);
+		});
 	}
 }
 

@@ -14,6 +14,7 @@
  * One ViteHost instance corresponds to one project build context and runs
  * entirely inside a single workerd isolate alongside esbuild-wasm.
  */
+
 import { runBuildApp } from './build-app';
 import { resolveConfig } from './config/resolve-config';
 import { toEsbuildDefine } from './define';
@@ -26,6 +27,7 @@ import { PluginContainer } from './plugin-container';
 import { seedNodeModules } from './runtime/seed-node-modules';
 import { parseAst } from './vite-shim/index';
 import { installViteHostServices } from './vite-shim/services';
+import { withSpan } from '../../lib/tracing';
 
 import type { BundleResult, EnvironmentBundle } from './esbuild-bridge';
 import type { Esbuild } from './esbuild-runtime';
@@ -83,12 +85,14 @@ export class ViteHost {
 	) {}
 
 	static async create(options: ViteHostOptions): Promise<ViteHost> {
-		const esbuild = await ensureEsbuild();
+		const esbuild = await withSpan('vitehost.ensureEsbuild', () => ensureEsbuild());
 		const fileSystem = MemoryFileSystem.fromSnapshot(options.files);
 		// The React/RSC package source is always resolvable; framework adapters
 		// seed any additional runtime modules they need (e.g. vinext's `dist`).
-		seedNodeModules(fileSystem, { includeDevelopment: options.includeDevelopmentModules ?? true });
-		options.seedRuntime?.(fileSystem);
+		await withSpan('vitehost.seedNodeModules', () => {
+			seedNodeModules(fileSystem, { includeDevelopment: options.includeDevelopmentModules ?? true });
+			options.seedRuntime?.(fileSystem);
+		});
 
 		// vinext resolves the project root from the working directory at factory
 		// time; the host defines it as the project root so app/pages detection
@@ -113,14 +117,16 @@ export class ViteHost {
 			loadEnv: () => options.env ?? {},
 		});
 
-		const pluginOptions = await options.createPlugins();
-		const { config, plugins } = await resolveConfig({
-			plugins: pluginOptions,
-			command: options.command,
-			mode: options.mode,
-			root: options.root,
-			env: options.env,
-		});
+		const pluginOptions = await withSpan('vitehost.createPlugins', () => options.createPlugins());
+		const { config, plugins } = await withSpan('vitehost.resolveConfig', () =>
+			resolveConfig({
+				plugins: pluginOptions,
+				command: options.command,
+				mode: options.mode,
+				root: options.root,
+				env: options.env,
+			}),
+		);
 
 		const emittedFiles = new EmittedFiles();
 		const container = new PluginContainer({

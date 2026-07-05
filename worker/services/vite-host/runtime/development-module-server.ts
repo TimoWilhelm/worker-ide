@@ -18,6 +18,7 @@
  * SSR/RSC remain fully bundled (no eval in the LOADER isolate); only the
  * browser's client-component resolution is redirected here.
  */
+import { withSpan } from '../../../lib/tracing';
 import { conditionsForEnvironment } from '../conditions';
 import {
 	buildEsmCdnUrl,
@@ -73,11 +74,11 @@ export async function serveDevelopmentModule(
 ): Promise<DevelopmentModuleResult | undefined> {
 	if (pathname.startsWith(CLIENT_PREFIX)) {
 		const importId = decodeURIComponent(pathname.slice(CLIENT_PREFIX.length));
-		return serveClientModule(importId, context);
+		return withSpan('devmodule.client', () => serveClientModule(importId, context), { 'import.id': importId });
 	}
 	if (pathname.startsWith(DEPENDENCY_PREFIX)) {
 		const specifier = decodeURIComponent(pathname.slice(DEPENDENCY_PREFIX.length));
-		return serveDependency(specifier, context);
+		return withSpan('devmodule.dependency', () => serveDependency(specifier, context), { specifier });
 	}
 	return undefined;
 }

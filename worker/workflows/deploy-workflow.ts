@@ -21,6 +21,7 @@ import { getValidAccessToken } from '../lib/cloudflare-oauth';
 import { filesystemNamespace, vinextPreviewHostNamespace } from '../lib/durable-object-namespaces';
 import { runWithProjectStub } from '../lib/project-fs';
 import { toDurableObjectId } from '../lib/project-id';
+import { withSpan } from '../lib/tracing';
 import { selectRuntime } from '../services/vite-host/runtimes/registry';
 
 import type { DeployResult, DeployWorkflowParameters } from '@shared/deploy-types';
@@ -210,7 +211,11 @@ export class DeployWorkflow extends WorkflowEntrypoint<Env, DeployWorkflowParame
 			const buildHost = vinextPreviewHostNamespace.getByName(`vinext:${parameters.projectId}`);
 			let build;
 			try {
-				build = await buildHost.buildForDeploy(parameters.projectId, parameters.projectRoot, runtimeId);
+				build = await withSpan(
+					'deploy.buildRuntime',
+					() => buildHost.buildForDeploy(parameters.projectId, parameters.projectRoot, runtimeId),
+					{ 'project.id': parameters.projectId, 'runtime.id': runtimeId, 'worker.name': parameters.workerName },
+				);
 			} catch (error) {
 				throw toNonRetryableError(error);
 			}

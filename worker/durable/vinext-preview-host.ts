@@ -24,6 +24,7 @@ import { toDurableObjectId } from '../lib/project-id';
 import { readBindingsConfig } from '../lib/protected-files';
 import { createSerialRunner } from '../lib/serial-runner';
 import { resolveStorageQuotaForProject } from '../lib/storage-quota';
+import { withSpan, type TracingSpan } from '../lib/tracing';
 import { VINEXT_PREVIEW_HEADERS } from '../lib/vinext-preview-protocol';
 import { isDevelopmentModuleRequest } from '../services/vite-host/runtime/development-module-server';
 import { getServerEntrypoint, serverModulesFromOutput } from '../services/vite-host/runtime/loader-runner';
@@ -100,7 +101,7 @@ export class VinextPreviewHost extends DurableObject<Env> {
 		if (!this.coordinatorMarked) {
 			this.coordinatorMarked = true;
 			try {
-				await coordinatorNamespace.getByName(`project:${this.projectId}`).markVinextPreview();
+				await this.markPreview();
 			} catch {
 				this.coordinatorMarked = false;
 			}
@@ -108,6 +109,10 @@ export class VinextPreviewHost extends DurableObject<Env> {
 
 		const filesystemStub = filesystemNamespace.get(toDurableObjectId(filesystemNamespace, this.projectId));
 		return runWithProjectStub(filesystemStub, () => this.serve(request, ideOrigin), this.projectRoot);
+	}
+
+	private markPreview(): Promise<void> {
+		return withSpan('vinext.markPreview', () => coordinatorNamespace.getByName(`project:${this.projectId}`).markVinextPreview());
 	}
 
 	/**
@@ -123,17 +128,30 @@ export class VinextPreviewHost extends DurableObject<Env> {
 		const filesystemStub = filesystemNamespace.get(toDurableObjectId(filesystemNamespace, projectId));
 		return runWithProjectStub(
 			filesystemStub,
-			async () => {
-				const snapshot = await this.collectSnapshot();
-				return this.runExclusive(() => this.env.VITE_HOST.build(snapshot, this.runtimeId, { hostDevelopment: false }));
-			},
+			() =>
+				withSpan(
+					'vinext.buildForDeploy',
+					async () => {
+						const snapshot = await this.collectSnapshot();
+						return this.runExclusive(() => this.env.VITE_HOST.build(snapshot, this.runtimeId, { hostDevelopment: false }));
+					},
+					{ 'project.id': projectId, 'runtime.id': runtimeId },
+				),
 			projectRoot,
 		);
 	}
 
-	private async serve(request: Request, ideOrigin: string): Promise<Response> {
+	private serve(request: Request, ideOrigin: string): Promise<Response> {
 		const url = new URL(request.url);
+		return withSpan('vinext.serve', () => this.serveTraced(request, url, ideOrigin), {
+			'project.id': this.projectId,
+			'runtime.id': this.runtimeId,
+			'request.path': url.pathname,
+			'request.dev_module': isDevelopmentModuleRequest(url.pathname),
+		});
+	}
 
+	private async serveTraced(request: Request, url: URL, ideOrigin: string): Promise<Response> {
 		if (HMR_SCRIPT_PATHS.includes(url.pathname)) {
 			const scripts = await this.getHmrScripts();
 			return scriptResponse(scripts[url.pathname]);
@@ -147,20 +165,28 @@ export class VinextPreviewHost extends DurableObject<Env> {
 			// client module from its CURRENT source against the warm build's context
 			// (node_modules + React globals) — no full rebuild.
 			if (isDevelopmentModuleRequest(url.pathname)) {
-				const snapshot = await this.collectSnapshot();
-				const code = await this.env.VITE_HOST.serveDevelopmentModule(url.pathname, snapshot);
+				const code = await withSpan(
+					'vinext.devModule',
+					async () => {
+						const snapshot = await this.collectSnapshot();
+						return this.env.VITE_HOST.serveDevelopmentModule(url.pathname, snapshot);
+					},
+					{ 'module.path': url.pathname },
+				);
 				if (code !== undefined) {
 					return scriptResponse(code);
 				}
 			}
 
 			const { build, cacheKey } = await this.buildForCurrentSnapshot();
-			const serverEnvironment = await this.resolveServerEnvironment();
-			const response = await this.runtime.route(request, {
-				clientOutput: build.clientOutput,
-				projectRoot: this.projectRoot,
-				getServer: this.serverFactory(build, cacheKey, serverEnvironment),
-			});
+			const serverEnvironment = await withSpan('vinext.resolveEnv', () => this.resolveServerEnvironment());
+			const response = await withSpan('vinext.route', () =>
+				this.runtime.route(request, {
+					clientOutput: build.clientOutput,
+					projectRoot: this.projectRoot,
+					getServer: this.serverFactory(build, cacheKey, serverEnvironment),
+				}),
+			);
 			// A server-side render error is returned by the framework as a normal
 			// HTTP 500 page (it never throws out to the catch below), so surface it
 			// through the same overlay + broadcast as build errors instead of letting
@@ -282,7 +308,11 @@ export class VinextPreviewHost extends DurableObject<Env> {
 	}
 
 	/** Inject the preview config + HMR runtime scripts into an SSR HTML response. */
-	private async injectHmrRuntime(response: Response, request: Request, ideOrigin: string): Promise<Response> {
+	private injectHmrRuntime(response: Response, request: Request, ideOrigin: string): Promise<Response> {
+		return withSpan('vinext.injectHmr', () => this.injectHmrRuntimeTraced(response, request, ideOrigin));
+	}
+
+	private async injectHmrRuntimeTraced(response: Response, request: Request, ideOrigin: string): Promise<Response> {
 		const html = await response.text();
 		const requestUrl = new URL(request.url);
 		const protocol = requestUrl.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -311,15 +341,17 @@ export class VinextPreviewHost extends DurableObject<Env> {
 	 */
 	private async getHmrScripts(): Promise<Record<string, string>> {
 		if (this.hmrScripts === undefined) {
-			const [refresh, overlay, runtime, hmrClient, chobitsu, chobitsuInit, elementPicker] = await Promise.all([
-				import('@worker/lib/preview-scripts/react-refresh-preamble.js?raw-minified'),
-				import('@worker/lib/preview-scripts/error-overlay.js?raw-minified'),
-				import('@worker/lib/preview-scripts/preview-runtime.js?raw-minified'),
-				import('@worker/lib/preview-scripts/hmr-client.js?raw-minified'),
-				import('chobitsu?raw-minified'),
-				import('@worker/lib/preview-scripts/chobitsu-init.js?raw-minified'),
-				import('@worker/lib/preview-scripts/element-picker.js?raw-minified'),
-			]);
+			const [refresh, overlay, runtime, hmrClient, chobitsu, chobitsuInit, elementPicker] = await withSpan('vinext.loadHmrScripts', () =>
+				Promise.all([
+					import('@worker/lib/preview-scripts/react-refresh-preamble.js?raw-minified'),
+					import('@worker/lib/preview-scripts/error-overlay.js?raw-minified'),
+					import('@worker/lib/preview-scripts/preview-runtime.js?raw-minified'),
+					import('@worker/lib/preview-scripts/hmr-client.js?raw-minified'),
+					import('chobitsu?raw-minified'),
+					import('@worker/lib/preview-scripts/chobitsu-init.js?raw-minified'),
+					import('@worker/lib/preview-scripts/element-picker.js?raw-minified'),
+				]),
+			);
 			this.hmrScripts = {
 				'/__vinext_react_refresh.js': refresh.source,
 				'/__vinext_error_overlay.js': overlay.source,
@@ -342,13 +374,20 @@ export class VinextPreviewHost extends DurableObject<Env> {
 	}
 
 	/** Build (or reuse) for the current project snapshot. */
-	private async buildForCurrentSnapshot(): Promise<{ build: RuntimeBuild; cacheKey: string }> {
+	private buildForCurrentSnapshot(): Promise<{ build: RuntimeBuild; cacheKey: string }> {
+		return withSpan('vinext.build', (span) => this.buildForCurrentSnapshotTraced(span));
+	}
+
+	private async buildForCurrentSnapshotTraced(span: TracingSpan): Promise<{ build: RuntimeBuild; cacheKey: string }> {
 		const snapshot = await this.collectSnapshot();
-		const hash = await hashSnapshot(snapshot);
+		const hash = await withSpan('vinext.hashSnapshot', () => hashSnapshot(snapshot));
+		span.setAttribute('snapshot.hash', hash.slice(0, 12));
 		const cached = this.builds.get(hash);
 		if (cached !== undefined) {
+			span.setAttribute('cache.hit', true);
 			return { build: cached, cacheKey: `${this.projectId}:${hash}` };
 		}
+		span.setAttribute('cache.hit', false);
 		const build = await this.runExclusive(async () => {
 			// A build queued behind another may now find this snapshot already built.
 			const existing = this.builds.get(hash);
@@ -373,10 +412,18 @@ export class VinextPreviewHost extends DurableObject<Env> {
 	 * Collect the full project tree as a snapshot keyed by root-relative path
 	 * (e.g. `/app/page.tsx`), excluding build output and tooling directories.
 	 */
-	private async collectSnapshot(): Promise<Record<string, string>> {
-		const files: Record<string, string> = {};
-		await this.collectInto(files, this.projectRoot, '');
-		return files;
+	private collectSnapshot(): Promise<Record<string, string>> {
+		return withSpan('vinext.collectSnapshot', async (span) => {
+			const files: Record<string, string> = {};
+			await this.collectInto(files, this.projectRoot, '');
+			let bytes = 0;
+			for (const content of Object.values(files)) {
+				bytes += content.length;
+			}
+			span.setAttribute('snapshot.file_count', Object.keys(files).length);
+			span.setAttribute('snapshot.bytes', bytes);
+			return files;
+		});
 	}
 
 	private async collectInto(files: Record<string, string>, directory: string, relativeBase: string): Promise<void> {

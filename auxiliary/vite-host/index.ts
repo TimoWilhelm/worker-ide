@@ -11,6 +11,8 @@
  */
 import { WorkerEntrypoint } from 'cloudflare:workers';
 
+import { withSpan } from '@worker/lib/tracing';
+
 import type { RuntimeBuild } from '@worker/services/vite-host/runtimes/types';
 
 /**
@@ -19,7 +21,7 @@ import type { RuntimeBuild } from '@worker/services/vite-host/runtimes/types';
  * side effects, so keeping it out of the worker's startup path makes the isolate
  * boot cheaply; the engine only evaluates inside a real `build` call.
  */
-const loadEngine = () => import('@worker/services/vite-host/runtimes/vinext-build');
+const loadEngine = () => withSpan('vitehost.loadEngine', () => import('@worker/services/vite-host/runtimes/vinext-build'));
 
 export default class ViteHostWorker extends WorkerEntrypoint {
 	/**
@@ -38,11 +40,17 @@ export default class ViteHostWorker extends WorkerEntrypoint {
 	 * references) over the production deploy build (fully bundled, standalone).
 	 */
 	async build(snapshot: Record<string, string>, runtimeId: string, options: { hostDevelopment: boolean }): Promise<RuntimeBuild> {
-		if (runtimeId !== 'vinext') {
-			throw new Error(`Unsupported build runtime: ${runtimeId}`);
-		}
-		const { buildVinext } = await loadEngine();
-		return buildVinext(snapshot, options);
+		return withSpan(
+			'vitehost.build',
+			async () => {
+				if (runtimeId !== 'vinext') {
+					throw new Error(`Unsupported build runtime: ${runtimeId}`);
+				}
+				const { buildVinext } = await loadEngine();
+				return buildVinext(snapshot, options);
+			},
+			{ 'runtime.id': runtimeId, 'host.development': options.hostDevelopment, 'snapshot.file_count': Object.keys(snapshot).length },
+		);
 	}
 
 	/**
@@ -51,7 +59,13 @@ export default class ViteHostWorker extends WorkerEntrypoint {
 	 * dev module the server produces.
 	 */
 	async serveDevelopmentModule(pathname: string, snapshot: Record<string, string>): Promise<string | undefined> {
-		const { serveVinextDevelopmentModule } = await loadEngine();
-		return serveVinextDevelopmentModule(pathname, snapshot);
+		return withSpan(
+			'vitehost.serveDevModule',
+			async () => {
+				const { serveVinextDevelopmentModule } = await loadEngine();
+				return serveVinextDevelopmentModule(pathname, snapshot);
+			},
+			{ 'module.path': pathname },
+		);
 	}
 }

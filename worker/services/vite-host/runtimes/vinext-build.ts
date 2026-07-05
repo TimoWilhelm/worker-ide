@@ -8,6 +8,7 @@
  * counts against the preview DO's isolate budget.
  */
 import { createSerialRunner } from '../../../lib/serial-runner';
+import { withSpan } from '../../../lib/tracing';
 import { ensureEsbuild } from '../esbuild-runtime';
 import { MemoryFileSystem } from '../node-fs/memory-file-system';
 import { serveDevelopmentModule } from '../runtime/development-module-server';
@@ -68,13 +69,13 @@ function createHost(snapshot: Record<string, string>, options: { hostDevelopment
  */
 export async function buildVinext(snapshot: Record<string, string>, options: { hostDevelopment: boolean }): Promise<RuntimeBuild> {
 	return runBuildExclusive(async () => {
-		const host = await createHost(snapshot, options);
+		const host = await withSpan('vinext.createHost', () => createHost(snapshot, options));
 		const runBuild = (): Promise<unknown> => host.build([...SERVER_RUNTIME_EXTERNALS], APP_ROUTER_ENTRY);
-		await (options.hostDevelopment ? runWithHostDevelopmentMode(runBuild) : runBuild());
+		await withSpan('vinext.hostBuild', () => (options.hostDevelopment ? runWithHostDevelopmentMode(runBuild) : runBuild()));
 
 		return {
 			mainModule: 'index.js',
-			...(await buildVinextOutput(host, options)),
+			...(await withSpan('vinext.buildOutput', () => buildVinextOutput(host, options))),
 		};
 	});
 }
@@ -103,15 +104,15 @@ export async function buildVinextOutput(
 	// The preview client builds as development React (Fast Refresh); deploy stays production.
 	const clientDefine = { 'process.env.NODE_ENV': options.hostDevelopment ? '"development"' : '"production"' };
 	const reactRuntime = (environment: ViteEnvironmentName, define: Record<string, string>): Promise<Record<string, string>> =>
-		buildReactRuntimeModulesCached({ esbuild, fileSystem, environment, define });
+		withSpan(`react.runtime.${environment}`, () => buildReactRuntimeModulesCached({ esbuild, fileSystem, environment, define }));
 	const rscRuntime = await reactRuntime('rsc', serverDefine);
 	const ssrRuntime = await reactRuntime('ssr', serverDefine);
 	const clientRuntime = await reactRuntime('client', clientDefine);
 
-	return {
+	return withSpan('vinext.readOutput', () => ({
 		serverModules: { ...host.readOutput('/dist/server'), ...rscRuntime, ...ssrRuntime },
 		clientOutput: { ...host.readOutput('/dist/client'), ...clientRuntime },
-	};
+	}));
 }
 
 /**
@@ -125,12 +126,14 @@ export async function buildVinextOutput(
 export async function serveVinextDevelopmentModule(pathname: string, snapshot: Record<string, string>): Promise<string | undefined> {
 	// Serialised with builds so it never races the build's process-global state.
 	return runBuildExclusive(async () => {
-		const esbuild = await ensureEsbuild();
+		const esbuild = await withSpan('devmodule.ensureEsbuild', () => ensureEsbuild());
 		const fileSystem = MemoryFileSystem.fromSnapshot(stripIdeManagedConfig(snapshot));
 		// HMR runs against the development build, so seed the dev React/RSC source.
-		seedNodeModules(fileSystem, { includeDevelopment: true });
-		seedVinextRuntime(fileSystem);
-		const result = await serveDevelopmentModule(pathname, { esbuild, fileSystem });
+		await withSpan('devmodule.seed', () => {
+			seedNodeModules(fileSystem, { includeDevelopment: true });
+			seedVinextRuntime(fileSystem);
+		});
+		const result = await withSpan('devmodule.serve', () => serveDevelopmentModule(pathname, { esbuild, fileSystem }));
 		return result?.code;
 	});
 }

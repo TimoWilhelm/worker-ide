@@ -16,6 +16,7 @@ import { fs } from '@worker/lib/project-fs';
 
 import { vinextPreviewHostNamespace } from '../lib/durable-object-namespaces';
 import { applyPreviewResponseMiddlewares, previewResponseMiddlewares } from '../lib/preview-response-headers';
+import { withSpan } from '../lib/tracing';
 import { VINEXT_PREVIEW_HEADERS } from '../lib/vinext-preview-protocol';
 import { selectRuntime } from './vite-host/runtimes/registry';
 
@@ -40,36 +41,50 @@ export class PreviewService {
 
 	/** Resolve the project's runtime and serve (or forward) the preview request. */
 	async routePreviewRequest(request: Request, ideOrigin: string, preloadedAssetSettings?: ResolvedAssetSettings): Promise<Response> {
-		const probe = await this.collectDetectionFiles();
-		const runtime = selectRuntime({ files: probe });
+		return withSpan(
+			'preview.route',
+			async (span) => {
+				const probe = await withSpan('preview.detect', () => this.collectDetectionFiles());
+				const runtime = selectRuntime({ files: probe });
+				span.setAttribute('runtime.id', runtime.id);
+				span.setAttribute('runtime.hosting', runtime.hosting);
 
-		if (runtime.hosting === 'durable') {
-			return this.forwardToDurableHost(request, ideOrigin, runtime.id);
-		}
+				if (runtime.hosting === 'durable') {
+					return this.forwardToDurableHost(request, ideOrigin, runtime.id);
+				}
 
-		const assetSettings = preloadedAssetSettings ?? (await this.loadAssetSettings());
-		return runtime.serve(request, {
-			projectRoot: this.projectRoot,
-			projectId: this.projectId,
-			ideOrigin,
-			assetSettings,
-		});
+				const assetSettings = preloadedAssetSettings ?? (await this.loadAssetSettings());
+				return runtime.serve(request, {
+					projectRoot: this.projectRoot,
+					projectId: this.projectId,
+					ideOrigin,
+					assetSettings,
+				});
+			},
+			{ 'project.id': this.projectId, 'request.path': new URL(request.url).pathname },
+		);
 	}
 
 	/** Forward a preview request to the project's warm build Durable Object. */
-	private async forwardToDurableHost(request: Request, ideOrigin: string, runtimeId: string): Promise<Response> {
-		// `getByName` derives a valid id for THIS namespace (the projectId hex is
-		// only a valid id for the project's primary namespace).
-		const stub = vinextPreviewHostNamespace.getByName(`vinext:${this.projectId}`);
-		const forwarded = new Request(request);
-		forwarded.headers.set(VINEXT_PREVIEW_HEADERS.projectId, this.projectId);
-		forwarded.headers.set(VINEXT_PREVIEW_HEADERS.projectRoot, this.projectRoot);
-		forwarded.headers.set(VINEXT_PREVIEW_HEADERS.ideOrigin, ideOrigin);
-		forwarded.headers.set(VINEXT_PREVIEW_HEADERS.runtimeId, runtimeId);
-		const response = await stub.fetch(forwarded);
-		// Finalize with the same headers the stateless runtime applies (robots +
-		// asset security), so preview parity holds across both hosting modes.
-		return applyPreviewResponseMiddlewares(response, { ideOrigin }, previewResponseMiddlewares);
+	private forwardToDurableHost(request: Request, ideOrigin: string, runtimeId: string): Promise<Response> {
+		return withSpan(
+			'preview.forward',
+			async () => {
+				// `getByName` derives a valid id for THIS namespace (the projectId hex is
+				// only a valid id for the project's primary namespace).
+				const stub = vinextPreviewHostNamespace.getByName(`vinext:${this.projectId}`);
+				const forwarded = new Request(request);
+				forwarded.headers.set(VINEXT_PREVIEW_HEADERS.projectId, this.projectId);
+				forwarded.headers.set(VINEXT_PREVIEW_HEADERS.projectRoot, this.projectRoot);
+				forwarded.headers.set(VINEXT_PREVIEW_HEADERS.ideOrigin, ideOrigin);
+				forwarded.headers.set(VINEXT_PREVIEW_HEADERS.runtimeId, runtimeId);
+				const response = await stub.fetch(forwarded);
+				// Finalize with the same headers the stateless runtime applies (robots +
+				// asset security), so preview parity holds across both hosting modes.
+				return applyPreviewResponseMiddlewares(response, { ideOrigin }, previewResponseMiddlewares);
+			},
+			{ 'runtime.id': runtimeId },
+		);
 	}
 
 	/** Minimal snapshot for runtime detection: the manifest plus entry/router probes. */

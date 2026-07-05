@@ -9,6 +9,7 @@ import { fs } from '@worker/lib/project-fs';
 import { getContentType } from '../lib/content-type';
 import { httpError } from '../lib/http-error';
 import { readAssetSettings, readBindingsConfig, readDependencies, readProjectName } from '../lib/protected-files';
+import { withSpan } from '../lib/tracing';
 import { bundleWithCdn } from '../services/bundler-client';
 import { toEsbuildTsconfigRaw } from '../services/transform-service';
 
@@ -238,14 +239,16 @@ export async function bundleWorker(projectRoot: string, inputs: ProjectBuildInpu
 		);
 	}
 
-	const workerBundle = await bundleWithCdn({
-		files: workerBundleFiles,
-		entryPoint: workerEntry,
-		platform: 'neutral',
-		minify: true,
-		knownDependencies: inputs.registeredDependencies,
-		tsconfigRaw: inputs.tsconfigRaw,
-	});
+	const workerBundle = await withSpan('deploy.bundleWorker', () =>
+		bundleWithCdn({
+			files: workerBundleFiles,
+			entryPoint: workerEntry,
+			platform: 'neutral',
+			minify: true,
+			knownDependencies: inputs.registeredDependencies,
+			tsconfigRaw: inputs.tsconfigRaw,
+		}),
+	);
 
 	return { workerCode: workerBundle.code };
 }
@@ -270,14 +273,16 @@ export async function bundleFrontend(projectRoot: string, inputs: ProjectBuildIn
 			}
 		}
 
-		const frontendBundle = await bundleWithCdn({
-			files: frontendBundleFiles,
-			entryPoint: frontendEntry,
-			platform: 'browser',
-			minify: true,
-			knownDependencies: inputs.registeredDependencies,
-			tsconfigRaw: inputs.tsconfigRaw,
-		});
+		const frontendBundle = await withSpan('deploy.bundleFrontend', () =>
+			bundleWithCdn({
+				files: frontendBundleFiles,
+				entryPoint: frontendEntry,
+				platform: 'browser',
+				minify: true,
+				knownDependencies: inputs.registeredDependencies,
+				tsconfigRaw: inputs.tsconfigRaw,
+			}),
+		);
 
 		const frontendHash = await hashContent(frontendBundle.code);
 		const bundleFilename = `assets/bundle-${frontendHash.slice(0, 8)}.js`;

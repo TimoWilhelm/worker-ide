@@ -2,6 +2,7 @@ import git from 'isomorphic-git';
 
 import { HIDDEN_ENTRIES } from '@shared/constants';
 
+import { withSpan } from '../lib/tracing';
 import { ensureArtifactsRepo, mintArtifactsToken } from '../services/artifacts-repo';
 
 import type { WorkspaceFsAdapter } from '../lib/workspace-fs-adapter';
@@ -505,7 +506,9 @@ export class GitService {
 		const http = await this.getHttp();
 		const url = await this.getRemote();
 		const onAuth = await this.writeAuth();
-		await git.push({ ...this.base(), http, url, ref: reference, force: true, onAuth });
+		await withSpan('git.push', () => git.push({ ...this.base(), http, url, ref: reference, force: true, onAuth }), {
+			'git.ref': reference,
+		});
 	}
 
 	private async pushDelete(reference: string): Promise<void> {

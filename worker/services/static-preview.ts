@@ -44,6 +44,7 @@ import {
 } from '../lib/preview-scripts/react-refresh-preamble.js?raw-minified';
 import { readBindingsConfig } from '../lib/protected-files';
 import { resolveStorageQuotaForProject } from '../lib/storage-quota';
+import { withSpan } from '../lib/tracing';
 
 import type { ResolvedAssetSettings, ServerError } from '@shared/types';
 import type { ServerMessage } from '@shared/ws-messages';
@@ -178,7 +179,18 @@ export class StaticReactPreview {
 		}
 		return false;
 	}
-	async routePreviewRequest(request: Request, ideOrigin: string, preloadedAssetSettings?: ResolvedAssetSettings): Promise<Response> {
+	routePreviewRequest(request: Request, ideOrigin: string, preloadedAssetSettings?: ResolvedAssetSettings): Promise<Response> {
+		return withSpan('static.serve', () => this.routePreviewRequestTraced(request, ideOrigin, preloadedAssetSettings), {
+			'project.id': this.projectId,
+			'request.path': new URL(request.url).pathname,
+		});
+	}
+
+	private async routePreviewRequestTraced(
+		request: Request,
+		ideOrigin: string,
+		preloadedAssetSettings?: ResolvedAssetSettings,
+	): Promise<Response> {
 		const assetSettings = preloadedAssetSettings ?? (await this.loadAssetSettings());
 		const url = new URL(request.url);
 
@@ -186,7 +198,7 @@ export class StaticReactPreview {
 			return this.finalizePreviewResponse(await this.handlePreviewAPI(request, url.pathname), ideOrigin);
 		}
 
-		const assetResponse = await this.serveFile(request, ideOrigin, assetSettings);
+		const assetResponse = await withSpan('static.serveFile', () => this.serveFile(request, ideOrigin, assetSettings));
 		if (assetResponse.status !== 404 || assetSettings.not_found_handling !== 'none') {
 			return this.finalizePreviewResponse(assetResponse, ideOrigin);
 		}
@@ -404,14 +416,16 @@ export class StaticReactPreview {
 					JSON.stringify(bindingsConfig) +
 					(tsconfigRaw ?? ''),
 			);
-			const bundled = await bundleFiles({
-				files,
-				entryPoint: workerEntry,
-				platform: 'neutral',
-				sourcemap: true,
-				tsconfigRaw,
-				knownDependencies,
-			});
+			const bundled = await withSpan('static.bundleWorker', () =>
+				bundleFiles({
+					files,
+					entryPoint: workerEntry,
+					platform: 'neutral',
+					sourcemap: true,
+					tsconfigRaw,
+					knownDependencies,
+				}),
+			);
 
 			const worker = env.LOADER.get(`worker:${PREVIEW_API_WORKER_VERSION}:${contentHash}`, () => {
 				return {
