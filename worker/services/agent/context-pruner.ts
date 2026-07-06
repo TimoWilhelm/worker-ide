@@ -29,7 +29,17 @@ export function chatMessagesToModelMessages(messages: ChatMessage[]): ModelMessa
 	for (const message of messages) {
 		if (message.role === 'user') {
 			const text = messagePartsToPromptText(message.parts);
-			if (text) {
+			const imageParts = message.parts.filter((part) => part.type === 'image');
+			if (imageParts.length > 0) {
+				const content: Array<{ type: 'text'; text: string } | { type: 'image'; image: string; mediaType?: string }> = [];
+				if (text) {
+					content.push({ type: 'text' as const, text });
+				}
+				for (const imagePart of imageParts) {
+					content.push({ type: 'image' as const, image: imagePart.url, mediaType: imagePart.mediaType });
+				}
+				result.push({ role: 'user' as const, content });
+			} else if (text) {
 				result.push({ role: 'user' as const, content: text });
 			}
 		} else if (message.role === 'assistant') {

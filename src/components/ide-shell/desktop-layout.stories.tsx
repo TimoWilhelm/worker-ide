@@ -88,6 +88,8 @@ const mockAgentRuntimeValue = {
 	setSegments: fn(),
 	cursorPosition: 0,
 	setCursorPosition: fn(),
+	imageAttachments: [],
+	setImageAttachments: fn(),
 } satisfies AgentRuntimeValue;
 
 const defaultMockFileTree: ReturnType<typeof useFileTree> = {

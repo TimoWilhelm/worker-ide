@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
-import { estimateSessionTokens, microCompactMessages } from './context-pruner';
+import { chatMessagesToModelMessages, estimateSessionTokens, microCompactMessages } from './context-pruner';
 
+import type { ChatMessage } from '@shared/types';
 import type { ModelMessage } from 'ai';
 
 describe('estimateSessionTokens', () => {
@@ -66,5 +67,53 @@ describe('microCompactMessages', () => {
 		}
 		expect(compacted[2]).toEqual(messages[2]);
 		expect(compacted[3]).toEqual(messages[3]);
+	});
+});
+
+describe('chatMessagesToModelMessages', () => {
+	it('converts user image parts into model image content alongside text', () => {
+		const messages: ChatMessage[] = [
+			{
+				id: 'message-1',
+				role: 'user',
+				createdAt: 1,
+				parts: [
+					{ type: 'text', content: 'What is this?' },
+					{ type: 'image', url: 'data:image/webp;base64,AAAA', mediaType: 'image/webp', name: 'shot.webp' },
+				],
+			},
+		];
+
+		const modelMessages = chatMessagesToModelMessages(messages);
+
+		expect(modelMessages).toEqual([
+			{
+				role: 'user',
+				content: [
+					{ type: 'text', text: 'What is this?' },
+					{ type: 'image', image: 'data:image/webp;base64,AAAA', mediaType: 'image/webp' },
+				],
+			},
+		]);
+	});
+
+	it('emits image-only user content when there is no text', () => {
+		const messages: ChatMessage[] = [
+			{
+				id: 'message-1',
+				role: 'user',
+				createdAt: 1,
+				parts: [{ type: 'image', url: 'data:image/webp;base64,BBBB', mediaType: 'image/webp' }],
+			},
+		];
+
+		const modelMessages = chatMessagesToModelMessages(messages);
+
+		expect(modelMessages).toEqual([
+			{
+				role: 'user',
+				content: [{ type: 'image', image: 'data:image/webp;base64,BBBB', mediaType: 'image/webp' }],
+			},
+		]);
 	});
 });

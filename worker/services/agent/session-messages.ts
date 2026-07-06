@@ -33,6 +33,9 @@ function messagePartToSessionPart(part: MessagePart): SessionMessagePart {
 		case 'preview-element': {
 			return { type: 'text', text: previewElementToPromptText(part) };
 		}
+		case 'image': {
+			return { type: 'text', text: '[image attachment]' };
+		}
 		case 'reasoning': {
 			return { type: part.type, text: part.content };
 		}

@@ -317,6 +317,8 @@ function UserMessage({
 	const files = useStore((state) => state.files);
 	const knownPaths = useMemo(() => new Set(files.map((file) => file.path)), [files]);
 	const segments = useMemo(() => messagePartsToInputSegments(message.parts, knownPaths), [message.parts, knownPaths]);
+	const imageParts = useMemo(() => message.parts.filter((part) => part.type === 'image'), [message.parts]);
+	const hasTextSegments = segments.length > 0;
 
 	const bubbleStyle = agentMode ? MODE_BUBBLE_STYLES[agentMode] : 'border-accent/20 bg-accent/10';
 	const badge = agentMode ? MODE_BADGE_STYLES[agentMode] : undefined;
@@ -361,17 +363,37 @@ function UserMessage({
 			<div
 				className={cn('rounded-lg border px-3 py-2.5', bubbleStyle, isClientOnly && 'border-dashed', 'text-sm/relaxed text-text-primary')}
 			>
-				<span className="whitespace-pre-wrap">
-					{segments.map((segment, index) =>
-						segment.type === 'mention' ? (
-							<FileReference key={index} path={segment.path} />
-						) : segment.type === 'preview-element' ? (
-							<PreviewElementReference key={index} reference={segment} />
-						) : (
-							<span key={index}>{segment.value}</span>
-						),
-					)}
-				</span>
+				{imageParts.length > 0 && (
+					<div className={cn('flex flex-wrap gap-1.5', hasTextSegments && 'mb-2')}>
+						{imageParts.map((part, index) => (
+							<a
+								key={index}
+								href={part.url}
+								target="_blank"
+								rel="noreferrer"
+								className="
+									block size-20 overflow-hidden rounded-md border border-border/60
+									bg-bg-secondary
+								"
+							>
+								<img src={part.url} alt={part.name ?? 'Attached image'} className="size-full object-cover" />
+							</a>
+						))}
+					</div>
+				)}
+				{hasTextSegments && (
+					<span className="whitespace-pre-wrap">
+						{segments.map((segment, index) =>
+							segment.type === 'mention' ? (
+								<FileReference key={index} path={segment.path} />
+							) : segment.type === 'preview-element' ? (
+								<PreviewElementReference key={index} reference={segment} />
+							) : (
+								<span key={index}>{segment.value}</span>
+							),
+						)}
+					</span>
+				)}
 			</div>
 		</motion.div>
 	);

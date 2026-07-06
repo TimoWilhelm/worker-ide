@@ -1,5 +1,19 @@
 import { ScrollArea } from '@base-ui/react/scroll-area';
-import { ArrowDown, Download, History, Map as MapIcon, Mic, MicOff, Pencil, Plus, ArrowUp, Square, Trash2 } from 'lucide-react';
+import {
+	ArrowDown,
+	Download,
+	History,
+	Image as ImageIcon,
+	Map as MapIcon,
+	Mic,
+	MicOff,
+	Pencil,
+	Plus,
+	ArrowUp,
+	Square,
+	Trash2,
+	X,
+} from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
@@ -22,6 +36,7 @@ import { tweenFast } from '@/lib/motion-config';
 import { setActiveSessionId } from '@/lib/project-storage';
 import { useStore } from '@/lib/store';
 import { cn, formatRelativeTime } from '@/lib/utils';
+import { MAX_IMAGE_ATTACHMENTS } from '@shared/constants';
 import { sessionTitleSchema } from '@shared/validation';
 
 import { ContextRing } from './context-ring';
@@ -40,6 +55,7 @@ import { ModelSelectorDropdown } from './model-selector-dialog';
 import { useAutoScroll } from '../../hooks/use-auto-scroll';
 import { useChangeReview } from '../../hooks/use-change-review';
 import { useFileMention } from '../../hooks/use-file-mention';
+import { useImageAttachments } from '../../hooks/use-image-attachments';
 import { useSpeechToText } from '../../hooks/use-speech-to-text';
 import {
 	appendPreviewElementSegment,
@@ -131,6 +147,16 @@ export function AgentPanel({ projectId, className }: { projectId: string; classN
 		[],
 	);
 	const { agent, agentConnectionState, isConnected, segments, setSegments, cursorPosition, setCursorPosition } = useAgentRuntime();
+	const {
+		attachments: imageAttachments,
+		addFiles: addImageFiles,
+		removeAttachment: removeImageAttachment,
+		clearAttachments: clearImageAttachments,
+		hasUploading: hasUploadingImages,
+		readyImageParts,
+	} = useImageAttachments(projectId);
+	const imageFileInputReference = useRef<HTMLInputElement>(null);
+	const [isDraggingImage, setIsDraggingImage] = useState(false);
 	const initialCursorPositionReference = useRef(cursorPosition);
 	const initialInputPlainTextLengthReference = useRef(segmentsToPlainText(segments).length);
 
@@ -390,6 +416,7 @@ export function AgentPanel({ projectId, className }: { projectId: string; classN
 	}, [liveTranscript, preRecordingSegments, segments, speechToText.isRecording]);
 	const visibleInputSegments = speechToText.isRecording ? recordingSegments : segments;
 	const hasVisibleInputContent = useMemo(() => segmentsHaveContent(visibleInputSegments), [visibleInputSegments]);
+	const canSubmit = (hasVisibleInputContent || readyImageParts.length > 0) && !hasUploadingImages;
 
 	// Move cursor to end of input as transcript grows during recording
 	useEffect(() => {
@@ -597,10 +624,16 @@ export function AgentPanel({ projectId, className }: { projectId: string; classN
 	// Submit a new request. The server decides whether it starts immediately or queues.
 	const handleSubmit = useCallback(
 		async (messageOverride?: string) => {
+			if (!messageOverride && hasUploadingImages) {
+				toast.error('Please wait for images to finish uploading.');
+				return;
+			}
 			const knownPaths = new Set(files.map((file) => file.path));
 			const messageSegments = messageOverride ? parseTextToSegments(messageOverride.trim(), knownPaths) : visibleInputSegments;
-			const messageParts = segmentsToMessageParts(messageSegments);
-			if (messageParts.length === 0 || (!messageOverride && !hasVisibleInputContent)) return;
+			const messageParts = messageOverride
+				? segmentsToMessageParts(messageSegments)
+				: [...segmentsToMessageParts(messageSegments), ...readyImageParts];
+			if (messageParts.length === 0 || (!messageOverride && !hasVisibleInputContent && readyImageParts.length === 0)) return;
 
 			const resolvedSessionId = sessionId ?? crypto.randomUUID().replaceAll('-', '').slice(0, 16);
 			const optimisticMessageId = crypto.randomUUID();
@@ -632,6 +665,7 @@ export function AgentPanel({ projectId, className }: { projectId: string; classN
 				setPreRecordingSegments([]);
 			}
 			setSegments([]);
+			clearImageAttachments();
 			setOptimisticStoppingSessionId(undefined);
 			inputReference.current?.clear();
 			scrollToBottom();
@@ -657,7 +691,50 @@ export function AgentPanel({ projectId, className }: { projectId: string; classN
 			scrollToBottom,
 			speechToText,
 			submitOptimisticMessage,
+			hasUploadingImages,
+			readyImageParts,
+			clearImageAttachments,
 		],
+	);
+
+	const handleImageFileInputChange = useCallback(
+		(event: React.ChangeEvent<HTMLInputElement>) => {
+			const files = event.target.files ? [...event.target.files] : [];
+			if (files.length > 0) {
+				addImageFiles(files);
+			}
+			event.target.value = '';
+		},
+		[addImageFiles],
+	);
+
+	const handleInputDragOver = useCallback((event: React.DragEvent<HTMLDivElement>) => {
+		if (![...event.dataTransfer.items].some((item) => item.kind === 'file')) {
+			return;
+		}
+		event.preventDefault();
+		setIsDraggingImage(true);
+	}, []);
+
+	const handleInputDragLeave = useCallback((event: React.DragEvent<HTMLDivElement>) => {
+		const related = event.relatedTarget;
+		if (related instanceof Node && event.currentTarget.contains(related)) {
+			return;
+		}
+		setIsDraggingImage(false);
+	}, []);
+
+	const handleInputDrop = useCallback(
+		(event: React.DragEvent<HTMLDivElement>) => {
+			const files = [...event.dataTransfer.files].filter((file) => file.type.startsWith('image/'));
+			if (files.length === 0) {
+				return;
+			}
+			event.preventDefault();
+			setIsDraggingImage(false);
+			addImageFiles(files);
+		},
+		[addImageFiles],
 	);
 
 	const handleRemoveQueuedMessage = useCallback(
@@ -1410,14 +1487,77 @@ export function AgentPanel({ projectId, className }: { projectId: string; classN
 									transition-colors
 								`,
 								'focus-within:border-accent',
-								isProcessing ? 'border-warning/40' : 'border-border',
+								isDraggingImage ? 'border-accent' : isProcessing ? 'border-warning/40' : 'border-border',
 							)}
+							onDragOver={handleInputDragOver}
+							onDragEnter={handleInputDragOver}
+							onDragLeave={handleInputDragLeave}
+							onDrop={handleInputDrop}
 						>
+							{isDraggingImage && (
+								<div
+									className="
+										pointer-events-none absolute inset-0 z-30 flex items-center
+										justify-center rounded-lg border-2 border-dashed border-accent
+										bg-accent/10 text-xs font-medium text-accent
+									"
+								>
+									Drop images to attach
+								</div>
+							)}
 							<InputInfoBar open={!isConnected} icon={<Spinner className="size-3 shrink-0 text-warning" />}>
 								<span className="flex-1 text-xs text-text-secondary">
 									{agentConnectionState === 'connecting' ? 'Connecting to agent…' : 'Connection lost. Reconnecting…'}
 								</span>
 							</InputInfoBar>
+
+							{imageAttachments.length > 0 && (
+								<div className="flex flex-wrap gap-1.5 px-2 pt-2" data-testid="agent-image-attachments">
+									{imageAttachments.map((attachment) => (
+										<div
+											key={attachment.id}
+											className="
+												group relative size-14 overflow-hidden rounded-md border
+												border-border bg-bg-secondary
+											"
+										>
+											<img src={attachment.previewUrl} alt={attachment.name} className="size-full object-cover" />
+											{attachment.status === 'uploading' && (
+												<div
+													className="
+														absolute inset-0 flex items-center justify-center bg-bg-primary/60
+													"
+												>
+													<Spinner className="size-4 text-accent" />
+												</div>
+											)}
+											{attachment.status === 'error' && (
+												<div
+													className="
+														absolute inset-0 flex items-center justify-center bg-error/20
+														text-[10px] font-medium text-error
+													"
+												>
+													Failed
+												</div>
+											)}
+											<button
+												type="button"
+												onClick={() => removeImageAttachment(attachment.id)}
+												className="
+													absolute top-0.5 right-0.5 inline-flex items-center justify-center
+													rounded-full bg-bg-primary/80 p-0.5 text-text-secondary
+													transition-colors
+													hover:bg-bg-primary hover:text-text-primary
+												"
+												aria-label={`Remove ${attachment.name}`}
+											>
+												<X className="size-3" />
+											</button>
+										</div>
+									))}
+								</div>
+							)}
 
 							<RichTextInput
 								ref={inputReference}
@@ -1425,6 +1565,7 @@ export function AgentPanel({ projectId, className }: { projectId: string; classN
 								onSegmentsChange={setSegments}
 								onKeyDown={handleKeyDown}
 								onCursorChange={setCursorPosition}
+								onPasteFiles={addImageFiles}
 								disabled={speechToText.isRecording}
 								inlineSuffix={speechToText.isRecording ? <BouncingDots className="ml-1 text-text-secondary" /> : undefined}
 								placeholder={inputPlaceholder}
@@ -1495,6 +1636,38 @@ export function AgentPanel({ projectId, className }: { projectId: string; classN
 									<ModelSelectorDropdown selectedModel={selectedModel} onSelectModel={setSelectedModel} disabled={false} />
 									<div className="ml-auto flex shrink-0 items-center justify-end gap-1" data-testid="agent-input-toolbar-actions">
 										<ContextRing tokensUsed={contextTokensUsed} contextWindow={getModelLimits(selectedModel).contextWindow} />
+										<input
+											ref={imageFileInputReference}
+											type="file"
+											accept="image/png,image/jpeg,image/webp,image/gif"
+											multiple
+											className="hidden"
+											onChange={handleImageFileInputChange}
+											aria-hidden="true"
+											tabIndex={-1}
+										/>
+										<Tooltip content="Attach images" side="top">
+											<button
+												type="button"
+												onClick={() => imageFileInputReference.current?.click()}
+												disabled={imageAttachments.length >= MAX_IMAGE_ATTACHMENTS}
+												className={cn(
+													`
+														inline-flex items-center gap-1.5 rounded-md p-1 text-xs
+														font-medium transition-colors
+													`,
+													imageAttachments.length >= MAX_IMAGE_ATTACHMENTS
+														? 'cursor-not-allowed text-text-secondary opacity-40'
+														: `
+															cursor-pointer text-text-secondary
+															hover:bg-bg-tertiary hover:text-text-primary
+														`,
+												)}
+												aria-label="Attach images"
+											>
+												<ImageIcon className="size-4" />
+											</button>
+										</Tooltip>
 										{speechToText.microphonePermission !== 'unsupported' && (
 											<Tooltip
 												content={
@@ -1547,11 +1720,11 @@ export function AgentPanel({ projectId, className }: { projectId: string; classN
 										<button
 											type="button"
 											onClick={() => void handleSubmit()}
-											disabled={!hasVisibleInputContent}
+											disabled={!canSubmit}
 											className={cn(
 												'ml-0.5 inline-flex items-center justify-center rounded-md p-1',
 												'text-xs font-medium transition-colors',
-												hasVisibleInputContent
+												canSubmit
 													? `
 														cursor-pointer bg-accent text-white
 														hover:bg-accent-hover

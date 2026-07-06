@@ -154,6 +154,19 @@ export async function fetchProjectMeta(projectId: string): Promise<ProjectMeta> 
 	const data: unknown = await response.json();
 	return normalizeProjectMeta(data);
 }
+export interface OptimizedImage {
+	url: string;
+	mediaType: string;
+	name?: string;
+}
+export async function optimizeImage(projectId: string, file: File): Promise<OptimizedImage> {
+	const api = createApiClient(projectId);
+	const response = await api.images.optimize.$post({ form: { file } });
+	if (!response.ok) {
+		await throwApiError(response, 'Failed to process image');
+	}
+	return response.json();
+}
 export async function fetchDependencies(projectId: string): Promise<Record<string, string>> {
 	const api = createApiClient(projectId);
 	const response = await api.dependencies.$get({});

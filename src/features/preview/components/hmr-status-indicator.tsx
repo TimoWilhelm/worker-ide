@@ -8,13 +8,13 @@ import { cn } from '@/lib/utils';
  * Live Hot Module Replacement status, mirroring the lifecycle reported by the
  * preview's HMR client over postMessage (`__hmr-status`).
  */
-export type HmrStatus = 'connected' | 'disconnected' | 'updating' | 'updated' | 'reloading' | 'error';
+export type HmrStatus = 'connected' | 'disconnected' | 'building' | 'updated' | 'reloading' | 'error';
 
 function isHmrStatus(value: unknown): value is HmrStatus {
 	return (
 		value === 'connected' ||
 		value === 'disconnected' ||
-		value === 'updating' ||
+		value === 'building' ||
 		value === 'updated' ||
 		value === 'reloading' ||
 		value === 'error'
@@ -24,7 +24,7 @@ function isHmrStatus(value: unknown): value is HmrStatus {
 const STATUS_PRESENTATION: Record<HmrStatus, { label: string; dotClassName: string }> = {
 	connected: { label: 'HMR connected', dotClassName: 'bg-green-500' },
 	disconnected: { label: 'HMR disconnected', dotClassName: 'bg-text-tertiary' },
-	updating: { label: 'Hot updating…', dotClassName: 'bg-amber-500 animate-pulse' },
+	building: { label: 'Rebuilding…', dotClassName: 'bg-amber-500 animate-pulse' },
 	updated: { label: 'Hot updated', dotClassName: 'bg-green-500' },
 	reloading: { label: 'Reloading…', dotClassName: 'bg-amber-500 animate-pulse' },
 	error: { label: 'Build error', dotClassName: 'bg-red-500' },

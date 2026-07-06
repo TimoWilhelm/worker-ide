@@ -4,13 +4,36 @@ import { useMemo, useState } from 'react';
 
 import { Pill } from '@/components/ui/pill';
 import { Tooltip } from '@/components/ui/tooltip';
+import { computeDiffHunks, groupHunksIntoChanges } from '@/features/editor/lib/diff-decorations';
 import { springCritical } from '@/lib/motion-config';
 import { useStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 
 import { FileReference } from './file-reference';
 
+import type { FileTargetPosition } from '@/lib/file-target';
 import type { PendingFileChange } from '@shared/types';
+
+/**
+ * Resolve the editor position of the first diff in a pending change that is
+ * attributed to the given agent session. Falls back to the first diff when no
+ * session attribution is available.
+ */
+function getFirstSessionDiffPosition(change: PendingFileChange, sessionId?: string): FileTargetPosition | undefined {
+	const groups = groupHunksIntoChanges(computeDiffHunks(change.beforeContent ?? '', change.afterContent ?? ''));
+	if (groups.length === 0) {
+		return undefined;
+	}
+
+	if (sessionId && change.hunkSessionIds) {
+		const sessionGroup = groups.find((group) => change.hunkSessionIds?.[group.index]?.includes(sessionId));
+		if (sessionGroup) {
+			return { line: sessionGroup.startLine, column: 1 };
+		}
+	}
+
+	return { line: groups[0].startLine, column: 1 };
+}
 
 interface ChangedFilesSummaryProperties {
 	onApproveChange: (path: string) => void;
@@ -123,6 +146,7 @@ export function ChangedFilesSummary({
 									onApprove={onApproveChange}
 									onReject={onRejectChange}
 									isReverting={isReverting}
+									position={getFirstSessionDiffPosition(change, sessionId)}
 								/>
 							</motion.div>
 						))}
@@ -141,6 +165,7 @@ function ChangedFileRow({
 	onApprove,
 	onReject,
 	isReverting,
+	position,
 }: {
 	path: string;
 	action: 'create' | 'edit' | 'delete' | 'move';
@@ -149,6 +174,7 @@ function ChangedFileRow({
 	onApprove: (path: string) => void;
 	onReject: (path: string) => void;
 	isReverting: boolean;
+	position?: FileTargetPosition;
 }) {
 	return (
 		<div
@@ -163,7 +189,7 @@ function ChangedFileRow({
 			<div className="flex min-w-0 items-center gap-2">
 				<ActionBadge action={action} />
 				<div className="min-w-0 truncate">
-					<FileReference path={path} className="text-2xs" />
+					<FileReference path={path} className="text-2xs" position={position} />
 				</div>
 			</div>
 			<div className="flex shrink-0 items-center gap-1">

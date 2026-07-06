@@ -391,6 +391,16 @@ export class ProjectCoordinatorV2 extends DurableObject {
 		await this.broadcastHmrUpdate(update);
 	}
 
+	/**
+	 * Broadcast a server-side rebuild lifecycle signal to preview sockets so the
+	 * IDE can surface a rebuilding indicator during a (potentially slow) warm-build
+	 * adapter build. Cosmetic only: unlike `vinext:hmr` it carries no version and
+	 * never drives module application, so it is safe to drop.
+	 */
+	broadcastPreviewRebuildStatus(status: 'start' | 'end'): void {
+		this.sendToKind('preview', JSON.stringify({ type: 'custom', event: 'preview:rebuild', data: { status } }));
+	}
+
 	async sendMessage(message: ServerMessage): Promise<void> {
 		const serialized = serializeMessage(message);
 		// Track last server-error so it can be replayed to late-joining clients

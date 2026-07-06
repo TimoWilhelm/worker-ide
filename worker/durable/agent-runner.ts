@@ -13,6 +13,7 @@ import {
 	COLLAB_COLORS,
 	DEFAULT_AI_MODEL,
 	MAX_AI_SESSIONS_PER_PROJECT,
+	MAX_IMAGE_ATTACHMENTS,
 	SUMMARIZATION_AI_MODEL,
 	getModelConfig,
 } from '@shared/constants';
@@ -149,6 +150,7 @@ function sanitizeSubmittedUserMessageParts(parts: unknown): UserMessagePart[] {
 	}
 
 	const sanitizedParts: UserMessagePart[] = [];
+	let imageCount = 0;
 	for (const part of parts) {
 		if (!part || typeof part !== 'object' || Array.isArray(part) || !('type' in part) || typeof part.type !== 'string') {
 			continue;
@@ -169,6 +171,21 @@ function sanitizeSubmittedUserMessageParts(parts: unknown): UserMessagePart[] {
 			if (sanitizedReference) {
 				sanitizedParts.push({ type: 'preview-element', ...sanitizedReference });
 			}
+			continue;
+		}
+
+		if (
+			part.type === 'image' &&
+			imageCount < MAX_IMAGE_ATTACHMENTS &&
+			'url' in part &&
+			typeof part.url === 'string' &&
+			part.url.startsWith('data:') &&
+			'mediaType' in part &&
+			typeof part.mediaType === 'string'
+		) {
+			const name = 'name' in part && typeof part.name === 'string' ? part.name : undefined;
+			sanitizedParts.push({ type: 'image', url: part.url, mediaType: part.mediaType, name });
+			imageCount++;
 		}
 	}
 

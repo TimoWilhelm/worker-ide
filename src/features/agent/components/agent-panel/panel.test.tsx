@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => {
 	const resetScrollState = vi.fn();
 	const setSegments = vi.fn();
 	const setCursorPosition = vi.fn();
+	const setImageAttachments = vi.fn();
 	const setAgentMode = vi.fn();
 	const setSelectedModel = vi.fn();
 	const openFile = vi.fn();
@@ -78,6 +79,8 @@ const mocks = vi.hoisted(() => {
 		setSegments,
 		cursorPosition: 0,
 		setCursorPosition,
+		imageAttachments: [],
+		setImageAttachments,
 	};
 
 	const speechToText = {

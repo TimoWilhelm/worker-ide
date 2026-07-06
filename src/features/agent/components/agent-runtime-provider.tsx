@@ -6,13 +6,16 @@ import { createAgentCaller } from '../lib/agent-call';
 import { loadAgentDraftSession, saveAgentDraftSession } from '../lib/agent-draft-session';
 import { segmentsToPlainText } from '../lib/input-segments';
 
-import type { AgentRuntimeHandle, AgentRuntimeValue } from './agent-runtime-context';
+import type { AgentRuntimeHandle, AgentRuntimeValue, ImageAttachment } from './agent-runtime-context';
 import type { InputSegment } from '../lib/input-segments';
 import type { ReactNode } from 'react';
 
 export function AgentRuntimeProvider({ projectId, children }: { projectId: string; children: ReactNode }) {
 	const [segments, setSegments] = useState<InputSegment[]>(() => loadAgentDraftSession(projectId)?.segments ?? []);
 	const [cursorPosition, setCursorPosition] = useState(() => loadAgentDraftSession(projectId)?.cursorPosition ?? 0);
+	// Image attachments are transient (base64 is too large to persist to
+	// localStorage) and reset when switching projects.
+	const [imageAttachments, setImageAttachments] = useState<ImageAttachment[]>([]);
 	const rawAgent = useAgent({
 		agent: 'AgentRunner',
 		// basePath connects to /p/{projectId}/__agent which the worker
@@ -76,6 +79,8 @@ export function AgentRuntimeProvider({ projectId, children }: { projectId: strin
 		setSegments,
 		cursorPosition,
 		setCursorPosition,
+		imageAttachments,
+		setImageAttachments,
 	};
 
 	return <AgentRuntimeContext.Provider value={value}>{children}</AgentRuntimeContext.Provider>;

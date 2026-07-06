@@ -36,7 +36,7 @@ export function messagePartsToPromptText(parts: readonly MessagePart[]): string 
 
 export function messagePartsHaveUserContent(parts: readonly MessagePart[]): boolean {
 	return parts.some((part) => {
-		if (part.type === 'preview-element') {
+		if (part.type === 'preview-element' || part.type === 'image') {
 			return true;
 		}
 

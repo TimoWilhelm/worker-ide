@@ -6,6 +6,18 @@ import type { Dispatch, SetStateAction } from 'react';
 
 export type AgentConnectionState = 'connecting' | 'connected' | 'disconnected';
 
+export interface ImageAttachment {
+	id: string;
+	name: string;
+	status: 'uploading' | 'ready' | 'error';
+	/** Local object URL used for immediate preview while uploading. */
+	previewUrl: string;
+	/** Optimized base64 data URL, available once status is 'ready'. */
+	url?: string;
+	mediaType?: string;
+	error?: string;
+}
+
 export interface AgentRuntimeHandle {
 	identified: boolean;
 	state: unknown;
@@ -22,6 +34,8 @@ export interface AgentRuntimeValue {
 	setSegments: Dispatch<SetStateAction<InputSegment[]>>;
 	cursorPosition: number;
 	setCursorPosition: Dispatch<SetStateAction<number>>;
+	imageAttachments: ImageAttachment[];
+	setImageAttachments: Dispatch<SetStateAction<ImageAttachment[]>>;
 }
 
 export const AgentRuntimeContext = createContext<AgentRuntimeValue | undefined>(undefined);

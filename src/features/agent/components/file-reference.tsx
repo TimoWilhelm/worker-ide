@@ -7,7 +7,7 @@ import {
 	FILE_REFERENCE_INTERACTIVE_CLASS_NAME,
 	FILE_REFERENCE_LABEL_CLASS_NAME,
 } from '@/features/agent/lib/reference-pill-styles';
-import { resolveFileTargetPath, useFileTargetOpener } from '@/lib/file-target';
+import { resolveFileTargetPath, useFileTargetOpener, type FileTargetPosition } from '@/lib/file-target';
 import { useStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 
@@ -16,6 +16,7 @@ export function FileReference({
 	className,
 	interactive = true,
 	onClick,
+	position,
 }: {
 	path: string;
 	className?: string;
@@ -25,6 +26,10 @@ export function FileReference({
 	 */
 	interactive?: boolean;
 	onClick?: (event: { stopPropagation: () => void }) => void;
+	/**
+	 * When provided, opening the reference scrolls the editor to this position.
+	 */
+	position?: FileTargetPosition;
 }) {
 	const files = useStore((state) => state.files);
 	const openFileTarget = useFileTargetOpener();
@@ -34,8 +39,8 @@ export function FileReference({
 	const isClickable = interactive || !!onClick;
 
 	const handleOpenReference = useCallback(() => {
-		openFileTarget({ path });
-	}, [openFileTarget, path]);
+		openFileTarget({ path, position });
+	}, [openFileTarget, path, position]);
 
 	const sharedClassName = cn(FILE_REFERENCE_BASE_CLASS_NAME, isClickable && FILE_REFERENCE_INTERACTIVE_CLASS_NAME, className);
 

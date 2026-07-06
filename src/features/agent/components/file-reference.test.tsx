@@ -55,4 +55,12 @@ describe('FileReference', () => {
 
 		expect(mockOpenFileTarget).toHaveBeenCalledWith({ path: 'src/main.ts' });
 	});
+
+	it('opens the file at the provided position', () => {
+		render(<FileReference path="/src/main.ts" position={{ line: 42, column: 1 }} />);
+
+		fireEvent.click(screen.getByRole('button', { name: /main\.ts/i }));
+
+		expect(mockOpenFileTarget).toHaveBeenCalledWith({ path: '/src/main.ts', position: { line: 42, column: 1 } });
+	});
 });

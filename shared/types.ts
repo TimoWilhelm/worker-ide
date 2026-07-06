@@ -574,6 +574,13 @@ export interface PreviewElementReference {
 export interface PreviewElementPart extends PreviewElementReference {
 	type: 'preview-element';
 }
+export interface ImagePart {
+	type: 'image';
+	/** Base64 data URL of the resized image (e.g. `data:image/webp;base64,...`). */
+	url: string;
+	mediaType: string;
+	name?: string;
+}
 export interface ToolCallPart {
 	type: 'tool-call';
 	toolCallId: string;
@@ -591,8 +598,8 @@ export interface ReasoningPart {
 	type: 'reasoning';
 	content: string;
 }
-export type UserMessagePart = TextPart | PreviewElementPart;
-export type MessagePart = TextPart | PreviewElementPart | ToolCallPart | ToolResultPart | ReasoningPart;
+export type UserMessagePart = TextPart | PreviewElementPart | ImagePart;
+export type MessagePart = TextPart | PreviewElementPart | ImagePart | ToolCallPart | ToolResultPart | ReasoningPart;
 
 /**
  * A single message in the AI chat conversation.

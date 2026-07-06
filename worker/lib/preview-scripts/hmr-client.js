@@ -77,6 +77,14 @@
 			return;
 		}
 
+		// Server-driven rebuild lifecycle for warm-build adapters whose (slow) build
+		// happens out-of-band from the client Fast Refresh path. Surface it in the
+		// IDE header via the shared HMR status indicator.
+		if (data.type === 'custom' && data.event === 'preview:rebuild') {
+			postStatus(data.data && data.data.status === 'start' ? 'building' : 'updated');
+			return;
+		}
+
 		// Custom events pushed from the server (Vite's import.meta.hot.on).
 		if (data.type === 'custom' && typeof data.event === 'string') {
 			emitRuntimeEvent(data.event, data.data);
@@ -105,7 +113,9 @@
 			if (typeof window.hideErrorOverlay === 'function') {
 				window.hideErrorOverlay();
 			}
-			postStatus('updating');
+			// Re-fetching a changed module triggers its server-side rebuild (transform
+			// or bundle), so surface the same rebuilding indicator as warm-build adapters.
+			postStatus('building');
 			applyUpdates(data.updates)
 				.then(function () {
 					postStatus('updated');

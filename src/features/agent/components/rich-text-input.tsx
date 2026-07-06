@@ -398,6 +398,7 @@ export function RichTextInput({
 	onSegmentsChange,
 	onKeyDown,
 	onCursorChange,
+	onPasteFiles,
 	placeholder,
 	disabled,
 	inlineSuffix,
@@ -408,6 +409,7 @@ export function RichTextInput({
 	onSegmentsChange: (segments: InputSegment[]) => void;
 	onKeyDown?: (event: React.KeyboardEvent<HTMLDivElement>) => void;
 	onCursorChange?: (offset: number) => void;
+	onPasteFiles?: (files: File[]) => void;
 	placeholder?: string;
 	disabled?: boolean;
 	inlineSuffix?: React.ReactNode;
@@ -785,13 +787,23 @@ export function RichTextInput({
 		[activateReference, onCursorChange, onKeyDown, onSegmentsChange, openFileTarget, segments, updatePreviewReferenceAvailability],
 	);
 
-	const handlePaste = useCallback((event: React.ClipboardEvent<HTMLDivElement>) => {
-		event.preventDefault();
-		const text = event.clipboardData.getData('text/plain');
-		if (text) {
-			document.execCommand('insertText', false, text);
-		}
-	}, []);
+	const handlePaste = useCallback(
+		(event: React.ClipboardEvent<HTMLDivElement>) => {
+			const imageFiles = [...event.clipboardData.files].filter((file) => file.type.startsWith('image/'));
+			if (imageFiles.length > 0 && onPasteFiles) {
+				event.preventDefault();
+				onPasteFiles(imageFiles);
+				return;
+			}
+
+			event.preventDefault();
+			const text = event.clipboardData.getData('text/plain');
+			if (text) {
+				document.execCommand('insertText', false, text);
+			}
+		},
+		[onPasteFiles],
+	);
 
 	const handleMouseMove = useCallback(
 		(event: React.MouseEvent<HTMLDivElement>) => {

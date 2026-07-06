@@ -3,6 +3,7 @@ export * from './mime-types';
 export * from './collaboration';
 export * from './agent';
 export * from './ai-models';
+export * from './images';
 export * from './organization';
 export * from './project';
 export * from './api';

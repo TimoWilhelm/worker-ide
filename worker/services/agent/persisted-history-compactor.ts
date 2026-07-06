@@ -64,6 +64,9 @@ function compactPartForPersistence(part: MessagePart): MessagePart {
 		case 'preview-element': {
 			return part;
 		}
+		case 'image': {
+			return part;
+		}
 	}
 	/* c8 ignore next 2 */
 	return part;

@@ -38,6 +38,12 @@ describe('HmrStatusIndicator', () => {
 		expect(screen.getByRole('status')).toHaveAttribute('aria-label', 'HMR connected');
 	});
 
+	it('shows the rebuilding status', () => {
+		render(<HmrStatusIndicator />);
+		dispatchStatus('building');
+		expect(screen.getByRole('status')).toHaveAttribute('aria-label', 'Rebuilding…');
+	});
+
 	it('shows the error status', () => {
 		render(<HmrStatusIndicator />);
 		dispatchStatus('error');

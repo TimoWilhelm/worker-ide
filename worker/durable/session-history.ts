@@ -48,6 +48,19 @@ function parsePersistedUserMessageParts(partsJson: string | null | undefined): U
 				if (sanitizedReference) {
 					parts.push({ type: 'preview-element', ...sanitizedReference });
 				}
+				continue;
+			}
+
+			if (
+				part.type === 'image' &&
+				'url' in part &&
+				typeof part.url === 'string' &&
+				part.url.startsWith('data:') &&
+				'mediaType' in part &&
+				typeof part.mediaType === 'string'
+			) {
+				const name = 'name' in part && typeof part.name === 'string' ? part.name : undefined;
+				parts.push({ type: 'image', url: part.url, mediaType: part.mediaType, name });
 			}
 		}
 
@@ -155,7 +168,9 @@ export function serializePersistedMessageMetadata(sessionId: string, history: Ch
 	for (const message of history) {
 		const request = message.role === 'user' ? message.metadata?.request : undefined;
 		const partsJson =
-			message.role === 'user' && message.parts.some((part) => part.type === 'preview-element') ? JSON.stringify(message.parts) : undefined;
+			message.role === 'user' && message.parts.some((part) => part.type === 'preview-element' || part.type === 'image')
+				? JSON.stringify(message.parts)
+				: undefined;
 		const snapshotId = message.metadata?.snapshotId;
 		if (!request && !snapshotId && !partsJson && !message.authorUserId) {
 			continue;

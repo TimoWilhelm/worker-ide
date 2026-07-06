@@ -28,6 +28,9 @@
 		"binding": "AI",
 		"remote": true,
 	},
+	"images": {
+		"binding": "IMAGES",
+	},
 	"d1_databases": [
 		{
 			"binding": "DB",

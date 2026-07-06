@@ -365,6 +365,19 @@ export class VinextPreviewHost extends DurableObject<Env> {
 		return this.hmrScripts;
 	}
 
+	/**
+	 * Signal the coordinator that a build is starting/finishing so preview sockets
+	 * can surface a rebuilding indicator. Best-effort: a missing coordinator (no
+	 * sockets yet, e.g. the initial cold build) simply drops the cosmetic signal.
+	 */
+	private async broadcastRebuildStatus(status: 'start' | 'end'): Promise<void> {
+		try {
+			await coordinatorNamespace.getByName(`project:${this.projectId}`).broadcastPreviewRebuildStatus(status);
+		} catch {
+			// The rebuild indicator is non-critical; ignore delivery failures.
+		}
+	}
+
 	private async bootVersion(): Promise<number> {
 		try {
 			return await coordinatorNamespace.getByName(`project:${this.projectId}`).getUpdateVersion();
@@ -395,7 +408,15 @@ export class VinextPreviewHost extends DurableObject<Env> {
 				return existing;
 			}
 			// The heavy build runs in the VITE_HOST worker's isolate, not this DO.
-			const built = await this.env.VITE_HOST.build(snapshot, this.runtimeId, { hostDevelopment: true });
+			// Bracket it with a preview-only rebuild signal so the IDE can show a
+			// rebuilding indicator for the duration of this (slow) vinext build.
+			void this.broadcastRebuildStatus('start');
+			let built: RuntimeBuild;
+			try {
+				built = await this.env.VITE_HOST.build(snapshot, this.runtimeId, { hostDevelopment: true });
+			} finally {
+				void this.broadcastRebuildStatus('end');
+			}
 			this.builds.set(hash, built);
 			// Keep only the two most recent (lightweight) builds to bound memory.
 			while (this.builds.size > 2) {

@@ -5,6 +5,7 @@ import { deployRoutes } from './deploy-routes';
 import { fileRoutes } from './file-routes';
 import { gitCredentialRoutes } from './git-credential-routes';
 import { gitRoutes } from './git-routes';
+import { imageRoutes } from './image-routes';
 import { lintRoutes } from './lint-routes';
 import { previewUrlRoutes } from './preview-url-routes';
 import { projectRoutes } from './project-routes';
@@ -27,6 +28,7 @@ export const apiRoutes = new Hono<AppEnvironment>()
 	.route('', reviewRoutes)
 	.route('', snapshotRoutes)
 	.route('', agentRoutes)
+	.route('', imageRoutes)
 	.route('', transformRoutes)
 	.route('', lintRoutes)
 	.route('', gitRoutes)
