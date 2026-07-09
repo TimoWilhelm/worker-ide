@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 
 import { useChangeReview } from '@/features/agent/hooks/use-change-review';
-import { computeDiffData, computeRebasedDiffData, groupHunksIntoChanges, useFileContent } from '@/features/editor';
+import { computeDiffData, computeRebasedDiffData, groupHunksIntoChanges, resolveReviewContent, useFileContent } from '@/features/editor';
 import { dispatchLintDiagnostics } from '@/features/editor/lib/lint-extension';
 import { projectSocketSendReference } from '@/hooks';
 import { fixFile, isLintableFile } from '@/lib/biome-linter';
@@ -61,40 +61,69 @@ export function useEditorState({ projectId }: { projectId: string }) {
 		return map;
 	}, [gitStatusEntries]);
 
-	// File content hook
+	// File content hook. The query cache is the single source of on-disk truth.
 	const { content, isLoading: isLoadingContent, saveFile, isSaving } = useFileContent({ projectId, path: activeFile });
 
-	// Track local editor edits
+	// The pending AI change for the active file, if any.
+	const activePendingChange = activeFile ? pendingChanges.get(activeFile) : undefined;
+	const hasActiveDiff = activePendingChange?.status === 'pending' && activePendingChange.action !== 'move';
+
+	// The base document the editor should display. When the active file has a
+	// review entry this is the review-resolved content (on-disk content with
+	// rejected hunks reverted), computed with the exact algorithm the server
+	// uses to persist a resolution — so what the user sees equals what accepting
+	// would write. With all hunks still pending it is the agent's after-content,
+	// giving the inline diff its "after" lines to highlight; once hunks are
+	// accepted/rejected it reflects those decisions instantly. Otherwise it is
+	// the raw on-disk content. This is a pure function of the query cache and the
+	// review state — no imperative cache writes drive the display.
+	const displayedContent = useMemo(() => {
+		if (!activePendingChange) return content;
+		const resolution = resolveReviewContent({
+			action: activePendingChange.action,
+			beforeContent: activePendingChange.beforeContent,
+			agentAfterContent: activePendingChange.afterContent,
+			liveContent: content,
+			hunkStatuses: activePendingChange.hunkStatuses,
+			finalizing: false,
+		});
+		return resolution.action === 'delete' ? content : resolution.content;
+	}, [activePendingChange, content]);
+
+	// Track local editor edits (in-flight typing). Highest precedence so a
+	// background refetch never clobbers what the user is typing.
 	const [localEditorContent, setLocalEditorContent] = useState<string>();
 
-	// Reset local edits when server content changes, but only when the
-	// query has finished loading. While loading, `content` is '' (the
-	// default) which would incorrectly wipe in-progress edits.
-	const [previousContent, setPreviousContent] = useState(content);
-	if (!isLoadingContent && content !== previousContent) {
-		setPreviousContent(content);
+	// Reset local edits when the displayed base content changes (agent revision,
+	// collaborator edit, save) or when switching files — but only once the query
+	// has finished loading, since while loading `content` is '' and would wipe
+	// in-progress edits. Keyed on activeFile too so switching between two files
+	// with identical content still drops the previous file's buffer.
+	const [previousBase, setPreviousBase] = useState<{ file: string | undefined; content: string }>({
+		file: activeFile,
+		content: displayedContent,
+	});
+	if (!isLoadingContent && (previousBase.file !== activeFile || previousBase.content !== displayedContent)) {
+		setPreviousBase({ file: activeFile, content: displayedContent });
 		setLocalEditorContent(undefined);
 	}
 
-	const editorContent = localEditorContent ?? content ?? '';
+	const editorContent = localEditorContent ?? displayedContent ?? '';
 	const changeReview = useChangeReview({
 		projectId,
 		getLiveContent: (path) => (path === activeFile ? editorContent : undefined),
 	});
 
-	// Compute inline diff data for the active file (if it has a pending AI change).
-	const activePendingChange = activeFile ? pendingChanges.get(activeFile) : undefined;
-	const hasActiveDiff = activePendingChange?.status === 'pending' && activePendingChange.action !== 'move';
-
+	// Compute inline diff decorations for the active file (if it has a pending AI
+	// change). editorContent already equals the after/resolved content, so this
+	// renders a straight before -> displayed diff.
 	const activeDiffData = useMemo(() => {
-		if (!activeFile) return;
-		const pendingChange = pendingChanges.get(activeFile);
-		if (!pendingChange || pendingChange.status !== 'pending') return;
-		return computeRebasedDiffData(pendingChange.beforeContent, pendingChange.afterContent, editorContent);
-	}, [activeFile, pendingChanges, editorContent]);
+		if (!activePendingChange || activePendingChange.status !== 'pending') return;
+		return computeRebasedDiffData(activePendingChange.beforeContent, activePendingChange.afterContent, editorContent);
+	}, [activePendingChange, editorContent]);
 
 	// Synchronously initialize per-hunk statuses when a diff is first displayed.
-	// Uses the render-time setState pattern (like previousContent above) to avoid
+	// Uses the render-time setState pattern (like previousBase above) to avoid
 	// a one-frame gap where hunkStatuses is [] while changeGroups is non-empty.
 	if (activeFile && activeDiffData && activePendingChange && activePendingChange.hunkStatuses.length === 0) {
 		const changeGroups = groupHunksIntoChanges(activeDiffData.hunks);

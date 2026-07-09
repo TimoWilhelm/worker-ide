@@ -63,8 +63,9 @@ export function useSnapshots({ projectId, enabled = true }: UseSnapshotsOptions)
 			return response.json();
 		},
 		onSuccess: async () => {
-			// Force refetch (not just invalidate) so files that the project socket hook
-			// skips (e.g. the active editor file) still get fresh content.
+			// Force an immediate refetch so the reverted on-disk content lands in the
+			// content cache (the editor's single source of truth) without waiting for
+			// stale times to expire.
 			await queryClient.refetchQueries({ queryKey: ['files', projectId] });
 			await queryClient.refetchQueries({ queryKey: ['file', projectId] });
 			// Also refresh the snapshot list itself

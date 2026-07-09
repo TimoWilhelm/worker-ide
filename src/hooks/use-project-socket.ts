@@ -38,11 +38,7 @@ function dispatchProjectUnavailable(projectId: string, status: 'not-found' | 'fo
 	globalThis.dispatchEvent(new CustomEvent('project-unavailable', { detail: { projectId, status } }));
 }
 
-function invalidateReconnectState(
-	queryClient: ReturnType<typeof useQueryClient>,
-	projectId: string,
-	activeFilePath: string | undefined,
-): void {
+function invalidateReconnectState(queryClient: ReturnType<typeof useQueryClient>, projectId: string): void {
 	void queryClient.invalidateQueries({ queryKey: ['files', projectId] });
 	void queryClient.invalidateQueries({ queryKey: ['git-status', projectId] });
 	void queryClient.invalidateQueries({ queryKey: ['git-branches', projectId] });
@@ -51,10 +47,14 @@ function invalidateReconnectState(
 	void queryClient.invalidateQueries({ queryKey: ['project-settings', projectId] });
 	void queryClient.invalidateQueries({ queryKey: ['project-meta', projectId] });
 
+	// The file-content cache is the single source of on-disk truth. Always
+	// refresh every cached file after a reconnect; in-flight local edits live
+	// in the editor's own buffer (localEditorContent) and take precedence over
+	// a background refetch, so there is nothing to protect here.
 	const fileQueries = queryClient.getQueryCache().findAll({ queryKey: ['file', projectId] });
 	for (const query of fileQueries) {
 		const filePath = query.queryKey[2];
-		if (typeof filePath !== 'string' || filePath === activeFilePath) continue;
+		if (typeof filePath !== 'string') continue;
 
 		void queryClient.invalidateQueries({ queryKey: ['file', projectId, filePath], exact: true });
 	}
@@ -71,7 +71,6 @@ export function useProjectSocket({ projectId, enabled = true }: UseProjectSocket
 			setLocalParticipantId: state.setLocalParticipantId,
 			setLocalParticipantColor: state.setLocalParticipantColor,
 			setConnected: state.setConnected,
-			activeFile: state.activeFile,
 		})),
 	);
 
@@ -150,17 +149,17 @@ export function useProjectSocket({ projectId, enabled = true }: UseProjectSocket
 					switch (message.type) {
 						case 'update':
 						case 'full-reload': {
-							// Invalidate queries for updated file paths, but skip
-							// the currently active file — its content is managed
-							// locally by the editor and refetching would race with
-							// unsaved edits.
-							const activeFilePath = storeActionsReference.current.activeFile;
+							// Invalidate the content query for every updated path,
+							// including the active file. The file-content cache is the
+							// single source of on-disk truth, so agent / collaborator
+							// writes must always load into it; the editor's in-flight
+							// typing buffer (localEditorContent) takes precedence over a
+							// background refetch, so there is nothing to protect here.
 							let configFileChanged = false;
 							for (const update of message.updates) {
 								if (update.path === '/package.json' || update.path === '/wrangler.jsonc') {
 									configFileChanged = true;
 								}
-								if (update.path === activeFilePath) continue;
 								void queryClientCurrent.invalidateQueries({
 									queryKey: ['file', projectIdCurrent, update.path],
 								});
@@ -339,7 +338,7 @@ export function useProjectSocket({ projectId, enabled = true }: UseProjectSocket
 					const queryClientCurrent = queryClientReference.current;
 					void flushProjectSaveQueue({ projectId: projectIdCurrent, queryClient: queryClientCurrent });
 					if (isReconnect) {
-						invalidateReconnectState(queryClientCurrent, projectIdCurrent, storeActionsReference.current.activeFile);
+						invalidateReconnectState(queryClientCurrent, projectIdCurrent);
 					}
 				},
 			);

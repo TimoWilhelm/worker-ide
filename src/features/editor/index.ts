@@ -8,4 +8,4 @@ export { GitDiffToolbar } from './components/git-diff-toolbar';
 export { useFileContent } from './hooks/use-file-content';
 
 // Diff utilities
-export { computeDiffData, computeRebasedDiffData, groupHunksIntoChanges } from './lib/diff-decorations';
+export { computeDiffData, computeRebasedDiffData, groupHunksIntoChanges, resolveReviewContent } from './lib/diff-decorations';

@@ -56,6 +56,8 @@ describe('useProjectSocket', () => {
 			participants: [],
 			pendingChanges: new Map(),
 			gitDiffView: undefined,
+			activeFile: undefined,
+			unsavedChanges: new Map(),
 		});
 	});
 
@@ -190,7 +192,7 @@ describe('useProjectSocket', () => {
 		unmount();
 	});
 
-	it('invalidates project state after reconnect without invalidating the active file content', async () => {
+	it('invalidates every cached file after reconnect, including the active file', async () => {
 		vi.useFakeTimers();
 		vi.spyOn(Math, 'random').mockReturnValue(0);
 		const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -209,7 +211,28 @@ describe('useProjectSocket', () => {
 
 		expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['files', 'project-1'] });
 		expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['file', 'project-1', '/src/inactive.ts'], exact: true });
-		expect(invalidateQueries).not.toHaveBeenCalledWith({ queryKey: ['file', 'project-1', '/src/active.ts'], exact: true });
+		expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['file', 'project-1', '/src/active.ts'], exact: true });
+		unmount();
+	});
+
+	it('invalidates the active file content on an incoming update (agent write)', async () => {
+		const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+		const invalidateQueries = vi.spyOn(queryClient, 'invalidateQueries');
+		useStore.setState({ activeFile: '/src/active.ts' });
+
+		const { unmount } = renderHook(() => useProjectSocket({ projectId: 'project-1' }), { wrapper: createWrapper(queryClient) });
+
+		const socket = FakeWebSocket.instances[0];
+		socket?.open();
+		socket?.message(
+			JSON.stringify({
+				type: 'update',
+				version: 1,
+				updates: [{ type: 'update', path: '/src/active.ts', timestamp: Date.now(), targets: [] }],
+			}),
+		);
+
+		expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['file', 'project-1', '/src/active.ts'] });
 		unmount();
 	});
 });

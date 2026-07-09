@@ -6,24 +6,34 @@ import { useStore } from '@/lib/store';
 
 import { useEditorState } from './use-editor-state';
 
+const { mockFileContent } = vi.hoisted(() => ({ mockFileContent: { current: 'old content' } }));
+
 vi.mock('@/features/agent/hooks/use-change-review', () => ({
 	useChangeReview: () => ({}),
 }));
 
-vi.mock('@/features/editor', () => ({
-	computeDiffData: vi.fn(),
-	computeRebasedDiffData: vi.fn(),
-	groupHunksIntoChanges: vi.fn(() => []),
-	useFileContent: () => ({
-		content: 'old content',
-		isLoading: false,
-		saveFile: vi.fn(),
-		isSaving: false,
-	}),
-}));
+// Use the real diff utilities (pure functions from shared) so the content
+// derivation is exercised end-to-end; only the network-backed file hook is
+// mocked, with its content configurable via `mockFileContent`.
+vi.mock('@/features/editor', async () => {
+	const actual = await vi.importActual<typeof import('@shared/review-diff')>('@shared/review-diff');
+	return {
+		computeDiffData: actual.computeDiffData,
+		computeRebasedDiffData: actual.computeRebasedDiffData,
+		groupHunksIntoChanges: actual.groupHunksIntoChanges,
+		resolveReviewContent: actual.resolveReviewContent,
+		useFileContent: () => ({
+			content: mockFileContent.current,
+			isLoading: false,
+			saveFile: vi.fn(),
+			isSaving: false,
+		}),
+	};
+});
 
 describe('useEditorState', () => {
 	beforeEach(() => {
+		mockFileContent.current = 'old content';
 		useStore.setState({
 			activeFile: '/src/app.ts',
 			openFiles: ['/src/app.ts'],
@@ -122,6 +132,95 @@ describe('useEditorState', () => {
 		expect(useStore.getState().pendingChanges.get('/src/app.ts')?.afterContent).toBe('agent content');
 		expect(useStore.getState().unsavedChanges.get('/src/app.ts')).toBe(true);
 		expect(send).toHaveBeenCalledWith({ type: 'file-edit', path: '/src/app.ts', content: 'human content' });
+
+		unmount();
+	});
+
+	it('shows the agent after-content while all hunks are pending (diff visible)', () => {
+		// On-disk content is the agent's after-content once the query has refreshed.
+		mockFileContent.current = 'agent content';
+		useStore.setState({
+			pendingChanges: new Map([
+				[
+					'/src/app.ts',
+					{
+						path: '/src/app.ts',
+						action: 'edit',
+						beforeContent: 'old content',
+						afterContent: 'agent content',
+						snapshotId: undefined,
+						status: 'pending',
+						hunkStatuses: ['pending'],
+						sessionId: 'session-1',
+					},
+				],
+			]),
+		});
+
+		const { result, unmount } = renderHook(() => useEditorState({ projectId: 'project-1' }));
+
+		expect(result.current.editorContent).toBe('agent content');
+		expect(result.current.hasActiveDiff).toBe(true);
+		expect(result.current.effectiveDiffData).toBeDefined();
+
+		unmount();
+	});
+
+	it('reverts to the before-content instantly when the hunk is rejected', () => {
+		mockFileContent.current = 'agent content';
+		useStore.setState({
+			pendingChanges: new Map([
+				[
+					'/src/app.ts',
+					{
+						path: '/src/app.ts',
+						action: 'edit',
+						beforeContent: 'old content',
+						afterContent: 'agent content',
+						snapshotId: undefined,
+						status: 'rejected',
+						hunkStatuses: ['rejected'],
+						sessionId: 'session-1',
+					},
+				],
+			]),
+		});
+
+		const { result, unmount } = renderHook(() => useEditorState({ projectId: 'project-1' }));
+
+		// Pure derivation: rejected hunk reverts the region without any cache write.
+		expect(result.current.editorContent).toBe('old content');
+
+		unmount();
+	});
+
+	it('local typing takes precedence over the derived review content', () => {
+		mockFileContent.current = 'agent content';
+		useStore.setState({
+			pendingChanges: new Map([
+				[
+					'/src/app.ts',
+					{
+						path: '/src/app.ts',
+						action: 'edit',
+						beforeContent: 'old content',
+						afterContent: 'agent content',
+						snapshotId: undefined,
+						status: 'pending',
+						hunkStatuses: ['pending'],
+						sessionId: 'session-1',
+					},
+				],
+			]),
+		});
+
+		const { result, unmount } = renderHook(() => useEditorState({ projectId: 'project-1' }));
+
+		act(() => {
+			result.current.handleEditorChange('human edit');
+		});
+
+		expect(result.current.editorContent).toBe('human edit');
 
 		unmount();
 	});
