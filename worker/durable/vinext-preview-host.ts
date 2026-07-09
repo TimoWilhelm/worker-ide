@@ -15,18 +15,23 @@
  */
 import { DurableObject, exports } from 'cloudflare:workers';
 
-import { HIDDEN_ENTRIES, STORAGE_BINDING_NAME, WORKERS_COMPATIBILITY_DATE } from '@shared/constants';
-import { fs, runWithProjectStub } from '@worker/lib/project-fs';
+import { SNAPSHOT_EXCLUDED_DIRECTORIES, STORAGE_BINDING_NAME, WORKERS_COMPATIBILITY_DATE } from '@shared/constants';
+import { runWithProjectStub } from '@worker/lib/project-fs';
 
 import { toBundleServerError } from '../lib/build-server-error';
 import { coordinatorNamespace, filesystemNamespace } from '../lib/durable-object-namespaces';
 import { toDurableObjectId } from '../lib/project-id';
 import { readBindingsConfig } from '../lib/protected-files';
 import { createSerialRunner } from '../lib/serial-runner';
+import { hashSnapshot } from '../lib/snapshot-hash';
 import { resolveStorageQuotaForProject } from '../lib/storage-quota';
 import { withSpan, type TracingSpan } from '../lib/tracing';
 import { VINEXT_PREVIEW_HEADERS } from '../lib/vinext-preview-protocol';
-import { isDevelopmentModuleRequest } from '../services/vite-host/runtime/development-module-server';
+import {
+	DEPENDENCY_PREFIX,
+	DEPENDENCY_VERSION_PARAM,
+	isDevelopmentModuleRequest,
+} from '../services/vite-host/runtime/development-module-server';
 import { getServerEntrypoint, serverModulesFromOutput } from '../services/vite-host/runtime/loader-runner';
 import { getRuntimeById } from '../services/vite-host/runtimes/registry';
 
@@ -35,9 +40,6 @@ import type { ServerError } from '@shared/types';
 
 /** The default runtime when no id is supplied (the original preview surface). */
 const DEFAULT_RUNTIME_ID = 'vinext';
-
-/** Directories never included in the build snapshot. */
-const EXCLUDED_DIRECTORIES = new Set(['node_modules', 'dist', '.git', ...HIDDEN_ENTRIES]);
 
 /**
  * Internal preview script paths, injected into the SSR HTML in this load order.
@@ -59,6 +61,24 @@ const HMR_SCRIPT_PATHS = [
 /** Path serving the runtime's browser HMR glue. */
 const HMR_GLUE_PATH = '/__vinext_hmr_glue.js';
 
+/**
+ * Cache lifetime (seconds) for the IDE's static scaffolding scripts. They change
+ * only when the IDE itself is redeployed (they sit at stable, unversioned URLs),
+ * so an hour of staleness is harmless while eliminating a per-load refetch of
+ * every scaffolding script through the single-threaded preview DO.
+ */
+const STATIC_SCRIPT_CACHE_MAX_AGE_SECONDS = 3600;
+
+/**
+ * R2 key prefix for the persistent (L2) build cache in the shared
+ * `STORAGE_BUCKET`. Deliberately outside the user-visible `projects/<id>/`
+ * scope enforced by {@link STORAGE_KEY_PREFIX}: objects here are never reachable
+ * through a project's `ObjectStorageBinding` and are not counted against its
+ * storage quota (which only lists the `projects/` prefix). Bump the version
+ * suffix to invalidate all persisted builds after a build-format change.
+ */
+const BUILD_CACHE_KEY_PREFIX = '__vinext-build-cache__/v1/';
+
 export class VinextPreviewHost extends DurableObject<Env> {
 	/**
 	 * Warm builds keyed by snapshot hash. Capped — only recent builds kept. These
@@ -72,6 +92,24 @@ export class VinextPreviewHost extends DurableObject<Env> {
 	private runtimeId = DEFAULT_RUNTIME_ID;
 	/** Lazily-loaded HMR script sources (`path → source`). */
 	private hmrScripts?: Record<string, string>;
+	/**
+	 * In-flight snapshot collection, shared by concurrent callers. A single page
+	 * load fires the HTML navigation plus many asset/module subrequests almost
+	 * simultaneously; without coalescing, each would read the entire project tree
+	 * into its own heap copy over cross-DO fs RPC. Single-flighting bounds peak
+	 * isolate memory to one snapshot and avoids redundant full-tree reads. Cleared
+	 * as soon as the collection settles, so the next request re-reads fresh state
+	 * (no staleness — an edit lands as a new request after this burst resolves).
+	 */
+	private snapshotInFlight?: Promise<Record<string, string>>;
+	/**
+	 * Server environment (Cloudflare bindings) memoized by build cache key. The
+	 * bindings derive from `wrangler.jsonc`, which is part of the snapshot the
+	 * cache key hashes, so a config change yields a new key and re-resolves. This
+	 * spares every route render (HTML, `/?_rsc`, assets) a redundant cross-DO
+	 * `wrangler.jsonc` read and D1 quota lookup.
+	 */
+	private serverEnvironmentMemo?: { cacheKey: string; environment: Record<string, unknown> };
 	/** Whether the coordinator has been told this project uses the surface preview. */
 	private coordinatorMarked = false;
 	/**
@@ -95,6 +133,7 @@ export class VinextPreviewHost extends DurableObject<Env> {
 		this.projectRoot = request.headers.get(VINEXT_PREVIEW_HEADERS.projectRoot) ?? this.projectRoot;
 		this.runtimeId = request.headers.get(VINEXT_PREVIEW_HEADERS.runtimeId) ?? this.runtimeId;
 		const ideOrigin = request.headers.get(VINEXT_PREVIEW_HEADERS.ideOrigin) ?? '';
+		const snapshotHashHint = request.headers.get(VINEXT_PREVIEW_HEADERS.snapshotHash) ?? undefined;
 
 		// Mark this project so the coordinator drives preview HMR through the
 		// `vinext:hmr` event, letting the runtime own state preservation.
@@ -108,7 +147,7 @@ export class VinextPreviewHost extends DurableObject<Env> {
 		}
 
 		const filesystemStub = filesystemNamespace.get(toDurableObjectId(filesystemNamespace, this.projectId));
-		return runWithProjectStub(filesystemStub, () => this.serve(request, ideOrigin), this.projectRoot);
+		return runWithProjectStub(filesystemStub, () => this.serve(request, ideOrigin, snapshotHashHint), this.projectRoot);
 	}
 
 	private markPreview(): Promise<void> {
@@ -133,7 +172,14 @@ export class VinextPreviewHost extends DurableObject<Env> {
 					'vinext.buildForDeploy',
 					async () => {
 						const snapshot = await this.collectSnapshot();
-						return this.runExclusive(() => this.env.VITE_HOST.build(snapshot, this.runtimeId, { hostDevelopment: false }));
+						const serialized = await this.runExclusive(() =>
+							this.env.VITE_HOST.build(snapshot, this.runtimeId, { hostDevelopment: false }),
+						);
+						const build = parseRuntimeBuild(JSON.parse(serialized));
+						if (build === undefined) {
+							throw new Error('vite-host returned a malformed build payload');
+						}
+						return build;
 					},
 					{ 'project.id': projectId, 'runtime.id': runtimeId },
 				),
@@ -141,9 +187,9 @@ export class VinextPreviewHost extends DurableObject<Env> {
 		);
 	}
 
-	private serve(request: Request, ideOrigin: string): Promise<Response> {
+	private serve(request: Request, ideOrigin: string, snapshotHashHint?: string): Promise<Response> {
 		const url = new URL(request.url);
-		return withSpan('vinext.serve', () => this.serveTraced(request, url, ideOrigin), {
+		return withSpan('vinext.serve', () => this.serveTraced(request, url, ideOrigin, snapshotHashHint), {
 			'project.id': this.projectId,
 			'runtime.id': this.runtimeId,
 			'request.path': url.pathname,
@@ -151,13 +197,13 @@ export class VinextPreviewHost extends DurableObject<Env> {
 		});
 	}
 
-	private async serveTraced(request: Request, url: URL, ideOrigin: string): Promise<Response> {
+	private async serveTraced(request: Request, url: URL, ideOrigin: string, snapshotHashHint?: string): Promise<Response> {
 		if (HMR_SCRIPT_PATHS.includes(url.pathname)) {
 			const scripts = await this.getHmrScripts();
-			return scriptResponse(scripts[url.pathname]);
+			return scriptResponse(scripts[url.pathname], 'static');
 		}
 		if (url.pathname === HMR_GLUE_PATH) {
-			return scriptResponse(this.runtime.hmrGlue());
+			return scriptResponse(this.runtime.hmrGlue(), 'static');
 		}
 
 		try {
@@ -174,17 +220,24 @@ export class VinextPreviewHost extends DurableObject<Env> {
 					{ 'module.path': url.pathname },
 				);
 				if (code !== undefined) {
-					return scriptResponse(code);
+					// A dependency URL carries a cache token (`?v=`): its content is stable
+					// for that token, so the browser caches it immutably and stops
+					// re-requesting it on every load (which otherwise serialize behind this
+					// single-threaded DO). User client modules stay no-cache — they change
+					// on edit and must always reflect the latest source.
+					const cacheable = url.pathname.startsWith(DEPENDENCY_PREFIX) && url.searchParams.has(DEPENDENCY_VERSION_PARAM);
+					return scriptResponse(code, cacheable ? 'immutable' : 'no-cache');
 				}
 			}
 
-			const { build, cacheKey } = await this.buildForCurrentSnapshot();
-			const serverEnvironment = await withSpan('vinext.resolveEnv', () => this.resolveServerEnvironment());
+			const { build, cacheKey } = await this.buildForCurrentSnapshot(snapshotHashHint);
+			const serverEnvironment = await withSpan('vinext.resolveEnv', () => this.resolveServerEnvironment(cacheKey));
 			const response = await withSpan('vinext.route', () =>
 				this.runtime.route(request, {
 					clientOutput: build.clientOutput,
 					projectRoot: this.projectRoot,
 					getServer: this.serverFactory(build, cacheKey, serverEnvironment),
+					buildId: cacheKey,
 				}),
 			);
 			// A server-side render error is returned by the framework as a normal
@@ -212,7 +265,16 @@ export class VinextPreviewHost extends DurableObject<Env> {
 	 * React-SPA preview path: the curated `STORAGE` R2 binding is provided via the
 	 * `ObjectStorageBinding` entrypoint when enabled in the project's bindings config.
 	 */
-	private async resolveServerEnvironment(): Promise<Record<string, unknown>> {
+	private async resolveServerEnvironment(cacheKey: string): Promise<Record<string, unknown>> {
+		if (this.serverEnvironmentMemo?.cacheKey === cacheKey) {
+			return this.serverEnvironmentMemo.environment;
+		}
+		const environment = await this.resolveServerEnvironmentUncached();
+		this.serverEnvironmentMemo = { cacheKey, environment };
+		return environment;
+	}
+
+	private async resolveServerEnvironmentUncached(): Promise<Record<string, unknown>> {
 		const bindingsConfig = await readBindingsConfig(this.projectRoot);
 		const environment: Record<string, unknown> = {};
 		if (bindingsConfig.storage) {
@@ -387,56 +449,161 @@ export class VinextPreviewHost extends DurableObject<Env> {
 	}
 
 	/** Build (or reuse) for the current project snapshot. */
-	private buildForCurrentSnapshot(): Promise<{ build: RuntimeBuild; cacheKey: string }> {
-		return withSpan('vinext.build', (span) => this.buildForCurrentSnapshotTraced(span));
+	private buildForCurrentSnapshot(snapshotHashHint?: string): Promise<{ build: RuntimeBuild; cacheKey: string }> {
+		return withSpan('vinext.build', (span) => this.buildForCurrentSnapshotTraced(span, snapshotHashHint));
 	}
 
-	private async buildForCurrentSnapshotTraced(span: TracingSpan): Promise<{ build: RuntimeBuild; cacheKey: string }> {
-		const snapshot = await this.collectSnapshot();
-		const hash = await withSpan('vinext.hashSnapshot', () => hashSnapshot(snapshot));
-		span.setAttribute('snapshot.hash', hash.slice(0, 12));
-		const cached = this.builds.get(hash);
-		if (cached !== undefined) {
+	private async buildForCurrentSnapshotTraced(
+		span: TracingSpan,
+		snapshotHashHint?: string,
+	): Promise<{ build: RuntimeBuild; cacheKey: string }> {
+		// Probe the warm build cache with a tree-free hash first: the filesystem DO
+		// hashes its own SQLite tree locally, so a cache hit serves the build
+		// WITHOUT transferring the whole project on every request. Only a miss
+		// (a genuine edit or cold DO) pays for the full snapshot fetch.
+		//
+		// The preview bootstrap already hashed the tree in its own round trip and
+		// passed the result here, so the hot path reuses it and avoids a second
+		// cross-DO hop. When absent (e.g. the deploy path), fall back to asking the
+		// filesystem DO directly.
+		const stub = filesystemNamespace.get(toDurableObjectId(filesystemNamespace, this.projectId));
+		const probeHash = snapshotHashHint ?? (await withSpan('vinext.snapshotHash', () => stub.snapshotHash(SNAPSHOT_EXCLUDED_DIRECTORIES)));
+		span.setAttribute('snapshot.hash', probeHash.slice(0, 12));
+		const probed = this.builds.get(probeHash);
+		if (probed !== undefined) {
 			span.setAttribute('cache.hit', true);
-			return { build: cached, cacheKey: `${this.projectId}:${hash}` };
+			return { build: probed, cacheKey: `${this.projectId}:${probeHash}` };
 		}
 		span.setAttribute('cache.hit', false);
+		// Miss: fetch the tree and re-hash the exact contents we build from, so the
+		// cache key is authoritative even if an edit raced the probe above.
+		const snapshot = await this.collectSnapshot();
+		const hash = await withSpan('vinext.hashSnapshot', () => hashSnapshot(snapshot));
+		const cached = this.builds.get(hash);
+		if (cached !== undefined) {
+			return { build: cached, cacheKey: `${this.projectId}:${hash}` };
+		}
 		const build = await this.runExclusive(async () => {
 			// A build queued behind another may now find this snapshot already built.
 			const existing = this.builds.get(hash);
 			if (existing !== undefined) {
 				return existing;
 			}
+			// L2: a warm build for this exact snapshot may survive DO eviction in R2.
+			// Snapshot-hash keying makes this staleness-proof — any edit yields a new
+			// hash, so a hit is always the correct build for the current tree.
+			const persisted = await this.readPersistedBuild(hash);
+			if (persisted !== undefined) {
+				span.setAttribute('cache.persisted_hit', true);
+				this.rememberBuild(hash, persisted);
+				return persisted;
+			}
+			span.setAttribute('cache.persisted_hit', false);
 			// The heavy build runs in the VITE_HOST worker's isolate, not this DO.
 			// Bracket it with a preview-only rebuild signal so the IDE can show a
 			// rebuilding indicator for the duration of this (slow) vinext build.
 			void this.broadcastRebuildStatus('start');
-			let built: RuntimeBuild;
+			let serialized: string;
 			try {
-				built = await this.env.VITE_HOST.build(snapshot, this.runtimeId, { hostDevelopment: true });
+				serialized = await this.env.VITE_HOST.build(snapshot, this.runtimeId, { hostDevelopment: true });
 			} finally {
 				void this.broadcastRebuildStatus('end');
 			}
-			this.builds.set(hash, built);
-			// Keep only the two most recent (lightweight) builds to bound memory.
-			while (this.builds.size > 2) {
-				const oldest = this.builds.keys().next().value;
-				if (oldest === undefined) break;
-				this.builds.delete(oldest);
+			const built = parseRuntimeBuild(JSON.parse(serialized));
+			if (built === undefined) {
+				throw new Error('vite-host returned a malformed build payload');
 			}
+			this.rememberBuild(hash, built);
+			// Persist to R2 so a future cold DO skips the slow rebuild. Fire-and-forget:
+			// a failed/slow write must never block serving this already-built preview.
+			// Reuse the exact string vite-host sent — no re-serialization.
+			this.persistBuild(hash, serialized);
 			return built;
 		});
 		return { build, cacheKey: `${this.projectId}:${hash}` };
 	}
 
+	/** Insert a build into the in-memory cache, evicting to keep at most two. */
+	private rememberBuild(hash: string, build: RuntimeBuild): void {
+		this.builds.set(hash, build);
+		// Keep only the two most recent (lightweight) builds to bound memory.
+		while (this.builds.size > 2) {
+			const oldest = this.builds.keys().next().value;
+			if (oldest === undefined) break;
+			this.builds.delete(oldest);
+		}
+	}
+
+	/** R2 object key for a persisted build, scoped by project + runtime + snapshot hash. */
+	private persistedBuildKey(hash: string): string {
+		return `${BUILD_CACHE_KEY_PREFIX}${this.projectId}/${this.runtimeId}/${hash}.json`;
+	}
+
+	/**
+	 * Read a previously-persisted build from R2. Returns `undefined` on miss,
+	 * malformed payload, or any R2 error — every failure mode falls back to a
+	 * clean rebuild rather than risking a bad or stale preview.
+	 */
+	private readPersistedBuild(hash: string): Promise<RuntimeBuild | undefined> {
+		return withSpan('vinext.buildCache.read', async (span) => {
+			try {
+				const object = await this.env.STORAGE_BUCKET.get(this.persistedBuildKey(hash));
+				if (object === null) {
+					span.setAttribute('cache.persisted_hit', false);
+					return;
+				}
+				const parsed = parseRuntimeBuild(JSON.parse(await object.text()));
+				span.setAttribute('cache.persisted_hit', parsed !== undefined);
+				return parsed;
+			} catch {
+				span.setAttribute('cache.persisted_hit', false);
+				return;
+			}
+		});
+	}
+
+	/**
+	 * Persist a serialized build to R2 (fire-and-forget). Takes the already-
+	 * serialized JSON string (as returned by vite-host and stored in memory's
+	 * source) to avoid re-stringifying multiple MB. Keyed by snapshot hash so
+	 * writes are idempotent; a stale R2 lifecycle rule on
+	 * {@link BUILD_CACHE_KEY_PREFIX} reclaims artifacts for snapshots that stop
+	 * being requested.
+	 */
+	private persistBuild(hash: string, serialized: string): void {
+		// waitUntil (not a bare `void`) so the cache write survives the DO going
+		// idle right after responding — otherwise the put can be cancelled and the
+		// next cold open needlessly rebuilds. Best-effort: a failure just means a
+		// future miss, never a broken response.
+		this.ctx.waitUntil(
+			this.env.STORAGE_BUCKET.put(this.persistedBuildKey(hash), serialized).catch(() => {
+				// Best-effort cache write; the in-memory build already serves this request.
+			}),
+		);
+	}
+
 	/**
 	 * Collect the full project tree as a snapshot keyed by root-relative path
 	 * (e.g. `/app/page.tsx`), excluding build output and tooling directories.
+	 *
+	 * Concurrent calls (the burst of subrequests behind one navigation) share a
+	 * single in-flight collection to bound peak memory and avoid redundant
+	 * full-tree fs RPC reads; the shared promise is cleared once it settles.
 	 */
 	private collectSnapshot(): Promise<Record<string, string>> {
+		this.snapshotInFlight ??= this.collectSnapshotUncached().finally(() => {
+			this.snapshotInFlight = undefined;
+		});
+		return this.snapshotInFlight;
+	}
+
+	private collectSnapshotUncached(): Promise<Record<string, string>> {
 		return withSpan('vinext.collectSnapshot', async (span) => {
-			const files: Record<string, string> = {};
-			await this.collectInto(files, this.projectRoot, '');
+			// One cross-DO round trip: the filesystem DO walks its own SQLite-backed
+			// tree locally (~0ms per read) instead of the worker paying a readdir +
+			// readFile RPC latency per node on every preview request.
+			const stub = filesystemNamespace.get(toDurableObjectId(filesystemNamespace, this.projectId));
+			const files = await stub.collectProjectSnapshot(SNAPSHOT_EXCLUDED_DIRECTORIES);
 			let bytes = 0;
 			for (const content of Object.values(files)) {
 				bytes += content.length;
@@ -446,44 +613,60 @@ export class VinextPreviewHost extends DurableObject<Env> {
 			return files;
 		});
 	}
-
-	private async collectInto(files: Record<string, string>, directory: string, relativeBase: string): Promise<void> {
-		let entries: { name: string; isDirectory(): boolean }[];
-		try {
-			entries = await fs.readdir(directory, { withFileTypes: true });
-		} catch {
-			return;
-		}
-		await Promise.all(
-			entries.map(async (entry) => {
-				if (EXCLUDED_DIRECTORIES.has(entry.name)) {
-					return;
-				}
-				const relativePath = relativeBase ? `${relativeBase}/${entry.name}` : entry.name;
-				const fullPath = `${directory}/${entry.name}`;
-				if (entry.isDirectory()) {
-					await this.collectInto(files, fullPath, relativePath);
-					return;
-				}
-				files[`/${relativePath}`] = await fs.readFile(fullPath, 'utf8');
-			}),
-		);
-	}
 }
 
-/** A JavaScript module response with no-cache (dev modules change on edit). */
-function scriptResponse(code: string): Response {
+/**
+ * A JavaScript module response.
+ *
+ * `cache` selects the policy:
+ * - `'no-cache'` (default) — for live user modules (HMR dev modules) that change
+ *   on edit; the browser must revalidate every time so a preview never serves
+ *   stale user code.
+ * - `'static'` — for the IDE's own scaffolding scripts (HMR client glue, error
+ *   overlay, element picker, …). These are constant for a given deploy and carry
+ *   no user code, so a moderate TTL is safe and lets the browser skip refetching
+ *   them (and re-queuing behind the single-threaded preview DO) on every load.
+ */
+function scriptResponse(code: string, cache: 'no-cache' | 'static' | 'immutable' = 'no-cache'): Response {
+	const cacheControl = cacheControlForScript(cache);
 	return new Response(code, {
-		headers: { 'Content-Type': 'application/javascript', 'Cache-Control': 'no-cache' },
+		headers: { 'Content-Type': 'application/javascript', 'Cache-Control': cacheControl },
 	});
 }
 
-/** Hash a project snapshot deterministically to key the build cache. */
-async function hashSnapshot(snapshot: Record<string, string>): Promise<string> {
-	const serialized = Object.keys(snapshot)
-		.toSorted()
-		.map((path) => `${path}\u0000${snapshot[path]}`)
-		.join('\u0001');
-	const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(serialized));
-	return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+function cacheControlForScript(cache: 'no-cache' | 'static' | 'immutable'): string {
+	if (cache === 'immutable') {
+		return 'public, max-age=31536000, immutable';
+	}
+	if (cache === 'static') {
+		return `public, max-age=${STATIC_SCRIPT_CACHE_MAX_AGE_SECONDS}`;
+	}
+	return 'no-cache';
+}
+
+/** True when `value` is a plain object whose every own value is a string. */
+function isStringMap(value: unknown): value is Record<string, string> {
+	if (typeof value !== 'object' || value === null) {
+		return false;
+	}
+	return Object.values(value).every((entry) => typeof entry === 'string');
+}
+
+/**
+ * Validate a value parsed from the persistent build cache before trusting it.
+ * The R2 payload is our own JSON, but guarding the shape keeps a corrupt or
+ * format-drifted object from being served instead of triggering a clean rebuild.
+ */
+export function parseRuntimeBuild(value: unknown): RuntimeBuild | undefined {
+	if (typeof value !== 'object' || value === null) {
+		return undefined;
+	}
+	if (!('mainModule' in value) || !('serverModules' in value) || !('clientOutput' in value)) {
+		return undefined;
+	}
+	const { mainModule, serverModules, clientOutput } = value;
+	if (typeof mainModule !== 'string' || !isStringMap(serverModules) || !isStringMap(clientOutput)) {
+		return undefined;
+	}
+	return { mainModule, serverModules, clientOutput };
 }

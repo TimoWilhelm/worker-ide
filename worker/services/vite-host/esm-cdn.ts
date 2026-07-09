@@ -113,30 +113,47 @@ export function resolveEsmCdnImport(importer: string, specifier: string): string
 	}
 }
 
-/** Module-level cache of fetched esm.sh sources (URL -> source). Builds are serialized, so this persists safely across builds in the isolate. */
-const sourceCache = new Map<string, string>();
+/** Cache API namespace for esm.sh module sources (off-heap, survives isolate recycling within a colo). */
+const ESM_CDN_CACHE_NAME = 'vite-host-esm-cdn-v1';
+
+/** The Cloudflare Cache API, when available (absent in some test/non-worker contexts). */
+async function openEsmCache(): Promise<Cache | undefined> {
+	try {
+		return await caches.open(ESM_CDN_CACHE_NAME);
+	} catch {
+		return undefined;
+	}
+}
 
 /**
- * Fetch a module's source from esm.sh, following redirects, with an in-isolate
- * cache. Throws a descriptive error on a non-OK response so it surfaces in the
- * build's error overlay.
+ * Fetch a module's source from esm.sh, following redirects, cached in the
+ * Cloudflare Cache API only (off-heap, colo-managed, keyed by the immutable
+ * version-pinned URL — no in-isolate state). esm.sh serves pinned versions as
+ * immutable, so the Cache API entry never serves stale code for a pinned
+ * dependency. The write is awaited so a subsequent request in the same build
+ * observes it. Throws a descriptive error on a non-OK response so it surfaces in
+ * the build's error overlay.
  */
 export async function fetchEsmModule(url: string, fetchImplementation: typeof fetch = fetch): Promise<string> {
-	const cached = sourceCache.get(url);
-	if (cached !== undefined) {
-		return cached;
+	const cache = await openEsmCache();
+	const cachedResponse = cache === undefined ? undefined : await cache.match(url).catch(() => {});
+	if (cachedResponse !== undefined) {
+		return cachedResponse.text();
 	}
+
 	const response = await fetchImplementation(url, { redirect: 'follow' });
 	if (!response.ok) {
 		const detail = response.status === 404 ? 'package or version not found' : `${response.status} ${response.statusText}`;
 		throw new Error(`Failed to fetch "${url}" from esm.sh (${detail}).`);
 	}
 	const source = await response.text();
-	sourceCache.set(url, source);
+	// Store off-heap under our own long-lived, immutable Cache-Control so the
+	// entry is reused regardless of esm.sh's response headers. Best-effort.
+	if (cache !== undefined) {
+		const cacheable = new Response(source, {
+			headers: { 'Content-Type': 'application/javascript', 'Cache-Control': 'public, max-age=604800' },
+		});
+		await cache.put(url, cacheable).catch(() => {});
+	}
 	return source;
-}
-
-/** Reset the esm.sh source cache. Test-only. */
-export function clearEsmModuleCache(): void {
-	sourceCache.clear();
 }

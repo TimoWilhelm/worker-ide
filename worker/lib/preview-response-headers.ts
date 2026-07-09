@@ -12,6 +12,22 @@
 /** Keep preview deployments out of search indexes. */
 export const PREVIEW_ROBOTS_HEADER_VALUE = 'noindex, nofollow';
 
+/**
+ * Response headers a previewed app must never be allowed to set on the shared
+ * preview domain. Generated apps are untrusted: their responses flow straight
+ * back to the browser, so any header that grants authority over the origin (or
+ * the wider registrable domain the preview subdomains share) is stripped before
+ * the response leaves the worker.
+ *
+ * - `Service-Worker-Allowed` lets a service worker widen its scope (e.g. to
+ *   `/`), so a malicious app could register a SW that intercepts requests for
+ *   other paths/previews served from the same origin.
+ * - `Service-Worker-Navigation-Preload` is part of the same SW attack surface.
+ * - `Clear-Site-Data` can wipe cookies, storage and caches for the preview
+ *   domain, letting one app clear another user's preview session/state.
+ */
+export const STRIPPED_PREVIEW_HEADERS = ['Service-Worker-Allowed', 'Service-Worker-Navigation-Preload', 'Clear-Site-Data'] as const;
+
 export interface PreviewResponseContext {
 	ideOrigin: string;
 }
@@ -51,9 +67,18 @@ export function applyPreviewResponseMiddlewares(
 	context: PreviewResponseContext,
 	middlewares: PreviewResponseMiddleware[],
 ): Response {
-	if (response.status === 101) return response;
+	// WebSocket upgrade responses cannot be reconstructed (no body, immutable
+	// headers) and never carry the stripped headers, so pass them through as-is.
+	if (response.status === 101 || response.headers.get('Upgrade')?.toLowerCase() === 'websocket') return response;
 
 	const headers = new Headers(response.headers);
+
+	// Strip headers a previewed app must not be able to set on the shared preview
+	// origin before running any other middleware.
+	for (const name of STRIPPED_PREVIEW_HEADERS) {
+		headers.delete(name);
+	}
+
 	for (const middleware of middlewares) {
 		middleware(headers, response, context);
 	}

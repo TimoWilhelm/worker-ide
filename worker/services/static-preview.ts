@@ -26,6 +26,7 @@ import { BundleDependencyError } from './bundler-client';
 import { parseDependencyErrorsFromMessage } from './dependency-error-parser';
 import { processHTML, rewriteExternalModuleImports, toEsbuildTsconfigRaw, transformModule, type FileSystem } from './transform-service';
 import { coordinatorNamespace } from '../lib/durable-object-namespaces';
+import { stripPreviewRequestCredentials } from '../lib/preview-request-headers';
 import {
 	applyAssetSecurityHeaders,
 	applyPreviewResponseMiddlewares,
@@ -443,9 +444,7 @@ export class StaticReactPreview {
 			const apiUrl = new URL(request.url);
 			apiUrl.pathname = apiPath;
 			const apiRequest = new Request(apiUrl.toString(), request);
-			for (const headerName of ['authorization', 'cookie', 'proxy-authorization']) {
-				apiRequest.headers.delete(headerName);
-			}
+			stripPreviewRequestCredentials(apiRequest.headers);
 
 			const entrypoint = worker.getEntrypoint();
 			const response = await entrypoint.fetch(apiRequest);

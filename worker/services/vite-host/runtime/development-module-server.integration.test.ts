@@ -47,8 +47,9 @@ describe('dev module server', () => {
 		expect(code).toContain('__preview_hot__');
 		expect(code).toContain('$RefreshReg$(Counter, "Counter")');
 		expect(code).toContain('__preview_hot__.accept()');
-		// React imports rewritten to the shared dev-dependency URL (single instance).
-		expect(code).toContain('/@vinext-client-dep/react');
+		// React imports rewritten to the shared dev-dependency URL (single instance),
+		// tagged with the runtime cache token so the browser caches it immutably.
+		expect(code).toContain('/@vinext-client-dep/react?v=r1');
 		expect(code).not.toMatch(/from\s*["']react["']/);
 	}, 180_000);
 

@@ -1,14 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
-import {
-	buildEsmCdnUrl,
-	clearEsmModuleCache,
-	ESM_CDN_ORIGIN,
-	fetchEsmModule,
-	isEsmCdnExcluded,
-	readDependencyVersions,
-	resolveEsmCdnImport,
-} from './esm-cdn';
+import { buildEsmCdnUrl, ESM_CDN_ORIGIN, fetchEsmModule, isEsmCdnExcluded, readDependencyVersions, resolveEsmCdnImport } from './esm-cdn';
 import { MemoryFileSystem } from './node-fs/memory-file-system';
 
 describe('readDependencyVersions', () => {
@@ -87,10 +79,6 @@ describe('resolveEsmCdnImport', () => {
 });
 
 describe('fetchEsmModule', () => {
-	beforeEach(() => {
-		clearEsmModuleCache();
-	});
-
 	it('fetches source and caches by URL (one network call per URL)', async () => {
 		const fetchImplementation = vi.fn(async () => new Response('export default 1;', { status: 200 }));
 		const url = `${ESM_CDN_ORIGIN}/react-confetti@6.4.1?x`;

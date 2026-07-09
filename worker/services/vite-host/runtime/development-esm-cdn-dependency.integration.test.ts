@@ -13,7 +13,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { serveDevelopmentModule } from './development-module-server';
 import { ensureEsbuild } from '../esbuild-runtime';
-import { clearEsmModuleCache } from '../esm-cdn';
 import { MemoryFileSystem } from '../node-fs/memory-file-system';
 
 const IS_EVEN_MARKER = 'is_even_marker_a91f2';
@@ -32,7 +31,6 @@ const PACKAGE_JSON = JSON.stringify({
 
 describe('dev module server esm.sh dependency fallback', () => {
 	beforeEach(() => {
-		clearEsmModuleCache();
 		vi.stubGlobal(
 			'fetch',
 			vi.fn(async (input: RequestInfo | URL) => {
@@ -62,6 +60,22 @@ describe('dev module server esm.sh dependency fallback', () => {
 
 		const fetchedUrls = vi.mocked(globalThis.fetch).mock.calls.map((call) => String(call[0]));
 		expect(fetchedUrls.some((url) => url.includes('esm.sh') && url.includes('is-even'))).toBe(true);
+	}, 120_000);
+
+	it('serves a second request for the same dependency from the Cache API without re-fetching', async () => {
+		const esbuild = await ensureEsbuild();
+		const fileSystem = MemoryFileSystem.fromSnapshot({ '/package.json': PACKAGE_JSON });
+		const path = `/@vinext-client-dep/${encodeURIComponent('is-even')}`;
+
+		const first = await serveDevelopmentModule(path, { esbuild, fileSystem });
+		expect(first?.code).toContain(IS_EVEN_MARKER);
+		const fetchCallsAfterFirst = vi.mocked(globalThis.fetch).mock.calls.length;
+		expect(fetchCallsAfterFirst).toBeGreaterThan(0);
+
+		const second = await serveDevelopmentModule(path, { esbuild, fileSystem });
+		expect(second?.code).toBe(first?.code);
+		// The bundle came from the Cache API: no additional esm.sh fetch.
+		expect(vi.mocked(globalThis.fetch).mock.calls.length).toBe(fetchCallsAfterFirst);
 	}, 120_000);
 
 	it('returns undefined for an unregistered dependency (not in package.json)', async () => {

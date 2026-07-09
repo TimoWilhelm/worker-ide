@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { withSpan } from './tracing';
+import { runWithTracing, withSpan } from './tracing';
 
 describe('withSpan', () => {
 	it('returns the callback result', async () => {
@@ -38,5 +38,36 @@ describe('withSpan', () => {
 			{ 'test.number': 1, 'test.string': 'x', 'test.bool': true, 'test.skipped': undefined },
 		);
 		expect(result).toBe(true);
+	});
+});
+
+describe('runWithTracing', () => {
+	class FakeSpan {
+		get isTraced(): boolean {
+			return true;
+		}
+		setAttribute(): void {}
+	}
+
+	function fakeTracing(recorded: string[]): Tracing {
+		return {
+			enterSpan(name, callback, ...arguments_) {
+				recorded.push(name);
+				return callback(new FakeSpan(), ...arguments_);
+			},
+			Span: FakeSpan,
+		};
+	}
+
+	it('runs the function and returns its result with an undefined handle', async () => {
+		const result = await runWithTracing(undefined, () => withSpan('test.noop', () => 7));
+		expect(result).toBe(7);
+	});
+
+	it('records nested withSpan calls via the provided handle (RPC entrypoint context)', async () => {
+		const recorded: string[] = [];
+		const result = await runWithTracing(fakeTracing(recorded), () => withSpan('outer', () => withSpan('inner', () => 'ok')));
+		expect(result).toBe('ok');
+		expect(recorded).toStrictEqual(['outer', 'inner']);
 	});
 });

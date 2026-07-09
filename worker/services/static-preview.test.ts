@@ -75,6 +75,7 @@ vi.mock('cloudflare:workers', () => ({
 		LogTailer: mocks.logTailer,
 		ObjectStorageBinding: mocks.objectStorageBinding,
 	},
+	tracing: undefined,
 }));
 vi.mock('../lib/protected-files', () => ({
 	readBindingsConfig: mocks.readBindingsConfig,

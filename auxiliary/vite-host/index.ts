@@ -11,9 +11,7 @@
  */
 import { WorkerEntrypoint } from 'cloudflare:workers';
 
-import { withSpan } from '@worker/lib/tracing';
-
-import type { RuntimeBuild } from '@worker/services/vite-host/runtimes/types';
+import { runWithTracing, withSpan } from '@worker/lib/tracing';
 
 /**
  * Load the build engine lazily, on first use. Its module graph is large (the
@@ -38,18 +36,32 @@ export default class ViteHostWorker extends WorkerEntrypoint {
 	 * Build a project snapshot into a routable server module set + client output.
 	 * `hostDevelopment` selects the preview build (unbundled, HMR-able client
 	 * references) over the production deploy build (fully bundled, standalone).
+	 *
+	 * Returns the build as a pre-serialized JSON string, NOT a {@link RuntimeBuild}
+	 * object. The build is a `Record<string, string>` of many module sources
+	 * (multiple MB); returning it as a structured object forces the Workers RPC
+	 * layer to structured-clone every property recursively, which measured at
+	 * ~14s for a ~5 MB payload (vs ~0.5s to move the same bytes through R2).
+	 * Serializing to a single string here collapses that to one clone primitive,
+	 * and the caller parses it back (and can persist the exact string verbatim).
 	 */
-	async build(snapshot: Record<string, string>, runtimeId: string, options: { hostDevelopment: boolean }): Promise<RuntimeBuild> {
-		return withSpan(
-			'vitehost.build',
-			async () => {
-				if (runtimeId !== 'vinext') {
-					throw new Error(`Unsupported build runtime: ${runtimeId}`);
-				}
-				const { buildVinext } = await loadEngine();
-				return buildVinext(snapshot, options);
-			},
-			{ 'runtime.id': runtimeId, 'host.development': options.hostDevelopment, 'snapshot.file_count': Object.keys(snapshot).length },
+	async build(snapshot: Record<string, string>, runtimeId: string, options: { hostDevelopment: boolean }): Promise<string> {
+		// RPC methods are not "handler" invocations, so the `cloudflare:workers`
+		// `tracing` global is unbound here — bind `ctx.tracing` for the call so the
+		// build's nested `withSpan` calls actually record spans (see `runWithTracing`).
+		return runWithTracing(this.ctx.tracing, () =>
+			withSpan(
+				'vitehost.build',
+				async () => {
+					if (runtimeId !== 'vinext') {
+						throw new Error(`Unsupported build runtime: ${runtimeId}`);
+					}
+					const { buildVinext } = await loadEngine();
+					const build = await buildVinext(snapshot, options);
+					return withSpan('vitehost.serialize', () => JSON.stringify(build));
+				},
+				{ 'runtime.id': runtimeId, 'host.development': options.hostDevelopment, 'snapshot.file_count': Object.keys(snapshot).length },
+			),
 		);
 	}
 
@@ -59,13 +71,15 @@ export default class ViteHostWorker extends WorkerEntrypoint {
 	 * dev module the server produces.
 	 */
 	async serveDevelopmentModule(pathname: string, snapshot: Record<string, string>): Promise<string | undefined> {
-		return withSpan(
-			'vitehost.serveDevModule',
-			async () => {
-				const { serveVinextDevelopmentModule } = await loadEngine();
-				return serveVinextDevelopmentModule(pathname, snapshot);
-			},
-			{ 'module.path': pathname },
+		return runWithTracing(this.ctx.tracing, () =>
+			withSpan(
+				'vitehost.serveDevModule',
+				async () => {
+					const { serveVinextDevelopmentModule } = await loadEngine();
+					return serveVinextDevelopmentModule(pathname, snapshot);
+				},
+				{ 'module.path': pathname },
+			),
 		);
 	}
 }

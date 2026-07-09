@@ -37,6 +37,7 @@ import {
 	readPreviewAccessGrant,
 	serializePreviewAccessCookie,
 } from './lib/preview-access';
+import { PREVIEW_BOOTSTRAP_INPUTS } from './lib/preview-bootstrap';
 import { DEV_PREVIEW_SECRET } from './lib/preview-secret';
 import { runWithProjectStub } from './lib/project-fs';
 import { generateProjectId, toDurableObjectId } from './lib/project-id';
@@ -900,7 +901,29 @@ async function handlePreviewRequest(request: Request, projectId: string, preview
 	}
 
 	const fsStub = filesystemNamespace.get(fsId);
-	if (!(await fsStub.projectExists())) {
+
+	// Prime the preview (existence + wrangler + runtime probe) in a SINGLE cross-DO
+	// round trip, concurrently with the D1 gating query. Both are always needed
+	// before serving, and the bootstrap replaces the previous sequential
+	// `projectExists()` + per-asset tree reads.
+	const previewDatabase = drizzle(env.DB, { schema: authSchema });
+	const [previewBootstrap, previewProjectRow] = await Promise.all([
+		fsStub.collectPreviewBootstrap(PREVIEW_BOOTSTRAP_INPUTS),
+		previewDatabase
+			.select({
+				deletedAt: authSchema.project.deletedAt,
+				projectBannedAt: authSchema.project.bannedAt,
+				orgBannedAt: authSchema.organization.bannedAt,
+				previewVisibility: authSchema.project.previewVisibility,
+				organizationId: authSchema.project.organizationId,
+			})
+			.from(authSchema.project)
+			.leftJoin(authSchema.organization, eq(authSchema.project.organizationId, authSchema.organization.id))
+			.where(eq(authSchema.project.id, projectId))
+			.limit(1),
+	]);
+
+	if (!previewBootstrap.exists) {
 		return trackAndReturn(
 			errorPage({
 				heading: 'Project not found',
@@ -910,21 +933,6 @@ async function handlePreviewRequest(request: Request, projectId: string, preview
 			}),
 		);
 	}
-
-	// Block soft-deleted and banned projects from being previewed (single query)
-	const previewDatabase = drizzle(env.DB, { schema: authSchema });
-	const previewProjectRow = await previewDatabase
-		.select({
-			deletedAt: authSchema.project.deletedAt,
-			projectBannedAt: authSchema.project.bannedAt,
-			orgBannedAt: authSchema.organization.bannedAt,
-			previewVisibility: authSchema.project.previewVisibility,
-			organizationId: authSchema.project.organizationId,
-		})
-		.from(authSchema.project)
-		.leftJoin(authSchema.organization, eq(authSchema.project.organizationId, authSchema.organization.id))
-		.where(eq(authSchema.project.id, projectId))
-		.limit(1);
 
 	if (previewProjectRow.length === 0) {
 		return trackAndReturn(
@@ -1037,9 +1045,10 @@ async function handlePreviewRequest(request: Request, projectId: string, preview
 		}
 
 		const previewService = await getPreviewService(PROJECT_ROOT, projectId);
+		previewService.applyBootstrap(previewBootstrap);
 		const assetSettings = await previewService.loadAssetSettings();
 
-		return previewService.routePreviewRequest(request, appOrigin, assetSettings);
+		return previewService.routePreviewRequest(request, appOrigin, assetSettings, previewBootstrap.snapshotHash);
 	});
 
 	return trackAndReturn(response, previewVisibility);

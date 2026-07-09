@@ -13,4 +13,10 @@ export const VINEXT_PREVIEW_HEADERS = {
 	ideOrigin: 'x-vinext-ide-origin',
 	/** The framework runtime id (from the registry) that claimed this project. */
 	runtimeId: 'x-vinext-runtime-id',
+	/**
+	 * Build-cache hash of the current tree, computed upstream in the preview
+	 * bootstrap. Lets the host probe its warm build cache without a second
+	 * cross-DO hop for the hash.
+	 */
+	snapshotHash: 'x-vinext-snapshot-hash',
 } as const;

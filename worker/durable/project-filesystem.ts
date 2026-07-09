@@ -3,10 +3,12 @@ import { DurableObject } from 'cloudflare:workers';
 
 import { GitService } from './git-service';
 import { generateProjectId } from '../lib/project-id';
+import { hashSnapshot } from '../lib/snapshot-hash';
 import { withSpan } from '../lib/tracing';
 import { WorkspaceFsAdapter } from '../lib/workspace-fs-adapter';
 
 import type { GitAuthor, GitStatusResponse } from './git-service';
+import type { PreviewBootstrap, PreviewBootstrapInputs } from '../lib/preview-bootstrap';
 import type { FileInfo, FileStat, WorkspaceChangeEvent } from '@cloudflare/shell';
 import type { GitBranchInfo, GitCommitEntry, GitFileDiff, GitMergeResult } from '@shared/types';
 
@@ -250,6 +252,78 @@ export class ProjectFilesystem extends DurableObject<Env> {
 		if (this.ctx.storage.kv.get<boolean>('initialized')) return true;
 		const info = await this.workspace.getWorkspaceInfo().catch(() => {});
 		return Boolean(info && info.fileCount > 0);
+	}
+
+	/**
+	 * Prime a preview request in a single round trip.
+	 *
+	 * Reads existence + `wrangler.jsonc` + the runtime detection probe LOCALLY
+	 * (SQLite reads are ~0ms in the DO) and returns the whole snapshot at once,
+	 * so the worker pays one cross-DO latency instead of ~7 sequential ones.
+	 * See {@link PreviewBootstrapInputs} for the contract; the worker interprets
+	 * the raw snapshot via `buildDetectionProbe`.
+	 */
+	async collectPreviewBootstrap(inputs: PreviewBootstrapInputs): Promise<PreviewBootstrap> {
+		const [exists, wranglerJsonc, packageJson, indexHtml, snapshotHash, ...directoryEntries] = await Promise.all([
+			this.projectExists(),
+			this.workspace.readFile(inputs.wranglerPath).then((value) => value ?? undefined),
+			this.workspace.readFile(inputs.packageJsonPath).then((value) => value ?? undefined),
+			this.workspace.readFile(inputs.indexHtmlPath).then((value) => value ?? undefined),
+			hashSnapshot(await this.buildSnapshotRecord(inputs.excludedDirectories)),
+			...inputs.routerDirectories.map((directory) => this.workspace.readDir(`/${directory}`).catch(() => [])),
+		]);
+		const routerFirstEntries: Record<string, string | undefined> = {};
+		for (const [index, directory] of inputs.routerDirectories.entries()) {
+			routerFirstEntries[directory] = directoryEntries[index][0]?.name;
+		}
+		return { exists, wranglerJsonc, packageJson, indexHtml, routerFirstEntries, snapshotHash };
+	}
+
+	/**
+	 * Collect the project's text file tree in a single round trip.
+	 *
+	 * Walks the Workspace LOCALLY (SQLite reads are ~0ms in the DO) and returns
+	 * every file keyed by its root-relative path, skipping any path whose segments
+	 * include an excluded directory (`node_modules`, `dist`, `.git`, …). This
+	 * replaces the preview worker walking the tree with one cross-DO readdir +
+	 * readFile per node — hundreds of ms of serial RPC latency on every request.
+	 */
+	async collectProjectSnapshot(excludedDirectories: readonly string[]): Promise<Record<string, string>> {
+		return withSpan('fs.collectProjectSnapshot', () => this.buildSnapshotRecord(excludedDirectories));
+	}
+
+	/**
+	 * The snapshot's build-cache hash WITHOUT transferring the tree.
+	 *
+	 * Computed locally (SQLite reads are ~0ms in the DO) so the preview worker can
+	 * probe its warm build cache cheaply: on a hit it skips fetching the whole
+	 * tree entirely, and only calls {@link collectProjectSnapshot} on a miss. The
+	 * hash is identical to `hashSnapshot(collectProjectSnapshot(...))`.
+	 */
+	async snapshotHash(excludedDirectories: readonly string[]): Promise<string> {
+		return withSpan('fs.snapshotHash', async () => hashSnapshot(await this.buildSnapshotRecord(excludedDirectories)));
+	}
+
+	private async buildSnapshotRecord(excludedDirectories: readonly string[]): Promise<Record<string, string>> {
+		const excluded = new Set(excludedDirectories);
+		const paths = await this.workspace._getAllPaths();
+		const files: Record<string, string> = {};
+		await Promise.all(
+			paths.map(async (path) => {
+				if (path.split('/').some((segment) => excluded.has(segment))) {
+					return;
+				}
+				const info = await this.workspace.stat(path);
+				if (!info || info.type !== 'file') {
+					return;
+				}
+				const content = (await this.workspace.readFile(path)) ?? undefined;
+				if (content !== undefined) {
+					files[path] = content;
+				}
+			}),
+		);
+		return files;
 	}
 
 	async writeFileContent(path: string, content: string): Promise<void> {

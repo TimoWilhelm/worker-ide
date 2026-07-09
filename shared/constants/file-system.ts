@@ -75,3 +75,11 @@ export const TRANSFORM_TO_JS_MODULE_EXTENSIONS = new Set([
 	'.md',
 ]);
 export const HIDDEN_ENTRIES = new Set(['.initialized', '.agent', '.git']);
+
+/**
+ * Directories never included in a build snapshot (or its hash). Shared so the
+ * preview bootstrap hash (computed in the filesystem DO) matches the hash the
+ * preview host would compute — the two MUST agree for the passed-through hash to
+ * select the correct warm build.
+ */
+export const SNAPSHOT_EXCLUDED_DIRECTORIES: readonly string[] = ['node_modules', 'dist', '.git', ...HIDDEN_ENTRIES];

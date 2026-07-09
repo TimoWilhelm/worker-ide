@@ -1,6 +1,9 @@
 import { env, runInDurableObject } from 'cloudflare:test';
 import { describe, expect, it } from 'vitest';
 
+import { PREVIEW_BOOTSTRAP_INPUTS } from '../lib/preview-bootstrap';
+import { hashSnapshot } from '../lib/snapshot-hash';
+
 import type { ProjectFilesystem } from './project-filesystem';
 
 function getFilesystemStub(name: string): DurableObjectStub<ProjectFilesystem> {
@@ -46,6 +49,85 @@ describe('ProjectFilesystem writes', () => {
 		await stub.writeFileContent('/notes.txt', 'second');
 
 		expect(await readViaMount(stub, '/notes.txt')).toBe('second');
+	});
+});
+
+describe('ProjectFilesystem preview bootstrap', () => {
+	it('collects existence, wrangler, and the runtime probe in one call', async () => {
+		const stub = getFilesystemStub('test-fs-bootstrap');
+		await stub.writeFileContent('/package.json', '{\n\t"name": "app"\n}\n');
+		await stub.writeFileContent('/index.html', '<!doctype html>\n');
+		await stub.writeFileContent('/wrangler.jsonc', '{ "assets": { "not_found_handling": "single-page-application" } }');
+		await stub.writeFileContent('/app/page.tsx', 'export default () => null;\n');
+
+		const result = await stub.collectPreviewBootstrap(PREVIEW_BOOTSTRAP_INPUTS);
+
+		expect(result.exists).toBe(true);
+		expect(result.packageJson).toBe('{\n\t"name": "app"\n}\n');
+		expect(result.indexHtml).toBe('<!doctype html>\n');
+		expect(result.wranglerJsonc).toBe('{ "assets": { "not_found_handling": "single-page-application" } }');
+		expect(result.routerFirstEntries.app).toBe('page.tsx');
+		expect(result.routerFirstEntries.pages).toBeUndefined();
+		expect(result.routerFirstEntries.src).toBeUndefined();
+		// The bootstrap hash must equal the standalone snapshot hash — the preview
+		// host trusts this passed-through value to select a warm build without a
+		// second cross-DO hop.
+		expect(result.snapshotHash).toBe(await hashSnapshot(await stub.collectProjectSnapshot(PREVIEW_BOOTSTRAP_INPUTS.excludedDirectories)));
+	});
+
+	it('reports a non-existent project with undefined contents', async () => {
+		const stub = getFilesystemStub('test-fs-bootstrap-empty');
+
+		const result = await stub.collectPreviewBootstrap(PREVIEW_BOOTSTRAP_INPUTS);
+
+		expect(result.exists).toBe(false);
+		expect(result.packageJson).toBeUndefined();
+		expect(result.indexHtml).toBeUndefined();
+		expect(result.wranglerJsonc).toBeUndefined();
+		expect(result.routerFirstEntries).toEqual({ app: undefined, pages: undefined, src: undefined });
+	});
+});
+
+describe('ProjectFilesystem project snapshot', () => {
+	it('collects the whole text tree in one call, excluding build/tooling dirs', async () => {
+		const stub = getFilesystemStub('test-fs-snapshot');
+		await stub.writeFileContent('/package.json', '{\n\t"name": "app"\n}\n');
+		await stub.writeFileContent('/app/counter.tsx', 'export default () => null;\n');
+		await stub.writeFileContent('/app/nested/util.ts', 'export const x = 1;\n');
+		// Excluded: build output, dependencies, git, and hidden entries.
+		await stub.writeFileContent('/dist/bundle.js', 'ignored\n');
+		await stub.writeFileContent('/node_modules/pkg/index.js', 'ignored\n');
+		await stub.wsWriteFile('/.git/config', '[core]\n');
+
+		const snapshot = await stub.collectProjectSnapshot(['node_modules', 'dist', '.git', '.initialized', '.agent']);
+
+		expect(snapshot['/package.json']).toBe('{\n\t"name": "app"\n}\n');
+		expect(snapshot['/app/counter.tsx']).toBe('export default () => null;\n');
+		expect(snapshot['/app/nested/util.ts']).toBe('export const x = 1;\n');
+		expect(snapshot['/dist/bundle.js']).toBeUndefined();
+		expect(snapshot['/node_modules/pkg/index.js']).toBeUndefined();
+		expect(Object.keys(snapshot).some((path) => path.startsWith('/.git'))).toBe(false);
+	});
+
+	it('returns an empty snapshot for an empty project', async () => {
+		const stub = getFilesystemStub('test-fs-snapshot-empty');
+		expect(await stub.collectProjectSnapshot(['node_modules', 'dist', '.git'])).toEqual({});
+	});
+
+	it('snapshotHash equals the hash of the collected snapshot (tree-free probe) and tracks edits', async () => {
+		const stub = getFilesystemStub('test-fs-snapshot-hash');
+		const excluded = ['node_modules', 'dist', '.git', '.initialized', '.agent'];
+		await stub.writeFileContent('/package.json', '{\n\t"name": "app"\n}\n');
+		await stub.writeFileContent('/app/page.tsx', 'export default () => null;\n');
+
+		const snapshot = await stub.collectProjectSnapshot(excluded);
+		const hash = await stub.snapshotHash(excluded);
+		// The probe must match hashing the full snapshot — the worker relies on this
+		// equivalence to trust a warm build cache hit without fetching the tree.
+		expect(hash).toBe(await hashSnapshot(snapshot));
+
+		await stub.writeFileContent('/app/page.tsx', 'export default () => "changed";\n');
+		expect(await stub.snapshotHash(excluded)).not.toBe(hash);
 	});
 });
 

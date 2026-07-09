@@ -20,6 +20,8 @@ export interface AppRuntimeSources {
 	clientOutput: Record<string, string>;
 	/** The server (rsc) isolate entrypoint that handles SSR + dynamic routes. */
 	server: ServerFetcher;
+	/** Build identity (snapshot hash) used to tag client assets with an ETag for `304` revalidation. */
+	buildId?: string;
 }
 
 /**
@@ -30,7 +32,7 @@ export async function routeAppRequest(request: Request, sources: AppRuntimeSourc
 	const url = new URL(request.url);
 	const asset = resolveClientAsset(sources.clientOutput, url.pathname);
 	if (asset !== undefined) {
-		return clientAssetResponse(asset);
+		return clientAssetResponse(asset, request, sources.buildId);
 	}
 	return sources.server.fetch(request);
 }

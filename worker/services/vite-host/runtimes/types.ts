@@ -32,6 +32,8 @@ export interface RuntimeRouteContext {
 	/** Lazily instantiate (or reuse) the server isolate for this build. */
 	getServer: () => ServerFetcher;
 	projectRoot: string;
+	/** Build identity (snapshot hash) used to tag client assets with an ETag for `304` revalidation. */
+	buildId?: string;
 }
 
 /** Context handed to a stateless runtime to serve a preview request. */

@@ -8,7 +8,6 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { clearEsmModuleCache } from '../esm-cdn';
 import { ViteHost } from '../vite-host';
 import { seedVinextRuntime } from './seed-vinext-runtime';
 import { SERVER_RUNTIME_EXTERNALS } from './server-externals';
@@ -54,7 +53,6 @@ async function createVinextHost(): Promise<ViteHost> {
 
 describe('vinext esm.sh dependency fallback', () => {
 	beforeEach(() => {
-		clearEsmModuleCache();
 		vi.stubGlobal(
 			'fetch',
 			vi.fn(async (input: RequestInfo | URL) => {

@@ -36,8 +36,43 @@ import type { MemoryFileSystem } from '../node-fs/memory-file-system';
 import type { Plugin as EsbuildPlugin } from 'esbuild-wasm';
 
 const CLIENT_PREFIX = '/@vinext-client/';
-const DEPENDENCY_PREFIX = '/@vinext-client-dep/';
+export const DEPENDENCY_PREFIX = '/@vinext-client-dep/';
 const RESOLVABLE_EXTENSIONS = ['.tsx', '.ts', '.jsx', '.js', '.mjs', '.mts'];
+
+/**
+ * Query param carrying a dependency's cache token. A dev dependency at
+ * `/@vinext-client-dep/<specifier>?v=<token>` is content-stable for that token,
+ * so the browser caches it immutably and never re-requests it (see
+ * `vinext-preview-host`). The server parses only the pathname, so the token is a
+ * pure cache-buster — a new token yields a new URL rather than a stale hit.
+ */
+export const DEPENDENCY_VERSION_PARAM = 'v';
+
+/**
+ * Cache token for runtime-provided dependencies (the React/RSC family, re-exported
+ * from the client runtime's shared globals and the vendored toolchain). These are
+ * constant for a vite-host deploy and independent of any project's package.json,
+ * so a stable token maximizes browser caching AND keeps esm.sh bundles that
+ * externalize them identical across projects (preserving the shared bundle cache).
+ * Bump when the re-export shape or vendored runtime changes.
+ */
+const DEPENDENCY_RUNTIME_TOKEN = 'r1';
+
+/** The cache token for a dependency: its pinned project version, or the runtime token for the React family / toolchain. */
+function dependencyCacheToken(packageName: string, versions: Map<string, string>): string {
+	if (isEsmCdnExcluded(packageName)) {
+		return DEPENDENCY_RUNTIME_TOKEN;
+	}
+	const version = versions.get(packageName);
+	return version === undefined ? DEPENDENCY_RUNTIME_TOKEN : version;
+}
+
+/** Build the browser dev URL for a bare dependency, tagged with its cache token. */
+function dependencyUrl(specifier: string, versions: Map<string, string>): string {
+	const { packageName } = parsePackageSpecifier(specifier);
+	const token = dependencyCacheToken(packageName, versions);
+	return `${DEPENDENCY_PREFIX}${encodeURIComponent(specifier)}?${DEPENDENCY_VERSION_PARAM}=${encodeURIComponent(token)}`;
+}
 
 export interface DevelopmentModuleContext {
 	esbuild: Esbuild;
@@ -123,12 +158,17 @@ function resolveProjectModule(importer: string, specifier: string, fileSystem: M
 }
 
 /** Map an import specifier to its dev URL, or `undefined` to leave it as-is. */
-function rewriteSpecifier(specifier: string, importId: string, fileSystem: MemoryFileSystem): string | undefined {
+function rewriteSpecifier(
+	specifier: string,
+	importId: string,
+	fileSystem: MemoryFileSystem,
+	versions: Map<string, string>,
+): string | undefined {
 	if (specifier.startsWith('node:') || specifier.startsWith('/@vinext-client')) {
 		return undefined;
 	}
 	if (isBareSpecifier(specifier)) {
-		return DEPENDENCY_PREFIX + encodeURIComponent(specifier);
+		return dependencyUrl(specifier, versions);
 	}
 	const resolved = resolveProjectModule(importId, specifier, fileSystem);
 	return resolved === undefined ? undefined : developmentClientUrl(resolved);
@@ -136,13 +176,14 @@ function rewriteSpecifier(specifier: string, importId: string, fileSystem: Memor
 
 /**
  * Rewrite a client module's import specifiers to dev URLs the browser loads:
- *  - bare specifiers   → `/@vinext-client-dep/<specifier>` (bundled deps)
+ *  - bare specifiers   → `/@vinext-client-dep/<specifier>?v=<token>` (bundled deps)
  *  - relative/absolute → `/@vinext-client/<resolved project id>`
  * Handles `… from '…'`, bare `import '…'`, and dynamic `import('…')`.
  */
 function rewriteImports(code: string, importId: string, fileSystem: MemoryFileSystem): string {
+	const versions = readDependencyVersions(fileSystem);
 	const replace = (match: string, prefix: string, quote: string, specifier: string): string => {
-		const rewritten = rewriteSpecifier(specifier, importId, fileSystem);
+		const rewritten = rewriteSpecifier(specifier, importId, fileSystem, versions);
 		return rewritten === undefined ? match : `${prefix}${quote}${rewritten}${quote}`;
 	};
 	return code
@@ -225,7 +266,43 @@ async function serveClientModule(importId: string, context: DevelopmentModuleCon
 	return { code: wrapForHmr(rewritten, normalized), contentType: 'application/javascript' };
 }
 
-const dependencyCache = new Map<string, string>();
+/**
+ * Cache API namespace for bundled dev-dependency output (off-heap, survives
+ * isolate recycling within a colo). The vite-host worker has no in-isolate
+ * cache: every dependency bundle is stored and read through the Workers Cache
+ * API only. Bump the `-v*` suffix when the bundling logic changes so a deploy
+ * never serves a bundle produced by older build settings.
+ */
+const DEP_BUNDLE_CACHE_NAME = 'vinext-dev-dep-bundle-v1';
+const DEP_BUNDLE_CACHE_ORIGIN = 'https://vinext-dev-dep.internal';
+
+async function openDependencyBundleCache(): Promise<Cache | undefined> {
+	try {
+		return await caches.open(DEP_BUNDLE_CACHE_NAME);
+	} catch {
+		return undefined;
+	}
+}
+
+/** Read a previously bundled dependency by its version-pinned esm.sh URL. */
+async function readCachedDependencyBundle(cache: Cache | undefined, cacheKey: string): Promise<string | undefined> {
+	if (cache === undefined) {
+		return undefined;
+	}
+	const cached = await cache.match(cacheKey).catch(() => {});
+	return cached === undefined ? undefined : cached.text();
+}
+
+/** Store a bundled dependency off-heap. Best-effort; skipped when the Cache API is unavailable. */
+async function writeCachedDependencyBundle(cache: Cache | undefined, cacheKey: string, code: string): Promise<void> {
+	if (cache === undefined) {
+		return;
+	}
+	const response = new Response(code, {
+		headers: { 'Content-Type': 'application/javascript', 'Cache-Control': 'public, max-age=604800' },
+	});
+	await cache.put(cacheKey, response).catch(() => {});
+}
 
 /** Identifiers that are never re-exported as named bindings. */
 const RESERVED_EXPORTS = new Set(['default', '__esModule']);
@@ -295,10 +372,6 @@ async function serveDependency(specifier: string, context: DevelopmentModuleCont
 		return serveReactFamilyGlobal(specifier, globalName, context);
 	}
 
-	const cached = dependencyCache.get(specifier);
-	if (cached !== undefined) {
-		return { code: cached, contentType: 'application/javascript' };
-	}
 	const resolved = resolvePackage(specifier, context.fileSystem, conditionsForEnvironment('client'));
 	if (resolved === undefined) {
 		// Not in the vendored node_modules (React/RSC only). If it is a registered
@@ -335,7 +408,6 @@ async function serveDependency(specifier: string, context: DevelopmentModuleCont
 		plugins: [createDependencyResolverPlugin(context.fileSystem)],
 	});
 	const code = result.outputFiles?.[0]?.text ?? '';
-	dependencyCache.set(specifier, code);
 	return { code, contentType: 'application/javascript' };
 }
 
@@ -359,7 +431,17 @@ async function serveEsmCdnDependency(specifier: string, context: DevelopmentModu
 	if (version === undefined) {
 		return undefined;
 	}
+	// esm.sh serves version-pinned packages as immutable, so the bundled output is
+	// keyed by that URL and safe to reuse across builds without ever serving stale
+	// code. The bundle (not just the fetched source) is cached so a repeat request
+	// skips the esbuild run entirely.
 	const url = buildEsmCdnUrl(specifier, version);
+	const cache = await openDependencyBundleCache();
+	const cacheKey = `${DEP_BUNDLE_CACHE_ORIGIN}/esm/${encodeURIComponent(url)}`;
+	const cached = await readCachedDependencyBundle(cache, cacheKey);
+	if (cached !== undefined) {
+		return { code: cached, contentType: 'application/javascript' };
+	}
 	const result = await context.esbuild.build({
 		entryPoints: [url],
 		bundle: true,
@@ -374,7 +456,7 @@ async function serveEsmCdnDependency(specifier: string, context: DevelopmentModu
 		plugins: [createEsmCdnResolverPlugin()],
 	});
 	const code = result.outputFiles?.[0]?.text ?? '';
-	dependencyCache.set(specifier, code);
+	await writeCachedDependencyBundle(cache, cacheKey, code);
 	return { code, contentType: 'application/javascript' };
 }
 
@@ -405,9 +487,14 @@ function createEsmCdnResolverPlugin(): EsbuildPlugin {
 				if (arguments_.path.startsWith('.') || arguments_.path.startsWith('/') || arguments_.path.startsWith('http')) {
 					return { path: resolveEsmCdnImport(arguments_.importer, arguments_.path), namespace: ESM_CDN_NAMESPACE };
 				}
-				// Bare specifier externalised by esm.sh — hand back to the browser dev
-				// dependency server (single React instance / transitive esm.sh fetch).
-				return { path: DEPENDENCY_PREFIX + encodeURIComponent(arguments_.path), external: true };
+				// Bare specifier externalised by esm.sh (always the React family, per
+				// `?external=`) — hand back to the browser dev dependency server with the
+				// runtime cache token so the URL is identical across projects (the bundle
+				// stays cache-shareable) and the browser caches it immutably.
+				return {
+					path: `${DEPENDENCY_PREFIX}${encodeURIComponent(arguments_.path)}?${DEPENDENCY_VERSION_PARAM}=${DEPENDENCY_RUNTIME_TOKEN}`,
+					external: true,
+				};
 			});
 			build.onLoad({ filter: /.*/, namespace: ESM_CDN_NAMESPACE }, async (arguments_) => {
 				const source = await fetchEsmModule(arguments_.path);

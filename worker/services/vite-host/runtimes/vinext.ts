@@ -48,7 +48,7 @@ class VinextRuntime implements DurableFrameworkRuntime {
 	}
 
 	route(request: Request, context: RuntimeRouteContext): Promise<Response> {
-		return routeAppRequest(request, { clientOutput: context.clientOutput, server: context.getServer() });
+		return routeAppRequest(request, { clientOutput: context.clientOutput, server: context.getServer(), buildId: context.buildId });
 	}
 
 	hmrGlue(): string {

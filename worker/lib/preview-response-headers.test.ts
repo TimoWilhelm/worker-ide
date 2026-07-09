@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { applyPreviewResponseMiddlewares, previewResponseMiddlewares } from './preview-response-headers';
+import { applyPreviewResponseMiddlewares, previewResponseMiddlewares, STRIPPED_PREVIEW_HEADERS } from './preview-response-headers';
 
 const finalize = (response: Response, ideOrigin = 'https://ide.example.com'): Response =>
 	applyPreviewResponseMiddlewares(response, { ideOrigin }, previewResponseMiddlewares);
@@ -30,5 +30,43 @@ describe('applyPreviewResponseMiddlewares', () => {
 		const finalized = finalize(new Response('not found', { status: 404, headers: { 'Content-Type': 'text/plain' } }));
 		expect(finalized.status).toBe(404);
 		expect(await finalized.text()).toBe('not found');
+	});
+
+	it('strips Service-Worker-Allowed so a previewed app cannot widen its SW scope', async () => {
+		const finalized = finalize(
+			new Response('self.addEventListener("fetch", () => {})', {
+				headers: { 'Content-Type': 'application/javascript', 'Service-Worker-Allowed': '/' },
+			}),
+		);
+		expect(finalized.headers.get('Service-Worker-Allowed')).toBeNull();
+		expect(finalized.headers.get('Content-Type')).toBe('application/javascript');
+		expect(await finalized.text()).toBe('self.addEventListener("fetch", () => {})');
+	});
+
+	it('strips every dangerous preview header, case-insensitively, while keeping others', () => {
+		const finalized = finalize(
+			new Response('ok', {
+				headers: {
+					'Content-Type': 'text/plain',
+					'service-worker-allowed': '/',
+					'Service-Worker-Navigation-Preload': 'true',
+					'clear-site-data': '"*"',
+					'X-Keep': 'yes',
+				},
+			}),
+		);
+		for (const name of STRIPPED_PREVIEW_HEADERS) {
+			expect(finalized.headers.get(name)).toBeNull();
+		}
+		expect(finalized.headers.get('X-Keep')).toBe('yes');
+	});
+
+	it('passes WebSocket upgrade responses through untouched', () => {
+		const upgrade = new Response('ok', {
+			headers: { Upgrade: 'websocket', 'Service-Worker-Allowed': '/' },
+		});
+		const finalized = applyPreviewResponseMiddlewares(upgrade, { ideOrigin: 'https://ide.example.com' }, previewResponseMiddlewares);
+		expect(finalized).toBe(upgrade);
+		expect(finalized.headers.get('Service-Worker-Allowed')).toBe('/');
 	});
 });
