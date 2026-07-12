@@ -144,15 +144,18 @@ var init_glob = __esm({
 });
 
 // worker/services/vite-host/node-fs/node-fs-bridge.ts
+import { AsyncLocalStorage } from "node:async_hooks";
 function getProjectFileSystem() {
-  const fileSystem = globalThis.__VITE_HOST_PROJECT_FS__;
+  const fileSystem = projectFileSystemStorage.getStore();
   if (fileSystem === void 0) {
     throw new Error("node:fs facade used before the project filesystem was installed");
   }
   return fileSystem;
 }
+var projectFileSystemStorage;
 var init_node_fs_bridge = __esm({
   "worker/services/vite-host/node-fs/node-fs-bridge.ts"() {
+    projectFileSystemStorage = new AsyncLocalStorage();
   }
 });
 
@@ -1156,10 +1159,10 @@ var init_parse_cookie = __esm({
 });
 
 // node_modules/vinext/dist/shims/internal/als-registry.js
-import { AsyncLocalStorage as AsyncLocalStorage2 } from "node:async_hooks";
+import { AsyncLocalStorage as AsyncLocalStorage3 } from "node:async_hooks";
 function getOrCreateAls(key) {
   const sym = Symbol.for(key);
-  return _g[sym] ??= typeof AsyncLocalStorage2 === "function" ? new AsyncLocalStorage2() : new NoopAsyncLocalStorage();
+  return _g[sym] ??= typeof AsyncLocalStorage3 === "function" ? new AsyncLocalStorage3() : new NoopAsyncLocalStorage();
 }
 var _g, NoopAsyncLocalStorage;
 var init_als_registry = __esm({
@@ -11934,11 +11937,14 @@ var init_lib = __esm({
 });
 
 // worker/services/vite-host/vite-shim/services.ts
+import { AsyncLocalStorage as AsyncLocalStorage4 } from "node:async_hooks";
 function getViteHostServices() {
-  return globalThis.__VITE_HOST_SERVICES__;
+  return viteHostServicesStorage.getStore();
 }
+var viteHostServicesStorage;
 var init_services = __esm({
   "worker/services/vite-host/vite-shim/services.ts"() {
+    viteHostServicesStorage = new AsyncLocalStorage4();
   }
 });
 
@@ -26328,7 +26334,7 @@ init_utils();
 init_base_path();
 
 // node_modules/vinext/dist/server/server-globals.js
-import { AsyncLocalStorage } from "node:async_hooks";
+import { AsyncLocalStorage as AsyncLocalStorage2 } from "node:async_hooks";
 function clearBrowserGlobal(name) {
   const descriptor = Object.getOwnPropertyDescriptor(globalThis, name);
   if (!descriptor && typeof Reflect.get(globalThis, name) === "undefined") return;
@@ -26346,7 +26352,7 @@ function installServerGlobals() {
   clearBrowserGlobal("document");
   if (typeof Reflect.get(globalThis, "AsyncLocalStorage") === "undefined") Object.defineProperty(globalThis, "AsyncLocalStorage", {
     configurable: true,
-    value: AsyncLocalStorage,
+    value: AsyncLocalStorage2,
     writable: true
   });
 }

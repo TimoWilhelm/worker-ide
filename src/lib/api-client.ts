@@ -268,10 +268,7 @@ export async function updateUserPreferences(preferences: Record<string, string>)
 		await throwApiError(response, 'Failed to save user preferences');
 	}
 }
-export interface DeployRequest {
-	accountId: string;
-	workerName?: string;
-}
+export type DeployRequest = { mode: 'permanent'; accountId: string; workerName?: string } | { mode: 'temporary'; workerName?: string };
 
 export async function startDeployProject(projectId: string, request: DeployRequest): Promise<DeployStartResponse> {
 	const api = createApiClient(projectId);

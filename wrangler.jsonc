@@ -8,7 +8,7 @@
 	"name": "worker-ide",
 	"main": "worker/index.ts",
 	"compatibility_date": "2026-03-24",
-	"compatibility_flags": ["nodejs_compat", "enable_ctx_exports"],
+	"compatibility_flags": ["nodejs_compat"],
 	"cache": {
 		"enabled": true,
 	},

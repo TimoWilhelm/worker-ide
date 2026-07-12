@@ -8,6 +8,7 @@ import { deployRequestSchema } from '@shared/validation';
 
 import * as schema from '../db/auth-schema';
 import { getConnection } from '../lib/cloudflare-oauth';
+import { getOrCreateTemporaryAccount } from '../lib/cloudflare-temporary-account';
 import { httpError } from '../lib/http-error';
 import { readProjectName } from '../lib/protected-files';
 import { sanitizeWorkerName } from '../workflows/deploy-helpers';
@@ -54,21 +55,16 @@ function parseDeployResult(value: unknown): DeployResult | undefined {
 		workerName: value.workerName,
 		workerUrl: typeof value.workerUrl === 'string' ? value.workerUrl : undefined,
 		dashboardUrl: typeof value.dashboardUrl === 'string' ? value.dashboardUrl : undefined,
+		claimUrl: typeof value.claimUrl === 'string' ? value.claimUrl : undefined,
+		claimExpiresAt: typeof value.claimExpiresAt === 'string' ? value.claimExpiresAt : undefined,
 		error: typeof value.error === 'string' && value.error.trim() !== '' ? value.error : undefined,
 	};
 }
 
 export const deployRoutes = new Hono<AppEnvironment>()
 	.post('/deploy', zValidator('json', deployRequestSchema), async (c) => {
-		const { accountId, workerName } = c.req.valid('json');
+		const request = c.req.valid('json');
 		const userId = c.get('session').userId;
-
-		// Deployment now relies on the user's Cloudflare OAuth connection rather
-		// than a pasted API token. Reject early if they have not connected.
-		const connection = await getConnection({ DB: c.env.DB }, userId);
-		if (!connection) {
-			throw httpError(HttpErrorCode.VALIDATION_ERROR, 'Connect your Cloudflare account before deploying');
-		}
 
 		const database = drizzle(c.env.DB, { schema });
 		const projectRows = await database
@@ -81,11 +77,36 @@ export const deployRoutes = new Hono<AppEnvironment>()
 			throw httpError(HttpErrorCode.NOT_FOUND, 'Project not found');
 		}
 
+		if (request.mode === 'temporary') {
+			const connection = await getConnection({ DB: c.env.DB }, userId);
+			if (connection) {
+				throw httpError(HttpErrorCode.VALIDATION_ERROR, 'Disconnect your Cloudflare account before deploying to a new temporary account');
+			}
+		}
+		let accountId: string;
+		if (request.mode === 'temporary') {
+			const temporaryAccount = await getOrCreateTemporaryAccount(c.env, userId, c.get('projectId'));
+			accountId = temporaryAccount.accountId;
+		} else {
+			if (!request.accountId) {
+				throw httpError(HttpErrorCode.VALIDATION_ERROR, 'Cloudflare account ID is required');
+			}
+			accountId = request.accountId.trim();
+		}
+		if (request.mode === 'permanent') {
+			// Permanent-account deployments rely on the user's OAuth connection.
+			const connection = await getConnection({ DB: c.env.DB }, userId);
+			if (!connection) {
+				throw httpError(HttpErrorCode.VALIDATION_ERROR, 'Connect your Cloudflare account before deploying');
+			}
+		}
+
 		const projectName = await readProjectName(c.get('projectRoot'));
-		const sanitizedWorkerName = sanitizeWorkerName(workerName || projectName);
+		const sanitizedWorkerName = sanitizeWorkerName(request.workerName || projectName);
 		const instanceId = crypto.randomUUID();
 		const parameters: DeployWorkflowParameters = {
-			accountId: accountId.trim(),
+			accountId,
+			mode: request.mode,
 			workerName: sanitizedWorkerName,
 			projectId: c.get('projectId'),
 			projectRoot: c.get('projectRoot'),

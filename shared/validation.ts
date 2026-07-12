@@ -548,10 +548,17 @@ export const transferInitiateBodySchema = z.object({
 	targetOrganizationId: z.string().min(1),
 });
 
-export const deployRequestSchema = z.object({
-	accountId: deployAccountIdSchema,
-	workerName: deployWorkerNameSchema.optional(),
-});
+export const deployRequestSchema = z
+	.object({
+		mode: z.enum(['permanent', 'temporary']),
+		accountId: deployAccountIdSchema.optional(),
+		workerName: deployWorkerNameSchema.optional(),
+	})
+	.superRefine((value, context) => {
+		if (value.mode === 'permanent' && !value.accountId) {
+			context.addIssue({ code: 'custom', path: ['accountId'], message: 'Account ID is required' });
+		}
+	});
 
 export const deployFormSchema = z.object({
 	accountId: deployAccountIdSchema,

@@ -289,6 +289,32 @@ export const cloudflareConnection = sqliteTable(
 	(table) => [index('cloudflare_connection_user_id_idx').on(table.userId)],
 );
 
+/**
+ * An unclaimed Cloudflare temporary account used only for the 60-minute claim
+ * window. Its deploy token is encrypted at rest and never sent to the client.
+ */
+export const cloudflareTemporaryAccount = sqliteTable(
+	'cloudflare_temporary_account',
+	{
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		accountId: text('account_id').notNull(),
+		accessTokenEncrypted: text('access_token_encrypted').notNull(),
+		claimUrl: text('claim_url').notNull(),
+		expiresAt: integer('expires_at', { mode: 'timestamp' }).notNull(),
+		createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+		updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+	},
+	(table) => [
+		primaryKey({ columns: [table.userId, table.projectId] }),
+		index('cloudflare_temporary_account_expires_at_idx').on(table.expiresAt),
+	],
+);
+
 export const userPreference = sqliteTable(
 	'user_preference',
 	{

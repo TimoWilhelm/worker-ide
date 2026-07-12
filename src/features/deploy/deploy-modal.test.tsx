@@ -15,12 +15,13 @@ const DEFAULT_PROJECT_ID = 'abc123';
 const mockGetCloudflareConnection = vi.fn<() => Promise<CloudflareConnectionStatus>>();
 const mockListCloudflareAccounts = vi.fn<() => Promise<CloudflareAccount[]>>();
 const mockDisconnectCloudflare = vi.fn<() => Promise<void>>();
+const mockStartDeployProject = vi.fn();
 
 vi.mock('@/lib/api-client', () => ({
 	getCloudflareConnection: () => mockGetCloudflareConnection(),
 	listCloudflareAccounts: () => mockListCloudflareAccounts(),
 	disconnectCloudflare: () => mockDisconnectCloudflare(),
-	startDeployProject: vi.fn(),
+	startDeployProject: (...arguments_: unknown[]) => mockStartDeployProject(...arguments_),
 	getDeployStatus: vi.fn(),
 }));
 
@@ -77,6 +78,7 @@ beforeEach(() => {
 		{ id: 'aabbccddeeff00112233445566778899', name: 'Second Account' },
 	]);
 	mockDisconnectCloudflare.mockResolvedValue();
+	mockStartDeployProject.mockResolvedValue({ instanceId: 'deploy-1' });
 });
 
 describe('DeployModal', () => {
@@ -98,6 +100,27 @@ describe('DeployModal', () => {
 
 		expect(await screen.findByRole('button', { name: /connect to cloudflare/i })).toBeInTheDocument();
 		expect(screen.queryByLabelText('Cloudflare Account')).not.toBeInTheDocument();
+	});
+
+	it('offers a temporary deployment when no Cloudflare connection exists', async () => {
+		mockGetCloudflareConnection.mockResolvedValue({ connected: false });
+		renderDeployModal();
+
+		const deployButton = await screen.findByRole('button', { name: /deploy to new account/i });
+		expect(deployButton).toBeEnabled();
+		expect(screen.getByRole('button', { name: /connect to cloudflare/i })).toBeInTheDocument();
+
+		await userEvent.setup().click(deployButton);
+
+		expect(mockStartDeployProject).toHaveBeenCalledWith(DEFAULT_PROJECT_ID, { mode: 'temporary' });
+	});
+
+	it('disables temporary deployment for projects with R2 storage', async () => {
+		mockGetCloudflareConnection.mockResolvedValue({ connected: false });
+		renderDeployModal('my-project', createProjectMeta({ bindingsConfig: { storage: true } }));
+
+		expect(await screen.findByRole('button', { name: /deploy to new account/i })).toBeDisabled();
+		expect(screen.getByText(/temporary accounts do not support this project/i)).toBeInTheDocument();
 	});
 
 	it('shows the connected account email and account selector once connected', async () => {

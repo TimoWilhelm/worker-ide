@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
 	deployAccountIdSchema,
+	deployRequestSchema,
 	deployWorkerNameSchema,
 	filePathSchema,
 	writeFileSchema,
@@ -39,6 +40,14 @@ describe('deploy validation schemas', () => {
 
 	it('rejects worker names with control characters', () => {
 		expect(deployWorkerNameSchema.safeParse(`worker${String.fromCodePoint(10)}name`).success).toBe(false);
+	});
+
+	it('accepts a temporary deployment without an account ID', () => {
+		expect(deployRequestSchema.safeParse({ mode: 'temporary', workerName: 'my-worker' }).success).toBe(true);
+	});
+
+	it('requires an account ID for permanent deployments', () => {
+		expect(deployRequestSchema.safeParse({ mode: 'permanent', workerName: 'my-worker' }).success).toBe(false);
 	});
 });
 

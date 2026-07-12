@@ -19,6 +19,7 @@ import {
 } from './deploy-helpers';
 import { trackProjectEvent } from '../lib/analytics';
 import { getValidAccessToken } from '../lib/cloudflare-oauth';
+import { getTemporaryAccount } from '../lib/cloudflare-temporary-account';
 import { filesystemNamespace } from '../lib/durable-object-namespaces';
 import { runWithProjectStub } from '../lib/project-fs';
 import { toDurableObjectId } from '../lib/project-id';
@@ -70,7 +71,14 @@ export class DeployWorkflow extends WorkflowEntrypoint<Env, DeployWorkflowParame
 	 * or retried deploys never use an expired token. The token is never stored in
 	 * workflow step output.
 	 */
-	private async resolveAccessToken(userId: string): Promise<string> {
+	private async resolveAccessToken(parameters: DeployWorkflowParameters): Promise<string> {
+		if (parameters.mode === 'temporary') {
+			const account = await getTemporaryAccount(this.env, parameters.userId, parameters.projectId, parameters.accountId);
+			if (!account) {
+				throw new NonRetryableError('The temporary Cloudflare account has expired. Deploy again to create a new account.');
+			}
+			return account.accessToken;
+		}
 		const accessToken = await getValidAccessToken(
 			{
 				DB: this.env.DB,
@@ -78,7 +86,7 @@ export class DeployWorkflow extends WorkflowEntrypoint<Env, DeployWorkflowParame
 				CLOUDFLARE_OAUTH_CLIENT_ID: this.env.CLOUDFLARE_OAUTH_CLIENT_ID,
 				CLOUDFLARE_OAUTH_CLIENT_SECRET: this.env.CLOUDFLARE_OAUTH_CLIENT_SECRET,
 			},
-			userId,
+			parameters.userId,
 		);
 		if (!accessToken) {
 			throw new NonRetryableError('Cloudflare account is not connected. Please reconnect and try again.');
@@ -102,17 +110,30 @@ export class DeployWorkflow extends WorkflowEntrypoint<Env, DeployWorkflowParame
 				: this.bundleAndUploadStatic(step, parameters, filesystemStub, inputs));
 
 			await step.do('enable-subdomain', SHORT_CLOUDFLARE_API_STEP_CONFIG, async () => {
-				const accessToken = await this.resolveAccessToken(parameters.userId);
+				const accessToken = await this.resolveAccessToken(parameters);
 				return enableWorkersDevelopmentSubdomain(parameters.accountId, accessToken, parameters.workerName);
 			});
 
 			const workerUrl = await step.do('get-worker-url', SHORT_CLOUDFLARE_API_STEP_CONFIG, async () => {
-				const accessToken = await this.resolveAccessToken(parameters.userId);
+				const accessToken = await this.resolveAccessToken(parameters);
 				return getWorkersDevelopmentUrl(parameters.accountId, accessToken, parameters.workerName);
 			});
 
-			const dashboardUrl = `https://dash.cloudflare.com/${parameters.accountId}/workers/services/view/${parameters.workerName}`;
-			const result: DeployResult = { success: true, workerName: parameters.workerName, workerUrl, dashboardUrl };
+			const temporaryAccount =
+				parameters.mode === 'temporary'
+					? await getTemporaryAccount(this.env, parameters.userId, parameters.projectId, parameters.accountId)
+					: undefined;
+			const result: DeployResult = {
+				success: true,
+				workerName: parameters.workerName,
+				workerUrl,
+				dashboardUrl:
+					parameters.mode === 'permanent'
+						? `https://dash.cloudflare.com/${parameters.accountId}/workers/services/view/${parameters.workerName}`
+						: undefined,
+				claimUrl: temporaryAccount?.claimUrl,
+				claimExpiresAt: temporaryAccount?.expiresAt.toISOString(),
+			};
 
 			trackProjectEvent({
 				organizationId: parameters.organizationId,
@@ -172,7 +193,7 @@ export class DeployWorkflow extends WorkflowEntrypoint<Env, DeployWorkflowParame
 		let assetsCompletionJwt: string | undefined;
 		if (staticAssets.size > 0) {
 			assetsCompletionJwt = await step.do('upload-assets', CLOUDFLARE_API_STEP_CONFIG, async () => {
-				const accessToken = await this.resolveAccessToken(parameters.userId);
+				const accessToken = await this.resolveAccessToken(parameters);
 				return uploadStaticAssets(parameters.accountId, accessToken, parameters.workerName, staticAssets);
 			});
 		}
@@ -180,7 +201,7 @@ export class DeployWorkflow extends WorkflowEntrypoint<Env, DeployWorkflowParame
 		const r2BucketName = await this.ensureProjectR2Bucket(step, parameters, inputs);
 
 		await step.do('upload-worker-script', CLOUDFLARE_API_STEP_CONFIG, async () => {
-			const accessToken = await this.resolveAccessToken(parameters.userId);
+			const accessToken = await this.resolveAccessToken(parameters);
 			return uploadWorkerScript(
 				parameters.accountId,
 				accessToken,
@@ -230,7 +251,7 @@ export class DeployWorkflow extends WorkflowEntrypoint<Env, DeployWorkflowParame
 				throw toNonRetryableError(error);
 			}
 
-			const accessToken = await this.resolveAccessToken(parameters.userId);
+			const accessToken = await this.resolveAccessToken(parameters);
 			const staticAssets = new Map<string, Uint8Array>(
 				Object.entries(build.clientOutput).map(([path, contents]) => [`/${path}`, new TextEncoder().encode(contents)]),
 			);
@@ -261,9 +282,14 @@ export class DeployWorkflow extends WorkflowEntrypoint<Env, DeployWorkflowParame
 		if (!inputs.bindingsConfig.storage) {
 			return undefined;
 		}
+		if (parameters.mode === 'temporary') {
+			throw new NonRetryableError(
+				'Temporary Cloudflare accounts do not support R2 storage. Connect a Cloudflare account to deploy this project.',
+			);
+		}
 		const bucketName = sanitizeR2BucketName(parameters.workerName);
 		await step.do('ensure-r2-bucket', SHORT_CLOUDFLARE_API_STEP_CONFIG, async () => {
-			const accessToken = await this.resolveAccessToken(parameters.userId);
+			const accessToken = await this.resolveAccessToken(parameters);
 			return ensureR2Bucket(parameters.accountId, accessToken, bucketName);
 		});
 		return bucketName;

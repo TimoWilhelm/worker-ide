@@ -26,7 +26,7 @@ Types, constants, validation, and WebSocket message definitions shared between f
 ## Prerequisites
 
 - [Bun](https://bun.sh) v1.3.9+
-- A Cloudflare account (for deployment)
+- A Cloudflare account for permanent deployments. The IDE can also deploy a Worker to a new temporary Cloudflare account; claim it within 60 minutes to keep the deployment.
 
 ## Getting Started
 

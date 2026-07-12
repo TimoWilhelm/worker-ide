@@ -29,7 +29,7 @@ interface DeployModalProperties {
 type DeployState =
 	| { status: 'idle' }
 	| { status: 'deploying'; instanceId: string }
-	| { status: 'success'; workerName: string; workerUrl?: string; dashboardUrl?: string }
+	| { status: 'success'; workerName: string; workerUrl?: string; dashboardUrl?: string; claimUrl?: string; claimExpiresAt?: string }
 	| { status: 'error'; message: string };
 
 function loadSavedAccountId(projectId: string): string | undefined {
@@ -185,6 +185,7 @@ function DeployModalContent({ open, onOpenChange, projectId, projectName, deploy
 
 		try {
 			const result = await startDeployProject(projectId, {
+				mode: 'permanent',
 				accountId: parsed.accountId,
 				workerName: sanitizedWorkerName,
 			});
@@ -196,6 +197,21 @@ function DeployModalContent({ open, onOpenChange, projectId, projectName, deploy
 			});
 		}
 	}, [projectId, sanitizedWorkerName, setDeployState, validationResult]);
+
+	const handleTemporaryDeploy = useCallback(async () => {
+		if (hasR2Storage) return;
+		setDeployState({ status: 'deploying', instanceId: '' });
+
+		try {
+			const result = await startDeployProject(projectId, { mode: 'temporary' });
+			setDeployState({ status: 'deploying', instanceId: result.instanceId });
+		} catch (error) {
+			setDeployState({
+				status: 'error',
+				message: error instanceof Error ? error.message : 'Deployment failed',
+			});
+		}
+	}, [hasR2Storage, projectId, setDeployState]);
 
 	useEffect(() => {
 		if (deployState.status !== 'deploying' || !deployState.instanceId) return;
@@ -223,6 +239,8 @@ function DeployModalContent({ open, onOpenChange, projectId, projectName, deploy
 						workerName: status.result.workerName,
 						workerUrl: status.result.workerUrl,
 						dashboardUrl: status.result.dashboardUrl,
+						claimUrl: status.result.claimUrl,
+						claimExpiresAt: status.result.claimExpiresAt,
 					});
 					return;
 				}
@@ -302,6 +320,34 @@ function DeployModalContent({ open, onOpenChange, projectId, projectName, deploy
 									Manage in Cloudflare Dashboard
 									<ExternalLink className="size-3 shrink-0" />
 								</a>
+							)}
+							{deployState.claimUrl && (
+								<div
+									className="
+										mt-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-xs
+										text-text-primary
+									"
+								>
+									<p className="font-medium">Claim this account within 60 minutes</p>
+									<p className="mt-1 text-text-secondary">
+										This link grants ownership of the deployed Worker and its temporary Cloudflare account.
+									</p>
+									<a
+										href={deployState.claimUrl}
+										target="_blank"
+										rel="noopener noreferrer"
+										className="
+											mt-2 flex items-center gap-1.5 text-accent transition-colors
+											hover:text-accent-hover
+										"
+									>
+										Claim new Cloudflare account
+										<ExternalLink className="size-3 shrink-0" />
+									</a>
+									{deployState.claimExpiresAt && (
+										<p className="mt-1 text-text-secondary">Expires {new Date(deployState.claimExpiresAt).toLocaleTimeString()}.</p>
+									)}
+								</div>
 							)}
 						</div>
 					</div>
@@ -438,6 +484,17 @@ function DeployModalContent({ open, onOpenChange, projectId, projectName, deploy
 							<ExternalLink className="size-4" />
 							{isConnecting ? 'Connecting…' : 'Connect to Cloudflare'}
 						</Button>
+						<Button variant="secondary" onClick={handleTemporaryDeploy} disabled={hasR2Storage}>
+							<Rocket className="size-4" />
+							Deploy to new account
+						</Button>
+						{hasR2Storage ? (
+							<p className="text-xs text-text-secondary">
+								Temporary accounts do not support this project’s R2 storage. Connect an account to deploy it.
+							</p>
+						) : (
+							<p className="text-xs text-text-secondary">Deploy a temporary Worker, then claim the new account within 60 minutes.</p>
+						)}
 					</div>
 				)}
 			</ModalBody>

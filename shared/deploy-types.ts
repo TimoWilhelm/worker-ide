@@ -35,6 +35,10 @@ export interface DeployResult {
 	workerName: string;
 	workerUrl?: string;
 	dashboardUrl?: string;
+	/** Sensitive URL that transfers ownership of a temporary account. */
+	claimUrl?: string;
+	/** ISO timestamp at which an unclaimed temporary account is deleted. */
+	claimExpiresAt?: string;
 	error?: string;
 }
 
@@ -48,6 +52,8 @@ export interface DeployStatusResponse {
 export interface DeployWorkflowParameters {
 	/** Cloudflare account ID the user selected to deploy into. */
 	accountId: string;
+	/** Whether this deployment uses a short-lived, unclaimed Cloudflare account. */
+	mode: 'permanent' | 'temporary';
 	workerName: string;
 	projectId: string;
 	projectRoot: string;
