@@ -7,13 +7,12 @@
  * preview Durable Object and the deploy workflow, so that build memory never
  * counts against the preview DO's isolate budget.
  */
-import { createSerialRunner } from '../../../lib/serial-runner';
 import { withSpan } from '../../../lib/tracing';
 import { ensureEsbuild } from '../esbuild-runtime';
 import { MemoryFileSystem } from '../node-fs/memory-file-system';
 import { serveDevelopmentModule } from '../runtime/development-module-server';
 import { runWithHostDevelopmentMode } from '../runtime/host-development-mode';
-import { buildReactRuntimeModulesCached } from '../runtime/react-runtime-modules';
+import { buildReactRuntimeModules } from '../runtime/react-runtime-modules';
 import { seedNodeModules } from '../runtime/seed-node-modules';
 import { seedVinextRuntime } from '../runtime/seed-vinext-runtime';
 import { SERVER_RUNTIME_EXTERNALS } from '../runtime/server-externals';
@@ -25,16 +24,6 @@ import type { PluginOption, ViteEnvironmentName } from '../types';
 
 /** vinext's App Router worker entry — the server module set's main module. */
 const APP_ROUTER_ENTRY = '/__vinext__/dist/server/app-router-entry.js';
-
-/**
- * Serialise esbuild work within this isolate. The build installs process-global
- * state (`process.cwd`) and esbuild-wasm shares one isolate-wide instance, so
- * concurrent cross-project builds would both race that global and stack their
- * working sets against the 128 MB isolate budget. Running one at a time avoids
- * both. Module scope ⇒ one runner per isolate; builds across the fleet still run
- * in parallel over many isolates.
- */
-const runBuildExclusive = createSerialRunner();
 
 /** Load vinext's Vite plugins from the vendored native-plugin bundle. */
 function createPlugins(): Promise<PluginOption[]> {
@@ -68,16 +57,14 @@ function createHost(snapshot: Record<string, string>, options: { hostDevelopment
  * snapshot via {@link serveVinextDevelopmentModule}.
  */
 export async function buildVinext(snapshot: Record<string, string>, options: { hostDevelopment: boolean }): Promise<RuntimeBuild> {
-	return runBuildExclusive(async () => {
-		const host = await withSpan('vinext.createHost', () => createHost(snapshot, options));
-		const runBuild = (): Promise<unknown> => host.build([...SERVER_RUNTIME_EXTERNALS], APP_ROUTER_ENTRY);
-		await withSpan('vinext.hostBuild', () => (options.hostDevelopment ? runWithHostDevelopmentMode(runBuild) : runBuild()));
+	const host = await withSpan('vinext.createHost', () => createHost(snapshot, options));
+	const runBuild = (): Promise<unknown> => host.build([...SERVER_RUNTIME_EXTERNALS], APP_ROUTER_ENTRY);
+	await withSpan('vinext.hostBuild', () => (options.hostDevelopment ? runWithHostDevelopmentMode(runBuild) : runBuild()));
 
-		return {
-			mainModule: 'index.js',
-			...(await withSpan('vinext.buildOutput', () => buildVinextOutput(host, options))),
-		};
-	});
+	return {
+		mainModule: 'index.js',
+		...(await withSpan('vinext.buildOutput', () => buildVinextOutput(host, options))),
+	};
 }
 
 /**
@@ -104,7 +91,7 @@ export async function buildVinextOutput(
 	// The preview client builds as development React (Fast Refresh); deploy stays production.
 	const clientDefine = { 'process.env.NODE_ENV': options.hostDevelopment ? '"development"' : '"production"' };
 	const reactRuntime = (environment: ViteEnvironmentName, define: Record<string, string>): Promise<Record<string, string>> =>
-		withSpan(`react.runtime.${environment}`, () => buildReactRuntimeModulesCached({ esbuild, fileSystem, environment, define }));
+		withSpan(`react.runtime.${environment}`, () => buildReactRuntimeModules({ esbuild, fileSystem, environment, define }));
 	const rscRuntime = await reactRuntime('rsc', serverDefine);
 	const ssrRuntime = await reactRuntime('ssr', serverDefine);
 	const clientRuntime = await reactRuntime('client', clientDefine);
@@ -124,16 +111,13 @@ export async function buildVinextOutput(
  * is not a dev module the server produces.
  */
 export async function serveVinextDevelopmentModule(pathname: string, snapshot: Record<string, string>): Promise<string | undefined> {
-	// Serialised with builds so it never races the build's process-global state.
-	return runBuildExclusive(async () => {
-		const esbuild = await withSpan('devmodule.ensureEsbuild', () => ensureEsbuild());
-		const fileSystem = MemoryFileSystem.fromSnapshot(stripIdeManagedConfig(snapshot));
-		// HMR runs against the development build, so seed the dev React/RSC source.
-		await withSpan('devmodule.seed', () => {
-			seedNodeModules(fileSystem, { includeDevelopment: true });
-			seedVinextRuntime(fileSystem);
-		});
-		const result = await withSpan('devmodule.serve', () => serveDevelopmentModule(pathname, { esbuild, fileSystem }));
-		return result?.code;
+	const esbuild = await withSpan('devmodule.ensureEsbuild', () => ensureEsbuild());
+	const fileSystem = MemoryFileSystem.fromSnapshot(stripIdeManagedConfig(snapshot));
+	// HMR runs against the development build, so seed the dev React/RSC source.
+	await withSpan('devmodule.seed', () => {
+		seedNodeModules(fileSystem, { includeDevelopment: true });
+		seedVinextRuntime(fileSystem);
 	});
+	const result = await withSpan('devmodule.serve', () => serveDevelopmentModule(pathname, { esbuild, fileSystem }));
+	return result?.code;
 }

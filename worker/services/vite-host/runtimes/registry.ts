@@ -2,7 +2,7 @@
  * Framework runtime registry.
  *
  * Detection is keyed off a cheap project probe (package.json + tree) and used by
- * every surface — the preview router, the build Durable Object, and the deploy
+ * every surface — the preview router, cacheable build entrypoint, and deploy
  * workflow — so a project resolves to the same runtime everywhere. Runtimes are
  * tried in order; the first to claim the project wins. Projects that no runtime
  * claims fall back to the legacy esbuild preview/deploy pipeline.

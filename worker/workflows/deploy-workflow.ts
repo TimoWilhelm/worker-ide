@@ -1,6 +1,7 @@
 import { WorkflowEntrypoint } from 'cloudflare:workers';
 import { NonRetryableError } from 'cloudflare:workflows';
 
+import { SNAPSHOT_EXCLUDED_DIRECTORIES } from '@shared/constants';
 import { sanitizeR2BucketName } from '@shared/deploy-helpers';
 
 import {
@@ -18,10 +19,11 @@ import {
 } from './deploy-helpers';
 import { trackProjectEvent } from '../lib/analytics';
 import { getValidAccessToken } from '../lib/cloudflare-oauth';
-import { filesystemNamespace, vinextPreviewHostNamespace } from '../lib/durable-object-namespaces';
+import { filesystemNamespace } from '../lib/durable-object-namespaces';
 import { runWithProjectStub } from '../lib/project-fs';
 import { toDurableObjectId } from '../lib/project-id';
 import { withSpan } from '../lib/tracing';
+import { getBuildArtifact } from '../services/vite-host/build-artifact-client';
 import { selectRuntime } from '../services/vite-host/runtimes/registry';
 
 import type { DeployResult, DeployWorkflowParameters } from '@shared/deploy-types';
@@ -95,7 +97,7 @@ export class DeployWorkflow extends WorkflowEntrypoint<Env, DeployWorkflowParame
 			);
 
 			const runtime = selectRuntime({ files: inputs.allFiles });
-			await (runtime.hosting === 'durable'
+			await (runtime.hosting === 'artifact'
 				? this.bundleAndUploadRuntime(step, parameters, inputs, runtime.id)
 				: this.bundleAndUploadStatic(step, parameters, filesystemStub, inputs));
 
@@ -192,8 +194,8 @@ export class DeployWorkflow extends WorkflowEntrypoint<Env, DeployWorkflowParame
 	}
 
 	/**
-	 * Framework-runtime deploy (vinext, plain React, …): build the production
-	 * server module set + client assets in the project's build Durable Object,
+	 * Framework-runtime deploy (vinext, plain React, …): retrieve the production
+	 * server module set + client assets from the stateless build-artifact cache,
 	 * then upload the client output as static assets and the server module set as
 	 * a multi-module worker. The build + uploads happen inside a single step so the
 	 * multi-megabyte bundle is never persisted as workflow step state (only the
@@ -208,12 +210,20 @@ export class DeployWorkflow extends WorkflowEntrypoint<Env, DeployWorkflowParame
 		const r2BucketName = await this.ensureProjectR2Bucket(step, parameters, inputs);
 
 		await step.do('build-and-deploy-runtime', VINEXT_DEPLOY_STEP_CONFIG, async () => {
-			const buildHost = vinextPreviewHostNamespace.getByName(`vinext:${parameters.projectId}`);
 			let build;
 			try {
+				const filesystemStub = filesystemNamespace.get(toDurableObjectId(filesystemNamespace, parameters.projectId));
+				const snapshotHash = await filesystemStub.snapshotHash(SNAPSHOT_EXCLUDED_DIRECTORIES);
 				build = await withSpan(
 					'deploy.buildRuntime',
-					() => buildHost.buildForDeploy(parameters.projectId, parameters.projectRoot, runtimeId),
+					() =>
+						getBuildArtifact({
+							projectId: parameters.projectId,
+							projectRoot: parameters.projectRoot,
+							runtimeId,
+							mode: 'deploy',
+							snapshotHash,
+						}),
 					{ 'project.id': parameters.projectId, 'runtime.id': runtimeId, 'worker.name': parameters.workerName },
 				);
 			} catch (error) {

@@ -110,7 +110,7 @@
 		"vitest": "^3.2.4",
 		"vitest-fetch-mock": "^0.4.5",
 		"workers-ai-provider": "^3.1.14",
-		"wrangler": "^4.100.0",
+		"wrangler": "^4.110.0",
 		"zod": "^4.4.3",
 		"zustand": "^5.0.13"
 	},

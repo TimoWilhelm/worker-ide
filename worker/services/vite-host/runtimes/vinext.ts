@@ -13,7 +13,7 @@ import { routeAppRequest } from '../runtime/app-runtime';
 import { isVinextProject } from '../vinext-detection';
 import { buildHmrGlue } from './shared';
 
-import type { DurableFrameworkRuntime, ProjectProbe, RuntimeRouteContext } from './types';
+import type { ArtifactFrameworkRuntime, ProjectProbe, RuntimeRouteContext } from './types';
 
 /**
  * IDE-managed config files excluded from the vinext build input.
@@ -38,9 +38,9 @@ export function stripIdeManagedConfig(snapshot: Record<string, string>): Record<
 	return filtered;
 }
 
-class VinextRuntime implements DurableFrameworkRuntime {
+class VinextRuntime implements ArtifactFrameworkRuntime {
 	readonly id = 'vinext';
-	readonly hosting = 'durable' as const;
+	readonly hosting = 'artifact' as const;
 	readonly serverCompatibilityFlags = ['nodejs_compat', 'enable_nodejs_fs_module'] as const;
 
 	detect(probe: ProjectProbe): boolean {
@@ -63,4 +63,4 @@ class VinextRuntime implements DurableFrameworkRuntime {
 	}
 }
 
-export const vinextRuntime: DurableFrameworkRuntime = new VinextRuntime();
+export const vinextRuntime: ArtifactFrameworkRuntime = new VinextRuntime();

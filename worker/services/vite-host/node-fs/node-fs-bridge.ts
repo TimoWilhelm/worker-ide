@@ -6,20 +6,20 @@
  * realm. The host hydrates a {@link MemoryFileSystem} from the project tree and
  * publishes it here before evaluating plugin code; the facades read it back.
  */
+import { AsyncLocalStorage } from 'node:async_hooks';
+
 import type { MemoryFileSystem } from './memory-file-system';
 
-declare global {
-	var __VITE_HOST_PROJECT_FS__: MemoryFileSystem | undefined;
-}
+const projectFileSystemStorage = new AsyncLocalStorage<MemoryFileSystem>();
 
-/** Publish the project filesystem for the `node:fs` facades to use. */
-export function installProjectFileSystem(fileSystem: MemoryFileSystem): void {
-	globalThis.__VITE_HOST_PROJECT_FS__ = fileSystem;
+/** Scope the project filesystem to one build's async call chain. */
+export function runWithProjectFileSystem<T>(fileSystem: MemoryFileSystem, callback: () => T): T {
+	return projectFileSystemStorage.run(fileSystem, callback);
 }
 
 /** Read the published project filesystem, throwing if the host has not set it. */
 export function getProjectFileSystem(): MemoryFileSystem {
-	const fileSystem = globalThis.__VITE_HOST_PROJECT_FS__;
+	const fileSystem = projectFileSystemStorage.getStore();
 	if (fileSystem === undefined) {
 		throw new Error('node:fs facade used before the project filesystem was installed');
 	}

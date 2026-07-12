@@ -1,7 +1,7 @@
 /**
  * Integration: a server-side render error in a vinext app surfaces as a
  * detectable HTTP 500 `__next_error__` page (NOT a thrown error). The preview
- * host (`VinextPreviewHost.surfaceServerRenderError`) relies on exactly this
+ * preview adapter (`serveVinextPreview`) relies on exactly this
  * signal — status 500 + the `id="__next_error__"` marker — to route the failure
  * through the IDE error overlay instead of letting the silent framework error
  * page reach the iframe. This locks that contract.

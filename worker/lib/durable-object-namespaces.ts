@@ -45,9 +45,3 @@ export const agentRunnerNamespace = lazyNamespace(() => exports.AgentRunner);
  * Used for per-project metadata (storage usage tracking, etc.).
  */
 export const projectMetadataNamespace = lazyNamespace(() => exports.ProjectMetadata);
-
-/**
- * vinext Preview Host Durable Object namespace with automatic retry.
- * One per project; owns the warm vinext build for preview + module-level HMR.
- */
-export const vinextPreviewHostNamespace = lazyNamespace(() => exports.VinextPreviewHost);

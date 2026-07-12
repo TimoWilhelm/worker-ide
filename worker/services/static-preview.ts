@@ -53,18 +53,11 @@ const PREVIEW_API_WORKER_VERSION = 'preview-api-v2';
 const PREVIEW_API_WRAPPER_MODULE = 'worker.js';
 const PREVIEW_API_USER_MODULE = 'user-worker.js';
 const PREVIEW_RUNTIME_ERROR_HEADER = 'X-Worker-Ide-Preview-Runtime-Error';
-const EXTERNAL_MODULE_CACHE_TTL_MS = 1000 * 60 * 30;
-const MAX_EXTERNAL_MODULE_CACHE_ENTRIES = 500;
-
 interface ExternalModuleCacheEntry {
 	bodyText: string;
 	contentType: string;
 	finalUrl: string;
-	expiresAt: number;
 }
-
-const externalModuleCache = new Map<string, ExternalModuleCacheEntry>();
-const externalModuleInflightRequests = new Map<string, Promise<ExternalModuleCacheEntry>>();
 
 /**
  * Build the CSP header for preview HTML responses.
@@ -511,32 +504,7 @@ export class StaticReactPreview {
 		return contentTypes[extension] || 'text/plain';
 	}
 	private async loadExternalModule(externalUrl: string): Promise<ExternalModuleCacheEntry> {
-		const cached = externalModuleCache.get(externalUrl);
-		if (cached && Date.now() < cached.expiresAt) {
-			return cached;
-		}
-
-		const inflightRequest = externalModuleInflightRequests.get(externalUrl);
-		if (inflightRequest) {
-			return inflightRequest;
-		}
-
-		const requestPromise = this.fetchExternalModule(externalUrl);
-		externalModuleInflightRequests.set(externalUrl, requestPromise);
-		try {
-			const entry = await requestPromise;
-			externalModuleCache.set(externalUrl, entry);
-			while (externalModuleCache.size > MAX_EXTERNAL_MODULE_CACHE_ENTRIES) {
-				const firstKey = externalModuleCache.keys().next().value;
-				if (firstKey === undefined) {
-					break;
-				}
-				externalModuleCache.delete(firstKey);
-			}
-			return entry;
-		} finally {
-			externalModuleInflightRequests.delete(externalUrl);
-		}
+		return this.fetchExternalModule(externalUrl);
 	}
 
 	private async fetchExternalModule(externalUrl: string): Promise<ExternalModuleCacheEntry> {
@@ -558,7 +526,6 @@ export class StaticReactPreview {
 			bodyText,
 			contentType,
 			finalUrl: upstreamResponse.url,
-			expiresAt: Date.now() + EXTERNAL_MODULE_CACHE_TTL_MS,
 		};
 	}
 

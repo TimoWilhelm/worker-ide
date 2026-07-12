@@ -52,7 +52,6 @@ import { deleteArtifactsRepo, ensureArtifactsRepo } from './services/artifacts-r
 import { handleGitProxy } from './services/git-proxy';
 import { getTemplate, getTemplateMetadata } from './templates';
 
-import type { PreviewService } from './services/preview-service';
 import type { AppEnvironment, AuthedEnvironment } from './types';
 import type { MiddlewareHandler } from 'hono';
 
@@ -68,40 +67,14 @@ function extractPushedProjectId(event: unknown): string | undefined {
 	return event.source.repoName;
 }
 
-// Cache PreviewService instances at module scope. The service is stateless, so
-// reusing it only avoids repeated dynamic imports on hot paths.
-
-const MAX_PREVIEW_SERVICE_CACHE_SIZE = 100;
-const previewServiceCache = new Map<string, PreviewService>();
 const PREVIEW_ROBOTS_HEADER_VALUE = 'noindex, nofollow';
-
-async function getPreviewService(projectRoot: string, projectId: string): Promise<PreviewService> {
-	let service = previewServiceCache.get(projectId);
-	if (service) {
-		previewServiceCache.delete(projectId);
-		previewServiceCache.set(projectId, service);
-		return service;
-	}
-	if (previewServiceCache.size >= MAX_PREVIEW_SERVICE_CACHE_SIZE) {
-		const oldestKey = previewServiceCache.keys().next().value;
-		if (oldestKey !== undefined) {
-			previewServiceCache.delete(oldestKey);
-		}
-	}
-	// Lazy-import PreviewService to avoid pulling in chobitsu (which uses eval())
-	// at module load time. This keeps the worker entrypoint importable in test
-	// environments where eval() is blocked (workerd vitest pool).
-	const { PreviewService: PreviewServiceClass } = await import('./services/preview-service');
-	service = new PreviewServiceClass(projectRoot, projectId);
-	previewServiceCache.set(projectId, service);
-	return service;
-}
-export { AgentRunner, DurableObjectFilesystem, ProjectCoordinatorV2, ProjectMetadata, SubAgentWorker, VinextPreviewHost } from './durable';
+export { AgentRunner, DurableObjectFilesystem, ProjectCoordinatorV2, ProjectMetadata, SubAgentWorker } from './durable';
 // The browser/codemode tools run their durable runtime inside a Durable Object
 // facet, so the facet class must be exported from the worker entry.
 export { CodemodeRuntime } from '@cloudflare/codemode';
 export { LogTailer } from './services/log-tailer';
 export { ObjectStorageBinding } from './services/object-storage-binding';
+export { BuildArtifact } from './services/vite-host/build-artifact';
 export { DeployWorkflow } from './workflows/deploy-workflow';
 
 const PROJECT_ROOT = '/project';
@@ -1044,11 +1017,13 @@ async function handlePreviewRequest(request: Request, projectId: string, preview
 			return coordinatorStub.fetch(wsRequest);
 		}
 
-		const previewService = await getPreviewService(PROJECT_ROOT, projectId);
-		previewService.applyBootstrap(previewBootstrap);
+		// Preview services carry no cross-request state. Loading it lazily keeps
+		// browser-only preview code out of the Worker startup module graph.
+		const { PreviewService } = await import('./services/preview-service');
+		const previewService = new PreviewService(PROJECT_ROOT, projectId);
 		const assetSettings = await previewService.loadAssetSettings();
 
-		return previewService.routePreviewRequest(request, appOrigin, assetSettings, previewBootstrap.snapshotHash);
+		return previewService.routePreviewRequest(request, appOrigin, assetSettings, previewBootstrap.snapshotHash, previewBootstrap);
 	});
 
 	return trackAndReturn(response, previewVisibility);

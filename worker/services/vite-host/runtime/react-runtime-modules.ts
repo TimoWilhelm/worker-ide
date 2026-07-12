@@ -274,30 +274,3 @@ export async function buildReactRuntimeModules(options: BuildReactRuntimeOptions
 
 	return modules;
 }
-
-/**
- * Per-isolate cache of the shared React runtime modules. The output depends only
- * on the (immutable) vendored React source, the environment's export conditions,
- * and `NODE_ENV` — never on project source — so it is built once per isolate and
- * reused across every project build. This is the core memory/CPU win: React is
- * compiled a single time instead of being re-bundled into each environment on
- * every build pass.
- */
-const runtimeModuleCache = new Map<string, Promise<Record<string, string>>>();
-
-/** {@link buildReactRuntimeModules}, memoised per `environment + NODE_ENV` for the isolate. */
-export function buildReactRuntimeModulesCached(options: BuildReactRuntimeOptions): Promise<Record<string, string>> {
-	const nodeEnvironment = options.define['process.env.NODE_ENV'] ?? '"production"';
-	const cacheKey = `${options.environment}:${nodeEnvironment}`;
-	const cached = runtimeModuleCache.get(cacheKey);
-	if (cached !== undefined) {
-		return cached;
-	}
-	const built = buildReactRuntimeModules(options).catch((error: unknown) => {
-		// A failed build must not poison the cache with a rejected promise.
-		runtimeModuleCache.delete(cacheKey);
-		throw error;
-	});
-	runtimeModuleCache.set(cacheKey, built);
-	return built;
-}

@@ -22,16 +22,17 @@ import { EmittedFiles } from './emitted-files';
 import { bundleEnvironment, bundleModuleGraph } from './esbuild-bridge';
 import { ensureEsbuild } from './esbuild-runtime';
 import { MemoryFileSystem } from './node-fs/memory-file-system';
-import { installProjectFileSystem } from './node-fs/node-fs-bridge';
+import { runWithProjectFileSystem } from './node-fs/node-fs-bridge';
 import { PluginContainer } from './plugin-container';
 import { seedNodeModules } from './runtime/seed-node-modules';
 import { parseAst } from './vite-shim/index';
-import { installViteHostServices } from './vite-shim/services';
+import { runWithViteHostServices } from './vite-shim/services';
 import { withSpan } from '../../lib/tracing';
 
 import type { BundleResult, EnvironmentBundle } from './esbuild-bridge';
 import type { Esbuild } from './esbuild-runtime';
 import type { BuilderEnvironment, PluginOption, ResolvedConfig, ViteCommand, ViteEnvironmentName } from './types';
+import type { ViteHostServices } from './vite-shim/services';
 
 export interface ViteHostOptions {
 	/** Project tree snapshot (`/absolute/path` → contents). */
@@ -81,6 +82,7 @@ export class ViteHost {
 		private readonly fileSystem: MemoryFileSystem,
 		private readonly esbuild: Esbuild,
 		private readonly emittedFiles: EmittedFiles,
+		private readonly services: ViteHostServices,
 		readonly config: ResolvedConfig,
 	) {}
 
@@ -94,15 +96,7 @@ export class ViteHost {
 			options.seedRuntime?.(fileSystem);
 		});
 
-		// vinext resolves the project root from the working directory at factory
-		// time; the host defines it as the project root so app/pages detection
-		// targets the in-memory tree.
-		if (typeof process !== 'undefined' && typeof process.cwd === 'function') {
-			process.cwd = () => options.root;
-		}
-
-		installProjectFileSystem(fileSystem);
-		installViteHostServices({
+		const services: ViteHostServices = {
 			transform: async (code, id, transformOptions) => {
 				const result = await esbuild.transform(code, {
 					loader: transformLoader(id),
@@ -115,16 +109,14 @@ export class ViteHost {
 				return { code: result.code, map: result.map || undefined };
 			},
 			loadEnv: () => options.env ?? {},
-		});
+		};
 
-		const pluginOptions = await withSpan('vitehost.createPlugins', () => options.createPlugins());
-		const { config, plugins } = await withSpan('vitehost.resolveConfig', () =>
-			resolveConfig({
-				plugins: pluginOptions,
-				command: options.command,
-				mode: options.mode,
-				root: options.root,
-				env: options.env,
+		const { config, plugins } = await runWithProjectFileSystem(fileSystem, () =>
+			runWithViteHostServices(services, async () => {
+				const pluginOptions = await withSpan('vitehost.createPlugins', () => options.createPlugins());
+				return withSpan('vitehost.resolveConfig', () =>
+					resolveConfig({ plugins: pluginOptions, command: options.command, mode: options.mode, root: options.root, env: options.env }),
+				);
 			}),
 		);
 
@@ -136,7 +128,11 @@ export class ViteHost {
 			emittedFileSink: emittedFiles,
 		});
 
-		return new ViteHost(container, fileSystem, esbuild, emittedFiles, config);
+		return new ViteHost(container, fileSystem, esbuild, emittedFiles, services, config);
+	}
+
+	private runWithContext<T>(callback: () => T): T {
+		return runWithProjectFileSystem(this.fileSystem, () => runWithViteHostServices(this.services, callback));
 	}
 
 	/** Names of the resolved plugins, in execution order. */
@@ -151,32 +147,36 @@ export class ViteHost {
 
 	/** Bundle one environment's module graph into a single ESM string. */
 	async bundle(request: BundleRequest): Promise<BundleResult> {
-		return bundleModuleGraph({
-			esbuild: this.esbuild,
-			container: this.container,
-			fileSystem: this.fileSystem,
-			entryId: request.entryId,
-			environment: request.environment,
-			externals: request.externals ?? [],
-			alias: this.config.resolve.alias,
-			define: toEsbuildDefine(this.config),
-			sourcemap: request.sourcemap,
-		});
+		return this.runWithContext(() =>
+			bundleModuleGraph({
+				esbuild: this.esbuild,
+				container: this.container,
+				fileSystem: this.fileSystem,
+				entryId: request.entryId,
+				environment: request.environment,
+				externals: request.externals ?? [],
+				alias: this.config.resolve.alias,
+				define: toEsbuildDefine(this.config),
+				sourcemap: request.sourcemap,
+			}),
+		);
 	}
 
 	/** Bundle a server environment entry into a (code-split) output set. */
 	async bundleServerEnvironment(request: BundleRequest): Promise<EnvironmentBundle> {
-		return bundleEnvironment({
-			esbuild: this.esbuild,
-			container: this.container,
-			fileSystem: this.fileSystem,
-			entryId: request.entryId,
-			environment: request.environment,
-			externals: request.externals ?? [],
-			alias: this.config.resolve.alias,
-			define: toEsbuildDefine(this.config),
-			sourcemap: request.sourcemap,
-		});
+		return this.runWithContext(() =>
+			bundleEnvironment({
+				esbuild: this.esbuild,
+				container: this.container,
+				fileSystem: this.fileSystem,
+				entryId: request.entryId,
+				environment: request.environment,
+				externals: request.externals ?? [],
+				alias: this.config.resolve.alias,
+				define: toEsbuildDefine(this.config),
+				sourcemap: request.sourcemap,
+			}),
+		);
 	}
 
 	/**
@@ -185,15 +185,17 @@ export class ViteHost {
 	 * each environment's `outDir`.
 	 */
 	async build(externals: string[], serverEntryId?: string): Promise<Record<string, BuilderEnvironment>> {
-		return runBuildApp({
-			esbuild: this.esbuild,
-			container: this.container,
-			fileSystem: this.fileSystem,
-			config: this.config,
-			externals,
-			serverEntryId,
-			emittedFiles: this.emittedFiles,
-		});
+		return this.runWithContext(() =>
+			runBuildApp({
+				esbuild: this.esbuild,
+				container: this.container,
+				fileSystem: this.fileSystem,
+				config: this.config,
+				externals,
+				serverEntryId,
+				emittedFiles: this.emittedFiles,
+			}),
+		);
 	}
 
 	/** Read a file from the project filesystem, or `undefined` if absent. */

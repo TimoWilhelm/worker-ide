@@ -2,8 +2,8 @@
  * Shared response-header middleware for preview responses.
  *
  * Both preview runtimes must finalize their responses identically: the static
- * (react-spa) runtime serves inline, while the durable (vinext) runtime forwards
- * to a build Durable Object. Centralising the headers here keeps the two paths
+ * (react-spa) runtime serves inline, while the artifact (vinext) runtime uses a
+ * cache-backed build entrypoint. Centralising the headers here keeps the two paths
  * in parity — notably the `X-Robots-Tag` that keeps preview content out of
  * search engines, and the asset security headers that let the IDE iframe embed
  * preview assets.

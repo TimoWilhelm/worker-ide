@@ -13,6 +13,7 @@
  * infrastructure — code transformation (esbuild) and environment loading
  * (filesystem) — are delegated through this bridge.
  */
+import { AsyncLocalStorage } from 'node:async_hooks';
 
 export interface ViteTransformResult {
 	code: string;
@@ -30,16 +31,14 @@ export interface ViteHostServices {
 	loadEnv(mode: string, prefixes: string[]): Record<string, string>;
 }
 
-declare global {
-	var __VITE_HOST_SERVICES__: ViteHostServices | undefined;
-}
+const viteHostServicesStorage = new AsyncLocalStorage<ViteHostServices>();
 
-/** Publish host services. Called by the host before evaluating plugin code. */
-export function installViteHostServices(services: ViteHostServices): void {
-	globalThis.__VITE_HOST_SERVICES__ = services;
+/** Scope host services to one build's async call chain. */
+export function runWithViteHostServices<T>(services: ViteHostServices, callback: () => T): T {
+	return viteHostServicesStorage.run(services, callback);
 }
 
 /** Read the published services, or `undefined` if the host has not set them. */
 export function getViteHostServices(): ViteHostServices | undefined {
-	return globalThis.__VITE_HOST_SERVICES__;
+	return viteHostServicesStorage.getStore();
 }
