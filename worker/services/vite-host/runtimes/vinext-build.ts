@@ -27,7 +27,7 @@ const APP_ROUTER_ENTRY = '/__vinext__/dist/server/app-router-entry.js';
 
 /** Load vinext's Vite plugins from the vendored native-plugin bundle. */
 function createPlugins(): Promise<PluginOption[]> {
-	return import('../../../../auxiliary/vite-host/vendor/native-plugins.mjs').then(({ vinext }) => vinext());
+	return import('../../../../auxiliary/vite-host/vendor/native-plugins.mjs').then(({ vinext }) => vinext({ appDir: '/' }));
 }
 
 /** Build a Vite host over the project snapshot, with vinext's plugins + runtime. */

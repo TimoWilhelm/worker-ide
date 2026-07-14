@@ -12,6 +12,7 @@
 
 /** Source extensions treated as stylesheets for CSS HMR (mirrors Vite). */
 const STYLE_EXTENSION_PATTERN = String.raw`\.(css|scss|sass|less|styl|stylus|pcss|postcss|sss)([?#].*)?$`;
+export const DEVELOPMENT_STYLE_PREFIX = '/@vinext-style/';
 
 export interface HmrGlueOptions {
 	/** Per-framework client setup, run before any module (e.g. install `import.meta.hot`). */
@@ -37,10 +38,9 @@ export function buildHmrGlue(options: HmrGlueOptions): string {
 	}
 	// A non-Fast-Refresh boundary bubbles to a "reload"; route it to softRefresh.
 	window.__PREVIEW_RUNTIME_RELOAD__ = function () { softRefresh(); };
-	// A stylesheet edit rebuilds the same stable (non-hashed) CSS asset, so
-	// re-fetching each same-origin <link> with a fresh cache-busting query applies
-	// the new styles without touching the DOM or React state.
-	function updateStyles() {
+	// A stylesheet edit reads the current project source through the preview
+	// endpoint, applying the new styles without rebuilding or touching React state.
+	function updateStyles(path) {
 		var timestamp = Date.now();
 		var links = document.querySelectorAll('link[rel="stylesheet"][href]');
 		for (var index = 0; index < links.length; index++) {
@@ -52,6 +52,7 @@ export function buildHmrGlue(options: HmrGlueOptions): string {
 				continue;
 			}
 			if (resolved.origin !== window.location.origin) continue;
+			resolved = new URL(${JSON.stringify(DEVELOPMENT_STYLE_PREFIX)} + encodeURIComponent(path), window.location.origin);
 			resolved.searchParams.set('t', String(timestamp));
 			var replacement = link.cloneNode(false);
 			replacement.setAttribute('href', resolved.pathname + resolved.search);
@@ -68,7 +69,7 @@ export function buildHmrGlue(options: HmrGlueOptions): string {
 		var path = data && data.path;
 		if (!path) return;
 		if (STYLE_RE.test(path)) {
-			updateStyles();
+			updateStyles(path);
 			return;
 		}
 		// A registered client module is a self-accepting boundary → Fast Refresh.

@@ -32,13 +32,17 @@ export interface ViteHostServices {
 }
 
 const viteHostServicesStorage = new AsyncLocalStorage<ViteHostServices>();
+const VITE_HOST_SERVICES_KEY = '__viteHostServices';
 
 /** Scope host services to one build's async call chain. */
 export function runWithViteHostServices<T>(services: ViteHostServices, callback: () => T): T {
+	// esbuild invokes plugin callbacks outside the originating async context in
+	// workerd. The generated native-plugin bundle reads this shared fallback.
+	Reflect.set(globalThis, VITE_HOST_SERVICES_KEY, services);
 	return viteHostServicesStorage.run(services, callback);
 }
 
 /** Read the published services, or `undefined` if the host has not set them. */
 export function getViteHostServices(): ViteHostServices | undefined {
-	return viteHostServicesStorage.getStore();
+	return viteHostServicesStorage.getStore() ?? Reflect.get(globalThis, VITE_HOST_SERVICES_KEY);
 }

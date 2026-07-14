@@ -146,16 +146,17 @@ var init_glob = __esm({
 // worker/services/vite-host/node-fs/node-fs-bridge.ts
 import { AsyncLocalStorage } from "node:async_hooks";
 function getProjectFileSystem() {
-  const fileSystem = projectFileSystemStorage.getStore();
+  const fileSystem = projectFileSystemStorage.getStore() ?? Reflect.get(globalThis, PROJECT_FILE_SYSTEM_KEY);
   if (fileSystem === void 0) {
     throw new Error("node:fs facade used before the project filesystem was installed");
   }
   return fileSystem;
 }
-var projectFileSystemStorage;
+var projectFileSystemStorage, PROJECT_FILE_SYSTEM_KEY;
 var init_node_fs_bridge = __esm({
   "worker/services/vite-host/node-fs/node-fs-bridge.ts"() {
     projectFileSystemStorage = new AsyncLocalStorage();
+    PROJECT_FILE_SYSTEM_KEY = "__viteHostProjectFileSystem";
   }
 });
 
@@ -184,11 +185,7 @@ function resolveEncoding(options) {
   return options?.encoding ?? void 0;
 }
 function existsSync(path54) {
-  try {
-    return getProjectFileSystem().exists(path54);
-  } catch {
-    return false;
-  }
+  return getProjectFileSystem().exists(path54);
 }
 function readFileSync(path54, options) {
   const fileSystem = getProjectFileSystem();
@@ -11939,12 +11936,13 @@ var init_lib = __esm({
 // worker/services/vite-host/vite-shim/services.ts
 import { AsyncLocalStorage as AsyncLocalStorage4 } from "node:async_hooks";
 function getViteHostServices() {
-  return viteHostServicesStorage.getStore();
+  return viteHostServicesStorage.getStore() ?? Reflect.get(globalThis, VITE_HOST_SERVICES_KEY);
 }
-var viteHostServicesStorage;
+var viteHostServicesStorage, VITE_HOST_SERVICES_KEY;
 var init_services = __esm({
   "worker/services/vite-host/vite-shim/services.ts"() {
     viteHostServicesStorage = new AsyncLocalStorage4();
+    VITE_HOST_SERVICES_KEY = "__viteHostServices";
   }
 });
 

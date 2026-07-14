@@ -29,11 +29,7 @@ function resolveEncoding(options?: BufferEncoding | ReadOptions): string | undef
 }
 
 export function existsSync(path: string): boolean {
-	try {
-		return getProjectFileSystem().exists(path);
-	} catch {
-		return false;
-	}
+	return getProjectFileSystem().exists(path);
 }
 
 export function readFileSync(path: string, options?: BufferEncoding | ReadOptions): string | Uint8Array {

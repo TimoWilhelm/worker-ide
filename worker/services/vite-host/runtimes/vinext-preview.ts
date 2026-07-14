@@ -2,7 +2,9 @@
 import { env, exports } from 'cloudflare:workers';
 
 import { SNAPSHOT_EXCLUDED_DIRECTORIES, STORAGE_BINDING_NAME, WORKERS_COMPATIBILITY_DATE } from '@shared/constants';
+import { isPreviewStylePath, normalizePreviewPath } from '@shared/preview-path';
 
+import { DEVELOPMENT_STYLE_PREFIX } from './shared';
 import { toBundleServerError } from '../../../lib/build-server-error';
 import { coordinatorNamespace, filesystemNamespace } from '../../../lib/durable-object-namespaces';
 import { stripPreviewRequestCredentials } from '../../../lib/preview-request-headers';
@@ -47,6 +49,10 @@ export async function serveVinextPreview(input: VinextPreviewInput): Promise<Res
 	}
 	if (HMR_SCRIPT_PATHS.includes(url.pathname)) return serveHmrScript(url.pathname);
 	if (url.pathname === HMR_GLUE_PATH) return scriptResponse(input.runtime.hmrGlue(), 'static');
+	if (url.pathname.startsWith(DEVELOPMENT_STYLE_PREFIX)) {
+		const style = await serveDevelopmentStyle(input, url.pathname);
+		if (style !== undefined) return style;
+	}
 	try {
 		if (isDevelopmentModuleRequest(url.pathname)) {
 			const code = await serveDevelopmentModule(input, url);
@@ -79,6 +85,20 @@ export async function serveVinextPreview(input: VinextPreviewInput): Promise<Res
 	} catch (error) {
 		return renderServerError(toBundleServerError(error), input);
 	}
+}
+
+async function serveDevelopmentStyle(input: VinextPreviewInput, pathname: string): Promise<Response | undefined> {
+	let sourcePath: string;
+	try {
+		sourcePath = normalizePreviewPath(decodeURIComponent(pathname.slice(DEVELOPMENT_STYLE_PREFIX.length)));
+	} catch {
+		return undefined;
+	}
+	if (!isPreviewStylePath(sourcePath) || sourcePath.includes('/..')) return undefined;
+	const filesystem = filesystemNamespace.get(toDurableObjectId(filesystemNamespace, input.projectId));
+	const source = await filesystem.wsReadFile(sourcePath);
+	if (source === null) return undefined;
+	return new Response(source, { headers: { 'Content-Type': 'text/css', 'Cache-Control': 'no-cache' } });
 }
 
 async function serveDevelopmentModule(input: VinextPreviewInput, url: URL): Promise<string | undefined> {

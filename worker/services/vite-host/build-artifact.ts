@@ -51,6 +51,11 @@ export class BuildArtifact extends WorkerEntrypoint<Env, BuildArtifactProperties
 		if (request.method !== 'GET') {
 			return new Response('Method not allowed', { status: 405, headers: { Allow: 'GET', 'Cache-Control': 'no-store' } });
 		}
+		const cache = caches.default;
+		const cached = await cache.match(request);
+		if (cached !== undefined) {
+			return cached;
+		}
 		const url = new URL(request.url);
 		const runtimeId = url.searchParams.get('runtime') ?? undefined;
 		const mode = parseBuildMode(url.searchParams.get('mode') ?? undefined);
@@ -68,7 +73,7 @@ export class BuildArtifact extends WorkerEntrypoint<Env, BuildArtifactProperties
 			return new Response('Unsupported build runtime', { status: 400, headers: { 'Cache-Control': 'no-store' } });
 		}
 
-		return withSpan(
+		const response = await withSpan(
 			'buildArtifact.build',
 			async (span) => {
 				const filesystemStub = filesystemNamespace.get(toDurableObjectId(filesystemNamespace, this.ctx.props.projectId));
@@ -96,5 +101,9 @@ export class BuildArtifact extends WorkerEntrypoint<Env, BuildArtifactProperties
 			},
 			{ 'project.id': this.ctx.props.projectId },
 		);
+		if (response.ok) {
+			await cache.put(request, response.clone());
+		}
+		return response;
 	}
 }
