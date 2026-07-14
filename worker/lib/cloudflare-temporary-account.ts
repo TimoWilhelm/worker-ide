@@ -8,7 +8,8 @@ import { httpError } from './http-error';
 import * as schema from '../db/auth-schema';
 
 const CLOUDFLARE_API_BASE = 'https://api.cloudflare.com/client/v4';
-const MAX_PROOF_OF_WORK_ITERATIONS = 1_000_000;
+// Keep in sync with Wrangler's temporary preview account proof-of-work limit.
+const MAX_PROOF_OF_WORK_ITERATIONS = 64_000_000;
 
 interface TemporaryAccountResponse {
 	account: { id: string; name: string; apiToken: string; expiresAt: string };
@@ -45,13 +46,7 @@ function encodeBase64(chunks: Uint8Array[]): string {
 }
 
 async function solveProofOfWork(seed: string, checkpointCount: number, hashesPerCheckpoint: number): Promise<string> {
-	if (
-		!Number.isInteger(checkpointCount) ||
-		!Number.isInteger(hashesPerCheckpoint) ||
-		checkpointCount <= 0 ||
-		hashesPerCheckpoint <= 0 ||
-		checkpointCount * hashesPerCheckpoint > MAX_PROOF_OF_WORK_ITERATIONS
-	) {
+	if (!isSupportedProofOfWork(checkpointCount, hashesPerCheckpoint)) {
 		throw httpError(HttpErrorCode.UPSTREAM_ERROR, 'Cloudflare returned an unsupported temporary account challenge');
 	}
 
@@ -65,6 +60,16 @@ async function solveProofOfWork(seed: string, checkpointCount: number, hashesPer
 		checkpoints.push(hash);
 	}
 	return encodeBase64(checkpoints);
+}
+
+export function isSupportedProofOfWork(checkpointCount: number, hashesPerCheckpoint: number): boolean {
+	return (
+		Number.isInteger(checkpointCount) &&
+		Number.isInteger(hashesPerCheckpoint) &&
+		checkpointCount > 0 &&
+		hashesPerCheckpoint > 0 &&
+		checkpointCount * hashesPerCheckpoint <= MAX_PROOF_OF_WORK_ITERATIONS
+	);
 }
 
 async function createTemporaryAccount(): Promise<TemporaryAccountResponse> {

@@ -489,9 +489,7 @@ function DeployModalContent({ open, onOpenChange, projectId, projectName, deploy
 							Deploy to new account
 						</Button>
 						{hasR2Storage ? (
-							<p className="text-xs text-text-secondary">
-								Temporary accounts do not support this project’s R2 storage. Connect an account to deploy it.
-							</p>
+							<p className="text-xs text-text-secondary">Temporary accounts do not support R2 storage. Connect an account to deploy it.</p>
 						) : (
 							<p className="text-xs text-text-secondary">Deploy a temporary Worker, then claim the new account within 60 minutes.</p>
 						)}

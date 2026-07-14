@@ -120,7 +120,7 @@ describe('DeployModal', () => {
 		renderDeployModal('my-project', createProjectMeta({ bindingsConfig: { storage: true } }));
 
 		expect(await screen.findByRole('button', { name: /deploy to new account/i })).toBeDisabled();
-		expect(screen.getByText(/temporary accounts do not support this project/i)).toBeInTheDocument();
+		expect(screen.getByText(/temporary accounts do not support/i)).toBeInTheDocument();
 	});
 
 	it('shows the connected account email and account selector once connected', async () => {
