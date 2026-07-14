@@ -1,5 +1,5 @@
 /**
- * vinext (Next.js App Router on Vite) framework runtime — the light, DO-facing
+ * vinext App Router on Vite) framework runtime — the light, DO-facing
  * half.
  *
  * This module holds only what the preview Durable Object needs: detection,

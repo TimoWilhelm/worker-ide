@@ -79,6 +79,7 @@ async function createTemporaryAccount(): Promise<TemporaryAccountResponse> {
 		body: '{}',
 	});
 	if (!challengeResponse.ok) {
+		console.error('[temp-account] challenge request failed', challengeResponse.status);
 		throw httpError(HttpErrorCode.UPSTREAM_ERROR, 'Failed to request a temporary Cloudflare account');
 	}
 
@@ -100,6 +101,7 @@ async function createTemporaryAccount(): Promise<TemporaryAccountResponse> {
 		}),
 	});
 	if (!accountResponse.ok) {
+		console.error('[temp-account] account creation failed', accountResponse.status);
 		throw httpError(HttpErrorCode.UPSTREAM_ERROR, 'Failed to create a temporary Cloudflare account');
 	}
 

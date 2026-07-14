@@ -67,7 +67,7 @@ export default defineConfig(
 	reactCompiler.configs.recommended,
 	{
 		// Template fixtures are shipped to users as source strings, not part of the
-		// IDE's own React tree. Next.js (vinext) layouts idiomatically export both a
+		// IDE's own React tree. vinext layouts idiomatically export both a
 		// component and `metadata`, which the fast-refresh rule would otherwise flag.
 		files: ['worker/fixtures/**/*.{ts,tsx}'],
 		rules: {

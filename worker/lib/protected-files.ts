@@ -10,7 +10,7 @@ import { isVinextProject } from '../services/vite-host/vinext-detection';
 import type { AssetSettings, BindingsConfig } from '@shared/types';
 
 /**
- * Detect whether the project on disk is a vinext (Next.js-on-Vite) app.
+ * Detect whether the project on disk is a vinext app.
  *
  * vinext projects manage their own framework-shaped config, so the IDE must
  * generate vinext-appropriate `wrangler.jsonc`/`vite.config.ts`/`package.json`

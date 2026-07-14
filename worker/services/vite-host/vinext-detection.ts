@@ -1,5 +1,5 @@
 /**
- * Detect whether a project is a vinext (Next.js-compatible) app.
+ * Detect whether a project is a vinext app.
  *
  * Detection is driven by the project's manifest and tree rather than runtime
  * probing: a project is a vinext app when it depends on the `vinext` package and
