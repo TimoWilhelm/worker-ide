@@ -241,7 +241,7 @@ export function IDEHeader({
 						Documentation
 					</a>
 					<a
-						href="https://github.com/TimoWilhelm/worker-ide"
+						href="https://github.com/codemaxxing-ai/worker-ide"
 						target="_blank"
 						rel="noopener noreferrer"
 						className="
@@ -254,7 +254,7 @@ export function IDEHeader({
 						GitHub
 					</a>
 					<a
-						href="https://github.com/TimoWilhelm/worker-ide/issues/new?template=bug-report.yml"
+						href="https://github.com/codemaxxing-ai/worker-ide/issues/new?template=bug-report.yml"
 						target="_blank"
 						rel="noopener noreferrer"
 						className="

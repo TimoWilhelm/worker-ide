@@ -10,6 +10,7 @@ import { WorkspaceFsAdapter } from '../lib/workspace-fs-adapter';
 import type { GitAuthor, GitStatusResponse } from './git-service';
 import type { PreviewBootstrap, PreviewBootstrapInputs } from '../lib/preview-bootstrap';
 import type { FileInfo, FileStat, WorkspaceChangeEvent } from '@cloudflare/shell';
+import type { ProjectFilesystemRpc } from '@shared/project-filesystem-rpc';
 import type { GitBranchInfo, GitCommitEntry, GitFileDiff, GitMergeResult } from '@shared/types';
 
 interface SeedFile {
@@ -53,7 +54,7 @@ const WRITER_CHANGE_TABLE = 'agent_writer_change';
  * against that Workspace via {@link GitService}; Cloudflare Artifacts remains
  * the remote. There is no in-memory filesystem.
  */
-export class ProjectFilesystem extends DurableObject<Env> {
+export class ProjectFilesystem extends DurableObject<Env> implements ProjectFilesystemRpc {
 	private workspaceInstance?: Workspace;
 	/** Whether the per-writer change table has been created this isolate. */
 	private writerTableReady = false;
