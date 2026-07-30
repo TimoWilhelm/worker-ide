@@ -5,13 +5,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_AI_MODEL } from '@shared/constants';
 
 const mocks = vi.hoisted(() => {
-	const agentCall = vi.fn(async (method: string) => {
-		if (method === 'submitMessage') {
-			return { sessionId: 'session-1', queued: true, started: false };
-		}
-
-		return;
-	});
+	const submitMessage = vi.fn(async () => ({ sessionId: 'session-1', queued: true, started: false }));
+	const abortRun = vi.fn(async () => {});
+	const clearCurrentSession = vi.fn(async () => {});
 	const speechStart = vi.fn(async () => {});
 	const speechStop = vi.fn(() => '');
 	const scrollToBottom = vi.fn();
@@ -68,7 +64,11 @@ const mocks = vi.hoisted(() => {
 			sessionParticipants: {},
 		},
 		identified: true,
-		call: agentCall,
+		stub: {
+			submitMessage,
+			abortRun,
+			clearCurrentSession,
+		},
 	};
 
 	const agentRuntime = {
@@ -97,7 +97,9 @@ const mocks = vi.hoisted(() => {
 	};
 
 	return {
-		agentCall,
+		submitMessage,
+		abortRun,
+		clearCurrentSession,
 		speechStart,
 		speechStop,
 		scrollToBottom,
@@ -394,8 +396,8 @@ describe('AgentPanel footer controls', () => {
 		fireEvent.click(screen.getByRole('button', { name: 'Start voice input' }));
 
 		expect(mocks.speechStart).toHaveBeenCalledTimes(1);
-		expect(mocks.agentCall).not.toHaveBeenCalledWith('abortRun', expect.anything());
-		expect(mocks.agentCall).not.toHaveBeenCalledWith('clearCurrentSession', expect.anything());
+		expect(mocks.abortRun).not.toHaveBeenCalled();
+		expect(mocks.clearCurrentSession).not.toHaveBeenCalled();
 		expect(screen.getByRole('button', { name: 'Stop generation' })).toBeInTheDocument();
 
 		mocks.speechToText.isRecording = true;
@@ -407,8 +409,8 @@ describe('AgentPanel footer controls', () => {
 		fireEvent.click(screen.getByRole('button', { name: 'Stop recording' }));
 
 		expect(mocks.speechStop).toHaveBeenCalledTimes(1);
-		expect(mocks.agentCall).not.toHaveBeenCalledWith('abortRun', expect.anything());
-		expect(mocks.agentCall).not.toHaveBeenCalledWith('clearCurrentSession', expect.anything());
+		expect(mocks.abortRun).not.toHaveBeenCalled();
+		expect(mocks.clearCurrentSession).not.toHaveBeenCalled();
 	});
 
 	it('switches to the STT takeover while recording', () => {

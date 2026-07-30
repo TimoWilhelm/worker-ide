@@ -1,124 +1,182 @@
-import { Agent } from 'agents';
-import { Session } from 'agents/experimental/memory/session';
+import { Think } from '@cloudflare/think';
 
-import { DEFAULT_AI_MODEL } from '@shared/constants';
+import { DEFAULT_AI_MODEL, MCP_SERVERS } from '@shared/constants';
+import { aiModelSchema } from '@shared/validation';
 
 import { filesystemNamespace } from '../lib/durable-object-namespaces';
+import { runWithProjectStub } from '../lib/project-fs';
 import { toDurableObjectId } from '../lib/project-id';
-import { AgentService } from '../services/agent';
-import { chatMessagesToModelMessages } from '../services/agent/context-pruner';
+import { createSendEventFunction } from '../services/agent/event-helpers';
+import { callConfiguredMcpTool, registerConfiguredMcpServers } from '../services/agent/mcp';
+import { isRequestOriginContext } from '../services/agent/request-origin-context';
+import { readAgentsContext } from '../services/agent/system-prompt-builder';
+import { createServerTools, SUB_AGENT_EXCLUDED_TOOLS } from '../services/agent/tools';
+import { createAdapter as createWorkersAiAdapter } from '../services/agent/workers-ai';
 
+import type { RequestOriginContext } from '../services/agent/request-origin-context';
+import type { ChatResponseResult, ChunkContext, TurnConfig, TurnContext } from '@cloudflare/think';
+import type { StreamEvent } from '@shared/agent-state';
 import type { AIModelId } from '@shared/constants';
-import type { ChatMessage } from '@shared/types';
+import type { UIMessage } from 'ai';
 
-export interface SubAgentState {
-	status: 'idle' | 'running' | 'completed' | 'error';
-	/**
-	 * Cached result of the last completed task. Lets a recovered parent run
-	 * re-attach to this sub-agent (same deterministic name) and retrieve the
-	 * result instead of re-running the delegated work.
-	 */
-	result?: SubAgentResult;
+const SUB_AGENT_SYSTEM_PROMPT =
+	'You are a focused sub-agent. Complete the delegated task efficiently and end with a concise, self-contained result for the parent agent.';
+
+export interface SubAgentInput {
+	prompt: string;
+	projectId: string;
+	organizationId?: string;
+	model: AIModelId;
+	sessionId: string;
+	userId?: string;
+	requestOriginContext?: RequestOriginContext;
+	parentToolCallId?: string;
 }
 
-export interface SubAgentResult {
-	text: string;
-	iterations: number;
-	debugLogId: string | undefined;
+interface SubAgentState {
+	input?: SubAgentInput;
 }
 
-interface StreamCallback {
-	pushEvent(eventJson: string): Promise<void>;
-}
+export class SubAgentWorker extends Think<Env, SubAgentState> {
+	initialState: SubAgentState = {};
+	chatStreamStallTimeoutMs = 120_000;
+	maxSteps = 100;
+	exposeMcpTools = false;
+	private eventQueue: StreamEvent[] = [];
+	private eventAbortController = new AbortController();
 
-export class SubAgentWorker extends Agent<Env, SubAgentState> {
-	initialState: SubAgentState = { status: 'idle' };
-	private abortController?: AbortController;
-	private session = Session.create(this).withContext('soul', {
-		provider: {
-			get: async () => 'You are a focused sub-agent. Complete the delegated task efficiently and report concise results.',
-		},
-	});
-
-	async executeTask(
-		projectId: string,
-		messages: ChatMessage[],
-		model: AIModelId = DEFAULT_AI_MODEL,
-		callback?: StreamCallback,
-		userId?: string,
-		organizationId?: string,
-	): Promise<SubAgentResult> {
-		// Re-attach: if this sub-agent already completed (parent run was recovered
-		// and re-issued the same deterministic call), return the cached result
-		// instead of redoing the delegated work.
-		if (this.state.status === 'completed' && this.state.result) {
-			return this.state.result;
-		}
-
-		this.setState({ status: 'running', result: undefined });
-		this.abortController = new AbortController();
-
-		const fsId = toDurableObjectId(filesystemNamespace, projectId);
-		const fsStub = filesystemNamespace.get(fsId);
-		const service = new AgentService({
-			projectRoot: '/project',
-			projectId,
-			fsStub,
-			sessionId: `${this.name}-session`,
-			mode: 'code',
-			model,
-			session: this.session,
-			ctx: this.ctx,
-			loader: this.env.LOADER,
-			browser: this.env.BROWSER,
-			agentReference: this,
-			organizationId,
-			initiatorUserId: userId,
+	override async onStart(): Promise<void> {
+		await super.onStart();
+		await registerConfiguredMcpServers(this).catch((error) => {
+			console.error(
+				`[SubAgentWorker] Failed to connect configured MCP servers (${MCP_SERVERS.map((server) => server.id).join(', ')}):`,
+				error,
+			);
 		});
-
-		let lastAssistantText = '';
-		let iterations = 0;
-
-		try {
-			const stream = service.runAgentStream(chatMessagesToModelMessages(messages), messages, this.abortController);
-
-			for await (const event of stream) {
-				if (event.type === 'text-delta') {
-					lastAssistantText += event.delta;
-				}
-				if (event.type === 'turn-complete') {
-					iterations += 1;
-				}
-				if (callback) {
-					await callback.pushEvent(JSON.stringify(event));
-				}
-			}
-
-			const completedResult: SubAgentResult = {
-				text: lastAssistantText.trim() || '(Sub-agent completed without producing text output)',
-				iterations,
-				debugLogId: service.getLogger()?.id,
-			};
-			this.setState({ status: 'completed', result: completedResult });
-			await service.flushLogger().catch(() => {});
-			return completedResult;
-		} catch (error) {
-			this.setState({ status: 'error' });
-			if (error instanceof Error && error.name === 'AbortError') {
-				return {
-					text: lastAssistantText.trim() || '(Sub-agent aborted)',
-					iterations,
-					debugLogId: service.getLogger()?.id,
-				};
-			}
-			throw error;
-		} finally {
-			this.abortController = undefined;
-			await this.session.clearMessages();
-		}
 	}
 
-	async abort(): Promise<void> {
-		this.abortController?.abort();
+	override formatAgentToolInput(value: unknown): UIMessage {
+		const input = parseSubAgentInput(value);
+		this.setState({ input });
+		return {
+			id: crypto.randomUUID(),
+			role: 'user',
+			parts: [{ type: 'text', text: input.prompt }],
+		};
 	}
+
+	override getModel(): AIModelId {
+		return this.state.input?.model ?? DEFAULT_AI_MODEL;
+	}
+
+	override getSystemPrompt(): string {
+		return SUB_AGENT_SYSTEM_PROMPT;
+	}
+
+	override async beforeTurn(_context: TurnContext): Promise<TurnConfig> {
+		const input = this.state.input;
+		if (!input) throw new Error('Sub-agent input is not configured.');
+
+		const filesystemId = toDurableObjectId(filesystemNamespace, input.projectId);
+		const filesystemStub = filesystemNamespace.get(filesystemId);
+		const agentsContext = await runWithProjectStub(filesystemStub, () => readAgentsContext('/project'));
+		const instructions = agentsContext
+			? `${SUB_AGENT_SYSTEM_PROMPT}\n\n## Project Guidelines (from AGENTS.md)\n${agentsContext}`
+			: SUB_AGENT_SYSTEM_PROMPT;
+		this.eventQueue = [];
+		this.eventAbortController.abort();
+		this.eventAbortController = new AbortController();
+		const sendEvent = createSendEventFunction(this.eventQueue, { current: undefined }, this.eventAbortController.signal);
+		const tools = await createServerTools(
+			sendEvent,
+			{
+				projectRoot: '/project',
+				projectId: input.projectId,
+				organizationId: input.organizationId,
+				mode: 'code',
+				sessionId: input.sessionId,
+				userId: input.userId,
+				callMcpTool: (serverId, toolName, arguments_) => callConfiguredMcpTool(this, serverId, toolName, arguments_),
+				ctx: this.ctx,
+				loader: this.env.LOADER,
+				browser: this.env.BROWSER,
+				agentReference: this,
+				fsStub: filesystemStub,
+				model: input.model,
+				requestOriginContext: input.requestOriginContext,
+			},
+			[],
+			'code',
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			SUB_AGENT_EXCLUDED_TOOLS,
+		);
+
+		return {
+			model: createWorkersAiAdapter(input.model, {
+				generationType: 'agent',
+				projectId: input.projectId,
+				organizationId: input.organizationId,
+			}),
+			instructions,
+			tools,
+			maxSteps: this.maxSteps,
+			chatStreamStallTimeoutMs: this.chatStreamStallTimeoutMs,
+			maxRetries: 0,
+		};
+	}
+
+	override async onChunk(_context: ChunkContext): Promise<void> {
+		await this.forwardParentEvents();
+	}
+
+	override async onChatResponse(_result: ChatResponseResult): Promise<void> {
+		await this.forwardParentEvents();
+	}
+
+	private async forwardParentEvents(): Promise<void> {
+		const events = buildSubAgentParentEvents(this.eventQueue, this.state.input?.parentToolCallId);
+		this.eventQueue = [];
+		if (events.length === 0) return;
+
+		const { SessionTurnAgent } = await import('./session-turn-agent');
+		const parent = await this.parentAgent(SessionTurnAgent);
+		await parent.receiveSubAgentEvents(events);
+	}
+}
+
+export function buildSubAgentParentEvents(events: StreamEvent[], parentToolCallId?: string): StreamEvent[] {
+	return events.flatMap<StreamEvent>((event) => {
+		if (event.type === 'file-changed') return [event];
+		if (event.type !== 'tool-result' || !parentToolCallId) return [];
+		return [
+			{
+				type: 'sub-agent-activity',
+				parentToolCallId,
+				activity: { kind: 'tool-metadata', toolName: event.toolName, title: event.title, metadata: event.metadata },
+			},
+		];
+	});
+}
+
+function parseSubAgentInput(value: unknown): SubAgentInput {
+	if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid sub-agent input.');
+	if (!('prompt' in value) || typeof value.prompt !== 'string' || !value.prompt.trim()) throw new Error('A prompt is required.');
+	if (!('projectId' in value) || typeof value.projectId !== 'string') throw new Error('A project ID is required.');
+	if (!('model' in value) || typeof value.model !== 'string') throw new Error('A model is required.');
+	if (!('sessionId' in value) || typeof value.sessionId !== 'string') throw new Error('A session ID is required.');
+
+	return {
+		prompt: value.prompt.trim(),
+		projectId: value.projectId,
+		model: aiModelSchema.parse(value.model),
+		sessionId: value.sessionId,
+		organizationId: 'organizationId' in value && typeof value.organizationId === 'string' ? value.organizationId : undefined,
+		userId: 'userId' in value && typeof value.userId === 'string' ? value.userId : undefined,
+		requestOriginContext:
+			'requestOriginContext' in value && isRequestOriginContext(value.requestOriginContext) ? value.requestOriginContext : undefined,
+		parentToolCallId: 'parentToolCallId' in value && typeof value.parentToolCallId === 'string' ? value.parentToolCallId : undefined,
+	};
 }

@@ -3,113 +3,70 @@ import { describe, expect, it, vi } from 'vitest';
 import { execute } from './sub-agent';
 import { createMockContext, createMockSendEvent } from './test-helpers';
 
-import type { FileChange } from '../types';
-
 describe('sub_agent', () => {
-	it('delegates to a facet sub-agent and forwards streamed activity', async () => {
+	it('delegates through the retained agent-tool API', async () => {
 		const sendEvent = createMockSendEvent();
-		const queryChanges: FileChange[] = [];
-		const executeTask = vi.fn(
-			async (
-				_projectId: string,
-				_messages: unknown[],
-				_model: string,
-				callback: { pushEvent: (payload: string) => Promise<void> },
-				_userId?: string,
-				_organizationId?: string,
-			) => {
-				await callback.pushEvent(JSON.stringify({ type: 'text-delta', delta: 'Investigating...' }));
-				await callback.pushEvent(JSON.stringify({ type: 'tool-call-start', toolCallId: 'tc-1', toolName: 'lint_check' }));
-				await callback.pushEvent(JSON.stringify({ type: 'tool-call-end', toolCallId: 'tc-1', toolName: 'lint_check', result: 'ok' }));
-				await callback.pushEvent(
-					JSON.stringify({
-						type: 'file-changed',
-						path: 'src/example.ts',
-						action: 'edit',
-						beforeContent: 'old',
-						afterContent: 'new',
-						toolCallId: 'tc-1',
-					}),
-				);
-
-				return {
-					text: 'Sub-agent result',
-					iterations: 2,
-					debugLogId: 'debug-123',
-				};
-			},
-		);
-		const subAgent = { executeTask };
-		const agentReference = {
-			subAgent: vi.fn(async () => subAgent),
-		};
+		const runAgentTool = vi.fn(async () => ({
+			runId: 'agent-tool:call-abc',
+			agentType: 'SubAgentWorker',
+			status: 'completed' as const,
+			summary: 'Sub-agent result',
+		}));
 		const indexArtifact = vi.fn(async () => {});
 		const context = createMockContext({
 			indexArtifact,
+			sessionId: 'sess-1',
+			toolCallId: 'call-abc',
 			userId: 'user-123',
 			organizationId: 'org-123',
+			requestOriginContext: { baseDomain: 'example.com', protocol: 'https:' },
 		});
-		Object.defineProperty(context, 'agentReference', { value: agentReference, configurable: true, writable: true });
+		Object.defineProperty(context, 'agentReference', {
+			value: { runAgentTool },
+			configurable: true,
+			writable: true,
+		});
 
-		const result = await execute(
-			{ prompt: 'Inspect the failing integration', context: 'Focus on src/example.ts' },
-			sendEvent,
-			context,
-			queryChanges,
-		);
+		const result = await execute({ prompt: 'Inspect the failing integration', context: 'Focus on src/example.ts' }, sendEvent, context, []);
 
-		expect(agentReference.subAgent).toHaveBeenCalledOnce();
-		expect(executeTask).toHaveBeenCalledOnce();
-		expect(executeTask).toHaveBeenCalledWith(
-			'test-project',
-			expect.any(Array),
-			expect.any(String),
+		expect(runAgentTool).toHaveBeenCalledWith(
 			expect.anything(),
-			'user-123',
-			'org-123',
+			expect.objectContaining({
+				runId: 'agent-tool:call-abc',
+				parentToolCallId: 'call-abc',
+				input: expect.objectContaining({
+					prompt: 'Inspect the failing integration\n\nAdditional context:\nFocus on src/example.ts',
+					projectId: 'test-project',
+					organizationId: 'org-123',
+					userId: 'user-123',
+					requestOriginContext: { baseDomain: 'example.com', protocol: 'https:' },
+					parentToolCallId: 'call-abc',
+				}),
+			}),
 		);
-		expect(result.output).toContain('Sub-agent result');
-		expect(result.metadata).toMatchObject({ iterations: 2, debugLogId: 'debug-123', artifactKey: expect.any(String) });
+		expect(result.output).toBe('Sub-agent result');
+		expect(result.metadata).toMatchObject({ runId: 'agent-tool:call-abc', artifactKey: expect.any(String) });
 		expect(indexArtifact).toHaveBeenCalledOnce();
-		expect(queryChanges).toEqual([
-			{
-				path: 'src/example.ts',
-				action: 'edit',
-				beforeContent: 'old',
-				afterContent: 'new',
-				isBinary: false,
-			},
-		]);
-
 		expect(sendEvent.calls.some(([type, payload]) => type === 'status' && payload.message === 'Delegating task to sub-agent...')).toBe(
 			true,
 		);
-		expect(sendEvent.calls.some(([type, payload]) => type === 'sub_agent_activity' && payload.activity.kind === 'text-delta')).toBe(true);
-		expect(sendEvent.calls.some(([type]) => type === 'file_changed')).toBe(true);
 	}, 15_000);
 
-	it('uses a deterministic sub-agent name keyed off the tool call for recovery re-attach', async () => {
-		const sendEvent = createMockSendEvent();
-		const executeTask = vi.fn(async () => ({ text: 'done', iterations: 1, debugLogId: undefined }));
-		const agentReference = { subAgent: vi.fn(async () => ({ executeTask })) };
-		const context = createMockContext({ sessionId: 'sess-1', toolCallId: 'call-abc' });
-		Object.defineProperty(context, 'agentReference', { value: agentReference, configurable: true, writable: true });
+	it('surfaces a failed retained run as a tool error', async () => {
+		const context = createMockContext({ toolCallId: 'call-failed' });
+		Object.defineProperty(context, 'agentReference', {
+			value: {
+				runAgentTool: vi.fn(async () => ({
+					runId: 'agent-tool:call-failed',
+					agentType: 'SubAgentWorker',
+					status: 'error',
+					error: 'Delegation failed',
+				})),
+			},
+			configurable: true,
+			writable: true,
+		});
 
-		await execute({ prompt: 'Do the thing' }, sendEvent, context, []);
-
-		expect(agentReference.subAgent).toHaveBeenCalledWith(expect.anything(), 'sub-agent-sess-1-call-abc');
-	}, 15_000);
-
-	it('falls back to a random sub-agent name when no tool call id is available', async () => {
-		const sendEvent = createMockSendEvent();
-		const executeTask = vi.fn(async () => ({ text: 'done', iterations: 1, debugLogId: undefined }));
-		const agentReference = { subAgent: vi.fn(async () => ({ executeTask })) };
-		const context = createMockContext({ sessionId: 'sess-1', toolCallId: undefined });
-		Object.defineProperty(context, 'agentReference', { value: agentReference, configurable: true, writable: true });
-
-		await execute({ prompt: 'Do the thing' }, sendEvent, context, []);
-
-		const firstCall = agentReference.subAgent.mock.calls[0];
-		expect(firstCall?.[1]).toMatch(/^sub-agent-[\da-f]{8}$/);
-	}, 15_000);
+		await expect(execute({ prompt: 'Do the thing' }, createMockSendEvent(), context, [])).rejects.toThrow('Delegation failed');
+	});
 });

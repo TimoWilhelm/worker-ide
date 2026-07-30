@@ -30,11 +30,13 @@ describe('MCP_SERVERS', () => {
 		expect(cloudflareDocumentation?.endpoint).toContain('cloudflare.com');
 	});
 
-	it('each server has id, name, and endpoint', () => {
+	it('each server has connection and Code Mode connector metadata', () => {
 		for (const server of MCP_SERVERS) {
 			expect(server.id).toBeTruthy();
 			expect(server.name).toBeTruthy();
 			expect(server.endpoint).toMatch(/^https?:\/\//);
+			expect(server.connectorName).toMatch(/^[a-z][a-z0-9_]*$/);
+			expect(server.instructions).toBeTruthy();
 		}
 	});
 });

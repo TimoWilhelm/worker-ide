@@ -2,12 +2,13 @@ import { useAgent } from 'agents/react';
 import { useEffect, useMemo, useState } from 'react';
 
 import { AgentRuntimeContext } from './agent-runtime-context';
-import { createAgentCaller } from '../lib/agent-call';
 import { loadAgentDraftSession, saveAgentDraftSession } from '../lib/agent-draft-session';
 import { segmentsToPlainText } from '../lib/input-segments';
 
 import type { AgentRuntimeHandle, AgentRuntimeValue, ImageAttachment } from './agent-runtime-context';
 import type { InputSegment } from '../lib/input-segments';
+import type { AgentRunnerClient } from '@shared/agent-rpc';
+import type { AgentState } from '@shared/agent-state';
 import type { ReactNode } from 'react';
 
 export function AgentRuntimeProvider({ projectId, children }: { projectId: string; children: ReactNode }) {
@@ -16,7 +17,7 @@ export function AgentRuntimeProvider({ projectId, children }: { projectId: strin
 	// Image attachments are transient (base64 is too large to persist to
 	// localStorage) and reset when switching projects.
 	const [imageAttachments, setImageAttachments] = useState<ImageAttachment[]>([]);
-	const rawAgent = useAgent({
+	const rawAgent = useAgent<AgentRunnerClient, AgentState>({
 		agent: 'AgentRunner',
 		// basePath connects to /p/{projectId}/__agent which the worker
 		// entry point forwards to the AgentRunner DO.
@@ -24,7 +25,6 @@ export function AgentRuntimeProvider({ projectId, children }: { projectId: strin
 		// must NOT start with a slash — otherwise the URL becomes "//p/...".
 		basePath: `p/${projectId}/__agent`,
 	});
-	const callAgent = useMemo(() => createAgentCaller(rawAgent.call.bind(rawAgent)), [rawAgent]);
 	const agent = useMemo<AgentRuntimeHandle>(
 		() => ({
 			get identified() {
@@ -33,15 +33,17 @@ export function AgentRuntimeProvider({ projectId, children }: { projectId: strin
 			get state() {
 				return rawAgent.state;
 			},
+			get stub() {
+				return rawAgent.stub;
+			},
 			addEventListener: (type, listener) => {
 				rawAgent.addEventListener(type, listener);
 			},
 			removeEventListener: (type, listener) => {
 				rawAgent.removeEventListener(type, listener);
 			},
-			call: (method, arguments_, options) => callAgent(method, arguments_, options),
 		}),
-		[callAgent, rawAgent],
+		[rawAgent],
 	);
 	const [agentConnectionState, setAgentConnectionState] = useState<'connecting' | 'connected' | 'disconnected'>(
 		rawAgent.identified ? 'connected' : 'connecting',

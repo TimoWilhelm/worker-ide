@@ -16,7 +16,7 @@ A browser-based full-stack development environment built on Cloudflare Workers. 
 - Git operations use `isomorphic-git` against Cloudflare Artifacts remotes, with the project working tree mounted from the project filesystem DO.
 - User backend code runs in isolated V8 isolates via Cloudflare's [Dynamic Worker Loader](https://developers.cloudflare.com/workers/runtime-apis/bindings/worker-loader/) API.
 - vinext (App Router) projects use [vinext](https://github.com/cloudflare/vinext) built by an in-worker Vite/esbuild host (no Vite dev server, since workerd forbids code-gen-from-strings). React Server Components render in a Worker Loader isolate; the browser gets module-level HMR with React Fast Refresh and state-preserving RSC + CSS updates. Deploys produce a standalone Worker (bundled server module set + static client assets).
-- AI coding assistant powered by the Cloudflare Agents SDK and Vercel AI SDK, with real-time state sync via WebSocket.
+- AI coding assistant powered by the Cloudflare Agents SDK and Vercel AI SDK. A project-scoped `AgentRunner` coordinates per-session `SessionTurnAgent` Think facets, retained sub-agents, automatic change snapshots, real-time WebSocket state, and a durable Code Mode runtime with configured MCP servers exposed as typed connector namespaces.
 - Private previews use a preview-only host cookie minted through an app-origin bootstrap flow, so app auth cookies never leave the main app origin.
 
 ### Shared (`shared/`)

@@ -5,15 +5,9 @@ import { isAgentState } from '@/features/agent/lib/agent-state';
 import { getActiveSessionId, setActiveSessionId } from '@/lib/project-storage';
 import { useStore } from '@/lib/store';
 
-import type { AgentConnectionState } from '../components/agent-runtime-context';
-import type { AgentCallOptions } from '../lib/agent-call';
+import type { AgentConnectionState, AgentRuntimeHandle } from '../components/agent-runtime-context';
 import type { AgentState } from '@shared/agent-state';
 import type { PendingFileChange, AiSession } from '@shared/types';
-
-interface AgentHandle {
-	state: unknown;
-	call: <T = unknown>(method: string, arguments_?: unknown[], options?: AgentCallOptions) => Promise<T>;
-}
 
 type SessionLoadPhase = 'idle' | 'awaiting-agent-state' | 'loading-saved-session';
 type SessionLoadResult = { status: 'loaded'; session: AiSession } | { status: 'missing' } | { status: 'error' };
@@ -24,7 +18,7 @@ export function useAgentSessions({
 	agentConnectionState,
 }: {
 	projectId: string;
-	agent: AgentHandle;
+	agent: AgentRuntimeHandle;
 	agentConnectionState: AgentConnectionState;
 }) {
 	// Session list comes from agent.state.sessions (auto-synced)
@@ -43,8 +37,8 @@ export function useAgentSessions({
 		}
 
 		let cancelled = false;
-		void agent
-			.call<Array<{ sessionId: string; role: string; content: string }>>('searchSessions', [sessionSearchQuery.trim(), 20])
+		void agent.stub
+			.searchSessions(sessionSearchQuery.trim(), 20)
 			.then((results) => {
 				if (cancelled) return;
 				setSearchedSessionIds([...new Set(results.map((result) => result.sessionId))]);
@@ -64,6 +58,8 @@ export function useAgentSessions({
 	// =========================================================================
 
 	const [isLoadingSession, setIsLoadingSession] = useState(false);
+	const [sessionSnapshot, setSessionSnapshot] = useState<AiSession | undefined>();
+	const [snapshotHistoryVersion, setSnapshotHistoryVersion] = useState(-1);
 	const [sessionLoadPhase, setSessionLoadPhase] = useState<SessionLoadPhase>(() => {
 		const currentSession = agentState?.currentSession;
 		return !currentSession && getActiveSessionId(projectId) ? 'awaiting-agent-state' : 'idle';
@@ -84,7 +80,7 @@ export function useAgentSessions({
 			}
 
 			try {
-				const session = await agent.call<AiSession | undefined>('loadSession', [targetSessionId]);
+				const session = await agent.stub.loadSession(targetSessionId);
 				if (!session) {
 					if (getActiveSessionId(projectId) === targetSessionId) {
 						setActiveSessionId(projectId, undefined);
@@ -96,6 +92,8 @@ export function useAgentSessions({
 				}
 
 				setActiveSessionId(projectId, session.id);
+				setSessionSnapshot(session);
+				setSnapshotHistoryVersion(agent.state?.currentSession?.historyVersion ?? 0);
 				return { status: 'loaded', session };
 			} catch {
 				if (reason === 'manual') {
@@ -127,7 +125,7 @@ export function useAgentSessions({
 	const handleRenameSession = useCallback(
 		async (targetSessionId: string, newTitle: string): Promise<boolean> => {
 			try {
-				await agent.call('renameSession', [targetSessionId, newTitle]);
+				await agent.stub.renameSession(targetSessionId, newTitle);
 				return true;
 			} catch {
 				toast.error('Could not rename the session. Please try again.');
@@ -144,7 +142,7 @@ export function useAgentSessions({
 	const handleDeleteSession = useCallback(
 		async (targetSessionId: string): Promise<boolean> => {
 			try {
-				await agent.call('deleteSession', [projectId, targetSessionId]);
+				await agent.stub.deleteSession(targetSessionId);
 				setActiveSessionId(projectId, undefined);
 				return true;
 			} catch {
@@ -264,6 +262,32 @@ export function useAgentSessions({
 		});
 	}, [agentConnectionState, agentState, loadSessionById, projectId, updateSessionLoadPhase]);
 
+	useEffect(() => {
+		const currentSession = agentState?.currentSession;
+		if (!currentSession) {
+			queueMicrotask(() => {
+				setSessionSnapshot(undefined);
+				setSnapshotHistoryVersion(-1);
+			});
+			return;
+		}
+
+		if (sessionSnapshot?.id === currentSession.sessionId && snapshotHistoryVersion === currentSession.historyVersion) {
+			return;
+		}
+
+		let cancelled = false;
+		void agent.stub.loadSession(currentSession.sessionId).then((session) => {
+			if (cancelled || !session) return;
+			setSessionSnapshot(session);
+			setSnapshotHistoryVersion(currentSession.historyVersion);
+		});
+
+		return () => {
+			cancelled = true;
+		};
+	}, [agent.stub, agentState?.currentSession, sessionSnapshot?.id, snapshotHistoryVersion]);
+
 	const isRestoringSession =
 		sessionLoadPhase === 'loading-saved-session' || (sessionLoadPhase === 'awaiting-agent-state' && agentConnectionState === 'connecting');
 
@@ -276,5 +300,6 @@ export function useAgentSessions({
 		sessionSearchQuery,
 		setSessionSearchQuery,
 		isRestoringSession: isRestoringSession || isLoadingSession,
+		sessionSnapshot,
 	};
 }

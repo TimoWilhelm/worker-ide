@@ -10,7 +10,7 @@ import {
 	parseAstAsync,
 	transformWithOxc,
 } from './index';
-import { installViteHostServices } from './services';
+import { runWithViteHostServices } from './services';
 
 describe('vite shim: parseAst', () => {
 	it('parses ESM into an ESTree program with offsets', () => {
@@ -36,11 +36,13 @@ describe('vite shim: parseAst', () => {
 
 describe('vite shim: parseAstAsync TS fallback', () => {
 	it('transforms via host services when acorn cannot parse types', async () => {
-		installViteHostServices({
-			transform: async (code) => ({ code: code.replaceAll(': number', '') }),
-			loadEnv: () => ({}),
-		});
-		const ast = await parseAstAsync('export const n: number = 1;');
+		const ast = await runWithViteHostServices(
+			{
+				transform: async (code) => ({ code: code.replaceAll(': number', '') }),
+				loadEnv: () => ({}),
+			},
+			() => parseAstAsync('export const n: number = 1;'),
+		);
 		expect(ast.type).toBe('Program');
 		expect(ast.body[0].type).toBe('ExportNamedDeclaration');
 	});
@@ -48,11 +50,13 @@ describe('vite shim: parseAstAsync TS fallback', () => {
 
 describe('vite shim: transformWithOxc', () => {
 	it('delegates to host transform service', async () => {
-		installViteHostServices({
-			transform: async (code, id) => ({ code: `/* ${id} */ ${code}` }),
-			loadEnv: () => ({}),
-		});
-		const result = await transformWithOxc('const x = 1;', '/a.ts');
+		const result = await runWithViteHostServices(
+			{
+				transform: async (code, id) => ({ code: `/* ${id} */ ${code}` }),
+				loadEnv: () => ({}),
+			},
+			() => transformWithOxc('const x = 1;', '/a.ts'),
+		);
 		expect(result.code).toContain('/* /a.ts */');
 	});
 });
@@ -78,11 +82,14 @@ describe('vite shim: pure utilities', () => {
 	});
 
 	it('loadEnv delegates to host services', () => {
-		installViteHostServices({
-			transform: async (code) => ({ code }),
-			loadEnv: (mode, prefixes) => ({ MODE: mode, PREFIX: prefixes.join(',') }),
-		});
-		expect(loadEnvironment('production', '/root', 'NEXT_PUBLIC_')).toEqual({
+		const environment = runWithViteHostServices(
+			{
+				transform: async (code) => ({ code }),
+				loadEnv: (mode, prefixes) => ({ MODE: mode, PREFIX: prefixes.join(',') }),
+			},
+			() => loadEnvironment('production', '/root', 'NEXT_PUBLIC_'),
+		);
+		expect(environment).toEqual({
 			MODE: 'production',
 			PREFIX: 'NEXT_PUBLIC_',
 		});

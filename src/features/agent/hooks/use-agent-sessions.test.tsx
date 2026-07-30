@@ -4,9 +4,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useStore } from '@/lib/store';
 
 import { useAgentSessions } from './use-agent-sessions';
+import { createUnavailableAgentRunnerStub } from '../lib/agent-stub';
 
+import type { AgentRuntimeHandle } from '../components/agent-runtime-context';
 import type { AgentState, AgentSessionState } from '@shared/agent-state';
-import type { PendingFileChange, ReviewEntry } from '@shared/types';
+import type { AiSession, PendingFileChange, ReviewEntry } from '@shared/types';
 
 function createPendingChange(path: string, sessionId: string, reviewId?: string): PendingFileChange {
 	return {
@@ -48,6 +50,7 @@ function createCurrentSession(sessionId: string, status: AgentSessionState['stat
 		title: `Session ${sessionId}`,
 		status,
 		messages: [],
+		historyVersion: 0,
 		statusText: undefined,
 		error: undefined,
 		contextTokensUsed: 0,
@@ -60,6 +63,18 @@ function createCurrentSession(sessionId: string, status: AgentSessionState['stat
 		needsContinuation: false,
 		doomLoopMessage: undefined,
 		subAgentActivities: {},
+	};
+}
+
+function createAgent(state?: AgentState): AgentRuntimeHandle {
+	const stub = createUnavailableAgentRunnerStub();
+	stub.loadSession = vi.fn(async (): Promise<AiSession | undefined> => undefined);
+	return {
+		identified: true,
+		state,
+		stub,
+		addEventListener: vi.fn(),
+		removeEventListener: vi.fn(),
 	};
 }
 
@@ -86,12 +101,7 @@ describe('useAgentSessions', () => {
 				sessionCounts: { 'session-1': 1 },
 			},
 		};
-		const agent = {
-			get state() {
-				return state;
-			},
-			call: vi.fn().mockImplementation(async () => {}),
-		};
+		const agent = createAgent(state);
 
 		const { rerender } = renderHook(() => useAgentSessions({ projectId: 'project-1', agent, agentConnectionState: 'connected' }));
 
@@ -126,12 +136,7 @@ describe('useAgentSessions', () => {
 				sessionCounts: { 'session-1': 1 },
 			},
 		};
-		const agent = {
-			get state() {
-				return state;
-			},
-			call: vi.fn().mockImplementation(async () => {}),
-		};
+		const agent = createAgent(state);
 
 		const { rerender } = renderHook(() => useAgentSessions({ projectId: 'project-1', agent, agentConnectionState: 'connected' }));
 
@@ -162,12 +167,7 @@ describe('useAgentSessions', () => {
 				sessionCounts: {},
 			},
 		};
-		const agent = {
-			get state() {
-				return state;
-			},
-			call: vi.fn().mockImplementation(async () => {}),
-		};
+		const agent = createAgent(state);
 
 		const { rerender } = renderHook(() => useAgentSessions({ projectId: 'project-1', agent, agentConnectionState: 'connected' }));
 
@@ -186,17 +186,12 @@ describe('useAgentSessions', () => {
 	});
 
 	it('does not show a restore spinner when there is no saved session to restore', () => {
-		const agent = {
-			get state() {
-				return;
-			},
-			call: vi.fn().mockImplementation(async () => {}),
-		};
+		const agent = createAgent();
 
 		const { result } = renderHook(() => useAgentSessions({ projectId: 'project-1', agent, agentConnectionState: 'connecting' }));
 
 		expect(result.current.isRestoringSession).toBe(false);
-		expect(agent.call).not.toHaveBeenCalled();
+		expect(agent.stub.loadSession).not.toHaveBeenCalled();
 	});
 
 	it('clears stale saved sessions that cannot be restored', async () => {
@@ -213,17 +208,14 @@ describe('useAgentSessions', () => {
 				sessionCounts: {},
 			},
 		};
-		const agent = {
-			get state() {
-				return state;
-			},
-			call: vi.fn().mockImplementation(async () => {}),
-		};
+		const loadSession = vi.fn(async (): Promise<AiSession | undefined> => undefined);
+		const agent = createAgent(state);
+		agent.stub.loadSession = loadSession;
 
 		const { result } = renderHook(() => useAgentSessions({ projectId: 'project-1', agent, agentConnectionState: 'connected' }));
 
 		await waitFor(() => {
-			expect(agent.call).toHaveBeenCalledWith('loadSession', ['missing-session']);
+			expect(loadSession).toHaveBeenCalledWith('missing-session');
 			expect(result.current.isRestoringSession).toBe(false);
 		});
 
@@ -245,12 +237,7 @@ describe('useAgentSessions', () => {
 				sessionCounts: {},
 			},
 		};
-		const agent = {
-			get state() {
-				return state;
-			},
-			call: vi.fn().mockImplementation(async () => {}),
-		};
+		const agent = createAgent(state);
 
 		renderHook(() => useAgentSessions({ projectId: 'project-1', agent, agentConnectionState: 'connected' }));
 
@@ -259,6 +246,6 @@ describe('useAgentSessions', () => {
 			expect(stored.activeSessionId).toBe('session-3');
 		});
 
-		expect(agent.call).not.toHaveBeenCalledWith('loadSession', expect.anything());
+		expect(agent.stub.loadSession).toHaveBeenCalledWith('session-3');
 	});
 });

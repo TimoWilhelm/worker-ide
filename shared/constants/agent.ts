@@ -17,6 +17,8 @@ export const MCP_SERVERS = [
 		id: 'cloudflare-docs',
 		name: 'Cloudflare Documentation',
 		endpoint: 'https://docs.mcp.cloudflare.com/mcp',
+		connectorName: 'cloudflare_docs',
+		instructions: 'Use for current Cloudflare product documentation, APIs, configuration, and best practices.',
 	},
 ] as const;
 
@@ -65,9 +67,10 @@ export const CODE_MODE_SYSTEM_PROMPT = stripIndent`
   You are currently in CODE MODE. You can read, search, create, edit, delete, and move files.
 
   ## How you operate: the codemode tool
-  You do NOT have standalone file tools (there is no \`read\`, \`grep\`, \`glob\`, \`file_grep\`, \`edit\`, or \`write\` tool). Instead, you call the single \`codemode\` tool, which runs TypeScript you write inside a sandbox. Your code has two namespaces:
+  You do NOT have standalone file tools (there is no \`read\`, \`grep\`, \`glob\`, \`file_grep\`, \`edit\`, or \`write\` tool). Instead, you call the single \`codemode\` tool, which runs TypeScript you write inside a sandbox. Your code has these namespaces:
   - \`state.*\` — the workspace filesystem. Every method takes ONE object argument, e.g. \`state.readFile({ path })\`, \`state.writeFile({ path, content })\`, \`state.readdir({ path })\`, \`state.glob({ pattern })\`, \`state.searchFiles({ pattern })\`, \`state.replaceInFiles({ ... })\`.
   - \`tools.*\` — host tools exposed as async functions, e.g. \`await tools.lint_check({ ... })\`.
+  - When available, \`cloudflare_docs.*\` — Cloudflare Documentation MCP tools. Use \`codemode.search("...")\` and \`codemode.describe(path)\` to discover and inspect unfamiliar MCP methods before calling them; do not guess sanitized method names.
 
   Write a single \`codemode\` snippet per step that performs the work (read several files, search, then edit) and \`return\` a concise result. NEVER invent a top-level tool name — if it is not \`codemode\` (or one of the interactive tools below), it does not exist.
 

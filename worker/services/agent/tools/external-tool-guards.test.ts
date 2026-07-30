@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createMockContext, createMockSendEvent } from './test-helpers';
 
 import type { BrowserBinding } from '../types';
+import type { Agent } from 'agents';
 
 const mockCreateExecuteRuntime = vi.fn();
 const mockBrowserExecute = vi.fn(async ({ code }: { code: string }) => code);
@@ -57,13 +58,28 @@ function lastCodeModeTools(): Record<string, { execute?: unknown }> {
 	return call[0].tools;
 }
 
-function contextOverrides() {
+function contextOverrides(overrides?: Parameters<typeof createMockContext>[0]) {
 	return createMockContext({
 		ctx: createMockDurableObjectState(),
 		loader: createLoader(),
 		browser: createBrowserFetcher(),
 		requestOriginContext: { baseDomain: 'example.com', protocol: 'https:' },
+		...overrides,
 	});
+}
+
+function createAgentWithMcpConnection(): { agent: Agent<Env, unknown>; waitForConnections: ReturnType<typeof vi.fn> } {
+	const waitForConnections = vi.fn();
+	const agent = {
+		mcp: {
+			waitForConnections,
+			listServers: vi.fn(() => [{ id: 'cloudflare-docs' }]),
+			mcpConnections: {
+				'cloudflare-docs': { client: { callTool: vi.fn() }, tools: [] },
+			},
+		},
+	} as unknown as Agent<Env, unknown>;
+	return { agent, waitForConnections };
 }
 
 describe('createServerTools external guards', () => {
@@ -84,6 +100,16 @@ describe('createServerTools external guards', () => {
 			// eslint-disable-next-line unicorn/no-null -- codemode uses null to disable sandbox outbound network access
 			expect.objectContaining({ globalOutbound: null, ctx: expect.anything(), state: expect.anything() }),
 		);
+	});
+
+	it('waits for MCP restoration and adds configured connectors to Code Mode', async () => {
+		const { agent, waitForConnections } = createAgentWithMcpConnection();
+		await createServerTools(createMockSendEvent(), contextOverrides({ agentReference: agent }), [], 'code');
+
+		const options = mockCreateExecuteRuntime.mock.calls.at(-1)?.[0];
+		expect(waitForConnections).toHaveBeenCalledWith();
+		expect(options?.connectors).toHaveLength(1);
+		expect(options?.connectors[0]?.name()).toBe('cloudflare_docs');
 	});
 
 	it('exposes browser_execute inside Code Mode tools.* in code mode with origin context', async () => {

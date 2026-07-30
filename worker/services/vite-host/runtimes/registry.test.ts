@@ -9,7 +9,7 @@ describe('selectRuntime', () => {
 	it('selects the vinext runtime for a vinext App Router project', () => {
 		const runtime = selectRuntime({ files: { '/package.json': vinextManifest, '/app/page.tsx': '' } });
 		expect(runtime.id).toBe('vinext');
-		expect(runtime.hosting).toBe('durable');
+		expect(runtime.hosting).toBe('artifact');
 	});
 
 	it('falls back to the react-spa runtime for a plain SPA project', () => {

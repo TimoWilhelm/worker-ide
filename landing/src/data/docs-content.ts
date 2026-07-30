@@ -230,7 +230,7 @@ export const docsTopics: DocsTopic[] = [
 		description: 'Chat requests become tool calls, file changes, and streamed session state.',
 		tagline: 'Agent sessions and tools',
 		accent: 'ai',
-		laneDescription: 'AgentRunner owns session state while AgentService runs the model and tools.',
+		laneDescription: 'AgentRunner owns project sessions while one durable Think facet executes each session.',
 		sections: [
 			{
 				label: 'Agent Loop',
@@ -239,14 +239,14 @@ export const docsTopics: DocsTopic[] = [
 					{ id: 'agent-editor', name: 'Editor UI', detail: 'chat message', color: 'text' },
 					{ id: 'agent-host', name: 'Host Worker', detail: 'rate limit + validate', color: 'orange' },
 					{ id: 'agent-runner', name: 'AgentRunner DO', detail: 'per-project Durable Object', color: 'ai' },
-					{ id: 'agent-service', name: 'AgentService', detail: '24 tools, 3 modes', color: 'ai' },
+					{ id: 'agent-service', name: 'SessionTurnAgent', detail: 'durable Think facet', color: 'ai' },
 					{ id: 'agent-workers-ai', name: 'Workers AI', detail: 'streamText() with retry', color: 'yellow' },
 					{ id: 'agent-expiring-fs', name: 'ExpiringFilesystem', detail: 'file read / write', color: 'magenta' },
 				],
 				edges: [
-					{ id: 'agent-e1', source: 'agent-editor', target: 'agent-host', label: 'POST /api/agent/chat', color: 'ai' },
-					{ id: 'agent-e2', source: 'agent-host', target: 'agent-runner', label: 'RPC', color: 'ai' },
-					{ id: 'agent-e3', source: 'agent-runner', target: 'agent-service', label: 'ctx.waitUntil()', color: 'ai' },
+					{ id: 'agent-e1', source: 'agent-editor', target: 'agent-host', label: 'Agents SDK WebSocket', color: 'ai' },
+					{ id: 'agent-e2', source: 'agent-host', target: 'agent-runner', label: 'typed RPC', color: 'ai' },
+					{ id: 'agent-e3', source: 'agent-runner', target: 'agent-service', label: 'runTurn(submit)', color: 'ai' },
 					{ id: 'agent-e4', source: 'agent-service', target: 'agent-workers-ai', label: 'LLM call', color: 'yellow' },
 					{ id: 'agent-e5', source: 'agent-service', target: 'agent-expiring-fs', label: 'tool execution', color: 'magenta' },
 				],
@@ -256,17 +256,17 @@ export const docsTopics: DocsTopic[] = [
 				labelColor: 'ws',
 				nodes: [
 					{ id: 'agent-runner-2', name: 'AgentRunner DO', detail: 'buffer + index chunks', color: 'ai' },
-					{ id: 'agent-coordinator', name: 'ProjectCoordinator', detail: 'WS fan-out', color: 'ws' },
+					{ id: 'agent-coordinator', name: 'Agents SDK', detail: 'durable state sync', color: 'ws' },
 					{ id: 'agent-editor-2', name: 'Editor UI', detail: 'useAgent + Agents SDK', color: 'text' },
 				],
 				edges: [
-					{ id: 'agent-e6', source: 'agent-runner-2', target: 'agent-coordinator', label: 'sendMessage()', color: 'ws' },
-					{ id: 'agent-e7', source: 'agent-coordinator', target: 'agent-editor-2', label: 'agent-stream-event', color: 'ws' },
+					{ id: 'agent-e6', source: 'agent-runner-2', target: 'agent-coordinator', label: 'setState()', color: 'ws' },
+					{ id: 'agent-e7', source: 'agent-coordinator', target: 'agent-editor-2', label: 'state update', color: 'ws' },
 				],
 			},
 		],
 		notes: [
-			'AgentRunner stores session state with the Agents SDK and starts AgentService for model/tool execution. Modes are <code>code</code>, <code>plan</code>, and <code>ask</code>; code mode creates file snapshots before mutations.',
+			'AgentRunner is the project-scoped authorization and session facade. Each session executes through one <code>SessionTurnAgent</code> Think facet, whose durable submission queue owns admission, cancellation, and recovery. Modes are <code>code</code>, <code>plan</code>, and <code>ask</code>; code mode creates file snapshots before mutations.',
 		],
 	},
 
@@ -362,7 +362,7 @@ export const docsTopics: DocsTopic[] = [
 				label: 'Snapshot creation',
 				labelColor: 'snapshot',
 				nodes: [
-					{ id: 'sn-agent-service', name: 'AgentService', detail: 'code mode run', color: 'ai' },
+					{ id: 'sn-agent-service', name: 'SessionTurnAgent', detail: 'code mode turn', color: 'ai' },
 					{ id: 'sn-snapshot-fn', name: 'addFileToSnapshot()', detail: 'saves before-content', color: 'snapshot' },
 					{ id: 'sn-snapshot-dir', name: '.agent/snapshots/', detail: 'metadata.json + files', color: 'magenta' },
 				],

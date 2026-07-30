@@ -1,0 +1,368 @@
+import { Think } from '@cloudflare/think';
+
+import { AGENT_SYSTEM_PROMPT, DEFAULT_AI_MODEL, MCP_SERVERS } from '@shared/constants';
+import { aiModelSchema } from '@shared/validation';
+
+import { AgentRunner } from './agent-runner';
+import { filesystemNamespace } from '../lib/durable-object-namespaces';
+import { runWithProjectStub } from '../lib/project-fs';
+import { toDurableObjectId } from '../lib/project-id';
+import { createSendEventFunction } from '../services/agent/event-helpers';
+import { registerConfiguredMcpServers } from '../services/agent/mcp';
+import { isRequestOriginContext, type RequestOriginContext } from '../services/agent/request-origin-context';
+import { addFileToSnapshot, deleteDirectoryRecursive, initSnapshot } from '../services/agent/snapshot-manager';
+import { readAgentsContext } from '../services/agent/system-prompt-builder';
+import { chatMessageToUiMessage, uiMessagesToChatMessages, userMessageToUiMessage } from '../services/agent/think-messages';
+import { createServerTools } from '../services/agent/tools';
+import { createAdapter as createWorkersAiAdapter } from '../services/agent/workers-ai';
+
+import type { SnapshotContext } from '../services/agent/snapshot-manager';
+import type { FileChange } from '../services/agent/types';
+import type { ChatResponseResult, ChunkContext, TurnConfig, TurnContext } from '@cloudflare/think';
+import type { StreamEvent } from '@shared/agent-state';
+import type { AIModelId } from '@shared/constants';
+import type { AgentMode, ChatMessage } from '@shared/types';
+
+interface SessionTurnConfiguration {
+	projectId: string;
+	organizationId?: string;
+	sessionId: string;
+	requestOriginContext?: RequestOriginContext;
+}
+
+export interface TurnExecutionConfiguration {
+	mode: AgentMode;
+	model: AIModelId;
+	initiatorUserId?: string;
+	requestOriginContext?: RequestOriginContext;
+}
+
+interface ActiveTurnConfiguration extends TurnExecutionConfiguration {
+	submissionId: string;
+}
+
+interface SessionTurnState {
+	configuration?: SessionTurnConfiguration;
+	activeSnapshot?: {
+		id: string;
+		directory: string;
+		savedPaths: string[];
+	};
+	pendingCompletion?: {
+		submissionId: string;
+		history: ChatMessage[];
+		status: 'completed' | 'error' | 'aborted';
+		error?: string;
+	};
+}
+
+export class SessionTurnAgent extends Think<Env, SessionTurnState> {
+	initialState: SessionTurnState = {};
+	chatStreamStallTimeoutMs = 120_000;
+	maxSteps = 100;
+	exposeMcpTools = false;
+	private eventQueue: StreamEvent[] = [];
+	private queryChanges = [];
+	private eventAbortController = new AbortController();
+
+	override async onStart(): Promise<void> {
+		await super.onStart();
+		await registerConfiguredMcpServers(this).catch((error) => {
+			console.error(
+				`[SessionTurnAgent] Failed to connect configured MCP servers (${MCP_SERVERS.map((server) => server.id).join(', ')}):`,
+				error,
+			);
+		});
+		if (this.state.pendingCompletion) {
+			await this.completePendingTurn();
+		}
+	}
+
+	configureSessionTurn(configuration: SessionTurnConfiguration): void {
+		this.setState({ ...this.state, configuration });
+	}
+
+	override getModel(): AIModelId {
+		return this.getTurnConfiguration()?.model ?? DEFAULT_AI_MODEL;
+	}
+
+	override getSystemPrompt(): string {
+		return AGENT_SYSTEM_PROMPT;
+	}
+
+	override async beforeTurn(context: TurnContext): Promise<TurnConfig> {
+		const configuration = this.requireConfiguration();
+		const turnConfiguration = this.requireTurnConfiguration();
+		if (!context.continuation) {
+			const parent = await this.parentAgent(AgentRunner);
+			await parent.beginThinkTurn(configuration.sessionId, turnConfiguration.submissionId);
+		}
+		const filesystemId = toDurableObjectId(filesystemNamespace, configuration.projectId);
+		const filesystemStub = filesystemNamespace.get(filesystemId);
+		const agentsContext = await runWithProjectStub(filesystemStub, () => readAgentsContext('/project'));
+		const instructions = agentsContext
+			? `${AGENT_SYSTEM_PROMPT}\n\n## Project Guidelines (from AGENTS.md)\n${agentsContext}`
+			: AGENT_SYSTEM_PROMPT;
+
+		this.eventQueue = [];
+		this.queryChanges = [];
+		this.eventAbortController.abort();
+		this.eventAbortController = new AbortController();
+		const sendEvent = createSendEventFunction(this.eventQueue, { current: undefined }, this.eventAbortController.signal);
+		if (turnConfiguration.mode === 'code' && !context.continuation) {
+			const snapshot = await runWithProjectStub(
+				filesystemStub,
+				() => initSnapshot('/project', configuration.sessionId, context.messages, sendEvent),
+				'/project',
+				configuration.sessionId,
+			);
+			this.setState({
+				...this.state,
+				activeSnapshot: { id: snapshot.id, directory: snapshot.directory, savedPaths: [] },
+			});
+		}
+		const tools = await createServerTools(
+			sendEvent,
+			{
+				projectRoot: '/project',
+				projectId: configuration.projectId,
+				organizationId: configuration.organizationId,
+				mode: turnConfiguration.mode,
+				sessionId: configuration.sessionId,
+				userId: turnConfiguration.initiatorUserId,
+				callMcpTool: async (serverId, toolName, arguments_) => {
+					const { callConfiguredMcpTool } = await import('../services/agent/mcp');
+					return callConfiguredMcpTool(this, serverId, toolName, arguments_);
+				},
+				ctx: this.ctx,
+				loader: this.env.LOADER,
+				browser: this.env.BROWSER,
+				agentReference: this,
+				fsStub: filesystemStub,
+				model: turnConfiguration.model,
+				requestOriginContext: turnConfiguration.requestOriginContext ?? configuration.requestOriginContext,
+			},
+			this.queryChanges,
+			turnConfiguration.mode,
+		);
+
+		return {
+			model: createWorkersAiAdapter(turnConfiguration.model, {
+				generationType: 'agent',
+				projectId: configuration.projectId,
+				organizationId: configuration.organizationId,
+			}),
+			instructions,
+			tools,
+			maxSteps: this.maxSteps,
+			chatStreamStallTimeoutMs: this.chatStreamStallTimeoutMs,
+			maxRetries: 0,
+		};
+	}
+
+	override async onChunk(context: ChunkContext): Promise<void> {
+		const events = this.drainToolEvents();
+		const chunk = context.chunk;
+		switch (chunk.type) {
+			case 'text-delta': {
+				events.push({ type: 'text-delta', delta: chunk.text });
+				break;
+			}
+			case 'reasoning-delta': {
+				events.push({ type: 'reasoning-delta', delta: chunk.text });
+				break;
+			}
+			case 'tool-input-start': {
+				events.push({ type: 'tool-call-start', toolCallId: chunk.id, toolName: chunk.toolName });
+				break;
+			}
+			case 'tool-input-delta': {
+				events.push({ type: 'tool-call-args-delta', toolCallId: chunk.id, delta: chunk.delta });
+				break;
+			}
+			case 'tool-result': {
+				events.push({
+					type: 'tool-call-end',
+					toolCallId: chunk.toolCallId,
+					toolName: chunk.toolName,
+					result: typeof chunk.output === 'string' ? chunk.output : JSON.stringify(chunk.output),
+				});
+				break;
+			}
+			default: {
+				break;
+			}
+		}
+		await this.saveSnapshotChanges(events);
+		await this.forwardEvents(events);
+	}
+
+	override async onChatResponse(result: ChatResponseResult): Promise<void> {
+		const remainingEvents = this.drainToolEvents();
+		await this.saveSnapshotChanges(remainingEvents);
+		await this.forwardEvents(remainingEvents);
+		const history = uiMessagesToChatMessages(await this.getMessages());
+		this.setState({
+			...this.state,
+			pendingCompletion: {
+				submissionId: this.requireTurnConfiguration().submissionId,
+				history,
+				status: result.status,
+				error: result.error,
+			},
+		});
+		await this.completePendingTurn();
+	}
+
+	async submitTurn(
+		message: ChatMessage,
+		configuration: TurnExecutionConfiguration,
+	): Promise<{ accepted: boolean; status: string; submissionId: string }> {
+		const result = await this.runTurn({
+			mode: 'submit',
+			input: userMessageToUiMessage(message),
+			submissionId: message.id,
+			idempotencyKey: message.id,
+			metadata: { ...configuration, submissionId: message.id },
+		});
+		return { accepted: result.accepted, status: result.status, submissionId: result.submissionId };
+	}
+
+	async replaceHistory(messages: ChatMessage[]): Promise<void> {
+		await this.clearMessages();
+		if (messages.length > 0) {
+			await this.addMessages(messages.map((message) => chatMessageToUiMessage(message)));
+		}
+	}
+
+	async cancelSubmissionById(submissionId: string): Promise<void> {
+		await this.cancelSubmission(submissionId, 'Cancelled by user');
+	}
+
+	async cancelActiveSubmissions(): Promise<void> {
+		const submissions = await this.listSubmissions({ status: ['pending', 'running'] });
+		for (const submission of submissions) {
+			await this.cancelSubmission(submission.submissionId, 'Cancelled by user');
+		}
+	}
+
+	async receiveSubAgentEvents(events: StreamEvent[]): Promise<void> {
+		await this.saveSnapshotChanges(events);
+		await this.forwardEvents(events);
+	}
+
+	private requireConfiguration(): SessionTurnConfiguration {
+		const configuration = this.state.configuration;
+		if (!configuration) {
+			throw new Error('Session turn agent is not configured.');
+		}
+		return configuration;
+	}
+
+	private getTurnConfiguration(): ActiveTurnConfiguration | undefined {
+		const metadata = this.activeTurnMetadata;
+		if (!metadata) return undefined;
+		const mode = metadata.mode;
+		const model = metadata.model;
+		const submissionId = metadata.submissionId;
+		if (mode !== 'code' && mode !== 'plan' && mode !== 'ask') return undefined;
+		if (typeof submissionId !== 'string') return undefined;
+		const parsedModel = aiModelSchema.safeParse(model);
+		if (!parsedModel.success) return undefined;
+		return {
+			submissionId,
+			mode,
+			model: parsedModel.data,
+			initiatorUserId: typeof metadata.initiatorUserId === 'string' ? metadata.initiatorUserId : undefined,
+			requestOriginContext: isRequestOriginContext(metadata.requestOriginContext) ? metadata.requestOriginContext : undefined,
+		};
+	}
+
+	private requireTurnConfiguration(): ActiveTurnConfiguration {
+		const configuration = this.getTurnConfiguration();
+		if (!configuration) throw new Error('Turn execution configuration is missing or invalid.');
+		return configuration;
+	}
+
+	private drainToolEvents(): StreamEvent[] {
+		const events = this.eventQueue;
+		this.eventQueue = [];
+		return events;
+	}
+
+	private async forwardEvents(events: StreamEvent[]): Promise<void> {
+		if (events.length === 0) return;
+		const configuration = this.requireConfiguration();
+		const parent = await this.parentAgent(AgentRunner);
+		await parent.receiveThinkEvents(configuration.sessionId, events);
+	}
+
+	private async saveSnapshotChanges(events: StreamEvent[]): Promise<void> {
+		const snapshot = this.getSnapshotContext();
+		if (!snapshot) return;
+
+		const changes: FileChange[] = events.flatMap((event) => {
+			if (event.type !== 'file-changed' || event.action === 'move') return [];
+			return [
+				{
+					path: event.path,
+					action: event.action,
+					beforeContent: event.beforeContent,
+					afterContent: event.afterContent,
+					isBinary: false,
+				},
+			];
+		});
+		if (changes.length === 0) return;
+
+		const configuration = this.requireConfiguration();
+		const filesystemId = toDurableObjectId(filesystemNamespace, configuration.projectId);
+		const filesystemStub = filesystemNamespace.get(filesystemId);
+		await runWithProjectStub(
+			filesystemStub,
+			async () => {
+				for (const change of changes) {
+					await addFileToSnapshot(snapshot, change);
+				}
+			},
+			'/project',
+			configuration.sessionId,
+		);
+		this.setState({
+			...this.state,
+			activeSnapshot: { id: snapshot.id, directory: snapshot.directory, savedPaths: [...snapshot.savedPaths] },
+		});
+	}
+
+	private async completePendingTurn(): Promise<void> {
+		const completion = this.state.pendingCompletion;
+		if (!completion) return;
+
+		const snapshot = this.getSnapshotContext();
+		if (snapshot && snapshot.savedPaths.size === 0) {
+			const configuration = this.requireConfiguration();
+			const filesystemId = toDurableObjectId(filesystemNamespace, configuration.projectId);
+			const filesystemStub = filesystemNamespace.get(filesystemId);
+			await runWithProjectStub(filesystemStub, () => deleteDirectoryRecursive(snapshot.directory), '/project', configuration.sessionId);
+			await this.forwardEvents([{ type: 'snapshot-deleted', id: snapshot.id }]);
+		}
+
+		const submissions = await this.listSubmissions({ status: ['pending', 'running'] });
+		const activeSubmissions = submissions
+			.filter((submission) => submission.submissionId !== completion.submissionId)
+			.map((submission) => {
+				const status: 'pending' | 'running' = submission.status === 'running' ? 'running' : 'pending';
+				return { submissionId: submission.submissionId, status };
+			});
+		const configuration = this.requireConfiguration();
+		const parent = await this.parentAgent(AgentRunner);
+		await parent.completeThinkTurn(configuration.sessionId, completion.history, completion.status, completion.error, activeSubmissions);
+		this.setState({ ...this.state, activeSnapshot: undefined, pendingCompletion: undefined });
+	}
+
+	private getSnapshotContext(): SnapshotContext | undefined {
+		const snapshot = this.state.activeSnapshot;
+		if (!snapshot) return undefined;
+		return { id: snapshot.id, directory: snapshot.directory, savedPaths: new Set(snapshot.savedPaths) };
+	}
+}

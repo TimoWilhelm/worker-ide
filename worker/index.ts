@@ -68,7 +68,7 @@ function extractPushedProjectId(event: unknown): string | undefined {
 }
 
 const PREVIEW_ROBOTS_HEADER_VALUE = 'noindex, nofollow';
-export { AgentRunner, DurableObjectFilesystem, ProjectCoordinatorV2, ProjectMetadata, SubAgentWorker } from './durable';
+export { AgentRunner, DurableObjectFilesystem, ProjectCoordinatorV2, ProjectMetadata, SessionTurnAgent, SubAgentWorker } from './durable';
 // The browser/codemode tools run their durable runtime inside a Durable Object
 // facet, so the facet class must be exported from the worker entry.
 export { CodemodeRuntime } from '@cloudflare/codemode';

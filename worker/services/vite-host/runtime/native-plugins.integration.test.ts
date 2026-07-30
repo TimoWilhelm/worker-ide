@@ -5,34 +5,36 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { rsc, vinext } from '../../../../auxiliary/vite-host/vendor/native-plugins.mjs';
 import { MemoryFileSystem } from '../node-fs/memory-file-system';
-import { installProjectFileSystem } from '../node-fs/node-fs-bridge';
-import { installViteHostServices } from '../vite-shim/services';
+import { runWithProjectFileSystem } from '../node-fs/node-fs-bridge';
+import { runWithViteHostServices } from '../vite-shim/services';
+
+const fileSystem = MemoryFileSystem.fromSnapshot({
+	'/app/page.tsx': 'export default function Page() { return <h1>Hi</h1>; }',
+	'/app/layout.tsx': 'export default function Layout({ children }) { return children; }',
+	'/package.json': JSON.stringify({ name: 'demo', type: 'module' }),
+});
+const services = {
+	transform: async (code: string) => ({ code }),
+	loadEnv: () => ({}),
+};
+const nativePlugins = runWithProjectFileSystem(fileSystem, () =>
+	runWithViteHostServices(services, () => import('../../../../auxiliary/vite-host/vendor/native-plugins.mjs')),
+);
 
 describe('vendored native plugins in workerd', () => {
-	it('instantiates @vitejs/plugin-rsc', () => {
+	it('instantiates @vitejs/plugin-rsc', async () => {
+		const { rsc } = await nativePlugins;
 		const plugins = [rsc({ entries: { rsc: 'virtual:rsc', ssr: 'virtual:ssr', client: 'virtual:client' } })]
 			.flat(Infinity)
 			.filter(Boolean)
 			.map((plugin: { name?: string }) => plugin.name);
-		console.log('[integration] plugin-rsc:', JSON.stringify(plugins));
 		expect(plugins.length).toBeGreaterThan(0);
-	});
+	}, 15_000);
 
 	it('instantiates vinext (App Router) against a project filesystem', async () => {
-		installProjectFileSystem(
-			MemoryFileSystem.fromSnapshot({
-				'/app/page.tsx': 'export default function Page() { return <h1>Hi</h1>; }',
-				'/app/layout.tsx': 'export default function Layout({ children }) { return children; }',
-				'/package.json': JSON.stringify({ name: 'demo', type: 'module' }),
-			}),
-		);
-		installViteHostServices({
-			transform: async (code) => ({ code }),
-			loadEnv: () => ({}),
-		});
-		const plugins = [await vinext()]
+		const { vinext } = await nativePlugins;
+		const plugins = [await runWithProjectFileSystem(fileSystem, () => runWithViteHostServices(services, () => vinext({ appDir: '/' })))]
 			.flat(Infinity)
 			.filter(Boolean)
 			.map((plugin: { name?: string }) => plugin.name);

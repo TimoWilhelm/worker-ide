@@ -55,7 +55,7 @@ describe('ViteHost', () => {
 			mode: 'development',
 			createPlugins: async () => {
 				const { vinext } = await import('../../../auxiliary/vite-host/vendor/native-plugins.mjs');
-				return vinext();
+				return vinext({ appDir: '/' });
 			},
 		});
 

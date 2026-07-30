@@ -14,6 +14,7 @@ import {
 	DEFAULT_AI_MODEL,
 	MAX_AI_SESSIONS_PER_PROJECT,
 	MAX_IMAGE_ATTACHMENTS,
+	MCP_SERVERS,
 	SUMMARIZATION_AI_MODEL,
 	getModelConfig,
 } from '@shared/constants';
@@ -30,16 +31,13 @@ import { runWithProjectStub } from '@worker/lib/project-fs';
 
 import {
 	buildLoadedExtensionsSummary,
-	buildTerminalNotification,
-	buildRecoveredRunParameters,
-	parseFiberSnapshot,
+	getActiveThinkMessages,
+	mergeThinkHistory,
 	reattachForkedMessageState,
-	resolveInitialPendingChanges,
 	restoreExtensionManager,
 	runSessionSearch,
 } from './agent-runner-helpers';
 import {
-	deleteSessionMessageMetadata,
 	deleteSessionMetadata,
 	getDatabase,
 	readPendingChangesData,
@@ -47,21 +45,16 @@ import {
 	upsertSessionMetadata,
 	writePendingChangesData,
 } from './db';
-import { getCommittedMessages, mergeQueuedMessages, promoteNextQueuedMessage } from './session-history';
 import { AgentSessionStore } from './session-store';
 import { SessionStreamState } from './session-stream-state';
+import { SessionTurnAgent } from './session-turn-agent';
 import * as authSchema from '../db/auth-schema';
-import { trackAiUsage, trackWebSocketEvent } from '../lib/analytics';
+import { trackWebSocketEvent } from '../lib/analytics';
 import { filesystemNamespace } from '../lib/durable-object-namespaces';
 import { toDurableObjectId } from '../lib/project-id';
-import { AgentService } from '../services/agent';
 import { chatMessagesToModelMessages, estimateMessagesTokens, estimateSessionTokens } from '../services/agent/context-pruner';
-import {
-	ARTIFACTS_CONTEXT_LABEL,
-	HISTORY_CONTEXT_LABEL,
-	ROOT_MEMORY_CONTEXT_LABEL,
-	type SearchableArtifactEntry,
-} from '../services/agent/memory/artifacts';
+import { registerConfiguredMcpServers } from '../services/agent/mcp';
+import { ARTIFACTS_CONTEXT_LABEL, HISTORY_CONTEXT_LABEL, ROOT_MEMORY_CONTEXT_LABEL } from '../services/agent/memory/artifacts';
 import { SharedContextProvider } from '../services/agent/memory/shared-context-provider';
 import { isRequestOriginContext } from '../services/agent/request-origin-context';
 import { ReviewQueueStore } from '../services/agent/review-queue';
@@ -73,9 +66,10 @@ import { createAdapter as createWorkersAiAdapter } from '../services/agent/worke
 
 import type { AgentDatabase } from './db';
 import type { RequestOriginContext } from '../services/agent/request-origin-context';
-import type { AgentState, AgentSessionState, FiberSnapshot, SessionParticipantProfile, SessionSummary } from '@shared/agent-state';
+import type { AgentRunnerClient, StartRunRequest, SubmitMessageRequest } from '@shared/agent-rpc';
+import type { AgentState, AgentSessionState, SessionParticipantProfile, SessionSummary, StreamEvent } from '@shared/agent-state';
 import type { AIModelId } from '@shared/constants';
-import type { AgentMode, AgentSessionStatus, AiSession, ChatMessage, PendingFileChange, ReviewEntry, UserMessagePart } from '@shared/types';
+import type { AgentMode, AiSession, ChatMessage, PendingFileChange, ReviewEntry, UserMessagePart } from '@shared/types';
 
 const REQUEST_ORIGIN_CONTEXT_STORAGE_KEY = 'request-origin-context';
 const SESSION_COMPACTION_THRESHOLD = 100_000;
@@ -83,20 +77,6 @@ const SESSION_COMPACTION_PROTECT_HEAD = 3;
 const SESSION_COMPACTION_TAIL_TOKEN_BUDGET = 32_000;
 const SESSION_COMPACTION_MIN_TAIL_MESSAGES = 4;
 
-/**
- * Maximum time to wait for the next event from the model stream before
- * treating the run as stalled. A hung provider connection would otherwise keep
- * the loop pending forever; on stall we abort so the run ends deterministically
- * and the durable fiber checkpoints allow the user to resume.
- */
-const AGENT_STREAM_STALL_TIMEOUT_MS = 120_000;
-
-class AgentStreamStallError extends Error {
-	constructor() {
-		super('The model stream stalled and was aborted.');
-		this.name = 'AgentStreamStallError';
-	}
-}
 const ROOT_MEMORY_MAX_TOKENS = 2000;
 const PROJECT_ROOT = '/project';
 const MAX_SESSIONS = MAX_AI_SESSIONS_PER_PROJECT;
@@ -196,18 +176,7 @@ function getUserMessagePromptText(parts: readonly UserMessagePart[]): string {
 	return messagePartsToPromptText(parts).trim();
 }
 
-export interface StartAgentParameters {
-	projectId: string;
-	organizationId?: string;
-	messages: ChatMessage[];
-	mode?: AgentMode;
-	sessionId?: string;
-	model?: AIModelId;
-	initiatorUserId?: string;
-	_fiberSnapshot?: FiberSnapshot;
-}
-
-export class AgentRunner extends Agent<Env, AgentState> {
+export class AgentRunner extends Agent<Env, AgentState> implements AgentRunnerClient {
 	// The instance name (agent:<projectId>) is not sensitive — explicitly opt in
 	// to sending it on connect so the SDK doesn't log a warning on every connection.
 	static options = { sendIdentityOnConnect: true };
@@ -283,14 +252,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		.withSearchableHistory(HISTORY_CONTEXT_LABEL);
 
 	// ---- Volatile in-memory state (lost on eviction) ----
-	private abortControllers = new Map<string, AbortController>();
-	private loopPromises = new Map<string, Promise<void>>();
 	private titleGenerationInFlight = new Set<string>();
-	private startRunRequestCache = new Map<string, { expiresAt: number; promise: Promise<{ sessionId: string }> }>();
-	private submitMessageRequestCache = new Map<
-		string,
-		{ expiresAt: number; promise: Promise<{ sessionId: string; queued: boolean; started: boolean }> }
-	>();
 	private projectOrganizationId?: string;
 	private sessionStreamState = new SessionStreamState({
 		getCurrentSession: () => this.state.currentSession,
@@ -378,42 +340,6 @@ export class AgentRunner extends Agent<Env, AgentState> {
 				this.sessionMutationTails.delete(sessionId);
 			}
 		}
-	}
-
-	private withRpcRequestCache<T>(
-		cache: Map<string, { expiresAt: number; promise: Promise<T> }>,
-		cacheKey: string | undefined,
-		callback: () => Promise<T>,
-	): Promise<T> {
-		if (!cacheKey) {
-			return callback();
-		}
-
-		const now = Date.now();
-		for (const [key, value] of cache) {
-			if (value.expiresAt <= now) {
-				cache.delete(key);
-			}
-		}
-
-		const cached = cache.get(cacheKey);
-		if (cached && cached.expiresAt > now) {
-			return cached.promise;
-		}
-
-		const promise = callback();
-		cache.set(cacheKey, {
-			expiresAt: now + 60_000,
-			promise,
-		});
-
-		void promise.catch(() => {
-			if (cache.get(cacheKey)?.promise === promise) {
-				cache.delete(cacheKey);
-			}
-		});
-
-		return promise;
 	}
 
 	// =========================================================================
@@ -745,6 +671,12 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		}
 
 		this.db = getDatabase(this.ctx.storage);
+		await registerConfiguredMcpServers(this).catch((error) => {
+			console.error(
+				`[AgentRunner] Failed to connect configured MCP servers (${MCP_SERVERS.map((server) => server.id).join(', ')}):`,
+				error,
+			);
+		});
 		this.agentSessionStore = new AgentSessionStore(this.db, this.sessionManager);
 		this.ensureAgentDatabaseTables();
 		this.reviewQueue = new ReviewQueueStore(this.db);
@@ -755,23 +687,6 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		this.requestOriginContext = isRequestOriginContext(persistedRequestOriginContext) ? persistedRequestOriginContext : undefined;
 		this.refreshReviewState();
 		await this.refreshSessionsList();
-		for (const sessionInfo of this.sessionManager.list()) {
-			const session = await this.agentSessionStore.read(sessionInfo.id);
-			if (!session?.stopRequested) {
-				continue;
-			}
-			if (this.abortControllers.has(sessionInfo.id)) {
-				continue;
-			}
-			await this.maybeStartNextQueuedRun(
-				this.getProjectId(),
-				this.projectOrganizationId,
-				sessionInfo.id,
-				this.sessionInitiatorUserIds.get(sessionInfo.id),
-			).catch((error) => {
-				console.error('[AgentRunner] Failed to recover queued follow-up run:', error);
-			});
-		}
 	}
 
 	private async getSoulPrompt(): Promise<string> {
@@ -787,189 +702,72 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	// @callable RPC Methods (invoked by clients via WebSocket)
 	// =========================================================================
 
-	/**
-	 * Start a new agent run for the committed session history.
-	 */
-	private async startAgentRun(
-		projectId: string,
-		organizationId: string | undefined,
-		messages: ChatMessage[],
-		mode: AgentMode = 'code',
-		model: AIModelId = DEFAULT_AI_MODEL,
-		sessionId: string,
-		initiatorUserId: string | undefined,
-	): Promise<{ sessionId: string }> {
-		// Rate limiting keyed on projectId — the DO is 1:1 with a project.
-		// Never use client-supplied context for rate-limit keys.
-		if (env.AI_RATE_LIMITER) {
-			const { success } = await env.AI_RATE_LIMITER.limit({ key: projectId });
-			if (!success) {
-				throw new Error('Rate limit exceeded. Please wait before making more AI requests.');
-			}
-		}
-
-		// Model config validation
-		const modelConfig = getModelConfig(model);
-		if (modelConfig?.provider === 'workers-ai' && !env.AI) {
-			throw new Error('Workers AI binding (AI) is not configured.');
-		}
-
-		if (this.abortControllers.has(sessionId)) {
-			return { sessionId };
-		}
-
-		const parameters: StartAgentParameters = {
-			projectId,
-			organizationId,
-			messages,
-			mode,
-			sessionId,
-			model,
-			initiatorUserId,
-		};
-
-		await this.syncStateSessionParticipants(messages);
-		await this.refreshSessionPrompt(sessionId);
-
-		await this.launchAgentLoop(parameters, sessionId);
-
-		this.sessionAnalytics.set(sessionId, {
-			inputTokens: 0,
-			outputTokens: 0,
-			durationMs: Date.now(),
-			toolCallCount: 0,
-			turnNumber: 0,
-		});
-
-		trackAiUsage({
-			userId: initiatorUserId ?? '',
-			eventType: 'session_start',
-			projectId,
-			modelId: model,
-			sessionId,
-			agentMode: mode,
-			inputTokens: 0,
-			outputTokens: 0,
-			durationMs: 0,
-			toolCallCount: 0,
-			turnNumber: 0,
-		});
-
-		this.updateSessionState(sessionId, {
-			status: 'running',
-			statusText: 'Starting...',
-			messages: await this.getSessionHistory(sessionId),
-			error: undefined,
-			stopRequested: false,
-			pendingQuestion: undefined,
-			needsContinuation: false,
-			doomLoopMessage: undefined,
-			subAgentActivities: {},
-		});
-
-		return { sessionId };
-	}
-
 	@callable()
-	async submitMessage(
-		projectId: string,
-		parts: unknown,
-		sessionId?: string,
-		mode: AgentMode = 'code',
-		model: AIModelId = DEFAULT_AI_MODEL,
-		messageId?: string,
-		createdAt?: number,
-	): Promise<{ sessionId: string; queued: boolean; started: boolean }> {
-		const sanitizedParts = sanitizeSubmittedUserMessageParts(parts);
+	async submitMessage(request: SubmitMessageRequest): Promise<{ sessionId: string; queued: boolean; started: boolean }> {
+		const projectId = this.getProjectId();
+		const mode = request.mode ?? 'code';
+		const model = request.model ?? DEFAULT_AI_MODEL;
+		const sanitizedParts = sanitizeSubmittedUserMessageParts(request.parts);
 		if (!messagePartsHaveUserContent(sanitizedParts)) {
 			throw new Error('Message is required.');
 		}
 
 		const promptText = getUserMessagePromptText(sanitizedParts);
 
-		const resolvedSessionId = sessionId ?? crypto.randomUUID().replaceAll('-', '').slice(0, 16);
+		const resolvedSessionId = request.sessionId ?? crypto.randomUUID().replaceAll('-', '').slice(0, 16);
 
-		return this.withRpcRequestCache(
-			this.submitMessageRequestCache,
-			messageId ? `submitMessage:${resolvedSessionId}:${messageId}` : undefined,
-			async () => {
-				const callerIdentity = this.getCurrentCallerIdentity();
-				const authenticatedUserId = callerIdentity?.userId;
-
-				return this.withSessionMutationLock(resolvedSessionId, async () => {
-					const persistedSession = await this.agentSessionStore.read(resolvedSessionId);
-					const persistedHistory = persistedSession?.history ?? [];
-					const duplicateMessage = messageId ? persistedHistory.find((message) => message.id === messageId) : undefined;
-					if (duplicateMessage) {
-						const duplicateQueued = duplicateMessage.role === 'user' && duplicateMessage.metadata?.request?.state === 'queued';
-						return {
-							sessionId: resolvedSessionId,
-							queued: duplicateQueued,
-							started: !duplicateQueued,
-						};
-					}
-
-					if (callerIdentity) {
-						this.setSessionParticipants({
-							...this.state.sessionParticipants,
-							[callerIdentity.userId]: getParticipantProfile(callerIdentity),
-						});
-					}
-
-					const liveHistory =
-						this.state.currentSession?.sessionId === resolvedSessionId ? this.state.currentSession.messages : persistedHistory;
-					const stopRequested = persistedSession?.stopRequested ?? false;
-					const isRunActive = this.abortControllers.has(resolvedSessionId);
-					const shouldQueue = isRunActive || stopRequested;
-					const userMessage = this.buildUserMessage(
-						sanitizedParts,
-						mode,
-						model,
-						shouldQueue ? 'queued' : 'committed',
-						authenticatedUserId,
-						messageId,
-						createdAt,
-					);
-
-					const promptPreview = deriveFallbackTitle(promptText, 80);
-					this.ensureSessionRecord(resolvedSessionId, promptPreview, model, mode);
-
-					const durableHistory = [...persistedHistory, userMessage];
-					await this.agentSessionStore.persistHistory(resolvedSessionId, durableHistory, stopRequested);
-
-					if (shouldQueue) {
-						this.updateSessionState(resolvedSessionId, {
-							messages: [...liveHistory, userMessage],
-							stopRequested,
-							status:
-								this.state.currentSession?.sessionId === resolvedSessionId
-									? this.state.currentSession.status
-									: isRunActive
-										? 'running'
-										: 'idle',
-							statusText:
-								this.state.currentSession?.sessionId === resolvedSessionId
-									? this.state.currentSession.statusText
-									: persistedSession?.status === 'running'
-										? 'Thinking...'
-										: undefined,
-						});
-						return { sessionId: resolvedSessionId, queued: true, started: false };
-					}
-
-					await this.startAgentRun(
-						projectId,
-						this.projectOrganizationId,
-						getCommittedMessages(durableHistory),
-						mode,
-						model,
-						resolvedSessionId,
-						authenticatedUserId,
-					);
-					return { sessionId: resolvedSessionId, queued: false, started: true };
+		return this.withSessionMutationLock(resolvedSessionId, async () => {
+			const callerIdentity = this.getCurrentCallerIdentity();
+			const authenticatedUserId = callerIdentity?.userId;
+			if (callerIdentity) {
+				this.setSessionParticipants({
+					...this.state.sessionParticipants,
+					[callerIdentity.userId]: getParticipantProfile(callerIdentity),
 				});
-			},
-		);
+			}
+
+			const current = this.state.currentSession;
+			const shouldQueue = current?.sessionId === resolvedSessionId && current.status === 'running';
+			const userMessage = this.buildUserMessage(
+				sanitizedParts,
+				mode,
+				model,
+				shouldQueue ? 'queued' : 'committed',
+				authenticatedUserId,
+				request.messageId,
+				request.createdAt,
+			);
+			this.ensureSessionRecord(resolvedSessionId, deriveFallbackTitle(promptText, 80), model, mode);
+			if (!this.agentSessionStore.getMetadata(resolvedSessionId).titleGenerated) {
+				void this.generateTitle(resolvedSessionId, promptText);
+			}
+			if (authenticatedUserId) this.sessionInitiatorUserIds.set(resolvedSessionId, authenticatedUserId);
+
+			if (env.AI_RATE_LIMITER) {
+				const { success } = await env.AI_RATE_LIMITER.limit({ key: projectId });
+				if (!success) throw new Error('Rate limit exceeded. Please wait before making more AI requests.');
+			}
+
+			const sessionAgent = await this.getSessionTurnAgent(resolvedSessionId, model);
+			const submission = await sessionAgent.submitTurn(userMessage, {
+				mode,
+				model,
+				initiatorUserId: authenticatedUserId,
+				requestOriginContext: this.requestOriginContext,
+			});
+			const liveMessages = current?.sessionId === resolvedSessionId ? current.messages : [];
+			if (!liveMessages.some((message) => message.id === userMessage.id)) {
+				this.updateSessionState(resolvedSessionId, {
+					status: 'running',
+					statusText: shouldQueue ? current?.statusText : 'Thinking...',
+					messages: [...liveMessages, userMessage],
+					stopRequested: false,
+					error: undefined,
+				});
+			}
+			await this.refreshSessionsList();
+			return { sessionId: resolvedSessionId, queued: shouldQueue, started: submission.accepted && !shouldQueue };
+		});
 	}
 
 	@callable()
@@ -977,31 +775,24 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		const callerIdentity = this.getCurrentCallerIdentity();
 
 		return this.withSessionMutationLock(sessionId, async () => {
-			const session = await this.agentSessionStore.read(sessionId);
-			if (!session) {
-				return { removed: false };
-			}
-
-			const targetMessage = session.history.find(
+			const messages = this.state.currentSession?.sessionId === sessionId ? this.state.currentSession.messages : [];
+			const targetMessage = messages.find(
 				(message) => message.id === messageId && message.role === 'user' && message.metadata?.request?.state === 'queued',
 			);
 			if (!targetMessage) {
 				return { removed: false };
 			}
 
-			// Only the author of a queued message may remove it. Legacy messages without
-			// an authorUserId predate this tracking and are allowed through for any caller.
 			if (targetMessage.authorUserId && targetMessage.authorUserId !== callerIdentity?.userId) {
 				throw new Error('Not authorized to remove this queued message.');
 			}
 
-			const nextHistory = session.history.filter((message) => message.id !== messageId);
-
-			await this.sessionManager.deleteMessages(sessionId, [messageId]);
-			deleteSessionMessageMetadata(this.db, sessionId, [messageId]);
-			this.agentSessionStore.writeMetadata(sessionId, { stopRequested: session.stopRequested });
+			const sessionAgent = await this.subAgent(SessionTurnAgent, sessionId);
+			await sessionAgent.cancelSubmissionById(messageId);
 			if (this.state.currentSession?.sessionId === sessionId) {
-				this.updateSessionState(sessionId, { messages: nextHistory, stopRequested: session.stopRequested ?? false });
+				this.updateSessionState(sessionId, {
+					messages: this.state.currentSession.messages.filter((message) => message.id !== messageId),
+				});
 			}
 
 			return { removed: true };
@@ -1009,117 +800,78 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	}
 
 	@callable()
-	async startRun(
-		projectId: string,
-		messages: ChatMessage[],
-		mode: AgentMode = 'code',
-		model: AIModelId = DEFAULT_AI_MODEL,
-		sessionId?: string,
-		requestId?: string,
-	): Promise<{ sessionId: string }> {
-		const resolvedSessionId = sessionId ?? crypto.randomUUID().replaceAll('-', '').slice(0, 16);
+	async startRun(request: StartRunRequest): Promise<{ sessionId: string }> {
+		const mode = request.mode ?? 'code';
+		const model = request.model ?? DEFAULT_AI_MODEL;
+		const resolvedSessionId = request.sessionId ?? crypto.randomUUID().replaceAll('-', '').slice(0, 16);
 
-		return this.withRpcRequestCache(
-			this.startRunRequestCache,
-			requestId ? `startRun:${resolvedSessionId}:${requestId}` : undefined,
-			async () => {
-				const callerIdentity = this.getCurrentCallerIdentity();
-				const authenticatedUserId = callerIdentity?.userId;
+		return this.withSessionMutationLock(resolvedSessionId, async () => {
+			const callerIdentity = this.getCurrentCallerIdentity();
+			const authenticatedUserId = callerIdentity?.userId;
+			const normalizedMessages = request.messages.map((message) => {
+				if (message.role !== 'user') {
+					return message;
+				}
 
-				return this.withSessionMutationLock(resolvedSessionId, async () => {
-					const latestUserMessage = messages.toReversed().find((message) => message.role === 'user');
-					const promptPreview = deriveFallbackTitle(latestUserMessage ? messagePartsToPromptText(latestUserMessage.parts).trim() : '', 80);
+				const normalizedParts = sanitizeSubmittedUserMessageParts(message.parts);
 
-					this.ensureSessionRecord(resolvedSessionId, promptPreview, model, mode);
-					if (callerIdentity) {
-						this.setSessionParticipants({
-							...this.state.sessionParticipants,
-							[callerIdentity.userId]: getParticipantProfile(callerIdentity),
-						});
-					}
+				const normalizedMessage: ChatMessage = {
+					...message,
+					authorUserId: message.authorUserId ?? authenticatedUserId,
+					parts: normalizedParts,
+					metadata: {
+						...message.metadata,
+						request: {
+							mode: message.metadata?.request?.mode ?? mode,
+							model: message.metadata?.request?.model ?? model,
+							state: 'committed',
+						},
+					},
+				};
 
-					const normalizedMessages = messages.map((message) => {
-						if (message.role !== 'user') {
-							return message;
-						}
+				return normalizedMessage;
+			});
+			const latestUserIndex = normalizedMessages.findLastIndex((message) => message.role === 'user');
+			const latestUserMessage = normalizedMessages[latestUserIndex];
+			if (!latestUserMessage || latestUserMessage.role !== 'user') throw new Error('A user message is required to start a run.');
 
-						const normalizedParts = sanitizeSubmittedUserMessageParts(message.parts);
-
-						const normalizedMessage: ChatMessage = {
-							...message,
-							authorUserId: message.authorUserId ?? authenticatedUserId,
-							parts: normalizedParts,
-							metadata: {
-								...message.metadata,
-								request: {
-									mode: message.metadata?.request?.mode ?? mode,
-									model: message.metadata?.request?.model ?? model,
-									state: 'committed',
-								},
-							},
-						};
-
-						return normalizedMessage;
-					});
-
-					await this.agentSessionStore.persistHistory(resolvedSessionId, normalizedMessages, false);
-					return this.startAgentRun(
-						projectId,
-						this.projectOrganizationId,
-						getCommittedMessages(normalizedMessages),
-						mode,
-						model,
-						resolvedSessionId,
-						authenticatedUserId,
-					);
-				});
-			},
-		);
+			this.ensureSessionRecord(
+				resolvedSessionId,
+				deriveFallbackTitle(messagePartsToPromptText(latestUserMessage.parts).trim(), 80),
+				model,
+				mode,
+			);
+			if (authenticatedUserId) this.sessionInitiatorUserIds.set(resolvedSessionId, authenticatedUserId);
+			if (env.AI_RATE_LIMITER) {
+				const { success } = await env.AI_RATE_LIMITER.limit({ key: this.getProjectId() });
+				if (!success) throw new Error('Rate limit exceeded. Please wait before making more AI requests.');
+			}
+			const sessionAgent = await this.getSessionTurnAgent(resolvedSessionId, model);
+			await sessionAgent.replaceHistory(normalizedMessages.slice(0, latestUserIndex));
+			await sessionAgent.submitTurn(latestUserMessage, {
+				mode,
+				model,
+				initiatorUserId: authenticatedUserId,
+				requestOriginContext: this.requestOriginContext,
+			});
+			this.updateSessionState(resolvedSessionId, {
+				status: 'running',
+				statusText: 'Thinking...',
+				messages: [latestUserMessage],
+				stopRequested: false,
+				error: undefined,
+			});
+			return { sessionId: resolvedSessionId };
+		});
 	}
 
 	@callable()
 	async abortRun(sessionId?: string): Promise<void> {
-		if (sessionId) {
-			await this.withSessionMutationLock(sessionId, async () => {
-				const session = await this.agentSessionStore.read(sessionId);
-				if (!session) {
-					return;
-				}
-
-				await this.agentSessionStore.persistHistory(sessionId, session.history, true);
-				this.updateSessionState(sessionId, {
-					stopRequested: true,
-					statusText: 'Stopping...',
-				});
-			});
-
-			const controller = this.abortControllers.get(sessionId);
-			if (controller) {
-				controller.abort();
-			}
-
-			const loopPromise = this.loopPromises.get(sessionId);
-			if (loopPromise) {
-				await loopPromise.catch(() => {});
-			}
-			return;
-		}
-
-		for (const [runningSessionId, controller] of this.abortControllers.entries()) {
-			await this.withSessionMutationLock(runningSessionId, async () => {
-				const session = await this.agentSessionStore.read(runningSessionId);
-				if (session) {
-					await this.agentSessionStore.persistHistory(runningSessionId, session.history, true);
-					this.updateSessionState(runningSessionId, {
-						stopRequested: true,
-						statusText: 'Stopping...',
-					});
-				}
-			});
-			controller.abort();
-		}
-
-		await Promise.allSettled(this.loopPromises.values());
+		const resolvedSessionId = sessionId ?? this.state.currentSession?.sessionId;
+		if (!resolvedSessionId) return;
+		this.updateSessionState(resolvedSessionId, { stopRequested: true, statusText: 'Stopping...' });
+		const sessionAgent = await this.subAgent(SessionTurnAgent, resolvedSessionId);
+		await sessionAgent.cancelActiveSubmissions();
 	}
 
 	/**
@@ -1141,13 +893,13 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		// (thinking, partial tool calls, in-progress text) only exists in
 		// this.state.currentSession.messages and hasn't been persisted to the DB
 		// yet (only persisted on turn-complete). Overwriting would lose messages.
-		if (this.state.currentSession?.sessionId === sessionId && this.abortControllers.has(sessionId)) {
+		if (this.state.currentSession?.sessionId === sessionId && this.state.currentSession.status === 'running') {
 			return session;
 		}
 
 		// Update agent state so all clients see the loaded session
 		const pendingChangesMap = this.loadPendingChangesFromDatabase();
-		const isRunning = this.abortControllers.has(sessionId);
+		const isRunning = this.state.currentSession?.sessionId === sessionId && this.state.currentSession.status === 'running';
 		const sessionParticipants = await this.resolveSessionParticipants(session.history);
 
 		this.setState({
@@ -1157,7 +909,8 @@ export class AgentRunner extends Agent<Env, AgentState> {
 				sessionId,
 				title: session.title,
 				status: isRunning ? 'running' : (session.status ?? 'idle'),
-				messages: session.history,
+				messages: [],
+				historyVersion: this.state.currentSession?.sessionId === sessionId ? this.state.currentSession.historyVersion : 0,
 				statusText: isRunning ? (session.stopRequested ? 'Stopping...' : 'Thinking...') : undefined,
 				error: session.errorMessage ? { message: session.errorMessage } : undefined,
 				contextTokensUsed: session.contextTokensUsed ?? 0,
@@ -1186,7 +939,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 				id: sessionInfo.id,
 				title: sessionInfo.name,
 				createdAt: Date.parse(sessionInfo.created_at),
-				isRunning: this.abortControllers.has(sessionInfo.id),
+				isRunning: this.state.currentSession?.sessionId === sessionInfo.id && this.state.currentSession.status === 'running',
 			}));
 	}
 
@@ -1279,7 +1032,8 @@ export class AgentRunner extends Agent<Env, AgentState> {
 					status: 'idle',
 					statusText: undefined,
 					error: undefined,
-					messages: truncatedHistory,
+					messages: [],
+					historyVersion: this.state.currentSession.historyVersion + 1,
 					contextTokensUsed,
 					pendingChanges: this.loadPendingChangesFromDatabase(),
 					toolMetadata: {},
@@ -1323,18 +1077,9 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	 * If the session is running, it is aborted first.
 	 */
 	@callable()
-	async deleteSession(projectId: string, sessionId: string): Promise<void> {
-		// Abort if the session is currently running
-		const controller = this.abortControllers.get(sessionId);
-		if (controller) {
-			controller.abort();
-			this.abortControllers.delete(sessionId);
-		}
-		// Wait for loop cleanup
-		const loopPromise = this.loopPromises.get(sessionId);
-		if (loopPromise) {
-			await loopPromise.catch(() => {});
-		}
+	async deleteSession(sessionId: string): Promise<void> {
+		const projectId = this.getProjectId();
+		await this.deleteSubAgent(SessionTurnAgent, sessionId);
 
 		// Clean up all volatile in-memory state for this session
 		this.sessionStreamState.disposeSession(sessionId);
@@ -1425,15 +1170,8 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	@callable()
 	async clearCurrentSession(sessionId?: string): Promise<void> {
 		if (sessionId) {
-			const controller = this.abortControllers.get(sessionId);
-			if (controller) {
-				controller.abort();
-				this.abortControllers.delete(sessionId);
-			}
-			const loopPromise = this.loopPromises.get(sessionId);
-			if (loopPromise) {
-				await loopPromise.catch(() => {});
-			}
+			const sessionAgent = await this.subAgent(SessionTurnAgent, sessionId);
+			await sessionAgent.cancelActiveSubmissions();
 		}
 		this.setState({
 			...this.state,
@@ -1443,336 +1181,70 @@ export class AgentRunner extends Agent<Env, AgentState> {
 	}
 	@callable()
 	async getRunningSessionIds(): Promise<string[]> {
-		return [...this.abortControllers.keys()];
+		const current = this.state.currentSession;
+		return current?.status === 'running' ? [current.sessionId] : [];
 	}
 
-	// =========================================================================
-	// Agent Loop Lifecycle
-	// =========================================================================
-	private async launchAgentLoop(parameters: StartAgentParameters, sessionId: string): Promise<void> {
-		// Create abort controller
-		this.abortControllers.set(sessionId, new AbortController());
-
-		// Track initiator userId for targeted push notifications (survives eviction via parameters)
-		if (parameters.initiatorUserId) {
-			this.sessionInitiatorUserIds.set(sessionId, parameters.initiatorUserId);
+	async receiveThinkEvents(sessionId: string, events: StreamEvent[]): Promise<void> {
+		for (const event of events) {
+			await this.sessionStreamState.handleEvent(sessionId, event);
 		}
-
-		const lastUserMessage = parameters.messages.toReversed().find((message) => message.role === 'user');
-		const lastUserText = lastUserMessage ? messagePartsToPromptText(lastUserMessage.parts).trim() : '';
-		const promptPreview = deriveFallbackTitle(lastUserText, 80);
-
-		const existing = this.sessionManager.get(sessionId);
-		if (!existing) {
-			this.ensureSessionRecord(sessionId, promptPreview, parameters.model, parameters.mode);
-		}
-		await this.agentSessionStore.replaceHistory(sessionId, parameters.messages);
-
-		// Fire title generation independently
-		if (lastUserText.length > 0 && !this.agentSessionStore.getMetadata(sessionId).titleGenerated) {
-			void this.generateTitle(sessionId, lastUserText);
-		}
-
-		const loopPromise = this.executeAgentLoop(parameters, sessionId)
-			.catch((error) => {
-				console.error(`[AgentRunner ${sessionId}] Unhandled error from executeAgentLoop:`, error);
-			})
-			.finally(() => {
-				if (this.loopPromises.get(sessionId) === loopPromise) {
-					this.loopPromises.delete(sessionId);
-				}
-			});
-		this.loopPromises.set(sessionId, loopPromise);
 	}
 
-	/**
-	 * Execute the agent generation loop.
-	 *
-	 * The loop runs the AI agent service and emits stream events to connected
-	 * clients via state updates. Streaming content (token-by-token text deltas,
-	 * tool call args) is NOT pushed through state (too chatty). Instead, the
-	 * service emits StreamEvent objects that the agent-runner broadcasts via
-	 * the ProjectCoordinator WebSocket (same as before).
-	 *
-	 * State updates are used for:
-	 * - Status changes (running → completed/error/aborted)
-	 * - Finalized messages (after each turn)
-	 * - Pending changes, tool metadata/errors, snapshots
-	 * - Context utilization
-	 */
-	private async executeAgentLoop(parameters: StartAgentParameters, sessionId: string): Promise<void> {
-		await this.runFiber(`agent-loop:${sessionId}`, async () => this.runAgentLoopInner(parameters, sessionId));
-	}
-
-	async onFiberRecovered(context: import('agents').FiberRecoveryContext): Promise<void> {
-		if (!context.name.startsWith('agent-loop:')) {
-			return;
-		}
-		const sessionId = context.name.slice('agent-loop:'.length);
-		const snapshot = parseFiberSnapshot(context.snapshot);
-		const session = await this.agentSessionStore.read(sessionId);
-		const parameters = session
-			? buildRecoveredRunParameters(this.getProjectId(), this.projectOrganizationId, sessionId, session.history, snapshot)
-			: undefined;
-		if (!parameters) {
-			return;
-		}
-
-		// Surface a recovering affordance until the resumed run emits its first
-		// event (cleared in runAgentLoopInner). Seed the persisted history so a
-		// freshly-created session state (when this isn't already the current
-		// session) doesn't render an empty chat until the first turn-complete.
+	async beginThinkTurn(sessionId: string, submissionId: string): Promise<void> {
+		const current = this.state.currentSession;
+		if (current?.sessionId !== sessionId) return;
 		this.updateSessionState(sessionId, {
-			isRecovering: true,
 			status: 'running',
-			statusText: 'Recovering...',
-			messages: parameters.messages,
+			statusText: 'Thinking...',
+			messages: current.messages.map((message) => {
+				if (message.id !== submissionId || message.role !== 'user' || !message.metadata?.request) return message;
+				return {
+					...message,
+					metadata: { ...message.metadata, request: { ...message.metadata.request, state: 'committed' } },
+				};
+			}),
 		});
-
-		await this.launchAgentLoop(parameters, sessionId);
-	}
-	/**
-	 * Read the next event from the model stream, aborting the run if no event
-	 * arrives within the stall timeout. This prevents a hung provider stream
-	 * from leaving the loop pending indefinitely.
-	 */
-	private async readNextStreamEvent(
-		iterator: AsyncIterator<import('@shared/agent-state').StreamEvent>,
-		abortController: AbortController,
-	): Promise<IteratorResult<import('@shared/agent-state').StreamEvent>> {
-		let stallTimer: ReturnType<typeof setTimeout> | undefined;
-		const nextPromise = iterator.next();
-		const stallPromise = new Promise<never>((_, reject) => {
-			stallTimer = setTimeout(() => {
-				abortController.abort();
-				reject(new AgentStreamStallError());
-			}, AGENT_STREAM_STALL_TIMEOUT_MS);
-		});
-
-		try {
-			return await Promise.race([nextPromise, stallPromise]);
-		} catch (error) {
-			if (error instanceof AgentStreamStallError) {
-				// The stall won the race, leaving nextPromise orphaned. Swallow its
-				// eventual settlement (it may reject once the abort propagates) and
-				// proactively close the generator so it releases its resources.
-				void Promise.resolve(nextPromise).catch(() => {});
-				void Promise.resolve(iterator.return?.()).catch(() => {});
-			}
-			throw error;
-		} finally {
-			if (stallTimer !== undefined) {
-				clearTimeout(stallTimer);
-			}
-		}
 	}
 
-	private async runAgentLoopInner(parameters: StartAgentParameters, sessionId: string): Promise<void> {
-		const projectId = parameters.projectId;
-		let finalStatus: AgentSessionStatus = 'completed';
-		let errorMessage: string | undefined;
-		let logger: import('../services/agent/agent-logger').AgentLogger | undefined;
-		let agentService: AgentService | undefined;
-
-		try {
-			const fsId = toDurableObjectId(filesystemNamespace, projectId);
-			const fsStub = filesystemNamespace.get(fsId);
-			const mode = parameters.mode ?? 'code';
-			const model = parameters.model ?? DEFAULT_AI_MODEL;
-			const session = this.sessionManager.getSession(sessionId);
-			const initialPendingChanges = resolveInitialPendingChanges(
-				parameters._fiberSnapshot,
-				parameters._fiberSnapshot ? undefined : this.reviewQueue.readSessionPendingChanges(sessionId),
-			);
-
-			// Convert ChatMessage[] to ModelMessage[] for the AI SDK
-			const modelMessages = chatMessagesToModelMessages(parameters.messages);
-
-			agentService = new AgentService({
-				projectRoot: PROJECT_ROOT,
-				projectId,
-				fsStub,
-				sessionId,
-				mode,
-				model,
-				organizationId: parameters.organizationId,
-				initiatorUserId: parameters.initiatorUserId,
-				session,
-				extensionManager: this.extensionManager,
-				ctx: this.ctx,
-				loader: env.LOADER,
-				browser: env.BROWSER,
-				agentReference: this,
-				requestOriginContext: this.requestOriginContext,
-				fiberSnapshot: parameters._fiberSnapshot,
-				initialPendingChanges,
-				onPersistSession: (sid, sessionData) => this.persistSessionFromService(sid, sessionData),
-				indexArtifactEntry: (entry) => this.indexArtifact(entry),
-			});
-
-			const abortController = this.abortControllers.get(sessionId) ?? new AbortController();
-			const stream = agentService.runAgentStream(modelMessages, parameters.messages, abortController);
-
-			logger = agentService.getLogger();
-
-			const iterator = stream[Symbol.asyncIterator]();
-			let clearedRecovering = false;
-			while (true) {
-				const next = await this.readNextStreamEvent(iterator, abortController);
-				if (next.done) {
-					break;
-				}
-				const event = next.value;
-
-				// Clear the recovering affordance as soon as the resumed run produces output.
-				if (!clearedRecovering) {
-					clearedRecovering = true;
-					if (this.state.currentSession?.sessionId === sessionId && this.state.currentSession.isRecovering) {
-						this.updateSessionState(sessionId, { isRecovering: false });
-					}
-				}
-
-				if (event.type === 'run-error') {
-					finalStatus = 'error';
-					errorMessage = event.message || 'An unexpected error occurred during generation.';
-					logger?.info('session', 'run_error_received', { errorMessage });
-				}
-
-				// Update agent state — auto-broadcast to all useAgent subscribers
-				await this.sessionStreamState.handleEvent(sessionId, event);
-			}
-
-			logger?.info('session', 'stream_completed', { finalStatus, errorMessage });
-		} catch (error) {
-			if (error instanceof AgentStreamStallError) {
-				finalStatus = 'error';
-				errorMessage = 'The model stopped responding. Please try again.';
-				logger?.error('session', 'stream_stalled', {});
-			} else if (error instanceof Error && error.name === 'AbortError') {
-				finalStatus = 'aborted';
-				logger?.info('session', 'aborted');
-			} else {
-				finalStatus = 'error';
-				const isConfigError = error instanceof Error && error.message.includes('Workers AI binding');
-				errorMessage = isConfigError
-					? 'AI service is not configured. Please contact the project owner.'
-					: 'An unexpected error occurred during generation. Please try again.';
-				console.error(`[AgentRunner ${sessionId}] Agent loop error:`, error);
-				logger?.error('session', 'unhandled_error', {
-					error: error instanceof Error ? error.message : String(error),
-				});
-			}
-		} finally {
-			// Clear run-scoped volatile state
-			this.sessionStreamState.disposeSession(sessionId);
-
-			// Clean up in-memory state
-			this.abortControllers.delete(sessionId);
-
-			// Update state with terminal status
-			this.updateSessionState(sessionId, {
-				status: finalStatus,
-				statusText: undefined,
-				error: finalStatus === 'error' && errorMessage ? { message: errorMessage } : undefined,
-				stopRequested: false,
-			});
-
-			this.agentSessionStore.writeMetadata(sessionId, {
-				status: finalStatus,
-				errorMessage,
-				stopRequested: false,
-			});
-
-			const analytics = this.sessionAnalytics.get(sessionId);
-			const sessionDurationMs = analytics ? Date.now() - analytics.durationMs : 0;
-
-			trackAiUsage({
-				userId: this.sessionInitiatorUserIds.get(sessionId) ?? '',
-				eventType: 'session_end',
-				projectId,
-				modelId: parameters.model ?? DEFAULT_AI_MODEL,
-				sessionId,
-				agentMode: parameters.mode ?? 'code',
-				error: errorMessage,
-				inputTokens: analytics?.inputTokens ?? 0,
-				outputTokens: analytics?.outputTokens ?? 0,
-				durationMs: sessionDurationMs,
-				toolCallCount: analytics?.toolCallCount ?? 0,
-				turnNumber: analytics?.turnNumber ?? 0,
-			});
-
-			this.sessionAnalytics.delete(sessionId);
-
-			const initiatorUserId = this.sessionInitiatorUserIds.get(sessionId);
-
-			const startedNextRun = await this.maybeStartNextQueuedRun(projectId, parameters.organizationId, sessionId, initiatorUserId).catch(
-				(nextRunError) => {
-					console.error('[AgentRunner] Failed to start queued follow-up run:', nextRunError);
-					return false;
-				},
-			);
-			const terminalNotification = buildTerminalNotification(finalStatus, errorMessage, startedNextRun);
-
-			// Only notify once the queue drains; the final auto-started run will notify when the agent becomes idle.
-			if (initiatorUserId && terminalNotification) {
-				this.sendPushNotification(initiatorUserId, sessionId, terminalNotification.title, terminalNotification.body);
-			}
-
-			if (!startedNextRun) {
-				this.sessionInitiatorUserIds.delete(sessionId);
-			}
-
-			// Prune old sessions
-			await this.pruneOldSessions(parameters.projectId).catch((error) => {
-				console.error('[AgentRunner] Session pruning failed:', error);
-			});
-
-			// Refresh sessions list
-			await this.refreshSessionsList();
-
-			// Flush logger and set debugLogId in state
-			if (agentService && logger && !logger.isFlushed) {
-				await agentService.flushLogger().catch(() => {});
-			}
-			if (logger) {
-				this.updateSessionState(sessionId, { debugLogId: logger.id });
-			}
-		}
-	}
-
-	// =========================================================================
-	// Session Persistence (called by AgentService)
-	// =========================================================================
-
-	private async persistSessionFromService(
+	async completeThinkTurn(
 		sessionId: string,
-		sessionData: import('../services/agent/types').SessionPersistData,
+		history: ChatMessage[],
+		status: 'completed' | 'error' | 'aborted',
+		error?: string,
+		activeSubmissions: Array<{ submissionId: string; status: 'pending' | 'running' }> = [],
 	): Promise<void> {
-		await this.withSessionMutationLock(sessionId, async () => {
-			const existing = this.agentSessionStore.getMetadata(sessionId);
-			const toolMetadata = { ...existing.toolMetadata, ...sessionData.toolMetadata };
-			const toolErrors = { ...existing.toolErrors, ...sessionData.toolErrors };
-			const mergedHistory = mergeQueuedMessages(sessionData.history, await this.getSessionHistory(sessionId));
-
-			await this.agentSessionStore.replaceHistory(sessionId, mergedHistory);
-			await this.syncStateSessionParticipants(mergedHistory);
-
-			this.agentSessionStore.writeMetadata(sessionId, {
-				titleGenerated: existing.titleGenerated,
-				contextTokensUsed: sessionData.contextTokensUsed,
-				toolMetadata: Object.keys(toolMetadata).length > 0 ? toolMetadata : undefined,
-				toolErrors: Object.keys(toolErrors).length > 0 ? toolErrors : undefined,
-				status: sessionData.error ? 'error' : existing.status,
-				errorMessage: sessionData.error?.message ?? existing.errorMessage,
-				stopRequested: existing.stopRequested,
-			});
-
-			this.reviewQueue.syncSessionPendingChanges(sessionId, sessionData.pendingChanges ?? {});
+		const persistedSession = await this.agentSessionStore.read(sessionId);
+		const persistedHistory = persistedSession?.history ?? [];
+		const liveHistory = this.state.currentSession?.sessionId === sessionId ? this.state.currentSession.messages : [];
+		const mergedHistory = mergeThinkHistory(history, [...persistedHistory, ...liveHistory]);
+		const hasActiveSubmission = activeSubmissions.length > 0;
+		await this.agentSessionStore.persistHistory(sessionId, mergedHistory, false);
+		this.agentSessionStore.writeMetadata(sessionId, {
+			status: hasActiveSubmission ? 'running' : status === 'completed' ? 'completed' : status,
+			errorMessage: hasActiveSubmission ? undefined : error,
+			stopRequested: false,
+		});
+		const current = this.state.currentSession;
+		if (current?.sessionId === sessionId) {
+			const activeMessages = getActiveThinkMessages(current.messages, activeSubmissions);
+			this.reviewQueue.syncSessionPendingChanges(sessionId, current.pendingChanges);
 			this.refreshReviewState();
-
-			if (sessionData.fiberSnapshot) {
-				this.stash(sessionData.fiberSnapshot);
-			}
+			this.updateSessionState(sessionId, {
+				status: hasActiveSubmission ? 'running' : status === 'completed' ? 'completed' : status,
+				statusText: hasActiveSubmission ? 'Thinking...' : undefined,
+				error: hasActiveSubmission ? undefined : error ? { message: error } : undefined,
+				messages: activeMessages,
+				historyVersion: current.historyVersion + 1,
+				stopRequested: false,
+				toolMetadata: {},
+				toolErrors: {},
+				subAgentActivities: {},
+			});
+		}
+		await this.refreshSessionsList();
+		await this.pruneOldSessions(this.getProjectId()).catch((pruneError) => {
+			console.error('[AgentRunner] Session pruning failed:', pruneError);
 		});
 	}
 
@@ -1824,11 +1296,11 @@ export class AgentRunner extends Agent<Env, AgentState> {
 
 		if (allSessions.length <= MAX_SESSIONS) return;
 
-		const runningIds = new Set(this.abortControllers.keys());
+		const runningSessionId = this.state.currentSession?.status === 'running' ? this.state.currentSession.sessionId : undefined;
 
 		const sessionsToPrune: string[] = [];
 		for (const session of allSessions.slice(MAX_SESSIONS)) {
-			if (!runningIds.has(session.id)) {
+			if (session.id !== runningSessionId) {
 				sessionsToPrune.push(session.id);
 			}
 		}
@@ -1877,6 +1349,7 @@ export class AgentRunner extends Agent<Env, AgentState> {
 				title: sessionInfo?.name ?? 'New session',
 				status: 'idle',
 				messages: [],
+				historyVersion: 0,
 				statusText: undefined,
 				error: undefined,
 				contextTokensUsed: metadata.contextTokensUsed ?? 0,
@@ -2069,10 +1542,6 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		};
 	}
 
-	private getSessionHistory(sessionId: string): Promise<ChatMessage[]> {
-		return this.agentSessionStore.getHistory(sessionId);
-	}
-
 	private lookupSessionIdForMessage(messageId: string): string | undefined {
 		const row = this.sql<{ sessionId: string }>`
 			SELECT session_id as sessionId
@@ -2081,36 +1550,6 @@ export class AgentRunner extends Agent<Env, AgentState> {
 			LIMIT 1
 		`[0];
 		return row?.sessionId;
-	}
-
-	private async maybeStartNextQueuedRun(
-		projectId: string,
-		organizationId: string | undefined,
-		sessionId: string,
-		initiatorUserId: string | undefined,
-	): Promise<boolean> {
-		return this.withSessionMutationLock(sessionId, async () => {
-			const session = await this.agentSessionStore.read(sessionId);
-			if (!session) {
-				return false;
-			}
-
-			const { history, promotedMessage } = promoteNextQueuedMessage(session.history);
-			if (!promotedMessage) {
-				await this.agentSessionStore.persistHistory(sessionId, session.history, false);
-				return false;
-			}
-
-			const request = promotedMessage.metadata?.request;
-			const mode = request?.mode ?? 'code';
-			const model = request?.model ?? DEFAULT_AI_MODEL;
-			const resolvedInitiatorUserId = initiatorUserId ?? promotedMessage.authorUserId;
-			const committedMessages = getCommittedMessages(history);
-
-			await this.agentSessionStore.persistHistory(sessionId, history, false);
-			await this.startAgentRun(projectId, organizationId, committedMessages, mode, model, sessionId, resolvedInitiatorUserId);
-			return true;
-		});
 	}
 
 	private async lookupProjectOrganizationId(projectId: string): Promise<string | undefined> {
@@ -2197,25 +1636,19 @@ export class AgentRunner extends Agent<Env, AgentState> {
 		return buildLoadedExtensionsSummary(this.extensionManager);
 	}
 
-	private async refreshSessionPrompt(sessionId: string): Promise<void> {
-		this.invalidateCachedSession(sessionId);
-		await this.sessionManager
-			.getSession(sessionId)
-			.refreshSystemPrompt()
-			.catch((error) => {
-				console.error('[AgentRunner] Failed to refresh session prompt:', error);
-			});
-	}
-
-	private invalidateCachedSession(sessionId: string): void {
-		const sessionCache = Reflect.get(this.sessionManager, '_sessions');
-		if (sessionCache instanceof Map) {
-			sessionCache.delete(sessionId);
+	private async getSessionTurnAgent(sessionId: string, model: AIModelId) {
+		const modelConfig = getModelConfig(model);
+		if (modelConfig?.provider === 'workers-ai' && !env.AI) {
+			throw new Error('Workers AI binding (AI) is not configured.');
 		}
-	}
-
-	private async indexArtifact(entry: SearchableArtifactEntry): Promise<void> {
-		await this.artifactsProvider.set(entry.key, entry.content);
+		const sessionAgent = await this.subAgent(SessionTurnAgent, sessionId);
+		await sessionAgent.configureSessionTurn({
+			projectId: this.getProjectId(),
+			organizationId: this.projectOrganizationId,
+			sessionId,
+			requestOriginContext: this.requestOriginContext,
+		});
+		return sessionAgent;
 	}
 
 	private getProjectId(): string {

@@ -1,7 +1,7 @@
 import type { RequestOriginContext } from './request-origin-context';
 import type { ProjectFilesystem } from '../../durable/project-filesystem';
 import type { ExtensionManager } from '@cloudflare/think/extensions';
-import type { FiberSnapshot, StreamEvent } from '@shared/agent-state';
+import type { StreamEvent } from '@shared/agent-state';
 import type { AIModelId } from '@shared/constants';
 import type { ChatMessage, PendingFileChange, ToolErrorInfo, ToolMetadataInfo } from '@shared/types';
 import type { Agent } from 'agents';
@@ -133,7 +133,6 @@ export interface SessionPersistData {
 	toolErrors?: Record<string, ToolErrorInfo>;
 	error?: { message: string; code?: string };
 	pendingChanges?: Record<string, PendingFileChange>;
-	fiberSnapshot?: FiberSnapshot;
 }
 
 /**

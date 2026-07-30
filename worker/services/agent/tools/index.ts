@@ -31,6 +31,7 @@ import * as webFetchTool from './web-fetch';
 import { DEV_PREVIEW_SECRET } from '../../../lib/preview-secret';
 import { withSpan } from '../../../lib/tracing';
 import { sanitizeToolInput, summarizeToolResult } from '../agent-logger';
+import { createConfiguredMcpConnectors } from '../mcp';
 
 import type { AgentLogger } from '../agent-logger';
 import type {
@@ -44,6 +45,7 @@ import type {
 	ToolFailureQueue,
 } from '../types';
 import type { StateBackend } from '@cloudflare/shell';
+import type { ToolSet } from 'ai';
 
 export const TOOL_EXECUTORS: ReadonlyMap<string, ToolExecuteFunction> = new Map([
 	['user_question', userQuestionTool.execute],
@@ -214,7 +216,7 @@ export async function createServerTools(
 	_toolCallIdReference?: ToolCallIdReference,
 	_pendingToolCallIds?: PendingToolCallIds,
 	excludedToolNames?: ReadonlySet<string>,
-): Promise<Record<string, unknown>> {
+): Promise<ToolSet> {
 	// Paths whose file_changed event a tool already emitted, so the Code Mode
 	// drain can skip re-emitting them after a sandbox run.
 	const emittedChangePaths = new Set<string>();
@@ -268,11 +270,13 @@ export async function createServerTools(
 	// 3. Assemble the single Code Mode tool — or fall back to direct exposure.
 	if (context.ctx && context.loader) {
 		const { createExecuteRuntime } = await import('@cloudflare/think/tools/execute');
+		const connectors = context.agentReference ? await createConfiguredMcpConnectors(context.agentReference, context.ctx, env) : [];
 		const { tool } = createExecuteRuntime({
 			ctx: context.ctx,
 			tools: codeModeTools,
 			state: createStateBackend(context, mode),
 			loader: context.loader,
+			connectors,
 			// eslint-disable-next-line unicorn/no-null -- codemode uses null to fully disable sandbox outbound network access
 			globalOutbound: null,
 		});
@@ -454,7 +458,12 @@ function wrapTool(definition: ToolDefinition, executor: ToolExecuteFunction, dep
 					{ toolName, resultSummary: summarizeToolResult(result.output), resultLength: result.output.length },
 					{ durationMs: timer?.() },
 				);
-				sendEvent('tool_result', { tool_name: toolName, title: result.title, metadata: result.metadata });
+				sendEvent('tool_result', {
+					toolCallId: executeOptions?.toolCallId,
+					tool_name: toolName,
+					title: result.title,
+					metadata: result.metadata,
+				});
 				return result.output;
 			} catch (error) {
 				const isToolError = error instanceof ToolExecutionError;

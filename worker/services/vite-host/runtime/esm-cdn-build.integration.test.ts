@@ -45,7 +45,7 @@ async function createVinextHost(): Promise<ViteHost> {
 		mode: 'production',
 		createPlugins: async () => {
 			const { vinext } = await import('../../../../auxiliary/vite-host/vendor/native-plugins.mjs');
-			return vinext();
+			return vinext({ appDir: '/' });
 		},
 		seedRuntime: seedVinextRuntime,
 	});

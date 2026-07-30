@@ -3,6 +3,7 @@ import { Suspense } from 'react';
 import { expect, fn, userEvent, within } from 'storybook/test';
 
 import { AgentRuntimeContext } from '@/features/agent/components/agent-runtime-context';
+import { createUnavailableAgentRunnerStub } from '@/features/agent/lib/agent-stub';
 
 import { MobileLayout } from './mobile-layout';
 
@@ -77,9 +78,7 @@ const mockAgentRuntimeValue = {
 		},
 		addEventListener: fn(),
 		removeEventListener: fn(),
-		call: async <_T = unknown,>() => {
-			throw new Error('Storybook mock agent does not implement call()');
-		},
+		stub: createUnavailableAgentRunnerStub(),
 	},
 	agentConnectionState: 'connected',
 	isConnected: true,

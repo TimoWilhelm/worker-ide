@@ -2,9 +2,7 @@ import { ToolErrorCode, toolError } from '@shared/tool-errors';
 
 import { buildSubAgentArtifactEntry } from '../memory/artifacts';
 
-import type { FileChange, SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
-import type { SubAgentActivity, StreamEvent } from '@shared/agent-state';
-import type { ChatMessage } from '@shared/types';
+import type { SendEventFunction, ToolDefinition, ToolExecutorContext, ToolResult } from '../types';
 
 export const definition: ToolDefinition = {
 	name: 'sub_agent',
@@ -30,7 +28,7 @@ export async function execute(
 	input: Record<string, string>,
 	sendEvent: SendEventFunction,
 	context: ToolExecutorContext,
-	queryChanges?: FileChange[],
+	_queryChanges?: unknown[],
 ): Promise<ToolResult> {
 	if (!context.agentReference) {
 		return toolError(ToolErrorCode.NOT_ALLOWED, 'Sub-agents require an Agent context.');
@@ -47,118 +45,49 @@ export async function execute(
 		fullPrompt += `\n\nAdditional context:\n${additionalContext}`;
 	}
 
-	const messages: ChatMessage[] = [
-		{
-			id: crypto.randomUUID(),
-			role: 'user',
-			parts: [{ type: 'text', content: fullPrompt }],
-			createdAt: Date.now(),
-		},
-	];
-
-	const [{ SubAgentStreamCallback }, { SubAgentWorker }] = await Promise.all([
-		import('../../../durable/sub-agent-stream-callback'),
-		import('../../../durable/sub-agent-worker'),
-	]);
-
-	const callback = new SubAgentStreamCallback((event) => {
-		handleSubAgentEvent(event, sendEvent, queryChanges);
-	});
-
 	sendEvent('status', { message: 'Delegating task to sub-agent...' });
-	// Use a deterministic name keyed off the parent tool call so that if the
-	// parent run is recovered after a Durable Object restart, the re-executed
-	// tool call re-attaches to the same sub-agent and returns its cached result
-	// instead of redoing the work. Falls back to a random name when no
-	// toolCallId is available (e.g. tests).
-	const subAgentName =
-		context.toolCallId && context.sessionId
-			? `sub-agent-${context.sessionId}-${context.toolCallId}`
-			: `sub-agent-${crypto.randomUUID().slice(0, 8)}`;
-	const subAgent = await context.agentReference.subAgent(SubAgentWorker, subAgentName);
-	const result = await subAgent.executeTask(context.projectId, messages, context.model, callback, context.userId, context.organizationId);
+	const { SubAgentWorker } = await import('../../../durable/sub-agent-worker');
+	const result = await context.agentReference.runAgentTool(SubAgentWorker, {
+		input: {
+			prompt: fullPrompt,
+			projectId: context.projectId,
+			organizationId: context.organizationId,
+			model: context.model,
+			sessionId: context.sessionId,
+			userId: context.userId,
+			requestOriginContext: context.requestOriginContext,
+			parentToolCallId: context.toolCallId,
+		},
+		runId: context.toolCallId ? `agent-tool:${context.toolCallId}` : undefined,
+		parentToolCallId: context.toolCallId,
+		display: { name: deriveShortTitle(prompt) },
+	});
+	if (result.status !== 'completed') {
+		return toolError(ToolErrorCode.NOT_ALLOWED, result.error ?? `Sub-agent ${result.status}.`);
+	}
+	const output = result.summary?.trim() || '(Sub-agent completed without producing text output)';
 	const artifactEntry = buildSubAgentArtifactEntry({
 		sessionId: context.sessionId,
 		prompt,
 		additionalContext,
-		resultText: result.text,
-		iterations: result.iterations,
+		resultText: output,
+		iterations: 1,
 	});
 	if (context.indexArtifact) {
 		await context.indexArtifact(artifactEntry);
 	}
 
-	if (result.debugLogId) {
-		forwardActivity(sendEvent, { kind: 'debug-log', debugLogId: result.debugLogId });
-	}
-
 	const shortTitle = deriveShortTitle(prompt);
 	return {
-		title: `${shortTitle} (${result.iterations} turn${result.iterations === 1 ? '' : 's'})`,
+		title: shortTitle,
 		metadata: {
-			iterations: result.iterations,
-			outputLength: result.text.length,
-			debugLogId: result.debugLogId,
+			runId: result.runId,
+			outputLength: output.length,
 			artifactKey: context.indexArtifact ? artifactEntry.key : undefined,
 			shortTitle,
 		},
-		output: result.text,
+		output,
 	};
-}
-
-function handleSubAgentEvent(event: StreamEvent, sendEvent: SendEventFunction, queryChanges?: FileChange[]): void {
-	switch (event.type) {
-		case 'text-delta': {
-			forwardActivity(sendEvent, { kind: 'text-delta', delta: event.delta });
-			break;
-		}
-		case 'reasoning-delta': {
-			// Forwarded purely as a keep-alive so the parent run's stream stall
-			// timer does not trip while a sub-agent is in an extended reasoning
-			// phase (which otherwise emits no parent-visible events). Not rendered
-			// as output text.
-			forwardActivity(sendEvent, { kind: 'reasoning-delta', delta: event.delta });
-			break;
-		}
-		case 'tool-call-start': {
-			forwardActivity(sendEvent, { kind: 'tool-start', toolName: event.toolName });
-			break;
-		}
-		case 'tool-call-end': {
-			forwardActivity(sendEvent, { kind: 'tool-end', toolName: event.toolName, isError: event.isError });
-			break;
-		}
-		case 'tool-result': {
-			forwardActivity(sendEvent, {
-				kind: 'tool-metadata',
-				toolName: event.toolName,
-				title: event.title,
-				metadata: event.metadata,
-			});
-			break;
-		}
-		case 'file-changed': {
-			sendEvent('file_changed', {
-				path: event.path,
-				action: event.action,
-				beforeContent: event.beforeContent,
-				afterContent: event.afterContent,
-			});
-			if (queryChanges) {
-				queryChanges.push({
-					path: event.path,
-					action: event.action === 'move' ? 'edit' : event.action,
-					beforeContent: event.beforeContent,
-					afterContent: event.afterContent,
-					isBinary: false,
-				});
-			}
-			break;
-		}
-		default: {
-			break;
-		}
-	}
 }
 
 function deriveShortTitle(prompt: string): string {
@@ -168,8 +97,4 @@ function deriveShortTitle(prompt: string): string {
 	const truncated = cleaned.slice(0, maxLength);
 	const lastSpace = truncated.lastIndexOf(' ');
 	return `${lastSpace > 20 ? truncated.slice(0, lastSpace) : truncated}...`;
-}
-
-function forwardActivity(sendEvent: SendEventFunction, activity: SubAgentActivity): void {
-	sendEvent('sub_agent_activity', { activity });
 }

@@ -1,26 +1,27 @@
 import { act, fireEvent, render, renderHook, screen } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { useAgentRuntime } from './agent-runtime-context';
 import { AgentRuntimeProvider } from './agent-runtime-provider';
-import { AgentCallTimeoutError } from '../lib/agent-call';
+import { createUnavailableAgentRunnerStub } from '../lib/agent-stub';
 
-import type { AgentCallOptions } from '../lib/agent-call';
 import type { ReactNode } from 'react';
 
 type Listener = () => void;
 
 interface MockAgent {
 	identified: boolean;
+	state: undefined;
+	stub: ReturnType<typeof createUnavailableAgentRunnerStub>;
 	addEventListener: (type: string, listener: Listener) => void;
 	removeEventListener: (type: string, listener: Listener) => void;
-	call: (method: string, arguments_?: unknown[], options?: AgentCallOptions) => Promise<unknown>;
 }
 
 const listenersByType = new Map<string, Set<Listener>>();
-const mockAgentCall = vi.fn<(method: string, arguments_?: unknown[], options?: AgentCallOptions) => Promise<unknown>>(async () => {});
 const mockAgent: MockAgent = {
 	identified: false,
+	state: undefined,
+	stub: createUnavailableAgentRunnerStub(),
 	addEventListener: vi.fn((type: string, listener: Listener) => {
 		const listeners = listenersByType.get(type) ?? new Set<Listener>();
 		listeners.add(listener);
@@ -29,7 +30,6 @@ const mockAgent: MockAgent = {
 	removeEventListener: vi.fn((type: string, listener: Listener) => {
 		listenersByType.get(type)?.delete(listener);
 	}),
-	call: mockAgentCall,
 };
 
 vi.mock('agents/react', () => ({
@@ -64,17 +64,11 @@ function RuntimeHarness() {
 }
 
 describe('AgentRuntimeProvider', () => {
-	afterEach(() => {
-		vi.useRealTimers();
-	});
-
 	beforeEach(() => {
 		listenersByType.clear();
 		mockAgent.identified = false;
 		localStorage.clear();
 		vi.clearAllMocks();
-		mockAgentCall.mockReset();
-		mockAgentCall.mockImplementation(async () => {});
 	});
 
 	it('retains the draft when the panel consumer remounts', () => {
@@ -143,25 +137,5 @@ describe('AgentRuntimeProvider', () => {
 
 		expect(result.current.agentConnectionState).toBe('connected');
 		expect(result.current.isConnected).toBe(true);
-	});
-
-	it('retries retryable agent calls before succeeding', async () => {
-		mockAgentCall.mockRejectedValueOnce(new TypeError('Socket closed')).mockResolvedValueOnce('ok');
-		const { result } = renderHook(() => useAgentRuntime(), { wrapper });
-
-		await expect(result.current.agent.call('loadSession', ['session-1'], { retryDelayMs: 0 })).resolves.toBe('ok');
-		expect(mockAgentCall).toHaveBeenCalledTimes(2);
-	});
-
-	it('times out agent calls that do not resolve', async () => {
-		vi.useFakeTimers();
-		mockAgentCall.mockImplementation(() => new Promise(() => {}));
-		const { result } = renderHook(() => useAgentRuntime(), { wrapper });
-
-		const promise = result.current.agent.call('abortRun', ['session-1'], { timeoutMs: 5, retryCount: 0 });
-		const expectation = expect(promise).rejects.toBeInstanceOf(AgentCallTimeoutError);
-		await vi.advanceTimersByTimeAsync(5);
-
-		await expectation;
 	});
 });

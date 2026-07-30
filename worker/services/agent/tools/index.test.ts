@@ -2,7 +2,15 @@ import { describe, expect, it } from 'vitest';
 
 import { toolInputSchemas } from '@shared/validation';
 
-import { AGENT_TOOLS, ASK_MODE_TOOLS, MUTATION_TOOL_NAMES, PLAN_MODE_TOOLS, READ_ONLY_TOOL_NAMES, TOOL_EXECUTORS } from './index';
+import {
+	AGENT_TOOLS,
+	ASK_MODE_TOOLS,
+	MUTATION_TOOL_NAMES,
+	PLAN_MODE_TOOLS,
+	READ_ONLY_TOOL_NAMES,
+	SUB_AGENT_EXCLUDED_TOOLS,
+	TOOL_EXECUTORS,
+} from './index';
 
 describe('PLAN_MODE_TOOLS', () => {
 	it('only includes read-only and research tools', () => {
@@ -84,6 +92,12 @@ describe('MUTATION_TOOL_NAMES', () => {
 		for (const name of MUTATION_TOOL_NAMES) {
 			expect(READ_ONLY_TOOL_NAMES.has(name)).toBe(false);
 		}
+	});
+});
+
+describe('SUB_AGENT_EXCLUDED_TOOLS', () => {
+	it('prevents recursive delegation and durable parent-session interactions', () => {
+		expect(SUB_AGENT_EXCLUDED_TOOLS).toEqual(new Set(['sub_agent', 'user_question', 'plan_update', 'todos_get', 'todos_update']));
 	});
 });
 

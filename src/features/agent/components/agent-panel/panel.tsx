@@ -199,6 +199,21 @@ export function AgentPanel({ projectId, className }: { projectId: string; classN
 	const pendingQuestion = currentSession?.pendingQuestion;
 	const needsContinuation = currentSession?.needsContinuation ?? false;
 	const doomLoopMessage = currentSession?.doomLoopMessage;
+	const {
+		allSessions,
+		savedSessions,
+		handleLoadSession: loadSession,
+		handleRenameSession,
+		handleDeleteSession,
+		sessionSearchQuery,
+		setSessionSearchQuery,
+		isRestoringSession,
+		sessionSnapshot,
+	} = useAgentSessions({
+		projectId,
+		agent,
+		agentConnectionState,
+	});
 	const renderedSessionId = sessionId ?? optimisticMessages.at(-1)?.sessionId;
 	const renderedOptimisticEntries = useMemo(
 		() => (renderedSessionId ? optimisticMessages.filter((entry) => entry.sessionId === renderedSessionId) : []),
@@ -213,14 +228,22 @@ export function AgentPanel({ projectId, className }: { projectId: string; classN
 		() => new Set(optimisticRemovedQueuedMessages.filter((entry) => entry.sessionId === renderedSessionId).map((entry) => entry.messageId)),
 		[optimisticRemovedQueuedMessages, renderedSessionId],
 	);
+	const serverMessages = useMemo(() => {
+		const durableMessages = sessionSnapshot && sessionSnapshot.id === renderedSessionId ? sessionSnapshot.history : [];
+		const liveMessages = currentSession && currentSession.sessionId === renderedSessionId ? currentSession.messages : [];
+		const liveById = new Map(liveMessages.map((message) => [message.id, message]));
+		return [
+			...durableMessages.map((message) => liveById.get(message.id) ?? message),
+			...liveMessages.filter((message) => !durableMessages.some((durableMessage) => durableMessage.id === message.id)),
+		];
+	}, [currentSession, renderedSessionId, sessionSnapshot]);
 	const allMessages = useMemo(() => {
-		const baseMessages = currentSession?.messages ?? [];
 		const mergedMessages =
 			renderedOptimisticMessages.length === 0
-				? baseMessages
+				? serverMessages
 				: [
-						...baseMessages,
-						...renderedOptimisticMessages.filter((message) => !new Set(baseMessages.map((entry) => entry.id)).has(message.id)),
+						...serverMessages,
+						...renderedOptimisticMessages.filter((message) => !new Set(serverMessages.map((entry) => entry.id)).has(message.id)),
 					];
 
 		if (removedQueuedMessageIds.size === 0) {
@@ -228,13 +251,19 @@ export function AgentPanel({ projectId, className }: { projectId: string; classN
 		}
 
 		return mergedMessages.filter((message) => !removedQueuedMessageIds.has(message.id));
-	}, [currentSession?.messages, renderedOptimisticMessages, removedQueuedMessageIds]);
+	}, [renderedOptimisticMessages, removedQueuedMessageIds, serverMessages]);
 	const queuedMessages = useMemo(() => allMessages.filter((message) => isQueuedRequestMessage(message)), [allMessages]);
 	const committedMessages = useMemo(() => allMessages.filter((message) => !isQueuedRequestMessage(message)), [allMessages]);
 
 	// Derive tool metadata/errors/sub-agent activities directly from agent state via useMemo
-	const toolMetadata = useMemo(() => new Map(Object.entries(currentSession?.toolMetadata ?? {})), [currentSession?.toolMetadata]);
-	const toolErrors = useMemo(() => new Map(Object.entries(currentSession?.toolErrors ?? {})), [currentSession?.toolErrors]);
+	const toolMetadata = useMemo(
+		() => new Map([...Object.entries(sessionSnapshot?.toolMetadata ?? {}), ...Object.entries(currentSession?.toolMetadata ?? {})]),
+		[currentSession?.toolMetadata, sessionSnapshot?.toolMetadata],
+	);
+	const toolErrors = useMemo(
+		() => new Map([...Object.entries(sessionSnapshot?.toolErrors ?? {}), ...Object.entries(currentSession?.toolErrors ?? {})]),
+		[currentSession?.toolErrors, sessionSnapshot?.toolErrors],
+	);
 	const subAgentActivities = useMemo(() => currentSession?.subAgentActivities ?? {}, [currentSession?.subAgentActivities]);
 
 	// Stable ref for sessionId access in callbacks
@@ -266,7 +295,7 @@ export function AgentPanel({ projectId, className }: { projectId: string; classN
 
 	useEffect(() => {
 		if (!renderedSessionId) return;
-		const persistedIds = new Set((currentSession?.messages ?? []).map((message) => message.id));
+		const persistedIds = new Set(serverMessages.map((message) => message.id));
 		queueMicrotask(() =>
 			setOptimisticMessages((previous) =>
 				previous.filter((entry) => {
@@ -277,20 +306,17 @@ export function AgentPanel({ projectId, className }: { projectId: string; classN
 				}),
 			),
 		);
-	}, [currentSession?.messages, renderedSessionId]);
+	}, [renderedSessionId, serverMessages]);
 
 	useEffect(() => {
 		if (!renderedSessionId) return;
-		const liveIds = new Set([
-			...(currentSession?.messages ?? []).map((message) => message.id),
-			...renderedOptimisticMessages.map((message) => message.id),
-		]);
+		const liveIds = new Set([...serverMessages.map((message) => message.id), ...renderedOptimisticMessages.map((message) => message.id)]);
 		queueMicrotask(() =>
 			setOptimisticRemovedQueuedMessages((previous) =>
 				previous.filter((entry) => entry.sessionId !== renderedSessionId || liveIds.has(entry.messageId)),
 			),
 		);
-	}, [currentSession?.messages, renderedOptimisticMessages, renderedSessionId]);
+	}, [renderedOptimisticMessages, renderedSessionId, serverMessages]);
 
 	// Reset per-session UI state when the session changes
 	const previousSessionIdReference = useRef(sessionId);
@@ -331,21 +357,6 @@ export function AgentPanel({ projectId, className }: { projectId: string; classN
 		inputValue: inputPlainText,
 		cursorPosition,
 		onSelect: handleFileMentionSelect,
-	});
-
-	const {
-		allSessions,
-		savedSessions,
-		handleLoadSession: loadSession,
-		handleRenameSession,
-		handleDeleteSession,
-		sessionSearchQuery,
-		setSessionSearchQuery,
-		isRestoringSession,
-	} = useAgentSessions({
-		projectId,
-		agent,
-		agentConnectionState,
 	});
 
 	// Session rename UI state
@@ -459,7 +470,7 @@ export function AgentPanel({ projectId, className }: { projectId: string; classN
 		setActiveSessionId(projectId, undefined);
 		// Tell the agent to clear the current session state via RPC
 		// (also aborts any running session server-side)
-		void agent.call('clearCurrentSession', [isProcessing ? sessionId : undefined]).catch((error: unknown) => {
+		void agent.stub.clearCurrentSession(isProcessing ? sessionId : undefined).catch((error: unknown) => {
 			console.error('[AgentPanel] Failed to clear current session:', error);
 			toast.error('Could not start a new session. Please try again.');
 		});
@@ -471,7 +482,7 @@ export function AgentPanel({ projectId, className }: { projectId: string; classN
 			if (!isConnected) return;
 			if (targetSessionId === sessionId) return;
 			if (isProcessing) {
-				void agent.call('abortRun', [sessionId]).catch((error: unknown) => {
+				void agent.stub.abortRun(sessionId).catch((error: unknown) => {
 					console.error('[AgentPanel] Failed to stop session before loading another:', error);
 				});
 			}
@@ -545,15 +556,14 @@ export function AgentPanel({ projectId, className }: { projectId: string; classN
 			);
 
 			try {
-				const result = await agent.call<{ sessionId: string; queued: boolean; started: boolean }>('submitMessage', [
-					projectId,
-					entry.message.parts,
-					entry.sessionId,
-					request.mode,
-					request.model,
-					entry.message.id,
-					entry.message.createdAt ?? Date.now(),
-				]);
+				const result = await agent.stub.submitMessage({
+					parts: entry.message.parts,
+					sessionId: entry.sessionId,
+					mode: request.mode,
+					model: request.model,
+					messageId: entry.message.id,
+					createdAt: entry.message.createdAt ?? Date.now(),
+				});
 
 				setActiveSessionId(projectId, result.sessionId);
 				setOptimisticMessages((previous) =>
@@ -760,8 +770,8 @@ export function AgentPanel({ projectId, className }: { projectId: string; classN
 				return [...previous, { sessionId: renderedSessionId, messageId }];
 			});
 
-			void agent
-				.call<{ removed: boolean }>('removeQueuedMessage', [renderedSessionId, messageId])
+			void agent.stub
+				.removeQueuedMessage(renderedSessionId, messageId)
 				.then((result) => {
 					if (result.removed) return;
 					setOptimisticRemovedQueuedMessages((previous) =>
@@ -795,7 +805,7 @@ export function AgentPanel({ projectId, className }: { projectId: string; classN
 	const handleCancel = useCallback(() => {
 		if (!sessionId || !isProcessing || stopRequested || optimisticStoppingSessionId === sessionId) return;
 		setOptimisticStoppingSessionId(sessionId);
-		void agent.call('abortRun', [sessionId]).catch((error: unknown) => {
+		void agent.stub.abortRun(sessionId).catch((error: unknown) => {
 			setOptimisticStoppingSessionId((currentSessionId) => (currentSessionId === sessionId ? undefined : currentSessionId));
 			console.error('[AgentPanel] Failed to abort agent:', error);
 			toast.error('Could not stop the agent. Please try again.');
@@ -840,12 +850,18 @@ export function AgentPanel({ projectId, className }: { projectId: string; classN
 		const retryRequestId = crypto.randomUUID();
 
 		setOptimisticStoppingSessionId(undefined);
-		void agent
-			.call('startRun', [projectId, trimmedHistory, agentMode, selectedModel, resolvedSessionId, retryRequestId])
+		void agent.stub
+			.startRun({
+				messages: trimmedHistory,
+				mode: agentMode,
+				model: selectedModel,
+				sessionId: resolvedSessionId,
+				requestId: retryRequestId,
+			})
 			.catch((error: unknown) => {
 				console.error('[AgentPanel] Failed to retry:', error);
 			});
-	}, [committedMessages, sessionId, projectId, agentMode, selectedModel, agent]);
+	}, [committedMessages, sessionId, agentMode, selectedModel, agent]);
 
 	// Dismiss error — track locally since error comes from agent state
 	const [dismissedError, setDismissedError] = useState<string | undefined>();
@@ -881,12 +897,14 @@ export function AgentPanel({ projectId, className }: { projectId: string; classN
 	// then surgically clears only the affected pending changes.
 	const handleConfirmRevert = useCallback(
 		async (snapshotIds: string[], messageIndex: number) => {
+			if (!sessionId) return;
+
 			// Mark loading state on the dialog
 			setPendingRevert((previous) => (previous ? { ...previous, isLoading: true, error: undefined } : previous));
 
 			revertInProgressReference.current = true;
 			if (isProcessing) {
-				void agent.call('abortRun', [sessionId]).catch((error: unknown) => {
+				void agent.stub.abortRun(sessionId).catch((error: unknown) => {
 					console.error('[AgentPanel] Failed to stop session before revert:', error);
 				});
 			}
@@ -939,7 +957,7 @@ export function AgentPanel({ projectId, className }: { projectId: string; classN
 
 				// Revert messages on the server — awaited so errors surface in the dialog
 				// and the dialog stays open until the server confirms the revert.
-				await agent.call('revertSession', [sessionId, messageIndex]);
+				await agent.stub.revertSession(sessionId, messageIndex);
 
 				// Restore the prompt text into the input, parsing file mentions back into pills
 				if (promptSegments.length > 0) {

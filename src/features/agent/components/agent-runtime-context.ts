@@ -1,7 +1,8 @@
 import { createContext, useContext } from 'react';
 
-import type { AgentCallOptions } from '../lib/agent-call';
+import type { AgentRunnerStub } from '../lib/agent-stub';
 import type { InputSegment } from '../lib/input-segments';
+import type { AgentState } from '@shared/agent-state';
 import type { Dispatch, SetStateAction } from 'react';
 
 export type AgentConnectionState = 'connecting' | 'connected' | 'disconnected';
@@ -20,10 +21,10 @@ export interface ImageAttachment {
 
 export interface AgentRuntimeHandle {
 	identified: boolean;
-	state: unknown;
+	state: AgentState | undefined;
+	stub: AgentRunnerStub;
 	addEventListener: (type: string, listener: () => void) => void;
 	removeEventListener: (type: string, listener: () => void) => void;
-	call: <T = unknown>(method: string, arguments_?: unknown[], options?: AgentCallOptions) => Promise<T>;
 }
 
 export interface AgentRuntimeValue {

@@ -1,14 +1,12 @@
 import type {
 	AgentSessionStatus,
 	ChatMessage,
-	FileChange,
 	PendingFileChange,
 	ReviewEntry,
 	ReviewSummary,
 	ToolErrorInfo,
 	ToolMetadataInfo,
 } from './types';
-import type { ModelMessage } from 'ai';
 
 export interface SessionParticipantProfile {
 	name: string;
@@ -38,7 +36,10 @@ export interface AgentSessionState {
 	sessionId: string;
 	title: string;
 	status: AgentSessionStatus | 'idle';
+	/** Messages belonging to the active turn and queued follow-ups only. */
 	messages: ChatMessage[];
+	/** Incremented after durable history changes so clients can refresh their snapshot. */
+	historyVersion: number;
 	statusText: string | undefined;
 	error: { message: string; code?: string } | undefined;
 	contextTokensUsed: number;
@@ -97,22 +98,7 @@ export type StreamEvent =
 	| PlanCreatedEvent
 	| RunFinishedEvent
 	| RunErrorEvent
-	| SubAgentActivityEvent
-	| FiberCheckpointEvent;
-
-export interface FiberSnapshot {
-	workingMessages: ModelMessage[];
-	chatMessages: ChatMessage[];
-	iteration: number;
-	queryChanges: FileChange[];
-	pendingChanges: Record<string, PendingFileChange>;
-	toolMetadata: Record<string, ToolMetadataInfo>;
-	toolErrors: Record<string, ToolErrorInfo>;
-	contextTokensUsed: number;
-	snapshotId: string | undefined;
-	model: string;
-	mode: string;
-}
+	| SubAgentActivityEvent;
 export interface TextDeltaEvent {
 	type: 'text-delta';
 	delta: string;
@@ -215,10 +201,6 @@ export interface RunErrorEvent {
 	code?: string;
 }
 
-export interface FiberCheckpointEvent {
-	type: 'fiber-checkpoint';
-	snapshot: FiberSnapshot;
-}
 export interface SubAgentActivityEvent {
 	type: 'sub-agent-activity';
 	parentToolCallId: string;

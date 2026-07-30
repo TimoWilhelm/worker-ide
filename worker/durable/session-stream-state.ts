@@ -103,10 +103,13 @@ export class SessionStreamState {
 				this.toolCallArgumentBuffers.delete(sessionId);
 				const session = await this.host.readSession(sessionId);
 				if (session && this.host.getCurrentSession()?.sessionId === sessionId) {
+					const current = this.host.getCurrentSession();
 					this.host.updateSessionState(sessionId, {
-						messages: session.history,
-						toolMetadata: session.toolMetadata ?? {},
-						toolErrors: session.toolErrors ?? {},
+						messages: [],
+						historyVersion: (current?.historyVersion ?? 0) + 1,
+						toolMetadata: {},
+						toolErrors: {},
+						subAgentActivities: {},
 						stopRequested: session.stopRequested ?? false,
 					});
 				}
