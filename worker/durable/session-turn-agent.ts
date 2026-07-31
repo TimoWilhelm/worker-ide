@@ -18,7 +18,7 @@ import { createAdapter as createWorkersAiAdapter } from '../services/agent/worke
 
 import type { SnapshotContext } from '../services/agent/snapshot-manager';
 import type { FileChange } from '../services/agent/types';
-import type { ChatResponseResult, ChunkContext, TurnConfig, TurnContext } from '@cloudflare/think';
+import type { ChatResponseResult, ChunkContext, ThinkSubmissionInspection, TurnConfig, TurnContext } from '@cloudflare/think';
 import type { StreamEvent } from '@shared/agent-state';
 import type { AIModelId } from '@shared/constants';
 import type { AgentMode, ChatMessage } from '@shared/types';
@@ -37,12 +37,14 @@ export interface TurnExecutionConfiguration {
 	requestOriginContext?: RequestOriginContext;
 }
 
-interface ActiveTurnConfiguration extends TurnExecutionConfiguration {
+export interface ActiveTurnConfiguration extends TurnExecutionConfiguration {
 	submissionId: string;
 }
 
 interface SessionTurnState {
 	configuration?: SessionTurnConfiguration;
+	activeSubmissionId?: string;
+	activeTurn?: ActiveTurnConfiguration;
 	activeSnapshot?: {
 		id: string;
 		directory: string;
@@ -64,6 +66,7 @@ export class SessionTurnAgent extends Think<Env, SessionTurnState> {
 	private eventQueue: StreamEvent[] = [];
 	private queryChanges = [];
 	private eventAbortController = new AbortController();
+	private completionPromise?: Promise<void>;
 
 	override async onStart(): Promise<void> {
 		await super.onStart();
@@ -75,7 +78,9 @@ export class SessionTurnAgent extends Think<Env, SessionTurnState> {
 		});
 		if (this.state.pendingCompletion) {
 			await this.completePendingTurn();
+			return;
 		}
+		await this.reconcileActiveSubmission();
 	}
 
 	configureSessionTurn(configuration: SessionTurnConfiguration): void {
@@ -83,7 +88,7 @@ export class SessionTurnAgent extends Think<Env, SessionTurnState> {
 	}
 
 	override getModel(): AIModelId {
-		return this.getTurnConfiguration()?.model ?? DEFAULT_AI_MODEL;
+		return this.state.activeTurn?.model ?? DEFAULT_AI_MODEL;
 	}
 
 	override getSystemPrompt(): string {
@@ -92,7 +97,7 @@ export class SessionTurnAgent extends Think<Env, SessionTurnState> {
 
 	override async beforeTurn(context: TurnContext): Promise<TurnConfig> {
 		const configuration = this.requireConfiguration();
-		const turnConfiguration = this.requireTurnConfiguration();
+		const turnConfiguration = this.requireActiveTurn();
 		if (!context.continuation) {
 			const parent = await this.parentAgent(AgentRunner);
 			await parent.beginThinkTurn(configuration.sessionId, turnConfiguration.submissionId);
@@ -205,10 +210,37 @@ export class SessionTurnAgent extends Think<Env, SessionTurnState> {
 		this.setState({
 			...this.state,
 			pendingCompletion: {
-				submissionId: this.requireTurnConfiguration().submissionId,
+				submissionId: this.requireActiveTurn().submissionId,
 				history,
 				status: result.status,
 				error: result.error,
+			},
+		});
+		await this.completePendingTurn();
+	}
+
+	override async onSubmissionStatus(submission: ThinkSubmissionInspection): Promise<void> {
+		if (submission.status === 'running') {
+			const activeTurn = parseActiveTurnConfiguration(submission.metadata, submission.submissionId);
+			this.setState({ ...this.state, activeSubmissionId: submission.submissionId, activeTurn });
+			return;
+		}
+
+		if (submission.status === 'pending' || this.state.activeSubmissionId !== submission.submissionId) return;
+		if (this.state.pendingCompletion?.submissionId === submission.submissionId) {
+			await this.completePendingTurn();
+			return;
+		}
+
+		const terminal = getTerminalSubmissionResult(submission);
+		const history = uiMessagesToChatMessages(await this.getMessages());
+		this.setState({
+			...this.state,
+			pendingCompletion: {
+				submissionId: submission.submissionId,
+				history,
+				status: terminal.status,
+				error: terminal.error,
 			},
 		});
 		await this.completePendingTurn();
@@ -259,27 +291,8 @@ export class SessionTurnAgent extends Think<Env, SessionTurnState> {
 		return configuration;
 	}
 
-	private getTurnConfiguration(): ActiveTurnConfiguration | undefined {
-		const metadata = this.activeTurnMetadata;
-		if (!metadata) return undefined;
-		const mode = metadata.mode;
-		const model = metadata.model;
-		const submissionId = metadata.submissionId;
-		if (mode !== 'code' && mode !== 'plan' && mode !== 'ask') return undefined;
-		if (typeof submissionId !== 'string') return undefined;
-		const parsedModel = aiModelSchema.safeParse(model);
-		if (!parsedModel.success) return undefined;
-		return {
-			submissionId,
-			mode,
-			model: parsedModel.data,
-			initiatorUserId: typeof metadata.initiatorUserId === 'string' ? metadata.initiatorUserId : undefined,
-			requestOriginContext: isRequestOriginContext(metadata.requestOriginContext) ? metadata.requestOriginContext : undefined,
-		};
-	}
-
-	private requireTurnConfiguration(): ActiveTurnConfiguration {
-		const configuration = this.getTurnConfiguration();
+	private requireActiveTurn(): ActiveTurnConfiguration {
+		const configuration = this.state.activeTurn;
 		if (!configuration) throw new Error('Turn execution configuration is missing or invalid.');
 		return configuration;
 	}
@@ -334,7 +347,16 @@ export class SessionTurnAgent extends Think<Env, SessionTurnState> {
 		});
 	}
 
-	private async completePendingTurn(): Promise<void> {
+	private completePendingTurn(): Promise<void> {
+		if (this.completionPromise) return this.completionPromise;
+		const completionPromise = this.completePendingTurnInner().finally(() => {
+			if (this.completionPromise === completionPromise) this.completionPromise = undefined;
+		});
+		this.completionPromise = completionPromise;
+		return completionPromise;
+	}
+
+	private async completePendingTurnInner(): Promise<void> {
 		const completion = this.state.pendingCompletion;
 		if (!completion) return;
 
@@ -356,8 +378,29 @@ export class SessionTurnAgent extends Think<Env, SessionTurnState> {
 			});
 		const configuration = this.requireConfiguration();
 		const parent = await this.parentAgent(AgentRunner);
-		await parent.completeThinkTurn(configuration.sessionId, completion.history, completion.status, completion.error, activeSubmissions);
-		this.setState({ ...this.state, activeSnapshot: undefined, pendingCompletion: undefined });
+		await parent.completeThinkTurn(
+			configuration.sessionId,
+			completion.submissionId,
+			completion.history,
+			completion.status,
+			completion.error,
+			activeSubmissions,
+		);
+		this.setState({
+			...this.state,
+			activeSubmissionId: this.state.activeSubmissionId === completion.submissionId ? undefined : this.state.activeSubmissionId,
+			activeTurn: this.state.activeTurn?.submissionId === completion.submissionId ? undefined : this.state.activeTurn,
+			activeSnapshot: undefined,
+			pendingCompletion: undefined,
+		});
+	}
+
+	private async reconcileActiveSubmission(): Promise<void> {
+		const submissionId = this.state.activeSubmissionId;
+		if (!submissionId) return;
+		const submission = await this.inspectSubmission(submissionId);
+		if (!submission || submission.status === 'pending' || submission.status === 'running') return;
+		await this.onSubmissionStatus(submission);
 	}
 
 	private getSnapshotContext(): SnapshotContext | undefined {
@@ -365,4 +408,35 @@ export class SessionTurnAgent extends Think<Env, SessionTurnState> {
 		if (!snapshot) return undefined;
 		return { id: snapshot.id, directory: snapshot.directory, savedPaths: new Set(snapshot.savedPaths) };
 	}
+}
+
+export function parseActiveTurnConfiguration(
+	metadata: Record<string, unknown> | undefined,
+	submissionId: string,
+): ActiveTurnConfiguration | undefined {
+	if (!metadata) return undefined;
+	const mode = metadata.mode;
+	if (mode !== 'code' && mode !== 'plan' && mode !== 'ask') return undefined;
+	const parsedModel = aiModelSchema.safeParse(metadata.model);
+	if (!parsedModel.success) return undefined;
+	return {
+		submissionId,
+		mode,
+		model: parsedModel.data,
+		initiatorUserId: typeof metadata.initiatorUserId === 'string' ? metadata.initiatorUserId : undefined,
+		requestOriginContext: isRequestOriginContext(metadata.requestOriginContext) ? metadata.requestOriginContext : undefined,
+	};
+}
+
+export function getTerminalSubmissionResult(submission: ThinkSubmissionInspection): {
+	status: 'completed' | 'error' | 'aborted';
+	error?: string;
+} {
+	if (submission.status === 'completed') return { status: 'completed' };
+	if (submission.status === 'aborted') return { status: 'aborted', error: submission.error };
+	return {
+		status: 'error',
+		error:
+			submission.error ?? (submission.status === 'skipped' ? 'The agent turn was skipped before it could run.' : 'The agent turn failed.'),
+	};
 }

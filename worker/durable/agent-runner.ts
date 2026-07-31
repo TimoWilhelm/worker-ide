@@ -1089,6 +1089,7 @@ export class AgentRunner extends Agent<Env, AgentState> implements AgentRunnerCl
 
 		await this.sessionManager.delete(sessionId);
 		deleteSessionMetadata(this.db, sessionId);
+		this.sql`DELETE FROM think_turn_completions WHERE session_id = ${sessionId}`;
 		this.reviewQueue.removeSession(sessionId);
 		this.refreshReviewState();
 		const survivingSnapshotIds = this.getSurvivingSnapshotIds();
@@ -1209,11 +1210,20 @@ export class AgentRunner extends Agent<Env, AgentState> implements AgentRunnerCl
 
 	async completeThinkTurn(
 		sessionId: string,
+		submissionId: string,
 		history: ChatMessage[],
 		status: 'completed' | 'error' | 'aborted',
 		error?: string,
 		activeSubmissions: Array<{ submissionId: string; status: 'pending' | 'running' }> = [],
 	): Promise<void> {
+		const existingCompletion = this.sql<{ submissionId: string }>`
+			SELECT submission_id as submissionId
+			FROM think_turn_completions
+			WHERE session_id = ${sessionId} AND submission_id = ${submissionId}
+			LIMIT 1
+		`[0];
+		if (existingCompletion) return;
+
 		const persistedSession = await this.agentSessionStore.read(sessionId);
 		const persistedHistory = persistedSession?.history ?? [];
 		const liveHistory = this.state.currentSession?.sessionId === sessionId ? this.state.currentSession.messages : [];
@@ -1243,6 +1253,10 @@ export class AgentRunner extends Agent<Env, AgentState> implements AgentRunnerCl
 			});
 		}
 		await this.refreshSessionsList();
+		this.sql`
+			INSERT OR IGNORE INTO think_turn_completions (session_id, submission_id, completed_at)
+			VALUES (${sessionId}, ${submissionId}, ${Date.now()})
+		`;
 		await this.pruneOldSessions(this.getProjectId()).catch((pruneError) => {
 			console.error('[AgentRunner] Session pruning failed:', pruneError);
 		});
@@ -1425,6 +1439,14 @@ export class AgentRunner extends Agent<Env, AgentState> implements AgentRunnerCl
 				parts_json TEXT,
 				snapshot_id TEXT,
 				PRIMARY KEY(session_id, message_id)
+			)
+		`);
+		this.ctx.storage.sql.exec(`
+			CREATE TABLE IF NOT EXISTS think_turn_completions (
+				session_id TEXT NOT NULL,
+				submission_id TEXT NOT NULL,
+				completed_at INTEGER NOT NULL,
+				PRIMARY KEY(session_id, submission_id)
 			)
 		`);
 		try {
