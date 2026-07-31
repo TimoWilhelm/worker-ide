@@ -11,7 +11,7 @@ import { createSendEventFunction } from '../services/agent/event-helpers';
 import { registerConfiguredMcpServers } from '../services/agent/mcp';
 import { isRequestOriginContext, type RequestOriginContext } from '../services/agent/request-origin-context';
 import { addFileToSnapshot, deleteDirectoryRecursive, initSnapshot } from '../services/agent/snapshot-manager';
-import { readAgentsContext } from '../services/agent/system-prompt-builder';
+import { buildRuntimePromptAdditions, readAgentsContext } from '../services/agent/system-prompt-builder';
 import { chatMessageToUiMessage, uiMessagesToChatMessages, userMessageToUiMessage } from '../services/agent/think-messages';
 import { createServerTools } from '../services/agent/tools';
 import { createAdapter as createWorkersAiAdapter } from '../services/agent/workers-ai';
@@ -105,9 +105,7 @@ export class SessionTurnAgent extends Think<Env, SessionTurnState> {
 		const filesystemId = toDurableObjectId(filesystemNamespace, configuration.projectId);
 		const filesystemStub = filesystemNamespace.get(filesystemId);
 		const agentsContext = await runWithProjectStub(filesystemStub, () => readAgentsContext('/project'));
-		const instructions = agentsContext
-			? `${AGENT_SYSTEM_PROMPT}\n\n## Project Guidelines (from AGENTS.md)\n${agentsContext}`
-			: AGENT_SYSTEM_PROMPT;
+		const instructions = await buildSessionTurnInstructions(turnConfiguration.mode, agentsContext);
 
 		this.eventQueue = [];
 		this.queryChanges = [];
@@ -439,4 +437,10 @@ export function getTerminalSubmissionResult(submission: ThinkSubmissionInspectio
 		error:
 			submission.error ?? (submission.status === 'skipped' ? 'The agent turn was skipped before it could run.' : 'The agent turn failed.'),
 	};
+}
+
+export async function buildSessionTurnInstructions(mode: AgentMode, agentsContext?: string): Promise<string> {
+	const modeInstructions = await buildRuntimePromptAdditions('/project', mode);
+	const projectInstructions = agentsContext ? `\n\n## Project Guidelines (from AGENTS.md)\n${agentsContext}` : '';
+	return `${AGENT_SYSTEM_PROMPT}\n\n${modeInstructions}${projectInstructions}`;
 }

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
-import { AI_MODELS, DEFAULT_AI_MODEL } from '@shared/constants';
+import { AI_MODELS, CODE_MODE_SYSTEM_PROMPT, DEFAULT_AI_MODEL } from '@shared/constants';
 
-import { getTerminalSubmissionResult, parseActiveTurnConfiguration } from './session-turn-agent';
+import { buildSessionTurnInstructions, getTerminalSubmissionResult, parseActiveTurnConfiguration } from './session-turn-agent';
 
 import type { ThinkSubmissionInspection } from '@cloudflare/think';
 
@@ -16,6 +16,15 @@ function submission(status: ThinkSubmissionInspection['status'], error?: string)
 }
 
 describe('session turn lifecycle', () => {
+	it('includes mode-specific tool instructions and project guidelines', async () => {
+		const instructions = await buildSessionTurnInstructions('code', 'Use project conventions.');
+
+		expect(instructions).toContain(CODE_MODE_SYSTEM_PROMPT);
+		expect(instructions).toContain('single `codemode` tool');
+		expect(instructions).toContain('state.readdir');
+		expect(instructions).toContain('## Project Guidelines (from AGENTS.md)\nUse project conventions.');
+	});
+
 	it('activates the submitted turn configuration from durable submission metadata', () => {
 		const model = AI_MODELS[0].id;
 
