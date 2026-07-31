@@ -40,6 +40,10 @@ async function editProjectFile(page: Page, projectId: string, path: string, find
 
 test.describe('vinext preview + HMR', () => {
 	test('server-renders the App Router app and HMR-updates each module type with client state preserved', async ({ page }) => {
+		const unexpectedReloads: string[] = [];
+		page.on('console', (message) => {
+			if (message.text().includes('changed module not in running graph')) unexpectedReloads.push(message.text());
+		});
 		const projectId = await gotoIDE(page, { template: 'vinext' });
 		await waitForFileTree(page, 'app');
 
@@ -65,6 +69,7 @@ test.describe('vinext preview + HMR', () => {
 		});
 
 		await counter.click();
+		await expect(counter).toHaveText('Count: 1');
 		await counter.click();
 		await expect(counter).toHaveText('Count: 2');
 
@@ -73,6 +78,7 @@ test.describe('vinext preview + HMR', () => {
 		await expect(preview.getByRole('heading', { name: 'Hello from HMR' })).toBeVisible({ timeout: 30_000 });
 		await expect(counter).toHaveText('Count: 2');
 		expect(await previewFrame.evaluate(() => Reflect.get(globalThis, '__vinextHmrSentinel'))).toBe(sentinel);
+		expect(unexpectedReloads).toEqual([]);
 
 		// Client component edit → React Fast Refresh, hook state preserved.
 		await editProjectFile(page, projectId, '/app/counter.tsx', 'Count:', 'Tally:');

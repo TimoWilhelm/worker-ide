@@ -26,6 +26,7 @@ interface PreviewRuntimeApi {
 		timestamp: number;
 		targets: Array<{ id: string; kind: 'module' | 'style-link' }>;
 	}): Promise<void>;
+	hasModule(moduleId: string): boolean;
 	registerModule(moduleId: string, importedModuleIds: string[]): void;
 	createHotContext(moduleId: string): PreviewHotContext;
 	upsertStyle(moduleId: string, cssText: string): void;
@@ -38,6 +39,7 @@ function isPreviewRuntimeApi(value: unknown): value is PreviewRuntimeApi {
 		value !== undefined &&
 		value !== null &&
 		'applyUpdate' in value &&
+		'hasModule' in value &&
 		'registerModule' in value &&
 		'createHotContext' in value
 	);
@@ -203,6 +205,15 @@ describe('preview runtime and hmr transport', () => {
 		});
 
 		expect(link.getAttribute('href')).toBe('/src/style.css?t=123');
+	});
+
+	it('reports whether a normalized module is in the running graph', () => {
+		bootPreviewRuntime();
+		const previewRuntime = getPreviewRuntime();
+
+		expect(previewRuntime.hasModule('/@vinext-client/%2Fapp%2Fpage.tsx')).toBe(false);
+		previewRuntime.registerModule('/@vinext-client/%2Fapp%2Fcounter.tsx?t=1', []);
+		expect(previewRuntime.hasModule('/@vinext-client/%2Fapp%2Fcounter.tsx?t=2')).toBe(true);
 	});
 
 	it('reruns the nearest accepted boundary for dependency changes', async () => {

@@ -94,8 +94,8 @@ function TemplateCard({
 			disabled={disabled}
 			className={cn(
 				`
-					group flex cursor-pointer flex-col items-center gap-2 rounded-lg border
-					border-border p-4
+					group flex h-28 w-full cursor-pointer flex-col items-center gap-2
+					rounded-lg border border-border p-4
 				`,
 				'bg-bg-secondary/60 backdrop-blur-sm transition-all',
 				'hover:border-accent/50 hover:bg-bg-secondary/80',
@@ -115,7 +115,7 @@ function TemplateCard({
 			>
 				<TemplateIcon name={template.icon} className="size-4" />
 			</div>
-			<span className="text-center text-xs font-medium text-text-primary">{template.name}</span>
+			<span className="line-clamp-2 text-center text-xs font-medium text-text-primary">{template.name}</span>
 		</button>
 	);
 }
@@ -187,8 +187,8 @@ function CloneCard({ onSelect, disabled }: { onSelect: () => void; disabled: boo
 			disabled={disabled}
 			className={cn(
 				`
-					group flex cursor-pointer flex-col items-center gap-2 rounded-lg border
-					border-border p-4
+					group flex h-28 w-full cursor-pointer flex-col items-center gap-2
+					rounded-lg border border-border p-4
 				`,
 				'bg-bg-secondary/60 backdrop-blur-sm transition-all',
 				'hover:border-accent/50 hover:bg-bg-secondary/80',
@@ -208,7 +208,7 @@ function CloneCard({ onSelect, disabled }: { onSelect: () => void; disabled: boo
 			>
 				<Copy className="size-4" />
 			</div>
-			<span className="text-center text-xs font-medium text-text-primary">Clone a project</span>
+			<span className="line-clamp-2 text-center text-xs font-medium text-text-primary">Clone a project</span>
 		</button>
 	);
 }

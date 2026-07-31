@@ -151,6 +151,10 @@
 		}
 	}
 
+	function hasModule(moduleId) {
+		return moduleRecords.has(normalizeModuleId(moduleId));
+	}
+
 	function removeRecordListeners(record) {
 		for (var index = 0; index < record.customListeners.length; index++) {
 			removeEventListenerEntry(record.customListeners[index].event, record.customListeners[index].callback);
@@ -513,6 +517,7 @@
 	window.__PREVIEW_RUNTIME__ = {
 		applyUpdate: applyUpdate,
 		createHotContext: createHotContext,
+		hasModule: hasModule,
 		normalizeModuleId: normalizeModuleId,
 		registerModule: registerModule,
 		upsertStyle: upsertStyle,

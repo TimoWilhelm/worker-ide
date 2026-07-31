@@ -75,6 +75,10 @@ export function buildHmrGlue(options: HmrGlueOptions): string {
 		// A registered client module is a self-accepting boundary → Fast Refresh.
 		// An unregistered (server) module bubbles to softRefresh.
 		var id = '/@vinext-client/' + encodeURIComponent(path);
+		if (!runtime.hasModule(id)) {
+			softRefresh();
+			return;
+		}
 		Promise.resolve(runtime.applyUpdate({ timestamp: Date.now(), targets: [{ id: id, kind: 'module' }] })).catch(softRefresh);
 	});
 })();`;
