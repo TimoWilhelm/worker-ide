@@ -2,6 +2,7 @@ import { clearSnapshotFromMessages, setSnapshotOnLastCommittedUserMessage } from
 import { accumulatePendingChange } from '../services/agent/pending-changes';
 
 import type { AgentSessionState, StreamEvent } from '@shared/agent-state';
+import type { PushNotification } from '@shared/notification-types';
 import type { AiSession, ChatMessage, MessagePart } from '@shared/types';
 
 interface SessionStreamStateHost {
@@ -9,7 +10,7 @@ interface SessionStreamStateHost {
 	updateSessionState(sessionId: string, patch: Partial<AgentSessionState>): void;
 	readSession(sessionId: string): Promise<AiSession | undefined>;
 	getSessionInitiatorUserId(sessionId: string): string | undefined;
-	sendPushNotification(userId: string, sessionId: string, title: string, body: string): void;
+	sendPushNotification(userId: string, notification: PushNotification): void;
 	recordToolCall(sessionId: string): void;
 	recordTurnComplete(sessionId: string): void;
 	recordUsage(sessionId: string, inputTokens: number, outputTokens: number): void;
@@ -202,7 +203,12 @@ export class SessionStreamState {
 				});
 				const questionInitiatorUserId = this.host.getSessionInitiatorUserId(sessionId);
 				if (questionInitiatorUserId) {
-					this.host.sendPushNotification(questionInitiatorUserId, sessionId, 'Agent needs your input', event.question);
+					this.host.sendPushNotification(questionInitiatorUserId, {
+						tag: sessionId,
+						title: 'Agent needs your input',
+						body: event.question,
+						urgency: 'high',
+					});
 				}
 				break;
 			}

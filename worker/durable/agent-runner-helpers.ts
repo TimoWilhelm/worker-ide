@@ -1,5 +1,6 @@
 import { ExtensionManager } from '@cloudflare/think/extensions';
 
+import type { PushUrgency } from '@shared/notification-types';
 import type { AgentSessionStatus, ChatMessage } from '@shared/types';
 
 interface RestorableExtensionManager {
@@ -14,6 +15,7 @@ interface ExtensionManagerConstructor<T extends RestorableExtensionManager> {
 export interface TerminalNotification {
 	title: string;
 	body: string;
+	urgency?: PushUrgency;
 }
 
 export interface ActiveThinkSubmission {
@@ -117,6 +119,7 @@ export function buildTerminalNotification(
 		return {
 			title: 'Generation complete',
 			body: 'Your AI agent has finished.',
+			urgency: 'normal',
 		};
 	}
 
@@ -124,6 +127,7 @@ export function buildTerminalNotification(
 		return {
 			title: 'Generation failed',
 			body: errorMessage ?? 'An error occurred.',
+			urgency: 'high',
 		};
 	}
 

@@ -12,13 +12,22 @@
 	},
 	"kv_namespaces": [{ "binding": "KV_PUSH_SUBSCRIPTION", "id": "190f895e11114532a070bdc243874ef5" }],
 	"queues": {
-		"producers": [{ "binding": "PUSH_QUEUE", "queue": "worker-ide-push" }],
+		"producers": [
+			{ "binding": "PUSH_QUEUE", "queue": "worker-ide-push" },
+			{ "binding": "PUSH_HIGH_QUEUE", "queue": "worker-ide-push-high" },
+		],
 		"consumers": [
 			{
 				"max_batch_size": 30,
 				"max_batch_timeout": 5,
 				"max_retries": 3,
 				"queue": "worker-ide-push",
+			},
+			{
+				"max_batch_size": 10,
+				"max_batch_timeout": 1,
+				"max_retries": 3,
+				"queue": "worker-ide-push-high",
 			},
 		],
 	},

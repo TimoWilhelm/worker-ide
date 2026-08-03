@@ -12,25 +12,32 @@ export interface PushProjectDeepLink {
 	target: ProjectDeepLinkTarget;
 }
 
-export interface PushNotification {
-	tag: string;
+export type PushUrgency = 'very-low' | 'low' | 'normal' | 'high';
+
+export interface PushPayload {
 	title: string;
 	body: string;
+	tag: string;
 	path?: string;
 	deepLink?: PushProjectDeepLink;
-	ttl?: number;
+	data?: Record<string, unknown>;
 }
+
+export interface PushOptions {
+	urgency?: PushUrgency;
+	ttl?: number;
+	topic?: string;
+}
+
+export interface PushNotification extends PushPayload, PushOptions {}
 
 export interface PushQueueMessage {
 	userId: string;
-	tag: string;
+	notification: PushNotification;
 	timestamp: number;
-	title: string;
-	body: string;
-	path?: string;
-	deepLink?: PushProjectDeepLink;
-	ttl?: number;
 }
+
+export type EmailPriority = 'normal' | 'high';
 
 export interface EmailQueueMessage {
 	from: string;
@@ -38,4 +45,5 @@ export interface EmailQueueMessage {
 	subject: string;
 	html: string;
 	replyTo?: string;
+	priority?: EmailPriority;
 }

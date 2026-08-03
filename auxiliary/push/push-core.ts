@@ -3,6 +3,7 @@ import * as base64 from '@stablelib/base64';
 import { generateWebPushMessage } from './web-push';
 
 import type { ApplicationServerKeys, SubscriptionInfo } from './web-push';
+import type { PushNotification } from '@shared/notification-types';
 
 const DEFAULT_TTL = 60 * 60 * 24 * 7 * 4; // 4 weeks
 
@@ -31,17 +32,15 @@ export function sendNotification(
 	subject: string,
 	applicationServerKeys: ApplicationServerKeys,
 	payload: string,
-	options: {
-		TTL?: number;
-		urgency?: 'very-low' | 'low' | 'normal' | 'high';
-	} = {},
+	notification: PushNotification,
 ): ReturnType<typeof generateWebPushMessage> {
 	return generateWebPushMessage(
 		{
 			data: payload,
 			sub: subject,
-			ttl: options.TTL ?? DEFAULT_TTL,
-			urgency: options.urgency ?? 'normal',
+			ttl: notification.ttl ?? DEFAULT_TTL,
+			urgency: notification.urgency ?? 'normal',
+			topic: notification.topic ?? notification.tag,
 		},
 		subscription,
 		applicationServerKeys,

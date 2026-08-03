@@ -87,15 +87,22 @@ export default class PushWorker extends WorkerEntrypoint<PushWorkerEnvironment> 
 	async notifyUser(userId: string, notification: PushNotification): Promise<void> {
 		const message: PushQueueMessage = {
 			userId,
-			tag: notification.tag,
+			notification,
 			timestamp: Date.now(),
-			title: notification.title,
-			body: notification.body,
-			path: notification.path,
-			deepLink: notification.deepLink,
-			ttl: notification.ttl,
 		};
-		await this.env.PUSH_QUEUE.send(message);
+		const targetQueue = notification.urgency === 'high' && this.env.PUSH_HIGH_QUEUE ? this.env.PUSH_HIGH_QUEUE : this.env.PUSH_QUEUE;
+		await targetQueue.send(message);
+	}
+
+	async notifyUsers(userIds: string[], notification: PushNotification): Promise<void> {
+		const timestamp = Date.now();
+		const messages: Array<{ body: PushQueueMessage }> = userIds.map((userId) => ({
+			body: { userId, notification, timestamp },
+		}));
+		if (messages.length > 0) {
+			const targetQueue = notification.urgency === 'high' && this.env.PUSH_HIGH_QUEUE ? this.env.PUSH_HIGH_QUEUE : this.env.PUSH_QUEUE;
+			await targetQueue.sendBatch(messages);
+		}
 	}
 
 	// =========================================================================
@@ -144,7 +151,7 @@ export default class PushWorker extends WorkerEntrypoint<PushWorkerEnvironment> 
 		// same queue message when a user has multiple push subscriptions.
 		await Promise.all(
 			batch.messages.map(async (message) => {
-				const { userId, tag, timestamp, title, body, path, deepLink } = message.body;
+				const { userId, notification, timestamp } = message.body;
 				const subscriptions = userSubscriptions.get(userId);
 
 				if (!subscriptions || subscriptions.length === 0) {
@@ -152,7 +159,8 @@ export default class PushWorker extends WorkerEntrypoint<PushWorkerEnvironment> 
 					return;
 				}
 
-				const payload = JSON.stringify({ tag, userId, timestamp, title, body, path, deepLink });
+				const { tag, title, body, path, deepLink, data } = notification;
+				const payload = JSON.stringify({ tag, userId, timestamp, title, body, path, deepLink, data });
 
 				let anySucceeded = false;
 				let anyRetryableError = false;
@@ -162,9 +170,13 @@ export default class PushWorker extends WorkerEntrypoint<PushWorkerEnvironment> 
 						.filter(({ subscription }) => subscription.notificationsEnabled !== false)
 						.map(async ({ key, subscription }) => {
 							try {
-								const { result, response } = await sendNotification(subscription, this.env.VAPID_SUBJECT, applicationServerKeys, payload, {
-									TTL: message.body.ttl,
-								});
+								const { result, response } = await sendNotification(
+									subscription,
+									this.env.VAPID_SUBJECT,
+									applicationServerKeys,
+									payload,
+									notification,
+								);
 
 								switch (result) {
 									case WebPushResult.SUCCESS: {

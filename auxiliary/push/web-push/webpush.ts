@@ -28,6 +28,10 @@ export async function generateWebPushMessage(
 		Urgency: `${message.urgency}`,
 	};
 
+	if (message.topic) {
+		headers.Topic = message.topic;
+	}
+
 	const response = await fetch(subscription.endpoint, {
 		method: 'POST',
 		headers,

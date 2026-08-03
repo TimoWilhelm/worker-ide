@@ -6,7 +6,7 @@ import { EmailVerificationEmail } from './templates/email-verification';
 import { OrgInvitationEmail } from './templates/org-invitation';
 import { PasswordResetEmail } from './templates/password-reset';
 
-import type { EmailQueueMessage } from '@shared/notification-types';
+import type { EmailPriority, EmailQueueMessage } from '@shared/notification-types';
 
 export default class EmailWorker extends WorkerEntrypoint<EmailWorkerEnvironment> {
 	// Keep queue sends in small bursts while the worker drains messages.
@@ -15,6 +15,9 @@ export default class EmailWorker extends WorkerEntrypoint<EmailWorkerEnvironment
 	// =========================================================================
 	// RPC Methods
 	// =========================================================================
+	async sendEmail(data: { to: string; subject: string; html: string; replyTo?: string; priority?: EmailPriority }): Promise<void> {
+		await this.enqueue(data);
+	}
 	async sendOrgInvitation(data: {
 		to: string;
 		inviterName: string;
@@ -35,6 +38,7 @@ export default class EmailWorker extends WorkerEntrypoint<EmailWorkerEnvironment
 			to: data.to,
 			subject: `${data.inviterName} invited you to join ${data.organizationName}`,
 			html,
+			priority: 'normal',
 		});
 	}
 	async sendEmailVerification(data: { to: string; userName: string; verificationUrl: string }): Promise<void> {
@@ -49,6 +53,7 @@ export default class EmailWorker extends WorkerEntrypoint<EmailWorkerEnvironment
 			to: data.to,
 			subject: 'Verify your email address',
 			html,
+			priority: 'high',
 		});
 	}
 	async sendPasswordReset(data: { to: string; userName: string; resetUrl: string }): Promise<void> {
@@ -63,21 +68,24 @@ export default class EmailWorker extends WorkerEntrypoint<EmailWorkerEnvironment
 			to: data.to,
 			subject: 'Reset your password',
 			html,
+			priority: 'high',
 		});
 	}
 
 	// =========================================================================
 	// Helpers
 	// =========================================================================
-	private async enqueue(data: { to: string; subject: string; html: string; replyTo?: string }): Promise<void> {
+	private async enqueue(data: { to: string; subject: string; html: string; replyTo?: string; priority?: EmailPriority }): Promise<void> {
 		const message: EmailQueueMessage = {
 			from: this.env.EMAIL_FROM,
 			to: data.to,
 			subject: data.subject,
 			html: data.html,
 			replyTo: data.replyTo,
+			priority: data.priority ?? 'normal',
 		};
-		await this.env.EMAIL_QUEUE.send(message);
+		const targetQueue = message.priority === 'high' && this.env.EMAIL_HIGH_QUEUE ? this.env.EMAIL_HIGH_QUEUE : this.env.EMAIL_QUEUE;
+		await targetQueue.send(message);
 	}
 
 	// =========================================================================

@@ -69,6 +69,7 @@ import type { RequestOriginContext } from '../services/agent/request-origin-cont
 import type { AgentRunnerClient, StartRunRequest, SubmitMessageRequest } from '@shared/agent-rpc';
 import type { AgentState, AgentSessionState, SessionParticipantProfile, SessionSummary, StreamEvent } from '@shared/agent-state';
 import type { AIModelId } from '@shared/constants';
+import type { PushNotification } from '@shared/notification-types';
 import type { AgentMode, AiSession, ChatMessage, PendingFileChange, ReviewEntry, UserMessagePart } from '@shared/types';
 
 const REQUEST_ORIGIN_CONTEXT_STORAGE_KEY = 'request-origin-context';
@@ -259,7 +260,7 @@ export class AgentRunner extends Agent<Env, AgentState> implements AgentRunnerCl
 		updateSessionState: (sessionId, patch) => this.updateSessionState(sessionId, patch),
 		readSession: (sessionId) => this.agentSessionStore.read(sessionId),
 		getSessionInitiatorUserId: (sessionId) => this.sessionInitiatorUserIds.get(sessionId),
-		sendPushNotification: (userId, sessionId, title, body) => this.sendPushNotification(userId, sessionId, title, body),
+		sendPushNotification: (userId, notification) => this.sendPushNotification(userId, notification),
 		recordToolCall: (sessionId) => {
 			const analytics = this.sessionAnalytics.get(sessionId);
 			if (analytics) {
@@ -1613,22 +1614,21 @@ export class AgentRunner extends Agent<Env, AgentState> implements AgentRunnerCl
 	 * rather than scanning live WebSocket connections, so notifications
 	 * work correctly after DO eviction and in multi-user projects.
 	 */
-	private sendPushNotification(userId: string, sessionId: string, title: string, body: string): void {
+	private sendPushNotification(userId: string, notification: PushNotification): void {
 		const projectId = this.getProjectId();
 		if (!projectId) return;
 
 		try {
-			const deepLinkTarget = { kind: 'agent-session' as const, sessionId };
-			env.PUSH.notifyUser(userId, {
-				tag: sessionId,
-				title,
-				body,
-				path: buildProjectDeepLinkPath(projectId, deepLinkTarget),
-				deepLink: {
+			const deepLinkTarget = { kind: 'agent-session' as const, sessionId: notification.tag };
+			const enrichedNotification: PushNotification = {
+				...notification,
+				path: notification.path ?? buildProjectDeepLinkPath(projectId, deepLinkTarget),
+				deepLink: notification.deepLink ?? {
 					projectId,
 					target: deepLinkTarget,
 				},
-			}).catch((error: unknown) => {
+			};
+			env.PUSH.notifyUser(userId, enrichedNotification).catch((error: unknown) => {
 				console.error('[AgentRunner] Failed to send push notification:', error);
 			});
 		} catch {

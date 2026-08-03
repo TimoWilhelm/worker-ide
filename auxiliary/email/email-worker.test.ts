@@ -22,6 +22,9 @@ function createEnvironment() {
 		EMAIL_QUEUE: {
 			send: vi.fn(async () => {}),
 		},
+		EMAIL_HIGH_QUEUE: {
+			send: vi.fn(async () => {}),
+		},
 		EMAIL_FROM: 'Codemaxxing.ai <noreply@codemaxxing.ai>',
 	};
 }
@@ -107,13 +110,14 @@ describe('EmailWorker RPC methods', () => {
 			verificationUrl: 'https://example.com/verify',
 		});
 
-		expect(environment.EMAIL_QUEUE.send).toHaveBeenCalledOnce();
+		expect(environment.EMAIL_HIGH_QUEUE.send).toHaveBeenCalledOnce();
 
-		const queuedMessage = environment.EMAIL_QUEUE.send.mock.calls[0]?.[0];
+		const queuedMessage = environment.EMAIL_HIGH_QUEUE.send.mock.calls[0]?.[0];
 		expect(queuedMessage).toMatchObject({
 			from: environment.EMAIL_FROM,
 			to: 'user@example.com',
 			subject: 'Verify your email address',
+			priority: 'high',
 		});
 		expect(queuedMessage.html).toContain('https://example.com/verify');
 	});

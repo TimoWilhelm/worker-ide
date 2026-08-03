@@ -12,13 +12,22 @@
 		"traces": { "enabled": true, "head_sampling_rate": 0.05 },
 	},
 	"queues": {
-		"producers": [{ "binding": "EMAIL_QUEUE", "queue": "worker-ide-email" }],
+		"producers": [
+			{ "binding": "EMAIL_QUEUE", "queue": "worker-ide-email" },
+			{ "binding": "EMAIL_HIGH_QUEUE", "queue": "worker-ide-email-high" },
+		],
 		"consumers": [
 			{
 				"max_batch_size": 2,
 				"max_batch_timeout": 10,
 				"max_retries": 3,
 				"queue": "worker-ide-email",
+			},
+			{
+				"max_batch_size": 1,
+				"max_batch_timeout": 1,
+				"max_retries": 3,
+				"queue": "worker-ide-email-high",
 			},
 		],
 	},

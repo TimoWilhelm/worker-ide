@@ -56,6 +56,21 @@ describe('test webpush functions', () => {
 		expect(headers['Content-Encoding']).toEqual('aesgcm');
 		expect(Number.parseInt(headers.TTL, 10)).toEqual(message.ttl); // the call had a TTL header
 		expect(headers.Urgency).toEqual(message.urgency); // the call had an urgency header
+		expect(headers.Topic).toBeUndefined();
+	});
+
+	test('test web push with topic header and high urgency', async () => {
+		fetchMock.mockResponseOnce(JSON.stringify({ data: 'ok' }), { status: 200 });
+		const highPriorityMessage: WebPushMessage = {
+			...message,
+			urgency: 'high',
+			topic: 'session-123',
+		};
+		const { result } = await generateWebPushMessage(highPriorityMessage, subscription, applicationServerKeys);
+		expect(result).toBe(WebPushResult.SUCCESS);
+		const headers = fetchMock.mock.calls[0][1]?.headers as unknown as Record<string, string>;
+		expect(headers.Urgency).toEqual('high');
+		expect(headers.Topic).toEqual('session-123');
 	});
 
 	test.each([400, 401, 404, 410])('test web push not subscribed', async (statusCode) => {
