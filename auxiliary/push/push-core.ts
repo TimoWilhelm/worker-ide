@@ -6,6 +6,12 @@ import type { ApplicationServerKeys, SubscriptionInfo } from './web-push';
 import type { PushNotification } from '@shared/notification-types';
 
 const DEFAULT_TTL = 60 * 60 * 24 * 7 * 4; // 4 weeks
+const WEB_PUSH_TOPIC_PATTERN = /^[A-Za-z0-9_-]{1,32}$/u;
+
+export function resolveWebPushTopic(notification: PushNotification): string | undefined {
+	const topic = notification.topic ?? notification.tag;
+	return WEB_PUSH_TOPIC_PATTERN.test(topic) ? topic : undefined;
+}
 
 export function importVapidKeyPair(publicKey: string, privateKey: string): ApplicationServerKeys {
 	const publicKeyData = base64.decodeURLSafe(publicKey);
@@ -40,7 +46,7 @@ export function sendNotification(
 			sub: subject,
 			ttl: notification.ttl ?? DEFAULT_TTL,
 			urgency: notification.urgency ?? 'normal',
-			topic: notification.topic ?? notification.tag,
+			topic: resolveWebPushTopic(notification),
 		},
 		subscription,
 		applicationServerKeys,

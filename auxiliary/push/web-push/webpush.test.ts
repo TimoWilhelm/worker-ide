@@ -73,7 +73,7 @@ describe('test webpush functions', () => {
 		expect(headers.Topic).toEqual('session-123');
 	});
 
-	test.each([400, 401, 404, 410])('test web push not subscribed', async (statusCode) => {
+	test.each([404, 410])('test web push not subscribed', async (statusCode) => {
 		fetchMock.mockResponseOnce(JSON.stringify({ data: 'push subscription has unsubscribed or expired' }), {
 			status: statusCode,
 		});
@@ -82,10 +82,10 @@ describe('test webpush functions', () => {
 		expect(result).toBe(WebPushResult.NOT_SUBSCRIBED);
 	});
 
-	test('test web push error', async () => {
-		fetchMock.mockResponseOnce('Internal Server Error', { status: 500 });
+	test.each([400, 401, 403, 500])('test web push error', async (statusCode) => {
+		fetchMock.mockResponseOnce('Web Push Error', { status: statusCode });
 		const { result, response } = await generateWebPushMessage(message, subscription, applicationServerKeys);
-		expect(response.status).toBe(500);
+		expect(response.status).toBe(statusCode);
 		expect(result).toBe(WebPushResult.ERROR);
 	});
 });

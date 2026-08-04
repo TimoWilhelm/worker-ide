@@ -152,10 +152,12 @@ describe('agent-runner helpers', () => {
 		expect(buildTerminalNotification('completed', undefined, false)).toEqual({
 			title: 'Generation complete',
 			body: 'Your AI agent has finished.',
+			urgency: 'normal',
 		});
 		expect(buildTerminalNotification('error', 'Boom', false)).toEqual({
 			title: 'Generation failed',
 			body: 'Boom',
+			urgency: 'high',
 		});
 		expect(buildTerminalNotification('aborted', undefined, false)).toBeUndefined();
 	});

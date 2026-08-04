@@ -100,6 +100,26 @@ describe('EmailWorker queue consumer', () => {
 });
 
 describe('EmailWorker RPC methods', () => {
+	it('routes generic emails to the requested priority queue', async () => {
+		const environment = createEnvironment();
+		const worker = new EmailWorker(createExecutionContext(), environment);
+
+		await worker.sendEmail({
+			to: 'normal@example.com',
+			subject: 'Normal email',
+			html: '<p>Normal</p>',
+		});
+		await worker.sendEmail({
+			to: 'high@example.com',
+			subject: 'High priority email',
+			html: '<p>High</p>',
+			priority: 'high',
+		});
+
+		expect(environment.EMAIL_QUEUE.send).toHaveBeenCalledWith(expect.objectContaining({ to: 'normal@example.com', priority: 'normal' }));
+		expect(environment.EMAIL_HIGH_QUEUE.send).toHaveBeenCalledWith(expect.objectContaining({ to: 'high@example.com', priority: 'high' }));
+	});
+
 	it('enqueues verification emails with the configured sender', async () => {
 		const environment = createEnvironment();
 		const worker = new EmailWorker(createExecutionContext(), environment);

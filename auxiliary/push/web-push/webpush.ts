@@ -46,9 +46,6 @@ export async function generateWebPushMessage(
 	}
 
 	switch (response.status) {
-		case 400: // http bad request
-		case 401: // http unauthorized
-		case 403: // http forbidden
 		case 404: // http not found
 		case 410: {
 			// http gone

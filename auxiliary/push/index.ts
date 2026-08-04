@@ -6,6 +6,45 @@ import { WebPushResult } from './web-push';
 import type { ApplicationServerKeys } from './web-push';
 import type { PushNotification, PushQueueMessage, PushSubscriptionInfo } from '@shared/notification-types';
 
+const MAX_QUEUE_BATCH_MESSAGES = 100;
+const MAX_QUEUE_BATCH_BYTES = 256_000;
+const MAX_QUEUE_MESSAGE_BYTES = 128_000;
+
+type PushQueueSendRequest = { body: PushQueueMessage };
+
+function createQueueBatches(userIds: string[], notification: PushNotification, timestamp: number): PushQueueSendRequest[][] {
+	const batches: PushQueueSendRequest[][] = [];
+	const textEncoder = new TextEncoder();
+	let currentBatch: PushQueueSendRequest[] = [];
+	let currentBatchBytes = 2; // JSON array brackets
+
+	for (const userId of userIds) {
+		const request: PushQueueSendRequest = { body: { userId, notification, timestamp } };
+		const requestBytes = textEncoder.encode(JSON.stringify(request)).byteLength;
+		if (requestBytes > MAX_QUEUE_MESSAGE_BYTES) {
+			throw new Error(`Push queue message exceeds the ${MAX_QUEUE_MESSAGE_BYTES} byte limit`);
+		}
+
+		const separatorBytes = currentBatch.length === 0 ? 0 : 1;
+		const exceedsBatchLimit =
+			currentBatch.length === MAX_QUEUE_BATCH_MESSAGES || currentBatchBytes + separatorBytes + requestBytes > MAX_QUEUE_BATCH_BYTES;
+		if (exceedsBatchLimit) {
+			batches.push(currentBatch);
+			currentBatch = [];
+			currentBatchBytes = 2;
+		}
+
+		currentBatch.push(request);
+		currentBatchBytes += (currentBatch.length === 1 ? 0 : 1) + requestBytes;
+	}
+
+	if (currentBatch.length > 0) {
+		batches.push(currentBatch);
+	}
+
+	return batches;
+}
+
 async function listAllKeys(kv: KVNamespace, prefix: string): Promise<string[]> {
 	const keys: string[] = [];
 	let cursor: string | undefined;
@@ -96,12 +135,9 @@ export default class PushWorker extends WorkerEntrypoint<PushWorkerEnvironment> 
 
 	async notifyUsers(userIds: string[], notification: PushNotification): Promise<void> {
 		const timestamp = Date.now();
-		const messages: Array<{ body: PushQueueMessage }> = userIds.map((userId) => ({
-			body: { userId, notification, timestamp },
-		}));
-		if (messages.length > 0) {
-			const targetQueue = notification.urgency === 'high' && this.env.PUSH_HIGH_QUEUE ? this.env.PUSH_HIGH_QUEUE : this.env.PUSH_QUEUE;
-			await targetQueue.sendBatch(messages);
+		const targetQueue = notification.urgency === 'high' && this.env.PUSH_HIGH_QUEUE ? this.env.PUSH_HIGH_QUEUE : this.env.PUSH_QUEUE;
+		for (const batch of createQueueBatches(userIds, notification, timestamp)) {
+			await targetQueue.sendBatch(batch);
 		}
 	}
 
