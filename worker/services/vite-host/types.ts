@@ -115,8 +115,7 @@ export type HookOrder = 'pre' | 'post' | undefined;
  * The container normalises both.
  */
 export type ObjectHook<HandlerType> =
-	| HandlerType
-	| { handler: HandlerType; order?: HookOrder; filter?: import('./hook-filter').HookFilter };
+	HandlerType | { handler: HandlerType; order?: HookOrder; filter?: import('./hook-filter').HookFilter };
 
 export interface PartialResolvedId {
 	id: string;

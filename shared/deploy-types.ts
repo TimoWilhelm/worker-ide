@@ -1,13 +1,5 @@
 export type DeployWorkflowStatus =
-	| 'queued'
-	| 'running'
-	| 'paused'
-	| 'errored'
-	| 'terminated'
-	| 'complete'
-	| 'waiting'
-	| 'waitingForPause'
-	| 'unknown';
+	'queued' | 'running' | 'paused' | 'errored' | 'terminated' | 'complete' | 'waiting' | 'waitingForPause' | 'unknown';
 
 export interface DeployStartResponse {
 	instanceId: string;

@@ -46,12 +46,7 @@ export interface OutputLogsSyncMessage {
 }
 
 export type ClientMessage =
-	| PingMessage
-	| CollabJoinMessage
-	| CursorUpdateMessage
-	| FileEditMessage
-	| HmrConnectMessage
-	| OutputLogsSyncMessage;
+	PingMessage | CollabJoinMessage | CursorUpdateMessage | FileEditMessage | HmrConnectMessage | OutputLogsSyncMessage;
 export interface PongMessage {
 	type: 'pong';
 }

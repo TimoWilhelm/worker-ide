@@ -37,13 +37,11 @@ function createSessionStore(initialHistory: SessionMessage[]) {
 	const clearMessages = vi.fn(() => {
 		history.length = 0;
 	});
-	const get = vi.fn(
-		(sessionId: string): SessionInfo => ({
-			id: sessionId,
-			name: 'Session',
-			created_at: new Date().toISOString(),
-		}),
-	);
+	const get = vi.fn((sessionId: string): SessionInfo => ({
+		id: sessionId,
+		name: 'Session',
+		created_at: new Date().toISOString(),
+	}));
 
 	return {
 		store: new AgentSessionStore({} as never, {

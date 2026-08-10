@@ -5,9 +5,7 @@ export type EntitlementValueType = 'number' | 'boolean' | 'string';
  * how `value` (stored as TEXT in SQLite) is interpreted.
  */
 export type EntitlementValue =
-	| { valueType: 'number'; value: number }
-	| { valueType: 'boolean'; value: boolean }
-	| { valueType: 'string'; value: string };
+	{ valueType: 'number'; value: number } | { valueType: 'boolean'; value: boolean } | { valueType: 'string'; value: string };
 
 export function serializeEntitlementValue(typed: EntitlementValue): string {
 	return String(typed.value);
